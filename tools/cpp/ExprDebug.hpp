@@ -242,7 +242,7 @@ static void _initTensorStatic() {
                 continue;
             }
             auto data = res.second;
-            MNN_PRINT("%s [Input] %s_%d, Max: %f, Min: %f, Avg: %f, [", info->type().c_str(), opName.c_str(), i, std::get<0>(data), std::get<1>(data), std::get<2>(data));
+            MNN_PRINT("%s [Input] %s_%d, type:%d-%d, Max: %f, Min: %f, Avg: %f, [", info->type().c_str(), opName.c_str(), i,  ntensor->getType().code, ntensor->getType().bits, std::get<0>(data), std::get<1>(data), std::get<2>(data));
             for (int v=0; v<ntensor->dimensions(); ++v) {
                 MNN_PRINT("%d", ntensor->length(v));
                 if (v!=ntensor->dimensions()-1) {
@@ -265,7 +265,7 @@ static void _initTensorStatic() {
                 continue;
             }
             auto data = res.second;
-            MNN_PRINT("%s [Output] %s_%d, Max: %f, Min: %f, Avg: %f, [", info->type().c_str(), opName.c_str(), i, std::get<0>(data), std::get<1>(data), std::get<2>(data));
+            MNN_PRINT("%s [Output] %s_%d, type:%d-%d, Max: %f, Min: %f, Avg: %f, [", info->type().c_str(), opName.c_str(), i,  ntensor->getType().code, ntensor->getType().bits, std::get<0>(data), std::get<1>(data), std::get<2>(data));
             for (int v=0; v<ntensor->dimensions(); ++v) {
                 MNN_PRINT("%d", ntensor->length(v));
                 if (v!=ntensor->dimensions()-1) {

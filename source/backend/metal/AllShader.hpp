@@ -5,7 +5,6 @@ extern const char* shader_MetalConvolutionDepthwise_metal;
 extern const char* shader_MetalConvolutionActivation_metal;
 extern const char* shader_MetalConvolution_metal;
 extern const char* shader_MetalReduction_metal;
-extern const char* shader_MetalBackend_metal;
 extern const char* shader_MetalSoftmax_metal;
 extern const char* shader_MetalLayerNorm_metal;
 extern const char* shader_MetalConvolutionWinograd_metal;

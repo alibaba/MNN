@@ -222,10 +222,10 @@ DType htype2dtype(halide_type_t type) {
     }
     if (type.code == halide_type_int && type.bits == 64) {
         return DType_INT64;
-    } 
+    }
     if (type.code == halide_type_handle) {
-	return DType_STRING; 
-    } 
+	return DType_STRING;
+    }
     return DType_FLOAT;
 }
 #define CONVERT(src, dst, f)\
@@ -454,7 +454,7 @@ static vector<T> toVec(PyObject* obj) {
         if (total_length == 0) {
             return values;
         }
-        int item_size = getnpysize(PyArray_TYPE(obj));
+        int item_size = getnpysize(PyArray_TYPE((const PyArrayObject*)obj));
         PyArrayObject *obj_cont= PyArray_GETCONTIGUOUS((PyArrayObject*)obj);
         auto tmpBuffer = PyArray_DATA(obj_cont);
         if(NULL == tmpBuffer) {
@@ -518,7 +518,7 @@ static void* toPtr(PyObject *obj, DType dtype, int64_t& total_length, void* data
             PyMNN_ERROR_LOG("data size does not match each other");
             return data;
         }
-        int npy_type = PyArray_TYPE(obj);
+        int npy_type = PyArray_TYPE((const PyArrayObject*)obj);
         int itemsize = getitemsize(dtype, npy_type);
         PyArrayObject *obj_cont= PyArray_GETCONTIGUOUS((PyArrayObject*)obj);
         auto tmpBuffer = PyArray_DATA(obj_cont);

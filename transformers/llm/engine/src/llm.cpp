@@ -9,6 +9,7 @@
 #include <iostream>
 #include <fstream>
 #include <sstream>
+#include <unordered_set>
 #include <regex>
 
 #include <MNN/expr/ExecutorScope.hpp>
@@ -180,17 +181,18 @@ VARP Llm::forward(const std::vector<int>& input_ids) {
 }
 
 int Llm::sample(VARP logits, const std::vector<int>& pre_ids) {
+    std::unordered_set<int> ids_set(pre_ids.begin(), pre_ids.end());
     auto scores = (float*)(logits->readMap<float>());
     auto size = logits->getInfo()->size;
-    float max_score = 0;
-    int token_id = 0;
     // repetition penalty
     const float repetition_penalty = 1.1;
-    for (auto id : pre_ids) {
+    for (auto id : ids_set) {
         float score = scores[id];
         scores[id] = score < 0 ? score * repetition_penalty : score / repetition_penalty;
     }
     // argmax
+    float max_score = 0;
+    int token_id = 0;
     for (int i = 0; i < size; i++) {
         float score = scores[i];
         if (score > max_score) {
@@ -201,31 +203,60 @@ int Llm::sample(VARP logits, const std::vector<int>& pre_ids) {
     return token_id;
 }
 
-std::string Llm::apply_chat_template(const std::string& input_str) const {
-    auto prompt = config_->prompt_template();
-    if (prompt.empty()) return input_str;
+static std::string apply_template(std::string prompt_template, const std::string& content, const std::string& role = "") {
+    if (prompt_template.empty()) return content;
+    if (!role.empty()) {
+        const std::string placeholder = "%r";
+        size_t start_pos = prompt_template.find(placeholder);
+        if (start_pos == std::string::npos) return content;
+        prompt_template.replace(start_pos, placeholder.length(), role);
+    }
     const std::string placeholder = "%s";
-    size_t start_pos = prompt.find(placeholder);
-    if (start_pos == std::string::npos) return input_str;
-    prompt.replace(start_pos, placeholder.length(), input_str);
-    return prompt;
+    size_t start_pos = prompt_template.find(placeholder);
+    if (start_pos == std::string::npos) return content;
+    prompt_template.replace(start_pos, placeholder.length(), content);
+    return prompt_template;
+}
+
+std::string Llm::apply_prompt_template(const std::string& user_content) const {
+    auto chat_prompt = config_->prompt_template();
+    return apply_template(chat_prompt, user_content);
+}
+
+std::string Llm::apply_chat_template(const std::vector<PromptItem>& chat_prompts) const {
+    auto chat_template = config_->chat_template();
+    std::string prompt_result;
+    auto iter = chat_prompts.begin();
+    for (; iter != chat_prompts.end() - 1; ++iter) {
+        prompt_result += apply_template(chat_template, iter->second, iter->first);
+    }
+    if (iter->first == "user") {
+        prompt_result += apply_prompt_template(iter->second);
+    } else {
+        prompt_result += apply_template(chat_template, iter->second, iter->first);
+    }
+    return prompt_result;
 }
 
 void Llm::chat() {
+    std::vector<PromptItem> history;
+    history.push_back(std::make_pair("system", "You are a helpful assistant."));
     while (true) {
         std::cout << "\nQ: ";
-        std::string input_str;
-        std::cin >> input_str;
-        if (input_str == "/exit") {
+        std::string user_str;
+        std::cin >> user_str;
+        if (user_str == "/exit") {
             break;
         }
-        if (input_str == "/reset") {
-            // reset();
+        if (user_str == "/reset") {
+            history.resize(1);
             std::cout << "\nA: reset done." << std::endl;
             continue;
         }
         std::cout << "\nA: " << std::flush;
-        response(input_str);
+        history.emplace_back(std::make_pair("user", user_str));
+        auto assistant_str = response(history);
+        history.emplace_back(std::make_pair("assistant", assistant_str));
         std::cout << std::endl;
     }
 }
@@ -316,18 +347,28 @@ std::string Llm::generate(const std::vector<int>& input_ids, std::ostream* os, c
     return output_str;
 }
 
-std::vector<int> Llm::tokenizer(const std::string& query) {
-    auto prompt = apply_chat_template(query);
+std::vector<int> Llm::tokenizer(const std::string& user_content) {
+    auto prompt = apply_prompt_template(user_content);
     auto input_ids = tokenizer_->encode(prompt);
     return input_ids;
 }
 
-std::string Llm::response(const std::string& query, std::ostream* os, const char* end_with) {
+std::string Llm::response(const std::string& user_content, std::ostream* os, const char* end_with) {
     generate_init();
     if (!end_with) { end_with = "\n"; }
-    auto input_ids = tokenizer(query);
+    auto input_ids = tokenizer(user_content);
     return generate(input_ids, os, end_with);
 }
+
+std::string Llm::response(const std::vector<PromptItem>& chat_prompts, std::ostream* os, const char* end_with) {
+    if (chat_prompts.empty()) { return ""; }
+    generate_init();
+    if (!end_with) { end_with = "\n"; }
+    auto prompt = apply_chat_template(chat_prompts);
+    auto input_ids = tokenizer_->encode(prompt);
+    return generate(input_ids, os, end_with);
+}
+
 Llm::~Llm() {
 #if DEBUG_MODE==1
     if (nullptr != gTimeTraceInfo) {
@@ -522,7 +563,7 @@ std::vector<int> Lvlm::url_encode(const std::string& url) {
 }
 
 std::vector<int> Lvlm::tokenizer(const std::string& query) {
-    auto prompt = apply_chat_template(query);
+    auto prompt = apply_prompt_template(query);
     // split query
     std::regex img_regex("<img>(.*?)</img>");
     std::string::const_iterator searchStart(prompt.cbegin());
@@ -666,7 +707,7 @@ std::vector<int> Embedding::tokenizer(const std::string& query) {
     if (query.size() <= 256) {
         prompt = "为这个句子生成表示以用于检索相关文章：" + query;
     }
-    prompt = apply_chat_template(prompt);
+    prompt = apply_prompt_template(prompt);
     auto ids = tokenizer_->encode(prompt);
     return ids;
 }

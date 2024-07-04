@@ -235,9 +235,8 @@ private:
 
 private:
     mutable id<MTLBuffer> mHostBuffer = nullptr;
-    void onCopyHostToDevice(const Tensor *src, const Tensor *dst) const;
-    void onCopyDeviceToHost(const Tensor *src, const Tensor *dst) const;
-    void onCopyDeviceToDevice(const Tensor *src, const Tensor *dst, id<MTLComputeCommandEncoder> encoder, id<MTLBuffer> shape) const;
+    // hostmask: 0: no host, 1: src is host, 2: dst is host
+    void onCopyDeviceToDevice(const Tensor *src, const Tensor *dst, id<MTLComputeCommandEncoder> encoder, id<MTLBuffer> shape, int hostmask = 0) const;
     bool mUseFloatAsFp16;
     bool mIsIphone = false;
     BufferAllocator* mCurrentAllocator = nullptr;

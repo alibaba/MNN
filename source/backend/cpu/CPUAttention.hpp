@@ -39,9 +39,8 @@ private:
     bool mKVCache;
     int mThreadNum = 1;
     std::shared_ptr<Resource> mResource;
-    std::shared_ptr<Tensor> mTempQK, mPackQ, mPackQKV;
-    int eP, lP, hP, bytes;
-    std::function<void(int)> mFunction, mPrefill, mDecode;
+    std::shared_ptr<Tensor> mPackQ, mPackQKV;
+    int eP, lP, hP, bytes, unit;
 };
 } // namespace MNN
 

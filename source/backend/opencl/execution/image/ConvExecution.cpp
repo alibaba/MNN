@@ -187,9 +187,9 @@ ConvExecution::ConvExecution(const std::vector<Tensor *> &inputs, const std::vec
         }
         mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(*(mResource->mKernelBuffer.get()), kernelBufferPtr);
     }else{
-        std::vector<int> filterImageShape{(int)inputChannel, (int)(UP_DIV(outputChannel, 4) * kernelWidth * kernelHeight)};
+        std::vector<int> filterImageShape{(int)ROUND_UP(inputChannel, 4), (int)(UP_DIV(outputChannel, 4) * kernelWidth * kernelHeight)};
         std::shared_ptr<Tensor> filterBuffer(
-                                             Tensor::createDevice<float>({outputChannel, inputChannel, kernelWidth, kernelHeight}));
+                                             Tensor::createDevice<float>({outputChannel, ROUND_UP(inputChannel, 4), kernelWidth, kernelHeight}));
         
         size_t buffer_size = filterBuffer->elementSize() * sizeof(float);
         cl::Buffer filterBufferCL(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, buffer_size);
@@ -199,7 +199,12 @@ ConvExecution::ConvExecution(const std::vector<Tensor *> &inputs, const std::vec
         auto ptrCL = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(filterBufferCL, true, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &error);
         if(ptrCL != nullptr && error == CL_SUCCESS) {
             ::memset(ptrCL, 0, buffer_size);
-            ::memcpy(ptrCL, filterDataPtr, filterBuffer->size());
+            int cpySrcNum = inputChannel * kernelWidth * kernelHeight;
+            int cpyDstNum = ROUND_UP(inputChannel, 4) * kernelWidth * kernelHeight;
+            int cpysize = cpySrcNum * sizeof(float);
+            for(int o = 0; o < outputChannel; ++o){
+                ::memcpy((float*)ptrCL + o * cpyDstNum, filterDataPtr + o * cpySrcNum, cpysize);
+            }
             
         }else{
             MNN_ERROR("Map error ptrCL == nullptr \n");
@@ -322,7 +327,7 @@ ErrorCode ConvExecution::onEncode(const std::vector<Tensor *> &inputs, const std
             std::vector<uint32_t> localWorkSize[total_kernel];
             std::pair<int, int> min_cost(INT_MAX, 0);//(min_time, min_index)
             
-            for(int knl_idx = 0; knl_idx < total_kernel; knl_idx++) {
+            for(int knl_idx = 0; knl_idx < 1; knl_idx++) {
                 kernel[knl_idx]        = mOpenCLBackend->getOpenCLRuntime()->buildKernel("conv_2d", kernelName[knl_idx], mResource->mBuildOptions);
                 uint32_t maxWorkGroupSize = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(kernel[knl_idx]));
                 
@@ -488,15 +493,18 @@ public:
 #if defined(MNN_LOW_MEMORY) && not defined(MNN_OPENCL_BUFFER_CLOSED)
         {
             auto conv2dParams = op->main_as_Convolution2D();
-            if ((static_cast<OpenCLBackend *>(backend)->getMemory() == BackendConfig::Memory_Low) && (conv2dParams->quanParameter() != nullptr)) {
+            if (conv2dParams->quanParameter() != nullptr) {
                 if (((conv2dParams->quanParameter()->type() == 4) ||
                      (conv2dParams->quanParameter()->type() == 1) ||
                      (conv2dParams->quanParameter()->type() == 2))) {
-                    // Todo: support int4 inputchannel % 4 not equal 4
+                    if ((1 == conv2dParams->quanParameter()->type() || 2 == conv2dParams->quanParameter()->type()) && conv2dParams->quanParameter()->has_scaleInt()) {
+                        // Don't support IDST-int8 because of error
+                        return nullptr;
+                    }
                     return new ConvLowMemoryExecution(inputs, outputs, op, backend);
                 } else {
-                    MNN_ERROR("OpenCL Conv buf low memory init error. For Opencl Backend, only support low memory mode of int8 or int4 dequantization currently.\n");
-                    MNN_ASSERT(false);
+                    //MNN_ERROR("OpenCL Conv buf low memory init error. For Opencl Backend, only support low memory mode of int8 or int4 dequantization currently.\n");
+                    return nullptr;
                 }
             }
         }

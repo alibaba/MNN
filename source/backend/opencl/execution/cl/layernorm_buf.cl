@@ -249,14 +249,15 @@ __kernel void layernorm_plain_buf(__private int global_dim0, __private int globa
         const int inside_remain = inside - ((inside_v4-1) << 2);
 
         COMPUTE_FLOAT4 in_sum = 0;
-        for(int i = lid; i < inside_v4 - 1; i+=LOCAL_SIZE){
-            COMPUTE_FLOAT4 in = CONVERT_COMPUTE_FLOAT4(vload4(i, input + offset));
+        int index = lid;
+        for(; index < inside_v4 - 1; index+=LOCAL_SIZE){
+            COMPUTE_FLOAT4 in = CONVERT_COMPUTE_FLOAT4(vload4(index, input + offset));
             in_sum += in;
         }
         sum[lid] = in_sum.x + in_sum.y + in_sum.z+ in_sum.w;
         
         COMPUTE_FLOAT4 in_left = 0;
-        if(lid == inside_v4 - 1) {
+        if(index == inside_v4 - 1) {
             in_left = CONVERT_COMPUTE_FLOAT4(vload4(inside_v4 - 1, input + offset));
             sum[lid] = sum[lid] + in_left.x;
             if(inside_remain > 1) {
@@ -280,13 +281,14 @@ __kernel void layernorm_plain_buf(__private int global_dim0, __private int globa
         COMPUTE_FLOAT4 mean = sum[0] / (COMPUTE_FLOAT4)inside;
 
         in_sum = 0;
-        for(int i = lid; i < inside_v4 - 1; i+=LOCAL_SIZE){
-            COMPUTE_FLOAT4 in = CONVERT_COMPUTE_FLOAT4(vload4(i, input + offset));
+        index = lid;
+        for(; index < inside_v4 - 1; index+=LOCAL_SIZE){
+            COMPUTE_FLOAT4 in = CONVERT_COMPUTE_FLOAT4(vload4(index, input + offset));
             in_sum += (in - mean) * (in - mean);
         }
         sum[lid] = in_sum.x + in_sum.y + in_sum.z + in_sum.w;
         
-        if(lid == inside_v4 - 1) {
+        if(index == inside_v4 - 1) {
             COMPUTE_FLOAT4 in_left = CONVERT_COMPUTE_FLOAT4(vload4(inside_v4 - 1, input + offset));
             in_sum = (in_left - mean) * (in_left - mean);
             sum[lid] = sum[lid] + in_sum.x;
@@ -308,11 +310,7 @@ __kernel void layernorm_plain_buf(__private int global_dim0, __private int globa
         }
         COMPUTE_FLOAT4 square_sum = sum[0] / (COMPUTE_FLOAT4)inside;
         COMPUTE_FLOAT4 value = (COMPUTE_FLOAT4)1.0f / (COMPUTE_FLOAT4)sqrt(square_sum + (COMPUTE_FLOAT4)epsilon);
-        /*
-        if(pos.x == 0) {
-            printf("ln: %d, mean:%f  square:%f,  value:%f\n", pos.z, (float)mean.x, (float)sum[0], (float)value.x);
-        }
-        */
+
         for(int i = lid; i < inside_v4; i+=LOCAL_SIZE){
             COMPUTE_FLOAT4 in = CONVERT_COMPUTE_FLOAT4(vload4(i, input + offset));
 #ifdef GAMMA_BETA

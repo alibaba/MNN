@@ -6,6 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#include <MNN/MNNDefine.h>
 #include "../PostTreatUtils.hpp"
 using namespace MNN;
 class TransformGroupConvolution3D : public PostConverter {
@@ -227,6 +228,9 @@ public:
             int partBiasSize   = conv2D->bias.size() / common->group;
 
             // Create Sub Convolution
+            flatbuffers::FlatBufferBuilder tmpBuilder;
+            tmpBuilder.Finish(Convolution2DCommon::Pack(tmpBuilder, common.get()));
+            auto originCommon = flatbuffers::GetRoot<Convolution2DCommon>(tmpBuilder.GetBufferPointer());
             for (int i = 0; i < common->group; ++i) {
                 std::ostringstream opNameOs;
                 auto newConvOp = new MNN::OpT;
@@ -239,23 +243,10 @@ public:
 
                 auto newConvolutionT    = new MNN::Convolution2DT;
                 newConvOp->main.value   = newConvolutionT;
-                newConvolutionT->common = std::unique_ptr<MNN::Convolution2DCommonT>(new MNN::Convolution2DCommonT);
-                newConvolutionT->common->kernelX     = common->kernelX;
-                newConvolutionT->common->kernelY     = common->kernelY;
-                newConvolutionT->common->dilateY     = common->dilateY;
-                newConvolutionT->common->dilateX     = common->dilateX;
-                newConvolutionT->common->strideX     = common->strideX;
-                newConvolutionT->common->strideY     = common->strideY;
+                newConvolutionT->common = std::unique_ptr<MNN::Convolution2DCommonT>(originCommon->UnPack());
                 newConvolutionT->common->group       = 1;
-                newConvolutionT->common->padMode     = common->padMode;
                 newConvolutionT->common->outputCount = common->outputCount / common->group;
                 newConvolutionT->common->inputCount  = common->inputCount / common->group;
-                newConvolutionT->common->padX        = common->padX;
-                newConvolutionT->common->padY        = common->padY;
-                newConvolutionT->common->relu        = common->relu;
-                newConvolutionT->common->relu6       = common->relu6;
-                newConvolutionT->common->outPads     = common->outPads;
-
                 int startWeight = partWeightSize * i;
                 int startBias   = partBiasSize * i;
                 for (int v = 0; v < partWeightSize; ++v) {

@@ -481,7 +481,11 @@ void CPUBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) 
     auto& srcBuffer = srcTensor->buffer();
     auto& dstBuffer = dstTensor->buffer();
 
-    MNN_ASSERT(srcBuffer.dimensions == dstBuffer.dimensions);
+    if (srcBuffer.dimensions != dstBuffer.dimensions ) {
+        if (srcBuffer.dim[srcBuffer.dimensions - 1].extent != 1 && dstBuffer.dim[dstBuffer.dimensions - 1].extent != 1) {
+            MNN_ERROR("srcBuffer dimension not equal to dstBuffer, can't copy buffer\n");
+        }
+    }
     if (srcTensor->getDimensionType() == dstTensor->getDimensionType()) {
         for (int i = 0; i < srcBuffer.dimensions; ++i) {
             MNN_ASSERT(srcBuffer.dim[i].extent <= dstBuffer.dim[i].extent);

@@ -240,7 +240,7 @@ void Tensor::setType(int type) {
             mBuffer.type = halide_type_of<int16_t>();
             break;
         default:
-            MNN_PRINT("Unsupported data type!");
+            MNN_PRINT("Unsupported data type! %d\n", type);
             MNN_ASSERT(false);
             break;
     }

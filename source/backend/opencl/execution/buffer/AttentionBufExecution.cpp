@@ -7,6 +7,7 @@
 //
 
 #ifndef MNN_OPENCL_BUFFER_CLOSED
+#ifdef MNN_SUPPORT_TRANSFORMER_FUSE
 
 #include "backend/opencl/execution/buffer/AttentionBufExecution.hpp"
 
@@ -25,7 +26,7 @@ void AttentionBufImpl::allocKVCache() {
         return;
     }
     mMaxLength = mPastLength + mExpandChunk;
-    size_t buffer_size = UP_DIV(mMaxLength, 4) * mNumHead * mHeadDim * 4 * mByte;
+    size_t buffer_size = UP_DIV(mMaxLength, 4) * mKvNumHead * mHeadDim * 4 * mByte;
     // past_key: [1, numhead, headdim, maxlen]
     mPastKey.reset(new cl::Buffer(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, buffer_size));
     // past_value: [1, numhead, maxlen, headdim]
@@ -36,9 +37,10 @@ void AttentionBufImpl::reallocKVCache() {
     if (!mKVCache || mPastLength < mMaxLength) {
         return;
     }
-    size_t old_size = mNumHead * UP_DIV(mMaxLength, 4) * mHeadDim * 4 * mByte;
+    
+    size_t old_size = mKvNumHead * UP_DIV(mMaxLength, 4) * mHeadDim * 4 * mByte;
     mMaxLength = mPastLength + mExpandChunk;
-    size_t buffer_size = UP_DIV(mMaxLength, 4) * mNumHead * mHeadDim * 4 * mByte;
+    size_t buffer_size = UP_DIV(mMaxLength, 4) * mKvNumHead * mHeadDim * 4 * mByte;
     // past_key: [1, numhead, headdim, maxlen]
     auto new_key = new cl::Buffer(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, buffer_size);
     // past_value: [1, numhead, maxlen, headdim]
@@ -69,25 +71,25 @@ void AttentionBufImpl::reallocKVCache() {
     
     mPastKey.reset(new_key);
     mPastValue.reset(new_value);
-    size_t temp_size = UP_DIV(mMaxLength, 4) * mNumHead * 4 * mByte;
-    mTempQK.reset(new cl::Buffer(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, temp_size));
-    mTempSoftMax.reset(new cl::Buffer(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, temp_size));
-    
+    mTempQK.reset(Tensor::createDevice<float>({UP_DIV(mMaxLength, 4) * mNumHead * 4}));
+    mTempSoftMax.reset(Tensor::createDevice<float>({UP_DIV(mMaxLength, 4) * mNumHead * 4}));
+    mOpenCLBackend->onAcquireBuffer(mTempQK.get(), Backend::STATIC);
+    mOpenCLBackend->onAcquireBuffer(mTempSoftMax.get(), Backend::STATIC);
     // reset memory for args
     if(mOpenCLBackend->isUseRecordQueue()){
-        mQkUpdateInfo.update_kernel_args[1].arg_value = &(*(mTempQK.get()))();
+        mQkUpdateInfo.update_kernel_args[1].arg_value = &openCLBuffer(mTempQK.get())();
         mQkUpdateInfo.update_kernel_args[2].arg_value = &(*(mPastKey.get()))();
-        mSoftMaxUpdateInfo.update_kernel_args[0].arg_value = &(*(mTempQK.get()))();
-        mSoftMaxUpdateInfo.update_kernel_args[1].arg_value = &(*(mTempSoftMax.get()))();
-        mQkvUpdateInfo.update_kernel_args[0].arg_value = &(*(mTempSoftMax.get()))();
+        mSoftMaxUpdateInfo.update_kernel_args[0].arg_value = &openCLBuffer(mTempQK.get())();
+        mSoftMaxUpdateInfo.update_kernel_args[1].arg_value = &openCLBuffer(mTempSoftMax.get())();
+        mQkvUpdateInfo.update_kernel_args[0].arg_value = &openCLBuffer(mTempSoftMax.get())();
         mQkvUpdateInfo.update_kernel_args[1].arg_value = &(*(mPastValue.get()))();
     }else{
         cl_int ret = CL_SUCCESS;
-        ret |= mKernel_qk->get().setArg(5, *mTempQK.get());
+        ret |= mKernel_qk->get().setArg(5, openCLBuffer(mTempQK.get()));
         ret |= mKernel_qk->get().setArg(6, *mPastKey.get());
-        ret |= mKernel_softmax->get().setArg(3, *mTempQK.get());
-        ret |= mKernel_softmax->get().setArg(4, *mTempSoftMax.get());
-        ret |= mKernel_qkv->get().setArg(3, *mTempSoftMax.get());
+        ret |= mKernel_softmax->get().setArg(3, openCLBuffer(mTempQK.get()));
+        ret |= mKernel_softmax->get().setArg(4, openCLBuffer(mTempSoftMax.get()));
+        ret |= mKernel_qkv->get().setArg(3, openCLBuffer(mTempSoftMax.get()));
         ret |= mKernel_qkv->get().setArg(6, *mPastValue.get());
         MNN_CHECK_CL_SUCCESS(ret, "reset memory arg for AttentionBufExecution");
     }
@@ -125,6 +127,8 @@ ErrorCode AttentionBufImpl::onResize(Backend *backend, const std::vector<Tensor 
     
     int seq_len = shape[1];
     mNumHead = shape[2];
+    mKvNumHead = key->shape()[2];
+    int group_size = mNumHead / mKvNumHead;
     mHeadDim = shape[3];
     mScale = 1.0 / sqrt(mHeadDim);
     mIsDecode = seq_len == 1;
@@ -142,14 +146,14 @@ ErrorCode AttentionBufImpl::onResize(Backend *backend, const std::vector<Tensor 
     }
     allocKVCache();
     if (mIsDecode) {
-        size_t buffer_size = UP_DIV(mMaxLength, 4) * mNumHead * 4 * mByte;
-        mTempQK.reset(new cl::Buffer(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, buffer_size));
-        mTempSoftMax.reset(new cl::Buffer(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, buffer_size));
+        mTempQK.reset(Tensor::createDevice<float>({UP_DIV(mMaxLength, 4) * mNumHead * 4}));
+        mTempSoftMax.reset(Tensor::createDevice<float>({UP_DIV(mMaxLength, 4) * mNumHead * 4}));
     } else {
-        size_t buffer_size = UP_DIV(mPastLength, 4) * mPastLength * mNumHead * 4 * mByte;
-        mTempQK.reset(new cl::Buffer(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, buffer_size));
-        mTempSoftMax.reset(new cl::Buffer(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, buffer_size));
+        mTempQK.reset(Tensor::createDevice<float>({UP_DIV(mPastLength, 4) * mPastLength * mNumHead * 4}));
+        mTempSoftMax.reset(Tensor::createDevice<float>({UP_DIV(mPastLength, 4) * mPastLength * mNumHead * 4}));
     }
+    mOpenCLBackend->onAcquireBuffer(mTempQK.get(), Backend::DYNAMIC);
+    mOpenCLBackend->onAcquireBuffer(mTempSoftMax.get(), Backend::DYNAMIC);
     
     // query * key -> div -> select
     {
@@ -163,6 +167,7 @@ ErrorCode AttentionBufImpl::onResize(Backend *backend, const std::vector<Tensor 
         if(mask->getType() == halide_type_of<float>()){
             buildOption.emplace("-DADD_MASK");
         }
+        buildOption.emplace("-DNUMHEAD_GROUP_SIZE=" + std::to_string(group_size));
         mKernel_qk = runtime->buildKernel("attention_buf", "matmul_qk_div_mask", buildOption, inputs[0], outputs[0]);
         mGlobalWorkSizeQk =  {static_cast<uint32_t>(UP_DIV(seq_len, 4)), static_cast<uint32_t>(mNumHead), static_cast<uint32_t>(UP_DIV(mKv_seq_len, 4))};
         auto maxWorkGroupSize  = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mKernel_qk));
@@ -175,13 +180,14 @@ ErrorCode AttentionBufImpl::onResize(Backend *backend, const std::vector<Tensor 
         ret |= mKernel_qk->get().setArg(index++, mGlobalWorkSizeQk2);
         ret |= mKernel_qk->get().setArg(index++, openCLBuffer(query));
         ret |= mKernel_qk->get().setArg(index++, openCLBuffer(key));
-        ret |= mKernel_qk->get().setArg(index++, *mTempQK.get());
+        ret |= mKernel_qk->get().setArg(index++, openCLBuffer(mTempQK.get()));
         ret |= mKernel_qk->get().setArg(index++, *mPastKey.get());
         ret |= mKernel_qk->get().setArg(index++, openCLBuffer(mask));
         ret |= mKernel_qk->get().setArg(index++, mScale);
         ret |= mKernel_qk->get().setArg(index++, seq_len);
         ret |= mKernel_qk->get().setArg(index++, mKv_seq_len);
         ret |= mKernel_qk->get().setArg(index++, mNumHead);
+        ret |= mKernel_qk->get().setArg(index++, mKvNumHead);
         ret |= mKernel_qk->get().setArg(index++, mHeadDim);
         MNN_CHECK_CL_SUCCESS(ret, "setArg matmul_qk_div_mask");
 
@@ -190,7 +196,7 @@ ErrorCode AttentionBufImpl::onResize(Backend *backend, const std::vector<Tensor 
         mGlobalWorkSizeQk[1] = ROUND_UP(mGlobalWorkSizeQk[1], std::max((uint32_t)1, mLocalWorkSizeQk[1]));
         mGlobalWorkSizeQk[2] = ROUND_UP(mGlobalWorkSizeQk[2], std::max((uint32_t)1, mLocalWorkSizeQk[2]));
         mQkUpdateInfo.update_kernel_args.push_back({0, 2, sizeof(mGlobalWorkSizeQk2), &mGlobalWorkSizeQk2});
-        mQkUpdateInfo.update_kernel_args.push_back({0, 5, sizeof(cl_mem), &(*(mTempQK.get()))()});
+        mQkUpdateInfo.update_kernel_args.push_back({0, 5, sizeof(cl_mem), &openCLBuffer(mTempQK.get())()});
         mQkUpdateInfo.update_kernel_args.push_back({0, 6, sizeof(cl_mem), &(*(mPastKey.get()))()});
         mQkUpdateInfo.update_kernel_args.push_back({0, 10, sizeof(mKv_seq_len), &mKv_seq_len});
         mQkGlobal_size[0] = mGlobalWorkSizeQk[0];
@@ -231,8 +237,8 @@ ErrorCode AttentionBufImpl::onResize(Backend *backend, const std::vector<Tensor 
         ret |= mKernel_softmax->get().setArg(index++, mGlobalWorkSizeSoftMax[0]);
         ret |= mKernel_softmax->get().setArg(index++, mGlobalWorkSizeSoftMax[1]);
         ret |= mKernel_softmax->get().setArg(index++, mGlobalWorkSizeSoftMax[2]);
-        ret |= mKernel_softmax->get().setArg(index++, *mTempQK.get());
-        ret |= mKernel_softmax->get().setArg(index++, *mTempSoftMax.get());
+        ret |= mKernel_softmax->get().setArg(index++, openCLBuffer(mTempQK.get()));
+        ret |= mKernel_softmax->get().setArg(index++, openCLBuffer(mTempSoftMax.get()));
         ret |= mKernel_softmax->get().setArg(index++, mSoftMaxRemainChannels);
         ret |= mKernel_softmax->get().setArg(index++, mSoftmaxShape);
         MNN_CHECK_CL_SUCCESS(ret, "setArg softmax");
@@ -244,8 +250,8 @@ ErrorCode AttentionBufImpl::onResize(Backend *backend, const std::vector<Tensor 
         mGlobalWorkSizeSoftMax[0] = ROUND_UP(mGlobalWorkSizeSoftMax[0], std::max((uint32_t)1, mLocalWorkSizeSoftMax[0]));
         mGlobalWorkSizeSoftMax[1] = ROUND_UP(mGlobalWorkSizeSoftMax[1], std::max((uint32_t)1, mLocalWorkSizeSoftMax[1]));
         mGlobalWorkSizeSoftMax[2] = ROUND_UP(mGlobalWorkSizeSoftMax[2], std::max((uint32_t)1, mLocalWorkSizeSoftMax[2]));
-        mSoftMaxUpdateInfo.update_kernel_args.push_back({0, 3, sizeof(cl_mem), &(*(mTempQK.get()))()});
-        mSoftMaxUpdateInfo.update_kernel_args.push_back({0, 4, sizeof(cl_mem), &(*(mTempSoftMax.get()))()});
+        mSoftMaxUpdateInfo.update_kernel_args.push_back({0, 3, sizeof(cl_mem), &openCLBuffer(mTempQK.get())()});
+        mSoftMaxUpdateInfo.update_kernel_args.push_back({0, 4, sizeof(cl_mem), &openCLBuffer(mTempSoftMax.get())()});
         mSoftMaxUpdateInfo.update_kernel_args.push_back({0, 5, sizeof(mSoftMaxRemainChannels), &mSoftMaxRemainChannels});
         mSoftMaxUpdateInfo.update_kernel_args.push_back({0, 6, sizeof(mSoftmaxShape), &mSoftmaxShape});
         mOpRecordUpdateInfo.emplace_back(&mSoftMaxUpdateInfo);
@@ -261,6 +267,7 @@ ErrorCode AttentionBufImpl::onResize(Backend *backend, const std::vector<Tensor 
         if((mHeadDim % 4) != 0){
             buildOption.emplace("-DHEADDIM_LEAVE");
         }
+        buildOption.emplace("-DNUMHEAD_GROUP_SIZE=" + std::to_string(group_size));
         mKernel_qkv = runtime->buildKernel("attention_buf", "matmul_qkv", buildOption, inputs[0], outputs[0]);
         auto maxWorkGroupSize  = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mKernel_qkv));
         mGlobalWorkSizeQkv =  {static_cast<uint32_t>(UP_DIV(seq_len, 4)), static_cast<uint32_t>(mNumHead), static_cast<uint32_t>(UP_DIV(mHeadDim, 4))};
@@ -270,13 +277,14 @@ ErrorCode AttentionBufImpl::onResize(Backend *backend, const std::vector<Tensor 
         ret |= mKernel_qkv->get().setArg(index++, mGlobalWorkSizeQkv[0]);
         ret |= mKernel_qkv->get().setArg(index++, mGlobalWorkSizeQkv[1]);
         ret |= mKernel_qkv->get().setArg(index++, mGlobalWorkSizeQkv[2]);
-        ret |= mKernel_qkv->get().setArg(index++, *mTempSoftMax.get());
+        ret |= mKernel_qkv->get().setArg(index++, openCLBuffer(mTempSoftMax.get()));
         ret |= mKernel_qkv->get().setArg(index++, openCLBuffer(value));
         ret |= mKernel_qkv->get().setArg(index++, openCLBuffer(outputs[0]));
         ret |= mKernel_qkv->get().setArg(index++, *mPastValue.get());
         ret |= mKernel_qkv->get().setArg(index++, seq_len);
         ret |= mKernel_qkv->get().setArg(index++, mKv_seq_len);
         ret |= mKernel_qkv->get().setArg(index++, mNumHead);
+        ret |= mKernel_qkv->get().setArg(index++, mKvNumHead);
         ret |= mKernel_qkv->get().setArg(index++, mHeadDim);
         MNN_CHECK_CL_SUCCESS(ret, "setArg matmul_qkv");
 
@@ -285,7 +293,7 @@ ErrorCode AttentionBufImpl::onResize(Backend *backend, const std::vector<Tensor 
         mGlobalWorkSizeQkv[1] = ROUND_UP(mGlobalWorkSizeQkv[1], std::max((uint32_t)1, mLocalWorkSizeQkv[1]));
         mGlobalWorkSizeQkv[2] = ROUND_UP(mGlobalWorkSizeQkv[2], std::max((uint32_t)1, mLocalWorkSizeQkv[2]));
         
-        mQkvUpdateInfo.update_kernel_args.push_back({0, 3, sizeof(cl_mem), &(*(mTempSoftMax.get()))()});
+        mQkvUpdateInfo.update_kernel_args.push_back({0, 3, sizeof(cl_mem), &openCLBuffer(mTempSoftMax.get())()});
         mQkvUpdateInfo.update_kernel_args.push_back({0, 6, sizeof(cl_mem), &(*(mPastValue.get()))()});
         mQkvUpdateInfo.update_kernel_args.push_back({0, 8, sizeof(mKv_seq_len), &mKv_seq_len});
         mOpRecordUpdateInfo.emplace_back(&mQkvUpdateInfo);
@@ -293,6 +301,9 @@ ErrorCode AttentionBufImpl::onResize(Backend *backend, const std::vector<Tensor 
     }
     
     mOpenCLBackend->endRecord(mRecording);
+    
+    mOpenCLBackend->onReleaseBuffer(mTempQK.get(), Backend::DYNAMIC);
+    mOpenCLBackend->onReleaseBuffer(mTempSoftMax.get(), Backend::DYNAMIC);
     return NO_ERROR;
 }
 
@@ -414,5 +425,6 @@ REGISTER_OPENCL_OP_CREATOR(AttentionBufCreator, OpType_Attention, BUFFER);
 
 } // namespace OpenCL
 } // namespace MNN
+#endif/* MNN_SUPPORT_TRANSFORMER_FUSE */
 #endif/* MNN_OPENCL_BUFFER_CLOSED */
 

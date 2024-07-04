@@ -124,6 +124,7 @@ ErrorCode DepthwiseConvBufExecution::onEncode(const std::vector<Tensor *> &input
     int kernelShape[2]      = {filterHeight, filterWidth};
     int dilationShape[2]    = {mResource->mDilations[0], mResource->mDilations[1]};
     
+    std::string info = std::to_string(inputChannels) + "_" + std::to_string(outputChannel) + "_" + std::to_string(filterHeight) + "_" + std::to_string(filterWidth) + "_" + std::to_string(mResource->mStrides[0]) + "_" + std::to_string(mResource->mStrides[1]) + "_" + std::to_string(mResource->mDilations[0]) + "_" + std::to_string(mResource->mDilations[1]);
     if(mStride_1) {
         // {"depthwise_conv2d_s1_c4h1w4", "depthwise_conv2d_s1_c8h1w4", "depthwise_conv2d_s1_c8h1w2"};
         const int total_kernel = 3;
@@ -183,7 +184,7 @@ ErrorCode DepthwiseConvBufExecution::onEncode(const std::vector<Tensor *> &input
             MNN_CHECK_CL_SUCCESS(ret, "setArg DepthwiseConvBufExecution Stride_1 Kernel Select");
 
             std::pair<std::vector<uint32_t>, int> retTune;
-            retTune = gws2dLwsTune(kernel[knl_idx], globalWorkSize[knl_idx], kernelName[knl_idx], maxWorkGroupSize);
+            retTune = localWS2DDefault(globalWorkSize[knl_idx], maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName[knl_idx] + info, kernel[knl_idx]);
             //printf("depthwiseCovs1 %d, %d\n", knl_idx, retTune.second);
             if(min_cost.first > retTune.second) {
                 min_cost.first = retTune.second;
@@ -259,7 +260,7 @@ ErrorCode DepthwiseConvBufExecution::onEncode(const std::vector<Tensor *> &input
             MNN_CHECK_CL_SUCCESS(ret, "setArg DepthwiseConvBufExecution Kernel Select");
 
             std::pair<std::vector<uint32_t>, int> retTune;
-            retTune = gws2dLwsTune(kernel[knl_idx], globalWorkSize[knl_idx], kernelName[knl_idx], maxWorkGroupSize);
+            retTune = localWS2DDefault(globalWorkSize[knl_idx], maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName[knl_idx] + info, kernel[knl_idx]);
             //printf("depthwiseCov!! %d, %d\n", knl_idx, retTune.second);
             if(min_cost.first > retTune.second) {
                 min_cost.first = retTune.second;

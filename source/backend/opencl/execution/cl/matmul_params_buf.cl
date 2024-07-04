@@ -74,37 +74,6 @@
   #define GLOBAL_MEM_FENCE 0    // Global synchronisation barrier for potential better performance
 #endif
 
-#ifndef SUBGROUP_SHUFFLING_NVIDIA_PRE_VOLTA
-  #define SUBGROUP_SHUFFLING_NVIDIA_PRE_VOLTA 0
-#endif
-#ifndef SUBGROUP_SHUFFLING_NVIDIA_POST_VOLTA
-  #define SUBGROUP_SHUFFLING_NVIDIA_POST_VOLTA 0
-#endif
-#ifndef SUBGROUP_SHUFFLING_INTEL
-  #define SUBGROUP_SHUFFLING_INTEL 0
-#endif
-#ifndef USE_SUBGROUP_SHUFFLING
-  #define USE_SUBGROUP_SHUFFLING 0     // Optionally enables subgroup shuffling for Intel GPUs
-#endif
-
-// Intel subgroups (https://www.khronos.org/registry/OpenCL/extensions/intel/cl_intel_subgroups.html)
-#if USE_SUBGROUP_SHUFFLING == 1 && SUBGROUP_SHUFFLING_INTEL == 1
-  #pragma OPENCL EXTENSION cl_intel_subgroups: enable
-  #define SUBGROUP_SIZE 8              // Assumes subgroup size is always 8 on Intel GPUs
-#endif
-
-// NVIDIA warps as subgroups using inline PTX (https://docs.nvidia.com/cuda/inline-ptx-assembly/index.html)
-#if USE_SUBGROUP_SHUFFLING == 1
-  #if SUBGROUP_SHUFFLING_NVIDIA_PRE_VOLTA == 1 || SUBGROUP_SHUFFLING_NVIDIA_POST_VOLTA == 1
-    #define SUBGROUP_SIZE 32            // Assumes subgroup size is always 32 on NVIDIA GPUs
-  #endif
-#endif
-
-#if NWI != SUBGROUP_SIZE || MDIMC < SUBGROUP_SIZE
-  #undef USE_SUBGROUP_SHUFFLING
-  #define USE_SUBGROUP_SHUFFLING 0     // Disables subgroups in case the assumptions don't hold
-#endif
-
 // Half-precision
 #if PRECISION == 16
   typedef half real;
@@ -274,29 +243,8 @@
 
 // =================================================================================================
 
-// Shuffled workgroup indices to avoid partition camping, see below. For specific devices, this is
-// enabled (see src/routine.cc).
-#ifndef USE_STAGGERED_INDICES
-  #define USE_STAGGERED_INDICES 0
-#endif
-
-// Staggered/shuffled group indices to avoid partition camping (AMD GPUs). Formula's are taken from:
-// http://docs.nvidia.com/cuda/samples/6_Advanced/transpose/doc/MatrixTranspose.pdf
-// More details: https://github.com/CNugteren/CLBlast/issues/53
-#if USE_STAGGERED_INDICES == 1 && GEMMK == 0
-  INLINE_FUNC int GetGroupIDFlat() {
-    return get_group_id(0) + get_num_groups(0) * get_group_id(1);
-  }
-  INLINE_FUNC int GetGroupID1() {
-    return (GetGroupIDFlat()) % get_num_groups(1);
-  }
-  INLINE_FUNC int GetGroupID0() {
-    return ((GetGroupIDFlat() / get_num_groups(1)) + GetGroupID1()) % get_num_groups(0);
-  }
-#else
   INLINE_FUNC int GetGroupID1() { return get_group_id(1); }
   INLINE_FUNC int GetGroupID0() { return get_group_id(0); }
-#endif
 
 // =================================================================================================
 
@@ -353,6 +301,48 @@ INLINE_FUNC realM InitAccRegisters() {
     SetToZero(result.s6);
     SetToZero(result.s7);
   #elif VWM == 16
+    SetToZero(result.s0);
+    SetToZero(result.s1);
+    SetToZero(result.s2);
+    SetToZero(result.s3);
+    SetToZero(result.s4);
+    SetToZero(result.s5);
+    SetToZero(result.s6);
+    SetToZero(result.s7);
+    SetToZero(result.s8);
+    SetToZero(result.s9);
+    SetToZero(result.sA);
+    SetToZero(result.sB);
+    SetToZero(result.sC);
+    SetToZero(result.sD);
+    SetToZero(result.sE);
+    SetToZero(result.sF);
+  #endif
+  return result;
+}
+
+INLINE_FUNC realN InitAccRegistersN() {
+  realN result;
+  #if VWN == 1
+    SetToZero(result);
+  #elif VWN == 2
+    SetToZero(result.x);
+    SetToZero(result.y);
+  #elif VWN == 4
+    SetToZero(result.x);
+    SetToZero(result.y);
+    SetToZero(result.z);
+    SetToZero(result.w);
+  #elif VWN == 8
+    SetToZero(result.s0);
+    SetToZero(result.s1);
+    SetToZero(result.s2);
+    SetToZero(result.s3);
+    SetToZero(result.s4);
+    SetToZero(result.s5);
+    SetToZero(result.s6);
+    SetToZero(result.s7);
+  #elif VWN == 16
     SetToZero(result.s0);
     SetToZero(result.s1);
     SetToZero(result.s2);
@@ -478,57 +468,6 @@ INLINE_FUNC realN GlobalToPrivateB(const __global realN* restrict bgm, const int
 #endif
 
 // =================================================================================================
-#if GEMMK == 1
-
-// Caches global off-chip memory directly into per-thread private memory (registers). This function
-// is specific for caching the A input matrix for kernel 1.
-INLINE_FUNC realN GlobalToPrivateA2D(const __global real* restrict a_ptr, const int tid_y, const int _ni,
-                                     const int kSizeK, const int idk, const int _ki) {
-  #if PRECISION == 3232 || PRECISION == 6464
-    const int a_index = (tid_y * NWI + _ni) * (kSizeK / VWN) + idk / VWN + _ki;
-    const __global realN* restrict agm = (const __global realN* restrict) a_ptr;
-    return agm[a_index];
-  #else
-    const int a_index = (tid_y * NWI + _ni) * kSizeK + idk + _ki * VWN;
-    #if VWN == 1
-      return a_ptr[a_index];
-    #elif VWN == 2
-      return vload2(0, a_ptr + a_index);
-    #elif VWN == 4
-      return vload4(0, a_ptr + a_index);
-    #elif VWN == 8
-      return vload8(0, a_ptr + a_index);
-    #elif VWN == 16
-      return vload16(0, a_ptr + a_index);
-    #endif
-  #endif
-}
-
-// Same as above, but now for the B input matrix
-INLINE_FUNC realM GlobalToPrivateB2D(const __global real* restrict b_ptr, const int tid_x, const int _mi,
-                                     const int kSizeN, const int idk, const int _ki) {
-  #if PRECISION == 3232 || PRECISION == 6464
-    const int b_index = (idk + _ki) * (kSizeN / VWM) + tid_x * (MWI / VWM) + _mi;
-    const __global realM* restrict bgm = (const __global realM* restrict) b_ptr;
-    return bgm[b_index];
-  #else
-    const int b_index = (idk + _ki) * kSizeN + tid_x * MWI + _mi * VWM;
-    #if VWM == 1
-      return b_ptr[b_index];
-    #elif VWM == 2
-      return vload2(0, b_ptr + b_index);
-    #elif VWM == 4
-      return vload4(0, b_ptr + b_index);
-    #elif VWM == 8
-      return vload8(0, b_ptr + b_index);
-    #elif VWM == 16
-      return vload16(0, b_ptr + b_index);
-    #endif
-  #endif
-}
-
-#endif
-// =================================================================================================
 
 // Caches on-chip local memory into per-thread private memory (registers). This function is specific
 // for caching the A input matrix.
@@ -598,6 +537,52 @@ INLINE_FUNC realM MultiplyAddVector(realM cvec, const realM avec, const real bva
       MultiplyAdd(cvec.sD, avec.sD, bval);
       MultiplyAdd(cvec.sE, avec.sE, bval);
       MultiplyAdd(cvec.sF, avec.sF, bval);
+    #endif
+  #endif
+  return cvec;
+}
+
+// The vectorised multiply-add function
+INLINE_FUNC realN MultiplyAddVectorN(realN cvec, const real avec, const realN bval) {
+  #if USE_VECTOR_MAD == 1
+    cvec += avec * bval;
+  #else
+    #if VWN == 1
+      MultiplyAdd(cvec,    avec,    bval);
+    #elif VWN == 2
+      MultiplyAdd(cvec.x , avec,  bval.x);
+      MultiplyAdd(cvec.y , avec,  bval.y);
+    #elif VWN == 4
+      MultiplyAdd(cvec.x , avec,  bval.x);
+      MultiplyAdd(cvec.y , avec,  bval.y);
+      MultiplyAdd(cvec.z , avec,  bval.z);
+      MultiplyAdd(cvec.w , avec,  bval.w);
+    #elif VWN == 8
+      MultiplyAdd(cvec.s0, avec, bval.s0);
+      MultiplyAdd(cvec.s1, avec, bval.s1);
+      MultiplyAdd(cvec.s2, avec, bval.s2);
+      MultiplyAdd(cvec.s3, avec, bval.s3);
+      MultiplyAdd(cvec.s4, avec, bval.s4);
+      MultiplyAdd(cvec.s5, avec, bval.s5);
+      MultiplyAdd(cvec.s6, avec, bval.s6);
+      MultiplyAdd(cvec.s7, avec, bval.s7);
+    #elif VWN == 16
+      MultiplyAdd(cvec.s0, avec, bval.s0);
+      MultiplyAdd(cvec.s1, avec, bval.s1);
+      MultiplyAdd(cvec.s2, avec, bval.s2);
+      MultiplyAdd(cvec.s3, avec, bval.s3);
+      MultiplyAdd(cvec.s4, avec, bval.s4);
+      MultiplyAdd(cvec.s5, avec, bval.s5);
+      MultiplyAdd(cvec.s6, avec, bval.s6);
+      MultiplyAdd(cvec.s7, avec, bval.s7);
+      MultiplyAdd(cvec.s8, avec, bval.s8);
+      MultiplyAdd(cvec.s9, avec, bval.s9);
+      MultiplyAdd(cvec.sA, avec, bval.sA);
+      MultiplyAdd(cvec.sB, avec, bval.sB);
+      MultiplyAdd(cvec.sC, avec, bval.sC);
+      MultiplyAdd(cvec.sD, avec, bval.sD);
+      MultiplyAdd(cvec.sE, avec, bval.sE);
+      MultiplyAdd(cvec.sF, avec, bval.sF);
     #endif
   #endif
   return cvec;
@@ -737,7 +722,91 @@ INLINE_FUNC void StoreResultsN(__global realN* cgn, realN c_value,
   int index = idm * (kSizeN/VWN) + idn;
 
   realN result = 0;
-  result = c_value;
+  realN xval = c_value;
+  
+  // The final multiplication with alpha (in case beta == 0)
+  if (IsZero(beta)) {
+    #if VWN == 1
+      Multiply(result, alpha, xval);
+    #elif VWN == 2
+      Multiply(result.x, alpha, xval.x);
+      Multiply(result.y, alpha, xval.y);
+    #elif VWN == 4
+      Multiply(result.x, alpha, xval.x);
+      Multiply(result.y, alpha, xval.y);
+      Multiply(result.z, alpha, xval.z);
+      Multiply(result.w, alpha, xval.w);
+    #elif VWN == 8
+      Multiply(result.s0, alpha, xval.s0);
+      Multiply(result.s1, alpha, xval.s1);
+      Multiply(result.s2, alpha, xval.s2);
+      Multiply(result.s3, alpha, xval.s3);
+      Multiply(result.s4, alpha, xval.s4);
+      Multiply(result.s5, alpha, xval.s5);
+      Multiply(result.s6, alpha, xval.s6);
+      Multiply(result.s7, alpha, xval.s7);
+    #elif VWN == 16
+      Multiply(result.s0, alpha, xval.s0);
+      Multiply(result.s1, alpha, xval.s1);
+      Multiply(result.s2, alpha, xval.s2);
+      Multiply(result.s3, alpha, xval.s3);
+      Multiply(result.s4, alpha, xval.s4);
+      Multiply(result.s5, alpha, xval.s5);
+      Multiply(result.s6, alpha, xval.s6);
+      Multiply(result.s7, alpha, xval.s7);
+      Multiply(result.s8, alpha, xval.s8);
+      Multiply(result.s9, alpha, xval.s9);
+      Multiply(result.sA, alpha, xval.sA);
+      Multiply(result.sB, alpha, xval.sB);
+      Multiply(result.sC, alpha, xval.sC);
+      Multiply(result.sD, alpha, xval.sD);
+      Multiply(result.sE, alpha, xval.sE);
+      Multiply(result.sF, alpha, xval.sF);
+    #endif
+  }
+
+  // The final multiplication with alpha and the addition with beta*C
+  else {
+    realN yval = cgn[index];
+    #if VWN == 1
+      AXPBY(result, alpha, xval, beta, yval);
+    #elif VWN == 2
+      AXPBY(result.x, alpha, xval.x, beta, yval.x);
+      AXPBY(result.y, alpha, xval.y, beta, yval.y);
+    #elif VWN == 4
+      AXPBY(result.x, alpha, xval.x, beta, yval.x);
+      AXPBY(result.y, alpha, xval.y, beta, yval.y);
+      AXPBY(result.z, alpha, xval.z, beta, yval.z);
+      AXPBY(result.w, alpha, xval.w, beta, yval.w);
+    #elif VWN == 8
+      AXPBY(result.s0, alpha, xval.s0, beta, yval.s0);
+      AXPBY(result.s1, alpha, xval.s1, beta, yval.s1);
+      AXPBY(result.s2, alpha, xval.s2, beta, yval.s2);
+      AXPBY(result.s3, alpha, xval.s3, beta, yval.s3);
+      AXPBY(result.s4, alpha, xval.s4, beta, yval.s4);
+      AXPBY(result.s5, alpha, xval.s5, beta, yval.s5);
+      AXPBY(result.s6, alpha, xval.s6, beta, yval.s6);
+      AXPBY(result.s7, alpha, xval.s7, beta, yval.s7);
+    #elif VWN == 16
+      AXPBY(result.s0, alpha, xval.s0, beta, yval.s0);
+      AXPBY(result.s1, alpha, xval.s1, beta, yval.s1);
+      AXPBY(result.s2, alpha, xval.s2, beta, yval.s2);
+      AXPBY(result.s3, alpha, xval.s3, beta, yval.s3);
+      AXPBY(result.s4, alpha, xval.s4, beta, yval.s4);
+      AXPBY(result.s5, alpha, xval.s5, beta, yval.s5);
+      AXPBY(result.s6, alpha, xval.s6, beta, yval.s6);
+      AXPBY(result.s7, alpha, xval.s7, beta, yval.s7);
+      AXPBY(result.s8, alpha, xval.s8, beta, yval.s8);
+      AXPBY(result.s9, alpha, xval.s9, beta, yval.s9);
+      AXPBY(result.sA, alpha, xval.sA, beta, yval.sA);
+      AXPBY(result.sB, alpha, xval.sB, beta, yval.sB);
+      AXPBY(result.sC, alpha, xval.sC, beta, yval.sC);
+      AXPBY(result.sD, alpha, xval.sD, beta, yval.sD);
+      AXPBY(result.sE, alpha, xval.sE, beta, yval.sE);
+      AXPBY(result.sF, alpha, xval.sF, beta, yval.sF);
+    #endif
+  }
+  
   
 #ifdef BIAS
   realN xval = egn[idn];
@@ -783,43 +852,7 @@ INLINE_FUNC void StoreResultsN(__global realN* cgn, realN c_value,
 
   cgn[index] = result;
 }
-// A common interface for subgroup functions
 
-#if USE_SUBGROUP_SHUFFLING == 1
-
-INLINE_FUNC int clblast_get_sub_group_local_id() {
-
-  // Intel extension
-  #if SUBGROUP_SHUFFLING_INTEL == 1
-  return get_sub_group_local_id();
-  
-  // Nvidia inline PTX
-  #elif SUBGROUP_SHUFFLING_NVIDIA_PRE_VOLTA == 1 || SUBGROUP_SHUFFLING_NVIDIA_POST_VOLTA == 1
-  int ret;
-  asm volatile("mov.u32 %0, %%laneid;" : "=r"(ret) );
-  return ret;
-  #endif
-}
-
-INLINE_FUNC realN clblast_sub_group_shuffle(realN reg, int src) {
-
-  // Intel extension
-  #if SUBGROUP_SHUFFLING_INTEL == 1
-  return intel_sub_group_shuffle(reg, src);
-  
-  // Nvidia inline PTX
-  // Volta and later requires .sync shuffle instructions with an extra mask arg
-  #elif SUBGROUP_SHUFFLING_NVIDIA_PRE_VOLTA == 1 || SUBGROUP_SHUFFLING_NVIDIA_POST_VOLTA == 1
-  realN ret;
-    #if SUBGROUP_SHUFFLING_NVIDIA_POST_VOLTA == 1
-    asm volatile("shfl.sync.idx.b32 %0, %1, %2, 0x1f, 0xffffffff;" : "=f"(ret): "f"(reg), "r"(src));
-    #else
-    asm volatile("shfl.idx.b32 %0, %1, %2, 0x1f;" : "=f"(ret): "f"(reg), "r"(src));
-    #endif
-  return ret;
-  #endif
-}
-#endif
 
 // Main body of the matrix-multiplication algorithm. It calls various (inlined) functions.
 INLINE_FUNC void XgemmBody(const int kSizeM, const int kSizeN, const int kSizeK,
@@ -838,30 +871,17 @@ INLINE_FUNC void XgemmBody(const int kSizeM, const int kSizeN, const int kSizeK,
                            ) {
 
   // Allocates workitem-private memory (registers)
-  #if GEMMK == 0
-    #pragma promote_to_registers
-    realM apm[MWI/VWM]; // MWI * 1
-    #pragma promote_to_registers
-    realN bpm[NWI/VWN]; // 1 * NWI
-  #elif GEMMK == 1
-    #if USE_SUBGROUP_SHUFFLING == 1
-      #pragma promote_to_registers
-      realN apm[KREG/VWN]; // KREG (subgroup shuffling in NWI dimension)
-    #else
-      #pragma promote_to_registers
-      realN apm[NWI*(KREG/VWN)]; // NWI * KREG
-    #endif
-    #pragma promote_to_registers
-    realM bpm[KREG*(MWI/VWM)]; // KREG * MWI
-  #endif
+  #pragma promote_to_registers
+  realM apm[MWI/VWM]; // MWI * 1
+  #pragma promote_to_registers
+  realN bpm[NWI/VWN]; // 1 * NWI
+
+  #ifdef OUTPUTMN
+  #pragma promote_to_registers
+  realN cpn[MWI*(NWI/VWN)]; // MWI * NWI
+  #else
   #pragma promote_to_registers
   realM cpm[NWI*(MWI/VWM)]; // NWI * MWI
-
-  #if GEMMK == 1
-    const __global real* restrict a_ptr = (const __global real* restrict) &agm[0];
-    const __global real* restrict b_ptr = (const __global real* restrict) &bgm[0];
-    const int tid_x = get_local_id(0) + MDIMC * GetGroupID0();
-    const int tid_y = get_local_id(1) + NDIMC * GetGroupID1();
   #endif
 
   // Combined thread identifier (volatile to disable caching)
@@ -870,6 +890,15 @@ INLINE_FUNC void XgemmBody(const int kSizeM, const int kSizeN, const int kSizeK,
   #endif
 
   // Initializes the accumulation registers
+  #ifdef OUTPUTMN
+  #pragma unroll
+  for (int _ni = 0; _ni < NWI/VWN; _ni += 1) {
+    #pragma unroll
+    for (int _mi = 0; _mi < MWI; _mi += 1) {
+      cpn[_mi * (NWI/VWN) + _ni] = InitAccRegistersN();
+    }
+  }
+  #else
   #pragma unroll
   for (int _mi = 0; _mi < MWI/VWM; _mi += 1) {
     #pragma unroll
@@ -877,6 +906,7 @@ INLINE_FUNC void XgemmBody(const int kSizeM, const int kSizeN, const int kSizeK,
       cpm[_ni * (MWI/VWM) + _mi] = InitAccRegisters();
     }
   }
+  #endif
 
   // Loops over all workgroup tiles
   for (int kwg = 0; kwg < kSizeK; kwg += KWG * KREG) {
@@ -913,147 +943,116 @@ INLINE_FUNC void XgemmBody(const int kSizeM, const int kSizeN, const int kSizeK,
           // Loads data: off-chip --> private (matrix A)
           #elif GEMMK == 0 && SA == 0
             apm[_mi] = GlobalToPrivateA(agm, _mi, kSizeM, idk, kwg);
-          // Loads data: 2D global --> 2D private (matrix B)
-          #elif GEMMK == 1
-            #pragma unroll
-            for (int _ki = 0; _ki < KREG; _ki += 1) {
-              bpm[_ki * (MWI/VWM) + _mi] = GlobalToPrivateB2D(b_ptr, tid_x, _mi, kSizeN, idk, _ki);
-            }
           #endif
         }
 
         // Loads matrix B (kernel 0) or matrix A (kernel 1)
-        #if GEMMK == 0
-          #pragma unroll
-          for (int _ni = 0; _ni < NWI/VWN; _ni += 1) {
-            // Loads data: local --> private (matrix B)
-            #if SB == 1
-              bpm[_ni] = LocalToPrivateB(blm, _ni, kg);
-            // Loads data: off-chip --> private (matrix B)
-            #else
-              bpm[_ni] = GlobalToPrivateB(bgm, _ni, kSizeN, idk);
-            #endif
-          }
-        #elif GEMMK == 1
-          // Loads data: 2D global --> 2D private (matrix A). Partly, shuffled later among subgroups
-          #if USE_SUBGROUP_SHUFFLING == 1
-            const int _ni = clblast_get_sub_group_local_id();
-            #pragma unroll
-            for (int _ki = 0; _ki < KREG/VWN; _ki += 1) {
-              apm[_ki] = GlobalToPrivateA2D(a_ptr, tid_y, _ni, kSizeK, idk, _ki);
-            }
-          // Loads data: 2D global --> 2D private (matrix A)
+
+        #pragma unroll
+        for (int _ni = 0; _ni < NWI/VWN; _ni += 1) {
+          // Loads data: local --> private (matrix B)
+          #if SB == 1
+            bpm[_ni] = LocalToPrivateB(blm, _ni, kg);
+          // Loads data: off-chip --> private (matrix B)
           #else
-            #pragma unroll
-            for (int _ni = 0; _ni < NWI; _ni += 1) {
-              #pragma unroll
-              for (int _ki = 0; _ki < KREG/VWN; _ki += 1) {
-                apm[_ni * (KREG/VWN) + _ki] = GlobalToPrivateA2D(a_ptr, tid_y, _ni, kSizeK, idk, _ki);
-              }
-            }
+            bpm[_ni] = GlobalToPrivateB(bgm, _ni, kSizeN, idk);
           #endif
-        #endif
+        }
 
         // Performs the accumulation (Cpm += Apm * Bpm)
-        #if GEMMK == 0
-          #pragma unroll
-          for (int _ni = 0; _ni < NWI/VWN; _ni += 1) {
-            #pragma unroll
-            for (int _mi = 0; _mi < MWI/VWM; _mi += 1) {
-              const realM aval = apm[_mi];
-              #if VWN == 1
-                cpm[(_ni*VWN + 0)*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 0)*(MWI/VWM) + _mi], aval, bpm[_ni]);
-              #elif VWN == 2
-                cpm[(_ni*VWN + 0)*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 0)*(MWI/VWM) + _mi], aval, bpm[_ni].x);
-                cpm[(_ni*VWN + 1)*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 1)*(MWI/VWM) + _mi], aval, bpm[_ni].y);
-              #elif VWN == 4
-                cpm[(_ni*VWN + 0)*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 0)*(MWI/VWM) + _mi], aval, bpm[_ni].x);
-                cpm[(_ni*VWN + 1)*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 1)*(MWI/VWM) + _mi], aval, bpm[_ni].y);
-                cpm[(_ni*VWN + 2)*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 2)*(MWI/VWM) + _mi], aval, bpm[_ni].z);
-                cpm[(_ni*VWN + 3)*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 3)*(MWI/VWM) + _mi], aval, bpm[_ni].w);
-              #elif VWN == 8
-                cpm[(_ni*VWN + 0)*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 0)*(MWI/VWM) + _mi], aval, bpm[_ni].s0);
-                cpm[(_ni*VWN + 1)*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 1)*(MWI/VWM) + _mi], aval, bpm[_ni].s1);
-                cpm[(_ni*VWN + 2)*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 2)*(MWI/VWM) + _mi], aval, bpm[_ni].s2);
-                cpm[(_ni*VWN + 3)*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 3)*(MWI/VWM) + _mi], aval, bpm[_ni].s3);
-                cpm[(_ni*VWN + 4)*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 4)*(MWI/VWM) + _mi], aval, bpm[_ni].s4);
-                cpm[(_ni*VWN + 5)*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 5)*(MWI/VWM) + _mi], aval, bpm[_ni].s5);
-                cpm[(_ni*VWN + 6)*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 6)*(MWI/VWM) + _mi], aval, bpm[_ni].s6);
-                cpm[(_ni*VWN + 7)*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 7)*(MWI/VWM) + _mi], aval, bpm[_ni].s7);
-              #elif VWN == 16
-                cpm[(_ni*VWN + 0 )*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 0 )*(MWI/VWM) + _mi], aval, bpm[_ni].s0);
-                cpm[(_ni*VWN + 1 )*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 1 )*(MWI/VWM) + _mi], aval, bpm[_ni].s1);
-                cpm[(_ni*VWN + 2 )*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 2 )*(MWI/VWM) + _mi], aval, bpm[_ni].s2);
-                cpm[(_ni*VWN + 3 )*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 3 )*(MWI/VWM) + _mi], aval, bpm[_ni].s3);
-                cpm[(_ni*VWN + 4 )*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 4 )*(MWI/VWM) + _mi], aval, bpm[_ni].s4);
-                cpm[(_ni*VWN + 5 )*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 5 )*(MWI/VWM) + _mi], aval, bpm[_ni].s5);
-                cpm[(_ni*VWN + 6 )*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 6 )*(MWI/VWM) + _mi], aval, bpm[_ni].s6);
-                cpm[(_ni*VWN + 7 )*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 7 )*(MWI/VWM) + _mi], aval, bpm[_ni].s7);
-                cpm[(_ni*VWN + 8 )*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 8 )*(MWI/VWM) + _mi], aval, bpm[_ni].s8);
-                cpm[(_ni*VWN + 9 )*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 9 )*(MWI/VWM) + _mi], aval, bpm[_ni].s9);
-                cpm[(_ni*VWN + 10)*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 10)*(MWI/VWM) + _mi], aval, bpm[_ni].sA);
-                cpm[(_ni*VWN + 11)*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 11)*(MWI/VWM) + _mi], aval, bpm[_ni].sB);
-                cpm[(_ni*VWN + 12)*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 12)*(MWI/VWM) + _mi], aval, bpm[_ni].sC);
-                cpm[(_ni*VWN + 13)*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 13)*(MWI/VWM) + _mi], aval, bpm[_ni].sD);
-                cpm[(_ni*VWN + 14)*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 14)*(MWI/VWM) + _mi], aval, bpm[_ni].sE);
-                cpm[(_ni*VWN + 15)*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 15)*(MWI/VWM) + _mi], aval, bpm[_ni].sF);
-              #endif
-            }
-          }
-        #elif GEMMK == 1
-          #pragma unroll
-          for (int _ni = 0; _ni < NWI; _ni += 1) {
+
+        #ifdef OUTPUTMN
             #pragma unroll
             for (int _mi = 0; _mi < MWI/VWM; _mi += 1) {
               #pragma unroll
-              for (int _ki = 0; _ki < KREG/VWN; _ki += 1) {
-                #if USE_SUBGROUP_SHUFFLING == 1
-                  const realN aval = clblast_sub_group_shuffle(apm[_ki], _ni);
-                #else
-                  const realN aval = apm[_ni * (KREG/VWN) + _ki];
-                #endif
-                #if VWN == 1
-                  cpm[_ni * (MWI/VWM) + _mi] = MultiplyAddVector(cpm[_ni * (MWI/VWM) + _mi], bpm[(VWN * _ki + 0) * (MWI/VWM) + _mi], aval);
-                #elif VWN == 2
-                  cpm[_ni * (MWI/VWM) + _mi] = MultiplyAddVector(cpm[_ni * (MWI/VWM) + _mi], bpm[(VWN * _ki + 0) * (MWI/VWM) + _mi], aval.x);
-                  cpm[_ni * (MWI/VWM) + _mi] = MultiplyAddVector(cpm[_ni * (MWI/VWM) + _mi], bpm[(VWN * _ki + 1) * (MWI/VWM) + _mi], aval.y);
-                #elif VWN == 4
-                  cpm[_ni * (MWI/VWM) + _mi] = MultiplyAddVector(cpm[_ni * (MWI/VWM) + _mi], bpm[(VWN * _ki + 0) * (MWI/VWM) + _mi], aval.x);
-                  cpm[_ni * (MWI/VWM) + _mi] = MultiplyAddVector(cpm[_ni * (MWI/VWM) + _mi], bpm[(VWN * _ki + 1) * (MWI/VWM) + _mi], aval.y);
-                  cpm[_ni * (MWI/VWM) + _mi] = MultiplyAddVector(cpm[_ni * (MWI/VWM) + _mi], bpm[(VWN * _ki + 2) * (MWI/VWM) + _mi], aval.z);
-                  cpm[_ni * (MWI/VWM) + _mi] = MultiplyAddVector(cpm[_ni * (MWI/VWM) + _mi], bpm[(VWN * _ki + 3) * (MWI/VWM) + _mi], aval.w);
-                #elif VWN == 8
-                  cpm[_ni * (MWI/VWM) + _mi] = MultiplyAddVector(cpm[_ni * (MWI/VWM) + _mi], bpm[(VWN * _ki + 0) * (MWI/VWM) + _mi], aval.s0);
-                  cpm[_ni * (MWI/VWM) + _mi] = MultiplyAddVector(cpm[_ni * (MWI/VWM) + _mi], bpm[(VWN * _ki + 1) * (MWI/VWM) + _mi], aval.s1);
-                  cpm[_ni * (MWI/VWM) + _mi] = MultiplyAddVector(cpm[_ni * (MWI/VWM) + _mi], bpm[(VWN * _ki + 2) * (MWI/VWM) + _mi], aval.s2);
-                  cpm[_ni * (MWI/VWM) + _mi] = MultiplyAddVector(cpm[_ni * (MWI/VWM) + _mi], bpm[(VWN * _ki + 3) * (MWI/VWM) + _mi], aval.s3);
-                  cpm[_ni * (MWI/VWM) + _mi] = MultiplyAddVector(cpm[_ni * (MWI/VWM) + _mi], bpm[(VWN * _ki + 4) * (MWI/VWM) + _mi], aval.s4);
-                  cpm[_ni * (MWI/VWM) + _mi] = MultiplyAddVector(cpm[_ni * (MWI/VWM) + _mi], bpm[(VWN * _ki + 5) * (MWI/VWM) + _mi], aval.s5);
-                  cpm[_ni * (MWI/VWM) + _mi] = MultiplyAddVector(cpm[_ni * (MWI/VWM) + _mi], bpm[(VWN * _ki + 6) * (MWI/VWM) + _mi], aval.s6);
-                  cpm[_ni * (MWI/VWM) + _mi] = MultiplyAddVector(cpm[_ni * (MWI/VWM) + _mi], bpm[(VWN * _ki + 7) * (MWI/VWM) + _mi], aval.s7);
-                #elif VWN == 16
-                  cpm[_ni * (MWI/VWM) + _mi] = MultiplyAddVector(cpm[_ni * (MWI/VWM) + _mi], bpm[(VWN * _ki + 0 ) * (MWI/VWM) + _mi], aval.s0);
-                  cpm[_ni * (MWI/VWM) + _mi] = MultiplyAddVector(cpm[_ni * (MWI/VWM) + _mi], bpm[(VWN * _ki + 1 ) * (MWI/VWM) + _mi], aval.s1);
-                  cpm[_ni * (MWI/VWM) + _mi] = MultiplyAddVector(cpm[_ni * (MWI/VWM) + _mi], bpm[(VWN * _ki + 2 ) * (MWI/VWM) + _mi], aval.s2);
-                  cpm[_ni * (MWI/VWM) + _mi] = MultiplyAddVector(cpm[_ni * (MWI/VWM) + _mi], bpm[(VWN * _ki + 3 ) * (MWI/VWM) + _mi], aval.s3);
-                  cpm[_ni * (MWI/VWM) + _mi] = MultiplyAddVector(cpm[_ni * (MWI/VWM) + _mi], bpm[(VWN * _ki + 4 ) * (MWI/VWM) + _mi], aval.s4);
-                  cpm[_ni * (MWI/VWM) + _mi] = MultiplyAddVector(cpm[_ni * (MWI/VWM) + _mi], bpm[(VWN * _ki + 5 ) * (MWI/VWM) + _mi], aval.s5);
-                  cpm[_ni * (MWI/VWM) + _mi] = MultiplyAddVector(cpm[_ni * (MWI/VWM) + _mi], bpm[(VWN * _ki + 6 ) * (MWI/VWM) + _mi], aval.s6);
-                  cpm[_ni * (MWI/VWM) + _mi] = MultiplyAddVector(cpm[_ni * (MWI/VWM) + _mi], bpm[(VWN * _ki + 7 ) * (MWI/VWM) + _mi], aval.s7);
-                  cpm[_ni * (MWI/VWM) + _mi] = MultiplyAddVector(cpm[_ni * (MWI/VWM) + _mi], bpm[(VWN * _ki + 8 ) * (MWI/VWM) + _mi], aval.s8);
-                  cpm[_ni * (MWI/VWM) + _mi] = MultiplyAddVector(cpm[_ni * (MWI/VWM) + _mi], bpm[(VWN * _ki + 9 ) * (MWI/VWM) + _mi], aval.s9);
-                  cpm[_ni * (MWI/VWM) + _mi] = MultiplyAddVector(cpm[_ni * (MWI/VWM) + _mi], bpm[(VWN * _ki + 10) * (MWI/VWM) + _mi], aval.sA);
-                  cpm[_ni * (MWI/VWM) + _mi] = MultiplyAddVector(cpm[_ni * (MWI/VWM) + _mi], bpm[(VWN * _ki + 11) * (MWI/VWM) + _mi], aval.sB);
-                  cpm[_ni * (MWI/VWM) + _mi] = MultiplyAddVector(cpm[_ni * (MWI/VWM) + _mi], bpm[(VWN * _ki + 12) * (MWI/VWM) + _mi], aval.sC);
-                  cpm[_ni * (MWI/VWM) + _mi] = MultiplyAddVector(cpm[_ni * (MWI/VWM) + _mi], bpm[(VWN * _ki + 13) * (MWI/VWM) + _mi], aval.sD);
-                  cpm[_ni * (MWI/VWM) + _mi] = MultiplyAddVector(cpm[_ni * (MWI/VWM) + _mi], bpm[(VWN * _ki + 14) * (MWI/VWM) + _mi], aval.sE);
-                  cpm[_ni * (MWI/VWM) + _mi] = MultiplyAddVector(cpm[_ni * (MWI/VWM) + _mi], bpm[(VWN * _ki + 15) * (MWI/VWM) + _mi], aval.sF);
+              for (int _ni = 0; _ni < NWI/VWN; _ni += 1) {
+                const realM aval = apm[_mi];
+                #if VWM == 1
+                  // [MWI/VWM, VWM, NWI/VWN, VWN]
+                  cpn[(_mi*VWM + 0)*(NWI/VWN) + _ni] = MultiplyAddVectorN(cpn[(_mi*VWM + 0)*(NWI/VWN) + _ni], aval, bpm[_ni]);
+                #elif VWM == 2
+                  cpn[(_mi*VWM + 0)*(NWI/VWN) + _ni] = MultiplyAddVectorN(cpn[(_mi*VWM + 0)*(NWI/VWN) + _ni], aval.x, bpm[_ni]);
+                  cpn[(_mi*VWM + 1)*(NWI/VWN) + _ni] = MultiplyAddVectorN(cpn[(_mi*VWM + 1)*(NWI/VWN) + _ni], aval.y, bpm[_ni]);
+                #elif VWM == 4
+                  cpn[(_mi*VWM + 0)*(NWI/VWN) + _ni] = MultiplyAddVectorN(cpn[(_mi*VWM + 0)*(NWI/VWN) + _ni], aval.x, bpm[_ni]);
+                  cpn[(_mi*VWM + 1)*(NWI/VWN) + _ni] = MultiplyAddVectorN(cpn[(_mi*VWM + 1)*(NWI/VWN) + _ni], aval.y, bpm[_ni]);
+                  cpn[(_mi*VWM + 2)*(NWI/VWN) + _ni] = MultiplyAddVectorN(cpn[(_mi*VWM + 2)*(NWI/VWN) + _ni], aval.z, bpm[_ni]);
+                  cpn[(_mi*VWM + 3)*(NWI/VWN) + _ni] = MultiplyAddVectorN(cpn[(_mi*VWM + 3)*(NWI/VWN) + _ni], aval.w, bpm[_ni]);
+                #elif VWM == 8
+                  cpn[(_mi*VWM + 0)*(NWI/VWN) + _ni] = MultiplyAddVectorN(cpn[(_mi*VWM + 0)*(NWI/VWN) + _ni], aval.s0, bpm[_ni]);
+                  cpn[(_mi*VWM + 1)*(NWI/VWN) + _ni] = MultiplyAddVectorN(cpn[(_mi*VWM + 1)*(NWI/VWN) + _ni], aval.s1, bpm[_ni]);
+                  cpn[(_mi*VWM + 2)*(NWI/VWN) + _ni] = MultiplyAddVectorN(cpn[(_mi*VWM + 2)*(NWI/VWN) + _ni], aval.s2, bpm[_ni]);
+                  cpn[(_mi*VWM + 3)*(NWI/VWN) + _ni] = MultiplyAddVectorN(cpn[(_mi*VWM + 3)*(NWI/VWN) + _ni], aval.s3, bpm[_ni]);
+                  cpn[(_mi*VWM + 4)*(NWI/VWN) + _ni] = MultiplyAddVectorN(cpn[(_mi*VWM + 4)*(NWI/VWN) + _ni], aval.s4, bpm[_ni]);
+                  cpn[(_mi*VWM + 5)*(NWI/VWN) + _ni] = MultiplyAddVectorN(cpn[(_mi*VWM + 5)*(NWI/VWN) + _ni], aval.s5, bpm[_ni]);
+                  cpn[(_mi*VWM + 6)*(NWI/VWN) + _ni] = MultiplyAddVectorN(cpn[(_mi*VWM + 6)*(NWI/VWN) + _ni], aval.s6, bpm[_ni]);
+                  cpn[(_mi*VWM + 7)*(NWI/VWN) + _ni] = MultiplyAddVectorN(cpn[(_mi*VWM + 7)*(NWI/VWN) + _ni], aval.s7, bpm[_ni]);
+                #elif VWM == 16
+                  cpn[(_mi*VWM + 0 )*(NWI/VWN) + _ni] = MultiplyAddVectorN(cpn[(_mi*VWM + 0 )*(NWI/VWN) + _ni], aval.s0, bpm[_ni]);
+                  cpn[(_mi*VWM + 1 )*(NWI/VWN) + _ni] = MultiplyAddVectorN(cpn[(_mi*VWM + 1 )*(NWI/VWN) + _ni], aval.s1, bpm[_ni]);
+                  cpn[(_mi*VWM + 2 )*(NWI/VWN) + _ni] = MultiplyAddVectorN(cpn[(_mi*VWM + 2 )*(NWI/VWN) + _ni], aval.s2, bpm[_ni]);
+                  cpn[(_mi*VWM + 3 )*(NWI/VWN) + _ni] = MultiplyAddVectorN(cpn[(_mi*VWM + 3 )*(NWI/VWN) + _ni], aval.s3, bpm[_ni]);
+                  cpn[(_mi*VWM + 4 )*(NWI/VWN) + _ni] = MultiplyAddVectorN(cpn[(_mi*VWM + 4 )*(NWI/VWN) + _ni], aval.s4, bpm[_ni]);
+                  cpn[(_mi*VWM + 5 )*(NWI/VWN) + _ni] = MultiplyAddVectorN(cpn[(_mi*VWM + 5 )*(NWI/VWN) + _ni], aval.s5, bpm[_ni]);
+                  cpn[(_mi*VWM + 6 )*(NWI/VWN) + _ni] = MultiplyAddVectorN(cpn[(_mi*VWM + 6 )*(NWI/VWN) + _ni], aval.s6, bpm[_ni]);
+                  cpn[(_mi*VWM + 7 )*(NWI/VWN) + _ni] = MultiplyAddVectorN(cpn[(_mi*VWM + 7 )*(NWI/VWN) + _ni], aval.s7, bpm[_ni]);
+                  cpn[(_mi*VWM + 8 )*(NWI/VWN) + _ni] = MultiplyAddVectorN(cpn[(_mi*VWM + 8 )*(NWI/VWN) + _ni], aval.s8, bpm[_ni]);
+                  cpn[(_mi*VWM + 9 )*(NWI/VWN) + _ni] = MultiplyAddVectorN(cpn[(_mi*VWM + 9 )*(NWI/VWN) + _ni], aval.s9, bpm[_ni]);
+                  cpn[(_mi*VWM + 10)*(NWI/VWN) + _ni] = MultiplyAddVectorN(cpn[(_mi*VWM + 10)*(NWI/VWN) + _ni], aval.sA, bpm[_ni]);
+                  cpn[(_mi*VWM + 11)*(NWI/VWN) + _ni] = MultiplyAddVectorN(cpn[(_mi*VWM + 11)*(NWI/VWN) + _ni], aval.sB, bpm[_ni]);
+                  cpn[(_mi*VWM + 12)*(NWI/VWN) + _ni] = MultiplyAddVectorN(cpn[(_mi*VWM + 12)*(NWI/VWN) + _ni], aval.sC, bpm[_ni]);
+                  cpn[(_mi*VWM + 13)*(NWI/VWN) + _ni] = MultiplyAddVectorN(cpn[(_mi*VWM + 13)*(NWI/VWN) + _ni], aval.sD, bpm[_ni]);
+                  cpn[(_mi*VWM + 14)*(NWI/VWN) + _ni] = MultiplyAddVectorN(cpn[(_mi*VWM + 14)*(NWI/VWN) + _ni], aval.sE, bpm[_ni]);
+                  cpn[(_mi*VWM + 15)*(NWI/VWN) + _ni] = MultiplyAddVectorN(cpn[(_mi*VWM + 15)*(NWI/VWN) + _ni], aval.sF, bpm[_ni]);
                 #endif
               }
             }
-          }
+        #else
+            #pragma unroll
+            for (int _ni = 0; _ni < NWI/VWN; _ni += 1) {
+              #pragma unroll
+              for (int _mi = 0; _mi < MWI/VWM; _mi += 1) {
+                const realM aval = apm[_mi];
+                #if VWN == 1
+                  cpm[(_ni*VWN + 0)*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 0)*(MWI/VWM) + _mi], aval, bpm[_ni]);
+                #elif VWN == 2
+                  cpm[(_ni*VWN + 0)*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 0)*(MWI/VWM) + _mi], aval, bpm[_ni].x);
+                  cpm[(_ni*VWN + 1)*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 1)*(MWI/VWM) + _mi], aval, bpm[_ni].y);
+                #elif VWN == 4
+                  cpm[(_ni*VWN + 0)*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 0)*(MWI/VWM) + _mi], aval, bpm[_ni].x);
+                  cpm[(_ni*VWN + 1)*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 1)*(MWI/VWM) + _mi], aval, bpm[_ni].y);
+                  cpm[(_ni*VWN + 2)*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 2)*(MWI/VWM) + _mi], aval, bpm[_ni].z);
+                  cpm[(_ni*VWN + 3)*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 3)*(MWI/VWM) + _mi], aval, bpm[_ni].w);
+                #elif VWN == 8
+                  cpm[(_ni*VWN + 0)*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 0)*(MWI/VWM) + _mi], aval, bpm[_ni].s0);
+                  cpm[(_ni*VWN + 1)*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 1)*(MWI/VWM) + _mi], aval, bpm[_ni].s1);
+                  cpm[(_ni*VWN + 2)*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 2)*(MWI/VWM) + _mi], aval, bpm[_ni].s2);
+                  cpm[(_ni*VWN + 3)*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 3)*(MWI/VWM) + _mi], aval, bpm[_ni].s3);
+                  cpm[(_ni*VWN + 4)*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 4)*(MWI/VWM) + _mi], aval, bpm[_ni].s4);
+                  cpm[(_ni*VWN + 5)*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 5)*(MWI/VWM) + _mi], aval, bpm[_ni].s5);
+                  cpm[(_ni*VWN + 6)*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 6)*(MWI/VWM) + _mi], aval, bpm[_ni].s6);
+                  cpm[(_ni*VWN + 7)*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 7)*(MWI/VWM) + _mi], aval, bpm[_ni].s7);
+                #elif VWN == 16
+                  cpm[(_ni*VWN + 0 )*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 0 )*(MWI/VWM) + _mi], aval, bpm[_ni].s0);
+                  cpm[(_ni*VWN + 1 )*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 1 )*(MWI/VWM) + _mi], aval, bpm[_ni].s1);
+                  cpm[(_ni*VWN + 2 )*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 2 )*(MWI/VWM) + _mi], aval, bpm[_ni].s2);
+                  cpm[(_ni*VWN + 3 )*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 3 )*(MWI/VWM) + _mi], aval, bpm[_ni].s3);
+                  cpm[(_ni*VWN + 4 )*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 4 )*(MWI/VWM) + _mi], aval, bpm[_ni].s4);
+                  cpm[(_ni*VWN + 5 )*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 5 )*(MWI/VWM) + _mi], aval, bpm[_ni].s5);
+                  cpm[(_ni*VWN + 6 )*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 6 )*(MWI/VWM) + _mi], aval, bpm[_ni].s6);
+                  cpm[(_ni*VWN + 7 )*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 7 )*(MWI/VWM) + _mi], aval, bpm[_ni].s7);
+                  cpm[(_ni*VWN + 8 )*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 8 )*(MWI/VWM) + _mi], aval, bpm[_ni].s8);
+                  cpm[(_ni*VWN + 9 )*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 9 )*(MWI/VWM) + _mi], aval, bpm[_ni].s9);
+                  cpm[(_ni*VWN + 10)*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 10)*(MWI/VWM) + _mi], aval, bpm[_ni].sA);
+                  cpm[(_ni*VWN + 11)*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 11)*(MWI/VWM) + _mi], aval, bpm[_ni].sB);
+                  cpm[(_ni*VWN + 12)*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 12)*(MWI/VWM) + _mi], aval, bpm[_ni].sC);
+                  cpm[(_ni*VWN + 13)*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 13)*(MWI/VWM) + _mi], aval, bpm[_ni].sD);
+                  cpm[(_ni*VWN + 14)*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 14)*(MWI/VWM) + _mi], aval, bpm[_ni].sE);
+                  cpm[(_ni*VWN + 15)*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 15)*(MWI/VWM) + _mi], aval, bpm[_ni].sF);
+                #endif
+              }
+            }
         #endif
-
       }
     }
     #if SA == 1 || SB == 1
@@ -1065,46 +1064,30 @@ INLINE_FUNC void XgemmBody(const int kSizeM, const int kSizeN, const int kSizeK,
   #endif
 
   #ifdef OUTPUTMN
-  // Revise to [M, N]
-  realN cpn; // MWI * NWI
-  
-  real* cpn_mxn = (real *)(&cpn);
-  real* cpm_nxm = (real *)cpm;
-
-  #pragma unroll
-  for (int _mi = 0; _mi < MWI; _mi += 1) {
-
-    #pragma unroll
-    for (int _ni = 0; _ni < NWI/VWN; _ni += 1) {
       #pragma unroll
-      for (int _nip = 0; _nip < VWN; _nip += 1) {
-          cpn_mxn[_nip] = cpm_nxm[(_ni*VWN+_nip) * MWI + _mi];
+      for (int _mi = 0; _mi < MWI; _mi += 1) {
+        #pragma unroll
+        for (int _ni = 0; _ni < NWI/VWN; _ni += 1) {
+          StoreResultsN((__global realN* )cgm, cpn[_mi * (NWI/VWN) + _ni],
+              #ifdef BIAS
+              egm,
+              #endif
+              _mi, _ni, kSizeN, alpha, beta);
+        }
       }
-
-      StoreResultsN((__global realN* )cgm, cpn,
-          #ifdef BIAS
-          egm,
-          #endif
-          _mi, _ni, kSizeN, alpha, beta);
-    }
-  }
   
   #else
   
-  // Stores an MWG * NWG tile of results and performs the multiplication with alpha and beta
-  #if GEMMK == 0
-    const int cld = kSizeM;
-  #elif GEMMK == 1
-    const int cld = kSizeN;
-  #endif
-  
-  #pragma unroll
-  for (int _ni = 0; _ni < NWI; _ni += 1) {
-    #pragma unroll
-    for (int _mi = 0; _mi < MWI/VWM; _mi += 1) {
-      StoreResultsM(cgm, cpm[_ni * (MWI/VWM) + _mi], _mi, _ni, cld, alpha, beta);
-    }
-  }
+      // Stores an MWG * NWG tile of results and performs the multiplication with alpha and beta
+      const int cld = kSizeM;
+      
+      #pragma unroll
+      for (int _ni = 0; _ni < NWI; _ni += 1) {
+        #pragma unroll
+        for (int _mi = 0; _mi < MWI/VWM; _mi += 1) {
+          StoreResultsM(cgm, cpm[_ni * (MWI/VWM) + _mi], _mi, _ni, cld, alpha, beta);
+        }
+      }
   #endif
 }
 
@@ -1123,47 +1106,91 @@ void Xgemm(const int kSizeM, const int kSizeN, const int kSizeK,
            const __global realN* restrict egm, // [N]
            #endif
            __global realM* cgm,
-           const int a_offset, const int b_offset, const int c_offset) {
-  const real alpha = GetRealArg(arg_alpha);
-  const real beta = GetRealArg(arg_beta);
+           const int a_offset, const int b_offset, const int c_offset
+) {
+    const real alpha = GetRealArg(arg_alpha);
+    const real beta = GetRealArg(arg_beta);
+  
+    // Adds the offsets (in case of use of a single temporary buffer for A, B, and C)
+    agm = (const __global realM*)((const __global real*)agm + a_offset);
+    bgm = (const __global realN*)((const __global real*)bgm + b_offset);
+    cgm = (__global realM*)((const __global real*)cgm + c_offset);
+  
+    // Allocates workgroup-private memory (local memory)
+    #if SA == 1
+        __local realM alm[KWG * MWG/VWM];
+    #endif
+    #if SB == 1
+        __local realN blm[KWG * NWG/VWN];
+    #endif
+  
+    // Computes the matrix-multiplication and stores the result in global memory
+    #if SA == 1 && SB == 1
+        XgemmBody(kSizeM, kSizeN, kSizeK, agm, bgm,
+          #ifdef BIAS
+          egm,
+          #endif
+          cgm, alpha, beta, alm, blm);
+    #elif SA == 1
+        XgemmBody(kSizeM, kSizeN, kSizeK, agm, bgm,
+          #ifdef BIAS
+          egm,
+          #endif
+          cgm, alpha, beta, alm);
+    #elif SB == 1
+        XgemmBody(kSizeM, kSizeN, kSizeK, agm, bgm,
+          #ifdef BIAS
+          egm,
+          #endif
+          cgm, alpha, beta, blm);
+    #else
+        XgemmBody(kSizeM, kSizeN, kSizeK, agm, bgm,
+          #ifdef BIAS
+          egm,
+          #endif
+          cgm, alpha, beta);
+    #endif
+}
 
-  // Adds the offsets (in case of use of a single temporary buffer for A, B, and C)
-  agm = (const __global realM*)((const __global real*)agm + a_offset);
-  bgm = (const __global realN*)((const __global real*)bgm + b_offset);
-  cgm = (__global realM*)((const __global real*)cgm + c_offset);
-
-  // Allocates workgroup-private memory (local memory)
-  #if SA == 1
-    __local realM alm[KWG * MWG/VWM];
-  #endif
-  #if SB == 1
-    __local realN blm[KWG * NWG/VWN];
-  #endif
-
-  // Computes the matrix-multiplication and stores the result in global memory
-  #if SA == 1 && SB == 1
-    XgemmBody(kSizeM, kSizeN, kSizeK, agm, bgm,
-        #ifdef BIAS
-        egm,
-        #endif
-        cgm, alpha, beta, alm, blm);
-  #elif SA == 1
-    XgemmBody(kSizeM, kSizeN, kSizeK, agm, bgm,
-        #ifdef BIAS
-        egm,
-        #endif
-        cgm, alpha, beta, alm);
-  #elif SB == 1
-    XgemmBody(kSizeM, kSizeN, kSizeK, agm, bgm,
-        #ifdef BIAS
-        egm,
-        #endif
-        cgm, alpha, beta, blm);
-  #else
-    XgemmBody(kSizeM, kSizeN, kSizeK, agm, bgm,
-        #ifdef BIAS
-        egm,
-        #endif
-        cgm, alpha, beta);
-  #endif
+#if RELAX_WORKGROUP_SIZE == 1
+    __kernel
+#else
+    __kernel __attribute__((reqd_work_group_size(MDIMC, NDIMC, 1)))
+#endif
+void XgemmBatched(const int kSizeM, const int kSizeN, const int kSizeK,
+                  const real_arg arg_alpha,
+                  const real_arg arg_beta,
+                  const __global realM* restrict agm, const int a_one, const int a_two,
+                  const __global realN* restrict bgm, const int b_one, const int b_two,
+                  __global realM* cgm, const int c_one, const int c_two) {
+    const int batch = get_group_id(2);
+    const real alpha = GetRealArg(arg_alpha);
+    const real beta = GetRealArg(arg_beta);
+    
+    // Sets the offsets
+    const int a_offset = batch * a_one * a_two;
+    const int b_offset = batch * b_one * b_two;
+    const int c_offset = batch * c_one * c_two;
+    const __global realM* restrict agm_ = &agm[a_offset / VWM];
+    const __global realN* restrict bgm_ = &bgm[b_offset / VWN];
+    __global realM* restrict cgm_ = &cgm[c_offset / VWM];
+  
+    // Allocates workgroup-private memory (local memory)
+    #if SA == 1
+        __local realM alm[KWG * MWG/VWM];
+    #endif
+    #if SB == 1
+        __local realN blm[KWG * NWG/VWN];
+    #endif
+  
+    // Computes the matrix-multiplication and stores the result in global memory
+    #if SA == 1 && SB == 1
+        XgemmBody(kSizeM, kSizeN, kSizeK, agm_, bgm_, cgm_, alpha, beta, alm, blm);
+    #elif SA == 1
+        XgemmBody(kSizeM, kSizeN, kSizeK, agm_, bgm_, cgm_, alpha, beta, alm);
+    #elif SB == 1
+        XgemmBody(kSizeM, kSizeN, kSizeK, agm_, bgm_, cgm_, alpha, beta, blm);
+    #else
+        XgemmBody(kSizeM, kSizeN, kSizeK, agm_, bgm_, cgm_, alpha, beta);
+    #endif
 }

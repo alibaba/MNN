@@ -16,7 +16,7 @@ namespace diffusion {
 
 bool BertTokenizer::load(const std::string& dictPath) {
     std::ifstream dictFile(dictPath + "/vocab.txt");
-    if(dictFile.is_open()) {
+    if(!dictFile.is_open()) {
         MNN_ERROR("tokenize load error, vocab.txt not found in %s\n", dictPath.c_str());
         return false;
     }

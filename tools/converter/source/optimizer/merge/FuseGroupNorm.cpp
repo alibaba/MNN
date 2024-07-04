@@ -30,6 +30,7 @@ private:
     bool mHasPrefixAdd = false;
     VARP gamma_var_;
     VARP beta_var_;
+    
     EXPRP mGroupNorm;
     int mGroup;
 };
@@ -40,6 +41,9 @@ bool IsSigmoid(EXPRP expr) {
         return false;
     }
     if (op->type() == OpType_Sigmoid) {
+        return true;
+    }
+    if (op->type() == OpType_UnaryOp && op->main_as_UnaryOp()->opType() == UnaryOpOperation_SIGMOID) {
         return true;
     }
     return false;
@@ -54,12 +58,12 @@ bool IsLayerNorm(EXPRP expr) {
     }
     return false;
 }
-bool IsGroupNorm(EXPRP expr) {
+bool IsGroupNormNoSwish(EXPRP expr) {
     const Op* op = expr->get();
     if (op == nullptr) {
         return false;
     }
-    if (op->type() == OpType_GroupNorm) {
+    if (op->type() == OpType_GroupNorm && op->main_as_GroupNorm()->bSwish() == 0) {
         return true;
     }
     return false;
@@ -80,19 +84,16 @@ bool FuseGroupNormWithSwish::match_group_norm(EXPRP expr, bool testSwish) {
         // mul
         x = expr->inputs().at(0)->expr().first;
         y = expr->inputs().at(1)->expr().first;
-        if (helpers::IsBinaryAdd(x) && IsSigmoid(y) && (x == y->inputs().at(0)->expr().first)) {
+        if (IsGroupNormNoSwish(x) && IsSigmoid(y) && (x == y->inputs().at(0)->expr().first)) {
             z = x;
-        } else if (helpers::IsBinaryAdd(y) && IsSigmoid(x) && (y == x->inputs().at(0)->expr().first)) {
+        } else if (IsGroupNormNoSwish(y) && IsSigmoid(x) && (y == x->inputs().at(0)->expr().first)) {
             z = y;
         } else {
             return false;
         }
         mSwish = 1;
-        // cast
-        x = z->inputs().at(0)->expr().first;
-        if (helpers::IsCast(x)) {
-            z = x;
-        }
+        mGroupNorm = z;
+        return true;
 
     } else if (!testSwish && helpers::IsBinaryAdd(expr)) {
         z = expr;
@@ -178,6 +179,31 @@ bool FuseGroupNormWithSwish::fold_group_norm(EXPRP expr, bool testSwish) {
     }
 
     std::unique_ptr<MNN::GroupNormT> group_norm(new MNN::GroupNormT);
+    
+    if(mSwish) {
+        auto gn = mGroupNorm->get()->main_as_GroupNorm();
+        group_norm->epsilon = gn->epsilon();
+        group_norm->bSwish = 1;
+        group_norm->group = gn->group();
+        
+        int size = gn->gamma()->size();
+        group_norm->gamma.resize(size);
+        group_norm->beta.resize(size);
+        memcpy(group_norm->gamma.data(), gn->gamma()->data(), size * sizeof(float));
+        memcpy(group_norm->beta.data(), gn->beta()->data(), size * sizeof(float));
+        
+        std::unique_ptr<OpT> group_norm_op(new OpT);
+        group_norm_op->name       = mGroupNorm->name();
+        group_norm_op->type       = OpType_GroupNorm;
+        group_norm_op->main.type  = OpParameter_GroupNorm;
+        group_norm_op->main.value = group_norm.release();
+        
+        auto group_norm_expr = Variable::create(Expr::create(group_norm_op.get(), mGroupNorm->inputs(), 1));
+        group_norm_expr->setName("GroupNorm_" + expr->name());
+        Expr::replace(expr, group_norm_expr->expr().first);
+        return true /*modified*/;
+    }
+    
     group_norm->epsilon = mEpsilon;
     group_norm->bSwish = mSwish;
     group_norm->group = mGroup;

@@ -214,6 +214,9 @@ def configure_extension_build():
         engine_include_dirs += [os.path.join(root_dir, "3rd_party", "rapidjson")]
     # cv include
     engine_include_dirs += [os.path.join(root_dir, "tools", "cv", "include")]
+    # llm include
+    engine_include_dirs += [os.path.join(root_dir, "transformers", "llm", "engine", "include")]
+    engine_include_dirs += [os.path.join(root_dir, "3rd_party")]
     engine_include_dirs += [np.get_include()]
 
     lib_files = []
@@ -247,6 +250,12 @@ def configure_extension_build():
     # add libTorch dependency
     torch_lib = None
     cmakecache = os.path.join(root_dir, BUILD_DIR, 'CMakeCache.txt')
+    # llm
+    for line in open(cmakecache, 'rt').readlines():
+        if 'MNN_BUILD_LLM' in line:
+            if 'ON' in line:
+                extra_compile_args += ['-DPYMNN_LLM_API']
+    # torch lib
     for line in open(cmakecache, 'rt').readlines():
         if 'TORCH_LIBRARY' in line:
             torch_lib = os.path.dirname(line[line.find('=')+1:])

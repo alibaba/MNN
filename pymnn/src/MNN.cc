@@ -66,6 +66,10 @@ using RegularizationMethod = ParameterOptimizer::RegularizationMethod;
 #endif
 #endif
 
+#ifdef PYMNN_LLM_API
+#include "llm.h"
+#endif
+
 #ifdef PYMNN_INTERNAL_SERVING
 #include <MNN/AutoTime.hpp>
 #include "internal/monitor_service.h"
@@ -1610,7 +1614,7 @@ static PyObject* PyMNNTensor_fromNumpy(PyMNNTensor *self, PyObject *args) {
             return NULL;
         }
         DType dtype = htype2dtype(self->tensor->getType());
-        int npy_type = PyArray_TYPE(data);
+        int npy_type = PyArray_TYPE((const PyArrayObject*)data);
         int itemsize = getitemsize(dtype, npy_type);
         PyArrayObject *data_cont= PyArray_GETCONTIGUOUS((PyArrayObject*)data);
         auto tmpBuffer = PyArray_DATA(data_cont);
@@ -1946,7 +1950,7 @@ static PyObject* PyMNNCVImageProcess_convert(PyMNNCVImageProcess *self, PyObject
 #ifdef PYMNN_NUMPY_USABLE
     else if(gNumpyValid && PyArray_Check(source)) {
         // Array Data
-        int npy_type = PyArray_TYPE(source);
+        int npy_type = PyArray_TYPE((const PyArrayObject*)source);
         if(npy_type != NPY_UINT8) {
             PyErr_SetString(PyExc_Exception,
                         "PyMNNCVImageProcess_convert: only numpy.uint8 is supported for numpy");
@@ -2709,6 +2713,20 @@ PyMODINIT_FUNC MOD_INIT_FUNC(void) {
         def_method(cv_module, &PyMNNCV_methods[i]);
     }
 #endif
+#endif
+#ifdef PYMNN_LLM_API
+    // llm submodule
+    auto llm_module = def_submodule(m, "llm");
+    if (PyType_Ready(&PyMNNLLM) < 0) {
+        PyErr_SetString(PyExc_Exception, "initMNN.llm: PyType_Ready PyMNNLLM failed");
+        ERROR_RETURN
+    }
+    PyModule_AddObject(llm_module, "LLM", (PyObject *)PyType_FindTLSType(&PyMNNLLM));
+    // add methods of llm
+    constexpr int llm_method_num = sizeof(PyMNNLLM_static_methods) / sizeof(PyMethodDef);
+    for (int i = 0; i < llm_method_num; i++) {
+        def_method(llm_module, &PyMNNLLM_static_methods[i]);
+    }
 #endif
 
 #if PY_MAJOR_VERSION >= 3

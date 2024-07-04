@@ -116,7 +116,8 @@ void runKernel2D(const ::std::shared_ptr<KernelWrap> &kernel, const std::vector<
 
 void runTurnKernelLWS2D(const ::std::shared_ptr<KernelWrap> &kernel, const std::vector<uint32_t> &gws, const std::vector<uint32_t> &lws,
                         OpenCLRuntime *runtime);
-
+std::vector<uint32_t> getGemmParams(const std::vector<uint32_t> &gemmSize, const std::vector<cl::Buffer> tensorMemory,
+                                    OpenCLRuntime *runtime);
 std::pair<std::vector<uint32_t>, uint32_t> localWS3DDefault(const std::vector<uint32_t> &gws, const uint32_t maxWorkGroupSize,
                                        OpenCLRuntime *runtime, const std::string &kernelName, const std::shared_ptr<KernelWrap> &mKernel);
 

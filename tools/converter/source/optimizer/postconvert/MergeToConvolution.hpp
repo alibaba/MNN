@@ -6,6 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#include <set>
 #include "../PostTreatUtils.hpp"
 using namespace MNN;
 
@@ -18,6 +19,10 @@ public:
     virtual bool onExecute(std::unique_ptr<MNN::NetT>& net) const override {
         // Merge Layer
         std::vector<MNN::OpT*> readyToDelete;
+        std::set<std::string> outputNames;
+        for (auto n : net->outputName) {
+            outputNames.insert(n);
+        }
         for (auto iter = net->oplists.begin(); iter != net->oplists.end(); iter++) {
             MNN::OpT& currentOp = *(iter->get());
             if (currentOp.type != MNN::OpType_Convolution
@@ -27,6 +32,9 @@ public:
                 continue;
             }
             DCHECK(currentOp.outputIndexes.size() == 1) << "Conv output ERROR!";
+            if (outputNames.find(net->tensorName[currentOp.outputIndexes[0]]) != outputNames.end()) {
+                continue;
+            }
 
             // merge Batchnorm/Relu/Relu6 to Convolution
             std::vector<MNN::OpT*> nextOp = PostTreatUtils::_findOpByInputIndex(currentOp.outputIndexes[0], net.get());

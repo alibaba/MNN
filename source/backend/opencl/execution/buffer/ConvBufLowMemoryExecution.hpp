@@ -29,12 +29,16 @@ private:
     void setGeneralWeightLowMemory(void * filterDataPtr, std::shared_ptr<ConvolutionCommon::Int8Common> & quanCommon);
     void tuneGeneralCaseLowMemory(Tensor * input, Tensor * output);
     void tuneGemmLowMemory(Tensor * input, Tensor * output);
+    void tuneGemvBatchLowMemory(Tensor * input, Tensor * output);
+    bool convertToQuantWeight1x1Buffer(cl::Buffer input, int pack);
     std::vector<int> mPaddings{0, 0};
     std::vector<uint32_t> mGlobalWorkSize{1, 1, 1};
     std::vector<uint32_t> mLocalWorkSize{1, 1, 1, 1};
     void *mFilterDataPtr = nullptr;
     bool mLowMemoryFlag = false;
-    int mNumQuantBit = 0;
+    std::shared_ptr<Tensor> mConvGemmInpTensor;
+    std::shared_ptr<Tensor> mConvGemmOutTensor;
+    std::shared_ptr<KernelWrap> mBufferToConv1x1Kernel = nullptr;
 };
 
 } // namespace OpenCL

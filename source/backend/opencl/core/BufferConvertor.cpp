@@ -405,6 +405,7 @@ bool BufferConvertor::convertToNC4HW4Buffer(const Tensor *buffer, const OpenCLBu
 
     auto runtime = mOpenCLRuntime;
     std::string kernelName;
+    std::string kernelFile = "buffer_convert_buf";
     switch (type) {
         case CONV2D_FILTER:
 #ifdef MNN_LOW_MEMORY
@@ -413,6 +414,7 @@ bool BufferConvertor::convertToNC4HW4Buffer(const Tensor *buffer, const OpenCLBu
                     MNN_ERROR("For Opencl Backend, only support low memory mode of int8 or int4 dequantization currently.\n");
                     MNN_ASSERT(false);
                 }
+                kernelFile = "buffer_convert_quant";
                 // shared part for all cases
                 if (quantBit == 8) {
                     kernelName = "conv2d_filter_buffer_to_nc4hw4_buffer_int8"; //NC4HW4 (1, 4*ic/4, kw*kh*oc/4, 1)*4
@@ -452,7 +454,7 @@ bool BufferConvertor::convertToNC4HW4Buffer(const Tensor *buffer, const OpenCLBu
             } else {/* More types to be supported. */}
         }
 #endif
-        mBufferToImageKernel = runtime->buildKernelWithCache("buffer_convert_buf", kernelName, buildOptions, buffer, image);
+        mBufferToImageKernel = runtime->buildKernelWithCache(kernelFile, kernelName, buildOptions, buffer, image);
     }
     auto kernel = mBufferToImageKernel->get();
 

@@ -48,7 +48,7 @@ Usage:
       --weightQuantAsymmetric   与weightQuantBits结合使用，决定是否用非对称量化，默认为`true`
       
       --compressionParamsFile arg
-                                使用MNN模型压缩工具箱生成的模型压缩信息文件
+                                使用MNN模型压缩工具箱生成的模型压缩信息文件或根据用户提供的量化参数来生成对应的量化模型，量化参数文件可参考tools/converter/user_provide_quant_params.json
                                 
       --saveStaticModel         固定输入形状，保存静态模型， default: false
 

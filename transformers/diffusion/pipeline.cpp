@@ -18,9 +18,6 @@
 #include <sys/time.h>
 #endif
 
-//#define TEXT_MAX_LEN 512 // Taiyi_SD
-#define TEXT_MAX_LEN 77 // SD_1.5
-
 //#define MNN_DUMP_DATA
 
 using namespace CV;
@@ -55,7 +52,12 @@ void display_progress(int cur, int total){
     fflush(stdout);
 }
 
-Pipeline::Pipeline(std::string modelPath) : mModelPath(modelPath) {
+Pipeline::Pipeline(std::string modelPath, DiffusionModelType modelType) : mModelPath(modelPath), mModelType(modelType) {
+    if(modelType == STABLE_DIFFUSION_1_5) {
+        mMaxTextLen = 77;
+    } else if(modelType == diffusion::STABLE_DIFFUSION_TAIYI_CHINESE) {
+        mMaxTextLen = 512;
+    }
     std::ifstream alphaFile(modelPath + "/alphas.txt");
     int index = 0;
     float alpha;
@@ -70,25 +72,28 @@ Pipeline::Pipeline(std::string modelPath) : mModelPath(modelPath) {
         161, 141, 121, 101,  81,  61,  41,  21,   1
     };
    mTimeSteps = { // 20 steps
-       951, 901, 901, 851, 801, 751, 701, 651, 601, 551, 501, 451,
-       401, 351, 301, 251,  201,  151,  101,  51,   1
+        951, 901, 901, 851, 801, 751, 701, 651, 601, 551, 501, 451,
+        401, 351, 301, 251,  201,  151,  101,  51,   1
    };
+    mTimeSteps = { // 5 steps
+        801, 601, 601,
+        401, 201,  1
+    };
 #endif
      mTimeSteps = {
-         801, 601, 601,
-         401, 201,  1
+         951, 901, 901, 851, 801, 751, 701, 651, 601, 551, 501, 451,
+         401, 351, 301, 251,  201,  151,  101,  51,   1
      };
 }
 
 bool Pipeline::load_modules(std::string modelPath) {
     AUTOTIME;
-
     ScheduleConfig config;
     BackendConfig backendConfig;
 //    config.type          = MNN_FORWARD_CPU;
     config.type          = MNN_FORWARD_OPENCL;
-    config.numThread     = 65;
-    backendConfig.precision = BackendConfig::Precision_Normal;
+    config.mode     = MNN_GPU_MEMORY_BUFFER | MNN_GPU_TUNING_FAST;
+    backendConfig.precision = BackendConfig::Precision_Low;
     backendConfig.memory = BackendConfig::Memory_Low;
     config.backendConfig = &backendConfig;
 
@@ -98,30 +103,52 @@ bool Pipeline::load_modules(std::string modelPath) {
     // module_config.rearrange = true;
     runtime_manager_.reset(Executor::RuntimeManager::createRuntimeManager(config));
 
-    // if (config.type == MNN_FORWARD_OPENCL) {
-    //     const char* cacheFileName = ".tempcache";
-    //     runtime_manager_->setCache(cacheFileName);
-    // }
+    if (config.type == MNN_FORWARD_OPENCL) {
+        const char* cacheFileName = ".tempcache";
+        runtime_manager_->setCache(cacheFileName);
+    }
     
+    mLatentVar = _Input({1, 4, 64, 64}, NCHW, halide_type_of<float>());
+    mPromptVar = _Input({2, mMaxTextLen}, NCHW, halide_type_of<int>());
+    mTimestepVar = _Input({1}, NCHW, halide_type_of<int>());
+    mSampleVar = _Concat({mLatentVar, mLatentVar}, 0);
+    
+    printf("Model loading and initilizing...\n");
+    printf("First time initilizing may cost a few seconds to create cachefile, please wait ...\n");
+
+    VARP text_embeddings;
     mModules.resize(3);
     // load text_encoder model
     {
         std::string model_path = modelPath + "/text_encoder.mnn";
         mModules[0].reset(Module::load(
             {"input_ids"}, {"last_hidden_state", "pooler_output"}, model_path.c_str(), runtime_manager_, &module_config));
+        
+        auto outputs = mModules[0]->onForward({mPromptVar});
+        text_embeddings = _Convert(outputs[0], NCHW);
 
+        display_progress(1, 3);
     }
     // load unet model
     {
         std::string model_path = modelPath + "/unet.mnn";
         mModules[1].reset(Module::load(
             {"sample", "timestep", "encoder_hidden_states"}, {"out_sample"}, model_path.c_str(), runtime_manager_, &module_config));
+        
+        auto outputs = mModules[1]->onForward({mSampleVar, mTimestepVar, text_embeddings});
+
+        auto output = _Convert(outputs[0], NCHW);
+        display_progress(2, 3);
     }
     // load vae_decoder model
     {
         std::string model_path = modelPath + "/vae_decoder.mnn";
         mModules[2].reset(Module::load(
             {"latent_sample"}, {"sample"}, model_path.c_str(), runtime_manager_, &module_config));
+
+        auto outputs = mModules[2]->onForward({mLatentVar});
+        auto output = _Convert(outputs[0], NCHW);
+        display_progress(3, 3);
     }
 
     auto exe = ExecutorScope::Current();
@@ -132,16 +159,18 @@ bool Pipeline::load_modules(std::string modelPath) {
 }
 
 VARP Pipeline::text_encoder(const std::vector<int>& ids) {
-    auto inputs_ids_ = _Const(ids.data(), {2, TEXT_MAX_LEN}, NCHW, halide_type_of<int>());
+    AUTOTIME;
     
-    auto outputs = mModules[0]->onForward({inputs_ids_});
+    memcpy((void *)mPromptVar->writeMap<int8_t>(), ids.data(), 2*mMaxTextLen*sizeof(int));
+    
+    auto outputs = mModules[0]->onForward({mPromptVar});
     auto output = _Convert(outputs[0], NCHW);
     output.fix(VARP::CONSTANT);
     
 #ifdef MNN_DUMP_DATA
     auto xx = output->readMap<float>();
     for(int i=0; i<10; i+=2) {
-        printf("%f %f ", xx[i], xx[i+TEXT_MAX_LEN*768]);
+        printf("%f %f ", xx[i], xx[i+mMaxTextLen*768]);
     }
     printf("\n\n");
 #endif
@@ -206,16 +235,13 @@ VARP Pipeline::unet(VARP text_embeddings) {
     }
 #endif
     
-    // VARP latentvar = _Const(initVal.data(), {1, 4, 64, 64}, NCHW);
-    VARP latentvar = _Input({1, 4, 64, 64}, NCHW, halide_type_of<float>());
-    memcpy((void *)latentvar->writeMap<int8_t>(), initVal.data(), 16384*sizeof(float));
+    memcpy((void *)mLatentVar->writeMap<int8_t>(), initVal.data(), 16384*sizeof(float));
 
     VARP scalevar = _Input({1}, NCHW, halide_type_of<float>());
     auto scaleptr = scalevar->writeMap<float>();
     scaleptr[0] = 7.5;
 
     
-    VARP timestepvar = _Input({1}, NCHW, halide_type_of<int>());
     auto floatVar = _Input({1}, NCHW, halide_type_of<float>());
     auto ptr = floatVar->writeMap<float>();
 
@@ -223,19 +249,15 @@ VARP Pipeline::unet(VARP text_embeddings) {
         AUTOTIME;
         display_progress(i, mTimeSteps.size());
 
-        auto t0 = getTime();
-
         int timestep = mTimeSteps[i];
 
         ptr[0] = timestep;
         auto temp = _Cast(floatVar, halide_type_of<int>());
-        timestepvar->input(temp);
+        mTimestepVar->input(temp);
 
-        VARP samplevar = _Concat({latentvar, latentvar}, 0);
-        auto outputs = mModules[1]->onForward({samplevar, timestepvar, text_embeddings});
-
+        mSampleVar = _Concat({mLatentVar, mLatentVar}, 0);
+        auto outputs = mModules[1]->onForward({mSampleVar, mTimestepVar, text_embeddings});
         auto output = _Convert(outputs[0], NCHW);
-        auto t1 = getTime();
 
         auto noise_pred = output;
         
@@ -244,42 +266,41 @@ VARP Pipeline::unet(VARP text_embeddings) {
          auto noise_pred_text = splitvar[1];
 
         noise_pred = scalevar * (noise_pred_text - noise_pred_uncond) + noise_pred_uncond;
-        auto t2 = getTime();
 
-        latentvar = step_plms(latentvar, noise_pred, i);
-        auto t3 = getTime();
-        MNN_PRINT("Times: %f %f %f ms\n", (t1-t0)/ 1000.0f, (t2-t1)/ 1000.0f, (t3-t2)/ 1000.0f);
-        // latentvar.fix(VARP::CONSTANT);
+        mLatentVar = step_plms(mLatentVar, noise_pred, i);
+
+        // mLatentVar.fix(VARP::CONSTANT);
 #ifdef MNN_DUMP_DATA
         auto xx = output->readMap<float>();
-        auto yy = samplevar->readMap<float>();
+        auto yy = mSampleVar->readMap<float>();
         auto zz = text_embeddings->readMap<float>();
 
         for(int i=0; i<6; i+=2) {
             printf("%f %f %f ", xx[i], yy[i], zz[i]);
         }
         for(int i=0; i<6; i+=2) {
-            printf("%f %f %f ", xx[16384+i], yy[16384+i], zz[TEXT_MAX_LEN*768+i]);
+            printf("%f %f %f ", xx[16384+i], yy[16384+i], zz[mMaxTextLen*768+i]);
         }
         printf("\n\n");
 #endif
     }
-    latentvar.fix(VARP::CONSTANT);
+    mLatentVar.fix(VARP::CONSTANT);
     
 #ifdef MNN_DUMP_DATA
-    auto xx = latentvar->readMap<float>();
+    auto xx = mLatentVar->readMap<float>();
     for(int i=0; i<10; i+=2) {
         printf("%f ", xx[i]);
     }
     printf("\n\n");
 #endif
-    return latentvar;
+    return mLatentVar;
 }
 
 VARP Pipeline::vae_decoder(VARP latent) {
     mModules[1].reset();
     latent = latent * _Const(1 / 0.18215);
     
+    AUTOTIME;
     auto outputs = mModules[2]->onForward({latent});
     auto output = _Convert(outputs[0], NCHW);
 
@@ -302,23 +323,25 @@ VARP Pipeline::vae_decoder(VARP latent) {
 
 bool Pipeline::run(const std::string& sentence, const std::string& img_name) {
     std::unique_ptr<diffusion::Tokenizer> tok;
-//    tok.reset(new diffusion::BertTokenizer);
-    tok.reset(new diffusion::CLIPTokenizer);
+    if(mModelType == STABLE_DIFFUSION_1_5) {
+        tok.reset(new diffusion::CLIPTokenizer);
+    } else if(mModelType == STABLE_DIFFUSION_TAIYI_CHINESE) {
+        tok.reset(new diffusion::BertTokenizer);
+    }
     tok->load(mModelPath);
     load_modules(mModelPath);
-
+    
     AUTOTIME;
-    auto ids = tok->encode(sentence, TEXT_MAX_LEN);
+    auto ids = tok->encode(sentence, mMaxTextLen);
     auto text_embeddings = text_encoder(ids);
-
+    
     auto latent = unet(text_embeddings);
+
     auto image = vae_decoder(latent);
     bool res = imwrite(img_name, image);
     if (res) {
         printf("SUCCESS! write to %s\n", img_name.c_str());
     }
-    // runtime_manager_->updateCache();
-    return res;
+    return true;
 }
-
 }
