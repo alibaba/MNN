@@ -3,7 +3,7 @@
 
 int main(int argc, const char* argv[]) {
     if (argc < 3) {
-        printf("Usage: ./diffusion_demo <resource_path> <model_type> <output_image_name> <input_text>\n");
+        MNN_PRINT("Usage: ./diffusion_demo <resource_path> <model_type> <output_image_name> <input_text>\n");
         return 0;
     }
 
@@ -19,16 +19,16 @@ int main(int argc, const char* argv[]) {
         }
     }
     
-    printf("model resource path: %s\n", resource_path);
+    MNN_PRINT("model resource path: %s\n", resource_path);
     if(model_type == diffusion::STABLE_DIFFUSION_1_5) {
-        printf("model resourc is stable diffusion 1.5\n");
+        MNN_PRINT("model type is stable diffusion 1.5\n");
     } else if (model_type == diffusion::STABLE_DIFFUSION_TAIYI_CHINESE) {
-        printf("model resourc is stable diffusion taiyi chinese version\n");
+        MNN_PRINT("model type is stable diffusion taiyi chinese version\n");
     } else {
-        printf("model type: %d not supported, please check\n", (int)model_type);
+        MNN_PRINT("model type: %d not supported, please check\n", (int)model_type);
     }
-    printf("output img_name: %s\n", img_name);
-    printf("input texts: %s\n", input_text.c_str());
+    MNN_PRINT("output img_name: %s\n", img_name);
+    MNN_PRINT("input texts: %s\n", input_text.c_str());
 
     
     diffusion::Pipeline pipeline(resource_path, model_type);

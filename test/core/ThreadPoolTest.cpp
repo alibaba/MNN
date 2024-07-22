@@ -20,17 +20,17 @@ public:
         std::vector<std::thread> threads;
         for (int i = 0; i < 10; ++i) {
             threads.emplace_back([i]() {
-                MNN::ThreadPool::init(10 - i);
+                int number = MNN::ThreadPool::init(10 - i);
                 // initializer
                 auto workIndex = ThreadPool::acquireWorkIndex();
                 FUNC_PRINT(workIndex);
-                ThreadPool::active();
+                ThreadPool::active(number);
                 auto func = [](int index) {
                     FUNC_PRINT(index);
                     std::this_thread::yield();
                 };
-                ThreadPool::enqueue(std::make_pair(std::move(func), 10), workIndex);
-                ThreadPool::deactive();
+                ThreadPool::enqueue(std::make_pair(std::move(func), 10), workIndex, number);
+                ThreadPool::deactive(number);
                 ThreadPool::releaseWorkIndex(workIndex);
             });
         }

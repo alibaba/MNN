@@ -16,7 +16,7 @@ namespace OpenCL {
 static void _TileOrPackTensor(Tensor *input, Tensor *output, std::shared_ptr<KernelWrap>& kernelW, cl::NDRange &globalWorkSize,
                               cl::NDRange &localWorkSize, const int Width, const int Height, const int Channel,
                               const int Batch, OpenCLBackend *bn, const std::string& KernelName, std::set<std::string> buildOptions,
-                              const int WidthPad, const int HeightPad, const int ChannelPad) {
+                              const int WidthPad, const int HeightPad, const int ChannelPad, OpenCLRuntime* runtime) {
     bool fastTileTranspose = false;
     if (TensorUtils::getDescribe(output)->dimensionFormat == MNN::MNN_DATA_FORMAT_NHWC || TensorUtils::getDescribe(input)->dimensionFormat == MNN::MNN_DATA_FORMAT_NHWC){
         buildOptions.emplace("-DMNN_NHWC");
@@ -30,21 +30,28 @@ static void _TileOrPackTensor(Tensor *input, Tensor *output, std::shared_ptr<Ker
     unsigned int tileW = 32;
     unsigned int tileC = 32;
     unsigned int tileH = 32;
-    if((WidthPad & 63) == 0) {
-        tileW = 64;
-    }
-    if((HeightPad & 63) == 0) {
-        tileH = 64;
-    }
-    if((ChannelPad & 63) == 0) {
-        tileC = 64;
-    }
 
     unsigned int localW = 8;
     unsigned int localC = 8;
     unsigned int localH = 8;
     if(fastTileTranspose) {
+        // local memory limit
+        uint32_t local_mem_size = 4;
+        if(runtime->isSupportedFP16()) {
+            local_mem_size = 2;
+        }
+
         if(buildOptions.find("-DDIMENSION_4") != buildOptions.end()) {
+            local_mem_size *= (64 * 64 * 4);
+            if(local_mem_size <= runtime->getMaxLocalMem()) {
+                if((WidthPad & 63) == 0) {
+                    tileW = 64;
+                }
+                if((HeightPad & 63) == 0) {
+                    tileH = 64;
+                }
+            }
+
             runKernelName = "tile_trans_4d_buf";
             // match with tileW tileH tileW/localW tileH/localH
             buildOptions.emplace("-DWGSW=" + std::to_string(tileW));
@@ -52,6 +59,15 @@ static void _TileOrPackTensor(Tensor *input, Tensor *output, std::shared_ptr<Ker
             buildOptions.emplace("-DTSW=" + std::to_string(tileW/localW));
             buildOptions.emplace("-DTSH=" + std::to_string(tileH/localH));
         } else {
+            local_mem_size *= (64 * 64);
+            if(local_mem_size <= runtime->getMaxLocalMem()) {
+                if((ChannelPad & 63) == 0) {
+                    tileC = 64;
+                }
+                if((HeightPad & 63) == 0) {
+                    tileH = 64;
+                }
+            }
             runKernelName = "tile_trans_3d_buf";
             // match with tileW tileH tileW/localW tileH/localH
             buildOptions.emplace("-DWGSC=" + std::to_string(tileC));
@@ -410,7 +426,7 @@ ErrorCode LoopBatchMatMulBufExecution::onEncode(const std::vector<Tensor *> &inp
     
     int tileM = 32;
     int tileN = 32;
-    int tileK = 32;
+    int tileK = 4;
     bool isTotalLarge = (e * 1.0 / 512 * l / 512 * h / 512 > 0.5);
     bool isDimLarge = (e > 256 && l > 256 && h > 256);
     int max_eh = std::max(e, h);
@@ -482,7 +498,7 @@ ErrorCode LoopBatchMatMulBufExecution::onEncode(const std::vector<Tensor *> &inp
         // MNN_PRINT("input%d, %d %d %d %d\n", i, Batch, ChannelPad, HeightPad, WidthPad);
 
         mOpenCLBackend->onAcquireBuffer(mTmpTensors[i].get(), Backend::DYNAMIC);
-       _TileOrPackTensor(input, mTmpTensors[i].get(), unit.kernel, unit.globalWorkSize, unit.localWorkSize, Width, Height, Channel, Batch, mOpenCLBackend, "tile_buf", buildOptions, WidthPad, HeightPad, ChannelPad);
+       _TileOrPackTensor(input, mTmpTensors[i].get(), unit.kernel, unit.globalWorkSize, unit.localWorkSize, Width, Height, Channel, Batch, mOpenCLBackend, "tile_buf", buildOptions, WidthPad, HeightPad, ChannelPad, runTime);
        mUnits.emplace_back(unit);
     }
 
@@ -499,7 +515,7 @@ ErrorCode LoopBatchMatMulBufExecution::onEncode(const std::vector<Tensor *> &inp
            // MNN_PRINT("input%d offset, %d %d %d %d\n", i, Batch, Channel, Height, Width);
 
            Unit unit;
-           _TileOrPackTensor(input, mOffsetTensors.back().get(), unit.kernel, unit.globalWorkSize, unit.localWorkSize, Width, Height, Channel, Batch, mOpenCLBackend, "tile_buf", mBuildOptions, Width, Height, Channel);
+           _TileOrPackTensor(input, mOffsetTensors.back().get(), unit.kernel, unit.globalWorkSize, unit.localWorkSize, Width, Height, Channel, Batch, mOpenCLBackend, "tile_buf", mBuildOptions, Width, Height, Channel, runTime);
            mUnits.emplace_back(unit);
        }
     }
@@ -520,11 +536,9 @@ ErrorCode LoopBatchMatMulBufExecution::onEncode(const std::vector<Tensor *> &inp
         std::set<std::string> buildOptions;
         
         uint32_t layout = 0;
-        auto param = getGemmParams({(uint32_t)e_pack, (uint32_t)h_pack, (uint32_t)l_pack, layout, (uint32_t)n}, {openCLBuffer(mTmpTensors[1].get()), openCLBuffer(mTmpTensors[2].get()), openCLBuffer(mTmpTensors[0].get())}, mOpenCLBackend->getOpenCLRuntime());
+        auto param = getGemmParams({(uint32_t)e_pack, (uint32_t)h_pack, (uint32_t)l_pack, layout, (uint32_t)n, (uint32_t)0}, {openCLBuffer(mTmpTensors[1].get()), openCLBuffer(mTmpTensors[2].get()), openCLBuffer(mTmpTensors[0].get())}, mOpenCLBackend->getOpenCLRuntime());
 
-        int GEMMK=param[0], KREG=param[1], KWG=param[2], KWI=param[3], MDIMA=param[4], MDIMC=param[5], MWG=param[6], NDIMB=param[7], NDIMC=param[8], NWG=param[9], SA=param[10], SB=param[11], STRM=param[12], STRN=param[13], VWM=param[14], VWN=param[15];
-        buildOptions.emplace("-DGEMMK=" + std::to_string(GEMMK));
-        buildOptions.emplace("-DKREG=" + std::to_string(KREG));
+        int KWG=param[0], KWI=param[1], MDIMA=param[2], MDIMC=param[3], MWG=param[4], NDIMB=param[5], NDIMC=param[6], NWG=param[7], SA=param[8], SB=param[9], STRM=param[10], STRN=param[11], VWM=param[12], VWN=param[13];
         buildOptions.emplace("-DKWG=" + std::to_string(KWG));
         buildOptions.emplace("-DKWI=" + std::to_string(KWI));
         buildOptions.emplace("-DMDIMA=" + std::to_string(MDIMA));
@@ -552,12 +566,6 @@ ErrorCode LoopBatchMatMulBufExecution::onEncode(const std::vector<Tensor *> &inp
             buildOptions.emplace("-DUSE_CL_MAD=1");
             buildOptions.emplace("-DRELAX_WORKGROUP_SIZE=1");
         }
-
-        if(mOpenCLBackend->getOpenCLRuntime()->isSupportedFP16()){
-            buildOptions.emplace(" -DPRECISION=16");
-        } else {
-            buildOptions.emplace(" -DPRECISION=32");
-        }
         
         Unit unit;
         unit.kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("matmul_params_buf", "XgemmBatched", buildOptions);
@@ -570,7 +578,9 @@ ErrorCode LoopBatchMatMulBufExecution::onEncode(const std::vector<Tensor *> &inp
         
         float alpha = 1.0;
         float beta = 0.0f;
-        
+        int batch_offset_a = e_pack * l_pack;
+        int batch_offset_b = h_pack * l_pack;
+        int batch_offset_c = e_pack * h_pack;
         int idx            = 0;
         cl_int ret = CL_SUCCESS;
         ret |= unit.kernel->get().setArg(idx++, static_cast<int>(e_pack));
@@ -579,14 +589,11 @@ ErrorCode LoopBatchMatMulBufExecution::onEncode(const std::vector<Tensor *> &inp
         ret |= unit.kernel->get().setArg(idx++, alpha);
         ret |= unit.kernel->get().setArg(idx++, beta);
         ret |= unit.kernel->get().setArg(idx++, openCLBuffer(mTmpTensors[1].get()));
-        ret |= unit.kernel->get().setArg(idx++, e_pack);
-        ret |= unit.kernel->get().setArg(idx++, l_pack);
+        ret |= unit.kernel->get().setArg(idx++, batch_offset_a);
         ret |= unit.kernel->get().setArg(idx++, openCLBuffer(mTmpTensors[2].get()));
-        ret |= unit.kernel->get().setArg(idx++, h_pack);
-        ret |= unit.kernel->get().setArg(idx++, l_pack);
+        ret |= unit.kernel->get().setArg(idx++, batch_offset_b);
         ret |= unit.kernel->get().setArg(idx++, openCLBuffer(mTmpTensors[0].get()));
-        ret |= unit.kernel->get().setArg(idx++, e_pack);
-        ret |= unit.kernel->get().setArg(idx++, h_pack);
+        ret |= unit.kernel->get().setArg(idx++, batch_offset_c);
         MNN_CHECK_CL_SUCCESS(ret, "setArg LoopBuf GemmTile Kernel");
 
         unit.globalWorkSize = {globalWorkSize[0], globalWorkSize[1], globalWorkSize[2]};
@@ -686,7 +693,7 @@ ErrorCode LoopBatchMatMulBufExecution::onEncode(const std::vector<Tensor *> &inp
             HeightPad  = std::get<1>(shape);
             ChannelPad = std::get<2>(shape);
         }
-       _TileOrPackTensor(mTmpTensors[0].get(), output, unit.kernel, unit.globalWorkSize, unit.localWorkSize, Width, Height, Channel, Batch, mOpenCLBackend, "pack_buf", buildOptions, WidthPad, HeightPad, ChannelPad);
+       _TileOrPackTensor(mTmpTensors[0].get(), output, unit.kernel, unit.globalWorkSize, unit.localWorkSize, Width, Height, Channel, Batch, mOpenCLBackend, "pack_buf", buildOptions, WidthPad, HeightPad, ChannelPad, runTime);
        mUnits.emplace_back(unit);
     }
 

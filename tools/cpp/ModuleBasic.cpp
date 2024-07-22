@@ -15,6 +15,9 @@
 #include "rapidjson/document.h"
 #include "core/MemoryFormater.h"
 #include <numeric>
+#include <chrono>
+#include <iostream>
+#include <thread>
 #include "ExprDebug.hpp"
 
 using namespace MNN::Express;
@@ -127,6 +130,9 @@ int main(int argc, char *argv[]) {
         }
         checkOutput = outputs.size() > 0;
     }
+    // Call Time / Per Second
+    float freq = 0.0f;
+    int cpuDecreaseRate = -1;
     if (inputNames.empty()) {
         rapidjson::Document document;
         std::ostringstream jsonNameOs;
@@ -176,6 +182,12 @@ int main(int argc, char *argv[]) {
         if (document.HasMember("repeat")) {
             repeatNumber = document["repeat"].GetInt();
         }
+        if (document.HasMember("freq")) {
+            freq = document["freq"].GetFloat();
+        }
+        if (document.HasMember("cpu_decrease_rate")) {
+            cpuDecreaseRate = document["cpu_decrease_rate"].GetInt();
+        }
     }
     auto type = MNN_FORWARD_CPU;
     if (argc > 4) {
@@ -189,12 +201,14 @@ int main(int argc, char *argv[]) {
         modeNum = ::atoi(argv[6]);
     }
 
+    int power = BackendConfig::Power_Normal;
     int precision = BackendConfig::Precision_Normal;
     int memory = BackendConfig::Memory_Normal;
     if (argc > 7) {
         int mask = atoi(argv[7]);
         precision = mask % 4;
         memory = (mask / 4) % 4;
+        power = (mask / 16) % 4;
     }
     const char* cacheFileName = ".tempcache";
     if (argc > 8) {
@@ -202,6 +216,7 @@ int main(int argc, char *argv[]) {
     }
     FUNC_PRINT(precision);
     FUNC_PRINT(memory);
+    FUNC_PRINT(power);
     FUNC_PRINT_ALL(cacheFileName, s);
     // create session
     MNN::ScheduleConfig config;
@@ -212,7 +227,7 @@ int main(int argc, char *argv[]) {
     config.backupType = type;
     BackendConfig backendConfig;
     // config.path.outputs.push_back("ResizeBilinear_2");
-    // backendConfig.power = BackendConfig::Power_High;
+    backendConfig.power = (BackendConfig::PowerMode)power;
     backendConfig.precision = static_cast<MNN::BackendConfig::PrecisionMode>(precision);
     backendConfig.memory = static_cast<MNN::BackendConfig::MemoryMode>(memory);
     config.backendConfig     = &backendConfig;
@@ -224,6 +239,9 @@ int main(int argc, char *argv[]) {
     mConfig.shapeMutable = shapeMutable;
     std::shared_ptr<Executor::RuntimeManager> rtmgr(Executor::RuntimeManager::createRuntimeManager(config));
     rtmgr->setCache(cacheFileName);
+    if (cpuDecreaseRate > 0 && cpuDecreaseRate <= 100) {
+        rtmgr->setHint(Interpreter::CPU_LITTLECORE_DECREASE_RATE, cpuDecreaseRate);
+    }
     if (runMask & 1) {
         // Need dump tensor, open debug
         rtmgr->setMode(Interpreter::Session_Debug);
@@ -255,6 +273,9 @@ int main(int argc, char *argv[]) {
     }
     if (runMask & 512) {
         rtmgr->setHint(Interpreter::WINOGRAD_MEMORY_LEVEL, 0);
+    }
+    if (runMask & 1024) {
+        rtmgr->setHint(Interpreter::DYNAMIC_QUANT_OPTIONS, 1);
     }
     std::shared_ptr<Module> net;
     {
@@ -402,6 +423,12 @@ int main(int argc, char *argv[]) {
                 ((MNN::Tensor*)o->getTensor())->wait(MNN::Tensor::MAP_TENSOR_READ, true);
             }
             times[i] = _l.durationInUs() / 1000.0f;
+            if (freq > 0.0f) {
+                float remainMs = (1000.0f / freq) - times[i];
+                if (remainMs > 0.0f) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds((int)remainMs));
+                }
+            }
         }
         if (nullptr != gTimeTraceInfo) {
             float opSummer = 0.0f;

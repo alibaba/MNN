@@ -45,6 +45,7 @@ public:
         std::shared_ptr<Tensor> mScaleBias;
     };
     struct Resource {
+        std::shared_ptr<Tensor> mWeightKernelSum;
         std::shared_ptr<Tensor> mWeight;
         std::shared_ptr<Tensor> mBias;
         ResourceDequantizeInfo mDequantize;
@@ -54,18 +55,21 @@ public:
         int lU;
         int lP;
         int hP;
+        std::vector<float> mReluThreshold;
     };
     struct ResourceInt8 {
         std::vector<int> mInt8WeightKernelSum;
         std::shared_ptr<Tensor> mWeightInt8;
         std::shared_ptr<Tensor> mOriginBias;
         std::shared_ptr<Tensor> mOriginScale;
+        std::shared_ptr<Tensor> mWeightQuantZero;
         // relu or relu6
         bool mRelu;
         int mActBits;
 
         int mOutputCount;
         bool mUseConvQuan = true;
+        bool mWeightAsymmetricQuant = true;
 #ifdef MNN_USE_SSE
         std::vector<int> offsets;
 #endif
@@ -89,10 +93,12 @@ public:
         int8_t mClampMax;
         std::shared_ptr<Tensor> mBiasInt32;
         std::shared_ptr<Tensor> mScaleFloat;
+        std::shared_ptr<Tensor> mBiasFloat;
         int32_t mShiftBits = 14;
         bool mValid;
     };
     static std::shared_ptr<ResourceInt8> makeResourceInt8(Backend *backend, const MNN::Convolution2D *convOp, int pack=4);
+    static void makeResource(Backend* backend, std::shared_ptr<Resource> resource, const Convolution2D* conv2d, std::shared_ptr<ResourceInt8> resourceInt8 = nullptr);
     CPUConvolution(const Convolution2DCommon *convOp, Backend *b);
     virtual ~CPUConvolution() = default;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;

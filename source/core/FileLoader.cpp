@@ -11,7 +11,7 @@
 #include "Windows.h"
 #endif
 namespace MNN {
-static FILE* _OpenFile(const char* file) {
+static FILE* _OpenFile(const char* file, bool read) {
 #if defined(_MSC_VER)
     wchar_t wFilename[1024];
     if (0 == MultiByteToWideChar(CP_ACP, 0, file, -1, wFilename, sizeof(wFilename))) {
@@ -19,16 +19,31 @@ static FILE* _OpenFile(const char* file) {
     }
 #if _MSC_VER >= 1400
     FILE* mFile = nullptr;
-    if (0 != _wfopen_s(&mFile, wFilename, L"rb")) {
-        return nullptr;
+    if (read) {
+        if (0 != _wfopen_s(&mFile, wFilename, L"rb")) {
+            return nullptr;
+        }
+    } else {
+        if (0 != _wfopen_s(&mFile, wFilename, L"wb")) {
+            return nullptr;
+        }
     }
     return mFile;
 #else
-    return _wfopen(wFilename, L"rb");
+    if (read) {
+        return _wfopen(wFilename, L"rb");
+    } else {
+        return _wfopen(wFilename, L"wb");
+    }
 #endif
 #else
-    return fopen(file, "rb");
+    if (read) {
+        return fopen(file, "rb");
+    } else {
+        return fopen(file, "wb");
+    }
 #endif
+    return nullptr;
 }
 FileLoader::FileLoader(const char* file, bool init) {
     if (nullptr == file) {
@@ -86,7 +101,7 @@ bool FileLoader::read() {
 }
 
 bool FileLoader::write(const char* filePath, std::pair<const void*, size_t> cacheInfo) {
-    FILE* f = fopen(filePath, "wb");
+    FILE* f = _OpenFile(filePath, false);
     if (nullptr == f) {
         MNN_ERROR("Open %s error\n", filePath);
         return false;
@@ -132,7 +147,7 @@ void FileLoader::_init() {
     }
     mInited = true;
     if (!mFilePath.empty()) {
-        mFile = _OpenFile(mFilePath.c_str());
+        mFile = _OpenFile(mFilePath.c_str(), true);
     }
     if (nullptr == mFile) {
         MNN_ERROR("Can't open file:%s\n", mFilePath.c_str());

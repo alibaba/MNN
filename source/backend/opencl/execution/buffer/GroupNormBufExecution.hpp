@@ -5,7 +5,6 @@
 //  Created by MNN on 2024/06/24.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
-#ifndef MNN_OPENCL_BUFFER_CLOSED
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
 
 #ifndef GroupNormBufExecution_hpp
@@ -42,4 +41,3 @@ private:
 } // namespace MNN
 #endif /* GroupNormBufExecution_hpp */
 #endif/* MNN_SUPPORT_TRANSFORMER_FUSE */
-#endif

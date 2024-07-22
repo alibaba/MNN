@@ -851,7 +851,7 @@ public:
             BackendConfig bnConfig;
             bnConfig.precision = (MNN::BackendConfig::PrecisionMode)precision;
             config.numThread = 1;
-            config.type = ExecutorScope::Current()->getAttr()->firstType.first;
+            config.type = ExecutorScope::Current()->getAttr()->firstType;
             config.backendConfig = &bnConfig;
             auto s1 = net->createSession(config);
             float memory = 0.0f;
@@ -947,7 +947,7 @@ public:
         std::shared_ptr<Interpreter> net(Interpreter::createFromBuffer((void*)bufferOutput, sizeOutput), Interpreter::destroy);
         ScheduleConfig config;
         config.numThread = 4;
-        config.type = ExecutorScope::Current()->getAttr()->firstType.first;
+        config.type = ExecutorScope::Current()->getAttr()->firstType;
         auto s1 = net->createSession(config);
         int resizeCode;
         net->getSessionInfo(s1, Interpreter::RESIZE_STATUS, &resizeCode);
@@ -984,7 +984,7 @@ public:
             BackendConfig bnConfig;
             bnConfig.precision = (MNN::BackendConfig::PrecisionMode)precision;
             config.numThread = 1;
-            config.type = ExecutorScope::Current()->getAttr()->firstType.first;
+            config.type = ExecutorScope::Current()->getAttr()->firstType;
             config.backendConfig = &bnConfig;
 
             std::vector<std::thread> threads;

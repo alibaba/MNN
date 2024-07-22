@@ -328,7 +328,7 @@ void _SSE_MNNReluWithSlopeChannelInt8(int8_t* dst, const int8_t* src, const floa
             d0 = _mm_add_epi32(d0, offset);
             d0 = _mm_packs_epi32(d0, d0);
             d0 = _mm_packus_epi16(d0, d0);
-            *((int*)dst + i) = _mm_cvtsi128_si32(d0);
+            *((int*)dstZ + i) = _mm_cvtsi128_si32(d0);
         }
     }
 }

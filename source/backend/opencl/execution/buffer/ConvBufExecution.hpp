@@ -65,7 +65,6 @@ public:
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
 
-    void setConv1x1WeightBuffer(int packCout, int packCin, const float* filterDataPtr);
 private:
     void _generateFilterConvertRegion(Tensor *virtualFilter, Tensor *originBuffer) const;
 
@@ -75,6 +74,7 @@ private:
     std::shared_ptr<KernelWrap> mKernel;
     std::shared_ptr<Tensor> mConvGemmInpTensor;
     std::shared_ptr<Tensor> mConvGemmOutTensor;
+    bool mNeedOutTempTensor = false;
     std::shared_ptr<KernelWrap> mPreKernel = nullptr;
     std::vector<uint32_t> mPreGlobalWorkSize{1, 1, 1};
     std::vector<uint32_t> mPreLocalWorkSize{1, 1, 1, 1};

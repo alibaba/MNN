@@ -665,7 +665,7 @@ public:
                 MNN_PRINT("precision:%d, expect:\t expect2:\t real:\t\n", precision);
                 for (int i = 0; i < toutputData.size(); ++i)
                 {
-                    MNN_PRINT("%f\t, %f\t, %f\n", toutputData[i],outputDataSeparateBias[i], outputPtr[i]);
+                    MNN_PRINT("%f\t, %f\n", toutputData[i], outputPtr[i]);
                 }
                 MNN_ERROR("%s(%s) test failed for %d bits, async=%d , relu: %d, relu6: %d!\n", test_op_name.c_str(), device_name.c_str(), nbit, async, activation.first, activation.second);
                 return false;

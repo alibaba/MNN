@@ -64,12 +64,12 @@ bool SparseConvInt8TiledExecutor::reorderWeight(Backend* b, const Convolution2DC
     return true;
 }
 
-SparseConvInt8TiledExecutor::SparseConvInt8TiledExecutor(Backend* backend, const Convolution2D* convOp, std::shared_ptr<ResourceInt8> res) : ConvInt8TiledExecutor(backend, convOp->common(), res) {
+SparseConvInt8TiledExecutor::SparseConvInt8TiledExecutor(Backend* backend, const Convolution2D* convOp, std::shared_ptr<ResourceInt8> res) : ConvInt8TiledExecutor(backend, convOp, res) {
 
     std::shared_ptr<Tensor> weightOrigin;
-    weightOrigin.swap(mResource->mWeightInt8);
+    weightOrigin.swap(mResourceInt8->mWeightInt8);
     const SparseCommon* sparseCommon = convOp->sparseParameter();
-    mValid = reorderWeight(backend, convOp->common(), weightOrigin, mResource->mWeightInt8, sparseCommon);
+    mValid = reorderWeight(backend, convOp->common(), weightOrigin, mResourceInt8->mWeightInt8, sparseCommon);
     if(!mValid) {
         return;
     }
@@ -81,9 +81,9 @@ SparseConvInt8TiledExecutor::SparseConvInt8TiledExecutor(Backend* backend, const
 
 }
 
-SparseConvInt8TiledExecutor::SparseConvInt8TiledExecutor(Backend* backend, const Convolution2DCommon* common,
+SparseConvInt8TiledExecutor::SparseConvInt8TiledExecutor(Backend* backend, const Convolution2D* convOp,
                                                          const SparseConvInt8TiledExecutor& exe)
-    : ConvInt8TiledExecutor(backend, common, exe.mResource),
+    : ConvInt8TiledExecutor(backend, convOp, exe.mResourceInt8),
       mNNZMap(exe.mNNZMap),
       mDataOffsetMap(exe.mDataOffsetMap),
       mSparseBlockOC(exe.mSparseBlockOC),
@@ -98,7 +98,7 @@ bool SparseConvInt8TiledExecutor::onClone(Backend* bn, const Op* op, Execution**
     if (nullptr == dst) {
         return true;
     }
-    auto exe = new SparseConvInt8TiledExecutor(bn, op->main_as_Convolution2D()->common(), *this);
+    auto exe = new SparseConvInt8TiledExecutor(bn, op->main_as_Convolution2D(), *this);
     if (!exe->valid()) {
         return false;
     }
@@ -170,7 +170,7 @@ ErrorCode SparseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inp
     const int ocDivPack = UP_DIV(output->channel(), PackUnit);
 
     const auto inputDataPtr = input->host<int8_t>();
-    const auto weightDataPtr = mResource->mWeightInt8->host<int8_t>();
+    const auto weightDataPtr = mResourceInt8->mWeightInt8->host<int8_t>();
     const auto NNZMapPtr     = mNNZMap->host<unsigned int>();
     const auto dataOffsetPtr = mDataOffsetMap->host<int>();
     auto im2colPtr           = mTempIm2ColBuffer->host<int8_t>();
@@ -179,7 +179,7 @@ ErrorCode SparseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inp
     quanParam.bias = mMutableResource.mBiasInt32->host<int32_t>();
     quanParam.scale = mMutableResource.mScaleFloat->host<float>();
     quanParam.maxValue = mMutableResource.mClampMax;
-    if (mResource->mRelu) {
+    if (mResourceInt8->mRelu) {
         quanParam.minValue = mMutableResource.mOutputZeroPoint;
     } else {
         quanParam.minValue = mMutableResource.mClampMin;

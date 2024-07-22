@@ -9,6 +9,7 @@ extern void ___GeometryReshape___create__();
 extern void ___GeometryReduce___create__();
 extern void ___GeometryInnerProduct___create__();
 extern void ___GeometryTopK___create__();
+extern void ___GeometryLayerNorm___create__();
 extern void ___GeometryDepthToSpace___create__();
 extern void ___GeometryBroadcastTo___create__();
 extern void ___GeometryConvert___create__();
@@ -40,7 +41,6 @@ extern void ___GeometrySlice___create__();
 extern void ___GeometryConcat___create__();
 extern void ___GeometryUnary___create__();
 extern void ___GeometryBinary___create__();
-extern void ___GeometryLayerNorm___create__();
 
 void registerGeometryOps() {
 ___GeometryShape___create__();
@@ -51,6 +51,7 @@ ___GeometryReshape___create__();
 ___GeometryReduce___create__();
 ___GeometryInnerProduct___create__();
 ___GeometryTopK___create__();
+___GeometryLayerNorm___create__();
 ___GeometryDepthToSpace___create__();
 ___GeometryBroadcastTo___create__();
 ___GeometryConvert___create__();
@@ -82,6 +83,5 @@ ___GeometrySlice___create__();
 ___GeometryConcat___create__();
 ___GeometryUnary___create__();
 ___GeometryBinary___create__();
-___GeometryLayerNorm___create__();
 }
 }

@@ -25,17 +25,19 @@ public:
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
     struct Resource {
-        std::shared_ptr<Tensor> mPastKey;
-        std::shared_ptr<Tensor> mPastValue;
-        float mScale;
-        const int mExpandChunk = 64;
+        std::shared_ptr<Tensor> mPastKey;               // numhead, [maxlen/eP, headdim, eP]
+        std::shared_ptr<Tensor> mPastValue;             // numhead, [headdim/eP, maxlen, eP]
+        std::shared_ptr<Tensor> mDequantKeyScale;       // numhead, [maxlen/eP, 1, eP]
+        std::shared_ptr<Tensor> mDequantKeyZeroPoint;   // numhead, [maxlen/eP, 1, eP]
         int mPastLength = 0, mMaxLength = 0;
-        int mNumHead = 0, mKvNumHead = 0, mHeadDim = 0, mValueH = 0;
+        const int mExpandChunk = 64;
+        int mNumHead = 0, mKvNumHead = 0, mHeadDim = 0;
     };
 private:
-    void allocKVCache();
-    void reallocKVCache();
-    bool mIsDecode = false;
+    void allocKVCache(int kv_seq_len, bool quantK, bool quantV);
+    void reallocKVCache(int kv_seq_len, bool quantK, bool quantV);
+    bool mIsPrefill = true;
+    bool mIsFirstPrefill = true;
     bool mKVCache;
     int mThreadNum = 1;
     std::shared_ptr<Resource> mResource;

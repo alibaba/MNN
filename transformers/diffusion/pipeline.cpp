@@ -43,10 +43,10 @@ static inline int64_t getTime() {
 
 void display_progress(int cur, int total){
     putchar('\r');
-    printf("[");
+    MNN_PRINT("[");
     for (int i = 0; i < cur; i++) putchar('#');
     for (int i = 0; i < total - cur; i++) putchar('-');
-    printf("]");
+    MNN_PRINT("]");
     fprintf(stdout, "  [%3d%%]", cur * 100 / total);
     if (cur == total) putchar('\n');
     fflush(stdout);
@@ -113,8 +113,8 @@ bool Pipeline::load_modules(std::string modelPath) {
     mTimestepVar = _Input({1}, NCHW, halide_type_of<int>());
     mSampleVar = _Concat({mLatentVar, mLatentVar}, 0);
     
-    printf("Model loading and initilizing...\n");
-    printf("First time initilizing may cost a few seconds to create cachefile, please wait ...\n");
+    MNN_PRINT("Model loading and initilizing...\n");
+    MNN_PRINT("First time initilizing may cost a few seconds to create cachefile, please wait ...\n");
 
     VARP text_embeddings;
     mModules.resize(3);
@@ -170,9 +170,9 @@ VARP Pipeline::text_encoder(const std::vector<int>& ids) {
 #ifdef MNN_DUMP_DATA
     auto xx = output->readMap<float>();
     for(int i=0; i<10; i+=2) {
-        printf("%f %f ", xx[i], xx[i+mMaxTextLen*768]);
+        MNN_PRINT("%f %f ", xx[i], xx[i+mMaxTextLen*768]);
     }
-    printf("\n\n");
+    MNN_PRINT("\n\n");
 #endif
     return output;
 }
@@ -276,12 +276,12 @@ VARP Pipeline::unet(VARP text_embeddings) {
         auto zz = text_embeddings->readMap<float>();
 
         for(int i=0; i<6; i+=2) {
-            printf("%f %f %f ", xx[i], yy[i], zz[i]);
+            MNN_PRINT("%f %f %f ", xx[i], yy[i], zz[i]);
         }
         for(int i=0; i<6; i+=2) {
-            printf("%f %f %f ", xx[16384+i], yy[16384+i], zz[mMaxTextLen*768+i]);
+            MNN_PRINT("%f %f %f ", xx[16384+i], yy[16384+i], zz[mMaxTextLen*768+i]);
         }
-        printf("\n\n");
+        MNN_PRINT("\n\n");
 #endif
     }
     mLatentVar.fix(VARP::CONSTANT);
@@ -289,9 +289,9 @@ VARP Pipeline::unet(VARP text_embeddings) {
 #ifdef MNN_DUMP_DATA
     auto xx = mLatentVar->readMap<float>();
     for(int i=0; i<10; i+=2) {
-        printf("%f ", xx[i]);
+        MNN_PRINT("%f ", xx[i]);
     }
-    printf("\n\n");
+    MNN_PRINT("\n\n");
 #endif
     return mLatentVar;
 }
@@ -307,9 +307,9 @@ VARP Pipeline::vae_decoder(VARP latent) {
 #ifdef MNN_DUMP_DATA
     auto xx = output->readMap<float>();
     for(int i=0; i<320; i+=32) {
-        printf("%f ", xx[i]);
+        MNN_PRINT("%f ", xx[i]);
     }
-    printf("\n\n");
+    MNN_PRINT("\n\n");
 #endif
     
     auto image = output;
@@ -340,7 +340,7 @@ bool Pipeline::run(const std::string& sentence, const std::string& img_name) {
     auto image = vae_decoder(latent);
     bool res = imwrite(img_name, image);
     if (res) {
-        printf("SUCCESS! write to %s\n", img_name.c_str());
+        MNN_PRINT("SUCCESS! write to %s\n", img_name.c_str());
     }
     return true;
 }

@@ -1,8 +1,8 @@
-#include "llm.hpp"
+#include "llm/llm.hpp"
 
 typedef struct {
     PyObject_HEAD
-    Llm* llm;
+    MNN::Transformer::Llm* llm;
 } LLM;
 
 static PyObject* PyMNNLLM_new(struct _typeobject *type, PyObject *args, PyObject *kwds) {
@@ -38,7 +38,7 @@ static PyObject* PyMNNLLM_response(LLM *self, PyObject *args) {
     if (!PyArg_ParseTuple(args, "s|p", &query, &stream)) {
         Py_RETURN_NONE;
     }
-    LlmStreamBuffer buffer(nullptr);
+    MNN::Transformer::LlmStreamBuffer buffer(nullptr);
     std::ostream null_os(&buffer);
     auto res = self->llm->response(query, stream ? &std::cout : &null_os);
     return string2Object(res);
@@ -104,7 +104,7 @@ static PyObject* PyMNNLLM_create(PyObject *self, PyObject *args) {
     if (!llm) {
         return NULL;
     }
-    llm->llm = Llm::createLLM(path);
+    llm->llm = MNN::Transformer::Llm::createLLM(path);
     return (PyObject*)llm;
 }
 

@@ -78,7 +78,7 @@ public:
         }
     }
 #else
-            if(conv2d->symmetricQuan()->method() == QuantizeAlgo_OVERFLOW_AWARE){
+            if(conv2d->symmetricQuan() && conv2d->symmetricQuan()->method() == QuantizeAlgo_OVERFLOW_AWARE){
                 gemmKernel = core->Int8GemmKernelFast;
             }
 #endif

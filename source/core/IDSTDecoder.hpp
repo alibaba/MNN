@@ -11,7 +11,6 @@
 
 #include <map>
 #include <cmath>
-#include <sstream>
 #include "MNN_generated.h"
 #include "core/ConvolutionCommon.hpp"
 

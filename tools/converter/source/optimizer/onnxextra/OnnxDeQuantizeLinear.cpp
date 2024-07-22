@@ -30,28 +30,55 @@ public:
             MNN_ERROR("QuantizeLinear should provide scale and input\n");
             return nullptr;
         }
-        VARP zeropoint = nullptr;
+
+        uint8_t dataType = halide_type_int;
+        VARP zeropoint = _Const(0.f);
         if (inputs.size() > 2) {
-            zeropoint = inputs[2];
+            if (inputs[2]->getInfo() == nullptr) {
+                MNN_ERROR("DequantizeLinear layer inputs.size>2, but zeroPoint is not const\n");
+            }
+            MNN_ASSERT(inputs[2]->getInfo() != nullptr);
+            auto zeroDim = inputs[2]->getInfo()->dim;
+            dataType = inputs[2]->getInfo()->type.code;
+            std::vector<float> fp32Zero(inputs[2]->getInfo()->size);
+            if (dataType == halide_type_int) {
+                const int8_t* zeroPtr = inputs[2]->readMap<int8_t>();
+                for (int j = 0; j < fp32Zero.size(); ++j) {
+                    fp32Zero[j] = static_cast<float>(zeroPtr[j]);
+                }
+                zeropoint = _Const(fp32Zero.data(), zeroDim, inputs[2]->getInfo()->order, halide_type_of<float>());
+            } else {
+                const uint8_t* zeroPtr = inputs[2]->readMap<uint8_t>();
+                for (int j = 0; j < fp32Zero.size(); ++j) {
+                    fp32Zero[j] = static_cast<float>(zeroPtr[j]) - 128.f;
+                }
+                zeropoint = _Const(fp32Zero.data(), zeroDim, inputs[2]->getInfo()->order, halide_type_of<float>());
+            }
+            zeropoint = _Cast<float>(inputs[2]);
         }
         
         std::vector<int32_t> inputDim = {};
         if (input->getInfo()) {
             inputDim = input->getInfo()->dim;
+            dataType = input->getInfo()->type.code;
         }
-        if (!scale->getInfo()->dim.empty()) {
-            zeropoint = _Unsqueeze(zeropoint, {1,2,3});
-            scale = _Unsqueeze(scale, {1, 2, 3});
-        } else {
-            scale = _Reshape(scale, {1});
-            zeropoint = _Reshape(zeropoint, {1});
+        auto offset = _Const(0.f);
+        if (dataType == halide_type_uint) {
+            offset = _Const(128.f);
         }
+        // if (!scale->getInfo()->dim.empty()) {
+        //     zeropoint = _Unsqueeze(zeropoint, {1,2,3});
+        //     scale = _Unsqueeze(scale, {1, 2, 3});
+        // } else {
+        //     scale = _Reshape(scale, {1});
+        //     zeropoint = _Reshape(zeropoint, {1});
+        // }
         auto _shape  = _Const(inputDim.data(), {static_cast<int32_t>(inputDim.size())}, NHWC, halide_type_of<int>());
-        auto output = (_Cast<float>(input) - _Cast<float>(zeropoint)) * scale;
+        auto output = (_Cast<float>(input) - zeropoint) * scale;
         std::unique_ptr<MNN::OpT> iden(new MNN::OpT);
         iden->type = OpType_Int8ToFloat;
 
-        auto newExpr = MNN::Express::Expr::create(iden.get(), {input, output, scale, _Cast<float>(zeropoint), _shape}, 5);
+        auto newExpr = MNN::Express::Expr::create(iden.get(), {input, output, scale, zeropoint - offset, _shape}, 5);
         newExpr->setName(expr->name());
         return newExpr;
     }

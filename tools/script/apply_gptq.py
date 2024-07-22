@@ -35,8 +35,13 @@ def weight_reorder(qweight, bits=4, group_size=128):
     weight = torch.bitwise_right_shift(torch.unsqueeze(qweight, 1).expand(-1, 32 // bits, -1), wf.unsqueeze(-1)).to(torch.int16 if bits == 8 else torch.int8)
     torch.bitwise_and(weight, (2 ** bits) - 1, out=weight)
     weight = weight.reshape(-1, oc).transpose(1, 0)
-    weight = weight.reshape(-1, 2).to(torch.uint8)
-    weight = weight[:, 0] * 16 + weight[:, 1]
+    if bits == 8:
+        weight = weight.to(torch.uint8)
+        return weight
+    if bits == 4:
+        weight = weight.reshape(-1, 2).to(torch.uint8)
+        weight = weight[:, 0] * 16 + weight[:, 1]
+        return weight
     return weight
 
 class MNNModel:
@@ -64,7 +69,7 @@ class MNNModel:
             weight = gptq_weight.weight(idx)
             scale = gptq_weight.scale(idx).float()
             # write weight data
-            weight = weight_reorder(weight)
+            weight = weight_reorder(weight, self.quant_bits)
             weight_bytes = weight.numpy().tobytes()
             weight_size = mnn_weight.weight_size()
             header_len = weight_size - len(weight_bytes)
@@ -93,7 +98,7 @@ class MNNModel:
             weight = gptq_weight.qweight
             scale = gptq_weight.scales.float().transpose(1, 0)
             # write weight data
-            weight = weight_reorder(weight)
+            weight = weight_reorder(weight, self.quant_bits)
             weight_bytes = weight.numpy().tobytes()
             weight_size = mnn_weight.weight_size()
             header_len = weight_size - len(weight_bytes)
@@ -112,7 +117,8 @@ class MNNModel:
             print('Done!')
         bin_file.close()
 
-    def apply(self, gptq_tensor):
+    def apply(self, gptq_tensor, quant_bits):
+        self.quant_bits = quant_bits
         if self.weights[0].block_id.isdigit():
             self.apply_weight_split(gptq_tensor)
         else:
@@ -176,12 +182,13 @@ class GPTQTensor:
 def main(args):
     mnn_model = MNNModel(args.mnn_graph, args.mnn_weight)
     gptq_weight = GPTQTensor(args.gptq_tensor)
-    mnn_model.apply(gptq_weight)
+    mnn_model.apply(gptq_weight, args.quant_bits)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='apply_gptq', formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument('--mnn_graph', type=str, required=True, help='mnn graph json path.')
     parser.add_argument('--mnn_weight', type=str, required=True, help='mnn weight file path.')
     parser.add_argument('--gptq_tensor', type=str, required=True, help='gptq tensor path.')
+    parser.add_argument('--quant_bits', type=int, default=4, help='quant bits, default is 4.')
     args = parser.parse_args()
     main(args)

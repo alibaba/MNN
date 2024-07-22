@@ -46,7 +46,7 @@ public:
     virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
     void initWeight(const float *source, float* cache, int depth, int outputCount, int kernelSize, const CoreFunctions* function);
     static std::pair<int, bool> turnIm2ColToBlitInfo(float const ** srcPtr, int32_t* el, int start, int xC, const ConvolutionCommon::Im2ColParameter& im2Col, const uint8_t* srcOrigin, int bytes);
-    static void setIm2ColParameter(ConvolutionCommon::Im2ColParameter& dstIm2ColParamter, const Convolution2DCommon* convCommon, Tensor* input, Tensor* output, int padX, int padY, const CoreFunctions* floatCore, const CoreInt8Functions* int8Core);
+    static void setIm2ColParameter(ConvolutionCommon::Im2ColParameter& dstIm2ColParamter, const Convolution2DCommon* convCommon, Tensor* input, Tensor* output, int padX, int padY, const CoreFunctions* floatCore, const CoreInt8Functions* int8Core, int pack = 0);
     // Total / Stride
     static std::pair<size_t, std::pair<size_t, size_t>> computeBlitInfoSize(int eP, int ow, int kernelSize, int threadNumber);
 

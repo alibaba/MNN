@@ -32,8 +32,8 @@ static MNN::Express::Executor::RuntimeManager* _createDefaultRuntimeManager(cons
         sche_config.backendConfig = config->backend->config;
     } else {
         auto exe = ExecutorScope::Current();
-        sche_config.type = exe->getAttr()->firstType.first;
-        sche_config.mode = exe->getAttr()->firstType.second;
+        sche_config.type = exe->getAttr()->firstType;
+        sche_config.numThread = 1;
     }
     return Executor::RuntimeManager::createRuntimeManager(sche_config);
 }
@@ -165,7 +165,7 @@ public:
         setType("Net");
 #ifdef MNN_INTERNAL_ENABLED
         if (nullptr != net) {
-            mLogInfo = getBasicLoggingData();
+            mLogInfo = logBasicInfo();
             std::string uuid = std::string(net->mnn_uuid() ? net->mnn_uuid()->c_str() : "");
             mLogInfo.emplace("UUID", uuid);
             mLogInfo.emplace("ModelVersion", info->version);
@@ -208,8 +208,8 @@ public:
         auto mModule = mChildren[0];
 
 #ifdef MNN_INTERNAL_ENABLED
-        auto glo = ExecutorScope::Current();
         Timer _time;
+        auto glo = ExecutorScope::Current();
         glo->getDebugTools()->flops = 0.0f;
 #endif
         auto outputs = mModule->onForward(inputs);
@@ -235,8 +235,10 @@ public:
                 metrics.emplace("Memory", std::to_string(memory));
             }
             logAsync(metrics);
+            MNN_PRINT("Cost time with log: %f\n", (float)_time.durationInUs() / 1000.0f);
         } while(false);
 #endif
+
         mModule->clearCache();
         return outputs;
     }

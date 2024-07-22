@@ -6,7 +6,6 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#ifndef MNN_OPENCL_BUFFER_CLOSED
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
 
 #include "backend/opencl/execution/buffer/AttentionBufExecution.hpp"
@@ -421,10 +420,8 @@ public:
         return new AttentionBufExecution(op, backend, param->kv_cache());
     }
 };
-REGISTER_OPENCL_OP_CREATOR(AttentionBufCreator, OpType_Attention, BUFFER);
+REGISTER_OPENCL_OP_CREATOR_TRANSFORMER(AttentionBufCreator, OpType_Attention, BUFFER);
 
 } // namespace OpenCL
 } // namespace MNN
 #endif/* MNN_SUPPORT_TRANSFORMER_FUSE */
-#endif/* MNN_OPENCL_BUFFER_CLOSED */
-

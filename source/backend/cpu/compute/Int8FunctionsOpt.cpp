@@ -22,6 +22,8 @@ void MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, const int
                                        const QuanPostTreatParameters* post, size_t realCount);
 void MNNGemmInt8AddBiasScale_16x4_Unit_FAST(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad,
                                             const QuanPostTreatParameters* post, size_t realCount);
+void MNNGemmInt8AddBiasScale_16x4_w4_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad,
+                                    const QuanPostTreatParameters* post, size_t realCount);
 void MNNLineDepthWiseInt8AddBiasScaleUnit(int8_t* dst, const int8_t* src, const int8_t* weight, const QuanPostTreatParameters* parameters, size_t width,
                                           size_t src_w_step, size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step, int8_t* idxOrder=nullptr);
 void MNNMaxPoolInt8(int8_t* dst, int8_t* src, size_t outputWidth, size_t inputWidth, size_t kernelx, size_t kernely, size_t stridesx);
@@ -35,6 +37,31 @@ void MNNGemmInt8AddBiasScale_ARMV86_Unit(int8_t* dst, const int8_t* src, const i
                                         const QuanPostTreatParameters* post, size_t realDstCount);
 void MNNLineDepthWiseInt8AddBiasScale_ARMV82_Unit3X3(int8_t* dst, const int8_t* src, const int8_t* weight, const QuanPostTreatParameters* parameters, size_t width,
                                         size_t src_w_step, size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step, int8_t* idxOrder=nullptr);
+#if defined(MNN_LOW_MEMORY)
+// int4 weight gemmInt8 kernel
+void MNNGemmInt8AddBiasScale_ARMV82_w4_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad,
+                                        const QuanPostTreatParameters* post, size_t realDstCount);
+void MNNGemmInt8AddBiasScale_ARMV86_w4_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad,
+                                        const QuanPostTreatParameters* post, size_t realDstCount);
+void MNNGemmInt8AddBiasScale_16x4_w4_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad,
+                                        const QuanPostTreatParameters* post, size_t realDstCount);
+// Tools to dynamic-quant fp16-input data.
+#ifdef MNN_USE_ARMV82
+void DynamicQuanInput_ARM82(const float* src, int8_t* dst, size_t sizeQuad, const float* scalep, ssize_t minValue,
+                        ssize_t maxValue, ssize_t zeroPoint);
+// int8 weight gemmInt8 kernel to return fp16-output data.
+void MNNGemmInt8AddBiasScale_ARMV82_Unit_FP16(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad,
+                                              const QuanPostTreatParameters* post, size_t realDstCount);
+void MNNGemmInt8AddBiasScale_ARMV82_w4_Unit_FP16(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad,
+                                              const QuanPostTreatParameters* post, size_t realDstCount);
+void MNNGemmInt8AddBiasScale_ARMV86_Unit_FP16(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad,
+                                              const QuanPostTreatParameters* post, size_t realDstCount);
+void MNNGemmInt8AddBiasScale_ARMV86_w4_Unit_FP16(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad,
+                                              const QuanPostTreatParameters* post, size_t realDstCount);
+void DynamicQuanInputAndReorder_ARM82(const float* src, int8_t* dst, size_t planeSize, const float* scale, ssize_t aMin,
+                                     ssize_t aMax, ssize_t zeroPoint, size_t ocQuad, size_t offset);
+#endif
+#endif
 #endif // __aarch64__
 }
 #endif // MNN_USE_NEON
@@ -1386,11 +1413,28 @@ static int8_t MNNInt32ToInt8(int data, int bias, float scale, float maxValue, fl
 static void MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step,
                                               size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realCount) {
     const int bytes = ((post->useInt8 == 1) ? 1 : 4);
+    float fp32min = 0, fp32max = 0;
+//    if (0 == post->useInt8) {
+//        fp32min = (post->fp32minmax)[0];
+//        fp32max = (post->fp32minmax)[1];
+//    }
+    auto blockNum = post->blockNum;
+    int weight_step_Z = (src_depth_quad * blockNum) * (GEMM_INT8_UNIT * GEMM_INT8_SRC_UNIT);
+    int weight_step_Y = (GEMM_INT8_UNIT * GEMM_INT8_SRC_UNIT);
+    const auto srcSumPtr = post->srcKernelSum;
+    if (0 == post->useInt8 && post->fp32minmax) {
+        fp32min = (post->fp32minmax)[0];
+        fp32max = (post->fp32minmax)[1];
+    }
+
+    float* biasPtr = (float*)post->biasFloat;
+    
     for (int dz = 0; dz < dst_depth_quad; ++dz) {
-        const auto weight_dz = weight + dz * src_depth_quad * (GEMM_INT8_UNIT * GEMM_INT8_SRC_UNIT);
-        const auto bias_dz   = post->bias + dz * GEMM_INT8_UNIT;
+        const auto weight_dz = weight + weight_step_Z * dz;
+        const auto bias_dz   = biasPtr + dz * GEMM_INT8_UNIT;
+        const auto weight_zero = post->weightQuanBias + (dz * GEMM_INT8_UNIT);
         const float* scale_dz = nullptr;
-        scale_dz  = post->scale + dz * GEMM_INT8_UNIT;
+        scale_dz  = post->scale + (dz * GEMM_INT8_UNIT);
         auto dst_z           = dst + dz * dst_step;
         for (int w = 0; w < realCount; ++w) {
             const auto src_x   = src + w * GEMM_INT8_SRC_UNIT;
@@ -1398,7 +1442,7 @@ static void MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, co
             int32_t dstTemp[4] = {0, 0, 0, 0};
 
             for (int sz = 0; sz < src_depth_quad; ++sz) {
-                const auto weight_sz = weight_dz + (GEMM_INT8_UNIT * GEMM_INT8_SRC_UNIT) * sz;
+                const auto weight_sz = weight_dz + weight_step_Y * sz;
                 const auto src_z     = src_x + sz * GEMM_INT8_DST_XUNIT * GEMM_INT8_SRC_UNIT;
 
                 for (int j = 0; j < GEMM_INT8_UNIT; ++j) {
@@ -1410,34 +1454,125 @@ static void MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, co
             }
 
             for (int j = 0; j < GEMM_INT8_UNIT; ++j) {
-                if (!post->scale) {
-                    ((float*)dst_x)[j] = (float)(dstTemp[j] + bias_dz[j]);
-                } else if (post->useInt8 == 1) {
-                    dst_x[j] = MNNInt32ToInt8(dstTemp[j], bias_dz[j], scale_dz[j], post->maxValue, post->minValue);
-                } else {
-                    float value = (float)(dstTemp[j] + bias_dz[j]) * scale_dz[j];
+                float value = dstTemp[j] * scale_dz[j] + srcSumPtr[w] * weight_zero[j];
+                if (post->extraScale) {
+                    value = dstTemp[j] * scale_dz[j] * post->extraScale[w] + srcSumPtr[w] * weight_zero[j];
+                }
+                if (post->useInt8 == 0) {
+                    if (biasPtr) {
+                        value += bias_dz[j];
+                    } else {
+                        float dstv = ((float*)dst_x)[j];
+                        value += dstv;
+                    }
+                    if (post->fp32minmax) {
+                        value = std::min(std::max(fp32min, value), fp32max);
+                    }
                     ((float*)dst_x)[j] = value;
+                } else {
+                    value += bias_dz[j];
+                    value       = ALIMAX(value, post->minValue);
+                    value       = ALIMIN(value, post->maxValue);
+                    dst_x[j] = static_cast<int8_t>(roundf(value));
                 }
             }
         }
     }
 }
 
+static void MNNGemmInt8AddBiasScale_16x4_w4_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realCount) {
+    uint32_t c = 0xf;
+    const int bytes = 4;
+    float fp32min = 0, fp32max = 0;
+    int weight_step_Z = 0.5 * (post->blockNum * src_depth_quad) * (GEMM_INT8_UNIT * GEMM_INT8_SRC_UNIT);
+    int weight_step_Y = 0.5 * (GEMM_INT8_UNIT * GEMM_INT8_SRC_UNIT);
+    MNN_ASSERT(post->useInt8==0);
+    if (post->fp32minmax) {
+        fp32min = (post->fp32minmax)[0];
+        fp32max = (post->fp32minmax)[1];
+    }
+
+    float* biasPtr = (float*)post->biasFloat;
+    int blockNum = post->blockNum;
+
+    const auto srcSumPtr = post->srcKernelSum;
+    for (int dz = 0; dz < dst_depth_quad; ++dz) {
+        const auto weight_dz = weight + weight_step_Z * dz;
+        const auto bias_dz   = biasPtr + dz * GEMM_INT8_UNIT;
+        const auto weight_zero = post->weightQuanBias + (dz * GEMM_INT8_UNIT);
+        const float* scale_dz = nullptr;
+        scale_dz  = post->scale + (dz * GEMM_INT8_UNIT);
+        auto dst_z           = dst + dz * dst_step;
+        for (int w = 0; w < realCount; ++w) {
+            const auto src_x   = src + w * GEMM_INT8_SRC_UNIT;
+            auto dst_x         = dst_z + w * GEMM_INT8_UNIT * bytes;
+            int32_t dstTemp[4] = {0, 0, 0, 0};
+
+            for (int sz = 0; sz < src_depth_quad; ++sz) {
+                const auto weight_sz = (uint8_t*)weight_dz + weight_step_Y * sz;
+                const auto src_z     = src_x + sz * GEMM_INT8_DST_XUNIT * GEMM_INT8_SRC_UNIT;
+
+                int w8[64]; // 64=GEMM_INT8_UNIT * GEMM_INT8_SRC_UNIT
+                for (int k = 0; k < 32; ++k) {
+                    w8[2 * k] = (weight_sz[k]>>4);
+                    w8[2 * k + 1] = (weight_sz[k] & c);
+                }
+
+                for (int j = 0; j < GEMM_INT8_UNIT; ++j) {
+                    const auto weight_j = w8 + j * GEMM_INT8_SRC_UNIT;
+                    for (int i = 0; i < GEMM_INT8_SRC_UNIT; ++i) {
+                        dstTemp[j] += (int32_t)src_z[i] * (int32_t)weight_j[i];
+                    }
+                }
+            }
+
+            for (int j = 0; j < GEMM_INT8_UNIT; ++j) {
+                float value = dstTemp[j] * scale_dz[j] + srcSumPtr[w] * weight_zero[j];
+                if (post->extraScale) {
+                    value = dstTemp[j] * scale_dz[j] * post->extraScale[w] + srcSumPtr[w] * weight_zero[j];
+                }
+
+                if (biasPtr) {
+                    value += bias_dz[j];
+                } else {
+                    float dstv = ((float*)dst_x)[j];
+                    value += dstv;
+                }
+                if (post->fp32minmax) {
+                    value = std::min(std::max(fp32min, value), fp32max);
+                }
+                ((float*)dst_x)[j] = value;
+            }
+        }
+    }
+}
+
 static void MNNReluWithSlopeChannelInt8(int8_t* dst, const int8_t* src, const float* slope, size_t planeNumber, size_t depthQuad, QuanPrePostParameters *params) {
+#ifdef MNN_USE_SSE
+float offset = 128.f;
+uint8_t* srcPtr = (uint8_t*)src;
+uint8_t* dstPtr = (uint8_t*)dst;
+#else
+float offset = 0.f;
+const int8_t* srcPtr = src;
+int8_t* dstPtr = dst;
+#endif
     float mulVal = 0.f;
     float inputScale = params->inputScale[0];
     float outputScale = params->outputScale[0];
-    int32_t inputZero = static_cast<int32_t>(params->inputZeroPoint[0]);
-    int32_t outputZero = static_cast<int32_t>(params->outputZeroPoint[0]);
+    float inputZero = static_cast<float>(params->inputZeroPoint[0]) + offset;
+    float outputZero = static_cast<float>(params->outputZeroPoint[0]) + offset;
+    int32_t minval = params->minValue + offset;
+    int32_t maxval = params->maxValue + offset;
     for (int j = 0;j < depthQuad; ++j) {
         const float* slopeZ = slope + 4 * j;
-        const int8_t* srcZ = src + 4 * j * planeNumber;
-        int8_t* dstZ = dst + 4 * j * planeNumber;
+        const auto srcZ = srcPtr + 4 * j * planeNumber;
+        auto dstZ = dstPtr + 4 * j * planeNumber;
         for (int i = 0; i < planeNumber; ++i) {
             for (int c = 0; c < 4; ++c) {
-                if (srcZ[4 * i + c] < 0) {
+                if ((float)srcZ[4 * i + c] < inputZero) {
                     mulVal = (srcZ[4 * i + c] - inputZero) * slopeZ[c];
-                    dstZ[4 * i + c] = ALIMIN(ALIMAX(static_cast<int32_t>(roundf(mulVal)) + outputZero, params->minValue), params->maxValue);
+                    dstZ[4 * i + c] = ALIMIN(ALIMAX(static_cast<int32_t>(roundf(mulVal)) + outputZero, minval), maxval);
                 } else {
                     dstZ[4 * i + c] = srcZ[4 * i + c];
                 }
@@ -1974,9 +2109,9 @@ static void MNNGetGemmUnitSdot(int* UNIT, int* SRC_UNIT, int* DST_XUNIT) {
 }
 
 static void MNNGetGemmUnitI8mm(int* UNIT, int* SRC_UNIT, int* DST_XUNIT) {
-    *UNIT = 4;
+    *UNIT = 8;
     *SRC_UNIT = 8;
-    *DST_XUNIT = 20;
+    *DST_XUNIT = 10;
 }
 
 template<int EP, int HP>
@@ -2055,6 +2190,9 @@ void MNNCoreInt8FunctionInit() {
     gCoreFunc->Int8GemmKernel = MNNGemmInt8AddBiasScale_16x4_Unit;
     gCoreFunc->Int8GemmKernelFast = MNNGemmInt8AddBiasScale_16x4_Unit_FAST;
     gCoreFunc->MNNGetGemmUnit = MNNGetGemmUnit;
+#ifdef MNN_LOW_MEMORY
+    gCoreFunc->Int8GemmKernel_W4 = MNNGemmInt8AddBiasScale_16x4_w4_Unit;
+#endif
 
     // Im2Col
     gCoreFunc->MNNPackC4Int8ForMatMul_A = _ArmBasicMNNPackC4ForMatMul_A<GEMM_INT8_DST_XUNIT, GEMM_INT8_SRC_UNIT, GEMM_INT8_UNIT>;
@@ -2088,15 +2226,31 @@ void MNNCoreInt8FunctionInit() {
         gCoreFunc->MNNPackC4Int8ForMatMul_A = _ArmBasicMNNPackC4ForMatMul_A_L4<12, 4>;
         // ConvDepthwise
         gCoreFunc->ConvDepthwise3x3LineInt8_ARM82 = MNNLineDepthWiseInt8AddBiasScale_ARMV82_Unit3X3;
-
+#if defined(MNN_LOW_MEMORY)
+    #ifdef MNN_USE_ARMV82
+        gCoreFunc->DynamicQuanInput_ARM82 = DynamicQuanInput_ARM82;
+        gCoreFunc->MNNGemmInt8AddBiasScale_Unit_FP16 = MNNGemmInt8AddBiasScale_ARMV82_Unit_FP16;
+        gCoreFunc->MNNGemmInt8AddBiasScale_w4_Unit_FP16 = MNNGemmInt8AddBiasScale_ARMV82_w4_Unit_FP16;
+        gCoreFunc->DynamicQuanInputAndReorder_ARM82 = DynamicQuanInputAndReorder_ARM82;
+    #endif
+        gCoreFunc->Int8GemmKernel_W4 = MNNGemmInt8AddBiasScale_ARMV82_w4_Unit;
+#endif
     }
     if (core->supportI8mm) {
         // MatMul
         gCoreFunc->Int8GemmKernel = MNNGemmInt8AddBiasScale_ARMV86_Unit;
         gCoreFunc->Int8GemmKernelFast = MNNGemmInt8AddBiasScale_ARMV86_Unit;
         gCoreFunc->MNNGetGemmUnit = MNNGetGemmUnitI8mm;
+#if defined(MNN_LOW_MEMORY)
+        gCoreFunc->Int8GemmKernel_W4 = MNNGemmInt8AddBiasScale_ARMV86_w4_Unit;
+    #ifdef MNN_USE_ARMV82
+        gCoreFunc->MNNGemmInt8AddBiasScale_Unit_FP16 = MNNGemmInt8AddBiasScale_ARMV86_Unit_FP16;
+        gCoreFunc->MNNGemmInt8AddBiasScale_w4_Unit_FP16 = MNNGemmInt8AddBiasScale_ARMV86_w4_Unit_FP16;
+    #endif
+#endif
         // Im2Col
-        gCoreFunc->MNNPackC4Int8ForMatMul_A = _ArmBasicMNNPackC4ForMatMul_A<20, 8, 4>;
+        gCoreFunc->MNNPackC4Int8ForMatMul_A = _ArmBasicMNNPackC4ForMatMul_A<10, 8, 8>;
+        gCoreFunc->MNNPackC4Int8ForMatMul_A_ARM86FP16 = _ArmBasicMNNPackC4ForMatMul_A<10, 8, 8>;
     }
 #endif
     MNNInt8FunctionInit();

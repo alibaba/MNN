@@ -6,7 +6,6 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#ifndef MNN_OPENCL_BUFFER_CLOSED
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
 
 #ifndef AttentionBufExecution_hpp
@@ -83,4 +82,3 @@ private:
 } // namespace MNN
 #endif /* AttentionBufExecution_hpp */
 #endif/* MNN_SUPPORT_TRANSFORMER_FUSE */
-#endif /* MNN_OPENCL_BUFFER_CLOSED */

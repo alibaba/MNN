@@ -193,6 +193,9 @@ DenseConvolutionTiledExecutor::DenseConvolutionTiledExecutor(const Convolution2D
             return;
         }
     } else {
+        if (core->matmulBytes != 0) {
+            bytes = core->matmulBytes;
+        }
         mResource->mWeight.reset(Tensor::createDevice<uint8_t>(
             {hU * lU * hP * lP * bytes}));
         mValid = mValid && backend()->onAcquireBuffer(mResource->mWeight.get(), Backend::STATIC);
@@ -330,7 +333,6 @@ void DenseConvolutionTiledImpl::getPackParameter(int* eP, int* lP, int* hP, cons
     return;
 }
 
-// #define PROFILE_DETAIL
 
 PerfConfig DenseConvolutionTiledImpl::bestTileConvolutionConfig(const Convolution2DCommon *common, const Tensor *inputTensor,
                                                                 const Tensor *outputTensor, int threadNumber, Backend* b) {
@@ -413,29 +415,11 @@ PerfConfig DenseConvolutionTiledImpl::bestTileConvolutionConfig(const Convolutio
              innerAcc += inner[i];
         }
         PerfConfig thisConfig(false, eP, eP, 0,  -1);
-        thisConfig.isParallelInner = outerAcc > innerAcc;
+        thisConfig.isParallelInner = outerAcc > innerAcc && 0 == core->matmulBytes;
         thisConfig.instructionCosts = outerAcc > innerAcc ? innerAcc : outerAcc;
 
         if (thisConfig.instructionCosts < denseConfig.instructionCosts) {
             denseConfig = thisConfig;
-#ifdef PROFILE_DETAIL
-            MNN_PRINT("\nouterFlops:");
-            formatMatrix(outerFlops, {sizeof(outerFlops) / sizeof(float)});
-            MNN_PRINT("\ninnerFlops:");
-            formatMatrix(innerFlops, {sizeof(innerFlops) / sizeof(float)});
-            MNN_PRINT("\nouterBandwidth:");
-            formatMatrix(outerBandwidth, {sizeof(outerBandwidth) / sizeof(float)});
-            MNN_PRINT("\ninnerBandwidth:");
-            formatMatrix(innerBandwidth, {sizeof(innerBandwidth) / sizeof(float)});
-
-            MNN_PRINT("\nouter:");
-            formatMatrix(outer, {sizeof(outer) / sizeof(float)});
-            MNN_PRINT("\ninner:");
-            formatMatrix(inner, {sizeof(inner) / sizeof(float)});
-
-            MNN_PRINT("\ndense im2col mParallelInner:%d, ePack:%d, outerAcc:%.1f, innerAcc:%.1f, totalCount:%d, tileCount:%d, outerCoefficient:%.2f, innerCoefficient:%.2f, tailCost:%.2f, lastTail:%.2f, allowed thread:%d, omp thread:\n\n",
-                denseConfig.isParallelInner, eP, outerAcc, innerAcc, plane, tileCount, outerCoefficient, innerCoefficient, tailCost, lastTail,  threadNumber);
-#endif
         }
     }
 
@@ -455,12 +439,15 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
     int bytes    = core->bytes;
     float weightBytes  = bytes;
     int unit     = core->pack;
+    int matmulBytes = bytes;
+    if (core->matmulBytes != 0) {
+        matmulBytes = core->matmulBytes;
+    }
     auto packA   = core->MNNPackC4ForMatMul_A;
     int eP, lP, hP;
     getPackParameter(&eP, &lP, &hP, core);
     auto matmulUnit   = core->MNNPackedMatMul;
     auto matmulRemain = core->MNNPackedMatMulRemain;
-    auto weightType = weight->getType();
     const uint8_t* dequantAlpha = nullptr;
     const uint8_t* dequantBias = nullptr;
     auto ic       = input->channel();
@@ -503,13 +490,11 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
     mTempBufferTranspose.buffer().type          = halide_type_of<uint8_t>();
     mTempBufferTranspose.buffer().dimensions    = 2;
     mTempBufferTranspose.buffer().dim[0].extent = threadNumber;
-    mTempBufferTranspose.buffer().dim[1].extent = UP_DIV(L, lP) * lP * eP * bytes;
+    mTempBufferTranspose.buffer().dim[1].extent = UP_DIV(L, lP) * lP * eP * matmulBytes;
     TensorUtils::setLinearLayout(&mTempBufferTranspose);
     auto plane    = mIm2ColParameters.ow * mIm2ColParameters.oh * batch;
     int tileCount = UP_DIV(plane, eP);
     mConvPerfconfig = bestTileConvolutionConfig(mCommon, input, output, threadNumber, backend());
-
-    auto threadNumberFirst = mConvPerfconfig.isParallelInner ? threadNumber : std::min(threadNumber, tileCount);
     bool success = backend()->onAcquireBuffer(&mTempBufferTranspose, Backend::DYNAMIC);
     if (!success) {
         return OUT_OF_MEMORY;
@@ -525,15 +510,14 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
     bufferAlloc->free(tempPtr);
 
     auto postParameters    = getPostParameters();
-    mFunction.first        = threadNumberFirst;
+    mFunction.first        = threadNumber;
 
     if (mConvPerfconfig.isParallelInner) {
-
+        auto rt = static_cast<const CPURuntime*>(backend()->getRuntime());
+        std::vector<int> ocC4ParralSize(threadNumber + 1);
+        ocC4ParralSize[0] = 0;
+        rt->computeDivideSizes(oC4, ocC4ParralSize.data()+1);
         mFunction.second = [=](int placeholder) {
-#ifdef PROFILE_DETAIL
-        MNN_PRINT("dense conv: n:%d, ic:%d, oc:%d, kh:%d, kw:%d, plane:%d, threadNumberFirst:%d, tileCount:%d, ePack:%d, pack::%d, bytes:%d\n",
-        batch, ic, outputChannel, kernel_width, kernel_height, plane, threadNumberFirst, tileCount, eP, unit, bytes);
-#endif
         const float* biasPtr = bias ? bias->host<float>() : nullptr;
         auto gemmBuffer = mTempBufferTranspose.host<uint8_t>() + mTempBufferTranspose.stride(0) * 0;
         auto srcPtr     = (float const **)(tempPtr.ptr() + 0 * kernelSize * maxLine * (4 * sizeof(int32_t) + sizeof(float *)));
@@ -556,16 +540,10 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
         parameters[5]          = weightStride; // Only used when block quant
         parameters[6]          = 0;
 
-#ifdef PROFILE_DETAIL
-        std::vector<uint64_t> durationMul(threadNumberFirst, 0);
-        std::vector<uint64_t> packATime(threadNumberFirst, 0);
-        std::vector<uint64_t> indexTime(threadNumberFirst, 0);
-        Timer timer[threadNumberFirst];
-        std::vector<double> macs(threadNumberFirst, 0);
-#endif
-
         auto dstOrigin = output->host<uint8_t>();
         auto srcOrigin = input->host<uint8_t>();
+        std::vector<int> im2colParallelSize(threadNumber + 1);
+        im2colParallelSize[0] = 0;
 
         for (int x = 0; x < tileCount; x += 1) {
             int start  = (int)x * eP;
@@ -578,17 +556,15 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
             if (needZero || lP != 1) {
                 ::memset(gemmBuffer, 0, mTempBufferTranspose.stride(0));
             }
-
-#ifdef PROFILE_DETAIL
-            indexTime[0] += timer[0].durationInUs();
-            timer[0].reset();
-#endif
-
             info[0] = 1;
             int hw4Stride = info[1] * unit * bytes;
-            MNN_CONCURRENCY_BEGIN(tId, threadNumberFirst) {
+            rt->computeDivideSizes(number * icC4, im2colParallelSize.data() + 1);
+            im2colParallelSize[0] = 0;
+            MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
                 int threadEL[4];
-                for(int tic_inumber = tId; tic_inumber < number * icC4; tic_inumber+=threadNumberFirst) {
+                int ticSta = im2colParallelSize[tId];
+                int ticEnd = im2colParallelSize[tId+1];
+                for(int tic_inumber = ticSta; tic_inumber < ticEnd; tic_inumber++) {
                         int inumber = tic_inumber / icC4;
                         int t_ic = tic_inumber % icC4;
                         memcpy(threadEL, el + 4 * inumber, 4 * sizeof(int));
@@ -600,16 +576,11 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
             }
             MNN_CONCURRENCY_END();
 
-#ifdef PROFILE_DETAIL
-            packATime[0] += timer[0].durationInUs();
-            timer[0].reset();
-#endif
-
             if (xC == eP) {
-                MNN_CONCURRENCY_BEGIN(tId, threadNumberFirst) {
+                MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
                     size_t paraParameters[PARAMETERSIZE];
                     memcpy(paraParameters, parameters, PARAMETERSIZE * sizeof(size_t));
-                    for (int t_oc = tId; t_oc < oC4; t_oc += threadNumberFirst) {
+                    for (int t_oc = ocC4ParralSize[tId]; t_oc < ocC4ParralSize[tId+1]; ++t_oc) {
                         int ocIndex = t_oc * tileC;
                         auto _dstFloatPtr = reinterpret_cast<float*>(dstOrigin + (ocIndex / unit * plane + start) * unit * bytes);
                         auto _weightFloatPtr = reinterpret_cast<const float*>(weightPtr + int((ocIndex / hP * LRoundup * hP) * weightBytes));
@@ -637,10 +608,10 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
                 }
                 MNN_CONCURRENCY_END();
             } else {
-                MNN_CONCURRENCY_BEGIN(tId, threadNumberFirst) {
+                MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
                     size_t paraParameters[PARAMETERSIZE];
                     memcpy(paraParameters, parameters, PARAMETERSIZE * sizeof(size_t));
-                    for (int t_oc = tId; t_oc < oC4; t_oc += threadNumberFirst) {
+                    for (int t_oc = ocC4ParralSize[tId]; t_oc < ocC4ParralSize[tId+1]; ++t_oc) {
                         int ocIndex = t_oc * tileC;
                         auto _dstFloatPtr = reinterpret_cast<float*>(dstOrigin + (ocIndex / unit * plane + start) * unit * bytes);
                         auto _weightFloatPtr = reinterpret_cast<const float*>(weightPtr + int((ocIndex / hP * LRoundup * hP) * weightBytes));
@@ -669,32 +640,16 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
                 MNN_CONCURRENCY_END();
             }
 
-#ifdef PROFILE_DETAIL
-         macs[0] += 2.0 * xC * L * oC4 * unit / threadNumberFirst;
-         durationMul[0] += timer[0].durationInUs();
-         timer[0].reset();
-#endif
-
         }
-
-#ifdef PROFILE_DETAIL
-        double gflops = macs[0] / 1000.0 / durationMul[0];
-        MNN_PRINT("dense conv mParallelInner:%d, inside measure: indexTime:%lu us, packATime:%lu us, durationMul:%lu us, total:%lu us, %.3f GFLOPS\n",
-            mConvPerfconfig.isParallelInner, indexTime[0], packATime[0], durationMul[0], indexTime[0] + packATime[0] + durationMul[0], gflops);
-
-#endif
-
     };
 
     } else {
-        mFunction.second       = [=](int tId) {
+        std::vector<int> divides(threadNumber + 1);
+        divides[0] = 0;
 
-#ifdef PROFILE_DETAIL
-            if (tId == 0) {
-                MNN_PRINT("dense conv: n:%d, ic:%d, oc:%d, kh:%d, kw:%d, plane:%d, tileCount:%d, ePack:%d, pack::%d, bytes:%d\n",
-                batch, ic, outputChannel, kernel_width, kernel_height, plane, tileCount, eP, unit, bytes);
-            }
-#endif
+        static_cast<const CPURuntime*>(static_cast<CPUBackend*>(backend())->getRuntime())->computeDivideSizes(tileCount, divides.data() + 1);
+
+        mFunction.second       = [=](int tId) {
             const float* biasPtr = bias ? bias->host<float>() : nullptr;
             auto gemmBuffer = mTempBufferTranspose.host<uint8_t>() + mTempBufferTranspose.stride(0) * tId;
             auto srcPtr     = (float const **)(tempPtr.ptr() + tId * kernelSize * maxLine * (4 * sizeof(int32_t) + sizeof(float *)));
@@ -713,17 +668,11 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
             parameters[5]          = weightStride; // Only used when block quant
             parameters[6]          = 0;
 
-#ifdef PROFILE_DETAIL
-            std::vector<uint64_t> durationMul(threadNumberFirst, 0);
-            std::vector<uint64_t> packATime(threadNumberFirst, 0);
-            std::vector<uint64_t> indexTime(threadNumberFirst, 0);
-            Timer timer[threadNumberFirst];
-            std::vector<double> macs(threadNumberFirst, 0);
-#endif
-
             auto dstOrigin = output->host<uint8_t>();
             auto srcOrigin = input->host<uint8_t>();
-            for (int x = (int)tId; x < tileCount; x += threadNumberFirst) {
+            int tEnd = divides[tId+1];
+            int tStart = divides[tId];
+            for (int x = (int)tStart; x < tEnd; ++x) {
                 int start  = (int)x * eP;
                 int remain = plane - start;
                 int xC     = remain > eP ? eP : remain;
@@ -735,18 +684,10 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
                     ::memset(gemmBuffer, 0, mTempBufferTranspose.stride(0));
                 }
 
-#ifdef PROFILE_DETAIL
-                indexTime[tId] += timer[tId].durationInUs();
-                timer[tId].reset();
-#endif
                 if (number > 0) {
                     packA((float *)gemmBuffer, srcPtr, info, el);
                 }
 
-#ifdef PROFILE_DETAIL
-                packATime[tId] += timer[tId].durationInUs();
-                timer[tId].reset();
-#endif
                 int finishedL = 0;
                 int wquantStride = 0;
                 int8_t* _weightPtr = reinterpret_cast<int8_t*>(weightPtr);
@@ -780,20 +721,7 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
                     }
                     // matmulRemain(_dstFloatPtr, (float*)gemmBuffer, (float*)weightPtr, xC, parameters, postParameters.data(), biasPtr, k, b);
                 }
-
-#ifdef PROFILE_DETAIL
-             macs[tId] += 2.0 * xC * L * oC4 * unit; // bias
-             durationMul[tId] += timer[tId].durationInUs();
-             timer[tId].reset();
-#endif
             }
-
-#ifdef PROFILE_DETAIL
-            double gflops = macs[tId] / 1000.0 / durationMul[tId];
-            MNN_PRINT("dense conv mParallelInner:%d, inside measure: indexTime:%lu us, packATime:%lu us, durationMul:%lu us, total:%lu us, %.3f GFLOPS\n",
-                mConvPerfconfig.isParallelInner, indexTime[tId], packATime[tId], durationMul[tId], indexTime[tId] + packATime[tId] + durationMul[tId], gflops);
-
-#endif
         };
     }
     return NO_ERROR;
@@ -801,10 +729,6 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
 
 ErrorCode DenseConvolutionTiledImpl::onExecute(const std::vector<Tensor*>& inputs,
                                           const std::vector<Tensor*>& outputs) {
-#ifdef PROFILE_DETAIL
-    Timer outsideTimer;
-    outsideTimer.reset();
-#endif
     if (mConvPerfconfig.isParallelInner) {
         mFunction.second(0);
     } else {
@@ -814,12 +738,8 @@ ErrorCode DenseConvolutionTiledImpl::onExecute(const std::vector<Tensor*>& input
         MNN_CONCURRENCY_END();
     }
 
-#ifdef PROFILE_DETAIL
-    MNN_PRINT("dense conv. mParallelInner:%d, outside measure: total cost %lu us\n", mConvPerfconfig.isParallelInner, outsideTimer.durationInUs());
-#endif
     return NO_ERROR;
 }
 
-#undef PROFILE_DETAIL
 
 } // namespace MNN

@@ -25,7 +25,7 @@ ConvBufCommonExecution::ConvBufCommonExecution(Backend *backend) {
 ConvBufCommonExecution::ConvBufCommonExecution(const Convolution2D *conv2dParams, Backend *backend) {
     auto openclBackend       = (OpenCLBackend *)backend;
     int biasSize             = conv2dParams->common()->outputCount();
-    int buffer_size = ROUND_UP(biasSize, 16);//pack to 16
+    int buffer_size = ROUND_UP(biasSize, 32);//pack to packN
     if(openclBackend->getOpenCLRuntime()->isSupportedFP16()) {
         buffer_size *= sizeof(half_float::half);
     } else {
@@ -33,7 +33,7 @@ ConvBufCommonExecution::ConvBufCommonExecution(const Convolution2D *conv2dParams
     }
 
     mResource.reset(new ConvBufResource);
-    mResource->mBias.reset(Tensor::createDevice<float>({1, 1, 1, ROUND_UP(biasSize, 16)}));
+    mResource->mBias.reset(Tensor::createDevice<float>({1, 1, 1, ROUND_UP(biasSize, 32)}));
     backend->onAcquireBuffer(mResource->mBias.get(), Backend::STATIC);
     cl::Buffer &biasBuffer = openCLBuffer(mResource->mBias.get());
     
@@ -60,38 +60,6 @@ ConvBufCommonExecution::ConvBufCommonExecution(const Convolution2D *conv2dParams
 
 ConvBufCommonExecution::~ConvBufCommonExecution() {
     // Do nothing
-}
-
-void ConvBufExecution::setConv1x1WeightBuffer(int packCout, int packCin, const float* filterDataPtr) {
-    cl_int res;
-    std::shared_ptr<Tensor> filterBuffer(Tensor::createDevice<float>({ROUND_UP(mResource->mOutputChannel, 8)/*Cout pack set to max 8*/, ROUND_UP(mResource->mInputChannel, packCin), mResource->mKernelWidth, mResource->mKernelHeight}));
-    
-    int buffer_size = filterBuffer->elementSize();
-    if(mOpenCLBackend->getOpenCLRuntime()->isSupportedFP16()) {
-        buffer_size *= sizeof(half_float::half);
-    } else {
-        buffer_size *= sizeof(float);
-    }
-    mResource->mKernelBuffer.reset(new cl::Buffer(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, buffer_size));
-    auto kernelBufferPtr = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(*(mResource->mKernelBuffer.get()), true, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &res);
-    if(kernelBufferPtr != nullptr && res == CL_SUCCESS){
-        ::memset(kernelBufferPtr, 0, buffer_size);
-        for(int o = 0; o < mResource->mOutputChannel; o++){
-            for(int i = 0 ; i < mResource->mInputChannel; i++){
-                int bufferIdx = (o/packCout) * ROUND_UP(mResource->mInputChannel, packCin)*packCout + (i/packCin)*packCin*packCout + (o%packCout)*packCin + (i%packCin);//(Co/packCout, Ci/packCin, packCout, packCin)
-                int filterIdx = o*mResource->mInputChannel + i;
-                if(mOpenCLBackend->getOpenCLRuntime()->isSupportedFP16()){
-                    ((half_float::half*)kernelBufferPtr)[bufferIdx] = (half_float::half)(filterDataPtr[filterIdx]);
-                }else{
-                    ((float*)kernelBufferPtr)[bufferIdx] = (float)(filterDataPtr[filterIdx]);
-                }
-            }
-        }
-    }else{
-        MNN_ERROR("Map error ptrCL == nullptr \n");
-        MNN_ASSERT(false);
-    }
-    mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(*(mResource->mKernelBuffer.get()), kernelBufferPtr);
 }
 
 void ConvBufExecution::_generateFilterConvertRegion(Tensor* virtualFilter, Tensor* originBuffer) const {
@@ -152,28 +120,18 @@ ConvBufExecution::ConvBufExecution(const std::vector<Tensor *> &inputs, const st
         //select opt conv method
         bool isConv1x1 = (mResource->mKernelHeight == mResource->mKernelWidth && mResource->mKernelHeight == 1 && mPaddings[0] == 0 &&
                           mPaddings[1] == 0 && mResource->mStrides[0] == 1 && mResource->mStrides[1] == 1);
-        bool useConvGemm = isConv1x1 && inputs[0]->width() == 1 && inputs[0]->height() == 1;
+
+        mResource->mConv1x1Opt = isConv1x1;
+        mResource->mConv1x1C8Opt = mResource->mConv1x1Opt && mResource->mOutputChannel >= 16;
+        bool useConvGemm = isConv1x1 && mResource->mInputChannel > 32 && mResource->mOutputChannel > 64;
         if (useConvGemm) {
-            // Enough computation
-            bool isTotalLarge = (inputs[0]->batch() * 1.0 / 512 * mResource->mInputChannel / 512 * mResource->mOutputChannel / 512 > 1.0);
-            bool isEachDimLarge = (inputs[0]->batch() > 256 && mResource->mInputChannel > 128 && mResource->mOutputChannel > 256);
-            if(isTotalLarge && isEachDimLarge) {
-                mResource->mConvGemmOptLevel = 2;
-            } else if(isTotalLarge && inputs[0]->batch() % 64 == 0 && mResource->mInputChannel % 8 == 0 && mResource->mOutputChannel % 64 == 0) {
-                mResource->mConvGemmOptLevel = 1;
-            }
+            mResource->mConvGemmOptLevel = 2;
         }
-        mResource->mConv1x1Opt = isConv1x1 && inputs[0]->width() >= 4;
     }
-    if (mResource->mConvGemmOptLevel > 0) {
+    if (mResource->mConv1x1Opt) {
         // Tile Match with mConvGemmOptLevel == 2
-        int tileK = 32;
+        int tileK = 4;
         int tileN = 32;
-        
-        if(mResource->mConvGemmOptLevel == 1) {
-            tileK = 8;
-            tileN = 64;
-        }
         
         int buffer_size = ROUND_UP(mResource->mOutputChannel, tileN) * ROUND_UP(mResource->mInputChannel, tileK);
         mResource->mFilter.reset(
@@ -211,14 +169,6 @@ ConvBufExecution::ConvBufExecution(const std::vector<Tensor *> &inputs, const st
         }
         mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(filterBuffer, ptrCL);
 
-    } else if (mResource->mConv1x1Opt) {
-        //At first, set packCout equal to 4
-        if(mResource->mOutputChannel >= 16){
-            setConv1x1WeightBuffer(8, 4, mFilterDataPtr);
-            mResource->mConv1x1C8Opt = true;
-        }else{
-            setConv1x1WeightBuffer(4, 4, mFilterDataPtr);
-        }
     } else {
         mResource->mFilter.reset(
             Tensor::createDevice<float>({ROUND_UP(mResource->mOutputChannel, 4) * ROUND_UP(mResource->mInputChannel, 4) * mResource->mKernelWidth * mResource->mKernelHeight}));
@@ -325,31 +275,63 @@ ErrorCode ConvBufExecution::onResize(const std::vector<Tensor *> &inputs, const 
     
     std::string info = std::to_string(inputChannels) + "_" + std::to_string(outChannel) + "_" + std::to_string(mResource->mKernelHeight) + "_" + std::to_string(mResource->mKernelWidth) + "_" + std::to_string(mResource->mStrides[0]) + "_" + std::to_string(mResource->mStrides[1]) + "_" + std::to_string(mResource->mDilations[0]) + "_" + std::to_string(mResource->mDilations[1]);
     
-    if (mResource->mConvGemmOptLevel == 2) {
-        // set large tile
-        int tileM = 32;
-        int tileN = 32;
-        int tileK = 32;
-
-        int M = outputShape.at(0);
+    if (mResource->mConvGemmOptLevel > 0) {
+        int area = height * width;
+        int M = outputShape.at(0) * area;
         int N = outputShape.at(3);
         int K = inputShape.at(3);
+        
+        bool isAlign = (K % 8 == 0 && area == 1 && N % 64 == 0 && M % 64 == 0);
+        bool isLimitSize = (M * 1.0 / 512 * N / 512 * K / 512 <= 1.0) && (1.0 * M * K / N / N >= 16.0);
+        if(isAlign && isLimitSize) {
+            mResource->mConvGemmOptLevel = 1;
+        } else if(M < 128 || 1.0 * M / 512 * N / 512 * K / 256 < 1.0) {
+            mResource->mConvGemmOptLevel = 0;
+        }
+    }
+    
+    if (mResource->mConvGemmOptLevel == 2) {
+        // set large tile
+        int tileM = 16;
+        int tileN = 32;
+        int tileK = 4;
+
+        int area = height * width;
+        int M = outputShape.at(0) * area;
+        int N = outputShape.at(3);
+        int K = inputShape.at(3);
+        
         int alignM = ROUND_UP(M, tileM);
         int alignN = ROUND_UP(N, tileN);
         int alignK = ROUND_UP(K, tileK);
         
         // ReArrange input
         mConvGemmInpTensor.reset(Tensor::createDevice<float>({alignK * alignM}));
-        mConvGemmOutTensor.reset(Tensor::createDevice<float>({alignN * alignM}));
         mOpenCLBackend->onAcquireBuffer(mConvGemmInpTensor.get(), Backend::DYNAMIC);
-        mOpenCLBackend->onAcquireBuffer(mConvGemmOutTensor.get(), Backend::DYNAMIC);
-        mOpenCLBackend->onReleaseBuffer(mConvGemmOutTensor.get(), Backend::DYNAMIC);
+        if(N != alignN || M != alignM || area != 1) {
+            mNeedOutTempTensor = true;
+            mConvGemmOutTensor.reset(Tensor::createDevice<float>({alignN * alignM}));
+            mOpenCLBackend->onAcquireBuffer(mConvGemmOutTensor.get(), Backend::DYNAMIC);
+        }
         mOpenCLBackend->onReleaseBuffer(mConvGemmInpTensor.get(), Backend::DYNAMIC);
+        if(mNeedOutTempTensor) {
+            mOpenCLBackend->onReleaseBuffer(mConvGemmOutTensor.get(), Backend::DYNAMIC);
+        }
+        
         {
             std::set<std::string> buildOptions;
+            
+            int m_pack = 1;
+            if(area == 1) {
+                m_pack = 4;
+                buildOptions.emplace("-DAREA_EQUAL_1");
+            } else if(outputShape.at(0) == 1) {
+                m_pack = 4;
+                buildOptions.emplace("-DBATCH_EQUAL_1");
+            }
             mPreKernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("gemm_buf", "transpose_pad", buildOptions);
             uint32_t maxWorkGroupSize = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(mPreKernel));
-            mPreGlobalWorkSize = {static_cast<uint32_t>(alignM/4), static_cast<uint32_t>(alignK/4)};
+            mPreGlobalWorkSize = {static_cast<uint32_t>(alignM/m_pack), static_cast<uint32_t>(alignK/4)};
 
             int offset = 0;
             int idx            = 0;
@@ -360,6 +342,7 @@ ErrorCode ConvBufExecution::onResize(const std::vector<Tensor *> &inputs, const 
             ret |= mPreKernel->get().setArg(idx++, static_cast<int>(alignK));
             ret |= mPreKernel->get().setArg(idx++, static_cast<int>(M));
             ret |= mPreKernel->get().setArg(idx++, static_cast<int>(K));
+            ret |= mPreKernel->get().setArg(idx++, static_cast<int>(area));
             ret |= mPreKernel->get().setArg(idx++, openCLBuffer(input));
             ret |= mPreKernel->get().setArg(idx++, openCLBuffer(mConvGemmInpTensor.get()));
             MNN_CHECK_CL_SUCCESS(ret, "setArg mConvgemmOptLevel==2 PreKernel");
@@ -371,13 +354,24 @@ ErrorCode ConvBufExecution::onResize(const std::vector<Tensor *> &inputs, const 
         }
         std::set<std::string> buildOptions;
         
+        uint32_t hasBias = 0;
+        if(!mNeedOutTempTensor) {
+            hasBias = 1;
+            buildOptions = mResource->mBuildOptions;
+            buildOptions.emplace("-DBIAS");
+        }
         uint32_t layout = 4;
         uint32_t batch = 1;
-        auto param = getGemmParams({(uint32_t)alignM, (uint32_t)alignN, (uint32_t)alignK, layout, batch}, {openCLBuffer(mConvGemmInpTensor.get()), openCLBuffer(mResource->mFilter.get()), openCLBuffer(mConvGemmOutTensor.get())}, mOpenCLBackend->getOpenCLRuntime());
+        
+        cl::Buffer outBuffer = mNeedOutTempTensor ? openCLBuffer(mConvGemmOutTensor.get()) : openCLBuffer(output);
+        std::vector<uint32_t> param;
+        if(mNeedOutTempTensor) {
+            param = getGemmParams({(uint32_t)alignM, (uint32_t)alignN, (uint32_t)alignK, layout, batch, hasBias}, {openCLBuffer(mConvGemmInpTensor.get()), openCLBuffer(mResource->mFilter.get()), openCLBuffer(mConvGemmOutTensor.get())}, mOpenCLBackend->getOpenCLRuntime());
+        } else {
+            param = getGemmParams({(uint32_t)alignM, (uint32_t)alignN, (uint32_t)alignK, layout, batch, hasBias}, {openCLBuffer(mConvGemmInpTensor.get()), openCLBuffer(mResource->mFilter.get()), openCLBuffer(output), openCLBuffer(mResource->mBias.get())}, mOpenCLBackend->getOpenCLRuntime());
+        }
 
-        int GEMMK=param[0], KREG=param[1], KWG=param[2], KWI=param[3], MDIMA=param[4], MDIMC=param[5], MWG=param[6], NDIMB=param[7], NDIMC=param[8], NWG=param[9], SA=param[10], SB=param[11], STRM=param[12], STRN=param[13], VWM=param[14], VWN=param[15];
-        buildOptions.emplace("-DGEMMK=" + std::to_string(GEMMK));
-        buildOptions.emplace("-DKREG=" + std::to_string(KREG));
+        int KWG=param[0], KWI=param[1], MDIMA=param[2], MDIMC=param[3], MWG=param[4], NDIMB=param[5], NDIMC=param[6], NWG=param[7], SA=param[8], SB=param[9], STRM=param[10], STRN=param[11], VWM=param[12], VWN=param[13];
         buildOptions.emplace("-DKWG=" + std::to_string(KWG));
         buildOptions.emplace("-DKWI=" + std::to_string(KWI));
         buildOptions.emplace("-DMDIMA=" + std::to_string(MDIMA));
@@ -395,7 +389,7 @@ ErrorCode ConvBufExecution::onResize(const std::vector<Tensor *> &inputs, const 
         if(layout >= 4) {
             buildOptions.emplace("-DOUTPUTMN");
         }
-        
+
         tileM = MWG;
         tileN = NWG;
         int localM = MDIMC;
@@ -405,12 +399,7 @@ ErrorCode ConvBufExecution::onResize(const std::vector<Tensor *> &inputs, const 
             buildOptions.emplace("-DUSE_CL_MAD=1");
             buildOptions.emplace("-DRELAX_WORKGROUP_SIZE=1");
         }
-        if(mOpenCLBackend->getOpenCLRuntime()->isSupportedFP16()){
-            buildOptions.emplace(" -DPRECISION=16");
-        } else {
-            buildOptions.emplace(" -DPRECISION=32");
-        }
-        
+
         mKernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("matmul_params_buf", "Xgemm", buildOptions);
         
         int out_per_thread_m = tileM / localM;
@@ -431,8 +420,12 @@ ErrorCode ConvBufExecution::onResize(const std::vector<Tensor *> &inputs, const 
         ret |= mKernel->get().setArg(idx++, beta);
         ret |= mKernel->get().setArg(idx++, openCLBuffer(mConvGemmInpTensor.get()));
         ret |= mKernel->get().setArg(idx++, openCLBuffer(mResource->mFilter.get()));
-//        ret |= mKernel->get().setArg(idx++, openCLBuffer(mResource->mBias.get()));
-        ret |= mKernel->get().setArg(idx++, openCLBuffer(mConvGemmOutTensor.get()));
+        if(mNeedOutTempTensor) {
+            ret |= mKernel->get().setArg(idx++, openCLBuffer(mConvGemmOutTensor.get()));
+        } else {
+            ret |= mKernel->get().setArg(idx++, openCLBuffer(mResource->mBias.get()));
+            ret |= mKernel->get().setArg(idx++, openCLBuffer(output));
+        }
         ret |= mKernel->get().setArg(idx++, offset);
         ret |= mKernel->get().setArg(idx++, offset);
         ret |= mKernel->get().setArg(idx++, offset);
@@ -442,9 +435,12 @@ ErrorCode ConvBufExecution::onResize(const std::vector<Tensor *> &inputs, const 
         mGlobalWorkSize[0] = ROUND_UP(mGlobalWorkSize[0], std::max((uint32_t)1, mLocalWorkSize[0]));
         mGlobalWorkSize[1] = ROUND_UP(mGlobalWorkSize[1], std::max((uint32_t)1, mLocalWorkSize[1]));
         
-        {
-            std::set<std::string> buildOptions;
-            mPostKernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("gemm_buf", "add_bias", buildOptions);
+        if(mNeedOutTempTensor) {
+            std::set<std::string> buildOptions = mResource->mBuildOptions;
+            if(area == 1) {
+                buildOptions.emplace("-DAREA_EQUAL_1");
+            }
+            mPostKernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("gemm_buf", "transpose_bias", buildOptions);
             uint32_t maxWorkGroupSize = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(mPostKernel));
 
             mPostGlobalWorkSize = {static_cast<uint32_t>(M), static_cast<uint32_t>(UP_DIV(N, 16))};
@@ -458,12 +454,13 @@ ErrorCode ConvBufExecution::onResize(const std::vector<Tensor *> &inputs, const 
             ret |= mPostKernel->get().setArg(idx++, static_cast<int>(alignN));
             ret |= mPostKernel->get().setArg(idx++, static_cast<int>(M));
             ret |= mPostKernel->get().setArg(idx++, static_cast<int>(N));
+            ret |= mPostKernel->get().setArg(idx++, static_cast<int>(area));
             ret |= mPostKernel->get().setArg(idx++, openCLBuffer(mConvGemmOutTensor.get()));
             ret |= mPostKernel->get().setArg(idx++, openCLBuffer(mResource->mBias.get()));
             ret |= mPostKernel->get().setArg(idx++, openCLBuffer(output));
 
             MNN_CHECK_CL_SUCCESS(ret, "setArg mConvgemmOptLevel==2 PostKernel");
-            mPostLocalWorkSize = localWS2DDefault(mPostGlobalWorkSize, maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), "add_bias", mPostKernel).first;
+            mPostLocalWorkSize = localWS2DDefault(mPostGlobalWorkSize, maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), "transpose_bias", mPostKernel).first;
             mOpenCLBackend->recordKernel2d(mPostKernel, mPostGlobalWorkSize, mPostLocalWorkSize);
             mPostGlobalWorkSize[0] = ROUND_UP(mPostGlobalWorkSize[0], std::max((uint32_t)1, mPostLocalWorkSize[0]));
             mPostGlobalWorkSize[1] = ROUND_UP(mPostGlobalWorkSize[1], std::max((uint32_t)1, mPostLocalWorkSize[1]));
@@ -513,6 +510,7 @@ ErrorCode ConvBufExecution::onResize(const std::vector<Tensor *> &inputs, const 
         MNN_CHECK_CL_SUCCESS(ret, "setArg Conv1x1Buf mConvgemmOptLevel==1 Kernel Select");
     } else if (mResource->mConv1x1Opt) {
     
+        int tileN = 32;
         // {"conv_2d_1x1_c4h1w4", "conv_2d_1x1_c4h1w2", "conv_2d_1x1_c4h1w1", "conv_2d_1x1_c8h1w4"};
         const int total_kernel = 3;
         std::string kernelName[total_kernel] = {"conv_2d_1x1_c4h1w4", "conv_2d_1x1_c4h1w2", "conv_2d_1x1_c4h1w1"};
@@ -554,13 +552,15 @@ ErrorCode ConvBufExecution::onResize(const std::vector<Tensor *> &inputs, const 
             ret |= kernel[knl_idx]->get().setArg(idx++, globalWorkSize[knl_idx][1]);
             ret |= kernel[knl_idx]->get().setArg(idx++, UP_DIV(width, itemW[knl_idx]));
             ret |= kernel[knl_idx]->get().setArg(idx++, openCLBuffer(input));
-            ret |= kernel[knl_idx]->get().setArg(idx++, *mResource->mKernelBuffer.get());
+            ret |= kernel[knl_idx]->get().setArg(idx++, openCLBuffer(mResource->mFilter.get()));
             ret |= kernel[knl_idx]->get().setArg(idx++, openCLBuffer(mResource->mBias.get()));
             ret |= kernel[knl_idx]->get().setArg(idx++, openCLBuffer(output));
             ret |= kernel[knl_idx]->get().setArg(idx++, static_cast<int>(inputChannelBlocks));
             ret |= kernel[knl_idx]->get().setArg(idx++, height);
             ret |= kernel[knl_idx]->get().setArg(idx++, width);
             ret |= kernel[knl_idx]->get().setArg(idx++, UP_DIV(outChannel, 4));
+            ret |= kernel[knl_idx]->get().setArg(idx++, ROUND_UP(outChannel, tileN));
+
             MNN_CHECK_CL_SUCCESS(ret, "setArg Conv1x1Buf Kernel Select");
 
             std::pair<std::vector<uint32_t>, int> retTune;
@@ -591,13 +591,14 @@ ErrorCode ConvBufExecution::onResize(const std::vector<Tensor *> &inputs, const 
         ret |= mKernel->get().setArg(idx++, mGlobalWorkSize[1]);
         ret |= mKernel->get().setArg(idx++, UP_DIV(width, itemW[min_index]));
         ret |= mKernel->get().setArg(idx++, openCLBuffer(input));
-        ret |= mKernel->get().setArg(idx++, *mResource->mKernelBuffer.get());
+        ret |= mKernel->get().setArg(idx++, openCLBuffer(mResource->mFilter.get()));
         ret |= mKernel->get().setArg(idx++, openCLBuffer(mResource->mBias.get()));
         ret |= mKernel->get().setArg(idx++, openCLBuffer(output));
         ret |= mKernel->get().setArg(idx++, static_cast<int>(inputChannelBlocks));
         ret |= mKernel->get().setArg(idx++, height);
         ret |= mKernel->get().setArg(idx++, width);
         ret |= mKernel->get().setArg(idx++, UP_DIV(outChannel, 4));
+        ret |= mKernel->get().setArg(idx++, ROUND_UP(outChannel, tileN));
         MNN_CHECK_CL_SUCCESS(ret, "setArg Conv1x1Buf");
 
         //printf("conv1x1 %d, %d %d, %d %d, %d %d\n", min_index, mGlobalWorkSize[0], mGlobalWorkSize[1], mLocalWorkSize[0], mLocalWorkSize[1], outChannel, width);
@@ -749,8 +750,9 @@ ErrorCode ConvBufExecution::onExecute(const std::vector<Tensor *> &inputs, const
     std::string kw = std::to_string(mResource->mKernelWidth);
     std::string total = std::to_string(1.0 / 1000000 * inputs[0]->batch() * inputs[0]->channel() * outputs[0]->channel() * outputs[0]->height() * outputs[0]->width() * mResource->mKernelHeight * mResource->mKernelWidth);
     if (mResource->mConvGemmOptLevel > 0) {
+        std::string m = std::to_string(outputs[0]->width() * outputs[0]->height() * inputs[0]->batch());
         name += "-gemm";
-        name += std::to_string(mResource->mConvGemmOptLevel) + "-m" + b + "n" + co + "k" + ci;
+        name += std::to_string(mResource->mConvGemmOptLevel) + "-m" + m + "n" + co + "k" + ci;
     } else if (mResource->mConv1x1Opt) {
         name += "-conv1x1";
         name += "-b" + b + "ci" + ci + "hi" + hi + "wi" + wi + "co" + co;

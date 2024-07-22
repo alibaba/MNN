@@ -6,7 +6,7 @@
 代码位置：`demo/exec/multiPose.cpp`
 
 1. 下载原始的Tensorflow模型 [pose model](https://github.com/czy2014hust/posenet-python/raw/master/models/model-mobilenet_v1_075.pb)
-2. 使用 [模型转换工具](../tools/convert.md) 转换为 MNN 模型
+2. 使用 [模型转换工具](../tools/convert.md) 转换为 MNN 模型，转换时加上参数 --keepInputFormat=0 【把输入由NHWC转换为NC4HW4布局】
 3. 执行姿态检测
     ```bash
     ./multiPose.out model.mnn input.png pose.png

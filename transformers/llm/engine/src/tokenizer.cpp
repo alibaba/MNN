@@ -15,19 +15,21 @@
 #include <regex>
 #include <set>
 #include <climits>
+namespace MNN {
+namespace Transformer {
 
 // base64
 static const std::string base64_chars =
-             "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-             "abcdefghijklmnopqrstuvwxyz"
-             "0123456789+/";
+"ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+"abcdefghijklmnopqrstuvwxyz"
+"0123456789+/";
 
 static inline bool is_base64(unsigned char c) {
     return (isalnum(c) || (c == '+') || (c == '/'));
 }
 
 static inline size_t one_char_len(const char *src) {
-  return "\1\1\1\1\1\1\1\1\1\1\1\1\2\2\3\4"[(*src & 0xFF) >> 4];
+    return "\1\1\1\1\1\1\1\1\1\1\1\1\2\2\3\4"[(*src & 0xFF) >> 4];
 }
 
 static std::string base64_decode(const std::string& str) {
@@ -343,13 +345,13 @@ Sentencepiece::EncodeResult Sentencepiece::bpe_encode(string_view_ normalized, f
         if (skip_merge()) continue;
         // Replaces symbols with `top` rule.
         symbols[top->left].piece = string_view_(
-            symbols[top->left].piece.data(),
-            symbols[top->left].piece.size() + symbols[top->right].piece.size());
+                                                symbols[top->left].piece.data(),
+                                                symbols[top->left].piece.size() + symbols[top->right].piece.size());
 
         // Updates prev/next pointers.
         symbols[top->left].next = symbols[top->right].next;
         if (symbols[top->right].next >= 0) {
-        symbols[symbols[top->right].next].prev = top->left;
+            symbols[symbols[top->right].next].prev = top->left;
         }
         symbols[top->right].piece = string_view_("");
 
@@ -585,11 +587,11 @@ std::string wstring_to_utf8(const std::wstring& str) {
 void byte_encode_token(const std::string& token,
                        const std::unordered_map<uint8_t, wchar_t>& b2u,
                        std::wstring* result) {
-  result->resize(0);
-  for (char c : token) {
-    wchar_t wc = b2u.at(uint8_t(c));
-    result->push_back(wc);
-  }
+    result->resize(0);
+    for (char c : token) {
+        wchar_t wc = b2u.at(uint8_t(c));
+        result->push_back(wc);
+    }
 }
 
 bool HuggingfaceTokenizer::load_vocab(std::ifstream& tok_file) {
@@ -611,10 +613,10 @@ bool HuggingfaceTokenizer::load_vocab(std::ifstream& tok_file) {
         std::getline(tok_file, line);
         int d = line.find(" ");
         bpe_ranks_.insert({{utf8_to_wstring(line.substr(0, d)),
-                            utf8_to_wstring(line.substr(d + 1))}, i});
+            utf8_to_wstring(line.substr(d + 1))}, i});
     }
     // bytes_to_unicode
-     auto _insert_range = [=](int start, int end) {
+    auto _insert_range = [=](int start, int end) {
         for (int c = start; c <= end; c++) {
             b2u_.insert({uint8_t(c), wchar_t(c)});
         }
@@ -654,13 +656,13 @@ void HuggingfaceTokenizer::bpe(const std::wstring& token, const BPERanks& bpe_ra
     std::set<int> merged;  // records indices in pairs that were merged.
     auto _left = [](int i, std::set<int>& merged) {
         for (int j = i - 1; j >= -1; j--) {
-        if (merged.find(j) == merged.end()) return j;
+            if (merged.find(j) == merged.end()) return j;
         }
         return -1;
     };
     auto _right = [](int i, int cap, std::set<int>& merged) {
         for (int j = i + 1; j < cap; j++) {
-        if (merged.find(j) == merged.end()) return j;
+            if (merged.find(j) == merged.end()) return j;
         }
         return cap;
     };
@@ -673,14 +675,14 @@ void HuggingfaceTokenizer::bpe(const std::wstring& token, const BPERanks& bpe_ra
         int to_merge = -1;  // indices into pairs.
 
         for (int i = 0; i < pairs.size(); ++i) {
-        if (merged.find(i) == merged.end()) {  // pair i is not merged.
-            auto iter = bpe_ranks.find(pairs[i]);
-            int score = iter != bpe_ranks.end() ? iter->second : INT_MAX;
-            if (score < min_score) {
-            min_score = score;
-            to_merge = i;
+            if (merged.find(i) == merged.end()) {  // pair i is not merged.
+                auto iter = bpe_ranks.find(pairs[i]);
+                int score = iter != bpe_ranks.end() ? iter->second : INT_MAX;
+                if (score < min_score) {
+                    min_score = score;
+                    to_merge = i;
+                }
             }
-        }
         }
 
         if (to_merge == -1) break;
@@ -746,4 +748,6 @@ std::string HuggingfaceTokenizer::decode(int id) {
         }
     }
     return r;
+}
+}
 }

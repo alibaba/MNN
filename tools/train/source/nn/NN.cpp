@@ -6,6 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#include <MNN/expr/ExecutorScope.hpp>
 #include "NN.hpp"
 #include "Distributions.hpp"
 #include "module/PipelineModule.hpp"
@@ -397,6 +398,11 @@ Module* NN::Linear(int l, int t, bool hasBias, std::shared_ptr<Initializer> weig
     }
     auto weight = weightInit->createConstVar({t, l}, NCHW);
     weight.fix(VARP::TRAINABLE);
+    // Save lazy mode
+    auto lazyEval = ExecutorScope::Current()->lazyEval;
+    auto lazyMode = ExecutorScope::Current()->getLazyMode();
+    ExecutorScope::Current()->lazyEval = true;
+    ExecutorScope::Current()->setLazyComputeMode(Executor::LAZY_FULL);
     auto input  = _Input({l}, NCHW);
     auto output = _MatMul(input, weight, false, true);
     if (!hasBias) {
@@ -407,6 +413,10 @@ Module* NN::Linear(int l, int t, bool hasBias, std::shared_ptr<Initializer> weig
     output    = _Add(output, bias);
     auto module = NN::extract({input}, {output}, true);
     module->setType("Linear");
+    // Revert lazy mode
+    ExecutorScope::Current()->lazyEval = lazyEval;
+    ExecutorScope::Current()->setLazyComputeMode(lazyMode);
+
     return module;
 }
 

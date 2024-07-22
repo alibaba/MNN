@@ -11,7 +11,6 @@
 #include "MNN_generated.h"
 #include "Macro.h"
 #include <random>
-#include <fstream>
 
 namespace MNN {
 Tensor::DimensionType OpCommonUtils::convertDimType(MNN_DATA_FORMAT dimensionFormat) {

@@ -19,13 +19,6 @@
     movi \d3\().4s, #0
 .endm
 
-.macro Float32ToBf16 d0, d1, d2, d3
-    shrn \d0\().4h, \d0\().4s, #16
-    shrn \d1\().4h, \d1\().4s, #16
-    shrn \d2\().4h, \d2\().4s, #16
-    shrn \d3\().4h, \d3\().4s, #16
-.endm
-
 .macro FOURFMAX s, d0, d1, d2, d3
     fmax \d0\().4s, \d0\().4s, \s\().4s
     fmax \d1\().4s, \d1\().4s, \s\().4s
@@ -50,12 +43,15 @@
 asm_function ARMV86_MNNPackedMatMulRemain_BF16
 //void ARMV86_MNNPackedMatMulRemain_BF16(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias);
 //Auto x0: C, x1:A, x2:B, x3:eSize, x4:parameter, x5:postParameters, x6:bias
-sub sp, sp, #64
+sub sp, sp, #96
 str x19, [sp, #0]
 str x20, [sp, #8]
 str x21, [sp, #16]
 str x22, [sp, #24]
+stp d9, d10, [sp, #32]
+str d15, [sp, #64]
 ldr x11, [x4, #0] // aStride
+lsr x11, x11, #1 // aStride->bf16 stride
 ldr x9, [x4, #8] // l
 ldr x10, [x4, #16] // h
 lsl x11, x11, #2 // aStride * 4
@@ -63,6 +59,7 @@ mov x22, #64  // B_stride = LP * HP = 4 * 8 * sizeof(int16_t)
 
 ldr x7, [x4, #24] // cStride
 ldr x19, [x4, #40] // bExtraStride
+lsr x19, x19, #1 // bExtraStride->bf16 stride
 
 add x10, x10, #3
 lsr x10, x10, #2
@@ -89,14 +86,12 @@ LoopE8: // e, TILE_BLOCK size is 8
     LH8:
     cmp x8, #2 // h/4 > 2
     blt LH4
-    sub x14, x7, #64 // cStride - 64
+    sub x14, x7, #128 // cStride - 8 * 4 * sizeof(float)
     LoopH8x8:
         mov x15, x1 // src, A
         mov x12, x9 // l
         cbz x5, NoBiasLH8
-        ld1 {v0.4h, v1.4h}, [x20], #16 // 8 * sizeof(int16_t)
-        shll v0.4s, v0.4h, #16
-        shll v1.4s, v1.4h, #16
+        ld1 {v0.4s, v1.4s}, [x20], #32 // 8 * sizeof(float)
         mov v2.16b, v0.16b
         mov v3.16b, v1.16b
         uzp1 v16.2d, v0.2d, v2.2d   // bias_0, bias_1, bias_0, bias_1
@@ -165,15 +160,11 @@ LoopE8: // e, TILE_BLOCK size is 8
             FOURFMIN v10, v23, v24, v25, v26
             FOURFMIN v10, v27, v28, v29, v30
         StoreLH8:
-            Float32ToBf16 v15, v16, v17, v18
-            Float32ToBf16 v19, v20, v21, v22
-            Float32ToBf16 v23, v24, v25, v26
-            Float32ToBf16 v27, v28, v29, v30
-            st1 {v15.4h, v16.4h, v17.4h, v18.4h}, [x0], #32 // 16 * sizeof(int16_t)
-            st1 {v19.4h, v20.4h, v21.4h, v22.4h}, [x0], #32 // 16 * sizeof(int16_t)
+            st1 {v15.4s, v16.4s, v17.4s, v18.4s}, [x0], #64 // 16 * sizeof(float)
+            st1 {v19.4s, v20.4s, v21.4s, v22.4s}, [x0], #64 // 16 * sizeof(float)
             add x0, x0, x14
-            st1 {v23.4h, v24.4h, v25.4h, v26.4h}, [x0], #32 // 16 * sizeof(int16_t)
-            st1 {v27.4h, v28.4h, v29.4h, v30.4h}, [x0], #32 // 16 * sizeof(int16_t)
+            st1 {v23.4s, v24.4s, v25.4s, v26.4s}, [x0], #64 // 16 * sizeof(float)
+            st1 {v27.4s, v28.4s, v29.4s, v30.4s}, [x0], #64 // 16 * sizeof(float)
             add x0, x0, x14
             add x13, x13, x19 // weight stride
             sub x8, x8, #2
@@ -185,8 +176,7 @@ LoopE8: // e, TILE_BLOCK size is 8
         mov x15, x1
         mov x12, x9
         cbz x5, NoBiasHRemain
-        ld1 {v0.4h}, [x20]
-        shll v0.4s, v0.4h, #16
+        ld1 {v0.4s}, [x20]
         mov v2.16b, v0.16b
         uzp1 v16.2d, v0.2d, v2.2d   // bias_0, bias_1, bias_0, bias_1
         uzp2 v17.2d, v0.2d, v2.2d   // bias_2, bias_3, bias_2, bias_3
@@ -228,14 +218,12 @@ LoopE8: // e, TILE_BLOCK size is 8
             FOURFMIN v10, v15, v16, v17, v18
             FOURFMIN v10, v19, v20, v21, v22
         StoreLH8x4:
-            Float32ToBf16 v15, v16, v17, v18
-            Float32ToBf16 v19, v20, v21, v22
-            st1 {v15.4h, v16.4h, v17.4h, v18.4h}, [x0], #32 // 16 * sizeof(int16_t)
-            st1 {v19.4h, v20.4h, v21.4h, v22.4h}, [x0], #32 // 16 * sizeof(int16_t)
+            st1 {v15.4s, v16.4s, v17.4s, v18.4s}, [x0], #64 // 16 * sizeof(int16_t)
+            st1 {v19.4s, v20.4s, v21.4s, v22.4s}, [x0], #64 // 16 * sizeof(int16_t)
     E8End:
         sub x3, x3, #8
         cmp x3, #8
-        add x0, x21, #64 // move dest address of 8 * 4 * sizeof(int16_t)
+        add x0, x21, #128 // move dest address of 8 * 4 * sizeof(float)
         add x1, x1, #64  // move A matrix address of 8 * 4 * sizeof(int16_t)
         bge LoopE8
 
@@ -255,9 +243,7 @@ E4LH8:
         mov x15, x1
         mov x12, x9
         cbz x5, NoBiasE4
-        ld1 {v0.4h, v1.4h}, [x20], #16 // 8 * sizeof(int16_t)
-        shll v0.4s, v0.4h, #16
-        shll v1.4s, v1.4h, #16
+        ld1 {v0.4s, v1.4s}, [x20], #32 // 8 * sizeof(float)
         mov v2.16b, v0.16b
         mov v3.16b, v1.16b
         uzp1 v16.2d, v0.2d, v2.2d   // bias_0, bias_1, bias_0, bias_1
@@ -304,10 +290,8 @@ E4LH8:
             FOURFMIN v10, v15, v16, v17, v18
             FOURFMIN v10, v19, v20, v21, v22
         StoreLH4x8:
-            Float32ToBf16 v15, v16, v17, v18
-            Float32ToBf16 v19, v20, v21, v22          
-            st1 {v15.4h, v16.4h, v17.4h, v18.4h}, [x0], x7 // 16 * sizeof(int16_t)
-            st1 {v19.4h, v20.4h, v21.4h, v22.4h}, [x0], x7 // 16 * sizeof(int16_t)
+            st1 {v15.4s, v16.4s, v17.4s, v18.4s}, [x0], x7
+            st1 {v19.4s, v20.4s, v21.4s, v22.4s}, [x0], x7
             add x13, x13, x19 // weight stride
             sub x8, x8, #2
             cmp x8, #2
@@ -317,8 +301,7 @@ E4LH8:
         mov x15, x1
         mov x12, x9
         cbz x5, NoBiasE4R
-        ld1 {v0.4h}, [x20]
-        shll v0.4s, v0.4h, #16
+        ld1 {v0.4s}, [x20]
         mov v2.16b, v0.16b
         uzp1 v16.2d, v0.2d, v2.2d   // bias_0, bias_1, bias_0, bias_1
         uzp2 v17.2d, v0.2d, v2.2d   // bias_2, bias_3, bias_2, bias_3
@@ -347,13 +330,12 @@ E4LH8:
             cbz x5, StoreLH4x4
         PostTreatLH4x4:
             FOURFMAX v9, v15, v16, v17, v18
-            FOURFMIN v10, v19, v20, v21, v22
+            FOURFMIN v10, v15, v16, v17, v18
         StoreLH4x4:
-            Float32ToBf16 v15, v16, v17, v18
-            st1 {v15.4h, v16.4h, v17.4h, v18.4h}, [x0] // 16 * sizeof(int16_t)
+            st1 {v15.4s, v16.4s, v17.4s, v18.4s}, [x0]
     E4End:
         sub x3, x3, #4
-        add x0, x21, #32 // move dest address of 4 * 4 * sizeof(int16_t)
+        add x0, x21, #64 // move dest address of 4 * 4 * sizeof(float)
         add x1, x1, #32 // move dest address of 4 * 4 * sizeof(int16_t)
 
 E2:
@@ -372,9 +354,7 @@ E2LH8:
         mov x15, x1
         mov x12, x9
         cbz x5, NoBiasE2
-        ld1 {v0.4h, v1.4h}, [x20], #16
-        shll v0.4s, v0.4h, #16
-        shll v1.4s, v1.4h, #16
+        ld1 {v0.4s, v1.4s}, [x20], #32
         mov v2.16b, v0.16b
         mov v3.16b, v1.16b
         uzp1 v16.2d, v0.2d, v2.2d   // bias_0, bias_1, bias_0, bias_1
@@ -406,9 +386,8 @@ E2LH8:
             FOURFMAX v9, v15, v16, v17, v18
             FOURFMIN v10, v15, v16, v17, v18
         StoreLH2x8:
-            Float32ToBf16 v15, v16, v17, v18
-            st1 {v15.4h, v16.4h}, [x0], x7 // 8 * sizeof(int16_t)
-            st1 {v17.4h, v18.4h}, [x0], x7 // 8 * sizeof(int16_t)
+            st1 {v15.4s, v16.4s}, [x0], x7 // 8 * sizeof(int16_t)
+            st1 {v17.4s, v18.4s}, [x0], x7 // 8 * sizeof(int16_t)
             add x13, x13, x19 // weight stride
             sub x8, x8, #2
             cmp x8, #2
@@ -418,8 +397,7 @@ E2LH8:
         mov x15, x1
         mov x12, x9
         cbz x5, NoBiasE2R
-        ld1 {v0.4h}, [x20]
-        shll v0.4s, v0.4h, #16
+        ld1 {v0.4s}, [x20]
         mov v2.16b, v0.16b
         uzp1 v16.2d, v0.2d, v2.2d   // bias_0, bias_1, bias_0, bias_1
         uzp2 v17.2d, v0.2d, v2.2d   // bias_2, bias_3, bias_2, bias_3
@@ -447,12 +425,10 @@ E2LH8:
             fmin v15.4s, v15.4s, v10.4s
             fmin v16.4s, v16.4s, v10.4s
         StoreLH2x4:
-            shrn v15.4h, v15.4s, #16
-            shrn v16.4h, v16.4s, #16
-            st1 {v15.4h, v16.4h}, [x0] // 8 * sizeof(int16_t)
+            st1 {v15.4s, v16.4s}, [x0]
     E2End:
         sub x3, x3, #2
-        add x0, x21, #16 // move dest address of 2 * 4 * sizeof(int16_t)
+        add x0, x21, #32 // move dest address of 2 * 4 * sizeof(float)
         add x1, x1, #16 // move dest address of 2 * 4 * sizeof(int16_t)
 
 E1:
@@ -473,9 +449,7 @@ LoopE1:
         mov x15, x1
         mov x12, x9
         cbz x5, NoBiasE1
-        ld1 {v0.4h, v1.4h}, [x20], #16
-        shll v0.4s, v0.4h, #16
-        shll v1.4s, v1.4h, #16
+        ld1 {v0.4s, v1.4s}, [x20], #32
         mov v2.16b, v0.16b
         mov v3.16b, v1.16b
         uzp1 v16.2d, v0.2d, v2.2d   // bias_0, bias_1, bias_0, bias_1
@@ -508,10 +482,8 @@ LoopE1:
             fmin v15.4s, v15.4s, v10.4s
             fmin v16.4s, v16.4s, v10.4s
         StoreLH1x8:
-            shrn v15.4h, v15.4s, #16
-            shrn v16.4h, v16.4s, #16
-            st1 {v15.4h}, [x0], x7
-            st1 {v16.4h}, [x0], x7
+            st1 {v15.4s}, [x0], x7
+            st1 {v16.4s}, [x0], x7
             add x13, x13, x19
             sub x8, x8, #2
             cmp x8, #2
@@ -522,8 +494,7 @@ LoopE1:
     mov x15, x1
     mov x12, x9
     cbz x5, NoBiasE1R
-    ld1 {v0.4h}, [x20]
-    shll v0.4s, v0.4h, #16
+    ld1 {v0.4s}, [x20]
     mov v2.16b, v0.16b
     uzp1 v16.2d, v0.2d, v2.2d   // bias_0, bias_1, bias_0, bias_1
     uzp2 v17.2d, v0.2d, v2.2d   // bias_2, bias_3, bias_2, bias_3
@@ -548,19 +519,20 @@ LoopE1:
         fmax v15.4s, v15.4s, v9.4s
         fmin v15.4s, v15.4s, v10.4s
     StoreLH1x4:
-        shrn v15.4h, v15.4s, #16
-        st1 {v15.4h}, [x0]
+        st1 {v15.4s}, [x0]
     E1End:
         subs x3, x3, #1
-        add x0, x21, #8
+        add x0, x21, #16 // 4 * sizeof(float)
         add x1, x1, #8
         bne LoopE1
 End:
+ldr d15, [sp, #64]
+ldp d9, d10, [sp, #32]
 ldr x19, [sp, #0]
 ldr x20, [sp, #8]
 ldr x21, [sp, #16]
 ldr x22, [sp, #24]
-add sp, sp, #64
+add sp, sp, #96
 
 ret
 #endif

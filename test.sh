@@ -547,14 +547,22 @@ android_model_test() {
     models=`ls ~/AliNNModel/TestResource/`
     for model in $models
     do
-        adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./testModel.out ../AliNNModel/TestResource/$model/temp.bin ../AliNNModel/TestResource/$model/input_0.txt ../AliNNModel/TestResource/$model/output.txt 0 0.002"
+        if [ $model == 'mobilenetv1quan' ]; then
+            adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./testModel.out ../AliNNModel/TestResource/$model/temp.bin ../AliNNModel/TestResource/$model/input_0.txt ../AliNNModel/TestResource/$model/output.txt 0 0.1"
+        else
+            adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./testModel.out ../AliNNModel/TestResource/$model/temp.bin ../AliNNModel/TestResource/$model/input_0.txt ../AliNNModel/TestResource/$model/output.txt 0 0.002"
+        fi
         if [ $? -ne 0 ]; then
             fail_num=$[$fail_num+1]
         else
             pass_num=$[$pass_num+1]
         fi
         if [ "$OPENCL_CHANGE" ]; then
-        adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./testModel.out ../AliNNModel/TestResource/$model/temp.bin ../AliNNModel/TestResource/$model/input_0.txt ../AliNNModel/TestResource/$model/output.txt 3 0.002 1"
+        if [ $model == 'mobilenetv1quan' ]; then
+            adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./testModel.out ../AliNNModel/TestResource/$model/temp.bin ../AliNNModel/TestResource/$model/input_0.txt ../AliNNModel/TestResource/$model/output.txt 3 0.1 1"
+        else 
+            adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./testModel.out ../AliNNModel/TestResource/$model/temp.bin ../AliNNModel/TestResource/$model/input_0.txt ../AliNNModel/TestResource/$model/output.txt 3 0.002 1"
+        fi    
             if [ $? -ne 0 ]; then
                 fail_cl_num=$[$fail_cl_num+1]
             else

@@ -27,82 +27,253 @@
 // reduce the value of 'query' to 'query * FP16_QSCALE', avoid fp16 overflow
 #define FP16_QSCALE 0.5
 
+#define FP8_E5M2
 
 namespace MNN {
 
+#if defined FP8_E5M2  // E5M2 : [S E E E E E M M]
+typedef uint8_t fp8_t;
+static inline fp8_t fp16_to_fp8(FLOAT16_T x) {
+    return *((fp8_t *)(&x) + 1);
+}
+static FLOAT16_T fp8_to_fp16(fp8_t x) {
+    uint16_t rawData = 0;
+    rawData |= (uint16_t)x << 8;
+    return *((FLOAT16_T *)(&rawData));
+}
+static inline fp8_t float_to_fp8(float x) {
+    uint32_t rawData = *((uint32_t *)(&x));
+    int sign = (rawData >> 31) & 1U;
+    int exp = (int)((rawData >> 23) & 0x0ffU) - 127;
+    if (exp < -16)
+        exp = -16;
+    if (exp > 15)
+        exp = 15;
+    exp += 16;    // exp [-16, 15] ==> [0, 31]
+    int mant = (rawData >> 21) & 3U;
+    return (sign << 7) | (exp << 2) | mant;
+}
+static inline float fp8_to_float(fp8_t x) {
+    uint32_t sign = (x >> 7) & 1U;
+    uint32_t exp = (int)((x >> 2) & 0x1fU) - 16 + 127;
+    uint32_t mant = (x & 3U) << 21;
+    uint32_t rawData = (sign << 31) | (exp << 23) | mant;
+    return *((float *)(&rawData));
+}
+#elif defined FP8_E4M3  // E4M3: [S E E E E M M M]
+typedef uint8_t fp8_t;
+static inline fp8_t fp16_to_fp8(FLOAT16_T x) {
+    uint16_t rawData = *((uint16_t *)(&x));
+    int sign = (rawData >> 15) & 1U;
+    int exp  = (int)((rawData >> 10) & 0x1fU) - 15;
+    if (exp < -8)
+        exp = -8;
+    if (exp > 7)
+        exp = 7;
+    exp += 8;     // exp [-8, 7] ==> [0, 15]
+    int mant = (rawData >> 7) & 7U;
+    return (sign << 7) | (exp << 3) | mant;
+}
+static FLOAT16_T fp8_to_fp16(fp8_t x) {
+    uint32_t sign = (x >> 7) & 1U;
+    uint32_t exp = (int)((x >> 3) & 0x0fU) - 8 + 15;
+    uint32_t mant = (x & 7U) << 7;
+    uint16_t rawData = (sign << 15) | (exp << 10) | mant;
+    return *((FLOAT16_T *)(&rawData));
+}
+static inline fp8_t float_to_fp8(float x) {
+    uint32_t rawData = *((uint32_t *)(&x));
+    int sign = (rawData >> 31) & 1U;
+    int exp = (int)((rawData >> 23) & 0x0ffU) - 127;
+    if (exp < -8)
+        exp = -8;
+    if (exp > 7)
+        exp = 7;
+    exp += 8;     // exp [-8, 7] ==> [0, 15]
+    int mant = (rawData >> 20) & 7U;
+    return (sign << 7) | (exp << 3) | mant;
+}
+static inline float fp8_to_float(fp8_t x) {
+    uint32_t sign = (x >> 7) & 1U;
+    uint32_t exp = (int)((x >> 3) & 0x0fU) - 8 + 127;
+    uint32_t mant = (x & 7U) << 20;
+    uint32_t rawData = (sign << 31) | (exp<< 23) | mant;
+    return *((float *)(&rawData));
+}
+#else
+// Do not support fp8
+#endif  // fp8 format definition
+
+static int nearestInt(float x) {
+    return x < 0 ? -nearestInt(-x) : (int)(x + 0.5f);
+}
+
 template <typename T>
-static void prefill_pack(Tensor* query, Tensor* key, Tensor* value, char* query_ptr, char* key_ptr, char* value_ptr,
-                         int mMaxLength, int mNumHead, int mKvNumHead, int mHeadDim, int mValueH,
-                         int eP, int hP, int query_e, int key_h, int seq_len, int h, int kv_h, float q_scale) {
-    auto query_src = query->host<T>();
-    auto key_src = key->host<T>();
-    auto value_src = value->host<T>();
-    auto query_dst = reinterpret_cast<T*>(query_ptr);
-    auto key_dst = reinterpret_cast<T*>(key_ptr);
-    auto value_dst = reinterpret_cast<T*>(value_ptr);
-    // transpose query: [seq_len, num_head, head_dim] -> numhead, [seq_len/eP, head_dim, eP]
-    for (int i = 0; i < query_e; i++) {
+static void pack_query(Tensor* query, char* pack_q, int mNumHead, int mHeadDim, int eP, int seq_len, int h, float q_scale) {
+    T * query_src = query->host<T>();
+    T * query_dst = reinterpret_cast<T*>(pack_q);
+    for (int i = 0; i < seq_len; i++) {
+        int out_index = i / eP;
+        int in_index  = i % eP;
         for (int j = 0; j < mHeadDim; j++) {
-            for (int k = 0; k < eP; k++) {
-                int s = i * eP + k;
-                if (s < seq_len) {
-                    query_dst[i * mHeadDim * eP + j * eP + k] = query_src[s * mNumHead * mHeadDim + h * mHeadDim + j] * q_scale;
-                }
+            query_dst[out_index * mHeadDim * eP + j * eP + in_index] = query_src[i * mNumHead * mHeadDim + h * mHeadDim + j] * q_scale;
+        }
+    }
+}
+
+template <typename T>
+static void pack_key(Tensor* key, char* pack_key, int mPastLength, int seq_len, int mKvNumHead, int mHeadDim, int hP, int kv_h, char* scale, char* zero_point, bool quant) {
+    if (quant) {  // Quantize the keys
+        auto key_src = key->host<T>();
+        auto key_dst = reinterpret_cast<int8_t*>(pack_key);
+        auto scale_dst = reinterpret_cast<T*>(scale);
+        auto zeroPoint_dst = reinterpret_cast<T*>(zero_point);
+        for (int i = 0; i < seq_len; i++) {
+            float minKey = key_src[i * mKvNumHead * mHeadDim + kv_h * mHeadDim + 0];
+            float maxKey = key_src[i * mKvNumHead * mHeadDim + kv_h * mHeadDim + 0];
+            for (int j = 1; j < mHeadDim; j++) {
+                auto key = key_src[i * mKvNumHead * mHeadDim + kv_h * mHeadDim + j];
+                minKey = ALIMIN(minKey, key);
+                maxKey = ALIMAX(maxKey, key);
+            }
+            int out_index = (mPastLength + i) / hP;
+            int in_index  = (mPastLength + i) % hP;
+            scale_dst[out_index * hP + in_index] = (maxKey - minKey) / 255.0f;
+            zeroPoint_dst[out_index * hP + in_index] = 128.0f * (maxKey - minKey) / 255.0f + minKey;
+            for (int j = 0; j < mHeadDim; j++) {
+                key_dst[out_index * mHeadDim * hP + j * hP + in_index] = nearestInt((key_src[i * mKvNumHead * mHeadDim + kv_h * mHeadDim + j] - minKey) / (maxKey - minKey) * 255 - 128);
             }
         }
     }
-    // transpose key: [seq_len, num_head, head_dim] -> numhead, [seq_len/hP, head_dim, hP]
-    for (int i = 0; i < key_h; i++) {
-        for (int j = 0; j < mHeadDim; j++) {
-            for (int k = 0; k < hP; k++) {
-                int s = i * hP + k;
-                if (s < seq_len) {
-                    key_dst[i * mHeadDim * hP + j * hP + k] = key_src[s * mKvNumHead * mHeadDim + kv_h * mHeadDim + j];
-                }
+    else {  // Do not quantize the keys
+        auto key_src = key->host<T>();
+        auto key_dst = reinterpret_cast<T*>(pack_key);
+        for (int i = 0; i < seq_len; i++) {
+            int out_index = (mPastLength + i) / hP;
+            int in_index  = (mPastLength + i) % hP;
+            for (int j = 0; j < mHeadDim; j++) {
+                key_dst[out_index * mHeadDim * hP + j * hP + in_index] = key_src[i * mKvNumHead * mHeadDim + kv_h * mHeadDim + j];
             }
         }
     }
-    // transpose value: [seq_len, num_head, head_dim] -> numhead, [head_dim/hP, seq_len, hP]
-    for (int i = 0; i < mValueH; i++) {
-        for (int j = 0; j < seq_len; j++) {
+}
+
+
+
+template <typename T>
+static void pack_value(Tensor* value, char* pack_value, int mMaxLength, int mPastLength, int seq_len, int mKvNumHead, int mHeadDim, int hP, int kv_h, bool quant) {
+    if (quant) {  // Quantize the values to fp8
+        T * value_src = value->host<T>();
+        fp8_t * value_dst = reinterpret_cast<fp8_t*>(pack_value);
+        for (int i = 0; i < seq_len; i++) {
+            for (int j = 0; j < mHeadDim; j++) {
+                int out_index = j / hP;
+                int in_index  = j % hP;
+                auto origin = value_src[i * mKvNumHead * mHeadDim + kv_h * mHeadDim + j];
+                if (sizeof(T) == 2)
+                    value_dst[out_index * mMaxLength * hP + (mPastLength + i) * hP + in_index] = fp16_to_fp8(origin);
+                else
+                    value_dst[out_index * mMaxLength * hP + (mPastLength + i) * hP + in_index] = float_to_fp8(origin);
+            }
+        }
+    }
+    else {  // Do not quantize the values
+        T * value_src = value->host<T>();
+        T * value_dst = reinterpret_cast<T*>(pack_value);
+        for (int i = 0; i < seq_len; i++) {
+            for (int j = 0; j < mHeadDim; j++) {
+                int out_index = j / hP;
+                int in_index  = j % hP;
+                value_dst[out_index * mMaxLength * hP + (mPastLength + i) * hP + in_index] = value_src[i * mKvNumHead * mHeadDim + kv_h * mHeadDim + j];
+            }
+        }
+    }
+}
+
+void dequant_value_float(char * dst, char * src, int mHeadDim, int kv_seq_len, int hP, int mMaxLength) {
+    fp8_t * qv = (fp8_t *)src;
+    float * dqv = (float *)dst;
+    for (int i = 0; i < UP_DIV(mHeadDim, hP); i++) {
+        for (int j = 0; j < kv_seq_len; j++) {
             for (int k = 0; k < hP; k++) {
-                int hd = i * hP + k;
-                if (hd < mHeadDim) {
-                    value_dst[i * mMaxLength * hP + j * hP + k] = value_src[j * mKvNumHead * mHeadDim + kv_h * mHeadDim + hd];
-                }
+                dqv[i * kv_seq_len * hP + j * hP + k] = fp8_to_float(qv[i * mMaxLength * hP + j * hP + k]);
+            }
+        }
+    }
+}
+
+void dequant_value_fp16(char * dst, char * src, int mHeadDim, int kv_seq_len, int hP, int mMaxLength) {
+    fp8_t * qv = (fp8_t *)src;
+    FLOAT16_T * dqv = (FLOAT16_T *)dst;
+    for (int i = 0; i < UP_DIV(mHeadDim, hP); i++) {
+        for (int j = 0; j < kv_seq_len; j++) {
+            for (int k = 0; k < hP; k++) {
+                dqv[i * kv_seq_len * hP + j * hP + k] = fp8_to_fp16(qv[i * mMaxLength * hP + j * hP + k]);
             }
         }
     }
 }
 
 template <typename T>
-static void decode_pack(Tensor* query, Tensor* key, Tensor* value, char* query_ptr, char* key_ptr, char* value_ptr,
-                         int mMaxLength, int mPastLength, int mHeadDim, int mValueH, int eP, int hP, int h, int kv_h, float q_scale) {
-    auto query_src = query->host<T>();
-    auto key_src = key->host<T>();
-    auto value_src = value->host<T>();
-    auto query_dst = reinterpret_cast<T*>(query_ptr);
-    auto key_dst = reinterpret_cast<T*>(key_ptr);
-    auto value_dst = reinterpret_cast<T*>(value_ptr);
-    for (int i = 0; i < mHeadDim; i++) {
-        query_dst[i * eP] = query_src[h * mHeadDim + i] * q_scale;
-    }
-    // transpose key: [1, num_head, head_dim] -> numhead, [kv_seq_len/hP, head_dim, hP]
-    int outside_offset = UP_DIV(mPastLength, hP);
-    int inside_offset = mPastLength % hP;
-    for (int i = 0; i < mHeadDim; i++) {
-        key_dst[(outside_offset - (inside_offset != 0)) * mHeadDim * hP + i * hP + inside_offset] = key_src[kv_h * mHeadDim + i];
-    }
-    // transpose value: [1, num_head, head_dim] -> numhead, [head_dim/hP, kv_seq_len, hP]
-    for (int i = 0; i < mValueH; i++) {
-        for (int j = 0; j < hP; j++) {
-            value_dst[i * mMaxLength * hP + mPastLength * hP + j] = value_src[kv_h * mHeadDim + i * hP + j];
+static void unpack_QK(float * unpack_qk_dst, char * pack_qk_src, int seq_len, int kv_seq_len, int unit) {
+    float * dst = unpack_qk_dst;
+    T * src = (T *)(pack_qk_src);
+    // [kv_seq_len/unit, seq_len, unit] -> [seq_len, kv_seq_len]
+    for (int i = 0; i < seq_len; i++) {
+        for (int j = 0; j < kv_seq_len; j++) {
+            int out_index = j / unit;
+            int in_index  = j % unit;
+            dst[i * kv_seq_len + j] = src[out_index * seq_len * unit + i * unit + in_index];
         }
     }
 }
 
 template <typename T>
-static void prefill_unpack(char* pack_qkv, char* unpack_qkv, int mNumHead, int mHeadDim, int unit, int seq_len) {
+static void pack_QK(char * pack_qk_dst, float * qk_src, int seq_len, int kv_seq_len, int eP) {
+    T * dst = reinterpret_cast<T*>(pack_qk_dst);
+    float * src = reinterpret_cast<float*>(qk_src);
+    // [seq_len, kv_seq_len] -> [seq_len/eP, kv_seq_len, eP]
+    for (int i = 0; i < seq_len; i++) {
+        int out_index = i / eP;
+        int in_index  = i % eP;
+        for (int j = 0; j < kv_seq_len; j++) {
+            dst[out_index * kv_seq_len * eP + j * eP + in_index] = src[i * kv_seq_len + j];
+        }
+    }
+}
+
+template <typename T>
+static void mask_QK(float * unpack_qk, int seq_len, int kv_seq_len, float mScale, float min_val, int * mask_ptr, bool float_mask) {
+    if (seq_len == 1) {
+        for (int i = 0; i < kv_seq_len; i++) {
+            unpack_qk[i] = unpack_qk[i] * mScale;
+        }
+    } else if (float_mask) {
+        // float mask
+        T* fpmask_ptr = reinterpret_cast<T*>(mask_ptr);
+        for (int i = 0; i < seq_len * kv_seq_len; i++) {
+            unpack_qk[i] = unpack_qk[i] * mScale + fpmask_ptr[i];
+        }
+    } else {
+        // int mask
+        for (int i = 0; i < seq_len * kv_seq_len; i++) {
+            if (mask_ptr[i]) {
+                unpack_qk[i] = unpack_qk[i] * mScale;
+            } else {
+                unpack_qk[i] = min_val;
+            }
+        }
+    }
+}
+
+static void softmax_QK(float* softmax_qk_addr, float* unpack_qk_addr, int seq_len, int kv_seq_len) {
+    for (int i = 0; i < seq_len; i++) {  // softmax each row
+        MNNSoftmax(softmax_qk_addr + i * kv_seq_len, unpack_qk_addr + i * kv_seq_len, kv_seq_len);
+    }
+}
+
+template <typename T>
+static void unpack_QKV(char* pack_qkv, char* unpack_qkv, int mNumHead, int mHeadDim, int unit, int seq_len) {
     auto src_ptr = reinterpret_cast<T*>(pack_qkv);
     auto dst_ptr = reinterpret_cast<T*>(unpack_qkv);
     for (int i = 0; i < seq_len; i++) {
@@ -114,111 +285,108 @@ static void prefill_unpack(char* pack_qkv, char* unpack_qkv, int mNumHead, int m
     }
 }
 
-template <typename T>
-static void prefill_softmax(int* mask_ptr, float* mask_qk, float* softmax_qk, char* unpack_qk, char* pack_qk,
-                            float mScale, int eP, int query_e, int seq_len,  float min_val, bool float_mask) {
-    T* qk_src = reinterpret_cast<T*>(unpack_qk);
-    T* qk_dst = reinterpret_cast<T*>(pack_qk);
-    if (float_mask) {
-        T* fpmask_ptr = reinterpret_cast<T*>(mask_ptr);
-        // float mask
-        for (int i = 0; i < seq_len * seq_len; i++) {
-            mask_qk[i] = qk_src[i] * mScale + fpmask_ptr[i];
-        }
-    } else {
-        // int mask
-        for (int i = 0; i < seq_len * seq_len; i++) {
-            if (mask_ptr[i]) {
-                mask_qk[i] = qk_src[i] * mScale;
-            } else {
-                mask_qk[i] = min_val;
-            }
-        }
-    }
-    for (int i = 0; i < seq_len; i++) {
-        MNNSoftmax(softmax_qk + i * seq_len, mask_qk + i * seq_len, seq_len);
-    }
-    for (int i = 0; i < query_e; i++) {
-        for (int j = 0; j < seq_len; j++) {
-            for (int k = 0; k < eP; k++) {
-                int s = i * eP + k;
-                if (s < seq_len) {
-                    qk_dst[i * seq_len * eP + j * eP + k] = softmax_qk[s * seq_len + j];
-                }
-            }
-         }
-    }
-}
-
-template <typename T>
-static void decode_softmax(float* mask_qk, float* softmax_qk, char* unpack_qk, char* pack_qk,
-                           float mScale, int eP, int kv_seq_len) {
-    T* qk_src = reinterpret_cast<T*>(unpack_qk);
-    T* qk_dst = reinterpret_cast<T*>(pack_qk);
-    for (int i = 0; i < kv_seq_len; i++) {
-        mask_qk[i] = qk_src[i] * mScale;
-    }
-    // softmax
-    MNNSoftmax(softmax_qk, mask_qk, kv_seq_len);
-    // pack qk
-    for (int i = 0; i < kv_seq_len; i++) {
-        qk_dst[i * eP] = softmax_qk[i];
-    }
-}
-
-void CPUAttention::allocKVCache() {
+void CPUAttention::allocKVCache(int kv_seq_len, bool quantKey, bool quantValue) {
     if (!mKVCache) {
         return;
     }
-    mResource->mMaxLength = ROUND_UP(mResource->mPastLength, mResource->mExpandChunk);
-    // past_key: [1, numhead, headdim, maxlen] -> numhead, [headdim, maxlen] -> pack_b -> numhead, [maxlen/hP, head_dim, hP]
-    mResource->mPastKey.reset(Tensor::createDevice<float>({mResource->mKvNumHead, UP_DIV(mResource->mMaxLength, hP), mResource->mHeadDim, hP}));
-    // past_value: [1, numhead, maxlen, headdim] -> numhead, [maxlen, headdim] -> pack_b -> numhead, [head_dim/hP, max_len, hP]
-    mResource->mPastValue.reset(Tensor::createDevice<float>({mResource->mKvNumHead, mResource->mValueH, mResource->mMaxLength, hP}));
-    backend()->onAcquireBuffer(mResource->mPastKey.get(), Backend::STATIC);
-    backend()->onAcquireBuffer(mResource->mPastValue.get(), Backend::STATIC);
+    mResource->mMaxLength = kv_seq_len + mResource->mExpandChunk;
+    if (quantKey) {
+        mResource->mPastKey.reset(Tensor::createDevice<int8_t>({mResource->mKvNumHead, UP_DIV(mResource->mMaxLength, hP), mResource->mHeadDim, hP}));
+        mResource->mDequantKeyScale.reset(Tensor::createDevice<float>({mResource->mKvNumHead, UP_DIV(mResource->mMaxLength, hP), 1, hP}));
+        mResource->mDequantKeyZeroPoint.reset(Tensor::createDevice<float>({mResource->mKvNumHead, UP_DIV(mResource->mMaxLength, hP), 1, hP}));
+        backend()->onAcquireBuffer(mResource->mPastKey.get(), Backend::STATIC);
+        backend()->onAcquireBuffer(mResource->mDequantKeyScale.get(), Backend::STATIC);
+        backend()->onAcquireBuffer(mResource->mDequantKeyZeroPoint.get(), Backend::STATIC);
+    } else {
+        mResource->mPastKey.reset(Tensor::createDevice<float>({mResource->mKvNumHead, UP_DIV(mResource->mMaxLength, hP), mResource->mHeadDim, hP}));
+        backend()->onAcquireBuffer(mResource->mPastKey.get(), Backend::STATIC);
+    }
+    if (quantValue) {
+        mResource->mPastValue.reset(Tensor::createDevice<fp8_t>({mResource->mKvNumHead, UP_DIV(mResource->mHeadDim, hP), mResource->mMaxLength, hP}));
+        backend()->onAcquireBuffer(mResource->mPastValue.get(), Backend::STATIC);
+    } else {
+        mResource->mPastValue.reset(Tensor::createDevice<float>({mResource->mKvNumHead, UP_DIV(mResource->mHeadDim, hP), mResource->mMaxLength, hP}));
+        backend()->onAcquireBuffer(mResource->mPastValue.get(), Backend::STATIC);
+    }
 }
 
-void CPUAttention::reallocKVCache() {
-    if (!mKVCache || mResource->mPastLength < mResource->mMaxLength) {
+void CPUAttention::reallocKVCache(int kv_seq_len, bool quantKey, bool quantValue) {
+    if (!mKVCache || kv_seq_len <= mResource->mMaxLength) {
         return;
     }
-    mResource->mMaxLength = mResource->mPastLength + mResource->mExpandChunk;
-    // past_key: [1, numhead, headdim, maxlen] -> numhead, [headdim, maxlen] -> pack_b -> numhead, [maxlen/hP, head_dim, hP]
-    auto new_key = Tensor::createDevice<float>({mResource->mKvNumHead, UP_DIV(mResource->mMaxLength, hP), mResource->mHeadDim, hP});
-    // past_value: [1, numhead, maxlen, headdim] -> numhead, [maxlen, headdim] -> pack_b -> numhead, [head_dim/hP, max_len, hP]
-    auto new_value = Tensor::createDevice<float>({mResource->mKvNumHead, mResource->mValueH, mResource->mMaxLength, hP});
-    backend()->onAcquireBuffer(new_key, Backend::STATIC);
-    backend()->onAcquireBuffer(new_value, Backend::STATIC);
-    // copy
-    for (int h = 0; h < mResource->mKvNumHead; h++) {
-        ::memset(new_key->host<char>() + h * UP_DIV(mResource->mMaxLength, hP) * mResource->mHeadDim * hP * bytes, 0, UP_DIV(mResource->mMaxLength, hP) * mResource->mHeadDim * hP * bytes);
-        ::memset(new_value->host<char>() + h * mResource->mValueH * mResource->mMaxLength * hP * bytes, 0, mResource->mValueH * mResource->mMaxLength * hP * bytes);
-        ::memcpy(new_key->host<char>() + h * UP_DIV(mResource->mMaxLength, hP) * mResource->mHeadDim * hP * bytes,
-                 mResource->mPastKey->host<char>() + h * UP_DIV(mResource->mPastLength, hP) * mResource->mHeadDim * hP * bytes,
-                 UP_DIV(mResource->mPastLength, hP) * mResource->mHeadDim * hP * bytes);
-        for (int i = 0; i < mResource->mValueH; i++) {
-            ::memcpy(new_value->host<char>() + (h * mResource->mValueH + i) * mResource->mMaxLength * hP * bytes,
-                     mResource->mPastValue->host<char>() + (h * mResource->mValueH + i) * mResource->mPastLength * hP * bytes,
-                     mResource->mPastLength * hP * bytes);
+    int oldMaxLength = mResource->mMaxLength;
+    mResource->mMaxLength = kv_seq_len + mResource->mExpandChunk;
+    if (quantKey) {
+        auto new_key = Tensor::createDevice<int8_t>({mResource->mKvNumHead, UP_DIV(mResource->mMaxLength, hP), mResource->mHeadDim, hP});
+        auto new_scale = Tensor::createDevice<float>({mResource->mKvNumHead, UP_DIV(mResource->mMaxLength, hP), 1, hP});
+        auto new_zeroPoint = Tensor::createDevice<float>({mResource->mKvNumHead, UP_DIV(mResource->mMaxLength, hP), 1, hP});
+        backend()->onAcquireBuffer(new_key, Backend::STATIC);
+        backend()->onAcquireBuffer(new_scale, Backend::STATIC);
+        backend()->onAcquireBuffer(new_zeroPoint, Backend::STATIC);
+        for (int h = 0; h < mResource->mKvNumHead; h++) {
+            memcpy(new_key->host<char>() + h * UP_DIV(mResource->mMaxLength, hP) * mResource->mHeadDim * hP,
+                    mResource->mPastKey->host<char>() + h * UP_DIV(oldMaxLength, hP) * mResource->mHeadDim * hP,
+                    UP_DIV(oldMaxLength, hP) * mResource->mHeadDim * hP);
+            memcpy(new_scale->host<char>() + h * UP_DIV(mResource->mMaxLength, hP) * hP * bytes,
+                    mResource->mDequantKeyScale->host<char>() + h * UP_DIV(oldMaxLength, hP) * hP * bytes,
+                    UP_DIV(oldMaxLength, hP) * hP * bytes);
+            memcpy(new_zeroPoint->host<char>() + h * UP_DIV(mResource->mMaxLength, hP) * hP * bytes,
+                    mResource->mDequantKeyZeroPoint->host<char>() + h * UP_DIV(oldMaxLength, hP) * hP * bytes,
+                    UP_DIV(oldMaxLength, hP) * hP * bytes);
         }
+        mResource->mPastKey.reset(new_key);
+        mResource->mDequantKeyScale.reset(new_scale);
+        mResource->mDequantKeyZeroPoint.reset(new_zeroPoint);
     }
-    mResource->mPastKey.reset(new_key);
-    mResource->mPastValue.reset(new_value);
+    else {
+        auto new_key = Tensor::createDevice<float>({mResource->mKvNumHead, UP_DIV(mResource->mMaxLength, hP), mResource->mHeadDim, hP});
+        backend()->onAcquireBuffer(new_key, Backend::STATIC);
+        for (int h = 0; h < mResource->mKvNumHead; h++) {
+            memcpy(new_key->host<char>() + h * UP_DIV(mResource->mMaxLength, hP) * mResource->mHeadDim * hP * bytes,
+                    mResource->mPastKey->host<char>() + h * UP_DIV(oldMaxLength, hP) * mResource->mHeadDim * hP * bytes,
+                    UP_DIV(oldMaxLength, hP) * mResource->mHeadDim * hP * bytes);
+        }
+        mResource->mPastKey.reset(new_key);
+    }
+    if (quantValue) {
+        auto new_value = Tensor::createDevice<fp8_t>({mResource->mKvNumHead, UP_DIV(mResource->mHeadDim, hP), mResource->mMaxLength, hP});
+        backend()->onAcquireBuffer(new_value, Backend::STATIC);
+        for (int h = 0; h < mResource->mKvNumHead; h++) {
+            for (int i = 0; i < UP_DIV(mResource->mHeadDim, hP); i++) {
+                memcpy(new_value->host<char>() + (h * UP_DIV(mResource->mHeadDim, hP) + i) * mResource->mMaxLength * hP,
+                        mResource->mPastValue->host<char>() + (h * UP_DIV(mResource->mHeadDim, hP) + i) * oldMaxLength * hP,
+                        oldMaxLength * hP);
+            }
+        }
+        mResource->mPastValue.reset(new_value);
+    }
+    else {
+        auto new_value = Tensor::createDevice<float>({mResource->mKvNumHead, UP_DIV(mResource->mHeadDim, hP), mResource->mMaxLength, hP});
+        backend()->onAcquireBuffer(new_value, Backend::STATIC);
+        for (int h = 0; h < mResource->mKvNumHead; h++) {
+            for (int i = 0; i < UP_DIV(mResource->mHeadDim, hP); i++) {
+                memcpy(new_value->host<char>() + (h * UP_DIV(mResource->mHeadDim, hP) + i) * mResource->mMaxLength * hP * bytes,
+                        mResource->mPastValue->host<char>() + (h * UP_DIV(mResource->mHeadDim, hP) + i) * oldMaxLength * hP * bytes,
+                        oldMaxLength * hP * bytes);
+            }
+        }
+        mResource->mPastValue.reset(new_value);
+    }
 }
 
 ErrorCode CPUAttention::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     auto core = static_cast<CPUBackend *>(backend())->functions();
     core->MNNGetMatMulPackMode(&eP, &lP, &hP);
-    unit  =  core->pack;
+    mThreadNum = ((CPUBackend *)backend())->threadNumber();
+    unit  = core->pack;
     bytes = core->bytes;
     auto query = inputs[0];
-    auto shape = query->shape();
-    int seq_len = shape[1];
-    mThreadNum = ((CPUBackend *)backend())->threadNumber();
-    mResource->mHeadDim = shape[3];
-    int query_e = UP_DIV(seq_len, eP);
-    mPackQ.reset(Tensor::createDevice<float>({mThreadNum, query_e, mResource->mHeadDim, eP}));
+    auto key   = inputs[1];
+    int seq_len = query->shape()[1];
+    mResource->mNumHead = query->shape()[2];
+    mResource->mHeadDim = query->shape()[3];
+    mResource->mKvNumHead = key->shape()[2];
+    mPackQ.reset(Tensor::createDevice<float>({mThreadNum, UP_DIV(seq_len, eP), mResource->mHeadDim, eP}));
     mPackQKV.reset(Tensor::createDevice<float>({mThreadNum, UP_DIV(mResource->mHeadDim, unit), seq_len, unit}));
     backend()->onAcquireBuffer(mPackQ.get(), Backend::DYNAMIC);
     backend()->onAcquireBuffer(mPackQKV.get(), Backend::DYNAMIC);
@@ -229,193 +397,240 @@ ErrorCode CPUAttention::onResize(const std::vector<Tensor*>& inputs, const std::
 
 ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     auto core = static_cast<CPUBackend *>(backend())->functions();
-    auto matmulUnit   = core->MNNPackedMatMul;
-    auto matmulRemain = core->MNNPackedMatMulRemain;
     auto query = inputs[0];
-    auto key = inputs[1];
+    auto key   = inputs[1];
     auto value = inputs[2];
     auto mask = inputs[3];
+    auto mask_shape = mask->shape();
     bool float_mask = (mask->getType() == halide_type_of<float>());
-    auto shape = query->shape();
-    int seq_len = shape[1];
-    mThreadNum = ((CPUBackend *)backend())->threadNumber();
-    mIsDecode = seq_len == 1;
-    mResource->mNumHead = shape[2];
-    mResource->mKvNumHead = key->shape()[2];
+    int mask_seqlen = mask_shape[2];
+    int mask_kvlen  = mask_shape[3];
+    int seq_len = query->shape()[1];
+    MNN_ASSERT(seq_len == mask_seqlen);
+    mIsPrefill = (seq_len > 1);
+    // isPrefill and mask is Square Matrix, is FirstPrefill
+    mIsFirstPrefill = mIsPrefill && (mask_kvlen == mask_seqlen);
+    int tileCount = UP_DIV(mResource->mNumHead, mThreadNum);
     int group_size = mResource->mNumHead / mResource->mKvNumHead;
-    mResource->mHeadDim = shape[3];
-    mResource->mScale = 1.0 / sqrt(mResource->mHeadDim);
+
+    // 0: do not quant kv
+    // 1: only quant k
+    // 2: only quant v
+    // 3: quant kv
+    int quantKV = static_cast<CPUBackend *>(backend())->getRuntime()->hint().kvcacheQuantOption;
+    bool quantKey = (quantKV & 1) == 1;
+    bool quantValue = ((quantKV >> 1) & 1) == 1;
+
     // reduce the value of 'query' to avoid fp16 overflow
+    float mScale = 1.0 / sqrt(mResource->mHeadDim);
     float q_scale = 1.0;
     if (bytes == 2) {
         q_scale = FP16_QSCALE;
-        mResource->mScale /= q_scale;
+        mScale /= q_scale;
     }
-    mResource->mValueH = UP_DIV(mResource->mHeadDim, hP);
-    int query_e = UP_DIV(seq_len, eP);
-    int key_h = UP_DIV(seq_len, hP);
-    int tileCount = UP_DIV(mResource->mNumHead, mThreadNum);
 
-    std::shared_ptr<Tensor> mTempQK;
-    if (mIsDecode) {
-        reallocKVCache();
-        mTempQK.reset(Tensor::createDevice<float>({mThreadNum, eP + 2, mResource->mPastLength + 1}));
-    } else {
-        mResource->mPastLength = seq_len;
-        allocKVCache();
-        mTempQK.reset(Tensor::createDevice<float>({mThreadNum, 4, seq_len, seq_len}));
+    if (mIsPrefill) {
+        // Only reset the kvcache in the first prefill, but keep the kvcache in subsequent prefill
+        if (mIsFirstPrefill) {
+            mResource->mPastLength = 0;
+            allocKVCache(seq_len, quantKey, quantValue);
+        } else {
+            reallocKVCache(mResource->mPastLength + seq_len, quantKey, quantValue);
+        }
+    } else { // Decode
+        reallocKVCache(mResource->mPastLength + 1, quantKey, quantValue);
     }
-    backend()->onAcquireBuffer(mTempQK.get(), Backend::STATIC);
+    int kv_seq_len  = mResource->mPastLength + seq_len;
 
-    std::function<void(int)> mPrefill = [=](int tId){
-        auto pack_q     = mPackQ->host<char>() + tId * query_e * mResource->mHeadDim * eP * bytes;
-        auto pack_qk    = mTempQK->host<char>() + tId * 4 * seq_len * seq_len * bytes;
-        auto unpack_qk  = pack_qk + seq_len * seq_len * 2 * bytes;
-        auto mask_qk    = reinterpret_cast<float*>(pack_qk);
-        auto softmax_qk = reinterpret_cast<float*>(unpack_qk);
-        auto pack_qkv   = mPackQKV->host<char>() + tId * UP_DIV(mResource->mHeadDim, unit) * seq_len * unit * bytes;
+    // Temporary tensors for intermediate results
+    std::shared_ptr<Tensor> packQK(Tensor::createDevice<float>({mThreadNum, UP_DIV(kv_seq_len, unit), seq_len, unit}));
+    std::shared_ptr<Tensor> unpackQK(Tensor::createDevice<int32_t>({mThreadNum, seq_len, kv_seq_len}));
+    std::shared_ptr<Tensor> softmaxQK(Tensor::createDevice<int>({mThreadNum, seq_len, kv_seq_len}));
+    std::shared_ptr<Tensor> newPackQK(Tensor::createDevice<float>({mThreadNum, UP_DIV(seq_len, eP), kv_seq_len, eP}));
+    std::shared_ptr<Tensor> dequantV(Tensor::createDevice<float>({mThreadNum, UP_DIV(mResource->mHeadDim, hP), kv_seq_len, hP}));
+    backend()->onAcquireBuffer(packQK.get(), Backend::STATIC);
+    backend()->onAcquireBuffer(unpackQK.get(), Backend::STATIC);
+    backend()->onAcquireBuffer(softmaxQK.get(), Backend::STATIC);
+    backend()->onAcquireBuffer(newPackQK.get(), Backend::STATIC);
+    if (quantValue) {
+        backend()->onAcquireBuffer(dequantV.get(), Backend::STATIC);
+    }
 
-        int head_index = tId * tileCount;
+    std::function<void(int)> mCompute = [=](int tId) {
+        auto pack_q      = mPackQ->host<char>() + tId * UP_DIV(seq_len, eP) * mResource->mHeadDim * eP * bytes;
+        auto pack_qk     = packQK->host<char>() + tId * UP_DIV(kv_seq_len, unit) * seq_len * unit * bytes;
+        auto unpack_qk   = unpackQK->host<float>() + tId * seq_len * kv_seq_len;
+        auto softmax_qk   = softmaxQK->host<float>() + tId * seq_len * kv_seq_len;
+        auto new_pack_qk = newPackQK->host<char>() + tId * UP_DIV(seq_len, eP) * kv_seq_len * eP * bytes;
+        auto pack_qkv    = mPackQKV->host<char>() + tId * UP_DIV(mResource->mHeadDim, unit) * seq_len * unit * bytes;
+        int head_index   = tId * tileCount;
         for (int h = head_index; h < head_index + tileCount && h < mResource->mNumHead; h++) {
-            // pack for matmul
-            int kv_h = h / group_size;
-            auto key_dst = mResource->mPastKey->host<char>() + kv_h * UP_DIV(mResource->mMaxLength, hP) * mResource->mHeadDim * hP * bytes;
-            auto value_dst = mResource->mPastValue->host<char>() + kv_h * mResource->mValueH * mResource->mMaxLength * hP * bytes;
-            if (bytes == 2) {
-                prefill_pack<FLOAT16_T>(query, key, value, pack_q, key_dst, value_dst, mResource->mMaxLength, mResource->mNumHead, mResource->mKvNumHead, mResource->mHeadDim, mResource->mValueH, eP, hP, query_e, key_h, seq_len, h, kv_h, q_scale);
+            int    kv_h                 = h / group_size;
+            char * key_dst              = nullptr;
+            char * key_scale_dst        = nullptr;
+            char * key_zero_point_dst   = nullptr;
+            char * value_dst            = nullptr;
+            if (quantKey) {
+                key_dst = mResource->mPastKey->host<char>() + kv_h * UP_DIV(mResource->mMaxLength, hP) * mResource->mHeadDim * hP;
+                key_scale_dst = mResource->mDequantKeyScale->host<char>() + kv_h * UP_DIV(mResource->mMaxLength, hP) * 1 * hP * bytes;
+                key_zero_point_dst = mResource->mDequantKeyZeroPoint->host<char>() + kv_h * UP_DIV(mResource->mMaxLength, hP) * 1 * hP * bytes;
             } else {
-                prefill_pack<float>(query, key, value, pack_q, key_dst, value_dst, mResource->mMaxLength, mResource->mNumHead, mResource->mKvNumHead, mResource->mHeadDim, mResource->mValueH, eP, hP, query_e, key_h, seq_len, h, kv_h, q_scale);
+                key_dst   = mResource->mPastKey->host<char>() + kv_h * UP_DIV(mResource->mMaxLength, hP) * mResource->mHeadDim * hP * bytes;
+            }
+            if (quantValue) {
+                value_dst = mResource->mPastValue->host<char>() + kv_h * UP_DIV(mResource->mHeadDim, hP) * mResource->mMaxLength * hP;
+            } else {
+                value_dst = mResource->mPastValue->host<char>() + kv_h * UP_DIV(mResource->mHeadDim, hP) * mResource->mMaxLength * hP * bytes;
+            }
+            // pack for matmul
+            if (bytes == 2) {
+                pack_query<FLOAT16_T>(query, pack_q, mResource->mNumHead, mResource->mHeadDim, eP, seq_len, h, q_scale);
+                pack_key<FLOAT16_T>(key, key_dst, mResource->mPastLength, seq_len, mResource->mKvNumHead, mResource->mHeadDim, hP, kv_h, key_scale_dst, key_zero_point_dst, quantKey);
+                pack_value<FLOAT16_T>(value, value_dst, mResource->mMaxLength, mResource->mPastLength, seq_len, mResource->mKvNumHead, mResource->mHeadDim, hP, kv_h, quantValue);
+            } else {
+                pack_query<float>(query, pack_q, mResource->mNumHead, mResource->mHeadDim, eP, seq_len, h, q_scale);
+                pack_key<float>(key, key_dst, mResource->mPastLength, seq_len, mResource->mKvNumHead, mResource->mHeadDim, hP, kv_h, key_scale_dst, key_zero_point_dst, quantKey);
+                pack_value<float>(value, value_dst, mResource->mMaxLength, mResource->mPastLength, seq_len, mResource->mKvNumHead, mResource->mHeadDim, hP, kv_h, quantValue);
             }
             // query @ key
             int loop_e = seq_len / eP;
             int remain = seq_len % eP;
             for (int i = 0 ; i < loop_e; i++) {
-                size_t shapeParameters[6];
+                size_t shapeParameters[7];
                 size_t* parameters = shapeParameters;
-                parameters[0]          = eP * bytes;
-                parameters[1]          = mResource->mHeadDim;
-                parameters[2]          = seq_len;
-                parameters[3]          = seq_len * unit * bytes;
-                parameters[4]          = 0;
-                parameters[5]          = 0;
-                matmulUnit((float*)(pack_qk + (i * eP * unit) * bytes), (float*)(pack_q + (i * mResource->mHeadDim * eP) * bytes), (float*)key_dst, parameters, nullptr, nullptr, nullptr, nullptr);
+                parameters[0] = eP * bytes;
+                parameters[1] = mResource->mHeadDim;
+                parameters[2] = kv_seq_len;
+                parameters[3] = seq_len * unit * bytes;
+                parameters[4] = 0;
+                parameters[5] = 0;
+                parameters[6] = 0;
+                if (quantKey) {
+                    core->MNNPackedMatMul_int8(
+                        (float*)(pack_qk + (i * eP * unit) * bytes),
+                        (float*)(pack_q + (i * mResource->mHeadDim * eP) * bytes),
+                        (float*)key_dst,
+                        parameters, nullptr, nullptr,
+                        (float*)key_scale_dst, (float*)key_zero_point_dst
+                    );
+                } else {
+                    core->MNNPackedMatMul(
+                        (float*)(pack_qk + (i * eP * unit) * bytes),
+                        (float*)(pack_q + (i * mResource->mHeadDim * eP) * bytes),
+                        (float*)key_dst,
+                        parameters, nullptr, nullptr,
+                        nullptr, nullptr
+                    );
+                }
             }
             {
-                size_t shapeParameters[6];
+                size_t shapeParameters[7];
                 size_t* parameters = shapeParameters;
-                parameters[0]          = eP * bytes;
-                parameters[1]          = mResource->mHeadDim;
-                parameters[2]          = seq_len;
-                parameters[3]          = seq_len * unit * bytes;
-                parameters[4]          = 0;
-                parameters[5]          = 0;
-                matmulRemain((float*)(pack_qk + (loop_e * eP * unit) * bytes), (float*)(pack_q + (loop_e * mResource->mHeadDim * eP) * bytes), (float*)key_dst, remain, parameters, nullptr, nullptr, nullptr, nullptr);
+                parameters[0] = eP * bytes;
+                parameters[1] = mResource->mHeadDim;
+                parameters[2] = kv_seq_len;
+                parameters[3] = seq_len * unit * bytes;
+                parameters[4] = 0;
+                parameters[5] = 0;
+                parameters[6] = 0;
+                if (quantKey) {
+                    core->MNNPackedMatMulRemain_int8(
+                        (float*)(pack_qk + (loop_e * eP * unit) * bytes),
+                        (float*)(pack_q + (loop_e * mResource->mHeadDim * eP) * bytes),
+                        (float*)key_dst,
+                        remain, parameters, nullptr, nullptr,
+                        (float*)key_scale_dst, (float*)key_zero_point_dst
+                    );
+                } else {
+                    core->MNNPackedMatMulRemain(
+                        (float*)(pack_qk + (loop_e * eP * unit) * bytes),
+                        (float*)(pack_q + (loop_e * mResource->mHeadDim * eP) * bytes),
+                        (float*)key_dst,
+                        remain, parameters, nullptr, nullptr,
+                        nullptr, nullptr
+                    );
+                }
             }
-            int area_offset[2] {seq_len, 0};
-            core->MNNUnpackCUnitTranspose((float*)unpack_qk, (float*)pack_qk, seq_len, seq_len, area_offset);
-            // div scale and mask
-            auto mask_ptr = mask->host<int>();
-            if (bytes == 2) {
-                prefill_softmax<FLOAT16_T>(mask_ptr, mask_qk, softmax_qk, unpack_qk, pack_qk, mResource->mScale, eP, query_e, seq_len, -65504.0, float_mask);
+            if(bytes == 2) {
+                // unpack qk: [kv_seq_len/unit, seq_len, unit] -> [seq_len, kv_seq_len]
+                unpack_QK<FLOAT16_T>(unpack_qk, pack_qk, seq_len, kv_seq_len, unit);
+                mask_QK<FLOAT16_T>(unpack_qk, seq_len, kv_seq_len, mScale, std::numeric_limits<float>::lowest(), mask->host<int>(), float_mask);
+                softmax_QK(softmax_qk, unpack_qk, seq_len, kv_seq_len);
+                // pack qk for qk @ v : [seq_len, kv_seq_len] -> [seq_len/eP, kv_seq_len, eP]
+                pack_QK<FLOAT16_T>(new_pack_qk, softmax_qk, seq_len, kv_seq_len, eP);
             } else {
-                prefill_softmax<float>(mask_ptr, mask_qk, softmax_qk, unpack_qk, pack_qk, mResource->mScale, eP, query_e, seq_len, std::numeric_limits<float>::lowest(), float_mask);
+                unpack_QK<float>(unpack_qk, pack_qk, seq_len, kv_seq_len, unit);
+                mask_QK<float>(unpack_qk, seq_len, kv_seq_len, mScale, std::numeric_limits<float>::lowest(), mask->host<int>(), float_mask);
+                softmax_QK(softmax_qk, unpack_qk, seq_len, kv_seq_len);
+                pack_QK<float>(new_pack_qk, softmax_qk, seq_len, kv_seq_len, eP);
+            }
+            // Dequantize values from fp8 to float
+            if (quantValue) {
+                char * qv = value_dst;
+                char * dqv = dequantV->host<char>() + tId * UP_DIV(mResource->mHeadDim, hP) * kv_seq_len * hP * bytes;
+                if (bytes == 2) {
+                    dequant_value_fp16(dqv, qv, mResource->mHeadDim, kv_seq_len, hP, mResource->mMaxLength);
+                } else {
+                    dequant_value_float(dqv, qv, mResource->mHeadDim, kv_seq_len, hP, mResource->mMaxLength);
+                }
+                value_dst = dqv;
             }
             // qk @ v
             for (int i = 0 ; i < loop_e; i++) {
                 size_t shapeParameters[6];
                 size_t* parameters = shapeParameters;
                 parameters[0]          = eP * bytes;
-                parameters[1]          = seq_len;
+                parameters[1]          = kv_seq_len;
                 parameters[2]          = mResource->mHeadDim;
                 parameters[3]          = seq_len * unit * bytes;
                 parameters[4]          = 0;
-                parameters[5]          = (mResource->mMaxLength - seq_len) * hP * bytes;
-                matmulUnit((float*)(pack_qkv + (i * eP * unit) * bytes), (float*)(pack_qk + (i * seq_len * eP) * bytes), (float*)value_dst, parameters, nullptr, nullptr, nullptr, nullptr);
+                parameters[5]          = quantValue ? 0 : (mResource->mMaxLength - kv_seq_len) * hP * bytes;
+                core->MNNPackedMatMul(
+                    (float*)(pack_qkv + (i * eP * unit) * bytes),
+                    (float*)(new_pack_qk + (i * kv_seq_len * eP) * bytes),
+                    (float*)value_dst, parameters,
+                    nullptr, nullptr, nullptr, nullptr
+                );
             }
-            {
-                size_t shapeParameters[6];
-                size_t* parameters = shapeParameters;
-                parameters[0]          = eP * bytes;
-                parameters[1]          = seq_len;
-                parameters[2]          = mResource->mHeadDim;
-                parameters[3]          = seq_len * unit * bytes;
-                parameters[4]          = 0;
-                parameters[5]          = (mResource->mMaxLength - seq_len) * hP * bytes;
-                matmulRemain((float*)(pack_qkv + (loop_e * eP * unit) * bytes), (float*)(pack_qk + (loop_e * seq_len * eP) * bytes), (float*)value_dst, remain, parameters, nullptr, nullptr, nullptr, nullptr);
-            }
-            // transpose: [head_dim/unit, seq_len, unit] -> [seq_len, num_head, head_dim]
-            auto dst_ptr = outputs[0]->host<char>() + h * mResource->mHeadDim * bytes;
-            if (bytes == 2) {
-                prefill_unpack<int16_t>(pack_qkv, dst_ptr, mResource->mNumHead, mResource->mHeadDim, unit, seq_len);
-            } else {
-                prefill_unpack<float>(pack_qkv, dst_ptr, mResource->mNumHead, mResource->mHeadDim, unit, seq_len);
-            }
-        }
-    };
-
-    std::function<void(int)> mDecode = [=](int tId) {
-        int kv_seq_len  = mResource->mPastLength + 1;
-        auto pack_q     = mPackQ->host<char>() + tId * mResource->mHeadDim * eP * bytes;
-        auto pack_qk    = mTempQK->host<char>() + tId * (eP + 2) * kv_seq_len * bytes;
-        auto unpack_qk  = pack_qk + kv_seq_len * eP * bytes;
-        auto mask_qk    = reinterpret_cast<float*>(pack_qk);
-        auto softmax_qk = reinterpret_cast<float*>(unpack_qk);
-        auto pack_qkv   = mPackQKV->host<char>() + tId * UP_DIV(mResource->mHeadDim, unit) * unit * bytes;
-
-        int head_index = tId * tileCount;
-        for (int h = head_index; h < head_index + tileCount && h < mResource->mNumHead; h++) {
-            int kv_h = h / group_size;
-            auto key_dst = mResource->mPastKey->host<char>() + kv_h * UP_DIV(mResource->mMaxLength, hP) * mResource->mHeadDim * hP * bytes;
-            auto value_dst = mResource->mPastValue->host<char>() + kv_h * mResource->mValueH * mResource->mMaxLength * hP * bytes;
-            // pack for matmul
-            if (bytes == 2) {
-                decode_pack<FLOAT16_T>(query, key, value, pack_q, key_dst, value_dst, mResource->mMaxLength, mResource->mPastLength, mResource->mHeadDim, mResource->mValueH, eP, hP, h, kv_h, q_scale);
-            } else {
-                decode_pack<float>(query, key, value, pack_q, key_dst, value_dst, mResource->mMaxLength, mResource->mPastLength, mResource->mHeadDim, mResource->mValueH, eP, hP, h, kv_h, q_scale);
-            }
-            // query @ key: [1, head_dim] @ [head_dim, kv_seq_len] -> [1, kv_seq_len]
-            size_t shapeParameters[6];
-            size_t* parameters = shapeParameters;
-            parameters[0]          = eP * bytes;
-            parameters[1]          = mResource->mHeadDim;
-            parameters[2]          = kv_seq_len;
-            parameters[3]          = seq_len * unit * bytes;
-            parameters[4]          = 0;
-            parameters[5]          = 0;
-            matmulRemain((float*)pack_qk, (float*)pack_q, (float*)key_dst, seq_len, parameters, nullptr, nullptr, nullptr, nullptr);
-            int area_offset[2] {seq_len, 0};
-            core->MNNUnpackCUnitTranspose((float*)unpack_qk, (float*)pack_qk, seq_len, kv_seq_len, area_offset);
-            if (bytes == 2) {
-                decode_softmax<FLOAT16_T>(mask_qk, softmax_qk, unpack_qk, pack_qk, mResource->mScale, eP, kv_seq_len);
-            } else {
-                decode_softmax<float>(mask_qk, softmax_qk, unpack_qk, pack_qk, mResource->mScale, eP, kv_seq_len);
-            }
-            // qk @ v: [1, kv_seq_len] @ [kv_seq_len, head_dim] -> [1, head_dim]
             {
                 size_t shapeParameters[6];
                 size_t* parameters = shapeParameters;
                 parameters[0]          = eP * bytes;
                 parameters[1]          = kv_seq_len;
                 parameters[2]          = mResource->mHeadDim;
-                parameters[3]          = 1 * unit * bytes;
-                parameters[5]          = (mResource->mMaxLength - kv_seq_len) * hP * bytes;
-                matmulRemain((float*)pack_qkv, (float*)pack_qk, (float*)value_dst, 1, parameters, nullptr, nullptr, nullptr, nullptr);
+                parameters[3]          = seq_len * unit * bytes;
+                parameters[4]          = 0;
+                parameters[5]          = quantValue ? 0 : (mResource->mMaxLength - kv_seq_len) * hP * bytes;
+                core->MNNPackedMatMulRemain(
+                    (float*)(pack_qkv + (loop_e * eP * unit) * bytes),
+                    (float*)(new_pack_qk + (loop_e * kv_seq_len * eP) * bytes),
+                    (float*)value_dst, remain, parameters,
+                    nullptr, nullptr, nullptr, nullptr
+                );
             }
-            // transpose: [head_dim/unit, 1, unit] -> [1, num_head, head_dim]
+            // unpack: [head_dim/unit, seq_len, unit] -> [seq_len, num_head, head_dim]
             auto dst_ptr = outputs[0]->host<char>() + h * mResource->mHeadDim * bytes;
-            core->MNNUnpackCUnitTranspose((float*)dst_ptr, (float*)pack_qkv, 1, mResource->mHeadDim, area_offset);
+            if (bytes == 2) {
+                unpack_QKV<int16_t>(pack_qkv, dst_ptr, mResource->mNumHead, mResource->mHeadDim, unit, seq_len);
+            } else {
+                unpack_QKV<float>(pack_qkv, dst_ptr, mResource->mNumHead, mResource->mHeadDim, unit, seq_len);
+            }
         }
     };
 
-    std::function<void(int)> mFunction = mIsDecode ? mDecode : mPrefill;
     MNN_CONCURRENCY_BEGIN(tId, mThreadNum) {
-        mFunction((int)tId);
+        mCompute((int)tId);
     }
     MNN_CONCURRENCY_END();
-    if(mIsDecode) {
-        mResource->mPastLength++;
+
+    mResource->mPastLength += seq_len;
+    backend()->onReleaseBuffer(packQK.get(), Backend::STATIC);
+    backend()->onReleaseBuffer(unpackQK.get(), Backend::STATIC);
+    backend()->onReleaseBuffer(softmaxQK.get(), Backend::STATIC);
+    backend()->onReleaseBuffer(newPackQK.get(), Backend::STATIC);
+    if (quantValue){
+        backend()->onReleaseBuffer(dequantV.get(), Backend::STATIC);
     }
-    backend()->onReleaseBuffer(mTempQK.get(), Backend::STATIC);
     return NO_ERROR;
 }
 

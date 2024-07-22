@@ -70,12 +70,19 @@ public:
             // output quant info
             auto outputExpr = expr->outputs().front().lock();
             auto outputScaleVar = outputExpr->inputs()[1];
-            auto outputZero = outputExpr->inputs()[2];
+            auto outputZero = _Const(0.f);
+            if (outputExpr->inputs().size() > 2 && outputExpr->inputs()[2]->getInfo()) {
+                if (outputExpr->inputs()[2]->getInfo()->type.code == halide_type_int) {
+                    outputZero = _Cast<float>(outputExpr->inputs()[2]);
+                } else {
+                    outputZero = _Cast<float>(outputExpr->inputs()[2]) - _Const(128.f);
+                }
+            }
             
             Z = _MatMul_Int8(X, y_int8, transA, transB, x_scale, x_zero, y_scale, y_zero, outputScaleVar, outputZero);
             if (inputs.size() > 2) {
                 auto bias_expr = inputs[2]->expr().first;
-                auto bias_int32 = bias_expr->inputs().at(0);
+                auto bias_int32 = bias_expr->inputs().at(1);
                 Z = _MatMul_Int8(X, y_int8, transA, transB, x_scale, x_zero, y_scale, y_zero, outputScaleVar, outputZero, bias_int32);
             }
             Z->setName(expr->name());

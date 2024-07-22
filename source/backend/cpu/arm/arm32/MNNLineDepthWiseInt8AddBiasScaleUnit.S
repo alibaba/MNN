@@ -54,7 +54,7 @@ ldr r11, [r3, #8]
 vdup.i8 d23, r11
 ldr r11, [r3, #12]
 vdup.i8 d22, r11
-ldr r3, [r3, #4]
+ldr r3, [r3, #44] // bias
 
 mul r10, r6, r8
 sub lr, lr, r10

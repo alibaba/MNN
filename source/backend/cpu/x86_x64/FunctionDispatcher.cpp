@@ -55,10 +55,7 @@ void MNNFunctionInit() {
         coreFunction->MNNPackedMatMulRemain_int4 = _SSE_MNNPackedMatMulRemain_int4;
         coreFunction->MNNPackedMatMul_int8       = _SSE_MNNPackedMatMul_int8;
         coreFunction->MNNPackedMatMulRemain_int8 = _SSE_MNNPackedMatMulRemain_int8;
-        coreFunction->MNNGemmHybridInt4 = _SSE_MNNGemmHybridInt4;
-        coreFunction->MNNGemmHybridInt8 = _SSE_MNNGemmHybridInt8;
         coreFunction->MNNAbsMax = _SSE_MNNAbsMaxFP32;
-        coreFunction->MNNDynamicQuant = _SSE_MNNDynamicQuantFP32;
 #endif
         coreFunction->MNNPackC4ForMatMul_A  = _SSE_MNNPackC4ForMatMul_A;
         coreFunction->MNNPackForMatMul_B    = _SSE_MNNPackForMatMul_B;
@@ -137,6 +134,9 @@ void MNNInt8FunctionInit() {
         core->Int8GemmKernel = _SSE_MNNGemmInt8AddBiasScale_16x4_Unit;
         core->Int8GemmKernelFast = _SSE_MNNGemmInt8AddBiasScale_16x4_Unit;
         core->ConvDepthwiseLineInt8 = _SSE_MNNLineDepthWiseInt8AddBiasScaleUnit;
+#ifdef MNN_LOW_MEMORY
+        core->Int8GemmKernel_W4 = _SSE_MNNGemmInt8AddBiasScale_16x4_w4;
+#endif
     }
 }
 

@@ -136,7 +136,7 @@ private:
     void _makeCache(const std::vector<EXPRP>& outputs, bool forceCPU);
 
     // TODO: Remove mRuntimes, only use mRuntimeInfo
-    std::map<std::pair<MNNForwardType, int>, std::shared_ptr<Runtime>> mRuntimes;
+    std::map<MNNForwardType, std::shared_ptr<Runtime>> mRuntimes;
     RuntimeInfo mRuntimeInfo;
     std::shared_ptr<DebugTools> mDebug;
     std::map<std::string, std::shared_ptr<SubGraph>> mSubGraph;

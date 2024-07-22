@@ -24,11 +24,14 @@ ldr x11, [x4, #0] // aStride
 ldr x9, [x4, #8] // l
 ldr x10, [x4, #16] // h
 
+lsr x11, x11, #1 // aStride = aStride / 2 (fp32 -> bf16)
+
 ldr x7, [x4, #24] // cStride
 ldr x19, [x4, #40] // bExtraStride
 
 add x10, x10, #3
 lsr x10, x10, #2
+lsr x19, x19, #1 // bExtraStride = bExtraStride / 2
 
 cbz x5, Start
 ld1 {v5.4s}, [x5]
@@ -121,9 +124,7 @@ LoopE8: // e, TILE_BLOCK size is 8
 
         cbz x5, StoreLH8
         AddBiasLH8:
-        ld1 {v0.4h, v1.4h}, [x20], #16
-        shll v0.4s, v0.4h, #16
-        shll v1.4s, v1.4h, #16
+        ld1 {v0.4s, v1.4s}, [x20], #32
 
         fmla v16.4s, v0.4s, v5.s[1]
         fmla v17.4s, v0.4s, v5.s[1]
@@ -181,33 +182,17 @@ LoopE8: // e, TILE_BLOCK size is 8
         fmin v31.4s, v31.4s, v7.4s
 
         StoreLH8:
-        shrn v16.4h, v16.4s, #16
-        shrn v17.4h, v17.4s, #16
-        shrn v18.4h, v18.4s, #16
-        shrn v19.4h, v19.4s, #16
-        shrn v20.4h, v20.4s, #16
-        shrn v21.4h, v21.4s, #16
-        shrn v22.4h, v22.4s, #16
-        shrn v23.4h, v23.4s, #16
-        shrn v24.4h, v24.4s, #16
-        shrn v25.4h, v25.4s, #16
-        shrn v26.4h, v26.4s, #16
-        shrn v27.4h, v27.4s, #16
-        shrn v28.4h, v28.4s, #16
-        shrn v29.4h, v29.4s, #16
-        shrn v30.4h, v30.4s, #16
-        shrn v31.4h, v31.4s, #16
 
-        stp d16, d17, [x0]
-        stp d18, d19, [x0, #(16 * 1)]
-        stp d24, d25, [x0, #(16 * 2)]
-        stp d26, d27, [x0, #(16 * 3)]
+        stp q16, q17, [x0]
+        stp q18, q19, [x0, #(32 * 1)]
+        stp q24, q25, [x0, #(32 * 2)]
+        stp q26, q27, [x0, #(32 * 3)]
         add x0, x0, x7 // stp donot support post-index offset in register
 
-        stp d20, d21, [x0]
-        stp d22, d23, [x0, #(16 * 1)]
-        stp d28, d29, [x0, #(16 * 2)]
-        stp d30, d31, [x0, #(16 * 3)]
+        stp q20, q21, [x0]
+        stp q22, q23, [x0, #(32 * 1)]
+        stp q28, q29, [x0, #(32 * 2)]
+        stp q30, q31, [x0, #(32 * 3)]
         add x0, x0, x7 // stp donot support post-index offset in register
 
         // st1 {v16.4h, v17.4h, v18.4h, v19.4h}, [x0], #32 // 4 * 4 * sizeof(int16_t)
@@ -271,8 +256,7 @@ LoopE8: // e, TILE_BLOCK size is 8
 
         cbz x5, StoreLH8x4
         AddBiasLH8x4:
-        ld1 {v0.4h}, [x20]
-        shll v0.4s, v0.4h, #16
+        ld1 {v0.4s}, [x20]
 
         fmla v16.4s, v0.4s, v5.s[1]
         fmla v17.4s, v0.4s, v5.s[1]
@@ -304,20 +288,12 @@ LoopE8: // e, TILE_BLOCK size is 8
         fmin v23.4s, v23.4s, v7.4s
 
         StoreLH8x4:
-        shrn v16.4h, v16.4s, #16
-        shrn v17.4h, v17.4s, #16
-        shrn v18.4h, v18.4s, #16
-        shrn v19.4h, v19.4s, #16
-        shrn v20.4h, v20.4s, #16
-        shrn v21.4h, v21.4s, #16
-        shrn v22.4h, v22.4s, #16
-        shrn v23.4h, v23.4s, #16
 
-        stp d16, d17, [x0]
-        stp d18, d19, [x0, #(16 * 1)]
-        stp d20, d21, [x0, #(16 * 2)]
-        stp d22, d23, [x0, #(16 * 3)]
-        add x0, x0, #(16 * 4)
+        stp q16, q17, [x0]
+        stp q18, q19, [x0, #(32 * 1)]
+        stp q20, q21, [x0, #(32 * 2)]
+        stp q22, q23, [x0, #(32 * 3)]
+        add x0, x0, #(32 * 4)
 
         // st1 {v16.4h, v17.4h, v18.4h, v19.4h}, [x0], #32
         // st1 {v20.4h, v21.4h, v22.4h, v23.4h}, [x0], #32
@@ -326,7 +302,7 @@ LoopE8: // e, TILE_BLOCK size is 8
 
     sub x3, x3, #8
     cmp x3, #8
-    add x0, x21, #64 // move dest address of 8 * 4 * sizeof(int16_t)
+    add x0, x21, #128 // move dest address of 8 * 4 * sizeof(float)
     add x1, x1, #16 // move A matrix address of 8 * sizeof(int16_t)
     bge LoopE8
 
@@ -412,9 +388,7 @@ blt E1
         cbz x5, StoreLH4x8
 
         AddBiasLH4x8:
-        ld1 {v0.4h, v1.4h}, [x20], #16
-        shll v0.4s, v0.4h, #16
-        shll v1.4s, v1.4h, #16
+        ld1 {v0.4s, v1.4s}, [x20], #32
 
         fmla v16.4s, v0.4s, v5.s[1]
         fmla v17.4s, v0.4s, v5.s[1]
@@ -446,21 +420,12 @@ blt E1
         fmin v23.4s, v23.4s, v7.4s
 
         StoreLH4x8:
-        shrn v16.4h, v16.4s, #16
-        shrn v17.4h, v17.4s, #16
-        shrn v18.4h, v18.4s, #16
-        shrn v19.4h, v19.4s, #16
-        shrn v20.4h, v20.4s, #16
-        shrn v21.4h, v21.4s, #16
-        shrn v22.4h, v22.4s, #16
-        shrn v23.4h, v23.4s, #16
 
-
-        stp d16, d17, [x0]
-        stp d18, d19, [x0, #16]
+        stp q16, q17, [x0]
+        stp q18, q19, [x0, #32]
         add x0, x0, x7
-        stp d20, d21, [x0]
-        stp d22, d23, [x0, #16]
+        stp q20, q21, [x0]
+        stp q22, q23, [x0, #32]
         add x0, x0, x7
 
         // st1 {v16.4h, v17.4h, v18.4h, v19.4h}, [x0], x7
@@ -503,8 +468,7 @@ blt E1
 
     cbz x5, StoreLH4x4
     AddBiasLH4x4:
-    ld1 {v0.4h}, [x20]
-    shll v0.4s, v0.4h, #16
+    ld1 {v0.4s}, [x20]
 
     fmla v16.4s, v0.4s, v5.s[1]
     fmla v17.4s, v0.4s, v5.s[1]
@@ -525,20 +489,15 @@ blt E1
 
     StoreLH4x4:
 
-    shrn v16.4h, v16.4s, #16
-    shrn v17.4h, v17.4s, #16
-    shrn v18.4h, v18.4s, #16
-    shrn v19.4h, v19.4s, #16
-
-    stp d16, d17, [x0]
-    stp d18, d19, [x0, #16]
+    stp q16, q17, [x0]
+    stp q18, q19, [x0, #32]
 
     // st1 {v16.4h, v17.4h, v18.4h, v19.4h}, [x0]
 
     E4End:
 
     sub x3, x3, #4
-    add x0, x21, #32 // move dest address of 4 * 4 * sizeof(int16_t)
+    add x0, x21, #64 // move dest address of 4 * 4 * sizeof(float)
     add x1, x1, #8 // move dest address of 4 * sizeof(int16_t)
 
 E1:
@@ -590,9 +549,7 @@ LoopE1:
 
         cbz x5, StoreLH1x8
         AddBiasLH1x8:
-        ld1 {v0.4h, v1.4h}, [x20], #16
-        shll v1.4s, v1.4h, #16
-        shll v0.4s, v0.4h, #16
+        ld1 {v0.4s, v1.4s}, [x20], #32
 
         fmla v16.4s, v0.4s, v5.s[1]
         fmla v20.4s, v1.4s, v5.s[1]
@@ -604,10 +561,8 @@ LoopE1:
         fmin v20.4s, v20.4s, v7.4s
 
         StoreLH1x8:
-        shrn v16.4h, v16.4s, #16
-        shrn v20.4h, v20.4s, #16
-        st1 {v16.4h}, [x0], x7
-        st1 {v20.4h}, [x0], x7
+        st1 {v16.4s}, [x0], x7
+        st1 {v20.4s}, [x0], x7
 
         bge E1LoopH8
 
@@ -640,8 +595,7 @@ LoopE1:
 
     cbz x5, StoreLH1x4
     AddBiasLH1x4:
-    ld1 {v0.4h}, [x20]
-    shll v0.4s, v0.4h, #16
+    ld1 {v0.4s}, [x20]
 
     fmla v16.4s, v0.4s, v5.s[1]
 
@@ -650,13 +604,12 @@ LoopE1:
     fmin v16.4s, v16.4s, v7.4s
 
     StoreLH1x4:
-    shrn v16.4h, v16.4s, #16
-    st1 {v16.4h}, [x0]
+    st1 {v16.4s}, [x0]
 
     E1End:
 
     subs x3, x3, #1
-    add x0, x21, #8
+    add x0, x21, #16
     add x1, x1, #2
     bne LoopE1
 

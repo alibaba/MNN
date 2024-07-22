@@ -206,7 +206,7 @@ EXPRP Expr::create(std::shared_ptr<BufferStorage> extra, std::vector<VARP>&& inp
     expr->mInputs   = std::move(inputs);
     auto exe = ExecutorScope::Current();
     expr->mInside->mReq = exe->getRequirement(expr.get());
-    if (!(exe->getLazyMode() & Executor::LAZY_COMPUTE_ONCE)) {
+    if ((!(exe->getLazyMode() & Executor::LAZY_COMPUTE_ONCE)) && exe->lazyEval) {
         _addLinkForInputs(expr);
     }
     return expr;
@@ -1228,21 +1228,8 @@ void Variable::save(const std::vector<VARP>& vars, NetT* dest) {
                 auto des = TensorUtils::getDescribe(tensor);
                 auto describe = std::unique_ptr<MNN::TensorDescribeT>(new MNN::TensorDescribeT);
                 describe->index = varIndexInfo[expr] + v;
-                describe->blob = std::unique_ptr<MNN::BlobT>(new MNN::BlobT);
                 describe->name = dest->tensorName[subindex];
-                auto& blob = describe->blob;
-                blob->dataFormat = des->dimensionFormat;
-                if (tensor->getType() == halide_type_of<float>()) {
-                    blob->dataType = DataType_DT_FLOAT;
-                } else {
-                    SET_TYPE(INT8, int8)}
-                    SET_TYPE(UINT8, uint8)}
-                    SET_TYPE(INT32, int32)}
-                    SET_TYPE(INT64, int64)}
-                }
-                for (int d = 0; d < tensor->dimensions();d++) {
-                    describe->blob->dims.push_back(tensor->buffer().dim[d].extent);
-                }
+
                 auto tensorDes = TensorUtils::getDescribe(tensor);
                 if (nullptr != tensorDes->quantAttr) {
                     describe->quantInfo.reset(new TensorQuantInfoT);
@@ -1252,6 +1239,20 @@ void Variable::save(const std::vector<VARP>& vars, NetT* dest) {
                     describe->quantInfo->scale = tensorDes->quantAttr->scale;
                 }
                 if (staticModel) {
+                    describe->blob = std::unique_ptr<MNN::BlobT>(new MNN::BlobT);
+                    auto& blob = describe->blob;
+                    blob->dataFormat = des->dimensionFormat;
+                    if (tensor->getType() == halide_type_of<float>()) {
+                    blob->dataType = DataType_DT_FLOAT;
+                    } else {
+                        SET_TYPE(INT8, int8)}
+                        SET_TYPE(UINT8, uint8)}
+                        SET_TYPE(INT32, int32)}
+                        SET_TYPE(INT64, int64)}
+                    }
+                    for (int d = 0; d < tensor->dimensions();d++) {
+                        describe->blob->dims.push_back(tensor->buffer().dim[d].extent);
+                    }
                     for (auto& reg : des->regions) {
                         auto regionT = std::unique_ptr<MNN::RegionT>(new MNN::RegionT);
                         regionT->src = std::unique_ptr<MNN::ViewT>(new MNN::ViewT);

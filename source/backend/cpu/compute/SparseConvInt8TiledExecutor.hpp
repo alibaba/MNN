@@ -50,7 +50,7 @@ public:
     }
 
 private:
-    SparseConvInt8TiledExecutor(Backend* backend, const Convolution2DCommon* common, const SparseConvInt8TiledExecutor& exe);
+    SparseConvInt8TiledExecutor(Backend* backend, const Convolution2D* convOp, const SparseConvInt8TiledExecutor& exe);
 
     SparseQuantMatMulParam mSparseQuantParam;
     decltype(CoreInt8Functions::MNNPackedSparseQuantMatMulEpx1) mSparseQuantMatMulKernel;

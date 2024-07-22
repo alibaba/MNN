@@ -15,8 +15,6 @@
 #include <iostream>
 // #include <string_view>
 #include <cstring>
-
-// std::string_view impl in c++11 start
 class string_view_ {
 public:
     string_view_() : data_(nullptr), size_(0) {}
@@ -46,6 +44,7 @@ private:
     const char* data_;
     std::size_t size_ = 0;
 };
+// std::string_view impl in c++11 end
 
 namespace std {
     template<>
@@ -60,7 +59,9 @@ namespace std {
         }
     };
 }
-// std::string_view impl in c++11 end
+namespace MNN {
+namespace Transformer {
+// std::string_view impl in c++11 start
 
 class Tokenizer {
 public:
@@ -182,6 +183,8 @@ private:
     std::unordered_map<wchar_t, uint8_t> u2b_;
     std::unordered_map<std::string, int> encoder_;
     std::vector<std::string> decoder_;
+};
+};
 };
 
 #endif // TOKENIZER_hpp

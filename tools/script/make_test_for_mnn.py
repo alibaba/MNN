@@ -27,9 +27,13 @@ def run():
         input['name'] = info['inputNames'][i]
         var = inputVars[i]
         dtype = var.dtype
-        input['shape'] = var.shape
+        dims = var.shape
+        for j in range(0, len(dims)):
+            if dims[j] == -1:
+                dims[j] = 20
+        input['shape'] = dims
         dformat = var.data_format
-        var = np.random.random(var.shape)
+        var = np.random.random(dims)
         if dtype == np.int32:
             var = var * 10.0
         var = var.astype(dtype)

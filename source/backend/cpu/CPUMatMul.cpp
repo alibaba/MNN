@@ -89,8 +89,12 @@ ErrorCode CPUMatMul::onResize(const std::vector<Tensor*>& inputs, const std::vec
     core->MNNGetMatMulPackMode(&eP, &lP, &hP);
     int numberThread = mSupportMultiThread ? ((CPUBackend*)backend())->threadNumber() : 1;
     auto bufferAlloc = static_cast<CPUBackend*>(backend())->getBufferAllocator();
-    auto ATPtrAlloc = bufferAlloc->alloc(eP * l * core->bytes * numberThread);
-    auto BTPtrAlloc = bufferAlloc->alloc(UP_DIV(h, hP) * UP_DIV(l, lP) * lP * hP * core->bytes);
+    auto ATPtrAlloc = bufferAlloc->alloc(eP * UP_DIV(l, lP) * lP * core->bytes * numberThread);
+    int matmulBytes = core->bytes;
+    if (core->matmulBytes != 0) {
+        matmulBytes = core->matmulBytes;
+    }
+    auto BTPtrAlloc = bufferAlloc->alloc(UP_DIV(h, hP) * UP_DIV(l, lP) * lP * hP * matmulBytes);
     auto CTPtrAlloc = bufferAlloc->alloc(UP_DIV(h, core->pack) * eP * core->pack * core->bytes * numberThread);
     if (ATPtrAlloc.invalid() || BTPtrAlloc.invalid() || CTPtrAlloc.invalid()) {
         return OUT_OF_MEMORY;
@@ -180,10 +184,11 @@ void CPUMatMul::execute(const float* APtr, const float* BPtr, float* CPtr, const
         if (nullptr == biasPtr) {
             postPtr = nullptr;
         }
+        auto lAlign = UP_DIV(mL, lP) * lP;
         int tileCount = UP_DIV(mE, eP);
         int numberThread = mSupportMultiThread ? ((CPUBackend*)backend())->threadNumber() : 1;
         MNN_CONCURRENCY_BEGIN(tId, numberThread) {
-            auto TA = mTempA.ptr() + tId * eP * mL * core->bytes;
+            auto TA = mTempA.ptr() + tId * eP * lAlign * core->bytes;
             auto TB = mTempB.ptr();
             auto hC4 = UP_DIV(mH, core->pack);
             auto TC = mTempC.ptr() + tId * eP * hC4 * core->pack * core->bytes;
@@ -199,26 +204,77 @@ void CPUMatMul::execute(const float* APtr, const float* BPtr, float* CPtr, const
                 int xEnd = ALIMIN(xStart + eP, mE);
                 int xC = xEnd - xStart;
                 if (mTransposeA) {
-                    for (int y=0; y<mL; ++y) {
-                        ::memcpy(TA + y*eP*core->bytes, (uint8_t*)APtr + (y * mE + xStart) * core->bytes, core->bytes * xC);
+                    // l, e -> l/lp, xC|eP, lp
+                    if (lP > 1) {
+                        // TODO: Speed up it
+                        if (mL % lP != 0) {
+                            ::memset(TA, 0, eP * lAlign * core->bytes);
+                        }
+                        if (core->bytes == 4) {
+                            auto D = (int32_t*)TA;
+                            auto S = (int32_t*)APtr;
+                            for (int y=0; y<mL; ++y) {
+                                int yc = y / lP;
+                                int yr = y % lP;
+                                for (int xx=0; xx<xC; ++xx) {
+                                    D[yc * lP * eP + xx * lP + yr] = S[y * mE + xStart + xx];
+                                }
+                            }
+                        } else {
+                            MNN_ASSERT(core->bytes == 2);
+                            auto D = (int16_t*)TA;
+                            auto S = (int16_t*)APtr;
+                            for (int y=0; y<mL; ++y) {
+                                int yc = y / lP;
+                                int yr = y % lP;
+                                for (int xx=0; xx<xC; ++xx) {
+                                    D[yc * lP * eP + xx * lP + yr] = S[y * mE + xStart + xx];
+                                }
+                            }
+                        }
+                    } else {
+                        for (int y=0; y<mL; ++y) {
+                            ::memcpy(TA + y*eP*core->bytes, (uint8_t*)APtr + (y * mE + xStart) * core->bytes, core->bytes * xC);
+                        }
                     }
                 } else {
-                    // e, l -> l, eP
-                    int dims[] = {
-                        xC,
-                        mL,
-                        mL,
-                        eP
-                    };
-                    if (core->bytes == 2) {
-                        auto S = (const int16_t*)APtr + xStart * mL;
-                        auto D = (int16_t*)TA;
-                        MNNTranspose16Bit(D, S, dims);
-                    } else if (core->bytes == 4) {
-                        auto S = (const int32_t*)APtr + xStart * mL;
-                        auto D = (int32_t*)TA;
-                        MNNTranspose32Bit(D, S, dims);
+                    if (lP > 1) {
+                        // e, l -> l/lp, 1, xC|eP, lp
+                        int lC = mL / lP;
+                        int lR = mL % lP;
+                        for (int yy=0; yy<lC; ++yy) {
+                            for (int x=0; x<xC; ++x) {
+                                ::memcpy(TA + (yy * eP * lP + x * lP) * core->bytes, (uint8_t*)APtr + ((x+xStart)*mL+yy*lP)*core->bytes, lP * core->bytes);
+                            }
+                        }
+                        if (lR > 0) {
+                            int yy = lC;
+                            for (int x=0; x<xC; ++x) {
+                                ::memset(TA + (yy * eP * lP + x * lP) * core->bytes, 0, lP * core->bytes);
+                                ::memcpy(TA + (yy * eP * lP + x * lP) * core->bytes, (uint8_t*)APtr + ((x+xStart)*mL+yy*lP)*core->bytes, xC * core->bytes);
+                            }
+                        }
+                    } else {
+                        // e, l -> l, eP
+                        int dims[] = {
+                            xC,
+                            mL,
+                            mL,
+                            eP
+                        };
+                        if (core->bytes == 2) {
+                            auto S = (const int16_t*)APtr + xStart * mL;
+                            auto D = (int16_t*)TA;
+                            MNNTranspose16Bit(D, S, dims);
+                        } else if (core->bytes == 4) {
+                            auto S = (const int32_t*)APtr + xStart * mL;
+                            auto D = (int32_t*)TA;
+                            MNNTranspose32Bit(D, S, dims);
+                        }
                     }
+                }
+                if (core->matmulBytes != 0) {
+                    core->MNNFp32ToLowp((const float*)TA, (int16_t*)TA, eP * lAlign);
                 }
                 if (xC == eP) {
                     core->MNNPackedMatMul((float*)TC, (float*)TA, (float*)TB, parameters, postPtr, biasPtr, nullptr, nullptr);

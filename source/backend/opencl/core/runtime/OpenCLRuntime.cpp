@@ -951,12 +951,12 @@ bool OpenCLRuntime::setCache(std::pair<const void*, size_t> cache) {
                 MNN_ERROR("Error tunning gemm info\n");
                 return false;
             }
-            MNN_ASSERT(tun->gemmSize()->size() == 6);
+            MNN_ASSERT(tun->gemmSize()->size() == 7);
             std::vector<uint32_t> info(tun->gemmSize()->size());
             for (int v=0; v<info.size(); ++v) {
                 info[v] = tun->gemmSize()->data()[v];
             }
-            MNN_ASSERT(tun->paramInfo()->size() == 16);
+            MNN_ASSERT(tun->paramInfo()->size() == 14);
             std::vector<uint32_t> params(tun->paramInfo()->size());
             for (int v=0; v<params.size(); ++v) {
                 params[v] = tun->paramInfo()->data()[v];

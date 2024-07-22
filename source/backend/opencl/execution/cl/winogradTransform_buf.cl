@@ -111,9 +111,6 @@ __kernel void winoTransSrcBuf2_3_1(GLOBAL_SIZE_DIM2
     int batchIndex = pos.y / srcChannelC4;
     int srcZ       = pos.y % srcChannelC4;
     int dstYOrigin = unitWidth * unitHeight_idx + unitWidth_idx;
-    int dstHeight  = (unitWidth * unitHeight + 3) / 4;
-    int dstY       = dstYOrigin / 4;
-    int dstX       = dstYOrigin % 4 + 4 * dstXOrigin;
 
     batchIndex = batchOffset;
     {
@@ -405,10 +402,7 @@ __kernel void winoTransDstBuf2_3_1(GLOBAL_SIZE_DIM2
     int unitWidth_idx = pos.x % unitWidth;
     int unitHeight_idx = pos.x / unitWidth;
     int2 realPos   = (int2)(unitWidth_idx, unitHeight_idx);
-    int srcWidth   = (unitWidth * unitHeight + 3) / 4;
     int dstXOrigin = unitWidth * unitHeight_idx + unitWidth_idx;
-    int dstX       = dstXOrigin / 4;
-    int dstY       = 4 * pos.y + dstXOrigin % 4;
     int oz         = pos.y % dstChannelC4;
     
     FLOAT4 bias    = vload4(0, uBias+oz*4);

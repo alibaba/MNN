@@ -208,7 +208,7 @@ OpenCL / Vulkan 采用静态变量自注册的方式往 MNN 主库注册后端. 
 </>
 ```
 
-### 部分模型用 MNNV2Basic 运行出现段错误
+### 部分模型用 MNNV2Basic 运行出现段错误，或报 Interpreter don't support case for shape compute need input content, please use module api instead
 
 - 模型不满足运行条件
    - MNNV2Basic 使用  Interpreter + Session 方式运行，此类运行方式要求模型满足一定条件，否则无法运行模型或产生特别的 crash ，条件如下：

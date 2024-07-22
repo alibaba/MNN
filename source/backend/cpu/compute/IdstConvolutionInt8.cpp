@@ -72,15 +72,18 @@ IdstConvolutionInt8::IdstConvolutionInt8(const Convolution2DCommon* convOp, Back
         shape = {UP_DIV(outputCount, UNIT), UP_DIV(srcCount, SRC_UNIT) * kernelCount, UNIT, SRC_UNIT};
     }
     mWeight.reset(Tensor::createDevice<int8_t>(shape));
-    mFakeBias.reset(Tensor::createDevice<int32_t>({(int)ROUND_UP(biasSize, PackUnit)}));
+    mFakeBias.reset(Tensor::createDevice<float>({(int)ROUND_UP(biasSize, PackUnit)}));
+    mFakeWeightBias.reset(Tensor::createDevice<float>({(int)ROUND_UP(biasSize, PackUnit)}));
     mValid = b->onAcquireBuffer(mWeight.get(), Backend::STATIC);
     mValid &= b->onAcquireBuffer(mFakeBias.get(), Backend::STATIC);
+    mValid &= b->onAcquireBuffer(mFakeWeightBias.get(), Backend::STATIC);
     if (!mValid) {
         MNN_ERROR("Memory not enough\n");
         return;
     }
     ConvInt8TiledExecutor::reorderWeight(mWeight.get(), (uint8_t*)common->weight.get(), SRC_UNIT, UNIT, srcCount, outputCount, kernelCount);
-    ::memset(mFakeBias->host<int32_t>(), 0, mFakeBias->size());
+    ::memset(mFakeBias->host<float>(), 0, mFakeBias->size());
+    ::memset(mFakeWeightBias->host<float>(), 0, mFakeWeightBias->size());
 #ifdef MNN_USE_SSE
     for (int oz = 0; oz < outputCount; ++oz) {
         auto srcZ = common->weight.get() + oz * kernelCount * srcCount;
@@ -88,7 +91,7 @@ IdstConvolutionInt8::IdstConvolutionInt8(const Convolution2DCommon* convOp, Back
         for (int i = 0; i < kernelCount * srcCount; ++i) {
             offset += srcZ[i] * (-128);
         }
-        mFakeBias->host<int32_t>()[oz] = offset;
+        mFakeBias->host<float>()[oz] = static_cast<float>(offset) * 1.f;
     }
 #endif
 }
@@ -149,7 +152,7 @@ ErrorCode IdstConvolutionInt8::onExecute(const std::vector<Tensor*>& inputs, con
     int UNIT__, SRC_UNIT, DST_XUNIT;
     coreInt->MNNGetGemmUnit(&UNIT__, &SRC_UNIT, &DST_XUNIT);
     int PackUnit = static_cast<CPUBackend*>(backend())->functions()->pack;
-
+    
     auto gemmKernel = coreInt->Int8GemmKernel;
     
     //        AUTOTIME;
@@ -176,9 +179,14 @@ ErrorCode IdstConvolutionInt8::onExecute(const std::vector<Tensor*>& inputs, con
     
     std::vector<float> fakeScale(ocC4 * PackUnit, 1.0f);
     QuanPostTreatParameters quanParam;
-    quanParam.bias = mFakeBias->host<int32_t>();
+    quanParam.biasFloat = mFakeBias->host<float>();
     quanParam.scale = fakeScale.data();
     quanParam.useInt8 = 0;
+    float fp32minmax[2] = {-std::numeric_limits<float>().max(), std::numeric_limits<float>().max()};
+    quanParam.fp32minmax = fp32minmax;
+    quanParam.weightQuanBias = mFakeWeightBias->host<float>();
+    std::vector<float> fakeSrcKernleSum(DST_XUNIT, 0.f);
+    quanParam.srcKernelSum = fakeSrcKernleSum.data();
 
     // MNN_PRINT("%s, %d, %d, %d,%d->%d,%d\n", layer->layer.layerId, layer->kernelSize[0], layer->kernelSize[1],
     // input->d1, input->d2, output->d1, output->d2);

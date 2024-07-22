@@ -143,6 +143,12 @@ options:
   - visual_model: 当使用VL模型时，visual_model的实际路径为`base_dir + visual_model`，默认为`base_dir + 'visual.mnn'`
 - 推理配置
   - max_new_tokens: 生成时最大token数，默认为`512`
+  - reuse_kv: 多轮对话时是否复用之前对话的`kv cache`，默认为`false`
+  - quant_kv: 存储`kv cache`时是否量化，可选为：`0, 1, 2, 3`，默认为`0`，含义如下：
+    - 0: key和value都不量化
+    - 1: 使用非对称8bit量化存储key
+    - 2: 使用fp8格式寸处value
+    - 3: 使用非对称8bit量化存储key，使用fp8格式寸处value
 - 硬件配置
   - backend_type: 推理使用硬件后端类型，默认为：`"cpu"`
   - thread_num: 推理使用硬件线程数，默认为：`4`

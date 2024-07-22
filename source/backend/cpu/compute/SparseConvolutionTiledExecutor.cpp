@@ -273,6 +273,10 @@ ErrorCode SparseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& input
     int bytes    = core->bytes;
     int unit     = core->pack;
     auto packA   = core->MNNPackC4ForMatMul_A;
+    if (core->matmulBytes != 0) {
+        // Use origin packC4
+        packA = MNNGetCoreFunctions()->MNNPackC4ForMatMul_A;
+    }
     int eP, lP, hP;
     getPackParameter(&eP, &lP, &hP, core);
     auto weightPtr     = weight->host<float>();

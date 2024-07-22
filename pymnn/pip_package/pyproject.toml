@@ -16,7 +16,7 @@ test-skip = [
 ]
 test-requires = [
     "opencv-python==4.6.0.66",
-    "numpy==1.13.3",
+    "numpy",
     "torch"
 ]
 test-command = [

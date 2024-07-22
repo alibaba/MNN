@@ -25,6 +25,21 @@ class Execution;
 
 class Runtime;
 class Backend;
+struct RuntimeHint {
+    // 0: Defer, 1: Eager
+    int memoryAllocatorType = 0;
+    int winogradMemoryUsed = 3;
+    
+    // 0-100, 50 means litter core has 50% capacity of large core
+    int cpuDecreaseRate = 50;
+    int dynamicQuantOption = 0;
+
+    // 0: Do not quantize kvcache, just store float
+    // 1: Only quantize key cache, use int8 asymmetric quantization 
+    // 2: Only quantize value cache, use fp8 quantization
+    // 3: quantize both key and value cache as described above
+    int kvcacheQuantOption = 0;
+};
 /** abstract backend */
 class Backend : public NonCopyable {
 
@@ -48,11 +63,6 @@ public:
             INDIRECT = 1
         };
         Mode mode = DIRECT;
-        enum Allocator {
-            DEFER = 0,
-            EAGER = 1
-        };
-        Allocator allocator = DEFER;
     };
 
     /** backend buffer storage type */
@@ -232,21 +242,11 @@ public:
         Allocator_Defer = 0,
         Allocator_Eager = 1,
     };
-    
-    void setWinogradMemoryLevel(int level) {
-        mWinogradMemoryLevel = level;
+    void setRuntimeHint(const RuntimeHint& hint) {
+        mHint = hint;
     }
-    
-    int getWinogradMemoryLevel() const {
-        return mWinogradMemoryLevel;
-    }
-
-    void setAllocatorType(int type) {
-        mAllocatorType = static_cast<AllocatorType>(type);
-    }
-
-    AllocatorType getAllocatorType() const {
-        return mAllocatorType;
+    const RuntimeHint& hint() const {
+        return mHint;
     }
 
     virtual CompilerType onGetCompilerType() const {
@@ -259,6 +259,13 @@ public:
      @return created backend
      */
     virtual Backend* onCreate(const BackendConfig* config = nullptr) const = 0;
+
+    /**
+     @brief reset runtime
+     */
+    virtual void onReset(int numberThread, const BackendConfig* config) {
+        // Do nothing
+    }
 
     /**
      @brief clear unuseful resource
@@ -319,8 +326,7 @@ public:
     MNN_PUBLIC void waitAsyncWork();
 private:
     std::future<int> mFuture;
-    AllocatorType mAllocatorType = Allocator_Eager;
-    int mWinogradMemoryLevel = 3;
+    RuntimeHint mHint;
 };
 
 /** abstract Runtime register */

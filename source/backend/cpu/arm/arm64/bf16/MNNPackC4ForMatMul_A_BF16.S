@@ -34,14 +34,16 @@ mov x6, #0
 ldr w4, [x2, #4] // eReal
 ldr w11, [x2, #8] // eDest
 ldr w6, [x2, #12] // xOffset
-// xOffset -> xOffset * 4 * sizeof(int16_t)
+// xOffset -> xOffset * 4 * sizeof(float)
 // eReal -> eReal * 4 * sizeof(int16_t)
 // eDest -> eDest * sizeof(int16_t)
 mov x12, #2 // sizeof(int16_t).  kept as a const
 mov x9, #8
-mul x4, x9, x4
+mov x15, #16 // sizeof(float)
+mul x4, x15, x4
 mul x11, x12, x11
-mul x6, x9, x6
+
+mul x6, x15, x6
 
 LoopNumber:
 mov x2, #0
@@ -72,18 +74,35 @@ bne Right
     LoopL4:
         mov x2, x1
 .macro MAIN_TRANSPOSE
-        ld1 {v0.4h}, [x1], x6 // load size: 4 * sizeof(int16_t), jump one stride line as x6
-        ld1 {v3.4h}, [x1], x6
-        ld1 {v6.4h}, [x1], x6
-        ld1 {v17.4h}, [x1], x6
-        ld1 {v1.4h}, [x1], x6
-        ld1 {v4.4h}, [x1], x6
-        ld1 {v7.4h}, [x1], x6
-        ld1 {v18.4h}, [x1], x6
-        ld1 {v2.4h}, [x1], x6
-        ld1 {v5.4h}, [x1], x6
-        ld1 {v16.4h}, [x1], x6
-        ld1 {v19.4h}, [x1], x6
+        ld1 {v0.4s}, [x1], x6 // load size: 4 * sizeof(int16_t), jump one stride line as x6
+        ld1 {v3.4s}, [x1], x6
+        ld1 {v6.4s}, [x1], x6
+        ld1 {v17.4s}, [x1], x6
+
+        ld1 {v1.4s}, [x1], x6
+        ld1 {v4.4s}, [x1], x6
+        ld1 {v7.4s}, [x1], x6
+        ld1 {v18.4s}, [x1], x6
+
+        ld1 {v2.4s}, [x1], x6
+        ld1 {v5.4s}, [x1], x6
+        ld1 {v16.4s}, [x1], x6
+        ld1 {v19.4s}, [x1], x6
+
+        shrn v0.4h, v0.4s, #16
+        shrn v3.4h, v3.4s, #16
+        shrn v6.4h, v6.4s, #16
+        shrn v17.4h, v17.4s, #16
+
+        shrn v1.4h, v1.4s, #16
+        shrn v4.4h, v4.4s, #16
+        shrn v7.4h, v7.4s, #16
+        shrn v18.4h, v18.4s, #16
+
+        shrn v2.4h, v2.4s, #16
+        shrn v5.4h, v5.4s, #16
+        shrn v16.4h, v16.4s, #16
+        shrn v19.4h, v19.4s, #16
 
         transpose_4x4 v0, v3, v6, v17, v23, v24
         transpose_4x4 v1, v4, v7, v18, v25, v26
@@ -98,23 +117,6 @@ bne Right
         stp d16, d17, [x0, #(16 * 4)]
         stp d18, d19, [x0, #(16 * 5)]
         add x0, x0, #(16 * 6)
-
-        // st1 {v0.4h}, [x0], #8 // store size: 4 * sizeof(int16_t)
-        // st1 {v1.4h}, [x0], #8
-        // st1 {v2.4h}, [x0], #8
-        // st1 {v3.4h}, [x0], #8
-        // st1 {v4.4h}, [x0], #8
-        // st1 {v5.4h}, [x0], #8
-        // st1 {v6.4h}, [x0], #8
-        // st1 {v7.4h}, [x0], #8
-        // st1 {v16.4h}, [x0], #8
-        // st1 {v17.4h}, [x0], #8
-        // st1 {v18.4h}, [x0], #8
-        // st1 {v19.4h}, [x0], #8
-
-        // st1 {v0.4h, v1.4h, v2.4h, v3.4h}, [x0], #32
-        // st1 {v4.4h, v5.4h, v6.4h, v7.4h}, [x0], #32
-        // st1 {v16.4h, v17.4h, v18.4h, v19.4h}, [x0], #32
 
         add x1, x2, x4
         sub x5, x5, #4
@@ -133,20 +135,6 @@ bne Right
         str d16, [x0, #(16 * 4)]
         add x0, x0, #(16 * 4 + 8)
 
-        // st1 {v0.4h}, [x0], #8 // store size: 4 * sizeof(int16_t)
-        // st1 {v1.4h}, [x0], #8
-        // st1 {v2.4h}, [x0], #8
-        // st1 {v3.4h}, [x0], #8
-        // st1 {v4.4h}, [x0], #8
-        // st1 {v5.4h}, [x0], #8
-        // st1 {v6.4h}, [x0], #8
-        // st1 {v7.4h}, [x0], #8
-        // st1 {v16.4h}, [x0], #8
-
-        // st1 {v0.4h, v1.4h, v2.4h, v3.4h}, [x0], #32
-        // st1 {v4.4h, v5.4h, v6.4h, v7.4h}, [x0], #32
-        // st1 {v16.4h}, [x0], #8
-
         b LoopEEnd
 
     LoopEL2:
@@ -158,16 +146,6 @@ bne Right
         stp d4,  d5,  [x0, #(16 * 2)]
         add x0, x0, #(16 * 3)
 
-        // st1 {v0.4h}, [x0], #8 // store size: 4 * sizeof(int16_t)
-        // st1 {v1.4h}, [x0], #8
-        // st1 {v2.4h}, [x0], #8
-        // st1 {v3.4h}, [x0], #8
-        // st1 {v4.4h}, [x0], #8
-        // st1 {v5.4h}, [x0], #8
-
-        // st1 {v0.4h, v1.4h, v2.4h, v3.4h}, [x0], #32
-        // st1 {v4.4h, v5.4h}, [x0], #16
-
         b LoopEEnd
 
     LoopEL1:
@@ -177,12 +155,6 @@ bne Right
         stp d0, d1, [x0]
         str d2, [x0, #16]
         add x0, x0, #(16 + 8)
-
-        // st1 {v0.4h}, [x0], #8 // store size: 4 * sizeof(int16_t)
-        // st1 {v1.4h}, [x0], #8
-        // st1 {v2.4h}, [x0], #8
-
-        // st1 {v0.4h, v1.4h, v2.4h}, [x0], #24
 
     LoopEEnd:
 
@@ -198,7 +170,8 @@ LoopE1:
     cmp w5, #4
     blt LoopE1L3
     LoopE1L4:
-        ld1 {v0.4h}, [x1], x4
+        ld1 {v0.4s}, [x1], x4
+        shrn v0.4h, v0.4s, #16
         st1 {v0.h}[0], [x0], x11
         st1 {v0.h}[1], [x0], x11
         st1 {v0.h}[2], [x0], x11
@@ -210,7 +183,8 @@ LoopE1:
     LoopE1L3:
     cmp w5, #3
     blt LoopE1L2
-        ld1 {v0.4h}, [x1], x4
+        ld1 {v0.4s}, [x1], x4
+        shrn v0.4h, v0.4s, #16
         st1 {v0.h}[0], [x0], x11
         st1 {v0.h}[1], [x0], x11
         st1 {v0.h}[2], [x0], x11
@@ -220,7 +194,8 @@ LoopE1:
     LoopE1L2:
     cmp w5, #2
     blt LoopE1L1
-        ld1 {v0.4h}, [x1], x4
+        ld1 {v0.4s}, [x1], x4
+        shrn v0.4h, v0.4s, #16
         st1 {v0.h}[0], [x0], x11
         st1 {v0.h}[1], [x0], x11
         sub w5, w5, #2
@@ -228,7 +203,8 @@ LoopE1:
     LoopE1L1:
     cmp w5, #1
     blt LoopE1End
-        ld1 {v0.h}[0], [x1], x4
+        ld1 {v0.s}[0], [x1], x4
+        shrn v0.4h, v0.4s, #16
         st1 {v0.h}[0], [x0], x11
 
     LoopE1End:

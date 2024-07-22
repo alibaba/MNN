@@ -23,9 +23,10 @@ lsr x4, x2, #3
 lsr x5, x3, #3
 mov x12, #2 // sizeof(int16_t)
 mov x13, #16 // 8 * sizeof(int16_t)
-mul x6, x12, x2
+mov x15, #4
+mul x6, x15, x2
 mul x7, x13, x2
-mov x12, #16 // 8 * sizeof(int16_t)
+mov x12, #32 // 8 * sizeof(float)
 mul x15, x12, x2
 
 .macro transpose_4x4 x0, x1, x2, x3, x5, x6
@@ -47,32 +48,15 @@ mov x12, x4
 
 LoopL:
 mov x10, x9
-ld1 {v16.4h, v17.4h}, [x9], x6
-ld1 {v18.4h, v19.4h}, [x9], x6
-ld1 {v20.4h, v21.4h}, [x9], x6
-ld1 {v22.4h, v23.4h}, [x9], x6
+ld1 {v16.4s, v17.4s}, [x9], x6
+ld1 {v18.4s, v19.4s}, [x9], x6
+ld1 {v20.4s, v21.4s}, [x9], x6
+ld1 {v22.4s, v23.4s}, [x9], x6
 
-ld1 {v24.4h, v25.4h}, [x9], x6
-ld1 {v26.4h, v27.4h}, [x9], x6
-ld1 {v28.4h, v29.4h}, [x9], x6
-ld1 {v30.4h, v31.4h}, [x9], x6
-
-shll v16.4s, v16.4h, #16
-shll v17.4s, v17.4h, #16
-shll v18.4s, v18.4h, #16
-shll v19.4s, v19.4h, #16
-shll v20.4s, v20.4h, #16
-shll v21.4s, v21.4h, #16
-shll v22.4s, v22.4h, #16
-shll v23.4s, v23.4h, #16
-shll v24.4s, v24.4h, #16
-shll v25.4s, v25.4h, #16
-shll v26.4s, v26.4h, #16
-shll v27.4s, v27.4h, #16
-shll v28.4s, v28.4h, #16
-shll v29.4s, v29.4h, #16
-shll v30.4s, v30.4h, #16
-shll v31.4s, v31.4h, #16
+ld1 {v24.4s, v25.4s}, [x9], x6
+ld1 {v26.4s, v27.4s}, [x9], x6
+ld1 {v28.4s, v29.4s}, [x9], x6
+ld1 {v30.4s, v31.4s}, [x9], x6
 
 
 transpose_4x4 v16, v18, v20, v22, v0, v1
@@ -109,7 +93,7 @@ stp d19, d27, [x8], #16
 stp d21, d29, [x8], #16
 stp d23, d31, [x8], #16
 
-add x9, x10, #16  // 8 * sizeof(int16_t)
+add x9, x10, #32  // 8 * sizeof(float)
 
 subs x12, x12, #1
 bne LoopL

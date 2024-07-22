@@ -211,7 +211,8 @@ __kernel void softmax_inside(GLOBAL_SIZE_3_DIMS
     }
     sum[lid] = maxValue;
     barrier(CLK_LOCAL_MEM_FENCE);
-    for(int i = SOFTMAX_LOCAL_SIZE/2; i > 0; i /= 2){
+    #pragma unroll
+    for(int i = SOFTMAX_LOCAL_SIZE/2; i > 0; i >>= 1){
         if (lid < i)
             sum[lid] = fmax(sum[lid], sum[lid + i]);
         barrier(CLK_LOCAL_MEM_FENCE);
@@ -225,7 +226,8 @@ __kernel void softmax_inside(GLOBAL_SIZE_3_DIMS
     }
     sum[lid] = sumValue;
     barrier(CLK_LOCAL_MEM_FENCE);
-    for(int i = SOFTMAX_LOCAL_SIZE/2; i > 0; i /= 2){
+    #pragma unroll
+    for(int i = SOFTMAX_LOCAL_SIZE/2; i > 0; i >>= 1){
         if (lid < i)
             sum[lid] = sum[lid] + sum[lid + i];
         barrier(CLK_LOCAL_MEM_FENCE);
@@ -245,18 +247,7 @@ __kernel void softmax_inside(GLOBAL_SIZE_3_DIMS
         #endif
     }
 }
-#ifndef WGSW
-    #define WGSW 64 // work-group handle size W dimension
-#endif
-#ifndef WGSH
-    #define WGSH 64 // work-group handle size H dimension
-#endif
-#ifndef TSW
-    #define TSW 8 // thread handle size W dimension
-#endif
-#ifndef TSH
-    #define TSH 8 // thread handle size H dimension
-#endif
+
 // [N X Y4 4] -> [N Y X]
 __kernel void trans_3d_buf(__global const FLOAT* input,
                         __global FLOAT* output,
@@ -266,55 +257,30 @@ __kernel void trans_3d_buf(__global const FLOAT* input,
 ) {
     int b = get_global_id(2);
     
-    const int lidw = get_local_id(0);
-    const int lidh = get_local_id(1);
-    // group id
-    const int w = get_group_id(0) * WGSW;
-    const int h = get_group_id(1) * WGSH;
+    const int w = get_global_id(0) << 3;
+    const int h = get_global_id(1) << 3;
+    
+    const int inp_offset = (b * width + w) * height + h;
+    const int out_offset = (b * height + h) * width + w;
 
-    int iw = lidw;
-    int jh = lidh;
+    FLOAT8 value_0 = vload8(0, input+inp_offset);
+    FLOAT8 value_1 = vload8(0, input+inp_offset + height);
+    FLOAT8 value_2 = vload8(0, input+inp_offset + height + height);
+    FLOAT8 value_3 = vload8(0, input+inp_offset + height + height + height);
+    FLOAT8 value_4 = vload8(0, input+inp_offset + (height << 2));
+    FLOAT8 value_5 = vload8(0, input+inp_offset + height * 5);
+    FLOAT8 value_6 = vload8(0, input+inp_offset + height * 6);
+    FLOAT8 value_7 = vload8(0, input+inp_offset + height * 7);
     
-    __local FLOAT4 localData[WGSW][WGSH/4];//w64h64
-    
-    #pragma unroll
-    for(int i = 0; i < TSW; i++) {
-        int offset_w = i * WGSW / TSW + iw;
-        #pragma unroll
-        for(int j = 0; j < TSH / 4; j++) {
-            int offset_h = j * WGSH / TSH + jh;
-            // [TSW, WGSW / TSW]   [TSH / 4, WGSH / TSH, 4]
-            localData[offset_w][offset_h] = vload4(0, input + ((b * width + (w+offset_w)) * height/4 + (h/4+offset_h)) * 4);
-        }
-    }
-    
-    barrier(CLK_LOCAL_MEM_FENCE);
-    
-    // H offset: [WGSH / TSH, TSH / 4, 4]
-    // W offset: [WGSW / TSW, TSW / 4, 4]
-    int oh_base = jh * TSH / 4;
-    int ow_base = iw * TSW / 4;
-
-    //#pragma unroll
-    for(int j = 0; j < TSH / 4; j++) {
-        int oh = oh_base + j;
-
-        //#pragma unroll
-        for(int i = 0; i < TSW / 4; i++) {
-            int ow = ow_base + i;
-            
-            FLOAT4 value_0 =  (localData[4*ow][oh]);
-            FLOAT4 value_1 =  (localData[4*ow+1][oh]);
-            FLOAT4 value_2 =  (localData[4*ow+2][oh]);
-            FLOAT4 value_3 =  (localData[4*ow+3][oh]);
-            vstore4((FLOAT4){value_0.x, value_1.x, value_2.x, value_3.x}, 0, output + ((b * height + h + 4*oh+0) * width + w + 4 * ow));
-            vstore4((FLOAT4){value_0.y, value_1.y, value_2.y, value_3.y}, 0, output + ((b * height + h + 4*oh+1) * width + w + 4 * ow));
-            vstore4((FLOAT4){value_0.z, value_1.z, value_2.z, value_3.z}, 0, output + ((b * height + h + 4*oh+2) * width + w + 4 * ow));
-            vstore4((FLOAT4){value_0.w, value_1.w, value_2.w, value_3.w}, 0, output + ((b * height + h + 4*oh+3) * width + w + 4 * ow));
-        }
-    }
+    vstore8((FLOAT8){value_0.s0, value_1.s0, value_2.s0, value_3.s0, value_4.s0, value_5.s0, value_6.s0, value_7.s0}, 0, output + out_offset);
+    vstore8((FLOAT8){value_0.s1, value_1.s1, value_2.s1, value_3.s1, value_4.s1, value_5.s1, value_6.s1, value_7.s1}, 0, output + out_offset + width);
+    vstore8((FLOAT8){value_0.s2, value_1.s2, value_2.s2, value_3.s2, value_4.s2, value_5.s2, value_6.s2, value_7.s2}, 0, output + out_offset + width + width);
+    vstore8((FLOAT8){value_0.s3, value_1.s3, value_2.s3, value_3.s3, value_4.s3, value_5.s3, value_6.s3, value_7.s3}, 0, output + out_offset + width + width + width);
+    vstore8((FLOAT8){value_0.s4, value_1.s4, value_2.s4, value_3.s4, value_4.s4, value_5.s4, value_6.s4, value_7.s4}, 0, output + out_offset + (width << 2));
+    vstore8((FLOAT8){value_0.s5, value_1.s5, value_2.s5, value_3.s5, value_4.s5, value_5.s5, value_6.s5, value_7.s5}, 0, output + out_offset + width * 5);
+    vstore8((FLOAT8){value_0.s6, value_1.s6, value_2.s6, value_3.s6, value_4.s6, value_5.s6, value_6.s6, value_7.s6}, 0, output + out_offset + width * 6);
+    vstore8((FLOAT8){value_0.s7, value_1.s7, value_2.s7, value_3.s7, value_4.s7, value_5.s7, value_6.s7, value_7.s7}, 0, output + out_offset + width * 7);
 }
-
 
 __kernel void clip_transpose_qkv(GLOBAL_SIZE_3_DIMS
                               __global const FLOAT *input, // [Batch * mNumHead, ROUND_UP(mHeadDim, tile), ROUND_UP(seqLen, tile)]

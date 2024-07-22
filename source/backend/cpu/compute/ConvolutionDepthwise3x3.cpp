@@ -96,7 +96,7 @@ bool ConvolutionDepthwise3x3::onClone(Backend* bn, const Op* op, Execution** dst
 
 ErrorCode ConvolutionDepthwise3x3::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     CPUConvolution::onResize(inputs, outputs);
-    int numberThread = ((CPUBackend *)backend())->threadNumber();
+    const int numberThread = ((CPUBackend *)backend())->threadNumber();
     auto output      = outputs[0];
     auto owUnit      = UP_DIV(output->width(), 2);
     auto core        = static_cast<CPUBackend*>(backend())->functions();
@@ -113,6 +113,15 @@ ErrorCode ConvolutionDepthwise3x3::onResize(const std::vector<Tensor *> &inputs,
     mPostParameters = getPostParameters();
     // auto rate = (float)(mSourceEndX-mSourceStartX) / (float)owUnit;
     // FUNC_PRINT_ALL(rate, f);
+
+    int channelC4 = UP_DIV(inputs[0]->channel(), core->pack);
+    int batch     = inputs[0]->batch();
+    auto total = channelC4 * batch;
+
+    mDivides.resize(numberThread+1);
+    mDivides[0] = 0;
+    static_cast<const CPURuntime*>(backend()->getRuntime())->computeDivideSizes(total, mDivides.data() + 1);
+    
     return NO_ERROR;
 }
 
@@ -141,12 +150,11 @@ ErrorCode ConvolutionDepthwise3x3::onExecute(const std::vector<Tensor *> &inputs
 
     int threadNumber = ((CPUBackend *)backend())->threadNumber();
     auto maxKernelH  = std::min(mPadY + ih, 3);
-    auto total = channelC4 * batch;
     auto inputOrigin  = input->host<uint8_t>();
     auto outputOrigin = output->host<uint8_t>();
     MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
         auto cacheLineStart = mCacheLine->host<uint8_t>() + tId * mCacheLine->stride(0);
-        for (int index = (int)tId; index < total; index += threadNumber) {
+        for (int index = mDivides[tId]; index < mDivides[tId+1]; ++index) {
             int z = index / batch;
             auto biasPtr = (const float*)(mResource->mBias->host<uint8_t>() + core->bytes * core->pack * z);
             auto inputZ     = inputOrigin + core->pack * index * iw * ih * core->bytes;

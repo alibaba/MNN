@@ -11,6 +11,7 @@
 
 #include <map>
 #include <memory>
+#include <MNN/AutoTime.hpp>
 #include "core/Backend.hpp"
 #include "core/Execution.hpp"
 #include "core/BufferAllocator.hpp"
@@ -24,6 +25,7 @@ public:
     virtual ~ CPURuntime();
     int onGetRuntimeStatus(RuntimeStatus statusEnum) const override;
     virtual Backend* onCreate(const BackendConfig* config) const override;
+    virtual void onReset(int numberThread, const BackendConfig* config) override;
     virtual void onGabageCollect(int level) override;
     virtual float onGetMemoryInMB() override;
     virtual CompilerType onGetCompilerType() const override {
@@ -33,20 +35,35 @@ public:
     void onConcurrencyEnd() const;
     virtual bool onCheckInfo(Backend::Info& info) const override;
 
+    // dividedSize's length should be larger than threadNumber
+    void computeDivideSizes(int size, int* dst) const;
+
+#ifdef MNN_USE_THREAD_POOL
+    inline bool multiThreadValid() const {
+        return mThreadOpen;
+    }
+#endif
 private:
+    void _bindCPUCore() const;
+    void _resetThreadPool();
     std::shared_ptr<EagerBufferAllocator> mStaticAllocator;
     int mThreadNumber;
-    mutable int mTaskIndex;
+#ifdef MNN_USE_THREAD_POOL
+    mutable int mTaskIndex = -1;
+    mutable bool mThreadOpen = false;
+#endif
+    void _resetGroupCompute() const;
+    mutable std::vector<std::pair<float, int>> mGroupWithComputeRate;
+    mutable int mPastDecreaseHint = -1;
     BackendConfig::MemoryMode mMemory;
     BackendConfig::PowerMode mPower;
     BackendConfig::PrecisionMode mPrecision;
 
     // Backend features
     // CPU features
-    float mFlops = 0.0f;
     static Backend*(*gExtraCreate)(const Runtime* runtime);
     size_t mFlags = 0;
-    int mAllocator = 0;
+    mutable int mCurrentTID = 0;
 };
 struct CoreFunctions;
 struct CoreInt8Functions;
@@ -114,9 +131,14 @@ public:
 
     static bool addCreator(OpType t, Creator* c);
 
-    int threadNumber() const {
+    inline int threadNumber() const {
         return mRuntime->mThreadNumber;
     }
+#ifdef MNN_USE_THREAD_POOL
+    inline bool threadOpen() const {
+        return mRuntime->mThreadOpen;
+    }
+#endif
 
     BufferAllocator* getBufferAllocator(bool defer_allocator = true) const {
         return mCurrentDynamicAllocator;
@@ -140,12 +162,13 @@ public:
     static void initCreatorMap();
     static int getBytes(const Backend* backend, const Tensor* output);
     static DataType getDataType(const Tensor* tensor);
+    friend class CPURuntime;
 
 
 protected:
     MemObj* allocBuffer(size_t size, Tensor* dest,  StorageType storageType);
-    const CoreFunctions* mCoreFunctions;
-    const CoreInt8Functions* mInt8CoreFunctions;
+    CoreFunctions* mCoreFunctions;
+    CoreInt8Functions* mInt8CoreFunctions;
 private:
     std::shared_ptr<EagerBufferAllocator> mStaticAllocator;
     std::shared_ptr<BufferAllocator> mDynamicAllocator;

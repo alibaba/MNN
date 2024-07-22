@@ -66,9 +66,17 @@ for name in os.listdir(root_dir):
         print(message)
         dynamic_size += os.path.getsize(modelName)/1024.0
         static_size += os.path.getsize(tmpModel)/1024.0
-        message = run_cmd([command, tmpModel, inputName, outputName, parameters])
+        if name == 'mobilenetv1quan' or name == 'overflowaware':
+            parameters_specific = forwardType + ' 0.1 ' + precision + input_dims
+            message = run_cmd([command, tmpModel, inputName, outputName, parameters_specific])
+        else:
+            message = run_cmd([command, tmpModel, inputName, outputName, parameters])
     else:
-        message = run_cmd([command, modelName, inputName, outputName, parameters])
+        if name == 'mobilenetv1quan' or name == 'overflowaware':
+            parameters_specific = forwardType + ' 0.1 ' + precision + input_dims
+            message = run_cmd([command, modelName, inputName, outputName, parameters_specific])
+        else:
+            message = run_cmd([command, modelName, inputName, outputName, parameters])
     if (message.find('Correct') == -1):
         gWrong.append(modelName)
     print(message)
@@ -159,6 +167,8 @@ print('Model Root Path For Train: ' + root_dir + '\n')
 for name in os.listdir(root_dir):
     print(name)
     if name == '.DS_Store':
+        continue
+    if name == 'saodubi':
         continue
     moduleName = os.path.join(root_dir, name, 'model.mnn')
     inputName = os.path.join(root_dir, name, 'input.mnn')

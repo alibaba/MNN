@@ -67,16 +67,25 @@ void Session::ModeGroup::setHint(Interpreter::HintMode mode, int hint) {
             maxTuningNumber = hint;
             break;
         case Interpreter::MEM_ALLOCATOR_TYPE:
-            memoryAllocatorType = hint;
+            runtimeHint.memoryAllocatorType = hint;
             break;
         case Interpreter::WINOGRAD_MEMORY_LEVEL:
-            winogradMemoryUsed = hint;
+            runtimeHint.winogradMemoryUsed = hint;
+            break;
+        case Interpreter::CPU_LITTLECORE_DECREASE_RATE:
+            runtimeHint.cpuDecreaseRate = hint;
             break;
         case Interpreter::GEOMETRY_COMPUTE_MASK:
             geometryMask = hint;
             break;
         case Interpreter::STRICT_CHECK_MODEL:
             checkNetBuffer = hint > 0;
+            break;
+        case Interpreter::DYNAMIC_QUANT_OPTIONS:
+            runtimeHint.dynamicQuantOption = hint;
+            break;
+        case Interpreter::KVCACHE_QUANT_OPTIONS:
+            runtimeHint.kvcacheQuantOption = hint;
             break;
         default:
             break;

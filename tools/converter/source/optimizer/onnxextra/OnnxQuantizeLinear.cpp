@@ -31,13 +31,19 @@ public:
             MNN_ERROR("QuantizeLinear should provide scale and input\n");
             return nullptr;
         }
+        uint8_t dataType = halide_type_int;
         VARP zeropoint = _Const(0.f);
+        auto offset = _Const(0.f);
         if (inputs.size() > 2) {
             zeropoint = _Cast<float>(inputs[2]);
+            dataType = inputs[2]->getInfo()->type.code;
+        }
+        if (dataType == halide_type_uint) {
+            offset = _Const(128.f);
         }
         auto scaleReq = _Reciprocal(scale);
         // auto output = _Cast<int8_t>(_Round(_Relu6(_Round(input * scaleReq) + zeropoint, -128.0f, 127.0f)));
-        auto output = _FloatToInt8(input, scaleReq, -128, 127, static_cast<int8_t>(zeropoint->readMap<float>()[0]));
+        auto output = _FloatToInt8(input, scaleReq, -128, 127, static_cast<int8_t>(zeropoint->readMap<float>()[0] - offset->readMap<float>()[0]));
         std::unique_ptr<MNN::OpT> iden(new MNN::OpT);
         iden->type = OpType_FloatToInt8;
         std::vector<int32_t> inputDim = {};
@@ -46,7 +52,7 @@ public:
             inputDim = input->getInfo()->dim;
         }
         auto _shape  = _Const(inputDim.data(), {static_cast<int32_t>(inputDim.size())}, NHWC, halide_type_of<int>());
-        auto newExpr = MNN::Express::Expr::create(iden.get(), {input, output, scale, zeropoint, _shape}, 5);
+        auto newExpr = MNN::Express::Expr::create(iden.get(), {input, output, scale, zeropoint - offset, _shape}, 5);
         newExpr->setName(expr->name());
         return newExpr;
     }

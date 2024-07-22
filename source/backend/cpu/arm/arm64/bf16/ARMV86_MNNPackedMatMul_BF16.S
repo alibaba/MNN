@@ -19,13 +19,6 @@
     movi \d3\().4s, #0
 .endm
 
-.macro Float32ToBf16 d0, d1, d2, d3
-    shrn \d0\().4h, \d0\().4s, #16
-    shrn \d1\().4h, \d1\().4s, #16
-    shrn \d2\().4h, \d2\().4s, #16
-    shrn \d3\().4h, \d3\().4s, #16
-.endm
-
 .macro FOURFMAX s, d0, d1, d2, d3
     fmax \d0\().4s, \d0\().4s, \s\().4s
     fmax \d1\().4s, \d1\().4s, \s\().4s
@@ -51,11 +44,11 @@
 asm_function ARMV86_MNNPackedMatMul_BF16
 //void ARMV86_MNNPackedMatMul_BF16(float* C, const float* A, const float* B, const size_t* parameter, const float* postParameters, const float* bias);
 // x0: C, x1:A, x2:B, x3:parameter, x4: postParameters, x5:bias
-stp d14, d15, [sp, #-80]!
+stp d14, d15, [sp, #-128]!
 stp d12, d13, [sp, #16]
 stp d10, d11, [sp, #32]
 stp d8,  d9,  [sp, #48]
-stp x19, x21, [sp, #64]
+stp x19, x20, [sp, #64]
 
 //ldr x8, [x3, #0] // deprecated
 ldr x9, [x3, #8] // l
@@ -64,6 +57,7 @@ mov x11, #64  // B_stride = LP * HP = 4 * 8 * sizeof(int16_t)
 
 ldr x13, [x3, #24] // cStride
 ldr x7, [x3, #40] // bExtraStride
+lsr x7, x7, #1 // bExtraStride -> bf16 stride
 
 add x10, x10, #3
 lsr x10, x10, #2
@@ -79,14 +73,13 @@ Start:
     cmp x10, #2
     blt LH4
 LH8:
-    sub x14, x13, #96 // cStride - 96
+    sub x14, x13, #192 // cStride - 12 * 4 * sizeof(float)
 LoopH:
     mov x15, x1
     mov x12, x9
     cbz x5, NoBiasH8
-    ld1 {v0.4h, v1.4h}, [x5], #16 // 8 * sizeof(int16_t)
-    shll v0.4s, v0.4h, #16
-    shll v1.4s, v1.4h, #16
+    ld1 {v0.4s, v1.4s}, [x5], #32 // 8 * sizeof(float)
+
     mov v2.16b, v0.16b
     mov v3.16b, v1.16b
     uzp1 v18.2d, v0.2d, v2.2d   // bias_0, bias_1, bias_0, bias_1
@@ -185,19 +178,14 @@ LoopH:
         FOURFMIN v6, v23, v24, v25, v26
         FOURFMIN v6, v27, v28, v29, v30
     StoreLH8:
-        Float32ToBf16 v7, v8, v9, v10
-        Float32ToBf16 v11, v12, v13, v14
-        Float32ToBf16 v15, v16, v17, v18
-        Float32ToBf16 v19, v20, v21, v22
-        Float32ToBf16 v23, v24, v25, v26
-        Float32ToBf16 v27, v28, v29, v30
-        st1 {v7.4h, v8.4h, v9.4h, v10.4h},    [x0], #32 // 16 * sizeof(int16_t)
-        st1 {v11.4h, v12.4h, v13.4h, v14.4h}, [x0], #32 // 16 * sizeof(int16_t)
-        st1 {v15.4h, v16.4h, v17.4h, v18.4h}, [x0], #32 // 16 * sizeof(int16_t)
+
+        st1 {v7.4s, v8.4s, v9.4s, v10.4s},    [x0], #64 // 16 * sizeof(int16_t)
+        st1 {v11.4s, v12.4s, v13.4s, v14.4s}, [x0], #64 // 16 * sizeof(int16_t)
+        st1 {v15.4s, v16.4s, v17.4s, v18.4s}, [x0], #64 // 16 * sizeof(int16_t)
         add x0, x0, x14
-        st1 {v19.4h, v20.4h, v21.4h, v22.4h}, [x0], #32 // 16 * sizeof(int16_t)
-        st1 {v23.4h, v24.4h, v25.4h, v26.4h}, [x0], #32 // 16 * sizeof(int16_t)
-        st1 {v27.4h, v28.4h, v29.4h, v30.4h}, [x0], #32 // 16 * sizeof(int16_t)
+        st1 {v19.4s, v20.4s, v21.4s, v22.4s}, [x0], #64 // 16 * sizeof(int16_t)
+        st1 {v23.4s, v24.4s, v25.4s, v26.4s}, [x0], #64 // 16 * sizeof(int16_t)
+        st1 {v27.4s, v28.4s, v29.4s, v30.4s}, [x0], #64 // 16 * sizeof(int16_t)
         add x0, x0, x14
         add x2, x2, x7 // weight stride
         sub x10, x10, #2
@@ -209,8 +197,7 @@ LoopHR:
     mov x15, x1
     mov x12, x9
     cbz x5, NoBiasH4
-    ld1 {v0.4h}, [x5], #8 // 8 * sizeof(int16_t)
-    shll v0.4s, v0.4h, #16
+    ld1 {v0.4s}, [x5], #16 // 4 * sizeof(float)
     mov v2.16b, v0.16b
     uzp1 v18.2d, v0.2d, v2.2d   // bias_0, bias_1, bias_0, bias_1
     uzp2 v19.2d, v0.2d, v2.2d   // bias_2, bias_3, bias_2, bias_3
@@ -269,18 +256,16 @@ LoopHR:
         FOURFMIN v6, v11, v12, v13, v14
         FOURFMIN v6, v15, v16, v17, v18
     StoreLH4:
-        Float32ToBf16 v7, v8, v9, v10
-        Float32ToBf16 v11, v12, v13, v14
-        Float32ToBf16 v15, v16, v17, v18
-        st1 {v7.4h, v8.4h, v9.4h, v10.4h},    [x0], #32 // 16 * sizeof(int16_t)
-        st1 {v11.4h, v12.4h, v13.4h, v14.4h}, [x0], #32 // 16 * sizeof(int16_t)
-        st1 {v15.4h, v16.4h, v17.4h, v18.4h}, [x0], #32 // 16 * sizeof(int16_t)
+        st1 {v7.4s, v8.4s, v9.4s, v10.4s},    [x0], #64 // 16 * sizeof(int16_t)
+        st1 {v11.4s, v12.4s, v13.4s, v14.4s}, [x0], #64 // 16 * sizeof(int16_t)
+        st1 {v15.4s, v16.4s, v17.4s, v18.4s}, [x0], #64 // 16 * sizeof(int16_t)
+
 End:
-ldp x19, x21, [sp, #64]
+ldp x19, x20, [sp, #64]
 ldp d8,  d9,  [sp, #48]
 ldp d10, d11, [sp, #32]
 ldp d12, d13, [sp, #16]
-ldp d14, d15, [sp], #80
+ldp d14, d15, [sp], #128
 ret
 
 #endif

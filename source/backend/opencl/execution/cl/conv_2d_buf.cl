@@ -9,8 +9,6 @@
         return;                                                     \
     }
 
-
-
 __kernel
 void conv_2d_1x1_c4h1w4(GLOBAL_SIZE_2_DIMS __private const int out_w_blocks,
                           __global const FLOAT *input,
@@ -20,7 +18,8 @@ void conv_2d_1x1_c4h1w4(GLOBAL_SIZE_2_DIMS __private const int out_w_blocks,
                           __private const int in_c_block,
                           __private const int out_h,
                           __private const int out_w,
-                          __private const int out_c_block) {
+                          __private const int out_c_block,
+                          __private const int out_c_pack) {
 
     const int out_c_w_idx = get_global_id(0); //c/4 w
     const int out_b_h_idx  = get_global_id(1); //b h
@@ -40,43 +39,45 @@ void conv_2d_1x1_c4h1w4(GLOBAL_SIZE_2_DIMS __private const int out_w_blocks,
 
     const int intput_width_idx0 = out_w4_idx;
     
-    int offset = mul24(out_c_idx, in_c_block) << 2;
+
+    int offset = out_c_idx*4;
     int inp_offset = (((out_b_idx*in_c_block)*out_h + out_h_idx)* out_w + intput_width_idx0) << 2;
     
     const int inp_add = out_h*out_w*4;
     for (ushort in_channel_block_idx = 0; in_channel_block_idx < in_c_block; ++in_channel_block_idx) {
+        
+        int offset = mad24(in_channel_block_idx*4, out_c_pack, out_c_idx*4);
 
         COMPUTE_FLOAT4 in0 = CONVERT_COMPUTE_FLOAT4(vload4(0, input+inp_offset));
         COMPUTE_FLOAT4 in1 = CONVERT_COMPUTE_FLOAT4(vload4(1, input+inp_offset));
         COMPUTE_FLOAT4 in2 = CONVERT_COMPUTE_FLOAT4(vload4(2, input+inp_offset));
         COMPUTE_FLOAT4 in3 = CONVERT_COMPUTE_FLOAT4(vload4(3, input+inp_offset));
+        COMPUTE_FLOAT4 weights0 = CONVERT_COMPUTE_FLOAT4(vload4(0, kernel_ptr + offset));
+        COMPUTE_FLOAT4 weights1 = CONVERT_COMPUTE_FLOAT4(vload4(0, kernel_ptr + offset + out_c_pack));
+        COMPUTE_FLOAT4 weights2 = CONVERT_COMPUTE_FLOAT4(vload4(0, kernel_ptr + offset + out_c_pack + out_c_pack));
+        COMPUTE_FLOAT4 weights3 = CONVERT_COMPUTE_FLOAT4(vload4(0, kernel_ptr + offset + out_c_pack + out_c_pack + out_c_pack));
 
-        COMPUTE_FLOAT4 weights0 = CONVERT_COMPUTE_FLOAT4(vload4(offset, kernel_ptr));
-        COMPUTE_FLOAT4 weights1 = CONVERT_COMPUTE_FLOAT4(vload4(offset + 1, kernel_ptr));
-        COMPUTE_FLOAT4 weights2 = CONVERT_COMPUTE_FLOAT4(vload4(offset + 2, kernel_ptr));
-        COMPUTE_FLOAT4 weights3 = CONVERT_COMPUTE_FLOAT4(vload4(offset + 3, kernel_ptr));
-
-        out0.x += dot(weights0, in0);
-        out0.y += dot(weights1, in0);
-        out0.z += dot(weights2, in0);
-        out0.w += dot(weights3, in0);
-
-        out1.x += dot(weights0, in1);
-        out1.y += dot(weights1, in1);
-        out1.z += dot(weights2, in1);
-        out1.w += dot(weights3, in1);
-
-        out2.x += dot(weights0, in2);
-        out2.y += dot(weights1, in2);
-        out2.z += dot(weights2, in2);
-        out2.w += dot(weights3, in2);
-
-        out3.x += dot(weights0, in3);
-        out3.y += dot(weights1, in3);
-        out3.z += dot(weights2, in3);
-        out3.w += dot(weights3, in3);
+        out0 = mad(in0.x, weights0, out0);
+        out0 = mad(in0.y, weights1, out0);
+        out0 = mad(in0.z, weights2, out0);
+        out0 = mad(in0.w, weights3, out0);
         
-        offset += 4;
+        out1 = mad(in1.x, weights0, out1);
+        out1 = mad(in1.y, weights1, out1);
+        out1 = mad(in1.z, weights2, out1);
+        out1 = mad(in1.w, weights3, out1);
+        
+        out2 = mad(in2.x, weights0, out2);
+        out2 = mad(in2.y, weights1, out2);
+        out2 = mad(in2.z, weights2, out2);
+        out2 = mad(in2.w, weights3, out2);
+        
+        out3 = mad(in3.x, weights0, out3);
+        out3 = mad(in3.y, weights1, out3);
+        out3 = mad(in3.z, weights2, out3);
+        out3 = mad(in3.w, weights3, out3);
+        
+        offset += 4 * out_c_pack;
         inp_offset += inp_add;
     }
 
@@ -122,7 +123,8 @@ void conv_2d_1x1_c8h1w4(GLOBAL_SIZE_2_DIMS __private const int out_w_blocks,
                           __private const int in_c_block,
                           __private const int out_h,
                           __private const int out_w,
-                          __private const int out_c_block) {
+                          __private const int out_c_block,
+                          __private const int out_c_pack) {
 
     const int out_c_w_idx = get_global_id(0); //c/8 w/4
     const int out_b_h_idx  = get_global_id(1); //b h
@@ -146,10 +148,10 @@ void conv_2d_1x1_c8h1w4(GLOBAL_SIZE_2_DIMS __private const int out_w_blocks,
     COMPUTE_FLOAT4 out7 = out4;
 
     const int intput_width_idx0 = out_w4_idx;
-    
+
     for (int in_channel_block_idx = 0; in_channel_block_idx < in_c_block; ++in_channel_block_idx) {
 
-        int offset = mad24(out_c_idx, in_c_block, in_channel_block_idx)*8;
+        int offset = mad24(in_channel_block_idx*4, out_c_pack, out_c_idx*8);
         const int inp_offset =
         (((out_b_idx*in_c_block + in_channel_block_idx)*out_h + out_h_idx)* out_w + intput_width_idx0)*4;
         
@@ -157,55 +159,55 @@ void conv_2d_1x1_c8h1w4(GLOBAL_SIZE_2_DIMS __private const int out_w_blocks,
         COMPUTE_FLOAT4 in1 = CONVERT_COMPUTE_FLOAT4(vload4(1, input+inp_offset));
         COMPUTE_FLOAT4 in2 = CONVERT_COMPUTE_FLOAT4(vload4(2, input+inp_offset));
         COMPUTE_FLOAT4 in3 = CONVERT_COMPUTE_FLOAT4(vload4(3, input+inp_offset));
-
-        COMPUTE_FLOAT4 weights0 = CONVERT_COMPUTE_FLOAT4(vload4(offset, kernel_ptr));
-        COMPUTE_FLOAT4 weights1 = CONVERT_COMPUTE_FLOAT4(vload4(offset + 1, kernel_ptr));
-        COMPUTE_FLOAT4 weights2 = CONVERT_COMPUTE_FLOAT4(vload4(offset + 2, kernel_ptr));
-        COMPUTE_FLOAT4 weights3 = CONVERT_COMPUTE_FLOAT4(vload4(offset + 3, kernel_ptr));
-        COMPUTE_FLOAT4 weights4 = CONVERT_COMPUTE_FLOAT4(vload4(offset + 4, kernel_ptr));
-        COMPUTE_FLOAT4 weights5 = CONVERT_COMPUTE_FLOAT4(vload4(offset + 5, kernel_ptr));
-        COMPUTE_FLOAT4 weights6 = CONVERT_COMPUTE_FLOAT4(vload4(offset + 6, kernel_ptr));
-        COMPUTE_FLOAT4 weights7 = CONVERT_COMPUTE_FLOAT4(vload4(offset + 7, kernel_ptr));
         
-        out0.x += dot(weights0, in0);
-        out0.y += dot(weights1, in0);
-        out0.z += dot(weights2, in0);
-        out0.w += dot(weights3, in0);
+        COMPUTE_FLOAT4 weights0 = CONVERT_COMPUTE_FLOAT4(vload4(0, kernel_ptr + offset));
+        COMPUTE_FLOAT4 weights1 = CONVERT_COMPUTE_FLOAT4(vload4(1, kernel_ptr + offset));
+        COMPUTE_FLOAT4 weights2 = CONVERT_COMPUTE_FLOAT4(vload4(0, kernel_ptr + offset + out_c_pack));
+        COMPUTE_FLOAT4 weights3 = CONVERT_COMPUTE_FLOAT4(vload4(1, kernel_ptr + offset + out_c_pack));
+        COMPUTE_FLOAT4 weights4 = CONVERT_COMPUTE_FLOAT4(vload4(0, kernel_ptr + offset + out_c_pack + out_c_pack));
+        COMPUTE_FLOAT4 weights5 = CONVERT_COMPUTE_FLOAT4(vload4(1, kernel_ptr + offset + out_c_pack + out_c_pack));
+        COMPUTE_FLOAT4 weights6 = CONVERT_COMPUTE_FLOAT4(vload4(0, kernel_ptr + offset + out_c_pack + out_c_pack + out_c_pack));
+        COMPUTE_FLOAT4 weights7 = CONVERT_COMPUTE_FLOAT4(vload4(1, kernel_ptr + offset + out_c_pack + out_c_pack + out_c_pack));
 
-        out1.x += dot(weights0, in1);
-        out1.y += dot(weights1, in1);
-        out1.z += dot(weights2, in1);
-        out1.w += dot(weights3, in1);
-
-        out2.x += dot(weights0, in2);
-        out2.y += dot(weights1, in2);
-        out2.z += dot(weights2, in2);
-        out2.w += dot(weights3, in2);
-
-        out3.x += dot(weights0, in3);
-        out3.y += dot(weights1, in3);
-        out3.z += dot(weights2, in3);
-        out3.w += dot(weights3, in3);
+        out0 = mad(in0.x, weights0, out0);
+        out0 = mad(in0.y, weights2, out0);
+        out0 = mad(in0.z, weights4, out0);
+        out0 = mad(in0.w, weights6, out0);
         
-        out4.x += dot(weights4, in0);
-        out4.y += dot(weights5, in0);
-        out4.z += dot(weights6, in0);
-        out4.w += dot(weights7, in0);
-
-        out5.x += dot(weights4, in1);
-        out5.y += dot(weights5, in1);
-        out5.z += dot(weights6, in1);
-        out5.w += dot(weights7, in1);
-
-        out6.x += dot(weights4, in2);
-        out6.y += dot(weights5, in2);
-        out6.z += dot(weights6, in2);
-        out6.w += dot(weights7, in2);
-
-        out7.x += dot(weights4, in3);
-        out7.y += dot(weights5, in3);
-        out7.z += dot(weights6, in3);
-        out7.w += dot(weights7, in3);
+        out1 = mad(in1.x, weights0, out1);
+        out1 = mad(in1.y, weights2, out1);
+        out1 = mad(in1.z, weights4, out1);
+        out1 = mad(in1.w, weights6, out1);
+        
+        out2 = mad(in2.x, weights0, out2);
+        out2 = mad(in2.y, weights2, out2);
+        out2 = mad(in2.z, weights4, out2);
+        out2 = mad(in2.w, weights6, out2);
+        
+        out3 = mad(in3.x, weights0, out3);
+        out3 = mad(in3.y, weights2, out3);
+        out3 = mad(in3.z, weights4, out3);
+        out3 = mad(in3.w, weights6, out3);
+        
+        out4 = mad(in0.x, weights1, out4);
+        out4 = mad(in0.y, weights3, out4);
+        out4 = mad(in0.z, weights5, out4);
+        out4 = mad(in0.w, weights7, out4);
+        
+        out5 = mad(in1.x, weights1, out5);
+        out5 = mad(in1.y, weights3, out5);
+        out5 = mad(in1.z, weights5, out5);
+        out5 = mad(in1.w, weights7, out5);
+        
+        out6 = mad(in2.x, weights1, out6);
+        out6 = mad(in2.y, weights3, out6);
+        out6 = mad(in2.z, weights5, out6);
+        out6 = mad(in2.w, weights7, out6);
+        
+        out7 = mad(in3.x, weights1, out7);
+        out7 = mad(in3.y, weights3, out7);
+        out7 = mad(in3.z, weights5, out7);
+        out7 = mad(in3.w, weights7, out7);
     }
 
 #ifdef RELU
@@ -285,7 +287,8 @@ void conv_2d_1x1_c8h1w2(GLOBAL_SIZE_2_DIMS __private const int out_w_blocks,
                           __private const int in_c_block,
                           __private const int out_h,
                           __private const int out_w,
-                          __private const int out_c_block) { // oc / 4
+                          __private const int out_c_block,
+                          __private const int out_c_pack) {
 
     const int out_c_w_idx = get_global_id(0); //c/8 w/4
     const int out_b_h_idx  = get_global_id(1); //b h
@@ -305,44 +308,42 @@ void conv_2d_1x1_c8h1w2(GLOBAL_SIZE_2_DIMS __private const int out_w_blocks,
     COMPUTE_FLOAT4 out5 = out4;
 
     const int intput_width_idx0 = out_w2_idx;
-    
     for (int in_channel_block_idx = 0; in_channel_block_idx < in_c_block; ++in_channel_block_idx) {
 
-        int offset = mad24(out_c_idx, in_c_block, in_channel_block_idx)*8;
+        int offset = mad24(in_channel_block_idx*4, out_c_pack, out_c_idx*8);
         const int inp_offset =
         (((out_b_idx*in_c_block + in_channel_block_idx)*out_h + out_h_idx)* out_w + intput_width_idx0)*4;
         
         COMPUTE_FLOAT4 in0 = CONVERT_COMPUTE_FLOAT4(vload4(0, input+inp_offset));
         COMPUTE_FLOAT4 in1 = CONVERT_COMPUTE_FLOAT4(vload4(1, input+inp_offset));
+        COMPUTE_FLOAT4 weights0 = CONVERT_COMPUTE_FLOAT4(vload4(0, kernel_ptr + offset));
+        COMPUTE_FLOAT4 weights1 = CONVERT_COMPUTE_FLOAT4(vload4(1, kernel_ptr + offset));
+        COMPUTE_FLOAT4 weights2 = CONVERT_COMPUTE_FLOAT4(vload4(0, kernel_ptr + offset + out_c_pack));
+        COMPUTE_FLOAT4 weights3 = CONVERT_COMPUTE_FLOAT4(vload4(1, kernel_ptr + offset + out_c_pack));
+        COMPUTE_FLOAT4 weights4 = CONVERT_COMPUTE_FLOAT4(vload4(0, kernel_ptr + offset + out_c_pack + out_c_pack));
+        COMPUTE_FLOAT4 weights5 = CONVERT_COMPUTE_FLOAT4(vload4(1, kernel_ptr + offset + out_c_pack + out_c_pack));
+        COMPUTE_FLOAT4 weights6 = CONVERT_COMPUTE_FLOAT4(vload4(0, kernel_ptr + offset + out_c_pack + out_c_pack + out_c_pack));
+        COMPUTE_FLOAT4 weights7 = CONVERT_COMPUTE_FLOAT4(vload4(1, kernel_ptr + offset + out_c_pack + out_c_pack + out_c_pack));
 
-        COMPUTE_FLOAT4 weights0 = CONVERT_COMPUTE_FLOAT4(vload4(offset, kernel_ptr));
-        COMPUTE_FLOAT4 weights1 = CONVERT_COMPUTE_FLOAT4(vload4(offset + 1, kernel_ptr));
-        COMPUTE_FLOAT4 weights2 = CONVERT_COMPUTE_FLOAT4(vload4(offset + 2, kernel_ptr));
-        COMPUTE_FLOAT4 weights3 = CONVERT_COMPUTE_FLOAT4(vload4(offset + 3, kernel_ptr));
-        COMPUTE_FLOAT4 weights4 = CONVERT_COMPUTE_FLOAT4(vload4(offset + 4, kernel_ptr));
-        COMPUTE_FLOAT4 weights5 = CONVERT_COMPUTE_FLOAT4(vload4(offset + 5, kernel_ptr));
-        COMPUTE_FLOAT4 weights6 = CONVERT_COMPUTE_FLOAT4(vload4(offset + 6, kernel_ptr));
-        COMPUTE_FLOAT4 weights7 = CONVERT_COMPUTE_FLOAT4(vload4(offset + 7, kernel_ptr));
+        out0 = mad(in0.x, weights0, out0);
+        out0 = mad(in0.y, weights2, out0);
+        out0 = mad(in0.z, weights4, out0);
+        out0 = mad(in0.w, weights6, out0);
         
-        out0.x += dot(weights0, in0);
-        out0.y += dot(weights1, in0);
-        out0.z += dot(weights2, in0);
-        out0.w += dot(weights3, in0);
-
-        out1.x += dot(weights0, in1);
-        out1.y += dot(weights1, in1);
-        out1.z += dot(weights2, in1);
-        out1.w += dot(weights3, in1);
+        out1 = mad(in1.x, weights0, out1);
+        out1 = mad(in1.y, weights2, out1);
+        out1 = mad(in1.z, weights4, out1);
+        out1 = mad(in1.w, weights6, out1);
         
-        out4.x += dot(weights4, in0);
-        out4.y += dot(weights5, in0);
-        out4.z += dot(weights6, in0);
-        out4.w += dot(weights7, in0);
-
-        out5.x += dot(weights4, in1);
-        out5.y += dot(weights5, in1);
-        out5.z += dot(weights6, in1);
-        out5.w += dot(weights7, in1);
+        out4 = mad(in0.x, weights1, out4);
+        out4 = mad(in0.y, weights3, out4);
+        out4 = mad(in0.z, weights5, out4);
+        out4 = mad(in0.w, weights7, out4);
+        
+        out5 = mad(in1.x, weights1, out5);
+        out5 = mad(in1.y, weights3, out5);
+        out5 = mad(in1.z, weights5, out5);
+        out5 = mad(in1.w, weights7, out5);
     }
 
 #ifdef RELU
@@ -404,7 +405,8 @@ void conv_2d_1x1_c4h1w1(GLOBAL_SIZE_2_DIMS __private const int out_w_blocks,
                           __private const int in_c_block,
                           __private const int out_h,
                           __private const int out_w,
-                          __private const int out_c_block) {
+                          __private const int out_c_block,
+                          __private const int out_c_pack) {
 
     const int out_c_w_idx = get_global_id(0); //c/4 w
     const int out_b_h_idx  = get_global_id(1); //b h
@@ -421,21 +423,20 @@ void conv_2d_1x1_c4h1w1(GLOBAL_SIZE_2_DIMS __private const int out_w_blocks,
     
     for (int in_channel_block_idx = 0; in_channel_block_idx < in_c_block; ++in_channel_block_idx) {
         
-        int offset = mad24(out_c_idx, in_c_block, in_channel_block_idx)*4;
+        int offset = mad24(in_channel_block_idx*4, out_c_pack, out_c_idx*4);
         const int inp_offset =
         (((out_b_idx*in_c_block + in_channel_block_idx)*out_h + out_h_idx)* out_w + intput_width_idx0)*4;
         
         COMPUTE_FLOAT4 in0 = CONVERT_COMPUTE_FLOAT4(vload4(0, input+inp_offset));
+        COMPUTE_FLOAT4 weights0 = CONVERT_COMPUTE_FLOAT4(vload4(0, kernel_ptr + offset));
+        COMPUTE_FLOAT4 weights1 = CONVERT_COMPUTE_FLOAT4(vload4(0, kernel_ptr + offset + out_c_pack));
+        COMPUTE_FLOAT4 weights2 = CONVERT_COMPUTE_FLOAT4(vload4(0, kernel_ptr + offset + out_c_pack + out_c_pack));
+        COMPUTE_FLOAT4 weights3 = CONVERT_COMPUTE_FLOAT4(vload4(0, kernel_ptr + offset + out_c_pack + out_c_pack + out_c_pack));
 
-        COMPUTE_FLOAT4 weights0 = CONVERT_COMPUTE_FLOAT4(vload4(offset, kernel_ptr));
-        COMPUTE_FLOAT4 weights1 = CONVERT_COMPUTE_FLOAT4(vload4(offset + 1, kernel_ptr));
-        COMPUTE_FLOAT4 weights2 = CONVERT_COMPUTE_FLOAT4(vload4(offset + 2, kernel_ptr));
-        COMPUTE_FLOAT4 weights3 = CONVERT_COMPUTE_FLOAT4(vload4(offset + 3, kernel_ptr));
-        
-        out0.x += dot(weights0, in0);
-        out0.y += dot(weights1, in0);
-        out0.z += dot(weights2, in0);
-        out0.w += dot(weights3, in0);
+        out0 = mad(in0.x, weights0, out0);
+        out0 = mad(in0.y, weights1, out0);
+        out0 = mad(in0.z, weights2, out0);
+        out0 = mad(in0.w, weights3, out0);
     }
 
 #ifdef RELU
@@ -461,7 +462,8 @@ void conv_2d_1x1_c4h1w2(GLOBAL_SIZE_2_DIMS __private const int out_w_blocks,
                           __private const int in_c_block,
                           __private const int out_h,
                           __private const int out_w,
-                          __private const int out_c_block) {
+                          __private const int out_c_block,
+                          __private const int out_c_pack) {
 
     const int out_c_w_idx = get_global_id(0); //c/4 w
     const int out_b_h_idx  = get_global_id(1); //b h
@@ -482,27 +484,27 @@ void conv_2d_1x1_c4h1w2(GLOBAL_SIZE_2_DIMS __private const int out_w_blocks,
     
     for (int in_channel_block_idx = 0; in_channel_block_idx < in_c_block; ++in_channel_block_idx) {
 
-        int offset = mad24(out_c_idx, in_c_block, in_channel_block_idx)*4;
+        int offset = mad24(in_channel_block_idx*4, out_c_pack, out_c_idx*4);
         const int inp_offset =
         (((out_b_idx*in_c_block + in_channel_block_idx)*out_h + out_h_idx)* out_w + intput_width_idx0)*4;
         
         COMPUTE_FLOAT4 in0 = CONVERT_COMPUTE_FLOAT4(vload4(0, input+inp_offset));
         COMPUTE_FLOAT4 in1 = CONVERT_COMPUTE_FLOAT4(vload4(1, input+inp_offset));
-        
-        COMPUTE_FLOAT4 weights0 = CONVERT_COMPUTE_FLOAT4(vload4(offset, kernel_ptr));
-        COMPUTE_FLOAT4 weights1 = CONVERT_COMPUTE_FLOAT4(vload4(offset + 1, kernel_ptr));
-        COMPUTE_FLOAT4 weights2 = CONVERT_COMPUTE_FLOAT4(vload4(offset + 2, kernel_ptr));
-        COMPUTE_FLOAT4 weights3 = CONVERT_COMPUTE_FLOAT4(vload4(offset + 3, kernel_ptr));
-        
-        out0.x += dot(weights0, in0);
-        out0.y += dot(weights1, in0);
-        out0.z += dot(weights2, in0);
-        out0.w += dot(weights3, in0);
 
-        out1.x += dot(weights0, in1);
-        out1.y += dot(weights1, in1);
-        out1.z += dot(weights2, in1);
-        out1.w += dot(weights3, in1);
+        COMPUTE_FLOAT4 weights0 = CONVERT_COMPUTE_FLOAT4(vload4(0, kernel_ptr + offset));
+        COMPUTE_FLOAT4 weights1 = CONVERT_COMPUTE_FLOAT4(vload4(0, kernel_ptr + offset + out_c_pack));
+        COMPUTE_FLOAT4 weights2 = CONVERT_COMPUTE_FLOAT4(vload4(0, kernel_ptr + offset + out_c_pack + out_c_pack));
+        COMPUTE_FLOAT4 weights3 = CONVERT_COMPUTE_FLOAT4(vload4(0, kernel_ptr + offset + out_c_pack + out_c_pack + out_c_pack));
+
+        out0 = mad(in0.x, weights0, out0);
+        out0 = mad(in0.y, weights1, out0);
+        out0 = mad(in0.z, weights2, out0);
+        out0 = mad(in0.w, weights3, out0);
+        
+        out1 = mad(in1.x, weights0, out1);
+        out1 = mad(in1.y, weights1, out1);
+        out1 = mad(in1.z, weights2, out1);
+        out1 = mad(in1.w, weights3, out1);
     }
 
 #ifdef RELU
