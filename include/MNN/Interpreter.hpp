@@ -206,6 +206,20 @@ public:
 
         // Geometry Compute option, default is 0xFFFF
         GEOMETRY_COMPUTE_MASK = 4,
+
+        // 0: Close dynamic quant; 1: per batch quant; 2: per tensor quant
+        DYNAMIC_QUANT_OPTIONS = 5,
+
+        // For Mobile CPU with big-litter core, set decrease rate to let MNN divide task differential by CPU's performance
+        // 0-100, 50 means litter core has 50% capacity of large core
+        // Default is 50
+        CPU_LITTLECORE_DECREASE_RATE = 6,
+
+        // 0: Do not quantize kvcache, just store float
+        // 1: Only quantize key cache, use int8 asymmetric quantization 
+        // 2: Only quantize value cache, use fp8 quantization
+        // 3: quantize both key and value cache as described above
+        KVCACHE_QUANT_OPTIONS = 7,
     };
 
     enum GeometryComputeMask {

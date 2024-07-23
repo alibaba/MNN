@@ -87,8 +87,10 @@ static void _transformWeight(const uint8_t* tempWeight, uint8_t* dest, int outpu
 static void _reorderWeightInt8(Backend* bn, const Convolution2DCommon* common, const int8_t* srcPtr,
                                std::shared_ptr<Tensor>& weight) {
     auto core = static_cast<CPUBackend*>(bn)->int8Functions();
+    auto gcore =  static_cast<CPUBackend*>(bn)->functions();
     int UNIT, SRC_UNIT, DST_XUNIT;
     core->MNNGetGemmUnit(&UNIT, &SRC_UNIT, &DST_XUNIT);
+    UNIT = gcore->pack;
 
     int oc = common->outputCount(), ic = common->inputCount(), kernelCount = common->kernelX() * common->kernelY();
     std::vector<int> shape = {UP_DIV(oc, UNIT), UP_DIV(ic, SRC_UNIT) * kernelCount, UNIT, SRC_UNIT};
@@ -167,11 +169,13 @@ CPUDeconvolution::CPUDeconvolution(const Tensor* input, const Op* convOp, Backen
 
     std::vector<int32_t> _bias(outputChannleUp4, 0);
     std::vector<float> _scale(outputChannleUp4, 0);
+    std::vector<int32_t> _beta(outputChannleUp4, 0);
     auto biasPtr = _bias.data();
     auto scalePtr = _scale.data();
+    auto betaPtr = _beta.data();
     
     if (ModeInt8) {
-        ConvolutionCommon::getConvInt8Parameters(conv2d, quanCommon, backend, quanWeightInt8, tempWeightSize, scalePtr, biasPtr);
+        ConvolutionCommon::getConvInt8Parameters(conv2d, quanCommon, backend, quanWeightInt8, tempWeightSize, scalePtr, biasPtr, betaPtr);
     } else {
         ConvolutionCommon::getConvParameters(&quanCommon, backend, conv2d, &tempWeight, &tempWeightSize);
     }

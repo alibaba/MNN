@@ -32,7 +32,7 @@ class TestModel():
         if not os.path.exists(mnnconvert_name):
             print("./MNNConvert not exist in this path. Use pymnn instead of C++ to test")
             mnnconvert_name = 'mnnconvert'
-        convert = mnnconvert_name + ' -f TF --bizCode MNN --modelFile tf/test.pb --MNNModel convert_cache.mnn --keepInputFormat --testdir tf'
+        convert = mnnconvert_name + ' -f TF --bizCode MNN --modelFile tf/test.pb --MNNModel convert_cache.mnn --keepInputFormat=1 --testdir tf'
         result = os.popen(convert).read()
         print(result)
         return result

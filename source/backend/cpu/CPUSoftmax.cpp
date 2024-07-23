@@ -8,13 +8,13 @@
 
 #include <math.h>
 #include "backend/cpu/CPUSoftmax.hpp"
-#include "backend/cpu/CPUSoftMaxInt8.hpp"
 #include "backend/cpu/CPUBackend.hpp"
 #include "backend/cpu/compute/CommonOptFunction.h"
 #include "core/Concurrency.h"
 #include "core/Macro.h"
 #include "core/TensorUtils.hpp"
 #include "CPUTensorConvert.hpp"
+#include "CPUCast.hpp"
 
 namespace MNN {
 static void ___MNNSoftmax(float* dest, const float* source, size_t size, MNNBinaryExecute mulfunction) {
@@ -71,19 +71,39 @@ int CPUSoftmax::_softmaxCommon(const uint8_t *srcData, uint8_t *dstData) {
         addFunction = fp32Core->MNNSelectBinaryFunctionForFloat(BinaryOpOperation_ADD);
         recFunction = fp32Core->MNNSelectUnaryFunctionForFloat(UnaryOpOperation_RECIPROCAL, 1);//Use high precision
         MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
-            auto tempInput = (float*)(mTmpInput.ptr() + tId * outsideStride * sizeof(float));
-            auto tempOutput = (float*)(mTmpOutput.ptr() + tId * outsideStride * sizeof(float));
+            float* tempOutput = nullptr;
+            float* tempInput = nullptr;
+            if (mTmpInput.ptr()) {
+                tempInput = (float*)(mTmpInput.ptr() + tId * outsideStride * sizeof(float));
+            }
+            
+            if (mTmpOutput.ptr()) {
+                tempOutput = (float*)(mTmpOutput.ptr() + tId * outsideStride * sizeof(float));
+            }
+
             for (int o=tId; o<mOutside; o+=threadNumber) {
-                auto srcO = srcData + o * outsideStride * bytes;
-                auto dstO = dstData + o * outsideStride * bytes;
+                auto srcO = srcData + o * outsideStride * mLowOrInt8;
+                auto dstO = dstData + o * outsideStride * mLowOrInt8;
                 // Max
-                ::memcpy(tempInput, srcO, mInside * bytes);
-                for (int z=1; z<mChannel; ++z) {
-                    maxFunction(tempInput, tempInput, srcO + z * mInside * bytes, mInside, -1);
+                if (mLowOrInt8 == 1) {
+                    CPUCastCreator::cast(srcO, tempInput, CPUCastCreator::INT8_TO_FlOAT, outsideStride, mInQuantAttr->scale, mInQuantAttr->zero, mInQuantAttr->min, mInQuantAttr->max, cpuBn);
+                    ::memcpy(tempOutput, tempInput, mInside * 4);
+                    for (int z = 1; z < mChannel; ++z) {
+                        maxFunction(tempOutput, tempOutput, tempInput + z * mInside, mInside, -1);
+                    }
+                } else {
+                    ::memcpy(tempInput, srcO, mInside * mLowOrInt8);
+                    for (int z = 1; z < mChannel; ++z) {
+                        maxFunction(tempInput, tempInput, srcO + z * mInside * mLowOrInt8, mInside, -1);
+                    }
                 }
                 // Sub Max
                 for (int z=0; z<mChannel; ++z) {
-                    subFunction(dstO + z * mInside * bytes, srcO + z * mInside * bytes, tempInput, mInside, -1);
+                    if (mLowOrInt8 == 1) {
+                        subFunction(tempInput + z * mInside, tempInput + z * mInside, tempOutput, mInside, -1);
+                    } else {
+                        subFunction(dstO + z * mInside * mLowOrInt8, srcO + z * mInside * mLowOrInt8, tempInput, mInside, -1);
+                    }
                 }
                 // Exp
                 float exprOffset[4] = {
@@ -94,10 +114,12 @@ int CPUSoftmax::_softmaxCommon(const uint8_t *srcData, uint8_t *dstData) {
                 };
                 auto workSrc = (float*)srcO;
                 auto workDst = (float*)dstO;
-                if (core->bytes != 4) {
+                if (mLowOrInt8 != 4) {
                     workSrc = tempInput;
                     workDst = tempOutput;
-                    core->MNNLowpToFp32((int16_t*)(dstO), workSrc, outsideStride);
+                    if (mLowOrInt8 == 2) {
+                        core->MNNLowpToFp32((int16_t*)(dstO), workSrc, outsideStride);
+                    }
                 }
                 // Use Fp32 to compute Begin
                 MNNExp(workDst, workSrc, exprOffset, outsideStride);
@@ -113,8 +135,12 @@ int CPUSoftmax::_softmaxCommon(const uint8_t *srcData, uint8_t *dstData) {
                     mulFunction(workDst + z * mInside, workDst + z * mInside, tempInput, mInside, -1);
                 }
                 // Use Fp32 Compute end
-                if (core->bytes != 4) {
+                if (mLowOrInt8 == 2) {
                     core->MNNFp32ToLowp(workDst, (int16_t*)(dstO), outsideStride);
+                } else if (mLowOrInt8 == 1) {
+                    CPUCastCreator::cast(workDst, dstO, CPUCastCreator::FlOAT_TO_INT8, outsideStride, mOutQuantAttr->scale, mOutQuantAttr->zero, mOutQuantAttr->min, mOutQuantAttr->max, cpuBn);
+                } else {
+                    // do nothing.
                 }
             }
         };
@@ -122,17 +148,27 @@ int CPUSoftmax::_softmaxCommon(const uint8_t *srcData, uint8_t *dstData) {
         return 0;
     }
     MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
-        auto tempInput = (float*)(mTmpInput.ptr() + tId * outsideStride * sizeof(float));
-        auto tempOutput = (float*)(mTmpOutput.ptr() + tId * outsideStride * sizeof(float));
+        float* tempInput;
+        float* tempOutput;
+        if (mTmpInput.ptr()) {
+            tempInput = (float*)(mTmpInput.ptr() + tId * outsideStride * sizeof(float));
+        }
+        if (mTmpOutput.ptr()) {
+            tempOutput = (float*)(mTmpOutput.ptr() + tId * outsideStride * sizeof(float));
+        }
         for (int o=tId; o<mOutside; o+=threadNumber) {
-            auto srcO = srcData + o * outsideStride * bytes;
-            auto dstO = dstData + o * outsideStride * bytes;
+            auto srcO = srcData + o * outsideStride * mLowOrInt8;
+            auto dstO = dstData + o * outsideStride * mLowOrInt8;
             auto workSrc = (float*)srcO;
             auto workDst = (float*)dstO;
             // Pretreat
             if (1 == mInside) {
-                if (bytes != 4) {
+                if (mLowOrInt8 == 2) {
                     core->MNNLowpToFp32((int16_t*)(srcO), tempInput, outsideStride);
+                    workDst = tempOutput;
+                    workSrc = tempInput;
+                } else if (mLowOrInt8 == 1) {
+                    CPUCastCreator::cast(srcO, tempInput, CPUCastCreator::INT8_TO_FlOAT, outsideStride, mInQuantAttr->scale, mInQuantAttr->zero, mInQuantAttr->min, mInQuantAttr->max, cpuBn);
                     workDst = tempOutput;
                     workSrc = tempInput;
                 }
@@ -143,10 +179,15 @@ int CPUSoftmax::_softmaxCommon(const uint8_t *srcData, uint8_t *dstData) {
                     mInside,
                     mChannel
                 };
-                if (bytes != 4) {
+                if (mLowOrInt8 == 2) {
                     MNN_ASSERT(bytes == 2);
                     MNNTranspose16Bit((int16_t*)tempOutput, (int16_t*)(srcO), dims);
                     core->MNNLowpToFp32((int16_t*)tempOutput, tempInput, outsideStride);
+                    workDst = tempOutput;
+                    workSrc = tempInput;
+                } else if (mLowOrInt8 == 1) {
+                    CPUCastCreator::cast(srcO, tempOutput, CPUCastCreator::INT8_TO_FlOAT, outsideStride, mInQuantAttr->scale, mInQuantAttr->zero, mInQuantAttr->min, mInQuantAttr->max, cpuBn);
+                    MNNTranspose32Bit((int32_t*)tempInput, (int32_t*)tempOutput, dims);
                     workDst = tempOutput;
                     workSrc = tempInput;
                 } else {
@@ -166,8 +207,10 @@ int CPUSoftmax::_softmaxCommon(const uint8_t *srcData, uint8_t *dstData) {
             }
             // PostTreat
             if (1 == mInside) {
-                if (bytes != 4) {
+                if (mLowOrInt8 == 2) {
                     core->MNNFp32ToLowp(tempOutput, (int16_t*)(dstO), outsideStride);
+                } else if (mLowOrInt8 == 1) {
+                    CPUCastCreator::cast(tempOutput, dstO, CPUCastCreator::FlOAT_TO_INT8, outsideStride, mOutQuantAttr->scale, mOutQuantAttr->zero, mOutQuantAttr->min, mOutQuantAttr->max, cpuBn);
                 }
             } else {
                 int dims[] = {
@@ -176,10 +219,13 @@ int CPUSoftmax::_softmaxCommon(const uint8_t *srcData, uint8_t *dstData) {
                     mChannel,
                     mInside
                 };
-                if (bytes != 4) {
-                    MNN_ASSERT(bytes == 2);
+                if (mLowOrInt8 == 2) {
+                    MNN_ASSERT(bytes == 2); 
                     core->MNNFp32ToLowp((float*)tempOutput, (int16_t*)tempInput, outsideStride);
                     MNNTranspose16Bit((int16_t*)dstO, (int16_t*)(tempInput), dims);
+                } else if (mLowOrInt8 == 1) {
+                    MNNTranspose32Bit((int32_t*)tempInput, (int32_t*)tempOutput, dims);
+                    CPUCastCreator::cast(tempInput, dstO, CPUCastCreator::FlOAT_TO_INT8, outsideStride, mOutQuantAttr->scale, mOutQuantAttr->zero, mOutQuantAttr->min, mOutQuantAttr->max, cpuBn);
                 } else {
                     MNNTranspose32Bit((int32_t*)dstO, (int32_t*)(tempInput), dims);
                 }
@@ -227,14 +273,24 @@ ErrorCode CPUSoftmax::onResize(const std::vector<Tensor *> &inputs, const std::v
     mInside = inside;
     mOutside = outside;
     mChannel = channel;
+
+    mLowOrInt8 = 4;
+    if (static_cast<CPUBackend*>(backend())->functions()->bytes != 4) {
+        mLowOrInt8 = 2;
+    }
+    if (CPUBackend::getDataType(inputs[0]) == DataType_DT_INT8 || inputs[0]->getType().bytes() == 1) {
+        mLowOrInt8 = 1;
+    }
+    mInQuantAttr = TensorUtils::getDescribe(inputs[0])->quantAttr;
+    mOutQuantAttr = TensorUtils::getDescribe(outputs[0])->quantAttr;
     auto cpuBn = static_cast<CPUBackend*>(backend());
-    if (inside != 1 || cpuBn->functions()->bytes != 4) { // not run _softmax1, we need maxValue Tensor and sumValue Tensor.
+    if (inside != 1 || mLowOrInt8 != 4) { // not run _softmax1, we need maxValue Tensor and sumValue Tensor.
         int threadNum = cpuBn->threadNumber();
         auto buf = cpuBn->getBufferAllocator();
         threadNum = ALIMIN(threadNum, outside);
         
         mTmpInput = buf->alloc(threadNum * inside * channel * sizeof(float));
-        if (cpuBn->functions()->bytes != 4) {
+        if (mLowOrInt8 != 4) {
             mTmpOutput = buf->alloc(threadNum * inside * channel * sizeof(float));
             buf->free(mTmpOutput);
         }
@@ -274,9 +330,9 @@ ErrorCode CPUSoftmax::onExecute(const std::vector<Tensor *> &inputs, const std::
         return NO_ERROR;
     }
     auto functions = static_cast<CPUBackend*>(backend())->functions();
-    CPUTensorConverter::convert(inputDataPtr, outputDataPtr, MNN_DATA_FORMAT_NC4HW4, MNN_DATA_FORMAT_NCHW, batch, areaInput, inputTensor->channel(), functions->bytes, functions);
+    CPUTensorConverter::convert(inputDataPtr, outputDataPtr, MNN_DATA_FORMAT_NC4HW4, MNN_DATA_FORMAT_NCHW, batch, areaInput, inputTensor->channel(), mLowOrInt8, functions);
     _softmaxCommon((uint8_t*)outputDataPtr, (uint8_t*)tempData);
-    CPUTensorConverter::convert(tempData, outputDataPtr, MNN_DATA_FORMAT_NCHW, MNN_DATA_FORMAT_NC4HW4, batch, areaInput, inputTensor->channel(), functions->bytes, functions);
+    CPUTensorConverter::convert(tempData, outputDataPtr, MNN_DATA_FORMAT_NCHW, MNN_DATA_FORMAT_NC4HW4, batch, areaInput, inputTensor->channel(), mLowOrInt8, functions);
     return NO_ERROR;
 }
 
@@ -293,11 +349,8 @@ class CPUSoftmaxCreator : public CPUBackend::Creator {
 public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                 const MNN::Op *op, Backend *backend) const override {
-        if (CPUBackend::getDataType(inputs[0]) == DataType_DT_INT8 || inputs[0]->getType().bytes() == 1) {
-            return CPUSoftmaxInt8::create(op, backend);
-        } else {
-            return CPUSoftmax::create(op, backend);
-        }
+        return CPUSoftmax::create(op, backend);
+        
     }
 };
 

@@ -187,7 +187,8 @@ ErrorCode CPUConvolutionDepthwise::BasicFloatExecution::onResize(const std::vect
     auto postData = getPostParameters();
     auto batch = inputs[0]->batch();
     int total = batch * dst_depth_quad;
-    int numberThread  = std::min(((CPUBackend*)backend())->threadNumber(), total);
+    int numberThread = ((CPUBackend*)backend())->threadNumber();
+    auto rt = static_cast<const CPURuntime*>(backend()->getRuntime());
     auto runBasic     = [=](uint8_t* dst_z, const uint8_t* src_z, const uint8_t* weight_dz, int L, int T, int R, int B) {
         for (int dy = T; dy < B; ++dy) {
             auto dst_y        = dst_z + dy * dst_y_step * bytes;
@@ -207,10 +208,13 @@ ErrorCode CPUConvolutionDepthwise::BasicFloatExecution::onResize(const std::vect
             }
         }
     };
+    std::vector<int> divides(numberThread+1);
+    divides[0] = 0;
+    rt->computeDivideSizes(total, divides.data()+1);
     mExecutor   = [=](const uint8_t* srcOrigin, uint8_t* dstOrigin, int tId) {
         auto biasP   = inputs[2]->host<uint8_t>();
         auto weightP = inputs[1]->host<uint8_t>();
-        for (int index = tId; index < total; index += numberThread) {
+        for (int index = divides[tId]; index < divides[tId+1]; ++index) {
             int dz = index / batch;
             auto dst_z           = dstOrigin + dst_z_step * index * bytes;
             const auto src_z     = srcOrigin + src_z_step * index * bytes;

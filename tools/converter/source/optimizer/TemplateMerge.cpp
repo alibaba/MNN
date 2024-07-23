@@ -156,10 +156,6 @@ bool TemplateMerge::onExecute(const std::vector<VARP>& outputs, PassPriority pri
                 } else {
                     invalidVARP.insert(var);
                 }
-                if (var->get() && var->get()->type() == 19) {
-                    auto updateInputs = updateInputVarOfExpr(var);
-                    updateVars.insert(updateInputs.begin(), updateInputs.end());
-                }
             }
         }
         MNN::Express::ExecutorScope::Current()->gc();

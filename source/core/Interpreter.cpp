@@ -221,7 +221,7 @@ Interpreter::Interpreter(Content* net) {
     mNet->bizCode = std::string(mNet->net->bizCode() ? mNet->net->bizCode()->c_str() : "");
     mNet->uuid = std::string(mNet->net->mnn_uuid() ? mNet->net->mnn_uuid()->c_str() : "");
 #ifdef MNN_INTERNAL_ENABLED
-    mNet->basicLogginData = getBasicLoggingData();
+    mNet->basicLogginData = logBasicInfo();
     mNet->basicLogginData.emplace("ModelVersion", getModelVersion());
 #endif
 }
@@ -238,8 +238,6 @@ Interpreter::~Interpreter() {
 
 Session* Interpreter::createMultiPathSession(const std::vector<ScheduleConfig>& configs) {
     RuntimeInfo runtime = createRuntime(configs);
-    runtime.second->setAllocatorType(mNet->modes.memoryAllocatorType);
-    runtime.second->setWinogradMemoryLevel(mNet->modes.winogradMemoryUsed);
     if (runtime.first.empty()) {
         MNN_ERROR("Runtime not valid for create session\n");
         return nullptr;
@@ -248,6 +246,11 @@ Session* Interpreter::createMultiPathSession(const std::vector<ScheduleConfig>& 
 }
 
 Session* Interpreter::createMultiPathSession(const std::vector<ScheduleConfig>& configs, const RuntimeInfo& runtime) {
+    for (auto& iter : runtime.first) {
+        iter.second->setRuntimeHint(mNet->modes.runtimeHint);
+    }
+    runtime.second->setRuntimeHint(mNet->modes.runtimeHint);
+
     if (nullptr == mNet->buffer.get()) {
         MNN_ERROR("The model buffer has been released. Can't create session\n");
         return nullptr;
@@ -265,6 +268,10 @@ Session* Interpreter::createMultiPathSession(const std::vector<ScheduleConfig>& 
     info.externalWeightPath = mNet->externalFile;
     auto success = Schedule::schedule(info, mNet->net, configs, runtime);
     if (!success) {
+        return nullptr;
+    }
+    if (info.needInputContentForShape) {
+        MNN_ERROR("Interpreter don't support case for shape compute need input content, please use module api instead\n");
         return nullptr;
     }
     RuntimeInfo rt = runtime;

@@ -119,7 +119,7 @@ protected:
         auto outputPtr = y->readMap<float>();
         float errorScale = precision <= MNN::BackendConfig::Precision_High ? 1 : 20;
         if (!checkVectorByRelativeError<float>(outputPtr, rightOutData.data(), rightOutData.size(), 0.005 * errorScale)) {
-            MNN_ERROR("%s(%s) test failed!\n", test_op_name.c_str(), device_name.c_str());
+            MNN_ERROR("%s(%s) test failed: batch=%d, oc=%d, oh=%d, ow=%d!\n", test_op_name.c_str(), device_name.c_str(), y->getInfo()->dim[0], y->getInfo()->dim[1], y->getInfo()->dim[2], y->getInfo()->dim[3]);
             return false;
         }
         return true;
@@ -425,6 +425,75 @@ public:
                                          6.6,  6.6,  19.2, 12.6, 6.6,  6.6,  19.2, 12.6, 31.2, 31.2, 74.4,
                                          43.2, 24.6, 24.6, 55.2, 30.6};
             int ic = 3, oc = 2;
+            int kw = 3, kh = 3, ih = 2, iw = 2;
+            int stride = 2, dilation = 1;
+            int group = 1, batch = 1;
+            int pad_w = 0, pad_h = 0;
+
+            std::vector<float> scale = {1., 1.};
+            std::vector<float> zeroPoints = {0, 0};
+            std::vector<float> quantScales = {0.0416, 0.6112};
+
+            bool succ = DeconvolutionCommonTestInt8::test("CPU", "Deconv", data_a, weight, bias, data_c,
+                                                      batch, ic, oc, ih, iw, PadMode_SAME, pad_h, pad_w, kh, kw,
+                                                      stride, dilation, group, precision, scale, zeroPoints, quantScales);
+            if (!succ) {
+                return false;
+            }
+        }
+        MNN_PRINT("begin testcase 3\n");
+        {
+            std::vector<float> data_a = {// channel 0
+                                         1.0, 2.0, 4.0, 5.0,
+                                         // channel 1
+                                         1.1, 2.1, 4.1, 5.1,
+                                         // channel 2
+                                         1.2, 2.2, 4.2, 5.2};
+
+            std::vector<int8_t> weight = {//IOHW
+                // input channel0
+
+                1, 1, 1, 1, 1, 1, 1, 1, 1,
+                2, 2, 2, 2, 2, 2, 2, 2, 2,
+                1, 1, 1, 1, 1, 1, 1, 1, 1,
+                2, 2, 2, 2, 2, 2, 2, 2, 2,
+                1, 1, 1, 1, 1, 1, 1, 1, 1,
+                2, 2, 2, 2, 2, 2, 2, 2, 2,
+                1, 1, 1, 1, 1, 1, 1, 1, 1,
+                2, 2, 2, 2, 2, 2, 2, 2, 2,
+                1, 1, 1, 1, 1, 1, 1, 1, 1,
+
+                // input channel1
+
+                1, 1, 1, 1, 1, 1, 1, 1, 1,
+                2, 2, 2, 2, 2, 2, 2, 2, 2,
+                1, 1, 1, 1, 1, 1, 1, 1, 1,
+                2, 2, 2, 2, 2, 2, 2, 2, 2,
+                1, 1, 1, 1, 1, 1, 1, 1, 1,
+                2, 2, 2, 2, 2, 2, 2, 2, 2,
+                1, 1, 1, 1, 1, 1, 1, 1, 1,
+                2, 2, 2, 2, 2, 2, 2, 2, 2,
+                1, 1, 1, 1, 1, 1, 1, 1, 1,
+
+                // input channel2
+
+                1, 1, 1, 1, 1, 1, 1, 1, 1,
+                2, 2, 2, 2, 2, 2, 2, 2, 2,
+                1, 1, 1, 1, 1, 1, 1, 1, 1,
+                2, 2, 2, 2, 2, 2, 2, 2, 2,
+                1, 1, 1, 1, 1, 1, 1, 1, 1,
+                2, 2, 2, 2, 2, 2, 2, 2, 2,
+                1, 1, 1, 1, 1, 1, 1, 1, 1,
+                2, 2, 2, 2, 2, 2, 2, 2, 2,
+                1, 1, 1, 1, 1, 1, 1, 1, 1,
+            };
+            std::vector<float> bias(9, 0);
+            std::vector<float> data_c = {3.3,  3.3,  9.6,  6.3,  3.3,  3.3,  9.6,  6.3, 15.6, 15.6, 37.2,
+                                         21.6, 12.3, 12.3, 27.6, 15.3,
+
+                                         6.6,  6.6,  19.2, 12.6, 6.6,  6.6,  19.2, 12.6, 31.2, 31.2, 74.4,
+                                         43.2, 24.6, 24.6, 55.2, 30.6};
+            int ic = 3, oc = 9;
             int kw = 3, kh = 3, ih = 2, iw = 2;
             int stride = 2, dilation = 1;
             int group = 1, batch = 1;

@@ -9,6 +9,7 @@
 #include "ConvolutionCommon.hpp"
 #include <math.h>
 #include "backend/cpu/compute/CommonOptFunction.h"
+#include "backend/cpu/CPUBackend.hpp"
 #include "half.hpp"
 #include "core/OpCommonUtils.hpp"
 #include "core/IDSTDecoder.hpp"
@@ -187,16 +188,18 @@ void ConvolutionCommon::getConvParameters(std::shared_ptr<Int8Common> *quanCommo
 }
 
 bool ConvolutionCommon::getConvInt8Parameters(const MNN::Convolution2D* conv2d, std::shared_ptr<Int8Common>& quanCommon, Backend* backend,
-                                              const int8_t*& weight, int& weightSize, float*& scale, int32_t*& bias) {
+                                              const int8_t*& weight, int& weightSize, float*& scale, int32_t*& bias, int32_t*& weightQuantZeroPoint) {
     int outputCount = conv2d->common()->outputCount();
     weightSize = 0;
+    auto core = static_cast<CPUBackend*>(backend)->functions();
     // fix xcode UndefinedBehaviorSanitizer
-    if (conv2d->symmetricQuan()->weight() != nullptr) {
+    if (conv2d->symmetricQuan() && conv2d->symmetricQuan()->weight() != nullptr) {
         weight = conv2d->symmetricQuan()->weight()->data();
         weightSize = conv2d->symmetricQuan()->weight()->size();
     }
-    if (conv2d->quanParameter() && conv2d->quanParameter()->buffer()) {
+    if (conv2d->quanParameter() && conv2d->quanParameter()->buffer()) { // int8 weight
         quanCommon = ConvolutionCommon::load(conv2d, backend, false, true);
+        MNN_ASSERT(quanCommon != nullptr);
         weight = quanCommon->weight.get();
         weightSize = quanCommon->weight.size();
     }
@@ -204,16 +207,47 @@ bool ConvolutionCommon::getConvInt8Parameters(const MNN::Convolution2D* conv2d, 
         MNN_ERROR("ConvolutionCommon::getConvInt8Parameters: No weight data!");
         return false;
     }
-    if (conv2d->symmetricQuan()->bias() && conv2d->symmetricQuan()->scale()) {
+    bool weightAsy = false;
+    if (quanCommon && quanCommon->asymmetric) {
+        weightAsy = true;
+    }
+    if (conv2d->symmetricQuan() && conv2d->symmetricQuan()->bias() && conv2d->symmetricQuan()->scale()) {
         // Compability for old model
         MNN_ASSERT(conv2d->symmetricQuan()->bias()->size() == outputCount && conv2d->symmetricQuan()->scale()->size() == outputCount);
         ::memcpy(bias, conv2d->symmetricQuan()->bias()->data(), outputCount * sizeof(int32_t));
         ::memcpy(scale, conv2d->symmetricQuan()->scale()->data(), outputCount * sizeof(float));
         return true;
     }
-    if (conv2d->bias() && conv2d->quanParameter()->alpha()) {
+    if (conv2d->bias()) {
         ::memcpy(bias, conv2d->bias()->data(), outputCount * sizeof(float));
-        ::memcpy(scale, conv2d->quanParameter()->alpha()->data(), outputCount * sizeof(float));
+    }
+    if (conv2d->quanParameter() && conv2d->quanParameter()->alpha()) {
+        auto alphaAndBeta = conv2d->quanParameter()->alpha()->data();
+        int quantCount    = conv2d->quanParameter()->alpha()->size();
+        if (false == weightAsy) { // symmetric quant
+            if (core->bytes == 2) {
+                core->MNNFp32ToLowp(quanCommon->alpha.get(), reinterpret_cast<int16_t*>(scale), quantCount);
+            } else {
+                ::memcpy(scale, conv2d->quanParameter()->alpha()->data(), quantCount * core->bytes);
+            }
+        } else if (true == weightAsy) { // asymmetric
+            // int ocx2 = 2 * outputCount;
+            int scaleSize = quantCount / 2;
+            float clampMin = conv2d->quanParameter()->aMin() == 0 ? -128 : conv2d->quanParameter()->aMin();
+            if (core->bytes == 2) {
+                std::unique_ptr<int16_t[]> tmp(new int16_t[quantCount]);
+                core->MNNFp32ToLowp(alphaAndBeta, tmp.get(), quantCount);
+                for (int i = 0; i < scaleSize; ++i) {
+                    weightQuantZeroPoint[i] = static_cast<int32_t>(roundf((-1) * tmp[2 * i] / tmp[2 * i + 1]) + clampMin);
+                    reinterpret_cast<int16_t*>(scale)[i] = tmp[2 * i + 1];
+                }
+            } else {
+                for (int i = 0; i < scaleSize; ++i) {
+                    weightQuantZeroPoint[i] = static_cast<int32_t>(roundf((-1) * alphaAndBeta[2 * i] / alphaAndBeta[2 * i + 1])  + clampMin);
+                    scale[i] = alphaAndBeta[2 * i + 1];
+                }
+            }
+        }
         return true;
     }
     MNN_ERROR("ConvolutionCommon::getConvInt8Parameters: No bias & scale data!");

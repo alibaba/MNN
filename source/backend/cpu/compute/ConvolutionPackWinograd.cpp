@@ -32,6 +32,10 @@ ConvolutionPackWinograd::ConvolutionPackWinograd(const Convolution2DCommon *conv
     int unit = config.unit;
     auto core = static_cast<CPUBackend*>(backend())->functions();
     int pack = core->pack, bytes = core->bytes;
+    int weightBytes = bytes;
+    if (0!=core->matmulBytes) {
+        weightBytes = core->matmulBytes;
+    }
     mResource.reset(new Resource);
     mResource->backend = b;
 
@@ -83,14 +87,14 @@ ConvolutionPackWinograd::ConvolutionPackWinograd(const Convolution2DCommon *conv
     auto tempWeight = generator.allocTransformWeight(sourceWeight.get(), lPack, hPack, true);
 
     auto shape = tempWeight->shape();
-    shape.push_back(bytes);
+    shape.push_back(weightBytes);
     mResource->mWeight.reset(Tensor::createDevice<uint8_t>(shape));
     mValid = backend()->onAcquireBuffer(mResource->mWeight.get(), Backend::STATIC);
     if (!mValid) {
         return;
     }
     generator.transformWeight(tempWeight.get(), sourceWeight.get(), true);
-    if (bytes != 4) {
+    if (weightBytes != 4) {
         core->MNNFp32ToLowp(tempWeight->host<float>(), mResource->mWeight->host<int16_t>(), tempWeight->elementSize());
     } else {
         ::memcpy(mResource->mWeight->host<float>(), tempWeight->host<float>(), tempWeight->size());
@@ -143,7 +147,11 @@ WinogradConfig ConvolutionPackWinograd::bestWinogradUnit(const Convolution2DComm
 
 
     auto core = static_cast<CPUBackend*>(b)->functions();
-    auto winogradMemoryLevel = static_cast<CPUBackend*>(b)->getRuntime()->getWinogradMemoryLevel();
+    auto winogradMemoryLevel = static_cast<CPUBackend*>(b)->getRuntime()->hint().winogradMemoryUsed;
+    int multiBytes = static_cast<CPUBackend*>(b)->functions()->bytes;
+    if (static_cast<CPUBackend*>(b)->functions()->matmulBytes != 0) {
+        multiBytes = static_cast<CPUBackend*>(b)->functions()->matmulBytes;
+    }
     int ow      = outputTensor->width();
     int oh      = outputTensor->height();
     int oc      = outputTensor->channel();
@@ -164,6 +172,9 @@ WinogradConfig ConvolutionPackWinograd::bestWinogradUnit(const Convolution2DComm
     float maxRate    = 0.0f;
     float originCost = (float)ow * oh * (2.0 * ic) * oc * kernelSize * kernelSize; // macs, with bias
     std::set<int> supportSu{4, 6, 8};
+    if (multiBytes < 4) {
+        supportSu = {4, 6};
+    }
     CoreFunctions::WinoUnrollDestTransFunc destTransform[CONVOLUTION_WINOGRAD_MAX_UNIT + 1];
     for (int u = CONVOLUTION_WINOGRAD_MIN_UNIT; u <= maxUnit; ++u) {
         auto sui = u + kernelSize - 1;
@@ -204,6 +215,10 @@ WinogradConfig ConvolutionPackWinograd::bestWinogradUnit(const Convolution2DComm
 
 ErrorCode ConvolutionPackWinograd::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     CPUConvolution::onResize(inputs, outputs);
+    int threadNumber = ((CPUBackend*)(backend()))->threadNumber();
+    mTempBuffer->setLength(0, threadNumber);
+    mGemmMidBuffer->setLength(0, threadNumber);
+    mTransformMidBuffer->setLength(0, threadNumber);
     // FUNC_PRINT(mA->length(1));
     bool success = backend()->onAcquireBuffer(mTempBuffer.get(), Backend::DYNAMIC);
     success      = success && backend()->onAcquireBuffer(mGemmMidBuffer.get(), Backend::DYNAMIC);
@@ -245,20 +260,10 @@ ErrorCode ConvolutionPackWinograd::onResize(const std::vector<Tensor *> &inputs,
 
     auto totalCount   = wUnit * hUnit * batch;
     // MNN_PRINT("ow=%d, oh=%d\n", ow, oh);
-    int threadNumber = std::max(((CPUBackend *)backend())->threadNumber(), 1);
-    int tileCount    = UP_DIV(totalCount, ePack);
-    int eRemain = totalCount % ePack;
-    threadNumber     = std::min(threadNumber, tileCount);
-    std::vector<size_t> parameters(6);
-    parameters[0] = eRemain * bytes;
-    parameters[1] = input->channel();
-    parameters[2] = output->channel();
-    parameters[3] = ePack * pack * bytes;
-    parameters[4] = 0;
-    parameters[5] = 0;
-
-    std::vector<size_t> parametersRemain = parameters;
-    parametersRemain[3] = eRemain * pack * bytes;
+    
+    std::vector<int> divides(threadNumber+1);
+    static_cast<const CPURuntime*>( static_cast<CPUBackend*>(backend())->getRuntime())->computeDivideSizes(totalCount, divides.data()+1);
+    divides[0] = 0;
     auto midBuffer0Bytes = srcUnit2 * pack * bytes;
     bool allow_x86_bf16_winograd = true;
 #ifdef MNN_USE_SSE
@@ -269,6 +274,24 @@ ErrorCode ConvolutionPackWinograd::onResize(const std::vector<Tensor *> &inputs,
     auto bias      = mResource->mBias->host<uint8_t>();
     mMainFunction.first = threadNumber;
     mMainFunction.second = [=](int tId, const uint8_t* inputOrigin, uint8_t* dstOrigin) {
+        int tSta = divides[tId];
+        int tFin = divides[tId+1];
+        if (tSta >= tFin) {
+            return;
+        }
+        int eRemain = (tFin-tSta) % ePack;
+        std::vector<size_t> parameters(6);
+        parameters[1] = input->channel();
+        parameters[2] = output->channel();
+        parameters[4] = 0;
+        parameters[5] = 0;
+        parameters[0] = eRemain * bytes;
+        parameters[3] = ePack * pack * bytes;
+
+        std::vector<size_t> parametersRemain = parameters;
+        parametersRemain[0] = eRemain * bytes;
+        parametersRemain[3] = eRemain * pack * bytes;
+
         auto srcOrigin = inputOrigin;
         auto _srcOrigin = mTempBuffer->host<uint8_t>() + tId * mTempBuffer->stride(0);
         auto gemmBuffer = (mGemmMidBuffer->host<uint8_t>() + tId * mGemmMidBuffer->stride(0));
@@ -276,12 +299,11 @@ ErrorCode ConvolutionPackWinograd::onResize(const std::vector<Tensor *> &inputs,
         auto midBufferStride1 = mTransformMidBuffer->stride(1);
         auto weightStride = mResource->mWeight->stride(0);
         auto midBuffer1 = midBuffer0 + midBuffer0Bytes;
-        for (int tIndex = (int)tId; tIndex < tileCount; tIndex += threadNumber) {
-            int xIndex  = (int)tIndex * ePack;
-            int xReamin = totalCount - xIndex;
+        for (int xIndex = tSta; xIndex < tFin; xIndex+=ePack) {
+            int xReamin = tFin - xIndex;
             int xC      = xReamin > ePack ? ePack : xReamin;
 
-            const bool fuseTransformPack = (xC * FULSE_THRESHHOLD_DENOMINATOR >= FULSE_THRESHHOLD_NUMERATOR * ePack) && allow_x86_bf16_winograd && nullptr != mSourceTransformPack;
+            const bool fuseTransformPack = (xC * FULSE_THRESHHOLD_DENOMINATOR >= FULSE_THRESHHOLD_NUMERATOR * ePack) && allow_x86_bf16_winograd && nullptr != mSourceTransformPack && core->matmulBytes == 0;
             /*Source Transform Begin*/
 #ifndef MNN_WINO_TRANFORM_TEST_CLOSE
             {
@@ -519,11 +541,16 @@ ErrorCode ConvolutionPackWinograd::onResize(const std::vector<Tensor *> &inputs,
             /*Dest Transform And Post Treat End*/
         }
     };
+    std::vector<int> postDivides(threadNumber+1);
+    static_cast<const CPURuntime*>( static_cast<CPUBackend*>(backend())->getRuntime())->computeDivideSizes(dc_4, postDivides.data()+1);
+    postDivides[0] = 0;
 
     mPostFunction.first = threadNumber;
     mPostFunction.second = [=](int tId, uint8_t* outputOrigin) {
         auto dstOrigin = outputOrigin;
-        for (int dy=(int)tId; dy < dc_4; dy += threadNumber) {
+        int tSta = postDivides[tId];
+        int tFin = postDivides[tId+1];
+        for (int dy=tSta; dy < tFin; ++dy) {
             auto dataFloatPtr = (float*)(dstOrigin + ow * oh * batch * dy * pack * bytes);
             auto biasFloatPtr = (const float*)(bias + pack * dy * bytes);
             core->MNNAxByClampBroadcastUnit(dataFloatPtr, dataFloatPtr, biasFloatPtr, ow * oh * batch, 0, 0, 1,  mPostParameters.data());

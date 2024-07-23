@@ -205,7 +205,7 @@ ConvBufWinograd::ConvBufWinograd(const MNN::Op* op, Backend* backend) : CommonEx
         int kernelSize = kx;
         int alpha       = unit + kernelSize - 1;
         
-        int tileK = 16;
+        int tileK = 4;
         int tileN = 32;
 
         std::shared_ptr<Tensor> tmpFilterTensor;
@@ -460,7 +460,7 @@ ErrorCode ConvBufWinograd::onEncode(const std::vector<Tensor*>& inputs, const st
     {
 	int tileM = 16;
         int tileN = 32;
-        int tileK = 16;
+        int tileK = 4;
         mSource.reset(Tensor::createDevice<float>(
             std::vector<int>{alpha * alpha * ROUND_UP(input->channel(), tileK) * ROUND_UP(wUnit * hUnit, tileM)}));
         mDest.reset(Tensor::createDevice<float>(
@@ -541,11 +541,9 @@ ErrorCode ConvBufWinograd::onEncode(const std::vector<Tensor*>& inputs, const st
 
                 std::set<std::string> buildOptions;
                 uint32_t layout = 4;
-                auto param = getGemmParams({(uint32_t)e_pack, (uint32_t)h_pack, (uint32_t)l_pack, layout, (uint32_t)loop}, {openCLBuffer(mSource.get()), openCLBuffer(mResource->mWeight.get()), openCLBuffer(mDest.get())}, mOpenCLBackend->getOpenCLRuntime());
+                auto param = getGemmParams({(uint32_t)e_pack, (uint32_t)h_pack, (uint32_t)l_pack, layout, (uint32_t)loop, (uint32_t)0}, {openCLBuffer(mSource.get()), openCLBuffer(mResource->mWeight.get()), openCLBuffer(mDest.get())}, mOpenCLBackend->getOpenCLRuntime());
 
-                int GEMMK=param[0], KREG=param[1], KWG=param[2], KWI=param[3], MDIMA=param[4], MDIMC=param[5], MWG=param[6], NDIMB=param[7], NDIMC=param[8], NWG=param[9], SA=param[10], SB=param[11], STRM=param[12], STRN=param[13], VWM=param[14], VWN=param[15];
-                buildOptions.emplace("-DGEMMK=" + std::to_string(GEMMK));
-                buildOptions.emplace("-DKREG=" + std::to_string(KREG));
+                int KWG=param[0], KWI=param[1], MDIMA=param[2], MDIMC=param[3], MWG=param[4], NDIMB=param[5], NDIMC=param[6], NWG=param[7], SA=param[8], SB=param[9], STRM=param[10], STRN=param[11], VWM=param[12], VWN=param[13];
                 buildOptions.emplace("-DKWG=" + std::to_string(KWG));
                 buildOptions.emplace("-DKWI=" + std::to_string(KWI));
                 buildOptions.emplace("-DMDIMA=" + std::to_string(MDIMA));
@@ -573,12 +571,6 @@ ErrorCode ConvBufWinograd::onEncode(const std::vector<Tensor*>& inputs, const st
                     buildOptions.emplace("-DUSE_CL_MAD=1");
                     buildOptions.emplace("-DRELAX_WORKGROUP_SIZE=1");
                 }
-
-                if(mOpenCLBackend->getOpenCLRuntime()->isSupportedFP16()){
-                    buildOptions.emplace(" -DPRECISION=16");
-                } else {
-                    buildOptions.emplace(" -DPRECISION=32");
-                }
                 
                 mUnits[b * 3 + 1].kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("matmul_params_buf", "XgemmBatched", buildOptions);
                 
@@ -590,6 +582,9 @@ ErrorCode ConvBufWinograd::onEncode(const std::vector<Tensor*>& inputs, const st
                 
                 float alpha = 1.0f;
                 float beta = 0.0f;
+                int batch_offset_a = e_pack * l_pack;
+                int batch_offset_b = h_pack * l_pack;
+                int batch_offset_c = e_pack * h_pack;
                 
                 int idx            = 0;
                 cl_int ret = CL_SUCCESS;
@@ -599,14 +594,11 @@ ErrorCode ConvBufWinograd::onEncode(const std::vector<Tensor*>& inputs, const st
                 ret |= mUnits[b * 3 + 1].kernel->get().setArg(idx++, alpha);
                 ret |= mUnits[b * 3 + 1].kernel->get().setArg(idx++, beta);
                 ret |= mUnits[b * 3 + 1].kernel->get().setArg(idx++, openCLBuffer(mSource.get()));
-                ret |= mUnits[b * 3 + 1].kernel->get().setArg(idx++, e_pack);
-                ret |= mUnits[b * 3 + 1].kernel->get().setArg(idx++, l_pack);
+                ret |= mUnits[b * 3 + 1].kernel->get().setArg(idx++, batch_offset_a);
                 ret |= mUnits[b * 3 + 1].kernel->get().setArg(idx++, openCLBuffer(mResource->mWeight.get()));
-                ret |= mUnits[b * 3 + 1].kernel->get().setArg(idx++, h_pack);
-                ret |= mUnits[b * 3 + 1].kernel->get().setArg(idx++, l_pack);
+                ret |= mUnits[b * 3 + 1].kernel->get().setArg(idx++, batch_offset_b);
                 ret |= mUnits[b * 3 + 1].kernel->get().setArg(idx++, openCLBuffer(mDest.get()));
-                ret |= mUnits[b * 3 + 1].kernel->get().setArg(idx++, e_pack);
-                ret |= mUnits[b * 3 + 1].kernel->get().setArg(idx++, h_pack);
+                ret |= mUnits[b * 3 + 1].kernel->get().setArg(idx++, batch_offset_c);
                 MNN_CHECK_CL_SUCCESS(ret, "setArg Winograd batchmatmul Kernel");
                 
                 mOpenCLBackend->recordKernel3d(mUnits[b * 3 + 1].kernel, mGWS_M[b], mLWS_M[b]);

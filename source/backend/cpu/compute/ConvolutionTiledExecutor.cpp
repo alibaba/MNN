@@ -91,9 +91,12 @@ std::pair<size_t, std::pair<size_t, size_t>> ConvolutionTiledExecutor::computeBl
     return std::make_pair(total, std::make_pair(stride, kernelSize * maxLine));
 }
 
-void ConvolutionTiledExecutor:: setIm2ColParameter(ConvolutionCommon::Im2ColParameter& dstIm2ColParamter, const Convolution2DCommon* convCommon, Tensor* input, Tensor* output, int padX, int padY, const CoreFunctions* floatCore, const CoreInt8Functions* int8Core) {
+void ConvolutionTiledExecutor:: setIm2ColParameter(ConvolutionCommon::Im2ColParameter& dstIm2ColParamter, const Convolution2DCommon* convCommon, Tensor* input, Tensor* output, int padX, int padY, const CoreFunctions* floatCore, const CoreInt8Functions* int8Core, int pack) {
     // FIXME: Set int8 and float's pack as diff
-    int pack = floatCore->pack;
+    if (pack == 0) {
+        pack = floatCore->pack;
+    }
+    
     const auto kernelCount = convCommon->kernelX() * convCommon->kernelY();
 
     dstIm2ColParamter.dilateX         = convCommon->dilateX();
@@ -119,7 +122,12 @@ void ConvolutionTiledExecutor:: setIm2ColParameter(ConvolutionCommon::Im2ColPara
         int UNIT, SRC_UNIT, DynamicDestUnit;
         auto core = int8Core;
         core->MNNGetGemmUnit(&UNIT, &SRC_UNIT, &DynamicDestUnit);
-        if (SRC_UNIT > pack) {
+        if (floatCore->bytes == 2 && DynamicDestUnit == 20) {
+            UNIT = 8;
+            SRC_UNIT= 8;
+            DynamicDestUnit = 10;
+        }
+        if (SRC_UNIT > UNIT) {
             const auto srcCountUnit = UP_DIV(input->channel(), pack);
             dstIm2ColParamter.kernelCountUnit = UP_DIV(srcCountUnit * kernelCount, SRC_UNIT / pack);
             dstIm2ColParamter.ic = dstIm2ColParamter.icDiv4 * pack;

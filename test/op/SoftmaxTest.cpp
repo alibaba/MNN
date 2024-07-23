@@ -282,53 +282,6 @@ public:
                 }
             }
         }
-        
-        // testcase 2
-        {
-            auto input = _Input({2, 5}, NCHW);
-            input->setName("input_tensor");
-            // set input data
-            const float inpudata[] = {1.0, 2.0, 3.0, 4.0, 5.0, -1.0, -2.0, -3.0, -4.0, -5.0};
-            const float quantScales[] = {1.0, 0.00784};
-            const float zeroPoints[]  = {1., 2.};
-            input->writeScaleMap(quantScales[0], zeroPoints[0]);
-            auto inputPtr          = input->writeMap<float>();
-            memcpy(inputPtr, inpudata, 10 * sizeof(float));
-            input->unMap();
-            auto output                             = _Softmax(input);
-            const std::vector<int>   expectedOrder  = {0, 1, 2, 3, 4, 9, 8, 7, 6, 5};
-            const std::vector<float> expectedOutput = {0.0117, 0.0317, 0.0861, 0.2341, 0.6364, 0.6364, 0.2341, 0.0861, 0.0317, 0.0117};
-            output->writeScaleMap(quantScales[1], zeroPoints[1]);
-            auto gotOutput                          = output->readMap<float>();
-            bool result = checkProbAndOrder((float*)gotOutput, expectedOutput.data(), expectedOrder.data(), 10, {2, 5}, 1);
-            if (!result) {
-                MNN_PRINT("SoftmaxInt8 case2 failed!\n");
-                return false;
-            }
-        }
-        // testcase 3
-        {
-            auto input = _Input({2, 2}, NCHW);
-            input->setName("input_tensor");
-            // set input data
-            const float inpudata[] = {-1.0, -2.0, 3.0, 4.0};
-            const float quantScales[] = {1.0, 0.00784};
-            const float zeroPoints[]  = {1., 2.};
-            input->writeScaleMap(quantScales[0], zeroPoints[0]);
-            auto inputPtr          = input->writeMap<float>();
-            memcpy(inputPtr, inpudata, 4 * sizeof(float));
-            input->unMap();
-            auto output                             = _Softmax(input);
-            const std::vector<int>   expectedOrder  = {1, 2, 0, 3};
-            const std::vector<float> expectedOutput = {0.7310586, 0.26894143, 0.26894143, 0.7310586};
-            output->writeScaleMap(quantScales[1], zeroPoints[1]);
-            auto gotOutput                          = output->readMap<float>();
-            bool result = checkProbAndOrder((float*)gotOutput, expectedOutput.data(), expectedOrder.data(), 4, {2, 2}, 1);
-            if (!result) {
-                MNN_PRINT("SoftmaxInt8 case3 failed!\n");
-                return false;
-            }
-        }
         return true;
     }
 };

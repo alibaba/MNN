@@ -257,7 +257,7 @@ protected:
             // Because of round implement in ARM / X86 / PC may cause 1 / 0 / -1 diff, don't care about this error
             auto error = (int32_t)targetValue - (int32_t)computeResult;
             if (error * error > 1) {
-                MNN_PRINT("%d x %d, ConvInt8 result %d Error: %d -> %d\n", ow, oh, i, targetValue, computeResult);
+                MNN_PRINT("ic=%d, oc=%d, ow=%d, oh=%d, ConvInt8 result No.%d Error: right=%d, error=%d\n", channel[0], channel[1], ow, oh, i, targetValue, computeResult);
 #ifdef DEBUG
                 x->writeMap<int8_t>();
                 auto ptr = y->readMap<int8_t>();
@@ -293,7 +293,7 @@ public:
         std::vector<std::vector<int>> kernels = {
             {4, 2}, {1, 5}, {7, 1}
         };
-        int iw = 24; int ih = 17;
+        int iw = 14; int ih = 11;
         std::vector<std::string> titles = {"4x2", "1x5", "7x1"};
         for (int sx=1; sx<2; ++sx) {
             for (int sy=1; sy<2; ++sy) {
@@ -309,6 +309,7 @@ public:
                                             auto res = testKernel(inputShape, kernels[i], channel, pad, strides, dilate, 8, false, 1, 2, MNN::SparseAlgo_RANDOM, 1, false);
                                             if (!res) {
                                                 MNN_ERROR("Error for test kernel %s for convint8 215, 204 (im2col + gemm)\n", titles[i].c_str());
+                                                MNN_ERROR("overflow=false, bit=8, batch=2, Conv info: sx=%d, sy=%d, dx=%d, dy=%d, px=%d, py=%d, ic=%d, oc=%d\n", sx, sy, dx, dy, px, py, ic, oc);
                                                 return false;
                                             }
                                         }
@@ -316,6 +317,7 @@ public:
                                             auto res = testKernel(inputShape, kernels[i], channel, pad, strides, dilate, 3, true, 1, 3, MNN::SparseAlgo_RANDOM, 1, false);
                                             if (!res) {
                                                 MNN_ERROR("Error for test kernel %s for convint8 215, 204 (im2col + gemm + overflow aware)\n", titles[i].c_str());
+                                                MNN_ERROR("overflow=true,bit=3, batch=3, Conv info: sx=%d, sy=%d, dx=%d, dy=%d, px=%d, py=%d, ic=%d, oc=%d\n", sx, sy, dx, dy, px, py, ic, oc);
                                                 return false;
                                             }
                                         }
@@ -323,6 +325,7 @@ public:
                                             auto res = testKernel(inputShape, kernels[i], channel, pad, strides, dilate, 8, false, 1, 5, MNN::SparseAlgo_RANDOM, 1, false);
                                             if (!res) {
                                                 MNN_ERROR("Error for test kernel %s for convint8 215, 201 (im2col + gemm)\n", titles[i].c_str());
+                                                MNN_ERROR("overflow=false,bit=8, batch=5, Conv info: sx=%d, sy=%d, dx=%d, dy=%d, px=%d, py=%d, ic=%d, oc=%d\n", sx, sy, dx, dy, px, py, ic, oc);
                                                 return false;
                                             }
                                         }
@@ -330,6 +333,7 @@ public:
                                             auto res = testKernel(inputShape, kernels[i], channel, pad, strides, dilate, 3, true, 1, 2, MNN::SparseAlgo_RANDOM, 1, false);
                                             if (!res) {
                                                 MNN_ERROR("Error for test kernel %s for convint8 215, 201 (im2col + gemm + overflow aware)\n", titles[i].c_str());
+                                                MNN_ERROR("overflow=true,bit=3, batch=2, Conv info: sx=%d, sy=%d, dx=%d, dy=%d, px=%d, py=%d, ic=%d, oc=%d\n", sx, sy, dx, dy, px, py, ic, oc);
                                                 return false;
                                             }
                                         }
@@ -414,22 +418,22 @@ public:
             for (int i = 0; i < kernels.size(); ++i) {
                 auto res = testKernel(inputShape, kernels[i], channel, pad, strides, dilate, 3, true, 1, 3, SparseList[is].first, SparseList[is].second, false);
                 if (!res) {
-                    MNN_ERROR("Error for test kernel %s for convint8 215, 204 (im2col + gemm + overflow aware)\n", titles[i].c_str());
+                    MNN_ERROR("Error for test kernel %s for convint8 (im2col + gemm + overflow aware)\n", titles[i].c_str());
                     return false;
                 }
             }
-            inputShape = {215, 201};
+            inputShape = {123, 65};
             for (int i = 0; i < kernels.size(); ++i) {
                 auto res = testKernel(inputShape, kernels[i], channel, pad, strides, dilate, 8, false, 1, 5, SparseList[is].first, SparseList[is].second, false);
                 if (!res) {
-                    MNN_ERROR("Error for test kernel %s for convint8 215, 201 (im2col + gemm)\n", titles[i].c_str());
+                    MNN_ERROR("Error for test kernel %s for convint8 (im2col + gemm)\n", titles[i].c_str());
                     return false;
                 }
             }
             for (int i = 0; i < kernels.size(); ++i) {
                 auto res = testKernel(inputShape, kernels[i], channel, pad, strides, dilate, 3, true, 1, 2, SparseList[is].first, SparseList[is].second, false);
                 if (!res) {
-                    MNN_ERROR("Error for test kernel %s for convint8 215, 201 (im2col + gemm + overflow aware)\n", titles[i].c_str());
+                    MNN_ERROR("Error for test kernel %s for convint8 (im2col + gemm + overflow aware)\n", titles[i].c_str());
                     return false;
                 }
             }
@@ -567,7 +571,7 @@ public:
                 return false;
             }
             if (!checkVector<int>(yPtr, yTargetPtr, yInfo->size, 1)) {
-                MNN_ERROR("[ConvInt8WinogradTestCommon] result error for batchSize = %d\n", batchSize);
+                MNN_ERROR("[ConvInt8WinogradTestCommon] result error for batchSize = %d, oc=%d, oh=%d, ow=%d\n", batchSize, yInfo->dim[1], yInfo->dim[2], yInfo->dim[3]);
                 return false;
             }
             if (speed) {
@@ -593,7 +597,7 @@ public:
 
 class ConvInt8WinogradTest : public ConvInt8WinogradTestCommon {
     virtual bool run(int precision) {
-        INTS pad = {1, 1}, inputShape = {128, 128}; // {w, h}
+        INTS pad = {1, 1}, inputShape = {47, 39}; // {w, h}
         INTS channel = {32, 32}; // {ci, co}
 
         std::vector<std::vector<int>> kernels = {

@@ -138,7 +138,7 @@ public:
      */
     static void addCreator(OpType type, Creator *creator);
     static void setTensor(const MNN::Tensor* tensor, id<MTLComputeCommandEncoder> encoder, int index);
-    static std::pair<id<MTLBuffer>, int> getBuffer(MNN::Tensor* tensor);
+    static std::pair<id<MTLBuffer>, int> getBuffer(const MNN::Tensor* tensor);
     size_t getTensorSizeInBytes(const Tensor* tensor) const;
     virtual bool onSelectDynamicAllocator(int index, int maxIndex) override;
     id<MTLBuffer> getHostBuffer(size_t size) const;
@@ -207,6 +207,12 @@ public:
     bool useFp16InsteadFp32() const {
         return mUseFloatAsFp16;
     }
+    struct CopyPipeline {
+        id<MTLComputePipelineState> pipeline;
+        id<MTLBuffer> shape;
+        MTLSize localSize;
+        MTLSize groupSize;
+    };
 private:
     MetalRuntimeAllocator::MetalBufferAlloc mEmptyMem;
     id<MTLCommandBuffer> getCommandBufferForBufferCopy() const;
@@ -234,6 +240,8 @@ private:
     std::shared_ptr<EagerBufferAllocator> mStaticBufferPool;
 
 private:
+    CopyPipeline _makeCopyInfo(const Tensor *src, const Tensor *dst, id<MTLBuffer> shape, int castType) const;
+
     mutable id<MTLBuffer> mHostBuffer = nullptr;
     // hostmask: 0: no host, 1: src is host, 2: dst is host
     void onCopyDeviceToDevice(const Tensor *src, const Tensor *dst, id<MTLComputeCommandEncoder> encoder, id<MTLBuffer> shape, int hostmask = 0) const;

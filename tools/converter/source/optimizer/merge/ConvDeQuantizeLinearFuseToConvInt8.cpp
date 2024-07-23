@@ -24,6 +24,17 @@ static VARP _ReshapeF(VARP x, VARP shape, MNN::MNN_DATA_FORMAT format) {
     reshape->main.AsReshape()->dimType = format;
     return (Variable::create(Expr::create(reshape.get(), {x, shape})));
 }
+
+static VARP _ConvertF(VARP input, MNN::MNN_DATA_FORMAT format) {
+    std::unique_ptr<OpT> convert(new OpT);
+    convert->type                               = OpType_ConvertTensor;
+    convert->main.type                          = OpParameter_TensorConvertInfo;
+    convert->main.value                         = new TensorConvertInfoT;
+    convert->main.AsTensorConvertInfo()->source = MNN_DATA_FORMAT_NC4HW4;
+    convert->main.AsTensorConvertInfo()->dest   = format;
+    return (Variable::create(Expr::create(convert.get(), {input})));
+}
+
 static bool matchConvInt8ToOther(EXPRP expr, int i) { // convint8->quant->cast->dequant->other
     // check op type not convint8.
     if (nullptr == expr->get()) {
@@ -60,8 +71,15 @@ static bool matchConvInt8ToOther(EXPRP expr, int i) { // convint8->quant->cast->
     VARP conv_var = quan_expr->inputs().at(0);
     EXPRP conv_expr = conv_var->expr().first;
     
-    if (!conv_expr->get() || (conv_expr->get()->type() != OpType_ConvInt8 && conv_expr->get()->type() != OpType_DepthwiseConvInt8)) {
+    if (!conv_expr->get() || (conv_expr->get()->type() != OpType_ConvInt8 && conv_expr->get()->type() != OpType_DepthwiseConvInt8 && conv_expr->get()->type() != OpType_ReLU && conv_expr->get()->type() != OpType_ReLU6)) {
         return false;
+    }
+    if (conv_expr->get()->type() == OpType_ReLU || conv_expr->get()->type() == OpType_ReLU6) {
+        conv_var = conv_expr->inputs().at(0);
+        conv_expr = conv_var->expr().first;
+        if (!conv_expr->get() || (conv_expr->get()->type() != OpType_ConvInt8 && conv_expr->get()->type() != OpType_DepthwiseConvInt8)) {
+            return false;
+        }
     }
     return true;
 }
@@ -75,37 +93,74 @@ static VARP transformConvInt8ToOther(EXPRP expr, int i) { // convint8->quant->ca
     auto conv_var = quan_expr->inputs().at(0);
     auto conv_expr = conv_var->expr().first;
     auto convInt8Input = conv_expr->inputs().at(0);
+    bool hasRelu = false, hasRelu6 = false;
+    if (conv_expr->get()->type() == OpType_ReLU || conv_expr->get()->type() == OpType_ReLU6) {
+        hasRelu = conv_expr->get()->type() == OpType_ReLU ? true : false;
+        hasRelu6 = conv_expr->get()->type() == OpType_ReLU6 ? true : false;
+        conv_expr = convInt8Input->expr().first;
+        convInt8Input = conv_expr->inputs().at(0);
+    }
 
     // change old convInt8 to return a float value, which is input to expr;
     std::unique_ptr<Convolution2DT> newConvInt8(new MNN::Convolution2DT);
     std::unique_ptr<OpT> oldConvOp(conv_expr->get()->UnPack());
     auto oldConvParams  = oldConvOp->main.AsConvolution2D();
+    
+    float output_zero  = oldConvParams->symmetricQuan->outputZeroPoint;
+    float output_scale = oldConvParams->quanParameter->scaleOut;
+    float input_scale  = oldConvParams->quanParameter->scaleIn;
+    float input_zero   = oldConvParams->symmetricQuan->zeroPoint;
+
     newConvInt8->common.reset(new MNN::Convolution2DCommonT);
     newConvInt8->common = std::move(oldConvParams->common);
+    newConvInt8->common->relu = hasRelu;
+    newConvInt8->common->relu6 = hasRelu6;
     newConvInt8->symmetricQuan.reset(new QuantizedFloatParamT);
     newConvInt8->symmetricQuan = std::move(oldConvParams->symmetricQuan);
-    newConvInt8->symmetricQuan->outputDataType = MNN::DataType_DT_FLOAT;
-    // newConvInt8->bias = std::move(oldConvParams->bias);
-    // newConvInt8->quanParameter = std::move(oldConvParams->quanParameter);
-    
-    //Update newConvInt8 scale
-    float outputScale = quan_expr->inputs().at(2)->readMap<float>()[0];
-    int oc = static_cast<int32_t>(newConvInt8->symmetricQuan->scale.size());
-    float* ptr = newConvInt8->symmetricQuan->scale.data();
-    for (int i = 0; i < oc; ++i) {
-        ptr[i] = ptr[i] * outputScale;
-    }
+    //newConvInt8->symmetricQuan->outputDataType = MNN::DataType_DT_FLOAT;
+    newConvInt8->quanParameter.reset(new IDSTQuanT);
+    newConvInt8->bias = std::move(oldConvParams->bias);
+    newConvInt8->quanParameter = std::move(oldConvParams->quanParameter);
     
     std::unique_ptr<OpT> conv_op(new OpT);
     conv_op->name = conv_expr->name();
-    conv_op->type = oldConvOp->type;
+    conv_op->type = OpType_ConvInt8;
     conv_op->main.type  = OpParameter_Convolution2D;
     conv_op->main.value = newConvInt8.release();
 
+    convInt8Input->writeScaleMap(input_scale, input_zero);
     auto newconv_expr = Expr::create(conv_op.get(), {convInt8Input});
     newconv_expr->setName(conv_expr->name());
     auto newconv_var = Variable::create(newconv_expr);
     newconv_var->setName(conv_expr->outputName(0));
+    newconv_var->writeScaleMap(output_scale, output_zero);
+    if (conv_expr->inputs().size() == 5) { // Process matmul output
+        auto config = Global<modelConfig>::Get();
+        auto format = MNN::MNN_DATA_FORMAT_NCHW;
+        if (config->model == modelConfig::TFLITE || config->model == modelConfig::TENSORFLOW) {
+            format = MNN_DATA_FORMAT_NHWC;
+        }
+        // expr->inputs = {input, concat, needSqueezeA, needSqueezeB, transposeA}
+        auto concat_var = conv_expr->inputs().at(1);
+        bool needSqueezeA = conv_expr->inputs().at(2)->readMap<float>()[0] > 0.f;
+        bool needSqueezeB = conv_expr->inputs().at(3)->readMap<float>()[0] > 0.f;
+
+        auto output = _ConvertF(newconv_var, format);
+        output->writeScaleMap(output_scale, output_zero);
+        VARP reshapeVar = _ReshapeF(output, concat_var, format);
+        reshapeVar->writeScaleMap(output_scale, output_zero);
+        if (needSqueezeA) {
+            reshapeVar = _Squeeze(reshapeVar, {0});
+            reshapeVar->writeScaleMap(output_scale, output_zero);
+        }
+        if (needSqueezeB) {
+            reshapeVar = _Squeeze(reshapeVar, {1});
+            reshapeVar->writeScaleMap(output_scale, output_zero);
+        }
+        reshapeVar->setName(expr->outputName(0) + "__matmul_cvt_convInt8_reshape");
+        Expr::replace(conv_expr, reshapeVar->expr().first);
+        return reshapeVar;
+    }
     Expr::replace(conv_expr, newconv_expr);
     return newconv_var;
     
@@ -162,9 +217,12 @@ static VARP transformOtherToOther (EXPRP expr, int i) { // ohter->quant->cast->d
     auto cast_expr = cast_var->expr().first;
     auto quan_var = cast_expr->inputs().at(0);
     auto quan_expr = quan_var->expr().first;
-    auto other_var = quan_expr->inputs().at(0);
+    auto input_var = quan_expr->inputs().at(0);
 
-    return other_var;
+    float scale = quan_expr->inputs().at(2)->readMap<float>()[0];
+    float zero = quan_expr->inputs().at(3)->readMap<float>()[0];
+    input_var->writeScaleMap(scale, zero);
+    return input_var;
 }
 static VARP buildInputForMatmulInt8 (VARP input, VARP transposeA, VARP SqueezeA, int num_input) {
     auto transposeAType = transposeA->expr().first;
@@ -195,6 +253,41 @@ static VARP buildInputForMatmulInt8 (VARP input, VARP transposeA, VARP SqueezeA,
         newInput = _ReshapeF(newInput, _Concat({_Unsqueeze(_Scalar<int>(-1), {0}), inputL, _Unsqueeze(_Scalar<int>(1), {0}), _Unsqueeze(_Scalar<int>(1), {0})}, 0), format);
     }
     return newInput;
+}
+
+static EXPRP buildNewConvExpr(EXPRP oldConvExpr, VARP convInput, std::vector<bool> updateInfo = {}) {
+    std::unique_ptr<Convolution2DT> newConvInt8(new MNN::Convolution2DT);
+    std::unique_ptr<OpT> oldConvOp(oldConvExpr->get()->UnPack());
+    auto oldConvParams  = oldConvOp->main.AsConvolution2D();
+    newConvInt8->common.reset(new MNN::Convolution2DCommonT);
+    newConvInt8->common = std::move(oldConvParams->common);
+    newConvInt8->symmetricQuan.reset(new QuantizedFloatParamT);
+    newConvInt8->symmetricQuan = std::move(oldConvParams->symmetricQuan);
+    newConvInt8->quanParameter.reset(new IDSTQuanT);
+    newConvInt8->quanParameter = std::move(oldConvParams->quanParameter);
+    newConvInt8->bias = std::move(oldConvParams->bias);
+
+    if (updateInfo.size() > 0) {
+        newConvInt8->common->relu = updateInfo[0] ? true : false;
+    }
+    if (updateInfo.size() > 1) {
+        newConvInt8->common->relu6 = updateInfo[1] ? true : false;
+    }
+    if (updateInfo.size() > 2) {
+        newConvInt8->symmetricQuan->outputDataType = updateInfo[2] ? DataType_DT_FLOAT : DataType_DT_INT8;
+    }
+    float input_scale = newConvInt8->quanParameter->scaleIn;
+    float input_zero = newConvInt8->symmetricQuan->zeroPoint;
+    convInput->writeScaleMap(input_scale, input_zero);
+
+    std::unique_ptr<OpT> conv_op(new OpT);
+    conv_op->name = oldConvExpr->name();
+    conv_op->type = oldConvOp->type;
+    conv_op->main.type  = OpParameter_Convolution2D;
+    conv_op->main.value = newConvInt8.release();
+
+    auto new_conv_expr = Expr::create(conv_op.get(), {convInput});
+    return new_conv_expr;
 }
 
 static auto gRegister = []() { // convInt8->(relu)->quant->cast->dequant->convInt8
@@ -259,33 +352,98 @@ static auto gRegister = []() { // convInt8->(relu)->quant->cast->dequant->convIn
         auto quan_var = cast_expr->inputs().at(0);
         auto quan_expr = quan_var->expr().first;
         auto convInt8Input = quan_expr->inputs().at(0);
-        if (expr->inputs().size() == 3) {
-            auto matmulop = expr->get();
-            auto count_input = matmulop->main_as_Convolution2D()->common()->inputCount();
-            convInt8Input = buildInputForMatmulInt8(convInt8Input, expr->inputs().at(1), expr->inputs().at(2), count_input);
-        }
-        
+        /* conv params*/
         std::unique_ptr<Convolution2DT> newConvInt8(new MNN::Convolution2DT);
         std::unique_ptr<OpT> oldConvOp(expr->get()->UnPack());
         auto oldConvParams  = oldConvOp->main.AsConvolution2D();
+        float input_scale = oldConvParams->quanParameter->scaleIn;
+        float input_zero  = oldConvParams->symmetricQuan->zeroPoint;
+        /* check */
+        auto conv_var = quan_expr->inputs().at(0);
+        conv_var->writeScaleMap(input_scale, input_zero);
+        EXPRP conv_expr = conv_var->expr().first;
+        VARP first_conv_input_var = conv_expr->inputs().at(0);
+        if (conv_expr->get()->type() == OpType_PReLU || conv_expr->get()->type() == OpType_ReLU || conv_expr->get()->type() == OpType_ReLU6) {
+            auto relu_expr = conv_expr;
+            bool relu_ = relu_expr->get()->type() == OpType_ReLU ? true: false;
+            bool relu6_ = relu_expr->get()->type() == OpType_ReLU6 ? true: false;
+            VARP conv_var_0 = relu_expr->inputs().at(0);
+            conv_expr = conv_var_0->expr().first;
+            first_conv_input_var = conv_expr->inputs().at(0);
+            auto newFirstConvExpr = buildNewConvExpr(conv_expr, first_conv_input_var, {relu_, relu6_}); // write scale for first_conv_input_var
+            Expr::replace(conv_expr, newFirstConvExpr);
+            convInt8Input = Variable::create(conv_expr);
+            conv_var = convInt8Input;
+            conv_var->writeScaleMap(input_scale, input_zero);
+        } else {
+            auto newFirstConvExpr = buildNewConvExpr(conv_expr, first_conv_input_var); // Just write scale for first_conv_input_var, do not update conv info.
+            Expr::replace(conv_expr, newFirstConvExpr);
+            convInt8Input = Variable::create(conv_expr);
+            conv_var = convInt8Input;
+            conv_var->writeScaleMap(input_scale, input_zero);
+        }
+        if (conv_expr->inputs().size() == 5) {
+             // Process matmul output
+            auto config = Global<modelConfig>::Get();
+            auto format = MNN::MNN_DATA_FORMAT_NCHW;
+            if (config->model == modelConfig::TFLITE || config->model == modelConfig::TENSORFLOW) {
+                format = MNN_DATA_FORMAT_NHWC;
+            }
+            // expr->inputs = {input, concat, needSqueezeA, needSqueezeB, transposeA}
+            auto concat_var = conv_expr->inputs().at(1);
+            bool needSqueezeA = conv_expr->inputs().at(2)->readMap<float>()[0] > 0.f;
+            bool needSqueezeB = conv_expr->inputs().at(3)->readMap<float>()[0] > 0.f;
+
+            auto output = _ConvertF(conv_var, format);
+            output->writeScaleMap(input_scale, input_zero);
+            
+            VARP reshapeVar = _ReshapeF(output, concat_var, format);
+            reshapeVar->writeScaleMap(input_scale, input_zero);
+            if (needSqueezeA) {
+                reshapeVar = _Squeeze(reshapeVar, {0});
+            }
+            if (needSqueezeB) {
+                reshapeVar = _Squeeze(reshapeVar, {1});
+            }
+            reshapeVar->setName(conv_expr->outputName(0) + "__matmul_cvt_convInt8_reshape");
+            Expr::replace(conv_expr, reshapeVar->expr().first);
+            convInt8Input = reshapeVar;
+            convInt8Input->writeScaleMap(input_scale, input_zero);
+        }
+        
+        if (expr->inputs().size() == 5) {
+            auto matmulop = expr->get();
+            auto count_input = matmulop->main_as_Convolution2D()->common()->inputCount();
+            convInt8Input = buildInputForMatmulInt8(convInt8Input, expr->inputs().at(4), expr->inputs().at(2), count_input);
+            convInt8Input->writeScaleMap(input_scale, input_zero);
+        }
+        
+        
         newConvInt8->common.reset(new MNN::Convolution2DCommonT);
         newConvInt8->common = std::move(oldConvParams->common);
         newConvInt8->symmetricQuan.reset(new QuantizedFloatParamT);
         newConvInt8->symmetricQuan = std::move(oldConvParams->symmetricQuan);
-        // newConvInt8->bias = std::move(oldConvParams->bias);
-        // newConvInt8->quanParameter = std::move(oldConvParams->quanParameter);
+        newConvInt8->quanParameter.reset(new IDSTQuanT);
+        newConvInt8->quanParameter = std::move(oldConvParams->quanParameter);
+        newConvInt8->bias = std::move(oldConvParams->bias);
+        float scaleout = newConvInt8->quanParameter->scaleOut;
+        float zeroout  = newConvInt8->symmetricQuan->outputZeroPoint;
         
         std::unique_ptr<OpT> conv_op(new OpT);
         conv_op->name = expr->name();
         conv_op->type = oldConvOp->type;
         conv_op->main.type  = OpParameter_Convolution2D;
         conv_op->main.value = newConvInt8.release();
+        
 
-        auto conv_expr = Expr::create(conv_op.get(), {convInt8Input});
-        conv_expr->setName(expr->name());
-//        auto conv_var = Variable::create(conv_expr);
-//        conv_var->setName(expr->outputName(0));
-        Expr::replace(expr, conv_expr);
+        auto new_conv_expr = Expr::create(conv_op.get(), {convInt8Input});
+        if (expr->inputs().size() == 5) {
+            new_conv_expr = Expr::create(conv_op.get(), {convInt8Input, expr->inputs()[1], expr->inputs()[2], expr->inputs()[3], expr->inputs()[4]});
+        }
+        new_conv_expr->setName(expr->name());
+        auto new_conv_var = Variable::create(new_conv_expr);
+        new_conv_var->writeScaleMap(scaleout, zeroout);
+        Expr::replace(expr, new_conv_expr);
         return true;
         
     };
@@ -341,31 +499,46 @@ static auto gRegister = []() { // convInt8->(relu)->quant->cast->dequant->convIn
         auto cast_expr = cast_var->expr().first;
         auto quan_var = cast_expr->inputs().at(0);
         auto quan_expr = quan_var->expr().first;
-        auto convInt8Input = quan_expr->inputs().at(1);
-        if (expr->inputs().size() == 3) { // The convInt8 comes from matmul.
+        auto convInt8Input = quan_expr->inputs().at(0);
+        auto other_var = convInt8Input;
+        if (expr->inputs().size() == 5) {
+            // [input,concat,squeezeA,squeezeB,transposeA]
             auto matmulop = expr->get();
             auto count_input = matmulop->main_as_Convolution2D()->common()->inputCount();
-            auto matmulInput = expr->inputs().at(0);
-            convInt8Input = buildInputForMatmulInt8(convInt8Input, expr->inputs().at(1), expr->inputs().at(2), count_input);
+            convInt8Input = buildInputForMatmulInt8(convInt8Input, expr->inputs().at(4), expr->inputs().at(2), count_input);
+            convInt8Input->setName(expr->name() + "__matmul_converted_input");
         }
         
         std::unique_ptr<Convolution2DT> newConvInt8(new MNN::Convolution2DT);
         std::unique_ptr<OpT> oldConvOp(expr->get()->UnPack());
         auto oldConvParams  = oldConvOp->main.AsConvolution2D();
+        float input_scale   = oldConvParams->quanParameter->scaleIn;
+        float output_scale  = oldConvParams->quanParameter->scaleOut;
+        float input_zero    = static_cast<float>(oldConvParams->symmetricQuan->zeroPoint);
+        float output_zero   = static_cast<float>(oldConvParams->symmetricQuan->outputZeroPoint);
+        
         newConvInt8->common.reset(new MNN::Convolution2DCommonT);
         newConvInt8->common = std::move(oldConvParams->common);
         newConvInt8->symmetricQuan.reset(new QuantizedFloatParamT);
         newConvInt8->symmetricQuan = std::move(oldConvParams->symmetricQuan);
-        // newConvInt8->bias = std::move(oldConvParams->bias);
-        // newConvInt8->quanParameter = std::move(oldConvParams->quanParameter);
+        newConvInt8->bias = std::move(oldConvParams->bias);
+        newConvInt8->quanParameter.reset(new IDSTQuanT);
+        newConvInt8->quanParameter = std::move(oldConvParams->quanParameter);
         
         std::unique_ptr<OpT> conv_op(new OpT);
         conv_op->name = expr->name();
         conv_op->type = oldConvOp->type;
         conv_op->main.type  = OpParameter_Convolution2D;
         conv_op->main.value = newConvInt8.release();
-
+        
+        other_var->writeScaleMap(input_scale, input_zero);
+        convInt8Input->writeScaleMap(input_scale, input_zero);
         auto conv_expr = Expr::create(conv_op.get(), {convInt8Input});
+        if (expr->inputs().size() == 5) {
+            conv_expr = Expr::create(conv_op.get(), {convInt8Input, expr->inputs()[1], expr->inputs()[2], expr->inputs()[3], expr->inputs()[4]});
+        }
+        auto conv_var = Variable::create(conv_expr);
+        conv_var->writeScaleMap(output_scale, output_zero);
         conv_expr->setName(expr->name());
         Expr::replace(expr, conv_expr);
         return true;
@@ -389,7 +562,7 @@ static auto gRegister = []() { // convInt8->(relu)->quant->cast->dequant->convIn
         }
         return true;
     };
-    auto transformXToOther = [](EXPRP expr) { // ohter->quant->cast->dequant->other => other->other
+    auto transformXToOther = [](EXPRP expr) { // X->quant->cast->dequant->output_other => X->output_other
         int input_size = static_cast<int32_t>(expr->inputs().size());
         std::vector<VARP> new_inputs(input_size);
         for (int i = 0; i < input_size; ++i) {
@@ -473,23 +646,6 @@ static auto gRegister = []() { // convInt8->(relu)->quant->cast->dequant->convIn
         auto X_expr = X_var->expr().first;
 
         bool convInt8End = X_expr->get()->type() == OpType_ConvInt8;
-        bool hasReshape = X_expr->get()->type() == OpType_Reshape;
-        if (X_expr->get()->type() == OpType_Reshape) {
-            auto convert_var = X_expr->inputs().at(0);
-            auto convert_expr = convert_var->expr().first;
-            if (convert_expr->get() && convert_expr->get()->type() == OpType_ConvertTensor) {
-                auto convint8_var = convert_expr->inputs().at(0);
-                auto convint8_expr = convint8_var->expr().first;
-                if (convint8_expr->get() && convint8_expr->get()->type() == OpType_ConvInt8) {
-                    convInt8End = true;
-                    X_expr = std::move(convint8_expr);
-                }
-            }
-            if (convert_expr->get() && convert_expr->get()->type() == OpType_ConvInt8) {
-                convInt8End = true;
-                X_expr = std::move(convert_expr);
-            }
-        }
 
         if (convInt8End) {
             auto convInt8Input = X_expr->inputs().at(0);
@@ -500,17 +656,13 @@ static auto gRegister = []() { // convInt8->(relu)->quant->cast->dequant->convIn
             newConvInt8->common = std::move(oldConvParams->common);
             newConvInt8->symmetricQuan.reset(new QuantizedFloatParamT);
             newConvInt8->symmetricQuan = std::move(oldConvParams->symmetricQuan);
-            newConvInt8->symmetricQuan->outputDataType = DataType_DT_FLOAT; // If convInt8 is the last op, float value is the torch-fx model's output.
-            // newConvInt8->bias = std::move(oldConvParams->bias);
-            // newConvInt8->quanParameter = std::move(oldConvParams->quanParameter);
+            newConvInt8->quanParameter.reset(new IDSTQuanT);
+            //newConvInt8->symmetricQuan->outputDataType = DataType_DT_FLOAT; // If convInt8 is the last op, float value is the torch-fx model's output.
+            newConvInt8->bias = std::move(oldConvParams->bias);
+            newConvInt8->quanParameter = std::move(oldConvParams->quanParameter);
             
-            //Update convInt8 scale.
-            float outputScale = quan_expr->inputs().at(2)->readMap<float>()[0];
-            int oc = static_cast<int32_t>(newConvInt8->symmetricQuan->scale.size());
-            float* ptr = newConvInt8->symmetricQuan->scale.data();
-            for (int i = 0; i < oc; ++i) {
-                ptr[i] = ptr[i] * outputScale;
-            }
+            float output_scale = newConvInt8->quanParameter->scaleOut;
+            float output_zero = newConvInt8->symmetricQuan->outputZeroPoint;
             
             std::unique_ptr<OpT> conv_op(new OpT);
             conv_op->name = X_expr->name();
@@ -519,23 +671,51 @@ static auto gRegister = []() { // convInt8->(relu)->quant->cast->dequant->convIn
             conv_op->main.value = newConvInt8.release();
             
             auto conv_expr = Expr::create(conv_op.get(), {convInt8Input});
+            auto conv_var = Variable::create(conv_expr);
+            conv_var->writeScaleMap(output_scale, output_zero);
+            if (X_expr->inputs().size() == 5) {
+                // Process matmul output
+               auto config = Global<modelConfig>::Get();
+               auto format = MNN::MNN_DATA_FORMAT_NCHW;
+               if (config->model == modelConfig::TFLITE || config->model == modelConfig::TENSORFLOW) {
+                   format = MNN_DATA_FORMAT_NHWC;
+               }
+                
+                conv_var->setName(X_expr->outputName(0));
+//                newconv_var->setName(conv_expr->outputName(0));
+               // expr->inputs = {input, concat, needSqueezeA, needSqueezeB, transposeA}
+               auto concat_var = X_expr->inputs().at(1);
+               bool needSqueezeA = X_expr->inputs().at(2)->readMap<float>()[0] > 0.f;
+               bool needSqueezeB = X_expr->inputs().at(3)->readMap<float>()[0] > 0.f;
+
+               auto output = _ConvertF(conv_var, format);
+                output->writeScaleMap(output_scale, output_zero);
+               VARP reshapeVar = _ReshapeF(output, concat_var, format);
+                reshapeVar->writeScaleMap(output_scale, output_zero);
+               if (needSqueezeA) {
+                   reshapeVar = _Squeeze(reshapeVar, {0});
+                   reshapeVar->writeScaleMap(output_scale, output_zero);
+               }
+               if (needSqueezeB) {
+                   reshapeVar = _Squeeze(reshapeVar, {1});
+                   reshapeVar->writeScaleMap(output_scale, output_zero);
+               }
+               reshapeVar->setName(expr->name());
+               Expr::replace(expr, reshapeVar->expr().first);
+                return true;
+           }
             conv_expr->setName(expr->name());
-            
-            if (hasReshape) {
-                conv_expr->setName(X_expr->name());
-                std::unique_ptr<OpT> reshapeOp(X_var->expr().first->get()->UnPack());
-                auto new_reshape_expr = Expr::create(reshapeOp.get(), X_var->expr().first->inputs());
-                new_reshape_expr->setName(expr->name());
-                Expr::replace(expr, new_reshape_expr);
-            }
-            Expr::replace(X_expr, conv_expr);
+            Expr::replace(expr, conv_expr);
             return true;
         }
-
+        float output_scale = quan_expr->inputs().at(2)->readMap<float>()[0];
+        float output_zero  = quan_expr->inputs().at(3)->readMap<float>()[0];
         // directly return the op output.
         std::unique_ptr<OpT> oldOtherOp(X_expr->get()->UnPack());
         auto newop_expr = Expr::create(oldOtherOp.get(), X_expr->inputs());
         newop_expr->setName(expr->name());
+        auto newop_var = Variable::create(newop_expr);
+        newop_var->writeScaleMap(output_scale, output_zero);
         Expr::replace(expr, newop_expr);
         return true;
     };

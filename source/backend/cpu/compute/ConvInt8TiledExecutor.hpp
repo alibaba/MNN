@@ -11,13 +11,14 @@
 
 #include "backend/cpu/CPUConvolution.hpp"
 #include "Int8FunctionsOpt.h"
+#include "CommonOptFunction.h"
 
 namespace MNN {
 
 class ConvInt8TiledExecutor : public CPUConvolution {
 public:
     // given weight+bias+scale, do post process
-    ConvInt8TiledExecutor(Backend* backend, const Convolution2DCommon* convOp, std::shared_ptr<ResourceInt8> res);
+    ConvInt8TiledExecutor(Backend* backend, const Convolution2D* convOp, std::shared_ptr<ResourceInt8> res);
     virtual ~ConvInt8TiledExecutor();
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
@@ -29,7 +30,8 @@ protected:
     int mTileCount;
     int mThreadNums;
     std::shared_ptr<Tensor> mTempIm2ColBuffer;
-    std::shared_ptr<CPUConvolution::ResourceInt8> mResource;
+    std::shared_ptr<CPUConvolution::ResourceInt8> mResourceInt8;
+    // std::shared_ptr<CPUConvolution::Resource> mResource;
     CPUConvolution::MutableResourceInt8 mMutableResource;
     MemChunk mBlitInfo;
     std::pair<size_t, size_t> mBlitInfoStride;
@@ -48,16 +50,35 @@ protected:
 class DenseConvInt8TiledExecutor : public ConvInt8TiledExecutor {
 public:
     // given weight+bias+scale, do post process
-    DenseConvInt8TiledExecutor(Backend* backend, const Convolution2D* convOp, std::shared_ptr<ResourceInt8> res);
+    DenseConvInt8TiledExecutor(Backend* backend, const Convolution2D* convOp, std::shared_ptr<ResourceInt8> res, bool dynamicQuantExe);
     virtual ~DenseConvInt8TiledExecutor();
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
     void getPackParameter(int* Unit, int* SrcUnit, int* DestUnit, const CoreInt8Functions* core) override;
 private:
-    DenseConvInt8TiledExecutor(Backend* backend, const Convolution2DCommon* common, const DenseConvInt8TiledExecutor& exe);
+    DenseConvInt8TiledExecutor(Backend* backend, const Convolution2D* common, bool dynamicQuantExe, const DenseConvInt8TiledExecutor& exe);
 
     decltype(CoreInt8Functions::Int8GemmKernel) mGemmKernel;
+    std::function<void(const float*, int8_t*, size_t, const float*, ssize_t, ssize_t, ssize_t)> mQuantFunc;
+    std::function<void(const float*, int8_t*, size_t, const float*, ssize_t, ssize_t, ssize_t, size_t, size_t)> mQuantAndReorderFunc = nullptr;
+    std::function<void(float* dest, int8_t* source, const float* scale, ssize_t realDstCount, SumByAxisParams sumParams)> mSumByAxisLFunc;
+    std::shared_ptr<Tensor> mQuantInput;
+    std::shared_ptr<Tensor> mDynamicBias;
+    std::shared_ptr<Tensor> mScaleFuse;
+    std::shared_ptr<Tensor> mBatchQuantInfo;
+    std::shared_ptr<Tensor> mInputDeqScales;
+    std::shared_ptr<Tensor> mTempMaxMinValueBuffer;
+    std::shared_ptr<CPUConvolution::Resource> mResource;
+    std::vector<uint8_t> mTempSrcSum;
+    std::vector<int32_t> mDivides;
+
+    int mThreadNums;
+    int mBlockNum;
+    int mOcPerThread;
+    bool mDynamicQuantExe;
+    bool mSplitByOc;
+    bool mUseBatchQuan;
 };
 
 } // namespace MNN

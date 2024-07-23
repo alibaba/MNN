@@ -13,14 +13,54 @@
 .text
 .align 5
 
+.macro MLA_WEIGHTZERO d0, s0, s1, idx // idx for xKernelSum
+    fmla \d0\().4s, \s1\().4s, \s0\().s[\idx]
+.endm
+.macro ReLU_FP32 s0, s1, s2, s3, z0, z1 // z0:min z1:max
+    fmin \s0\().4s, \s0\().4s, \z1\().4s
+    fmin \s1\().4s, \s1\().4s, \z1\().4s
+    fmin \s2\().4s, \s2\().4s, \z1\().4s
+    fmin \s3\().4s, \s3\().4s, \z1\().4s
+    fmax \s0\().4s, \s0\().4s, \z0\().4s
+    fmax \s1\().4s, \s1\().4s, \z0\().4s
+    fmax \s2\().4s, \s2\().4s, \z0\().4s
+    fmax \s3\().4s, \s3\().4s, \z0\().4s
+.endm
+.macro ReLU_FP32_3 s0, s1, s2, z0, z1 // z0:min z1:max
+    fmin \s0\().4s, \s0\().4s, \z1\().4s
+    fmin \s1\().4s, \s1\().4s, \z1\().4s
+    fmin \s2\().4s, \s2\().4s, \z1\().4s
+    fmax \s0\().4s, \s0\().4s, \z0\().4s
+    fmax \s1\().4s, \s1\().4s, \z0\().4s
+    fmax \s2\().4s, \s2\().4s, \z0\().4s
+.endm
+.macro ReLU_FP32_2 s0, s1, z0, z1 // z0:min z1:max
+    fmin \s0\().4s, \s0\().4s, \z1\().4s
+    fmin \s1\().4s, \s1\().4s, \z1\().4s
+    fmax \s0\().4s, \s0\().4s, \z0\().4s
+    fmax \s1\().4s, \s1\().4s, \z0\().4s
+.endm
+.macro ReLU_FP32_1 s0, z0, z1 // z0:min z1:max
+    fmin \s0\().4s, \s0\().4s, \z1\().4s
+    fmax \s0\().4s, \s0\().4s, \z0\().4s
+.endm
+
 asm_function MNNGemmInt8AddBiasScale_16x4_Unit_FAST
 
-//struct QuanPostTreatParameters {
-//    const float* scale;
-//    const int32_t* bias;
-//    int32_t maxValue;
-//    int32_t minValue;
-//};
+/* 
+struct QuanPostTreatParameters {
+    const float* scale;
+    const float* bias;
+    int32_t maxValue;
+    int32_t minValue;
+    int32_t useInt8 = 1; // Save result as int8_t dataType; otherwise float32.
+    float roundValuePos = 0.5f;
+    float roundValueNeg = -0.5f;
+    float* srcKernelSum;
+    float* weightQuanBias;
+    float* fp32minmax;
+};
+*/
 
 //void MNNGemmInt8AddBiasScale_16x4_Unit_FAST(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step,
 //                                              size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t remain) {
@@ -30,6 +70,7 @@ asm_function MNNGemmInt8AddBiasScale_16x4_Unit_FAST
 
 //Load from post:
 // x7: scale, x10: bias, w11: maxValue, w13: minValue, w12: useInt8
+// x19: srcKernelSum, x20: weightQuanBias
 mov x8, x7
 ldr x7, [x6, #0]
 ldr x10, [x6, #8]
@@ -37,10 +78,14 @@ ldr w11, [x6, #16]
 ldr w13, [x6, #20]
 ldr w12, [x6, #24]
 
-stp d14, d15, [sp, #-64]!
-stp d12, d13, [sp, #16]
-stp d10, d11, [sp, #32]
-stp d8,  d9,  [sp, #48]
+stp d14, d15, [sp, #(-16 * 6)]!
+stp d12, d13, [sp, #(16 * 1)]
+stp d10, d11, [sp, #(16 * 2)]
+stp d8,  d9,  [sp, #(16 * 3)]
+stp x21, x22, [sp, #(16 * 4)]
+stp x19, x20, [sp, #(16 * 5)]
+ldr x19, [x6, #40]
+ldr x20, [x6, #48]
 
 cmp x8, #3
 beq L3Dz
@@ -183,33 +228,47 @@ L4LoopDz:
     addp v14.4s, v20.4s, v21.4s
     addp v15.4s, v22.4s, v23.4s
 
-    add v16.4s, v12.4s, v0.4s
-    add v17.4s, v13.4s, v0.4s
+    //add v16.4s, v12.4s, v0.4s
+    //add v17.4s, v13.4s, v0.4s
+    //add v18.4s, v14.4s, v0.4s
+    //add v19.4s, v15.4s, v0.4s
 
     L4Quan:
-    ld1 {v1.4s}, [x7], #16
-    add v18.4s, v14.4s, v0.4s
-    add v19.4s, v15.4s, v0.4s
+    ld1 {v1.4s}, [x7], #16 // scale
+    ld1 {v2.4s}, [x19] // x kernel sum
+    ld1 {v24.4s}, [x20], #16 // weight quan zeropoint
 
-    scvtf v4.4s, v16.4s
-    scvtf v5.4s, v17.4s
-    scvtf v6.4s, v18.4s
-    scvtf v7.4s, v19.4s
-
-    dup v31.4s, w13 // Min
-    dup v30.4s, w11 // Max
+    TILE4_INT2FLOAT:
+    scvtf v4.4s, v12.4s
+    scvtf v5.4s, v13.4s
+    scvtf v6.4s, v14.4s
+    scvtf v7.4s, v15.4s
 
     fmul v12.4s, v4.4s, v1.4s
     fmul v13.4s, v5.4s, v1.4s
     fmul v14.4s, v6.4s, v1.4s
     fmul v15.4s, v7.4s, v1.4s
 
+    MLA_WEIGHTZERO v12, v2, v24, 0 // tile:0, oc:0-3
+    MLA_WEIGHTZERO v13, v2, v24, 1 // tile:1, oc:0-3
+    MLA_WEIGHTZERO v14, v2, v24, 2 // tile:2, oc:0-3
+    MLA_WEIGHTZERO v15, v2, v24, 3 // tile:3, oc:0-3
+
+
+    fadd v12.4s, v12.4s, v0.4s
+    fadd v13.4s, v13.4s, v0.4s
+    fadd v14.4s, v14.4s, v0.4s
+    fadd v15.4s, v15.4s, v0.4s
+
     cmp w12, #1
     beq L4QuantUseInt8
+    ReLU_FP32 v12, v13, v14, v15, v26, v27
     st1 {v12.4s, v13.4s, v14.4s, v15.4s}, [x0], x4
     b L4LoopCheck
 
     L4QuantUseInt8:
+    dup v31.4s, w13 // Min
+    dup v30.4s, w11 // Max
     fcvtas v8.4s, v12.4s
     fcvtas v9.4s, v13.4s
     fcvtas v10.4s, v14.4s
@@ -243,6 +302,7 @@ L4LoopCheck:
 b End
 
 L3Dz:
+add x3, x19, #8
 cmp w12, #1
 bne L3LoopDz
 sub x4, x4, #8
@@ -346,35 +406,43 @@ L3LoopDz:
     addp v19.4s, v9.4s, v8.4s
     addp v20.4s, v7.4s, v6.4s
     addp v21.4s, v5.4s, v4.4s
+
     addp v12.4s, v16.4s, v17.4s
     addp v13.4s, v18.4s, v19.4s
-    ld1 {v0.4s}, [x10], #16
     addp v14.4s, v20.4s, v21.4s
-
-    add v16.4s, v12.4s, v0.4s
-    add v17.4s, v13.4s, v0.4s
+    ld1 {v0.4s}, [x10], #16
 
     L3Quan:
     ld1 {v1.4s}, [x7], #16
-    add v18.4s, v14.4s, v0.4s
+    ld1 {v2.d}[0], [x19] // x kernel sum
+    ld1 {v2.s}[2], [x6]
+    ld1 {v24.4s}, [x20], #16 // weight quan zeropoint
 
-    scvtf v4.4s, v16.4s
-    scvtf v5.4s, v17.4s
-    scvtf v6.4s, v18.4s
-
-    dup v31.4s, w13 // Min
-    dup v30.4s, w11 // Max
+    TILE3_INT2FLOAT:
+    scvtf v4.4s, v12.4s
+    scvtf v5.4s, v13.4s
+    scvtf v6.4s, v14.4s
 
     fmul v12.4s, v4.4s, v1.4s
     fmul v13.4s, v5.4s, v1.4s
     fmul v14.4s, v6.4s, v1.4s
+    MLA_WEIGHTZERO v12, v2, v24, 0 // tile:0, oc:0-3
+    MLA_WEIGHTZERO v13, v2, v24, 1 // tile:1, oc:0-3
+    MLA_WEIGHTZERO v14, v2, v24, 2 // tile:2, oc:0-3
+
+
+    fadd v12.4s, v12.4s, v0.4s
+    fadd v13.4s, v13.4s, v0.4s
+    fadd v14.4s, v14.4s, v0.4s
     cmp w12, #1
     beq L3QuantUseInt8
+    ReLU_FP32_3 v12, v13, v14, v26, v27
     st1 {v12.4s, v13.4s, v14.4s}, [x0], x4
     b L3LoopCheck
 
     L3QuantUseInt8:
-
+    dup v31.4s, w13 // Min
+    dup v30.4s, w11 // Max
     fcvtas v8.4s, v12.4s
     fcvtas v9.4s, v13.4s
     fcvtas v10.4s, v14.4s
@@ -480,29 +548,33 @@ L2LoopDz:
     addp v19.4s, v9.4s, v8.4s
     addp v12.4s, v16.4s, v17.4s
     addp v13.4s, v18.4s, v19.4s
-    ld1 {v0.4s}, [x10], #16
-
-    add v16.4s, v12.4s, v0.4s
-    add v17.4s, v13.4s, v0.4s
 
     L2Quan:
     ld1 {v1.4s}, [x7], #16
+    ld1 {v2.d}[0], [x19] // x kernel sum
+    ld1 {v24.4s}, [x20], #16 // weight quan zeropoint
+    ld1 {v0.4s}, [x10], #16
 
-    scvtf v4.4s, v16.4s
-    scvtf v5.4s, v17.4s
-
-    dup v31.4s, w13 // Min
-    dup v30.4s, w11 // Max
+    TILE2_INT2FLOAT:
+    scvtf v4.4s, v12.4s
+    scvtf v5.4s, v13.4s
 
     fmul v12.4s, v4.4s, v1.4s
     fmul v13.4s, v5.4s, v1.4s
+    MLA_WEIGHTZERO v12, v2, v24, 0 // tile:0, oc:0-3
+    MLA_WEIGHTZERO v13, v2, v24, 1 // tile:1, oc:0-3
+    fadd v12.4s, v12.4s, v0.4s
+    fadd v13.4s, v13.4s, v0.4s
+
     cmp w12, #1
     beq L2QuantUseInt8
+    ReLU_FP32_2 v12, v13, v26, v27
     st1 {v12.4s, v13.4s}, [x0], x4
     b L2LoopCheck
 
     L2QuantUseInt8:
-
+    dup v31.4s, w13 // Min
+    dup v30.4s, w11 // Max
     fcvtas v8.4s, v12.4s
     fcvtas v9.4s, v13.4s
 
@@ -580,25 +652,27 @@ L1LoopDz:
     addp v12.4s, v16.4s, v17.4s
     ld1 {v0.4s}, [x10], #16
 
-    add v16.4s, v12.4s, v0.4s
-
 
     L1Quan:
     ld1 {v1.4s}, [x7], #16
+    ld1 {v2.s}[0], [x19] // x kernel sum
+    ld1 {v24.4s}, [x20], #16 // weight quan zeropoint
 
-    scvtf v4.4s, v16.4s
-
-    dup v31.4s, w13 // Min
-    dup v30.4s, w11 // Max
-
+    TILE1_INT2FLOAT:
+    scvtf v4.4s, v12.4s
     fmul v12.4s, v4.4s, v1.4s
+    MLA_WEIGHTZERO v12, v2, v24, 0 // tile:0, oc:0-3
+    fadd v12.4s, v12.4s, v0.4s
+
     cmp w12, #1
     beq L1QuantUseInt8
+    ReLU_FP32_1 v12, v26, v27
     st1 {v12.4s}, [x0], x4
     b L1LoopCheck
 
     L1QuantUseInt8:
-
+    dup v31.4s, w13 // Min
+    dup v30.4s, w11 // Max
     fcvtas v8.4s, v12.4s
 
     smin v8.4s, v30.4s, v8.4s
@@ -615,10 +689,12 @@ L1LoopCheck:
     bne L1LoopDz
 
 End:
+ldp x19, x20, [sp, #80]
+ldp x21, x22, [sp, #64]
 ldp d8,  d9,  [sp, #48]
 ldp d10, d11, [sp, #32]
 ldp d12, d13, [sp, #16]
-ldp d14, d15, [sp], #64
+ldp d14, d15, [sp], #96
 ret
 
 #endif

@@ -31,7 +31,7 @@ class TestModel():
         if not os.path.exists(mnnconvert_name):
             print("./MNNConvert not exist in this path. Use pymnn instead of C++ to test")
             mnnconvert_name = 'mnnconvert'
-        convert = mnnconvert_name + ' -f TORCH --bizCode MNN --modelFile torch/test.pt --MNNModel convert_cache.mnn --keepInputFormat --testdir torch'
+        convert = mnnconvert_name + ' -f TORCH --bizCode MNN --modelFile torch/test.pt --MNNModel convert_cache.mnn --keepInputFormat=1 --testdir torch'
         result = os.popen(convert).read()
         print(result)
         return result

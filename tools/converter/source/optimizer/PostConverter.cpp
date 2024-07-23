@@ -274,7 +274,11 @@ std::unique_ptr<MNN::NetT> optimizeNetImpl(std::unique_ptr<MNN::NetT>& originNet
         // Remove Invalid Cast
         "RemoveInvalidCast"
     };
-    auto tensorDescribe = std::move(originNet->extraTensorDescribe);
+    std::vector<std::unique_ptr<TensorDescribeT>> tensorDescribe;
+    if (originNet->extraTensorDescribe.size() > 0) {
+        tensorDescribe = std::move(originNet->extraTensorDescribe);
+    }
+    
     std::unique_ptr<MNN::NetT> newNet;
     newNet = std::move(RunExtraPass(originNet, inputs));
     RunNetPass(midOptPass, newNet);
@@ -344,7 +348,9 @@ std::unique_ptr<MNN::NetT> optimizeNetImpl(std::unique_ptr<MNN::NetT>& originNet
     newNet = std::move(RunMergePass(newNet, inputs, PASS_PRIORITY_LOW));
     newNet = std::move(RunMergePass(newNet, inputs, PASS_PRIORITY_FINAL));
 
-    newNet->extraTensorDescribe = std::move(tensorDescribe);
+    if (tensorDescribe.size() > 0) {
+        newNet->extraTensorDescribe = std::move(tensorDescribe);
+    }
     RunNetPass({"ReIndexTensor"}, newNet);
     RunNetPass({"ReIndexOnnxIfAlias"}, newNet);
 

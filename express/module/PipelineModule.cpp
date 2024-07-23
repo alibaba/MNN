@@ -634,11 +634,9 @@ Module* PipelineModule::load(const std::vector<std::string>& inputs, const std::
         modRuntime.compute.type      = modRuntime.rt.first.begin()->first;
         modRuntime.compute.numThread = 1;
         // set allocator type
-        modRuntime.rt.first.begin()->second->setAllocatorType(rtMgr->getInside()->modes.memoryAllocatorType);
-        modRuntime.rt.second->setAllocatorType(rtMgr->getInside()->modes.memoryAllocatorType);
+        modRuntime.rt.first.begin()->second->setRuntimeHint(rtMgr->getInside()->modes.runtimeHint);
         // set winograd memory type
-        modRuntime.rt.first.begin()->second->setWinogradMemoryLevel(rtMgr->getInside()->modes.winogradMemoryUsed);
-        modRuntime.rt.second->setWinogradMemoryLevel(rtMgr->getInside()->modes.winogradMemoryUsed);
+        modRuntime.rt.second->setRuntimeHint(rtMgr->getInside()->modes.runtimeHint);
     }
     auto& rt = modRuntime.rt;
     auto firstRt = rt.first[modRuntime.compute.type];

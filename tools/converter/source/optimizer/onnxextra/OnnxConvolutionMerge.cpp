@@ -308,12 +308,14 @@ public:
             }
             auto outputScaleVar = outputExpr->inputs()[1];
             float outputScale = outputScaleVar->readMap<float>()[0];
-            if (hasRelu) {
-                outputScale = 1.0f;
-            }
             int8_t outputZero = 0;
             if (outputExpr->inputs().size() > 2) {
-                outputZero = static_cast<int8_t>(outputExpr->inputs()[2]->readMap<uint8_t>()[0]);
+                if (outputExpr->inputs()[2]->getInfo()->type.code == halide_type_uint) {
+                    outputZero = static_cast<int8_t>(outputExpr->inputs()[2]->readMap<uint8_t>()[0] - 128);
+                } else {
+                    outputZero = static_cast<int8_t>(outputExpr->inputs()[2]->readMap<int8_t>()[0]);
+                }
+                
             }
             // Get weight quant info.
             float inputClampMin = -128;
@@ -337,13 +339,17 @@ public:
                 weightKenelSum[i] = temp;
             }
             std::vector<int32_t> biasInt32(common->outputCount, 0);
+            convParam->quanParameter.reset(new IDSTQuanT);
+            convParam->quanParameter->aMin = -128;
+            convParam->quanParameter->aMax = co;
+            convParam->quanParameter->readType = co;
+            convParam->quanParameter->type = 4;
+            convParam->quanParameter->buffer.resize(weightSize);
+            ::memcpy(convParam->quanParameter->buffer.data(), pw, weightSize * sizeof(int8_t));
+            convParam->quanParameter->quantScale = 1.0f;
+            convParam->quanParameter->scaleOut = outputScale;
             convParam->symmetricQuan.reset(new QuantizedFloatParamT);
-            convParam->symmetricQuan->weight.resize(weightSize);
-            ::memcpy(convParam->symmetricQuan->weight.data(), pw, weightSize * sizeof(int8_t));
             convParam->symmetricQuan->nbits = 8;
-            if (hasRelu) {
-                convParam->symmetricQuan->outputDataType = DataType_DT_FLOAT;
-            }
             
             // Get input quant info.
             auto inputExpr = inputs[0]->expr().first;
@@ -352,32 +358,30 @@ public:
             auto inputZeroVar = inputExpr->inputs()[3];
             float inputScale = inputScaleVar->readMap<float>()[0];
             int8_t inputZero = static_cast<int8_t>(inputZeroVar->readMap<float>()[0]);
+            
+            convParam->quanParameter->scaleIn = inputScale;
+            convParam->quanParameter->alpha.resize(2 * co);
 
             // Compute convInt8 scale=(inputScale * weightScale)/outputScale
             std::vector<float> scale(co);
             auto weightScale = weightexpr->inputs().at(2);
             auto ptrscale = weightScale->readMap<float>();
+            auto weightZero = weightexpr->inputs().at(3);
+            auto ptrzero = weightZero->readMap<float>();
             for (int cnt = 0; cnt < co; ++cnt) {
-                if (outputScale != 0){
-                    scale[cnt] = ptrscale[cnt] * inputScale / outputScale;
-                } else {
-                    scale[cnt] = 0.f;
-                }
+                convParam->quanParameter->alpha[2 * cnt + 1] = ptrscale[cnt];
+                convParam->quanParameter->alpha[2 * cnt] = (-1)*(ptrzero[cnt] + 128) * ptrscale[cnt];
             }
+            convParam->bias.resize(co);
             if (inputSize > 2) {
                 auto biasExpr = inputs[2]->expr().first;
-                auto biasInt32Var = biasExpr->inputs()[0];
-                auto ptr = biasInt32Var->readMap<int32_t>();
-                if (!ptr) {
+                auto biasfp32Var = biasExpr->inputs()[1];
+                if (biasfp32Var->readMap<float>() == nullptr) {
                     MNN_ERROR("Convolution bias should be constant\n");
                     return nullptr;
                 }
-                for (int cnt = 0; cnt < co; ++cnt) {
-                    biasInt32[cnt] = ptr[cnt] - weightKenelSum[cnt] * static_cast<int32_t>(inputZero) + static_cast<int32_t>(static_cast<float>(outputZero) / scale[cnt]);
-                }
+                ::memcpy(convParam->bias.data(), biasfp32Var->readMap<float>(), co * sizeof(float));
             }
-            convParam->symmetricQuan->bias = std::move(biasInt32);
-            convParam->symmetricQuan->scale = std::move(scale);
             convParam->symmetricQuan->clampMax = 127;
             convParam->symmetricQuan->clampMin = -128;
             convParam->symmetricQuan->zeroPoint = std::move(inputZero);

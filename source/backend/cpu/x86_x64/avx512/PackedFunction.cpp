@@ -39,11 +39,11 @@ void _AVX512_MNNAddC4WithStride(const float* source, float* dest, size_t srcStri
 
 void _AVX512_MNNComputeScaleZeroScalar(float* source, float* min, float* max, size_t size) {
     int pack = 16;
-    int sizeDiv16 = UP_DIV(size, pack);
-    __m512 minVal = _mm512_loadu_ps(source);
+    int sizeDiv16 = size / pack;
+    __m512 minVal = _mm512_set1_ps(source[0]);
     __m512 maxVal = minVal;
     float maxArr[16], minArr[16];
-    for (int i = 1; i < sizeDiv16; ++i) {
+    for (int i = 0; i < sizeDiv16; ++i) {
         auto src0 = source + pack * i;
         __m512 vecA = _mm512_loadu_ps(src0);
         auto maskMax = _mm512_cmp_ps_mask(vecA, maxVal, 14);
@@ -62,14 +62,27 @@ void _AVX512_MNNComputeScaleZeroScalar(float* source, float* min, float* max, si
             min_ = minArr[k];
         }
     }
+    for (int i = pack * sizeDiv16; i < size; ++i) {
+        min_ = ALIMIN(min_, source[i]);
+        max_ = ALIMAX(max_, source[i]);
+    }
     min[0] = min_;
     max[0] = max_;
-    // float range = max_ - min_;
-    // MNN_ASSERT(range != 0);
-    // *quantScale = 255.0f / range;
-    // *dequantScale = range / 255.0f;
-    // *zeroPoint = std::min(255.f, std::max(roundf(-(min_ * 255.f) / range), 0.f)) - 128.f;
+}
 
+void _AVX512_MNNAbsMaxFP32(const float* source, float* absmax, size_t src_depth_quad, size_t realSize, int pack) {
+    // source: (ic/4, N, 4)
+    auto srcStep = pack * realSize;
+    for (int i = 0; i < realSize; ++i) {
+        float absmaxVal = 0.f; // absmaxVal>=0
+        for (int c = 0; c < src_depth_quad; ++c) {
+            auto src = source + c * srcStep + i * pack;
+            for (int k = 0; k < pack; ++k) {
+                absmaxVal = std::max(absmaxVal, std::abs(src[k]));
+            }
+        }
+        absmax[i] = absmaxVal;
+    }
 }
 
 void _AVX512_MNNReluWithSlopeChannel(float* dst, const float* src, const float* slope, size_t sizeQuad, size_t depthQuad) {
@@ -737,6 +750,7 @@ void _AVX512_ExtraInit(void* functions) {
     coreFunction->MNNMatrixAdd          = _AVX512_MNNMatrixAdd;
     coreFunction->MNNMatrixSub          = _AVX512_MNNMatrixSub;
     coreFunction->MNNCountMaxMinValue = _AVX512_MNNComputeScaleZeroScalar;
+    coreFunction->MNNAbsMax = _AVX512_MNNAbsMaxFP32;
 
     coreFunction->MNNConvRunForUnitDepthWise = _AVX512_MNNConvRunForUnitDepthWise;
     coreFunction->MNNConvRunForLineDepthwise = _AVX512_MNNConvRunForLineDepthwise;

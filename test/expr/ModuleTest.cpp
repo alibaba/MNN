@@ -482,6 +482,11 @@ public:
         Module::Config config;
         config.shapeMutable = false;
         config.rearrange = true;
+        auto x = _Input({1, 3, 224, 224}, NC4HW4, halide_type_of<float>());
+        auto xPtr = x->writeMap<float>();
+        ::memset(xPtr, 0, 1*3*224*224*sizeof(float));
+        x->unMap();
+        int runTime = 10;
         std::shared_ptr<Module> interp0;
         {
             MNN::ScheduleConfig sconfig;
@@ -489,6 +494,13 @@ public:
             std::vector<MNN::ScheduleConfig> sconfigs = {sconfig};
             std::shared_ptr<Executor::RuntimeManager> rtMgr(Executor::RuntimeManager::createRuntimeManager(sconfigs));
             interp0.reset(Module::load({"Input"}, {"Prob"}, bufferOutput, sizeOutput, rtMgr, &config), Module::destroy);
+        }
+        {
+            Timer _l;
+            for (int i=0; i<runTime; ++i) {
+                auto y0 = interp0->onForward({x});
+            }
+            MNN_PRINT("Thread 1 avg cost: %f ms\n", (float)_l.durationInUs() / 1000.0f / runTime);
         }
         std::shared_ptr<Module> interp1;
         {
@@ -498,18 +510,6 @@ public:
             std::shared_ptr<Executor::RuntimeManager> rtMgr(Executor::RuntimeManager::createRuntimeManager(sconfigs));
             rtMgr->setHint(Interpreter::STRICT_CHECK_MODEL, 0);
             interp1.reset(Module::load({"Input"}, {"Prob"}, bufferOutput, sizeOutput, rtMgr, &config), Module::destroy);
-        }
-        auto x = _Input({1, 3, 224, 224}, NC4HW4, halide_type_of<float>());
-        auto xPtr = x->writeMap<float>();
-        ::memset(xPtr, 0, 1*3*224*224*sizeof(float));
-        x->unMap();
-        int runTime = 10;
-        {
-            Timer _l;
-            for (int i=0; i<runTime; ++i) {
-                auto y0 = interp0->onForward({x});
-            }
-            MNN_PRINT("Thread 1 avg cost: %f ms\n", (float)_l.durationInUs() / 1000.0f / runTime);
         }
         {
             Timer _l;
@@ -851,7 +851,7 @@ public:
             BackendConfig bnConfig;
             bnConfig.precision = (MNN::BackendConfig::PrecisionMode)precision;
             config.numThread = 1;
-            config.type = ExecutorScope::Current()->getAttr()->firstType.first;
+            config.type = ExecutorScope::Current()->getAttr()->firstType;
             config.backendConfig = &bnConfig;
             auto s1 = net->createSession(config);
             float memory = 0.0f;
@@ -947,7 +947,7 @@ public:
         std::shared_ptr<Interpreter> net(Interpreter::createFromBuffer((void*)bufferOutput, sizeOutput), Interpreter::destroy);
         ScheduleConfig config;
         config.numThread = 4;
-        config.type = ExecutorScope::Current()->getAttr()->firstType.first;
+        config.type = ExecutorScope::Current()->getAttr()->firstType;
         auto s1 = net->createSession(config);
         int resizeCode;
         net->getSessionInfo(s1, Interpreter::RESIZE_STATUS, &resizeCode);
@@ -984,7 +984,7 @@ public:
             BackendConfig bnConfig;
             bnConfig.precision = (MNN::BackendConfig::PrecisionMode)precision;
             config.numThread = 1;
-            config.type = ExecutorScope::Current()->getAttr()->firstType.first;
+            config.type = ExecutorScope::Current()->getAttr()->firstType;
             config.backendConfig = &bnConfig;
 
             std::vector<std::thread> threads;

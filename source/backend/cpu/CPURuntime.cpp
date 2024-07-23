@@ -11,19 +11,33 @@
  https://github.com/Tencent/ncnn/blob/master/src/cpu.cpp
  https://github.com/pytorch/cpuinfo
  */
-#ifdef __ANDROID__
+#ifdef __linux__
 #include <stdint.h>
 #include <sys/syscall.h>
 #include <unistd.h>
-#endif
-
-#include "core/Macro.h"
-
-#ifdef __ANDROID__
 #include <fcntl.h>
 #include <sys/auxv.h>
+#include <sys/time.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <dirent.h>
+
+#define CPUINFO_ARM_LINUX_FEATURE_FPHP UINT32_C(0x00000200)
+#define CPUINFO_ARM_LINUX_FEATURE_ASIMDHP UINT32_C(0x00000400)
+#define CPUINFO_ARM_LINUX_FEATURE_ASIMDDP UINT32_C(0x00100000)
+// ref: https://cs.android.com/android/platform/superproject/+/master:bionic/libc/kernel/uapi/asm-arm64/asm/hwcap.h;drc=04da58f5b3bc40dbbafb4f8422aa2991479d9e1e;l=70
+#define CPUINFO_ARM_LINUX_FEATURE_I8MM UINT32_C(0x00002000)
+#define CPUINFO_ARM_LINUX_FEATURE_SVE UINT32_C(0x00400000)
+#define CPUINFO_ARM_LINUX_FEATURE_SVE2 UINT32_C(0x00000002)
+#endif
+
+#include <algorithm>
+#include <string>
+
+#include "core/Macro.h"
+#ifdef __ANDROID__
 #include <sys/system_properties.h>
-#endif // __ANDROID__
+#endif
 
 #if __APPLE__
 #include "TargetConditionals.h"
@@ -37,30 +51,68 @@
 #endif // TARGET_OS_IPHONE
 #endif // __APPLE__
 
-#ifdef _OPENMP
-#include <omp.h>
-#endif // _OPENMP
-
 #include <MNN/MNNDefine.h>
 #include <stdio.h>
 #include <string.h>
 #include <algorithm>
 #include <vector>
 #include "backend/cpu/CPURuntime.hpp"
+#include "core/FileLoader.hpp"
 
-#if defined (__linux__) && defined (__aarch64__)
-#include <sys/auxv.h>
+#define BUFFER_SIZE 1024
 
-#define CPUINFO_ARM_LINUX_FEATURE_FPHP       UINT32_C(0x00000200)
-#define CPUINFO_ARM_LINUX_FEATURE_ASIMDHP    UINT32_C(0x00000400)
-#define CPUINFO_ARM_LINUX_FEATURE_ASIMDDP  UINT32_C(0x00100000)
-#define CPUINFO_ARM_LINUX_FEATURE_I8MM UINT32_C(0x00002000)
-#define CPUINFO_ARM_LINUX_FEATURE_SVE UINT32_C(0x00400000)
-#define CPUINFO_ARM_LINUX_FEATURE_SVE2 UINT32_C(0x00000002)
+int MNNGetCurrentPid() {
+#if defined (__linux__)
+#ifdef __GLIBC__
+    pid_t pid = syscall(SYS_gettid);
+#else
+#ifdef PI3
+    pid_t pid = getpid();
+#else
+    pid_t pid = gettid();
+#endif
+#endif
+    return pid;
+#else
+    return 0;
+#endif
+}
+int MNNSetSchedAffinity(const int* cpuIDs, int size) {
+#if defined (__linux__)
+#ifndef CPU_SETSIZE
+#define CPU_SETSIZE 1024
+#endif
+#define __NCPUBITS (8 * sizeof(unsigned long))
+    typedef struct {
+        unsigned long __bits[CPU_SETSIZE / __NCPUBITS];
+    } cpu_set_t;
 
-#endif /* __linux__ && __aarch64__ */
+#ifndef CPU_SET
+#define CPU_SET(cpu, cpusetp) ((cpusetp)->__bits[(cpu) / __NCPUBITS] |= (1UL << ((cpu) % __NCPUBITS)))
+#endif
+#ifndef CPU_ZERO
+#define CPU_ZERO(cpusetp) memset((cpusetp), 0, sizeof(cpu_set_t))
+#endif
+    // set affinity for thread
+    pid_t pid = MNNGetCurrentPid();
+    cpu_set_t mask;
+    CPU_ZERO(&mask);
+    for (int i = 0; i < size; i++) {
+        CPU_SET(cpuIDs[i], &mask);
+    }
 
-#ifdef __ANDROID__
+    int syscallret = syscall(__NR_sched_setaffinity, pid, sizeof(mask), &mask);
+    if (syscallret) {
+        MNN_PRINT("syscall error %d\n", syscallret);
+        return -1;
+    }
+#endif
+    return 0;
+}
+
+// cpuinfo
+// Reference from: https://github.com/pytorch/cpuinfo
+#if defined(ENABLE_ARMV82) && defined(__arm__)
 
 /* As per include/sys/system_properties.h in Android NDK */
 #define CPUINFO_HARDWARE_VALUE_MAX 64
@@ -154,231 +206,6 @@ struct cpuinfo_arm_chipset {
     char suffix[8];
 };
 
-#define BUFFER_SIZE 1024
-
-static uint32_t getNumberOfCPU() {
-    FILE* fp = fopen("/proc/cpuinfo", "rb");
-    if (!fp) {
-        return 1;
-    }
-    uint32_t number = 0;
-    char buffer[BUFFER_SIZE];
-    while (!feof(fp)) {
-        char* str = fgets(buffer, BUFFER_SIZE, fp);
-        if (!str) {
-            break;
-        }
-        if (memcmp(buffer, "processor", 9) == 0) {
-            number++;
-        }
-    }
-    fclose(fp);
-    if (number < 1) {
-        number = 1;
-    }
-    return number;
-}
-
-static int getCPUMaxFreqKHz(int cpuID) {
-    char path[256];
-    sprintf(path, "/sys/devices/system/cpu/cpufreq/stats/cpu%d/time_in_state", cpuID);
-    FILE* fp = fopen(path, "rb");
-    if (!fp) {
-        sprintf(path, "/sys/devices/system/cpu/cpu%d/cpufreq/stats/time_in_state", cpuID);
-        fp = fopen(path, "rb");
-        if (!fp) {
-            sprintf(path, "/sys/devices/system/cpu/cpu%d/cpufreq/cpuinfo_max_freq", cpuID);
-            fp = fopen(path, "rb");
-            if (!fp) {
-                return -1;
-            }
-            int maxfrequency = -1;
-            fscanf(fp, "%d", &maxfrequency);
-            fclose(fp);
-            return maxfrequency;
-        }
-    }
-    int maxfrequency = 0;
-    while (!feof(fp)) {
-        int frequency = 0;
-        int history   = fscanf(fp, "%d %*d", &frequency);
-        if (history != 1) {
-            break;
-        }
-        if (frequency > maxfrequency) {
-            maxfrequency = frequency;
-        }
-    }
-    fclose(fp);
-    return maxfrequency;
-}
-
-static int sortCPUIDByMaxFrequency(std::vector<int>& cpuIDs, int* littleClusterOffset) {
-    const int cpuNumbers = cpuIDs.size();
-    *littleClusterOffset = 0;
-    if (cpuNumbers == 0) {
-        return 0;
-    }
-    std::vector<int> cpusFrequency;
-    cpusFrequency.resize(cpuNumbers);
-    for (int i = 0; i < cpuNumbers; ++i) {
-        int frequency    = getCPUMaxFreqKHz(i);
-        cpuIDs[i]        = i;
-        cpusFrequency[i] = frequency;
-        // MNN_PRINT("cpu fre: %d, %d\n", i, frequency);
-    }
-    for (int i = 0; i < cpuNumbers; ++i) {
-        for (int j = i + 1; j < cpuNumbers; ++j) {
-            if (cpusFrequency[i] < cpusFrequency[j]) {
-                // id
-                int temp  = cpuIDs[i];
-                cpuIDs[i] = cpuIDs[j];
-                cpuIDs[j] = temp;
-                // frequency
-                temp             = cpusFrequency[i];
-                cpusFrequency[i] = cpusFrequency[j];
-                cpusFrequency[j] = temp;
-            }
-        }
-    }
-    int midMaxFrequency = (cpusFrequency.front() + cpusFrequency.back()) / 2;
-    if (midMaxFrequency == cpusFrequency.back()) {
-        return 0;
-    }
-    for (int i = 0; i < cpuNumbers; ++i) {
-        if (cpusFrequency[i] < midMaxFrequency) {
-            *littleClusterOffset = i;
-            break;
-        }
-    }
-    return 0;
-}
-
-static int setSchedAffinity(const std::vector<int>& cpuIDs) {
-#define CPU_SETSIZE 1024
-#define __NCPUBITS (8 * sizeof(unsigned long))
-    typedef struct {
-        unsigned long __bits[CPU_SETSIZE / __NCPUBITS];
-    } cpu_set_t;
-
-#define CPU_SET(cpu, cpusetp) ((cpusetp)->__bits[(cpu) / __NCPUBITS] |= (1UL << ((cpu) % __NCPUBITS)))
-
-#define CPU_ZERO(cpusetp) memset((cpusetp), 0, sizeof(cpu_set_t))
-
-    // set affinity for thread
-#ifdef __GLIBC__
-    pid_t pid = syscall(SYS_gettid);
-#else
-#ifdef PI3
-    pid_t pid = getpid();
-#else
-    pid_t pid = gettid();
-#endif
-#endif
-    cpu_set_t mask;
-    CPU_ZERO(&mask);
-    for (int i = 0; i < (int)cpuIDs.size(); i++) {
-        CPU_SET(cpuIDs[i], &mask);
-    }
-
-    int syscallret = syscall(__NR_sched_setaffinity, pid, sizeof(mask), &mask);
-    if (syscallret) {
-        MNN_PRINT("syscall error %d\n", syscallret);
-        return -1;
-    }
-
-    return 0;
-}
-
-#endif // arch
-
-int MNNSetCPUThreadsMode(MNNCPUThreadsMode mode) {
-#ifdef __ANDROID__
-    auto numberOfCPUs = getNumberOfCPU();
-    if (mode == MNN_CPU_MODE_DEFAULT) {
-        return 0;
-    }
-    static std::vector<int> sortedCPUIDs;
-    static int littleClusterOffset = 0;
-    if (sortedCPUIDs.empty()) {
-        sortedCPUIDs.resize(numberOfCPUs);
-        for (int i = 0; i < numberOfCPUs; ++i) {
-            sortedCPUIDs[i] = i;
-        }
-        sortCPUIDByMaxFrequency(sortedCPUIDs, &littleClusterOffset);
-    }
-
-    if (littleClusterOffset == 0 && mode != MNN_CPU_MODE_POWER_FRI) {
-        MNN_PRINT("This CPU Arch Do NOT support for setting cpu thread mode\n");
-    }
-    std::vector<int> cpuAttachIDs;
-    switch (mode) {
-        case MNN_CPU_MODE_POWER_FRI:
-            cpuAttachIDs = sortedCPUIDs;
-            break;
-        case MNN_CPU_MODE_LITTLE:
-            cpuAttachIDs = std::vector<int>(sortedCPUIDs.begin() + littleClusterOffset, sortedCPUIDs.end());
-            break;
-        case MNN_CPU_MODE_BIG:
-            cpuAttachIDs = std::vector<int>(sortedCPUIDs.begin(), sortedCPUIDs.begin() + littleClusterOffset);
-            break;
-        default:
-            cpuAttachIDs = sortedCPUIDs;
-            break;
-    }
-
-#ifdef _OPENMP
-    const int threadsNumber = cpuAttachIDs.size();
-    omp_set_num_threads(threadsNumber);
-    std::vector<int> result(threadsNumber, 0);
-#pragma omp parallel for
-    for (int i = 0; i < threadsNumber; ++i) {
-        result[i] = setSchedAffinity(cpuAttachIDs);
-    }
-    for (int i = 0; i < threadsNumber; ++i) {
-        if (result[i] != 0) {
-            return -1;
-        }
-    }
-#else
-    int res   = setSchedAffinity(cpuAttachIDs);
-    if (res != 0) {
-        return -1;
-    }
-#endif // _OPENMP
-    return 0;
-#elif __IOS__
-    return -1;
-#else
-    return -1;
-#endif // arch
-}
-float MNNGetCPUFlops(uint32_t number) {
-    float flops = 2048.0f;
-#ifdef __ANDROID__
-    auto numberOfCPUs = getNumberOfCPU();
-    if (0 == numberOfCPUs) {
-        return flops;
-    }
-    std::vector<int> freqs;
-    freqs.resize(numberOfCPUs);
-    for (int i = 0; i < numberOfCPUs; ++i) {
-        freqs[i] = getCPUMaxFreqKHz(i);
-    }
-    std::sort(freqs.rbegin(), freqs.rend());
-    number = std::min(number, numberOfCPUs);
-    flops  = 0.0f;
-    for (uint32_t i = 0; i < number; ++i) {
-        flops += (float)freqs[i] / 1024.0f;
-    }
-#endif
-    return flops;
-}
-
-// cpuinfo
-// Reference from: https://github.com/pytorch/cpuinfo
-#ifdef __ANDROID__
-
 #define CPUINFO_ARM_MIDR_IMPLEMENTER_MASK UINT32_C(0xFF000000)
 #define CPUINFO_ARM_MIDR_VARIANT_MASK UINT32_C(0x00F00000)
 #define CPUINFO_ARM_MIDR_ARCHITECTURE_MASK UINT32_C(0x000F0000)
@@ -399,19 +226,6 @@ float MNNGetCPUFlops(uint32_t number) {
 #define CPUINFO_ARM_MIDR_ARCHITECTURE_OFFSET 16
 #define CPUINFO_ARM_MIDR_PART_OFFSET 4
 #define CPUINFO_ARM_MIDR_REVISION_OFFSET 0
-
-#ifdef __aarch64__
-#define CPUINFO_ARM_LINUX_FEATURE_FPHP UINT32_C(0x00000200)
-#define CPUINFO_ARM_LINUX_FEATURE_ASIMDHP UINT32_C(0x00000400)
-#define CPUINFO_ARM_LINUX_FEATURE_ASIMDDP UINT32_C(0x00100000)
-// ref: https://cs.android.com/android/platform/superproject/+/master:bionic/libc/kernel/uapi/asm-arm64/asm/hwcap.h;drc=04da58f5b3bc40dbbafb4f8422aa2991479d9e1e;l=70
-#define CPUINFO_ARM_LINUX_FEATURE_I8MM UINT32_C(0x00002000)
-#define CPUINFO_ARM_LINUX_FEATURE_SVE UINT32_C(0x00400000)
-#define CPUINFO_ARM_LINUX_FEATURE_SVE2 UINT32_C(0x00000002)
-#else
-#define CPUINFO_ARM_LINUX_FEATURE_HALF     UINT32_C(0x00000002)
-#define CPUINFO_ARM_LINUX_FEATURE_NEON     UINT32_C(0x00001000)
-#endif
 
 struct cpuinfo_arm_linux_processor {
     uint32_t architecture_version;
@@ -1308,39 +1122,18 @@ struct cpuinfo_arm_chipset cpuinfo_arm_android_decode_chipset(const struct cpuin
     // MNN_PRINT("chipset vendor, series, model is: %d, %d, %d\n", chipset.vendor, chipset.series, chipset.model);
     return chipset;
 }
-
-#endif // __ANDROID__
-
-#if defined(__APPLE__) && defined(__aarch64__)
-
-static uint32_t get_sys_info_by_name(const char* type_specifier) {
-    size_t size     = 0;
-    uint32_t result = 0;
-    if (sysctlbyname(type_specifier, NULL, &size, NULL, 0) != 0) {
-        MNN_PRINT("sysctlbyname(\"%s\") failed\n", type_specifier);
-    } else if (size == sizeof(uint32_t)) {
-        sysctlbyname(type_specifier, &result, &size, NULL, 0);
-        MNN_PRINT("%s: %u , size = %lu\n", type_specifier, result, size);
-    } else {
-        MNN_PRINT("sysctl does not support non-integer lookup for (\"%s\")\n", type_specifier);
-    }
-    return result;
-}
-
-#endif // iOS
-
-void cpuinfo_arm_init(struct cpuinfo_arm_isa* cpuinfo_isa) {
-    memset(cpuinfo_isa, 0, sizeof(struct cpuinfo_arm_isa));
-
-    // android
-#ifdef __ANDROID__
+static void _getInfoARMv7(MNNCPUInfo* cpuinfo_isa) {
+    // Get White List And Black List
     struct cpuinfo_arm_linux_processor* arm_linux_processors = NULL;
-    const uint32_t processors_count                          = getNumberOfCPU();
+    if (0 == cpuinfo_isa->groups.size()) {
+        return;
+    }
+    const uint32_t processors_count = cpuinfo_isa->allCpuIdsSorted.size();
 
     char proc_cpuinfo_hardware[CPUINFO_HARDWARE_VALUE_MAX] = {0};
 
     arm_linux_processors = static_cast<struct cpuinfo_arm_linux_processor*>(
-        calloc(processors_count, sizeof(struct cpuinfo_arm_linux_processor)));
+        malloc(processors_count * sizeof(struct cpuinfo_arm_linux_processor)));
     if (arm_linux_processors == NULL) {
         MNN_PRINT("failed to allocate %zu bytes for descriptions of %u ARM logical processors\n",
                   processors_count * sizeof(struct cpuinfo_arm_linux_processor), processors_count);
@@ -1349,6 +1142,7 @@ void cpuinfo_arm_init(struct cpuinfo_arm_isa* cpuinfo_isa) {
 
     if (!cpuinfo_arm_linux_parse_proc_cpuinfo(proc_cpuinfo_hardware, processors_count, arm_linux_processors)) {
         MNN_PRINT("failed to parse processor information from /proc/cpuinfo\n");
+        free(arm_linux_processors);
         return;
     }
 
@@ -1369,54 +1163,17 @@ void cpuinfo_arm_init(struct cpuinfo_arm_isa* cpuinfo_isa) {
             }
         }
     }
-
-    uint32_t isa_features = 0;
-#ifdef __aarch64__
-    isa_features = (uint32_t)getauxval(AT_HWCAP);
-#endif
-
     struct cpuinfo_android_properties android_properties;
     cpuinfo_arm_android_parse_properties(&android_properties);
     const struct cpuinfo_arm_chipset chipset =
         cpuinfo_arm_android_decode_chipset(&android_properties, valid_processors, 0);
-
-    switch (last_midr & (CPUINFO_ARM_MIDR_IMPLEMENTER_MASK | CPUINFO_ARM_MIDR_PART_MASK)) {
-        case UINT32_C(0x51008040): /* Kryo 485 Gold (Cortex-A76) */
-            cpuinfo_isa->dot = true;
-            break;
-        default:
-#ifdef __aarch64__
-            if (isa_features & CPUINFO_ARM_LINUX_FEATURE_ASIMDDP) {
-                cpuinfo_isa->dot = true;
-            }
-#endif
-            // TODO, whitelist, ex: hisilicon_kirin 980...
-            break;
-    }
-#ifdef __aarch64__
-    const uint32_t fp16arith_mask = CPUINFO_ARM_LINUX_FEATURE_FPHP | CPUINFO_ARM_LINUX_FEATURE_ASIMDHP;
-    if ((isa_features & fp16arith_mask) == fp16arith_mask) {
-        if (chipset.series == cpuinfo_arm_chipset_series_samsung_exynos && chipset.model == 9810) {
-            cpuinfo_isa->fp16arith = false;
-        } else {
-            cpuinfo_isa->fp16arith = true;
-        }
-    }
-    if (isa_features & CPUINFO_ARM_LINUX_FEATURE_I8MM) {
-        cpuinfo_isa->i8mm = true;
-    }
-    /*
-    if (isa_features & CPUINFO_ARM_LINUX_FEATURE_SVE2) {
-        // MNN_PRINT("Support SVE2\n");
-    }
-    */
-#else
     // pytorch/cpuinfo: src/arm/linux/aarch32-isa.c
     uint32_t architecture_version = 0;
     if (processors_count > 0) {
         architecture_version = arm_linux_processors[0].architecture_version;
     }
     if (architecture_version >= 8) {
+        FUNC_PRINT_ALL((last_midr & (CPUINFO_ARM_MIDR_IMPLEMENTER_MASK | CPUINFO_ARM_MIDR_PART_MASK)), 0x);
         /*
          * NEON FP16 compute extension and VQRDMLAH/VQRDMLSH instructions are not indicated in /proc/cpuinfo.
          * Use a MIDR-based heuristic to whitelist processors known to support it:
@@ -1437,6 +1194,8 @@ void cpuinfo_arm_init(struct cpuinfo_arm_isa* cpuinfo_isa) {
                 case UINT32_C(0x4100D050): /* Cortex-A55 */
                 case UINT32_C(0x4100D060): /* Cortex-A65 */
                 case UINT32_C(0x4100D0B0): /* Cortex-A76 */
+                case UINT32_C(0x4100d440): /* 888 */
+                case UINT32_C(0x4100d480): /* 8gen1 */
                 case UINT32_C(0x4100D0C0): /* Neoverse N1 */
                 case UINT32_C(0x4100D0D0): /* Cortex-A77 */
                 case UINT32_C(0x4100D0E0): /* Cortex-A76AE */
@@ -1459,6 +1218,8 @@ void cpuinfo_arm_init(struct cpuinfo_arm_isa* cpuinfo_isa) {
             case UINT32_C(0x4100D0B0): /* Cortex-A76 */
             case UINT32_C(0x4100D0D0): /* Cortex-A77 */
             case UINT32_C(0x4100D0E0): /* Cortex-A76AE */
+            case UINT32_C(0x4100d440): /* 888 */
+            case UINT32_C(0x4100d480): /* 8gen1 */
             case UINT32_C(0x4800D400): /* Cortex-A76 (HiSilicon) */
             case UINT32_C(0x51008040): /* Kryo 485 Gold (Cortex-A76) */
             case UINT32_C(0x51008050): /* Kryo 485 Silver (Cortex-A55) */
@@ -1474,106 +1235,210 @@ void cpuinfo_arm_init(struct cpuinfo_arm_isa* cpuinfo_isa) {
                 break;
         }
     }
-#endif
+    // Whitelist
+    switch (last_midr & (CPUINFO_ARM_MIDR_IMPLEMENTER_MASK | CPUINFO_ARM_MIDR_PART_MASK)) {
+        case UINT32_C(0x51008040): /* Kryo 485 Gold (Cortex-A76) */
+            cpuinfo_isa->dot = true;
+            break;
+        default:
+            // TODO, whitelist, ex: hisilicon_kirin 980...
+            break;
+    }
+    // Blacklist
+    if (chipset.series == cpuinfo_arm_chipset_series_samsung_exynos && chipset.model == 9810) {
+        // Spectial machine, disable fp16
+        cpuinfo_isa->fp16arith = false;
+    }
     if (arm_linux_processors) {
         free(arm_linux_processors);
     }
-
-#endif // #ifdef __ANDROID__
-
-    // iOS
-#if defined(__IOS__) && defined(__aarch64__)
-
-// A11
-#ifndef CPUFAMILY_ARM_MONSOON_MISTRAL
-#define CPUFAMILY_ARM_MONSOON_MISTRAL 0xe81e7ef6
-#endif
-// A12
-#ifndef CPUFAMILY_ARM_VORTEX_TEMPEST
-#define CPUFAMILY_ARM_VORTEX_TEMPEST 0x07d34b9f
-#endif
-// A13
-#ifndef CPUFAMILY_ARM_LIGHTNING_THUNDER
-#define CPUFAMILY_ARM_LIGHTNING_THUNDER 0x462504d2
-#endif
-// A14
-#ifndef CPUFAMILY_ARM_FIRESTORM_ICESTORM
-#define CPUFAMILY_ARM_FIRESTORM_ICESTORM 0x1b588bb3
-#endif
-// A15
-#ifndef CPUFAMILY_ARM_AVALANCHE_BLIZZARD
-#define CPUFAMILY_ARM_AVALANCHE_BLIZZARD 0xda33d83d
-#endif
-// A16
-#ifndef CPUFAMILY_ARM_EVEREST_SAWTOOTH
-#define CPUFAMILY_ARM_EVEREST_SAWTOOTH 0x8765edea
-#endif
-// A17 Pro
-#ifndef CPUFAMILY_ARM_PCORE_ECORE_COLL
-#define CPUFAMILY_ARM_PCORE_ECORE_COLL 0x2876f5b5
+}
 #endif
 
-    const uint32_t cpu_family = get_sys_info_by_name("hw.cpufamily");
-    // const uint32_t cpu_type = get_sys_info_by_name("hw.cputype");
-    // const uint32_t cpu_subtype = get_sys_info_by_name("hw.cpusubtype");
-
-    cpuinfo_isa->fp16arith = cpu_family == CPUFAMILY_ARM_MONSOON_MISTRAL ||
-                             cpu_family == CPUFAMILY_ARM_VORTEX_TEMPEST ||
-                             cpu_family == CPUFAMILY_ARM_LIGHTNING_THUNDER ||
-                             cpu_family == CPUFAMILY_ARM_FIRESTORM_ICESTORM ||
-                             cpu_family == CPUFAMILY_ARM_AVALANCHE_BLIZZARD ||
-                             cpu_family == CPUFAMILY_ARM_EVEREST_SAWTOOTH ||
-                             cpu_family == CPUFAMILY_ARM_PCORE_ECORE_COLL;
-
-    cpuinfo_isa->dot = cpu_family == CPUFAMILY_ARM_LIGHTNING_THUNDER ||
-                       cpu_family == CPUFAMILY_ARM_FIRESTORM_ICESTORM ||
-                       cpu_family == CPUFAMILY_ARM_AVALANCHE_BLIZZARD ||
-                       cpu_family == CPUFAMILY_ARM_EVEREST_SAWTOOTH ||
-                       cpu_family == CPUFAMILY_ARM_PCORE_ECORE_COLL;
-
-    cpuinfo_isa->i8mm = cpu_family == CPUFAMILY_ARM_EVEREST_SAWTOOTH ||
-                        cpu_family == CPUFAMILY_ARM_PCORE_ECORE_COLL;
-#endif // iOS
-
-// arm64-osx
-#if defined(__APPLE__) && defined(__aarch64__) && !defined(__IOS__)   
-// Apple M1 
-#ifndef CPUFAMILY_AARCH64_FIRESTORM_ICESTORM
-#define CPUFAMILY_AARCH64_FIRESTORM_ICESTORM 0x1b588bb3
-#endif
-// Apple M2
-#ifndef CPUFAMILY_AARCH64_AVALANCHE_BLIZZARD
-#define CPUFAMILY_AARCH64_AVALANCHE_BLIZZARD 0xda33d83d
-#endif
-    const uint32_t cpu_family = get_sys_info_by_name("hw.cpufamily");
-    cpuinfo_isa->fp16arith = cpu_family == CPUFAMILY_AARCH64_FIRESTORM_ICESTORM ||
-                             cpu_family == CPUFAMILY_AARCH64_AVALANCHE_BLIZZARD;
-    cpuinfo_isa->dot = cpu_family == CPUFAMILY_AARCH64_FIRESTORM_ICESTORM ||
-                       cpu_family == CPUFAMILY_AARCH64_AVALANCHE_BLIZZARD;
+#if defined(__APPLE__) && defined(__aarch64__)
+static bool have_feature(const char* feature) {
+  // For more information on sysctlbyname(), see:
+  // https://developer.apple.com/documentation/kernel/1387446-sysctlbyname/determining_instruction_set_characteristics
+    int64_t feature_present = 0;
+    size_t size = sizeof(feature_present);
+    if (sysctlbyname(feature, &feature_present, &size, NULL, 0) != 0) {
+        return false;
+    }
+    return feature_present;
+}
+static void _getInfoApple(MNNCPUInfo* cpuinfo_isa) {
+    /**Ref from
+     https://developer.apple.com/documentation/kernel/1387446-sysctlbyname/determining_instruction_set_characteristics
+     */
+    if (have_feature("hw.optional.arm.FEAT_FP16")) {
+        cpuinfo_isa->fp16arith = true;
+    }
+    if (have_feature("hw.optional.arm.FEAT_DotProd")) {
+        cpuinfo_isa->dot = true;
+    }
+    if (have_feature("hw.optional.arm.FEAT_I8MM")) {
+        cpuinfo_isa->i8mm = true;
+    }
+}
 #endif
 
-#ifndef __ANDROID__
-#if defined (__linux__) && defined (__aarch64__)
-
+#if defined(__linux__) && defined(__aarch64__)
+static void _getInfoAux(MNNCPUInfo* cpuinfo_isa) {
+    // Use AUX to get info for linux-aarch64
     uint32_t isa_features = 0;
     isa_features = (uint32_t)getauxval(AT_HWCAP);
-
-
-        if (isa_features & CPUINFO_ARM_LINUX_FEATURE_ASIMDDP) {
-                cpuinfo_isa->dot = true;
-        }
-
-        const uint32_t fp16arith_mask = CPUINFO_ARM_LINUX_FEATURE_FPHP | CPUINFO_ARM_LINUX_FEATURE_ASIMDHP;
-        if ((isa_features & fp16arith_mask) == fp16arith_mask) {
-            cpuinfo_isa->fp16arith = true;
-        }
-
-        if (isa_features & CPUINFO_ARM_LINUX_FEATURE_I8MM) {
-            cpuinfo_isa->i8mm = true;
-        }
-
-#endif /* __linux__ && __aarch64__ */
+    if (isa_features & CPUINFO_ARM_LINUX_FEATURE_ASIMDDP) {
+        cpuinfo_isa->dot = true;
+    }
+    const uint32_t fp16arith_mask = CPUINFO_ARM_LINUX_FEATURE_FPHP | CPUINFO_ARM_LINUX_FEATURE_ASIMDHP;
+    if ((isa_features & fp16arith_mask) == fp16arith_mask) {
+        cpuinfo_isa->fp16arith = true;
+    }
+    if (isa_features & CPUINFO_ARM_LINUX_FEATURE_I8MM) {
+        cpuinfo_isa->i8mm = true;
+    }
+    isa_features = (uint32_t)getauxval(AT_HWCAP2);
+    if (isa_features & CPUINFO_ARM_LINUX_FEATURE_SVE2) {
+        cpuinfo_isa->sve2 = true;
+    }
+}
 #endif
 
-    MNN_PRINT("The device support i8sdot:%d, support fp16:%d, support i8mm: %d\n", cpuinfo_isa->dot, cpuinfo_isa->fp16arith, cpuinfo_isa->i8mm);
+static bool _readAll(const std::string& fileName, MNN::AutoStorage<uint8_t>& buffer) {
+    MNN::FileLoader l(fileName.c_str());
+    if (false == l.read()) {
+        return false;
+    }
+    return l.merge(buffer);
+}
+static std::vector<int> _readNumber(const char* data, int length) {
+    int current = -1;
+    std::vector<int> res;
+    for (int i=0; i<length; ++i) {
+        auto c = data[i];
+        if (c < '0' || c > '9') {
+            if (current >=0 ) {
+                res.emplace_back(current);
+                current = -1;
+            }
+            continue;
+        }
+        if (current >= 0) {
+            current = current*10 + (c - '0');
+        } else {
+            current = c - '0';
+        }
+    }
+    if (current >=0 ) {
+        res.emplace_back(current);
+        current = -1;
+    }
+    return res;
+}
+static MNNCPUInfo* gCPUInfo = nullptr;
+static void _fillInfo(MNNCPUInfo* cpuInfo);
+const MNNCPUInfo* MNNGetCPUInfo() {
+    if (nullptr != gCPUInfo) {
+        return gCPUInfo;
+    }
+    gCPUInfo = new MNNCPUInfo;
+    _fillInfo(gCPUInfo);
+    return gCPUInfo;
+}
+
+static void _fillInfo(MNNCPUInfo* cpuinfo_isa) {
+    cpuinfo_isa->dot = false;
+    cpuinfo_isa->fp16arith = false;
+    cpuinfo_isa->i8mm = false;
+    cpuinfo_isa->sve2 = false;
+    // android
+    /**Get CPU Info*/
+#ifdef __linux__
+    do {
+        DIR* root;
+        std::string dir = "/sys/devices/system/cpu/cpufreq";
+        if ((root = opendir(dir.c_str())) == NULL) {
+            break;
+        }
+        CPUGroup group;
+        struct dirent* ent;
+        while ((ent = readdir(root)) != NULL) {
+            if (ent->d_name[0] != '.') {
+                std::string policyName = dir + "/" + ent->d_name;
+                std::string cpus = policyName + "/affected_cpus";
+                {
+                    MNN::AutoStorage<uint8_t> buffer;
+                    if (false == _readAll(cpus, buffer)) {
+                        continue;
+                    }
+                    group.ids = _readNumber((const char*)buffer.get(), buffer.size());
+                }
+                std::string minfreq = policyName + "/cpuinfo_min_freq";
+                {
+                    MNN::AutoStorage<uint8_t> buffer;
+                    if (_readAll(minfreq, buffer)) {
+                        auto freq = _readNumber((const char*)buffer.get(), buffer.size());
+                        if (freq.size() > 0) {
+                            group.minFreq = freq[0];
+                        }
+                    }
+                }
+                std::string maxfreq = policyName + "/cpuinfo_max_freq";
+                {
+                    MNN::AutoStorage<uint8_t> buffer;
+                    if (_readAll(maxfreq, buffer)) {
+                        auto freq = _readNumber((const char*)buffer.get(), buffer.size());
+                        if (freq.size() > 0) {
+                            group.maxFreq = freq[0];
+                        }
+                    }
+                }
+                cpuinfo_isa->groups.emplace_back(group);
+            }
+        }
+        closedir(root);
+        std::sort(cpuinfo_isa->groups.begin(), cpuinfo_isa->groups.end(), [](const CPUGroup& left, const CPUGroup& right) {
+            return left.maxFreq < right.maxFreq;
+        });
+        // Merge group if needed
+        if (cpuinfo_isa->groups.size() >= 2 && cpuinfo_isa->groups[0].maxFreq == cpuinfo_isa->groups[1].maxFreq) {
+            auto backupGroups = std::move(cpuinfo_isa->groups);
+            CPUGroup&& current = std::move(backupGroups[0]);
+            for (int v=1; v<backupGroups.size(); ++v) {
+                if (backupGroups[v].maxFreq != current.maxFreq) {
+                    cpuinfo_isa->groups.emplace_back(current);
+                    current = std::move(backupGroups[v]);
+                } else {
+                    current.ids.insert(current.ids.end(), backupGroups[v].ids.begin(), backupGroups[v].ids.end());
+                }
+            }
+            cpuinfo_isa->groups.emplace_back(current);
+        }
+        cpuinfo_isa->cpuNumber = 0;
+        for (auto& group : cpuinfo_isa->groups) {
+            cpuinfo_isa->cpuNumber += group.ids.size();
+            std::string message = "CPU Group: [";
+            for (int v=0; v<group.ids.size(); ++v) {
+                message += " " + std::to_string(group.ids[v]) + " ";
+            }
+            message += "], " + std::to_string(group.minFreq) + " - " + std::to_string(group.maxFreq);
+            MNN_PRINT("%s\n", message.c_str());
+        }
+    } while (false);
+
+#if defined(__aarch64__)
+    _getInfoAux(cpuinfo_isa);
+#endif
+#if defined(ENABLE_ARMV82) && defined(__arm__)
+    _getInfoARMv7(cpuinfo_isa);
+#endif // #ifdef arm / arm64
+#endif // #ifdef __linux__
+
+// MacOS / IOS
+#if defined(__APPLE__) && defined(__aarch64__)
+    _getInfoApple(cpuinfo_isa);
+#endif
+
+    MNN_PRINT("The device supports: i8sdot:%d, fp16:%d, i8mm: %d, sve2: %d\n", cpuinfo_isa->dot, cpuinfo_isa->fp16arith, cpuinfo_isa->i8mm, cpuinfo_isa->sve2);
+    return;
 }

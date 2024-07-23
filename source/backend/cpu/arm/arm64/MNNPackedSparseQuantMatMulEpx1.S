@@ -38,7 +38,10 @@ ldp x3, x9, [x3]            // x3: eSize, x9: eP
 
 mov x8, x6                  // x8: dataOffsetMap
 mov x7, x5                  // x7: NNZMap
-ldp x24, x6, [x4], #16      // x5: scale , x6: bias
+ldr x24, [x4, #0]
+ldr x6, [x4, #72]
+add x4, x4, #16
+//ldp x24, x6, [x4], #16      // x5: scale , x6: bias
 lsr x14, x11, #2
 lsl x14, x14, #2            // x14:  (h / 4) * 4
 ld2r {v13.4s, v14.4s}, [x4] // first two elements of x4 are pointers, 'max, min ' locate at [2], [3]

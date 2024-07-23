@@ -15,13 +15,13 @@
 
 #include "backend/cpu/compute/ConvolutionWinogradBridge.hpp"
 #include "backend/cpu/compute/DenseConvolutionTiledExecutor.hpp"
-#include "backend/cpu/compute/ConvolutionHybrid.hpp"
 #ifdef MNN_USE_SPARSE_COMPUTE
 #include "backend/cpu/compute/SparseConvolutionTiledExecutor.hpp"
 #endif
 #include "core/Macro.h"
 #include "core/OpCommonUtils.hpp"
 #include "backend/cpu/OneDNNConvolution.hpp"
+#include "backend/cpu/compute/ConvInt8TiledExecutor.hpp"
 
 namespace MNN {
 
@@ -35,7 +35,7 @@ static Execution* _createUnit(const Tensor* input, const Tensor* output, Backend
 
 #ifdef MNN_USE_SPARSE_COMPUTE
     if (conv2d->sparseParameter() && nullptr != weightQuantInfo.get()) {
-        if (supportSparse) {
+        if (supportSparse && weightQuantInfo->quan->index() != nullptr) {
             return new SparseConvolutionTiledExecutor(common, backend, weightQuantInfo->quan,
                                                       conv2d->sparseParameter(), bias, biasSize);
         }
@@ -46,13 +46,15 @@ static Execution* _createUnit(const Tensor* input, const Tensor* output, Backend
         && common->strideX() == 1 && common->strideY() == 1;
 
     if (lowMemory && nullptr != weightQuantInfo.get() && originWeightSize == 0) {
-        if (cpuBackend->memoryMode() == BackendConfig::Memory_Low && fastWay) {
-            return new ConvolutionHybrid(common, backend, originWeight, originWeightSize, bias, biasSize, weightQuantInfo);
+        if (cpuBackend->memoryMode() == BackendConfig::Memory_Low) {
+            auto core = static_cast<CPUBackend*>(backend)->functions();
+            auto resourceInt8 = CPUConvolution::makeResourceInt8(backend, conv2d, core->pack);
+            return new DenseConvInt8TiledExecutor(backend, conv2d, resourceInt8, true);
         } else {
             return new DenseConvolutionTiledExecutor(common, backend, originWeight, originWeightSize, bias, biasSize, weightQuantInfo);
         }
     }
-    if (fastWay) {
+    if (fastWay && cpuBackend->functions()->matmulBytes == 0) {
         return new Convolution1x1Strassen(common, backend, originWeight, originWeightSize, bias, biasSize, weightQuantInfo);
     }
     if (originWeightSize == 0) {
@@ -78,7 +80,7 @@ Execution* ConvolutionFloatFactory::create(const std::vector<Tensor*>& inputs, c
         return new ConvolutionTiledExecutorMultiInput(conv2d->common(), backend);
     }
 #ifdef MNN_LOW_MEMORY
-    bool lowMemory = static_cast<CPUBackend*>(backend)->memoryMode() != BackendConfig::Memory_High;
+    bool lowMemory = static_cast<CPUBackend*>(backend)->memoryMode() != BackendConfig::Memory_High && static_cast<CPUBackend*>(backend)->functions()->MNNPackedMatMul_int8 != nullptr;
 #else
     bool lowMemory = false;
 #endif

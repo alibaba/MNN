@@ -59,12 +59,9 @@ void _SSE_MNNPackedMatMul_int8(float* C, const float* A, const float* B, const s
                                const float* postParameters, const float* bias, const float* k, const float* b);
 void _SSE_MNNPackedMatMulRemain_int8(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter,
                                      const float* postParameters, const float* bias, const float* k, const float* b);
-void _SSE_MNNGemmHybridInt4(float* C, const int8_t* A, const int8_t* B, size_t src_depth_quad, size_t dst_step,
-                            size_t dst_depth_quad, size_t realSize, const float** param);
-void _SSE_MNNGemmHybridInt8(float* C, const int8_t* A, const int8_t* B, size_t src_depth_quad, size_t dst_step,
-                            size_t dst_depth_quad, size_t realSize, const float** param);
 void _SSE_MNNAbsMaxFP32(const float* source, float* absmax, size_t src_depth_quad, size_t realSize, int pack);
-void _SSE_MNNDynamicQuantFP32(const float* src, int8_t* dst, const float* scale, float* sum, size_t src_depth_quad, size_t realSize, int pack);
+void _SSE_MNNGemmInt8AddBiasScale_16x4_w4(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step,
+                                            size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realDst);
 #endif
 void _SSE_MNNPackC4ForMatMul_A(float* destOrigin, float const** sourceGroup, const int32_t* info, const int32_t* el);
 void _SSE_MNNConvRunForLineDepthwise(float* dst, const float* src, const float* weight, size_t width, size_t src_w_setup,

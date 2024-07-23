@@ -194,9 +194,9 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS3DDefault(const std::vector<ui
     } else if(runtime->getCLTuneLevel() == Fast) {
         while(lws[2] <= gws[2] && lws[2] <= 8) {
             lws[1] = 1;
-            while(lws[1] <= gws[1] && lws[1] <= 8) {
+            while(lws[1] <= gws[1] && lws[1] <= 16) {
                 lws[0] = 1;
-                while(lws[0] <= gws[0] && lws[0] <= 8) {
+                while(lws[0] <= gws[0] && lws[0] <= 16) {
                     if(lws[0] <= maxWorkItemSizes[0] && lws[1] <= maxWorkItemSizes[1] && lws[2] <= maxWorkItemSizes[2] && lws[0]*lws[1]*lws[2] <= std::min(maxWorkGroupSize, static_cast<uint32_t>(64)) && lws[0]*lws[1]*lws[2] >= 16) {
                         cl::Event event;
                         std::vector<uint32_t> internalGlobalWS(3, 1);

@@ -338,7 +338,7 @@ Backend::MemObj* OpenCLBackend::onAcquire(const Tensor* nativeTensor, StorageTyp
             size = N * alignC * W * H;
             size = size + hR * W * 4 + wR * 4;
         } else {
-            size = nativeTensor->elementSize();
+            size = N * H * W * C;
             size = ROUND_UP(size, 4);
         }
         if (mOpenCLRuntime->isSupportedIntelSubgroup()) {

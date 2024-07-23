@@ -47,7 +47,7 @@ bool checkVector(const T* result, const T* rightData, int size, T threshold){
     MNN_ASSERT(size >= 0);
     for(int i = 0; i < size; ++i){
         if(fabs(result[i] - rightData[i]) > threshold){
-            std::cout << i << " error, right: " << rightData[i] << ", compute: " << result[i] << std::endl;
+            std::cout << "No." << i << " error, right: " << rightData[i] << ", compute: " << result[i] << std::endl;
             return false;
         }
     }

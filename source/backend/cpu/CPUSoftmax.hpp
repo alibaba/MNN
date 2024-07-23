@@ -11,6 +11,7 @@
 
 #include "core/Execution.hpp"
 #include "core/BufferAllocator.hpp"
+#include "core/TensorUtils.hpp"
 namespace MNN {
 class CPUSoftmax : public Execution {
 public:
@@ -32,6 +33,11 @@ private:
     int mInside;
     int mOutside;
     int mChannel;
+
+    std::shared_ptr<QuantAttr> mInQuantAttr;
+    std::shared_ptr<QuantAttr> mOutQuantAttr;
+
+    int mLowOrInt8;
 };
 } // namespace MNN
 

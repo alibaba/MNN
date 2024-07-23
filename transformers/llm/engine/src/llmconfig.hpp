@@ -1,58 +1,20 @@
 //
-//  llm.hpp
+//  llmconfig.hpp
 //
-//  Created by MNN on 2023/08/25.
+//  Created by MNN on 2024/07/19.
 //  ZhaodeWang
 //
 
-#ifndef LLM_hpp
-#define LLM_hpp
-
-#include <vector>
-#include <memory>
-#include <string>
-#include <fstream>
-#include <sstream>
-#include <iostream>
-#include <streambuf>
-#include <functional>
-#include <unordered_map>
-
-#include <MNN/expr/Expr.hpp>
-#include <MNN/expr/Module.hpp>
-#include <MNN/expr/MathOp.hpp>
-#include <MNN/expr/NeuralNetWorkOp.hpp>
-#include "tokenizer.hpp"
 #include "rapidjson/document.h"
+#include <rapidjson/writer.h>
+#include <rapidjson/stringbuffer.h>
 
-using namespace MNN;
-using namespace Express;
-using namespace rapidjson;
-class Tokenizer;
-class Pipeline;
-
-// Llm start
-// llm stream buffer with callback
-class LlmStreamBuffer : public std::streambuf {
-public:
-    using CallBack = std::function<void(const char* str, size_t len)>;;
-    LlmStreamBuffer(CallBack callback) : callback_(callback) {}
-
-protected:
-    virtual std::streamsize xsputn(const char* s, std::streamsize n) override {
-        if (callback_) {
-            callback_(s, n);
-        }
-        return n;
-    }
-
-private:
-    CallBack callback_ = nullptr;
-};
+namespace MNN {
+namespace Transformer {
 
 static inline bool has_suffix(const std::string& str, const std::string& suffix) {
     return str.size() >= suffix.size() &&
-           str.compare(str.size() - suffix.size(), suffix.size(), suffix) == 0;
+    str.compare(str.size() - suffix.size(), suffix.size(), suffix) == 0;
 }
 
 static inline std::string base_dir(const std::string& path) {
@@ -73,26 +35,69 @@ static inline std::string file_name(const std::string& path) {
     }
 }
 
+bool merge_json(rapidjson::Value& destination, const rapidjson::Value& source,
+                rapidjson::Document::AllocatorType& allocator) {
+    if (!source.IsObject() || !destination.IsObject()) {
+        return false;
+    }
+
+    for (auto it = source.MemberBegin(); it != source.MemberEnd(); ++it) {
+        const char* key = it->name.GetString();
+        if (destination.HasMember(key)) {
+            if (destination[key].IsObject() && it->value.IsObject()) {
+                // Recursively merge the two JSON objects
+                merge_json(destination[key], it->value, allocator);
+            } else {
+                // Overwrite the value in the destination
+                destination[key].CopyFrom(it->value, allocator);
+            }
+        } else {
+            // Add the value to the destination
+            rapidjson::Value newKey(key, allocator);
+            rapidjson::Value newValue;
+            newValue.CopyFrom(it->value, allocator);
+            destination.AddMember(newKey, newValue, allocator);
+        }
+    }
+    return true;
+}
+
 class rapid_json_wrapper {
 public:
-    Document document;
+    rapidjson::Document document;
     rapid_json_wrapper() {}
-    rapid_json_wrapper(Document doc) : document(std::move(doc)) {}
+    rapid_json_wrapper(rapidjson::Document doc) : document(std::move(doc)) {}
     static rapid_json_wrapper parse(const std::ifstream& ifile) {
         std::ostringstream ostr;
         ostr << ifile.rdbuf();
-        Document document;
+        rapidjson::Document document;
         document.Parse(ostr.str().c_str());
         rapid_json_wrapper json_wrapper(std::move(document));
         return json_wrapper;
     }
     static rapid_json_wrapper parse(const char* str) {
-        Document document;
+        rapidjson::Document document;
         document.Parse(str);
         rapid_json_wrapper json_wrapper(std::move(document));
         return json_wrapper;
     }
-
+    bool merge(const char* str) {
+        rapidjson::Document input_doc;
+        input_doc.Parse(str);
+        if (input_doc.HasParseError()) {
+            return false;
+        }
+        // merge
+        rapidjson::Document::AllocatorType& allocator = document.GetAllocator();
+        return merge_json(document, input_doc, allocator);
+    }
+    std::string dump() {
+        rapidjson::StringBuffer buffer;
+        rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+        document.Accept(writer);
+        return buffer.GetString();
+    }
+    // read value
     int value(const char* key, const int& default_value) const {
         if (document.HasMember(key)) {
             const auto& value = document[key];
@@ -218,6 +223,14 @@ public:
     int max_new_tokens() const {
         return config_.value("max_new_tokens", 512);
     }
+
+    bool reuse_kv() const {
+        return config_.value("reuse_kv", false);
+    }
+
+    int quant_kv() const {
+        return config_.value("quant_kv", 0);
+    }
     // generate config end >
 
     // < backend config start
@@ -272,90 +285,5 @@ public:
     }
     // llm model config end >
 };
-
-class MNN_PUBLIC Llm {
-    using PromptItem = std::pair<std::string, std::string>; // <role, content>
-public:
-    Llm(std::shared_ptr<LlmConfig> config) : config_(config) {}
-    virtual ~Llm();
-    static Llm* createLLM(const std::string& config_path);
-    void chat();
-    void trace(bool start);
-    virtual void load();
-    VARP forward(const std::vector<int>& input_ids);
-    int sample(VARP logits, const std::vector<int>& pre_ids);
-    std::string apply_prompt_template(const std::string& user_content) const;
-    std::string apply_chat_template(const std::vector<PromptItem>& chat_prompts) const;
-    std::string response(const std::string& user_content, std::ostream* os = &std::cout, const char* end_with = nullptr);
-    std::string response(const std::vector<PromptItem>& chat_prompts, std::ostream* os = &std::cout, const char* end_with = nullptr);
-    void generate_init();
-    std::string generate(const std::vector<int>& input_ids, std::ostream* os, const char* end_with);
-    std::vector<int> generate(const std::vector<int>& input_ids, int max_new_tokens = -1);
-    void print_speed();
-    friend class Pipeline;
-public:
-    // forward info
-    int prompt_len_ = 0;
-    int gen_seq_len_ = 0;
-    int all_seq_len_ = 0;
-    // time
-    int64_t prefill_us_ = 0;
-    int64_t decode_us_ = 0;
-    bool is_single_ = true;
-    std::shared_ptr<LlmConfig> config_;
-    std::unique_ptr<Tokenizer> tokenizer_;
-protected:
-    std::vector<int> key_value_shape_ = {};
-    std::vector<VARP> past_key_values_;
-    VARP inputs_embeds_, attention_mask_, position_ids_;
-    std::shared_ptr<Executor::RuntimeManager> runtime_manager_;
-    std::vector<std::shared_ptr<Module>> modules_;
-    std::vector<std::shared_ptr<Module>> decode_modules_;
-    std::vector<std::shared_ptr<Module>> prefill_modules_;
-    void init_runtime();
-    std::string decode(int id);
-    bool is_stop(int token_id);
-    virtual std::vector<int> tokenizer(const std::string& query);
-    virtual VARP embedding(const std::vector<int>& input_ids);
-    virtual VARP gen_attention_mask(int seq_len);
-    virtual VARP gen_position_ids(int seq_len);
-};
-
-class Lvlm : public Llm {
-public:
-    Lvlm(std::shared_ptr<LlmConfig> config) : Llm(config) {
-        img_size_ = config->llm_config_.value("img_size", img_size_);
-        imgpad_len_ = config->llm_config_.value("imgpad_len", imgpad_len_);
-        img_start_ = config->llm_config_.value("img_start", img_start_);
-        img_end_ = config->llm_config_.value("img_end", img_end_);
-        img_pad_ = config->llm_config_.value("img_pad", img_pad_);
-    }
-    ~Lvlm() { visual_module_.reset(); }
-    virtual void load() override;
-private:
-    int img_size_ = 448, imgpad_len_ = 256, img_start_ = 151857, img_end_ = 151858, img_pad_ = 151859;
-    std::shared_ptr<Module> visual_module_;
-    VARP visual_embedding(const std::vector<int>& input_ids);
-    std::vector<int> url_encode(const std::string& url);
-    virtual std::vector<int> tokenizer(const std::string& query) override;
-    virtual VARP embedding(const std::vector<int>& input_ids) override;
-};
-// Llm end
-
-// Embedding start
-class Embedding : public Llm {
-public:
-    Embedding(std::shared_ptr<LlmConfig> config) : Llm(config) {}
-    static Embedding* createEmbedding(const std::string& config_path);
-    static float dist(VARP var0, VARP var1);
-    virtual void load() override;
-    VARP embedding(const std::string& txt);
-    int dim() { return config_->hidden_size(); }
-private:
-    virtual std::vector<int> tokenizer(const std::string& query) override;
-    virtual VARP gen_attention_mask(int seq_len) override;
-    virtual VARP gen_position_ids(int seq_len) override;
-};
-// Embedding end
-
-#endif // LLM_hpp
+} // Transformer
+} // MNN

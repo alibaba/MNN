@@ -157,7 +157,8 @@ def generateOPENCLFile(rootDir):
     openclBufferDir = os.path.join(rootDir, "source", "backend", "opencl", "execution", "buffer")
     openclImageDir = os.path.join(rootDir, "source", "backend", "opencl", "execution", "image")
     openclRegFile = os.path.join(openclDir, "core", "OpenCLOPRegister.cpp")
-    opNames = []
+    opNamesImage = []
+    opNamesBuffer = []
     transformerNamse = []
     def collectFile(fileNames, dirname):
         end = '__IMAGE__'
@@ -179,8 +180,11 @@ def generateOPENCLFile(rootDir):
                     funcName = '___' + 'OpenCL' + l[0] + '__' + l[1] + end
                     if lo.find('REGISTER_OPENCL_OP_CREATOR_TRANSFORMER') >=0:
                         transformerNamse.append(funcName)
+                    elif end == '__IMAGE__':
+                        opNamesImage.append(funcName)
                     else:
-                        opNames.append(funcName)
+                        opNamesBuffer.append(funcName)
+                        
     bufferFileNames = os.listdir(openclBufferDir)
     print(bufferFileNames)
     collectFile(bufferFileNames, openclBufferDir)
@@ -194,7 +198,11 @@ def generateOPENCLFile(rootDir):
         f.write('#ifndef MNN_OPENCL_SEP_BUILD\n')
         f.write('namespace MNN {\n')
         f.write('namespace OpenCL {\n')
-        for l in opNames:
+        f.write('#ifndef ' + 'MNN_OPENCL_BUFFER_CLOSED' + '\n')
+        for l in opNamesBuffer:
+            f.write("extern void " + l + '();\n')
+        f.write('#endif\n')
+        for l in opNamesImage:
             f.write("extern void " + l + '();\n')
         f.write('\n')
         f.write('#ifdef ' + 'MNN_SUPPORT_TRANSFORMER_FUSE' + '\n')
@@ -202,8 +210,13 @@ def generateOPENCLFile(rootDir):
             f.write("extern void " + l + '();\n')
         f.write('#endif\n')
         f.write('void registerOpenCLOps() {\n')
-        for l in opNames:
-            f.write(l+'();\n')
+        f.write('#ifndef ' + 'MNN_OPENCL_BUFFER_CLOSED' + '\n')
+        for l in opNamesBuffer:
+            f.write(l + '();\n')
+        f.write('#endif\n')
+        for l in opNamesImage:
+            f.write(l + '();\n')
+        f.write('\n')
         f.write('#ifdef ' + 'MNN_SUPPORT_TRANSFORMER_FUSE' + '\n')
         for l in transformerNamse:
             f.write(l+'();\n')

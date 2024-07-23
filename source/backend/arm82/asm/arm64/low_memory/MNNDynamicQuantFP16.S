@@ -19,39 +19,39 @@
     fcvtas \z3\().8h, \z3\().8h
 .endm
 
-//void MNNDynamicQuantFP16(const float* src, int8_t* dst, const float* scale, float* sum, size_t src_depth_quad, size_t realSize)
+//void MNNDynamicQuantFP16(const float* src, int8_t* dst, const float* scale, size_t src_depth_quad, size_t realSize, int pack)
 asm_function MNNDynamicQuantFP16
 
-// x0: src, x1:dst, x2:scale, x3:sum, x4:src_depth_quad, x5:realSize
+// Feature: quant and reorder C8->C4
+
+// x0: src, x1:dst, x2:scale, x3:src_depth_quad, x4:realSize
 stp d14, d15, [sp, #(-16 * 4)]!
 stp d12, d13, [sp, #(16 * 1)]
 stp d10, d11, [sp, #(16 * 2)]
 stp d8,  d9,  [sp, #(16 * 3)]
 
 Start:
-lsl x6, x5, #3  // dst_step = batch * unit * sizeof(int8_t) = batch * 8 = batch << 3
-lsl x7, x6, #1  // src_step = dst_step * 2 (float16_t) = dst_step << 1
-
-movi v29.16b, #1
+lsl x6, x4, #3  // dst_step = batch * (2*unit) * sizeof(int8_t) = batch * 8 = batch << 3
+lsl x7, x4, #4  // src_step = batch * pack * sizeof(float16) = batch * 8 * 2 = batch << 4
+lsl x8, x4, #2  // 4 * plane
+add x11, x1, x8 // second N*4
 
 TILE_12:
-cmp x5, #12
+cmp x4, #12
 blt TILE_10
 mov x9, x0   // src
 mov x10, x1  // dst
-mov x12, x4  // src_depth_quad
+mov x15, x11 // second dst 
+mov x12, x3  // src_depth_quad
 sub x13, x7, #128 // src_step - 64
-sub x14, x6, #64 // dst_step - 64
 
-// quant_scale: v12, v13
-ld1 {v12.8h}, [x2], #16
-ld1 {v13.d}[0], [x2], #8
-movi v23.4s, #0
-movi v24.4s, #0
-movi v25.4s, #0
-movi v26.4s, #0
-movi v27.4s, #0
-movi v28.4s, #0
+// quant_scale: v12, v13, v14
+// ld1 {v12.8h}, [x2], #16
+// ld1 {v13.d}[0], [x2], #8
+ld1 {v12.4s, v13.4s, v14.4s}, [x2], #48
+fcvtn v12.4h, v12.4s
+fcvtn2 v12.8h, v13.4s
+fcvtn v13.4h, v14.4s
 
 LoopSz_12:
 ld1 {v0.8h, v1.8h, v2.8h, v3.8h}, [x9], #64
@@ -91,47 +91,47 @@ sqxtn2 v4.16b, v9.8h
 sqxtn v5.8b, v10.8h
 sqxtn2 v5.16b, v11.8h
 
-.inst 0x4e9d9417 // sdot v23.4s, v0.16b, v29.16b
-.inst 0x4e9d9438 // sdot v24.4s, v1.16b, v29.16b
-.inst 0x4e9d9459 // sdot v25.4s, v2.16b, v29.16b
-.inst 0x4e9d947a // sdot v26.4s, v3.16b, v29.16b
-.inst 0x4e9d949b // sdot v27.4s, v4.16b, v29.16b
-.inst 0x4e9d94bc // sdot v28.4s, v5.16b, v29.16b
+uzp1 v6.4s, v0.4s, v1.4s
+uzp1 v7.4s, v2.4s, v3.4s
+uzp1 v8.4s, v4.4s, v5.4s
+uzp2 v9.4s, v0.4s, v1.4s
+uzp2 v10.4s, v2.4s, v3.4s
+uzp2 v11.4s, v4.4s, v5.4s
 
-st1 {v0.16b, v1.16b, v2.16b, v3.16b}, [x10], #64
-st1 {v4.16b, v5.16b}, [x10], x14
+st1 {v6.16b, v7.16b, v8.16b}, [x10], x6
+st1 {v9.16b, v10.16b, v11.16b}, [x15], x6
+
+//st1 {v0.16b, v1.16b, v2.16b, v3.16b}, [x10], #64
+//st1 {v4.16b, v5.16b}, [x10], x14
 
 subs x12, x12, #1
 bne LoopSz_12
 
-addp v12.4s, v23.4s, v24.4s
-addp v13.4s, v25.4s, v26.4s
-addp v14.4s, v27.4s, v28.4s
-st1 {v12.4s, v13.4s, v14.4s}, [x3], #48
-
 Tile12End:
-sub x5, x5, #12   // batch -= 12
+sub x4, x4, #12   // batch -= 12
 add x0, x0, #192  // src += 12 * 8 * sizeof(float16_t)
-add x1, x1, #96   // dst += 12 * 8 * sizeof(int8_t)
+add x1, x1, #48   // dst += 12 * 4 * sizeof(int8_t)
+add x11, x11, #48
 b TILE_12
 
 TILE_10:
-cmp x5, #10
+cmp x4, #10
 blt TILE_8
 mov x9, x0   // src
 mov x10, x1  // dst
-mov x12, x4  // src_depth_quad
-sub x13, x7, #128 // src_step - 64
-sub x14, x6, #64 // dst_step - 64
+mov x15, x11 // second dst 
+mov x12, x3  // src_depth_quad
+sub x13, x7, #128 // src_step - 128
+sub x14, x6, #32 // dst_step - 32
 
 // quant_scale: v10, v11
-ld1 {v10.8h}, [x2], #16
-ld1 {v11.s}[0], [x2], #4
-movi v24.4s, #0
-movi v25.4s, #0
-movi v26.4s, #0
-movi v27.4s, #0
-movi v28.4s, #0
+//ld1 {v10.8h}, [x2], #16
+//ld1 {v11.s}[0], [x2], #4
+ld1 {v12.4s, v13.4s}, [x2], #32
+ld1 {v14.d}[0], [x2], #8
+fcvtn v10.4h, v12.4s
+fcvtn2 v10.8h, v13.4s
+fcvtn v11.4h, v14.4s
 
 LoopSz_10:
 ld1 {v0.8h, v1.8h, v2.8h, v3.8h}, [x9], #64
@@ -168,45 +168,45 @@ sqxtn2 v3.16b, v7.8h
 sqxtn v4.8b, v8.8h
 sqxtn2 v4.16b, v9.8h
 
-.inst 0x4e9d9418 // sdot v24.4s, v0.16b, v29.16b
-.inst 0x4e9d9439 // sdot v25.4s, v1.16b, v29.16b
-.inst 0x4e9d945a // sdot v26.4s, v2.16b, v29.16b
-.inst 0x4e9d947b // sdot v27.4s, v3.16b, v29.16b
-.inst 0x4e9d949c // sdot v28.4s, v4.16b, v29.16b
+uzp1 v6.4s, v0.4s, v1.4s // 0 1 2 3
+uzp1 v7.4s, v2.4s, v3.4s // 4 5 6 7
+uzp1 v8.4s, v4.4s, v4.4s // 8 9 8 9
+uzp2 v12.4s, v0.4s, v1.4s
+uzp2 v13.4s, v2.4s, v3.4s
+uzp2 v14.4s, v4.4s, v4.4s
+st1 {v6.16b, v7.16b}, [x10], #32
+st1 {v8.d}[0], [x10], x14
+st1 {v12.16b, v13.16b}, [x15], #32
+st1 {v14.d}[0], [x15], x14
 
-st1 {v0.16b, v1.16b, v2.16b, v3.16b}, [x10], #64
-st1 {v4.16b}, [x10], x14
+// st1 {v0.16b, v1.16b, v2.16b, v3.16b}, [x10], #64
+// st1 {v4.16b}, [x10], x14
 
 subs x12, x12, #1
 bne LoopSz_10
 
-addp v13.4s, v24.4s, v25.4s
-addp v14.4s, v26.4s, v27.4s
-addp v15.4s, v28.4s, v28.4s
-st1 {v13.4s, v14.4s}, [x3], #32
-st1 {v15.d}[0], [x3], #8
-
 Tile10End:
-sub x5, x5, #10   // batch -= 10
+sub x4, x4, #10   // batch -= 10
 add x0, x0, #160  // src += 10 * 8 * sizeof(float16_t)
-add x1, x1, #80   // dst += 10 * 8 * sizeof(int8_t)
+add x1, x1, #40   // dst += 10 * 4 * sizeof(int8_t)
+add x11, x11, #40
 b TILE_10
 
 
 TILE_8:
-cmp x5, #8
+cmp x4, #8
 blt TILE_1
 sub x8, x7, #64 // src_step - 64
 mov x9, x0   // src
 mov x10, x1  // dst
-mov x12, x4  // src_depth_quad
+mov x15, x11 // second dst 
+mov x12, x3  // src_depth_quad
 
 // quant_scale: v8
-ld1 {v8.8h}, [x2], #16
-movi v25.4s, #0
-movi v26.4s, #0
-movi v27.4s, #0
-movi v28.4s, #0
+//ld1 {v8.8h}, [x2], #16
+ld1 {v12.4s, v13.4s}, [x2], #32
+fcvtn v8.4h, v12.4s
+fcvtn2 v8.8h, v13.4s
 
 LoopSz_8:
 ld1 {v0.8h, v1.8h, v2.8h, v3.8h}, [x9], #64
@@ -236,37 +236,36 @@ sqxtn2 v11.16b, v5.8h
 sqxtn v12.8b, v6.8h
 sqxtn2 v12.16b, v7.8h
 
-.inst 0x4e9d9539 // sdot v25.4s, v9.16b, v29.16b
-.inst 0x4e9d955a // sdot v26.4s, v10.16b, v29.16b
-.inst 0x4e9d957b // sdot v27.4s, v11.16b, v29.16b
-.inst 0x4e9d959c // sdot v28.4s, v12.16b, v29.16b
-
-st1 {v9.16b, v10.16b, v11.16b, v12.16b}, [x10], x6
+uzp1 v6.4s, v9.4s, v10.4s // 0 1 2 3 first
+uzp1 v7.4s, v11.4s, v12.4s // 4 5 6 7
+uzp2 v14.4s, v9.4s, v10.4s // 0 1 2 3 second
+uzp2 v15.4s, v11.4s, v12.4s // 4 5 6 7
+st1 {v6.16b, v7.16b}, [x10], x6
+st1 {v14.16b, v15.16b}, [x15], x6
+//st1 {v9.16b, v10.16b, v11.16b, v12.16b}, [x10], x6
 
 subs x12, x12, #1
 bne LoopSz_8
 
-addp v14.4s, v25.4s, v26.4s
-addp v15.4s, v27.4s, v28.4s
-st1 {v14.4s, v15.4s}, [x3], #32
-
 Tile8End:
-sub x5, x5, #8    // batch -= 8
+sub x4, x4, #8    // batch -= 8
 add x0, x0, #128  // src += 8 * 8 * sizeof(float16_t)
-add x1, x1, #64   // dst += 8 * 8 * sizeof(int8_t)
+add x1, x1, #32   // dst += 8 * 4 * sizeof(int8_t)
+add x11, x11, #32
 b TILE_8
 
 TILE_4:
-cmp x5, #4
+cmp x4, #4
 blt TILE_2
 mov x9, x0   // src
 mov x10, x1  // dst
-mov x12, x4  // src_depth_quad
+mov x15, x11 // second dst 
+mov x12, x3  // src_depth_quad
 
 // quant_scale: v8
-ld1 {v8.d}[0], [x2], #8
-movi v27.4s, #0
-movi v28.4s, #0
+//ld1 {v8.d}[0], [x2], #8
+ld1 {v12.4s}, [x2], #16
+fcvtn v8.4h, v12.4s
 
 LoopSz_4:
 ld1 {v0.8h, v1.8h, v2.8h, v3.8h}, [x9], x7
@@ -286,34 +285,35 @@ sqxtn2 v4.16b, v1.8h
 sqxtn v5.8b, v2.8h
 sqxtn2 v5.16b, v3.8h
 
-.inst 0x4e9d949b // sdot v27.4s, v4.16b, v29.16b
-.inst 0x4e9d94bc // sdot v28.4s, v5.16b, v29.16b
-
-st1 {v4.16b, v5.16b}, [x10], x6
+uzp1 v6.4s, v4.4s, v5.4s // 0 1 2 3 first
+uzp2 v14.4s, v4.4s, v5.4s // 0 1 2 3 second
+st1 {v6.16b}, [x10], x6
+st1 {v14.16b}, [x15], x6
+//st1 {v4.16b, v5.16b}, [x10], x6
 
 subs x12, x12, #1
 bne LoopSz_4
 
-addp v26.4s, v27.4s, v28.4s
-st1 {v26.4s}, [x3], #16
-
 Tile4End:
-sub x5, x5, #4    // batch -= 4
+sub x4, x4, #4    // batch -= 4
 add x0, x0, #64   // src += 4 * 8 * sizeof(float16_t)
-add x1, x1, #32   // dst += 4 * 8 * sizeof(int8_t)
+add x1, x1, #16   // dst += 4 * 4 * sizeof(int8_t)
+add x11, x11, #16
 b TILE_4
 
 
 TILE_2:
-cmp x5, #2
+cmp x4, #2
 blt TILE_1
 mov x9, x0   // src
 mov x10, x1  // dst
-mov x12, x4  // src_depth_quad
+mov x15, x11 // second dst 
+mov x12, x3  // src_depth_quad
 
 // quant_scale: v8
-ld1 {v8.s}[0], [x2], #4
-movi v28.4s, #0
+//ld1 {v8.s}[0], [x2], #4
+ld1 {v12.d}[0], [x2], #8
+fcvtn v8.4h, v12.4s
 
 LoopSz_2:
 ld1 {v0.8h, v1.8h}, [x9], x7
@@ -329,33 +329,34 @@ fcvtas v1.8h, v1.8h
 // y = (int8_t)x
 sqxtn v2.8b, v0.8h
 sqxtn2 v2.16b, v1.8h
-.inst 0x4e9d945c // sdot v28.4s, v2.16b, v29.16b
 
-st1 {v2.16b}, [x10], x6
+st1 {v2.d}[0], [x10], x6
+st1 {v2.d}[1], [x15], x6
+//st1 {v2.16b}, [x10], x6
 
 subs x12, x12, #1
 bne LoopSz_2
 
-addp v27.4s, v28.4s, v28.4s
-st1 {v27.d}[0], [x3], #8
-
 Tile2End:
-sub x5, x5, #2    // batch -= 2
+sub x4, x4, #2    // batch -= 2
 add x0, x0, #32   // src += 2 * 8 * sizeof(float16_t)
-add x1, x1, #16   // dst += 2 * 8 * sizeof(int8_t)
+add x1, x1, #8   // dst += 2 * 4 * sizeof(int8_t)
+add x11, x11, #8
 b TILE_2
 
 
 TILE_1:
-cmp x5, #1
+cmp x4, #1
 blt End
 mov x9, x0   // src
 mov x10, x1  // dst
-mov x12, x4  // src_depth_quad
+mov x15, x11 // second dst 
+mov x12, x3  // src_depth_quad
 
 // quant_scale: v8
-ld1 {v8.h}[0], [x2], #2
-movi v28.4s, #0
+//ld1 {v8.h}[0], [x2], #2
+ld1 {v12.s}[0], [x2], #4
+fcvtn v8.4h, v12.4s
 
 LoopSz_1:
 ld1 {v0.8h}, [x9], x7
@@ -366,20 +367,18 @@ fmul v0.8h, v0.8h, v8.h[0]
 fcvtas v0.8h, v0.8h
 // y = (int8_t)x
 sqxtn v0.8b, v0.8h
-.inst 0x4e9d941c // sdot v28.4s, v0.16b, v29.16b
 
-st1 {v0.8b}, [x10], x6
+st1 {v0.s}[0], [x10], x6
+st1 {v0.s}[1], [x15], x6
 
 subs x12, x12, #1
 bne LoopSz_1
 
-addp v27.4s, v28.4s, v28.4s
-st1 {v27.s}[0], [x3], #4
-
 Tile1End:
-sub x5, x5, #1   // batch -= 1
+sub x4, x4, #1   // batch -= 1
 add x0, x0, #16  // src += 1 * 8 * sizeof(float16_t)
-add x1, x1, #8   // dst += 1 * 8 * sizeof(int8_t)
+add x1, x1, #4   // dst += 1 * 4 * sizeof(int8_t)
+add x11, x11, #4
 b TILE_1
 
 

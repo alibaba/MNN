@@ -96,7 +96,7 @@ loop_e8:
     ldr r5, [sp, #(push_registers_bytes + 4)]
     ldr r6, [sp, #(push_registers_bytes + 8)]
     ldr r7, [r4]
-    ldr r8, [r4, #4]
+    ldr r8, [r4, #44]
     push {r0-r2, r10}
     ldr r10, [r3, #20] // cStride
     ldr lr, [r6], #4 // dataOffset
@@ -175,7 +175,7 @@ loop_e4:
     ldr r5, [sp, #(push_registers_bytes + 4)]
     ldr r6, [sp, #(push_registers_bytes + 8)]
     ldr r7, [r4]
-    ldr r8, [r4, #4]
+    ldr r8, [r4, #44]
     push {r0-r2, r10}
     ldr r10, [r3, #20] // cStride
     ldr lr, [r6], #4 // dataOffset
@@ -233,7 +233,7 @@ loop_e2:
     ldr r5, [sp, #(push_registers_bytes + 4)]
     ldr r6, [sp, #(push_registers_bytes + 8)]
     ldr r7, [r4]
-    ldr r8, [r4, #4]
+    ldr r8, [r4, #44]
     push {r0-r2, r10}
     ldr r10, [r3, #20] // cStride
     ldr lr, [r6], #4 // dataOffset
@@ -294,7 +294,7 @@ loop_e1:
     ldr r5, [sp, #(push_registers_bytes + 4)]
     ldr r6, [sp, #(push_registers_bytes + 8)]
     ldr r7, [r4]
-    ldr r8, [r4, #4]
+    ldr r8, [r4, #44]
     push {r0-r2, r10}
     ldr r10, [r3, #20] // cStride
     ldr lr, [r6], #4 // dataOffset

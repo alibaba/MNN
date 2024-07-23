@@ -6,7 +6,6 @@
 //  Created by MNN on 2024/06/26.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
-#ifndef MNN_OPENCL_BUFFER_CLOSED
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
 
 #include "backend/opencl/execution/buffer/SplitGeluBufExecution.hpp"
@@ -96,8 +95,7 @@ public:
     }
 };
 
-REGISTER_OPENCL_OP_CREATOR(SplitGeluBufCreator, OpType_SplitGeLU, BUFFER);
+REGISTER_OPENCL_OP_CREATOR_TRANSFORMER(SplitGeluBufCreator, OpType_SplitGeLU, BUFFER);
 } // namespace OpenCL
 } // namespace MNN
 #endif/* MNN_SUPPORT_TRANSFORMER_FUSE */
-#endif/* MNN_OPENCL_BUFFER_CLOSED */
