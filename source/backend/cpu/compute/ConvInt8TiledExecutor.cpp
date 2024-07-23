@@ -37,21 +37,21 @@ ErrorCode ConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& inputs, co
     return NO_ERROR;
 }
 
-void ConvInt8TiledExecutor::reorderWeight(Tensor* weight, const uint8_t* weightSrc, int SRC_UNIT, int UNIT, int ic, int oc, int kernelCount) {
+void ConvInt8TiledExecutor::reorderWeight(Tensor* weight, const uint8_t* weightSrc, int SRC_UNIT, int UNIT, int ic, int oc, int kernelCount, int pack) {
     auto weightDst = weight->host<uint8_t>();
     memset(weightDst, 0, weight->size());
-    if (SRC_UNIT > UNIT) {
-        auto icDivU = UP_DIV(ic, UNIT);
+    if (SRC_UNIT > pack) {
+        auto icDivU = UP_DIV(ic, pack);
         for (int k = 0; k < kernelCount; ++k) {
             const auto srcK = weightSrc + k;
             for (int y = 0; y < ic; ++y) {
-                const int yOutSide    = y / UNIT;
-                const int yInSide     = y % UNIT;
+                const int yOutSide    = y / pack;
+                const int yInSide     = y % pack;
                 const int yIndex      = yOutSide + k * icDivU;
-                const int ySubOutSide = yIndex / (SRC_UNIT / UNIT);
-                const int ySubInSide  = yIndex % (SRC_UNIT / UNIT);
+                const int ySubOutSide = yIndex / (SRC_UNIT / pack);
+                const int ySubInSide  = yIndex % (SRC_UNIT / pack);
 
-                auto dstY       = weightDst + ySubOutSide * weight->stride(1) + ySubInSide * UNIT + yInSide;
+                auto dstY       = weightDst + ySubOutSide * weight->stride(1) + ySubInSide * pack + yInSide;
                 const auto srcY = srcK + y * kernelCount;
                 for (int x = 0; x < oc; ++x) {
                     const int xOutSide = x / UNIT;
@@ -94,9 +94,13 @@ static bool _reorderWeightInside(Backend* bn, const Convolution2DCommon* common,
     // reorder weight, [oc, ic, k^2] => [oc/unit, ((ic/unit)*k^2)/(src_unit/unit), unit(oc), (src_unit/unit), unit(ic)]
     int oc = common->outputCount(), ic = common->inputCount(), kernelCount = common->kernelX() * common->kernelY();
     std::vector<int> shape;
-    if (SRC_UNIT > UNIT) {
+    int pack = gcore->pack;
+    if (gcore->bytes == 2 && gcore->pack == 8) {
+        pack = 4;
+    }
+    if (SRC_UNIT > pack) {
         MNN_ASSERT(SRC_UNIT % UNIT == 0);
-        shape = {UP_DIV(oc, UNIT), UP_DIV(UP_DIV(ic, UNIT) * kernelCount, SRC_UNIT / UNIT), UNIT, SRC_UNIT};
+        shape = {UP_DIV(oc, UNIT), UP_DIV(UP_DIV(ic, pack) * kernelCount, SRC_UNIT / pack), UNIT, SRC_UNIT};
     } else {
         shape = {UP_DIV(oc, UNIT), UP_DIV(ic, SRC_UNIT) * kernelCount, UNIT, SRC_UNIT};
     }
@@ -108,7 +112,7 @@ static bool _reorderWeightInside(Backend* bn, const Convolution2DCommon* common,
         MNN_ERROR("Memory not enough");
         return false;
     }
-    ConvInt8TiledExecutor::reorderWeight(weight.get(), weightOrigin->host<uint8_t>(), SRC_UNIT, UNIT, ic, oc, kernelCount);
+    ConvInt8TiledExecutor::reorderWeight(weight.get(), weightOrigin->host<uint8_t>(), SRC_UNIT, UNIT, ic, oc, kernelCount, pack);
     return true;
 }
 

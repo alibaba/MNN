@@ -82,12 +82,12 @@ ErrorCode GemmInt8Executor::onResize(const std::vector<Tensor *> &inputs, const 
     mIm2ColParamter.padX            = 0;
     mIm2ColParamter.padY            = 0;
     mIm2ColParamter.kernelCountUnit = UP_DIV(input->channel(), SRC_UNIT);
-    if (SRC_UNIT > UNIT___) {
+    if (SRC_UNIT > UNIT___ && UNIT___ == pack) {
         const auto srcCountUnit = UP_DIV(input->channel(), pack);
         mIm2ColParamter.ic = mIm2ColParamter.icDiv4 * pack;
     } else {
         const auto srcCountUnit = UP_DIV(input->channel(), SRC_UNIT);
-        mIm2ColParamter.ic = srcCountUnit * SRC_UNIT;
+        mIm2ColParamter.ic = mIm2ColParamter.icDiv4 * pack;
     }
 
     mTileCnt = UP_DIV(input->height() * input->width() * input->batch(), DST_XUNIT);
