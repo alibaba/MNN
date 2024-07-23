@@ -301,6 +301,10 @@ DeferBufferAllocator::DeferBufferAllocator(std::shared_ptr<Allocator> parent, si
 
 //------------------------------- DeferBufferAllocator -----------------------------------//
 MemChunk DeferBufferAllocator::alloc(size_t size, bool separate, size_t align) {
+    if (0 == align) {
+        align = mAlign;
+    }
+    size = UP_DIV(size, align) * align;
     if (mFreeList.empty() || separate) {
         auto newChunk = createMemNode(size);
         insert_after(newChunk);

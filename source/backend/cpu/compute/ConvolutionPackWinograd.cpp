@@ -215,6 +215,10 @@ WinogradConfig ConvolutionPackWinograd::bestWinogradUnit(const Convolution2DComm
 
 ErrorCode ConvolutionPackWinograd::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     CPUConvolution::onResize(inputs, outputs);
+    int threadNumber = ((CPUBackend*)(backend()))->threadNumber();
+    mTempBuffer->setLength(0, threadNumber);
+    mGemmMidBuffer->setLength(0, threadNumber);
+    mTransformMidBuffer->setLength(0, threadNumber);
     // FUNC_PRINT(mA->length(1));
     bool success = backend()->onAcquireBuffer(mTempBuffer.get(), Backend::DYNAMIC);
     success      = success && backend()->onAcquireBuffer(mGemmMidBuffer.get(), Backend::DYNAMIC);
@@ -256,7 +260,6 @@ ErrorCode ConvolutionPackWinograd::onResize(const std::vector<Tensor *> &inputs,
 
     auto totalCount   = wUnit * hUnit * batch;
     // MNN_PRINT("ow=%d, oh=%d\n", ow, oh);
-    int threadNumber = ((CPUBackend*)(backend()))->threadNumber();
     
     std::vector<int> divides(threadNumber+1);
     static_cast<const CPURuntime*>( static_cast<CPUBackend*>(backend())->getRuntime())->computeDivideSizes(totalCount, divides.data()+1);
