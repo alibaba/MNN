@@ -144,7 +144,7 @@ void Llm::load() {
         MNN_PRINT("Done!\n");
     } else {
         // load split models
-        modules_.resize(layer_nums + 2);
+        modules_.resize(layer_nums + 1);
         // load lm model
         modules_[layer_nums].reset(Module::load({}, {}, config_->lm_model().c_str(), runtime_manager_, &module_config));
         // load block models
@@ -279,7 +279,7 @@ void Llm::chat() {
     while (true) {
         std::cout << "\nQ: ";
         std::string user_str;
-        std::cin >> user_str;
+        std::getline(std::cin, user_str);
         if (user_str == "/exit") {
             break;
         }
@@ -414,9 +414,9 @@ std::string Llm::response(const std::vector<PromptItem>& chat_prompts, std::ostr
     if (config_->reuse_kv() && all_seq_len_ > 0) {
         prompt = "<|im_end|>\n" + prompt;
     }
-    std::cout << "# prompt : " << prompt << std::endl;
+    // std::cout << "# prompt : " << prompt << std::endl;
     auto input_ids = tokenizer_->encode(prompt);
-    printf("input_ids (%lu): ", input_ids.size()); for (auto id : input_ids) printf("%d, ", id); printf("\n");
+    // printf("input_ids (%lu): ", input_ids.size()); for (auto id : input_ids) printf("%d, ", id); printf("\n");
     return generate(input_ids, os, end_with);
 }
 

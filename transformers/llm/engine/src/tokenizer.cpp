@@ -141,26 +141,26 @@ void Tokenizer::load_special(std::ifstream& tok_file) {
     int special_num, stop_num, prefix_num;
     line_str >> special_num >> stop_num >> prefix_num;
     std::getline(tok_file, line);
-    std::istringstream specail_line(line);
+    std::istringstream special_line(line);
     if (special_num) {
         // load special tokens
         special_tokens_.resize(special_num);
         for (int i = 0; i < special_num; i++) {
-            specail_line >> special_tokens_[i];
+            special_line >> special_tokens_[i];
         }
     }
     if (stop_num) {
         // load stop tokens
         stop_tokens_.resize(stop_num);
         for (int i = 0; i < stop_num; i++) {
-            specail_line >> stop_tokens_[i];
+            special_line >> stop_tokens_[i];
         }
     }
     if (prefix_num) {
         // load prefix tokens
         prefix_tokens_.resize(prefix_num);
         for (int i = 0; i < prefix_num; i++) {
-            specail_line >> prefix_tokens_[i];
+            special_line >> prefix_tokens_[i];
         }
     }
 }

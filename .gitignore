@@ -360,3 +360,6 @@ pymnn_build/
 
 # mnncompress generated
 MNN_compression_pb2.py
+
+# models
+model/

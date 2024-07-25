@@ -11,6 +11,7 @@ import onnxruntime as ort
 import sentencepiece as spm
 from transformers import AutoModel, AutoModelForCausalLM, AutoTokenizer
 from peft import LoraConfig, TaskType, get_peft_model, PeftModel
+import shutil
 try:
     import _tools as MNNTools
 except:
@@ -290,6 +291,9 @@ class LLM(torch.nn.Module):
             buffer = (ctypes.c_byte * (tensor_data.numel() * 2)).from_address(data_ptr)
             with open(f'./{self.onnx_path}/embeddings_bf16.bin', 'wb') as f:
                 f.write(buffer)
+            if self.export_mnn:
+                shutil.copy(f'./{self.onnx_path}/embeddings_bf16.bin',
+                            f'./{self.mnn_path}/embeddings_bf16.bin')
             return
         input_ids = torch.arange(3, dtype=torch.long)
         onnx_model = f'./{self.onnx_path}/embedding.onnx'
@@ -361,6 +365,9 @@ class LLM(torch.nn.Module):
         self.llm_config['is_single'] = is_single
         with open(f'./{self.onnx_path}/llm_config.json', 'w', encoding='utf-8') as f:
             json.dump(self.llm_config, f, ensure_ascii=False, indent=4)
+        if self.export_mnn:
+            shutil.copy(f'./{self.onnx_path}/llm_config.json',
+                        f'./{self.mnn_path}/llm_config.json')
 
     def export(self):
         model = self
@@ -542,6 +549,9 @@ class LLM(torch.nn.Module):
                 for v in vocab_list:
                     line = base64.b64encode(v.encode('utf-8')).decode("utf8") + "\n"
                     fp.write(line)
+        if self.export_mnn:
+            shutil.copy(os.path.join(self.onnx_path, "tokenizer.txt"),
+                        os.path.join(self.mnn_path, "tokenizer.txt"))
 
 # chatglm
 class GLMBlock(torch.nn.Module):
