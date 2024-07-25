@@ -117,7 +117,15 @@ opConverter ==> MNN Converter NOT_SUPPORTED_OP: [ ANY_OP_NAME ]
 临时解决方案：升级 numpy 版本到 1.20.0 或以上
 
 ## 运行问题
-### 运行结果出错 / Tensor 的 elementSize 不为各维度乘积
+### 运行结果出错
+- 先使用 testMNNFromOnnx.py 等测试工具进行测试，具体参见模型转换工具的正确性校验部分
+- 测试工具验证正确，但运行代码结果出错，可能是如下原因：
+    1. 使用 Session API 运行不满足运行条件的模型，此时应换用 Module API
+    2. 输入的内存布局不对
+    3. 输入数据格式不对，int64 需要换成 int32_t ，double 需要换成 float
+
+
+### 布局转换问题(Tensor 的 elementSize 不为各维度乘积)
 MNN 内部对 CV 相关算子采用 NC4HW4 布局，计算 elementSize 时，channel 会上对齐到 4 返回，此内存布局允许实现的硬件自行确定内存排列方式，具体方式不对用户可见，但用户可以通过如下代码，输入或获取自己指定的NCHW / NHWC 内存布局的 Tensor / VARP。
 
 #### Interpreter-Session API
@@ -236,6 +244,9 @@ OpenCL / Vulkan 采用静态变量自注册的方式往 MNN 主库注册后端. 
    - 通过设置platformSize、platformId、deviceId参数来进行指定
    - 目前支持OpenCL和CUDA后端进行设置
    - 具体可以参考：tools/cpp/testModel.cpp
+
+### Register 相关内存泄露说明
+用 valgrind 工具检查时会报 MNN Register 相关的内存泄露，这个属于一次性的初始化内存，后续也不会增加，可视为误报
 
 
 ## 性能相关
