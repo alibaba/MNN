@@ -1,4 +1,14 @@
 cmake_minimum_required(VERSION 3.0)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17 -std=gnu++17")
+
+add_library(StateCacheManager STATIC source/core/StateCacheManager.cpp)
+
+
 # Versioning stuff
 file(STRINGS "${CMAKE_CURRENT_LIST_DIR}/include/MNN/MNNDefine.h" MNN_DEFINE)
 string(REGEX MATCH "MNN_VERSION_MAJOR [0-9]+" MNN_VERSION_MAJOR_DEFINE ${MNN_DEFINE})

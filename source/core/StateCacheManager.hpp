@@ -13,16 +13,65 @@
 #include <queue>
 #include <unordered_map>
 #include <memory>
-#include <optional>
 #include <cassert>
 #include <MNN/Tensor.hpp>
+#include <iostream>
+#include <functional> 
 
 namespace PagedAttention {
+
+template<typename T>
+class Optional {
+public:
+    Optional() : m_value(nullptr) {}
+
+    explicit Optional(T value) : m_value(new T(value)) {}
+
+    ~Optional() {
+        delete m_value;
+    }
+
+    bool hasValue() const {
+        return m_value != nullptr;
+    }
+
+    T& value() {
+        if (!hasValue()) {
+            throw std::runtime_error("Optional does not contain a value.");
+        }
+        return *m_value;
+    }
+
+    const T& value() const {
+        if (!hasValue()) {
+            throw std::runtime_error("Optional does not contain a value.");
+        }
+        return *m_value;
+    }
+
+    T* operator->() {
+        if (!hasValue()) {
+            throw std::runtime_error("Optional does not contain a value.");
+        }
+        return m_value;
+    }
+
+    const T* operator->() const {
+        if (!hasValue()) {
+            throw std::runtime_error("Optional does not contain a value.");
+        }
+        return m_value;
+    }
+
+private:
+    T* m_value;
+};
+
 
 // 2.1 StateCacheBlock
 struct StateCacheBlock {
     std::vector<int> ref_ids; // IDs of samples using this block
-    std::optional<int> slot_end; // Index pointing to the next empty slot, or empty if full
+    Optional<int> slot_end; // Index pointing to the next empty slot, or empty if full
     std::shared_ptr<MNN::Tensor*> slots; // Tensor holding the KV cache data
 };
 
@@ -37,7 +86,7 @@ struct StateCache {
     // Dynamic structure for in-memory blocks with minimal ref_ids size for eviction
     std::priority_queue<std::shared_ptr<StateCacheBlock>, std::vector<std::shared_ptr<StateCacheBlock>>, 
                         std::function<bool(const std::shared_ptr<StateCacheBlock>&, const std::shared_ptr<StateCacheBlock>&)>> 
-        inMemBlockList {[](const auto& a, const auto& b) { return a->ref_ids.size() > b->ref_ids.size(); }};
+        inMemBlockList {[](const std::shared_ptr<StateCacheBlock>& a, const std::shared_ptr<StateCacheBlock>& b) { return a->ref_ids.size() > b->ref_ids.size(); }};
 
     // Linked list of blocks currently being used for computation
     std::list<std::shared_ptr<StateCacheBlock>> computeCacheBlockList;
@@ -52,34 +101,34 @@ public:
     StateCache state_cache;
 
     // Enlarge the memory cache
-    virtual bool enlargeMemCache(size_t size) = 0;
+    bool enlargeMemCache(size_t size);
 
     // Enlarge the file cache
-    virtual bool enlargeFileCache(size_t size) = 0;
+    bool enlargeFileCache(size_t size);
 
     // Release the memory cache
-    virtual void releasesMemCache() = 0;
+    void releasesMemCache();
 
     // Release the file cache
-    virtual void releaseFileCache() = 0;
+    void releaseFileCache();
 
     // Evict a block
-    virtual std::shared_ptr<StateCacheBlock> evictBlock(const std::vector<std::shared_ptr<StateCacheBlock>>& pin_block_list) = 0;
+    std::shared_ptr<StateCacheBlock> evictBlock(const std::vector<std::shared_ptr<StateCacheBlock>>& pin_block_list);
 
     // Get a free pointer
-    virtual std::shared_ptr<StateCacheBlock> getFreePtr(const std::vector<std::shared_ptr<StateCacheBlock>>& evict_pin_block_list) = 0;
+    std::shared_ptr<StateCacheBlock> getFreePtr(const std::vector<std::shared_ptr<StateCacheBlock>>& evict_pin_block_list);
 
     // Recover a block from the file
-    virtual void recoverBlock(std::shared_ptr<StateCacheBlock> block_ptr, const std::vector<std::shared_ptr<StateCacheBlock>>& pin_block_list) = 0;
+    void recoverBlock(std::shared_ptr<StateCacheBlock> block_ptr, const std::vector<std::shared_ptr<StateCacheBlock>>& pin_block_list);
 
     // Desert a block
-    virtual void desertBlock(int ref_id, std::shared_ptr<StateCacheBlock> block_ptr) = 0;
+    void desertBlock(int ref_id, std::shared_ptr<StateCacheBlock> block_ptr);
 
     // Copy a block
-    virtual std::shared_ptr<StateCacheBlock> copyBlock(int ref_id, std::shared_ptr<StateCacheBlock> block_ptr) = 0;
+    std::shared_ptr<StateCacheBlock> copyBlock(int ref_id, std::shared_ptr<StateCacheBlock> block_ptr);
 
     // Prepare attention
-    virtual void prepareAttn(int ref_id, const std::vector<std::shared_ptr<StateCacheBlock>>& argv) = 0;
+    void prepareAttn(int ref_id, const std::vector<std::shared_ptr<StateCacheBlock>>& argv);
 };
 
 } // namespace PagedAttention
