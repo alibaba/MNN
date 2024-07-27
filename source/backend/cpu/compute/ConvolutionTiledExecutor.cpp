@@ -122,7 +122,12 @@ void ConvolutionTiledExecutor:: setIm2ColParameter(ConvolutionCommon::Im2ColPara
         int UNIT, SRC_UNIT, DynamicDestUnit;
         auto core = int8Core;
         core->MNNGetGemmUnit(&UNIT, &SRC_UNIT, &DynamicDestUnit);
-        if (SRC_UNIT > pack) {
+        if (floatCore->bytes == 2 && DynamicDestUnit == 20) {
+            UNIT = 8;
+            SRC_UNIT= 8;
+            DynamicDestUnit = 10;
+        }
+        if (SRC_UNIT > UNIT) {
             const auto srcCountUnit = UP_DIV(input->channel(), pack);
             dstIm2ColParamter.kernelCountUnit = UP_DIV(srcCountUnit * kernelCount, SRC_UNIT / pack);
             dstIm2ColParamter.ic = dstIm2ColParamter.icDiv4 * pack;

@@ -365,6 +365,9 @@ set(MNN_TARGETS "")
 
 # Core
 FILE(GLOB MNN_Core_SRC ${CMAKE_CURRENT_LIST_DIR}/source/core/*)
+message("\n\n")
+message(${MNN_Core_SRC})
+message("\n\n")
 add_library(MNNCore OBJECT ${MNN_Core_SRC})
 list(APPEND MNN_OBJECTS_TO_LINK $<TARGET_OBJECTS:MNNCore>)
 list(APPEND MNN_TARGETS MNNCore)
