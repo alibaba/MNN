@@ -1,41 +1,56 @@
-#include "core/StateCacheManager.hpp"
 #include <cstdio>
 #include <fcntl.h> // For O_RDWR, O_CREAT, etc.
 #include <sys/stat.h> // For S_IRUSR, S_IWUSR
 #include <sys/types.h> // For mode_t
 #include <unistd.h> // For open, ftruncate, close, pread, pwrite
 #include <cstring>
+#include <algorithm>
+
+#include "core/StateCacheManager.hpp"
 
 namespace MNN {
 
 StateCacheBlock::StateCacheBlock(std::vector<int> ref_ids, int blok_size, int slot_num) : mRefIds(ref_ids), mBlockSize(blok_size), mSlotNum(slot_num) {
-    mBackend.reset(ExecutorScope::Current()->getAttr()->constantBackend);
     mTensors.resize(mBlockSize);    
+    mTensorSize.resize(mBlockSize);
 }
 // add and get Tensor
 void StateCacheBlock::setTensor(int tId, Tensor* tensor) {
     mTensors[tId] = tensor;
 }
+void StateCacheBlock::setTensorSize(int tId, int tensor_size) {
+    mTensorSize[tId] = tensor_size;
+}
 // manage pointers and offsets
-bool onAllocatePtr(uint8_t* ptr) {
-    for (auto tensor : mTensors) {
+bool StateCacheBlock::onAllocatePtr(uint8_t* ptr) {
+    for (int i=0; i < mTensors.size(); ++i) {
         // 1. allocate
-        tensor->buffer().host = ptr;
+        mTensors[i]->buffer().host = ptr;
         // 2. add the tensor size to ptr. 
-        pointer += mBackend->getTensorSize(tensor, true);
+        ptr += mTensorSize[i];
     }
 }
-bool onAllocateOffset(size_t offset) {
-    for (auto tensor : mTensors) {
+bool StateCacheBlock::onAllocateOffset(size_t offset) {
+    for (int i=0; i < mTensors.size(); ++i) {
         // 1. allocate
-        tensor->setFileOffset(offset);
+        mTensors[i]->setFileOffset(offset);
         // 2. add the tensor size to offset.
-        offset += mBackend->getTensorSize(tensor, true);
+        offset += mTensorSize[i];
     }
 }
 // reset slot_end
-void resetSlotNum(int slot_num) {
+void StateCacheBlock::resetSlotNum(int slot_num) {
     mSlotNum = slot_num;
+}
+    // deal with sample reference
+void StateCacheBlock::removeRef(int ref_id) {
+    auto it = std::find(mRefIds.begin(),mRefIds.end(),ref_id);
+    if (it != mRefIds.end()) { 
+        mRefIds.erase(it); 
+    } 
+}
+void StateCacheBlock::addRef(int ref_id) {
+    mRefIds.emplace_back(ref_id);
 }
 
 bool StateCacheManager::enlargeMemCache(size_t size) {
@@ -261,15 +276,9 @@ void StateCacheManager::recoverBlock(std::shared_ptr<StateCacheBlock> block_ptr,
 
 void StateCacheManager::desertBlock(int ref_id, std::shared_ptr<StateCacheBlock> block_ptr) {
     // Find the ref_id in the vector
-    for (auto it = block_ptr->ref_ids.begin(); it != block_ptr->ref_ids.end(); ) {
-        if (*it == ref_id) {
-            it = block_ptr->ref_ids.erase(it); // Erase the element and update iterator
-        } else {
-            ++it;
-        }
-    }
+    block_ptr->removeRef(ref_id);
 
-    if (block_ptr->ref_ids.empty()) {
+    if (block_ptr->needDesert()) {
         // Block is no longer referenced, free it
         state_cache.freePtrList.push_back(block_ptr);
     } else {
@@ -279,9 +288,10 @@ void StateCacheManager::desertBlock(int ref_id, std::shared_ptr<StateCacheBlock>
 }
 
 std::shared_ptr<StateCacheBlock> StateCacheManager::copyBlock(int ref_id, std::shared_ptr<StateCacheBlock> block_ptr) {
-    auto new_block = std::make_shared<StateCacheBlock>(*block_ptr);
-    new_block->ref_ids = {ref_id}; // Change the ref_ids
-    return new_block;
+//     // TODO: This is incorrect!!!!!
+//     auto new_block = std::make_shared<StateCacheBlock>(*block_ptr);
+//     new_block->ref_ids = {ref_id}; // Change the ref_ids
+//     return new_block;
 }
 
 void StateCacheManager::prepareAttn(int ref_id, const std::vector<std::shared_ptr<StateCacheBlock>>& argv) {
