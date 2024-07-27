@@ -44,13 +44,13 @@ mov v5.s[2], v3.s[1]
 mov v4.s[3], v2.s[0]
 mov v5.s[3], v2.s[1]
 
-dup v23.4s, w6
+dup v23.4s, w6 // yStride
 movi v24.4s, #4
 dup v22.2d, x0
 
 L4Loop:
-fcvtns v6.4s, v4.4s
-fcvtns v7.4s, v5.4s
+fcvtas v6.4s, v4.4s // x
+fcvtas v7.4s, v5.4s // y
 
 smin v6.4s, v6.4s, v16.4s
 smin v7.4s, v7.4s, v17.4s
@@ -58,7 +58,7 @@ smax v6.4s, v6.4s, v19.4s
 smax v7.4s, v7.4s, v19.4s
 
 mul v7.4s, v7.4s, v23.4s
-mla v7.4s, v6.4s, v24.4s
+mla v7.4s, v6.4s, v24.4s // offset = y * yStride + bpp * x
 uxtl v6.2d, v7.2s
 uxtl2 v7.2d, v7.4s
 add v6.2d, v6.2d, v22.2d
@@ -95,7 +95,7 @@ mov w12, #4
 
 L1Loop:
 
-fcvtns v2.2s, v0.2s
+fcvtas v2.2s, v0.2s
 smax v2.2s, v2.2s, v19.2s
 smin v2.2s, v2.2s, v6.2s
 mov w4, v2.s[0]

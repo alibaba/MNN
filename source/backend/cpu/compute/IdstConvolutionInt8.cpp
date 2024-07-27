@@ -65,7 +65,7 @@ IdstConvolutionInt8::IdstConvolutionInt8(const Convolution2DCommon* convOp, Back
     auto kernelCount        = kx * ky;
     auto srcCount           = mSrcCount;
     std::vector<int> shape;
-    if (SRC_UNIT > UNIT) {
+    if (SRC_UNIT > UNIT && UNIT == PackUnit) {
         MNN_ASSERT(SRC_UNIT % UNIT == 0);
         shape = {UP_DIV(outputCount, UNIT), UP_DIV(UP_DIV(srcCount, UNIT) * kernelCount, SRC_UNIT / UNIT), UNIT, SRC_UNIT};
     } else {
@@ -81,7 +81,7 @@ IdstConvolutionInt8::IdstConvolutionInt8(const Convolution2DCommon* convOp, Back
         MNN_ERROR("Memory not enough\n");
         return;
     }
-    ConvInt8TiledExecutor::reorderWeight(mWeight.get(), (uint8_t*)common->weight.get(), SRC_UNIT, UNIT, srcCount, outputCount, kernelCount);
+    ConvInt8TiledExecutor::reorderWeight(mWeight.get(), (uint8_t*)common->weight.get(), SRC_UNIT, UNIT, srcCount, outputCount, kernelCount, PackUnit);
     ::memset(mFakeBias->host<float>(), 0, mFakeBias->size());
     ::memset(mFakeWeightBias->host<float>(), 0, mFakeWeightBias->size());
 #ifdef MNN_USE_SSE

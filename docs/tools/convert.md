@@ -145,7 +145,13 @@ model_script.save('model_script.pt')
 - testMNNFromOnnx.py ：适用 onnx
 - testMNNFromTorch.py ：适用 pt (torchscript)
 
-注意：对于由Torchscript转换的模型，需要自行修改`testMNNFromTorch.py`中的的输入信息来测试
+注意：
+
+- 如果模型是动态输入形状，MNN 在脚本中默认不固定部分为1，有可能在 Tensorflow / OnnxRuntime / Torch 验证阶段报错。此时需要修改脚本中对应的输入部分，比如 testMNNFromOnnx.py 中的 run_onnx(self) 函数，把输入替换为有效的输入形状和内容。
+- 对于由Torchscript转换的模型，一般都需要自行修改`testMNNFromTorch.py`中的的输入信息来测试。
+- 如果模型输出层是 Identity 产生的，会因为 MNN 图优化的缘故丢失，此时需要校验上一层的输出，即在脚本后接输出名来测试，如: python3 ../tools/scripts/testMNNFromTf.py XXX.pb $NAME$
+
+
 ### 前置
 - 测试 pb / tflite ：安装`tensorflow`(`pip install tensorflow`）
 - 测试 onnx : 安装`onnxruntime`(`pip install onnxruntime`）
