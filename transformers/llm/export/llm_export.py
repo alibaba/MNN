@@ -17,7 +17,7 @@ try:
 except:
     MNNTools = None
 
-def onnx2mnn(onnx_path, mnn_dir, quant_bit = 4, asymmetric = True, external_data = False, bizCode : str= None):
+def onnx2mnn(onnx_path, mnn_dir, quant_bit = 4, asymmetric = True, external_data = False, bizCode : str= None, transformerFuse=False):
     model_name, model_extension = os.path.splitext(os.path.basename(onnx_path))
     if model_extension != '.onnx':
         return
@@ -41,6 +41,8 @@ def onnx2mnn(onnx_path, mnn_dir, quant_bit = 4, asymmetric = True, external_data
     if bizCode is not None:
         convert_args.append("--bizCode")
         convert_args.append(str(bizCode))
+    if transformerFuse:
+        convert_args.append("--transformerFuse")
     MNNTools.mnnconvert(convert_args)
 
 # some wrapper class for export
@@ -95,6 +97,7 @@ class LLM(torch.nn.Module):
         self.embed_bin = True
         self.embed_bf16 = args.embed_bf16
         self.skip_slim = args.skip_slim
+        self.transformerFuse = args.transformerFuse
         tokenizer_model = os.path.join(args.path, 'tokenizer.model')
         ice_text_model = os.path.join(args.path, 'ice_text.model')
         try:
@@ -355,7 +358,7 @@ class LLM(torch.nn.Module):
             onnx_outs = ort_session.run(None, inputs)
             self.assert_equal(original_outs, onnx_outs)
         if self.export_mnn:
-            onnx2mnn(onnx_model, self.mnn_path, self.quant_bit, self.asymmetric)
+            onnx2mnn(onnx_model, self.mnn_path, self.quant_bit, self.asymmetric, transformerFuse=self.transformerFuse)
 
     def export_blocks(self):
         for i in range(self.block_nums):
@@ -420,7 +423,7 @@ class LLM(torch.nn.Module):
             self.assert_equal(original_outs, onnx_outs)
         if self.export_mnn:
             # single model is > 2G, using external_data
-            onnx2mnn(onnx_model, self.mnn_path, self.quant_bit, self.asymmetric, True)
+            onnx2mnn(onnx_model, self.mnn_path, self.quant_bit, self.asymmetric, True, transformerFuse=self.transformerFuse)
         if self.without_embed:
             self.without_embed = False
 
@@ -1297,7 +1300,7 @@ class bge(LLM):
             token_str = open(token_path, 'rt').read()
 
         if self.export_mnn:
-            onnx2mnn(onnx_model, self.mnn_path, 8, True, bizCode=token_str)
+            onnx2mnn(onnx_model, self.mnn_path, 8, True, bizCode=token_str, transformerFuse=self.transformerFuse)
 
     def build_prompt(self, query):
             return f'[CLS]{query}[SEP]'
@@ -1389,6 +1392,7 @@ if __name__ == '__main__':
     parser.add_argument('--export_block', type=int, help='export llm block [id] to an `onnx` model.')
     parser.add_argument('--export_blocks', action='store_true', help='export llm all blocks to `onnx` models.')
     parser.add_argument('--skip_slim', action='store_true', help='Whether or not to skip onnx-slim.')
+    parser.add_argument('--transformerFuse', default=False, action='store_true', help='Whether or not to fuse the attention operator')
 
     # No use now, add invoid of call error
     parser.add_argument('--export_token', action='store_true', help='export llm tokenizer to a txt file.')
