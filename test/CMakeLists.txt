@@ -16,8 +16,10 @@ if(NOT MNN_BUILD_TRAIN)
   list(REMOVE_ITEM Files ${GradTestFiles} ${NNTestFiles})
 endif()
 
+
 add_executable(run_test.out ${Files})
-target_link_libraries(run_test.out ${MNN_DEPS})
+
+target_link_libraries(run_test.out ${MNN_DEPS} StateCacheManager)
 if (WIN32)
   target_compile_options(run_test.out PRIVATE /bigobj)
 endif()
