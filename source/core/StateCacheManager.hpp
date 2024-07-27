@@ -17,13 +17,71 @@
 #include <cassert>
 #include <MNN/Tensor.hpp>
 
-namespace PagedAttention {
+namespace MNN {
 
-// 2.1 StateCacheBlock
-struct StateCacheBlock {
-    std::vector<int> ref_ids; // IDs of samples using this block
-    std::optional<int> slot_end; // Index pointing to the next empty slot, or empty if full
-    std::shared_ptr<MNN::Tensor*> slots; // Tensor holding the KV cache data
+/* 2.1 StateCacheBlock 
+    All the blocks are of the same size.
+    */ 
+class MNN_PUBLIC StateCacheBlock {
+private:
+    std::vector<int> mRefIds; // IDs of samples using this block
+    int mSlotNum; // Index pointing to the id of the next available slot in this block
+    std::vector<Tensor*> mTensors; // Tensors holding the KV cache data
+    int mBlockSize;
+    shared_ptr<Backend> mBackend;
+public:
+    struct LAYOUT {
+        enum NoQuant {
+            PAST_K = 0,
+            PAST_V = 1
+        };
+        enum QuantKeyInt8 {
+            PAST_K = 0,
+            PAST_K_SCALES = 1,
+            PAST_K_ZERO_POINTS = 2,
+            PAST_V = 3
+        };
+        enum QuantValueFp8 {
+            PAST_K = 0,
+            PAST_K_SCALES = 1,
+            PAST_K_ZERO_POINTS = 2,
+            PAST_V = 3
+        };
+        enum QuantValueInt8 {
+            PAST_K = 0,
+            PAST_V = 1,
+            PAST_V_SCALES = 2,
+            PAST_V_ZERO_POINTS = 3,
+        };
+        enum QuantKeyInt8ValueFp8 {
+            PAST_K = 0,
+            PAST_K_SCALES = 1,
+            PAST_K_ZERO_POINTS = 2,
+            PAST_V = 3,
+        };
+        enum QuantKeyInt8ValueInt8 {
+            PAST_K = 0,
+            PAST_K_SCALES = 1,
+            PAST_K_ZERO_POINTS = 2,
+            PAST_V = 3,
+            PAST_V_SCALES = 4,
+            PAST_V_ZERO_POINTS = 5,
+        };
+    };
+    StateCacheBlock(std::vector<int> ref_ids, int blok_size, int slot_num=0);
+    // Tensor operations
+    void setTensor(int tId, Tensor* tensor);
+    Tensor* getTensor(int tId) {
+        return mTensors[tId];
+    }
+    // manage pointers and offsets
+    bool onAllocatePtr(uint8_t* ptr);
+    bool onAllocateOffset(size_t offset);
+    // reset slot_num
+    void resetSlotNum(int slot_num);
+    int getSlotNum() {
+        return mSlotNum;
+    }
 };
 
 // 2.2 StateCache
@@ -82,6 +140,6 @@ public:
     virtual void prepareAttn(int ref_id, const std::vector<std::shared_ptr<StateCacheBlock>>& argv) = 0;
 };
 
-} // namespace PagedAttention
+} // namespace MNN
 
 #endif // StateCacheManager_hpp

@@ -211,6 +211,21 @@ public:
         return mBuffer.device;
     }
 
+    /**
+     * @brief offload file cache offset.
+     * @return file cache offset.
+     */
+    size_t getFileOffset() const {
+        return mFileOffset;
+    }
+
+    /**
+     * @brief set offload file cache offset.
+     */
+    void setFileOffset(size_t offset) {
+        mFileOffset = offset;
+    }
+
 public:
     int dimensions() const {
         return mBuffer.dimensions;
@@ -309,6 +324,7 @@ public:
      */
     bool setDevicePtr(const void* devicePtr, int memoryType);
 private:
+    size_t mFileOffset;
     halide_buffer_t mBuffer;
     struct InsideDescribe* mDescribe;
 

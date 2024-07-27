@@ -1,6 +1,36 @@
 #include "core/StateCacheManager.hpp"
 
-namespace PagedAttention {
+namespace MNN {
+
+StateCacheBlock::StateCacheBlock(std::vector<int> ref_ids, int blok_size, int slot_num) : mRefIds(ref_ids), mBlockSize(blok_size), mSlotNum(slot_num) {
+    mBackend.reset(ExecutorScope::Current()->getAttr()->constantBackend);
+    mTensors.resize(mBlockSize);    
+}
+// add and get Tensor
+void StateCacheBlock::setTensor(int tId, Tensor* tensor) {
+    mTensors[tId] = tensor;
+}
+// manage pointers and offsets
+bool onAllocatePtr(uint8_t* ptr) {
+    for (auto tensor : mTensors) {
+        // 1. allocate
+        tensor->buffer().host = ptr;
+        // 2. add the tensor size to ptr. 
+        pointer += mBackend->getTensorSize(tensor, true);
+    }
+}
+bool onAllocateOffset(size_t offset) {
+    for (auto tensor : mTensors) {
+        // 1. allocate
+        tensor->setFileOffset(offset);
+        // 2. add the tensor size to offset.
+        offset += mBackend->getTensorSize(tensor, true);
+    }
+}
+// reset slot_end
+void resetSlotNum(int slot_num) {
+    mSlotNum = slot_num;
+}
 
 bool StateCacheManager::enlargeMemCache(size_t size) {
     // Implementation for enlarging the memory cache
@@ -133,4 +163,4 @@ void StateCacheManager::prepareAttn(int ref_id, const std::vector<std::shared_pt
     }
 }
 
-} // namespace PagedAttention
+} // namespace MNN
