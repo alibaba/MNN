@@ -102,7 +102,7 @@ public:
 // 2.2 StateCache
 struct StateCache {
     // List of pointers to free memory blocks
-    std::list<std::shared_ptr<StateCacheBlock>> freePtrList;
+    std::list<std::shared_ptr<uint8_t*>> freePtrList;
 
     // List of offsets in external storage for free blocks
     std::list<size_t> freeFileOffsetList;

@@ -10,6 +10,7 @@
 
 namespace MNN {
 
+/* -------------StateCacheBlock------------ */
 StateCacheBlock::StateCacheBlock(std::vector<int> ref_ids, int blok_size, int slot_num) : mRefIds(ref_ids), mBlockSize(blok_size), mSlotNum(slot_num) {
     mTensors.resize(mBlockSize);    
     mTensorSize.resize(mBlockSize);
@@ -53,6 +54,8 @@ void StateCacheBlock::addRef(int ref_id) {
     mRefIds.emplace_back(ref_id);
 }
 
+
+/* -------------StateCacheManager------------ */
 bool StateCacheManager::enlargeMemCache(size_t size) {
     // Implementation for enlarging the memory cache
     // This could involve allocating more memory and updating the state_cache accordingly
