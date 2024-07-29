@@ -5,7 +5,7 @@
 #include <unistd.h> // For open, ftruncate, close, pread, pwrite
 #include <cstring>
 #include <algorithm>
-
+#include <filesystem>
 #include "core/StateCacheManager.hpp"
 
 namespace MNN {
@@ -52,11 +52,30 @@ void StateCacheBlock::removeRef(int ref_id) {
 void StateCacheBlock::addRef(int ref_id) {
     mRefIds.emplace_back(ref_id);
 }
+void StateCacheBlock::clearRef() {
+    mRefIds.clear();
+}
 
 bool StateCacheManager::enlargeMemCache(size_t size) {
-    // Implementation for enlarging the memory cache
-    // This could involve allocating more memory and updating the state_cache accordingly
-    // For simplicity, let's just return true indicating success
+    // Calculate the number of new blocks needed based on the requested size
+    int DEFAULT_BLOCK_SIZE = 4;
+    int newBlocksNeeded = size / DEFAULT_BLOCK_SIZE;
+    if (size % DEFAULT_BLOCK_SIZE != 0) {
+        newBlocksNeeded++; // Add one more block if there is a remainder
+    }
+
+    // Create new StateCacheBlock instances and add them to the freePtrList
+    for (int i = 0; i < newBlocksNeeded; ++i) {
+        // Assuming each block has a size of 4 (this should be the block size you want to use)
+        std::vector<int> ref_ids; // Initialize an empty vector of reference IDs
+        int block_size = DEFAULT_BLOCK_SIZE; // Use the block size you want to allocate
+        int slot_num = 0; // Initialize the slot number to 0
+        auto newBlock = std::make_shared<StateCacheBlock>(ref_ids, block_size, slot_num);
+        state_cache.freePtrList.push_back(newBlock);
+    }
+
+
+    // If everything went well, return true
     return true;
 }
 
@@ -84,14 +103,15 @@ bool StateCacheManager::enlargeFileCache(size_t size) {
         return false;
     }
 
-    // Ensure the new file has at least the requested size
-    if (ftruncate(newFd, size) == -1) {
-        // Handle error: Could not set the file size.
-        // You can log the error here, for example:
-        std::cout << "Warning: Could not set the size of file " << newCacheFilePath << "." << std::endl;
+    //use resize_file
+    std::error_code ec;
+    std::filesystem::resize_file(newCacheFilePath, size, ec);
+    if (ec) {
+        // Handle error: Could not resize the file.
+        std::cout << "Warning: Could not resize file " << newCacheFilePath << ": " << ec.message() << std::endl;
         close(newFd);
         return false;
-    }
+}
 
     // If the current file exists, copy its contents to the new file
     if (std::remove(currentCacheFilePath.c_str()) == 0 || errno == ENOENT) {
@@ -188,18 +208,23 @@ void StateCacheManager::releaseFileCache() {
 }
 
 std::shared_ptr<StateCacheBlock> StateCacheManager::evictBlock(const std::vector<std::shared_ptr<StateCacheBlock>>& pin_block_list) {
+
+    std::cout<<"enter-2";
     std::shared_ptr<StateCacheBlock> evict_block;
 
 // Find a block to evict from computeCacheBlockList
 for (auto& block : state_cache.computeCacheBlockList) {
+    std::cout<<"enter-1:"<<block<<std::endl;
     bool is_pinned = false;
     for (const auto& pinned_block : pin_block_list) {
+        std::cout<<"enter0:"<<pinned_block<<std::endl;
         if (block.get() == pinned_block.get()) {
             is_pinned = true;
             break;
         }
     }
     if (!is_pinned) {
+        std::cout<<"enter1";
         evict_block = block;
         break;
     }
@@ -207,17 +232,22 @@ for (auto& block : state_cache.computeCacheBlockList) {
 
     // If no block was found, find a block from inMemBlockList
     if (!evict_block) {
+        std::cout<<"enter2";
         if (!state_cache.inMemBlockList.empty()) {
+            std::cout<<"enter3";
             evict_block = state_cache.inMemBlockList.top();
             state_cache.inMemBlockList.pop();
         }
     }
 
     if (evict_block) {
+        std::cout<<"enter4";
         // Get a file offset from freeFileOffsetList
         if (state_cache.freeFileOffsetList.empty()) {
+            std::cout<<"enter5";
             if (!enlargeFileCache(0)) {
                 // Enlargement failed
+                std::cout<<"nullptr1";
                 return nullptr;
             }
         }
@@ -232,46 +262,77 @@ for (auto& block : state_cache.computeCacheBlockList) {
         state_cache.computeCacheBlockList.remove(evict_block);
         return evict_block;
     }
-
+    std::cout<<"nullptr2";
     return nullptr;
 }
 
 
 std::shared_ptr<StateCacheBlock> StateCacheManager::getFreePtr(const std::vector<std::shared_ptr<StateCacheBlock>>& evict_pin_block_list) {
+    std::cout<<"enter10";
     if (state_cache.freePtrList.empty()) {
+        std::cout<<"enter11";
         if (!enlargeMemCache(0)) {
+            std::cout<<"enter12";
             // Enlargement failed
             return nullptr;
         }
     }
-
+std::cout<<"enter13";
     std::shared_ptr<StateCacheBlock> free_ptr = *state_cache.freePtrList.begin();
     state_cache.freePtrList.pop_front();
-
+std::cout<<"enter14";
     return free_ptr;
 }
 
 void StateCacheManager::recoverBlock(std::shared_ptr<StateCacheBlock> block_ptr, const std::vector<std::shared_ptr<StateCacheBlock>>& pin_block_list) {
-    // std::shared_ptr<StateCacheBlock> free_ptr = getFreePtr(pin_block_list);
+    // Step 1: Get a free pointer (memory block) using the getFreePtr function
+    std::shared_ptr<StateCacheBlock> free_ptr = getFreePtr(pin_block_list);
 
-    // if (free_ptr) {
-    //     // Assuming block size is known and fixed
-    //     constexpr size_t BLOCK_SIZE = 1024; // Example block size
+    // Step 2: Write block_ptr from external storage into the free pointer
+    // Open the file for reading
+    std::ifstream file("external_storage.bin", std::ios::binary);
 
-    //     // Ensure the file is open for direct IO
-    //     if (state_cache.file_fd < 0) {
-    //         state_cache.file_fd = ::open("cache_file", O_RDWR | O_DIRECT, S_IRUSR | S_IWUSR);
-    //     }
+    if (!file.is_open()) {
+        throw std::runtime_error("Failed to open the external storage file.");
+    }
 
-    //     // Read block_ptr from disk
-    //     ::pread(state_cache.file_fd, block_ptr->slots.get(), BLOCK_SIZE, block_ptr->slot_end->value());
+    for (int i = 0; i < block_ptr->getTensorsLength(); ++i) {
+        // Get the file offset for the current tensor
+        size_t file_offset = block_ptr->getTensor(i)->getFileOffset();
 
-    //     // Write block_ptr to free_ptr
-    //     ::memcpy(free_ptr->slots.get(), block_ptr->slots.get(), BLOCK_SIZE);
+        // Get the size of the current tensor
+        int tensor_size = block_ptr->getTensorSize(i);
 
-    //     // Add the block's offset back to freeFileOffsetList
-    //     state_cache.freeFileOffsetList.push_back(block_ptr->slot_end->value());
-    // }
+        // Set the file position to the correct offset
+        file.seekg(file_offset, std::ios::beg);
+
+        // Read the tensor data from the file
+        uint8_t* tensor_data = new uint8_t[tensor_size];
+        file.read(reinterpret_cast<char*>(tensor_data), tensor_size);
+
+        // Set the tensor data in the free pointer
+        free_ptr->setTensor(i, block_ptr->getTensor(i)); // Reuse the same Tensor object
+        free_ptr->getTensor(i)->buffer().host = tensor_data; // Set the host pointer to the read data
+
+        // Update the tensor size in the free pointer
+        free_ptr->setTensorSize(i, tensor_size);
+
+        // Allocate the tensor in the free pointer
+        free_ptr->onAllocatePtr(free_ptr->getTensor(i)->buffer().host);
+    }
+
+    // Close the file
+    file.close();
+
+    // Step 3: Update the block's other information and add it to the in-memory list
+    free_ptr->setRefIds(block_ptr->getRefIds()); 
+    free_ptr->setBlockSize(block_ptr->getBlockSize());
+    free_ptr->resetSlotNum(block_ptr->getSlotNum());
+    state_cache.inMemBlockList.push(free_ptr); // Add the block to the in-memory list
+
+    // Step 4: Remove the block from the external storage and update the file offset list
+    state_cache.offloadedCacheBlockList.remove(block_ptr); // Remove the block from the external storage list
+    state_cache.freeFileOffsetList.push_back(block_ptr->getTensor(0)->getFileOffset()); // Add the file offset to the free list
 }
 
 void StateCacheManager::desertBlock(int ref_id, std::shared_ptr<StateCacheBlock> block_ptr) {
@@ -287,28 +348,26 @@ void StateCacheManager::desertBlock(int ref_id, std::shared_ptr<StateCacheBlock>
     }
 }
 
-std::shared_ptr<StateCacheBlock> StateCacheManager::copyBlock(int ref_id, std::shared_ptr<StateCacheBlock> block_ptr) {
-//     // TODO: This is incorrect!!!!!
-//     auto new_block = std::make_shared<StateCacheBlock>(*block_ptr);
-//     new_block->ref_ids = {ref_id}; // Change the ref_ids
-//     return new_block;
+std::shared_ptr<StateCacheBlock> StateCacheManager::copyBlock(int ref_id, std::shared_ptr<StateCacheBlock> block_ptr, const std::vector<std::shared_ptr<StateCacheBlock>>& pin_block_list) {
+    // Step 1: Get a free pointer (memory block) using the getFreePtr function
+    std::shared_ptr<StateCacheBlock> free_ptr = getFreePtr(pin_block_list);
+
+    // Step 2: Write block_ptr to the free pointer
+    for (int i = 0; i < block_ptr->getTensorsLength(); ++i) {
+        free_ptr->setTensor(i, block_ptr->getTensor(i));
+        free_ptr->setTensorSize(i, block_ptr->getTensorSize(i));
+    }
+    // Step 3: Update the block's other information and add it to the in-memory list
+    free_ptr->setRefIds(block_ptr->getRefIds()); 
+    free_ptr->setBlockSize(block_ptr->getBlockSize());
+    free_ptr->resetSlotNum(block_ptr->getSlotNum());
+    state_cache.inMemBlockList.push(free_ptr); 
+    return free_ptr;
+        
 }
 
 void StateCacheManager::prepareAttn(int ref_id, const std::vector<std::shared_ptr<StateCacheBlock>>& argv) {
-    // Logic to bring input/output blocks into memory
-    // This could involve calling getFreePtr, evictBlock, and recoverBlock
-    // For simplicity, let's just outline the steps
-    // for (const auto& arg : argv) {
-    //     if (arg->ref_ids.size() > 1) {
-    //         // Copy the block if it has more than one ref_id
-    //         std::shared_ptr<StateCacheBlock> new_block = copyBlock(ref_id, arg);
-    //         // Bring the new block into memory
-    //         recoverBlock(new_block, argv);
-    //     } else {
-    //         // Bring the block into memory
-    //         recoverBlock(arg, argv);
-    //     }
-    // }
+    
 }
 
 } // namespace MNN

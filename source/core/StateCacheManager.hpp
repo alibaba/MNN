@@ -76,6 +76,12 @@ public:
     Tensor* getTensor(int tId) {
         return mTensors[tId];
     }
+    int getTensorSize(int tId) {
+        return mTensorSize[tId];
+    }
+    int getTensorsLength() {
+        return mTensors.size();
+    }
     // manage pointers and offsets
     bool onAllocatePtr(uint8_t* ptr);
     bool onAllocateOffset(size_t offset);
@@ -86,6 +92,7 @@ public:
     }
     // deal with sample reference
     void removeRef(int ref_id);
+    void clearRef();
     void addRef(int ref_id);
     int refCount() const {
         return mRefIds.size();
@@ -96,6 +103,19 @@ public:
     // is full
     bool isFull() const {
         return mBlockSize==mSlotNum;
+    }
+    void setRefIds(const std::vector<int>& ref_ids){
+        mRefIds = ref_ids;
+    }
+    std::vector<int> getRefIds() const{
+         return mRefIds;
+    }
+     // Block size management
+    void setBlockSize(int block_size){
+        mBlockSize = block_size;
+    }
+    int getBlockSize() const{
+        return mBlockSize;
     }
 };
 
@@ -149,7 +169,7 @@ public:
     void desertBlock(int ref_id, std::shared_ptr<StateCacheBlock> block_ptr);
 
     // Copy a block
-    std::shared_ptr<StateCacheBlock> copyBlock(int ref_id, std::shared_ptr<StateCacheBlock> block_ptr);
+    std::shared_ptr<StateCacheBlock> copyBlock(int ref_id, std::shared_ptr<StateCacheBlock> block_ptr, const std::vector<std::shared_ptr<StateCacheBlock>>& pin_block_list);
 
     // Prepare attention
     void prepareAttn(int ref_id, const std::vector<std::shared_ptr<StateCacheBlock>>& argv);

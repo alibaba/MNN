@@ -77,10 +77,11 @@ public:
 
     virtual bool run(int precision) {
         StateCacheManager manager;
-
+        std::cout<<std::endl<<"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"<<std::endl;
         // Test case 1: Enlarge memory cache
         {
             enlargeMemCacheTest(manager, 1024 * 1024); // Enlarge by 1 MB
+            
         }
 
         // Test case 2: Enlarge file cache
@@ -88,21 +89,21 @@ public:
             enlargeFileCacheTest(manager, 1024 * 1024 * 10); // Enlarge by 10 MB
         }
 
-        // Test case 3: Release memory cache
-        {
-            releaseMemCacheTest(manager);
-        }
-
-        // Test case 4: Release file cache
-        {
-            releaseFileCacheTest(manager);
-        }
-
-        // // Test case 5: Evict a block
+        // // Test case 3: Release memory cache
         // {
-        //     std::vector<std::shared_ptr<StateCacheBlock>> pin_block_list;
-        //     evictBlockTest(manager, pin_block_list);
+        //     releaseMemCacheTest(manager);
         // }
+
+        // // Test case 4: Release file cache
+        // {
+        //     releaseFileCacheTest(manager);
+        // }
+
+        //Test case 5: Evict a block
+        {
+            std::vector<std::shared_ptr<StateCacheBlock>> pin_block_list;
+            evictBlockTest(manager, pin_block_list);
+        }
 
         // // Test case 6: Get a free pointer
         // {
@@ -138,6 +139,7 @@ public:
         //     std::vector<std::shared_ptr<StateCacheBlock>> argv;
         //     prepareAttnTest(manager, ref_id, argv);
         // }
+        std::cout<<std::endl<<"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"<<std::endl;
 
         
 
