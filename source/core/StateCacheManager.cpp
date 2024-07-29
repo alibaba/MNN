@@ -212,23 +212,23 @@ std::shared_ptr<StateCacheBlock> StateCacheManager::evictBlock(const std::vector
     std::cout<<"enter-2";
     std::shared_ptr<StateCacheBlock> evict_block;
 
-// Find a block to evict from computeCacheBlockList
-for (auto& block : state_cache.computeCacheBlockList) {
-    std::cout<<"enter-1:"<<block<<std::endl;
-    bool is_pinned = false;
-    for (const auto& pinned_block : pin_block_list) {
-        std::cout<<"enter0:"<<pinned_block<<std::endl;
-        if (block.get() == pinned_block.get()) {
-            is_pinned = true;
+    // Find a block to evict from computeCacheBlockList
+    for (auto& block : state_cache.computeCacheBlockList) {
+        std::cout<<"enter-1:"<<block<<std::endl;
+        bool is_pinned = false;
+        for (const auto& pinned_block : pin_block_list) {
+            std::cout<<"enter0:"<<pinned_block<<std::endl;
+            if (block.get() == pinned_block.get()) {
+                is_pinned = true;
+                break;
+            }
+        }
+        if (!is_pinned) {
+            std::cout<<"enter1";
+            evict_block = block;
             break;
         }
     }
-    if (!is_pinned) {
-        std::cout<<"enter1";
-        evict_block = block;
-        break;
-    }
-}
 
     // If no block was found, find a block from inMemBlockList
     if (!evict_block) {
@@ -253,6 +253,41 @@ for (auto& block : state_cache.computeCacheBlockList) {
         }
         size_t offset = *state_cache.freeFileOffsetList.begin();
         state_cache.freeFileOffsetList.pop_front();
+
+
+        // Open the file for writing
+        std::ofstream file("external_storage.bin", std::ios::binary | std::ios::out | std::ios::app);
+
+        if (!file.is_open()) {
+            std::cout<<"Failed to open the external storage file.";
+            return nullptr;
+        }
+
+        // Write the tensor data from the evicted block to the file
+        size_t current_offset = offset;
+        for (int i = 0; i < evict_block->getTensorsLength(); ++i) {
+            // Get the size of the current tensor
+            int tensor_size = evict_block->getTensorSize(i);
+
+            // Set the file position to the correct offset
+            file.seekp(current_offset, std::ios::beg);
+
+            // Write the tensor data to the file
+            file.write(reinterpret_cast<const char*>(evict_block->getTensor(i)->buffer().host), tensor_size);
+
+            // Update the file offset for the current tensor
+            evict_block->getTensor(i)->setFileOffset(current_offset);
+
+            // Update the current offset for the next tensor
+            current_offset += tensor_size;
+
+            // Clear the tensor data in memory
+            evict_block->getTensor(i)->buffer().host = nullptr; // Mark as not allocated
+        }
+
+        // Close the file
+        file.close();
+
 
         // Move the evicted block to offloadedCacheBlockList
         state_cache.offloadedCacheBlockList.push_back(evict_block);
