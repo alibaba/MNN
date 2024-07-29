@@ -7,6 +7,7 @@
 #include <algorithm>
 
 #include "core/StateCacheManager.hpp"
+#include <filesystem>
 
 namespace MNN {
 
@@ -56,17 +57,22 @@ void StateCacheBlock::addRef(int ref_id) {
 
 
 /* -------------StateCacheManager------------ */
+StateCacheManager::StateCacheManager(MNNStateCacheQuantType quantType, MNNStateCacheType type){
+    mQuantType = quantType;
+    mType = type;
+}
+
 bool StateCacheManager::enlargeMemCache(size_t size) {
     // Implementation for enlarging the memory cache
-    // This could involve allocating more memory and updating the state_cache accordingly
+    // This could involve allocating more memory and updating the mStateCache accordingly
     // For simplicity, let's just return true indicating success
     return true;
 }
 
 bool StateCacheManager::enlargeFileCache(size_t size) {
     // Determine the current file path
-    std::string currentCacheFilePath = "state_cache_file.bin";
-    std::string newCacheFilePath = "state_cache_file_new.bin";
+    std::string currentCacheFilePath = "mStateCache_file.bin";
+    std::string newCacheFilePath = "mStateCache_file_new.bin";
 
     // Check if the current file exists
     if (std::remove(currentCacheFilePath.c_str()) == 0 || errno == ENOENT) {
@@ -144,28 +150,28 @@ bool StateCacheManager::enlargeFileCache(size_t size) {
 
 void StateCacheManager::releasesMemCache() {
      // Clear the inMemBlockList, which will destroy the shared pointers and release the memory.
-    while (!state_cache.inMemBlockList.empty()) {
-        auto block = state_cache.inMemBlockList.top();
-        state_cache.inMemBlockList.pop();
+    while (!mStateCache->inMemBlockList.empty()) {
+        auto block = mStateCache->inMemBlockList.top();
+        mStateCache->inMemBlockList.pop();
         // No need to explicitly delete the block as the shared_ptr will handle it.
     }
 
     // Clear the computeCacheBlockList, which will destroy the shared pointers and release the memory.
-    for (auto& block : state_cache.computeCacheBlockList) {
+    for (auto& block : mStateCache->computeCacheBlockList) {
         // No need to explicitly delete the block as the shared_ptr will handle it.
     }
-    state_cache.computeCacheBlockList.clear();
+    mStateCache->computeCacheBlockList.clear();
 
     // Clear the freePtrList, which will destroy the shared pointers and release the memory.
-    for (auto& block : state_cache.freePtrList) {
+    for (auto& block : mStateCache->freePtrList) {
         // No need to explicitly delete the block as the shared_ptr will handle it.
     }
-    state_cache.freePtrList.clear();
+    mStateCache->freePtrList.clear();
 }
 
 void StateCacheManager::releaseFileCache() {
     // Assuming there is a file path stored somewhere in the StateCache or StateCacheManager
-    std::string cacheFilePath = "state_cache_file.bin"; // Example file path
+    std::string cacheFilePath = "mStateCache_file.bin"; // Example file path
 
     // Check if the file exists before attempting to remove it
     if (remove(cacheFilePath.c_str()) != 0) {
@@ -187,14 +193,14 @@ void StateCacheManager::releaseFileCache() {
     }
 
     // Clear the list of offsets in external storage for free blocks
-    state_cache.freeFileOffsetList.clear();
+    mStateCache->freeFileOffsetList.clear();
 }
 
 std::shared_ptr<StateCacheBlock> StateCacheManager::evictBlock(const std::vector<std::shared_ptr<StateCacheBlock>>& pin_block_list) {
     std::shared_ptr<StateCacheBlock> evict_block;
 
 // Find a block to evict from computeCacheBlockList
-for (auto& block : state_cache.computeCacheBlockList) {
+for (auto& block : mStateCache->computeCacheBlockList) {
     bool is_pinned = false;
     for (const auto& pinned_block : pin_block_list) {
         if (block.get() == pinned_block.get()) {
@@ -210,29 +216,29 @@ for (auto& block : state_cache.computeCacheBlockList) {
 
     // If no block was found, find a block from inMemBlockList
     if (!evict_block) {
-        if (!state_cache.inMemBlockList.empty()) {
-            evict_block = state_cache.inMemBlockList.top();
-            state_cache.inMemBlockList.pop();
+        if (!mStateCache->inMemBlockList.empty()) {
+            evict_block = mStateCache->inMemBlockList.top();
+            mStateCache->inMemBlockList.pop();
         }
     }
 
     if (evict_block) {
         // Get a file offset from freeFileOffsetList
-        if (state_cache.freeFileOffsetList.empty()) {
+        if (mStateCache->freeFileOffsetList.empty()) {
             if (!enlargeFileCache(0)) {
                 // Enlargement failed
                 return nullptr;
             }
         }
-        size_t offset = *state_cache.freeFileOffsetList.begin();
-        state_cache.freeFileOffsetList.pop_front();
+        size_t offset = *mStateCache->freeFileOffsetList.begin();
+        mStateCache->freeFileOffsetList.pop_front();
 
         // Move the evicted block to offloadedCacheBlockList
-        state_cache.offloadedCacheBlockList.push_back(evict_block);
-        state_cache.freePtrList.push_back(evict_block);
+        mStateCache->offloadedCacheBlockList.push_back(evict_block);
+        mStateCache->freePtrList.push_back(evict_block);
 
         // Remove the block from computeCacheBlockList or inMemBlockList
-        state_cache.computeCacheBlockList.remove(evict_block);
+        mStateCache->computeCacheBlockList.remove(evict_block);
         return evict_block;
     }
 
@@ -241,15 +247,15 @@ for (auto& block : state_cache.computeCacheBlockList) {
 
 
 std::shared_ptr<StateCacheBlock> StateCacheManager::getFreePtr(const std::vector<std::shared_ptr<StateCacheBlock>>& evict_pin_block_list) {
-    if (state_cache.freePtrList.empty()) {
+    if (mStateCache->freePtrList.empty()) {
         if (!enlargeMemCache(0)) {
             // Enlargement failed
             return nullptr;
         }
     }
 
-    std::shared_ptr<StateCacheBlock> free_ptr = *state_cache.freePtrList.begin();
-    state_cache.freePtrList.pop_front();
+    std::shared_ptr<StateCacheBlock> free_ptr = *mStateCache->freePtrList.begin();
+    mStateCache->freePtrList.pop_front();
 
     return free_ptr;
 }
@@ -262,18 +268,18 @@ void StateCacheManager::recoverBlock(std::shared_ptr<StateCacheBlock> block_ptr,
     //     constexpr size_t BLOCK_SIZE = 1024; // Example block size
 
     //     // Ensure the file is open for direct IO
-    //     if (state_cache.file_fd < 0) {
-    //         state_cache.file_fd = ::open("cache_file", O_RDWR | O_DIRECT, S_IRUSR | S_IWUSR);
+    //     if (mStateCache->file_fd < 0) {
+    //         mStateCache->file_fd = ::open("cache_file", O_RDWR | O_DIRECT, S_IRUSR | S_IWUSR);
     //     }
 
     //     // Read block_ptr from disk
-    //     ::pread(state_cache.file_fd, block_ptr->slots.get(), BLOCK_SIZE, block_ptr->slot_end->value());
+    //     ::pread(mStateCache->file_fd, block_ptr->slots.get(), BLOCK_SIZE, block_ptr->slot_end->value());
 
     //     // Write block_ptr to free_ptr
     //     ::memcpy(free_ptr->slots.get(), block_ptr->slots.get(), BLOCK_SIZE);
 
     //     // Add the block's offset back to freeFileOffsetList
-    //     state_cache.freeFileOffsetList.push_back(block_ptr->slot_end->value());
+    //     mStateCache->freeFileOffsetList.push_back(block_ptr->slot_end->value());
     // }
 }
 
@@ -283,10 +289,10 @@ void StateCacheManager::desertBlock(int ref_id, std::shared_ptr<StateCacheBlock>
 
     if (block_ptr->needDesert()) {
         // Block is no longer referenced, free it
-        state_cache.freePtrList.push_back(block_ptr);
+        mStateCache->freePtrList.push_back(block_ptr);
     } else {
         // Update the inMemBlockList
-        state_cache.inMemBlockList.push(block_ptr);
+        mStateCache->inMemBlockList.push(block_ptr);
     }
 }
 

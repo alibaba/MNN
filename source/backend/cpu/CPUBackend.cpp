@@ -344,6 +344,7 @@ CPUBackend::CPUBackend(const CPURuntime* runtime, BackendConfig::PrecisionMode p
 #endif
     mMemory = memory;
     mRuntime = const_cast<CPURuntime*>(runtime);
+    // BufferAllocator Initialization
     std::shared_ptr<BufferAllocator::Allocator> defaultAlloc(BufferAllocator::Allocator::createRecurse(runtime->mStaticAllocator.get()));
     if (mRuntime->hint().memoryAllocatorType == Runtime::Allocator_Defer) {
         mDynamicAllocator.reset(new DeferBufferAllocator(defaultAlloc));
@@ -352,6 +353,9 @@ CPUBackend::CPUBackend(const CPURuntime* runtime, BackendConfig::PrecisionMode p
     }
     mCurrentDynamicAllocator = mDynamicAllocator.get();
     mStaticAllocator = runtime->mStaticAllocator;
+    // StateCacheManager Initialization
+    mStateCacheManager.reset(new StateCacheManager((MNNStateCacheQuantType)getRuntime()->hint().kvcacheQuantOption, (MNNStateCacheType)getRuntime()->hint().kvcacheImplOption));
+    // set other configurations
     mPrecisionMode = precision;
     mCoreFunctions = MNNGetCoreFunctions();
     mInt8CoreFunctions = MNNGetInt8CoreFunctions();

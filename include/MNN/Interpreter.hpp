@@ -220,6 +220,9 @@ public:
         // 2: Only quantize value cache, use fp8 quantization
         // 3: quantize both key and value cache as described above
         KVCACHE_QUANT_OPTIONS = 7,
+
+        // To define how the KV cache is organized.
+        KVCACHE_IMPL_OPTIONS = 8,
     };
 
     enum GeometryComputeMask {

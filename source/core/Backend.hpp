@@ -15,6 +15,7 @@
 #include "Command.hpp"
 #include "NonCopyable.hpp"
 #include "BufferAllocator.hpp"
+#include "StateCacheManager.hpp"
 #include <future>
 #include <atomic>
 
@@ -38,7 +39,9 @@ struct RuntimeHint {
     // 1: Only quantize key cache, use int8 asymmetric quantization 
     // 2: Only quantize value cache, use fp8 quantization
     // 3: quantize both key and value cache as described above
-    int kvcacheQuantOption = 0;
+    int kvcacheQuantOption = (int)MNNStateCacheQuantType::NoQuant;
+
+    int kvcacheImplOption = (int)MNNStateCacheType::MNN_STATECACHE_ADVANCED;
 };
 /** abstract backend */
 class Backend : public NonCopyable {

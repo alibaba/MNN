@@ -15,6 +15,7 @@
 #include "core/Backend.hpp"
 #include "core/Execution.hpp"
 #include "core/BufferAllocator.hpp"
+#include "core/StateCacheManager.hpp"
 #include "MNN_generated.h"
 
 namespace MNN {
@@ -170,6 +171,7 @@ protected:
     CoreFunctions* mCoreFunctions;
     CoreInt8Functions* mInt8CoreFunctions;
 private:
+    std::shared_ptr<StateCacheManager> mStateCacheManager;
     std::shared_ptr<EagerBufferAllocator> mStaticAllocator;
     std::shared_ptr<BufferAllocator> mDynamicAllocator;
     std::shared_ptr<BufferAllocator> mDynamicAllocatorBackup;
