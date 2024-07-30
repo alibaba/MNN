@@ -12,10 +12,10 @@
 #include <map>
 #include <memory>
 #include <MNN/AutoTime.hpp>
+#include <MNN/StateCacheManager.hpp>
 #include "core/Backend.hpp"
 #include "core/Execution.hpp"
 #include "core/BufferAllocator.hpp"
-#include "core/StateCacheManager.hpp"
 #include "MNN_generated.h"
 
 namespace MNN {
@@ -143,6 +143,14 @@ public:
 
     BufferAllocator* getBufferAllocator(bool defer_allocator = true) const {
         return mCurrentDynamicAllocator;
+    }
+
+    virtual StateCacheManager* getStateCacheManager() const override {
+        return mStateCacheManager.get();
+    }
+
+    virtual void resetStateCacheManager(StateCacheManager* manager) override {
+        mStateCacheManager.reset(manager);
     }
 
     BackendConfig::MemoryMode memoryMode() const {

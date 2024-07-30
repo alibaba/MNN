@@ -11,11 +11,11 @@
 
 #include <MNN/MNNForwardType.h>
 #include <MNN/ErrorCode.hpp>
+#include <MNN/StateCacheManager.hpp>
 #include <map>
 #include "Command.hpp"
 #include "NonCopyable.hpp"
 #include "BufferAllocator.hpp"
-#include "StateCacheManager.hpp"
 #include <future>
 #include <atomic>
 
@@ -222,6 +222,13 @@ public:
     virtual int onSync(Tensor::MapType mtype, bool toCpu, const Tensor* dstTensor) {
         return 0;
     }
+
+public:
+    virtual StateCacheManager* getStateCacheManager() const {
+        return nullptr;
+    }
+
+    virtual void resetStateCacheManager(StateCacheManager* manager) {}
 
 private:
     const MNNForwardType mType;

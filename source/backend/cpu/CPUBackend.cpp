@@ -354,7 +354,7 @@ CPUBackend::CPUBackend(const CPURuntime* runtime, BackendConfig::PrecisionMode p
     mCurrentDynamicAllocator = mDynamicAllocator.get();
     mStaticAllocator = runtime->mStaticAllocator;
     // StateCacheManager Initialization
-    mStateCacheManager.reset(new StateCacheManager((MNNStateCacheQuantType)getRuntime()->hint().kvcacheQuantOption, (MNNStateCacheType)getRuntime()->hint().kvcacheImplOption));
+    // mStateCacheManager.reset(new StateCacheManager((MNNStateCacheQuantType)getRuntime()->hint().kvcacheQuantOption, (MNNStateCacheType)getRuntime()->hint().kvcacheImplOption));
     // set other configurations
     mPrecisionMode = precision;
     mCoreFunctions = MNNGetCoreFunctions();
