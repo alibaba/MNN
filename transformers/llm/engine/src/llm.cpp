@@ -241,29 +241,6 @@ VARP Llm::forward(const std::vector<int>& input_ids, bool prefill) {
     return logits;
 }
 
-// int Llm::sample(VARP logits, const std::vector<int>& pre_ids) {
-//     std::unordered_set<int> ids_set(pre_ids.begin(), pre_ids.end());
-//     auto scores = (float*)(logits->readMap<float>());
-//     auto size = logits->getInfo()->size;
-//     // repetition penalty
-//     const float repetition_penalty = 1.1;
-//     for (auto id : ids_set) {
-//         float score = scores[id];
-//         scores[id] = score < 0 ? score * repetition_penalty : score / repetition_penalty;
-//     }
-//     // argmax
-//     float max_score = 0;
-//     int token_id = 0;
-//     for (int i = 0; i < size; i++) {
-//         float score = scores[i];
-//         if (score > max_score) {
-//             max_score = score;
-//             token_id = i;
-//         }
-//     }
-//     return token_id;
-// }
-
 static std::string apply_template(std::string prompt_template, const std::string& content, const std::string& role = "") {
     if (prompt_template.empty()) return content;
     if (!role.empty()) {

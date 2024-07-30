@@ -59,7 +59,6 @@ public:
     void trace(bool start);
     virtual void load();
     MNN::Express::VARP forward(const std::vector<int>& input_ids, bool prefill=true);
-    // int sample(MNN::Express::VARP logits, const std::vector<int>& pre_ids);
     std::string decode(int id);
     bool is_stop(int token_id);
     std::string apply_prompt_template(const std::string& user_content) const;
@@ -68,7 +67,6 @@ public:
     std::string response(const std::vector<PromptItem>& chat_prompts, std::ostream* os = &std::cout, const char* end_with = nullptr);
     void generate_init();
     std::string generate(const std::vector<int>& input_ids, std::ostream* os, const char* end_with);
-    // std::vector<int> generate(const std::vector<int>& input_ids, int max_new_tokens = -1);
     void print_speed();
     // config function
     std::string dump_config();
