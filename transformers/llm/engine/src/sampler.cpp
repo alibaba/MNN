@@ -185,7 +185,7 @@ int LocalSampler::algorithm(MNN::Express::VARP logits) {
     if (mConfig.type == "temperature") return temperature(logits, mConfig.temperature);
     if (mConfig.type == "topK") return topK(logits, mConfig.topK);
     if (mConfig.type == "topP") return topP(logits, mConfig.topP);
-    if (mConfig.type == "minP") return topP(logits, mConfig.minP);
+    if (mConfig.type == "minP") return minP(logits, mConfig.minP);
 }
 
 std::string LocalSampler::handleToken(int token, std::ostream* os, const char* end_with) {
