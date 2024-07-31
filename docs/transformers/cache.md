@@ -7,12 +7,14 @@ LLM and TRANSFORMER_FUSE shall be set ON: `-DMNN_BUILD_LLM=ON -DMNN_SUPPORT_TRAN
 ```bash
 cmake .. -DCMAKE_CXX_STANDARD=17 -DMNN_USE_SYSTEM_LIB=OFF -DMNN_BUILD_SHARED_LIBS=ON -DMNN_BUILD_TRAIN=ON -DMNN_BUILD_QUANTOOLS=ON -DMNN_EVALUATION=ON -DMNN_BUILD_CONVERTER=ON -DMNN_PORTABLE_BUILD=ON -DTFMODEL_OPTIMIZE=ON -DMNN_LOW_MEMORY=ON -DMNN_AVX512=ON -DMNN_BUILD_LLM=ON -DMNN_SUPPORT_TRANSFORMER_FUSE=ON -DMNN_BUILD_TEST=ON
 make -j20
+
+./llm_demo /home/hzx/Desktop/ANL/Project/LLM/MNN-LLM/model/qwen1_5-4b-chat-mnn-f/llm_config.json
 ```
 
 Transformer path: 
 Download from https://github.com/wangzhaode/mnn-llm/releases
 `/home/hzx/Desktop/ANL/Project/LLM/MNN-LLM/model/qwen1_5-4b-chat-mnn-f/`
-`./llm_demo /home/hzx/Desktop/ANL/Project/LLM/MNN-LLM/model/qwen1_5-4b-chat-mnn-f/`
+`./llm_demo /home/hzx/Desktop/ANL/Project/LLM/MNN-LLM/model/qwen1_5-4b-chat-mnn-f/llm_config.json`
 
 export
 ```bash
@@ -93,3 +95,12 @@ class MNN_PUBLIC StateCacheManager{
 ```
 
 ### Creation of StateCacheManager
+
+
+
+### Sampler
+
+#### adding new sampler
+1. add hyperparameters to `llm_config.hpp`.
+2. add parsing selections to function `void Llm::initSampler()` in `llm.cpp`.
+3. add implementation in `sampler.hpp` and `sampler.cpp`.

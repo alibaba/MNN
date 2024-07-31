@@ -91,7 +91,34 @@ void Llm::initStateCacheManager() {
 void Llm::initSampler() {
     StateCacheManager* manager = ExecutorScope::Current()->getStateCacheManager();
     std::string sampler_type = config_->sampler_type();
-    if (sampler_type == "greedy") sampler_ = std::shared_ptr<Sampler>(new LocalSampler(this, manager, config_->max_new_tokens(), "greedy"));
+    std::cout << "Selected Sampler: " << sampler_type << std::endl;
+    // LocalSampler
+    LocalSampler::LocalSamplerConfig local_sampler_config;
+    local_sampler_config.type = sampler_type;
+    if (sampler_type == "greedy") {
+        sampler_ = std::shared_ptr<Sampler>(new LocalSampler(this, manager, config_->max_new_tokens(), local_sampler_config));
+    }
+    if (sampler_type == "temperature") {
+        local_sampler_config.temperature = config_->temperature();
+        sampler_ = std::shared_ptr<Sampler>(new LocalSampler(this, manager, config_->max_new_tokens(), local_sampler_config));
+    }
+    if (sampler_type == "topK") {
+        local_sampler_config.temperature = config_->temperature();
+        local_sampler_config.topK = config_->topK();
+        sampler_ = std::shared_ptr<Sampler>(new LocalSampler(this, manager, config_->max_new_tokens(), local_sampler_config));
+    } 
+    if (sampler_type == "topP") {
+        local_sampler_config.temperature = config_->temperature();
+        local_sampler_config.topP = config_->topP();
+        sampler_ = std::shared_ptr<Sampler>(new LocalSampler(this, manager, config_->max_new_tokens(), local_sampler_config));
+    }
+    if (sampler_type == "minP") {
+        local_sampler_config.temperature = config_->temperature();
+        local_sampler_config.minP = config_->minP();
+        sampler_ = std::shared_ptr<Sampler>(new LocalSampler(this, manager, config_->max_new_tokens(), local_sampler_config));
+    }
+    // AdvancedSampler
+    // Not Implemented
 }
 
 void Llm::init_runtime() {

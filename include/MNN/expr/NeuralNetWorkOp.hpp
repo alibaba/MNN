@@ -58,6 +58,7 @@ MNN_PUBLIC VARP _Relu(VARP x, float slope = 0.0f);
 MNN_PUBLIC VARP _Relu6(VARP x, float minValue = 0.0f, float maxValue = 6.0f);
 MNN_PUBLIC VARP _PRelu(VARP x, std::vector<float> &&slopes);
 MNN_PUBLIC VARP _Softmax(VARP logits, int axis = -1);
+MNN_PUBLIC VARP _TempratureSoftmax(VARP logits, float temperature, int axis = -1);
 MNN_PUBLIC VARP _Softplus(VARP features);
 MNN_PUBLIC VARP _Softsign(VARP features);
 MNN_PUBLIC std::vector<VARP> _Split(VARP value, INTS size_splits, int axis = 0);
