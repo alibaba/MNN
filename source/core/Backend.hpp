@@ -11,6 +11,7 @@
 
 #include <MNN/MNNForwardType.h>
 #include <MNN/ErrorCode.hpp>
+#include <MNN/StateCacheManager.hpp>
 #include <map>
 #include "Command.hpp"
 #include "NonCopyable.hpp"
@@ -38,7 +39,9 @@ struct RuntimeHint {
     // 1: Only quantize key cache, use int8 asymmetric quantization 
     // 2: Only quantize value cache, use fp8 quantization
     // 3: quantize both key and value cache as described above
-    int kvcacheQuantOption = 0;
+    int kvcacheQuantOption = (int)MNNStateCacheQuantType::NoQuant;
+
+    int kvcacheImplOption = (int)MNNStateCacheType::MNN_STATECACHE_ADVANCED;
 };
 /** abstract backend */
 class Backend : public NonCopyable {
@@ -219,6 +222,13 @@ public:
     virtual int onSync(Tensor::MapType mtype, bool toCpu, const Tensor* dstTensor) {
         return 0;
     }
+
+public:
+    virtual StateCacheManager* getStateCacheManager() const {
+        return nullptr;
+    }
+
+    virtual void resetStateCacheManager(StateCacheManager* manager) {}
 
 private:
     const MNNForwardType mType;

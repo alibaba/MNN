@@ -12,6 +12,7 @@
 #include <map>
 #include <memory>
 #include <MNN/AutoTime.hpp>
+#include <MNN/StateCacheManager.hpp>
 #include "core/Backend.hpp"
 #include "core/Execution.hpp"
 #include "core/BufferAllocator.hpp"
@@ -144,6 +145,14 @@ public:
         return mCurrentDynamicAllocator;
     }
 
+    virtual StateCacheManager* getStateCacheManager() const override {
+        return mStateCacheManager.get();
+    }
+
+    virtual void resetStateCacheManager(StateCacheManager* manager) override {
+        mStateCacheManager.reset(manager);
+    }
+
     BackendConfig::MemoryMode memoryMode() const {
         return mMemory;
     }
@@ -170,6 +179,7 @@ protected:
     CoreFunctions* mCoreFunctions;
     CoreInt8Functions* mInt8CoreFunctions;
 private:
+    std::shared_ptr<StateCacheManager> mStateCacheManager;
     std::shared_ptr<EagerBufferAllocator> mStaticAllocator;
     std::shared_ptr<BufferAllocator> mDynamicAllocator;
     std::shared_ptr<BufferAllocator> mDynamicAllocatorBackup;

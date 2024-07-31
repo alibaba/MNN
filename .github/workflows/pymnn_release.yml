@@ -1,0 +1,86 @@
+name: pymnn_release
+on:
+  push:
+    paths:
+      - '.github/workflows/pymnn_release.yml'
+    tags:
+      - '*'
+jobs:
+  build_wheels:
+    name: ${{ matrix.arch }} ${{ matrix.build }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest,    arch: x86_64,     build: 'cp*-manylinux*' }
+          - { os: windows-latest,   arch: AMD64,      build: 'cp*'          }
+          - { os: macos-13,         arch: x86_64,     build: 'cp*'          }
+          - { os: macos-14,         arch: arm64,      build: 'cp*'          }
+
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        submodules: true
+
+    - name: using msvc
+      if: matrix.os == 'windows-latest'
+      uses: ilammy/msvc-dev-cmd@v1
+
+    - uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+
+    - name: install pipx
+      if: matrix.os == 'macos-14'
+      run: python -m pip install pipx
+
+    - name: Build wheels
+      uses: pypa/cibuildwheel@v2.16.5
+      env:
+        CIBW_ARCHS_MACOS: ${{ matrix.arch }}
+        CIBW_ARCHS_LINUX: ${{ matrix.arch }}
+        CIBW_ARCHS_WINDOWS: ${{ matrix.arch }}
+        CIBW_BUILD: ${{ matrix.build }}
+        CIBW_SKIP: cp311-*
+        CIBW_BUILD_VERBOSITY: 1
+        CIBW_ENVIRONMENT: CMAKE_BUILD_PARALLEL_LEVEL=2
+      with:
+        package-dir: pymnn/pip_package
+        output-dir: wheelhouse
+        config-file: "{package}/pyproject.toml"
+
+    - name: Show files
+      run: ls -lh wheelhouse
+      shell: bash
+
+    - name: Verify clean directory
+      run: git diff --exit-code
+      shell: bash
+
+    - name: Upload wheels
+      uses: actions/upload-artifact@v3
+      with:
+        path: wheelhouse/*.whl
+
+  publish_wheels:
+    permissions:
+      contents: none
+    name: Upload
+    needs: [build_wheels]
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/setup-python@v4
+      with:
+        python-version: '3.x'
+
+    - uses: actions/download-artifact@v3
+      with:
+        name: artifact
+        path: dist
+
+    - uses: pypa/gh-action-pypi-publish@release/v1
+      with:
+        password: ${{ secrets.PYPI_API_TOKEN }}
+        skip_existing: true

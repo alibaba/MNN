@@ -98,6 +98,13 @@ public:
         return buffer.GetString();
     }
     // read value
+    float value(const char* key, const float& default_value) const {
+        if (document.HasMember(key)) {
+            const auto& value = document[key];
+            if (value.IsFloat()) return value.GetFloat();
+        }
+        return default_value;
+    }
     int value(const char* key, const int& default_value) const {
         if (document.HasMember(key)) {
             const auto& value = document[key];
@@ -225,11 +232,15 @@ public:
     }
 
     bool reuse_kv() const {
-        return config_.value("reuse_kv", false);
+        return config_.value("reuse_kv", true);
     }
 
     int quant_kv() const {
         return config_.value("quant_kv", 0);
+    }
+
+    int type_kv() const {
+        return config_.value("type_kv", 0); // default for testing naive ones
     }
     // generate config end >
 
@@ -284,6 +295,27 @@ public:
         return llm_config_.value("prompt_template", "");
     }
     // llm model config end >
+
+    // < sampler config start
+    std::string sampler_type() const {
+        return config_.value("sampler_type", "greedy");
+    }
+
+    float temperature() const {
+        return config_.value("temperature", 1.0f);
+    }
+
+    float topK() const {
+        return config_.value("topK", 40);
+    }
+
+    float topP() const {
+        return config_.value("topP", 0.9f);
+    }
+
+    float minP() const {
+        return config_.value("minP", 0.1f);
+    }
 };
 } // Transformer
 } // MNN

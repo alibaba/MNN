@@ -16,10 +16,26 @@
 #include <cassert>
 #include <iostream>
 #include <functional> 
+#include <utility>
 
 #include <MNN/Tensor.hpp>
 
 namespace MNN {
+
+enum class MNNStateCacheType {
+    MNN_STATECACHE_NAIVE = 0, // with only pre-allocation
+    MNN_STATECACHE_ADVANCED = 1, // with pre-allocation, paging, offloading.
+};
+
+enum class MNNStateCacheQuantType {
+    NoQuant = 0, // 0: Do not quantize kvcache, just store float
+    QuantKeyInt8 = 1, // 1: Only quantize key cache, use int8 asymmetric quantization 
+    QuantValueFp8 = 2, // 2: Only quantize value cache, use fp8 quantization
+    QuantKeyInt8ValueFp8 = 3, // 3: quantize both key and value cache as described above
+    QuantValueInt8 = 4, // 4: Only quantize value cache, use int8 asymmetric quantization 
+    QuantKeyInt8ValueInt8 = 5, // 5: quantize both key and value cache as described above
+};
+
 /* 2.1 StateCacheBlock 
     All the blocks are of the same size.
     */ 
@@ -32,41 +48,41 @@ private:
     int mBlockSize;
 public:
     struct LAYOUT {
-        struct NoQuant {
-            static const int PAST_K = 0;
-            static const int PAST_V = 1;
+        enum class NoQuant {
+            PAST_K = 0,
+            PAST_V = 1
         };
-        struct QuantKeyInt8 {
-            static const int PAST_K = 0;
-            static const int PAST_K_SCALES = 1;
-            static const int PAST_K_ZERO_POINTS = 2;
-            static const int PAST_V = 3;
+        enum class QuantKeyInt8 {
+            PAST_K = 0,
+            PAST_K_SCALES = 1,
+            PAST_K_ZERO_POINTS = 2,
+            PAST_V = 3
         };
-        struct QuantValueFp8 {
-            static const int PAST_K = 0;
-            static const int PAST_K_SCALES = 1;
-            static const int PAST_K_ZERO_POINTS = 2;
-            static const int PAST_V = 3;
+        enum class QuantValueFp8 {
+            PAST_K = 0,
+            PAST_K_SCALES = 1,
+            PAST_K_ZERO_POINTS = 2,
+            PAST_V = 3
         };
-        struct QuantValueInt8 {
-            static const int PAST_K = 0;
-            static const int PAST_V = 1;
-            static const int PAST_V_SCALES = 2;
-            static const int PAST_V_ZERO_POINTS = 3;
+        enum class QuantKeyInt8ValueFp8 {
+            PAST_K = 0,
+            PAST_K_SCALES = 1,
+            PAST_K_ZERO_POINTS = 2,
+            PAST_V = 3
         };
-        struct QuantKeyInt8ValueFp8 {
-            static const int PAST_K = 0;
-            static const int PAST_K_SCALES = 1;
-            static const int PAST_K_ZERO_POINTS = 2;
-            static const int PAST_V = 3;
+        enum class QuantValueInt8 {
+            PAST_K = 0,
+            PAST_V = 1,
+            PAST_V_SCALES = 2,
+            PAST_V_ZERO_POINTS = 3
         };
-        struct QuantKeyInt8ValueInt8 {
-            static const int PAST_K = 0;
-            static const int PAST_K_SCALES = 1;
-            static const int PAST_K_ZERO_POINTS = 2;
-            static const int PAST_V = 3;
-            static const int PAST_V_SCALES = 4;
-            static const int PAST_V_ZERO_POINTS = 5;
+        enum class QuantKeyInt8ValueInt8 {
+            PAST_K = 0,
+            PAST_K_SCALES = 1,
+            PAST_K_ZERO_POINTS = 2,
+            PAST_V = 3,
+            PAST_V_SCALES = 4,
+            PAST_V_ZERO_POINTS = 5
         };
     };
     StateCacheBlock(std::vector<int> ref_ids, int blok_size, int slot_num=0);
@@ -120,54 +136,76 @@ public:
 };
 
 // 2.2 StateCache
-struct StateCache {
+class MNN_PUBLIC StateCache {
+public:
     // List of pointers to free memory blocks
-    std::list<std::shared_ptr<StateCacheBlock>> freePtrList;
-
+    std::list<std::shared_ptr<uint8_t*>> freePtrList;
     // List of offsets in external storage for free blocks
     std::list<size_t> freeFileOffsetList;
-
     // Dynamic structure for in-memory blocks with minimal ref_ids size for eviction
     std::priority_queue<std::shared_ptr<StateCacheBlock>, std::vector<std::shared_ptr<StateCacheBlock>>, 
                         std::function<bool(const std::shared_ptr<StateCacheBlock>&, const std::shared_ptr<StateCacheBlock>&)>> 
         inMemBlockList {[](const std::shared_ptr<StateCacheBlock>& a, const std::shared_ptr<StateCacheBlock>& b) { return a->refCount() > b->refCount(); }};
-
     // Linked list of blocks currently being used for computation
     std::list<std::shared_ptr<StateCacheBlock>> computeCacheBlockList;
-
     // Linked list of blocks stored in external storage
     std::list<std::shared_ptr<StateCacheBlock>> offloadedCacheBlockList;
 };
 
-// 2.3 StateCacheManager
-class MNN_PUBLIC StateCacheManager {
+// 2.3 StateCacheReference
+class MNN_PUBLIC StateCacheReference {
 public:
-    StateCache state_cache;
+    int mRefId;
+    int mBlockSize;
+    std::vector<std::shared_ptr<StateCacheBlock>> mPageTable;
+    StateCacheReference(int refId, int blockSize) : mRefId(refId), mBlockSize(blockSize) {};
+    StateCacheReference(int refId, std::shared_ptr<StateCacheReference> other) : mRefId(refId), mBlockSize(other->mBlockSize), mPageTable(other->mPageTable) {};
+    int getLogicalBlockId(int tokenId) {
+        return tokenId / mBlockSize;
+    }
+    std::shared_ptr<StateCacheBlock> getPhysicalBlock(int tokenId) {
+        return mPageTable[getLogicalBlockId(tokenId)];
+    }
+};
+
+// 2.4 StateCacheManager
+class MNN_PUBLIC StateCacheManager {
+private:
+    std::shared_ptr<StateCache> mStateCache;
+    MNNStateCacheQuantType mQuantType;
+    MNNStateCacheType mType;
+
+    // Reference correlated stuff
+    int mNextNewRefId;
+    int mBlockSize;
+    std::shared_ptr<StateCacheReference> mCurrentReference;
+
+public:
+    StateCacheManager(MNNStateCacheQuantType quantType = MNNStateCacheQuantType::NoQuant, MNNStateCacheType type = MNNStateCacheType::MNN_STATECACHE_ADVANCED);
+    void setHint(MNNStateCacheQuantType quantType = MNNStateCacheQuantType::NoQuant, MNNStateCacheType type = MNNStateCacheType::MNN_STATECACHE_ADVANCED);
+    void setHint(int quantType = 0, int type = 1);
+
+    // Reference correlated stuff
+    std::shared_ptr<StateCacheReference> getCurrentReference() {return mCurrentReference;}
+    void setCurrentReference(std::shared_ptr<StateCacheReference> other) {mCurrentReference = other;}
+    std::shared_ptr<StateCacheReference> onCreateReference(bool from_current=false);
 
     // Enlarge the memory cache
     bool enlargeMemCache(size_t size);
-
     // Enlarge the file cache
     bool enlargeFileCache(size_t size);
-
     // Release the memory cache
     void releasesMemCache();
-
     // Release the file cache
     void releaseFileCache();
-
     // Evict a block
     std::shared_ptr<StateCacheBlock> evictBlock(const std::vector<std::shared_ptr<StateCacheBlock>>& pin_block_list);
-
     // Get a free pointer
     std::shared_ptr<StateCacheBlock> getFreePtr(const std::vector<std::shared_ptr<StateCacheBlock>>& evict_pin_block_list);
-
     // Recover a block from the file
     void recoverBlock(std::shared_ptr<StateCacheBlock> block_ptr, const std::vector<std::shared_ptr<StateCacheBlock>>& pin_block_list);
-
     // Desert a block
     void desertBlock(int ref_id, std::shared_ptr<StateCacheBlock> block_ptr);
-
     // Copy a block
     std::shared_ptr<StateCacheBlock> copyBlock(int ref_id, std::shared_ptr<StateCacheBlock> block_ptr, const std::vector<std::shared_ptr<StateCacheBlock>>& pin_block_list);
 

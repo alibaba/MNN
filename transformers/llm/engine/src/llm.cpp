@@ -12,10 +12,13 @@
 #include <unordered_set>
 #include <regex>
 
+#include <MNN/expr/Executor.hpp>
 #include <MNN/expr/ExecutorScope.hpp>
 #include <MNN/AutoTime.hpp>
+#include <MNN/StateCacheManager.hpp>
 #include "cpp/ExprDebug.hpp"
 #include "llm/llm.hpp"
+#include "sampler/sampler.hpp"
 #include "tokenizer.hpp"
 #include "llmconfig.hpp"
 // 0: no debug, 1: test op time, 2: print tensor info
@@ -80,6 +83,44 @@ bool Llm::set_config(const std::string& content) {
     return config_->config_.merge(content.c_str());
 }
 
+void Llm::initStateCacheManager() {
+    StateCacheManager* manager = ExecutorScope::Current()->getStateCacheManager();
+    manager->setHint(config_->quant_kv(), config_->type_kv());
+}
+
+void Llm::initSampler() {
+    StateCacheManager* manager = ExecutorScope::Current()->getStateCacheManager();
+    std::string sampler_type = config_->sampler_type();
+    std::cout << "Selected Sampler: " << sampler_type << std::endl;
+    // LocalSampler
+    LocalSampler::LocalSamplerConfig local_sampler_config;
+    local_sampler_config.type = sampler_type;
+    if (sampler_type == "greedy") {
+        sampler_ = std::shared_ptr<Sampler>(new LocalSampler(this, manager, config_->max_new_tokens(), local_sampler_config));
+    }
+    if (sampler_type == "temperature") {
+        local_sampler_config.temperature = config_->temperature();
+        sampler_ = std::shared_ptr<Sampler>(new LocalSampler(this, manager, config_->max_new_tokens(), local_sampler_config));
+    }
+    if (sampler_type == "topK") {
+        local_sampler_config.temperature = config_->temperature();
+        local_sampler_config.topK = config_->topK();
+        sampler_ = std::shared_ptr<Sampler>(new LocalSampler(this, manager, config_->max_new_tokens(), local_sampler_config));
+    } 
+    if (sampler_type == "topP") {
+        local_sampler_config.temperature = config_->temperature();
+        local_sampler_config.topP = config_->topP();
+        sampler_ = std::shared_ptr<Sampler>(new LocalSampler(this, manager, config_->max_new_tokens(), local_sampler_config));
+    }
+    if (sampler_type == "minP") {
+        local_sampler_config.temperature = config_->temperature();
+        local_sampler_config.minP = config_->minP();
+        sampler_ = std::shared_ptr<Sampler>(new LocalSampler(this, manager, config_->max_new_tokens(), local_sampler_config));
+    }
+    // AdvancedSampler
+    // Not Implemented
+}
+
 void Llm::init_runtime() {
     ScheduleConfig config;
     BackendConfig cpuBackendConfig;
@@ -110,6 +151,10 @@ void Llm::init_runtime() {
     {
         runtime_manager_->setCache(".tempcache");
     }
+    // init StateCacheManager
+    initStateCacheManager();
+    // init sampler
+    initSampler();
 }
 
 void Llm::load() {
@@ -177,7 +222,15 @@ void Llm::trace(bool start) {
     runtime_manager_->updateCache();
 }
 
-VARP Llm::forward(const std::vector<int>& input_ids) {
+VARP Llm::forward(const std::vector<int>& input_ids, bool prefill) {
+    // set modules, seperate prefill and decode phase
+    if (prefill){
+        modules_ = prefill_modules_;
+    } else
+    {
+        modules_ = decode_modules_;
+    }
+    // forward
     int seq_len = input_ids.size();
     auto attention_mask = gen_attention_mask(seq_len);
     auto position_ids = gen_position_ids(seq_len);
@@ -213,29 +266,6 @@ VARP Llm::forward(const std::vector<int>& input_ids) {
     all_seq_len_ += seq_len;
     gen_seq_len_++;
     return logits;
-}
-
-int Llm::sample(VARP logits, const std::vector<int>& pre_ids) {
-    std::unordered_set<int> ids_set(pre_ids.begin(), pre_ids.end());
-    auto scores = (float*)(logits->readMap<float>());
-    auto size = logits->getInfo()->size;
-    // repetition penalty
-    const float repetition_penalty = 1.1;
-    for (auto id : ids_set) {
-        float score = scores[id];
-        scores[id] = score < 0 ? score * repetition_penalty : score / repetition_penalty;
-    }
-    // argmax
-    float max_score = 0;
-    int token_id = 0;
-    for (int i = 0; i < size; i++) {
-        float score = scores[i];
-        if (score > max_score) {
-            max_score = score;
-            token_id = i;
-        }
-    }
-    return token_id;
 }
 
 static std::string apply_template(std::string prompt_template, const std::string& content, const std::string& role = "") {
@@ -320,69 +350,15 @@ void Llm::generate_init() {
     }
 }
 
-std::vector<int> Llm::generate(const std::vector<int>& input_ids, int max_new_tokens) {
-    generate_init();
-    std::vector<int> output_ids, all_ids = input_ids;
-    prompt_len_ = static_cast<int>(input_ids.size());
-    if (max_new_tokens < 0) { max_new_tokens = config_->max_new_tokens(); }
-    // prefill
-    auto logits = forward(input_ids);
-    if (logits.get() == nullptr) {
-        return {};
-    }
-    int token = sample(logits, all_ids);
-    output_ids.push_back(token);
-    all_ids.push_back(token);
-    // decode
-    while (gen_seq_len_ < max_new_tokens) {
-        logits = forward({token});
-        if (logits.get() == nullptr) {
-            return {};
-        }
-        token = sample(logits, all_ids);
-        if (is_stop(token)) { break; }
-        output_ids.push_back(token);
-        all_ids.push_back(token);
-    }
-    return output_ids;
-}
 
 std::string Llm::generate(const std::vector<int>& input_ids, std::ostream* os, const char* end_with) {
     prompt_len_ = static_cast<int>(input_ids.size());
     history_ids_.insert(history_ids_.end(), input_ids.begin(), input_ids.end()); // push to history_ids_
-    auto st = std::chrono::system_clock::now();
-    modules_ = prefill_modules_;
-    auto logits = forward(input_ids);
-    if (nullptr == logits.get()) {
-        return "";
-    }
-    int token = sample(logits, history_ids_);
-    auto et = std::chrono::system_clock::now();
-    modules_ = decode_modules_;
-    std::string output_str = decode(token);
-    prefill_us_ = std::chrono::duration_cast<std::chrono::microseconds>(et - st).count();
-    *os << output_str << std::flush;
-    while (gen_seq_len_ < config_->max_new_tokens()) {
-        st = std::chrono::system_clock::now();
-        history_ids_.push_back(token);
-        logits = forward({token});
-        if (nullptr == logits.get()) {
-            return "";
-        }
-        if (logits->getInfo()->size == 0) {
-            return "";
-        }
-        token = sample(logits, history_ids_);
-        et = std::chrono::system_clock::now();
-        decode_us_ += std::chrono::duration_cast<std::chrono::microseconds>(et - st).count();
-        if (is_stop(token)) {
-            *os << end_with << std::flush;
-            break;
-        }
-        auto word = decode(token);
-        *os << word << std::flush;
-        output_str += word;
-    }
+    struct timePerformance* perf = new struct timePerformance;
+    std::string output_str = sampler_->sample(input_ids, os, end_with, perf);
+    prefill_us_ += perf->prefill_us_;
+    decode_us_ += perf->decode_us_;
+    delete perf;
 #ifdef DUMP_PROFILE_INFO
     print_speed();
 #endif

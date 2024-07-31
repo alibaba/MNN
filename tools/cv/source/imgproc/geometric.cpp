@@ -65,7 +65,7 @@ VARP remap(VARP src, VARP map1, VARP map2, int interpolation, int borderMode, in
     auto original_type = src->getInfo()->type;
     src = _Convert(_Unsqueeze(src, {0}), NC4HW4);
     src = _Cast(src, halide_type_of<float>());
-    // change remap matrix to gridsmaple matrix: y = (2 * x + 1) / num - 1
+    // change remap matrix to gridsample matrix: y = (2 * x + 1) / num - 1
     map1 = (map1 * _Scalar<float>(2) + _Scalar<float>(1)) / _Scalar<float>(ow) - _Scalar<float>(1);
     map2 = (map2 * _Scalar<float>(2) + _Scalar<float>(1)) / _Scalar<float>(oh) - _Scalar<float>(1);
     // grid need shape = {n, h, w, 2}

@@ -15,6 +15,7 @@
 #include "core/Macro.h"
 #include "core/Concurrency.h"
 #include "core/BufferAllocator.hpp"
+#include <MNN/StateCacheManager.hpp>
 #include "core/TensorUtils.hpp"
 #include "core/OpCommonUtils.hpp"
 

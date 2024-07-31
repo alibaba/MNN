@@ -87,6 +87,9 @@ void Session::ModeGroup::setHint(Interpreter::HintMode mode, int hint) {
         case Interpreter::KVCACHE_QUANT_OPTIONS:
             runtimeHint.kvcacheQuantOption = hint;
             break;
+        case Interpreter::KVCACHE_IMPL_OPTIONS:
+            runtimeHint.kvcacheImplOption = hint;
+            break;
         default:
             break;
     }

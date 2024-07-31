@@ -17,6 +17,7 @@
 #include "core/Backend.hpp"
 #include "RuntimeAttr.hpp"
 #include <stack>
+#include <MNN/StateCacheManager.hpp>
 #define DEFAULT_BACKUP_RUNTIME_KEY MNN_FORWARD_CPU
 #ifdef MNN_EXPR_ENABLE_PROFILER
 #define MNN_EXPRESS_ERROR_REPORT
@@ -105,6 +106,9 @@ Executor::Executor(std::shared_ptr<Runtime> backend, MNNForwardType type, int nu
     defaultConfig.flags = 4;
     std::shared_ptr<Backend> defaultBackend(mRuntimes[DEFAULT_BACKUP_RUNTIME_KEY]->onCreate(&defaultConfig));
     mAttr->constantBackend = defaultBackend;
+    // set StateCacheManager to Backend
+    mStateCacheManager.reset(new StateCacheManager((MNNStateCacheQuantType)mAttr->constantBackend->getRuntime()->hint().kvcacheQuantOption, (MNNStateCacheType)mAttr->constantBackend->getRuntime()->hint().kvcacheImplOption));
+    mAttr->constantBackend->resetStateCacheManager(mStateCacheManager.get());
     _refreshRuntime();
 }
 Executor::~Executor(){

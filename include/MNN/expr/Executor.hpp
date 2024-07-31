@@ -11,6 +11,7 @@
 #include <MNN/expr/Expr.hpp>
 #include <MNN/Tensor.hpp>
 #include <MNN/Interpreter.hpp>
+#include <MNN/StateCacheManager.hpp>
 #include <vector>
 #include <mutex>
 #include <set>
@@ -143,6 +144,12 @@ private:
     uint32_t mLazyMode = 0;
     std::shared_ptr<ExecutorAttr> mAttr;
     std::mutex mMutex;
+private:
+    std::shared_ptr<StateCacheManager> mStateCacheManager;
+public:
+    StateCacheManager* getStateCacheManager() const {
+        return mStateCacheManager.get();
+    }
 };
 } // namespace Express
 } // namespace MNN

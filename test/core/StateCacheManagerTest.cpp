@@ -1,5 +1,5 @@
 #include "MNNTestSuite.h"
-#include "core/StateCacheManager.hpp"
+#include <MNN/StateCacheManager.hpp>
 #include <iostream>
 
 #ifndef _MSC_VER

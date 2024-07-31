@@ -25,6 +25,7 @@
 
 namespace MNN {
 namespace Transformer {
+class Sampler;
 class Tokenizer;
 class Pipeline;
 class LlmConfig;
@@ -57,15 +58,15 @@ public:
     void reset();
     void trace(bool start);
     virtual void load();
-    MNN::Express::VARP forward(const std::vector<int>& input_ids);
-    int sample(MNN::Express::VARP logits, const std::vector<int>& pre_ids);
+    MNN::Express::VARP forward(const std::vector<int>& input_ids, bool prefill=true);
+    std::string decode(int id);
+    bool is_stop(int token_id);
     std::string apply_prompt_template(const std::string& user_content) const;
     std::string apply_chat_template(const std::vector<PromptItem>& chat_prompts) const;
     std::string response(const std::string& user_content, std::ostream* os = &std::cout, const char* end_with = nullptr);
     std::string response(const std::vector<PromptItem>& chat_prompts, std::ostream* os = &std::cout, const char* end_with = nullptr);
     void generate_init();
     std::string generate(const std::vector<int>& input_ids, std::ostream* os, const char* end_with);
-    std::vector<int> generate(const std::vector<int>& input_ids, int max_new_tokens = -1);
     void print_speed();
     // config function
     std::string dump_config();
@@ -82,6 +83,7 @@ public:
     int64_t decode_us_ = 0;
     bool is_single_ = true;
 protected:
+    std::shared_ptr<Sampler> sampler_;
     std::shared_ptr<LlmConfig> config_;
     std::shared_ptr<Tokenizer> tokenizer_;
     std::vector<int> key_value_shape_ = {};
@@ -91,9 +93,9 @@ protected:
     std::vector<std::shared_ptr<MNN::Express::Module>> modules_;
     std::vector<std::shared_ptr<MNN::Express::Module>> decode_modules_;
     std::vector<std::shared_ptr<MNN::Express::Module>> prefill_modules_;
+    void initStateCacheManager();
+    void initSampler();
     void init_runtime();
-    std::string decode(int id);
-    bool is_stop(int token_id);
     virtual std::vector<int> tokenizer(const std::string& query);
     virtual MNN::Express::VARP embedding(const std::vector<int>& input_ids);
     virtual MNN::Express::VARP gen_attention_mask(int seq_len);
