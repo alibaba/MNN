@@ -34,7 +34,7 @@ Currently fuse attention haven't added to python MNN package converter. To use i
 ```bash
 for i in $(seq 0 39)
 do
-    ./build/MNNConvert -f ONNX --modelFile ./model/qwen1_5-4b-chat-onnx/block_${i}.onnx --MNNModel ./model/qwen1_5-4b-chat-mnn-ff/block_${i}.mnn --weightQuantBits 4 --weightQuantAsymmetric --transformerFuse
+    ./build/MNNConvert -f ONNX --modelFile ./model/qwen1_5-4b-chat-onnx/block_${i}.onnx --MNNModel ./model/qwen1_5-4b-chat-mnn-f/block_${i}.mnn --weightQuantBits 4 --weightQuantAsymmetric --transformerFuse
 done
 ```
 
