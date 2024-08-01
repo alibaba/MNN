@@ -521,7 +521,7 @@ void StateCacheManager::onAllocateCache(void* layer, int token_num, std::vector<
             need_block = 1;
             need_token += mBlockSize; // enlargement
             mBlockSize = need_token + mConfig.preallocateTokenNum; // preallocation
-            copy_flag = true;
+            copy_flag = true; 
         } else {
             // no new allocation take place
             need_block = 0; 
