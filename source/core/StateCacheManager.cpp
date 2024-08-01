@@ -138,6 +138,14 @@ std::shared_ptr<StateCacheReference> StateCacheManager::onCreateReference(bool f
     }
 }
 
+void StateCacheManager::setConfig(struct StateCacheManagerConfig config) {
+    mConfig = config;
+    if (mType == MNNStateCacheType::MNN_STATECACHE_ADVANCED) {
+        mBlockSize = mConfig.blockSize;
+    }
+}
+
+
 bool StateCacheManager::enlargeMemCache(size_t size) {
     // Calculate the number of new blocks needed based on the requested size
     int DEFAULT_BLOCK_SIZE = 4;
@@ -497,29 +505,48 @@ void StateCacheManager::onAllocateCache(void* layer, int token_num, std::vector<
     // 2. now StateCache exists.
     // 2.1 the advanced one:
     // calculate the number of new blocks in need and get the pointer and set the block.
+    int need_token, need_block;
+    bool copy_flag = false;
+    need_token = token_num;
+    if (mCurrentReference->mPageTable[layer].size() != 0) {
+        need_token -= (mCurrentReference->mPageTable[layer].back()->getBlockSize() - mCurrentReference->mPageTable[layer].back()->getSlotNum()); 
+    }
     if (mType == MNNStateCacheType::MNN_STATECACHE_ADVANCED) {
-        int need_token = token_num;
-        if (mCurrentReference->mPageTable[layer].size() != 0) {
-            need_token -= (mCurrentReference->mPageTable[layer].back()->getBlockSize() - mCurrentReference->mPageTable[layer].back()->getSlotNum()); 
-        }
-        int need_block = UP_DIV(need_token, mBlockSize);
-        // allocate the pointers to the page table
-        for (int i = 0; i < need_block; ++i) {
-            int slot_num = (need_token >= mBlockSize) ? mBlockSize : need_token;
-            uint8_t* free_ptr = getFreePtr();
-            StateCacheBlock* block = new StateCacheBlock({mCurrentReference->mRefId}, mBlockSize, slot_num);
-            block->setTensors(shape);
-            for (int s = 0; s < size.size(); ++s) {
-                block->setTensorSize(s, size[s]);
-                block->onAllocatePtr(free_ptr);
-            }
-            mCurrentReference->mPageTable[layer].push_back(std::shared_ptr(block));
-            need_token -= mBlockSize;
-        }
+        need_block = UP_DIV(need_token, mBlockSize);
     } else {
         // 2.2 the naive one:
         // resize the only block and enlarge it!
+        if (need_token > 0){
+            // reallocation
+            need_block = 1;
+            need_token += mBlockSize; // enlargement
+            mBlockSize = need_token + mConfig.preallocateTokenNum; // preallocation
+            copy_flag = true;
+        } else {
+            // no new allocation take place
+            need_block = 0; 
+            need_token = 0;
+            copy_flag = false;
+        }
+    }
+    // allocate the pointers to the page table
+    for (int i = 0; i < need_block; ++i) {
+        int slot_num = (need_token >= mBlockSize) ? mBlockSize : need_token;
+        uint8_t* free_ptr = getFreePtr();
+        StateCacheBlock* block = new StateCacheBlock({mCurrentReference->mRefId}, mBlockSize, slot_num);
+        block->setTensors(shape);
+        for (int s = 0; s < size.size(); ++s) {
+            block->setTensorSize(s, size[s]);
+            block->onAllocatePtr(free_ptr);
+        }
+        mCurrentReference->mPageTable[layer].push_back(std::shared_ptr(block));
+        need_token -= mBlockSize;
+    }
 
+    // reallocate phase, memcpy
+    if (mType == MNNStateCacheType::MNN_STATECACHE_NAIVE && copy_flag) {
+        // previous: mPageTable[layer][0], present: mPageTable[layer][1]
+        // after copy: mPageTable[layer].pop_front()
     }
 }
 

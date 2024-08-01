@@ -172,6 +172,12 @@ public:
 
 // 2.4 StateCacheManager
 class MNN_PUBLIC StateCacheManager {
+public:
+struct StateCacheManagerConfig {
+    int preallocateTokenNum = 63;
+    int blockSize = 8;
+};
+
 private:
     std::unordered_map<void*, std::shared_ptr<StateCache>> mStateCache;
     MNNStateCacheQuantType mQuantType;
@@ -179,13 +185,17 @@ private:
 
     // Reference correlated stuff
     int mNextNewRefId;
-    int mBlockSize;
+    int mBlockSize = 0;
     std::shared_ptr<StateCacheReference> mCurrentReference;
+
+    // config
+    struct StateCacheManagerConfig mConfig;
 
 public:
     StateCacheManager(MNNStateCacheQuantType quantType = MNNStateCacheQuantType::NoQuant, MNNStateCacheType type = MNNStateCacheType::MNN_STATECACHE_ADVANCED);
     void setHint(MNNStateCacheQuantType quantType = MNNStateCacheQuantType::NoQuant, MNNStateCacheType type = MNNStateCacheType::MNN_STATECACHE_ADVANCED);
     void setHint(int quantType = 0, int type = 1);
+    void setConfig(struct StateCacheManagerConfig config);
 
     // Reference correlated stuff
     std::shared_ptr<StateCacheReference> getCurrentReference() {return mCurrentReference;}
