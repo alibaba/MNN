@@ -60,9 +60,7 @@ public:
         };
         enum class QuantValueFp8 {
             PAST_K = 0,
-            PAST_K_SCALES = 1,
-            PAST_K_ZERO_POINTS = 2,
-            PAST_V = 3
+            PAST_V = 1
         };
         enum class QuantKeyInt8ValueFp8 {
             PAST_K = 0,
@@ -87,8 +85,12 @@ public:
     };
     StateCacheBlock(std::vector<int> ref_ids, int blok_size, int slot_num=0);
     // Tensor operations
+    // Tensor shape: K: [num_heads, block_size / hp, head_dim, hp], V: [num_heads, head_dim / hp, block_size, hp]
+    // block_size % hp == 0
     void setTensor(int tId, Tensor* tensor);
     void setTensorSize(int tId, int tensor_size);
+    void resetTensorShape(std::vector<std::vector<int>>& shape, int hp);
+    void setTensors(std::vector<std::vector<int>>& shape, MNNStateCacheQuantType type, int hp);
     Tensor* getTensor(int tId) {
         return mTensors[tId];
     }
@@ -157,21 +159,21 @@ class MNN_PUBLIC StateCacheReference {
 public:
     int mRefId;
     int mBlockSize;
-    std::vector<std::shared_ptr<StateCacheBlock>> mPageTable;
+    std::unordered_map<void*, std::vector<std::shared_ptr<StateCacheBlock>>> mPageTable;
     StateCacheReference(int refId, int blockSize) : mRefId(refId), mBlockSize(blockSize) {};
     StateCacheReference(int refId, std::shared_ptr<StateCacheReference> other) : mRefId(refId), mBlockSize(other->mBlockSize), mPageTable(other->mPageTable) {};
     int getLogicalBlockId(int tokenId) {
         return tokenId / mBlockSize;
     }
-    std::shared_ptr<StateCacheBlock> getPhysicalBlock(int tokenId) {
-        return mPageTable[getLogicalBlockId(tokenId)];
+    std::shared_ptr<StateCacheBlock> getPhysicalBlock(void* layer, int tokenId) {
+        return mPageTable[layer][getLogicalBlockId(tokenId)];
     }
 };
 
 // 2.4 StateCacheManager
 class MNN_PUBLIC StateCacheManager {
 private:
-    std::shared_ptr<StateCache> mStateCache;
+    std::unordered_map<void*, std::shared_ptr<StateCache>> mStateCache;
     MNNStateCacheQuantType mQuantType;
     MNNStateCacheType mType;
 
@@ -209,7 +211,8 @@ public:
     // Copy a block
     std::shared_ptr<StateCacheBlock> copyBlock(int ref_id, std::shared_ptr<StateCacheBlock> block_ptr, const std::vector<std::shared_ptr<StateCacheBlock>>& pin_block_list);
 
-    // Prepare attention
+    // external calls
+    void onAllocateCache(void* layer, int token_num, std::vector<int> size, std::vector<std::vector<int>> shape, int hp);
     void prepareAttn(int ref_id, const std::vector<std::shared_ptr<StateCacheBlock>>& argv);
 };
 

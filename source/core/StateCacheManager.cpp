@@ -7,7 +7,9 @@
 #include <algorithm>
 #include <filesystem>
 
+#include <MNN/Tensor.hpp>
 #include <MNN/StateCacheManager.hpp>
+#include "Macro.h"
 
 
 namespace MNN {
@@ -23,6 +25,55 @@ void StateCacheBlock::setTensor(int tId, Tensor* tensor) {
 }
 void StateCacheBlock::setTensorSize(int tId, int tensor_size) {
     mTensorSize[tId] = tensor_size;
+}
+void StateCacheBlock::resetTensorShape(std::vector<std::vector<int>>& shape, int hp) {
+    for (auto& s: shape){
+        s[s.size()-2] = UP_DIV(mBlockSize, hp);
+        s.push_back(hp);
+    }
+}
+void StateCacheBlock::setTensors(std::vector<std::vector<int>>& shape, MNNStateCacheQuantType type, int hp) {
+    resetTensorShape(shape, hp);
+    if (type == MNNStateCacheQuantType::NoQuant) {
+        setTensor(LAYOUT::NoQuant::PAST_K, Tensor::createDevice<float>(shape[LAYOUT::NoQuant::PAST_K]));
+        setTensor(LAYOUT::NoQuant::PAST_V, Tensor::createDevice<float>(shape[LAYOUT::NoQuant::PAST_V]));
+        return;
+    }
+    if (type == MNNStateCacheQuantType::QuantKeyInt8) {
+        setTensor(LAYOUT::QuantKeyInt8::PAST_K, Tensor::createDevice<int8_t>(shape[LAYOUT::QuantKeyInt8::PAST_K]));
+        setTensor(LAYOUT::QuantKeyInt8::PAST_K_SCALES, Tensor::createDevice<float>(shape[LAYOUT::QuantKeyInt8::PAST_K_SCALES]));
+        setTensor(LAYOUT::QuantKeyInt8::PAST_K_ZERO_POINTS, Tensor::createDevice<float>(shape[LAYOUT::QuantKeyInt8::PAST_K_ZERO_POINTS]));
+        setTensor(LAYOUT::QuantKeyInt8::PAST_V, Tensor::createDevice<float>(shape[LAYOUT::QuantKeyInt8::PAST_V]));
+        return;
+    }
+    if (type == MNNStateCacheQuantType::QuantValueFp8) {
+        setTensor(LAYOUT::QuantValueFp8::PAST_K, Tensor::createDevice<float>(shape[LAYOUT::QuantValueFp8::PAST_K]));
+        setTensor(LAYOUT::QuantValueFp8::PAST_V, Tensor::createDevice<uint8_t>(shape[LAYOUT::QuantValueFp8::PAST_V]));
+        return;
+    }
+    if (type == MNNStateCacheQuantType::QuantKeyInt8ValueFp8) {
+        setTensor(LAYOUT::QuantKeyInt8ValueFp8::PAST_K, Tensor::createDevice<int8_t>(shape[LAYOUT::QuantKeyInt8ValueFp8::PAST_K]));
+        setTensor(LAYOUT::QuantKeyInt8ValueFp8::PAST_K_SCALES, Tensor::createDevice<float>(shape[LAYOUT::QuantKeyInt8ValueFp8::PAST_K_SCALES]));
+        setTensor(LAYOUT::QuantKeyInt8ValueFp8::PAST_K_ZERO_POINTS, Tensor::createDevice<float>(shape[LAYOUT::QuantKeyInt8ValueFp8::PAST_K_ZERO_POINTS]));
+        setTensor(LAYOUT::QuantKeyInt8ValueFp8::PAST_V, Tensor::createDevice<uint8_t>(shape[LAYOUT::QuantKeyInt8ValueFp8::PAST_V]));
+        return;
+    }
+    if (type == MNNStateCacheQuantType::QuantValueInt8) {
+        setTensor(LAYOUT::QuantValueInt8::PAST_K, Tensor::createDevice<float>(shape[LAYOUT::QuantValueInt8::PAST_K]));
+        setTensor(LAYOUT::QuantValueInt8::PAST_V, Tensor::createDevice<int8_t>(shape[LAYOUT::QuantValueInt8::PAST_V]));
+        setTensor(LAYOUT::QuantValueInt8::PAST_V_SCALES, Tensor::createDevice<float>(shape[LAYOUT::QuantValueInt8::PAST_V_SCALES]));
+        setTensor(LAYOUT::QuantValueInt8::PAST_V_ZERO_POINTS, Tensor::createDevice<float>(shape[LAYOUT::QuantValueInt8::PAST_V_ZERO_POINTS]));
+        return;
+    }
+    if (type == MNNStateCacheQuantType::QuantKeyInt8ValueInt8) {
+        setTensor(LAYOUT::QuantKeyInt8ValueInt8::PAST_K, Tensor::createDevice<int8_t>(shape[LAYOUT::QuantKeyInt8ValueInt8::PAST_K]));
+        setTensor(LAYOUT::QuantKeyInt8ValueInt8::PAST_K_SCALES, Tensor::createDevice<float>(shape[LAYOUT::QuantKeyInt8ValueInt8::PAST_K_SCALES]));
+        setTensor(LAYOUT::QuantKeyInt8ValueInt8::PAST_K_ZERO_POINTS, Tensor::createDevice<float>(shape[LAYOUT::QuantKeyInt8ValueInt8::PAST_K_ZERO_POINTS]));
+        setTensor(LAYOUT::QuantKeyInt8ValueInt8::PAST_V, Tensor::createDevice<int8_t>(shape[LAYOUT::QuantKeyInt8ValueInt8::PAST_V]));
+        setTensor(LAYOUT::QuantKeyInt8ValueInt8::PAST_V_SCALES, Tensor::createDevice<float>(shape[LAYOUT::QuantKeyInt8ValueInt8::PAST_V_SCALES]));
+        setTensor(LAYOUT::QuantKeyInt8ValueInt8::PAST_V_ZERO_POINTS, Tensor::createDevice<float>(shape[LAYOUT::QuantKeyInt8ValueInt8::PAST_V_ZERO_POINTS]));
+        return;
+    }
 }
 // manage pointers and offsets
 bool StateCacheBlock::onAllocatePtr(uint8_t* ptr) {
@@ -88,7 +139,6 @@ std::shared_ptr<StateCacheReference> StateCacheManager::onCreateReference(bool f
 }
 
 bool StateCacheManager::enlargeMemCache(size_t size) {
-<<<<<<< HEAD
     // Calculate the number of new blocks needed based on the requested size
     int DEFAULT_BLOCK_SIZE = 4;
     int newBlocksNeeded = size / DEFAULT_BLOCK_SIZE;
@@ -108,15 +158,6 @@ bool StateCacheManager::enlargeMemCache(size_t size) {
 
 
     // If everything went well, return true
-||||||| c6df3b77
-    // Implementation for enlarging the memory cache
-    // This could involve allocating more memory and updating the state_cache accordingly
-    // For simplicity, let's just return true indicating success
-=======
-    // Implementation for enlarging the memory cache
-    // This could involve allocating more memory and updating the mStateCache accordingly
-    // For simplicity, let's just return true indicating success
->>>>>>> master
     return true;
 }
 
@@ -253,7 +294,6 @@ std::shared_ptr<StateCacheBlock> StateCacheManager::evictBlock(const std::vector
     std::cout<<"enter-2";
     std::shared_ptr<StateCacheBlock> evict_block;
 
-<<<<<<< HEAD
     // Find a block to evict from computeCacheBlockList
     for (auto& block : state_cache.computeCacheBlockList) {
         std::cout<<"enter-1:"<<block<<std::endl;
@@ -271,39 +311,7 @@ std::shared_ptr<StateCacheBlock> StateCacheManager::evictBlock(const std::vector
             break;
         }
     }
-||||||| c6df3b77
-// Find a block to evict from computeCacheBlockList
-for (auto& block : state_cache.computeCacheBlockList) {
-    bool is_pinned = false;
-    for (const auto& pinned_block : pin_block_list) {
-        if (block.get() == pinned_block.get()) {
-            is_pinned = true;
-            break;
-        }
-    }
-    if (!is_pinned) {
-        evict_block = block;
-        break;
-    }
-}
-=======
-// // Find a block to evict from computeCacheBlockList
-// for (auto& block : mStateCache->computeCacheBlockList) {
-//     bool is_pinned = false;
-//     for (const auto& pinned_block : pin_block_list) {
-//         if (block.get() == pinned_block.get()) {
-//             is_pinned = true;
-//             break;
-//         }
-//     }
-//     if (!is_pinned) {
-//         evict_block = block;
-//         break;
-//     }
-// }
->>>>>>> master
 
-<<<<<<< HEAD
     // If no block was found, find a block from inMemBlockList
     if (!evict_block) {
         std::cout<<"enter2";
@@ -313,25 +321,7 @@ for (auto& block : state_cache.computeCacheBlockList) {
             state_cache.inMemBlockList.pop();
         }
     }
-||||||| c6df3b77
-    // If no block was found, find a block from inMemBlockList
-    if (!evict_block) {
-        if (!state_cache.inMemBlockList.empty()) {
-            evict_block = state_cache.inMemBlockList.top();
-            state_cache.inMemBlockList.pop();
-        }
-    }
-=======
-//     // If no block was found, find a block from inMemBlockList
-//     if (!evict_block) {
-//         if (!mStateCache->inMemBlockList.empty()) {
-//             evict_block = mStateCache->inMemBlockList.top();
-//             mStateCache->inMemBlockList.pop();
-//         }
-//     }
->>>>>>> master
 
-<<<<<<< HEAD
     if (evict_block) {
         std::cout<<"enter4";
         // Get a file offset from freeFileOffsetList
@@ -345,31 +335,7 @@ for (auto& block : state_cache.computeCacheBlockList) {
         }
         size_t offset = *state_cache.freeFileOffsetList.begin();
         state_cache.freeFileOffsetList.pop_front();
-||||||| c6df3b77
-    if (evict_block) {
-        // Get a file offset from freeFileOffsetList
-        if (state_cache.freeFileOffsetList.empty()) {
-            if (!enlargeFileCache(0)) {
-                // Enlargement failed
-                return nullptr;
-            }
-        }
-        size_t offset = *state_cache.freeFileOffsetList.begin();
-        state_cache.freeFileOffsetList.pop_front();
-=======
-//     if (evict_block) {
-//         // Get a file offset from freeFileOffsetList
-//         if (mStateCache->freeFileOffsetList.empty()) {
-//             if (!enlargeFileCache(0)) {
-//                 // Enlargement failed
-//                 return nullptr;
-//             }
-//         }
-//         size_t offset = *mStateCache->freeFileOffsetList.begin();
-//         mStateCache->freeFileOffsetList.pop_front();
->>>>>>> master
 
-<<<<<<< HEAD
 
         // Open the file for writing
         std::ofstream file("external_storage.bin", std::ios::binary | std::ios::out | std::ios::app);
@@ -408,41 +374,17 @@ for (auto& block : state_cache.computeCacheBlockList) {
         // Move the evicted block to offloadedCacheBlockList
         state_cache.offloadedCacheBlockList.push_back(evict_block);
         state_cache.freePtrList.push_back(evict_block);
-||||||| c6df3b77
-        // Move the evicted block to offloadedCacheBlockList
-        state_cache.offloadedCacheBlockList.push_back(evict_block);
-        state_cache.freePtrList.push_back(evict_block);
-=======
-//         // Move the evicted block to offloadedCacheBlockList
-//         mStateCache->offloadedCacheBlockList.push_back(evict_block);
-//         mStateCache->freePtrList.push_back(evict_block);
->>>>>>> master
 
-<<<<<<< HEAD
         // Remove the block from computeCacheBlockList or inMemBlockList
         state_cache.computeCacheBlockList.remove(evict_block);
         return evict_block;
     }
     std::cout<<"nullptr2";
-||||||| c6df3b77
-        // Remove the block from computeCacheBlockList or inMemBlockList
-        state_cache.computeCacheBlockList.remove(evict_block);
-        return evict_block;
-    }
-
-=======
-//         // Remove the block from computeCacheBlockList or inMemBlockList
-//         mStateCache->computeCacheBlockList.remove(evict_block);
-//         return evict_block;
-//     }
-
->>>>>>> master
     return nullptr;
 }
 
 
 std::shared_ptr<StateCacheBlock> StateCacheManager::getFreePtr(const std::vector<std::shared_ptr<StateCacheBlock>>& evict_pin_block_list) {
-<<<<<<< HEAD
     std::cout<<"enter10";
     if (state_cache.freePtrList.empty()) {
         std::cout<<"enter11";
@@ -457,31 +399,6 @@ std::cout<<"enter13";
     state_cache.freePtrList.pop_front();
 std::cout<<"enter14";
     return free_ptr;
-||||||| c6df3b77
-    if (state_cache.freePtrList.empty()) {
-        if (!enlargeMemCache(0)) {
-            // Enlargement failed
-            return nullptr;
-        }
-    }
-
-    std::shared_ptr<StateCacheBlock> free_ptr = *state_cache.freePtrList.begin();
-    state_cache.freePtrList.pop_front();
-
-    return free_ptr;
-=======
-    // if (mStateCache->freePtrList.empty()) {
-    //     if (!enlargeMemCache(0)) {
-    //         // Enlargement failed
-    //         return nullptr;
-    //     }
-    // }
-
-    // std::shared_ptr<StateCacheBlock> free_ptr = *mStateCache->freePtrList.begin();
-    // mStateCache->freePtrList.pop_front();
-
-    // return free_ptr;
->>>>>>> master
 }
 
 void StateCacheManager::recoverBlock(std::shared_ptr<StateCacheBlock> block_ptr, const std::vector<std::shared_ptr<StateCacheBlock>>& pin_block_list) {
@@ -492,38 +409,17 @@ void StateCacheManager::recoverBlock(std::shared_ptr<StateCacheBlock> block_ptr,
     // Open the file for reading
     std::ifstream file("external_storage.bin", std::ios::binary);
 
-<<<<<<< HEAD
     if (!file.is_open()) {
         throw std::runtime_error("Failed to open the external storage file.");
     }
-||||||| c6df3b77
-    //     // Ensure the file is open for direct IO
-    //     if (state_cache.file_fd < 0) {
-    //         state_cache.file_fd = ::open("cache_file", O_RDWR | O_DIRECT, S_IRUSR | S_IWUSR);
-    //     }
-=======
-    //     // Ensure the file is open for direct IO
-    //     if (mStateCache->file_fd < 0) {
-    //         mStateCache->file_fd = ::open("cache_file", O_RDWR | O_DIRECT, S_IRUSR | S_IWUSR);
-    //     }
->>>>>>> master
 
-<<<<<<< HEAD
     for (int i = 0; i < block_ptr->getTensorsLength(); ++i) {
         // Get the file offset for the current tensor
         size_t file_offset = block_ptr->getTensor(i)->getFileOffset();
-||||||| c6df3b77
-    //     // Read block_ptr from disk
-    //     ::pread(state_cache.file_fd, block_ptr->slots.get(), BLOCK_SIZE, block_ptr->slot_end->value());
-=======
-    //     // Read block_ptr from disk
-    //     ::pread(mStateCache->file_fd, block_ptr->slots.get(), BLOCK_SIZE, block_ptr->slot_end->value());
->>>>>>> master
 
         // Get the size of the current tensor
         int tensor_size = block_ptr->getTensorSize(i);
 
-<<<<<<< HEAD
         // Set the file position to the correct offset
         file.seekg(file_offset, std::ios::beg);
 
@@ -554,15 +450,6 @@ void StateCacheManager::recoverBlock(std::shared_ptr<StateCacheBlock> block_ptr,
     // Step 4: Remove the block from the external storage and update the file offset list
     state_cache.offloadedCacheBlockList.remove(block_ptr); // Remove the block from the external storage list
     state_cache.freeFileOffsetList.push_back(block_ptr->getTensor(0)->getFileOffset()); // Add the file offset to the free list
-||||||| c6df3b77
-    //     // Add the block's offset back to freeFileOffsetList
-    //     state_cache.freeFileOffsetList.push_back(block_ptr->slot_end->value());
-    // }
-=======
-    //     // Add the block's offset back to freeFileOffsetList
-    //     mStateCache->freeFileOffsetList.push_back(block_ptr->slot_end->value());
-    // }
->>>>>>> master
 }
 
 void StateCacheManager::desertBlock(int ref_id, std::shared_ptr<StateCacheBlock> block_ptr) {
@@ -594,6 +481,46 @@ std::shared_ptr<StateCacheBlock> StateCacheManager::copyBlock(int ref_id, std::s
     state_cache.inMemBlockList.push(free_ptr); 
     return free_ptr;
         
+}
+
+// The Operator requires an allocation
+void StateCacheManager::onAllocateCache(void* layer, int token_num, std::vector<int> size, std::vector<std::vector<int>> shape) {
+    // 1. check if the layer is registered.
+    if (mStateCache.count(layer)==0) {
+        mStateCache[layer] = std::shared_ptr(new StateCache);
+    }
+    std::shared_ptr<StateCache> cache = mStateCache[layer];
+    if (mCurrentReference->mPageTable.count(layer)==0) {
+        std::vector<std::shared_ptr<StateCacheBlock>> table;
+        mCurrentReference->mPageTable[layer] = table; 
+    }
+    // 2. now StateCache exists.
+    // 2.1 the advanced one:
+    // calculate the number of new blocks in need and get the pointer and set the block.
+    if (mType == MNNStateCacheType::MNN_STATECACHE_ADVANCED) {
+        int need_token = token_num;
+        if (mCurrentReference->mPageTable[layer].size() != 0) {
+            need_token -= (mCurrentReference->mPageTable[layer].back()->getBlockSize() - mCurrentReference->mPageTable[layer].back()->getSlotNum()); 
+        }
+        int need_block = UP_DIV(need_token, mBlockSize);
+        // allocate the pointers to the page table
+        for (int i = 0; i < need_block; ++i) {
+            int slot_num = (need_token >= mBlockSize) ? mBlockSize : need_token;
+            uint8_t* free_ptr = getFreePtr();
+            StateCacheBlock* block = new StateCacheBlock({mCurrentReference->mRefId}, mBlockSize, slot_num);
+            block->setTensors(shape);
+            for (int s = 0; s < size.size(); ++s) {
+                block->setTensorSize(s, size[s]);
+                block->onAllocatePtr(free_ptr);
+            }
+            mCurrentReference->mPageTable[layer].push_back(std::shared_ptr(block));
+            need_token -= mBlockSize;
+        }
+    } else {
+        // 2.2 the naive one:
+        // resize the only block and enlarge it!
+
+    }
 }
 
 void StateCacheManager::prepareAttn(int ref_id, const std::vector<std::shared_ptr<StateCacheBlock>>& argv) {
