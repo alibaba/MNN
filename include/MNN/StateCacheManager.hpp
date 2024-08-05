@@ -11,6 +11,7 @@
 #include <vector>
 #include <list>
 #include <queue>
+#include <set>
 #include <unordered_map>
 #include <memory>
 #include <cassert>
@@ -38,14 +39,20 @@ enum class MNNStateCacheQuantType {
 
 /* 2.1 StateCacheBlock 
     All the blocks are of the same size.
+    Tensor shape: 
+        K: [num_heads, block_size / hp, head_dim, hp]
+        V: [num_heads, head_dim / hp, block_size, hp]
     */ 
 class MNN_PUBLIC StateCacheBlock {
 private:
-    std::vector<int> mRefIds; // IDs of samples using this block
+    std::set<int> mRefIds; // IDs of samples using this block
+    // slot number is changed when numbers are actually filled in.
     int mSlotNum; // Index pointing to the id of the next available slot in this block
     std::vector<Tensor*> mTensors; // Tensors holding the KV cache data
     std::vector<int> mTensorSize;
     int mBlockSize;
+    void* mBasePtr;
+    size_t mSize;
 public:
     struct LAYOUT {
         enum class NoQuant {
@@ -90,7 +97,7 @@ public:
     void setTensor(int tId, Tensor* tensor);
     void setTensorSize(int tId, int tensor_size);
     void resetTensorShape(std::vector<std::vector<int>>& shape, int hp);
-    void setTensors(std::vector<std::vector<int>>& shape, MNNStateCacheQuantType type, int hp);
+    size_t setTensors(std::vector<std::vector<int>>& shape, void* backend, MNNStateCacheQuantType type, int hp);
     Tensor* getTensor(int tId) {
         return mTensors[tId];
     }
@@ -103,6 +110,13 @@ public:
     // manage pointers and offsets
     bool onAllocatePtr(uint8_t* ptr);
     bool onAllocateOffset(size_t offset);
+    void setBlockMem(void* ptr, size_t size);
+    void* getBlockPtr() const {
+        return mBasePtr;
+    }
+    size_t getBlockPhysicalSize() const {
+        return mSize;
+    }
     // reset slot_num
     void resetSlotNum(int slot_num);
     int getSlotNum() {
@@ -122,11 +136,14 @@ public:
     bool isFull() const {
         return mBlockSize==mSlotNum;
     }
-    void setRefIds(const std::vector<int>& ref_ids){
+    void setRefIds(const std::set<int>& ref_ids){
         mRefIds = ref_ids;
     }
-    std::vector<int> getRefIds() const{
-         return mRefIds;
+    std::set<int> getRefIds() const{
+        return mRefIds;
+    }
+    bool own(int ref_id) const {
+        return mRefIds.count(ref_id) != 0;
     }
      // Block size management
     void setBlockSize(int block_size){
@@ -141,17 +158,17 @@ public:
 class MNN_PUBLIC StateCache {
 public:
     // List of pointers to free memory blocks
-    std::list<std::shared_ptr<uint8_t*>> freePtrList;
+    std::list<void*> freePtrList;
     // List of offsets in external storage for free blocks
     std::list<size_t> freeFileOffsetList;
     // Dynamic structure for in-memory blocks with minimal ref_ids size for eviction
-    std::priority_queue<std::shared_ptr<StateCacheBlock>, std::vector<std::shared_ptr<StateCacheBlock>>, 
-                        std::function<bool(const std::shared_ptr<StateCacheBlock>&, const std::shared_ptr<StateCacheBlock>&)>> 
-        inMemBlockList {[](const std::shared_ptr<StateCacheBlock>& a, const std::shared_ptr<StateCacheBlock>& b) { return a->refCount() > b->refCount(); }};
+    std::map<int, std::set<std::shared_ptr<StateCacheBlock>>> inMemBlockList;
     // Linked list of blocks currently being used for computation
-    std::list<std::shared_ptr<StateCacheBlock>> computeCacheBlockList;
+    std::set<std::shared_ptr<StateCacheBlock>> computeCacheBlockList;
     // Linked list of blocks stored in external storage
-    std::list<std::shared_ptr<StateCacheBlock>> offloadedCacheBlockList;
+    std::set<std::shared_ptr<StateCacheBlock>> offloadedBlockList;
+public:
+    void clear(std::shared_ptr<StateCacheBlock> block);
 };
 
 // 2.3 StateCacheReference
@@ -174,6 +191,7 @@ public:
 class MNN_PUBLIC StateCacheManager {
 public:
 struct StateCacheManagerConfig {
+    int preallocateBlockNum = 8;
     int preallocateTokenNum = 63;
     int blockSize = 8;
 };
@@ -196,34 +214,46 @@ public:
     void setHint(MNNStateCacheQuantType quantType = MNNStateCacheQuantType::NoQuant, MNNStateCacheType type = MNNStateCacheType::MNN_STATECACHE_ADVANCED);
     void setHint(int quantType = 0, int type = 1);
     void setConfig(struct StateCacheManagerConfig config);
+    MNNStateCacheQuantType getQuantType() const {
+        return mQuantType;
+    }
+    MNNStateCacheType getStateCacheType() const {
+        return mType;
+    }
+
 
     // Reference correlated stuff
     std::shared_ptr<StateCacheReference> getCurrentReference() {return mCurrentReference;}
     void setCurrentReference(std::shared_ptr<StateCacheReference> other) {mCurrentReference = other;}
     std::shared_ptr<StateCacheReference> onCreateReference(bool from_current=false);
 
-    // Enlarge the memory cache
-    bool enlargeMemCache(size_t size);
-    // Enlarge the file cache
-    bool enlargeFileCache(size_t size);
-    // Release the memory cache
-    void releasesMemCache();
-    // Release the file cache
+    // Enlarge the memory resources
+    bool enlargeMemCache(void* layer, size_t size);
+    bool enlargeFileCache(void* layer, size_t size);
+    // Release the memory resources
+    void releaseBlockMem(void* layer, std::shared_ptr<StateCacheBlock> block);
+    void releaseMemCache();
     void releaseFileCache();
     // Evict a block
     std::shared_ptr<StateCacheBlock> evictBlock(const std::vector<std::shared_ptr<StateCacheBlock>>& pin_block_list);
     // Get a free pointer
-    std::shared_ptr<StateCacheBlock> getFreePtr(const std::vector<std::shared_ptr<StateCacheBlock>>& evict_pin_block_list);
+    // Assume that block sizes are all the same among all layers!
+    void* getFreePtr(void* layer, size_t size);
+    void* getFreePtr(void* layer, size_t size, const std::vector<std::shared_ptr<StateCacheBlock>>& evict_pin_block_list);
     // Recover a block from the file
-    void recoverBlock(std::shared_ptr<StateCacheBlock> block_ptr, const std::vector<std::shared_ptr<StateCacheBlock>>& pin_block_list);
+    void recoverBlock(void* layer, std::shared_ptr<StateCacheBlock> block);
+    void recoverBlock(void* layer, std::shared_ptr<StateCacheBlock> block, const std::vector<std::shared_ptr<StateCacheBlock>>& pin_block_list);
     // Desert a block
-    void desertBlock(int ref_id, std::shared_ptr<StateCacheBlock> block_ptr);
+    void desertBlock(void* layer, int ref_id, std::shared_ptr<StateCacheBlock> block);
     // Copy a block
     std::shared_ptr<StateCacheBlock> copyBlock(int ref_id, std::shared_ptr<StateCacheBlock> block_ptr, const std::vector<std::shared_ptr<StateCacheBlock>>& pin_block_list);
 
     // external calls
-    void onAllocateCache(void* layer, int token_num, std::vector<int> size, std::vector<std::vector<int>> shape, int hp);
-    void prepareAttn(int ref_id, const std::vector<std::shared_ptr<StateCacheBlock>>& argv);
+    void onAllocateCacheonAllocateCache(void* layer, void* backend, int token_num, std::vector<std::vector<int>> shape, int hp);
+    int prepareAttn(void* layer, std::vector<std::shared_ptr<StateCacheBlock>>& pastKV);
+
+    // destructor
+    ~StateCacheManager() {releaseMemCache();}
 };
 
 } // namespace MNN

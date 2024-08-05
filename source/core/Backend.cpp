@@ -15,6 +15,7 @@
 #include "core/TensorUtils.hpp"
 #include "geometry/GeometryComputer.hpp"
 #include "shape/SizeComputer.hpp"
+#include "TensorUtils.hpp"
 #ifdef MNN_INTERNAL_ENABLED
 #include "internal/logging/Log.hpp"
 #endif
@@ -148,6 +149,26 @@ bool Backend::onAcquireBuffer(const Tensor* tensor, StorageType storageType) {
 bool Backend::onReleaseBuffer(const Tensor* tensor, StorageType storageType) {
     TensorUtils::getDescribeOrigin(tensor)->mem = nullptr;
     return true;
+}
+size_t Backend::getTensorSize(const Tensor* tensor, bool multiBytes) {
+    size_t dataSize = 1;
+    auto des = TensorUtils::getDescribe(tensor);
+    for (int i = 0; i < tensor->dimensions(); i++) {
+        size_t currentDimSize = tensor->length(i);
+        dataSize *= currentDimSize;
+    }
+    if (multiBytes) {
+        size_t bytes = tensor->getType().bytes();
+        if (TensorUtils::getDescribe(tensor)->quantAttr != nullptr) {
+            if (TensorUtils::getDescribe(tensor)->type == DataType_DT_FLOAT) {
+                bytes = 4;
+            } else {
+                bytes = 1;
+            }
+        }
+        return dataSize * bytes;
+    }
+    return dataSize;
 }
 
 bool Runtime::hasAsyncWork() const {

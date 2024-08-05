@@ -119,7 +119,7 @@ public:
         return mCoreFunctions;
     }
     // Return element size for Tensor, conside pack
-    size_t getTensorSize(const Tensor* tensor, bool multiBytes = false) const;
+    virtual size_t getTensorSize(const Tensor* tensor, bool multiBytes = false) const override;
     const CoreInt8Functions* int8Functions() const {
         return mInt8CoreFunctions;
     }

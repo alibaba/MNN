@@ -104,3 +104,13 @@ class MNN_PUBLIC StateCacheManager{
 1. add hyperparameters to `llm_config.hpp`.
 2. add parsing selections to function `void Llm::initSampler()` in `llm.cpp`.
 3. add implementation in `sampler.hpp` and `sampler.cpp`.
+
+### Operator
+
+#### Matmul Layout v1.0
+
+Layerwise concatenation of all input blocks. Assume enough memory for activation buffer and enough memory for one layer's calculation.
+
+1. Prepare inputs: concatenate them together.
+2. Calculation: perform tiled CPU Matmul.
+3. Prepare outputs: disperse the outputs to separate outputs Tensors.

@@ -230,6 +230,8 @@ public:
 
     virtual void resetStateCacheManager(StateCacheManager* manager) {}
 
+    virtual size_t getTensorSize(const Tensor* tensor, bool multiBytes = false) const;
+
 private:
     const MNNForwardType mType;
 };

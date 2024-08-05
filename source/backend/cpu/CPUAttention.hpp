@@ -43,6 +43,7 @@ private:
     std::shared_ptr<Resource> mResource;
     std::shared_ptr<Tensor> mPackQ, mPackQKV;
     int eP, lP, hP, bytes, unit;
+    void* mIdentifier;
 };
 } // namespace MNN
 

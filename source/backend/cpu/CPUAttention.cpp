@@ -286,94 +286,126 @@ static void unpack_QKV(char* pack_qkv, char* unpack_qkv, int mNumHead, int mHead
     }
 }
 
-void CPUAttention::allocKVCache(int kv_seq_len, bool quantKey, bool quantValue) {
+std::vector<std::vector<int>> getKVshape(MNNStateCacheQuantType type) {
+    std::vector<std::vector<int>> shape;
+    if (type == MNNStateCacheQuantType::NoQuant || type == MNNStateCacheQuantType::QuantValueFp8) {
+        shape.emplace_back({mResource->mKvNumHead, mResource->mMaxLength, mResource->mHeadDim});
+        shape.emplace_back({mResource->mKvNumHead, mResource->mHeadDim, mResource->mMaxLength});
+    }
+    if (type == MNNStateCacheQuantType::QuantKeyInt8 || type == MNNStateCacheQuantType::QuantKeyInt8ValueFp8) {
+        shape.emplace_back({mResource->mKvNumHead, mResource->mMaxLength, mResource->mHeadDim});
+        shape.emplace_back({mResource->mKvNumHead, mResource->mMaxLength, 1});
+        shape.emplace_back({mResource->mKvNumHead, mResource->mMaxLength, 1});
+        shape.emplace_back({mResource->mKvNumHead, mResource->mHeadDim, mResource->mMaxLength});
+    }
+    if (type == MNNStateCacheQuantType::QuantValueInt8) {
+        shape.emplace_back({mResource->mKvNumHead, mResource->mMaxLength, mResource->mHeadDim});
+        shape.emplace_back({mResource->mKvNumHead, mResource->mHeadDim, mResource->mMaxLength});
+        shape.emplace_back({mResource->mKvNumHead, 1, mResource->mMaxLength});
+        shape.emplace_back({mResource->mKvNumHead, 1, mResource->mMaxLength});
+    }
+    if (type == MNNStateCacheQuantType::QuantKeyInt8ValueInt8) {
+        shape.emplace_back({mResource->mKvNumHead, mResource->mMaxLength, mResource->mHeadDim});
+        shape.emplace_back({mResource->mKvNumHead, mResource->mMaxLength, 1});
+        shape.emplace_back({mResource->mKvNumHead, mResource->mMaxLength, 1});
+        shape.emplace_back({mResource->mKvNumHead, mResource->mHeadDim, mResource->mMaxLength});
+        shape.emplace_back({mResource->mKvNumHead, 1, mResource->mMaxLength});
+        shape.emplace_back({mResource->mKvNumHead, 1, mResource->mMaxLength});
+    }
+    return shape;
+}
+
+void CPUAttention::allocKVCache(int new_seq_len) {
     if (!mKVCache) {
         return;
     }
-    mResource->mMaxLength = kv_seq_len + mResource->mExpandChunk;
-    if (quantKey) {
-        mResource->mPastKey.reset(Tensor::createDevice<int8_t>({mResource->mKvNumHead, UP_DIV(mResource->mMaxLength, hP), mResource->mHeadDim, hP}));
-        mResource->mDequantKeyScale.reset(Tensor::createDevice<float>({mResource->mKvNumHead, UP_DIV(mResource->mMaxLength, hP), 1, hP}));
-        mResource->mDequantKeyZeroPoint.reset(Tensor::createDevice<float>({mResource->mKvNumHead, UP_DIV(mResource->mMaxLength, hP), 1, hP}));
-        backend()->onAcquireBuffer(mResource->mPastKey.get(), Backend::STATIC);
-        backend()->onAcquireBuffer(mResource->mDequantKeyScale.get(), Backend::STATIC);
-        backend()->onAcquireBuffer(mResource->mDequantKeyZeroPoint.get(), Backend::STATIC);
-    } else {
-        mResource->mPastKey.reset(Tensor::createDevice<float>({mResource->mKvNumHead, UP_DIV(mResource->mMaxLength, hP), mResource->mHeadDim, hP}));
-        backend()->onAcquireBuffer(mResource->mPastKey.get(), Backend::STATIC);
-    }
-    if (quantValue) {
-        mResource->mPastValue.reset(Tensor::createDevice<fp8_t>({mResource->mKvNumHead, UP_DIV(mResource->mHeadDim, hP), mResource->mMaxLength, hP}));
-        backend()->onAcquireBuffer(mResource->mPastValue.get(), Backend::STATIC);
-    } else {
-        mResource->mPastValue.reset(Tensor::createDevice<float>({mResource->mKvNumHead, UP_DIV(mResource->mHeadDim, hP), mResource->mMaxLength, hP}));
-        backend()->onAcquireBuffer(mResource->mPastValue.get(), Backend::STATIC);
-    }
+    std::shared_ptr<StateCacheManager> manager = backend()->getStateCacheManager();
+    std::vector<std::vector<int>> shape = getKVshape(manager->getQuantType());
+    manager->onAllocateCache(mIdentifier, backend(), new_seq_len, shape, hp);
+    // mResource->mMaxLength = kv_seq_len + mResource->mExpandChunk;
+    // if (quantKey) {
+    //     mResource->mPastKey.reset(Tensor::createDevice<int8_t>({mResource->mKvNumHead, UP_DIV(mResource->mMaxLength, hP), mResource->mHeadDim, hP}));
+    //     mResource->mDequantKeyScale.reset(Tensor::createDevice<float>({mResource->mKvNumHead, UP_DIV(mResource->mMaxLength, hP), 1, hP}));
+    //     mResource->mDequantKeyZeroPoint.reset(Tensor::createDevice<float>({mResource->mKvNumHead, UP_DIV(mResource->mMaxLength, hP), 1, hP}));
+    //     backend()->onAcquireBuffer(mResource->mPastKey.get(), Backend::STATIC);
+    //     backend()->onAcquireBuffer(mResource->mDequantKeyScale.get(), Backend::STATIC);
+    //     backend()->onAcquireBuffer(mResource->mDequantKeyZeroPoint.get(), Backend::STATIC);
+    // } else {
+    //     mResource->mPastKey.reset(Tensor::createDevice<float>({mResource->mKvNumHead, UP_DIV(mResource->mMaxLength, hP), mResource->mHeadDim, hP}));
+    //     backend()->onAcquireBuffer(mResource->mPastKey.get(), Backend::STATIC);
+    // }
+    // if (quantValue) {
+    //     mResource->mPastValue.reset(Tensor::createDevice<fp8_t>({mResource->mKvNumHead, UP_DIV(mResource->mHeadDim, hP), mResource->mMaxLength, hP}));
+    //     backend()->onAcquireBuffer(mResource->mPastValue.get(), Backend::STATIC);
+    // } else {
+    //     mResource->mPastValue.reset(Tensor::createDevice<float>({mResource->mKvNumHead, UP_DIV(mResource->mHeadDim, hP), mResource->mMaxLength, hP}));
+    //     backend()->onAcquireBuffer(mResource->mPastValue.get(), Backend::STATIC);
+    // }
 }
 
-void CPUAttention::reallocKVCache(int kv_seq_len, bool quantKey, bool quantValue) {
-    if (!mKVCache || kv_seq_len <= mResource->mMaxLength) {
-        return;
-    }
-    int oldMaxLength = mResource->mMaxLength;
-    mResource->mMaxLength = kv_seq_len + mResource->mExpandChunk;
-    if (quantKey) {
-        auto new_key = Tensor::createDevice<int8_t>({mResource->mKvNumHead, UP_DIV(mResource->mMaxLength, hP), mResource->mHeadDim, hP});
-        auto new_scale = Tensor::createDevice<float>({mResource->mKvNumHead, UP_DIV(mResource->mMaxLength, hP), 1, hP});
-        auto new_zeroPoint = Tensor::createDevice<float>({mResource->mKvNumHead, UP_DIV(mResource->mMaxLength, hP), 1, hP});
-        backend()->onAcquireBuffer(new_key, Backend::STATIC);
-        backend()->onAcquireBuffer(new_scale, Backend::STATIC);
-        backend()->onAcquireBuffer(new_zeroPoint, Backend::STATIC);
-        for (int h = 0; h < mResource->mKvNumHead; h++) {
-            memcpy(new_key->host<char>() + h * UP_DIV(mResource->mMaxLength, hP) * mResource->mHeadDim * hP,
-                    mResource->mPastKey->host<char>() + h * UP_DIV(oldMaxLength, hP) * mResource->mHeadDim * hP,
-                    UP_DIV(oldMaxLength, hP) * mResource->mHeadDim * hP);
-            memcpy(new_scale->host<char>() + h * UP_DIV(mResource->mMaxLength, hP) * hP * bytes,
-                    mResource->mDequantKeyScale->host<char>() + h * UP_DIV(oldMaxLength, hP) * hP * bytes,
-                    UP_DIV(oldMaxLength, hP) * hP * bytes);
-            memcpy(new_zeroPoint->host<char>() + h * UP_DIV(mResource->mMaxLength, hP) * hP * bytes,
-                    mResource->mDequantKeyZeroPoint->host<char>() + h * UP_DIV(oldMaxLength, hP) * hP * bytes,
-                    UP_DIV(oldMaxLength, hP) * hP * bytes);
-        }
-        mResource->mPastKey.reset(new_key);
-        mResource->mDequantKeyScale.reset(new_scale);
-        mResource->mDequantKeyZeroPoint.reset(new_zeroPoint);
-    }
-    else {
-        auto new_key = Tensor::createDevice<float>({mResource->mKvNumHead, UP_DIV(mResource->mMaxLength, hP), mResource->mHeadDim, hP});
-        backend()->onAcquireBuffer(new_key, Backend::STATIC);
-        for (int h = 0; h < mResource->mKvNumHead; h++) {
-            memcpy(new_key->host<char>() + h * UP_DIV(mResource->mMaxLength, hP) * mResource->mHeadDim * hP * bytes,
-                    mResource->mPastKey->host<char>() + h * UP_DIV(oldMaxLength, hP) * mResource->mHeadDim * hP * bytes,
-                    UP_DIV(oldMaxLength, hP) * mResource->mHeadDim * hP * bytes);
-        }
-        mResource->mPastKey.reset(new_key);
-    }
-    if (quantValue) {
-        auto new_value = Tensor::createDevice<fp8_t>({mResource->mKvNumHead, UP_DIV(mResource->mHeadDim, hP), mResource->mMaxLength, hP});
-        backend()->onAcquireBuffer(new_value, Backend::STATIC);
-        for (int h = 0; h < mResource->mKvNumHead; h++) {
-            for (int i = 0; i < UP_DIV(mResource->mHeadDim, hP); i++) {
-                memcpy(new_value->host<char>() + (h * UP_DIV(mResource->mHeadDim, hP) + i) * mResource->mMaxLength * hP,
-                        mResource->mPastValue->host<char>() + (h * UP_DIV(mResource->mHeadDim, hP) + i) * oldMaxLength * hP,
-                        oldMaxLength * hP);
-            }
-        }
-        mResource->mPastValue.reset(new_value);
-    }
-    else {
-        auto new_value = Tensor::createDevice<float>({mResource->mKvNumHead, UP_DIV(mResource->mHeadDim, hP), mResource->mMaxLength, hP});
-        backend()->onAcquireBuffer(new_value, Backend::STATIC);
-        for (int h = 0; h < mResource->mKvNumHead; h++) {
-            for (int i = 0; i < UP_DIV(mResource->mHeadDim, hP); i++) {
-                memcpy(new_value->host<char>() + (h * UP_DIV(mResource->mHeadDim, hP) + i) * mResource->mMaxLength * hP * bytes,
-                        mResource->mPastValue->host<char>() + (h * UP_DIV(mResource->mHeadDim, hP) + i) * oldMaxLength * hP * bytes,
-                        oldMaxLength * hP * bytes);
-            }
-        }
-        mResource->mPastValue.reset(new_value);
-    }
-}
+// void CPUAttention::reallocKVCache(int kv_seq_len, bool quantKey, bool quantValue) {
+//     if (!mKVCache || kv_seq_len <= mResource->mMaxLength) {
+//         return;
+//     }
+//     int oldMaxLength = mResource->mMaxLength;
+//     mResource->mMaxLength = kv_seq_len + mResource->mExpandChunk;
+//     if (quantKey) {
+//         auto new_key = Tensor::createDevice<int8_t>({mResource->mKvNumHead, UP_DIV(mResource->mMaxLength, hP), mResource->mHeadDim, hP});
+//         auto new_scale = Tensor::createDevice<float>({mResource->mKvNumHead, UP_DIV(mResource->mMaxLength, hP), 1, hP});
+//         auto new_zeroPoint = Tensor::createDevice<float>({mResource->mKvNumHead, UP_DIV(mResource->mMaxLength, hP), 1, hP});
+//         backend()->onAcquireBuffer(new_key, Backend::STATIC);
+//         backend()->onAcquireBuffer(new_scale, Backend::STATIC);
+//         backend()->onAcquireBuffer(new_zeroPoint, Backend::STATIC);
+//         for (int h = 0; h < mResource->mKvNumHead; h++) {
+//             memcpy(new_key->host<char>() + h * UP_DIV(mResource->mMaxLength, hP) * mResource->mHeadDim * hP,
+//                     mResource->mPastKey->host<char>() + h * UP_DIV(oldMaxLength, hP) * mResource->mHeadDim * hP,
+//                     UP_DIV(oldMaxLength, hP) * mResource->mHeadDim * hP);
+//             memcpy(new_scale->host<char>() + h * UP_DIV(mResource->mMaxLength, hP) * hP * bytes,
+//                     mResource->mDequantKeyScale->host<char>() + h * UP_DIV(oldMaxLength, hP) * hP * bytes,
+//                     UP_DIV(oldMaxLength, hP) * hP * bytes);
+//             memcpy(new_zeroPoint->host<char>() + h * UP_DIV(mResource->mMaxLength, hP) * hP * bytes,
+//                     mResource->mDequantKeyZeroPoint->host<char>() + h * UP_DIV(oldMaxLength, hP) * hP * bytes,
+//                     UP_DIV(oldMaxLength, hP) * hP * bytes);
+//         }
+//         mResource->mPastKey.reset(new_key);
+//         mResource->mDequantKeyScale.reset(new_scale);
+//         mResource->mDequantKeyZeroPoint.reset(new_zeroPoint);
+//     }
+//     else {
+//         auto new_key = Tensor::createDevice<float>({mResource->mKvNumHead, UP_DIV(mResource->mMaxLength, hP), mResource->mHeadDim, hP});
+//         backend()->onAcquireBuffer(new_key, Backend::STATIC);
+//         for (int h = 0; h < mResource->mKvNumHead; h++) {
+//             memcpy(new_key->host<char>() + h * UP_DIV(mResource->mMaxLength, hP) * mResource->mHeadDim * hP * bytes,
+//                     mResource->mPastKey->host<char>() + h * UP_DIV(oldMaxLength, hP) * mResource->mHeadDim * hP * bytes,
+//                     UP_DIV(oldMaxLength, hP) * mResource->mHeadDim * hP * bytes);
+//         }
+//         mResource->mPastKey.reset(new_key);
+//     }
+//     if (quantValue) {
+//         auto new_value = Tensor::createDevice<fp8_t>({mResource->mKvNumHead, UP_DIV(mResource->mHeadDim, hP), mResource->mMaxLength, hP});
+//         backend()->onAcquireBuffer(new_value, Backend::STATIC);
+//         for (int h = 0; h < mResource->mKvNumHead; h++) {
+//             for (int i = 0; i < UP_DIV(mResource->mHeadDim, hP); i++) {
+//                 memcpy(new_value->host<char>() + (h * UP_DIV(mResource->mHeadDim, hP) + i) * mResource->mMaxLength * hP,
+//                         mResource->mPastValue->host<char>() + (h * UP_DIV(mResource->mHeadDim, hP) + i) * oldMaxLength * hP,
+//                         oldMaxLength * hP);
+//             }
+//         }
+//         mResource->mPastValue.reset(new_value);
+//     }
+//     else {
+//         auto new_value = Tensor::createDevice<float>({mResource->mKvNumHead, UP_DIV(mResource->mHeadDim, hP), mResource->mMaxLength, hP});
+//         backend()->onAcquireBuffer(new_value, Backend::STATIC);
+//         for (int h = 0; h < mResource->mKvNumHead; h++) {
+//             for (int i = 0; i < UP_DIV(mResource->mHeadDim, hP); i++) {
+//                 memcpy(new_value->host<char>() + (h * UP_DIV(mResource->mHeadDim, hP) + i) * mResource->mMaxLength * hP * bytes,
+//                         mResource->mPastValue->host<char>() + (h * UP_DIV(mResource->mHeadDim, hP) + i) * oldMaxLength * hP * bytes,
+//                         oldMaxLength * hP * bytes);
+//             }
+//         }
+//         mResource->mPastValue.reset(new_value);
+//     }
+// }
 
 ErrorCode CPUAttention::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     auto core = static_cast<CPUBackend *>(backend())->functions();
@@ -418,9 +450,9 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
     // 1: only quant k
     // 2: only quant v
     // 3: quant kv
-    int quantKV = static_cast<CPUBackend *>(backend())->getRuntime()->hint().kvcacheQuantOption;
-    bool quantKey = (quantKV & 1) == 1;
-    bool quantValue = ((quantKV >> 1) & 1) == 1;
+    // int quantKV = static_cast<CPUBackend *>(backend())->getRuntime()->hint().kvcacheQuantOption;
+    // bool quantKey = (quantKV & 1) == 1;
+    // bool quantValue = ((quantKV >> 1) & 1) == 1;
 
     // reduce the value of 'query' to avoid fp16 overflow
     float mScale = 1.0 / sqrt(mResource->mHeadDim);
@@ -434,15 +466,19 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
         // Only reset the kvcache in the first prefill, but keep the kvcache in subsequent prefill
         if (mIsFirstPrefill) {
             mResource->mPastLength = 0;
-            allocKVCache(seq_len, quantKey, quantValue);
+            allocKVCache(seq_len);
         } else {
-            reallocKVCache(mResource->mPastLength + seq_len, quantKey, quantValue);
+            allocKVCache(seq_len);
         }
     } else { // Decode
-        reallocKVCache(mResource->mPastLength + 1, quantKey, quantValue);
+        allocKVCache(1);
     }
     int kv_seq_len  = mResource->mPastLength + seq_len;
 
+    std::shared_ptr<StateCacheManager> manager = backend()->getStateCacheManager();
+    std::vector<StateCacheBlock> pastKV;
+    int first_dst_block_id manager->prepareAttn(mIdentifier, kv_seq_len, pastKV);
+ 
     // Temporary tensors for intermediate results
     std::shared_ptr<Tensor> packQK(Tensor::createDevice<float>({mThreadNum, UP_DIV(kv_seq_len, unit), seq_len, unit}));
     std::shared_ptr<Tensor> unpackQK(Tensor::createDevice<int32_t>({mThreadNum, seq_len, kv_seq_len}));
@@ -457,6 +493,24 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
         backend()->onAcquireBuffer(dequantV.get(), Backend::STATIC);
     }
 
+    /* 1. Prepare inputs: concatenate them together.
+       2. Calculation: perform tiled CPU Matmul.
+       3. Prepare outputs: disperse the outputs to separate outputs Tensors.
+    */
+    /*
+    StateCacheBlock Tensor shape: 
+        K: [kvnum_heads, block_size / hp, head_dim, hp]
+        V: [kvnum_heads, head_dim / hp, block_size, hp]
+    */ 
+    /*
+    query, key, value Tensor shape:
+        query: [num_heads, seq_len / eP, head_dim, eP], [kvnum_heads, group_size, ...]
+        qk: [num_heads, kv_seq_len / unit, seq_len, unit]
+        unpack_qk: [num_heads, seq_len, kv_seq_len]
+        new_pack_qk: [num_heads, seq_len / eP, kv_seq_len, eP]
+        pack_qkv: [num_heads, head_dim / unit, seq_len, unit]
+    */
+
     std::function<void(int)> mCompute = [=](int tId) {
         auto pack_q      = mPackQ->host<char>() + tId * UP_DIV(seq_len, eP) * mResource->mHeadDim * eP * bytes;
         auto pack_qk     = packQK->host<char>() + tId * UP_DIV(kv_seq_len, unit) * seq_len * unit * bytes;
@@ -466,6 +520,7 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
         auto pack_qkv    = mPackQKV->host<char>() + tId * UP_DIV(mResource->mHeadDim, unit) * seq_len * unit * bytes;
         int head_index   = tId * tileCount;
         for (int h = head_index; h < head_index + tileCount && h < mResource->mNumHead; h++) {
+            // ----------need revision----------
             int    kv_h                 = h / group_size;
             char * key_dst              = nullptr;
             char * key_scale_dst        = nullptr;
@@ -616,6 +671,7 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
             } else {
                 unpack_QKV<float>(pack_qkv, dst_ptr, mResource->mNumHead, mResource->mHeadDim, unit, seq_len);
             }
+            // ----------need revision----------
         }
     };
 
@@ -640,12 +696,14 @@ bool CPUAttention::onClone(Backend* bn, const Op* op, Execution** dst) {
         return true;
     }
     auto tmp = new CPUAttention(bn, mKVCache);
+    tmp->mIdentifier = mIdentifier;
     tmp->mResource = mResource;
     *dst = tmp;
     return true;
 }
 
 CPUAttention::CPUAttention(Backend *backend, bool kv_cache) : Execution(backend) {
+    mIdentifier = (void*)this;
     mKVCache = kv_cache;
     mResource.reset(new Resource);
 }
