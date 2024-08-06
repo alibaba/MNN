@@ -554,7 +554,7 @@ void StateCacheManager::onAllocateCache(void* layer, void* backend, int token_nu
     bool copy_flag = false;
     need_token = token_num;
     if (mCurrentReference->mPageTable[layer].size() != 0) {
-        need_token -= (mCurrentReference->mPageTable[layer].back()->getBlockSize() - mCurrentReference->mPageTable[layer].back()->getSlotNum()); 
+        need_token -= mCurrentReference->mPageTable[layer].back()->getFreeSlotNum(); 
     }
     if (mType == MNNStateCacheType::MNN_STATECACHE_ADVANCED) {
         need_block = UP_DIV(need_token, mBlockSize);
@@ -605,6 +605,13 @@ int StateCacheManager::prepareAttn(void* layer, int previous_token_num, std::vec
         pastKV[i] = mCurrentReference->mPageTable[layer][i];
     }
     return previous_token_num / mBlockSize; // the index of the first available block.
+}
+
+void StateCacheManager::postAttn(void* layer, int last_block_slot_num) {
+    for (int i = 0; i < mCurrentReference->mPageTable[layer].size()-1; ++i) {
+        mCurrentReference->mPageTable[layer][i]->resetSlotNum(mBlockSize);
+    }
+    mCurrentReference->mPageTable[layer][mCurrentReference->mPageTable[layer].size()-1]->resetSlotNum(last_block_slot_num);
 }
 
 } // namespace MNN

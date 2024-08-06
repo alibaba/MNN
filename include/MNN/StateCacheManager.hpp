@@ -92,8 +92,8 @@ public:
     };
     StateCacheBlock(std::vector<int> ref_ids, int blok_size, int slot_num=0);
     // Tensor operations
-    // Tensor shape: K: [num_heads, block_size / hp, head_dim, hp], V: [num_heads, head_dim / hp, block_size, hp]
-    // block_size % hp == 0
+    // Tensor shape: K: [kvnum_heads, block_size / hp, head_dim, hp], V: [kvnum_heads, head_dim / hp, block_size, hp]
+    // block_size % hp == 0, block_size % core->pack == 0 
     void setTensor(int tId, Tensor* tensor);
     void setTensorSize(int tId, int tensor_size);
     void resetTensorShape(std::vector<std::vector<int>>& shape, int hp);
@@ -122,6 +122,12 @@ public:
     int getSlotNum() {
         return mSlotNum;
     }
+    bool isFull() const {
+        return mBlockSize==mSlotNum;
+    }
+    int getFreeSlotNum() const {
+        return mBlockSize - mSlotNum;
+    }
     // deal with sample reference
     void removeRef(int ref_id);
     void clearRef();
@@ -132,10 +138,7 @@ public:
     bool needDesert() const {
         return refCount()==0;
     }
-    // is full
-    bool isFull() const {
-        return mBlockSize==mSlotNum;
-    }
+    // is ownership
     void setRefIds(const std::set<int>& ref_ids){
         mRefIds = ref_ids;
     }
@@ -220,6 +223,9 @@ public:
     MNNStateCacheType getStateCacheType() const {
         return mType;
     }
+    int getBlockSize() const {
+        return mBlockSize;
+    }
 
 
     // Reference correlated stuff
@@ -251,6 +257,7 @@ public:
     // external calls
     void onAllocateCacheonAllocateCache(void* layer, void* backend, int token_num, std::vector<std::vector<int>> shape, int hp);
     int prepareAttn(void* layer, std::vector<std::shared_ptr<StateCacheBlock>>& pastKV);
+    void postAttn(void* layer, int last_block_slot_num); 
 
     // destructor
     ~StateCacheManager() {releaseMemCache();}

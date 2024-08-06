@@ -111,6 +111,39 @@ class MNN_PUBLIC StateCacheManager{
 
 Layerwise concatenation of all input blocks. Assume enough memory for activation buffer and enough memory for one layer's calculation.
 
-1. Prepare inputs: concatenate them together.
-2. Calculation: perform tiled CPU Matmul.
-3. Prepare outputs: disperse the outputs to separate outputs Tensors.
+For StateCacheBlock:
+- Tensor shape: 
+  - K: [kvnum_heads, block_size / hp, head_dim, hp], 
+  - V: [kvnum_heads, head_dim / hp, block_size, hp]
+-  block_size % hp == 0, block_size % core->pack == 0 
+- mSlotNum: mSlotNum shall not be modified in thread to ensure thread-safe. Besides, no lock is ever implemented.
+
+
+1. Prepare inputs: pack new k and v into pastKV (StateCacheBlock).
+2. Calculation: perform multi-threaded tiled CPU Matmul.
+3. Prepare outputs: pack the dispersed outputs to one outputs Tensors.
+4. Update pastKV mSlotNum after all calculation threads are finished.
+
+
+In the future, modify the operators to enable fused flash attention, further curbing memory buffer size and computation time.
+
+q @ k: q @ [k1, k2, k3, k4] = [q @ k1, q @ k2 + q @ k3 + q @ k4]
+
+qk @ v: [a1, a2, a3, a4] @ [b1, b2, b3, b4]^T = a1 @ b1 + a2 @ b2 + a3 @ b3 + a4 @ b4
+(ai @ bi are all of the same shape of qk @ v)
+(qk shall be dispersed and v shall be dispersed)
+
+
+To Do List:
+- [x] dispersed pastKV
+- [x] dispersed packQK
+- [x] dispersed packQKV
+- [x] pack_key
+- [x] pack_value
+- [x] query @ key
+- [x] unpack_QK (for softmax)
+- [x] pack_QK (for qk @ v)
+- [x] dequant_value_fp16
+- [x] dequant_value_float
+- [x] qk @ v
+- [x] update mSlotNum for all blocks
