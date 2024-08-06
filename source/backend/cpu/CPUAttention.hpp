@@ -13,6 +13,7 @@
 
 #include <functional>
 #include "core/Execution.hpp"
+#include <MNN/StateCacheManager.hpp>
 
 namespace MNN {
 
@@ -34,8 +35,8 @@ public:
         int mNumHead = 0, mKvNumHead = 0, mHeadDim = 0;
     };
 private:
-    void allocKVCache(int kv_seq_len, bool quantK, bool quantV);
-    void reallocKVCache(int kv_seq_len, bool quantK, bool quantV);
+    std::vector<std::vector<int>> getKVshape(MNNStateCacheQuantType type);
+    void allocKVCache(int kv_seq_len);
     bool mIsPrefill = true;
     bool mIsFirstPrefill = true;
     bool mKVCache;

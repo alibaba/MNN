@@ -150,7 +150,7 @@ bool Backend::onReleaseBuffer(const Tensor* tensor, StorageType storageType) {
     TensorUtils::getDescribeOrigin(tensor)->mem = nullptr;
     return true;
 }
-size_t Backend::getTensorSize(const Tensor* tensor, bool multiBytes) {
+size_t Backend::getTensorSize(const Tensor* tensor, bool multiBytes) const {
     size_t dataSize = 1;
     auto des = TensorUtils::getDescribe(tensor);
     for (int i = 0; i < tensor->dimensions(); i++) {

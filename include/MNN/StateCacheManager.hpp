@@ -12,6 +12,7 @@
 #include <list>
 #include <queue>
 #include <set>
+#include <map>
 #include <unordered_map>
 #include <memory>
 #include <cassert>
@@ -51,7 +52,7 @@ private:
     std::vector<Tensor*> mTensors; // Tensors holding the KV cache data
     std::vector<int> mTensorSize;
     int mBlockSize;
-    void* mBasePtr;
+    char* mBasePtr;
     size_t mSize;
 public:
     struct LAYOUT {
@@ -90,7 +91,7 @@ public:
             PAST_V_ZERO_POINTS = 5
         };
     };
-    StateCacheBlock(std::vector<int> ref_ids, int blok_size, int slot_num=0);
+    StateCacheBlock(std::set<int> ref_ids, int blok_size, int slot_num=0);
     // Tensor operations
     // Tensor shape: K: [kvnum_heads, block_size / hp, head_dim, hp], V: [kvnum_heads, head_dim / hp, block_size, hp]
     // block_size % hp == 0, block_size % core->pack == 0 
@@ -108,10 +109,10 @@ public:
         return mTensors.size();
     }
     // manage pointers and offsets
-    bool onAllocatePtr(uint8_t* ptr);
-    bool onAllocateOffset(size_t offset);
-    void setBlockMem(void* ptr, size_t size);
-    void* getBlockPtr() const {
+    void onAllocatePtr(char* ptr);
+    void onAllocateOffset(size_t offset);
+    void setBlockMem(char* ptr, size_t size);
+    char* getBlockPtr() const {
         return mBasePtr;
     }
     size_t getBlockPhysicalSize() const {
@@ -161,7 +162,7 @@ public:
 class MNN_PUBLIC StateCache {
 public:
     // List of pointers to free memory blocks
-    std::list<void*> freePtrList;
+    std::list<char*> freePtrList;
     // List of offsets in external storage for free blocks
     std::list<size_t> freeFileOffsetList;
     // Dynamic structure for in-memory blocks with minimal ref_ids size for eviction
@@ -244,8 +245,8 @@ public:
     std::shared_ptr<StateCacheBlock> evictBlock(const std::vector<std::shared_ptr<StateCacheBlock>>& pin_block_list);
     // Get a free pointer
     // Assume that block sizes are all the same among all layers!
-    void* getFreePtr(void* layer, size_t size);
-    void* getFreePtr(void* layer, size_t size, const std::vector<std::shared_ptr<StateCacheBlock>>& evict_pin_block_list);
+    char* getFreePtr(void* layer, size_t size);
+    char* getFreePtr(void* layer, size_t size, const std::vector<std::shared_ptr<StateCacheBlock>>& evict_pin_block_list);
     // Recover a block from the file
     void recoverBlock(void* layer, std::shared_ptr<StateCacheBlock> block);
     void recoverBlock(void* layer, std::shared_ptr<StateCacheBlock> block, const std::vector<std::shared_ptr<StateCacheBlock>>& pin_block_list);
@@ -255,8 +256,8 @@ public:
     std::shared_ptr<StateCacheBlock> copyBlock(int ref_id, std::shared_ptr<StateCacheBlock> block_ptr, const std::vector<std::shared_ptr<StateCacheBlock>>& pin_block_list);
 
     // external calls
-    void onAllocateCacheonAllocateCache(void* layer, void* backend, int token_num, std::vector<std::vector<int>> shape, int hp);
-    int prepareAttn(void* layer, std::vector<std::shared_ptr<StateCacheBlock>>& pastKV);
+    void onAllocateCache(void* layer, void* backend, int token_num, std::vector<std::vector<int>> shape, int hp);
+    int prepareAttn(void* layer, int previous_token_num, std::vector<std::shared_ptr<StateCacheBlock>>& pastKV);
     void postAttn(void* layer, int last_block_slot_num); 
 
     // destructor
