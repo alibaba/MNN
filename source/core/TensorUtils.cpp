@@ -538,9 +538,23 @@ static bool _ClipDst(int* stride, int srcOffset, int dstOffset, const int* srcSi
     if (0 != srcOffset || 0 != dstOffset) {
         return false;
     }
+    int srcMax = 0;
     for (int i=0; i<sizeNum; ++i) {
+        srcMax += srcSize[i] * stride[i];
         dstMin[i] = ALIMAX(0, -o[i]);
         dstMax[i] = ALIMIN(srcSize[i]-o[i], dstSize[i]);
+    }
+    // Check If dstMax is inside src, it means one region can't describe dst - src
+    // TODO: Support slice region to support fuse
+    for (int i=0; i<sizeNum; ++i) {
+        if (dstMax[i] == dstSize[i]) {
+            continue;
+        }
+        int bias = offsetBias + dstMax[i] * stride[i];
+        if (bias < srcMax) {
+            // for [dstMax, dstSize], exist value match formula
+            return false;
+        }
     }
     return true;
 }
