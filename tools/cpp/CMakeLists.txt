@@ -16,6 +16,9 @@ list(APPEND MNN_CPP_TOOLS SequenceModuleTest.out)
 add_executable(mergeInplaceForCPU ${CMAKE_CURRENT_LIST_DIR}/mergeInplaceForCPU.cpp)
 list(APPEND MNN_CPP_TOOLS mergeInplaceForCPU)
 
+add_executable(modelCompare.out ${CMAKE_CURRENT_LIST_DIR}/modelCompare.cpp)
+list(APPEND MNN_CPP_TOOLS modelCompare.out)
+
 add_executable(MNNV2Basic.out ${CMAKE_CURRENT_LIST_DIR}/MNNV2Basic.cpp)
 list(APPEND MNN_CPP_TOOLS MNNV2Basic.out)
 if (MNN_USE_SSE)
