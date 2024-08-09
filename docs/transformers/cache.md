@@ -147,3 +147,47 @@ To Do List:
 - [x] dequant_value_float
 - [x] qk @ v
 - [x] update mSlotNum for all blocks
+
+
+Coding Cautions:
+
+- When creating a new backend, make sure that they share the very same StateCacheManager. This happens during load() and clone() of a Module.
+
+- std::shared_ptr<StateCacheManager> is only set in global Executor, while all the other pointers are simple naive pointer.
+
+- We keep lots of pointers, but only the malloc one can be freed, because of an a block area indicating the block size for following free().
+
+- Remember to flush when debugging with print.
+
+- finish single-threaded debugging first, and then multi-threading.
+
+```cpp
+// mPackQ
+mPackQ.reset(Tensor::createDevice<float>({mThreadNum, UP_DIV(seq_len, eP), mResource->mHeadDim, eP}));
+// mPackQKV
+mPackQKV.reset(Tensor::createDevice<float>({mThreadNum, UP_DIV(mResource->mHeadDim, unit), seq_len, unit}));
+// packQK
+// length: pastKV.size()
+packQK.emplace_back(Tensor::createDevice<float>({mThreadNum, UP_DIV(block_size, unit), seq_len, unit}));
+// pack_q
+auto pack_q      = mPackQ->host<char>() + tId * UP_DIV(seq_len, eP) * mResource->mHeadDim * eP * bytes;
+auto pack_qk = packQK[j]->host<char>() + tId * UP_DIV(block_size, unit) * seq_len * unit * bytes;
+
+// Tensor shape: 
+//     K: [num_heads, block_size / hP, head_dim, hP]
+//     V: [num_heads, head_dim / hP, block_size, hP]
+std::shared_ptr<Tensor> unpackQK(Tensor::createDevice<int32_t>({mThreadNum, seq_len, kv_seq_len}));
+auto unpack_qk   = unpackQK->host<float>() + tId * seq_len * kv_seq_len;
+
+
+newPackQK.emplace_back(Tensor::createDevice<float>({mThreadNum, UP_DIV(seq_len, eP), block_size, eP}));
+newPackQK.emplace_back(Tensor::createDevice<float>({mThreadNum, UP_DIV(seq_len, eP), last_block_slot_num, eP}));
+
+
+std::shared_ptr<Tensor> QKVBuffer(Tensor::createDevice<float>({mThreadNum, UP_DIV(mResource->mHeadDim, unit), seq_len, unit}));
+char* qkv_buffer = QKVBuffer->host<char>() + tId * UP_DIV(mResource->mHeadDim, unit) * seq_len * unit * bytes;
+
+
+mPackQKV.reset(Tensor::createDevice<float>({mThreadNum, UP_DIV(mResource->mHeadDim, unit), seq_len, unit}));
+auto pack_qkv    = mPackQKV->host<char>() + tId * UP_DIV(mResource->mHeadDim, unit) * seq_len * unit * bytes;
+```

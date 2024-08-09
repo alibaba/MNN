@@ -223,12 +223,17 @@ public:
         return 0;
     }
 
+private:
+    StateCacheManager* mStateCacheManager;
+
 public:
-    virtual StateCacheManager* getStateCacheManager() const {
-        return nullptr;
+    StateCacheManager* getStateCacheManager() const {
+        return mStateCacheManager;
     }
 
-    virtual void resetStateCacheManager(StateCacheManager* manager) {}
+    void resetStateCacheManager(StateCacheManager* manager) {
+        mStateCacheManager = manager;
+    }
 
     virtual size_t getTensorSize(const Tensor* tensor, bool multiBytes = false) const;
 

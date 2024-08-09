@@ -17,11 +17,12 @@
 #include "core/RuntimeFactory.hpp"
 #include "core/TensorUtils.hpp"
 #include "utils/InitNet.hpp"
+#include <MNN/StateCacheManager.hpp>
 
 using namespace std;
 
 namespace MNN {
-static void _createPipelineBackend(Schedule::PipelineInfo& iter, RuntimeInfo& runtime) {
+static void _createPipelineBackend(Schedule::PipelineInfo& iter, RuntimeInfo& runtime, StateCacheManager* manager) {
     if (iter.first.cache.first != nullptr) {
         return;
     }
@@ -32,6 +33,7 @@ static void _createPipelineBackend(Schedule::PipelineInfo& iter, RuntimeInfo& ru
         specialUsage = iter.first.info.user->flags > 0;
     }
     iter.first.cache.first.reset(rt->onCreate(iter.first.info.user));
+    iter.first.cache.first->resetStateCacheManager(manager);
     std::shared_ptr<Backend> second;
     if (iter.first.cache.first->type() == MNN_FORWARD_CPU && (!specialUsage)) {
         iter.first.cache.second = iter.first.cache.first;
@@ -42,6 +44,7 @@ static void _createPipelineBackend(Schedule::PipelineInfo& iter, RuntimeInfo& ru
         BackendConfig defaultConfig;
         defaultConfig.flags = 4;
         iter.first.cache.second.reset(cpuRuntime->onCreate(&defaultConfig));
+        iter.first.cache.second->resetStateCacheManager(manager);
     }
 }
 void Session::ModeGroup::setMode(Interpreter::SessionMode mode) {
@@ -103,7 +106,7 @@ Session::Session(Schedule::ScheduleInfo&& info, const ModeGroup& mode, RuntimeIn
     }
     mInfo = std::move(info);
     for (auto& iter : mInfo.pipelineInfo) {
-        _createPipelineBackend(iter, mRuntime);
+        _createPipelineBackend(iter, mRuntime, info.defaultBackend->getStateCacheManager());
         Pipeline::TuningAttr attr;
         attr.maxTuningNumber = mode.maxTuningNumber;
         attr.autoSetOpType = mode.backendMode == Interpreter::Session_Backend_Auto;
@@ -449,7 +452,7 @@ static void initTensors(std::vector<std::shared_ptr<Tensor>>& tensors, const std
     }
 }
 
-Session* Session::clone(RuntimeInfo&& runtime, std::shared_ptr<Schedule::ScheduleInfo> sharedConst) {
+Session* Session::clone(RuntimeInfo&& runtime, std::shared_ptr<Schedule::ScheduleInfo> sharedConst, StateCacheManager* manager) {
     // TODO: Currently only valid for Module api's onClone
     Schedule::ScheduleInfo scheduleInfo;
     scheduleInfo.defaultBackend = mInfo.defaultBackend;
@@ -469,7 +472,7 @@ Session* Session::clone(RuntimeInfo&& runtime, std::shared_ptr<Schedule::Schedul
     pipelineInfo.first.info.user = &pipelineInfo.first.config;
     auto& oplists = pipelineInfo.second;
     oplists.resize(opCaches.size());
-    _createPipelineBackend(pipelineInfo, runtime);
+    _createPipelineBackend(pipelineInfo, runtime, manager);
     auto first = pipelineInfo.first.cache.first;
     auto second = pipelineInfo.first.cache.second;
     for (int i=0; i<opCaches.size(); ++i) {

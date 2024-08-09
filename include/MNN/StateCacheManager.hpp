@@ -41,8 +41,8 @@ enum class MNNStateCacheQuantType {
 /* 2.1 StateCacheBlock 
     All the blocks are of the same size.
     Tensor shape: 
-        K: [num_heads, block_size / hp, head_dim, hp]
-        V: [num_heads, head_dim / hp, block_size, hp]
+        K: [num_heads, block_size / hP, head_dim, hP]
+        V: [num_heads, head_dim / hP, block_size, hP]
     */ 
 class MNN_PUBLIC StateCacheBlock {
 private:
@@ -51,9 +51,13 @@ private:
     int mSlotNum; // Index pointing to the id of the next available slot in this block
     std::vector<Tensor*> mTensors; // Tensors holding the KV cache data
     std::vector<int> mTensorSize;
+    std::vector<int> mTensorBytes;
+    std::vector<int> mTensorSeqLenDim;
     int mBlockSize;
     char* mBasePtr;
     size_t mSize;
+    void initTensorInfo(int tensor_num);
+    static std::pair<int, int> getCopyIter(StateCacheBlock* block, int index);
 public:
     struct LAYOUT {
         enum class NoQuant {
@@ -93,12 +97,13 @@ public:
     };
     StateCacheBlock(std::set<int> ref_ids, int blok_size, int slot_num=0);
     // Tensor operations
-    // Tensor shape: K: [kvnum_heads, block_size / hp, head_dim, hp], V: [kvnum_heads, head_dim / hp, block_size, hp]
-    // block_size % hp == 0, block_size % core->pack == 0 
+    // Tensor shape: K: [kvnum_heads, block_size / hP, head_dim, hP], V: [kvnum_heads, head_dim / hP, block_size, hP]
+    // block_size % hP == 0, block_size % core->pack == 0 
     void setTensor(int tId, Tensor* tensor);
+    void setTensor(int tId, Tensor* tensor, int bytes);
     void setTensorSize(int tId, int tensor_size);
-    void resetTensorShape(std::vector<std::vector<int>>& shape, int hp);
-    size_t setTensors(std::vector<std::vector<int>>& shape, void* backend, MNNStateCacheQuantType type, int hp);
+    void resetTensorShape(std::vector<std::vector<int>>& shape, int hP);
+    size_t setTensors(std::vector<std::vector<int>>& shape, void* backend, MNNStateCacheQuantType type, int hP);
     Tensor* getTensor(int tId) {
         return mTensors[tId];
     }
@@ -156,11 +161,17 @@ public:
     int getBlockSize() const{
         return mBlockSize;
     }
+    // copy
+    void copyBlock(std::shared_ptr<StateCacheBlock> src);
+    // destructor
+    ~StateCacheBlock();
 };
 
 // 2.2 StateCache
 class MNN_PUBLIC StateCache {
 public:
+    // allocated pointer list, used for free()
+    std::set<char*> mallocPtrList;
     // List of pointers to free memory blocks
     std::list<char*> freePtrList;
     // List of offsets in external storage for free blocks
@@ -256,12 +267,13 @@ public:
     std::shared_ptr<StateCacheBlock> copyBlock(int ref_id, std::shared_ptr<StateCacheBlock> block_ptr, const std::vector<std::shared_ptr<StateCacheBlock>>& pin_block_list);
 
     // external calls
-    void onAllocateCache(void* layer, void* backend, int token_num, std::vector<std::vector<int>> shape, int hp);
+    void onAllocateCache(void* layer, void* backend, int token_num, std::vector<std::vector<int>> shape, int hP);
     int prepareAttn(void* layer, int previous_token_num, std::vector<std::shared_ptr<StateCacheBlock>>& pastKV);
     void postAttn(void* layer, int last_block_slot_num); 
 
     // destructor
-    ~StateCacheManager() {releaseMemCache();}
+    void clear();
+    ~StateCacheManager() {printf("error!\n"); clear();}
 };
 
 } // namespace MNN

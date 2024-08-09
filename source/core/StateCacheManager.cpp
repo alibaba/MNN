@@ -16,58 +16,73 @@
 namespace MNN {
 
 /* -------------StateCacheBlock------------ */
-StateCacheBlock::StateCacheBlock(std::set<int> ref_ids, int blok_size, int slot_num) : mRefIds(ref_ids), mBlockSize(blok_size), mSlotNum(slot_num) {
-    mTensors.resize(mBlockSize);    
-    mTensorSize.resize(mBlockSize);
-}
+StateCacheBlock::StateCacheBlock(std::set<int> ref_ids, int blok_size, int slot_num) : mRefIds(ref_ids), mBlockSize(blok_size), mSlotNum(slot_num) {}
 // add and get Tensor
 void StateCacheBlock::setTensor(int tId, Tensor* tensor) {
     mTensors[tId] = tensor;
 }
+void StateCacheBlock::setTensor(int tId, Tensor* tensor, int bytes) {
+    mTensors[tId] = tensor;
+    mTensorBytes[tId] = bytes;
+}
 void StateCacheBlock::setTensorSize(int tId, int tensor_size) {
     mTensorSize[tId] = tensor_size;
 }
-void StateCacheBlock::resetTensorShape(std::vector<std::vector<int>>& shape, int hp) {
-    for (auto& s: shape){
-        s[s.size()-2] = UP_DIV(mBlockSize, hp);
-        s.push_back(hp);
+void StateCacheBlock::resetTensorShape(std::vector<std::vector<int>>& shape, int hP) {
+    initTensorInfo(shape.size());
+    for (int s=0; s<shape.size(); ++s){
+        // prepare for MNNStateCacheType::MNN_STATECACHE_NAIVE
+        for (int i=0; i<shape[s].size(); ++i) {
+            if (shape[s][i]==0) {
+                shape[s][i] = mBlockSize;
+                mTensorSeqLenDim[s] = i;
+            }
+        }
+        shape[s][shape[s].size()-2] = UP_DIV(shape[s][shape[s].size()-2], hP);
+        shape[s].push_back(hP);
     }
 }
-size_t StateCacheBlock::setTensors(std::vector<std::vector<int>>& shape, void* backend, MNNStateCacheQuantType type, int hp) {
-    resetTensorShape(shape, hp);
+void StateCacheBlock::initTensorInfo(int tensor_num){
+    mTensors.resize(tensor_num); 
+    mTensorSize.resize(tensor_num); 
+    mTensorBytes.resize(tensor_num);
+    mTensorSeqLenDim.resize(tensor_num);
+}
+size_t StateCacheBlock::setTensors(std::vector<std::vector<int>>& shape, void* backend, MNNStateCacheQuantType type, int hP) {
+    resetTensorShape(shape, hP);
     if (type == MNNStateCacheQuantType::NoQuant) {
-        setTensor((int)LAYOUT::NoQuant::PAST_K, Tensor::createDevice<float>(shape[(int)LAYOUT::NoQuant::PAST_K]));
-        setTensor((int)LAYOUT::NoQuant::PAST_V, Tensor::createDevice<float>(shape[(int)LAYOUT::NoQuant::PAST_V]));
+        setTensor((int)LAYOUT::NoQuant::PAST_K, Tensor::createDevice<float>(shape[(int)LAYOUT::NoQuant::PAST_K]), sizeof(float));
+        setTensor((int)LAYOUT::NoQuant::PAST_V, Tensor::createDevice<float>(shape[(int)LAYOUT::NoQuant::PAST_V]), sizeof(float));
     }
     if (type == MNNStateCacheQuantType::QuantKeyInt8) {
-        setTensor((int)LAYOUT::QuantKeyInt8::PAST_K, Tensor::createDevice<int8_t>(shape[(int)LAYOUT::QuantKeyInt8::PAST_K]));
-        setTensor((int)LAYOUT::QuantKeyInt8::PAST_K_SCALES, Tensor::createDevice<float>(shape[(int)LAYOUT::QuantKeyInt8::PAST_K_SCALES]));
-        setTensor((int)LAYOUT::QuantKeyInt8::PAST_K_ZERO_POINTS, Tensor::createDevice<float>(shape[(int)LAYOUT::QuantKeyInt8::PAST_K_ZERO_POINTS]));
-        setTensor((int)LAYOUT::QuantKeyInt8::PAST_V, Tensor::createDevice<float>(shape[(int)LAYOUT::QuantKeyInt8::PAST_V]));
+        setTensor((int)LAYOUT::QuantKeyInt8::PAST_K, Tensor::createDevice<int8_t>(shape[(int)LAYOUT::QuantKeyInt8::PAST_K]), sizeof(int8_t));
+        setTensor((int)LAYOUT::QuantKeyInt8::PAST_K_SCALES, Tensor::createDevice<float>(shape[(int)LAYOUT::QuantKeyInt8::PAST_K_SCALES]), sizeof(float));
+        setTensor((int)LAYOUT::QuantKeyInt8::PAST_K_ZERO_POINTS, Tensor::createDevice<float>(shape[(int)LAYOUT::QuantKeyInt8::PAST_K_ZERO_POINTS]), sizeof(float));
+        setTensor((int)LAYOUT::QuantKeyInt8::PAST_V, Tensor::createDevice<float>(shape[(int)LAYOUT::QuantKeyInt8::PAST_V]), sizeof(float));
     }
     if (type == MNNStateCacheQuantType::QuantValueFp8) {
-        setTensor((int)LAYOUT::QuantValueFp8::PAST_K, Tensor::createDevice<float>(shape[(int)LAYOUT::QuantValueFp8::PAST_K]));
-        setTensor((int)LAYOUT::QuantValueFp8::PAST_V, Tensor::createDevice<uint8_t>(shape[(int)LAYOUT::QuantValueFp8::PAST_V]));
+        setTensor((int)LAYOUT::QuantValueFp8::PAST_K, Tensor::createDevice<float>(shape[(int)LAYOUT::QuantValueFp8::PAST_K]), sizeof(float));
+        setTensor((int)LAYOUT::QuantValueFp8::PAST_V, Tensor::createDevice<uint8_t>(shape[(int)LAYOUT::QuantValueFp8::PAST_V]), sizeof(uint8_t));
     }
     if (type == MNNStateCacheQuantType::QuantKeyInt8ValueFp8) {
-        setTensor((int)LAYOUT::QuantKeyInt8ValueFp8::PAST_K, Tensor::createDevice<int8_t>(shape[(int)LAYOUT::QuantKeyInt8ValueFp8::PAST_K]));
-        setTensor((int)LAYOUT::QuantKeyInt8ValueFp8::PAST_K_SCALES, Tensor::createDevice<float>(shape[(int)LAYOUT::QuantKeyInt8ValueFp8::PAST_K_SCALES]));
-        setTensor((int)LAYOUT::QuantKeyInt8ValueFp8::PAST_K_ZERO_POINTS, Tensor::createDevice<float>(shape[(int)LAYOUT::QuantKeyInt8ValueFp8::PAST_K_ZERO_POINTS]));
-        setTensor((int)LAYOUT::QuantKeyInt8ValueFp8::PAST_V, Tensor::createDevice<uint8_t>(shape[(int)LAYOUT::QuantKeyInt8ValueFp8::PAST_V]));
+        setTensor((int)LAYOUT::QuantKeyInt8ValueFp8::PAST_K, Tensor::createDevice<int8_t>(shape[(int)LAYOUT::QuantKeyInt8ValueFp8::PAST_K]), sizeof(int8_t));
+        setTensor((int)LAYOUT::QuantKeyInt8ValueFp8::PAST_K_SCALES, Tensor::createDevice<float>(shape[(int)LAYOUT::QuantKeyInt8ValueFp8::PAST_K_SCALES]), sizeof(float));
+        setTensor((int)LAYOUT::QuantKeyInt8ValueFp8::PAST_K_ZERO_POINTS, Tensor::createDevice<float>(shape[(int)LAYOUT::QuantKeyInt8ValueFp8::PAST_K_ZERO_POINTS]), sizeof(float));
+        setTensor((int)LAYOUT::QuantKeyInt8ValueFp8::PAST_V, Tensor::createDevice<uint8_t>(shape[(int)LAYOUT::QuantKeyInt8ValueFp8::PAST_V]), sizeof(uint8_t));
     }
     if (type == MNNStateCacheQuantType::QuantValueInt8) {
-        setTensor((int)LAYOUT::QuantValueInt8::PAST_K, Tensor::createDevice<float>(shape[(int)LAYOUT::QuantValueInt8::PAST_K]));
-        setTensor((int)LAYOUT::QuantValueInt8::PAST_V, Tensor::createDevice<int8_t>(shape[(int)LAYOUT::QuantValueInt8::PAST_V]));
-        setTensor((int)LAYOUT::QuantValueInt8::PAST_V_SCALES, Tensor::createDevice<float>(shape[(int)LAYOUT::QuantValueInt8::PAST_V_SCALES]));
-        setTensor((int)LAYOUT::QuantValueInt8::PAST_V_ZERO_POINTS, Tensor::createDevice<float>(shape[(int)LAYOUT::QuantValueInt8::PAST_V_ZERO_POINTS]));
+        setTensor((int)LAYOUT::QuantValueInt8::PAST_K, Tensor::createDevice<float>(shape[(int)LAYOUT::QuantValueInt8::PAST_K]), sizeof(float));
+        setTensor((int)LAYOUT::QuantValueInt8::PAST_V, Tensor::createDevice<int8_t>(shape[(int)LAYOUT::QuantValueInt8::PAST_V]), sizeof(int8_t));
+        setTensor((int)LAYOUT::QuantValueInt8::PAST_V_SCALES, Tensor::createDevice<float>(shape[(int)LAYOUT::QuantValueInt8::PAST_V_SCALES]), sizeof(float));
+        setTensor((int)LAYOUT::QuantValueInt8::PAST_V_ZERO_POINTS, Tensor::createDevice<float>(shape[(int)LAYOUT::QuantValueInt8::PAST_V_ZERO_POINTS]), sizeof(float));
     }
     if (type == MNNStateCacheQuantType::QuantKeyInt8ValueInt8) {
-        setTensor((int)LAYOUT::QuantKeyInt8ValueInt8::PAST_K, Tensor::createDevice<int8_t>(shape[(int)LAYOUT::QuantKeyInt8ValueInt8::PAST_K]));
-        setTensor((int)LAYOUT::QuantKeyInt8ValueInt8::PAST_K_SCALES, Tensor::createDevice<float>(shape[(int)LAYOUT::QuantKeyInt8ValueInt8::PAST_K_SCALES]));
-        setTensor((int)LAYOUT::QuantKeyInt8ValueInt8::PAST_K_ZERO_POINTS, Tensor::createDevice<float>(shape[(int)LAYOUT::QuantKeyInt8ValueInt8::PAST_K_ZERO_POINTS]));
-        setTensor((int)LAYOUT::QuantKeyInt8ValueInt8::PAST_V, Tensor::createDevice<int8_t>(shape[(int)LAYOUT::QuantKeyInt8ValueInt8::PAST_V]));
-        setTensor((int)LAYOUT::QuantKeyInt8ValueInt8::PAST_V_SCALES, Tensor::createDevice<float>(shape[(int)LAYOUT::QuantKeyInt8ValueInt8::PAST_V_SCALES]));
-        setTensor((int)LAYOUT::QuantKeyInt8ValueInt8::PAST_V_ZERO_POINTS, Tensor::createDevice<float>(shape[(int)LAYOUT::QuantKeyInt8ValueInt8::PAST_V_ZERO_POINTS]));
+        setTensor((int)LAYOUT::QuantKeyInt8ValueInt8::PAST_K, Tensor::createDevice<int8_t>(shape[(int)LAYOUT::QuantKeyInt8ValueInt8::PAST_K]), sizeof(int8_t));
+        setTensor((int)LAYOUT::QuantKeyInt8ValueInt8::PAST_K_SCALES, Tensor::createDevice<float>(shape[(int)LAYOUT::QuantKeyInt8ValueInt8::PAST_K_SCALES]), sizeof(float));
+        setTensor((int)LAYOUT::QuantKeyInt8ValueInt8::PAST_K_ZERO_POINTS, Tensor::createDevice<float>(shape[(int)LAYOUT::QuantKeyInt8ValueInt8::PAST_K_ZERO_POINTS]),sizeof(float));
+        setTensor((int)LAYOUT::QuantKeyInt8ValueInt8::PAST_V, Tensor::createDevice<int8_t>(shape[(int)LAYOUT::QuantKeyInt8ValueInt8::PAST_V]), sizeof(int8_t));
+        setTensor((int)LAYOUT::QuantKeyInt8ValueInt8::PAST_V_SCALES, Tensor::createDevice<float>(shape[(int)LAYOUT::QuantKeyInt8ValueInt8::PAST_V_SCALES]), sizeof(float));
+        setTensor((int)LAYOUT::QuantKeyInt8ValueInt8::PAST_V_ZERO_POINTS, Tensor::createDevice<float>(shape[(int)LAYOUT::QuantKeyInt8ValueInt8::PAST_V_ZERO_POINTS]), sizeof(float));
     }
     size_t block_size = 0;
     for (int s = 0; s < mTensors.size(); ++s) {
@@ -111,10 +126,47 @@ void StateCacheBlock::addRef(int ref_id) {
 void StateCacheBlock::clearRef() {
     mRefIds.clear();
 }
+StateCacheBlock::~StateCacheBlock() {
+    for (int i=0; i < mTensors.size(); ++i) {
+        mTensors[i]->buffer().host = nullptr;
+        delete mTensors[i];
+    }
+    mBasePtr = nullptr;
+}
+std::pair<int, int> StateCacheBlock::getCopyIter(StateCacheBlock* block, int index) {
+    int out_itr = 1, in_size = block->mTensorBytes[index];
+    auto shape = block->mTensors[index]->shape();
+    for (int s = 0; s < shape.size(); ++s){
+        if (s < block->mTensorSeqLenDim[index]) out_itr *= shape[s];
+        else in_size *= shape[s];
+    }
+    return std::make_pair(out_itr, in_size);
+}
+// Tensor shape: 
+//     K: [num_heads, block_size / hP, head_dim, hP]
+//     V: [num_heads, head_dim / hP, block_size, hP]
+void StateCacheBlock::copyBlock(std::shared_ptr<StateCacheBlock> src) {
+    // copy src contents to this->mTensors on at a time.
+    this->resetSlotNum(src->getSlotNum());
+    for (int i = 0; i < mTensors.size(); ++i) {
+        // need to consider layout. copy on the dimension of seq_len
+        auto this_info = StateCacheBlock::getCopyIter(this, i);
+        auto src_info = StateCacheBlock::getCopyIter(src.get(), i);
+        for (int out_index=0; out_index<this_info.first; ++out_index){
+            memcpy(this->mTensors[i]->host<char>() + out_index * this_info.second,
+                   src->mTensors[i]->host<char>() + out_index * src_info.second,
+                   src_info.second);
+        }
+    } 
+}
 
 /* -------------StateCache------------------- */
 void StateCache::clear(std::shared_ptr<StateCacheBlock> block) {
     // remove the block from internal data structures!
+    if (block->getBlockPtr()!=nullptr && mallocPtrList.count(block->getBlockPtr()) != 0) {
+        free(block->getBlockPtr());
+        mallocPtrList.erase(block->getBlockPtr());
+    }
     for (auto it = inMemBlockList.begin(); it != inMemBlockList.end(); ++it) {
         it->second.erase(block);
     }
@@ -128,16 +180,31 @@ StateCacheManager::StateCacheManager(MNNStateCacheQuantType quantType, MNNStateC
     mNextNewRefId = 0;
     mQuantType = quantType;
     mType = type;
+    if (mType == MNNStateCacheType::MNN_STATECACHE_ADVANCED) {
+        mBlockSize = mConfig.blockSize;
+    } else {
+        mBlockSize = 0;
+    }
 }
 
 void StateCacheManager::setHint(MNNStateCacheQuantType quantType, MNNStateCacheType type){
     mQuantType = quantType;
     mType = type;
+    if (mType == MNNStateCacheType::MNN_STATECACHE_ADVANCED) {
+        mBlockSize = mConfig.blockSize;
+    } else {
+        mBlockSize = 0;
+    }
 }
 
 void StateCacheManager::setHint(int quantType, int type){
     mQuantType = (MNNStateCacheQuantType)quantType;
     mType = (MNNStateCacheType)type;
+    if (mType == MNNStateCacheType::MNN_STATECACHE_ADVANCED) {
+        mBlockSize = mConfig.blockSize;
+    } else {
+        mBlockSize = 0;
+    }
 }
 
 std::shared_ptr<StateCacheReference> StateCacheManager::onCreateReference(bool from_current) {
@@ -153,19 +220,24 @@ void StateCacheManager::setConfig(struct StateCacheManagerConfig config) {
     mConfig = config;
     if (mType == MNNStateCacheType::MNN_STATECACHE_ADVANCED) {
         mBlockSize = mConfig.blockSize;
+    } else {
+        mBlockSize = 0;
     }
 }
 
 
 bool StateCacheManager::enlargeMemCache(void* layer, size_t size) {
     std::shared_ptr<StateCache> cache = mStateCache[layer];
-    char* ptr = (char*)malloc(size * mConfig.preallocateBlockNum); // try pre-allocation!
+    int block = (mType == MNNStateCacheType::MNN_STATECACHE_ADVANCED) ? mConfig.preallocateBlockNum : 1;
+    char* ptr = (char*)malloc(size * block); // try pre-allocation!
     if (ptr == nullptr) {
         ptr = (char*)malloc(size); // try allocation!
+        cache->mallocPtrList.insert(ptr);
         if (ptr == nullptr) return false;
         cache->freePtrList.push_back(ptr);
     } else {
-        for (int i = 0; i < mConfig.preallocateBlockNum; ++i) {
+        cache->mallocPtrList.insert(ptr);
+        for (int i = 0; i < block; ++i) {
             cache->freePtrList.push_back(ptr);
             ptr += size;
         }
@@ -256,8 +328,6 @@ bool StateCacheManager::enlargeFileCache(void* layer, size_t size) {
 void StateCacheManager::releaseBlockMem(void* layer, std::shared_ptr<StateCacheBlock> block) {
     // 1. clear the block from layer.
     mStateCache[layer]->clear(block);
-    // 2. release the block's memory
-    if (block->getBlockPtr()!=nullptr) free(block->getBlockPtr());
 }
 
 void StateCacheManager::releaseMemCache() {
@@ -266,22 +336,16 @@ void StateCacheManager::releaseMemCache() {
         auto layer = it->first;
         auto cache = it->second;
         // clear free ptr
-        while (!cache->freePtrList.empty()) {
-            free(cache->freePtrList.back());
-            cache->freePtrList.pop_back();
-        }
+        cache->freePtrList.clear();
         // clear inMemBlockList
-        for (auto it = cache->inMemBlockList.begin(); it != cache->inMemBlockList.end(); ++it) {
-            for (auto block_it = it->second.begin(); block_it != it->second.end(); ++block_it) {
-                if ((*block_it)->getBlockPtr() != nullptr) free((*block_it)->getBlockPtr());
-            }
-        }
         cache->inMemBlockList.clear();
         // clear computeCacheBlockList
-        for (auto it = cache->computeCacheBlockList.begin(); it != cache->computeCacheBlockList.end(); ++it) {
-            if ((*it)->getBlockPtr() != nullptr) free((*it)->getBlockPtr());
-        }
         cache->computeCacheBlockList.clear();
+        // free()
+        for (auto ptr = cache->mallocPtrList.begin(); ptr != cache->mallocPtrList.end(); ++ptr) {
+            free(*ptr);
+        }
+        cache->mallocPtrList.clear();
     }
 }
 
@@ -310,6 +374,17 @@ void StateCacheManager::releaseFileCache() {
 
     // // Clear the list of offsets in external storage for free blocks
     // mStateCache->freeFileOffsetList.clear();
+} 
+
+void StateCacheManager::clear() {
+    releaseMemCache();
+    releaseFileCache();
+    mStateCache.clear();
+    if (mType == MNNStateCacheType::MNN_STATECACHE_ADVANCED) {
+        mBlockSize = mConfig.blockSize;
+    } else {
+        mBlockSize = 0;
+    }
 }
 
 std::shared_ptr<StateCacheBlock> StateCacheManager::evictBlock(const std::vector<std::shared_ptr<StateCacheBlock>>& pin_block_list) {
@@ -530,7 +605,7 @@ std::shared_ptr<StateCacheBlock> StateCacheManager::copyBlock(int ref_id, std::s
 }
 
 // The Operator requires an allocation
-void StateCacheManager::onAllocateCache(void* layer, void* backend, int token_num, std::vector<std::vector<int>> shape, int hp) {
+void StateCacheManager::onAllocateCache(void* layer, void* backend, int token_num, std::vector<std::vector<int>> shape, int hP) {
     // 1. check if the layer is registered.
     if (mStateCache.count(layer)==0) {
         mStateCache[layer] = std::shared_ptr<StateCache>(new StateCache);
@@ -542,22 +617,26 @@ void StateCacheManager::onAllocateCache(void* layer, void* backend, int token_nu
     // 2. now StateCache exists.
     // 2.1 the advanced one:
     // calculate the number of new blocks in need and get the pointer and set the block.
-    int need_token, need_block;
+    int need_token=0, need_block=0;
     bool copy_flag = false;
     need_token = token_num;
+    // std::cout << need_token << std::endl;
     if (mCurrentReference->mPageTable[layer].size() != 0) {
         need_token -= mCurrentReference->mPageTable[layer].back()->getFreeSlotNum(); 
+        // std::cout << "free: " << mCurrentReference->mPageTable[layer].back()->getFreeSlotNum() << std::endl;
     }
     if (mType == MNNStateCacheType::MNN_STATECACHE_ADVANCED) {
         need_block = UP_DIV(need_token, mBlockSize);
     } else {
         // 2.2 the naive one:
+        // reset the block number to the current layer's
+        mBlockSize = (mCurrentReference->mPageTable[layer].size() != 0) ? mCurrentReference->mPageTable[layer].back()->getBlockSize() : 0;
         // resize the only block and enlarge it!
         if (need_token > 0){
             // reallocation
             need_block = 1;
             need_token += mBlockSize; // enlargement
-            mBlockSize = need_token + mConfig.preallocateTokenNum; // preallocation
+            mBlockSize = UP_DIV(need_token + mConfig.preallocateTokenNum, mConfig.blockSize) * mConfig.blockSize; // preallocation
             copy_flag = true; 
         } else {
             // no new allocation take place
@@ -566,29 +645,37 @@ void StateCacheManager::onAllocateCache(void* layer, void* backend, int token_nu
             copy_flag = false;
         }
     }
+    // std::cout << need_token << std::endl;
+    // std::cout << need_block << std::endl;
+    // std::cout << mBlockSize << std::endl;
+    // printf("Here!!!!!\n");
     // allocate the pointers to the page table
     for (int i = 0; i < need_block; ++i) {
         StateCacheBlock* block = new StateCacheBlock({mCurrentReference->mRefId}, mBlockSize, 0);
-        size_t block_size = block->setTensors(shape, backend, mQuantType, hp);
+        size_t block_size = block->setTensors(shape, backend, mQuantType, hP);
         char* free_ptr = getFreePtr(layer, block_size);
         block->onAllocatePtr(free_ptr);
         block->setBlockMem(free_ptr, block_size);
         mCurrentReference->mPageTable[layer].push_back(std::shared_ptr<StateCacheBlock>(block));
         need_token -= mBlockSize;
     }
+    // std::cout << "Block Size: " << mBlockSize << std::endl;
 
     // reallocate phase, memcpy
+    copy_flag = copy_flag && mCurrentReference->mPageTable[layer].size()>1; // not the first time allocation
     if (mType == MNNStateCacheType::MNN_STATECACHE_NAIVE && copy_flag) {
         // previous: mPageTable[layer][0], present: mPageTable[layer][1]
         // after copy: mPageTable[layer].pop_front()
-        std::memcpy(mCurrentReference->mPageTable[layer][1]->getBlockPtr(), // dst
-                    mCurrentReference->mPageTable[layer][0]->getBlockPtr(), // src
-                    mCurrentReference->mPageTable[layer][0]->getBlockPhysicalSize() /* size */);
+        // std::cout << std::endl << "reallocation!" << std::endl;
+        // Notice: Tensors are not contiguous.
+        mCurrentReference->mPageTable[layer][1]->copyBlock(mCurrentReference->mPageTable[layer][0]);
         releaseBlockMem(layer, mCurrentReference->mPageTable[layer][0]);
+        // std::cout << "finish removal!" << std::endl;
         // cover the previous pointer and then pop_back
         mCurrentReference->mPageTable[layer][0] = mCurrentReference->mPageTable[layer][1];
         mCurrentReference->mPageTable[layer].pop_back();
     }
+    // printf("Here!!!!!!!\n");
 }
 
 int StateCacheManager::prepareAttn(void* layer, int previous_token_num, std::vector<std::shared_ptr<StateCacheBlock>>& pastKV) {

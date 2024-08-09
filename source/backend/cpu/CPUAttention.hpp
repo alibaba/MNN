@@ -30,7 +30,7 @@ public:
         std::shared_ptr<Tensor> mPastValue;             // numhead, [headdim/eP, maxlen, eP]
         std::shared_ptr<Tensor> mDequantKeyScale;       // numhead, [maxlen/eP, 1, eP]
         std::shared_ptr<Tensor> mDequantKeyZeroPoint;   // numhead, [maxlen/eP, 1, eP]
-        int mPastLength = 0, mMaxLength = 0;
+        int mPastLength = 0;
         const int mExpandChunk = 64;
         int mNumHead = 0, mKvNumHead = 0, mHeadDim = 0;
     };
