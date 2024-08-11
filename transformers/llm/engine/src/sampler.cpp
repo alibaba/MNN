@@ -43,6 +43,7 @@ int LocalSampler::temperature(MNN::Express::VARP logits, float temperature) {
     std::cout << logits->readMap<float>()[0] << std::endl;
     std::cout << logits->readMap<float>()[1] << std::endl;
     std::cout << logits->readMap<float>()[2] << std::endl;
+    std::cout << logits->getInfo()->size << std::endl;
     // logits = MNN::Express::_TempratureSoftmax(logits, 100.);
     logits = MNN::Express::_Softmax(logits);
     std::cout << "before random" << std::endl;
@@ -175,6 +176,9 @@ int LocalSampler::minP(MNN::Express::VARP logits, float p, float temperature) {
 
 
 int LocalSampler::argmax(MNN::Express::VARP logits) {
+    std::cout << logits->readMap<float>()[0] << std::endl;
+    std::cout << logits->readMap<float>()[1] << std::endl;
+    std::cout << logits->readMap<float>()[2] << std::endl;
     auto scores = (float*)(logits->readMap<float>());
     auto size = logits->getInfo()->size;
     float max_score = 0;
@@ -228,6 +232,8 @@ std::string LocalSampler::sample(const std::vector<int>& input_ids, std::ostream
     std::cout << "sampler algorithm prefill finish" << std::endl;
     output_str += handleToken(token, os, end_with);
     // std::cout << output_str << std::endl;
+    // std::vector<int> no;
+    // std::cout << no[10] << std::endl;
     // decode
     while (getGenLength(0, output_str.size()) < mMaxNewTokens) {
         st = std::chrono::system_clock::now();

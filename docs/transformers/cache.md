@@ -161,6 +161,10 @@ Coding Cautions:
 
 - finish single-threaded debugging first, and then multi-threading.
 
+- take good care of memory layout please.
+
+- look at the code!
+
 ```cpp
 // mPackQ
 mPackQ.reset(Tensor::createDevice<float>({mThreadNum, UP_DIV(seq_len, eP), mResource->mHeadDim, eP}));

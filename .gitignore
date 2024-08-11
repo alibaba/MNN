@@ -363,3 +363,6 @@ MNN_compression_pb2.py
 
 # models
 model/
+
+# log
+log.txt

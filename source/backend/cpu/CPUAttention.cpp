@@ -113,6 +113,7 @@ static int nearestInt(float x) {
 
 template <typename T>
 static void pack_query(Tensor* query, char* pack_q, int mNumHead, int mHeadDim, int eP, int seq_len, int h, float q_scale) {
+    // std::cout << "q" << std::endl;
     T * query_src = query->host<T>();
     T * query_dst = reinterpret_cast<T*>(pack_q);
     for (int i = 0; i < seq_len; i++) {
@@ -120,8 +121,11 @@ static void pack_query(Tensor* query, char* pack_q, int mNumHead, int mHeadDim, 
         int in_index  = i % eP;
         for (int j = 0; j < mHeadDim; j++) {
             query_dst[out_index * mHeadDim * eP + j * eP + in_index] = query_src[i * mNumHead * mHeadDim + h * mHeadDim + j] * q_scale;
+            std::cout << query_src[i * mNumHead * mHeadDim + h * mHeadDim + j] << " ";
         }
+        std::cout << std::endl;
     }
+    std::cout << std::endl;
 }
 
 // template <typename T>
@@ -212,13 +216,18 @@ static void pack_key(Tensor* key, const std::vector<std::shared_ptr<StateCacheBl
                 slot_num = pack_key[current_block_id]->getSlotNum();
                 key_dst = &(pack_key[current_block_id]->getTensor((int)StateCacheBlock::LAYOUT::NoQuant::PAST_K)->host<float>()[kv_h *  UP_DIV(block_size, hP) * mHeadDim * hP]);
             } 
+            // std::cout << current_block_id << std::endl;
+            // std::cout << slot_num << std::endl;
             int out_index = slot_num / hP;
             int in_index  = slot_num % hP;
             for (int j = 0; j < mHeadDim; j++) {
                 key_dst[out_index * mHeadDim * hP + j * hP + in_index] = key_src[i * mKvNumHead * mHeadDim + kv_h * mHeadDim + j];
+                std::cout << key_dst[out_index * mHeadDim * hP + j * hP + in_index] << " ";
             }
+            std::cout << std::endl;
             slot_num++;
         }
+        std::cout << std::endl;
     }
 }
 
@@ -265,13 +274,17 @@ static void pack_value(Tensor* value, const std::vector<std::shared_ptr<StateCac
                 slot_num = pack_value[current_block_id]->getSlotNum();
                 value_dst = &(pack_value[current_block_id]->getTensor(tId)->host<float>()[kv_h *  UP_DIV(mHeadDim, hP) * block_size * hP]);
             } 
+            // std::cout << current_block_id << std::endl;
+            // std::cout << slot_num << std::endl;
             for (int j = 0; j < mHeadDim; j++) {
                 int out_index = j / hP;
                 int in_index  = j % hP;
                 value_dst[out_index * block_size * hP + slot_num * hP + in_index] = value_src[i * mKvNumHead * mHeadDim + kv_h * mHeadDim + j];
+                // std::cout << value_dst[out_index * block_size * hP + slot_num * hP + in_index] << " ";
             }
             slot_num++;
         }
+        // std::cout << std::endl;
     }
 }
 
@@ -330,8 +343,11 @@ static void unpack_QK(float * unpack_qk_dst, const std::vector<std::shared_ptr<T
             int out_index = (j%block_size)/unit;
             int in_index  = (j%block_size)%unit;
             dst[i * kv_seq_len + j] = src[out_index * seq_len * unit + i * unit + in_index];
+            std::cout << dst[i * kv_seq_len + j] << " ";
         }
+        std::cout << std::endl;
     }
+    std::cout << std::endl;
 }
 
 // template <typename T>
@@ -351,18 +367,23 @@ static void unpack_QK(float * unpack_qk_dst, const std::vector<std::shared_ptr<T
 // [mThreadNum, UP_DIV(seq_len, eP), block_size, eP]
 template <typename T>
 static void pack_QK(const std::vector<std::shared_ptr<Tensor>>& pack_qk_dst, float * qk_src, int seq_len, int kv_seq_len, int tId, int block_size, int last_block_slot_num, int eP) {
+    // std::cout << "QK" << std::endl;
     float * src = reinterpret_cast<float*>(qk_src);
     // [seq_len, kv_seq_len] -> [seq_len/eP, block_size, eP]
     for (int j = 0; j < kv_seq_len; j++) {
         int block = j / block_size;
         int num = (block==pack_qk_dst.size()-1) ? last_block_slot_num : block_size;
         T * dst = reinterpret_cast<T*>(&(pack_qk_dst[block]->host<T>()[tId*UP_DIV(seq_len,eP)*num*eP]));
+        // std::cout << (j % num) << std::endl;
         for (int i = 0; i < seq_len; i++) {
             int out_index = i / eP;
             int in_index  = i % eP;
             dst[out_index * num * eP + (j % num) * eP + in_index] = src[i * kv_seq_len + j];
+            std::cout << src[i * kv_seq_len + j] << " ";
         }
+        std::cout << std::endl;
     }
+    std::cout << std::endl;
 }
 
 template <typename T>
@@ -404,8 +425,11 @@ static void unpack_QKV(char* pack_qkv, char* unpack_qkv, int mNumHead, int mHead
             int a = j / unit;
             int b = j % unit;
             dst_ptr[i * mNumHead * mHeadDim + j] = src_ptr[a * seq_len * unit + i * unit + b];
+            std::cout << dst_ptr[i * mNumHead * mHeadDim + j] << " ";
         }
+        std::cout << std::endl;
     }
+    std::cout << std::endl;
 }
 
 std::vector<std::vector<int>> CPUAttention::getKVshape(MNNStateCacheQuantType type) {
@@ -669,7 +693,7 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
         int loop_e = seq_len / eP;
         int remain = seq_len % eP;
         for (int h = head_index; h < head_index + tileCount && h < mResource->mNumHead; h++) {
-            // std::cout <<  h << std::endl;
+            std::cout << "head" << h << std::endl;
             // ----------need revision----------
             int    kv_h                 = h / group_size;
             // char * key_dst              = nullptr;
@@ -812,11 +836,19 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
                     if (quantType == MNNStateCacheQuantType::QuantKeyInt8)
                         value_dst = pastKV[j]->getTensor((int)StateCacheBlock::LAYOUT::QuantKeyInt8::PAST_V)->host<char>() + kv_h * UP_DIV(mResource->mHeadDim, hP) * block_size * hP * bytes;
                 }
+                // std::cout << "printf V" << std::endl;
+                // for (int i = 0; i < UP_DIV(mResource->mHeadDim, hP); ++i) {
+                //     for (int j = 0; j < qk_block_size * hP; ++j){
+                //         std::cout << ((float*)value_dst)[i * block_size * hP + j] << " ";
+                //     }
+                //     std::cout << std::endl;
+                // }
+                // std::cout << std::endl;
                 // qk @ v
                 size_t shapeParameters[7];
                 size_t* parameters = shapeParameters;
                 parameters[0]          = eP * bytes;
-                parameters[1]          = kv_seq_len;
+                parameters[1]          = qk_block_size;
                 parameters[2]          = mResource->mHeadDim;
                 parameters[3]          = seq_len * unit * bytes;
                 parameters[4]          = 0;
@@ -825,7 +857,7 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
                 for (int i = 0 ; i < loop_e; i++) {
                     core->MNNPackedMatMul(
                         (float*)(qkv_buffer + (i * eP * unit) * bytes),
-                        (float*)(new_pack_qk + (i * kv_seq_len * eP) * bytes),
+                        (float*)(new_pack_qk + (i * qk_block_size * eP) * bytes),
                         (float*)value_dst, parameters,
                         nullptr, nullptr, nullptr, nullptr
                     );
@@ -833,23 +865,25 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
                 {
                     core->MNNPackedMatMulRemain(
                         (float*)(qkv_buffer + (loop_e * eP * unit) * bytes),
-                        (float*)(new_pack_qk + (loop_e * kv_seq_len * eP) * bytes),
+                        (float*)(new_pack_qk + (loop_e * qk_block_size * eP) * bytes),
                         (float*)value_dst, remain, parameters,
                         nullptr, nullptr, nullptr, nullptr
                     );
                 }
                 // add the qkv_buffer to pack_qkv, first one copy, the followings are added.
-                MNN_ASSERT(UP_DIV(mResource->mHeadDim, unit) * seq_len * unit % 4 == 0);
-                if (j==0)
+                // the addition is performed element-wise unit-at-a-time.
+                if (j==0){
                     core->MNNCopyC4WithStride(
                         (float*)qkv_buffer, (float*)pack_qkv,
-                        4, 4, UP_DIV(mResource->mHeadDim, unit) * seq_len * unit / 4
+                        unit, unit, UP_DIV(mResource->mHeadDim, unit) * seq_len
                     );
-                else
+                }
+                else{
                     core->MNNAddC4WithStride(
                         (float*)qkv_buffer, (float*)pack_qkv,
-                        4, 4, UP_DIV(mResource->mHeadDim, unit) * seq_len * unit / 4
+                        unit, unit, UP_DIV(mResource->mHeadDim, unit) * seq_len
                     );
+                }
             }
             }
             // std::cout << "after qk @ v" << std::endl;
@@ -863,6 +897,8 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
             }
             // ----------need revision----------
             // std::cout << "end of an iteration" << std::endl << std::endl;
+            // std::vector<int> no;
+            // std::cout << no[10] << std::endl;
         }
     };
 
@@ -887,6 +923,8 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
         quantType == MNNStateCacheQuantType::QuantKeyInt8ValueFp8){
         backend()->onReleaseBuffer(dequantV.get(), Backend::STATIC);
     }
+    // std::vector<int> no;
+    // std::cout << no[10] << std::endl;
     // std::cout << "Finish This Attention!" << std::endl;
     return NO_ERROR;
 }

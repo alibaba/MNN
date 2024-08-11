@@ -254,6 +254,7 @@ VARP Llm::forward(const std::vector<int>& input_ids, bool prefill) {
         ExecutorScope::Current()->gc(Executor::FULL);
         for (int i = 0; i < layer_nums; i++) {
             AUTOTIME;
+            std::cout << "layer " <<  i << std::endl;
             // printf("begin forward %d\n", i);
             auto outputs = modules_[i]->onForward({hidden_states, attention_mask, position_ids, past_key_values_[i]});
             // printf("forward %d\n", i);

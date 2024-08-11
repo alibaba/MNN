@@ -228,8 +228,8 @@ void StateCacheManager::setConfig(struct StateCacheManagerConfig config) {
 
 bool StateCacheManager::enlargeMemCache(void* layer, size_t size) {
     std::shared_ptr<StateCache> cache = mStateCache[layer];
-    int block = (mType == MNNStateCacheType::MNN_STATECACHE_ADVANCED) ? mConfig.preallocateBlockNum : 1;
-    char* ptr = (char*)malloc(size * block); // try pre-allocation!
+    int block_num = (mType == MNNStateCacheType::MNN_STATECACHE_ADVANCED) ? mConfig.preallocateBlockNum : 1;
+    char* ptr = (char*)malloc(size * block_num); // try pre-allocation!
     if (ptr == nullptr) {
         ptr = (char*)malloc(size); // try allocation!
         cache->mallocPtrList.insert(ptr);
@@ -237,7 +237,7 @@ bool StateCacheManager::enlargeMemCache(void* layer, size_t size) {
         cache->freePtrList.push_back(ptr);
     } else {
         cache->mallocPtrList.insert(ptr);
-        for (int i = 0; i < block; ++i) {
+        for (int i = 0; i < block_num; ++i) {
             cache->freePtrList.push_back(ptr);
             ptr += size;
         }
@@ -626,7 +626,7 @@ void StateCacheManager::onAllocateCache(void* layer, void* backend, int token_nu
         // std::cout << "free: " << mCurrentReference->mPageTable[layer].back()->getFreeSlotNum() << std::endl;
     }
     if (mType == MNNStateCacheType::MNN_STATECACHE_ADVANCED) {
-        need_block = UP_DIV(need_token, mBlockSize);
+        need_block = (need_token > 0) ? UP_DIV(need_token, mBlockSize) : 0;
     } else {
         // 2.2 the naive one:
         // reset the block number to the current layer's
