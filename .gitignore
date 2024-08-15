@@ -366,3 +366,4 @@ model/
 
 # log
 log*
+test*.txt
