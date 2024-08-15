@@ -21,13 +21,11 @@ LocalSampler::LocalSampler(Llm* llm, StateCacheManager* manager, int max_new_tok
 }
 
 int LocalSampler::randomSelect(float* probs, size_t size) {
-    std::cout << "in select" << std::endl;
     std::random_device rd;
     std::mt19937 generator(rd());
     std::uniform_real_distribution<float> distribution(0.0, 1.0);
     float target = distribution(generator);
     float cumulative = 0.0;
-    std::cout << size << " " << target << " " << cumulative << std::endl;
     for (int i = 0; i < size; i++) {
         cumulative += probs[i];
         if (target < cumulative) {
@@ -38,16 +36,7 @@ int LocalSampler::randomSelect(float* probs, size_t size) {
 }
 
 int LocalSampler::temperature(MNN::Express::VARP logits, float temperature) {
-    std::cout << "temperature" << std::endl;
-    std::cout << temperature << std::endl;
-    std::cout << logits->readMap<float>()[0] << std::endl;
-    std::cout << logits->readMap<float>()[1] << std::endl;
-    std::cout << logits->readMap<float>()[2] << std::endl;
-    std::cout << logits->getInfo()->size << std::endl;
-    // logits = MNN::Express::_TempratureSoftmax(logits, 100.);
-    logits = MNN::Express::_Softmax(logits);
-    std::cout << "before random" << std::endl;
-    std::cout << logits->readMap<float>()[0] << std::endl;
+    logits = MNN::Express::_TempratureSoftmax(logits, temperature);
     return randomSelect((float*)(logits->readMap<float>()), logits->getInfo()->size);
 }
 
@@ -195,11 +184,13 @@ int LocalSampler::argmax(MNN::Express::VARP logits) {
 
 
 int LocalSampler::algorithm(MNN::Express::VARP logits) {
-    if (mConfig.type == "greedy") return argmax(logits);
-    if (mConfig.type == "temperature") return temperature(logits, mConfig.temperature);
-    if (mConfig.type == "topK") return topK(logits, mConfig.topK);
-    if (mConfig.type == "topP") return topP(logits, mConfig.topP);
-    if (mConfig.type == "minP") return minP(logits, mConfig.minP);
+    int res = 0;
+    if (mConfig.type == "greedy") res = argmax(logits);
+    if (mConfig.type == "temperature") res = temperature(logits, mConfig.temperature);
+    if (mConfig.type == "topK") res = topK(logits, mConfig.topK);
+    if (mConfig.type == "topP") res = topP(logits, mConfig.topP);
+    if (mConfig.type == "minP") res = minP(logits, mConfig.minP);
+    return res;
 }
 
 std::string LocalSampler::handleToken(int token, std::ostream* os, const char* end_with) {

@@ -106,7 +106,11 @@ Session::Session(Schedule::ScheduleInfo&& info, const ModeGroup& mode, RuntimeIn
     }
     mInfo = std::move(info);
     for (auto& iter : mInfo.pipelineInfo) {
-        _createPipelineBackend(iter, mRuntime, info.defaultBackend->getStateCacheManager());
+        StateCacheManager* manager = nullptr;
+        if (mInfo.defaultBackend.get() != nullptr) {
+            manager = mInfo.defaultBackend->getStateCacheManager();
+        }
+        _createPipelineBackend(iter, mRuntime, manager);
         Pipeline::TuningAttr attr;
         attr.maxTuningNumber = mode.maxTuningNumber;
         attr.autoSetOpType = mode.backendMode == Interpreter::Session_Backend_Auto;

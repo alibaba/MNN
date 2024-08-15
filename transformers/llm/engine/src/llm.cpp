@@ -255,11 +255,14 @@ VARP Llm::forward(const std::vector<int>& input_ids, bool prefill) {
         for (int i = 0; i < layer_nums; i++) {
             AUTOTIME;
             std::cout << "layer " <<  i << std::endl;
-            // printf("begin forward %d\n", i);
+            std::cout << "begin forward " << i << std::endl;
             auto outputs = modules_[i]->onForward({hidden_states, attention_mask, position_ids, past_key_values_[i]});
-            // printf("forward %d\n", i);
             hidden_states = outputs[0];
             past_key_values_[i] = outputs[1];
+            // for (int k = 0; k < hidden_states->getInfo()->size; ++k) {
+            //     std::cout << hidden_states->readMap<float>()[k] << " ";
+            // }
+            // std::cout << std::endl;
         }
         // printf("inference once!\n");
         ExecutorScope::Current()->gc(Executor::FULL);

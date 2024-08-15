@@ -163,7 +163,11 @@ Coding Cautions:
 
 - take good care of memory layout please.
 
-- look at the code!
+- look at the code! Not the doc nor function names!
+
+- realize the functionality of std::move
+
+
 
 ```cpp
 // mPackQ

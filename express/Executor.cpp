@@ -488,6 +488,7 @@ void Executor::_makeCache(const std::vector<EXPRP>& expr, bool forceCPU) {
     auto current = ExecutorScope::Current();
     auto rt = current->getRuntime();
     Schedule::ScheduleInfo scheduleInfo;
+    scheduleInfo.defaultBackend = current->getAttr()->constantBackend;
     scheduleInfo.externalWeightPath = current->getAttr()->externalFile;
     scheduleInfo.pipelineInfo.resize(1);
     auto& pipeline = scheduleInfo.pipelineInfo[0].second;

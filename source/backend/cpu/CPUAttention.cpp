@@ -907,7 +907,18 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
     }
     MNN_CONCURRENCY_END();
 
-    // std::cout << "Finish Calculation!\n" << std::endl;
+    std::cout << "Finish Calculation!\n" << std::endl;
+    // for (int i = 0; i < kv_seq_len; ++i) {
+    //     for (int j = 0; j < mResource->mNumHead; ++j){
+    //         for (int k = 0; k < mResource->mHeadDim; ++k){
+    //             std::cout << outputs[0]->host<float>()[i*mResource->mNumHead*mResource->mHeadDim + j*mResource->mHeadDim + k] << " ";
+    //         }
+    //         std::cout << std::endl;
+    //     }
+    //     std::cout << std::endl;
+    // }
+    // std::cout << std::endl;
+
 
     // update slot_num of all blocks.
     manager->postAttn(mIdentifier, last_block_slot_num);
