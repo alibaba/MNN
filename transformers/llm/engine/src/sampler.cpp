@@ -165,9 +165,6 @@ int LocalSampler::minP(MNN::Express::VARP logits, float p, float temperature) {
 
 
 int LocalSampler::argmax(MNN::Express::VARP logits) {
-    std::cout << logits->readMap<float>()[0] << std::endl;
-    std::cout << logits->readMap<float>()[1] << std::endl;
-    std::cout << logits->readMap<float>()[2] << std::endl;
     auto scores = (float*)(logits->readMap<float>());
     auto size = logits->getInfo()->size;
     float max_score = 0;
@@ -210,21 +207,14 @@ std::string LocalSampler::sample(const std::vector<int>& input_ids, std::ostream
     mCommonPrefix.insert(mCommonPrefix.begin(), input_ids.begin(), input_ids.end());
     // prefill 
     auto st = std::chrono::system_clock::now();
-    printf("start prefill\n");
     auto logits = mLlm->forward(input_ids, true);
-    // printf("sampler algorithm prefill\n");
     if (nullptr == logits.get()) {
         return "";
     }
-    std::cout << "pointer valid" << std::endl;
     int token = algorithm(logits);
     auto et = std::chrono::system_clock::now();
     perf->prefill_us_ = std::chrono::duration_cast<std::chrono::microseconds>(et - st).count();
-    std::cout << "sampler algorithm prefill finish" << std::endl;
     output_str += handleToken(token, os, end_with);
-    // std::cout << output_str << std::endl;
-    // std::vector<int> no;
-    // std::cout << no[10] << std::endl;
     // decode
     while (getGenLength(0, output_str.size()) < mMaxNewTokens) {
         st = std::chrono::system_clock::now();

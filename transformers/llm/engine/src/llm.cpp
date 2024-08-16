@@ -254,8 +254,7 @@ VARP Llm::forward(const std::vector<int>& input_ids, bool prefill) {
         ExecutorScope::Current()->gc(Executor::FULL);
         for (int i = 0; i < layer_nums; i++) {
             AUTOTIME;
-            std::cout << "layer " <<  i << std::endl;
-            std::cout << "begin forward " << i << std::endl;
+            // std::cout << "layer " <<  i << std::endl;
             auto outputs = modules_[i]->onForward({hidden_states, attention_mask, position_ids, past_key_values_[i]});
             hidden_states = outputs[0];
             past_key_values_[i] = outputs[1];
@@ -263,19 +262,20 @@ VARP Llm::forward(const std::vector<int>& input_ids, bool prefill) {
             //     std::cout << hidden_states->readMap<float>()[k] << " ";
             // }
             // std::cout << std::endl;
+            // if (i==12){
+            //     std::vector<int> no;
+            //     std::cout << no[10] << std::endl;
+            // }
         }
-        // printf("inference once!\n");
         ExecutorScope::Current()->gc(Executor::FULL);
         {
             AUTOTIME;
             auto outputs = modules_[layer_nums]->onForward({hidden_states});
             logits = outputs[0];
         }
-        // printf("inference once + lm!\n");
     }
     all_seq_len_ += seq_len;
     gen_seq_len_++;
-    // printf("inference once + lm!\n");
     return logits;
 }
 
