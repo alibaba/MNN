@@ -19,6 +19,12 @@
 #undef CONSTANT
 #endif // CONSTANT
 
+#ifdef MNN_KLEIDIAI_ENABLED
+#define KAI_CONV_NCHW_IN_OUT 1
+#else
+#define KAI_CONV_NCHW_IN_OUT 0
+#endif
+
 namespace MNN {
 struct TensorArrayAttr {
     // array size is dynamic or not

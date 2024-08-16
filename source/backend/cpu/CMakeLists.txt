@@ -50,3 +50,10 @@ IF(MNN_ARM82)
     ENDIF()
 ENDIF()
 
+# Kleidi AI
+IF(MNN_KLEIDIAI)
+  add_definitions(-DMNN_KLEIDIAI_ENABLED=1)
+  include(${CMAKE_CURRENT_LIST_DIR}/arm/kleidiAI/CMakeLists.txt)
+  list(APPEND MNN_TARGETS MNN_KleidiAI)
+  list(APPEND MNN_OBJECTS_TO_LINK $<TARGET_OBJECTS:MNN_KleidiAI>)
+ENDIF()

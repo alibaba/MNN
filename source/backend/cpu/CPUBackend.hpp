@@ -17,6 +17,10 @@
 #include "core/BufferAllocator.hpp"
 #include "MNN_generated.h"
 
+#ifdef MNN_KLEIDIAI_ENABLED
+#include "arm/kleidiAI/MNNKleidiAI.h"
+#endif
+
 namespace MNN {
 class CPURuntime : public Runtime {
 public:

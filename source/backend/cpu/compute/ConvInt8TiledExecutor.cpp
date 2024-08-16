@@ -660,6 +660,53 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
     auto core = static_cast<CPUBackend*>(backend())->int8Functions();
     auto gcore = static_cast<CPUBackend*>(backend())->functions();
 
+#if MNN_KLEIDIAI_ENABLED
+    KleidiAI& kai = KleidiAI::getInstance();
+    if(mDynamicQuantExe) {
+        if(mResource->mDequantize.bits == 4 && kai.canAccelerate()) {
+            const size_t m = input->batch(); //lhs vector number.
+            const size_t n = output->channel(); //rhs vector number.
+            const size_t k = input->channel(); //vector size.
+
+            auto lhs = reinterpret_cast<const float*>(input->host<uint8_t>());
+            auto lhsPacked = mTempIm2ColBuffer->host<int8_t>();
+            auto rhsPacked = mResourceInt8->mWeightInt8->host<uint8_t>();
+            auto dst = reinterpret_cast<float*>(output->host<uint8_t>());
+
+#if !KAI_CONV_NCHW_IN_OUT
+            kai.packNC4HW4ToNCHW((float *)lhs, m, k);
+#endif
+            auto BatchDynamicQuant = [=]() {
+                KleidiAI& kai = KleidiAI::getInstance();
+                kai.runLhsQuantPack(m, k, lhs, lhsPacked);
+            };
+
+            BatchDynamicQuant();
+
+            int nPerThread = kai.getVecNumPerThread(n, static_cast<CPUBackend*>(backend())->threadNumber(), kai.getNStep());
+            int threadNeed = n % nPerThread == 0 ? n / nPerThread : (n / nPerThread + 1);
+
+            auto ThreadFunction = [=](int tId) {
+                KleidiAI& kai = KleidiAI::getInstance();
+                auto threadRhsPacked = rhsPacked + kai.getRhsPackedOffset(tId * nPerThread, k);
+                auto threadDst = reinterpret_cast<uint8_t *>(dst) + kai.getDstOffset(0, tId * nPerThread, n);
+                int threadN = (tId == threadNeed - 1) ? (n - nPerThread * tId) : nPerThread; //Last threadN may less than nPerThread.
+                kai.runMatmul(m, threadN, k, lhsPacked, threadRhsPacked, n * sizeof(float), threadDst);
+            };
+
+            MNN_CONCURRENCY_BEGIN(tId, threadNeed) {
+                ThreadFunction((int)tId);
+            }
+            MNN_CONCURRENCY_END();
+
+#if !KAI_CONV_NCHW_IN_OUT
+            kai.packNCHWToNC4HW4((float *)dst, m, n);
+#endif
+            return NO_ERROR;
+        }
+    }
+#endif
+
     int UNIT__, SRC_UNIT, DST_XUNIT;
     core->MNNGetGemmUnit(&UNIT__, &SRC_UNIT, &DST_XUNIT);
     auto blitProc = core->MNNPackC4Int8ForMatMul_A;
