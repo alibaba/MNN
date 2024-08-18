@@ -219,6 +219,7 @@ StaticModule::StaticModule(std::vector<int> inputs,
     MNN_ASSERT(1 == scheduleInfo.pipelineInfo.size());
     auto& bnCache = scheduleInfo.pipelineInfo[0].first;
     bnCache.cache.first.reset(rt.first[bnCache.info.type]->onCreate(bnCache.info.user));
+    bnCache.cache.first->resetStateCacheManager(scheduleInfo.defaultBackend->getStateCacheManager());
     if (bnCache.cache.first->type() == MNN_FORWARD_CPU) {
         bnCache.cache.second = bnCache.cache.first;
     } else {
@@ -231,6 +232,7 @@ StaticModule::StaticModule(std::vector<int> inputs,
         } else {
             bnCache.cache.second.reset(rt.second->onCreate(&defaultConfig));
         }
+        bnCache.cache.second->resetStateCacheManager(scheduleInfo.defaultBackend->getStateCacheManager());
     }
     if (config.rearrange) {
         mResource->mBuffer = preRearrangeWeights(scheduleInfo, bnCache.cache.first.get(), bnCache.cache.second.get());
@@ -487,7 +489,8 @@ Module* StaticModule::clone(CloneContext* ctx) const {
     }
     // TODO: If RuntimeManager is not the same as Runtime, may copy error
     auto rt = Executor::getRuntime();
-    module->mSession.reset(mSession->clone(std::move(rt), mResource->mSharedConst));
+    auto manager = ExecutorScope::Current()->getStateCacheManager();
+    module->mSession.reset(mSession->clone(std::move(rt), mResource->mSharedConst, manager));
     module->resetInputOutputs();
     return this->cloneBaseTo(ctx, module);
 }

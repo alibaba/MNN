@@ -11,7 +11,7 @@ namespace Transformer{
 
 LocalSampler::LocalSampler(Llm* llm, StateCacheManager* manager, int max_new_tokens, struct LocalSamplerConfig config) {
     mLlm = llm;
-    mStateCacheManager.reset(manager);
+    mStateCacheManager = manager;
     std::vector<int> history_ids_;
     std::shared_ptr<StateCacheReference> reference = manager->onCreateReference();
     mCandidates.emplace_back(std::make_pair(history_ids_, reference)); // for LocalSampler, reference have never been modified manually.
@@ -181,11 +181,13 @@ int LocalSampler::argmax(MNN::Express::VARP logits) {
 
 
 int LocalSampler::algorithm(MNN::Express::VARP logits) {
-    if (mConfig.type == "greedy") return argmax(logits);
-    if (mConfig.type == "temperature") return temperature(logits, mConfig.temperature);
-    if (mConfig.type == "topK") return topK(logits, mConfig.topK);
-    if (mConfig.type == "topP") return topP(logits, mConfig.topP);
-    if (mConfig.type == "minP") return minP(logits, mConfig.minP);
+    int res = 0;
+    if (mConfig.type == "greedy") res = argmax(logits);
+    if (mConfig.type == "temperature") res = temperature(logits, mConfig.temperature);
+    if (mConfig.type == "topK") res = topK(logits, mConfig.topK);
+    if (mConfig.type == "topP") res = topP(logits, mConfig.topP);
+    if (mConfig.type == "minP") res = minP(logits, mConfig.minP);
+    return res;
 }
 
 std::string LocalSampler::handleToken(int token, std::ostream* os, const char* end_with) {
@@ -236,6 +238,16 @@ std::string LocalSampler::sample(const std::vector<int>& input_ids, std::ostream
     }
     // return output_str
     return output_str;
+}
+
+void LocalSampler::reset() {
+    // in the future, only reset its own.
+    mStateCacheManager->clear();
+    mCandidates.clear();
+    std::vector<int> history_ids_;
+    std::shared_ptr<StateCacheReference> reference = mStateCacheManager->onCreateReference();
+    mCandidates.emplace_back(std::make_pair(history_ids_, reference)); // for LocalSampler, reference have never been modified manually.
+    mCommonPrefix = history_ids_;
 }
 
 

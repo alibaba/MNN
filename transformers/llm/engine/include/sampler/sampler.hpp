@@ -26,7 +26,7 @@ class Llm;
 class MNN_PUBLIC Sampler {
 protected:
     Llm* mLlm;
-    std::shared_ptr<StateCacheManager> mStateCacheManager; 
+    StateCacheManager*   mStateCacheManager; 
     std::vector<std::pair<std::vector<int>, std::shared_ptr<StateCacheReference>>> mCandidates;
     std::vector<int> mCommonPrefix;
     int mMaxNewTokens;
@@ -35,6 +35,9 @@ protected:
     }
 public:
     virtual std::string sample(const std::vector<int>& input_ids, std::ostream* os = &std::cout, const char* end_with = nullptr, struct timePerformance* perf = nullptr) = 0;
+    // prepare for another round of sampling
+    // in the future, only reset its own.
+    virtual void reset() {mStateCacheManager->clear();}
 };
 
 class MNN_PUBLIC LocalSampler : public Sampler {
@@ -77,6 +80,7 @@ public:
     LocalSampler(Llm* llm, StateCacheManager* manager, int max_new_tokens, struct LocalSamplerConfig config);
     int algorithm(MNN::Express::VARP logits);
     virtual std::string sample(const std::vector<int>& input_ids, std::ostream* os = &std::cout, const char* end_with = nullptr, struct timePerformance* perf = nullptr) override;
+    virtual void reset() override;
 };
 
 

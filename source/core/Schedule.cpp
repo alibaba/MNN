@@ -24,6 +24,7 @@
 
 //#define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
+#include <MNN/StateCacheManager.hpp>
 using namespace std;
 //#define MNN_AUTO_CHECK_COST
 namespace MNN {
@@ -293,7 +294,10 @@ bool Schedule::schedule(ScheduleInfo& scheduleInfo, const Net* net, const std::v
         // Const not init, init it
         BackendConfig defaultConfig;
         defaultConfig.flags = 4;
+        StateCacheManager* manager = scheduleInfo.defaultBackend->getStateCacheManager();
         scheduleInfo.defaultBackend.reset(runtimeInfo.second->onCreate(&defaultConfig));
+        scheduleInfo.defaultBackend->resetStateCacheManager(manager);
+        printf("%ld", (size_t)manager);
         ErrorCode code = NO_ERROR;
         FileLoader loader(scheduleInfo.externalWeightPath.c_str());
         initConstTensors(scheduleInfo.allTensors, net, scheduleInfo.defaultBackend.get(), code, &loader);

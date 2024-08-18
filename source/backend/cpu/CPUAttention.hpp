@@ -13,6 +13,7 @@
 
 #include <functional>
 #include "core/Execution.hpp"
+#include <MNN/StateCacheManager.hpp>
 
 namespace MNN {
 
@@ -29,13 +30,13 @@ public:
         std::shared_ptr<Tensor> mPastValue;             // numhead, [headdim/eP, maxlen, eP]
         std::shared_ptr<Tensor> mDequantKeyScale;       // numhead, [maxlen/eP, 1, eP]
         std::shared_ptr<Tensor> mDequantKeyZeroPoint;   // numhead, [maxlen/eP, 1, eP]
-        int mPastLength = 0, mMaxLength = 0;
+        int mPastLength = 0;
         const int mExpandChunk = 64;
         int mNumHead = 0, mKvNumHead = 0, mHeadDim = 0;
     };
 private:
-    void allocKVCache(int kv_seq_len, bool quantK, bool quantV);
-    void reallocKVCache(int kv_seq_len, bool quantK, bool quantV);
+    std::vector<std::vector<int>> getKVshape(MNNStateCacheQuantType type);
+    void allocKVCache(int kv_seq_len);
     bool mIsPrefill = true;
     bool mIsFirstPrefill = true;
     bool mKVCache;
@@ -43,6 +44,7 @@ private:
     std::shared_ptr<Resource> mResource;
     std::shared_ptr<Tensor> mPackQ, mPackQKV;
     int eP, lP, hP, bytes, unit;
+    void* mIdentifier;
 };
 } // namespace MNN
 
