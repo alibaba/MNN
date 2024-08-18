@@ -44,7 +44,7 @@ public:
             RuntimeInfo&& runtime);
     ~Session();
 
-    Session* clone(RuntimeInfo&& runtime, std::shared_ptr<Schedule::ScheduleInfo> sharedConst);
+    Session* clone(RuntimeInfo&& runtime, std::shared_ptr<Schedule::ScheduleInfo> sharedConst, StateCacheManager* manager);
 public:
     /**
      * @brief infer.

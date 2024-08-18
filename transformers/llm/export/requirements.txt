@@ -6,3 +6,4 @@ transformers==4.37
 transformers_stream_generator==0.0.4
 sentencepiece==0.1.99
 onnxslim
+peft==0.12.0

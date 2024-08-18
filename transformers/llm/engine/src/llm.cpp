@@ -252,9 +252,18 @@ VARP Llm::forward(const std::vector<int>& input_ids, bool prefill) {
         ExecutorScope::Current()->gc(Executor::FULL);
         for (int i = 0; i < layer_nums; i++) {
             AUTOTIME;
+            // std::cout << "layer " <<  i << std::endl;
             auto outputs = modules_[i]->onForward({hidden_states, attention_mask, position_ids, past_key_values_[i]});
             hidden_states = outputs[0];
             past_key_values_[i] = outputs[1];
+            // for (int k = 0; k < hidden_states->getInfo()->size; ++k) {
+            //     std::cout << hidden_states->readMap<float>()[k] << " ";
+            // }
+            // std::cout << std::endl;
+            // if (i==12){
+            //     std::vector<int> no;
+            //     std::cout << no[10] << std::endl;
+            // }
         }
         ExecutorScope::Current()->gc(Executor::FULL);
         {
@@ -311,23 +320,36 @@ void Llm::chat() {
         std::string user_str;
         std::getline(std::cin, user_str);
         if (user_str == "/exit") {
+            history.clear();
+            reset();
             break;
         }
         if (user_str == "/reset") {
-            history.resize(1);
+            history.clear();
+            history.push_back(std::make_pair("system", "You are a helpful assistant."));
+            reset();
             std::cout << "\nA: reset done." << std::endl;
             continue;
         }
+        std::cout << "What 1\n" << std::flush;
         std::cout << "\nA: " << std::flush;
+        std::cout << "What 2\n" << std::flush;
         history.emplace_back(std::make_pair("user", user_str));
+        std::cout << "What 3\n" << std::flush;
         auto assistant_str = response(history);
-        history.emplace_back(std::make_pair("assistant", assistant_str));
+        if (!config_->reuse_kv())
+            history.back().second += assistant_str + "<|im_end|>\n";
+        else
+            history.back().second = "<|im_end|>\n";
+        // history.emplace_back(std::make_pair("assistant", assistant_str));
         std::cout << std::endl;
     }
 }
 
 void Llm::reset() {
     history_ids_.clear();
+    sampler_->reset();
+    gen_seq_len_ = 0;
     all_seq_len_ = 0;
 }
 
@@ -352,6 +374,7 @@ void Llm::generate_init() {
 
 
 std::string Llm::generate(const std::vector<int>& input_ids, std::ostream* os, const char* end_with) {
+    printf("start generate\n");
     prompt_len_ = static_cast<int>(input_ids.size());
     history_ids_.insert(history_ids_.end(), input_ids.begin(), input_ids.end()); // push to history_ids_
     struct timePerformance* perf = new struct timePerformance;
@@ -382,15 +405,18 @@ std::string Llm::response(const std::string& user_content, std::ostream* os, con
     return generate(input_ids, os, end_with);
 }
 
-std::string Llm::response(const std::vector<PromptItem>& chat_prompts, std::ostream* os, const char* end_with) {
+std::string Llm::response(std::vector<PromptItem>& chat_prompts, std::ostream* os, const char* end_with) {
     if (chat_prompts.empty()) { return ""; }
     generate_init();
     if (!end_with) { end_with = "\n"; }
     auto prompt = apply_chat_template(chat_prompts);
-    if (config_->reuse_kv() && all_seq_len_ > 0) {
-        prompt = "<|im_end|>\n" + prompt;
-    }
-    // std::cout << "# prompt : " << prompt << std::endl;
+    chat_prompts.clear();
+    chat_prompts.emplace_back(std::make_pair("", prompt));
+    // if (config_->reuse_kv() && all_seq_len_ > 0) {
+    //     prompt = "<|im_end|>\n" + prompt;
+    // }
+    std::cout << "# prompt : " << prompt << std::endl;
+    std::cout << "\nHere\n" << std::flush;
     auto input_ids = tokenizer_->encode(prompt);
     // printf("input_ids (%lu): ", input_ids.size()); for (auto id : input_ids) printf("%d, ", id); printf("\n");
     return generate(input_ids, os, end_with);

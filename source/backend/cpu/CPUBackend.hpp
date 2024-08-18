@@ -119,7 +119,7 @@ public:
         return mCoreFunctions;
     }
     // Return element size for Tensor, conside pack
-    size_t getTensorSize(const Tensor* tensor, bool multiBytes = false) const;
+    virtual size_t getTensorSize(const Tensor* tensor, bool multiBytes = false) const override;
     const CoreInt8Functions* int8Functions() const {
         return mInt8CoreFunctions;
     }
@@ -143,14 +143,6 @@ public:
 
     BufferAllocator* getBufferAllocator(bool defer_allocator = true) const {
         return mCurrentDynamicAllocator;
-    }
-
-    virtual StateCacheManager* getStateCacheManager() const override {
-        return mStateCacheManager.get();
-    }
-
-    virtual void resetStateCacheManager(StateCacheManager* manager) override {
-        mStateCacheManager.reset(manager);
     }
 
     BackendConfig::MemoryMode memoryMode() const {
@@ -179,7 +171,6 @@ protected:
     CoreFunctions* mCoreFunctions;
     CoreInt8Functions* mInt8CoreFunctions;
 private:
-    std::shared_ptr<StateCacheManager> mStateCacheManager;
     std::shared_ptr<EagerBufferAllocator> mStaticAllocator;
     std::shared_ptr<BufferAllocator> mDynamicAllocator;
     std::shared_ptr<BufferAllocator> mDynamicAllocatorBackup;

@@ -641,6 +641,7 @@ Module* PipelineModule::load(const std::vector<std::string>& inputs, const std::
     auto& rt = modRuntime.rt;
     auto firstRt = rt.first[modRuntime.compute.type];
     sharedConst->constReplaceBackend.reset(firstRt->onCreate(modRuntime.userConfig));
+    sharedConst->constReplaceBackend->resetStateCacheManager(defaultBackend->getStateCacheManager());
     ErrorCode code = NO_ERROR;
     std::set<int> noneedComputeIndexes;
     {

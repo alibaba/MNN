@@ -33,6 +33,7 @@ static void trace_prepare(Llm* llm) {
     }
     MNN_PRINT("Prepare for resize opt End\n");
     llm->trace(false);
+    llm->reset();
 }
 
 std::vector<std::vector<std::string>> parse_csv(const std::vector<std::string>& lines) {
@@ -78,14 +79,14 @@ std::vector<std::vector<std::string>> parse_csv(const std::vector<std::string>& 
     return csv_data;
 }
 
-static int benchmark(Llm* llm, const std::vector<std::string>& prompts) {
+static int benchmark(Llm* llm, std::vector<std::string>& prompts) {
     int prompt_len = 0;
     int decode_len = 0;
     int64_t prefill_time = 0;
     int64_t decode_time = 0;
     // llm->warmup();
     for (int i = 0; i < prompts.size(); i++) {
-        const auto& prompt = prompts[i];
+        auto& prompt = prompts[i];
         // prompt start with '#' will be ignored
         if (prompt.substr(0, 1) == "#") {
             continue;
