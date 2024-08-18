@@ -215,7 +215,6 @@ public:
         auto AStride = cmd->view()->GetAs<View>(1)->stride()->data();
         auto BStride = cmd->view()->GetAs<View>(2)->stride()->data();
         auto OStride = cmd->view()->GetAs<View>(0)->stride()->data();
-        int totalSize = mLoop->loopNumber() * size[0] * size[1] * size[2];
         auto param = reinterpret_cast<VulkanBatchMatMulInfo*>([mParam contents]);
         param->size[3] = mLoop->loopNumber();
         for (int i=0; i<3; ++i) {
@@ -240,7 +239,7 @@ public:
         auto AStride = cmd->view()->GetAs<View>(1)->stride()->data();
         auto BStride = cmd->view()->GetAs<View>(2)->stride()->data();
         auto OStride = cmd->view()->GetAs<View>(0)->stride()->data();
-        int totalSize = mLoop->loopNumber() * size[0] * size[1] * size[2];
+        size_t totalSize = mLoop->loopNumber() * size[0] * size[2];
         [encoder setComputePipelineState:mPipeline];
         for (int i=0; i<cmd->indexes()->size(); ++i) {
             MetalBackend::setTensor(mTensors[cmd->indexes()->data()[i]], encoder, i);

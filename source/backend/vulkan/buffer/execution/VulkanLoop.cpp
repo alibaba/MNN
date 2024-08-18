@@ -62,7 +62,7 @@ public:
         auto AStride = cmd->view()->GetAs<View>(1)->stride()->data();
         auto BStride = cmd->view()->GetAs<View>(2)->stride()->data();
         auto OStride = cmd->view()->GetAs<View>(0)->stride()->data();
-        int totalSize = mLoop->loopNumber() * size[0] * size[1] * size[2];
+        int totalSize = mLoop->loopNumber() * size[0] * size[2];
         auto param = reinterpret_cast<VulkanBatchMatMulInfo*>(mParam->map());
         param->size[3] = mLoop->loopNumber();
         auto vkBn = static_cast<VulkanBackend*>(backend());
