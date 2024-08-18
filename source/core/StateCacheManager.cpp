@@ -620,10 +620,9 @@ void StateCacheManager::onAllocateCache(void* layer, void* backend, int token_nu
     int need_token=0, need_block=0;
     bool copy_flag = false;
     need_token = token_num;
-    // std::cout << need_token << std::endl;
+    
     if (mCurrentReference->mPageTable[layer].size() != 0) {
         need_token -= mCurrentReference->mPageTable[layer].back()->getFreeSlotNum(); 
-        // std::cout << "free: " << mCurrentReference->mPageTable[layer].back()->getFreeSlotNum() << std::endl;
     }
     if (mType == MNNStateCacheType::MNN_STATECACHE_ADVANCED) {
         need_block = (need_token > 0) ? UP_DIV(need_token, mBlockSize) : 0;
@@ -645,10 +644,7 @@ void StateCacheManager::onAllocateCache(void* layer, void* backend, int token_nu
             copy_flag = false;
         }
     }
-    // std::cout << need_token << std::endl;
-    // std::cout << need_block << std::endl;
-    // std::cout << mBlockSize << std::endl;
-    // printf("Here!!!!!\n");
+    
     // allocate the pointers to the page table
     for (int i = 0; i < need_block; ++i) {
         StateCacheBlock* block = new StateCacheBlock({mCurrentReference->mRefId}, mBlockSize, 0);
@@ -659,23 +655,19 @@ void StateCacheManager::onAllocateCache(void* layer, void* backend, int token_nu
         mCurrentReference->mPageTable[layer].push_back(std::shared_ptr<StateCacheBlock>(block));
         need_token -= mBlockSize;
     }
-    // std::cout << "Block Size: " << mBlockSize << std::endl;
 
     // reallocate phase, memcpy
     copy_flag = copy_flag && mCurrentReference->mPageTable[layer].size()>1; // not the first time allocation
     if (mType == MNNStateCacheType::MNN_STATECACHE_NAIVE && copy_flag) {
         // previous: mPageTable[layer][0], present: mPageTable[layer][1]
         // after copy: mPageTable[layer].pop_front()
-        // std::cout << std::endl << "reallocation!" << std::endl;
         // Notice: Tensors are not contiguous.
         mCurrentReference->mPageTable[layer][1]->copyBlock(mCurrentReference->mPageTable[layer][0]);
         releaseBlockMem(layer, mCurrentReference->mPageTable[layer][0]);
-        // std::cout << "finish removal!" << std::endl;
         // cover the previous pointer and then pop_back
         mCurrentReference->mPageTable[layer][0] = mCurrentReference->mPageTable[layer][1];
         mCurrentReference->mPageTable[layer].pop_back();
     }
-    // printf("Here!!!!!!!\n");
 }
 
 int StateCacheManager::prepareAttn(void* layer, int previous_token_num, std::vector<std::shared_ptr<StateCacheBlock>>& pastKV) {

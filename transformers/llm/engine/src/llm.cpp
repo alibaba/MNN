@@ -230,12 +230,10 @@ VARP Llm::forward(const std::vector<int>& input_ids, bool prefill) {
     {
         modules_ = decode_modules_;
     }
-    // printf("Forward!\n");
     // forward
     int seq_len = input_ids.size();
     auto attention_mask = gen_attention_mask(seq_len);
     auto position_ids = gen_position_ids(seq_len);
-    // printf("Forward!\n");
     VARP logits;
     if (is_single_) {
         // single model
