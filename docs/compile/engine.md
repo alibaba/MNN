@@ -1,5 +1,6 @@
 # 主库编译
 默认编译产物为：`libMNN.so`，`express/libMNN_Express.so`
+or `libMNN.a`
 ## Linux/MacOS
 - 环境要求
   - cmake >= 3.10

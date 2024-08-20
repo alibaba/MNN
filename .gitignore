@@ -360,3 +360,10 @@ pymnn_build/
 
 # mnncompress generated
 MNN_compression_pb2.py
+
+# releases
+release
+example
+debug
+hack
+tmp

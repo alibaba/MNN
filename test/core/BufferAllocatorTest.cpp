@@ -36,13 +36,20 @@ public:
         for (int i = 0; i < seqs.size(); i++) {
             int code = seqs[i];
             if (code > 0) {
+                // printf("alloc: %d\n", code);
                 auto res = allocator.alloc(code);
                 allocs.push_back(res);
             } else {
+                // free the indexed chunk.
+                // printf("free: %d, idx: %d\n", code, abs(code) - 1);
                 allocator.free(allocs[abs(code) - 1]);
             }
         }
-        size_t totalSize = allocator.compute();
+        allocator.compute();
+        // for (auto chunk : allocs){
+        //     printf("chunk: %p\n", chunk.ptr());
+        // }
+        size_t totalSize = allocator.totalSize();
         printf("StaticAllocator total size : %lu B, %f M\n", totalSize, totalSize / 1024.f / 1024.f);
     }
     virtual bool run(int precision) {
