@@ -22,6 +22,7 @@
 #include <MNN/expr/Module.hpp>
 #include <MNN/expr/MathOp.hpp>
 #include <MNN/expr/NeuralNetWorkOp.hpp>
+#include "evaluation/evaluation.hpp"
 
 namespace MNN {
 namespace Transformer {
@@ -54,7 +55,7 @@ public:
     Llm(std::shared_ptr<LlmConfig> config) : config_(config) {}
     virtual ~Llm();
     static Llm* createLLM(const std::string& config_path);
-    void chat();
+    void chat(std::ostream* log=nullptr);
     void reset();
     void trace(bool start);
     virtual void load();
@@ -68,6 +69,7 @@ public:
     void generate_init();
     std::string generate(const std::vector<int>& input_ids, std::ostream* os, const char* end_with);
     void print_speed();
+    void print_speed(std::ostream* os);
     // config function
     std::string dump_config();
     bool set_config(const std::string& content);
@@ -79,8 +81,7 @@ public:
     int all_seq_len_ = 0;
     std::vector<int> history_ids_;
     // time
-    int64_t prefill_us_ = 0;
-    int64_t decode_us_ = 0;
+    TimePerformance time_perf_;
     bool is_single_ = true;
 protected:
     std::shared_ptr<Sampler> sampler_;

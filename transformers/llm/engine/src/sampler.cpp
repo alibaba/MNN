@@ -200,11 +200,15 @@ std::string LocalSampler::handleToken(int token, std::ostream* os, const char* e
     return output_str;
 }
 
-std::string LocalSampler::sample(const std::vector<int>& input_ids, std::ostream* os, const char* end_with, struct timePerformance* perf) {
+std::string LocalSampler::sample(const std::vector<int>& input_ids, std::ostream* os, const char* end_with, struct TimePerformance* perf) {
     // initialization
+    PrefillTimePerformance prefill_time;
+    prefill_time.prefill_prev_token_ = mCommonPrefix.size();
+    prefill_time.prefill_token_ = input_ids.size();
     std::string output_str; 
     mStateCacheManager->setCurrentReference(mCandidates[0].second);
-    mCommonPrefix.insert(mCommonPrefix.begin(), input_ids.begin(), input_ids.end());
+    mCandidates[0].first.insert(mCandidates[0].first.end(), input_ids.begin(), input_ids.end());
+    mCommonPrefix.insert(mCommonPrefix.end(), input_ids.begin(), input_ids.end());
     // prefill 
     auto st = std::chrono::system_clock::now();
     auto logits = mLlm->forward(input_ids, true);
@@ -213,10 +217,13 @@ std::string LocalSampler::sample(const std::vector<int>& input_ids, std::ostream
     }
     int token = algorithm(logits);
     auto et = std::chrono::system_clock::now();
-    perf->prefill_us_ = std::chrono::duration_cast<std::chrono::microseconds>(et - st).count();
+    prefill_time.prefill_us_ = std::chrono::duration_cast<std::chrono::microseconds>(et - st).count();
+    perf->prefill_record_.push_back(prefill_time);
     output_str += handleToken(token, os, end_with);
     // decode
     while (getGenLength(0, output_str.size()) < mMaxNewTokens) {
+        DecodeTimePerformance decode_time;
+        decode_time.decode_prev_token_ = mCandidates[0].first.size();
         st = std::chrono::system_clock::now();
         // next token
         logits = mLlm->forward({mCandidates[0].first.back()}, false);
@@ -228,7 +235,8 @@ std::string LocalSampler::sample(const std::vector<int>& input_ids, std::ostream
         }
         token = algorithm(logits);
         et = std::chrono::system_clock::now();
-        perf->decode_us_ += std::chrono::duration_cast<std::chrono::microseconds>(et - st).count();
+        decode_time.decode_us_ = std::chrono::duration_cast<std::chrono::microseconds>(et - st).count();
+        perf->decode_record_.push_back(decode_time);
         if (mLlm->is_stop(token)) {
             *os << end_with << std::flush;
             break;

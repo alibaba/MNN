@@ -34,7 +34,7 @@ protected:
         return mCandidates[candidate].first.size() - (mCommonPrefix.size() - output_len);
     }
 public:
-    virtual std::string sample(const std::vector<int>& input_ids, std::ostream* os = &std::cout, const char* end_with = nullptr, struct timePerformance* perf = nullptr) = 0;
+    virtual std::string sample(const std::vector<int>& input_ids, std::ostream* os = &std::cout, const char* end_with = nullptr, struct TimePerformance* perf = nullptr) = 0;
     // prepare for another round of sampling
     // in the future, only reset its own.
     virtual void reset() {mStateCacheManager->clear();}
@@ -79,7 +79,7 @@ private:
 public:
     LocalSampler(Llm* llm, StateCacheManager* manager, int max_new_tokens, struct LocalSamplerConfig config);
     int algorithm(MNN::Express::VARP logits);
-    virtual std::string sample(const std::vector<int>& input_ids, std::ostream* os = &std::cout, const char* end_with = nullptr, struct timePerformance* perf = nullptr) override;
+    virtual std::string sample(const std::vector<int>& input_ids, std::ostream* os = &std::cout, const char* end_with = nullptr, struct TimePerformance* perf = nullptr) override;
     virtual void reset() override;
 };
 

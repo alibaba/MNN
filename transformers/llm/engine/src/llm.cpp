@@ -312,7 +312,7 @@ std::string Llm::apply_chat_template(const std::vector<PromptItem>& chat_prompts
     return prompt_result;
 }
 
-void Llm::chat() {
+void Llm::chat(std::ostream* log) {
     std::vector<PromptItem> history;
     history.push_back(std::make_pair("system", "You are a helpful assistant."));
     while (true) {
@@ -320,6 +320,7 @@ void Llm::chat() {
         std::string user_str;
         std::getline(std::cin, user_str);
         if (user_str == "/exit") {
+            if (log!=nullptr) this->print_speed(log);
             history.clear();
             reset();
             break;
@@ -331,11 +332,8 @@ void Llm::chat() {
             std::cout << "\nA: reset done." << std::endl;
             continue;
         }
-        std::cout << "What 1\n" << std::flush;
         std::cout << "\nA: " << std::flush;
-        std::cout << "What 2\n" << std::flush;
         history.emplace_back(std::make_pair("user", user_str));
-        std::cout << "What 3\n" << std::flush;
         auto assistant_str = response(history);
         if (!config_->reuse_kv())
             history.back().second += assistant_str + "<|im_end|>\n";
@@ -347,6 +345,7 @@ void Llm::chat() {
 }
 
 void Llm::reset() {
+    clearPerformance(&time_perf_);
     history_ids_.clear();
     sampler_->reset();
     gen_seq_len_ = 0;
@@ -356,8 +355,6 @@ void Llm::reset() {
 void Llm::generate_init() {
     // init status
     gen_seq_len_ = 0;
-    prefill_us_ = 0;
-    decode_us_ = 0;
     past_key_values_.clear();
     if (is_single_) {
         past_key_values_.push_back(_Input(key_value_shape_, NCHW));
@@ -374,14 +371,9 @@ void Llm::generate_init() {
 
 
 std::string Llm::generate(const std::vector<int>& input_ids, std::ostream* os, const char* end_with) {
-    printf("start generate\n");
     prompt_len_ = static_cast<int>(input_ids.size());
     history_ids_.insert(history_ids_.end(), input_ids.begin(), input_ids.end()); // push to history_ids_
-    struct timePerformance* perf = new struct timePerformance;
-    std::string output_str = sampler_->sample(input_ids, os, end_with, perf);
-    prefill_us_ += perf->prefill_us_;
-    decode_us_ += perf->decode_us_;
-    delete perf;
+    std::string output_str = sampler_->sample(input_ids, os, end_with, &time_perf_);
 #ifdef DUMP_PROFILE_INFO
     print_speed();
 #endif
@@ -415,8 +407,7 @@ std::string Llm::response(std::vector<PromptItem>& chat_prompts, std::ostream* o
     // if (config_->reuse_kv() && all_seq_len_ > 0) {
     //     prompt = "<|im_end|>\n" + prompt;
     // }
-    std::cout << "# prompt : " << prompt << std::endl;
-    std::cout << "\nHere\n" << std::flush;
+    // std::cout << "# prompt : " << prompt << std::endl;
     auto input_ids = tokenizer_->encode(prompt);
     // printf("input_ids (%lu): ", input_ids.size()); for (auto id : input_ids) printf("%d, ", id); printf("\n");
     return generate(input_ids, os, end_with);
@@ -452,21 +443,34 @@ Llm::~Llm() {
 }
 
 void Llm::print_speed() {
-    auto prefill_s = prefill_us_ * 1e-6;
-    auto decode_s = decode_us_ * 1e-6;
-    auto total_s = prefill_s + decode_s;
-    printf("\n#################################\n");
-    printf(" total tokens num  = %d\n", prompt_len_ + gen_seq_len_);
-    printf("prompt tokens num  = %d\n", prompt_len_);
-    printf("output tokens num  = %d\n", gen_seq_len_);
-    printf("  total time = %.2f s\n", total_s);
-    printf("prefill time = %.2f s\n", prefill_s);
-    printf(" decode time = %.2f s\n", decode_s);
-    printf("  total speed = %.2f tok/s\n", (prompt_len_ + gen_seq_len_) / total_s);
-    printf("prefill speed = %.2f tok/s\n", prompt_len_ / prefill_s);
-    printf(" decode speed = %.2f tok/s\n", gen_seq_len_ / decode_s);
-    printf("   chat speed = %.2f tok/s\n", gen_seq_len_ / total_s);
-    printf("##################################\n");
+    // auto prefill_s = prefill_us_ * 1e-6;
+    // auto decode_s = decode_us_ * 1e-6;
+    // auto total_s = prefill_s + decode_s;
+    // printf("\n#################################\n");
+    // printf(" total tokens num  = %d\n", prompt_len_ + gen_seq_len_);
+    // printf("prompt tokens num  = %d\n", prompt_len_);
+    // printf("output tokens num  = %d\n", gen_seq_len_);
+    // printf("  total time = %.2f s\n", total_s);
+    // printf("prefill time = %.2f s\n", prefill_s);
+    // printf(" decode time = %.2f s\n", decode_s);
+    // printf("  total speed = %.2f tok/s\n", (prompt_len_ + gen_seq_len_) / total_s);
+    // printf("prefill speed = %.2f tok/s\n", prompt_len_ / prefill_s);
+    // printf(" decode speed = %.2f tok/s\n", gen_seq_len_ / decode_s);
+    // printf("   chat speed = %.2f tok/s\n", gen_seq_len_ / total_s);
+    // printf("##################################\n");
+}
+
+void Llm::print_speed(std::ostream* os) {
+    (*os) << "prefill " << time_perf_.prefill_record_.size() << std::endl;
+    (*os) << "prev_token token speed(token/s)" << std::endl;
+    for (auto record : time_perf_.prefill_record_) {
+        (*os) << record.prefill_prev_token_ << " " << record.prefill_token_ << " " << record.prefill_token_/(((float)record.prefill_us_)*MICRO_TO_SEC) << std::endl;
+    }
+    (*os) << "decode " << time_perf_.decode_record_.size() << std::endl;
+    (*os) << "prev_token speed(token/s)" << std::endl;
+    for (auto record : time_perf_.decode_record_) {
+        (*os) << record.decode_prev_token_ << " " << 1./(((float)record.decode_us_)*MICRO_TO_SEC) << std::endl;
+    }
 }
 
 static inline bool needNewVar(VARP var, int axis, int seq_len) {

@@ -18,18 +18,18 @@ static void trace_prepare(Llm* llm) {
         "Hello",
     };
     llm->trace(true);
-    int prompt_len = 0;
-    int decode_len = 0;
-    int64_t prefill_time = 0;
-    int64_t decode_time = 0;
+    // int prompt_len = 0;
+    // int decode_len = 0;
+    // int64_t prefill_time = 0;
+    // int64_t decode_time = 0;
     // llm->warmup();
     for (int i = 0; i < prompts.size(); i++) {
         std::ostringstream cacheOs;
         llm->response(prompts[i], &cacheOs);
-        prompt_len += llm->prompt_len_;
-        decode_len += llm->gen_seq_len_;
-        prefill_time += llm->prefill_us_;
-        decode_time += llm->decode_us_;
+        // prompt_len += llm->prompt_len_;
+        // decode_len += llm->gen_seq_len_;
+        // prefill_time += llm->prefill_us_;
+        // decode_time += llm->decode_us_;
     }
     MNN_PRINT("Prepare for resize opt End\n");
     llm->trace(false);
@@ -80,10 +80,10 @@ std::vector<std::vector<std::string>> parse_csv(const std::vector<std::string>& 
 }
 
 static int benchmark(Llm* llm, std::vector<std::string>& prompts) {
-    int prompt_len = 0;
-    int decode_len = 0;
-    int64_t prefill_time = 0;
-    int64_t decode_time = 0;
+    // int prompt_len = 0;
+    // int decode_len = 0;
+    // int64_t prefill_time = 0;
+    // int64_t decode_time = 0;
     // llm->warmup();
     for (int i = 0; i < prompts.size(); i++) {
         auto& prompt = prompts[i];
@@ -92,21 +92,21 @@ static int benchmark(Llm* llm, std::vector<std::string>& prompts) {
             continue;
         }
         llm->response(prompt);
-        prompt_len += llm->prompt_len_;
-        decode_len += llm->gen_seq_len_;
-        prefill_time += llm->prefill_us_;
-        decode_time += llm->decode_us_;
+        // prompt_len += llm->prompt_len_;
+        // decode_len += llm->gen_seq_len_;
+        // prefill_time += llm->prefill_us_;
+        // decode_time += llm->decode_us_;
     }
-    float prefill_s = prefill_time / 1e6;
-    float decode_s = decode_time / 1e6;
-    printf("\n#################################\n");
-    printf("prompt tokens num  = %d\n", prompt_len);
-    printf("decode tokens num  = %d\n", decode_len);
-    printf("prefill time = %.2f s\n", prefill_s);
-    printf(" decode time = %.2f s\n", decode_s);
-    printf("prefill speed = %.2f tok/s\n", prompt_len / prefill_s);
-    printf(" decode speed = %.2f tok/s\n", decode_len / decode_s);
-    printf("##################################\n");
+    // float prefill_s = prefill_time / 1e6;
+    // float decode_s = decode_time / 1e6;
+    // printf("\n#################################\n");
+    // printf("prompt tokens num  = %d\n", prompt_len);
+    // printf("decode tokens num  = %d\n", decode_len);
+    // printf("prefill time = %.2f s\n", prefill_s);
+    // printf(" decode time = %.2f s\n", decode_s);
+    // printf("prefill speed = %.2f tok/s\n", prompt_len / prefill_s);
+    // printf(" decode speed = %.2f tok/s\n", decode_len / decode_s);
+    // printf("##################################\n");
     return 0;
 }
 
@@ -187,7 +187,9 @@ int main(int argc, const char* argv[]) {
         trace_prepare(llm.get());
     }
     if (argc < 3) {
-        llm->chat();
+        std::ofstream time_file("log.txt", std::ofstream::out);
+        llm->chat(&time_file);
+        time_file.close();
         return 0;
     }
     std::string prompt_file = argv[2];

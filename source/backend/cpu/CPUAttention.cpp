@@ -791,7 +791,7 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
             // std::cout << "after mask and softmax" << std::endl;
             // prepare v and perform qk @ v
             {
-                auto value_dst = &(VBuffer->host<float>()[tId * UP_DIV(mResource->mHeadDim, hP) * block_size * hP]);
+                auto value_dst = &(VBuffer->host<float>()[tId * UP_DIV(mResource->mHeadDim, hP) * kv_seq_len * hP]);
                 merge_value((char*)value_dst, pastKV, kv_seq_len, mResource->mHeadDim, hP, kv_h, last_block_slot_num, quantType, bytes);
                 // qk @ v
                 size_t shapeParameters[7];
