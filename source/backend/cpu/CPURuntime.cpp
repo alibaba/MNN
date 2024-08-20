@@ -1128,7 +1128,7 @@ static void _getInfoARMv7(MNNCPUInfo* cpuinfo_isa) {
     if (0 == cpuinfo_isa->groups.size()) {
         return;
     }
-    const uint32_t processors_count = cpuinfo_isa->allCpuIdsSorted.size();
+    const uint32_t processors_count = cpuinfo_isa->cpuNumber;
 
     char proc_cpuinfo_hardware[CPUINFO_HARDWARE_VALUE_MAX] = {0};
 
