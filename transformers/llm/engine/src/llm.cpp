@@ -21,6 +21,8 @@
 #include "sampler/sampler.hpp"
 #include "tokenizer.hpp"
 #include "llmconfig.hpp"
+#include "evaluation/evaluation.hpp"
+
 // 0: no debug, 1: test op time, 2: print tensor info
 #define DEBUG_MODE 0
 

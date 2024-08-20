@@ -41,7 +41,7 @@ int LocalSampler::temperature(MNN::Express::VARP logits, float temperature) {
 }
 
 int LocalSampler::reSoftmaxSelect(std::vector<int> index, std::vector<float> scores, float temperature) {
-    auto varp = MNN::Express::_Input({index.size()}, MNN::Express::NHWC);
+    auto varp = MNN::Express::_Input({(int)index.size()}, MNN::Express::NHWC);
     auto scoresMap = (float*)(varp->writeMap<float>());
     for (int i = 0; i < index.size(); ++i) {
         scoresMap[i] = scores[i];
