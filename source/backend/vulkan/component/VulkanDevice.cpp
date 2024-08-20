@@ -25,9 +25,8 @@ VulkanDevice::VulkanDevice(std::shared_ptr<VulkanInstance> instance, const std::
     uint32_t gpuCount = 0;
     CALL_VK(mInstance->enumeratePhysicalDevices(gpuCount, nullptr));
     MNN_ASSERT(0 != gpuCount);
-    VkPhysicalDevice tmpGpus[1] = {nullptr};
-    gpuCount = 1;
-    CALL_VK(mInstance->enumeratePhysicalDevices(gpuCount, tmpGpus));
+    std::vector<VkPhysicalDevice> tmpGpus(gpuCount);
+    CALL_VK(mInstance->enumeratePhysicalDevices(gpuCount, tmpGpus.data()));
     MNN_ASSERT(nullptr != tmpGpus[0]);
     mPhysicalDevice = tmpGpus[0];
 
