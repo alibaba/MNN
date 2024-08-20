@@ -262,6 +262,9 @@ static int test_main(int argc, const char* argv[]) {
     if (!inputDims.empty()) {
         net->setSessionMode(Interpreter::Session_Resize_Defer);
     }
+    if (runMask & 32) {
+        net->setSessionHint(Interpreter::WINOGRAD_MEMORY_LEVEL, 0);
+    }
 
     // create session
     MNN::ScheduleConfig config;
@@ -462,7 +465,7 @@ static int test_main(int argc, const char* argv[]) {
                     auto ptr = inputTensor->map(MNN::Tensor::MAP_TENSOR_WRITE, inputTensor->getDimensionType());
                     inputTensor->unmap(MNN::Tensor::MAP_TENSOR_WRITE, inputTensor->getDimensionType(), ptr);
                 }
-                net->runSessionWithCallBackInfo(session, beforeCallBack, afterCallBack, false);
+                net->runSession(session);
                 {
                     auto ptr = outputTensor->map(MNN::Tensor::MAP_TENSOR_READ, outputTensor->getDimensionType());
                     outputTensor->unmap(MNN::Tensor::MAP_TENSOR_READ, outputTensor->getDimensionType(), ptr);

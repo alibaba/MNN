@@ -33,8 +33,12 @@ public:
         Interpreter::SessionMode resizeMode = Interpreter::Session_Resize_Direct;
         Interpreter::SessionMode memoryUsageMode = Interpreter::Session_Memory_Collect;
         Interpreter::SessionMode codegenMode = Interpreter::Session_Codegen_Disable;
-        int memoryAllocatorType = 0;
         int maxTuningNumber = MNN_DEFAULT_TUNING_NUMBER;
+        int geometryMask = 0xFFFF;
+        bool checkNetBuffer = true;
+        RuntimeHint runtimeHint;
+        void setHint(Interpreter::HintMode hint, int magic);
+        void setMode(Interpreter::SessionMode mode);
     };
     Session(Schedule::ScheduleInfo&& info, const ModeGroup& mode,
             RuntimeInfo&& runtime);
@@ -59,6 +63,8 @@ public:
 
     bool getInfo(Interpreter::SessionInfoCode code, void* ptr) const;
 
+    void openResizeCheck();
+    ErrorCode fixResizeCache();
 public:
     /**
      * @brief resize tensors and buffers responding to input changes.

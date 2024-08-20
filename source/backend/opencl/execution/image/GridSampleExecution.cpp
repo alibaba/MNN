@@ -13,7 +13,9 @@
 namespace MNN {
 namespace OpenCL {
 GridSampleExecution::GridSampleExecution(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend)
-    : Execution(backend) {
+    : CommonExecution(backend, op) {
+    mUnits.resize(1);
+    auto &unit = mUnits[0];
     mPaddingMode = op->main_as_GridSample()->paddingMode();
     if (op->main_as_GridSample()->alignCorners()) {
         mAlignCorners = 1;
@@ -29,19 +31,19 @@ GridSampleExecution::GridSampleExecution(const std::vector<Tensor *> &inputs, co
     std::set<std::string> buildOptions;
     if (op->main_as_GridSample()->mode() == 0) {
         mKernelName = "bilinear";
-        mKernel = runtime->buildKernel("grid_sample", mKernelName, buildOptions);
+        unit.kernel = runtime->buildKernel("grid_sample", mKernelName, buildOptions);
     }
     else {
         mKernelName = "nearest";
-        mKernel = runtime->buildKernel("grid_sample", mKernelName, buildOptions);
+        unit.kernel = runtime->buildKernel("grid_sample", mKernelName, buildOptions);
 
     }
 
-    mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mKernel));
+    mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
 }
 
-ErrorCode GridSampleExecution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    mOpenCLBackend->startRecord(mRecording);
+ErrorCode GridSampleExecution::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+    auto &unit = mUnits[0];
     auto inputTensor = inputs[0];
     auto gridTensor = inputs[1];
     auto outputTensor = outputs[0];
@@ -65,41 +67,24 @@ ErrorCode GridSampleExecution::onResize(const std::vector<Tensor *> &inputs, con
 
     uint32_t idx = 0;
     cl_int ret = CL_SUCCESS;
-    ret |= mKernel.setArg(idx++, mGlobalWorkSize[0]);
-    ret |= mKernel.setArg(idx++, mGlobalWorkSize[1]);
-    ret |= mKernel.setArg(idx++, mGlobalWorkSize[2]);
-    ret |= mKernel.setArg(idx++, openCLImage(inputTensor));
-    ret |= mKernel.setArg(idx++, openCLImage(gridTensor));
-    ret |= mKernel.setArg(idx++, openCLImage(outputTensor));
-    ret |= mKernel.setArg(idx++, static_cast<uint32_t>(inH));
-    ret |= mKernel.setArg(idx++, static_cast<uint32_t>(inW));
-    ret |= mKernel.setArg(idx++, static_cast<uint32_t>(outH));
-    ret |= mKernel.setArg(idx++, static_cast<uint32_t>(outW));
-    ret |= mKernel.setArg(idx++, mPaddingMode);
-    ret |= mKernel.setArg(idx++, mAlignCorners);
+    ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[0]);
+    ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[1]);
+    ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[2]);
+    ret |= unit.kernel->get().setArg(idx++, openCLImage(inputTensor));
+    ret |= unit.kernel->get().setArg(idx++, openCLImage(gridTensor));
+    ret |= unit.kernel->get().setArg(idx++, openCLImage(outputTensor));
+    ret |= unit.kernel->get().setArg(idx++, static_cast<uint32_t>(inH));
+    ret |= unit.kernel->get().setArg(idx++, static_cast<uint32_t>(inW));
+    ret |= unit.kernel->get().setArg(idx++, static_cast<uint32_t>(outH));
+    ret |= unit.kernel->get().setArg(idx++, static_cast<uint32_t>(outW));
+    ret |= unit.kernel->get().setArg(idx++, mPaddingMode);
+    ret |= unit.kernel->get().setArg(idx++, mAlignCorners);
     MNN_CHECK_CL_SUCCESS(ret, "setArg GridSampleExecution");
 
-    mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), mKernelName, mKernel).first;
-    mOpenCLBackend->recordKernel3d(mKernel, mGlobalWorkSize, mLocalWorkSize);
-    mOpenCLBackend->endRecord(mRecording);
-    return NO_ERROR;
-}
-
-ErrorCode GridSampleExecution::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-#ifdef ENABLE_OPENCL_TIME_PROFILER
-    cl::Event event;
-    run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalWorkSize,
-        mOpenCLBackend->getOpenCLRuntime(), &event);
-    
-    mOpenCLBackend->getOpenCLRuntime()->pushEvent({"GridSample", event});
-#else
-    if(mOpenCLBackend->isUseRecordQueue()){
-        if(mOpenCLBackend->isDevideOpRecord())
-            mOpenCLBackend->addRecord(mRecording);
-        return NO_ERROR;
-    }
-    run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime());
-#endif
+    mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), mKernelName, unit.kernel).first;
+    mOpenCLBackend->recordKernel3d(unit.kernel, mGlobalWorkSize, mLocalWorkSize);
+    unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1], mGlobalWorkSize[2]};
+    unit.localWorkSize = {mLocalWorkSize[0], mLocalWorkSize[1], mLocalWorkSize[2]};
     return NO_ERROR;
 }
 

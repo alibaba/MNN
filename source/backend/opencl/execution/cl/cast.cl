@@ -29,11 +29,11 @@ __kernel void cast(GLOBAL_SIZE_3_DIMS
     const int channel_idx = batch_channel_idx % channelBlock;
     
 #ifdef TO_BOOL
-    int4 value = convert_int4(RI_F(input, SAMPLER, (int2)(channel_idx * width + width_idx, batch_idx * height + height_idx)));
+    int4 value = convert_int4(RI_DATA(input, SAMPLER, (int2)(channel_idx * width + width_idx, batch_idx * height + height_idx)));
     value = value == (int4)0 ? (int4)0 : (int4)1;
-    WI_F(output, (int2)(channel_idx * width + width_idx, batch_idx * height + height_idx), CONVERT_FLOAT4(value));
+    WI_DATA(output, (int2)(channel_idx * width + width_idx, batch_idx * height + height_idx), CONVERT_OUTPUT_I4(value));
 #else
-    FLOAT4 value = RI_F(input, SAMPLER, (int2)(channel_idx * width + width_idx, batch_idx * height + height_idx));
-    WI_F(output, (int2)(channel_idx * width + width_idx, batch_idx * height + height_idx), value);
+    INPUT_TYPE_I4 value = RI_DATA(input, SAMPLER, (int2)(channel_idx * width + width_idx, batch_idx * height + height_idx));
+    WI_DATA(output, (int2)(channel_idx * width + width_idx, batch_idx * height + height_idx), CONVERT_OUTPUT_I4(value));
 #endif
 }

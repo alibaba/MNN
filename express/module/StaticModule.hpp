@@ -24,6 +24,8 @@ public:
     virtual ~ StaticModule();
     virtual std::vector<Express::VARP> onForward(const std::vector<Express::VARP>& inputs) override;
     virtual void onClearCache() override;
+    virtual int onOptimize(Interpreter::SessionMode stage) override;
+
 private:
     StaticModule() = default;
     void resetInputOutputs();
@@ -47,7 +49,7 @@ private:
     };
     std::shared_ptr<Session> mSession;
     std::vector<Tensor*> mInputTensors;
-    std::vector<Tensor*> mPrevInputTensor;
+    std::vector<std::pair<Tensor*, Backend*>> mPrevInputTensor;
     std::vector<Tensor*> mOutputTensors;
     std::shared_ptr<Resource> mResource;
 };

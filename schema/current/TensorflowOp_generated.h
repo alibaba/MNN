@@ -3124,9 +3124,11 @@ struct LayerNormT : public flatbuffers::NativeTable {
   std::vector<float> beta;
   int32_t group;
   std::vector<int64_t> external;
+  bool useRMSNorm;
   LayerNormT()
       : epsilon(0.0f),
-        group(1) {
+        group(1),
+        useRMSNorm(false) {
   }
 };
 
@@ -3153,6 +3155,9 @@ struct LayerNorm FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   const flatbuffers::Vector<int64_t> *external() const {
     return GetPointer<const flatbuffers::Vector<int64_t> *>(14);
   }
+  bool useRMSNorm() const {
+    return GetField<uint8_t>(16, 0) != 0;
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyOffset(verifier, 4) &&
@@ -3165,6 +3170,7 @@ struct LayerNorm FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
            VerifyField<int32_t>(verifier, 12) &&
            VerifyOffset(verifier, 14) &&
            verifier.VerifyVector(external()) &&
+           VerifyField<uint8_t>(verifier, 16) &&
            verifier.EndTable();
   }
   LayerNormT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -3193,6 +3199,9 @@ struct LayerNormBuilder {
   void add_external(flatbuffers::Offset<flatbuffers::Vector<int64_t>> external) {
     fbb_.AddOffset(14, external);
   }
+  void add_useRMSNorm(bool useRMSNorm) {
+    fbb_.AddElement<uint8_t>(16, static_cast<uint8_t>(useRMSNorm), 0);
+  }
   explicit LayerNormBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -3212,7 +3221,8 @@ inline flatbuffers::Offset<LayerNorm> CreateLayerNorm(
     flatbuffers::Offset<flatbuffers::Vector<float>> gamma = 0,
     flatbuffers::Offset<flatbuffers::Vector<float>> beta = 0,
     int32_t group = 1,
-    flatbuffers::Offset<flatbuffers::Vector<int64_t>> external = 0) {
+    flatbuffers::Offset<flatbuffers::Vector<int64_t>> external = 0,
+    bool useRMSNorm = false) {
   LayerNormBuilder builder_(_fbb);
   builder_.add_external(external);
   builder_.add_group(group);
@@ -3220,6 +3230,7 @@ inline flatbuffers::Offset<LayerNorm> CreateLayerNorm(
   builder_.add_gamma(gamma);
   builder_.add_epsilon(epsilon);
   builder_.add_axis(axis);
+  builder_.add_useRMSNorm(useRMSNorm);
   return builder_.Finish();
 }
 
@@ -4727,6 +4738,7 @@ inline void LayerNorm::UnPackTo(LayerNormT *_o, const flatbuffers::resolver_func
   { auto _e = beta(); if (_e) { _o->beta.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->beta[_i] = _e->Get(_i); } } };
   { auto _e = group(); _o->group = _e; };
   { auto _e = external(); if (_e) { _o->external.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->external[_i] = _e->Get(_i); } } };
+  { auto _e = useRMSNorm(); _o->useRMSNorm = _e; };
 }
 
 inline flatbuffers::Offset<LayerNorm> LayerNorm::Pack(flatbuffers::FlatBufferBuilder &_fbb, const LayerNormT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
@@ -4743,6 +4755,7 @@ inline flatbuffers::Offset<LayerNorm> CreateLayerNorm(flatbuffers::FlatBufferBui
   auto _beta = _o->beta.size() ? _fbb.CreateVector(_o->beta) : 0;
   auto _group = _o->group;
   auto _external = _o->external.size() ? _fbb.CreateVector(_o->external) : 0;
+  auto _useRMSNorm = _o->useRMSNorm;
   return MNN::CreateLayerNorm(
       _fbb,
       _axis,
@@ -4750,7 +4763,8 @@ inline flatbuffers::Offset<LayerNorm> CreateLayerNorm(flatbuffers::FlatBufferBui
       _gamma,
       _beta,
       _group,
-      _external);
+      _external,
+      _useRMSNorm);
 }
 
 inline GroupNormT *GroupNorm::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
@@ -5791,7 +5805,8 @@ inline const flatbuffers::TypeTable *LayerNormTypeTable() {
     { flatbuffers::ET_FLOAT, 1, -1 },
     { flatbuffers::ET_FLOAT, 1, -1 },
     { flatbuffers::ET_INT, 0, -1 },
-    { flatbuffers::ET_LONG, 1, -1 }
+    { flatbuffers::ET_LONG, 1, -1 },
+    { flatbuffers::ET_BOOL, 0, -1 }
   };
   static const char * const names[] = {
     "axis",
@@ -5799,10 +5814,11 @@ inline const flatbuffers::TypeTable *LayerNormTypeTable() {
     "gamma",
     "beta",
     "group",
-    "external"
+    "external",
+    "useRMSNorm"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_TABLE, 6, type_codes, nullptr, nullptr, names
+    flatbuffers::ST_TABLE, 7, type_codes, nullptr, nullptr, names
   };
   return &tt;
 }

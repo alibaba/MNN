@@ -101,7 +101,7 @@ ErrorCode Convolution1x1Strassen::onResize(const std::vector<Tensor *> &inputs, 
     auto CONVOLUTION_TILED_NUMBER = ePack;
     auto input       = inputs[0];
     auto output      = outputs[0];
-    int numberThread = ((CPUBackend *)backend())->threadNumber();
+    const int numberThread = ((CPUBackend *)backend())->threadNumber();
     auto ic = input->channel();
     auto oc = output->channel();
     auto icC4        = UP_DIV(ic, core->pack);
@@ -133,13 +133,15 @@ ErrorCode Convolution1x1Strassen::onResize(const std::vector<Tensor *> &inputs, 
     }
 #endif
     mWeightBytes = static_cast<float>(dequantBits) / 8.0f;
+    auto rt = static_cast<const CPURuntime*>(backend()->getRuntime());
     if (matrixSizeE > CONVOLUTION_TILED_NUMBER * 8 * numberThread && matrixSizeE > ocC4) {
-        // Divide in plane, in this case the divide equal numberThread
-        int divideStep = UP_DIV(matrixSizeE, numberThread);
+        std::vector<int> divides(numberThread+1);
+        divides[0] = 0;
+        rt->computeDivideSizes(matrixSizeE, divides.data()+1);
         mUnits.resize(numberThread);
         for (int i = 0; i < numberThread; ++i) {
-            int planeStart = i * divideStep;
-            int planeEnd   = std::min(planeStart + divideStep, matrixSizeE);
+            int planeStart = divides[i];
+            int planeEnd   = divides[i+1];
             int planeSize  = planeEnd - planeStart;
             Unit &unit     = mUnits[i];
             if (planeSize <= 0) {
@@ -155,9 +157,9 @@ ErrorCode Convolution1x1Strassen::onResize(const std::vector<Tensor *> &inputs, 
             int l = ic;
             int h = oc;
             uint8_t* aPtr = nullptr;
-            auto bPtr = TensorUtils::getDescribe(weightTensor)->mem->chunk();;
+            auto bPtr = TensorUtils::getDescribeOrigin(weightTensor)->mem->chunk();;
             uint8_t* cPtr = nullptr;
-            auto biasPtr = TensorUtils::getDescribe(mResource->mBias.get())->mem->chunk();
+            auto biasPtr = TensorUtils::getDescribeOrigin(mResource->mBias.get())->mem->chunk();
             memoryPool->beginGroup();
             auto code = unit.mStracssenComputor->onEncode(e, l, h, matrixSizeE * core->pack, UP_DIV(l, lPack) * lPack * hPack, matrixSizeE * core->pack, aPtr, bPtr, cPtr, true, biasPtr, postParameters);
             if (NO_ERROR != code) {
@@ -173,15 +175,17 @@ ErrorCode Convolution1x1Strassen::onResize(const std::vector<Tensor *> &inputs, 
             hDiv = hPack / core->pack;
         }
         auto ocDiv = UP_DIV(ocC4, hDiv);
-        numberThread   = std::min(numberThread, ocDiv);
-        int divideStep = (ocDiv / numberThread) * hDiv;
+        std::vector<int> divides(numberThread+1);
+        divides[0] = 0;
+        rt->computeDivideSizes(ocDiv, divides.data()+1);
         mUnits.resize(numberThread);
         for (int i = 0; i < numberThread; ++i) {
-            int ocStart = i * divideStep;
-            int ocSize  = divideStep;
-            if (i == numberThread - 1) {
-                ocSize = ocC4 - i * divideStep;
+            int ocStart = divides[i] * hDiv;
+            int ocEnd = divides[i+1] * hDiv;
+            if (ocEnd >= ocC4) {
+                ocEnd = ocC4;
             }
+            int ocSize  = ocEnd - ocStart;
             Unit &unit  = mUnits[i];
             if (ocSize <= 0) {
                 unit.mValid = false;
@@ -199,9 +203,9 @@ ErrorCode Convolution1x1Strassen::onResize(const std::vector<Tensor *> &inputs, 
             int l = ic;
             int h = std::min(ocSize * core->pack, ocWeightSize * hPack);
             uint8_t* aPtr = nullptr;
-            auto bPtr = TensorUtils::getDescribe(mResource->mWeight.get())->mem->chunk() + hPack * icAlign * ocStartWeight * mWeightBytes;
+            auto bPtr = TensorUtils::getDescribeOrigin(mResource->mWeight.get())->mem->chunk() + hPack * icAlign * ocStartWeight * mWeightBytes;
             uint8_t* cPtr = nullptr;
-            auto biasPtr = TensorUtils::getDescribe(mResource->mBias.get())->mem->chunk() + core->pack * ocStart * bytes;
+            auto biasPtr = TensorUtils::getDescribeOrigin(mResource->mBias.get())->mem->chunk() + core->pack * ocStart * bytes;
             memoryPool->beginGroup();
             auto code = unit.mStracssenComputor->onEncode(e, l, h, matrixSizeE * core->pack, UP_DIV(l, lPack) * lPack * hPack, matrixSizeE * core->pack, aPtr, bPtr, cPtr, true, biasPtr, postParameters);
             if (NO_ERROR != code) {

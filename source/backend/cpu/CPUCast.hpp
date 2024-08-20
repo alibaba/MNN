@@ -21,7 +21,7 @@ public:
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op, Backend* backend) const override;
     static ErrorCode cast(const Tensor* input, const Tensor* output, const CPUBackend* bn, ConvertType type);
-    static ErrorCode cast(void* const inputRaw, void* outputRaw, ConvertType type, int number, float scale, float zero, float min, float max, const CPUBackend* bn);
+    static ErrorCode cast(const void* inputRaw, void* outputRaw, ConvertType type, int number, float scale, float zero, float min, float max, const CPUBackend* bn);
 };
 } // namespace MNN
 #endif /* CPUCast_hpp */

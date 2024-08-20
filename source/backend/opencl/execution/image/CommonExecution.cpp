@@ -14,19 +14,17 @@ CommonExecution::CommonExecution(Backend *backend, const MNN::Op *Op)
     : Execution(backend), mOp(Op) {
     mOpType = Op->type();
 }
-ErrorCode CommonExecution::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+
+ErrorCode CommonExecution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs){
     auto openCLBackend = static_cast<OpenCLBackend*>(backend());
     auto runtime = openCLBackend->getOpenCLRuntime();
-#ifdef ENABLE_OPENCL_TIME_PROFILER
-    int idx = 0;
-#else
-    if(openCLBackend->isUseRecordQueue()){
-        if(openCLBackend->isDevideOpRecord())
-            openCLBackend->addRecord(mRecording);
-        return NO_ERROR;
+    openCLBackend->startRecord(mRecording);
+    
+    auto error = onEncode(inputs, outputs);
+    if(NO_ERROR != error){
+        return error;
     }
-#endif
-    auto res = CL_SUCCESS;
+    
     for (auto &unit : mUnits) {
         bool lws_null = true;
         for (size_t i = 0; i < unit.globalWorkSize.dimensions(); ++i) {
@@ -35,38 +33,41 @@ ErrorCode CommonExecution::onExecute(const std::vector<Tensor *> &inputs, const 
                 lws_null = false;
             }
         }
-        
+        if(lws_null){
+            unit.localWorkSize = cl::NullRange;
+        }
+    }
+    openCLBackend->endRecord(mRecording);
+    return NO_ERROR;
+}
+
+ErrorCode CommonExecution::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+    auto openCLBackend = static_cast<OpenCLBackend*>(backend());
+    auto runtime = openCLBackend->getOpenCLRuntime();
+#ifdef ENABLE_OPENCL_TIME_PROFILER
+    int idx = 0;
+#else
+    if(openCLBackend->isUseRecordQueue()){
+        openCLBackend->addRecord(mRecording, mOpRecordUpdateInfo);
+        return NO_ERROR;
+    }
+#endif
+    auto res = CL_SUCCESS;
+    for (auto &unit : mUnits) {
     #ifdef ENABLE_OPENCL_TIME_PROFILER
         cl::Event event;
-        if(lws_null == true) {
-            res = runtime->commandQueue().enqueueNDRangeKernel(unit.kernel,
-                                                        cl::NullRange,
-                                                        unit.globalWorkSize,
-                                                        cl::NullRange,
-                                                        nullptr,
-                                                        &event);
-        } else {
-            res = runtime->commandQueue().enqueueNDRangeKernel(unit.kernel,
-                                                        cl::NullRange,
-                                                        unit.globalWorkSize,
-                                                        unit.localWorkSize,
-                                                        nullptr,
-                                                        &event);
-        }
-        
+        res = runtime->commandQueue().enqueueNDRangeKernel(unit.kernel->get(),
+                                                    cl::NullRange,
+                                                    unit.globalWorkSize,
+                                                    unit.localWorkSize,
+                                                    nullptr,
+                                                    &event);
         runtime->pushEvent({EnumNameOpType(mOpType) + std::to_string(idx++), event});
     #else
-        if(lws_null == true) {
-            res = runtime->commandQueue().enqueueNDRangeKernel(unit.kernel,
-                                                        cl::NullRange,
-                                                        unit.globalWorkSize,
-                                                        cl::NullRange);
-        } else {
-            res = runtime->commandQueue().enqueueNDRangeKernel(unit.kernel,
-                                                        cl::NullRange,
-                                                        unit.globalWorkSize,
-                                                        unit.localWorkSize);
-        }
+        res = runtime->commandQueue().enqueueNDRangeKernel(unit.kernel->get(),
+                                                    cl::NullRange,
+                                                    unit.globalWorkSize,
+                                                    unit.localWorkSize);
     #endif
         MNN_CHECK_CL_SUCCESS(res, EnumNameOpType(mOp->type()));
     }

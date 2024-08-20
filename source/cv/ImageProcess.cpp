@@ -128,7 +128,7 @@ ErrorCode ImageProcess::convert(const uint8_t* source, int iw, int ih, int strid
         MNN_ERROR("null dest or source for image process\n");
         return INPUT_DATA_ERROR;
     }
-    if (TensorUtils::getDescribe(dest)->getBackend() == nullptr && destOrigin->buffer().host == nullptr) {
+    if (TensorUtils::getDescribeOrigin(dest)->getBackend() == nullptr && destOrigin->buffer().host == nullptr) {
         MNN_ERROR("Invalid Tensor, the session may not be ready\n");
         return INPUT_DATA_ERROR;
     }
@@ -137,7 +137,7 @@ ErrorCode ImageProcess::convert(const uint8_t* source, int iw, int ih, int strid
     auto oh              = dest->height();
     auto bpp             = dest->channel();
     auto dimensionFormat = TensorUtils::getDescribe(dest)->dimensionFormat;
-    auto tensorBn = TensorUtils::getDescribe(dest)->getBackend();
+    auto tensorBn = TensorUtils::getDescribeOrigin(dest)->getBackend();
     auto bnType = MNN_FORWARD_CPU;
     if(tensorBn){
         bnType = tensorBn->type();

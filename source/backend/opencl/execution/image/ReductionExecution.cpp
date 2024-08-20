@@ -13,10 +13,12 @@
 namespace MNN {
 namespace OpenCL {
 
-ReductionExecution::ReductionExecution(const MNN::Op* op, Backend* backend) : CommonExecution(backend, op) {
+ReductionExecution::ReductionExecution(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, const MNN::Op* op, Backend* backend) : CommonExecution(backend, op) {
 #ifdef LOG_VERBOSE
     MNN_PRINT("start ReductionExecution init !\n");
 #endif
+    mUnits.resize(1);
+    auto &unit = mUnits[0];
     mOpenCLBackend = static_cast<OpenCLBackend *>(backend);
     mAxis = op->main_as_ReductionParam()->dim()->data()[0];
     switch (op->main_as_ReductionParam()->operation()) {
@@ -39,8 +41,8 @@ ReductionExecution::ReductionExecution(const MNN::Op* op, Backend* backend) : Co
             MNN_ASSERT(false);
             break;
     }
-    auto kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("reduction", "reduct_width", {"-DOPERATE(a,b)=(a+b)","-DVALUE=0","-DLOCAL_SIZE=512"});
-    mMaxWorkGroupSize = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(kernel));
+    unit.kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("reduction", "reduct_width", {"-DOPERATE(a,b)=(a+b)","-DVALUE=0","-DLOCAL_SIZE=512"}, inputs[0], outputs[0]);
+    mMaxWorkGroupSize = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(unit.kernel));
 #ifdef LOG_VERBOSE
     MNN_PRINT("end ReductionExecution init !\n");
 #endif
@@ -54,11 +56,9 @@ int ReductionExecution::getLocalSize(int size, int maxGroupSize){
     return local_size;
 }
 
-ErrorCode ReductionExecution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    
-
+ErrorCode ReductionExecution::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+    auto &unit = mUnits[0];
     auto runtime = mOpenCLBackend->getOpenCLRuntime();
-    mOpenCLBackend->startRecord(mRecording);
     auto MaxLocalSize = std::min(runtime->getMaxWorkItemSizes()[0], mMaxWorkGroupSize);
     auto input = inputs[0];
     auto output = outputs[0];
@@ -122,6 +122,8 @@ ErrorCode ReductionExecution::onResize(const std::vector<Tensor *> &inputs, cons
             break;
     }
     
+    std::vector<uint32_t> mGlobalWorkSize = {1, 1, 1};
+    std::vector<uint32_t> mLocalWorkSize{1, 1, 1};
     mGlobalWorkSize = {
         static_cast<uint32_t>(outputWidth),
         static_cast<uint32_t>(outputHeight),
@@ -132,92 +134,66 @@ ErrorCode ReductionExecution::onResize(const std::vector<Tensor *> &inputs, cons
         if(batch * inputHeight * inputChannels == outside && 1 == inside && dim == inputWidth){
             local_size = getLocalSize(inputWidth, MaxLocalSize);
             buildOption.emplace("-DLOCAL_SIZE=" + std::to_string(local_size));
-            mReduct1DKernel = runtime->buildKernel("reduction", "reduct_width", buildOption);
+            unit.kernel = runtime->buildKernel("reduction", "reduct_width", buildOption, input, output);
         }else if(batch * inputChannels == outside && inputWidth == inside && dim == inputHeight){
             local_size = getLocalSize(inputHeight, MaxLocalSize);
             buildOption.emplace("-DLOCAL_SIZE=" + std::to_string(local_size));
-            mReduct1DKernel = runtime->buildKernel("reduction", "reduct_height", buildOption);
+            unit.kernel = runtime->buildKernel("reduction", "reduct_height", buildOption, input, output);
         }else if(batch == outside && inputWidth * inputHeight == inside && dim == inputChannels){
             local_size = getLocalSize(inputChannelBlocks - 1, MaxLocalSize);
             buildOption.emplace("-DLOCAL_SIZE=" + std::to_string(local_size));
-            mReduct1DKernel = runtime->buildKernel("reduction", "reduct_channel", buildOption);
+            unit.kernel = runtime->buildKernel("reduction", "reduct_channel", buildOption, input, output);
             mGlobalWorkSize[2] = static_cast<uint32_t>(outputBatch * outputChannels);
         }else if(1 == outside && inputWidth * inputHeight * inputChannels == inside && dim == batch){
             local_size = getLocalSize(batch, MaxLocalSize);
             buildOption.emplace("-DLOCAL_SIZE=" + std::to_string(local_size));
-            mReduct1DKernel = runtime->buildKernel("reduction", "reduct_batch", buildOption);
+            unit.kernel = runtime->buildKernel("reduction", "reduct_batch", buildOption, input, output);
         }
         mGlobalWorkSize[0] *= local_size;
     }else{
         buildOption.emplace("-DLOCAL_SIZE=0");
         if(batch * inputHeight * inputChannels == outside && 1 == inside && dim == inputWidth){
-            mReduct1DKernel = runtime->buildKernel("reduction", "reduct_width", buildOption);
+            unit.kernel = runtime->buildKernel("reduction", "reduct_width", buildOption, input, output);
         }else if(batch * inputChannels == outside && inputWidth == inside && dim == inputHeight){
-            mReduct1DKernel = runtime->buildKernel("reduction", "reduct_height", buildOption);
+            unit.kernel = runtime->buildKernel("reduction", "reduct_height", buildOption, input, output);
         }else if(batch == outside && inputWidth * inputHeight == inside && dim == inputChannels){
-            mReduct1DKernel = runtime->buildKernel("reduction", "reduct_channel", buildOption);
+            unit.kernel = runtime->buildKernel("reduction", "reduct_channel", buildOption, input, output);
             mGlobalWorkSize[2] = static_cast<uint32_t>(outputBatch * outputChannels);
         }else if(1 == outside && inputWidth * inputHeight * inputChannels == inside && dim == batch){
-            mReduct1DKernel = runtime->buildKernel("reduction", "reduct_batch", buildOption);
+            unit.kernel = runtime->buildKernel("reduction", "reduct_batch", buildOption, input, output);
         }
     }
 
     mUnits.resize(1);
     uint32_t idx = 0;
     cl_int ret = CL_SUCCESS;
-    ret |= mReduct1DKernel.setArg(idx++, mGlobalWorkSize[0]);
-    ret |= mReduct1DKernel.setArg(idx++, mGlobalWorkSize[1]);
-    ret |= mReduct1DKernel.setArg(idx++, mGlobalWorkSize[2]);
-    ret |= mReduct1DKernel.setArg(idx++, openCLImage(input));
-    ret |= mReduct1DKernel.setArg(idx++, openCLImage(output));
-    ret |= mReduct1DKernel.setArg(idx++, inputWidth);
-    ret |= mReduct1DKernel.setArg(idx++, inputHeight);
-    ret |= mReduct1DKernel.setArg(idx++, inputChannels);
-    ret |= mReduct1DKernel.setArg(idx++, batch);
-    ret |= mReduct1DKernel.setArg(idx++, inputChannelBlocks);
-    ret |= mReduct1DKernel.setArg(idx++, outputWidth);
-    ret |= mReduct1DKernel.setArg(idx++, outputHeight);
-    ret |= mReduct1DKernel.setArg(idx++, outputChannels);
-    ret |= mReduct1DKernel.setArg(idx++, outputChannelBlocks);
+    ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[0]);
+    ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[1]);
+    ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[2]);
+    ret |= unit.kernel->get().setArg(idx++, openCLImage(input));
+    ret |= unit.kernel->get().setArg(idx++, openCLImage(output));
+    ret |= unit.kernel->get().setArg(idx++, inputWidth);
+    ret |= unit.kernel->get().setArg(idx++, inputHeight);
+    ret |= unit.kernel->get().setArg(idx++, inputChannels);
+    ret |= unit.kernel->get().setArg(idx++, batch);
+    ret |= unit.kernel->get().setArg(idx++, inputChannelBlocks);
+    ret |= unit.kernel->get().setArg(idx++, outputWidth);
+    ret |= unit.kernel->get().setArg(idx++, outputHeight);
+    ret |= unit.kernel->get().setArg(idx++, outputChannels);
+    ret |= unit.kernel->get().setArg(idx++, outputChannelBlocks);
     MNN_CHECK_CL_SUCCESS(ret, "setArg ReductionExecution");
 
     if(mUseLocal){
         mLocalWorkSize = {static_cast<uint32_t>(local_size), 1, 1};
     }else{
-        mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mReduct1DKernel));
+        mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
         std::string kernelName = "reduct";
-        mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, runtime, kernelName, mReduct1DKernel).first;
+        mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, runtime, kernelName, unit.kernel).first;
     }
     
-    mOpenCLBackend->recordKernel3d(mReduct1DKernel, mGlobalWorkSize, mLocalWorkSize);
-    mOpenCLBackend->endRecord(mRecording);
-    return NO_ERROR;
-}
-
-ErrorCode ReductionExecution::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-#ifdef LOG_VERBOSE
-    MNN_PRINT("start ReductionExecution onExecute !\n");
-#endif
-
-    #ifdef ENABLE_OPENCL_TIME_PROFILER
-        cl::Event event;
-        run3DKernelDefault(mReduct1DKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime(), &event);
-        mOpenCLBackend->getOpenCLRuntime()->pushEvent({"Reduct1D", event});
-    #else
-    if(mOpenCLBackend->isUseRecordQueue()){
-        if(mOpenCLBackend->isDevideOpRecord())
-            mOpenCLBackend->addRecord(mRecording);
-#ifdef LOG_VERBOSE
-        MNN_PRINT("End ReductionExecution onExecute... \n");
-#endif
-        return NO_ERROR;
-    }
-    run3DKernelDefault(mReduct1DKernel, mGlobalWorkSize, mLocalWorkSize, mOpenCLBackend->getOpenCLRuntime());
-    #endif
-    
-#ifdef LOG_VERBOSE
-    MNN_PRINT("end ReductionExecution onExecute !\n");
-#endif
+    mOpenCLBackend->recordKernel3d(unit.kernel, mGlobalWorkSize, mLocalWorkSize);
+    unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1], mGlobalWorkSize[2]};
+    unit.localWorkSize = {mLocalWorkSize[0], mLocalWorkSize[1], mLocalWorkSize[2]};
     return NO_ERROR;
 }
 
@@ -255,7 +231,7 @@ public:
                 return NULL;
                 break;
         }
-        return new ReductionExecution(op, backend);
+        return new ReductionExecution(inputs, outputs, op, backend);
         return NULL;
     }
 };

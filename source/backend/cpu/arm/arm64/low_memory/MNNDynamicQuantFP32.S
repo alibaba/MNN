@@ -37,34 +37,32 @@
     add \d0\().4s, \d0\().4s, \d2\().4s
 .endm
 
-//void MNNDynamicQuantFP32(const float* src, int8_t* dst, const float* scale, float* sum, size_t src_depth_quad, size_t realSize)
+//void MNNDynamicQuantFP32(const float* src, int8_t* dst, const float* scale, size_t src_depth_quad, size_t realSize, int pack)
 asm_function MNNDynamicQuantFP32
 
-// x0: src, x1:dst, x2:scale, x3: sum, x4:src_depth_quad, x5:realSize
+// x0: src, x1:dst, x2:scale, x3:src_depth_quad, x4:realSize
 stp d14, d15, [sp, #(-16 * 4)]!
 stp d12, d13, [sp, #(16 * 1)]
 stp d10, d11, [sp, #(16 * 2)]
 stp d8,  d9,  [sp, #(16 * 3)]
 
 Start:
-lsl x6, x5, #2  // dst_step = batch * unit * sizeof(int8_t) = batch * 4 = batch << 2
+lsl x6, x4, #2  // dst_step = batch * unit * sizeof(int8_t) = batch * 4 = batch << 2
 lsl x7, x6, #2  // src_step = dst_step * 4 (sizeof(float32_t)) = dst_step << 2
 
 TILE_8:
-cmp x5, #8
+cmp x4, #8
 blt TILE_4
 sub x8, x7, #64 // src_step - 64
 mov x9, x0   // src
 mov x10, x1  // dst
 //mov x11, x2  // scale
-mov x12, x4  // src_depth_quad
+mov x12, x3  // src_depth_quad
 
 // quant_scale: v8, 8(batch)*sizeof(float32_t)
 ld1 {v8.4s, v9.4s}, [x2], #32
 
 // int8 sum
-movi v10.4s, #0
-movi v11.4s, #0
 LoopSz_8:
 ld1 {v0.4s, v1.4s, v2.4s, v3.4s}, [x9], #64
 ld1 {v4.4s, v5.4s, v6.4s, v7.4s}, [x9], x8
@@ -99,36 +97,23 @@ sqxtn v17.8b, v14.8h
 sqxtn2 v17.16b, v15.8h
 
 st1 {v16.16b, v17.16b}, [x10], x6
-// sum
-//Transpose v0, v1, v2, v3, v14, v15, v16, v17
-//Add_4x4 v0, v1, v2, v3
-addp v18.4s, v0.4s, v1.4s
-addp v19.4s, v2.4s, v3.4s
-addp v20.4s, v4.4s, v5.4s
-addp v21.4s, v6.4s, v7.4s
-addp v22.4s, v18.4s, v19.4s
-addp v23.4s, v20.4s, v21.4s
-
-add v10.4s, v22.4s, v10.4s
-add v11.4s, v23.4s, v11.4s
 
 subs x12, x12, #1
 bne LoopSz_8
 
 Tile8End:
-sub x5, x5, #8    // batch -= 8
+sub x4, x4, #8    // batch -= 8
 add x0, x0, #128  // src += 8 * 4 * sizeof(float32_t)
 add x1, x1, #32   // dst += 8 * 4 * sizeof(int8_t)
-st1 {v10.4s, v11.4s}, [x3], #32
 b TILE_8
 
 TILE_4:
-cmp x5, #4
+cmp x4, #4
 blt TILE_1
 mov x9, x0   // src
 mov x10, x1  // dst
 //mov x11, x2  // scale
-mov x12, x4  // src_depth_quad
+mov x12, x3  // src_depth_quad
 
 // quant_scale: v8, 4(batch)*sizeof(float32_t)
 ld1 {v8.4s}, [x2], #16
@@ -158,28 +143,23 @@ sqxtn v6.8b, v4.8h
 sqxtn2 v6.16b, v5.8h
 
 st1 {v6.16b}, [x10], x6
-// sum
-Transpose v0, v1, v2, v3, v14, v15, v16, v17
-Add_4x4 v0, v1, v2, v3
-add v10.4s, v0.4s, v10.4s
 
 subs x12, x12, #1
 bne LoopSz_4
 
 Tile4End:
-sub x5, x5, #4    // batch -= 4
+sub x4, x4, #4    // batch -= 4
 add x0, x0, #64  // src += 4 * 4 * sizeof(float32_t)
 add x1, x1, #16   // dst += 4 * 4 * sizeof(int8_t)
 //add x2, x2, #16   // scale += 4 * sizeof(float32_t)
-st1 {v10.4s}, [x3], #16
 b TILE_4
 
 TILE_1:
-cmp x5, #1
+cmp x4, #1
 blt End
 mov x9, x0   // src
 mov x10, x1  // dst
-mov x12, x4  // src_depth_quad
+mov x12, x3  // src_depth_quad
 
 // quant_scale: v8
 ld1 {v8.s}[0], [x2], #4
@@ -192,26 +172,17 @@ fmul v0.4s, v0.4s, v8.s[0]
 // int16_t x = round(x)
 fcvtas v0.4s, v0.4s
 
-dup v1.4s, v0.s[1]
-dup v2.4s, v0.s[2]
-dup v3.4s, v0.s[3]
-
 // y = (int8_t)x
 sqxtn v7.4h, v0.4s
 sqxtn v7.8b, v7.8h
-// sum
-
-Add_4x4 v0, v1, v2, v3
-add v4.4s, v0.4s, v4.4s
 
 st1 {v7.s}[0], [x10], x6
 
 subs x12, x12, #1
 bne LoopSz_1
 
-st1 {v4.s}[0], [x3], #4
 Tile1End:
-subs x5, x5, #1    // batch -= 1
+subs x4, x4, #1    // batch -= 1
 add x0, x0, #16    // src += 1 * 4 * sizeof(float32_t)
 add x1, x1, #4    // dst += 1 * 4 * sizeof(int8_t)
 //add x2, x2, #4    // scale += 1 * sizeof(float32_t)

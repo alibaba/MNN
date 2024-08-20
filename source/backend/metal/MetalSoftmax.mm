@@ -16,7 +16,9 @@
 namespace MNN {
 
 MetalSoftmax::MetalSoftmax(Backend *backend, int32_t axis) : MetalExecution(backend), mAxis(axis) {
-    // nothing to do
+    auto mtbn = static_cast<MetalBackend *>(backend);
+    auto context = (__bridge MNNMetalContext *)mtbn->context();
+    mShapeBuffer               = [context newDeviceBuffer:4 * sizeof(int) access:CPUWriteOnly];
 }
 
 ErrorCode MetalSoftmax::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
@@ -50,7 +52,6 @@ ErrorCode MetalSoftmax::onResize(const std::vector<Tensor *> &inputs, const std:
     if (reorder) {
         axis = UP_DIV(axis, 4);
     }
-    mShapeBuffer               = [context newDeviceBuffer:4 * sizeof(int) access:CPUWriteOnly];
     ((int *)mShapeBuffer.contents)[0] = inside;
     ((int *)mShapeBuffer.contents)[1] = axis;
     ((int *)mShapeBuffer.contents)[2] = outside;

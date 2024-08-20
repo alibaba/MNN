@@ -218,6 +218,10 @@ public:
         if (gridSampleParam->backward()) {
             return new CPUGridSampleGrad(backend, mode, paddingMode, alignCorners);;
         }
+        if (outputs[0]->dimensions() > 4 && core->MNNGridSampleInterp3D == nullptr) {
+            MNN_ERROR("Don't support gridsampler grad for pack = %d, float bytes = %d\n", core->pack, core->bytes);
+            return nullptr;
+        }
         return new CPUGridSample(backend, mode, paddingMode, alignCorners);
     }
 };

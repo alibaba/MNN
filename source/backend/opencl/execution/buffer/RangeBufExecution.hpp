@@ -10,27 +10,19 @@
 #ifndef RangeBufExecution_hpp
 #define RangeBufExecution_hpp
 
-#include "core/Execution.hpp"
-
-#include <vector>
-#include "MNN_generated.h"
-#include "backend/opencl/core/OpenCLBackend.hpp"
-#include "backend/opencl/core/OpenCLRunningUtils.hpp"
-#include "backend/opencl/execution/image/CommonExtension.hpp"
+#include "backend/opencl/execution/image/CommonExecution.hpp"
 
 namespace MNN {
 namespace OpenCL {
 
-class RangeBufExecution : public Execution, public CommonExtension {
+class RangeBufExecution : public CommonExecution {
 public:
-    RangeBufExecution(const std::string &compute, Backend *backend);
+    RangeBufExecution(const std::string &compute, const MNN::Op *Op, Backend *backend);
     virtual ~RangeBufExecution() = default;
 
-    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-    virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    virtual ErrorCode onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
 private:
-    cl::Kernel mKernel;
     uint32_t mMaxWorkGroupSize;
     std::vector<uint32_t> mGlobalWorkSize = {1, 1, 1};
     std::vector<uint32_t> mLocalSize      = {1, 1, 1};

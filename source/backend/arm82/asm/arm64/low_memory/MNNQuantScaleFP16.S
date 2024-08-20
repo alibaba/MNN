@@ -29,10 +29,10 @@ stp d10, d11, [sp, #(16 * 2)]
 stp d8,  d9,  [sp, #(16 * 3)]
 
 Start:
-mov w8, #1123942400  // 127.0
-dup v0.4s, w8
-fcvtn v31.4h, v0.4s
-fcvtn2 v31.8h, v0.4s
+movi v31.4s, #127
+scvtf v31.4s, v31.4s
+//fcvtn v31.4h, v0.4s
+//fcvtn2 v31.8h, v0.4s
 lsl x9, x4, #1 // src_step = batch * sizeof(float16_t)
 
 TILE_12:
@@ -64,14 +64,32 @@ sub x4, x4, #12
 add x0, x0, #24
 // quant_scale = 127 / absmax
 // dequant_scale = absmax / 127
-fdiv v4.8h, v31.8h, v0.8h
-fdiv v5.8h, v31.8h, v1.8h
-fdiv v6.8h, v0.8h, v31.8h
-fdiv v7.8h, v1.8h, v31.8h
-st1 {v4.8h}, [x1], #16
-st1 {v5.d}[0], [x1], #8
-st1 {v6.8h}, [x2], #16
-st1 {v7.d}[0], [x2], #8
+
+// float16->float32
+fcvtl v4.4s, v0.4h
+fcvtl2 v5.4s, v0.8h
+fcvtl v6.4s, v1.4h
+
+fdiv v8.4s, v31.4s, v4.4s
+fdiv v9.4s, v31.4s, v5.4s
+fdiv v10.4s, v31.4s, v6.4s
+
+fdiv v12.4s, v4.4s, v31.4s
+fdiv v13.4s, v5.4s, v31.4s
+fdiv v14.4s, v6.4s, v31.4s
+
+st1 {v8.4s, v9.4s, v10.4s}, [x1], #48
+st1 {v12.4s, v13.4s, v14.4s}, [x2], #48
+
+//fdiv v4.8h, v31.8h, v0.8h
+//fdiv v5.8h, v31.8h, v1.8h
+//fdiv v6.8h, v0.8h, v31.8h
+//fdiv v7.8h, v1.8h, v31.8h
+
+//st1 {v4.8h}, [x1], #16
+//st1 {v5.d}[0], [x1], #8
+//st1 {v6.8h}, [x2], #16
+//st1 {v7.d}[0], [x2], #8
 b TILE_12
 
 TILE_10:
@@ -103,14 +121,33 @@ sub x4, x4, #10
 add x0, x0, #20
 // quant_scale = 127 / absmax
 // dequant_scale = absmax / 127
-fdiv v4.8h, v31.8h, v0.8h
-fdiv v5.8h, v31.8h, v1.8h
-fdiv v6.8h, v0.8h, v31.8h
-fdiv v7.8h, v1.8h, v31.8h
-st1 {v4.8h}, [x1], #16
-st1 {v5.s}[0], [x1], #4
-st1 {v6.8h}, [x2], #16
-st1 {v7.s}[0], [x2], #4
+
+// float16->float32
+fcvtl v4.4s, v0.4h
+fcvtl2 v5.4s, v0.8h
+fcvtl v6.4s, v1.4h
+
+fdiv v8.4s, v31.4s, v4.4s
+fdiv v9.4s, v31.4s, v5.4s
+fdiv v10.4s, v31.4s, v6.4s
+
+fdiv v12.4s, v4.4s, v31.4s
+fdiv v13.4s, v5.4s, v31.4s
+fdiv v14.4s, v6.4s, v31.4s
+
+st1 {v8.4s, v9.4s}, [x1], #32
+st1 {v10.d}[0], [x1], #8
+st1 {v12.4s, v13.4s}, [x2], #32
+st1 {v14.d}[0], [x2], #8
+
+// fdiv v4.8h, v31.8h, v0.8h
+// fdiv v5.8h, v31.8h, v1.8h
+// fdiv v6.8h, v0.8h, v31.8h
+// fdiv v7.8h, v1.8h, v31.8h
+// st1 {v4.8h}, [x1], #16
+// st1 {v5.s}[0], [x1], #4
+// st1 {v6.8h}, [x2], #16
+// st1 {v7.s}[0], [x2], #4
 b TILE_10
 
 
@@ -139,10 +176,23 @@ sub x4, x4, #8
 add x0, x0, #16
 // quant_scale = 127 / absmax
 // dequant_scale = absmax / 127
-fdiv v2.8h, v31.8h, v0.8h
-fdiv v3.8h, v0.8h, v31.8h
-st1 {v2.8h}, [x1], #16
-st1 {v3.8h}, [x2], #16
+// float16->float32
+fcvtl v4.4s, v0.4h
+fcvtl2 v5.4s, v0.8h
+
+fdiv v8.4s, v31.4s, v4.4s
+fdiv v9.4s, v31.4s, v5.4s
+
+fdiv v12.4s, v4.4s, v31.4s
+fdiv v13.4s, v5.4s, v31.4s
+
+st1 {v8.4s, v9.4s}, [x1], #32
+st1 {v12.4s, v13.4s}, [x2], #32
+
+// fdiv v2.8h, v31.8h, v0.8h
+// fdiv v3.8h, v0.8h, v31.8h
+// st1 {v2.8h}, [x1], #16
+// st1 {v3.8h}, [x2], #16
 b TILE_8
 
 
@@ -171,10 +221,18 @@ sub x4, x4, #1
 add x0, x0, #2
 // quant_scale = 127 / absmax
 // dequant_scale = absmax / 127
-fdiv h2, h31, h0
-fdiv h3, h0, h31
-st1 {v2.h}[0], [x1], #2
-st1 {v3.h}[0], [x2], #2
+fcvtl v4.4s, v0.4h
+
+fdiv v8.4s, v31.4s, v4.4s
+fdiv v12.4s, v4.4s, v31.4s
+
+st1 {v8.s}[0], [x1], #4
+st1 {v12.s}[0], [x2], #4
+
+// fdiv h2, h31, h0
+// fdiv h3, h0, h31
+// st1 {v2.h}[0], [x1], #2
+// st1 {v3.h}[0], [x2], #2
 b TILE_1
 
 

@@ -15,24 +15,18 @@
 namespace MNN {
 namespace OpenCL {
 
-class DeconvBufExecution : public ConvBufCommonExecution {
+class DeconvBufExecution : public ConvBufCommonExecution, public CommonExecution {
 public:
     DeconvBufExecution(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend);
+    DeconvBufExecution(std::shared_ptr<ConvBufResource> resource, const MNN::Op* op, Backend* backend);
     virtual ~DeconvBufExecution();
 
-    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-    virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    virtual ErrorCode onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
 
 private:
-    const Convolution2DCommon *mConv2dCommonParams;
     std::vector<uint32_t> mLWS{0, 0, 0, 0};
     std::vector<uint32_t> mGWS{0, 0, 0, 0};
-    std::vector<int> mStrides{0, 0};
-    std::vector<int> mDilations{0, 0};
-    std::shared_ptr<Tensor> mFilter;
-    cl::Kernel mKernel;
-    uint32_t mMaxWorkGroupSize;
-    OpenCLBackend *mOpenCLBackend;
 };
 
 } // namespace OpenCL

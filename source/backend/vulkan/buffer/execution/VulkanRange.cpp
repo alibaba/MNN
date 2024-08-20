@@ -25,7 +25,11 @@ VulkanRange::VulkanRange(halide_type_t type, Backend* backend) : VulkanBasicExec
         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
         VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
     };
-    mPipeline = vkbackend->getPipeline("glsl_range_comp", types);
+    if (type.code == halide_type_int) {
+        mPipeline = vkbackend->getPipeline("glsl_range_USE_INT_comp", types);
+    } else {
+        mPipeline = vkbackend->getPipeline("glsl_range_comp", types);
+    }
     mDesSet.reset(mPipeline->createSet());
 }
 

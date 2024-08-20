@@ -55,6 +55,7 @@ public:
     bool isPropError();
     bool isQcomError();
     bool isCL1_2Error();
+    bool isGlError();
     
     using clGetPlatformIDsFunc        = cl_int (CL_API_CALL *)(cl_uint, cl_platform_id *, cl_uint *);
     using clGetPlatformInfoFunc       = cl_int (CL_API_CALL *)(cl_platform_id, cl_platform_info, size_t, void *, size_t *);
@@ -262,6 +263,7 @@ private:
     bool mPropError{false};
     bool mQcomError{false};
     bool mCL_12Error{false};
+    bool mGlError{false};
 };
 
 class OpenCLSymbolsOperator {

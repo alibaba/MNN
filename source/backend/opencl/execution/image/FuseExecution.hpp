@@ -9,27 +9,19 @@
 #ifndef FuseExecution_hpp
 #define FuseExecution_hpp
 
-#include <vector>
-#include "core/Execution.hpp"
-#include "backend/opencl/core/OpenCLBackend.hpp"
-#include "backend/opencl/core/OpenCLRunningUtils.hpp"
-#include "backend/opencl/execution/image/CommonExtension.hpp"
+#include "CommonExecution.hpp"
 
 namespace MNN {
 namespace OpenCL {
 
-class FuseExecution : public Execution, public CommonExtension {
+class FuseExecution : public CommonExecution {
 public:
     FuseExecution(const std::vector<Tensor *> &inputs, Backend *backend, const Op* op);
 
     virtual ~FuseExecution() = default;
-    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-    virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-
-    bool buildFuseKernel(const Op* op);
+    virtual ErrorCode onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 private:
     std::string mKernelName;
-    cl::Kernel mKernel;
     uint32_t mMaxWorkGroupSize;
     OpenCLBackend *mOpenCLBackend;
     std::vector<uint32_t> mGlobalWorkSize{1, 1, 1};

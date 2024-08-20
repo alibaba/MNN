@@ -1,3 +1,11 @@
+//
+//  MetalLoop.mm
+//  MNN
+//
+//  Created by MNN on 2023/12/28.
+//  Copyright © 2018, Alibaba Group Holding Limited
+//
+
 #import "core/Macro.h"
 #import "MetalCast.hpp"
 #import "MetalBinary.hpp"
@@ -207,7 +215,6 @@ public:
         auto AStride = cmd->view()->GetAs<View>(1)->stride()->data();
         auto BStride = cmd->view()->GetAs<View>(2)->stride()->data();
         auto OStride = cmd->view()->GetAs<View>(0)->stride()->data();
-        int totalSize = mLoop->loopNumber() * size[0] * size[1] * size[2];
         auto param = reinterpret_cast<VulkanBatchMatMulInfo*>([mParam contents]);
         param->size[3] = mLoop->loopNumber();
         for (int i=0; i<3; ++i) {
@@ -232,7 +239,7 @@ public:
         auto AStride = cmd->view()->GetAs<View>(1)->stride()->data();
         auto BStride = cmd->view()->GetAs<View>(2)->stride()->data();
         auto OStride = cmd->view()->GetAs<View>(0)->stride()->data();
-        int totalSize = mLoop->loopNumber() * size[0] * size[1] * size[2];
+        size_t totalSize = mLoop->loopNumber() * size[0] * size[2];
         [encoder setComputePipelineState:mPipeline];
         for (int i=0; i<cmd->indexes()->size(); ++i) {
             MetalBackend::setTensor(mTensors[cmd->indexes()->data()[i]], encoder, i);
@@ -485,7 +492,7 @@ public:
         mLoop = loop;
         auto mtbn = static_cast<MetalBackend *>(bn);
         auto context = (__bridge MNNMetalContext *)mtbn->context();
-        mParam = [context newDeviceBuffer:sizeof(BinaryBroadCastInfo) access:CPUWriteOnly];
+        mParam = mtbn->getConstBuffer(sizeof(BinaryBroadCastInfo));
         mTensors = std::move(tensors);
         auto cmd = mLoop->commands()->GetAs<RegionCommand>(0);
         auto dstTensor = mTensors[cmd->indexes()->data()[0]];
@@ -516,7 +523,10 @@ public:
         }
         mPipeline = pipeline;
     }
-    virtual ~MetalBinaryBroadCast() = default;
+    virtual ~MetalBinaryBroadCast() {
+        auto mtbn = static_cast<MetalBackend*>(backend());
+        mtbn->returnConstBuffer(mParam);
+    }
     virtual ErrorCode onResize(const std::vector<Tensor *>& inputs, const std::vector<Tensor *>& outputs) override {
         _setTensorStack(mTensors, inputs, outputs, mLoop);
         auto cmd = mLoop->commands()->GetAs<RegionCommand>(0);

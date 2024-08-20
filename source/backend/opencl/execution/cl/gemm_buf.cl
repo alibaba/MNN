@@ -25,41 +25,35 @@ __kernel void gemm_buf(GLOBAL_SIZE_DIM2
     const int pos_y = pos.x / width;
     const int pos_z = pos.y;
 
-    FLOAT16 o = (FLOAT16)0;
+    COMPUTE_FLOAT16 o = (COMPUTE_FLOAT16)0;
     
     int kenerlY   = mad24(pos_z, height, pos_y);
-    int srcY      = mad24(pos_z, width, pos_x);
 
-    for (int k = 0; k < srcChannelC4; ++k) {
-        __private int index = mul24(k, 4);
-        
+    for (int k = 0; k < srcChannelC4; ++k) {        
         //NHWC  [1, 1, alpha2*height, srcChannelC4*4] x 4
         //index:[0, 0, pos_z*width+pos_y,    index+0]
         //int inp1_offset = (((k * (alpha2*height) + kenerlY) * (srcChannelC4*4) + index)*4 + 0)*4;
         
-        FLOAT16 k_v16 = vload16(kenerlY*(srcChannelC4) + k, input1);
+        COMPUTE_FLOAT16 k_v16 = CONVERT_COMPUTE_FLOAT16(vload16(kenerlY*(srcChannelC4) + k, input1));
         
         //NC4HW4 [alpha*alpha, srcChannelC4, width, 4] x 4
         //index: [pos_z,       k,            pos_x, 0]
         
-        FLOAT16 s = vload16(((pos_z*srcChannelC4 + k) * width + pos_x), input0);
+        COMPUTE_FLOAT16 s = CONVERT_COMPUTE_FLOAT16(vload16(((pos_z*srcChannelC4 + k) * width + pos_x), input0));
 
-        o = mad((FLOAT16)((FLOAT4)s.s0, (FLOAT4)s.s4, (FLOAT4)s.s8, (FLOAT4)s.sc), (FLOAT16)(k_v16.s0123, k_v16.s0123, k_v16.s0123, k_v16.s0123), o);
-        o = mad((FLOAT16)((FLOAT4)s.s1, (FLOAT4)s.s5, (FLOAT4)s.s9, (FLOAT4)s.sd), (FLOAT16)(k_v16.s4567, k_v16.s4567, k_v16.s4567, k_v16.s4567), o);
-        o = mad((FLOAT16)((FLOAT4)s.s2, (FLOAT4)s.s6, (FLOAT4)s.sa, (FLOAT4)s.se), (FLOAT16)(k_v16.s89ab, k_v16.s89ab, k_v16.s89ab, k_v16.s89ab), o);
-        o = mad((FLOAT16)((FLOAT4)s.s3, (FLOAT4)s.s7, (FLOAT4)s.sb, (FLOAT4)s.sf), (FLOAT16)(k_v16.scdef, k_v16.scdef, k_v16.scdef, k_v16.scdef), o);
+        o = mad((COMPUTE_FLOAT16)((COMPUTE_FLOAT4)s.s0, (COMPUTE_FLOAT4)s.s4, (COMPUTE_FLOAT4)s.s8, (COMPUTE_FLOAT4)s.sc), (COMPUTE_FLOAT16)(k_v16.s0123, k_v16.s0123, k_v16.s0123, k_v16.s0123), o);
+        o = mad((COMPUTE_FLOAT16)((COMPUTE_FLOAT4)s.s1, (COMPUTE_FLOAT4)s.s5, (COMPUTE_FLOAT4)s.s9, (COMPUTE_FLOAT4)s.sd), (COMPUTE_FLOAT16)(k_v16.s4567, k_v16.s4567, k_v16.s4567, k_v16.s4567), o);
+        o = mad((COMPUTE_FLOAT16)((COMPUTE_FLOAT4)s.s2, (COMPUTE_FLOAT4)s.s6, (COMPUTE_FLOAT4)s.sa, (COMPUTE_FLOAT4)s.se), (COMPUTE_FLOAT16)(k_v16.s89ab, k_v16.s89ab, k_v16.s89ab, k_v16.s89ab), o);
+        o = mad((COMPUTE_FLOAT16)((COMPUTE_FLOAT4)s.s3, (COMPUTE_FLOAT4)s.s7, (COMPUTE_FLOAT4)s.sb, (COMPUTE_FLOAT4)s.sf), (COMPUTE_FLOAT16)(k_v16.scdef, k_v16.scdef, k_v16.scdef, k_v16.scdef), o);
     }
-
-    __private int out_y_idx = mul24(pos_y, 4);
-    //NC4HW4 [dstChannelC4, alpha2, 4, UP_DIV(wUnit*hUnit,4)] x 4
-
+    
     //index: [pos_y,  pos_z,  0, pos_x]
     int out_offset = (((pos_y * alpha2 + pos_z) * 4 + 0) * width + pos_x) * 4;
 
-    vstore4(o.s0123, 0, output+out_offset);
-    vstore4(o.s4567, 0, output+out_offset+4*width);
-    vstore4(o.s89ab, 0, output+out_offset+8*width);
-    vstore4(o.scdef, 0, output+out_offset+12*width);
+    vstore4(CONVERT_FLOAT4(o.s0123), 0, output+out_offset);
+    vstore4(CONVERT_FLOAT4(o.s4567), 0, output+out_offset+4*width);
+    vstore4(CONVERT_FLOAT4(o.s89ab), 0, output+out_offset+8*width);
+    vstore4(CONVERT_FLOAT4(o.scdef), 0, output+out_offset+12*width);
 }
 
 
@@ -80,8 +74,8 @@ __kernel void gemm_buf2(GLOBAL_SIZE_DIM2
     const int pos_y = pos.x / width_block;
     const int pos_z = pos.y;
 
-    FLOAT16 o0 = (FLOAT16)0;
-    FLOAT16 o1 = (FLOAT16)0;
+    COMPUTE_FLOAT16 o0 = (COMPUTE_FLOAT16)0;
+    COMPUTE_FLOAT16 o1 = (COMPUTE_FLOAT16)0;
 
     const int kenerlY   = mad24(pos_z, height, pos_y);
     const int kernel_base = mul24(kenerlY, srcChannelC4);
@@ -92,239 +86,261 @@ __kernel void gemm_buf2(GLOBAL_SIZE_DIM2
         //index:[0, 0, pos_z*width+pos_y,    index+0]
         //int inp1_offset = (((k * (alpha2*height) + kenerlY) * (srcChannelC4*4) + index)*4 + 0)*4;
         
-        FLOAT16 k_v16 = vload16(kernel_base + k, input1);
+        COMPUTE_FLOAT16 k_v16 = CONVERT_COMPUTE_FLOAT16(vload16(kernel_base + k, input1));
         
         //NC4HW4 [alpha*alpha, srcChannelC4, width, 4] x 4
         //index: [pos_z,       k,            pos_x, 0]
         
         const int inp_offset = mad24(k, width, inp_base);
-        FLOAT16 s = vload16(inp_offset, input0);
+        COMPUTE_FLOAT16 s = CONVERT_COMPUTE_FLOAT16(vload16(inp_offset, input0));
 
-        o0 = mad((FLOAT16)((FLOAT4)s.s0, (FLOAT4)s.s4, (FLOAT4)s.s8, (FLOAT4)s.sc), (FLOAT16)(k_v16.s0123, k_v16.s0123, k_v16.s0123, k_v16.s0123), o0);
-        o0 = mad((FLOAT16)((FLOAT4)s.s1, (FLOAT4)s.s5, (FLOAT4)s.s9, (FLOAT4)s.sd), (FLOAT16)(k_v16.s4567, k_v16.s4567, k_v16.s4567, k_v16.s4567), o0);
-        o0 = mad((FLOAT16)((FLOAT4)s.s2, (FLOAT4)s.s6, (FLOAT4)s.sa, (FLOAT4)s.se), (FLOAT16)(k_v16.s89ab, k_v16.s89ab, k_v16.s89ab, k_v16.s89ab), o0);
-        o0 = mad((FLOAT16)((FLOAT4)s.s3, (FLOAT4)s.s7, (FLOAT4)s.sb, (FLOAT4)s.sf), (FLOAT16)(k_v16.scdef, k_v16.scdef, k_v16.scdef, k_v16.scdef), o0);
+        o0 = mad((COMPUTE_FLOAT16)((COMPUTE_FLOAT4)s.s0, (COMPUTE_FLOAT4)s.s4, (COMPUTE_FLOAT4)s.s8, (COMPUTE_FLOAT4)s.sc), (COMPUTE_FLOAT16)(k_v16.s0123, k_v16.s0123, k_v16.s0123, k_v16.s0123), o0);
+        o0 = mad((COMPUTE_FLOAT16)((COMPUTE_FLOAT4)s.s1, (COMPUTE_FLOAT4)s.s5, (COMPUTE_FLOAT4)s.s9, (COMPUTE_FLOAT4)s.sd), (COMPUTE_FLOAT16)(k_v16.s4567, k_v16.s4567, k_v16.s4567, k_v16.s4567), o0);
+        o0 = mad((COMPUTE_FLOAT16)((COMPUTE_FLOAT4)s.s2, (COMPUTE_FLOAT4)s.s6, (COMPUTE_FLOAT4)s.sa, (COMPUTE_FLOAT4)s.se), (COMPUTE_FLOAT16)(k_v16.s89ab, k_v16.s89ab, k_v16.s89ab, k_v16.s89ab), o0);
+        o0 = mad((COMPUTE_FLOAT16)((COMPUTE_FLOAT4)s.s3, (COMPUTE_FLOAT4)s.s7, (COMPUTE_FLOAT4)s.sb, (COMPUTE_FLOAT4)s.sf), (COMPUTE_FLOAT16)(k_v16.scdef, k_v16.scdef, k_v16.scdef, k_v16.scdef), o0);
         
-        s = vload16(inp_offset + 1, input0);
-        o1 = mad((FLOAT16)((FLOAT4)s.s0, (FLOAT4)s.s4, (FLOAT4)s.s8, (FLOAT4)s.sc), (FLOAT16)(k_v16.s0123, k_v16.s0123, k_v16.s0123, k_v16.s0123), o1);
-        o1 = mad((FLOAT16)((FLOAT4)s.s1, (FLOAT4)s.s5, (FLOAT4)s.s9, (FLOAT4)s.sd), (FLOAT16)(k_v16.s4567, k_v16.s4567, k_v16.s4567, k_v16.s4567), o1);
-        o1 = mad((FLOAT16)((FLOAT4)s.s2, (FLOAT4)s.s6, (FLOAT4)s.sa, (FLOAT4)s.se), (FLOAT16)(k_v16.s89ab, k_v16.s89ab, k_v16.s89ab, k_v16.s89ab), o1);
-        o1 = mad((FLOAT16)((FLOAT4)s.s3, (FLOAT4)s.s7, (FLOAT4)s.sb, (FLOAT4)s.sf), (FLOAT16)(k_v16.scdef, k_v16.scdef, k_v16.scdef, k_v16.scdef), o1);
+        s = CONVERT_COMPUTE_FLOAT16(vload16(inp_offset + 1, input0));
+        o1 = mad((COMPUTE_FLOAT16)((COMPUTE_FLOAT4)s.s0, (COMPUTE_FLOAT4)s.s4, (COMPUTE_FLOAT4)s.s8, (COMPUTE_FLOAT4)s.sc), (COMPUTE_FLOAT16)(k_v16.s0123, k_v16.s0123, k_v16.s0123, k_v16.s0123), o1);
+        o1 = mad((COMPUTE_FLOAT16)((COMPUTE_FLOAT4)s.s1, (COMPUTE_FLOAT4)s.s5, (COMPUTE_FLOAT4)s.s9, (COMPUTE_FLOAT4)s.sd), (COMPUTE_FLOAT16)(k_v16.s4567, k_v16.s4567, k_v16.s4567, k_v16.s4567), o1);
+        o1 = mad((COMPUTE_FLOAT16)((COMPUTE_FLOAT4)s.s2, (COMPUTE_FLOAT4)s.s6, (COMPUTE_FLOAT4)s.sa, (COMPUTE_FLOAT4)s.se), (COMPUTE_FLOAT16)(k_v16.s89ab, k_v16.s89ab, k_v16.s89ab, k_v16.s89ab), o1);
+        o1 = mad((COMPUTE_FLOAT16)((COMPUTE_FLOAT4)s.s3, (COMPUTE_FLOAT4)s.s7, (COMPUTE_FLOAT4)s.sb, (COMPUTE_FLOAT4)s.sf), (COMPUTE_FLOAT16)(k_v16.scdef, k_v16.scdef, k_v16.scdef, k_v16.scdef), o1);
     }
-
-    __private int out_y_idx = mul24(pos_y, 4);
-    //NC4HW4 [dstChannelC4, alpha2, 4, UP_DIV(wUnit*hUnit,4)] x 4
 
     //index: [pos_y,  pos_z,  0, pos_x]
     int out_offset = (((pos_y * alpha2 + pos_z) * 4 + 0) * width + pos_x) * 4;
 
-    vstore4(o0.s0123, 0, output+out_offset);
-    vstore4(o0.s4567, 0, output+out_offset+4*width);
-    vstore4(o0.s89ab, 0, output+out_offset+8*width);
-    vstore4(o0.scdef, 0, output+out_offset+12*width);
+    vstore4(CONVERT_FLOAT4(o0.s0123), 0, output+out_offset);
+    vstore4(CONVERT_FLOAT4(o0.s4567), 0, output+out_offset+4*width);
+    vstore4(CONVERT_FLOAT4(o0.s89ab), 0, output+out_offset+8*width);
+    vstore4(CONVERT_FLOAT4(o0.scdef), 0, output+out_offset+12*width);
     
     if(pos_x + 1 >= width) return;
-    vstore4(o1.s0123, 1, output+out_offset);
-    vstore4(o1.s4567, 1, output+out_offset+4*width);
-    vstore4(o1.s89ab, 1, output+out_offset+8*width);
-    vstore4(o1.scdef, 1, output+out_offset+12*width);
+    vstore4(CONVERT_FLOAT4(o1.s0123), 1, output+out_offset);
+    vstore4(CONVERT_FLOAT4(o1.s4567), 1, output+out_offset+4*width);
+    vstore4(CONVERT_FLOAT4(o1.s89ab), 1, output+out_offset+8*width);
+    vstore4(CONVERT_FLOAT4(o1.scdef), 1, output+out_offset+12*width);
 }
 
-
-__kernel void gemm_conv_buf(GLOBAL_SIZE_DIM2
+// [B, K/4, area, 4] -> [alignK, alignM] (M = B * area)
+__kernel void transpose_pad(GLOBAL_SIZE_DIM2
+                        const int alignM,
+                        const int alignK,
+                        const int M,
+                        const int K,
+                        const int area,
                         __global const FLOAT* input,
-#if (defined USE_LOW_BIT_WEIGHT_INT8)
-                        __global const char *weight,
-                        __global const FLOAT *dequantScale,
-                        __global const FLOAT *dequantOffset,
-#elif (defined USE_LOW_BIT_WEIGHT_INT4)
-                        __global const uchar *weight,
-                        __global const FLOAT *dequantScale,
-                        __global const FLOAT *dequantOffset,
-#else
-                        __global const FLOAT *weight,
-#endif
-                        __global const FLOAT *bias,
-                        __global FLOAT* output,
-                        __private const int dstChannelC4,
-                        __private const int srcChannelC4,
-                        __private const int batch) {
-    int2 pos = (int2)(get_global_id(0), get_global_id(1)); //cout/4, b
-    UNIFORM_BOUNDRY_CHECK(pos.x, pos.y);
-    int pos_x = pos.x << 2;
+                        __global FLOAT* output
+                        ) {
+#ifdef AREA_EQUAL_1
+    const int idx_m4 = get_global_id(0); // idx M
+    const int idx_k4 = get_global_id(1); // idx K
+    UNIFORM_BOUNDRY_CHECK(idx_m4, idx_k4);
 
-    FLOAT4 bias0 = vload4(0, bias + pos_x);
-    FLOAT sum = 0;
-    FLOAT4 out = 0;
+    const int idx_m = idx_m4 << 2;
+    const int idx_k = idx_k4 << 2;
+    const int K_4 = (K + 3) >> 2;
+    const int in_offset_base  = (idx_m * K_4 + idx_k4) * 4;
+    const int out_offset_base = idx_k * alignM + idx_m;
     
-    int input_offset = pos.y * srcChannelC4 * 4;
-    int out_offset = pos.y * dstChannelC4 * 4;
-#if (defined USE_LOW_BIT_WEIGHT_INT4)
-    int weight_offset = pos.x * 8;
-    int weight_oc_offset = dstChannelC4 * 8;
-#else
-    int weight_offset = pos.x * 16;
-    int weight_oc_offset = dstChannelC4 * 16;
-#endif
+    FLOAT4 m0k4 = (idx_k4 >= K_4 || idx_m + 0 >= M) ? (FLOAT4)0 : vload4(0, input + in_offset_base);
+    FLOAT4 m1k4 = (idx_k4 >= K_4 || idx_m + 1 >= M) ? (FLOAT4)0 : vload4(0, input + in_offset_base + (K_4 << 2));
+    FLOAT4 m2k4 = (idx_k4 >= K_4 || idx_m + 2 >= M) ? (FLOAT4)0 : vload4(0, input + in_offset_base + (K_4 << 2) * 2);
+    FLOAT4 m3k4 = (idx_k4 >= K_4 || idx_m + 3 >= M) ? (FLOAT4)0 : vload4(0, input + in_offset_base + (K_4 << 2) * 3);
     
-#if (defined USE_LOW_BIT_WEIGHT_INT8) || (defined USE_LOW_BIT_WEIGHT_INT4)
-    const FLOAT4 Scale = vload4(pos.x, dequantScale);
-    const FLOAT4 Offset = vload4(pos.x, dequantOffset);
-#endif
+    vstore4((FLOAT4)(m0k4.x, m1k4.x, m2k4.x, m3k4.x), 0, output + out_offset_base);
+    vstore4((FLOAT4)(m0k4.y, m1k4.y, m2k4.y, m3k4.y), 0, output + out_offset_base + alignM);
+    vstore4((FLOAT4)(m0k4.z, m1k4.z, m2k4.z, m3k4.z), 0, output + out_offset_base + alignM + alignM);
+    vstore4((FLOAT4)(m0k4.w, m1k4.w, m2k4.w, m3k4.w), 0, output + out_offset_base + alignM + alignM + alignM);
+#elif defined BATCH_EQUAL_1
 
-    for (int k = 0; k < srcChannelC4; ++k) {
-        FLOAT4 in = vload4(k, input + input_offset);
-#if (defined USE_LOW_BIT_WEIGHT_INT8)
-        FLOAT16 weights = CONVERT_FLOAT16(vload16(0, weight + weight_offset + k * weight_oc_offset));
-        sum += in.x + in.y + in.z + in.w;
-#elif (defined USE_LOW_BIT_WEIGHT_INT4)
-        uchar8 charWeightsInt4 = vload8(0, weight + weight_offset + k * weight_oc_offset);
-        char16 charWeights = 0;
-        charWeights.s0 = (charWeightsInt4.s0 >> 4) - 8;
-        charWeights.s1 = (charWeightsInt4.s0 & 15) - 8;
-        charWeights.s2 = (charWeightsInt4.s1 >> 4) - 8;
-        charWeights.s3 = (charWeightsInt4.s1 & 15) - 8;
-        charWeights.s4 = (charWeightsInt4.s2 >> 4) - 8;
-        charWeights.s5 = (charWeightsInt4.s2 & 15) - 8;
-        charWeights.s6 = (charWeightsInt4.s3 >> 4) - 8;
-        charWeights.s7 = (charWeightsInt4.s3 & 15) - 8;
-        charWeights.s8 = (charWeightsInt4.s4 >> 4) - 8;
-        charWeights.s9 = (charWeightsInt4.s4 & 15) - 8;
-        charWeights.sa = (charWeightsInt4.s5 >> 4) - 8;
-        charWeights.sb = (charWeightsInt4.s5 & 15) - 8;
-        charWeights.sc = (charWeightsInt4.s6 >> 4) - 8;
-        charWeights.sd = (charWeightsInt4.s6 & 15) - 8;
-        charWeights.se = (charWeightsInt4.s7 >> 4) - 8;
-        charWeights.sf = (charWeightsInt4.s7 & 15) - 8;
-        FLOAT16 weights = CONVERT_FLOAT16(charWeights);
-        sum += in.x + in.y + in.z + in.w;
-                
+    const int idx_m4 = get_global_id(0); // idx M
+    const int idx_k4 = get_global_id(1); // idx K
+    UNIFORM_BOUNDRY_CHECK(idx_m4, idx_k4);
+
+    const int idx_m = idx_m4 << 2;
+    const int idx_k = idx_k4 << 2;
+    const int K_4 = (K + 3) >> 2;
+    const int in_offset_base  = (idx_k4 * area + idx_m) * 4;
+    const int out_offset_base = idx_k * alignM + idx_m;
+
+    FLOAT4 m0k4 = (idx_k4 >= K_4 || idx_m + 0 >= M) ? (FLOAT4)0 : vload4(0, input + in_offset_base);
+    FLOAT4 m1k4 = (idx_k4 >= K_4 || idx_m + 1 >= M) ? (FLOAT4)0 : vload4(0, input + in_offset_base + 4);
+    FLOAT4 m2k4 = (idx_k4 >= K_4 || idx_m + 2 >= M) ? (FLOAT4)0 : vload4(0, input + in_offset_base + 8);
+    FLOAT4 m3k4 = (idx_k4 >= K_4 || idx_m + 3 >= M) ? (FLOAT4)0 : vload4(0, input + in_offset_base + 12);
+
+    vstore4((FLOAT4)(m0k4.x, m1k4.x, m2k4.x, m3k4.x), 0, output + out_offset_base);
+    vstore4((FLOAT4)(m0k4.y, m1k4.y, m2k4.y, m3k4.y), 0, output + out_offset_base + alignM);
+    vstore4((FLOAT4)(m0k4.z, m1k4.z, m2k4.z, m3k4.z), 0, output + out_offset_base + alignM + alignM);
+    vstore4((FLOAT4)(m0k4.w, m1k4.w, m2k4.w, m3k4.w), 0, output + out_offset_base + alignM + alignM + alignM);
+
 #else
-        FLOAT16 weights = vload16(0, weight + weight_offset + k * weight_oc_offset);
-#endif
-        
-        out = mad((FLOAT4)in.x, (FLOAT4)weights.s0123, out);
-        out = mad((FLOAT4)in.y, (FLOAT4)weights.s4567, out);
-        out = mad((FLOAT4)in.z, (FLOAT4)weights.s89ab, out);
-        out = mad((FLOAT4)in.w, (FLOAT4)weights.scdef, out);
+
+    const int idx_m = get_global_id(0); // idx M
+    const int idx_k4 = get_global_id(1); // idx K
+    UNIFORM_BOUNDRY_CHECK(idx_m, idx_k4);
+    
+    const int K_4 = (K + 3) >> 2;
+    const int idx_k = idx_k4 << 2;
+    const int out_offset_base = idx_k * alignM + idx_m;
+    
+    if(idx_k4 >= K_4 || idx_m >= M) {
+        output[out_offset_base] = (FLOAT)0;
+        output[out_offset_base + alignM] = (FLOAT)0;
+        output[out_offset_base + alignM + alignM] = (FLOAT)0;
+        output[out_offset_base + alignM + alignM + alignM] = (FLOAT)0;
+        return;
     }
+    const int idx_b = idx_m / area;
+    const int idx_area = idx_m % area;
     
-#if (defined USE_LOW_BIT_WEIGHT_INT8) || (defined USE_LOW_BIT_WEIGHT_INT4)
-    out = bias0 + mad(out, Scale, sum * Offset);
+    const int in_offset_base  = ((idx_b * K_4 + idx_k4) * area + idx_area) * 4;
+    FLOAT4 data = vload4(0, input + in_offset_base);
+    
+    output[out_offset_base] = data.x;
+    output[out_offset_base + alignM] = data.y;
+    output[out_offset_base + alignM + alignM] = data.z;
+    output[out_offset_base + alignM + alignM + alignM] = data.w;
 #endif
-#ifdef RELU
-    out = fmax(out, (FLOAT4)0);
-#endif
-
-#ifdef RELU6
-    out = clamp(out, (FLOAT4)0, (FLOAT4)6);
-#endif
-
-    vstore4(out, pos.x, output+out_offset);
 }
 
-__kernel void gemm_conv_b2_buf(GLOBAL_SIZE_DIM2
-                        __global const FLOAT *input,
-#if (defined USE_LOW_BIT_WEIGHT_INT8)
-                        __global const char *weight,
-                        __global const FLOAT *dequantScale,
-                        __global const FLOAT *dequantOffset,
-#elif (defined USE_LOW_BIT_WEIGHT_INT4)
-                        __global const uchar *weight,
-                        __global const FLOAT *dequantScale,
-                        __global const FLOAT *dequantOffset,
-#else
-                        __global const FLOAT *weight,
-#endif
-                        __global const FLOAT *bias,
-                        __global FLOAT *output,
-                        __private const int dstChannelC4,
-                        __private const int srcChannelC4,
-                        __private const int batch) {
-    int2 pos = (int2)(get_global_id(0), get_global_id(1)); //cout/4, b
-    UNIFORM_BOUNDRY_CHECK(pos.x, pos.y);
-    int pos_x = pos.x << 2;
-    int pos_y = pos.y << 1;
+// [alignM, alignN] -> [B, N/4, area, 4] (M = B * area)
+__kernel void transpose_bias(GLOBAL_SIZE_DIM2
+                        const int alignM,
+                        const int alignN,
+                        const int M,
+                        const int N,
+                        const int area,
+                        __global const FLOAT* input0,
+                        __global const FLOAT* input1,
+                        __global FLOAT* output
+                        ) {
+#ifdef AREA_EQUAL_1
+    const int idx_m = get_global_id(0); // idx M
+    const int idx_n_16 = get_global_id(1); // idx N
+    UNIFORM_BOUNDRY_CHECK(idx_m, idx_n_16);
 
-    FLOAT4 bias0 = vload4(0, bias + pos_x);
-    FLOAT sum0 = 0, sum1 = 0;
-    FLOAT4 out0 = (FLOAT4)0, out1 = (FLOAT4)0;
-    
-    int input_offset = pos_y * srcChannelC4 * 4;
-    int out_offset = pos_y * dstChannelC4 * 4;
-#if (defined USE_LOW_BIT_WEIGHT_INT4)
-    int weight_offset = pos.x * 8;
-    int weight_oc_offset = dstChannelC4 * 8;
-#else
-    int weight_offset = pos.x * 16;
-    int weight_oc_offset = dstChannelC4 * 16;
-#endif
-    
-#if (defined USE_LOW_BIT_WEIGHT_INT8) || (defined USE_LOW_BIT_WEIGHT_INT4)
-    const FLOAT4 Scale = vload4(pos.x, dequantScale);
-    const FLOAT4 Offset = vload4(pos.x, dequantOffset);
-#endif
+    const int N_4 = (N + 3) >> 2;
+    const int N_16 = (N + 15) >> 4;
+    const int N_left = N & 15;
+    bool canVec16 = (N_left == 0 || (N_left != 0 && idx_n_16 < N_16 - 1));
+    if(canVec16) {
+        FLOAT16 res0 = vload16(0, input0 + idx_m * alignN + (idx_n_16 << 4));
+        FLOAT16 res1 = vload16(0, input1 + (idx_n_16 << 4));
+        FLOAT16 res = res0 + res1;
+        #ifdef RELU
+            res = fmax(res, (FLOAT16)0);
+        #endif
+        #ifdef RELU6
+            res = clamp(res, (FLOAT16)0, (FLOAT16)6);
+        #endif
+        vstore16(res, 0, output + ((idx_m * N_4 + (idx_n_16 << 2)) << 2));
+    } else {
 
-    for (int k = 0; k < srcChannelC4; ++k) {
-        FLOAT4 in0 = vload4(k, input + input_offset);
-        FLOAT4 in1 = vload4(k, input + input_offset + srcChannelC4 * 4);
-#if (defined USE_LOW_BIT_WEIGHT_INT8)
-        FLOAT16 weights = CONVERT_FLOAT16(vload16(0, weight + weight_offset + k * weight_oc_offset));
-        sum0 += in0.x + in0.y + in0.z + in0.w;
-        sum1 += in1.x + in1.y + in1.z + in1.w;
-#elif (defined USE_LOW_BIT_WEIGHT_INT4)
-        uchar8 charWeightsInt4 = vload8(0, weight + weight_offset + k * weight_oc_offset);
-        char16 charWeights = 0;
-        charWeights.s0 = (charWeightsInt4.s0 >> 4) - 8;
-        charWeights.s1 = (charWeightsInt4.s0 & 15) - 8;
-        charWeights.s2 = (charWeightsInt4.s1 >> 4) - 8;
-        charWeights.s3 = (charWeightsInt4.s1 & 15) - 8;
-        charWeights.s4 = (charWeightsInt4.s2 >> 4) - 8;
-        charWeights.s5 = (charWeightsInt4.s2 & 15) - 8;
-        charWeights.s6 = (charWeightsInt4.s3 >> 4) - 8;
-        charWeights.s7 = (charWeightsInt4.s3 & 15) - 8;
-        charWeights.s8 = (charWeightsInt4.s4 >> 4) - 8;
-        charWeights.s9 = (charWeightsInt4.s4 & 15) - 8;
-        charWeights.sa = (charWeightsInt4.s5 >> 4) - 8;
-        charWeights.sb = (charWeightsInt4.s5 & 15) - 8;
-        charWeights.sc = (charWeightsInt4.s6 >> 4) - 8;
-        charWeights.sd = (charWeightsInt4.s6 & 15) - 8;
-        charWeights.se = (charWeightsInt4.s7 >> 4) - 8;
-        charWeights.sf = (charWeightsInt4.s7 & 15) - 8;
-        FLOAT16 weights = CONVERT_FLOAT16(charWeights);
-        sum0 += in0.x + in0.y + in0.z + in0.w;
-        sum1 += in1.x + in1.y + in1.z + in1.w;
-                
-#else
-        FLOAT16 weights = vload16(0, weight + weight_offset + k * weight_oc_offset);
-#endif
+        FLOAT4 res0 = vload4(0, input0 + idx_m * alignN + (idx_n_16 << 4));
+        FLOAT4 res1 = vload4(0, input1 + (idx_n_16 << 4));
+        FLOAT4 res = res0 + res1;
+        #ifdef RELU
+            res = fmax(res, (FLOAT4)0);
+        #endif
+        #ifdef RELU6
+            res = clamp(res, (FLOAT4)0, (FLOAT4)6);
+        #endif
+        vstore4(res, 0, output + ((idx_m * N_4 + (idx_n_16 << 2)) << 2));
         
-        out0 = mad((FLOAT4)in0.x, (FLOAT4)weights.s0123, out0);
-        out0 = mad((FLOAT4)in0.y, (FLOAT4)weights.s4567, out0);
-        out0 = mad((FLOAT4)in0.z, (FLOAT4)weights.s89ab, out0);
-        out0 = mad((FLOAT4)in0.w, (FLOAT4)weights.scdef, out0);
+        if(idx_n_16 * 4 + 1 >= N_4) return;
+        res0 = vload4(0, input0 + idx_m * alignN + (idx_n_16 << 4) + 4);
+        res1 = vload4(0, input1 + (idx_n_16 << 4) + 4);
+        res = res0 + res1;
+        #ifdef RELU
+            res = fmax(res, (FLOAT4)0);
+        #endif
+        #ifdef RELU6
+            res = clamp(res, (FLOAT4)0, (FLOAT4)6);
+        #endif
+        vstore4(res, 0, output + ((idx_m * N_4 + (idx_n_16 << 2)) << 2) + 4);
         
-        out1 = mad((FLOAT4)in1.x, (FLOAT4)weights.s0123, out1);
-        out1 = mad((FLOAT4)in1.y, (FLOAT4)weights.s4567, out1);
-        out1 = mad((FLOAT4)in1.z, (FLOAT4)weights.s89ab, out1);
-        out1 = mad((FLOAT4)in1.w, (FLOAT4)weights.scdef, out1);
+        if(idx_n_16 * 4 + 2 >= N_4) return;
+        res0 = vload4(0, input0 + idx_m * alignN + (idx_n_16 << 4) + 8);
+        res1 = vload4(0, input1 + (idx_n_16 << 4) + 8);
+        res = res0 + res1;
+        #ifdef RELU
+            res = fmax(res, (FLOAT4)0);
+        #endif
+        #ifdef RELU6
+            res = clamp(res, (FLOAT4)0, (FLOAT4)6);
+        #endif
+        vstore4(res, 0, output + ((idx_m * N_4 + (idx_n_16 << 2)) << 2) + 8);
+        
+        if(idx_n_16 * 4 + 3 >= N_4) return;
+        res0 = vload4(0, input0 + idx_m * alignN + (idx_n_16 << 4) + 12);
+        res1 = vload4(0, input1 + (idx_n_16 << 4) + 12);
+        res = res0 + res1;
+        #ifdef RELU
+            res = fmax(res, (FLOAT4)0);
+        #endif
+        #ifdef RELU6
+            res = clamp(res, (FLOAT4)0, (FLOAT4)6);
+        #endif
+        vstore4(res, 0, output + ((idx_m * N_4 + (idx_n_16 << 2)) << 2) + 12);
     }
+#else
+    const int idx_m = get_global_id(0); // idx M
+    const int idx_n_16 = get_global_id(1); // idx N
+    UNIFORM_BOUNDRY_CHECK(idx_m, idx_n_16);
     
-#if (defined USE_LOW_BIT_WEIGHT_INT8) || (defined USE_LOW_BIT_WEIGHT_INT4)
-    out0 = bias0 + mad(out0, Scale, sum0 * Offset);
-    out1 = bias0 + mad(out1, Scale, sum1 * Offset);
-#endif
-#ifdef RELU
-    out0 = fmax(out0, (FLOAT4)0);
-    out1 = fmax(out1, (FLOAT4)0);
-#endif
+    const int N_4 = (N + 3) >> 2;
 
-#ifdef RELU6
-    out0 = clamp(out0, (FLOAT4)0, (FLOAT4)6);
-    out1 = clamp(out1, (FLOAT4)0, (FLOAT4)6);
+    const int idx_b = idx_m / area;
+    const int idx_area = idx_m % area;
+    
+    const int inp_base_offset = idx_m * alignN + (idx_n_16 << 4);
+    const int out_base_offset = ((idx_b * N_4 + idx_n_16 * 4) * area + idx_area) * 4;
+    
+    FLOAT4 res0 = vload4(0, input0 + inp_base_offset);
+    FLOAT4 res1 = vload4(0, input1 + (idx_n_16 << 4));
+    FLOAT4 res = res0 + res1;
+    #ifdef RELU
+        res = fmax(res, (FLOAT4)0);
+    #endif
+    #ifdef RELU6
+        res = clamp(res, (FLOAT4)0, (FLOAT4)6);
+    #endif
+    vstore4(res, 0, output + out_base_offset);
+    
+    if(idx_n_16 * 4 + 1 >= N_4) return;
+    res0 = vload4(0, input0 + inp_base_offset + 4);
+    res1 = vload4(0, input1 + (idx_n_16 << 4) + 4);
+    res = res0 + res1;
+    #ifdef RELU
+        res = fmax(res, (FLOAT4)0);
+    #endif
+    #ifdef RELU6
+        res = clamp(res, (FLOAT4)0, (FLOAT4)6);
+    #endif
+    vstore4(res, 0, output + out_base_offset + area * 4);
+    
+    if(idx_n_16 * 4 + 2 >= N_4) return;
+    res0 = vload4(0, input0 + inp_base_offset + 8);
+    res1 = vload4(0, input1 + (idx_n_16 << 4) + 8);
+    res = res0 + res1;
+    #ifdef RELU
+        res = fmax(res, (FLOAT4)0);
+    #endif
+    #ifdef RELU6
+        res = clamp(res, (FLOAT4)0, (FLOAT4)6);
+    #endif
+    vstore4(res, 0, output + out_base_offset + area * 8);
+    
+    if(idx_n_16 * 4 + 3 >= N_4) return;
+    res0 = vload4(0, input0 + inp_base_offset + 12);
+    res1 = vload4(0, input1 + (idx_n_16 << 4) + 12);
+    res = res0 + res1;
+    #ifdef RELU
+        res = fmax(res, (FLOAT4)0);
+    #endif
+    #ifdef RELU6
+        res = clamp(res, (FLOAT4)0, (FLOAT4)6);
+    #endif
+    vstore4(res, 0, output + out_base_offset + area * 12);
 #endif
-
-    vstore4(out0, pos.x, output+out_offset);
-    if(pos_y + 1 < batch)
-        vstore4(out1, pos.x, output+out_offset+dstChannelC4 * 4);
 }

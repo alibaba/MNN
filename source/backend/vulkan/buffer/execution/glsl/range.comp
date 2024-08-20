@@ -1,16 +1,21 @@
 #version 440 core
 layout(std430) buffer;
 
+#ifdef USE_INT
+#define DATA_TYPE int
+#else
+#define DATA_TYPE float
+#endif
 layout(set=0, binding=0) writeonly buffer destBuffer{
-    float data[];
+    DATA_TYPE data[];
 } uOutput;
 
 layout(set=0, binding=1) readonly buffer sourceBuffer0{
-    float data[];
+    DATA_TYPE data[];
 } uStart;
 
 layout(set=0, binding=2) readonly buffer sourceBuffer1{
-    float data[];
+    DATA_TYPE data[];
 } uDelta;
 
 layout(set = 0, binding = 3) uniform constBuffer {
@@ -23,6 +28,6 @@ void main() {
     int i = int(gl_GlobalInvocationID.x);
 
     if(i < uConst.size.w) {
-        uOutput.data[i] = float(i) * uDelta.data[0] + uStart.data[0];
+        uOutput.data[i] = DATA_TYPE(i) * uDelta.data[0] + uStart.data[0];
     }
 }

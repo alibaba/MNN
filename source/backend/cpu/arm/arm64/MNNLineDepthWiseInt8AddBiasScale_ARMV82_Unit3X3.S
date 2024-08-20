@@ -19,15 +19,22 @@ asm_function MNNLineDepthWiseInt8AddBiasScale_ARMV82_Unit3X3
 //                                          size_t dilateY_step, int8_t* idx) {
 
 // kernelx=3, kernely=3,dilatex=1,dilatey=1
+/*
+struct QuanPostTreatParameters {
+    const float* scale;
+    const float* biasFloat;
+    int32_t maxValue;
+    int32_t minValue;
+    int32_t useInt8 = 1; // Save result as int8_t dataType; otherwise float32.
+    float roundValuePos = 0.5f;
+    float roundValueNeg = -0.5f;
+    float* srcKernelSum;
+    float* weightQuanBias;
+    float* fp32minmax;
+    ssize_t blockNum = 1;
+    const int32_t* bias;
 
-//struct QuanPostTreatParameters {
-//    const float* scale;
-//    const int32_t* bias;
-//    int32_t maxValue;
-//    int32_t minValue;
-//    float roundValuePos = 0.5f;
-//    float roundValueNeg = -0.5f;
-//};
+};*/
 
 // Auto Load:
 // x0: dst*, x1: src*, x2: weight*, x3: parameters*
@@ -50,7 +57,7 @@ stp x19, x20, [sp, #(16 * 5)]
 ldr x19, [x3, #0]  // scale
 ldr w20, [x3, #16] // max
 ldr w15, [x3, #20] // min
-ldr x3, [x3, #8]   // bias
+ldr x3, [x3, #72]   // bias
 ld1 {v24.16b, v25.16b, v26.16b, v27.16b}, [x14]
 ld1 {v0.16b, v1.16b}, [x2], #32 // v0,v1:weight
 ld1 {v12.s}[0], [x2]           // weight:    k:8

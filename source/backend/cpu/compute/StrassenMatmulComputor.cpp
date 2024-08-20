@@ -94,13 +94,14 @@ ErrorCode StrassenMatrixComputor::_generateTrivalMatMul(int e, int l, int h, con
     mFunctions.emplace_back(
         std::make_pair([cStride, l, h, xCount, AT, BT, CT, COT, tileBufferBasic, unitNumber, bExtraStride, numberThread, eReal, eP, active, matmulUnit, matmulRemain, dequantAlpha, dequantBias, this](int tId) {
             auto core = static_cast<CPUBackend*>(backend())->functions();
-            size_t parameters[6];
+            size_t parameters[7];
             parameters[0] = xCount * core->bytes;
             parameters[1] = l;
             parameters[2] = h;
             parameters[3] = cStride;
             parameters[4] = 0;
             parameters[5] = bExtraStride;
+            parameters[6] = 0;
             auto tileHost = tileBufferBasic.ptr() + eP * parameters[1] * tId * core->bytes;
             const float* postParametersPtr = nullptr;
             if (!active.empty()) {
@@ -526,10 +527,10 @@ ErrorCode StrassenMatrixComputor::onEncode(const std::vector<Tensor*>& inputs, c
     MemChunk bias;
     bool useBias = false;
     if (inputs.size() > 2) {
-        bias = TensorUtils::getDescribe(inputs[2])->mem->chunk();
+        bias = TensorUtils::getDescribeOrigin(inputs[2])->mem->chunk();
         useBias = true;
     }
-    return onEncode(e, l, h, as, bs, cs, TensorUtils::getDescribe(A)->mem->chunk(), TensorUtils::getDescribe(B)->mem->chunk(), TensorUtils::getDescribe(C)->mem->chunk(), useBias, bias, postParameters);
+    return onEncode(e, l, h, as, bs, cs, TensorUtils::getDescribeOrigin(A)->mem->chunk(), TensorUtils::getDescribeOrigin(B)->mem->chunk(), TensorUtils::getDescribeOrigin(C)->mem->chunk(), useBias, bias, postParameters);
 }
 
 ErrorCode StrassenMatrixComputor::onEncode(int e, int l, int h, int as, int bs, int cs, const MemChunk AT, const MemChunk BT, MemChunk CT, bool useBias, const MemChunk Bias, const std::vector<float>& postParameters) {

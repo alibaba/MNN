@@ -15,7 +15,7 @@
 #include "core/TensorUtils.hpp"
 #include "math/WingoradGenerater.hpp"
 #include <MNN/AutoTime.hpp>
-#include "common/MemoryFormater.h"
+#include "core/MemoryFormater.h"
 
 
 //#define MNN_WINOGRAD_PRINT_REDUCE_RATE
@@ -48,18 +48,5 @@ bool ConvolutionWinogradImpl::canUseWinograd(const Convolution2DCommon *common) 
     }
     return true;
 }
-
-ErrorCode ConvolutionWinogradImpl::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    return NO_ERROR;
-}
-
-ErrorCode ConvolutionWinogradImpl::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    return NO_ERROR;
-}
-
-bool ConvolutionWinogradImpl::onClone(Backend* bn, const Op* op, Execution** dst) {
-    return false;
-}
-
 
 } // namespace MNN

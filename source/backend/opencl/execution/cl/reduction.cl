@@ -45,13 +45,13 @@ __kernel void reduct_width(GLOBAL_SIZE_3_DIMS
     const int channel_idx = batch_channel_idx % outputChannelBlock;
     const int bh = batch_idx*inputHeight+height_idx;
     const int wc = channel_idx*inputWidth;
-    FLOAT4 out = (FLOAT4)VALUE;
+    INPUT_TYPE_I4 out = (INPUT_TYPE_I4)VALUE;
     
 #if LOCAL_SIZE > 0
     const int lid = get_local_id(0);
-    FLOAT4 local sum[LOCAL_SIZE];
+    INPUT_TYPE_I4 local sum[LOCAL_SIZE];
     for(int i = lid; i < inputWidth; i+=LOCAL_SIZE){
-        FLOAT4 in = RI_F(input, SAMPLER, (int2)(wc+i, bh));
+        INPUT_TYPE_I4 in = RI_DATA(input, SAMPLER, (int2)(wc+i, bh));
         out = OPERATE(out, in);
     }
     sum[lid] = out;
@@ -64,7 +64,7 @@ __kernel void reduct_width(GLOBAL_SIZE_3_DIMS
     out = sum[0];
 #else
     for(int i = 0; i < inputWidth; ++i){
-        FLOAT4 in = RI_F(input, SAMPLER, (int2)(wc+i, bh));
+        INPUT_TYPE_I4 in = RI_DATA(input, SAMPLER, (int2)(wc+i, bh));
         out = OPERATE(out, in);
     }
 #endif
@@ -72,7 +72,7 @@ __kernel void reduct_width(GLOBAL_SIZE_3_DIMS
 #ifdef GET_AVG
     out = out / inputWidth;
 #endif
-    WI_F(output, (int2)(channel_idx, bh), out);
+    WI_DATA(output, (int2)(channel_idx, bh), CONVERT_OUTPUT_I4(out));
 }
 
 
@@ -103,10 +103,10 @@ __kernel void reduct_height(GLOBAL_SIZE_3_DIMS
     const int bh = batch_idx*inputHeight;
     const int wc = channel_idx*inputWidth+width_idx;
     const int lid = get_local_id(0);
-    FLOAT4 local sum[LOCAL_SIZE];
-    FLOAT4 out = (FLOAT4)VALUE;
+    INPUT_TYPE_I4 local sum[LOCAL_SIZE];
+    INPUT_TYPE_I4 out = (INPUT_TYPE_I4)VALUE;
     for(int i = lid; i < inputHeight; i+=LOCAL_SIZE){
-        FLOAT4 in = RI_F(input, SAMPLER, (int2)(wc, bh+i));
+        INPUT_TYPE_I4 in = RI_DATA(input, SAMPLER, (int2)(wc, bh+i));
         out = OPERATE(out, in);
     }
     sum[lid] = out;
@@ -130,9 +130,9 @@ __kernel void reduct_height(GLOBAL_SIZE_3_DIMS
     
     const int bh = batch_idx*inputHeight;
     const int wc = channel_idx*inputWidth+width_idx;
-    FLOAT4 out = (FLOAT4)VALUE;
+    INPUT_TYPE_I4 out = (INPUT_TYPE_I4)VALUE;
     for(int i = 0; i < inputHeight; ++i){
-        FLOAT4 in = RI_F(input, SAMPLER, (int2)(wc, bh+i));
+        INPUT_TYPE_I4 in = RI_DATA(input, SAMPLER, (int2)(wc, bh+i));
         out = OPERATE(out, in);
     }
 #endif
@@ -140,7 +140,7 @@ __kernel void reduct_height(GLOBAL_SIZE_3_DIMS
 #ifdef GET_AVG
     out = out / inputHeight;
 #endif
-    WI_F(output, (int2)(wc, batch_idx), out);
+    WI_DATA(output, (int2)(wc, batch_idx), CONVERT_OUTPUT_I4(out));
 }
 
 __kernel void reduct_channel(GLOBAL_SIZE_3_DIMS
@@ -168,12 +168,12 @@ __kernel void reduct_channel(GLOBAL_SIZE_3_DIMS
     const int wc = width_idx;
     int remain = inputChannel - (inputChannelBlock - 1) * 4;
     const int lid = get_local_id(0);
-    FLOAT local sum[LOCAL_SIZE];
-    FLOAT4 out = (FLOAT4)VALUE;
-    FLOAT4 in;
-    FLOAT *inPtr = (FLOAT*)&in;
+    INPUT_TYPE_I local sum[LOCAL_SIZE];
+    INPUT_TYPE_I4 out = (INPUT_TYPE_I4)VALUE;
+    INPUT_TYPE_I4 in;
+    INPUT_TYPE_I *inPtr = (INPUT_TYPE_I*)&in;
     for(int i = lid; i < inputChannelBlock - 1; i += LOCAL_SIZE){
-        in = RI_F(input, SAMPLER, (int2)(i*inputWidth+wc, bh));
+        in = RI_DATA(input, SAMPLER, (int2)(i*inputWidth+wc, bh));
         out = OPERATE(out, in);
     }
     out.x = OPERATE(out.x, out.y);
@@ -187,14 +187,14 @@ __kernel void reduct_channel(GLOBAL_SIZE_3_DIMS
         barrier(CLK_LOCAL_MEM_FENCE);
     }
     out.x = sum[0];
-    in = RI_F(input, SAMPLER, (int2)((inputChannelBlock - 1)*inputWidth+wc, bh));
+    in = RI_DATA(input, SAMPLER, (int2)((inputChannelBlock - 1)*inputWidth+wc, bh));
     for(int j = 0; j < remain; ++j){
         out.x = OPERATE(out.x, inPtr[j]);
     }
 #ifdef GET_AVG
     out.x = out.x / inputChannel;
 #endif
-    WI_F(output, (int2)(wc, bh), (FLOAT4)(out.x, 0, 0, 0));
+    WI_DATA(output, (int2)(wc, bh), (OUTPUT_TYPE_I4)(out.x, 0, 0, 0));
     
 #else
     const int width_idx = get_global_id(0);
@@ -207,24 +207,24 @@ __kernel void reduct_channel(GLOBAL_SIZE_3_DIMS
     const int wc = width_idx;
     int remain = inputChannel - (inputChannelBlock - 1) * 4;
     
-    FLOAT out = (FLOAT)VALUE;
-    FLOAT4 in;
-    FLOAT *inPtr = (FLOAT*)&in;
+    INPUT_TYPE_I out = (INPUT_TYPE_I)VALUE;
+    INPUT_TYPE_I4 in;
+    INPUT_TYPE_I *inPtr = (INPUT_TYPE_I*)&in;
     
     for(int i = 0; i < inputChannelBlock - 1; ++i){
-        in = RI_F(input, SAMPLER, (int2)(i*inputWidth+wc, bh));
+        in = RI_DATA(input, SAMPLER, (int2)(i*inputWidth+wc, bh));
         for(int j = 0; j < 4; ++j){
             out = OPERATE(out, inPtr[j]);
         }
     }
-    in = RI_F(input, SAMPLER, (int2)((inputChannelBlock - 1)*inputWidth+wc, bh));
+    in = RI_DATA(input, SAMPLER, (int2)((inputChannelBlock - 1)*inputWidth+wc, bh));
     for(int j = 0; j < remain; ++j){
         out = OPERATE(out, inPtr[j]);
     }
 #ifdef GET_AVG
     out = out / inputChannel;
 #endif
-    WI_F(output, (int2)(wc, bh), (FLOAT4)(out, 0, 0, 0));
+    WI_DATA(output, (int2)(wc, bh), (OUTPUT_TYPE_I4)(out, 0, 0, 0));
 #endif
 }
 
@@ -253,10 +253,10 @@ __kernel void reduct_batch(GLOBAL_SIZE_3_DIMS
     const int wc = channel_idx*inputWidth+width_idx;
     int batchOffset = inputChannelBlock * inputHeight * inputWidth;
     const int lid = get_local_id(0);
-    FLOAT4 local sum[LOCAL_SIZE];
-    FLOAT4 out = (FLOAT4)VALUE;
+    INPUT_TYPE_I4 local sum[LOCAL_SIZE];
+    INPUT_TYPE_I4 out = (INPUT_TYPE_I4)VALUE;
     for(int i = lid; i < inputBatch; i+=LOCAL_SIZE){
-        FLOAT4 in = RI_F(input, SAMPLER, (int2)(wc, i*inputHeight+bh));
+        INPUT_TYPE_I4 in = RI_DATA(input, SAMPLER, (int2)(wc, i*inputHeight+bh));
         out = OPERATE(out, in);
     }
     sum[lid] = out;
@@ -270,7 +270,7 @@ __kernel void reduct_batch(GLOBAL_SIZE_3_DIMS
 #ifdef GET_AVG
     out = out / inputBatch;
 #endif
-    WI_F(output, (int2)(wc, bh), out);
+    WI_DATA(output, (int2)(wc, bh), CONVERT_OUTPUT_I4(out));
 #else
     const int width_idx = get_global_id(0);
     const int height_idx = get_global_id(1);
@@ -281,15 +281,15 @@ __kernel void reduct_batch(GLOBAL_SIZE_3_DIMS
     const int bh = height_idx;
     const int wc = channel_idx*inputWidth+width_idx;
     int batchOffset = inputChannelBlock * inputHeight * inputWidth;
-    FLOAT4 out = (FLOAT4)VALUE;
+    INPUT_TYPE_I4 out = (INPUT_TYPE_I4)VALUE;
     for(int i = 0; i < inputBatch; ++i){
-        FLOAT4 in = RI_F(input, SAMPLER, (int2)(wc, i*inputHeight+bh));
+        INPUT_TYPE_I4 in = RI_DATA(input, SAMPLER, (int2)(wc, i*inputHeight+bh));
         out = OPERATE(out, in);
     }
 #ifdef GET_AVG
     out = out / inputBatch;
 #endif
-    WI_F(output, (int2)(wc, bh), out);
+    WI_DATA(output, (int2)(wc, bh), CONVERT_OUTPUT_I4(out));
 #endif
 }
 

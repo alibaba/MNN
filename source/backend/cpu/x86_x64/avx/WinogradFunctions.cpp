@@ -9,7 +9,7 @@
 #include <map>
 #include "Vec8.hpp"
 #include "FunctionSummary.hpp"
-#include "common/MemoryFormater.h"
+#include "core/MemoryFormater.h"
 #define PACK_UNIT 8
 namespace MNN {
 

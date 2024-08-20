@@ -117,7 +117,15 @@ opConverter ==> MNN Converter NOT_SUPPORTED_OP: [ ANY_OP_NAME ]
 临时解决方案：升级 numpy 版本到 1.20.0 或以上
 
 ## 运行问题
-### 运行结果出错 / Tensor 的 elementSize 不为各维度乘积
+### 运行结果出错
+- 先使用 testMNNFromOnnx.py 等测试工具进行测试，具体参见模型转换工具的正确性校验部分
+- 测试工具验证正确，但运行代码结果出错，可能是如下原因：
+    1. 使用 Session API 运行不满足运行条件的模型，此时应换用 Module API
+    2. 输入的内存布局不对
+    3. 输入数据格式不对，int64 需要换成 int32_t ，double 需要换成 float
+
+
+### 布局转换问题(Tensor 的 elementSize 不为各维度乘积)
 MNN 内部对 CV 相关算子采用 NC4HW4 布局，计算 elementSize 时，channel 会上对齐到 4 返回，此内存布局允许实现的硬件自行确定内存排列方式，具体方式不对用户可见，但用户可以通过如下代码，输入或获取自己指定的NCHW / NHWC 内存布局的 Tensor / VARP。
 
 #### Interpreter-Session API
@@ -179,7 +187,7 @@ TensorArray 和控制流支持需要借助 MNN-Express ，
    - 加载网络时，把需要获取的中间结果加到 output name 中
 
 
-### GPU 后端无法使用
+### OpenCL 或 Vulkan 后端无法使用
 Linux系统上的简单解决方案:
 cmake .. -DMNN_USE_SYSTEM_LIB=true -DMNN_SEP_BUILD=false
 
@@ -193,7 +201,22 @@ OpenCL / Vulkan 采用静态变量自注册的方式往 MNN 主库注册后端. 
 1. 设置 MNN_SEP_BUILD = OFF  （cmake -DMNN_SEP_BUILD=OFF）.  把 opencl / vulkan 后端统一编入 MNN 的 so.
 1. 自己在使用的代码中加上 dlopen("libMNN_CL.so") . 参考 [https://github.com/alibaba/MNN/issues/105](https://github.com/alibaba/MNN/issues/105) .
 
-### 部分模型用 MNNV2Basic 运行出现段错误
+#### Android App 上因权限问题打不开 OpenCL 库
+由于Android新版本增强了权限控制，有可能遇到加载OpenCL库失败的问题，可以修改 AndroidManifest.xml 对应栏，加入OpenCL相关 so 的权限需求
+
+```
+<application>
+        ...
+
+        <uses-native-library android:name="libOpenCL.so"
+            android:required="true"/>
+
+        ...
+
+</>
+```
+
+### 部分模型用 MNNV2Basic 运行出现段错误，或报 Interpreter don't support case for shape compute need input content, please use module api instead
 
 - 模型不满足运行条件
    - MNNV2Basic 使用  Interpreter + Session 方式运行，此类运行方式要求模型满足一定条件，否则无法运行模型或产生特别的 crash ，条件如下：
@@ -210,8 +233,22 @@ OpenCL / Vulkan 采用静态变量自注册的方式往 MNN 主库注册后端. 
    - 一般是直接访问了 tensor 的 host
    - 按 [输入数据](./inference/session.html#id8) 和[获取输出](./inference/session.html#id21) 里面的方式建host tensor 并 copy ，参考相关文档修改使用代码
 - 是否可基于 deviceId 直接传 GPU 地址？
-   - 可以，需要理解 MNN GPU 内存布局并传上下文给 MNN ，但相关实现较复杂
+   - 可以，可以通过setDevicePtr设置输入VARP的GPU地址,通过copyToDevicePtr设置输出VARP拷贝到的GPU地址
+      - 相关使用参考tools/cpp/GpuInterTest.cpp
+      - 目前OPENCL推理支持OPENCL/OPENGL内存做输入输出。CUDA推理支持CUDA内存做输入输出
    - 采用 MNN_Express 系列接口，可以支持模型之间的内存直接传递不做拷贝
+
+### 多卡GPU上，用户指定特定GPU做推理问题
+
+- 通过设置MNNDeviceContext结构体参数来指定特定GPU
+   - 通过设置platformSize、platformId、deviceId参数来进行指定
+   - 目前支持OpenCL和CUDA后端进行设置
+   - 具体可以参考：tools/cpp/testModel.cpp
+
+### Register 相关内存泄露说明
+用 valgrind 工具检查时会报 MNN Register 相关的内存泄露，这个属于一次性的初始化内存，后续也不会增加，可视为误报
+
+
 ## 性能相关
 ### 使用 GPU 时，调用 copyToHostTensor / copyFromHostTensor 非常慢
 GPU 后端调用 copy 的时间包含两个部分

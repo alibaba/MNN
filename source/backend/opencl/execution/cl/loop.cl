@@ -9,9 +9,9 @@ __kernel void batch_matmul(__private int global_dim0, __private int global_dim1,
 #ifdef BIAS
                         __global FLOAT* input_C,
 #endif
-                        __global FLOAT* offset_O, __global FLOAT* offset_A, __global FLOAT* offset_B,
+                        __global int* offset_O, __global int* offset_A, __global int* offset_B,
 #ifdef BIAS
-                        __global FLOAT* offset_C,
+                        __global int* offset_C,
 #endif
                          __private const int e,
                          __private const int l,
@@ -25,17 +25,17 @@ __kernel void batch_matmul(__private int global_dim0, __private int global_dim1,
         pos.y <<= 2;
         int4 index = (int4)(pos.z);
         if (iters.x >= 0) {
-            index.x = (int)(offset_O[pos.z]);
+            index.x = offset_O[pos.z];
         }
         if (iters.y >= 0) {
-            index.y = (int)(offset_A[pos.z]);
+            index.y = offset_A[pos.z];
         }
         if (iters.z >= 0) {
-            index.z = (int)(offset_B[pos.z]);
+            index.z = offset_B[pos.z];
         }
 #ifdef BIAS
         if (iters.w >= 0) {
-            index.w = (int)(offset_C[pos.z]);
+            index.w = offset_C[pos.z];
         }
 #endif
         int4 offset = index * steps + offsets;
@@ -217,7 +217,7 @@ __kernel void batch_matmul(__private int global_dim0, __private int global_dim1,
 
 __kernel void tile(__private int global_dim0, __private int global_dim1, __private int global_dim2,
                         __read_only image2d_t input,
-                        __global FLOAT* output,
+                        __global OUTPUT_TYPE* output,
                         __private const int width,
                         __private const int height,
                         __private const int channel){
@@ -238,9 +238,9 @@ __kernel void tile(__private int global_dim0, __private int global_dim1, __priva
         const int c_dst_pitch = y_dst_pitch * height;
         const int b_dst_pitch = c_dst_pitch * channel;
 #endif
-        __global FLOAT* dst_ptr = output + pos.z * b_dst_pitch + c * c_dst_pitch + h * y_dst_pitch + w * x_dst_pitch;
+        __global OUTPUT_TYPE* dst_ptr = output + pos.z * b_dst_pitch + c * c_dst_pitch + h * y_dst_pitch + w * x_dst_pitch;
         
-        FLOAT4 value = RI_F(input, SAMPLER, (int2)(pos.y * width + w, pos.z * height + h));
+        OUTPUT_TYPE4 value = CONVERT_OUTPUT4(RI_DATA(input, SAMPLER, (int2)(pos.y * width + w, pos.z * height + h)));
         dst_ptr[0] = value.x;
         if(c + 1 >= channel)return;
         dst_ptr[c_dst_pitch] = value.y;
@@ -252,7 +252,7 @@ __kernel void tile(__private int global_dim0, __private int global_dim1, __priva
 }
 
 __kernel void pack(__private int global_dim0, __private int global_dim1, __private int global_dim2,
-                        __global FLOAT* input,
+                        __global INPUT_TYPE* input,
                         __write_only image2d_t output,
                         __private const int width,
                         __private const int height,
@@ -274,24 +274,25 @@ __kernel void pack(__private int global_dim0, __private int global_dim1, __priva
         const int c_src_pitch = y_src_pitch * height;
         const int b_src_pitch = c_src_pitch * channel;
 #endif
-        __global FLOAT* src_ptr = input + pos.z * b_src_pitch + c * c_src_pitch + h * y_src_pitch + w * x_src_pitch;
-        FLOAT4 value = (FLOAT4)0;
-        FLOAT *value_ptr = (FLOAT*)&value;
+        __global INPUT_TYPE* src_ptr = input + pos.z * b_src_pitch + c * c_src_pitch + h * y_src_pitch + w * x_src_pitch;
+        OUTPUT_TYPE_I4 value = (OUTPUT_TYPE_I4)0;
+        OUTPUT_TYPE_I *value_ptr = (OUTPUT_TYPE_I*)&value;
         for(int i = 0; i < 4 && (i + c < channel); ++i){
-            value_ptr[i] = src_ptr[i * c_src_pitch];
+            value_ptr[i] = (OUTPUT_TYPE_I)src_ptr[i * c_src_pitch];
         }
-        WI_F(output, (int2)(pos.y * width + w, pos.z * height + h), value);
+        WI_DATA(output, (int2)(pos.y * width + w, pos.z * height + h), value);
     }
 }
 
 __kernel void batch_gather(__private int global_dim0, __private int global_dim1, __private int global_dim2,
-                         __global FLOAT* output, __global FLOAT* input,
-                         __global FLOAT* offset_dst, __global FLOAT* offset_src,
+                         __global OUTPUT_TYPE* output, __global INPUT_TYPE* input,
+                         __global int* offset_dst, __global int* offset_src,
                          __private const int x_size,
                          __private const int4 stride_src,
                          __private const int4 stride_dst,
                          __private const int2 steps,
-                         __private const int2 iters) {
+                         __private const int2 iters,
+                         __private const int inputSize) {
     int3 pos = (int3)(get_global_id(0), get_global_id(1), get_global_id(2));
     
     if (pos.x < global_dim0 && pos.y < global_dim1 && pos.z < global_dim2) {
@@ -301,13 +302,19 @@ __kernel void batch_gather(__private int global_dim0, __private int global_dim1,
 
         int2 index = (int2)(pos.z, pos.z);
         if (iters.x >= 0) {
-            index.x = (int)(offset_dst[pos.z]);
+            index.x = offset_dst[pos.z];
         }
         if (iters.y >= 0) {
-            index.y = (int)(offset_src[pos.z]);
+            index.y = offset_src[pos.z];
         }
         int2 offset = index * steps;
-        output[offset.x + stride_dst.w + x * stride_dst.x + y * stride_dst.y + pos.y * stride_dst.z] = input[offset.y + stride_src.w + x * stride_src.x + y * stride_src.y + pos.y * stride_src.z];
+        if(offset.x >= 0){
+            if(offset.y >= 0 && offset.y < inputSize){
+                output[offset.x + stride_dst.w + x * stride_dst.x + y * stride_dst.y + pos.y * stride_dst.z] = (OUTPUT_TYPE)input[offset.y + stride_src.w + x * stride_src.x + y * stride_src.y + pos.y * stride_src.z];
+            }else{
+                output[offset.x + stride_dst.w + x * stride_dst.x + y * stride_dst.y + pos.y * stride_dst.z] = (OUTPUT_TYPE)(0);
+            }
+        }
     }
 }
 
@@ -338,9 +345,9 @@ __kernel void broadcast_binary(__private int global_dim0, __private int global_d
         int4 h = out_offset % dst_size.s2; out_offset /= dst_size.s2;
         int4 c = out_offset % dst_size.s1; out_offset /= dst_size.s1;
         int4 n = out_offset % dst_size.s0;
-        FLOAT4 in0, in1;
-        FLOAT* in0_ptr = (FLOAT*)&in0;
-        FLOAT* in1_ptr = (FLOAT*)&in1;
+        float4 in0, in1;
+        float* in0_ptr = (float*)&in0;
+        float* in1_ptr = (float*)&in1;
         
         {
             int4 w0 = w % (src0_size.s3 * src0_size.s4);
@@ -359,8 +366,8 @@ __kernel void broadcast_binary(__private int global_dim0, __private int global_d
                 int nc4 = c4offset % src0C4_size.w;
                 int cc4_offset = cc4 / 4;
                 int cc4_remain = cc4 % 4;
-                FLOAT4 tmp = RI_F(input0, SAMPLER, (int2)(cc4_offset * src0C4_size.x + wc4, nc4 * src0C4_size.y + hc4));
-                FLOAT *tmp_ptr = (FLOAT*)&tmp;
+                float4 tmp = convert_float4(RI_DATA(input0, SAMPLER, (int2)(cc4_offset * src0C4_size.x + wc4, nc4 * src0C4_size.y + hc4)));
+                float *tmp_ptr = (float*)&tmp;
                 in0_ptr[i] = tmp_ptr[cc4_remain];
             }
         }
@@ -382,14 +389,14 @@ __kernel void broadcast_binary(__private int global_dim0, __private int global_d
                 int nc4 = c4offset % src1C4_size.w;
                 int cc4_offset = cc4 / 4;
                 int cc4_remain = cc4 % 4;
-                FLOAT4 tmp = RI_F(input1, SAMPLER, (int2)(cc4_offset * src1C4_size.x + wc4, nc4 * src1C4_size.y + hc4));
-                FLOAT *tmp_ptr = (FLOAT*)&tmp;
+                float4 tmp = convert_float4(RI_DATA(input1, SAMPLER, (int2)(cc4_offset * src1C4_size.x + wc4, nc4 * src1C4_size.y + hc4)));
+                float *tmp_ptr = (float*)&tmp;
                 in1_ptr[i] = tmp_ptr[cc4_remain];
             }
         }
         
-        FLOAT4 out = CONVERT_FLOAT4(LOOP_BINARY_OPERATOR);
-        WI_F(output, (int2)(co * dst_width + wo, no * dst_height + ho), out);
+        float4 out = LOOP_BINARY_OPERATOR;
+        WI_DATA(output, (int2)(co * dst_width + wo, no * dst_height + ho), CONVERT_OUTPUT_I4(out));
     }
 }
 #endif

@@ -13,10 +13,11 @@
 #define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
 #include "rapidjson/document.h"
-#include "common/MemoryFormater.h"
-#include <fstream>
-#include <sstream>
+#include "core/MemoryFormater.h"
 #include <numeric>
+#include <chrono>
+#include <iostream>
+#include <thread>
 #include "ExprDebug.hpp"
 
 using namespace MNN::Express;
@@ -129,6 +130,9 @@ int main(int argc, char *argv[]) {
         }
         checkOutput = outputs.size() > 0;
     }
+    // Call Time / Per Second
+    float freq = 0.0f;
+    int cpuDecreaseRate = -1;
     if (inputNames.empty()) {
         rapidjson::Document document;
         std::ostringstream jsonNameOs;
@@ -178,6 +182,12 @@ int main(int argc, char *argv[]) {
         if (document.HasMember("repeat")) {
             repeatNumber = document["repeat"].GetInt();
         }
+        if (document.HasMember("freq")) {
+            freq = document["freq"].GetFloat();
+        }
+        if (document.HasMember("cpu_decrease_rate")) {
+            cpuDecreaseRate = document["cpu_decrease_rate"].GetInt();
+        }
     }
     auto type = MNN_FORWARD_CPU;
     if (argc > 4) {
@@ -191,12 +201,14 @@ int main(int argc, char *argv[]) {
         modeNum = ::atoi(argv[6]);
     }
 
+    int power = BackendConfig::Power_Normal;
     int precision = BackendConfig::Precision_Normal;
     int memory = BackendConfig::Memory_Normal;
     if (argc > 7) {
         int mask = atoi(argv[7]);
         precision = mask % 4;
         memory = (mask / 4) % 4;
+        power = (mask / 16) % 4;
     }
     const char* cacheFileName = ".tempcache";
     if (argc > 8) {
@@ -204,6 +216,7 @@ int main(int argc, char *argv[]) {
     }
     FUNC_PRINT(precision);
     FUNC_PRINT(memory);
+    FUNC_PRINT(power);
     FUNC_PRINT_ALL(cacheFileName, s);
     // create session
     MNN::ScheduleConfig config;
@@ -214,7 +227,7 @@ int main(int argc, char *argv[]) {
     config.backupType = type;
     BackendConfig backendConfig;
     // config.path.outputs.push_back("ResizeBilinear_2");
-    // backendConfig.power = BackendConfig::Power_High;
+    backendConfig.power = (BackendConfig::PowerMode)power;
     backendConfig.precision = static_cast<MNN::BackendConfig::PrecisionMode>(precision);
     backendConfig.memory = static_cast<MNN::BackendConfig::MemoryMode>(memory);
     config.backendConfig     = &backendConfig;
@@ -226,6 +239,9 @@ int main(int argc, char *argv[]) {
     mConfig.shapeMutable = shapeMutable;
     std::shared_ptr<Executor::RuntimeManager> rtmgr(Executor::RuntimeManager::createRuntimeManager(config));
     rtmgr->setCache(cacheFileName);
+    if (cpuDecreaseRate > 0 && cpuDecreaseRate <= 100) {
+        rtmgr->setHint(Interpreter::CPU_LITTLECORE_DECREASE_RATE, cpuDecreaseRate);
+    }
     if (runMask & 1) {
         // Need dump tensor, open debug
         rtmgr->setMode(Interpreter::Session_Debug);
@@ -233,6 +249,13 @@ int main(int argc, char *argv[]) {
     if (runMask & 2) {
         // Need tensor static for each op, open debug
         rtmgr->setMode(Interpreter::Session_Debug);
+    }
+    // For Debug
+    if (false) {
+        int geometryMask = Interpreter::GeometryComputeMask::GEOMETRCOMPUTEMASK_ALL;
+        geometryMask -= Interpreter::GeometryComputeMask::GEOMETRCOMPUTEMASK_FUSEREGION;
+        geometryMask -= Interpreter::GeometryComputeMask::GEOMETRCOMPUTEMASK_OPENCACHE;
+        rtmgr->setHint(Interpreter::GEOMETRY_COMPUTE_MASK, geometryMask);
     }
     if (runMask & 4) {
         // Need time trace for each op, open debug
@@ -247,6 +270,12 @@ int main(int argc, char *argv[]) {
     }
     if (runMask & 32) {
         mConfig.rearrange = true;
+    }
+    if (runMask & 512) {
+        rtmgr->setHint(Interpreter::WINOGRAD_MEMORY_LEVEL, 0);
+    }
+    if (runMask & 1024) {
+        rtmgr->setHint(Interpreter::DYNAMIC_QUANT_OPTIONS, 1);
     }
     std::shared_ptr<Module> net;
     {
@@ -394,19 +423,32 @@ int main(int argc, char *argv[]) {
                 ((MNN::Tensor*)o->getTensor())->wait(MNN::Tensor::MAP_TENSOR_READ, true);
             }
             times[i] = _l.durationInUs() / 1000.0f;
+            if (freq > 0.0f) {
+                float remainMs = (1000.0f / freq) - times[i];
+                if (remainMs > 0.0f) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds((int)remainMs));
+                }
+            }
         }
         if (nullptr != gTimeTraceInfo) {
             float opSummer = 0.0f;
+            float opFlopsSummber = 0.0f;
             for (auto& iter : gTimeTraceInfo->mTypes) {
                 float summer = 0.0f;
+                float summerflops = 0.0f;
                 for (auto& t : iter.second) {
-                    summer += std::accumulate(t.second.begin(), t.second.end(), 0.0f);
+                    for (auto& t0 : t.second) {
+                        summer += t0.first;
+                        summerflops += t0.second;
+                    }
                 }
                 summer = summer / (float)t;
-                MNN_PRINT("%s : %.7f\n", iter.first.c_str(), summer);
+                summerflops = summerflops / (float)t;
+                MNN_PRINT("%s : %.7f, FLOP: %.7f, Speed: %.7f GFlops\n", iter.first.c_str(), summer, summerflops, summerflops / summer);
                 opSummer += summer;
+                opFlopsSummber+= summerflops;
             }
-            MNN_PRINT("OP Summer: %.7f\n", opSummer);
+            MNN_PRINT("OP Summer: %.7f, Flops: %.7f, Speed: %.7f GFlops\n", opSummer, opFlopsSummber, opFlopsSummber/opSummer);
         }
         auto minTime = std::min_element(times.begin(), times.end());
         auto maxTime = std::max_element(times.begin(), times.end());

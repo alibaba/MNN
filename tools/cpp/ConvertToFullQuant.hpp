@@ -15,7 +15,7 @@
 #include <fstream>
 #include <sstream>
 #include "MNN_generated.h"
-#include "cpp/IDSTEncoder.hpp"
+#include "core/IDSTEncoder.hpp"
 
 using namespace MNN;
 
@@ -175,7 +175,7 @@ void convert(std::string modelFile) {
     outputOs << input.rdbuf();
     netT = MNN::UnPackNet(outputOs.str().c_str());
     auto net = netT.get();
-    
+
     std::vector<int> netNeedEraseIndices;
     for (int i = 0; i < net->oplists.size(); i++) {
         auto& op = net->oplists[i];

@@ -30,10 +30,18 @@ private:
     bool mTransposeB;
     bool mTransposeC;
     bool mSupportMultiThread = false;
-    std::vector<std::pair<std::function<void(int, const float*, const float*, const float*)>, int>> mPreFunctions;
-    std::vector<std::pair<std::function<void(int, const float*, const float*, const float*, float*)>, int>> mPostFunctions;
-    std::shared_ptr<StrassenMatrixComputor> mComputer;
-    bool mStrassenUseBiasDirectly = false;
+    std::vector<std::pair<std::function<void(int, const float*, const float*, const float*, float*)>, int>> mPreFunctions;
+    bool mUseBiasDirectly = false;
+    MemChunk mTempA;
+    MemChunk mTempB;
+    MemChunk mTempC;
+    MemChunk mTempBias;
+
+    int mE;
+    int mL;
+    int mH;
+    std::vector<float> mPostParameters;
+
 };
 } // namespace MNN
 

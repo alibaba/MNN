@@ -222,10 +222,10 @@ DType htype2dtype(halide_type_t type) {
     }
     if (type.code == halide_type_int && type.bits == 64) {
         return DType_INT64;
-    } 
+    }
     if (type.code == halide_type_handle) {
-	return DType_STRING; 
-    } 
+	return DType_STRING;
+    }
     return DType_FLOAT;
 }
 #define CONVERT(src, dst, f)\
@@ -454,7 +454,7 @@ static vector<T> toVec(PyObject* obj) {
         if (total_length == 0) {
             return values;
         }
-        int item_size = getnpysize(PyArray_TYPE(obj));
+        int item_size = getnpysize(PyArray_TYPE((const PyArrayObject*)obj));
         PyArrayObject *obj_cont= PyArray_GETCONTIGUOUS((PyArrayObject*)obj);
         auto tmpBuffer = PyArray_DATA(obj_cont);
         if(NULL == tmpBuffer) {
@@ -518,7 +518,7 @@ static void* toPtr(PyObject *obj, DType dtype, int64_t& total_length, void* data
             PyMNN_ERROR_LOG("data size does not match each other");
             return data;
         }
-        int npy_type = PyArray_TYPE(obj);
+        int npy_type = PyArray_TYPE((const PyArrayObject*)obj);
         int itemsize = getitemsize(dtype, npy_type);
         PyArrayObject *obj_cont= PyArray_GETCONTIGUOUS((PyArrayObject*)obj);
         auto tmpBuffer = PyArray_DATA(obj_cont);
@@ -667,23 +667,45 @@ inline bool getScheduleConfig(PyObject* dict, MNN::ScheduleConfig &config) {
             }
             config.numThread = (int)toInt(numThread);
         }
-
+        {
+            //power
+            PyObject *obj = PyDict_GetItemString(dict, "power");
+            if (obj) {
+                if (isInt(obj)) {
+                    backendConfig->power = (MNN::BackendConfig::PowerMode)toInt(obj);
+                }
+            }
+        }
+        {
+            //memory
+            PyObject *obj = PyDict_GetItemString(dict, "memory");
+            if (obj) {
+                if (isInt(obj)) {
+                    backendConfig->memory = (MNN::BackendConfig::MemoryMode)toInt(obj);
+                }
+            }
+        }
         {
             //precision
             PyObject *obj = PyDict_GetItemString(dict, "precision");
             if (obj) {
-                auto obj_name = object2String(obj);
-                if (!obj_name.compare("low")) {
-                    MNN_PRINT("MNN use low precision\n");
-                    backendConfig->precision = MNN::BackendConfig::Precision_Low;
-                }
-                if (!obj_name.compare("Low_BF16")) {
-                    MNN_PRINT("MNN use lowBF precision\n");
-                    backendConfig->precision = MNN::BackendConfig::Precision_Low_BF16;
-                }
-                if (!obj_name.compare("high")) {
-                    MNN_PRINT("MNN use high precision\n");
-                    backendConfig->precision = MNN::BackendConfig::Precision_High;
+                if (isInt(obj)) {
+                    backendConfig->precision = (MNN::BackendConfig::PrecisionMode)toInt(obj);
+                } else {
+                    // For compability
+                    auto obj_name = object2String(obj);
+                    if (!obj_name.compare("low")) {
+                        MNN_PRINT("MNN use low precision\n");
+                        backendConfig->precision = MNN::BackendConfig::Precision_Low;
+                    }
+                    if (!obj_name.compare("Low_BF16")) {
+                        MNN_PRINT("MNN use lowBF precision\n");
+                        backendConfig->precision = MNN::BackendConfig::Precision_Low_BF16;
+                    }
+                    if (!obj_name.compare("high")) {
+                        MNN_PRINT("MNN use high precision\n");
+                        backendConfig->precision = MNN::BackendConfig::Precision_High;
+                    }
                 }
             }
         }

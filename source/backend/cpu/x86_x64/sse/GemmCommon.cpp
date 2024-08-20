@@ -182,3 +182,37 @@ void _SSE_MNNPackedSparseMatMul(float* C, const float* A, const float* B, unsign
     MNN_ASSERT(false);
     return;
 }
+
+void _SSE_MNNComputeScaleZeroScalar(float* source, float* min, float* max, size_t size) {
+    int pack = 4;
+    int sizeDiv4 = size / pack;
+    __m128 minVal = _mm_set1_ps(source[0]);
+    __m128 maxVal = minVal;
+    float maxArr[4], minArr[4];
+    for (int i = 0; i < sizeDiv4; ++i) {
+        auto src0 = source + pack * i;
+        __m128 vecA = _mm_loadu_ps(src0);
+        __m128 maskMax = _mm_cmpgt_ps(maxVal, vecA);
+        __m128 maskMin = _mm_cmplt_ps(minVal, vecA);
+        maxVal = _mm_blendv_ps(vecA, maxVal, maskMax);
+        minVal = _mm_blendv_ps(vecA, minVal, maskMin);
+    }
+    _mm_storeu_ps(maxArr, maxVal);
+    _mm_storeu_ps(minArr, minVal);
+    float max_ = maxArr[0], min_ = minArr[0];
+    for (int k = 1; k < pack; ++k) {
+        if (max_ < maxArr[k]) {
+            max_ = maxArr[k];
+        }
+        if (min_ > minArr[k]) {
+            min_ = minArr[k];
+        }
+    }
+    for (int i = pack * sizeDiv4; i < size; ++i) {
+        max_ = std::max(max_, source[i]);
+        min_ = std::min(min_, source[i]);
+    }
+    min[0] = min_;
+    max[0] = max_;
+}
+

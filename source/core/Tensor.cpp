@@ -20,13 +20,14 @@ namespace MNN {
 Tensor::Tensor(int dimSize, DimensionType type) {
     MNN_ASSERT(dimSize <= MNN_MAX_TENSOR_DIM);
     mDescribe          = new InsideDescribe;
-    mDescribe->mContent = new InsideDescribe::NativeInsideDescribe;
+    mDescribe->mContent.reset(new InsideDescribe::NativeInsideDescribe);
     auto nativeDescribe = mDescribe->mContent.get();
     mBuffer.dimensions = dimSize;
     mBuffer.type       = halide_type_of<float>();
     mBuffer.device     = 0;
     mBuffer.host       = nullptr;
     mBuffer.dim        = &nativeDescribe->dims[0];
+    mBuffer.flags      = 0;
 
     switch (type) {
         case CAFFE:
@@ -48,13 +49,14 @@ Tensor::Tensor(const Tensor* tensor, DimensionType type, bool allocMemory) {
 
     auto buffer        = tensor->buffer();
     mDescribe          = new InsideDescribe;
-    mDescribe->mContent = new InsideDescribe::NativeInsideDescribe;
+    mDescribe->mContent.reset(new InsideDescribe::NativeInsideDescribe);
     auto nativeDescribe = mDescribe->mContent.get();
     mBuffer.dimensions = buffer.dimensions;
     mBuffer.type       = buffer.type;
     mBuffer.device     = 0;
     mBuffer.host       = nullptr;
     mBuffer.dim        = &nativeDescribe->dims[0];
+    mBuffer.flags      = 0;
     for (int i = 0; i < buffer.dimensions; ++i) {
         mBuffer.dim[i].extent = buffer.dim[i].extent;
     }
@@ -115,11 +117,14 @@ Tensor::Tensor(const Tensor* tensor, DimensionType type, bool allocMemory) {
 Tensor::Tensor(bool deepCopy, const Tensor* tensor) {
     mDescribe = new InsideDescribe;
     mDescribe->mContent = tensor->mDescribe->mContent;
+    mDescribe->setBackend(tensor->mDescribe->getBackend());
+    mDescribe->mem = tensor->mDescribe->mem;
     mBuffer.dim = TensorUtils::getDescribe(tensor)->dims;
     mBuffer.type = tensor->getType();
     mBuffer.device = tensor->deviceId();
     mBuffer.host = tensor->buffer().host;
     mBuffer.dimensions = tensor->buffer().dimensions;
+    mBuffer.flags = tensor->buffer().flags;
 }
 
 Tensor::~Tensor() {
@@ -163,8 +168,7 @@ Tensor* Tensor::clone(const Tensor* src, bool deepCopy) {
 
 
 bool Tensor::copyFromHostTensor(const Tensor* hostTensor) {
-    auto nativeDescribe = mDescribe->mContent.get();
-    auto bn = nativeDescribe->getBackend();
+    auto bn = mDescribe->getBackend();
     if (nullptr == bn) {
         return false;
     }
@@ -173,8 +177,7 @@ bool Tensor::copyFromHostTensor(const Tensor* hostTensor) {
 }
 
 bool Tensor::copyToHostTensor(Tensor* hostTensor) const {
-    auto nativeDescribe = mDescribe->mContent.get();
-    auto bn = nativeDescribe->getBackend();
+    auto bn = mDescribe->getBackend();
     if (nullptr == bn) {
         return false;
     }
@@ -237,7 +240,7 @@ void Tensor::setType(int type) {
             mBuffer.type = halide_type_of<int16_t>();
             break;
         default:
-            MNN_PRINT("Unsupported data type!");
+            MNN_PRINT("Unsupported data type! %d\n", type);
             MNN_ASSERT(false);
             break;
     }
@@ -410,7 +413,7 @@ int Tensor::size() const {
 }
 
 void* Tensor::map(MapType mtype, DimensionType dtype) {
-    auto nativeDescribe = mDescribe->mContent.get();
+    auto nativeDescribe = mDescribe;
     auto bn = nativeDescribe->getBackend();
     if (nullptr == bn) {
         return mBuffer.host;
@@ -438,7 +441,7 @@ void* Tensor::map(MapType mtype, DimensionType dtype) {
 }
 
 void Tensor::unmap(MapType mtype, DimensionType dtype, void *mapPtr) {
-    auto nativeDescribe = mDescribe->mContent.get();
+    auto nativeDescribe = mDescribe;
     auto bn = nativeDescribe->getBackend();
     if (nullptr == bn) {
         return;
@@ -464,7 +467,7 @@ void Tensor::unmap(MapType mtype, DimensionType dtype, void *mapPtr) {
     }
 }
 int Tensor::wait(MapType mtype, bool finish) {
-    auto nativeDescribe = mDescribe->mContent.get();
+    auto nativeDescribe = mDescribe;
     auto bn = nativeDescribe->getBackend();
     if (nullptr == bn) {
         return 0;
@@ -485,7 +488,7 @@ void Tensor::destroy(Tensor* tensor) {
     }
 }
 bool Tensor::getDeviceInfo(void* dst, int type) const {
-    auto nativeDescribe = mDescribe->mContent.get();
+    auto nativeDescribe = mDescribe;
     if (nullptr == nativeDescribe->getBackend()) {
         return false;
     }

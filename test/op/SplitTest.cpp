@@ -51,3 +51,51 @@ public:
     }
 };
 MNNTestSuiteRegister(SplitTest, "op/split");
+
+class SliceTest : public MNNTestCase {
+public:
+    virtual ~SliceTest() = default;
+    virtual bool run(int precision) {
+        auto input = _Input({2, 9, 4}, NCHW, halide_type_of<int>());
+        input->setName("input");
+        // set input data
+        auto size = input->getInfo()->size;
+        auto iptr = input->writeMap<int>();
+        for (int i=0; i<size; ++i) {
+            int ci = i % 4;
+            int co = i / 36;
+            int area = (i / 4) % 9;
+            iptr[i] = (ci+co*4) * 10 + area;
+        }
+        input->unMap();
+        auto inputTran = _Reshape(_Transpose(input, {0, 2, 1}), {8, 9}, NCHW);
+        std::vector<int> startDims = {1, 0};
+        std::vector<int> sizeDims = {4, 9};
+        auto start = _Const(startDims.data(), {2}, NCHW, halide_type_of<int>());
+        auto sizeVar = _Const(sizeDims.data(), {2}, NCHW, halide_type_of<int>());
+
+        auto output = _Slice(inputTran, start, sizeVar);
+        auto oinfo = output->getInfo();
+        if (oinfo->dim.size() != 2) {
+            FUNC_PRINT(1);
+            return false;
+        }
+        if (oinfo->dim[1] != 9 || oinfo->dim[0] != 4) {
+            FUNC_PRINT(1);
+            return false;
+        }
+        auto optr = output->readMap<int>();
+        for (int i=0; i<4; ++i) {
+            for (int j=0; j<9; ++j) {
+                int expect = (i+1)*10+j;
+                int compute = optr[i*9+j];
+                if (expect != compute) {
+                    MNN_ERROR("Error for i=%d - j=%d, %d:%d\n", i, j, expect, compute);
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+};
+MNNTestSuiteRegister(SliceTest, "op/slice");

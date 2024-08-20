@@ -35,15 +35,8 @@ static inline std::map<OpType, VulkanBackend::Creator*>* getCreatorMap() {
     return gCreator;
 }
 
-template<typename T>
-void _copyIn(const T* src, float* dst, size_t size) {
-    for (int i=0; i<size; ++i) {
-        dst[i] = src[i];
-    }
-}
-
-template<typename T>
-void _copyOut(const float* src, T* dst, size_t size) {
+template<typename T0, typename T1>
+void _copy(const T0* src, T1* dst, size_t size) {
     for (int i=0; i<size; ++i) {
         dst[i] = src[i];
     }
@@ -51,49 +44,13 @@ void _copyOut(const float* src, T* dst, size_t size) {
 
 static void _copyBufferToTensor(const Tensor* dest, const VulkanBuffer* source, size_t offset) {
     auto sourcePtr   = (const float*)source->map(offset);
-    auto dataType    = dest->getType();
-    auto eleSize = dest->elementSize();
-    if (dataType == halide_type_of<float>()) {
-        ::memcpy(dest->host<float>(), sourcePtr, dest->size());
-    }
-    else if (dataType == halide_type_of<uint8_t>()) {
-        _copyOut(sourcePtr, dest->host<uint8_t>(), eleSize);
-    }
-    else if (dataType == halide_type_of<int8_t>()) {
-        _copyOut(sourcePtr, dest->host<int8_t>(), eleSize);
-    }
-    else if (dataType == halide_type_of<int32_t>()) {
-        _copyOut(sourcePtr, dest->host<int32_t>(), eleSize);
-    }
-    else if (dataType == halide_type_of<uint32_t>()) {
-        _copyOut(sourcePtr, dest->host<uint32_t>(), eleSize);
-    } else {
-        MNN_PRINT("Don't support typecode = %d, bits = %d\n", dataType.code, dataType.bits);
-    }
+    ::memcpy(dest->host<float>(), sourcePtr, dest->usize());
     source->unmap();
 }
 
 static void _copyTensorToBuffer(const Tensor* source, const VulkanBuffer* dest, size_t offset) {
     auto destPtr     = (float*)dest->map(offset);
-    auto dataType    = source->getType();
-    auto eleSize = source->elementSize();
-    if (dataType == halide_type_of<float>()) {
-        ::memcpy(destPtr, source->host<float>(), source->size());
-    }
-    else if (dataType == halide_type_of<uint8_t>()) {
-        _copyIn(source->host<uint8_t>(), destPtr, eleSize);
-    }
-    else if (dataType == halide_type_of<int8_t>()) {
-        _copyIn(source->host<int8_t>(), destPtr, eleSize);
-    }
-    else if (dataType == halide_type_of<int32_t>()) {
-        _copyIn(source->host<int32_t>(), destPtr, eleSize);
-    }
-    else if (dataType == halide_type_of<uint32_t>()) {
-        _copyIn(source->host<uint32_t>(), destPtr, eleSize);
-    } else {
-        MNN_PRINT("Don't support typecode = %d, bits = %d\n", dataType.code, dataType.bits);
-    }
+    ::memcpy(destPtr, source->host<float>(), source->usize());
     dest->unmap();
 }
 
@@ -101,8 +58,9 @@ VulkanBackend::VulkanBackend(const VulkanRuntime* runtime, const Backend::Info& 
     mRuntime = runtime;
     mDirect = Backend::Info::INDIRECT != info.mode;
     std::shared_ptr<BufferAllocator::Allocator> allocReal = BufferAllocator::Allocator::createRecurse(runtime->mBufferPool.get());
-
-    mDynamicBufferPool.reset(new EagerBufferAllocator(allocReal, mRuntime->mDevice->proty().limits.nonCoherentAtomSize));
+    mDynamicBufferPool.resize(2);
+    mDynamicBufferPool[0].reset(new EagerBufferAllocator(allocReal, mRuntime->mDevice->proty().limits.nonCoherentAtomSize));
+    mCurrentDynamicBufferPool = mDynamicBufferPool[0].get();
 
     auto& dev              = device();
     mFence                 = std::make_shared<VulkanFence>(dev);
@@ -193,11 +151,22 @@ Backend::MemObj* VulkanBackend::onAcquire(const Tensor* tensor, StorageType stor
         return mem;
     }
     bool seperate  = storageType == Backend::DYNAMIC_SEPERATE;
-    auto newBuffer = mDynamicBufferPool->alloc(alignSize, seperate);
-    auto mem = new VulkanMemRelease(mDynamicBufferPool.get(), newBuffer, alignSize);
+    auto newBuffer = mCurrentDynamicBufferPool->alloc(alignSize, seperate);
+    auto mem = new VulkanMemRelease(mCurrentDynamicBufferPool, newBuffer, alignSize);
     MTensor->buffer().device = (uint64_t)(newBuffer.first);
     des->extra.offset = newBuffer.second;
     return mem;
+}
+bool VulkanBackend::onSelectDynamicAllocator(int index, int maxIndex) {
+    if (maxIndex > 2 || index >= 2 || index < 0) {
+        return false;
+    }
+    if (mDynamicBufferPool[1].get() == nullptr) {
+        std::shared_ptr<BufferAllocator::Allocator> allocReal = BufferAllocator::Allocator::createRecurse(mRuntime->mBufferPool.get());
+        mDynamicBufferPool[1].reset(new EagerBufferAllocator(allocReal, mRuntime->mDevice->proty().limits.nonCoherentAtomSize));
+    }
+    mCurrentDynamicBufferPool = mDynamicBufferPool[index].get();
+    return true;
 }
 
 std::shared_ptr<VulkanBuffer> VulkanBackend::allocUniform(const void* src, int size) {
@@ -210,7 +179,7 @@ void VulkanBackend::recycleUniform(std::shared_ptr<VulkanBuffer> buffer) {
 }
 
 bool VulkanBackend::onClearBuffer() {
-    mDynamicBufferPool->release(false);
+    mCurrentDynamicBufferPool->release(false);
     return true;
 }
 Execution* VulkanBackend::onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
@@ -307,6 +276,7 @@ void VulkanBackend::copyToGPUBuffer(const void* src, VkBuffer buffer, VkDeviceSi
     cmdbuffer->end();
     pushCommand(cmdbuffer->get());
     _finish();
+    mHostBuffer.reset();
 }
 void VulkanBackend::_requireHostBuffer(size_t size) const {
     _finish();

@@ -12,9 +12,10 @@ MNN 的算子转换与实现如下图，
    3. 添加几何计算实现（可选，如果实现几何计算，无须后续在各后端添加算子实现）
    4. 添加各后端算子实现（可选，选择需要部分进行实现）
 
-![image.png](https://cdn.nlark.com/yuque/0/2021/png/405896/1618994794052-575a79b9-d291-4d1b-a630-79dd705bc977.png#clientId=u1c902b2d-d8e6-4&from=paste&height=701&id=ue223d8c2&margin=%5Bobject%20Object%5D&name=image.png&originHeight=1402&originWidth=3394&originalType=binary&ratio=1&size=256977&status=done&style=none&taskId=u4663d0eb-adcf-435b-b540-f61d2617cd4&width=1697)
+![image.png](pic1.png)
 ### 添加算子的流程
-![image.png](https://cdn.nlark.com/yuque/0/2021/png/405896/1618995111237-321c5ca8-ed99-4cfc-9d91-04deaa2e29eb.png#clientId=u1c902b2d-d8e6-4&from=paste&height=597&id=u518a1fda&margin=%5Bobject%20Object%5D&name=image.png&originHeight=1194&originWidth=2714&originalType=binary&ratio=1&size=222438&status=done&style=none&taskId=u9c8f2ef4-7bf3-4b18-9560-794c3344f01&width=1357)
+
+![image.png](pic2.png)
 简单来说，优先转换，然后组合，然后几何计算，最后各后端实现。
 
 ## 添加Schema描述
@@ -254,25 +255,31 @@ REGISTER_CPU_OP_CREATOR(CPUMyCustomOpCreator, OpType_MyCustomOp);
 ```
 
 ### 添加Metal实现
-1. 添加Shader
-在`source/backend/Metal`目录下添加`MetalMyCustomOp.metal`，并添加进Xcode工程。metal可以参考目录下已有实现。
 
-2. 实现类声明
-在`source/backend/Metal`目录下添加`MetalMyCustomOp.hpp`和`MetalMyCustomOp.cpp`，并添加进Xcode工程：
+- 实现类声明
+
+在`source/backend/metal`目录下添加`MetalMyCustomOp.hpp`和`MetalMyCustomOp.cpp`
 ```cpp
 class MetalMyCustomOp : public Execution {
 public:
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, 
                                const std::vector<Tensor *> &outputs) override;
-    virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, 
-                                const std::vector<Tensor *> &outputs) override;
+    virtual void onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder) override;
 };
 ```
 
-3. 实现`onResize`和`onExecute`
-不同于CPU Tensor将数据存储在host指针中，Metal数据指针存放在`deviceId`中，deviceId上存储的是`id<MTLBuffer>`：
+- 实现`onResize`和`onEncode`
+
+尽量将申请内存和计算group size 的操作放在 onResize 函数中。
+
+onEncode 时，使用传入的 encoder 编排计算任务，不要自行创建 command buffer 或 encoder
+
+- 内存使用
+
+不同于CPU Tensor将数据存储在host指针中，Metal数据指针存放在`deviceId`中，deviceId上存储的是`id<MTLBuffer>`, ，由于内存复用机制，各Tensor有可能共用同一块内存，以offset进行偏移：
 ```objectivec
 auto buffer = (__bridge id<MTLBuffer>)(void *)tensor->deviceId();
+auto offset = TensorUtils::getDescribe(tensor)->extra.offset;
 ```
 
 Metal Op的特定参数等可以通过`id<MTLBuffer>`存储。buffer数据类型可以与tensor不同，buffer甚至可以混合多种数据类型，只需保证创建时指定了正确的长度即可。例如：
@@ -297,20 +304,11 @@ auto buffer = [context newDeviceBuffer:2 * sizeof(int) + 2 * sizeof(__fp16) acce
 
 一般而言，heap只会与**CPUTransparent**一起使用。_heap实际只在iOS 10+上有效，iOS 9-上会回退到device上。_
 
-使用Metal时，**如非特殊情况，禁止自行创建device和library**。加载library、编译function都是耗时行为，**MNNMetalContext**上做了必要的缓存优化。通过context执行Metal的示例如下：
-```cpp
-auto context   = (__bridge MNNMetalContext *)backend->context();
-auto kernel    = /* metal kernel name NSString */;
-auto encoder   = [context encoder];
-auto bandwidth = [context load:kernel encoder:encoder];
-/* encoder set buffer(s)/sampler(s) */
-[context dispatchEncoder:encoder 
-			     threads:{x, y, z}
-      maxThreadsPerGroup:maxThreadsPerThreadgroup]; // recommended way to dispatch
-[encoder endEncoding];
-```
+Metal 内存布局与CPU-FP32-Neon一致，在 Tensor 的 dimentionFormat 为 NC4HW4 时，使用 C4NHW4的排布。否则按默认线性布局。
 
-4. 注册实现类
+
+- 注册实现类
+
 ```cpp
 class MetalMyCustomOpCreator : public MetalBackend::Creator {
 public:
@@ -322,7 +320,11 @@ public:
 REGISTER_METAL_OP_CREATOR(MetalMyCustomOpCreator, OpType_MyCustomOp);
 ```
 
-添加注册代码后，重新运行一下 CMake ，自动变更注册文件
+- 工程更新
+
+进入 source/backend/metal 目录，执行 [ python3 MetalCodeGen.py . ] ，更新自注册文件
+
+重新运行一下 CMake ，或者手动在Xcode工程中新加文件
 
 ### 添加Vulkan实现
 1. 添加Shader

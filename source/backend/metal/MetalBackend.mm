@@ -5,12 +5,12 @@
 //  Created by MNN on 2019/01/30.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
+
 #import "backend/metal/MetalBackend.hpp"
 #define MNN_METAL
 #import <MNN/MNNSharedContext.h>
-
+#define METAL_CONST_BUFFER_LIMIT 128
 #if MNN_METAL_ENABLED
-#import <mutex>
 #import "backend/metal/MNNMetalContext.h"
 #import "core/Macro.h"
 #import "core/TensorUtils.hpp"
@@ -29,6 +29,18 @@ int MNNMetalGetTensorContent(MNNMetalTensorContent* content, void* tensor) {
 
 namespace MNN {
 
+static void _MetalApplyTensor(uint8_t* host, size_t offset, Tensor* t) {
+    // ptr of MetalBufferAlloc
+    t->buffer().device = (uint64_t)host;
+    auto des = TensorUtils::getDescribe(t);
+    des->extra.offset = offset;
+}
+static BufferAllocator* _createBufferAllocator(const Runtime* runtime, BufferAllocator* origin, bool secondResize) {
+    if (runtime->hint().memoryAllocatorType == Runtime::Allocator_Defer && secondResize) {
+        return new DeferBufferAllocator(BufferAllocator::Allocator::createRecurse(origin), 1024, _MetalApplyTensor);
+    }
+    return new EagerBufferAllocator(BufferAllocator::Allocator::createRecurse(origin), 1024);
+}
 struct TunedInfo {
     std::vector<std::unique_ptr<MetalCache::OpInfoT>> mInfos;
 };
@@ -53,14 +65,17 @@ void MetalBackend::addCreator(OpType t, Creator *c) {
     map->insert(std::make_pair(t, c));
 }
 
-MetalBackend::MetalBackend(std::shared_ptr<EagerBufferAllocator> staticMem, const MetalRuntime* runtime, bool usefp16AsFp32) : Backend(MNN_FORWARD_METAL) {
+MetalBackend::MetalBackend(std::shared_ptr<EagerBufferAllocator> staticMem, const MetalRuntime* runtime, bool usefp16AsFp32) : Backend(MNN_FORWARD_METAL),
+    mEmptyMem(nil)
+    {
     mRuntime = runtime;
-    mBufferPool.reset(new EagerBufferAllocator(EagerBufferAllocator::Allocator::createRecurse(staticMem.get()), 1024));
+    auto ctx = (__bridge MNNMetalContext *)runtime->context();
+    mBufferPool.reset(_createBufferAllocator(runtime, staticMem.get(), false));
+    mCurrentAllocator = mBufferPool.get();
     mStaticBufferPool = staticMem;
     mShapeH2D = getConstBuffer(4 * sizeof(int));
     mShapeD2H = getConstBuffer(4 * sizeof(int));
     mUseFloatAsFp16 = usefp16AsFp32;
-    auto ctx = (__bridge MNNMetalContext *)context();
     mIsIphone = ctx.isIphone;
     if (runtime->getCommandQueue() == nil) {
         // one command queue can create only a few command buffer, so let each backend own a command queue
@@ -93,7 +108,7 @@ void *MetalBackend::context() const {
 
 class MetalMemRelease : public Backend::MemObj {
 public:
-    MetalMemRelease(MemChunk buffer, EagerBufferAllocator* allocator) {
+    MetalMemRelease(MemChunk buffer, BufferAllocator* allocator) {
         mBuffer = buffer;
         mAllocator = allocator;
     }
@@ -105,30 +120,36 @@ public:
     }
 private:
     MemChunk mBuffer;
-    EagerBufferAllocator* mAllocator;
+    BufferAllocator* mAllocator;
 };
 size_t MetalBackend::getTensorSizeInBytes(const Tensor* tensor) const {
     auto format = TensorUtils::getDescribe(tensor)->dimensionFormat;
     size_t size;
     if (MNN_DATA_FORMAT_NC4HW4 == format && tensor->dimensions() >= 2) {
-        size_t width = 1;
-        size_t height = 1;
-        auto batch    = tensor->length(0);
-        auto channel  = tensor->length(1);
+        int width = 1;
+        int height = 1;
+        int batch    = tensor->length(0);
+        int channel  = tensor->length(1);
         if (tensor->dimensions() >= 3) {
             height = tensor->length(2);
         }
         for (int i=3; i<tensor->dimensions(); ++i) {
             width *= tensor->length(i);
         }
-        auto alignC = ROUND_UP(channel, 4);
-        auto hR = ROUND_UP(height, 4) - height;
+        int alignC = ROUND_UP(channel, 4);
+        int hR = ROUND_UP(height, 4) - height;
         // width parallel 4, may exceed 3 elements
-        auto wR = ROUND_UP(width + 3, 4) - width;
+        int wR = ROUND_UP(width + 3, 4) - width;
+        int bhw = batch * width * height;
+        int bhwR = UP_DIV(bhw, 16) * 16 - bhw;
+        int extraPadding = ALIMAX(bhwR, (hR * width + wR));
         size = batch * alignC * width * height;
-        size = size + hR * width * 4 + wR * 4;
+        size = size + extraPadding * 4;
     } else {
-        size = tensor->elementSize();
+        size = 1;
+        for (int i=0; i<tensor->dimensions(); ++i) {
+            size *= tensor->length(i);
+        }
         size = ROUND_UP(size, 4);
     }
     if (0 == size) {
@@ -153,38 +174,39 @@ Backend::MemObj* MetalBackend::onAcquire(const Tensor *_tensor, StorageType stor
     }
     // reuse if possible
     MemChunk buffer;
-    EagerBufferAllocator* allocator = nullptr;
+    BufferAllocator* allocator = nullptr;
     switch (storageType) {
         case Backend::STATIC: {
             buffer = mStaticBufferPool->alloc(size, false);
             allocator = mStaticBufferPool.get();
         } break;
         case Backend::DYNAMIC: {
-            buffer = mBufferPool->alloc(size, false);
-            allocator = mBufferPool.get();
+            buffer = mCurrentAllocator->alloc(size, false);
+            allocator = mCurrentAllocator;
         } break;
         case Backend::DYNAMIC_SEPERATE: {
-            buffer = mBufferPool->alloc(size, true);
-            allocator = mBufferPool.get();
+            buffer = mCurrentAllocator->alloc(size, true);
+            allocator = mCurrentAllocator;
         } break;
     }
-    
-    if(nullptr == buffer.first) {
-        MNN_ERROR("onAcquireBuffer error!\n");
-        return nullptr;
-    };
-    
-    // ptr of MetalBufferAlloc
-    auto host = buffer.first;
-    ((Tensor*)_tensor)->buffer().device = (uint64_t)host;
-    auto des = TensorUtils::getDescribe(_tensor);
-    des->extra.offset = buffer.second;
-    
+    if (storageType == Backend::STATIC) {
+        if(nullptr == buffer.first) {
+            MNN_ERROR("onAcquireBuffer error!\n");
+            return nullptr;
+        }
+    } else {
+        buffer.attach(tensor);
+    }
+    if (nullptr == buffer.first) {
+        _MetalApplyTensor((uint8_t*)(&mEmptyMem), 0, (Tensor*)_tensor);
+    } else {
+        _MetalApplyTensor((uint8_t*)buffer.first, buffer.second, (Tensor*)_tensor);
+    }
     return new MetalMemRelease(buffer, allocator);
 }
 
 bool MetalBackend::onClearBuffer() {
-    mBufferPool->release(true);
+    mCurrentAllocator->release(true);
     return true;
 }
 
@@ -232,6 +254,26 @@ void MetalBackend::onExecuteEnd() const {
         mOpEncoderSet = true;
     }
 }
+BufferAllocator* MetalBackend::getBufferPool() const {
+    return mCurrentAllocator;
+}
+
+bool MetalBackend::onSelectDynamicAllocator(int index, int maxIndex) {
+    if (maxIndex > 2) {
+        return false;
+    }
+    if (maxIndex == 2 && mBufferPoolShapeImmutable.get() == nullptr) {
+        mBufferPoolShapeImmutable.reset(_createBufferAllocator(mRuntime, mStaticBufferPool.get(), true));
+        mBufferPool.reset(_createBufferAllocator(mRuntime, mStaticBufferPool.get(), true));
+    }
+    if (1 == index) {
+        mCurrentAllocator = mBufferPoolShapeImmutable.get();
+    } else {
+        mCurrentAllocator = mBufferPool.get();
+    }
+    return true;
+}
+
 bool MetalBackend::onGetTensorInfo(const Tensor* tensor, void* dstInfo) {
     if (nullptr == dstInfo) {
         return true;
@@ -273,6 +315,9 @@ void MetalBackend::addOpEncoder(std::function<void(void)> opEncoder) {
 }
 
 id<MTLBuffer> MetalBackend::getHostBuffer(size_t size) const {
+    if (size < METAL_CONST_BUFFER_LIMIT) {
+        size = METAL_CONST_BUFFER_LIMIT;
+    }
     // reuse
     if (nullptr != mHostBuffer && mHostBuffer.length >= size) {
         return mHostBuffer;
@@ -285,107 +330,198 @@ id<MTLBuffer> MetalBackend::getHostBuffer(size_t size) const {
 }
 
 id<MTLBuffer> MetalBackend::getConstBuffer(size_t size) const {
+    if (size < METAL_CONST_BUFFER_LIMIT) {
+        if (!mHoldBuffers.empty()) {
+            auto res = mHoldBuffers.front();
+            mHoldBuffers.pop();
+            return res;
+        }
+        size = METAL_CONST_BUFFER_LIMIT;
+    }
     auto context = (__bridge MNNMetalContext *)this->context();
     auto buffer  = [context newDeviceBuffer:size access:CPUReadWrite];
     return buffer;
 }
-
-MTLSize getTensorShape(id<MTLBuffer> shape, const Tensor *tensor) {
-    int s = 1, c = 1, b = 1;
-    if (tensor->dimensions() == 4) {
-        s = tensor->width() * tensor->height();
-        c = tensor->channel();
-        b = tensor->batch();
-    } else if (tensor->dimensions() >= 2){
+void MetalBackend::returnConstBuffer(id<MTLBuffer> buffer) const {
+    mHoldBuffers.push(buffer);
+}
+static inline void _getNCPlane(const Tensor* tensor, int& s, int& c, int& b) {
+    auto format = TensorUtils::getDescribe(tensor)->dimensionFormat;
+    s = 1, c = 1, b = 1;
+    b = tensor->length(0);
+    if (format == MNN_DATA_FORMAT_NHWC) {
+        c = tensor->length(tensor->dimensions()-1);
+        for (int i=1; i<tensor->dimensions()-1; ++i) {
+            s *= tensor->length(i);
+        }
+    } else {
+        c = tensor->length(1);
         for (int i=2; i<tensor->dimensions(); ++i) {
             s *= tensor->length(i);
         }
-        c = tensor->length(1);
-        b = tensor->length(0);
     }
-
+}
+MTLSize getTensorShape(id<MTLBuffer> shape, const Tensor *tensor) {
+    auto format = TensorUtils::getDescribe(tensor)->dimensionFormat;
+    int s, b, c;
+    _getNCPlane(tensor, s, c, b);
     int z = UP_DIV(c, 4);
 
     // shape
-    ((int *)shape.contents)[0] = s;
+    ((int *)shape.contents)[0] = b;
     ((int *)shape.contents)[1] = c;
-    ((int *)shape.contents)[2] = z;
-    ((int *)shape.contents)[3] = b * z;
-
+    ((int *)shape.contents)[2] = s;
+    ((int *)shape.contents)[3] = 1;
+    
+    // stride
+    if (format == MNN_DATA_FORMAT_NHWC) {
+        ((int *)shape.contents)[4] = s * c;
+        ((int *)shape.contents)[5] = 1;
+        ((int *)shape.contents)[6] = c;
+        ((int *)shape.contents)[7] = 1;
+    } else {
+        ((int *)shape.contents)[4] = s * c;
+        ((int *)shape.contents)[5] = s;
+        ((int *)shape.contents)[6] = 1;
+        ((int *)shape.contents)[7] = 1;
+    }
     // threads
-    MTLSize threads = {(NSUInteger)s, (NSUInteger)b * z, 1};
+    MTLSize threads = {(NSUInteger)s * b * z, 1, 1};
     return threads;
 }
-
-enum MetalCastType : int {
-    // no cast
-    None = 0,
-    // metal float to float
-    Up,
-    // float to metal float
-    Down
+static const char* gTranspose = R"metal(
+#include <metal_stdlib>
+#include <simd/simd.h>
+using namespace metal;
+struct tensor_shape {
+    uint4 size; // n, c, plane, 1
+    uint4 stride;
 };
+kernel void main0(const device IType* in [[buffer(0)]], device OType* out [[buffer(1)]], constant tensor_shape &uConstant [[buffer(2)]], uint gid [[thread_position_in_grid]]) {
+    int channel = uConstant.size.y;
+    if (gid < channel * uConstant.size.x * uConstant.size.z) {
+        int tmp = gid % (channel * uConstant.size.x);
+        int x = gid / (channel * uConstant.size.x);
+        int b = tmp / channel;
+        int c = tmp % channel;
+        int outPos = b * uConstant.size.y * uConstant.size.z + c * uConstant.size.z + x;
+        int inPos = b * uConstant.size.y * uConstant.size.z + c + x * uConstant.size.y;
+        out[outPos] = (OType)(in[inPos]);
+    }
+})metal";
 
-static NSString *kernelForConvert(halide_type_t type, MNN_DATA_FORMAT from, MNN_DATA_FORMAT to, MetalCastType cast) {
-    if (type.code == halide_type_float) {
-        NSString *map[3][MNN_DATA_FORMAT_MAX + 1][MNN_DATA_FORMAT_MAX + 1] = {
-            // none
+static const char* gNC4HW4Convert = R"metal(
+#include <metal_stdlib>
+#include <simd/simd.h>
+using namespace metal;
+struct tensor_shape {
+    uint4 size; // n, c, plane, 1
+    uint4 stride;
+};
+kernel void main0(const device IType* in [[buffer(0)]], device OType* out [[buffer(1)]], constant tensor_shape &uConstant [[buffer(2)]], uint gid [[thread_position_in_grid]]) {
+    int channelC4 = (uConstant.size.y + 3) / 4;
+    if (gid < channelC4 * uConstant.size.x * uConstant.size.z)
+    {
+        int3 pos;
+        pos.z = gid % (channelC4 * uConstant.size.x);
+        pos.y = gid / (channelC4 * uConstant.size.x);
+        pos.x = 0;
+        int batchIndex = pos.z / channelC4;
+        int zDiv4 = pos.z % channelC4;
+
+        int lastZ = uConstant.size.y / 4;
+        int cIndex = uConstant.size.y % 4;
+
+        int z = zDiv4*4;
+        int basicOffset = 0
+            + batchIndex*uConstant.stride.x
+            + z * uConstant.stride.y
+            + pos.y * uConstant.stride.z
+            ;
+#ifdef MNN_OUTPUT_C4
+        OType color = OType(0);
+        if(zDiv4 == lastZ)
+        {
+            if(cIndex == 1)
             {
-                // from MNN_DATA_FORMAT_NCHW
-                {nil, nil, @"cvt_f_NCHW_to_NC4HW4", nil, nil},
-                // from MNN_DATA_FORMAT_NHWC
-                {nil, nil, @"cvt_f_NHWC_to_NC4HW4", nil, nil},
-                // from MNN_DATA_FORMAT_NC4HW4
-                {@"cvt_f_NC4HW4_to_NCHW", @"cvt_f_NC4HW4_to_NHWC", nil, nil, nil},
-                // from MNN_DATA_FORMAT_NHWC4
-                {nil, nil, nil, nil, nil},
-                // from MNN_DATA_FORMAT_UNKNOWN
-                {nil, nil, nil, nil, nil},
-            },
-            // up
+                color.r = in[basicOffset+0];
+                color.g = 0.0;
+                color.b = 0.0;
+                color.a = 0.0;
+            }
+            else if(cIndex == 2)
             {
-                // from MNN_DATA_FORMAT_NCHW
-                {nil, nil, @"upcast_f_NCHW_to_NC4HW4", nil, nil},
-                // from MNN_DATA_FORMAT_NHWC
-                {@"upcast_f_NHWC_to_NCHW", nil, @"upcast_f_NHWC_to_NC4HW4", nil, nil},
-                // from MNN_DATA_FORMAT_NC4HW4
-                {@"upcast_f_NC4HW4_to_NCHW", @"upcast_f_NC4HW4_to_NHWC", nil, nil, nil},
-                // from MNN_DATA_FORMAT_NHWC4
-                {nil, nil, nil, nil, nil},
-                // from MNN_DATA_FORMAT_UNKNOWN
-                {nil, nil, nil, nil, nil},
-            },
-            // down
+                color.r = in[basicOffset+0];
+                color.g = in[basicOffset+1*uConstant.stride.y];
+                color.b = 0.0;
+                color.a = 0.0;
+            }
+            else
             {
-                // from MNN_DATA_FORMAT_NCHW
-                {nil, @"downcast_f_NCHW_to_NHWC", @"downcast_f_NCHW_to_NC4HW4", nil, nil},
-                // from MNN_DATA_FORMAT_NHWC
-                {nil, nil, @"downcast_f_NHWC_to_NC4HW4", nil, nil},
-                // from MNN_DATA_FORMAT_NC4HW4
-                {@"downcast_f_NC4HW4_to_NCHW", @"downcast_f_NC4HW4_to_NHWC", nil, nil, nil},
-                // from MNN_DATA_FORMAT_NHWC4
-                {nil, nil, nil, nil, nil},
-                // from MNN_DATA_FORMAT_UNKNOWN
-                {nil, nil, nil, nil, nil},
-            },
-        };
-        return map[cast][from][to];
-    } else {
-        NSString *map[MNN_DATA_FORMAT_MAX + 1][MNN_DATA_FORMAT_MAX + 1] = {
-            // from MNN_DATA_FORMAT_NCHW
-            {nil, nil, @"cvt_u_NCHW_to_NC4HW4", nil, nil},
-            // from MNN_DATA_FORMAT_NHWC
-            {nil, nil, @"cvt_u_NHWC_to_NC4HW4", nil, nil},
-            // from MNN_DATA_FORMAT_NC4HW4
-            {@"cvt_u_NC4HW4_to_NCHW", @"cvt_u_NC4HW4_to_NHWC", nil, nil, nil},
-            // from MNN_DATA_FORMAT_NHWC4
-            {nil, nil, nil, nil, nil},
-            // from MNN_DATA_FORMAT_UNKNOWN
-            {nil, nil, nil, nil, nil},
-        };
-        return map[from][to];
+                color.r = in[basicOffset+0];
+                color.g = in[basicOffset+1*uConstant.stride.y];
+                color.b = in[basicOffset+2*uConstant.stride.y];
+                color.a = 0.0;
+            }
+        }
+        else
+        {
+            color.r = in[basicOffset+0];
+            color.g = in[basicOffset+1*uConstant.stride.y];
+            color.b = in[basicOffset+2*uConstant.stride.y];
+            color.a = in[basicOffset+3*uConstant.stride.y];
+        }
+
+        out[0
+            + pos.y
+            + uConstant.size.x * uConstant.size.z*zDiv4
+            + batchIndex*uConstant.size.z
+            ] = color;
+#else
+        IType color = in[0
+            + pos.y
+            + uConstant.size.x * uConstant.size.z*zDiv4
+            + batchIndex*uConstant.size.z
+            ];
+        if(zDiv4 == lastZ)
+        {
+            if(cIndex == 1)
+            {
+                out[basicOffset+0*uConstant.stride.y] = color.r;
+            }
+            else if(cIndex == 2)
+            {
+                out[basicOffset+0*uConstant.stride.y] = color.r;
+                out[basicOffset+1*uConstant.stride.y] = color.g;
+            }
+            else
+            {
+                out[basicOffset+0*uConstant.stride.y] = color.r;
+                out[basicOffset+1*uConstant.stride.y] = color.g;
+                out[basicOffset+2*uConstant.stride.y] = color.b;
+            }
+        }
+        else
+        {
+            out[basicOffset+0*uConstant.stride.y] = color.r;
+            out[basicOffset+1*uConstant.stride.y] = color.g;
+            out[basicOffset+2*uConstant.stride.y] = color.b;
+            out[basicOffset+3*uConstant.stride.y] = color.a;
+        }
+#endif
     }
 }
+)metal";
+
+static const char* gCopy = R"metal(
+#include <metal_stdlib>
+#include <simd/simd.h>
+using namespace metal;
+kernel void main0(const device IType *in [[buffer(0)]], device OType *out [[buffer(1)]], constant uint4& limit [[buffer(2)]], uint gid [[thread_position_in_grid]]) {
+    if (gid < limit.x) {
+        out[int(gid)] = (OType)in[int(gid)];
+    }
+})metal";
 
 void MetalBackend::onResizeBegin() {
     mFrameEncodeCache = false;
@@ -397,187 +533,164 @@ void MetalBackend::onResizeBegin() {
     _commandBuffer_net = nil;
     _commandBuffer = nil;
     wait();
+    mCurrentAllocator->reset();
 }
 
 ErrorCode MetalBackend::onResizeEnd() {
     auto ctx = (__bridge MNNMetalContext *)context();
     mFrameEncodeCache = (!ctx.isCommitEachShader && mSupportDeferEncode);
-    return NO_ERROR;
+    return mCurrentAllocator->compute();
 }
 
-void MetalBackend::onCopyHostToDevice(const Tensor *src, const Tensor *dst) const {
-    auto ctx = (__bridge MNNMetalContext *)context();
-    auto sfmt    = TensorUtils::getDescribe(src)->dimensionFormat;
-    auto dfmt    = TensorUtils::getDescribe(dst)->dimensionFormat;
-    auto device  = (id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *) (dst->deviceId()))->getBuffer();
-    auto floats  = src->getType().code == halide_type_float;
-
-    // For command queue from user, need user to make sure last frame's gpu work is ready
-    bool needWait = !mRuntime->userSync();
-    // cast
-    if (sfmt == dfmt || src->dimensions() <= 1) {
-        if (floats && mUseFloatAsFp16) {
-            NSUInteger size = src->elementSize();
-            auto sizeC4 = UP_DIV(size, 4);
-            auto host = this->getHostBuffer(sizeC4 * 4 * sizeof(float));
-            if (needWait) {
-                wait();
-            }
-            memcpy(host.contents, src->host<float>(), src->size());
-            unsigned int limits[] = {
-                (unsigned int)sizeC4,
-                1,
-                1,
-                1
-            };
-            ::memcpy(mShapeH2D.contents, limits, sizeof(limits));
-            auto encoder    = [getCommandBufferForBufferCopy() computeCommandEncoder];
-            auto bandwidth  = [ctx load: @"downcast_float4" encoder:encoder fp16:mUseFloatAsFp16];
-            
-            [encoder setBuffer:host offset:0 atIndex:0];
-            [encoder setBuffer:device offset:TensorUtils::getDescribe(dst)->extra.offset atIndex:1];
-            [encoder setBuffer:mShapeH2D offset:0 atIndex:2];
-            //[ctx dispatchEncoder:encoder threads:{sizeC4, 1, 1} bandwidth:bandwidth];
-            std::pair<MTLSize, MTLSize> threads;
-            threads.first = {sizeC4, 1, 1};
-            threads.second = {bandwidth.maxThreadsPerThreadgroup, 1, 1};
-            threads.second.width = threads.second.width <= threads.first.width ? threads.second.width : threads.first.width;
-            threads.first.width = UP_DIV(threads.first.width, threads.second.width);
-            [encoder dispatchThreadgroups:threads.first threadsPerThreadgroup:threads.second];
-            [encoder endEncoding];
-            commit();
-            //[ctx wait];
+static std::string _getType(const halide_type_t& type, MNN_DATA_FORMAT format, bool useFp16AsFp32) {
+    std::string res;
+    if (type.code == halide_type_float) {
+        if (useFp16AsFp32) {
+            res = "half";
         } else {
-            if (needWait) {
-                wait();
-            }
-            memcpy((uint8_t*)device.contents + TensorUtils::getDescribe(dst)->extra.offset, src->host<uint8_t>(), src->size());
+            res = "float";
+        }
+    } else {
+        switch (type.bytes()) {
+            case 1:
+                res = "char";
+                break;
+            case 2:
+                res = "short";
+                break;
+            case 4:
+                res = "int";
+                break;
+            default:
+                MNN_ASSERT(false);
+                break;
         }
     }
-    // convert
-    else {
-
-        auto buffer = getHostBuffer(src->elementSize() * sizeof(float));
-        if (needWait) {
-            wait();
-        }
-        auto size = getTensorShape(mShapeH2D, src);
-        memcpy(buffer.contents, src->host<float>(), src->size());
-        auto encoder = [getCommandBufferForBufferCopy() computeCommandEncoder];
-        auto kernel  = kernelForConvert(src->getType(), sfmt, dfmt, Down);
-        MNN_ASSERT(kernel != nil); // unsupported sfmt to dfmt
-
-        auto bandwidth = [ctx load:kernel encoder:encoder fp16:mUseFloatAsFp16];
-        
-        [encoder setBuffer:buffer offset:0 atIndex:0];
-        [encoder setBuffer:device offset:TensorUtils::getDescribe(dst)->extra.offset atIndex:1];
-        [encoder setBuffer:mShapeH2D offset:0 atIndex:2];
-        [ctx dispatchEncoder:encoder threads:size bandwidth:bandwidth];
-        [encoder endEncoding];
-        commit();
-        //[ctx wait];
+    if (format == MNN_DATA_FORMAT_NC4HW4) {
+        return res + "4";
     }
+    return res;
 }
-
-void MetalBackend::onCopyDeviceToHost(const Tensor *src, const Tensor *dst) const {
+MetalBackend::CopyPipeline MetalBackend::_makeCopyInfo(const Tensor *src, const Tensor *dst, id<MTLBuffer> shape, int castType) const {
     auto ctx = (__bridge MNNMetalContext *)context();
-    auto sfmt    = TensorUtils::getDescribe(src)->dimensionFormat;
-    auto dfmt    = TensorUtils::getDescribe(dst)->dimensionFormat;
-    auto device  = (id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)src->deviceId())->getBuffer();
-    auto floats  = src->getType().code == halide_type_float;
-    // cast
+    MetalBackend::CopyPipeline res;
+    auto sfmt = TensorUtils::getDescribe(src)->dimensionFormat;
+    auto dfmt = TensorUtils::getDescribe(dst)->dimensionFormat;
+    if (shape == nil) {
+        shape = getConstBuffer(8 * sizeof(int));
+    }
+    res.shape = shape;
     if (sfmt == dfmt || src->dimensions() <= 1) {
-        if (floats && mUseFloatAsFp16) {
-            auto eleSize = dst->elementSize();
-            eleSize = UP_DIV(eleSize, 4) * 4;
-            auto buffer = getHostBuffer(eleSize * dst->getType().bytes());
-
-            NSUInteger size = src->elementSize();
-            auto encoder    = [getCommandBufferForBufferCopy() computeCommandEncoder];
-            auto bandwidth  = [ctx load: @"upcast_float4" encoder:encoder fp16:mUseFloatAsFp16];
-            [encoder setBuffer:device offset:TensorUtils::getDescribe(src)->extra.offset atIndex:0];
-            [encoder setBuffer:buffer offset:0 atIndex:1];
-            auto sizeC4 = UP_DIV(size, 4);
-            unsigned int limits[] = {
-                (unsigned int)sizeC4,
-                1,
-                1,
-                1
-            };
-            ::memcpy(mShapeD2H.contents, limits, sizeof(limits));
-            [encoder setBuffer:mShapeD2H offset:0 atIndex:2];
-            //[ctx dispatchEncoder:encoder threads:{sizeC4, 1, 1} bandwidth:bandwidth];
-            std::pair<MTLSize, MTLSize> threads;
-            threads.first = {sizeC4, 1, 1};
-            threads.second = {bandwidth.maxThreadsPerThreadgroup, 1, 1};
-            threads.second.width = threads.second.width <= threads.first.width ? threads.second.width : threads.first.width;
-            threads.first.width = UP_DIV(threads.first.width, threads.second.width);
-            [encoder dispatchThreadgroups:threads.first threadsPerThreadgroup:threads.second];
-            
-            [encoder endEncoding];
-            commit();
-            wait();
-
-            memcpy(dst->host<float>(), buffer.contents, dst->size());
-        } else {
-            commit();
-            wait();
-            memcpy(dst->host<uint8_t>(), (uint8_t*)device.contents + TensorUtils::getDescribe(src)->extra.offset, dst->size());
+        auto srcType = _getType(src->getType(), MNN_DATA_FORMAT_NC4HW4, mUseFloatAsFp16 && castType != 1);
+        auto dstType = _getType(dst->getType(), MNN_DATA_FORMAT_NC4HW4, mUseFloatAsFp16 && castType != 2);
+        auto size      = dst->elementSize();
+        size = UP_DIV(size, 4);
+        std::vector<std::string> keys = {
+            "copyC4",
+            srcType,
+            dstType
+        };
+        ((uint32_t*)[shape contents])[0] = size;
+        id<MTLComputePipelineState> pipeline = mRuntime->findPipeline(keys);
+        if (nil == pipeline) {
+            MTLCompileOptions *option = [[MTLCompileOptions alloc] init];
+            auto dic = [NSMutableDictionary dictionaryWithCapacity:0];
+            [dic setValue:@(keys[1].c_str()) forKey:@"IType"];
+            [dic setValue:@(keys[2].c_str()) forKey:@"OType"];
+            option.preprocessorMacros = dic;
+            pipeline = makeComputePipelineWithSourceOption(gCopy, "main0", option);
+            mRuntime->insertPipeline(keys, pipeline);
         }
+        res.groupSize = MTLSizeMake(UP_DIV(size, 256), 1, 1);
+        res.localSize = MTLSizeMake(256, 1, 1);
+        res.pipeline = pipeline;
+        return res;
     }
-    // convert
-    else {
-        auto size = getTensorShape(mShapeD2H, src);
-        auto buffer  = getHostBuffer(dst->size());
-        auto encoder    = [getCommandBufferForBufferCopy() computeCommandEncoder];
-        auto kernel  = kernelForConvert(src->getType(), sfmt, dfmt, Up);
-        MNN_ASSERT(kernel != nil); // unsupported sfmt to dfmt
-
-        auto bandwidth = [ctx load:kernel encoder:encoder fp16:mUseFloatAsFp16];
-        [encoder setBuffer:device offset:TensorUtils::getDescribe(src)->extra.offset atIndex:0];
-        [encoder setBuffer:buffer offset:0 atIndex:1];
-        [encoder setBuffer:mShapeD2H offset:0 atIndex:2];
-        [ctx dispatchEncoder:encoder threads:size bandwidth:bandwidth];
-        [encoder endEncoding];
-        commit();
-        wait();
-        memcpy(dst->host<float>(), buffer.contents, dst->size());
+    auto srcType = _getType(src->getType(), sfmt, mUseFloatAsFp16 && castType != 1);
+    auto dstType = _getType(dst->getType(), dfmt, mUseFloatAsFp16 && castType != 2);
+    if (sfmt == MNN_DATA_FORMAT_NC4HW4 || dfmt == MNN_DATA_FORMAT_NC4HW4) {
+        auto normalTensor = dst;
+        if (dfmt == MNN_DATA_FORMAT_NC4HW4) {
+            normalTensor = src;
+        }
+        // convert C4 / NCHW
+        std::vector<std::string> keys = {
+            "c4convert",
+            srcType,
+            dstType
+        };
+        if (dfmt == MNN_DATA_FORMAT_NC4HW4) {
+            keys.emplace_back("outputc4");
+        }
+        id<MTLComputePipelineState> pipeline = mRuntime->findPipeline(keys);
+        if (nil == pipeline) {
+            MTLCompileOptions *option = [[MTLCompileOptions alloc] init];
+            auto dic = [NSMutableDictionary dictionaryWithCapacity:0];
+            [dic setValue:@(keys[1].c_str()) forKey:@"IType"];
+            [dic setValue:@(keys[2].c_str()) forKey:@"OType"];
+            if (dfmt == MNN_DATA_FORMAT_NC4HW4) {
+                [dic setValue:@"1" forKey:@"MNN_OUTPUT_C4"];
+            }
+            option.preprocessorMacros = dic;
+            pipeline = makeComputePipelineWithSourceOption(gNC4HW4Convert, "main0", option);
+            mRuntime->insertPipeline(keys, pipeline);
+        }
+        res.pipeline = pipeline;
+        auto size = getTensorShape(shape, normalTensor);
+        auto gl = [ctx computeBestGroupAndLocal:pipeline threads:size];
+        res.groupSize = gl.first;
+        res.localSize = gl.second;
+        return res;
     }
+    // NCHW <-> NHWC
+    std::vector<std::string> keys = {
+        "transpose",
+        srcType,
+        dstType
+    };
+    id<MTLComputePipelineState> pipeline = mRuntime->findPipeline(keys);
+    if (nil == pipeline) {
+        MTLCompileOptions *option = [[MTLCompileOptions alloc] init];
+        auto dic = [NSMutableDictionary dictionaryWithCapacity:0];
+        [dic setValue:@(keys[1].c_str()) forKey:@"IType"];
+        [dic setValue:@(keys[2].c_str()) forKey:@"OType"];
+        option.preprocessorMacros = dic;
+        pipeline = makeComputePipelineWithSourceOption(gTranspose, "main0", option);
+        mRuntime->insertPipeline(keys, pipeline);
+    }
+    res.pipeline = pipeline;
+    int n, c, plane;
+    _getNCPlane(dst, plane, c, n);
+    auto shapePtr = (uint32_t*)shape.contents;
+    shapePtr[0] = n;
+    shapePtr[3] = 1;
+    if (MNN_DATA_FORMAT_NHWC == dfmt) {
+        shapePtr[1] = plane;
+        shapePtr[2] = c;
+    } else {
+        shapePtr[1] = c;
+        shapePtr[2] = plane;
+    }
+    auto size = plane * n * c;
+    res.localSize = MTLSizeMake(256, 1, 1);
+    res.groupSize = MTLSizeMake(UP_DIV(size, 256), 1, 1);
+    return res;
 }
 
+static void _execute(id<MTLComputeCommandEncoder> encoder, const MetalBackend::CopyPipeline& info, std::pair<id<MTLBuffer>, int> src, std::pair<id<MTLBuffer>, int> dst) {
+    [encoder setComputePipelineState:info.pipeline];
+    [encoder setBuffer:src.first offset:src.second atIndex:0];
+    [encoder setBuffer:dst.first offset:dst.second atIndex:1];
+    [encoder setBuffer:info.shape offset:0 atIndex:2];
+    [encoder dispatchThreadgroups:info.groupSize threadsPerThreadgroup:info.localSize];
+}
 void MetalBackend::onCopyDeviceToDevice(const Tensor *src, const Tensor *dst,
-                                        id<MTLComputeCommandEncoder> encoder, id<MTLBuffer> shape) const {
+                                        id<MTLComputeCommandEncoder> encoder, id<MTLBuffer> shape, int castType) const {
     auto ctx    = (__bridge MNNMetalContext *)context();
+    auto info = _makeCopyInfo(src, dst, shape, castType);
     auto standalone = encoder == nil;
-    encoder         = encoder ?: [getCommandBufferForBufferCopy() computeCommandEncoder];
-    auto sfmt       = TensorUtils::getDescribe(src)->dimensionFormat;
-    auto dfmt       = TensorUtils::getDescribe(dst)->dimensionFormat;
-
-    // copy
-    if (sfmt == dfmt || src->dimensions() <= 1) {
-        auto flt       = dst->getType().code == halide_type_float;
-        auto size      = flt ? dst->elementSize() : dst->size();
-        auto bandwidth = [ctx load:flt ? @"copy_float" : @"copy_byte" encoder:encoder fp16:mUseFloatAsFp16];
-        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)src->deviceId())->getBuffer() offset:TensorUtils::getDescribe(src)->extra.offset atIndex:0];
-        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)dst->deviceId())->getBuffer() offset:TensorUtils::getDescribe(dst)->extra.offset atIndex:1];
-        [ctx dispatchEncoder:encoder threads:{(NSUInteger)size, 1, 1} bandwidth:bandwidth];
-    }
-    // convert
-    else {
-        auto kernel = kernelForConvert(src->getType(), sfmt, dfmt, None);
-        MNN_ASSERT(kernel != nil); // unsupported sfmt to dfmt
-        if (shape == nil) {
-            shape = getConstBuffer(4 * sizeof(int));
-        }
-
-        auto size     = getTensorShape(shape, src);
-        auto bandwidth = [ctx load:kernel encoder:encoder fp16:mUseFloatAsFp16];
-        [encoder setBuffer:( id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)(src->buffer().device))->getBuffer() offset:TensorUtils::getDescribe(src)->extra.offset atIndex:0];
-        [encoder setBuffer:( id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)(dst->buffer().device))->getBuffer() offset:TensorUtils::getDescribe(dst)->extra.offset atIndex:1];
-        [encoder setBuffer:shape offset:0 atIndex:2];
-        [ctx dispatchEncoder:encoder threads:size bandwidth:bandwidth];
-    }
-
+    encoder = encoder ?: [getCommandBufferForBufferCopy() computeCommandEncoder];
+    _execute(encoder, info, MetalBackend::getBuffer(src), MetalBackend::getBuffer(dst));
     if (standalone) {
         [encoder endEncoding];
         MNN_PRINT_ENCODER(ctx, encoder);
@@ -606,15 +719,61 @@ void MetalBackend::onCopyBuffer(const Tensor *src, const Tensor *dst, id<MTLComp
     
     if (!src->buffer().host && !dst->buffer().host) {
         onCopyDeviceToDevice(src, dst, encoder, shape);
-    } else if (!src->buffer().host && dst->buffer().host) {
-        onCopyDeviceToHost(src, dst);
-
-    } else if (src->buffer().host && !dst->buffer().host) {
-        onCopyHostToDevice(src, dst);
-        
-    } else {
-        MNN_ASSERT(false); // should not be handled here
+        return;
     }
+    auto sfmt = TensorUtils::getDescribe(src)->dimensionFormat;
+    auto dfmt = TensorUtils::getDescribe(dst)->dimensionFormat;
+    bool formatDiff = sfmt != dfmt && src->dimensions() > 1;
+    auto floats  = src->getType().code == halide_type_float;
+    bool dataTypeDiff = floats && mUseFloatAsFp16;
+    bool needConvert = formatDiff || dataTypeDiff;
+
+    if (!src->buffer().host && dst->buffer().host) {
+        auto device = (id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)src->deviceId())->getBuffer();
+        auto devicePtr = (uint8_t*)device.contents + TensorUtils::getDescribe(src)->extra.offset;
+        if (needConvert) {
+            auto tDst = const_cast<Tensor*>(dst);
+            auto tmpBuffer = getHostBuffer(dst->usize());
+            auto info = _makeCopyInfo(src, dst, shape, 2);
+            auto standalone = encoder == nil;
+            encoder = encoder ?: [getCommandBufferForBufferCopy() computeCommandEncoder];
+            _execute(encoder, info, MetalBackend::getBuffer(src), std::make_pair(tmpBuffer, 0));
+            if (standalone) {
+                [encoder endEncoding];
+            }
+            commit();
+            devicePtr = (uint8_t*)tmpBuffer.contents;
+        }
+        wait();
+        ::memcpy(dst->host<void>(), devicePtr, dst->usize());
+        return;
+    }
+    if (src->buffer().host && !dst->buffer().host) {
+        // For command queue from user, need user to make sure last frame's gpu work is ready
+        bool needWait = !mRuntime->userSync();
+        if (needWait) {
+            wait();
+        }
+        auto srcSize = src->usize();
+        if (needConvert) {
+            auto tmpBuffer = getHostBuffer(srcSize);
+            ::memcpy(tmpBuffer.contents, src->host<void>(), srcSize);
+            auto info = _makeCopyInfo(src, dst, shape, 1);
+            auto standalone = encoder == nil;
+            encoder = encoder ?: [getCommandBufferForBufferCopy() computeCommandEncoder];
+            _execute(encoder, info, std::make_pair(tmpBuffer, 0), MetalBackend::getBuffer(dst));
+            if (standalone) {
+                [encoder endEncoding];
+            }
+            commit();
+        } else {
+            auto device = (id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)dst->deviceId())->getBuffer();
+            auto devicePtr = (uint8_t*)device.contents + TensorUtils::getDescribe(dst)->extra.offset;
+            ::memcpy(devicePtr, src->host<void>(), srcSize);
+        }
+        return;
+    }
+    MNN_ASSERT(false); // should not be handled here
 }
 int MetalBackend::onSync(Tensor::MapType mtype, bool toCpu, const Tensor* dstTensor) {
     flushEncoder();
@@ -648,10 +807,10 @@ id<MTLCommandBuffer> MetalBackend::getCommandBufferForNet() const {
     return _commandBuffer_net;
 }
 
-void MetalBackend::setTensor(MNN::Tensor* tensor, id<MTLComputeCommandEncoder> encoder, int index) {
+void MetalBackend::setTensor(const MNN::Tensor* tensor, id<MTLComputeCommandEncoder> encoder, int index) {
     [encoder setBuffer:((MetalRuntimeAllocator::MetalBufferAlloc *)tensor->deviceId())->getBuffer() offset:TensorUtils::getDescribe(tensor)->extra.offset atIndex:index];
 }
-std::pair<id<MTLBuffer>, int> MetalBackend::getBuffer(MNN::Tensor* tensor) {
+std::pair<id<MTLBuffer>, int> MetalBackend::getBuffer(const MNN::Tensor* tensor) {
     return std::make_pair(((MetalRuntimeAllocator::MetalBufferAlloc *)tensor->deviceId())->getBuffer(), TensorUtils::getDescribe(tensor)->extra.offset);
 }
 
@@ -808,7 +967,8 @@ MetalRuntime* MetalRuntime::create(const Backend::Info& info, id<MTLDevice> devi
     if (nil != sharedContext.queue) {
         rt->setCommandQueue(sharedContext.queue, true);
     }
-    if ((info.numThread & MNN_GPU_RECORD_OP) && nil == sharedContext.queue) {
+    bool supportDefer = info.numThread & MNN_GPU_RECORD_BATCH;
+    if ((!supportDefer) && nil == sharedContext.queue) {
         id<MTLCommandQueue> queue = [sharedContext.device newCommandQueue];
         rt->setCommandQueue(queue, false);
     }

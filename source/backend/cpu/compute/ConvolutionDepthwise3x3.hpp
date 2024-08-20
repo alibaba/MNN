@@ -30,6 +30,7 @@ private:
     int mSourceStartX = 0;
     int mSourceEndX   = 0;
     std::vector<float> mPostParameters;
+    std::vector<int> mDivides;
 };
 } // namespace MNN
 

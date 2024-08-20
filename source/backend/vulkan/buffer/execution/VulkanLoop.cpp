@@ -62,7 +62,7 @@ public:
         auto AStride = cmd->view()->GetAs<View>(1)->stride()->data();
         auto BStride = cmd->view()->GetAs<View>(2)->stride()->data();
         auto OStride = cmd->view()->GetAs<View>(0)->stride()->data();
-        int totalSize = mLoop->loopNumber() * size[0] * size[1] * size[2];
+        int totalSize = mLoop->loopNumber() * size[0] * size[2];
         auto param = reinterpret_cast<VulkanBatchMatMulInfo*>(mParam->map());
         param->size[3] = mLoop->loopNumber();
         auto vkBn = static_cast<VulkanBackend*>(backend());
@@ -124,12 +124,17 @@ struct BinaryBroadCastInfo {
 
 class VulkanBinaryBroadCast : public VulkanBasicExecution {
 public:
-    VulkanBinaryBroadCast(const LoopParam* loop, Backend *bn) : VulkanBasicExecution(bn) {
+    VulkanBinaryBroadCast(const LoopParam* loop, Backend *bn, bool isInt) : VulkanBasicExecution(bn) {
         mLoop = loop;
         auto vkbackend = static_cast<VulkanBackend*>(bn);
         mParam.reset(new VulkanBuffer(vkbackend->getMemoryPool(), false, sizeof(BinaryBroadCastInfo), nullptr, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT));
-        std::string shaderName = "glsl_binary_blit_" + VulkanBinary::getMidName( mLoop->commands()->GetAs<RegionCommand>(0)->op()) + "_comp";
-        
+        std::string shaderName;
+        if (isInt) {
+            shaderName = "glsl_binary_blit_int_" + VulkanBinary::getMidName( mLoop->commands()->GetAs<RegionCommand>(0)->op()) + "_comp";
+        } else {
+            shaderName = "glsl_binary_blit_" + VulkanBinary::getMidName( mLoop->commands()->GetAs<RegionCommand>(0)->op()) + "_comp";
+        }
+
         mPipeline = vkbackend->getPipeline(shaderName, {
             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
@@ -293,7 +298,8 @@ VulkanBasicExecution* VulkanLoop::create(const std::vector<Tensor*>& inputs, con
             return new VulkanBatchMatMul(loop, bn);
         }
         if (OpType_BinaryOp == subop->type() && cmd->fuse() < 0 && 1 == loop->loopNumber()) {
-            return new VulkanBinaryBroadCast(loop, bn);
+            bool isInt = inputs[1]->getType().code == halide_type_int;
+            return new VulkanBinaryBroadCast(loop, bn, isInt);
         }
     }
     return nullptr;

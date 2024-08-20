@@ -15,7 +15,6 @@
 #include "backend/cpu/compute/CommonOptFunction.h"
 #include "backend/cpu/compute/ConvOpt.h"
 #include "backend/cpu/compute/ConvolutionDepthwise3x3.hpp"
-#include "core/OpCommonUtils.hpp"
 
 namespace MNN {
 CPUConvolutionDepthwise::FloatExecution::FloatExecution(const Convolution2DCommon* common, Backend* b,
@@ -188,7 +187,8 @@ ErrorCode CPUConvolutionDepthwise::BasicFloatExecution::onResize(const std::vect
     auto postData = getPostParameters();
     auto batch = inputs[0]->batch();
     int total = batch * dst_depth_quad;
-    int numberThread  = std::min(((CPUBackend*)backend())->threadNumber(), total);
+    int numberThread = ((CPUBackend*)backend())->threadNumber();
+    auto rt = static_cast<const CPURuntime*>(backend()->getRuntime());
     auto runBasic     = [=](uint8_t* dst_z, const uint8_t* src_z, const uint8_t* weight_dz, int L, int T, int R, int B) {
         for (int dy = T; dy < B; ++dy) {
             auto dst_y        = dst_z + dy * dst_y_step * bytes;
@@ -208,10 +208,13 @@ ErrorCode CPUConvolutionDepthwise::BasicFloatExecution::onResize(const std::vect
             }
         }
     };
+    std::vector<int> divides(numberThread+1);
+    divides[0] = 0;
+    rt->computeDivideSizes(total, divides.data()+1);
     mExecutor   = [=](const uint8_t* srcOrigin, uint8_t* dstOrigin, int tId) {
         auto biasP   = inputs[2]->host<uint8_t>();
         auto weightP = inputs[1]->host<uint8_t>();
-        for (int index = tId; index < total; index += numberThread) {
+        for (int index = divides[tId]; index < divides[tId+1]; ++index) {
             int dz = index / batch;
             auto dst_z           = dstOrigin + dst_z_step * index * bytes;
             const auto src_z     = srcOrigin + src_z_step * index * bytes;
@@ -261,21 +264,11 @@ public:
         int originWeightSize   = 0;
         int originBiasSize   = 0;
         std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
-        std::unique_ptr<Tensor> externalWeightTensor, externalBiasTensor;
         if (nullptr != conv2d->quanParameter()) {
             quanCommon = ConvolutionCommon::load(conv2d, backend, true);
             // Back to float
             originWeight     = quanCommon->weightFloat.get();
             originWeightSize = quanCommon->weightFloat.size();
-        }
-        if (USE_EXTERNAL_DATA(conv2d)) {
-            bool res = OpCommonUtils::loadConvData(backend, op, externalWeightTensor, externalBiasTensor, originWeightSize, originBiasSize);
-            if (!res) {
-                MNN_ERROR("%s load external weight or bias failed.", op->name()->c_str());
-                return nullptr;
-            }
-            originWeight = externalWeightTensor->host<float>();
-            originBias = externalBiasTensor->host<float>();
         }
         if (nullptr == originWeight) {
             originWeight     = conv2d->weight()->data();

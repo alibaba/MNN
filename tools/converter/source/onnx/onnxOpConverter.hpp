@@ -20,9 +20,9 @@
 class OnnxScope : public ConverterScope {
 public:
     static std::vector<int> topoSort(const onnx::GraphProto& onnxGraph);
-    OnnxScope(const onnx::GraphProto* graph, MNN::NetT* net) : mGraph(graph), ConverterScope(net) { onnxInit(); }
+    OnnxScope(const onnx::GraphProto* graph, MNN::NetT* net, const std::string& modelDir) : mGraph(graph), ConverterScope(net) { onnxInit(); mModelDir = modelDir;}
     OnnxScope(const onnx::GraphProto* graph, MNN::SubGraphProtoT* subnet, MNN::NetT* net,
-              OnnxScope* parent) : mGraph(graph), ConverterScope(subnet, net, parent) { onnxInit(); }
+              OnnxScope* parent) : mGraph(graph), ConverterScope(subnet, net, parent) { onnxInit(); mModelDir = parent->mModelDir;}
     std::pair<int, int> buildTensorArrayOp(std::vector<int> element_shape, bool identical, const std::string& name, int init_size = 1);
     void buildAccumulate(const std::string& name, const std::string& uName, const std::string& iName, const std::string& oName);
     // Return extra input needed from subgraph
@@ -35,6 +35,7 @@ public:
     std::map<std::string, const onnx::ValueInfoProto*> mInputs;
     std::map<std::string, const onnx::ValueInfoProto*> mOutputs;
     int mOpsetVersion;
+    std::string mModelDir;
 private:
     // onnx graph and infos
     const onnx::GraphProto* mGraph;
@@ -50,14 +51,9 @@ public:
     virtual void run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode, OnnxScope* scope) = 0;
     virtual MNN::OpParameter type()                                      = 0;
     virtual MNN::OpType opType()                                         = 0;
-    std::vector<std::unique_ptr<MNN::SubGraphProtoT>>& getSubGraphs() {
-        return _subgraphs;
-    }
     static MNN::DataType convertDataType(int32_t type);
-    static MNN::BlobT* convertTensorToBlob(const onnx::TensorProto* tensor, const std::string& modelDir = "");
+    static MNN::BlobT* convertTensorToBlob(const onnx::TensorProto* tensor, const std::string& modelDir, MNN::OpT* op);
     // static std::unique_ptr<MNN::SubGraphProtoT> buildSubGraph(const onnx::GraphProto* graph, std::string& name);
-protected:
-    std::vector<std::unique_ptr<MNN::SubGraphProtoT>> _subgraphs;
 };
 
 class onnxOpConverterSuit {

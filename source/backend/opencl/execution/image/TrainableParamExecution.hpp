@@ -9,7 +9,7 @@
 #ifndef TrainableParamExecution_hpp
 #define TrainableParamExecution_hpp
 
-#include "backend/opencl/execution/image/CommonExecution.hpp"
+#include "CommonExecution.hpp"
 namespace MNN {
 namespace OpenCL {
 

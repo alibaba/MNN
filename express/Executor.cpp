@@ -17,7 +17,7 @@
 #include "core/Backend.hpp"
 #include "RuntimeAttr.hpp"
 #include <stack>
-#define DEFAULT_BACKUP_RUNTIME_KEY (std::make_pair(MNN_FORWARD_CPU, 1))
+#define DEFAULT_BACKUP_RUNTIME_KEY MNN_FORWARD_CPU
 #ifdef MNN_EXPR_ENABLE_PROFILER
 #define MNN_EXPRESS_ERROR_REPORT
 #endif
@@ -27,6 +27,7 @@ namespace Express {
 
 void Executor::setGlobalExecutorConfig(MNNForwardType type, const BackendConfig& config, int numberThread) {
     std::lock_guard<std::mutex> _l(mMutex);
+    
     if(type == MNN_FORWARD_AUTO) {
         ScheduleConfig sConfig;
         sConfig.type = type;
@@ -40,11 +41,15 @@ void Executor::setGlobalExecutorConfig(MNNForwardType type, const BackendConfig&
         if(type == MNN_FORWARD_OPENCL || type == MNN_FORWARD_METAL) {
             info.numThread = 4;
         }
-        mAttr->firstType = std::make_pair(type, info.numThread);
-
-        info.user = (BackendConfig*)&config;
-        std::shared_ptr<Runtime> bn(creator->onCreate(info));
-        mRuntimes[mAttr->firstType] = bn;
+        mAttr->firstType = type;
+        auto firstIter = mRuntimes.find(mAttr->firstType);
+        if (firstIter == mRuntimes.end()) {
+            info.user = (BackendConfig*)&config;
+            std::shared_ptr<Runtime> bn(creator->onCreate(info));
+            mRuntimes[mAttr->firstType] = bn;
+        } else {
+            firstIter->second->onReset(numberThread, &config);
+        }
     } else {
         auto creator = MNNGetExtraRuntimeCreator(type);
         if (nullptr == creator) {
@@ -55,16 +60,17 @@ void Executor::setGlobalExecutorConfig(MNNForwardType type, const BackendConfig&
         MNN_ASSERT(nullptr != creator);
         Backend::Info info;
         info.type = type;
-        mAttr->firstType = std::make_pair(type, numberThread);
-        info.mode = Backend::Info::DIRECT;
-        info.numThread = numberThread;
-        if (MNN_FORWARD_METAL == type) {
-            // Close metal's defer encoder
-            info.numThread |= MNN_GPU_RECORD_OP;
+        mAttr->firstType = type;
+        auto firstIter = mRuntimes.find(mAttr->firstType);
+        if (firstIter == mRuntimes.end()) {
+            info.mode = Backend::Info::DIRECT;
+            info.numThread = numberThread;
+            info.user = (BackendConfig*)&config;
+            std::shared_ptr<Runtime> bn(creator->onCreate(info));
+            mRuntimes[mAttr->firstType] = bn;
+        } else {
+            firstIter->second->onReset(numberThread, &config);
         }
-        info.user = (BackendConfig*)&config;
-        std::shared_ptr<Runtime> bn(creator->onCreate(info));
-        mRuntimes[mAttr->firstType] = bn;
     }
     _refreshRuntime();
 }
@@ -81,10 +87,10 @@ void Executor::gc(GCFlag flag) {
 }
 
 Executor::Executor(std::shared_ptr<Runtime> backend, MNNForwardType type, int numberThread) {
-    mRuntimes.insert(std::make_pair(std::make_pair(type, numberThread), backend));
+    mRuntimes.insert(std::make_pair(type, backend));
     mAttr.reset(new ExecutorAttr);
-    mAttr->firstType = std::make_pair(type, numberThread);
-    if (1 != numberThread || MNN_FORWARD_CPU != type) {
+    mAttr->firstType = type;
+    if (MNN_FORWARD_CPU != type) {
         // Create Backup Backend
         Backend::Info info;
         info.type = MNN_FORWARD_CPU;
@@ -149,7 +155,9 @@ std::shared_ptr<Executor> Executor::getGlobalExecutor() {
         info.type = MNN_FORWARD_CPU;
         info.numThread = 1;
         std::shared_ptr<Runtime> bn(creator->onCreate(info));
-        bn->setAllocatorType(info.allocator);
+        RuntimeHint hint;
+        hint.memoryAllocatorType = 0;// Defer
+        bn->setRuntimeHint(hint);
         gExecutor = new std::shared_ptr<Executor>(new Executor(bn, MNN_FORWARD_CPU, 1));
     });
     return *gExecutor;
@@ -159,6 +167,10 @@ std::shared_ptr<Executor> Executor::newExecutor(MNNForwardType type,
                                                 const BackendConfig& config,
                                                 int numberThread) {
     auto creator = MNNGetExtraRuntimeCreator(type);
+    if(nullptr == creator) {
+        MNN_ERROR("Don't support %d\n", type);
+        return nullptr;
+    }
     Backend::Info info;
     info.type = type;
     info.numThread = numberThread;
@@ -172,13 +184,13 @@ void Executor::_refreshRuntime() {
     mRuntimeInfo.second = mRuntimes[DEFAULT_BACKUP_RUNTIME_KEY];
     auto firstIter = mRuntimes.find(getAttr()->firstType);
     if (firstIter != mRuntimes.end()) {
-        mRuntimeInfo.first.insert(std::make_pair(firstIter->first.first, firstIter->second));
+        mRuntimeInfo.first.insert(std::make_pair(firstIter->first, firstIter->second));
     } else {
         MNN_ASSERT(false);
     }
     for (auto& iter : mRuntimes) {
-        if (iter.first.first != getAttr()->firstType.first) {
-            mRuntimeInfo.first.insert(std::make_pair(iter.first.first, iter.second));
+        if (iter.first != getAttr()->firstType) {
+            mRuntimeInfo.first.insert(std::make_pair(iter.first, iter.second));
         }
     }
 }
@@ -237,36 +249,10 @@ void Executor::RuntimeManager::destroy(RuntimeManager* rtmgr) {
 }
 
 void Executor::RuntimeManager::setMode(Interpreter::SessionMode mode) {
-    if (mode == Interpreter::Session_Input_Inside || mode == Interpreter::Session_Input_User) {
-        mInside->modes.inputMode = mode;
-    } else if (mode == Interpreter::Session_Output_User || mode == Interpreter::Session_Output_Inside) {
-        mInside->modes.outputMode = mode;
-    } else if (mode == Interpreter::Session_Backend_Auto || mode == Interpreter::Session_Backend_Fix) {
-        mInside->modes.backendMode = mode;
-    } else if (mode == Interpreter::Session_Debug || mode == Interpreter::Session_Release) {
-        mInside->modes.callBackMode = mode;
-    } else if (mode == Interpreter::Session_Resize_Direct || mode == Interpreter::Session_Resize_Defer) {
-        mInside->modes.resizeMode = mode;
-    } else if(mode == Interpreter::Session_Memory_Collect || mode == Interpreter::Session_Memory_Cache) {
-        mInside->modes.memoryUsageMode = mode;
-    } else if(mode == Interpreter::Session_Codegen_Disable || mode == Interpreter::Session_Codegen_Enable) {
-        mInside->modes.codegenMode = mode;
-    }
+    mInside->modes.setMode(mode);
 }
 void Executor::RuntimeManager::setHint(Interpreter::HintMode mode, int value) {
-    switch (mode) {
-        case Interpreter::MAX_TUNING_NUMBER:
-            mInside->modes.maxTuningNumber = value;
-            break;
-        case Interpreter::STRICT_CHECK_MODEL:
-            mInside->checkNetBuffer = value > 0;
-            break;
-        case Interpreter::MEM_ALLOCATOR_TYPE:
-            mInside->modes.memoryAllocatorType = value;
-            break;
-        default:
-            break;
-    }
+    mInside->modes.setHint(mode, value);
 }
 bool Executor::RuntimeManager::getInfo(Interpreter::SessionInfoCode code, void* ptr) {
     // Only support get memory
@@ -303,6 +289,7 @@ Executor::RuntimeManager::RuntimeManager() {
     mInside->modes.outputMode = Interpreter::Session_Output_User;
 }
 Executor::RuntimeManager::~RuntimeManager() {
+    updateCache();
     delete mInside;
 }
 Executor::RuntimeManager* Executor::RuntimeManager::createRuntimeManager(const ScheduleConfig &config) {
@@ -320,7 +307,7 @@ Executor::RuntimeManager* Executor::RuntimeManager::createRuntimeManager(const S
         }
     }
     compute.user      = config.backendConfig;
-    auto iter = originRt.find(std::make_pair(compute.type, compute.numThread));
+    auto iter = originRt.find(compute.type);
     if (iter == originRt.end()) {
         auto creator = MNNGetExtraRuntimeCreator(compute.type);
         if (nullptr == creator) {
@@ -331,11 +318,13 @@ Executor::RuntimeManager* Executor::RuntimeManager::createRuntimeManager(const S
             MNN_ERROR("Can't create Runtime: %s\n", EnumNameForwardType((ForwardType)compute.type));
             return nullptr;
         }
-        originRt.insert(std::make_pair(std::make_pair(compute.type, compute.numThread), std::shared_ptr<Runtime>(newBn)));
+        originRt.insert(std::make_pair(compute.type, std::shared_ptr<Runtime>(newBn)));
+    } else {
+        iter->second->onReset(compute.numThread, compute.user);
     }
     res->mInside->mRuntime.second =  originRt[DEFAULT_BACKUP_RUNTIME_KEY];
-    res->mInside->mRuntime.first.insert(std::make_pair(compute.type, originRt[std::make_pair(compute.type, compute.numThread)]));
-    res->mInside->mInfo = originRt[std::make_pair(compute.type, compute.numThread)];
+    res->mInside->mRuntime.first.insert(std::make_pair(compute.type, originRt[compute.type]));
+    res->mInside->mInfo = originRt[compute.type];
     res->mInside->mNumberThread = compute.numThread;
     if (nullptr != config.backendConfig) {
         res->mInside->mConfig = *config.backendConfig;
@@ -367,7 +356,7 @@ void Executor::RuntimeManager::setCache(std::string cacheName) {
         MNN_ERROR("Empty cacheFile\n");
         return;
     }
-    std::unique_ptr<FileLoader> loader(new FileLoader(mInside->mCache->cacheFile.c_str()));
+    std::unique_ptr<FileLoader> loader(new FileLoader(mInside->mCache->cacheFile.c_str(), true));
     if (!loader->valid()) {
         MNN_ERROR("Load Cache file error.\n");
         return;
@@ -394,9 +383,9 @@ void Executor::RuntimeManager::setCache(std::string cacheName) {
         // Reset cache
         loadCache(mInside->mInfo, nullptr, 0);
         MNN_PRINT("Cache invalid, will be reset\n");
+    } else {
+        mInside->mCache->lastCacheSize = mInside->mCache->cacheBuffer.size() - mInside->mCache->cacheOffset;
     }
-
-    mInside->mCache->lastCacheSize = mInside->mCache->cacheBuffer.size() - mInside->mCache->cacheOffset;
 }
 
 void Executor::RuntimeManager::setExternalFile(std::string fileName) {
@@ -404,6 +393,9 @@ void Executor::RuntimeManager::setExternalFile(std::string fileName) {
 }
 
 void Executor::RuntimeManager::updateCache() {
+    if (nullptr == mInside->mCache) {
+        return;
+    }
     std::lock_guard<std::mutex> _l(mLock);
 
     // Backend_Auto and no Async work, then don't need updateCache
@@ -489,7 +481,10 @@ void Executor::_makeCache(const std::vector<EXPRP>& expr, bool forceCPU) {
     if (dfsStack.empty()) {
         return;
     }
+    auto current = ExecutorScope::Current();
+    auto rt = current->getRuntime();
     Schedule::ScheduleInfo scheduleInfo;
+    scheduleInfo.externalWeightPath = current->getAttr()->externalFile;
     scheduleInfo.pipelineInfo.resize(1);
     auto& pipeline = scheduleInfo.pipelineInfo[0].second;
     std::vector<std::shared_ptr<BufferStorage>> opBuffers;
@@ -577,12 +572,16 @@ void Executor::_makeCache(const std::vector<EXPRP>& expr, bool forceCPU) {
         }
         pipeline.emplace_back(std::move(opInfo));
     }
-    auto current = ExecutorScope::Current();
-    auto rt = current->getRuntime();
     Session::ModeGroup group;
     group.inputMode = Interpreter::Session_Input_User;
     group.outputMode = Interpreter::Session_Output_User;
-    group.callBackMode = Interpreter::Session_Release;
+    auto globalExecutor = ExecutorScope::Current();
+    auto debug = globalExecutor->getDebugTools();
+    if (debug->after != nullptr && debug->before != nullptr) {
+        group.callBackMode = Interpreter::Session_Debug;
+    } else {
+        group.callBackMode = Interpreter::Session_Release;
+    }
     group.memoryUsageMode = Interpreter::Session_Memory_Cache;
     std::shared_ptr<ComputeCache> cahce(new ComputeCache);
     for (auto& iter : dstExpr) {
@@ -593,12 +592,10 @@ void Executor::_makeCache(const std::vector<EXPRP>& expr, bool forceCPU) {
     cahce->mCacheBuffers = std::move(opBuffers);
     // Don't report error when use expr dynamic compute, which will be called in model convert
     scheduleInfo.pipelineInfo[0].first.reportError = false;
-    scheduleInfo.pipelineInfo[0].first.info.numThread = 1;
     if (forceCPU) {
         scheduleInfo.pipelineInfo[0].first.info.type = MNN_FORWARD_CPU;
     } else {
-        scheduleInfo.pipelineInfo[0].first.info.type = current->getAttr()->firstType.first;
-        scheduleInfo.pipelineInfo[0].first.info.numThread = current->getAttr()->firstType.second;
+        scheduleInfo.pipelineInfo[0].first.info.type = current->getAttr()->firstType;
     }
     scheduleInfo.pipelineInfo[0].first.needComputeShape = false;
     scheduleInfo.pipelineInfo[0].first.needComputeGeometry = mLazyMode != LAZY_CONTENT;

@@ -29,7 +29,7 @@ namespace MNN {
 namespace CUDA {
 class MNN_PUBLIC CUDARuntimeWrapper : public Runtime {
 public:
-    CUDARuntimeWrapper(BackendConfig::PrecisionMode precision, BackendConfig::PowerMode power, int deviceId = 0);
+    CUDARuntimeWrapper(BackendConfig::PrecisionMode precision, BackendConfig::PowerMode power, BackendConfig::MemoryMode memory, int deviceId = 0);
     virtual ~CUDARuntimeWrapper();
     virtual Backend *onCreate(const BackendConfig* config) const override;
     virtual void onGabageCollect(int level) override;
@@ -48,11 +48,12 @@ private:
     std::shared_ptr<CUDARuntime> mCUDARuntime;
     bool mIsCreateError{false};
     BackendConfig::PrecisionMode mDefaultPrecision;
+    BackendConfig::MemoryMode mDefaultMemory;
 };
 
 class CUDABackend : public Backend {
 public:
-    CUDABackend(std::shared_ptr<BufferAllocator> st, std::shared_ptr<CUDARuntime> rt, int precisionLevel);
+    CUDABackend(std::shared_ptr<BufferAllocator> st, std::shared_ptr<CUDARuntime> rt, int precisionLevel, BackendConfig::MemoryMode memoryLevel);
     ~CUDABackend();
 
     CUDARuntime *getCUDARuntime();
@@ -92,6 +93,7 @@ public:
     CPUResizeCache* getCache();
     bool useFp16() const;
     int getPrecision() const;
+    BackendConfig::MemoryMode getMemoryMode() const;
     #ifdef MNN_CODEGEN_CUDA
     std::map<std::pair<std::string, std:: string>, CUmodule> kernelCuModuleMap();
     void compile(CUmodule* dst, std::pair<string, string> code, std::vector<const char*> compile_params);
@@ -103,6 +105,7 @@ private:
     CPUResizeCache mCache;
     bool mUseFp16AsFp32 = false;
     int mPrecision = 0;
+    BackendConfig::MemoryMode mMemory;
     #ifdef MNN_CODEGEN_CUDA
     CUmodule mCuModule;
     std::map<std::pair<std::string, std:: string>, CUmodule> mKernelCuModuleMap;

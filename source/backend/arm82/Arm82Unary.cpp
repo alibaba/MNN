@@ -114,8 +114,10 @@ struct _Exp {
     void operator()(void* outRaw, const void* inpRaw, int realSize) const {
         auto out = (float*)outRaw;
         auto inp = (const float*)inpRaw;
-        float offset[2] = {
+        float offset[4] = {
             1.0f,
+            0.0f,
+            0.0f,
             0.0f
         };
         MNNExp(out, inp, offset, realSize);
@@ -125,9 +127,11 @@ struct _ExpM1 {
     void operator()(void* outRaw, const void* inpRaw, int realSize) const {
         auto out = (float*)outRaw;
         auto inp = (const float*)inpRaw;
-        float offset[2] = {
+        float offset[4] = {
             1.0f,
-            -1.0f
+            -1.0f,
+            0.0f,
+            0.0f
         };
         MNNExp(out, inp, offset, realSize);
     }
@@ -295,9 +299,10 @@ MNNUnaryExecute Arm82Unary::select(int type, int precision) {
         case UnaryOpOperation_HARDSWISH:
             return FP16HardSwish;
         case UnaryOpOperation_GELU:
+        case UnaryOpOperation_GELU_STANDARD:
             return FP16GELU;
         default:
-            MNN_ASSERT(false);
+            MNN_ERROR("Don't support %d for arm82 unary\n", type);
             break;
     }
     return nullptr;

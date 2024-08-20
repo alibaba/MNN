@@ -8,6 +8,7 @@ extern void ___InterpComputer__OpType_Interp__();
 extern void ___CropSizeComputer__OpType_Crop__();
 extern void ___MatMulSizeComputer__OpType_MatMul__();
 extern void ___MatMulSizeComputer__OpType_BatchMatMul__();
+extern void ___DynamicQuantComputer__OpType_DynamicQuant__();
 extern void ___ReshapeComputer__OpType_Reshape__();
 extern void ___ReshapeComputer__OpType_QuantizedReshape__();
 extern void ___FlattenComputer__OpType_Flatten__();
@@ -118,6 +119,7 @@ extern void ___SplitGeLUSizeComputer__OpType_SplitGeLU__();
 extern void ___SeqLen2SpatialSizeComputer__OpType_SeqLen2Spatial__();
 extern void ___FmhaV2SizeComputer__OpType_FmhaV2__();
 extern void ___FmhcaSizeComputer__OpType_Fmhca__();
+extern void ___AttentionSizeComputer__OpType_Attention__();
 #endif
 void registerShapeOps() {
 ___ShapeSizeComputer__OpType_Shape__();
@@ -128,6 +130,7 @@ ___InterpComputer__OpType_Interp__();
 ___CropSizeComputer__OpType_Crop__();
 ___MatMulSizeComputer__OpType_MatMul__();
 ___MatMulSizeComputer__OpType_BatchMatMul__();
+___DynamicQuantComputer__OpType_DynamicQuant__();
 ___ReshapeComputer__OpType_Reshape__();
 ___ReshapeComputer__OpType_QuantizedReshape__();
 ___FlattenComputer__OpType_Flatten__();
@@ -237,6 +240,7 @@ ___SplitGeLUSizeComputer__OpType_SplitGeLU__();
 ___SeqLen2SpatialSizeComputer__OpType_SeqLen2Spatial__();
 ___FmhaV2SizeComputer__OpType_FmhaV2__();
 ___FmhcaSizeComputer__OpType_Fmhca__();
+___AttentionSizeComputer__OpType_Attention__();
 #endif
 }
 }

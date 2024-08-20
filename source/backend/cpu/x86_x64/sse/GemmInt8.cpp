@@ -22,11 +22,61 @@ void _SSE_MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, cons
     __m128 maxValue = _mm_set1_ps(post->maxValue);
     __m128 plus = _mm_set1_ps(0.5f);
     __m128 minus = _mm_set1_ps(-0.5f);
+    __m128 fp32min, fp32max;
+    if (0 == post->useInt8 && post->fp32minmax) {
+        fp32min = _mm_set1_ps((post->fp32minmax)[0]);
+        fp32max = _mm_set1_ps((post->fp32minmax)[1]);
+    }
     auto oneValue = _mm_set1_epi16(1);
     auto offset = _mm_set1_epi32(128);
+    auto f128 = _mm_set1_ps(128.f);
+    auto srcKernelSumPtr = post->srcKernelSum;
+    __m128 kernelSum0 = _mm_setzero_ps();
+    __m128 kernelSum1 = _mm_setzero_ps();
+    __m128 kernelSum2 = _mm_setzero_ps();
+    __m128 kernelSum3 = _mm_setzero_ps();
+    if (GEMM_INT8_DST_XUNIT == realDst) {
+        kernelSum0 = _mm_load_ps1(post->srcKernelSum);
+        kernelSum1 = _mm_load_ps1(post->srcKernelSum + 1);
+        kernelSum2 = _mm_load_ps1(post->srcKernelSum + 2);
+        kernelSum3 = _mm_load_ps1(post->srcKernelSum + 3);
+    } else {
+        kernelSum0 = _mm_load_ps1(post->srcKernelSum);
+        if (realDst > 1) {
+            kernelSum1 = _mm_load_ps1(post->srcKernelSum + 1);
+        }
+        if (realDst > 2) {
+            kernelSum2 = _mm_load_ps1(post->srcKernelSum + 2);
+        }
+    }
+    __m128 extrascale0 = _mm_setzero_ps();
+    __m128 extrascale1 = _mm_setzero_ps();
+    __m128 extrascale2 = _mm_setzero_ps();
+    __m128 extrascale3 = _mm_setzero_ps();
+    if (post->extraScale) {
+        if (GEMM_INT8_DST_XUNIT == realDst) {
+            extrascale0 = _mm_load_ps1(post->extraScale);
+            extrascale1 = _mm_load_ps1(post->extraScale + 1);
+            extrascale2 = _mm_load_ps1(post->extraScale + 2);
+            extrascale3 = _mm_load_ps1(post->extraScale + 3);
+        } else {
+            extrascale0 = _mm_load_ps1(post->extraScale);
+            if (realDst > 1) {
+                extrascale1 = _mm_load_ps1(post->extraScale + 1);
+            }
+            if (realDst > 2) {
+                extrascale2 = _mm_load_ps1(post->extraScale + 2);
+            }
+        }
+    }
+    const float* biasPtr = nullptr;
+    if (post->biasFloat) {
+        biasPtr = post->biasFloat;
+    }
+    auto blockNum = post->blockNum;
     for (int dz = 0; dz < dst_depth_quad; ++dz) {
-        const auto weight_dz = weight + dz * src_depth_quad * (GEMM_INT8_UNIT * GEMM_INT8_SRC_UNIT);
-        const auto bias_dz   = post->bias + dz * GEMM_INT8_UNIT;
+        const auto weight_dz = weight + dz * (src_depth_quad * blockNum) * (GEMM_INT8_UNIT * GEMM_INT8_SRC_UNIT);
+        const auto weightBias_dz = post->weightQuanBias + dz * GEMM_INT8_UNIT;
         const float* scale_dz = nullptr;
         scale_dz  = post->scale + dz * GEMM_INT8_UNIT;
         auto dst_z           = dst + dz * dst_step_tmp;
@@ -128,22 +178,60 @@ auto d##i##j = _mm_add_epi32(_mm_madd_epi16(S##i##j##0, W##i##j##0), _mm_madd_ep
         E0 = _mm_hadd_epi32(E0, E1);
         E1 = _mm_hadd_epi32(E2, E3);
         d3 = _mm_hadd_epi32(E0, E1);
-
-        auto biasValue = _mm_loadu_si128((__m128i*)(bias_dz));
         auto scaleValue = _mm_loadu_ps(scale_dz);
-        d0 = _mm_add_epi32(d0, biasValue);
-        d1 = _mm_add_epi32(d1, biasValue);
-        d2 = _mm_add_epi32(d2, biasValue);
-        d3 = _mm_add_epi32(d3, biasValue);
+        // auto biasValue = _mm_loadu_si128((__m128i*)(bias_dz));
+        // d0 = _mm_add_epi32(d0, biasValue);
+        // d1 = _mm_add_epi32(d1, biasValue);
+        // d2 = _mm_add_epi32(d2, biasValue);
+        // d3 = _mm_add_epi32(d3, biasValue);
+        //auto biasValue = _mm_loadu_ps((float*)(bias_dz));
+        auto weightBiasValue = _mm_loadu_ps((float*)weightBias_dz);
         __m128 f0 = _mm_cvtepi32_ps(d0);
         __m128 f1 = _mm_cvtepi32_ps(d1);
         __m128 f2 = _mm_cvtepi32_ps(d2);
         __m128 f3 = _mm_cvtepi32_ps(d3);
+        // x_kernelSum x w_quantZero
+        auto xy0_0 = _mm_mul_ps(kernelSum0, weightBiasValue); // x dimemsion first
+        auto xy0_1 = _mm_mul_ps(kernelSum1, weightBiasValue); // ..second
+        auto xy0_2 = _mm_mul_ps(kernelSum2, weightBiasValue); // .. third
+        auto xy0_3 = _mm_mul_ps(kernelSum3, weightBiasValue); // ..fourth
         f0 = _mm_mul_ps(f0, scaleValue);
         f1 = _mm_mul_ps(f1, scaleValue);
         f2 = _mm_mul_ps(f2, scaleValue);
         f3 = _mm_mul_ps(f3, scaleValue);
+        if (post->extraScale) {
+            f0 = _mm_mul_ps(f0, extrascale0);
+            f1 = _mm_mul_ps(f1, extrascale1);
+            f2 = _mm_mul_ps(f2, extrascale2);
+            f3 = _mm_mul_ps(f3, extrascale3);
+            if (post->extraBias && nullptr != biasPtr) {
+                auto extraB = post->extraBias + dz * GEMM_INT8_UNIT;
+                auto extrabias = _mm_loadu_ps(extraB);
+                extrabias = _mm_mul_ps(f128, extrabias);
+                auto extrabias0 = _mm_mul_ps(extrabias, extrascale0);
+                auto extrabias1 = _mm_mul_ps(extrabias, extrascale1);
+                auto extrabias2 = _mm_mul_ps(extrabias, extrascale2);
+                auto extrabias3 = _mm_mul_ps(extrabias, extrascale3);
+                f0 = _mm_sub_ps(f0, extrabias0);
+                f1 = _mm_sub_ps(f1, extrabias1);
+                f2 = _mm_sub_ps(f2, extrabias2);
+                f3 = _mm_sub_ps(f3, extrabias3);
+            }
+        }
+        f0 = _mm_add_ps(f0, xy0_0);
+        f1 = _mm_add_ps(f1, xy0_1);
+        f2 = _mm_add_ps(f2, xy0_2);
+        f3 = _mm_add_ps(f3, xy0_3);
+        if (nullptr != biasPtr) {
+            const auto bias_dz   = biasPtr + dz * GEMM_INT8_UNIT;
+            auto biasValue = _mm_loadu_ps(bias_dz);
+            f0 = _mm_add_ps(f0, biasValue);
+            f1 = _mm_add_ps(f1, biasValue);
+            f2 = _mm_add_ps(f2, biasValue);
+            f3 = _mm_add_ps(f3, biasValue);
+        }
         if (post->useInt8 == 1) {
+            // for Relu Int8 activation
             f0 = _mm_min_ps(f0, maxValue);
             f1 = _mm_min_ps(f1, maxValue);
             f2 = _mm_min_ps(f2, maxValue);
@@ -188,10 +276,281 @@ auto d##i##j = _mm_add_epi32(_mm_madd_epi16(S##i##j##0, W##i##j##0), _mm_madd_ep
                 }
             }
         } else { // Store float values directly.
+            // for Relu float activation.
             __m128 f[4] = {f0, f1, f2, f3};
+            if (nullptr == biasPtr) {
+                for (int j = 0; j < realDst; ++j) {
+                    auto dstv = _mm_loadu_ps(((float*)dst_x) + j * 4);
+                    f[j] = _mm_add_ps(dstv, f[j]);
+                }
+            }
+            if (post->fp32minmax) {
+                f[0] = _mm_min_ps(f[0], fp32max);
+                f[1] = _mm_min_ps(f[1], fp32max);
+                f[2] = _mm_min_ps(f[2], fp32max);
+                f[3] = _mm_min_ps(f[3], fp32max);
+                f[0] = _mm_max_ps(f[0], fp32min);
+                f[1] = _mm_max_ps(f[1], fp32min);
+                f[2] = _mm_max_ps(f[2], fp32min);
+                f[3] = _mm_max_ps(f[3], fp32min);
+            }
             for (int j = 0; j < realDst; ++j) {
                 _mm_storeu_ps(((float*)dst_x) + j * 4, f[j]);
             }
+        }
+    }
+}
+
+static inline void _load_int4_to_int8(const uint8_t* src, int8_t* dst) {
+    uint8_t c = 0xf;
+    for (int i = 0; i < 32; ++i) {
+        dst[2 * i] = (src[i] >> 4);
+        dst[2 * i +1] = (src[i] & c);
+    }
+}
+void _SSE_MNNGemmInt8AddBiasScale_16x4_w4(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step,
+                                            size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realDst) {
+    MNN_ASSERT(post->useInt8 == 0);
+    const auto dst_step_tmp = dst_step / sizeof(int8_t);
+    __m128i zero = _mm_set1_epi32(0);
+    __m128 minValue = _mm_set1_ps(post->minValue);
+    __m128 maxValue = _mm_set1_ps(post->maxValue);
+    __m128 fp32min, fp32max;
+    if (post->fp32minmax) {
+        fp32min = _mm_set1_ps((post->fp32minmax)[0]);
+        fp32max = _mm_set1_ps((post->fp32minmax)[1]);
+    }
+    const float* biasPtr = nullptr;
+    if (post->biasFloat) {
+        biasPtr = post->biasFloat;
+    }
+    int blockNum = post->blockNum;
+    int weight_step_Z = 0.5 * (src_depth_quad * blockNum) * (GEMM_INT8_UNIT * GEMM_INT8_SRC_UNIT);
+    int weight_step_Y = 0.5 * (GEMM_INT8_UNIT * GEMM_INT8_SRC_UNIT);
+
+    auto oneValue = _mm_set1_epi16(1);
+    auto offset = _mm_set1_epi32(128);
+    auto srcKernelSumPtr = post->srcKernelSum;
+    __m128 kernelSum0 = _mm_setzero_ps();
+    __m128 kernelSum1 = _mm_setzero_ps();
+    __m128 kernelSum2 = _mm_setzero_ps();
+    __m128 kernelSum3 = _mm_setzero_ps();
+    if (GEMM_INT8_DST_XUNIT == realDst) {
+        kernelSum0 = _mm_load_ps1(post->srcKernelSum);
+        kernelSum1 = _mm_load_ps1(post->srcKernelSum + 1);
+        kernelSum2 = _mm_load_ps1(post->srcKernelSum + 2);
+        kernelSum3 = _mm_load_ps1(post->srcKernelSum + 3);
+    } else {
+        kernelSum0 = _mm_load_ps1(post->srcKernelSum);
+        if (realDst > 1) {
+            kernelSum1 = _mm_load_ps1(post->srcKernelSum + 1);
+        }
+        if (realDst > 2) {
+            kernelSum2 = _mm_load_ps1(post->srcKernelSum + 2);
+        }
+    }
+    auto f128 = _mm_set1_ps(128.f);
+    __m128 extrascale0 = _mm_setzero_ps();
+    __m128 extrascale1 = _mm_setzero_ps();
+    __m128 extrascale2 = _mm_setzero_ps();
+    __m128 extrascale3 = _mm_setzero_ps();
+    if (post->extraScale) {
+        if (GEMM_INT8_DST_XUNIT == realDst) {
+            extrascale0 = _mm_load_ps1(post->extraScale);
+            extrascale1 = _mm_load_ps1(post->extraScale + 1);
+            extrascale2 = _mm_load_ps1(post->extraScale + 2);
+            extrascale3 = _mm_load_ps1(post->extraScale + 3);
+        } else {
+            extrascale0 = _mm_load_ps1(post->extraScale);
+            if (realDst > 1) {
+                extrascale1 = _mm_load_ps1(post->extraScale + 1);
+            }
+            if (realDst > 2) {
+                extrascale2 = _mm_load_ps1(post->extraScale + 2);
+            }
+        }
+    }
+    for (int dz = 0; dz < dst_depth_quad; ++dz) {
+        const auto weight_dz = weight + dz * weight_step_Z;
+        const auto weightBias_dz = post->weightQuanBias + dz * GEMM_INT8_UNIT;
+        const float* scale_dz = nullptr;
+        scale_dz  = post->scale + dz * GEMM_INT8_UNIT;
+        auto dst_z           = dst + dz * dst_step_tmp;
+        const auto src_x   = src;
+        auto dst_x         = dst_z;
+        __m128i d0 = _mm_set1_epi32(0);
+        __m128i d1 = _mm_set1_epi32(0);
+        __m128i d2 = _mm_set1_epi32(0);
+        __m128i d3 = _mm_set1_epi32(0);
+
+        __m128i e0 = _mm_set1_epi32(0);
+        __m128i e1 = _mm_set1_epi32(0);
+        __m128i e2 = _mm_set1_epi32(0);
+        __m128i e3 = _mm_set1_epi32(0);
+
+        __m128i D0 = _mm_set1_epi32(0);
+        __m128i D1 = _mm_set1_epi32(0);
+        __m128i D2 = _mm_set1_epi32(0);
+        __m128i D3 = _mm_set1_epi32(0);
+
+        __m128i E0 = _mm_set1_epi32(0);
+        __m128i E1 = _mm_set1_epi32(0);
+        __m128i E2 = _mm_set1_epi32(0);
+        __m128i E3 = _mm_set1_epi32(0);
+
+        for (int sz = 0; sz < src_depth_quad; ++sz) {
+            const auto weight_sz = weight_dz + weight_step_Y * sz;
+            const auto src_z     = src_x + sz * GEMM_INT8_DST_XUNIT * GEMM_INT8_SRC_UNIT;
+
+            int8_t tmp_w[64];
+            _load_int4_to_int8((uint8_t*)weight_sz, tmp_w);
+
+            auto w0 = _mm_loadu_si128((__m128i*)(tmp_w + GEMM_INT8_SRC_UNIT * 0));
+            auto w1 = _mm_loadu_si128((__m128i*)(tmp_w + GEMM_INT8_SRC_UNIT * 1));
+            auto w2 = _mm_loadu_si128((__m128i*)(tmp_w + GEMM_INT8_SRC_UNIT * 2));
+            auto w3 = _mm_loadu_si128((__m128i*)(tmp_w + GEMM_INT8_SRC_UNIT * 3));
+
+            auto s0 = _mm_loadu_si128((__m128i*)(src_z + GEMM_INT8_SRC_UNIT * 0));
+            auto s1 = _mm_loadu_si128((__m128i*)(src_z + GEMM_INT8_SRC_UNIT * 1));
+            auto s2 = _mm_loadu_si128((__m128i*)(src_z + GEMM_INT8_SRC_UNIT * 2));
+            auto s3 = _mm_loadu_si128((__m128i*)(src_z + GEMM_INT8_SRC_UNIT * 3));
+
+
+//#define COMPUTE(i, j)\
+//auto d##i##j = _mm_maddubs_epi16(s##i, w##j);\
+//d##i##j = _mm_madd_epi16(d##i##j, oneValue);\
+
+#define COMPUTE(i, j)\
+auto W##i##j##0 = _mm_srai_epi16(_mm_unpacklo_epi8(zero, w##j), 8);\
+auto W##i##j##1 = _mm_srai_epi16(_mm_unpackhi_epi8(zero, w##j), 8);\
+auto S##i##j##0 = _mm_unpacklo_epi8(s##i, zero);\
+auto S##i##j##1 = _mm_unpackhi_epi8(s##i, zero);\
+auto d##i##j = _mm_add_epi32(_mm_madd_epi16(S##i##j##0, W##i##j##0), _mm_madd_epi16(S##i##j##1, W##i##j##1));\
+
+            COMPUTE(0, 0);
+            COMPUTE(0, 1);
+            COMPUTE(0, 2);
+            COMPUTE(0, 3);
+            COMPUTE(1, 0);
+            COMPUTE(1, 1);
+            COMPUTE(1, 2);
+            COMPUTE(1, 3);
+            COMPUTE(2, 0);
+            COMPUTE(2, 1);
+            COMPUTE(2, 2);
+            COMPUTE(2, 3);
+            COMPUTE(3, 0);
+            COMPUTE(3, 1);
+            COMPUTE(3, 2);
+            COMPUTE(3, 3);
+
+            d0 = _mm_add_epi32(d0, d00);
+            d1 = _mm_add_epi32(d1, d01);
+            d2 = _mm_add_epi32(d2, d02);
+            d3 = _mm_add_epi32(d3, d03);
+
+            e0 = _mm_add_epi32(e0, d10);
+            e1 = _mm_add_epi32(e1, d11);
+            e2 = _mm_add_epi32(e2, d12);
+            e3 = _mm_add_epi32(e3, d13);
+
+            D0 = _mm_add_epi32(D0, d20);
+            D1 = _mm_add_epi32(D1, d21);
+            D2 = _mm_add_epi32(D2, d22);
+            D3 = _mm_add_epi32(D3, d23);
+
+            E0 = _mm_add_epi32(E0, d30);
+            E1 = _mm_add_epi32(E1, d31);
+            E2 = _mm_add_epi32(E2, d32);
+            E3 = _mm_add_epi32(E3, d33);
+        }
+        d0 = _mm_hadd_epi32(d0, d1);
+        d1 = _mm_hadd_epi32(d2, d3);
+        d0 = _mm_hadd_epi32(d0, d1);
+
+        e0 = _mm_hadd_epi32(e0, e1);
+        e1 = _mm_hadd_epi32(e2, e3);
+        d1 = _mm_hadd_epi32(e0, e1);
+
+        D0 = _mm_hadd_epi32(D0, D1);
+        D1 = _mm_hadd_epi32(D2, D3);
+        d2 = _mm_hadd_epi32(D0, D1);
+
+        E0 = _mm_hadd_epi32(E0, E1);
+        E1 = _mm_hadd_epi32(E2, E3);
+        d3 = _mm_hadd_epi32(E0, E1);
+        auto scaleValue = _mm_loadu_ps(scale_dz);
+        // auto biasValue = _mm_loadu_si128((__m128i*)(bias_dz));
+        // d0 = _mm_add_epi32(d0, biasValue);
+        // d1 = _mm_add_epi32(d1, biasValue);
+        // d2 = _mm_add_epi32(d2, biasValue);
+        // d3 = _mm_add_epi32(d3, biasValue);
+        //auto biasValue = _mm_loadu_ps((float*)(bias_dz));
+        auto weightBiasValue = _mm_loadu_ps((float*)weightBias_dz);
+        __m128 f0 = _mm_cvtepi32_ps(d0);
+        __m128 f1 = _mm_cvtepi32_ps(d1);
+        __m128 f2 = _mm_cvtepi32_ps(d2);
+        __m128 f3 = _mm_cvtepi32_ps(d3);
+        // x_kernelSum x w_quantZero
+        auto xy0_0 = _mm_mul_ps(kernelSum0, weightBiasValue); // x dimemsion first
+        auto xy0_1 = _mm_mul_ps(kernelSum1, weightBiasValue); // ..second
+        auto xy0_2 = _mm_mul_ps(kernelSum2, weightBiasValue); // .. third
+        auto xy0_3 = _mm_mul_ps(kernelSum3, weightBiasValue); // ..fourth
+        f0 = _mm_mul_ps(f0, scaleValue);
+        f1 = _mm_mul_ps(f1, scaleValue);
+        f2 = _mm_mul_ps(f2, scaleValue);
+        f3 = _mm_mul_ps(f3, scaleValue);
+        if (post->extraScale) {
+            f0 = _mm_mul_ps(f0, extrascale0);
+            f1 = _mm_mul_ps(f1, extrascale1);
+            f2 = _mm_mul_ps(f2, extrascale2);
+            f3 = _mm_mul_ps(f3, extrascale3);
+            if (post->extraBias && nullptr != biasPtr) {
+                auto extraB = post->extraBias + dz * GEMM_INT8_UNIT;
+                auto extrabias = _mm_loadu_ps(extraB);
+                extrabias = _mm_mul_ps(f128, extrabias);
+                auto extrabias0 = _mm_mul_ps(extrabias, extrascale0);
+                auto extrabias1 = _mm_mul_ps(extrabias, extrascale1);
+                auto extrabias2 = _mm_mul_ps(extrabias, extrascale2);
+                auto extrabias3 = _mm_mul_ps(extrabias, extrascale3);
+                f0 = _mm_sub_ps(f0, extrabias0);
+                f1 = _mm_sub_ps(f1, extrabias1);
+                f2 = _mm_sub_ps(f2, extrabias2);
+                f3 = _mm_sub_ps(f3, extrabias3);
+            }
+        }
+        f0 = _mm_add_ps(f0, xy0_0);
+        f1 = _mm_add_ps(f1, xy0_1);
+        f2 = _mm_add_ps(f2, xy0_2);
+        f3 = _mm_add_ps(f3, xy0_3);
+
+        if (nullptr != biasPtr) {
+            const auto bias_dz   = biasPtr + dz * GEMM_INT8_UNIT;
+            auto biasValue = _mm_loadu_ps(bias_dz);
+            f0 = _mm_add_ps(f0, biasValue);
+            f1 = _mm_add_ps(f1, biasValue);
+            f2 = _mm_add_ps(f2, biasValue);
+            f3 = _mm_add_ps(f3, biasValue);
+        }
+        __m128 f[4] = {f0, f1, f2, f3};
+        if (nullptr == biasPtr) {
+            for (int j = 0; j < realDst; ++j) {
+                auto dstv = _mm_loadu_ps(((float*)dst_x) + j * 4);
+                f[j] = _mm_add_ps(dstv, f[j]);
+            }
+        }
+        if (post->fp32minmax) {
+            f[0] = _mm_min_ps(f[0], fp32max);
+            f[1] = _mm_min_ps(f[1], fp32max);
+            f[2] = _mm_min_ps(f[2], fp32max);
+            f[3] = _mm_min_ps(f[3], fp32max);
+            f[0] = _mm_max_ps(f[0], fp32min);
+            f[1] = _mm_max_ps(f[1], fp32min);
+            f[2] = _mm_max_ps(f[2], fp32min);
+            f[3] = _mm_max_ps(f[3], fp32min);
+        }
+        for (int j = 0; j < realDst; ++j) {
+            _mm_storeu_ps(((float*)dst_x) + j * 4, f[j]);
         }
     }
 }

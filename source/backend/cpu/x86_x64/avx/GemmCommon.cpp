@@ -417,3 +417,37 @@ void _AVX_MNNPackedSparseMatMul(float* C, const float* A, const float* B, unsign
     MNN_ASSERT(false);
     return;
 }
+
+void _AVX_MNNComputeScaleZeroScalar(float* source, float* min, float* max, size_t size) {
+    int pack = 8;
+    int sizeDiv8 = size / pack;
+    __m256 minVal = _mm256_set1_ps(source[0]);
+    __m256 maxVal = minVal;
+    float maxArr[8], minArr[8];
+    for (int i = 0; i < sizeDiv8; ++i) {
+        auto src0 = source + pack * i;
+        __m256 vecA = _mm256_loadu_ps(src0);
+        __m256 maskMax = _mm256_cmp_ps(vecA, maxVal, 14);
+        __m256 maskMin = _mm256_cmp_ps(vecA, minVal, 1);
+        maxVal = _mm256_blendv_ps(maxVal, vecA, maskMax);
+        minVal = _mm256_blendv_ps(minVal, vecA, maskMin);
+    }
+    _mm256_storeu_ps(maxArr, maxVal);
+    _mm256_storeu_ps(minArr, minVal);
+    float max_ = maxArr[0], min_ = minArr[0];
+    for (int k = 1; k < pack; ++k) {
+        if (max_ < maxArr[k]) {
+            max_ = maxArr[k];
+        }
+        if (min_ > minArr[k]) {
+            min_ = minArr[k];
+        }
+    }
+    for (int i = pack * sizeDiv8; i < size; ++i) {
+        max_ = std::max(max_, source[i]);
+        min_ = std::min(min_, source[i]);
+    }
+    min[0] = min_;
+    max[0] = max_;
+
+}

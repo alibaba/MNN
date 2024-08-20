@@ -1,4 +1,4 @@
-﻿//
+//
 //  CPUROIAlign.hpp
 //  MNN
 //
@@ -27,7 +27,7 @@ private:
                                          int samplingRatioW, std::vector<std::vector<int>> &vecPos,
                                          std::vector<std::vector<float>> &vecArea);
 
-private:
+protected:
     int mPooledWidth;
     int mPooledHeight;
     int mSamplingRatio;
@@ -37,6 +37,7 @@ private:
     bool mOutputGrad; // false: output pooled value, true: output input grad
 
     Tensor mROI;
+    std::shared_ptr<Tensor> mROITemp;
 };
 
 } // namespace MNN

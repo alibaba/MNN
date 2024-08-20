@@ -110,7 +110,7 @@ public:
             builder.Finish(makeInterp(builder, &info, resize->resizeType(), op, OpType_Interp3D));
             res.command.emplace_back(GeometryComputerUtils::makeCommand(builder, {newInputs[0]}, newOutputs));
         } else {
-            SharedPtr<Command> cmdP = new Command;
+            std::shared_ptr<Command> cmdP(new Command);
             auto& cmd = *cmdP;;
             cmd.op      = op;
             cmd.inputs  = std::move(newInputs);

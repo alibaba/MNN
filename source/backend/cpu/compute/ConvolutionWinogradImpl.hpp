@@ -44,12 +44,9 @@ class ConvolutionWinogradImpl : public CPUConvolution {
 public:
     ConvolutionWinogradImpl(const Convolution2DCommon *convOp, Backend *b);
     virtual ~ConvolutionWinogradImpl();
-    virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     static bool canUseWinograd(const Convolution2DCommon *convOp);
     static WinogradConfig bestWinogradUnit(const Convolution2DCommon *convOp, const Tensor *input, const Tensor *output,
                                 int threadnumber, Backend* b, const PerfConfig& denseConfig);
-    virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
 protected:
     ConvolutionWinogradImpl(std::shared_ptr<CPUConvolution::Resource> resource, const Convolution2DCommon *convOp, Backend* b) : CPUConvolution(convOp, b) {
         mResource = resource;

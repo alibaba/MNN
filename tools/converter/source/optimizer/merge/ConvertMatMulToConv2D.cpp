@@ -139,6 +139,7 @@ ConvertMatMulToConv2D::ConvertMatMulToConv2D() {
                 weight->expr().first->inside()->mCache = nullptr;
                 return false;
             }
+            weight->expr().first->inside()->mCache = nullptr;
             int limitNumber = 4;
             if (config->optimizePrefer == 1) {
                 // Smallest
@@ -165,6 +166,7 @@ ConvertMatMulToConv2D::ConvertMatMulToConv2D() {
                     bias->expr().first->inside()->mCache = nullptr;
                     return false;
                 }
+                bias->expr().first->inside()->mCache = nullptr;
             }
             return true;
         };
@@ -200,11 +202,14 @@ ConvertMatMulToConv2D::ConvertMatMulToConv2D() {
             info = weight->getInfo();
             const_cast<MNN::Express::Variable::Info*>(info)->syncSize();
             bool needSqueezeA = false;
+            bool inputShapeUnknow = false;
             if (input->getInfo() != nullptr) {
                 if (input->getInfo()->dim.size() <= 1) {
                     input = _Unsqueeze(input, {0});
                     needSqueezeA = true;
                 }
+            } else {
+                inputShapeUnknow = true;
             }
             if (needSqueezeA && needSqueezeB) {
                 MNN_ERROR("Invalid MatMul for one-dimension A and B\n");
@@ -228,6 +233,14 @@ ConvertMatMulToConv2D::ConvertMatMulToConv2D() {
                 dense->symmetricQuan.reset(new QuantizedFloatParamT);
                 dense->symmetricQuan->nbits = 8;
                 std::vector<float> scale_1(num_output, 1.0);
+                if (expr->inputs().size() == 3 && expr->inputs()[2]->getInfo()) {
+                    MNN_ASSERT(expr->inputs()[2]->getInfo()->dim[0] == num_output);
+                    if (!helpers::IsConstant(expr->inputs()[2]->expr().first) || !expr->inputs()[2]->readMap<float>()) {
+                        MNN_ERROR("matmul convert to conv2d fail: In dynamic quant for Matmul, weight scale must be constant.");
+                        return false;
+                    }
+                    ::memcpy(scale_1.data(), expr->inputs()[2]->readMap<float>(), num_output * sizeof(float));
+                }
                 dense->symmetricQuan->clampMin = -1;
                 dense->symmetricQuan->clampMax = -1;
                 dense->symmetricQuan->zeroPoint = 0;
@@ -239,8 +252,6 @@ ConvertMatMulToConv2D::ConvertMatMulToConv2D() {
             if (weightDataPtr) {
                 // Weight is a const node.
                 if (false == convertToConvInt8) {
-                    dense->weight.resize(info->size);
-                    memcpy(dense->weight.data(), weightDataPtr, info->size * sizeof(float));
                     dense->bias.resize(num_output);
                     if (expr->inputs().size() == 3) { // bias is a const node.
                         auto bias = expr->inputs()[2];
@@ -252,6 +263,23 @@ ConvertMatMulToConv2D::ConvertMatMulToConv2D() {
                         ::memcpy(dense->bias.data(), param->bias()->data(), num_output * sizeof(float));
                     } else {
                         std::fill(dense->bias.begin(), dense->bias.end(), 0.0f);
+                    }
+                    if (config->externalFile && info->size >= config->externalTreshold) {
+                        dense->external.emplace_back(config->externalOffset);
+                        int64_t size = info->size * sizeof(float);
+                        config->externalFile->write(reinterpret_cast<const char*>(weightDataPtr), size);
+                        config->externalOffset += size;
+                        dense->external.emplace_back(size);
+                        size = dense->bias.size() * sizeof(float);
+                        config->externalFile->write(reinterpret_cast<const char*>(dense->bias.data()), size);
+                        config->externalOffset += size;
+                        dense->external.emplace_back(size);
+                        dense->bias.clear();
+                        std::vector<float> empty;
+                        dense->bias.swap(empty);
+                    } else {
+                        dense->weight.resize(info->size);
+                        memcpy(dense->weight.data(), weightDataPtr, info->size * sizeof(float));
                     }
                 } else {
                     dense->symmetricQuan->weight.resize(info->size);
@@ -280,8 +308,18 @@ ConvertMatMulToConv2D::ConvertMatMulToConv2D() {
             inputL.fix(VARP::CONSTANT);
             auto outputH = _Unsqueeze(_Scalar<int>(num_output), {0});
             outputH.fix(VARP::CONSTANT);
+            VARP remainBegin;
+            VARP inputELength;
+            if (inputShapeUnknow) {
+                remainBegin = _Minimum(_Scalar<int>(2), rank);
+                inputELength = remainBegin - _Scalar<int>(1);
+            } else {
+                remainBegin = _Scalar<int>(2);
+                inputELength = _Scalar<int>(1);
+            }
+            auto rankRemain = _Unsqueeze(rank - remainBegin, {0});
             VARP inputE;
-            VARP inputRemain = _StridedSlice(inputShape, _Unsqueeze(_Scalar<int>(0), {0}), _Unsqueeze(rank - _Scalar<int>(2), {0}), _Unsqueeze(_Scalar<int>(1), {0}), 0, 0, 0, 0, 0);
+            VARP inputRemain = _Slice(inputShape, _Unsqueeze(_Scalar<int>(0), {0}), rankRemain);
             if (transposeA) {
                 inputE = _Slice(inputShape, _Unsqueeze(rank - _Scalar<int>(1), {0}), _Unsqueeze(_Scalar<int>(1), {0}));
                 if (format == MNN_DATA_FORMAT_NHWC) {
@@ -290,15 +328,12 @@ ConvertMatMulToConv2D::ConvertMatMulToConv2D() {
                     input = _ReshapeF(input, _Concat({_Unsqueeze(_Scalar<int>(-1), {0}), inputL, inputE, _Unsqueeze(_Scalar<int>(1), {0})}, 0), format);
                 }
             } else {
-                inputE = _Slice(inputShape, _Unsqueeze(rank - _Scalar<int>(2), {0}), _Unsqueeze(_Scalar<int>(1), {0}));
+                inputE = _Slice(inputShape, rankRemain, _Unsqueeze(inputELength, {0}));
                 if (format == MNN_DATA_FORMAT_NHWC) {
                     input = _ReshapeF(input, _Concat({_Unsqueeze(_Scalar<int>(-1), {0}), _Unsqueeze(_Scalar<int>(1), {0}), _Unsqueeze(_Scalar<int>(1), {0}), inputL}, 0), format);
                 } else {
                     input = _ReshapeF(input, _Concat({_Unsqueeze(_Scalar<int>(-1), {0}), inputL, _Unsqueeze(_Scalar<int>(1), {0}), _Unsqueeze(_Scalar<int>(1), {0})}, 0), format);
                 }
-            }
-            if (config->externalFile && info->size >= config->externalTreshold) {
-                RemoveAndStoreParam(dense_op, config->externalFile, config->externalOffset);
             }
             EXPRP dense_expr;
             if (convertToConvInt8) {
@@ -444,17 +479,19 @@ ConvertMatMulToConv2D::ConvertMatMulToConv2D() {
                 }
             }
             auto matmulInput = matmul_expr->inputs().at(0);
-            auto inputScale = matmul_expr->inputs().at(2);
-            auto inputZero = matmul_expr->inputs().at(3);
+            auto inputScale  = matmul_expr->inputs().at(2);
+            auto inputZero   = matmul_expr->inputs().at(3);
             auto weightScale = matmul_expr->inputs().at(4);
+            auto weightZero  = matmul_expr->inputs().at(5);
             auto outputScale = matmul_expr->inputs().at(6);
-            auto outputZero = matmul_expr->inputs().at(7);
+            auto outputZero  = matmul_expr->inputs().at(7);
             
-            float input_zero = inputZero->readMap<float>()[0];
-            float input_scale = inputScale->readMap<float>()[0];
+            float input_zero          = inputZero->readMap<float>()[0];
+            float input_scale         = inputScale->readMap<float>()[0];
             const float* weight_scale = weightScale->readMap<float>();
-            float output_scale = outputScale->readMap<float>()[0];
-            uint8_t output_zero = outputZero->readMap<uint8_t>()[0];
+            const float* weight_zero  = weightZero->readMap<float>();
+            float output_scale        = outputScale->readMap<float>()[0];
+            int output_zero           = static_cast<float>(outputZero->readMap<float>()[0]);
             // Convint8
             std::unique_ptr<Convolution2DT> dense(new MNN::Convolution2DT);
             dense->common.reset(new MNN::Convolution2DCommonT);
@@ -467,42 +504,29 @@ ConvertMatMulToConv2D::ConvertMatMulToConv2D() {
             dense->symmetricQuan->clampMax = 127;
             dense->symmetricQuan->zeroPoint = static_cast<int8_t>(input_zero);
             dense->symmetricQuan->outputZeroPoint = static_cast<int8_t>(output_zero);
-            // weight and bias
-            auto weight_ptr = weight->readMap<int8_t>();
-            dense->symmetricQuan->weight.resize(weightInfo->size);
-            memcpy(dense->symmetricQuan->weight.data(), weight_ptr, weightInfo->size * sizeof(int8_t));
-            std::vector<int32_t> weightKenelSum(numberOutput);
-            int kernelSize = weightInfo->size / numberOutput;
-            for (int i = 0; i < numberOutput; i++) {
-                int temp = 0;
-                int offset = i * kernelSize;
-                for (int j = 0; j < kernelSize; j++) {
-                    temp += int(weight_ptr[offset + j]);
-                }
-                weightKenelSum[i] = temp;
+            // quantParameter
+            dense->quanParameter.reset(new IDSTQuanT);
+            dense->quanParameter->scaleIn = input_scale;
+            dense->quanParameter->scaleOut = output_scale;
+            dense->quanParameter->type = 4;
+            dense->quanParameter->aMin = -128;
+            dense->quanParameter->readType = numberOutput;
+            dense->quanParameter->quantScale = 1.0f;
+            dense->quanParameter->buffer.resize(weightInfo->size);
+            ::memcpy(dense->quanParameter->buffer.data(), weight->readMap<int8_t>(), weightInfo->size * sizeof(int8_t));
+            dense->bias.resize(numberOutput, 0);
+            // quan alpha
+            dense->quanParameter->alpha.resize(2 * numberOutput);
+            for (int i = 0; i < numberOutput; ++i) {
+                dense->quanParameter->alpha[2 * i] = (-1)*(weight_zero[i] + 128) * weight_scale[i];
+                dense->quanParameter->alpha[2 * i + 1] = weight_scale[i];
             }
-            
-            
-            dense->symmetricQuan->bias.resize(numberOutput, 0);
-            // compute conv scale=input_scale * weight_scale / output_scale
-            std::vector<float> conv_scale(numberOutput);
-            for (int k = 0; k < numberOutput; ++k) {
-                if (output_scale != 0) {
-                    conv_scale[k] = input_scale * weight_scale[k] / output_scale;
-                } else {
-                    conv_scale[k] = 0.f;
-                }
-            }
+
             if (matmul_expr->inputs().size() == 9) {
                 bias_var = matmul_expr->inputs().at(8);
-                auto bias_ptr = bias_var->readMap<int32_t>();
-                auto biasInt32 = dense->symmetricQuan->bias.data();
-                for (int cnt = 0; cnt < numberOutput; ++cnt) {
-                    biasInt32[cnt] = bias_ptr[cnt] - weightKenelSum[cnt] * static_cast<int32_t>(input_zero) + static_cast<int32_t>(static_cast<float>(output_zero) / conv_scale[cnt]);
-                }
-//                memcpy(dense->symmetricQuan->bias.data(), bias_ptr, sizeof(int32_t) * numberOutput);
+                auto bias_ptr = bias_var->readMap<float>();
+                memcpy(dense->bias.data(), bias_ptr, sizeof(int32_t) * numberOutput);
             }
-            dense->symmetricQuan->scale = std::move(conv_scale);
 
             // Third, build convint8 op
             std::unique_ptr<OpT> dense_op(new OpT);
@@ -519,42 +543,27 @@ ConvertMatMulToConv2D::ConvertMatMulToConv2D() {
             VARP inputRemain = _StridedSlice(inputShape, _Unsqueeze(_Scalar<int>(0), {0}), _Unsqueeze(rank - _Scalar<int>(2), {0}), _Unsqueeze(_Scalar<int>(1), {0}), 0, 0, 0, 0, 0);
             if (transposeA) {
                 inputE = _Slice(inputShape, _Unsqueeze(rank - _Scalar<int>(1), {0}), _Unsqueeze(_Scalar<int>(1), {0}));
-                if (format == MNN_DATA_FORMAT_NHWC) {
-                    input = _ReshapeF(input, _Concat({_Unsqueeze(_Scalar<int>(-1), {0}), inputE, _Unsqueeze(_Scalar<int>(1), {0}), inputL}, 0), format);
-                } else {
-                    input = _ReshapeF(input, _Concat({_Unsqueeze(_Scalar<int>(-1), {0}), inputL, inputE, _Unsqueeze(_Scalar<int>(1), {0})}, 0), format);
-                }
             } else {
                 inputE = _Slice(inputShape, _Unsqueeze(rank - _Scalar<int>(2), {0}), _Unsqueeze(_Scalar<int>(1), {0}));
-                if (format == MNN_DATA_FORMAT_NHWC) {
-                    input = _ReshapeF(input, _Concat({_Unsqueeze(_Scalar<int>(-1), {0}), _Unsqueeze(_Scalar<int>(1), {0}), _Unsqueeze(_Scalar<int>(1), {0}), inputL}, 0), format);
-                } else {
-                    input = _ReshapeF(input, _Concat({_Unsqueeze(_Scalar<int>(-1), {0}), inputL, _Unsqueeze(_Scalar<int>(1), {0}), _Unsqueeze(_Scalar<int>(1), {0})}, 0), format);
-                }
             }
             if (config->externalFile && weightInfo->size >= config->externalTreshold) {
                 RemoveAndStoreParam(dense_op, config->externalFile, config->externalOffset);
             }
-            float ta = 0, sa = 0;
+            float ta = 0, sa = 0, sqzb = 0;
             if (transposeA) {
                 ta = 1.0f;
             }
             if (needSqueezeA) {
                 sa = 1.0f;
             }
-            EXPRP dense_expr = Expr::create(dense_op.get(), {matmul_input, _Const(ta), _Const(sa)}, 1);
-            VARP output = Variable::create(dense_expr);
-            output->setName(matmul_expr->outputName(0) + "__matmul_converted");
-            output = _ConvertF(output, format);
-            VARP reshapeVar = _ReshapeF(output, _Concat({inputRemain, inputE, outputH}, 0), format);
-            if (needSqueezeA) {
-                reshapeVar = _Squeeze(reshapeVar, {0});
-            }
             if (needSqueezeB) {
-                reshapeVar = _Squeeze(reshapeVar, {1});
+                sqzb = 1.0f;
             }
-            reshapeVar->setName(matmul_expr->outputName(0) + "__matmul_cvt_convInt8");
-            Expr::replace(matmul_expr, reshapeVar->expr().first);
+            EXPRP dense_expr = Expr::create(dense_op.get(), {matmul_input, _Concat({inputRemain, inputE, outputH}, 0), _Const(sa), _Const(sqzb), _Const(ta)},  1);
+            VARP output = Variable::create(dense_expr);
+            // output->setName(matmul_expr->outputName(0));
+            dense_expr->setName(matmul_expr->outputName(0) + "__matmul_converted");
+            Expr::replace(matmul_expr, dense_expr);
             return true;
         };
         TemplateMerge::getInstance("Merge").insertTemplateV2("MatMulInt8ToConvInt8", fold, PASS_PRIORITY_HIGH);

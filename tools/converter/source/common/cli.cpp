@@ -37,10 +37,10 @@
 #include <fstream>
 #include <sstream>
 #include <cmath>
-#include "common/MemoryFormater.h"
+#include "core/MemoryFormater.h"
 
 namespace MNN {
-
+using namespace MNN::Express;
 static std::string _getDataType(const halide_type_t& type) {
     switch (type.code) {
         case halide_type_float:
@@ -153,7 +153,7 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
      )
     (
      "keepInputFormat",
-     "keep input dimension format or not, default: false",
+     "keep input dimension format or not, default: true",
      cxxopts::value<bool>()
      )
     (
@@ -204,6 +204,11 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
      "you can try set --weightQuantAsymmetric to use asymmetric quant method to improve accuracy of the weight-quant model in some cases, "
      "but asymmetric quant model cannot run on old MNN versions. You will need to upgrade MNN to new version to solve this problem. default: false",
      cxxopts::value<bool>()
+     )
+    (
+     "weightQuantBlock",
+     "using block-wise weight quant, set block size, defaut: -1, which means channel-wise weight quant",
+     cxxopts::value<int>()
      )
     (
      "compressionParamsFile",
@@ -420,11 +425,6 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
         modelPath.inputConfigFile         = inputConfigFile;
     }
 
-    // benchmarkModel
-    if (result.count("benchmarkModel")) {
-        modelPath.benchmarkModel = true;
-        modelPath.bizCode        = "benchmark";
-    }
     // half float
     if (result.count("fp16")) {
         modelPath.saveHalfFloat = true;
@@ -436,13 +436,16 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
         modelPath.defaultBatchSize = result["batch"].as<int>();
     }
     if (result.count("keepInputFormat")) {
-        modelPath.keepInputFormat = true;
+        modelPath.keepInputFormat = result["keepInputFormat"].as<bool>();
     }
     if (result.count("weightQuantBits")) {
         modelPath.weightQuantBits = result["weightQuantBits"].as<int>();
     }
     if (result.count("weightQuantAsymmetric")) {
-        modelPath.weightQuantAsymmetric = true;
+        modelPath.weightQuantAsymmetric = result["weightQuantAsymmetric"].as<bool>();
+    }
+    if (result.count("weightQuantBlock")) {
+        modelPath.weightQuantBlock = result["weightQuantBlock"].as<int>();
     }
     if (result.count("saveStaticModel")) {
         modelPath.saveStaticModel = true;
@@ -470,7 +473,7 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
     if (result.count("convertMatmulToConv")) {
         modelPath.convertMatmulToConv = result["convertMatmulToConv"].as<int>();
     }
-    
+
     if (result.count("testdir")) {
         modelPath.testDir = result["testdir"].as<std::string>();
     }
@@ -487,6 +490,151 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
         modelPath.transformerFuse = true;
     }
     return true;
+}
+
+typedef VARP (*unaryProc)(VARP input);
+static unaryProc selectUnaryProc(int type) {
+    switch (type) {
+        case UnaryOpOperation_ABS:
+            return MNN::Express::_Abs;
+        case UnaryOpOperation_SQUARE:
+            return MNN::Express::_Square;
+        case UnaryOpOperation_NEG:
+            return MNN::Express::_Negative;
+        case UnaryOpOperation_RSQRT:
+            return MNN::Express::_Rsqrt;
+        case UnaryOpOperation_EXP:
+            return MNN::Express::_Exp;
+        case UnaryOpOperation_COS:
+            return MNN::Express::_Cos;
+        case UnaryOpOperation_SIN:
+            return MNN::Express::_Sin;
+        case UnaryOpOperation_SIGMOID:
+            return MNN::Express::_Sigmoid;
+        case UnaryOpOperation_TANH:
+            return MNN::Express::_Tanh;
+        case UnaryOpOperation_TAN:
+            return MNN::Express::_Tan;
+        case UnaryOpOperation_ATAN:
+            return MNN::Express::_Atan;
+        case UnaryOpOperation_SQRT:
+            return MNN::Express::_Sqrt;
+        case UnaryOpOperation_RECIPROCAL:
+            return MNN::Express::_Reciprocal;
+        case UnaryOpOperation_LOG1P:
+            return MNN::Express::_Log1p;
+        case UnaryOpOperation_LOG:
+            return MNN::Express::_Log;
+        case UnaryOpOperation_ACOSH:
+            return MNN::Express::_Acosh;
+        case UnaryOpOperation_SINH:
+            return MNN::Express::_Sinh;
+        case UnaryOpOperation_ASINH:
+            return MNN::Express::_Asinh;
+        case UnaryOpOperation_ATANH:
+            return MNN::Express::_Atanh;
+        case UnaryOpOperation_SIGN:
+            return MNN::Express::_Sign;
+        case UnaryOpOperation_COSH:
+            return MNN::Express::_Cosh;
+        case UnaryOpOperation_ERF:
+            return MNN::Express::_Erf;
+        case UnaryOpOperation_ERFC:
+            return MNN::Express::_Erfc;
+        case UnaryOpOperation_ERFINV:
+            return MNN::Express::_Erfinv;
+        case UnaryOpOperation_EXPM1:
+            return MNN::Express::_Expm1;
+        case UnaryOpOperation_ASIN:
+            return MNN::Express::_Asin;
+        case UnaryOpOperation_ACOS:
+            return MNN::Express::_Acos;
+        case UnaryOpOperation_HARDSWISH:
+            return MNN::Express::_Hardswish;
+        case UnaryOpOperation_GELU:
+            return MNN::Express::_Gelu;
+        default:
+            MNN_ASSERT(false);
+            break;
+    }
+    return nullptr;
+}
+static void computeUnaryBuffer(MNN::NetT* net) {
+    for (auto iter = net->oplists.begin(); iter != net->oplists.end(); ++iter) {
+        auto op = iter->get();
+        auto opType = op->type;
+        std::map<int, TensorDescribeT*> describes;
+        for (auto& des : net->extraTensorDescribe) {
+            describes.insert(std::make_pair(des->index, des.get()));
+        }
+        if (opType == MNN::OpType_Sigmoid || opType == MNN::OpType_TanH) {
+            op->type = OpType_UnaryOp;
+            op->main.value = new UnaryOpT;
+            op->main.type = OpParameter_UnaryOp;
+            op->main.AsUnaryOp()->opType = UnaryOpOperation_SIGMOID;
+            if (opType == MNN::OpType_TanH) {
+                op->main.AsUnaryOp()->opType = UnaryOpOperation_TANH;
+            }
+            opType = op->type;
+        }
+        if (opType == MNN::OpType_UnaryOp) {
+            auto type = op->main.AsUnaryOp()->opType;
+            if (type == UnaryOpOperation_ABS || type == UnaryOpOperation_NEG || type == UnaryOpOperation_SIGN) {
+                continue;
+            }
+            op->main.AsUnaryOp()->tableInt8.resize(255);
+            auto unaryParam = op->main.AsUnaryOp()->tableInt8.data();
+
+            auto outputId = op->outputIndexes[0];
+            if (describes.find(outputId) == describes.end()) {
+                continue;
+            }
+            auto unaryDes = describes.find(outputId)->second;
+            float outScale = unaryDes->quantInfo->scale;
+            float outZero  = unaryDes->quantInfo->zero;
+            auto inputId = op->inputIndexes[0];
+            if (describes.find(inputId) == describes.end()) {
+                auto iter = describes.find(outputId);
+                
+            }
+            unaryDes = describes.find(inputId)->second;
+            float inpScale = unaryDes->quantInfo->scale;
+            float inpZero  = unaryDes->quantInfo->zero;
+
+            // Read input data.
+            std::vector<float> dataInput;
+            float fx = 0.f;
+            auto input = _Input({255}, NCHW, halide_type_of<float>());
+            input->setName("input_tensor");
+            auto ptr_in = input->template writeMap<float>();
+            for (int i = -127; i <= 127; ++i) {
+                fx = (i - inpZero) * inpScale;
+                dataInput.push_back(fx);
+                ptr_in[i + 127] = fx;
+            }
+            input->unMap();
+            // Compute output data.
+            VARP output;
+            auto func = selectUnaryProc(type);
+            if (nullptr == func) {
+                MNN_ERROR("Don't support quantizing UnaryOP: %s to Int8\n", op->name.c_str());
+            }
+            output = func(input);
+            auto gotOutput = output->template readMap<float>();
+            // Write output data.
+            int val;
+            for (int i = 0; i < 255; ++i) {
+                val = (int)roundf(gotOutput[i] / outScale) + outZero;
+                if (val > 127) {
+                    val = 127;
+                }
+                if (val < -127) {
+                    val = -127;
+                }
+                unaryParam[i] = val;
+                            }
+        }
+    }
 }
 
 bool Cli::convertModel(modelConfig& modelPath) {
@@ -552,6 +700,11 @@ bool Cli::convertModel(modelConfig& modelPath) {
     if (modelPath.model != modelConfig::MNN || modelPath.optimizeLevel >= 2) {
         std::cout << "Start to Optimize the MNN Net..." << std::endl;
         std::unique_ptr<MNN::NetT> newNet = optimizeNet(netT, modelPath.forTraining, modelPath);
+        if (newNet->extraTensorDescribe.size()>0) {
+            MNN_PRINT("MNN net has tensor quant info\n");
+            computeUnaryBuffer(newNet.get());
+        }
+        
         error = writeFb(newNet, modelPath.MNNModel, modelPath);
     } else {
         error = writeFb(netT, modelPath.MNNModel, modelPath);
@@ -730,6 +883,9 @@ int Cli::testconvert(const std::string& defaultCacheFile, const std::string& dir
     std::shared_ptr<MNN::Express::Executor::RuntimeManager> rtmgr(MNN::Express::Executor::RuntimeManager::createRuntimeManager(config));
     rtmgr->setExternalFile("./convert_cache.mnn.weight");
     std::shared_ptr<MNN::Express::Module> net(MNN::Express::Module::load(inputNames, outputNames, defaultCacheFile.c_str(), rtmgr, &mConfig));
+    std::shared_ptr<MNN::Express::Module> net2;
+    net2.reset(MNN::Express::Module::clone(net.get()));
+    net = net2;
     auto mInfo = net->getInfo();
     std::vector<MNN::Express::VARP> inputs(mInfo->inputs.size());
 #define LOAD_DATA(TYPE)\
@@ -1236,7 +1392,7 @@ bool CommonKit::json2protobuf(const char* jsonFile, const char* protoFile, MNN::
             if (layerInfo.HasMember("method")) {
                 newLayer->set_method((MNN::Compression::LayerQuantizeParams_QuantMethod)layerInfo["method"].GetInt());
             }
-            
+
             // Weight.
             auto weights_ = layerInfo["weight"].GetArray();
             for (auto w = weights_.begin(); w != weights_.end(); ++w) {
@@ -1257,7 +1413,7 @@ bool CommonKit::json2protobuf(const char* jsonFile, const char* protoFile, MNN::
                     weight->add_scales(scale[k].GetFloat());
                 }
             }
-            
+
             // Input.
             auto inputs_ = layerInfo["input"].GetArray();
             for (auto w = inputs_.begin(); w != inputs_.end(); ++w) {
@@ -1278,7 +1434,7 @@ bool CommonKit::json2protobuf(const char* jsonFile, const char* protoFile, MNN::
                     input->add_scales(scale[k].GetFloat());
                 }
             }
-            
+
             // Output.
             auto outputs_ = layerInfo["output"].GetArray();
             for (auto w = outputs_.begin(); w != outputs_.end(); ++w) {

@@ -31,6 +31,17 @@ public:
             MNN_ERROR("ZerosLikeTest test failed!\n");
             return false;
         }
+        output = _ZerosLike(input);
+        auto o2 = _Stack({output, output});
+        auto o2ptr = o2->readMap<float>();
+        if (!checkVector<float>(o2ptr, expectedOutput.data(), 16, 0.01)) {
+            MNN_ERROR("ZerosLikeTest test concat0 failed!\n");
+            return false;
+        }
+        if (!checkVector<float>(o2ptr + 16, expectedOutput.data(), 16, 0.01)) {
+            MNN_ERROR("ZerosLikeTest test concat1 failed!\n");
+            return false;
+        }
         return true;
     }
     virtual bool run(int precision) {

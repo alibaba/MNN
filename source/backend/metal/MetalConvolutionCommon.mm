@@ -68,10 +68,6 @@ MetalConvolutionCommon::MetalConvolutionCommon(Backend *backend, const MNN::Op *
     }
 }
 
-void MetalConvolutionCommon::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder) {
-    return onFloat(inputs[0], outputs[0], encoder);
-}
-
 template <typename FType, typename TType>
 void weightInBlock(int group, int oc, int ic, int kh, int kw, const FType *src, uint8_t* dstOrigion) {
     auto goc    = oc / group;
@@ -101,40 +97,54 @@ void weightInBlock(int group, int oc, int ic, int kh, int kw, const FType *src, 
     }
 }
 
-static std::vector<std::shared_ptr<MNN::Tensor>> getDequantScale(float* scale, int size, MetalBackend *backend, bool asymmetric) {
-    int outputCount = 0;
+static std::shared_ptr<MNN::Tensor> getDequantScale(const float* scale, int size, MetalBackend *backend, bool asymmetric, int oc) {
+    int totalCount = 0;
     if (asymmetric) {
-        outputCount = size / 2;
+        totalCount = size / 2;
     } else {
-        outputCount = size;
+        totalCount = size;
     }
-    std::vector<std::shared_ptr<MNN::Tensor>> scaleBias(2);
-    std::shared_ptr<MNN::Tensor> dequantScale(MNN::Tensor::createDevice<uint8_t>({outputCount * 4}));
-    std::shared_ptr<MNN::Tensor> dequantBias(MNN::Tensor::createDevice<uint8_t>({outputCount * 4}));
-    bool res = backend->onAcquireBuffer(dequantScale.get(), Backend::STATIC) && backend->onAcquireBuffer(dequantBias.get(), Backend::STATIC);
+    int blockSize = totalCount / oc;
+    int alignOutputCount = ALIGN_UP4(oc);
+    std::shared_ptr<MNN::Tensor> dequantScale(MNN::Tensor::createDevice<uint8_t>({alignOutputCount, blockSize, (int)(sizeof(float) * 2)}));
+    bool res = backend->onAcquireBuffer(dequantScale.get(), Backend::STATIC);
     if (!res) {
         MNN_ERROR("Buffer allocated error!\n");
-        return scaleBias;
+        return nullptr;
     }
     auto buffer0 = MetalBackend::getBuffer(dequantScale.get());
-    auto dst_scale = (uint8_t*)[buffer0.first contents] + buffer0.second;
-    auto buffer1 = MetalBackend::getBuffer(dequantBias.get());
-    auto dst_bias = (uint8_t*)[buffer1.first contents] + buffer1.second;
-    for (int o = 0; o < outputCount; ++o) {
-        float min = 0.0f;
-        float alpha = 0.0f;
-        if (asymmetric) {
-            min = scale[2*o];
-            alpha = scale[2*o+1];
-        } else {
-            alpha = scale[o];
+    auto dst_scale = (float*)((uint8_t*)[buffer0.first contents] + buffer0.second);
+    ::memset(dst_scale, 0, dequantScale->usize());
+    if (asymmetric) {
+        for (int z=0; z<oc; ++z) {
+            int zo = z / 4;
+            int zi = z % 4;
+            auto srcZ = scale + z * blockSize * 2;
+            auto dstSZ = dst_scale + zo * blockSize * 8 + zi;
+            auto dstBZ = dst_scale + zo * blockSize * 8 + zi + 4;
+            for (int bi=0; bi<blockSize; ++bi) {
+                float s = srcZ[2*bi+1];
+                float b = srcZ[2*bi+0];
+                dstSZ[bi * 8] = s;
+                dstBZ[bi * 8] = b;
+            }
         }
-        ((float*)dst_scale)[o] = alpha;
-        ((float*)dst_bias)[o] = min;
-     }
-    scaleBias[0] = dequantScale;
-    scaleBias[1] = dequantBias;
-    return scaleBias;
+    } else {
+        for (int z=0; z<oc; ++z) {
+            int zo = z / 4;
+            int zi = z % 4;
+            auto srcZ = scale + z * blockSize;
+            auto dstSZ = dst_scale + zo * blockSize * 8 + zi;
+            auto dstBZ = dst_scale + zo * blockSize * 8 + zi + 4;
+            for (int bi=0; bi<blockSize; ++bi) {
+                float s = srcZ[bi];
+                float b = 0.0f;
+                dstSZ[bi * 8] = s;
+                dstBZ[bi * 8] = b;
+            }
+        }
+    }
+    return dequantScale;
 }
 void MetalConvolutionCommon::loadWeight(const MNN::Convolution2D *conv, bool loadWeightInt8) {
     std::shared_ptr<ConvolutionCommon::Int8Common> qnt = NULL;
@@ -153,12 +163,11 @@ void MetalConvolutionCommon::loadWeight(const MNN::Convolution2D *conv, bool loa
     auto ic     = size / kw / kh / (oc / group);
 
     // convert
-    if (loadWeightInt8) {
+    if (loadWeightInt8 && qnt->weight.get() != nullptr) {
         auto backend = static_cast<MetalBackend *>(this->backend());
         mWeight = weightTransform(group, oc, ic, kh, kw, (float*)qnt->weight.get(), !qnt->canUseInt4, qnt->canUseInt4);
-        auto dequantParams = getDequantScale(qnt->alpha.get(), qnt->alpha.size(), backend, qnt->asymmetric);
-        mDequantScale = dequantParams[0];
-        mDequantZero = dequantParams[1];
+        auto dequantParams = getDequantScale(qnt->alpha.get(), qnt->alpha.size(), backend, qnt->asymmetric, oc);
+        mDequantScaleBias = dequantParams;
         mDequantBits = qnt->canUseInt4 ? 4:8;
     } else if (qnt && qnt->weightFloat.size() > 0) {
         mWeight = weightTransform(group, oc, ic, kh, kw, qnt->weightFloat.get(), false, false);

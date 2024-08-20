@@ -139,16 +139,22 @@ public:
             }
             // find reduce dim
             char reduce_dim;
+            int reduce_dim_pos = -1;
             for (int i = 0; i < input0.size(); ++i) {
                 auto c = input0[i];
                 if (right.find(c) == std::string::npos) {
                     reduce_dim = c;
+                    reduce_dim_pos = i;
                     break;
                 }
             }
+            bool needTransposeA = false;
+            if (reduce_dim_pos >= 0 && input0.size() >= 2 && reduce_dim_pos == input0.size() - 2) {
+                needTransposeA = true;
+            }
             auto need_transpose = input1.find(reduce_dim) == (input1.size() - 1);
             // matmul: matmul auto broadcast such: `bhwc @ hkc` -> `bhwc @ bhkc`
-            auto output = _MatMul(var0, var1, false, need_transpose);
+            auto output = _MatMul(var0, var1, needTransposeA, need_transpose);
             // squeeze
             if (sqeeze_axis >= 0) {
                 output = _Squeeze(output, {sqeeze_axis});

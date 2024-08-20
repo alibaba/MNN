@@ -65,7 +65,7 @@ NSString* MetalBinary::convert(int originOp, bool inputFloat) {
     CHECK(BinaryOpOperation_ATAN2, @"atan2(V0,V1)");
     CHECK(BinaryOpOperation_SUB, @"V0-V1");
     CHECK(BinaryOpOperation_MUL, @"V0*V1");
-    CHECK(BinaryOpOperation_FLOORMOD, @"V0-floor(V0/V1)*V1");
+    CHECK(BinaryOpOperation_FLOORMOD, @"V0-floor((float)V0/(float)V1)*V1");
     CHECK(BinaryOpOperation_FLOORDIV, @"floor((float)V0/(float)V1)");
     CHECK(BinaryOpOperation_MINIMUM, @"min(V0,V1)");
     CHECK(BinaryOpOperation_MAXIMUM, @"max(V0,V1)");

@@ -4,57 +4,88 @@
 #define PI 3.141592653589f
 
 __kernel void binary_buf(__private int global_dim0, __private int global_dim1,
-                         __global FLOAT* input0, __global FLOAT* input1, __global FLOAT* output,
+                         __global INPUT_TYPE* input0, __global INPUT_TYPE* input1, __global OUTPUT_TYPE* output,
                          __private const int4 shape,//[N,H,W,C4]
                          __private const int2 isFull,
                          __private const int activationType) {
     int2 pos = (int2)(get_global_id(0), get_global_id(1));//NC4, HW
     
     if (pos.x < global_dim0 && pos.y < global_dim1) {
-        int offset = pos.x * (shape.y*shape.z) + pos.y;
-#ifdef OPENCL_INPUT_INT
-        FLOAT4 in0 = CONVERT_FLOAT4(convert_int4(vload4(offset*isFull.x, input0)));
-        FLOAT4 in1 = CONVERT_FLOAT4(convert_int4(vload4(offset*isFull.y, input1)));
-#else
-        FLOAT4 in0 = vload4(offset*isFull.x, input0);
-        FLOAT4 in1 = vload4(offset*isFull.y, input1);
-#endif
-        if(isFull.x == 0) {
-            in0 = (FLOAT4)(in0.x, in0.x, in0.x, in0.x);
-        }
-        if(isFull.y == 0) {
-            in1 = (FLOAT4)(in1.x, in1.x, in1.x, in1.x);
-        }
-#ifdef OPENCL_INPUT_INT
-        FLOAT4 out = CONVERT_FLOAT4(convert_int4(OPERATOR));
-#else
-        FLOAT4 out = CONVERT_FLOAT4(OPERATOR);
-#endif
+    #ifdef WH_PACK4
+        int offset = pos.x * (shape.y*shape.z/4) + pos.y;
+        #ifdef A_SINGLE
+        float data0 = input0[0];
+        float16 in0_16 = (float16)data0;
+        #else
+        float16 in0_16 = convert_float16(vload16(offset, input0));
+        #endif
+        
+        #ifdef B_SINGLE
+        float data1 = input1[0];
+        float16 in1_16 = (float16)data1;
+        #else
+        float16 in1_16 = convert_float16(vload16(offset, input1));
+        #endif
+        
+        float16 out;
+        float4 in0 = in0_16.s0123;
+        float4 in1 = in1_16.s0123;
+        out.s0123 = OPERATOR;
+        
+        in0 = in0_16.s4567;
+        in1 = in1_16.s4567;
+        out.s4567 = OPERATOR;
+        
+        in0 = in0_16.s89ab;
+        in1 = in1_16.s89ab;
+        out.s89ab = OPERATOR;
+        
+        in0 = in0_16.scdef;
+        in1 = in1_16.scdef;
+        out.scdef = OPERATOR;
+        
         if(activationType == 1) {
-            out = fmax(out, (FLOAT4)0);
+            out = fmax(out, (float16)0);
         }
-        vstore4(out, offset, output);
+        vstore16(CONVERT_OUTPUT16(out), offset, output);
+    #else
+        int offset = pos.x * (shape.y*shape.z) + pos.y;
+        #ifdef A_SINGLE
+        float data0 = input0[0];
+        float4 in0 = (float4)(data0, data0, data0, data0);
+        #else
+        float4 in0 = convert_float4(vload4(offset, input0));
+        #endif
+        
+        #ifdef B_SINGLE
+        float data1 = input1[0];
+        float4 in1 = (float4)(data1, data1, data1, data1);
+        #else
+        float4 in1 = convert_float4(vload4(offset, input1));
+        #endif
+        
+        float4 out = OPERATOR;
+        
+        if(activationType == 1) {
+            out = fmax(out, (float4)0);
+        }
+        vstore4(CONVERT_OUTPUT4(out), offset, output);
+    #endif
     }
 }
 
 
 __kernel void prelu_buf(__private int global_dim0, __private int global_dim1,
-                         __global FLOAT* input0, __global FLOAT* input1, __global FLOAT* output,
+                         __global INPUT_TYPE* input0, __global INPUT_TYPE* input1, __global OUTPUT_TYPE* output,
                          __private const int4 shape//[N,H,W,C4]
                          ) {
     int2 pos = (int2)(get_global_id(0), get_global_id(1));//NC4, HW
     
     if (pos.x < global_dim0 && pos.y < global_dim1) {
         int offset = pos.x * (shape.y*shape.z) + pos.y;
-#ifdef OPENCL_INPUT_INT
-        FLOAT4 in0 = CONVERT_FLOAT4(convert_int4(vload4(offset, input0)));
-        FLOAT4 in1 = CONVERT_FLOAT4(convert_int4(vload4(pos.x % shape.w, input1)));
-        FLOAT4 out = CONVERT_FLOAT4(convert_int4(OPERATOR));
-#else
-        FLOAT4 in0 = vload4(offset, input0);
-        FLOAT4 in1 = vload4(pos.x % shape.w, input1);
-        FLOAT4 out = CONVERT_FLOAT4(OPERATOR);
-#endif
-        vstore4(out, offset, output);
+        float4 in0 = convert_float4(vload4(offset, input0));
+        float4 in1 = convert_float4(vload4(pos.x % shape.w, input1));
+        float4 out = OPERATOR;
+        vstore4(CONVERT_OUTPUT4(out), offset, output);
     }
 }

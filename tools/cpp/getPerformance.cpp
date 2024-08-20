@@ -10,6 +10,8 @@
 #include <chrono>
 #include <cstdint>
 #include <vector>
+#include <thread>
+#include <MNN/AutoTime.hpp>
 #include <stdlib.h>
 #include <MNN/MNNDefine.h>
 #include "core/Macro.h"
@@ -201,10 +203,38 @@ void cpuFLOPSPerformance() {
     MNN_PRINT("CPU float gflops : %f\n", gflops);
 }
 
+static void _testMemcpy() {
+    int size = 1024 * 1024;
+    int loop = 10000;
+    std::vector<std::thread> threads;
+    MNN::Timer _t;
+    for (int i=0; i<2; ++i) {
+        threads.emplace_back(std::thread([size, loop]() {
+            std::vector<int8_t> tmp0(size);
+            std::vector<int8_t> tmp1(size);
+            auto t0 = tmp0.data();
+            auto t1 = tmp1.data();
+            for (int i=0; i<loop; ++i) {
+                ::memcpy(t0, t1, size);
+                auto s = t0;
+                t0 = t1;
+                t1 = s;
+            }
+        }));
+    }
+    for (auto& t : threads) {
+        t.join();
+    }
+    float timeInS = (float)_t.durationInUs() / 1000.0f / 1000.0f;
+    float speed = (float)size * (float)threads.size() / 1024.0f / 1024.0f / 1024.0f * (float)loop / timeInS;
+    MNN_PRINT("Memcpy speed: %f GB / s\n", speed);
+
+}
 int main(int argc, const char* argv[]) {
     MNN_PRINT("Start PERFORMANCE !!! \n");
 
     cpuFLOPSPerformance();
-
+    _testMemcpy();
+    
     return 0;
 }

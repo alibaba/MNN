@@ -15,14 +15,24 @@
 .align 5
 
 asm_function MNNGemmInt8AddBiasScale_16x4_Unit
-
-//struct QuanPostTreatParameters {
-//    const float* scale;
-//    const int32_t* bias;
-//    int32_t maxValue;
-//    int32_t minValue;
-//    int32_t useInt8;
-//};
+/* 
+struct QuanPostTreatParameters {
+    const float* scale;
+    const float* biasFloat;
+    int32_t maxValue;
+    int32_t minValue;
+    int32_t useInt8 = 1; // Save result as int8_t dataType; otherwise float32.
+    float roundValuePos = 0.5f;
+    float roundValueNeg = -0.5f;
+    float* srcKernelSum;
+    float* weightQuanBias;
+    float* fp32minmax;
+    ssize_t blockNum = 1;
+    const int32_t* bias;
+    const float* extraScale = nullptr;
+    const float* extraBias = nullptr;
+};
+*/
 
 //void MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step,
 //                                              size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t real) {
@@ -42,23 +52,25 @@ ldr lr, [r6, #4]
 
 vpush {q4-q7}
 
-// Branch1: input is int8_t, output is float32, DO NOT USE "scale".
-// Branch2: input is int8_t, output is float32. USE "scale", DO NOT USE "minValue" and "maxValue".
-// Branch3: input is int8_t, output is int8_t.  USE "scale", "minValue" and "maxValue".
-
 
 ldr r7, [r6, #16]  // r7: useInt8
-cmp r7, #1
-beq InitBranch3
 
-InitBranch2:
-mov r7, #-0x80       // Branch2 do not use "minValue", so set r7 as a flag to decide the branch.
-b Start
-
-InitBranch3:
-ldr r7, [r6, #8]
-ldr r6, [r6, #12]
-b Start
+ldr r12, [r6, #28] // srcKernelSum
+str r12, [sp, #4]
+ldr r12, [r6, #32] // weightBias
+str r12, [sp, #8]
+ldr r12, [r6, #36] // f32minmax
+str r12, [sp, #12]
+ldr r12, [r6, #8] // int8 max
+str r12, [sp, #16]
+ldr r12, [r6, #12] // int8 min
+str r12, [sp, #20]
+ldr r12, [r6, #40] // blockNum
+mul r12, r12, r3   // src_depth_quad=src_depth_quad*blockNum
+lsl r12, r12, #6   // weight_stride = src_depth_quad*LP*HP
+str r12, [sp, #24]
+ldr r12, [r6, #48] // extraScale
+str r12, [sp, #28]
 
 Start:
 cmp r10, #2
@@ -66,7 +78,7 @@ blt L1LoopDz
 
 L2LoopDz:
     mov r10, r1
-
+    str r2, [sp, #32] // store weight ptr
     subs r12, r3, #1
     // first four output
     vld1.8 {q2}, [r1]!
@@ -143,8 +155,7 @@ L2LoopDz:
     L2LoopSzEnd:
 
     L2Quan:
-    vld1.s32 {q4}, [lr]!
-    vld1.f32 {q5}, [r8]!
+    vld1.f32 {q5}, [r8]! // scale
 
     vpadd.s32 d16, d16, d17
     vpadd.s32 d20, d20, d21
@@ -157,31 +168,85 @@ L2LoopDz:
     vpadd.s32 d30, d30, d31
 
     // q8,q9
-    vdup.32 q2, r6
-    vdup.32 q3, r7
+    
     vpadd.s32 d16, d16, d18
     vpadd.s32 d17, d20, d22
     vpadd.s32 d18, d24, d26
     vpadd.s32 d19, d28, d30
 
-    vaddq.s32 q0, q8, q4
-    vaddq.s32 q1, q9, q4
+    // vaddq.s32 q0, q8, q4 // add bias
+    // vaddq.s32 q1, q9, q4
 
-    vcvt.f32.s32 q0, q0
-    vcvt.f32.s32 q1, q1
+    vcvt.f32.s32 q0, q8
+    vcvt.f32.s32 q1, q9
 
-    vmov.f32 q10, #0.5
-    vmov.f32 q11, #-0.5
-
-    vmulq.f32 q0, q0, q5
+    vmulq.f32 q0, q0, q5 // mul scale
     vmulq.f32 q1, q1, q5
 
-    cmp r7, #-0x80
+    // extra scale if has
+    ldr r6, [sp, #28]
+    cmp r6, #0
+    beq L2_MLA
+    vld1.f32 {d10[0]}, [r6]! // tile0
+    vld1.f32 {d10[1]}, [r6]  // tile1
+    vmulq.f32 q0, q0, d10[0]
+    vmulq.f32 q1, q1, d10[1]
+
+    L2_MLA:
+    ldr r6, [sp, #4] // srcKernelSum
+    vld1.f32 {d12[0]}, [r6]! // tile 0
+    vld1.f32 {d12[1]}, [r6] // tile 1
+    ldr r6, [sp, #8] // weightBias
+    vld1.f32 {q7}, [r6]!
+    str r6, [sp, #8] // update next 4 weightBias
+
+    vmla.f32 q0, q7, d12[0]
+    vmla.f32 q1, q7, d12[1]
+
+    cmp r7, #0
     bne L2QuanUseInt8
+
+    L2_ADD_BIAS:
+    cmp lr, #0
+    beq L2_ADD_DSTV
+    vld1.f32 {q4}, [lr]! // bias
+    vadd.f32 q0, q0, q4  // bias
+    vadd.f32 q1, q1, q4
+    b L2_POST
+
+    L2_ADD_DSTV:
+    vld1.f32 {q4, q5}, [r0]
+    vadd.f32 q0, q0, q4
+    vadd.f32 q1, q1, q5
+
+    L2_POST:
+    ldr r6, [sp, #12] // fp32 minmax
+    cmp r6, #0
+    beq L2_STORE
+    vld1.f32 {d20[0]}, [r6]!
+    vld1.f32 {d22[0]}, [r6]
+    vdup.f32 q10, d20[0]
+    vdup.f32 q11, d22[0]
+    vmax.f32 q0, q0, q10
+    vmax.f32 q1, q1, q10
+    vmin.f32 q0, q0, q11
+    vmin.f32 q1, q1, q11
+
+    L2_STORE:
     vst1.f32 {q0, q1}, [r0], r4
     b L2LoopCheck
 
     L2QuanUseInt8:
+    vld1.f32 {q4}, [lr]! // bias
+    vadd.f32 q0, q0, q4  // bias
+    vadd.f32 q1, q1, q4
+
+    vmov.f32 q10, #0.5
+    vmov.f32 q11, #-0.5
+    ldr r6, [sp, #16]
+    vdup.32 q3, r6 // max
+    ldr r6, [sp, #20]
+    vdup.32 q2, r6 // min
     vcgt.f32 q12, q0, #0
     vcgt.f32 q13, q1, #0
     vbsl.f32 q12, q10, q11
@@ -201,17 +266,20 @@ L2LoopDz:
 
     vqmovn.s16 d6, q2
 
-    vst1.s8 d6, [r0], r4
+    vst1.s8 {d6}, [r0], r4
 L2LoopCheck:
     subs r5, r5, #1
     mov r1, r10
+    ldr r2, [sp, #32] // origin weight ptr
+    ldr r6, [sp, #24] // weight stride
+    add r2, r2, r6    // next oc4 weight ptr
     bne L2LoopDz
 
 b End
 
 L1LoopDz:
     mov r10, r1
-
+    str r2, [sp, #32] // store weight ptr
     subs r12, r3, #1
     // first four output
     vld1.8 {q2}, [r1]!
@@ -259,35 +327,74 @@ L1LoopDz:
 
     L1LoopSzEnd:
     L1Quan:
-    vld1.s32 {q4}, [lr]!
-    vld1.f32 {q5}, [r8]!
+    //vld1.f32 {q4}, [lr]! // bias
+    vld1.f32 {q5}, [r8]! // scale
 
     vpadd.s32 d16, d16, d17
     vpadd.s32 d20, d20, d21
     vpadd.s32 d18, d18, d19
     vpadd.s32 d22, d22, d23
 
-    // q8,q9
-    vdup.32 q2, r6
-    vdup.32 q3, r7
+    // q8
     vpadd.s32 d16, d16, d18
     vpadd.s32 d17, d20, d22
 
-    vaddq.s32 q0, q8, q4
-
-    vcvt.f32.s32 q0, q0
-
-    vmov.f32 q10, #0.5
-    vmov.f32 q11, #-0.5
-
+    // vaddq.s32 q0, q8, q4
+    vcvt.f32.s32 q0, q8
     vmulq.f32 q0, q0, q5
+    // extra scale if has
+    ldr r6, [sp, #28]
+    cmp r6, #0
+    beq L1_MLA
+    vld1.f32 {d10[0]}, [r6] // tile0
+    vmulq.f32 q0, q0, d10[0]
 
-    cmp r7, #-0x80
+    L1_MLA:
+    ldr r6, [sp, #4] // srcKernelSum
+    vld1.f32 {d12[0]}, [r6] // tile 0
+    ldr r6, [sp, #8] // weightBias
+    vld1.f32 {q7}, [r6]!
+    str r6, [sp, #8] // update next 4 weightBias
+    vmla.f32 q0, q7, d12[0]
+    //vadd.f32 q0, q0, q4
+
+    cmp r7, #0
     bne L1QuanUseInt8
+
+    cmp lr, #0
+    beq L1_ADD_DSTV
+    vld1.f32 {q4}, [lr]! // bias
+    vadd.f32 q0, q0, q4
+    b L1_POST
+
+    L1_ADD_DSTV:
+    vld1.f32 {q4}, [r0]
+    vadd.f32 q0, q0, q4
+
+    L1_POST:
+    ldr r6, [sp, #12] // fp32 minmax
+    cmp r6, #0
+    beq L1_STORE
+
+    vld1.f32 {d20[0]}, [r6]!
+    vld1.f32 {d22[0]}, [r6]
+    vdup.f32 q10, d20[0]
+    vdup.f32 q11, d22[0]
+    vmax.f32 q0, q0, q10
+    vmin.f32 q0, q0, q11
+    L1_STORE:
     vst1.f32 {q0}, [r0], r4
     b L1LoopCheck
 
     L1QuanUseInt8:
+    vld1.f32 {q4}, [lr]! // bias
+    vadd.f32 q0, q0, q4
+    vmov.f32 q10, #0.5
+    vmov.f32 q11, #-0.5
+    ldr r6, [sp, #16]
+    vdup.32 q3, r6 // max
+    ldr r6, [sp, #20]
+    vdup.32 q2, r6 // min
     vcgt.f32 q12, q0, #0
     vbsl.f32 q12, q10, q11
     vbsl.f32 q13, q10, q11
@@ -301,10 +408,13 @@ L1LoopDz:
 
     vqmovn.s16 d6, q2
 
-    vst1.s32 d6[0], [r0], r4
+    vst1.s32 {d6[0]}, [r0], r4
 L1LoopCheck:
     subs r5, r5, #1
     mov r1, r10
+    ldr r2, [sp, #32] // origin weight ptr
+    ldr r6, [sp, #24] // weight stride
+    add r2, r2, r6    // next oc4 weight ptr
     bne L1LoopDz
 
 End:

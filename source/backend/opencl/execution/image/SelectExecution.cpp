@@ -14,21 +14,23 @@
 namespace MNN {
 namespace OpenCL {
 
-SelectExecution::SelectExecution(Backend* backend) : Execution(backend) {
+SelectExecution::SelectExecution(const MNN::Op *op, Backend* backend) : CommonExecution(backend, op) {
     // Do nothing
 }
-ErrorCode SelectExecution::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
+ErrorCode SelectExecution::onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
+    mUnits.resize(1);
+    auto &unit = mUnits[0];
     auto inSize1 = inputs[1]->elementSize();
     auto inSize2 = inputs[2]->elementSize();
     auto openCLBackend = static_cast<OpenCLBackend*>(backend());
     auto runtime       = openCLBackend->getOpenCLRuntime();
-    openCLBackend->startRecord(mRecording);
+    std::set<std::string> buildOptions = mBuildOptions;
     if(inSize1 == 1)
-        mBuildOptions.emplace("-DINSIZE1_EUQAL_1");
+        buildOptions.emplace("-DINSIZE1_EUQAL_1");
     if(inSize2 == 1)
-        mBuildOptions.emplace("-DINSIZE2_EUQAL_1");
-    mKernel = runtime->buildKernel("select", "select_img", mBuildOptions);
-    mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mKernel));
+        buildOptions.emplace("-DINSIZE2_EUQAL_1");
+    unit.kernel = runtime->buildKernel("select", "select_img", buildOptions);
+    mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
 
     std::vector<int> outputShape = tensorShapeFormat(outputs[0]);
 
@@ -45,49 +47,19 @@ ErrorCode SelectExecution::onResize(const std::vector<Tensor*>& inputs, const st
 
     uint32_t idx = 0;
     cl_int ret = CL_SUCCESS;
-    ret |= mKernel.setArg(idx++, mGlobalWorkSize[0]);
-    ret |= mKernel.setArg(idx++, mGlobalWorkSize[1]);
-    ret |= mKernel.setArg(idx++, openCLImage(inputs[0]));
-    ret |= mKernel.setArg(idx++, openCLImage(inputs[1]));
-    ret |= mKernel.setArg(idx++, openCLImage(inputs[2]));
-    ret |= mKernel.setArg(idx++, openCLImage(outputs[0]));
+    ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[0]);
+    ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[1]);
+    ret |= unit.kernel->get().setArg(idx++, openCLImage(inputs[0]));
+    ret |= unit.kernel->get().setArg(idx++, openCLImage(inputs[1]));
+    ret |= unit.kernel->get().setArg(idx++, openCLImage(inputs[2]));
+    ret |= unit.kernel->get().setArg(idx++, openCLImage(outputs[0]));
     MNN_CHECK_CL_SUCCESS(ret, "setArg SelectExecution");
 
     std::string kernelName = "select_img";
-    mLocalSize = localWS2DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), kernelName, mKernel).first;
-    openCLBackend->recordKernel2d(mKernel, mGlobalWorkSize, mLocalSize);
-    openCLBackend->endRecord(mRecording);
-    return NO_ERROR;
-}
-
-ErrorCode SelectExecution::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
-#ifdef LOG_VERBOSE
-    MNN_PRINT("start SelectExecution onExecute...");
-#endif
-    auto mOpenCLBackend = static_cast<OpenCLBackend*>(backend());
-    
-#ifdef ENABLE_OPENCL_TIME_PROFILER
-    cl::Event event;
-    runKernel2D(mKernel, mGlobalWorkSize, mLocalSize,
-                       mOpenCLBackend->getOpenCLRuntime(), &event);
-    
-    mOpenCLBackend->getOpenCLRuntime()->pushEvent({"Select", event});
-#else
-    if(mOpenCLBackend->isUseRecordQueue()){
-        if(mOpenCLBackend->isDevideOpRecord())
-            mOpenCLBackend->addRecord(mRecording);
-#ifdef LOG_VERBOSE
-        MNN_PRINT("End SelectExecution onExecute... \n");
-#endif
-        return NO_ERROR;
-    }
-    runKernel2D(mKernel, mGlobalWorkSize, mLocalSize,
-                       mOpenCLBackend->getOpenCLRuntime());
-#endif
-
-#ifdef LOG_VERBOSE
-    MNN_PRINT("end SelectExecution onExecute...");
-#endif
+    mLocalSize = localWS2DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), kernelName, unit.kernel).first;
+    openCLBackend->recordKernel2d(unit.kernel, mGlobalWorkSize, mLocalSize);
+    unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1]};
+    unit.localWorkSize = {mLocalSize[0], mLocalSize[1]};
     return NO_ERROR;
 }
 
@@ -95,7 +67,7 @@ class SelectCreator : public OpenCLBackend::Creator {
 public:
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op, Backend* backend) const override {
-        return new SelectExecution(backend);
+        return new SelectExecution(op, backend);
     }
 };
 

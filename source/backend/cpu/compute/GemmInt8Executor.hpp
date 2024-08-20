@@ -26,13 +26,15 @@ protected:
     int mKernelY;
     std::shared_ptr<Tensor> mInputCol;
     std::vector<float> mScaleData;
+    std::vector<float> mKernelSum;
     std::vector<int32_t> mQuantBias;
-    std::shared_ptr<CPUConvolution::ResourceInt8> mResource;
+    std::shared_ptr<CPUConvolution::ResourceInt8> mResourceInt8;
     ConvolutionCommon::Im2ColParameter mIm2ColParamter;
     CPUConvolution::MutableResourceInt8 mMutableResource;
     decltype(CoreInt8Functions::Int8GemmKernel) mGemmKernel;
     MemChunk mBlitInfo;
     std::pair<size_t, size_t> mBlitInfoStride;
+    std::shared_ptr<CPUConvolution::Resource> mResource;
 };
 } // namespace MNN
 #endif /* DeconvInt8Executor_hpp */

@@ -14,10 +14,12 @@
 #ifdef MNN_AVX512_VNNI
 extern void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit_VNNI(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realDst);
 extern void _AVX512_MNNLineDepthWiseInt8AddBiasScaleUnit_VNNI(int8_t* dstO, const int8_t* srcO, const int8_t* weightO, const QuanPostTreatParameters* parameters, size_t width, size_t src_w_step, size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step, int8_t* idxOrder=nullptr);
+extern void _AVX512_MNNGemmInt8AddBiasScale_16x4_w4_Unit_VNNI(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realDst);
 #endif
 
 // Define in GemmInt8_4_4_64.cpp
 extern void _AVX512_NO_VNNI_4_4_64(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realDst);
+extern void _AVX512_NO_VNNI_4_4_64_w4(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realDst);
 
 // Define in GemmInt8_4_4_64_7bit.cpp
 extern void _AVX512_NO_VNNI_4_4_64_7bit(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realDst);
@@ -123,7 +125,6 @@ static void _AVX512BasicMNNPackC4ForMatMul_A(int8_t* destOrigin, int8_t const** 
             }
         }
     }
-
 }
 
 
@@ -317,17 +318,22 @@ void _AVX512_MNNInt8FunctionInit(void* functions, bool supportVNNI) {
     if (supportVNNI) {
         gAVX2CoreInt8Functions->Int8GemmKernel = _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit_VNNI;
         gAVX2CoreInt8Functions->Int8GemmKernelFast = _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit_VNNI;
+        gAVX2CoreInt8Functions->Int8GemmKernel_W4 = _AVX512_MNNGemmInt8AddBiasScale_16x4_w4_Unit_VNNI;
         // conv depthwise
         gAVX2CoreInt8Functions->ConvDepthwiseLineInt8 = _AVX512_MNNLineDepthWiseInt8AddBiasScaleUnit_VNNI;
         // MatMul
         gAVX2CoreInt8Functions->MNNGetGemmUnit = _AVX512_MNNGetGemmUnit_VNNI;
         // Im2Col
         gAVX2CoreInt8Functions->MNNPackC4Int8ForMatMul_A = _AVX512BasicMNNPackC4ForMatMul_A;
+
+        
+
     } else
 #endif
     {
         gAVX2CoreInt8Functions->Int8GemmKernel = _AVX512_NO_VNNI_4_4_64;
         gAVX2CoreInt8Functions->Int8GemmKernelFast = _AVX512_NO_VNNI_4_4_64_7bit;
+        gAVX2CoreInt8Functions->Int8GemmKernel_W4 = _AVX512_NO_VNNI_4_4_64_w4;
         // conv depthwise
         gAVX2CoreInt8Functions->ConvDepthwiseLineInt8 = _AVX512_MNNLineDepthWiseInt8AddBiasScaleUnit;
         // MatMul

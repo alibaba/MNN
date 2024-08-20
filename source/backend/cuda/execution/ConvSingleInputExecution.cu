@@ -14,6 +14,9 @@
 #ifdef ENABLE_CUDA_QUANT
 #include "int8/ConvInt8CutlassExecution.hpp"
 #endif
+#ifdef MNN_LOW_MEMORY
+#include "weight_only_quant/ConvFpAIntBExecution.hpp"
+#endif
 #include "bf16/ConvCutlassBf16Execution.hpp"
 #include "backend/cuda/core/CUDATools.hpp"
 
@@ -33,6 +36,17 @@ public:
                 }
             }
         }
+
+        #ifdef MNN_LOW_MEMORY
+        auto conv2dParams = op->main_as_Convolution2D();
+        bool isMemoryLowWeightOnlyQuant = (conv2dParams->quanParameter() != nullptr && conv2dParams->quanParameter()->buffer() != nullptr);
+        isMemoryLowWeightOnlyQuant = isMemoryLowWeightOnlyQuant && (static_cast<CUDABackend*>(backend)->getMemoryMode() == BackendConfig::Memory_Low);
+        isMemoryLowWeightOnlyQuant = isMemoryLowWeightOnlyQuant && ConvFpAIntBExecution::isValid(op->main_as_Convolution2D(), backend);
+        if (isMemoryLowWeightOnlyQuant) {
+            std::shared_ptr<ConvFpAIntBExecution::Resource> resource(new ConvFpAIntBExecution::Resource(backend, op));
+            return new ConvFpAIntBExecution(backend, op, resource);
+        }
+        #endif
 
         if (inputs.size() == 2 || inputs.size() == 3) {
             return new MultiInputConvExecution(op, backend);

@@ -5,10 +5,17 @@
 #define FLOAT float
 #endif
 
+#define OUTPUT_TYPE float
+
+#if defined(LESS) || defined(LESSEQUAL) || defined(GREATER) || defined(GREATEREQUAL) || defined(EQUAL) || defined(NOTEQUAL)
+#undef OUTPUT_TYPE
+#define OUTPUT_TYPE int
+#endif
+
 #define FLOAT4 vec4
 layout(std430) buffer;
 layout(set=0, binding=0) writeonly buffer sourceBuffer{
-    FLOAT data[];
+    OUTPUT_TYPE data[];
 } uOutput;
 
 
@@ -37,6 +44,9 @@ FLOAT4 binary(FLOAT4 x0, FLOAT4 x1) {
     FLOAT4 value;
 #ifdef ADD
         value = x0 + x1;
+#endif
+#ifdef ATAN2
+        value = atan(x0, x1);
 #endif
 #ifdef SUB
         value = x0 - x1;
@@ -80,6 +90,12 @@ FLOAT4 binary(FLOAT4 x0, FLOAT4 x1) {
 #ifdef VMOD
         value = mod(x0, x1);
 #endif
+#ifdef FLOORMOD
+        value = x0 - x1 * floor(x0/x1);
+#endif
+#ifdef FLOORDIV
+        value = floor(x0/x1);
+#endif
     return value;
 }
 
@@ -98,6 +114,6 @@ void main()
         int s1 = computeVec4dot(uConstant.srcview1, pos);
         int d = computeVec4dot(uConstant.dstview, pos);
 
-        uOutput.data[d] = binary(FLOAT4(uInput0.data[s0]), FLOAT4(uInput1.data[s1])).x;
+        uOutput.data[d] = OUTPUT_TYPE(binary(FLOAT4(uInput0.data[s0]), FLOAT4(uInput1.data[s1])).x);
     }
 }

@@ -27,6 +27,7 @@ ldr x10, [x3, #16] // h
 
 ldr x13, [x3, #24] // cStride
 ldr x7, [x3, #40] // bExtraStride
+lsr x7, x7, #1
 
 // v0, v1, v2: A
 // v3, v4: B
@@ -218,9 +219,7 @@ LoopH:
     cbz x4, StoreLH8
 
     AddBiasLH8:
-    ld1 {v0.4h, v1.4h}, [x5], #16 // 8 * sizeof(int16_t)
-    shll v0.4s, v0.4h, #16
-    shll v1.4s, v1.4h, #16
+    ld1 {v0.4s, v1.4s}, [x5], #32 // 8 * sizeof(int16_t)
 
     fmla v8.4s, v0.4s, v5.s[1]
     fmla v9.4s, v0.4s, v5.s[1]
@@ -305,44 +304,19 @@ LoopH:
 
     StoreLH8:
 
-    shrn v8.4h, v8.4s, #16
-    shrn v9.4h, v9.4s, #16
-    shrn v10.4h, v10.4s, #16
-    shrn v11.4h, v11.4s, #16
-    shrn v12.4h, v12.4s, #16
-    shrn v13.4h, v13.4s, #16
-    shrn v14.4h, v14.4s, #16
-    shrn v15.4h, v15.4s, #16
-    shrn v16.4h, v16.4s, #16
-    shrn v17.4h, v17.4s, #16
-    shrn v18.4h, v18.4s, #16
-    shrn v19.4h, v19.4s, #16
-    shrn v20.4h, v20.4s, #16
-    shrn v21.4h, v21.4s, #16
-    shrn v22.4h, v22.4s, #16
-    shrn v23.4h, v23.4s, #16
-    shrn v24.4h, v24.4s, #16
-    shrn v25.4h, v25.4s, #16
-    shrn v26.4h, v26.4s, #16
-    shrn v27.4h, v27.4s, #16
-    shrn v28.4h, v28.4s, #16
-    shrn v29.4h, v29.4s, #16
-    shrn v30.4h, v30.4s, #16
-    shrn v31.4h, v31.4s, #16
-
-    stp d8, d9, [x0]
-    stp d10, d11, [x0, #(16 * 1)] // 2 * 4 * sizeof(int16_t)
-    stp d12, d13, [x0, #(16 * 2)]
-    stp d14, d15, [x0, #(16 * 3)]
-    stp d16, d17, [x0, #(16 * 4)]
-    stp d18, d19, [x0, #(16 * 5)]
+    stp q8,  q9, [x0]
+    stp q10, q11, [x0, #(32 * 1)] // 2 * 4 * sizeof(int16_t)
+    stp q12, q13, [x0, #(32 * 2)]
+    stp q14, q15, [x0, #(32 * 3)]
+    stp q16, q17, [x0, #(32 * 4)]
+    stp q18, q19, [x0, #(32 * 5)]
     add x0, x0, x13 // stp donot support post-index offset in register
-    stp d20, d21, [x0]
-    stp d22, d23, [x0, #(16 * 1)]
-    stp d24, d25, [x0, #(16 * 2)]
-    stp d26, d27, [x0, #(16 * 3)]
-    stp d28, d29, [x0, #(16 * 4)]
-    stp d30, d31, [x0, #(16 * 5)]
+    stp q20, q21, [x0]
+    stp q22, q23, [x0, #(32 * 1)]
+    stp q24, q25, [x0, #(32 * 2)]
+    stp q26, q27, [x0, #(32 * 3)]
+    stp q28, q29, [x0, #(32 * 4)]
+    stp q30, q31, [x0, #(32 * 5)]
     add x0, x0, x13
 
     // st1 {v8.4h, v9.4h, v10.4h, v11.4h}, [x0], #32 // 16 * sizeof(int16_t)
@@ -415,8 +389,7 @@ LoopHRemain:
 
     cbz x4, StoreLH4
     AddBiasLH4:
-    ld1 {v0.4h}, [x5], #8
-    shll v0.4s, v0.4h, #16
+    ld1 {v0.4s}, [x5], #16
 
     fmla v8.4s, v0.4s, v5.s[1]
     fmla v9.4s, v0.4s, v5.s[1]
@@ -462,29 +435,9 @@ LoopHRemain:
 
     StoreLH4:
 
-    shrn v8.4h, v8.4s, #16
-    shrn v9.4h, v9.4s, #16
-    shrn v10.4h, v10.4s, #16
-    shrn v11.4h, v11.4s, #16
-    shrn v12.4h, v12.4s, #16
-    shrn v13.4h, v13.4s, #16
-    shrn v14.4h, v14.4s, #16
-    shrn v15.4h, v15.4s, #16
-    shrn v16.4h, v16.4s, #16
-    shrn v17.4h, v17.4s, #16
-    shrn v18.4h, v18.4s, #16
-    shrn v19.4h, v19.4s, #16
-
-    stp d8,  d9,  [x0]
-    stp d10, d11, [x0, #(16 * 1)]
-    stp d12, d13, [x0, #(16 * 2)]
-    stp d14, d15, [x0, #(16 * 3)]
-    stp d16, d17, [x0, #(16 * 4)]
-    stp d18, d19, [x0, #(16 * 5)]
-
-    // st1 {v8.4h, v9.4h, v10.4h, v11.4h}, [x0], #32
-    // st1 {v12.4h, v13.4h, v14.4h, v15.4h}, [x0], #32
-    // st1 {v16.4h, v17.4h, v18.4h, v19.4h}, [x0]
+    st1 {v8.4s, v9.4s, v10.4s, v11.4s}, [x0], #64
+    st1 {v12.4s, v13.4s, v14.4s, v15.4s}, [x0], #64
+    st1 {v16.4s, v17.4s, v18.4s, v19.4s}, [x0]
 
     sub x10, x10, #1
 

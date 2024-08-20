@@ -24,12 +24,13 @@ public:
 
 private:
     int mOutside;
-    std::vector<int> mAxis;
+    int mAxisSize;
     int mInside;
     int mGroup = 1;
     float mEps;
     
     bool has_gamma_beta_ = false;
+    bool RMSNorm = false;
     id<MTLBuffer> mGammaBuffer = nil;
     id<MTLBuffer> mBetaBuffer = nil;
     id<MTLBuffer> mShapeBuffer;

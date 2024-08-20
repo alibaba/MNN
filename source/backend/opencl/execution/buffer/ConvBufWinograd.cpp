@@ -9,10 +9,8 @@
 #ifndef MNN_OPENCL_BUFFER_CLOSED
 
 #include "backend/opencl/execution/buffer/ConvBufWinograd.hpp"
-#include "core/Backend.hpp"
 #include "core/ConvolutionCommon.hpp"
 #include "math/WingoradGenerater.hpp"
-#include "backend/opencl/core/OpenCLRunningUtils.hpp"
 
 #define UNIT 2
 #define INTERP 1
@@ -31,35 +29,68 @@ bool ConvBufWinograd::valid(const Convolution2DCommon* common, const Tensor* inp
     if (isIntel) {
         return input->width() * input->height() <= 4096;
     }
-    if (output->channel() > 512) {
-        return false;
+
+    bool valid = input->channel() >= 32 && output->channel() >= 32 && input->width() < output->channel();
+    valid = valid || (input->channel() >= 64 && output->channel() >= 64);
+    return valid;
+}
+    
+void ConvBufWinograd::convertWeightFormat(cl::Buffer& buffer, const int tileK, const int tileN) {
+    auto runtime = mOpenCLBackend->getOpenCLRuntime();
+    
+    auto icPad  = ROUND_UP(mCi, tileK);
+    auto ocPad  = ROUND_UP(mCo, tileN);
+    
+    auto kernel = runtime->buildKernel("winogradTransform_buf", "winoTransWeightBuf2_3_1", {});
+    uint32_t gws[2] = {static_cast<uint32_t>(icPad), static_cast<uint32_t>(ocPad)};
+    uint32_t idx = 0;
+    cl_int ret = CL_SUCCESS;
+    ret |= kernel->get().setArg(idx++, gws[0]);
+    ret |= kernel->get().setArg(idx++, gws[1]);
+    ret |= kernel->get().setArg(idx++, buffer);
+    ret |= kernel->get().setArg(idx++, openCLBuffer(mResource->mWeight.get()));
+    ret |= kernel->get().setArg(idx++, mCi);
+    ret |= kernel->get().setArg(idx++, mCo);
+    ret |= kernel->get().setArg(idx++, icPad);
+    ret |= kernel->get().setArg(idx++, ocPad);
+
+    MNN_CHECK_CL_SUCCESS(ret, "setArg conv-winograd convertWeightFormat");
+    const std::vector<uint32_t> lws = {8, 8};
+    cl::Event event;
+    cl_int res;
+    std::vector<uint32_t> roundUpGroupWorkSize(lws.size());
+    for (size_t i = 0; i < lws.size(); ++i) {
+        roundUpGroupWorkSize[i] = ROUND_UP(gws[i], lws[i]);
     }
-    const int input_channel_limit = output->channel() <= 64 ? 1024 : 512;
-    if(input->channel() < 32 || input->channel() > input_channel_limit){
-        return false;
-    }
-    return (input->width() <= 32 && input->height() <= 32);
+    res = runtime->commandQueue().enqueueNDRangeKernel(kernel->get(), cl::NullRange,
+                                                         cl::NDRange(roundUpGroupWorkSize[0], roundUpGroupWorkSize[1]),
+                                                         cl::NDRange(lws[0], lws[1]), nullptr, &event);
+    MNN_CHECK_CL_SUCCESS(res, "conv-winograd convertWeightFormat");
+    //event.wait();
+    return;
 }
 
-ConvBufWinograd::ConvBufWinograd(const MNN::Convolution2D* op, Backend* backend) : Execution(backend) {
+ConvBufWinograd::ConvBufWinograd(const MNN::Op* op, Backend* backend) : CommonExecution(backend, op) {
+    mResource.reset(new ConvBufWinoResource);
     mOpenCLBackend = static_cast<OpenCLBackend*>(backend);
-    mCommon        = op->common();
-    MNN_ASSERT((3 == mCommon->kernelY() && 3 == mCommon->kernelX()));
-    MNN_ASSERT(1 == mCommon->strideX() && 1 == mCommon->strideY());
-    MNN_ASSERT(1 == mCommon->dilateX() && 1 == mCommon->dilateY());
+    auto conv2D  = op->main_as_Convolution2D();
+    mResource->mCommon  = conv2D->common();
+    MNN_ASSERT((3 == mResource->mCommon->kernelY() && 3 == mResource->mCommon->kernelX()));
+    MNN_ASSERT(1 == mResource->mCommon->strideX() && 1 == mResource->mCommon->strideY());
+    MNN_ASSERT(1 == mResource->mCommon->dilateX() && 1 == mResource->mCommon->dilateY());
     auto runTime = mOpenCLBackend->getOpenCLRuntime();
-    int ky       = mCommon->kernelY();
-    int kx       = mCommon->kernelX();
+    int ky       = mResource->mCommon->kernelY();
+    int kx       = mResource->mCommon->kernelX();
 
     int weightSize             = 0;
     const float* filterDataPtr = nullptr;
     std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
-    ConvolutionCommon::getConvParameters(&quanCommon, backend, op, &filterDataPtr, &weightSize);
+    ConvolutionCommon::getConvParameters(&quanCommon, backend, conv2D, &filterDataPtr, &weightSize);
 
-    int oc     = mCommon->outputCount();
-    int ic     = weightSize / oc / mCommon->kernelX() / mCommon->kernelY();
-    auto ocC4  = UP_DIV(oc, 4);
-    auto icC4  = UP_DIV(ic, 4);
+    mCo     = mResource->mCommon->outputCount();
+    mCi     = weightSize / mCo / mResource->mCommon->kernelX() / mResource->mCommon->kernelY();
+    auto ocC4  = UP_DIV(mCo, 4);
+    auto icC4  = UP_DIV(mCi, 4);
     auto queue = runTime->commandQueue();
 
     auto imageChannelType = CL_HALF_FLOAT;
@@ -68,11 +99,11 @@ ConvBufWinograd::ConvBufWinograd(const MNN::Convolution2D* op, Backend* backend)
     }
     // Create Buffer Object
 #ifdef MNN_SUPPORT_INTEL_SUBGROUP
-    mUseSubgroup = runTime->isSupportedIntelSubgroup();
-    if (mUseSubgroup) {
+    mResource->mUseSubgroup = runTime->isSupportedIntelSubgroup();
+    if (mResource->mUseSubgroup) {
         // create buffer for intel subgroup
         cl_int ret_code;
-        size_t bias_element = ALIGN_UP4(oc);
+        size_t bias_element = ALIGN_UP4(mCo);
         size_t buffer_size;
         if(mOpenCLBackend->getOpenCLRuntime()->isSupportedFP16()) {
             buffer_size = bias_element * sizeof(half_float::half);
@@ -80,9 +111,9 @@ ConvBufWinograd::ConvBufWinograd(const MNN::Convolution2D* op, Backend* backend)
             buffer_size = bias_element * sizeof(float);
         }
         
-        mBias.reset(Tensor::createDevice<float>({1, 1, 1, (int)ALIGN_UP4(oc)}));
-        mOpenCLBackend->onAcquireBuffer(mBias.get(), Backend::STATIC);
-        cl::Buffer &bias_buffer = *(cl::Buffer *)mBias->buffer().device;
+        mResource->mBias.reset(Tensor::createDevice<float>({1, 1, 1, (int)ALIGN_UP4(mCo)}));
+        mOpenCLBackend->onAcquireBuffer(mResource->mBias.get(), Backend::STATIC);
+        cl::Buffer &bias_buffer = *(cl::Buffer *)mResource->mBias->buffer().device;
 
         auto bias_ptr = queue.enqueueMapBuffer(bias_buffer, CL_TRUE, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &ret_code);
         if(bias_ptr == nullptr || ret_code) {
@@ -90,19 +121,19 @@ ConvBufWinograd::ConvBufWinograd(const MNN::Convolution2D* op, Backend* backend)
         }
         ::memset(bias_ptr, 0, buffer_size);
         if(mOpenCLBackend->getOpenCLRuntime()->isSupportedFP16()) {
-            for(int i=0; i<oc; i++) {
-                ((half_float::half *)bias_ptr)[i] = (half_float::half)op->bias()->data()[i];
+            for(int i=0; i<mCo; i++) {
+                ((half_float::half *)bias_ptr)[i] = (half_float::half)conv2D->bias()->data()[i];
             }
         } else {
-            ::memcpy(bias_ptr, op->bias()->data(), oc*sizeof(float));
+            ::memcpy(bias_ptr, conv2D->bias()->data(), mCo*sizeof(float));
         }
         queue.enqueueUnmapMemObject(bias_buffer, bias_ptr);
 
 
-        auto ocC16 = UP_DIV(oc, 16);
-        auto icC16 = UP_DIV(ic, 16);
+        auto ocC16 = UP_DIV(mCo, 16);
+        auto icC16 = UP_DIV(mCi, 16);
         std::shared_ptr<Tensor> sourceWeight(
-            Tensor::create<float>(std::vector<int>{oc, ic, ky, kx}, (void*)(filterDataPtr), Tensor::CAFFE));
+            Tensor::create<float>(std::vector<int>{mCo, mCi, ky, kx}, (void*)(filterDataPtr), Tensor::CAFFE));
 
         int unit       = UNIT;
         int kernelSize = kx;
@@ -119,10 +150,10 @@ ConvBufWinograd::ConvBufWinograd(const MNN::Convolution2D* op, Backend* backend)
             buffer_size *= sizeof(float);
         }
 
-        mWeight.reset(Tensor::createDevice<float>({alpha * alpha, ocC16, icC16, 16 * 16}, Tensor::CAFFE_C4)); // NHWC
-        mOpenCLBackend->onAcquireBuffer(mWeight.get(), Backend::STATIC);
+        mResource->mWeight.reset(Tensor::createDevice<float>({alpha * alpha, ocC16, icC16, 16 * 16}, Tensor::CAFFE_C4)); // NHWC
+        mOpenCLBackend->onAcquireBuffer(mResource->mWeight.get(), Backend::STATIC);
 
-        cl::Buffer& weightBuffer = *(cl::Buffer*)mWeight->buffer().device;
+        cl::Buffer& weightBuffer = *(cl::Buffer*)mResource->mWeight->buffer().device;
 
         auto weight_ptr =
             queue.enqueueMapBuffer(weightBuffer, CL_TRUE, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &ret_code);
@@ -142,8 +173,9 @@ ConvBufWinograd::ConvBufWinograd(const MNN::Convolution2D* op, Backend* backend)
     }else
 #endif /* MNN_SUPPORT_INTEL_SUBGROUP */    
     {
+
         cl_int ret_code;
-        size_t bias_element = ALIGN_UP4(oc);
+        size_t bias_element = ALIGN_UP4(mCo);
         size_t buffer_size;
         if(mOpenCLBackend->getOpenCLRuntime()->isSupportedFP16()) {
             buffer_size = bias_element * sizeof(half_float::half);
@@ -151,260 +183,288 @@ ConvBufWinograd::ConvBufWinograd(const MNN::Convolution2D* op, Backend* backend)
             buffer_size = bias_element * sizeof(float);
         }
         
-        mBias.reset(Tensor::createDevice<float>({1, 1, 1, (int)ALIGN_UP4(oc)}));
-        mOpenCLBackend->onAcquireBuffer(mBias.get(), Backend::STATIC);
-        cl::Buffer &bias_buffer = *(cl::Buffer *)mBias->buffer().device;
-
+        mResource->mBias.reset(Tensor::createDevice<float>({1, 1, 1, (int)ALIGN_UP4(mCo)}));
+        mOpenCLBackend->onAcquireBuffer(mResource->mBias.get(), Backend::STATIC);
+        cl::Buffer &bias_buffer = *(cl::Buffer *)mResource->mBias->buffer().device;
+        
         auto bias_ptr = queue.enqueueMapBuffer(bias_buffer, CL_TRUE, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &ret_code);
         if(bias_ptr == nullptr || ret_code) {
             MNN_ERROR("clBuffer map error!\n");
         }
         ::memset(bias_ptr, 0, buffer_size);
         if(mOpenCLBackend->getOpenCLRuntime()->isSupportedFP16()) {
-            for(int i=0; i<oc; i++) {
-                ((half_float::half *)bias_ptr)[i] = (half_float::half)op->bias()->data()[i];
+            for(int i=0; i<mCo; i++) {
+                ((half_float::half *)bias_ptr)[i] = (half_float::half)conv2D->bias()->data()[i];
             }
         } else {
-            ::memcpy(bias_ptr, op->bias()->data(), oc*sizeof(float));
+            ::memcpy(bias_ptr, conv2D->bias()->data(), mCo*sizeof(float));
         }
         queue.enqueueUnmapMemObject(bias_buffer, bias_ptr);
         
-
-        std::shared_ptr<Tensor> sourceWeight(
-            Tensor::create<float>(std::vector<int>{oc, ic, ky, kx}, (void*)(filterDataPtr), Tensor::CAFFE));
-
         int unit       = UNIT;
         int kernelSize = kx;
-        Math::WinogradGenerater generator(unit, kernelSize, INTERP);
         int alpha       = unit + kernelSize - 1;
-        auto weightDest = generator.allocTransformWeight(sourceWeight.get());
-        generator.transformWeight(weightDest.get(), sourceWeight.get());
-        auto weightDestSize = weightDest->size();
         
-        buffer_size = weightDest->elementSize();
-        if(mOpenCLBackend->getOpenCLRuntime()->isSupportedFP16()) {
-            buffer_size *= sizeof(half_float::half);
-        } else {
-            buffer_size *= sizeof(float);
-        }
-        
-        mWeight.reset(Tensor::createDevice<float>({1, ocC4 * alpha * alpha, icC4 * 4, 4}));//NHWC
-        mOpenCLBackend->onAcquireBuffer(mWeight.get(), Backend::STATIC);
-        
-        cl::Buffer &weightBuffer = *(cl::Buffer *)mWeight->buffer().device;
+        int tileK = 4;
+        int tileN = 32;
 
-        auto weight_ptr = queue.enqueueMapBuffer(weightBuffer, CL_TRUE, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &ret_code);
-        if(weight_ptr != nullptr && ret_code == CL_SUCCESS){
-            if(mOpenCLBackend->getOpenCLRuntime()->isSupportedFP16()){
-                for(int i=0; i<weightDest->elementSize(); i++) {
-                    ((half_float::half*)weight_ptr)[i] = (half_float::half)(weightDest->host<float>()[i]);
-                }
-            }else{
-                ::memcpy(weight_ptr, weightDest->host<float>(), buffer_size);
-            }
-        } else{
-            MNN_ERROR("Map error weightPtr == nullptr \n");
-        }
+        std::shared_ptr<Tensor> tmpFilterTensor;
+        tmpFilterTensor.reset(Tensor::createDevice<int32_t>({mCo * mCi * ky * kx}));
+        mOpenCLBackend->onAcquireBuffer(tmpFilterTensor.get(), Backend::DYNAMIC);
+        mOpenCLBackend->onReleaseBuffer(tmpFilterTensor.get(), Backend::DYNAMIC);
 
-        queue.enqueueUnmapMemObject(weightBuffer, weight_ptr);
+        mResource->mWeight.reset(Tensor::createDevice<float>({alpha * alpha * ROUND_UP(mCo, tileN) * ROUND_UP(mCi, tileK)}));//NHWC
+        mOpenCLBackend->onAcquireBuffer(mResource->mWeight.get(), Backend::STATIC);
         
+        buffer_size = mCo * mCi * ky * kx * sizeof(float);
+        cl::Buffer& weightBufferCL = openCLBuffer(tmpFilterTensor.get());
+        
+        cl_int res;
+        auto ptrCL = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(weightBufferCL, true, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &res);
+        if(ptrCL != nullptr && res == CL_SUCCESS) {
+            ::memcpy(ptrCL, filterDataPtr, buffer_size);
+        }else{
+            MNN_ERROR("Map weightBufferCL error:%d, ptrCL == nullptr \n", res);
+        }
+        mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(weightBufferCL, ptrCL);
+        
+        convertWeightFormat(weightBufferCL, tileK, tileN);
     }
 }
 
 ConvBufWinograd::~ConvBufWinograd() {
-    mOpenCLBackend->onReleaseBuffer(mWeight.get(), Backend::STATIC);
-    mOpenCLBackend->onReleaseBuffer(mBias.get(), Backend::STATIC);
+    // Do nothing
 }
 
-ErrorCode ConvBufWinograd::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
+ConvBufWinograd::ConvBufWinograd(std::shared_ptr<ConvBufWinoResource> resource, const MNN::Op* op, Backend *backend) : CommonExecution(backend, op) {
+    mResource = resource;
+    mOpenCLBackend = static_cast<OpenCLBackend*>(backend);
+    auto conv2D  = op->main_as_Convolution2D();
+    mResource->mCommon = conv2D->common();
+}
+
+bool ConvBufWinograd::onClone(Backend* bn, const Op* op, Execution** dst) {
+    if (!mValid) {
+        return false;
+    }
+    if (nullptr == dst) {
+        return true;
+    }
+    *dst = new ConvBufWinograd(mResource, op, bn);
+    return true;
+}
+#ifdef MNN_SUPPORT_INTEL_SUBGROUP
+ErrorCode ConvBufWinograd::SubgroupOnResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs){
     auto input  = inputs[0];
     auto output = outputs[0];
-    mKernelX    = mCommon->kernelX();
-    mKernelY    = mCommon->kernelY();
-    mStrideX    = mCommon->strideX();
-    mStrideY    = mCommon->strideY();
+    int alpha  = mKernelX + UNIT - 1;
+    auto wUnit = UP_DIV(output->width(), UNIT);
+    auto hUnit = UP_DIV(output->height(), UNIT);
+    auto pad = ConvolutionCommon::convolutionPad(input, output, mResource->mCommon);
+    int padY = pad.second;
+    int padX = pad.first;
+    uint32_t total_num = input->batch();
+    auto runTime = mOpenCLBackend->getOpenCLRuntime();
+    std::string info = std::to_string(input->channel()) + "_" + std::to_string(output->channel());
+    mSource.reset(Tensor::createDevice<float>(std::vector<int>{alpha * alpha, UP_DIV(input->channel(), 16), ROUND_UP(wUnit * hUnit, 8), 16}, Tensor::CAFFE_C4));
+    mDest.reset(Tensor::createDevice<float>(std::vector<int>{alpha * alpha, UP_DIV(output->channel(), 16), ROUND_UP(wUnit * hUnit, 8), 16}, Tensor::CAFFE_C4));
+    
+    mOpenCLBackend->onAcquireBuffer(mSource.get(), Backend::DYNAMIC);
+    mOpenCLBackend->onAcquireBuffer(mDest.get(), Backend::DYNAMIC);
+    mOpenCLBackend->onReleaseBuffer(mSource.get(), Backend::DYNAMIC);
+    mOpenCLBackend->onReleaseBuffer(mDest.get(), Backend::DYNAMIC);
+    
+    auto icC4  = UP_DIV(input->channel(), 4);
+    auto icC16 = UP_DIV(input->channel(), 16);
+    auto ocC4  = UP_DIV(output->channel(), 4);
+    auto ocC16     = UP_DIV(output->channel(), 16);
+    auto inputpad  = TensorUtils::getDescribe(input)->mPads;
+    auto outputpad = TensorUtils::getDescribe(output)->mPads;
+    int in_c_pack  = TensorUtils::getTensorChannelPack(input);
+    int out_c_pack = TensorUtils::getTensorChannelPack(output);
+    
+    std::set<std::string> basic;
+    std::string srcTranseKernelname = "_c16_c16";
+    std::string dstTranseKernelname = "_c16_c16";
+    if (in_c_pack == 4) {
+        srcTranseKernelname = "_c4_c16";
+    }
+    if (out_c_pack == 4) {
+        dstTranseKernelname = "_c16_c4";
+    }
+    /*Create Kernel*/
+    for (int i = 0; i < total_num; i++) {
+        char format[20];
+        ::memset(format, 0, sizeof(format));
+        sprintf(format, "%d_%d_%d", UNIT, mKernelX, INTERP);
+        auto formatStr = std::string(format);
+        mUnits[i * 3].kernel = runTime->buildKernel("winogradTransform_subgroup_buf", "winoTransSrcBuf" + formatStr + srcTranseKernelname, basic);
+        mMaxWGS_S[i] = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(mUnits[i * 3].kernel));
+        {
+            std::set<std::string> buildOptions = basic;
+            if (mResource->mCommon->relu()) {
+                buildOptions.emplace("-DRELU");
+            }
+            if (mResource->mCommon->relu6()) {
+                buildOptions.emplace("-DRELU6");
+            }
+            if (output->width() % 2 != 0) {
+                buildOptions.emplace("-DOUTPUT_LEFTOVERS");
+            }
+            mUnits[i * 3 + 2].kernel = runTime->buildKernel("winogradTransform_subgroup_buf", "winoTransDstBuf" + formatStr + dstTranseKernelname, buildOptions);
+            mMaxWGS_D[i] = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(mUnits[i * 3 + 2].kernel));
+        }
+    }
+    
+    for (int b = 0; b < input->batch(); ++b) {
+        int hCount = hUnit;
+        int wCount = wUnit;
+        int width_pack = ROUND_UP(hCount * wCount, 8);
+        
+        // Source Transform
+        {
+            mGWS_S[b] = {static_cast<uint32_t>(wCount * hCount), static_cast<uint32_t>(input->channel())};
+            int index = 0;
+            cl_int ret = CL_SUCCESS;
+            ret |= mUnits[b * 3].kernel->get().setArg(index++, mGWS_S[b][0]);
+            ret |= mUnits[b * 3].kernel->get().setArg(index++, mGWS_S[b][1]);
+            ret |= mUnits[b * 3].kernel->get().setArg(index++, openCLBuffer(input));
+            ret |= mUnits[b * 3].kernel->get().setArg(index++, openCLBuffer(mSource.get()));
+            ret |= mUnits[b * 3].kernel->get().setArg(index++, wCount);
+            ret |= mUnits[b * 3].kernel->get().setArg(index++, hCount);
+            ret |= mUnits[b * 3].kernel->get().setArg(index++, padX);
+            ret |= mUnits[b * 3].kernel->get().setArg(index++, padY);
+            ret |= mUnits[b * 3].kernel->get().setArg(index++, input->width());
+            ret |= mUnits[b * 3].kernel->get().setArg(index++, input->height());
+            ret |= mUnits[b * 3].kernel->get().setArg(index++, icC4);
+            ret |= mUnits[b * 3].kernel->get().setArg(index++, icC16);
+            ret |= mUnits[b * 3].kernel->get().setArg(index++, width_pack);
+            ret |= mUnits[b * 3].kernel->get().setArg(index++, b);
+            ret |= mUnits[b * 3].kernel->get().setArg(index++, static_cast<uint32_t>(inputpad.left));
+            ret |= mUnits[b * 3].kernel->get().setArg(index++, static_cast<uint32_t>(inputpad.right));
+            MNN_CHECK_CL_SUCCESS(ret, "setArg ConvWinogradBuf Source Trans");
+            
+            if (in_c_pack == 4) {
+                mGWS_S[b] = {static_cast<uint32_t>(wCount * hCount), static_cast<uint32_t>(ROUND_UP(input->channel(), 16) / 4)};
+                std::string kernelName = srcTranseKernelname + "_" + std::to_string(mGWS_S[b][0]) + "_" + std::to_string(mGWS_S[b][1]);
+                mLWS_S[b] = localWS2DDefault(mGWS_S[b], mMaxWGS_S[b], mOpenCLBackend->getOpenCLRuntime(), kernelName + info, mUnits[b * 3].kernel).first;
+            } else {
+                mLWS_S[b] = {1, 16};
+            }
+            mOpenCLBackend->recordKernel2d(mUnits[b * 3].kernel, mGWS_S[b], mLWS_S[b]);
+            mUnits[b * 3].globalWorkSize = {mGWS_S[b][0], mGWS_S[b][1]};
+            mUnits[b * 3].localWorkSize = {mLWS_S[b][0], mLWS_S[b][1]};
+        }
+        
+        // MatMul
+        {
+            auto gemmHeight = ocC4;
+            auto gemmWidth  = wCount * hCount;
+            
+            mGWS_M[b] = {static_cast<uint32_t>(UP_DIV(gemmWidth, 8)), static_cast<uint32_t>(ROUND_UP(output->channel(), 16)), static_cast<uint32_t>(alpha * alpha)};
+            mLWS_M[b] = {1, 16, 1};
+            std::set<std::string> buildOptions = basic;
+            mUnits[b * 3 + 1].kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("winogradTransform_subgroup_buf", "gemm_buf_intel", buildOptions);
+            
+            int index = 0;
+            cl_int ret = CL_SUCCESS;
+            ret |= mUnits[b * 3 + 1].kernel->get().setArg(index++, openCLBuffer(mSource.get()));
+            ret |= mUnits[b * 3 + 1].kernel->get().setArg(index++, openCLBuffer(mResource->mWeight.get()));
+            ret |= mUnits[b * 3 + 1].kernel->get().setArg(index++, openCLBuffer(mDest.get()));
+            ret |= mUnits[b * 3 + 1].kernel->get().setArg(index++, width_pack);
+            ret |= mUnits[b * 3 + 1].kernel->get().setArg(index++, ocC16);
+            ret |= mUnits[b * 3 + 1].kernel->get().setArg(index++, icC16);
+            ret |= mUnits[b * 3 + 1].kernel->get().setArg(index++, alpha * alpha);
+            MNN_CHECK_CL_SUCCESS(ret, "setArg ConvWinogradBuf MatMul");
+            mOpenCLBackend->recordKernel3d(mUnits[b * 3 + 1].kernel, mGWS_M[b], mLWS_M[b]);
+            mUnits[b * 3 + 1].globalWorkSize = {mGWS_M[b][0], mGWS_M[b][1], mGWS_M[b][2]};
+            mUnits[b * 3 + 1].localWorkSize = {mLWS_M[b][0], mLWS_M[b][1], mLWS_M[b][2]};
+        }
+        
+        // Dest Transform
+        {
+            mGWS_D[b] = {static_cast<uint32_t>(wCount * hCount), static_cast<uint32_t>(output->channel())};
+            
+            int index = 0;
+            cl_int ret = CL_SUCCESS;
+            ret |= mUnits[b * 3 + 2].kernel->get().setArg(index++, mGWS_D[b][0]);
+            ret |= mUnits[b * 3 + 2].kernel->get().setArg(index++, mGWS_D[b][1]);
+            ret |= mUnits[b * 3 + 2].kernel->get().setArg(index++, openCLBuffer(mDest.get()));
+            ret |= mUnits[b * 3 + 2].kernel->get().setArg(index++, openCLBuffer(mResource->mBias.get()));
+            ret |= mUnits[b * 3 + 2].kernel->get().setArg(index++, openCLBuffer(output));
+            ret |= mUnits[b * 3 + 2].kernel->get().setArg(index++, wCount);
+            ret |= mUnits[b * 3 + 2].kernel->get().setArg(index++, hCount);
+            ret |= mUnits[b * 3 + 2].kernel->get().setArg(index++, output->width());
+            ret |= mUnits[b * 3 + 2].kernel->get().setArg(index++, output->height());
+            ret |= mUnits[b * 3 + 2].kernel->get().setArg(index++, ocC4);
+            ret |= mUnits[b * 3 + 2].kernel->get().setArg(index++, ocC16);
+            ret |= mUnits[b * 3 + 2].kernel->get().setArg(index++, width_pack);
+            ret |= mUnits[b * 3 + 2].kernel->get().setArg(index++, b);
+            ret |= mUnits[b * 3 + 2].kernel->get().setArg(index++, static_cast<uint32_t>(outputpad.left));
+            ret |= mUnits[b * 3 + 2].kernel->get().setArg(index++, static_cast<uint32_t>(outputpad.right));
+            MNN_CHECK_CL_SUCCESS(ret, "setArg ConvWinogradBuf Dest Trans");
+            
+            if (out_c_pack == 4) {
+                mGWS_D[b] = {static_cast<uint32_t>(wCount * hCount), static_cast<uint32_t>(ocC4)};
+                std::string kernelName = dstTranseKernelname + "_" + std::to_string(mGWS_D[b][0]) + "_" + std::to_string(mGWS_D[b][1]);
+                mLWS_D[b] = localWS2DDefault(mGWS_D[b], mMaxWGS_D[b], mOpenCLBackend->getOpenCLRuntime(), kernelName + info, mUnits[b * 3 + 2].kernel).first;
+            } else {
+                mLWS_D[b] = {1, 16};
+            }
+            mOpenCLBackend->recordKernel2d(mUnits[b * 3 + 2].kernel, mGWS_D[b], mLWS_D[b]);
+            mUnits[b * 3 + 2].globalWorkSize = {mGWS_D[b][0], mGWS_D[b][1]};
+            mUnits[b * 3 + 2].localWorkSize = {mLWS_D[b][0], mLWS_D[b][1]};
+        }
+    }
+    return NO_ERROR;
+}
+#endif /* MNN_SUPPORT_INTEL_SUBGROUP */
+
+ErrorCode ConvBufWinograd::onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
+    auto input  = inputs[0];
+    auto output = outputs[0];
+    mKernelX    = mResource->mCommon->kernelX();
+    mKernelY    = mResource->mCommon->kernelY();
+    mStrideX    = mResource->mCommon->strideX();
+    mStrideY    = mResource->mCommon->strideY();
     
     int alpha  = mKernelX + UNIT - 1;
     auto wUnit = UP_DIV(output->width(), UNIT);
     auto hUnit = UP_DIV(output->height(), UNIT);
     
-    auto pad = ConvolutionCommon::convolutionPad(input, output, mCommon);
+    auto pad = ConvolutionCommon::convolutionPad(input, output, mResource->mCommon);
     int padY = pad.second;
     int padX = pad.first;
-
+    
     auto runTime = mOpenCLBackend->getOpenCLRuntime();
-    mOpenCLBackend->startRecord(mRecording);
+    std::string info = std::to_string(input->channel()) + "_" + std::to_string(output->channel());
+    
+    uint32_t total_num = input->batch();
+    mUnits.resize(total_num * 3);
+    mMaxWGS_S.resize(total_num);
+    mMaxWGS_D.resize(total_num);
+    mMaxWGS_M.resize(total_num);
+    
+    mGWS_S.resize(total_num);
+    mGWS_D.resize(total_num);
+    mGWS_M.resize(total_num);
+    mLWS_S.resize(total_num);
+    mLWS_D.resize(total_num);
+    mLWS_M.resize(total_num);
 
 #ifdef MNN_SUPPORT_INTEL_SUBGROUP
-    if (mUseSubgroup) {
-        
-        mSource.reset(Tensor::createDevice<float>(std::vector<int>{alpha * alpha, UP_DIV(input->channel(), 16), ROUND_UP(wUnit * hUnit, 8), 16}, Tensor::CAFFE_C4));
-        mDest.reset(Tensor::createDevice<float>(std::vector<int>{alpha * alpha, UP_DIV(output->channel(), 16), ROUND_UP(wUnit * hUnit, 8), 16}, Tensor::CAFFE_C4));
-
-        mOpenCLBackend->onAcquireBuffer(mSource.get(), Backend::DYNAMIC);
-        mOpenCLBackend->onAcquireBuffer(mDest.get(), Backend::DYNAMIC);
-        mOpenCLBackend->onReleaseBuffer(mSource.get(), Backend::DYNAMIC);
-        mOpenCLBackend->onReleaseBuffer(mDest.get(), Backend::DYNAMIC);
-
-        auto icC4  = UP_DIV(input->channel(), 4);
-        auto icC16 = UP_DIV(input->channel(), 16);
-        auto ocC4  = UP_DIV(output->channel(), 4);
-        auto ocC16     = UP_DIV(output->channel(), 16);
-        auto inputpad  = TensorUtils::getDescribe(input)->mPads;
-        auto outputpad = TensorUtils::getDescribe(output)->mPads;
-        int in_c_pack  = TensorUtils::getTensorChannelPack(input);
-        int out_c_pack = TensorUtils::getTensorChannelPack(output);
-
-        uint32_t total_num = input->batch();
-        mSourceTransform.resize(total_num);
-        mMatMul.resize(total_num);
-        mDestTransform.resize(total_num);
-        mMaxWGS_S.resize(total_num);
-        mMaxWGS_D.resize(total_num);
-        mMaxWGS_M.resize(total_num);
-
-        std::set<std::string> basic;
-        std::string srcTranseKernelname = "_c16_c16";
-        std::string dstTranseKernelname = "_c16_c16";
-        if (in_c_pack == 4) {
-            srcTranseKernelname = "_c4_c16";
-        }
-        if (out_c_pack == 4) {
-            dstTranseKernelname = "_c16_c4";
-        }
-        /*Create Kernel*/
-        for (int i = 0; i < total_num; i++) {
-            char format[20];
-            ::memset(format, 0, sizeof(format));
-            sprintf(format, "%d_%d_%d", UNIT, mKernelX, INTERP);
-            auto formatStr = std::string(format);
-            mSourceTransform[i] = runTime->buildKernel("winogradTransform_subgroup_buf", "winoTransSrcBuf" + formatStr + srcTranseKernelname, basic);
-            mMaxWGS_S[i] = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(mSourceTransform[i]));
-            {
-                std::set<std::string> buildOptions = basic;
-                if (mCommon->relu()) {
-                    buildOptions.emplace("-DRELU");
-                }
-                if (mCommon->relu6()) {
-                    buildOptions.emplace("-DRELU6");
-                }
-                if (output->width() % 2 != 0) {
-                    buildOptions.emplace("-DOUTPUT_LEFTOVERS");
-                }
-                mDestTransform[i] = runTime->buildKernel("winogradTransform_subgroup_buf", "winoTransDstBuf" + formatStr + dstTranseKernelname, buildOptions);
-                mMaxWGS_D[i] = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(mDestTransform[i]));
-            }
-        }
-
-        mGWS_S.resize(total_num);
-        mGWS_D.resize(total_num);
-        mGWS_M.resize(total_num);
-        mLWS_S.resize(total_num);
-        mLWS_D.resize(total_num);
-        mLWS_M.resize(total_num);
-
-        for (int b = 0; b < input->batch(); ++b) {
-            int hCount = hUnit;
-            int wCount = wUnit;
-            int width_pack = ROUND_UP(hCount * wCount, 8);
-
-            // Source Transform
-            {
-                mGWS_S[b] = {static_cast<uint32_t>(wCount * hCount), static_cast<uint32_t>(input->channel())};
-                int index = 0;
-                cl_int ret = CL_SUCCESS;
-                ret |= mSourceTransform[b].setArg(index++, mGWS_S[b][0]);
-                ret |= mSourceTransform[b].setArg(index++, mGWS_S[b][1]);
-                ret |= mSourceTransform[b].setArg(index++, openCLBuffer(input));
-                ret |= mSourceTransform[b].setArg(index++, openCLBuffer(mSource.get()));
-                ret |= mSourceTransform[b].setArg(index++, wCount);
-                ret |= mSourceTransform[b].setArg(index++, hCount);
-                ret |= mSourceTransform[b].setArg(index++, padX);
-                ret |= mSourceTransform[b].setArg(index++, padY);
-                ret |= mSourceTransform[b].setArg(index++, input->width());
-                ret |= mSourceTransform[b].setArg(index++, input->height());
-                ret |= mSourceTransform[b].setArg(index++, icC4);
-                ret |= mSourceTransform[b].setArg(index++, icC16);
-                ret |= mSourceTransform[b].setArg(index++, width_pack);
-                ret |= mSourceTransform[b].setArg(index++, b);
-                ret |= mSourceTransform[b].setArg(index++, static_cast<uint32_t>(inputpad.left));
-                ret |= mSourceTransform[b].setArg(index++, static_cast<uint32_t>(inputpad.right));
-                MNN_CHECK_CL_SUCCESS(ret, "setArg ConvWinogradBuf Source Trans");
-
-                if (in_c_pack == 4) {
-                    mGWS_S[b] = {static_cast<uint32_t>(wCount * hCount), static_cast<uint32_t>(ROUND_UP(input->channel(), 16) / 4)};
-                    std::string kernelName = srcTranseKernelname + "_" + std::to_string(mGWS_S[b][0]) + "_" + std::to_string(mGWS_S[b][1]);
-                    mLWS_S[b] = localWS2DDefault(mGWS_S[b], mMaxWGS_S[b], mOpenCLBackend->getOpenCLRuntime(), kernelName, mSourceTransform[b]).first;
-                } else {
-                    mLWS_S[b] = {1, 16};
-                }
-                mOpenCLBackend->recordKernel2d(mSourceTransform[b], mGWS_S[b], mLWS_S[b]);
-            }
-
-            // MatMul
-            {
-                auto gemmHeight = ocC4;
-                auto gemmWidth  = wCount * hCount;
-
-                mGWS_M[b] = {static_cast<uint32_t>(UP_DIV(gemmWidth, 8)), static_cast<uint32_t>(ROUND_UP(output->channel(), 16)), static_cast<uint32_t>(alpha * alpha)};
-                mLWS_M[b] = {1, 16, 1};
-                std::set<std::string> buildOptions = basic;
-                mMatMul[b] = mOpenCLBackend->getOpenCLRuntime()->buildKernel("winogradTransform_subgroup_buf", "gemm_buf_intel", buildOptions);
-
-                int index = 0;
-                cl_int ret = CL_SUCCESS;
-                ret |= mMatMul[b].setArg(index++, openCLBuffer(mSource.get()));
-                ret |= mMatMul[b].setArg(index++, openCLBuffer(mWeight.get()));
-                ret |= mMatMul[b].setArg(index++, openCLBuffer(mDest.get()));
-                ret |= mMatMul[b].setArg(index++, width_pack);
-                ret |= mMatMul[b].setArg(index++, ocC16);
-                ret |= mMatMul[b].setArg(index++, icC16);
-                ret |= mMatMul[b].setArg(index++, alpha * alpha);
-                MNN_CHECK_CL_SUCCESS(ret, "setArg ConvWinogradBuf MatMul");
-                mOpenCLBackend->recordKernel2d(mMatMul[b], mGWS_M[b], mLWS_M[b]);
-            }
-
-            // Dest Transform
-            {
-                mGWS_D[b] = {static_cast<uint32_t>(wCount * hCount), static_cast<uint32_t>(output->channel())};
-
-                int index = 0;
-                cl_int ret = CL_SUCCESS;
-                ret |= mDestTransform[b].setArg(index++, mGWS_D[b][0]);
-                ret |= mDestTransform[b].setArg(index++, mGWS_D[b][1]);
-                ret |= mDestTransform[b].setArg(index++, openCLBuffer(mDest.get()));
-                ret |= mDestTransform[b].setArg(index++, openCLBuffer(mBias.get()));
-                ret |= mDestTransform[b].setArg(index++, openCLBuffer(output));
-                ret |= mDestTransform[b].setArg(index++, wCount);
-                ret |= mDestTransform[b].setArg(index++, hCount);
-                ret |= mDestTransform[b].setArg(index++, output->width());
-                ret |= mDestTransform[b].setArg(index++, output->height());
-                ret |= mDestTransform[b].setArg(index++, ocC4);
-                ret |= mDestTransform[b].setArg(index++, ocC16);
-                ret |= mDestTransform[b].setArg(index++, width_pack);
-                ret |= mDestTransform[b].setArg(index++, b);
-                ret |= mDestTransform[b].setArg(index++, static_cast<uint32_t>(outputpad.left));
-                ret |= mDestTransform[b].setArg(index++, static_cast<uint32_t>(outputpad.right));
-                MNN_CHECK_CL_SUCCESS(ret, "setArg ConvWinogradBuf Dest Trans");
-
-                if (out_c_pack == 4) {
-                    mGWS_D[b] = {static_cast<uint32_t>(wCount * hCount), static_cast<uint32_t>(ocC4)};
-                    std::string kernelName = dstTranseKernelname + "_" + std::to_string(mGWS_D[b][0]) + "_" + std::to_string(mGWS_D[b][1]);
-                    mLWS_D[b] = localWS2DDefault(mGWS_D[b], mMaxWGS_D[b], mOpenCLBackend->getOpenCLRuntime(), kernelName, mDestTransform[b]).first;
-                } else {
-                    mLWS_D[b] = {1, 16};
-                }
-                mOpenCLBackend->recordKernel2d(mDestTransform[b], mGWS_D[b], mLWS_D[b]);
-            }
-        }
-    } else 
+    if (mResource->mUseSubgroup) {
+        return SubgroupOnResize(inputs, outputs);
+    } else
 #endif /* MNN_SUPPORT_INTEL_SUBGROUP */    
     {
+	int tileM = 16;
+        int tileN = 32;
+        int tileK = 4;
         mSource.reset(Tensor::createDevice<float>(
-            std::vector<int>{alpha * alpha, input->channel(), ROUND_UP(UP_DIV(wUnit * hUnit, 4), 2), 4},
-            Tensor::CAFFE_C4));
+            std::vector<int>{alpha * alpha * ROUND_UP(input->channel(), tileK) * ROUND_UP(wUnit * hUnit, tileM)}));
         mDest.reset(Tensor::createDevice<float>(
-            std::vector<int>{4, wUnit * hUnit, UP_DIV(output->channel(), 4), alpha * alpha}, Tensor::CAFFE_C4));
+            std::vector<int>{alpha * alpha * ROUND_UP(wUnit * hUnit, tileM) * ROUND_UP(output->channel(), tileN)}));
 
         mOpenCLBackend->onAcquireBuffer(mSource.get(), Backend::DYNAMIC);
         mOpenCLBackend->onAcquireBuffer(mDest.get(), Backend::DYNAMIC);
@@ -414,14 +474,6 @@ ErrorCode ConvBufWinograd::onResize(const std::vector<Tensor*>& inputs, const st
         auto icC4 = UP_DIV(input->channel(), 4);
         auto ocC4 = UP_DIV(output->channel(), 4);
 
-        uint32_t total_num = input->batch();
-        mSourceTransform.resize(total_num);
-        mMatMul.resize(total_num);
-        mDestTransform.resize(total_num);
-        mMaxWGS_S.resize(total_num);
-        mMaxWGS_D.resize(total_num);
-        mMaxWGS_M.resize(total_num);
-
         std::set<std::string> basic;
         /*Create Kernel*/
         for (int i = 0; i < total_num; i++) {
@@ -429,119 +481,129 @@ ErrorCode ConvBufWinograd::onResize(const std::vector<Tensor*>& inputs, const st
             ::memset(format, 0, sizeof(format));
             sprintf(format, "%d_%d_%d", UNIT, mKernelX, INTERP);
             auto formatStr      = std::string(format);
-            mSourceTransform[i] = runTime->buildKernel("winogradTransform_buf", "winoTransSrcBuf" + formatStr, basic);
-            mMaxWGS_S[i] = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(mSourceTransform[i]));
+            mUnits[i * 3].kernel = runTime->buildKernel("winogradTransform_buf", "winoTransSrcBuf" + formatStr, basic);
+            mMaxWGS_S[i] = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(mUnits[i * 3].kernel));
             {
                 std::set<std::string> buildOptions = basic;
-                if (mCommon->relu()) {
+                if (mResource->mCommon->relu()) {
                     buildOptions.emplace("-DRELU");
                 }
-                if (mCommon->relu6()) {
+                if (mResource->mCommon->relu6()) {
                     buildOptions.emplace("-DRELU6");
                 }
-                mDestTransform[i] = runTime->buildKernel("winogradTransform_buf", "winoTransDstBuf" + formatStr, buildOptions);
-                mMaxWGS_D[i] = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(mDestTransform[i]));
+                mUnits[i * 3 + 2].kernel = runTime->buildKernel("winogradTransform_buf", "winoTransDstBuf" + formatStr, buildOptions);
+                mMaxWGS_D[i] = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(mUnits[i * 3 + 2].kernel));
             }
         }
 
-        mGWS_S.resize(total_num);
-        mGWS_D.resize(total_num);
-        mGWS_M.resize(total_num);
-        mLWS_S.resize(total_num);
-        mLWS_D.resize(total_num);
-        mLWS_M.resize(total_num);
-
+        int hCount = hUnit;
+        int wCount = wUnit;
+        int M_pack = ROUND_UP(wCount * hCount, tileM);
+        int K_pack = ROUND_UP(input->channel(), tileK);
+        int N_pack = ROUND_UP(output->channel(), tileN);
         for (int b = 0; b < input->batch(); ++b) {
-            int hCount = hUnit;
-            int wCount = wUnit;
 
             // Source Transform
             {
-                mGWS_S[b] = {static_cast<uint32_t>(wCount * hCount), static_cast<uint32_t>(icC4)};
+                mGWS_S[b] = {static_cast<uint32_t>(M_pack), static_cast<uint32_t>(UP_DIV(K_pack, 4))};
                 int index = 0;
                 cl_int ret = CL_SUCCESS;
-                ret |= mSourceTransform[b].setArg(index++, mGWS_S[b][0]);
-                ret |= mSourceTransform[b].setArg(index++, mGWS_S[b][1]);
-                ret |= mSourceTransform[b].setArg(index++, openCLBuffer(input));
-                ret |= mSourceTransform[b].setArg(index++, openCLBuffer(mSource.get()));
-                ret |= mSourceTransform[b].setArg(index++, wCount);
-                ret |= mSourceTransform[b].setArg(index++, hCount);
-                ret |= mSourceTransform[b].setArg(index++, padX);
-                ret |= mSourceTransform[b].setArg(index++, padY);
-                ret |= mSourceTransform[b].setArg(index++, input->width());
-                ret |= mSourceTransform[b].setArg(index++, input->height());
-                ret |= mSourceTransform[b].setArg(index++, icC4);
-                ret |= mSourceTransform[b].setArg(index++, b);
-                MNN_CHECK_CL_SUCCESS(ret, "setArg ConvWinogradBuf SubGroup Source Trans");
+                ret |= mUnits[b * 3].kernel->get().setArg(index++, mGWS_S[b][0]);
+                ret |= mUnits[b * 3].kernel->get().setArg(index++, mGWS_S[b][1]);
+                ret |= mUnits[b * 3].kernel->get().setArg(index++, openCLBuffer(input));
+                ret |= mUnits[b * 3].kernel->get().setArg(index++, openCLBuffer(mSource.get()));
+                ret |= mUnits[b * 3].kernel->get().setArg(index++, wCount);
+                ret |= mUnits[b * 3].kernel->get().setArg(index++, hCount);
+                ret |= mUnits[b * 3].kernel->get().setArg(index++, padX);
+                ret |= mUnits[b * 3].kernel->get().setArg(index++, padY);
+                ret |= mUnits[b * 3].kernel->get().setArg(index++, input->width());
+                ret |= mUnits[b * 3].kernel->get().setArg(index++, input->height());
+                ret |= mUnits[b * 3].kernel->get().setArg(index++, icC4);
+                ret |= mUnits[b * 3].kernel->get().setArg(index++, M_pack);
+                ret |= mUnits[b * 3].kernel->get().setArg(index++, K_pack);
+                ret |= mUnits[b * 3].kernel->get().setArg(index++, b);
+                MNN_CHECK_CL_SUCCESS(ret, "setArg ConvWinogradBuf Source Trans");
 
                 std::string kernelName = "winoTransSrcBuf";
-                mLWS_S[b] = localWS2DDefault(mGWS_S[b], mMaxWGS_S[b], mOpenCLBackend->getOpenCLRuntime(), kernelName, mSourceTransform[b]).first;
-                mOpenCLBackend->recordKernel2d(mSourceTransform[b], mGWS_S[b], mLWS_S[b]);
+                mLWS_S[b] = localWS2DDefault(mGWS_S[b], mMaxWGS_S[b], mOpenCLBackend->getOpenCLRuntime(), kernelName + info, mUnits[b * 3].kernel).first;
+                mOpenCLBackend->recordKernel2d(mUnits[b * 3].kernel, mGWS_S[b], mLWS_S[b]);
+                mUnits[b * 3].globalWorkSize = {mGWS_S[b][0], mGWS_S[b][1]};
+                mUnits[b * 3].localWorkSize = {mLWS_S[b][0], mLWS_S[b][1]};
             }
 
             // MatMul
+            
             {
-                auto gemmHeight = ocC4;
-                auto gemmWidth  = UP_DIV(wCount * hCount, 4);
+                int loop = alpha * alpha;
+                int e_pack = ROUND_UP(wCount * hCount, tileM);
+                int l_pack = ROUND_UP(input->channel(), tileK);
+                int h_pack = ROUND_UP(output->channel(), tileN);
 
-                const int total_kernel                     = 2;
-                const std::string kernelName[total_kernel] = {"gemm_buf", "gemm_buf2"};
-                int itemW[total_kernel]                    = {1, 2};
+                std::set<std::string> buildOptions;
+                uint32_t layout = 4;
+                auto param = getGemmParams({(uint32_t)e_pack, (uint32_t)h_pack, (uint32_t)l_pack, layout, (uint32_t)loop, (uint32_t)0}, {openCLBuffer(mSource.get()), openCLBuffer(mResource->mWeight.get()), openCLBuffer(mDest.get())}, mOpenCLBackend->getOpenCLRuntime());
 
-                int actual_kernel = total_kernel;
-                if (mOpenCLBackend->getOpenCLRuntime()->getCLTuneLevel() == Normal || mOpenCLBackend->getOpenCLRuntime()->getCLTuneLevel() == Fast || mOpenCLBackend->getOpenCLRuntime()->getCLTuneLevel() == None) {
-                    actual_kernel = 1;
+                int KWG=param[0], KWI=param[1], MDIMA=param[2], MDIMC=param[3], MWG=param[4], NDIMB=param[5], NDIMC=param[6], NWG=param[7], SA=param[8], SB=param[9], STRM=param[10], STRN=param[11], VWM=param[12], VWN=param[13];
+                buildOptions.emplace("-DKWG=" + std::to_string(KWG));
+                buildOptions.emplace("-DKWI=" + std::to_string(KWI));
+                buildOptions.emplace("-DMDIMA=" + std::to_string(MDIMA));
+                buildOptions.emplace("-DMDIMC=" + std::to_string(MDIMC));
+                buildOptions.emplace("-DMWG=" + std::to_string(MWG));
+                buildOptions.emplace("-DNDIMB=" + std::to_string(NDIMB));
+                buildOptions.emplace("-DNDIMC=" + std::to_string(NDIMC));
+                buildOptions.emplace("-DNWG=" + std::to_string(NWG));
+                buildOptions.emplace("-DSA=" + std::to_string(SA));
+                buildOptions.emplace("-DSB=" + std::to_string(SB));
+                buildOptions.emplace("-DSTRM=" + std::to_string(STRM));
+                buildOptions.emplace("-DSTRN=" + std::to_string(STRN));
+                buildOptions.emplace("-DVWM=" + std::to_string(VWM));
+                buildOptions.emplace("-DVWN=" + std::to_string(VWN));
+                if(layout >= 4) {
+                    buildOptions.emplace("-DOUTPUTMN");
                 }
-
-                cl::Kernel kernel[total_kernel];
-                std::vector<uint32_t> globalWorkSize[total_kernel];
-                std::vector<uint32_t> localWorkSize[total_kernel];
-                std::pair<uint32_t, int> min_cost(UINT_MAX, 0); //(min_time, min_index)
-                for (int knl_idx = 0; knl_idx < actual_kernel; knl_idx++) {
-                    kernel[knl_idx] = mOpenCLBackend->getOpenCLRuntime()->buildKernel("gemm_buf", kernelName[knl_idx], basic);
-                    uint32_t maxWorkGroupSize = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(kernel[knl_idx]));
-
-                    globalWorkSize[knl_idx] = {static_cast<uint32_t>(UP_DIV(gemmWidth, itemW[knl_idx]) * gemmHeight), static_cast<uint32_t>(alpha * alpha)};
-                    uint32_t index = 0;
-                    cl_int ret = CL_SUCCESS;
-                    ret |= kernel[knl_idx].setArg(index++, globalWorkSize[knl_idx][0]);
-                    ret |= kernel[knl_idx].setArg(index++, globalWorkSize[knl_idx][1]);
-                    ret |= kernel[knl_idx].setArg(index++, openCLBuffer(mSource.get()));
-                    ret |= kernel[knl_idx].setArg(index++, openCLBuffer(mWeight.get()));
-                    ret |= kernel[knl_idx].setArg(index++, openCLBuffer(mDest.get()));
-                    ret |= kernel[knl_idx].setArg(index++, gemmWidth);
-                    ret |= kernel[knl_idx].setArg(index++, gemmHeight);
-                    ret |= kernel[knl_idx].setArg(index++, icC4);
-                    ret |= kernel[knl_idx].setArg(index++, alpha * alpha);
-                    MNN_CHECK_CL_SUCCESS(ret, "setArg ConvWinogradBuf SubGroup MatMul Kernel Select");
-
-                    std::pair<std::vector<uint32_t>, uint32_t> retTune;
-                    retTune = localWS2DDefault(globalWorkSize[knl_idx], maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName[knl_idx], kernel[knl_idx]);
-                    // printf("gemm %d, %d\n", knl_idx, retTune.second);
-                    if (min_cost.first > retTune.second) {
-                        min_cost.first  = retTune.second;
-                        min_cost.second = knl_idx;
-                        mLWS_M[b]       = {retTune.first[0], retTune.first[1]};
-                    }
+                
+                int tileM = MWG;
+                int tileN = NWG;
+                int localM = MDIMC;
+                int localN = NDIMC;
+                
+                if(mOpenCLBackend->getOpenCLRuntime()->getGpuType() == GpuType::ADRENO) {
+                    buildOptions.emplace("-DUSE_CL_MAD=1");
+                    buildOptions.emplace("-DRELAX_WORKGROUP_SIZE=1");
                 }
-                int min_index = min_cost.second;
-                // mKernel = kernel[min_index];
-                mGWS_M[b]  = {globalWorkSize[min_index][0], globalWorkSize[min_index][1]};
-                mMatMul[b] = mOpenCLBackend->getOpenCLRuntime()->buildKernel("gemm_buf", kernelName[min_index], basic);
-
-                int index = 0;
+                
+                mUnits[b * 3 + 1].kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("matmul_params_buf", "XgemmBatched", buildOptions);
+                
+                int out_per_thread_m = tileM / localM;
+                int out_per_thread_n = tileN / localN;
+                
+                mGWS_M[b] = {static_cast<uint32_t>(e_pack/out_per_thread_m), static_cast<uint32_t>(h_pack/out_per_thread_n), static_cast<uint32_t>(loop)};
+                mLWS_M[b] = {static_cast<uint32_t>(localM), static_cast<uint32_t>(localN), 1};
+                
+                float alpha = 1.0f;
+                float beta = 0.0f;
+                int batch_offset_a = e_pack * l_pack;
+                int batch_offset_b = h_pack * l_pack;
+                int batch_offset_c = e_pack * h_pack;
+                
+                int idx            = 0;
                 cl_int ret = CL_SUCCESS;
-                ret |= mMatMul[b].setArg(index++, mGWS_M[b][0]);
-                ret |= mMatMul[b].setArg(index++, mGWS_M[b][1]);
-                ret |= mMatMul[b].setArg(index++, openCLBuffer(mSource.get()));
-                ret |= mMatMul[b].setArg(index++, openCLBuffer(mWeight.get()));
-                ret |= mMatMul[b].setArg(index++, openCLBuffer(mDest.get()));
-                ret |= mMatMul[b].setArg(index++, gemmWidth);
-                ret |= mMatMul[b].setArg(index++, gemmHeight);
-                ret |= mMatMul[b].setArg(index++, icC4);
-                ret |= mMatMul[b].setArg(index++, alpha * alpha);
-                MNN_CHECK_CL_SUCCESS(ret, "setArg ConvWinogradBuf SubGroup MatMul");
-                mOpenCLBackend->recordKernel2d(mMatMul[b], mGWS_M[b], mLWS_M[b]);
+                ret |= mUnits[b * 3 + 1].kernel->get().setArg(idx++, static_cast<int>(e_pack));
+                ret |= mUnits[b * 3 + 1].kernel->get().setArg(idx++, static_cast<int>(h_pack));
+                ret |= mUnits[b * 3 + 1].kernel->get().setArg(idx++, static_cast<int>(l_pack));
+                ret |= mUnits[b * 3 + 1].kernel->get().setArg(idx++, alpha);
+                ret |= mUnits[b * 3 + 1].kernel->get().setArg(idx++, beta);
+                ret |= mUnits[b * 3 + 1].kernel->get().setArg(idx++, openCLBuffer(mSource.get()));
+                ret |= mUnits[b * 3 + 1].kernel->get().setArg(idx++, batch_offset_a);
+                ret |= mUnits[b * 3 + 1].kernel->get().setArg(idx++, openCLBuffer(mResource->mWeight.get()));
+                ret |= mUnits[b * 3 + 1].kernel->get().setArg(idx++, batch_offset_b);
+                ret |= mUnits[b * 3 + 1].kernel->get().setArg(idx++, openCLBuffer(mDest.get()));
+                ret |= mUnits[b * 3 + 1].kernel->get().setArg(idx++, batch_offset_c);
+                MNN_CHECK_CL_SUCCESS(ret, "setArg Winograd batchmatmul Kernel");
+                
+                mOpenCLBackend->recordKernel3d(mUnits[b * 3 + 1].kernel, mGWS_M[b], mLWS_M[b]);
+                mUnits[b * 3 + 1].globalWorkSize = {mGWS_M[b][0], mGWS_M[b][1], mGWS_M[b][2]};
+                mUnits[b * 3 + 1].localWorkSize = {mLWS_M[b][0], mLWS_M[b][1], mLWS_M[b][2]};
             }
 
             // Dest Transform
@@ -550,90 +612,87 @@ ErrorCode ConvBufWinograd::onResize(const std::vector<Tensor*>& inputs, const st
 
                 int index = 0;
                 cl_int ret = CL_SUCCESS;
-                ret |= mDestTransform[b].setArg(index++, mGWS_D[b][0]);
-                ret |= mDestTransform[b].setArg(index++, mGWS_D[b][1]);
-                ret |= mDestTransform[b].setArg(index++, openCLBuffer(mDest.get()));
-                ret |= mDestTransform[b].setArg(index++, openCLBuffer(mBias.get()));
-                ret |= mDestTransform[b].setArg(index++, openCLBuffer(output));
-                ret |= mDestTransform[b].setArg(index++, wCount);
-                ret |= mDestTransform[b].setArg(index++, hCount);
-                ret |= mDestTransform[b].setArg(index++, output->width());
-                ret |= mDestTransform[b].setArg(index++, output->height());
-                ret |= mDestTransform[b].setArg(index++, ocC4);
-                ret |= mDestTransform[b].setArg(index++, b);
-                MNN_CHECK_CL_SUCCESS(ret, "setArg ConvWinogradBuf SubGroup Dest Trans");
+                ret |= mUnits[b * 3 + 2].kernel->get().setArg(index++, mGWS_D[b][0]);
+                ret |= mUnits[b * 3 + 2].kernel->get().setArg(index++, mGWS_D[b][1]);
+                ret |= mUnits[b * 3 + 2].kernel->get().setArg(index++, openCLBuffer(mDest.get()));
+                ret |= mUnits[b * 3 + 2].kernel->get().setArg(index++, openCLBuffer(mResource->mBias.get()));
+                ret |= mUnits[b * 3 + 2].kernel->get().setArg(index++, openCLBuffer(output));
+                ret |= mUnits[b * 3 + 2].kernel->get().setArg(index++, wCount);
+                ret |= mUnits[b * 3 + 2].kernel->get().setArg(index++, hCount);
+                ret |= mUnits[b * 3 + 2].kernel->get().setArg(index++, output->width());
+                ret |= mUnits[b * 3 + 2].kernel->get().setArg(index++, output->height());
+                ret |= mUnits[b * 3 + 2].kernel->get().setArg(index++, ocC4);
+                ret |= mUnits[b * 3 + 2].kernel->get().setArg(index++, M_pack);
+                ret |= mUnits[b * 3 + 2].kernel->get().setArg(index++, N_pack);
+                ret |= mUnits[b * 3 + 2].kernel->get().setArg(index++, b);
+                MNN_CHECK_CL_SUCCESS(ret, "setArg ConvWinogradBuf Dest Trans");
                 
                 std::string kernelName = "winoTransDstBuf";
-                mLWS_D[b] = localWS2DDefault(mGWS_D[b], mMaxWGS_D[b], mOpenCLBackend->getOpenCLRuntime(), kernelName, mDestTransform[b]).first;
-                mOpenCLBackend->recordKernel2d(mDestTransform[b], mGWS_D[b], mLWS_D[b]);
+                mLWS_D[b] = localWS2DDefault(mGWS_D[b], mMaxWGS_D[b], mOpenCLBackend->getOpenCLRuntime(), kernelName + info, mUnits[b * 3 + 2].kernel).first;
+                mOpenCLBackend->recordKernel2d(mUnits[b * 3 + 2].kernel, mGWS_D[b], mLWS_D[b]);
+                mUnits[b * 3 + 2].globalWorkSize = {mGWS_D[b][0], mGWS_D[b][1]};
+                mUnits[b * 3 + 2].localWorkSize = {mLWS_D[b][0], mLWS_D[b][1]};
             }
         }
     }
-    mOpenCLBackend->endRecord(mRecording);
     
     return NO_ERROR;
 }
-
-ErrorCode ConvBufWinograd::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
-    auto input  = inputs[0];
-    auto output = outputs[0];
     
-#ifndef ENABLE_OPENCL_TIME_PROFILER
-if(mOpenCLBackend->isUseRecordQueue()){
-    if(mOpenCLBackend->isDevideOpRecord())
-        mOpenCLBackend->addRecord(mRecording);
-    return NO_ERROR;
-}
+ErrorCode ConvBufWinograd::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+    auto openCLBackend = static_cast<OpenCLBackend*>(backend());
+    auto runtime = openCLBackend->getOpenCLRuntime();
+#ifdef ENABLE_OPENCL_TIME_PROFILER
+    int idx = 0;
+#else
+    if(openCLBackend->isUseRecordQueue()){
+        openCLBackend->addRecord(mRecording, mOpRecordUpdateInfo);
+        return NO_ERROR;
+    }
 #endif
-    
-    for (int b = 0; b < input->batch(); ++b) {
-        int index = b;
-        /*Source Transform*/
-        {
-        #ifdef ENABLE_OPENCL_TIME_PROFILER
-            cl::Event event;
-            runKernel2D(mSourceTransform[index], mGWS_S[index], mLWS_S[index],
-                        mOpenCLBackend->getOpenCLRuntime(), &event);
-            mOpenCLBackend->getOpenCLRuntime()->pushEvent({"ConvWino0", event});
-        #else
-            runKernel2D(mSourceTransform[index], mGWS_S[index], mLWS_S[index],
-                        mOpenCLBackend->getOpenCLRuntime());
-        #endif
-        }
+    auto res = CL_SUCCESS;
+    for (auto &unit : mUnits) {
+    #ifdef ENABLE_OPENCL_TIME_PROFILER
+        cl::Event event;
+        res = runtime->commandQueue().enqueueNDRangeKernel(unit.kernel->get(),
+                                                    cl::NullRange,
+                                                    unit.globalWorkSize,
+                                                    unit.localWorkSize,
+                                                    nullptr,
+                                                    &event);
+        std::string name = "Conv-winograd";
 
-        /*MatMul*/
-        {
-        #ifdef ENABLE_OPENCL_TIME_PROFILER
-            cl::Event event;
-            if (mUseSubgroup) {
-                run3DKernelDefault(mMatMul[index], mGWS_M[index], mLWS_M[index], mOpenCLBackend->getOpenCLRuntime(), &event);
-            } else {
-                runKernel2D(mMatMul[index], mGWS_M[index], mLWS_M[index], mOpenCLBackend->getOpenCLRuntime(), &event);
-            }
-            mOpenCLBackend->getOpenCLRuntime()->pushEvent({"ConvWino1", event});
-        #else
-            if (mUseSubgroup) {
-                run3DKernelDefault(mMatMul[index], mGWS_M[index], mLWS_M[index], mOpenCLBackend->getOpenCLRuntime());
-            } else {
-                runKernel2D(mMatMul[index], mGWS_M[index], mLWS_M[index], mOpenCLBackend->getOpenCLRuntime());
-            }
-        #endif
+        if(idx % 3 == 1) {
+            name += "-batchgemm";
+        } else {
+            name += "-rearrange";
         }
+        auto wUnit = UP_DIV(outputs[0]->width(), UNIT);
+        auto hUnit = UP_DIV(outputs[0]->height(), UNIT);
+        auto icC4 = ROUND_UP(inputs[0]->channel(), 4);
 
-        // Dest Transform
-        {
-        #ifdef ENABLE_OPENCL_TIME_PROFILER
-            cl::Event event;
-            runKernel2D(mDestTransform[index], mGWS_D[index], mLWS_D[index],
-                        mOpenCLBackend->getOpenCLRuntime(), &event);
-            mOpenCLBackend->getOpenCLRuntime()->pushEvent({"ConvWino2", event});
-        #else
-            runKernel2D(mDestTransform[index], mGWS_D[index], mLWS_D[index],
-                        mOpenCLBackend->getOpenCLRuntime());
-        #endif
-        }
+        auto ocC4 = ROUND_UP(outputs[0]->channel(), 4);
+        int alpha  = mKernelX + UNIT - 1;
+
+        auto gemmHeight = ocC4;
+        auto gemmWidth  = ROUND_UP(wUnit * hUnit, 4);
+        
+        std::string b = std::to_string(alpha*alpha);
+        std::string m = std::to_string(gemmWidth);
+        std::string n = std::to_string(gemmHeight);
+        std::string k = std::to_string(icC4);
+        std::string total = std::to_string(1.0 / 1000000 * alpha*alpha * gemmWidth * gemmHeight * icC4);
+        name += "-b" + b + "m" + m + "n" + n + "k" + k + "-total:" + total + "*10^6";
+        runtime->pushEvent({name.c_str(), event});
+        idx++;
+    #else
+        res = runtime->commandQueue().enqueueNDRangeKernel(unit.kernel->get(),
+                                                    cl::NullRange,
+                                                    unit.globalWorkSize,
+                                                    unit.localWorkSize);
+    #endif
+        MNN_CHECK_CL_SUCCESS(res, "Conv-Winograd execute");
     }
-
     return NO_ERROR;
 }
 

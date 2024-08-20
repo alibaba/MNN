@@ -16,6 +16,9 @@ list(APPEND MNN_CPP_TOOLS SequenceModuleTest.out)
 add_executable(mergeInplaceForCPU ${CMAKE_CURRENT_LIST_DIR}/mergeInplaceForCPU.cpp)
 list(APPEND MNN_CPP_TOOLS mergeInplaceForCPU)
 
+add_executable(modelCompare.out ${CMAKE_CURRENT_LIST_DIR}/modelCompare.cpp)
+list(APPEND MNN_CPP_TOOLS modelCompare.out)
+
 add_executable(MNNV2Basic.out ${CMAKE_CURRENT_LIST_DIR}/MNNV2Basic.cpp)
 list(APPEND MNN_CPP_TOOLS MNNV2Basic.out)
 if (MNN_USE_SSE)
@@ -51,6 +54,9 @@ list(APPEND MNN_CPP_TOOLS testTrain.out)
 
 add_executable(fuseTest ${CMAKE_CURRENT_LIST_DIR}/fuseTest.cpp)
 list(APPEND MNN_CPP_TOOLS fuseTest)
+
+add_executable(LoRA ${CMAKE_CURRENT_LIST_DIR}/LoRA.cpp)
+list(APPEND MNN_CPP_TOOLS LoRA)
 
 foreach(TARGET ${MNN_CPP_TOOLS})
     target_link_libraries(${TARGET} ${MNN_DEPS})

@@ -141,32 +141,40 @@ ErrorCode MetalConvolutionWinograd::onResize(const std::vector<Tensor *> &inputs
     return NO_ERROR;
 }
 
-void MetalConvolutionWinograd::onFloat(const Tensor *input, const Tensor *output, id<MTLComputeCommandEncoder> encoder) {
+void MetalConvolutionWinograd::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder) {
+    auto input = inputs[0];
+    auto output = outputs[0];
     auto backend = static_cast<MetalBackend *>(this->backend());
     auto context = (__bridge MNNMetalContext *)backend->context();
 
     { // transform
-        auto bandwidth = [context load:mKernelX == 3 ? @"winograd_transform_source2_3_1" : @"winograd_transform_source2_5_1" encoder:encoder fp16:backend->useFp16InsteadFp32()];
-        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer() offset:TensorUtils::getDescribe(input)->extra.offset atIndex:0];
-        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)mTempSrc->deviceId())->getBuffer() offset:TensorUtils::getDescribe(mTempSrc.get())->extra.offset atIndex:1];
+        auto pipeline = [context pipelineWithName:mKernelX == 3 ? @"winograd_transform_source2_3_1" : @"winograd_transform_source2_5_1" fp16:backend->useFp16InsteadFp32()];
+        [encoder setComputePipelineState:pipeline];
+        MetalBackend::setTensor(input, encoder, 0);
+        MetalBackend::setTensor(mTempSrc.get(), encoder, 1);
         [encoder setBuffer:mConstBuffer offset:0 atIndex:2];
-        [context dispatchEncoder:encoder threads:mInputTransformThreads bandwidth:bandwidth];
+        auto gl = [context computeBestGroupAndLocal:pipeline threads:mInputTransformThreads];
+        [encoder dispatchThreadgroups:gl.first threadsPerThreadgroup:gl.second];
     }
     { // gemm
-        auto bandwidth = [context load:@"matmul4x4" encoder:encoder fp16:backend->useFp16InsteadFp32()];
-        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)mTempSrc->deviceId())->getBuffer() offset:TensorUtils::getDescribe(mTempSrc.get())->extra.offset atIndex:0];
-        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)mTempDst->deviceId())->getBuffer() offset:TensorUtils::getDescribe(mTempDst.get())->extra.offset atIndex:1];
+        auto pipeline = [context pipelineWithName:@"matmul4x4" fp16:backend->useFp16InsteadFp32()];
+        [encoder setComputePipelineState:pipeline];
+        MetalBackend::setTensor(mTempSrc.get(), encoder, 0);
+        MetalBackend::setTensor(mTempDst.get(), encoder, 1);
         MetalBackend::setTensor(mWeight.get(), encoder, 2);
         [encoder setBuffer:mShapeBuffer offset:0 atIndex:3];
-        [context dispatchEncoder:encoder threads:mMatMulThreads bandwidth:bandwidth];
+        auto gl = [context computeBestGroupAndLocal:pipeline threads:mMatMulThreads];
+        [encoder dispatchThreadgroups:gl.first threadsPerThreadgroup:gl.second];
     }
     { // transform
-        auto bandwidth = [context load:mKernelX == 3 ? @"winograd_transform_dest2_3_1" : @"winograd_transform_dest2_5_1" encoder:encoder fp16:backend->useFp16InsteadFp32()];
-        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)mTempDst->deviceId())->getBuffer() offset:TensorUtils::getDescribe(mTempDst.get())->extra.offset atIndex:0];
+        auto pipeline = [context pipelineWithName:mKernelX == 3 ? @"winograd_transform_dest2_3_1" : @"winograd_transform_dest2_5_1" fp16:backend->useFp16InsteadFp32()];
+        [encoder setComputePipelineState:pipeline];
+        MetalBackend::setTensor(mTempDst.get(), encoder, 0);
         MetalBackend::setTensor(mBias.get(), encoder, 1);
-        [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId())->getBuffer() offset:TensorUtils::getDescribe(output)->extra.offset atIndex:2];
+        MetalBackend::setTensor(output, encoder, 2);
         [encoder setBuffer:mConstBuffer offset:0 atIndex:3];
-        [context dispatchEncoder:encoder threads:mOutputTransformThreads bandwidth:bandwidth];
+        auto gl = [context computeBestGroupAndLocal:pipeline threads:mOutputTransformThreads];
+        [encoder dispatchThreadgroups:gl.first threadsPerThreadgroup:gl.second];
     }
 }
 std::shared_ptr<MNN::Tensor> MetalConvolutionWinograd::weightTransform(int group, int oc, int ic, int kh, int kw, const float *src, bool int8Weight, bool int4Weight) {

@@ -15,8 +15,8 @@ jobs:
         include:
           - { os: ubuntu-latest,    arch: x86_64,     build: 'cp*-manylinux*' }
           - { os: windows-latest,   arch: AMD64,      build: 'cp*'          }
-          - { os: macos-latest,     arch: x86_64,     build: 'cp*'          }
-          - { os: macos-14,         arch: arm64,     build: 'cp*'          }
+          - { os: macos-13,         arch: x86_64,     build: 'cp*'          }
+          - { os: macos-14,         arch: arm64,      build: 'cp*'          }
 
     steps:
     - uses: actions/checkout@v3

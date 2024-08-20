@@ -13,8 +13,7 @@
 namespace MNN {
 
 static void initTensor(std::shared_ptr<Tensor> tensor, Tensor* input) {
-    tensor->buffer().type = input->getType();
-    TensorUtils::copyShape(input, tensor.get(), true);
+    TensorUtils::copyShape(input, tensor.get(), true, true);
 }
 
 class GeometryELU : public GeometryComputer {
@@ -67,8 +66,8 @@ public:
         {
             auto zeroConst = context.allocConst(op, {}, halide_type_of<float>());
             zeroConst->host<float>()[0] = 0;
-            compValue->buffer().type = halide_type_of<int>();
-            TensorUtils::copyShape(input, compValue.get(), true);
+            TensorUtils::copyShape(input, compValue.get(), true, true);
+            compValue->buffer().type = halide_type_of<int32_t>();
             auto cmd = GeometryComputerUtils::makeBinary(BinaryOpOperation_GREATER, input, zeroConst.get(), compValue.get());
             res.extras.emplace_back(compValue);
             res.command.emplace_back(std::move(cmd));

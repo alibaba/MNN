@@ -25,7 +25,7 @@ ldr r6, [r2, #12] // xOffset
 // eReal -> eReal * 4 * sizeof(float)
 // eDest -> eDest * sizeof(float)
 mov r12, #2 // sizeof(int16_t)
-mov lr, #8  // sizeof(int16_t) * 4
+mov lr, #16  // sizeof(float) * 4
 mul r4, lr, r4
 mul r11, r12, r11
 mul r6, lr, r6
@@ -39,7 +39,7 @@ push {r0, r1}
 ldr r1, [r1, #0]
 
 // Compute dest ptr: r0 = r0 + eOffset * sizeof(float) + lOffset * eDest * sizeof(float)
-; mov lr, #2 //sizeof(int16_t)
+
 mul r7, r11, r7
 mul r8, r12, r8
 add r0, r0, r7
@@ -55,18 +55,36 @@ bne Right
     LoopL4:
         mov r2, r1
 .macro MAIN_TRANSPOSE
-        vld1.16 {d16}, [r1], r6 // load size: 4 * sizeof(int16_t)
-        vld1.16 {d19}, [r1], r6
-        vld1.16 {d22}, [r1], r6
-        vld1.16 {d25}, [r1], r6
-        vld1.16 {d17}, [r1], r6
-        vld1.16 {d20}, [r1], r6
-        vld1.16 {d23}, [r1], r6
-        vld1.16 {d26}, [r1], r6
-        vld1.16 {d18}, [r1], r6
-        vld1.16 {d21}, [r1], r6
-        vld1.16 {d24}, [r1], r6
-        vld1.16 {d27}, [r1], r6
+
+        vld1.32 {q0}, [r1], r6 // load size: 4 * sizeof(float)
+        vld1.32 {q1}, [r1], r6
+        vld1.32 {q2}, [r1], r6
+        vld1.32 {q3}, [r1], r6
+
+        vshrn.i32 d16, q0, #16
+        vshrn.i32 d19, q1, #16
+        vshrn.i32 d22, q2, #16
+        vshrn.i32 d25, q3, #16
+
+        vld1.32 {q0}, [r1], r6 // load size: 4 * sizeof(float)
+        vld1.32 {q1}, [r1], r6
+        vld1.32 {q2}, [r1], r6
+        vld1.32 {q3}, [r1], r6
+
+        vshrn.i32 d17, q0, #16
+        vshrn.i32 d20, q1, #16
+        vshrn.i32 d23, q2, #16
+        vshrn.i32 d26, q3, #16
+
+        vld1.32 {q0}, [r1], r6 // load size: 4 * sizeof(float)
+        vld1.32 {q1}, [r1], r6
+        vld1.32 {q2}, [r1], r6
+        vld1.32 {q3}, [r1], r6
+
+        vshrn.i32 d18, q0, #16
+        vshrn.i32 d21, q1, #16
+        vshrn.i32 d24, q2, #16
+        vshrn.i32 d27, q3, #16
 
         // transpose each 4 16-bit elements in 2 d_n vectors, by transpose 16-bit and scale up transpose 32-bit.
         vtrn.16 d16, d19
@@ -145,7 +163,9 @@ LoopE1:
     cmp r5, #4
     blt LoopE1L3
     LoopE1L4:
-        vld1.16 {d0}, [r1], r4
+        vld1.32 {q0}, [r1], r4
+        vshrn.i32 d0, q0, #16
+        
         vst1.16 {d0[0]}, [r0], r11
         vst1.16 {d0[1]}, [r0], r11
         vst1.16 {d0[2]}, [r0], r11
@@ -157,7 +177,9 @@ LoopE1:
     LoopE1L3:
     cmp r5, #3
     blt LoopE1L2
-        vld1.16 {d0}, [r1], r4
+        vld1.32 {q0}, [r1], r4
+        vshrn.i32 d0, q0, #16
+
         vst1.16 {d0[0]}, [r0], r11
         vst1.16 {d0[1]}, [r0], r11
         vst1.16 {d0[2]}, [r0], r11
@@ -167,7 +189,9 @@ LoopE1:
     LoopE1L2:
     cmp r5, #2
     blt LoopE1L1
-        vld1.16 {d0}, [r1], r4
+        vld1.32 {q0}, [r1], r4
+        vshrn.i32 d0, q0, #16
+        
         vst1.16 {d0[0]}, [r0], r11
         vst1.16 {d0[1]}, [r0], r11
         sub r5, r5, #2
@@ -175,7 +199,8 @@ LoopE1:
     LoopE1L1:
     cmp r5, #1
     blt LoopE1End
-        vld1.16 {d0[0]}, [r1], r4
+        vld1.32 {d0}, [r1], r4
+        vshrn.i32 d0, q0, #16
         vst1.16 {d0[0]}, [r0], r11
 
     LoopE1End:

@@ -71,6 +71,16 @@ bool IsSoftmax(EXPRP expr) {
     return op && op->type() == OpType_Softmax;
 }
 
+bool IsSelect(EXPRP expr) {
+    const Op* op = expr->get();
+    return op && op->type() == OpType_Select;
+}
+
+bool IsGatherV2(EXPRP expr) {
+    const Op* op = expr->get();
+    return op && op->type() == OpType_GatherV2;
+}
+
 bool IsSlice(EXPRP expr) {
     const Op* op = expr->get();
     return op && (op->type() == OpType_Slice || op->type() == OpType_StridedSlice || op->type() == OpType_SliceTf);
@@ -119,6 +129,14 @@ bool IsUnarySquare(EXPRP expr) {
     IS_UNARY_OP_TYPE(UnaryOpOperation_SQUARE);
 }
 
+bool IsBinaryPow(EXPRP expr) {
+    IS_BINARY_OP_TYPE(BinaryOpOperation_POW);
+}
+
+bool IsUnarySqrt(EXPRP expr) {
+    IS_UNARY_OP_TYPE(UnaryOpOperation_SQRT);
+}
+
 bool IsUnaryRsqrt(EXPRP expr) {
     IS_UNARY_OP_TYPE(UnaryOpOperation_RSQRT);
 }
@@ -147,6 +165,11 @@ bool IsConvolution(EXPRP expr) {
 bool IsExpandDims(EXPRP expr) {
     const Op* op = expr->get();
     return op && op->type() == OpType_ExpandDims;
+}
+
+bool IsBroadcastTo(EXPRP expr) {
+    const Op* op = expr->get();
+    return op && op->type() == OpType_BroadcastTo;
 }
 
 EXPRP InputExpr(EXPRP expr, int input_index) {

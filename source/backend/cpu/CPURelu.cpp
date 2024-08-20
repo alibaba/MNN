@@ -179,10 +179,6 @@ ErrorCode CPUPRelu::onResize(const std::vector<Tensor*>& inputs, const std::vect
         ssize_t outputZero = static_cast<ssize_t>(TensorUtils::getDescribe(outputs[0])->quantAttr->zero);
         ssize_t maxValue = static_cast<ssize_t>(TensorUtils::getDescribe(inputs[0])->quantAttr->max);
         ssize_t minValue = static_cast<ssize_t>(TensorUtils::getDescribe(inputs[0])->quantAttr->min);
-        float inputScales[1] = {inputScale};
-        float outputScales[1] = {outputScale};
-        ssize_t inputZeros[1] = {inputZero};
-        ssize_t outputZeros[1] = {outputZero};
         mQuanScalesInput.resize(1);
         mQuanScalesOutput.resize(1);
         mQuanZerosInput.resize(1);
@@ -210,13 +206,14 @@ ErrorCode CPUPRelu::onExecute(const std::vector<Tensor*>& inputs, const std::vec
     auto coreInt8 = static_cast<CPUBackend*>(backend())->int8Functions();
     const int channel   = ib.dim[1].extent;
     const int batch     = ib.dim[0].extent;
-    const int depthQuad = UP_DIV(channel, core->pack);
+    int pack = 4;
+    int depthQuad = UP_DIV(channel, core->pack);
     const uint8_t* srcO   = (const uint8_t*)ib.host;
     uint8_t* dstO         = (uint8_t*)ob.host;
     auto totalCount = batch * depthQuad;
     auto numberThread = ((CPUBackend*)backend())->threadNumber();
     if (mUseInt8) {
-
+        depthQuad = UP_DIV(channel, pack);
         MNN_CONCURRENCY_BEGIN(tId, numberThread) {
             QuanPrePostParameters params;
             params.maxValue = static_cast<ssize_t>(TensorUtils::getDescribe(inputs[0])->quantAttr->max);
@@ -227,7 +224,7 @@ ErrorCode CPUPRelu::onExecute(const std::vector<Tensor*>& inputs, const std::vec
             params.outputZeroPoint = mQuanZerosOutput.data();
             for (int b=tId; b<totalCount; b+=numberThread) {
                 auto c = b / batch;
-                coreInt8->MNNReluWithSlopeChannelInt8((int8_t*)(dstO + sizeQuad * core->pack * b), (const int8_t*)(srcO + sizeQuad * core->pack * b), (const float*)(mSlope.host<uint8_t>() + core->bytes * core->pack * c), sizeQuad, 1, &params);
+                coreInt8->MNNReluWithSlopeChannelInt8((int8_t*)(dstO + sizeQuad * pack * b), (const int8_t*)(srcO + sizeQuad * pack * b), (const float*)(mSlope.host<uint8_t>() + core->bytes * pack * c), sizeQuad, 1, &params);
             }
         }
         MNN_CONCURRENCY_END();

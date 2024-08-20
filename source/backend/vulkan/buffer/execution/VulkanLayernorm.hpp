@@ -30,7 +30,7 @@ private:
     float mEps;
     bool mHasScale = false;
     int mGroup = 0;
-    int mAxisSize;
+    int mAxisSize = 0;
 };
 
 } // namespace MNN

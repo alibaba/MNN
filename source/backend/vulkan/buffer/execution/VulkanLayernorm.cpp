@@ -20,7 +20,9 @@ struct Param {
 VulkanLayernorm::VulkanLayernorm(const Op* op, Backend* backend) : VulkanBasicExecution(backend) {
     auto layer_norm_param = op->main_as_LayerNorm();
     auto vkbackend = static_cast<VulkanBackend*>(backend);
-    mAxisSize = layer_norm_param->axis()->size();
+    if (nullptr != layer_norm_param->axis()) {
+        mAxisSize = layer_norm_param->axis()->size();
+    }
     mGroup = layer_norm_param->group();
 
     mParam = vkbackend->allocUniform();

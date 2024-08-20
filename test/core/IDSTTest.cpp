@@ -7,9 +7,8 @@
 //
 
 #include "MNNTestSuite.h"
-#include "MNN_generated.h"
 #include <MNN/Tensor.hpp>
-#include "cpp/IDSTEncoder.hpp"
+#include "core/IDSTEncoder.hpp"
 #include "core/ConvolutionCommon.hpp"
 using namespace MNN;
 

@@ -29,7 +29,7 @@ pip install prettytable
 python3 benchmark.py
 ```
 
-# 6. Playgroud Test (just internal usage) 
+# 6. Playgroud Test (just internal usage)
 ```bash
 # 拷贝AliNNModel所有模型和测试数据到MNN工作台工程下
 python scripts/pullTestModel.py --alinnmodel_path ../../../AliNNModel --playground_path playground/playground

@@ -12,6 +12,7 @@
 #include <string>
 #include <algorithm>
 #include "../PostTreatUtils.hpp"
+#include <MNN/MNNDefine.h>
 using namespace MNN;
 class RemoveInvalidCast : public PostConverter {
 public:
@@ -67,12 +68,33 @@ public:
                 case MNN::OpType_Cast:
                     types[op->outputIndexes[0]] = op->main.AsCastParam()->dstT;
                     break;
+                // Float Op
+                case MNN::OpType_PReLU:
+                case MNN::OpType_Softmax:
+                case MNN::OpType_Convolution:
+                case MNN::OpType_ConvolutionDepthwise:
+                case MNN::OpType_Convolution3D:
+                case MNN::OpType_Deconvolution:
+                case MNN::OpType_DeconvolutionDepthwise:
+                case MNN::OpType_MatMul:
+                    if (op->outputIndexes.size() == 1) {
+                        // 4 is integer matmul
+                        types[op->outputIndexes[0]] = MNN::DataType_DT_FLOAT;
+                    }
+                    break;
                 case MNN::OpType_Const:
                 case MNN::OpType_TrainableParam:
                     types[op->outputIndexes[0]] = op->main.AsBlob()->dataType;
                     break;
                 case MNN::OpType_Fill:
                     types[op->outputIndexes[0]] = types[op->inputIndexes[1]];
+                    break;
+                case MNN::OpType_Slice:
+                case MNN::OpType_SliceTf:
+                case MNN::OpType_Unpack:
+                    for (auto v : op->outputIndexes) {
+                        types[v] = types[op->inputIndexes[0]];
+                    }
                     break;
                 case MNN::OpType_Shape:
                 case MNN::OpType_Size:
@@ -111,12 +133,33 @@ public:
                     }
                 }
                     break;
+                // Deform
+                case MNN::OpType_Broastcast:
+                case MNN::OpType_Concat:
+                case MNN::OpType_Crop:
+                case MNN::OpType_CropAndResize:
+                case MNN::OpType_Col2Im:
+                case MNN::OpType_DepthToSpace:
+                case MNN::OpType_ExpandDims:
+                case MNN::OpType_Flatten:
+                case MNN::OpType_Interp:
+                case MNN::OpType_Interp3D:
+                case MNN::OpType_Im2Col:
+                case MNN::OpType_Pack:
+                case MNN::OpType_Padding:
+                case MNN::OpType_Permute:
+                case MNN::OpType_Reshape:
+                case MNN::OpType_Resize:
+                case MNN::OpType_StridedSlice:
+                case MNN::OpType_SpaceToDepth:
+                case MNN::OpType_Squeeze:
+                case MNN::OpType_Transpose:
+                case MNN::OpType_Unsqueeze:
+                {
+                    types[op->outputIndexes[0]] = types[op->inputIndexes[0]];
+                }
+                    break;
                 default:
-                    if (op->inputIndexes.size() > 0) {
-                        for (int i=0; i<op->outputIndexes.size(); ++i) {
-                            types[op->outputIndexes[i]] = types[op->inputIndexes[0]];
-                        }
-                    }
                     break;
             }
         }
@@ -134,7 +177,7 @@ public:
             }
             if (types[op->inputIndexes[0]] != types[op->outputIndexes[0]]) {
                 iter++;
-                break;
+                continue;
             }
             if (std::find(net->outputName.begin(), net->outputName.end(), net->tensorName[op->outputIndexes[0]]) != net->outputName.end()) {
                 iter++;

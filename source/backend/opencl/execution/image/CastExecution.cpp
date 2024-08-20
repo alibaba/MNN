@@ -7,25 +7,26 @@
 //
 
 #include "backend/opencl/execution/image/CastExecution.hpp"
-#include "core/Macro.h"
-#include "core/TensorUtils.hpp"
-#include "backend/opencl/core/OpenCLBackend.hpp"
 
 namespace MNN {
 namespace OpenCL {
 
-CastExecution::CastExecution(const std::string& compute, Backend* backend) : Execution(backend) {
+CastExecution::CastExecution(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, const std::string& compute, const MNN::Op* op, Backend* backend) : CommonExecution(backend, op) {
     mBuildOptions.emplace(compute);
+    auto openCLBackend = static_cast<OpenCLBackend*>(backend);
+    auto runtime       = openCLBackend->getOpenCLRuntime();
+    mUnits.resize(1);
+    auto &unit = mUnits[0];
+    unit.kernel = openCLBackend->getOpenCLRuntime()->buildKernel("cast", "cast", mBuildOptions, inputs[0], outputs[0]);
+    mMaxWorkGroupSize  = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
 }
-ErrorCode CastExecution::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
+ErrorCode CastExecution::onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     Tensor* input      = inputs[0];
     Tensor* output     = outputs[0];
     auto openCLBackend = static_cast<OpenCLBackend*>(backend());
     auto runtime       = openCLBackend->getOpenCLRuntime();
-    openCLBackend->startRecord(mRecording);
-    mKernel = runtime->buildKernel("cast", "cast", mBuildOptions);
-    mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mKernel));
 
+    auto &unit = mUnits[0];
     std::vector<int> inputShape  = tensorShapeFormat(input);
     std::vector<int> outputShape = tensorShapeFormat(output);
 
@@ -44,51 +45,21 @@ ErrorCode CastExecution::onResize(const std::vector<Tensor*>& inputs, const std:
 
     uint32_t idx = 0;
     cl_int ret = CL_SUCCESS;
-    ret |= mKernel.setArg(idx++, mGlobalWorkSize[0]);
-    ret |= mKernel.setArg(idx++, mGlobalWorkSize[1]);
-    ret |= mKernel.setArg(idx++, mGlobalWorkSize[2]);
-    ret |= mKernel.setArg(idx++, openCLImage(input));
-    ret |= mKernel.setArg(idx++, openCLImage(output));
-    ret |= mKernel.setArg(idx++, outputWidth);
-    ret |= mKernel.setArg(idx++, outputHeight);
-    ret |= mKernel.setArg(idx++, channelBlocks);
+    ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[0]);
+    ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[1]);
+    ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[2]);
+    ret |= unit.kernel->get().setArg(idx++, openCLImage(input));
+    ret |= unit.kernel->get().setArg(idx++, openCLImage(output));
+    ret |= unit.kernel->get().setArg(idx++, outputWidth);
+    ret |= unit.kernel->get().setArg(idx++, outputHeight);
+    ret |= unit.kernel->get().setArg(idx++, channelBlocks);
     MNN_CHECK_CL_SUCCESS(ret, "setArg CastExecution");
 
     std::string kernelName = "cast";
-    mLocalSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), kernelName, mKernel).first;
-    openCLBackend->recordKernel3d(mKernel, mGlobalWorkSize, mLocalSize);
-    openCLBackend->endRecord(mRecording);
-    return NO_ERROR;
-}
-
-ErrorCode CastExecution::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
-#ifdef LOG_VERBOSE
-    MNN_PRINT("start CastExecution onExecute...");
-#endif
-    auto mOpenCLBackend = static_cast<OpenCLBackend*>(backend());
-    
-#ifdef ENABLE_OPENCL_TIME_PROFILER
-    cl::Event event;
-    run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalSize,
-                       mOpenCLBackend->getOpenCLRuntime(), &event);
-    
-    mOpenCLBackend->getOpenCLRuntime()->pushEvent({"Cast", event});
-#else
-    if(mOpenCLBackend->isUseRecordQueue()){
-        if(mOpenCLBackend->isDevideOpRecord())
-            mOpenCLBackend->addRecord(mRecording);
-#ifdef LOG_VERBOSE
-        MNN_PRINT("End CastExecution onExecute... \n");
-#endif
-        return NO_ERROR;
-    }
-    run3DKernelDefault(mKernel, mGlobalWorkSize, mLocalSize,
-                       mOpenCLBackend->getOpenCLRuntime());
-#endif
-
-#ifdef LOG_VERBOSE
-    MNN_PRINT("end CastExecution onExecute...");
-#endif
+    mLocalSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), kernelName, unit.kernel).first;
+    openCLBackend->recordKernel3d(unit.kernel, mGlobalWorkSize, mLocalSize);
+    unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1], mGlobalWorkSize[2]};
+    unit.localWorkSize  = {mLocalSize[0], mLocalSize[1], mLocalSize[2]};
     return NO_ERROR;
 }
 
@@ -116,39 +87,10 @@ public:
 
         const auto &inputDataType = inputs[0]->getType();
         if (inputDataType.bytes() == 4 && cast->dstT() == MNN::DataType_DT_BOOL) {
-            return new CastExecution("-DTO_BOOL", backend);
+            return new CastExecution(inputs, outputs, "-DTO_BOOL", op, backend);
+        } else {
+            return new CastExecution(inputs, outputs, "", op, backend);
         }
-        if (inputs[0]->buffer().type == outputs[0]->buffer().type) {
-            return new CastExecution("", backend);
-        }
-        if (dstT == MNN::DataType_DT_INT32 && halide_type_of<float>() == inputDataType) {
-            return new CastExecution("", backend);
-        }
-        if (dstT == MNN::DataType_DT_FLOAT && halide_type_of<int32_t>() == inputDataType) {
-            return new CastExecution("", backend);
-        }
-        if (dstT == MNN::DataType_DT_FLOAT && halide_type_of<uint8_t>() == inputDataType) {
-            return new CastExecution("", backend);
-        }
-        if (dstT == MNN::DataType_DT_FLOAT && halide_type_of<int8_t>() == inputDataType) {
-            return new CastExecution("", backend);
-        }
-        if (dstT == MNN::DataType_DT_INT8 && halide_type_of<float>() == inputDataType) {
-            return new CastExecution("", backend);
-        }
-        if (dstT == MNN::DataType_DT_UINT8 && halide_type_of<float>() == inputDataType) {
-            return new CastExecution("", backend);
-        }
-        if (dstT == MNN::DataType_DT_UINT8 && halide_type_of<int32_t>() == inputDataType) {
-            return new CastExecution("", backend);
-        }
-        if (dstT == MNN::DataType_DT_INT32 && halide_type_of<uint8_t>() == inputDataType) {
-            return new CastExecution("", backend);
-        }
-        if (dstT == MNN::DataType_DT_INT32 && halide_type_of<int8_t>() == inputDataType) {
-            return new CastExecution("", backend);
-        }
-        MNN_PRINT("Don't support cast form %d, %d to %d\n", inputDataType.code, inputDataType.bits, cast->dstT());
         return nullptr;
     }
 };

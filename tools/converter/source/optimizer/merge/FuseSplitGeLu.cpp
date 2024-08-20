@@ -52,8 +52,20 @@ FuseSplitGeLu::FuseSplitGeLu() {
         y = expr->inputs().at(1)->expr().first;
         if (helpers::IsBinaryMul(x) && helpers::IsSlice(y)) {
             z = x;
+            if(!helpers::IsConstant(y->inputs().at(1)->expr().first) || y->inputs().at(1)->readMap<int32_t>()[0] != 0) {
+                return false;
+            }
+            if(!helpers::IsConstant(y->inputs().at(3)->expr().first) || y->inputs().at(3)->readMap<int32_t>()[0] != -1) {
+                return false;
+            }
         } else if (helpers::IsBinaryMul(y) && helpers::IsSlice(x)) {
             z = y;
+            if(!helpers::IsConstant(x->inputs().at(1)->expr().first) || x->inputs().at(1)->readMap<int32_t>()[0] != 0) {
+                return false;
+            }
+            if(!helpers::IsConstant(x->inputs().at(3)->expr().first) || x->inputs().at(3)->readMap<int32_t>()[0] != -1) {
+                return false;
+            }
         } else {
             return false;
         }
@@ -108,22 +120,35 @@ FuseSplitGeLu::FuseSplitGeLu() {
         }
         // slice
         x = z->inputs().at(0)->expr().first;
-        
+        auto res = z;
         mHasPrefixAdd = false;
         if (helpers::IsBinaryAdd(x)) {
             z = x;
             x = z->inputs().at(0)->expr().first;
             y = z->inputs().at(1)->expr().first;
             if (helpers::IsConstant(x)){
-                split_gelu_input_0 = z->inputs().at(1);
-                split_gelu_input_1 = z->inputs().at(0);
+                if(z->inputs().at(0)->getInfo()->dim.size() == 1) {
+                    split_gelu_input_0 = z->inputs().at(1);
+                    split_gelu_input_1 = z->inputs().at(0);
+                } else {
+                    split_gelu_input_0 = res->inputs().at(0);
+                    return true;
+                }
+            } else if (helpers::IsConstant(y)){
+                if(z->inputs().at(1)->getInfo()->dim.size() == 1) {
+                    split_gelu_input_0 = z->inputs().at(0);
+                    split_gelu_input_1 = z->inputs().at(1);
+                } else {
+                    split_gelu_input_0 = res->inputs().at(0);
+                    return true;
+                }
             } else {
-                split_gelu_input_0 = z->inputs().at(0);
-                split_gelu_input_1 = z->inputs().at(1);
+                split_gelu_input_0 = res->inputs().at(0);
+                return true;
             }
             mHasPrefixAdd = true;
         } else {
-            split_gelu_input_0 = z->inputs().at(0);
+            split_gelu_input_0 = res->inputs().at(0);
         }
         return true;
     };

@@ -25,6 +25,8 @@ ldr r4, [sp, #32]
 ldr r6, [sp, #36]
 ldr r7, [sp, #40]
 ldr r12, [r4, #0]
+// aStride is compute as float, divided 2 to as bf16
+lsr r12, r12, #1
 cmp r6, #0
 beq Start
 vld1.32 {q3}, [r6]
@@ -61,8 +63,8 @@ LoopE4:
             bne LoopE4L
         cmp r6, #0
         beq StoreE4
-        vld1.16 {d28}, [r7]! // load 4 * sizeof(int16_t)
-        vshll.s16 q14, d28, #16 // shift left long of each int16_t as float32
+        vld1.32 {q14}, [r7]! // load 4 * sizeof(float)
+
         vmla.f32 q8, q14, d6[1]
         vmla.f32 q9, q14, d6[1]
         vmla.f32 q10, q14, d6[1]
@@ -81,20 +83,17 @@ LoopE4:
 
         StoreE4:
         ldr r8, [r4, #20]
+        lsr r8, r8, #1 // bExtraStride is compute as float, divide to bf16
         add r11, r11, r8
         ldr r8, [r4, #12]
 
-        vshrn.i32 d16, q8, #16 // shift right 16bit of each float32 as int16_t
-        vshrn.i32 d17, q9, #16
-        vshrn.i32 d18, q10, #16
-        vshrn.i32 d19, q11, #16
-        vst1.16 {d16, d17}, [lr]!
-        vst1.16 {d18, d19}, [lr], r8
-        sub lr, lr, #16
+        vst1.32 {q8, q9}, [lr]!
+        vst1.32 {q10, q11}, [lr], r8
+        sub lr, lr, #32 // revert to next C4 begin
         subs r5, r5, #1 // move 4 colum along lP dim. lP = l / 4
         bne LoopE4H
     sub r3, r3, #4 // move 4 colum along e dim.
-    add r0, r0, #32 // move address of 4 * 4 * sizeof(int16_t)
+    add r0, r0, #64 // move address of 4 * 4 * sizeof(float)
     add r1, r1, #8 // move address of 4 * sizeof(int16_t) in src tile block
     cmp r3, #4
     pop {r7}
@@ -125,8 +124,7 @@ LoopE1:
             bne LoopE1L
         cmp r6, #0
         beq StoreE1
-        vld1.16 {d28}, [r7]! // load 4 * sizeof(int16_t)
-        vshll.s16 q14, d28, #16 // shift left long of each int16_t as float32
+        vld1.32 {q14}, [r7]! // load 4 * sizeof(float)
         vmla.f32 q15, q14, d6[1]
 
         PostTreatE1:
@@ -135,15 +133,15 @@ LoopE1:
 
         StoreE1:
         ldr r8, [r4, #20]
+        lsr r8, r8, #1
         add r11, r11, r8
         ldr r8, [r4, #12]
 
-        vshrn.i32 d30, q15, #16 // shift right 16bit of each float32 as int16_t
-        vst1.16 {d30}, [lr], r8
+        vst1.16 {q15}, [lr], r8
         subs r5, r5, #1
         bne LoopE1H
     subs r3, r3, #1
-    add r0, r0, #8 // move address of 4 * sizeof(int16_t)
+    add r0, r0, #16 // move address of 4 * sizeof(float)
     add r1, r1, #2 // move address of 1 * sizeof(int16_t)
     pop {r7}
     bne LoopE1

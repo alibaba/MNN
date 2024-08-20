@@ -12,27 +12,33 @@
 #ifndef ConvSubgroupBufExecution_hpp
 #define ConvSubgroupBufExecution_hpp
 
-#include "core/Execution.hpp"
-
-#include <array>
-#include <functional>
-#include <memory>
-#include <vector>
-#include "backend/opencl/core/OpenCLBackend.hpp"
-#include "backend/opencl/core/OpenCLRunningUtils.hpp"
-#include "backend/opencl/execution/image/CommonExtension.hpp"
+#include "backend/opencl/execution/image/CommonExecution.hpp"
 namespace MNN {
 namespace OpenCL {
+struct ConvSubgroupBufResource {
+    const Convolution2DCommon* mConv2dCommonParams;
+    const Convolution2D* mConv2dParams;
+    std::vector<int> mStrides{1, 1};
+    std::vector<int> mDilations{1, 1};
+    std::shared_ptr<Tensor> mFilter;
+    std::shared_ptr<Tensor> mBias;
+    int mKernelWidth;
+    int mKernelHeight;
+    int mOutputChannel;
+    int mInputChannel;
+    std::set<std::string> mBuildOptions;
+};
 
-class ConvSubgroupBuf : public Execution, public CommonExtension {
+class ConvSubgroupBuf : public CommonExecution {
 public:
     virtual ~ConvSubgroupBuf();
 
     ConvSubgroupBuf(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op,
                     Backend* backend);
+    ConvSubgroupBuf(std::shared_ptr<ConvSubgroupBufResource> resource, const MNN::Op* op, Backend* backend);
 
-    virtual ErrorCode onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override;
-    virtual ErrorCode onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override;
+    virtual ErrorCode onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override;
+    virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
     static bool valid(const Convolution2DCommon* common, const Tensor* input, const Tensor* output, int maxWidth,
                       int maxHeight, int limit = 8192);
 
@@ -40,29 +46,15 @@ private:
     void transformWeight(const Tensor* weightDest, const Tensor* source);
 
     OpenCLBackend* mOpenCLBackend;
-    const Convolution2DCommon* mConv2dCommonParams;
-    const Convolution2D* mConv2dParams;
-    std::vector<int> mStrides{1, 1};
+    std::shared_ptr<ConvSubgroupBufResource> mResource;
     std::vector<int> mPaddings{0, 0};
-    std::vector<int> mDilations{1, 1};
     std::vector<uint32_t> mGlobalWorkSize{1, 1, 1};
     std::vector<uint32_t> mLocalWorkSize{1, 1, 1, 1};
     std::vector<uint32_t> mTranseGlobalWorkSize{1, 1, 1};
     std::vector<uint32_t> mTranseLocalWorkSize{1, 1, 1, 1};
-    std::shared_ptr<Tensor> mFilter;
-    std::shared_ptr<Tensor> mBias;
     std::shared_ptr<Tensor> mSource;
-    cl::Kernel mKernel;
-    cl::Kernel mTranseKernel;
-    uint32_t mMaxWorkGroupSize;
-    std::shared_ptr<cl::Buffer> mKernelBuffer;
-    std::shared_ptr<cl::Buffer> mBiasBuffer;
-    int mKernelWidth;
-    int mKernelHeight;
-    int mOutputChannel;
-    int mInputChannel;
-    std::set<std::string> mBuildOptions;
     bool mNeedTranse = false;
+    
 };
 
 } // namespace OpenCL
