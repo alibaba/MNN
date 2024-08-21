@@ -207,11 +207,49 @@ static void Getfp32Info (std::shared_ptr<CPUConvolution::Resource> resource, std
 
 DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const Convolution2D* convOp, std::shared_ptr<ResourceInt8> res, bool dynamicQuantExe) : ConvInt8TiledExecutor(backend, convOp, res) {
     std::shared_ptr<Tensor> weightOrigin = mResourceInt8->mWeightInt8;
-    std::shared_ptr<MNN::ConvolutionCommon::Int8Common> quanCommon ;
+    std::shared_ptr<MNN::ConvolutionCommon::Int8Common> quanCommon;
     mDynamicQuantExe = dynamicQuantExe;
+    if(mDynamicQuantExe) {
+        quanCommon = ConvolutionCommon::load(convOp, backend, false, true);
+    }
+
+#if MNN_KLEIDIAI_ENABLED
+    KleidiAI kai = KleidiAI::getInstance(quanCommon->asymmetric);
+    if(mDynamicQuantExe) {
+        if(quanCommon->canUseInt4 && kai.canAccelerate()) {
+            MNN_ASSERT(convOp->quanParameter() != nullptr && convOp->quanParameter()->buffer() != nullptr);
+            mResource.reset(new CPUConvolution::Resource);
+            mResource->backend = backend;
+
+            mResource->mDequantize.bits = 4;
+
+            int n = convOp->common()->outputCount();
+            int k = mResourceInt8->mWeightInt8->size() / n;
+            int packedWeightSize = kai.getRhsPackedSize(n, k);
+
+            //Alloc packed weight tensor.
+            mResourceInt8->mWeightInt8.reset(Tensor::createDevice<uint8_t>({packedWeightSize}));
+            bool success = backend->onAcquireBuffer(mResourceInt8->mWeightInt8.get(), Backend::STATIC);
+
+            if (!success) {
+                MNN_ERROR("Out of static memory!\n");
+                return;
+            }
+
+            //Run rhs pack.
+            auto weightOriginData = weightOrigin->host<uint8_t>();
+            auto weightPackedData = mResourceInt8->mWeightInt8->host<uint8_t>();
+            kai.runRhsPack(n, k, weightOriginData,
+                           quanCommon->alpha.get(),
+                           mMutableResource.mResource->mOriginBias->host<float>(),
+                           weightPackedData);
+
+            return;
+        }
+    }
+#endif
     if (dynamicQuantExe) {
         MNN_ASSERT(convOp->quanParameter() != nullptr && convOp->quanParameter()->buffer() != nullptr);
-        quanCommon = ConvolutionCommon::load(convOp, backend, false, true);
         // fp32 weightKernelSum
         mResource.reset(new CPUConvolution::Resource);
         mResource->backend = backend;
@@ -340,6 +378,27 @@ ErrorCode DenseConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& input
     auto gcore =static_cast<CPUBackend*>(backend())->functions();
     int UNIT, SRC_UNIT, DST_XUNIT;
     core->MNNGetGemmUnit(&UNIT, &SRC_UNIT, &DST_XUNIT);
+
+#if MNN_KLEIDIAI_ENABLED
+    KleidiAI& kai = KleidiAI::getInstance();
+    if(mDynamicQuantExe) {
+        if(mResource->mDequantize.bits == 4 && kai.canAccelerate()) {
+            int batch = inputs[0]->batch();
+            int channel = inputs[0]->channel();
+
+            int packedSize = kai.getLhsQuantedPackedSize(batch, channel);
+            mTempIm2ColBuffer.reset(Tensor::createDevice<int8_t>({packedSize}));
+            bool success = backend()->onAcquireBuffer(mTempIm2ColBuffer.get(), Backend::DYNAMIC);
+            if (!success) {
+                MNN_ERROR("Out of dynamic memory!\n");
+                return OUT_OF_MEMORY;
+            }
+
+            backend()->onReleaseBuffer(mTempIm2ColBuffer.get(), Backend::DYNAMIC);
+            return NO_ERROR;
+        }
+    }
+#endif
 
     if (mDynamicQuantExe == false) {
         mMutableResource.updateInputOutputScale(TensorUtils::getQuantInfo(inputs[0]), TensorUtils::getQuantInfo(outputs[0]));
@@ -485,6 +544,53 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
     auto output      = outputs[0];
     auto core = static_cast<CPUBackend*>(backend())->int8Functions();
     auto gcore = static_cast<CPUBackend*>(backend())->functions();
+
+#if MNN_KLEIDIAI_ENABLED
+    KleidiAI& kai = KleidiAI::getInstance();
+    if(mDynamicQuantExe) {
+        if(mResource->mDequantize.bits == 4 && kai.canAccelerate()) {
+            const size_t m = input->batch(); //lhs vector number.
+            const size_t n = output->channel(); //rhs vector number.
+            const size_t k = input->channel(); //vector size.
+
+            auto lhs = reinterpret_cast<const float*>(input->host<uint8_t>());
+            auto lhsPacked = mTempIm2ColBuffer->host<int8_t>();
+            auto rhsPacked = mResourceInt8->mWeightInt8->host<uint8_t>();
+            auto dst = reinterpret_cast<float*>(output->host<uint8_t>());
+
+#if !KAI_CONV_NCHW_IN_OUT
+            kai.packNC4HW4ToNCHW((float *)lhs, m, k);
+#endif
+            auto BatchDynamicQuant = [=]() {
+                KleidiAI& kai = KleidiAI::getInstance();
+                kai.runLhsQuantPack(m, k, lhs, lhsPacked);
+            };
+
+            BatchDynamicQuant();
+
+            int nPerThread = kai.getVecNumPerThread(n, static_cast<CPUBackend*>(backend())->threadNumber(), kai.getNStep());
+            int threadNeed = n % nPerThread == 0 ? n / nPerThread : (n / nPerThread + 1);
+
+            auto ThreadFunction = [=](int tId) {
+                KleidiAI& kai = KleidiAI::getInstance();
+                auto threadRhsPacked = rhsPacked + kai.getRhsPackedOffset(tId * nPerThread, k);
+                auto threadDst = reinterpret_cast<uint8_t *>(dst) + kai.getDstOffset(0, tId * nPerThread, n);
+                int threadN = (tId == threadNeed - 1) ? (n - nPerThread * tId) : nPerThread; //Last threadN may less than nPerThread.
+                kai.runMatmul(m, threadN, k, lhsPacked, threadRhsPacked, n * sizeof(float), threadDst);
+            };
+
+            MNN_CONCURRENCY_BEGIN(tId, threadNeed) {
+                ThreadFunction((int)tId);
+            }
+            MNN_CONCURRENCY_END();
+
+#if !KAI_CONV_NCHW_IN_OUT
+            kai.packNCHWToNC4HW4((float *)dst, m, n);
+#endif
+            return NO_ERROR;
+        }
+    }
+#endif
 
     int UNIT__, SRC_UNIT, DST_XUNIT;
     core->MNNGetGemmUnit(&UNIT__, &SRC_UNIT, &DST_XUNIT);
