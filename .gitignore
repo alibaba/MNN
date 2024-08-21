@@ -367,3 +367,7 @@ model/
 # log
 log*
 test*.txt
+
+# debug, release
+debug/
+release/

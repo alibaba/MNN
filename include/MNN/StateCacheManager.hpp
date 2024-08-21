@@ -218,6 +218,7 @@ private:
 
     // Reference correlated stuff
     int mNextNewRefId;
+    int mNextNewLayerId;
     int mBlockSize = 0;
     std::shared_ptr<StateCacheReference> mCurrentReference;
 
@@ -244,6 +245,10 @@ public:
     std::shared_ptr<StateCacheReference> getCurrentReference() {return mCurrentReference;}
     void setCurrentReference(std::shared_ptr<StateCacheReference> other) {mCurrentReference = other;}
     std::shared_ptr<StateCacheReference> onCreateReference(bool from_current=false);
+    void* onCreateIdentifier(void* identifier=nullptr) {
+        if (identifier!=nullptr) return identifier;
+        else return (void*)(mNextNewLayerId++);
+    }
 
     // Enlarge the memory resources
     bool enlargeMemCache(void* layer, size_t size);

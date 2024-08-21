@@ -178,6 +178,7 @@ void StateCache::clear(std::shared_ptr<StateCacheBlock> block) {
 /* -------------StateCacheManager------------ */
 StateCacheManager::StateCacheManager(MNNStateCacheQuantType quantType, MNNStateCacheType type){
     mNextNewRefId = 0;
+    mNextNewLayerId = 1;
     mQuantType = quantType;
     mType = type;
     if (mType == MNNStateCacheType::MNN_STATECACHE_ADVANCED) {
@@ -686,5 +687,14 @@ void StateCacheManager::postAttn(void* layer, int last_block_slot_num) {
     }
     mCurrentReference->mPageTable[layer][mCurrentReference->mPageTable[layer].size()-1]->resetSlotNum(last_block_slot_num);
 }
+
+// void* StateCacheManager::assertIdentifier(void* identifier) {
+//     for (auto it = mStateCache.begin(); it != mStateCache.end(); ++it) {
+//         auto layer = it->first;
+//         if (identifier==layer) {
+//             identifier = 
+//         }
+//     }
+// }
 
 } // namespace MNN

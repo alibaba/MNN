@@ -132,7 +132,11 @@ void Llm::init_runtime() {
         cpuBackendConfig.memory = BackendConfig::Memory_Low;
     }
     if (config_->precision() == "low") {
+        std::cout << "Precision Low" << std::endl;
         cpuBackendConfig.precision = BackendConfig::Precision_Low;
+    } else {
+        std::cout << "Precision Normal" << std::endl;
+        cpuBackendConfig.precision = BackendConfig::Precision_Normal;
     }
     config.backendConfig = &cpuBackendConfig;
     ExecutorScope::Current()->setGlobalExecutorConfig(config.type, cpuBackendConfig, config.numThread);
