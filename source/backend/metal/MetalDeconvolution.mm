@@ -145,7 +145,7 @@ MetalDeconvolution::MetalDeconvolution(Backend *backend, const MNN::Op *op) : Me
     // forcy downgrade to float like what CPU does
     std::shared_ptr<ConvolutionCommon::Int8Common> qnt = NULL;
     if (deconv->quanParameter()) {
-        qnt = ConvolutionCommon::load(deconv, backend, true);
+        qnt = ConvolutionCommon::load(op, backend, true);
     }
     auto kw     = common->kernelX();
     auto kh     = common->kernelY();
@@ -195,7 +195,7 @@ ErrorCode MetalDeconvolution::onResize(const std::vector<Tensor *> &inputs, cons
     auto pad = ConvolutionCommon::convolutionTransposePad(input, output, mOp->main_as_Convolution2D()->common());
     const int padX  = pad.first;
     const int padY = pad.second;
-    
+
     // const buffer
     auto deltaKy = leastCommonMultiple(mDilateY, mStrideY) / mDilateY;
     auto deltaKx = leastCommonMultiple(mDilateX, mStrideX) / mDilateX;
@@ -227,7 +227,7 @@ ErrorCode MetalDeconvolution::onResize(const std::vector<Tensor *> &inputs, cons
         mActivationType
     };
     mConstBuffer = [context newDeviceBuffer:sizeof(consts) bytes:consts access:CPUWriteOnly];
-    
+
     mThreads = [context computeBestGroupAndLocal:mPipeline threads:MTLSizeMake((NSUInteger) ow, (NSUInteger)oh, (NSUInteger)oz * ob)];
     return NO_ERROR;
 }

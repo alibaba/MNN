@@ -589,5 +589,21 @@ bool localWSTune(const std::map<std::string, std::vector<std::pair<std::vector<u
     return true;
 }
 
+bool getPreParamInfo(const std::string preParamName, uint32_t *preParamData,  OpenCLRuntime *runtime){
+    auto& preParamInfo = runtime->preParamsMap();
+    if (preParamInfo.find(preParamName) != preParamInfo.end()) {
+        *preParamData = preParamInfo[preParamName];
+        return true;
+    }
+    return false;
+}
+
+void setPreParamInfo(const std::string preParamName, uint32_t preParamData,  OpenCLRuntime *runtime){
+    auto& preParamInfo = runtime->preParamsMap();
+    if (preParamInfo.find(preParamName) == preParamInfo.end()) {
+        preParamInfo.insert(std::make_pair(preParamName, preParamData));
+    }
+}
+
 } // namespace OpenCL
 } // namespace MNN

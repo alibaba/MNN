@@ -870,6 +870,7 @@ Tile8End:
     add x0, x0, x21, LSL #3
     add x1, x1, #64
     add x27, x27, #32
+    cbnz w23, TILE_4
     add x4, x4, #64 // Revert x4 for following tile.
 
 TILE_4:

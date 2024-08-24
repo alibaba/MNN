@@ -14,7 +14,6 @@ def load_feature_extractor(model_file):
     output_var = var_dict['MobilenetV2/Logits/AvgPool']
     # 'False' means the parameters int this module will not update during training
     feature_extractor = nn.load_module([input_var], [output_var], False)
-    feature_extractor = nn.FixModule(feature_extractor)  # fix feature extractor
 
     return feature_extractor
 

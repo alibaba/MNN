@@ -481,10 +481,18 @@ Module* Module::extract(std::vector<Express::VARP> inputs, std::vector<Express::
     return new PipelineModule(inputs, outputs);
 }
 int Module::traceOrOptimize(Interpreter::SessionMode stage) {
-    for (auto& m : mChildren) {
-        m->traceOrOptimize(stage);
+    auto code = this->onOptimize(stage);
+    if (code != 0) {
+        // Has Error
+        return code;
     }
-    return this->onOptimize(stage);
+    for (auto& m : mChildren) {
+        code = m->traceOrOptimize(stage);
+        if (code != 0) {
+            return code;
+        }
+    }
+    return code;
 }
 
 

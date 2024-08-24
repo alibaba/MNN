@@ -9,7 +9,7 @@
 #include "OpGrad.hpp"
 #include "core/Macro.h"
 using namespace std;
-using namespace MNN;
+namespace MNN {
 using namespace MNN::Express;
 
 class SeluGrad : public OpGrad {
@@ -38,8 +38,12 @@ public:
     }
 };
 
-static const auto gRegister = []() {
+static void _create() {
     static SeluGrad _c;
     OpGrad::insert(OpType_Selu, &_c);
-    return true;
-}();
+
+}
+
+REGISTER_GRAD(SeluGrad_cpp, _create);
+};
+

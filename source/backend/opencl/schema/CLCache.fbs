@@ -29,11 +29,17 @@ table GemmInfo {
     paramInfo:[uint];
 }
 
+table PreParamInfo{
+    preParamName:string;
+    preParamData:uint;
+}
+
 table Cache {
     programs:[Shader];
     tunings:[Autotuning];
     tuned:[OpInfo];
     gemm:[GemmInfo];
+    preParam:[PreParamInfo];
 }
 
 root_type Cache;

@@ -5,7 +5,8 @@ class Assembly():
         self.src_path = src_path
         self.dst_path = dst_path
         # instructions
-        self.ops = ['sdot', 'smmla', 'bfmmla']
+        self.ops = ['sdot', 'smmla', 'bfmmla', 'mov']
+
     def assembly(self):
         self.dst_content = []
         src = open(self.src_path, 'rt')
@@ -14,36 +15,46 @@ class Assembly():
             cmd = code.strip().split(' ')
             for op in self.ops:
                 if cmd[0] == op:
-                    inst = getattr(self, op)(cmd[1], cmd[2], cmd[3])
-                    code = code[:code.find(op)] + inst + ' // ' + code.strip(' ')
+                    if op == 'mov':
+                        code = getattr(self, op)(code, cmd[1], cmd[2])
+                    else:
+                        inst = getattr(self, op)(cmd[1], cmd[2], cmd[3])
+                        code = code[:code.find(op)] + inst + ' // ' + code.strip(' ')
             self.dst_content.append(code)
         src.close()
         self.write()
+
     def write(self):
         dst = open(self.dst_path, 'wt')
         dst.writelines(self.dst_content)
         dst.close()
+
     # asm parse helper function
     def gen_inst(self, opcode, flag, r1, r2, r3):
         cmd = opcode + r1 + flag + r2 + r3
         inst = '.inst ' + str(hex(int(cmd, 2)))
         return inst
+
     def register_to_bin(self, register):
         assert(register[0] == 'v')
         id = str(bin(int(register[1:])))[2:]
         id = '0' * (5 - len(id)) + id
         return id
+
     def operand_spilt(self, operand):
         v, t = operand.split('.')
         return self.register_to_bin(v), t
+
     def operand_to_bin(self, operand):
         r, _ = self.operand_spilt(operand)
         return r
+
     def t_split(self, t):
         idx = None
         if t[-1] == ']':
             t, offset = t[:-1].split('[')
         return t, int(offset)
+
     # instruction code gen function
     def sdot(self, operand1, operand2, operand3):
         # SDOT <Vd>.<Ta>, <Vn>.<Tb>, <Vm>.<Tc>[offset]
@@ -74,7 +85,6 @@ class Assembly():
             # set Q
             if "2s" in Ta and "8b" in Tb:
                 opcode[1] = '0'
-            
             opcode = ''.join(opcode)
             flag = ''.join(flag)
             return self.gen_inst(opcode, flag, Vm, Vn, Vd)
@@ -87,6 +97,7 @@ class Assembly():
         Vn = self.operand_to_bin(operand2)
         Vm = self.operand_to_bin(operand3)
         return self.gen_inst(opcode, flag, Vm, Vn, Vd)
+
     def bfmmla(self, operand1, operand2, operand3):
         # BFMMLA <Vd>.4S, <Vn>.8H, <Vm>.8H
         opcode = '01101110010'
@@ -95,6 +106,17 @@ class Assembly():
         Vn = self.operand_to_bin(operand2)
         Vm = self.operand_to_bin(operand3)
         return self.gen_inst(opcode, flag, Vm, Vn, Vd)
+
+    def mov(self, code, operand1, operand2):
+        # compile failed using `mov v1.8h, v2.8h`
+        # change to `mov v1.16b, v2.16b`
+        if '.8h' not in operand1 or '.8h' not in operand2:
+            return code
+        operand1 = operand1.replace('8h', '16b')
+        operand2 = operand2.replace('8h', '16b')
+        new_mov = f'mov {operand1} {operand2}'
+        new_code = code[:code.find('mov')] + new_mov + ' // ' + code.strip(' ')
+        return new_code
 
 if __name__ == '__main__':
     if len(sys.argv) < 2:

@@ -20,7 +20,8 @@ static void writeReorderBuffer(VulkanMatMul::Reorder::nchwBuffer& buffer, int co
     buffer.stride[3] = 1;
 }
 
-VulkanDeconvolution::VulkanDeconvolution(Backend* bn, const std::vector<Tensor*>& inputs, const Convolution2D* conv) : VulkanBasicExecution(bn) {
+VulkanDeconvolution::VulkanDeconvolution(Backend* bn, const std::vector<Tensor*>& inputs, const Op* op) : VulkanBasicExecution(bn) {
+    auto conv = op->main_as_Convolution2D();
     mConvCommonOption = conv->common();
     auto vkBn         = (VulkanBackend*)bn;
     mConvParam = std::make_shared<VulkanBuffer>(vkBn->getMemoryPool(), false,
@@ -34,7 +35,7 @@ VulkanDeconvolution::VulkanDeconvolution(Backend* bn, const std::vector<Tensor*>
     const float* filterDataPtr = nullptr;
     int tempWeightSize   = 0;
     std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
-    ConvolutionCommon::getConvParameters(&quanCommon, bn, conv, &filterDataPtr, &tempWeightSize);
+    ConvolutionCommon::getConvParameters(&quanCommon, bn, op, &filterDataPtr, &tempWeightSize);
 
     if (nullptr != filterDataPtr) {
         MNN_ASSERT(inputs.size() == 1);
@@ -142,7 +143,7 @@ ErrorCode VulkanDeconvolution::onEncode(const std::vector<Tensor*>& inputs, cons
 
         dstImage->barrierWrite(cmdBuffer->get());
         (reinterpret_cast<VulkanTensor*>(src->deviceId()))->image()->barrierRead(cmdBuffer->get());
-        
+
         vkCmdDispatch(cmdBuffer->get(), UP_DIV(totalInputSize, VulkanConvolutionCommon::gImage2ColLocal), 1, 1);
     }
 
@@ -176,7 +177,7 @@ class VulkanDeconvolutionCreator : public VulkanBackend::Creator {
 public:
     virtual VulkanBasicExecution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op,
                                 Backend* backend) const override {
-        return new VulkanDeconvolution(backend, inputs, op->main_as_Convolution2D());
+        return new VulkanDeconvolution(backend, inputs, op);
     }
 };
 

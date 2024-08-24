@@ -25,8 +25,12 @@ public:
     virtual std::vector<Express::VARP> onForward(const std::vector<Express::VARP>& inputs) override;
     virtual void onClearCache() override;
     virtual int onOptimize(Interpreter::SessionMode stage) override;
+    const Session* getSession() const { return mSession.get(); }
 
 private:
+    ErrorCode _resize(const std::vector<Express::VARP>& inputs);
+    ErrorCode _execute();
+
     StaticModule() = default;
     void resetInputOutputs();
 
@@ -52,6 +56,8 @@ private:
     std::vector<std::pair<Tensor*, Backend*>> mPrevInputTensor;
     std::vector<Tensor*> mOutputTensors;
     std::shared_ptr<Resource> mResource;
+    bool mShapeInferSeperate = false;
+    std::vector<MNN::Express::VARP> mOutputVars;
 };
 }
 }

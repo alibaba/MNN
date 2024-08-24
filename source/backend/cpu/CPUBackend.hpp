@@ -25,7 +25,7 @@ public:
     virtual ~ CPURuntime();
     int onGetRuntimeStatus(RuntimeStatus statusEnum) const override;
     virtual Backend* onCreate(const BackendConfig* config) const override;
-    virtual void onReset(int numberThread, const BackendConfig* config) override;
+    virtual void onReset(int numberThread, const BackendConfig* config, bool full) override;
     virtual void onGabageCollect(int level) override;
     virtual float onGetMemoryInMB() override;
     virtual CompilerType onGetCompilerType() const override {

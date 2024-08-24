@@ -173,6 +173,9 @@ public:
     virtual VulkanBasicExecution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op,
                                 Backend* backend) const override {
         auto input0 = inputs[0];
+        if (input0->getType().code != halide_type_float) {
+            return nullptr;
+        }
         auto image = TensorUtils::getDescribe(input0)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4;
         auto shader = _getShaderName(op, image);
         if (shader.empty()) {

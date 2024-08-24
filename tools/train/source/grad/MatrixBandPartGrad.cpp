@@ -9,7 +9,7 @@
 
 #include "OpGrad.hpp"
 using namespace std;
-using namespace MNN;
+namespace MNN {
 using namespace MNN::Express;
 
 class MatrixBandPartGrad : public OpGrad {
@@ -42,8 +42,12 @@ public:
     }
 };
 
-static const auto gRegister = []() {
+static void _create() {
     static MatrixBandPartGrad _c;
     OpGrad::insert((int)OpType_MatrixBandPart, &_c);
-    return true;
-}();
+
+}
+
+REGISTER_GRAD(MatrixBandPartGrad_cpp, _create);
+};
+

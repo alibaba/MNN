@@ -85,8 +85,8 @@ LoopE8:
         sxtl v2.8h, v4.8b
         scvtf v1.8h, v1.8h
         scvtf v2.8h, v2.8h
-        mov v3.8h, v14.8h
-        mov v4.8h, v15.8h
+        mov v3.16b, v14.16b // mov v3.8h, v14.8h
+        mov v4.16b, v15.16b // mov v4.8h, v15.8h
         fmla v3.8h, v1.8h, v12.8h
         fmla v4.8h, v2.8h, v13.8h
 
@@ -158,8 +158,8 @@ LoopE8:
 
             scvtf v1.8h, v1.8h
             scvtf v2.8h, v2.8h
-            mov v3.8h, v14.8h
-            mov v4.8h, v15.8h
+            mov v3.16b, v14.16b // mov v3.8h, v14.8h
+            mov v4.16b, v15.16b // mov v4.8h, v15.8h
             fmla v3.8h, v1.8h, v12.8h
             fmla v4.8h, v2.8h, v13.8h
 
@@ -276,7 +276,7 @@ LoopE8:
 
         sxtl v1.8h, v3.8b
         scvtf v1.8h, v1.8h
-        mov v3.8h, v14.8h
+        mov v3.16b, v14.16b // mov v3.8h, v14.8h
         fmla v3.8h, v1.8h, v12.8h
 
         ld1 {v0.8h}, [x15], x11
@@ -316,7 +316,7 @@ LoopE8:
 
             sxtl v1.8h, v3.8b
             scvtf v1.8h, v1.8h
-            mov v3.8h, v14.8h
+            mov v3.16b, v14.16b // mov v3.8h, v14.8h
             fmla v3.8h, v1.8h, v12.8h
 
             ld1 {v0.8h}, [x15], x11
@@ -410,8 +410,8 @@ blt E1
         sxtl v2.8h, v4.8b
         scvtf v1.8h, v1.8h
         scvtf v2.8h, v2.8h
-        mov v3.8h, v14.8h
-        mov v4.8h, v15.8h
+        mov v3.16b, v14.16b // mov v3.8h, v14.8h
+        mov v4.16b, v15.16b // mov v4.8h, v15.8h
         fmla v3.8h, v1.8h, v12.8h
         fmla v4.8h, v2.8h, v13.8h
 
@@ -459,8 +459,8 @@ blt E1
 
             scvtf v1.8h, v1.8h
             scvtf v2.8h, v2.8h
-            mov v3.8h, v14.8h
-            mov v4.8h, v15.8h
+            mov v3.16b, v14.16b // mov v3.8h, v14.8h
+            mov v4.16b, v15.16b // mov v4.8h, v15.8h
             fmla v3.8h, v1.8h, v12.8h
             fmla v4.8h, v2.8h, v13.8h
 
@@ -541,7 +541,7 @@ blt E1
 
     sxtl v1.8h, v3.8b
     scvtf v1.8h, v1.8h
-    mov v3.8h, v14.8h
+    mov v3.16b, v14.16b // mov v3.8h, v14.8h
     fmla v3.8h, v1.8h, v12.8h
 
     ld1 {v0.4h}, [x15], x11
@@ -570,7 +570,7 @@ blt E1
 
         sxtl v1.8h, v3.8b
         scvtf v1.8h, v1.8h
-        mov v3.8h, v14.8h
+        mov v3.16b, v14.16b // mov v3.8h, v14.8h
         fmla v3.8h, v1.8h, v12.8h
 
         ld1 {v0.4h}, [x15], x11
@@ -647,8 +647,8 @@ LoopE1:
         sxtl v2.8h, v4.8b
         scvtf v1.8h, v1.8h
         scvtf v2.8h, v2.8h
-        mov v3.8h, v14.8h
-        mov v4.8h, v15.8h
+        mov v3.16b, v14.16b // mov v3.8h, v14.8h
+        mov v4.16b, v15.16b // mov v4.8h, v15.8h
         fmla v3.8h, v1.8h, v12.8h
         fmla v4.8h, v2.8h, v13.8h
 
@@ -680,8 +680,8 @@ LoopE1:
             sxtl v2.8h, v4.8b
             scvtf v1.8h, v1.8h
             scvtf v2.8h, v2.8h
-            mov v3.8h, v14.8h
-            mov v4.8h, v15.8h
+            mov v3.16b, v14.16b // mov v3.8h, v14.8h
+            mov v4.16b, v15.16b // mov v4.8h, v15.8h
             fmla v3.8h, v1.8h, v12.8h
             fmla v4.8h, v2.8h, v13.8h
 
@@ -734,7 +734,7 @@ LoopE1:
 
     sxtl v1.8h, v3.8b
     scvtf v1.8h, v1.8h
-    mov v3.8h, v14.8h
+    mov v3.16b, v14.16b // mov v3.8h, v14.8h
     fmla v3.8h, v1.8h, v12.8h
     ld1 {v0.h}[0], [x15], x11
     cbnz x26, LE1H4_BLOCK_GT_0
@@ -756,7 +756,7 @@ LoopE1:
 
         sxtl v1.8h, v3.8b
         scvtf v1.8h, v1.8h
-        mov v3.8h, v14.8h
+        mov v3.16b, v14.16b // mov v3.8h, v14.8h
         fmla v3.8h, v1.8h, v12.8h
         ld1 {v0.h}[0], [x15], x11
         fmla v16.8h, v3.8h, v0.h[0]

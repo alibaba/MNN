@@ -11,13 +11,14 @@
 #include "core/TensorUtils.hpp"
 namespace MNN {
 static void _initKernelRegion() {
-    
+
 }
 VulkanDeconvolution::VulkanDeconvolution(Backend* bn) : VulkanBasicExecution(bn) {
     // Donthing
 }
 
-VulkanDeconvolution* VulkanDeconvolution::create(Backend* bn, const Convolution2D* conv, OpType type, bool multiInputs) {
+VulkanDeconvolution* VulkanDeconvolution::create(Backend* bn, const Op* op, OpType type, bool multiInputs) {
+    auto conv = op->main_as_Convolution2D();
     auto exeRes = new VulkanDeconvolution(bn);
     exeRes->mConvCommonOption = conv->common();
     auto vkBn         = (VulkanBackend*)bn;
@@ -45,7 +46,7 @@ VulkanDeconvolution* VulkanDeconvolution::create(Backend* bn, const Convolution2
     int tempWeightSize   = 0;
     std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
     if (!multiInputs) {
-        ConvolutionCommon::getConvParameters(&quanCommon, bn, conv, &tempWeight, &tempWeightSize);
+        ConvolutionCommon::getConvParameters(&quanCommon, bn, op, &tempWeight, &tempWeightSize);
         MNN_ASSERT(nullptr != tempWeight);
         if (0 >= ci) {
             ci = tempWeightSize / co / kw / kh;
@@ -212,7 +213,7 @@ class VulkanDeconvolutionCreator : public VulkanBackend::Creator {
 public:
     virtual VulkanBasicExecution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op,
                                 Backend* backend) const override {
-        return VulkanDeconvolution::create(backend, op->main_as_Convolution2D(), op->type(), inputs.size() > 1);
+        return VulkanDeconvolution::create(backend, op, op->type(), inputs.size() > 1);
     }
 };
 

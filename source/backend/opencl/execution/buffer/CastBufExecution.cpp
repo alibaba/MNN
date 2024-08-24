@@ -60,6 +60,7 @@ ErrorCode CastBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
     openCLBackend->recordKernel3d(unit.kernel, mGlobalWorkSize, mLocalSize);
     unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1], mGlobalWorkSize[2]};
     unit.localWorkSize = {mLocalSize[0], mLocalSize[1], mLocalSize[2]};
+
     return NO_ERROR;
 }
 

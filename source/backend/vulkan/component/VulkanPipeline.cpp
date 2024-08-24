@@ -55,8 +55,9 @@ VulkanPipeline* VulkanPipelineFactory::createComputePipeline(const uint8_t* data
     VkPipeline pipeline;
     /*for localSize_x_id = 0,localSize_y_id = 1,localSize_z_id = 2*/
     std::vector<VkSpecializationMapEntry> specializationMapEntry; /*localSize data description*/
-    std::shared_ptr<VkSpecializationInfo> specializationInfo = std::make_shared<VkSpecializationInfo>();
+    std::shared_ptr<VkSpecializationInfo> specializationInfo;
     if (localSize.size() > 0) {
+        specializationInfo = std::make_shared<VkSpecializationInfo>();
         // FUNC_PRINT(localSize.size());
         for (int i = 0; i < localSize.size(); i++) {
             VkSpecializationMapEntry entry = {(uint32_t)(i), (uint32_t)(sizeof(uint32_t) * i),

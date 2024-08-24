@@ -20,6 +20,11 @@
 
 extern "C" {
 
+void MNNFp32ToFp8(uint8_t* dst, const float* src, size_t size);
+void MNNFp8ToFp32(float* dst, const uint8_t* src, size_t size);
+void MNNFp16ToFp8(uint8_t* dst, const uint16_t* src, size_t size);
+void MNNFp8ToFp16(uint16_t* dst, const uint8_t* src, size_t size);
+
 void MNNReluWithSlope(float* dst, const float* src, size_t sizeQuad, float slope);
 
 void MNNReluInt8(int8_t* dst, const int8_t* src, size_t size, ssize_t zeroPoint);
@@ -190,6 +195,12 @@ constexpr int InputTileMax = 14; // same value from DynamicGemm.h, cannot includ
 
 namespace MNN {
 struct CoreFunctions {
+    // fp8
+    void (*MNNFp32ToFp8)(uint8_t* dst, const float* src, size_t size);
+    void (*MNNFp16ToFp8)(uint8_t* dst, const uint16_t* src, size_t size);
+    void (*MNNFp8ToFp32)(float* dst, const uint8_t* src, size_t size);
+    void (*MNNFp8ToFp16)(uint16_t* dst, const uint8_t* src, size_t size);
+
     // cpu feature
     bool supportFp16arith = false;
     bool supportSDot = false;

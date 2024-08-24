@@ -154,7 +154,8 @@ void LoRA::apply_external(MNN::OpT* op, MNN::OpT* lora_A, MNN::OpT* lora_B) {
     auto& quan = param->quanParameter;
     size_t weightLength = 0;
     auto ptr = reinterpret_cast<unsigned char*>(result->weight.get());
-    auto new_ptr = IDSTDecoder::ReadQuanData_c(ptr, &weightLength, result.get(), quan->shapeInt32);
+    std::unique_ptr<MemoryLoader> loader(new MemoryLoader(ptr));
+    auto new_ptr = IDSTDecoder::ReadQuanData_c(loader.get(), &weightLength, result.get(), quan->shapeInt32, false);
     result->weight.set(new_ptr, weightLength);
     result->weightFloat.reset(weightLength);
     // dequant to float

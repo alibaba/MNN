@@ -24,7 +24,6 @@
 namespace MNN {
 class VulkanRuntime : public Runtime {
 public:
-    VulkanRuntime(const Backend::Info& info);
     virtual ~ VulkanRuntime();
 
     virtual Backend* onCreate(const BackendConfig* config) const override;
@@ -34,7 +33,9 @@ public:
     int onGetRuntimeStatus(RuntimeStatus statusEnum) const override;
     std::shared_ptr<VulkanBuffer> allocUniform(const void* src = nullptr, int size = 0);
     void recycleUniform(std::shared_ptr<VulkanBuffer> buffer);
+    static VulkanRuntime* create(const Backend::Info& info);
 private:
+    VulkanRuntime(const Backend::Info& info, std::shared_ptr<VulkanDevice> device, std::shared_ptr<VulkanInstance> instance);
     Backend::Info mInfo;
     std::shared_ptr<BufferAllocator> mBufferPool;
     std::shared_ptr<VulkanPipelineFactory> mPipelineFactory;

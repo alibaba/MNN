@@ -9,8 +9,9 @@
 #include "VulkanDeconvolutionDepthwise.hpp"
 #include "core/Macro.h"
 namespace MNN {
-VulkanDeconvolutionDepthwise::VulkanDeconvolutionDepthwise(Backend* bn, const Convolution2D* conv)
+VulkanDeconvolutionDepthwise::VulkanDeconvolutionDepthwise(Backend* bn, const Op* op)
     : VulkanBasicExecution(bn) {
+    auto conv = op->main_as_Convolution2D();
     mConvCommonOption = conv->common();
     auto vkBn         = (VulkanBackend*)bn;
     int outputC4      = UP_DIV(mConvCommonOption->outputCount(), 4);
@@ -41,7 +42,7 @@ VulkanDeconvolutionDepthwise::VulkanDeconvolutionDepthwise(Backend* bn, const Co
     const float* tempWeight = nullptr;
     int tempWeightSize   = 0;
     std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
-    ConvolutionCommon::getConvParameters(&quanCommon, bn, conv, &tempWeight, &tempWeightSize);
+    ConvolutionCommon::getConvParameters(&quanCommon, bn, op, &tempWeight, &tempWeightSize);
 
     for (int b = 0; b < co; ++b) {
         int b_4      = b / 4;
@@ -112,7 +113,7 @@ public:
         if (inputs.size() > 1) {
             return nullptr;
         }
-        return new VulkanDeconvolutionDepthwise(backend, op->main_as_Convolution2D());
+        return new VulkanDeconvolutionDepthwise(backend, op);
     }
 };
 

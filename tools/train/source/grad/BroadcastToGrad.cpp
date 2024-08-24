@@ -9,9 +9,8 @@
 #include "OpGrad.hpp"
 #include "core/Macro.h"
 using namespace std;
-using namespace MNN;
 using namespace MNN::Express;
-
+namespace MNN {
 class BroadcastToGrad : public OpGrad {
 public:
     virtual std::vector<Express::VARP> onGrad(Express::EXPRP expr,
@@ -70,8 +69,9 @@ public:
     }
 };
 
-static const auto gRegister = []() {
+static void _create() {
     static BroadcastToGrad _c;
     OpGrad::insert(OpType_BroadcastTo, &_c);
-    return true;
-}();
+}
+REGISTER_GRAD(BroadcastToGrad, _create);
+};

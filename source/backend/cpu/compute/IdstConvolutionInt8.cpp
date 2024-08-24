@@ -65,9 +65,9 @@ IdstConvolutionInt8::IdstConvolutionInt8(const Convolution2DCommon* convOp, Back
     auto kernelCount        = kx * ky;
     auto srcCount           = mSrcCount;
     std::vector<int> shape;
-    if (SRC_UNIT > UNIT && UNIT == PackUnit) {
+    if (SRC_UNIT > PackUnit) {
         MNN_ASSERT(SRC_UNIT % UNIT == 0);
-        shape = {UP_DIV(outputCount, UNIT), UP_DIV(UP_DIV(srcCount, UNIT) * kernelCount, SRC_UNIT / UNIT), UNIT, SRC_UNIT};
+        shape = {UP_DIV(outputCount, UNIT), UP_DIV(UP_DIV(srcCount, PackUnit) * kernelCount, SRC_UNIT / PackUnit), UNIT, SRC_UNIT};
     } else {
         shape = {UP_DIV(outputCount, UNIT), UP_DIV(srcCount, SRC_UNIT) * kernelCount, UNIT, SRC_UNIT};
     }

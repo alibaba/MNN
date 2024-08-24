@@ -34,7 +34,7 @@ std::vector<ITensor *> TRTConvolution::onEncode(const std::vector<ITensor *> &xO
     int weightSize      = 0;
     std::shared_ptr<ConvolutionCommon::Int8Common> quanWeight;
     if (nullptr != mOp->main_as_Convolution2D()->quanParameter()) {
-        quanWeight = ConvolutionCommon::load(mOp->main_as_Convolution2D(), backend(), true);
+        quanWeight = ConvolutionCommon::load(mOp, backend(), true);
         srcCount   = quanWeight->weightFloat.size() / (outputCount * kernelX * kernelY);
         source     = quanWeight->weightFloat.get();
         weightSize = quanWeight->weightFloat.size();

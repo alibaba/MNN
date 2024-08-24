@@ -163,6 +163,15 @@ public:
         /** Dynamic Reisze Optimization */
         Session_Resize_Check = 14, // Open Trace for resize
         Session_Resize_Fix = 15, // Apply Resize Optimization
+        
+        /** Set for Module's traceOrOptimize API. 
+         Module_Forward_Seperate:
+         when inputs is not empty , Module's onForward will only infer shape and alloc memory.
+         when inputs is empty , Module's onForward will only runSession to compute content.
+         Default is Module_Forward_Combine
+         */
+        Module_Forward_Separate = 16,
+        Module_Forward_Combine = 17,
     };
     /**
      * @brief The API shoud be called before create session.
@@ -220,6 +229,17 @@ public:
         // 2: Only quantize value cache, use fp8 quantization
         // 3: quantize both key and value cache as described above
         KVCACHE_QUANT_OPTIONS = 7,
+
+        // size limit of kvcache in memory (for a single layer)
+        // if the size of kvcache exceeds the limit, it will be moved to disk
+        KVCACHE_SIZE_LIMIT = 8,
+    };
+
+    enum ExternalPathType {
+        // Path of the kvcache directory
+        EXTERNAL_PATH_KVCACHE_DIR = 0,
+
+        // Other types ...
     };
 
     enum GeometryComputeMask {

@@ -48,7 +48,7 @@ void Executor::setGlobalExecutorConfig(MNNForwardType type, const BackendConfig&
             std::shared_ptr<Runtime> bn(creator->onCreate(info));
             mRuntimes[mAttr->firstType] = bn;
         } else {
-            firstIter->second->onReset(numberThread, &config);
+            firstIter->second->onReset(numberThread, &config, true);
         }
     } else {
         auto creator = MNNGetExtraRuntimeCreator(type);
@@ -69,7 +69,7 @@ void Executor::setGlobalExecutorConfig(MNNForwardType type, const BackendConfig&
             std::shared_ptr<Runtime> bn(creator->onCreate(info));
             mRuntimes[mAttr->firstType] = bn;
         } else {
-            firstIter->second->onReset(numberThread, &config);
+            firstIter->second->onReset(numberThread, &config, true);
         }
     }
     _refreshRuntime();
@@ -147,10 +147,6 @@ static std::shared_ptr<Executor>* gExecutor = nullptr;
 std::shared_ptr<Executor> Executor::getGlobalExecutor() {
     std::call_once(gInitFlag, [&]() {
         auto creator = MNNGetExtraRuntimeCreator(MNN_FORWARD_CPU);
-#ifdef MNN_BUILD_MINI
-        SizeComputerSuite::init();
-        GeometryComputer::init();
-#endif
         Backend::Info info;
         info.type = MNN_FORWARD_CPU;
         info.numThread = 1;
@@ -158,7 +154,9 @@ std::shared_ptr<Executor> Executor::getGlobalExecutor() {
         RuntimeHint hint;
         hint.memoryAllocatorType = 0;// Defer
         bn->setRuntimeHint(hint);
-        gExecutor = new std::shared_ptr<Executor>(new Executor(bn, MNN_FORWARD_CPU, 1));
+        static std::shared_ptr<Executor> executorStatic;
+        executorStatic.reset(new Executor(bn, MNN_FORWARD_CPU, 1));
+        gExecutor = &executorStatic;
     });
     return *gExecutor;
 }
@@ -254,6 +252,10 @@ void Executor::RuntimeManager::setMode(Interpreter::SessionMode mode) {
 void Executor::RuntimeManager::setHint(Interpreter::HintMode mode, int value) {
     mInside->modes.setHint(mode, value);
 }
+void Executor::RuntimeManager::setExternalPath(std::string path, int type) {
+    mInside->modes.setExternalPath(path, type);
+}
+
 bool Executor::RuntimeManager::getInfo(Interpreter::SessionInfoCode code, void* ptr) {
     // Only support get memory
     switch (code) {
@@ -320,7 +322,7 @@ Executor::RuntimeManager* Executor::RuntimeManager::createRuntimeManager(const S
         }
         originRt.insert(std::make_pair(compute.type, std::shared_ptr<Runtime>(newBn)));
     } else {
-        iter->second->onReset(compute.numThread, compute.user);
+        iter->second->onReset(compute.numThread, compute.user, false);
     }
     res->mInside->mRuntime.second =  originRt[DEFAULT_BACKUP_RUNTIME_KEY];
     res->mInside->mRuntime.first.insert(std::make_pair(compute.type, originRt[compute.type]));

@@ -29,7 +29,7 @@ void CoreMLConvolution::loadWeightBias(const std::vector<Tensor *> &inputs) {
     }
     auto conv2D = mOp->main_as_Convolution2D();
     if (nullptr != conv2D->quanParameter()) {
-        quanCommon = ConvolutionCommon::load(conv2D, backend(), true);
+        quanCommon = ConvolutionCommon::load(mOp, backend(), true);
         if (nullptr == quanCommon) {
             MNN_ERROR("Memory not Enough, can't extract IDST Convolution: %s \n", mOp->name()->c_str());
         }
@@ -84,7 +84,7 @@ void CoreMLConvolution::addPadLayer(const Tensor * input, const Convolution2DCom
         bottom = (pad_out_height - inputHeight) - top;
         left = (pad_out_width - inputWidth) / 2;
         right = (pad_out_width - inputWidth) - left;
-        
+
         if (top < 0 || bottom < 0 || left < 0 || right < 0) {
             isSamePadding = true;
             pad_out_width = outputWidth / sx;

@@ -39,6 +39,7 @@ public:
         RuntimeHint runtimeHint;
         void setHint(Interpreter::HintMode hint, int magic);
         void setMode(Interpreter::SessionMode mode);
+        void setExternalPath(std::string path, int type);
     };
     Session(Schedule::ScheduleInfo&& info, const ModeGroup& mode,
             RuntimeInfo&& runtime);

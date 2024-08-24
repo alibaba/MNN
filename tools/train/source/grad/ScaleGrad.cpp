@@ -9,7 +9,7 @@
 #include "OpGrad.hpp"
 #include "core/Macro.h"
 using namespace std;
-using namespace MNN;
+namespace MNN {
 using namespace MNN::Express;
 
 class ScaleGrad : public OpGrad {
@@ -32,8 +32,12 @@ public:
     }
 };
 
-static const auto gRegister = []() {
+static void _create() {
     static ScaleGrad _c;
     OpGrad::insert(OpType_Scale, &_c);
-    return true;
-}();
+
+}
+
+REGISTER_GRAD(ScaleGrad_cpp, _create);
+};
+

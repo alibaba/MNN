@@ -15,6 +15,7 @@
 #include <regex>
 #include <set>
 #include <climits>
+#include <cctype>
 namespace MNN {
 namespace Transformer {
 
@@ -75,7 +76,7 @@ static std::string base64_decode(const std::string& str) {
 static inline void to_lower_case(std::string& str) {
     for (auto &c : str) {
         if (c >= 'A' && c <= 'Z') {
-            c = std::tolower(static_cast<unsigned char>(c));
+            c = tolower(static_cast<unsigned char>(c));
         }
     }
 }
@@ -540,19 +541,19 @@ void BertTokenizer::encode(const std::string& str, std::vector<int>& ids) {
             }
         }
         // handle continuous sequence of letters and digits
-        else if (std::isalnum(c)) {
-            while (i < str.size() && std::isalnum(static_cast<unsigned char>(str[i]))) {
-                current_token += std::tolower(str[i]);
+        else if (isalnum(c)) {
+            while (i < str.size() && isalnum(static_cast<unsigned char>(str[i]))) {
+                current_token += tolower(str[i]);
                 ++i;
             }
         }
         // handle punctuation and symbols
-        else if (std::ispunct(c)) {
+        else if (ispunct(c)) {
             current_token = str[i];
             ++i;
         }
         // handle space, tab, enter
-        else if (std::isspace(c)) {
+        else if (isspace(c)) {
             ++i;
             continue;
         }

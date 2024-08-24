@@ -1,7 +1,7 @@
 #version 440 core
 
-layout(set=0, binding=0) uniform mediump sampler2D uInput;
-layout(set=0, binding=1) writeonly uniform mediump image2D uOutput;
+layout(set=0, binding=0) uniform sampler2D uInput;
+layout(set=0, binding=1) writeonly uniform image2D uOutput;
 
 layout(set=0, binding=2) readonly uniform constBuffer {
     ivec2 pad;

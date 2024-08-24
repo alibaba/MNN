@@ -28,6 +28,16 @@ enum ErrorCode {
     // Op Resize Error
     TENSOR_NOT_SUPPORT = 20,
     TENSOR_NEED_DIVIDE = 21,
+
+    // File error
+    FILE_CREATE_FAILED = 30,
+    FILE_REMOVE_FAILED = 31,
+    FILE_OPEN_FAILED   = 32,
+    FILE_CLOSE_FAILED  = 33,
+    FILE_RESIZE_FAILED = 34,
+    FILE_SEEK_FAILED   = 35,
+    FILE_NOT_EXIST     = 36,
+    FILE_UNMAP_FAILED  = 37
 };
 } // namespace MNN
 

@@ -126,6 +126,10 @@ bool localWSTune(const std::map<std::string, std::vector<std::pair<std::vector<u
 std::pair<std::vector<uint32_t>, uint32_t> localWS2DDefault(const std::vector<uint32_t> &gws, const uint32_t maxWorkGroupSize,
                                        OpenCLRuntime *runtime, const std::string &kernelName, const std::shared_ptr<KernelWrap> &mKernel);
 
+bool getPreParamInfo(const std::string preParamName, uint32_t *preParamData,  OpenCLRuntime *runtime);
+
+void setPreParamInfo(const std::string preParamName, uint32_t preParamData,  OpenCLRuntime *runtime);
+
 void copyBufferToImage(OpenCLRuntime *runtime, const cl::Buffer &buffer, const cl::Image &image, int w, int h);
 
 } // namespace OpenCL

@@ -8,7 +8,7 @@
 
 #include "OpGrad.hpp"
 using namespace std;
-using namespace MNN;
+namespace MNN {
 using namespace MNN::Express;
 
 class GatherGrad : public OpGrad {
@@ -38,8 +38,12 @@ public:
     }
 };
 
-static const auto gRegister = []() {
+static void _create() {
     static GatherGrad _c;
     OpGrad::insert((int)OpType_GatherV2, &_c);
-    return true;
-}();
+
+}
+
+REGISTER_GRAD(GatherGrad_cpp, _create);
+};
+

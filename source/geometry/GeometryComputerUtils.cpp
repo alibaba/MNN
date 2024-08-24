@@ -150,6 +150,7 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
     bool openCache = geoContext.support(Interpreter::GeometryComputeMask::GEOMETRCOMPUTEMASK_OPENCACHE);
     /** Size Compute and compute Const Begin */
     GeometryComputer::Context ctx(Interpreter::GeometryComputeMask::GEOMETRCOMPUTEMASK_ALL, backupBackend);
+    bool needRelease = geoContext.mNeedRelease;
     // Size Compute and compute Const
     for (int i=0; i<infos.size(); ++i) {
         auto& info = infos[i];
@@ -328,6 +329,15 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
                 for (auto t : c.outputs) {
                     TensorUtils::getDescribe(t)->stageMask |= Tensor::InsideDescribe::StageInfo::CONTENT_NOT_CHANGE;
                 }
+            }
+        }
+        if (needRelease) {
+            cmdBufferVir.command.clear();
+            cmdBufferVir.extras.clear();
+            
+            ctx.clear();
+            for (auto index : info.releaseAbleInputs) {
+                TensorUtils::getDescribeOrigin(info.inputs[index])->mem = nullptr;
             }
         }
     }

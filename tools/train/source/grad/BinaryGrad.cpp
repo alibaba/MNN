@@ -9,8 +9,9 @@
 #include "BinaryGrad.hpp"
 #include "core/Macro.h"
 using namespace std;
-using namespace MNN;
 using namespace MNN::Express;
+namespace MNN {
+
 class EltwiseGrad : public OpGrad {
 public:
     virtual std::vector<Express::VARP> onGrad(Express::EXPRP expr,
@@ -193,10 +194,11 @@ public:
     }
 };
 
-static const auto gRegister = []() {
+static void _create() {
     static BinaryGrad _c;
     OpGrad::insert((int)OpType_BinaryOp, &_c);
     static EltwiseGrad _d;
     OpGrad::insert((int)OpType_Eltwise, &_d);
-    return true;
-}();
+}
+REGISTER_GRAD(BinaryGrad, _create);
+};

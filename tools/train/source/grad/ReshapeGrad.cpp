@@ -9,7 +9,7 @@
 #include "ReshapeGrad.hpp"
 #include "core/Macro.h"
 using namespace std;
-using namespace MNN;
+namespace MNN {
 using namespace MNN::Express;
 
 class ReshapeGrad : public OpGrad {
@@ -40,10 +40,14 @@ public:
     }
 };
 
-static const auto gRegister = []() {
+static void _create() {
     static ReshapeGrad _c;
     OpGrad::insert(OpType_Reshape, &_c);
     OpGrad::insert(OpType_Squeeze, &_c);
     OpGrad::insert(OpType_Unsqueeze, &_c);
-    return true;
-}();
+
+}
+
+REGISTER_GRAD(ReshapeGrad_cpp, _create);
+};
+

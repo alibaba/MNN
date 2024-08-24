@@ -58,7 +58,7 @@ ErrorCode MatMulBufExecution::onEncode(const std::vector<Tensor *> &inputs, cons
     bool canUseTile = (M % tileM == 0) && \
         (N % tileN == 0) && \
         (K % tileK == 0);
-    bool canUseLargeTile = canUseTile && mTransposeA && !mTransposeB && inputs.size() == 2;
+    bool canUseLargeTile = canUseTile && mTransposeA && !mTransposeB;
     if (!canUseLargeTile) {
         // set small tile
         tileM = 64;
@@ -72,16 +72,41 @@ ErrorCode MatMulBufExecution::onEncode(const std::vector<Tensor *> &inputs, cons
     
     if(canUseLargeTile) {
         // Match with Large tileM->MWG tileN->NWG tileK->KWG localM->MDIMA localN->NDIMC
-        buildOptions.emplace(" -DGEMMK=0 -DKREG=1 -DKWG=32 -DKWI=2 -DMDIMA=32 -DMDIMC=32 -DMWG=128 -DNDIMB=8 -DNDIMC=8 -DNWG=128 -DSA=0 -DSB=0 -DSTRM=0 -DSTRN=1 -DVWM=2 -DVWN=8 -DOUTPUTMN");
+        uint32_t layout = 4;
+        uint32_t batch = 1;
+        std::vector<uint32_t> param;
+        if(inputs.size() == 2) {
+            param = getGemmParams({(uint32_t)M, (uint32_t)N, (uint32_t)K, layout, batch, (uint32_t)0}, {openCLBuffer(input0), openCLBuffer(input1), openCLBuffer(output)}, mOpenCLBackend->getOpenCLRuntime());
+        } else {
+            param = getGemmParams({(uint32_t)M, (uint32_t)N, (uint32_t)K, layout, batch, (uint32_t)1}, {openCLBuffer(input0), openCLBuffer(input1), openCLBuffer(output), openCLBuffer(inputs[2])}, mOpenCLBackend->getOpenCLRuntime());
+        }
+        int KWG=param[0], KWI=param[1], MDIMA=param[2], MDIMC=param[3], MWG=param[4], NDIMB=param[5], NDIMC=param[6], NWG=param[7], SA=param[8], SB=param[9], STRM=param[10], STRN=param[11], VWM=param[12], VWN=param[13];
+        buildOptions.emplace("-DKWG=" + std::to_string(KWG));
+        buildOptions.emplace("-DKWI=" + std::to_string(KWI));
+        buildOptions.emplace("-DMDIMA=" + std::to_string(MDIMA));
+        buildOptions.emplace("-DMDIMC=" + std::to_string(MDIMC));
+        buildOptions.emplace("-DMWG=" + std::to_string(MWG));
+        buildOptions.emplace("-DNDIMB=" + std::to_string(NDIMB));
+        buildOptions.emplace("-DNDIMC=" + std::to_string(NDIMC));
+        buildOptions.emplace("-DNWG=" + std::to_string(NWG));
+        buildOptions.emplace("-DSA=" + std::to_string(SA));
+        buildOptions.emplace("-DSB=" + std::to_string(SB));
+        buildOptions.emplace("-DSTRM=" + std::to_string(STRM));
+        buildOptions.emplace("-DSTRN=" + std::to_string(STRN));
+        buildOptions.emplace("-DVWM=" + std::to_string(VWM));
+        buildOptions.emplace("-DVWN=" + std::to_string(VWN));
+        if(layout >= 4) {
+            buildOptions.emplace("-DOUTPUTMN");
+        }
+
+        if(inputs.size() > 2) {
+            buildOptions.emplace(" -DBIAS_TYPE=1");
+        }
         if(mOpenCLBackend->getOpenCLRuntime()->getGpuType() == GpuType::ADRENO) {
             buildOptions.emplace("-DUSE_CL_MAD=1");
             buildOptions.emplace("-DRELAX_WORKGROUP_SIZE=1");
         }
-        if(runtime->isSupportedFP16()){
-            buildOptions.emplace(" -DPRECISION=16");
-        } else {
-            buildOptions.emplace(" -DPRECISION=32");
-        }
+
         unit.kernel       = runtime->buildKernel("matmul_params_buf", "Xgemm", buildOptions);
 
      } else if(canUseTile) {
@@ -117,7 +142,9 @@ ErrorCode MatMulBufExecution::onEncode(const std::vector<Tensor *> &inputs, cons
         
         float alpha = 1.0;
         float beta = 0.0f;
-        int offset = 0;
+        int offset[4] = {0, 0, 0, 0};
+        int stride[4] = {M, N, N, N};
+        
         int idx            = 0;
         ret |= unit.kernel->get().setArg(idx++, static_cast<int>(M));
         ret |= unit.kernel->get().setArg(idx++, static_cast<int>(N));
@@ -131,8 +158,7 @@ ErrorCode MatMulBufExecution::onEncode(const std::vector<Tensor *> &inputs, cons
         }
         ret |= unit.kernel->get().setArg(idx++, openCLBuffer(output));
         ret |= unit.kernel->get().setArg(idx++, offset);
-        ret |= unit.kernel->get().setArg(idx++, offset);
-        ret |= unit.kernel->get().setArg(idx++, offset);
+        ret |= unit.kernel->get().setArg(idx++, stride);
         
         MNN_CHECK_CL_SUCCESS(ret, "setArg MatMulBufExecution use large tile opt");
         

@@ -619,8 +619,8 @@ static bool _RebuildExternalOp(FileLoader* external, const MNN::Op* origin, flat
         {
             auto layer_norm_param = op->main.AsLayerNorm();
             int32_t size = static_cast<int32_t>(layer_norm_param->external[1]);
-            layer_norm_param->gamma.resize(size);
-            layer_norm_param->beta.resize(size);
+            layer_norm_param->gamma.resize(size / sizeof(float));
+            layer_norm_param->beta.resize(size / sizeof(float));
             external->offset(layer_norm_param->external[0]);
             external->read((char*)layer_norm_param->gamma.data(), layer_norm_param->external[1]);
             external->read((char*)layer_norm_param->beta.data(), layer_norm_param->external[2]);
@@ -631,13 +631,21 @@ static bool _RebuildExternalOp(FileLoader* external, const MNN::Op* origin, flat
         {
             auto param = op->main.AsConvolution2D();
             if (param->quanParameter) {
-                external->offset(param->external[0]);
-                if (0 != param->external[1]) {
-                    param->quanParameter->buffer.resize(param->external[1]);
-                    external->read((char*)param->quanParameter->buffer.data(), param->external[1]);
+                bool isSparse = param->sparseParameter.get() != nullptr;
+                bool isPTQ = param->quanParameter->scaleIn != 0;
+                if (isSparse || isPTQ) {
+                    external->offset(param->external[0]);
+                    if (0 != param->external[1]) {
+                        param->quanParameter->buffer.resize(param->external[1]);
+                        external->read((char*)param->quanParameter->buffer.data(), param->external[1]);
+                    }
+                    param->quanParameter->alpha.resize(param->external[2] / sizeof(float));
+                    external->read((char*)param->quanParameter->alpha.data(), param->external[2]);
+                } else {
+                    // skip weight and dequant alpha for load speed
+                    op->externalPath = external->path();
+                    external->offset(param->external[0] + param->external[1] + param->external[2]);
                 }
-                param->quanParameter->alpha.resize(param->external[2] / sizeof(float));
-                external->read((char*)param->quanParameter->alpha.data(), param->external[2]);
                 if (param->bias.empty() && param->external.size() > 3) {
                     param->bias.resize(param->external[3]/sizeof(float));
                     external->read((char*)param->bias.data(), param->external[3]);

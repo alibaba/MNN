@@ -61,7 +61,7 @@ static void dumpTensor2File(const MNN::Tensor* tensor, const char* file, std::of
     }
 }
 
-std::ofstream gOrderFile;
+static std::ofstream gOrderFile;
 static void _initDebug() {
     gOrderFile.open("order.txt");
     MNN::TensorCallBackWithInfo beforeCallBack = [&](const std::vector<MNN::Tensor*>& ntensors, const MNN::OperatorInfo* info) {
@@ -133,7 +133,7 @@ static void _initDebug() {
 
 struct TimeTraceInfo {
     std::map<std::string, std::map<std::string, std::vector<std::pair<float, float>>>> mTypes;
-    
+
     void begin(const MNN::OperatorInfo* info) {
         auto tIter = mTypes.find(info->type());
         if (tIter == mTypes.end()) {
@@ -191,7 +191,7 @@ std::tuple<float, float, float> _countTensor(MNN::Tensor* tensor) {
     return std::make_tuple(maxValue, minValue, avgValue);
 }
 
-std::pair<bool, std::tuple<float, float, float>> _countForTensorValid(MNN::Tensor* ntensor) {
+static std::pair<bool, std::tuple<float, float, float>> _countForTensorValid(MNN::Tensor* ntensor) {
     bool valid = false;
     std::tuple<float, float, float> res;
     if (ntensor->elementSize() <= 0) {

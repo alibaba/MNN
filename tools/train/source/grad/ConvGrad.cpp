@@ -10,7 +10,7 @@
 #include "core/Macro.h"
 using namespace std;
 using namespace MNN::Express;
-using namespace MNN;
+namespace MNN {
 class ConvGrad : public OpGrad {
 public:
     virtual std::vector<Express::VARP> onGrad(Express::EXPRP expr,
@@ -54,7 +54,7 @@ public:
                 auto sH = conv2D->common->strideY;
                 auto dW = conv2D->common->dilateX;
                 auto dH = conv2D->common->dilateY;
-
+                
                 std::vector<int> padding {0, 0, 0, 0};
                 int kernelWidthSize = dW * (kW - 1) + 1;
                 int kernelHeightSize = dH * (kH - 1) + 1;
@@ -80,7 +80,7 @@ public:
             conv2D->common->inputCount  = outputCount;
             conv2D->common->outputCount = inputCount;
             newOp->main.value           = conv2D;
-
+            
             auto expr = Expr::create(std::move(newOp), {outputDiff, inputs[1]});
             res[0]    = Variable::create(expr);
             auto resultShape = res[0]->getInfo();
@@ -136,7 +136,7 @@ public:
             conv2D->common->inputCount  = outputCount;
             conv2D->common->outputCount = inputCount;
             newOp->main.value           = conv2D;
-
+            
             auto expr = Expr::create(std::move(newOp), {outputDiff, inputs[1]});
             res[0]    = Variable::create(expr);
         }
@@ -161,12 +161,14 @@ public:
     }
 };
 
-static const auto gRegister = []() {
+static void _create() {
     static ConvGrad _c;
     OpGrad::insert(OpType_Convolution, &_c);
     OpGrad::insert(OpType_ConvolutionDepthwise, &_c);
     static DeconvGrad _d;
     OpGrad::insert(OpType_Deconvolution, &_d);
     OpGrad::insert(OpType_DeconvolutionDepthwise, &_d);
-    return true;
-}();
+};
+
+REGISTER_GRAD(ConvGrad, _create);
+};

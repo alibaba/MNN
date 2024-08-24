@@ -1,9 +1,9 @@
 #version 450 core
 layout(std430) buffer;
-layout(set=0, binding=0) writeonly restrict uniform image2D uOutput;
+layout(set=0, binding=0) writeonly uniform image2D uOutput;
 layout(set=0, binding=1) uniform sampler2D uInput;
 layout(set=0, binding=2) uniform sampler2D uBias;
-layout(set=0, binding=3) readonly restrict uniform constBuffer {
+layout(set=0, binding=3) readonly uniform constBuffer {
     ivec4 inputSize;
     ivec4 outputSize;
     int padX;
@@ -12,7 +12,7 @@ layout(set=0, binding=3) readonly restrict uniform constBuffer {
     int unitHeight;
     int unit;
 } uConst;
-layout(set=0, binding=4) readonly restrict uniform offsetBuffer {
+layout(set=0, binding=4) readonly uniform offsetBuffer {
     ivec2 offset;
 } uOffset;
 

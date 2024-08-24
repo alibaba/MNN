@@ -17,6 +17,9 @@ using namespace MNN::Express;
 
 class BinaryGradTest : public MNNTestCase {
 public:
+    BinaryGradTest() {
+        OpGrad::init();
+    }
     char name[20] = "Binary";
     virtual ~BinaryGradTest() = default;
 

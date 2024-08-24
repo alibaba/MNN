@@ -41,7 +41,7 @@ struct Content {
     std::string uuid;
     std::string externalFile;
 #ifdef MNN_INTERNAL_ENABLED
-    std::map<std::string, std::string> basicLogginData;
+    std::string version;
     std::map<const Session*, std::tuple<int, int>> sessionInfo;
 #endif
 };
@@ -221,8 +221,7 @@ Interpreter::Interpreter(Content* net) {
     mNet->bizCode = std::string(mNet->net->bizCode() ? mNet->net->bizCode()->c_str() : "");
     mNet->uuid = std::string(mNet->net->mnn_uuid() ? mNet->net->mnn_uuid()->c_str() : "");
 #ifdef MNN_INTERNAL_ENABLED
-    mNet->basicLogginData = logBasicInfo();
-    mNet->basicLogginData.emplace("ModelVersion", getModelVersion());
+    mNet->version = getModelVersion();
 #endif
 }
 
@@ -329,7 +328,8 @@ Session* Interpreter::createMultiPathSession(const std::vector<ScheduleConfig>& 
     int mode = configs[0].mode;
     mNet->sessionInfo.insert(std::make_pair(result, std::make_tuple(precision, mode)));
     if (shouldLog(FREQ_HIGH)) {
-        std::map<std::string, std::string> metrics = mNet->basicLogginData;
+        std::map<std::string, std::string> metrics = logBasicInfo();
+        metrics.emplace("ModelVersion", mNet->version);
         metrics.emplace("UUID", mNet->uuid);
         metrics.emplace("Time", std::to_string((float)_timer.durationInUs() / 1024.0f));
         metrics.emplace("Backend", std::to_string(configs[0].type));
@@ -383,7 +383,8 @@ void Interpreter::logForRunSession(const Session* session, float timeInMs, const
     session->getInfo(MNN::Interpreter::FLOPS, &flops);
     float memory = 0.0f;
     session->getInfo(MNN::Interpreter::MEMORY, &memory);
-    std::map<std::string, std::string> metrics = mNet->basicLogginData;
+    std::map<std::string, std::string> metrics = logBasicInfo();
+    metrics.emplace("ModelVersion", mNet->version);
     metrics.emplace("UUID", mNet->uuid);
     metrics.emplace("Backend", std::to_string(backendType[0])); // "Precision" is not logged here. Don't need it.
     metrics.emplace("Time", std::to_string(timeInMs));

@@ -97,8 +97,10 @@ void Llm::init_runtime() {
     runtime_manager_.reset(Executor::RuntimeManager::createRuntimeManager(config));
     runtime_manager_->setHint(MNN::Interpreter::MEM_ALLOCATOR_TYPE, 0);
     runtime_manager_->setHint(MNN::Interpreter::DYNAMIC_QUANT_OPTIONS, 1); // 1: per batch quant, 2: per tensor quant
-    runtime_manager_->setHint(MNN::Interpreter::KVCACHE_QUANT_OPTIONS, config_->quant_kv()); // 0: no quant, 1: quant key, 2: quant value, 3: quant kv
-
+    runtime_manager_->setHint(MNN::Interpreter::KVCACHE_QUANT_OPTIONS, config_->quant_kv());
+    runtime_manager_->setHint(MNN::Interpreter::KVCACHE_SIZE_LIMIT, config_->kvcache_limit());
+    runtime_manager_->setExternalPath("/tmp/.kvcache", MNN::Interpreter::EXTERNAL_PATH_KVCACHE_DIR);
+    
 #if DEBUG_MODE==1
     runtime_manager_->setMode(MNN::Interpreter::Session_Debug);
     _initTimeTrace();
@@ -130,6 +132,10 @@ void Llm::load() {
     Module::Config module_config;
     module_config.shapeMutable = true;
     module_config.rearrange = true;
+    // using base module for lora module
+    if (base_module_ != nullptr) {
+        module_config.base = base_module_;
+    }
     int layer_nums = config_->layer_nums();
     if (is_single_) {
         // load single model
@@ -164,6 +170,54 @@ void Llm::load() {
     prefill_modules_ = modules_;
 }
 
+size_t Llm::apply_lora(const std::string& lora_path) {
+    std::string model_path = config_->base_dir_ + "/" + lora_path;
+    Module::Config module_config;
+    module_config.shapeMutable = true;
+    module_config.rearrange = true;
+    module_config.base = modules_.begin()->get();
+    size_t lora_index = modules_.size();
+    modules_.emplace_back(Module::load({"input_ids", "attention_mask", "position_ids", "past_key_values"},
+                                       {"logits", "presents"}, model_path.c_str(), runtime_manager_, &module_config));
+    select_module(lora_index);
+    return lora_index;
+}
+
+Llm* Llm::create_lora(const std::string& lora_path) {
+    auto llm = new Llm(config_);
+    llm->set_config("{\"llm_model\": \"" + lora_path + "\"}");
+    llm->base_module_ = modules_.begin()->get();
+    llm->load();
+    return llm;
+}
+
+bool Llm::release_module(size_t index) {
+    if (index >= modules_.size()) {
+        return false;
+    }
+    if (prefill_modules_[0] == modules_[index]) {
+        select_module(0);
+    }
+    modules_[index].reset();
+    return true;
+}
+
+bool Llm::select_module(size_t index) {
+    if (index >= modules_.size()) {
+        return false;
+    }
+    if (modules_[index] == nullptr) {
+        return false;
+    }
+    if (decode_modules_.empty()) {
+        decode_modules_.resize(modules_.size());
+        prefill_modules_.resize(modules_.size());
+    }
+    decode_modules_[0].reset(Module::clone(modules_[index].get()));
+    prefill_modules_[0] = modules_[index];
+    return true;
+}
+
 void Llm::trace(bool start) {
     auto status = MNN::Interpreter::Session_Resize_Check;
     if (start) {
@@ -175,6 +229,7 @@ void Llm::trace(bool start) {
         m->traceOrOptimize(status);
     }
     runtime_manager_->updateCache();
+    mTracing = start;
 }
 
 VARP Llm::forward(const std::vector<int>& input_ids) {
@@ -185,11 +240,10 @@ VARP Llm::forward(const std::vector<int>& input_ids) {
     if (is_single_) {
         // single model
         auto hidden_states = embedding(input_ids);
-        auto outputs = modules_.back()->onForward({hidden_states, attention_mask, position_ids, past_key_values_[0]});
+        auto outputs = current_modules_.back()->onForward({hidden_states, attention_mask, position_ids, past_key_values_[0]});
         if (outputs.empty()) {
             return nullptr;
         }
-        ExecutorScope::Current()->gc(Executor::FULL);
         logits = outputs[0];
         past_key_values_[0] = outputs[1];
     } else {
@@ -199,14 +253,13 @@ VARP Llm::forward(const std::vector<int>& input_ids) {
         ExecutorScope::Current()->gc(Executor::FULL);
         for (int i = 0; i < layer_nums; i++) {
             AUTOTIME;
-            auto outputs = modules_[i]->onForward({hidden_states, attention_mask, position_ids, past_key_values_[i]});
+            auto outputs = current_modules_[i]->onForward({hidden_states, attention_mask, position_ids, past_key_values_[i]});
             hidden_states = outputs[0];
             past_key_values_[i] = outputs[1];
         }
-        ExecutorScope::Current()->gc(Executor::FULL);
         {
             AUTOTIME;
-            auto outputs = modules_[layer_nums]->onForward({hidden_states});
+            auto outputs = current_modules_[layer_nums]->onForward({hidden_states});
             logits = outputs[0];
         }
     }
@@ -326,6 +379,7 @@ std::vector<int> Llm::generate(const std::vector<int>& input_ids, int max_new_to
     prompt_len_ = static_cast<int>(input_ids.size());
     if (max_new_tokens < 0) { max_new_tokens = config_->max_new_tokens(); }
     // prefill
+    current_modules_ = prefill_modules_;
     auto logits = forward(input_ids);
     if (logits.get() == nullptr) {
         return {};
@@ -334,6 +388,7 @@ std::vector<int> Llm::generate(const std::vector<int>& input_ids, int max_new_to
     output_ids.push_back(token);
     all_ids.push_back(token);
     // decode
+    current_modules_ = decode_modules_;
     while (gen_seq_len_ < max_new_tokens) {
         logits = forward({token});
         if (logits.get() == nullptr) {
@@ -348,17 +403,26 @@ std::vector<int> Llm::generate(const std::vector<int>& input_ids, int max_new_to
 }
 
 std::string Llm::generate(const std::vector<int>& input_ids, std::ostream* os, const char* end_with) {
+    if (mTracing) {
+        // Skip real forward
+        current_modules_ = prefill_modules_;
+        forward(input_ids);
+        current_modules_ = decode_modules_;
+        forward({input_ids[0]});
+        forward({input_ids[0]});
+        return "Test";
+    }
     prompt_len_ = static_cast<int>(input_ids.size());
     history_ids_.insert(history_ids_.end(), input_ids.begin(), input_ids.end()); // push to history_ids_
     auto st = std::chrono::system_clock::now();
-    modules_ = prefill_modules_;
+    current_modules_ = prefill_modules_;
     auto logits = forward(input_ids);
     if (nullptr == logits.get()) {
         return "";
     }
     int token = sample(logits, history_ids_);
     auto et = std::chrono::system_clock::now();
-    modules_ = decode_modules_;
+    current_modules_ = decode_modules_;
     std::string output_str = decode(token);
     prefill_us_ = std::chrono::duration_cast<std::chrono::microseconds>(et - st).count();
     *os << output_str << std::flush;
@@ -383,6 +447,7 @@ std::string Llm::generate(const std::vector<int>& input_ids, std::ostream* os, c
         *os << word << std::flush;
         output_str += word;
     }
+    ExecutorScope::Current()->gc(Executor::FULL);
 #ifdef DUMP_PROFILE_INFO
     print_speed();
 #endif
@@ -414,9 +479,9 @@ std::string Llm::response(const std::vector<PromptItem>& chat_prompts, std::ostr
     if (config_->reuse_kv() && all_seq_len_ > 0) {
         prompt = "<|im_end|>\n" + prompt;
     }
-    std::cout << "# prompt : " << prompt << std::endl;
+    // std::cout << "# prompt : " << prompt << std::endl;
     auto input_ids = tokenizer_->encode(prompt);
-    printf("input_ids (%lu): ", input_ids.size()); for (auto id : input_ids) printf("%d, ", id); printf("\n");
+    // printf("input_ids (%lu): ", input_ids.size()); for (auto id : input_ids) printf("%d, ", id); printf("\n");
     return generate(input_ids, os, end_with);
 }
 
@@ -443,6 +508,7 @@ Llm::~Llm() {
         MNN_PRINT("OP Summer: %.7f, Flops: %.7f, Speed: %.7f GFlops\n", opSummer, opFlopsSummber, opFlopsSummber/opSummer);
     }
 #endif
+    current_modules_.clear();
     decode_modules_.clear();
     prefill_modules_.clear();
     modules_.clear();

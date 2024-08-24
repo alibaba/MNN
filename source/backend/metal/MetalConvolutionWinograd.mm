@@ -44,7 +44,7 @@ MetalConvolutionWinograd::MetalConvolutionWinograd(Backend *backend, const MNN::
     auto conv = op->main_as_Convolution2D();
     mSrcUnit  = UNIT + conv->common()->kernelY() - 1;
     mDstUnit  = UNIT;
-    loadWeight(conv);
+    loadWeight(op);
 }
 MetalConvolutionWinograd::MetalConvolutionWinograd(Backend *backend, const MNN::Op *op, std::shared_ptr<Tensor> weight, std::shared_ptr<Tensor> bias) : MetalConvolutionCommon(backend, op, bias) {
     auto conv = op->main_as_Convolution2D();
@@ -81,7 +81,7 @@ ErrorCode MetalConvolutionWinograd::onResize(const std::vector<Tensor *> &inputs
     auto pads = ConvolutionCommon::convolutionPad(input, output, mOp->main_as_Convolution2D()->common());
     auto padX = pads.first;
     auto padY = pads.second;
-    
+
     // create const buffer
     struct TransformBuffer {
         int inputSize[4];

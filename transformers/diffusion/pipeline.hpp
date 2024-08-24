@@ -19,11 +19,11 @@ typedef enum {
     
 class Pipeline {
 public:
-    Pipeline(std::string modelPath, DiffusionModelType modelType);
+    Pipeline(std::string modelPath, DiffusionModelType modelType, MNNForwardType backendType, int memoryMode);
     ~Pipeline() = default;
-    bool run(const std::string& sentence, const std::string& img_name);
+    bool run(const std::string& prompt, const std::string& imagePath);
 private:
-    bool load_modules(std::string modelPath);
+    bool load_modules();
     VARP step_plms(VARP sample, VARP model_output, int index);
     VARP text_encoder(const std::vector<int>& ids);
     VARP unet(VARP text_embeddings);
@@ -31,16 +31,19 @@ private:
 private:
     std::shared_ptr<Executor::RuntimeManager> runtime_manager_;
     std::vector<std::shared_ptr<Module>> mModules;
-
-    std::string mModelPath;
-    DiffusionModelType mModelType;
-    int mMaxTextLen = 77;
     // step_plms
     std::vector<int> mTimeSteps;
     std::vector<float> mAlphas;
     std::vector<VARP> mEts;
     VARP mSample;
     VARP mLatentVar, mPromptVar, mTimestepVar, mSampleVar;
+
+private:
+    std::string mModelPath;
+    DiffusionModelType mModelType;
+    int mMaxTextLen = 77;
+    int mMemoryMode;
+    MNNForwardType mBackendType;
 };
 
 }
