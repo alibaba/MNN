@@ -227,10 +227,6 @@ public:
     bool reuse_kv() const {
         return config_.value("reuse_kv", false);
     }
-
-    int quant_kv() const {
-        return config_.value("quant_kv", 0);
-    }
     // generate config end >
 
     // < backend config start
@@ -248,6 +244,14 @@ public:
 
     std::string memory() const {
         return config_.value("memory", "low");
+    }
+
+    int quant_kv() const {
+        return config_.value("quant_kv", 0);
+    }
+
+    int kvcache_limit() const {
+        return config_.value("kvcache_limit", -1);
     }
     // backend config end >
 

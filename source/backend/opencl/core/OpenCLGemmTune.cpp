@@ -135,7 +135,7 @@ std::vector<uint32_t> getGemmParams(const std::vector<uint32_t> &gemmSize, const
     MNN_ASSERT(gemmSize[1] % 16 == 0);
     MNN_ASSERT(gemmSize[2] % 4 == 0);
 
-    MNN_ASSERT((gemmSize[5] == 0 && tensorMemory.size() == 3) || (gemmSize[5] == 1 && tensorMemory.size() == 4));
+    MNN_ASSERT((gemmSize[5] == 0 && tensorMemory.size() == 3) || (gemmSize[5] >= 1 && tensorMemory.size() == 4));
     auto& tunedGemmParams = runtime->tunedGemmParamsMap();
     
     std::vector<uint32_t> info(gemmSize);
@@ -292,8 +292,8 @@ std::vector<uint32_t> getGemmParams(const std::vector<uint32_t> &gemmSize, const
                 buildOptions.emplace(" -DRELAX_WORKGROUP_SIZE=1");
             }
             
-            if(gemmSize[5] == 1) {
-                buildOptions.emplace(" -DBIAS");
+            if(gemmSize[5] >= 1) {
+                buildOptions.emplace(" -DBIAS_TYPE=" + std::to_string((int)gemmSize[5]));
             }
 
             int localM = mdimc;
@@ -346,6 +346,8 @@ std::vector<uint32_t> getGemmParams(const std::vector<uint32_t> &gemmSize, const
                 if(gemmSize[5] == 1) {
                     ret |= kernel->get().setArg(idx++, tensorMemory[3]);
                     ret |= kernel->get().setArg(idx++, gemmSize[1]);
+                } else if(gemmSize[5] > 1) {
+                    MNN_ERROR("BatchGemm with bias type > 1 (elementwise) not supported! please check\n");
                 }
                 ret |= kernel->get().setArg(idx++, tensorMemory[2]);
                 ret |= kernel->get().setArg(idx++, batch_offset_c);
@@ -362,16 +364,19 @@ std::vector<uint32_t> getGemmParams(const std::vector<uint32_t> &gemmSize, const
                 int offset_a = 0;
                 int offset_b = 0;
                 int offset_c = 0;
-                
+                int offset[4] = {0, 0, 0, 0};
+                int stride[4] = {(int)gemmSize[0], (int)gemmSize[1], (int)gemmSize[1], (int)gemmSize[1]};
+                if(gemmSize[3] < 4) {
+                    stride[2] = gemmSize[0]; // output: [N, M]
+                }
                 ret |= kernel->get().setArg(idx++, tensorMemory[0]);
                 ret |= kernel->get().setArg(idx++, tensorMemory[1]);
-                if(gemmSize[5] == 1) {
+                if(gemmSize[5] >= 1) {
                     ret |= kernel->get().setArg(idx++, tensorMemory[3]);
                 }
                 ret |= kernel->get().setArg(idx++, tensorMemory[2]);
-                ret |= kernel->get().setArg(idx++, offset_a);
-                ret |= kernel->get().setArg(idx++, offset_b);
-                ret |= kernel->get().setArg(idx++, offset_c);
+                ret |= kernel->get().setArg(idx++, offset);
+                ret |= kernel->get().setArg(idx++, stride);
                 
                 MNN_CHECK_CL_SUCCESS(ret, "setArg getGemmParams Xgemm Kernel");
                 

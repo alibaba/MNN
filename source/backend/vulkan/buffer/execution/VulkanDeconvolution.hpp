@@ -17,7 +17,7 @@ public:
     virtual ~VulkanDeconvolution() {
     }
 
-    static VulkanDeconvolution* create(Backend* bn, const Convolution2D* conv, OpType type, bool multiInputs);
+    static VulkanDeconvolution* create(Backend* bn, const Op* op, OpType type, bool multiInputs);
     virtual ErrorCode onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                const VulkanCommandPool::Buffer* cmdBuffer) override;
 

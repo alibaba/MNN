@@ -110,7 +110,7 @@ options:
 
 ### 编译
 
-[从源码编译](../compile/tools.html#id4)
+[从源码编译](../compile/other.html#id4)
 
 ### 使用
 #### 运行时配置
@@ -151,7 +151,7 @@ options:
     - 3: 使用非对称8bit量化存储key，使用fp8格式寸处value
 - 硬件配置
   - backend_type: 推理使用硬件后端类型，默认为：`"cpu"`
-  - thread_num: 推理使用硬件线程数，默认为：`4`
+  - thread_num: CPU推理使用硬件线程数，默认为：`4`; OpenCL推理时使用`68`
   - precision: 推理使用精度策略，默认为：`"low"`，尽量使用`fp16`
   - memory: 推理使用内存策略，默认为：`"low"`，开启运行时量化
 
@@ -202,3 +202,68 @@ options:
 ## 针对prompt中的每行进行回复
 ./llm_demo model_dir/llm.mnn prompt.txt
 ```
+
+#### GPTQ权重加载
+- 使用脚本生成GPTQ模型权重，用法参考: [apply_gptq.py](../tools/script.html#apply-gptq-py)
+- 创建`gptq.json`配置文件
+  ```json
+  {
+      "llm_model": "model.mnn",
+      "llm_weight": "gptq.mnn.weight",
+  }
+  ```
+
+
+#### LoRA权重加载
+- 使用脚本生成lora模型，用法参考: [apply_lora.py](../tools/script.html#apply-lora-py)
+- lora模型使用
+  - 直接加载lora模型使用，创建`lora.json`配置文件
+  ```json
+  {
+      "llm_model": "lora.mnn",
+      "llm_weight": "base.mnn.weight",
+  }
+  ```
+  - 运行时选择并切换lora模型
+  ```cpp
+  // 创建并加载base模型
+  std::unique_ptr<Llm> llm(Llm::createLLM(config_path));
+  llm->load();
+  // 使用同一个对象，在多个lora模型之间选择性使用，不可以并发使用
+  {
+      // 在基础模型的基础上添加`lora_1`模型，模型的索引为`lora_1_idx`
+      size_t lora_1_idx = llm->apply_lora("lora_1.mnn");
+      llm->response("Hello lora1"); // 使用`lora_1`模型推理
+      // 添加`lora_2`模型，并使用
+      size_t lora_2_idx = llm->apply_lora("lora_2.mnn");
+      llm->response("Hello lora2"); // 使用`lora_2`模型推理
+      // 通过索引选择`lora_1`作为llm对象当前使用的模型
+      llm->select_module(lora_1_idx);
+      llm->response("Hello lora1"); // 使用`lora_1`模型推理
+      // 释放加载的lora模型
+      llm->release_module(lora_1_idx);
+      llm->release_module(lora_2_idx);
+      // 选择使用基础模型
+      llm->select_module(0);
+      llm->response("Hello base"); // 使用`base`模型推理
+  }
+  // 使用多个对象，可以并发的加载使用多个lora模型
+  {
+      std::mutex creat_mutex;
+      auto chat = [&](const std::string& lora_name) {
+          MNN::BackendConfig bnConfig;
+          auto newExe = Executor::newExecutor(MNN_FORWARD_CPU, bnConfig, 1);
+          ExecutorScope scope(newExe);
+          Llm* current_llm = nullptr;
+          {
+              std::lock_guard<std::mutex> guard(creat_mutex);
+              current_llm = llm->create_lora(lora_name);
+          }
+          current_llm->response("Hello");
+      };
+      std::thread thread1(chat, "lora_1.mnn");
+      std::thread thread2(chat, "lora_2.mnn");
+      thread1.join();
+      thread2.join();
+  }
+  ```

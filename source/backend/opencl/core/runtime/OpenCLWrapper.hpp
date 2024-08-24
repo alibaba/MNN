@@ -17,9 +17,8 @@
 #endif
 #include <memory>
 #include "core/Macro.h"
-#define CL_TARGET_OPENCL_VERSION 200
-#define CL_HPP_TARGET_OPENCL_VERSION 120
-#define CL_HPP_MINIMUM_OPENCL_VERSION 120
+#define CL_HPP_TARGET_OPENCL_VERSION 110
+#define CL_HPP_MINIMUM_OPENCL_VERSION 110
 
 #if !defined(_MSC_VER)
 #pragma GCC diagnostic push
@@ -54,7 +53,6 @@ public:
     bool isSvmError();
     bool isPropError();
     bool isQcomError();
-    bool isCL1_2Error();
     bool isGlError();
     
     using clGetPlatformIDsFunc        = cl_int (CL_API_CALL *)(cl_uint, cl_platform_id *, cl_uint *);
@@ -188,7 +186,6 @@ public:
     MNN_CL_DEFINE_FUNC_PTR(clReleaseKernel);
     MNN_CL_DEFINE_FUNC_PTR(clCreateProgramWithSource);
     MNN_CL_DEFINE_FUNC_PTR(clCreateBuffer);
-    MNN_CL_DEFINE_FUNC_PTR(clCreateImage);
     MNN_CL_DEFINE_FUNC_PTR(clCreateImage2D);
     MNN_CL_DEFINE_FUNC_PTR(clRetainKernel);
     MNN_CL_DEFINE_FUNC_PTR(clCreateKernel);
@@ -232,8 +229,6 @@ public:
     MNN_CL_DEFINE_FUNC_PTR(clCreateFromGLTexture);
     MNN_CL_DEFINE_FUNC_PTR(clEnqueueAcquireGLObjects);
     MNN_CL_DEFINE_FUNC_PTR(clEnqueueReleaseGLObjects);
-    MNN_CL_DEFINE_FUNC_PTR(clRetainDevice);
-    MNN_CL_DEFINE_FUNC_PTR(clReleaseDevice);
     
     MNN_CL_DEFINE_FUNC_PTR(clCreateCommandQueueWithProperties);
     MNN_CL_DEFINE_FUNC_PTR(clSVMAlloc);

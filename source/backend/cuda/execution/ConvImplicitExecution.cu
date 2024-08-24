@@ -82,7 +82,7 @@ ConvImplicitExecution::Resource::Resource(Backend* backend, const MNN::Op* op) {
     const float* filterDataPtr = nullptr;
     int weightSize = 0;
     std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
-    ConvolutionCommon::getConvParameters(&quanCommon, backend, conv, &filterDataPtr, &weightSize);
+    ConvolutionCommon::getConvParameters(&quanCommon, backend, op, &filterDataPtr, &weightSize);
     mKernelInfo.kernelN = common->outputCount();
     mKernelInfo.kernelC = weightSize / mKernelInfo.kernelN / mKernelInfo.kernelX / mKernelInfo.kernelY;
 
@@ -93,7 +93,7 @@ ConvImplicitExecution::Resource::Resource(Backend* backend, const MNN::Op* op) {
         int ci_pack = UP_DIV(mKernelInfo.kernelC, PACK_NUMBER) * PACK_NUMBER;
         int co_pack = UP_DIV(mKernelInfo.kernelN, PACK_NUMBER) * PACK_NUMBER;
         int khw = mKernelInfo.kernelX * mKernelInfo.kernelY;
-    
+
         auto tempCacheBuffer = static_cast<CUDABackend*>(backend)->getStaticBufferPool()->alloc(weightSize * sizeof(float));
         float* cacheWeight = (float*)((uint8_t*)tempCacheBuffer.first + tempCacheBuffer.second);
         runtime->memcpy(cacheWeight, filterDataPtr, weightSize * sizeof(float), MNNMemcpyHostToDevice);
@@ -108,16 +108,16 @@ ConvImplicitExecution::Resource::Resource(Backend* backend, const MNN::Op* op) {
 
         DivModFast cipD(ci_pack);
         DivModFast khwD(khw);
-    
+
         int block_num = runtime->blocks_num(ci_pack * co_pack * khw);
         int block_size = runtime->threads_num();
-    
+
         if(static_cast<CUDABackend*>(backend)->getPrecision() == 1) {
             WeightPackFill_Implicit<<<block_num, block_size>>>((const float*)cacheWeight, (float*)mFilter, khw, ci_pack * co_pack * khw, mKernelInfo.kernelC, mKernelInfo.kernelN, cipD, khwD);
             checkKernelErrors;
         } else {
             WeightPackFill_Implicit<<<block_num, block_size>>>((const float*)cacheWeight, (half*)mFilter, khw, ci_pack * co_pack * khw, mKernelInfo.kernelC, mKernelInfo.kernelN, cipD, khwD);
-            checkKernelErrors;            
+            checkKernelErrors;
         }
         static_cast<CUDABackend*>(backend)->getStaticBufferPool()->free(tempCacheBuffer);
     }
@@ -142,7 +142,7 @@ ConvImplicitExecution::Resource::Resource(Backend* backend, const MNN::Op* op) {
         int alignSize = UP_DIV(biasSize, PACK_NUMBER) * PACK_NUMBER;
         biasTensor.reset(Tensor::createDevice<uint32_t>({alignSize}));
         backend->onAcquireBuffer(biasTensor.get(), Backend::STATIC);
-    
+
         mBias = (void *)biasTensor.get()->buffer().device;
         cuda_check(cudaMemset(mBias, 0, alignSize*sizeof(float)));
         cuda_check(cudaMemcpy(mBias, conv->bias()->data(), conv->bias()->size()*sizeof(float), cudaMemcpyHostToDevice));
@@ -159,7 +159,7 @@ ConvImplicitExecution::ConvImplicitExecution(Backend* backend, const MNN::Op* op
     #else
     Execution(backend),
     #endif
-    mOp(op) 
+    mOp(op)
 {
     mResource = res;
     int precisonLevel = static_cast<CUDABackend*>(backend)->getPrecision();
@@ -206,7 +206,7 @@ ErrorCode ConvImplicitExecution::onResize(const std::vector<Tensor*>  &inputs, c
     // Split K dimension into 1 partitions
     int split_k_slices = 1;
     int ci_pack = UP_DIV(input->channel(), PACK_NUMBER) * PACK_NUMBER;
-    int co_pack = UP_DIV(output->channel(), PACK_NUMBER) * PACK_NUMBER;  
+    int co_pack = UP_DIV(output->channel(), PACK_NUMBER) * PACK_NUMBER;
     // Construct Conv2dProblemSize with user defined output size
     cutlass::conv::Conv2dProblemSize problem_size(
         input->batch(),//int N,
@@ -253,7 +253,7 @@ ErrorCode ConvImplicitExecution::onResize(const std::vector<Tensor*>  &inputs, c
         mWorkspace = (void *)workspaceTensor.get()->buffer().device;
     }
 
-    // Check the problem size is supported or not 
+    // Check the problem size is supported or not
     cutlass::Status status = mImplicitConvOp.can_implement(arguments);
     cutlass_check(status);
 

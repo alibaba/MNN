@@ -82,6 +82,7 @@
    tools/compress
    tools/visual
    tools/python
+   tools/script
 
 .. toctree::
    :maxdepth: 1

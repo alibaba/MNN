@@ -58,14 +58,16 @@ public:
         std::vector<float> mReluThreshold;
     };
     struct ResourceInt8 {
-        std::vector<int> mInt8WeightKernelSum;
-        std::shared_ptr<Tensor> mWeightInt8;
-        std::shared_ptr<Tensor> mOriginBias;
-        std::shared_ptr<Tensor> mOriginScale;
-        std::shared_ptr<Tensor> mWeightQuantZero;
+        std::vector<int> mInt8WeightKernelSum;     // PTQ's   sum, DynamicQ not use
+        std::shared_ptr<Tensor> mWeightInt8;       // PTQ's   and  DynamicQ's weight
+        std::shared_ptr<Tensor> mOriginBias;       // PTQ's   and  DynamicQ's bias
+        std::shared_ptr<Tensor> mOriginScale;      // PTQ's scale + bias, DynamicQ's alpha + zero;
+        std::shared_ptr<Tensor> mWeightQuantZero;  // PTQ's  zero
+        std::shared_ptr<Tensor> mWeightKernelSum;  // PTQ's   and  DynamicQ's weight kernel sum;
+        std::vector<float> mReluThreshold;
         // relu or relu6
         bool mRelu;
-        int mActBits;
+        int mActBits;  // quant bits
 
         int mOutputCount;
         bool mUseConvQuan = true;
@@ -97,8 +99,9 @@ public:
         int32_t mShiftBits = 14;
         bool mValid;
     };
-    static std::shared_ptr<ResourceInt8> makeResourceInt8(Backend *backend, const MNN::Convolution2D *convOp, int pack=4);
-    static void makeResource(Backend* backend, std::shared_ptr<Resource> resource, const Convolution2D* conv2d, std::shared_ptr<ResourceInt8> resourceInt8 = nullptr);
+    static std::shared_ptr<ResourceInt8> makeResourceInt8(Backend *backend, const MNN::Op *op, int pack=4);
+    static void makeResource(Backend* backend, std::shared_ptr<Resource> resource, const MNN::Op *op, std::shared_ptr<ResourceInt8> resourceInt8 = nullptr);
+    static void makeResourceNew(Backend* backend, const Convolution2D* conv2d, std::shared_ptr<ResourceInt8> resourceInt8);
     CPUConvolution(const Convolution2DCommon *convOp, Backend *b);
     virtual ~CPUConvolution() = default;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;

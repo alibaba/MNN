@@ -265,7 +265,7 @@ public:
         int originBiasSize   = 0;
         std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
         if (nullptr != conv2d->quanParameter()) {
-            quanCommon = ConvolutionCommon::load(conv2d, backend, true);
+            quanCommon = ConvolutionCommon::load(op, backend, true);
             // Back to float
             originWeight     = quanCommon->weightFloat.get();
             originWeightSize = quanCommon->weightFloat.size();

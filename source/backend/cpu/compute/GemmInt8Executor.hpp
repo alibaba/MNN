@@ -14,7 +14,7 @@
 namespace MNN {
 class GemmInt8Executor : public CPUConvolution {
 public:
-    GemmInt8Executor(Backend* bn, std::shared_ptr<ResourceInt8> resource, const Convolution2D *conv2D, decltype(CoreInt8Functions::Int8GemmKernel), 
+    GemmInt8Executor(Backend* bn, std::shared_ptr<ResourceInt8> resource, const Op *op, decltype(CoreInt8Functions::Int8GemmKernel),
                      std::vector<int32_t> bias);
     virtual ~GemmInt8Executor();
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;

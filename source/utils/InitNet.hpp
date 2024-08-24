@@ -18,7 +18,7 @@ MNN_PUBLIC bool computeShapeForBlob(const Blob* parameter, Tensor* output);
 
 MNN_PUBLIC bool initConstTensors(std::vector<std::shared_ptr<Tensor>>& tensors, const Net* net, Backend* defaultBackend, ErrorCode& code, FileLoader* external);
 // init Tensors by net
-MNN_PUBLIC bool initTensors(std::vector<std::shared_ptr<Tensor>>& allTensors, const Net* net);
+MNN_PUBLIC bool initTensors(std::vector<std::shared_ptr<Tensor>>& allTensors, const Net* net, const int* oplists = nullptr, size_t opListSize = 0);
 // init Pipeline Infos by oplist and tensors
 MNN_PUBLIC void initPipelineInfosFromOps(std::vector<Schedule::OpCacheInfo>& infos, std::vector<const Op*>& ops, const std::vector<std::shared_ptr<Tensor>>& allTensors);
 // set input and output for allTensors by ops info

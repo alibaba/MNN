@@ -851,33 +851,37 @@ __kernel void gemm_conv_c2_image(GLOBAL_SIZE_DIM2
     int out_offset = (((out_b_idx * dstChannelC4 + out_c_idx/4) * height + out_h_idx) * width + out_w_idx) * 4 + (out_c_idx % 4);
     int wh = width * height * 4;
 
-#if (defined USE_LOW_BIT_WEIGHT_INT8)
     const int loop = (blockDim + 15) / 16;
     #ifdef INPUT_CHANNEL_LEAVE
     const int loop_end = max(loop - 1, 0);
     #else
     const int loop_end = loop;
     #endif
-#elif (defined USE_LOW_BIT_WEIGHT_INT4)
-    const int loop = (blockDim + 31) / 32;
-    #ifdef INPUT_CHANNEL_LEAVE
-    const int loop_end = max(loop - 1, 0);
-    #else
-    const int loop_end = loop;
-    #endif
-#endif
 
     for (int i = 0; i < blockNum; ++i){
         int kindex = i * dstChannelC4 * 4 * 2;
         COMPUTE_FLOAT4 ScaleOffset = CONVERT_COMPUTE_FLOAT4(vload4(0, dequantScaleOffset + out_c_idx * 2 + kindex));
-        #if (defined USE_LOW_BIT_WEIGHT_INT8)
         for (int j = 0; j < loop_end; j++) {
             int k = i * loop + j;
             #ifndef WIDTH_HEIGHT_1
             int k4 = k << 2;
             #endif
+            #if (defined USE_LOW_BIT_WEIGHT_INT8)
             COMPUTE_FLOAT16 weights0 = CONVERT_COMPUTE_FLOAT16(as_char16(read_imagei(weight, SAMPLER, (int2)(out_c_idx, k)))) * ScaleOffset.s0 + ScaleOffset.s1;
             COMPUTE_FLOAT16 weights1 = CONVERT_COMPUTE_FLOAT16(as_char16(read_imagei(weight, SAMPLER, (int2)(out_c_idx + 1, k)))) * ScaleOffset.s2 + ScaleOffset.s3;
+            #elif (defined USE_LOW_BIT_WEIGHT_INT4)
+            COMPUTE_FLOAT16 weights0, weights1;
+            {
+                uchar8 charWeightsInt40 = as_uchar8(convert_ushort4(read_imageui(weight, SAMPLER, (int2)(out_c_idx, k))));
+                uchar8 charWeightsInt41 = as_uchar8(convert_ushort4(read_imageui(weight, SAMPLER, (int2)(out_c_idx + 1, k))));
+                char16 charWeights0 = 0;
+                char16 charWeights1 = 0;
+                UCHAR8_TO_CHAR16(charWeights0, charWeightsInt40);
+                UCHAR8_TO_CHAR16(charWeights1, charWeightsInt41);
+                weights0 = CONVERT_COMPUTE_FLOAT16(charWeights0) * ScaleOffset.s0 + ScaleOffset.s1;
+                weights1 = CONVERT_COMPUTE_FLOAT16(charWeights1) * ScaleOffset.s2 + ScaleOffset.s3;
+            }
+            #endif
             {
                 COMPUTE_FLOAT16 in;
                 #ifdef WIDTH_HEIGHT_1
@@ -937,8 +941,22 @@ __kernel void gemm_conv_c2_image(GLOBAL_SIZE_DIM2
         {
             int k = i * loop + loop_end;
             int k4 = k << 2;
+            #if (defined USE_LOW_BIT_WEIGHT_INT8)
             COMPUTE_FLOAT16 weights0 = CONVERT_COMPUTE_FLOAT16(as_char16(read_imagei(weight, SAMPLER, (int2)(out_c_idx, k)))) * ScaleOffset.s0 + ScaleOffset.s1;
             COMPUTE_FLOAT16 weights1 = CONVERT_COMPUTE_FLOAT16(as_char16(read_imagei(weight, SAMPLER, (int2)(out_c_idx + 1, k)))) * ScaleOffset.s2 + ScaleOffset.s3;
+            #elif (defined USE_LOW_BIT_WEIGHT_INT4)
+            COMPUTE_FLOAT16 weights0, weights1;
+            {
+                uchar8 charWeightsInt40 = as_uchar8(convert_ushort4(read_imageui(weight, SAMPLER, (int2)(out_c_idx, k))));
+                uchar8 charWeightsInt41 = as_uchar8(convert_ushort4(read_imageui(weight, SAMPLER, (int2)(out_c_idx + 1, k))));
+                char16 charWeights0 = 0;
+                char16 charWeights1 = 0;
+                UCHAR8_TO_CHAR16(charWeights0, charWeightsInt40);
+                UCHAR8_TO_CHAR16(charWeights1, charWeightsInt41);
+                weights0 = CONVERT_COMPUTE_FLOAT16(charWeights0) * ScaleOffset.s0 + ScaleOffset.s1;
+                weights1 = CONVERT_COMPUTE_FLOAT16(charWeights1) * ScaleOffset.s2 + ScaleOffset.s3;
+            }
+            #endif
             PADZEROS(k, srcChannel, weights0);
             PADZEROS(k, srcChannel, weights1);
             {
@@ -981,215 +999,6 @@ __kernel void gemm_conv_c2_image(GLOBAL_SIZE_DIM2
             #endif
         }
         #endif
-        #elif (defined USE_LOW_BIT_WEIGHT_INT4)
-        for (int j = 0; j < loop_end; j++) {
-            int k = i * loop + j;
-            #ifndef WIDTH_HEIGHT_1
-            int k8 = k << 3;
-            #endif
-            COMPUTE_FLOAT16 weights0, weights1, weights2, weights3;
-            {
-                uchar16 charWeightsInt4 = as_uchar16(read_imagei(weight, SAMPLER, (int2)(out_c_idx, k)));
-                char16 charWeights0 = 0;
-                char16 charWeights1 = 0;
-                UCHAR16_TO_2CHAR16(charWeights0, charWeights1, charWeightsInt4);
-                weights0 = CONVERT_COMPUTE_FLOAT16(charWeights0) * ScaleOffset.s0 + ScaleOffset.s1;
-                weights1 = CONVERT_COMPUTE_FLOAT16(charWeights1) * ScaleOffset.s0 + ScaleOffset.s1;
-            }
-            {
-                uchar16 charWeightsInt4 = as_uchar16(read_imagei(weight, SAMPLER, (int2)(out_c_idx + 1, k)));
-                char16 charWeights0 = 0;
-                char16 charWeights1 = 0;
-                UCHAR16_TO_2CHAR16(charWeights0, charWeights1, charWeightsInt4);
-                weights2 = CONVERT_COMPUTE_FLOAT16(charWeights0) * ScaleOffset.s2 + ScaleOffset.s3;
-                weights3 = CONVERT_COMPUTE_FLOAT16(charWeights1) * ScaleOffset.s2 + ScaleOffset.s3;
-            }
-            {
-                COMPUTE_FLOAT16 in0, in1;
-                #ifdef WIDTH_HEIGHT_1
-                in0 = CONVERT_COMPUTE_FLOAT16(vload16(0, input + input_offset + k * 32));
-                in1 = CONVERT_COMPUTE_FLOAT16(vload16(0, input + input_offset + k * 32 + 16));
-                #else
-                in0.s0123 = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset + k8 * wh));
-                in0.s4567 = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset + (k8 + 1) * wh));
-                in0.s89ab = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset + (k8 + 2) * wh));
-                in0.scdef = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset + (k8 + 3) * wh));
-
-                in1.s0123 = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset + (k8 + 4) * wh));
-                in1.s4567 = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset + (k8 + 5) * wh));
-                in1.s89ab = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset + (k8 + 6) * wh));
-                in1.scdef = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset + (k8 + 7) * wh));
-                #endif
-                
-                DOT16X16(in0, weights0, out.s0);
-                DOT16X16(in1, weights1, out.s0);
-                DOT16X16(in0, weights2, out.s1);
-                DOT16X16(in1, weights3, out.s1);
-            }
-            #ifdef BACTH_BLOCK4
-            if(isValidBatch1){
-                COMPUTE_FLOAT16 in0, in1;
-                #ifdef WIDTH_HEIGHT_1
-                in0 = CONVERT_COMPUTE_FLOAT16(vload16(0, input + input_offset1 + k * 32));
-                in1 = CONVERT_COMPUTE_FLOAT16(vload16(0, input + input_offset1 + k * 32 + 16));
-                #else
-                in0.s0123 = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset1 + k8 * wh));
-                in0.s4567 = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset1 + (k8 + 1) * wh));
-                in0.s89ab = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset1 + (k8 + 2) * wh));
-                in0.scdef = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset1 + (k8 + 3) * wh));
-
-                in1.s0123 = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset1 + (k8 + 4) * wh));
-                in1.s4567 = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset1 + (k8 + 5) * wh));
-                in1.s89ab = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset1 + (k8 + 6) * wh));
-                in1.scdef = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset1 + (k8 + 7) * wh));
-                #endif
-                DOT16X16(in0, weights0, out1.s0);
-                DOT16X16(in1, weights1, out1.s0);
-                DOT16X16(in0, weights2, out1.s1);
-                DOT16X16(in1, weights3, out1.s1);
-            }
-            if(isValidBatch2){
-                COMPUTE_FLOAT16 in0, in1;
-                #ifdef WIDTH_HEIGHT_1
-                in0 = CONVERT_COMPUTE_FLOAT16(vload16(0, input + input_offset2 + k * 32));
-                in1 = CONVERT_COMPUTE_FLOAT16(vload16(0, input + input_offset2 + k * 32 + 16));
-                #else
-                in0.s0123 = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset2 + k8 * wh));
-                in0.s4567 = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset2 + (k8 + 1) * wh));
-                in0.s89ab = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset2 + (k8 + 2) * wh));
-                in0.scdef = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset2 + (k8 + 3) * wh));
-
-                in1.s0123 = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset2 + (k8 + 4) * wh));
-                in1.s4567 = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset2 + (k8 + 5) * wh));
-                in1.s89ab = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset2 + (k8 + 6) * wh));
-                in1.scdef = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset2 + (k8 + 7) * wh));
-                #endif
-                DOT16X16(in0, weights0, out2.s0);
-                DOT16X16(in1, weights1, out2.s0);
-                DOT16X16(in0, weights2, out2.s1);
-                DOT16X16(in1, weights3, out2.s1);
-            }
-            if(isValidBatch3){
-                COMPUTE_FLOAT16 in0, in1;
-                #ifdef WIDTH_HEIGHT_1
-                in0 = CONVERT_COMPUTE_FLOAT16(vload16(0, input + input_offset3 + k * 32));
-                in1 = CONVERT_COMPUTE_FLOAT16(vload16(0, input + input_offset3 + k * 32 + 16));
-                #else
-                in0.s0123 = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset2 + k8 * wh));
-                in0.s4567 = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset2 + (k8 + 1) * wh));
-                in0.s89ab = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset2 + (k8 + 2) * wh));
-                in0.scdef = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset2 + (k8 + 3) * wh));
-
-                in1.s0123 = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset2 + (k8 + 4) * wh));
-                in1.s4567 = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset2 + (k8 + 5) * wh));
-                in1.s89ab = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset2 + (k8 + 6) * wh));
-                in1.scdef = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset2 + (k8 + 7) * wh));
-                #endif
-                DOT16X16(in0, weights0, out3.s0);
-                DOT16X16(in1, weights1, out3.s0);
-                DOT16X16(in0, weights2, out3.s1);
-                DOT16X16(in1, weights3, out3.s1);
-            }
-            #endif
-        }
-        #ifdef INPUT_CHANNEL_LEAVE
-        {
-            int k = i * loop + loop_end;
-            int k8 = k << 3;
-            COMPUTE_FLOAT16 weights0, weights1, weights2, weights3;
-            {
-                uchar16 charWeightsInt4 = as_uchar16(read_imagei(weight, SAMPLER, (int2)(out_c_idx, k)));
-                char16 charWeights0 = 0;
-                char16 charWeights1 = 0;
-                UCHAR16_TO_2CHAR16(charWeights0, charWeights1, charWeightsInt4);
-                weights0 = CONVERT_COMPUTE_FLOAT16(charWeights0) * ScaleOffset.s0 + ScaleOffset.s1;
-                weights1 = CONVERT_COMPUTE_FLOAT16(charWeights1) * ScaleOffset.s0 + ScaleOffset.s1;
-            }
-            {
-                uchar16 charWeightsInt4 = as_uchar16(read_imagei(weight, SAMPLER, (int2)(out_c_idx + 1, k)));
-                char16 charWeights0 = 0;
-                char16 charWeights1 = 0;
-                UCHAR16_TO_2CHAR16(charWeights0, charWeights1, charWeightsInt4);
-                weights2 = CONVERT_COMPUTE_FLOAT16(charWeights0) * ScaleOffset.s2 + ScaleOffset.s3;
-                weights3 = CONVERT_COMPUTE_FLOAT16(charWeights1) * ScaleOffset.s2 + ScaleOffset.s3;
-            }
-            PADZEROS(k, srcChannel, weights0);
-            PADZEROS(k + 15, srcChannel, weights1);
-            PADZEROS(k, srcChannel, weights2);
-            PADZEROS(k + 15, srcChannel, weights3);
-            {
-                COMPUTE_FLOAT16 in0, in1;
-                in0.s0123 = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset + k8 * wh));
-                in0.s4567 = CONVERT_COMPUTE_FLOAT4(k8 + 1 < srcChannelC4 ? vload4(0, input + input_offset + (k8 + 1) * wh) : (FLOAT4)0);
-                in0.s89ab = CONVERT_COMPUTE_FLOAT4(k8 + 2 < srcChannelC4 ? vload4(0, input + input_offset + (k8 + 2) * wh) : (FLOAT4)0);
-                in0.scdef = CONVERT_COMPUTE_FLOAT4(k8 + 3 < srcChannelC4 ? vload4(0, input + input_offset + (k8 + 3) * wh) : (FLOAT4)0);
-                        
-                in1.s0123 = CONVERT_COMPUTE_FLOAT4(k8 + 4 < srcChannelC4 ? vload4(0, input + input_offset + (k8 + 4) * wh) : (FLOAT4)0);
-                in1.s4567 = CONVERT_COMPUTE_FLOAT4(k8 + 5 < srcChannelC4 ? vload4(0, input + input_offset + (k8 + 5) * wh) : (FLOAT4)0);
-                in1.s89ab = CONVERT_COMPUTE_FLOAT4(k8 + 6 < srcChannelC4 ? vload4(0, input + input_offset + (k8 + 6) * wh) : (FLOAT4)0);
-                in1.scdef = CONVERT_COMPUTE_FLOAT4(k8 + 7 < srcChannelC4 ? vload4(0, input + input_offset + (k8 + 7) * wh) : (FLOAT4)0);
-                
-                DOT16X16(in0, weights0, out.s0);
-                DOT16X16(in1, weights1, out.s0);
-                DOT16X16(in0, weights2, out.s1);
-                DOT16X16(in1, weights3, out.s1);
-            }
-            #ifdef BACTH_BLOCK4
-            if(isValidBatch1){
-                COMPUTE_FLOAT16 in0, in1;
-                in0.s0123 = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset1 + k8 * wh));
-                in0.s4567 = CONVERT_COMPUTE_FLOAT4(k8 + 1 < srcChannelC4 ? vload4(0, input + input_offset1 + (k8 + 1) * wh) : (FLOAT4)0);
-                in0.s89ab = CONVERT_COMPUTE_FLOAT4(k8 + 2 < srcChannelC4 ? vload4(0, input + input_offset1 + (k8 + 2) * wh) : (FLOAT4)0);
-                in0.scdef = CONVERT_COMPUTE_FLOAT4(k8 + 3 < srcChannelC4 ? vload4(0, input + input_offset1 + (k8 + 3) * wh) : (FLOAT4)0);
-                        
-                in1.s0123 = CONVERT_COMPUTE_FLOAT4(k8 + 4 < srcChannelC4 ? vload4(0, input + input_offset1 + (k8 + 4) * wh) : (FLOAT4)0);
-                in1.s4567 = CONVERT_COMPUTE_FLOAT4(k8 + 5 < srcChannelC4 ? vload4(0, input + input_offset1 + (k8 + 5) * wh) : (FLOAT4)0);
-                in1.s89ab = CONVERT_COMPUTE_FLOAT4(k8 + 6 < srcChannelC4 ? vload4(0, input + input_offset1 + (k8 + 6) * wh) : (FLOAT4)0);
-                in1.scdef = CONVERT_COMPUTE_FLOAT4(k8 + 7 < srcChannelC4 ? vload4(0, input + input_offset1 + (k8 + 7) * wh) : (FLOAT4)0);
-                
-                DOT16X16(in0, weights0, out1.s0);
-                DOT16X16(in1, weights1, out1.s0);
-                DOT16X16(in0, weights2, out1.s1);
-                DOT16X16(in1, weights3, out1.s1);
-            }
-            if(isValidBatch2){
-                COMPUTE_FLOAT16 in0, in1;
-                in0.s0123 = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset2 + k8 * wh));
-                in0.s4567 = CONVERT_COMPUTE_FLOAT4(k8 + 1 < srcChannelC4 ? vload4(0, input + input_offset2 + (k8 + 1) * wh) : (FLOAT4)0);
-                in0.s89ab = CONVERT_COMPUTE_FLOAT4(k8 + 2 < srcChannelC4 ? vload4(0, input + input_offset2 + (k8 + 2) * wh) : (FLOAT4)0);
-                in0.scdef = CONVERT_COMPUTE_FLOAT4(k8 + 3 < srcChannelC4 ? vload4(0, input + input_offset2 + (k8 + 3) * wh) : (FLOAT4)0);
-                        
-                in1.s0123 = CONVERT_COMPUTE_FLOAT4(k8 + 4 < srcChannelC4 ? vload4(0, input + input_offset2 + (k8 + 4) * wh) : (FLOAT4)0);
-                in1.s4567 = CONVERT_COMPUTE_FLOAT4(k8 + 5 < srcChannelC4 ? vload4(0, input + input_offset2 + (k8 + 5) * wh) : (FLOAT4)0);
-                in1.s89ab = CONVERT_COMPUTE_FLOAT4(k8 + 6 < srcChannelC4 ? vload4(0, input + input_offset2 + (k8 + 6) * wh) : (FLOAT4)0);
-                in1.scdef = CONVERT_COMPUTE_FLOAT4(k8 + 7 < srcChannelC4 ? vload4(0, input + input_offset2 + (k8 + 7) * wh) : (FLOAT4)0);
-                
-                DOT16X16(in0, weights0, out2.s0);
-                DOT16X16(in1, weights1, out2.s0);
-                DOT16X16(in0, weights2, out2.s1);
-                DOT16X16(in1, weights3, out2.s1);
-            }
-            if(isValidBatch3){
-                COMPUTE_FLOAT16 in0, in1;
-                in0.s0123 = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset3 + k8 * wh));
-                in0.s4567 = CONVERT_COMPUTE_FLOAT4(k8 + 1 < srcChannelC4 ? vload4(0, input + input_offset3 + (k8 + 1) * wh) : (FLOAT4)0);
-                in0.s89ab = CONVERT_COMPUTE_FLOAT4(k8 + 2 < srcChannelC4 ? vload4(0, input + input_offset3 + (k8 + 2) * wh) : (FLOAT4)0);
-                in0.scdef = CONVERT_COMPUTE_FLOAT4(k8 + 3 < srcChannelC4 ? vload4(0, input + input_offset3 + (k8 + 3) * wh) : (FLOAT4)0);
-                        
-                in1.s0123 = CONVERT_COMPUTE_FLOAT4(k8 + 4 < srcChannelC4 ? vload4(0, input + input_offset3 + (k8 + 4) * wh) : (FLOAT4)0);
-                in1.s4567 = CONVERT_COMPUTE_FLOAT4(k8 + 5 < srcChannelC4 ? vload4(0, input + input_offset3 + (k8 + 5) * wh) : (FLOAT4)0);
-                in1.s89ab = CONVERT_COMPUTE_FLOAT4(k8 + 6 < srcChannelC4 ? vload4(0, input + input_offset3 + (k8 + 6) * wh) : (FLOAT4)0);
-                in1.scdef = CONVERT_COMPUTE_FLOAT4(k8 + 7 < srcChannelC4 ? vload4(0, input + input_offset3 + (k8 + 7) * wh) : (FLOAT4)0);
-                
-                DOT16X16(in0, weights0, out3.s0);
-                DOT16X16(in1, weights1, out3.s0);
-                DOT16X16(in0, weights2, out3.s1);
-                DOT16X16(in1, weights3, out3.s1);
-            }
-            #endif
-        }
-        #endif
-    #endif //USE_LOW_BIT_WEIGHT_INT4
     }
 
 #ifdef RELU
@@ -1281,32 +1090,32 @@ __kernel void gemm_conv_c1_image(GLOBAL_SIZE_DIM2
     bool isValidBatch3 = out_b_idx + 3 < batch;
 #endif
 
-#if (defined USE_LOW_BIT_WEIGHT_INT8)
     const int loop = (blockDim + 15) / 16;
     #ifdef INPUT_CHANNEL_LEAVE
     const int loop_end = max(loop - 1, 0);
     #else
     const int loop_end = loop;
     #endif
-#elif (defined USE_LOW_BIT_WEIGHT_INT4)
-    const int loop = (blockDim + 31) / 32;
-    #ifdef INPUT_CHANNEL_LEAVE
-    const int loop_end = max(loop - 1, 0);
-    #else
-    const int loop_end = loop;
-    #endif
-#endif
     
     for (int i = 0; i < blockNum; ++i){
         int kindex = i * dstChannelC4 * 4 * 2;
         COMPUTE_FLOAT2 ScaleOffset = CONVERT_COMPUTE_FLOAT2(vload2(out_c_idx, dequantScaleOffset + kindex));
-        #if (defined USE_LOW_BIT_WEIGHT_INT8)
         for (int j = 0; j < loop_end; j++) {
             int k = i * loop + j;
             #ifndef WIDTH_HEIGHT_1
             int k4 = k << 2;
             #endif
+            #if (defined USE_LOW_BIT_WEIGHT_INT8)
             COMPUTE_FLOAT16 weights0 = CONVERT_COMPUTE_FLOAT16(as_char16(read_imagei(weight, SAMPLER, (int2)(out_c_idx, k)))) * ScaleOffset.s0 + ScaleOffset.s1;
+            #elif (defined USE_LOW_BIT_WEIGHT_INT4)
+            COMPUTE_FLOAT16 weights0;
+            {
+                uchar8 charWeightsInt4 = as_uchar8(convert_ushort4(read_imageui(weight, SAMPLER, (int2)(out_c_idx, k))));
+                char16 charWeights = 0;
+                UCHAR8_TO_CHAR16(charWeights, charWeightsInt4);
+                weights0 = CONVERT_COMPUTE_FLOAT16(charWeights) * ScaleOffset.s0 + ScaleOffset.s1;
+            }
+            #endif
             {
                 COMPUTE_FLOAT16 in;
                 #ifdef WIDTH_HEIGHT_1
@@ -1362,7 +1171,18 @@ __kernel void gemm_conv_c1_image(GLOBAL_SIZE_DIM2
         {
             int k = i * loop + loop_end;
             int k4 = k << 2;
+            #if (defined USE_LOW_BIT_WEIGHT_INT8)
             COMPUTE_FLOAT16 weights0 = CONVERT_COMPUTE_FLOAT16(as_char16(read_imagei(weight, SAMPLER, (int2)(out_c_idx, k)))) * ScaleOffset.s0 + ScaleOffset.s1;
+            #elif (defined USE_LOW_BIT_WEIGHT_INT4)
+            COMPUTE_FLOAT16 weights0;
+            {
+                uchar8 charWeightsInt4 = as_uchar8(convert_ushort4(read_imageui(weight, SAMPLER, (int2)(out_c_idx, k))));
+                char16 charWeights = 0;
+                UCHAR8_TO_CHAR16(charWeights, charWeightsInt4);
+                weights0 = CONVERT_COMPUTE_FLOAT16(charWeights) * ScaleOffset.s0 + ScaleOffset.s1;
+            }
+            #endif
+            PADZEROS(k, srcChannel, weights0);
             {
                COMPUTE_FLOAT16 in;
                in.s0123 = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset + k4 * wh));
@@ -1371,7 +1191,6 @@ __kernel void gemm_conv_c1_image(GLOBAL_SIZE_DIM2
                in.scdef = CONVERT_COMPUTE_FLOAT4(k4 + 3 < srcChannelC4 ? vload4(0, input + input_offset + (k4 + 3) * wh) : (FLOAT4)0);
                DOT16X16(in, weights0, out);
             }
-            PADZEROS(k, srcChannel, weights0);
             #ifdef BACTH_BLOCK4
             if(isValidBatch1){
                 COMPUTE_FLOAT16 in;
@@ -1400,178 +1219,6 @@ __kernel void gemm_conv_c1_image(GLOBAL_SIZE_DIM2
             #endif
         }
         #endif
-        #elif (defined USE_LOW_BIT_WEIGHT_INT4)
-        for (int j = 0; j < loop_end; j++) {
-            int k = i * loop + j;
-            #ifndef WIDTH_HEIGHT_1
-            int k8 = k << 3;
-            #endif
-            COMPUTE_FLOAT16 weights0, weights1;
-            {
-                uchar16 charWeightsInt4 = as_uchar16(read_imagei(weight, SAMPLER, (int2)(out_c_idx, k)));
-                char16 charWeights0 = 0;
-                char16 charWeights1 = 0;
-                UCHAR16_TO_2CHAR16(charWeights0, charWeights1, charWeightsInt4);
-                weights0 = CONVERT_COMPUTE_FLOAT16(charWeights0) * ScaleOffset.s0 + ScaleOffset.s1;
-                weights1 = CONVERT_COMPUTE_FLOAT16(charWeights1) * ScaleOffset.s0 + ScaleOffset.s1;
-            }
-            {
-                COMPUTE_FLOAT16 in0, in1;
-                #ifdef WIDTH_HEIGHT_1
-                in0 = CONVERT_COMPUTE_FLOAT16(vload16(0, input + input_offset + k * 32));
-                in1 = CONVERT_COMPUTE_FLOAT16(vload16(0, input + input_offset + k * 32 + 16));
-                #else
-                in0.s0123 = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset + k8 * wh));
-                in0.s4567 = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset + (k8 + 1) * wh));
-                in0.s89ab = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset + (k8 + 2) * wh));
-                in0.scdef = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset + (k8 + 3) * wh));
-
-                in1.s0123 = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset + (k8 + 4) * wh));
-                in1.s4567 = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset + (k8 + 5) * wh));
-                in1.s89ab = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset + (k8 + 6) * wh));
-                in1.scdef = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset + (k8 + 7) * wh));
-                #endif
-                DOT16X16(in0, weights0, out);
-                DOT16X16(in1, weights1, out);
-            }
-        
-            #ifdef BACTH_BLOCK4
-            if(isValidBatch1){
-                COMPUTE_FLOAT16 in0, in1;
-                #ifdef WIDTH_HEIGHT_1
-                in0 = CONVERT_COMPUTE_FLOAT16(vload16(0, input + input_offset1 + k * 32));
-                in1 = CONVERT_COMPUTE_FLOAT16(vload16(0, input + input_offset1 + k * 32 + 16));
-                #else
-                in0.s0123 = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset1 + k8 * wh));
-                in0.s4567 = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset1 + (k8 + 1) * wh));
-                in0.s89ab = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset1 + (k8 + 2) * wh));
-                in0.scdef = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset1 + (k8 + 3) * wh));
-
-                in1.s0123 = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset1 + (k8 + 4) * wh));
-                in1.s4567 = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset1 + (k8 + 5) * wh));
-                in1.s89ab = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset1 + (k8 + 6) * wh));
-                in1.scdef = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset1 + (k8 + 7) * wh));
-                #endif
-                DOT16X16(in0, weights0, out1);
-                DOT16X16(in1, weights1, out1);
-            }
-            if(isValidBatch2){
-                COMPUTE_FLOAT16 in0, in1;
-                #ifdef WIDTH_HEIGHT_1
-                in0 = CONVERT_COMPUTE_FLOAT16(vload16(0, input + input_offset2 + k * 32));
-                in1 = CONVERT_COMPUTE_FLOAT16(vload16(0, input + input_offset2 + k * 32 + 16));
-                #else
-                in0.s0123 = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset2 + k8 * wh));
-                in0.s4567 = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset2 + (k8 + 1) * wh));
-                in0.s89ab = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset2 + (k8 + 2) * wh));
-                in0.scdef = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset2 + (k8 + 3) * wh));
-
-                in1.s0123 = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset2 + (k8 + 4) * wh));
-                in1.s4567 = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset2 + (k8 + 5) * wh));
-                in1.s89ab = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset2 + (k8 + 6) * wh));
-                in1.scdef = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset2 + (k8 + 7) * wh));
-                #endif
-                DOT16X16(in0, weights0, out2);
-                DOT16X16(in1, weights1, out2);
-            }
-            if(isValidBatch3){
-                COMPUTE_FLOAT16 in0, in1;
-                #ifdef WIDTH_HEIGHT_1
-                in0 = CONVERT_COMPUTE_FLOAT16(vload16(0, input + input_offset3 + k * 32));
-                in1 = CONVERT_COMPUTE_FLOAT16(vload16(0, input + input_offset3 + k * 32 + 16));
-                #else
-                in0.s0123 = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset3 + k8 * wh));
-                in0.s4567 = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset3 + (k8 + 1) * wh));
-                in0.s89ab = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset3 + (k8 + 2) * wh));
-                in0.scdef = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset3 + (k8 + 3) * wh));
-
-                in1.s0123 = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset3 + (k8 + 4) * wh));
-                in1.s4567 = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset3 + (k8 + 5) * wh));
-                in1.s89ab = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset3 + (k8 + 6) * wh));
-                in1.scdef = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset3 + (k8 + 7) * wh));
-                #endif
-                DOT16X16(in0, weights0, out3);
-                DOT16X16(in1, weights1, out3);
-            }
-            #endif
-        }
-        #ifdef INPUT_CHANNEL_LEAVE
-        {
-            int k = i * loop + loop_end;
-            int k8 = k << 3;
-            COMPUTE_FLOAT16 weights0, weights1;
-            {
-                uchar16 charWeightsInt4 = as_uchar16(read_imagei(weight, SAMPLER, (int2)(out_c_idx, k)));
-                char16 charWeights0 = 0;
-                char16 charWeights1 = 0;
-                UCHAR16_TO_2CHAR16(charWeights0, charWeights1, charWeightsInt4);
-                weights0 = CONVERT_COMPUTE_FLOAT16(charWeights0) * ScaleOffset.s0 + ScaleOffset.s1;
-                weights1 = CONVERT_COMPUTE_FLOAT16(charWeights1) * ScaleOffset.s0 + ScaleOffset.s1;
-            }
-            PADZEROS(k, srcChannel, weights0);
-            PADZEROS(k + 15, srcChannel, weights1);
-            {
-                COMPUTE_FLOAT16 in0, in1;
-                in0.s0123 = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset + k8 * wh));
-                in0.s4567 = CONVERT_COMPUTE_FLOAT4(k8 + 1 < srcChannelC4 ? vload4(0, input + input_offset + (k8 + 1) * wh) : (FLOAT4)0);
-                in0.s89ab = CONVERT_COMPUTE_FLOAT4(k8 + 2 < srcChannelC4 ? vload4(0, input + input_offset + (k8 + 2) * wh) : (FLOAT4)0);
-                in0.scdef = CONVERT_COMPUTE_FLOAT4(k8 + 3 < srcChannelC4 ? vload4(0, input + input_offset + (k8 + 3) * wh) : (FLOAT4)0);
-                        
-                in1.s0123 = CONVERT_COMPUTE_FLOAT4(k8 + 4 < srcChannelC4 ? vload4(0, input + input_offset + (k8 + 4) * wh) : (FLOAT4)0);
-                in1.s4567 = CONVERT_COMPUTE_FLOAT4(k8 + 5 < srcChannelC4 ? vload4(0, input + input_offset + (k8 + 5) * wh) : (FLOAT4)0);
-                in1.s89ab = CONVERT_COMPUTE_FLOAT4(k8 + 6 < srcChannelC4 ? vload4(0, input + input_offset + (k8 + 6) * wh) : (FLOAT4)0);
-                in1.scdef = CONVERT_COMPUTE_FLOAT4(k8 + 7 < srcChannelC4 ? vload4(0, input + input_offset + (k8 + 7) * wh) : (FLOAT4)0);
-                DOT16X16(in0, weights0, out);
-                DOT16X16(in1, weights1, out);
-            }
-        
-            #ifdef BACTH_BLOCK4
-            if(isValidBatch1){
-                COMPUTE_FLOAT16 in0, in1;
-                in0.s0123 = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset1 + k8 * wh));
-                in0.s4567 = CONVERT_COMPUTE_FLOAT4(k8 + 1 < srcChannelC4 ? vload4(0, input + input_offset1 + (k8 + 1) * wh) : (FLOAT4)0);
-                in0.s89ab = CONVERT_COMPUTE_FLOAT4(k8 + 2 < srcChannelC4 ? vload4(0, input + input_offset1 + (k8 + 2) * wh) : (FLOAT4)0);
-                in0.scdef = CONVERT_COMPUTE_FLOAT4(k8 + 3 < srcChannelC4 ? vload4(0, input + input_offset1 + (k8 + 3) * wh) : (FLOAT4)0);
-                        
-                in1.s0123 = CONVERT_COMPUTE_FLOAT4(k8 + 4 < srcChannelC4 ? vload4(0, input + input_offset1 + (k8 + 4) * wh) : (FLOAT4)0);
-                in1.s4567 = CONVERT_COMPUTE_FLOAT4(k8 + 5 < srcChannelC4 ? vload4(0, input + input_offset1 + (k8 + 5) * wh) : (FLOAT4)0);
-                in1.s89ab = CONVERT_COMPUTE_FLOAT4(k8 + 6 < srcChannelC4 ? vload4(0, input + input_offset1 + (k8 + 6) * wh) : (FLOAT4)0);
-                in1.scdef = CONVERT_COMPUTE_FLOAT4(k8 + 7 < srcChannelC4 ? vload4(0, input + input_offset1 + (k8 + 7) * wh) : (FLOAT4)0);
-                DOT16X16(in0, weights0, out1);
-                DOT16X16(in1, weights1, out1);
-            }
-            if(isValidBatch2){
-                COMPUTE_FLOAT16 in0, in1;
-                in0.s0123 = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset2 + k8 * wh));
-                in0.s4567 = CONVERT_COMPUTE_FLOAT4(k8 + 1 < srcChannelC4 ? vload4(0, input + input_offset2 + (k8 + 1) * wh) : (FLOAT4)0);
-                in0.s89ab = CONVERT_COMPUTE_FLOAT4(k8 + 2 < srcChannelC4 ? vload4(0, input + input_offset2 + (k8 + 2) * wh) : (FLOAT4)0);
-                in0.scdef = CONVERT_COMPUTE_FLOAT4(k8 + 3 < srcChannelC4 ? vload4(0, input + input_offset2 + (k8 + 3) * wh) : (FLOAT4)0);
-                        
-                in1.s0123 = CONVERT_COMPUTE_FLOAT4(k8 + 4 < srcChannelC4 ? vload4(0, input + input_offset2 + (k8 + 4) * wh) : (FLOAT4)0);
-                in1.s4567 = CONVERT_COMPUTE_FLOAT4(k8 + 5 < srcChannelC4 ? vload4(0, input + input_offset2 + (k8 + 5) * wh) : (FLOAT4)0);
-                in1.s89ab = CONVERT_COMPUTE_FLOAT4(k8 + 6 < srcChannelC4 ? vload4(0, input + input_offset2 + (k8 + 6) * wh) : (FLOAT4)0);
-                in1.scdef = CONVERT_COMPUTE_FLOAT4(k8 + 7 < srcChannelC4 ? vload4(0, input + input_offset2 + (k8 + 7) * wh) : (FLOAT4)0);
-                DOT16X16(in0, weights0, out2);
-                DOT16X16(in1, weights1, out2);
-            }
-            if(isValidBatch3){
-                COMPUTE_FLOAT16 in0, in1;
-                in0.s0123 = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset3 + k8 * wh));
-                in0.s4567 = CONVERT_COMPUTE_FLOAT4(k8 + 1 < srcChannelC4 ? vload4(0, input + input_offset3 + (k8 + 1) * wh) : (FLOAT4)0);
-                in0.s89ab = CONVERT_COMPUTE_FLOAT4(k8 + 2 < srcChannelC4 ? vload4(0, input + input_offset3 + (k8 + 2) * wh) : (FLOAT4)0);
-                in0.scdef = CONVERT_COMPUTE_FLOAT4(k8 + 3 < srcChannelC4 ? vload4(0, input + input_offset3 + (k8 + 3) * wh) : (FLOAT4)0);
-                        
-                in1.s0123 = CONVERT_COMPUTE_FLOAT4(k8 + 4 < srcChannelC4 ? vload4(0, input + input_offset3 + (k8 + 4) * wh) : (FLOAT4)0);
-                in1.s4567 = CONVERT_COMPUTE_FLOAT4(k8 + 5 < srcChannelC4 ? vload4(0, input + input_offset3 + (k8 + 5) * wh) : (FLOAT4)0);
-                in1.s89ab = CONVERT_COMPUTE_FLOAT4(k8 + 6 < srcChannelC4 ? vload4(0, input + input_offset3 + (k8 + 6) * wh) : (FLOAT4)0);
-                in1.scdef = CONVERT_COMPUTE_FLOAT4(k8 + 7 < srcChannelC4 ? vload4(0, input + input_offset3 + (k8 + 7) * wh) : (FLOAT4)0);
-                DOT16X16(in0, weights0, out3);
-                DOT16X16(in1, weights1, out3);
-            }
-            #endif
-        }
-        #endif
-    #endif //USE_LOW_BIT_WEIGHT_INT4
     }
 
 #ifdef RELU

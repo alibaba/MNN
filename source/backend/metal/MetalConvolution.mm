@@ -17,7 +17,7 @@
 namespace MNN {
 
 MetalConvolution::MetalConvolution(Backend *backend, const MNN::Op *op) : MetalConvolutionCommon(backend, op, nullptr) {
-    loadWeight(op->main_as_Convolution2D());
+    loadWeight(op);
 }
 MetalConvolution::MetalConvolution(Backend *backend, const MNN::Op *op, std::shared_ptr<MNN::Tensor> weight, std::shared_ptr<MNN::Tensor> bias) : MetalConvolutionCommon(backend, op, bias) {
     mWeight = weight;
@@ -47,7 +47,7 @@ ErrorCode MetalConvolution::onResize(const std::vector<Tensor *> &inputs, const 
     auto oh   = output->height();
     auto oc_4 = UP_DIV(output->channel(), 4);
     auto ob   = output->batch();
-    
+
     auto pads = ConvolutionCommon::convolutionPad(input, output, mOp->main_as_Convolution2D()->common());
     auto padX = pads.first;
     auto padY = pads.second;
@@ -77,7 +77,7 @@ ErrorCode MetalConvolution::onResize(const std::vector<Tensor *> &inputs, const 
                        mActivationType};
     mConstBuffer = backend->getConstBuffer(sizeof(constants));
     ::memcpy(mConstBuffer.contents, constants, sizeof(constants));
-    
+
     mParam = "_ic" + std::to_string(ic_4) + "oc" + std::to_string(oc_4) +
              "k" + std::to_string(mKernelX) + "x" + std::to_string(mKernelY) +
              "s" + std::to_string(mStrideX) + "x" + std::to_string(mStrideY) +
@@ -119,7 +119,7 @@ ErrorCode MetalConvolution::onResize(const std::vector<Tensor *> &inputs, const 
         int itemW[total_kernel] = {1, 1, 1, 2, 4};
         int itemH[total_kernel] = {1, 1, 1, 1, 1};
         int itemC[total_kernel] = {1, 4, 2, 1, 1};
-        
+
         int actual_kernel = 3;
         if(isS1D1P0) {
             actual_kernel = 4;
@@ -137,7 +137,7 @@ ErrorCode MetalConvolution::onResize(const std::vector<Tensor *> &inputs, const 
         }
 
         std::pair<NSUInteger, int> min_cost(INT_MAX, 0);//(min_time, min_index)
-        
+
         NSArray *arr = [NSArray arrayWithObjects:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer(),
                         (id<MTLBuffer>)(((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId()))->getBuffer(),
                         mConstBuffer, (((MetalRuntimeAllocator::MetalBufferAlloc *)mWeight->deviceId()))->getBuffer(), ((MetalRuntimeAllocator::MetalBufferAlloc *)mBias->deviceId())->getBuffer(), nil];
@@ -159,7 +159,7 @@ ErrorCode MetalConvolution::onResize(const std::vector<Tensor *> &inputs, const 
 
             std::string name = [shaderName[knl_idx] UTF8String] + mParam;
             auto ret = [context getGridAndThreadgroup:pipeline gid:MTLSizeMake(gid_x, gid_y, gid_z) loop:10 buffer:arr runtime:rt shaderName:name offsets: buffer_offset queue:backend->queue()];
-            
+
             if(min_cost.first > std::get<2>(ret)) {
                 min_cost.first = std::get<2>(ret);
                 min_cost.second = knl_idx;
@@ -178,7 +178,7 @@ ErrorCode MetalConvolution::onResize(const std::vector<Tensor *> &inputs, const 
 void MetalConvolution::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder) {
     auto input = inputs[0];
     auto output = outputs[0];
-    
+
     [encoder setComputePipelineState:mPipeline];
     MetalBackend::setTensor(input, encoder, 0);
     MetalBackend::setTensor(output, encoder, 1);

@@ -14,7 +14,7 @@ namespace CUDA {
 
 #define UNIT 2
 template<typename T>
-__global__ void WinoWeightReorder(const float* GgGt, 
+__global__ void WinoWeightReorder(const float* GgGt,
     T* GgGt_trans,
     const int block,
     const int co_pack,
@@ -67,7 +67,7 @@ ConvWinogradExecution::Resource::Resource(Backend* backend, const MNN::Op* op) {
     const float* filterDataPtr = nullptr;
     int weightSize = 0;
     std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
-    ConvolutionCommon::getConvParameters(&quanCommon, backend, conv, &filterDataPtr, &weightSize);
+    ConvolutionCommon::getConvParameters(&quanCommon, backend, op, &filterDataPtr, &weightSize);
     mKernelInfo.kernelN = common->outputCount();
     mKernelInfo.kernelC = weightSize / mKernelInfo.kernelN / mKernelInfo.kernelX / mKernelInfo.kernelY;
 
@@ -110,7 +110,7 @@ ConvWinogradExecution::Resource::Resource(Backend* backend, const MNN::Op* op) {
         }
         static_cast<CUDABackend*>(backend)->getStaticBufferPool()->free(tempCacheBuffer);
     }
-    
+
     // Copy Bias
     int biasSize = conv->bias()->size();
     int alignSize = UP_DIV(biasSize, PACK_NUMBER) * PACK_NUMBER;
@@ -133,7 +133,7 @@ ConvWinogradExecution::ConvWinogradExecution(Backend* backend, const MNN::Op* op
     #else
     Execution(backend),
     #endif
-    mOp(op) 
+    mOp(op)
 {
     mResource = res;
     int precisonLevel = static_cast<CUDABackend*>(backend)->getPrecision();
@@ -197,10 +197,10 @@ ErrorCode ConvWinogradExecution::onResize(const std::vector<Tensor*>  &inputs, c
     }
     auto bufferData = pool->alloc(BtdB_bytes * mBlock2 * mGemmInfo.elhPad[0] * mGemmInfo.elhPad[1]);
     mBtdB_Buffer = (void*)((uint8_t*)bufferData.first + bufferData.second);
-    
+
     auto bufferMatmul = pool->alloc(bytes * mBlock2 * mGemmInfo.elh[0] * mGemmInfo.elhPad[2]);
     mMatmul_Buffer = (void*)((uint8_t*)bufferMatmul.first + bufferMatmul.second);
-    
+
     pool->free(bufferData);
     pool->free(bufferMatmul);
 
@@ -231,7 +231,7 @@ ErrorCode ConvWinogradExecution::onResize(const std::vector<Tensor*>  &inputs, c
             mWorkspace = (void *)workspaceTensor.get()->buffer().device;
         }
 
-        // Check the problem size is supported or not 
+        // Check the problem size is supported or not
         cutlass::Status status = mGemmBatchedCudaF32F32Ln.can_implement(arguments);
         cutlass_check(status);
 
@@ -258,24 +258,24 @@ ErrorCode ConvWinogradExecution::onResize(const std::vector<Tensor*>  &inputs, c
                                                 (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elhPad[2]),  // batch_stride_C
                                                 {alpha, beta},          // <- tuple of alpha and beta
                                                 mBlock2};                // batch_count
-    
+
             size_t workspace_size = GemmBatchedCuda_F16_F16_Linear_AlignCuda_Row_Column::get_workspace_size(arguments);
-    
+
             if(workspace_size != 0) {
                 workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
                 mResource->mBackend->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
                 mWorkspace = (void *)workspaceTensor.get()->buffer().device;
             }
-    
-            // Check the problem size is supported or not 
+
+            // Check the problem size is supported or not
             cutlass::Status status = mGemmBatchedCudaF16F16Ln.can_implement(arguments);
             cutlass_check(status);
-    
+
             // Initialize CUTLASS kernel with arguments and workspace pointer
             status = mGemmBatchedCudaF16F16Ln.initialize(arguments, (uint8_t *)mWorkspace);
             cutlass_check(status);
         } else {
-    
+
             typename GemmBatchedCuda_F16_F32_Linear_AlignCuda_Row_Column::Arguments arguments{problem_size,  // <- problem size of matrix multiplication
                                                 {(ElementInput_F16 *)mBtdB_Buffer, mGemmInfo.elhPad[1]},  // Ptr + ldm
                                                 (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elhPad[1]), // batch_stride_A
@@ -287,24 +287,24 @@ ErrorCode ConvWinogradExecution::onResize(const std::vector<Tensor*>  &inputs, c
                                                 (int64_t)(mGemmInfo.elh[0] * mGemmInfo.elhPad[2]),  // batch_stride_C
                                                 {alpha, beta},          // <- tuple of alpha and beta
                                                 mBlock2};                // batch_count
-    
+
             size_t workspace_size = GemmBatchedCuda_F16_F32_Linear_AlignCuda_Row_Column::get_workspace_size(arguments);
-    
+
             if(workspace_size != 0) {
                 workspaceTensor.reset(Tensor::createDevice<int8_t>({(int)workspace_size}));
                 mResource->mBackend->onAcquireBuffer(workspaceTensor.get(), Backend::STATIC);
                 mWorkspace = (void *)workspaceTensor.get()->buffer().device;
             }
-    
-            // Check the problem size is supported or not 
+
+            // Check the problem size is supported or not
             cutlass::Status status = mGemmBatchedCudaF16F32Ln.can_implement(arguments);
             cutlass_check(status);
-    
+
             // Initialize CUTLASS kernel with arguments and workspace pointer
             status = mGemmBatchedCudaF16F32Ln.initialize(arguments, (uint8_t *)mWorkspace);
             cutlass_check(status);
         }
-    
+
         return NO_ERROR;
     }
     //MNN_PRINT("Winograd BatchGemm batch:%d, MNK:%d-%d-%d\n", mBlock2, mGemmInfo.elh[0], mGemmInfo.elhPad[2], mGemmInfo.elhPad[1]);
@@ -316,10 +316,10 @@ ErrorCode ConvWinogradExecution::onResize(const std::vector<Tensor*>  &inputs, c
             // 0 -> Gemm, 1~N -> BatchGemm
             int32_t batchSize = 0;
             // [0]->A, [1]->B, [2]->bias, [3]->output
-            std::pair<void *, int32_t> ptrOffset[4]; 
+            std::pair<void *, int32_t> ptrOffset[4];
             int32_t batchOffset[4];
             // [0]->alpha, [1]->beta, [2]->splitK
-            int32_t coefs[3]; 
+            int32_t coefs[3];
             // 0 -> RowColumn, 1 -> RowRow
             int32_t layout;
             bool epilogueVectorize
@@ -374,7 +374,7 @@ ErrorCode ConvWinogradExecution::onResize(const std::vector<Tensor*>  &inputs, c
                 mWorkspace = (void *)workspaceTensor.get()->buffer().device;
             }
 
-            // Check the problem size is supported or not 
+            // Check the problem size is supported or not
             cutlass::Status status = mGemmBatchedF16F16LnSm75.can_implement(arguments);
             cutlass_check(status);
 
@@ -404,7 +404,7 @@ ErrorCode ConvWinogradExecution::onResize(const std::vector<Tensor*>  &inputs, c
             mWorkspace = (void *)workspaceTensor.get()->buffer().device;
         }
 
-        // Check the problem size is supported or not 
+        // Check the problem size is supported or not
         cutlass::Status status = mGemmBatchedF16F32LnSm75.can_implement(arguments);
         cutlass_check(status);
 
@@ -446,19 +446,19 @@ ErrorCode ConvWinogradExecution::onExecute(const std::vector<Tensor*> &inputs, c
     int block_size = runtime->threads_num();
     if(mFp32Infer) {
         WinoInputTrans<<<block_num, block_size>>>((const float*)input_addr, (float*)mBtdB_Buffer, UNIT,
-                (UNIT+kernel-1)*(UNIT+kernel-1), input->channel(), ci_pack, 
+                (UNIT+kernel-1)*(UNIT+kernel-1), input->channel(), ci_pack,
                 total, lD, whD, wD,
                 mPadX, mPadY, input->width(), input->height());
         checkKernelErrors;
     } else if(mFp16Fp32MixInfer) {
         WinoInputTrans<<<block_num, block_size>>>((const float*)input_addr, (half*)mBtdB_Buffer, UNIT,
-                (UNIT+kernel-1)*(UNIT+kernel-1), input->channel(), ci_pack, 
+                (UNIT+kernel-1)*(UNIT+kernel-1), input->channel(), ci_pack,
                 total, lD, whD, wD,
                 mPadX, mPadY, input->width(), input->height());
         checkKernelErrors;
     } else {
         WinoInputTrans<<<block_num, block_size>>>((const half*)input_addr, (half*)mBtdB_Buffer, UNIT,
-                (UNIT+kernel-1)*(UNIT+kernel-1), input->channel(), ci_pack, 
+                (UNIT+kernel-1)*(UNIT+kernel-1), input->channel(), ci_pack,
                 total, lD, whD, wD,
                 mPadX, mPadY, input->width(), input->height());
         checkKernelErrors;
@@ -487,7 +487,7 @@ ErrorCode ConvWinogradExecution::onExecute(const std::vector<Tensor*> &inputs, c
                 if(mIsTuned) {
                     runGemmBatchedTensorCoreFloat16Infer(&mInfo);
                 }
-                #endif 
+                #endif
                 if(!mIsTuned) {
                     cutlass::Status status = mGemmBatchedF16F16LnSm75();
                     cutlass_check(status);
@@ -500,14 +500,14 @@ ErrorCode ConvWinogradExecution::onExecute(const std::vector<Tensor*> &inputs, c
     block_size = runtime->threads_num();
     if (mFp16Fp32MixInfer || mFp32Infer) {
         WinoTrans2Output<<<block_num, block_size>>>((const float*)mMatmul_Buffer, (const float*)bias_addr, (float*)output_addr,
-                UNIT, mBlock2, output->channel(), co_pack, 
+                UNIT, mBlock2, output->channel(), co_pack,
                 count, hD, whD, wD,
                 output->width(), output->height(),
                 mActivationType);
         checkKernelErrors;
     } else {
         WinoTrans2Output<<<block_num, block_size>>>((const half*)mMatmul_Buffer, (const float*)bias_addr, (half*)output_addr,
-                UNIT, mBlock2, output->channel(), co_pack, 
+                UNIT, mBlock2, output->channel(), co_pack,
                 count, hD, whD, wD,
                 output->width(), output->height(),
                 mActivationType);

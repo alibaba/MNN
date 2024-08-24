@@ -1,4 +1,7 @@
 {
+    "argmax.comp":[
+        "ARGMIN"
+    ],
     "matmul_output.comp":[
         "BIAS",
         "TRANSPOSE",

@@ -40,7 +40,7 @@ __global__ void CONV_DW(const T* input,
         d_oc.divmod(index, tmp1, oz_2);
         d_ow.divmod(tmp1, tmp2, ox);
         d_oh.divmod(tmp2, ob, oy);
-        
+
         int oz = oz_2 << 1;
         int ix = ox * sw - pw;
         int iy = oy * sh - ph;
@@ -80,10 +80,10 @@ __global__ void CONV_DW(const T* input,
     }
 }
 
-__global__ void CONV_DW_HALF2_OPT(const half2* input, 
-    const half2* kernel, 
-    const half2* bias, 
-    half2 *output, 
+__global__ void CONV_DW_HALF2_OPT(const half2* input,
+    const half2* kernel,
+    const half2* bias,
+    half2 *output,
     const float maxV,
     const float minV,
     const int iw,
@@ -111,7 +111,7 @@ __global__ void CONV_DW_HALF2_OPT(const half2* input,
         d_oc.divmod(index, tmp1, oz_2);
         d_ow.divmod(tmp1, tmp2, ox);
         d_oh.divmod(tmp2, ob, oy);
-        
+
         int oz = oz_2;
         int ix = ox * sw - pw;
         int iy = oy * sh - ph;
@@ -144,10 +144,10 @@ __global__ void CONV_DW_HALF2_OPT(const half2* input,
     }
 }
 
-__global__ void CONV_DW3x3_HALF2_OPT(const half2* input, 
-    const half2* kernel, 
-    const half2* bias, 
-    half2 *output, 
+__global__ void CONV_DW3x3_HALF2_OPT(const half2* input,
+    const half2* kernel,
+    const half2* bias,
+    half2 *output,
     const float maxV,
     const float minV,
     const int iw,
@@ -175,7 +175,7 @@ __global__ void CONV_DW3x3_HALF2_OPT(const half2* input,
         d_oc.divmod(index, tmp1, oz_2);
         d_ow.divmod(tmp1, tmp2, ox_2);
         d_oh.divmod(tmp2, ob, oy);
-        
+
         int oz = oz_2;
         int ox = ox_2 << 1;
         int ix = ox - 1;
@@ -348,7 +348,7 @@ __global__ void CONV_DW_MULTI_WIDTH4(const T* input, const half* kernel, const h
         float color3 = color0;
 
         // Parallel pipelining read and calculate
-        float src; 
+        float src;
         float filter0, filter1, filter2, filter3;
         int src_offset = ((ob * ih + oy) * iw + (ox_4 << 2)) * c_p + oz;
         int filter_offset = 0 * c_p + oz;
@@ -450,7 +450,7 @@ __global__ void CONV_DW_MULTI_WIDTH_CHANNEL(const float* input, const half* kern
 
         float2 src    = ((float2 *)(input + src_offset + 0 * c_p))[0];
         float2 filter = __half22float2(((half2 *)(kernel + filter_offset + 0 * c_p))[0]);
-        
+
         color0.x += (src.x * filter.x);
         color0.y += (src.y * filter.y);
 
@@ -589,9 +589,9 @@ ErrorCode ConvDepthWiseCompute(Backend* bn,
         return NO_ERROR;
     }
 
-    if(dw == 1 && dh == 1) { 
+    if(dw == 1 && dh == 1) {
         if(sw == 1 && sh == 1 && pw == 0 && ph == 0 && kw > 3 && kw < 12 && kh == 1 && pw == 0 && ph == 0) {
-            
+
             if(ow % 4 == 0) {
                 DivModFast d_oc(c * PACK_NUMBER);
                 DivModFast d_ow(ow/4);
@@ -655,7 +655,7 @@ static std::shared_ptr<ConvDepthWiseExecution::Resource> _makeResource(const Op*
     const float* filterDataPtr = nullptr;
     int weightSize = 0;
     std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
-    ConvolutionCommon::getConvParameters(&quanCommon, bn, conv, &filterDataPtr, &weightSize);
+    ConvolutionCommon::getConvParameters(&quanCommon, bn, op, &filterDataPtr, &weightSize);
     auto tempWeightStorage = pool->alloc(depthC * PACK_NUMBER * kernelY * kernelX * sizeof(float));
     auto tempWeight = (uint8_t*)tempWeightStorage.first + tempWeightStorage.second;
     cuda_check(cudaMemset(tempWeight, 0, depthC * PACK_NUMBER * kernelY * kernelX * sizeof(float)));
@@ -666,7 +666,7 @@ static std::shared_ptr<ConvDepthWiseExecution::Resource> _makeResource(const Op*
     auto regionStorage = static_cast<CUDABackend*>(bn)->getStaticBufferPool()->alloc(sizeof(FuseRegion));
     auto offsetGpuStorage = static_cast<CUDABackend*>(bn)->getStaticBufferPool()->alloc(sizeof(offset));
     auto offsetGpu = (uint8_t*)offsetGpuStorage.first + offsetGpuStorage.second;
-    
+
     #ifdef ENABLE_CUDA_BF16
     if(static_cast<CUDABackend*>(bn)->getPrecision() == 3) {
         // [Oc, Kh*Kw] -> [Kh*Kw, Oc(p)]
@@ -677,7 +677,7 @@ static std::shared_ptr<ConvDepthWiseExecution::Resource> _makeResource(const Op*
         WeightTransToBf16<<<block_num, threads_num>>>((const float*)tempWeight, (__nv_bfloat16*)res->mFilter, count,\
             kernelY * kernelX, depth, d_ocp);
         checkKernelErrors;
-    } 
+    }
     else
     #endif
     {
@@ -717,15 +717,15 @@ static std::shared_ptr<ConvDepthWiseExecution::Resource> _makeResource(const Op*
         cuda_check(cudaMemcpy(tempBias, conv->bias()->data(), conv->bias()->size()*sizeof(float), cudaMemcpyHostToDevice));
 
         #ifdef ENABLE_CUDA_BF16
-        if(static_cast<CUDABackend*>(bn)->getPrecision() == 3) 
+        if(static_cast<CUDABackend*>(bn)->getPrecision() == 3)
         {
             auto countBias = depthC * PACK_NUMBER;
             int block_num = runtime->blocks_num(countBias);
             int threads_num = runtime->threads_num();
             BiasTransToBf16<<<block_num, threads_num>>>((const float*)tempBias, (__nv_bfloat16*)res->mBias, countBias, depth);
             checkKernelErrors;
-        } 
-        else 
+        }
+        else
         #endif
         {
             reg.size[0] = 1;

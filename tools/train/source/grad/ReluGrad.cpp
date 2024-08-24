@@ -10,7 +10,7 @@
 #include "core/Macro.h"
 #include <string.h>
 using namespace std;
-using namespace MNN;
+namespace MNN {
 using namespace MNN::Express;
 class PReluGrad : public OpGrad {
 public:
@@ -83,12 +83,16 @@ public:
         return result;
     }
 };
-static const auto gRegister = []() {
+static void _create() {
     static ReluGrad _c;
     OpGrad::insert(OpType_ReLU, &_c);
     static Relu6Grad _d;
     OpGrad::insert(OpType_ReLU6, &_d);
     static PReluGrad _e;
     OpGrad::insert(OpType_PReLU, &_e);
-    return true;
-}();
+
+}
+
+REGISTER_GRAD(ReluGrad_cpp, _create);
+};
+

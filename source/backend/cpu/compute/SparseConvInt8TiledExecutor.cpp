@@ -64,8 +64,9 @@ bool SparseConvInt8TiledExecutor::reorderWeight(Backend* b, const Convolution2DC
     return true;
 }
 
-SparseConvInt8TiledExecutor::SparseConvInt8TiledExecutor(Backend* backend, const Convolution2D* convOp, std::shared_ptr<ResourceInt8> res) : ConvInt8TiledExecutor(backend, convOp, res) {
+SparseConvInt8TiledExecutor::SparseConvInt8TiledExecutor(Backend* backend, const Op* op, std::shared_ptr<ResourceInt8> res) : ConvInt8TiledExecutor(backend, op, res) {
 
+    auto convOp = op->main_as_Convolution2D();
     std::shared_ptr<Tensor> weightOrigin;
     weightOrigin.swap(mResourceInt8->mWeightInt8);
     const SparseCommon* sparseCommon = convOp->sparseParameter();
@@ -81,9 +82,9 @@ SparseConvInt8TiledExecutor::SparseConvInt8TiledExecutor(Backend* backend, const
 
 }
 
-SparseConvInt8TiledExecutor::SparseConvInt8TiledExecutor(Backend* backend, const Convolution2D* convOp,
+SparseConvInt8TiledExecutor::SparseConvInt8TiledExecutor(Backend* backend, const Op* op,
                                                          const SparseConvInt8TiledExecutor& exe)
-    : ConvInt8TiledExecutor(backend, convOp, exe.mResourceInt8),
+    : ConvInt8TiledExecutor(backend, op, exe.mResourceInt8),
       mNNZMap(exe.mNNZMap),
       mDataOffsetMap(exe.mDataOffsetMap),
       mSparseBlockOC(exe.mSparseBlockOC),
@@ -98,7 +99,7 @@ bool SparseConvInt8TiledExecutor::onClone(Backend* bn, const Op* op, Execution**
     if (nullptr == dst) {
         return true;
     }
-    auto exe = new SparseConvInt8TiledExecutor(bn, op->main_as_Convolution2D(), *this);
+    auto exe = new SparseConvInt8TiledExecutor(bn, op, *this);
     if (!exe->valid()) {
         return false;
     }
@@ -176,13 +177,13 @@ ErrorCode SparseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inp
     auto im2colPtr           = mTempIm2ColBuffer->host<int8_t>();
     auto outputDataPtr       = output->host<int8_t>();
     QuanPostTreatParameters quanParam;
-    quanParam.bias = mMutableResource.mBiasInt32->host<int32_t>();
-    quanParam.scale = mMutableResource.mScaleFloat->host<float>();
-    quanParam.maxValue = mMutableResource.mClampMax;
+    quanParam.bias = mMutableResource->mBiasInt32->host<int32_t>();
+    quanParam.scale = mMutableResource->mScaleFloat->host<float>();
+    quanParam.maxValue = mMutableResource->mClampMax;
     if (mResourceInt8->mRelu) {
-        quanParam.minValue = mMutableResource.mOutputZeroPoint;
+        quanParam.minValue = mMutableResource->mOutputZeroPoint;
     } else {
-        quanParam.minValue = mMutableResource.mClampMin;
+        quanParam.minValue = mMutableResource->mClampMin;
     }
     // MNN_PRINT("outputPlaneLen: %d, reduce l:%zu, minValue:%d, maxValue:%d, mTileCount:%d\n", outputPlaneLen, mSparseQuantParam.l, quanParam.minValue, quanParam.maxValue, mTileCount);
     const int col_buffer_size = mTempIm2ColBuffer->stride(0);
@@ -207,9 +208,9 @@ ErrorCode SparseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inp
             bool needZero = res.second;
             if (needZero) {
 #ifdef MNN_USE_SSE
-                ::memset(colAddr, mMutableResource.mInputZeroPoint + 128, col_buffer_size);
+                ::memset(colAddr, mMutableResource->mInputZeroPoint + 128, col_buffer_size);
 #else
-                ::memset(colAddr, mMutableResource.mInputZeroPoint, col_buffer_size);
+                ::memset(colAddr, mMutableResource->mInputZeroPoint, col_buffer_size);
 #endif
             }
             info[0] = number;

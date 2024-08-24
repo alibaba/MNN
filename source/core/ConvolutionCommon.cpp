@@ -16,20 +16,57 @@
 
 namespace MNN {
 
-std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const Convolution2D *conv, Backend* backend, bool forceFloat, bool forceInt8) {
+std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const Op* op, Backend* backend, bool forceFloat, bool forceInt8) {
+    auto conv = op->main_as_Convolution2D();
     auto quan = conv->quanParameter();
     auto result = std::make_shared<Int8Common>();
     result->quan = quan;
     size_t buffer_size = 0, alpha_size = 0;
     const int8_t* buffer_ptr = nullptr;
     const float* alpha_ptr = nullptr;
-    if (quan->buffer()) {
-        buffer_size = quan->buffer()->size();
-        buffer_ptr = quan->buffer()->data();
-    }
-    if (quan->alpha()) {
-        alpha_size = quan->alpha()->size();
-        alpha_ptr = quan->alpha()->data();
+    std::unique_ptr<int8_t[]> external_buffer;
+    size_t weightLength = 0;
+    int8_t *buffer        = nullptr;
+    if (USE_EXTERNAL_DATA(conv) && op->externalPath() && quan->buffer() == nullptr) {
+        // external data
+        auto external_info = conv->external()->data();
+        std::unique_ptr<FileLoader> external_file(new FileLoader(op->externalPath()->c_str()));
+        external_file->offset(external_info[0]);
+        buffer_size = external_info[1];
+        if (0 != buffer_size) {
+            if (1 == quan->type() && !forceFloat) {
+                buffer = IDSTDecoder::ReadQuanData_c(external_file.get(), &weightLength, result.get(), quan->shapeInt32(), forceInt8);
+            } else {
+                external_buffer.reset(new int8_t[buffer_size]);
+                buffer_ptr = external_buffer.get();
+                external_file->read((char*)buffer_ptr, buffer_size);
+            }
+        }
+        alpha_size = external_info[2] / sizeof(float);
+        if (0 != alpha_size) {
+            result->alpha.reset(alpha_size);
+            if (nullptr == result->alpha.get()) {
+                MNN_PRINT("Alloc memory error for extract idst int8\n");
+                return nullptr;
+            }
+            alpha_ptr = result->alpha.get();
+            external_file->read((char*)alpha_ptr, alpha_size * sizeof(float));
+        }
+    } else {
+        if (quan->buffer()) {
+            buffer_size = quan->buffer()->size();
+            buffer_ptr = quan->buffer()->data();
+        }
+        if (quan->alpha()) {
+            alpha_size = quan->alpha()->size();
+            alpha_ptr = quan->alpha()->data();
+            result->alpha.reset(alpha_size);
+            if (nullptr == result->alpha.get()) {
+                MNN_PRINT("Alloc memory error for extract idst int8\n");
+                return nullptr;
+            }
+            ::memcpy(result->alpha.get(), alpha_ptr, alpha_size * sizeof(float));
+        }
     }
     if (quan->index() != nullptr) {
         if (forceFloat) {
@@ -51,16 +88,15 @@ std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const Con
         } // Otherwise needn't treat, just return result with quan info
         return result;
     }
-    size_t weightLength = 0;
-    int8_t *buffer        = nullptr;
-    auto originBuffer     = (unsigned char *)buffer_ptr;
 
-    if (1 == quan->type()) {
-        buffer = IDSTDecoder::ReadQuanData_c(originBuffer, &weightLength, result.get(), quan->shapeInt32());
+    std::unique_ptr<MemoryLoader> originBuffer(new MemoryLoader((unsigned char*)buffer_ptr));
+    if (1 == quan->type() && weightLength == 0) {
+        buffer = IDSTDecoder::ReadQuanData_c(originBuffer.get(), &weightLength, result.get(), quan->shapeInt32(), forceInt8);
     }
     if (2 == quan->type()) {
-        buffer = IDSTDecoder::ReadSparseQuanData_c(originBuffer, &weightLength, alpha_ptr, alpha_size, result.get(), quan->shapeInt32());
+        buffer = IDSTDecoder::ReadSparseQuanData_c(originBuffer.get(), &weightLength, alpha_ptr, alpha_size, result.get(), quan->shapeInt32());
     }
+    /*
     if (result->weightMap.size() > 0) {
         result->canUseInt4 = true;
         for (auto value : result->weightMap) {
@@ -69,6 +105,7 @@ std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const Con
             }
         }
     }
+    */
     // read fp16 data
     if (3 == quan->type()) {
         weightLength = buffer_size / sizeof(half_float::half);
@@ -99,12 +136,6 @@ std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const Con
         }
         result->weight.set(buffer, weightLength);
     }
-    result->alpha.reset(alpha_size);
-    if (nullptr == result->alpha.get()) {
-        MNN_PRINT("Alloc memory error for extract idst int8\n");
-        return nullptr;
-    }
-    ::memcpy(result->alpha.get(), alpha_ptr, alpha_size * sizeof(float));
     {
         int outputCount = 0;
         bool oldType4 = (quan->type() == 4 && quan->aMin() == 0 && std::abs(quan->quantScale()) < 1e-6);
@@ -128,9 +159,10 @@ std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const Con
             // for old type 4 models, their quan->quantScale is 0. which will introduce a bug here
             if (oldType4) {
                 extraFactor = 1.0f;
-            }
-            for (int o=0; o<result->alpha.size(); ++o) {
-                result->alpha.get()[o] *= extraFactor;
+            } else if (extraFactor != 1.0f) {
+                for (int o=0; o<result->alpha.size(); ++o) {
+                    result->alpha.get()[o] *= extraFactor;
+                }
             }
         }
     }
@@ -172,12 +204,13 @@ std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const Con
     return result;
 }
 
-void ConvolutionCommon::getConvParameters(std::shared_ptr<Int8Common> *quanCommon, Backend* backend, const MNN::Convolution2D *conv2d, const float** originWeight, int* originWeightSize) {
+void ConvolutionCommon::getConvParameters(std::shared_ptr<Int8Common> *quanCommon, Backend* backend, const MNN::Op *op, const float** originWeight, int* originWeightSize) {
+    auto conv2d = op->main_as_Convolution2D();
     *originWeight = nullptr;
     *originWeightSize = 0;
     if (nullptr != conv2d->quanParameter()) {
         bool forceFloat = conv2d->quanParameter()->index() != nullptr;
-        *quanCommon = load(conv2d, backend, forceFloat);
+        *quanCommon = load(op, backend, forceFloat);
         *originWeight     = (*quanCommon)->weightFloat.get();
         *originWeightSize = (*quanCommon)->weightFloat.size();
     }
@@ -187,8 +220,9 @@ void ConvolutionCommon::getConvParameters(std::shared_ptr<Int8Common> *quanCommo
     }
 }
 
-bool ConvolutionCommon::getConvInt8Parameters(const MNN::Convolution2D* conv2d, std::shared_ptr<Int8Common>& quanCommon, Backend* backend,
+bool ConvolutionCommon::getConvInt8Parameters(const MNN::Op* op, std::shared_ptr<Int8Common>& quanCommon, Backend* backend,
                                               const int8_t*& weight, int& weightSize, float*& scale, int32_t*& bias, int32_t*& weightQuantZeroPoint) {
+    auto conv2d = op->main_as_Convolution2D();
     int outputCount = conv2d->common()->outputCount();
     weightSize = 0;
     auto core = static_cast<CPUBackend*>(backend)->functions();
@@ -197,8 +231,8 @@ bool ConvolutionCommon::getConvInt8Parameters(const MNN::Convolution2D* conv2d, 
         weight = conv2d->symmetricQuan()->weight()->data();
         weightSize = conv2d->symmetricQuan()->weight()->size();
     }
-    if (conv2d->quanParameter() && conv2d->quanParameter()->buffer()) { // int8 weight
-        quanCommon = ConvolutionCommon::load(conv2d, backend, false, true);
+    if (conv2d->quanParameter() && (conv2d->quanParameter()->buffer() || conv2d->external())) { // int8 weight
+        quanCommon = ConvolutionCommon::load(op, backend, false, true);
         MNN_ASSERT(quanCommon != nullptr);
         weight = quanCommon->weight.get();
         weightSize = quanCommon->weight.size();
@@ -211,6 +245,7 @@ bool ConvolutionCommon::getConvInt8Parameters(const MNN::Convolution2D* conv2d, 
     if (quanCommon && quanCommon->asymmetric) {
         weightAsy = true;
     }
+
     if (conv2d->symmetricQuan() && conv2d->symmetricQuan()->bias() && conv2d->symmetricQuan()->scale()) {
         // Compability for old model
         MNN_ASSERT(conv2d->symmetricQuan()->bias()->size() == outputCount && conv2d->symmetricQuan()->scale()->size() == outputCount);

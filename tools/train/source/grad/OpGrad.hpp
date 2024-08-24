@@ -26,6 +26,7 @@ public:
     Type type() const {
         return mType;
     }
+    static void init();
     static Express::VARP divideAvoidZero(MNN::Express::VARP y, MNN::Express::VARP x);
 
     virtual std::vector<Express::VARP> onGrad(Express::EXPRP expr,
@@ -42,6 +43,11 @@ public:
 protected:
     Type mType = LINEAR;
 };
+#define REGISTER_GRAD(f, c)       \
+    extern void ___##f##__##c##__() { \
+        c();                          \
+    }
+
 } // namespace MNN
 
 #endif

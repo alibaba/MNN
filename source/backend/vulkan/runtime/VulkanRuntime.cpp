@@ -34,22 +34,40 @@ private:
 float VulkanRuntime::onGetMemoryInMB() {
     return mMemoryPool->computeSize();
 }
-
-VulkanRuntime::VulkanRuntime(const Backend::Info& info) {
-    mInfo = info;
+VulkanRuntime* VulkanRuntime::create(const Backend::Info& info) {
     MNNVulkanContext* context = nullptr;
+    std::shared_ptr<VulkanDevice> device;
+    std::shared_ptr<VulkanInstance> instance;
     if (nullptr != info.user && nullptr != info.user->sharedContext) {
        MNN_PRINT("Use user's vulkan context\n");
        context = static_cast<MNNVulkanContext*>(info.user->sharedContext);
     }
     if (NULL != context) {
-        mInstance = std::make_shared<VulkanInstance>(context->pInstance);
-        mDevice   = std::make_shared<VulkanDevice>(mInstance, context->pPhysicalDevice, context->pDevice,
+        instance = std::make_shared<VulkanInstance>(context->pInstance);
+        if (context->pInstance == VK_NULL_HANDLE) {
+            MNN_ERROR("Invalide user's vulkan instance\n");
+            return nullptr;
+        }
+        device   = std::make_shared<VulkanDevice>(instance, context->pPhysicalDevice, context->pDevice,
                                                  context->iQueueFamilyIndex, context->pQueue);
     } else {
-        mInstance = std::make_shared<VulkanInstance>();
-        mDevice   = std::make_shared<VulkanDevice>(mInstance);
+        instance = std::make_shared<VulkanInstance>();
+        if (!instance->supportVulkan()) {
+            MNN_ERROR("Invalide device for support vulkan\n");
+            return nullptr;
+        }
+        device = std::make_shared<VulkanDevice>(instance);
     }
+    if (device->get() == VK_NULL_HANDLE) {
+        return nullptr;
+    }
+    return new VulkanRuntime(info, device, instance);
+}
+
+VulkanRuntime::VulkanRuntime(const Backend::Info& info, std::shared_ptr<VulkanDevice> device, std::shared_ptr<VulkanInstance> instance) {
+    mInfo = info;
+    mDevice = device;
+    mInstance = instance;
     auto& dev              = *mDevice;
     mCmdPool               = std::make_shared<VulkanCommandPool>(dev);
     //GFlops, Test by mobilenet v1's ms
@@ -168,31 +186,11 @@ int VulkanRuntime::onGetRuntimeStatus(RuntimeStatus statusEnum) const {
     }
     return 0;
 }
-static bool _testVulkan() {
-    // std::make_unique need c++14
-    std::unique_ptr<VulkanInstance> instance(new VulkanInstance());
-    if (nullptr == instance) {
-        MNN_ERROR("Invalide device for support vulkan\n");
-        return false;
-    }
-    if (!instance->success()) {
-        MNN_ERROR("Invalide device for support vulkan\n");
-        return false;
-    }
-    if (!instance->supportVulkan()) {
-        MNN_ERROR("Invalide device for support vulkan\n");
-        return false;
-    }
-    return true;
-}
-
 class VulkanRuntimeCreator : public RuntimeCreator {
 public:
     virtual Runtime* onCreate(const Backend::Info& info) const {
         if (InitVulkan()) {
-            if (_testVulkan()) {
-                return new VulkanRuntime(info);
-            }
+            return VulkanRuntime::create(info);
         }
         return nullptr;
     }

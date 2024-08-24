@@ -8,7 +8,7 @@
 
 #include "OpGrad.hpp"
 using namespace std;
-using namespace MNN;
+namespace MNN {
 using namespace MNN::Express;
 
 class LoopGrad : public OpGrad {
@@ -396,8 +396,12 @@ public:
     }
 };
 
-static const auto gRegister = []() {
+static void _create() {
     static LoopGrad _c;
     OpGrad::insert(OpType_While, &_c);
-    return true;
-}();
+
+}
+
+REGISTER_GRAD(LoopGrad_cpp, _create);
+};
+

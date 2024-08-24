@@ -26,7 +26,7 @@ ConvCutlassExecution::Resource::Resource(Backend* bn, const MNN::Op* op) {
     const float* filterDataPtr = nullptr;
     int weightSize = 0;
     std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
-    ConvolutionCommon::getConvParameters(&quanCommon, bn, conv, &filterDataPtr, &weightSize);
+    ConvolutionCommon::getConvParameters(&quanCommon, bn, op, &filterDataPtr, &weightSize);
     auto oc = common->outputCount();
 
     int l = weightSize / oc;
@@ -195,7 +195,7 @@ ErrorCode ConvCutlassExecution::onResize(const std::vector<Tensor*> &inputs, con
     // Call from different function
     if(mFp32Infer){
         return callCutlassGemmCudaCoreFloat32(inputs, outputs);
-    } 
+    }
 
     mGpuComputeCap = runtime->compute_capability();
     //MNN_PRINT("Gpu smArch is sm_%d\n", mGpuComputeCap);
@@ -211,10 +211,10 @@ ErrorCode ConvCutlassExecution::onResize(const std::vector<Tensor*> &inputs, con
         // 0 -> Gemm, 1~N -> BatchGemm
         int32_t batchSize = 0;
         // [0]->A, [1]->B, [2]->bias, [3]->output
-        std::pair<void *, int32_t> ptrOffset[4]; 
+        std::pair<void *, int32_t> ptrOffset[4];
         int32_t batchOffset[4];
         // [0]->alpha, [1]->beta, [2]->splitK
-        int32_t coefs[3]; 
+        int32_t coefs[3];
         // 0 -> RowColumn, 1 -> RowRow
         int32_t layout;
         bool epilogueVectorize
@@ -246,7 +246,7 @@ ErrorCode ConvCutlassExecution::onResize(const std::vector<Tensor*> &inputs, con
         return NO_ERROR;
     }
     #endif
-    
+
     return callCutlassGemmTensorCore(inputs, outputs);
 }
 

@@ -59,6 +59,13 @@ public:
                       << std::endl;
             return 0;
         }
+        MNNForwardType type = MNN_FORWARD_CPU;
+        if (argc >= 7) {
+            std::istringstream is(argv[6]);
+            int c;
+            is >> c;
+            type = (MNNForwardType)c;
+        }
 
         std::string trainImagesFolder = argv[2];
         std::string trainImagesTxt = argv[3];
@@ -67,7 +74,7 @@ public:
 
         std::shared_ptr<Module> model(new MobilenetV2TransferModule(argv[1]));
 
-        MobilenetV2Utils::train(model, 4, 0, trainImagesFolder, trainImagesTxt, testImagesFolder, testImagesTxt);
+        MobilenetV2Utils::train(type, 4, model, 4, 0, trainImagesFolder, trainImagesTxt, testImagesFolder, testImagesTxt);
 
         return 0;
     }
@@ -80,6 +87,14 @@ public:
             std::cout << "usage: ./runTrainDemo.out MobilenetV2Train path/to/train/images/ path/to/train/image/txt path/to/test/images/ path/to/test/image/txt" << std::endl;
             return 0;
         }
+        MNNForwardType type = MNN_FORWARD_CPU;
+        if (argc >= 6) {
+            std::istringstream is(argv[5]);
+            int c;
+            is >> c;
+            type = (MNNForwardType)c;
+        }
+
         // global random number generator, should invoke before construct the model and dataset
         RandomGenerator::generator(17);
 
@@ -90,8 +105,38 @@ public:
 
         std::shared_ptr<Module> model(new MobilenetV2);
 
-        MobilenetV2Utils::train(model, 1001, 1, trainImagesFolder, trainImagesTxt, testImagesFolder, testImagesTxt);
+        MobilenetV2Utils::train(type, 4, model, 1001, 1, trainImagesFolder, trainImagesTxt, testImagesFolder, testImagesTxt);
 
+        return 0;
+    }
+};
+
+class CifarMobilenetV2Train : public DemoUnit {
+public:
+    virtual int run(int argc, const char* argv[]) override {
+        if (argc < 5) {
+            std::cout << "usage: ./runTrainDemo.out CifarMobilenetV2Train path/to/train/images/ path/to/train/image/txt path/to/test/images/ path/to/test/image/txt" << std::endl;
+            return 0;
+        }
+        MNNForwardType type = MNN_FORWARD_CPU;
+        if (argc >= 6) {
+            std::istringstream is(argv[5]);
+            int c;
+            is >> c;
+            type = (MNNForwardType)c;
+        }
+
+        // global random number generator, should invoke before construct the model and dataset
+        RandomGenerator::generator(17);
+
+        std::string trainImagesFolder = argv[1];
+        std::string trainImagesTxt = argv[2];
+        std::string testImagesFolder = argv[3];
+        std::string testImagesTxt = argv[4];
+
+        std::shared_ptr<Module> model(new MobilenetV2(10, 1.0f, 8, false));
+
+        MobilenetV2Utils::train(type, 4, model, 10, 0, trainImagesFolder, trainImagesTxt, testImagesFolder, testImagesTxt, 0, 32);
         return 0;
     }
 };
@@ -104,67 +149,31 @@ public:
                       << std::endl;
             return 0;
         }
-
-        std::string trainImagesFolder = argv[2];
-        std::string trainImagesTxt = argv[3];
-        std::string testImagesFolder = argv[4];
-        std::string testImagesTxt = argv[5];
-
-        auto varMap = Variable::loadMap(argv[1]);
-        if (varMap.empty()) {
-            MNN_ERROR("Can not load model %s\n", argv[1]);
-            return 0;
-        }
-
-        auto inputOutputs = Variable::getInputAndOutput(varMap);
-        auto inputs       = Variable::mapToSequence(inputOutputs.first);
-        auto outputs      = Variable::mapToSequence(inputOutputs.second);
-        std::shared_ptr<Module> model(NN::extract(inputs, outputs, true));
-
-        MobilenetV2Utils::train(model, 1001, 1, trainImagesFolder, trainImagesTxt, testImagesFolder, testImagesTxt);
-
-        return 0;
-    }
-};
-
-class MobilenetV2TrainQuant : public DemoUnit {
-public:
-    virtual int run(int argc, const char* argv[]) override {
-        if (argc < 6) {
-            std::cout << "usage: ./runTrainDemo.out MobilentV2TrainQuant /path/to/mobilenetV2Model path/to/train/images/ path/to/train/image/txt path/to/test/images/ path/to/test/image/txt [bits]"
-                      << std::endl;
-            return 0;
-        }
-
-        std::string trainImagesFolder = argv[2];
-        std::string trainImagesTxt = argv[3];
-        std::string testImagesFolder = argv[4];
-        std::string testImagesTxt = argv[5];
-
-        auto varMap = Variable::loadMap(argv[1]);
-        if (varMap.empty()) {
-            MNN_ERROR("Can not load model %s\n", argv[1]);
-            return 0;
-        }
-
-        int bits = 8;
-        if (argc > 6) {
+        MNNForwardType type = MNN_FORWARD_CPU;
+        if (argc >= 7) {
             std::istringstream is(argv[6]);
-            is >> bits;
+            int c;
+            is >> c;
+            type = (MNNForwardType)c;
         }
-        if (1 > bits || bits > 8) {
-            MNN_ERROR("bits must be 2-8, use 8 default\n");
-            bits = 8;
+
+        std::string trainImagesFolder = argv[2];
+        std::string trainImagesTxt = argv[3];
+        std::string testImagesFolder = argv[4];
+        std::string testImagesTxt = argv[5];
+
+        auto varMap = Variable::loadMap(argv[1]);
+        if (varMap.empty()) {
+            MNN_ERROR("Can not load model %s\n", argv[1]);
+            return 0;
         }
 
         auto inputOutputs = Variable::getInputAndOutput(varMap);
         auto inputs       = Variable::mapToSequence(inputOutputs.first);
         auto outputs      = Variable::mapToSequence(inputOutputs.second);
-
         std::shared_ptr<Module> model(NN::extract(inputs, outputs, true));
-        NN::turnQuantize(model.get(), bits);
 
-        MobilenetV2Utils::train(model, 1001, 1, trainImagesFolder, trainImagesTxt, testImagesFolder, testImagesTxt);
+        MobilenetV2Utils::train(type, 4, model, 1001, 1, trainImagesFolder, trainImagesTxt, testImagesFolder, testImagesTxt);
 
         return 0;
     }
@@ -173,4 +182,4 @@ public:
 DemoUnitSetRegister(MobilenetV2Transfer, "MobilenetV2Transfer");
 DemoUnitSetRegister(MobilenetV2Train, "MobilenetV2Train");
 DemoUnitSetRegister(MobilenetV2PostTrain, "MobilenetV2PostTrain");
-DemoUnitSetRegister(MobilenetV2TrainQuant, "MobilenetV2TrainQuant");
+DemoUnitSetRegister(CifarMobilenetV2Train, "CifarMobilenetV2Train");

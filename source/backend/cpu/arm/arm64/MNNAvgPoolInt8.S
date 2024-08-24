@@ -22,10 +22,10 @@ asm_function MNNAvgPoolInt8
 ldr x8, [sp, #0]
 dup v24.4s, w8
 
-sub sp, sp, #32
-str x19, [sp, #0]
-str x20, [sp, #8]
-str x21, [sp, #16]
+stp d14, d15, [sp, #(-16 * 4)]!
+stp d12, d13, [sp, #16]
+stp d10, d11, [sp, #32]
+stp d8,  d9,  [sp, #48]
 
 cmp x4, #0
 ble END
@@ -206,10 +206,10 @@ cmp x2, #0
 beq END
 
 END:
-ldr x19, [sp, #0]
-ldr x20, [sp, #8]
-ldr x21, [sp, #16]
-add sp, sp, #32
+ldp d8,  d9,  [sp, #48]
+ldp d10, d11, [sp, #32]
+ldp d12, d13, [sp, #16]
+ldp d14, d15, [sp], #(16 * 4)
 
 ret
 

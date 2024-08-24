@@ -17,9 +17,6 @@
 #include "execution/VulkanBasicExecution.hpp"
 //#define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
-#ifdef MNN_USE_NEON
-#include <arm_neon.h>
-#endif
 #define MNN_OP_SUPPORT_LOG
 //#define MNN_VULKAN_DUMP_MEMORY_USAGE
 
@@ -417,7 +414,7 @@ std::vector<uint32_t> VulkanBackend::autoTunePipeline(const VulkanPipeline* pipe
     mRuntime->mDevice->getMaxComputeWorkGroupSize(maxGroups);
     
     std::vector<uint32_t> lws_prefer(3, 1);
-    uint32_t min_cost = UINT_MAX;
+    float min_cost = -1.0f;
     
     while(lws[2] <= gws[2] && lws[2] <= maxGroups[2]) {
         lws[1] = 1;
@@ -430,8 +427,8 @@ std::vector<uint32_t> VulkanBackend::autoTunePipeline(const VulkanPipeline* pipe
                     groupSize[2] = UP_DIV(gws[2], lws[2]);
                     
                     pipeline->changePipeline(lws);
-                    int cost_time = (int)getPipelineTime(pipeline, des, groupSize);
-                    if(cost_time < min_cost) {
+                    auto cost_time = getPipelineTime(pipeline, des, groupSize);
+                    if(cost_time < min_cost || min_cost < 0.0f) {
                         min_cost = cost_time;
                         lws_prefer[0] = lws[0];
                         lws_prefer[1] = lws[1];

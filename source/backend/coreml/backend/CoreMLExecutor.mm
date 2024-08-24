@@ -106,31 +106,20 @@ id<MTLComputePipelineState> getRasterPipeline() {
     for (auto& input : *_inputs) {
         if ([featureName cStringUsingEncoding:NSUTF8StringEncoding] == input.second) {
             auto input_shape = input.first->shape();
-            NSArray* shape = @[
-                @(input_shape[0]),
-                @(input_shape[1]),
-                @(input_shape[2]),
-            ];
-            NSArray* strides = @[
-                @(input_shape[1] * input_shape[2]),
-                @(input_shape[2]),
-                @1,
-            ];
-
-            if ([self coreMlVersion] >= 3) {
-                shape = @[
-                    @(input_shape[0]),
-                    @(input_shape[1]),
-                    @(input_shape[2]),
-                    @(input_shape[3]),
-                ];
-                strides = @[
-                    @(input_shape[1] * input_shape[2] * input_shape[3]),
-                    @(input_shape[2] * input_shape[3]),
-                    @(input_shape[3]),
-                    @1,
-                ];
-            };
+            NSMutableArray* shape = [NSMutableArray arrayWithCapacity:input_shape.size()];
+            NSMutableArray* strides = [NSMutableArray arrayWithCapacity:input_shape.size()];
+            std::vector<int> stridesDim(input_shape.size());
+            int curStride = 1;
+            if (input_shape.size() >= 1) {
+                for (int i=input_shape.size()-1; i>=0; --i) {
+                    stridesDim[i] = curStride;
+                    curStride *= input_shape[i];
+                }
+            }
+            for (int i=0; i<input_shape.size(); ++i) {
+                [shape addObject:@(input_shape[i])];
+                [strides addObject:@(stridesDim[i])];
+            }
             auto tensor = input.first;
             if (tensor->getType() == halide_type_of<uint8_t>()) {
                 CVPixelBufferRef pixelBuffer = NULL;
@@ -210,6 +199,7 @@ id<MTLComputePipelineState> getRasterPipeline() {
                 const_cast<MNN::Tensor*>(output.first)->buffer().host = (unsigned char*)data.dataPointer;
             }
         }
+        inputFeature = nil;
     }
     return YES;
 }

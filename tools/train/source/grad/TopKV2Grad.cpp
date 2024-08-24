@@ -9,7 +9,7 @@
 #include "OpGrad.hpp"
 #include "core/Macro.h"
 using namespace std;
-using namespace MNN;
+namespace MNN {
 using namespace MNN::Express;
 
 class TopKV2Grad : public OpGrad {
@@ -30,8 +30,12 @@ public:
     }
 };
 
-static const auto gRegister = []() {
+static void _create() {
     static TopKV2Grad _c;
     OpGrad::insert(OpType_TopKV2, &_c);
-    return true;
-}();
+
+}
+
+REGISTER_GRAD(TopKV2Grad_cpp, _create);
+};
+

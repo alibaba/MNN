@@ -40,7 +40,7 @@ DepthwiseConvSubgroupBufExecution::DepthwiseConvSubgroupBufExecution(const std::
         const float *filterDataPtr = nullptr;
         int filterDataSize         = 0;
         std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
-        ConvolutionCommon::getConvParameters(&quanCommon, backend, mResource->mConv2dParams, &filterDataPtr, &filterDataSize);
+        ConvolutionCommon::getConvParameters(&quanCommon, backend, op, &filterDataPtr, &filterDataSize);
         if (filterDataPtr != nullptr) {
             std::shared_ptr<Tensor> sourceWeight(Tensor::create<float>(
                 std::vector<int>{1, outputChannel, kernelWidth, kernelHeight},
@@ -112,7 +112,7 @@ DepthwiseConvSubgroupBufExecution::DepthwiseConvSubgroupBufExecution(const std::
         }
         mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(biasBuffer, biasPtrCL);
     }
-    
+
     if (mResource->mConv2dCommonParams->relu() == true) {
         mResource->mBuildOptions.emplace("-DRELU");
     } else if (mResource->mConv2dCommonParams->relu6() == true) {
@@ -178,7 +178,7 @@ ErrorCode DepthwiseConvSubgroupBufExecution::onEncode(const std::vector<Tensor *
     auto padding = ConvolutionCommon::convolutionPad(input, output, mResource->mConv2dCommonParams);
     mPaddings[0] = padding.second;//padY
     mPaddings[1] = padding.first;//padX
-    
+
     const int outputHeight = outputShape.at(1);
     const int outputWidth  = outputShape.at(2);
     const int outputChannel  = outputShape.at(3);
@@ -190,7 +190,7 @@ ErrorCode DepthwiseConvSubgroupBufExecution::onEncode(const std::vector<Tensor *
     const int inputChannelBlocks = UP_DIV(inputChannels, 4);
     const int filterHeight       = mResource->mConv2dParams->common()->kernelY();
     const int filterWidth        = mResource->mConv2dParams->common()->kernelX();
-    
+
     int inputImageShape[2]  = {inputHeight, inputWidth};
     int outputImageShape[2] = {outputHeight, outputWidth};
     int strideShape[2]      = {mResource->mStrides[0], mResource->mStrides[1]};
@@ -273,7 +273,7 @@ ErrorCode DepthwiseConvSubgroupBufExecution::onEncode(const std::vector<Tensor *
     unit.kernel->get().setArg(idx++, static_cast<uint32_t>(outputpad.right));
     unit.kernel->get().setArg(idx++, static_cast<uint32_t>(paddingShape[1]));
     unit.kernel->get().setArg(idx++, static_cast<uint32_t>(paddingShape[0]));
-    
+
     mOpenCLBackend->recordKernel3d(unit.kernel, mGlobalWorkSize, mLocalWorkSize);
     unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1], mGlobalWorkSize[2]};
     unit.localWorkSize = {mLocalWorkSize[0], mLocalWorkSize[1], mLocalWorkSize[2]};

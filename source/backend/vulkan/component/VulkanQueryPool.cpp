@@ -35,7 +35,7 @@ float VulkanQueryPool::VulkanGetQueryPoolResults(){
     vkGetQueryPoolResults(mDevice.get(), queryPool, 0, 2, sizeof(uint64_t) * 2, timestamps, sizeof(uint64_t), VK_QUERY_RESULT_WAIT_BIT);
     
     float timestampPeriod = mDevice.getTimestampPeriod();
-    float executionTime = (timestamps[1] - timestamps[0]) * timestampPeriod * 1e-3f; // 微妙
+    float executionTime = (timestamps[1] - timestamps[0]) * timestampPeriod * 1e-3f; // us
     return executionTime;
 }
 } // namespace MNN

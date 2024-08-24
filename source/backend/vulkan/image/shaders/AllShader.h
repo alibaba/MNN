@@ -212,6 +212,10 @@ extern const unsigned char glsl_buffer2Image1D_comp[];
 extern unsigned int glsl_buffer2Image1D_comp_len;
 extern const unsigned char glsl_scale_comp[];
 extern unsigned int glsl_scale_comp_len;
+extern const unsigned char glsl_argmax_comp[];
+extern unsigned int glsl_argmax_comp_len;
+extern const unsigned char glsl_argmax_ARGMIN_comp[];
+extern unsigned int glsl_argmax_ARGMIN_comp_len;
 extern const unsigned char glsl_buffer2Image3D_comp[];
 extern unsigned int glsl_buffer2Image3D_comp_len;
 #endif

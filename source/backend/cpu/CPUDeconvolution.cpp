@@ -173,13 +173,13 @@ CPUDeconvolution::CPUDeconvolution(const Tensor* input, const Op* convOp, Backen
     auto biasPtr = _bias.data();
     auto scalePtr = _scale.data();
     auto betaPtr = _beta.data();
-    
+
     if (ModeInt8) {
-        ConvolutionCommon::getConvInt8Parameters(conv2d, quanCommon, backend, quanWeightInt8, tempWeightSize, scalePtr, biasPtr, betaPtr);
+        ConvolutionCommon::getConvInt8Parameters(convOp, quanCommon, backend, quanWeightInt8, tempWeightSize, scalePtr, biasPtr, betaPtr);
     } else {
-        ConvolutionCommon::getConvParameters(&quanCommon, backend, conv2d, &tempWeight, &tempWeightSize);
+        ConvolutionCommon::getConvParameters(&quanCommon, backend, convOp, &tempWeight, &tempWeightSize);
     }
-    
+
     bool success = backend->onAcquireBuffer(mWeight.get(), Backend::STATIC) &&
                    backend->onAcquireBuffer(cache.get(), Backend::STATIC);
     if (!success) {
@@ -299,7 +299,7 @@ ErrorCode CPUDeconvolutionOrigin::onResize(const std::vector<Tensor*>& inputs, c
     //int zeroPoint = 0;
 
     auto biasTensor = inputs[2];
-    
+
     // prepare for float2int8 if necessary.
     auto outputQuant = TensorUtils::getQuantInfo(outputs[0]);
     float scale = outputQuant[0];
@@ -333,7 +333,7 @@ ErrorCode CPUDeconvolutionOrigin::onResize(const std::vector<Tensor*>& inputs, c
         }
         mMatMul.reset(new StrassenMatrixComputor(backend(), true, maxDepth));
         // tempInput->buffer().host = (uint8_t*)inputPtr;
-        
+
         needReleaseTempInput = false;
         TensorUtils::getDescribeOrigin(tempInput.get())->mem = new CPUMemObj(nullptr, TensorUtils::getDescribeOrigin(input)->mem->chunk(), 0);
         mMatMul->onEncode({tempInput.get(), inputs[1]}, {mTempOutput.get()});

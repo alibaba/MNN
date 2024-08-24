@@ -77,8 +77,8 @@ doc_check() {
     # 1.2 check executable
     for executable in $executables
     do
-        if [ $(grep -c $executable ./docs/compile/tools.md) -le 0 ]; then
-            echo 'DOC CHECK FAILED:' $executable 'not in ./docs/compile/tools.md'
+        if [ $(grep -c $executable ./docs/compile/other.md) -le 0 ]; then
+            echo 'DOC CHECK FAILED:' $executable 'not in ./docs/compile/other.md'
             failed
         fi
     done
@@ -117,6 +117,7 @@ doc_check() {
 }
 
 py_check() {
+    echo 'py_check'
     if [ -z "$PY_CHANGE" ]; then
         return
     fi
@@ -133,6 +134,7 @@ py_check() {
 }
 
 static_check() {
+    echo 'static_check'
     if [ -z "$SOURCE_CHANGE" ]; then
         return
     fi
@@ -309,18 +311,6 @@ onnx_convert_test() {
     if [ $? -ne 0 ]; then
         echo '### ONNXConvert测试失败，测试终止！'
         failed
-    fi
-    if [ -f ~/AliNNModel/TestOnnx/ops/run.py ]; then
-        ~/AliNNModel/TestOnnx/ops/run.py --mnndir $(pwd) --aone-mode
-        if [ $? -ne 0 ]; then
-            echo '### Onnx单线程单元测试失败，测试终止！'
-            failed
-        fi
-        #~/AliNNModel/TestOnnx/ops/run.py --mnndir $(pwd) --aone-mode --thread_num 2
-        #if [ $? -ne 0 ]; then
-        #    echo '### ONNX多线程单元测试失败，测试终止！'
-        #    failed
-        #fi
     fi
 }
 
@@ -525,7 +515,7 @@ android_model_test() {
     pass_num=0
     fail_cl_num=0
     pass_cl_num=0
-    models=`ls ~/AliNNModel/OpTestResource/`
+    models=`adb shell ls /data/local/tmp/AliNNModel/OpTestResource/`
     for model in $models
     do
         adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./testModel.out ../AliNNModel/OpTestResource/$model/temp.bin ../AliNNModel/OpTestResource/$model/input_0.txt ../AliNNModel/OpTestResource/$model/output_0.txt 0 0.002"
@@ -544,7 +534,7 @@ android_model_test() {
         fi
     done
 
-    models=`ls ~/AliNNModel/TestResource/`
+    models=`adb shell ls /data/local/tmp/AliNNModel/TestResource/`
     for model in $models
     do
         if [ $model == 'mobilenetv1quan' ]; then
@@ -560,9 +550,9 @@ android_model_test() {
         if [ "$OPENCL_CHANGE" ]; then
         if [ $model == 'mobilenetv1quan' ]; then
             adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./testModel.out ../AliNNModel/TestResource/$model/temp.bin ../AliNNModel/TestResource/$model/input_0.txt ../AliNNModel/TestResource/$model/output.txt 3 0.1 1"
-        else 
+        else
             adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./testModel.out ../AliNNModel/TestResource/$model/temp.bin ../AliNNModel/TestResource/$model/input_0.txt ../AliNNModel/TestResource/$model/output.txt 3 0.002 1"
-        fi    
+        fi
             if [ $? -ne 0 ]; then
                 fail_cl_num=$[$fail_cl_num+1]
             else
@@ -571,7 +561,7 @@ android_model_test() {
         fi
     done
 
-    models=`ls ~/AliNNModel/TestWithDescribe/`
+    models=`adb shell ls /data/local/tmp/AliNNModel/TestWithDescribe/`
     for model in $models
     do
         adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./testModelWithDescribe.out ../AliNNModel/TestWithDescribe/$model/temp.bin ../AliNNModel/TestWithDescribe/$model/config.txt 0 0.002"
@@ -702,6 +692,11 @@ case "$1" in
     android)
         android_static_build
         android_test
+        ;;
+    static)
+        doc_check
+        static_check
+        py_check
         ;;
     *)
         $1

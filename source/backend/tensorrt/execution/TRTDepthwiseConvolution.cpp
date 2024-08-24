@@ -36,7 +36,7 @@ std::vector<ITensor *> TRTDepthwiseConvolution::onEncode(const std::vector<ITens
     int weightSize      = 0;
     std::shared_ptr<ConvolutionCommon::Int8Common> quanWeight;
     if (nullptr != mOp->main_as_Convolution2D()->quanParameter()) {
-        quanWeight = ConvolutionCommon::load(mOp->main_as_Convolution2D(), backend(), true);
+        quanWeight = ConvolutionCommon::load(mOp, backend(), true);
         source     = quanWeight->weightFloat.get();
         weightSize = quanWeight->weightFloat.size();
     } else {
@@ -61,7 +61,7 @@ std::vector<ITensor *> TRTDepthwiseConvolution::onEncode(const std::vector<ITens
     conv_layer->setPadding(nvinfer1::DimsHW{pads.second, pads.first});
     if (conv2DCommon->padMode() == PadMode_SAME) {
         conv_layer->setPaddingMode(nvinfer1::PaddingMode::kSAME_UPPER);
-    }    
+    }
     conv_layer->setName(mOp->name()->str().c_str());
     auto relu  = conv2DCommon->relu();
     auto relu6 = conv2DCommon->relu6();

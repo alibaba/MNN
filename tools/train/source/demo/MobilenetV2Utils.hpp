@@ -14,9 +14,9 @@
 
 class MobilenetV2Utils {
 public:
-    static void train(std::shared_ptr<MNN::Express::Module> model, const int numClasses, const int addToLabel,
+    static void train(MNNForwardType backend, int threadNumber, std::shared_ptr<MNN::Express::Module> model, const int numClasses, const int addToLabel,
                       std::string trainImagesFolder, std::string trainImagesTxt,
-                      std::string testImagesFolder, std::string testImagesTxt, const int quantBits = 8);
+                      std::string testImagesFolder, std::string testImagesTxt, const int quantBits = 8, int size = 224);
 };
 
 #endif

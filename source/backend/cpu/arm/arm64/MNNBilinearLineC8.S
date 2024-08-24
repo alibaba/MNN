@@ -28,8 +28,11 @@ dup v31.4s, v31.s[0]     // v31: df
 fmov s30, #1.0     // v30: sf=1-df
 fsub s30, s30, s31
 movi v1.4s, #128   // s1=128
+scvtf v1.4s, v1.4s
 fmul s31, s31, s1
 fmul s30, s30, s1
+fcvtas v30.4s, v30.4s
+fcvtas v31.4s, v31.4s
 dup v31.8h, v31.h[0]
 dup v30.8h, v30.h[0]
 

@@ -134,7 +134,8 @@ public:
                                                 1.9181, 2.3750, 1.2852, 3.8511, 2.2257, 3.3546, 1.7295, 2.3564, 1.4813,
                                                 1.2510, 3.0876, 2.1284, 2.1088, 3.0961, 2.2002, 3.6899, 2.5827, 4.1795,
                                                 2.8591, 1.4046, 1.2500, 3.0877, 3.2670, 3.5806, 2.8717, 2.8829, 1.6387};
-        auto gotOutput = _Convert(inputGrad[0], NCHW)->readMap<float>();
+        auto tmpgotOutput = _Convert(inputGrad[0], NCHW);
+        auto gotOutput = tmpgotOutput->readMap<float>();
 
         for (int i = 0; i < inputLen; ++i) {
             auto diff = ::fabsf(gotOutput[i] - expectedOutput[i]);

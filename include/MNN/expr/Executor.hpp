@@ -104,6 +104,13 @@ public:
         void setCache(std::string cacheName);
         
         /**
+         * @brief set the path of external files or directory
+         * @param path -- The path of a file or directory on disk
+         * @param type -- Type of the external path (see "enum ExternalPathType" in Interpreter.hpp)
+         */
+        void setExternalPath(std::string path, int type);
+        
+        /**
          * @brief set external file.
          */
         void setExternalFile(std::string fileName);

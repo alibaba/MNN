@@ -2078,6 +2078,12 @@ typedef enum VkImageCreateFlagBits {
 } VkImageCreateFlagBits;
 typedef VkFlags VkImageCreateFlags;
 
+// Introduced from "vulkan_core.h" in Vulkan SDK Version 1.3.290.0.
+typedef enum VkInstanceCreateFlagBits {
+    VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR = 0x00000001
+} VkInstanceCreateFlagBits;
+typedef VkFlags VkInstanceCreateFlags;
+
 typedef enum VkSampleCountFlagBits {
     VK_SAMPLE_COUNT_1_BIT = 0x00000001,
     VK_SAMPLE_COUNT_2_BIT = 0x00000002,
@@ -9466,7 +9472,8 @@ typedef VkFormatFeatureFlagBits2 VkFormatFeatureFlagBits2KHR;
 
 typedef VkFormatProperties3 VkFormatProperties3KHR;
 
-
+// Introduced from "vulkan_core.h" in Vulkan SDK Version 1.3.290.0.
+#define VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME "VK_KHR_portability_enumeration"
 
 #define VK_KHR_maintenance4 1
 #define VK_KHR_MAINTENANCE_4_SPEC_VERSION 2

@@ -118,7 +118,7 @@ def build_deps():
         os.system('cmake ' + extra_opts + '-DMNN_BUILD_CONVERTER=on -DMNN_BUILD_TRAIN=ON -DCMAKE_BUILD_TYPE=Release \
             -DMNN_BUILD_SHARED_LIBS=ON -DMNN_AAPL_FMWK=OFF -DMNN_SEP_BUILD=OFF\
             -DMNN_BUILD_OPENCV=ON -DMNN_IMGCODECS=ON \
-            .. && make MNN MNNConvertDeps -j4')
+            .. && make MNN MNNConvertDeps -j64')
 ################################################################################
 # Building dependent libraries
 ################################################################################

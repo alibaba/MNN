@@ -9,7 +9,7 @@
 #include "PoolGrad.hpp"
 #include "core/Macro.h"
 using namespace std;
-using namespace MNN;
+namespace MNN {
 using namespace MNN::Express;
 
 class PoolGrad : public OpGrad {
@@ -35,8 +35,12 @@ public:
     }
 };
 
-static const auto gRegister = []() {
+static void _create() {
     static PoolGrad _c;
     OpGrad::insert(OpType_Pooling, &_c);
-    return true;
-}();
+
+}
+
+REGISTER_GRAD(PoolGrad_cpp, _create);
+};
+

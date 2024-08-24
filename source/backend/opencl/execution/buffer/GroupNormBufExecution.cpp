@@ -81,6 +81,9 @@ GroupNormBufExecution::GroupNormBufExecution(const MNN::Op* op, Backend* backend
         } else {
             MNN_ERROR("GroupNorm Beta map error:%d\n", res);
         }
+	
+	mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(gammaBuffer, GammaPtrCL);
+        mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(betaBuffer, BetaPtrCL);
     }
 }
 

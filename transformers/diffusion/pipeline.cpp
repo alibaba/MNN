@@ -24,23 +24,6 @@ using namespace CV;
 
 namespace diffusion {
 
-static inline int64_t getTime() {
-    uint64_t time;
-#if defined(_MSC_VER)
-    LARGE_INTEGER now, freq;
-    QueryPerformanceCounter(&now);
-    QueryPerformanceFrequency(&freq);
-    uint64_t sec = now.QuadPart / freq.QuadPart;
-    uint64_t usec = (now.QuadPart % freq.QuadPart) * 1000000 / freq.QuadPart;
-    time = sec * 1000000 + usec;
-#else
-    struct timeval tv;
-    gettimeofday(&tv, nullptr);
-    time = static_cast<uint64_t>(tv.tv_sec) * 1000000 + tv.tv_usec;
-#endif
-    return time;
-}
-
 void display_progress(int cur, int total){
     putchar('\r');
     MNN_PRINT("[");
@@ -52,7 +35,8 @@ void display_progress(int cur, int total){
     fflush(stdout);
 }
 
-Pipeline::Pipeline(std::string modelPath, DiffusionModelType modelType) : mModelPath(modelPath), mModelType(modelType) {
+Pipeline::Pipeline(std::string modelPath, DiffusionModelType modelType, MNNForwardType backendType, int memoryMode) : 
+    mModelPath(modelPath), mModelType(modelType), mBackendType(backendType), mMemoryMode(memoryMode) {
     if(modelType == STABLE_DIFFUSION_1_5) {
         mMaxTextLen = 77;
     } else if(modelType == diffusion::STABLE_DIFFUSION_TAIYI_CHINESE) {
@@ -86,17 +70,26 @@ Pipeline::Pipeline(std::string modelPath, DiffusionModelType modelType) : mModel
      };
 }
 
-bool Pipeline::load_modules(std::string modelPath) {
+bool Pipeline::load_modules() {
     AUTOTIME;
     ScheduleConfig config;
     BackendConfig backendConfig;
-//    config.type          = MNN_FORWARD_CPU;
-    config.type          = MNN_FORWARD_OPENCL;
-    config.mode     = MNN_GPU_MEMORY_BUFFER | MNN_GPU_TUNING_FAST;
+    config.type = mBackendType;
+    if(config.type == MNN_FORWARD_CPU) {
+        backendConfig.memory = BackendConfig::Memory_Low;
+        config.numThread = 4;
+    } else if(config.type == MNN_FORWARD_OPENCL) {
+        config.mode = MNN_GPU_MEMORY_BUFFER | MNN_GPU_TUNING_FAST;
+    } else {
+        config.numThread = 1;
+    }
+
     backendConfig.precision = BackendConfig::Precision_Low;
-    backendConfig.memory = BackendConfig::Memory_Low;
     config.backendConfig = &backendConfig;
 
+    auto exe = ExecutorScope::Current();
+    exe->lazyEval = false;
+    exe->setGlobalExecutorConfig(config.type, backendConfig, config.numThread);
 
     Module::Config module_config;
     module_config.shapeMutable = false;
@@ -113,47 +106,46 @@ bool Pipeline::load_modules(std::string modelPath) {
     mTimestepVar = _Input({1}, NCHW, halide_type_of<int>());
     mSampleVar = _Concat({mLatentVar, mLatentVar}, 0);
     
-    MNN_PRINT("Model loading and initilizing...\n");
     MNN_PRINT("First time initilizing may cost a few seconds to create cachefile, please wait ...\n");
 
     VARP text_embeddings;
     mModules.resize(3);
     // load text_encoder model
     {
-        std::string model_path = modelPath + "/text_encoder.mnn";
+        std::string model_path = mModelPath + "/text_encoder.mnn";
         mModules[0].reset(Module::load(
             {"input_ids"}, {"last_hidden_state", "pooler_output"}, model_path.c_str(), runtime_manager_, &module_config));
         
-        auto outputs = mModules[0]->onForward({mPromptVar});
-        text_embeddings = _Convert(outputs[0], NCHW);
-
+	if(mMemoryMode > 0) { 
+            auto outputs = mModules[0]->onForward({mPromptVar});
+            text_embeddings = _Convert(outputs[0], NCHW);
+	}
         display_progress(1, 3);
     }
     // load unet model
     {
-        std::string model_path = modelPath + "/unet.mnn";
+        std::string model_path = mModelPath + "/unet.mnn";
         mModules[1].reset(Module::load(
             {"sample", "timestep", "encoder_hidden_states"}, {"out_sample"}, model_path.c_str(), runtime_manager_, &module_config));
         
-        auto outputs = mModules[1]->onForward({mSampleVar, mTimestepVar, text_embeddings});
-
-        auto output = _Convert(outputs[0], NCHW);
+	if(mMemoryMode > 0) {
+            auto outputs = mModules[1]->onForward({mSampleVar, mTimestepVar, text_embeddings});
+            auto output = _Convert(outputs[0], NCHW);
+	}
         display_progress(2, 3);
     }
     // load vae_decoder model
     {
-        std::string model_path = modelPath + "/vae_decoder.mnn";
+        std::string model_path = mModelPath + "/vae_decoder.mnn";
         mModules[2].reset(Module::load(
             {"latent_sample"}, {"sample"}, model_path.c_str(), runtime_manager_, &module_config));
-
+        
+	if(mMemoryMode > 0) {
         auto outputs = mModules[2]->onForward({mLatentVar});
         auto output = _Convert(outputs[0], NCHW);
-        display_progress(3, 3);
+	}
+	display_progress(3, 3);
     }
-
-    auto exe = ExecutorScope::Current();
-    exe->lazyEval = false;
-    exe->setGlobalExecutorConfig(config.type, backendConfig, config.numThread);
 
     return true;
 }
@@ -321,7 +313,7 @@ VARP Pipeline::vae_decoder(VARP latent) {
     return image;
 }
 
-bool Pipeline::run(const std::string& sentence, const std::string& img_name) {
+bool Pipeline::run(const std::string& prompt, const std::string& imagePath) {
     std::unique_ptr<diffusion::Tokenizer> tok;
     if(mModelType == STABLE_DIFFUSION_1_5) {
         tok.reset(new diffusion::CLIPTokenizer);
@@ -329,18 +321,18 @@ bool Pipeline::run(const std::string& sentence, const std::string& img_name) {
         tok.reset(new diffusion::BertTokenizer);
     }
     tok->load(mModelPath);
-    load_modules(mModelPath);
+    load_modules();
     
     AUTOTIME;
-    auto ids = tok->encode(sentence, mMaxTextLen);
+    auto ids = tok->encode(prompt, mMaxTextLen);
     auto text_embeddings = text_encoder(ids);
     
     auto latent = unet(text_embeddings);
 
     auto image = vae_decoder(latent);
-    bool res = imwrite(img_name, image);
+    bool res = imwrite(imagePath, image);
     if (res) {
-        MNN_PRINT("SUCCESS! write to %s\n", img_name.c_str());
+        MNN_PRINT("SUCCESS! write generated image to %s\n", imagePath.c_str());
     }
     return true;
 }

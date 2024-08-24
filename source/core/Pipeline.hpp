@@ -81,6 +81,7 @@ private:
 #ifndef MNN_BUILD_MINI
     GeometryComputer::Context mContext;
     Runtime::CompilerType mUseGeometry;
+    bool mGeometryNeedRelease = true;
 #endif
     const Runtime* mRuntime;
     const Runtime* mCpuRuntime;

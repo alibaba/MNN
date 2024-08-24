@@ -142,9 +142,13 @@ MNNForwardType Schedule::getApprociateType(const ScheduleConfig& config) {
                 Backend::Info info;
                 info.type = type;
                 std::shared_ptr<Runtime> bn(creator->onCreate(info));
-                bool isSupportLowPower = bn->onGetRuntimeStatus(RuntimeStatus::STATUS_SUPPORT_POWER_LOW);
-                if(!isSupportLowPower) {
-                    MNN_PRINT("type=%d backend don't Support Low Power, use %d instead\n", type, config.backupType);
+                if (nullptr != bn.get()) {
+                    bool isSupportLowPower = bn->onGetRuntimeStatus(RuntimeStatus::STATUS_SUPPORT_POWER_LOW);
+                    if(!isSupportLowPower) {
+                        MNN_PRINT("type=%d backend don't Support Low Power, use %d instead\n", type, config.backupType);
+                        type = config.backupType;
+                    }
+                } else{
                     type = config.backupType;
                 }
             }

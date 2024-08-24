@@ -15,7 +15,7 @@
 namespace MNN {
 MetalConvolutionDepthwise::MetalConvolutionDepthwise(Backend *backend, const MNN::Op *op)
     : MetalConvolutionCommon(backend, op, nullptr) {
-    loadWeight(op->main_as_Convolution2D());
+    loadWeight(op);
 }
 
 ErrorCode MetalConvolutionDepthwise::onResize(const std::vector<Tensor *> &inputs,
@@ -60,14 +60,14 @@ ErrorCode MetalConvolutionDepthwise::onResize(const std::vector<Tensor *> &input
     mConstBuffer = backend->getConstBuffer(sizeof(constants));
 
     ::memcpy(mConstBuffer.contents, constants, sizeof(constants));
-    
+
     auto context = (__bridge MNNMetalContext *)backend->context();
     mPipeline = [context pipelineWithName:@"conv_depthwise" fp16:backend->useFp16InsteadFp32()];
-            
+
     NSUInteger gid_x = ow;
     NSUInteger gid_y = oh;
     NSUInteger gid_z = oc_4*ob;
-            
+
     NSArray *arr = [NSArray arrayWithObjects:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer(),
                     (id<MTLBuffer>)(((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId()))->getBuffer(),
                     mConstBuffer, (id<MTLBuffer>)(((MetalRuntimeAllocator::MetalBufferAlloc *)mWeight->deviceId()))->getBuffer(), ((MetalRuntimeAllocator::MetalBufferAlloc *)mBias->deviceId())->getBuffer(), nil];

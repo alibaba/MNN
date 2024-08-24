@@ -9,7 +9,7 @@
 #include "OpGrad.hpp"
 #include "core/Macro.h"
 using namespace std;
-using namespace MNN;
+namespace MNN {
 using namespace MNN::Express;
 
 class RasterDiffGrad : public OpGrad {
@@ -26,8 +26,12 @@ public:
     }
 };
 
-static const auto gRegister = []() {
+static void _create() {
     static RasterDiffGrad _c;
     OpGrad::insert(OpType_RasterDiff, &_c);
-    return true;
-}();
+
+}
+
+REGISTER_GRAD(RenderGrad_cpp, _create);
+};
+

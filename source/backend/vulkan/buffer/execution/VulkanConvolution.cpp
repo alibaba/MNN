@@ -341,7 +341,7 @@ public:
             }
         }
         vkBn->copyToGPUBuffer(wscaleData.data(), res.mWeightScale->buffer(), ocC4 * 4 * 2 * sizeof(float), 0);
-        
+
         // Build Pipeline
         // Create Pipeline
         std::vector<VkDescriptorType> convTypes{
@@ -428,9 +428,9 @@ public:
                 }
             }
             if (quan->buffer() && OpType_Convolution == op->type()) {
-                quanWeight = ConvolutionCommon::load(op->main_as_Convolution2D(), backend, false, true);
+                quanWeight = ConvolutionCommon::load(op, backend, false, true);
             } else {
-                quanWeight = ConvolutionCommon::load(op->main_as_Convolution2D(), backend, true);
+                quanWeight = ConvolutionCommon::load(op, backend, true);
             }
             if (quanWeight->weight.get() != nullptr) {
                 useInt8Conv = true;

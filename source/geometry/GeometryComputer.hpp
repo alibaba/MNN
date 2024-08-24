@@ -45,6 +45,7 @@ public:
             return mMask & option;
         }
         std::shared_ptr<BufferStorage> mRasterOp;
+        bool mNeedRelease = true;
     private:
         void getRasterCacheCreate(Tensor* src, CommandBuffer& cmd);
         std::map<const Op*, std::vector<std::shared_ptr<Tensor>>> mConstTensors;

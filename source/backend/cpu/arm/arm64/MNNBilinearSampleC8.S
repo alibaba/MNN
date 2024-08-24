@@ -27,6 +27,7 @@ stp x19, x20, [sp, #(16 * 6)]
 mov w15, #8       // w15: pack
 uxtw x15, w15
 movi v14.4s, #128
+scvtf v14.4s, v14.4s
 
 cmp x5, #0
 beq END
@@ -43,6 +44,9 @@ fmov v23.4s, #1.0
 fsub v23.4s, v23.4s, v22.4s   // v23: 1-factor
 fmul v23.4s, v23.4s, v14.s[0]
 fmul v22.4s, v22.4s, v14.s[0]
+
+fcvtas v22.4s, v22.4s
+fcvtas v23.4s, v23.4s
 
 dup v30.8b, v23.b[0]   // v30: sf0
 dup v31.8b, v22.b[0]   // v31: df0
@@ -183,7 +187,7 @@ beq END
 
 L1Loop:
 ld1 {v31.s}[0], [x3], #4
-dup v31.4s, v31.s[0]          
+dup v31.4s, v31.s[0]
 fmov s30, #1.0
 fsub s30, s30, s31
 fmul s30, s30, s14     // (float)t -> (int16)t

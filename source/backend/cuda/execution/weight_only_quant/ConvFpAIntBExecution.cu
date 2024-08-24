@@ -52,7 +52,7 @@ __global__ void CONV_FpAInt8B(const T* input,
         d_oc.divmod(index, tmp1, oz_2);
         d_ow.divmod(tmp1, tmp2, ox);
         d_oh.divmod(tmp2, ob, oy);
-        
+
         int oz = oz_2;
         int ix = ox * sw - pw;
         int iy = oy * sh - ph;
@@ -124,7 +124,7 @@ __global__ void CONV_FpAInt4B(const T* input,
         d_oc.divmod(index, tmp1, oz_2);
         d_ow.divmod(tmp1, tmp2, ox);
         d_oh.divmod(tmp2, ob, oy);
-        
+
         int oz = oz_2;
         int ix = ox * sw - pw;
         int iy = oy * sh - ph;
@@ -215,7 +215,7 @@ bool ConvFpAIntBExecution::isValid(const Convolution2D* conv, Backend* backend) 
     return true;
 }
 
-    
+
 ConvFpAIntBExecution::Resource::Resource(Backend* bn, const MNN::Op* op) {
     mBackend = bn;
     auto runtime = static_cast<CUDABackend*>(bn)->getCUDARuntime();
@@ -224,7 +224,7 @@ ConvFpAIntBExecution::Resource::Resource(Backend* bn, const MNN::Op* op) {
     auto common     = conv->common();
 
     //weight host->device
-    std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon = ConvolutionCommon::load(conv, mBackend, false, true);
+    std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon = ConvolutionCommon::load(op, mBackend, false, true);
 
     auto oc = common->outputCount();
     auto weightSize = quanCommon->weight.size();
@@ -481,7 +481,7 @@ ErrorCode ConvFpAIntBExecution::onExecute(const std::vector<Tensor*> &inputs, co
         maxV = 6.0f;
     }
 
-    auto total = outputs[0]->batch() * oh * ow * ocp; 
+    auto total = outputs[0]->batch() * oh * ow * ocp;
     auto& prop = runtime->prop();
     int limitThreads = UP_DIV(total, prop.multiProcessorCount);
     int threadNum = ALIMIN(prop.maxThreadsPerBlock/2, limitThreads);
@@ -503,9 +503,9 @@ ErrorCode ConvFpAIntBExecution::onExecute(const std::vector<Tensor*> &inputs, co
                 (const float*)mResource->mScale,  (const float*)mResource->mOffset, (const float*)bias_addr, (float*)output_addr,
                 maxV, minV, ic, icp, iw, ih, oc, ocp, ow, oh, kw, kh, dw, dh, sw, sh, pw, ph, total,
                 d_oc, d_ow, d_oh);
-            checkKernelErrors;  
+            checkKernelErrors;
         }
-        
+
         return NO_ERROR;
     }
 
@@ -520,9 +520,9 @@ ErrorCode ConvFpAIntBExecution::onExecute(const std::vector<Tensor*> &inputs, co
             (const float*)mResource->mScale,  (const float*)mResource->mOffset, (const float*)bias_addr, (float*)output_addr,
             maxV, minV, ic, icp, iw, ih, oc, ocp, ow, oh, kw, kh, dw, dh, sw, sh, pw, ph, total,
             d_oc, d_ow, d_oh);
-        checkKernelErrors;  
+        checkKernelErrors;
     }
-    
+
     return NO_ERROR;
 }
 

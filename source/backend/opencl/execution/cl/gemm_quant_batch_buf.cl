@@ -481,6 +481,149 @@ __kernel void gemm_b4_c1_buf(GLOBAL_SIZE_DIM2
 #endif
     vstore4(CONVERT_FLOAT4(out), 0, output+out_offset);
 }
+
+__kernel void gemm_b4_c4_image(GLOBAL_SIZE_DIM2
+                        __global const FLOAT* input,
+                        __read_only image2d_t weight,
+                        __global const float *dequantScaleOffset,
+                        __global const FLOAT *bias,
+                        __global FLOAT* output,
+                        __private const int dstChannelC4,
+                        __private const int srcChannelC4,
+                        __private const int blockNum,
+                        __private const int blockDim) {
+    const int x = get_global_id(0); //c
+    const int y  = get_global_id(1); //b
+    UNIFORM_BOUNDRY_CHECK(x, y);
+
+    const int out_c_idx = x << 2;
+    const int out_b_idx = y << 2;
+        
+    COMPUTE_FLOAT4 bias0 = CONVERT_COMPUTE_FLOAT4(vload4(0, bias + out_c_idx));
+    COMPUTE_FLOAT4 out = (COMPUTE_FLOAT4)bias0.s0;
+    COMPUTE_FLOAT4 out1 = (COMPUTE_FLOAT4)bias0.s1;
+    COMPUTE_FLOAT4 out2 = (COMPUTE_FLOAT4)bias0.s2;
+    COMPUTE_FLOAT4 out3 = (COMPUTE_FLOAT4)bias0.s3;
+
+    int input_offset = out_b_idx * srcChannelC4 * 4;
+    int out_offset = (out_b_idx * dstChannelC4 + out_c_idx) * 4;
+    
+    const int loop = (blockDim + 15) / 16;
+    #ifdef INPUT_CHANNEL_LEAVE
+    const int loop_end = max(loop - 1, 0);
+    const int remain = blockDim - loop_end*16;
+    #else
+    const int loop_end = loop;
+    #endif
+    
+    for (int i = 0; i < blockNum; i++){
+        int kindex = i * dstChannelC4 * 4 * 2;
+        COMPUTE_FLOAT8 ScaleOffset = CONVERT_COMPUTE_FLOAT8(vload8(0, dequantScaleOffset + out_c_idx * 2 + kindex));
+        for (int j = 0; j < loop_end; j++) {
+            int k = i * loop + j;
+            int k16 = k << 4;
+            #if (defined USE_LOW_BIT_WEIGHT_INT8)
+            COMPUTE_FLOAT16 weights0 = CONVERT_COMPUTE_FLOAT16(as_char16(read_imagei(weight, SAMPLER, (int2)(out_c_idx, k)))) * ScaleOffset.s0 + ScaleOffset.s1;
+            COMPUTE_FLOAT16 weights1 = CONVERT_COMPUTE_FLOAT16(as_char16(read_imagei(weight, SAMPLER, (int2)(out_c_idx + 1, k)))) * ScaleOffset.s2 + ScaleOffset.s3;
+            COMPUTE_FLOAT16 weights2 = CONVERT_COMPUTE_FLOAT16(as_char16(read_imagei(weight, SAMPLER, (int2)(out_c_idx + 2, k)))) * ScaleOffset.s4 + ScaleOffset.s5;
+            COMPUTE_FLOAT16 weights3 = CONVERT_COMPUTE_FLOAT16(as_char16(read_imagei(weight, SAMPLER, (int2)(out_c_idx + 3, k)))) * ScaleOffset.s6 + ScaleOffset.s7;
+            #elif (defined USE_LOW_BIT_WEIGHT_INT4)
+            COMPUTE_FLOAT16 weights0, weights1, weights2, weights3;
+            {
+                uchar8 charWeightsInt40 = as_uchar8(convert_ushort4(read_imageui(weight, SAMPLER, (int2)(out_c_idx, k))));
+                uchar8 charWeightsInt41 = as_uchar8(convert_ushort4(read_imageui(weight, SAMPLER, (int2)(out_c_idx + 1, k))));
+                uchar8 charWeightsInt42 = as_uchar8(convert_ushort4(read_imageui(weight, SAMPLER, (int2)(out_c_idx + 2, k))));
+                uchar8 charWeightsInt43 = as_uchar8(convert_ushort4(read_imageui(weight, SAMPLER, (int2)(out_c_idx + 3, k))));
+                char16 charWeights0 = 0;
+                char16 charWeights1 = 0;
+                char16 charWeights2 = 0;
+                char16 charWeights3 = 0;
+                UCHAR8_TO_CHAR16(charWeights0, charWeightsInt40);
+                UCHAR8_TO_CHAR16(charWeights1, charWeightsInt41);
+                UCHAR8_TO_CHAR16(charWeights2, charWeightsInt42);
+                UCHAR8_TO_CHAR16(charWeights3, charWeightsInt43);
+                weights0 = CONVERT_COMPUTE_FLOAT16(charWeights0) * ScaleOffset.s0 + ScaleOffset.s1;
+                weights1 = CONVERT_COMPUTE_FLOAT16(charWeights1) * ScaleOffset.s2 + ScaleOffset.s3;
+                weights2 = CONVERT_COMPUTE_FLOAT16(charWeights2) * ScaleOffset.s4 + ScaleOffset.s5;
+                weights3 = CONVERT_COMPUTE_FLOAT16(charWeights3) * ScaleOffset.s6 + ScaleOffset.s7;
+            }
+            #endif
+            COMPUTE_FLOAT *weights0_ptr = (COMPUTE_FLOAT *)&weights0;
+            COMPUTE_FLOAT *weights1_ptr = (COMPUTE_FLOAT *)&weights1;
+            COMPUTE_FLOAT *weights2_ptr = (COMPUTE_FLOAT *)&weights2;
+            COMPUTE_FLOAT *weights3_ptr = (COMPUTE_FLOAT *)&weights3;
+            #pragma unroll
+            for (int i = 0; i < 16; ++i){
+                COMPUTE_FLOAT4 in = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset + (k16 + i) * 4));
+                out = mad(in, weights0_ptr[i], out);
+                out1 = mad(in, weights1_ptr[i], out1);
+                out2 = mad(in, weights2_ptr[i], out2);
+                out3 = mad(in, weights3_ptr[i], out3);
+            }
+        }
+#ifdef INPUT_CHANNEL_LEAVE
+        {
+            int k = i * loop + loop_end;
+            int k16 = k << 4;
+            #if (defined USE_LOW_BIT_WEIGHT_INT8)
+            COMPUTE_FLOAT16 weights0 = CONVERT_COMPUTE_FLOAT16(as_char16(read_imagei(weight, SAMPLER, (int2)(out_c_idx, k)))) * ScaleOffset.s0 + ScaleOffset.s1;
+            COMPUTE_FLOAT16 weights1 = CONVERT_COMPUTE_FLOAT16(as_char16(read_imagei(weight, SAMPLER, (int2)(out_c_idx + 1, k)))) * ScaleOffset.s2 + ScaleOffset.s3;
+            COMPUTE_FLOAT16 weights2 = CONVERT_COMPUTE_FLOAT16(as_char16(read_imagei(weight, SAMPLER, (int2)(out_c_idx + 2, k)))) * ScaleOffset.s4 + ScaleOffset.s5;
+            COMPUTE_FLOAT16 weights3 = CONVERT_COMPUTE_FLOAT16(as_char16(read_imagei(weight, SAMPLER, (int2)(out_c_idx + 3, k)))) * ScaleOffset.s6 + ScaleOffset.s7;
+            #elif (defined USE_LOW_BIT_WEIGHT_INT4)
+            COMPUTE_FLOAT16 weights0, weights1, weights2, weights3;
+            {
+                uchar8 charWeightsInt40 = as_uchar8(convert_ushort4(read_imageui(weight, SAMPLER, (int2)(out_c_idx, k))));
+                uchar8 charWeightsInt41 = as_uchar8(convert_ushort4(read_imageui(weight, SAMPLER, (int2)(out_c_idx + 1, k))));
+                uchar8 charWeightsInt42 = as_uchar8(convert_ushort4(read_imageui(weight, SAMPLER, (int2)(out_c_idx + 2, k))));
+                uchar8 charWeightsInt43 = as_uchar8(convert_ushort4(read_imageui(weight, SAMPLER, (int2)(out_c_idx + 3, k))));
+                char16 charWeights0 = 0;
+                char16 charWeights1 = 0;
+                char16 charWeights2 = 0;
+                char16 charWeights3 = 0;
+                UCHAR8_TO_CHAR16(charWeights0, charWeightsInt40);
+                UCHAR8_TO_CHAR16(charWeights1, charWeightsInt41);
+                UCHAR8_TO_CHAR16(charWeights2, charWeightsInt42);
+                UCHAR8_TO_CHAR16(charWeights3, charWeightsInt43);
+                weights0 = CONVERT_COMPUTE_FLOAT16(charWeights0) * ScaleOffset.s0 + ScaleOffset.s1;
+                weights1 = CONVERT_COMPUTE_FLOAT16(charWeights1) * ScaleOffset.s2 + ScaleOffset.s3;
+                weights2 = CONVERT_COMPUTE_FLOAT16(charWeights2) * ScaleOffset.s4 + ScaleOffset.s5;
+                weights3 = CONVERT_COMPUTE_FLOAT16(charWeights3) * ScaleOffset.s6 + ScaleOffset.s7;
+            }
+            #endif
+            COMPUTE_FLOAT *weights0_ptr = (COMPUTE_FLOAT *)&weights0;
+            COMPUTE_FLOAT *weights1_ptr = (COMPUTE_FLOAT *)&weights1;
+            COMPUTE_FLOAT *weights2_ptr = (COMPUTE_FLOAT *)&weights2;
+            COMPUTE_FLOAT *weights3_ptr = (COMPUTE_FLOAT *)&weights3;
+            #pragma unroll
+            for (int i = 0; i < remain; ++i){
+                COMPUTE_FLOAT4 in = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset + (k16 + i) * 4));
+                out = mad(in, weights0_ptr[i], out);
+                out1 = mad(in, weights1_ptr[i], out1);
+                out2 = mad(in, weights2_ptr[i], out2);
+                out3 = mad(in, weights3_ptr[i], out3);
+            }
+        }
+#endif
+    }
+
+#ifdef RELU
+    out = fmax(out, (COMPUTE_FLOAT4)0);
+    out1 = fmax(out1, (COMPUTE_FLOAT4)0);
+    out2 = fmax(out2, (COMPUTE_FLOAT4)0);
+    out3 = fmax(out3, (COMPUTE_FLOAT4)0);
+#endif
+#ifdef RELU6
+    out = clamp(out, (COMPUTE_FLOAT4)0, (COMPUTE_FLOAT4)6);
+    out1 = clamp(out1, (COMPUTE_FLOAT4)0, (COMPUTE_FLOAT4)6);
+    out2 = clamp(out2, (COMPUTE_FLOAT4)0, (COMPUTE_FLOAT4)6);
+    out3 = clamp(out3, (COMPUTE_FLOAT4)0, (COMPUTE_FLOAT4)6);
+#endif
+    vstore4(CONVERT_FLOAT4(out), 0, output + out_offset);
+    vstore4(CONVERT_FLOAT4(out1), 0, output + out_offset + 4);
+    vstore4(CONVERT_FLOAT4(out2), 0, output + out_offset + 8);
+    vstore4(CONVERT_FLOAT4(out3), 0, output + out_offset + 12);
+}
 __kernel void gemm_b4_c2_image(GLOBAL_SIZE_DIM2
                         __global const FLOAT* input,
                         __read_only image2d_t weight,
@@ -505,7 +648,6 @@ __kernel void gemm_b4_c2_image(GLOBAL_SIZE_DIM2
     int input_offset = out_b_idx * srcChannelC4 * 4;
     int out_offset = (out_b_idx * dstChannelC4 + out_c_idx) * 4;
     
-#if (defined USE_LOW_BIT_WEIGHT_INT8)
     const int loop = (blockDim + 15) / 16;
     #ifdef INPUT_CHANNEL_LEAVE
     const int loop_end = max(loop - 1, 0);
@@ -513,25 +655,29 @@ __kernel void gemm_b4_c2_image(GLOBAL_SIZE_DIM2
     #else
     const int loop_end = loop;
     #endif
-#elif (defined USE_LOW_BIT_WEIGHT_INT4)
-    const int loop = (blockDim + 31) / 32;
-    #ifdef INPUT_CHANNEL_LEAVE
-    const int loop_end = max(loop - 1, 0);
-    const int remain = blockDim - loop_end*32;
-    #else
-    const int loop_end = loop;
-    #endif
-#endif
     
     for (int i = 0; i < blockNum; i++){
         int kindex = i * dstChannelC4 * 4 * 2;
         COMPUTE_FLOAT4 ScaleOffset = CONVERT_COMPUTE_FLOAT4(vload4(0, dequantScaleOffset + out_c_idx * 2 + kindex));
-#if (defined USE_LOW_BIT_WEIGHT_INT8)
         for (int j = 0; j < loop_end; j++) {
             int k = i * loop + j;
             int k16 = k << 4;
+            #if (defined USE_LOW_BIT_WEIGHT_INT8)
             COMPUTE_FLOAT16 weights0 = CONVERT_COMPUTE_FLOAT16(as_char16(read_imagei(weight, SAMPLER, (int2)(out_c_idx, k)))) * ScaleOffset.s0 + ScaleOffset.s1;
             COMPUTE_FLOAT16 weights1 = CONVERT_COMPUTE_FLOAT16(as_char16(read_imagei(weight, SAMPLER, (int2)(out_c_idx + 1, k)))) * ScaleOffset.s2 + ScaleOffset.s3;
+            #elif (defined USE_LOW_BIT_WEIGHT_INT4)
+            COMPUTE_FLOAT16 weights0, weights1;
+            {
+                uchar8 charWeightsInt40 = as_uchar8(convert_ushort4(read_imageui(weight, SAMPLER, (int2)(out_c_idx, k))));
+                uchar8 charWeightsInt41 = as_uchar8(convert_ushort4(read_imageui(weight, SAMPLER, (int2)(out_c_idx + 1, k))));
+                char16 charWeights0 = 0;
+                char16 charWeights1 = 0;
+                UCHAR8_TO_CHAR16(charWeights0, charWeightsInt40);
+                UCHAR8_TO_CHAR16(charWeights1, charWeightsInt41);
+                weights0 = CONVERT_COMPUTE_FLOAT16(charWeights0) * ScaleOffset.s0 + ScaleOffset.s1;
+                weights1 = CONVERT_COMPUTE_FLOAT16(charWeights1) * ScaleOffset.s2 + ScaleOffset.s3;
+            }
+            #endif
             COMPUTE_FLOAT *weights0_ptr = (COMPUTE_FLOAT *)&weights0;
             COMPUTE_FLOAT *weights1_ptr = (COMPUTE_FLOAT *)&weights1;
             #pragma unroll
@@ -545,8 +691,22 @@ __kernel void gemm_b4_c2_image(GLOBAL_SIZE_DIM2
         {
             int k = i * loop + loop_end;
             int k16 = k << 4;
+            #if (defined USE_LOW_BIT_WEIGHT_INT8)
             COMPUTE_FLOAT16 weights0 = CONVERT_COMPUTE_FLOAT16(as_char16(read_imagei(weight, SAMPLER, (int2)(out_c_idx, k)))) * ScaleOffset.s0 + ScaleOffset.s1;
             COMPUTE_FLOAT16 weights1 = CONVERT_COMPUTE_FLOAT16(as_char16(read_imagei(weight, SAMPLER, (int2)(out_c_idx + 1, k)))) * ScaleOffset.s2 + ScaleOffset.s3;
+            #elif (defined USE_LOW_BIT_WEIGHT_INT4)
+            COMPUTE_FLOAT16 weights0, weights1;
+            {
+                uchar8 charWeightsInt40 = as_uchar8(convert_ushort4(read_imageui(weight, SAMPLER, (int2)(out_c_idx, k))));
+                uchar8 charWeightsInt41 = as_uchar8(convert_ushort4(read_imageui(weight, SAMPLER, (int2)(out_c_idx + 1, k))));
+                char16 charWeights0 = 0;
+                char16 charWeights1 = 0;
+                UCHAR8_TO_CHAR16(charWeights0, charWeightsInt40);
+                UCHAR8_TO_CHAR16(charWeights1, charWeightsInt41);
+                weights0 = CONVERT_COMPUTE_FLOAT16(charWeights0) * ScaleOffset.s0 + ScaleOffset.s1;
+                weights1 = CONVERT_COMPUTE_FLOAT16(charWeights1) * ScaleOffset.s2 + ScaleOffset.s3;
+            }
+            #endif
             COMPUTE_FLOAT *weights0_ptr = (COMPUTE_FLOAT *)&weights0;
             COMPUTE_FLOAT *weights1_ptr = (COMPUTE_FLOAT *)&weights1;
             #pragma unroll
@@ -557,82 +717,6 @@ __kernel void gemm_b4_c2_image(GLOBAL_SIZE_DIM2
             }
         }
 #endif
-#elif (defined USE_LOW_BIT_WEIGHT_INT4)
-        for (int j = 0; j < loop_end; j++) {
-            int k = i * loop + j;
-            int k32 = k << 5;
-            COMPUTE_FLOAT16 weights0, weights1, weights2, weights3;
-            {
-                uchar16 charWeightsInt4 = as_uchar16(read_imagei(weight, SAMPLER, (int2)(out_c_idx, k)));
-                char16 charWeights0 = 0;
-                char16 charWeights1 = 0;
-                UCHAR16_TO_2CHAR16(charWeights0, charWeights1, charWeightsInt4);
-                weights0 = CONVERT_COMPUTE_FLOAT16(charWeights0) * ScaleOffset.s0 + ScaleOffset.s1;
-                weights1 = CONVERT_COMPUTE_FLOAT16(charWeights1) * ScaleOffset.s0 + ScaleOffset.s1;
-            }
-            {
-                uchar16 charWeightsInt4 = as_uchar16(read_imagei(weight, SAMPLER, (int2)(out_c_idx + 1, k)));
-                char16 charWeights0 = 0;
-                char16 charWeights1 = 0;
-                UCHAR16_TO_2CHAR16(charWeights0, charWeights1, charWeightsInt4);
-                weights2 = CONVERT_COMPUTE_FLOAT16(charWeights0) * ScaleOffset.s2 + ScaleOffset.s3;
-                weights3 = CONVERT_COMPUTE_FLOAT16(charWeights1) * ScaleOffset.s2 + ScaleOffset.s3;
-            }
-            COMPUTE_FLOAT *weights0_ptr = (COMPUTE_FLOAT *)&weights0;
-            COMPUTE_FLOAT *weights1_ptr = (COMPUTE_FLOAT *)&weights1;
-            COMPUTE_FLOAT *weights2_ptr = (COMPUTE_FLOAT *)&weights2;
-            COMPUTE_FLOAT *weights3_ptr = (COMPUTE_FLOAT *)&weights3;
-            #pragma unroll
-            for (int i = 0; i < 16; ++i){
-                COMPUTE_FLOAT4 in = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset + (k32 + i) * 4));
-                out = mad(in, weights0_ptr[i], out);
-                out1 = mad(in, weights2_ptr[i], out1);
-            }
-            #pragma unroll
-            for (int i = 0; i < 16; ++i){
-                COMPUTE_FLOAT4 in = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset + (k32 + i + 16) * 4));
-                out = mad(in, weights1_ptr[i], out);
-                out1 = mad(in, weights3_ptr[i], out1);
-            }
-        }
-#ifdef INPUT_CHANNEL_LEAVE
-        {
-            int k = i * loop + loop_end;
-            int k32 = k << 5;
-            COMPUTE_FLOAT16 weights0, weights1, weights2, weights3;
-            {
-                uchar16 charWeightsInt4 = as_uchar16(read_imagei(weight, SAMPLER, (int2)(out_c_idx, k)));
-                char16 charWeights0 = 0;
-                char16 charWeights1 = 0;
-                UCHAR16_TO_2CHAR16(charWeights0, charWeights1, charWeightsInt4);
-                weights0 = CONVERT_COMPUTE_FLOAT16(charWeights0) * ScaleOffset.s0 + ScaleOffset.s1;
-                weights1 = CONVERT_COMPUTE_FLOAT16(charWeights1) * ScaleOffset.s0 + ScaleOffset.s1;
-            }
-            {
-                uchar16 charWeightsInt4 = as_uchar16(read_imagei(weight, SAMPLER, (int2)(out_c_idx + 1, k)));
-                char16 charWeights0 = 0;
-                char16 charWeights1 = 0;
-                UCHAR16_TO_2CHAR16(charWeights0, charWeights1, charWeightsInt4);
-                weights2 = CONVERT_COMPUTE_FLOAT16(charWeights0) * ScaleOffset.s2 + ScaleOffset.s3;
-                weights3 = CONVERT_COMPUTE_FLOAT16(charWeights1) * ScaleOffset.s2 + ScaleOffset.s3;
-            }
-            COMPUTE_FLOAT *weights0_ptr = (COMPUTE_FLOAT *)&weights0;
-            COMPUTE_FLOAT *weights1_ptr = (COMPUTE_FLOAT *)&weights1;
-            COMPUTE_FLOAT *weights2_ptr = (COMPUTE_FLOAT *)&weights2;
-            COMPUTE_FLOAT *weights3_ptr = (COMPUTE_FLOAT *)&weights3;
-            for (int i = 0; i < min(16, remain); ++i){
-                COMPUTE_FLOAT4 in = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset + (k32 + i) * 4));
-                out = mad(in, weights0_ptr[i], out);
-                out1 = mad(in, weights2_ptr[i], out1);
-            }
-            for (int i = 16; i < remain; ++i){
-                COMPUTE_FLOAT4 in = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset + (k32 + i) * 4));
-                out = mad(in, weights1_ptr[i - 16], out);
-                out1 = mad(in, weights3_ptr[i - 16], out1);
-            }
-        }
-#endif
-#endif //USE_LOW_BIT_WEIGHT_INT4
     }
 
 #ifdef RELU
@@ -669,7 +753,6 @@ __kernel void gemm_b4_c1_image(GLOBAL_SIZE_DIM2
     int input_offset = out_b_idx * srcChannelC4 * 4;
     int out_offset = (out_b_idx * dstChannelC4 + out_c_idx) * 4;
     
-#if (defined USE_LOW_BIT_WEIGHT_INT8)
     const int loop = (blockDim + 15) / 16;
     #ifdef INPUT_CHANNEL_LEAVE
     const int loop_end = max(loop - 1, 0);
@@ -677,24 +760,24 @@ __kernel void gemm_b4_c1_image(GLOBAL_SIZE_DIM2
     #else
     const int loop_end = loop;
     #endif
-#elif (defined USE_LOW_BIT_WEIGHT_INT4)
-    const int loop = (blockDim + 31) / 32;
-    #ifdef INPUT_CHANNEL_LEAVE
-    const int loop_end = max(loop - 1, 0);
-    const int remain = blockDim - loop_end*32;
-    #else
-    const int loop_end = loop;
-    #endif
-#endif
 
     for (int i = 0; i < blockNum; ++i){
         int kindex = i * dstChannelC4 * 4 * 2;
         COMPUTE_FLOAT2 ScaleOffset = CONVERT_COMPUTE_FLOAT2(vload2(out_c_idx, dequantScaleOffset + kindex));
-#if (defined USE_LOW_BIT_WEIGHT_INT8)
         for (int j = 0; j < loop_end; j++) {
             int k = i * loop + j;
             int k16 = k << 4;
+            #if (defined USE_LOW_BIT_WEIGHT_INT8)
             COMPUTE_FLOAT16 weights0 = CONVERT_COMPUTE_FLOAT16(as_char16(read_imagei(weight, SAMPLER, (int2)(out_c_idx, k)))) * ScaleOffset.s0 + ScaleOffset.s1;
+            #elif (defined USE_LOW_BIT_WEIGHT_INT4)
+            COMPUTE_FLOAT16 weights0;
+            {
+                uchar8 charWeightsInt4 = as_uchar8(convert_ushort4(read_imageui(weight, SAMPLER, (int2)(out_c_idx, k))));
+                char16 charWeights = 0;
+                UCHAR8_TO_CHAR16(charWeights, charWeightsInt4);
+                weights0 = CONVERT_COMPUTE_FLOAT16(charWeights) * ScaleOffset.s0 + ScaleOffset.s1;
+            }
+            #endif
             COMPUTE_FLOAT *weights0_ptr = (COMPUTE_FLOAT *)&weights0;
             #pragma unroll
             for (int i = 0; i < 16; ++i){
@@ -706,7 +789,17 @@ __kernel void gemm_b4_c1_image(GLOBAL_SIZE_DIM2
         {
             int k = i * loop + loop_end;
             int k16 = k << 4;
+            #if (defined USE_LOW_BIT_WEIGHT_INT8)
             COMPUTE_FLOAT16 weights0 = CONVERT_COMPUTE_FLOAT16(as_char16(read_imagei(weight, SAMPLER, (int2)(out_c_idx, k)))) * ScaleOffset.s0 + ScaleOffset.s1;
+            #elif (defined USE_LOW_BIT_WEIGHT_INT4)
+            COMPUTE_FLOAT16 weights0;
+            {
+                uchar8 charWeightsInt4 = as_uchar8(convert_ushort4(read_imageui(weight, SAMPLER, (int2)(out_c_idx, k))));
+                char16 charWeights = 0;
+                UCHAR8_TO_CHAR16(charWeights, charWeightsInt4);
+                weights0 = CONVERT_COMPUTE_FLOAT16(charWeights) * ScaleOffset.s0 + ScaleOffset.s1;
+            }
+            #endif
             COMPUTE_FLOAT *weights0_ptr = (COMPUTE_FLOAT *)&weights0;
             #pragma unroll
             for (int i = 0; i < remain; ++i){
@@ -715,58 +808,6 @@ __kernel void gemm_b4_c1_image(GLOBAL_SIZE_DIM2
             }
         }
 #endif
-#elif (defined USE_LOW_BIT_WEIGHT_INT4)
-        for (int j = 0; j < loop_end; j++) {
-            int k = i * loop + j;
-            int k32 = k << 5;
-            COMPUTE_FLOAT16 weights0, weights1;
-            {
-                uchar16 charWeightsInt4 = as_uchar16(read_imagei(weight, SAMPLER, (int2)(out_c_idx, k)));
-                char16 charWeights0 = 0;
-                char16 charWeights1 = 0;
-                UCHAR16_TO_2CHAR16(charWeights0, charWeights1, charWeightsInt4);
-                weights0 = CONVERT_COMPUTE_FLOAT16(charWeights0) * ScaleOffset.s0 + ScaleOffset.s1;
-                weights1 = CONVERT_COMPUTE_FLOAT16(charWeights1) * ScaleOffset.s0 + ScaleOffset.s1;
-            }
-            COMPUTE_FLOAT *weights0_ptr = (COMPUTE_FLOAT *)&weights0;
-            COMPUTE_FLOAT *weights1_ptr = (COMPUTE_FLOAT *)&weights1;
-            #pragma unroll
-            for (int i = 0; i < 16; ++i){
-                COMPUTE_FLOAT4 in = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset + (k32 + i) * 4));
-                out = mad(in, weights0_ptr[i], out);
-            }
-            #pragma unroll
-            for (int i = 0; i < 16; ++i){
-                COMPUTE_FLOAT4 in = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset + (k32 + i + 16) * 4));
-                out = mad(in, weights1_ptr[i], out);
-            }
-        }
-#ifdef INPUT_CHANNEL_LEAVE
-        {
-            int k = i * loop + loop_end;
-            int k32 = k << 5;
-            COMPUTE_FLOAT16 weights0, weights1;
-            {
-                uchar16 charWeightsInt4 = as_uchar16(read_imagei(weight, SAMPLER, (int2)(out_c_idx, k)));
-                char16 charWeights0 = 0;
-                char16 charWeights1 = 0;
-                UCHAR16_TO_2CHAR16(charWeights0, charWeights1, charWeightsInt4);
-                weights0 = CONVERT_COMPUTE_FLOAT16(charWeights0) * ScaleOffset.s0 + ScaleOffset.s1;
-                weights1 = CONVERT_COMPUTE_FLOAT16(charWeights1) * ScaleOffset.s0 + ScaleOffset.s1;
-            }
-            COMPUTE_FLOAT *weights0_ptr = (COMPUTE_FLOAT *)&weights0;
-            COMPUTE_FLOAT *weights1_ptr = (COMPUTE_FLOAT *)&weights1;
-            for (int i = 0; i < min(16, remain); ++i){
-                COMPUTE_FLOAT4 in = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset + (k32 + i) * 4));
-                out = mad(in, weights0_ptr[i], out);
-            }
-            for (int i = 16; i < remain; ++i){
-                COMPUTE_FLOAT4 in = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset + (k32 + i) * 4));
-                out = mad(in, weights1_ptr[i - 16], out);
-            }
-        }
-#endif
-#endif //USE_LOW_BIT_WEIGHT_INT4
     }
 
 #ifdef RELU

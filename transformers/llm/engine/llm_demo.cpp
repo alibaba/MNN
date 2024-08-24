@@ -14,23 +14,9 @@
 using namespace MNN::Transformer;
 static void trace_prepare(Llm* llm) {
     MNN_PRINT("Prepare for resize opt Begin\n");
-    std::vector<std::string> prompts = {
-        "Hello",
-    };
     llm->trace(true);
-    int prompt_len = 0;
-    int decode_len = 0;
-    int64_t prefill_time = 0;
-    int64_t decode_time = 0;
-    // llm->warmup();
-    for (int i = 0; i < prompts.size(); i++) {
-        std::ostringstream cacheOs;
-        llm->response(prompts[i], &cacheOs);
-        prompt_len += llm->prompt_len_;
-        decode_len += llm->gen_seq_len_;
-        prefill_time += llm->prefill_us_;
-        decode_time += llm->decode_us_;
-    }
+    std::ostringstream cacheOs;
+    llm->response("Hello", &cacheOs);
     MNN_PRINT("Prepare for resize opt End\n");
     llm->trace(false);
 }
@@ -181,7 +167,7 @@ int main(int argc, const char* argv[]) {
         AUTOTIME;
         llm->load();
     }
-    if (true) {
+    if (false) {
         AUTOTIME;
         trace_prepare(llm.get());
     }

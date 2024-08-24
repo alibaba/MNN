@@ -11,12 +11,11 @@ build-backend = "setuptools.build_meta"
 
 [tool.cibuildwheel]
 test-skip = [
-    "*",
     "cp36-*",
     "*-macosx_arm64"
 ]
 test-requires = [
-    "opencv-python",
+    "opencv-python==4.6.0.66",
     "numpy",
     "torch"
 ]
@@ -42,8 +41,6 @@ repair-wheel-command = ""
 build = "cp*-manylinux*"
 skip = "pp*"
 before-all = [
-    "sed -i 's/mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-*",
-    "sed -i 's|#baseurl=http://mirror.centos.org|baseurl=http://mirrors.aliyun.com|g' /etc/yum.repos.d/CentOS-*",
     "yum install -y wget",
     "pushd pymnn/pip_package",
     "python3 build_deps.py --torch",

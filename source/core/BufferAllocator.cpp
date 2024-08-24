@@ -309,7 +309,7 @@ MemChunk DeferBufferAllocator::alloc(size_t size, bool separate, size_t align) {
         auto newChunk = createMemNode(size);
         insert_after(newChunk);
 #ifdef DUMP_USAGE
-    MNN_PRINT("Defer alloc: %p\n", newChunk);
+    MNN_PRINT("Defer alloc: %p, %d\n", newChunk, size);
 #endif
         return MemChunk(newChunk);
     }
@@ -332,7 +332,7 @@ MemChunk DeferBufferAllocator::alloc(size_t size, bool separate, size_t align) {
     // equal no change; small expand
     selectChunk->size = size;
 #ifdef DUMP_USAGE
-    MNN_PRINT("Defer alloc: %p\n", selectChunk);
+    MNN_PRINT("Defer alloc: %p, %d\n", selectChunk, size);
 #endif
     return MemChunk(selectChunk);
 }

@@ -6,11 +6,13 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#include <mutex>
 #include "OpGrad.hpp"
 using namespace std;
 using namespace MNN::Express;
 //#define MNN_TRAIN_DEBUG
 namespace MNN {
+extern void registerGradOps();
 static std::map<int, OpGrad*>& getConverter() {
     static std::map<int, OpGrad*> gConverterMap;
     return gConverterMap;
@@ -69,6 +71,12 @@ Express::VARP OpGrad::divideAvoidZero(MNN::Express::VARP y, MNN::Express::VARP x
     p = MNN::Express::_Maximum(p, MNN::Express::_Scalar<float>(0.000001f));
     return MNN::Express::_Divide(y, p) * sx;
 }
+static std::once_flag gInit;
+void OpGrad::init() {
+    std::call_once(gInit, []() {
+        registerGradOps();
+    });
+}
 
 std::pair<std::vector<Express::VARP>, std::vector<Express::VARP>> OpGrad::gradCommon(std::vector<Express::VARP> outputs, std::vector<Express::VARP> outputDiff, std::vector<Express::VARP> parameters) {
     if (outputs.size() != outputDiff.size()) {
@@ -107,6 +115,7 @@ std::pair<std::vector<Express::VARP>, std::vector<Express::VARP>> OpGrad::gradCo
 }
 
 std::map<Express::VARP, Express::VARP> OpGrad::gradCommon(std::vector<Express::VARP> outputs, const std::set<Express::VARP>& parameters, std::map<EXPRP, std::vector<VARP>>& backwardMap, const std::vector<std::string> blockName) {
+    init();
     auto executeOrder = Variable::getExecuteOrder(outputs);
     for (auto iter = executeOrder.rbegin(); iter != executeOrder.rend(); iter++) {
         auto expr    = *iter;

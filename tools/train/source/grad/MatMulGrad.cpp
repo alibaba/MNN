@@ -8,7 +8,7 @@
 
 #include "MatMulGrad.hpp"
 using namespace std;
-using namespace MNN;
+namespace MNN {
 using namespace MNN::Express;
 class BatchMatMulGrad : public OpGrad {
 public:
@@ -221,10 +221,14 @@ public:
         return res;
     }
 };
-static const auto gRegister = []() {
+static void _create() {
     static MatMulGrad _c;
     OpGrad::insert(OpType_MatMul, &_c);
     static BatchMatMulGrad _d;
     OpGrad::insert(OpType_BatchMatMul, &_d);
-    return true;
-}();
+
+}
+
+REGISTER_GRAD(MatMulGrad_cpp, _create);
+};
+

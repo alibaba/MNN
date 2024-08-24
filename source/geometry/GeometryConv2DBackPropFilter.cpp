@@ -76,7 +76,7 @@ public:
                     endDx = endDx - (endSx - iw + sw) / sw;
                     endSx = endDx * sw + kx * dw - pads.first;
                 }
-                if (startDy > endDy) {
+                if (startDy > endDy || startDx > endDx) {
                     continue;
                 }
                 auto dstOffsetKx = dstOffsetKy + startDx;

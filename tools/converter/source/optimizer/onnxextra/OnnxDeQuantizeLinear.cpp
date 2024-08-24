@@ -31,7 +31,7 @@ public:
             return nullptr;
         }
 
-        uint8_t dataType = halide_type_int;
+        auto dataType = halide_type_int;
         VARP zeropoint = _Const(0.f);
         if (inputs.size() > 2) {
             if (inputs[2]->getInfo() == nullptr) {
@@ -39,7 +39,7 @@ public:
             }
             MNN_ASSERT(inputs[2]->getInfo() != nullptr);
             auto zeroDim = inputs[2]->getInfo()->dim;
-            dataType = inputs[2]->getInfo()->type.code;
+            dataType = static_cast<halide_type_code_t>(inputs[2]->getInfo()->type.code);
             std::vector<float> fp32Zero(inputs[2]->getInfo()->size);
             if (dataType == halide_type_int) {
                 const int8_t* zeroPtr = inputs[2]->readMap<int8_t>();
@@ -60,7 +60,7 @@ public:
         std::vector<int32_t> inputDim = {};
         if (input->getInfo()) {
             inputDim = input->getInfo()->dim;
-            dataType = input->getInfo()->type.code;
+            dataType = static_cast<halide_type_code_t>(input->getInfo()->type.code);
         }
         auto offset = _Const(0.f);
         if (dataType == halide_type_uint) {

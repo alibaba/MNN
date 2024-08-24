@@ -35,7 +35,7 @@ std::vector<ITensor *> TRTDeconvolution::onEncode(const std::vector<ITensor *> &
     int weightSize      = 0;
 
     std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
-    ConvolutionCommon::getConvParameters(&quanCommon, backend(), conv2D, &source, &weightSize);
+    ConvolutionCommon::getConvParameters(&quanCommon, backend(), mOp, &source, &weightSize);
 
     nvinfer1::DimsHW NVKSize(kernelY, kernelX);
     nvinfer1::DimsHW NVKSSize(conv2DCommon->strideY(), conv2DCommon->strideX());
@@ -56,7 +56,7 @@ std::vector<ITensor *> TRTDeconvolution::onEncode(const std::vector<ITensor *> &
 
     if (conv2DCommon->padMode() == PadMode_SAME) {
         conv_layer->setPaddingMode(nvinfer1::PaddingMode::kSAME_UPPER);
-    }    
+    }
     conv_layer->setName(mOp->name()->str().c_str());
     auto relu  = conv2DCommon->relu();
     auto relu6 = conv2DCommon->relu6();

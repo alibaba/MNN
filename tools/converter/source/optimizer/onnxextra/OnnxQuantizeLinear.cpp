@@ -31,12 +31,12 @@ public:
             MNN_ERROR("QuantizeLinear should provide scale and input\n");
             return nullptr;
         }
-        uint8_t dataType = halide_type_int;
+        auto dataType = halide_type_int;
         VARP zeropoint = _Const(0.f);
         auto offset = _Const(0.f);
         if (inputs.size() > 2) {
             zeropoint = _Cast<float>(inputs[2]);
-            dataType = inputs[2]->getInfo()->type.code;
+            dataType = static_cast<halide_type_code_t>(inputs[2]->getInfo()->type.code);
         }
         if (dataType == halide_type_uint) {
             offset = _Const(128.f);

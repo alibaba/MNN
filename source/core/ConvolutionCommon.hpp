@@ -24,9 +24,9 @@ public:
         bool canUseInt4 = false;
         Backend* backend = nullptr;
     };
-    static std::shared_ptr<Int8Common> load(const Convolution2D* conv, Backend* backend = nullptr, bool forceFloat = false, bool forceInt8 = false);
-    static void getConvParameters(std::shared_ptr<ConvolutionCommon::Int8Common> *quanCommon, Backend* backend, const MNN::Convolution2D *conv2d, const float** originWeight, int* originWeightSize);
-    static bool getConvInt8Parameters(const MNN::Convolution2D* conv2d, std::shared_ptr<Int8Common>& quanCommon, Backend* backend,
+    static std::shared_ptr<Int8Common> load(const Op* op, Backend* backend = nullptr, bool forceFloat = false, bool forceInt8 = false);
+    static void getConvParameters(std::shared_ptr<ConvolutionCommon::Int8Common> *quanCommon, Backend* backend, const MNN::Op *op, const float** originWeight, int* originWeightSize);
+    static bool getConvInt8Parameters(const MNN::Op* op, std::shared_ptr<Int8Common>& quanCommon, Backend* backend,
                                       const int8_t*& weight, int& weightSize, float*& scale, int32_t*& bias, int32_t*& weightQuantZero);
 
     // Return padX, padY

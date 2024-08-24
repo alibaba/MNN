@@ -78,6 +78,9 @@ public:
         
         std::map<const Op*, std::shared_ptr<Execution>> executionCache;
         OpResizeCache computeCache;
+        
+        /** For CONSTANT info, can release indexes after resize*/
+        std::vector<int> releaseAbleInputs;
     };
 
     // Backend, Tensor, shape-dirty, content-dirty

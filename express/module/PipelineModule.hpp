@@ -49,6 +49,7 @@ public:
 
     MNN_PUBLIC PipelineModule(std::vector<Express::VARP> inputs, std::vector<Express::VARP> outputs,
                    const Transformer& transformFunction = {});
+    int onOptimize(Interpreter::SessionMode stage) override;
 private:
     static Module* load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, std::shared_ptr<BufferStorage> bufferStorage, const std::shared_ptr<MNN::Express::Executor::RuntimeManager> rtMgr, const Module::Config* config, std::map<std::string, SubGraph>& subGraphMap);
     static void _createSubGraph(const MNN::Net* net, std::shared_ptr<MNN::Express::Executor::RuntimeManager> rtMgr, const Module::Config* config, std::map<std::string, SubGraph>& subGraphMap);
@@ -64,6 +65,7 @@ private:
     friend class NN;
     std::vector<VARP> mInitVars;
     std::shared_ptr<Schedule::ScheduleInfo> mSharedConst;
+    bool mSeperate = false;
 };
 } // namespace Express
 } // namespace MNN

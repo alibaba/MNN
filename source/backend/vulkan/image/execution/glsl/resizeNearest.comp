@@ -1,8 +1,8 @@
 #version 450 core
 layout(std430) buffer;
 
-layout(set=0, binding=0) uniform mediump sampler2D uInput;
-layout(set=0, binding=1) writeonly restrict mediump uniform image2D uOutput;
+layout(set=0, binding=0) uniform sampler2D uInput;
+layout(set=0, binding=1) writeonly uniform image2D uOutput;
 
 layout(set = 0, binding = 2) uniform reluBuffer{
     ivec4 inImgSize;

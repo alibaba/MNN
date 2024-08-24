@@ -22,7 +22,7 @@
 #ifdef MNN_USE_NEON
 #include <arm_neon.h>
 #endif
-//#define MNN_OP_SUPPORT_LOG
+#define MNN_OP_SUPPORT_LOG
 //#define MNN_VULKAN_DUMP_MEMORY_USAGE
 #define MNN_VULKAN_MAX_CACHE_CONVSIZE 50
 namespace MNN {
@@ -89,9 +89,6 @@ const VulkanPipeline* VulkanBackend::getPipeline(const std::string& key, const s
 }
 
 bool VulkanBackend::_supportImageSize(const Tensor* MTensor) {
-    if (MTensor->getType().code != halide_type_float) {
-        return false;
-    }
     auto format = TensorUtils::getDescribe(MTensor)->dimensionFormat;
     if (format != MNN_DATA_FORMAT_NC4HW4) {
         return true;

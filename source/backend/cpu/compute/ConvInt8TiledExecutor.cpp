@@ -18,8 +18,11 @@
 
 namespace MNN {
 
-ConvInt8TiledExecutor::ConvInt8TiledExecutor(Backend* backend, const Convolution2D* convOp, std::shared_ptr<ResourceInt8> res): CPUConvolution(convOp->common(), backend), mResourceInt8(res), mMutableResource(res, backend) {
-    mValid = mMutableResource.mValid;
+ConvInt8TiledExecutor::ConvInt8TiledExecutor(Backend* backend, const Op* op): CPUConvolution(op->main_as_Convolution2D()->common(), backend) {}
+
+ConvInt8TiledExecutor::ConvInt8TiledExecutor(Backend* backend, const Op* op, std::shared_ptr<ResourceInt8> res): CPUConvolution(op->main_as_Convolution2D()->common(), backend), mResourceInt8(res) {
+    mMutableResource.reset(new MutableResourceInt8(res, backend));
+    mValid = mMutableResource->mValid;
 }
 
 ConvInt8TiledExecutor::~ConvInt8TiledExecutor() {
@@ -31,7 +34,7 @@ bool ConvInt8TiledExecutor::onClone(Backend* bn, const Op* op, Execution** dst) 
 }
 
 ErrorCode ConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
-    mMutableResource.updateInputOutputScale(TensorUtils::getQuantInfo(inputs[0]), TensorUtils::getQuantInfo(outputs[0]));
+    mMutableResource->updateInputOutputScale(TensorUtils::getQuantInfo(inputs[0]), TensorUtils::getQuantInfo(outputs[0]));
     CPUConvolution::onResize(inputs, outputs);
     ConvolutionTiledExecutor::setIm2ColParameter(mIm2ColParamter, mCommon, inputs[0], outputs[0], mPadX, mPadY, static_cast<CPUBackend*>(backend())->functions(), static_cast<CPUBackend*>(backend())->int8Functions());
     return NO_ERROR;
@@ -99,7 +102,7 @@ static bool _reorderWeightInside(Backend* bn, const Convolution2DCommon* common,
         pack = 4;
     }
     if (SRC_UNIT > pack) {
-        MNN_ASSERT(SRC_UNIT % UNIT == 0);
+        MNN_ASSERT(SRC_UNIT % pack == 0);
         shape = {UP_DIV(oc, UNIT), UP_DIV(UP_DIV(ic, pack) * kernelCount, SRC_UNIT / pack), UNIT, SRC_UNIT};
     } else {
         shape = {UP_DIV(oc, UNIT), UP_DIV(ic, SRC_UNIT) * kernelCount, UNIT, SRC_UNIT};
@@ -116,13 +119,13 @@ static bool _reorderWeightInside(Backend* bn, const Convolution2DCommon* common,
     return true;
 }
 
-static void Getfp32Info (std::shared_ptr<CPUConvolution::Resource> resource, std::shared_ptr<Tensor> weightOrigin, const Convolution2D* conv2d, std::shared_ptr<ConvolutionCommon::Int8Common> quantCommon) {
+static void GetResourceInt8(std::shared_ptr<CPUConvolution::ResourceInt8> resource, std::shared_ptr<ConvolutionCommon::Int8Common> quantCommon, const Convolution2D* conv2d, Backend* backend) {
     // common parameters
     int outputCount = conv2d->common()->outputCount();
-    auto core = static_cast<CPUBackend*>(resource->backend)->functions();
+    auto core = static_cast<CPUBackend*>(backend)->functions();
     int LSize = conv2d->common()->inputCount() * conv2d->common()->kernelX() * conv2d->common()->kernelY();
     int ocUp4 = ROUND_UP(outputCount, core->pack);
-    
+
     int dequantCnt = quantCommon->alpha.size();
     if (quantCommon->asymmetric) {
         dequantCnt /= 2;
@@ -131,19 +134,33 @@ static void Getfp32Info (std::shared_ptr<CPUConvolution::Resource> resource, std
     int scaleSize = blockNum * ocUp4; // pack size.
     int blockSize = LSize / blockNum;
     int originOffset = 0;
+    resource->mActBits = 8;
     if (quantCommon->canUseInt4) {
         originOffset = -8;
+        resource->mActBits = 4;
     }
-
-    // Save weight quant scale and bias: wf=scale*wi+bias
-    int bytes = 4;
-    resource->mDequantize.mScaleBias.reset(Tensor::createDevice<uint8_t>({2 * scaleSize * bytes}));
-    auto success = resource->backend->onAcquireBuffer(resource->mDequantize.mScaleBias.get(), Backend::STATIC);
+    // Save bias
+    resource->mOriginBias.reset(Tensor::createDevice<int32_t>({ocUp4})); // float
+    auto success = backend->onAcquireBuffer(resource->mOriginBias.get(), Backend::STATIC);
     if (!success) {
-        MNN_ERROR("Alloc denquant scaleBias memory error\n");
+        MNN_ERROR("Alloc bias memory error\n");
         return;
     }
-    auto alphaPtr = resource->mDequantize.mScaleBias->host<float>();
+    ::memset(resource->mOriginBias->host<float>(), 0, ocUp4 * sizeof(float));
+    if (conv2d->bias()) {
+        ::memcpy(resource->mOriginBias->host<float>(), conv2d->bias()->data(), outputCount * sizeof(float));
+    } else {
+        ::memset(resource->mOriginBias->host<float>(), 0, ocUp4 * sizeof(float));
+    }
+    // Save weight quant alpha and zero: wf=alpha*wi+zero
+    int bytes = 4;
+    resource->mOriginScale.reset(Tensor::createDevice<uint8_t>({2 * scaleSize * bytes}));
+    success = backend->onAcquireBuffer(resource->mOriginScale.get(), Backend::STATIC);
+    if (!success) {
+        MNN_ERROR("Alloc denquant alpha, zero memory error\n");
+        return;
+    }
+    auto alphaPtr = resource->mOriginScale->host<float>();
     auto biasPtr = reinterpret_cast<float*>(reinterpret_cast<uint8_t*>(alphaPtr) + scaleSize * bytes);
     ::memset(alphaPtr, 1, scaleSize * bytes);
     ::memset(biasPtr, 0, scaleSize * bytes);
@@ -159,7 +176,6 @@ static void Getfp32Info (std::shared_ptr<CPUConvolution::Resource> resource, std
                 dstBias[j] = quanInfoPtr[2 * scaleIndex] + (float)originOffset * dstAlpha[j];
             }
         }
-
     } else {
         for (int i = 0; i < blockNum; ++i) {
             auto dstAlpha = alphaPtr + i * ocUp4;
@@ -173,13 +189,13 @@ static void Getfp32Info (std::shared_ptr<CPUConvolution::Resource> resource, std
     }
     // Save float weight kernel sum
     resource->mWeightKernelSum.reset(Tensor::createDevice<uint8_t>({bytes * ocUp4}));
-    success = resource->backend->onAcquireBuffer(resource->mWeightKernelSum.get(), Backend::STATIC);
+    success = backend->onAcquireBuffer(resource->mWeightKernelSum.get(), Backend::STATIC);
     if (!success) {
-        MNN_ERROR("Alloc denquant mWeightKernelSum memory error\n");
+        MNN_ERROR("Alloc denquant weight kernel sum memory error\n");
         return;
     }
     auto weightKernelSum = resource->mWeightKernelSum->host<float>();
-    auto realWeightData = weightOrigin->host<int8_t>();
+    auto realWeightData = quantCommon->weight.get();
     ::memset(weightKernelSum, 0, resource->mWeightKernelSum->size());
     for (int j = 0; j < outputCount; ++j) {
         float sum = 0.f;
@@ -195,116 +211,193 @@ static void Getfp32Info (std::shared_ptr<CPUConvolution::Resource> resource, std
                 bias = 0;
             }
             int tmp = 0;
-            for (int i = 0; i < blockSize; ++i) {
-                int l_index = k * blockSize + i;
-                tmp += (int)realWeightData[j * blockNum * blockSize + l_index];
+            if (quantCommon->canUseInt4) {
+                for (int i = 0; i < blockSize; ++i) {
+                    int l_index = k * blockSize + i;
+                    int w_idx = (j * blockNum * blockSize + l_index);
+                    int w_offset = w_idx / 2;
+                    int w_mask = w_idx % 2;
+                    uint8_t s = realWeightData[w_offset];
+                    int val = w_idx % 2 ? s & 0x0f : s >> 4;
+                    tmp += (val - 8);
+                }
+            } else {
+                for (int i = 0; i < blockSize; ++i) {
+                    int l_index = k * blockSize + i;
+                    tmp += (int)realWeightData[j * blockNum * blockSize + l_index];
+                }
             }
+
             sum += (tmp * scale + blockSize * bias);
         }
         weightKernelSum[j] = sum;
     }
 }
 
-DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const Convolution2D* convOp, std::shared_ptr<ResourceInt8> res, bool dynamicQuantExe) : ConvInt8TiledExecutor(backend, convOp, res) {
-    std::shared_ptr<Tensor> weightOrigin = mResourceInt8->mWeightInt8;
-    std::shared_ptr<MNN::ConvolutionCommon::Int8Common> quanCommon ;
-    mDynamicQuantExe = dynamicQuantExe;
-    if (dynamicQuantExe) {
-        MNN_ASSERT(convOp->quanParameter() != nullptr && convOp->quanParameter()->buffer() != nullptr);
-        quanCommon = ConvolutionCommon::load(convOp, backend, false, true);
-        // fp32 weightKernelSum
-        mResource.reset(new CPUConvolution::Resource);
-        mResource->backend = backend;
-        Getfp32Info(mResource, weightOrigin, convOp, quanCommon); // Call this before reorder weight.
-    }
-    
-    mValid = _reorderWeightInside(backend, convOp->common(), weightOrigin, mResourceInt8->mWeightInt8);
-    if(!mValid) {
-        return;
-    }
+DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const Op* op, std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon) : mDynamicQuantExe(true), ConvInt8TiledExecutor(backend, op) {
+    auto convOp = op->main_as_Convolution2D();
     auto core = static_cast<CPUBackend*>(backend)->int8Functions();
     auto gcore = static_cast<CPUBackend*>(backend)->functions();
-    // offline quant
-    if (false == dynamicQuantExe) {
-        mGemmKernel = core->Int8GemmKernel;
-#ifdef MNN_USE_SSE
-        int actBits = convOp->symmetricQuan()->nbits();
-        if (actBits <= 7) {
-            mGemmKernel = core->Int8GemmKernelFast;
-        }
-#else
-        if(convOp->symmetricQuan()->method() == QuantizeAlgo_OVERFLOW_AWARE){
-            mGemmKernel = core->Int8GemmKernelFast;
-        }
-#endif
-        mResource.reset(new CPUConvolution::Resource);
-        CPUConvolution::makeResource(backend, mResource, convOp, mResourceInt8);
-        return;
-    }
-
+    mResourceInt8.reset(new CPUConvolution::ResourceInt8);
+    GetResourceInt8(mResourceInt8, quanCommon, convOp, backend);
+    mMutableResource.reset(new MutableResourceInt8(mResourceInt8, backend));
     // dynamic quant
     int UNIT, SRC_UNIT, DST_XUNIT;
     core->MNNGetGemmUnit(&UNIT, &SRC_UNIT, &DST_XUNIT);
-    bool needPermuteInt4weight = ((UNIT == 8 && SRC_UNIT == 8 && DST_XUNIT ==10) || (UNIT == 4 && SRC_UNIT == 8 && DST_XUNIT ==20) || (UNIT == 64 && SRC_UNIT == 4 && DST_XUNIT ==4));
-    mResource->mDequantize.bits = 8;
-    if (quanCommon->canUseInt4) {
+    int pack = gcore->pack;
+    bool needPermuteInt4weight = ((UNIT == 8 && SRC_UNIT == 8 && DST_XUNIT ==10) || (UNIT == 64 && SRC_UNIT == 4 && DST_XUNIT ==4));
+    auto weightLength = quanCommon->weight.size();
+    int kernelCount = mCommon->kernelX() * mCommon->kernelY();
+    int oc = convOp->common()->outputCount();
+    int ic = convOp->common()->inputCount();
+    bool directReadInt4weight = (kernelCount == 1 && ROUND_UP(oc, UNIT) == oc && ROUND_UP(ic, SRC_UNIT) == ic);
+    if (quanCommon->canUseInt4 && directReadInt4weight) {
+        // int4 weight reorder
         mResourceInt8->mWeightAsymmetricQuant = true;
-        auto weightLength = mResourceInt8->mWeightInt8->size();
-        MNN_ASSERT(weightLength % 2 == 0);
-        mResource->mDequantize.bits = 4;
-        std::shared_ptr<MNN::Tensor> weightLow(Tensor::createDevice<uint8_t>( mResourceInt8->mWeightInt8->shape()));
-        auto res = mResource->backend->onAcquireBuffer(weightLow.get(), Backend::STATIC);
+        // shape = {UP_DIV(oc, UNIT), UP_DIV(ic, SRC_UNIT) * kernelCount, UNIT, SRC_UNIT};
+        int hU = UP_DIV(oc, UNIT);
+        int lU = UP_DIV(ic, SRC_UNIT);
+        int hP = UNIT;
+        int lP = SRC_UNIT;
+        
+        // weight shape.
+        std::vector<int32_t> shape;
+        if (SRC_UNIT > pack) {
+            MNN_ASSERT(SRC_UNIT % pack == 0);
+            shape = {UP_DIV(oc, UNIT), UP_DIV(UP_DIV(ic, pack) * kernelCount, SRC_UNIT / pack), UNIT, SRC_UNIT};
+        } else {
+            shape = {UP_DIV(oc, UNIT), UP_DIV(ic, SRC_UNIT) * kernelCount, UNIT, SRC_UNIT};
+        }
+        mResourceInt8->mWeightInt8.reset(Tensor::createDevice<uint8_t>(shape));
+
+        auto res = backend->onAcquireBuffer(mResourceInt8->mWeightInt8.get(), Backend::STATIC);
         if (!res) {
             MNN_ERROR("int4 weight acquire buffer error\n");
             return ;
         }
-        auto srcPtr = mResourceInt8->mWeightInt8->host<int8_t>();
-        auto dstPtr = weightLow->host<uint8_t>();
+        auto srcPtr = (uint8_t*)quanCommon->weight.get();
+        auto dstPtr = mResourceInt8->mWeightInt8->host<uint8_t>();
+        ::memset(dstPtr, 0, mResourceInt8->mWeightInt8->size());
+
         // Pack two int4-weight to one int8-weight.
         if (false == needPermuteInt4weight) {
-            weightLength = UP_DIV(weightLength, 2);
-            for (int i=0; i < weightLength; ++i) {
-                int s0 = srcPtr[2 * i + 0];
-                int s1 = srcPtr[2 * i + 1];
-                int d = (s0 + 8) * 16 + (s1 + 8);
-                dstPtr[i] = d;
-            }
-        } else {
-            int permuteUnit = UNIT * SRC_UNIT;
-            int halfPermuteStride = static_cast<int32_t>(permuteUnit / 2);
-            for (int i = 0; i < weightLength / permuteUnit; ++i) {
-                auto src0 = srcPtr + i * permuteUnit;
-                auto dst0 = dstPtr + i * halfPermuteStride;
-                for (int j = 0; j < halfPermuteStride; ++j) {
-                    int s0 = src0[j];
-                    int s1 = src0[j + halfPermuteStride];
-                    int d = (s0 + 8) * 16 + (s1 + 8);
-                    dst0[j] = d;
+            for (int i = 0; i < hU; i++) {
+                for (int j = 0; j < lU; j++) {
+                    for (int k = 0; k < hP; k++) {
+                        for (int id = 0; id < lP / 2; ++id) {
+                            dstPtr[(i * lU * lP * hP + j * hP * lP + k * lP) / 2 + id] = srcPtr[((i * hP + k) * lP * lU + (j * lP)) / 2 + id];
+                        }
+                    }
                 }
             }
+        } else {
+            for (int i = 0; i < hU; i++) {
+                for (int j = 0; j < lU; j++) {
+                    auto dst_ptr = dstPtr + (i * lU * lP * hP + j * hP * lP) / 2;
+                    for (int k = 0; k < 16; k++) {
+                        int col = k % 4;
+                        int row = k / 4;
+                        uint8_t s0 = srcPtr[((i * hP + row + 0) * lP * lU + j * lP) / 2 + col];
+                        uint8_t s1 = srcPtr[((i * hP + row + 4) * lP * lU + j * lP) / 2 + col];
+                        uint8_t d0 = (s0 & 0xf0) | (s1 >> 4);
+                        uint8_t d1 = (s0 << 4) | (s1 & 0x0f);
+                        dst_ptr[k * 2 + 0] = d0;
+                        dst_ptr[k * 2 + 1] = d1;
+                    }
+               }
+            }
         }
-        // Update int4 weight to mWeightInt8.
-        mResourceInt8->mWeightInt8 = weightLow;
+    } else {
+        // std::shared_ptr<Tensor> srcWeight;
+        
+        if (quanCommon->canUseInt4) {
+            mResourceInt8->mWeightAsymmetricQuant = true;
+            auto srcPtr = reinterpret_cast<uint8_t*>(quanCommon->weight.get());
+            std::vector<int8_t> tmpWeight(weightLength * 2, 0);
+            for (int i = 0; i < weightLength; ++i) {
+                int8_t s0 = (srcPtr[i] >> 4) - 8; // For int4 quant weight, +8 saved in quant buffer
+                int8_t s1 = (srcPtr[i] & 0x0f) - 8;
+                tmpWeight[2 * i + 0] = s0;
+                tmpWeight[2 * i + 1] = s1;
+            }
+            std::shared_ptr<Tensor> srcWeight(Tensor::create<uint8_t>({weightLength * 2}, (void*)tmpWeight.data()));
+            mValid = _reorderWeightInside(backend, convOp->common(), srcWeight, mResourceInt8->mWeightInt8);
+            if(!mValid) {
+                return;
+            }
+            MNN_ASSERT(mResourceInt8->mWeightInt8->size() % 2 == 0);
+            int leng = mResourceInt8->mWeightInt8->size();
+            int halflen = leng / 2;
+            std::shared_ptr<Tensor> weightLow(Tensor::create<uint8_t>({halflen}));
+            auto dstint4Ptr = weightLow->host<uint8_t>();
+            auto srcint4Ptr = mResourceInt8->mWeightInt8->host<int8_t>();
+            if (false == needPermuteInt4weight) {
+                for (int i=0; i < halflen; ++i) {
+                    int s0 = srcint4Ptr[2 * i + 0];
+                    int s1 = srcint4Ptr[2 * i + 1];
+                    int d = (s0 + 8) * 16 + (s1 + 8);
+                    dstint4Ptr[i] = d;
+                }
+            } else {
+                int permuteUnit = UNIT * SRC_UNIT;
+                int halfPermuteStride = static_cast<int32_t>(permuteUnit / 2);
+                for (int i = 0; i < leng / permuteUnit; ++i) {
+                    auto src0 = srcint4Ptr + i * permuteUnit;
+                    auto dst0 = dstint4Ptr + i * halfPermuteStride;
+                    for (int j = 0; j < halfPermuteStride; ++j) {
+                        int s0 = src0[j];
+                        int s1 = src0[j + halfPermuteStride];
+                        int d = (s0 + 8) * 16 + (s1 + 8);
+                        dst0[j] = d;
+                    }
+                }
+            }
+            // Update int4 weight to mWeightInt8.
+            mResourceInt8->mWeightInt8 = weightLow;
+        } else {
+            std::shared_ptr<Tensor> srcWeight(Tensor::create<uint8_t>({weightLength}, (void*)quanCommon->weight.get()));
+            mValid = _reorderWeightInside(backend, convOp->common(), srcWeight, mResourceInt8->mWeightInt8);
+            if(!mValid) {
+                return;
+            }
+        }
     }
+
     // Relu/Relu6 post parameters
     auto postPtr = getPostParameters();
-    mResource->mReluThreshold.resize(2);
-    mResource->mReluThreshold[0] = postPtr[2];
-    mResource->mReluThreshold[1] = postPtr[3];
+    mResourceInt8->mReluThreshold.resize(2);
+    mResourceInt8->mReluThreshold[0] = postPtr[2];
+    mResourceInt8->mReluThreshold[1] = postPtr[3];
     if (gcore->bytes == 2) {
-        gcore->MNNFp32ToLowp(mResource->mReluThreshold.data(), reinterpret_cast<int16_t*>(mResource->mReluThreshold.data()), 2);
-    }
-    if (mCommon->relu()) {
-        mResource->mReluThreshold[0] = 0.f;
-    }
-    if (mCommon->relu6()) {
-        mResource->mReluThreshold[0] = 0.f;
-        mResource->mReluThreshold[1] = 6.f;
+        gcore->MNNFp32ToLowp(mResourceInt8->mReluThreshold.data(), reinterpret_cast<int16_t*>(mResourceInt8->mReluThreshold.data()), 2);
     }
 }
 
-DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const Convolution2D* convOp, bool dynamicQuantExe, const DenseConvInt8TiledExecutor& exe)
-    : ConvInt8TiledExecutor(backend, convOp, exe.mResourceInt8), mGemmKernel(exe.mGemmKernel), mResource(exe.mResource), mDynamicQuantExe(dynamicQuantExe) {
+DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const Op* op, std::shared_ptr<ResourceInt8> res) : mDynamicQuantExe(false), ConvInt8TiledExecutor(backend, op, res) {
+    std::shared_ptr<Tensor> weightOrigin = mResourceInt8->mWeightInt8;
+    auto convOp = op->main_as_Convolution2D();
+    mValid = _reorderWeightInside(backend, convOp->common(), weightOrigin, mResourceInt8->mWeightInt8);
+    if(!mValid) {
+        return;
+    }
+    // offline quant: choose int8 gemm kernel
+    auto core = static_cast<CPUBackend*>(backend)->int8Functions();
+    mGemmKernel = core->Int8GemmKernel;
+#ifdef MNN_USE_SSE
+    int actBits = convOp->symmetricQuan()->nbits();
+    if (actBits <= 7) {
+        mGemmKernel = core->Int8GemmKernelFast;
+    }
+#else
+    if(convOp->symmetricQuan()->method() == QuantizeAlgo_OVERFLOW_AWARE){
+        mGemmKernel = core->Int8GemmKernelFast;
+    }
+#endif
+    CPUConvolution::makeResourceNew(backend, convOp, mResourceInt8);
+}
+
+DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const Op* op, const DenseConvInt8TiledExecutor& exe)
+    : ConvInt8TiledExecutor(backend, op, exe.mResourceInt8), mGemmKernel(exe.mGemmKernel), mDynamicQuantExe(exe.mDynamicQuantExe) {
 }
 
 DenseConvInt8TiledExecutor::~DenseConvInt8TiledExecutor() {
@@ -315,7 +408,7 @@ bool DenseConvInt8TiledExecutor::onClone(Backend* bn, const Op* op, Execution** 
     if (nullptr == dst) {
         return true;
     }
-    auto exe = new DenseConvInt8TiledExecutor(bn, op->main_as_Convolution2D(), mDynamicQuantExe, *this);
+    auto exe = new DenseConvInt8TiledExecutor(bn, op, *this);
     if (!exe->valid()) {
         return false;
     }
@@ -342,7 +435,7 @@ ErrorCode DenseConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& input
     core->MNNGetGemmUnit(&UNIT, &SRC_UNIT, &DST_XUNIT);
 
     if (mDynamicQuantExe == false) {
-        mMutableResource.updateInputOutputScale(TensorUtils::getQuantInfo(inputs[0]), TensorUtils::getQuantInfo(outputs[0]));
+        mMutableResource->updateInputOutputScale(TensorUtils::getQuantInfo(inputs[0]), TensorUtils::getQuantInfo(outputs[0]));
         CPUConvolution::onResize(inputs, outputs);
         ConvolutionTiledExecutor::setIm2ColParameter(mIm2ColParamter, mCommon, inputs[0], outputs[0], mPadX, mPadY, gcore, core);
         mBlockNum = 1;
@@ -350,18 +443,18 @@ ErrorCode DenseConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& input
         CPUConvolution::onResize(inputs, outputs);
         // Gemm Kernel
         mGemmKernel = core->Int8GemmKernel;
-        if (mResource->mDequantize.bits == 4) {
+        if (mResourceInt8->mActBits == 4) {
             mGemmKernel = core->Int8GemmKernel_W4;
         }
         mQuantFunc = core->MNNFloat2Int8;
         if (gcore->bytes == 2 && gcore->pack == 8) {
             mGemmKernel = core->MNNGemmInt8AddBiasScale_Unit_FP16;
-            if (mResource->mDequantize.bits == 4) {
+            if (mResourceInt8->mActBits == 4) {
                 mGemmKernel = core->MNNGemmInt8AddBiasScale_w4_Unit_FP16;
             }
             mQuantFunc = core->DynamicQuanInput_ARM82;
             mQuantAndReorderFunc = core->DynamicQuanInputAndReorder_ARM82;
-            
+
         }
         // A axisSum kernel
         mSumByAxisLFunc = gcore->MNNSumByAxisLForMatmul_A;
@@ -371,10 +464,10 @@ ErrorCode DenseConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& input
             ConvolutionTiledExecutor::setIm2ColParameter(mIm2ColParamter, mCommon, inputs[0], outputs[0], mPadX, mPadY, gcore, core);
         }
         int ocUp4 = ROUND_UP(outputs[0]->channel(), gcore->pack);
-        int alphaSize = mResource->mDequantize.mScaleBias->size() / (4 * 2);
+        int alphaSize = mResourceInt8->mOriginScale->size() / (sizeof(float) * 2);
         mBlockNum  = alphaSize / ocUp4;
     }
-    
+
     // input scale buffer
     int batch = inputs[0]->batch();
 //    mTempIm2ColBuffer.reset(Tensor::createDevice<int8_t>({mThreadNums, DST_XUNIT * mIm2ColCount * mResourceInt8->mWeightInt8->length(1) * SRC_UNIT}));
@@ -398,23 +491,30 @@ ErrorCode DenseConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& input
         tileLimit = ALIMIN(tileLimitByC, planeSize);
         auto ocPerThread = UP_DIV(outC4, threads);
         auto threadNeed = UP_DIV(outC4, ocPerThread);
+        int totalWork = outC4;
+        int part = 1;
         if (UNIT > gcore->pack) { // AVX512:UNIT=64,pack=16
             MNN_ASSERT(UNIT % gcore->pack == 0);
             int ocDivUnit = UP_DIV(outC4 * gcore->pack, UNIT);
             ocPerThread = UP_DIV(ocDivUnit, threads);
             threadNeed  = UP_DIV(ocDivUnit, ocPerThread);
+            totalWork = ocDivUnit;
+            part = UNIT / gcore->pack;
         }
         mThreadNums = ALIMIN(threads, threadNeed);
         mSplitByOc = true;
 
         mDivides.resize(threads+1);
         mDivides[0] = 0;
-        static_cast<const CPURuntime*>(backend()->getRuntime())->computeDivideSizes(outC4, mDivides.data() + 1);
+        static_cast<const CPURuntime*>(backend()->getRuntime())->computeDivideSizes(totalWork, mDivides.data() + 1);
+        for (int i = 0; i < mDivides.size(); ++i) {
+            mDivides[i] *= part;
+        }
     }
     mIm2ColCount = UP_DIV(tileLimit, DST_XUNIT);
     auto DynamicDestUnit = DST_XUNIT * mIm2ColCount;
     mTileCount        = UP_DIV(planeSize, DynamicDestUnit);
-    
+
     if (threads < planeSize) {
         mThreadNums = ALIMIN(threads, mTileCount);
         mDivides.resize(threads+1);
@@ -422,14 +522,16 @@ ErrorCode DenseConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& input
         static_cast<const CPURuntime*>(backend()->getRuntime())->computeDivideSizes(mTileCount, mDivides.data() + 1);
     }
     int ocUp4 = ROUND_UP(outC, gcore->pack);
-    int alphaSize = mResource->mDequantize.mScaleBias->size() / (4 * 2);
+    // int alphaSize = mResource->mDequantize.mScaleBias->size() / (sizeof(float) * 2);
+    int alphaSize = mResourceInt8->mOriginScale->size() / (sizeof(float) * 2);
 
     auto bufferAlloc = static_cast<CPUBackend*>(backend())->getBufferAllocator();
     auto blitInfoSize = ConvolutionTiledExecutor::computeBlitInfoSize(DST_XUNIT * mIm2ColCount, mIm2ColParamter.ow, mIm2ColParamter.kernelX * mIm2ColParamter.kernelY, mThreadNums);
     mBlitInfoStride = blitInfoSize.second;
     mBlitInfo = bufferAlloc->alloc(blitInfoSize.first);
-    mTempIm2ColBuffer.reset(Tensor::createDevice<int8_t>({mThreadNums, DST_XUNIT * mIm2ColCount * mResourceInt8->mWeightInt8->length(1) * SRC_UNIT}));
-    mTempSrcSum.resize(mThreadNums * mBlockNum * DST_XUNIT * mIm2ColCount * 4); // Use 4 bytes to save kernel sum.
+    auto icDiv4KernelCount = mIm2ColParamter.kernelCountUnit;
+    mTempIm2ColBuffer.reset(Tensor::createDevice<int8_t>({threads, DST_XUNIT * mIm2ColCount * icDiv4KernelCount * SRC_UNIT}));
+    mTempSrcSum.resize(threads * mBlockNum * DST_XUNIT * mIm2ColCount * 4); // Use 4 bytes to save kernel sum.
 
     success &= backend()->onAcquireBuffer(mTempIm2ColBuffer.get(), Backend::DYNAMIC);
     if (!success || mBlitInfo.invalid()) {
@@ -442,7 +544,7 @@ ErrorCode DenseConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& input
         return NO_ERROR;
     }
 
-    
+
     int inC   = inputs[0]->channel();
     // set im2col tensor info
     mQuantInput.reset((Tensor::createDevice<int8_t>({batch, mIm2ColParamter.ih, mIm2ColParamter.iw, ROUND_UP(inC, gcore->pack)})));
@@ -451,12 +553,12 @@ ErrorCode DenseConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& input
     // set compute buffer
     mDynamicBias.reset(Tensor::createDevice<uint8_t>({ocUp4 * 4}));
     mScaleFuse.reset(Tensor::createDevice<uint8_t>({alphaSize * 4}));
-    
+
     success &= backend()->onAcquireBuffer(mQuantInput.get(), Backend::DYNAMIC);
     success &= backend()->onAcquireBuffer(mDynamicBias.get(), Backend::DYNAMIC);
     success &= backend()->onAcquireBuffer(mTempMaxMinValueBuffer.get(), Backend::DYNAMIC);
     success &= backend()->onAcquireBuffer(mScaleFuse.get(), Backend::DYNAMIC);
-    
+
     if (mUseBatchQuan) {
         int infobytes = 4; // use float32 to save dequant scale and quant scale.
         int size = mThreadNums * batch * gcore->bytes + 2 * batch * infobytes;
@@ -502,7 +604,8 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
     const auto col_buffer_unit_size  = kernelCountUnitDouble * DST_XUNIT * SRC_UNIT * sizeof(int8_t);
     const auto col_buffer_size       = col_buffer_unit_size * mIm2ColCount;
     const int dstBytes               = static_cast<CPUBackend*>(backend())->getBytes(backend(), output);
-    const int alphaSize              = mResource->mDequantize.mScaleBias->size() / (4 * 2);
+    // const int alphaSize              = mResource->mDequantize.mScaleBias->size() / (4 * 2);
+    const int alphaSize              = mResourceInt8->mOriginScale->size() / (sizeof(float) * 2);
     const int blockL                  = kernelCountUnitDouble / mBlockNum; // source depthQuad for each block.
     float weightBytes                = 1.f;
     int weight_step_Y                = weightBytes * (UNIT__ * SRC_UNIT);
@@ -512,15 +615,15 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
     auto im2colPtr           = mTempIm2ColBuffer->host<int8_t>();
     const auto weightDataPtr = mResourceInt8->mWeightInt8->host<int8_t>();
     auto srcKernelSumPtr     = mTempSrcSum.data();
-    auto weightDequantBias = mResource->mDequantize.mScaleBias->host<uint8_t>() + alphaSize * 4;
+    auto weightDequantBias = mResourceInt8->mOriginScale->host<uint8_t>() + alphaSize * 4;
 
     auto outputDataPtr = output->host<int8_t>();
-    auto biasPtr       = mMutableResource.mBiasFloat->host<uint8_t>();
-    auto scalePtr      = mMutableResource.mScaleFloat->host<uint8_t>();
+    auto biasPtr       = mMutableResource->mBiasFloat->host<uint8_t>();
+    auto scalePtr      = mMutableResource->mScaleFloat->host<uint8_t>();
 
-    auto inputZeroPoint  = mMutableResource.mInputZeroPoint;
+    auto inputZeroPoint  = mMutableResource->mInputZeroPoint;
     auto inputScalePtr = mInputDeqScales->host<uint8_t>();
-    (reinterpret_cast<float*>(inputScalePtr))[0]     =  mMutableResource.mInputScale;
+    (reinterpret_cast<float*>(inputScalePtr))[0]     =  mMutableResource->mInputScale;
 
     auto SingleDynamicQuant = [&] () {
         const auto floatptr = input->host<float>();
@@ -583,16 +686,16 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
         }
 
         /* bias float */
-        #ifdef MNN_USE_SSE
+    #ifdef MNN_USE_SSE
         int offset = 128;
     #else
         int offset = 0;
     #endif
-        auto biasfp32 = mMutableResource.mResource->mOriginBias->host<float>();
-        auto weightDequantScale = mResource->mDequantize.mScaleBias->host<float>();
+        auto biasfp32 = mMutableResource->mResource->mOriginBias->host<float>();
+        auto weightDequantScale = mResourceInt8->mOriginScale->host<float>();
         float zerofp32 = (zeropoint + offset) * dequantscale;
 
-        gcore->MNNDynamicUpdateConvBiasScale(mDynamicBias->host<float>(), mScaleFuse->host<float>(), biasfp32, weightDequantScale, &dequantscale, mResource->mWeightKernelSum->host<float>(), &zerofp32, UP_DIV(output->channel(), 4), alphaSize);
+        gcore->MNNDynamicUpdateConvBiasScale(mDynamicBias->host<float>(), mScaleFuse->host<float>(), biasfp32, weightDequantScale, &dequantscale, mResourceInt8->mWeightKernelSum->host<float>(), &zerofp32, UP_DIV(output->channel(), 4), alphaSize);
         // Move step for A and B for each block computing
 
         inputZeroPoint = zeropoint;
@@ -643,12 +746,12 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
             gcore->MNNDynamicQuant(inputData, int8ptr, scale_ptr, workCount, batch, PackUnit);
         }
         MNN_CONCURRENCY_END();
-        
+
         inputZeroPoint = 0;
         inputScalePtr     = (uint8_t*)dequantPtr;
         inputDataPtr = mQuantInput->host<int8_t>();
-        biasPtr = mMutableResource.mResource->mOriginBias->host<uint8_t>();
-        scalePtr = mResource->mDequantize.mScaleBias->host<uint8_t>();
+        biasPtr = mMutableResource->mResource->mOriginBias->host<uint8_t>();
+        scalePtr = mResourceInt8->mOriginScale->host<uint8_t>();
     };
     ssize_t oneScale = 1;
     if (mUseBatchQuan) {
@@ -659,12 +762,13 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
     } else {
         // offline quant.
     }
-    
-    if (mResource->mDequantize.bits == 4) {
+
+
+    if (mResourceInt8->mActBits == 4) {
         weightBytes   = 0.5;
         weight_step_Y *= 0.5;
     }
-    
+
     SumByAxisParams sumParams;
     sumParams.oneScale = oneScale;
     sumParams.SRC_UNIT = SRC_UNIT;
@@ -672,13 +776,13 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
     sumParams.DST_XUNIT = DST_XUNIT;
     sumParams.col_buffer_unit_size = col_buffer_unit_size;
     sumParams.kernelCountUnitDouble = kernelCountUnitDouble;
-    
+
     auto ThreadFunction = [&](int tId, int eStartIndex, int eEndIndex, int estep, int ocIndex) {
         auto ocDivThread = ocDiv4;
         if (mSplitByOc) { // Thread split by OC
             ocDivThread = ALIMIN(mDivides[tId + 1] - mDivides[tId], ocDiv4 - mDivides[tId]);
         }
-        float* reluPtr = mResource->mReluThreshold.data();
+        float* reluPtr = mResourceInt8->mReluThreshold.data();
         uint8_t* extraScale = nullptr; // input scale for batch dynamic quant.
         QuanPostTreatParameters quanParam;
         quanParam.blockNum = mBlockNum;
@@ -686,17 +790,17 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
             extraScale = inputScalePtr;
         }
 #ifdef MNN_USE_SSE
-        quanParam.extraBias = mResource->mWeightKernelSum->host<float>() + ocIndex;
+        quanParam.extraBias = mResourceInt8->mWeightKernelSum->host<float>() + ocIndex;
 #endif
         if (dstBytes != 1) {
             quanParam.useInt8 = 0;
             quanParam.fp32minmax = reluPtr;
         } else {
-            quanParam.maxValue = mMutableResource.mClampMax;
+            quanParam.maxValue = mMutableResource->mClampMax;
             if (mResourceInt8->mRelu) {
-                quanParam.minValue = mMutableResource.mOutputZeroPoint;
+                quanParam.minValue = mMutableResource->mOutputZeroPoint;
             } else {
-                quanParam.minValue = mMutableResource.mClampMin;
+                quanParam.minValue = mMutableResource->mClampMin;
             }
         }
         auto outputTid = outputDataPtr + ocIndex * plane * dstBytes;
@@ -752,6 +856,7 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
                     int step = ALIMIN(DST_XUNIT, realDstCount);
                     quanParam.srcKernelSum = ptrX;
                     quanParam.extraScale = extraScale != nullptr ? (float*)ptrExtraScale : nullptr;
+                    // printf("step=%d, ocDivThread=%d\n", step, ocDivThread);
                     mGemmKernel(outputInTilePtr, colAddrTemp, weightPtrTid, kernelCountUnitDouble, dstZStep * dstBytes, ocDivThread, &quanParam, step);
                     ptrX += step;
                     realDstCount-=step;
@@ -787,20 +892,21 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
             }
         }
     };
-
+    const int threads = static_cast<CPUBackend*>(backend())->threadNumber();
     if (!mSplitByOc) {
-        MNN_CONCURRENCY_BEGIN(tId, mThreadNums) {
+        MNN_CONCURRENCY_BEGIN(tId, threads) {
             ThreadFunction((int)tId, mDivides[tId], mDivides[tId + 1], 1, 0);
         }
         MNN_CONCURRENCY_END();
     } else {
-        MNN_CONCURRENCY_BEGIN(tId, mThreadNums) {
+        MNN_CONCURRENCY_BEGIN(tId, threads) {
             int ocIndex = PackUnit * mDivides[tId];
-            ThreadFunction((int)tId, 0, mTileCount,1, ocIndex);
+            if (ocIndex < ocUp4) {
+                ThreadFunction((int)tId, 0, mTileCount,1, ocIndex);
+            }
         }
         MNN_CONCURRENCY_END();
     }
-
     return NO_ERROR;
 }
 

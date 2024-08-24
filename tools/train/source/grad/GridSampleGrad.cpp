@@ -9,7 +9,7 @@
 
 #include "OpGrad.hpp"
 using namespace std;
-using namespace MNN;
+namespace MNN {
 using namespace MNN::Express;
 
 class GridSampleGrad : public OpGrad {
@@ -198,9 +198,13 @@ public:
     }
 };
 
-static const auto gRegister = []() {
+static void _create() {
     static GridSampleGrad _c;
     OpGrad::insert((int)OpType_GridSample, &_c);
     OpGrad::insert((int)OpType_Texture, &_c);
-    return true;
-}();
+
+}
+
+REGISTER_GRAD(GridSampleGrad_cpp, _create);
+};
+

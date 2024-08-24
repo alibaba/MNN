@@ -15,7 +15,7 @@ namespace Model {
 using namespace MNN::Express;
 class _ConvBnRelu : public Module {
 public:
-    _ConvBnRelu(std::vector<int> inputOutputChannels, int kernelSize = 3, int stride = 1, bool depthwise = false);
+    _ConvBnRelu(std::vector<int> inputOutputChannels, int kernelSize = 3, int stride = 1, bool depthwise = false, bool useBn = true);
 
     virtual std::vector<Express::VARP> onForward(const std::vector<Express::VARP> &inputs) override;
 
@@ -24,13 +24,13 @@ public:
 };
 
 std::shared_ptr<Module> ConvBnRelu(std::vector<int> inputOutputChannels, int kernelSize = 3, int stride = 1,
-                                   bool depthwise = false) {
-    return std::shared_ptr<Module>(new _ConvBnRelu(inputOutputChannels, kernelSize, stride, depthwise));
+                                   bool depthwise = false, bool useBn = true) {
+    return std::shared_ptr<Module>(new _ConvBnRelu(inputOutputChannels, kernelSize, stride, depthwise, useBn));
 }
 
 class _BottleNeck : public Module {
 public:
-    _BottleNeck(std::vector<int> inputOutputChannels, int stride, int expandRatio);
+    _BottleNeck(std::vector<int> inputOutputChannels, int stride, int expandRatio, bool useBn = true);
 
     virtual std::vector<Express::VARP> onForward(const std::vector<Express::VARP> &inputs) override;
 
@@ -38,11 +38,11 @@ public:
     bool useShortcut = false;
 };
 
-std::shared_ptr<Module> BottleNeck(std::vector<int> inputOutputChannels, int stride, int expandRatio) {
-    return std::shared_ptr<Module>(new _BottleNeck(inputOutputChannels, stride, expandRatio));
+std::shared_ptr<Module> BottleNeck(std::vector<int> inputOutputChannels, int stride, int expandRatio, bool useBn) {
+    return std::shared_ptr<Module>(new _BottleNeck(inputOutputChannels, stride, expandRatio, useBn));
 }
 
-_ConvBnRelu::_ConvBnRelu(std::vector<int> inputOutputChannels, int kernelSize, int stride, bool depthwise) {
+_ConvBnRelu::_ConvBnRelu(std::vector<int> inputOutputChannels, int kernelSize, int stride, bool depthwise, bool useBn) {
     int inputChannels = inputOutputChannels[0], outputChannels = inputOutputChannels[1];
 
     NN::ConvOption convOption;
@@ -53,9 +53,12 @@ _ConvBnRelu::_ConvBnRelu(std::vector<int> inputOutputChannels, int kernelSize, i
     convOption.depthwise  = depthwise;
     conv.reset(NN::Conv(convOption, false, std::shared_ptr<Initializer>(Initializer::MSRA())));
 
-    bn.reset(NN::BatchNorm(outputChannels));
-
-    registerModel({conv, bn});
+    if (useBn) {
+        bn.reset(NN::BatchNorm(outputChannels));
+        registerModel({conv, bn});
+    } else {
+        registerModel({conv});
+    }
 }
 
 std::vector<Express::VARP> _ConvBnRelu::onForward(const std::vector<Express::VARP> &inputs) {
@@ -63,13 +66,15 @@ std::vector<Express::VARP> _ConvBnRelu::onForward(const std::vector<Express::VAR
     VARP x = inputs[0];
 
     x = conv->forward(x);
-    x = bn->forward(x);
+    if (nullptr != bn.get()) {
+        x = bn->forward(x);
+    }
     x = _Relu6(x);
 
     return {x};
 }
 
-_BottleNeck::_BottleNeck(std::vector<int> inputOutputChannels, int stride, int expandRatio) {
+_BottleNeck::_BottleNeck(std::vector<int> inputOutputChannels, int stride, int expandRatio, bool useBn) {
     int inputChannels = inputOutputChannels[0], outputChannels = inputOutputChannels[1];
     int expandChannels = inputChannels * expandRatio;
 
@@ -78,10 +83,10 @@ _BottleNeck::_BottleNeck(std::vector<int> inputOutputChannels, int stride, int e
     }
 
     if (expandRatio != 1) {
-        layers.emplace_back(ConvBnRelu({inputChannels, expandChannels}, 1));
+        layers.emplace_back(ConvBnRelu({inputChannels, expandChannels}, 1, 1, false, useBn));
     }
 
-    layers.emplace_back(ConvBnRelu({expandChannels, expandChannels}, 3, stride, true));
+    layers.emplace_back(ConvBnRelu({expandChannels, expandChannels}, 3, stride, true, useBn));
 
     NN::ConvOption convOption;
     convOption.kernelSize = {1, 1};
@@ -91,7 +96,9 @@ _BottleNeck::_BottleNeck(std::vector<int> inputOutputChannels, int stride, int e
     convOption.depthwise  = false;
     layers.emplace_back(NN::Conv(convOption, false, std::shared_ptr<Initializer>(Initializer::MSRA())));
 
-    layers.emplace_back(NN::BatchNorm(outputChannels));
+    if (useBn) {
+        layers.emplace_back(NN::BatchNorm(outputChannels));
+    }
 
     registerModel(layers);
 }
@@ -111,7 +118,7 @@ std::vector<Express::VARP> _BottleNeck::onForward(const std::vector<Express::VAR
     return {x};
 }
 
-MobilenetV2::MobilenetV2(int numClasses, float widthMult, int divisor) {
+MobilenetV2::MobilenetV2(int numClasses, float widthMult, int divisor, bool useBn) {
     int inputChannels = 32;
     int lastChannels  = 1280;
 
@@ -127,7 +134,7 @@ MobilenetV2::MobilenetV2(int numClasses, float widthMult, int divisor) {
     inputChannels = makeDivisible(inputChannels * widthMult, divisor);
     lastChannels  = makeDivisible(lastChannels * std::max(1.0f, widthMult), divisor);
 
-    firstConv = ConvBnRelu({3, inputChannels}, 3, 2);
+    firstConv = ConvBnRelu({3, inputChannels}, 3, 2, false, useBn);
 
     for (int i = 0; i < invertedResidualSetting.size(); i++) {
         std::vector<int> setting = invertedResidualSetting[i];
@@ -144,12 +151,12 @@ MobilenetV2::MobilenetV2(int numClasses, float widthMult, int divisor) {
                 stride = s;
             }
 
-            bottleNeckBlocks.emplace_back(BottleNeck({inputChannels, outputChannels}, stride, t));
+            bottleNeckBlocks.emplace_back(BottleNeck({inputChannels, outputChannels}, stride, t, useBn));
             inputChannels = outputChannels;
         }
     }
 
-    lastConv = ConvBnRelu({inputChannels, lastChannels}, 1);
+    lastConv = ConvBnRelu({inputChannels, lastChannels}, 1, 1, false, useBn);
 
     dropout.reset(NN::Dropout(0.1));
     fc.reset(NN::Linear(lastChannels, numClasses, true, std::shared_ptr<Initializer>(Initializer::MSRA())));
