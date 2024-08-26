@@ -174,11 +174,11 @@ public:
 
     std::pair<const void*, size_t> makeCache(void* tuneInfo);
     bool setCache(std::pair<const void*, size_t> cache);
+    void setGpuMode(const int cl_mode_num);
 private:
     bool loadProgram(const std::string &programName, cl::Program *program);
     bool buildProgram(const std::string &buildOptionsStr, cl::Program *program);
     bool getDeviceSupportsExtension(const cl::Device &device, const char *extensionName);
-    void setGpuMode(const int cl_mode_num);
 
 private:
     std::vector<size_t> mMaxImageSize;

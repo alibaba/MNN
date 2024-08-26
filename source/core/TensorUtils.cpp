@@ -544,6 +544,21 @@ static bool _ClipDst(int* stride, int srcOffset, int dstOffset, const int* srcSi
         dstMin[i] = ALIMAX(0, -o[i]);
         dstMax[i] = ALIMIN(srcSize[i]-o[i], dstSize[i]);
     }
+    int srcMin = -1;
+    for (int i=0; i<sizeNum; ++i) {
+        if (dstMax[i] < srcSize[i]) {
+            if (srcMin == -1) {
+                srcMin = stride[i];
+            } else {
+                srcMin = ALIMIN(stride[i], srcMin);
+            }
+        }
+    }
+    if (srcMin < 0) {
+        // Src is fully used
+        return true;
+    }
+
     // Check If dstMax is inside src, it means one region can't describe dst - src
     // TODO: Support slice region to support fuse
     for (int i=0; i<sizeNum; ++i) {
@@ -551,8 +566,8 @@ static bool _ClipDst(int* stride, int srcOffset, int dstOffset, const int* srcSi
             continue;
         }
         int bias = offsetBias + dstMax[i] * stride[i];
-        if (bias < srcMax) {
-            // for [dstMax, dstSize], exist value match formula
+        if (bias < srcMax && bias >= srcMin) {
+            // for [dstMax, dstSize], may exist value match formula
             return false;
         }
     }
@@ -578,7 +593,6 @@ class TensorUtils::FuseRegionStatus {
 public:
     enum Status {
         FUSE_SRC_COPY,
-        FUSE_DST_COPY,
         FUSE_REGION_COMPUTE
     };
     void apply(const Tensor::InsideDescribe::Region& srcReg, Tensor::InsideDescribe::Region& dstReg) {
@@ -586,16 +600,6 @@ public:
             case FUSE_SRC_COPY:
                 dstReg.origin = srcReg.origin;
                 dstReg.src.offset += srcReg.src.offset - srcReg.dst.offset;
-                break;
-            case FUSE_DST_COPY:
-                dstReg.origin = srcReg.origin;
-                dstReg.dst = srcReg.dst;
-                dstReg.src = srcReg.src;
-                dstReg.src.offset = mSrcOff;
-                dstReg.dst.offset = mDstOff;
-                dstReg.size[0] = srcReg.size[0];
-                dstReg.size[1] = srcReg.size[1];
-                dstReg.size[2] = srcReg.size[2];
                 break;
             case FUSE_REGION_COMPUTE:
             {
@@ -612,7 +616,7 @@ public:
                 int valid[3] = {0, 0, 0};
                 int offset = 3 - dstNum;
                 if (dstNum > sizeNum) {
-                    for (int i = 2; i >= 0; i--) {
+                    for (int i = dstNum - 1; i >= 0; i--) {
                         if (i < dstNum) {
                             if (dstSize[i] == 1) {
                                 expandIdx = i;
@@ -690,17 +694,6 @@ public:
         if (isCopyRegion(srcReg) && copyValid) {
             mStatus = FUSE_SRC_COPY;
             return true;
-        }
-        // dst copy fuse
-        if (isCopyRegion(dstReg) && dstTotalSize == srcTotalSize && copyValid) {
-            mSrcOff = dstReg.src.offset - srcReg.dst.offset;
-            mDstOff = dstReg.dst.offset;
-            mSrcOff = offsetCompute(srcReg, dstReg.src.offset, srcReg.dst.offset, true) + srcReg.src.offset;
-            if (!(srcReg.src.stride[2] > 0 && mSrcOff % srcReg.src.stride[2] != 0)) {
-                // when transpose + slice, offset is not align can't fuse
-                mStatus = FUSE_DST_COPY;
-                return true;
-            }
         }
     #define MNN_3_INT_INIT(x, y) { x[0] = y; x[1] = y; x[2] = y; }
         MNN_3_INT_INIT(dstStride, -1)
