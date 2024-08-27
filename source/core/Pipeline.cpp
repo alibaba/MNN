@@ -933,6 +933,14 @@ ErrorCode Pipeline::fixResizeCache() {
                         break;
                     }
                 }
+                if (mOutputStatic) {
+                    for (auto t : cmd.workOutputs) {
+                        if (TensorUtils::getDescribe(t)->usage != Tensor::InsideDescribe::NORMAL) {
+                            cmd.group = 0;
+                            break;
+                        }
+                    }
+                }
             }
             if (1 == cmd.group) {
                 fixNumber++;

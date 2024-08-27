@@ -279,6 +279,9 @@ public:
     std::string attention_mask() const {
         return llm_config_.value("attention_mask", "int");
     }
+    bool attention_fused() const {
+        return llm_config_.value("attention_fused", true);
+    }
 
     std::string chat_template() const {
         return llm_config_.value("chat_template", "");
