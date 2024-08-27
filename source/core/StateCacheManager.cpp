@@ -31,15 +31,18 @@ void StateCacheBlock::setTensorSize(int tId, int tensor_size) {
 void StateCacheBlock::resetTensorShape(std::vector<std::vector<int>>& shape, int hP) {
     initTensorInfo(shape.size());
     for (int s=0; s<shape.size(); ++s){
-        // prepare for MNNStateCacheType::MNN_STATECACHE_NAIVE
+        // fill the 0 dim to current block size.
         for (int i=0; i<shape[s].size(); ++i) {
             if (shape[s][i]==0) {
                 shape[s][i] = mBlockSize;
                 mTensorSeqLenDim[s] = i;
             }
         }
-        shape[s][shape[s].size()-2] = UP_DIV(shape[s][shape[s].size()-2], hP);
-        shape[s].push_back(hP);
+        // switch to NC4HW4 format.
+        if (shape[s].size() < 4) {
+            shape[s][1] = UP_DIV(shape[s][1], hP);
+            shape[s].push_back(hP);
+        }
     }
 }
 void StateCacheBlock::initTensorInfo(int tensor_num){
