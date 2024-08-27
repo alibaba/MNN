@@ -466,7 +466,6 @@ ErrorCode StaticModule::_resize(const std::vector<Express::VARP>& inputs) {
         if (needResize) {
             mSession->setNeedResize();
         }
-        code = mSession->resize();
         if (!needResize) {
             // Check if output is used by other vars. If used, must realloc output to avoid the content dirty for output vars
             // If resized, the output's memory will be all released in Session::resize, don't need clear here
@@ -489,6 +488,7 @@ ErrorCode StaticModule::_resize(const std::vector<Express::VARP>& inputs) {
                 }
             }
         }
+        code = mSession->resize();
     } else {
         // Resize
         for (int i = 0; i < inputs.size(); ++i) {
