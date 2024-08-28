@@ -38,6 +38,16 @@ python llm_export.py \
         --export_embed --embed_bin --embed_bf16 \
         --onnx_path ../../../model/qwen1_5-4b-chat-onnx2 \
         --mnn_path  ../../../model/qwen1_5-4b-chat-mnn2
+
+python llm_export.py \
+        --path ../../../model/Qwen1_5-1_8B-Chat \
+        --type Qwen1_5-1_8B-Chat \
+        --export_split \
+        --export_token \
+        --export_mnn \
+        --export_embed --embed_bin --embed_bf16 \
+        --onnx_path ../../../model/qwen1_5-1_8b-chat-onnx \
+        --mnn_path  ../../../model/qwen1_5-1_8b-chat-mnn
 ```
 
 Currently fuse attention haven't added to python MNN package converter. To use it, you need directly use MNNConvert.
@@ -45,6 +55,11 @@ Currently fuse attention haven't added to python MNN package converter. To use i
 for i in $(seq 0 39)
 do
     ./build/MNNConvert -f ONNX --modelFile ./model/qwen1_5-4b-chat-onnx/block_${i}.onnx --MNNModel ./model/qwen1_5-4b-chat-mnn-f/block_${i}.mnn --weightQuantBits 4 --weightQuantAsymmetric --transformerFuse
+done
+
+for i in $(seq 0 24)
+do
+    ./build/pc/MNNConvert -f ONNX --modelFile ./model/qwen1_5-1_8b-chat-onnx/block_${i}.onnx --MNNModel ./model/qwen1_5-1_8b-chat-mnn/block_${i}.mnn --weightQuantBits 4 --weightQuantAsymmetric --transformerFuse
 done
 ```
 
