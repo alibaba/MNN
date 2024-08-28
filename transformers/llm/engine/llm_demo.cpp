@@ -187,8 +187,9 @@ int main(int argc, const char* argv[]) {
         trace_prepare(llm.get());
     }
     if (argc < 3) {
-        std::ofstream time_file("log.txt", std::ofstream::out);
-        llm->chat(&time_file);
+        std::ofstream time_file("time.txt", std::ofstream::out);
+        std::ofstream mem_file("mem.txt", std::ofstream::out);
+        llm->chat(&time_file, &mem_file);
         time_file.close();
         return 0;
     }

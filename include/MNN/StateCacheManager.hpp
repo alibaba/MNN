@@ -247,7 +247,7 @@ public:
     std::shared_ptr<StateCacheReference> onCreateReference(bool from_current=false);
     void* onCreateIdentifier(void* identifier=nullptr) {
         if (identifier!=nullptr) return identifier;
-        else return (void*)(mNextNewLayerId++);
+        else return (void*)(size_t)(mNextNewLayerId++);
     }
 
     // Enlarge the memory resources

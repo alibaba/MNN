@@ -671,6 +671,9 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
     for (int i = 0; i < pastKV.size(); ++i) {
         packQK.emplace_back(Tensor::createDevice<float>({mThreadNum, UP_DIV(block_size, unit), seq_len, unit}));
         backend()->onAcquireBuffer(packQK.back().get(), Backend::STATIC);
+#ifdef DEBUG_ATTENTION
+        std::cout << packQK.back()->host<float>() << " " << packQK.back()->size() << std::endl;
+#endif
     }
     std::shared_ptr<Tensor> unpackQK(Tensor::createDevice<int32_t>({mThreadNum, seq_len, kv_seq_len}));
     std::shared_ptr<Tensor> softmaxQK(Tensor::createDevice<int>({mThreadNum, seq_len, kv_seq_len}));
@@ -681,6 +684,15 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
     backend()->onAcquireBuffer(softmaxQK.get(), Backend::STATIC);
     backend()->onAcquireBuffer(newPackQK.get(), Backend::STATIC);
     backend()->onAcquireBuffer(VBuffer.get(), Backend::STATIC);
+#ifdef DEBUG_ATTENTION
+    std::cout << mPackQ->host<float>() << " " << mPackQ->size() << std::endl;
+    std::cout << mPackQKV->host<float>() << " " << mPackQKV->size() << std::endl;
+    std::cout << unpackQK->host<int32_t>() << " " << unpackQK->size() << std::endl;
+    std::cout << softmaxQK->host<int>() << " " << softmaxQK->size() << std::endl;
+    std::cout << newPackQK->host<float>() << " " << newPackQK->size() << std::endl;
+    std::cout << VBuffer->host<float>() << " " << VBuffer->size() << std::endl;
+    std::cout << "end" << std::endl;
+#endif
     // std::cout << "Begin Calculation!" << std::endl;
 
     /* 1. Prepare inputs: concatenate them together.
