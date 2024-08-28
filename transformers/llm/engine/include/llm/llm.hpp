@@ -86,6 +86,7 @@ public:
     int64_t prefill_us_ = 0;
     int64_t decode_us_ = 0;
     bool is_single_ = true;
+    bool attention_fused_ = true;
 protected:
     std::shared_ptr<LlmConfig> config_;
     std::shared_ptr<Tokenizer> tokenizer_;

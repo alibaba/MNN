@@ -17,7 +17,7 @@ public:
     using Region = Tensor::InsideDescribe::Region;
     virtual ~RegionFuseTest() = default;
     virtual bool run(int precision) {
-        constexpr int N = 11;
+        constexpr int N = 12;
         // [src_offset, src_stride_0_1_2, dst_offset, dst_stride_0_1_2, size_0_1_2]
         int data[N*3][11] = {
             // 2D-transpose + 2D-transpose = memcpy: [1, 4, 16] => [1, 16, 4] => [1, 4, 16]
@@ -64,6 +64,10 @@ public:
             {0, 12321, 111, 1, 0, 12544, 112, 1, 32, 111, 111},
             {113, 12544, 112, 1, 0, 12321, 111, 1, 32, 111, 111},
             {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
+            // concat + stack
+            {0, 32, 1, 1, 32, 64, 1, 1, 20, 32, 1},
+            {0, 0, 1280, 1, 0, 1, 640, 1, 1, 1, 640},
+            {0, 0, 32, 1, 32, 0, 64, 1, 1, 10, 32},
         };
         TensorUtils::FuseWrap fuseUtils;
         for (int i = 0; i < N; i++) {

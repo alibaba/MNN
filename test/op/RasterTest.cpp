@@ -154,3 +154,140 @@ public:
 
 };
 MNNTestSuiteRegister(BlitC4Test, "op/blitc4");
+
+class ReduceBlitTest : public MNNTestCase {
+public:
+    virtual ~ReduceBlitTest() = default;
+    bool _run(int precision, bool lazy) {
+        int w = 1;
+        int h = 1;
+        int n = 16;
+        int c = 5;
+        auto input0 = _Input({n, c, h, w}, NCHW);
+        auto inputPtr = input0->writeMap<float>();
+
+        std::vector<float> outputData(n * h * w);
+        float current = 0.0f;
+        auto dstptr = outputData.data();
+        for (int u=0; u<n; ++u) {
+            auto ptrn = inputPtr + u * c * h * w;
+            auto dstptrn = dstptr + u * h * w;
+            auto dstptrv = dstptrn;
+            dstptrv[0] = 0.0f;
+            for (int v=0; v<c; ++v) {
+                auto ptrv = ptrn + v * h * w;
+                for (int y=0; y<h; ++y) {
+                    for (int x=0; x<w; ++x) {
+                        ptrv[y*w+x] = current;
+                        dstptrv[y*w+x] += current;
+                        current = current + 0.01f;
+                    }
+                }
+            }
+        }
+        
+        auto output = _RasterRaw({input0}, {
+            /**
+             region.src.offset = _GET(0);
+             region.src.stride[0] = _GET(1);
+             region.src.stride[1] = _GET(2);
+             region.src.stride[2] = _GET(3);
+             region.dst.offset = _GET(4);
+             region.dst.stride[0] = _GET(5);
+             region.dst.stride[1] = _GET(6);
+             region.dst.stride[2] = _GET(7);
+             region.size[0] = _GET(8);
+             region.size[1] = _GET(9);
+             region.size[2] = _GET(10);
+             region.origin = inputs[j];
+             */
+            0, w*h*c, w*h, 1,   0, w*h, 0, 1, n,c,w*h,
+        }, {n, h, w}, halide_type_of<float>(), NCHW);
+        auto outputPtr = output->readMap<float>();
+        if (!checkVector<float>(outputPtr, outputData.data(), n * h * w, 0.01f)) {
+            MNN_ERROR("reduce blit test failed!\n");
+            return false;
+        }
+        return true;
+    }
+    virtual bool run(int precision) {
+        ExecutorScope::Current()->lazyEval = false;
+        auto res = _run(precision, false);
+        if (!res) {
+            FUNC_PRINT(1);
+            return false;
+        }
+        ExecutorScope::Current()->lazyEval = true;
+        ExecutorScope::Current()->setLazyComputeMode(MNN::Express::Executor::LAZY_CONTENT);
+        res = _run(precision, true);
+        if (!res) {
+            FUNC_PRINT(1);
+            return false;
+        }
+        ExecutorScope::Current()->setLazyComputeMode(MNN::Express::Executor::LAZY_FULL);
+        res = _run(precision, true);
+        return res;
+    }
+
+};
+MNNTestSuiteRegister(ReduceBlitTest, "op/reduce_blit");
+
+class ConcatSliceTest : public MNNTestCase {
+public:
+    virtual ~ConcatSliceTest() = default;
+    bool _run(int precision, bool lazy) {
+        int n = 20;
+        int c = 32;
+        auto input0 = _Input({n, c}, NCHW, halide_type_of<int>());
+        auto input1 = _Input({n, c}, NCHW, halide_type_of<int>());
+        std::vector<int*> inputPtr = {
+            input0->writeMap<int>(),
+            input1->writeMap<int>(),
+        };
+        for (int p=0; p<inputPtr.size(); ++p) {
+            auto srcPtr = inputPtr[p];
+            for (int v=0; v<n*c; ++v) {
+                srcPtr[v] = 1000 * p + v;
+            }
+        }
+        std::vector<int> output0(n*c);
+        {
+            // Split Compute
+            auto o0 = _RasterRaw({input0, input1}, {
+                0, c, 1, 1, 0, c*2, 1, 1, n,c,1,
+                0, c, 1, 1, 32, c*2, 1, 1, n,c,1,
+            }, {n, c*2}, halide_type_of<int>(), NCHW);
+            o0.fix(MNN::Express::VARP::CONSTANT);
+            o0 = _RasterRaw({o0}, {
+                0, 0, n*c*2, 1, 0, 1, n*c, 1, 1,1,n*c
+            }, {n, c}, halide_type_of<int>(), NCHW);
+            auto ptr = o0->readMap<int>();
+            ::memcpy(output0.data(), ptr, n*c*sizeof(int));
+        }
+        std::vector<int> output1(n*c);
+        {
+            // Fuse Compute
+            auto o0 = _RasterRaw({input0, input1}, {
+                0, c, 1, 1, 0, c*2, 1, 1, n,c,1,
+                0, c, 1, 1, 32, c*2, 1, 1, n,c,1,
+            }, {n, c*2}, halide_type_of<int>(), NCHW);
+            o0 = _RasterRaw({o0}, {
+                0, 0, n*c*2, 1, 0, 1, n*c, 1, 1,1,n*c,
+            }, {n, c}, halide_type_of<int>(), NCHW);
+            auto ptr = o0->readMap<int>();
+            ::memcpy(output1.data(), ptr, n*c*sizeof(int));
+        }
+        if (output0 != output1) {
+            return false;
+        }
+        return true;
+    }
+    virtual bool run(int precision) {
+        ExecutorScope::Current()->lazyEval = true;
+        ExecutorScope::Current()->setLazyComputeMode(MNN::Express::Executor::LAZY_FULL);
+        auto res = _run(precision, true);
+        return res;
+    }
+
+};
+MNNTestSuiteRegister(ConcatSliceTest, "op/concat_slice");

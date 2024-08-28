@@ -163,6 +163,9 @@ void CLRuntime::onMaskOpReady(const std::vector<Tensor*>& inputs, const std::vec
         dstInfo->mInfos.emplace_back(std::move(opInfo));
     }
 }
+void CLRuntime::onReset(int numberThread, const BackendConfig* config, bool full) {
+    mOpenCLRuntime->setGpuMode(numberThread);
+}
 
 bool CLRuntime::onSetCache(const void* buffer, size_t size) {
     if (nullptr == buffer) {

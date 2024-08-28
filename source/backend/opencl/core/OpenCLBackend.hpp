@@ -49,6 +49,7 @@ public:
     virtual ~CLRuntime();
 
     virtual Backend* onCreate(const BackendConfig* config) const override;
+    virtual void onReset(int numberThread, const BackendConfig* config, bool full) override;
     virtual void onGabageCollect(int level) override;
     virtual float onGetMemoryInMB() override;
     virtual std::pair<const void*, size_t> onGetCache() override;
