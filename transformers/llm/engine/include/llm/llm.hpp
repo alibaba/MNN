@@ -55,7 +55,7 @@ public:
     Llm(std::shared_ptr<LlmConfig> config) : config_(config) {}
     virtual ~Llm();
     static Llm* createLLM(const std::string& config_path);
-    void chat(std::ostream* log=nullptr);
+    void chat(std::ostream* time_log=nullptr, std::ostream* mem_log=nullptr);
     void reset();
     void trace(bool start);
     virtual void load();
@@ -70,6 +70,7 @@ public:
     std::string generate(const std::vector<int>& input_ids, std::ostream* os, const char* end_with);
     void print_speed();
     void print_speed(std::ostream* os);
+    void print_mem(std::ostream* os);
     // config function
     std::string dump_config();
     bool set_config(const std::string& content);
@@ -81,7 +82,9 @@ public:
     int all_seq_len_ = 0;
     std::vector<int> history_ids_;
     // time
+    MemoryInfo init_mem_;
     TimePerformance time_perf_;
+    MemPerformance mem_perf_;
     bool is_single_ = true;
 protected:
     std::shared_ptr<Sampler> sampler_;

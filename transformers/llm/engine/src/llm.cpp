@@ -164,6 +164,7 @@ void Llm::init_runtime() {
 }
 
 void Llm::load() {
+    readMemInfo(&init_mem_);
     init_runtime();
     // init module status
     key_value_shape_ = config_->key_value_shape();
@@ -318,7 +319,7 @@ std::string Llm::apply_chat_template(const std::vector<PromptItem>& chat_prompts
     return prompt_result;
 }
 
-void Llm::chat(std::ostream* log) {
+void Llm::chat(std::ostream* time_log, std::ostream* mem_log) {
     std::vector<PromptItem> history;
     history.push_back(std::make_pair("system", "You are a helpful assistant."));
     while (true) {
@@ -326,7 +327,8 @@ void Llm::chat(std::ostream* log) {
         std::string user_str;
         std::getline(std::cin, user_str);
         if (user_str == "/exit") {
-            if (log!=nullptr) this->print_speed(log);
+            if (time_log!=nullptr) this->print_speed(time_log);
+            if (mem_log!=nullptr) this->print_mem(mem_log);
             history.clear();
             reset();
             break;
@@ -352,6 +354,7 @@ void Llm::chat(std::ostream* log) {
 
 void Llm::reset() {
     clearPerformance(&time_perf_);
+    clearPerformance(&mem_perf_);
     history_ids_.clear();
     sampler_->reset();
     gen_seq_len_ = 0;
@@ -379,7 +382,7 @@ void Llm::generate_init() {
 std::string Llm::generate(const std::vector<int>& input_ids, std::ostream* os, const char* end_with) {
     prompt_len_ = static_cast<int>(input_ids.size());
     history_ids_.insert(history_ids_.end(), input_ids.begin(), input_ids.end()); // push to history_ids_
-    std::string output_str = sampler_->sample(input_ids, os, end_with, &time_perf_);
+    std::string output_str = sampler_->sample(input_ids, os, end_with, &time_perf_, &mem_perf_, &init_mem_);
 #ifdef DUMP_PROFILE_INFO
     print_speed();
 #endif
@@ -476,6 +479,19 @@ void Llm::print_speed(std::ostream* os) {
     (*os) << "prev_token speed(token/s)" << std::endl;
     for (auto record : time_perf_.decode_record_) {
         (*os) << record.decode_prev_token_ << " " << 1./(((float)record.decode_us_)*MICRO_TO_SEC) << std::endl;
+    }
+}
+
+void Llm::print_mem(std::ostream* os) {
+    (*os) << "prefill " << mem_perf_.prefill_record_.size() << std::endl;
+    (*os) << "prev_token token mem(MB)" << std::endl;
+    for (auto record : mem_perf_.prefill_record_) {
+        (*os) << record.prefill_prev_token_ << " " << record.prefill_token_ << " " << record.prefill_MB_ << std::endl;
+    }
+    (*os) << "decode " << mem_perf_.decode_record_.size() << std::endl;
+    (*os) << "prev_token mem(MB)" << std::endl;
+    for (auto record : mem_perf_.decode_record_) {
+        (*os) << record.decode_prev_token_ << " " << record.decode_MB_ << std::endl;
     }
 }
 
