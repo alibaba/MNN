@@ -51,7 +51,7 @@ IF(MNN_BUILD_CONVERTER)
         target_link_libraries(MNNConvertDeps PUBLIC ${TORCH_LIBRARIES})
     endif()
     if(APPLE)
-        target_link_libraries(MNNConvert -Wl,-all_load MNNConvertDeps ${MNN_DEPS} -Wl,-noall_load)
+        target_link_libraries(MNNConvert -Wl,-all_load MNNConvertDeps ${MNN_DEPS})
     elseif (CMAKE_CXX_COMPILER_ID MATCHES "GNU" OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
         # See also /path/to/MNN/CMakeLists.txt:481 when you are confused with -lpthread here.
         target_link_libraries(MNNConvert -Wl,--whole-archive MNNConvertDeps ${MNN_DEPS} -lpthread -Wl,--no-whole-archive)
