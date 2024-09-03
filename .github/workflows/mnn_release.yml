@@ -132,7 +132,7 @@ jobs:
     needs: [linux-release, windows-release, macos-release, android-release, ios-release]
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/download-artifact@v3
+    - uses: actions/download-artifact@v4.1.7
       with:
         name: artifact
         path: assert
