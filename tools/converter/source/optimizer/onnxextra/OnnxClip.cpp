@@ -13,7 +13,7 @@ namespace MNN {
 namespace Express {
 
 template<typename T> 
-static EXPRP clipConvert(EXPRP expr) {
+static EXPRP clipConvert(EXPRP expr, bool supportRelu6) {
     auto inputs     = expr->inputs();
     auto op         = expr->get();
     auto extraParam = op->main_as_Extra();
@@ -49,7 +49,7 @@ static EXPRP clipConvert(EXPRP expr) {
             maxValue = maxPtr[0];
         }
     }
-    if (unknown_min_max) {
+    if (unknown_min_max || (!supportRelu6)) {
         auto minVar = _Scalar<T>(minValue);
         auto maxVar = _Scalar<T>(maxValue);
         if (inputs.size() >= 2 && inputs[1].get() != nullptr) {
@@ -84,18 +84,17 @@ class OnnxClipTransform : public OnnxExtraManager::Transform {
 public:
     virtual EXPRP onExecute(EXPRP expr) const override {
         auto inputs = expr->inputs();
-        halide_type_code_t type;
+        halide_type_code_t type = halide_type_int;
         for (int i = 0; i < inputs.size(); ++i) {
             if (nullptr != inputs[i] && nullptr != inputs[i]->getInfo()) {
                 type = static_cast<halide_type_code_t>(inputs[i]->getInfo()->type.code);
                 break;
             }
         }
-        if (type == halide_type_float) {
-            return clipConvert<float>(expr);
-        } else {
-            return clipConvert<int32_t>(expr);
+        if (type == halide_type_float || inputs.size() == 1) {
+            return clipConvert<float>(expr, true);
         }
+        return clipConvert<int32_t>(expr, false);
     }
 };
 

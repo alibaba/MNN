@@ -67,7 +67,7 @@ ldr r12, [r6, #36] // f32minmax
 str r12, [sp, #12]
 ldr r12, [r6, #40] // blockNum
 mul r12, r12, r3   // src_depth_quad=src_depth_quad*blockNum
-lsl r12, r12, #6   // weight_stride = src_depth_quad*LP*HP
+lsl r12, r12, #5   // weight_stride = src_depth_quad*LP*HP
 str r12, [sp, #16]
 ldr r12, [r6, #48] // extraScale
 str r12, [sp, #20]
@@ -198,8 +198,8 @@ L2LoopDz:
     // vaddq.s32 q0, q8, q4 // add bias
     // vaddq.s32 q1, q9, q4
 
-    vcvt.f32.s32 q0, q0
-    vcvt.f32.s32 q1, q1
+    vcvt.f32.s32 q0, q8
+    vcvt.f32.s32 q1, q9
 
     vmulq.f32 q0, q0, q5 // mul scale
     vmulq.f32 q1, q1, q5
@@ -223,6 +223,19 @@ L2LoopDz:
 
     vmla.f32 q0, q7, d12[0]
     vmla.f32 q1, q7, d12[1]
+
+    L2_ADD_BIAS:
+    cmp lr, #0
+    beq L2_ADD_DSTV
+    vld1.f32 {q4}, [lr]! // bias
+    vadd.f32 q0, q0, q4  // bias
+    vadd.f32 q1, q1, q4
+    b L2_POST
+
+    L2_ADD_DSTV:
+    vld1.f32 {q4, q5}, [r0]
+    vadd.f32 q0, q0, q4
+    vadd.f32 q1, q1, q5
 
     L2_POST:
     ldr r6, [sp, #12] // fp32 minmax
@@ -334,7 +347,7 @@ L1LoopDz:
     vpadd.s32 d17, d20, d22
 
     // vaddq.s32 q0, q8, q4
-    vcvt.f32.s32 q0, q0
+    vcvt.f32.s32 q0, q8
     vmulq.f32 q0, q0, q5
     // extra scale if has
     ldr r6, [sp, #20]

@@ -17,7 +17,7 @@ namespace CUDA {
 DeconvSingleInputExecution::Resource::Resource(Backend* bn, const MNN::Op* op) {
     mBackend = bn;
     auto runtime = static_cast<CUDABackend*>(bn)->getCUDARuntime();
-    
+
     auto conv       = op->main_as_Convolution2D();
     auto common     = conv->common();
     mKernelInfo.kernelX        = common->kernelX();
@@ -33,7 +33,7 @@ DeconvSingleInputExecution::Resource::Resource(Backend* bn, const MNN::Op* op) {
     const float* filterDataPtr = nullptr;
     int weightSize = 0;
     std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
-    ConvolutionCommon::getConvParameters(&quanCommon, bn, conv, &filterDataPtr, &weightSize);
+    ConvolutionCommon::getConvParameters(&quanCommon, bn, op, &filterDataPtr, &weightSize);
     mKernelInfo.kernelN = common->outputCount();
     mKernelInfo.kernelC = weightSize / mKernelInfo.kernelN / mKernelInfo.kernelX / mKernelInfo.kernelY;
 
@@ -49,7 +49,7 @@ DeconvSingleInputExecution::Resource::Resource(Backend* bn, const MNN::Op* op) {
     auto tempCacheBuffer = static_cast<CUDABackend*>(bn)->getStaticBufferPool()->alloc(weightSize * sizeof(float));
     float* cacheWeight = (float*)((uint8_t*)tempCacheBuffer.first + tempCacheBuffer.second);
     runtime->memcpy(cacheWeight, filterDataPtr, weightSize * sizeof(float), MNNMemcpyHostToDevice);
-    
+
     // Reorder weight
     if(static_cast<CUDABackend*>(bn)->getPrecision() == 1) {
         weightTensor.reset(Tensor::createDevice<int32_t>({param.elhPad[1] * param.elh[2]}));
@@ -57,8 +57,8 @@ DeconvSingleInputExecution::Resource::Resource(Backend* bn, const MNN::Op* op) {
         weightTensor.reset(Tensor::createDevice<int16_t>({param.elhPad[1] * param.elh[2]}));
     }
     bn->onAcquireBuffer(weightTensor.get(), Backend::STATIC);
-    mFilter = (void *)weightTensor.get()->buffer().device;    
-    
+    mFilter = (void *)weightTensor.get()->buffer().device;
+
     callWeightReorder((const void *)cacheWeight, (void *)mFilter, mKernelInfo, param.elhPad[1], (int)(static_cast<CUDABackend*>(bn)->getPrecision() == 1), runtime);
 
     static_cast<CUDABackend*>(bn)->getStaticBufferPool()->free(tempCacheBuffer);
@@ -184,12 +184,12 @@ ErrorCode DeconvSingleInputExecution::onResize(const std::vector<Tensor*> &input
     mFilterAddr = mResource->mFilter;
     mBiasAddr   = mResource->mBias;
     mBackendPtr = mResource->mBackend;
- 
+
     // Call from different function
     if(mFp32Infer){
         return callCutlassGemmCudaCoreFloat32(inputs, outputs);
-    } 
- 
+    }
+
     mGpuComputeCap = runtime->compute_capability();
     //MNN_PRINT("Gpu smArch is sm_%d\n", mGpuComputeCap);
     if(mGpuComputeCap < 75) {
@@ -214,7 +214,7 @@ ErrorCode DeconvSingleInputExecution::onExecute(const std::vector<Tensor*> &inpu
     if(mFp16Fp32MixInfer) {
         size_t maxCount = mGemmInfo.elh[0] * mGemmInfo.elhPad[1];
         callFloat2Half((const void*)input_addr, (void*)mInputBuffer, maxCount, runtime);
-    } 
+    }
 
     // Run cutlass gemm forward
     runCutlassGemmFunc();
@@ -231,7 +231,7 @@ ErrorCode DeconvSingleInputExecution::onExecute(const std::vector<Tensor*> &inpu
 
 class CUDADeconvolutionCreator : public CUDABackend::Creator {
 public:
-    virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, 
+    virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
             const MNN::Op* op, Backend* backend) const override {
         if (nullptr != op->main_as_Convolution2D()->quanParameter()) {
             auto quan = op->main_as_Convolution2D()->quanParameter();

@@ -12,6 +12,8 @@
 #define ConvBufExecution_hpp
 
 #include "backend/opencl/execution/image/CommonExecution.hpp"
+#include "backend/opencl/execution/buffer/StrassenMatmulOpenCLComputor.hpp"
+
 namespace MNN {
 namespace OpenCL {
 
@@ -82,6 +84,10 @@ private:
     std::vector<uint32_t> mPostGlobalWorkSize{1, 1, 1};
     std::vector<uint32_t> mPostLocalWorkSize{1, 1, 1, 1};
     const float* mFilterDataPtr = nullptr;
+private:
+
+    std::shared_ptr<StrassenMatrixComputor> mStrassenComputor;
+
 };
 
 } // namespace OpenCL

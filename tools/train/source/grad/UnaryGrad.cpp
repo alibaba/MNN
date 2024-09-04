@@ -12,7 +12,7 @@
 #define MNN_PI 3.14159265358979323846
 
 using namespace std;
-using namespace MNN;
+namespace MNN {
 using namespace MNN::Express;
 
 class UnaryGrad : public OpGrad {
@@ -221,12 +221,16 @@ public:
     }
 };
 
-static const auto gRegister = []() {
+static void _create() {
     static UnaryGrad _c;
     static SigmoidGrad _s;
     static TanhGrad _t;
     OpGrad::insert(OpType_UnaryOp, &_c);
     OpGrad::insert(OpType_Sigmoid, &_s);
     OpGrad::insert(OpType_TanH, &_t);
-    return true;
-}();
+
+}
+
+REGISTER_GRAD(UnaryGrad_cpp, _create);
+};
+

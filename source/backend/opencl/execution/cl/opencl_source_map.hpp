@@ -150,6 +150,9 @@ extern const char* input_transe_buf;
 extern const char* reduction_buf;
 #endif
 #ifndef MNN_OPENCL_BUFFER_CLOSED
+extern const char* strassen_binary_buf;
+#endif
+#ifndef MNN_OPENCL_BUFFER_CLOSED
 extern const char* matmul_params_buf;
 #endif
 extern const char* cast;
@@ -316,6 +319,9 @@ const std::map<std::string, const char*> OpenCLProgramMap =
 #endif
 #ifndef MNN_OPENCL_BUFFER_CLOSED
   { "reduction_buf", reduction_buf },
+#endif
+#ifndef MNN_OPENCL_BUFFER_CLOSED
+  { "strassen_binary_buf", strassen_binary_buf },
 #endif
 #ifndef MNN_OPENCL_BUFFER_CLOSED
   { "matmul_params_buf", matmul_params_buf },

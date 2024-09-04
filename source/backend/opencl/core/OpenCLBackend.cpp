@@ -163,6 +163,9 @@ void CLRuntime::onMaskOpReady(const std::vector<Tensor*>& inputs, const std::vec
         dstInfo->mInfos.emplace_back(std::move(opInfo));
     }
 }
+void CLRuntime::onReset(int numberThread, const BackendConfig* config, bool full) {
+    mOpenCLRuntime->setGpuMode(numberThread);
+}
 
 bool CLRuntime::onSetCache(const void* buffer, size_t size) {
     if (nullptr == buffer) {
@@ -596,7 +599,7 @@ void OpenCLBackend::_allocHostBuffer(int length, const Tensor* srcTensor) const 
         mDeviceBuffer = (cl::Buffer*)srcTensor->buffer().device;
     }
 #ifdef  __ANDROID__
-    else if(memType == MNN_FORWARD_OPENGL){
+    else if(memType == MNN_FORWARD_OPENGL && mOpenCLRuntime->isSupportGL()){
         cl_int error;
         mDeviceTexture.reset(new cl::ImageGL(mOpenCLRuntime->context(), CL_MEM_READ_WRITE, GL_TEXTURE_2D, 0, (cl_GLuint)srcTensor->buffer().device, &error));
         std::vector<cl::Memory> map = {*mDeviceTexture.get()};
@@ -671,7 +674,7 @@ void CLRuntime::convertFromDevice(const Tensor* srcTensor, const Tensor* dstTens
 #ifndef MNN_OPENCL_BUFFER_CLOSED
     if(mOpenCLRuntime->getGpuMemType() == BUFFER)
     {
-        if(MNN_FORWARD_OPENGL == memtype){
+        if(MNN_FORWARD_OPENGL == memtype && mOpenCLRuntime->isSupportGL()){
             OpenCL::convertNC4HW4BufferToImage(srcTensor, const_cast<Tensor*>(dstTensor), mOpenCLRuntime.get(), false, svmFlag);
             std::vector<cl::Memory> map = {openCLImage(dstTensor)};
             mOpenCLRuntime->commandQueue().enqueueReleaseGLObjects(&map, NULL);
@@ -722,7 +725,7 @@ void CLRuntime::convertFromDevice(const Tensor* srcTensor, const Tensor* dstTens
     else
 #endif /* MNN_OPENCL_BUFFER_CLOSED */
     {
-        if(MNN_FORWARD_OPENGL == memtype){
+        if(MNN_FORWARD_OPENGL == memtype && mOpenCLRuntime->isSupportGL()){
             std::vector<int> bufferShape = MNN::OpenCL::tensorShapeFormat(srcTensor);
 
             mOpenCLRuntime.get()->commandQueue().enqueueCopyImage(
@@ -784,7 +787,7 @@ void CLRuntime::convertToDevice(const Tensor* srcTensor, const Tensor* dstTensor
     #ifndef MNN_OPENCL_BUFFER_CLOSED
     if(mOpenCLRuntime->getGpuMemType() == BUFFER)
     {
-        if(MNN_FORWARD_OPENGL == memtype){
+        if(MNN_FORWARD_OPENGL == memtype && mOpenCLRuntime->isSupportGL()){
             OpenCL::convertImageToNC4HW4Buffer(srcTensor, const_cast<Tensor*>(dstTensor),mOpenCLRuntime.get(), false, svmFlag);
             std::vector<cl::Memory> map = {openCLImage(srcTensor)};
             mOpenCLRuntime->commandQueue().enqueueReleaseGLObjects(&map, NULL);
@@ -821,7 +824,7 @@ void CLRuntime::convertToDevice(const Tensor* srcTensor, const Tensor* dstTensor
     else
     #endif /* MNN_OPENCL_BUFFER_CLOSED */
     {
-        if(MNN_FORWARD_OPENGL == memtype){
+        if(MNN_FORWARD_OPENGL == memtype && mOpenCLRuntime->isSupportGL()){
             std::vector<int> bufferShape = MNN::OpenCL::tensorShapeFormat(dstTensor);
 
             mOpenCLRuntime.get()->commandQueue().enqueueCopyImage(
@@ -880,7 +883,11 @@ void OpenCLBackend::copyToDevice(const Tensor* srcTensor, const Tensor* dstTenso
         mOpenCLRuntime->commandQueue().enqueueWriteBuffer(*mHostBuffer.second, CL_TRUE, 0, needSize, hostPtr);
     }
     #else
-    mOpenCLRuntime->commandQueue().enqueueWriteBuffer(*mHostBuffer.second, CL_TRUE, 0, needSize, hostPtr);
+    auto res = mOpenCLRuntime->commandQueue().enqueueWriteBuffer(*mHostBuffer.second, CL_TRUE, 0, needSize, hostPtr);
+    if(res != CL_SUCCESS) {
+	MNN_ERROR("OpenCL enqueue write error:%d\n", res);
+	return;
+    }
     #endif
 
     //Covert format
@@ -902,6 +909,10 @@ void OpenCLBackend::copyBetweenDevice(const Tensor* srcTensor, const Tensor* dst
             MNN_PRINT("Unsupport ForwardType %d for OpenCL backend!\n", memType);
             return;
         }
+        if(mOpenCLRuntime->isSupportGL() && MNN_FORWARD_OPENGL == memType){
+            MNN_PRINT("This Device can not find OpenCL GL_EXTENTION function!\n");
+            return;
+        }
         _allocHostBuffer(0, copyTensor);
 
         MNN::Tensor interTensor(copyTensor, copyTensor->getDimensionType(), false);
@@ -911,10 +922,6 @@ void OpenCLBackend::copyBetweenDevice(const Tensor* srcTensor, const Tensor* dst
             interTensor.buffer().device = (uint64_t)mDeviceTexture.get();
         }else{
             interTensor.buffer().device = (uint64_t)mHostBuffer.second.get();
-        }
-        if(OpenCLSymbolsOperator::getOpenclSymbolsPtr()->isGlError() && MNN_FORWARD_OPENGL == memType){
-            MNN_PRINT("This Device can not find OpenCL GL_EXTENTION function!\n");
-            return;
         }
         //Covert format
         MNN_DATA_FORMAT data_format = TensorUtils::getDescribe(copyTensor)->dimensionFormat;

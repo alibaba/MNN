@@ -70,6 +70,11 @@ public:
     // config function
     std::string dump_config();
     bool set_config(const std::string& content);
+    // lora function
+    size_t apply_lora(const std::string& lora_path);
+    Llm* create_lora(const std::string& lora_path);
+    bool release_module(size_t index);
+    bool select_module(size_t index);
     friend class Pipeline;
 public:
     // forward info
@@ -81,6 +86,7 @@ public:
     int64_t prefill_us_ = 0;
     int64_t decode_us_ = 0;
     bool is_single_ = true;
+    bool attention_fused_ = true;
 protected:
     std::shared_ptr<LlmConfig> config_;
     std::shared_ptr<Tokenizer> tokenizer_;
@@ -89,8 +95,8 @@ protected:
     MNN::Express::VARP inputs_embeds_, attention_mask_, position_ids_;
     std::shared_ptr<MNN::Express::Executor::RuntimeManager> runtime_manager_;
     std::vector<std::shared_ptr<MNN::Express::Module>> modules_;
-    std::vector<std::shared_ptr<MNN::Express::Module>> decode_modules_;
-    std::vector<std::shared_ptr<MNN::Express::Module>> prefill_modules_;
+    std::vector<std::shared_ptr<MNN::Express::Module>> prefill_modules_, decode_modules_, current_modules_;
+    const MNN::Express::Module* base_module_ = nullptr;
     void init_runtime();
     std::string decode(int id);
     bool is_stop(int token_id);
@@ -98,6 +104,8 @@ protected:
     virtual MNN::Express::VARP embedding(const std::vector<int>& input_ids);
     virtual MNN::Express::VARP gen_attention_mask(int seq_len);
     virtual MNN::Express::VARP gen_position_ids(int seq_len);
+    bool mTracing = false;
+
 };
 
 // Embedding start

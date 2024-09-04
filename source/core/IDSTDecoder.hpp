@@ -12,6 +12,7 @@
 #include <map>
 #include <cmath>
 #include "MNN_generated.h"
+#include "core/FileLoader.hpp"
 #include "core/ConvolutionCommon.hpp"
 
 using namespace MNN;
@@ -22,9 +23,9 @@ static inline void *MNNMemoryAllocAlignZeroAlign(size_t size) {
     return MNNMemoryCallocAlign(size, MNN_MEMORY_ALIGN_DEFAULT);
 }
 
-static int ReadBlobDim(unsigned char *&myfile, unsigned int* shape, int shapeBufCnt, bool useInt32) {
-    int uSize = myfile[0];
-    myfile++;
+static int ReadBlobDim(BaseLoader* myfile, unsigned int* shape, int shapeBufCnt, bool useInt32) {
+    uint8_t uSize = 0;
+    myfile->read((char*)&uSize, 1);
     if (uSize > 4) {
         printf("Read shape error!\n");
         return 0;
@@ -34,14 +35,13 @@ static int ReadBlobDim(unsigned char *&myfile, unsigned int* shape, int shapeBuf
         copyLength = shapeBufCnt;
     }
     if (useInt32) {
-        ::memcpy(shape, myfile, sizeof(unsigned int) * copyLength);
-        myfile += copyLength * sizeof(unsigned int);
+        myfile->read((char*)shape, sizeof(unsigned int) * copyLength);
     } else {
-        auto myfileint16 = (uint16_t*)myfile;
-        for (int i=0; i<copyLength; ++i) {
-            shape[i] = myfileint16[i];
+        uint16_t shape_i16[32] = {0};
+        myfile->read((char*)shape_i16, sizeof(uint16_t) * copyLength);
+        for (int i = 0; i < copyLength; ++i) {
+            shape[i] = shape_i16[i];
         }
-        myfile += copyLength * sizeof(unsigned short);
     }
     return copyLength;
 }
@@ -188,11 +188,6 @@ static int8_t FindInMap(PSIMPLE_MAP map, int8_t k, int *found) {
     return 0;
 }
 
-static void StreamSizeRead(void *dst, int unit, size_t count, unsigned char *&file) {
-    ::memcpy(dst, file, unit * count);
-    file += (unit * count);
-}
-
 static bool isLinearSample(const std::vector<int8_t>& sample, int bit) {
     const int offset = 1 << (bit - 1);
     const int size = 1 << bit;
@@ -207,16 +202,16 @@ static bool isLinearSample(const std::vector<int8_t>& sample, int bit) {
     return true;
 }
 
-static int8_t *ReadQuanData_c(unsigned char *&s, size_t* len, ConvolutionCommon::Int8Common* result, bool shapeInt32) {
+static int8_t *ReadQuanData_c(BaseLoader* s, size_t* len, ConvolutionCommon::Int8Common* result, bool shapeInt32, bool forceQuant) {
     int8_t *blob      = nullptr;
     uint8_t *idxBuf   = nullptr;
     uint8_t *idxBytes = nullptr;
-    uint32_t dataCnt  = 1;
+    size_t dataCnt  = 1;
 
     do {
         // blob shape
         unsigned int shape[32] = {0};
-        uint32_t shapeDim        = (uint32_t)ReadBlobDim(s, shape, 32, shapeInt32);
+        uint32_t shapeDim = (uint32_t)ReadBlobDim(s, shape, 32, shapeInt32);
         if (shapeDim == 0 || shapeDim > 32)
             break;
         for (uint32_t i = 0; i < shapeDim; i++)
@@ -224,7 +219,7 @@ static int8_t *ReadQuanData_c(unsigned char *&s, size_t* len, ConvolutionCommon:
 
         // sample
         uint32_t sampleCnt = 0;
-        StreamSizeRead(&sampleCnt, 1, 1, s);
+        s->read((char*)&sampleCnt, 1);
         if (sampleCnt == 0) {
             sampleCnt = 256;
         }
@@ -232,7 +227,7 @@ static int8_t *ReadQuanData_c(unsigned char *&s, size_t* len, ConvolutionCommon:
         auto samples = result->weightMap.data();
         if (samples == nullptr)
             break;
-        StreamSizeRead(samples, 1, sampleCnt, s);
+        s->read((char*)samples, sampleCnt);
         SimpleRank(samples, sampleCnt, 1);
         uint32_t idxBitsCnt = atLestBitsCnt(sampleCnt);
         idxBitsCnt = idxBitsCnt < 1 ? 1 : idxBitsCnt;
@@ -243,18 +238,16 @@ static int8_t *ReadQuanData_c(unsigned char *&s, size_t* len, ConvolutionCommon:
             MNN_ERROR("Not enought memory\n");
             break;
         }
-        StreamSizeRead(idxBuf, 1, idxBufSize, s);
+        s->read((char*)idxBuf, idxBufSize);
         if (idxBitsCnt == 4) {
             dataCnt = UP_DIV(dataCnt, 2) * 2;
         }
-        blob  = (int8_t *)MNNMemoryAllocAlignZeroAlign((size_t)dataCnt);
-        if (nullptr == blob) {
-            break;
-        }
 
         if (isLinearSample(result->weightMap, idxBitsCnt) && (idxBitsCnt == 4 || idxBitsCnt == 8)) {
-            // fast sample for bit = 4 or 8
-            if (idxBitsCnt == 4) {
+            if (!forceQuant && idxBitsCnt == 4) {
+                // back to float, 4bit to 8bit
+                *len = dataCnt;
+                blob  = (int8_t *)MNNMemoryAllocAlignZeroAlign((size_t)dataCnt);
                 for (int i = 0; i < idxBufSize; i++) {
                     int val = idxBuf[i];
                     int x1 = val / 16;
@@ -262,14 +255,24 @@ static int8_t *ReadQuanData_c(unsigned char *&s, size_t* len, ConvolutionCommon:
                     blob[2 * i] = x1 - 8;
                     blob[2 * i + 1] = x2 - 8;
                 }
-            }
-            if (idxBitsCnt == 8) {
-                for (int i = 0; i < idxBufSize; i++) {
-                    int val = idxBuf[i];
-                    blob[i] = val - 128;
+            } else {
+                // keep quant
+                blob = (int8_t*)idxBuf;
+                idxBuf = nullptr;
+                if (idxBitsCnt == 4) {
+                    result->canUseInt4 = true;
+                } else {
+                    for (int i = 0; i < idxBufSize; i++) {
+                        blob[i] = (int)blob[i] - 128;
+                    }
                 }
+                *len = idxBufSize;
             }
         } else {
+            blob  = (int8_t *)MNNMemoryAllocAlignZeroAlign((size_t)dataCnt);
+            if (nullptr == blob) {
+                break;
+            }
             // split index value into bytes
             idxBytes = (uint8_t *)MNNMemoryAllocAlignZeroAlign(dataCnt * sizeof(uint8_t));
             if (idxBitsCnt == 0 || nullptr == idxBytes) {
@@ -292,6 +295,8 @@ static int8_t *ReadQuanData_c(unsigned char *&s, size_t* len, ConvolutionCommon:
             }
             MNNMemoryFreeAlign(idxBytes);
             idxBytes = nullptr;
+            if (len)
+                *len = blob ? dataCnt : 0;
         }
     } while (0);
 
@@ -299,12 +304,11 @@ static int8_t *ReadQuanData_c(unsigned char *&s, size_t* len, ConvolutionCommon:
         MNNMemoryFreeAlign(idxBuf);
     if (idxBytes != nullptr)
         MNNMemoryFreeAlign(idxBytes);
-    if (len)
-        *len = blob ? dataCnt : 0;
+
     return blob;
 }
 
-static int8_t *ReadSparseQuanData_c(unsigned char *&myfile, size_t* len, const float* alpha_ptr, size_t alpha_size, ConvolutionCommon::Int8Common* result, bool useInt32) {    // MNN_ERROR("sparse:%d\n", 1);
+static int8_t *ReadSparseQuanData_c(BaseLoader* myfile, size_t* len, const float* alpha_ptr, size_t alpha_size, ConvolutionCommon::Int8Common* result, bool useInt32) {    // MNN_ERROR("sparse:%d\n", 1);
     unsigned int shape[32];
     uint32_t ucMapSize = 0;
     PSIMPLE_SET setWeight = CreateSimpleSet(256);
@@ -324,9 +328,9 @@ static int8_t *ReadSparseQuanData_c(unsigned char *&myfile, size_t* len, const f
     if (blob == nullptr)
         return nullptr;
     // 2. nnz
-    StreamSizeRead(&nnz, 4, 1, myfile);
+    myfile->read((char *)&nnz, 4);
     // 3. max_step use # bits () (unsigned char)
-    StreamSizeRead(&iIdxNeedBits, 1, 1, myfile);
+    myfile->read((char *)&iIdxNeedBits, 1);
     // read idx array
     // 4. buf for steps ceil(nnz*step need bits/8)
     AutoStorage<unsigned char> arrIdxBuffer(nnz);
@@ -340,12 +344,12 @@ static int8_t *ReadSparseQuanData_c(unsigned char *&myfile, size_t* len, const f
         if (nullptr == buf) {
             return nullptr;
         }
-        StreamSizeRead(buf, 1, bufLen, myfile);
+        myfile->read((char *)buf, bufLen);
         SplitBufToArray((uint8_t *)buf, (uint32_t)bufLen, (uint8_t *)arrIdx, (uint32_t)nnz, (uint32_t)iIdxNeedBits);
         MNNMemoryFreeAlign(buf);
     }
     // 5. Avalable values Count(unsigned char)
-    StreamSizeRead(&ucMapSize, 1, 1, myfile);
+    myfile->read((char *)&ucMapSize, 1);
     if (0 == ucMapSize) {
         ucMapSize = 256;
     }
@@ -353,7 +357,7 @@ static int8_t *ReadSparseQuanData_c(unsigned char *&myfile, size_t* len, const f
     // 6. valueset(signed char * valueset_size)
     for (int i = 0; i < ucMapSize; i++) {
         int8_t tmp;
-        StreamSizeRead(&tmp, 1, 1, myfile);
+        myfile->read((char *)&tmp, 1);
         InsertSimpleSet(setWeight, tmp);
         result->weightMap[i] = tmp;
     }
@@ -383,7 +387,7 @@ static int8_t *ReadSparseQuanData_c(unsigned char *&myfile, size_t* len, const f
         if (nullptr == buf) {
             return nullptr;
         }
-        StreamSizeRead(buf, 1, bufLen, myfile);
+        myfile->read((char *)buf, bufLen);
         SplitBufToArray((uint8_t *)buf, (uint32_t)bufLen, (uint8_t *)arrWeightIdx, (uint32_t)nnz,
                         (uint32_t)iDataNeedBits);
         MNNMemoryFreeAlign(buf);

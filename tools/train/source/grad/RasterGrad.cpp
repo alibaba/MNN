@@ -9,7 +9,7 @@
 #include "OpGrad.hpp"
 #include "core/TensorUtils.hpp"
 using namespace std;
-using namespace MNN;
+namespace MNN {
 using namespace MNN::Express;
 
 class RasterGrad : public OpGrad {
@@ -70,8 +70,12 @@ public:
     }
 };
 
-static const auto gRegister = []() {
+static void _create() {
     static RasterGrad _c;
     OpGrad::insert(OpType_Raster, &_c);
-    return true;
-}();
+
+}
+
+REGISTER_GRAD(RasterGrad_cpp, _create);
+};
+

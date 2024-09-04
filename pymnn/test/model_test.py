@@ -90,10 +90,16 @@ def createTensor(tensor, file=''):
         data = loadtxt(file, shape, dtype)
     return MNN.Tensor(shape, tensor.getDataType(), data, tensor.getDimensionType())
 
-def compareTensor(tensor, file, atol=5e-2):
+def compareTensor(tensor, file, tolerance=5e-2):
     outputNumpyData = tensor.getNumpyData()
     expectNumpyData = loadtxt(file, tensor.getShape())
-    return np.allclose(outputNumpyData, expectNumpyData, atol=atol)
+    max_abs_dif = np.abs(outputNumpyData - expectNumpyData).max()
+    max_exp_val = np.abs(expectNumpyData).max()
+    diff_rate = max_abs_dif / max_exp_val
+    if diff_rate > tolerance:
+        print(f'# Error: max_abs_dif: {max_abs_dif}, max_exp_val: {max_exp_val}, diff_rate: {diff_rate}')
+        return False
+    return True
 
 def log_result(success, model):
     global total_num
@@ -240,3 +246,6 @@ if __name__ == '__main__':
         for wrong in wrongs:
             print(wrong)
     print('TEST_NAME_PYMNN_MODEL: Pymnn模型测试\nTEST_CASE_AMOUNT_PYMNN_MODEL: {\"blocked\":0,\"failed\":%d,\"passed\":%d,\"skipped\":0}\n'%(len(wrongs), total_num - len(wrongs)))
+    print('TEST_CASE={\"name\":\"Pymnn模型测试\",\"failed\":%d,\"passed\":%d}\n'%(len(wrongs), total_num - len(wrongs)))
+    if len(wrongs) > 0:
+       exit(1)

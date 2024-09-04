@@ -12,7 +12,7 @@ namespace OpenCL {
 
 // set mDequantScale mDequantOffset mNumQuantBit mFilterDataPtr from mConv2dParams
 void ConvLowMemoryExecution::getInfoFromOpLowMemory(std::shared_ptr<ConvolutionCommon::Int8Common> & quanCommon) {
-    quanCommon = ConvolutionCommon::load(mResource->mConv2dParams, this->backend(), false, true);
+    quanCommon = ConvolutionCommon::load(mOp, this->backend(), false, true);
     if (mResource->mConv2dParams->quanParameter() != nullptr) {
         mLowMemoryFlag = true;
     } else {
@@ -24,6 +24,7 @@ void ConvLowMemoryExecution::getInfoFromOpLowMemory(std::shared_ptr<ConvolutionC
     // set mNumQuantBit
     if(quanCommon->canUseInt4){
         mNumQuantBit = 4;
+        mResource->mInputChannel = (quanCommon->weight.size() * 2) / (mResource->mKernelWidth * mResource->mKernelHeight * mResource->mOutputChannel);
     }else{
         mNumQuantBit = 8;
     }
@@ -71,58 +72,100 @@ void ConvLowMemoryExecution::getInfoFromOpLowMemory(std::shared_ptr<ConvolutionC
     // set mFilterDataPtr
     mFilterDataPtr = (void *)quanCommon->weight.get();
 }
+
+bool ConvLowMemoryExecution::convertToQuantWeight1x1Buffer(cl::Buffer input, int icPack, int ocPack) {
+#ifdef LOG_VERBOSE
+    MNN_PRINT("start convertToQuantWeight1x1Buffer !\n");
+#endif
+    auto runtime = mOpenCLBackend->getOpenCLRuntime();
+    std::string kernelName = "conv2d_1x1_ic_oc_weight_quant_buffer";
+    std::set<std::string> buildOptions;
+    if (mNumQuantBit == 8) {
+        buildOptions.emplace("-DUSE_LOW_BIT_WEIGHT_INT8");
+    } else if (mNumQuantBit == 4){
+        // int4 case
+        buildOptions.emplace("-DUSE_LOW_BIT_WEIGHT_INT4");
+    } else {/* More types to be supported. */}
+    if(mResource->mInputChannel % icPack != 0){
+        buildOptions.emplace("-DCHANNEL_LEAVE");
+    }
+
+    mBufferToConv1x1Kernel = runtime->buildKernelWithCache("buffer_convert_quant", kernelName, buildOptions);
+    auto kernel = mBufferToConv1x1Kernel->get();
+    uint32_t gws[2] = {static_cast<uint32_t>(UP_DIV(mResource->mInputChannel, icPack)), static_cast<uint32_t>(UP_DIV(mResource->mOutputChannel, ocPack))};
+
+    uint32_t idx = 0;
+    cl_int ret = CL_SUCCESS;
+    ret |= kernel.setArg(idx++, gws[0]);
+    ret |= kernel.setArg(idx++, gws[1]);
+    ret |= kernel.setArg(idx++, input);
+    ret |= kernel.setArg(idx++, *mResource->mKernelBuffer.get());
+    ret |= kernel.setArg(idx++, mResource->mInputChannel);
+    ret |= kernel.setArg(idx++, mResource->mOutputChannel);
+    ret |= kernel.setArg(idx++, icPack);
+    ret |= kernel.setArg(idx++, ocPack);
+    MNN_CHECK_CL_SUCCESS(ret, "setArg convertToQuantWeight1x1Buffer");
+
+    const uint32_t maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mBufferToConv1x1Kernel));
+    const std::vector<uint32_t> lws = {16, std::max((uint32_t)1, maxWorkGroupSize / 16)};
+
+    cl::Event event;
+    cl_int res;
+
+    std::vector<uint32_t> roundUpGroupWorkSize(lws.size());
+    for (size_t i = 0; i < lws.size(); ++i) {
+        roundUpGroupWorkSize[i] = ROUND_UP(gws[i], lws[i]);
+    }
+
+    res = runtime->commandQueue().enqueueNDRangeKernel(kernel, cl::NullRange,
+                                                         cl::NDRange(roundUpGroupWorkSize[0], roundUpGroupWorkSize[1]),
+                                                         cl::NDRange(lws[0], lws[1]), nullptr, &event);
+
+    event.wait();
+    MNN_CHECK_CL_SUCCESS(res, "convertToQuantWeight1x1Buffer");
+
+#ifdef LOG_VERBOSE
+    MNN_PRINT("end convertToQuantWeight1x1Buffer !\n");
+#endif
+    return true;
+}
+
 // set mKernelBuffer for the 1x1 kernels
 void ConvLowMemoryExecution::set1x1WeightLowMemory(int packCout, int packCin, void * filterDataPtr, std::shared_ptr<ConvolutionCommon::Int8Common> & quanCommon) {
     cl_int res;
-    std::shared_ptr<Tensor> filterBuffer(Tensor::createDevice<float>({ROUND_UP(mResource->mOutputChannel, 8)/*Cout pack set to max 8*/, ROUND_UP(mResource->mInputChannel, packCin), mResource->mKernelWidth, mResource->mKernelHeight}));
+    std::shared_ptr<Tensor> filterBuffer(Tensor::createDevice<float>({ROUND_UP(mResource->mOutputChannel, packCout)/*Cout pack set to max 8*/, ROUND_UP(mResource->mInputChannel, packCin), 1, 1}));
     size_t buffer_size = filterBuffer->usize() / sizeof(float);
+    size_t cpy_size = mResource->mOutputChannel * mResource->mInputChannel;
     float *dequantAlpha = quanCommon->alpha.get();
     // shared part for all cases
-    if (mNumQuantBit == 8) {
-        // int8 case
-        buffer_size *= sizeof(int8_t);
-    } else if (mNumQuantBit == 4){
+    if (mNumQuantBit == 4){
         // int4 case
         buffer_size /= 2;
+        cpy_size = UP_DIV(cpy_size, 2);
     } else {/* More types to be supported. */}
-    mResource->mKernelBuffer.reset(new cl::Buffer(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, buffer_size));
-    auto kernelBufferPtr = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(*(mResource->mKernelBuffer.get()), true, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &res);
-    if(kernelBufferPtr != nullptr && res == CL_SUCCESS){
-        ::memset(kernelBufferPtr, 0, buffer_size);
-
-        
-        for(int o = 0; o < mResource->mOutputChannel; o++){
-            int i = 0;
-            for(; i < mResource->mInputChannel; i++){
-                int bufferIdx = (o/packCout) * packCin*packCout + (i/packCin)*packCin*ROUND_UP(mResource->mOutputChannel, packCout) + (i%packCin)*packCout + (o%packCout);//(Ci/packCin， Co/packCout, packCin， packCout)
-                int filterIdx = o*mResource->mInputChannel + i;
-                if (mNumQuantBit == 8) {
-                    // int8 case
-                    ((int8_t *)kernelBufferPtr)[bufferIdx] = (int8_t)(((int8_t *)filterDataPtr)[filterIdx]);
-                } else if (mNumQuantBit == 4){
-                    // int4 case
-                    if (bufferIdx % 2 == 0) {
-                        ((uint8_t *)kernelBufferPtr)[bufferIdx / 2] += (uint8_t)((((int8_t *)filterDataPtr)[filterIdx] + 8) * 16);
-                    } else {
-                        ((uint8_t *)kernelBufferPtr)[bufferIdx / 2] += (uint8_t)(((int8_t *)filterDataPtr)[filterIdx] + 8);
-                    }
-                } else {/* More types to be supported. */}
-            }
-        }
+    cl::Buffer filterBufferCL(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, buffer_size);
+    void *mapPtr = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(filterBufferCL, true, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &res);
+    if(mapPtr != nullptr && res == CL_SUCCESS){
+        ::memcpy(mapPtr, filterDataPtr, cpy_size);
     } else {
         MNN_ERROR("set1x1WeightLowMemory: Map error ptrCL == nullptr \n");
         MNN_ASSERT(false);
     }
-    mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(*(mResource->mKernelBuffer.get()), kernelBufferPtr);
+    mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(filterBufferCL, mapPtr);
+    
+    mResource->mKernelBuffer.reset(new cl::Buffer(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, buffer_size));
+    convertToQuantWeight1x1Buffer(filterBufferCL, packCin, packCout);
 }
 // set mFilter for the general kernels
 void ConvLowMemoryExecution::setGeneralWeightLowMemory(void* filterDataPtr, std::shared_ptr<ConvolutionCommon::Int8Common> & quanCommon) {
     if (filterDataPtr != nullptr) {
-        std::vector<int> filterImageShape{ROUND_UP(mResource->mInputChannel, 4), (UP_DIV(mResource->mOutputChannel, 4) * mResource->mKernelWidth * mResource->mKernelHeight)};
-        std::shared_ptr<Tensor> filterBuffer(Tensor::createDevice<float>({mResource->mOutputChannel, ROUND_UP(mResource->mInputChannel, 4), mResource->mKernelWidth, mResource->mKernelHeight}));
-        // int buffer_size = filterBuffer->elementSize();
+        std::shared_ptr<Tensor> filterBuffer(Tensor::createDevice<float>({ROUND_UP(mResource->mOutputChannel, 4), mResource->mInputChannel, mResource->mKernelWidth, mResource->mKernelHeight}));
         size_t buffer_size = filterBuffer->usize() / sizeof(float);
-        buffer_size *= sizeof(int8_t);
+        size_t cpy_size = mResource->mOutputChannel * mResource->mInputChannel * mResource->mKernelWidth * mResource->mKernelHeight;
+        if (mNumQuantBit == 4){
+            buffer_size /= 2;
+            cpy_size = UP_DIV(cpy_size, 2);
+        }
         cl::Buffer filterBufferCL(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, buffer_size);
         filterBuffer->buffer().device = (uint64_t)(&filterBufferCL);
         float *dequantAlpha = quanCommon->alpha.get();
@@ -130,14 +173,7 @@ void ConvLowMemoryExecution::setGeneralWeightLowMemory(void* filterDataPtr, std:
         cl_int res;
         auto ptrCL = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(filterBufferCL, true, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &res);
         if(ptrCL != nullptr && res == CL_SUCCESS) {
-            ::memset(ptrCL, 0, buffer_size);
-            const int copy_size = mResource->mKernelWidth * mResource->mKernelHeight * sizeof(int8_t);
-            for(int oc=0; oc<mResource->mOutputChannel; oc++) {
-                int ic = 0;
-                for(; ic<mResource->mInputChannel; ic++) {
-                    ::memcpy((int8_t *)ptrCL + (oc * ROUND_UP(mResource->mInputChannel, 4) + ic) * mResource->mKernelWidth * mResource->mKernelHeight, ((int8_t *)filterDataPtr) + (oc * mResource->mInputChannel + ic) * mResource->mKernelWidth * mResource->mKernelHeight, copy_size);
-                }
-            }
+            ::memcpy(ptrCL, filterDataPtr, cpy_size);
         } else {
             MNN_ERROR("setGeneralWeightLowMemory: Map error ptrCL == nullptr \n");
         }
@@ -145,7 +181,7 @@ void ConvLowMemoryExecution::setGeneralWeightLowMemory(void* filterDataPtr, std:
         // convert to NC4HW4
         if (mNumQuantBit == 8) {
             // ROUND_UP(IC, 4), UP_DIV(OC, 4) * mKernelWidth * mKernelHeight
-            mResource->mFilter.reset(Tensor::createDevice<int8_t>({1, filterImageShape[1], 1, 4 * filterImageShape[0]}));
+            mResource->mFilter.reset(Tensor::createDevice<int8_t>({1, UP_DIV(mResource->mOutputChannel, 4) * mResource->mKernelWidth * mResource->mKernelHeight, 1, 4 * ROUND_UP(mResource->mInputChannel, 4)}));
             mResource->mKernelBuffer.reset(new cl::Buffer(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, buffer_size));
             mResource->mFilter->buffer().device = (uint64_t)(mResource->mKernelBuffer.get());
             MNN::OpenCL::BufferConvertor bufferConvertor{mOpenCLBackend->getOpenCLRuntime()};
@@ -156,8 +192,8 @@ void ConvLowMemoryExecution::setGeneralWeightLowMemory(void* filterDataPtr, std:
             // For int4 case, data stored in mFilter should be uint8_t
             // while "Tensor::createDevice<uint8_t>" occupies more memory than "Tensor::createDevice<int8_t>".
             // Therefore, we use "Tensor::createDevice<int8_t>" currently, leaving "Tensor::createDevice<uint8_t>" to be supported.
-            mResource->mFilter.reset(Tensor::createDevice<int8_t>({1, filterImageShape[1], 1, 2 * filterImageShape[0]}));
-            mResource->mKernelBuffer.reset(new cl::Buffer(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, buffer_size/2));
+            mResource->mFilter.reset(Tensor::createDevice<int8_t>({1, UP_DIV(mResource->mOutputChannel, 4) * mResource->mKernelWidth * mResource->mKernelHeight, 1, 2 * ROUND_UP(mResource->mInputChannel, 4)}));
+            mResource->mKernelBuffer.reset(new cl::Buffer(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, buffer_size));
             mResource->mFilter->buffer().device = (uint64_t)(mResource->mKernelBuffer.get());
             MNN::OpenCL::BufferConvertor bufferConvertor{mOpenCLBackend->getOpenCLRuntime()};
             // filterBuffer shape: {OC, ROUND_UP(IC, 4), mKernelWidth, mKernelHeight}

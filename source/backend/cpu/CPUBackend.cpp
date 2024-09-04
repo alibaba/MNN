@@ -192,12 +192,14 @@ void CPURuntime::_resetThreadPool() {
     // Reset tid to rebind cpu if necessary
     mCurrentTID = 0;
 }
-void CPURuntime::onReset(int numberThread, const BackendConfig* config) {
+void CPURuntime::onReset(int numberThread, const BackendConfig* config, bool full) {
     if (config != nullptr) {
-        mPrecision = config->precision;
         mPower = config->power;
-        mMemory = config->memory;
-        mFlags = config->flags;
+        if (full) {
+            mPrecision = config->precision;
+            mMemory = config->memory;
+            mFlags = config->flags;
+        }
     }
     mThreadNumber = numberThread;
     _resetThreadPool();

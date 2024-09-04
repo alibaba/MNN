@@ -36,6 +36,7 @@ private:
     OpCommonUtils::TensorConvertParameter mSingleConvert;
     std::vector<std::shared_ptr<Tensor::InsideDescribe::Region>> mCacheRegions;
     int32_t mZeroPoint = 0;
+    bool mHasReduce = false;
 };
 }
 #endif

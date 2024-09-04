@@ -77,6 +77,26 @@
   #define USE_CL_MAD 0
 #endif
 
+// BIAS_TYPE
+// 0 -> without bias
+// 1 -> with bias (add) [N]
+// 2 -> with bias (eltwise_add) [M, N]
+// 3 -> with bias (eltwise_sub) [M, N]
+// 4 -> with bias (eltwise_sub and get negative) [M, N]
+#ifndef BIAS_TYPE
+  #define BIAS_TYPE 0
+#endif
+
+#if BIAS_TYPE == 1
+#define DEAL_BIAS(x, a) x = x + a
+#elif BIAS_TYPE == 2
+#define DEAL_BIAS(x, a) x = x + a
+#elif BIAS_TYPE == 3
+#define DEAL_BIAS(x, a) x = x - a
+#elif BIAS_TYPE == 4
+#define DEAL_BIAS(x, a) x = a - x
+#endif
+
 // By default the workgroup size requirement is enabled. For Qualcomm devices the workgroup size
 // requirement results in worse performance and is disabled (src/utilities/compile.cpp)
 #ifndef RELAX_WORKGROUP_SIZE
@@ -313,7 +333,7 @@ INLINE_FUNC int GlobalIndexA() {
 }
 
 INLINE_FUNC realM GlobalToPrivateOptA(const __global realM* restrict agm, const int base, const int _mi,
-                                   const int kSizeM, const int idk) {
+                                   const int astride/*kSizeM*/, const int idk) {
   // Computes the indices based on strided/non-strided access
   #if STRM == 0
     // [MWG/MWI, MWI/VWM, VWM]
@@ -325,7 +345,7 @@ INLINE_FUNC realM GlobalToPrivateOptA(const __global realM* restrict agm, const 
 
   // Loads the data from global memory (not transposed) and stores into registers
   // [kSizeK, kSizeM/VWM, VWM]
-  return agm[idk*(kSizeM/VWM) + idm];
+  return agm[idk*(astride/VWM)+idm];
 }
 
 INLINE_FUNC realM GlobalToPrivateA(const __global realM* restrict agm, const int _mi,
@@ -366,7 +386,7 @@ INLINE_FUNC int GlobalIndexB() {
 }
 
 INLINE_FUNC realN GlobalToPrivateOptB(const __global realN* restrict bgm, const int base, const int _ni,
-                                   const int kSizeN, const int idk) {
+                                   const int bstride/*kSizeN*/, const int idk) {
   // Computes the indices based on strided/non-strided access
   #if STRN == 0
   int idn = base + _ni;
@@ -375,7 +395,7 @@ INLINE_FUNC realN GlobalToPrivateOptB(const __global realN* restrict bgm, const 
   #endif
 
   // Loads the data from global memory (transposed) and stores into registers
-  return bgm[idk*(kSizeN/VWN) + idn];
+  return bgm[idk*(bstride/VWN)+idn];
 }
 
 INLINE_FUNC realN GlobalToPrivateB(const __global realN* restrict bgm, const int _ni,
@@ -677,11 +697,15 @@ INLINE_FUNC INT2 StoreIndexN() {
 // layout : [M, N]
 INLINE_FUNC void StoreResultsN(__global realN* cgn, realN c_value,
                             const INT2 baseOffset,
-                            #ifdef BIAS
-                            realN* epm,
+                            #if BIAS_TYPE > 0
+                                #if BIAS_TYPE > 1
+                                __global realN* egm,
+                                #else
+                                realN* epm,
+                                #endif
                             #endif
                             const int _mi, const int _ni,
-                            const int kSizeN, const real alpha, const real beta) {
+                            const int cstride/*kSizeN*/, const int dstride/*kSizeN*/, const real alpha, const real beta) {
 
   #if STRM == 0
     int idm = _mi + baseOffset.index[0];
@@ -694,8 +718,8 @@ INLINE_FUNC void StoreResultsN(__global realN* cgn, realN c_value,
     int idn = baseOffset.index[1] + _ni*NDIMC;
   #endif
 
-  int index = idm * (kSizeN/VWN) + idn;
-
+  int index = idm * (cstride/VWN) + idn;
+  
   realN result = c_value;
   
   // The final multiplication with alpha (in case beta == 0)
@@ -784,11 +808,17 @@ INLINE_FUNC void StoreResultsN(__global realN* cgn, realN c_value,
   #endif
   
   
-#ifdef BIAS
-  realN eval = epm[_ni];
-
+#if BIAS_TYPE > 0
+    #if BIAS_TYPE == 1
+    realN eval = epm[_ni];
+    #else
+    
+    int index_bias = idm * (dstride/VWN) + idn;
+    realN eval = egm[index_bias];
+    #endif
+  
   #if VWN == 1
-    result += eval;
+    DEAL_BIAS(result, eval);
     #ifdef RELU
     result = fmax(result, (FLOAT)0);
     #endif
@@ -796,8 +826,8 @@ INLINE_FUNC void StoreResultsN(__global realN* cgn, realN c_value,
     result = clamp(result, (FLOAT)0, (FLOAT)6);
     #endif
   #elif VWN == 2
-    result.x += eval.x;
-    result.y += eval.y;
+    DEAL_BIAS(result.x, eval.x);
+    DEAL_BIAS(result.y, eval.y);
     #ifdef RELU
     result = fmax(result, (FLOAT2)0);
     #endif
@@ -805,10 +835,10 @@ INLINE_FUNC void StoreResultsN(__global realN* cgn, realN c_value,
     result = clamp(result, (FLOAT2)0, (FLOAT2)6);
     #endif
   #elif VWN == 4
-    result.x += eval.x;
-    result.y += eval.y;
-    result.z += eval.z;
-    result.w += eval.w;
+    DEAL_BIAS(result.x, eval.x);
+    DEAL_BIAS(result.y, eval.y);
+    DEAL_BIAS(result.z, eval.z);
+    DEAL_BIAS(result.w, eval.w);
     #ifdef RELU
     result = fmax(result, (FLOAT4)0);
     #endif
@@ -816,14 +846,14 @@ INLINE_FUNC void StoreResultsN(__global realN* cgn, realN c_value,
     result = clamp(result, (FLOAT4)0, (FLOAT4)6);
     #endif
   #elif VWN == 8
-    result.s0 += eval.s0;
-    result.s1 += eval.s1;
-    result.s2 += eval.s2;
-    result.s3 += eval.s3;
-    result.s4 += eval.s4;
-    result.s5 += eval.s5;
-    result.s6 += eval.s6;
-    result.s7 += eval.s7;
+    DEAL_BIAS(result.s0, eval.s0);
+    DEAL_BIAS(result.s1, eval.s1);
+    DEAL_BIAS(result.s2, eval.s2);
+    DEAL_BIAS(result.s3, eval.s3);
+    DEAL_BIAS(result.s4, eval.s4);
+    DEAL_BIAS(result.s5, eval.s5);
+    DEAL_BIAS(result.s6, eval.s6);
+    DEAL_BIAS(result.s7, eval.s7);
     #ifdef RELU
     result = fmax(result, (FLOAT8)0);
     #endif
@@ -831,22 +861,22 @@ INLINE_FUNC void StoreResultsN(__global realN* cgn, realN c_value,
     result = clamp(result, (FLOAT8)0, (FLOAT8)6);
     #endif
   #elif VWN == 16
-    result.s0 += eval.s0;
-    result.s1 += eval.s1;
-    result.s2 += eval.s2;
-    result.s3 += eval.s3;
-    result.s4 += eval.s4;
-    result.s5 += eval.s5;
-    result.s6 += eval.s6;
-    result.s7 += eval.s7;
-    result.s8 += eval.s8;
-    result.s9 += eval.s9;
-    result.sA += eval.sA;
-    result.sB += eval.sB;
-    result.sC += eval.sC;
-    result.sD += eval.sD;
-    result.sE += eval.sE;
-    result.sF += eval.sF;
+    DEAL_BIAS(result.s0, eval.s0);
+    DEAL_BIAS(result.s1, eval.s1);
+    DEAL_BIAS(result.s2, eval.s2);
+    DEAL_BIAS(result.s3, eval.s3);
+    DEAL_BIAS(result.s4, eval.s4);
+    DEAL_BIAS(result.s5, eval.s5);
+    DEAL_BIAS(result.s6, eval.s6);
+    DEAL_BIAS(result.s7, eval.s7);
+    DEAL_BIAS(result.s8, eval.s8);
+    DEAL_BIAS(result.s9, eval.s9);
+    DEAL_BIAS(result.sA, eval.sA);
+    DEAL_BIAS(result.sB, eval.sB);
+    DEAL_BIAS(result.sC, eval.sC);
+    DEAL_BIAS(result.sD, eval.sD);
+    DEAL_BIAS(result.sE, eval.sE);
+    DEAL_BIAS(result.sF, eval.sF);
     #ifdef RELU
     result = fmax(result, (FLOAT16)0);
     #endif
@@ -861,10 +891,10 @@ INLINE_FUNC void StoreResultsN(__global realN* cgn, realN c_value,
 
 
 // Main body of the matrix-multiplication algorithm. It calls various (inlined) functions.
-INLINE_FUNC void XgemmBody(const int kSizeM, const int kSizeN, const int kSizeK,
+INLINE_FUNC void XgemmBody(const int kSizeM, const int kSizeN, const int kSizeK, const int4 stride,
                            const __global realM* restrict agm, const __global realN* restrict bgm,
-                           #ifdef BIAS
-                           const __global realN* restrict egm,
+                           #if BIAS_TYPE > 0
+                           __global realN* restrict egm,
                            #endif
                            __global realM* cgm, const real alpha, const real beta
                            #if SA == 1 && SB == 1
@@ -1076,12 +1106,12 @@ INLINE_FUNC void XgemmBody(const int kSizeM, const int kSizeN, const int kSizeK,
             #pragma unroll
             for (int _ni = 0; _ni < NWI/VWN; _ni += 1) {
               // Loads data: off-chip --> private (matrix B)
-              bpm[_ni] = GlobalToPrivateOptB(bgm, baseIndexB, _ni, kSizeN, idk);
+              bpm[_ni] = GlobalToPrivateOptB(bgm, baseIndexB, _ni, stride.s1/*kSizeN*/, idk);
             }
 
             #pragma unroll
             for (int _mi = 0; _mi < MWI/VWM; _mi += 1) {
-              const realM aval = GlobalToPrivateOptA(agm, baseIndexA, _mi, kSizeM, idk);
+              const realM aval = GlobalToPrivateOptA(agm, baseIndexA, _mi, stride.s0/*kSizeM*/, idk);
               #pragma unroll
               for (int _ni = 0; _ni < NWI/VWN; _ni += 1) {
                 #if VWM == 1
@@ -1135,11 +1165,11 @@ INLINE_FUNC void XgemmBody(const int kSizeM, const int kSizeN, const int kSizeK,
             #pragma unroll
             for (int _mi = 0; _mi < MWI/VWM; _mi += 1) {
               // Loads data: off-chip --> private (matrix B)
-              apm[_mi] = GlobalToPrivateOptA(agm, baseIndexA, _mi, kSizeM, idk);
+              apm[_mi] = GlobalToPrivateOptA(agm, baseIndexA, _mi, stride.s0/*kSizeM*/, idk);
             }
             #pragma unroll
             for (int _ni = 0; _ni < NWI/VWN; _ni += 1) {
-              const realN bval = GlobalToPrivateOptB(bgm, baseIndexB, _ni, kSizeN, idk);
+              const realN bval = GlobalToPrivateOptB(bgm, baseIndexB, _ni, stride.s1/*kSizeN*/, idk);
 
               #pragma unroll
               for (int _mi = 0; _mi < MWI/VWM; _mi += 1) {
@@ -1194,7 +1224,7 @@ INLINE_FUNC void XgemmBody(const int kSizeM, const int kSizeN, const int kSizeK,
 
   #ifdef OUTPUTMN
       INT2 baseOffset = StoreIndexN();
-      #ifdef BIAS
+    #if BIAS_TYPE == 1
       #pragma promote_to_registers
       realN epm[NWI/VWN]; // MWI * 1
       for (int _ni = 0; _ni < NWI/VWN; _ni += 1) {
@@ -1205,17 +1235,22 @@ INLINE_FUNC void XgemmBody(const int kSizeM, const int kSizeN, const int kSizeK,
           #endif
           epm[_ni] = egm[idn];
       }
-      #endif
+    #endif
+      
+      
+      
       #pragma unroll
       for (int _mi = 0; _mi < MWI; _mi += 1) {
         #pragma unroll
         for (int _ni = 0; _ni < NWI/VWN; _ni += 1) {
           StoreResultsN((__global realN* )cgm, cpn[_mi * (NWI/VWN) + _ni],
               baseOffset,
-              #ifdef BIAS
+              #if BIAS_TYPE > 1
+              (__global realN*)egm,
+              #elif BIAS_TYPE == 1
               (realN*)epm,
               #endif
-              _mi, _ni, kSizeN, alpha, beta);
+              _mi, _ni, stride.s2, stride.s3, alpha, beta);
         }
       }
   
@@ -1246,20 +1281,24 @@ void Xgemm(const int kSizeM, const int kSizeN, const int kSizeK,
            const real_arg arg_beta,
            const __global realM* restrict agm, // [K, M]
            const __global realN* restrict bgm, // [K, N]
-           #ifdef BIAS
-           const __global realN* restrict egm, // [N]
+           #if BIAS_TYPE > 0
+           __global realN* restrict egm, // [N]
            #endif
            __global realM* cgm,
-           const int a_offset, const int b_offset, const int c_offset
+           __private const int4 offset,
+           __private const int4 stride
 ) {
     const real alpha = GetRealArg(arg_alpha);
     const real beta = GetRealArg(arg_beta);
   
     // Adds the offsets (in case of use of a single temporary buffer for A, B, and C)
-    agm = (const __global realM*)((const __global real*)agm + a_offset);
-    bgm = (const __global realN*)((const __global real*)bgm + b_offset);
-    cgm = (__global realM*)((const __global real*)cgm + c_offset);
+    agm = (const __global realM*)((const __global real*)agm + offset.s0);
+    bgm = (const __global realN*)((const __global real*)bgm + offset.s1);
+    cgm = (__global realM*)((__global real*)cgm + offset.s2);
   
+    #if BIAS_TYPE > 0
+    egm = (__global realN*)((__global real*)egm + offset.s3);
+    #endif
     // Allocates workgroup-private memory (local memory)
     #if SA == 1
         __local realM alm[KWG * MWG/VWM];
@@ -1270,26 +1309,26 @@ void Xgemm(const int kSizeM, const int kSizeN, const int kSizeK,
   
     // Computes the matrix-multiplication and stores the result in global memory
     #if SA == 1 && SB == 1
-        XgemmBody(kSizeM, kSizeN, kSizeK, agm, bgm,
-          #ifdef BIAS
+        XgemmBody(kSizeM, kSizeN, kSizeK, stride, agm, bgm,
+          #if BIAS_TYPE > 0
           egm,
           #endif
           cgm, alpha, beta, alm, blm);
     #elif SA == 1
-        XgemmBody(kSizeM, kSizeN, kSizeK, agm, bgm,
-          #ifdef BIAS
+        XgemmBody(kSizeM, kSizeN, kSizeK, stride, agm, bgm,
+          #if BIAS_TYPE > 0
           egm,
           #endif
           cgm, alpha, beta, alm);
     #elif SB == 1
-        XgemmBody(kSizeM, kSizeN, kSizeK, agm, bgm,
-          #ifdef BIAS
+        XgemmBody(kSizeM, kSizeN, kSizeK, stride, agm, bgm,
+          #if BIAS_TYPE > 0
           egm,
           #endif
           cgm, alpha, beta, blm);
     #else
-        XgemmBody(kSizeM, kSizeN, kSizeK, agm, bgm,
-          #ifdef BIAS
+        XgemmBody(kSizeM, kSizeN, kSizeK, stride, agm, bgm,
+          #if BIAS_TYPE > 0
           egm,
           #endif
           cgm, alpha, beta);
@@ -1301,15 +1340,21 @@ void Xgemm(const int kSizeM, const int kSizeN, const int kSizeK,
 #else
     __kernel __attribute__((reqd_work_group_size(MDIMC, NDIMC, 1)))
 #endif
-void XgemmBatched(const int kSizeM, const int kSizeN, const int kSizeK,
+void XgemmBatched(const int kSizeM,
+                  const int kSizeN,
+                  const int kSizeK,
                   const real_arg arg_alpha,
                   const real_arg arg_beta,
-                  const __global realM* restrict agm, const int batch_offset_a,
-                  const __global realN* restrict bgm, const int batch_offset_b,
-                  #ifdef BIAS
-                  const __global realN* restrict egm, const int batch_offset_e,
+                  const __global realM* restrict agm,
+                  const int batch_offset_a,
+                  const __global realN* restrict bgm,
+                  const int batch_offset_b,
+                  #if BIAS_TYPE > 0
+                  __global realN* restrict egm,
+                  const int batch_offset_e,
                   #endif
-                  __global realM* cgm, const int batch_offset_c) {
+                  __global realM* cgm,
+                  const int batch_offset_c) {
     const int batch = get_group_id(2);
     const real alpha = GetRealArg(arg_alpha);
     const real beta = GetRealArg(arg_beta);
@@ -1322,9 +1367,9 @@ void XgemmBatched(const int kSizeM, const int kSizeN, const int kSizeK,
     const __global realN* restrict bgm_ = &bgm[b_offset / VWN];
     __global realM* restrict cgm_ = &cgm[c_offset / VWM];
     
-    #ifdef BIAS
+    #if BIAS_TYPE > 0
     const int e_offset = batch * batch_offset_e;
-    const __global realN* restrict egm_ = &egm[e_offset / VWN];
+    __global realN* restrict egm_ = &egm[e_offset / VWN];
     #endif
   
     // Allocates workgroup-private memory (local memory)
@@ -1334,31 +1379,40 @@ void XgemmBatched(const int kSizeM, const int kSizeN, const int kSizeK,
     #if SB == 1
         __local realN blm[KWG * NWG/VWN];
     #endif
-  
+    int4 stride;
+    stride.s0 = kSizeM;
+    stride.s1 = kSizeN;
+    #ifdef OUTPUTMN
+    stride.s2 = kSizeN;
+    #else
+    stride.s2 = kSizeM;
+    #endif
+    stride.s3 = kSizeN;
     // Computes the matrix-multiplication and stores the result in global memory
     #if SA == 1 && SB == 1
-        XgemmBody(kSizeM, kSizeN, kSizeK, agm_, bgm_,
-        #ifdef BIAS
+        XgemmBody(kSizeM, kSizeN, kSizeK, stride, agm_, bgm_,
+        #if BIAS_TYPE > 0
         egm_,
         #endif
         cgm_, alpha, beta, alm, blm);
     #elif SA == 1
-        XgemmBody(kSizeM, kSizeN, kSizeK, agm_, bgm_,
-        #ifdef BIAS
+        XgemmBody(kSizeM, kSizeN, kSizeK, stride, agm_, bgm_,
+        #if BIAS_TYPE > 0
         egm_,
         #endif
         cgm_, alpha, beta, alm);
     #elif SB == 1
-        XgemmBody(kSizeM, kSizeN, kSizeK, agm_, bgm_,
-        #ifdef BIAS
+        XgemmBody(kSizeM, kSizeN, kSizeK, stride, agm_, bgm_,
+        #if BIAS_TYPE > 0
         egm_,
         #endif
         cgm_, alpha, beta, blm);
     #else
-        XgemmBody(kSizeM, kSizeN, kSizeK, agm_, bgm_,
-        #ifdef BIAS
+        XgemmBody(kSizeM, kSizeN, kSizeK, stride, agm_, bgm_,
+        #if BIAS_TYPE > 0
         egm_,
         #endif
         cgm_, alpha, beta);
     #endif
 }
+

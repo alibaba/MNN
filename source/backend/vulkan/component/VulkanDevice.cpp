@@ -10,14 +10,13 @@
 #include <string.h>
 //#define MNN_VULKAN_PRINT_EXT
 namespace MNN {
-VulkanDevice::VulkanDevice(std::shared_ptr<VulkanInstance> instance, const std::vector<const char*>& device_extensions)
+VulkanDevice::VulkanDevice(std::shared_ptr<VulkanInstance> instance)
     : mOwner(true),
       mInstance(instance),
       mQueueFamilyIndex(0),
       mPhysicalDevice(VK_NULL_HANDLE),
       mDevice(VK_NULL_HANDLE),
       mQueue(VK_NULL_HANDLE) {
-    MNN_ASSERT(mInstance->success());
     // Find one GPU to use:
     // On Android, every GPU device is equal -- supporting
     // graphics/compute/present
@@ -68,6 +67,23 @@ VulkanDevice::VulkanDevice(std::shared_ptr<VulkanInstance> instance, const std::
     mDeviceFeature.shaderStorageImageWriteWithoutFormat = VK_TRUE;
     //vkGetPhysicalDeviceFeatures(mPhysicalDevice, &mDeviceFeature);
 
+    // Set device extensions.
+    std::vector<const char*> deviceExtensions;
+    std::vector<const char*> deviceExtensionsToCheck = {
+        "VK_KHR_portability_subset"
+    };
+    uint32_t availableDeviceExtensionCount = 0;
+    CALL_VK(vkEnumerateDeviceExtensionProperties(mPhysicalDevice, nullptr, &availableDeviceExtensionCount, nullptr));
+    std::vector<VkExtensionProperties> availableDeviceExtensions(availableDeviceExtensionCount);
+    CALL_VK(vkEnumerateDeviceExtensionProperties(mPhysicalDevice, nullptr, &availableDeviceExtensionCount, availableDeviceExtensions.data()));
+    for (uint32_t i = 0; i < availableDeviceExtensionCount; i++) {
+        for (uint32_t j = 0; j < deviceExtensionsToCheck.size(); j++) {
+            if (strcmp(availableDeviceExtensions[i].extensionName, deviceExtensionsToCheck[j]) == 0) {
+                deviceExtensions.push_back(deviceExtensionsToCheck[j]);
+            }
+        }
+    }
+
     VkDeviceCreateInfo deviceCreateInfo{
         /* .sType                   = */ VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
         /* .pNext                   = */ nullptr,
@@ -76,11 +92,16 @@ VulkanDevice::VulkanDevice(std::shared_ptr<VulkanInstance> instance, const std::
         /* .pQueueCreateInfos       = */ &queueCreateInfo,
         /* .enabledLayerCount       = */ 0,
         /* .ppEnabledLayerNames     = */ nullptr,
-        /* .enabledExtensionCount   = */ static_cast<uint32_t>(device_extensions.size()),
-        /* .ppEnabledExtensionNames = */ device_extensions.data(),
+        /* .enabledExtensionCount   = */ static_cast<uint32_t>(deviceExtensions.size()),
+        /* .ppEnabledExtensionNames = */ deviceExtensions.data(),
         /* .pEnabledFeatures        = */ &mDeviceFeature,
     };
+    mDevice = VK_NULL_HANDLE;
     CALL_VK(vkCreateDevice(mPhysicalDevice, &deviceCreateInfo, nullptr, &mDevice));
+    if (VK_NULL_HANDLE == mDevice) {
+        MNN_ERROR("Can't create vk device\n");
+        return;
+    }
     vkGetPhysicalDeviceProperties(mPhysicalDevice, &mDeviceProty);
     vkGetPhysicalDeviceMemoryProperties(mPhysicalDevice, &mMemoryProty);
     getDeviceQueue(mQueueFamilyIndex, 0, mQueue);

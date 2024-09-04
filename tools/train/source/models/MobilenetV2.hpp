@@ -24,7 +24,7 @@ class MNN_PUBLIC MobilenetV2 : public Express::Module {
 public:
     // use tensorflow numClasses = 1001, which label 0 means outlier of the original 1000 classes
     // so you maybe need to add 1 to your true labels, if you are testing with ImageNet dataset
-    MobilenetV2(int numClasses = 1001, float widthMult = 1.0f, int divisor = 8);
+    MobilenetV2(int numClasses = 1001, float widthMult = 1.0f, int divisor = 8, bool useBn = true);
 
     virtual std::vector<Express::VARP> onForward(const std::vector<Express::VARP> &inputs) override;
 

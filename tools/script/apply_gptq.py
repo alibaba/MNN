@@ -3,10 +3,16 @@ import torch
 import argparse
 
 class MNNWeight:
-    def __init__(self, name, external, a_min):
+    def __init__(self, name, external, weight_elements):
         self.name = name
         self.external = external
-        self.a_min = a_min
+        self.quant_bits = 4
+        if round(weight_elements / external[1]) == 2:
+            self.quant_bits = 4
+            self.a_min = -8
+        else:
+            self.quant_bits = 8
+            self.a_min = -128
         self.parse_name()
 
     def __repr__(self) -> str:
@@ -23,7 +29,9 @@ class MNNWeight:
             self.op_id = parts[2]
             self.block_id = parts[-1].split('__')[-1]
 
-    def key(self): return f'{self.layer_id}.{self.op_id}'
+    def key(self):
+        if self.layer_id == -1: return self.op_id
+        return f'{self.layer_id}.{self.op_id}'
     def idx(self): return int(self.block_id)
     def offset(self): return self.external[0]
     def weight_size(self): return self.external[1]
@@ -38,10 +46,8 @@ def weight_reorder(qweight, bits=4, group_size=128):
     if bits == 8:
         weight = weight.to(torch.uint8)
         return weight
-    if bits == 4:
-        weight = weight.reshape(-1, 2).to(torch.uint8)
-        weight = weight[:, 0] * 16 + weight[:, 1]
-        return weight
+    weight = weight.reshape(-1, 2).to(torch.uint8)
+    weight = weight[:, 0] * 16 + weight[:, 1]
     return weight
 
 class MNNModel:
@@ -56,8 +62,8 @@ class MNNModel:
             if op['type'] == 'Convolution':
                 name = op['name']
                 external = op['main']['external']
-                a_min = op['main']['quanParameter']['aMin']
-                self.weights.append(MNNWeight(name, external, a_min))
+                weight_elements = op['main']['common']['outputCount'] * op['main']['common']['inputCount']
+                self.weights.append(MNNWeight(name, external, weight_elements))
 
     def apply_weight_split(self, gptq_tensor):
         bin_file = open(self.external_weight, 'r+b')
@@ -69,7 +75,7 @@ class MNNModel:
             weight = gptq_weight.weight(idx)
             scale = gptq_weight.scale(idx).float()
             # write weight data
-            weight = weight_reorder(weight, self.quant_bits)
+            weight = weight_reorder(weight, mnn_weight.quant_bits)
             weight_bytes = weight.numpy().tobytes()
             weight_size = mnn_weight.weight_size()
             header_len = weight_size - len(weight_bytes)
@@ -95,10 +101,11 @@ class MNNModel:
             gptq_weight = gptq_tensor.get(mnn_weight.key())
             if gptq_weight is None: continue
             print(f'write {mnn_weight.key()} ... ', end='')
+            # print(f'mnn_weight.quant_bits = {mnn_weight.quant_bits}')
             weight = gptq_weight.qweight
             scale = gptq_weight.scales.float().transpose(1, 0)
             # write weight data
-            weight = weight_reorder(weight, self.quant_bits)
+            weight = weight_reorder(weight, mnn_weight.quant_bits)
             weight_bytes = weight.numpy().tobytes()
             weight_size = mnn_weight.weight_size()
             header_len = weight_size - len(weight_bytes)
@@ -117,8 +124,7 @@ class MNNModel:
             print('Done!')
         bin_file.close()
 
-    def apply(self, gptq_tensor, quant_bits):
-        self.quant_bits = quant_bits
+    def apply(self, gptq_tensor):
         if self.weights[0].block_id.isdigit():
             self.apply_weight_split(gptq_tensor)
         else:
@@ -153,6 +159,8 @@ class GPTQTensor:
 
     def prefix(self, name):
         splits = name.split('.')
+        if 'lm_head' in splits[0] and len(splits) == 2:
+            return splits[0], splits[1]
         if len(splits) < 5:
             return None, None
         pre = f'{splits[2]}.{splits[3]}.{splits[4]}'
@@ -182,13 +190,12 @@ class GPTQTensor:
 def main(args):
     mnn_model = MNNModel(args.mnn_graph, args.mnn_weight)
     gptq_weight = GPTQTensor(args.gptq_tensor)
-    mnn_model.apply(gptq_weight, args.quant_bits)
+    mnn_model.apply(gptq_weight)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='apply_gptq', formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument('--mnn_graph', type=str, required=True, help='mnn graph json path.')
     parser.add_argument('--mnn_weight', type=str, required=True, help='mnn weight file path.')
     parser.add_argument('--gptq_tensor', type=str, required=True, help='gptq tensor path.')
-    parser.add_argument('--quant_bits', type=int, default=4, help='quant bits, default is 4.')
     args = parser.parse_args()
     main(args)

@@ -1,5 +1,5 @@
 #version 440
-layout(set=0, binding=0) writeonly restrict uniform image2D uOutput;
+layout(set=0, binding=0) writeonly uniform image2D uOutput;
 layout(set=0, binding=1) uniform sampler2D uInput;
 layout(set=0, binding=2) uniform constBuffer{
     ivec4 size; // x: limit, y: channelC4*b, z:height, w:width

@@ -239,7 +239,7 @@ Calibration::Calibration(MNN::NetT* model, const uint8_t* modelBuffer, const int
 
     _imageProcessConfig.sourceFormat = RGBA;
     _calibrationFileNum = 0;
-    
+
     if (picObj.HasMember("mean")) {
         auto mean = picObj["mean"].GetArray();
         int cur   = 0;
@@ -351,7 +351,7 @@ Calibration::Calibration(MNN::NetT* model, const uint8_t* modelBuffer, const int
             _inputType = Helper::InputType::SEQUENCE;
         }
     }
-    
+
     _module.reset(Module::load({}, {}, originalModelFile.c_str()));
     auto moduleInfo = _module->getInfo();
     for (int i = 0; i < moduleInfo->inputNames.size(); ++i) {
@@ -405,7 +405,7 @@ Calibration::Calibration(MNN::NetT* model, const uint8_t* modelBuffer, const int
         }
         mInputShape.insert(std::make_pair(name, shape));
     }
-    
+
     std::shared_ptr<ImageProcess> process(ImageProcess::create(_imageProcessConfig), ImageProcess::destroy);
     _process = process;
 
@@ -432,7 +432,7 @@ Calibration::Calibration(MNN::NetT* model, const uint8_t* modelBuffer, const int
             }
         }
     }
-    
+
     MNN::ScheduleConfig config;
     config.backupType = MNN_FORWARD_CPU;
     config.numThread = 1;
@@ -558,7 +558,7 @@ void Calibration::_initMaps() {
 void Calibration::_computeFeatureMapsRange() {
     // feed input data according to input images
     int count = 0;
-    
+
     auto netInfo = _module->getInfo();
     for (const auto& file: _calibrationFiles) {
         std::vector<VARP> inputs;
@@ -568,7 +568,7 @@ void Calibration::_computeFeatureMapsRange() {
         for (auto& iter : _featureInfo) {
             iter.second->resetUpdatedRangeFlags();
         }
-        
+
         if (_inputType == Helper::SEQUENCE) {
             inputs = getModuleInputs(file, netInfo, mInputNames, mInputShape);
             for (int i = 0; i < inputs.size(); ++i) {
@@ -880,11 +880,15 @@ void Calibration::_insertScale() {
         std::unique_ptr<Tensor> externalWeightTensor, externalBiasTensor;
         if (nullptr != conv2d->quanParameter.get()) {
             flatbuffers::FlatBufferBuilder tempBuilder;
+            /*
             tempBuilder.Finish(IDSTQuan::Pack(tempBuilder, conv2d->quanParameter.get()));
             tempBuilder.Finish(Convolution2D::Pack(tempBuilder, conv2d));
             auto conv2d = flatbuffers::GetRoot<Convolution2D>(tempBuilder.GetBufferPointer());
+            */
+            tempBuilder.Finish(Op::Pack(tempBuilder, op.get()));
+            auto pack_op = flatbuffers::GetRoot<Op>(tempBuilder.GetBufferPointer());
             bool forceFloat = true;
-            quanCommon = ConvolutionCommon::load(conv2d, nullptr, true, true);
+            quanCommon = ConvolutionCommon::load(pack_op, nullptr, true, true);
             // Back to float
             originWeight     = quanCommon->weightFloat.get();
             originWeightSize = quanCommon->weightFloat.size();
@@ -975,7 +979,7 @@ void Calibration::_computeQuantError() {
 
     for (const auto& file : _calibrationFiles) {
         count++;
-        
+
         for (auto& iter : _featureInfo) {
             iter.second->setVisited(false);
         }
@@ -1112,12 +1116,12 @@ void Calibration::_quantizeModelEMA() {
                         }
                     }
                 }
-                
+
                 for (int i = 0; i < inputs.size(); ++i) {
                     auto name = varInputs[i]->name();
                     auto input = _Input(dyInputShape[name], varInputs[i]->getInfo()->order, varInputs[i]->getInfo()->type);
                     std::string fileName = file + "/" + name + ".txt";
-                    
+
                     auto inputTensor = (MNN::Tensor*)input->getTensor();
                     Helper::preprocessInput(_process.get(), _preprocessConfig, fileName, inputTensor, _inputType);
                     ::memcpy(input->writeMap<float>(), inputTensor->host<float>(), inputTensor->elementSize() * sizeof(float));
@@ -1128,7 +1132,7 @@ void Calibration::_quantizeModelEMA() {
                 auto inputTensor = (MNN::Tensor*)singleInput->getTensor();
                 Helper::preprocessInput(_process.get(), _preprocessConfig, file, inputTensor, _inputType);
                 ::memcpy(inputs[0]->writeMap<float>() + k * inputTensor->elementSize(), inputTensor->host<float>(), inputTensor->elementSize() * sizeof(float));
-                
+
             }
         }
         auto predicts = _module->onForward(inputs);
@@ -1151,9 +1155,9 @@ void Calibration::_quantizeModelEMA() {
         input->setName(name);
         inputsForward[i] = input;
     }
-    
+
     auto predicts = _module->onForward(inputsForward);
-    
+
     Transformer::turnModelToInfer()->onExecute(predicts);
     for (int i = 0; i < predicts.size(); i++) {
         predicts[i]->setName(varOutputs[i]->name());

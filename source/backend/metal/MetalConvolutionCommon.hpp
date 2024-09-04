@@ -22,7 +22,7 @@ public:
     virtual ~MetalConvolutionCommon() = default;
 
 protected:
-    void loadWeight(const MNN::Convolution2D *conv, bool loadWeightInt8 = false);
+    void loadWeight(const MNN::Op *op, bool loadWeightInt8 = false);
 
     virtual std::shared_ptr<MNN::Tensor> weightTransform(int group, int oc, int ic, int kh, int kw, const float *src, bool int8Weight = false, bool int4Weight = false);
 

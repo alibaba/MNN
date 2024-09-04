@@ -5,5 +5,11 @@
     "backend_type": "cpu",
     "thread_num": 4,
     "precision": "low",
-    "memory": "low"
+    "memory": "low",
+
+    "is_batch_quant": 1,
+    
+    "reuse_kv": false,
+    "quant_kv": 0,
+    "kvcache_limit": -1
 }

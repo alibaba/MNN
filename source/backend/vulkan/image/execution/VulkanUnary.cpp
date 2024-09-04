@@ -74,6 +74,8 @@ static std::string _getMidType(const Op* op) {
             SETTYPE(UnaryOpOperation_ROUND, "ROUND");
             SETTYPE(UnaryOpOperation_HARDSWISH, "HARDSWISH");
             SETTYPE(UnaryOpOperation_GELU, "GELU");
+            // Since SPIR-V lacks a built-in erf (gauss error function) instruction and the existing shader implementation of GELU is essentially an approximation of erf, there is no need to add a new implementation of GELU_STANDARD.
+            SETTYPE(UnaryOpOperation_GELU_STANDARD, "GELU");
         } while(false);
 #undef SETTYPE
     }

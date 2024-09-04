@@ -33,5 +33,6 @@ print('Wrong: %d' %len(gWrong))
 for w in gWrong:
     print(w)
 print('TEST_NAME_TFLITE: TFLITEConvert测试\nTEST_CASE_AMOUNT_TFLITE: {\"blocked\":0,\"failed\":%d,\"passed\":%d,\"skipped\":0}\n'%(len(gWrong), total_num - len(gWrong)))
+print('TEST_CASE={\"name\":\"Tflite转换测试\",\"failed\":%d,\"passed\":%d}\n'%(len(gWrong), total_num - len(gWrong)))
 if len(gWrong) > 0:
     exit(1)

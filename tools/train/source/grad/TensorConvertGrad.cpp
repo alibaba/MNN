@@ -8,7 +8,7 @@
 
 #include "TensorConvertGrad.hpp"
 using namespace std;
-using namespace MNN;
+namespace MNN {
 using namespace MNN::Express;
 
 class TensorConvertGrad : public OpGrad {
@@ -22,8 +22,12 @@ public:
         return result;
     }
 };
-static const auto gRegister = []() {
+static void _create() {
     static TensorConvertGrad _c;
     OpGrad::insert(OpType_ConvertTensor, &_c);
-    return true;
-}();
+
+}
+
+REGISTER_GRAD(TensorConvertGrad_cpp, _create);
+};
+

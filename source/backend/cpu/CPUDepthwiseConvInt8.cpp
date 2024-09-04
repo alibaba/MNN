@@ -252,7 +252,7 @@ public:
                UNIT = 4;
            }
         }
-        auto res = CPUConvolution::makeResourceInt8(backend, convOp, UNIT);
+        auto res = CPUConvolution::makeResourceInt8(backend, op, UNIT);
         const int kernelSize      = common->kernelX() * common->kernelY();
         const int outputCount     = common->outputCount();
         const int ocDivUnit       = UP_DIV(outputCount, UNIT);

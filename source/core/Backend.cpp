@@ -69,22 +69,6 @@ void registerBackend() {
 #if MNN_METAL_ENABLED
         registerMetalRuntimeCreator();
 #endif
-        auto& gExtraCreator = GetExtraCreator();
-        for(auto iter = gExtraCreator.begin(); iter != gExtraCreator.end();){
-            if(!iter->second.second){
-                iter++;
-            }else{
-                Backend::Info info;
-                info.type = iter->first;
-                std::shared_ptr<Runtime> bn(iter->second.first->onCreate(info));
-                if (nullptr == bn.get()) {
-                    iter = gExtraCreator.erase(iter);
-                    MNN_ERROR("Error to use creator of %d, delete it\n", info.type);
-                }else{
-                    iter++;
-                }
-            }
-        }
     });
 }
 

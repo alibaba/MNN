@@ -109,6 +109,8 @@ mMaps.insert(std::make_pair("glsl_deconvIm2Col_RELU_comp", std::make_pair(glsl_d
 mMaps.insert(std::make_pair("glsl_deconvIm2Col_RELU6_comp", std::make_pair(glsl_deconvIm2Col_RELU6_comp,glsl_deconvIm2Col_RELU6_comp_len)));
 mMaps.insert(std::make_pair("glsl_buffer2Image1D_comp", std::make_pair(glsl_buffer2Image1D_comp,glsl_buffer2Image1D_comp_len)));
 mMaps.insert(std::make_pair("glsl_scale_comp", std::make_pair(glsl_scale_comp,glsl_scale_comp_len)));
+mMaps.insert(std::make_pair("glsl_argmax_comp", std::make_pair(glsl_argmax_comp,glsl_argmax_comp_len)));
+mMaps.insert(std::make_pair("glsl_argmax_ARGMIN_comp", std::make_pair(glsl_argmax_ARGMIN_comp,glsl_argmax_ARGMIN_comp_len)));
 mMaps.insert(std::make_pair("glsl_buffer2Image3D_comp", std::make_pair(glsl_buffer2Image3D_comp,glsl_buffer2Image3D_comp_len)));
 }
 }

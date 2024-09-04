@@ -10,7 +10,7 @@
 #include "core/Macro.h"
 #include <MNN/expr/ExprCreator.hpp>
 using namespace std;
-using namespace MNN;
+namespace MNN {
 using namespace MNN::Express;
 
 class SoftmaxGrad : public OpGrad {
@@ -45,8 +45,12 @@ public:
         return {inputGrad};
     }
 };
-static const auto gRegister = []() {
+static void _create() {
     static SoftmaxGrad _c;
     OpGrad::insert(OpType_Softmax, &_c);
-    return true;
-}();
+
+}
+
+REGISTER_GRAD(SoftmaxGrad_cpp, _create);
+};
+

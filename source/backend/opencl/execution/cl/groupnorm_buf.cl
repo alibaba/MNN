@@ -65,8 +65,8 @@ __kernel void groupnorm_plain_buf(__private int global_dim0, __private int globa
                 sum[lid] = sum[lid] + sum[lid + i];
             barrier(CLK_LOCAL_MEM_FENCE);
         }
-        float4 square_sum = sum[0] / (float4)inside;
-        float4 value = (float4)1.0f / (float4)sqrt(square_sum + (float4)epsilon);
+        float4 square_sum = (float4)(sum[0] / inside);
+        float4 value = (float4)(1.0f / sqrt(square_sum.x + epsilon));
 
         for(int i = lid; i < inside_v4; i+=LOCAL_SIZE){
             float4 in0 = convert_float4(vload4(i, input0 + offset));
@@ -102,7 +102,6 @@ __kernel void groupnorm_plain_buf(__private int global_dim0, __private int globa
             barrier(CLK_LOCAL_MEM_FENCE);
         }
 
-        
         float mean = sum[0] / inside;
 
         in_sum = 0;
@@ -173,8 +172,7 @@ __kernel void groupnorm_plain_buf(__private int global_dim0, __private int globa
             barrier(CLK_LOCAL_MEM_FENCE);
         }
         
-        float4 mean = sum[0] / (float4)inside;
-
+        float4 mean = (float4)(sum[0] / inside);
         in_sum = 0;
         index = lid;
         for(; index < inside_v4 - 1; index+=LOCAL_SIZE){
@@ -203,8 +201,8 @@ __kernel void groupnorm_plain_buf(__private int global_dim0, __private int globa
                 sum[lid] = sum[lid] + sum[lid + i];
             barrier(CLK_LOCAL_MEM_FENCE);
         }
-        float4 square_sum = sum[0] / (float4)inside;
-        float4 value = (float4)1.0f / (float4)sqrt(square_sum + (float4)epsilon);
+        float4 square_sum = (float4)(sum[0] / inside);
+        float4 value = (float4)(1.0f / sqrt(square_sum.x + epsilon));
 
         // The product of W and H is a multiple of 4
         #ifdef WH_4
@@ -220,6 +218,7 @@ __kernel void groupnorm_plain_buf(__private int global_dim0, __private int globa
             #ifdef SWISH
             out = out * native_recip((float4)1+native_exp(convert_float4(-out)));
             #endif
+
             vstore4(CONVERT_FLOAT4(out), i, output + offset);
         }
         #else
@@ -235,6 +234,7 @@ __kernel void groupnorm_plain_buf(__private int global_dim0, __private int globa
             #ifdef SWISH
             out = out * native_recip(1.0+native_exp(-out));
             #endif
+            
             output[offset+i] = (FLOAT)out;
         }
         #endif

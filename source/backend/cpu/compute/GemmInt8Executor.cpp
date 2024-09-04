@@ -14,10 +14,10 @@
 
 namespace MNN {
 
-GemmInt8Executor::GemmInt8Executor(Backend* bn, std::shared_ptr<ResourceInt8> resource, const Convolution2D *conv2D, decltype(CoreInt8Functions::Int8GemmKernel) gemmKernel, std::vector<int32_t> bias):
-    CPUConvolution(conv2D->common(), bn), mResourceInt8(resource), mMutableResource(resource, bn), mGemmKernel(gemmKernel), mQuantBias(bias){
+GemmInt8Executor::GemmInt8Executor(Backend* bn, std::shared_ptr<ResourceInt8> resource, const Op *op, decltype(CoreInt8Functions::Int8GemmKernel) gemmKernel, std::vector<int32_t> bias) :
+    CPUConvolution(op->main_as_Convolution2D()->common(), bn), mResourceInt8(resource), mMutableResource(resource, bn), mGemmKernel(gemmKernel), mQuantBias(bias){
         mResource.reset(new Resource);
-        CPUConvolution::makeResource(bn, mResource, conv2D, mResourceInt8);
+        CPUConvolution::makeResource(bn, mResource, op, mResourceInt8);
 }
 
 GemmInt8Executor::~GemmInt8Executor() {
@@ -39,8 +39,8 @@ ErrorCode GemmInt8Executor::onResize(const std::vector<Tensor *> &inputs, const 
     auto output = outputs[0];
 
     auto core = static_cast<CPUBackend*>(backend())->int8Functions();
-    int UNIT___, SRC_UNIT, DST_XUNIT;
-    core->MNNGetGemmUnit(&UNIT___, &SRC_UNIT, &DST_XUNIT);
+    int UNIT__, SRC_UNIT, DST_XUNIT;
+    core->MNNGetGemmUnit(&UNIT__, &SRC_UNIT, &DST_XUNIT);
     auto gcore = static_cast<CPUBackend*>(backend())->functions();
     auto pack = gcore->pack;
 
@@ -81,19 +81,20 @@ ErrorCode GemmInt8Executor::onResize(const std::vector<Tensor *> &inputs, const 
     mIm2ColParamter.kernelY         = 1;
     mIm2ColParamter.padX            = 0;
     mIm2ColParamter.padY            = 0;
-    mIm2ColParamter.kernelCountUnit = UP_DIV(input->channel(), SRC_UNIT);
-    if (SRC_UNIT > UNIT___ && UNIT___ == pack) {
+    if (SRC_UNIT > pack) {
         const auto srcCountUnit = UP_DIV(input->channel(), pack);
+        mIm2ColParamter.kernelCountUnit = UP_DIV(srcCountUnit, SRC_UNIT / pack);
         mIm2ColParamter.ic = mIm2ColParamter.icDiv4 * pack;
     } else {
         const auto srcCountUnit = UP_DIV(input->channel(), SRC_UNIT);
-        mIm2ColParamter.ic = mIm2ColParamter.icDiv4 * pack;
+        mIm2ColParamter.kernelCountUnit = srcCountUnit;
+        mIm2ColParamter.ic = srcCountUnit * SRC_UNIT;
     }
 
     mTileCnt = UP_DIV(input->height() * input->width() * input->batch(), DST_XUNIT);
     const int threads = std::max(static_cast<CPUBackend*>(backend())->threadNumber(), 1);
     mThreadNums       = std::min(threads, mTileCnt);
-    
+
     mInputCol.reset(Tensor::createDevice<int8_t>({mThreadNums, DST_XUNIT,  mIm2ColParamter.kernelCountUnit * SRC_UNIT}));
     bool success = backend()->onAcquireBuffer(mInputCol.get(), Backend::DYNAMIC);
     if (!success) {
@@ -137,7 +138,7 @@ ErrorCode GemmInt8Executor::onExecute(const std::vector<Tensor *> &inputs, const
 
     auto im2colPtr           = mInputCol->host<int8_t>();
     auto outputDataPtr       = output->host<float>();
-    
+
     auto bias_elesize = ocDiv4 * PackUnit;
     QuanPostTreatParameters quanParam;
     quanParam.scale = mScaleData.data();
@@ -156,7 +157,7 @@ ErrorCode GemmInt8Executor::onExecute(const std::vector<Tensor *> &inputs, const
     quanParam.weightQuanBias = mKernelSum.data();
     quanParam.extraScale = nullptr;
     float dequantScale = mMutableResource.mResource->mInputScale;
-    
+
     SumByAxisParams sumParams;
     sumParams.DST_XUNIT = DST_XUNIT;
     sumParams.SRC_UNIT = SRC_UNIT;
@@ -210,7 +211,7 @@ ErrorCode GemmInt8Executor::onExecute(const std::vector<Tensor *> &inputs, const
         threadFunction((int)tId);
     }
     MNN_CONCURRENCY_END();
-    
+
     // MNN_PRINT("deconv int8 execute: cost time: %llu us\n", kernelTimer.durationInUs());
     return NO_ERROR;
 }

@@ -146,15 +146,19 @@ static std::shared_ptr<MNN::Tensor> getDequantScale(const float* scale, int size
     }
     return dequantScale;
 }
-void MetalConvolutionCommon::loadWeight(const MNN::Convolution2D *conv, bool loadWeightInt8) {
+void MetalConvolutionCommon::loadWeight(const MNN::Op *op, bool loadWeightInt8) {
+    auto conv = op->main_as_Convolution2D();
     std::shared_ptr<ConvolutionCommon::Int8Common> qnt = NULL;
     if (loadWeightInt8) {
-        qnt          = ConvolutionCommon::load(conv, backend(), false, true);
+        qnt = ConvolutionCommon::load(op, backend(), false, true);
     } else if (conv->quanParameter()) {
-        qnt = ConvolutionCommon::load(conv, backend(), true);
+        qnt = ConvolutionCommon::load(op, backend(), true);
     }
     // param
     auto size   = qnt ? MAX(qnt->weight.size(), qnt->weightFloat.size()) : conv->weight()->size();
+    if (loadWeightInt8 && qnt->canUseInt4) {
+        size *= 2;
+    }
     auto common = conv->common();
     auto kw     = common->kernelX();
     auto kh     = common->kernelY();
@@ -185,6 +189,59 @@ std::shared_ptr<MNN::Tensor> MetalConvolutionCommon::weightTransform(int group, 
     auto goc_4  = UP_DIV(goc, 4);
     auto gic_4  = UP_DIV(gic, 4);
     auto weight_len = group * ROUND_UP(goc_4, 4) * gic_4 * kw * kh * 16;
+
+    if (int4Weight) {
+        weight_len = UP_DIV(weight_len, 2);
+        std::shared_ptr<MNN::Tensor> weightLow(MNN::Tensor::createDevice<int8_t>({weight_len}));
+        auto res = backend->onAcquireBuffer(weightLow.get(), Backend::STATIC);
+        if (!res) {
+            MNN_ERROR("Memory alloc error!\n");
+            return nullptr;
+        }
+        auto srcPtr = (int8_t*)src;
+        auto buf = MetalBackend::getBuffer(weightLow.get());
+        auto dstPtr = (uint8_t*)[buf.first contents] + buf.second;
+        auto oc_4  = UP_DIV(oc, 4);
+        auto ic_4  = UP_DIV(ic, 4);
+        if (group == 1 && kh == 1 && kw == 1) {
+            // fast int4 reorder
+            for (int i = 0; i < oc; i++) {
+                auto zo = i / 4, ro = i % 4;
+                for (int j = 0; j < ic; j++) {
+                    auto zi = j / 4, ri = j % 4;
+                    dstPtr[((zo * ic_4 + zi) * 16 + ro * 4 + ri) / 2] = srcPtr[(i * ic + j) / 2];
+                }
+            }
+        } else {
+            // slow int4 reorder
+            int sx = 0;
+            auto goc_4  = UP_DIV(goc, 4);
+            auto gic_4  = UP_DIV(gic, 4);
+            ::memset(dstPtr, 0, weight_len);
+            for (int g = 0; g < group; g++) {
+                for (int o = 0; o < goc; o++) {
+                    auto zo = o / 4, ro = o % 4;
+                    for (int i = 0; i < gic; i++) {
+                        auto zi = i / 4, ri = i % 4;
+                        for (int h = 0; h < kh; h++) {
+                            for (int w = 0; w < kw; w++) {
+                                // to   [g][o/4][i/4][h][w][16]
+                                // from [g][o][i][h][w]
+                                int dx = g * goc_4 * gic_4 * kh * kw * 16 + zo * gic_4 * kh * kw * 16 + ro * 4 + zi * kh * kw * 16 + ri + (h * kw + w) * 16;
+                                uint8_t s = srcPtr[sx/2];
+                                s = (sx % 2) ? (s & 0xf) : (s >> 4);
+                                s = (dx % 2) ? s : (s << 4);
+                                dstPtr[dx/2] |= s;
+                                sx++;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return weightLow;
+    }
+
     std::shared_ptr<MNN::Tensor> t(MNN::Tensor::createDevice<float>({weight_len}));
     if (int8Weight || int4Weight) {
         t.reset(MNN::Tensor::createDevice<int8_t>({weight_len}));
@@ -195,33 +252,14 @@ std::shared_ptr<MNN::Tensor> MetalConvolutionCommon::weightTransform(int group, 
     }
     auto buffer = MetalBackend::getBuffer(t.get());
     auto dst = (uint8_t*)[buffer.first contents] + buffer.second;
-
-    if (int8Weight || int4Weight) {
+    if (int8Weight) {
         weightInBlock<int8_t, int8_t>(group, oc, ic, kh, kw, (int8_t*)src, dst);
     } else if (backend->useFp16InsteadFp32()) {
         weightInBlock<float, __fp16>(group, oc, ic, kh, kw, src, dst);
     } else {
         weightInBlock<float, float>(group, oc, ic, kh, kw, src, dst);
     }
-    if (int4Weight) {
-        weight_len = UP_DIV(weight_len, 2);
-        std::shared_ptr<MNN::Tensor> weightLow(MNN::Tensor::createDevice<int8_t>({weight_len}));
-        auto res = backend->onAcquireBuffer(weightLow.get(), Backend::STATIC);
-        if (!res) {
-            MNN_ERROR("Memory alloc error!\n");
-            return nullptr;
-        }
-        auto srcPtr = (int8_t*)dst;
-        auto buf = MetalBackend::getBuffer(weightLow.get());
-        auto dstPtr = (uint8_t*)[buf.first contents] + buf.second;
-        for (int i=0; i < weight_len; ++i) {
-            int s0 = srcPtr[2 * i + 0];
-            int s1 = srcPtr[2 * i + 1];
-            int d = (s0 + 8) * 16 + (s1 + 8);
-            dstPtr[i] = d;
-        }
-        return weightLow;
-    }
+
     return t;
 }
 

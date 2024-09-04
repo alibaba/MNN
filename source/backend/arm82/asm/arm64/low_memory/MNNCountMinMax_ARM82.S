@@ -116,7 +116,7 @@ stp d8,  d9,  [sp, #(16 * 3)]
 Start:
 ld1 {v31.8h}, [x0], #16
 sub x3, x3, #1
-mov v30.8h, v31.8h // v30:min v31:max
+mov v30.16b, v31.16b // mov v30.8h, v31.8h // v30:min v31:max
 
 
 TILE_24:

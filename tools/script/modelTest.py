@@ -186,6 +186,7 @@ flag = ''
 if runStatic:
     flag = 'STATIC'
 print('TEST_NAME_MODEL%s: 模型测试%s\nTEST_CASE_AMOUNT_MODEL%s: {\"blocked\":0,\"failed\":%d,\"passed\":%d,\"skipped\":0}\n'%(flag, flag, flag, len(gWrong), total_num - len(gWrong)))
+print('TEST_CASE={\"name\":\"模型测试%s\",\"failed\":%d,\"passed\":%d}\n'%(flag, len(gWrong), total_num - len(gWrong)))
 if len(gWrong) > 0:
     exit(1)
 

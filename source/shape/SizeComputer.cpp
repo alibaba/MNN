@@ -208,7 +208,7 @@ std::vector<int> SizeComputer::needInputContent(const MNN::Op* op, int inputSize
                 return std::vector<int>{ inputSize - 1 };
             }
         }
-        if (inputSize > 1 && (op->type() == OpType_Squeeze || op->type() == OpType_Unsqueeze)) {
+        if (inputSize > 1 && (op->type() == OpType_Squeeze || op->type() == OpType_Unsqueeze || op->type() == OpType_ReverseSequence || op->type() == OpType_Reverse)) {
             return std::vector<int>{1};
         }
         if (op->type() == OpType_CumSum) {

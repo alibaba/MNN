@@ -26,8 +26,9 @@
 namespace MNN {
 
 static Execution* _createUnit(const Tensor* input, const Tensor* output, Backend* backend,
-                              const Convolution2D* conv2d, const float* originWeight, size_t originWeightSize, const float* bias, size_t biasSize, std::shared_ptr<ConvolutionCommon::Int8Common> weightQuantInfo, bool supportSparse, bool lowMemory) {
+                              const Op* op, const float* originWeight, size_t originWeightSize, const float* bias, size_t biasSize, std::shared_ptr<ConvolutionCommon::Int8Common> weightQuantInfo, bool supportSparse, bool lowMemory) {
     auto cpuBackend = (CPUBackend*)backend;
+    auto conv2d = op->main_as_Convolution2D();
     auto common = conv2d->common();
 #ifdef MNN_USE_ONEDNN
     return OneDNN::createConvolution(common, backend, originWeight, originWeightSize, bias, biasSize);
@@ -47,9 +48,10 @@ static Execution* _createUnit(const Tensor* input, const Tensor* output, Backend
 
     if (lowMemory && nullptr != weightQuantInfo.get() && originWeightSize == 0) {
         if (cpuBackend->memoryMode() == BackendConfig::Memory_Low) {
-            auto core = static_cast<CPUBackend*>(backend)->functions();
-            auto resourceInt8 = CPUConvolution::makeResourceInt8(backend, conv2d, core->pack);
-            return new DenseConvInt8TiledExecutor(backend, conv2d, resourceInt8, true);
+            // auto core = static_cast<CPUBackend*>(backend)->functions();
+            // auto resourceInt8 = CPUConvolution::makeResourceInt8(backend, op, core->pack);
+            // return new DenseConvInt8TiledExecutor(backend, op, resourceInt8, true);
+            return new DenseConvInt8TiledExecutor(backend, op, weightQuantInfo);
         } else {
             return new DenseConvolutionTiledExecutor(common, backend, originWeight, originWeightSize, bias, biasSize, weightQuantInfo);
         }
@@ -107,7 +109,7 @@ Execution* ConvolutionFloatFactory::create(const std::vector<Tensor*>& inputs, c
             // The weight is storage as float sparse, but the backend don't support sparse compute, expand it
             forceFloat = true;
         }
-        quanCommon = ConvolutionCommon::load(conv2d, backend, forceFloat, lowMemory);
+        quanCommon = ConvolutionCommon::load(op, backend, forceFloat, lowMemory);
         if (nullptr == quanCommon) {
             MNN_ERROR("Memory not Enough, can't extract IDST Convolution: %s \n", op->name()->c_str());
             return nullptr;
@@ -143,7 +145,7 @@ Execution* ConvolutionFloatFactory::create(const std::vector<Tensor*>& inputs, c
     }
     MNN_ASSERT(group > 0);
     if (1 == group) {
-        return _createUnit(inputs[0], outputs[0], backend, conv2d, originWeight, originWeightSize,
+        return _createUnit(inputs[0], outputs[0], backend, op, originWeight, originWeightSize,
                            originBias, originBiasSize, quanCommon, supportSparse, lowMemory);
     }
     // TODO: Use Geometry to split
@@ -157,7 +159,7 @@ Execution* ConvolutionFloatFactory::create(const std::vector<Tensor*>& inputs, c
     emptyOutput->setLength(1, outputs[0]->channel() / group);
     for (int i = 0; i < group; ++i) {
         auto newConvolution =
-            _createUnit(emptyInput.get(), emptyOutput.get(), backend, conv2d, originWeight + groupWeightSize * i,
+            _createUnit(emptyInput.get(), emptyOutput.get(), backend, op, originWeight + groupWeightSize * i,
                         groupWeightSize, conv2d->bias()->data() + groupOutputCount * i, groupOutputCount, quanCommon, supportSparse, lowMemory);
         subConvolution.push_back(std::shared_ptr<Execution>(newConvolution));
     }

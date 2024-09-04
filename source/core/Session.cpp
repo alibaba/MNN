@@ -87,10 +87,24 @@ void Session::ModeGroup::setHint(Interpreter::HintMode mode, int hint) {
         case Interpreter::KVCACHE_QUANT_OPTIONS:
             runtimeHint.kvcacheQuantOption = hint;
             break;
+        case Interpreter::KVCACHE_SIZE_LIMIT:
+            runtimeHint.kvcacheSizeLimit = hint;
+            break;
         default:
             break;
     }
 }
+
+void Session::ModeGroup::setExternalPath(std::string path, int type) {
+    switch (type) {
+        case MNN::Interpreter::EXTERNAL_PATH_KVCACHE_DIR:
+            runtimeHint.kvcacheDirPath = path;
+            break;
+        default:
+            break;
+    }
+}
+
 Session::Session(Schedule::ScheduleInfo&& info, const ModeGroup& mode, RuntimeInfo&& runtime) {
     mMode = mode;
     mRuntime = std::move(runtime);
@@ -251,18 +265,10 @@ ErrorCode Session::resize() {
             }
         }
         if(mMemoryUsageMode == Interpreter::Session_Memory_Collect) {
-            #ifdef LOG_VERBOSE
-            float memory = 0.0f;
-            #endif
+            mRuntime.second->onGabageCollect(0);
             for (auto& iter : mRuntime.first) {
                 iter.second->onGabageCollect(0);
-                #ifdef LOG_VERBOSE
-                memory += iter.second->onGetMemoryInMB();
-                #endif
             }
-            #ifdef LOG_VERBOSE
-            FUNC_PRINT_ALL(memory, f);
-            #endif
         }
         mNeedMalloc = false;
         mNeedResize = false;
@@ -428,13 +434,14 @@ ErrorCode Session::updateToModel(Net* net) const {
 
 static void initTensors(std::vector<std::shared_ptr<Tensor>>& tensors, const std::vector<std::shared_ptr<Tensor>>& tensorSrc) {
     for (int i=0; i<tensors.size(); ++i) {
+        if (tensorSrc[i].get() == nullptr) {
+            continue;
+        }
         // Init all tensor except for const
         if (tensors[i].get() == nullptr) {
             tensors[i].reset(new Tensor);
             TensorUtils::getDescribe(tensors[i].get())->index = i;
         }
-    }
-    for (int i = 0; i < tensors.size(); ++i) {
         auto srcDes = TensorUtils::getDescribe(tensorSrc[i].get());
         if (srcDes->quantAttr != nullptr) {
             TensorUtils::getDescribe(tensors[i].get())->quantAttr.reset(new QuantAttr);

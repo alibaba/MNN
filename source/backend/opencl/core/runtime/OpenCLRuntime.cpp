@@ -195,6 +195,7 @@ OpenCLRuntime::OpenCLRuntime(const BackendConfig::PrecisionMode precision, const
             mIsDeviceSupportedLowPower = (mIsDeviceSupportedLowPower || isPriorityHint);
             
             #ifdef MNN_USE_LIB_WRAPPER
+            mIsSupportGL = !OpenCLSymbolsOperator::getOpenclSymbolsPtr()->isGlError();
             if(isPriorityHint)
             {
                 if(true == OpenCLSymbolsOperator::getOpenclSymbolsPtr()->isPropError())
@@ -411,6 +412,10 @@ void OpenCLRuntime::setCommandQueueProfileDisable() {
 unsigned int OpenCLRuntime::getQueueNum() {
     mQueueCount++;
     return mQueueCount;
+}
+
+std::map<std::string, uint32_t>& OpenCLRuntime::preParamsMap(){
+    return mPreParams;
 }
 
 std::map<std::vector<uint32_t>, std::vector<uint32_t>>& OpenCLRuntime::tunedGemmParamsMap() {
@@ -863,6 +868,14 @@ std::pair<const void*, size_t> OpenCLRuntime::makeCache(void* tuneInfo) {
         cache->gemm.emplace_back(std::move(tuning));
     }
     
+    // Get All PreParam cache
+    for(auto& iter : mPreParams){
+        std::unique_ptr<PreParamInfoT> info(new PreParamInfoT);
+        info->preParamName = iter.first;
+        info->preParamData = iter.second;
+        cache->preParam.emplace_back(std::move(info));
+    }
+    
     flatbuffers::FlatBufferBuilder builder;
     auto lastOffset = Cache::Pack(builder, cache.get());
     builder.Finish(lastOffset);
@@ -962,6 +975,19 @@ bool OpenCLRuntime::setCache(std::pair<const void*, size_t> cache) {
                 params[v] = tun->paramInfo()->data()[v];
             }
             mTunedGemmParams.insert(std::make_pair(info, params));
+        }
+    }
+    
+    //Load PreParam Info
+    if(nullptr != cacheBuffer->preParam()){
+        auto preParamInfo = cacheBuffer->preParam();
+        for(int i = 0; i < preParamInfo->size(); ++i){
+            auto info = preParamInfo->GetAs<PreParamInfo>(i);
+            if (nullptr == info->preParamName()) {
+                MNN_ERROR("Error preParam info\n");
+                return false;
+            }
+            mPreParams.insert(std::make_pair(info->preParamName()->str(), info->preParamData()));
         }
     }
     return true;

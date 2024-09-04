@@ -109,6 +109,9 @@ public:
     float getCLVersion() {
         return mCLVersion;
     }
+    bool isSupportGL(){
+    	return mIsSupportGL;
+	}
 #ifdef MNN_OPENCL_SVM_ENABLE
     cl_device_svm_capabilities getSvmCapabilities() {
         return mSvmCapabilities;
@@ -141,6 +144,8 @@ public:
     unsigned int mKernelTime = 0;
     
     
+    std::map<std::string, uint32_t>& preParamsMap();
+    
     std::map<std::vector<uint32_t>, std::vector<uint32_t>>& tunedGemmParamsMap();
 
     std::map<std::pair<std::string, std::vector<uint32_t>>, std::pair<std::vector<uint32_t>, uint32_t>>& tunedLwsMap();
@@ -169,11 +174,11 @@ public:
 
     std::pair<const void*, size_t> makeCache(void* tuneInfo);
     bool setCache(std::pair<const void*, size_t> cache);
+    void setGpuMode(const int cl_mode_num);
 private:
     bool loadProgram(const std::string &programName, cl::Program *program);
     bool buildProgram(const std::string &buildOptionsStr, cl::Program *program);
     bool getDeviceSupportsExtension(const cl::Device &device, const char *extensionName);
-    void setGpuMode(const int cl_mode_num);
 
 private:
     std::vector<size_t> mMaxImageSize;
@@ -209,6 +214,7 @@ private:
     bool mSupportDotInt8 = false;
     bool mSupportDotAccInt8 = false;
     bool mSupportedIntelSubgroup = false;
+    bool mIsSupportGL = true;
     GpuType mGpuType;
     MaliAr mMaliAr;
     float mCLVersion = 1.0f;
@@ -228,6 +234,7 @@ private:
     double mStartNanos;
     double mStopNanos;
 
+    std::map<std::string, uint32_t> mPreParams;
     std::map<std::vector<uint32_t>, std::vector<uint32_t>> mTunedGemmParams;
     std::map<std::pair<std::string, std::vector<uint32_t>>, std::pair<std::vector<uint32_t>,  uint32_t>> mTunedLws;
     std::map<std::string, std::vector<std::pair<std::vector<uint32_t>, std::pair<std::vector<uint32_t>,  uint32_t>>>> mTuneLws;

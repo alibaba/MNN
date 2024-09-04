@@ -102,7 +102,7 @@ public:
                 return false;
             }
         }
-        
+
         //Interp Type:3
         {
             auto output                             = _Interp({input, scaleVar}, wScale, hScale, outW, outH, 3, false);
@@ -145,7 +145,7 @@ public:
         auto scaleVar = _Const((void*)scales, {4}, NCHW);
         int outW = int(wScale * 2);
         int outH = int(hScale * 2);
-        
+
         //Interp Type:1
         {
             printf("InterpInt8 test: Type=1\n");
@@ -190,7 +190,7 @@ public:
                 return false;
             }
         }
-        
+
         // Interp Type:3
         {
             printf("InterpInt8 test: Type=3\n");

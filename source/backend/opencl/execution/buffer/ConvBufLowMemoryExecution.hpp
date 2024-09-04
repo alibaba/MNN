@@ -28,8 +28,8 @@ private:
     void set1x1WeightLowMemory(int packCout, int packCin, void * filterDataPtr, std::shared_ptr<ConvolutionCommon::Int8Common> & quanCommon);
     void setGeneralWeightLowMemory(void * filterDataPtr, std::shared_ptr<ConvolutionCommon::Int8Common> & quanCommon);
     void tuneGeneralCaseLowMemory(Tensor * input, Tensor * output);
-    void tuneGemmLowMemory(Tensor * input, Tensor * output);
-    void tuneGemvBatchLowMemory(Tensor * input, Tensor * output);
+    unsigned int tuneGemmLowMemory(Tensor * input, Tensor * output);
+    unsigned int tuneGemvBatchLowMemory(Tensor * input, Tensor * output);
     bool convertToQuantWeight1x1Buffer(cl::Buffer input, int pack);
     std::vector<int> mPaddings{0, 0};
     std::vector<uint32_t> mGlobalWorkSize{1, 1, 1};
@@ -39,6 +39,7 @@ private:
     std::shared_ptr<Tensor> mConvGemmInpTensor;
     std::shared_ptr<Tensor> mConvGemmOutTensor;
     std::shared_ptr<KernelWrap> mBufferToConv1x1Kernel = nullptr;
+    uint32_t batchConvMode = 0; // batch > 1 convolution input arrage mode. 0 is need tune; 1 arrage to n/4chw4; 2 arrage to c/4hwn4
 };
 
 } // namespace OpenCL

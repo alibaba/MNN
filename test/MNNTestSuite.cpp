@@ -33,6 +33,7 @@ void MNNTestSuite::add(MNNTestCase* test, const char* name) {
 static void printTestResult(int wrong, int right, const char* flag) {
     MNN_PRINT("TEST_NAME_UNIT%s: 单元测试%s\nTEST_CASE_AMOUNT_UNIT%s: ", flag, flag, flag);
     MNN_PRINT("{\"blocked\":0,\"failed\":%d,\"passed\":%d,\"skipped\":0}\n", wrong, right);
+    MNN_PRINT("TEST_CASE={\"name\":\"单元测试%s\",\"failed\":%d,\"passed\":%d}\n", flag, wrong, right);
 }
 
 int MNNTestSuite::run(const char* key, int precision, const char* flag) {

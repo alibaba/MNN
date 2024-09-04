@@ -45,17 +45,18 @@ public:
             auto conv2d = convOp->main_as_Convolution2D();
             auto common = conv2d->common();
             auto pack = static_cast<CPUBackend*>(b)->functions()->pack;
-            mResource = CPUConvolution::makeResourceInt8(backend(), conv2d, pack);
+            mResource = CPUConvolution::makeResourceInt8(backend(), convOp, pack);
             CPUConvolution::MutableResourceInt8 mutableResource(mResource, b);
             auto core = static_cast<CPUBackend*>(b)->int8Functions();
             auto gemmKernel = core->Int8GemmKernel;
             int UNIT, SRC_UNIT, DST_XUNIT;
             core->MNNGetGemmUnit(&UNIT, &SRC_UNIT, &DST_XUNIT);
             const auto kEleCnt = mCommon->kernelX() * mCommon->kernelY();
-            const int ocDiv4 = UP_DIV(common->outputCount(), UNIT) * kEleCnt; 
+            const int ocDiv4 = UP_DIV(common->outputCount(), pack) * kEleCnt; 
             const int icDiv4 = UP_DIV(common->inputCount(), SRC_UNIT);
+            const int ocDivUnit = UP_DIV(common->outputCount(), UNIT); 
             const int oc4 = ocDiv4 / kEleCnt;
-            const int bias_elesize = ocDiv4 * UNIT;
+            const int bias_elesize = ocDiv4 * pack;
             // set offset if use SSE.
             auto inputQuant = TensorUtils::getQuantInfo(input);
             auto inputZeroPoint = inputQuant[1];
@@ -66,7 +67,7 @@ public:
                 gemmKernel = core->Int8GemmKernelFast;
             }
             for (int a = 0; a < kEleCnt; ++a){
-                for (int oz = 0; oz < oc4 * UNIT; ++oz) {
+                for (int oz = 0; oz < ocDivUnit * UNIT; ++oz) {
                 int offset = inputZeroPoint, oz4 = oz / UNIT, ozRemain = oz % UNIT;
                 for (int sz = 0; sz < icDiv4 * SRC_UNIT; ++sz) {
                     int sz4 = sz / SRC_UNIT, szRemain = sz % SRC_UNIT;
@@ -74,7 +75,9 @@ public:
                     auto weightInt8Data = weightDataPtr[index];
                     offset += weightInt8Data * (-128);
                 }
-                _bias[a * oc4 * UNIT + oz] = offset;
+                if (oz < oc4 * pack) {
+                    _bias[a * oc4 * pack + oz] = offset;
+                }
         }
     }
 #else
@@ -82,7 +85,7 @@ public:
                 gemmKernel = core->Int8GemmKernelFast;
             }
 #endif
-            mDeconvInt8Exe.reset(new GemmInt8Executor(b, mResource, conv2d, gemmKernel, _bias));
+            mDeconvInt8Exe.reset(new GemmInt8Executor(b, mResource, convOp, gemmKernel, _bias));
         }
     }
     virtual ~CPUDeconvolutionOrigin() = default;

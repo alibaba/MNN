@@ -49,7 +49,7 @@ ErrorCode NPUConvolutionDepthwise::onResize(const std::vector<Tensor *> &inputs,
     }
     std::shared_ptr<MNN::ConvolutionCommon::Int8Common> quanCommon;
     if (nullptr != conv2D->quanParameter()) {
-        quanCommon = ConvolutionCommon::load(conv2D, backend(), true);
+        quanCommon = ConvolutionCommon::load(mOp, backend(), true);
         if (nullptr == quanCommon) {
             MNN_ERROR("Memory not Enough, can't extract IDST Convolution: %s \n", mOp->name()->c_str());
         }
@@ -71,7 +71,7 @@ ErrorCode NPUConvolutionDepthwise::onResize(const std::vector<Tensor *> &inputs,
     shared_ptr<hiai::op::ConvolutionDepthwise> conv(new hiai::op::ConvolutionDepthwise(opName));
 
     auto xOp = mNpuBackend->getInputOps(mOp);
-    
+
     // om input weight const op
     mConst_w = hiai::op::Const(opName + "_w_const");
     {

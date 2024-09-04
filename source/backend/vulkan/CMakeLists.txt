@@ -43,5 +43,5 @@ else()
 endif()
 
 if (CMAKE_SYSTEM_NAME MATCHES "^Android")
-  add_definitions(-DVK_USE_PLATFORM_ANDROID_KHR)
+    add_definitions(-DVK_USE_PLATFORM_ANDROID_KHR)
 endif()

@@ -111,33 +111,49 @@ bool initConstTensors(std::vector<std::shared_ptr<Tensor>>& tensors, const Net* 
     return valid;
 }
 
-bool initTensors(std::vector<std::shared_ptr<Tensor>>& tensors, const Net* net) {
+static void _createTensor(std::shared_ptr<Tensor>& dst, int index) {
+    if (dst.get() == nullptr) {
+        dst.reset(new Tensor);
+        TensorUtils::getDescribe(dst.get())->index = index;
+    }
+}
+bool initTensors(std::vector<std::shared_ptr<Tensor>>& tensors, const Net* net, const int* oplists, size_t opListSize) {
     bool valid    = true;
     auto describes = net->extraTensorDescribe();
-    std::vector<const TensorDescribe*> des(tensors.size());
-    for (int i=0; i<tensors.size(); ++i) {
-        // Init all tensor except for const
-        if (tensors[i].get() == nullptr) {
-            tensors[i].reset(new Tensor);
-            TensorUtils::getDescribe(tensors[i].get())->index = i;
-            // MNN_PRINT("initTensors create tensor:%p, index:%d, backend:%d\n", tensors[i].get(), i, TensorUtils::getDescribe(tensors[i].get())->backend);
+    if (nullptr != oplists) {
+        for (int i=0; i<opListSize; ++i) {
+            auto op = net->oplists()->GetAs<Op>(oplists[i]);
+            if (nullptr != op->inputIndexes()) {
+                for (int v=0; v<op->inputIndexes()->size(); ++v) {
+                    auto index = op->inputIndexes()->data()[v];
+                    _createTensor(tensors[index], index);
+                }
+            }
+            if (nullptr != op->outputIndexes()) {
+                for (int v=0; v<op->outputIndexes()->size(); ++v) {
+                    auto index = op->outputIndexes()->data()[v];
+                    _createTensor(tensors[index], index);
+                }
+            }
+        }
+    } else {
+        for (int i=0; i<tensors.size(); ++i) {
+            // Init all tensor except for const
+            _createTensor(tensors[i], i);
         }
     }
     if (describes) {
         for (int i = 0; i < describes->size(); i++) {
-            int index  = describes->GetAs<TensorDescribe>(i)->index();
-            des[index] = describes->GetAs<TensorDescribe>(i);
-        }
-    }
-    for (int i = 0; i < tensors.size(); ++i) {
-        if (des[i] != nullptr && des[i]->quantInfo()) {
-            TensorUtils::getDescribe(tensors[i].get())->quantAttr.reset(new QuantAttr);
-            auto quant   = TensorUtils::getDescribe(tensors[i].get())->quantAttr.get();
-            quant->scale =  des[i]->quantInfo()->scale();
-            quant->zero  =  des[i]->quantInfo()->zero();
-            quant->min   =  des[i]->quantInfo()->min();
-            quant->max   =  des[i]->quantInfo()->max();
-            // Don't copy datatype, it can be set by backend
+            auto des = describes->GetAs<TensorDescribe>(i);
+            int index = des->index();
+            if (tensors[index].get() != nullptr && des->quantInfo()) {
+                TensorUtils::getDescribe(tensors[index].get())->quantAttr.reset(new QuantAttr);
+                auto quant   = TensorUtils::getDescribe(tensors[index].get())->quantAttr.get();
+                quant->scale =  des->quantInfo()->scale();
+                quant->zero  =  des->quantInfo()->zero();
+                quant->min   =  des->quantInfo()->min();
+                quant->max   =  des->quantInfo()->max();
+            }
         }
     }
     // Set Input Tensor, if the type of input is not the same with ExtraTensorDescribe, use input parameter
@@ -147,6 +163,9 @@ bool initTensors(std::vector<std::shared_ptr<Tensor>>& tensors, const Net* net) 
             MNN_ASSERT(nullptr != op->outputIndexes());
             MNN_ASSERT(op->outputIndexes()->size() == 1);
             auto index      = op->outputIndexes()->data()[0];
+            if (tensors[index].get() == nullptr) {
+                continue;
+            }
             auto tensor     = tensors[index].get();
             auto& tb        = tensor->buffer();
             auto inputParam = op->main_as_Input();
@@ -175,17 +194,16 @@ bool initTensors(std::vector<std::shared_ptr<Tensor>>& tensors, const Net* net) 
         return valid;
     }
     // static model will set all tensors' shape
-    for (int i = 0; i < describes->size(); i++) {
-        int index  = describes->GetAs<TensorDescribe>(i)->index();
-        des[index] = describes->GetAs<TensorDescribe>(i);
-    }
-    for (int i = 0; i < tensors.size(); ++i) {
-        if (TensorUtils::getDescribe(tensors[i].get())->usage != Tensor::InsideDescribe::NORMAL) {
+    for (int v = 0; v < describes->size(); v++) {
+        auto des = describes->GetAs<TensorDescribe>(v);
+        int index = des->index();
+        auto tensorDes = TensorUtils::getDescribe(tensors[index].get());
+        if (tensorDes->usage != Tensor::InsideDescribe::NORMAL) {
             // Const / Trainable Shape has been inited
             continue;
         }
-        auto blob = des[i]->blob();
-        auto& tb = tensors[i]->buffer();
+        auto blob = des->blob();
+        auto& tb = tensors[index]->buffer();
         if (auto idims = blob->dims()) {
             for (int d = 0; d < idims->size(); d++) {
                 tb.dim[d].extent = idims->Get(d);
@@ -194,14 +212,12 @@ bool initTensors(std::vector<std::shared_ptr<Tensor>>& tensors, const Net* net) 
         } else {
             tb.dimensions = 0;
         }
-        tensors[i]->setType(blob->dataType());
-    }
-    for (int i = 0; i < tensors.size(); ++i) {
-        auto blob                                                   = des[i]->blob();
-        TensorUtils::getDescribe(tensors[i].get())->dimensionFormat = blob->dataFormat();
-        if (auto regions = des[i]->regions()) {
-            auto& regs = TensorUtils::getDescribe(tensors[i].get())->regions;
-            TensorUtils::getDescribe(tensors[i].get())->memoryType = Tensor::InsideDescribe::MEMORY_BACKEND;
+        tensors[index]->setType(blob->dataType());
+        tensorDes->dimensionFormat = blob->dataFormat();
+        if (auto regions = des->regions()) {
+            auto& regs = tensorDes->regions;
+            tensorDes->memoryType = Tensor::InsideDescribe::MEMORY_BACKEND;
+            regs.clear();
             regs.reserve(regions->size());
             for (int r = 0; r < regions->size(); r++) {
                 auto region = regions->GetAs<Region>(r);

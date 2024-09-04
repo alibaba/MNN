@@ -39,6 +39,15 @@ struct RuntimeHint {
     // 2: Only quantize value cache, use fp8 quantization
     // 3: quantize both key and value cache as described above
     int kvcacheQuantOption = 0;
+    
+    // the kvcache size limit of each layer
+    // if the size of kvcache in memory exceeds the limit
+    // it will be moved to disk to save memory
+    // -1 for no limit
+    int kvcacheSizeLimit = -1;
+
+    // path of the kvcache directory
+    std::string kvcacheDirPath = "/tmp";
 };
 /** abstract backend */
 class Backend : public NonCopyable {
@@ -263,7 +272,7 @@ public:
     /**
      @brief reset runtime
      */
-    virtual void onReset(int numberThread, const BackendConfig* config) {
+    virtual void onReset(int numberThread, const BackendConfig* config, bool full) {
         // Do nothing
     }
 

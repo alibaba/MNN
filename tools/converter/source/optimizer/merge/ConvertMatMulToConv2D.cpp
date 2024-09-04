@@ -381,7 +381,7 @@ ConvertMatMulToConv2D::ConvertMatMulToConv2D() {
             if (expr->get()->type() != OpType_BinaryOp && expr->get()->type() != OpType_MatMul) {
                 return false;
             }
-            if (expr->get()->type() != OpType_BinaryOp && expr->get()->main_as_BinaryOp() && expr->get()->main_as_BinaryOp()->opType() != BinaryOpOperation_ADD) {
+            if (expr->get()->type() == OpType_BinaryOp && expr->get()->main_as_BinaryOp() && expr->get()->main_as_BinaryOp()->opType() != BinaryOpOperation_ADD) {
                 return false;
             }
             VARP matmul_var;
@@ -395,6 +395,9 @@ ConvertMatMulToConv2D::ConvertMatMulToConv2D() {
                 if (matmul_expr->get() == nullptr) {
                     return false;
                 }
+                if (expr->inputs().size() > 2) {
+                    return false;
+                }
                 if (expr->inputs().size() > 1) {
                     bias_var = expr->inputs().at(1);
                     if (matmul_var->expr().first->get() == nullptr || matmul_var->expr().first->get()->type() == OpType_Const) {
@@ -403,10 +406,7 @@ ConvertMatMulToConv2D::ConvertMatMulToConv2D() {
                         matmul_expr = matmul_var->expr().first;
                     }
                 }
-                if (bias_var->getInfo() == nullptr) {
-                    return false;
-                }
-                if (bias_var->expr().first->inputType() == VARP::InputType::INPUT) {
+                if (matmul_expr->get() == nullptr || matmul_expr->get()->type() != OpType_MatMul ) {
                     return false;
                 }
                 // conv -> reshape -> convert -> add
@@ -424,9 +424,15 @@ ConvertMatMulToConv2D::ConvertMatMulToConv2D() {
                 if (matmul_var->linkNumber() > 1) {
                     return false;
                 }
+                if (bias_var->readMap<float>() == nullptr) {
+                    return false;
+                }
             } else {
                 matmul_expr = std::move(expr);
                 if (matmul_expr->inputs().size() != 8 && matmul_expr->inputs().size() != 9) {
+                    return false;
+                }
+                if (nullptr == matmul_expr->get() || matmul_expr->get()->type() != OpType_MatMul) {
                     return false;
                 }
                 matmulAddBias = false;
@@ -438,9 +444,7 @@ ConvertMatMulToConv2D::ConvertMatMulToConv2D() {
             auto input = matmul_expr->inputs().at(0);
             auto weight = matmul_expr->inputs()[1];
             auto weightInfo = weight->getInfo();
-            if (nullptr == matmulOp || matmulOp->type() != OpType_MatMul) {
-                return false;
-            }
+            
             if (nullptr == weightInfo || weightInfo->dim.size() != 2 || weightInfo->type.bits != 8) {
                 return false;
             }

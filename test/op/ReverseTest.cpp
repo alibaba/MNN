@@ -120,6 +120,28 @@ public:
                 }
             }
         }
+        
+        {   // test SizeComputer::needInputContent
+            int dim0 = 1, dim1 = 6, dim2 = 7, dim3 = 10, dim4 = 8;
+            auto x    = _Input({dim0, dim1, dim2, dim3, dim4}, NHWC, halide_type_of<float>());
+            auto x_transpose = _Transpose(x, {1, 0, 2, 3, 4});
+            auto x_shape = _Shape(x_transpose, NHWC);
+            int ii[]= {1};
+            auto x_gather = _Gather(x_shape, _Const(ii, {1}, NCHW, halide_type_of<int>()));
+            auto ry    = _Reverse(x_transpose, x_gather);
+            auto xPtr = x->writeMap<float>();
+            
+            for (int i = 0; i < dim0 * dim1 * dim2 * dim3 * dim4; ++i) {
+                xPtr[i] = 1;
+            }
+
+            auto ryPtr = ry->readMap<float>();
+
+            if (ryPtr == nullptr) {
+                MNN_PRINT("reverse case 3 error\n");
+                return false;
+            }
+        }
         return true;
     }
 };

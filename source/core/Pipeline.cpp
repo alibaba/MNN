@@ -270,6 +270,7 @@ ErrorCode Pipeline::encode(bool supportDebug, bool permitCodegen) {
     } else {
 #ifndef MNN_BUILD_MINI
         mContext.clear();
+        mContext.mNeedRelease = mGeometryNeedRelease;
         FileLoader l(mExternalFile.c_str());
         /** Size Compute and compute Const Begin */
         auto res = GeometryComputerUtils::shapeComputeAndGeometryTransform(&l, mInfo.second, mContext, mInfo.first.cache.second, mUseGeometry, false, permitCodegen);
@@ -877,12 +878,17 @@ void Pipeline::_recycleDynamicMemory(Command* command) {
     }
 }
 void Pipeline::openResizeCheck() {
+#ifndef MNN_BUILD_MINI
+    mGeometryNeedRelease = false;
     for (auto& info : mInfo.second) {
         info.computeCache.open();
     }
+#endif
 }
 
 ErrorCode Pipeline::fixResizeCache() {
+#ifndef MNN_BUILD_MINI
+    // TODO: Recompute release mask and set mGeometryNeedRelease = true
     for (auto& info : mInfo.second) {
         if (info.type == Schedule::CONSTANT && (!info.computeCache.needExecuteConst)) {
             info.executeBuffer.command.clear();
@@ -895,6 +901,7 @@ ErrorCode Pipeline::fixResizeCache() {
     res = res && mInfo.first.cache.second->onSelectDynamicAllocator(1, 2);
     if (!res) {
         MNN_PRINT("%d backend don't support resize fix optimize\n", mInfo.first.cache.first->type());
+        mGeometryNeedRelease = true;
         return NOT_SUPPORT;
     }
     size_t totalNumber = 0;
@@ -926,6 +933,14 @@ ErrorCode Pipeline::fixResizeCache() {
                         break;
                     }
                 }
+                if (mOutputStatic) {
+                    for (auto t : cmd.workOutputs) {
+                        if (TensorUtils::getDescribe(t)->usage != Tensor::InsideDescribe::NORMAL) {
+                            cmd.group = 0;
+                            break;
+                        }
+                    }
+                }
             }
             if (1 == cmd.group) {
                 fixNumber++;
@@ -946,6 +961,7 @@ ErrorCode Pipeline::fixResizeCache() {
     mInfo.first.cache.first->onSelectDynamicAllocator(0, 2);
     res && mInfo.first.cache.second->onSelectDynamicAllocator(0, 2);
     MNN_PRINT("Fix: %d - Total: %d, rate = %f\n", fixNumber, totalNumber, (float)fixNumber / (float)totalNumber);
+#endif
     return NO_ERROR;
 }
 ErrorCode Pipeline::_allocForTensor(int index, bool allocInput) {
@@ -1070,28 +1086,6 @@ ErrorCode Pipeline::_allocForTensor(int index, bool allocInput) {
 ErrorCode Pipeline::allocMemory(bool firstMalloc, bool forbidReplace) {
     // MNN_PRINT("allocMemory mtype:%d, cpubackendType:%d, cpuBackend runtime:%p\n", mBackend->type(), mBackupBackend->type(), mBackupBackend->getRuntime());
     if (!firstMalloc) {
-        // For session setNeedMalloc, if session's output is set as some input, It may cause error
-        // Dup des to avoid it
-        for (auto& info : mInfo.second) {
-            auto& buffer = info.executeBuffer;
-            for (const auto& infoP : buffer.command) {
-                auto& info = *infoP;
-                for (auto t : info.workOutputs) {
-                    if (!TensorUtils::getDescribe(t)->isMutable) {
-                        continue;
-                    }
-                    auto des = TensorUtils::getDescribe(t);
-                    auto usage = des->usage;
-                    if (TensorUtils::getDescribeOrigin(t)->mContent.use_count() > 1 && usage != Tensor::InsideDescribe::CONSTANT) {
-                        TensorUtils::getDescribeOrigin(t)->mem = nullptr;
-                        auto res = TensorUtils::getDescribeOrigin(t)->getBackend()->onAcquireBuffer(t, Backend::STATIC);
-                        if (!res) {
-                            return OUT_OF_MEMORY;
-                        }
-                    }
-                }
-            }
-        }
         if (OpCommonUtils::supportDynamicInputMemory(mInfo.first.cache.first->type()) && (!mInfo.first.inputBackendChange)) {
             return NO_ERROR;
         }

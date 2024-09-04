@@ -8,7 +8,7 @@
 
 #include "OpGrad.hpp"
 using namespace std;
-using namespace MNN;
+namespace MNN {
 using namespace MNN::Express;
 
 class TransposeGrad : public OpGrad {
@@ -67,10 +67,14 @@ public:
     }
 };
 
-static const auto gRegister = []() {
+static void _create() {
     static PermuteGrad _c;
     OpGrad::insert((int)OpType_Permute, &_c);
     static TransposeGrad _d;
     OpGrad::insert((int)OpType_Transpose, &_d);
-    return true;
-}();
+
+}
+
+REGISTER_GRAD(PermuteGrad_cpp, _create);
+};
+

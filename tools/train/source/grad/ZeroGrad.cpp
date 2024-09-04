@@ -9,7 +9,7 @@
 #include "ReluGrad.hpp"
 #include "core/Macro.h"
 using namespace std;
-using namespace MNN;
+namespace MNN {
 
 class ZeroGrad : public OpGrad {
 public:
@@ -23,8 +23,12 @@ public:
         return result;
     }
 };
-static const auto gRegister = []() {
+static void _create() {
     static ZeroGrad _c;
     OpGrad::insert(OpType_ZeroGrad, &_c);
-    return true;
-}();
+
+}
+
+REGISTER_GRAD(ZeroGrad_cpp, _create);
+};
+

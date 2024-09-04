@@ -12,7 +12,7 @@
 #include <math.h>
 
 using namespace std;
-using namespace MNN;
+namespace MNN {
 using namespace MNN::Express;
 
 
@@ -326,9 +326,13 @@ public:
     }
 };
 
-static const auto gRegister = []() {
+static void _create() {
     static InterpGrad _c;
     OpGrad::insert((int)OpType_Interp, &_c);
     OpGrad::insert((int)OpType_Resize, &_c);
-    return true;
-}();
+
+}
+
+REGISTER_GRAD(InterpGrad_cpp, _create);
+};
+

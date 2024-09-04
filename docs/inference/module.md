@@ -200,6 +200,9 @@ MNN::Express::ExecutorScope scope(executor);
 module_thread.reset();
 ```
 
+## 多线程
+Module 的创建与运行依赖其所绑定的 Executor ，若不指定，则为全局 Executor ，并非线程安全。在多线程创建 Module 或进行推理时，会竞争全局 Executor 的资源，需要上锁或绑定不同的 Executor 。
+
 ## 调试
 
 Module API 也支持使用回调函数进行调试，与[runSessionWithCallBack](session.html#id19)相似。示例代码：
@@ -230,6 +233,40 @@ Express::Executor::getGlobalExecutor()->setCallBack(std::move(beforeCallBack), s
 
 // forward would trigger callback
 std::vector<VARP> outputs  = user_module->onForward(inputs);
+```
+
+## 预推理分离模式
+对于满足 Interpreter-Session 运行条件的模型，若用户希望分离预推理（形状计算，几何计算，资源申请，策略搜索）与推理（内容计算）过程，可以设置预推理分离模式。示例代码如下：
+
+```cpp
+std::shared_ptr<Module> net(Module::load({"x"}, {"y"}, (const uint8_t*)buffer.data(), buffer.size()), Module::destroy);
+// 预推理分离模式
+auto code = net->traceOrOptimize(Interpreter::Module_Forward_Seperate);
+if (0 != code) {
+    // 若模型不支持预推理分离，需要还原设定
+    net->traceOrOptimize(Interpreter::Module_Forward_Combine);
+}
+
+/*预推理开始*/
+x = _Input({1, 3, 2, 2}, NCHW, halide_type_of<int>());
+auto input = x->writeMap<int>();
+y = net->onForward({x})[0];
+auto output = y->readMap<int>();
+
+/*预推理结束，获取输入和输出的数据指针*/
+
+/*内容计算*/
+/*
+Fill input
+*/
+
+// 输入空数组，表示仅进行推理
+net1->onForward({});
+
+/*
+Use output
+*/
+
 ```
 
 ## 示例代码

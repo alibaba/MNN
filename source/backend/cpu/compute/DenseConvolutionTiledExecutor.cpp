@@ -29,36 +29,12 @@ void DenseConvolutionTiledExecutor::initWeight(float *dest, const float *source,
 }
 bool DenseConvolutionTiledExecutor::initQuantizeResource(std::shared_ptr<ConvolutionCommon::Int8Common> int8Info, std::shared_ptr<CPUConvolution::Resource> resource, int hU, int hP, int lU, int lP, int outputCount, int srcChannel, int kernelSize, int bytes) {
     int weightLength = hU * lU * hP * lP;
-    resource->mWeight.reset(Tensor::createDevice<int8_t>(std::vector<int>{hU, lU * lP, hP}));
-//    resource->mWeight.reset(Tensor::createDevice<uint8_t>({weightLength}));
-    auto res = resource->backend->onAcquireBuffer(resource->mWeight.get(), Backend::STATIC);
-    if (!res) {
-        return false;
-    }
     resource->mDequantize.bits = 8;
     resource->lU = lU;
     resource->hU = hU;
     resource->lP = lP;
     resource->hP = hP;
     MNN_ASSERT(lP == 1);
-    // Reorder weight
-
-    auto dstWInt8 = resource->mWeight->host<int8_t>();
-    auto srcWInt8 = int8Info->weight.get();
-    ::memset(dstWInt8, 0, resource->mWeight->usize());
-    for (int y=0; y<outputCount; ++y) {
-        int yo = y / hP;
-        int yi = y % hP;
-        auto srcY = srcWInt8 + y * srcChannel * kernelSize;
-        auto dstY = dstWInt8 + yo * lP * hP * lU + yi;
-        for (int iz=0; iz<srcChannel; ++iz) {
-            for (int k=0; k<kernelSize; ++k) {
-                int sx = iz * kernelSize + k;
-                int dx = iz + k * srcChannel;
-                dstY[dx * hP] = srcY[sx];
-            }
-        }
-    }
     // Save scale bias
     int dequantCnt = int8Info->alpha.size();
     int scaleSize = dequantCnt; // real size
@@ -69,7 +45,7 @@ bool DenseConvolutionTiledExecutor::initQuantizeResource(std::shared_ptr<Convolu
     int blockNum = scaleSize / outputCount;
     scaleSize = blockNum * hU * hP; // pack size
     resource->mDequantize.mScaleBias.reset(MNN::Tensor::createDevice<uint8_t>({scaleSize * 2 * bytes}));
-    res = resource->backend->onAcquireBuffer(resource->mDequantize.mScaleBias.get(), Backend::STATIC);
+    auto res = resource->backend->onAcquireBuffer(resource->mDequantize.mScaleBias.get(), Backend::STATIC);
     if (!res) {
         return false;
     }
@@ -78,22 +54,68 @@ bool DenseConvolutionTiledExecutor::initQuantizeResource(std::shared_ptr<Convolu
         MNN_ASSERT(weightLength % 2 == 0);
         weightLength = UP_DIV(weightLength, 2);
         resource->mDequantize.bits = 4;
-        std::shared_ptr<MNN::Tensor> weightLow(Tensor::createDevice<int8_t>(
-            {weightLength}));
-        auto res = resource->backend->onAcquireBuffer(weightLow.get(), Backend::STATIC);
+        resource->mWeight.reset(Tensor::createDevice<int8_t>(std::vector<int>{weightLength}));
+        auto res = resource->backend->onAcquireBuffer(resource->mWeight.get(), Backend::STATIC);
         if (!res) {
             return false;
         }
-        auto srcPtr = resource->mWeight->host<int8_t>();
-        auto dstPtr = weightLow->host<unsigned char>();
-        for (int i=0; i<weightLength; ++i) {
-            int s0 = srcPtr[2 * i + 0] + 8;
-            int s1 = srcPtr[2 * i + 1] + 8;
-            int d = s0 * 16 + s1;
-            dstPtr[i] = d;
+        auto dstWInt4 = resource->mWeight->host<uint8_t>();
+        auto srcWInt4 = int8Info->weight.get();
+        if (kernelSize == 1 && srcChannel % 2 == 0 && hU * hP == outputCount) {
+            for (int i = 0; i < hU; i++) {
+                for (int j = 0; j < srcChannel/2; j++) {
+                    for (int k = 0; k < hP/2; k++) {
+                        uint8_t s0 = srcWInt4[((i * hP + (k * 2 + 0)) * srcChannel) / 2 + j];
+                        uint8_t s1 = srcWInt4[((i * hP + (k * 2 + 1)) * srcChannel) / 2 + j];
+                        uint8_t d0 = (s0 & 0xf0) | (s1 >> 4);
+                        uint8_t d1 = (s0 << 4) | (s1 & 0x0f);
+                        dstWInt4[(i * srcChannel + (j * 2 + 0)) * hP / 2 + k] = d0;
+                        dstWInt4[(i * srcChannel + (j * 2 + 1)) * hP / 2 + k] = d1;
+                    }
+                }
+            }
+        } else {
+            // [oc, ic, ks] -> [oc/hP, ks, ic, hP]
+            ::memset(dstWInt4, 0, resource->mWeight->usize());
+            for (int y = 0; y < outputCount; ++y) {
+                int yo = y / hP;
+                int yi = y % hP;
+                for (int iz = 0; iz < srcChannel; ++iz) {
+                    for (int k=0; k < kernelSize; ++k) {
+                        int sx = y * srcChannel * kernelSize + iz * kernelSize + k;
+                        int dx = yo * lP * hP * lU + (iz + k * srcChannel) * hP + yi;
+                        uint8_t s = srcWInt4[sx/2];
+                        s = (sx % 2) ? (s & 0xf) : (s >> 4);
+                        s = (dx % 2) ? s : (s << 4);
+                        dstWInt4[dx/2] |= s;
+                    }
+                }
+            }
         }
         originOffset = -8;
-        resource->mWeight = weightLow;
+    } else {
+        resource->mWeight.reset(Tensor::createDevice<int8_t>(std::vector<int>{hU, lU * lP, hP}));
+        auto res = resource->backend->onAcquireBuffer(resource->mWeight.get(), Backend::STATIC);
+        if (!res) {
+            return false;
+        }
+        // Reorder weight for int8
+        auto dstWInt8 = resource->mWeight->host<int8_t>();
+        auto srcWInt8 = int8Info->weight.get();
+        ::memset(dstWInt8, 0, resource->mWeight->usize());
+        for (int y=0; y<outputCount; ++y) {
+            int yo = y / hP;
+            int yi = y % hP;
+            auto srcY = srcWInt8 + y * srcChannel * kernelSize;
+            auto dstY = dstWInt8 + yo * lP * hP * lU + yi;
+            for (int iz=0; iz<srcChannel; ++iz) {
+                for (int k=0; k<kernelSize; ++k) {
+                    int sx = iz * kernelSize + k;
+                    int dx = iz + k * srcChannel;
+                    dstY[dx * hP] = srcY[sx];
+                }
+            }
+        }
     }
     auto alphaPtr = resource->mDequantize.mScaleBias->host<float>();
     auto biasPtr = reinterpret_cast<float*>(reinterpret_cast<uint8_t*>(alphaPtr) + scaleSize * bytes);
@@ -179,6 +201,9 @@ DenseConvolutionTiledExecutor::DenseConvolutionTiledExecutor(const Convolution2D
     if (useInt8Weight) {
         MNN_ASSERT(nullptr != int8Info.get());
         originWeightSize = int8Info->weight.size();
+    }
+    if (int8Info && int8Info->canUseInt4) {
+        originWeightSize *= 2;
     }
     // Don't use common->inputCount for old model common->inputCount is zero
     auto srcCount    = (int)originWeightSize / outputCount / common->kernelX() / common->kernelY();

@@ -22,14 +22,18 @@ public:
         std::vector<int8_t> quantWeight(kernelNum * kernelSize, 0);
         // IDST encode
         std::unique_ptr<IDSTQuanT> idstQuantT = IDSTEncoder::encode(weight.data(), scale, kernelSize, kernelNum, false, quantWeight.data(), -127);
-        std::unique_ptr<Convolution2DT> conv2dT(new Convolution2DT);
+        Convolution2DT* conv2dT = new Convolution2DT;
+        std::unique_ptr<OpT> opT(new OpT);
         conv2dT->quanParameter = std::move(idstQuantT);
+        opT->type = OpType_Convolution;
+        opT->main.type = OpParameter_Convolution2D;
+        opT->main.value = conv2dT;
         flatbuffers::FlatBufferBuilder builder;
-        auto lastOffset = Convolution2D::Pack(builder, conv2dT.get());
+        auto lastOffset = Op::Pack(builder, opT.get());
         builder.Finish(lastOffset);
-        auto conv2d = flatbuffers::GetRoot<Convolution2D>(builder.GetBufferPointer());
+        auto op = flatbuffers::GetRoot<Op>(builder.GetBufferPointer());
         // IDST decode
-        std::shared_ptr<ConvolutionCommon::Int8Common> common = ConvolutionCommon::load(conv2d);
+        std::shared_ptr<ConvolutionCommon::Int8Common> common = ConvolutionCommon::load(op);
         // is input == output ?
         bool res = (0 == memcmp(common->weightFloat.get(), weight.data(), weight.size()));
         return res;
