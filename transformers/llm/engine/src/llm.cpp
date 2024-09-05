@@ -12,10 +12,12 @@
 #include <unordered_set>
 #include <regex>
 
+#include <MNN/expr/Executor.hpp>
 #include <MNN/expr/ExecutorScope.hpp>
 #include <MNN/AutoTime.hpp>
 #include "cpp/ExprDebug.hpp"
 #include "llm/llm.hpp"
+#include "sampler/sampler.hpp"
 #include "tokenizer.hpp"
 #include "llmconfig.hpp"
 // 0: no debug, 1: test op time, 2: print tensor info
@@ -80,6 +82,64 @@ bool Llm::set_config(const std::string& content) {
     return config_->config_.merge(content.c_str());
 }
 
+void Llm::initSampler() {
+    std::string sampler_type = config_->sampler_type();
+    std::cout << "Selected Sampler: " << sampler_type << std::endl;
+    // LocalSampler
+    LocalSampler::LocalSamplerConfig local_sampler_config;
+    local_sampler_config.type = sampler_type;
+    if (sampler_type == "greedy") {
+        sampler_ = std::shared_ptr<Sampler>(new LocalSampler(this, config_->max_new_tokens(), local_sampler_config));
+        return;
+    }
+    if (sampler_type == "temperature") {
+        local_sampler_config.temperature = config_->temperature();
+        sampler_ = std::shared_ptr<Sampler>(new LocalSampler(this, config_->max_new_tokens(), local_sampler_config));
+        return;
+    }
+    if (sampler_type == "topK") {
+        local_sampler_config.temperature = config_->temperature();
+        local_sampler_config.topK = config_->topK();
+        sampler_ = std::shared_ptr<Sampler>(new LocalSampler(this, config_->max_new_tokens(), local_sampler_config));
+        return;
+    } 
+    if (sampler_type == "topP") {
+        local_sampler_config.temperature = config_->temperature();
+        local_sampler_config.topP = config_->topP();
+        sampler_ = std::shared_ptr<Sampler>(new LocalSampler(this, config_->max_new_tokens(), local_sampler_config));
+        return;
+    }
+    if (sampler_type == "minP") {
+        local_sampler_config.temperature = config_->temperature();
+        local_sampler_config.minP = config_->minP();
+        sampler_ = std::shared_ptr<Sampler>(new LocalSampler(this, config_->max_new_tokens(), local_sampler_config));
+        return;
+    }
+    if (sampler_type == "tfs") {
+        local_sampler_config.temperature = config_->temperature();
+        local_sampler_config.tfsZ = config_->tfsZ();
+        sampler_ = std::shared_ptr<Sampler>(new LocalSampler(this, config_->max_new_tokens(), local_sampler_config));
+        return;
+    }
+    if (sampler_type == "typical") {
+        local_sampler_config.temperature = config_->temperature();
+        local_sampler_config.typical = config_->typical();
+        sampler_ = std::shared_ptr<Sampler>(new LocalSampler(this, config_->max_new_tokens(), local_sampler_config));
+        return;
+    }
+    if (sampler_type == "penalty" || sampler_type == "penalize_ngram") {
+        local_sampler_config.temperature = config_->temperature();
+        local_sampler_config.penalty = config_->penalty();
+        local_sampler_config.ngram = config_->ngram();
+        local_sampler_config.ngram_factor = config_->ngram_factor();
+        sampler_ = std::shared_ptr<Sampler>(new LocalSampler(this, config_->max_new_tokens(), local_sampler_config));
+        return;
+    }
+    // AdvancedSampler
+    // Not Implemented
+    MNN_ERROR("Designated Sampler Not Supported!\n");
+}
+
 void Llm::init_runtime() {
     ScheduleConfig config;
     BackendConfig cpuBackendConfig;
@@ -89,7 +149,11 @@ void Llm::init_runtime() {
         cpuBackendConfig.memory = BackendConfig::Memory_Low;
     }
     if (config_->precision() == "low") {
+        std::cout << "Precision Low" << std::endl;
         cpuBackendConfig.precision = BackendConfig::Precision_Low;
+    } else {
+        std::cout << "Precision Normal" << std::endl;
+        cpuBackendConfig.precision = BackendConfig::Precision_Normal;
     }
     config.backendConfig = &cpuBackendConfig;
     ExecutorScope::Current()->setGlobalExecutorConfig(config.type, cpuBackendConfig, config.numThread);
@@ -112,6 +176,8 @@ void Llm::init_runtime() {
     {
         runtime_manager_->setCache(".tempcache");
     }
+    // init sampler
+    initSampler();
 }
 
 void Llm::load() {
@@ -227,7 +293,14 @@ void Llm::trace(bool start) {
     mTracing = start;
 }
 
-VARP Llm::forward(const std::vector<int>& input_ids) {
+VARP Llm::forward(const std::vector<int>& input_ids, bool prefill) {
+    // set modules, seperate prefill and decode phase
+    if (prefill){
+        current_modules_ = prefill_modules_;
+    } else
+    {
+        current_modules_ = decode_modules_;
+    }
     int seq_len = input_ids.size();
     auto attention_mask = gen_attention_mask(seq_len);
     auto position_ids = gen_position_ids(seq_len);
@@ -247,6 +320,7 @@ VARP Llm::forward(const std::vector<int>& input_ids) {
         if (!attention_fused_) {
             past_key_values_[0] = outputs[1];
         }
+        ExecutorScope::Current()->gc(Executor::FULL);
     } else {
         MNN_ERROR("Split models is depercarate\n");
         return nullptr;
@@ -256,28 +330,6 @@ VARP Llm::forward(const std::vector<int>& input_ids) {
     return logits;
 }
 
-int Llm::sample(VARP logits, const std::vector<int>& pre_ids) {
-    std::unordered_set<int> ids_set(pre_ids.begin(), pre_ids.end());
-    auto scores = (float*)(logits->readMap<float>());
-    auto size = logits->getInfo()->size;
-    // repetition penalty
-    const float repetition_penalty = 1.1;
-    for (auto id : ids_set) {
-        float score = scores[id];
-        scores[id] = score < 0 ? score * repetition_penalty : score / repetition_penalty;
-    }
-    // argmax
-    float max_score = 0;
-    int token_id = 0;
-    for (int i = 0; i < size; i++) {
-        float score = scores[i];
-        if (score > max_score) {
-            max_score = score;
-            token_id = i;
-        }
-    }
-    return token_id;
-}
 
 static std::string apply_template(std::string prompt_template, const std::string& content, const std::string& role = "") {
     if (prompt_template.empty()) return content;
@@ -314,31 +366,42 @@ std::string Llm::apply_chat_template(const std::vector<PromptItem>& chat_prompts
     return prompt_result;
 }
 
-void Llm::chat() {
+void Llm::chat(std::ostream* time_log) {
     std::vector<PromptItem> history;
     history.push_back(std::make_pair("system", "You are a helpful assistant."));
     while (true) {
         std::cout << "\nQ: ";
         std::string user_str;
-        std::cin >> user_str;
+        std::getline(std::cin, user_str);
         if (user_str == "/exit") {
+            if (time_log!=nullptr) this->print_speed(time_log);
+            history.clear();
+            reset();
             break;
         }
         if (user_str == "/reset") {
-            history.resize(1);
+            history.clear();
+            history.push_back(std::make_pair("system", "You are a helpful assistant."));
+            reset();
             std::cout << "\nA: reset done." << std::endl;
             continue;
         }
         std::cout << "\nA: " << std::flush;
         history.emplace_back(std::make_pair("user", user_str));
         auto assistant_str = response(history);
-        history.emplace_back(std::make_pair("assistant", assistant_str));
+        if (!config_->reuse_kv())
+            history.back().second += assistant_str + "<|im_end|>\n";
+        else
+            history.back().second = "<|im_end|>\n";
         std::cout << std::endl;
     }
 }
 
 void Llm::reset() {
+    clearPerformance(&time_perf_);
     history_ids_.clear();
+    sampler_->reset();
+    gen_seq_len_ = 0;
     all_seq_len_ = 0;
 }
 
@@ -361,83 +424,18 @@ void Llm::generate_init() {
     }
 }
 
-std::vector<int> Llm::generate(const std::vector<int>& input_ids, int max_new_tokens) {
-    generate_init();
-    std::vector<int> output_ids, all_ids = input_ids;
-    prompt_len_ = static_cast<int>(input_ids.size());
-    if (max_new_tokens < 0) { max_new_tokens = config_->max_new_tokens(); }
-    // prefill
-    current_modules_ = prefill_modules_;
-    auto logits = forward(input_ids);
-    if (logits.get() == nullptr) {
-        return {};
-    }
-    int token = sample(logits, all_ids);
-    output_ids.push_back(token);
-    all_ids.push_back(token);
-    // decode
-    current_modules_ = decode_modules_;
-    while (gen_seq_len_ < max_new_tokens) {
-        logits = nullptr;
-        logits = forward({token});
-        if (logits.get() == nullptr) {
-            return {};
-        }
-        token = sample(logits, all_ids);
-        if (is_stop(token)) { break; }
-        output_ids.push_back(token);
-        all_ids.push_back(token);
-    }
-    return output_ids;
-}
 
 std::string Llm::generate(const std::vector<int>& input_ids, std::ostream* os, const char* end_with) {
     if (mTracing) {
         // Skip real forward
-        current_modules_ = prefill_modules_;
-        forward(input_ids);
-        current_modules_ = decode_modules_;
-        forward({input_ids[0]});
-        forward({input_ids[0]});
+        forward(input_ids, true);
+        forward({input_ids[0]}, false);
+        forward({input_ids[0]}, false);
         return "Test";
     }
     prompt_len_ = static_cast<int>(input_ids.size());
     history_ids_.insert(history_ids_.end(), input_ids.begin(), input_ids.end()); // push to history_ids_
-    auto st = std::chrono::system_clock::now();
-    current_modules_ = prefill_modules_;
-    auto logits = forward(input_ids);
-    if (nullptr == logits.get()) {
-        return "";
-    }
-    int token = sample(logits, history_ids_);
-    auto et = std::chrono::system_clock::now();
-    current_modules_ = decode_modules_;
-    std::string output_str = decode(token);
-    prefill_us_ = std::chrono::duration_cast<std::chrono::microseconds>(et - st).count();
-    *os << output_str << std::flush;
-    while (gen_seq_len_ < config_->max_new_tokens()) {
-        st = std::chrono::system_clock::now();
-        history_ids_.push_back(token);
-        logits = nullptr;
-        logits = forward({token});
-        if (nullptr == logits.get()) {
-            return "";
-        }
-        if (logits->getInfo()->size == 0) {
-            return "";
-        }
-        token = sample(logits, history_ids_);
-        et = std::chrono::system_clock::now();
-        decode_us_ += std::chrono::duration_cast<std::chrono::microseconds>(et - st).count();
-        if (is_stop(token)) {
-            *os << end_with << std::flush;
-            break;
-        }
-        auto word = decode(token);
-        *os << word << std::flush;
-        output_str += word;
-    }
-    ExecutorScope::Current()->gc(Executor::FULL);
+    std::string output_str = sampler_->sample(input_ids, os, end_with, &time_perf_);
 #ifdef DUMP_PROFILE_INFO
     print_speed();
 #endif
@@ -461,14 +459,16 @@ std::string Llm::response(const std::string& user_content, std::ostream* os, con
     return generate(input_ids, os, end_with);
 }
 
-std::string Llm::response(const std::vector<PromptItem>& chat_prompts, std::ostream* os, const char* end_with) {
+std::string Llm::response(std::vector<PromptItem>& chat_prompts, std::ostream* os, const char* end_with) {
     if (chat_prompts.empty()) { return ""; }
     generate_init();
     if (!end_with) { end_with = "\n"; }
     auto prompt = apply_chat_template(chat_prompts);
-    if (config_->reuse_kv() && all_seq_len_ > 0) {
-        prompt = "<|im_end|>\n" + prompt;
-    }
+    chat_prompts.clear();
+    chat_prompts.emplace_back(std::make_pair("", prompt));
+    // if (config_->reuse_kv() && all_seq_len_ > 0) {
+    //     prompt = "<|im_end|>\n" + prompt;
+    // }
     // std::cout << "# prompt : " << prompt << std::endl;
     auto input_ids = tokenizer_->encode(prompt);
     // printf("input_ids (%lu): ", input_ids.size()); for (auto id : input_ids) printf("%d, ", id); printf("\n");
@@ -506,21 +506,34 @@ Llm::~Llm() {
 }
 
 void Llm::print_speed() {
-    auto prefill_s = prefill_us_ * 1e-6;
-    auto decode_s = decode_us_ * 1e-6;
-    auto total_s = prefill_s + decode_s;
-    printf("\n#################################\n");
-    printf(" total tokens num  = %d\n", prompt_len_ + gen_seq_len_);
-    printf("prompt tokens num  = %d\n", prompt_len_);
-    printf("output tokens num  = %d\n", gen_seq_len_);
-    printf("  total time = %.2f s\n", total_s);
-    printf("prefill time = %.2f s\n", prefill_s);
-    printf(" decode time = %.2f s\n", decode_s);
-    printf("  total speed = %.2f tok/s\n", (prompt_len_ + gen_seq_len_) / total_s);
-    printf("prefill speed = %.2f tok/s\n", prompt_len_ / prefill_s);
-    printf(" decode speed = %.2f tok/s\n", gen_seq_len_ / decode_s);
-    printf("   chat speed = %.2f tok/s\n", gen_seq_len_ / total_s);
-    printf("##################################\n");
+    // auto prefill_s = prefill_us_ * 1e-6;
+    // auto decode_s = decode_us_ * 1e-6;
+    // auto total_s = prefill_s + decode_s;
+    // printf("\n#################################\n");
+    // printf(" total tokens num  = %d\n", prompt_len_ + gen_seq_len_);
+    // printf("prompt tokens num  = %d\n", prompt_len_);
+    // printf("output tokens num  = %d\n", gen_seq_len_);
+    // printf("  total time = %.2f s\n", total_s);
+    // printf("prefill time = %.2f s\n", prefill_s);
+    // printf(" decode time = %.2f s\n", decode_s);
+    // printf("  total speed = %.2f tok/s\n", (prompt_len_ + gen_seq_len_) / total_s);
+    // printf("prefill speed = %.2f tok/s\n", prompt_len_ / prefill_s);
+    // printf(" decode speed = %.2f tok/s\n", gen_seq_len_ / decode_s);
+    // printf("   chat speed = %.2f tok/s\n", gen_seq_len_ / total_s);
+    // printf("##################################\n");
+}
+
+void Llm::print_speed(std::ostream* os) {
+    (*os) << "prefill " << time_perf_.prefill_record_.size() << std::endl;
+    (*os) << "prev_token token speed(token/s)" << std::endl;
+    for (auto record : time_perf_.prefill_record_) {
+        (*os) << record.prefill_prev_token_ << " " << record.prefill_token_ << " " << record.prefill_token_/(((float)record.prefill_us_)*MICRO_TO_SEC) << std::endl;
+    }
+    (*os) << "decode " << time_perf_.decode_record_.size() << std::endl;
+    (*os) << "prev_token speed(token/s)" << std::endl;
+    for (auto record : time_perf_.decode_record_) {
+        (*os) << record.decode_prev_token_ << " " << 1./(((float)record.decode_us_)*MICRO_TO_SEC) << std::endl;
+    }
 }
 
 static inline bool needNewVar(VARP var, int axis, int seq_len) {

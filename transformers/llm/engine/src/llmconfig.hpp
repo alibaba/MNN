@@ -98,6 +98,13 @@ public:
         return buffer.GetString();
     }
     // read value
+    float value(const char* key, const float& default_value) const {
+        if (document.HasMember(key)) {
+            const auto& value = document[key];
+            if (value.IsFloat()) return value.GetFloat();
+        }
+        return default_value;
+    }
     int value(const char* key, const int& default_value) const {
         if (document.HasMember(key)) {
             const auto& value = document[key];
@@ -291,6 +298,48 @@ public:
         return llm_config_.value("prompt_template", "");
     }
     // llm model config end >
+
+    // < sampler config start
+    std::string sampler_type() const {
+        return config_.value("sampler_type", "greedy");
+    }
+
+    float temperature() const {
+        return config_.value("temperature", 1.0f);
+    }
+
+    int topK() const {
+        return config_.value("topK", 40);
+    }
+
+    float topP() const {
+        return config_.value("topP", 0.9f);
+    }
+
+    float minP() const {
+        return config_.value("minP", 0.1f);
+    }
+
+    float tfsZ() const {
+        return config_.value("tfsZ", 1.0f);
+    }
+
+    float typical() const {
+        return config_.value("typical", 1.0f);
+    }
+
+    float penalty() const {
+        return config_.value("penalty", 0.0f);
+    }
+
+    int ngram() const {
+        return config_.value("n_gram", 8);
+    }
+
+    float ngram_factor() const {
+        return config_.value("ngram_factor", 1.0f);
+    }
+    // sampler config end >
 };
 } // Transformer
 } // MNN
