@@ -191,6 +191,7 @@ int main(int argc, const char* argv[]) {
         std::ofstream mem_file("mem.txt", std::ofstream::out);
         llm->chat(&time_file, &mem_file);
         time_file.close();
+        mem_file.close();
         return 0;
     }
     std::string prompt_file = argv[2];

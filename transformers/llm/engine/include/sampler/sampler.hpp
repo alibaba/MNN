@@ -43,11 +43,17 @@ public:
 class MNN_PUBLIC LocalSampler : public Sampler {
 public:
     struct LocalSamplerConfig {
-        std::string type = "greedy";
-        float temperature = 1.0;
+        std::string type = "temperature";
+        float temperature = 0.8;
         int topK = 40;
         float topP = 0.9;
-        float minP = 0.1;
+        float minP = 0.05;
+        float tfsZ = 1.0;
+        float typical = 0.95;
+        float penalty = 1.1;
+        int ngram = 8;
+        float ngram_factor = 1.0; // panalize repeated ngram with a multiplied ngram_factor.
+        float max_penalty = 100.;
     };
 private:
     struct LocalSamplerConfig mConfig;
@@ -75,6 +81,13 @@ private:
     int topP(MNN::Express::VARP logits, float p = 0.9, float temperature = 1.0);
     void minP(MNN::Express::VARP logits, float p, float temperature, std::vector<int>& minPindex, std::vector<float>& minPprob);
     int minP(MNN::Express::VARP logits, float p = 0.1, float temperature = 1.0);
+    void tfs(MNN::Express::VARP logits, float z, float temperature, std::vector<int>& index, std::vector<float>& tfsprob);
+    int tfs(MNN::Express::VARP logits, float z = 1.0, float temperature = 1.0);
+    void typical(MNN::Express::VARP logits, float p, float temperature, std::vector<int>& index, std::vector<float>& minPprob);
+    int typical(MNN::Express::VARP logits, float p = 1.0, float temperature = 1.0);
+    void penalty(MNN::Express::VARP logits, float penalty = 1.0, bool penalizeNgram = false, int ngram = 8, float ngram_factor = 1.0);
+    int penalty(MNN::Express::VARP logits, float penalty = 1.0, int ngram = 8, float ngram_factor = 1.0, float temperature = 1.0);
+    // int mixed(MNN::Express::VARP logits);
     std::string handleToken(int token, std::ostream* os = &std::cout, const char* end_with = nullptr);
 public:
     LocalSampler(Llm* llm, StateCacheManager* manager, int max_new_tokens, struct LocalSamplerConfig config);

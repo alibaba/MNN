@@ -88,6 +88,11 @@ bool Llm::set_config(const std::string& content) {
 void Llm::initStateCacheManager() {
     StateCacheManager* manager = ExecutorScope::Current()->getStateCacheManager();
     manager->setHint(config_->quant_kv(), config_->type_kv());
+    if (config_->precision() == "low") {
+        manager->setFPPrecision(BackendConfig::Precision_Low);
+    } else {
+        manager->setFPPrecision(BackendConfig::Precision_Normal);
+    }
 }
 
 void Llm::initSampler() {
@@ -99,28 +104,54 @@ void Llm::initSampler() {
     local_sampler_config.type = sampler_type;
     if (sampler_type == "greedy") {
         sampler_ = std::shared_ptr<Sampler>(new LocalSampler(this, manager, config_->max_new_tokens(), local_sampler_config));
+        return;
     }
     if (sampler_type == "temperature") {
         local_sampler_config.temperature = config_->temperature();
         sampler_ = std::shared_ptr<Sampler>(new LocalSampler(this, manager, config_->max_new_tokens(), local_sampler_config));
+        return;
     }
     if (sampler_type == "topK") {
         local_sampler_config.temperature = config_->temperature();
         local_sampler_config.topK = config_->topK();
         sampler_ = std::shared_ptr<Sampler>(new LocalSampler(this, manager, config_->max_new_tokens(), local_sampler_config));
+        return;
     } 
     if (sampler_type == "topP") {
         local_sampler_config.temperature = config_->temperature();
         local_sampler_config.topP = config_->topP();
         sampler_ = std::shared_ptr<Sampler>(new LocalSampler(this, manager, config_->max_new_tokens(), local_sampler_config));
+        return;
     }
     if (sampler_type == "minP") {
         local_sampler_config.temperature = config_->temperature();
         local_sampler_config.minP = config_->minP();
         sampler_ = std::shared_ptr<Sampler>(new LocalSampler(this, manager, config_->max_new_tokens(), local_sampler_config));
+        return;
+    }
+    if (sampler_type == "tfs") {
+        local_sampler_config.temperature = config_->temperature();
+        local_sampler_config.tfsZ = config_->tfsZ();
+        sampler_ = std::shared_ptr<Sampler>(new LocalSampler(this, manager, config_->max_new_tokens(), local_sampler_config));
+        return;
+    }
+    if (sampler_type == "typical") {
+        local_sampler_config.temperature = config_->temperature();
+        local_sampler_config.typical = config_->typical();
+        sampler_ = std::shared_ptr<Sampler>(new LocalSampler(this, manager, config_->max_new_tokens(), local_sampler_config));
+        return;
+    }
+    if (sampler_type == "penalty" || sampler_type == "penalize_ngram") {
+        local_sampler_config.temperature = config_->temperature();
+        local_sampler_config.penalty = config_->penalty();
+        local_sampler_config.ngram = config_->ngram();
+        local_sampler_config.ngram_factor = config_->ngram_factor();
+        sampler_ = std::shared_ptr<Sampler>(new LocalSampler(this, manager, config_->max_new_tokens(), local_sampler_config));
+        return;
     }
     // AdvancedSampler
     // Not Implemented
+    MNN_ERROR("Designated Sampler Not Supported!\n");
 }
 
 void Llm::init_runtime() {
@@ -267,11 +298,11 @@ VARP Llm::forward(const std::vector<int>& input_ids, bool prefill) {
             //     std::cout << hidden_states->readMap<float>()[k] << " ";
             // }
             // std::cout << std::endl;
-            // if (i==12){
-            //     std::vector<int> no;
-            //     std::cout << no[10] << std::endl;
+            // if (i==13){
+            //     exit(0);
             // }
         }
+        //     exit(0);
         ExecutorScope::Current()->gc(Executor::FULL);
         {
             AUTOTIME;
@@ -391,6 +422,11 @@ std::string Llm::generate(const std::vector<int>& input_ids, std::ostream* os, c
 
 std::vector<int> Llm::tokenizer(const std::string& user_content) {
     auto prompt = apply_prompt_template(user_content);
+    auto input_ids = tokenizer_->encode(prompt);
+    return input_ids;
+}
+
+std::vector<int> Llm::encode(const std::string& prompt) {
     auto input_ids = tokenizer_->encode(prompt);
     return input_ids;
 }

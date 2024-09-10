@@ -305,7 +305,7 @@ public:
         return config_.value("temperature", 1.0f);
     }
 
-    float topK() const {
+    int topK() const {
         return config_.value("topK", 40);
     }
 
@@ -316,6 +316,27 @@ public:
     float minP() const {
         return config_.value("minP", 0.1f);
     }
+
+    float tfsZ() const {
+        return config_.value("tfsZ", 1.0f);
+    }
+
+    float typical() const {
+        return config_.value("typical", 1.0f);
+    }
+
+    float penalty() const {
+        return config_.value("penalty", 0.0f);
+    }
+
+    int ngram() const {
+        return config_.value("n_gram", 8);
+    }
+
+    float ngram_factor() const {
+        return config_.value("ngram_factor", 1.0f);
+    }
+    // sampler config end >
 };
 } // Transformer
 } // MNN

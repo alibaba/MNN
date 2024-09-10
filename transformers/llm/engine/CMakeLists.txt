@@ -25,3 +25,6 @@ endif()
 
 add_executable(llm_demo ${CMAKE_CURRENT_LIST_DIR}/llm_demo.cpp)
 target_link_libraries(llm_demo llm)
+
+add_executable(ppl_eval ${CMAKE_CURRENT_LIST_DIR}/ppl_eval.cpp)
+target_link_libraries(ppl_eval llm)

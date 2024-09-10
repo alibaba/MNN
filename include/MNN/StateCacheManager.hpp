@@ -21,6 +21,7 @@
 #include <utility>
 
 #include <MNN/Tensor.hpp>
+#include <MNN/MNNForwardType.h>
 
 namespace MNN {
 
@@ -103,7 +104,7 @@ public:
     void setTensor(int tId, Tensor* tensor, int bytes);
     void setTensorSize(int tId, int tensor_size);
     void resetTensorShape(std::vector<std::vector<int>>& shape, int hP);
-    size_t setTensors(std::vector<std::vector<int>>& shape, void* backend, MNNStateCacheQuantType type, int hP);
+    size_t setTensors(std::vector<std::vector<int>>& shape, void* backend, MNNStateCacheQuantType type, BackendConfig::PrecisionMode precision, int hP);
     Tensor* getTensor(int tId) {
         return mTensors[tId];
     }
@@ -194,6 +195,11 @@ public:
     std::unordered_map<void*, std::vector<std::shared_ptr<StateCacheBlock>>> mPageTable;
     StateCacheReference(int refId, int blockSize) : mRefId(refId), mBlockSize(blockSize) {};
     StateCacheReference(int refId, std::shared_ptr<StateCacheReference> other) : mRefId(refId), mBlockSize(other->mBlockSize), mPageTable(other->mPageTable) {};
+    int getSlotNum(void* layer) {
+        if (mPageTable.count(layer)==0) return 0;
+        int page_num = mPageTable[layer].size();
+        return (page_num-1)*mPageTable[layer].back()->getBlockSize() + mPageTable[layer].back()->getSlotNum();
+    }
     int getLogicalBlockId(int tokenId) {
         return tokenId / mBlockSize;
     }
@@ -215,6 +221,7 @@ private:
     std::unordered_map<void*, std::shared_ptr<StateCache>> mStateCache;
     MNNStateCacheQuantType mQuantType;
     MNNStateCacheType mType;
+    BackendConfig::PrecisionMode FP_precision = BackendConfig::Precision_Normal;
 
     // Reference correlated stuff
     int mNextNewRefId;
@@ -229,6 +236,9 @@ public:
     StateCacheManager(MNNStateCacheQuantType quantType = MNNStateCacheQuantType::NoQuant, MNNStateCacheType type = MNNStateCacheType::MNN_STATECACHE_ADVANCED);
     void setHint(MNNStateCacheQuantType quantType = MNNStateCacheQuantType::NoQuant, MNNStateCacheType type = MNNStateCacheType::MNN_STATECACHE_ADVANCED);
     void setHint(int quantType = 0, int type = 1);
+    void setFPPrecision(BackendConfig::PrecisionMode precision = BackendConfig::Precision_Normal) {
+        FP_precision = precision;
+    }
     void setConfig(struct StateCacheManagerConfig config);
     MNNStateCacheQuantType getQuantType() const {
         return mQuantType;
@@ -238,6 +248,9 @@ public:
     }
     int getBlockSize() const {
         return mBlockSize;
+    }
+    int getSlotNum(void* layer) const {
+        return mCurrentReference->getSlotNum(layer);
     }
 
 

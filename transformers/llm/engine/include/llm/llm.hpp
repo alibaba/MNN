@@ -61,6 +61,7 @@ public:
     virtual void load();
     MNN::Express::VARP forward(const std::vector<int>& input_ids, bool prefill=true);
     std::string decode(int id);
+    std::vector<int> encode(const std::string& prompt);
     bool is_stop(int token_id);
     std::string apply_prompt_template(const std::string& user_content) const;
     std::string apply_chat_template(const std::vector<PromptItem>& chat_prompts) const;

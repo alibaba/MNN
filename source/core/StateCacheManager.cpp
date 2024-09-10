@@ -51,41 +51,78 @@ void StateCacheBlock::initTensorInfo(int tensor_num){
     mTensorBytes.resize(tensor_num);
     mTensorSeqLenDim.resize(tensor_num);
 }
-size_t StateCacheBlock::setTensors(std::vector<std::vector<int>>& shape, void* backend, MNNStateCacheQuantType type, int hP) {
+size_t StateCacheBlock::setTensors(std::vector<std::vector<int>>& shape, void* backend, MNNStateCacheQuantType type, BackendConfig::PrecisionMode precision, int hP) {
     resetTensorShape(shape, hP);
-    if (type == MNNStateCacheQuantType::NoQuant) {
-        setTensor((int)LAYOUT::NoQuant::PAST_K, Tensor::createDevice<float>(shape[(int)LAYOUT::NoQuant::PAST_K]), sizeof(float));
-        setTensor((int)LAYOUT::NoQuant::PAST_V, Tensor::createDevice<float>(shape[(int)LAYOUT::NoQuant::PAST_V]), sizeof(float));
-    }
-    if (type == MNNStateCacheQuantType::QuantKeyInt8) {
-        setTensor((int)LAYOUT::QuantKeyInt8::PAST_K, Tensor::createDevice<int8_t>(shape[(int)LAYOUT::QuantKeyInt8::PAST_K]), sizeof(int8_t));
-        setTensor((int)LAYOUT::QuantKeyInt8::PAST_K_SCALES, Tensor::createDevice<float>(shape[(int)LAYOUT::QuantKeyInt8::PAST_K_SCALES]), sizeof(float));
-        setTensor((int)LAYOUT::QuantKeyInt8::PAST_K_ZERO_POINTS, Tensor::createDevice<float>(shape[(int)LAYOUT::QuantKeyInt8::PAST_K_ZERO_POINTS]), sizeof(float));
-        setTensor((int)LAYOUT::QuantKeyInt8::PAST_V, Tensor::createDevice<float>(shape[(int)LAYOUT::QuantKeyInt8::PAST_V]), sizeof(float));
-    }
-    if (type == MNNStateCacheQuantType::QuantValueFp8) {
-        setTensor((int)LAYOUT::QuantValueFp8::PAST_K, Tensor::createDevice<float>(shape[(int)LAYOUT::QuantValueFp8::PAST_K]), sizeof(float));
-        setTensor((int)LAYOUT::QuantValueFp8::PAST_V, Tensor::createDevice<uint8_t>(shape[(int)LAYOUT::QuantValueFp8::PAST_V]), sizeof(uint8_t));
-    }
-    if (type == MNNStateCacheQuantType::QuantKeyInt8ValueFp8) {
-        setTensor((int)LAYOUT::QuantKeyInt8ValueFp8::PAST_K, Tensor::createDevice<int8_t>(shape[(int)LAYOUT::QuantKeyInt8ValueFp8::PAST_K]), sizeof(int8_t));
-        setTensor((int)LAYOUT::QuantKeyInt8ValueFp8::PAST_K_SCALES, Tensor::createDevice<float>(shape[(int)LAYOUT::QuantKeyInt8ValueFp8::PAST_K_SCALES]), sizeof(float));
-        setTensor((int)LAYOUT::QuantKeyInt8ValueFp8::PAST_K_ZERO_POINTS, Tensor::createDevice<float>(shape[(int)LAYOUT::QuantKeyInt8ValueFp8::PAST_K_ZERO_POINTS]), sizeof(float));
-        setTensor((int)LAYOUT::QuantKeyInt8ValueFp8::PAST_V, Tensor::createDevice<uint8_t>(shape[(int)LAYOUT::QuantKeyInt8ValueFp8::PAST_V]), sizeof(uint8_t));
-    }
-    if (type == MNNStateCacheQuantType::QuantValueInt8) {
-        setTensor((int)LAYOUT::QuantValueInt8::PAST_K, Tensor::createDevice<float>(shape[(int)LAYOUT::QuantValueInt8::PAST_K]), sizeof(float));
-        setTensor((int)LAYOUT::QuantValueInt8::PAST_V, Tensor::createDevice<int8_t>(shape[(int)LAYOUT::QuantValueInt8::PAST_V]), sizeof(int8_t));
-        setTensor((int)LAYOUT::QuantValueInt8::PAST_V_SCALES, Tensor::createDevice<float>(shape[(int)LAYOUT::QuantValueInt8::PAST_V_SCALES]), sizeof(float));
-        setTensor((int)LAYOUT::QuantValueInt8::PAST_V_ZERO_POINTS, Tensor::createDevice<float>(shape[(int)LAYOUT::QuantValueInt8::PAST_V_ZERO_POINTS]), sizeof(float));
-    }
-    if (type == MNNStateCacheQuantType::QuantKeyInt8ValueInt8) {
-        setTensor((int)LAYOUT::QuantKeyInt8ValueInt8::PAST_K, Tensor::createDevice<int8_t>(shape[(int)LAYOUT::QuantKeyInt8ValueInt8::PAST_K]), sizeof(int8_t));
-        setTensor((int)LAYOUT::QuantKeyInt8ValueInt8::PAST_K_SCALES, Tensor::createDevice<float>(shape[(int)LAYOUT::QuantKeyInt8ValueInt8::PAST_K_SCALES]), sizeof(float));
-        setTensor((int)LAYOUT::QuantKeyInt8ValueInt8::PAST_K_ZERO_POINTS, Tensor::createDevice<float>(shape[(int)LAYOUT::QuantKeyInt8ValueInt8::PAST_K_ZERO_POINTS]),sizeof(float));
-        setTensor((int)LAYOUT::QuantKeyInt8ValueInt8::PAST_V, Tensor::createDevice<int8_t>(shape[(int)LAYOUT::QuantKeyInt8ValueInt8::PAST_V]), sizeof(int8_t));
-        setTensor((int)LAYOUT::QuantKeyInt8ValueInt8::PAST_V_SCALES, Tensor::createDevice<float>(shape[(int)LAYOUT::QuantKeyInt8ValueInt8::PAST_V_SCALES]), sizeof(float));
-        setTensor((int)LAYOUT::QuantKeyInt8ValueInt8::PAST_V_ZERO_POINTS, Tensor::createDevice<float>(shape[(int)LAYOUT::QuantKeyInt8ValueInt8::PAST_V_ZERO_POINTS]), sizeof(float));
+    if (precision == BackendConfig::Precision_Low || precision == BackendConfig::Precision_Low_BF16){
+        if (type == MNNStateCacheQuantType::NoQuant) {
+            setTensor((int)LAYOUT::NoQuant::PAST_K, Tensor::createDevice<int16_t>(shape[(int)LAYOUT::NoQuant::PAST_K]), sizeof(int16_t));
+            setTensor((int)LAYOUT::NoQuant::PAST_V, Tensor::createDevice<int16_t>(shape[(int)LAYOUT::NoQuant::PAST_V]), sizeof(int16_t));
+        }
+        if (type == MNNStateCacheQuantType::QuantKeyInt8) {
+            setTensor((int)LAYOUT::QuantKeyInt8::PAST_K, Tensor::createDevice<int8_t>(shape[(int)LAYOUT::QuantKeyInt8::PAST_K]), sizeof(int8_t));
+            setTensor((int)LAYOUT::QuantKeyInt8::PAST_K_SCALES, Tensor::createDevice<int16_t>(shape[(int)LAYOUT::QuantKeyInt8::PAST_K_SCALES]), sizeof(int16_t));
+            setTensor((int)LAYOUT::QuantKeyInt8::PAST_K_ZERO_POINTS, Tensor::createDevice<int16_t>(shape[(int)LAYOUT::QuantKeyInt8::PAST_K_ZERO_POINTS]), sizeof(int16_t));
+            setTensor((int)LAYOUT::QuantKeyInt8::PAST_V, Tensor::createDevice<int16_t>(shape[(int)LAYOUT::QuantKeyInt8::PAST_V]), sizeof(int16_t));
+        }
+        if (type == MNNStateCacheQuantType::QuantValueFp8) {
+            setTensor((int)LAYOUT::QuantValueFp8::PAST_K, Tensor::createDevice<int16_t>(shape[(int)LAYOUT::QuantValueFp8::PAST_K]), sizeof(int16_t));
+            setTensor((int)LAYOUT::QuantValueFp8::PAST_V, Tensor::createDevice<uint8_t>(shape[(int)LAYOUT::QuantValueFp8::PAST_V]), sizeof(uint8_t));
+        }
+        if (type == MNNStateCacheQuantType::QuantKeyInt8ValueFp8) {
+            setTensor((int)LAYOUT::QuantKeyInt8ValueFp8::PAST_K, Tensor::createDevice<int8_t>(shape[(int)LAYOUT::QuantKeyInt8ValueFp8::PAST_K]), sizeof(int8_t));
+            setTensor((int)LAYOUT::QuantKeyInt8ValueFp8::PAST_K_SCALES, Tensor::createDevice<int16_t>(shape[(int)LAYOUT::QuantKeyInt8ValueFp8::PAST_K_SCALES]), sizeof(int16_t));
+            setTensor((int)LAYOUT::QuantKeyInt8ValueFp8::PAST_K_ZERO_POINTS, Tensor::createDevice<int16_t>(shape[(int)LAYOUT::QuantKeyInt8ValueFp8::PAST_K_ZERO_POINTS]), sizeof(int16_t));
+            setTensor((int)LAYOUT::QuantKeyInt8ValueFp8::PAST_V, Tensor::createDevice<uint8_t>(shape[(int)LAYOUT::QuantKeyInt8ValueFp8::PAST_V]), sizeof(uint8_t));
+        }
+        if (type == MNNStateCacheQuantType::QuantValueInt8) {
+            setTensor((int)LAYOUT::QuantValueInt8::PAST_K, Tensor::createDevice<int16_t>(shape[(int)LAYOUT::QuantValueInt8::PAST_K]), sizeof(int16_t));
+            setTensor((int)LAYOUT::QuantValueInt8::PAST_V, Tensor::createDevice<int8_t>(shape[(int)LAYOUT::QuantValueInt8::PAST_V]), sizeof(int8_t));
+            setTensor((int)LAYOUT::QuantValueInt8::PAST_V_SCALES, Tensor::createDevice<int16_t>(shape[(int)LAYOUT::QuantValueInt8::PAST_V_SCALES]), sizeof(int16_t));
+            setTensor((int)LAYOUT::QuantValueInt8::PAST_V_ZERO_POINTS, Tensor::createDevice<int16_t>(shape[(int)LAYOUT::QuantValueInt8::PAST_V_ZERO_POINTS]), sizeof(int16_t));
+        }
+        if (type == MNNStateCacheQuantType::QuantKeyInt8ValueInt8) {
+            setTensor((int)LAYOUT::QuantKeyInt8ValueInt8::PAST_K, Tensor::createDevice<int8_t>(shape[(int)LAYOUT::QuantKeyInt8ValueInt8::PAST_K]), sizeof(int8_t));
+            setTensor((int)LAYOUT::QuantKeyInt8ValueInt8::PAST_K_SCALES, Tensor::createDevice<int16_t>(shape[(int)LAYOUT::QuantKeyInt8ValueInt8::PAST_K_SCALES]), sizeof(int16_t));
+            setTensor((int)LAYOUT::QuantKeyInt8ValueInt8::PAST_K_ZERO_POINTS, Tensor::createDevice<int16_t>(shape[(int)LAYOUT::QuantKeyInt8ValueInt8::PAST_K_ZERO_POINTS]),sizeof(int16_t));
+            setTensor((int)LAYOUT::QuantKeyInt8ValueInt8::PAST_V, Tensor::createDevice<int8_t>(shape[(int)LAYOUT::QuantKeyInt8ValueInt8::PAST_V]), sizeof(int8_t));
+            setTensor((int)LAYOUT::QuantKeyInt8ValueInt8::PAST_V_SCALES, Tensor::createDevice<int16_t>(shape[(int)LAYOUT::QuantKeyInt8ValueInt8::PAST_V_SCALES]), sizeof(int16_t));
+            setTensor((int)LAYOUT::QuantKeyInt8ValueInt8::PAST_V_ZERO_POINTS, Tensor::createDevice<int16_t>(shape[(int)LAYOUT::QuantKeyInt8ValueInt8::PAST_V_ZERO_POINTS]), sizeof(int16_t));
+        }
+    } else {
+        if (type == MNNStateCacheQuantType::NoQuant) {
+            setTensor((int)LAYOUT::NoQuant::PAST_K, Tensor::createDevice<float>(shape[(int)LAYOUT::NoQuant::PAST_K]), sizeof(float));
+            setTensor((int)LAYOUT::NoQuant::PAST_V, Tensor::createDevice<float>(shape[(int)LAYOUT::NoQuant::PAST_V]), sizeof(float));
+        }
+        if (type == MNNStateCacheQuantType::QuantKeyInt8) {
+            setTensor((int)LAYOUT::QuantKeyInt8::PAST_K, Tensor::createDevice<int8_t>(shape[(int)LAYOUT::QuantKeyInt8::PAST_K]), sizeof(int8_t));
+            setTensor((int)LAYOUT::QuantKeyInt8::PAST_K_SCALES, Tensor::createDevice<float>(shape[(int)LAYOUT::QuantKeyInt8::PAST_K_SCALES]), sizeof(float));
+            setTensor((int)LAYOUT::QuantKeyInt8::PAST_K_ZERO_POINTS, Tensor::createDevice<float>(shape[(int)LAYOUT::QuantKeyInt8::PAST_K_ZERO_POINTS]), sizeof(float));
+            setTensor((int)LAYOUT::QuantKeyInt8::PAST_V, Tensor::createDevice<float>(shape[(int)LAYOUT::QuantKeyInt8::PAST_V]), sizeof(float));
+        }
+        if (type == MNNStateCacheQuantType::QuantValueFp8) {
+            setTensor((int)LAYOUT::QuantValueFp8::PAST_K, Tensor::createDevice<float>(shape[(int)LAYOUT::QuantValueFp8::PAST_K]), sizeof(float));
+            setTensor((int)LAYOUT::QuantValueFp8::PAST_V, Tensor::createDevice<uint8_t>(shape[(int)LAYOUT::QuantValueFp8::PAST_V]), sizeof(uint8_t));
+        }
+        if (type == MNNStateCacheQuantType::QuantKeyInt8ValueFp8) {
+            setTensor((int)LAYOUT::QuantKeyInt8ValueFp8::PAST_K, Tensor::createDevice<int8_t>(shape[(int)LAYOUT::QuantKeyInt8ValueFp8::PAST_K]), sizeof(int8_t));
+            setTensor((int)LAYOUT::QuantKeyInt8ValueFp8::PAST_K_SCALES, Tensor::createDevice<float>(shape[(int)LAYOUT::QuantKeyInt8ValueFp8::PAST_K_SCALES]), sizeof(float));
+            setTensor((int)LAYOUT::QuantKeyInt8ValueFp8::PAST_K_ZERO_POINTS, Tensor::createDevice<float>(shape[(int)LAYOUT::QuantKeyInt8ValueFp8::PAST_K_ZERO_POINTS]), sizeof(float));
+            setTensor((int)LAYOUT::QuantKeyInt8ValueFp8::PAST_V, Tensor::createDevice<uint8_t>(shape[(int)LAYOUT::QuantKeyInt8ValueFp8::PAST_V]), sizeof(uint8_t));
+        }
+        if (type == MNNStateCacheQuantType::QuantValueInt8) {
+            setTensor((int)LAYOUT::QuantValueInt8::PAST_K, Tensor::createDevice<float>(shape[(int)LAYOUT::QuantValueInt8::PAST_K]), sizeof(float));
+            setTensor((int)LAYOUT::QuantValueInt8::PAST_V, Tensor::createDevice<int8_t>(shape[(int)LAYOUT::QuantValueInt8::PAST_V]), sizeof(int8_t));
+            setTensor((int)LAYOUT::QuantValueInt8::PAST_V_SCALES, Tensor::createDevice<float>(shape[(int)LAYOUT::QuantValueInt8::PAST_V_SCALES]), sizeof(float));
+            setTensor((int)LAYOUT::QuantValueInt8::PAST_V_ZERO_POINTS, Tensor::createDevice<float>(shape[(int)LAYOUT::QuantValueInt8::PAST_V_ZERO_POINTS]), sizeof(float));
+        }
+        if (type == MNNStateCacheQuantType::QuantKeyInt8ValueInt8) {
+            setTensor((int)LAYOUT::QuantKeyInt8ValueInt8::PAST_K, Tensor::createDevice<int8_t>(shape[(int)LAYOUT::QuantKeyInt8ValueInt8::PAST_K]), sizeof(int8_t));
+            setTensor((int)LAYOUT::QuantKeyInt8ValueInt8::PAST_K_SCALES, Tensor::createDevice<float>(shape[(int)LAYOUT::QuantKeyInt8ValueInt8::PAST_K_SCALES]), sizeof(float));
+            setTensor((int)LAYOUT::QuantKeyInt8ValueInt8::PAST_K_ZERO_POINTS, Tensor::createDevice<float>(shape[(int)LAYOUT::QuantKeyInt8ValueInt8::PAST_K_ZERO_POINTS]),sizeof(float));
+            setTensor((int)LAYOUT::QuantKeyInt8ValueInt8::PAST_V, Tensor::createDevice<int8_t>(shape[(int)LAYOUT::QuantKeyInt8ValueInt8::PAST_V]), sizeof(int8_t));
+            setTensor((int)LAYOUT::QuantKeyInt8ValueInt8::PAST_V_SCALES, Tensor::createDevice<float>(shape[(int)LAYOUT::QuantKeyInt8ValueInt8::PAST_V_SCALES]), sizeof(float));
+            setTensor((int)LAYOUT::QuantKeyInt8ValueInt8::PAST_V_ZERO_POINTS, Tensor::createDevice<float>(shape[(int)LAYOUT::QuantKeyInt8ValueInt8::PAST_V_ZERO_POINTS]), sizeof(float));
+        }
     }
     size_t block_size = 0;
     for (int s = 0; s < mTensors.size(); ++s) {
@@ -652,7 +689,7 @@ void StateCacheManager::onAllocateCache(void* layer, void* backend, int token_nu
     // allocate the pointers to the page table
     for (int i = 0; i < need_block; ++i) {
         StateCacheBlock* block = new StateCacheBlock({mCurrentReference->mRefId}, mBlockSize, 0);
-        size_t block_size = block->setTensors(shape, backend, mQuantType, hP);
+        size_t block_size = block->setTensors(shape, backend, mQuantType, FP_precision, hP);
         char* free_ptr = getFreePtr(layer, block_size);
         block->onAllocatePtr(free_ptr);
         block->setBlockMem(free_ptr, block_size);

@@ -371,3 +371,6 @@ test*.txt
 # debug, release
 debug/
 release/
+
+# data
+data/

@@ -379,7 +379,7 @@ static void unpack_QK(float * unpack_qk_dst, const std::vector<std::shared_ptr<T
 //         for (int i = 0; i < seq_len; i++) {
 //             int out_index = i / eP;
 //             int in_index  = i % eP;
-//             dst[out_index * num * eP + (j % num) * eP + in_index] = src[i * kv_seq_len + j];
+//             dst[out_index * num * eP + (j % block_size) * eP + in_index] = src[i * kv_seq_len + j];
 //             std::cout << src[i * kv_seq_len + j] << " ";
 //         }
 //         std::cout << std::endl;

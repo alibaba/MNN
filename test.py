@@ -14,9 +14,9 @@ for layer, ln in enumerate(zip(log0, log1)):
         if n0 == "" or n1 == "":
             continue
         n = float(n0) - float(n1)
-        if abs(n) >= 1e-8:
-            max_diff = max(abs(round(n,7)), max_diff)
+        if abs(n) >= 1e-9:
+            max_diff = max(abs(round(n,10)), max_diff)
             num_diff += 1
-            print(layer, idx, n0, n1, round(n,7))
+            print(layer, idx, n0, n1, round(n,10))
 print(max_diff)
 print(num_diff)
