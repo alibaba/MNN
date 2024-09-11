@@ -13,7 +13,7 @@
 #include "Backend.hpp"
 
 #if defined (__aarch64__)
-#define FLOAT16_T __fp16
+#define FLOAT16_T int16_t // 16 bits for __fp16
 #else
 #define FLOAT16_T float
 #endif
