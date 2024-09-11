@@ -9,6 +9,21 @@
 namespace MNN{
 namespace Transformer{
 
+int argmax(MNN::Express::VARP logits) {
+    auto scores = (float*)(logits->readMap<float>());
+    auto size = logits->getInfo()->size;
+    float max_score = 0;
+    int token_id = 0;
+    for (int i = 0; i < size; i++) {
+        float score = scores[i];
+        if (score > max_score) {
+            max_score = score;
+            token_id = i;
+        }
+    }
+    return token_id;
+}
+
 void PPLMeasurer::init(Llm* llm, StateCacheManager* manager, std::vector<std::vector<int>> prompts, int max_len, int stride) {
     if (stride == 0) {
         // default stride for sliding window.
@@ -87,11 +102,13 @@ float PPLMeasurer::perplexity_one(const std::vector<int>& prompt) {
         auto logits = mLlm->forward(tokens, true);
         logits = MNN::Express::_Softmax(logits);
         nlls.push_back(-std::log(((float*)(logits->readMap<float>()))[prompt[prev_end_loc]]));
+        // std::cout << mLlm->decode(argmax(logits)) << "  " << mLlm->decode(prompt[prev_end_loc]) << "  " << -std::log(((float*)(logits->readMap<float>()))[prompt[prev_end_loc]]) << std::endl;
         // decode following tokens
         for (int it = prev_end_loc+1; it < end_loc; ++it) {
             auto logits = mLlm->forward({prompt[it-1]}, false);
             logits = MNN::Express::_Softmax(logits);
             nlls.push_back(-std::log(((float*)(logits->readMap<float>()))[prompt[it]]));
+            // std::cout << mLlm->decode(argmax(logits)) << "  " << mLlm->decode(prompt[it]) << "  " << -std::log(((float*)(logits->readMap<float>()))[prompt[it]]) << std::endl;
         }
         // clean up once
         reset();
