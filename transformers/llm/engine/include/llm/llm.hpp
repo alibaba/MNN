@@ -105,7 +105,6 @@ protected:
     virtual MNN::Express::VARP gen_attention_mask(int seq_len);
     virtual MNN::Express::VARP gen_position_ids(int seq_len);
     bool mTracing = false;
-
 };
 
 // Embedding start

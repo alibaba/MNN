@@ -40,12 +40,21 @@ llmexport --path ../chatglm2-6b --export mnn --quant_bit 4 --quant_block 128
 ```
 
 ## 功能
+- 支持将模型为onnx或mnn模型，使用`--export onnx`或`--export mnn`
 - 支持对模型进行对话测试，使用`--test $query`会返回llm的回复内容
 - 默认会使用onnx-slim对onnx模型进行优化，跳过该步骤使用`--skip_slim`
 - 支持合并lora权重后导出，指定lora权重的目录使用`--lora_path`
 - 制定量化bit数使用`--quant_bit`；量化的block大小使用`--quant_block`
 - 使用`--lm_quant_bit`来制定lm_head层权重的量化bit数，不指定则使用`--quant_bit`的量化bit数
 - 支持使用自己编译的`MNNConvert`，使用`--mnnconvert`
+
+`--test`测试示例
+```sh
+# 测试文本输入
+llmexport --path Qwen2-1.5B-Instruct --test "你好"
+# 测试图像文本
+llmexport --path Qwen2-VL-2B-Instruct  --test "<img>https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-VL/assets/demo.jpeg</img>介绍一下图片里的内容"
+```
 
 ## 参数
 ```

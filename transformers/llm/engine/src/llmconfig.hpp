@@ -134,6 +134,21 @@ public:
         }
         return default_value;
     }
+    std::vector<float> value(const char* key, const std::vector<float>& default_value) const {
+        if (document.HasMember(key)) {
+            const auto& value = document[key];
+            if (value.IsArray()) {
+                std::vector<float> result;
+                for (auto& v : value.GetArray()) {
+                    if (v.IsFloat()) {
+                        result.push_back(v.GetFloat());
+                    }
+                }
+                return result;
+            }
+        }
+        return default_value;
+    }
     std::string value(const char key[], const char default_value[]) const {
         return value(key, std::string(default_value));
     }

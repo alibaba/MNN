@@ -13,7 +13,7 @@
 #include "Backend.hpp"
 #include "AutoStorage.h"
 #include "Tensor_generated.h"
-#define MNN_MAX_TENSOR_DIM 8
+#define MNN_MAX_TENSOR_DIM 9
 
 #ifdef CONSTANT
 #undef CONSTANT
@@ -187,7 +187,7 @@ public:
     static bool isTileRegion(const Tensor::InsideDescribe::Region& region);
     static bool isDepthToSpaceRegions(const Tensor* output);
     static bool reshapeSlice(Tensor::InsideDescribe::Region& slice, int outside, int inside, int axis);
-    
+
     class FuseRegionStatus;
     class MNN_PUBLIC FuseWrap {
     public:
@@ -201,10 +201,10 @@ public:
     static void adjustTensorForCompability(Tensor* t);
     static Tensor::DimensionType getDimType(const Tensor* t);
     static std::vector<float> getQuantInfo(const Tensor* t);
-    
+
     static size_t getRawSize(const Tensor* t);
     static void setRasterInputs(Command* cmd);
-    
+
     static bool refTensorContent(Tensor* dst, const Tensor* src);
 
     static int getTensorChannelPack(const Tensor* tensor);
