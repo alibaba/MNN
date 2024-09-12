@@ -72,7 +72,7 @@
 
 .. toctree::
    :maxdepth: 1
-   :caption: 测试工具
+   :caption: 工具集
    :name: tools
 
    tools/convert

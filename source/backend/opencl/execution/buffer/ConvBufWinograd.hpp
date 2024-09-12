@@ -22,6 +22,8 @@ struct ConvBufWinoResource {
     bool mUseSubgroup{false};
     std::shared_ptr<Tensor> mWeight;
     std::shared_ptr<Tensor> mBias;
+    int mAlignN;
+    int mAlignK;
 };
 
 class ConvBufWinograd : public CommonExecution {
@@ -41,7 +43,7 @@ public:
 #endif /* MNN_SUPPORT_INTEL_SUBGROUP */
     
 private:
-    void convertWeightFormat(cl::Buffer& buffer, const int tileK, const int tileN);
+    void convertWeightFormat(cl::Buffer& buffer, const int alignK, const int alignN);
 private:
     OpenCLBackend* mOpenCLBackend;
     std::shared_ptr<ConvBufWinoResource> mResource;
@@ -66,6 +68,8 @@ private:
     std::vector<std::vector<uint32_t> > mLWS_S;
     std::vector<std::vector<uint32_t> > mLWS_D;
     std::vector<std::vector<uint32_t> > mLWS_M;
+private:
+    int mAlignM;
 };
 
 } // namespace OpenCL

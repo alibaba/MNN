@@ -35,8 +35,8 @@ void MNNInt8ToInt16(int16_t* dest, const int8_t* source, size_t count) {
 }
 #endif
 
-#ifdef MNN_LOW_MEMORY
 #ifndef __aarch64__
+#ifdef MNN_CPU_WEIGHT_DEQUANT_GEMM
 static void _MNNPackedMatMulRemain_int4(float* C, const float* A, const float* fB, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, int aStride, const float* k, const float* b) {
     auto B = reinterpret_cast<const uint8_t*>(fB);
     auto h = parameter[2];
@@ -191,6 +191,9 @@ void MNNPackedMatMulRemain_int8(float* C, const float* A, const float* B, size_t
     auto aStride = parameter[0] / sizeof(float);
     _MNNPackedMatMulRemain_int8(C, A, B, eSize, parameter, postParameters, bias, aStride, k, b);
 }
+#endif // MNN_CPU_WEIGHT_DEQUANT_GEMM
+
+#ifdef MNN_LOW_MEMORY
 void MNNAbsMaxFP32(const float* source, float* absmax, size_t src_depth_quad, size_t realSize, int pack) {
     // source: (ic/4, N, 4)
     auto srcStep = pack * realSize;
@@ -261,8 +264,8 @@ void MNNDynamicUpdateConvBiasScale(float* newbias, float* newscale, float* oldbi
     }
 }
 
-#endif // not __aarch64__
 #endif // LOW_MEMORY
+#endif // not __aarch64__
 
 
 static void MNNSumByAxisLForMatmul_A(float* dest, int8_t* source, const float* scale, ssize_t realDstCount, SumByAxisParams sumParams) {
@@ -3422,12 +3425,14 @@ void MNNCoreFunctionInit() {
     gCoreFunction->supportSDot = gCPUInfo.dot;
     gCoreFunction->supportI8mm = gCPUInfo.i8mm;
     gCoreFunction->MNNSumByAxisLForMatmul_A = MNNSumByAxisLForMatmul_A;
-#ifdef MNN_LOW_MEMORY
+#ifdef MNN_CPU_WEIGHT_DEQUANT_GEMM
     // Weight Dequant Gemm Kernels
     gCoreFunction->MNNPackedMatMul_int4 = MNNPackedMatMul_int4;
     gCoreFunction->MNNPackedMatMulRemain_int4 = MNNPackedMatMulRemain_int4;
     gCoreFunction->MNNPackedMatMul_int8 = MNNPackedMatMul_int8;
     gCoreFunction->MNNPackedMatMulRemain_int8 = MNNPackedMatMulRemain_int8;
+#endif
+#ifdef MNN_LOW_MEMORY
     // Dynamic Quant Helper Functions
     gCoreFunction->MNNAbsMax = MNNAbsMaxFP32;
     gCoreFunction->MNNDynamicQuant = MNNDynamicQuantFP32;
@@ -3470,10 +3475,11 @@ void MNNUnpackC2(double* dst, const double* src, size_t area, size_t depth, int*
 void MNNUnpackC2Float(float* dst, const float* src, size_t area, size_t depth, int* areaOffset, int pack) {
     MNNUnpackC2Common<float>(dst, src, area, depth, areaOffset, pack);
 }
-
+#ifndef __aarch64__
 void MNNPackInt8C2(float* dst, const float* src, size_t area, size_t depth, int* areaOffset) {
     MNNPackC2Common<float>(dst, src, area, depth, areaOffset);
 }
+#endif
 
 void MNNUnpackInt8C2(float* dst, const float* src, size_t area, size_t depth, int* areaOffset) {
     MNNUnpackC2Common<float>(dst, src, area, depth, areaOffset);

@@ -63,6 +63,7 @@ option(MNN_INTERNAL "Build with MNN internal features, such as model authenticat
 option(MNN_JNI "Build MNN Jni for java to use" OFF)
 option(MNN_SUPPORT_BF16 "Enable MNN's bf16 op" OFF)
 option(MNN_LOW_MEMORY "Build MNN support low memory for weight quant model." OFF)
+option(MNN_CPU_WEIGHT_DEQUANT_GEMM "Build MNN CPU weight dequant related gemm kernels." OFF)
 
 IF (OHOS)
   include($ENV{NODE_PATH}/@ali/tcpkg/tcpkg.cmake)

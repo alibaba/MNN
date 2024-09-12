@@ -27,7 +27,7 @@ void _SSE_MNNPackedMatMulRemain(float* C, const float* A, const float* B, size_t
     _SSE_GemmPostTreat(C, eSize, parameter, postParameters, bias);
 }
 
-#ifdef MNN_LOW_MEMORY
+#ifdef MNN_CPU_WEIGHT_DEQUANT_GEMM
 //----------------------- MatMul(float, int4) Functions ---------------------------//
 void _SSE_MNNPackedMatMul_int4(float* C, const float* A, const float* B, const size_t* parameter,
                                const float* postParameters, const float* bias, const float* k, const float* b) {
@@ -66,7 +66,9 @@ void _SSE_MNNPackedMatMulRemain_int8(float* C, const float* A, const float* B, s
         _SSE_GemmPostTreat(C, eSize, parameter, postParameters, bias);
     }
 }
+#endif
 
+#ifdef MNN_LOW_MEMORY
 // Dynamic quant
 void _SSE_MNNAbsMaxFP32(const float* source, float* absmax, size_t src_depth_quad, size_t realSize, int pack) {
     // source: (ic/4, N, 4)

@@ -39,7 +39,10 @@ ErrorCode SplitGeluBufExecution::onEncode(const std::vector<Tensor*>& inputs, co
         buildOptions.emplace("-DDOUBLE_INPUTS");
     }
     int pack_wh = 1;
-    if(shape[2] % 4 == 0) {
+    if(shape[2] % 16 == 0) {
+        pack_wh = 16;
+        buildOptions.emplace("-DWH_16");
+    } else if(shape[2] % 4 == 0) {
         pack_wh = 4;
         buildOptions.emplace("-DWH_4");
     }
@@ -49,15 +52,13 @@ ErrorCode SplitGeluBufExecution::onEncode(const std::vector<Tensor*>& inputs, co
     
     auto maxWorkGroupSize  = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
 
-    mGWS = {static_cast<uint32_t>(shape[0]),
-            static_cast<uint32_t>(UP_DIV(shape[1], 4)),
-            static_cast<uint32_t>(UP_DIV(shape[2],pack_wh))};
+    mGWS = {static_cast<uint32_t>(UP_DIV(shape[2], pack_wh)),
+            static_cast<uint32_t>(shape[0] * shape[1])};
 
     uint32_t idx = 0;
     cl_int ret = CL_SUCCESS;
     ret |= unit.kernel->get().setArg(idx++, mGWS[0]);
     ret |= unit.kernel->get().setArg(idx++, mGWS[1]);
-    ret |= unit.kernel->get().setArg(idx++, mGWS[2]);
     ret |= unit.kernel->get().setArg(idx++, openCLBuffer(input));
     if(inputs.size() > 1) {
         ret |= unit.kernel->get().setArg(idx++, openCLBuffer(inputs[1]));
@@ -67,12 +68,12 @@ ErrorCode SplitGeluBufExecution::onEncode(const std::vector<Tensor*>& inputs, co
 
     MNN_CHECK_CL_SUCCESS(ret, "setArg SplitGeluBufExecution");
     
-    mLWS = localWS3DDefault(mGWS, maxWorkGroupSize, runtime, "splitgelu_buf", unit.kernel).first;
+    mLWS = localWS2DDefault(mGWS, maxWorkGroupSize, runtime, "splitgelu_buf", unit.kernel).first;
 
-    unit.globalWorkSize  = {mGWS[0], mGWS[1], mGWS[2]};
-    unit.localWorkSize   = {mLWS[0], mLWS[1], mLWS[2]};
+    unit.globalWorkSize  = {mGWS[0], mGWS[1]};
+    unit.localWorkSize   = {mLWS[0], mLWS[1]};
     
-    mOpenCLBackend->recordKernel3d(unit.kernel, mGWS, mLWS);
+    mOpenCLBackend->recordKernel2d(unit.kernel, mGWS, mLWS);
     mOpenCLBackend->endRecord(mRecording);
     return NO_ERROR;
     

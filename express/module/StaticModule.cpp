@@ -33,7 +33,7 @@ static const StaticModule* getStaticModule(const Module* m) {
 }
 
 static std::vector<std::shared_ptr<BufferStorage>> preRearrangeWeights( // NOLINT
-                                                                       Schedule::ScheduleInfo& scheduleInfo, Backend* backend, Backend* backupBackend, const Module* base = nullptr) {
+                                                                       Schedule::ScheduleInfo& scheduleInfo, Backend* firstbackend, Backend* backupBackend, const Module* base = nullptr) {
     std::map<const std::string, std::shared_ptr<Execution>> base_executions;
     if (base != nullptr) {
         // has base module
@@ -59,6 +59,10 @@ static std::vector<std::shared_ptr<BufferStorage>> preRearrangeWeights( // NOLIN
         auto op    = pipelineInfo[i].op;
         std::unique_ptr<OpT> op_table(op->UnPack());
         std::shared_ptr<Execution> exe;
+        Backend* backend = firstbackend;
+        if (info.type == Schedule::CONSTANT) {
+            backend = backupBackend;
+        }
         switch (op->type()) {
             case MNN::OpType_DepthwiseConvInt8:
             case MNN::OpType_ConvInt8:
@@ -304,20 +308,8 @@ StaticModule::StaticModule(std::vector<int> inputs,
     std::map<const Op*, std::pair<std::shared_ptr<Execution>, DataType>> exeCache;
     MNN_ASSERT(1 == scheduleInfo.pipelineInfo.size());
     auto& bnCache = scheduleInfo.pipelineInfo[0].first;
-    bnCache.cache.first.reset(rt.first[bnCache.info.type]->onCreate(bnCache.info.user));
-    if (bnCache.cache.first->type() == MNN_FORWARD_CPU) {
-        bnCache.cache.second = bnCache.cache.first;
-    } else {
-        // Use Multi-thread if user has set numberthread > 1
-        BackendConfig defaultConfig;
-        defaultConfig.flags = 4;
-        auto cpurt = rt.first.find(MNN_FORWARD_CPU);
-        if (cpurt != rt.first.end()) {
-            bnCache.cache.second.reset(cpurt->second->onCreate(&defaultConfig));
-        } else {
-            bnCache.cache.second.reset(rt.second->onCreate(&defaultConfig));
-        }
-    }
+    // Create Backend for prearrange
+    Session::createPipelineBackend(scheduleInfo.pipelineInfo[0], rt);
     if (config.rearrange) {
         mResource->mBuffer = preRearrangeWeights(scheduleInfo, bnCache.cache.first.get(), bnCache.cache.second.get(), config.base);
     } else {

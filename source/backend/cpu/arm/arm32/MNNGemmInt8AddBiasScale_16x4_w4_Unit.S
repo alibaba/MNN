@@ -51,7 +51,7 @@ ldr r8, [r6, #0]
 ldr lr, [r6, #4]
 
 vpush {q4-q7}
-
+sub sp, sp, #36
 // Branch1: input is int8_t, output is float32, DO NOT USE "scale".
 // Branch2: input is int8_t, output is float32. USE "scale", DO NOT USE "minValue" and "maxValue".
 // Branch3: input is int8_t, output is int8_t.  USE "scale", "minValue" and "maxValue".
@@ -398,6 +398,7 @@ L1LoopCheck:
     bne L1LoopDz
 
 End:
+add sp, sp, #36
 vpop {q4-q7}
 pop {r4-r8, r10, pc}
 

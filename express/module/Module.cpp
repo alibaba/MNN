@@ -330,11 +330,17 @@ Module* Module::load(const std::vector<std::string>& inputs, const std::vector<s
     if (nullptr == rtMgr.get()) {
         rtMgr.reset(_createDefaultRuntimeManager(config));
     }
+    bool needReset = false;
     if (rtMgr->getInside()->mExternalFile.empty()) {
         // Set Default externalFile
         rtMgr->setExternalFile(std::string(fileName) + ".weight");
+        needReset = true;
     }
-    return loadInternal(inputs, outputs, buffer.get(), buffer.size(), rtMgr, config);
+    auto res = loadInternal(inputs, outputs, buffer.get(), buffer.size(), rtMgr, config);
+    if (needReset) {
+        rtMgr->setExternalFile("");
+    }
+    return res;
 }
 
 Module* Module::load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, const uint8_t* buffer, size_t length, const std::shared_ptr<MNN::Express::Executor::RuntimeManager> _rtMgr, const Module::Config* config) {

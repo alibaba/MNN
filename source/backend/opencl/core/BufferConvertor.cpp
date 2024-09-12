@@ -170,82 +170,6 @@ bool converNCHWOrNHWCBufferToNC4HW4OrNC16HW16Buffer(const Tensor *input, Tensor 
     return true;
 }
 
-bool convertNC4HW4BufferToNC4HW4Buffer(const Tensor *input, Tensor *output,                                OpenCLRuntime *runtime, TransType formatTrans, bool needWait, bool svmFlag, bool srcswap, bool dstswap) {
-    std::vector<int> outputShape = tensorShapeFormat(input);
-    uint32_t outputGlobalWorkSize[2] = {static_cast<uint32_t>(UP_DIV(outputShape[3], 4) * outputShape[2]),
-                                        static_cast<uint32_t>(outputShape[0] * outputShape[1])};
-    std::set<std::string> buildOptions;
-    std::string kernelName = "nc4hw4_buffer_to_nc4hw4_buffer";
-    switch (formatTrans) {
-        case InpTrans:
-            AddBuildOptionOfDataType(input, output, buildOptions, runtime->isSupportedFP16(), true, false);
-            break;
-        case OutTrans:
-            AddBuildOptionOfDataType(input, output, buildOptions, runtime->isSupportedFP16(), false, true);
-            break;
-        default:
-            AddBuildOptionOfDataType(input, output, buildOptions, runtime->isSupportedFP16(), true, true);
-            break;
-    }
-    auto convertBufferKernelW = runtime->buildKernelWithCache("buffer_convert_buf", kernelName, buildOptions);
-    auto convertBufferKernel = convertBufferKernelW->get();
-    uint32_t idx   = 0;
-    int outputImageShape[2] = {input->height(), input->width()};
-    int channelC4 = UP_DIV(input->channel(), 4);
-    int batch  = input->batch();
-    int srcStride[2] = {
-        channelC4,
-        1
-    };
-    int dstStride[2] = {
-        channelC4,
-        1
-    };
-    if (srcswap) {
-        srcStride[0] = 1;
-        srcStride[1] = batch;
-    }
-    if (dstswap) {
-        dstStride[0] = 1;
-        dstStride[1] = batch;
-    }
-    cl_int ret = CL_SUCCESS;
-    ret |= convertBufferKernel.setArg(idx++, outputGlobalWorkSize[0]);
-    ret |= convertBufferKernel.setArg(idx++, outputGlobalWorkSize[1]);
-#ifdef MNN_OPENCL_SVM_ENABLE
-    if(svmFlag == true)
-    {
-        ret |= clSetKernelArgSVMPointer(convertBufferKernel.get(), idx++, (const void *)input->buffer().device);
-    }
-    else
-#endif
-    {
-        ret |= convertBufferKernel.setArg(idx++, openCLBuffer(input));
-    }
-    ret |= convertBufferKernel.setArg(idx++, sizeof(outputImageShape), outputImageShape);
-    ret |= convertBufferKernel.setArg(idx++, sizeof(srcStride), srcStride);
-    ret |= convertBufferKernel.setArg(idx++, sizeof(dstStride), dstStride);
-    ret |= convertBufferKernel.setArg(idx++, openCLBuffer(output));
-    MNN_CHECK_CL_SUCCESS(ret, "setArg convertNC4HW4BufferToNC4HW4Buffer");
-
-    const uint32_t maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(convertBufferKernelW));
-    const std::vector<uint32_t> lws = {16, std::max((uint32_t)1, maxWorkGroupSize / 16)};
-    cl::Event event;
-    cl_int res;
-    std::vector<uint32_t> roundUpGroupWorkSize(lws.size());
-    for (size_t i = 0; i < lws.size(); ++i) {
-        roundUpGroupWorkSize[i] = ROUND_UP(outputGlobalWorkSize[i], lws[i]);
-    }
-    res = runtime->commandQueue().enqueueNDRangeKernel(convertBufferKernel, cl::NullRange,
-                                                         cl::NDRange(roundUpGroupWorkSize[0], roundUpGroupWorkSize[1]),
-                                                         cl::NDRange(lws[0], lws[1]), nullptr, &event);
-    MNN_CHECK_CL_SUCCESS(res, "nc4hw4_buffer_to_nc4hw4_buffer");
-    if (true == needWait) {
-        event.wait();
-    }
-    return true;
-}
-
 #ifdef MNN_SUPPORT_INTEL_SUBGROUP
 bool convertNC4HW4BufferBetweenNC16HW16Buffer(const Tensor *input, Tensor *output, const std::string Name,
                                        OpenCLRuntime *runtime, TransType formatTrans, bool needWait, bool svmFlag,
@@ -511,6 +435,145 @@ bool BufferConvertor::convertToNC4HW4Buffer(const Tensor *buffer, const OpenCLBu
 #endif
     return true;
 }
+
+bool convertBufferToBuffer(Tensor *input, Tensor *output, OpenCLRuntime *runtime, bool toDevice, bool toHost, bool needWait, bool svmFlag) {
+    std::vector<int> outputShape = tensorShapeFormat(input);
+    int shape[4] = {outputShape[0], outputShape[3], outputShape[1], outputShape[2]};//N C H W
+    auto srcDimensionFormat = TensorUtils::getDescribe(input)->dimensionFormat;
+    auto dstDimensionFormat = TensorUtils::getDescribe(output)->dimensionFormat;
+    if (MNN_DATA_FORMAT_NC4HW4 == dstDimensionFormat && srcDimensionFormat != dstDimensionFormat && (outputShape[3] % 4) != 0){
+        int region[] = {outputShape[0], ROUND_UP(outputShape[3], 4), outputShape[1], outputShape[2]};//nchw
+        
+        auto kernelW = runtime->buildKernelWithCache("raster_buf", "buffer_set_zero", {}, output, output);
+        auto kernel = kernelW->get();
+        uint32_t lws[2] = {8, 8};
+        uint32_t gws[2] = {(uint32_t)UP_DIV((region[2] * region[3]), 8)*8, (uint32_t)UP_DIV((region[0] * region[1]), 8)*8};
+    
+        int global_dim0 = region[2] * region[3];
+        int global_dim1 = region[0] * region[1];
+    
+        uint32_t idx   = 0;
+        cl_int res = CL_SUCCESS;
+        res |= kernel.setArg(idx++, global_dim0);
+        res |= kernel.setArg(idx++, global_dim1);
+        res |= kernel.setArg(idx++, openCLBuffer(output));
+        MNN_CHECK_CL_SUCCESS(res, "setArg buffer_set_zero");
+    
+        res = runtime->commandQueue().enqueueNDRangeKernel(kernel, cl::NullRange,
+                                                         cl::NDRange(gws[0], gws[1]),
+                                                         cl::NDRange(lws[0], lws[1]), nullptr, nullptr);
+        MNN_CHECK_CL_SUCCESS(res, "buffer_set_zero");
+    }
+    if (srcDimensionFormat == dstDimensionFormat && MNN_DATA_FORMAT_NC4HW4 != dstDimensionFormat){
+        int size = outputShape[0] * outputShape[1] * outputShape[2] * outputShape[3];
+        uint32_t gws[2] = {static_cast<uint32_t>(UP_DIV(size, 4)), static_cast<uint32_t>(1)};
+        std::set<std::string> buildOptions;
+        if(size % 4 != 0){
+            buildOptions.emplace("-DPACK_LEAVE");
+        }
+        AddBuildOptionOfDataType(input, output, buildOptions, runtime->isSupportedFP16(), toDevice, toHost);
+        auto convertBufferKernelW = runtime->buildKernelWithCache("buffer_convert_buf", "buffer_copy_to_buffer", buildOptions);
+        auto convertBufferKernel = convertBufferKernelW->get();
+        uint32_t idx = 0;
+        cl_int ret = CL_SUCCESS;
+        ret |= convertBufferKernel.setArg(idx++, gws[0]);
+        ret |= convertBufferKernel.setArg(idx++, gws[1]);
+#ifdef MNN_OPENCL_SVM_ENABLE
+        if(svmFlag == true && toDevice) {
+            ret |= clSetKernelArgSVMPointer(convertBufferKernel.get(), idx++, (const void *)input->deviceId());
+        }
+        else
+#endif
+        {
+            ret |= convertBufferKernel.setArg(idx++, openCLBuffer(input));
+        }
+#ifdef MNN_OPENCL_SVM_ENABLE
+        if(svmFlag == true && toHost) {
+            ret |= clSetKernelArgSVMPointer(convertBufferKernel.get(), idx++, (const void *)output->deviceId());
+        }
+        else
+#endif
+        {
+            ret |= convertBufferKernel.setArg(idx++, openCLBuffer(output));
+        }
+        ret |= convertBufferKernel.setArg(idx++, size);
+        MNN_CHECK_CL_SUCCESS(ret, "setArg buffer_convert_to_buffer");
+
+        const uint32_t maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(convertBufferKernelW));
+        const std::vector<uint32_t> lws = {16, std::max((uint32_t)1, maxWorkGroupSize / 16)};
+        cl::Event event;
+        cl_int res;
+        std::vector<uint32_t> roundUpGroupWorkSize(lws.size());
+        for (size_t i = 0; i < lws.size(); ++i) {
+            roundUpGroupWorkSize[i] = ROUND_UP(gws[i], lws[i]);
+        }
+        
+        res = runtime->commandQueue().enqueueNDRangeKernel(convertBufferKernel, cl::NullRange,
+                                                             cl::NDRange(roundUpGroupWorkSize[0], roundUpGroupWorkSize[1]),
+                                                             cl::NDRange(lws[0], lws[1]), nullptr, &event);
+        MNN_CHECK_CL_SUCCESS(res, "buffer_convert_to_buffer");
+        
+        if (true == needWait) {
+            event.wait();
+        }
+    } else{
+        uint32_t gws[3] = {static_cast<uint32_t>(shape[2] * shape[3]),
+                                      static_cast<uint32_t>(shape[1]),
+                                      static_cast<uint32_t>(shape[0])};
+        std::set<std::string> buildOptions;
+        buildOptions.emplace("-DINPUT_FORMAT=" + std::to_string(srcDimensionFormat));
+        buildOptions.emplace("-DOUTPUT_FORMAT=" + std::to_string(dstDimensionFormat));
+        AddBuildOptionOfDataType(input, output, buildOptions, runtime->isSupportedFP16(), toDevice, toHost);
+        auto convertBufferKernelW = runtime->buildKernelWithCache("buffer_convert_buf", "buffer_convert_to_buffer", buildOptions);
+        auto convertBufferKernel = convertBufferKernelW->get();
+        uint32_t idx = 0;
+        cl_int ret = CL_SUCCESS;
+        ret |= convertBufferKernel.setArg(idx++, gws[0]);
+        ret |= convertBufferKernel.setArg(idx++, gws[1]);
+        ret |= convertBufferKernel.setArg(idx++, gws[2]);
+#ifdef MNN_OPENCL_SVM_ENABLE
+        if(svmFlag == true && toDevice) {
+            ret |= clSetKernelArgSVMPointer(convertBufferKernel.get(), idx++, (const void *)input->deviceId());
+        }
+        else
+#endif
+        {
+            ret |= convertBufferKernel.setArg(idx++, openCLBuffer(input));
+        }
+        
+        ret |= convertBufferKernel.setArg(idx++, sizeof(shape), shape);
+#ifdef MNN_OPENCL_SVM_ENABLE
+        if(svmFlag == true && toHost) {
+            ret |= clSetKernelArgSVMPointer(convertBufferKernel.get(), idx++, (const void *)output->deviceId());
+        }
+        else
+#endif
+        {
+            ret |= convertBufferKernel.setArg(idx++, openCLBuffer(output));
+        }
+        MNN_CHECK_CL_SUCCESS(ret, "setArg buffer_convert_to_buffer");
+        
+        const uint32_t maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(convertBufferKernelW));
+        const std::vector<uint32_t> lws = {16, std::max((uint32_t)1, maxWorkGroupSize / 16), 1};
+        cl::Event event;
+        cl_int res;
+        std::vector<uint32_t> roundUpGroupWorkSize(lws.size());
+        for (size_t i = 0; i < lws.size(); ++i) {
+            roundUpGroupWorkSize[i] = ROUND_UP(gws[i], lws[i]);
+        }
+        
+        res = runtime->commandQueue().enqueueNDRangeKernel(convertBufferKernel, cl::NullRange,
+                                                           cl::NDRange(roundUpGroupWorkSize[0], roundUpGroupWorkSize[1], roundUpGroupWorkSize[2]),
+                                                           cl::NDRange(lws[0], lws[1], lws[2]), nullptr, &event);
+        MNN_CHECK_CL_SUCCESS(res, "buffer_convert_to_buffer");
+        
+        if (true == needWait) {
+            event.wait();
+        }
+    }
+    return true;
+}
+
 } // namespace OpenCL
 } // namespace MNN
 #endif /* MNN_OPENCL_BUFFER_CLOSED */

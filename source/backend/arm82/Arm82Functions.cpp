@@ -35,12 +35,14 @@ void MNNPackedMatMulFP16(float* C, const float* A, const float* B, const size_t*
 // parameter: [aStride, l, h, cStride, bExtraStride]
 void MNNPackedMatMulRemainFP16(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, const float* k, const float* b);
 
-#ifdef MNN_LOW_MEMORY
+#ifdef MNN_CPU_WEIGHT_DEQUANT_GEMM
 void MNNPackedMatMulFP16_int4(float* C, const float* A, const float* B, const size_t* parameter, const float* postParameters, const float* bias, const float* k, const float* b);
 void MNNPackedMatMulRemainFP16_int4(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, const float* k, const float* b);
 void MNNPackedMatMulFP16_int8(float* C, const float* A, const float* B, const size_t* parameter, const float* postParameters, const float* bias, const float* k, const float* b);
 void MNNPackedMatMulRemainFP16_int8(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, const float* k, const float* b);
+#endif
 
+#ifdef MNN_LOW_MEMORY
 void MNNAbsMaxFP16(const float* source, float* absmax, size_t src_depth_quad, size_t realSize, int pack);
 void MNNQuantScaleFP16(float* sum, float* absmax, float* quant_scale, float* dequant_scale, size_t thread, size_t batch);
 void MNNDynamicQuantFP16(const float* src, int8_t* dst, const float* scale, size_t src_depth_quad, size_t realSize, int pack);
@@ -48,8 +50,6 @@ void MNNQuantSumFP16(float* sum, const float* dequant_scale, size_t thread, size
 #endif
 #if defined(__aarch64__)
 void CountMinMaxValue_FP16(float* source, float* minVal, float* maxVal, size_t sizeQuad);
-void MNNSumByAxisLForMatmul_A_ARM86(float* dest, int8_t* source, const float* dequantScale, ssize_t realDstCount, SumByAxisParams sumParams);
-void MNNSumByAxisLForMatmul_A_ARM82(float* dest, int8_t* source, const float* dequantScale, ssize_t realDstCount, SumByAxisParams sumParams);
 #endif
 void MNNConvDwF23MulTransUnitFP16(FLOAT16 **cacheLine, const FLOAT16 *weight, FLOAT16 *dest, size_t ow);
 
@@ -735,29 +735,25 @@ bool Arm82Functions::init() {
     FUNC_PTR_ASSIGN(gInstance->MNNPackedMatMul, MNNPackedMatMulFP16);
     FUNC_PTR_ASSIGN(gInstance->MNNPackedMatMulRemain, MNNPackedMatMulRemainFP16);
 #if defined(__aarch64__)
-#ifdef MNN_LOW_MEMORY
+    gInstance->supportFp16arith = origin->supportFp16arith;
+    gInstance->supportSDot = origin->supportSDot;
+    gInstance->supportI8mm = origin->supportI8mm;
+#ifdef MNN_CPU_WEIGHT_DEQUANT_GEMM
     // Weight Dequant Gemm Kernels
     FUNC_PTR_ASSIGN(gInstance->MNNPackedMatMul_int4, MNNPackedMatMulFP16_int4);
     FUNC_PTR_ASSIGN(gInstance->MNNPackedMatMulRemain_int4, MNNPackedMatMulRemainFP16_int4);
     FUNC_PTR_ASSIGN(gInstance->MNNPackedMatMul_int8, MNNPackedMatMulFP16_int8);
     FUNC_PTR_ASSIGN(gInstance->MNNPackedMatMulRemain_int8, MNNPackedMatMulRemainFP16_int8);
+#endif
+#ifdef MNN_LOW_MEMORY
     // Dynamic Qaunt Helper Functions
     FUNC_PTR_ASSIGN(gInstance->MNNAbsMax, MNNAbsMaxFP16);
     FUNC_PTR_ASSIGN(gInstance->MNNQuantScale, MNNQuantScaleFP16);
     FUNC_PTR_ASSIGN(gInstance->MNNDynamicQuant, MNNDynamicQuantFP16);
     FUNC_PTR_ASSIGN(gInstance->MNNQuantSum, MNNQuantSumFP16);
     FUNC_PTR_ASSIGN(gInstance->MNNCountMaxMinValue, ARM82CountMinMaxValue);
-    // Dynamic Quant Gemm Kernels.
-    gInstance->supportFp16arith = origin->supportFp16arith;
-    gInstance->supportSDot = origin->supportSDot;
-    gInstance->supportI8mm = origin->supportI8mm;
 #endif
-    if (gInstance->supportSDot) {
-        FUNC_PTR_ASSIGN(gInstance->MNNSumByAxisLForMatmul_A, MNNSumByAxisLForMatmul_A_ARM82);
-    }
-    if (gInstance->supportI8mm) {
-        FUNC_PTR_ASSIGN(gInstance->MNNSumByAxisLForMatmul_A, MNNSumByAxisLForMatmul_A_ARM86);
-    }
+    FUNC_PTR_ASSIGN(gInstance->MNNSumByAxisLForMatmul_A, origin->MNNSumByAxisLForMatmul_A);
 #endif
     FUNC_PTR_ASSIGN(gInstance->MNNPackC4ForMatMul_A, Arm82MNNPackForMatMul_A);
     FUNC_PTR_ASSIGN(gInstance->MNNGetMatMulPackMode, Arm82MNNGetMatMulPackMode);

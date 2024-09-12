@@ -31,6 +31,7 @@ private:
     std::vector<uint32_t> mLocalWorkSize{1, 1, 1};
     OpenCLBackend *mOpenCLBackend;
     bool mHasBias = false;
+    std::set<std::string> mBuildOptions;
 };
 
 } // namespace OpenCL

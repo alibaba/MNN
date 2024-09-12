@@ -175,7 +175,7 @@ ErrorCode IdstConvolutionInt8::onExecute(const std::vector<Tensor*>& inputs, con
         mQuanScale,
         mQuanScale
     };
-    int8_t zeroPoint = 0;
+    float zeroPoint = 0;
     
     std::vector<float> fakeScale(ocC4 * PackUnit, 1.0f);
     QuanPostTreatParameters quanParam;
@@ -199,7 +199,7 @@ ErrorCode IdstConvolutionInt8::onExecute(const std::vector<Tensor*>& inputs, con
         auto srcOrigin = input->host<float>() + input->stride(0) * batchIndex;
         auto dstOrigin = output->host<float>() + output->stride(0) * batchIndex;
 
-        MNNFloat2Int8(srcOrigin, srcCopy, inputTotalSize / 4, quantScale, mAMin, mAMax, zeroPoint);
+        MNNFloat2Int8(srcOrigin, srcCopy, inputTotalSize / 4, &mQuanScale, mAMin, mAMax, &zeroPoint, 0);
         int tileCount = UP_DIV(count, DST_XUNIT);
 
         threadNumber        = std::max(((CPUBackend*)backend())->threadNumber(), 1);

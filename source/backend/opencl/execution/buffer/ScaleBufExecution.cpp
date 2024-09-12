@@ -93,13 +93,9 @@ ScaleBufExecution::ScaleBufExecution(const std::vector<Tensor *> &inputs, const 
         }
         openclBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(biasBuffer, biasPtrCL);
 
-        buildOptions.emplace("-DBIAS");
+        mBuildOptions.emplace("-DBIAS");
         mHasBias = true;
     }
-
-    auto runtime           = mOpenCLBackend->getOpenCLRuntime();
-    unit.kernel            = runtime->buildKernel("scale_buf", "scale_buf", buildOptions);
-    mMaxWorkGroupSize      = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
 
 #ifdef LOG_VERBOSE
     MNN_PRINT("end ScaleBufExecution init !\n");
@@ -122,13 +118,15 @@ ErrorCode ScaleBufExecution::onEncode(const std::vector<Tensor *> &inputs, const
     const int height   = inputShape.at(1);
     const int width    = inputShape.at(2);
     const int channels = inputShape.at(3);
-
+    const int inside = width * height;
     const int channelBlocks = UP_DIV(channels, 4);
 
-    mGlobalWorkSize = {static_cast<uint32_t>(width * channelBlocks),
-            static_cast<uint32_t>(height * batch)};
+    std::set<std::string> buildOptions = mBuildOptions;
+    unit.kernel            = runtime->buildKernel("scale_buf", "scale_buf", buildOptions);
+    mMaxWorkGroupSize      = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
     
-    int shape[4] = {batch, height, width, channelBlocks};
+    mGlobalWorkSize = {static_cast<uint32_t>(inside),
+            static_cast<uint32_t>(channelBlocks * batch)};
     uint32_t idx = 0;
     cl_int ret = CL_SUCCESS;
     ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[0]);
@@ -139,7 +137,9 @@ ErrorCode ScaleBufExecution::onEncode(const std::vector<Tensor *> &inputs, const
         ret |= unit.kernel->get().setArg(idx++, openCLBuffer(mBias.get()));
     }
     ret |= unit.kernel->get().setArg(idx++, openCLBuffer(outputs[0]));
-    ret |= unit.kernel->get().setArg(idx++, shape);
+    ret |= unit.kernel->get().setArg(idx++, channelBlocks);
+    ret |= unit.kernel->get().setArg(idx++, batch);
+    ret |= unit.kernel->get().setArg(idx++, inside);
     MNN_CHECK_CL_SUCCESS(ret, "setArg ScaleBufExecution");
 
     std::string name = "scale_buf";

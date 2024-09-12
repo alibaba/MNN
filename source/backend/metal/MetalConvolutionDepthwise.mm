@@ -73,7 +73,13 @@ ErrorCode MetalConvolutionDepthwise::onResize(const std::vector<Tensor *> &input
                     mConstBuffer, (id<MTLBuffer>)(((MetalRuntimeAllocator::MetalBufferAlloc *)mWeight->deviceId()))->getBuffer(), ((MetalRuntimeAllocator::MetalBufferAlloc *)mBias->deviceId())->getBuffer(), nil];
     const Tensor* weight = mWeight.get();
     const Tensor* bias = mBias.get();
-    int buffer_offset[] = {TensorUtils::getDescribe(input)->extra.offset, TensorUtils::getDescribe(output)->extra.offset, TensorUtils::getDescribe(weight)->extra.offset, TensorUtils::getDescribe(bias)->extra.offset, 0};
+    int buffer_offset[] = {
+        TensorUtils::getDescribe(input)->extra.offset,
+        TensorUtils::getDescribe(output)->extra.offset,
+        0,
+        TensorUtils::getDescribe(weight)->extra.offset,
+        TensorUtils::getDescribe(bias)->extra.offset
+    };
 
     std::string name = "conv_depthwise";
     MetalRuntime *rt = (MetalRuntime *)backend->runtime();

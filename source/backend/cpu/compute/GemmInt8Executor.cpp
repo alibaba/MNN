@@ -13,11 +13,42 @@
 #include "core/TensorUtils.hpp"
 
 namespace MNN {
+static void _makeResource(Backend* backend, std::shared_ptr<CPUConvolution::Resource> resource, const MNN::Op *op, std::shared_ptr<CPUConvolution::ResourceInt8> resourceInt8) {
+    /* Used to compute weight quant scale and bias and weightKernelSum of type float. */
+    auto conv2d = op->main_as_Convolution2D();
+    bool quanBuffer = (conv2d->quanParameter() != nullptr && conv2d->quanParameter()->buffer() != nullptr);
+    MNN_ASSERT(quanBuffer || resourceInt8);
+    resource->backend = backend;
+    auto core = static_cast<CPUBackend*>(backend)->functions();
+    // common parameters
+    int outputCount = conv2d->common()->outputCount();
+    int LSize = conv2d->common()->inputCount() * conv2d->common()->kernelX() * conv2d->common()->kernelY();
+    int ocUp4 = ROUND_UP(outputCount, core->pack);
+    int8_t* weightOrigin;
+
+    // Save weight quant scale and bias: wf=scale*wi+bias
+    resource->mDequantize.mScaleBias.reset(Tensor::createDevice<uint8_t>({2 * ocUp4 * core->bytes}));
+    auto success = resource->backend->onAcquireBuffer(resource->mDequantize.mScaleBias.get(), Backend::STATIC);
+    if (!success) {
+        MNN_ERROR("Alloc denquant scaleBias memory error\n");
+        return;
+    }
+    auto alphaPtr = resource->mDequantize.mScaleBias->host<float>();
+    auto biasPtr = reinterpret_cast<float*>(reinterpret_cast<uint8_t*>(alphaPtr) + ocUp4 * core->bytes);
+    ::memset(alphaPtr, 0, 2 * ocUp4 * core->bytes);
+    auto wZero = resourceInt8->mWeightQuantZero->host<int32_t>(); // has packed to outputUp4
+    auto wScale = resourceInt8->mOriginScale->host<float>();
+    int h = ocUp4;
+    for (int i=0; i< h; ++i) {
+        alphaPtr[i] = wScale[i];
+        biasPtr[i] = (-1.f) * wZero[i] * wScale[i];
+    }
+}
 
 GemmInt8Executor::GemmInt8Executor(Backend* bn, std::shared_ptr<ResourceInt8> resource, const Op *op, decltype(CoreInt8Functions::Int8GemmKernel) gemmKernel, std::vector<int32_t> bias) :
     CPUConvolution(op->main_as_Convolution2D()->common(), bn), mResourceInt8(resource), mMutableResource(resource, bn), mGemmKernel(gemmKernel), mQuantBias(bias){
         mResource.reset(new Resource);
-        CPUConvolution::makeResource(bn, mResource, op, mResourceInt8);
+        _makeResource(bn, mResource, op, mResourceInt8);
 }
 
 GemmInt8Executor::~GemmInt8Executor() {

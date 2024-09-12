@@ -37,6 +37,8 @@ void MNNGemmInt8AddBiasScale_ARMV86_Unit(int8_t* dst, const int8_t* src, const i
                                         const QuanPostTreatParameters* post, size_t realDstCount);
 void MNNLineDepthWiseInt8AddBiasScale_ARMV82_Unit3X3(int8_t* dst, const int8_t* src, const int8_t* weight, const QuanPostTreatParameters* parameters, size_t width,
                                         size_t src_w_step, size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step, int8_t* idxOrder=nullptr);
+void MNNSumByAxisLForMatmul_A_ARM86(float* dest, int8_t* source, const float* dequantScale, ssize_t realDstCount, SumByAxisParams sumParams);
+void MNNSumByAxisLForMatmul_A_ARM82(float* dest, int8_t* source, const float* dequantScale, ssize_t realDstCount, SumByAxisParams sumParams);
 #if defined(MNN_LOW_MEMORY)
 // int4 weight gemmInt8 kernel
 void MNNGemmInt8AddBiasScale_ARMV82_w4_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad,
@@ -48,7 +50,7 @@ void MNNGemmInt8AddBiasScale_16x4_w4_Unit(int8_t* dst, const int8_t* src, const 
 // Tools to dynamic-quant fp16-input data.
 #ifdef MNN_USE_ARMV82
 void DynamicQuanInput_ARM82(const float* src, int8_t* dst, size_t sizeQuad, const float* scalep, ssize_t minValue,
-                        ssize_t maxValue, ssize_t zeroPoint);
+                        ssize_t maxValue, const float* zeroPoint, ssize_t quanParamVec);
 // int8 weight gemmInt8 kernel to return fp16-output data.
 void MNNGemmInt8AddBiasScale_ARMV82_Unit_FP16(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad,
                                               const QuanPostTreatParameters* post, size_t realDstCount);
@@ -59,7 +61,7 @@ void MNNGemmInt8AddBiasScale_ARMV86_Unit_FP16(int8_t* dst, const int8_t* src, co
 void MNNGemmInt8AddBiasScale_ARMV86_w4_Unit_FP16(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad,
                                               const QuanPostTreatParameters* post, size_t realDstCount);
 void DynamicQuanInputAndReorder_ARM82(const float* src, int8_t* dst, size_t planeSize, const float* scale, ssize_t aMin,
-                                     ssize_t aMax, ssize_t zeroPoint, size_t ocQuad, size_t offset);
+                                     ssize_t aMax, const float* zeroPoint, size_t ocQuad, size_t offset);
 #endif
 #endif
 #endif // __aarch64__
@@ -1514,8 +1516,8 @@ static void MNNGemmInt8AddBiasScale_16x4_w4_Unit(int8_t* dst, const int8_t* src,
 
                 int w8[64]; // 64=GEMM_INT8_UNIT * GEMM_INT8_SRC_UNIT
                 for (int k = 0; k < 32; ++k) {
-                    w8[2 * k] = (weight_sz[k]>>4);
-                    w8[2 * k + 1] = (weight_sz[k] & c);
+                    w8[k] = (weight_sz[k]>>4);
+                    w8[k + 32] = (weight_sz[k] & c);
                 }
 
                 for (int j = 0; j < GEMM_INT8_UNIT; ++j) {
@@ -1642,10 +1644,28 @@ static void MNNLineDepthWiseInt8AddBiasScaleUnit3x3(int8_t* dst, const int8_t* s
 
 #ifndef MNN_USE_NEON
 void MNNFloat2Int8(const float* src, int8_t* dst, size_t sizeQuad, const float* scalep, ssize_t minValue,
-                   ssize_t maxValue, ssize_t zeroPoint) {
+                   ssize_t maxValue, const float* zeroPoint, ssize_t quanParamVec) {
+    // quanParamVec:
+    // 00: scale is vector
+    // 10: zero is vector
+    // 11: both are vector
+    float scale4[4] = {scalep[0], scalep[0], scalep[0], scalep[0] };
+    float zero4[4] = {zeroPoint[0], zeroPoint[0], zeroPoint[0], zeroPoint[0]};
+    if (quanParamVec % 2 == 1) {
+        scale4[0] = scalep[0];
+        scale4[1] = scalep[1];
+        scale4[2] = scalep[2];
+        scale4[3] = scalep[3];
+    }
+    if (quanParamVec >> 1 == 1) {
+        zero4[0] = zeroPoint[0];
+        zero4[1] = zeroPoint[1];
+        zero4[2] = zeroPoint[2];
+        zero4[3] = zeroPoint[3];
+    }
     for (int i = 0; i < sizeQuad; ++i) {
         for (int j=0; j<4; ++j) {
-            int v = (int)roundf(src[4*i+j] * scalep[j]) + zeroPoint;
+            int v = (int)roundf(src[4*i+j] * scale4[j]) + zero4[j];
             if (v > maxValue) {
                 v = maxValue;
             }
@@ -2103,7 +2123,7 @@ static void MNNGetGemmUnit(int* UNIT, int* SRC_UNIT, int* DST_XUNIT) {
 }
 
 static void MNNGetGemmUnitSdot(int* UNIT, int* SRC_UNIT, int* DST_XUNIT) {
-    *UNIT = 4;
+    *UNIT = 8;
     *SRC_UNIT = 4;
     *DST_XUNIT = 12;
 }
@@ -2226,6 +2246,7 @@ void MNNCoreInt8FunctionInit() {
         gCoreFunc->MNNPackC4Int8ForMatMul_A = _ArmBasicMNNPackC4ForMatMul_A_L4<12, 4>;
         // ConvDepthwise
         gCoreFunc->ConvDepthwise3x3LineInt8_ARM82 = MNNLineDepthWiseInt8AddBiasScale_ARMV82_Unit3X3;
+        core->MNNSumByAxisLForMatmul_A = MNNSumByAxisLForMatmul_A_ARM82;
 #if defined(MNN_LOW_MEMORY)
     #ifdef MNN_USE_ARMV82
         gCoreFunc->DynamicQuanInput_ARM82 = DynamicQuanInput_ARM82;
@@ -2241,6 +2262,7 @@ void MNNCoreInt8FunctionInit() {
         gCoreFunc->Int8GemmKernel = MNNGemmInt8AddBiasScale_ARMV86_Unit;
         gCoreFunc->Int8GemmKernelFast = MNNGemmInt8AddBiasScale_ARMV86_Unit;
         gCoreFunc->MNNGetGemmUnit = MNNGetGemmUnitI8mm;
+        core->MNNSumByAxisLForMatmul_A = MNNSumByAxisLForMatmul_A_ARM86;
 #if defined(MNN_LOW_MEMORY)
         gCoreFunc->Int8GemmKernel_W4 = MNNGemmInt8AddBiasScale_ARMV86_w4_Unit;
     #ifdef MNN_USE_ARMV82
@@ -2250,7 +2272,6 @@ void MNNCoreInt8FunctionInit() {
 #endif
         // Im2Col
         gCoreFunc->MNNPackC4Int8ForMatMul_A = _ArmBasicMNNPackC4ForMatMul_A<10, 8, 8>;
-        gCoreFunc->MNNPackC4Int8ForMatMul_A_ARM86FP16 = _ArmBasicMNNPackC4ForMatMul_A<10, 8, 8>;
     }
 #endif
     MNNInt8FunctionInit();

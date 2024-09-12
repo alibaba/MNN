@@ -16,33 +16,63 @@
 namespace MNN {
 namespace OpenCL {
 
-class AttentionBufImpl {
+class KVCacheCLManager {
 public:
-    AttentionBufImpl(const MNN::Op *op, Backend *backend, bool kv_cache);
+    KVCacheCLManager(Backend *backend, bool kv_cache);
 
-    ~AttentionBufImpl() {
-        if(mRecording != NULL){
-#ifdef MNN_USE_LIB_WRAPPER
-            clReleaseRecordingQCOM(mRecording);
-#endif
-        }
+    ~KVCacheCLManager() = default;
+    void allocKVCache();
+    bool reallocKVCache();
+    void setArgs(int pastLength, int numHead, int kvNumHead, int headDim){
+        mPastLength = pastLength;
+        mNumHead = numHead;
+        mKvNumHead = kvNumHead;
+        mHeadDim = headDim;
     }
-    ErrorCode onResize(Backend *backend, const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
-    ErrorCode onExecute(Backend *backend, const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
+    int kvLength() {
+        return mPastLength;
+    }
+    void addKvLength(){
+        mPastLength += 1;
+    }
+    int maxLength() {
+        return mMaxLength;
+    }
+    int numHead() {
+        return mNumHead;
+    }
+    const cl::Buffer * key() {
+        return mPastKey.get();
+    }
+    const cl::Buffer * value() {
+        return mPastValue.get();
+    }
 
 private:
-    int getLocalSize(int size, int maxGroupSize);
-    void allocKVCache();
-    void reallocKVCache();
     bool mKVCache;
-    float mScale;
     const int mExpandChunk = 2048;
-    bool mIsDecode = false;
-    bool mIsFirstDecode = true;
-    int mPastLength = 0, mMaxLength = 0, mKv_seq_len = 0, mSoftMaxRemainChannels = 0;
     std::shared_ptr<cl::Buffer> mPastKey, mPastValue;
-    std::shared_ptr<Tensor> mTempQK, mTempSoftMax;
-    int mNumHead = 0, mKvNumHead = 0, mHeadDim = 0, mValueH = 0;
+    int mPastLength = 0, mMaxLength = 0, mNumHead = 0, mKvNumHead = 0, mHeadDim = 0;
+    OpenCLBackend *mOpenCLBackend;
+    int mByte = 4;
+};
+
+class AttentionBufExecution : public CommonExecution {
+public:
+    AttentionBufExecution(const MNN::Op *op, Backend *backend, bool kv_cache);
+    AttentionBufExecution(std::shared_ptr<KVCacheCLManager> manager, const MNN::Op *op, Backend *backend);
+
+    virtual ~AttentionBufExecution() = default;
+    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
+
+private:
+    
+    int getLocalSize(int size, int maxGroupSize);
+    void reallocKVCache();
+    bool mIsDecode = false;
+    int mKv_seq_len = 0;
     std::shared_ptr<KernelWrap> mKernel_qk;
     std::shared_ptr<KernelWrap> mKernel_softmax;
     std::shared_ptr<KernelWrap> mKernel_qkv;
@@ -57,26 +87,28 @@ private:
     RecordUpdateInfo mQkUpdateInfo;
     RecordUpdateInfo mSoftMaxUpdateInfo;
     RecordUpdateInfo mQkvUpdateInfo;
-    int mGlobalWorkSizeQk2 = 0;
+    int mGlobalWorkSizeQk0 = 0;
     size_t mQkGlobal_size[3];
-    int mSoftmaxShape[4];
-    cl_recording_qcom mRecording{NULL};
     std::vector<RecordUpdateInfo*> mOpRecordUpdateInfo;
-    int mByte = 4;
-};
-
-class AttentionBufExecution : public CommonExecution {
-public:
-    AttentionBufExecution(const MNN::Op *op, Backend *backend, bool kv_cache);
-    AttentionBufExecution(std::shared_ptr<AttentionBufImpl> impl, const MNN::Op *op, Backend *backend);
-
-    virtual ~AttentionBufExecution() = default;
-    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-    virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-    virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
-
+    std::shared_ptr<KVCacheCLManager> mKVCacheCLManager;
+    std::shared_ptr<Tensor> mTempQK, mTempSoftMax;
 private:
-    std::shared_ptr<AttentionBufImpl> mImpl;
+    int mAlignQ, mAlignKV, mAlignHDK, mAlignHDN;
+    bool mLongPrefill = false;
+    std::shared_ptr<KernelWrap> mKernel_rearrange;
+    std::vector<uint32_t> mGlobalWorkSizeRearrg{1, 1, 1};
+    std::vector<uint32_t> mLocalWorkSizeRearrg{1, 1, 1, 1};
+    std::shared_ptr<KernelWrap> mKernel_mask;
+    std::vector<uint32_t> mGlobalWorkSizeMask{1, 1, 1};
+    std::vector<uint32_t> mLocalWorkSizeMask{1, 1, 1, 1};
+    std::shared_ptr<KernelWrap> mKernel_trans;
+    std::vector<uint32_t> mGlobalWorkSizeTrans{1, 1, 1};
+    std::vector<uint32_t> mLocalWorkSizeTrans{1, 1, 1, 1};
+    std::shared_ptr<KernelWrap> mKernel_clip;
+    std::vector<uint32_t> mGlobalWorkSizeClip{1, 1, 1};
+    std::vector<uint32_t> mLocalWorkSizeClip{1, 1, 1, 1};
+    std::shared_ptr<Tensor> mTempQ, mTempK, mTempV, mTempMask, mTempQKV;
+    bool mIsAddMask = false;
 };
 } // namespace OpenCL
 } // namespace MNN

@@ -275,7 +275,7 @@ bool codegen(std::vector<Schedule::OpCacheInfo>& infos, std::vector<std::vector<
         auto inputs = tensors.first;
         auto outputs = tensors.second;
         // build Plugin Op
-        SharedPtr<Command> cmdPlugin;
+        std::shared_ptr<Command> cmdPlugin;
         {
             auto sourceCode = fuseModule.codegen();
             if(mapKernelSources.find(sourceCode) == mapKernelSources.end()) {

@@ -36,6 +36,7 @@ private:
     std::vector<Unit> mUnits;
     std::shared_ptr<CPUConvolution::ResourceInt8> mResource;
     std::shared_ptr<Tensor> mInputFloat;
+    std::shared_ptr<Tensor> mFusedBias;
     
     struct WinoResource {
         std::shared_ptr<Tensor> weight;

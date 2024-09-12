@@ -24,6 +24,10 @@ if(MNN_LOW_MEMORY)
   target_compile_options(MNNCPU PRIVATE -DMNN_LOW_MEMORY)
 endif()
 
+if(MNN_CPU_WEIGHT_DEQUANT_GEMM)
+  target_compile_options(MNNCPU PRIVATE -DMNN_CPU_WEIGHT_DEQUANT_GEMM)
+endif()
+
 # X86_64 AVX/SSE
 if (MNN_USE_SSE)
     include(${CMAKE_CURRENT_LIST_DIR}/x86_x64/CMakeLists.txt)

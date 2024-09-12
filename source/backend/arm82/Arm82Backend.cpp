@@ -118,6 +118,7 @@ void Arm82Backend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor
         CPUBackend::onCopyBuffer(srcTensor, dstTensor);
         return;
     }
+    _resetDynamicMemory();
     auto source = TensorUtils::getDescribe(srcTensor)->dimensionFormat;
     auto dest   = TensorUtils::getDescribe(dstTensor)->dimensionFormat;
     auto srcType = MNN_FORWARD_CPU;

@@ -647,9 +647,13 @@ static bool _RebuildExternalOp(FileLoader* external, const MNN::Op* origin, flat
                     external->offset(param->external[0] + param->external[1] + param->external[2]);
                 }
                 if (param->bias.empty() && param->external.size() > 3) {
-                    param->bias.resize(param->external[3]/sizeof(float));
-                    external->read((char*)param->bias.data(), param->external[3]);
-                }
+		            if (param->external[3] > 0) {
+                       param->bias.resize(param->external[3]/sizeof(float));
+                       external->read((char*)param->bias.data(), param->external[3]);
+                    } else {
+                       param->bias.resize(param->common->outputCount);
+		            }
+		        }
                 if (param->quanParameter->index.empty() && param->external.size() > 4) {
                     param->quanParameter->index.resize(param->external[4]/sizeof(uint32_t));
                     external->read((char*)param->quanParameter->index.data(), param->external[4]);

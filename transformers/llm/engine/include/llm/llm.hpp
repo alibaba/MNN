@@ -112,10 +112,11 @@ protected:
 class Embedding : public Llm {
 public:
     Embedding(std::shared_ptr<LlmConfig> config);
-    static Embedding* createEmbedding(const std::string& config_path);
+    static Embedding* createEmbedding(const std::string& config_path, bool load = true);
     static float dist(MNN::Express::VARP var0, MNN::Express::VARP var1);
     virtual void load() override;
-    MNN::Express::VARP embedding(const std::string& txt);
+    MNN::Express::VARP ids_embedding(const std::vector<int>& ids);
+    MNN::Express::VARP txt_embedding(const std::string& txt);
     int dim() const;
 private:
     virtual std::vector<int> tokenizer(const std::string& query) override;

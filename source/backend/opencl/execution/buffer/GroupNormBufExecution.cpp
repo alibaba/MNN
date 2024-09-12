@@ -117,47 +117,12 @@ ErrorCode GroupNormBufExecution::onEncode(const std::vector<Tensor*>& inputs, co
     inner_size /= mGroup;
     
     mUnits.clear();
-    mUnits.resize(3);
+    mUnits.resize(1);
     std::vector<int> inputShape = tensorShapeFormat(inputs[0]);
     int inputWH[]      = {inputShape[2], inputShape[1]};
     int region[]       = {inputShape[0], UP_DIV(inputShape[3], 4), inputShape[1], inputShape[2]};
     
-    mInputPlain = std::make_shared<Tensor>(Tensor::createDevice<float>(std::vector<int>{inputShape[0] * inputShape[3] * ROUND_UP(inputShape[1] * inputShape[2], 4)}));
-    mOpenCLBackend->onAcquireBuffer(mInputPlain.get(), Backend::DYNAMIC);
-    mOutputPlain = std::make_shared<Tensor>(Tensor::createDevice<float>(std::vector<int>{inputShape[0] * inputShape[3] * ROUND_UP(inputShape[1] * inputShape[2], 4)}));
-    mOpenCLBackend->onAcquireBuffer(mOutputPlain.get(), Backend::DYNAMIC);
-    
-    mOpenCLBackend->onReleaseBuffer(mInputPlain.get(), Backend::DYNAMIC);
-    mOpenCLBackend->onReleaseBuffer(mOutputPlain.get(), Backend::DYNAMIC);
     std::set<std::string> buildOptions;
-    // convert nc4hw4 to nchw
-    {
-        auto &unit = mUnits[0];
-        unit.kernel         = runtime->buildKernel("buffer_convert_buf", "nc4hw4_buffer_to_nchw_buffer", {}, inputs[0], outputs[0]);
-
-        mGWS = {(uint32_t)(UP_DIV(region[3] * region[1], 16) * 16),
-            (uint32_t)(UP_DIV(region[2] * region[0], 16) * 16)};
-        mLWS = {16, 16};
-        unit.globalWorkSize  = {mGWS[0], mGWS[1]};
-        unit.localWorkSize = {mLWS[0], mLWS[1]};
-        
-        int global_dim0 = region[3] * region[1];
-        int global_dim1 = region[2] * region[0];
-        
-        //MNN_CHECK_CL_SUCCESS
-        uint32_t idx   = 0;
-        cl_int ret = CL_SUCCESS;
-        ret |= unit.kernel->get().setArg(idx++, global_dim0);
-        ret |= unit.kernel->get().setArg(idx++, global_dim1);
-        ret |= unit.kernel->get().setArg(idx++, openCLBuffer(mInputPlain.get()));
-        ret |= unit.kernel->get().setArg(idx++, inputWH[1]);
-        ret |= unit.kernel->get().setArg(idx++, inputWH[0]);
-        ret |= unit.kernel->get().setArg(idx++, inputShape[3]);
-        ret |= unit.kernel->get().setArg(idx++, openCLBuffer(input));
-        MNN_CHECK_CL_SUCCESS(ret, "setArg GroupNormBufExecution with group, convert nc4hw4 to nchw");
-        
-        mOpenCLBackend->recordKernel2d(unit.kernel, mGWS, mLWS);
-    }
     // do groupnorm
     {
         int area = inputWH[1] * inputWH[0];
@@ -175,7 +140,7 @@ ErrorCode GroupNormBufExecution::onEncode(const std::vector<Tensor*>& inputs, co
         }
         auto MaxLocalSize = std::min(runtime->getMaxWorkItemSizes()[0], (uint32_t)256);
 
-        auto &unit = mUnits[1];
+        auto &unit = mUnits[0];
         std::string kernelName = "groupnorm_plain_buf";
         int local_size = getLocalSize(UP_DIV(inner_size, 4), MaxLocalSize);
         buildOptions.emplace("-DLOCAL_SIZE=" + std::to_string(local_size));
@@ -195,11 +160,11 @@ ErrorCode GroupNormBufExecution::onEncode(const std::vector<Tensor*>& inputs, co
         ret |= unit.kernel->get().setArg(idx++, mGWS[0]);
         ret |= unit.kernel->get().setArg(idx++, mGWS[1]);
         ret |= unit.kernel->get().setArg(idx++, mGWS[2]);
-        ret |= unit.kernel->get().setArg(idx++, openCLBuffer(mInputPlain.get()));
+        ret |= unit.kernel->get().setArg(idx++, openCLBuffer(input));
         if(inputs.size() > 1) {
             ret |= unit.kernel->get().setArg(idx++, openCLBuffer(inputs[1]));
         }
-        ret |= unit.kernel->get().setArg(idx++, openCLBuffer(mOutputPlain.get()));
+        ret |= unit.kernel->get().setArg(idx++, openCLBuffer(output));
         ret |= unit.kernel->get().setArg(idx++, static_cast<int32_t>(area));
         ret |= unit.kernel->get().setArg(idx++, static_cast<int32_t>(mGroup));
         ret |= unit.kernel->get().setArg(idx++, static_cast<int32_t>(inner_size));
@@ -211,33 +176,6 @@ ErrorCode GroupNormBufExecution::onEncode(const std::vector<Tensor*>& inputs, co
         ret |= unit.kernel->get().setArg(idx++, mEpsilon);
         MNN_CHECK_CL_SUCCESS(ret, "setArg GroupNormBufExecution with group, do group layernorm");
         mOpenCLBackend->recordKernel3d(unit.kernel, mGWS, mLWS);
-    }
-    // convert nchw to nc4hw4
-    {
-        auto &unit = mUnits[2];
-
-        unit.kernel         = runtime->buildKernel("buffer_convert_buf", "nchw_buffer_to_nc4hw4_buffer", {}, inputs[0], outputs[0]);
-        mLWS  = {16, 16};
-        mGWS = {(uint32_t)UP_DIV(region[3] * region[1], 16) * 16,
-                (uint32_t)UP_DIV(region[2] * region[0], 16) * 16};
-        
-        unit.globalWorkSize  = {mGWS[0], mGWS[1]};
-        unit.localWorkSize = {mLWS[0], mLWS[1]};
-        
-        int global_dim0 = region[3] * region[1];
-        int global_dim1 = region[2] * region[0];
-        
-        uint32_t idx   = 0;
-        cl_int ret = CL_SUCCESS;
-        ret |= unit.kernel->get().setArg(idx++, global_dim0);
-        ret |= unit.kernel->get().setArg(idx++, global_dim1);
-        ret |= unit.kernel->get().setArg(idx++, openCLBuffer(mOutputPlain.get()));
-        ret |= unit.kernel->get().setArg(idx++, inputWH[1]);
-        ret |= unit.kernel->get().setArg(idx++, inputWH[0]);
-        ret |= unit.kernel->get().setArg(idx++, inputShape[3]);
-        ret |= unit.kernel->get().setArg(idx++, openCLBuffer(output));
-        MNN_CHECK_CL_SUCCESS(ret, "setArg GroupNormBufExecution with group, convert nchw to nc4hw4");
-        mOpenCLBackend->recordKernel2d(unit.kernel, mGWS, mLWS);
     }
     mOpenCLBackend->endRecord(mRecording);
 

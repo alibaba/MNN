@@ -224,11 +224,12 @@ public:
         // Default is 50
         CPU_LITTLECORE_DECREASE_RATE = 6,
 
-        // 0: Do not quantize kvcache, just store float
-        // 1: Only quantize key cache, use int8 asymmetric quantization 
-        // 2: Only quantize value cache, use fp8 quantization
-        // 3: quantize both key and value cache as described above
-        KVCACHE_QUANT_OPTIONS = 7,
+        // 0: Do not quantize
+        // 1: Only quantize key, use int8 asymmetric quantization 
+        // 2: Only quantize value, use fp8 quantization
+        // 3: quantize both key and value
+        // 4: quantize query, key and value, and use gemm int8 kernel to compute K*V
+        QKV_QUANT_OPTIONS = 7,
 
         // size limit of kvcache in memory (for a single layer)
         // if the size of kvcache exceeds the limit, it will be moved to disk
@@ -238,6 +239,12 @@ public:
     enum ExternalPathType {
         // Path of the kvcache directory
         EXTERNAL_PATH_KVCACHE_DIR = 0,
+        
+        // Mid Buffer Cache File
+        EXTERNAL_FEATUREMAP_DIR = 1,
+
+        // Weight Buffer Cache File
+        EXTERNAL_WEIGHT_DIR = 2,
 
         // Other types ...
     };

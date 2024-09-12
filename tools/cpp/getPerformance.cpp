@@ -207,18 +207,17 @@ static void _testMemcpy() {
     int size = 1024 * 1024;
     int loop = 10000;
     std::vector<std::thread> threads;
+    int threadNumber = 2;
+    std::vector<std::vector<int8_t>> tmp(threadNumber);
+    for (int i=0; i<threadNumber; ++i) {
+        tmp[i].resize(size);
+    }
     MNN::Timer _t;
-    for (int i=0; i<2; ++i) {
-        threads.emplace_back(std::thread([size, loop]() {
-            std::vector<int8_t> tmp0(size);
-            std::vector<int8_t> tmp1(size);
-            auto t0 = tmp0.data();
-            auto t1 = tmp1.data();
+    for (int i=0; i<threadNumber; ++i) {
+        threads.emplace_back(std::thread([size, loop, i, &tmp]() {
+            auto t0 = tmp[i].data();
             for (int i=0; i<loop; ++i) {
-                ::memcpy(t0, t1, size);
-                auto s = t0;
-                t0 = t1;
-                t1 = s;
+                ::memset(t0, 0, size);
             }
         }));
     }

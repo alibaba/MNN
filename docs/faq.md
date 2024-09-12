@@ -250,7 +250,7 @@ OpenCL / Vulkan 采用静态变量自注册的方式往 MNN 主库注册后端. 
 
 
 ## 性能相关
-### 使用 GPU 时，调用 copyToHostTensor / copyFromHostTensor 非常慢
+### 使用 GPU 时，调用 copyToHostTensor / readMap 非常慢
 GPU 后端调用 copy 的时间包含两个部分
 
 - 异构数据拷贝
@@ -258,7 +258,7 @@ GPU 后端调用 copy 的时间包含两个部分
 
 对 GPU 后端而言，在数据被要求对用户可见（比如复制 output tensor 数据出来）之前，是允许异步执行的。
 在数据被用户要求可见之时，会等待相应的异步操作完成。
-因此有可能 复制 output tensor 的过程包括了等待 GPU 算子异步执行完成，导致缓慢。
+因此有可能 复制 output tensor 的过程包括了等待 GPU 算子异步执行完成，导致看上去缓慢。
 ### GPU 为什么比 CPU 跑得慢？
 有如下原因： 
 

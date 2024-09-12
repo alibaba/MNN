@@ -41,7 +41,7 @@ def opencl_codegen():
     for file_name_all in os.listdir(cl_kernel_dir):
         file_path = os.path.join(cl_kernel_dir, file_name_all)
         if file_path[-3:] == ".cl":
-            with open(file_path, "r") as f:
+            with open(file_path, "r", encoding = 'utf-8') as f:
                 file_name = file_name_all[:-3]
                 if file_name[-4:] == "_buf":
                     opencl_source_map += "#ifndef MNN_OPENCL_BUFFER_CLOSED\n"

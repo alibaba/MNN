@@ -295,6 +295,11 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
      "transformerFuse",
      "fuse attention op, like fmhaV2/fmhca/splitGelu/groupNorm. default: false",
      cxxopts::value<bool>()
+     )
+     (
+     "allowCustomOp",
+     "allow custom op when convert. default: false",
+     cxxopts::value<bool>()
      );
 
     auto result = options.parse(argc, argv);
@@ -489,6 +494,9 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
     if (result.count("transformerFuse")) {
         modelPath.transformerFuse = true;
     }
+    if (result.count("allowCustomOp")) {
+        modelPath.allowCustomOp = true;
+    }
     return true;
 }
 
@@ -595,7 +603,7 @@ static void computeUnaryBuffer(MNN::NetT* net) {
             auto inputId = op->inputIndexes[0];
             if (describes.find(inputId) == describes.end()) {
                 auto iter = describes.find(outputId);
-                
+
             }
             unaryDes = describes.find(inputId)->second;
             float inpScale = unaryDes->quantInfo->scale;
@@ -704,7 +712,7 @@ bool Cli::convertModel(modelConfig& modelPath) {
             MNN_PRINT("MNN net has tensor quant info\n");
             computeUnaryBuffer(newNet.get());
         }
-        
+
         error = writeFb(newNet, modelPath.MNNModel, modelPath);
     } else {
         error = writeFb(netT, modelPath.MNNModel, modelPath);

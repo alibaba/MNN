@@ -109,6 +109,7 @@ public:
     float getCLVersion() {
         return mCLVersion;
     }
+	uint32_t getPrecisionLevel() const;
     bool isSupportGL(){
     	return mIsSupportGL;
 	}

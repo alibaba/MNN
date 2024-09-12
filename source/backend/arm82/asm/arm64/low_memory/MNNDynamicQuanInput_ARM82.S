@@ -90,21 +90,31 @@
 Note: Only used in dynamic quant,so do not need compare min max!
  */
 asm_function DynamicQuanInput_ARM82
-//void DynamicQuanInput_ARM82(const float* src, int8_t* dst, size_t sizeQuad, float* scale, size_t aMin, size_t aMax, size_t zeroPoint);
-//x0:src, x1:dst, x2:sizeQuad, x3:scale, x4:aMin, x5:aMax, x6:zeroPoint
+//void DynamicQuanInput_ARM82(const float* src, int8_t* dst, size_t sizeQuad, const float* scalep, ssize_t minValue, ssize_t maxValue, float* zeroPoint, ssize_t quanParamVec);
+//x0:src, x1:dst, x2:sizeQuad, x3:scale, x4:aMin, x5:aMax, x6:zeroPoint, x7:quanParamVec
 stp d14, d15, [sp, #-64]!
 stp d12, d13, [sp, #16]
 stp d10, d11, [sp, #32]
 stp d8,  d9,  [sp, #48]
 
 ld1 {v29.s}[0], [x3] // Load scale
-// copy zero point
-dup v30.4s, w6
-fcvtn v31.4h, v29.4s
-scvtf v30.4s, v30.4s
+ld1 {v30.s}[0], [x6] // Load zero
 
+and x8, x7, #1 // if load vector scale
+and x9, x7, #2 // if load vector zero
+cbz x8, LOAD_VECTOR_ZERO
+ld1 {v29.4s}, [x3] // scale
+
+LOAD_VECTOR_ZERO:
+cbz x9, START
+ld1 {v30.4s}, [x6] // zero
+
+
+START:
+// copy zero point
+fcvtn v31.4h, v29.4s // fp16 scale
+fcvtn v30.4h, v30.4s // fp16 zero
 dup v31.8h, v31.h[0]
-fcvtn v30.4h, v30.4s
 dup v30.8h, v30.h[0]
 
 FL28:

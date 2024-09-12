@@ -21,8 +21,10 @@ namespace MNN {
 ConvInt8TiledExecutor::ConvInt8TiledExecutor(Backend* backend, const Op* op): CPUConvolution(op->main_as_Convolution2D()->common(), backend) {}
 
 ConvInt8TiledExecutor::ConvInt8TiledExecutor(Backend* backend, const Op* op, std::shared_ptr<ResourceInt8> res): CPUConvolution(op->main_as_Convolution2D()->common(), backend), mResourceInt8(res) {
-    mMutableResource.reset(new MutableResourceInt8(res, backend));
-    mValid = mMutableResource->mValid;
+    if (!res->mDynamicQuant) {
+        mMutableResource.reset(new MutableResourceInt8(res, backend));
+        mValid = mMutableResource->mValid;
+    }
 }
 
 ConvInt8TiledExecutor::~ConvInt8TiledExecutor() {
@@ -34,7 +36,9 @@ bool ConvInt8TiledExecutor::onClone(Backend* bn, const Op* op, Execution** dst) 
 }
 
 ErrorCode ConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
-    mMutableResource->updateInputOutputScale(TensorUtils::getQuantInfo(inputs[0]), TensorUtils::getQuantInfo(outputs[0]));
+    if (nullptr != mMutableResource) {
+        mMutableResource->updateInputOutputScale(TensorUtils::getQuantInfo(inputs[0]), TensorUtils::getQuantInfo(outputs[0]));
+    }
     CPUConvolution::onResize(inputs, outputs);
     ConvolutionTiledExecutor::setIm2ColParameter(mIm2ColParamter, mCommon, inputs[0], outputs[0], mPadX, mPadY, static_cast<CPUBackend*>(backend())->functions(), static_cast<CPUBackend*>(backend())->int8Functions());
     return NO_ERROR;
@@ -234,18 +238,17 @@ static void GetResourceInt8(std::shared_ptr<CPUConvolution::ResourceInt8> resour
     }
 }
 
-DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const Op* op, std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon) : mDynamicQuantExe(true), ConvInt8TiledExecutor(backend, op) {
+DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const Op* op, std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon) : ConvInt8TiledExecutor(backend, op) {
     auto convOp = op->main_as_Convolution2D();
     auto core = static_cast<CPUBackend*>(backend)->int8Functions();
     auto gcore = static_cast<CPUBackend*>(backend)->functions();
     mResourceInt8.reset(new CPUConvolution::ResourceInt8);
+    mResourceInt8->mDynamicQuant = true;
     GetResourceInt8(mResourceInt8, quanCommon, convOp, backend);
-    mMutableResource.reset(new MutableResourceInt8(mResourceInt8, backend));
     // dynamic quant
     int UNIT, SRC_UNIT, DST_XUNIT;
     core->MNNGetGemmUnit(&UNIT, &SRC_UNIT, &DST_XUNIT);
     int pack = gcore->pack;
-    bool needPermuteInt4weight = ((UNIT == 8 && SRC_UNIT == 8 && DST_XUNIT ==10) || (UNIT == 64 && SRC_UNIT == 4 && DST_XUNIT ==4));
     auto weightLength = quanCommon->weight.size();
     int kernelCount = mCommon->kernelX() * mCommon->kernelY();
     int oc = convOp->common()->outputCount();
@@ -264,9 +267,9 @@ DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const O
         std::vector<int32_t> shape;
         if (SRC_UNIT > pack) {
             MNN_ASSERT(SRC_UNIT % pack == 0);
-            shape = {UP_DIV(oc, UNIT), UP_DIV(UP_DIV(ic, pack) * kernelCount, SRC_UNIT / pack), UNIT, SRC_UNIT};
+            shape = {UP_DIV(oc, UNIT), UP_DIV(UP_DIV(ic, pack) * kernelCount, SRC_UNIT / pack), UNIT * SRC_UNIT / 2};
         } else {
-            shape = {UP_DIV(oc, UNIT), UP_DIV(ic, SRC_UNIT) * kernelCount, UNIT, SRC_UNIT};
+            shape = {UP_DIV(oc, UNIT), UP_DIV(ic, SRC_UNIT) * kernelCount, UNIT * SRC_UNIT / 2};
         }
         mResourceInt8->mWeightInt8.reset(Tensor::createDevice<uint8_t>(shape));
 
@@ -280,31 +283,29 @@ DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const O
         ::memset(dstPtr, 0, mResourceInt8->mWeightInt8->size());
 
         // Pack two int4-weight to one int8-weight.
-        if (false == needPermuteInt4weight) {
-            for (int i = 0; i < hU; i++) {
-                for (int j = 0; j < lU; j++) {
-                    for (int k = 0; k < hP; k++) {
-                        for (int id = 0; id < lP / 2; ++id) {
-                            dstPtr[(i * lU * lP * hP + j * hP * lP + k * lP) / 2 + id] = srcPtr[((i * hP + k) * lP * lU + (j * lP)) / 2 + id];
-                        }
-                    }
+        int cnt = lP * hP / 4;
+        int L = lU * lP;
+        for (int i = 0; i < hU; ++i) {
+            for (int j = 0; j < lU; ++j) {
+                for (int k = 0; k < cnt; ++k) {
+                    int dstIndx0 = (i * lU * lP * hP + j * lP * hP) / 2 + (2 * k);
+                    
+                    int hpId0     = (2 * k + 1) / lP;
+                    int lpId0     = (2 * k) % lP;
+                    int hpId1     = (2 * (k + cnt) + 1) / lP;
+                    int lpId1     = (2 * (k + cnt)) % lP;
+                    int srcIndx0 = ((i * hP + hpId0) * L + (j * lP + lpId0)) / 2;
+                    int srcIndx1 = ((i * hP + hpId1) * L + (j * lP + lpId1)) / 2;
+                    int s0 = (srcPtr[srcIndx0] >> 4);
+                    int s1 = (srcPtr[srcIndx0] & 15);
+                    int s2 = (srcPtr[srcIndx1] >> 4);
+                    int s3 = (srcPtr[srcIndx1] & 15);
+                    int d0 = s0 * 16 + s2;
+                    int d1 = s1 * 16 + s3;
+                    
+                    dstPtr[dstIndx0] = d0;
+                    dstPtr[dstIndx0 + 1] = d1;
                 }
-            }
-        } else {
-            for (int i = 0; i < hU; i++) {
-                for (int j = 0; j < lU; j++) {
-                    auto dst_ptr = dstPtr + (i * lU * lP * hP + j * hP * lP) / 2;
-                    for (int k = 0; k < 16; k++) {
-                        int col = k % 4;
-                        int row = k / 4;
-                        uint8_t s0 = srcPtr[((i * hP + row + 0) * lP * lU + j * lP) / 2 + col];
-                        uint8_t s1 = srcPtr[((i * hP + row + 4) * lP * lU + j * lP) / 2 + col];
-                        uint8_t d0 = (s0 & 0xf0) | (s1 >> 4);
-                        uint8_t d1 = (s0 << 4) | (s1 & 0x0f);
-                        dst_ptr[k * 2 + 0] = d0;
-                        dst_ptr[k * 2 + 1] = d1;
-                    }
-               }
             }
         }
     } else {
@@ -331,27 +332,19 @@ DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const O
             std::shared_ptr<Tensor> weightLow(Tensor::create<uint8_t>({halflen}));
             auto dstint4Ptr = weightLow->host<uint8_t>();
             auto srcint4Ptr = mResourceInt8->mWeightInt8->host<int8_t>();
-            if (false == needPermuteInt4weight) {
-                for (int i=0; i < halflen; ++i) {
-                    int s0 = srcint4Ptr[2 * i + 0];
-                    int s1 = srcint4Ptr[2 * i + 1];
+            int permuteUnit = UNIT * SRC_UNIT;
+            int halfPermuteStride = static_cast<int32_t>(permuteUnit / 2);
+            for (int i = 0; i < leng / permuteUnit; ++i) {
+                auto src0 = srcint4Ptr + i * permuteUnit;
+                auto dst0 = dstint4Ptr + i * halfPermuteStride;
+                for (int j = 0; j < halfPermuteStride; ++j) {
+                    int s0 = src0[j];
+                    int s1 = src0[j + halfPermuteStride];
                     int d = (s0 + 8) * 16 + (s1 + 8);
-                    dstint4Ptr[i] = d;
-                }
-            } else {
-                int permuteUnit = UNIT * SRC_UNIT;
-                int halfPermuteStride = static_cast<int32_t>(permuteUnit / 2);
-                for (int i = 0; i < leng / permuteUnit; ++i) {
-                    auto src0 = srcint4Ptr + i * permuteUnit;
-                    auto dst0 = dstint4Ptr + i * halfPermuteStride;
-                    for (int j = 0; j < halfPermuteStride; ++j) {
-                        int s0 = src0[j];
-                        int s1 = src0[j + halfPermuteStride];
-                        int d = (s0 + 8) * 16 + (s1 + 8);
-                        dst0[j] = d;
-                    }
+                    dst0[j] = d;
                 }
             }
+            
             // Update int4 weight to mWeightInt8.
             mResourceInt8->mWeightInt8 = weightLow;
         } else {
@@ -372,8 +365,68 @@ DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const O
         gcore->MNNFp32ToLowp(mResourceInt8->mReluThreshold.data(), reinterpret_cast<int16_t*>(mResourceInt8->mReluThreshold.data()), 2);
     }
 }
+static void _computeAlphaScale(Backend* backend, const Convolution2D* conv2d, std::shared_ptr<CPUConvolution::ResourceInt8> resourceInt8) {
+    /* Used to compute weight quant scale and bias and weightKernelSum of type float. */
+    bool quanBuffer = (conv2d->quanParameter() != nullptr && conv2d->quanParameter()->buffer() != nullptr);
+    MNN_ASSERT(quanBuffer || resourceInt8);
+    auto core = static_cast<CPUBackend*>(backend)->functions();
+    // common parameters
+    int outputCount = conv2d->common()->outputCount();
+    int LSize = conv2d->common()->inputCount() * conv2d->common()->kernelX() * conv2d->common()->kernelY();
+    int ocUp4 = ROUND_UP(outputCount, core->pack);
+    int8_t* weightOrigin;
 
-DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const Op* op, std::shared_ptr<ResourceInt8> res) : mDynamicQuantExe(false), ConvInt8TiledExecutor(backend, op, res) {
+    // Save weight quant scale and bias: wf=scale*wi+bias
+    std::shared_ptr<Tensor> scaleBias(Tensor::createDevice<uint8_t>({2 * ocUp4 * core->bytes}));
+    auto success = backend->onAcquireBuffer(scaleBias.get(), Backend::STATIC);
+    if (!success) {
+        MNN_ERROR("Alloc dequant scaleBias memory error\n");
+        return;
+    }
+    auto alphaPtr = scaleBias->host<float>();
+    auto biasPtr = reinterpret_cast<float*>(reinterpret_cast<uint8_t*>(alphaPtr) + ocUp4 * core->bytes);
+    ::memset(alphaPtr, 0, 2 * ocUp4 * core->bytes);
+    
+    // Load quant scale and bias
+    weightOrigin = resourceInt8->mWeightInt8->host<int8_t>();
+    auto wZero = resourceInt8->mWeightQuantZero->host<int32_t>(); // has packed to outputUp4
+    auto wScale = resourceInt8->mOriginScale->host<float>();
+    int h = ocUp4;
+    if (core->bytes == 2) {
+        std::unique_ptr<int16_t[]> tmp(new int16_t[h]);
+        core->MNNFp32ToLowp(wScale, tmp.get(), h);
+        for (int i=0; i< h; ++i) {
+            reinterpret_cast<int16_t*>(alphaPtr)[i] = tmp[i];
+            reinterpret_cast<int16_t*>(biasPtr)[i] = (-1.f) * wZero[i] * tmp[i];
+        }
+    } else {
+        for (int i=0; i< h; ++i) {
+            alphaPtr[i] = wScale[i];
+            biasPtr[i] = (-1.f) * wZero[i] * wScale[i];
+        }
+    }
+    resourceInt8->mOriginScale = scaleBias;
+    
+    // Compute float weightKernelSum
+    resourceInt8->mWeightKernelSum.reset(Tensor::createDevice<uint8_t>({ocUp4 * 4}));
+    success = backend->onAcquireBuffer(resourceInt8->mWeightKernelSum.get(), Backend::STATIC);
+    if (!success) {
+        MNN_ERROR("Alloc dequant mWeightKernelSum memory error\n");
+        return;
+    }
+    auto weightKernelSum = resourceInt8->mWeightKernelSum->host<float>();
+    for (int i = 0; i < outputCount; ++i) {
+        int sum = 0;
+        for (int j = 0; j < LSize; ++j) {
+            sum = sum + static_cast<int>(weightOrigin[j + i * LSize]);
+        }
+        auto scale = alphaPtr[i];
+        auto bias = biasPtr[i];
+        weightKernelSum[i] = static_cast<float>(sum) * scale + LSize * bias;
+    }
+}
+
+DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const Op* op, std::shared_ptr<ResourceInt8> res) : ConvInt8TiledExecutor(backend, op, res) {
     std::shared_ptr<Tensor> weightOrigin = mResourceInt8->mWeightInt8;
     auto convOp = op->main_as_Convolution2D();
     mValid = _reorderWeightInside(backend, convOp->common(), weightOrigin, mResourceInt8->mWeightInt8);
@@ -393,11 +446,11 @@ DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const O
         mGemmKernel = core->Int8GemmKernelFast;
     }
 #endif
-    CPUConvolution::makeResourceNew(backend, convOp, mResourceInt8);
+    _computeAlphaScale(backend, convOp, mResourceInt8);
 }
 
 DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const Op* op, const DenseConvInt8TiledExecutor& exe)
-    : ConvInt8TiledExecutor(backend, op, exe.mResourceInt8), mGemmKernel(exe.mGemmKernel), mDynamicQuantExe(exe.mDynamicQuantExe) {
+    : ConvInt8TiledExecutor(backend, op, exe.mResourceInt8), mGemmKernel(exe.mGemmKernel) {
 }
 
 DenseConvInt8TiledExecutor::~DenseConvInt8TiledExecutor() {
@@ -427,14 +480,14 @@ ErrorCode DenseConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& input
         && outputs[0]->width() == inputs[0]->width() && outputs[0]->height() == inputs[0]->height()
         && mCommon->strideX() == 1 && mCommon->strideY() == 1 && mCommon->padX() == 0 && mCommon->padY() == 0
         && outputs[0]->height() == 1 && outputs[0]->width() == 1;
-    mUseBatchQuan &= mDynamicQuantExe;
+    mUseBatchQuan &= mResourceInt8->mDynamicQuant;
     mUseBatchQuan &= (inputs[0]->batch() > 1);
     auto core = static_cast<CPUBackend*>(backend())->int8Functions();
     auto gcore =static_cast<CPUBackend*>(backend())->functions();
     int UNIT, SRC_UNIT, DST_XUNIT;
     core->MNNGetGemmUnit(&UNIT, &SRC_UNIT, &DST_XUNIT);
 
-    if (mDynamicQuantExe == false) {
+    if (mResourceInt8->mDynamicQuant == false) {
         mMutableResource->updateInputOutputScale(TensorUtils::getQuantInfo(inputs[0]), TensorUtils::getQuantInfo(outputs[0]));
         CPUConvolution::onResize(inputs, outputs);
         ConvolutionTiledExecutor::setIm2ColParameter(mIm2ColParamter, mCommon, inputs[0], outputs[0], mPadX, mPadY, gcore, core);
@@ -537,7 +590,7 @@ ErrorCode DenseConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& input
     if (!success || mBlitInfo.invalid()) {
         return OUT_OF_MEMORY;
     }
-    if (false == mDynamicQuantExe) {
+    if (false == mResourceInt8->mDynamicQuant) {
         bufferAlloc->free(mBlitInfo);
         backend()->onReleaseBuffer(mInputDeqScales.get(), Backend::DYNAMIC);
         backend()->onReleaseBuffer(mTempIm2ColBuffer.get(), Backend::DYNAMIC);
@@ -591,9 +644,6 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
     int UNIT__, SRC_UNIT, DST_XUNIT;
     core->MNNGetGemmUnit(&UNIT__, &SRC_UNIT, &DST_XUNIT);
     auto blitProc = core->MNNPackC4Int8ForMatMul_A;
-    if ( mDynamicQuantExe && gcore->bytes == 2 && core->MNNPackC4Int8ForMatMul_A_ARM86FP16) {
-        blitProc = core->MNNPackC4Int8ForMatMul_A_ARM86FP16;
-    }
     const int plane                  = output->batch() * mIm2ColParamter.oh * mIm2ColParamter.ow;
     const int batch                  = input->batch();
     const int PackUnit               = gcore->pack;
@@ -618,12 +668,16 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
     auto weightDequantBias = mResourceInt8->mOriginScale->host<uint8_t>() + alphaSize * 4;
 
     auto outputDataPtr = output->host<int8_t>();
-    auto biasPtr       = mMutableResource->mBiasFloat->host<uint8_t>();
-    auto scalePtr      = mMutableResource->mScaleFloat->host<uint8_t>();
-
-    auto inputZeroPoint  = mMutableResource->mInputZeroPoint;
+    uint8_t* biasPtr = nullptr;
+    uint8_t* scalePtr = nullptr;
+    int32_t inputZeroPoint = 0;
     auto inputScalePtr = mInputDeqScales->host<uint8_t>();
-    (reinterpret_cast<float*>(inputScalePtr))[0]     =  mMutableResource->mInputScale;
+    if (nullptr != mMutableResource.get()) {
+        biasPtr       = mMutableResource->mBiasFloat->host<uint8_t>();
+        scalePtr      = mMutableResource->mScaleFloat->host<uint8_t>();
+        inputZeroPoint  = mMutableResource->mInputZeroPoint;
+        (reinterpret_cast<float*>(inputScalePtr))[0] =  mMutableResource->mInputScale;
+    }
 
     auto SingleDynamicQuant = [&] () {
         const auto floatptr = input->host<float>();
@@ -631,7 +685,7 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
         auto inputsize      = static_cast<CPUBackend*>(backend())->getTensorSize(inputs[0]);
         float quantscale    = 0.f;
         float dequantscale  = 0.f;
-        int zeropoint       = 0;
+        float zeropoint       = 0;
 
          /* Count max and min value to compute input scale and zeropoint */
         auto maxMinValPtr = mTempMaxMinValueBuffer->host<uint8_t>();
@@ -675,14 +729,14 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
         float range = maxVal - minVal;
         quantscale = 255.0f / range;
         dequantscale = range / 255.0f;
-        zeropoint = static_cast<int32_t>(roundf(-minVal * 255.f / range) - 128.0f);
+        zeropoint = roundf(-minVal * 255.f / range) - 128.0f;
         std::vector<float>qsVec(PackUnit, quantscale);
         auto sizeDiv = UP_DIV(inputsize, PackUnit);
         int inputPlane = input->batch() * mIm2ColParamter.iw * mIm2ColParamter.ih;
         if (gcore->bytes == 2 && gcore->pack == 8 && inputPlane > 1) { // C8->C4
-            mQuantAndReorderFunc(floatptr, int8ptr, inputPlane, qsVec.data(), -128, 127, (ssize_t)zeropoint, UP_DIV(input->channel(), PackUnit), 4 * inputPlane);
+            mQuantAndReorderFunc(floatptr, int8ptr, inputPlane, &quantscale, -128, 127, &zeropoint, UP_DIV(input->channel(), PackUnit), 4 * inputPlane);
         } else {
-            mQuantFunc(floatptr, int8ptr, sizeDiv, qsVec.data(), -128, 127, (ssize_t)zeropoint);
+            mQuantFunc(floatptr, int8ptr, sizeDiv, &quantscale, -128, 127, &zeropoint, 0);
         }
 
         /* bias float */
@@ -691,7 +745,7 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
     #else
         int offset = 0;
     #endif
-        auto biasfp32 = mMutableResource->mResource->mOriginBias->host<float>();
+        auto biasfp32 = mResourceInt8->mOriginBias->host<float>();
         auto weightDequantScale = mResourceInt8->mOriginScale->host<float>();
         float zerofp32 = (zeropoint + offset) * dequantscale;
 
@@ -750,14 +804,14 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
         inputZeroPoint = 0;
         inputScalePtr     = (uint8_t*)dequantPtr;
         inputDataPtr = mQuantInput->host<int8_t>();
-        biasPtr = mMutableResource->mResource->mOriginBias->host<uint8_t>();
+        biasPtr = mResourceInt8->mOriginBias->host<uint8_t>();
         scalePtr = mResourceInt8->mOriginScale->host<uint8_t>();
     };
     ssize_t oneScale = 1;
     if (mUseBatchQuan) {
         BatchDynamicQuant();
         oneScale = 0;
-    } else if (mDynamicQuantExe) {
+    } else if (mResourceInt8->mDynamicQuant) {
         SingleDynamicQuant();
     } else {
         // offline quant.

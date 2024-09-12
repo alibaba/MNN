@@ -21,13 +21,12 @@ ErrorCode CPUCastCreator::cast(const void* inputRaw, void* outputRaw, ConvertTyp
     int remain = number % pack;
     if (type == FlOAT_TO_INT8) {
         scale = (scale == 0.f ? 0.f : 1.f / scale);
-        std::vector<float> scales(pack, scale);
-        bn->int8Functions()->MNNFloat2Int8((float*)(inputRaw), (int8_t*)(outputRaw), c4Size, scales.data(), min, max, zero);
+        bn->int8Functions()->MNNFloat2Int8((float*)(inputRaw), (int8_t*)(outputRaw), c4Size, &scale, min, max, &zero, 0);
         if (remain > 0) {
             std::vector<float> tempSrc(pack);
             std::vector<int8_t> tempDst(pack);
             ::memcpy(tempSrc.data(), (float*)(inputRaw) + c4Size * pack, remain * sizeof(float));
-            bn->int8Functions()->MNNFloat2Int8(tempSrc.data(), tempDst.data(), 1, scales.data(), min, max, zero);
+            bn->int8Functions()->MNNFloat2Int8(tempSrc.data(), tempDst.data(), 1, &scale, min, max, &zero, 0);
             ::memcpy(static_cast<int8_t*>(outputRaw) + c4Size * pack, tempDst.data(), remain * sizeof(int8_t));
         }
         return NO_ERROR;

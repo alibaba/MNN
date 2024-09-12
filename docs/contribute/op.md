@@ -1,6 +1,14 @@
 # 自定义算子
 ## 概述
-在添加自定义算子前，请参阅[算子列表](../en/ops)，避免不必要的重复。
+在添加自定义算子前，请查看算子列表，避免不必要的重复。
+
+```bash
+./MNNConvert -f CAFFE --OP
+./MNNConvert -f TF --OP
+./MNNConvert -f ONNX --OP
+./MNNConvert -f TORCH --OP 
+```
+
 ### MNN 算子转换与实现结构
 MNN 的算子转换与实现如下图，
 - 模型转换包括以下步骤，二选一：

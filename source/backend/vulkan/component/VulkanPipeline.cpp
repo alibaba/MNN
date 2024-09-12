@@ -128,7 +128,7 @@ VulkanLayout::DescriptorSet* VulkanPipeline::createSet() const {
 }
 
 void VulkanPipeline::changePipeline(const std::vector<uint32_t>& localSize) const{
-    VkPipeline pipeline = VK_NULL_HANDLE;
+    mDevice.destroyPipeline(mPipeline);
     /*for localSize_x_id = 0,localSize_y_id = 1,localSize_z_id = 2*/
     std::vector<VkSpecializationMapEntry> specializationMapEntry; /*localSize data description*/
     std::shared_ptr<VkSpecializationInfo> specializationInfo = std::make_shared<VkSpecializationInfo>();
@@ -145,11 +145,10 @@ void VulkanPipeline::changePipeline(const std::vector<uint32_t>& localSize) cons
         specializationInfo->mapEntryCount = specializationMapEntry.size();
     }
     
-    auto res = mDevice.createComputePipeline(pipeline, mShader->get(), mLayout->get(), mCache->get(), specializationInfo.get());
+    auto res = mDevice.createComputePipeline(mPipeline, mShader->get(), mLayout->get(), mCache->get(), specializationInfo.get());
     if (VK_SUCCESS != res) {
         FUNC_PRINT(1);
     }
-    mPipeline = pipeline;
 }
 
 VulkanLayout::DescriptorSet* VulkanLayout::createSet() const {

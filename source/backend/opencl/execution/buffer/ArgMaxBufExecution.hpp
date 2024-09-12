@@ -29,6 +29,9 @@ private:
     std::set<std::string> mBuildOptions;
     int mAxis;
     OpenCLBackend *mOpenCLBackend;
+    std::shared_ptr<Tensor> mTempInputTensor;
+    std::shared_ptr<Tensor> mTempOutputTensor;
+    bool mNeedUnpackC4;
 };
 
 } // namespace OpenCL

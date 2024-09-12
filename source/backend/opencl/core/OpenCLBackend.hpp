@@ -48,7 +48,7 @@ public:
     CLRuntime(const Backend::Info& info, int platformSize, int platformId, int deviceId = 0, void *contextPtr = nullptr, void *glshared = nullptr);
     virtual ~CLRuntime();
 
-    virtual Backend* onCreate(const BackendConfig* config) const override;
+    virtual Backend* onCreate(const BackendConfig* config, Backend* origin) const override;
     virtual void onReset(int numberThread, const BackendConfig* config, bool full) override;
     virtual void onGabageCollect(int level) override;
     virtual float onGetMemoryInMB() override;
@@ -122,7 +122,7 @@ public:
     }
     
     float getBytes(const Tensor* tensor);
-    DataType getDataType(const Tensor* tensor);
+    DataType getDataType(const Tensor* tensor) const;
 
     cl_channel_type fpType();
     int fpBytes();

@@ -129,24 +129,17 @@ beq L2Dz
 cmp x8, #1
 beq L1Dz
 
-//cmp w13, #1
-//bne L4LoopDz
-//sub x4, x4, #8          // post->scale != nullptr && post->useInt8 == 1.
 L4LoopDz:
     mov x8, x1
     mov x22, x2
-    ld1 {v0.16b, v1.16b}, [x2], #32 // weight
+    ld1 {v10.16b, v11.16b}, [x2], #32 // weight
     ld1 {v4.16b, v5.16b, v6.16b, v7.16b}, [x1], #64 // src
     // int4->int8
     movi v8.16b, #15
-    ushr v10.16b, v0.16b, #4
-    and v11.16b, v0.16b, v8.16b
-    ushr v12.16b, v1.16b, #4
-    and v13.16b, v1.16b, v8.16b
-    zip1 v0.16b, v10.16b, v11.16b
-    zip2 v1.16b, v10.16b, v11.16b 
-    zip1 v2.16b, v12.16b, v13.16b
-    zip2 v3.16b, v12.16b, v13.16b
+    ushr v0.16b, v10.16b, #4
+    and v2.16b, v10.16b, v8.16b
+    ushr v1.16b, v11.16b, #4
+    and v3.16b, v11.16b, v8.16b
 
     smull v8.8h, v0.8b, v4.8b
     smull v9.8h, v1.8b, v4.8b
@@ -207,17 +200,13 @@ L4LoopDz:
     
     L4LoopSz:
         ld1 {v4.16b, v5.16b, v6.16b, v7.16b}, [x1], #64
-        ld1 {v0.16b, v1.16b}, [x2], #32
+        ld1 {v10.16b, v11.16b}, [x2], #32
         // int4->int8
         movi v8.16b, #15
-        ushr v10.16b, v0.16b, #4
-        and v11.16b, v0.16b, v8.16b
-        ushr v12.16b, v1.16b, #4
-        and v13.16b, v1.16b, v8.16b
-        zip1 v0.16b, v10.16b, v11.16b
-        zip2 v1.16b, v10.16b, v11.16b 
-        zip1 v2.16b, v12.16b, v13.16b
-        zip2 v3.16b, v12.16b, v13.16b
+        ushr v0.16b, v10.16b, #4
+        and v2.16b, v10.16b, v8.16b
+        ushr v1.16b, v11.16b, #4
+        and v3.16b, v11.16b, v8.16b
 
         smull v8.8h, v0.8b, v4.8b
         smull v9.8h, v1.8b, v4.8b
@@ -355,19 +344,15 @@ sub x4, x4, #8
 L3LoopDz:
     mov x8, x1
     mov x22, x2
-    ld1 {v0.16b, v1.16b}, [x2], #32
+    ld1 {v10.16b, v11.16b}, [x2], #32
     ld1 {v4.16b, v5.16b, v6.16b}, [x1], #48
     add x1, x1, #16
     // int4->int8
     movi v8.16b, #15
-    ushr v10.16b, v0.16b, #4
-    and v11.16b, v0.16b, v8.16b
-    ushr v12.16b, v1.16b, #4
-    and v13.16b, v1.16b, v8.16b
-    zip1 v0.16b, v10.16b, v11.16b
-    zip2 v1.16b, v10.16b, v11.16b 
-    zip1 v2.16b, v12.16b, v13.16b
-    zip2 v3.16b, v12.16b, v13.16b
+    ushr v0.16b, v10.16b, #4
+    and v2.16b, v10.16b, v8.16b
+    ushr v1.16b, v11.16b, #4
+    and v3.16b, v11.16b, v8.16b
 
     smull v8.8h, v0.8b, v4.8b
     smull v9.8h, v1.8b, v4.8b
@@ -418,17 +403,13 @@ L3LoopDz:
 
     L3LoopSz:
         ld1 {v4.16b, v5.16b, v6.16b}, [x1], #48
-        ld1 {v0.16b, v1.16b}, [x2], #32
+        ld1 {v10.16b, v11.16b}, [x2], #32
         // int4->int8
         movi v8.16b, #15
-        ushr v10.16b, v0.16b, #4
-        and v11.16b, v0.16b, v8.16b
-        ushr v12.16b, v1.16b, #4
-        and v13.16b, v1.16b, v8.16b
-        zip1 v0.16b, v10.16b, v11.16b
-        zip2 v1.16b, v10.16b, v11.16b 
-        zip1 v2.16b, v12.16b, v13.16b
-        zip2 v3.16b, v12.16b, v13.16b
+        ushr v0.16b, v10.16b, #4
+        and v2.16b, v10.16b, v8.16b
+        ushr v1.16b, v11.16b, #4
+        and v3.16b, v11.16b, v8.16b
 
         smull v8.8h, v0.8b, v4.8b
         smull v9.8h, v1.8b, v4.8b
@@ -548,20 +529,15 @@ L2Dz:
 L2LoopDz:
     mov x8, x1
     mov x22, x2
-    ld1 {v0.16b, v1.16b}, [x2], #32
+    ld1 {v10.16b, v11.16b}, [x2], #32
     ld1 {v4.16b, v5.16b}, [x1], #32
     // int4->int8
     movi v8.16b, #15
-    ushr v10.16b, v0.16b, #4
-    and v11.16b, v0.16b, v8.16b
-    ushr v12.16b, v1.16b, #4
-    and v13.16b, v1.16b, v8.16b
-    zip1 v0.16b, v10.16b, v11.16b
-    zip2 v1.16b, v10.16b, v11.16b 
-    zip1 v2.16b, v12.16b, v13.16b
-    zip2 v3.16b, v12.16b, v13.16b
-    
-    
+    ushr v0.16b, v10.16b, #4
+    and v2.16b, v10.16b, v8.16b
+    ushr v1.16b, v11.16b, #4
+    and v3.16b, v11.16b, v8.16b
+
     smull v8.8h, v0.8b, v4.8b
     smull v9.8h, v1.8b, v4.8b
     smull v10.8h, v2.8b, v4.8b
@@ -595,17 +571,13 @@ L2LoopDz:
 
     L2LoopSz:
         ld1 {v4.16b, v5.16b}, [x1], #32
-        ld1 {v0.16b, v1.16b}, [x2], #32
+        ld1 {v10.16b, v11.16b}, [x2], #32
         // int4->int8
         movi v8.16b, #15
-        ushr v10.16b, v0.16b, #4
-        and v11.16b, v0.16b, v8.16b
-        ushr v12.16b, v1.16b, #4
-        and v13.16b, v1.16b, v8.16b
-        zip1 v0.16b, v10.16b, v11.16b
-        zip2 v1.16b, v10.16b, v11.16b 
-        zip1 v2.16b, v12.16b, v13.16b
-        zip2 v3.16b, v12.16b, v13.16b
+        ushr v0.16b, v10.16b, #4
+        and v2.16b, v10.16b, v8.16b
+        ushr v1.16b, v11.16b, #4
+        and v3.16b, v11.16b, v8.16b
 
         smull v8.8h, v0.8b, v4.8b
         smull v9.8h, v1.8b, v4.8b
@@ -699,17 +671,14 @@ L1Dz:
 L1LoopDz:
     mov x8, x1
     mov x22, x2
-    ld1 {v0.16b, v1.16b}, [x2], #32
+    ld1 {v10.16b, v11.16b}, [x2], #32
     // int4->int8
     movi v8.16b, #15
-    ushr v10.16b, v0.16b, #4
-    and v11.16b, v0.16b, v8.16b
-    ushr v12.16b, v1.16b, #4
-    and v13.16b, v1.16b, v8.16b
-    zip1 v0.16b, v10.16b, v11.16b
-    zip2 v1.16b, v10.16b, v11.16b 
-    zip1 v2.16b, v12.16b, v13.16b
-    zip2 v3.16b, v12.16b, v13.16b
+    ushr v0.16b, v10.16b, #4
+    and v2.16b, v10.16b, v8.16b
+    ushr v1.16b, v11.16b, #4
+    and v3.16b, v11.16b, v8.16b
+
     dup v16.4s, wzr
     dup v17.4s, wzr
     ld1 {v4.16b}, [x1], #16
@@ -739,19 +708,14 @@ L1LoopDz:
         sadalp v22.4s, v14.8h
         sadalp v23.4s, v15.8h
 
-        ld1 {v0.16b, v1.16b}, [x2], #32
+        ld1 {v10.16b, v11.16b}, [x2], #32
         add x1, x1, #48
         // int4->int8
         movi v8.16b, #15
-        ushr v10.16b, v0.16b, #4
-        and v11.16b, v0.16b, v8.16b
-        ushr v12.16b, v1.16b, #4
-        and v13.16b, v1.16b, v8.16b
-        zip1 v0.16b, v10.16b, v11.16b
-        zip2 v1.16b, v10.16b, v11.16b 
-        zip1 v2.16b, v12.16b, v13.16b
-        zip2 v3.16b, v12.16b, v13.16b
-
+        ushr v0.16b, v10.16b, #4
+        and v2.16b, v10.16b, v8.16b
+        ushr v1.16b, v11.16b, #4
+        and v3.16b, v11.16b, v8.16b
         smull v8.8h, v0.8b, v4.8b
         smull v9.8h, v1.8b, v4.8b
         smull v10.8h, v2.8b, v4.8b

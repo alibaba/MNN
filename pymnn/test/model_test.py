@@ -80,18 +80,21 @@ def MNNDataType2NumpyDataType(data_type):
     else:
         return np.float32
 
-def createTensor(tensor, file=''):
+def createTensor(tensor, file='', empty=False):
     shape = tensor.getShape()
     data_type = tensor.getDataType()
     dtype = MNNDataType2NumpyDataType(data_type)
     if file == '':
-        data = np.ones(shape, dtype=dtype)
+        if empty:
+            data = np.zeros(shape, dtype=dtype)
+        else:
+            data = np.ones(shape, dtype=dtype)
     else:
         data = loadtxt(file, shape, dtype)
-    return MNN.Tensor(shape, tensor.getDataType(), data, tensor.getDimensionType())
+    return MNN.Tensor(shape, tensor.getDataType(), data.copy(), tensor.getDimensionType())
 
 def compareTensor(tensor, file, tolerance=5e-2):
-    outputNumpyData = tensor.getNumpyData()
+    outputNumpyData = tensor.getNumpyData().copy()
     expectNumpyData = loadtxt(file, tensor.getShape())
     max_abs_dif = np.abs(outputNumpyData - expectNumpyData).max()
     max_exp_val = np.abs(expectNumpyData).max()
@@ -117,6 +120,11 @@ def modelTest(modelPath, givenName, expectName):
     net = MNN.Interpreter(modelPath)
     session = net.createSession()
     allInput = net.getSessionInputAll(session)
+    # zero for all inputs
+    for name in allInput:
+        inputTensor = allInput[name] 
+        inputHost = createTensor(inputTensor, givenName, True)
+        inputTensor.copyFrom(inputHost)
     # input
     inputTensor = net.getSessionInput(session)
     inputHost = createTensor(inputTensor, givenName)

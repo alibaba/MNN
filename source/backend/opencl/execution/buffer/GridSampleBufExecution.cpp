@@ -76,7 +76,7 @@ ErrorCode GridSampleBufExecution::onEncode(const std::vector<Tensor *> &inputs, 
     ret |= unit.kernel->get().setArg(idx++, static_cast<uint32_t>(inW));
     ret |= unit.kernel->get().setArg(idx++, static_cast<uint32_t>(outH));
     ret |= unit.kernel->get().setArg(idx++, static_cast<uint32_t>(outW));
-    ret |= unit.kernel->get().setArg(idx++, static_cast<uint32_t>(channelC4));
+    ret |= unit.kernel->get().setArg(idx++, static_cast<uint32_t>(batches));
     ret |= unit.kernel->get().setArg(idx++, mPaddingMode);
     ret |= unit.kernel->get().setArg(idx++, mAlignCorners);
     MNN_CHECK_CL_SUCCESS(ret, "setArg GridSampleBufExecution");

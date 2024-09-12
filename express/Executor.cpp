@@ -154,9 +154,8 @@ std::shared_ptr<Executor> Executor::getGlobalExecutor() {
         RuntimeHint hint;
         hint.memoryAllocatorType = 0;// Defer
         bn->setRuntimeHint(hint);
-        static std::shared_ptr<Executor> executorStatic;
-        executorStatic.reset(new Executor(bn, MNN_FORWARD_CPU, 1));
-        gExecutor = &executorStatic;
+        gExecutor = new std::shared_ptr<Executor>;
+        gExecutor->reset(new Executor(bn, MNN_FORWARD_CPU, 1));
     });
     return *gExecutor;
 }

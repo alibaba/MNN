@@ -816,7 +816,7 @@ static void _AVX_MNNPackednMatMulRemainCommon(TYPE* C, const TYPE* A, const TYPE
     }
 }
 
-#ifdef MNN_LOW_MEMORY
+#ifdef MNN_CPU_WEIGHT_DEQUANT_GEMM
 //----------------------- MatMul(float, int4) Functions ---------------------------//
 
 #define LOAD_WEIGHT_ALPHA_BIAS_int4x4 \

@@ -300,7 +300,7 @@ namespace MNN {
 
     CoreMLRuntime::~CoreMLRuntime() {}
 
-    Backend* CoreMLRuntime::onCreate(const BackendConfig* config) const {
+    Backend* CoreMLRuntime::onCreate(const BackendConfig* config, Backend* origin) const {
         return new CoreMLBackend(this);
     }
 

@@ -710,7 +710,7 @@ public:
         int threadNumber = 1, ePack = 12;
         int unit2   = UP_DIV(outH * outW, ePack * threadNumber);
         int maxUnit = (int)::sqrtf((float)unit2);
-        const int MAX_UNIT = 4, MIN_UNIT = 2;
+        const int MAX_UNIT = 6, MIN_UNIT = 2;
         maxUnit = std::max(std::min(maxUnit, MAX_UNIT), MIN_UNIT);
 
         auto units = std::pair<int, int>({0, 0});
