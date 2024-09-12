@@ -233,6 +233,7 @@ class ModelMapper:
             'embed_': 'model.embed_tokens',
             'blocks_': 'model.layers',
             'final_layernorm_': 'model.norm',
+            'visual': 'visual'
         }
         self.default_decoder = {
             'self_attn': 'self_attn',
@@ -376,7 +377,8 @@ class MNNConveter:
         self.lm_quant_bit = config.lm_quant_bit
         self.mnn_weight_offset = 0
         self.onnx_model_path = onnx_path
-        self.mnn_model_path = onnx_path.replace('.onnx', '.mnn')
+        self.mnn_name = os.path.basename(onnx_path).replace('.onnx', '.mnn')
+        self.mnn_model_path = os.path.join(config.dst_path, self.mnn_name)
         self.mnn_weight_path = f'{self.mnn_model_path}.weight'
         if os.path.exists(config.mnnconvert):
             self.mnnconvert = config.mnnconvert
@@ -387,7 +389,7 @@ class MNNConveter:
         sfd = os.dup(1)
         log_fp = open(EXPORT_LOG, "a")
         log_fd = log_fp.fileno()
-        # mnnconvert ... > .convert_mnn.log
+        # mnnconvert ... > .export.log
         os.dup2(log_fd, 1)
         try:
             sys.argv = convert_args
@@ -448,14 +450,21 @@ class MNNConveter:
         self.convert(convert_args)
         return mnn_path
 
-    def export(self):
+    def export(self, quant_bit = None, quant_block = None):
         if self.weight_ops is None:
-            quant_args = [
-                '--weightQuantBits',
-                str(self.quant_bit),
-                '--weightQuantBlock',
-                str(self.quant_block)
-            ]
+            if quant_bit is None:
+                quant_bit = self.quant_bit
+            if quant_block is None:
+                quant_block = self.quant_block
+            if quant_bit == 16:
+                quant_args = ['--fp16']
+            else:
+                quant_args = [
+                    '--weightQuantBits',
+                    str(quant_bit),
+                    '--weightQuantBlock',
+                    str(quant_block)
+                ]
             self.onnx2mnn(self.onnx_model_path, self.mnn_model_path, quant_args)
         else:
             mnn_json = f'{self.mnn_model_path}.json'
@@ -558,7 +567,6 @@ class MNNConveter:
         assert(linear.in_features == ic and
                linear.out_features == oc and
                (linear.bias is not None) == has_bias)
-
 
         quant_bit = self.lm_quant_bit if 'lm_head' in name else self.quant_bit
         external, q_min, shape_int32 = self.build_weight(linear, quant_bit, self.quant_block)
@@ -904,6 +912,188 @@ class Lm(torch.nn.Module):
         m_logits = self.lm(hidden_states)
         return m_logits
 
+class Visual(torch.nn.Module):
+    def __init__(self, visual, base):
+        super().__init__()
+        self.visual = visual.eval()
+        self.embed_ = base.embed
+        self.tokenizer = base.tokenizer
+        self.config = base.config
+        self.hidden_size = base.hidden_size
+        self.llm_config = base.llm_config
+        self.init_config()
+        self.load()
+
+    @staticmethod
+    def get_visual(model_type):
+        visual_models = {
+            'qwen': QwenVisual,
+            'qwen2_vl': Qwen2Visual
+        }
+        if model_type in visual_models:
+            return visual_models[model_type]
+        return None
+
+    def init_config(self):
+        from transformers.image_utils import (OPENAI_CLIP_MEAN, OPENAI_CLIP_STD)
+        self.llm_config['is_visual'] = True
+        image_mean = np.array(OPENAI_CLIP_MEAN) * 255.0
+        image_norm = 1 / (np.array(OPENAI_CLIP_STD) * 255.0)
+        self.llm_config['image_mean'] = image_mean.tolist()
+        self.llm_config['image_norm'] = image_norm.tolist()
+
+    def load(self):
+        raise NotImplementedError
+
+    def str_to_ids(self, prompt):
+        input_ids = self.tokenizer(prompt, return_tensors="pt")['input_ids']
+        return input_ids
+
+    def forward(self, images):
+        raise NotImplementedError
+
+    def embed(self, input_ids, images = None, videos = None):
+        raise NotImplementedError
+
+class QwenVisual(Visual):
+    def __init__(self, visual, base):
+        self.quant_bit = 16
+        super().__init__(visual, base)
+
+    def load(self):
+        self.image_start_id = self.config.visual['image_start_id']
+        self.image_size = self.config.visual['image_size']
+        self.llm_config['is_visual'] = True
+        self.llm_config['image_size'] = self.image_size
+        self.llm_config['vision_start'] = self.tokenizer.img_start_id
+        self.llm_config['vision_end'] = self.tokenizer.img_end_id
+        self.llm_config['image_pad'] = self.tokenizer.img_pad_id
+
+    def forward(self, images):
+        return self.visual(images).transpose(1, 0)
+
+    def embed(self, input_ids, images = None, videos = None):
+        if not torch.any(input_ids == self.image_start_id):
+            return self.embed_(input_ids)
+        bos_pos = torch.where(input_ids == self.image_start_id)
+        eos_pos = torch.where(input_ids == self.image_start_id + 1)
+        img_pos = torch.stack((bos_pos[0], bos_pos[1], eos_pos[1]), dim=1)
+        images = []
+        for i, a, b in img_pos:
+            image = input_ids[i][a + 1 : b - 1].tolist()
+            image = image[ : image.index(self.image_start_id + 2)]
+            images.append(bytes(image).decode('utf-8'))
+        images = self.visual.encode(images).transpose(1, 0)
+        hidden_states = self.embed_(input_ids)
+        for idx, (i, a, b) in enumerate(img_pos):
+            hidden_states[a + 1 : b, i] = images[:, idx]
+        return hidden_states
+
+class Qwen2Visual(Visual):
+    def __init__(self, visual, base):
+        self.quant_bit = 4
+        self.temporal_patch_size = 2
+        self.patch_size = 14
+        self.merge_size = 2
+        self.image_size = 420
+        self.image_embeds = None
+        super().__init__(visual, base)
+
+    def load(self):
+        self.vision_start_id = self.config.vision_start_token_id
+        self.vision_end_id = self.config.vision_end_token_id
+        self.image_pad_id = self.config.image_token_id
+        self.llm_config['image_size'] = self.image_size
+        self.llm_config['vision_start'] = self.vision_start_id
+        self.llm_config['vision_end'] = self.vision_end_id
+        self.llm_config['image_pad'] = self.image_pad_id
+
+    def str_to_ids(self, prompt):
+        if '<img>' in prompt and '</img>' in prompt:
+            import re
+            import requests
+            from PIL import Image
+            pattern = r'(<img>.*?</img>)'
+            parts = re.split(pattern, prompt)
+            txt_prompt = ''
+            for part in parts:
+                if re.match(pattern, part):
+                    img_content = re.search(r'<img>(.*?)</img>', part).group(1)
+                    if img_content.startswith('http://') or img_content.startswith('https://'):
+                        image_obj = Image.open(requests.get(img_content, stream=True).raw)
+                    img_pad_len = self.img_process(image_obj)
+                    img_pad_str = '<|image_pad|>' * img_pad_len
+                    img_str = f'<|vision_start|>{img_pad_str}<|vision_end|>'
+                    txt_prompt += img_str
+                else:
+                    txt_prompt += part
+        else:
+            txt_prompt = prompt
+        input_ids = self.tokenizer(txt_prompt, return_tensors="pt")['input_ids']
+        return input_ids
+
+    def forward(self, images):
+        images = [images] * self.temporal_patch_size
+        patches = torch.concat(images, axis=0)
+        _, channel, height, width = patches.shape
+        grid_t = patches.shape[0] // self.temporal_patch_size
+        grid_h, grid_w = height // self.patch_size, width // self.patch_size
+        patches = patches.reshape(
+            grid_t,
+            self.temporal_patch_size,
+            channel,
+            grid_h // self.merge_size,
+            self.merge_size,
+            self.patch_size,
+            grid_w // self.merge_size,
+            self.merge_size,
+            self.patch_size,
+        )
+        patches = patches.permute(0, 3, 6, 4, 7, 2, 1, 5, 8)
+        flatten_patches = patches.reshape(
+            grid_t * grid_h * grid_w, channel * self.temporal_patch_size * self.patch_size * self.patch_size
+        )
+        image_grid_thw = torch.tensor([[grid_t, grid_h, grid_w]])
+        image_embeds = self.visual(flatten_patches, image_grid_thw)
+        image_embeds = image_embeds.unsqueeze(1)
+        return image_embeds
+
+    def img_process(self, image):
+        resized_height = self.image_size
+        resized_width = self.image_size
+        from transformers.image_transforms import (
+            convert_to_rgb,
+            resize,
+            rescale,
+            normalize
+        )
+        from transformers.image_utils import (
+            OPENAI_CLIP_MEAN,
+            OPENAI_CLIP_STD,
+            PILImageResampling,
+            infer_channel_dimension_format,
+            to_numpy_array
+        )
+        image = convert_to_rgb(image)
+        image = to_numpy_array(image)
+        format = infer_channel_dimension_format(image)
+        resample = PILImageResampling.BICUBIC
+        image = resize(image, size=(resized_height, resized_width), resample=resample, input_data_format=format)
+        image = rescale(image, scale=1 / 255.0, input_data_format=format)
+        image = normalize(image=image, mean=OPENAI_CLIP_MEAN, std=OPENAI_CLIP_STD, input_data_format=format)
+        image = np.expand_dims(image, [0])
+        image = image.transpose(0, 3, 1, 2)
+        image = torch.from_numpy(image)
+        self.image_embeds = self.forward(image)
+        return self.image_embeds.shape[0]
+
+    def embed(self, input_ids, images = None, videos = None):
+        input_embeds = self.embed_(input_ids)
+        if self.image_embeds is not None:
+            image_mask = (input_ids == self.image_pad_id).squeeze()
+            input_embeds[image_mask] = self.image_embeds
+        return input_embeds
+
 class LlmExporter(torch.nn.Module):
     '''
     Base class for all llm model export. Inherits from [`torch.nn.Module`].
@@ -922,6 +1112,7 @@ class LlmExporter(torch.nn.Module):
         # load config from args
         self.path = args.path
         self.dst_path = args.dst_path
+        self.onnx_path = os.path.join(self.dst_path, 'onnx')
         self.lora_path = args.lora_path
         self.skip_slim = args.skip_slim
         self.quant_bit = args.quant_bit
@@ -934,18 +1125,28 @@ class LlmExporter(torch.nn.Module):
         # init export dst dir
         if not os.path.exists(self.dst_path):
             os.makedirs(self.dst_path)
+        if not os.path.exists(self.onnx_path):
+            os.makedirs(self.onnx_path)
 
     def load_pretrained(self, model_path: str):
         self.tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
-        try:
-            self.model = AutoModelForCausalLM.from_pretrained(model_path, trust_remote_code=True).float().eval()
-        except:
-            self.model = AutoModel.from_pretrained(model_path, trust_remote_code=True).float().eval()
+        if 'Qwen2-VL' in model_path:
+            from transformers import Qwen2VLForConditionalGeneration
+            self.model = Qwen2VLForConditionalGeneration.from_pretrained(model_path).float().eval()
+        else:
+            try:
+                self.model = AutoModelForCausalLM.from_pretrained(model_path, trust_remote_code=True).float().eval()
+            except:
+                self.model = AutoModel.from_pretrained(model_path, trust_remote_code=True).float().eval()
         self.config = self.model.config
         if self.lora_path is not None:
             from peft import PeftModel
             adapter = PeftModel.from_pretrained(self.model, model_id=self.lora_path)
             self.model = adapter.merge_and_unload(progressbar=True)
+
+    @staticmethod
+    def has_attr(obj, attr):
+        return hasattr(obj, attr) and getattr(obj, attr) is not None
 
     @spinner_run(f'load pretrained model ')
     def load_model(self, model_path):
@@ -958,7 +1159,7 @@ class LlmExporter(torch.nn.Module):
         eot_id = self.tokenizer.encode('<|eot_id|>')
         if len(eot_id) == 1:
             self.stop_ids.append(eot_id[0])
-        if hasattr(self.model, 'generation_config'):
+        if hasattr(self.model, 'generation_config') and self.model.generation_config is not None:
             eos_token_id = self.model.generation_config.eos_token_id
             from collections.abc import Iterable
             if isinstance(eos_token_id, int):
@@ -971,8 +1172,7 @@ class LlmExporter(torch.nn.Module):
         model_mapper = ModelMapper()
 
         self.model_type, self.model_map = model_mapper.get_map(self.config)
-        # print(self.model)
-        # print(self.model_type, self.model_map)
+        # print(self.config, self.model_type, self.model_map, self.model)
         # load config info
         ModelMapper.do_map(self, self.config, self.model_map['config'])
         if not hasattr(self, 'num_key_value_heads') or self.num_key_value_heads is None:
@@ -1020,14 +1220,7 @@ class LlmExporter(torch.nn.Module):
         self.lm = Lm(self.lm_, self.final_layernorm_, self)
         # visual model
         if self.visual is not None:
-            self.image_start_id = self.config.visual['image_start_id']
-            self.image_size = self.config.visual['image_size']
-            self.llm_config['is_visual'] = True
-            self.llm_config['img_size'] = self.image_size
-            self.llm_config['imgpad_len'] = 256
-            self.llm_config['img_start'] = self.tokenizer.img_start_id
-            self.llm_config['img_end'] = self.tokenizer.img_end_id
-            self.llm_config['img_pad'] = self.tokenizer.img_pad_id
+            self.visual = Visual.get_visual(self.model_type)(self.visual, self)
         return model_path
 
     def get_attention_mask(self) -> torch.Tensor:
@@ -1064,21 +1257,7 @@ class LlmExporter(torch.nn.Module):
         return position_ids
 
     def visual_embed(self, input_ids):
-        if not torch.any(input_ids == self.image_start_id):
-            return self.embed(input_ids)
-        bos_pos = torch.where(input_ids == self.image_start_id)
-        eos_pos = torch.where(input_ids == self.image_start_id + 1)
-        img_pos = torch.stack((bos_pos[0], bos_pos[1], eos_pos[1]), dim=1)
-        images = []
-        for i, a, b in img_pos:
-            image = input_ids[i][a + 1 : b - 1].tolist()
-            image = image[ : image.index(self.image_start_id + 2)]
-            images.append(bytes(image).decode('utf-8'))
-        images = self.visual.encode(images)
-        hidden_states = self.embed(input_ids).view(1, -1, self.hidden_size)
-        for idx, (i, a, b) in enumerate(img_pos):
-            hidden_states[i][a + 1 : b] = images[idx]
-        return hidden_states.view(-1, 1, self.hidden_size)
+        return self.visual.embed(input_ids)
 
     def embedding(self, input_ids):
         if self.visual is not None and self.token_len == 0:
@@ -1136,6 +1315,8 @@ class LlmExporter(torch.nn.Module):
         return query
 
     def str_to_ids(self, prompt):
+        if self.visual is not None:
+            return self.visual.str_to_ids(prompt)
         input_ids = self.tokenizer(prompt, return_tensors="pt")['input_ids']
         return input_ids
 
@@ -1148,7 +1329,6 @@ class LlmExporter(torch.nn.Module):
         self.imitate_quant()
         prompt = self.build_prompt(query)
         input_ids = self.str_to_ids(prompt)
-        # print(f'prompt = {prompt}, ids = {input_ids}')
         self.seq_len = input_ids.numel()
         self.context_len = self.seq_len - 2
         self.token_len = 0
@@ -1157,7 +1337,7 @@ class LlmExporter(torch.nn.Module):
         while self.token_len < self.max_length:
             attention_mask = self.get_attention_mask()
             position_ids = self.get_position_ids()
-            input_ids = self.embed(token_id)
+            input_ids = self.embedding(token_id)
             logits, past_key_values = self.forward(input_ids, attention_mask, position_ids, past_key_values)
             token_id = torch.argmax(logits)
             if token_id in self.stop_ids:
@@ -1166,12 +1346,13 @@ class LlmExporter(torch.nn.Module):
             word = self.id_to_str(token_id)
             print(word, end="", flush=True)
 
+    @spinner_run(f'export visual to ')
     def export_visual(self):
         if self.visual is None:
             return
-        input_images = torch.randn((1, 3, self.image_size, self.image_size))
+        input_images = torch.randn((1, 3, self.visual.image_size, self.visual.image_size))
         model = self.visual
-        onnx_model = f'{self.dst_path}/visual.onnx'
+        onnx_model = f'{self.onnx_path}/visual.onnx'
         torch.onnx.export(model, (input_images),
                         onnx_model,
                         input_names=['input_images'],
@@ -1180,10 +1361,9 @@ class LlmExporter(torch.nn.Module):
                             0: "size"
                         }},
                         do_constant_folding=True,
+                        verbose=False,
                         opset_version=15)
         return onnx_model
-        if not self.skip_slim:
-            slim(onnx_model, output_model=onnx_model)
 
     @spinner_run(f'export embedding to ')
     def export_embed(self):
@@ -1313,7 +1493,7 @@ class LlmExporter(torch.nn.Module):
         attention_mask =  self.get_attention_mask()
         position_ids = self.get_position_ids()
         past_key_values = torch.zeros(self.past_kv_shape)
-        onnx_model = f'{self.dst_path}/{self.dst_name}.onnx'
+        onnx_model = f'{self.onnx_path}/{self.dst_name}.onnx'
         input_ids = self.embedding(input_ids)
         # export to onnx
         torch.onnx.export(
@@ -1335,7 +1515,11 @@ class LlmExporter(torch.nn.Module):
         self.export_config(export_mnn)
         self.export_embed()
         if self.visual:
-            self.export_visual()
+            visual_onnx = self.export_visual()
+            #if not self.skip_slim:
+                #visual_onnx = self.onnx_slim(visual_onnx)
+            if export_mnn:
+                MNNConveter(visual_onnx, None, self).export(quant_bit=self.visual.quant_bit)
         # export graph to llm.onnx
         onnx_model = self.export_onnx()
         if not self.skip_slim:
@@ -1546,7 +1730,7 @@ class EmbeddingExporter(LlmExporter):
         attention_mask = self.get_attention_mask()
         inputs_embeds = self.word_embed(input_ids)
         res = self.forward(inputs_embeds, position_ids, attention_mask)
-        print(res)
+        # print(res)
         return res
 
     @spinner_run(f'load pretrained model ')
@@ -1597,7 +1781,7 @@ class EmbeddingExporter(LlmExporter):
         position_ids = self.get_position_ids()
         attention_mask = self.get_attention_mask()
         inputs_embeds = self.word_embed(input_ids)
-        onnx_model = f'{self.dst_path}/{self.dst_name}.onnx'
+        onnx_model = f'{self.onnx_path}/{self.dst_name}.onnx'
         torch.onnx.export(
             model, (inputs_embeds, position_ids, attention_mask),
             onnx_model,

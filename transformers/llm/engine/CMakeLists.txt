@@ -1,3 +1,11 @@
+option(LLM_SUPPORT_VISION "Llm model support vision input." OFF)
+
+if (LLM_SUPPORT_VISION)
+    add_definitions(-DLLM_SUPPORT_VISION)
+    list(APPEND MNN_DEPS MNNOpenCV)
+    include_directories(${CMAKE_SOURCE_DIR}/tools/cv/include/)
+endif()
+
 # include dir
 include_directories(${CMAKE_CURRENT_LIST_DIR}/include/)
 
