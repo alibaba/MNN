@@ -34,13 +34,12 @@ ErrorCode SelectBufExecution::onEncode(const std::vector<Tensor*>& inputs, const
     mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
 
     std::vector<int> outputShape = tensorShapeFormat(outputs[0]);
-
-    int batch        = outputShape.at(0);
-    int outputHeight = outputShape.at(1);
-    int outputWidth  = outputShape.at(2);
-    int channels     = outputShape.at(3);
-    int channelBlocks = (channels + 3) / 4;
-    int outSize = batch * channelBlocks * outputWidth * outputHeight * 4;
+    int outSize = 0;
+    if(MNN::MNN_DATA_FORMAT_NC4HW4 == TensorUtils::getDescribe(outputs[0])->dimensionFormat){
+        outSize = outputShape[0] * outputShape[1] * outputShape[2] * ROUND_UP(outputShape[3], 4);
+    }else{
+        outSize = outputShape[0] * outputShape[1] * outputShape[2] * outputShape[3];
+    }
 
     mGlobalWorkSize = {
         static_cast<uint32_t>(outSize),

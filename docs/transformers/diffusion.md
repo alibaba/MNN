@@ -17,8 +17,8 @@ https://huggingface.co/IDEA-CCNL/Taiyi-Stable-Diffusion-1B-Chinese-v0.1/tree/mai
 ## 模型转换
 ### 将Huggingface的Stable Diffusion模型 转为onnx模型
 ```sh
-cd mnn_path/transformers/diffusion/
-python export/onnx_export.py \
+cd mnn_path/transformers/diffusion/export
+python onnx_export.py \
     --model_path hf_sd_load_path \
     --output_path onnx_save_path
 ```
@@ -30,20 +30,19 @@ conda activate ldm
 在conda环境中执行模型转换脚本
 
 ### 将onnx模型转为mnn模型
-新建diffusion mnn模型文件夹，将转好的mnn文件放在该文件夹下。
-1. 实现encoder从onnx模型 -> mnn模型
+新建diffusion mnn模型文件夹 mnn_save_path ，将转好的mnn文件放在该文件夹下。
+
+执行脚本
 ```
-./MNNConvert -f ONNX --modelFile onnx_save_path/text_encoder/model.onnx --MNNModel mnn_save_path/text_encoder.mnn --weightQuantBits 8 --bizCode biz
+python3 convert_mnn.py ../onnx ~/alicnn/AliNNPrivate/build/diffusion "--weightQuantBits=8"
 ```
-2. 实现denoiser unet从onnx模型 -> mnn模型
+
+若希望在OpenCL后端上进一步加速，可加上--transformerFuse:
 ```
-./MNNConvert -f ONNX --modelFile onnx_save_path/unet/model.onnx --MNNModel mnn_save_path/unet.mnn --transformerFuse --weightQuantBits 8 --bizCode biz
-注意：对于非OpenCL后端推理，需要去掉--transformerFuse。
+# 适用OpenCL 后端推理
+python3 convert_mnn.py onnx_path mnn_save_path "--weightQuantBits=8 --transformerFuse"
 ```
-3. 实现decoder从onnx模型 -> mnn模型
-```
-./MNNConvert -f ONNX --modelFile onnx_save_path/vae_decoder/model.onnx --keepInputFormat --MNNModel mnn_save_path/vae_decoder.mnn --weightQuantBits 8 --bizCode biz
-```
+
 ## 编译Diffusion Demo
 ### Linux/MAC/Windows上
 ```

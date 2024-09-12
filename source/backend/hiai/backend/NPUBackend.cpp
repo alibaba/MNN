@@ -552,7 +552,7 @@ namespace MNN {
 
     NPURuntime::~NPURuntime() {}
 
-    Backend* NPURuntime::onCreate(const BackendConfig* config) const {
+    Backend* NPURuntime::onCreate(const BackendConfig* config, Backend* origin) const {
         return new NPUBackend(this);
     }
 

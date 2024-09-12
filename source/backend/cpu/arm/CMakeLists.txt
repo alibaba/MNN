@@ -15,6 +15,10 @@ if (MNN_LOW_MEMORY)
     FILE(GLOB MNN_AArch64_SRC ${MNN_AArch64_SRC} ${CMAKE_CURRENT_LIST_DIR}/arm64/low_memory/*.[sS])
 endif()
 
+if (MNN_CPU_WEIGHT_DEQUANT_GEMM)
+    FILE(GLOB MNN_AArch64_SRC ${MNN_AArch64_SRC} ${CMAKE_CURRENT_LIST_DIR}/arm64/normal_memory/*.[sS])
+endif()
+
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^armv7" OR ARCHS MATCHES "^armv7(;armv7s)?")
     message(STATUS "Enabling AArch32 Assemblies")
     add_library(MNNARM32 OBJECT ${MNN_AArch32_SRC} ${MNN_NEON_SRC})

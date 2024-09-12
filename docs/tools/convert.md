@@ -1,5 +1,4 @@
 # 模型转换工具
-[从源码编译](../compile/tools.html#id2)
 ## 参数说明
 ```bash
 Usage:

@@ -138,6 +138,7 @@ LoopDz8_TILE_10:
     mov x11, x1 // src
     mov x12, x2 // weight
     mov x13, x3 // src_depth_quad
+    movi v2.16b, #15
 
     SET_0_5 v12, v16, v20, v24, v28 // oc:0,1,0,1
     SET_0_5 v13, v17, v21, v25, v29 // oc:2,3,2,3
@@ -146,7 +147,6 @@ LoopDz8_TILE_10:
 
 LoopSz_TILE_10:
     ld1 {v0.16b, v1.16b}, [x12], #32                    // weight
-    movi v2.16b, #15
     ld1 {v3.16b, v4.16b, v5.16b, v6.16b}, [x11], #64    // src: E0-E9
     ld1 {v7.16b}, [x11], #16
     // int4->int8
@@ -1066,7 +1066,64 @@ LoopDz_TILE_1:
     movi v17.4s, #0
     movi v18.4s, #0
     movi v19.4s, #0
-LoopSz_TILE_1:
+cmp x13, #4
+blt LoopSz_TILE_1_lu1
+
+LoopSz1_TILE_1_lu4:
+    ld1 {v5.16b, v6.16b, v7.16b, v8.16b}, [x12], #64     // weight
+    ld1 {v9.16b, v10.16b, v11.16b, v12.16b}, [x12], #64
+    ld1 {v0.8b}, [x11], x22                              // src
+    ld1 {v1.8b}, [x11], x22
+    ld1 {v2.8b}, [x11], x22
+    ld1 {v3.8b}, [x11], x22
+
+    // int4->int8
+    ushr v4.16b, v5.16b, #4
+    ushr v14.16b, v6.16b, #4
+    and v13.16b, v5.16b, v28.16b
+    and v15.16b, v6.16b, v28.16b
+
+    ushr v20.16b, v7.16b, #4
+    ushr v21.16b, v8.16b, #4
+    and v22.16b, v7.16b, v28.16b
+    and v23.16b, v8.16b, v28.16b
+
+    ushr v24.16b, v9.16b, #4
+    ushr v25.16b, v10.16b, #4
+    and v26.16b, v9.16b, v28.16b
+    and v27.16b, v10.16b, v28.16b
+
+    ushr v5.16b, v11.16b, #4
+    ushr v6.16b, v12.16b, #4
+    and v7.16b, v11.16b, v28.16b
+    and v8.16b, v12.16b, v28.16b
+
+    sub x13, x13, #4
+
+    .inst 0x4e84a410 // smmla v16.4s, v0.16b, v4.16b
+    .inst 0x4e8ea411 // smmla v17.4s, v0.16b, v14.16b
+    .inst 0x4e8da412 // smmla v18.4s, v0.16b, v13.16b
+    .inst 0x4e8fa413 // smmla v19.4s, v0.16b, v15.16b
+
+    .inst 0x4e94a430 // smmla v16.4s, v1.16b, v20.16b
+    .inst 0x4e95a431 // smmla v17.4s, v1.16b, v21.16b
+    .inst 0x4e96a432 // smmla v18.4s, v1.16b, v22.16b
+    .inst 0x4e97a433 // smmla v19.4s, v1.16b, v23.16b
+    cmp x13, #4
+    .inst 0x4e98a450 // smmla v16.4s, v2.16b, v24.16b
+    .inst 0x4e99a451 // smmla v17.4s, v2.16b, v25.16b
+    .inst 0x4e9aa452 // smmla v18.4s, v2.16b, v26.16b
+    .inst 0x4e9ba453 // smmla v19.4s, v2.16b, v27.16b
+
+    .inst 0x4e85a470 // smmla v16.4s, v3.16b, v5.16b
+    .inst 0x4e86a471 // smmla v17.4s, v3.16b, v6.16b
+    .inst 0x4e87a472 // smmla v18.4s, v3.16b, v7.16b
+    .inst 0x4e88a473 // smmla v19.4s, v3.16b, v8.16b
+
+    bge LoopSz1_TILE_1_lu4
+    cbz x13, LoopSzEnd_TILE_1
+
+LoopSz_TILE_1_lu1:
     ld1 {v2.8b}, [x11], x22           // src
     // int4->int8
     ld1 {v0.16b, v1.16b}, [x12], #32                   // weight
@@ -1080,7 +1137,7 @@ LoopSz_TILE_1:
     .inst 0x4e89a451 // smmla v17.4s, v2.16b, v9.16b
     .inst 0x4e8aa452 // smmla v18.4s, v2.16b, v10.16b
     .inst 0x4e8ba453 // smmla v19.4s, v2.16b, v11.16b
-    bne LoopSz_TILE_1
+    bne LoopSz_TILE_1_lu1
 LoopSzEnd_TILE_1:
     add x25, x25, x15
     sub x24, x24, #2

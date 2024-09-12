@@ -26,14 +26,13 @@ bool convertNC4HW4OrNC16HW16BufferToNCHWOrNHWCBuffer(const Tensor *input, Tensor
 
 enum TransType {InpTrans = 0, OutTrans = 1, NoTrans = 2};
 
-bool convertNC4HW4BufferToNC4HW4Buffer(const Tensor *input, Tensor *output,
-                                       OpenCLRuntime *runtime, TransType formatTrans = NoTrans, bool needWait = false, bool svmFlag = false, bool srcswap = false, bool dstswap = false);
-
 #ifdef MNN_SUPPORT_INTEL_SUBGROUP
 bool convertNC4HW4BufferBetweenNC16HW16Buffer(const Tensor *input, Tensor *output, const std::string Name,
                                              OpenCLRuntime *runtime, TransType formatTrans = NoTrans, bool needWait = false,
                                              bool svmFlag = false, bool srcswap = false, bool dstswap = false);
 #endif
+
+bool convertBufferToBuffer(Tensor *input, Tensor *output, OpenCLRuntime *runtime, bool toDevice, bool toHost, bool needWait = false, bool svmFlag = false);
                                        
 class BufferConvertor {
 public:

@@ -8,6 +8,7 @@
 
 #include "MNN_generated.h"
 #include <MNN/expr/Expr.hpp>
+#include <MNN/expr/ExecutorScope.hpp>
 #include <MNN/expr/Module.hpp>
 #include <MNN/expr/ExprCreator.hpp>
 #define MNN_OPEN_TIME_TRACE
@@ -93,6 +94,10 @@ int main(int argc, char *argv[]) {
         MNN_ERROR("Usage: ./ModuleBasic.out ${test.mnn} ${Dir} [runMask] [forwardType] [runLoops] [numberThread] [precision | memory] [cacheFile]\n");
         return 0;
     }
+    BackendConfig backendConfigTmp;
+    auto _executor = Executor::newExecutor(MNN_FORWARD_CPU, backendConfigTmp, 1);
+    ExecutorScope _s(_executor);
+
     std::string modelName = argv[1];
     std::string directName = argv[2];
     MNN_PRINT("Test %s from input info: %s\n", modelName.c_str(), directName.c_str());
@@ -277,6 +282,9 @@ int main(int argc, char *argv[]) {
     if (runMask & 1024) {
         rtmgr->setHint(Interpreter::DYNAMIC_QUANT_OPTIONS, 1);
     }
+    if (runMask & 2048) {
+        rtmgr->setExternalPath("tmp", Interpreter::EXTERNAL_FEATUREMAP_DIR);
+    }
     std::shared_ptr<Module> net;
     {
         AUTOTIME;
@@ -419,6 +427,7 @@ int main(int argc, char *argv[]) {
         for (int i = 0; i < t; ++i) {
             Timer _l;
             auto out = net->onForward(inputs);
+            Variable::compute(out);
             for (auto o : out) {
                 ((MNN::Tensor*)o->getTensor())->wait(MNN::Tensor::MAP_TENSOR_READ, true);
             }

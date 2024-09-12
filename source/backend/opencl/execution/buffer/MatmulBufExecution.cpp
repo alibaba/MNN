@@ -122,11 +122,21 @@ ErrorCode MatMulBufExecution::onEncode(const std::vector<Tensor *> &inputs, cons
         unit.kernel       = runtime->buildKernel("matmul_local_buf", "matmul_local_buf", buildOptions);
     } else {
         if(mTransposeA) {
-            mKernelName = mTransposeB ? "matmul_transA_transB_buf":"matmul_transA_buf";
-        } else {
-            mKernelName = mTransposeB ? "matmul_transB_buf":"matmul_buf";
+            buildOptions.emplace(" -DTRANSPOSE_A");
         }
-        unit.kernel       = runtime->buildKernel("matmul_buf", mKernelName, buildOptions);
+        if(mTransposeB) {
+            buildOptions.emplace(" -DTRANSPOSE_B");
+        }
+        if(M % 4 != 0) {
+            buildOptions.emplace(" -DM_LEAVE");
+        }
+        if(N % 4 != 0) {
+            buildOptions.emplace(" -DN_LEAVE");
+        }
+        if(K % 4 != 0) {
+            buildOptions.emplace(" -DK_LEAVE");
+        }
+        unit.kernel       = runtime->buildKernel("matmul_buf", "matmul_buf", buildOptions);
     }
     
     mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
@@ -183,46 +193,22 @@ ErrorCode MatMulBufExecution::onEncode(const std::vector<Tensor *> &inputs, cons
         MNN_CHECK_CL_SUCCESS(ret, "setArg MatMulBufExecution use tile opt");
 
     } else {
-        if(mTransposeA) {
-            mGlobalWorkSize = {static_cast<uint32_t>(N_4), static_cast<uint32_t>(M_4)};
-            int idx            = 0;
-            ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[0]);
-            ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[1]);
-            ret |= unit.kernel->get().setArg(idx++, openCLBuffer(input0));
-            ret |= unit.kernel->get().setArg(idx++, openCLBuffer(input1));
-            if(inputs.size() > 2) {
-                ret |= unit.kernel->get().setArg(idx++, openCLBuffer(inputs[2]));
-            }
-            ret |= unit.kernel->get().setArg(idx++, openCLBuffer(output));
-            ret |= unit.kernel->get().setArg(idx++, static_cast<int>(K));
-            ret |= unit.kernel->get().setArg(idx++, static_cast<int>(K_4));
-            ret |= unit.kernel->get().setArg(idx++, static_cast<int>(M));
-            ret |= unit.kernel->get().setArg(idx++, static_cast<int>(M_4));
-            ret |= unit.kernel->get().setArg(idx++, static_cast<int>(N_4));
-            ret |= unit.kernel->get().setArg(idx++, static_cast<int>(N));
-            MNN_CHECK_CL_SUCCESS(ret, "setArg MatMulBufExecution mTransposeA");
-            
-            mLocalWorkSize = localWS2DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), mKernelName, unit.kernel).first;
+        mGlobalWorkSize = {static_cast<uint32_t>(N_4), static_cast<uint32_t>(M_4)};
+        int idx            = 0;
+        ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[0]);
+        ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[1]);
+        ret |= unit.kernel->get().setArg(idx++, openCLBuffer(input0));
+        ret |= unit.kernel->get().setArg(idx++, openCLBuffer(input1));
+        if(inputs.size() > 2) {
+            ret |= unit.kernel->get().setArg(idx++, openCLBuffer(inputs[2]));
         }
-        else {
+        ret |= unit.kernel->get().setArg(idx++, openCLBuffer(output));
+        ret |= unit.kernel->get().setArg(idx++, static_cast<int>(M));
+        ret |= unit.kernel->get().setArg(idx++, static_cast<int>(N));
+        ret |= unit.kernel->get().setArg(idx++, static_cast<int>(K));
+        MNN_CHECK_CL_SUCCESS(ret, "setArg MatMulBufExecution mTransposeA");
             
-            mGlobalWorkSize = {static_cast<uint32_t>(N_4), static_cast<uint32_t>(M)};
-            int idx            = 0;
-            ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[0]);
-            ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[1]);
-            ret |= unit.kernel->get().setArg(idx++, openCLBuffer(input0));
-            ret |= unit.kernel->get().setArg(idx++, openCLBuffer(input1));
-            if(inputs.size() > 2) {
-                ret |= unit.kernel->get().setArg(idx++, openCLBuffer(inputs[2]));
-            }
-            ret |= unit.kernel->get().setArg(idx++, openCLBuffer(output));
-            ret |= unit.kernel->get().setArg(idx++, static_cast<int>(K));
-            ret |= unit.kernel->get().setArg(idx++, static_cast<int>(K_4));
-            ret |= unit.kernel->get().setArg(idx++, static_cast<int>(N_4));
-            ret |= unit.kernel->get().setArg(idx++, static_cast<int>(N));
-            MNN_CHECK_CL_SUCCESS(ret, "setArg MatMulBufExecution");
-            mLocalWorkSize = localWS2DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), mKernelName, unit.kernel).first;
-        }
+        mLocalWorkSize = localWS2DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), mKernelName, unit.kernel).first;
     }
     mOpenCLBackend->recordKernel2d(unit.kernel, mGlobalWorkSize, mLocalWorkSize);
     unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1]};

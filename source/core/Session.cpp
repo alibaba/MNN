@@ -18,10 +18,8 @@
 #include "core/TensorUtils.hpp"
 #include "utils/InitNet.hpp"
 
-using namespace std;
-
 namespace MNN {
-static void _createPipelineBackend(Schedule::PipelineInfo& iter, RuntimeInfo& runtime) {
+void Session::createPipelineBackend(Schedule::PipelineInfo& iter, RuntimeInfo& runtime) {
     if (iter.first.cache.first != nullptr) {
         return;
     }
@@ -41,7 +39,16 @@ static void _createPipelineBackend(Schedule::PipelineInfo& iter, RuntimeInfo& ru
         // We need create a new backend to do size compute / not support op compute
         BackendConfig defaultConfig;
         defaultConfig.flags = 4;
-        iter.first.cache.second.reset(cpuRuntime->onCreate(&defaultConfig));
+        if (iter.first.info.user != nullptr) {
+            // Don't change default Precision
+            defaultConfig.memory = iter.first.info.user->memory;
+            defaultConfig.power = iter.first.info.user->power;
+        }
+        Backend* origin = nullptr;
+        if (cpuRuntime.get() == rt) {
+            origin = iter.first.cache.first.get();
+        }
+        iter.first.cache.second.reset(cpuRuntime->onCreate(&defaultConfig, origin));
     }
 }
 void Session::ModeGroup::setMode(Interpreter::SessionMode mode) {
@@ -84,8 +91,8 @@ void Session::ModeGroup::setHint(Interpreter::HintMode mode, int hint) {
         case Interpreter::DYNAMIC_QUANT_OPTIONS:
             runtimeHint.dynamicQuantOption = hint;
             break;
-        case Interpreter::KVCACHE_QUANT_OPTIONS:
-            runtimeHint.kvcacheQuantOption = hint;
+        case Interpreter::QKV_QUANT_OPTIONS:
+            runtimeHint.qkvQuantOption = hint;
             break;
         case Interpreter::KVCACHE_SIZE_LIMIT:
             runtimeHint.kvcacheSizeLimit = hint;
@@ -99,6 +106,12 @@ void Session::ModeGroup::setExternalPath(std::string path, int type) {
     switch (type) {
         case MNN::Interpreter::EXTERNAL_PATH_KVCACHE_DIR:
             runtimeHint.kvcacheDirPath = path;
+            break;
+        case MNN::Interpreter::EXTERNAL_FEATUREMAP_DIR:
+            runtimeHint.midMemoryPath = path;
+            break;
+        case MNN::Interpreter::EXTERNAL_WEIGHT_DIR:
+            runtimeHint.weightMemoryPath = path;
             break;
         default:
             break;
@@ -114,7 +127,7 @@ Session::Session(Schedule::ScheduleInfo&& info, const ModeGroup& mode, RuntimeIn
     }
     mInfo = std::move(info);
     for (auto& iter : mInfo.pipelineInfo) {
-        _createPipelineBackend(iter, mRuntime);
+        createPipelineBackend(iter, mRuntime);
         Pipeline::TuningAttr attr;
         attr.maxTuningNumber = mode.maxTuningNumber;
         attr.autoSetOpType = mode.backendMode == Interpreter::Session_Backend_Auto;
@@ -473,7 +486,7 @@ Session* Session::clone(RuntimeInfo&& runtime, std::shared_ptr<Schedule::Schedul
     pipelineInfo.first.info.user = &pipelineInfo.first.config;
     auto& oplists = pipelineInfo.second;
     oplists.resize(opCaches.size());
-    _createPipelineBackend(pipelineInfo, runtime);
+    createPipelineBackend(pipelineInfo, runtime);
     auto first = pipelineInfo.first.cache.first;
     auto second = pipelineInfo.first.cache.second;
     for (int i=0; i<opCaches.size(); ++i) {

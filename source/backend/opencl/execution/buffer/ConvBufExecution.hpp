@@ -35,6 +35,7 @@ struct ConvBufResource {
     std::set<std::string> mBuildOptions;
     bool mConv1x1Opt = false;
     bool mConv1x1C8Opt = false;
+    bool mConv1x1Local = false;
     /*
      0 -> not use
      1 -> use small tile
@@ -44,6 +45,8 @@ struct ConvBufResource {
     std::shared_ptr<Execution> mRasterExe;
     bool mUseImage = false;
     int mNumQuantBit = 0;
+    int mAlignK = 1;
+    int mAlignN = 1;
 };
 
 class ConvBufCommonExecution {
@@ -76,7 +79,6 @@ private:
     std::shared_ptr<KernelWrap> mKernel;
     std::shared_ptr<Tensor> mConvGemmInpTensor;
     std::shared_ptr<Tensor> mConvGemmOutTensor;
-    bool mNeedOutTempTensor = false;
     std::shared_ptr<KernelWrap> mPreKernel = nullptr;
     std::vector<uint32_t> mPreGlobalWorkSize{1, 1, 1};
     std::vector<uint32_t> mPreLocalWorkSize{1, 1, 1, 1};
@@ -84,8 +86,9 @@ private:
     std::vector<uint32_t> mPostGlobalWorkSize{1, 1, 1};
     std::vector<uint32_t> mPostLocalWorkSize{1, 1, 1, 1};
     const float* mFilterDataPtr = nullptr;
+    
 private:
-
+    int mAlignM = 1;
     std::shared_ptr<StrassenMatrixComputor> mStrassenComputor;
 
 };

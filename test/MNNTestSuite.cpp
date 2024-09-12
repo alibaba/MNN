@@ -8,6 +8,7 @@
 
 #include <stdlib.h>
 #include <map>
+#include <algorithm>
 #include <MNN/AutoTime.hpp>
 #include "MNNTestSuite.h"
 MNNTestSuite* MNNTestSuite::gInstance = NULL;
@@ -39,7 +40,7 @@ static void printTestResult(int wrong, int right, const char* flag) {
 int MNNTestSuite::run(const char* key, int precision, const char* flag) {
     if (key == NULL || strlen(key) == 0)
         return 0;
-    std::map<std::string, float> runTimes;
+    std::vector<std::pair<std::string, float>> runTimes;
     auto suite         = MNNTestSuite::get();
     std::string prefix = key;
     std::vector<std::string> wrongs;
@@ -51,12 +52,15 @@ int MNNTestSuite::run(const char* key, int precision, const char* flag) {
             MNN_PRINT("\trunning %s.\n", test->name.c_str());
             MNN::Timer _t;
             auto res = test->run(precision);
-            runTimes.insert(std::make_pair(test->name, _t.durationInUs() / 1000.0f));
+            runTimes.emplace_back(std::make_pair(test->name, _t.durationInUs() / 1000.0f));
             if (!res) {
                 wrongs.emplace_back(test->name);
             }
         }
     }
+    std::sort(runTimes.begin(), runTimes.end(), [](const std::pair<std::string, float>& left, const std::pair<std::string, float>& right) {
+        return left.second < right.second;
+    });
     for (auto& iter : runTimes) {
         MNN_PRINT("%s cost time: %.3f ms\n", iter.first.c_str(), iter.second);
     }
@@ -73,7 +77,7 @@ int MNNTestSuite::run(const char* key, int precision, const char* flag) {
 int MNNTestSuite::runAll(int precision, const char* flag) {
     auto suite = MNNTestSuite::get();
     std::vector<std::string> wrongs;
-    std::map<std::string, float> runTimes;
+    std::vector<std::pair<std::string, float>> runTimes;
     for (int i = 0; i < suite->mTests.size(); ++i) {
         MNNTestCase* test = suite->mTests[i];
         if (test->name.find("speed") != std::string::npos) {
@@ -87,11 +91,14 @@ int MNNTestSuite::runAll(int precision, const char* flag) {
         MNN_PRINT("\trunning %s.\n", test->name.c_str());
         MNN::Timer _t;
         auto res = test->run(precision);
-        runTimes.insert(std::make_pair(test->name, _t.durationInUs() / 1000.0f));
+        runTimes.emplace_back(std::make_pair(test->name, _t.durationInUs() / 1000.0f));
         if (!res) {
             wrongs.emplace_back(test->name);
         }
     }
+    std::sort(runTimes.begin(), runTimes.end(), [](const std::pair<std::string, float>& left, const std::pair<std::string, float>& right) {
+        return left.second < right.second;
+    });
     for (auto& iter : runTimes) {
         MNN_PRINT("%s cost time: %.3f ms\n", iter.first.c_str(), iter.second);
     }

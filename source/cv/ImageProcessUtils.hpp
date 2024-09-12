@@ -15,6 +15,7 @@
 #include "backend/cpu/compute/CommonOptFunction.h"
 
 
+#define CACHE_SIZE 512
 namespace MNN {
 typedef void (*BLITTER)(const unsigned char* source, unsigned char* dest, size_t count);
 typedef void (*BLIT_FLOAT)(const unsigned char* source, float* dest, const float* mean, const float* normal, size_t count);

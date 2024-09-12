@@ -6,6 +6,8 @@
     "thread_num": 4,
     "precision": "low",
     "memory": "low",
+    "power":"normal",
+    "use_mmap":"false",
 
     "is_batch_quant": 1,
     

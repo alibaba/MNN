@@ -239,21 +239,11 @@ void AttentionBufExecution::_init() {
     auto context = (__bridge MNNMetalContext *)mtbn->context();
     mParamQKV = [context newDeviceBuffer:sizeof(Param) access:CPUWriteOnly];
     mParamSoftmax = [context newDeviceBuffer:4 * sizeof(int) access:CPUWriteOnly];
-
+    mTempQK.reset(Tensor::createDevice<float>({0, 0}));
+    mTempSoftMax.reset(Tensor::createDevice<float>({0, 0}));
 }
 
 void AttentionBufExecution::reallocKVCache() {
-    if (mCache->mPastLength < mCache->mMaxLength || nullptr == mTempQK || (!mIsDecode)) {
-        if (mIsDecode) {
-            mTempQK.reset(Tensor::createDevice<float>({mNumHead, mCache->mMaxLength}));
-            mTempSoftMax.reset(Tensor::createDevice<float>({mNumHead, mCache->mMaxLength}));
-        } else {
-            mTempQK.reset(Tensor::createDevice<float>({mNumHead, mCache->mPastLength, mCache->mPastLength}));
-            mTempSoftMax.reset(Tensor::createDevice<float>({mNumHead, mCache->mPastLength, mCache->mPastLength}));
-        }
-        backend()->onAcquireBuffer(mTempQK.get(), Backend::STATIC);
-        backend()->onAcquireBuffer(mTempSoftMax.get(), Backend::STATIC);
-    }
     if (!mKVCache || mCache->mPastLength < mCache->mMaxLength) {
         return;
     }
@@ -378,6 +368,31 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor *> &inputs, const 
     int group_size = mNumHead / mKvNumHead;
 
     reallocKVCache();
+    bool needMalloc = mTempQK->length(0) != mNumHead;
+    if (mIsDecode) {
+        if (mTempQK->length(1) != mCache->mMaxLength) {
+            needMalloc = true;
+        }
+        mTempQK->setLength(0, mNumHead);
+        mTempQK->setLength(1, mCache->mMaxLength);
+        mTempSoftMax->setLength(0, mNumHead);
+        mTempSoftMax->setLength(1, mCache->mMaxLength);
+    } else {
+        if (mTempQK->length(1) != mCache->mPastLength * mCache->mPastLength) {
+            needMalloc = true;
+        }
+        mTempQK->setLength(0, mNumHead);
+        mTempQK->setLength(1, mCache->mPastLength * mCache->mPastLength);
+        mTempSoftMax->setLength(0, mNumHead);
+        mTempSoftMax->setLength(1, mCache->mPastLength * mCache->mPastLength);
+    }
+    if (needMalloc) {
+        auto res = backend()->onAcquireBuffer(mTempQK.get(), Backend::STATIC) && backend()->onAcquireBuffer(mTempSoftMax.get(), Backend::STATIC);
+        if (!res) {
+            MNN_ERROR("MNN::Metal: OUT_OF_MEMORY when execute attention metal\n");
+            return;
+        }
+    }
 
     // Update Parameters
     {
@@ -456,7 +471,6 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor *> &inputs, const 
         mCache->mPastLength += 1;
         mCache->mKv_seq_len = mCache->mPastLength + 1;
     }
-
     return;
 }
 

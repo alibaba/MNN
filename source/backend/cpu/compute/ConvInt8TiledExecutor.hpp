@@ -61,8 +61,8 @@ private:
     DenseConvInt8TiledExecutor(Backend* backend, const Op* op, const DenseConvInt8TiledExecutor& exe);
 
     decltype(CoreInt8Functions::Int8GemmKernel) mGemmKernel;
-    std::function<void(const float*, int8_t*, size_t, const float*, ssize_t, ssize_t, ssize_t)> mQuantFunc;
-    std::function<void(const float*, int8_t*, size_t, const float*, ssize_t, ssize_t, ssize_t, size_t, size_t)> mQuantAndReorderFunc = nullptr;
+    std::function<void(const float*, int8_t*, size_t, const float*, ssize_t, ssize_t, const float*, ssize_t)> mQuantFunc;
+    std::function<void(const float*, int8_t*, size_t, const float*, ssize_t, ssize_t, const float*, size_t, size_t)> mQuantAndReorderFunc = nullptr;
     std::function<void(float* dest, int8_t* source, const float* scale, ssize_t realDstCount, SumByAxisParams sumParams)> mSumByAxisLFunc;
     std::shared_ptr<Tensor> mQuantInput;
     std::shared_ptr<Tensor> mDynamicBias;
@@ -76,7 +76,6 @@ private:
     int mThreadNums;
     int mBlockNum;
     int mOcPerThread;
-    bool mDynamicQuantExe;
     bool mSplitByOc;
     bool mUseBatchQuan;
 };

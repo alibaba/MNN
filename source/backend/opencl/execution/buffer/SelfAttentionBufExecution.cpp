@@ -150,6 +150,7 @@ ErrorCode SelfAttentionBufImpl::onResize(Backend *backend, const std::vector<Ten
             ret |= mKernel_split[seq_idx]->get().setArg(index++, seq_len);
             ret |= mKernel_split[seq_idx]->get().setArg(index++, mNumHead);
             ret |= mKernel_split[seq_idx]->get().setArg(index++, mHeadDim);
+            ret |= mKernel_split[seq_idx]->get().setArg(index++, batch);
             ret |= mKernel_split[seq_idx]->get().setArg(index++, seq_idx);
             MNN_CHECK_CL_SUCCESS(ret, "setArg split_transpose_qkv");
             mLocalWorkSizeSplit[seq_idx] = localWS3DDefault(mGlobalWorkSizeSplit[seq_idx], maxWorkGroupSize, runtime, "split_transpose_qkv", mKernel_split[seq_idx]).first;
@@ -216,6 +217,10 @@ ErrorCode SelfAttentionBufImpl::onResize(Backend *backend, const std::vector<Ten
             int batch_offset_a = e_pack * l_pack;
             int batch_offset_b = h_pack * l_pack;
             int batch_offset_c = e_pack * h_pack;
+            
+            int batch_offset[4] = {batch_offset_a, batch_offset_b, batch_offset_c, 0};
+            int stride[4] = {e_pack, h_pack, h_pack, h_pack};
+            int group[4] = {1, 1, 1, loop};
             int idx            = 0;
             cl_int ret = CL_SUCCESS;
             ret |= mKernel_qk[seq_idx]->get().setArg(idx++, static_cast<int>(e_pack));
@@ -224,11 +229,11 @@ ErrorCode SelfAttentionBufImpl::onResize(Backend *backend, const std::vector<Ten
             ret |= mKernel_qk[seq_idx]->get().setArg(idx++, alpha);
             ret |= mKernel_qk[seq_idx]->get().setArg(idx++, beta);
             ret |= mKernel_qk[seq_idx]->get().setArg(idx++, openCLBuffer(mTempQ.get()));
-            ret |= mKernel_qk[seq_idx]->get().setArg(idx++, batch_offset_a);
             ret |= mKernel_qk[seq_idx]->get().setArg(idx++, openCLBuffer(mTempK.get()));
-            ret |= mKernel_qk[seq_idx]->get().setArg(idx++, batch_offset_b);
             ret |= mKernel_qk[seq_idx]->get().setArg(idx++, openCLBuffer(mTempQK.get()));
-            ret |= mKernel_qk[seq_idx]->get().setArg(idx++, batch_offset_c);
+            ret |= mKernel_qk[seq_idx]->get().setArg(idx++, batch_offset);
+            ret |= mKernel_qk[seq_idx]->get().setArg(idx++, stride);
+            ret |= mKernel_qk[seq_idx]->get().setArg(idx++, group);
             MNN_CHECK_CL_SUCCESS(ret, "setArg Self-Attention batchmatmul qk Kernel");
             mOpenCLBackend->recordKernel3d(mKernel_qk[seq_idx], mGlobalWorkSizeQk[seq_idx], mLocalWorkSizeQk[seq_idx]);
             
@@ -283,6 +288,9 @@ ErrorCode SelfAttentionBufImpl::onResize(Backend *backend, const std::vector<Ten
             
             uint32_t index = 0;
             cl_int ret = CL_SUCCESS;
+            ret |= mKernel_trans[seq_idx]->get().setArg(index++, mGlobalWorkSizeTrans[seq_idx][0]);
+            ret |= mKernel_trans[seq_idx]->get().setArg(index++, mGlobalWorkSizeTrans[seq_idx][1]);
+            ret |= mKernel_trans[seq_idx]->get().setArg(index++, mGlobalWorkSizeTrans[seq_idx][2]);
             ret |= mKernel_trans[seq_idx]->get().setArg(index++, openCLBuffer(mTempSoftMax.get()));
             ret |= mKernel_trans[seq_idx]->get().setArg(index++, openCLBuffer(mTempTrans.get()));
             ret |= mKernel_trans[seq_idx]->get().setArg(index++, loop);
@@ -290,6 +298,10 @@ ErrorCode SelfAttentionBufImpl::onResize(Backend *backend, const std::vector<Ten
             ret |= mKernel_trans[seq_idx]->get().setArg(index++, transDimH);
             MNN_CHECK_CL_SUCCESS(ret, "setArg Self-Attention transpose");
             mLocalWorkSizeTrans[seq_idx] = localWS3DDefault(mGlobalWorkSizeTrans[seq_idx], maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), "trans_3d_buf", mKernel_trans[seq_idx]).first;
+            
+            mGlobalWorkSizeTrans[seq_idx][0] = ROUND_UP(mGlobalWorkSizeTrans[seq_idx][0], std::max((uint32_t)1, mLocalWorkSizeTrans[seq_idx][0]));
+            mGlobalWorkSizeTrans[seq_idx][1] = ROUND_UP(mGlobalWorkSizeTrans[seq_idx][1], std::max((uint32_t)1, mLocalWorkSizeTrans[seq_idx][1]));
+            mGlobalWorkSizeTrans[seq_idx][2] = ROUND_UP(mGlobalWorkSizeTrans[seq_idx][2], std::max((uint32_t)1, mLocalWorkSizeTrans[seq_idx][2]));
             
             mOpenCLBackend->recordKernel3d(mKernel_trans[seq_idx], mGlobalWorkSizeTrans[seq_idx], mLocalWorkSizeTrans[seq_idx]);
         }
@@ -361,6 +373,10 @@ ErrorCode SelfAttentionBufImpl::onResize(Backend *backend, const std::vector<Ten
             int batch_offset_a = e_pack * l_pack;
             int batch_offset_b = h_pack * l_pack;
             int batch_offset_c = e_pack * h_pack;
+            int batch_offset[4] = {batch_offset_a, batch_offset_b, batch_offset_c, 0};
+            int stride[4] = {e_pack, h_pack, e_pack, h_pack};
+            int group[4] = {1, 1, 1, loop};
+            
             int idx            = 0;
             cl_int ret = CL_SUCCESS;
             ret |= mKernel_qkv[seq_idx]->get().setArg(idx++, static_cast<int>(e_pack));
@@ -369,11 +385,11 @@ ErrorCode SelfAttentionBufImpl::onResize(Backend *backend, const std::vector<Ten
             ret |= mKernel_qkv[seq_idx]->get().setArg(idx++, alpha);
             ret |= mKernel_qkv[seq_idx]->get().setArg(idx++, beta);
             ret |= mKernel_qkv[seq_idx]->get().setArg(idx++, openCLBuffer(mTempTrans.get()));
-            ret |= mKernel_qkv[seq_idx]->get().setArg(idx++, batch_offset_a);
             ret |= mKernel_qkv[seq_idx]->get().setArg(idx++, openCLBuffer(mTempV.get()));
-            ret |= mKernel_qkv[seq_idx]->get().setArg(idx++, batch_offset_b);
             ret |= mKernel_qkv[seq_idx]->get().setArg(idx++, openCLBuffer(mTempQKV.get()));
-            ret |= mKernel_qkv[seq_idx]->get().setArg(idx++, batch_offset_c);
+            ret |= mKernel_qkv[seq_idx]->get().setArg(idx++, batch_offset);
+            ret |= mKernel_qkv[seq_idx]->get().setArg(idx++, stride);
+            ret |= mKernel_qkv[seq_idx]->get().setArg(idx++, group);
             MNN_CHECK_CL_SUCCESS(ret, "setArg Self-Attention batchmatmul qkv Kernel");
             mOpenCLBackend->recordKernel3d(mKernel_qkv[seq_idx], mGlobalWorkSizeQkv[seq_idx], mLocalWorkSizeQkv[seq_idx]);
         }
@@ -403,6 +419,7 @@ ErrorCode SelfAttentionBufImpl::onResize(Backend *backend, const std::vector<Ten
             ret |= mKernel_clip[seq_idx]->get().setArg(index++, seq_len_piece);
             ret |= mKernel_clip[seq_idx]->get().setArg(index++, mNumHead);
             ret |= mKernel_clip[seq_idx]->get().setArg(index++, mHeadDim);
+            ret |= mKernel_clip[seq_idx]->get().setArg(index++, batch);
             ret |= mKernel_clip[seq_idx]->get().setArg(index++, seq_idx);
 
             mLocalWorkSizeClip[seq_idx] = localWS3DDefault(mGlobalWorkSizeClip[seq_idx], maxWorkGroupSize, runtime, "clip_transpose_qkv", mKernel_clip[seq_idx]).first;

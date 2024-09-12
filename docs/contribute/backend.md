@@ -1,5 +1,7 @@
 # 自定义后端
-Backend是MNN对计算设备的抽象。MNN当前已经支持CPU、Vulkan、OpenCL、Metal等Backend，**只在计算设备暂未支持时新增Backend**，新增Op，请参阅[新增Op文档](customize_op)。
+Runtime-Backend是MNN对计算设备的抽象。MNN当前已经支持CPU、Vulkan、OpenCL、Metal、CUDA等Backend，**只在计算设备暂未支持时新增Backend**，新增Op，请参阅[新增Op文档](op)。
+
+
 
 ## 声明
 所有新增Backend都需继承`Backend`类，并实现所有纯虚函数。
@@ -10,8 +12,10 @@ class XPUBackend final : public Backend {
   virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op) override;
   virtual void onExecuteBegin() const override;
   virtual void onExecuteEnd() const override;
-  virtual bool onAcquireBuffer(const Tensor* tensor, StorageType storageType) override;
-  virtual bool onReleaseBuffer(const Tensor* tensor, StorageType storageType) override;
+  virtual void onResizeBegin() override;
+  virtual ErrorCode onResizeEnd() override;
+
+  virtual MemObj* onAcquire(const Tensor* tensor, StorageType storageType) override;
   virtual bool onClearBuffer() override;
   virtual void onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) const override;
 }
@@ -91,7 +95,7 @@ static XPUCreatorRegister<XPUPoolingCreator> __reg(OpType_Pooling);
 ```
 
 ## 内存管理
-Backend通过`onAcquireBuffer`为tensor分配内存，通过`onReleaseBuffer`为tensor释放内存。内存有三种存储模式：`STATIC`内存不复用，一般用于op常量存储；`DYNAMIC`内存可复用，一般用于变量存储；`DYNAMIC_SEPERATE`内存在pipeline间可复用，一般用于pipeline常量存储。`_onAcquireBuffer_`_和_`_onReleaseBuffer_`_中可以不实际分配/释放内存，只记录内存用量变更，在_`_onAllocateBuffer_`_调用时，再根据用量计算出优化方案，一次性完成分配/释放。_
+Backend通过`onAcquire`创建`MemObj`内存对象，定义其析构函数以便为tensor释放内存。内存有三种存储模式：`STATIC`内存不复用，一般用于op常量存储；`DYNAMIC`内存可复用，一般用于变量存储；`DYNAMIC_SEPERATE`内存在pipeline间可复用，一般用于pipeline常量存储。
 
 ```cpp
 /** backend buffer storage type */
@@ -118,31 +122,13 @@ enum StorageType {
      */
     DYNAMIC_SEPERATE
 };
-/**
- * @brief allocate buffer of tensor for given storage type.
- * @param tensor        buffer provider.
- * @param storageType   buffer storage type.
- * @return success or not.
- */
-virtual bool onAcquireBuffer(const Tensor* tensor, StorageType storageType) = 0;
-/**
- * @brief release buffer of tensor for given storage type.
- * @param tensor        buffer provider.
- * @param storageType   buffer storage type.
- * @return success or not.
- */
-virtual bool onReleaseBuffer(const Tensor* tensor, StorageType storageType) = 0;
-```
-
-在所有内存都分配完成后，backend会收到`onAllocateBuffer`回调：
-```cpp
-/**
- * @brief callback after all buffers needed by backend ops were allocated.
- * @return success or not. (result not used currently)
- */
-virtual bool onAllocateBuffer() {
-    return true;
-}
+    /**
+     * @brief allocate buffer of tensor for given storage type.
+     * @param tensor        buffer provider.
+     * @param storageType   buffer storage type.
+     * @return MemObj for release, if failed, return nullptr.
+     */
+    virtual MemObj* onAcquire(const Tensor* tensor, StorageType storageType) = 0;
 ```
 
 Backend在调用`onClearBuffer`时，需要释放所有`DYNAMIC`和`DYNAMIC_SEPERATE`存储模式的内存：
@@ -189,16 +175,46 @@ virtual void onExecuteEnd() const = 0;
 
 ```
 
-## 注册Backend
-最后，定义Backend Creator，注册方法中调用`MNNInsertExtraBackendCreator`就可以完成Backend的注册，这里的注册方法需要在BackendRegister.cpp中声明并调用：
+## Runtime（运行时）
+对于使用同一种后端，且存在先后顺序，不会同时运行的模型，MNN提供机制使其共享部分计算资源，比如线程池，内存池等等。
+这部分计算资源使用Runtime存储。而Backend则由Runtime创建
+
+### 实现Runtime
+Runtime主要实现如下接口：
+
+```
+    virtual Backend* onCreate(const BackendConfig* config = nullptr, Backend* origin = nullptr) const = 0;
+
+    /**
+     @brief reset runtime
+     */
+    virtual void onReset(int numberThread, const BackendConfig* config, bool full) {
+        // Do nothing
+    }
+
+    /**
+     @brief clear unuseful resource
+     @param level clear level: 0 - 100, bigger mean clear more, smaller mean cache more
+     */
+    virtual void onGabageCollect(int level) = 0;
+
+```
+
+- onCreate ：创建 Backend
+- onReset ：重设默认配置
+- onGabageCollect ：清理资源以节省内存
+
+
+### 注册Runtime
+注册方法中调用`MNNInsertExtraRuntimeCreator`就可以完成Runtime的注册，这里的注册方法需要在Backend.cpp中声明并调用：
 ```cpp
-class XPUBackendCreator : public BackendCreator {
-    virtual Backend *onCreate(const Backend::Info &info) const {
-        return new MetalBackend;
+class XPURuntimeCreator : public RuntimeCreator {
+    virtual Runtime* onCreate(const Backend::Info &info) const {
+        return new XPURuntime;
     }
 };
-void registerCPUBackendCreator() {
-    MNNInsertExtraBackendCreator(MNN_FORWARD_CPU, new CPUBackendCreator);
+void registerXPURuntimeCreator() {
+    MNNInsertExtraBackendCreator(MNN_FORWARD_XPU, new XPURuntimeCreator);
 };
 ```
 

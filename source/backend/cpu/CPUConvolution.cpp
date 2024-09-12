@@ -117,7 +117,6 @@ void CPUConvolution::MutableResourceInt8::updateInputOutputScale(std::vector<flo
         return;
     }
 
-    int size = mResource->mOutputCount;
     const int kernelNum = static_cast<int>(mResource->mInt8WeightKernelSum.size());
     auto biasData    = mResource->mOriginBias->host<float>();
     auto alphaData   = mResource->mOriginScale->host<float>();
@@ -189,7 +188,6 @@ std::shared_ptr<CPUConvolution::ResourceInt8> CPUConvolution::makeResourceInt8(B
     const int8_t* weightSrc = nullptr;
     int weightSize = 0;
     std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
-    resource->mOutputCount = outputCount;
     if (!ConvolutionCommon::getConvInt8Parameters(op, quanCommon, backend, weightSrc, weightSize, scalePtr, biasPtr, betaPtr)) {
         return nullptr;
     }
@@ -252,174 +250,6 @@ std::shared_ptr<CPUConvolution::ResourceInt8> CPUConvolution::makeResourceInt8(B
         resource->mOutputScale = 1.0f;
     }
     return resource;
-}
-
-void CPUConvolution::makeResource(Backend* backend, std::shared_ptr<Resource> resource, const MNN::Op *op, std::shared_ptr<ResourceInt8> resourceInt8) {
-    /* Used to compute weight quant scale and bias and weightKernelSum of type float. */
-    auto conv2d = op->main_as_Convolution2D();
-    bool quanBuffer = (conv2d->quanParameter() != nullptr && conv2d->quanParameter()->buffer() != nullptr);
-    MNN_ASSERT(quanBuffer || resourceInt8);
-    resource->backend = backend;
-    auto core = static_cast<CPUBackend*>(backend)->functions();
-    // common parameters
-    int outputCount = conv2d->common()->outputCount();
-    int LSize = conv2d->common()->inputCount() * conv2d->common()->kernelX() * conv2d->common()->kernelY();
-    int ocUp4 = ROUND_UP(outputCount, core->pack);
-    int8_t* weightOrigin;
-
-    // Save weight quant scale and bias: wf=scale*wi+bias
-    resource->mDequantize.mScaleBias.reset(Tensor::createDevice<uint8_t>({2 * ocUp4 * core->bytes}));
-    auto success = resource->backend->onAcquireBuffer(resource->mDequantize.mScaleBias.get(), Backend::STATIC);
-    if (!success) {
-        MNN_ERROR("Alloc denquant scaleBias memory error\n");
-        return;
-    }
-    auto alphaPtr = resource->mDequantize.mScaleBias->host<float>();
-    auto biasPtr = reinterpret_cast<float*>(reinterpret_cast<uint8_t*>(alphaPtr) + ocUp4 * core->bytes);
-    ::memset(alphaPtr, 0, 2 * ocUp4 * core->bytes);
-
-    std::shared_ptr<ConvolutionCommon::Int8Common> quantCommon;
-    // Load quant scale and bias
-    if (quanBuffer) {
-        quantCommon = ConvolutionCommon::load(op, backend, false, true);
-        weightOrigin = quantCommon->weight.get(); // weight before reorder
-
-        int h = quantCommon->alpha.size();
-        if (core->bytes == 2) {
-            if (quantCommon->asymmetric) {
-                std::unique_ptr<int16_t[]> tmp(new int16_t[h]);
-                core->MNNFp32ToLowp(quantCommon->alpha.get(), tmp.get(), h);
-                for (int i=0; i< h/2; ++i) {
-                    reinterpret_cast<int16_t*>(alphaPtr)[i] = tmp[2 * i + 1];
-                    reinterpret_cast<int16_t*>(biasPtr)[i] = tmp[2 * i];
-                }
-            } else {
-                core->MNNFp32ToLowp(quantCommon->alpha.get(), reinterpret_cast<int16_t*>(alphaPtr), h);
-            }
-        } else {
-            if (quantCommon->asymmetric) {
-                h = h / 2;
-                for (int i=0; i<h; ++i) {
-                    alphaPtr[i] = quantCommon->alpha.get()[2 * i + 1];
-                    biasPtr[i] = quantCommon->alpha.get()[2 * i];
-                }
-            } else {
-                for (int i=0; i<h; ++i) {
-                    alphaPtr[i] = quantCommon->alpha.get()[i];
-                    biasPtr[i] = 0.f;
-                }
-            }
-        }
-    } else {
-        weightOrigin = resourceInt8->mWeightInt8->host<int8_t>();
-        auto wZero = resourceInt8->mWeightQuantZero->host<int32_t>(); // has packed to outputUp4
-        auto wScale = resourceInt8->mOriginScale->host<float>();
-        int h = ocUp4;
-        if (core->bytes == 2) {
-            std::unique_ptr<int16_t[]> tmp(new int16_t[h]);
-            core->MNNFp32ToLowp(wScale, tmp.get(), h);
-            for (int i=0; i< h; ++i) {
-                reinterpret_cast<int16_t*>(alphaPtr)[i] = tmp[i];
-                reinterpret_cast<int16_t*>(biasPtr)[i] = (-1.f) * wZero[i] * tmp[i];
-            }
-        } else {
-            for (int i=0; i< h; ++i) {
-                alphaPtr[i] = wScale[i];
-                biasPtr[i] = (-1.f) * wZero[i] * wScale[i];
-            }
-        }
-    }
-
-    // Compute float weightKernelSum
-    resource->mWeightKernelSum.reset(Tensor::createDevice<uint8_t>({ocUp4 * 4}));
-    success = resource->backend->onAcquireBuffer(resource->mWeightKernelSum.get(), Backend::STATIC);
-    if (!success) {
-        MNN_ERROR("Alloc denquant mWeightKernelSum memory error\n");
-        return;
-    }
-    auto weightKernelSum = resource->mWeightKernelSum->host<float>();
-    for (int i = 0; i < outputCount; ++i) {
-        int sum = 0;
-        for (int j = 0; j < LSize; ++j) {
-            sum = sum + static_cast<int>(weightOrigin[j + i * LSize]);
-        }
-        if(core->bytes == 2) {
-            auto scale = reinterpret_cast<int16_t*>(alphaPtr)[i];
-            auto bias = reinterpret_cast<int16_t*>(biasPtr)[i];
-            weightKernelSum[i] = static_cast<float>(sum) * scale + LSize * bias;
-        } else {
-            auto scale = alphaPtr[i];
-            auto bias = biasPtr[i];
-            weightKernelSum[i] = static_cast<float>(sum) * scale + LSize * bias;
-        }
-    }
-}
-
-void CPUConvolution::makeResourceNew(Backend* backend, const Convolution2D* conv2d, std::shared_ptr<ResourceInt8> resourceInt8) {
-    /* Used to compute weight quant scale and bias and weightKernelSum of type float. */
-    bool quanBuffer = (conv2d->quanParameter() != nullptr && conv2d->quanParameter()->buffer() != nullptr);
-    MNN_ASSERT(quanBuffer || resourceInt8);
-    auto core = static_cast<CPUBackend*>(backend)->functions();
-    // common parameters
-    int outputCount = conv2d->common()->outputCount();
-    int LSize = conv2d->common()->inputCount() * conv2d->common()->kernelX() * conv2d->common()->kernelY();
-    int ocUp4 = ROUND_UP(outputCount, core->pack);
-    int8_t* weightOrigin;
-
-    // Save weight quant scale and bias: wf=scale*wi+bias
-    std::shared_ptr<Tensor> scaleBias(Tensor::createDevice<uint8_t>({2 * ocUp4 * core->bytes}));
-    auto success = backend->onAcquireBuffer(scaleBias.get(), Backend::STATIC);
-    if (!success) {
-        MNN_ERROR("Alloc dequant scaleBias memory error\n");
-        return;
-    }
-    auto alphaPtr = scaleBias->host<float>();
-    auto biasPtr = reinterpret_cast<float*>(reinterpret_cast<uint8_t*>(alphaPtr) + ocUp4 * core->bytes);
-    ::memset(alphaPtr, 0, 2 * ocUp4 * core->bytes);
-    
-    // Load quant scale and bias
-    weightOrigin = resourceInt8->mWeightInt8->host<int8_t>();
-    auto wZero = resourceInt8->mWeightQuantZero->host<int32_t>(); // has packed to outputUp4
-    auto wScale = resourceInt8->mOriginScale->host<float>();
-    int h = ocUp4;
-    if (core->bytes == 2) {
-        std::unique_ptr<int16_t[]> tmp(new int16_t[h]);
-        core->MNNFp32ToLowp(wScale, tmp.get(), h);
-        for (int i=0; i< h; ++i) {
-            reinterpret_cast<int16_t*>(alphaPtr)[i] = tmp[i];
-            reinterpret_cast<int16_t*>(biasPtr)[i] = (-1.f) * wZero[i] * tmp[i];
-        }
-    } else {
-        for (int i=0; i< h; ++i) {
-            alphaPtr[i] = wScale[i];
-            biasPtr[i] = (-1.f) * wZero[i] * wScale[i];
-        }
-    }
-    resourceInt8->mOriginScale = scaleBias;
-    
-    // Compute float weightKernelSum
-    resourceInt8->mWeightKernelSum.reset(Tensor::createDevice<uint8_t>({ocUp4 * 4}));
-    success = backend->onAcquireBuffer(resourceInt8->mWeightKernelSum.get(), Backend::STATIC);
-    if (!success) {
-        MNN_ERROR("Alloc dequant mWeightKernelSum memory error\n");
-        return;
-    }
-    auto weightKernelSum = resourceInt8->mWeightKernelSum->host<float>();
-    for (int i = 0; i < outputCount; ++i) {
-        int sum = 0;
-        for (int j = 0; j < LSize; ++j) {
-            sum = sum + static_cast<int>(weightOrigin[j + i * LSize]);
-        }
-        if(core->bytes == 2) {
-            auto scale = reinterpret_cast<int16_t*>(alphaPtr)[i];
-            auto bias = reinterpret_cast<int16_t*>(biasPtr)[i];
-            weightKernelSum[i] = static_cast<float>(sum) * scale + LSize * bias;
-        } else {
-            auto scale = alphaPtr[i];
-            auto bias = biasPtr[i];
-            weightKernelSum[i] = static_cast<float>(sum) * scale + LSize * bias;
-        }
-    }
 }
 
 CPUConvolution::CPUConvolution(const Convolution2DCommon *convOp, Backend *b) : MNN::Execution(b), mCommon(convOp) {

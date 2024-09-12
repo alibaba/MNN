@@ -54,7 +54,7 @@ TRTRuntime::TRTRuntime(const Backend::Info& info) {
 TRTRuntime::~TRTRuntime() {
 }
 
-Backend* TRTRuntime::onCreate(const BackendConfig* config) const {
+Backend* TRTRuntime::onCreate(const BackendConfig* config, Backend* origin) const {
     return new TRTBackend(this);
 }
 

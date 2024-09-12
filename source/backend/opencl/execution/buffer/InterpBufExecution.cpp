@@ -80,7 +80,7 @@ ErrorCode InterpBufExecution::onEncode(const std::vector<Tensor *> &inputs, cons
     ret |= unit.kernel->get().setArg(idx++, static_cast<int32_t>(inputWidth));
     ret |= unit.kernel->get().setArg(idx++, static_cast<int32_t>(outputHeight));
     ret |= unit.kernel->get().setArg(idx++, static_cast<int32_t>(outputWidth));
-    ret |= unit.kernel->get().setArg(idx++, static_cast<int32_t>(channelBlocks));
+    ret |= unit.kernel->get().setArg(idx++, static_cast<int32_t>(inputBatch));
     MNN_CHECK_CL_SUCCESS(ret, "setArg InterpBufExecution");
 
     mLWS = localWS3DDefault(mGWS, mMaxWorkGroupSize, runtime, mKernelName, unit.kernel).first;

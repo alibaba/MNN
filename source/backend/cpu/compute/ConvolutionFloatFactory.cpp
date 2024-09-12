@@ -82,9 +82,17 @@ Execution* ConvolutionFloatFactory::create(const std::vector<Tensor*>& inputs, c
         return new ConvolutionTiledExecutorMultiInput(conv2d->common(), backend);
     }
 #ifdef MNN_LOW_MEMORY
-    bool lowMemory = static_cast<CPUBackend*>(backend)->memoryMode() != BackendConfig::Memory_High && static_cast<CPUBackend*>(backend)->functions()->MNNPackedMatMul_int8 != nullptr;
+    bool lowMemory = static_cast<CPUBackend*>(backend)->memoryMode() == BackendConfig::Memory_Low;
+    if (static_cast<CPUBackend*>(backend)->functions()->bytes == 2 && static_cast<CPUBackend*>(backend)->int8Functions()->MNNGemmInt8AddBiasScale_Unit_FP16 == nullptr) {
+        // Fall back to fp32
+        return nullptr;
+    }
 #else
     bool lowMemory = false;
+#endif
+
+#ifdef MNN_CPU_WEIGHT_DEQUANT_GEMM
+    lowMemory = lowMemory || (static_cast<CPUBackend*>(backend)->memoryMode() != BackendConfig::Memory_High);
 #endif
     const float* originWeight = nullptr;
     const float* originBias   = nullptr;

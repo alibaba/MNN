@@ -83,6 +83,8 @@
 // 2 -> with bias (eltwise_add) [M, N]
 // 3 -> with bias (eltwise_sub) [M, N]
 // 4 -> with bias (eltwise_sub and get negative) [M, N]
+// 5 -> with bias (mask 0 for  invalid) [M, N]
+
 #ifndef BIAS_TYPE
   #define BIAS_TYPE 0
 #endif
@@ -95,6 +97,8 @@
 #define DEAL_BIAS(x, a) x = x - a
 #elif BIAS_TYPE == 4
 #define DEAL_BIAS(x, a) x = a - x
+#elif BIAS_TYPE == 5
+#define DEAL_BIAS(x, a) x = (a == 0 ? (FLOAT)(-FLT_MAX) : x)
 #endif
 
 // By default the workgroup size requirement is enabled. For Qualcomm devices the workgroup size
@@ -103,7 +107,32 @@
   #define RELAX_WORKGROUP_SIZE 0
 #endif
 
-#define ZERO (FLOAT)0.0f
+typedef float real_arg;
+#define GetRealArg(x) (FLOAT)x
+typedef FLOAT real;
+
+#ifndef PRECISION_COMPUTE
+#define PRECISION_COMPUTE COMPUTE_FLOAT
+#define CONVERT_PRECISION_COMPUTE(x) CONVERT_COMPUTE_FLOAT(x)
+#endif
+#ifndef PRECISION_COMPUTE2
+#define PRECISION_COMPUTE2 COMPUTE_FLOAT2
+#define CONVERT_PRECISION_COMPUTE2(x) CONVERT_COMPUTE_FLOAT2(x)
+#endif
+#ifndef PRECISION_COMPUTE4
+#define PRECISION_COMPUTE4 COMPUTE_FLOAT4
+#define CONVERT_PRECISION_COMPUTE4(x) CONVERT_COMPUTE_FLOAT4(x)
+#endif
+#ifndef PRECISION_COMPUTE8
+#define PRECISION_COMPUTE8 COMPUTE_FLOAT8
+#define CONVERT_PRECISION_COMPUTE8(x) CONVERT_COMPUTE_FLOAT8(x)
+#endif
+#ifndef PRECISION_COMPUTE16
+#define PRECISION_COMPUTE16 COMPUTE_FLOAT16
+#define CONVERT_PRECISION_COMPUTE16(x) CONVERT_COMPUTE_FLOAT16(x)
+#endif
+
+#define ZERO (PRECISION_COMPUTE)0.0f
 // Sets a variable to zero
 #define SetToZero(a) a = ZERO
 #define IsZero(a) (a == ZERO)
@@ -129,43 +158,72 @@ INLINE_FUNC int GetGroupID0() { return get_group_id(0); }
 
 // =================================================================================================
 
-// End of the C++11 raw string literal
-
-typedef float real_arg;
-#define GetRealArg(x) (FLOAT)x
-typedef FLOAT real;
-
 // Data-widths in dimension M
 #if VWM == 1
     typedef FLOAT realM;
+    #define COMPUTE_FLOATM PRECISION_COMPUTE
+    #define CONVERT_COMPUTE_FLOATM(x) CONVERT_PRECISION_COMPUTE(x)
+    #define CONVERT_FLOATM(x) CONVERT_FLOAT(x)
 #elif VWM == 2
     typedef FLOAT2 realM;
+    #define COMPUTE_FLOATM PRECISION_COMPUTE2
+    #define CONVERT_COMPUTE_FLOATM(x) CONVERT_PRECISION_COMPUTE2(x)
+    #define CONVERT_FLOATM(x) CONVERT_FLOAT2(x)
 #elif VWM == 4
     typedef FLOAT4 realM;
+    #define COMPUTE_FLOATM PRECISION_COMPUTE4
+    #define CONVERT_COMPUTE_FLOATM(x) CONVERT_PRECISION_COMPUTE4(x)
+    #define CONVERT_FLOATM(x) CONVERT_FLOAT4(x)
 #elif VWM == 8
     typedef FLOAT8 realM;
+    #define COMPUTE_FLOATM PRECISION_COMPUTE8
+    #define CONVERT_COMPUTE_FLOATM(x) CONVERT_PRECISION_COMPUTE8(x)
+    #define CONVERT_FLOATM(x) CONVERT_FLOAT8(x)
 #elif VWM == 16
     typedef FLOAT16 realM;
+    #define COMPUTE_FLOATM PRECISION_COMPUTE16
+    #define CONVERT_COMPUTE_FLOATM(x) CONVERT_PRECISION_COMPUTE16(x)
+    #define CONVERT_FLOATM(x) CONVERT_FLOAT16(x)
 #endif
 
 // Data-widths in dimension N
 #if VWN == 1
     typedef FLOAT realN;
+    typedef int intN;
+    #define COMPUTE_FLOATN PRECISION_COMPUTE
+    #define CONVERT_COMPUTE_FLOATN(x) CONVERT_PRECISION_COMPUTE(x)
+    #define CONVERT_FLOATN(x) CONVERT_FLOAT(x)
 #elif VWN == 2
     typedef FLOAT2 realN;
+    typedef int2 intN;
+    #define COMPUTE_FLOATN PRECISION_COMPUTE2
+    #define CONVERT_COMPUTE_FLOATN(x) CONVERT_PRECISION_COMPUTE2(x)
+    #define CONVERT_FLOATN(x) CONVERT_FLOAT2(x)
 #elif VWN == 4
     typedef FLOAT4 realN;
+    typedef int4 intN;
+    #define COMPUTE_FLOATN PRECISION_COMPUTE4
+    #define CONVERT_COMPUTE_FLOATN(x) CONVERT_PRECISION_COMPUTE4(x)
+    #define CONVERT_FLOATN(x) CONVERT_FLOAT4(x)
 #elif VWN == 8
     typedef FLOAT8 realN;
+    typedef int8 intN;
+    #define COMPUTE_FLOATN PRECISION_COMPUTE8
+    #define CONVERT_COMPUTE_FLOATN(x) CONVERT_PRECISION_COMPUTE8(x)
+    #define CONVERT_FLOATN(x) CONVERT_FLOAT8(x)
 #elif VWN == 16
     typedef FLOAT16 realN;
+    typedef int16 intN;
+    #define COMPUTE_FLOATN PRECISION_COMPUTE16
+    #define CONVERT_COMPUTE_FLOATN(x) CONVERT_PRECISION_COMPUTE16(x)
+    #define CONVERT_FLOATN(x) CONVERT_FLOAT16(x)
 #endif
 
 // =================================================================================================
 
 // Initializes the accumulation registers to zero
-INLINE_FUNC realM InitAccRegisters() {
-  realM result;
+INLINE_FUNC COMPUTE_FLOATM InitAccRegisters() {
+  COMPUTE_FLOATM result;
   #if VWM == 1
     SetToZero(result);
   #elif VWM == 2
@@ -206,8 +264,8 @@ INLINE_FUNC realM InitAccRegisters() {
   return result;
 }
 
-INLINE_FUNC realN InitAccRegistersN() {
-  realN result;
+INLINE_FUNC COMPUTE_FLOATN InitAccRegistersN() {
+    COMPUTE_FLOATN result;
   #if VWN == 1
     SetToZero(result);
   #elif VWN == 2
@@ -443,10 +501,10 @@ INLINE_FUNC realN LocalToPrivateB(LOCAL_PTR realN* blm, const int _ni, const int
 #endif
 
 // The vectorised multiply-add function
-INLINE_FUNC realM MultiplyAddVector(realM cvec, const realM avec, const real bval) {
+INLINE_FUNC COMPUTE_FLOATM MultiplyAddVector(COMPUTE_FLOATM cvec, COMPUTE_FLOATM avec, PRECISION_COMPUTE bval) {
   #if USE_VECTOR_MAD == 1
     #if USE_CL_MAD == 1
-    cvec = mad(avec, (realM)bval, cvec);
+    cvec = mad(avec, (COMPUTE_FLOATM)bval, cvec);
     #else
     cvec += avec * bval;
     #endif
@@ -493,10 +551,10 @@ INLINE_FUNC realM MultiplyAddVector(realM cvec, const realM avec, const real bva
 }
 
 // The vectorised multiply-add function
-INLINE_FUNC realN MultiplyAddVectorN(realN cvec, const real avec, const realN bval) {
+INLINE_FUNC COMPUTE_FLOATN MultiplyAddVectorN(COMPUTE_FLOATN cvec, PRECISION_COMPUTE avec, COMPUTE_FLOATN bval) {
   #if USE_VECTOR_MAD == 1
     #if USE_CL_MAD == 1
-    cvec = mad((realN)avec, bval, cvec);
+    cvec = mad((COMPUTE_FLOATN)avec, bval, cvec);
     #else
     cvec += avec * bval;
     #endif
@@ -571,8 +629,8 @@ INLINE_FUNC INT2 StoreIndexM() {
 }
 
 // layout : [N, M]
-INLINE_FUNC void StoreResultsM(__global realM* cgm, realM c_value, const INT2 baseOffset, const int _mi, const int _ni,
-                              const int kSizeM, const real alpha, const real beta) {
+INLINE_FUNC void StoreResultsM(__global realM* cgm, COMPUTE_FLOATM c_value, const INT2 baseOffset, const int _mi, const int _ni,
+                              const int kSizeM, const PRECISION_COMPUTE alpha, const PRECISION_COMPUTE beta) {
   #if STRM == 0
     int idm = _mi + baseOffset.index[0];
   #elif STRM == 1
@@ -586,11 +644,11 @@ INLINE_FUNC void StoreResultsM(__global realM* cgm, realM c_value, const INT2 ba
   
   int index = idn*(kSizeM/VWM) + idm;
 
-  realM result = c_value;
+  COMPUTE_FLOATM result = c_value;
 
   // The final multiplication with alpha (in case beta == 0)
   #ifdef ONLY_HAVE_ALPHA
-    realM xval = c_value;
+    COMPUTE_FLOATM xval = c_value;
     #if VWM == 1
       Multiply(result, alpha, xval);
     #elif VWM == 2
@@ -632,8 +690,8 @@ INLINE_FUNC void StoreResultsM(__global realM* cgm, realM c_value, const INT2 ba
 
   // The final multiplication with alpha and the addition with beta*C
   #ifdef HAVE_ALPHA_BETA
-    realM xval = c_value;
-    realM yval = cgm[index];
+    COMPUTE_FLOATM xval = c_value;
+    COMPUTE_FLOATM yval = CONVERT_COMPUTE_FLOATM(cgm[index]);
     #if VWM == 1
       AXPBY(result, alpha, xval, beta, yval);
     #elif VWM == 2
@@ -672,7 +730,7 @@ INLINE_FUNC void StoreResultsM(__global realM* cgm, realM c_value, const INT2 ba
       AXPBY(result.sF, alpha, xval.sF, beta, yval.sF);
     #endif
   #endif
-  cgm[index] = result;
+  cgm[index] = CONVERT_FLOATM(result);
 }
 
 INLINE_FUNC INT2 StoreIndexN() {
@@ -695,7 +753,7 @@ INLINE_FUNC INT2 StoreIndexN() {
     return res;
 }
 // layout : [M, N]
-INLINE_FUNC void StoreResultsN(__global realN* cgn, realN c_value,
+INLINE_FUNC void StoreResultsN(__global realN* cgn, COMPUTE_FLOATN c_value,
                             const INT2 baseOffset,
                             #if BIAS_TYPE > 0
                                 #if BIAS_TYPE > 1
@@ -705,7 +763,7 @@ INLINE_FUNC void StoreResultsN(__global realN* cgn, realN c_value,
                                 #endif
                             #endif
                             const int _mi, const int _ni,
-                            const int cstride/*kSizeN*/, const int dstride/*kSizeN*/, const real alpha, const real beta) {
+                            const int cstride/*kSizeN*/, const int dstride/*kSizeN*/, const PRECISION_COMPUTE alpha, const PRECISION_COMPUTE beta) {
 
   #if STRM == 0
     int idm = _mi + baseOffset.index[0];
@@ -720,11 +778,11 @@ INLINE_FUNC void StoreResultsN(__global realN* cgn, realN c_value,
 
   int index = idm * (cstride/VWN) + idn;
   
-  realN result = c_value;
+  COMPUTE_FLOATN result = c_value;
   
   // The final multiplication with alpha (in case beta == 0)
   #ifdef ONLY_HAVE_ALPHA
-    realN xval = c_value;
+    COMPUTE_FLOATN xval = c_value;
     #if VWN == 1
       Multiply(result, alpha, xval);
     #elif VWN == 2
@@ -766,8 +824,8 @@ INLINE_FUNC void StoreResultsN(__global realN* cgn, realN c_value,
 
   // The final multiplication with alpha and the addition with beta*C
   #ifdef HAVE_ALPHA_BETA
-    realN xval = c_value;
-    realN yval = cgn[index];
+    COMPUTE_FLOATN xval = c_value;
+    COMPUTE_FLOATN yval = CONVERT_COMPUTE_FLOATN(cgn[index]);
     #if VWN == 1
       AXPBY(result, alpha, xval, beta, yval);
     #elif VWN == 2
@@ -810,29 +868,31 @@ INLINE_FUNC void StoreResultsN(__global realN* cgn, realN c_value,
   
 #if BIAS_TYPE > 0
     #if BIAS_TYPE == 1
-    realN eval = epm[_ni];
-    #else
-    
+    COMPUTE_FLOATN eval = CONVERT_COMPUTE_FLOATN(epm[_ni]);
+    #elif BIAS_TYPE == 5
     int index_bias = idm * (dstride/VWN) + idn;
-    realN eval = egm[index_bias];
+    intN eval = ((__global intN*)egm)[index_bias];
+    #else
+    int index_bias = idm * (dstride/VWN) + idn;
+    COMPUTE_FLOATN eval = CONVERT_COMPUTE_FLOATN(egm[index_bias]);
     #endif
   
   #if VWN == 1
     DEAL_BIAS(result, eval);
     #ifdef RELU
-    result = fmax(result, (FLOAT)0);
+    result = fmax(result, (COMPUTE_FLOATN)0);
     #endif
     #ifdef RELU6
-    result = clamp(result, (FLOAT)0, (FLOAT)6);
+    result = clamp(result, (COMPUTE_FLOATN)0, (COMPUTE_FLOATN)6);
     #endif
   #elif VWN == 2
     DEAL_BIAS(result.x, eval.x);
     DEAL_BIAS(result.y, eval.y);
     #ifdef RELU
-    result = fmax(result, (FLOAT2)0);
+    result = fmax(result, (COMPUTE_FLOATN)0);
     #endif
     #ifdef RELU6
-    result = clamp(result, (FLOAT2)0, (FLOAT2)6);
+    result = clamp(result, (COMPUTE_FLOATN)0, (COMPUTE_FLOATN)6);
     #endif
   #elif VWN == 4
     DEAL_BIAS(result.x, eval.x);
@@ -840,10 +900,10 @@ INLINE_FUNC void StoreResultsN(__global realN* cgn, realN c_value,
     DEAL_BIAS(result.z, eval.z);
     DEAL_BIAS(result.w, eval.w);
     #ifdef RELU
-    result = fmax(result, (FLOAT4)0);
+    result = fmax(result, (COMPUTE_FLOATN)0);
     #endif
     #ifdef RELU6
-    result = clamp(result, (FLOAT4)0, (FLOAT4)6);
+    result = clamp(result, (COMPUTE_FLOATN)0, (COMPUTE_FLOATN)6);
     #endif
   #elif VWN == 8
     DEAL_BIAS(result.s0, eval.s0);
@@ -855,10 +915,10 @@ INLINE_FUNC void StoreResultsN(__global realN* cgn, realN c_value,
     DEAL_BIAS(result.s6, eval.s6);
     DEAL_BIAS(result.s7, eval.s7);
     #ifdef RELU
-    result = fmax(result, (FLOAT8)0);
+    result = fmax(result, (COMPUTE_FLOATN)0);
     #endif
     #ifdef RELU6
-    result = clamp(result, (FLOAT8)0, (FLOAT8)6);
+    result = clamp(result, (COMPUTE_FLOATN)0, (COMPUTE_FLOATN)6);
     #endif
   #elif VWN == 16
     DEAL_BIAS(result.s0, eval.s0);
@@ -878,15 +938,15 @@ INLINE_FUNC void StoreResultsN(__global realN* cgn, realN c_value,
     DEAL_BIAS(result.sE, eval.sE);
     DEAL_BIAS(result.sF, eval.sF);
     #ifdef RELU
-    result = fmax(result, (FLOAT16)0);
+    result = fmax(result, (COMPUTE_FLOATN)0);
     #endif
     #ifdef RELU6
-    result = clamp(result, (FLOAT16)0, (FLOAT16)6);
+    result = clamp(result, (COMPUTE_FLOATN)0, (COMPUTE_FLOATN)6);
     #endif
   #endif
 #endif
 
-  cgn[index] = result;
+  cgn[index] = CONVERT_FLOATN(result);
 }
 
 
@@ -896,7 +956,7 @@ INLINE_FUNC void XgemmBody(const int kSizeM, const int kSizeN, const int kSizeK,
                            #if BIAS_TYPE > 0
                            __global realN* restrict egm,
                            #endif
-                           __global realM* cgm, const real alpha, const real beta
+                           __global realM* cgm, const real_arg alpha, const real_arg beta
                            #if SA == 1 && SB == 1
                              , LOCAL_PTR realM* alm, LOCAL_PTR realN* blm
                            #elif SA == 1
@@ -907,10 +967,10 @@ INLINE_FUNC void XgemmBody(const int kSizeM, const int kSizeN, const int kSizeK,
                            ) {
   #ifdef OUTPUTMN
   #pragma promote_to_registers
-  realN cpn[MWI*(NWI/VWN)]; // MWI * NWI
+  COMPUTE_FLOATN cpn[MWI*(NWI/VWN)]; // MWI * NWI
   #else
   #pragma promote_to_registers
-  realM cpm[NWI*(MWI/VWM)]; // NWI * MWI
+  COMPUTE_FLOATM cpm[NWI*(MWI/VWM)]; // NWI * MWI
   #endif
 
   // Combined thread identifier (volatile to disable caching)
@@ -941,9 +1001,9 @@ INLINE_FUNC void XgemmBody(const int kSizeM, const int kSizeN, const int kSizeK,
   #if SA == 1 || SB == 1
       // Allocates workitem-private memory (registers)
       #pragma promote_to_registers
-      realM apm[MWI/VWM]; // MWI * 1
+      COMPUTE_FLOATM apm[MWI/VWM]; // MWI * 1
       #pragma promote_to_registers
-      realN bpm[NWI/VWN]; // 1 * NWI
+      COMPUTE_FLOATN bpm[NWI/VWN]; // 1 * NWI
       
       for (int kwg = 0; kwg < kSizeK; kwg += KWG) {
         // Loads data: off-chip --> local (matrix A)
@@ -970,10 +1030,10 @@ INLINE_FUNC void XgemmBody(const int kSizeM, const int kSizeN, const int kSizeK,
             for (int _mi = 0; _mi < MWI/VWM; _mi += 1) {
               // Loads data: local --> private (matrix A)
               #if SA == 1
-                apm[_mi] = LocalToPrivateA(alm, _mi, kg);
+                apm[_mi] = CONVERT_COMPUTE_FLOATM(LocalToPrivateA(alm, _mi, kg));
               // Loads data: off-chip --> private (matrix A)
               #elif SA == 0
-                apm[_mi] = GlobalToPrivateA(agm, _mi, kSizeM, idk);
+                apm[_mi] = CONVERT_COMPUTE_FLOATM(GlobalToPrivateA(agm, _mi, kSizeM, idk));
               #endif
             }
 
@@ -983,10 +1043,10 @@ INLINE_FUNC void XgemmBody(const int kSizeM, const int kSizeN, const int kSizeK,
             for (int _ni = 0; _ni < NWI/VWN; _ni += 1) {
               // Loads data: local --> private (matrix B)
               #if SB == 1
-                bpm[_ni] = LocalToPrivateB(blm, _ni, kg);
+                bpm[_ni] = CONVERT_COMPUTE_FLOATN(LocalToPrivateB(blm, _ni, kg));
               // Loads data: off-chip --> private (matrix B)
               #else
-                bpm[_ni] = GlobalToPrivateB(bgm, _ni, kSizeN, idk);
+                bpm[_ni] = CONVERT_COMPUTE_FLOATN(GlobalToPrivateB(bgm, _ni, kSizeN, idk));
               #endif
             }
 
@@ -997,7 +1057,7 @@ INLINE_FUNC void XgemmBody(const int kSizeM, const int kSizeN, const int kSizeK,
                 for (int _mi = 0; _mi < MWI/VWM; _mi += 1) {
                   #pragma unroll
                   for (int _ni = 0; _ni < NWI/VWN; _ni += 1) {
-                    const realM aval = apm[_mi];
+                    const COMPUTE_FLOATM aval = apm[_mi];
                     #if VWM == 1
                       // [MWI/VWM, VWM, NWI/VWN, VWN]
                       cpn[(_mi*VWM + 0)*(NWI/VWN) + _ni] = MultiplyAddVectorN(cpn[(_mi*VWM + 0)*(NWI/VWN) + _ni], aval, bpm[_ni]);
@@ -1043,7 +1103,7 @@ INLINE_FUNC void XgemmBody(const int kSizeM, const int kSizeN, const int kSizeK,
                 for (int _ni = 0; _ni < NWI/VWN; _ni += 1) {
                   #pragma unroll
                   for (int _mi = 0; _mi < MWI/VWM; _mi += 1) {
-                    const realM aval = apm[_mi];
+                    const COMPUTE_FLOATM aval = apm[_mi];
                     #if VWN == 1
                       cpm[(_ni*VWN + 0)*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 0)*(MWI/VWM) + _mi], aval, bpm[_ni]);
                     #elif VWN == 2
@@ -1098,7 +1158,7 @@ INLINE_FUNC void XgemmBody(const int kSizeM, const int kSizeN, const int kSizeK,
       for (int _kj = 0; _kj < kSizeK; _kj += 4) {
         #ifdef OUTPUTMN
           #pragma promote_to_registers
-          realN bpm[NWI/VWN]; // 1 * NWI
+          COMPUTE_FLOATN bpm[NWI/VWN]; // 1 * NWI
         
           #pragma unroll
           for(int _ki = 0; _ki < 4; _ki += 1) {
@@ -1106,12 +1166,12 @@ INLINE_FUNC void XgemmBody(const int kSizeM, const int kSizeN, const int kSizeK,
             #pragma unroll
             for (int _ni = 0; _ni < NWI/VWN; _ni += 1) {
               // Loads data: off-chip --> private (matrix B)
-              bpm[_ni] = GlobalToPrivateOptB(bgm, baseIndexB, _ni, stride.s1/*kSizeN*/, idk);
+              bpm[_ni] = CONVERT_COMPUTE_FLOATN(GlobalToPrivateOptB(bgm, baseIndexB, _ni, stride.s1/*kSizeN*/, idk));
             }
 
             #pragma unroll
             for (int _mi = 0; _mi < MWI/VWM; _mi += 1) {
-              const realM aval = GlobalToPrivateOptA(agm, baseIndexA, _mi, stride.s0/*kSizeM*/, idk);
+              const COMPUTE_FLOATM aval = CONVERT_COMPUTE_FLOATM(GlobalToPrivateOptA(agm, baseIndexA, _mi, stride.s0/*kSizeM*/, idk));
               #pragma unroll
               for (int _ni = 0; _ni < NWI/VWN; _ni += 1) {
                 #if VWM == 1
@@ -1158,22 +1218,22 @@ INLINE_FUNC void XgemmBody(const int kSizeM, const int kSizeN, const int kSizeK,
         #else
         
           #pragma promote_to_registers
-          realM apm[MWI/VWM]; // MWI * 1
+          COMPUTE_FLOATM apm[MWI/VWM]; // MWI * 1
           #pragma unroll
           for(int _ki = 0; _ki < 4; _ki += 1) {
             int idk = _kj + _ki;
             #pragma unroll
             for (int _mi = 0; _mi < MWI/VWM; _mi += 1) {
               // Loads data: off-chip --> private (matrix B)
-              apm[_mi] = GlobalToPrivateOptA(agm, baseIndexA, _mi, stride.s0/*kSizeM*/, idk);
+              apm[_mi] = CONVERT_COMPUTE_FLOATM(GlobalToPrivateOptA(agm, baseIndexA, _mi, stride.s0/*kSizeM*/, idk));
             }
             #pragma unroll
             for (int _ni = 0; _ni < NWI/VWN; _ni += 1) {
-              const realN bval = GlobalToPrivateOptB(bgm, baseIndexB, _ni, stride.s1/*kSizeN*/, idk);
+              const COMPUTE_FLOATN bval = CONVERT_COMPUTE_FLOATN(GlobalToPrivateOptB(bgm, baseIndexB, _ni, stride.s1/*kSizeN*/, idk));
 
               #pragma unroll
               for (int _mi = 0; _mi < MWI/VWM; _mi += 1) {
-                const realM aval = apm[_mi];
+                const COMPUTE_FLOATM aval = apm[_mi];
                 #if VWN == 1
                   cpm[(_ni*VWN + 0)*(MWI/VWM) + _mi] = MultiplyAddVector(cpm[(_ni*VWN + 0)*(MWI/VWM) + _mi], aval, bval);
                 #elif VWN == 2
@@ -1288,8 +1348,6 @@ void Xgemm(const int kSizeM, const int kSizeN, const int kSizeK,
            __private const int4 offset,
            __private const int4 stride
 ) {
-    const real alpha = GetRealArg(arg_alpha);
-    const real beta = GetRealArg(arg_beta);
   
     // Adds the offsets (in case of use of a single temporary buffer for A, B, and C)
     agm = (const __global realM*)((const __global real*)agm + offset.s0);
@@ -1313,25 +1371,25 @@ void Xgemm(const int kSizeM, const int kSizeN, const int kSizeK,
           #if BIAS_TYPE > 0
           egm,
           #endif
-          cgm, alpha, beta, alm, blm);
+          cgm, arg_alpha, arg_beta, alm, blm);
     #elif SA == 1
         XgemmBody(kSizeM, kSizeN, kSizeK, stride, agm, bgm,
           #if BIAS_TYPE > 0
           egm,
           #endif
-          cgm, alpha, beta, alm);
+          cgm, arg_alpha, arg_beta, alm);
     #elif SB == 1
         XgemmBody(kSizeM, kSizeN, kSizeK, stride, agm, bgm,
           #if BIAS_TYPE > 0
           egm,
           #endif
-          cgm, alpha, beta, blm);
+          cgm, arg_alpha, arg_beta, blm);
     #else
         XgemmBody(kSizeM, kSizeN, kSizeK, stride, agm, bgm,
           #if BIAS_TYPE > 0
           egm,
           #endif
-          cgm, alpha, beta);
+          cgm, arg_alpha, arg_beta);
     #endif
 }
 
@@ -1346,29 +1404,32 @@ void XgemmBatched(const int kSizeM,
                   const real_arg arg_alpha,
                   const real_arg arg_beta,
                   const __global realM* restrict agm,
-                  const int batch_offset_a,
                   const __global realN* restrict bgm,
-                  const int batch_offset_b,
                   #if BIAS_TYPE > 0
                   __global realN* restrict egm,
-                  const int batch_offset_e,
                   #endif
                   __global realM* cgm,
-                  const int batch_offset_c) {
+                  const int4 batch_offset, // [batch_offset_a, batch_offset_b, batch_offset_c, batch_offset_e]
+                  const int4 stride, // [stride_a, stride_b, stride_c, stride_e]
+                  /*
+                     total_batch -> [loop_y, loop_x]
+                     with group batch -> [loop_y, loop_x/group_num]
+                     group_size == loop_x/group_num
+                    */
+                  const int4 group // [group_num_a, group_num_b, group_num_e, loop_x]
+) {
     const int batch = get_group_id(2);
-    const real alpha = GetRealArg(arg_alpha);
-    const real beta = GetRealArg(arg_beta);
     
     // Sets the offsets
-    const int a_offset = batch * batch_offset_a;
-    const int b_offset = batch * batch_offset_b;
-    const int c_offset = batch * batch_offset_c;
+    const int a_offset = ((batch / group.w) * group.x + (batch % group.w) / group.x) * batch_offset.x;
+    const int b_offset = ((batch / group.w) * group.y + (batch % group.w) / group.y) * batch_offset.y;
+    const int c_offset = batch * batch_offset.z;
     const __global realM* restrict agm_ = &agm[a_offset / VWM];
     const __global realN* restrict bgm_ = &bgm[b_offset / VWN];
     __global realM* restrict cgm_ = &cgm[c_offset / VWM];
     
     #if BIAS_TYPE > 0
-    const int e_offset = batch * batch_offset_e;
+    const int e_offset = ((batch / group.w) * group.z + (batch % group.w) / group.z) * batch_offset.w;
     __global realN* restrict egm_ = &egm[e_offset / VWN];
     #endif
   
@@ -1379,40 +1440,32 @@ void XgemmBatched(const int kSizeM,
     #if SB == 1
         __local realN blm[KWG * NWG/VWN];
     #endif
-    int4 stride;
-    stride.s0 = kSizeM;
-    stride.s1 = kSizeN;
-    #ifdef OUTPUTMN
-    stride.s2 = kSizeN;
-    #else
-    stride.s2 = kSizeM;
-    #endif
-    stride.s3 = kSizeN;
+
     // Computes the matrix-multiplication and stores the result in global memory
     #if SA == 1 && SB == 1
         XgemmBody(kSizeM, kSizeN, kSizeK, stride, agm_, bgm_,
         #if BIAS_TYPE > 0
         egm_,
         #endif
-        cgm_, alpha, beta, alm, blm);
+        cgm_, arg_alpha, arg_beta, alm, blm);
     #elif SA == 1
         XgemmBody(kSizeM, kSizeN, kSizeK, stride, agm_, bgm_,
         #if BIAS_TYPE > 0
         egm_,
         #endif
-        cgm_, alpha, beta, alm);
+        cgm_, arg_alpha, arg_beta, alm);
     #elif SB == 1
         XgemmBody(kSizeM, kSizeN, kSizeK, stride, agm_, bgm_,
         #if BIAS_TYPE > 0
         egm_,
         #endif
-        cgm_, alpha, beta, blm);
+        cgm_, arg_alpha, arg_beta, blm);
     #else
         XgemmBody(kSizeM, kSizeN, kSizeK, stride, agm_, bgm_,
         #if BIAS_TYPE > 0
         egm_,
         #endif
-        cgm_, alpha, beta);
+        cgm_, arg_alpha, arg_beta);
     #endif
 }
 

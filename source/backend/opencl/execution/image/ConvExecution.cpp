@@ -491,7 +491,7 @@ public:
         std::vector<int> inputShape  = tensorShapeFormat(inputs[0]);
         const int inputChannels = inputShape.at(3);
 #if defined(MNN_LOW_MEMORY) && not defined(MNN_OPENCL_BUFFER_CLOSED)
-        {
+        if (static_cast<OpenCLBackend *>(backend)->getMemory() == BackendConfig::Memory_Low){
             auto conv2dParams = op->main_as_Convolution2D();
             if (conv2dParams->quanParameter() != nullptr) {
                 if (((conv2dParams->quanParameter()->type() == 4) ||

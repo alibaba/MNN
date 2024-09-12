@@ -23,6 +23,7 @@ __kernel void unary_buf_c4_c4(GLOBAL_SIZE_3_DIMS
                         __private const int width,
                         __private const int height,
                         __private const int channel,
+                        __private const int batch,
                         __private const int input_pad_left, __private const int input_pad_right,
                         __private const int output_pad_left, __private const int output_pad_right) {
     const int channel_block_idx = get_global_id(0);
@@ -33,9 +34,8 @@ __kernel void unary_buf_c4_c4(GLOBAL_SIZE_3_DIMS
 
     const int batch_idx = hb / height;
     const int height_idx = hb % height;
-    const int channel4 = (channel + 3) / 4;
 
-    const int offset = (((batch_idx*channel4+channel_block_idx)*height+height_idx)*width+w) * 4;
+    const int offset = (((batch_idx+channel_block_idx*batch)*height+height_idx)*width+w) * 4;
     float4 in  = convert_float4(vload4(0, input+offset));
     float4 out = OPERATOR;
     vstore4(CONVERT_OUTPUT4(out), 0, output+offset);
@@ -47,6 +47,7 @@ __kernel void unary_buf_c4_c16(GLOBAL_SIZE_3_DIMS
                         __private const int width,
                         __private const int height,
                         __private const int channel,
+                        __private const int batch,
                         __private const int input_pad_left, __private const int input_pad_right,
                         __private const int output_pad_left, __private const int output_pad_right) {
     const int channel_block_idx = get_global_id(0);
@@ -58,11 +59,10 @@ __kernel void unary_buf_c4_c16(GLOBAL_SIZE_3_DIMS
     const int batch_idx = hb / height;
     const int height_idx = hb % height;
     const int dst_width = output_pad_left+width+output_pad_right;
-    const int channel4 = (channel + 3) / 4;
     const int channel16 = (channel + 15) / 16;
     const int channe_out_idx = channel_block_idx >> 2;
 
-    const int offset = (((batch_idx*channel4+channel_block_idx)*height+height_idx)*width+w) * 4;
+    const int offset = (((batch_idx+channel_block_idx*batch)*height+height_idx)*width+w) * 4;
     const int dst_offset = (((batch_idx*channel16+channe_out_idx)*height+height_idx)*dst_width+w+output_pad_left) * 16 + (channel_block_idx % 4) * 4;
     float4 in  = convert_float4(vload4(0, input+offset));
     float4 out = OPERATOR;
@@ -86,6 +86,7 @@ __kernel void unary_buf_c16_c16(GLOBAL_SIZE_3_DIMS
                         __private const int width,
                         __private const int height,
                         __private const int channel,
+                        __private const int batch,
                         __private const int input_pad_left, __private const int input_pad_right,
                         __private const int output_pad_left, __private const int output_pad_right) {
     const int channel_idx = get_group_id(0);
@@ -132,6 +133,7 @@ __kernel void unary_buf_c16_c4(GLOBAL_SIZE_3_DIMS
                         __private const int width,
                         __private const int height,
                         __private const int channel,
+                        __private const int batch,
                         __private const int input_pad_left, __private const int input_pad_right,
                         __private const int output_pad_left, __private const int output_pad_right) {
     const int channel_idx = get_group_id(0);
@@ -142,12 +144,11 @@ __kernel void unary_buf_c16_c4(GLOBAL_SIZE_3_DIMS
     const int batch_idx = hb / height;
     const int height_idx = hb % height;
     const int src_width = width + input_pad_left + input_pad_right;
-    const int channel4 = (channel + 3) / 4;
     const int channel16 = (channel + 15) / 16;
 
 
     const int src_offset = (((batch_idx*channel16+channel_idx)*height+height_idx)*src_width+w+input_pad_left) * 16;
-    const int dst_offset = (((batch_idx*channel4+(channel_idx<<2))*height+height_idx)*width+w) * 4;
+    const int dst_offset = (((batch_idx+(channel_idx<<2)*batch)*height+height_idx)*width+w) * 4;
     const int height_width = height * width * 4;
     
     float4 in = convert_float4(AS_INPUT_DATA4(INTEL_SUB_GROUP_READ4((__global INTEL_DATA*)(input + src_offset))));

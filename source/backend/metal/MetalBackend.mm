@@ -10,6 +10,7 @@
 #define MNN_METAL
 #import <MNN/MNNSharedContext.h>
 #define METAL_CONST_BUFFER_LIMIT 128
+#define METAL_SEPERATE_MAX_COUNT 2
 #if MNN_METAL_ENABLED
 #import "backend/metal/MNNMetalContext.h"
 #import "core/Macro.h"
@@ -35,12 +36,16 @@ static void _MetalApplyTensor(uint8_t* host, size_t offset, Tensor* t) {
     auto des = TensorUtils::getDescribe(t);
     des->extra.offset = offset;
 }
-static BufferAllocator* _createBufferAllocator(const Runtime* runtime, BufferAllocator* origin, bool secondResize) {
-    if (runtime->hint().memoryAllocatorType == Runtime::Allocator_Defer && secondResize) {
-        return new DeferBufferAllocator(BufferAllocator::Allocator::createRecurse(origin), 1024, _MetalApplyTensor);
+BufferAllocator* MetalRuntime::createDynamicAllocator(int index, bool secondResize) const {
+    if (hint().memoryAllocatorType == Runtime::Allocator_Defer && secondResize) {
+        return new DeferBufferAllocator(buffer(index), 1024, _MetalApplyTensor);
     }
-    return new EagerBufferAllocator(BufferAllocator::Allocator::createRecurse(origin), 1024);
+    if (mStaticCache.get() != nullptr) {
+        return new EagerBufferAllocator(BufferAllocator::Allocator::createRecurse(mStaticCache.get()), 1024);
+    }
+    return new EagerBufferAllocator(BufferAllocator::Allocator::createRecurse(mStatic.get()), 1024);
 }
+
 struct TunedInfo {
     std::vector<std::unique_ptr<MetalCache::OpInfoT>> mInfos;
 };
@@ -70,11 +75,9 @@ MetalBackend::MetalBackend(std::shared_ptr<EagerBufferAllocator> staticMem, cons
     {
     mRuntime = runtime;
     auto ctx = (__bridge MNNMetalContext *)runtime->context();
-    mBufferPool.reset(_createBufferAllocator(runtime, staticMem.get(), false));
+    mBufferPool.reset(runtime->createDynamicAllocator(0, false));
     mCurrentAllocator = mBufferPool.get();
     mStaticBufferPool = staticMem;
-    mShapeH2D = getConstBuffer(4 * sizeof(int));
-    mShapeD2H = getConstBuffer(4 * sizeof(int));
     mUseFloatAsFp16 = usefp16AsFp32;
     mIsIphone = ctx.isIphone;
     if (runtime->getCommandQueue() == nil) {
@@ -207,6 +210,9 @@ Backend::MemObj* MetalBackend::onAcquire(const Tensor *_tensor, StorageType stor
 
 bool MetalBackend::onClearBuffer() {
     mCurrentAllocator->release(true);
+    if (nullptr != mRuntime->mStaticCache.get()) {
+        mStaticBufferPool = mRuntime->mStaticCache;
+    }
     return true;
 }
 
@@ -238,8 +244,15 @@ void MetalBackend::flushEncoder() const {
         mComputeEncoder = nil;
     }
 }
+void MetalBackend::_resetDynamicMemory() const {
+    mCurrentAllocator->apply();
+    if (nullptr != mBufferPoolShapeImmutable.get()) {
+        mBufferPoolShapeImmutable->apply();
+    }
+}
 
 void MetalBackend::onExecuteBegin() const {
+    _resetDynamicMemory();
     mEncoderCount = 0;
 }
 void MetalBackend::onExecuteEnd() const {
@@ -263,8 +276,8 @@ bool MetalBackend::onSelectDynamicAllocator(int index, int maxIndex) {
         return false;
     }
     if (maxIndex == 2 && mBufferPoolShapeImmutable.get() == nullptr) {
-        mBufferPoolShapeImmutable.reset(_createBufferAllocator(mRuntime, mStaticBufferPool.get(), true));
-        mBufferPool.reset(_createBufferAllocator(mRuntime, mStaticBufferPool.get(), true));
+        mBufferPoolShapeImmutable.reset(mRuntime->createDynamicAllocator(1, true));
+        mBufferPool.reset(mRuntime->createDynamicAllocator(0, true));
     }
     if (1 == index) {
         mCurrentAllocator = mBufferPoolShapeImmutable.get();
@@ -315,9 +328,7 @@ void MetalBackend::addOpEncoder(std::function<void(void)> opEncoder) {
 }
 
 id<MTLBuffer> MetalBackend::getHostBuffer(size_t size) const {
-    if (size < METAL_CONST_BUFFER_LIMIT) {
-        size = METAL_CONST_BUFFER_LIMIT;
-    }
+    size = UP_DIV(size, METAL_CONST_BUFFER_LIMIT) * METAL_CONST_BUFFER_LIMIT;
     // reuse
     if (nullptr != mHostBuffer && mHostBuffer.length >= size) {
         return mHostBuffer;
@@ -703,7 +714,7 @@ void MetalBackend::onCopyBuffer(const Tensor *src, const Tensor *dst) const {
     if(!mFrameEncodeCache) {
         commit_net();
     }
-
+    _resetDynamicMemory();
     onCopyBuffer(src, dst, nil, nil);
 }
 
@@ -983,6 +994,10 @@ MetalRuntime::MetalRuntime(void* context) {
     auto ctx = (__bridge MNNMetalContext *)mContext;
     std::shared_ptr<EagerBufferAllocator::Allocator> allocator(new MetalRuntimeAllocator([ctx device]));
     mStatic.reset(new EagerBufferAllocator(allocator));
+    mDynamic.resize(METAL_SEPERATE_MAX_COUNT);
+    for (auto& buf : mDynamic) {
+        buf.root = allocator;
+    }
     mTunedInfo = new TunedInfo;
 }
 
@@ -1067,7 +1082,11 @@ std::pair<const void*, size_t> MetalRuntime::makeCache(TunedInfo* info) {//make 
 
 float MetalRuntime::onGetMemoryInMB() {
     auto staticMemoryInMB = mStatic->totalSize() / 1024.0f / 1024.0f;
-    return staticMemoryInMB;
+    float dynamicMemoryInMB = 0.0f;
+    for (auto& buf : mDynamic) {
+        dynamicMemoryInMB += buf.currentSize / 1024.0f / 1024.0f;
+    }
+    return staticMemoryInMB + dynamicMemoryInMB;
 }
 
 void MetalRuntime::onMaskOpReady(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
@@ -1153,7 +1172,36 @@ bool MetalRuntime::onMeasure(const std::vector<Tensor*>& inputs, const std::vect
     return true;
 }
 
-Backend* MetalRuntime::onCreate(const BackendConfig* config) const {
+class MetalWrapAllocator : public BufferAllocator::Allocator {
+private:
+    std::shared_ptr<BufferAllocator::Allocator> mOrigin;
+    id<MTLDevice> mDevice;
+public:
+    MetalWrapAllocator(std::shared_ptr<BufferAllocator::Allocator> origin, id<MTLDevice> device) : mOrigin(origin), mDevice(device) {}
+    virtual ~ MetalWrapAllocator() {
+        // Do nothing
+    }
+    virtual MemChunk onAlloc(size_t size, size_t align) override {
+        auto mem = mOrigin->onAlloc(size, align);
+        MNN_ASSERT(mem.second == 0);
+        id<MTLBuffer> buffer = [mDevice newBufferWithBytesNoCopy:mem.first length:size options:MTLResourceStorageModeShared  deallocator:nil];
+        auto wrap = new MetalRuntimeAllocator::MetalBufferAlloc(buffer);
+        return MemChunk((void *)wrap, 0);
+    }
+    virtual void onRelease(MemChunk chunk) override {
+        auto mem = (MetalRuntimeAllocator::MetalBufferAlloc *)chunk.first;
+        mOrigin->onRelease(MemChunk(mem->getBuffer().contents));
+        delete mem;
+    }
+};
+Backend* MetalRuntime::onCreate(const BackendConfig* config, Backend* origin) const {
+    if (hint().weightMemoryPath.size() > 0 && mStaticCache.get() == nullptr) {
+        auto ctx = (__bridge MNNMetalContext *)mContext;
+        auto mmap = BufferAllocator::Allocator::createMmap(hint().weightMemoryPath.c_str(), "metal.weight");
+        std::shared_ptr<BufferAllocator::Allocator> mmapMem(new MetalWrapAllocator(mmap, [ctx device]));
+        mStaticCache = mStatic;
+        mStatic.reset(new EagerBufferAllocator(mmapMem, 32, 1024 * 1024 * 1024));
+    }
     BackendConfig::PrecisionMode precision = mDefaultConfig.precision;
     if (nullptr != config) {
         precision = config->precision;
@@ -1164,6 +1212,11 @@ Backend* MetalRuntime::onCreate(const BackendConfig* config) const {
 
 void MetalRuntime::onGabageCollect(int level) {
     mStatic->release(false);
+    if (level >= 100) {
+        for (auto& buf : mDynamic) {
+            buf.release();
+        }
+    }
 }
 
 std::pair<const void*, size_t> MetalRuntime::onGetCache() {//make Cache

@@ -22,54 +22,47 @@ ErrorCode UnaryBufExecution::onEncode(const std::vector<Tensor*>& inputs, const 
     Tensor* output     = outputs[0];
     auto openCLBackend = static_cast<OpenCLBackend*>(backend());
     auto runtime       = openCLBackend->getOpenCLRuntime();
-    
-    auto dataType = inputs[0]->getType();
     std::set<std::string> buildOptions = mBuildOptions;
-    if (dataType.code == halide_type_int){
-        buildOptions.emplace("-DOPENCL_INPUT_INT");
-    }
 #ifdef MNN_SUPPORT_INTEL_SUBGROUP
-    if (runtime->isSupportedIntelSubgroup()) {
+    if (runtime->isSupportedIntelSubgroup() && MNN::MNN_DATA_FORMAT_NC4HW4 == TensorUtils::getDescribe(output)->dimensionFormat) {
         return SubgrouponResize(inputs, outputs);
     }
 #endif /* MNN_SUPPORT_INTEL_SUBGROUP */
+
+    std::vector<int> outputShape = tensorShapeFormat(output);
+    int totalSize = 0;
+    if(MNN::MNN_DATA_FORMAT_NC4HW4 == TensorUtils::getDescribe(output)->dimensionFormat){
+        totalSize = outputShape[0] * outputShape[1] * outputShape[2] * ROUND_UP(outputShape[3], 4);
+    }else{
+        totalSize = outputShape[0] * outputShape[1] * outputShape[2] * outputShape[3];
+    }
+    if(totalSize % 4 != 0) {
+        buildOptions.emplace("-DPACK_LEAVE");
+    }
     unit.kernel = runtime->buildKernel("unary_buf", "unary_buf", buildOptions, input, output);
     mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
 
-    std::vector<int> inputShape  = tensorShapeFormat(input);
-    std::vector<int> outputShape = tensorShapeFormat(output);
-
-    int batch        = outputShape.at(0);
-    int outputHeight = outputShape.at(1);
-    int outputWidth  = outputShape.at(2);
-    int channels     = outputShape.at(3);
-
-    int channelBlocks = (channels + 3) / 4;
-
     mGlobalWorkSize = {
-        static_cast<uint32_t>(channelBlocks),
-        static_cast<uint32_t>(outputWidth),
-        static_cast<uint32_t>(batch * outputHeight),
+        static_cast<uint32_t>(UP_DIV(totalSize, 4)),
+        static_cast<uint32_t>(1)
     };
 
     uint32_t idx = 0;
     cl_int ret = CL_SUCCESS;
     ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[0]);
     ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[1]);
-    ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[2]);
     ret |= unit.kernel->get().setArg(idx++, openCLBuffer(input));
     ret |= unit.kernel->get().setArg(idx++, openCLBuffer(output));
-    ret |= unit.kernel->get().setArg(idx++, outputHeight);
+    ret |= unit.kernel->get().setArg(idx++, totalSize);
     MNN_CHECK_CL_SUCCESS(ret, "setArg UnaryBufExecution");
 
     std::string kernelName = "unary_buf";
-    mLocalSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), kernelName, unit.kernel).first;
-    openCLBackend->recordKernel3d(unit.kernel, mGlobalWorkSize, mLocalSize);
-    unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1], mGlobalWorkSize[2]};
-    unit.localWorkSize = {mLocalSize[0], mLocalSize[1], mLocalSize[2]};
+    mLocalSize = localWS2DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), kernelName, unit.kernel).first;
+    openCLBackend->recordKernel2d(unit.kernel, mGlobalWorkSize, mLocalSize);
+    unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1]};
+    unit.localWorkSize = {mLocalSize[0], mLocalSize[1]};
     return NO_ERROR;
 }
-
 #ifdef MNN_SUPPORT_INTEL_SUBGROUP
 ErrorCode UnaryBufExecution::SubgrouponResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     auto &unit = mUnits[0];
@@ -162,6 +155,7 @@ ErrorCode UnaryBufExecution::SubgrouponResize(const std::vector<Tensor*>& inputs
     ret |= unit.kernel->get().setArg(idx++, outputWidth);
     ret |= unit.kernel->get().setArg(idx++, outputHeight);
     ret |= unit.kernel->get().setArg(idx++, channels);
+    ret |= unit.kernel->get().setArg(idx++, batch);
     ret |= unit.kernel->get().setArg(idx++, static_cast<uint32_t>(inputpad.left));
     ret |= unit.kernel->get().setArg(idx++, static_cast<uint32_t>(inputpad.right));
     ret |= unit.kernel->get().setArg(idx++, static_cast<uint32_t>(outputpad.left));
@@ -187,7 +181,8 @@ public:
                                 const MNN::Op* op, Backend* backend) const override {
         for (int i = 0; i < inputs.size(); ++i) {
             int channel = inputs[i]->channel();
-            if (channel >= 16 && static_cast<OpenCLBackend *>(backend)->getOpenCLRuntime()->isSupportedIntelSubgroup()) {
+            if (channel >= 16 && static_cast<OpenCLBackend *>(backend)->getOpenCLRuntime()->isSupportedIntelSubgroup()
+                && MNN::MNN_DATA_FORMAT_NC4HW4 == TensorUtils::getDescribe(inputs[i])->dimensionFormat) {
                 TensorUtils::setTensorChannelPack(inputs[i], 16);
             }
         }

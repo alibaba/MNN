@@ -178,7 +178,8 @@ ErrorCode DepthwiseConvSubgroupBufExecution::onEncode(const std::vector<Tensor *
     auto padding = ConvolutionCommon::convolutionPad(input, output, mResource->mConv2dCommonParams);
     mPaddings[0] = padding.second;//padY
     mPaddings[1] = padding.first;//padX
-
+    
+    const int batch = outputShape.at(0);
     const int outputHeight = outputShape.at(1);
     const int outputWidth  = outputShape.at(2);
     const int outputChannel  = outputShape.at(3);
@@ -201,6 +202,8 @@ ErrorCode DepthwiseConvSubgroupBufExecution::onEncode(const std::vector<Tensor *
     auto outputpad          = TensorUtils::getDescribe(output)->mPads;
     int input_c_pack        = TensorUtils::getTensorChannelPack(input);
     int output_c_pack       = TensorUtils::getTensorChannelPack(output);
+    int trans_pad_x         = inputpad.left;
+    int trans_pad_y         = inputpad.right;
 
     std::set<std::string> buildOptions = mResource->mBuildOptions;
     buildOptions.emplace("-DFILTER_HEIGHT=" + std::to_string(kernelShape[0]));
@@ -210,9 +213,11 @@ ErrorCode DepthwiseConvSubgroupBufExecution::onEncode(const std::vector<Tensor *
     buildOptions.emplace("-DSTRIDE_HEIGHT=" + std::to_string(strideShape[0]));
     buildOptions.emplace("-DSTRIDE_WIDTH=" + std::to_string(strideShape[1]));
     if (input_c_pack == 4) {
+        trans_pad_x = std::max(inputpad.left, mPaddings[1]);
+        trans_pad_y = std::max(inputpad.right, mPaddings[1]);
         Unit unit;
         mNeedTranse = true;
-        mSource.reset(Tensor::createDevice<float>(std::vector<int>{inputShape.at(0), UP_DIV(input->channel(), 16), inputHeight * (inputWidth + inputpad.left + inputpad.right), 16}, Tensor::CAFFE_C4));
+        mSource.reset(Tensor::createDevice<float>(std::vector<int>{inputShape.at(0), UP_DIV(input->channel(), 16), inputHeight * (inputWidth + trans_pad_x + trans_pad_y), 16}, Tensor::CAFFE_C4));
         mOpenCLBackend->onAcquireBuffer(mSource.get(), Backend::DYNAMIC);
         mOpenCLBackend->onReleaseBuffer(mSource.get(), Backend::DYNAMIC);
         unit.kernel =
@@ -233,9 +238,10 @@ ErrorCode DepthwiseConvSubgroupBufExecution::onEncode(const std::vector<Tensor *
         unit.kernel->get().setArg(idx++, static_cast<uint32_t>(inputWidth));
         unit.kernel->get().setArg(idx++, static_cast<uint32_t>(inputHeight));
         unit.kernel->get().setArg(idx++, static_cast<uint32_t>(inputChannels));
+        unit.kernel->get().setArg(idx++, static_cast<uint32_t>(batch));
         unit.kernel->get().setArg(idx++, UP_DIV(inputShape.at(3), 4));
-        unit.kernel->get().setArg(idx++, static_cast<uint32_t>(inputpad.left));
-        unit.kernel->get().setArg(idx++, static_cast<uint32_t>(inputpad.right));
+        unit.kernel->get().setArg(idx++, static_cast<uint32_t>(trans_pad_x));
+        unit.kernel->get().setArg(idx++, static_cast<uint32_t>(trans_pad_y));
 
         mTranseLocalWorkSize = localWS3DDefault(mTranseGlobalWorkSize, mMaxWGS_S, mOpenCLBackend->getOpenCLRuntime(),"conv_transe_c4_c16", unit.kernel).first;
         mOpenCLBackend->recordKernel3d(unit.kernel, mTranseGlobalWorkSize, mTranseLocalWorkSize);
@@ -265,8 +271,9 @@ ErrorCode DepthwiseConvSubgroupBufExecution::onEncode(const std::vector<Tensor *
     unit.kernel->get().setArg(idx++, static_cast<uint32_t>(inputHeight));
     unit.kernel->get().setArg(idx++, static_cast<uint32_t>(inputWidth));
     unit.kernel->get().setArg(idx++, static_cast<uint32_t>(inputChannels));
-    unit.kernel->get().setArg(idx++, static_cast<uint32_t>(inputpad.left));
-    unit.kernel->get().setArg(idx++, static_cast<uint32_t>(inputpad.right));
+    unit.kernel->get().setArg(idx++, static_cast<uint32_t>(batch));
+    unit.kernel->get().setArg(idx++, static_cast<uint32_t>(trans_pad_x));
+    unit.kernel->get().setArg(idx++, static_cast<uint32_t>(trans_pad_y));
     unit.kernel->get().setArg(idx++, static_cast<uint32_t>(outputHeight));
     unit.kernel->get().setArg(idx++, static_cast<uint32_t>(outputWidth));
     unit.kernel->get().setArg(idx++, static_cast<uint32_t>(outputpad.left));

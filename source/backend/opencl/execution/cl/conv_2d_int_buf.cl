@@ -34,6 +34,7 @@ void conv_2d_int_c4h1w1(GLOBAL_SIZE_2_DIMS
                       __private const int2 in_hw,
                       __private const int inChannel,
                       __private const int in_c_blocks,
+                      __private const int batch,
                       __private const int2 out_hw,
                       __private const int2 filter_hw,
                       __private const int2 stride_hw,
@@ -77,7 +78,7 @@ void conv_2d_int_c4h1w1(GLOBAL_SIZE_2_DIMS
         int weight_offset = ((((4*in_c_idx+0)* out_c_blocks + out_c_idx) *filter_hw.x + kh_start)*filter_hw.y + kw_start) * 4;
         for(int iy = in_h_idx_start; iy < in_h_idx_end; iy += dilate_hw.x) {
             for(int ix = in_w_idx_start; ix < in_w_idx_end; ix += dilate_hw.y) {
-                int inp_offset = (((out_b_idx * in_c_blocks + in_c_idx) * in_hw.x + iy) * in_hw.y + ix) * 4;
+                int inp_offset = (((out_b_idx + in_c_idx*batch) * in_hw.x + iy) * in_hw.y + ix) * 4;
                 COMPUTE_FLOAT4 in0 = CONVERT_COMPUTE_FLOAT4(vload4(0, input+inp_offset));
                 
                 const int filter_w_inc = (ix-in_w_idx_start)/dilate_hw.y;
@@ -141,7 +142,7 @@ void conv_2d_int_c4h1w1(GLOBAL_SIZE_2_DIMS
     out0 = clamp(out0, (COMPUTE_FLOAT4)0, (COMPUTE_FLOAT4)6);
 #endif
 
-    const int out_offset = (((out_b_idx*out_c_blocks + out_c_idx)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
+    const int out_offset = (((out_b_idx + out_c_idx*batch)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
     vstore4(CONVERT_FLOAT4(out0), 0, output+out_offset);
  
 }
@@ -160,6 +161,7 @@ void conv_2d_int_c4h1w2(GLOBAL_SIZE_2_DIMS
                       __private const int2 in_hw,
                       __private const int inChannel,
                       __private const int in_c_blocks,
+                      __private const int batch,
                       __private const int2 out_hw,
                       __private const int2 filter_hw,
                       __private const int2 stride_hw,
@@ -203,7 +205,7 @@ void conv_2d_int_c4h1w2(GLOBAL_SIZE_2_DIMS
         int weight_offset = ((((4*in_c_idx+0)* out_c_blocks + out_c_idx) *filter_hw.x + kh_start)*filter_hw.y + 0) * 4;
 
         for(int iy = in_h_idx_start; iy < in_h_idx_end; iy += dilate_hw.x) {
-            const int inp_offset_base = (((out_b_idx * in_c_blocks + in_c_idx) * in_hw.x + iy) * in_hw.y + 0) * 4;
+            const int inp_offset_base = (((out_b_idx + in_c_idx*batch) * in_hw.x + iy) * in_hw.y + 0) * 4;
 
             for(int fw = 0; fw < filter_hw.y; fw++) {
                 const int in_w0_idx = fw * dilate_hw.y + in_w0_idx_base;
@@ -278,7 +280,7 @@ void conv_2d_int_c4h1w2(GLOBAL_SIZE_2_DIMS
     out1 = clamp(out1, (COMPUTE_FLOAT4)0, (COMPUTE_FLOAT4)6);
 #endif
 
-    const int out_offset = (((out_b_idx*out_c_blocks + out_c_idx)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
+    const int out_offset = (((out_b_idx + out_c_idx*batch)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
 #ifdef BLOCK_LEAVE
     vstore4(CONVERT_FLOAT4(out0), 0, output+out_offset);
     if(out_w_idx + 1 >= out_hw.y) return;
@@ -302,6 +304,7 @@ void conv_2d_int_c4h1w4(GLOBAL_SIZE_2_DIMS
                       __private const int2 in_hw,
                       __private const int inChannel,
                       __private const int in_c_blocks,
+                      __private const int batch,
                       __private const int2 out_hw,
                       __private const int2 filter_hw,
                       __private const int2 stride_hw,
@@ -349,7 +352,7 @@ void conv_2d_int_c4h1w4(GLOBAL_SIZE_2_DIMS
         int weight_offset = ((((4*in_c_idx+0)* out_c_blocks + out_c_idx) *filter_hw.x + kh_start)*filter_hw.y + 0) * 4;
 
         for(int iy = in_h_idx_start; iy < in_h_idx_end; iy += dilate_hw.x) {
-            const int inp_offset_base = (((out_b_idx * in_c_blocks + in_c_idx) * in_hw.x + iy) * in_hw.y + 0) * 4;
+            const int inp_offset_base = (((out_b_idx + in_c_idx*batch) * in_hw.x + iy) * in_hw.y + 0) * 4;
 
             for(int fw = 0; fw < filter_hw.y; fw++) {
                 const int in_w0_idx = fw * dilate_hw.y + in_w0_idx_base;
@@ -442,7 +445,7 @@ void conv_2d_int_c4h1w4(GLOBAL_SIZE_2_DIMS
     out3 = clamp(out3, (COMPUTE_FLOAT4)0, (COMPUTE_FLOAT4)6);
 #endif
 
-    const int out_offset = (((out_b_idx*out_c_blocks + out_c_idx)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
+    const int out_offset = (((out_b_idx + out_c_idx*batch)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
 #ifdef BLOCK_LEAVE
     const int remain = out_hw.y - out_w_idx;
 
@@ -475,6 +478,7 @@ void conv_2d_int_c4h4w1(GLOBAL_SIZE_2_DIMS
                       __private const int2 in_hw,
                       __private const int inChannel,
                       __private const int in_c_blocks,
+                      __private const int batch,
                       __private const int2 out_hw,
                       __private const int2 filter_hw,
                       __private const int2 stride_hw,
@@ -520,7 +524,7 @@ void conv_2d_int_c4h4w1(GLOBAL_SIZE_2_DIMS
         COMPUTE_FLOAT4 offset = (COMPUTE_FLOAT4)(ScaleOffset.s1, ScaleOffset.s3, ScaleOffset.s5, ScaleOffset.s7);
         //weights  NC4HW4  [1,  4*icC4,  ocC4*kh*kw,  1] xic4
         //index:   [0, 4*in_c_idx, out_c_idx*kh*kw + kh_start*kw + kw_start, 0]
-        const int inp_offset_base = (out_b_idx * in_c_blocks + in_c_idx) * in_hw.x * in_hw.y * 4;
+        const int inp_offset_base = (out_b_idx + in_c_idx*batch) * in_hw.x * in_hw.y * 4;
 
         for(int iy = 0; iy < filter_hw.x; iy++) {
             int weight_offset = ((((4*in_c_idx+0)* out_c_blocks + out_c_idx) *filter_hw.x + iy)*filter_hw.y + kw_start) * 4;
@@ -615,7 +619,7 @@ void conv_2d_int_c4h4w1(GLOBAL_SIZE_2_DIMS
     out3 = clamp(out3, (COMPUTE_FLOAT4)0, (COMPUTE_FLOAT4)6);
 #endif
 
-    const int out_offset = (((out_b_idx*out_c_blocks + out_c_idx)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
+    const int out_offset = (((out_b_idx + out_c_idx*batch)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
 #ifdef BLOCK_LEAVE
     const int remain = out_hw.x - out_h_idx;
     if(remain >= 4){
@@ -655,6 +659,7 @@ void conv_2d_int_c8h4w1(GLOBAL_SIZE_2_DIMS
                       __private const int2 in_hw,
                       __private const int inChannel,
                       __private const int in_c_blocks,
+                      __private const int batch,
                       __private const int2 out_hw,
                       __private const int2 filter_hw,
                       __private const int2 stride_hw,
@@ -709,7 +714,7 @@ void conv_2d_int_c8h4w1(GLOBAL_SIZE_2_DIMS
         COMPUTE_FLOAT4 offset1 = (COMPUTE_FLOAT4)(ScaleOffset1.s1, ScaleOffset1.s3, ScaleOffset1.s5, ScaleOffset1.s7);
         //weights  NC4HW4  [1,  4*icC4,  ocC4*kh*kw,  1] xic4
         //index:   [0, 4*in_c_idx, out_c_idx*kh*kw + kh_start*kw + kw_start, 0]
-        const int inp_offset_base = (out_b_idx * in_c_blocks + in_c_idx) * in_hw.x * in_hw.y * 4;
+        const int inp_offset_base = (out_b_idx + in_c_idx*batch) * in_hw.x * in_hw.y * 4;
 
         for(int iy = 0; iy < filter_hw.x; iy++) {
             int weight_offset = ((((4*in_c_idx+0)* out_c_blocks + out_c_idx) *filter_hw.x + iy)*filter_hw.y + kw_start) * 4;
@@ -873,7 +878,7 @@ void conv_2d_int_c8h4w1(GLOBAL_SIZE_2_DIMS
     out7 = clamp(out7, (COMPUTE_FLOAT4)0, (COMPUTE_FLOAT4)6);
 #endif
 
-    int out_offset = (((out_b_idx*out_c_blocks + out_c_idx)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
+    int out_offset = (((out_b_idx + out_c_idx*batch)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
 #ifdef BLOCK_LEAVE
     const int remain = out_hw.x - out_h_idx;
     if(remain >= 4){
@@ -896,7 +901,7 @@ void conv_2d_int_c8h4w1(GLOBAL_SIZE_2_DIMS
         return;
     }
 #endif
-    out_offset = (((out_b_idx*out_c_blocks + out_c_idx + 1)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
+    out_offset = (((out_b_idx + (out_c_idx + 1)*batch)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
     if(remain >= 4){
         vstore4(CONVERT_FLOAT4(out4), 0, output+out_offset);
         vstore4(CONVERT_FLOAT4(out5), out_hw.y, output+out_offset);
@@ -922,7 +927,7 @@ void conv_2d_int_c8h4w1(GLOBAL_SIZE_2_DIMS
         return;
     }
 #endif
-    out_offset = (((out_b_idx*out_c_blocks + out_c_idx + 1)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
+    out_offset = (((out_b_idx + (out_c_idx + 1)*batch)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
     vstore4(CONVERT_FLOAT4(out4), 0, output+out_offset);
     vstore4(CONVERT_FLOAT4(out5), out_hw.y, output+out_offset);
     vstore4(CONVERT_FLOAT4(out6), 2 * out_hw.y, output+out_offset);
@@ -944,6 +949,7 @@ void conv_2d_int_c8h2w1(GLOBAL_SIZE_2_DIMS
                       __private const int2 in_hw,
                       __private const int inChannel,
                       __private const int in_c_blocks,
+                      __private const int batch,
                       __private const int2 out_hw,
                       __private const int2 filter_hw,
                       __private const int2 stride_hw,
@@ -993,7 +999,7 @@ void conv_2d_int_c8h2w1(GLOBAL_SIZE_2_DIMS
         COMPUTE_FLOAT4 offset1 = (COMPUTE_FLOAT4)(ScaleOffset1.s1, ScaleOffset1.s3, ScaleOffset1.s5, ScaleOffset1.s7);
         //weights  NC4HW4  [1,  4*icC4,  ocC4*kh*kw,  1] xic4
         //index:   [0, 4*in_c_idx, out_c_idx*kh*kw + kh_start*kw + kw_start, 0]
-        const int inp_offset_base = (out_b_idx * in_c_blocks + in_c_idx) * in_hw.x * in_hw.y * 4;
+        const int inp_offset_base = (out_b_idx + in_c_idx*batch) * in_hw.x * in_hw.y * 4;
 
         for(int iy = 0; iy < filter_hw.x; iy++) {
             int weight_offset = ((((4*in_c_idx+0)* out_c_blocks + out_c_idx) *filter_hw.x + iy)*filter_hw.y + kw_start) * 4;
@@ -1122,7 +1128,7 @@ void conv_2d_int_c8h2w1(GLOBAL_SIZE_2_DIMS
     out3 = clamp(out3, (COMPUTE_FLOAT4)0, (COMPUTE_FLOAT4)6);
 #endif
 
-    int out_offset = (((out_b_idx*out_c_blocks + out_c_idx)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
+    int out_offset = (((out_b_idx + out_c_idx*batch)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
 #ifdef BLOCK_LEAVE
     const int remain = out_hw.x - out_h_idx;
     if(remain >= 2){
@@ -1136,7 +1142,7 @@ void conv_2d_int_c8h2w1(GLOBAL_SIZE_2_DIMS
         return;
     }
 #endif
-    out_offset = (((out_b_idx*out_c_blocks + out_c_idx + 1)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
+    out_offset = (((out_b_idx + (out_c_idx + 1)*batch)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
     if(remain >= 2){
         vstore4(CONVERT_FLOAT4(out2), 0, output+out_offset);
         vstore4(CONVERT_FLOAT4(out3), out_hw.y, output+out_offset);
@@ -1151,7 +1157,7 @@ void conv_2d_int_c8h2w1(GLOBAL_SIZE_2_DIMS
         return;
     }
 #endif
-    out_offset = (((out_b_idx*out_c_blocks + out_c_idx + 1)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
+    out_offset = (((out_b_idx + (out_c_idx + 1)*batch)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
     vstore4(CONVERT_FLOAT4(out2), 0, output+out_offset);
     vstore4(CONVERT_FLOAT4(out3), out_hw.y, output+out_offset);
 #endif
@@ -1171,6 +1177,7 @@ void conv_2d_int_c8h1w4(GLOBAL_SIZE_2_DIMS
                       __private const int2 in_hw,
                       __private const int inChannel,
                       __private const int in_c_blocks,
+                      __private const int batch,
                       __private const int2 out_hw,
                       __private const int2 filter_hw,
                       __private const int2 stride_hw,
@@ -1227,7 +1234,7 @@ void conv_2d_int_c8h1w4(GLOBAL_SIZE_2_DIMS
         int weight_offset = ((((4*in_c_idx+0)* out_c_blocks + out_c_idx) *filter_hw.x + kh_start)*filter_hw.y + 0) * 4;
 
         for(int iy = in_h_idx_start; iy < in_h_idx_end; iy += dilate_hw.x) {
-            const int inp_offset_base = (((out_b_idx * in_c_blocks + in_c_idx) * in_hw.x + iy) * in_hw.y + 0) * 4;
+            const int inp_offset_base = (((out_b_idx + in_c_idx*batch) * in_hw.x + iy) * in_hw.y + 0) * 4;
 
             for(int fw = 0; fw < filter_hw.y; fw++) {
                 const int in_w0_idx = fw * dilate_hw.y + in_w0_idx_base;
@@ -1389,7 +1396,7 @@ void conv_2d_int_c8h1w4(GLOBAL_SIZE_2_DIMS
     out7 = clamp(out7, (COMPUTE_FLOAT4)0, (COMPUTE_FLOAT4)6);
 #endif
 
-    int out_offset = (((out_b_idx*out_c_blocks + out_c_idx)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
+    int out_offset = (((out_b_idx + out_c_idx*batch)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
 #ifdef BLOCK_LEAVE
     const int remain = out_hw.y - out_w_idx;
     if(remain >= 4){
@@ -1405,7 +1412,7 @@ void conv_2d_int_c8h1w4(GLOBAL_SIZE_2_DIMS
 #ifdef CHANNEL_LEAVE
     if(out_c_idx + 1 >= out_c_blocks)return;
 #endif
-    out_offset = (((out_b_idx*out_c_blocks + out_c_idx + 1)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
+    out_offset = (((out_b_idx + (out_c_idx + 1)*batch)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
     if(remain >= 4){
         vstore16(CONVERT_FLOAT16((COMPUTE_FLOAT16)(out4, out5, out6, out7)), 0, output+out_offset);
     }else if(remain == 3){
@@ -1421,7 +1428,7 @@ void conv_2d_int_c8h1w4(GLOBAL_SIZE_2_DIMS
 #ifdef CHANNEL_LEAVE
     if(out_c_idx + 1 >= out_c_blocks)return;
 #endif
-    out_offset = (((out_b_idx*out_c_blocks + out_c_idx + 1)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
+    out_offset = (((out_b_idx + (out_c_idx + 1)*batch)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
     vstore16(CONVERT_FLOAT16((COMPUTE_FLOAT16)(out4, out5, out6, out7)), 0, output+out_offset);
 #endif
 }

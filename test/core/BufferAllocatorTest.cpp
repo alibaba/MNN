@@ -30,7 +30,9 @@ public:
         printf("BufferAllocator total size : %lu B, %f M\n", allocator.totalSize(), allocator.totalSize() / 1024.f / 1024.f);
     }
     static void defer_allocator_test(const std::vector<int>& seqs) {
-        DeferBufferAllocator allocator(BufferAllocator::Allocator::createDefault());
+        SingleBufferWithAllocator root;
+        root.root = BufferAllocator::Allocator::createDefault();
+        DeferBufferAllocator allocator(&root);
         std::vector<MemChunk> allocs;
         int usage_num = 0;
         for (int i = 0; i < seqs.size(); i++) {

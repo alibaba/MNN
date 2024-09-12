@@ -85,10 +85,19 @@ void Llm::init_runtime() {
     BackendConfig cpuBackendConfig;
     config.type          = backend_type_convert(config_->backend_type());
     config.numThread     = config_->thread_num();
-    if (config_->memory() == "low") {
+    if (config_->power() == "high") {
+        cpuBackendConfig.power = BackendConfig::Power_High;
+    } else if (config_->power() == "low") {
+        cpuBackendConfig.power = BackendConfig::Power_Low;
+    }
+    if (config_->memory() == "high") {
+        cpuBackendConfig.memory = BackendConfig::Memory_High;
+    } else if (config_->memory() == "low") {
         cpuBackendConfig.memory = BackendConfig::Memory_Low;
     }
-    if (config_->precision() == "low") {
+    if (config_->precision() == "high") {
+        cpuBackendConfig.precision = BackendConfig::Precision_High;
+    } else if (config_->precision() == "low") {
         cpuBackendConfig.precision = BackendConfig::Precision_Low;
     }
     config.backendConfig = &cpuBackendConfig;
@@ -97,10 +106,16 @@ void Llm::init_runtime() {
     runtime_manager_.reset(Executor::RuntimeManager::createRuntimeManager(config));
     runtime_manager_->setHint(MNN::Interpreter::MEM_ALLOCATOR_TYPE, 0);
     runtime_manager_->setHint(MNN::Interpreter::DYNAMIC_QUANT_OPTIONS, 1); // 1: per batch quant, 2: per tensor quant
-    runtime_manager_->setHint(MNN::Interpreter::KVCACHE_QUANT_OPTIONS, config_->quant_kv());
+    runtime_manager_->setHint(MNN::Interpreter::QKV_QUANT_OPTIONS, config_->quant_qkv());
     runtime_manager_->setHint(MNN::Interpreter::KVCACHE_SIZE_LIMIT, config_->kvcache_limit());
-    runtime_manager_->setExternalPath("/tmp/.kvcache", MNN::Interpreter::EXTERNAL_PATH_KVCACHE_DIR);
-    
+    std::string tmpPath = config_->tmp_path();
+    if (config_->kvcache_mmap()) {
+        runtime_manager_->setExternalPath(tmpPath, MNN::Interpreter::EXTERNAL_PATH_KVCACHE_DIR);
+    }
+    if (config_->use_mmap()) {
+        runtime_manager_->setExternalPath(tmpPath, MNN::Interpreter::EXTERNAL_WEIGHT_DIR);
+    }
+
 #if DEBUG_MODE==1
     runtime_manager_->setMode(MNN::Interpreter::Session_Debug);
     _initTimeTrace();
@@ -154,7 +169,7 @@ void Llm::load() {
                                            {"input_ids", "attention_mask", "position_ids", "past_key_values"},
                                            {"logits", "presents"}, model_path.c_str(), runtime_manager_, &module_config));
         }
-        MNN_PRINT("Done!\n");
+        MNN_PRINT("Load Module Done!\n");
     } else {
         MNN_ERROR("Split version is depercerate\n");
     }
@@ -162,6 +177,8 @@ void Llm::load() {
     for (int v=0; v<modules_.size(); ++v) {
         decode_modules_[v].reset(Module::clone(modules_[v].get()));
     }
+    MNN_PRINT("Clone Decode Module Done!\n");
+
     prefill_modules_ = modules_;
 }
 
@@ -330,9 +347,13 @@ void Llm::chat() {
             continue;
         }
         std::cout << "\nA: " << std::flush;
-        history.emplace_back(std::make_pair("user", user_str));
-        auto assistant_str = response(history);
-        history.emplace_back(std::make_pair("assistant", assistant_str));
+        if (config_->reuse_kv()) {
+            response(user_str);
+        } else {
+            history.emplace_back(std::make_pair("user", user_str));
+            auto assistant_str = response(history);
+            history.emplace_back(std::make_pair("assistant", assistant_str));
+        }
         std::cout << std::endl;
     }
 }
@@ -777,10 +798,12 @@ float Embedding::dist(VARP var0, VARP var1) {
     return dist;
 }
 
-Embedding* Embedding::createEmbedding(const std::string& config_path) {
+Embedding* Embedding::createEmbedding(const std::string& config_path, bool load) {
     std::shared_ptr<LlmConfig> config(new LlmConfig(config_path));
     Embedding* embedding = new Embedding(config);
-    embedding->load();
+    if (load) {
+        embedding->load();
+    }
     return embedding;
 }
 
@@ -808,10 +831,9 @@ void Embedding::load() {
     MNN_PRINT("Done!\n");
 }
 
-VARP Embedding::embedding(const std::string& txt) {
-    auto ids = tokenizer(txt);
+VARP Embedding::ids_embedding(const std::vector<int>& ids) {
     int prompt_len = ids.size();
-    auto inputs_ids = _Const(ids.data(), {prompt_len}, NCHW, halide_type_of<int>());
+    auto inputs_ids = embedding(ids);
     auto attention_mask = gen_attention_mask(prompt_len);
     auto position_ids = gen_position_ids(prompt_len);
     auto outputs = modules_[0]->onForward({inputs_ids, attention_mask, position_ids});
@@ -819,12 +841,12 @@ VARP Embedding::embedding(const std::string& txt) {
     return sentence_embeddings;
 }
 
+VARP Embedding::txt_embedding(const std::string& txt) {
+    return ids_embedding(tokenizer(txt));
+}
+
 std::vector<int> Embedding::tokenizer(const std::string& query) {
-    auto prompt = query;
-    if (query.size() <= 256) {
-        prompt = "为这个句子生成表示以用于检索相关文章：" + query;
-    }
-    prompt = apply_prompt_template(prompt);
+    auto prompt = apply_prompt_template(query);
     auto ids = tokenizer_->encode(prompt);
     return ids;
 }

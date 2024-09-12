@@ -50,7 +50,7 @@ namespace MNN {
         NNAPIRuntime(const Backend::Info& info);
         virtual ~NNAPIRuntime();
         virtual CompilerType onGetCompilerType() const override;
-        virtual Backend* onCreate(const BackendConfig* conf) const override;
+        virtual Backend* onCreate(const BackendConfig* conf, Backend* origin) const override;
         virtual void onGabageCollect(int level) override;
         virtual std::pair<const void*, size_t> onGetCache() override {
             return std::make_pair(mCacheBuffer, mCacheSize);

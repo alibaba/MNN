@@ -34,11 +34,12 @@ struct RuntimeHint {
     int cpuDecreaseRate = 50;
     int dynamicQuantOption = 0;
 
-    // 0: Do not quantize kvcache, just store float
-    // 1: Only quantize key cache, use int8 asymmetric quantization 
-    // 2: Only quantize value cache, use fp8 quantization
-    // 3: quantize both key and value cache as described above
-    int kvcacheQuantOption = 0;
+    // 0: Do not quantize
+    // 1: Only quantize key, use int8 asymmetric quantization 
+    // 2: Only quantize value, use fp8 quantization
+    // 3: quantize both key and value
+    // 4: quantize query, key and value, and use gemm int8 kernel to compute K*V
+    int qkvQuantOption = 0;
     
     // the kvcache size limit of each layer
     // if the size of kvcache in memory exceeds the limit
@@ -48,6 +49,9 @@ struct RuntimeHint {
 
     // path of the kvcache directory
     std::string kvcacheDirPath = "/tmp";
+    
+    std::string midMemoryPath;
+    std::string weightMemoryPath;
 };
 /** abstract backend */
 class Backend : public NonCopyable {
@@ -267,7 +271,7 @@ public:
      @brief create backend
      @return created backend
      */
-    virtual Backend* onCreate(const BackendConfig* config = nullptr) const = 0;
+    virtual Backend* onCreate(const BackendConfig* config = nullptr, Backend* origin = nullptr) const = 0;
 
     /**
      @brief reset runtime

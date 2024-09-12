@@ -113,6 +113,7 @@ bool Pipeline::load_modules() {
     // load text_encoder model
     {
         std::string model_path = mModelPath + "/text_encoder.mnn";
+        MNN_PRINT("Load %s\n", model_path.c_str());
         mModules[0].reset(Module::load(
             {"input_ids"}, {"last_hidden_state", "pooler_output"}, model_path.c_str(), runtime_manager_, &module_config));
         
@@ -125,6 +126,7 @@ bool Pipeline::load_modules() {
     // load unet model
     {
         std::string model_path = mModelPath + "/unet.mnn";
+        MNN_PRINT("Load %s\n", model_path.c_str());
         mModules[1].reset(Module::load(
             {"sample", "timestep", "encoder_hidden_states"}, {"out_sample"}, model_path.c_str(), runtime_manager_, &module_config));
         
@@ -137,6 +139,7 @@ bool Pipeline::load_modules() {
     // load vae_decoder model
     {
         std::string model_path = mModelPath + "/vae_decoder.mnn";
+        MNN_PRINT("Load %s\n", model_path.c_str());
         mModules[2].reset(Module::load(
             {"latent_sample"}, {"sample"}, model_path.c_str(), runtime_manager_, &module_config));
         

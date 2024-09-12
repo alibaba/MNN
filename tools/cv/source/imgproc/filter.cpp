@@ -32,7 +32,7 @@ static halide_type_t formatInput(VARP& src, bool fp = true) {
             src = _Convert(_Reshape(src, {1, channel, height, width}), NHWC);
         }
     }
-    if (fp) {
+    if (fp && src->getInfo() && src->getInfo()->type.code != halide_type_float) {
         src = _Cast(src, halide_type_of<float>());
     }
     return info->type;
@@ -53,7 +53,13 @@ static VARP formatOutput(VARP src, halide_type_t type) {
         src = _Minimum(src, _Scalar<float>(255));
         src = _Maximum(src, _Scalar<float>(0));
     }
-    return _Cast(src, type);
+    if (src->getInfo()) {
+        auto srctype = src->getInfo()->type;
+        if (srctype.code == type.code && srctype.bits == type.bits) {
+            return src;
+        }
+    }
+    return _Cast(src, type); // if same type, do not need.
 }
 
 template <typename T>

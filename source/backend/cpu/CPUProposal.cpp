@@ -16,12 +16,17 @@
 #include <MNN/AutoTime.hpp>
 namespace MNN {
 
-CPUProposal::CPUProposal(Backend *backend, const Proposal *proposal) : Execution(backend), mProposal(proposal) {
-    auto ratioCount = mProposal->ratios()->float32s()->size();
-    auto numScale   = mProposal->scales()->float32s()->size();
+CPUProposal::CPUProposal(Backend *backend, const Proposal *proposal) : Execution(backend) {
+    auto ratioCount = proposal->ratios()->float32s()->size();
+    auto numScale   = proposal->scales()->float32s()->size();
     mAnchors.reset(4 * ratioCount * numScale);
+    mCache.featStride   = proposal->featStride();
+    mCache.preNmsTopN   = proposal->preNmsTopN();
+    mCache.nmsThreshold = proposal->nmsThreshold();
+    mCache.afterNmsTopN = proposal->afterNmsTopN();
+    mCache.minSize      = proposal->minSize();
 
-    auto baseSize = mProposal->baseSize();
+    auto baseSize = proposal->baseSize();
     const auto cx = baseSize * 0.5f;
     const auto cy = baseSize * 0.5f;
     auto ratios   = proposal->ratios()->float32s()->data();
@@ -117,11 +122,11 @@ ErrorCode CPUProposal::onExecute(const std::vector<Tensor *> &inputs, const std:
     auto score  = inputs[0];
     auto boxes  = inputs[1];
     auto imInfo = inputs[2];
-    auto featStride   = mProposal->featStride();
-    auto preNmsTopN   = mProposal->preNmsTopN();
-    auto nmsThreshold = mProposal->nmsThreshold();
-    auto afterNmsTopN = mProposal->afterNmsTopN();
-    auto minSize      = mProposal->minSize();
+    auto featStride   = mCache.featStride;
+    auto preNmsTopN   = mCache.preNmsTopN;
+    auto nmsThreshold = mCache.nmsThreshold;
+    auto afterNmsTopN = mCache.afterNmsTopN;
+    auto minSize      = mCache.minSize;
 
     float* tmpScorePtr = (float*)mScoreBuffer.ptr();
     // download

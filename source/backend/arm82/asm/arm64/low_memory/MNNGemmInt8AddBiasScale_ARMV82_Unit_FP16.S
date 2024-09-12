@@ -115,19 +115,16 @@ ldr x27, [x6, #64]  // blockNum
 mov x21, #16 // sizeof(float16_t) * PACK
 mul x27, x27, x3
 Start:
-lsl x15, x27, #4 // x15 = src_depth_quad * UNIT * SRC_UNIT
+lsl x15, x27, #5 // x15 = src_depth_quad * UNIT * SRC_UNIT
 mov x22, #48 // src_steps
-add x24, x15, x15
 ldr x27, [x6, #80] // extra scale
 TILE_12:
     cmp x7, #12
     blt TILE_8
 
 L8LoopDz_TILE_12:
-    // ld1 {v0.4s, v1.4s}, [x9], #32 // bias
     mov x11, x1
     mov x13, x3
-    // Init 0
     SET_BIAS v8, v9, v10, v11
     SET_BIAS v12, v13, v14, v15
     SET_BIAS v16, v17, v18, v19
@@ -137,13 +134,13 @@ L8LoopDz_TILE_12:
 
     mov x28, x2
     L8LoopSz_TILE_12:
-        ld1 {v3.16b}, [x2], x15 // weight
+        ld1 {v3.16b, v4.16b}, [x2], #32 // weight
         ld1 {v0.16b, v1.16b, v2.16b}, [x11], #48 // src
         .inst 0x4f80e068 // sdot v8.4s, v3.16b, v0.4b[0]
         .inst 0x4fa0e069 // sdot v9.4s, v3.16b, v0.4b[1]
         .inst 0x4f80e86a // sdot v10.4s, v3.16b, v0.4b[2]
         .inst 0x4fa0e86b // sdot v11.4s, v3.16b, v0.4b[3]
-        ld1 {v4.16b}, [x2], #16
+
         .inst 0x4f81e06c // sdot v12.4s, v3.16b, v1.4b[0]
         .inst 0x4fa1e06d // sdot v13.4s, v3.16b, v1.4b[1]
         .inst 0x4f81e86e // sdot v14.4s, v3.16b, v1.4b[2]
@@ -156,7 +153,7 @@ L8LoopDz_TILE_12:
         .inst 0x4fa0e095 // sdot v21.4s, v4.16b, v0.4b[1]
         .inst 0x4f80e896 // sdot v22.4s, v4.16b, v0.4b[2]
         .inst 0x4fa0e897 // sdot v23.4s, v4.16b, v0.4b[3]
-        sub x2, x2, x15
+
         .inst 0x4f81e098 // sdot v24.4s, v4.16b, v1.4b[0]
         .inst 0x4fa1e099 // sdot v25.4s, v4.16b, v1.4b[1]
         .inst 0x4f81e89a // sdot v26.4s, v4.16b, v1.4b[2]
@@ -169,9 +166,7 @@ L8LoopDz_TILE_12:
         bne L8LoopSz_TILE_12
 
     L8LoopSzEnd_TILE_12:
-    //add x2, x2, x15
-    //add x24, x15, x15
-    add x2, x28, x24
+    add x2, x28, x15
     sub x5, x5, #1
 
     L8Tile12Quan:
@@ -217,8 +212,6 @@ L8LoopDz_TILE_12:
     MLA_WEIGHTZERO v18, v4, v5, 2 // tile:10, oc:0-3 
     MLA_WEIGHTZERO v19, v4, v5, 3 // tile:11, oc:0-3
 
-    //ld1r {v0.4s}, [x23] // f32 min
-    //ld1r {v1.4s}, [x24] // f32 max
     MLA_WEIGHTZERO v20, v2, v6, 0 // tile:0, oc:4-7
     MLA_WEIGHTZERO v21, v2, v6, 1 // tile:1, oc:4-7
     MLA_WEIGHTZERO v22, v2, v6, 2 // tile:2, oc:4-7
@@ -297,8 +290,6 @@ L8LoopDz_TILE_12:
     blt End
 
 TILE_8:
-    //ld1r {v26.4s}, [x23] // f32 min
-    //ld1r {v27.4s}, [x24] // f32 max
     cmp x7, #8
     blt TILE_4
     mov x10, x0
@@ -319,18 +310,18 @@ L8LoopDz_TILE_8:
     SET_BIAS v20, v21, v22, v23
     mov x28, x12
     L8LoopSz_TILE_8:
-        ld1 {v3.16b}, [x12], x15 // weight
+        ld1 {v3.16b, v4.16b}, [x12], #32 // weight
         ld1 {v0.16b, v1.16b}, [x11], x22 // src
         .inst 0x4f80e068 // sdot v8.4s, v3.16b, v0.4b[0]
         .inst 0x4fa0e069 // sdot v9.4s, v3.16b, v0.4b[1]
         .inst 0x4f80e86a // sdot v10.4s, v3.16b, v0.4b[2]
         .inst 0x4fa0e86b // sdot v11.4s, v3.16b, v0.4b[3]
-        ld1 {v4.16b}, [x12], #16
+
         .inst 0x4f81e06c // sdot v12.4s, v3.16b, v1.4b[0]
         .inst 0x4fa1e06d // sdot v13.4s, v3.16b, v1.4b[1]
         .inst 0x4f81e86e // sdot v14.4s, v3.16b, v1.4b[2]
         .inst 0x4fa1e86f // sdot v15.4s, v3.16b, v1.4b[3]
-        sub x12, x12, x15
+
         .inst 0x4f80e090 // sdot v16.4s, v4.16b, v0.4b[0]
         .inst 0x4fa0e091 // sdot v17.4s, v4.16b, v0.4b[1]
         .inst 0x4f80e892 // sdot v18.4s, v4.16b, v0.4b[2]
@@ -343,9 +334,7 @@ L8LoopDz_TILE_8:
         bne L8LoopSz_TILE_8
 
     L8LoopSzEnd_TILE_8:
-    //add x12, x12, x15
-    //add x24, x15, x15
-    add x12, x28, x24
+    add x12, x28, x15
     sub x14, x14, #1
 
     L8Tile8Quan:
@@ -468,15 +457,13 @@ L8LoopDz_TILE_4:
 
     mov x28, x12
     L8LoopSz_TILE_4:
-        ld1 {v3.16b}, [x12], x15 // weight
+        ld1 {v3.16b, v4.16b}, [x12], #32 // weight
         ld1 {v0.16b}, [x11], x22 // src
-        ld1 {v4.16b}, [x12], #16 // weight
         .inst 0x4f80e068 // sdot v8.4s, v3.16b, v0.4b[0]
         .inst 0x4fa0e069 // sdot v9.4s, v3.16b, v0.4b[1]
         .inst 0x4f80e86a // sdot v10.4s, v3.16b, v0.4b[2]
         .inst 0x4fa0e86b // sdot v11.4s, v3.16b, v0.4b[3]
         subs x13, x13, #1
-        sub x12, x12, x15
         .inst 0x4f80e08c // sdot v12.4s, v4.16b, v0.4b[0]
         .inst 0x4fa0e08d // sdot v13.4s, v4.16b, v0.4b[1]
         .inst 0x4f80e88e // sdot v14.4s, v4.16b, v0.4b[2]
@@ -484,9 +471,7 @@ L8LoopDz_TILE_4:
         bne L8LoopSz_TILE_4
 
     L8LoopSzEnd_TILE_4:
-    //add x12, x12, x15
-    //add x24, x15, x15
-    add x12, x28, x24
+    add x12, x28, x15
     sub x14, x14, #1
 
     L8Tile4Quan:
@@ -571,23 +556,17 @@ L8LoopDz_TILE_1:
 
     movi v8.16b, #0
     movi v9.16b, #0
-    //mov v8.16b, v0.16b
-    //mov v9.16b, v1.16b
     mov x28, x12
     L8LoopSz_TILE_1:
-        ld1 {v3.16b}, [x12], x15 // weight
+        ld1 {v3.16b, v4.16b}, [x12], #32 // weight
         ld1 {v0.s}[0], [x11], x22 // src
-        ld1 {v4.16b}, [x12], #16 // weight
         .inst 0x4f80e068 // sdot v8.4s, v3.16b, v0.4b[0]
         subs x13, x13, #1
-        sub x12, x12, x15
         .inst 0x4f80e089 // sdot v9.4s, v4.16b, v0.4b[0]
         bne L8LoopSz_TILE_1
 
     L8LoopSzEnd_TILE_1:
-    //add x12, x12, x15
-    //add x24, x15, x15
-    add x12, x28, x24
+    add x12, x28, x15
     sub x14, x14, #1
 
     L8Tile1Quan:
@@ -630,11 +609,7 @@ L8LoopDz_TILE_1:
     sub x23, x23, #2
     fmax v0.8h, v24.8h, v0.8h
     fmin v0.8h, v25.8h, v0.8h
-    // st1 {v8.4s}, [x10], x4
-    // st1 {v9.4s}, [x10], x4
 
-    //fcvtn v0.4h, v8.4s
-    //fcvtn2 v0.8h, v9.4s
     TILE1_STORE:
     st1 {v0.8h}, [x10], x4
 

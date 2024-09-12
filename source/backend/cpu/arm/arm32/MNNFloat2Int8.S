@@ -22,26 +22,49 @@ vcvt.s32.f32 \x, q13
 .endm
 
 asm_function MNNFloat2Int8
-//void MNNFloat2Int8(const float* src, int8_t* dst, size_t sizeQuad, float* scale, ssize_t aMin, ssize_t aMax, ssize_t zeroPoint);
-//r0:src, r1:dst, r2:sizeQuad, r3:scale, r4:aMin, r5:aMax, r6:zeroPoint
-
+//void MNNFloat2Int8(const float* src, int8_t* dst, size_t sizeQuad, float* scale, ssize_t aMin, ssize_t aMax, float* zeroPoint, ssize_t quanParamVec);
+// Auto load: r0:src, r1:dst, r2:sizeQuad, r3:scale
+// Load from sp: aMin, aMax, lr: zeroPoint, r12: quanParamVec
 push {lr}
 
 vmov.f32 q10, #0.5
 vmov.f32 q11, #-0.5
-
-ldr r12, [sp, #4]
-vld1.32 {q15}, [r3]
+vmov.s32 q1, #1
+// scale
+vld1.32 {d30[0]}, [r3]
+vdup.32 q15, d30[0]
 // min
+ldr r12, [sp, #4]
 vdup.s8 d28, r12
 // max
 ldr r12, [sp, #8]
 vdup.s8 d29, r12
 // zeropoint
-ldr r12, [sp, #12]
-vdup.s32 q9, r12
-vcvt.f32.s32 q9, q9
+ldr lr, [sp, #12]
+vld1.32 {d18[0]}, [lr]
+vdup.32 q9, d18[0]
 
+// quanParamVec
+ldr r12, [sp, #16]
+cmp r12, #3
+bne LOAD_VEC_ZERO
+vld1.f32 {q9}, [lr] // load vector zero
+vld1.f32 {q15}, [r3] // load vector scale
+b COMPUTE
+
+LOAD_VEC_ZERO:
+cmp r12, #2
+bne LOAD_VEC_SCALE
+vld1.f32 {q9}, [lr] // load vector zero
+b COMPUTE
+
+LOAD_VEC_SCALE:
+cmp r12, #1
+bne COMPUTE
+vld1.f32 {q15}, [r3] // load vector scale
+
+
+COMPUTE:
 cmp r2, #3
 ble FL1
 

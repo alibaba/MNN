@@ -37,6 +37,7 @@
 #include "x86_x64/AVX2Backend.hpp"
 #endif
 
+#define MNN_CPU_MAX_BUFFER_INDEX 2
 #define MNN_CPU_CHECK_NAN 1
 #define MNN_CPU_USE_DEFAULT_BACKEND 4
 namespace MNN {
@@ -208,7 +209,12 @@ void CPURuntime::onReset(int numberThread, const BackendConfig* config, bool ful
 }
 
 CPURuntime::CPURuntime(const Backend::Info& info) {
-    mStaticAllocator.reset(new EagerBufferAllocator(BufferAllocator::Allocator::createDefault()));
+    auto rawAlloc = BufferAllocator::Allocator::createDefault();
+    mStaticAllocator.reset(new EagerBufferAllocator(rawAlloc));
+    mDynamic.resize(MNN_CPU_MAX_BUFFER_INDEX);
+    for (auto& buf : mDynamic) {
+        buf.root = rawAlloc;
+    }
     mThreadNumber = info.numThread;
     mPower   = BackendConfig::Power_Normal;
     mMemory  = BackendConfig::Memory_Normal;
@@ -231,17 +237,49 @@ CPURuntime:: ~ CPURuntime() {
 }
 float CPURuntime::onGetMemoryInMB() {
     auto staticMemoryInMB = mStaticAllocator->totalSize() / 1024.0f / 1024.0f;
-    return staticMemoryInMB;
+    float dynamicMemoryInMB = 0.0f;
+    for (auto& buf : mDynamic) {
+        dynamicMemoryInMB += buf.currentSize / 1024.0f / 1024.0f;
+    }
+    return staticMemoryInMB + dynamicMemoryInMB;
 }
 bool CPURuntime::onCheckInfo(Backend::Info& info) const {
     info.numThread = mThreadNumber;
     return true;
 }
+SingleBufferWithAllocator* CPURuntime::buffer(int index) const {
+    if (mDynamicMmap.empty()) {
+        return mDynamic.data() + index;
+    }
+    return mDynamicMmap.data() + index;
+}
 
-Backend* CPURuntime::onCreate(const BackendConfig* config) const {
+Backend* CPURuntime::onCreate(const BackendConfig* config, Backend* origin) const {
+    if (hint().midMemoryPath.size() > 0) {
+        if (mDynamicMmap.empty()) {
+            // Only support set featuremap dir once
+            mDynamicMmap.resize(2);
+            auto mmapMem = BufferAllocator::Allocator::createMmap(hint().midMemoryPath.c_str(), "dynamic");
+            for (auto& buf : mDynamicMmap) {
+                buf.root = mmapMem;
+            }
+        }
+    }
+    if (hint().weightMemoryPath.size() > 0) {
+        if (nullptr == mStaticAllocatorCache.get()) {
+            // Only support set weightmap dir once
+            mStaticAllocatorCache = mStaticAllocator;
+            auto mmapMem = BufferAllocator::Allocator::createMmap(hint().weightMemoryPath.c_str(), "static");
+            mStaticAllocator.reset(new EagerBufferAllocator(mmapMem, 32, 1024 * 1024 * 1024));
+        }
+    }
     auto precision = mPrecision;
     auto memory = mMemory;
     size_t flags = mFlags;
+    if (nullptr != origin) {
+        auto cpuBn = static_cast<CPUBackend*>(origin);
+        mSharedDmaInfo = cpuBn->mDmaInfo;
+    }
     _resetGroupCompute();
     if (nullptr != config) {
         precision = config->precision;
@@ -251,30 +289,36 @@ Backend* CPURuntime::onCreate(const BackendConfig* config) const {
 #ifdef LOG_VERBOSE
     MNN_PRINT("cpu backend was created by runtime:%p\n", this);
 #endif
-
+    CPUBackend* res = nullptr;
+    do {
 #ifdef MNN_USE_ARMV82
-    auto core = MNNGetCoreFunctions();
-    if (core->supportFp16arith && precision == BackendConfig::Precision_Low) {
-        return new Arm82Backend(this, memory);
-    }
+        auto core = MNNGetCoreFunctions();
+        if (core->supportFp16arith && precision == BackendConfig::Precision_Low) {
+            res = new Arm82Backend(this, memory);
+            break;
+        }
 #endif
 #ifdef MNN_SUPPORT_BF16
-    if (precision == BackendConfig::Precision_Low_BF16 && BF16Functions::get()) {
-        auto res = new CPUBackend(this, precision, memory, MNN_FORWARD_CPU_EXTENSION, 0);
-        res->mCoreFunctions = BF16Functions::get();
-        return res;
-    }
+        if (precision == BackendConfig::Precision_Low_BF16 && BF16Functions::get()) {
+            res = new CPUBackend(this, precision, memory, MNN_FORWARD_CPU_EXTENSION, 0);
+            res->mCoreFunctions = BF16Functions::get();
+            break;
+        }
 #endif
-    if (flags == MNN_CPU_USE_DEFAULT_BACKEND) {
-        return new CPUBackend(this, precision, memory, MNN_FORWARD_CPU, 0);
-    }
+        if (flags == MNN_CPU_USE_DEFAULT_BACKEND) {
+            res = new CPUBackend(this, precision, memory, MNN_FORWARD_CPU, 0);
+            break;
+        }
 #ifdef MNN_USE_SSE
-    if (AVX2Backend::isValid()) {
-        return new AVX2Backend(this, memory, flags);
-    }
+        if (AVX2Backend::isValid()) {
+            res = new AVX2Backend(this, memory, flags);
+            break;
+        }
 #endif
-
-    return new CPUBackend(this, precision, memory, MNN_FORWARD_CPU, flags);
+        res = new CPUBackend(this, precision, memory, MNN_FORWARD_CPU, flags);
+    } while (false);
+    mSharedDmaInfo = nullptr;
+    return res;
 }
 
 int CPURuntime::onGetRuntimeStatus(RuntimeStatus statusEnum) const {
@@ -298,6 +342,11 @@ int CPURuntime::onGetRuntimeStatus(RuntimeStatus statusEnum) const {
 
 void CPURuntime::onGabageCollect(int level) {
     mStaticAllocator->release(false);
+    if (level >= 100) {
+        for (auto& buf : mDynamic) {
+            buf.release();
+        }
+    }
 }
 
 
@@ -339,25 +388,34 @@ bool CPUBackend::addCreator(OpType t, Creator* c) {
     map->insert(std::make_pair(t, c));
     return true;
 }
-
+BufferAllocator* CPURuntime::createDynamicBufferAlloctor(int index) const {
+    if (hint().memoryAllocatorType == Runtime::Allocator_Defer) {
+        return new DeferBufferAllocator(buffer(index));
+    }
+    if (nullptr != mStaticAllocatorCache.get()) {
+        return new EagerBufferAllocator(BufferAllocator::Allocator::createRecurse(mStaticAllocatorCache.get()));
+    }
+    return new EagerBufferAllocator(BufferAllocator::Allocator::createRecurse(mStaticAllocator.get()));
+}
 CPUBackend::CPUBackend(const CPURuntime* runtime, BackendConfig::PrecisionMode precision, BackendConfig::MemoryMode memory, MNNForwardType type, size_t flags) : Backend(type) {
 #ifdef LOG_VERBOSE
     MNN_PRINT("cpu backend create\n");
 #endif
     mMemory = memory;
     mRuntime = const_cast<CPURuntime*>(runtime);
-    std::shared_ptr<BufferAllocator::Allocator> defaultAlloc(BufferAllocator::Allocator::createRecurse(runtime->mStaticAllocator.get()));
-    if (mRuntime->hint().memoryAllocatorType == Runtime::Allocator_Defer) {
-        mDynamicAllocator.reset(new DeferBufferAllocator(defaultAlloc));
+    auto dynamicAlloc = mRuntime->mSharedDmaInfo;
+    if (nullptr == dynamicAlloc.get()) {
+        mDmaInfo.reset(new CPURuntime::DynamicAllocator);
+        mDmaInfo->mDynamicAllocator.reset(mRuntime->createDynamicBufferAlloctor(0));
+        mDmaInfo->mCurrentDynamicAllocator = mDmaInfo->mDynamicAllocator.get();
     } else {
-        mDynamicAllocator.reset(new EagerBufferAllocator(defaultAlloc));
+        mDmaInfo = dynamicAlloc;
     }
-    mCurrentDynamicAllocator = mDynamicAllocator.get();
     mStaticAllocator = runtime->mStaticAllocator;
     mPrecisionMode = precision;
     mCoreFunctions = MNNGetCoreFunctions();
     mInt8CoreFunctions = MNNGetInt8CoreFunctions();
-    mCacheGroup.resize(2);
+    mCacheGroup.resize(MNN_CPU_MAX_BUFFER_INDEX);
     for (int i=0; i<mCacheGroup.size(); ++i) {
         mCacheGroup[i].reset(new CPUResizeCache);
     }
@@ -367,8 +425,15 @@ CPUBackend::CPUBackend(const CPURuntime* runtime, BackendConfig::PrecisionMode p
 CPUBackend::~CPUBackend() {
     mCacheGroup.clear();
 }
+void CPUBackend::_resetDynamicMemory() const {
+    mDmaInfo->mDynamicAllocator->apply();
+    if (nullptr != mDmaInfo->mDynamicAllocatorBackup.get()) {
+        mDmaInfo->mDynamicAllocatorBackup->apply();
+    }
+}
 
 void CPUBackend::onExecuteBegin() const {
+    _resetDynamicMemory();
     mRuntime->onConcurrencyBegin();
 }
 
@@ -377,23 +442,20 @@ void CPUBackend::onExecuteEnd() const {
 }
 
 void CPUBackend::onResizeBegin() {
-    mCurrentDynamicAllocator->reset();
+    mDmaInfo->mCurrentDynamicAllocator->reset();
 }
 bool CPUBackend::onSelectDynamicAllocator(int index, int maxIndex) {
     if (maxIndex > 2) {
         return false;
     }
-    if (maxIndex == 2 && mDynamicAllocatorBackup.get() == nullptr) {
-        if (mRuntime->hint().memoryAllocatorType == Runtime::Allocator_Defer) {
-            mDynamicAllocatorBackup.reset(new DeferBufferAllocator(BufferAllocator::Allocator::createRecurse(mStaticAllocator.get())));
-        } else {
-            mDynamicAllocatorBackup.reset(new EagerBufferAllocator(BufferAllocator::Allocator::createRecurse(mStaticAllocator.get())));
-        }
+    if (maxIndex == 2 && mDmaInfo->mDynamicAllocatorBackup.get() == nullptr) {
+        mDmaInfo->mDynamicAllocatorBackup.reset(mRuntime->createDynamicBufferAlloctor(1));
     }
     if (1 == index) {
-        mCurrentDynamicAllocator = mDynamicAllocatorBackup.get();
+        mDmaInfo->mCurrentDynamicAllocator = mDmaInfo->mDynamicAllocatorBackup.get();
     } else {
-        mCurrentDynamicAllocator = mDynamicAllocator.get();
+        mRuntime->buffer(0)->release();
+        mDmaInfo->mCurrentDynamicAllocator = mDmaInfo->mDynamicAllocator.get();
     }
     mCache = mCacheGroup[index].get();
     return true;
@@ -401,7 +463,11 @@ bool CPUBackend::onSelectDynamicAllocator(int index, int maxIndex) {
 
 ErrorCode CPUBackend::onResizeEnd() {
     getCache()->release();
-    return mCurrentDynamicAllocator->compute();
+    auto code = mDmaInfo->mCurrentDynamicAllocator->compute();
+    if (NO_ERROR != code) {
+        return code;
+    }
+    return NO_ERROR;
 }
 
 Backend::MemObj* CPUBackend::allocBuffer(size_t size, Tensor* dest, StorageType storageType) {
@@ -431,11 +497,11 @@ Backend::MemObj* CPUBackend::allocBuffer(size_t size, Tensor* dest, StorageType 
             break;
         }
         case DYNAMIC: {
-            chunk = mCurrentDynamicAllocator->alloc(size, false);
+            chunk = mDmaInfo->mCurrentDynamicAllocator->alloc(size, false);
             break;
         }
         case DYNAMIC_SEPERATE: {
-            chunk = mCurrentDynamicAllocator->alloc(size, true);
+            chunk = mDmaInfo->mCurrentDynamicAllocator->alloc(size, true);
             break;
         }
         default:
@@ -453,7 +519,7 @@ Backend::MemObj* CPUBackend::allocBuffer(size_t size, Tensor* dest, StorageType 
     if (storageType == STATIC) {
         res = new CPUMemObj(mStaticAllocator.get(), chunk, size);
     } else {
-        res = new CPUMemObj(mCurrentDynamicAllocator, chunk, size);
+        res = new CPUMemObj(mDmaInfo->mCurrentDynamicAllocator, chunk, size);
         chunk.attach(dest);
     }
     if (chunk.ptr()) {
@@ -591,8 +657,11 @@ const Runtime* CPUBackend::getRuntime() {
 }
 
 bool CPUBackend::onClearBuffer() {
+    if (nullptr != mRuntime->mStaticAllocatorCache.get()) {
+        mStaticAllocator = mRuntime->mStaticAllocatorCache;
+    }
     mCache->reset();
-    mCurrentDynamicAllocator->release(true);
+    mDmaInfo->mCurrentDynamicAllocator->release(true);
     return true;
 }
 
@@ -606,9 +675,9 @@ std::pair<int, int> CPUBackend::multiThreadDivide(int size) const {
     return std::make_pair(sizeDivide, scheduleNumber);
 }
 void CPUBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) const {
+    _resetDynamicMemory();
     auto& srcBuffer = srcTensor->buffer();
     auto& dstBuffer = dstTensor->buffer();
-
     if (srcBuffer.dimensions != dstBuffer.dimensions ) {
         if (srcBuffer.dim[srcBuffer.dimensions - 1].extent != 1 && dstBuffer.dim[dstBuffer.dimensions - 1].extent != 1) {
             MNN_ERROR("srcBuffer dimension not equal to dstBuffer, can't copy buffer\n");

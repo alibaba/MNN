@@ -47,6 +47,7 @@ __kernel void conv_2d_buf_subgroup_c1_c4_b2(
     __private const int output_width,
     __private const int output_height,
     __private const int output_channel,
+    __private const int batch,
     __private const int x_blocks,
     __private const int input_pad_left,
     __private const int input_pad_right,
@@ -80,11 +81,11 @@ __kernel void conv_2d_buf_subgroup_c1_c4_b2(
     const uint output_x_pitch = 4;
     const uint output_y_pitch = output_x_pitch * output_width;
     const uint output_fs_pitch = output_y_pitch * output_height;
-    const uint output_b_pitch = output_fs_pitch * output_pack;
+    const uint output_b_pitch = output_fs_pitch * batch;
     
     
-    const uint output_offset = b * output_b_pitch +
-                               f_block * 4 * output_fs_pitch +
+    const uint output_offset = b * output_fs_pitch +
+                               f_block * 4 * output_b_pitch +
                                y * output_y_pitch +
                                x * output_x_pitch;
 
@@ -160,13 +161,13 @@ __kernel void conv_2d_buf_subgroup_c1_c4_b2(
     if ((f_block+1)*16 >= output_channel) {
         for (int i = 0; i < 2 && (x + i) < output_width; i++) {
             if ((f_block*16 + lid_y * 4 < output_pack * 4))
-                output[output_offset + lid_y * output_fs_pitch + i * output_x_pitch + lid_x] = (FLOAT)dst[i];
+                output[output_offset + lid_y * output_b_pitch + i * output_x_pitch + lid_x] = (FLOAT)dst[i];
         }
     }
     else
     {
         for (int i = 0; i < 2 && (x + i) < output_width; i++) {
-            output[output_offset + lid_y * output_fs_pitch + i * output_x_pitch + lid_x] = (FLOAT)dst[i];
+            output[output_offset + lid_y * output_b_pitch + i * output_x_pitch + lid_x] = (FLOAT)dst[i];
         }
     }
 }
@@ -184,6 +185,7 @@ __kernel void conv_2d_buf_subgroup_c1_c4_b4(
     __private const int output_width,
     __private const int output_height,
     __private const int output_channel,
+    __private const int batch,
     __private const int x_blocks,
     __private const int input_pad_left,
     __private const int input_pad_right,
@@ -217,11 +219,11 @@ __kernel void conv_2d_buf_subgroup_c1_c4_b4(
     const uint output_x_pitch = 4;
     const uint output_y_pitch = output_x_pitch * output_width;
     const uint output_fs_pitch = output_y_pitch * output_height;
-    const uint output_b_pitch = output_fs_pitch * output_pack;
+    const uint output_b_pitch = output_fs_pitch * batch;
     
     
-    const uint output_offset = b * output_b_pitch +
-                               f_block * 4 * output_fs_pitch +
+    const uint output_offset = b * output_fs_pitch +
+                               f_block * 4 * output_b_pitch +
                                y * output_y_pitch +
                                x * output_x_pitch;
 
@@ -297,13 +299,13 @@ __kernel void conv_2d_buf_subgroup_c1_c4_b4(
     if ((f_block+1)*16 >= output_channel) {
         for (int i = 0; i < 4 && (x + i) < output_width; i++) {
             if ((f_block*16 + lid_y * 4 < output_pack * 4))
-                output[output_offset + lid_y * output_fs_pitch + i * output_x_pitch + lid_x] = (FLOAT)dst[i];
+                output[output_offset + lid_y * output_b_pitch + i * output_x_pitch + lid_x] = (FLOAT)dst[i];
         }
     }
     else
     {
         for (int i = 0; i < 4 && (x + i) < output_width; i++) {
-            output[output_offset + lid_y * output_fs_pitch + i * output_x_pitch + lid_x] = (FLOAT)dst[i];
+            output[output_offset + lid_y * output_b_pitch + i * output_x_pitch + lid_x] = (FLOAT)dst[i];
         }
     }
 }
@@ -321,6 +323,7 @@ __kernel void conv_2d_buf_subgroup_c1_c4_b8(
     __private const int output_width,
     __private const int output_height,
     __private const int output_channel,
+    __private const int batch,
     __private const int x_blocks,
     __private const int input_pad_left,
     __private const int input_pad_right,
@@ -354,11 +357,11 @@ __kernel void conv_2d_buf_subgroup_c1_c4_b8(
     const uint output_x_pitch = 4;
     const uint output_y_pitch = output_x_pitch * output_width;
     const uint output_fs_pitch = output_y_pitch * output_height;
-    const uint output_b_pitch = output_fs_pitch * output_pack;
+    const uint output_b_pitch = output_fs_pitch * batch;
     
     
-    const uint output_offset = b * output_b_pitch +
-                               f_block * 4 * output_fs_pitch +
+    const uint output_offset = b * output_fs_pitch +
+                               f_block * 4 * output_b_pitch +
                                y * output_y_pitch +
                                x * output_x_pitch;
 
@@ -434,13 +437,13 @@ __kernel void conv_2d_buf_subgroup_c1_c4_b8(
     if ((f_block+1)*16 >= output_channel) {
         for (int i = 0; i < 8 && (x + i) < output_width; i++) {
             if ((f_block*16 + lid_y * 4 < output_pack * 4))
-                output[output_offset + lid_y * output_fs_pitch + i * output_x_pitch + lid_x] = (FLOAT)dst[i];
+                output[output_offset + lid_y * output_b_pitch + i * output_x_pitch + lid_x] = (FLOAT)dst[i];
         }
     }
     else
     {
         for (int i = 0; i < 8 && (x + i) < output_width; i++) {
-            output[output_offset + lid_y * output_fs_pitch + i * output_x_pitch + lid_x] = (FLOAT)dst[i];
+            output[output_offset + lid_y * output_b_pitch + i * output_x_pitch + lid_x] = (FLOAT)dst[i];
         }
     }
 }
@@ -458,6 +461,7 @@ __kernel void conv_2d_buf_subgroup_c1_c16_b2(
     __private const int output_width,
     __private const int output_height,
     __private const int output_channel,
+    __private const int batch,
     __private const int x_blocks,
     __private const int input_pad_left,
     __private const int input_pad_right,
@@ -607,6 +611,7 @@ __kernel void conv_2d_buf_subgroup_c1_c16_b4(
     __private const int output_width,
     __private const int output_height,
     __private const int output_channel,
+    __private const int batch,
     __private const int x_blocks,
     __private const int input_pad_left,
     __private const int input_pad_right,
@@ -756,6 +761,7 @@ __kernel void conv_2d_buf_subgroup_c1_c16_b8(
     __private const int output_width,
     __private const int output_height,
     __private const int output_channel,
+    __private const int batch,
     __private const int x_blocks,
     __private const int input_pad_left,
     __private const int input_pad_right,

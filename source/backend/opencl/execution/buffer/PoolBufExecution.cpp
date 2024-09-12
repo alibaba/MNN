@@ -159,7 +159,7 @@ ErrorCode PoolBufExecution::onEncode(const std::vector<Tensor *> &inputs, const 
     ret |= unit.kernel->get().setArg(idx++, sizeof(kernelShape), kernelShape);
     ret |= unit.kernel->get().setArg(idx++, openCLBuffer(output));
     ret |= unit.kernel->get().setArg(idx++, openCLBuffer(redice));
-    ret |= unit.kernel->get().setArg(idx++, channelBlocks);
+    ret |= unit.kernel->get().setArg(idx++, batch);
     MNN_CHECK_CL_SUCCESS(ret, "setArg PoolBufExecution");
     
     std::string kernelNameTune = "pooling_buf";
@@ -296,6 +296,7 @@ ErrorCode PoolBufExecution::SubgrouponResize(const std::vector<Tensor *> &inputs
     ret |= unit.kernel->get().setArg(idx++, openCLBuffer(output));
     ret |= unit.kernel->get().setArg(idx++, openCLBuffer(redice));
     ret |= unit.kernel->get().setArg(idx++, channels);
+    ret |= unit.kernel->get().setArg(idx++, batch);
     ret |= unit.kernel->get().setArg(idx++, in_channel_block);
     ret |= unit.kernel->get().setArg(idx++, out_channel_block);
     ret |= unit.kernel->get().setArg(idx++, static_cast<uint32_t>(inputpad.left));

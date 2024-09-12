@@ -20,43 +20,35 @@ ErrorCode RangeBufExecution::onEncode(const std::vector<Tensor*>& inputs, const 
     mUnits.resize(1);
     auto &unit = mUnits[0];
     auto openCLBackend = static_cast<OpenCLBackend*>(backend());
-    auto runtime       = openCLBackend->getOpenCLRuntime();
-    unit.kernel = runtime->buildKernel("range_buf", "range_buf", mBuildOptions, inputs[0], outputs[0]);
-    mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
-
+    auto runtime       = openCLBackend->getOpenCLRuntime();    
     std::vector<int> outputShape = tensorShapeFormat(outputs[0]);
-
-    int batch        = outputShape.at(0);
-    int outputHeight = outputShape.at(1);
-    int outputWidth  = outputShape.at(2);
-    int channels     = outputShape.at(3);
-    int channelBlocks = (channels + 3) / 4;
-
+    int totalSize = outputShape[0] * outputShape[1] * outputShape[2] * outputShape[3];
     mGlobalWorkSize = {
-        static_cast<uint32_t>(outputWidth),
-        static_cast<uint32_t>(outputHeight),
-        static_cast<uint32_t>(batch * channelBlocks)
+        static_cast<uint32_t>(UP_DIV(totalSize, 4)),
+        static_cast<uint32_t>(1)
     };
+    std::set<std::string> buildOption = mBuildOptions;
+    if((totalSize % 4) != 0){
+        buildOption.emplace("-DPACK_LEAVE");
+    }
+    unit.kernel = runtime->buildKernel("range_buf", "range_buf", buildOption, inputs[0], outputs[0]);
+    mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
 
     uint32_t idx = 0;
     cl_int ret = CL_SUCCESS;
     ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[0]);
     ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[1]);
-    ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[2]);
     ret |= unit.kernel->get().setArg(idx++, openCLBuffer(inputs[0]));
     ret |= unit.kernel->get().setArg(idx++, openCLBuffer(inputs[2]));
     ret |= unit.kernel->get().setArg(idx++, openCLBuffer(outputs[0]));
-    ret |= unit.kernel->get().setArg(idx++, outputWidth);
-    ret |= unit.kernel->get().setArg(idx++, outputHeight);
-    ret |= unit.kernel->get().setArg(idx++, channels);
-    ret |= unit.kernel->get().setArg(idx++, channelBlocks);
+    ret |= unit.kernel->get().setArg(idx++, totalSize);
     MNN_CHECK_CL_SUCCESS(ret, "setArg RangeBufExecution");
 
     std::string kernelName = "range_buf";
-    mLocalSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), kernelName, unit.kernel).first;
-    openCLBackend->recordKernel3d(unit.kernel, mGlobalWorkSize, mLocalSize);
-    unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1], mGlobalWorkSize[2]};
-    unit.localWorkSize = {mLocalSize[0], mLocalSize[1], mLocalSize[2]};
+    mLocalSize = localWS2DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), kernelName, unit.kernel).first;
+    openCLBackend->recordKernel2d(unit.kernel, mGlobalWorkSize, mLocalSize);
+    unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1]};
+    unit.localWorkSize = {mLocalSize[0], mLocalSize[1]};
     return NO_ERROR;
 }
 

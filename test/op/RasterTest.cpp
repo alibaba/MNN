@@ -8,6 +8,7 @@
 
 #include <MNN/expr/Expr.hpp>
 #include <MNN/expr/ExprCreator.hpp>
+#include "RuntimeAttr.hpp"
 #include "MNNTestSuite.h"
 #include "TestUtils.h"
 
@@ -211,6 +212,12 @@ public:
         return true;
     }
     virtual bool run(int precision) {
+        // TODO: Other Backend Support Reduce Blit
+        auto attr = ExecutorScope::Current()->getAttr();
+        if (attr->firstType != MNN_FORWARD_CPU) {
+            MNN_ERROR("Currently only cpu backend support reduce blit\n");
+            return true;
+        }
         ExecutorScope::Current()->lazyEval = false;
         auto res = _run(precision, false);
         if (!res) {

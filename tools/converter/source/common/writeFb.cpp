@@ -60,7 +60,7 @@ static float _computeOpExternalSizeInMB(const MNN::OpT* op) {
             }
             return blob->external[1] / 1024.0f / 1024.0f;
         }
-            
+
         default:
             break;
     }
@@ -166,7 +166,7 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, c
     }
 
     std::ostringstream notSupportInfo;
-    if (!notSupportOps.empty()) {
+    if (!notSupportOps.empty() && !config.allowCustomOp) {
         for (auto name : notSupportOps) {
             notSupportInfo << name << " | ";
         }

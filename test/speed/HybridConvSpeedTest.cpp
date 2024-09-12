@@ -132,20 +132,32 @@ public:
 class HybridConvInt8Test : public HybridConvSpeedTestCommon {
 public:
     virtual bool run(int precision) {
-        std::vector< std::vector<int>> channels = {{7, 9}, {2048, 6144}, {1, 10}, {20, 153}, {9, 18}};
+        
         INTS strides = {1, 1}, dilate = {1, 1}, pad = {0, 0}, inputShape = {1, 1}; // {w, h}
         int testBatchCount = 5;
         // std::vector<int> batch(testBatchCount);
         std::vector<int> batch = {1, 23, 1479, 38, 29};
         std::vector<int> kernels = {1, 1};
-        std::vector<int> weightBits = {8};
         bool lowmemory = true;
-        for (auto& bits : weightBits) {
+        {
+           std::vector< std::vector<int>> channels = {{7, 9}, {2048, 6144}, {1, 10}, {20, 153}, {9, 18}};
+           for (int i = 0; i < channels.size(); ++i) {
+               for (int n = 0; n < 5; ++n) {
+                   auto res = testKernel("Low memory HybridConv test:", inputShape, kernels, channels[i], pad, strides, dilate, batch[n], 8, precision);
+                   if (!res) {
+                       MNN_ERROR("Error: low memory hybridConv when bits=8, n=%d, ic=%d, oc=%d\n", batch[n], channels[i][0], channels[i][1]);
+                       return false;
+                   }
+               }
+           }
+        }
+        {
+            std::vector< std::vector<int>> channels = {{2048, 6144}, {8, 8}, {8, 9}, {8, 16}};
             for (int i = 0; i < channels.size(); ++i) {
-                for (int n = 0; n < batch.size(); ++n) {
-                    auto res = testKernel("Low memory HybridConv test:", inputShape, kernels, channels[i], pad, strides, dilate, batch[n], bits, precision);
+                for (int n = 0; n < 5; ++n) {
+                    auto res = testKernel("Low memory HybridConv test:", inputShape, kernels, channels[i], pad, strides, dilate, batch[n], 4, precision);
                     if (!res) {
-                        MNN_ERROR("Error: low memory hybridConv when n=%d, ic=%d, oc=%d\n", batch[n], channels[i][0], channels[i][1]);
+                        MNN_ERROR("Error: low memory hybridConv when bits=4, n=%d, ic=%d, oc=%d\n", batch[n], channels[i][0], channels[i][1]);
                         return false;
                     }
                 }

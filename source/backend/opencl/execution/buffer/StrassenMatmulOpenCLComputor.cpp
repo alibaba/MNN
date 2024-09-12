@@ -210,6 +210,19 @@ ErrorCode StrassenMatrixComputor::_generateBasicMatMul(int e, int l, int h, cons
 
     return NO_ERROR;
 }
+    
+static int getMaxMultiple(int number) {
+    if(number % 128 == 0) {
+        return 128;
+    } else if(number % 64 == 0) {
+        return 64;
+    } else if(number % 32 == 0) {
+        return 32;
+    } else if(number % 16 == 0) {
+        return 16;
+    }
+    return 1;
+}
 
 ErrorCode StrassenMatrixComputor::_generateMatMul(int e, int l, int h, const MatrixInfo& AT, const MatrixInfo& BT, const MatrixInfo& CT, const MatrixInfo& COT, int currentDepth, int postType) {
 
@@ -238,6 +251,14 @@ ErrorCode StrassenMatrixComputor::_generateMatMul(int e, int l, int h, const Mat
     float saveCost = saveMatMulCost - (AComputeCost + BComputeCost + CComputeCost) * penalty;
     
     if (saveCost <= 0.0f) {
+        Unit unit;
+        auto res = _generateBasicMatMul(e, l, h, AT, BT, CT, COT, postType, unit);
+        mUnits.emplace_back(unit);
+        return res;
+    }
+    
+    // sub_matrix cannot own sufficient tile
+    if(getMaxMultiple(e) != getMaxMultiple(eSub)  || getMaxMultiple(h) != getMaxMultiple(eSub) || (lSub % 4 != 0)) {
         Unit unit;
         auto res = _generateBasicMatMul(e, l, h, AT, BT, CT, COT, postType, unit);
         mUnits.emplace_back(unit);

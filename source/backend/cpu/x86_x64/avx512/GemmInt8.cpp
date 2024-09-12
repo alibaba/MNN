@@ -201,16 +201,23 @@ void _AVX512_MNNLineDepthWiseInt8AddBiasScaleUnit(int8_t* dstO, const int8_t* sr
         src += src_w_step;
     }
 }
-void _AVX512_MNNFloat2Int8(const float* src, int8_t* dst, size_t sizeQuad, const float* scalep, ssize_t minV, ssize_t maxV, ssize_t zeroPoint) {
+void _AVX512_MNNFloat2Int8(const float* src, int8_t* dst, size_t sizeQuad, const float* scalep, ssize_t minV, ssize_t maxV, const float* zeroPoint, ssize_t quanParamVec) {
     auto zero = _mm256_set1_epi32(0);
     auto minValue = _mm256_set1_ps(minV);
     auto maxValue = _mm256_set1_ps(maxV);
-    auto zeroPointValue = _mm256_set1_ps(zeroPoint);
+    auto zeroPointValue = _mm256_set1_ps(zeroPoint[0]);
     auto offset = _mm256_set1_epi32(128);
     auto plus = _mm256_set1_ps(0.5f);
     auto minus = _mm256_set1_ps(-0.5f);
-    auto scaleValue0 = _mm256_loadu_ps(scalep);
-    auto scaleValue1 = _mm256_loadu_ps(scalep + 8);
+    auto scaleValue0 = _mm256_set1_ps(scalep[0]);
+    auto scaleValue1 = scaleValue0;
+    if (quanParamVec & 1) {
+        scaleValue0 = _mm256_loadu_ps(scalep);
+        scaleValue1 = _mm256_loadu_ps(scalep + 8);
+    }
+    if (quanParamVec >> 1) {
+        zeroPointValue = _mm256_loadu_ps(zeroPoint);
+    }
 
     for (int i = 0; i < sizeQuad; ++i) {
         auto f0 = _mm256_loadu_ps(src + PACK_UNIT * i);
