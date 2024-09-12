@@ -40,6 +40,13 @@ void MemChunk::attach(Tensor* tensor) {
         mNode->tensors.push_back(tensor);
     }
 }
+ErrorCode BufferAllocator::compute() {
+    return NO_ERROR;
+}
+ErrorCode BufferAllocator::apply() {
+    return NO_ERROR;
+}
+
 class DefaultAllocator : public BufferAllocator::Allocator {
 public:
     DefaultAllocator() {

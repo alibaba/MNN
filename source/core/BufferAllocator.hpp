@@ -101,12 +101,8 @@ public:
     virtual void beginGroup() {}
     virtual void endGroup() {}
     virtual void reset() {}
-    virtual ErrorCode compute() {
-        return NO_ERROR;
-    }
-    virtual ErrorCode apply() {
-        return NO_ERROR;
-    }
+    virtual ErrorCode compute();
+    virtual ErrorCode apply();
 protected:
     size_t mTotalSize = 0;
 };
