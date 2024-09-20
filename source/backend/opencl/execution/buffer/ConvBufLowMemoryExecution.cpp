@@ -166,13 +166,12 @@ void ConvBufLowMemoryExecution::set1x1WeightLowMemory(int packCout, int packCin,
         mResource->mUseImage = true;
     }
     if(mResource->mUseImage) {
+        if(mResource->mNumQuantBit == 4){
+            packCin *= 2;
+        }
         size_t w = ROUND_UP(mResource->mOutputChannel, packCout);
         size_t h = UP_DIV(mResource->mInputChannel, packCin);
-        if(mResource->mNumQuantBit == 4){
-            mResource->mKernelImage.reset(new cl::Image2D(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE, cl::ImageFormat(CL_RGBA, CL_UNSIGNED_INT16), w, h, 0, nullptr, &res));
-        }else{
-            mResource->mKernelImage.reset(new cl::Image2D(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE, cl::ImageFormat(CL_RGBA, CL_SIGNED_INT32), w, h, 0, nullptr, &res));
-        }
+        mResource->mKernelImage.reset(new cl::Image2D(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE, cl::ImageFormat(CL_RGBA, CL_SIGNED_INT32), w, h, 0, nullptr, &res));
         if (nullptr == mResource->mKernelImage.get() || res != CL_SUCCESS) {
             MNN_ERROR("Alloc Image %d x %d error, code:%d \n", (int)w, (int)h, (int)res);
         }
@@ -229,9 +228,11 @@ void ConvBufLowMemoryExecution::setGeneralWeightLowMemory(void* filterDataPtr, s
 }
 // select the fastest kernel for the general cases by tuning
 void ConvBufLowMemoryExecution::tuneGeneralCaseLowMemory(Tensor * input, Tensor * output) {
+    mUnits.resize(1);
     auto &unit = mUnits[0];
     std::vector<int> inputShape  = tensorShapeFormat(input);
     std::vector<int> outputShape = tensorShapeFormat(output);
+    const int batch              = outputShape.at(0);
     const int height             = outputShape.at(1);
     const int width              = outputShape.at(2);
     const int outChannel         = outputShape.at(3);
@@ -286,6 +287,7 @@ void ConvBufLowMemoryExecution::tuneGeneralCaseLowMemory(Tensor * input, Tensor 
         ret |= kernel[knl_idx]->get().setArg(idx++, sizeof(inputImageShape), inputImageShape);
         ret |= kernel[knl_idx]->get().setArg(idx++, inputChannels);
         ret |= kernel[knl_idx]->get().setArg(idx++, inputChannelBlocks);
+        ret |= kernel[knl_idx]->get().setArg(idx++, batch);
         ret |= kernel[knl_idx]->get().setArg(idx++, sizeof(outputImageShape), outputImageShape);
         ret |= kernel[knl_idx]->get().setArg(idx++, sizeof(kernelShape), kernelShape);
         ret |= kernel[knl_idx]->get().setArg(idx++, sizeof(strideShape), strideShape);
@@ -331,6 +333,7 @@ void ConvBufLowMemoryExecution::tuneGeneralCaseLowMemory(Tensor * input, Tensor 
     ret |= unit.kernel->get().setArg(idx++, sizeof(inputImageShape), inputImageShape);
     ret |= unit.kernel->get().setArg(idx++, inputChannels);
     ret |= unit.kernel->get().setArg(idx++, inputChannelBlocks);
+    ret |= unit.kernel->get().setArg(idx++, batch);
     ret |= unit.kernel->get().setArg(idx++, sizeof(outputImageShape), outputImageShape);
     ret |= unit.kernel->get().setArg(idx++, sizeof(kernelShape), kernelShape);
     ret |= unit.kernel->get().setArg(idx++, sizeof(strideShape), strideShape);
@@ -346,9 +349,171 @@ void ConvBufLowMemoryExecution::tuneGeneralCaseLowMemory(Tensor * input, Tensor 
     unit.localWorkSize = {mLocalWorkSize[0], mLocalWorkSize[1]};
     return;
 }
-unsigned int ConvBufLowMemoryExecution::tuneGemmLowMemory(Tensor * input, Tensor * output) {
+
+// weight inverse quantization, use xgemm opt
+void ConvBufLowMemoryExecution::useFPWeightGemmLowMemory(Tensor * input, Tensor * output) {
+    mUnits.resize(3);
+    auto runtime = mOpenCLBackend->getOpenCLRuntime();
+    std::vector<int> inputShape  = tensorShapeFormat(input);
+    std::vector<int> outputShape = tensorShapeFormat(output);
+    int channelPack = 16;
+    if(mResource->mUseImage && mResource->mNumQuantBit == 4){
+        channelPack = 32;
+    }
+    int area = inputShape.at(1) * inputShape.at(2);
+    int M = outputShape.at(0) * area;
+    int N = mResource->mOutputChannel;
+    int K = mResource->mInputChannel;
+    int mAlignK = 4;
+    int mAlignN = 16;
+    int mAlignM = 64;
+    
+    // set M Align and N Align
+    if(mResource->mOutputChannel > 1024) {
+        mAlignN = 128;
+    } else if(mResource->mOutputChannel > 512) {
+        mAlignN = 64;
+    } else if(mResource->mOutputChannel > 96) {
+        mAlignN = 32;
+    }
+    float ratio = 1.0 * M / 1024.0 * N / 1024.0 * K / 1024.0;
+    if(M > 1024 && ratio >= 1.0) {
+        mAlignM = 128;
+    } else if(M > 512 && ratio >= 0.1) {
+        mAlignM = 64;
+    } else if(M > 96){
+        mAlignM = 32;
+    } else {
+        mAlignM = 16;
+    }
+    int alignM = ROUND_UP(M, mAlignM);
+    int alignN = ROUND_UP(N, mAlignN);
+    int alignK = ROUND_UP(K, mAlignK);
+    int blockDim = mResource->mInputChannel / mResource->mBlockSize;
+    
+    // alloc temp bufer
+    mConvGemmWeightTensor.reset(Tensor::createDevice<float>({ROUND_UP(mResource->mOutputChannel, mAlignN) * ROUND_UP(mResource->mInputChannel, std::max(mAlignK, channelPack))}));
+    mConvGemmInpTensor.reset(Tensor::createDevice<float>({alignK * alignM}));
+    mConvGemmOutTensor.reset(Tensor::createDevice<float>({alignN * alignM}));
+    mOpenCLBackend->onAcquireBuffer(mConvGemmWeightTensor.get(), Backend::DYNAMIC);
+    mOpenCLBackend->onAcquireBuffer(mConvGemmOutTensor.get(), Backend::DYNAMIC);
+    mOpenCLBackend->onAcquireBuffer(mConvGemmInpTensor.get(), Backend::DYNAMIC);
+    mOpenCLBackend->onReleaseBuffer(mConvGemmWeightTensor.get(), Backend::DYNAMIC);
+    mOpenCLBackend->onReleaseBuffer(mConvGemmInpTensor.get(), Backend::DYNAMIC);
+    mOpenCLBackend->onReleaseBuffer(mConvGemmOutTensor.get(), Backend::DYNAMIC);
+    
+    //weight inverse quantization and rearrange
+    {
+        auto &unit = mUnits[0];
+        int outputChannelAlign = ROUND_UP(mResource->mOutputChannel, alignN);
+        int outputChannel4Align = ROUND_UP(mResource->mOutputChannel, 4);
+        std::set<std::string> buildOption = mResource->mBuildOptions;
+        if(mResource->mUseImage){
+            buildOption.emplace("-DUSE_IMAGE");
+        }
+        mGlobalWorkSize = {static_cast<uint32_t>(UP_DIV(mResource->mInputChannel, channelPack)), static_cast<uint32_t>(UP_DIV(mResource->mOutputChannel, 4))};
+        unit.kernel = runtime->buildKernel("gemm_conv1x1_buf", "inverse_quant_weight", buildOption);
+        uint32_t maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
+        uint32_t idx = 0;
+        cl_int ret = CL_SUCCESS;
+        ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[0]);
+        ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[1]);
+        if(mResource->mUseImage){
+            ret |= unit.kernel->get().setArg(idx++, *mResource->mKernelImage.get());
+        }else{
+            ret |= unit.kernel->get().setArg(idx++, *mResource->mKernelBuffer.get());
+        }
+        ret |= unit.kernel->get().setArg(idx++, openCLBuffer(mResource->dequantScaleOffset.get()));
+        ret |= unit.kernel->get().setArg(idx++, openCLBuffer(mConvGemmWeightTensor.get()));
+        ret |= unit.kernel->get().setArg(idx++, static_cast<int>(outputChannelAlign));
+        ret |= unit.kernel->get().setArg(idx++, static_cast<int>(outputChannel4Align));
+        ret |= unit.kernel->get().setArg(idx++, static_cast<int>(blockDim));
+        MNN_CHECK_CL_SUCCESS(ret, "setArg inverse_quant_weight");
+        
+        mLocalWorkSize = localWS2DDefault(mGlobalWorkSize, maxWorkGroupSize, runtime, "inverse_quant_weight", unit.kernel).first;
+        mOpenCLBackend->recordKernel2d(unit.kernel, mGlobalWorkSize, mLocalWorkSize);
+        unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1]};
+        unit.localWorkSize = {mLocalWorkSize[0], mLocalWorkSize[1]};
+    }
+    
+    // rearange input
+    {
+        auto &unit = mUnits[1];
+        std::set<std::string> buildOptions = mResource->mBuildOptions;
+        
+        int m_pack = 4;
+        mGlobalWorkSize = {static_cast<uint32_t>(alignM/m_pack), static_cast<uint32_t>(alignK/4)};
+        unit.kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("gemm_buf", "transpose_pad", buildOptions);
+        uint32_t maxWorkGroupSize = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(unit.kernel));
+
+        int offset = 0;
+        int idx            = 0;
+        cl_int ret = CL_SUCCESS;
+        ret |= unit.kernel->get().setArg(idx++, static_cast<int>(mGlobalWorkSize[0]));
+        ret |= unit.kernel->get().setArg(idx++, static_cast<int>(mGlobalWorkSize[1]));
+        ret |= unit.kernel->get().setArg(idx++, static_cast<int>(alignM));
+        ret |= unit.kernel->get().setArg(idx++, static_cast<int>(alignK));
+        ret |= unit.kernel->get().setArg(idx++, static_cast<int>(M));
+        ret |= unit.kernel->get().setArg(idx++, static_cast<int>(K));
+        ret |= unit.kernel->get().setArg(idx++, static_cast<int>(area));
+        ret |= unit.kernel->get().setArg(idx++, openCLBuffer(input));
+        ret |= unit.kernel->get().setArg(idx++, openCLBuffer(mConvGemmInpTensor.get()));
+        MNN_CHECK_CL_SUCCESS(ret, "setArg transpose_pad");
+        mLocalWorkSize = localWS2DDefault(mGlobalWorkSize, maxWorkGroupSize, runtime, "transpose_pad", unit.kernel).first;
+
+        mOpenCLBackend->recordKernel2d(unit.kernel, mGlobalWorkSize, mLocalWorkSize);
+        unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1]};
+        unit.localWorkSize = {mLocalWorkSize[0], mLocalWorkSize[1]};
+    }
+    
+    // call gemm strassen
+    {
+        mStrassenComputor.reset(new StrassenMatrixComputor(backend(), 3));
+        mStrassenComputor->onEncode(alignM, alignK, alignN, alignM, alignN, alignN, openCLBuffer(mConvGemmInpTensor.get()), openCLBuffer(mConvGemmWeightTensor.get()), openCLBuffer(mConvGemmOutTensor.get()), false, openCLBuffer(mResource->mBias.get()));
+    }
+        
+    // call output transpose
+    {
+        auto &unit = mUnits[2];
+        std::set<std::string> buildOptions = mResource->mBuildOptions;
+        int pack_m = 1;
+        if(M % 8 == 0) {
+            pack_m = 8;
+        } else if(M % 4 == 0) {
+            pack_m = 4;
+        }
+        buildOptions.emplace("-DM_VEC=" + std::to_string(pack_m));
+        unit.kernel = runtime->buildKernel("gemm_buf", "transpose_bias", buildOptions);
+        uint32_t maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
+
+        mGlobalWorkSize = {static_cast<uint32_t>(UP_DIV(M, pack_m)), static_cast<uint32_t>(UP_DIV(N, 4))};
+
+        int offset = 0;
+        int idx            = 0;
+        cl_int ret = CL_SUCCESS;
+        ret |= unit.kernel->get().setArg(idx++, static_cast<int>(mGlobalWorkSize[0]));
+        ret |= unit.kernel->get().setArg(idx++, static_cast<int>(mGlobalWorkSize[1]));
+        ret |= unit.kernel->get().setArg(idx++, static_cast<int>(alignM));
+        ret |= unit.kernel->get().setArg(idx++, static_cast<int>(alignN));
+        ret |= unit.kernel->get().setArg(idx++, static_cast<int>(M));
+        ret |= unit.kernel->get().setArg(idx++, static_cast<int>(N));
+        ret |= unit.kernel->get().setArg(idx++, static_cast<int>(area));
+        ret |= unit.kernel->get().setArg(idx++, openCLBuffer(mConvGemmOutTensor.get()));
+        ret |= unit.kernel->get().setArg(idx++, openCLBuffer(mResource->mBias.get()));
+        ret |= unit.kernel->get().setArg(idx++, openCLBuffer(output));
+
+        MNN_CHECK_CL_SUCCESS(ret, "setArg transpose_bias");
+        mLocalWorkSize = localWS2DDefault(mGlobalWorkSize, maxWorkGroupSize, runtime, "transpose_bias", unit.kernel).first;
+        mOpenCLBackend->recordKernel2d(unit.kernel, mGlobalWorkSize, mLocalWorkSize);
+        unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1]};
+        unit.localWorkSize = {mLocalWorkSize[0], mLocalWorkSize[1]};
+    }
+    
+    return;
+}
+void ConvBufLowMemoryExecution::tuneGemvLowMemory(Tensor * input, Tensor * output) {
+    mUnits.resize(1);
     auto &unit = mUnits[0];
-    unsigned int total_time = 0;
     std::vector<int> inputShape  = tensorShapeFormat(input);
     std::vector<int> outputShape = tensorShapeFormat(output);
     const int outChannel = outputShape.at(3);
@@ -361,20 +526,17 @@ unsigned int ConvBufLowMemoryExecution::tuneGemmLowMemory(Tensor * input, Tensor
     const int blockNum = mResource->mBlockSize;
     const int blockDim = mResource->mInputChannel / mResource->mBlockSize;
 
-    int global_y = batch * height;
-    const int total_kernel = 5;
-    std::string kernelName[total_kernel] = {"gemm_conv_c1_buf", "gemm_conv_c2_buf", "gemm_conv_c4_buf", "gemm_conv_c1_image",  "gemm_conv_c2_image"};
-    int itemC[total_kernel] = {1, 2, 4, 1, 2};
+    int global_y = batch * height * width;
+    const int total_kernel = 3;
+    std::string kernelName[total_kernel] = {"gemv_conv_c1_buf", "gemv_conv_c2_buf", "gemv_conv_c4_buf"};
+    int itemC[total_kernel] = {1, 2, 4};
     int actual_kernel = total_kernel;
     std::shared_ptr<KernelWrap> kernel[total_kernel];
     std::vector<uint32_t> globalWorkSize[total_kernel];
     std::vector<uint32_t> localWorkSize[total_kernel];
     std::pair<int, int> min_cost(INT_MAX, 0);//(min_time, min_index)
     std::set<std::string> buildOption = mResource->mBuildOptions;
-    if(width == 1 && height == 1){
-        buildOption.emplace("-DWIDTH_HEIGHT_1");
-    }
-
+    
     if(blockDim % 16 != 0){
         buildOption.emplace("-DINPUT_CHANNEL_LEAVE");
     } else if (mResource->mUseImage && mResource->mNumQuantBit == 4 && blockDim % 32 != 0) {
@@ -382,22 +544,15 @@ unsigned int ConvBufLowMemoryExecution::tuneGemmLowMemory(Tensor * input, Tensor
         buildOption.emplace("-DINPUT_CHANNEL_LEAVE");
     }
     std::string info = std::to_string(inputChannels) + "_" + std::to_string(outChannel);
-    if(batch > 1){
-        global_y = UP_DIV(batch, 4) * height;
-        buildOption.emplace("-DBACTH_BLOCK4");
-        info += "_BATCH_BLOCK4";
-    }
-    int knl_idx = 0;
-    actual_kernel = 3;
     if(mResource->mUseImage){
-        knl_idx = 3;
-        actual_kernel = total_kernel;
+        buildOption.emplace("-DUSE_IMAGE");
     }
-    for (; knl_idx < actual_kernel; knl_idx++) {
-        kernel[knl_idx]        = mOpenCLBackend->getOpenCLRuntime()->buildKernel("gemv_conv1x1_buf", kernelName[knl_idx], buildOption);
+    for (int knl_idx = 0; knl_idx < actual_kernel; knl_idx++) {
+        auto option = buildOption;
+        option.emplace("-DTILE_N=" + std::to_string(itemC[knl_idx]));
+        kernel[knl_idx]        = mOpenCLBackend->getOpenCLRuntime()->buildKernel("gemv_conv1x1_buf", kernelName[knl_idx], option);
         uint32_t maxWorkGroupSize = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(kernel[knl_idx]));
-
-        globalWorkSize[knl_idx] = {static_cast<uint32_t>(UP_DIV(outChannel, itemC[knl_idx]) * width), static_cast<uint32_t>(global_y)};
+        globalWorkSize[knl_idx] = {static_cast<uint32_t>(UP_DIV(outChannel, itemC[knl_idx])), static_cast<uint32_t>(global_y)};
         uint32_t idx            = 0;
         cl_int ret = CL_SUCCESS;
         ret |= kernel[knl_idx]->get().setArg(idx++, globalWorkSize[knl_idx][0]);
@@ -414,9 +569,7 @@ unsigned int ConvBufLowMemoryExecution::tuneGemmLowMemory(Tensor * input, Tensor
         ret |= kernel[knl_idx]->get().setArg(idx++, static_cast<int>(outputChannelBlocks));
         ret |= kernel[knl_idx]->get().setArg(idx++, static_cast<int>(inputChannelBlocks));
         ret |= kernel[knl_idx]->get().setArg(idx++, inputChannels);
-        ret |= kernel[knl_idx]->get().setArg(idx++, static_cast<int>(batch));
-        ret |= kernel[knl_idx]->get().setArg(idx++, static_cast<int>(height));
-        ret |= kernel[knl_idx]->get().setArg(idx++, static_cast<int>(width));
+        ret |= kernel[knl_idx]->get().setArg(idx++, static_cast<int>(global_y));
         ret |= kernel[knl_idx]->get().setArg(idx++, static_cast<int>(blockNum));
         ret |= kernel[knl_idx]->get().setArg(idx++, static_cast<int>(blockDim));
         MNN_CHECK_CL_SUCCESS(ret, "setArg gemv_conv1x1_buf Kernel Select");
@@ -428,13 +581,11 @@ unsigned int ConvBufLowMemoryExecution::tuneGemmLowMemory(Tensor * input, Tensor
             mLocalWorkSize = {retTune.first[0], retTune.first[1]};
         }
     }
-    total_time += min_cost.first;
     int min_index  = min_cost.second;
     mGlobalWorkSize = {globalWorkSize[min_index][0], globalWorkSize[min_index][1]};
-
-
+    
+    buildOption.emplace("-DTILE_N=" + std::to_string(itemC[min_index]));
     unit.kernel        = mOpenCLBackend->getOpenCLRuntime()->buildKernel("gemv_conv1x1_buf", kernelName[min_index], buildOption);
-    //MNN_PRINT("Kernel is %d.\n", min_index);
     uint32_t idx = 0;
     cl_int ret = CL_SUCCESS;
     ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[0]);
@@ -451,35 +602,37 @@ unsigned int ConvBufLowMemoryExecution::tuneGemmLowMemory(Tensor * input, Tensor
     ret |= unit.kernel->get().setArg(idx++, static_cast<int>(outputChannelBlocks));
     ret |= unit.kernel->get().setArg(idx++, static_cast<int>(inputChannelBlocks));
     ret |= unit.kernel->get().setArg(idx++, static_cast<int>(inputChannels));
-    ret |= unit.kernel->get().setArg(idx++, static_cast<int>(batch));
-    ret |= unit.kernel->get().setArg(idx++, static_cast<int>(height));
-    ret |= unit.kernel->get().setArg(idx++, static_cast<int>(width));
+    ret |= unit.kernel->get().setArg(idx++, static_cast<int>(global_y));
     ret |= unit.kernel->get().setArg(idx++, static_cast<int>(blockNum));
     ret |= unit.kernel->get().setArg(idx++, static_cast<int>(blockDim));
     MNN_CHECK_CL_SUCCESS(ret, "setArg gemv_conv1x1_buf");
     mOpenCLBackend->recordKernel2d(unit.kernel, mGlobalWorkSize, mLocalWorkSize);
     unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1]};
     unit.localWorkSize = {mLocalWorkSize[0], mLocalWorkSize[1]};
-    return total_time;
+    return;
 }
-unsigned int ConvBufLowMemoryExecution::tuneGemvBatchLowMemory(Tensor * input, Tensor * output) {
+unsigned int ConvBufLowMemoryExecution::tuneGemmLowMemory(Tensor * input, Tensor * output, std::string option, bool onlyGetTime) {
     mUnits.resize(3);
     unsigned int total_time = 0;
     std::vector<int> inputShape  = tensorShapeFormat(input);
     std::vector<int> outputShape = tensorShapeFormat(output);
+    int channelPack = 16;
+    if(mResource->mUseImage && mResource->mNumQuantBit == 4){
+        channelPack = 32;
+    }
     const int outChannel = outputShape.at(3);
     const int inputChannels = inputShape.at(3);
     const int batch = outputShape.at(0);
     const int width_height = outputShape.at(1) * outputShape.at(2);
-    const int inputChannelBlocks = UP_DIV(inputChannels, 4);
-    const int outputChannelBlocks = UP_DIV(outChannel, 4);
+    const int inputChannelAlign = ROUND_UP(inputChannels, channelPack);
+    const int outputChannelAlign = ROUND_UP(outChannel, 4);
     const int blockNum = mResource->mBlockSize;
     const int blockDim = mResource->mInputChannel / mResource->mBlockSize;
-
-    int global_y = UP_DIV(batch, 4) * width_height;
-    const int total_kernel = 6;
-    std::string kernelName[total_kernel] = {"gemm_b4_c1_buf", "gemm_b4_c2_buf", "gemm_b4_c4_buf", "gemm_b4_c1_image",  "gemm_b4_c2_image", "gemm_b4_c4_image"};
-    int itemC[total_kernel] = {1, 2, 4, 1, 2, 4};
+    
+    int global_y = batch * width_height;
+    const int total_kernel = 3;
+    std::string kernelName[total_kernel] = {"gemm_b4_c1_buf", "gemm_b4_c2_buf", "gemm_b4_c4_buf"};
+    int itemC[total_kernel] = {1, 2, 4};
     int actual_kernel = total_kernel;
     std::shared_ptr<KernelWrap> kernel[total_kernel];
     std::vector<uint32_t> globalWorkSize[total_kernel];
@@ -492,9 +645,13 @@ unsigned int ConvBufLowMemoryExecution::tuneGemvBatchLowMemory(Tensor * input, T
         // Image weight-int4 use load32
         buildOption.emplace("-DINPUT_CHANNEL_LEAVE");
     }
-    std::string info = std::to_string(inputChannels) + "_" + std::to_string(outChannel);
+    buildOption.emplace(option);
+    if(mResource->mUseImage){
+        buildOption.emplace("-DUSE_IMAGE");
+    }
+    std::string info = std::to_string(inputChannels) + "_" + std::to_string(outChannel) + option;
     // mResource->mInputChannel ROUND_UP to blockDim, avoid gemm overstep
-    mConvGemmInpTensor.reset(Tensor::createDevice<float>({ROUND_UP(batch, 4) * ROUND_UP(ROUND_UP(mResource->mInputChannel, 4), blockDim) * width_height}));
+    mConvGemmInpTensor.reset(Tensor::createDevice<float>({ROUND_UP(batch, 4) * inputChannelAlign * width_height}));
     mConvGemmOutTensor.reset(Tensor::createDevice<float>({ROUND_UP(batch, 4) * ROUND_UP(mResource->mOutputChannel, 4) * width_height}));
     mOpenCLBackend->onAcquireBuffer(mConvGemmInpTensor.get(), Backend::DYNAMIC);
     mOpenCLBackend->onAcquireBuffer(mConvGemmOutTensor.get(), Backend::DYNAMIC);
@@ -504,43 +661,37 @@ unsigned int ConvBufLowMemoryExecution::tuneGemvBatchLowMemory(Tensor * input, T
     // reshape n*c/4*4*hw -> n/4*hw*c*4
     {
         auto &unit = mUnits[0];
-        mGlobalWorkSize = {static_cast<uint32_t>(UP_DIV(mResource->mInputChannel, 4)), static_cast<uint32_t>(UP_DIV(batch, 4)), static_cast<uint32_t>(width_height)};
-        unit.kernel        = mOpenCLBackend->getOpenCLRuntime()->buildKernel("gemm_quant_batch_buf", "reshape_nchw4_nhwc4", buildOption);
+        mGlobalWorkSize = {static_cast<uint32_t>(UP_DIV(inputChannelAlign, 4)), static_cast<uint32_t>(UP_DIV(global_y, 4))};
+        unit.kernel        = mOpenCLBackend->getOpenCLRuntime()->buildKernel("gemm_conv1x1_buf", "reshape_nchw4_nhwc4", buildOption);
         uint32_t maxWorkGroupSize = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(unit.kernel));
 
         uint32_t idx = 0;
         cl_int ret = CL_SUCCESS;
         ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[0]);
         ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[1]);
-        ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[2]);
         ret |= unit.kernel->get().setArg(idx++, openCLBuffer(input));
         ret |= unit.kernel->get().setArg(idx++, openCLBuffer(mConvGemmInpTensor.get()));
-        ret |= unit.kernel->get().setArg(idx++, static_cast<int>(width_height));
-        ret |= unit.kernel->get().setArg(idx++, static_cast<int>(batch));
+        ret |= unit.kernel->get().setArg(idx++, static_cast<int>(global_y));
         ret |= unit.kernel->get().setArg(idx++, static_cast<int>(inputChannels));
-        ret |= unit.kernel->get().setArg(idx++, static_cast<int>(inputChannelBlocks));
+        ret |= unit.kernel->get().setArg(idx++, static_cast<int>(inputChannelAlign));
         MNN_CHECK_CL_SUCCESS(ret, "setArg reshape_nc4_cn4");
-        std::pair<std::vector<uint32_t>, unsigned int> retTune = localWS3DDefault(mGlobalWorkSize, maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), "reshape_nchw4_nhwc4", unit.kernel);
+        std::pair<std::vector<uint32_t>, unsigned int> retTune = localWS2DDefault(mGlobalWorkSize, maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), "reshape_nchw4_nhwc4", unit.kernel);
         total_time += retTune.second;
         mLocalWorkSize = retTune.first;
-        mOpenCLBackend->recordKernel3d(unit.kernel, mGlobalWorkSize, mLocalWorkSize);
-        unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1], mGlobalWorkSize[2]};
-        unit.localWorkSize = {mLocalWorkSize[0], mLocalWorkSize[1], mLocalWorkSize[2]};
+        if(false == onlyGetTime){
+            mOpenCLBackend->recordKernel2d(unit.kernel, mGlobalWorkSize, mLocalWorkSize);
+        }
+        unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1]};
+        unit.localWorkSize = {mLocalWorkSize[0], mLocalWorkSize[1]};
     }
     // gemm
     {
         auto &unit = mUnits[1];
-        int knl_idx = 0;
-        actual_kernel = 3;
-        if(mResource->mUseImage){
-            knl_idx = 3;
-            actual_kernel = total_kernel;
-        }
-        for (; knl_idx < actual_kernel; knl_idx++) {
-            kernel[knl_idx]        = mOpenCLBackend->getOpenCLRuntime()->buildKernel("gemm_quant_batch_buf", kernelName[knl_idx], buildOption);
+        for (int knl_idx = 0; knl_idx < actual_kernel; knl_idx++) {
+            kernel[knl_idx]        = mOpenCLBackend->getOpenCLRuntime()->buildKernel("gemm_conv1x1_buf", kernelName[knl_idx], buildOption);
             uint32_t maxWorkGroupSize = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(kernel[knl_idx]));
-
-            globalWorkSize[knl_idx] = {static_cast<uint32_t>(UP_DIV(outChannel, itemC[knl_idx])), static_cast<uint32_t>(global_y)};
+            
+            globalWorkSize[knl_idx] = {static_cast<uint32_t>(UP_DIV(outChannel, itemC[knl_idx])), static_cast<uint32_t>(UP_DIV(global_y, 4))};
             uint32_t idx            = 0;
             cl_int ret = CL_SUCCESS;
             ret |= kernel[knl_idx]->get().setArg(idx++, globalWorkSize[knl_idx][0]);
@@ -554,8 +705,9 @@ unsigned int ConvBufLowMemoryExecution::tuneGemvBatchLowMemory(Tensor * input, T
             ret |= kernel[knl_idx]->get().setArg(idx++, openCLBuffer(mResource->dequantScaleOffset.get()));
             ret |= kernel[knl_idx]->get().setArg(idx++, openCLBuffer(mResource->mBias.get()));
             ret |= kernel[knl_idx]->get().setArg(idx++, openCLBuffer(mConvGemmOutTensor.get()));
-            ret |= kernel[knl_idx]->get().setArg(idx++, static_cast<int>(outputChannelBlocks));
-            ret |= kernel[knl_idx]->get().setArg(idx++, static_cast<int>(inputChannelBlocks));
+            ret |= kernel[knl_idx]->get().setArg(idx++, static_cast<int>(UP_DIV(global_y, 4) * 4));
+            ret |= kernel[knl_idx]->get().setArg(idx++, static_cast<int>(outputChannelAlign));
+            ret |= kernel[knl_idx]->get().setArg(idx++, static_cast<int>(inputChannelAlign));
             ret |= kernel[knl_idx]->get().setArg(idx++, static_cast<int>(blockNum));
             ret |= kernel[knl_idx]->get().setArg(idx++, static_cast<int>(blockDim));
             MNN_CHECK_CL_SUCCESS(ret, "setArg gemv_conv1x1_buf Kernel Select");
@@ -572,8 +724,7 @@ unsigned int ConvBufLowMemoryExecution::tuneGemvBatchLowMemory(Tensor * input, T
         mGlobalWorkSize = {globalWorkSize[min_index][0], globalWorkSize[min_index][1]};
 
 
-        unit.kernel        = mOpenCLBackend->getOpenCLRuntime()->buildKernel("gemm_quant_batch_buf", kernelName[min_index], buildOption);
-        //MNN_PRINT("Kernel is %d.\n", min_index);
+        unit.kernel        = mOpenCLBackend->getOpenCLRuntime()->buildKernel("gemm_conv1x1_buf", kernelName[min_index], buildOption);
         uint32_t idx = 0;
         cl_int ret = CL_SUCCESS;
         ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[0]);
@@ -587,38 +738,41 @@ unsigned int ConvBufLowMemoryExecution::tuneGemvBatchLowMemory(Tensor * input, T
         ret |= unit.kernel->get().setArg(idx++, openCLBuffer(mResource->dequantScaleOffset.get()));
         ret |= unit.kernel->get().setArg(idx++, openCLBuffer(mResource->mBias.get()));
         ret |= unit.kernel->get().setArg(idx++, openCLBuffer(mConvGemmOutTensor.get()));
-        ret |= unit.kernel->get().setArg(idx++, static_cast<int>(outputChannelBlocks));
-        ret |= unit.kernel->get().setArg(idx++, static_cast<int>(inputChannelBlocks));
+        ret |= unit.kernel->get().setArg(idx++, static_cast<int>(UP_DIV(global_y, 4) * 4));
+        ret |= unit.kernel->get().setArg(idx++, static_cast<int>(outputChannelAlign));
+        ret |= unit.kernel->get().setArg(idx++, static_cast<int>(inputChannelAlign));
         ret |= unit.kernel->get().setArg(idx++, static_cast<int>(blockNum));
         ret |= unit.kernel->get().setArg(idx++, static_cast<int>(blockDim));
-        MNN_CHECK_CL_SUCCESS(ret, "setArg gemv_conv1x1_buf");
-        mOpenCLBackend->recordKernel2d(unit.kernel, mGlobalWorkSize, mLocalWorkSize);
+        MNN_CHECK_CL_SUCCESS(ret, "setArg gemm_conv1x1_buf");
+        if(false == onlyGetTime){
+            mOpenCLBackend->recordKernel2d(unit.kernel, mGlobalWorkSize, mLocalWorkSize);
+        }
         unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1]};
         unit.localWorkSize = {mLocalWorkSize[0], mLocalWorkSize[1]};
     }
     // reshape n/4*hw*c*4 -> n*c/4*4*hw
     {
         auto &unit = mUnits[2];
-        mGlobalWorkSize = {static_cast<uint32_t>(UP_DIV(mResource->mOutputChannel, 4)), static_cast<uint32_t>(UP_DIV(batch, 4)), static_cast<uint32_t>(width_height)};
-        unit.kernel        = mOpenCLBackend->getOpenCLRuntime()->buildKernel("gemm_quant_batch_buf", "reshape_nhwc4_nchw4", buildOption);
+        mGlobalWorkSize = {static_cast<uint32_t>(UP_DIV(mResource->mOutputChannel, 4)), static_cast<uint32_t>(UP_DIV(global_y, 4))};
+        unit.kernel        = mOpenCLBackend->getOpenCLRuntime()->buildKernel("gemm_conv1x1_buf", "reshape_nhwc4_nchw4", buildOption);
         uint32_t maxWorkGroupSize = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(unit.kernel));
         uint32_t idx = 0;
         cl_int ret = CL_SUCCESS;
         ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[0]);
         ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[1]);
-        ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[2]);
         ret |= unit.kernel->get().setArg(idx++, openCLBuffer(mConvGemmOutTensor.get()));
         ret |= unit.kernel->get().setArg(idx++, openCLBuffer(output));
-        ret |= unit.kernel->get().setArg(idx++, static_cast<int>(width_height));
-        ret |= unit.kernel->get().setArg(idx++, static_cast<int>(batch));
-        ret |= unit.kernel->get().setArg(idx++, static_cast<int>(outputChannelBlocks));
+        ret |= unit.kernel->get().setArg(idx++, static_cast<int>(global_y));
+        ret |= unit.kernel->get().setArg(idx++, static_cast<int>(outputChannelAlign));
         MNN_CHECK_CL_SUCCESS(ret, "setArg reshape_cn4_nc4");
-        std::pair<std::vector<uint32_t>, unsigned int> retTune = localWS3DDefault(mGlobalWorkSize, maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), "reshape_nhwc4_nchw4", unit.kernel);
+        std::pair<std::vector<uint32_t>, unsigned int> retTune = localWS2DDefault(mGlobalWorkSize, maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), "reshape_nhwc4_nchw4", unit.kernel);
         mLocalWorkSize = retTune.first;
         total_time += retTune.second;
-        mOpenCLBackend->recordKernel3d(unit.kernel, mGlobalWorkSize, mLocalWorkSize);
-        unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1], mGlobalWorkSize[2]};
-        unit.localWorkSize = {mLocalWorkSize[0], mLocalWorkSize[1], mLocalWorkSize[2]};
+        if(false == onlyGetTime){
+            mOpenCLBackend->recordKernel2d(unit.kernel, mGlobalWorkSize, mLocalWorkSize);
+        }
+        unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1]};
+        unit.localWorkSize = {mLocalWorkSize[0], mLocalWorkSize[1]};
     }
     return total_time;
 }
@@ -695,10 +849,12 @@ bool ConvBufLowMemoryExecution::onClone(Backend* bn, const Op* op, Execution** d
     return true;
 }
 
-ErrorCode ConvBufLowMemoryExecution::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+ErrorCode ConvBufLowMemoryExecution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
 #ifdef LOG_VERBOSE
     MNN_PRINT("Start ConvBufLowMemoryExecution onResize !\n");
 #endif
+    auto runTime = mOpenCLBackend->getOpenCLRuntime();
+    mOpenCLBackend->startRecord(mRecording);
     mUnits.resize(1);
     auto input  = inputs[0];
     auto output = outputs[0];
@@ -707,30 +863,138 @@ ErrorCode ConvBufLowMemoryExecution::onEncode(const std::vector<Tensor *> &input
     mPaddings[1] = padding.first;//padX
     // onclone default use conv1x1Opt, need reset
     std::vector<int> outputShape = tensorShapeFormat(output);
-    const int batch = outputShape.at(0);
-    auto runTime = mOpenCLBackend->getOpenCLRuntime();
+    const int batch = outputShape.at(0) * outputShape.at(1) * outputShape.at(2);
+    mUseFPWeight = false;
     if (mResource->mConv1x1Opt) {
-        if(batch > 1 && false == getPreParamInfo("ConvBufLowMemoryPreArrangeMode", &batchConvMode, runTime)){
-            if(tuneGemvBatchLowMemory(input, output) < tuneGemmLowMemory(input, output)){
-                batchConvMode = 1;
-            } else{
-                batchConvMode = 2;
+        if(batch == 1){
+            tuneGemvLowMemory(input, output);
+        } else {
+            if(batch > 512){
+                useFPWeightGemmLowMemory(input, output);
+                mUseFPWeight = true;
             }
-            setPreParamInfo("ConvBufLowMemoryPreArrangeMode", batchConvMode, runTime);
-        }
-        if(batch > 1 && batchConvMode == 1){
-            tuneGemvBatchLowMemory(input, output);
-        }else{
-            tuneGemmLowMemory(input, output);
+            else if(false == getPreParamInfo("ConvBufLowMemoryPreArrangeMode", &batchConvMode, runTime)){
+                if(tuneGemmLowMemory(input, output, "-DFORMAT_CNHW", true) < tuneGemmLowMemory(input, output, "", true)){
+                    batchConvMode = 1;
+                } else{
+                    batchConvMode = 2;
+                }
+                setPreParamInfo("ConvBufLowMemoryPreArrangeMode", batchConvMode, runTime);
+            } else {
+                std::string option = "";
+                if(1 == batchConvMode){
+                    option = "-DFORMAT_CNHW";
+                }
+                tuneGemmLowMemory(input, output, option);
+            }
         }
     } else {
         tuneGeneralCaseLowMemory(input, output);
     }
+    for (auto &unit : mUnits) {
+        bool lws_null = true;
+        for (size_t i = 0; i < unit.globalWorkSize.dimensions(); ++i) {
+            unit.globalWorkSize.get()[i] = ROUND_UP(unit.globalWorkSize.get()[i], std::max((size_t)1, unit.localWorkSize.get()[i]));
+            if(unit.localWorkSize.get()[i] != 0) {
+                lws_null = false;
+            }
+        }
+        if(lws_null){
+            unit.localWorkSize = cl::NullRange;
+        }
+    }
+    mOpenCLBackend->endRecord(mRecording);
 #ifdef LOG_VERBOSE
     MNN_PRINT("end ConvBufLowMemoryExecution onResize !\n");
 #endif
     return NO_ERROR;
 }
+
+ErrorCode ConvBufLowMemoryExecution::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+#ifdef LOG_VERBOSE
+    MNN_PRINT("Start ConvBufLowMemoryExecution onExecute !\n");
+#endif
+    auto runtime = mOpenCLBackend->getOpenCLRuntime();
+#ifdef ENABLE_OPENCL_TIME_PROFILER
+    int idx = 0;
+#else
+    if(mOpenCLBackend->isUseRecordQueue()){
+        mOpenCLBackend->addRecord(mRecording, mOpRecordUpdateInfo);
+        return NO_ERROR;
+    }
+#endif
+    auto res = CL_SUCCESS;
+    if(mUseFPWeight){
+        // arrange input and weight
+        int i = 0;
+        for (; i < 2; ++i){
+            auto unit = mUnits[i];
+            #ifdef ENABLE_OPENCL_TIME_PROFILER
+            cl::Event event;
+            res = runtime->commandQueue().enqueueNDRangeKernel(unit.kernel->get(),
+                                                   cl::NullRange,
+                                                   unit.globalWorkSize,
+                                                   unit.localWorkSize,
+                                                   nullptr,
+                                                   &event);
+            runtime->pushEvent({EnumNameOpType(mOpType) + std::to_string(idx++), event});
+            #else
+            res = runtime->commandQueue().enqueueNDRangeKernel(unit.kernel->get(),
+                                                   cl::NullRange,
+                                                   unit.globalWorkSize,
+                                                   unit.localWorkSize);
+            #endif
+            MNN_CHECK_CL_SUCCESS(res, EnumNameOpType(mOp->type()));
+        }
+        // call gemm execute
+        mStrassenComputor->onExecute();
+        
+        // rearrange output
+        for (; i < mUnits.size(); ++i){
+            auto unit = mUnits[i];
+            #ifdef ENABLE_OPENCL_TIME_PROFILER
+            cl::Event event;
+            res = runtime->commandQueue().enqueueNDRangeKernel(unit.kernel->get(),
+                                                   cl::NullRange,
+                                                   unit.globalWorkSize,
+                                                   unit.localWorkSize,
+                                                   nullptr,
+                                                   &event);
+            runtime->pushEvent({EnumNameOpType(mOpType) + std::to_string(idx++), event});
+            #else
+            res = runtime->commandQueue().enqueueNDRangeKernel(unit.kernel->get(),
+                                                   cl::NullRange,
+                                                   unit.globalWorkSize,
+                                                   unit.localWorkSize);
+            #endif
+            MNN_CHECK_CL_SUCCESS(res, EnumNameOpType(mOp->type()));
+        }
+    }else{
+        for (auto &unit : mUnits) {
+            #ifdef ENABLE_OPENCL_TIME_PROFILER
+            cl::Event event;
+            res = runtime->commandQueue().enqueueNDRangeKernel(unit.kernel->get(),
+                                                               cl::NullRange,
+                                                               unit.globalWorkSize,
+                                                               unit.localWorkSize,
+                                                               nullptr,
+                                                               &event);
+            runtime->pushEvent({EnumNameOpType(mOpType) + std::to_string(idx++), event});
+            #else
+            res = runtime->commandQueue().enqueueNDRangeKernel(unit.kernel->get(),
+                                                               cl::NullRange,
+                                                               unit.globalWorkSize,
+                                                               unit.localWorkSize);
+            #endif
+            MNN_CHECK_CL_SUCCESS(res, EnumNameOpType(mOp->type()));
+        }
+    }
+#ifdef LOG_VERBOSE
+    MNN_PRINT("end ConvBufLowMemoryExecution onExecute !\n");
+#endif
+    return NO_ERROR;
+}
+
 } // namespace OpenCL
 } // namespace MNN
 #endif /* MNN_OPENCL_BUFFER_CLOSED */

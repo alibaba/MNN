@@ -22,8 +22,6 @@ public:
 
     virtual ~SoftmaxBufExecution() = default;
     virtual ErrorCode onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-
-    bool buildSoftmaxKernel(int localSize);
 private:
     int getLocalSize(int size, int maxGroupSize);
     uint32_t mMaxWorkGroupSize;
@@ -31,6 +29,9 @@ private:
     std::vector<uint32_t> mGlobalWorkSize{1, 1, 1};
     std::vector<uint32_t> mLocalWorkSize{1, 1, 1, 1};
     int mAxis;
+    std::set<std::string> mBuildOptions;
+    std::shared_ptr<Tensor> mTempTensor;
+    bool mNeedUnpackC4;
 };
 } // namespace OpenCL
 } // namespace MNN

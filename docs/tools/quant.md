@@ -1,7 +1,7 @@
 # 单输入模型离线量化工具
 `./quantized.out origin.mnn quan.mnn imageInputConfig.json`
 
-通用（任意输入个数、维度、类型）模型离线量化请看[说明](https://mnn-docs.readthedocs.io/en/latest/tools/compress.html#id10)
+MNN quantized.out工具已支持通用（任意输入个数、维度、类型）模型离线量化， 但这里的多输入模型仅仅支持非图片输入类模型。
 
 MNN现已推出基于TensorFlow/Pytorch的模型压缩工具mnncompress，请查看[文档](https://mnn-docs.readthedocs.io/en/latest/tools/compress.html)选择使用
 
@@ -37,6 +37,10 @@ MNN现已推出基于TensorFlow/Pytorch的模型压缩工具mnncompress，请查
 |--------------------|------|
 | MAX_ABS | 使用权值的绝对值的最大值进行对称量化 |
 | ADMM | 使用ADMM方法进行权值量化 |
+
+## 多输入模型的参数设置的特别说明(MNN现阶段仅支持输入数据类型是非图片的多输入模型)
+| input_type | `str` | 输入数据的类型，"sequence" |
+| path | `str` | 存放校正特征量化系数的输入数据目录 |，例如该目录下包含2个输入数据集input_0和input_1，子目录input_0和input_1中包含模型的输入数据和一个input.json文件。input_0和input_1分别是两个输入输出信息文件夹，可使用 testMNNFromOnnx.py 等脚本生成，参考模型转换的正确性校验部分。
 
 ## 量化模型的使用
 和浮点模型同样使用方法，输入输出仍然为浮点类型

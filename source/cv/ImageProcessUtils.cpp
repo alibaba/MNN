@@ -28,7 +28,6 @@
 #include "backend/cpu/x86_x64/cpu_id.h"
 #endif
 
-#define CACHE_SIZE 256
 namespace MNN {
 using namespace CV;
 #define CHECKFORMAT(src, dst, func) if (source == src && dest == dst) return func
@@ -240,9 +239,14 @@ ErrorCode ImageProcessUtils::selectImageProcer(bool identity, bool hasBackend, b
         return NO_ERROR;
     }
     // Choose sampler.
-    mInside->mSampler = choose(mInside->config.sourceFormat, mInside->config.filterType, identity);
-    if (nullptr == mInside->mSampler) {
-        return INPUT_DATA_ERROR;
+    if (false == identity || mInside->config.sourceFormat == YUV_NV12 || mInside->config.sourceFormat == YUV_NV21 || mInside->config.sourceFormat == YUV_I420) {
+        mInside->mSampler = choose(mInside->config.sourceFormat, mInside->config.filterType, identity);
+        if (nullptr == mInside->mSampler) {
+            MNN_ERROR("Do not support resize convert.\n");
+            return INPUT_DATA_ERROR;
+        }
+    } else {
+        mInside->mSampler = nullptr;
     }
     // Choose blitter.
     if ((ImageFormatType)mInside->config.sourceFormat != (ImageFormatType)mInside->config.destFormat) {
@@ -366,11 +370,17 @@ static std::pair<int, int> _computeClip(CV::Point* points, int iw, int ih, const
     return std::make_pair(sta, end);
 }
 
+static inline float __clamp(float v, float minV, float maxV) {
+    return std::max(std::min(v, maxV), minV);
+}
+
 ErrorCode ImageProcessUtils::transformImage(const uint8_t* source, uint8_t* dst, uint8_t* samplerDest, uint8_t* blitDest, int tileCount, int destBytes, const int32_t* regions) {
     CV::Point points[2];
     if (mInside->mStride == 0) {
         mInside->mStride = mInside->iw * mInside->ic;
     }
+    float xMax     = mInside->iw - 1;
+    float yMax     = mInside->ih - 1;
     for (int i = 0; i < mInside->oh; ++i) {
         int dy = mInside->mDraw ? regions[3 * i] : i;
         auto dstY = (uint8_t*)dst + dy * destBytes * mInside->ow * mInside->oc;
@@ -390,7 +400,9 @@ ErrorCode ImageProcessUtils::transformImage(const uint8_t* source, uint8_t* dst,
                 samplerDest = blitDest;
             }
 
+            const uint8_t* blitSrc = samplerDest; // For draw
             // Sample
+            const uint8_t* sourcePos = nullptr; // for sampler is null.
             if (!mInside->mDraw) {
                 // Compute position
                 points[0].fX = xStart;
@@ -432,16 +444,28 @@ ErrorCode ImageProcessUtils::transformImage(const uint8_t* source, uint8_t* dst,
                 }
                 points[1].fX = (deltaX) / (float)(count);
                 points[1].fY = (deltaY) / (float)(count);
-
-                mInside->mSampler(source, samplerDest, points, sta, end - sta, count, mInside->iw, mInside->ih, mInside->mStride);
+                
+                if (mInside->mSampler) {
+                    mInside->mSampler(source, samplerDest, points, sta, end - sta, count, mInside->iw, mInside->ih, mInside->mStride);
+                    blitSrc = samplerDest;
+                } else {
+                    int y          = (int)roundf(__clamp(points[0].fY, 0, yMax));
+                    int x          = (int)roundf(__clamp(points[0].fX, 0, xMax));
+                    sourcePos = source + (y * mInside->mStride + mInside->ic* x);
+                    blitSrc = sourcePos; // update blitSrc when not draw.
+                }
             }
             // Convert format
             if (mInside->mBlitter) {
-                mInside->mBlitter(samplerDest, blitDest, count);
+                mInside->mBlitter(blitSrc, blitDest, count);
             }
             // Turn float
             if (mInside->mBlitFloat) {
-                mInside->mBlitFloat(blitDest, (float*)dstStart, mInside->config.mean, mInside->config.normal, count);
+                if (mInside->mSampler) {
+                    mInside->mBlitFloat(blitDest, (float*)dstStart, mInside->config.mean, mInside->config.normal, count);
+                } else {
+                    mInside->mBlitFloat(sourcePos, (float*)dstStart, mInside->config.mean, mInside->config.normal, count);
+                }
             }
         }
     }
@@ -493,10 +517,10 @@ static CV::ImageFormat _correctImageFormat(int outputBpp, halide_type_t type, CV
 }
 
 ErrorCode ImageProcessUtils::execFunc(const uint8_t *source, int stride, void *dest) {
-    uint8_t sampleDest[4 * 256];
-    uint8_t blitDest[4 * 256];
+    uint8_t sampleDest[4 * CACHE_SIZE];
+    uint8_t blitDest[4 * CACHE_SIZE];
     int destBytes = mInside->mDtype.bytes();
-    int tileCount = UP_DIV(mInside->ow, 256);
+    int tileCount = UP_DIV(mInside->ow, CACHE_SIZE);
     if (mInside->mDraw) {
         tileCount = 1;
     }
@@ -512,7 +536,7 @@ void ImageProcessUtils::setDraw() {
 }
 
 void ImageProcessUtils::draw(uint8_t* img, int w, int h, int c, const int* regions, int num, uint8_t* color) {
-    uint8_t blitDest[4 * 256];
+    uint8_t blitDest[4 * CACHE_SIZE];
     int destBytes = mInside->mDtype.bytes();
     mInside->oh = num;
     transformImage(img, img, color, blitDest, 1, destBytes, regions);

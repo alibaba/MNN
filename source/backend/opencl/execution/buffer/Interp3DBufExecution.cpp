@@ -86,7 +86,7 @@ ErrorCode Interp3DBufExecution::onEncode(const std::vector<Tensor *> &inputs, co
     ret |= unit.kernel->get().setArg(idx++, static_cast<int32_t>(outputDepth));
     ret |= unit.kernel->get().setArg(idx++, static_cast<int32_t>(outputHeight));
     ret |= unit.kernel->get().setArg(idx++, static_cast<int32_t>(outputWidth));
-    ret |= unit.kernel->get().setArg(idx++, static_cast<int32_t>(channelBlocks));
+    ret |= unit.kernel->get().setArg(idx++, static_cast<int32_t>(inputBatch));
     MNN_CHECK_CL_SUCCESS(ret, "setArg Interp3DBufExecution");
 
     mLWS = localWS3DDefault(mGWS, mMaxWorkGroupSize, runtime, mKernelName, unit.kernel).first;

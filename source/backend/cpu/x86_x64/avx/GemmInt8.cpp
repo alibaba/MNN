@@ -53,10 +53,8 @@ D##u##v = _mm256_add_epi32(D##u##v, _mm256_madd_epi16(W##u, S##v));
 
 #define LOAD_INT4_TO_INT8 \
 auto w_int4 = _mm_loadu_si128((__m128i const*)weight_sz);\
-auto w_int4_high = _mm_and_si128(mask, _mm_srli_epi16(w_int4, 4));\
-auto w_int4_low = _mm_and_si128(mask, w_int4);\
-auto w_0 = _mm_unpacklo_epi8(w_int4_high, w_int4_low);\
-auto w_1 = _mm_unpackhi_epi8(w_int4_high, w_int4_low);
+auto w_0 = _mm_and_si128(mask, _mm_srli_epi16(w_int4, 4));\
+auto w_1 = _mm_and_si128(mask, w_int4);
 
 void _AVX_MNNGemmInt8AddBiasScale_16x4_w4(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realDst) {
     MNN_ASSERT(post->useInt8==0);
@@ -1316,15 +1314,22 @@ void _AVX_MNNLineDepthWiseInt8AddBiasScaleUnit(int8_t* dstO, const int8_t* srcO,
     }
 }
 
-void _AVX_MNNFloat2Int8(const float* src, int8_t* dst, size_t sizeQuad, const float* scalep, ssize_t minV, ssize_t maxV, ssize_t zeroPoint) {
+void _AVX_MNNFloat2Int8(const float* src, int8_t* dst, size_t sizeQuad, const float* scalep, ssize_t minV, ssize_t maxV, const float* zeroPoint, ssize_t quanParamVec) {
     auto zero = _mm256_set1_epi32(0);
     auto minValue = _mm256_set1_ps(minV);
     auto maxValue = _mm256_set1_ps(maxV);
-    auto zeroPointValue = _mm256_set1_ps(zeroPoint);
+    auto zeroPointValue = _mm256_set1_ps(zeroPoint[0]);
     auto offset = _mm256_set1_epi32(128);
     auto plus = _mm256_set1_ps(0.5f);
     auto minus = _mm256_set1_ps(-0.5f);
-    auto scaleValue = _mm256_loadu_ps(scalep);
+    auto scaleValue = _mm256_set1_ps(scalep[0]);
+
+    if (quanParamVec & 1) {
+        scaleValue = _mm256_loadu_ps(scalep);
+    }
+    if (quanParamVec >> 1) {
+        zeroPointValue = _mm256_loadu_ps(zeroPoint);
+    }
 
     for (int i = 0; i < sizeQuad; ++i) {
         auto f0 = _mm256_loadu_ps(src + 8 * i);

@@ -6,68 +6,59 @@
 
 ## 模型导出
 
-`llm_export`是一个llm模型导出工具，能够将llm模型导出为onnx和mnn模型。
+`llmexport`是一个llm模型导出工具，能够将llm模型导出为onnx和mnn模型。
 
 ### 用法
 1. 将需要导出的LLM项目clone到本地，如：Qwen2-0.5B-Instruct
 ```sh
 git clone https://www.modelscope.cn/qwen/Qwen2-0.5B-Instruct.git
 ```
-3. 执行`llm_export.py`导出模型
+3. 执行`llmexport.py`导出模型
 ```sh
 cd ./transformers/llm/export
 # 导出模型，tokenizer和embedding，并导出对应的mnn模型
-python llm_export.py \
-        --type Qwen2-0_5B-Instruct \
+python llmexport.py \
         --path /path/to/Qwen2-0.5B-Instruct \
-        --export \
-        --export_token \
-        --export_embed --embed_bin \
-        --export_mnn
+        --export mnn
 ```
 4. 导出产物
 导出产物为：
-1. `embeddings_bf16.bin`: 模型的embedding权重二进制文件，推理时使用；
-2. `llm_config.json`: 模型的配置信息，推理时使用；
-3. `llm.onnx`: 模型的onnx文件，推理时不使用；
-4. `tokenizer.txt`: 模型的tokenzier文件，推理时使用；
-5. `llm.mnn`: 模型的mnn文件，推理时使用；
-6. `llm.mnn.weight`: 模型的mnn权重，推理时使用；
+1. `config.json`: 模型运行时的配置，可手动修改；
+2. `embeddings_bf16.bin`: 模型的embedding权重二进制文件，推理时使用；
+3. `llm.mnn`: 模型的mnn文件，推理时使用；
+4. `llm.mnn.json`: mnn模型对应的json文件，apply_lora或者gptq量化权重时使用；
+5. `llm.mnn.weight`: 模型的mnn权重，推理时使用；
+6. `llm.onnx`: 模型的onnx文件，不包含权重，推理时不使用；
+7. `llm_config.json`: 模型的配置信息，推理时使用；
+8. `tokenizer.txt`: 模型的tokenzier文件，推理时使用；
 目录结构如下所示：
 ```
 .
-├── onnx
-|    ├── embeddings_bf16.bin
-|    ├── llm_config.json
-|    ├── llm.onnx
-|    └── tokenizer.txt
-└── mnn
+└── model
+     ├── config.json
+     ├── embeddings_bf16.bin
      ├── llm.mnn
-     └── llm.mnn.weight
+     ├── llm.mnn.json
+     ├── llm.mnn.weight
+     ├── llm.onnx
+     ├── llm_config.json
+     └── tokenizer.txt
 ```
 
 ### 功能
-- 支持将模型完整导出为一个onnx模型，使用`--export`
-- 支持将模型分段导出为多个模型，使用`--export_split`
-- 支持导出模型的词表到一个文本文件，每行代表一个token；其中token使用base64编码；使用`--export_verbose`
-- 支持导出模型的Embedding层为一个onnx模型，使用`--export_embed`，同时支持bf16格式，使用`--embed_bf16`
-- 支持分层导出模型的block，使用`--export_blocks`导出全部层；使用`--export_block $id`导出指定层
-- 支持导出模型的lm_head层为一个onnx模型，使用`--export_lm`
-- 支持导出多模态模型的visual模型为一个onnx模型，使用`--export_visual`
+- 支持将模型为onnx或mnn模型，使用`--export onnx`或`--export mnn`
 - 支持对模型进行对话测试，使用`--test $query`会返回llm的回复内容
-- 支持在导出onnx模型后使用onnxruntime对结果一致性进行校验，使用`--export_test`
-- 支持将tokenizer导出为文本文件，使用`--export_token`
-- 支持将导出的onnx模型转换为mnn模型，默认转换为非对称4bit量化，使用`--export_mnn`
-- 指定导出路径使用`--onnx_path`和`--mnn_path`
 - 默认会使用onnx-slim对onnx模型进行优化，跳过该步骤使用`--skip_slim`
 - 支持合并lora权重后导出，指定lora权重的目录使用`--lora_path`
+- 制定量化bit数使用`--quant_bit`；量化的block大小使用`--quant_block`
+- 使用`--lm_quant_bit`来制定lm_head层权重的量化bit数，不指定则使用`--quant_bit`的量化bit数
+- 支持使用自己编译的`MNNConvert`，使用`--mnnconvert`
 
 ### 参数
 ```
-usage: llm_export.py [-h] --path PATH
-                     [--type {chatglm-6b,chatglm2-6b,chatglm3-6b,codegeex2-6b,Qwen-7B-Chat,Qwen-1_8B-Chat,Qwen-1_8B,Qwen-VL-Chat,Qwen1_5-0_5B-Chat,Qwen1_5-1_8B-Chat,Qwen1_5-4B-Chat,Qwen1_5-7B-Chat,Qwen2-1_5B-Instruct,Baichuan2-7B-Chat,Llama-2-7b-chat-ms,Llama-3-8B-Instruct,internlm-chat-7b,TinyLlama-1_1B-Chat,Yi-6B-Chat,deepseek-llm-7b-chat,phi-2,bge-large-zh,lora}]
-                     [--lora_path LORA_PATH] [--onnx_path ONNX_PATH] [--mnn_path MNN_PATH] [--export_mnn] [--export_verbose] [--export_test] [--test TEST] [--export] [--export_split] [--export_token]
-                     [--export_embed] [--export_visual] [--export_lm] [--export_block EXPORT_BLOCK] [--export_blocks] [--embed_bin] [--embed_bf16] [--skip_slim]
+usage: llmexport.py [-h] --path PATH [--type TYPE] [--lora_path LORA_PATH] [--dst_path DST_PATH] [--test TEST] [--export EXPORT]
+                    [--skip_slim] [--quant_bit QUANT_BIT] [--quant_block QUANT_BLOCK] [--lm_quant_bit LM_QUANT_BIT]
+                    [--mnnconvert MNNCONVERT]
 
 llm_exporter
 
@@ -77,33 +68,22 @@ options:
                         Can be either:
                         	- A string, the *model id* of a pretrained model like `THUDM/chatglm-6b`. [TODO]
                         	- A path to a *directory* clone from repo like `../chatglm-6b`.
-  --type {chatglm-6b,chatglm2-6b,chatglm3-6b,codegeex2-6b,Qwen-7B-Chat,Qwen-1_8B-Chat,Qwen-1_8B,Qwen-VL-Chat,Qwen1_5-0_5B-Chat,Qwen1_5-1_8B-Chat,Qwen1_5-4B-Chat,Qwen1_5-7B-Chat,Qwen2-1_5B-Instruct,Baichuan2-7B-Chat,Llama-2-7b-chat-ms,Llama-3-8B-Instruct,internlm-chat-7b,TinyLlama-1_1B-Chat,Yi-6B-Chat,deepseek-llm-7b-chat,phi-2,bge-large-zh,lora}
-                        type(`str`, *optional*):
+  --type TYPE           type(`str`, *optional*):
                         	The pretrain llm model type.
   --lora_path LORA_PATH
                         lora path, defaut is `None` mean not apply lora.
-  --onnx_path ONNX_PATH
-                        export onnx model path, defaut is `./onnx`.
-  --mnn_path MNN_PATH   export mnn model path, defaut is `./mnn`.
-  --export_mnn          Whether or not to export mnn model after onnx.
-  --export_verbose      Whether or not to export onnx with verbose.
-  --export_test         Whether or not to export onnx with test using onnxruntime.
+  --dst_path DST_PATH   export onnx/mnn model to path, defaut is `./model`.
   --test TEST           test model inference with query `TEST`.
-  --export              export model to an `onnx` model.
-  --export_split        export model split to some `onnx` models:
-                        	- embedding model.
-                        	- block models.
-                        	- lm_head model.
-  --export_token        export llm tokenizer to a txt file.
-  --export_embed        export llm embedding to an `onnx` model.
-  --export_visual       export llm visual model to an `onnx` model.
-  --export_lm           export llm lm_head to an `onnx` model.
-  --export_block EXPORT_BLOCK
-                        export llm block [id] to an `onnx` model.
-  --export_blocks       export llm all blocks to `onnx` models.
-  --embed_bin           export embedding weight as bin file with dtype `bfloat16`
-  --embed_bf16          using `bfloat16` replace `float32` in embedding.
+  --export EXPORT       export model to an onnx/mnn model.
   --skip_slim           Whether or not to skip onnx-slim.
+  --quant_bit QUANT_BIT
+                        mnn quant bit, 4 or 8, default is 4.
+  --quant_block QUANT_BLOCK
+                        mnn quant block, default is 0 mean channle-wise.
+  --lm_quant_bit LM_QUANT_BIT
+                        mnn lm_head quant bit, 4 or 8, default is `quant_bit`.
+  --mnnconvert MNNCONVERT
+                        local mnnconvert path, if invalid, using pymnn.
 ```
 
 ## 模型推理
@@ -111,6 +91,37 @@ options:
 ### 编译
 
 [从源码编译](../compile/other.html#id4)
+在原有编译过程中增加必需编译宏即可： -DMNN_LOW_MEMORY=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true 
+
+- mac / linux / windows
+
+以 mac / linux 为例 :
+```
+make build
+cd build
+cmake ../ -DMNN_LOW_MEMORY=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true
+make -j16
+```
+
+x86架构额外加 MNN_AVX512 的宏：
+```
+make build
+cd build
+cmake ../ -DMNN_LOW_MEMORY=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true -DMNN_AVX512=true
+make -j16
+```
+
+- Android：额外增加 MNN_ARM82 的宏
+```
+cd project/android
+mkdir build_64
+../build_64.sh "-DMNN_LOW_MEMORY=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true -DMNN_ARM82=true"
+```
+
+- iOS: 参考 transformers/llm/engine/ios/README.md
+```
+sh package_scripts/ios/buildiOS.sh "-DMNN_ARM82=true -DMNN_LOW_MEMORY=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true -DMNN_BUILD_LLM=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true"
+```
 
 ### 使用
 #### 运行时配置
@@ -144,11 +155,16 @@ options:
 - 推理配置
   - max_new_tokens: 生成时最大token数，默认为`512`
   - reuse_kv: 多轮对话时是否复用之前对话的`kv cache`，默认为`false`
-  - quant_kv: 存储`kv cache`时是否量化，可选为：`0, 1, 2, 3`，默认为`0`，含义如下：
+  - quant_qkv: CPU attention 算子中`query, key, value`是否量化，可选为：`0, 1, 2, 3, 4`，默认为`0`，含义如下：
     - 0: key和value都不量化
     - 1: 使用非对称8bit量化存储key
-    - 2: 使用fp8格式寸处value
-    - 3: 使用非对称8bit量化存储key，使用fp8格式寸处value
+    - 2: 使用fp8格式量化存储value
+    - 3: 使用非对称8bit量化存储key，使用fp8格式量化存储value
+    - 4: 量化kv的同时使用非对称8bit量化query，并使用int8矩阵乘计算Q*K
+  - use_mmap: 是否使用mmap方式，在内存不足时将权重写入磁盘，避免溢出，默认为false，手机上建议设成true
+  - kvcache_mmap: 是否使用mmap方式，在内存不足时将在KV Cache 写入磁盘，避免溢出，默认为false
+  - tmp_path: 启用 mmap 相关功能时，写入磁盘的缓存目录
+    - iOS 上可用如下语句创建临时目录并设置：`NSString *tempDirectory = NSTemporaryDirectory();llm->set_config("{\"tmp_path\":\"" + std::string([tempDirectory UTF8String]) + "\"}")`
 - 硬件配置
   - backend_type: 推理使用硬件后端类型，默认为：`"cpu"`
   - thread_num: CPU推理使用硬件线程数，默认为：`4`; OpenCL推理时使用`68`

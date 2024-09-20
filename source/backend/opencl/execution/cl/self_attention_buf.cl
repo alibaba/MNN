@@ -53,6 +53,7 @@ __kernel void split_transpose_qkv(GLOBAL_SIZE_3_DIMS
                               __private const int seq_len,
                               __private const int head_num,
                               __private const int head_dim,
+                              __private const int batch,
                               __private const int seq_index
 ) {
     const int sl = get_global_id(0); // seqLen_4
@@ -80,8 +81,8 @@ __kernel void split_transpose_qkv(GLOBAL_SIZE_3_DIMS
             return;
         }
         
-        const int offset_inp = (((b * seq_len_4 + seq_index * seq_len_piece / 4 + sl) * head_num + hn) * 3 * head_dim + 4 * hd) * 4;
-        
+        const int offset_inp = ((((seq_index * seq_len_piece / 4 + sl) * batch + b) * head_num + hn) * 3 * head_dim + 4 * hd) * 4;
+
         if(sl * 4 < seq_len_piece) {
             FLOAT4 temp_0 = vload4(0, input + offset_inp);
             FLOAT4 temp_1 = vload4(0, input + offset_inp + 4);
@@ -125,7 +126,8 @@ __kernel void split_transpose_qkv(GLOBAL_SIZE_3_DIMS
     }
     
 
-    const int offset_inp = (((b * seq_len_4 + sl) * head_num + hn) * 3 * head_dim + 4 * hd) * 4;
+    const int offset_inp = (((sl * batch + b) * head_num + hn) * 3 * head_dim + 4 * hd) * 4;
+
     
     if(sl * 4 < seq_len_piece) {
         FLOAT4 temp_0 = vload4(0, input + offset_inp);
@@ -238,7 +240,7 @@ __kernel void softmax_inside(GLOBAL_SIZE_3_DIMS
     const int out_offset = (outside * shape.z + 0) * shape.y + axis;
     #endif
     /*Compute Result */
-    for (int i=lid; i<shape.z; i+=SOFTMAX_LOCAL_SIZE) {
+    for (int i=lid; i<inside_len; i+=SOFTMAX_LOCAL_SIZE) {
         float value = exp((float)input[offset+ i] - maxValue) / sumValue;
         #ifdef OUTPUT_TRANSPOSE
         output[out_offset+ i*shape.y] = value;
@@ -246,19 +248,32 @@ __kernel void softmax_inside(GLOBAL_SIZE_3_DIMS
         output[offset+ i] = value;
         #endif
     }
+    if(shape.z > inside_len){
+        for(int i = lid + inside_len; i < shape.z; i+=SOFTMAX_LOCAL_SIZE){
+            #ifdef OUTPUT_TRANSPOSE
+            output[out_offset+ i*shape.y] = (FLOAT)0;
+            #else
+            output[offset+ i] = (FLOAT)0;
+            #endif
+        }
+    }
 }
 
 // [N X Y4 4] -> [N Y X]
-__kernel void trans_3d_buf(__global const FLOAT* input,
+__kernel void trans_3d_buf(GLOBAL_SIZE_3_DIMS
+                        __global const FLOAT* input,
                         __global FLOAT* output,
                         __private const int batch,
                         __private const int width,
                         __private const int height
 ) {
     int b = get_global_id(2);
-    
-    const int w = get_global_id(0) << 3;
-    const int h = get_global_id(1) << 3;
+    int w = get_global_id(0);
+    int h = get_global_id(1);
+    DEAL_NON_UNIFORM_DIM3(w, h, b);
+
+    w = w << 3;
+    h = h << 3;
     
     const int inp_offset = (b * width + w) * height + h;
     const int out_offset = (b * height + h) * width + w;
@@ -290,6 +305,7 @@ __kernel void clip_transpose_qkv(GLOBAL_SIZE_3_DIMS
                               __private const int seq_len_piece,
                               __private const int head_num,
                               __private const int head_dim,
+                              __private const int batch,
                               __private const int seq_index
 ) {
     
@@ -311,8 +327,8 @@ __kernel void clip_transpose_qkv(GLOBAL_SIZE_3_DIMS
     
     const int offset_inp = ((b * head_num + hn) * head_dim_pack + 4 * hd) * seq_len_pack + 4 * sl;
     
-    const int offset_out = (((b * seq_len_4 + seq_index * seq_len_piece / 4 + sl) * head_num + hn) * head_dim + 4 * hd) * 4;
-    
+    const int offset_out = ((((seq_index * seq_len_piece / 4 + sl) * batch + b) * head_num + hn) * head_dim + 4 * hd) * 4;
+
     // Q
     FLOAT4 temp_0 = vload4(0, input + offset_inp);
     FLOAT4 temp_1 = vload4(0, input + offset_inp + seq_len_pack);

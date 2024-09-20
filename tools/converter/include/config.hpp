@@ -53,6 +53,7 @@ public:
     bool detectSparseSpeedUp = true;
     bool convertMatmulToConv = true;
     bool transformerFuse = false;
+    bool allowCustomOp = false;
     std::string customOpLibs = "";
     std::string authCode = "";
     std::string testDir = "";

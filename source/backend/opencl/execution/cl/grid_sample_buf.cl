@@ -61,7 +61,7 @@ __kernel void nearest_buf(GLOBAL_SIZE_3_DIMS  __global const FLOAT* input,
                         __private const int input_width,
                         __private const int output_height,
                         __private const int output_width,
-                        __private const int channelBlocks,
+                        __private const int batch,
                         __private const enum BorderMode paddingMode,
                         __private const int alignCorners){
     
@@ -88,19 +88,13 @@ __kernel void nearest_buf(GLOBAL_SIZE_3_DIMS  __global const FLOAT* input,
                                 (xn,xn,xn,xn) (y5,y6,y7,y8)
                                 ---------------------------
     */
-    const int slice = output_height_idx / 4;
-    const int slice_blocks = (output_height + 3) / 4;
     // output_width_block_idx means gird y offset, 2 means grid width
-    const int grid_offset = ((output_batch_idx * slice_blocks + slice) * output_width + output_width_block_idx) * 2;
-    COMPUTE_FLOAT4 grid_x = CONVERT_COMPUTE_FLOAT4(vload4(grid_offset, grid));
-    COMPUTE_FLOAT4 grid_y = CONVERT_COMPUTE_FLOAT4(vload4(grid_offset + 1, grid));
+    const int grid_offset = (output_batch_idx * output_height + output_height_idx) * output_width + output_width_block_idx;
+    COMPUTE_FLOAT2 grid_xy = CONVERT_COMPUTE_FLOAT2(vload2(grid_offset, grid));
 
-    const float arr[8] = {grid_x.x, grid_y.x, grid_x.y, grid_y.y, grid_x.z, grid_y.z, grid_x.w, grid_y.w};
-    
     // get grid x,y
-    const int arr_offset = output_height_idx % 4;
-    const float x = arr[2 * arr_offset];
-    const float y = arr[2 * arr_offset + 1];
+    const float x = (float)grid_xy.x;
+    const float y = (float)grid_xy.y;
 
     // convert grid x,y to input x,y coordinate range
     float in_grid_x = getPosition(x, input_width, alignCorners);
@@ -110,10 +104,10 @@ __kernel void nearest_buf(GLOBAL_SIZE_3_DIMS  __global const FLOAT* input,
     int nw = floor(in_grid_x + 0.5f);
     int nh = floor(in_grid_y + 0.5f);
 
-    const int inp_offset_base = (output_batch_idx * channelBlocks + output_channel_block_idx) * input_height;
+    const int inp_offset_base = (output_batch_idx + output_channel_block_idx * batch) * input_height;
     COMPUTE_FLOAT4 value = sample(nh, nw, inp_offset_base, input, input_height, input_width, paddingMode);
 
-    const int output_offset = ((output_batch_idx * channelBlocks + output_channel_block_idx ) * output_height + output_height_idx) * output_width + output_width_block_idx;
+    const int output_offset = ((output_batch_idx + output_channel_block_idx * batch) * output_height + output_height_idx) * output_width + output_width_block_idx;
     vstore4(CONVERT_FLOAT4(value), output_offset, output);
 }
 
@@ -124,7 +118,7 @@ __kernel void bilinear_buf(GLOBAL_SIZE_3_DIMS  __global const FLOAT* input,
                         __private const int input_width,
                         __private const int output_height,
                         __private const int output_width,
-                        __private const int channelBlocks,
+                        __private const int batch,
                         __private const enum BorderMode paddingMode,
                         __private const int alignCorners){
 
@@ -137,19 +131,14 @@ __kernel void bilinear_buf(GLOBAL_SIZE_3_DIMS  __global const FLOAT* input,
     const int output_batch_idx  = output_batch_height_block_idx / output_height;
     const int output_height_idx = output_batch_height_block_idx % output_height;
 
-    const int slice = output_height_idx / 4;
-    const int slice_blocks = (output_height + 3) / 4;
     // output_width_block_idx means gird y offset, 2 means grid width
-    const int grid_offset = ((output_batch_idx * slice_blocks + slice) * output_width + output_width_block_idx) * 2;
-    COMPUTE_FLOAT4 grid_x = CONVERT_COMPUTE_FLOAT4(vload4(grid_offset, grid));
-    COMPUTE_FLOAT4 grid_y = CONVERT_COMPUTE_FLOAT4(vload4(grid_offset + 1, grid));
+    const int grid_offset = (output_batch_idx * output_height + output_height_idx) * output_width + output_width_block_idx;
+    COMPUTE_FLOAT2 grid_xy = CONVERT_COMPUTE_FLOAT2(vload2(grid_offset, grid));
 
-    const float arr[8] = {grid_x.x, grid_y.x, grid_x.y, grid_y.y, grid_x.z, grid_y.z, grid_x.w, grid_y.w};
     
     // get grid x,y
-    const int arr_offset = output_height_idx % 4;
-    const float x = arr[2 * arr_offset];
-    const float y = arr[2 * arr_offset + 1];
+    const float x = (float)grid_xy.x;
+    const float y = (float)grid_xy.y;
 
     // convert grid x,y to input x,y coordinate range
     float in_grid_x = getPosition(x, input_width, alignCorners);
@@ -164,7 +153,7 @@ __kernel void bilinear_buf(GLOBAL_SIZE_3_DIMS  __global const FLOAT* input,
     float y_weight = in_h1 - in_grid_y;
 
     // bilinear interpolation
-    const int inp_offset_base = (output_batch_idx * channelBlocks + output_channel_block_idx) * input_height;
+    const int inp_offset_base = (output_batch_idx + output_channel_block_idx * batch) * input_height;
     COMPUTE_FLOAT4 i00 = sample(in_h0, in_w0, inp_offset_base, input, input_height, input_width, paddingMode);
     COMPUTE_FLOAT4 i01 = sample(in_h0, in_w1, inp_offset_base, input, input_height, input_width, paddingMode);
     COMPUTE_FLOAT4 i10 = sample(in_h1, in_w0, inp_offset_base, input, input_height, input_width, paddingMode);
@@ -173,6 +162,6 @@ __kernel void bilinear_buf(GLOBAL_SIZE_3_DIMS  __global const FLOAT* input,
     COMPUTE_FLOAT4 value = CONVERT_COMPUTE_FLOAT4(((COMPUTE_FLOAT4)x_weight * CONVERT_COMPUTE_FLOAT4(i00)  + (COMPUTE_FLOAT4)(1.0f - x_weight) * CONVERT_COMPUTE_FLOAT4(i01)) * (COMPUTE_FLOAT4)y_weight  +
                     ((COMPUTE_FLOAT4)x_weight * CONVERT_COMPUTE_FLOAT4(i10)  + (COMPUTE_FLOAT4)(1.0f - x_weight) * CONVERT_COMPUTE_FLOAT4(i11)) * (COMPUTE_FLOAT4)(1.0f- y_weight));
     
-    const int output_offset = ((output_batch_idx * channelBlocks + output_channel_block_idx ) * output_height + output_height_idx) * output_width + output_width_block_idx;
+    const int output_offset = ((output_batch_idx + output_channel_block_idx * batch) * output_height + output_height_idx) * output_width + output_width_block_idx;
     vstore4(CONVERT_FLOAT4(value), output_offset, output);
 }

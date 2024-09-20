@@ -36,24 +36,42 @@ ErrorCode RasterBufExecution::onEncode(const std::vector<Tensor *> &____inputs, 
     }
     auto des = TensorUtils::getDescribe(output);
     auto outputDes = TensorUtils::getDescribe(output);
-    mNeedZero = !TensorUtils::regionIsFull(output);
     auto regionNum = des->regions.size();
     auto mOpenCLBackend = static_cast<OpenCLBackend*>(backend());
     auto runtime = mOpenCLBackend->getOpenCLRuntime();
-   
-    bool cancombine = CanCombine(outputs);
+    int kernel_idx = 0;
+    auto outputShape = tensorShapeFormat(output);
+    mFast = false;
+    if (outputDes->dimensionFormat == MNN_DATA_FORMAT_NC4HW4) {
+        mFast = true;
+        for (int i=0; i< des->regions.size(); ++i) {
+            auto& slice = des->regions[i];
+            if (TensorUtils::getDescribe(slice.origin)->dimensionFormat != MNN_DATA_FORMAT_NC4HW4) {
+                mFast = false;
+                break;
+            }
+            if (!OpCommonUtils::canBlitFast(slice, output, 4, true)) {
+                mFast = false;
+                break;
+            }
+        }
+    }
+    mNeedZero = !TensorUtils::regionIsFull(output);
+    mNeedZero = mNeedZero || ((outputShape[3] % 4) != 0 && MNN_DATA_FORMAT_NC4HW4 == outputDes->dimensionFormat && !mFast);
+    bool cancombine = CanCombine(outputs) && (!mFast);
     if(cancombine){
         regionNum = 1;
     }
-    int kernel_idx = 0;
     mUnits.resize(regionNum);
-    auto outputShape = tensorShapeFormat(output);
-    if(mNeedZero || (outputShape[3] % 4) != 0)
+    if(mNeedZero)
     {
         mUnits.resize(regionNum + 1);
-        int region[] = {outputShape[0], ROUND_UP(outputShape[3], 4), outputShape[1], outputShape[2]};//nhwc
+        int region[] = {outputShape[0], outputShape[3], outputShape[1], outputShape[2]};//nchw
+        if(MNN_DATA_FORMAT_NC4HW4 == outputDes->dimensionFormat){
+            region[1] = ROUND_UP(outputShape[3], 4);
+        }
         Unit &unit          = mUnits[kernel_idx++];
-        unit.kernel         = runtime->buildKernel("raster", "buffer_set_zero", {}, output, output);
+        unit.kernel         = runtime->buildKernel("raster_buf", "buffer_set_zero", {}, output, output);
         unit.localWorkSize  = {8, 8};
         unit.globalWorkSize = {(uint32_t)UP_DIV((region[2] * region[3]), 8)*8,
                                    (uint32_t)UP_DIV((region[0] * region[1]), 8)*8};
@@ -73,6 +91,64 @@ ErrorCode RasterBufExecution::onEncode(const std::vector<Tensor *> &____inputs, 
         mOpenCLBackend->recordKernel2d(unit.kernel, {(uint32_t)UP_DIV((region[2] * region[3]), 8)*8,
             (uint32_t)UP_DIV((region[0] * region[1]), 8)*8},  {8, 8});
     }
+    if(mFast)
+    {
+        // nc4hw4 buffer raster
+        for (auto& slice : des->regions)
+        {
+            auto origin = slice.origin;
+            auto inputShape = tensorShapeFormat(origin);
+            Tensor::InsideDescribe::Region C4Region;
+            OpCommonUtils::turnToPackRegion(slice, C4Region, output, 4, true);
+            Unit &unit          = mUnits[kernel_idx++];
+            unit.kernel         = runtime->buildKernel("raster_buf", "raster_nc4hw4_buffer", {}, origin, output);
+
+            const std::vector<uint32_t> gws =  {(uint32_t)C4Region.size[2],
+                                                    (uint32_t)C4Region.size[1],
+                                                    (uint32_t)C4Region.size[0]};
+            uint32_t mMaxWorkGroupSize      = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
+            
+            auto outputShape    = tensorShapeFormat(output);
+            auto sliceShape    = tensorShapeFormat(slice.origin);
+
+            uint32_t idx   = 0;
+            cl_int ret = CL_SUCCESS;
+            ret |= unit.kernel->get().setArg(idx++, gws[0]);
+            ret |= unit.kernel->get().setArg(idx++, gws[1]);
+            ret |= unit.kernel->get().setArg(idx++, gws[2]);
+            ret |= unit.kernel->get().setArg(idx++, openCLBuffer(slice.origin));
+            ret |= unit.kernel->get().setArg(idx++, C4Region.src.offset);
+            ret |= unit.kernel->get().setArg(idx++, C4Region.src.stride[0]);
+            ret |= unit.kernel->get().setArg(idx++, C4Region.src.stride[1]);
+            ret |= unit.kernel->get().setArg(idx++, C4Region.src.stride[2]);
+            ret |= unit.kernel->get().setArg(idx++, sliceShape[1]);
+            ret |= unit.kernel->get().setArg(idx++, sliceShape[2]);
+            ret |= unit.kernel->get().setArg(idx++, sliceShape[3]);
+            ret |= unit.kernel->get().setArg(idx++, openCLBuffer(output));
+            ret |= unit.kernel->get().setArg(idx++, C4Region.dst.offset);
+            ret |= unit.kernel->get().setArg(idx++, C4Region.dst.stride[0]);
+            ret |= unit.kernel->get().setArg(idx++, C4Region.dst.stride[1]);
+            ret |= unit.kernel->get().setArg(idx++, C4Region.dst.stride[2]);
+            ret |= unit.kernel->get().setArg(idx++, outputShape[1]);
+            ret |= unit.kernel->get().setArg(idx++, outputShape[2]);
+            ret |= unit.kernel->get().setArg(idx++, outputShape[3]);
+            if(ret != CL_SUCCESS)
+            {
+                MNN_PRINT("setArg err %d\n", (int)ret);
+            }
+            std::string name = "raster_nc4hw4_buffer";
+            const std::vector<uint32_t> lws = localWS3DDefault(gws, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, unit.kernel).first;
+            
+            unit.localWorkSize = {lws[0], lws[1], lws[2]};
+            
+            unit.globalWorkSize = {ROUND_UP(gws[0], std::max((uint32_t)1, lws[0])),
+                                   ROUND_UP(gws[1], std::max((uint32_t)1, lws[1])),
+                                   ROUND_UP(gws[2], std::max((uint32_t)1, lws[2]))};
+            mOpenCLBackend->recordKernel3d(unit.kernel, gws, lws);
+        }
+        return NO_ERROR;
+    }
+    
     if(cancombine){
         auto regions = des->regions;
         auto slice = regions[0];
@@ -82,17 +158,11 @@ ErrorCode RasterBufExecution::onEncode(const std::vector<Tensor *> &____inputs, 
         std::set<std::string> buildOptions;
         auto origin = slice.origin;
         auto inputShape = tensorShapeFormat(origin);
-        if(TensorUtils::getDescribe(origin)->dimensionFormat == MNN_DATA_FORMAT_NHWC)
-        {
-            buildOptions.emplace(" -DINPUT_DATA_FORMAT_NHWC");
-        }
-        if(outputDes->dimensionFormat == MNN_DATA_FORMAT_NHWC)//nhwc buffer to Image
-        {
-            buildOptions.emplace(" -DOUTPUT_DATA_FORMAT_NHWC");
-        }
+        buildOptions.emplace("-DINPUT_FORMAT=" + std::to_string(TensorUtils::getDescribe(origin)->dimensionFormat));
+        buildOptions.emplace("-DOUTPUT_FORMAT=" + std::to_string(outputDes->dimensionFormat));
         
         Unit &unit          = mUnits[kernel_idx++];
-        unit.kernel         = runtime->buildKernel("raster_buf", "raster_direct_buffer", buildOptions, output, output);
+        unit.kernel         = runtime->buildKernel("raster_buf", "raster_direct_buffer", buildOptions, origin, output);
         
         const std::vector<uint32_t> gws =  {(uint32_t)slice.size[2] * nums,
             (uint32_t)slice.size[1],
@@ -114,6 +184,7 @@ ErrorCode RasterBufExecution::onEncode(const std::vector<Tensor *> &____inputs, 
         ret |= unit.kernel->get().setArg(idx++, inputShape[2]);
         ret |= unit.kernel->get().setArg(idx++, inputShape[1]);
         ret |= unit.kernel->get().setArg(idx++, inputShape[3]);
+        ret |= unit.kernel->get().setArg(idx++, inputShape[0]);
         ret |= unit.kernel->get().setArg(idx++, openCLBuffer(output));
         ret |= unit.kernel->get().setArg(idx++, slice.dst.offset);
         ret |= unit.kernel->get().setArg(idx++, dst_offset);
@@ -123,6 +194,7 @@ ErrorCode RasterBufExecution::onEncode(const std::vector<Tensor *> &____inputs, 
         ret |= unit.kernel->get().setArg(idx++, outputShape[2]);
         ret |= unit.kernel->get().setArg(idx++, outputShape[1]);
         ret |= unit.kernel->get().setArg(idx++, outputShape[3]);
+        ret |= unit.kernel->get().setArg(idx++, outputShape[0]);
         if(ret != CL_SUCCESS)
         {
             MNN_PRINT("setArg err %d\n", (int)ret);
@@ -141,18 +213,11 @@ ErrorCode RasterBufExecution::onEncode(const std::vector<Tensor *> &____inputs, 
             auto inputShape = tensorShapeFormat(origin);
             int src_offset = 0;
             int dst_offset = 0;
-            if(TensorUtils::getDescribe(origin)->dimensionFormat == MNN_DATA_FORMAT_NHWC)
-            {
-                buildOptions.emplace(" -DINPUT_DATA_FORMAT_NHWC");
-            }
-            if(outputDes->dimensionFormat == MNN_DATA_FORMAT_NHWC)//nhwc buffer to Image
-            {
-                buildOptions.emplace(" -DOUTPUT_DATA_FORMAT_NHWC");
-            }
+            buildOptions.emplace("-DINPUT_FORMAT=" + std::to_string(TensorUtils::getDescribe(origin)->dimensionFormat));
+            buildOptions.emplace("-DOUTPUT_FORMAT=" + std::to_string(outputDes->dimensionFormat));
             
             Unit &unit          = mUnits[kernel_idx++];
-            unit.kernel         = runtime->buildKernel("raster_buf", "raster_direct_buffer", buildOptions, output, output);
-            
+            unit.kernel         = runtime->buildKernel("raster_buf", "raster_direct_buffer", buildOptions, origin, output);
             const std::vector<uint32_t> gws =  {(uint32_t)slice.size[2],
                 (uint32_t)slice.size[1],
                 (uint32_t)slice.size[0]};
@@ -173,6 +238,7 @@ ErrorCode RasterBufExecution::onEncode(const std::vector<Tensor *> &____inputs, 
             ret |= unit.kernel->get().setArg(idx++, inputShape[2]);
             ret |= unit.kernel->get().setArg(idx++, inputShape[1]);
             ret |= unit.kernel->get().setArg(idx++, inputShape[3]);
+            ret |= unit.kernel->get().setArg(idx++, inputShape[0]);
             ret |= unit.kernel->get().setArg(idx++, openCLBuffer(output));
             ret |= unit.kernel->get().setArg(idx++, slice.dst.offset);
             ret |= unit.kernel->get().setArg(idx++, dst_offset);
@@ -182,6 +248,7 @@ ErrorCode RasterBufExecution::onEncode(const std::vector<Tensor *> &____inputs, 
             ret |= unit.kernel->get().setArg(idx++, outputShape[2]);
             ret |= unit.kernel->get().setArg(idx++, outputShape[1]);
             ret |= unit.kernel->get().setArg(idx++, outputShape[3]);
+            ret |= unit.kernel->get().setArg(idx++, outputShape[0]);
             if(ret != CL_SUCCESS)
             {
                 MNN_PRINT("setArg err %d\n", (int)ret);

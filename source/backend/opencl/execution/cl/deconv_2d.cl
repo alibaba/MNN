@@ -17,7 +17,7 @@ __kernel void deconv_2d(GLOBAL_SIZE_3_DIMS
                         #ifdef BIAS
                         __global FLOAT* bias,
                         #endif
-                        __global FLOAT* output,
+                        __global FLOAT* output, __private const int batch,
                     #else
                         __read_only image2d_t input,
                         __read_only image2d_t weights,
@@ -82,7 +82,7 @@ __kernel void deconv_2d(GLOBAL_SIZE_3_DIMS
                 weights3 = vload4(kernel_x_3*(out_channel_blocks*kernel_shape.x*kernel_shape.y)+kernel_y, weights);
 
                 bool outBoundry = (idx_h < 0 || idx_h >= input_shape.x || kernel_start_x < 0 || in_width0 >= input_shape.y);
-                int inp_offset = (((out_b_idx * in_channel_blocks + ic) * input_shape.x + idx_h) * input_shape.y + in_width0) * 4;
+                int inp_offset = (((out_b_idx + ic * batch) * input_shape.x + idx_h) * input_shape.y + in_width0) * 4;
                 in0 = outBoundry ? (FLOAT4)0 : vload4(0, input+inp_offset);
 
                 out0 = mad(in0.x, weights0, out0);
@@ -127,7 +127,7 @@ __kernel void deconv_2d(GLOBAL_SIZE_3_DIMS
 #endif
 
 #ifdef USE_BUFFER
-    const int out_offset = (((out_b_idx*out_channel_blocks + out_channel_blocks_idx)*output_shape.x + out_h_idx)*output_shape.y + out_w_idx)*4;
+    const int out_offset = (((out_b_idx + out_channel_blocks_idx*batch)*output_shape.x + out_h_idx)*output_shape.y + out_w_idx)*4;
     vstore4(out0, 0, output+out_offset);
 #else
     int out_image_width_idx = mad24(out_channel_blocks_idx, output_shape.y, out_w_idx);

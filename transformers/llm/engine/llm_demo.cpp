@@ -8,6 +8,7 @@
 #include "llm/llm.hpp"
 #define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
+#include <MNN/expr/ExecutorScope.hpp>
 #include <fstream>
 #include <sstream>
 #include <stdlib.h>
@@ -160,14 +161,19 @@ int main(int argc, const char* argv[]) {
         std::cout << "Usage: " << argv[0] << " config.json <prompt.txt>" << std::endl;
         return 0;
     }
+    MNN::BackendConfig backendConfig;
+    auto executor = MNN::Express::Executor::newExecutor(MNN_FORWARD_CPU, backendConfig, 1);
+    MNN::Express::ExecutorScope s(executor);
+
     std::string config_path = argv[1];
     std::cout << "config path is " << config_path << std::endl;
     std::unique_ptr<Llm> llm(Llm::createLLM(config_path));
+    llm->set_config("{\"tmp_path\":\"tmp\"}");
     {
         AUTOTIME;
         llm->load();
     }
-    if (false) {
+    if (true) {
         AUTOTIME;
         trace_prepare(llm.get());
     }

@@ -31,7 +31,6 @@ private:
     int32_t mBatch;
     std::unique_ptr<Tensor> mGammaTensor;
     std::unique_ptr<Tensor> mBetaTensor;
-    std::shared_ptr<Tensor> mInputPlain, mOutputPlain;
     bool mHasGammaBeta = false;
     std::vector<uint32_t> mLWS{0, 0, 0, 0};
     std::vector<uint32_t> mGWS{0, 0, 0, 0};

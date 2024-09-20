@@ -346,7 +346,7 @@ ErrorCode CPUDeconvolutionOrigin::onResize(const std::vector<Tensor*>& inputs, c
     }
 
     mPostFunctions.emplace_back(std::make_pair([ocC4, width, height, kh, kw, padY, padX, dilateY, dilateX, strideY,
-                       strideX, threadNumber, src_width, src_height, plane, input, biasTensor, this, core, gcore, batch, outi8, scales,
+                       strideX, threadNumber, src_width, src_height, plane, input, biasTensor, this, core, gcore, batch, outi8, scale,
                        minValue, maxValue, zeroPoint, outputFp32Ptr](uint8_t* outputPtr, int tId) {
         auto colBufferPtr = mTempOutput->host<uint8_t>();
         auto biasPtr      = biasTensor->host<float>();
@@ -391,7 +391,9 @@ ErrorCode CPUDeconvolutionOrigin::onResize(const std::vector<Tensor*>& inputs, c
             }
             core->MNNAxByClampBroadcastUnit((float*)dstZ, (float*)dstZ, (const float*)((uint8_t*)biasPtr +  unitBytes * z), src_height * src_width * batch, 0, 0, 1, mPostParameters.data());
             if (outi8) {
-                gcore->MNNFloat2Int8((float*)dstZ, (int8_t*)(outputPtr + z * float2Int8_step * core->pack), float2Int8_step, scales.data(), minValue, maxValue, zeroPoint);
+                float scaleOne = scale;
+                float zeroOne  = zeroPoint;
+                gcore->MNNFloat2Int8((float*)dstZ, (int8_t*)(outputPtr + z * float2Int8_step * core->pack), float2Int8_step, &scaleOne, minValue, maxValue, &zeroOne, 0);
             }
         }
     }, threadNumber));

@@ -549,7 +549,7 @@ namespace MNN {
 
     NNAPIRuntime::~NNAPIRuntime() {}
 
-    Backend* NNAPIRuntime::onCreate(const BackendConfig* config) const {
+    Backend* NNAPIRuntime::onCreate(const BackendConfig* config, Backend* origin) const {
         return new NNAPIBackend(this);
     }
 

@@ -69,12 +69,8 @@ public:
         bool mRelu;
         int mActBits;  // quant bits
 
-        int mOutputCount;
         bool mUseConvQuan = true;
         bool mWeightAsymmetricQuant = true;
-#ifdef MNN_USE_SSE
-        std::vector<int> offsets;
-#endif
         // Origin Attributes from net
         float mInputScale = 0.0f;
         float mOutputScale = 0.0f;
@@ -82,6 +78,7 @@ public:
         int32_t mOutputZeroPoint;
         int8_t mClampMin;
         int8_t mClampMax;
+        bool mDynamicQuant = false;
     };
     struct MutableResourceInt8 {
         MutableResourceInt8(std::shared_ptr<ResourceInt8> res, Backend* backend);
@@ -100,8 +97,6 @@ public:
         bool mValid;
     };
     static std::shared_ptr<ResourceInt8> makeResourceInt8(Backend *backend, const MNN::Op *op, int pack=4);
-    static void makeResource(Backend* backend, std::shared_ptr<Resource> resource, const MNN::Op *op, std::shared_ptr<ResourceInt8> resourceInt8 = nullptr);
-    static void makeResourceNew(Backend* backend, const Convolution2D* conv2d, std::shared_ptr<ResourceInt8> resourceInt8);
     CPUConvolution(const Convolution2DCommon *convOp, Backend *b);
     virtual ~CPUConvolution() = default;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;

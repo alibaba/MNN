@@ -28,8 +28,8 @@ static FormatSetType _getFormatType(const OpT* op, MNN_DATA_FORMAT originFormat)
     switch (op->type) {
         // NC4HW4 Ops with multi-input
         case MNN::OpType_SeqLen2Spatial:
-	case MNN::OpType_GroupNorm:
-	case MNN::OpType_Convolution:
+        case MNN::OpType_FmhaV2:
+        case MNN::OpType_Convolution:
         case MNN::OpType_Convolution3D:
         case MNN::OpType_ConvolutionDepthwise:
         case MNN::OpType_Deconvolution:

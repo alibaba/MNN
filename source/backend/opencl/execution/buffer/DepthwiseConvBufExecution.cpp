@@ -108,7 +108,8 @@ ErrorCode DepthwiseConvBufExecution::onEncode(const std::vector<Tensor *> &input
     const int outputHeight = outputShape.at(1);
     const int outputWidth  = outputShape.at(2);
     const int outputChannel  = outputShape.at(3);
-
+    
+    const int batch         = inputShape.at(0);
     const int inputHeight   = inputShape.at(1);
     const int inputWidth    = inputShape.at(2);
     const int inputChannels = inputShape.at(3);
@@ -173,7 +174,7 @@ ErrorCode DepthwiseConvBufExecution::onEncode(const std::vector<Tensor *> &input
             ret |= kernel[knl_idx]->get().setArg(idx++, openCLBuffer(mResource->mBias.get()));
             ret |= kernel[knl_idx]->get().setArg(idx++, openCLBuffer(output));
             ret |= kernel[knl_idx]->get().setArg(idx++, sizeof(inputImageShape), inputImageShape);
-            ret |= kernel[knl_idx]->get().setArg(idx++, static_cast<int>(inputChannels));
+            ret |= kernel[knl_idx]->get().setArg(idx++, static_cast<int>(batch));
             ret |= kernel[knl_idx]->get().setArg(idx++, sizeof(outputImageShape), outputImageShape);
             ret |= kernel[knl_idx]->get().setArg(idx++, sizeof(kernelShape), kernelShape);
             ret |= kernel[knl_idx]->get().setArg(idx++, sizeof(paddingShape), paddingShape);
@@ -206,7 +207,7 @@ ErrorCode DepthwiseConvBufExecution::onEncode(const std::vector<Tensor *> &input
         ret |= unit.kernel->get().setArg(idx++, openCLBuffer(mResource->mBias.get()));
         ret |= unit.kernel->get().setArg(idx++, openCLBuffer(output));
         ret |= unit.kernel->get().setArg(idx++, sizeof(inputImageShape), inputImageShape);
-        ret |= unit.kernel->get().setArg(idx++, static_cast<int>(inputChannels));
+        ret |= unit.kernel->get().setArg(idx++, static_cast<int>(batch));
         ret |= unit.kernel->get().setArg(idx++, sizeof(outputImageShape), outputImageShape);
         ret |= unit.kernel->get().setArg(idx++, sizeof(kernelShape), kernelShape);
         ret |= unit.kernel->get().setArg(idx++, sizeof(paddingShape), paddingShape);
@@ -249,7 +250,7 @@ ErrorCode DepthwiseConvBufExecution::onEncode(const std::vector<Tensor *> &input
             ret |= kernel[knl_idx]->get().setArg(idx++, openCLBuffer(mResource->mBias.get()));
             ret |= kernel[knl_idx]->get().setArg(idx++, openCLBuffer(output));
             ret |= kernel[knl_idx]->get().setArg(idx++, sizeof(inputImageShape), inputImageShape);
-            ret |= kernel[knl_idx]->get().setArg(idx++, static_cast<int>(inputChannels));
+            ret |= kernel[knl_idx]->get().setArg(idx++, static_cast<int>(batch));
             ret |= kernel[knl_idx]->get().setArg(idx++, sizeof(outputImageShape), outputImageShape);
             ret |= kernel[knl_idx]->get().setArg(idx++, sizeof(kernelShape), kernelShape);
             ret |= kernel[knl_idx]->get().setArg(idx++, sizeof(paddingShape), paddingShape);
@@ -283,7 +284,7 @@ ErrorCode DepthwiseConvBufExecution::onEncode(const std::vector<Tensor *> &input
         ret |= unit.kernel->get().setArg(idx++, openCLBuffer(mResource->mBias.get()));
         ret |= unit.kernel->get().setArg(idx++, openCLBuffer(output));
         ret |= unit.kernel->get().setArg(idx++, sizeof(inputImageShape), inputImageShape);
-        ret |= unit.kernel->get().setArg(idx++, static_cast<int>(inputChannels));
+        ret |= unit.kernel->get().setArg(idx++, static_cast<int>(batch));
         ret |= unit.kernel->get().setArg(idx++, sizeof(outputImageShape), outputImageShape);
         ret |= unit.kernel->get().setArg(idx++, sizeof(kernelShape), kernelShape);
         ret |= unit.kernel->get().setArg(idx++, sizeof(paddingShape), paddingShape);

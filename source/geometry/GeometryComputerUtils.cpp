@@ -265,14 +265,20 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
                 auto& c = *cp;
                 std::shared_ptr<BufferStorage> tmpStorge;
                 if (nullptr == c.execution) {
-                    auto exe = OpCommonUtils::createExecutionWithExternal(backupBackend.get(), c.inputs, c.outputs, c.op, external, tmpStorge);
-                    c.execution.reset(exe);
+                    auto opIter = info.executionCache.find(c.op);
+                    if (opIter != info.executionCache.end()) {
+                        c.execution = opIter->second;
+                    } else {
+                        auto exe = OpCommonUtils::createExecutionWithExternal(backupBackend.get(), c.inputs, c.outputs, c.op, external, tmpStorge);
+                        c.execution.reset(exe);
+                    }
                 }
                 auto exe = c.execution;
                 if (nullptr == exe.get()) {
                     MNN_ERROR("Const Folder Error for %s\n", info.op->name()->c_str());
                     return NO_EXECUTION;
                 }
+                backupBackend->onResizeBegin();
                 for (auto t : c.outputs) {
                     auto des = TensorUtils::getDescribeOrigin(t);
                     TensorUtils::setLinearLayout(t);
@@ -282,7 +288,6 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
                     }
                     des->setBackend(backupBackend.get());
                 }
-                backupBackend->onResizeBegin();
                 auto code = exe->onResize(c.inputs, c.outputs);
                 if (NO_ERROR != code) {
                     return NOT_SUPPORT;

@@ -269,6 +269,8 @@ ErrorCode Pipeline::encode(bool supportDebug, bool permitCodegen) {
         }
     } else {
 #ifndef MNN_BUILD_MINI
+        mBackend->onClearBuffer();
+        mBackupBackend->onClearBuffer();
         mContext.clear();
         mContext.mNeedRelease = mGeometryNeedRelease;
         FileLoader l(mExternalFile.c_str());
@@ -897,6 +899,10 @@ ErrorCode Pipeline::fixResizeCache() {
             info.cacheBuffer.extras.clear();
         }
     }
+    mInfo.first.cache.first->onResizeBegin();
+    mInfo.first.cache.first->onResizeEnd();
+    mInfo.first.cache.second->onResizeBegin();
+    mInfo.first.cache.second->onResizeEnd();
     auto res = mInfo.first.cache.first->onSelectDynamicAllocator(1, 2);
     res = res && mInfo.first.cache.second->onSelectDynamicAllocator(1, 2);
     if (!res) {
@@ -1094,8 +1100,6 @@ ErrorCode Pipeline::allocMemory(bool firstMalloc, bool forbidReplace) {
     /* Create Execution Begin */
     auto& mBackend = mInfo.first.cache.first;
     auto& mBackupBackend = mInfo.first.cache.second;
-    mBackend->onClearBuffer();
-    mBackupBackend->onClearBuffer();
     // Check If we need a lone time for init
     if (mBackend->type() != MNN_FORWARD_CPU && mBackend->type() != MNN_FORWARD_CPU_EXTENSION && mTuneAttr.autoSetOpType) {
         Runtime::OpInfo dstInfo;
@@ -1144,10 +1148,12 @@ ErrorCode Pipeline::allocMemory(bool firstMalloc, bool forbidReplace) {
         }
     }
     /* Create Execution End */
-
+    mBackend->onClearBuffer();
+    mBackupBackend->onClearBuffer();
     _SetTensorBackend(mInfo, mAllocInput);
     // Insert Wrap If needed
     {
+        // Reset memory allocator for backend
         auto insertCode = _InsertCopy(mInfo, mCacheConstTensors, mWrapTensors, mAllocInput, forbidReplace);
         if (NO_ERROR != insertCode) {
             return insertCode;

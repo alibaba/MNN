@@ -15,9 +15,10 @@ __kernel void pooling_c4_c4(GLOBAL_SIZE_3_DIMS __global const FLOAT *input,
                       __global FLOAT *output,
                       __global FLOAT *rediceOutput,
                       __private const int channel,
+                      __private const int batch,
                       __private const int in_channel_block,
                       __private const int out_channel_block,
-                      __private const int input_pad_left, 
+                      __private const int input_pad_left,
                       __private const int input_pad_right, 
                       __private const int output_pad_left,
                       __private const int output_pad_right) {
@@ -35,7 +36,7 @@ __kernel void pooling_c4_c4(GLOBAL_SIZE_3_DIMS __global const FLOAT *input,
     
     #ifdef POOL_AVG
     COMPUTE_FLOAT4 result = (COMPUTE_FLOAT4)(0);
-    const int inp_offset = (((b_idx*in_channel_block+c_idx)*input_shape.x+ih_start)*input_shape.y+iw_start+input_pad_left)*4;
+    const int inp_offset = (((b_idx+c_idx*batch)*input_shape.x+ih_start)*input_shape.y+iw_start+input_pad_left)*4;
 #ifdef COUNT_INCLUDE_PADDING
     int total_count = (min(ih_start + KERNEL_Y, input_shape.x + pad_shape.x) - ih_start) * (min(iw_start + KERNEL_X, input_shape.y + pad_shape.y) - iw_start);
 #else
@@ -64,7 +65,7 @@ __kernel void pooling_c4_c4(GLOBAL_SIZE_3_DIMS __global const FLOAT *input,
     #if RETURN_REDICE
     int4 redice = (int4)0;
     #endif
-    const int inp_offset = (((b_idx*in_channel_block+c_idx)*input_shape.x+ih_start)*input_shape.y+iw_start+input_pad_left)*4;
+    const int inp_offset = (((b_idx+c_idx*batch)*input_shape.x+ih_start)*input_shape.y+iw_start+input_pad_left)*4;
     for(int kh=0; kh<KERNEL_Y; kh++) {
         int ih_cur = ih_start + kh;
         if(ih_cur < 0 || ih_cur >= input_shape.x) {
@@ -84,10 +85,10 @@ __kernel void pooling_c4_c4(GLOBAL_SIZE_3_DIMS __global const FLOAT *input,
     }
     #endif
     
-    const int out_offset = (((b_idx*in_channel_block + c_idx)*output_shape.x + oh_idx)* output_shape.y + ow_idx + output_pad_left)*4;
+    const int out_offset = (((b_idx + c_idx*batch)*output_shape.x + oh_idx)* output_shape.y + ow_idx + output_pad_left)*4;
     vstore4(CONVERT_FLOAT4(result), 0, output+out_offset);
     #if RETURN_REDICE
-    vstore4(CONVERT_FLOAT4(redice),  0, rediceOutput+(((b_idx*in_channel_block + c_idx)*output_shape.x + oh_idx)* output_shape.y + ow_idx)*4);
+    vstore4(CONVERT_FLOAT4(redice),  0, rediceOutput+(((b_idx + c_idx*batch)*output_shape.x + oh_idx)* output_shape.y + ow_idx)*4);
     #endif
 }
 
@@ -98,6 +99,7 @@ __kernel void pooling_c4_c16(GLOBAL_SIZE_3_DIMS __global const FLOAT *input,
                       __global FLOAT *output,
                       __global FLOAT *rediceOutput,
                       __private const int channel,
+                      __private const int batch,
                       __private const int in_channel_block,
                       __private const int out_channel_block,
                       __private const int input_pad_left, 
@@ -119,7 +121,7 @@ __kernel void pooling_c4_c16(GLOBAL_SIZE_3_DIMS __global const FLOAT *input,
     
     #ifdef POOL_AVG
     COMPUTE_FLOAT4 result = (COMPUTE_FLOAT4)(0);
-    const int inp_offset = (((b_idx*in_channel_block+c_idx)*input_shape.x+ih_start)*input_shape.y+iw_start+input_pad_left)*4;
+    const int inp_offset = (((b_idx+c_idx*batch)*input_shape.x+ih_start)*input_shape.y+iw_start+input_pad_left)*4;
  #ifdef COUNT_INCLUDE_PADDING
     int total_count = (min(ih_start + KERNEL_Y, input_shape.x + pad_shape.x) - ih_start) * (min(iw_start + KERNEL_X, input_shape.y + pad_shape.y) - iw_start);
 #else
@@ -148,7 +150,7 @@ __kernel void pooling_c4_c16(GLOBAL_SIZE_3_DIMS __global const FLOAT *input,
     #if RETURN_REDICE
     int4 redice = (int4)0;
     #endif
-    const int inp_offset = (((b_idx*in_channel_block+c_idx)*input_shape.x+ih_start)*input_shape.y+iw_start+input_pad_left)*4;
+    const int inp_offset = (((b_idx+c_idx*batch)*input_shape.x+ih_start)*input_shape.y+iw_start+input_pad_left)*4;
     for(int kh=0; kh<KERNEL_Y; kh++) {
         int ih_cur = ih_start + kh;
         if(ih_cur < 0 || ih_cur >= input_shape.x) {
@@ -194,6 +196,7 @@ __kernel void pooling_c16_c16(GLOBAL_SIZE_3_DIMS __global const FLOAT *input,
                       __global FLOAT *output,
                       __global FLOAT *rediceOutput,
                       __private const int channel,
+                      __private const int batch,
                       __private const int in_channel_block,
                       __private const int out_channel_block,
                       __private const int input_pad_left, 
@@ -343,6 +346,7 @@ __kernel void pooling_c16_c4(GLOBAL_SIZE_3_DIMS __global const FLOAT *input,
                       __global FLOAT *output,
                       __global FLOAT *rediceOutput,
                       __private const int channel,
+                      __private const int batch,
                       __private const int in_channel_block,
                       __private const int out_channel_block,
                       __private const int input_pad_left, 
@@ -429,18 +433,18 @@ __kernel void pooling_c16_c4(GLOBAL_SIZE_3_DIMS __global const FLOAT *input,
     const uint lid_x = sglid % 4;
     const uint lid_y = sglid / 4;
     
-    const int out_offset = (((b_idx*out_channel_block + c_idx * 4)*output_shape.x + oh_idx)* output_shape.y + ow_idx + output_pad_left)*4;
-    const int width_height = output_shape.y * output_shape.x * 4;
+    const int out_offset = (((b_idx + c_idx * 4 * batch)*output_shape.x + oh_idx)* output_shape.y + ow_idx + output_pad_left)*4;
+    const int batch_width_height = batch * output_shape.y * output_shape.x * 4;
 #if RETURN_REDICE
-    const int redice_offset = (((b_idx*out_channel_block + c_idx * 4)*output_shape.x + oh_idx)* output_shape.y + ow_idx)*4;
+    const int redice_offset = (((b_idx + c_idx * 4 * batch)*output_shape.x + oh_idx)* output_shape.y + ow_idx)*4;
 #endif
 #if OUTPUT_LEFTOVERS
     if ((c_idx+1)*16 >= channel) {
         for (int i = 0; i < 8; i++) {
             if ((c_idx*16 + lid_y * 4 + lid_x < channel) && (ow_idx + i) < output_shape.y)
-                output[out_offset + lid_y * width_height + i * 4 + lid_x] = result[i];
+                output[out_offset + lid_y * batch_width_height + i * 4 + lid_x] = result[i];
 #if RETURN_REDICE
-                rediceOutput[redice_offset + lid_y * width_height + i * 4 + lid_x] = redice[i];
+                rediceOutput[redice_offset + lid_y * batch_width_height + i * 4 + lid_x] = redice[i];
 #endif
         }
     }
@@ -448,9 +452,9 @@ __kernel void pooling_c16_c4(GLOBAL_SIZE_3_DIMS __global const FLOAT *input,
 #endif  
     {
         for (int i = 0; i < 8 && (ow_idx + i) < output_shape.y; i++) {
-            output[out_offset + lid_y * width_height + i * 4 + lid_x] = result[i];
+            output[out_offset + lid_y * batch_width_height + i * 4 + lid_x] = result[i];
 #if RETURN_REDICE
-            rediceOutput[redice_offset + lid_y * width_height + i * 4 + lid_x] = redice[i];
+            rediceOutput[redice_offset + lid_y * batch_width_height + i * 4 + lid_x] = redice[i];
 #endif
         }
     }

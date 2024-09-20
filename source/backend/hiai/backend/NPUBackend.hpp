@@ -251,7 +251,7 @@ namespace MNN {
         NPURuntime(const Backend::Info& info);
         virtual ~NPURuntime();
         virtual CompilerType onGetCompilerType() const override;
-        virtual Backend* onCreate(const BackendConfig* conf) const override;
+        virtual Backend* onCreate(const BackendConfig* conf, Backend* origin) const override;
         virtual void onGabageCollect(int level) override;
         // If buffer is not nullptr, try copy cache, else delete cache
         virtual bool onSetCache(const void* buffer, size_t size) override {

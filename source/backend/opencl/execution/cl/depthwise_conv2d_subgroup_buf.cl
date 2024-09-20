@@ -12,6 +12,7 @@ __kernel void depthwise_conv_2d_buf_c16_c16(
    __private const int inputHeight,
    __private const int inputWidth,
    __private const int Channel,
+   __private const int Batch,
    __private const int input_pad_left,
    __private const int input_pad_right,
    __private const int outputHeight,
@@ -130,6 +131,7 @@ __kernel void depthwise_conv_2d_buf_c16_c4(
    __private const int inputHeight,
    __private const int inputWidth,
    __private const int Channel,
+   __private const int Batch,
    __private const int input_pad_left,
    __private const int input_pad_right,
    __private const int outputHeight,
@@ -167,10 +169,10 @@ __kernel void depthwise_conv_2d_buf_c16_c4(
     const uint output_x_pitch = 4;
     const uint output_y_pitch = output_x_pitch * outputWidth;
     const uint output_fs_pitch = output_y_pitch * outputHeight;
-    const uint output_b_pitch = output_fs_pitch * ((Channel + 3) / 4);
+    const uint output_b_pitch = output_fs_pitch * Batch;
 
-    const uint output_offset = b * output_b_pitch +
-                               (c << 2) * output_fs_pitch +
+    const uint output_offset = (c << 2) * output_b_pitch +
+                               b * output_fs_pitch +
                                y * output_y_pitch +
                                x * output_x_pitch;
 
@@ -223,6 +225,6 @@ __kernel void depthwise_conv_2d_buf_c16_c4(
     const uint lid_x = sglid % 4;
     const uint lid_y = sglid / 4;
     for (int i = 0; i < 8 && (x + i) < outputWidth; i++) {
-        output[output_offset + lid_y * output_fs_pitch + i * output_x_pitch + lid_x] = dst[i];
+        output[output_offset + lid_y * output_b_pitch + i * output_x_pitch + lid_x] = dst[i];
     }
 }

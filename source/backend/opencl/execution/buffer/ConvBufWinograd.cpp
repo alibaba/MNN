@@ -35,11 +35,11 @@ bool ConvBufWinograd::valid(const Convolution2DCommon* common, const Tensor* inp
     return valid;
 }
     
-void ConvBufWinograd::convertWeightFormat(cl::Buffer& buffer, const int tileK, const int tileN) {
+void ConvBufWinograd::convertWeightFormat(cl::Buffer& buffer, const int alignK, const int alignN) {
     auto runtime = mOpenCLBackend->getOpenCLRuntime();
     
-    auto icPad  = ROUND_UP(mCi, tileK);
-    auto ocPad  = ROUND_UP(mCo, tileN);
+    auto icPad  = ROUND_UP(mCi, alignK);
+    auto ocPad  = ROUND_UP(mCo, alignN);
     
     auto kernel = runtime->buildKernel("winogradTransform_buf", "winoTransWeightBuf2_3_1", {});
     uint32_t gws[2] = {static_cast<uint32_t>(icPad), static_cast<uint32_t>(ocPad)};
@@ -205,15 +205,22 @@ ConvBufWinograd::ConvBufWinograd(const MNN::Op* op, Backend* backend) : CommonEx
         int kernelSize = kx;
         int alpha       = unit + kernelSize - 1;
         
-        int tileK = 4;
-        int tileN = 32;
+        mResource->mAlignK = 4;
+        mResource->mAlignN = 16;
+        if(mCo > 1024) {
+            mResource->mAlignN = 128;
+        } else if(mCo > 256) {
+            mResource->mAlignN = 64;
+        } else if(mCo > 64) {
+            mResource->mAlignN = 32;
+        }
 
         std::shared_ptr<Tensor> tmpFilterTensor;
         tmpFilterTensor.reset(Tensor::createDevice<int32_t>({mCo * mCi * ky * kx}));
         mOpenCLBackend->onAcquireBuffer(tmpFilterTensor.get(), Backend::DYNAMIC);
         mOpenCLBackend->onReleaseBuffer(tmpFilterTensor.get(), Backend::DYNAMIC);
 
-        mResource->mWeight.reset(Tensor::createDevice<float>({alpha * alpha * ROUND_UP(mCo, tileN) * ROUND_UP(mCi, tileK)}));//NHWC
+        mResource->mWeight.reset(Tensor::createDevice<float>({alpha * alpha * ROUND_UP(mCo, mResource->mAlignN) * ROUND_UP(mCi, mResource->mAlignK)}));//NHWC
         mOpenCLBackend->onAcquireBuffer(mResource->mWeight.get(), Backend::STATIC);
         
         buffer_size = mCo * mCi * ky * kx * sizeof(float);
@@ -228,7 +235,7 @@ ConvBufWinograd::ConvBufWinograd(const MNN::Op* op, Backend* backend) : CommonEx
         }
         mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(weightBufferCL, ptrCL);
         
-        convertWeightFormat(weightBufferCL, tileK, tileN);
+        convertWeightFormat(weightBufferCL, mResource->mAlignK, mResource->mAlignN);
     }
 }
 
@@ -277,7 +284,8 @@ ErrorCode ConvBufWinograd::SubgroupOnResize(const std::vector<Tensor *> &inputs,
     auto icC4  = UP_DIV(input->channel(), 4);
     auto icC16 = UP_DIV(input->channel(), 16);
     auto ocC4  = UP_DIV(output->channel(), 4);
-    auto ocC16     = UP_DIV(output->channel(), 16);
+    auto ocC16 = UP_DIV(output->channel(), 16);
+    auto batch = output->batch();
     auto inputpad  = TensorUtils::getDescribe(input)->mPads;
     auto outputpad = TensorUtils::getDescribe(output)->mPads;
     int in_c_pack  = TensorUtils::getTensorChannelPack(input);
@@ -316,7 +324,7 @@ ErrorCode ConvBufWinograd::SubgroupOnResize(const std::vector<Tensor *> &inputs,
         }
     }
     
-    for (int b = 0; b < input->batch(); ++b) {
+    for (int b = 0; b < batch; ++b) {
         int hCount = hUnit;
         int wCount = wUnit;
         int width_pack = ROUND_UP(hCount * wCount, 8);
@@ -340,6 +348,7 @@ ErrorCode ConvBufWinograd::SubgroupOnResize(const std::vector<Tensor *> &inputs,
             ret |= mUnits[b * 3].kernel->get().setArg(index++, icC16);
             ret |= mUnits[b * 3].kernel->get().setArg(index++, width_pack);
             ret |= mUnits[b * 3].kernel->get().setArg(index++, b);
+            ret |= mUnits[b * 3].kernel->get().setArg(index++, batch);
             ret |= mUnits[b * 3].kernel->get().setArg(index++, static_cast<uint32_t>(inputpad.left));
             ret |= mUnits[b * 3].kernel->get().setArg(index++, static_cast<uint32_t>(inputpad.right));
             MNN_CHECK_CL_SUCCESS(ret, "setArg ConvWinogradBuf Source Trans");
@@ -400,6 +409,7 @@ ErrorCode ConvBufWinograd::SubgroupOnResize(const std::vector<Tensor *> &inputs,
             ret |= mUnits[b * 3 + 2].kernel->get().setArg(index++, ocC16);
             ret |= mUnits[b * 3 + 2].kernel->get().setArg(index++, width_pack);
             ret |= mUnits[b * 3 + 2].kernel->get().setArg(index++, b);
+            ret |= mUnits[b * 3 + 2].kernel->get().setArg(index++, batch);
             ret |= mUnits[b * 3 + 2].kernel->get().setArg(index++, static_cast<uint32_t>(outputpad.left));
             ret |= mUnits[b * 3 + 2].kernel->get().setArg(index++, static_cast<uint32_t>(outputpad.right));
             MNN_CHECK_CL_SUCCESS(ret, "setArg ConvWinogradBuf Dest Trans");
@@ -458,13 +468,21 @@ ErrorCode ConvBufWinograd::onEncode(const std::vector<Tensor*>& inputs, const st
     } else
 #endif /* MNN_SUPPORT_INTEL_SUBGROUP */    
     {
-	int tileM = 16;
-        int tileN = 32;
-        int tileK = 4;
+        mAlignM = 16;
+        float ratio = 1.0 * alpha * alpha * wUnit * hUnit / 1024.0 * input->channel() / 1024.0 * output->channel() / 1024.0;
+        if (wUnit * hUnit > 512 && ratio > 1.0) {
+            mAlignM = 128;
+        } else if (wUnit * hUnit > 256 && ratio > 0.1) {
+            mAlignM = 64;
+        } else if (wUnit * hUnit > 64) {
+            mAlignM = 32;
+        }
+        int mAlignK = mResource->mAlignK;
+        int mAlignN = mResource->mAlignN;
         mSource.reset(Tensor::createDevice<float>(
-            std::vector<int>{alpha * alpha * ROUND_UP(input->channel(), tileK) * ROUND_UP(wUnit * hUnit, tileM)}));
+            std::vector<int>{alpha * alpha * ROUND_UP(input->channel(), mAlignK) * ROUND_UP(wUnit * hUnit, mAlignM)}));
         mDest.reset(Tensor::createDevice<float>(
-            std::vector<int>{alpha * alpha * ROUND_UP(wUnit * hUnit, tileM) * ROUND_UP(output->channel(), tileN)}));
+            std::vector<int>{alpha * alpha * ROUND_UP(wUnit * hUnit, mAlignM) * ROUND_UP(output->channel(), mAlignN)}));
 
         mOpenCLBackend->onAcquireBuffer(mSource.get(), Backend::DYNAMIC);
         mOpenCLBackend->onAcquireBuffer(mDest.get(), Backend::DYNAMIC);
@@ -498,9 +516,9 @@ ErrorCode ConvBufWinograd::onEncode(const std::vector<Tensor*>& inputs, const st
 
         int hCount = hUnit;
         int wCount = wUnit;
-        int M_pack = ROUND_UP(wCount * hCount, tileM);
-        int K_pack = ROUND_UP(input->channel(), tileK);
-        int N_pack = ROUND_UP(output->channel(), tileN);
+        int M_pack = ROUND_UP(wCount * hCount, mAlignM);
+        int K_pack = ROUND_UP(input->channel(), mAlignK);
+        int N_pack = ROUND_UP(output->channel(), mAlignN);
         for (int b = 0; b < input->batch(); ++b) {
 
             // Source Transform
@@ -521,6 +539,7 @@ ErrorCode ConvBufWinograd::onEncode(const std::vector<Tensor*>& inputs, const st
                 ret |= mUnits[b * 3].kernel->get().setArg(index++, icC4);
                 ret |= mUnits[b * 3].kernel->get().setArg(index++, M_pack);
                 ret |= mUnits[b * 3].kernel->get().setArg(index++, K_pack);
+                ret |= mUnits[b * 3].kernel->get().setArg(index++, input->batch());
                 ret |= mUnits[b * 3].kernel->get().setArg(index++, b);
                 MNN_CHECK_CL_SUCCESS(ret, "setArg ConvWinogradBuf Source Trans");
 
@@ -535,9 +554,9 @@ ErrorCode ConvBufWinograd::onEncode(const std::vector<Tensor*>& inputs, const st
             
             {
                 int loop = alpha * alpha;
-                int e_pack = ROUND_UP(wCount * hCount, tileM);
-                int l_pack = ROUND_UP(input->channel(), tileK);
-                int h_pack = ROUND_UP(output->channel(), tileN);
+                int e_pack = ROUND_UP(wCount * hCount, mAlignM);
+                int l_pack = ROUND_UP(input->channel(), mAlignK);
+                int h_pack = ROUND_UP(output->channel(), mAlignN);
 
                 std::set<std::string> buildOptions;
                 uint32_t layout = 4;
@@ -586,6 +605,10 @@ ErrorCode ConvBufWinograd::onEncode(const std::vector<Tensor*>& inputs, const st
                 int batch_offset_b = h_pack * l_pack;
                 int batch_offset_c = e_pack * h_pack;
                 
+                int batch_offset[4] = {batch_offset_a, batch_offset_b, batch_offset_c, 0};
+                int stride[4] = {e_pack, h_pack, h_pack, h_pack};
+                int group[4] = {1, 1, 1, loop};
+                
                 int idx            = 0;
                 cl_int ret = CL_SUCCESS;
                 ret |= mUnits[b * 3 + 1].kernel->get().setArg(idx++, static_cast<int>(e_pack));
@@ -594,11 +617,11 @@ ErrorCode ConvBufWinograd::onEncode(const std::vector<Tensor*>& inputs, const st
                 ret |= mUnits[b * 3 + 1].kernel->get().setArg(idx++, alpha);
                 ret |= mUnits[b * 3 + 1].kernel->get().setArg(idx++, beta);
                 ret |= mUnits[b * 3 + 1].kernel->get().setArg(idx++, openCLBuffer(mSource.get()));
-                ret |= mUnits[b * 3 + 1].kernel->get().setArg(idx++, batch_offset_a);
                 ret |= mUnits[b * 3 + 1].kernel->get().setArg(idx++, openCLBuffer(mResource->mWeight.get()));
-                ret |= mUnits[b * 3 + 1].kernel->get().setArg(idx++, batch_offset_b);
                 ret |= mUnits[b * 3 + 1].kernel->get().setArg(idx++, openCLBuffer(mDest.get()));
-                ret |= mUnits[b * 3 + 1].kernel->get().setArg(idx++, batch_offset_c);
+                ret |= mUnits[b * 3 + 1].kernel->get().setArg(idx++, batch_offset);
+                ret |= mUnits[b * 3 + 1].kernel->get().setArg(idx++, stride);
+                ret |= mUnits[b * 3 + 1].kernel->get().setArg(idx++, group);
                 MNN_CHECK_CL_SUCCESS(ret, "setArg Winograd batchmatmul Kernel");
                 
                 mOpenCLBackend->recordKernel3d(mUnits[b * 3 + 1].kernel, mGWS_M[b], mLWS_M[b]);
@@ -624,6 +647,7 @@ ErrorCode ConvBufWinograd::onEncode(const std::vector<Tensor*>& inputs, const st
                 ret |= mUnits[b * 3 + 2].kernel->get().setArg(index++, ocC4);
                 ret |= mUnits[b * 3 + 2].kernel->get().setArg(index++, M_pack);
                 ret |= mUnits[b * 3 + 2].kernel->get().setArg(index++, N_pack);
+                ret |= mUnits[b * 3 + 2].kernel->get().setArg(index++, input->batch());
                 ret |= mUnits[b * 3 + 2].kernel->get().setArg(index++, b);
                 MNN_CHECK_CL_SUCCESS(ret, "setArg ConvWinogradBuf Dest Trans");
                 

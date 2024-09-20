@@ -13,54 +13,49 @@ namespace MNN {
 namespace OpenCL {
 
 CastBufExecution::CastBufExecution(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, const std::string& compute, const MNN::Op* op, Backend* backend) : CommonExecution(backend, op) {
-    mUnits.resize(1);
-    auto &unit = mUnits[0];
     mBuildOptions.emplace(compute);
-    auto runtime = static_cast<OpenCLBackend*>(backend)->getOpenCLRuntime();
-    unit.kernel = runtime->buildKernel("cast_buf", "cast_buf", mBuildOptions, inputs[0], outputs[0]);
-    mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
 }
 ErrorCode CastBufExecution::onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
+    mUnits.resize(1);
     auto &unit = mUnits[0];
     Tensor* input      = inputs[0];
     Tensor* output     = outputs[0];
     auto openCLBackend = static_cast<OpenCLBackend*>(backend());
     auto runtime       = openCLBackend->getOpenCLRuntime();
 
-    std::vector<int> inputShape  = tensorShapeFormat(input);
     std::vector<int> outputShape = tensorShapeFormat(output);
-
-    int batch        = outputShape.at(0);
-    int outputHeight = outputShape.at(1);
-    int outputWidth  = outputShape.at(2);
-    int channels     = outputShape.at(3);
-
-    int channelBlocks = (channels + 3) / 4;
-
+    int totalSize = 0;
+    if(MNN::MNN_DATA_FORMAT_NC4HW4 == TensorUtils::getDescribe(output)->dimensionFormat){
+        totalSize = outputShape[0] * outputShape[1] * outputShape[2] * ROUND_UP(outputShape[3], 4);
+    }else{
+        totalSize = outputShape[0] * outputShape[1] * outputShape[2] * outputShape[3];
+    }
+    std::set<std::string> buildOptions = mBuildOptions;
+    if(totalSize % 4 != 0) {
+        buildOptions.emplace("-DPACK_LEAVE");
+    }
+    unit.kernel = runtime->buildKernel("cast_buf", "cast_buf", mBuildOptions, inputs[0], outputs[0]);
+    mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
+    
     mGlobalWorkSize = {
-        static_cast<uint32_t>(outputWidth),
-        static_cast<uint32_t>(outputHeight),
-        static_cast<uint32_t>(batch * channelBlocks),
+        static_cast<uint32_t>(UP_DIV(totalSize, 4)),
+        static_cast<uint32_t>(1)
     };
 
     uint32_t idx = 0;
     cl_int ret = CL_SUCCESS;
     ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[0]);
     ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[1]);
-    ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[2]);
     ret |= unit.kernel->get().setArg(idx++, openCLBuffer(input));
     ret |= unit.kernel->get().setArg(idx++, openCLBuffer(output));
-    ret |= unit.kernel->get().setArg(idx++, outputWidth);
-    ret |= unit.kernel->get().setArg(idx++, outputHeight);
-    ret |= unit.kernel->get().setArg(idx++, channelBlocks);
+    ret |= unit.kernel->get().setArg(idx++, totalSize);
     MNN_CHECK_CL_SUCCESS(ret, "setArg CastBufExecution");
 
     std::string kernelName = "cast_buf";
-    mLocalSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), kernelName, unit.kernel).first;
-    openCLBackend->recordKernel3d(unit.kernel, mGlobalWorkSize, mLocalSize);
-    unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1], mGlobalWorkSize[2]};
-    unit.localWorkSize = {mLocalSize[0], mLocalSize[1], mLocalSize[2]};
-
+    mLocalSize = localWS2DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), kernelName, unit.kernel).first;
+    openCLBackend->recordKernel2d(unit.kernel, mGlobalWorkSize, mLocalSize);
+    unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1]};
+    unit.localWorkSize = {mLocalSize[0], mLocalSize[1]};
     return NO_ERROR;
 }
 

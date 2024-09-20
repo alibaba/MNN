@@ -165,7 +165,7 @@ void VulkanRuntime::onGabageCollect(int level) {
     mPipelineFactory->reset();
 }
 
-Backend* VulkanRuntime::onCreate(const BackendConfig* config) const {
+Backend* VulkanRuntime::onCreate(const BackendConfig* config, Backend* origin) const {
     // FIXME: Use config
     return new VulkanBackend(this, mInfo);
 }

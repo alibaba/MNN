@@ -155,28 +155,29 @@ __kernel void conv2d_1x1_weight_quant_image(GLOBAL_SIZE_2_DIMS
                                             __private const int input_channel,
                                             __private const int output_channel) {
 
-    int x  = get_global_id(0); // ic / 16
+    int x  = get_global_id(0); // ic / 32
     int y = get_global_id(1); // oc
 
     DEAL_NON_UNIFORM_DIM2(x, y);
-    const int xin = x << 4;
 #ifdef USE_LOW_BIT_WEIGHT_INT4
+    const int xin = x << 5;
 #ifdef CHANNEL_LEAVE
-    uchar8 out = 0;
+    uchar16 out = 0;
     uchar *out_ptr = (uchar*)&out;
-    for(int i = 0; i < 8; ++i){
+    for(int i = 0; i < 16; ++i){
         int index0 = y * input_channel + xin + i * 2;
         int index1 = y * input_channel + xin + i * 2 + 1;
         uchar s0 = input_ptr[index0/2];
         uchar s1 = input_ptr[index1/2];
         out_ptr[i] = ((index0 % 2) == 0 ? (s0 & 0xf0) : (s0 << 4)) | ((index1 % 2) == 0 ? (s1 >> 4) : (s1 & 0x0f));
     }
-    write_imageui(output, (int2)(y, x), convert_uint4(as_ushort4(out)));
+    write_imagei(output, (int2)(y, x), as_int4(out));
 #else
     const int inputOffset = (y * input_channel + xin)/2;
-    write_imageui(output, (int2)(y, x), convert_uint4(as_ushort4(vload8(0, input_ptr + inputOffset))));
+    write_imagei(output, (int2)(y, x), as_int4(vload16(0, input_ptr + inputOffset)));
 #endif
 #else
+    const int xin = x << 4;
     const int inputOffset = y * input_channel + xin;
     write_imagei(output, (int2)(y, x), as_int4(vload16(0, input_ptr + inputOffset)));
 #endif
@@ -205,7 +206,6 @@ __kernel void conv2d_1x1_ic_oc_weight_quant_buffer(GLOBAL_SIZE_2_DIMS
 #ifdef USE_LOW_BIT_WEIGHT_INT4
     const int inputOffset = (yin * input_channel + xin) / 2;
     const int outputOffset = ((x * outputChannelC4 + y) * icPack * ocPack) / 2;
-#ifdef CHANNEL_LEAVE
     for(int i = 0; i < icPack; ++i){
         for(int j = 0; j < ocPack / 2; ++j){
             int index0 = (yin + j * 2) * input_channel + xin + i;
@@ -217,18 +217,6 @@ __kernel void conv2d_1x1_ic_oc_weight_quant_buffer(GLOBAL_SIZE_2_DIMS
             output_ptr[outputOffset + i * (ocPack / 2) + j] = s0 | s1;
         }
     }
-#else
-    for(int i = 0; i < icPack/2; ++i){
-        for(int j = 0; j < ocPack / 2; ++j){
-            char s0 = input_ptr[inputOffset + (j * 2) * (input_channel / 2) + i];
-            char s1 = input_ptr[inputOffset + (j * 2 + 1) * (input_channel / 2) + i];
-            char d0 = (s0 & 0xf0) | ((s1 & 0xf0) >> 4);
-            char d1 = ((s0 & 0x0f) << 4) | (s1 & 0x0f);
-            output_ptr[outputOffset + (i * 2) * (ocPack / 2) + j] = d0;
-            output_ptr[outputOffset + (i * 2 + 1) * (ocPack / 2) + j] = d1;
-        }
-    }
-#endif
 #else
     const int inputOffset = yin * input_channel + xin;
     const int outputOffset = (x * outputChannelC4 + y) * icPack * ocPack;

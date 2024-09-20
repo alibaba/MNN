@@ -61,7 +61,7 @@ ErrorCode ReluBufExecution::onEncode(const std::vector<Tensor *> &inputs, const 
     int nhwcArray[4]        = {nhwc[0], nhwc[1], nhwc[2], UP_DIV(nhwc[3], 4)};
     auto imageWidth        = nhwc[0] * UP_DIV(nhwc[3], 4);
     auto imageHeight       = nhwc[1] * nhwc[2];
-    
+        
     std::vector<uint32_t> localSize  = {1, 1};
     std::vector<uint32_t> globalSize = {(uint32_t)imageWidth, (uint32_t)imageHeight};
 
@@ -71,7 +71,10 @@ ErrorCode ReluBufExecution::onEncode(const std::vector<Tensor *> &inputs, const 
         return SubgrouponResize(inputs, outputs);
     }
 #endif /* MNN_SUPPORT_INTEL_SUBGROUP */
-    mUnits[0].kernel = runTime->buildKernel("binary_buf", "prelu_buf", {"-DOPERATOR=select(in0*in1,in0,in0>=(float4)0)"}, inputs[0], outputs[0]);
+    
+    std::set<std::string> buildOption;
+    buildOption.emplace("-DOPERATOR=select(in0*in1,in0,in0>=(float4)0)");
+    mUnits[0].kernel = runTime->buildKernel("binary_buf", "prelu_buf", buildOption, inputs[0], outputs[0]);
     mMaxWorkGroupSize      = static_cast<uint32_t>(runTime->getMaxWorkGroupSize(mUnits[0].kernel));
     int fullCount[2] = {1, 1};
     

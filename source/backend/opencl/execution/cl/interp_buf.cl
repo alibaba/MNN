@@ -20,7 +20,7 @@ __kernel void nearest_buf(GLOBAL_SIZE_3_DIMS __global const FLOAT* input,
                       __private const int input_width,
                       __private const int out_height,
                       __private const int out_width,
-                      __private const int channelBlocks) {
+                      __private const int batch) {
     const int output_channel_block_idx      = get_global_id(0);
     const int output_width_block_idx        = get_global_id(1);
     const int output_batch_height_block_idx = get_global_id(2);
@@ -40,10 +40,10 @@ __kernel void nearest_buf(GLOBAL_SIZE_3_DIMS __global const FLOAT* input,
     const int in_w_index       = min(max(0, (int)floor(in_w_idx)), input_width-1);
 #endif
 
-    const int inp_offset = ((output_batch_idx * channelBlocks + output_channel_block_idx) * input_height + in_h_index) * input_width + in_w_index;
+    const int inp_offset = ((output_batch_idx + output_channel_block_idx*batch) * input_height + in_h_index) * input_width + in_w_index;
     FLOAT4 value = vload4(inp_offset, input);
 
-    const int out_offset = ((output_batch_idx * channelBlocks + output_channel_block_idx) * out_height + output_height_idx) * out_width + output_width_block_idx;
+    const int out_offset = ((output_batch_idx + output_channel_block_idx*batch) * out_height + output_height_idx) * out_width + output_width_block_idx;
     vstore4(value, out_offset, output);
 }
 
@@ -57,7 +57,7 @@ __kernel void bilinear_buf(GLOBAL_SIZE_3_DIMS __global const FLOAT* input,
                             __private const int input_width,
                             __private const int out_height,
                             __private const int out_width,
-                            __private const int channelBlocks) {
+                            __private const int batch) {
     const int output_channel_block_idx      = get_global_id(0);
     const int output_width_block_idx        = get_global_id(1);
     const int output_batch_height_block_idx = get_global_id(2);
@@ -77,7 +77,7 @@ __kernel void bilinear_buf(GLOBAL_SIZE_3_DIMS __global const FLOAT* input,
     float factor_w = (in_w_idx - (int)floor(in_w_idx));
     float factor_h = (in_h_idx - (int)floor(in_h_idx));
     
-    const int inp_offset_base = (output_batch_idx * channelBlocks + output_channel_block_idx) * input_height;
+    const int inp_offset_base = (output_batch_idx + output_channel_block_idx*batch) * input_height;
     const int inp_offset_00 = (inp_offset_base + in_h0_index) * input_width + in_w0_index;
     const int inp_offset_01 = (inp_offset_base + in_h0_index) * input_width + in_w1_index;
     const int inp_offset_10 = (inp_offset_base + in_h1_index) * input_width + in_w0_index;
@@ -90,7 +90,7 @@ __kernel void bilinear_buf(GLOBAL_SIZE_3_DIMS __global const FLOAT* input,
 
     FLOAT4 value = CONVERT_FLOAT4((float4)((1.0-factor_w)*(1.0-factor_h))*convert_float4(value_00) + (float4)(factor_w*(1.0-factor_h))*convert_float4(value_01) + (float4)((1.0-factor_w)*factor_h)*convert_float4(value_10) + (float4)(factor_w*factor_h)*convert_float4(value_11));
     
-    const int out_offset = ((output_batch_idx * channelBlocks + output_channel_block_idx) * out_height + output_height_idx) * out_width + output_width_block_idx;
+    const int out_offset = ((output_batch_idx + output_channel_block_idx*batch) * out_height + output_height_idx) * out_width + output_width_block_idx;
     
     vstore4(value, out_offset, output);
 }
@@ -109,7 +109,7 @@ __kernel void nearest3D_buf(GLOBAL_SIZE_3_DIMS __global const FLOAT* input,
         __private const int out_depth,
         __private const int out_height,
         __private const int out_width,
-        __private const int channelBlocks) {
+        __private const int batch) {
     const int output_channel_block_idx      = get_global_id(0);
     const int output_height_width_block_idx = get_global_id(1);
     const int output_batch_depth_block_idx  = get_global_id(2);
@@ -129,10 +129,10 @@ __kernel void nearest3D_buf(GLOBAL_SIZE_3_DIMS __global const FLOAT* input,
     const int in_h_index      = min(max(0, (int)floor(in_h_idx)), input_height-1);
     const int in_w_index       = min(max(0, (int)floor(in_w_idx)), input_width-1);
 
-    const int inp_offset = (((output_batch_idx * channelBlocks + output_channel_block_idx)
+    const int inp_offset = (((output_batch_idx + output_channel_block_idx*batch)
             * input_depth + in_d_index) * input_height + in_h_index) * input_width + in_w_index;
 
-    const int out_offset = (((output_batch_idx * channelBlocks + output_channel_block_idx)
+    const int out_offset = (((output_batch_idx + output_channel_block_idx*batch)
             * out_depth + output_depth_idx) * out_height + output_height_idx) * out_width + output_width_idx;
     FLOAT4 value = vload4(inp_offset, input);
     vstore4(value, out_offset, output);

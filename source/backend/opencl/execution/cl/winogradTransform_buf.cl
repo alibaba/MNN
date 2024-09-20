@@ -97,6 +97,7 @@ __kernel void winoTransSrcBuf2_3_1(GLOBAL_SIZE_DIM2
                                       __private const int srcWidth, // 6
                                       __private const int srcHeight, __private const int srcChannelC4,
                                       __private const int dstHeightPad, __private const int srcChannelPad,
+                                      __private const int batch,
                                       __private const int batchOffset) {
     int2 pos = (int2)(get_global_id(0), get_global_id(1)); 
     UNIFORM_BOUNDRY_CHECK(pos.x, pos.y);
@@ -133,7 +134,7 @@ __kernel void winoTransSrcBuf2_3_1(GLOBAL_SIZE_DIM2
         FLOAT4 S23;
         FLOAT4 S33;
         
-        int inp_offset = (((batchIndex * srcChannelC4 + srcZ) * srcHeight + syStart) * srcWidth + sxStart) * 4;
+        int inp_offset = (((batchIndex + srcZ * batch) * srcHeight + syStart) * srcWidth + sxStart) * 4;
         {
             int sx      = 0 + sxStart;
             int sy      = 0 + syStart;
@@ -395,6 +396,7 @@ __kernel void winoTransDstBuf2_3_1(GLOBAL_SIZE_DIM2
                                     __private const int dstChannelC4,
                                     __private const int srcWidthPad,
                                     __private const int dstChannelPad,
+                                    __private const int batch,
                                     __private const int batchOffset) {
     int2 pos = (int2)(get_global_id(0), get_global_id(1));
     UNIFORM_BOUNDRY_CHECK(pos.x, pos.y);
@@ -447,7 +449,7 @@ __kernel void winoTransDstBuf2_3_1(GLOBAL_SIZE_DIM2
         
         //NC4HW4 [batch, dstChannelC4, dstHeight, dstWidth]
         //index: [batchIndex, oz,      oyStart,   oxStart]
-        int out_offset = (((batchIndex * dstChannelC4+ oz) * dstHeight + oyStart) * dstWidth + oxStart)*4;
+        int out_offset = (((batchIndex + oz * batch) * dstHeight + oyStart) * dstWidth + oxStart)*4;
         {
             int ox = oxStart + 0;
             int oy = oyStart + 0;

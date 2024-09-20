@@ -300,14 +300,14 @@ auto d##i##j = _mm_add_epi32(_mm_madd_epi16(S##i##j##0, W##i##j##0), _mm_madd_ep
         }
     }
 }
+#define LOAD_INT4_TO_INT8 \
+    auto w0_int4 = _mm_loadu_si128(reinterpret_cast<const __m128i *>(weight_sz));\
+    auto w1_int4 = _mm_loadu_si128(reinterpret_cast<const __m128i *>(weight_sz + 16));\
+    auto w0 = _mm_and_si128(mask, _mm_srli_epi16(w0_int4, 4));\
+    auto w1 = _mm_and_si128(mask, _mm_srli_epi16(w1_int4, 4));\
+    auto w2 = _mm_and_si128(mask, w0_int4);\
+    auto w3 = _mm_and_si128(mask, w1_int4);
 
-static inline void _load_int4_to_int8(const uint8_t* src, int8_t* dst) {
-    uint8_t c = 0xf;
-    for (int i = 0; i < 32; ++i) {
-        dst[2 * i] = (src[i] >> 4);
-        dst[2 * i +1] = (src[i] & c);
-    }
-}
 void _SSE_MNNGemmInt8AddBiasScale_16x4_w4(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step,
                                             size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realDst) {
     MNN_ASSERT(post->useInt8 == 0);
@@ -335,6 +335,7 @@ void _SSE_MNNGemmInt8AddBiasScale_16x4_w4(int8_t* dst, const int8_t* src, const 
     __m128 kernelSum1 = _mm_setzero_ps();
     __m128 kernelSum2 = _mm_setzero_ps();
     __m128 kernelSum3 = _mm_setzero_ps();
+    const auto mask = _mm_set1_epi8(0xf);
     if (GEMM_INT8_DST_XUNIT == realDst) {
         kernelSum0 = _mm_load_ps1(post->srcKernelSum);
         kernelSum1 = _mm_load_ps1(post->srcKernelSum + 1);
@@ -402,13 +403,7 @@ void _SSE_MNNGemmInt8AddBiasScale_16x4_w4(int8_t* dst, const int8_t* src, const 
             const auto weight_sz = weight_dz + weight_step_Y * sz;
             const auto src_z     = src_x + sz * GEMM_INT8_DST_XUNIT * GEMM_INT8_SRC_UNIT;
 
-            int8_t tmp_w[64];
-            _load_int4_to_int8((uint8_t*)weight_sz, tmp_w);
-
-            auto w0 = _mm_loadu_si128((__m128i*)(tmp_w + GEMM_INT8_SRC_UNIT * 0));
-            auto w1 = _mm_loadu_si128((__m128i*)(tmp_w + GEMM_INT8_SRC_UNIT * 1));
-            auto w2 = _mm_loadu_si128((__m128i*)(tmp_w + GEMM_INT8_SRC_UNIT * 2));
-            auto w3 = _mm_loadu_si128((__m128i*)(tmp_w + GEMM_INT8_SRC_UNIT * 3));
+            LOAD_INT4_TO_INT8;
 
             auto s0 = _mm_loadu_si128((__m128i*)(src_z + GEMM_INT8_SRC_UNIT * 0));
             auto s1 = _mm_loadu_si128((__m128i*)(src_z + GEMM_INT8_SRC_UNIT * 1));
@@ -480,12 +475,6 @@ auto d##i##j = _mm_add_epi32(_mm_madd_epi16(S##i##j##0, W##i##j##0), _mm_madd_ep
         E1 = _mm_hadd_epi32(E2, E3);
         d3 = _mm_hadd_epi32(E0, E1);
         auto scaleValue = _mm_loadu_ps(scale_dz);
-        // auto biasValue = _mm_loadu_si128((__m128i*)(bias_dz));
-        // d0 = _mm_add_epi32(d0, biasValue);
-        // d1 = _mm_add_epi32(d1, biasValue);
-        // d2 = _mm_add_epi32(d2, biasValue);
-        // d3 = _mm_add_epi32(d3, biasValue);
-        //auto biasValue = _mm_loadu_ps((float*)(bias_dz));
         auto weightBiasValue = _mm_loadu_ps((float*)weightBias_dz);
         __m128 f0 = _mm_cvtepi32_ps(d0);
         __m128 f1 = _mm_cvtepi32_ps(d1);
@@ -584,14 +573,20 @@ void _SSE_MNNReluInt8(int8_t* dst, const int8_t* src, size_t size, ssize_t zeroP
 }
 
 // require SSE 4.1
-void _SSE_MNNFloat2Int8(const float* src, int8_t* dst, size_t sizeQuad, const float* scalep, ssize_t minV, ssize_t maxV, ssize_t zeroPoint) {
+void _SSE_MNNFloat2Int8(const float* src, int8_t* dst, size_t sizeQuad, const float* scalep, ssize_t minV, ssize_t maxV, const float* zeroPoint, ssize_t quanParamVec) {
     __m128i zero = _mm_set1_epi32(0);
     __m128 minValue = _mm_set1_ps(minV);
     __m128 maxValue = _mm_set1_ps(maxV);
-    __m128 zeroPointValue = _mm_set1_ps(zeroPoint);
+    __m128 zeroPointValue = _mm_set1_ps(zeroPoint[0]);
     __m128 plus = _mm_set1_ps(0.5f);
     __m128 minus = _mm_set1_ps(-0.5f);
-    __m128 scaleValue = _mm_loadu_ps(scalep);
+    __m128 scaleValue = _mm_set1_ps(scalep[0]);
+    if (quanParamVec & 1) {
+        scaleValue = _mm_loadu_ps(scalep);
+    }
+    if (quanParamVec >> 1) {
+        zeroPointValue = _mm_loadu_ps(zeroPoint);
+    }
     auto offset = _mm_set1_epi32(128);
 
     for (int i = 0; i < sizeQuad; ++i) {

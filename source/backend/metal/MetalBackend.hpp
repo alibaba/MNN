@@ -56,7 +56,7 @@ public:
     std::map<std::pair<std::string, std::vector<uint32_t>>, std::tuple<std::vector<uint32_t>, std::vector<uint32_t>,  uint32_t>>& getTunedThreadGroup() {
         return mTunedThreadGroup;
     };
-    virtual Backend *onCreate(const BackendConfig* config) const override;
+    virtual Backend *onCreate(const BackendConfig* config, Backend* origin) const override;
     virtual void onGabageCollect(int level) override;
     virtual CompilerType onGetCompilerType() const override {
         return Compiler_Loop;
@@ -71,10 +71,16 @@ public:
                                const MNN::Op* op) override;
     virtual bool onMeasure(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                         const MNN::Op* op, Runtime::OpInfo& dstInfo) const override;
+    SingleBufferWithAllocator* buffer(int index) const {
+        return &mDynamic[index];
+    }
+    BufferAllocator* createDynamicAllocator(int index, bool secondResize) const;
 private:
     MetalRuntime(void* context);
     void* mContext = nullptr;
-    std::shared_ptr<EagerBufferAllocator> mStatic;
+    mutable std::shared_ptr<EagerBufferAllocator> mStatic;
+    mutable std::shared_ptr<EagerBufferAllocator> mStaticCache;
+    mutable std::vector<SingleBufferWithAllocator> mDynamic;
     MetalTuneLevel mTuneLevel = Wide;
     std::map<std::pair<std::string, std::vector<uint32_t>>, std::tuple<std::vector<uint32_t>, std::vector<uint32_t>, uint32_t>> mTunedThreadGroup;
 
@@ -226,8 +232,6 @@ private:
     id<MTLCommandQueue> _commandQueue;
 
     const MetalRuntime* mRuntime;
-    id<MTLBuffer> mShapeH2D;
-    id<MTLBuffer> mShapeD2H;
     mutable NSUInteger mEncoderCount = 0;
     mutable bool mOpEncoderSet = false;//whether has set encoder
     mutable bool mSupportDeferEncode = true;
@@ -240,6 +244,7 @@ private:
     std::shared_ptr<EagerBufferAllocator> mStaticBufferPool;
 
 private:
+    void _resetDynamicMemory() const;
     CopyPipeline _makeCopyInfo(const Tensor *src, const Tensor *dst, id<MTLBuffer> shape, int castType) const;
 
     mutable id<MTLBuffer> mHostBuffer = nullptr;

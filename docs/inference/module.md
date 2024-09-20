@@ -5,19 +5,25 @@
 - 模型推理与`Session`的区别是不需要用户显式resize，支持控制流，所以当模型中有`if`或`while`时必须使用`Module`推理
 ### 相关数据结构
 - `Module` Module接口的核心类，表示一个模型的虚类；实际加载模型时会创建其子类
-- `Executor` 包含若干个`RuntimeManager`，提供内存管理接口，每个`Executor`必须在单线程环境下运行。默认提供全局 `Executor`，需要并发执行时，可自行创建。
-- `ExecutorScope`  用于在子线程中绑定`Executor`，多线程并发必需
-- `VARP` 作为`Module`的输入输出，也是[Expr API](expr.md)中的基础数据结构
+- `Executor` 提供内存管理和后端资源管理能力，每个`Executor`必须在单线程环境下运行。同一个`Executor`可以用于多个顺序执行的`Module`
+- `ExecutorScope`  用于在子线程中绑定`Executor`，多线程并发必需。默认在创建`Module`时使用全局 `Executor`，如果有多个Module在不同线程并发执行时，需要各自创建`Executor`，并用`ExecutorScope`绑定。
+- `VARP` 是`Module`的输入输出，也是[Expr API](expr.md)中的基础数据结构
 
 ## 工作流程
-配置Executor(可选) -> 创建 RuntimeManager(可选) -> 创建Module -> 创建输入VARP -> 使用Module::forwad推理 -> 使用输出VARP -> 销毁Module
-### （可选）配置Executor
-`Executor`给用户提供接口来配置推理后端、线程数等属性，以及做性能统计、算子执行的回调函数、内存回收等功能。 提供一个全局的Exector对象，用户不用创建或持有对象即可直接使用。
+创建和配置Executor -> 创建 RuntimeManager(可选) -> 创建Module -> 创建输入VARP -> 使用Module::forwad推理 -> 使用输出VARP -> 销毁Module -> 销毁Executor
+### 创建和配置Executor
+`Executor`给用户提供接口来配置推理后端、线程数等属性，以及做性能统计、算子执行的回调函数、内存回收等功能。 推荐针对自身模块创建单独的Executor ，若使用全局的Exector对象，对于多个模块在不同线程运行时可能会发生冲突。
 ```cpp
-// 配置默认全局Exector
-MNN::BackendConfig backend_config;    // default backend config 
+// 创建Exector
+MNN::BackendConfig backendConfig;    // default backend config 
+std::shared_ptr<MNN::Express::Executor> executor = MNN::Express::Executor::newExecutor(MNN_FORWARD_CPU, backendConfig, 1);
+
 // 设置使用4线程+CPU
-MNN::Express::Executor::getGlobalExecutor()->setGlobalExecutorConfig(MNN_FORWARD_CPU, backend_config, 4);
+executor->setGlobalExecutorConfig(MNN_FORWARD_CPU, backend_config, 4);
+
+// 绑定Executor，在创建/销毁/使用Module或进行表达式计算之前都需要绑定
+MNN::Express::ExecutorScope _s(executor);
+
 ``` 
 
 ### （可选）创建 RuntimeManager
@@ -38,6 +44,68 @@ sConfig.type = MNN_FORWARD_OPENCL;
 std::shared_ptr<MNN::Express::Executor::RuntimeManager> rtmgr(MNN::Express::Executor::RuntimeManager::createRuntimeManager(sConfig), MNN::Express::Executor::RuntimeManager::destroy);
 rtmgr->setCache(".cachefile");
 ```
+
+RuntimeManager 可以设置 hint , mode , cache, externalpath ，以支持扩展功能。
+
+```
+void setCache(std::string cacheName);
+void updateCache();
+void setMode(Interpreter::SessionMode mode);
+void setHint(Interpreter::HintMode mode, int value);
+void setExternalPath(std::string path, int type);
+bool getInfo(Interpreter::SessionInfoCode code, void* ptr);
+```
+
+#### cache 设置
+对于GPU后端（Metal/OpenCL等），可以设置缓存文件路径，存储AutoTuning结果和Program编译结果，以加速第二次之后的Module load 过程。
+
+```
+    std::shared_ptr<Executor::RuntimeManager> rtmgr(Executor::RuntimeManager::createRuntimeManager(config));
+    rtmgr->setCache(cacheFileName);
+
+    std::shared_ptr<Module> module(Module::load(inputNames, outputNames, modelName.c_str(), rtmgr, mdConfig));
+    /*... Make Inputs*/
+    auto outputs = module->onForward(inputs);
+
+    // Update cache file
+    rtmgr->updateCache();
+```
+
+#### mode 设置
+可以通过设置mode开启/关闭一些功能，示例：
+
+```
+// 创建出来的 Module 支持插入回调函数
+rtmgr->setMode(Interpreter::Session_Debug);
+```
+
+并非所有枚举都适用 Module 的创建，有效值如下：
+
+- Interpreter::SessionMode::Session_Debug : 支持逐算子调试
+- Interpreter::SessionMode::Session_Release : 关闭逐算子调试功能，可以轻微提升性能【默认选项】
+- Interpreter::SessionMode::Session_Backend_Fix : 固定使用用户设置的后端【默认选项】
+- Interpreter::SessionMode::Session_Backend_Auto : MNN根据用户倾向，预估load Module耗时，如果耗时较短则使用用户设置的后端，否则使用CPU
+
+
+#### hint 设置
+通过 hint 设置，可以在后端支持的情况下设置相应属性，有效值如下：
+
+- Interpreter::HintMode::WINOGRAD_MEMORY_LEVEL ：使用 Winograd 算法优化卷积时，内存占用倾向，默认为 3 ，若希望降低内存占用可设为 0 
+- Interpreter::HintMode::GEOMETRY_COMPUTE_MASK ：几何计算相关优化开关，1为区域合并，2为复合区域合并，4为使用loop算子，8为支持几何计算重计算，需要多个功能开启时把对应值叠加。默认为功能全开。
+- Interpreter::HintMode::DYNAMIC_QUANT_OPTIONS ：动态量化选项，1为 Per Batch，2为Per Tensor 。默认为2。
+- Interpreter::HintMode::CPU_LITTLECORE_DECREASE_RATE ：对于 Android 设备存在大中小核的情况，大核算力到中核算力的衰减比例。默认为50（中核算力为大核的50%）
+
+
+#### ExternalPath
+在设备可能出现内存不足时，可以通过 setExternalPath 指定路径，让MNN把部分内存用mmap分配。这样操作系统可在内存不足时会将其转换为读写文件，避免内存不足程序闪退。示例：
+
+```
+runtime_manager_->setExternalPath("tmp", MNN::Interpreter::EXTERNAL_WEIGHT_DIR);
+runtime_manager_->setExternalPath("tmp", MNN::Interpreter::EXTERNAL_FEATUREMAP_DIR);
+```
+
+- MNN::Interpreter::EXTERNAL_WEIGHT_DIR : 权重重排后的内存转换为文件存储
+- MNN::Interpreter::EXTERNAL_FEATUREMAP_DIR : 中间内存转换为文件存储
 
 ### 创建Module
 `Module`可以通过指定模型，输入输出的名称，配置文件创建

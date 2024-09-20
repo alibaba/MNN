@@ -86,9 +86,6 @@ bool ConvLowMemoryExecution::convertToQuantWeight1x1Buffer(cl::Buffer input, int
         // int4 case
         buildOptions.emplace("-DUSE_LOW_BIT_WEIGHT_INT4");
     } else {/* More types to be supported. */}
-    if(mResource->mInputChannel % icPack != 0){
-        buildOptions.emplace("-DCHANNEL_LEAVE");
-    }
 
     mBufferToConv1x1Kernel = runtime->buildKernelWithCache("buffer_convert_quant", kernelName, buildOptions);
     auto kernel = mBufferToConv1x1Kernel->get();
@@ -495,6 +492,9 @@ ConvLowMemoryExecution::ConvLowMemoryExecution(const std::vector<Tensor *> &inpu
         setGeneralWeightLowMemory(mFilterDataPtr, quanCommon);
     }
     // Create Kernel
+    if (mResource->mStrides[0] == 1 && mResource->mStrides[1] == 1 && mResource->mDilations[0] == 1 && mResource->mDilations[1] == 1) {
+        mResource->mBuildOptions.emplace("-DMNN_CONV_S1D1");
+    }
     mResource->mBuildOptions.emplace("-DBIAS");
     if (conv2dCommonParams->relu()) {
         mResource->mBuildOptions.emplace("-DRELU");

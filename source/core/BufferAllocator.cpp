@@ -6,8 +6,10 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#include <string>
 #include "core/BufferAllocator.hpp"
 #include "core/Macro.h"
+#include "MNNFileUtils.h"
 
 // #define DUMP_USAGE
 //#define MNN_DEBUG_MEMORY
@@ -38,6 +40,13 @@ void MemChunk::attach(Tensor* tensor) {
         mNode->tensors.push_back(tensor);
     }
 }
+ErrorCode BufferAllocator::compute() {
+    return NO_ERROR;
+}
+ErrorCode BufferAllocator::apply() {
+    return NO_ERROR;
+}
+
 class DefaultAllocator : public BufferAllocator::Allocator {
 public:
     DefaultAllocator() {
@@ -52,6 +61,62 @@ public:
     virtual void onRelease(MemChunk chunk) {
         MNN_ASSERT(chunk.second == 0);
         MNNMemoryFreeAlign(chunk.first);
+    }
+};
+class MmapAllocator : public BufferAllocator::Allocator {
+private:
+    std::map<void*, std::tuple<file_t,size_t, std::string>> mCache;
+    std::string mFileName;
+    std::string mPosfix;
+    int mAllocTimes = 0;
+    bool mRemove;
+public:
+    MmapAllocator(const char* dirName, const char* posfix, bool autoRemove) {
+        if (nullptr != dirName) {
+            mFileName = dirName;
+            if (!MNNDirExist(dirName)) {
+                MNN_ERROR("%s not exist\n", dirName);
+            }
+        }
+        if (nullptr != posfix) {
+            mPosfix = posfix;
+        }
+        mRemove = autoRemove;
+    }
+    virtual ~ MmapAllocator() {
+        for (auto& iter : mCache) {
+            MNNUnmapFile(iter.first, std::get<1>(iter.second));
+            MNNCloseFile(std::get<0>(iter.second));
+            if (mRemove) {
+                MNNRemoveFile(std::get<2>(iter.second).c_str());
+            }
+        }
+    }
+    virtual MemChunk onAlloc(size_t size, size_t align) {
+        MNN_ASSERT(size > 0);
+        std::string fileName = MNNFilePathConcat(mFileName, std::to_string(mAllocTimes) + "." + mPosfix);
+        auto file = MNNCreateFile(fileName.c_str());
+        size = UP_DIV(size, align) * align;
+        MNNSetFileSize(file, size);
+        void* ptr = MNNMmapFile(file, size);
+        mCache.insert(std::make_pair(ptr, std::make_tuple(file, size, fileName)));
+        mAllocTimes++;
+        return MemChunk(ptr, 0);
+    }
+    virtual void onRelease(MemChunk chunk) {
+        MNN_ASSERT(chunk.second == 0);
+        auto iter = mCache.find(chunk.first);
+        if (iter == mCache.end()) {
+            MNN_ASSERT(false);
+            MNN_ERROR("Invalid free for MMAPAllocator\n");
+            return;
+        }
+        MNNUnmapFile(iter->first, std::get<1>(iter->second));
+        MNNCloseFile(std::get<0>(iter->second));
+        if (mRemove) {
+            MNNRemoveFile(std::get<2>(iter->second).c_str());
+        }
+        mCache.erase(iter);
     }
 };
 class RecurseAllocator : public BufferAllocator::Allocator {
@@ -72,14 +137,17 @@ private:
     BufferAllocator* mParent;
 };
 
-ErrorCode BufferAllocator::compute() {
-    return NO_ERROR;
-}
 std::shared_ptr<BufferAllocator::Allocator> BufferAllocator::Allocator::createDefault() {
     std::shared_ptr<BufferAllocator::Allocator> _res;
     _res.reset(new DefaultAllocator);
     return _res;
 }
+std::shared_ptr<BufferAllocator::Allocator> BufferAllocator::Allocator::createMmap(const char* dirName, const char* posfix, bool autoRemove) {
+    std::shared_ptr<BufferAllocator::Allocator> _res;
+    _res.reset(new MmapAllocator(dirName, posfix, autoRemove));
+    return _res;
+}
+
 std::shared_ptr<BufferAllocator::Allocator> BufferAllocator::Allocator::createRecurse(BufferAllocator* parent) {
     std::shared_ptr<BufferAllocator::Allocator> _res;
     _res.reset(new RecurseAllocator(parent));
@@ -113,23 +181,48 @@ MemChunk EagerBufferAllocator::alloc(size_t size, bool separate, size_t align) {
             return MemChunk(pointer);
         }
     }
+    auto allocSize = size;
+    if (mMinAllocSize != 0) {
+        allocSize = ALIMAX(mMinAllocSize, size);
+    }
 
     // alloc otherwise
-    auto chunk = mAllocator->onAlloc(size, align);
+    auto chunk = mAllocator->onAlloc(allocSize, align);
     pointer.first = chunk.first;
     pointer.second = chunk.second;
     if (nullptr == pointer.first) {
         return chunk;
     }
-    mTotalSize += size;
+    mTotalSize += allocSize;
 
     // save node
     SharedPtr<Node> node(new Node);
-    node->size         = size;
+    node->size         = allocSize;
     node->pointer      = pointer;
-    mUsedList[pointer] = node;
     node->outside      = mAllocator.get();
     MNN_ASSERT(pointer.second % align == 0);
+    if (allocSize > size) {
+        // Split
+        SharedPtr<Node> first(new Node);
+        first->parent  = node;
+        first->size    = size;
+        first->pointer = pointer;
+        mUsedList.insert(std::make_pair(pointer, first));
+        node->useCount = 1;
+
+        SharedPtr<Node> second(new Node);
+        second->parent  = node;
+        second->size    = allocSize - size;
+        second->pointer.first = pointer.first;
+        second->pointer.second = pointer.second + size;
+        if (nullptr != mCurrentFreeList) {
+            mCurrentFreeList->insert(std::make_pair(second->size, second));
+        } else {
+            mFreeList.insert(std::make_pair(second->size, second));
+        }
+    } else {
+        mUsedList[pointer] = node;
+    }
 #ifdef DUMP_USAGE
     MNN_PRINT("mTotalSize: %f\n", mTotalSize / 1024.0f / 1024.0f);
 #endif
@@ -290,13 +383,40 @@ std::pair<void*, size_t> EagerBufferAllocator::getFromFreeList(FREELIST* list, s
 static void _CPUMemChunkApplyToTensor(uint8_t* ptr, size_t offset, Tensor* t) {
     t->buffer().host = ptr + offset;
 }
+SingleBufferWithAllocator::~ SingleBufferWithAllocator() {
+    release();
+}
+void SingleBufferWithAllocator::release() {
+    if (current.first != nullptr) {
+        root->onRelease(current);
+        current.first = nullptr;
+        current.second = 0;
+        currentSize = 0;
+    }
+}
 
-DeferBufferAllocator::DeferBufferAllocator(std::shared_ptr<Allocator> parent, size_t align, MemChunkApplyToTensor func) : mAllocator(parent), mAlign(align) {
+ErrorCode SingleBufferWithAllocator::realloc(size_t size, size_t align) {
+    if (currentSize < size) {
+        if (nullptr != current.first) {
+            root->onRelease(current);
+        }
+        current = root->onAlloc(size, align);
+        if (current.first == nullptr) {
+            return OUT_OF_MEMORY;
+        }
+        currentSize = size;
+    }
+    return NO_ERROR;
+}
+
+
+DeferBufferAllocator::DeferBufferAllocator(SingleBufferWithAllocator* root, size_t align, MemChunkApplyToTensor func) : mAlign(align) {
     if (nullptr == func) {
         mApplyFunction = _CPUMemChunkApplyToTensor;
     } else {
         mApplyFunction = func;
     }
+    mParent = root;
 }
 
 //------------------------------- DeferBufferAllocator -----------------------------------//
@@ -371,10 +491,6 @@ void DeferBufferAllocator::release(bool allRelease) {
     }
 }
 
-size_t DeferBufferAllocator::totalSize() const {
-    return mTotalSize;
-}
-
 void DeferBufferAllocator::barrierBegin() {
     MNN_ASSERT(!mBarrrier);
     mBarrrier = true;
@@ -398,12 +514,8 @@ void DeferBufferAllocator::reset() {
     mTotalSize = 0;
     mChunks.clear();
     mFreeList.clear();
-    // mPtr.reset(nullptr);
-    if (mPtr.ptr()) {
-        mAllocator->onRelease(mPtr);
-        mPtr.first = nullptr;
-        mPtr.second = 0;
-    }
+    mPtr.first = nullptr;
+    mPtr.second = 0;
     mHead = nullptr;
     mTail = nullptr;
     mBarrrier = false;
@@ -411,7 +523,7 @@ void DeferBufferAllocator::reset() {
 }
 
 ErrorCode DeferBufferAllocator::compute() {
-    if (mPtr.ptr()) {
+    if (mTotalSize > 0) {
         return NO_ERROR;
     }
     mTotalSize = 0;
@@ -431,10 +543,28 @@ ErrorCode DeferBufferAllocator::compute() {
         mTotalSize += chunk->size;
         chunk = chunk->right;
     }
-    mPtr = mAllocator->onAlloc(mTotalSize, mAlign);
-    if (mPtr.ptr() == nullptr) {
-        return OUT_OF_MEMORY;
+    return apply();
+}
+ErrorCode DeferBufferAllocator::apply() {
+    if (mFreeList.empty()) {
+        // Not alloc
+        return NO_ERROR;
     }
+    auto& chunk = mParent->current;
+    bool needApply = false;
+    if (mParent->currentSize < mTotalSize) {
+        needApply = true;
+        auto code = mParent->realloc(mTotalSize, mAlign);
+        if (NO_ERROR != code) {
+            return code;
+        }
+    } else if (mPtr.first != chunk.first || mPtr.second != chunk.second) {
+        needApply = true;
+    }
+    if (!needApply) {
+        return NO_ERROR;
+    }
+    mPtr = chunk;
     for (auto& chunk : mChunks) {
         chunk->base = mPtr.ptr();
         for (auto t : chunk->tensors) {
@@ -474,7 +604,7 @@ void DeferBufferAllocator::erase_node(MemNode* chunk) {
     }
     if (right) {
         right->left = nullptr;
-        mTail = right;
+        mHead = right;
         return;
     }
     mHead = mTail = nullptr;

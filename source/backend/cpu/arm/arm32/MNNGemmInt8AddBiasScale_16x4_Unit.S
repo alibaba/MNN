@@ -51,7 +51,7 @@ ldr r8, [r6, #0]
 ldr lr, [r6, #4]
 
 vpush {q4-q7}
-
+sub sp, sp, #36
 
 ldr r7, [r6, #16]  // r7: useInt8
 
@@ -418,6 +418,7 @@ L1LoopCheck:
     bne L1LoopDz
 
 End:
+add sp, sp, #36
 vpop {q4-q7}
 pop {r4-r8, r10, pc}
 

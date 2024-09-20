@@ -1,5 +1,5 @@
 //
-//  DynamicQuanInput_ARM82.S
+//  DynamicQuanInputAndReorder_ARM82.S
 //  MNN
 //
 //  Created by MNN on 2019/01/22.
@@ -101,15 +101,12 @@ stp d10, d11, [sp, #32]
 stp d8,  d9,  [sp, #48]
 
 ld1 {v29.s}[0], [x3] // Load scale
-// copy zero point
-dup v30.4s, w6
+ld1 {v30.s}[0], [x6] // Load zero point
 fcvtn v31.4h, v29.4s
-scvtf v30.4s, v30.4s
-
+fcvtn v30.4h, v30.4s
 add x13, x8, x8
 
 dup v31.8h, v31.h[0]
-fcvtn v30.4h, v30.4s
 dup v30.8h, v30.h[0]
 
 mov x9, x1 // first N*4

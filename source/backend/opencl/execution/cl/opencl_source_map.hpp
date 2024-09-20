@@ -43,9 +43,6 @@ extern const char* softmax;
 extern const char* binary_buf;
 #endif
 #ifndef MNN_OPENCL_BUFFER_CLOSED
-extern const char* gemm_quant_batch_buf;
-#endif
-#ifndef MNN_OPENCL_BUFFER_CLOSED
 extern const char* raster_buf;
 #endif
 #ifndef MNN_OPENCL_BUFFER_CLOSED
@@ -167,6 +164,9 @@ extern const char* loop_buf;
 extern const char* roi_pooling;
 extern const char* depthwise_conv2d;
 extern const char* layernorm;
+#ifndef MNN_OPENCL_BUFFER_CLOSED
+extern const char* gemm_conv1x1_buf;
+#endif
 extern const char* winogradTransformDest2_5_1;
 #ifndef MNN_OPENCL_BUFFER_CLOSED
 extern const char* cast_buf;
@@ -212,9 +212,6 @@ const std::map<std::string, const char*> OpenCLProgramMap =
   { "softmax", softmax },
 #ifndef MNN_OPENCL_BUFFER_CLOSED
   { "binary_buf", binary_buf },
-#endif
-#ifndef MNN_OPENCL_BUFFER_CLOSED
-  { "gemm_quant_batch_buf", gemm_quant_batch_buf },
 #endif
 #ifndef MNN_OPENCL_BUFFER_CLOSED
   { "raster_buf", raster_buf },
@@ -338,6 +335,9 @@ const std::map<std::string, const char*> OpenCLProgramMap =
   { "roi_pooling", roi_pooling },
   { "depthwise_conv2d", depthwise_conv2d },
   { "layernorm", layernorm },
+#ifndef MNN_OPENCL_BUFFER_CLOSED
+  { "gemm_conv1x1_buf", gemm_conv1x1_buf },
+#endif
   { "winogradTransformDest2_5_1", winogradTransformDest2_5_1 },
 #ifndef MNN_OPENCL_BUFFER_CLOSED
   { "cast_buf", cast_buf },
