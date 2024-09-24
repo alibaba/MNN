@@ -211,7 +211,7 @@ namespace MNN {
             return false;
         }
 
-        uint32_t write_size = (uint32_t)fwrite(om_model_buff.data, 1 , om_model_buff.length, fp);
+        uint32_t write_size = (uint32_t)fwrite(om_model_buff.data, 1, om_model_buff.length, fp);
         if (write_size != om_model_buff.length) {
             fclose(fp);
             printf("write om file failed !!!");
@@ -434,7 +434,6 @@ namespace MNN {
             auto index = mInputMap.find((unsigned long)(const_cast<Tensor*>(dstTensor)));
             MNN_ASSERT(index != mInputMap.end());
             shared_ptr<hiai::AiTensor> input = mInputTensors[index->second];
-
             memcpy(input->GetBuffer(), srcTensor->host<void>(), (size_t)input->GetSize());
         } else if(isOutputCopy){
             int index;
