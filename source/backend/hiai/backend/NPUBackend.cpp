@@ -232,7 +232,7 @@ namespace MNN {
 
         int ret = mngerClient->Init(nullptr);
         if (ret != 0) {
-            MNN_ERROR("[NPU] Model Manger Init Failed.");
+            MNN_ERROR("[NPU] Model Manager Init Failed.");
             return nullptr;
         }
 
