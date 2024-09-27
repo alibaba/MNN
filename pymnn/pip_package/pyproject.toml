@@ -3,8 +3,7 @@ requires = [
     "setuptools>=42",
     "wheel",
     "ninja; sys_platform == 'windows'",
-    "numpy==1.13.3; python_version<'3.5'",
-    "oldest-supported-numpy; python_version>='3.5'",
+    "numpy"
 ]
 
 build-backend = "setuptools.build_meta"
@@ -12,10 +11,11 @@ build-backend = "setuptools.build_meta"
 [tool.cibuildwheel]
 test-skip = [
     "cp36-*",
-    "*-macosx_arm64"
+    "*-macosx_arm64",
+    "*-macosx_x86_64"
 ]
 test-requires = [
-    "opencv-python==4.6.0.66",
+    "opencv-python",
     "numpy",
     "torch"
 ]
@@ -30,9 +30,8 @@ test-command = [
 archs = ["native"]
 build = "cp*-macosx_*"
 before-all = [
-    "pip3 install torch",
     "pushd pymnn/pip_package",
-    "python3 build_deps.py --torch",
+    "python3 build_deps.py",
     "popd"
 ]
 repair-wheel-command = ""
@@ -41,9 +40,8 @@ repair-wheel-command = ""
 build = "cp*-manylinux*"
 skip = "pp*"
 before-all = [
-    "yum install -y wget",
     "pushd pymnn/pip_package",
-    "python3 build_deps.py --torch",
+    "python3 build_deps.py",
     "popd"
 ]
 archs = ["native"]
