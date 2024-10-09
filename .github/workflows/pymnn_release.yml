@@ -5,6 +5,8 @@ on:
       - '.github/workflows/pymnn_release.yml'
     tags:
       - '*'
+  workflow_dispatch:
+
 jobs:
   build_wheels:
     name: ${{ matrix.arch }} ${{ matrix.build }} on ${{ matrix.os }}
