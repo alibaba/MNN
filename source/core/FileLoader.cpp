@@ -14,7 +14,7 @@ namespace MNN {
 static FILE* _OpenFile(const char* file, bool read) {
 #if defined(_MSC_VER)
     wchar_t wFilename[1024];
-    if (0 == MultiByteToWideChar(CP_ACP, 0, file, -1, wFilename, sizeof(wFilename))) {
+    if (0 == MultiByteToWideChar(CP_UTF8, 0, file, -1, wFilename, sizeof(wFilename))) {
         return nullptr;
     }
 #if _MSC_VER >= 1400
