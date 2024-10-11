@@ -727,9 +727,15 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
 
         /* Dynamic quant */
         float range = maxVal - minVal;
-        quantscale = 255.0f / range;
-        dequantscale = range / 255.0f;
-        zeropoint = roundf(-minVal * 255.f / range) - 128.0f;
+        if (fabs(range) < 1e-7) {
+            zeropoint = maxVal;
+            quantscale = 1.0f;
+            dequantscale = 1.0f;
+        } else {
+            quantscale = 255.0f / range;
+            dequantscale = range / 255.0f;
+            zeropoint = roundf(-minVal * 255.f / range) - 128.0f;
+        }
         std::vector<float>qsVec(PackUnit, quantscale);
         auto sizeDiv = UP_DIV(inputsize, PackUnit);
         int inputPlane = input->batch() * mIm2ColParamter.iw * mIm2ColParamter.ih;
