@@ -550,6 +550,7 @@ public:
     }
     virtual void onEncode(const std::vector<Tensor *>& inputs, const std::vector<Tensor *>& outputs,
                                id<MTLComputeCommandEncoder> encoder) override {
+
         auto cmd = mLoop->commands()->GetAs<RegionCommand>(0);
         auto dstTensor = mTensors[cmd->indexes()->data()[0]];
         auto srcTensor = mTensors[cmd->indexes()->data()[1]];

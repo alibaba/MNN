@@ -133,11 +133,10 @@ ErrorCode Convolution1x1Strassen::onResize(const std::vector<Tensor *> &inputs, 
     }
 #endif
     mWeightBytes = static_cast<float>(dequantBits) / 8.0f;
-    auto rt = static_cast<const CPURuntime*>(backend()->getRuntime());
     if (matrixSizeE > CONVOLUTION_TILED_NUMBER * 8 * numberThread && matrixSizeE > ocC4) {
         std::vector<int> divides(numberThread+1);
         divides[0] = 0;
-        rt->computeDivideSizes(matrixSizeE, divides.data()+1);
+        static_cast<CPUBackend *>(backend())->computeDivideSizes(matrixSizeE, divides.data()+1);
         mUnits.resize(numberThread);
         for (int i = 0; i < numberThread; ++i) {
             int planeStart = divides[i];
@@ -177,7 +176,7 @@ ErrorCode Convolution1x1Strassen::onResize(const std::vector<Tensor *> &inputs, 
         auto ocDiv = UP_DIV(ocC4, hDiv);
         std::vector<int> divides(numberThread+1);
         divides[0] = 0;
-        rt->computeDivideSizes(ocDiv, divides.data()+1);
+        static_cast<CPUBackend *>(backend())->computeDivideSizes(ocDiv, divides.data()+1);
         mUnits.resize(numberThread);
         for (int i = 0; i < numberThread; ++i) {
             int ocStart = divides[i] * hDiv;

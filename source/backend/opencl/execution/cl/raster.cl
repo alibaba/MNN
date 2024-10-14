@@ -44,17 +44,38 @@ __kernel void image_set_zero(
     WI_DATA(output, (int2)(x, y), (OUTPUT_TYPE_I4)(0));
 }
 
-__kernel void raster_buffer_direct(
+__kernel void raster_buffer(
                     GLOBAL_SIZE_3_DIMS
-                    __read_only image2d_t input,
+                    __global INPUT_TYPE *input,
+                    __private const int inputOffset,
+                    __private const int inputStride0,
+                    __private const int inputStride1,
+                    __private const int inputStride2,
+                    __global OUTPUT_TYPE *output,
+                    __private const int outputOffset,
+                    __private const int outputStride0,
+                    __private const int outputStride1,
+                    __private const int outputStride2
+                    ) {
+    const int x = get_global_id(0);
+    const int y = get_global_id(1);
+    const int z = get_global_id(2);
+    
+    DEAL_NON_UNIFORM_DIM3(x, y, z);
+    
+    int inputIndex = inputOffset + z * inputStride0 + y * inputStride1 + x * inputStride2;
+    int outputIndex = outputOffset + z * outputStride0 + y * outputStride1 + x * outputStride2;
+    output[outputIndex] = (OUTPUT_TYPE)input[inputIndex];
+}
+
+__kernel void raster_buffer_combine(
+                    GLOBAL_SIZE_3_DIMS
+                    __global INPUT_TYPE *input,
                     __private const int inputOffset,
                     __private const int combineSrcOffset,
                     __private const int inputStride0,
                     __private const int inputStride1,
                     __private const int inputStride2,
-                    __private const int src_width,
-                    __private const int src_height,
-                    __private const int src_channel,
                     __global OUTPUT_TYPE *output,
                     __private const int outputOffset,
                     __private const int combineDstOffset,
@@ -73,22 +94,9 @@ __kernel void raster_buffer_direct(
     
     int inputIndex = inputOffset + id * combineSrcOffset + z * inputStride0 + y * inputStride1 + x * inputStride2;
     int outputIndex = outputOffset + id * combineDstOffset + z * outputStride0 + y * outputStride1 + x * outputStride2;
-#ifdef INPUT_DATA_FORMAT_NHWC
-    int in_c = inputIndex % src_channel; inputIndex /= src_channel;
-    int in_w = inputIndex % src_width; inputIndex /= src_width;
-    int in_h = inputIndex % src_height;
-    int in_b = inputIndex / src_height;
-#else
-    int in_w = inputIndex % src_width; inputIndex /= src_width;
-    int in_h = inputIndex % src_height; inputIndex /= src_height;
-    int in_c = inputIndex % src_channel;
-    int in_b = inputIndex / src_channel;
-#endif
-    int2 coord = (int2)((in_c / 4) * src_width + in_w, in_b * src_height + in_h);
-    INPUT_TYPE_I4 value = RI_DATA(input, SAMPLER, coord);
-    INPUT_TYPE_I* value_ptr = (INPUT_TYPE_I*)&value;
-    output[outputIndex] = (OUTPUT_TYPE)value_ptr[in_c % 4];
+    output[outputIndex] = (OUTPUT_TYPE)input[inputIndex];
 }
+
 
 __kernel void raster_image(
                     GLOBAL_SIZE_3_DIMS

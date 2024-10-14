@@ -46,9 +46,7 @@ static VARP formatOutput(VARP src, halide_type_t type) {
     if (channel == 1) {
         squeeze_dims.push_back(-1);
     }
-    if (!squeeze_dims.empty()) {
-        src = _Squeeze(src, squeeze_dims);
-    }
+    src = _Squeeze(src, squeeze_dims);
     if (type == halide_type_of<uint8_t>()) {
         src = _Minimum(src, _Scalar<float>(255));
         src = _Maximum(src, _Scalar<float>(0));

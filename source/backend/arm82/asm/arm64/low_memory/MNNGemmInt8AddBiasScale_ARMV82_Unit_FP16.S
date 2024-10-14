@@ -108,14 +108,12 @@ stp x23, x24, [sp, #(16 * 8)]
 ldr x25, [x6, #40]  // xKernelSum
 ldr x26, [x6, #48]  // weightQuantBias
 ldr x23, [x6, #56]  // fp32minmax
-ldr x27, [x6, #64]  // blockNum
 
 //add x24, x23, #4
 
 mov x21, #16 // sizeof(float16_t) * PACK
-mul x27, x27, x3
 Start:
-lsl x15, x27, #5 // x15 = src_depth_quad * UNIT * SRC_UNIT
+lsl x15, x3, #5 // x15 = src_depth_quad * UNIT * SRC_UNIT
 mov x22, #48 // src_steps
 ldr x27, [x6, #80] // extra scale
 TILE_12:

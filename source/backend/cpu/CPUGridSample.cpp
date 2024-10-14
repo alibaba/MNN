@@ -98,8 +98,8 @@ ErrorCode CPUGridSample::onExecute(const std::vector<Tensor *> &inputs, const st
         auto outW = outputTensor->buffer().dim[4].extent;
         auto threadCount = static_cast<CPUBackend*>(backend())->threadNumber();
         auto tileCount = outD;
-        auto inOffset  = batches * inH * inW * core->pack;
-        auto outOffset = batches * outH * outW * core->pack;
+        auto inOffset  = batches * inD * inH * inW * core->pack;
+        auto outOffset = batches * outD * outH * outW * core->pack;
         auto cordPtr = mTempCordBuffer->host<uint8_t>();
         for (auto b = 0; b < batches; ++b) {
             auto _inputPtr = inputPtr + b * inD * inH * inW * core->pack * core->bytes;
@@ -109,10 +109,9 @@ ErrorCode CPUGridSample::onExecute(const std::vector<Tensor *> &inputs, const st
             // Compute cord
             MNN_CONCURRENCY_BEGIN(tId, threadCount) {
                 for (int index=tId; index < tileCount; index += threadCount) {
-                    auto c = index / outD;
-                    auto d = index % outD;
-                    auto inputC = _inputPtr + c * inD * inW * inH * batches * core->pack * core->bytes;
-                    auto outputC = _outputPtr + c * outD * outW * outH * batches * core->pack * core->bytes;
+                    auto d = index;
+                    auto inputC = _inputPtr;
+                    auto outputC = _outputPtr;
                     auto cordD = cordPtr + d * outH * outW * 3 * core->bytes;
                     auto outputD = outputC + d * outH * outW * core->pack * core->bytes;
                     for (int h = 0; h < outH; h++) {

@@ -234,11 +234,7 @@ struct Vec<int32_t, 4> {
         value = std::move(lr.value);
     }
     float operator[](size_t i) {
-#if defined(_MSC_VER)
-        return value.n128_i32[i];
-#else
         return value[i];
-#endif
     }
     static VecType load(const float* addr) {
         VecType v = { (int32x4_t)(vld1q_f32(addr)) };
@@ -400,11 +396,7 @@ struct Vec<float, 4> {
         value = std::move(lr.value);
     }
     float operator[](size_t i) {
-#if defined(_MSC_VER)
-        return value.n128_f32[i];
-#else
         return value[i];
-#endif
     }
     static VecType load(const float* addr) {
         VecType v = { vld1q_f32(addr) };

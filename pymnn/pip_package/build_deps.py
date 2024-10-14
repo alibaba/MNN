@@ -17,6 +17,7 @@ sys.argv = [sys.argv[0]] + unknown
 IS_WINDOWS = (platform.system() == 'Windows')
 IS_DARWIN = (platform.system() == 'Darwin')
 IS_LINUX = (platform.system() == 'Linux')
+IS_ARM = ('arm' in platform.processor())
 BUILD_DIR = 'pymnn_build' # avoid overwrite temporary product when build pymnn
 
 USE_TRT      = False
@@ -55,8 +56,8 @@ if len(sys.argv) > 1 and sys.argv[1] != None:
         USE_OPENMP = True
     if "llm" in sys.argv[1]:
         USE_LLM = True
-    if "arm82" in sys.argv[1]:
-        USE_ARM82 = True
+
+if IS_ARM: USE_ARM82 = True
 
 print ("USE_INTERNAL:", USE_INTERNAL)
 print ("USE_TRT:", USE_TRT)
@@ -69,7 +70,6 @@ print ("USE_RENDER:", USE_RENDER)
 print ("USE_SSE:", USE_SSE)
 print ("USE_OPENMP:", USE_OPENMP)
 print ("USE_LLM:", USE_LLM)
-print ("USE_ARM82:", USE_ARM82)
 
 def build_deps():
     """ build depency """
@@ -92,6 +92,9 @@ def build_deps():
     if USE_ARM82:
         extra_opts += ' -DMNN_ARM82=ON'
     extra_opts += ' -DMNN_USE_THREAD_POOL=OFF -DMNN_OPENMP=ON' if USE_OPENMP else ' -DMNN_USE_THREAD_POOL=ON -DMNN_OPENMP=OFF'
+    if IS_DARWIN:
+        # Mac / iOS System use GCD instead of MNN's thread pool
+        extra_opts += ' -DMNN_USE_THREAD_POOL=OFF -DMNN_METAL=ON '
 
     if IS_WINDOWS:
         os.system('cmake -G "Ninja" ' + extra_opts +' -DMNN_BUILD_TRAIN=ON -DMNN_BUILD_CONVERTER=on -DMNN_BUILD_TORCH=OFF\

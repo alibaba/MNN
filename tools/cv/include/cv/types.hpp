@@ -407,6 +407,9 @@ typedef Scalar_<double> Scalar;
 
 static void getVARPSize(VARP var, int* height, int* width, int* channel) {
     auto info = var->getInfo();
+    if (!info) {
+        return;
+    }
     auto dims = info->dim;
     int num = dims.size();
     if (num < 2) return;

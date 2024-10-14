@@ -40,13 +40,16 @@ python llmexport.py \
      ├── llm.mnn
      ├── llm.mnn.json
      ├── llm.mnn.weight
-     ├── llm.onnx
+     ├── onnx/
+          ├──llm.onnx
+           ├──llm.onnx.data
      ├── llm_config.json
      └── tokenizer.txt
 ```
 
 ### 功能
-- 支持将模型为onnx或mnn模型，使用`--export onnx`或`--export mnn`
+- 将模型先转为onnx模型，使用`--export onnx`，然后使用./MNNConvert工具将onnx模型转为mnn模型: ./MNNConvert --modelFile ../transformers/llm/export/model/onnx/llm.onnx --MNNModel llm.mnn --keepInputFormat --weightQuantBits=4 -f ONNX --transformerFuse=1 --allowCustomOp
+- 更快的方式：直接转为mnn模型，使用`--export mnn`，注意，你需要先安装pymnn或者通过--mnnconvert选项指定MNNConvert工具的地址，两种条件必须满足其中一个。如果没有安装pymnn并且没有通过--mnnconvert指定MNNConvert工具的地址，那么llmexport.py脚本会在目录"../../../build/"下寻找MNNConvert工具，需保证该目录下存在MNNConvert文件。
 - 支持对模型进行对话测试，使用`--test $query`会返回llm的回复内容
 - 默认会使用onnx-slim对onnx模型进行优化，跳过该步骤使用`--skip_slim`
 - 支持合并lora权重后导出，指定lora权重的目录使用`--lora_path`

@@ -3028,203 +3028,6 @@ void MNNSigmoidLowp(float* dst, const float* src, size_t dataSize) {
 #endif
 }
 
-void MNNMultiAndDestTransformCommon23(float **cacheLine, const float *weigth, float *dest, int cacheLineSize, int ow, const float* bias, const float* parameters) {
-    int unit = ow / 2;
-    MNN_ASSERT(cacheLineSize >= 1);
-    auto biasF = Vec4::load(bias);
-    auto minF = Vec4(parameters[2]);
-    auto maxF = Vec4(parameters[3]);
-    for (int x = 0; x < unit; ++x) {
-        auto offset = 4 * 4 * x;
-        int i = 0;
-        Vec4 m0     = Vec4::load(weigth + i * 16 + 4 * 0) * Vec4::load(cacheLine[i] + offset + 4 * 0);
-        Vec4 m1     = Vec4::load(weigth + i * 16 + 4 * 1) * Vec4::load(cacheLine[i] + offset + 4 * 1);
-        Vec4 m2     = Vec4::load(weigth + i * 16 + 4 * 2) * Vec4::load(cacheLine[i] + offset + 4 * 2);
-        Vec4 m3     = Vec4::load(weigth + i * 16 + 4 * 3) * Vec4::load(cacheLine[i] + offset + 4 * 3);
-
-        for (i = 1; i < cacheLineSize; ++i) {
-            m0 = m0 + Vec4::load(weigth + i * 16 + 4 * 0) * Vec4::load(cacheLine[i] + offset + 4 * 0);
-            m1 = m1 + Vec4::load(weigth + i * 16 + 4 * 1) * Vec4::load(cacheLine[i] + offset + 4 * 1);
-            m2 = m2 + Vec4::load(weigth + i * 16 + 4 * 2) * Vec4::load(cacheLine[i] + offset + 4 * 2);
-            m3 = m3 + Vec4::load(weigth + i * 16 + 4 * 3) * Vec4::load(cacheLine[i] + offset + 4 * 3);
-        }
-
-        auto o0 = m0 + m1 + m2 + biasF;
-        auto o1 = m1 - m2 + m3 + biasF;
-        o0 = Vec4::min(maxF, o0);
-        o1 = Vec4::min(maxF, o1);
-        o0 = Vec4::max(minF, o0);
-        o1 = Vec4::max(minF, o1);
-        Vec4::save(dest + 8 * x + 0 * 4, o0);
-        Vec4::save(dest + 8 * x + 1 * 4, o1);
-    }
-    if (unit * 2 < ow) {
-        auto offset = 4 * 4 * unit;
-        int i = 0;
-        Vec4 m0     = Vec4::load(weigth + i * 16 + 4 * 0) * Vec4::load(cacheLine[i] + offset + 4 * 0);
-        Vec4 m1     = Vec4::load(weigth + i * 16 + 4 * 1) * Vec4::load(cacheLine[i] + offset + 4 * 1);
-        Vec4 m2     = Vec4::load(weigth + i * 16 + 4 * 2) * Vec4::load(cacheLine[i] + offset + 4 * 2);
-
-        for (i = 1; i < cacheLineSize; ++i) {
-            m0 = m0 + Vec4::load(weigth + i * 16 + 4 * 0) * Vec4::load(cacheLine[i] + offset + 4 * 0);
-            m1 = m1 + Vec4::load(weigth + i * 16 + 4 * 1) * Vec4::load(cacheLine[i] + offset + 4 * 1);
-            m2 = m2 + Vec4::load(weigth + i * 16 + 4 * 2) * Vec4::load(cacheLine[i] + offset + 4 * 2);
-        }
-        auto o0 = m0 + m1 + m2 + biasF;
-        o0 = Vec4::min(maxF, o0);
-        o0 = Vec4::max(minF, o0);
-        Vec4::save(dest + 8 * unit + 0 * 4, o0);
-    }
-}
-extern "C" {
-void MNNConvDwF23SourceTransUnit(const float *source, float *dest, size_t unit);
-}
-
-void MNNSourceTransformCommonF23(const float *source, float *dest, int unit, int iw, int pad, int su, int eu) {
-    for (int x = 0; x < su; ++x) {
-        auto dstX = dest + 4 * 4 * x;
-        auto sx   = x * 2 - (int)pad;
-        auto ex   = sx + 4;
-
-        auto clampSx = std::max(sx, 0);
-        auto clampEx = std::min(ex, (int)iw);
-
-        Vec4 v[4] = {0.0f, 0.0f, 0.0f, 0.0f};
-        for (int i = clampSx; i < clampEx; ++i) {
-            v[i - sx] = Vec4::load(source + 4 * i);
-        }
-        auto m0 = v[0] - v[2];
-        auto m1 = v[1] + v[2];
-        auto m2 = v[2] - v[1];
-        auto m3 = v[3] - v[1];
-
-        Vec4::save(dstX + 4 * 0, m0);
-        Vec4::save(dstX + 4 * 1, m1);
-        Vec4::save(dstX + 4 * 2, m2);
-        Vec4::save(dstX + 4 * 3, m3);
-    }
-    MNNConvDwF23SourceTransUnit(source + 4 * (su * 2 - pad), dest + 4 * 4 * su, eu - su);
-
-    for (int x = eu; x < unit; ++x) {
-        auto dstX = dest + 4 * 4 * x;
-        auto sx   = x * 2 - (int)pad;
-        auto ex   = sx + 4;
-
-        auto clampSx = std::max(sx, 0);
-        auto clampEx = std::min(ex, (int)iw);
-
-        Vec4 v[4] = {0.0f, 0.0f, 0.0f, 0.0f};
-        for (int i = clampSx; i < clampEx; ++i) {
-            v[i - sx] = Vec4::load(source + 4 * i);
-        }
-        auto m0 = v[0] - v[2];
-        auto m1 = v[1] + v[2];
-        auto m2 = v[2] - v[1];
-        auto m3 = v[3] - v[1];
-
-        Vec4::save(dstX + 4 * 0, m0);
-        Vec4::save(dstX + 4 * 1, m1);
-        Vec4::save(dstX + 4 * 2, m2);
-        Vec4::save(dstX + 4 * 3, m3);
-    }
-}
-
-#ifndef MNN_USE_NEON
-void MNNConvDwF23MulTransUnit(float **cacheLine, const float *weigth, float *dest, size_t ow, const float* bias, const float* parameters) {
-    int unit = ow / 2;
-    auto w00 = Vec4::load(weigth + 0 * 16 + 4 * 0);
-    auto w01 = Vec4::load(weigth + 0 * 16 + 4 * 1);
-    auto w02 = Vec4::load(weigth + 0 * 16 + 4 * 2);
-    auto w03 = Vec4::load(weigth + 0 * 16 + 4 * 3);
-    auto w10 = Vec4::load(weigth + 1 * 16 + 4 * 0);
-    auto w11 = Vec4::load(weigth + 1 * 16 + 4 * 1);
-    auto w12 = Vec4::load(weigth + 1 * 16 + 4 * 2);
-    auto w13 = Vec4::load(weigth + 1 * 16 + 4 * 3);
-    auto w20 = Vec4::load(weigth + 2 * 16 + 4 * 0);
-    auto w21 = Vec4::load(weigth + 2 * 16 + 4 * 1);
-    auto w22 = Vec4::load(weigth + 2 * 16 + 4 * 2);
-    auto w23 = Vec4::load(weigth + 2 * 16 + 4 * 3);
-    auto biasF = Vec4::load(bias);
-    auto minF = Vec4(parameters[2]);
-    auto maxF = Vec4(parameters[3]);
-    for (int x = 0; x < unit; ++x) {
-        auto offset = 4 * 4 * x;
-        int i = 0;
-        Vec4 m0     = w00 * Vec4::load(cacheLine[0] + offset + 4 * 0);
-        Vec4 m1     = w01 * Vec4::load(cacheLine[0] + offset + 4 * 1);
-        Vec4 m2     = w02 * Vec4::load(cacheLine[0] + offset + 4 * 2);
-        Vec4 m3     = w03 * Vec4::load(cacheLine[0] + offset + 4 * 3);
-
-        m0 = m0 + w10 * Vec4::load(cacheLine[1] + offset + 4 * 0);
-        m1 = m1 + w11 * Vec4::load(cacheLine[1] + offset + 4 * 1);
-        m2 = m2 + w12 * Vec4::load(cacheLine[1] + offset + 4 * 2);
-        m3 = m3 + w13 * Vec4::load(cacheLine[1] + offset + 4 * 3);
-
-        m0 = m0 + w20 * Vec4::load(cacheLine[2] + offset + 4 * 0);
-        m1 = m1 + w21 * Vec4::load(cacheLine[2] + offset + 4 * 1);
-        m2 = m2 + w22 * Vec4::load(cacheLine[2] + offset + 4 * 2);
-        m3 = m3 + w23 * Vec4::load(cacheLine[2] + offset + 4 * 3);
-
-        auto o0 = m0 + m1 + m2 + biasF;
-        auto o1 = m1 - m2 + m3 + biasF;
-        o0 = Vec4::min(maxF, o0);
-        o1 = Vec4::min(maxF, o1);
-        o0 = Vec4::max(minF, o0);
-        o1 = Vec4::max(minF, o1);
-        Vec4::save(dest + 8 * x + 0 * 4, o0);
-        Vec4::save(dest + 8 * x + 1 * 4, o1);
-    }
-    if (unit * 2 < ow) {
-        auto offset = 4 * 4 * unit;
-        Vec4 m0     = w00 * Vec4::load(cacheLine[0] + offset + 4 * 0);
-        Vec4 m1     = w01 * Vec4::load(cacheLine[0] + offset + 4 * 1);
-        Vec4 m2     = w02 * Vec4::load(cacheLine[0] + offset + 4 * 2);
-
-        m0 = m0 + w10 * Vec4::load(cacheLine[1] + offset + 4 * 0);
-        m1 = m1 + w11 * Vec4::load(cacheLine[1] + offset + 4 * 1);
-        m2 = m2 + w12 * Vec4::load(cacheLine[1] + offset + 4 * 2);
-
-        m0 = m0 + w20 * Vec4::load(cacheLine[2] + offset + 4 * 0);
-        m1 = m1 + w21 * Vec4::load(cacheLine[2] + offset + 4 * 1);
-        m2 = m2 + w22 * Vec4::load(cacheLine[2] + offset + 4 * 2);
-        auto o0 = m0 + m1 + m2 + biasF;
-        o0 = Vec4::min(maxF, o0);
-        o0 = Vec4::max(minF, o0);
-        Vec4::save(dest + 8 * unit + 0 * 4, o0);
-    }
-}
-void MNNConvDwF23SourceTransUnit(const float *source, float *dest, size_t unit) {
-    if (unit <= 0) {
-        return;
-    }
-    Vec4 v0 = Vec4::load(source + 4 * 0);
-    Vec4 v1 = Vec4::load(source + 4 * 1);
-    Vec4 v2;
-    Vec4 v3;
-    source += 8;
-
-    for (int x = 0; x < unit; ++x) {
-        v2 = Vec4::load(source + 0 * 4);
-        v3 = Vec4::load(source + 1 * 4);
-        auto m0 = v0 - v2;
-        auto m1 = v1 + v2;
-        auto m2 = v2 - v1;
-        auto m3 = v3 - v1;
-
-        Vec4::save(dest + 4 * 0, m0);
-        Vec4::save(dest + 4 * 1, m1);
-        Vec4::save(dest + 4 * 2, m2);
-        Vec4::save(dest + 4 * 3, m3);
-
-        source += 8;
-        dest += 16;
-
-        v0 = v2;
-        v1 = v3;
-    }
-}
-#endif
-
 static void _MNNAdjustOptimalSparseKernel(int& sparseBlockOC, MNN::CoreFunctions::MNNPackedSparseMatMul& packedSparseMatMul) {
     if(sparseBlockOC == 4) {
         packedSparseMatMul = MNNPackedSparseMatMulEpx4;
@@ -3365,10 +3168,6 @@ void MNNCoreFunctionInit() {
 
     gCoreFunction->MNNAxByClampBroadcastUnit = MNNAxByClampBroadcastUnit;
     gCoreFunction->MNNConvRunForLineDepthwise = MNNConvRunForLineDepthwise;
-    gCoreFunction->MNNConvRunForUnitDepthWise = MNNConvRunForUnitDepthWise;
-    gCoreFunction->MNNSourceTransformCommonF23 = MNNSourceTransformCommonF23;
-    gCoreFunction->MNNConvDwF23MulTransUnit = MNNConvDwF23MulTransUnit;
-    gCoreFunction->MNNMultiAndDestTransformCommon23 = MNNMultiAndDestTransformCommon23;
     gCoreFunction->MNNMatrixAdd = MNNMatrixAdd;
     gCoreFunction->MNNMatrixSub = MNNMatrixSub;
     gCoreFunction->MNNStrassenMergeCFunction = MNNStrassenMergeCFunction;
@@ -3390,6 +3189,9 @@ void MNNCoreFunctionInit() {
     gCoreFunction->chooseWinoDestUnrollTransform = WinogradFunction::chooseWinoDestUnrollTransform;
     gCoreFunction->MNNDeconvRunForLineDepthwise = MNNDeconvRunForLineDepthwise;
     gCoreFunction->MNNDeconvRunForUnitDepthWise = MNNDeconvRunForUnitDepthWise;
+#ifdef MNN_USE_NEON
+    gCoreFunction->MNNDepthwiseConvFastKernel = MNNDepthwiseConvFastKernel;
+#endif
     gCoreFunction->MNNSelectBinaryFunctionForFloat = CPUBinary::selectForFloat;
     gCoreFunction->MNNSelectUnaryFunctionForFloat = CPUUnary::selectForFloat;
     gCoreFunction->MNNSelectUnaryFunctionForInt8 = CPUUnary::selectForInt8;

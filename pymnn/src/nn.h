@@ -154,6 +154,7 @@ static PyObject* PyMNN_Module_get_info(PyMNN_Module *self, PyObject *args) {
     }
     auto res = PyDict_New();
     PyDict_SetItemString(res, "version", char2Object(info->version.c_str()));
+    PyDict_SetItemString(res, "bizCode", char2Object(info->bizCode.c_str()));
     {
         auto names = PyList_New(info->inputNames.size());
         for (int i=0; i<info->inputNames.size(); ++i) {
@@ -379,6 +380,7 @@ static PyObject* PyMNNNN_create_runtime_manager(PyObject *self, PyObject *args) 
     }
     for (auto i = 0; i < PySequence_Size(dicts); ++i) {
         backendConfig[i].sharedContext = nullptr;
+        config[i].numThread = 1;
         config[i].backendConfig = &backendConfig[i];
         bool ret = getScheduleConfig(PySequence_GetItem(dicts, i), config[i]);
         if (!ret) {
@@ -392,7 +394,7 @@ static PyObject* PyMNNNN_create_runtime_manager(PyObject *self, PyObject *args) 
     } else {
         m_ptr = Executor::RuntimeManager::createRuntimeManager(configs);
     }
-    
+
     if (m_ptr == nullptr) {
         printf("config size:%d\n", configs.size());
         std::string mnn_errno = "create_runtime_manager failed ";

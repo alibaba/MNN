@@ -107,7 +107,7 @@ static void _create() {
     std::shared_ptr<GeometryComputer> _comp(new SingleGeometryComputer);
     GeometryComputer::registerGeometryComputer(_comp, {OpType_Squeeze, OpType_Unsqueeze, OpType_ExpandDims, OpType_Flatten, OpType_QuantizedReshape});
     std::shared_ptr<GeometryComputer> copycomp(new CopyGeometryComputer);
-    GeometryComputer::registerGeometryComputer(comp, {OpType_Identity});
+    GeometryComputer::registerGeometryComputer(copycomp, {OpType_Identity});
 }
 
 REGISTER_GEOMETRY(GeometryReshape, _create);

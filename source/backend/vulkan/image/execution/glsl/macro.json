@@ -107,5 +107,15 @@
     ],
     "resizeNearest.comp":[
         "NEAREST_ROUND"
+    ],
+    "binary_blit.comp":[
+        "ADD",
+        "SUB",
+        "MUL",
+        "DIV",
+        "POW",
+        "VMAX",
+        "VMIN",
+        "SQUDIFF"
     ]
 }

@@ -102,6 +102,7 @@ float convertFP32ToFP16(float fp32Value);
 inline float keepFP32Precision(float fp32Value) {
     return fp32Value;
 }
+MNNForwardType getCurrentType();
 
 using ConvertFP32 = float(*)(float fp32Value);
 

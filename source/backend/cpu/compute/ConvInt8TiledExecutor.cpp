@@ -44,10 +44,14 @@ ErrorCode ConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& inputs, co
     return NO_ERROR;
 }
 
-void ConvInt8TiledExecutor::reorderWeight(Tensor* weight, const uint8_t* weightSrc, int SRC_UNIT, int UNIT, int ic, int oc, int kernelCount, int pack) {
+void ConvInt8TiledExecutor::reorderWeight(Tensor* weight, const uint8_t* weightSrc, int SRC_UNIT, int UNIT, int ic, int oc, int kernelCount, int pack, int blockNum) {
     auto weightDst = weight->host<uint8_t>();
     memset(weightDst, 0, weight->size());
-    if (SRC_UNIT > pack) {
+    int kernelCountUnit = weight->shape()[1];
+    int blockL = kernelCountUnit / blockNum;
+    int strideOutside = ROUND_UP(oc, UNIT) * SRC_UNIT * blockL;
+    int strideInside   = weight->stride(0) / blockNum;
+    if (SRC_UNIT > pack) { // shape = {blockNum, UP_DIV(oc, UNIT), UP_DIV(UP_DIV(ic, pack) * kernelCount, SRC_UNIT / pack) / blockNum, UNIT, SRC_UNIT};
         auto icDivU = UP_DIV(ic, pack);
         for (int k = 0; k < kernelCount; ++k) {
             const auto srcK = weightSrc + k;
@@ -58,31 +62,37 @@ void ConvInt8TiledExecutor::reorderWeight(Tensor* weight, const uint8_t* weightS
                 const int ySubOutSide = yIndex / (SRC_UNIT / pack);
                 const int ySubInSide  = yIndex % (SRC_UNIT / pack);
 
-                auto dstY       = weightDst + ySubOutSide * weight->stride(1) + ySubInSide * pack + yInSide;
+                int blockId = ySubOutSide / blockL;
+                int blockInsideId = ySubOutSide % blockL;
+
+                auto dstY       = weightDst + blockId * strideOutside + blockInsideId * weight->stride(1) + ySubInSide * pack + yInSide;
                 const auto srcY = srcK + y * kernelCount;
                 for (int x = 0; x < oc; ++x) {
                     const int xOutSide = x / UNIT;
                     const int xInSide  = x % UNIT;
-                    const int dstIndex = xOutSide * weight->stride(0) + xInSide * SRC_UNIT;
+                    const int dstIndex = xOutSide * strideInside + xInSide * SRC_UNIT;
                     const int srcIndex = x * kernelCount * ic;
                     dstY[dstIndex]     = srcY[srcIndex];
                 }
             }
         }
-    } else {
+    } else { // shape = {blockNum, UP_DIV(oc, UNIT), UP_DIV(ic, SRC_UNIT) * kernelCount / blockNum, UNIT, SRC_UNIT};
         for (int k = 0; k < kernelCount; ++k) {
             auto icDivU = UP_DIV(ic, SRC_UNIT);
             const auto srcK = weightSrc + k;
             for (int y = 0; y < ic; ++y) {
                 const int yOutSide    = y / SRC_UNIT;
                 const int yInSide     = y % SRC_UNIT;
+                
+                int blockId = (yOutSide + k * icDivU) / blockL;
+                int blockInsideId = (yOutSide + k * icDivU) % blockL;
 
-                auto dstY       = weightDst + (yOutSide + k * icDivU)  * weight->stride(1) + yInSide;
+                auto dstY       = weightDst + blockId * strideOutside + blockInsideId * weight->stride(1) + yInSide;
                 const auto srcY = srcK + y * kernelCount;
                 for (int x = 0; x < oc; ++x) {
                     const int xOutSide = x / UNIT;
                     const int xInSide  = x % UNIT;
-                    const int dstIndex = xOutSide * weight->stride(0) + xInSide * SRC_UNIT;
+                    const int dstIndex = xOutSide * strideInside + xInSide * SRC_UNIT;
                     const int srcIndex = x * kernelCount * ic;
                     dstY[dstIndex]     = srcY[srcIndex];
                 }
@@ -93,7 +103,8 @@ void ConvInt8TiledExecutor::reorderWeight(Tensor* weight, const uint8_t* weightS
 
 static bool _reorderWeightInside(Backend* bn, const Convolution2DCommon* common,
                                  const std::shared_ptr<Tensor>& weightOrigin,
-                                 std::shared_ptr<Tensor>& weight) {
+                                 std::shared_ptr<Tensor>& weight, int blockNum) {
+    MNN_ASSERT(blockNum > 0);
     auto core = static_cast<CPUBackend*>(bn)->int8Functions();
     auto gcore = static_cast<CPUBackend*>(bn)->functions();
     int UNIT, SRC_UNIT, DST_XUNIT;
@@ -119,11 +130,11 @@ static bool _reorderWeightInside(Backend* bn, const Convolution2DCommon* common,
         MNN_ERROR("Memory not enough");
         return false;
     }
-    ConvInt8TiledExecutor::reorderWeight(weight.get(), weightOrigin->host<uint8_t>(), SRC_UNIT, UNIT, ic, oc, kernelCount, pack);
+    ConvInt8TiledExecutor::reorderWeight(weight.get(), weightOrigin->host<uint8_t>(), SRC_UNIT, UNIT, ic, oc, kernelCount, pack, blockNum);
     return true;
 }
 
-static void GetResourceInt8(std::shared_ptr<CPUConvolution::ResourceInt8> resource, std::shared_ptr<ConvolutionCommon::Int8Common> quantCommon, const Convolution2D* conv2d, Backend* backend) {
+static void GetResourceInt8(std::shared_ptr<CPUConvolution::ResourceInt8> resource, std::shared_ptr<ConvolutionCommon::Int8Common> quantCommon, const Convolution2D* conv2d, Backend* backend, int32_t* blocknumPtr) {
     // common parameters
     int outputCount = conv2d->common()->outputCount();
     auto core = static_cast<CPUBackend*>(backend)->functions();
@@ -135,6 +146,7 @@ static void GetResourceInt8(std::shared_ptr<CPUConvolution::ResourceInt8> resour
         dequantCnt /= 2;
     }
     int blockNum = dequantCnt / outputCount;
+    blocknumPtr[0] = blockNum;
     int scaleSize = blockNum * ocUp4; // pack size.
     int blockSize = LSize / blockNum;
     int originOffset = 0;
@@ -244,7 +256,9 @@ DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const O
     auto gcore = static_cast<CPUBackend*>(backend)->functions();
     mResourceInt8.reset(new CPUConvolution::ResourceInt8);
     mResourceInt8->mDynamicQuant = true;
-    GetResourceInt8(mResourceInt8, quanCommon, convOp, backend);
+    int blockNum = 1;
+    GetResourceInt8(mResourceInt8, quanCommon, convOp, backend, &blockNum);
+    mBlockNum = blockNum;
     // dynamic quant
     int UNIT, SRC_UNIT, DST_XUNIT;
     core->MNNGetGemmUnit(&UNIT, &SRC_UNIT, &DST_XUNIT);
@@ -285,10 +299,15 @@ DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const O
         // Pack two int4-weight to one int8-weight.
         int cnt = lP * hP / 4;
         int L = lU * lP;
+        int blockL = lU / blockNum;
+        int stride0 = (lP * hP) * hU * blockL;
+        int stride1 = (lP * hP) * blockL;
         for (int i = 0; i < hU; ++i) {
             for (int j = 0; j < lU; ++j) {
+                int blockId = j / blockL;
+                int blockkInsideId = j % blockL;
                 for (int k = 0; k < cnt; ++k) {
-                    int dstIndx0 = (i * lU * lP * hP + j * lP * hP) / 2 + (2 * k);
+                    int dstIndx0 = (blockId * stride0 + i * stride1 + blockkInsideId * lP * hP) / 2 + (2 * k);
                     
                     int hpId0     = (2 * k + 1) / lP;
                     int lpId0     = (2 * k) % lP;
@@ -322,7 +341,7 @@ DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const O
                 tmpWeight[2 * i + 1] = s1;
             }
             std::shared_ptr<Tensor> srcWeight(Tensor::create<uint8_t>({weightLength * 2}, (void*)tmpWeight.data()));
-            mValid = _reorderWeightInside(backend, convOp->common(), srcWeight, mResourceInt8->mWeightInt8);
+            mValid = _reorderWeightInside(backend, convOp->common(), srcWeight, mResourceInt8->mWeightInt8, blockNum);
             if(!mValid) {
                 return;
             }
@@ -349,7 +368,7 @@ DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const O
             mResourceInt8->mWeightInt8 = weightLow;
         } else {
             std::shared_ptr<Tensor> srcWeight(Tensor::create<uint8_t>({weightLength}, (void*)quanCommon->weight.get()));
-            mValid = _reorderWeightInside(backend, convOp->common(), srcWeight, mResourceInt8->mWeightInt8);
+            mValid = _reorderWeightInside(backend, convOp->common(), srcWeight, mResourceInt8->mWeightInt8, blockNum);
             if(!mValid) {
                 return;
             }
@@ -429,7 +448,7 @@ static void _computeAlphaScale(Backend* backend, const Convolution2D* conv2d, st
 DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const Op* op, std::shared_ptr<ResourceInt8> res) : ConvInt8TiledExecutor(backend, op, res) {
     std::shared_ptr<Tensor> weightOrigin = mResourceInt8->mWeightInt8;
     auto convOp = op->main_as_Convolution2D();
-    mValid = _reorderWeightInside(backend, convOp->common(), weightOrigin, mResourceInt8->mWeightInt8);
+    mValid = _reorderWeightInside(backend, convOp->common(), weightOrigin, mResourceInt8->mWeightInt8, mBlockNum);
     if(!mValid) {
         return;
     }
@@ -559,7 +578,7 @@ ErrorCode DenseConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& input
 
         mDivides.resize(threads+1);
         mDivides[0] = 0;
-        static_cast<const CPURuntime*>(backend()->getRuntime())->computeDivideSizes(totalWork, mDivides.data() + 1);
+        static_cast<CPUBackend *>(backend())->computeDivideSizes(totalWork, mDivides.data() + 1);
         for (int i = 0; i < mDivides.size(); ++i) {
             mDivides[i] *= part;
         }
@@ -572,7 +591,7 @@ ErrorCode DenseConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& input
         mThreadNums = ALIMIN(threads, mTileCount);
         mDivides.resize(threads+1);
         mDivides[0] = 0;
-        static_cast<const CPURuntime*>(backend()->getRuntime())->computeDivideSizes(mTileCount, mDivides.data() + 1);
+        static_cast<CPUBackend *>(backend())->computeDivideSizes(mTileCount, mDivides.data() + 1);
     }
     int ocUp4 = ROUND_UP(outC, gcore->pack);
     // int alphaSize = mResource->mDequantize.mScaleBias->size() / (sizeof(float) * 2);
@@ -663,6 +682,9 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
 
     auto inputDataPtr        = input->host<int8_t>();
     auto im2colPtr           = mTempIm2ColBuffer->host<int8_t>();
+    if (SRC_UNIT > PackUnit) {
+        memset(im2colPtr, 0, mTempIm2ColBuffer->size());
+    }
     const auto weightDataPtr = mResourceInt8->mWeightInt8->host<int8_t>();
     auto srcKernelSumPtr     = mTempSrcSum.data();
     auto weightDequantBias = mResourceInt8->mOriginScale->host<uint8_t>() + alphaSize * 4;
@@ -736,7 +758,6 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
             dequantscale = range / 255.0f;
             zeropoint = roundf(-minVal * 255.f / range) - 128.0f;
         }
-        std::vector<float>qsVec(PackUnit, quantscale);
         auto sizeDiv = UP_DIV(inputsize, PackUnit);
         int inputPlane = input->batch() * mIm2ColParamter.iw * mIm2ColParamter.ih;
         if (gcore->bytes == 2 && gcore->pack == 8 && inputPlane > 1) { // C8->C4
@@ -867,7 +888,7 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
         const auto biasFloatTid = reinterpret_cast<float*>(biasPtr + ocIndex * 4);
         const auto scaleFloatTid = reinterpret_cast<float*>(scalePtr + ocIndex * 4);
         const auto weightDequanBiasTid  = reinterpret_cast<float*>(weightDequantBias + ocIndex * 4);
-        const auto weightPtrTid = weightDataPtr + static_cast<int32_t>(ocIndex * kernelCountUnitDouble * SRC_UNIT * weightBytes);
+        const auto weightPtrTid = weightDataPtr + static_cast<int32_t>(ocIndex * blockL * SRC_UNIT * weightBytes);
         if (mBlockNum == 1) {
             quanParam.biasFloat = biasFloatTid;
             quanParam.scale = scaleFloatTid;
@@ -941,7 +962,7 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
                         quanParam.weightQuanBias = weightDequanBiasTid + k * ocUp4;
                         quanParam.scale = (float*)(scaleFloatTid + k * ocUp4);
 
-                        mGemmKernel(outputInTilePtr, colAddrTemp + k * blockL * src_step_Y, weightPtrTid + k * blockL * weight_step_Y, blockL, dstZStep * dstBytes, ocDivThread, &quanParam, step);
+                        mGemmKernel(outputInTilePtr, colAddrTemp + k * blockL * src_step_Y, weightPtrTid + k * blockL * weight_step_Y * UP_DIV(output->channel(), UNIT__), blockL, dstZStep * dstBytes, ocDivThread, &quanParam, step);
                     }
                     ptrX += (step * mBlockNum);
                     realDstCount-=step;

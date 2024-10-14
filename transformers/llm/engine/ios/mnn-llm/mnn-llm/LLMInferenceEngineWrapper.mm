@@ -4,7 +4,7 @@
 //
 //  Created by wangzhaode on 2023/12/14.
 //
-
+#include <functional>
 #import "LLMInferenceEngineWrapper.h"
 #include <MNN/llm/llm.hpp>
 using namespace MNN::Transformer;
@@ -44,7 +44,23 @@ const char* GetMainBundleDirectory() {
     }
     return YES;
 }
+// Llm start
+// llm stream buffer with callback
+class LlmStreamBuffer : public std::streambuf {
+public:
+    using CallBack = std::function<void(const char* str, size_t len)>;;
+    LlmStreamBuffer(CallBack callback) : callback_(callback) {}
 
+protected:
+    virtual std::streamsize xsputn(const char* s, std::streamsize n) override {
+        if (callback_) {
+            callback_(s, n);
+        }
+        return n;
+    }
+private:
+    CallBack callback_ = nullptr;
+};
 - (void)processInput:(NSString *)input withStreamHandler:(StreamOutputHandler)handler {
     LlmStreamBuffer::CallBack callback = [handler](const char* str, size_t len) {
         if (handler) {

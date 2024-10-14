@@ -22,37 +22,45 @@
         ```bash
         mkdir build && cd build && cmake .. && make -j8
         ```
-## Windows
+## Windows(非ARM架构)
 - 环境要求
   - Microsoft Visual Studio >= 2017
   - cmake >= 3.13
-  - powershell
   - Ninja
 - 相关编译选项
   - 同`Linux/MacOS`
 - 具体步骤
-  1. opencl/vulkan
-     - *(可选)*下载GPU Caps Viewer，你可以通过这个工具来查看本机设备的详细信息（opencl、opengl、vulkan等）
-     - sdk和驱动准备
-        - [opencl sdk](https://github.com/GPUOpen-LibrariesAndSDKs/OCL-SDK/releases)，将opencl sdk目录的路径加到AMDAPPSDKROOT环境变量
-        - [vulkan sdk](https://vulkan.lunarg.com/)，将vulkan skd路径加入VULKAN_SDK环境变量，以备cmake查找
-        - [AMD opencl驱动](https://www.amd.com/zh-hans/support)
-        - [NVIDIA opencl驱动](https://developer.nvidia.com/opencl)
-        - [AMD vulkan驱动](https://community.amd.com/community/gaming/blog/2016/02/16/radeon-gpus-are-ready-for-the-vulkan-graphics-api)
-  2. 编译
-     - 64位编译：在设置中找到vcvars64.bat（适用于 VS 2017 的 x64 本机工具命令提示）并单击，打开VS编译x64架构程序的虚拟环境
-     - 32位编译：在设置中找到vcvarsamd64_x86.bat（VS 2017的 x64_x86 交叉工具命令提示符）并单击，打开VS交叉编译x86架构程序的虚拟环境 
-     - 在虚拟环境中执行如下编译命令：
-        ```bash
-        cd /path/to/MNN
-        ./schema/generate.ps1 # 非必须
-        mkdir build && cd build
-        cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DMNN_BUILD_SHARED_LIBS=OFF -DMNN_WIN_RUNTIME_MT=OFF
-        ninja
-        ```
-     - 若需要编译模型转换工具，cmake 命令加上 -DMNN_BUILD_CONVERTER=ON -DMNN_BUILD_SHARED_LIBS=OFF -DMNN_WIN_RUNTIME_MT=ON
-     - 若需要编译 MNN CUDA，MNN_WIN_RUNTIME_MT 和 MNN_BUILD_SHARED_LIBS 需要设成 ON ，另外加上 -DMNN_CUDA=ON: cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DMNN_BUILD_SHARED_LIBS=ON -DMNN_WIN_RUNTIME_MT=ON -DMNN_CUDA=ON
-     - Windows 上建议使用 Interpreter::destroy , Tensor::destroy , Module::destroy 等方法进行 MNN 相关内存对象的析构，不要直接使用 delete （直接使用 delete 在 -DMNN_WIN_RUNTIME_MT=ON 时会出问题）
+  - 64位编译：在设置中找到vcvars64.bat（适用于 VS 2017 的 x64 本机工具命令提示）并单击，打开VS编译x64架构程序的虚拟环境
+  - 32位编译：在设置中找到vcvarsamd64_x86.bat（VS 2017的 x64_x86 交叉工具命令提示符）并单击，打开VS交叉编译x86架构程序的虚拟环境 
+  - 在虚拟环境中执行如下编译命令：
+     ```bash
+     cd /path/to/MNN
+     ./schema/generate.ps1 # 非必须
+     mkdir build && cd build
+     cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DMNN_BUILD_SHARED_LIBS=OFF -DMNN_WIN_RUNTIME_MT=OFF
+     ninja
+     ```
+  - 若需要编译模型转换工具，cmake 命令加上 -DMNN_BUILD_CONVERTER=ON -DMNN_BUILD_SHARED_LIBS=OFF -DMNN_WIN_RUNTIME_MT=ON
+  - 若需要编译 MNN CUDA，MNN_WIN_RUNTIME_MT 和 MNN_BUILD_SHARED_LIBS 需要设成 ON ，另外加上 -DMNN_CUDA=ON: cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DMNN_BUILD_SHARED_LIBS=ON -DMNN_WIN_RUNTIME_MT=ON -DMNN_CUDA=ON
+  - Windows 上建议使用 Interpreter::destroy , Tensor::destroy , Module::destroy 等方法进行 MNN 相关内存对象的析构，不要直接使用 delete （直接使用 delete 在 -DMNN_WIN_RUNTIME_MT=ON 时会出问题）
+
+## Windows(ARM架构)
+- 环境要求
+  - Microsoft Visual Studio >= 2017
+  - cmake >= 3.13
+  - Ninja
+  - Clang
+    - Clang 安装参考: https://learn.microsoft.com/en-us/cpp/build/clang-support-msbuild?view=msvc-170#install-1
+- 相关编译选项
+  - 同`Linux/MacOS`
+- 具体步骤
+  - 打开vs的ARM64命令行工具
+  - 进入 MNN 根目录
+  - mkdir build && cd build
+  - cmake .. -G Ninja -DCMAKE_C_COMPILER="C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\Llvm\ARM64\bin\clang.exe" -DCMAKE_CXX_COMPILER="C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\Llvm\ARM64\bin\clang++.exe"  -DCMAKE_LINKER="C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\Llvm\ARM64\bin\lld.exe" -DCMAKE_BUILD_TYPE=Release
+    - Visual Studio 安装路径不一致的，可自行修改脚本
+  - ninja -j16
+
 ## Android
 - 环境要求
   - cmake >= 3.10

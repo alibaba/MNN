@@ -1,5 +1,5 @@
 //
-//  GridSamplerTest.cpp
+//  GridSampler3DTest.cpp
 //  MNNTests
 //
 //  Created by MNN on 2021/03/11.
@@ -46,8 +46,8 @@ static int CLAMP(int v, int min, int max) {
     return v;
 }
 
-static float sample(int h, int w, const float *buffer, int height, int width, GridSamplePaddingMode paddingMode) {
-    if (h < 0 || h >= height || w < 0 || w >= width) {
+static float sample(int d, int h, int w, const float *buffer, int depth, int height, int width, GridSamplePaddingMode paddingMode) {
+    if (h < 0 || h >= height || w < 0 || w >= width || d < 0 || d >= depth) {
         if (paddingMode == GRID_SAMPLE_PADDING_ZEROS) {
             return 0.0f;
         }
@@ -56,64 +56,81 @@ static float sample(int h, int w, const float *buffer, int height, int width, Gr
         // the leftover reflections degrade to GridSamplePaddingMode_BORDER
         h = CLAMP(h, 0, height-1);
         w = CLAMP(w, 0, width-1);
+        d = CLAMP(d, 0, depth-1);
     }
 
-    return buffer[h * width + w];
+    return buffer[d * height * width + h * width + w];
 }
 
-static float interpolate(float h, float w, const float *buffer, int height, int width, InterpolationMethod mode,
+static float interpolate(float d, float h, float w, const float *buffer, int depth, int height, int width, InterpolationMethod mode,
                          GridSamplePaddingMode paddingMode) {
     if (mode == NEAREST) {
         int nh = ::floor(h+0.5f);
         int nw = ::floor(w+0.5f);
-        return sample(nh, nw, buffer, height, width, paddingMode);
+        int nd = ::floor(d+0.5f);
+        return sample(nd, nh, nw, buffer, depth, height, width, paddingMode);
     }
 
     // mode == GridSampleMode_BILINEAR
-    int w0_h = ::floor(h);
-    int w0_w = ::floor(w);
-    int w1_h = ::ceil(h);
-    int w1_w = ::ceil(w);
-    float fx2 = w - w0_w;
+    int d0 = ::floor(d);
+    int d1 = ::ceil(d);
+    int h0 = ::floor(h);
+    int h1 = ::ceil(h);
+    int w0 = ::floor(w);
+    int w1 = ::ceil(w);
+    float fx2 = w - w0;
     float fx1 = 1.0f - fx2;
-    float fy2 = h - w0_h;
+    float fy2 = h - h0;
     float fy1 = 1.0f - fy2;
+    float fz2 = d - d0;
+    float fz1 = 1.0f - fz2;
 
-    float i00 = sample(w0_h, w0_w, buffer, height, width, paddingMode);
-    float i01 = sample(w0_h, w1_w, buffer, height, width, paddingMode);
-    float i10 = sample(w1_h, w0_w, buffer, height, width, paddingMode);
-    float i11 = sample(w1_h, w1_w, buffer, height, width, paddingMode);
+    float i000 = sample(d0, h0, w0, buffer, depth, height, width, paddingMode);
+    float i001 = sample(d0, h0, w1, buffer, depth, height, width, paddingMode);
+    float i010 = sample(d0, h1, w0, buffer, depth, height, width, paddingMode);
+    float i011 = sample(d0, h1, w1, buffer, depth, height, width, paddingMode);
+    float i100 = sample(d1, h0, w0, buffer, depth, height, width, paddingMode);
+    float i101 = sample(d1, h0, w1, buffer, depth, height, width, paddingMode);
+    float i110 = sample(d1, h1, w0, buffer, depth, height, width, paddingMode);
+    float i111 = sample(d1, h1, w1, buffer, depth, height, width, paddingMode);
 
-    float i0 = ((i00) * fx1 + (i01) * fx2);
-    float i1 = ((i10) * fx1 + (i11) * fx2);
+    float i00 = ((i000) * fx1 + (i001) * fx2);
+    float i01 = ((i010) * fx1 + (i011) * fx2);
+    float i10 = ((i100) * fx1 + (i101) * fx2);
+    float i11 = ((i110) * fx1 + (i111) * fx2);
+    
+    float i0 = i00 * fy1 + i01 * fy2;
+    float i1 = i10 * fy1 + i11 * fy2;
 
-    return ((i0 * fy1) + (i1 * fy2));
+    return ((i0 * fz1) + (i1 * fz2));
 }
 
 static void reference_grid_sample(const float *inputPtr, const float *gridPtr, std::vector<float> &output,
-                                  int batch, int inHeight, int inWidth, int outHeight, int outWidth, int depth,
+                                  int batch, int inDepth, int inHeight, int inWidth, int outDepth, int outHeight, int outWidth, int channel,
                                   InterpolationMethod mode, GridSamplePaddingMode paddingMode, bool alignCorners) {
-    output.resize(batch * outHeight * outWidth * depth);
+    output.resize(batch * outHeight * outWidth * channel * outDepth);
 
     float *outputPtr = output.data();
     for (auto b = 0; b < batch; ++b) {
-        const float *_inputPtr = inputPtr + b * inHeight * inWidth * depth;
-        const float *_gridPtr = gridPtr + b * outHeight * outWidth * 2;
-        float *_outputPtr = outputPtr + b * outHeight * outWidth * depth;
+        const float *_inputPtr = inputPtr + b * inDepth * inHeight * inWidth * channel;
+        const float *_gridPtr = gridPtr + b * outDepth * outHeight * outWidth * 3;
+        float *_outputPtr = outputPtr + b * outDepth * outHeight * outWidth * channel;
 
-        for (auto c = 0; c < depth; ++c) {
-            auto __inputPtr = _inputPtr + c * inHeight * inWidth;
-            auto __outputPtr = _outputPtr + c * outHeight * outWidth;
+        for (auto c = 0; c < channel; ++c) {
+            auto __inputPtr = _inputPtr + c * inDepth * inHeight * inWidth;
+            auto __outputPtr = _outputPtr + c * outDepth * outHeight * outWidth;
+            for (int d = 0; d < outDepth; ++d) {
+                for (auto h = 0; h < outHeight; ++h) {
+                    auto __gridPtr = _gridPtr + (d * outWidth * outHeight + h * outWidth) * 3;
+                    auto ___outputPtr = __outputPtr + d * outHeight * outWidth + h * outWidth;
 
-            for (auto h = 0; h < outHeight; ++h) {
-                auto __gridPtr = _gridPtr + h * outWidth * 2;
-                auto ___outputPtr = __outputPtr + h * outWidth;
+                    for (auto w = 0; w < outWidth; ++w) {
+                        auto x = getPosition(__gridPtr[3 * w + 0], inWidth, alignCorners, paddingMode);
+                        auto y = getPosition(__gridPtr[3 * w + 1], inHeight, alignCorners, paddingMode);
+                        auto z = getPosition(__gridPtr[3 * w + 2], inDepth, alignCorners, paddingMode);
 
-                for (auto w = 0; w < outWidth; ++w) {
-                    auto x = getPosition(__gridPtr[2 * w + 0], inWidth, alignCorners, paddingMode);
-                    auto y = getPosition(__gridPtr[2 * w + 1], inHeight, alignCorners, paddingMode);
-
-                    ___outputPtr[w] = interpolate(y, x, __inputPtr, inHeight, inWidth, mode, paddingMode);
+                        ___outputPtr[w] = interpolate(z, y, x, __inputPtr, inDepth, inHeight, inWidth, mode, paddingMode);
+                    }
                 }
             }
         }
@@ -121,16 +138,18 @@ static void reference_grid_sample(const float *inputPtr, const float *gridPtr, s
 }
 
 
-class GridSampleTest : public MNNTestCase {
+class GridSample3DTest : public MNNTestCase {
 public:
-    virtual ~GridSampleTest() = default;
+    virtual ~GridSample3DTest() = default;
 
     virtual bool run(int precision) {
+        auto type = getCurrentType();
+
         const std::vector<std::vector<int>> configs({
-            {1, 3, 5, 10, 5, 10},
-            {1, 62, 6, 10, 12, 20},
-            {2, 64, 12, 20, 6, 6},
-            {1, 3, 384, 640, 384, 640},
+            {1, 3, 5, 10, 5, 10, 3, 5},
+            {1, 62, 6, 10, 12, 20, 1, 2},
+            {2, 64, 12, 20, 6, 6, 5, 1},
+            {1, 3, 384, 640, 384, 640, 2, 2},
         });
 
         for (auto config : configs) {
@@ -140,9 +159,11 @@ public:
             const int inWidth = config[3];
             const int outHeight = config[4];
             const int outWidth = config[5];
+            const int inDepth = config[6];
+            const int outDepth = config[7];
 
-            std::vector<float> originInputData(batch * depth * inHeight * inWidth);
-            std::vector<float> originGridData(batch * outHeight * outWidth * 2);
+            std::vector<float> originInputData(batch * depth * inHeight * inWidth * inDepth);
+            std::vector<float> originGridData(batch * outHeight * outWidth * outDepth * 3);
 
             auto inputPtr = originInputData.data();
             auto gridPtr = originGridData.data();
@@ -153,21 +174,26 @@ public:
             std::normal_distribution<> inputDist{0.0f, 1.0};
             std::normal_distribution<> gridDist{0.0f, 3.0f / outWidth};
 
-            for (int i = 0; i < batch * inHeight * inWidth * depth; i++) {
+            for (int i = 0; i < batch * inHeight * inWidth * inDepth * depth; i++) {
                 inputPtr[i] = inputDist(gen);
             }
             for (int b = 0; b < batch; b++) {
-                for (int h = 0; h < outHeight; h++) {
-                    for (int w = 0; w < outWidth; w++) {
-                        float offsetH = gridDist(gen);
-                        float offsetW = gridDist(gen);
-                        gridPtr[b * outHeight * outWidth * 2 + h * outWidth * 2 + w * 2 + 0] = (2.0f * w / (outWidth-1) - 1.0f + offsetW);
-                        gridPtr[b * outHeight * outWidth * 2 + h * outWidth * 2 + w * 2 + 1] = (2.0f * h / (outHeight-1) - 1.0f + offsetH);
+                for (int d=0; d<outDepth; ++d) {
+                    for (int h = 0; h < outHeight; h++) {
+                        for (int w = 0; w < outWidth; w++) {
+                            float offsetH = gridDist(gen);
+                            float offsetW = gridDist(gen);
+                            float offsetD = gridDist(gen);
+                            auto basic = b * outDepth * outHeight * outWidth + d * outWidth * outHeight +  h * outWidth + w;
+                            gridPtr[3 * basic + 0] = (3.0f * w / (outWidth-1) - 1.0f + offsetW);
+                            gridPtr[3 * basic + 1] = (3.0f * h / (outHeight-1) - 1.0f + offsetH);
+                            gridPtr[3 * basic + 2] = (3.0f * d / (outDepth-0.999f) - 1.0f + offsetD);
+                        }
                     }
                 }
             }
-            auto input = _Input({batch, depth, inHeight, inWidth}, NCHW);
-            auto grid = _Input({batch, outHeight, outWidth, 2}, NCHW);
+            auto input = _Input({batch, depth, inDepth, inHeight, inWidth}, NCHW);
+            auto grid = _Input({batch, outDepth, outHeight, outWidth, 3}, NCHW);
             ::memcpy(input->writeMap<float>(), inputPtr, originInputData.size() * sizeof(float));
             ::memcpy(grid->writeMap<float>(), gridPtr, originGridData.size() * sizeof(float));
             input = _Convert(input, NC4HW4);
@@ -175,12 +201,12 @@ public:
             std::vector<InterpolationMethod> modes({BILINEAR});
             std::vector<GridSamplePaddingMode> paddingModes({GRID_SAMPLE_PADDING_ZEROS, GRID_SAMPLE_PADDING_BORDER});
             std::vector<int> alignCornersVec = {1, 0};
-            std::vector<float> expectedOutput(batch * outHeight * outWidth * depth);
+            std::vector<float> expectedOutput;
             for (auto mode : modes) {
                 for (auto paddingMode : paddingModes) {
                     for (auto alignCorners : alignCornersVec) {
                         reference_grid_sample(inputPtr, gridPtr, expectedOutput,
-                                              batch, inHeight, inWidth, outHeight, outWidth, depth,
+                                              batch, inDepth, inHeight, inWidth, outDepth, outHeight, outWidth, depth,
                                               mode, paddingMode, alignCorners);
                         auto expectedOutPtr = expectedOutput.data();
 
@@ -212,4 +238,4 @@ public:
     }
 };
 
-MNNTestSuiteRegister(GridSampleTest, "op/GridSample");
+MNNTestSuiteRegister(GridSample3DTest, "op/GridSample3D");

@@ -262,7 +262,7 @@ ErrorCode ConvolutionPackWinograd::onResize(const std::vector<Tensor *> &inputs,
     // MNN_PRINT("ow=%d, oh=%d\n", ow, oh);
     
     std::vector<int> divides(threadNumber+1);
-    static_cast<const CPURuntime*>( static_cast<CPUBackend*>(backend())->getRuntime())->computeDivideSizes(totalCount, divides.data()+1);
+    static_cast<CPUBackend *>(backend())->computeDivideSizes(totalCount, divides.data()+1);
     divides[0] = 0;
     auto midBuffer0Bytes = srcUnit2 * pack * bytes;
     bool allow_x86_bf16_winograd = true;
@@ -542,7 +542,7 @@ ErrorCode ConvolutionPackWinograd::onResize(const std::vector<Tensor *> &inputs,
         }
     };
     std::vector<int> postDivides(threadNumber+1);
-    static_cast<const CPURuntime*>( static_cast<CPUBackend*>(backend())->getRuntime())->computeDivideSizes(dc_4, postDivides.data()+1);
+    static_cast<CPUBackend *>(backend())->computeDivideSizes(dc_4, postDivides.data()+1);
     postDivides[0] = 0;
 
     mPostFunction.first = threadNumber;

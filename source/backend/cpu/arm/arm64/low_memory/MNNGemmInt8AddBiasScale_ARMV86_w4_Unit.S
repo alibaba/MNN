@@ -116,9 +116,7 @@ stp x27, x28, [sp, #(16 * 8)]
 ldr x27, [x6, #40] // srcKernelSum
 ldr x28, [x6, #48] // weightQuanBias
 
-ldr x22, [x6, #64] // blockNum
-mul x22, x22, x3   // UP_DIV(ic*ky*kx, SRC_UNIT) = blockNum * src_depth_quad_per_block
-lsl x15, x22, #5 // x15 = src_depth_quad * UNIT * UNIT_SRC = src_depth_quad * 64 * (sizeof(int4)) = src_depth_quad << 4
+lsl x15, x3, #5 // x15 = src_depth_quad * UNIT * UNIT_SRC = src_depth_quad * 64 * (sizeof(int4)) = src_depth_quad << 4
 
 mov x21, #16 // sizeof(float) * pack
 ldr x14, [x6, #56]  // float32 maxmin ptr

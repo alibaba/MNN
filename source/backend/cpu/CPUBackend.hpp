@@ -40,9 +40,6 @@ public:
     void onConcurrencyEnd() const;
     virtual bool onCheckInfo(Backend::Info& info) const override;
 
-    // dividedSize's length should be larger than threadNumber
-    void computeDivideSizes(int size, int* dst) const;
-
 #ifdef MNN_USE_THREAD_POOL
     inline bool multiThreadValid() const {
         return mThreadOpen;
@@ -60,9 +57,6 @@ private:
     mutable int mTaskIndex = -1;
     mutable bool mThreadOpen = false;
 #endif
-    void _resetGroupCompute() const;
-    mutable std::vector<std::pair<float, int>> mGroupWithComputeRate;
-    mutable int mPastDecreaseHint = -1;
     BackendConfig::MemoryMode mMemory;
     BackendConfig::PowerMode mPower;
     BackendConfig::PrecisionMode mPrecision;
@@ -108,6 +102,8 @@ public:
     // Return sizeDivide, scheduleNumber aligned memory
     std::pair<int, int> multiThreadDivide(int size) const;
     virtual bool onSelectDynamicAllocator(int index, int maxIndex) override;
+    // dividedSize's length should be larger than threadNumber
+    void computeDivideSizes(int size, int* dst) const;
 
 public:
     virtual MemObj* onAcquire(const Tensor* nativeTensor, StorageType storageType) override;
@@ -145,7 +141,7 @@ public:
     static bool addCreator(OpType t, Creator* c);
 
     inline int threadNumber() const {
-        return mRuntime->mThreadNumber;
+        return mThreadNumber;
     }
 #ifdef MNN_USE_THREAD_POOL
     inline bool threadOpen() const {
@@ -182,6 +178,9 @@ protected:
     CoreFunctions* mCoreFunctions;
     CoreInt8Functions* mInt8CoreFunctions;
 private:
+    int mThreadNumber;
+    std::vector<std::pair<float, int>> mGroupWithComputeRate;
+
     std::shared_ptr<CPURuntime::DynamicAllocator> mDmaInfo;
     std::shared_ptr<EagerBufferAllocator> mStaticAllocator;
     CPURuntime* mRuntime;

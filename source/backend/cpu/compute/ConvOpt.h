@@ -16,16 +16,18 @@
 extern "C" {
 #endif
 
-void MNNConvRunForUnitDepthWise(float* dst, const float* src, const float* weight, size_t fw, size_t fh,
-                                size_t weight_y_step, size_t dilateX_step, size_t dilateY_step);
 void MNNConvRunForLineDepthwise(float* dst, const float* src, const float* weight, size_t width, size_t src_w_setup,
                                 size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step, size_t height,
-                                size_t srcHStep, size_t dstHStep);
+                                size_t srcHStep, size_t dstHStep, const float* bias, const float* parameters);
 
 void MNNDeconvRunForUnitDepthWise(const float* dst, float* src, const float* weight, size_t fw, size_t fh,
                                   size_t weight_y_step, size_t dilateX_step, size_t dilateY_step);
 void MNNDeconvRunForLineDepthwise(const float* dst, float* src, const float* weight, size_t width, size_t src_w_setup,
                                   size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step);
+
+void MNNDepthwiseConvFastKernel(float* dst, const float* src, const float* weight, size_t width, size_t src_w_setup,
+                                    size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step, size_t height,
+                                    size_t srcHStep, size_t dstHStep, const float* bias, const float* parameters);
 
 void MNNMatrixAdd(float* C, const float* A, const float* B, size_t widthC4, size_t cStride, size_t aStride,
                   size_t bStride, size_t height);

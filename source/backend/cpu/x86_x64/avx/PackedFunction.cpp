@@ -35,8 +35,6 @@ void _AVX_MNNRoiPoolingMax(float* dst, const float* src, int hLen, int wLen, int
 void _AVX_MNNRoiAlignMax(float* dst, const float* src, const std::vector<std::vector<int>> &vecPos, const std::vector<std::vector<float>> &vecArea, int samplingRatioArea, int pooledHeight, int pooledWidth);
 void _AVX_MNNRoiAlignAvg(float* dst, const float* src, const std::vector<std::vector<int>> &vecPos, const std::vector<std::vector<float>> &vecArea, int samplingRatioArea, int pooledHeight, int pooledWidth);
 void _AVX_MNNStrassenMergeCFunction(float* c11, float* c12, float* c21, float* c22, float* xAddr, size_t cStride, size_t eSub, size_t hSub);
-void _AVX_MNNConvRunForUnitDepthWise(float* dst, const float* src, const float* weight, size_t fw, size_t fh,
-                                     size_t weight_y_step, size_t dilateX_step, size_t dilateY_step);
 void _AVX_MNNMultiAndDestTransformCommon23(float **cacheLine, const float *weigth, float *dest, int cacheLineSize, int ow, const float* bias, const float* parameter);
 void _AVX_MNNSourceTransformCommonF23(const float *source, float *dest, int unit, int iw, int pad, int su, int eu);
 void _AVX_MNNConvDwF23MulTransUnit(float **cacheLine, const float *weigth, float *dest, size_t ow, const float* bias, const float* parameter);
@@ -48,7 +46,7 @@ void _AVX_MNNStrassenMergeCFunction(float* c11, float* c12, float* c21, float* c
                                     size_t length, size_t hSub);
 void _AVX_MNNConvRunForLineDepthwise(float* dst, const float* src, const float* weight, size_t width, size_t src_w_setup,
                                 size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step, size_t height,
-                                     size_t srcHStep, size_t dstHStep);
+                                     size_t srcHStep, size_t dstHStep, const float* bias, const float* parameters);
 void _AVX_MNNAxByClampBroadcastUnit(float* C, const float* A, const float* B, size_t width, size_t cStride, size_t aStride, size_t height, const float* parameters);
 }
 
@@ -108,40 +106,25 @@ void _AVX_MNNAxByClampBroadcastUnit(float* C, const float* A, const float* B, si
     }
 }
 
-void _AVX_MNNConvRunForUnitDepthWise(float* dst, const float* src, const float* weight, size_t fw, size_t fh,
-                                  size_t weight_y_step, size_t dilateX_step, size_t dilateY_step) {
-    int fx, fy;
-    __m256 dstValue = _mm256_setzero_ps();
-    const float* src_z    = src;
-    const float* weight_z = weight;
-    for (fy = 0; fy < fh; ++fy) {
-        const float* src_y    = src_z + fy * dilateY_step;
-        const float* weight_y = weight_z + fy * weight_y_step;
-        for (fx = 0; fx < fw; ++fx) {
-            const float* weight_x = weight_y + PACK_UNIT * fx;
-            const float* src_x    = src_y + fx * dilateX_step;
-            dstValue = _mm256_add_ps(dstValue, _mm256_mul_ps(_mm256_loadu_ps(src_x), _mm256_loadu_ps(weight_x)));
-        }
-    }
-    _mm256_storeu_ps(dst, dstValue);
-}
-
 void _AVX_MNNConvRunForLineDepthwise(float* dst, const float* src, const float* weight, size_t width, size_t src_w_setup,
                                 size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step, size_t height,
-                                     size_t srcHStep, size_t dstHStep) {
+                                     size_t srcHStep, size_t dstHStep, const float* bias, const float* parameters) {
     int dx, fx, fy;
     const int unit = 4;
     int widthUnit = width / unit;
     int widthRemain = width - widthUnit * unit;
     const float* weight_z = weight;
+    auto minF = _mm256_broadcast_ss(parameters + 0);
+    auto maxF = _mm256_broadcast_ss(parameters + 1);
+    auto bv = _mm256_loadu_ps(bias);
     for (int y = 0; y < height; ++y) {
         auto srcY = src + y * srcHStep;
         auto dstY = dst + y * dstHStep;
         for (dx = 0; dx < widthUnit; ++dx) {
-            auto dstValue0 = _mm256_setzero_ps();
-            auto dstValue1 = _mm256_setzero_ps();
-            auto dstValue2 = _mm256_setzero_ps();
-            auto dstValue3 = _mm256_setzero_ps();
+            auto dstValue0 = bv;
+            auto dstValue1 = bv;
+            auto dstValue2 = bv;
+            auto dstValue3 = bv;
             for (fy = 0; fy < fh; ++fy) {
                 const float* src_y    = srcY + fy * dilateY_step;
                 const float* weight_y = weight_z + fy * fw * PACK_UNIT;
@@ -155,6 +138,14 @@ void _AVX_MNNConvRunForLineDepthwise(float* dst, const float* src, const float* 
                     dstValue3 = _mm256_add_ps(dstValue3, _mm256_mul_ps(_mm256_loadu_ps(src_x + 3 * src_w_setup), weightValue));
                 }
             }
+            dstValue0 = _mm256_min_ps(dstValue0, maxF);
+            dstValue1 = _mm256_min_ps(dstValue1, maxF);
+            dstValue2 = _mm256_min_ps(dstValue2, maxF);
+            dstValue3 = _mm256_min_ps(dstValue3, maxF);
+            dstValue0 = _mm256_max_ps(dstValue0, minF);
+            dstValue1 = _mm256_max_ps(dstValue1, minF);
+            dstValue2 = _mm256_max_ps(dstValue2, minF);
+            dstValue3 = _mm256_max_ps(dstValue3, minF);
             _mm256_storeu_ps(dstY + PACK_UNIT * 0, dstValue0);
             _mm256_storeu_ps(dstY + PACK_UNIT * 1, dstValue1);
             _mm256_storeu_ps(dstY + PACK_UNIT * 2, dstValue2);
@@ -164,7 +155,7 @@ void _AVX_MNNConvRunForLineDepthwise(float* dst, const float* src, const float* 
         }
         for (dx = 0; dx < widthRemain; ++dx) {
             float* dst_x          = dstY + dx * PACK_UNIT;
-            auto dstValue = _mm256_setzero_ps();
+            auto dstValue = bv;
             const float* src_z    = srcY + src_w_setup * dx;
             const float* weight_z = weight;
             for (fy = 0; fy < fh; ++fy) {
@@ -176,6 +167,8 @@ void _AVX_MNNConvRunForLineDepthwise(float* dst, const float* src, const float* 
                     dstValue = _mm256_add_ps(dstValue, _mm256_mul_ps(_mm256_loadu_ps(src_x), _mm256_loadu_ps(weight_x)));
                 }
             }
+            dstValue = _mm256_min_ps(dstValue, maxF);
+            dstValue = _mm256_max_ps(dstValue, minF);
             _mm256_storeu_ps(dst_x, dstValue);
         }
     }
@@ -312,68 +305,6 @@ void _AVX_MNNGridSampleComputeCord(float* dst, const float* src, size_t inH, siz
             __m256 cord0 = _mm256_unpacklo_ps(cord_x, cord_y);
 
             _mm256_maskstore_ps(dst, mask, cord0);
-        }
-    }
-}
-
-static size_t _AVX_MNNGridSampleComputeOffset(int h, int w, int height, int width, bool padMode) {
-    if (padMode == true) { //padMode == BorderMode_ZEROS
-        if (h < 0 || h >= height || w < 0 || w >= width) {
-            return -1;
-        }
-    } else {
-        // Clearly, CLAMP is the right way to go for GridSamplePaddingMode_BORDER
-        // For GridSamplePaddingMode_REFLECTION, since we have reflected the values into (-1, 1),
-        // the leftover reflections degrade to GridSamplePaddingMode_BORDER
-        h = h < 0 ? 0 : ( h > (height - 1) ? (height - 1) : h);
-        w = w < 0 ? 0 : ( w > (width - 1) ? (width - 1) : w);
-    }
-    return h * width * PACK_UNIT + w * PACK_UNIT;
-}
-
-void _AVX_MNNGridSampleInterp(float* outputPtr, const float* inputPtr, const float* cordPtr, size_t inH, size_t inW, size_t outW, size_t channelCUnit, size_t inOffset, size_t outOffset, bool sampleMode, bool padMode) {
-    for (auto ow = 0; ow < outW; ++ow) {
-        auto w = cordPtr[2 * ow + 0];
-        auto h = cordPtr[2 * ow + 1];
-        __m256 interp;
-
-        if (sampleMode == true) { //sampleMode == SampleMode_NEAREST
-            int nh = ::floor(h + 0.5f);
-            int nw = ::floor(w + 0.5f);
-            size_t ns = _AVX_MNNGridSampleComputeOffset(nh, nw, inH, inW, padMode);
-            for (int k = 0; k < channelCUnit; ++k) {
-                interp = ns == -1 ? _mm256_set1_ps(0.f) : _mm256_loadu_ps(inputPtr + k * inOffset + ns);
-                _mm256_storeu_ps(outputPtr + k * outOffset + PACK_UNIT * ow, interp);
-            }
-        } else { //sampleMode == GridSampleMode_BILINEAR
-            int w0_h = ::floor(h);
-            int w0_w = ::floor(w);
-            int w1_h = ::ceil(h);
-            int w1_w = ::ceil(w);
-            auto oneV = _mm256_set1_ps(1.0f);
-
-            auto f0 = _mm256_set1_ps((float)w1_w - w);
-            auto f1 = _mm256_sub_ps(oneV, f0);
-            auto h0 = _mm256_set1_ps((float)w1_h - h);
-            auto h1 = _mm256_sub_ps(oneV, h0);
-
-            size_t s00 = _AVX_MNNGridSampleComputeOffset(w0_h, w0_w, inH, inW, padMode);
-            size_t s01 = _AVX_MNNGridSampleComputeOffset(w0_h, w1_w, inH, inW, padMode);
-            size_t s10 = _AVX_MNNGridSampleComputeOffset(w1_h, w0_w, inH, inW, padMode);
-            size_t s11 = _AVX_MNNGridSampleComputeOffset(w1_h, w1_w, inH, inW, padMode);
-
-            for (int k = 0; k < channelCUnit; ++k) {
-                __m256 i00 = s00 == -1 ? _mm256_setzero_ps() : _mm256_loadu_ps(inputPtr + k * inOffset + s00);
-                __m256 i01 = s01 == -1 ? _mm256_setzero_ps() : _mm256_loadu_ps(inputPtr + k * inOffset + s01);
-                __m256 i10 = s10 == -1 ? _mm256_setzero_ps() : _mm256_loadu_ps(inputPtr + k * inOffset + s10);
-                __m256 i11 = s11 == -1 ? _mm256_setzero_ps() : _mm256_loadu_ps(inputPtr + k * inOffset + s11);
-
-                __m256 i0 = _mm256_add_ps(_mm256_mul_ps(i00, f0), _mm256_mul_ps(i01, f1));
-                __m256 i1 = _mm256_add_ps(_mm256_mul_ps(i10, f0), _mm256_mul_ps(i11, f1));
-
-                interp = _mm256_add_ps(_mm256_mul_ps(i0, h0), _mm256_mul_ps(i1, h1));
-                _mm256_storeu_ps(outputPtr + k * outOffset + PACK_UNIT * ow, interp);
-            }
         }
     }
 }
@@ -524,70 +455,6 @@ static size_t _AVX_MNNGridSampleComputeOffset3D(int d, int h, int w, int depth, 
     return ((d * height + h) * width + w) *  PACK_UNIT;
 }
 
-void _AVX_MNNGridSampleInterp3D(float* outputPtr, const float* inputPtr, const float* cordPtr, size_t inD, size_t inH, size_t inW, size_t outW, size_t channelCUnit, size_t inOffset, size_t outOffset, bool sampleMode, bool padMode) {
-    for (auto ow = 0; ow < outW; ++ow) {
-        auto w = cordPtr[3 * ow + 0];
-        auto h = cordPtr[3 * ow + 1];
-        auto d = cordPtr[3 * ow + 2];
-        __m256 interp;
-
-        if (sampleMode == true) { //sampleMode == SampleMode_NEAREST
-            int nd = ::floor(d + 0.5f);
-            int nh = ::floor(h + 0.5f);
-            int nw = ::floor(w + 0.5f);
-            size_t ns = _AVX_MNNGridSampleComputeOffset3D(nd, nh, nw, inD, inH, inW, padMode);
-            for (int k = 0; k < channelCUnit; ++k) {
-                interp = ns == -1 ? _mm256_set1_ps(0.f) : _mm256_loadu_ps(inputPtr + k * inOffset + ns);
-                _mm256_storeu_ps(outputPtr + k * outOffset + PACK_UNIT * ow, interp);
-            }
-        } else { //sampleMode == GridSampleMode_BILINEAR
-            int w0_d = ::floor(d);
-            int w0_h = ::floor(h);
-            int w0_w = ::floor(w);
-            int w1_d = ::ceil(d);
-            int w1_h = ::ceil(h);
-            int w1_w = ::ceil(w);
-            auto oneV = _mm256_set1_ps(1.0f);
-
-            auto f0 = _mm256_set1_ps((float)w1_w - w);
-            auto f1 = _mm256_sub_ps(oneV, f0);
-            auto h0 = _mm256_set1_ps((float)w1_h - h);
-            auto h1 = _mm256_sub_ps(oneV, h0);
-            auto d0 = _mm256_set1_ps((float)w1_d - d);
-            auto d1 = _mm256_sub_ps(oneV, d0);
-
-            size_t s000 = _AVX_MNNGridSampleComputeOffset3D(w0_d, w0_h, w0_w, inD, inH, inW, padMode);
-            size_t s001 = _AVX_MNNGridSampleComputeOffset3D(w0_d, w0_h, w1_w, inD, inH, inW, padMode);
-            size_t s010 = _AVX_MNNGridSampleComputeOffset3D(w0_d, w1_h, w0_w, inD, inH, inW, padMode);
-            size_t s011 = _AVX_MNNGridSampleComputeOffset3D(w0_d, w1_h, w1_w, inD, inH, inW, padMode);
-            size_t s100 = _AVX_MNNGridSampleComputeOffset3D(w1_d, w0_h, w0_w, inD, inH, inW, padMode);
-            size_t s101 = _AVX_MNNGridSampleComputeOffset3D(w1_d, w0_h, w1_w, inD, inH, inW, padMode);
-            size_t s110 = _AVX_MNNGridSampleComputeOffset3D(w1_d, w1_h, w0_w, inD, inH, inW, padMode);
-            size_t s111 = _AVX_MNNGridSampleComputeOffset3D(w1_d, w1_h, w1_w, inD, inH, inW, padMode);
-
-            for (int k = 0; k < channelCUnit; ++k) {
-                __m256 i000 = s000 == -1 ? _mm256_setzero_ps() : _mm256_loadu_ps(inputPtr + k * inOffset + s000);
-                __m256 i001 = s001 == -1 ? _mm256_setzero_ps() : _mm256_loadu_ps(inputPtr + k * inOffset + s001);
-                __m256 i010 = s010 == -1 ? _mm256_setzero_ps() : _mm256_loadu_ps(inputPtr + k * inOffset + s010);
-                __m256 i011 = s011 == -1 ? _mm256_setzero_ps() : _mm256_loadu_ps(inputPtr + k * inOffset + s011);
-                __m256 i100 = s100 == -1 ? _mm256_setzero_ps() : _mm256_loadu_ps(inputPtr + k * inOffset + s100);
-                __m256 i101 = s101 == -1 ? _mm256_setzero_ps() : _mm256_loadu_ps(inputPtr + k * inOffset + s101);
-                __m256 i110 = s110 == -1 ? _mm256_setzero_ps() : _mm256_loadu_ps(inputPtr + k * inOffset + s110);
-                __m256 i111 = s111 == -1 ? _mm256_setzero_ps() : _mm256_loadu_ps(inputPtr + k * inOffset + s111);
-
-                __m256 i00 = _mm256_add_ps(_mm256_mul_ps(i000, f0), _mm256_mul_ps(i001, f1));
-                __m256 i01 = _mm256_add_ps(_mm256_mul_ps(i010, f0), _mm256_mul_ps(i011, f1));
-                __m256 i0  = _mm256_add_ps(_mm256_mul_ps(i00, h0), _mm256_mul_ps(i01, h1));
-                __m256 i10 = _mm256_add_ps(_mm256_mul_ps(i100, f0), _mm256_mul_ps(i101, f1));
-                __m256 i11 = _mm256_add_ps(_mm256_mul_ps(i110, f0), _mm256_mul_ps(i111, f1));
-                __m256 i1  = _mm256_add_ps(_mm256_mul_ps(i10, h0), _mm256_mul_ps(i11, h1));
-
-                interp = _mm256_add_ps(_mm256_mul_ps(i0, d0), _mm256_mul_ps(i1, d1));
-                _mm256_storeu_ps(outputPtr + k * outOffset + PACK_UNIT * ow, interp);
-            }
-        }
-    }
-}
 
 void _AVX_MNNMatrixAdd(float* C, const float* A, const float* B, size_t widthC4, size_t cStride, size_t aStride,
                        size_t bStride, size_t height) {
@@ -867,13 +734,9 @@ void _AVX_ExtraInit(void* functions) {
     coreFunction->MNNMatrixAdd          = _AVX_MNNMatrixAdd;
     coreFunction->MNNMatrixSub          = _AVX_MNNMatrixSub;
 
-    coreFunction->MNNConvRunForUnitDepthWise = _AVX_MNNConvRunForUnitDepthWise;
     coreFunction->MNNConvRunForLineDepthwise = _AVX_MNNConvRunForLineDepthwise;
     coreFunction->MNNAxByClampBroadcastUnit = _AVX_MNNAxByClampBroadcastUnit;
     coreFunction->MNNStrassenMergeCFunction = _AVX_MNNStrassenMergeCFunction;
-    coreFunction->MNNMultiAndDestTransformCommon23 = _AVX_MNNMultiAndDestTransformCommon23;
-    coreFunction->MNNSourceTransformCommonF23 = _AVX_MNNSourceTransformCommonF23;
-    coreFunction->MNNConvDwF23MulTransUnit = _AVX_MNNConvDwF23MulTransUnit;
     coreFunction->MNNReluWithSlopeChannel = _AVX_MNNReluWithSlopeChannel;
     coreFunction->MNNDeconvRunForLineDepthwise = _AVX_MNNDeconvRunForLineDepthwise;
     coreFunction->MNNDeconvRunForUnitDepthWise = _AVX_MNNDeconvRunForUnitDepthWise;
@@ -881,7 +744,7 @@ void _AVX_ExtraInit(void* functions) {
     coreFunction->MNNGridSampleInterp = MNNGridSampleInterp;
     coreFunction->MNNGridSampleInterpGrad = MNNGridSampleInterpGrad;
     coreFunction->MNNGridSampleComputeCord3D = _AVX_MNNGridSampleComputeCord3D;
-    coreFunction->MNNGridSampleInterp3D = _AVX_MNNGridSampleInterp3D;
+    coreFunction->MNNGridSampleInterp3D = MNNGridSampleInterp3D;
     coreFunction->MNNRoiPoolingMax = _AVX_MNNRoiPoolingMax;
     coreFunction->MNNRoiAlignMax = _AVX_MNNRoiAlignMax;
     coreFunction->MNNRoiAlignAvg = _AVX_MNNRoiAlignAvg;

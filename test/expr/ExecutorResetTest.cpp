@@ -11,6 +11,7 @@
 #include <MNN/expr/Executor.hpp>
 #include <MNN/expr/ExprCreator.hpp>
 #include <MNN/expr/ExecutorScope.hpp>
+#include <MNN/expr/Module.hpp>
 #include "MNNTestSuite.h"
 
 using namespace MNN::Express;
@@ -67,6 +68,23 @@ public:
         x->setName("Prob");
         return x;
     }
+    bool _runmbv1() {
+        auto x = _Input({1, 3, 224, 224}, NC4HW4);
+        auto y = _mobileNetV1Expr(x);
+        auto buffer = Variable::save({y});
+        y = nullptr;x=nullptr;
+        MNN::BackendConfig bnConfig;
+        auto exe = Executor::newExecutor(MNN_FORWARD_CPU, bnConfig, 1);
+        ExecutorScope scope(exe);
+        std::shared_ptr<Module> m(Module::load({"Input"}, {"Prob"}, (const uint8_t*)buffer.data(), buffer.size()));
+        x = _Input({1, 3, 224, 224}, NC4HW4);
+        x->writeMap<float>();
+        m->onForward({x});
+        exe->setGlobalExecutorConfig(MNN_FORWARD_CPU, bnConfig, 4);
+        m->onForward({x});
+
+        return true;
+    }
 
     virtual bool run(int precision) {
         int numberThread = 0;
@@ -102,6 +120,9 @@ public:
         res = Executor::getComputeInfo(y->expr().first, MNN::Interpreter::THREAD_NUMBER, &numberThread);
         if (numberThread != 1 || res == false) {
             FUNC_PRINT(1);
+            return false;
+        }
+        if (!_runmbv1()) {
             return false;
         }
         return true;

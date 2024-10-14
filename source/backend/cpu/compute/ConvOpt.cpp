@@ -39,14 +39,17 @@ void MNNMatrixAdd(float* C, const float* A, const float* B, size_t widthC4, size
 
 void MNNConvRunForLineDepthwise(float* dst, const float* src, const float* weight, size_t width, size_t src_w_setup,
                                 size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step, size_t height,
-                                size_t srcHStep, size_t dstHStep) {
+                                size_t srcHStep, size_t dstHStep, const float* bias, const float* parameters) {
     int dx, fx, fy;
+    auto biasValue = Vec4::load(bias);
+    auto minF = Vec4(parameters[0]);
+    auto maxF = Vec4(parameters[1]);
     for (int y = 0; y < height; ++y) {
         auto srcY = src + y * srcHStep;
         auto dstY = dst + y * dstHStep;
         for (dx = 0; dx < width; ++dx) {
             float* dst_x          = dstY + dx * 4;
-            Vec4 dstValue(0.0f);
+            auto dstValue = biasValue;
             const float* src_z    = srcY + src_w_setup * dx;
             const float* weight_z = weight;
             for (fy = 0; fy < fh; ++fy) {
@@ -58,27 +61,11 @@ void MNNConvRunForLineDepthwise(float* dst, const float* src, const float* weigh
                     dstValue = dstValue + Vec4::load(src_x) * Vec4::load(weight_x);
                 }
             }
+            dstValue = Vec4::min(dstValue, maxF);
+            dstValue = Vec4::max(dstValue, minF);
             Vec4::save(dst_x, dstValue);
         }
     }
-}
-
-void MNNConvRunForUnitDepthWise(float* dst, const float* src, const float* weight, size_t fw, size_t fh,
-                                size_t weight_y_step, size_t dilateX_step, size_t dilateY_step) {
-    int fx, fy;
-    Vec4 dstValue(0.0f);
-    const float* src_z    = src;
-    const float* weight_z = weight;
-    for (fy = 0; fy < fh; ++fy) {
-        const float* src_y    = src_z + fy * dilateY_step;
-        const float* weight_y = weight_z + fy * weight_y_step;
-        for (fx = 0; fx < fw; ++fx) {
-            const float* weight_x = weight_y + 4 * fx;
-            const float* src_x    = src_y + fx * dilateX_step;
-            dstValue = dstValue + Vec4::load(src_x) * Vec4::load(weight_x);
-        }
-    }
-    Vec4::save(dst, dstValue);
 }
 
 void MNNConvRunForUnitint8_t(float* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad,

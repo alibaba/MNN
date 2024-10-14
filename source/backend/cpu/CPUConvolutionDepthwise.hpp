@@ -26,7 +26,12 @@ public:
 
     private:
         std::function<void(const uint8_t *, uint8_t *, int)> mExecutor;
+        std::function<void(float* dst, const float* src, const float* weight, size_t width, size_t src_w_setup,
+                           size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step, size_t height,
+                           size_t srcHStep, size_t dstHStep)> mFastKernel;
         int mNumber = 1;
+        std::shared_ptr<Tensor> mInputPad;
+        bool mFastKernelApply = false;
     };
     class MultiInputFloatExecution : public BasicFloatExecution {
     public:

@@ -28,13 +28,10 @@ public:
         MTLSize global;
     };
 private:
-    std::map<Tensor*, std::shared_ptr<Tensor>> mTempInput;
     std::map<Tensor*, BlitInfo> mTempInputCopy;
-    std::shared_ptr<Tensor> mTempOutput;
     bool mNeedZero = false;
     Tensor* mOutputPtr = nullptr;
-    id<MTLComputePipelineState> mBlitPipeline;
-    std::vector<id<MTLBuffer>> mShapeTemp;
+    std::vector<id<MTLComputePipelineState>> mBlitPipeline;
     id<MTLBuffer> mZeroCopy = nil;
     id<MTLComputePipelineState> mZeroPipeline;
 };

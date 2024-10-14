@@ -24,7 +24,7 @@ public:
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
     virtual void getPackParameter(int* Unit, int* SrcUnit, int* DestUnit, const CoreInt8Functions* core) = 0;
-    static void reorderWeight(Tensor* weight, const uint8_t* weightSrc, int SRC_UNIT, int UNIT, int ic, int oc, int kernelCount, int pack);
+    static void reorderWeight(Tensor* weight, const uint8_t* weightSrc, int SRC_UNIT, int UNIT, int ic, int oc, int kernelCount, int pack, int blockNum = 1);
 
 protected:
     ConvolutionCommon::Im2ColParameter mIm2ColParamter;
@@ -74,7 +74,7 @@ private:
     std::vector<int32_t> mDivides;
 
     int mThreadNums;
-    int mBlockNum;
+    int mBlockNum = 1;
     int mOcPerThread;
     bool mSplitByOc;
     bool mUseBatchQuan;

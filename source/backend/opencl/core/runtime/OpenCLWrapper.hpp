@@ -9,7 +9,7 @@
 #ifndef OpenCLWrapper_hpp
 #define OpenCLWrapper_hpp
 
-#if defined(WIN32)
+#if defined(_WIN32)
 #include <Windows.h>
 #undef min
 #undef max
@@ -248,7 +248,7 @@ public:
 
 private:
     bool LoadLibraryFromPath(const std::string &path);
-#if defined(WIN32)
+#if defined(_WIN32)
     HMODULE handle_ = nullptr;
 #else
     void *handle_ = nullptr;

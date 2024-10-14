@@ -34,9 +34,6 @@ void NEON_MNNPackedMatMul_BF16(float* C, const float* A, const float* B, const s
                                const float* postParameters, const float* bias, const float* k, const float* b);
 void NEON_MNNPackedMatMulRemain_BF16(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter,
                                      const float* postParameters, const float* bias, const float* k, const float* b);
-
-void NEON_MNNConvRunForUnitDepthWise_BF16(float* dst, const float* src, const float* weight, size_t fw, size_t fh,
-                                     size_t weight_y_step, size_t dilateX_step, size_t dilateY_step);
 void NEON_MNNConvRunForLineDepthwise_BF16(float* dst, const float* src, const float* weight, size_t width,
                                      size_t src_w_setup, size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step,
                                      size_t height, size_t srcHStep, size_t dstHStep);

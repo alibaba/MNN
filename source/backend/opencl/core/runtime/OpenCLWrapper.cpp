@@ -7,7 +7,8 @@
 //
 
 #include "backend/opencl/core/runtime/OpenCLWrapper.hpp"
-#ifdef WIN32
+#ifdef _WIN32
+#include <windows.h>
 #include <libloaderapi.h>
 #else
 #include <dlfcn.h>
@@ -94,7 +95,7 @@ bool OpenCLSymbols::LoadOpenCLLibrary() {
 
 bool OpenCLSymbols::UnLoadOpenCLLibrary() {
     if (handle_ != nullptr) {
-#if defined(WIN32)
+#if defined(_WIN32)
         if (FreeLibrary(handle_) == 0) {
 #else
         if (dlclose(handle_) != 0) {
@@ -129,7 +130,7 @@ bool OpenCLSymbols::isGlError() {
 
 
 bool OpenCLSymbols::LoadLibraryFromPath(const std::string &library_path) {
-#if defined(WIN32)
+#if defined(_WIN32)
     handle_ = LoadLibraryA(library_path.c_str());
     if (handle_ == nullptr) {
         return false;

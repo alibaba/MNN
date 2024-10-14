@@ -73,9 +73,8 @@ void _SSE_MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, cons
     if (post->biasFloat) {
         biasPtr = post->biasFloat;
     }
-    auto blockNum = post->blockNum;
     for (int dz = 0; dz < dst_depth_quad; ++dz) {
-        const auto weight_dz = weight + dz * (src_depth_quad * blockNum) * (GEMM_INT8_UNIT * GEMM_INT8_SRC_UNIT);
+        const auto weight_dz = weight + dz * src_depth_quad * (GEMM_INT8_UNIT * GEMM_INT8_SRC_UNIT);
         const auto weightBias_dz = post->weightQuanBias + dz * GEMM_INT8_UNIT;
         const float* scale_dz = nullptr;
         scale_dz  = post->scale + dz * GEMM_INT8_UNIT;
@@ -324,8 +323,7 @@ void _SSE_MNNGemmInt8AddBiasScale_16x4_w4(int8_t* dst, const int8_t* src, const 
     if (post->biasFloat) {
         biasPtr = post->biasFloat;
     }
-    int blockNum = post->blockNum;
-    int weight_step_Z = 0.5 * (src_depth_quad * blockNum) * (GEMM_INT8_UNIT * GEMM_INT8_SRC_UNIT);
+    int weight_step_Z = 0.5 * src_depth_quad * (GEMM_INT8_UNIT * GEMM_INT8_SRC_UNIT);
     int weight_step_Y = 0.5 * (GEMM_INT8_UNIT * GEMM_INT8_SRC_UNIT);
 
     auto oneValue = _mm_set1_epi16(1);

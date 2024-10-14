@@ -65,9 +65,7 @@ ldr r12, [r6, #8] // int8 max
 str r12, [sp, #16]
 ldr r12, [r6, #12] // int8 min
 str r12, [sp, #20]
-ldr r12, [r6, #40] // blockNum
-mul r12, r12, r3   // src_depth_quad=src_depth_quad*blockNum
-lsl r12, r12, #6   // weight_stride = src_depth_quad*LP*HP
+lsl r12, r3, #6   // weight_stride = src_depth_quad*LP*HP
 str r12, [sp, #24]
 ldr r12, [r6, #48] // extraScale
 str r12, [sp, #28]

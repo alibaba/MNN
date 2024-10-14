@@ -80,6 +80,12 @@ public:
      * @return shared instance
      */
     static MNNTestSuite* get();
+    struct Status {
+        int precision = 0;
+        int memory = 0;
+        int power = 0;
+    };
+    Status pStaus;
 
 public:
     /**

@@ -167,6 +167,65 @@ kernel void conv1x1_g1z4_w4(const device ftype4 *in            [[buffer(0)]],
     //if (computeSize > 3) {xy_out[3] = activate(ftype4(result3), cst.activation); }
 }
 
+kernel void conv1x1_g1z4_m1w4(const device ftype4 *in            [[buffer(0)]],
+                            device ftype4 *out                 [[buffer(1)]],
+                            constant conv1x1_constants& cst    [[buffer(2)]],
+                            const device MNN::uchar4x2 *wt      [[buffer(3)]],
+                            const device ftype4 *biasTerms     [[buffer(4)]],
+                            const device float4 *dequantScale  [[buffer(5)]],
+                            uint3 gid[[threadgroup_position_in_grid]],
+                            uint  tiisg[[thread_index_in_simdgroup]],
+                            uint  sgitg[[simdgroup_index_in_threadgroup]]) {
+    int uz = gid.x * 2 + sgitg;
+
+    int rx = gid.y;
+    auto xy_wt = wt + uz * cst.input_slice;
+    auto xy_in0  = in  + (int)gid.z  * cst.input_size + rx + 0;
+    auto xy_out = out + (int)gid.z * cst.output_size + uz * cst.output_size * cst.batch + rx;
+    auto biasValue = FLOAT4(biasTerms[uz]);
+    FLOAT4 result0 = FLOAT4(0);
+
+    int block = (cst.input_slice + cst.block_size - 1) / cst.block_size;
+    for (int bi=0; bi<cst.block_size; bi++) {
+        FLOAT4 scale = FLOAT4(dequantScale[2 * (uz * cst.block_size + bi) + 0]);
+        FLOAT4 dequant_bias = FLOAT4(dequantScale[2 * (uz * cst.block_size + bi) + 1]);
+        int zmin = bi * block;
+        int zmax = min(zmin + block, cst.input_slice);
+        for (int z = zmin + tiisg; z < zmax; z+=SIMD_GROUP_WIDTH) {
+            auto in40 = (FLOAT4)*(xy_in0 + z * cst.input_size * cst.batch);
+            MNN::uchar4x2 w_int4 = xy_wt[z];
+
+            FLOAT4x4 w_dequant;
+            for (int i = 0; i < 4; ++i) {
+                FLOAT4 w4 = FLOAT4((float)(w_int4[i][0] >> 4) - 8, (float)(w_int4[i][0] & 15) - 8, (float)(w_int4[i][1] >> 4) - 8, (float)(w_int4[i][1] & 15) - 8);
+                FLOAT4 res = w4 * scale[i] + dequant_bias[i];
+                w_dequant[i] = res;
+            }
+
+            result0 += FLOAT4(in40 * w_dequant);
+            
+//            FLOAT4x4 w_dequant;
+//            for (int i = 0; i < 4; ++i) {
+//                FLOAT4 w4 = FLOAT4((float)(w_int4[i][0] >> 4) - 8, (float)(w_int4[i][0] & 15) - 8, (float)(w_int4[i][1] >> 4) - 8, (float)(w_int4[i][1] & 15) - 8);
+//                FLOAT4 res = w4 * scale[i] + dequant_bias[i];
+//                w_dequant[i] = w4;
+//            }
+//
+//            FLOAT4 temp = FLOAT4(in40 * w_dequant);
+//            result0 += temp * scale + (in40.x + in40.y + in40.z + in40.w) * dequant_bias;
+        }
+    }
+    FLOAT4 res;
+    res.x = simd_sum(result0.x);
+    res.y = simd_sum(result0.y);
+    res.z = simd_sum(result0.z);
+    res.w = simd_sum(result0.w);
+    /* true */
+    if (tiisg == 0) {
+        xy_out[0] = activate(ftype4(res + biasValue), cst.activation);
+    }
+}
+
 kernel void conv1x1_g1z8(const device ftype4 *in            [[buffer(0)]],
                          device ftype4 *out                 [[buffer(1)]],
                          constant conv1x1_constants& cst    [[buffer(2)]],

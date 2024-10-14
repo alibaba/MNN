@@ -379,6 +379,9 @@ static Module* loadInternal(const std::vector<std::string>& inputs, const std::v
     if (net->extraInfo() && net->extraInfo()->version()) {
         info->version = net->extraInfo()->version()->str();
     }
+    if (net->bizCode()) {
+        info->bizCode = net->bizCode()->str();
+    }
     auto rtMgr = _rtMgr;
     Module::Config defaultConfig;
     if (nullptr == config) {
