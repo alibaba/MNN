@@ -234,6 +234,8 @@ public:
         // size limit of kvcache in memory (for a single layer)
         // if the size of kvcache exceeds the limit, it will be moved to disk
         KVCACHE_SIZE_LIMIT = 8,
+        // Op encoder number for commit
+        OP_ENCODER_NUMBER_FOR_COMMIT = 9,
     };
 
     enum ExternalPathType {

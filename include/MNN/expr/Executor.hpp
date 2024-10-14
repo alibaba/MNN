@@ -138,12 +138,10 @@ public:
     };
     static bool getComputeInfo(EXPRP expr, Interpreter::SessionInfoCode code, void* ptr);
 private:
-    void _refreshRuntime();
+    std::shared_ptr<Runtime> _getOrCreateRuntime(MNNForwardType type, const BackendConfig* config, int numberThread, bool reset = true);
     Executor(std::shared_ptr<Runtime> backend, MNNForwardType type, int numberThread);
     void _makeCache(const std::vector<EXPRP>& outputs, bool forceCPU);
 
-    // TODO: Remove mRuntimes, only use mRuntimeInfo
-    std::map<MNNForwardType, std::shared_ptr<Runtime>> mRuntimes;
     RuntimeInfo mRuntimeInfo;
     std::shared_ptr<DebugTools> mDebug;
     std::map<std::string, std::shared_ptr<SubGraph>> mSubGraph;

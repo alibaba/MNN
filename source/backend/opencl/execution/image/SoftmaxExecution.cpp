@@ -87,8 +87,8 @@ ErrorCode SoftmaxExecution::onEncode(const std::vector<Tensor *> &inputs, const 
     std::vector<uint32_t> mGlobalWorkSize{1, 1, 1};
     if(inputBatch == outside && channel == inputChannels && inside == inputWidth * inputHeight){
         mAxis = 1;
-        mGlobalWorkSize = {(uint32_t)(localSize), (uint32_t)outputWidth, (uint32_t)outputHeight * outputBatch};
         localSize = getLocalSize(channelBlocks, MaxLocalSize);
+        mGlobalWorkSize = {(uint32_t)(localSize), (uint32_t)outputWidth, (uint32_t)outputHeight * outputBatch};
     }else if(inputBatch * inputChannels == outside && channel == inputHeight && inside == inputWidth){
         mAxis = 2;
         mGlobalWorkSize = {(uint32_t)(localSize), (uint32_t)channelBlocks*outputWidth, (uint32_t)outputBatch};

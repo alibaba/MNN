@@ -79,30 +79,17 @@ static void createLibrary(id<MTLDevice> device, NSMutableDictionary<NSString *, 
     }
 }
 
-+ (BOOL)commit_frequent{
-    struct utsname systemInfo;
-    uname(&systemInfo);
-
-    NSString *deviceString = [NSString stringWithCString:systemInfo.machine encoding:NSASCIIStringEncoding];
-
-    if ([deviceString isEqualToString:@"iPhone10,1"]) return YES; //@"iPhone 8 Global";
-    if ([deviceString isEqualToString:@"iPhone10,2"]) return YES; //@"iPhone 8 Plus Global";
-    if ([deviceString isEqualToString:@"iPhone10,4"]) return YES; //@"iPhone 8 GSM";
-    if ([deviceString isEqualToString:@"iPhone10,5"]) return YES; //@"iPhone 8 Plus GSM";
-    if ([deviceString isEqualToString:@"iPhone10,3"]) return YES; //@"A1865/A1902 iPhone X";
-    if ([deviceString isEqualToString:@"iPhone10,6"]) return YES; //@"Global/A1901 iPhone X";
-    if ([deviceString isEqualToString:@"iPhone11,2"]) return YES; //@"iPhone XS";
-    if ([deviceString isEqualToString:@"iPhone11,4"]) return YES; //@"iPhone XS Max";
-    if ([deviceString isEqualToString:@"iPhone11,6"]) return YES; //@"iPhone XS Max";
-    if ([deviceString isEqualToString:@"iPhone11,8"]) return YES; //@"iPhone XR";
-    if ([deviceString isEqualToString:@"iPhone12,1"]) return YES; //@"iPhone 11";
-    if ([deviceString isEqualToString:@"iPhone12,3"]) return YES; //@"iPhone 11 Pro";
-    if ([deviceString isEqualToString:@"iPhone12,5"]) return YES; //@"iPhone 11 Pro Max";
-    if ([deviceString isEqualToString:@"iPhone12,8"]) return YES; //@"iPhone SE 2";
-    if ([deviceString isEqualToString:@"iPhone13,1"]) return YES; //@"iPhone 12 mini";
-    if ([deviceString isEqualToString:@"iPhone13,2"]) return YES; //@"iPhone 12";
-    if ([deviceString isEqualToString:@"iPhone13,3"]) return YES; //@"iPhone 12 Pro";
-    if ([deviceString isEqualToString:@"iPhone13,4"]) return YES; //@"iPhone 12 Pro Max";
++ (BOOL)isSimdGroupAvailable{
+#if TARGET_OS_IPHONE
+    if(@available(iOS 14, *)) {
+        return YES;
+    }
+#endif
+#if TARGET_OS_MAC
+    if(@available(macOS 10.14, *)) {
+        return YES;
+    }
+#endif
     return NO;
 }
 
@@ -124,8 +111,8 @@ static void createLibrary(id<MTLDevice> device, NSMutableDictionary<NSString *, 
     _device = context->device;
     _cachesFp16   = [NSMutableDictionary dictionary];
     _cachesFp32   = [NSMutableDictionary dictionary];
-    _isCommitEachShader = self.class.commit_frequent;
     _isIphone = self.class.isIphone;
+    _isSimdGroupAvailable = self.class.isSimdGroupAvailable;
     createLibrary(_device, _cachesFp16, true);
     createLibrary(_device, _cachesFp32, false);
     return nil != _device;

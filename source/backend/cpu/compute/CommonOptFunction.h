@@ -170,9 +170,6 @@ struct MatMulParam {
 void MNNComputeMatMulForE_1(const float* A, const float* B, float* C, const float* biasPtr, const MatMulParam* param, size_t tId);
 
 void MNNCopyC4Int16WithStride(const float* sourceF, float* destF, size_t srcStride, size_t dstStride, size_t count);
-void MNNSourceTransformCommonF23(const float *source, float *dest, int unit, int iw, int pad, int su, int eu);
-void MNNConvDwF23MulTransUnit(float **cacheLine, const float *weigth, float *dest, size_t ow, const float* bias, const float* postParameter);
-void MNNMultiAndDestTransformCommon23(float **cacheLine, const float *weigth, float *dest, int cacheLineSize, int ow);
 void MNNInt8ToInt16(int16_t* dest, const int8_t* source, size_t count);
 
 struct SumByAxisParams {
@@ -267,15 +264,10 @@ struct CoreFunctions {
     void(*MNNUnpackCUnitTranspose)(float* dst, const float* src, size_t area, size_t depth, int* areaOffset);
 
     // NC4HW4's compute function
-    void(*MNNConvRunForUnitDepthWise)(float* dst, const float* src, const float* weight, size_t fw, size_t fh,
-                                        size_t weight_y_step, size_t dilateX_step, size_t dilateY_step);
     void(*MNNConvRunForLineDepthwise)(float* dst, const float* src, const float* weight, size_t width, size_t src_w_setup,
                                     size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step, size_t height,
-                                    size_t srcHStep, size_t dstHStep);
+                                    size_t srcHStep, size_t dstHStep, const float* bias, const float* parameters);
     void(*MNNAxByClampBroadcastUnit)(float* C, const float* A, const float* B, size_t width, size_t cStride, size_t aStride, size_t height, const float* parameters);
-    void(*MNNMultiAndDestTransformCommon23)(float **cacheLine, const float *weigth, float *dest, int cacheLineSize, int ow, const float* bias, const float* post);
-    void(*MNNSourceTransformCommonF23)(const float *source, float *dest, int unit, int iw, int pad, int su, int eu);
-    void(*MNNConvDwF23MulTransUnit)(float **cacheLine, const float *weigth, float *dest, size_t ow, const float* bias, const float* post);
     void(*MNNMatrixAdd)(float* C, const float* A, const float* B, size_t widthC4, size_t cStride, size_t aStride,
                       size_t bStride, size_t height);
     void(*MNNMatrixSub)(float* C, const float* A, const float* B, size_t widthC4, size_t cStride, size_t aStride,
@@ -309,6 +301,9 @@ struct CoreFunctions {
                                       size_t weight_y_step, size_t dilateX_step, size_t dilateY_step);
     void(*MNNDeconvRunForLineDepthwise)(const float* dst, float* src, const float* weight, size_t width, size_t src_w_setup,
                                       size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step);
+    void(*MNNDepthwiseConvFastKernel)(float* dst, const float* src, const float* weight, size_t width, size_t src_w_setup,
+                                    size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step, size_t height,
+                                    size_t srcHStep, size_t dstHStep, const float* bias, const float* parameters) = nullptr;
     void(*MNNReluWithSlopeChannel)(float* dst, const float* src, const float* slope, size_t sizeQuad, size_t depthQuad);
     void(*MNNPoolingAvg)(const void* channelInput, int inputWidth, int inputHeight, void *channelOutput,
                            int outputWidth, int outputHeight, int kernelWidth, int kernelHeight, int strideWidth,

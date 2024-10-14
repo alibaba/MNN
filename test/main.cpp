@@ -67,6 +67,8 @@ int main(int argc, char* argv[]) {
     }
     MNN::Express::ExecutorScope scope(exe);
     exe->setGlobalExecutorConfig(type, config, thread);
+    MNNTestSuite::get()->pStaus.memory = memory;
+    MNNTestSuite::get()->pStaus.precision = precision;
     if (argc > 1) {
         auto name = argv[1];
         if (strcmp(name, "all") == 0) {

@@ -65,9 +65,7 @@ ldr r12, [r6, #32] // weightBias
 str r12, [sp, #8]
 ldr r12, [r6, #36] // f32minmax
 str r12, [sp, #12]
-ldr r12, [r6, #40] // blockNum
-mul r12, r12, r3   // src_depth_quad=src_depth_quad*blockNum
-lsl r12, r12, #5   // weight_stride = src_depth_quad*LP*HP
+lsl r12, r3, #5   // weight_stride = src_depth_quad*LP*HP
 str r12, [sp, #16]
 ldr r12, [r6, #48] // extraScale
 str r12, [sp, #20]
@@ -82,12 +80,14 @@ L2LoopDz:
     subs r12, r3, #1
     // first four output
     vld1.8 {q2}, [r1]!
-    vld1.8 {q4}, [r2]! // weight, d8,d9,d10,d11
+    vld1.8 {q4, q5}, [r2]! // weight, d8,d9,d10,d11
     // int4->int8
-    vmov.i8 q5, #15
-    vand.i8 q5, q5, q4
+    vmov.i8 q6, #15
+    vmov.i8 q7, #15
+    vand.i8 q6, q6, q4
+    vand.i8 q7, q7, q5
     vshr.u8 q4, q4, #4
-    vzip.8 q4, q5
+    vshr.u8 q5, q5, #4
 
     vmull.s8 q0, d4, d8
     vmull.s8 q1, d4, d10
@@ -95,12 +95,6 @@ L2LoopDz:
     vmlal.s8 q1, d5, d11
     vpaddl.s16 q8, q0
     vpaddl.s16 q9, q1
-    vld1.8 {q6}, [r2]! // weight,d12,d13,d14,d15
-    // int4->int8
-    vmov.i8 q7, #15
-    vand.i8 q7, q7, q6
-    vshr.u8 q6, q6, #4
-    vzip.8 q6, q7
 
     vmull.s8 q0, d4, d12
     vmull.s8 q1, d4, d14
@@ -129,22 +123,18 @@ L2LoopDz:
     L2LoopSz:
         // first four output
         vld1.8 {q2}, [r1]!
-        vld1.8 {q4}, [r2]!
+        vld1.8 {q4, q5}, [r2]! // weight, d8,d9,d10,d11
         // int4->int8
-        vmov.i8 q5, #15
-        vand.i8 q5, q5, q4
+        vmov.i8 q6, #15
+        vmov.i8 q7, #15
+        vand.i8 q6, q6, q4
+        vand.i8 q7, q7, q5
         vshr.u8 q4, q4, #4
-        vzip.8 q4, q5
+        vshr.u8 q5, q5, #4
         vmull.s8 q0, d4, d8
         vmull.s8 q1, d4, d10
         vmlal.s8 q0, d5, d9
         vmlal.s8 q1, d5, d11
-        vld1.8 {q6}, [r2]!
-        // int4->int8
-        vmov.i8 q7, #15
-        vand.i8 q7, q7, q6
-        vshr.u8 q6, q6, #4
-        vzip.8 q6, q7
         vpadal.s16 q8, q0
         vpadal.s16 q9, q1
 
@@ -269,12 +259,14 @@ L1LoopDz:
     subs r12, r3, #1
     // first four output
     vld1.8 {q2}, [r1]!
-    vld1.8 {q4}, [r2]!
+    vld1.8 {q4, q5}, [r2]! // weight, d8,d9,d10,d11
     // int4->int8
-    vmov.i8 q5, #15
-    vand.i8 q5, q5, q4
+    vmov.i8 q6, #15
+    vmov.i8 q7, #15
+    vand.i8 q6, q6, q4
+    vand.i8 q7, q7, q5
     vshr.u8 q4, q4, #4
-    vzip.8 q4, q5
+    vshr.u8 q5, q5, #4
     
     vmull.s8 q0, d4, d8
     vmull.s8 q1, d4, d10
@@ -282,12 +274,6 @@ L1LoopDz:
     vmlal.s8 q1, d5, d11
     vpaddl.s16 q8, q0
     vpaddl.s16 q9, q1
-    vld1.8 {q6}, [r2]!
-    // int4->int8
-    vmov.i8 q7, #15
-    vand.i8 q7, q7, q6
-    vshr.u8 q6, q6, #4
-    vzip.8 q6, q7
 
     vmull.s8 q0, d4, d12
     vmull.s8 q1, d4, d14
@@ -302,22 +288,18 @@ L1LoopDz:
     L1LoopSz:
         // first four output
         vld1.8 {q2}, [r1]!
-        vld1.8 {q4}, [r2]!
+        vld1.8 {q4, q5}, [r2]! // weight, d8,d9,d10,d11
         // int4->int8
-        vmov.i8 q5, #15
-        vand.i8 q5, q5, q4
+        vmov.i8 q6, #15
+        vmov.i8 q7, #15
+        vand.i8 q6, q6, q4
+        vand.i8 q7, q7, q5
         vshr.u8 q4, q4, #4
-        vzip.8 q4, q5
+        vshr.u8 q5, q5, #4
         vmull.s8 q0, d4, d8
         vmull.s8 q1, d4, d10
         vmlal.s8 q0, d5, d9
         vmlal.s8 q1, d5, d11
-        vld1.8 {q6}, [r2]!
-        // int4->int8
-        vmov.i8 q7, #15
-        vand.i8 q7, q7, q6
-        vshr.u8 q6, q6, #4
-        vzip.8 q6, q7
         vpadal.s16 q8, q0
         vpadal.s16 q9, q1
 

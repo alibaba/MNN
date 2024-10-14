@@ -13,6 +13,8 @@ try:
 except:
     mnn_logger = None
 
+def convert(args):
+    Tools.mnnconvert(args)
 
 def parse_args():
     arg_dict = {}
@@ -28,13 +30,13 @@ def parse_args():
                 if arg_value.startswith("--") or arg_value.startswith("-"):
                     arg_value = True
             arg_dict[arg_name] = arg_value
-    
+
     return arg_dict
 
 
 def main():
     """ main funcion """
-    Tools.mnnconvert(sys.argv)
+    convert(sys.argv)
 
     arg_dict = parse_args()
 
@@ -52,7 +54,7 @@ def main():
         arg_dict.pop("MNNModel")
         log_dict["detail"] = {"args": arg_dict, "src_model_size": src_model_size, "dst_model_size": dst_model_size, "compress_rate": compress_rate}
         mnn_logger.put_log(log_dict, "convert")
-    
+
     return 0
 
 

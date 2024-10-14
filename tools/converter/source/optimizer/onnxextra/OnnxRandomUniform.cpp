@@ -16,6 +16,11 @@ namespace Express {
 class OnnxRandomUniformTransform : public OnnxExtraManager::Transform {
 public:
     virtual EXPRP onExecute(EXPRP expr) const override {
+        static bool gInit = false;
+        if (!gInit) {
+            MNN_PRINT("The model has random OP: %s, can't check result with onnxruntime\n", expr->name().c_str());
+            gInit = true;
+        }
         auto op   = expr->get();
         auto info = op->main_as_Extra();
         std::unique_ptr<OpT> randomUniform(new OpT);

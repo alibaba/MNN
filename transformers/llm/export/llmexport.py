@@ -495,6 +495,9 @@ class MNNConveter:
             block_size = ic
         else:
             block_size = quant_block
+        if ic % block_size != 0:
+            block_size = ic
+            print('Skip block quant for ic=', ic, ', quant_block:', quant_block)
         block_num = ic // block_size
         weight = weight.reshape(oc, block_num, block_size)
         max_val = np.max(weight, axis=-1, keepdims=True)
@@ -626,7 +629,7 @@ class MNNConveter:
                 "quanParameter": {
                     "quantScale": 1.0, "scaleIn": 0.0, "scaleOut": 0.0,
                     "useInt32": False, "has_scaleInt": False, "shapeInt32": shape_int32,
-                    "type": 1, "aMax": 0, "aMin": q_min, "readType": oc * (ic // self.quant_block), "weightSize": 0
+                    "type": 1, "aMax": 0, "aMin": q_min, "readType": -1, "weightSize": 0
                 },
                 "external": external
             },
@@ -1864,7 +1867,7 @@ def main():
     parser.add_argument('--export', type=str, default=None, help='export model to an onnx/mnn model.')
     parser.add_argument('--skip_slim', action='store_true', help='Whether or not to skip onnx-slim.')
     parser.add_argument('--quant_bit', type=int, default=4, help='mnn quant bit, 4 or 8, default is 4.')
-    parser.add_argument('--quant_block', type=int, default=128, help='mnn quant block, default is 0 mean channle-wise.')
+    parser.add_argument('--quant_block', type=int, default=0, help='mnn quant block, default is 0 mean channle-wise.')
     parser.add_argument('--lm_quant_bit', type=int, default=None, help='mnn lm_head quant bit, 4 or 8, default is `quant_bit`.')
     parser.add_argument('--mnnconvert', type=str, default='../../../build/MNNConvert', help='local mnnconvert path, if invalid, using pymnn.')
 

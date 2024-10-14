@@ -206,6 +206,7 @@ android_static_build() {
     -DMNN_OPENCL=true \
     -DMNN_BUILD_MINI=true \
     -DMNN_SUPPORT_BF16=true \
+    -DMNN_ARM82=false \
     -DMNN_OPENCL=true \
     -DMNN_SUPPORT_TRANSFORMER_FUSE=ON \
     -DNATIVE_LIBRARY_OUTPUT=. -DNATIVE_INCLUDE_OUTPUT=.
@@ -657,7 +658,7 @@ android_test() {
     # 1. build Android32
     mkdir build_32
     pushd build_32
-    ../build_32.sh -DMNN_BUILD_TRAIN=OFF -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DMNN_OPENCL=true -DMNN_LOW_MEMORY=ON -DMNN_SUPPORT_TRANSFORMER_FUSE=ON
+    ../build_32.sh -DMNN_BUILD_TRAIN=OFF -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DMNN_OPENCL=true -DMNN_LOW_MEMORY=ON -DMNN_SUPPORT_TRANSFORMER_FUSE=ON -DMNN_ARM82=OFF
     android32_build_wrong=$[$? > 0]
     mnn32_size=$(ls -lh libMNN.so | awk '{print $5}')
     expr32_size=$(ls -lh libMNN_Express.so | awk '{print $5}')

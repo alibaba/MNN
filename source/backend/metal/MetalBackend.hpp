@@ -189,10 +189,7 @@ public:
                               id<MTLComputeCommandEncoder> encoder, id<MTLBuffer> shape) const;
 
     void flushEncoder() const;
-    id<MTLComputeCommandEncoder> encoder_for_net() const;
-    void addOpEncoder(std::function<void(void)> opEncoder);
-    
-    bool isCommandEncoderSet();
+    id<MTLComputeCommandEncoder> encoder_for_net() const;    
     
     BufferAllocator* getBufferPool() const;
     EagerBufferAllocator *getStaticBufferPool() const {
@@ -233,11 +230,8 @@ private:
 
     const MetalRuntime* mRuntime;
     mutable NSUInteger mEncoderCount = 0;
-    mutable bool mOpEncoderSet = false;//whether has set encoder
     mutable bool mSupportDeferEncode = true;
-    mutable bool mFrameEncodeCache = false;
 
-    std::vector<std::function<void(void)>> mOpEncoders;
     mutable id<MTLComputeCommandEncoder> mComputeEncoder = nil;
     std::shared_ptr<BufferAllocator> mBufferPool;
     std::shared_ptr<BufferAllocator> mBufferPoolShapeImmutable;

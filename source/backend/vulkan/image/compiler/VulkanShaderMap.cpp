@@ -94,6 +94,15 @@ mMaps.insert(std::make_pair("glsl_col2Im_RELU_comp", std::make_pair(glsl_col2Im_
 mMaps.insert(std::make_pair("glsl_col2Im_RELU6_comp", std::make_pair(glsl_col2Im_RELU6_comp,glsl_col2Im_RELU6_comp_len)));
 mMaps.insert(std::make_pair("glsl_nc4hw4toimage_comp", std::make_pair(glsl_nc4hw4toimage_comp,glsl_nc4hw4toimage_comp_len)));
 mMaps.insert(std::make_pair("glsl_imageTonc4hw4_comp", std::make_pair(glsl_imageTonc4hw4_comp,glsl_imageTonc4hw4_comp_len)));
+mMaps.insert(std::make_pair("glsl_binary_blit_comp", std::make_pair(glsl_binary_blit_comp,glsl_binary_blit_comp_len)));
+mMaps.insert(std::make_pair("glsl_binary_blit_ADD_comp", std::make_pair(glsl_binary_blit_ADD_comp,glsl_binary_blit_ADD_comp_len)));
+mMaps.insert(std::make_pair("glsl_binary_blit_SUB_comp", std::make_pair(glsl_binary_blit_SUB_comp,glsl_binary_blit_SUB_comp_len)));
+mMaps.insert(std::make_pair("glsl_binary_blit_MUL_comp", std::make_pair(glsl_binary_blit_MUL_comp,glsl_binary_blit_MUL_comp_len)));
+mMaps.insert(std::make_pair("glsl_binary_blit_DIV_comp", std::make_pair(glsl_binary_blit_DIV_comp,glsl_binary_blit_DIV_comp_len)));
+mMaps.insert(std::make_pair("glsl_binary_blit_POW_comp", std::make_pair(glsl_binary_blit_POW_comp,glsl_binary_blit_POW_comp_len)));
+mMaps.insert(std::make_pair("glsl_binary_blit_VMAX_comp", std::make_pair(glsl_binary_blit_VMAX_comp,glsl_binary_blit_VMAX_comp_len)));
+mMaps.insert(std::make_pair("glsl_binary_blit_VMIN_comp", std::make_pair(glsl_binary_blit_VMIN_comp,glsl_binary_blit_VMIN_comp_len)));
+mMaps.insert(std::make_pair("glsl_binary_blit_SQUDIFF_comp", std::make_pair(glsl_binary_blit_SQUDIFF_comp,glsl_binary_blit_SQUDIFF_comp_len)));
 mMaps.insert(std::make_pair("glsl_matmul_output_comp", std::make_pair(glsl_matmul_output_comp,glsl_matmul_output_comp_len)));
 mMaps.insert(std::make_pair("glsl_matmul_output_BIAS_comp", std::make_pair(glsl_matmul_output_BIAS_comp,glsl_matmul_output_BIAS_comp_len)));
 mMaps.insert(std::make_pair("glsl_matmul_output_TRANSPOSE_comp", std::make_pair(glsl_matmul_output_TRANSPOSE_comp,glsl_matmul_output_TRANSPOSE_comp_len)));

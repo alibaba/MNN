@@ -52,6 +52,9 @@ struct RuntimeHint {
     
     std::string midMemoryPath;
     std::string weightMemoryPath;
+    
+    // op encoder number for once commit
+    int encorderNumForCommit = 10;
 };
 /** abstract backend */
 class Backend : public NonCopyable {

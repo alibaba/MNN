@@ -10,7 +10,7 @@
 #define STRUCTURAL_HPP
 
 #include <MNN/MNNDefine.h>
-#include "cv/types.hpp"
+#include "../types.hpp"
 
 namespace MNN {
 namespace CV {

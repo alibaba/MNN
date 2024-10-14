@@ -39,8 +39,43 @@ MNN现已推出基于TensorFlow/Pytorch的模型压缩工具mnncompress，请查
 | ADMM | 使用ADMM方法进行权值量化 |
 
 ## 多输入模型的参数设置的特别说明(MNN现阶段仅支持输入数据类型是非图片的多输入模型)
-| input_type | `str` | 输入数据的类型，"sequence" |
-| path | `str` | 存放校正特征量化系数的输入数据目录 |，例如该目录下包含2个输入数据集input_0和input_1，子目录input_0和input_1中包含模型的输入数据和一个input.json文件。input_0和input_1分别是两个输入输出信息文件夹，可使用 testMNNFromOnnx.py 等脚本生成，参考模型转换的正确性校验部分。
+| 需要特别指定的参数 | 设置值 |
+|--------------------|------|
+| input_type | `str`：输入数据的类型，"sequence" |
+| path | `str`：存放校正特征量化系数的输入数据目录 |，
+例如在quant.json文件中 "path": "/home/data/inputs_dir/"，你所构造的矫正数据集有两个，分别存放在input_0和input_1子目录下，即"/home/data/inputs_dir/input_0"和"/home/data/inputs_dir/input_1".由GetMNNInfo工具可以得到模型的输入输出名称，例如该模型的输入有三个：data0, data1, data2，输出有两个：out1, out2. 那么在input_0和input_1子目录下分别有六个文件：data0.txt, data1.txt, data2.txt, out1.txt, out2.txt, input.json. 其中的五个文件名要和模型的输入输出名对应，最后一个input.json文件则描述的是输入名和对应的shape内容：
+```json
+{
+    "inputs": [
+        {
+            "name": "data0",
+            "shape": [
+                2,
+                4,
+		        64,
+		        64
+            ]
+        },
+	        {
+            "name": "data1",
+            "shape": [
+                1
+            ]
+        },
+        {
+            "name": "data2",
+            "shape": [
+                2,
+                512,
+                768
+            ]
+        }
+    ],
+    "outputs": [
+        "out1", "out2"
+    ]
+}
+```
 
 ## 量化模型的使用
 和浮点模型同样使用方法，输入输出仍然为浮点类型

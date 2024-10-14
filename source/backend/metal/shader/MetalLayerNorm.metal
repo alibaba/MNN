@@ -147,3 +147,46 @@ kernel void layernorm_x4_rms(const device ftype4 *in       [[buffer(0)]],
         out_data[gid.x] = (ftype4)(norm);
     }
 }
+
+kernel void layernorm_m1x4_rms(const device ftype4 *in       [[buffer(0)]],
+                             device ftype4 *out            [[buffer(1)]],
+                             constant layernorm_constants& cst  [[buffer(2)]],
+                             const device float4 *gamma    [[buffer(3)]],
+                             const device float4 *beta     [[buffer(4)]],
+                             uint  gid  [[threadgroup_position_in_grid]],
+                             uint  tiisg[[thread_index_in_simdgroup]],
+                             uint  sgitg[[simdgroup_index_in_threadgroup]]) {
+
+    int total_idx = (gid * 4 + sgitg);
+    int in_idx = total_idx  % (cst.inside/4);
+    int out_idx = total_idx  / (cst.inside/4);
+
+    auto in_data = in + out_idx * cst.inside/4;
+    auto out_data = out + out_idx * cst.inside/4;
+
+    float square_sum = 0.0f;
+
+    for(int i = tiisg; i < cst.inside/4; i+=SIMD_GROUP_WIDTH) {
+        ftype4 data = in_data[i];
+        float dis = data.x;
+        square_sum += dis * dis;
+        dis = data.y;
+        square_sum += dis * dis;
+        dis = data.z;
+        square_sum += dis * dis;
+        dis = data.w;
+        square_sum += dis * dis;
+    }
+    square_sum = simd_sum(square_sum);
+    
+    if(tiisg == 0) {
+        float var = 1.0 / sqrt(square_sum / cst.inside + cst.eps);
+        
+        float4 norm = var * ((float4)in_data[in_idx]);
+        if(cst.has_gamma_beta) {
+            out_data[in_idx] = (ftype4)(norm * gamma[in_idx] + beta[in_idx]);
+        } else {
+            out_data[in_idx] = (ftype4)(norm);
+        }
+    }
+}

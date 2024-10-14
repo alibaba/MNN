@@ -76,23 +76,6 @@ static void _MNNLowpToFp32(const int16_t* src, float* dst, size_t size) {
         ::memcpy(dst, dstTemp, sizeRemain * sizeof(float));
     }
 }
-static void MNNConvRunForUnitDepthWiseBF16(float* dst, const float* src, const float* weight, size_t fw, size_t fh,
-                                size_t weight_y_step, size_t dilateX_step, size_t dilateY_step) {
-    int fx, fy;
-    BFVec4 dstValue(0.0f);
-    const int16_t* src_z    = (const int16_t*)src;
-    const int16_t* weight_z = (const int16_t*)weight;
-    for (fy = 0; fy < fh; ++fy) {
-        const auto src_y    = src_z + fy * dilateY_step;
-        const auto weight_y = weight_z + fy * weight_y_step;
-        for (fx = 0; fx < fw; ++fx) {
-            const auto weight_x = weight_y + 4 * fx;
-            const auto src_x    = src_y + fx * dilateX_step;
-            dstValue = dstValue + BFVec4::load(src_x) * BFVec4::load(weight_x);
-        }
-    }
-    BFVec4::save((int16_t*)dst, dstValue);
-}
 
 static void MNNConvRunForLineDepthwiseBF16(float* dstO, const float* srcO, const float* weightO, size_t width, size_t src_w_setup,
                                 size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step, size_t height,
@@ -823,7 +806,6 @@ static CoreFunctions* gInstance = nullptr;
 bool BF16Functions::init() {
     gInstance = new CoreFunctions;
     gInstance->MNNConvRunForLineDepthwise = MNNConvRunForLineDepthwiseBF16;
-    gInstance->MNNConvRunForUnitDepthWise = MNNConvRunForUnitDepthWiseBF16;
     gInstance->MNNAxByClampBroadcastUnit = MNNAxByClampBroadcastUnitBF16;
     gInstance->MNNFp32ToLowp = _MNNFp32ToLowp;
     gInstance->MNNLowpToFp32 = _MNNLowpToFp32;
@@ -890,7 +872,6 @@ bool BF16Functions::init() {
     gInstance->MNNPackedMatMul = NEON_MNNPackedMatMul_BF16;
     gInstance->MNNPackedMatMulRemain = NEON_MNNPackedMatMulRemain_BF16;
     gInstance->MNNConvRunForLineDepthwise = NEON_MNNConvRunForLineDepthwise_BF16;
-    gInstance->MNNConvRunForUnitDepthWise = NEON_MNNConvRunForUnitDepthWise_BF16;
     gInstance->MNNAxByClampBroadcastUnit = NEON_MNNAxByClampBroadcastC4_BF16;
 #ifdef __aarch64__
     cpuinfo_arm_isa gCPUInfo;

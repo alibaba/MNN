@@ -321,6 +321,9 @@ void VulkanBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTenso
             iter = mConverters.find(key);
         }
         mCmdBuffers.push_back(iter->second.second->get());
+        if (TensorUtils::getDescribe(srcTensor)->isMutable == false) {
+            _finish();
+        }
     } else if (dstTensor->host<void>() != nullptr) {
         // gpu->host
         auto size = VulkanTensor::getAlignSize(srcTensor) * sizeof(float);

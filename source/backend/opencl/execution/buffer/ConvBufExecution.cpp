@@ -324,8 +324,6 @@ ErrorCode ConvBufExecution::onResize(const std::vector<Tensor *> &inputs, const 
         mOpenCLBackend->onAcquireBuffer(mConvGemmInpTensor.get(), Backend::DYNAMIC);
         mConvGemmOutTensor.reset(Tensor::createDevice<float>({alignN * alignM}));
         mOpenCLBackend->onAcquireBuffer(mConvGemmOutTensor.get(), Backend::DYNAMIC);
-        mOpenCLBackend->onReleaseBuffer(mConvGemmInpTensor.get(), Backend::DYNAMIC);
-        mOpenCLBackend->onReleaseBuffer(mConvGemmOutTensor.get(), Backend::DYNAMIC);
         
         {
             std::set<std::string> buildOptions;
@@ -399,6 +397,8 @@ ErrorCode ConvBufExecution::onResize(const std::vector<Tensor *> &inputs, const 
 
             mOpenCLBackend->endRecord(mRecording);
         }
+        mOpenCLBackend->onReleaseBuffer(mConvGemmInpTensor.get(), Backend::DYNAMIC);
+        mOpenCLBackend->onReleaseBuffer(mConvGemmOutTensor.get(), Backend::DYNAMIC);
         
         return NO_ERROR;
     } else if (mResource->mConv1x1Opt) {

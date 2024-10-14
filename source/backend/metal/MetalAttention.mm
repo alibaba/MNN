@@ -39,7 +39,9 @@ kernel void main0(const device T* input0 [[buffer(0)]],
     const device int* mask [[buffer(4)]],
 #endif
     constant Param& param [[buffer(5)]],
-    uint3 gid[[thread_position_in_grid]]) {
+    uint3 gid[[thread_position_in_grid]],
+    uint  tiisg[[thread_index_in_simdgroup]],
+    uint  sgitg[[simdgroup_index_in_threadgroup]]) {
     const int x = gid.x; // query_seq_len
     const int y = gid.y; // head_num
     const int z = gid.z; // key_seq_len
@@ -102,7 +104,7 @@ kernel void main0(const device T* input0 [[buffer(0)]],
         }
     }
     out *= Vscale;
-    output[y + z * head_num] = (T)out;
+    output[y * key_seq_len + z] = (T)out;
 #endif
 }
 
@@ -158,18 +160,18 @@ kernel void main0(const device T* input0 [[buffer(0)]],
     }
     output[ x * stride * group + (y * head_dim + z)] = out;
 #else
-    device const T *A_offset = input0 + y;
+    device const T *A_offset = input0 + y * value_seq_len;
     device const T *B_offset = input1 + offset_head;
     device T *Pastvalue_offset = past_value + offset_head;
     float out = 0;
     
     for(int i = 0; i < value_seq_len - 1; ++i){
-        float A = (float)A_offset[i * head_num];
+        float A = (float)A_offset[i];
         float B = (float)Pastvalue_offset[i * stride];
         
         out += A * B;
     }
-    out += (float)A_offset[(value_seq_len - 1)*head_num] * (float)B_offset[0];
+    out += (float)A_offset[(value_seq_len - 1)] * (float)B_offset[0];
     if (yr == 0) {
         Pastvalue_offset[(value_seq_len - 1)*stride] = B_offset[0];
     }
@@ -282,6 +284,7 @@ void AttentionBufExecution::reallocKVCache() {
 
 
 void AttentionBufExecution::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder) {
+
     auto query = inputs[0];
     auto key = inputs[1];
     auto value = inputs[2];
@@ -407,8 +410,8 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor *> &inputs, const 
     // For softmax parameter
     int inside, outside;
     if (mIsDecode) {
-        inside = mNumHead;
-        outside = 1;
+        inside = 1;
+        outside = mNumHead;
     } else {
         inside = 1;
         outside = mCache->mKv_seq_len * mNumHead;

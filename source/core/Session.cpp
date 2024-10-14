@@ -97,6 +97,8 @@ void Session::ModeGroup::setHint(Interpreter::HintMode mode, int hint) {
         case Interpreter::KVCACHE_SIZE_LIMIT:
             runtimeHint.kvcacheSizeLimit = hint;
             break;
+        case Interpreter::OP_ENCODER_NUMBER_FOR_COMMIT:
+            runtimeHint.encorderNumForCommit = hint;
         default:
             break;
     }

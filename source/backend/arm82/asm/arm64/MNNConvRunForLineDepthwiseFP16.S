@@ -15,17 +15,24 @@
 
 asm_function MNNConvRunForLineDepthwiseFP16
 //void MNNConvRunForLineDepthwiseFP16(FLOAT16* dst, const FLOAT16* src, const FLOAT16* weight, size_t width, size_t src_w_setup,
-//                                size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step, size_t height, size_t srcHStep, size_t dstHStep)
+//                                size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step, size_t height, size_t srcHStep, size_t dstHStep,
+//                                const float* bias, float* parameters)
 
 //Auto Load:
 //x0:dst, x1:src, x2:weight, x3:width, x4:src_w_setup, x5:fw, x6:fh, x7:dilate_x_step
 
 //Load From sp:
-//x8:dilate_y_step, x15: height, x10: srcHStep, x11:dstHStep
+//x8:dilate_y_step, x15: height, x10: srcHStep, x11:dstHStep, x12:bias, x13:parameters
 ldr x8, [sp, #0]
 ldr x15, [sp, #8]
 ldr x10, [sp, #16]
 ldr x11, [sp, #24]
+ldr x12, [sp, #32]
+ldr x13, [sp, #40]
+
+stp d8, d9, [sp, #(-16 * 3)]!
+stp d10, d11, [sp, #(16 * 2)]
+stp x19, x20, [sp, #(16 * 1)]
 
 mov x9, #2 // sizeof(FLOAT16)
 mul x4, x9, x4
@@ -34,15 +41,30 @@ mul x8, x9, x8
 mul x10, x9, x10
 mul x11, x9, x11
 
+ld1 {v8.8h}, [x12] // bias
+ld1r {v10.8h}, [x13], #2 // min
+ld1r {v11.8h}, [x13]
+
 //dilate_y_step -> dilate_y_step - fw*dilate_x_step
 mul x9, x5, x7
 sub x8, x8, x9
 
-.macro zero_vec x0, x1, x2, x3
-    movi \x0\().8h, #0
-    movi \x1\().8h, #0
-    movi \x2\().8h, #0
-    movi \x3\().8h, #0
+.macro assign_bias x0, x1, x2, x3
+    mov \x0\().16b, v8.16b
+    mov \x1\().16b, v8.16b
+    mov \x2\().16b, v8.16b
+    mov \x3\().16b, v8.16b
+.endm
+
+.macro compare_min_max x0, x1, x2, x3, xmin, xmax
+    fmax \x0\().8h, \x0\().8h, \xmin\().8h
+    fmax \x1\().8h, \x1\().8h, \xmin\().8h
+    fmax \x2\().8h, \x2\().8h, \xmin\().8h
+    fmax \x3\().8h, \x3\().8h, \xmin\().8h
+    fmin \x0\().8h, \x0\().8h, \xmax\().8h
+    fmin \x1\().8h, \x1\().8h, \xmax\().8h
+    fmin \x2\().8h, \x2\().8h, \xmax\().8h
+    fmin \x3\().8h, \x3\().8h, \xmax\().8h
 .endm
 
 LoopDY:
@@ -56,16 +78,16 @@ L16:
 cmp x3, #16
 blt L8
 
-mov x12, #16
-mul x12, x4, x12
+mov x19, #16
+mul x19, x4, x19
 
 L16Loop:
-    zero_vec v16, v17, v18, v19
-    zero_vec v20, v21, v22, v23
-    zero_vec v24, v25, v26, v27
-    zero_vec v28, v29, v30, v31
+    assign_bias v16, v17, v18, v19
+    assign_bias v20, v21, v22, v23
+    assign_bias v24, v25, v26, v27
+    assign_bias v28, v29, v30, v31
 
-    mov x13, x1
+    mov x20, x1
     mov x14, x2
     mov x9, x6
     L16LoopH:
@@ -106,7 +128,7 @@ L16Loop:
             ld1 {v3.8h}, [x1], x4
             fmla v30.8h, v7.8h, v2.8h
             fmla v31.8h, v7.8h, v3.8h
-            sub x1, x1, x12
+            sub x1, x1, x19
             add x1, x1, x7
 
             bne L16LoopW
@@ -115,8 +137,12 @@ L16Loop:
         bne L16LoopH
 
     sub x3, x3, #16
+    compare_min_max v16, v17, v18, v19, v10, v11
+    compare_min_max v20, v21, v22, v23, v10, v11 
+    compare_min_max v24, v25, v26, v27, v10, v11
+    compare_min_max v28, v29, v30, v31, v10, v11
     st1 {v16.8h, v17.8h, v18.8h, v19.8h}, [x0], #64
-    add x1, x13, x12
+    add x1, x20, x19
     cmp x3, #16
     mov x2, x14
     st1 {v20.8h, v21.8h, v22.8h, v23.8h}, [x0], #64
@@ -129,14 +155,14 @@ L8:
 cmp x3, #7
 ble L4
 
-mov x12, #8
-mul x12, x4, x12
+mov x19, #8
+mul x19, x4, x19
 
 L8Loop:
-    zero_vec v16, v17, v18, v19
-    zero_vec v20, v21, v22, v23
+    assign_bias v16, v17, v18, v19
+    assign_bias v20, v21, v22, v23
 
-    mov x13, x1
+    mov x20, x1
     mov x14, x2
     mov x9, x6
     L8LoopH:
@@ -161,7 +187,7 @@ L8Loop:
             ld1 {v1.8h}, [x1], x4
             fmla v23.8h, v1.8h, v3.8h
 
-            sub x1, x1, x12
+            sub x1, x1, x19
             add x1, x1, x7
 
             bne L8LoopW
@@ -169,9 +195,12 @@ L8Loop:
         add x1, x1, x8
         bne L8LoopH
 
+    compare_min_max v16, v17, v18, v19, v10, v11
+    compare_min_max v20, v21, v22, v23, v10, v11
+
     sub x3, x3, #8
     st1 {v16.8h, v17.8h, v18.8h, v19.8h}, [x0], #64
-    add x1, x13, x12
+    add x1, x20, x19
     mov x2, x14
     st1 {v20.8h, v21.8h, v22.8h, v23.8h}, [x0], #64
 
@@ -180,13 +209,13 @@ L4:
 cmp x3, #4
 ble L1
 
-mov x12, #4
-mul x12, x4, x12
+mov x19, #4
+mul x19, x4, x19
 
 L4Loop:
-    zero_vec v16, v17, v18, v19
+    assign_bias v16, v17, v18, v19
 
-    mov x13, x1
+    mov x20, x1
     mov x14, x2
     mov x9, x6
     L4LoopH:
@@ -203,7 +232,7 @@ L4Loop:
             ld1 {v1.8h}, [x1], x4
             fmla v19.8h, v1.8h, v3.8h
 
-            sub x1, x1, x12
+            sub x1, x1, x19
             add x1, x1, x7
 
             bne L4LoopW
@@ -211,9 +240,10 @@ L4Loop:
         add x1, x1, x8
         bne L4LoopH
 
+    compare_min_max v16, v17, v18, v19, v10, v11
     sub x3, x3, #4
     st1 {v16.8h, v17.8h, v18.8h, v19.8h}, [x0], #64
-    add x1, x13, x12
+    add x1, x20, x19
     mov x2, x14
 
 L1:
@@ -221,10 +251,10 @@ cmp x3, #0
 beq End
 
 L1Loop:
-    movi v0.8h, #0
+    mov v0.16b, v8.16b
     mov x9, x6
     mov x11, x1
-    mov x12, x2
+    mov x19, x2
     L1LoopH:
         mov x10, x5
         L1LoopW:
@@ -238,8 +268,10 @@ L1Loop:
         bne L1LoopH
 
     subs x3, x3, #1
+    fmax v0.8h, v0.8h, v10.8h
+    fmin v0.8h, v0.8h, v11.8h
     st1 {v0.8h}, [x0], #16
-    mov x2, x12
+    mov x2, x19
     add x1, x11, x4
     bne L1Loop
 
@@ -257,7 +289,9 @@ add x0, x0, x11
 add x1, x1, x10
 bne LoopDY
 
-
+ldp x19, x20, [sp, #(16 * 1)]
+ldp d10, d11, [sp, #(16 * 2)]
+ldp d8, d9, [sp], #(16 * 3)
 ret
 
 #endif

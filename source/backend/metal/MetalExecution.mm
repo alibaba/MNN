@@ -18,10 +18,6 @@ MetalExecution::MetalExecution(Backend *backend) : Execution(backend) {
 ErrorCode MetalExecution::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto backend = static_cast<MetalBackend *>(this->backend());
 
-    if(backend->isCommandEncoderSet()) {
-        return NO_ERROR;
-    }
-    
     auto func = [=](){
         auto encoder           = backend->encoder_for_net();
         this->onEncode(inputs, outputs, encoder);
@@ -31,7 +27,6 @@ ErrorCode MetalExecution::onExecute(const std::vector<Tensor *> &inputs, const s
         }
     };
     func();
-    backend->addOpEncoder(func);
 
     return NO_ERROR;
 }

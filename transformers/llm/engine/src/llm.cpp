@@ -193,8 +193,13 @@ size_t Llm::apply_lora(const std::string& lora_path) {
     module_config.rearrange = true;
     module_config.base = modules_.begin()->get();
     size_t lora_index = modules_.size();
-    modules_.emplace_back(Module::load({"input_ids", "attention_mask", "position_ids", "past_key_values"},
-                                       {"logits", "presents"}, model_path.c_str(), runtime_manager_, &module_config));
+    if (attention_fused_) {
+        modules_.emplace_back(Module::load({"input_ids", "attention_mask", "position_ids"},
+                                           {"logits"}, model_path.c_str(), runtime_manager_, &module_config));
+    } else {
+        modules_.emplace_back(Module::load({"input_ids", "attention_mask", "position_ids", "past_key_values"},
+                                           {"logits", "presents"}, model_path.c_str(), runtime_manager_, &module_config));
+    }
     select_module(lora_index);
     return lora_index;
 }
@@ -244,6 +249,7 @@ void Llm::trace(bool start) {
     for (auto& m : decode_modules_) {
         m->traceOrOptimize(status);
     }
+
     runtime_manager_->updateCache();
     mTracing = start;
 }

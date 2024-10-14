@@ -11,40 +11,25 @@
 
 #define PACK_UNIT 8
 
-void _AVX_MNNConvRunForUnitDepthWiseFMA(float* dst, const float* src, const float* weight, size_t fw, size_t fh,
-                                  size_t weight_y_step, size_t dilateX_step, size_t dilateY_step) {
-    int fx, fy;
-    __m256 dstValue = _mm256_setzero_ps();
-    const float* src_z    = src;
-    const float* weight_z = weight;
-    for (fy = 0; fy < fh; ++fy) {
-        const float* src_y    = src_z + fy * dilateY_step;
-        const float* weight_y = weight_z + fy * weight_y_step;
-        for (fx = 0; fx < fw; ++fx) {
-            const float* weight_x = weight_y + PACK_UNIT * fx;
-            const float* src_x    = src_y + fx * dilateX_step;
-            dstValue = _mm256_fmadd_ps(_mm256_loadu_ps(src_x), _mm256_loadu_ps(weight_x), dstValue);
-        }
-    }
-    _mm256_storeu_ps(dst, dstValue);
-}
-
 void _AVX_MNNConvRunForLineDepthwiseFMA(float* dst, const float* src, const float* weight, size_t width, size_t src_w_setup,
                                 size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step, size_t height,
-                                     size_t srcHStep, size_t dstHStep) {
+                                     size_t srcHStep, size_t dstHStep, const float* bias, const float* parameters) {
     int dx, fx, fy;
     const int unit = 4;
     int widthUnit = width / unit;
     int widthRemain = width - widthUnit * unit;
     const float* weight_z = weight;
+    auto minF = _mm256_broadcast_ss(parameters + 0);
+    auto maxF = _mm256_broadcast_ss(parameters + 1);
+    auto bv = _mm256_loadu_ps(bias);
     for (int y = 0; y < height; ++y) {
         auto srcY = src + y * srcHStep;
         auto dstY = dst + y * dstHStep;
         for (dx = 0; dx < widthUnit; ++dx) {
-            auto dstValue0 = _mm256_setzero_ps();
-            auto dstValue1 = _mm256_setzero_ps();
-            auto dstValue2 = _mm256_setzero_ps();
-            auto dstValue3 = _mm256_setzero_ps();
+            auto dstValue0 = bv;
+            auto dstValue1 = bv;
+            auto dstValue2 = bv;
+            auto dstValue3 = bv;
             for (fy = 0; fy < fh; ++fy) {
                 const float* src_y    = srcY + fy * dilateY_step;
                 const float* weight_y = weight_z + fy * fw * PACK_UNIT;
@@ -58,6 +43,14 @@ void _AVX_MNNConvRunForLineDepthwiseFMA(float* dst, const float* src, const floa
                     dstValue3 = _mm256_fmadd_ps(_mm256_loadu_ps(src_x + 3 * src_w_setup), weightValue, dstValue3);
                 }
             }
+            dstValue0 = _mm256_min_ps(dstValue0, maxF);
+            dstValue1 = _mm256_min_ps(dstValue1, maxF);
+            dstValue2 = _mm256_min_ps(dstValue2, maxF);
+            dstValue3 = _mm256_min_ps(dstValue3, maxF);
+            dstValue0 = _mm256_max_ps(dstValue0, minF);
+            dstValue1 = _mm256_max_ps(dstValue1, minF);
+            dstValue2 = _mm256_max_ps(dstValue2, minF);
+            dstValue3 = _mm256_max_ps(dstValue3, minF);
             _mm256_storeu_ps(dstY + PACK_UNIT * 0, dstValue0);
             _mm256_storeu_ps(dstY + PACK_UNIT * 1, dstValue1);
             _mm256_storeu_ps(dstY + PACK_UNIT * 2, dstValue2);
@@ -67,7 +60,7 @@ void _AVX_MNNConvRunForLineDepthwiseFMA(float* dst, const float* src, const floa
         }
         for (dx = 0; dx < widthRemain; ++dx) {
             float* dst_x          = dstY + dx * PACK_UNIT;
-            auto dstValue = _mm256_setzero_ps();
+            auto dstValue = bv;
             const float* src_z    = srcY + src_w_setup * dx;
             const float* weight_z = weight;
             for (fy = 0; fy < fh; ++fy) {
@@ -79,6 +72,8 @@ void _AVX_MNNConvRunForLineDepthwiseFMA(float* dst, const float* src, const floa
                     dstValue = _mm256_fmadd_ps(_mm256_loadu_ps(src_x), _mm256_loadu_ps(weight_x), dstValue);
                 }
             }
+            dstValue = _mm256_min_ps(dstValue, maxF);
+            dstValue = _mm256_max_ps(dstValue, minF);
             _mm256_storeu_ps(dst_x, dstValue);
         }
     }
@@ -173,8 +168,6 @@ static void _AVXFMA_MNNAdjustOptimalSparseKernel(int& sparseBlockOC, MNN::CoreFu
 void _AVX_ExtraInitFMA(void* functions) {
     auto coreFunction = static_cast<MNN::CoreFunctions*>(functions);
     coreFunction->MNNConvRunForLineDepthwise = _AVX_MNNConvRunForLineDepthwiseFMA;
-    coreFunction->MNNConvRunForUnitDepthWise = _AVX_MNNConvRunForUnitDepthWiseFMA;
-    coreFunction->MNNConvDwF23MulTransUnit = _AVX_MNNConvDwF23MulTransUnitFMA;
     // sparse conv init
     coreFunction->MNNAdjustOptimalSparseKernel = _AVXFMA_MNNAdjustOptimalSparseKernel;
 

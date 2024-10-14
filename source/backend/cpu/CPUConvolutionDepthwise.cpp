@@ -14,7 +14,6 @@
 #include "core/TensorUtils.hpp"
 #include "backend/cpu/compute/CommonOptFunction.h"
 #include "backend/cpu/compute/ConvOpt.h"
-#include "backend/cpu/compute/ConvolutionDepthwise3x3.hpp"
 
 namespace MNN {
 CPUConvolutionDepthwise::FloatExecution::FloatExecution(const Convolution2DCommon* common, Backend* b,
@@ -129,8 +128,7 @@ ErrorCode CPUConvolutionDepthwise::BasicFloatExecution::onResize(const std::vect
     auto core          = static_cast<CPUBackend*>(backend())->functions();
     int bytes          = core->bytes;
     int unit           = core->pack;
-    auto unitFunc = core->MNNConvRunForUnitDepthWise;
-    auto lineFunc = core->MNNConvRunForLineDepthwise;
+    auto kernelFunc = core->MNNConvRunForLineDepthwise;
     auto postFunc = core->MNNAxByClampBroadcastUnit;
     auto inputTensor   = inputs[0];
     auto outputTensor  = outputs[0];
@@ -169,72 +167,60 @@ ErrorCode CPUConvolutionDepthwise::BasicFloatExecution::onResize(const std::vect
     int weight_z_step  = kernel_height * kernel_width * unit;
     int dilateY_step   = dilateY * src_width * unit;
     int dilateX_step   = dilateX * unit;
-    // Compute Mid Rect
-    int l = 0, t = 0, r = dst_width, b = dst_height;
-    for (; l * strideX - padX < 0 && l < dst_width; l++) {
-        // do nothing
-    }
-    for (; t * strideY - padY < 0 && t < dst_height; t++) {
-        // do nothing
-    }
-    for (; (r - 1) * strideX - padX + (kernel_width - 1) * dilateX >= src_width && r > l; r--) {
-        // do nothing
-    }
-    for (; (b - 1) * strideY - padY + (kernel_height - 1) * dilateY >= src_height && b > t; b--) {
-        // do nothing
-    }
 
-    auto postData = getPostParameters();
     auto batch = inputs[0]->batch();
     int total = batch * dst_depth_quad;
     int numberThread = ((CPUBackend*)backend())->threadNumber();
-    auto rt = static_cast<const CPURuntime*>(backend()->getRuntime());
-    auto runBasic     = [=](uint8_t* dst_z, const uint8_t* src_z, const uint8_t* weight_dz, int L, int T, int R, int B) {
-        for (int dy = T; dy < B; ++dy) {
-            auto dst_y        = dst_z + dy * dst_y_step * bytes;
-            int srcStartY       = dy * strideY - padY;
-            const auto src_dy = src_z + srcStartY * src_y_step * bytes;
-            int sfy             = ALIMAX(0, (UP_DIV(-srcStartY, dilateY)));
-            int efy             = ALIMIN(kernel_height, UP_DIV(src_height - srcStartY, dilateY));
-            for (int dx = L; dx < R; ++dx) {
-                auto dst_x        = dst_y + unit * dx * bytes;
-                int srcStartX       = dx * strideX - padX;
-                const auto src_dx = src_dy + srcStartX * unit * bytes;
-                int sfx             = ALIMAX(0, (UP_DIV(-srcStartX, dilateX)));
-                int efx             = ALIMIN(kernel_width, UP_DIV(src_width - srcStartX, dilateX));
-                unitFunc((float*)dst_x, (const float*)(src_dx + (sfx * dilateX + sfy * dilateY * src_width) * unit * bytes),
-                         (const float*)(weight_dz + unit * (kernel_width * sfy + sfx) * bytes), efx - sfx, efy - sfy,
-                         unit * kernel_width, dilateX_step, dilateY_step);
-            }
-        }
-    };
     std::vector<int> divides(numberThread+1);
     divides[0] = 0;
-    rt->computeDivideSizes(total, divides.data()+1);
-    mExecutor   = [=](const uint8_t* srcOrigin, uint8_t* dstOrigin, int tId) {
+    static_cast<CPUBackend *>(backend())->computeDivideSizes(total, divides.data()+1);
+    mNumber = numberThread;
+    auto postData = getPostParameters();
+    if (static_cast<CPUBackend*>(backend())->functions()->bytes < 4) {
+        static_cast<CPUBackend*>(backend())->functions()->MNNFp32ToLowp(postData.data() + 2, (int16_t*)(postData.data() + 2), 2);
+    }
+    mFastKernelApply = (dilateX == 1 && dilateY == 1 && strideX == 1 && strideY == 1 && core->MNNDepthwiseConvFastKernel);
+    if (mFastKernelApply ) { // Only support ARM kernel
+        kernelFunc = core->MNNDepthwiseConvFastKernel;
+    }
+    auto pads = ConvolutionCommon::convolutionPadFull(inputs[0], outputs[0], mCommon);
+    int paddedWidth = std::get<0>(pads) + std::get<2>(pads) + src_width;
+    int paddedHeight = std::get<1>(pads) + std::get<3>(pads) + src_height;
+    mInputPad.reset(Tensor::createDevice<float>({mNumber, paddedWidth * paddedHeight * unit}));
+    bool succ = backend()->onAcquireBuffer(mInputPad.get(), Backend::DYNAMIC);
+    if (!succ) {
+        return OUT_OF_MEMORY;
+    }
+    if (paddedWidth != src_width) {
+        dilateY_step   = dilateY * paddedWidth * unit;
+        src_y_step     = paddedWidth * unit;
+    }
+    mExecutor   = [=](const uint8_t* inputPtr, uint8_t* outputPtr, int tId) {
+        const auto inputPadPtr = mInputPad->host<uint8_t>() + mInputPad->stride(0) * tId * bytes;
+        ::memset(inputPadPtr, 0, mInputPad->stride(0) * bytes);
         auto biasP   = inputs[2]->host<uint8_t>();
         auto weightP = inputs[1]->host<uint8_t>();
         for (int index = divides[tId]; index < divides[tId+1]; ++index) {
+            
             int dz = index / batch;
-            auto dst_z           = dstOrigin + dst_z_step * index * bytes;
-            const auto src_z     = srcOrigin + src_z_step * index * bytes;
+            auto dstOrigin           = outputPtr + dst_z_step * index * bytes;
+            const auto srcOrigin     = inputPtr + src_z_step * index * bytes;
             auto bias_z          = biasP + unit * dz * bytes;
             const auto weight_dz = weightP + dz * weight_z_step * bytes;
-            runBasic(dst_z, src_z, weight_dz, 0, 0, dst_width, t);
-            runBasic(dst_z, src_z, weight_dz, 0, b, dst_width, dst_height);
-            runBasic(dst_z, src_z, weight_dz, 0, t, l, b);
-            runBasic(dst_z, src_z, weight_dz, r, t, dst_width, b);
-            if (r > l && b > t) {
-                lineFunc((float*)(dst_z + (t * dst_y_step + l * unit) * bytes),
-                                           (const float*)(src_z + ((t * strideY - padY) * src_y_step + (l * strideX - padX) * unit) * bytes),
-                                           (const float*)weight_dz, r - l, strideX * unit, kernel_width, kernel_height, dilateX_step,
-                                           dilateY_step, b - t, src_y_step * strideY, dst_y_step);
+            
+            auto srcPtr = srcOrigin;
+            // Pad inputs
+            for (int y = 0; y < src_height; ++y) {
+                auto src = srcOrigin + y * src_width * unit * bytes;
+                auto dst = inputPadPtr + ((y + padY) * paddedWidth + padX) * unit * bytes;
+                ::memcpy(dst, src, src_width * unit * bytes);
             }
-            postFunc((float*)dst_z, (float*)dst_z, (const float*)bias_z, dst_width * dst_height, 0, 0, 1, postData.data());
+
+            // Compute
+            kernelFunc((float*)dstOrigin, (const float*)(inputPadPtr), (const float*)weight_dz, dst_width, strideX * unit, kernel_width, kernel_height, dilateX_step, dilateY_step, dst_height, src_y_step * strideY, dst_y_step, (const float*)bias_z, postData.data() + 2);
         }
     };
-    mNumber = numberThread;
-
+    backend()->onReleaseBuffer(mInputPad.get(), Backend::DYNAMIC);
     return NO_ERROR;
 }
 
@@ -280,11 +266,6 @@ public:
         }
         if (inputs.empty()) {
             return new CPUConvolutionDepthwise::FloatExecution(conv2d->common(), backend, originWeight, originWeightSize, originBias, originBiasSize);
-        }
-        auto core = static_cast<CPUBackend*>(backend)->functions();
-        if (conv->dilateX() == 1 && conv->dilateY() == 1 && conv->strideX() == 1 && conv->strideY() == 1 &&
-            conv->kernelX() == 3 && conv->kernelY() == 3 && outputs[0]->width() >= 2 && outputs[0]->height() >= 2 && core->MNNMultiAndDestTransformCommon23 != nullptr) {
-            return new ConvolutionDepthwise3x3(conv, backend, originWeight, originWeightSize, originBias, originBiasSize);
         }
         return new CPUConvolutionDepthwise::FloatExecution(conv2d->common(), backend, originWeight, originWeightSize, originBias, originBiasSize);
     }

@@ -87,8 +87,16 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
         std::string name = "conv1x1_g1z4_w8";
         mPipeline = [context pipelineWithName:@"conv1x1_g1z4_w8" fp16:backend->useFp16InsteadFp32()];
         if (mDequantBits == 4) {
-            mPipeline = [context pipelineWithName:@"conv1x1_g1z4_w4" fp16:backend->useFp16InsteadFp32()];
-            name = "conv1x1_g1z4_w4";
+            if(context.isSimdGroupAvailable && ob * ow * oh == 1) {
+                mPipeline = [context pipelineWithName:@"conv1x1_g1z4_m1w4" fp16:backend->useFp16InsteadFp32()];
+                name = "conv1x1_g1z4_m1w4";
+                mThreads = std::make_pair(MTLSizeMake(UP_DIV(oc, 8), 1, 1), MTLSizeMake(8, 8, 1));
+
+                return NO_ERROR;
+            } else {
+                mPipeline = [context pipelineWithName:@"conv1x1_g1z4_w4" fp16:backend->useFp16InsteadFp32()];
+                name = "conv1x1_g1z4_w4";
+            }
         }
         NSArray *arr = [NSArray arrayWithObjects:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer(),
                         (id<MTLBuffer>)(((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId()))->getBuffer(),

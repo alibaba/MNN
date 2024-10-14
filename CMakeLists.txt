@@ -25,6 +25,14 @@ set(CMAKE_MODULE_PATH
   ${CMAKE_MODULE_PATH}
   "${CMAKE_CURRENT_LIST_DIR}/cmake"
 )
+
+if(WIN32)
+  if(NOT MSVC)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "")
+    set(MSVC_RUNTIME_LIBRARY "")
+  endif()
+endif()
+
 # build options
 option(MNN_USE_SYSTEM_LIB "For opencl and vulkan, use system lib or use dlopen" OFF)
 option(MNN_BUILD_HARD "Build -mfloat-abi=hard or not" OFF)
@@ -198,7 +206,7 @@ option(MNN_METAL "Enable Metal" OFF)
 option(MNN_OPENCL "Enable OpenCL" OFF)
 option(MNN_OPENGL "Enable OpenGL" OFF)
 option(MNN_VULKAN "Enable Vulkan" OFF)
-option(MNN_ARM82 "Enable ARM82" OFF)
+option(MNN_ARM82 "Enable ARMv8.2's FP16 Compute" ON)
 option(MNN_ONEDNN "Enable oneDNN" OFF)
 option(MNN_AVX512 "Enable AVX512" OFF)
 option(MNN_CUDA "Enable CUDA" OFF)
@@ -452,6 +460,12 @@ set(MNN_EXTRA_DEPENDS "")
 # Add Thread dependency
 find_package(Threads)
 list(APPEND MNN_EXTRA_DEPENDS ${CMAKE_THREAD_LIBS_INIT})
+if(WIN32)
+  if(NOT MSVC)
+    set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -fuse-ld=lld-link -lmsvcrt")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fuse-ld=lld-link -lmsvcrt")
+  endif()
+endif()
 
 if (NOT APPLE)
   if(MNN_OPENMP)

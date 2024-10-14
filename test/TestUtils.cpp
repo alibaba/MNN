@@ -15,6 +15,7 @@
 #include <vector>
 #include <MNN/expr/Expr.hpp>
 #include "core/TensorUtils.hpp"
+#include "RuntimeAttr.hpp"
 
 using namespace MNN;
 
@@ -86,4 +87,8 @@ float convertFP32ToFP16(float fp32Value) {
 }
 
 
+MNNForwardType getCurrentType() {
+    auto attr = MNN::Express::ExecutorScope::Current()->getAttr();
+    return attr->firstType;
+}
 
