@@ -476,6 +476,9 @@ VARP _Softmax(VARP logits, int axis) {
     softmax->main.AsAxis()->axis = axis;
     return (Variable::create(Expr::create(softmax.get(), {logits})));
 }
+VARP _TempratureSoftmax(VARP logits, float temperature, int axis) {
+    return _Softmax(logits * _Scalar<float>(1.0f / temperature), axis);
+}
 /*Computes softplus: log(exp(features) + 1).
 Args:
 features: A variable. Must be Halide_Type_Float.
