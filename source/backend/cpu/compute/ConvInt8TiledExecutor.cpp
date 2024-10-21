@@ -662,7 +662,7 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
     auto core = static_cast<CPUBackend*>(backend())->int8Functions();
     auto gcore = static_cast<CPUBackend*>(backend())->functions();
 
-#if MNN_KLEIDIAI_ENABLED
+#ifdef MNN_KLEIDIAI_ENABLED
     KleidiAI& kai = KleidiAI::getInstance();
     if(mDynamicQuantExe) {
         if(mResource->mDequantize.bits == 4 && kai.canAccelerate()) {
@@ -670,30 +670,48 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
             const size_t n = output->channel(); //rhs vector number.
             const size_t k = input->channel(); //vector size.
 
-            auto lhs = reinterpret_cast<const float*>(input->host<uint8_t>());
+            auto lhs = input->host<uint8_t>();
             auto lhsPacked = mTempIm2ColBuffer->host<int8_t>();
             auto rhsPacked = mResourceInt8->mWeightInt8->host<uint8_t>();
-            auto dst = reinterpret_cast<float*>(output->host<uint8_t>());
+            auto dst = output->host<uint8_t>();
+
+            int threadNum = static_cast<CPUBackend*>(backend())->threadNumber();
+            int threadNeed, vecPerThread;
 
 #if !KAI_CONV_NCHW_IN_OUT
             kai.packNC4HW4ToNCHW((float *)lhs, m, k);
 #endif
-            auto BatchDynamicQuant = [=]() {
-                KleidiAI& kai = KleidiAI::getInstance();
-                kai.runLhsQuantPack(m, k, lhs, lhsPacked);
-            };
 
-            BatchDynamicQuant();
+            //Dynamic quant pack lhs.
+            if(m == 1) {
+                kai.runLhsQuantPack(1, k, 1, lhs, lhsPacked);
+            } else {
+                vecPerThread = kai.getVecNumPerThread(m, threadNum, kai.getMr(m));
+                threadNeed = m % vecPerThread == 0 ? m / vecPerThread : (m / vecPerThread + 1);
+                size_t srcStride = vecPerThread * k * sizeof(float);
 
-            int nPerThread = kai.getVecNumPerThread(n, static_cast<CPUBackend*>(backend())->threadNumber(), kai.getNStep());
-            int threadNeed = n % nPerThread == 0 ? n / nPerThread : (n / nPerThread + 1);
+                auto BatchDynamicQuant = [=, &kai](int tId) {
+                    auto threadSrc = lhs + tId * srcStride;
+                    auto threadDst = lhsPacked + kai.getLhsQuantedPackedOffset(m, tId * vecPerThread, k);
+                    int vecNum = (tId == threadNeed - 1) ? (m - vecPerThread * tId) : vecPerThread; //Last threadN may less than vecPerThread.
+                    kai.runLhsQuantPack(vecNum, k, kai.getMr(m), threadSrc, threadDst);
+                };
 
-            auto ThreadFunction = [=](int tId) {
-                KleidiAI& kai = KleidiAI::getInstance();
-                auto threadRhsPacked = rhsPacked + kai.getRhsPackedOffset(tId * nPerThread, k);
-                auto threadDst = reinterpret_cast<uint8_t *>(dst) + kai.getDstOffset(0, tId * nPerThread, n);
-                int threadN = (tId == threadNeed - 1) ? (n - nPerThread * tId) : nPerThread; //Last threadN may less than nPerThread.
-                kai.runMatmul(m, threadN, k, lhsPacked, threadRhsPacked, n * sizeof(float), threadDst);
+                MNN_CONCURRENCY_BEGIN(tId, threadNeed) {
+                    BatchDynamicQuant((int)tId);
+                }
+                MNN_CONCURRENCY_END();
+            }
+
+            //Run matmul.
+            vecPerThread = kai.getVecNumPerThread(n, threadNum, kai.getNStep());
+            threadNeed = n % vecPerThread == 0 ? n / vecPerThread : (n / vecPerThread + 1);
+
+            auto ThreadFunction = [=, &kai](int tId) {
+                auto threadRhsPacked = rhsPacked + kai.getRhsPackedOffset(tId * vecPerThread, k);
+                auto threadDst = dst + kai.getDstOffset(0, tId * vecPerThread, n);
+                int vecNum = (tId == threadNeed - 1) ? (n - vecPerThread * tId) : vecPerThread; //Last threadN may less than vecPerThread.
+                kai.runMatmul(m, vecNum, k, lhsPacked, threadRhsPacked, n * sizeof(float), threadDst);
             };
 
             MNN_CONCURRENCY_BEGIN(tId, threadNeed) {
@@ -1031,7 +1049,7 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
     } else {
         MNN_CONCURRENCY_BEGIN(tId, threads) {
             int ocIndex = PackUnit * mDivides[tId];
-            if (ocIndex < ocUp4) {
+            if (ocIndex < ocUp4){
                 ThreadFunction((int)tId, 0, mTileCount,1, ocIndex);
             }
         }

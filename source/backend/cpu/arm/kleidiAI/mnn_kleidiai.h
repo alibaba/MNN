@@ -1,3 +1,9 @@
+//
+// SPDX-FileCopyrightText: Copyright 2024 Arm Limited and/or its affiliates <open-source-office@arm.com>
+//
+// SPDX-License-Identifier: Apache-2.0
+//
+
 #pragma once
 
 #include <MNN/ErrorCode.hpp>
@@ -19,7 +25,7 @@
 #include "kai_matmul_clamp_f32_qai8dxp1x8_qsi4cxp4x8_1x4x32_neon_dotprod.h"
 #include "kai_matmul_clamp_f32_qai8dxp4x8_qsi4cxp4x8_8x4x32_neon_i8mm.h"
 
-#include "./kai/kai_common.h"
+#include "kai_common.h"
 
 namespace MNN {
     class KleidiAI {
@@ -40,23 +46,23 @@ namespace MNN {
 
         ~KleidiAI() {}
 
-        struct KAIInfo {
+        typedef struct KaiInfo {
             bool kaiEnable = false;
             bool asymmetric = false; //Asymmetric quantized model.
             bool dot = false; //CPU support sdot.
             bool i8mm = false; //CPU support i8mm.
-        };
+        } KaiInfo;
 
         //Kai util
         void packNCHWToNC4HW4(float* data, size_t rowNum, size_t rowSize);
         void packNC4HW4ToNCHW(float* data, size_t rowNum, size_t rowSize);
 
         //Set info
-        void setEnable(bool enable) { mKAIInfo.kaiEnable = enable; }
-        void setModelAsymmetric(bool bAsymmetric) { mKAIInfo.asymmetric = bAsymmetric; }
+        void setEnable(bool enable);
+        void setModelAsymmetric(bool bAsymmetric);
 
         //Check
-        bool canAccelerate() { return (mKAIInfo.kaiEnable && mKAIInfo.dot && mKAIInfo.i8mm && !mKAIInfo.asymmetric); }
+        bool canAccelerate() { return (mKaiInfo.kaiEnable && mKaiInfo.dot && mKaiInfo.i8mm && !mKaiInfo.asymmetric); }
 
         //Get info
         size_t getMr(size_t m = 1) { return (m == 1) ? mKaiMrDotprod : mKaiMrI8mm; }
@@ -65,12 +71,12 @@ namespace MNN {
         size_t getSr() { return mKaiSr; }
         size_t getMStep(size_t m = 1) { return (m == 1) ? mKaiMstepDotprod : mKaiMstepI8mm; }
         size_t getNStep() { return mKaiNStep; }
-        size_t getVecNumPerThread(size_t totalVec, size_t totalThread, size_t minStep) { return kai_roundup(totalVec / totalThread, minStep); }
+        size_t getVecNumPerThread(size_t totalVec, size_t totalThread, size_t minStep) { return kai_roundup((totalVec + totalThread - 1) / totalThread, minStep); }
 
         //Lhs
         size_t getLhsQuantedPackedSize(size_t m, size_t k);
         size_t getLhsQuantedPackedOffset(size_t m, size_t mIdx, size_t k);
-        void runLhsQuantPack(size_t m, size_t k, const void* lhs, void* lhsQuantedPacked);
+        void runLhsQuantPack(size_t m, size_t k, size_t mr, const void* lhs, void* lhsQuantedPacked);
 
         //Rhs
         size_t getRhsPackedSize(size_t n, size_t k);
@@ -86,14 +92,17 @@ namespace MNN {
     private:
         KleidiAI(bool bAsymmetric = false) {
             const MNNCPUInfo& gCPUInfo = *MNNGetCPUInfo();
-            mKAIInfo.dot = gCPUInfo.dot;
-            mKAIInfo.i8mm = gCPUInfo.i8mm;
-            mKAIInfo.kaiEnable = true;
-            mKAIInfo.asymmetric = bAsymmetric;
+            mKaiInfo.dot = gCPUInfo.dot;
+            mKaiInfo.i8mm = gCPUInfo.i8mm;
+            mKaiInfo.kaiEnable = true;
+            mKaiInfo.asymmetric = bAsymmetric;
+            if(canAccelerate()) {
+                MNN_PRINT("\nKleidiAI is running!\n");
+            }
         }
 
         static KleidiAI *instance;
-        KAIInfo mKAIInfo;
+        KaiInfo mKaiInfo;
 
         const size_t mKaiMstepDotprod = 1;
         const size_t mKaiMstepI8mm = 8;

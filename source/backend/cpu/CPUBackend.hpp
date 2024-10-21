@@ -18,7 +18,7 @@
 #include "MNN_generated.h"
 
 #ifdef MNN_KLEIDIAI_ENABLED
-#include "arm/kleidiAI/MNNKleidiAI.h"
+#include "arm/kleidiAI/mnn_kleidiai.h"
 #endif
 
 namespace MNN {
