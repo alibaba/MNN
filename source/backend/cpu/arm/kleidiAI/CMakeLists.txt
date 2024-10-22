@@ -40,7 +40,7 @@ include_directories(
 
 set(KLEIDIAI_FILES_SCALAR
     ${KLEIDIAI_SRC}/kai/ukernels/matmul/pack/kai_lhs_quant_pack_qai8dxp_f32.c
-    ${KLEIDIAI_SRC}/kai/ukernels/matmul/pack/kai_rhs_pack_nxk_qsi4cxp_qsu4cxs1s0.c
+    ${KLEIDIAI_SRC}/kai/ukernels/matmul/pack/kai_rhs_pack_nxk_qsi4cxp_qs4cxs1s0.c
 )
 
 set(KLEIDIAI_FILES_NEON_DOTPROD

@@ -6,10 +6,10 @@
 #pragma once
 
 #include <stddef.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -20,11 +20,11 @@ extern "C" {
 //   * cppcoreguidelines-avoid-do-while: do-while is necessary for macros.
 //   * cppcoreguidelines-pro-type-vararg: use of variadic arguments in fprintf is expected.
 //   * cert-err33-c: checking the output of fflush and fprintf is not necessary for error reporting.
-#define KAI_ERROR(msg)              \
-    do {                            \
-        fflush(stdout);             \
-        fprintf(stderr, "%s", msg); \
-        exit(EXIT_FAILURE);         \
+#define KAI_ERROR(msg)                                        \
+    do {                                                      \
+        fflush(stdout);                                       \
+        fprintf(stderr, "%s:%d %s", __FILE__, __LINE__, msg); \
+        exit(EXIT_FAILURE);                                   \
     } while (0)
 
 #define KAI_ASSERT_MSG(cond, msg) \
@@ -53,24 +53,24 @@ extern "C" {
 /// KleidiAI data types
 /// Format: <byte 3>(reserved)|<byte 2>(num-bytes)|<byte 1>(type)|<byte 0>(variant-type)
 enum kai_datatype {
-    Unknown = 0x0000,
-    F32 = 0x0411,
-    F16 = 0x0212,
-    Bf16 = 0x0213,
-    Int32 = 0x0421,
-    Int16 = 0x0222,
-    Int8 = 0x0124,
-    Uint32 = 0x0431,
-    Uint16 = 0x0232,
-    Uint8 = 0x0134,
-    Bool = 0x0441
+    kai_dt_unknown = 0x0000,
+    kai_dt_f32 = 0x0411,
+    kai_dt_f16 = 0x0212,
+    kai_dt_bf16 = 0x0213,
+    kai_dt_int32 = 0x0421,
+    kai_dt_int16 = 0x0222,
+    kai_dt_int8 = 0x0124,
+    kai_dt_uint32 = 0x0431,
+    kai_dt_uint16 = 0x0232,
+    kai_dt_uint8 = 0x0134,
+    kai_dt_bool = 0x0441
 };
 
 /// Gets number of bytes for a given data type
 /// @param[in] dt KleidiAI data type
 ///
 /// @return the numbers of bytes for the data type
-inline static size_t kai_num_bytes_datatype(enum kai_datatype dt) {
+inline static size_t kai_get_datatype_size_in_bytes(enum kai_datatype dt) {
     return (size_t)(dt >> 8);
 }
 
@@ -78,7 +78,7 @@ inline static size_t kai_num_bytes_datatype(enum kai_datatype dt) {
 /// @param[in] f16 The f16 value
 ///
 /// @return the f32 value
-inline static float kai_f16_to_f32(uint16_t f16) {
+inline static float kai_cast_f32_f16(uint16_t f16) {
 #if defined(__ARM_NEON)
     __fp16 f32 = 0;
     memcpy(&f32, &f16, sizeof(uint16_t));
@@ -86,11 +86,37 @@ inline static float kai_f16_to_f32(uint16_t f16) {
 #endif
 }
 
+/// Converts a scalar bf16 value to f32
+/// @param[in] bf16 The f16 value
+///
+/// @return the f32 value
+inline static float kai_cast_f32_bf16(uint16_t bf16) {
+    const uint32_t i32 = (bf16 << 16);
+    float f32;
+    memcpy(&f32, &i32, sizeof(i32));
+    return f32;
+}
+
+/// Converts a f32 value to bf16
+/// @param[in] f32 The f32 value
+///
+/// @return the bf16 value
+inline static uint16_t kai_cast_bf16_f32(float f32) {
+    uint16_t bf16 = 0;
+#ifdef __ARM_FEATURE_BF16
+    __asm__ __volatile__("bfcvt %h[output], %s[input]" : [output] "=w"(bf16) : [input] "w"(f32));
+#else
+    const uint32_t* i32 = (uint32_t*)(&f32);
+    bf16 = (*i32 >> 16);
+#endif
+    return bf16;
+}
+
 /// Converts a scalar f32 value to f16
 /// @param[in] f32 The f32 value
 ///
 /// @return the f16 value
-inline static uint16_t kai_f32_to_f16(float f32) {
+inline static uint16_t kai_cast_f16_f32(float f32) {
 #if defined(__ARM_NEON)
     uint16_t f16 = 0;
     __fp16 tmp = f32;
@@ -101,6 +127,66 @@ inline static uint16_t kai_f32_to_f16(float f32) {
 
 inline static size_t kai_roundup(size_t a, size_t b) {
     return ((a + b - 1) / b) * b;
+}
+
+#ifdef __ARM_FEATURE_SVE
+
+/// Gets the SME vector length for 8-bit elements.
+inline static uint64_t kai_get_sme_vector_length_u8(void) {
+    uint64_t res = 0;
+
+    __asm__ __volatile__(
+        ".inst 0xd503477f  // SMSTART ZA\n"
+        "cntb %0\n"
+        ".inst 0xd503467f  // SMSTOP\n"
+        : "=r"(res)
+        :
+        : "z0", "z1", "z2", "z3", "z4", "z5", "z6", "z7", "z8", "z9", "z10", "z11", "z12", "z13", "z14", "z15", "z16",
+          "z17", "z18", "z19", "z20", "z21", "z22", "z23", "z24", "z25", "z26", "z27", "z28", "z29", "z30", "z31");
+
+    return res;
+}
+
+/// Gets the SME vector length for 16-bit elements.
+inline static uint64_t kai_get_sme_vector_length_u16(void) {
+    uint64_t res = 0;
+
+    __asm__ __volatile__(
+        ".inst 0xd503477f  // SMSTART ZA\n"
+        "cnth %0\n"
+        ".inst 0xd503467f  // SMSTOP\n"
+        : "=r"(res)
+        :
+        : "z0", "z1", "z2", "z3", "z4", "z5", "z6", "z7", "z8", "z9", "z10", "z11", "z12", "z13", "z14", "z15", "z16",
+          "z17", "z18", "z19", "z20", "z21", "z22", "z23", "z24", "z25", "z26", "z27", "z28", "z29", "z30", "z31");
+
+    return res;
+}
+
+/// Gets the SME vector length for 32-bit elements.
+inline static uint64_t kai_get_sme_vector_length_u32(void) {
+    uint64_t res = 0;
+
+    __asm__ __volatile__(
+        ".inst 0xd503477f  // SMSTART ZA\n"
+        "cntw %0\n"
+        ".inst 0xd503467f  // SMSTOP\n"
+        : "=r"(res)
+        :
+        : "z0", "z1", "z2", "z3", "z4", "z5", "z6", "z7", "z8", "z9", "z10", "z11", "z12", "z13", "z14", "z15", "z16",
+          "z17", "z18", "z19", "z20", "z21", "z22", "z23", "z24", "z25", "z26", "z27", "z28", "z29", "z30", "z31");
+
+    return res;
+}
+
+#endif  // __ARM_FEATURE_SVE
+
+/// Extends the sign bit of int 4-bit value (stored in int8_t variable)
+/// @param[in] value The 4-bit int value
+///
+/// @return the int8_t value with sign extended
+inline static int8_t kai_ext_sign_i8_i4(int8_t value) {
+    return (value ^ 0x8) - 8;
 }
 
 #ifdef __cplusplus

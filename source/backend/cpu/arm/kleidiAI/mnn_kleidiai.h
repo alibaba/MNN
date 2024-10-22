@@ -21,7 +21,7 @@
 #include <vector>
 
 #include "kai_lhs_quant_pack_qai8dxp_f32.h"
-#include "kai_rhs_pack_nxk_qsi4cxp_qsu4cxs1s0.h"
+#include "kai_rhs_pack_nxk_qsi4cxp_qs4cxs1s0.h"
 #include "kai_matmul_clamp_f32_qai8dxp1x8_qsi4cxp4x8_1x4x32_neon_dotprod.h"
 #include "kai_matmul_clamp_f32_qai8dxp4x8_qsi4cxp4x8_8x4x32_neon_i8mm.h"
 
