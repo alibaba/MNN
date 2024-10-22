@@ -603,8 +603,6 @@ ErrorCode DenseConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& input
     int tileLimit = 0;
     int outC    = output->channel();
     int outC4 = UP_DIV(outC, gcore->pack);
-    int totalWork = outC4;
-    int part = 1;
 
     if (threads < planeSize) { // Thread split by output nhw.
         tileLimit = ALIMIN(tileLimitByC, UP_DIV(planeSize, threads));
@@ -1096,7 +1094,7 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
     } else {
         MNN_CONCURRENCY_BEGIN(tId, threads) {
             int ocIndex = PackUnit * mDivides[tId];
-            if (ocIndex < ocUp4){
+            if (ocIndex < ocUp4) {
                 ThreadFunction((int)tId, 0, mTileCount,1, ocIndex);
             }
         }
