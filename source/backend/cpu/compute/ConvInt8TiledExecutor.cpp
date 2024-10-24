@@ -271,29 +271,29 @@ DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const O
     
 #ifdef MNN_KLEIDIAI_ENABLED
     KleidiAI kai = KleidiAI::getInstance(quanCommon->asymmetric);
-        if(quanCommon->canUseInt4 && kai.canAccelerate()) {
-            int n = oc;
-            int k = ic;
-            int packedWeightSize = kai.getRhsPackedSize(n, k);
+    if(quanCommon->canUseInt4 && kai.canAccelerate()) {
+        int n = oc;
+        int k = ic;
+        int packedWeightSize = kai.getRhsPackedSize(n, k);
 
-            //Alloc packed weight tensor.
-            mResourceInt8->mWeightInt8.reset(Tensor::createDevice<uint8_t>({packedWeightSize}));
-            bool success = backend->onAcquireBuffer(mResourceInt8->mWeightInt8.get(), Backend::STATIC);
+        //Alloc packed weight tensor.
+        mResourceInt8->mWeightInt8.reset(Tensor::createDevice<uint8_t>({packedWeightSize}));
+        bool success = backend->onAcquireBuffer(mResourceInt8->mWeightInt8.get(), Backend::STATIC);
 
-            if (!success) {
-                MNN_ERROR("Out of static memory!\n");
-                return;
-            }
-
-            //Run rhs pack.
-            kai.runRhsPack(n, k, (uint8_t*)quanCommon->weight.get(),
-                           mResourceInt8->mOriginScale->host<float>(),
-                           mResourceInt8->mOriginBias->host<float>(),
-                           mResourceInt8->mWeightInt8->host<uint8_t>(),
-                           true);
-
+        if (!success) {
+            MNN_ERROR("Out of static memory!\n");
             return;
         }
+
+        //Run rhs pack.
+        kai.runRhsPack(n, k, (uint8_t*)quanCommon->weight.get(),
+                       mResourceInt8->mOriginScale->host<float>(),
+                       mResourceInt8->mOriginBias->host<float>(),
+                       mResourceInt8->mWeightInt8->host<uint8_t>(),
+                       directReadInt4weight);
+
+        return;
+    }
     
 #endif
     
