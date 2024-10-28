@@ -83,7 +83,7 @@ void ConvInt8TiledExecutor::reorderWeight(Tensor* weight, const uint8_t* weightS
             for (int y = 0; y < ic; ++y) {
                 const int yOutSide    = y / SRC_UNIT;
                 const int yInSide     = y % SRC_UNIT;
-                
+
                 int blockId = (yOutSide + k * icDivU) / blockL;
                 int blockInsideId = (yOutSide + k * icDivU) % blockL;
 
@@ -268,9 +268,13 @@ DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const O
     int oc = convOp->common()->outputCount();
     int ic = convOp->common()->inputCount();
     bool directReadInt4weight = (kernelCount == 1 && ROUND_UP(oc, UNIT) == oc && ROUND_UP(ic, SRC_UNIT) == ic);
-    
+
 #ifdef MNN_KLEIDIAI_ENABLED
-    KleidiAI kai = KleidiAI::getInstance(quanCommon->asymmetric);
+    bool half_act = gcore->bytes == 2;
+    int biasSize = mResourceInt8->mOriginBias->size();
+    int alphaSize = mResourceInt8->mOriginScale->size();
+    bool blockwise = (biasSize * 2) != alphaSize;
+    KleidiAI kai = KleidiAI::getInstance(quanCommon->asymmetric, half_act, blockwise);
     if(quanCommon->canUseInt4 && kai.canAccelerate()) {
         int n = oc;
         int k = ic;
@@ -294,9 +298,9 @@ DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const O
 
         return;
     }
-    
+
 #endif
-    
+
     if (quanCommon->canUseInt4 && directReadInt4weight) {
         // int4 weight reorder
         mResourceInt8->mWeightAsymmetricQuant = true;
@@ -305,7 +309,7 @@ DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const O
         int lU = UP_DIV(ic, SRC_UNIT);
         int hP = UNIT;
         int lP = SRC_UNIT;
-        
+
         // weight shape.
         std::vector<int32_t> shape;
         if (SRC_UNIT > pack) {
@@ -337,7 +341,7 @@ DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const O
                 int blockkInsideId = j % blockL;
                 for (int k = 0; k < cnt; ++k) {
                     int dstIndx0 = (blockId * stride0 + i * stride1 + blockkInsideId * lP * hP) / 2 + (2 * k);
-                    
+
                     int hpId0     = (2 * k + 1) / lP;
                     int lpId0     = (2 * k) % lP;
                     int hpId1     = (2 * (k + cnt) + 1) / lP;
@@ -350,7 +354,7 @@ DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const O
                     int s3 = (srcPtr[srcIndx1] & 15);
                     int d0 = s0 * 16 + s2;
                     int d1 = s1 * 16 + s3;
-                    
+
                     dstPtr[dstIndx0] = d0;
                     dstPtr[dstIndx0 + 1] = d1;
                 }
@@ -358,7 +362,7 @@ DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const O
         }
     } else {
         // std::shared_ptr<Tensor> srcWeight;
-        
+
         if (quanCommon->canUseInt4) {
             mResourceInt8->mWeightAsymmetricQuant = true;
             auto srcPtr = reinterpret_cast<uint8_t*>(quanCommon->weight.get());
@@ -392,7 +396,7 @@ DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const O
                     dst0[j] = d;
                 }
             }
-            
+
             // Update int4 weight to mWeightInt8.
             mResourceInt8->mWeightInt8 = weightLow;
         } else {
@@ -434,7 +438,7 @@ static void _computeAlphaScale(Backend* backend, const Convolution2D* conv2d, st
     auto alphaPtr = scaleBias->host<float>();
     auto biasPtr = reinterpret_cast<float*>(reinterpret_cast<uint8_t*>(alphaPtr) + ocUp4 * core->bytes);
     ::memset(alphaPtr, 0, 2 * ocUp4 * core->bytes);
-    
+
     // Load quant scale and bias
     weightOrigin = resourceInt8->mWeightInt8->host<int8_t>();
     auto wZero = resourceInt8->mWeightQuantZero->host<int32_t>(); // has packed to outputUp4
@@ -454,7 +458,7 @@ static void _computeAlphaScale(Backend* backend, const Convolution2D* conv2d, st
         }
     }
     resourceInt8->mOriginScale = scaleBias;
-    
+
     // Compute float weightKernelSum
     resourceInt8->mWeightKernelSum.reset(Tensor::createDevice<uint8_t>({ocUp4 * 4}));
     success = backend->onAcquireBuffer(resourceInt8->mWeightKernelSum.get(), Backend::STATIC);
