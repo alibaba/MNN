@@ -30,9 +30,9 @@
 namespace MNN {
     class KleidiAI {
     public:
-        static KleidiAI &getInstance(bool bAsymmetric) {
+        static KleidiAI &getInstance(bool bAsymmetric, bool acthalf, bool blockwise) {
             if(!instance) {
-                instance = new KleidiAI(bAsymmetric);
+                instance = new KleidiAI(bAsymmetric, acthalf, blockwise);
             }
             return *instance;
         }
@@ -49,6 +49,8 @@ namespace MNN {
         typedef struct KaiInfo {
             bool kaiEnable = false;
             bool asymmetric = false; //Asymmetric quantized model.
+            bool acthalf = false; // activation half precision.
+            bool blockwise = false; // weight quant using block wise.
             bool dot = false; //CPU support sdot.
             bool i8mm = false; //CPU support i8mm.
         } KaiInfo;
@@ -62,7 +64,10 @@ namespace MNN {
         void setModelAsymmetric(bool bAsymmetric);
 
         //Check
-        bool canAccelerate() { return (mKaiInfo.kaiEnable && mKaiInfo.dot && mKaiInfo.i8mm && !mKaiInfo.asymmetric); }
+        bool canAccelerate() {
+            return (mKaiInfo.kaiEnable && mKaiInfo.dot && mKaiInfo.i8mm &&
+                    !mKaiInfo.asymmetric && !mKaiInfo.acthalf && !mKaiInfo.blockwise);
+        }
 
         //Get info
         size_t getMr(size_t m = 1) { return (m == 1) ? mKaiMrDotprod : mKaiMrI8mm; }
@@ -90,12 +95,15 @@ namespace MNN {
         void runMatmul(size_t m, size_t n, size_t k, const void* lhsPacked, const void* rhsPacked, size_t dst_stride, void* dst);
 
     private:
-        KleidiAI(bool bAsymmetric = false) {
+        KleidiAI(bool bAsymmetric = false, bool acthalf = false, bool blockwise = false) {
             const MNNCPUInfo& gCPUInfo = *MNNGetCPUInfo();
             mKaiInfo.dot = gCPUInfo.dot;
             mKaiInfo.i8mm = gCPUInfo.i8mm;
             mKaiInfo.kaiEnable = true;
             mKaiInfo.asymmetric = bAsymmetric;
+            mKaiInfo.acthalf = acthalf;
+            mKaiInfo.blockwise = blockwise;
+
             if(canAccelerate()) {
                 MNN_PRINT("\nKleidiAI is running!\n");
             }
