@@ -247,12 +247,23 @@ std::shared_ptr<Tensor> GeometryConvUtils::im2Col(Tensor* im2Col, Tensor* input,
     return tempTensor;
 }
 bool GeometryConvUtils::computeSingle(const Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, GeometryComputer::Context& context, CommandBuffer& res) {
+#if KAI_CONV_NCHW_IN_OUT
+    if(KleidiAI::getInstance().canAccelerate()) {
+        std::shared_ptr<Command> cmd(new Command);
+        cmd->op      = op;
+        cmd->inputs  = std::move(inputs);
+        cmd->outputs = std::move(outputs);
+        res.command.emplace_back(std::move(cmd));
+        return true;
+    }
+#endif
     auto newOutputs   = outputs;
     auto newInputs    = inputs;
     auto originOutput = outputs[0];
     auto output       = originOutput;
     auto inputDes     = TensorUtils::getDescribe(newInputs[0]);
     auto format       = inputDes->dimensionFormat;
+
     if (MNN_DATA_FORMAT_NC4HW4 != format) {
         std::shared_ptr<Tensor> newInput(new Tensor(newInputs[0], Tensor::CAFFE_C4, false));
         ConvertUtils::compute(newInputs[0], newInput.get(), res);
