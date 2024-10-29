@@ -9,7 +9,7 @@ import logging
 import warnings
 import argparse
 import functools
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Dict
 
 from yaspin import yaspin
 
@@ -569,6 +569,7 @@ class MNNConveter:
                (linear.bias is not None) == has_bias)
 
         quant_bit = self.lm_quant_bit if 'lm_head' in name else self.quant_bit
+        block_size = ic if self.quant_block == 0 else self.quant_block
         external, q_min, shape_int32 = self.build_weight(linear, quant_bit, self.quant_block)
 
         origin_input = op['inputIndexes']
@@ -626,7 +627,7 @@ class MNNConveter:
                 "quanParameter": {
                     "quantScale": 1.0, "scaleIn": 0.0, "scaleOut": 0.0,
                     "useInt32": False, "has_scaleInt": False, "shapeInt32": shape_int32,
-                    "type": 1, "aMax": 0, "aMin": q_min, "readType": oc * (ic // self.quant_block), "weightSize": 0
+                    "type": 1, "aMax": 0, "aMin": q_min, "readType": oc * (ic // block_size), "weightSize": 0
                 },
                 "external": external
             },
@@ -1195,12 +1196,16 @@ class LlmExporter(torch.nn.Module):
             "position_ids" : { 0: "seq_len" },
             "past_key_values" : { 2: "history_len" }
         }
+        prompt_template = self.build_prompt_template()
         self.llm_config = {
             'hidden_size' : self.hidden_size,
             'layer_nums' : self.num_hidden_layers,
             'attention_mask': self.attention_mask_type,
             'key_value_shape': self.past_kv_shape[1:],
-            "prompt_template": self.build_prompt('%s'),
+            "system_prompt_template": prompt_template['system'].format(query='%s'),
+            'user_prompt_template': prompt_template['user'].format(query='%s'),
+            'assistant_prefix': prompt_template['assistant_prefix'],
+            'assistant_suffix': prompt_template['assistant_suffix'],
             'is_visual': False
         }
         # load modules
@@ -1280,39 +1285,96 @@ class LlmExporter(torch.nn.Module):
         return logits, presents
 
     # some test functions
-    def build_prompt(self, query):
+    def build_prompt_template(self) -> Dict[str, str]:
+        template = {
+            'system': '',
+            'user': '',
+            'assistant_prefix': '',
+            'assistant_suffix': '',
+        }
         # just for test
-        if 'Qwen2' in self.path:
-            return f'<|im_start|>user\n{query}<|im_end|>\n<|im_start|>assistant\n'
-        if 'Qwen' in self.path:
-            return f'\n<|im_start|>user\n{query}<|im_end|>\n<|im_start|>assistant\n'
+        if 'Qwen' in self.path or 'Qwen2' in self.path or 'reader' in self.path:
+            template['system'] = '<|im_start|>system\n{query}<|im_end|>\n'
+            template['user'] = '<|im_start|>user\n{query}<|im_end|>\n'
+            template['assistant_prefix'] = '<|im_start|>assistant\n'
+            template['assistant_suffix'] = '<|im_end|>\n'
+            return template
         if 'Baichuan2' in self.path:
-            return f'<reserved_106>{query}<reserved_107>'
+            template['user'] = '<reserved_106>{query}<reserved_107>'
+            return template
         if 'internlm' in self.path:
-            return f'<|User|>:{query}<eoh>\n<|Bot|>:'
+            template['user'] = '<|User|>:{query}<eoh>\n'
+            template['assistant_prefix'] = '<|Bot|>:'
+            template['assistant_suffix'] = '<eoh>\n'
+            return template
         if 'TinyLlama' in self.path:
-            return f'<s><|system|>\nYou are a friendly chatbot who always responds in the style of a pirate</s>\n<|user|>\n{query}</s>\n<|assistant|>\n'
+            template['system'] = '<s><|system|>\n{query}</s>\n'
+            template['user'] = '<|user|>\n{query}</s>\n'
+            template['assistant_prefix'] = '<|assistant|>\n'
+            template['assistant_suffix'] = '</s>\n'
+            return template
         if 'Yi' in self.path:
-            return f'<|im_start|> user\n{query}<|im_end|>\n<|im_start|> assistant\n'
+            template['user'] = '<|im_start|> user\n{query}<|im_end|>\n'
+            template['assistant_prefix'] = '<|im_start|> assistant\n'
+            template['assistant_suffix'] = '<|im_end|>\n'
+            return template
         if 'deepseek' in self.path:
-            return f'<|begin_of_sentence|>User: {query}\n\nAssistant:'
+            template['user'] = '<|begin_of_sentence|>User: {query}\n'
+            template['assistant_prefix'] = '\nAssistant: '
+            template['assistant_suffix'] = '\n<|end_of_sentence|>'
+            return template
         if 'Llama-3.1' in self.path:
-            return f'<|start_header_id|>user<|end_header_id|>\n\n{query}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n'
+            template['system'] = '<|start_header_id|>system<|end_header_id|>\n\n{query}<|eot_id|>'
+            template['user'] = '<|start_header_id|>user<|end_header_id|>\n\n{query}<|eot_id|>'
+            template['assistant_prefix'] = '<|start_header_id|>assistant<|end_header_id|>\n\n'
+            template['assistant_suffix'] = '<|eot_id|>'
+            return template
         if 'Llama-3' in self.path:
-            return f'<|begin_of_text|><|start_header_id|>user<|end_header_id|>\n\n{query}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n'
+            template['system'] = '<|start_header_id|>system<|end_header_id|>\n\n{query}<|eot_id|>'
+            template['user'] = '<|begin_of_text|><|start_header_id|>user<|end_header_id|>\n\n{query}<|eot_id|>'
+            template['assistant_prefix'] = '<|start_header_id|>assistant<|end_header_id|>\n\n'
+            template['assistant_suffix'] = '<|eot_id|>'
+            return template
         if 'Llama-2' in self.path:
-            return f'[INST]{query}[/INST]'
+            template['user'] = '[INST]{query}[/INST]'
+            return template
         if 'chatglm2' in self.path:
-            return f'[Round 1]\n\n问：{query}\n\n答：'
+            template['user'] = '[Round 1]\n\n问：{query}\n\n'
+            template['assistant_prefix'] = '答：'
+            template['assistant_suffix'] = '\n\n'
+            return template
         if 'chatglm3' in self.path or 'glm-4' in self.path:
-            return f'<|user|>\n{query}\n<|assistant|>\n'
+            template['user'] = '<|user|>\n{query}\n'
+            template['assistant_prefix'] = '<|assistant|>\n'
+            template['assistant_suffix'] = '\n'
+            return template
         if 'chatglm' in self.path:
-            return f'{query}[gMASK]<sop>'
+            template['user'] = '{query}[gMASK]<sop>'
+            return template
         if 'phi-2' in self.path:
-            return f'Instruct: {query}\nOutput:'
+            template['user'] = 'Instruct: {query}\n'
+            template['assistant_prefix'] = 'Output:'
+            template['assistant_suffix'] = '\n'
+            return template
         if 'gemma-2' in self.path:
-            return f'<bos><start_of_turn>user\n{query}<end_of_turn>\n<start_of_turn>model\n'
-        return query
+            template['system'] = '<start_of_turn>system\n{query}<end_of_turn>\n'
+            template['user'] = '<bos><start_of_turn>user\n{query}<end_of_turn>\n'
+            template['assistant_prefix'] = '<start_of_turn>model\n'
+            template['assistant_suffix'] = '<end_of_turn>\n'
+            return template
+        # not matched
+        return template
+    
+    def build_prompt(self, queries, roles):
+        template = self.build_prompt_template(self)
+        prompt = ""
+        for item in zip(queries, roles):
+            query, role = item
+            if '{query}' in template[role]:
+                prompt += template[role].format(query=query)
+            else:
+                prompt += role + '\n' + query +'\n'
+        return prompt + template['assistant_prefix']
 
     def str_to_ids(self, prompt):
         if self.visual is not None:
@@ -1327,7 +1389,7 @@ class LlmExporter(torch.nn.Module):
 
     def response(self, query):
         self.imitate_quant()
-        prompt = self.build_prompt(query)
+        prompt = self.build_prompt([query], roles=['user'])
         input_ids = self.str_to_ids(prompt)
         self.seq_len = input_ids.numel()
         self.context_len = self.seq_len - 2

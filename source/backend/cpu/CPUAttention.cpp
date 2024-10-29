@@ -25,7 +25,7 @@
 #endif
 
 // reduce the value of 'query' to 'query * FP16_QSCALE', avoid fp16 overflow
-#define FP16_QSCALE 0.5
+#define FP16_QSCALE 0.25
 
 namespace MNN {
 

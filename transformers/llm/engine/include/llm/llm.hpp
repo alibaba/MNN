@@ -53,19 +53,12 @@ public:
     Llm(std::shared_ptr<LlmConfig> config) : config_(config) {}
     virtual ~Llm();
     static Llm* createLLM(const std::string& config_path);
-    void chat();
     void reset();
     void trace(bool start);
     virtual void load();
-    MNN::Express::VARP forward(const std::vector<int>& input_ids);
-    int sample(MNN::Express::VARP logits, const std::vector<int>& pre_ids);
-    std::string apply_prompt_template(const std::string& user_content) const;
-    std::string apply_chat_template(const std::vector<PromptItem>& chat_prompts) const;
-    std::string response(const std::string& user_content, std::ostream* os = &std::cout, const char* end_with = nullptr);
-    std::string response(const std::vector<PromptItem>& chat_prompts, std::ostream* os = &std::cout, const char* end_with = nullptr);
+    MNN::Express::VARP forward(const std::vector<int>& input_ids, int kv_seq_len_, int gen_seq_len_, bool is_prefill);
     void generate_init();
-    std::string generate(const std::vector<int>& input_ids, std::ostream* os, const char* end_with);
-    std::vector<int> generate(const std::vector<int>& input_ids, int max_new_tokens = -1);
+    std::string generateTrace(const std::vector<int>& input_ids, std::ostream* os, const char* end_with);
     void print_speed();
     // config function
     std::string dump_config();
@@ -77,16 +70,15 @@ public:
     bool select_module(size_t index);
     friend class Pipeline;
 public:
-    // forward info
-    int prompt_len_ = 0;
-    int gen_seq_len_ = 0;
-    int all_seq_len_ = 0;
-    std::vector<int> history_ids_;
     // time
     int64_t prefill_us_ = 0;
     int64_t decode_us_ = 0;
     bool is_single_ = true;
     bool attention_fused_ = true;
+    virtual std::vector<int> tokenizer(const std::string& query);
+    std::string decode(int id);
+    bool is_stop(int token_id);
+    bool reuse_kv() const;
 protected:
     std::shared_ptr<LlmConfig> config_;
     std::shared_ptr<Tokenizer> tokenizer_;
@@ -98,12 +90,9 @@ protected:
     std::vector<std::shared_ptr<MNN::Express::Module>> prefill_modules_, decode_modules_, current_modules_;
     const MNN::Express::Module* base_module_ = nullptr;
     void init_runtime();
-    std::string decode(int id);
-    bool is_stop(int token_id);
-    virtual std::vector<int> tokenizer(const std::string& query);
     virtual MNN::Express::VARP embedding(const std::vector<int>& input_ids);
-    virtual MNN::Express::VARP gen_attention_mask(int seq_len);
-    virtual MNN::Express::VARP gen_position_ids(int seq_len);
+    virtual MNN::Express::VARP gen_attention_mask(int seq_len, int kv_seq_len_, int gen_seq_len_);
+    virtual MNN::Express::VARP gen_position_ids(int seq_len, int kv_seq_len_, int gen_seq_len);
     bool mTracing = false;
 };
 
@@ -119,8 +108,8 @@ public:
     int dim() const;
 private:
     virtual std::vector<int> tokenizer(const std::string& query) override;
-    virtual MNN::Express::VARP gen_attention_mask(int seq_len) override;
-    virtual MNN::Express::VARP gen_position_ids(int seq_len) override;
+    virtual MNN::Express::VARP gen_attention_mask(int seq_len);
+    virtual MNN::Express::VARP gen_position_ids(int seq_len);
 };
 // Embedding end
 }
