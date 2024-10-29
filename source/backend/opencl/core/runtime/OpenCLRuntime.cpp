@@ -111,7 +111,7 @@ OpenCLRuntime::OpenCLRuntime(const BackendConfig::PrecisionMode precision, const
             }
         #endif
             
-            if (deviceName.find("QUALCOMM Adreno") != std::string::npos) {
+            if (deviceName.find("QUALCOMM Adreno") != std::string::npos || deviceName.find("Qualcomm") != std::string::npos) {
                 mGpuType = ADRENO;
                 
                 // if device is QUALCOMM's and version is 2.0 , set spacial optimized param

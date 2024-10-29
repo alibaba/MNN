@@ -200,8 +200,6 @@ class UnitTest(unittest.TestCase):
         self.assertEqualVar(expr.less(self.x, self.x), np.less(self.x_, self.x_))
     def test_floordiv(self):
         self.assertEqualVar(expr.floordiv(2.0, 1.2), np.floor_divide(2.0, 1.2))
-    def test_less(self):
-        self.assertEqualVar(expr.less(self.x, self.x), np.less(self.x_, self.x_))
     def test_squared_difference(self):
         self.assertEqualVar(expr.squared_difference(self.x, self.x), np.square(self.x_ - self.x_))
     def test_equal(self):
@@ -243,7 +241,7 @@ class UnitTest(unittest.TestCase):
         self.assertEqualVar(expr.cast(self.x, expr.int), self.x_.astype(np.int32))
     def test_matmul(self):
         self.assertEqualVar(expr.matmul(self.x, self.x), np.matmul(self.x_, self.x_))
-    def test_normalize(self):
+    def test_normalize_with_reference(self):
         def _refNormalize(src, batch, channel, area, scale, eps):
             dst = [0.0] * (batch * channel * area)
             for b in range(0, batch):
@@ -413,7 +411,7 @@ class UnitTest(unittest.TestCase):
         x = expr.convert(x, expr.NC4HW4)
         size = expr.const([0.0, 0.0, 0.0, 0.0], [1, 1, 2, 2], expr.NCHW, expr.float)
         self.assertEqual(expr.convert(expr.crop(x, size, 2, [1, 1]), expr.NCHW).read_as_tuple(), (6.0, 7.0, 10.0, 11.0))
-    def test_resize(self):
+    def test_resize_expr(self):
         x = expr.const([-1.0, -2.0, 3.0, 4.0], [1, 2, 2, 1], expr.NHWC, expr.float)
         x = expr.convert(x, expr.NC4HW4)
         y = expr.resize(x, 2.0, 2.0)
@@ -901,7 +899,7 @@ class UnitTest(unittest.TestCase):
         x = cv.merge(channels)
         y = cv2.merge(channels_)
         self.assertEqualVar(x, y)
-    def test_split(self):
+    def test_split_image_channels(self):
         # dim = 1
         a = mp.arange(12.)
         a_ = np.arange(12.)

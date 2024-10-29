@@ -598,6 +598,7 @@ std::vector<Express::VARP> StaticModule::onForward(const std::vector<Express::VA
     mSession->getInfo(Interpreter::FLOPS, &flops);
     glo->getDebugTools()->flops += flops;
 #endif
+    
     return outputs;
 }
 

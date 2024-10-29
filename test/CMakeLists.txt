@@ -18,7 +18,7 @@ endif()
 
 add_executable(run_test.out ${Files})
 target_link_libraries(run_test.out ${MNN_DEPS})
-if (WIN32)
+if (MSVC)
   target_compile_options(run_test.out PRIVATE /bigobj)
 endif()
 if (MNN_SUPPORT_BF16)

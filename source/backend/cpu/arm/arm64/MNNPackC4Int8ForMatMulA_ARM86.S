@@ -55,8 +55,7 @@ mov x9, x6 // blockNum
 
 cbnz x12, TILE10_BLOCK_NUM
 ld1 {v5.4s, v6.4s}, [x2], #32
-ld1 {v7.d}[0], [x2]
-sub x2, x2, #32
+ld1 {v7.d}[0], [x2], #8
 
 TILE10_BLOCK_NUM:
 cbz x9, TILE10_END

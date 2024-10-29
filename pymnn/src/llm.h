@@ -1,3 +1,4 @@
+#include <sstream>
 #include "llm/llm.hpp"
 
 typedef struct {
@@ -38,8 +39,7 @@ static PyObject* PyMNNLLM_response(LLM *self, PyObject *args) {
     if (!PyArg_ParseTuple(args, "s|p", &query, &stream)) {
         Py_RETURN_NONE;
     }
-    MNN::Transformer::LlmStreamBuffer buffer(nullptr);
-    std::ostream null_os(&buffer);
+    std::ostringstream null_os;
     auto res = self->llm->response(query, stream ? &std::cout : &null_os);
     return string2Object(res);
 }

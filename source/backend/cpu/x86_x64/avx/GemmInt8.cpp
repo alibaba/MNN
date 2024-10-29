@@ -68,13 +68,12 @@ void _AVX_MNNGemmInt8AddBiasScale_16x4_w4(int8_t* dst, const int8_t* src, const 
         fp32min = _mm256_set1_ps((post->fp32minmax)[0]);
         fp32max = _mm256_set1_ps((post->fp32minmax)[1]);
     }
-    int blockNum = post->blockNum;
     const float* biasPtr = nullptr;
     if (post->biasFloat) {
         biasPtr = post->biasFloat;
     }
 
-    int weight_step_Z = 0.5 * blockNum * src_depth_quad * (GEMMINT8_AVX2_L * GEMMINT8_AVX2_H);
+    int weight_step_Z = 0.5 * src_depth_quad * (GEMMINT8_AVX2_L * GEMMINT8_AVX2_H);
     int weight_step_Y = 0.5 * (GEMMINT8_AVX2_L * GEMMINT8_AVX2_H);
     const __m128i mask = _mm_set1_epi8(0xf);
     
@@ -506,7 +505,6 @@ void _AVX_MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, cons
         fp32min = _mm256_set1_ps((post->fp32minmax)[0]);
         fp32max = _mm256_set1_ps((post->fp32minmax)[1]);
     }
-    int blockNum = post->blockNum;
     const float* biasPtr = nullptr;
     if (post->biasFloat) {
         biasPtr = post->biasFloat;
@@ -554,7 +552,7 @@ void _AVX_MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, cons
     //printf("e=%d, sz=%d, dz=%d\n", realDst, src_depth_quad, dst_depth_quad);
     if (GEMMINT8_AVX2_E == realDst) {
         for (int dz = 0; dz < dst_depth_quad; ++dz) {
-            const auto weight_dz = weight + dz * blockNum * src_depth_quad * (GEMMINT8_AVX2_L * GEMMINT8_AVX2_H);
+            const auto weight_dz = weight + dz * src_depth_quad * (GEMMINT8_AVX2_L * GEMMINT8_AVX2_H);
             const auto weightBias_dz = post->weightQuanBias + dz * AVX2_PACKINT8;
             const float* scale_dz = post->scale + dz * AVX2_PACKINT8;
             auto dst_z           = dst + dz * dst_step_tmp;
@@ -683,7 +681,7 @@ void _AVX_MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, cons
     }
     if (3 == realDst) {
         for (int dz = 0; dz < dst_depth_quad; ++dz) {
-            const auto weight_dz = weight + dz * blockNum * src_depth_quad * (GEMMINT8_AVX2_L * GEMMINT8_AVX2_H);
+            const auto weight_dz = weight + dz * src_depth_quad * (GEMMINT8_AVX2_L * GEMMINT8_AVX2_H);
             const auto weightBias_dz = post->weightQuanBias + dz * AVX2_PACKINT8;
             const float* scale_dz = post->scale + dz * AVX2_PACKINT8;
             auto dst_z           = dst + dz * dst_step_tmp;
@@ -791,7 +789,7 @@ void _AVX_MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, cons
     }    
     if (2 == realDst) {
         for (int dz = 0; dz < dst_depth_quad; ++dz) {
-            const auto weight_dz = weight + dz * blockNum * src_depth_quad * (GEMMINT8_AVX2_L * GEMMINT8_AVX2_H);
+            const auto weight_dz = weight + dz * src_depth_quad * (GEMMINT8_AVX2_L * GEMMINT8_AVX2_H);
             const auto weightBias_dz = post->weightQuanBias + dz * AVX2_PACKINT8;
             const float* scale_dz = post->scale + dz * AVX2_PACKINT8;
             auto dst_z           = dst + dz * dst_step_tmp;
@@ -879,7 +877,7 @@ void _AVX_MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, cons
     }    
     if (1 == realDst) {
         for (int dz = 0; dz < dst_depth_quad; ++dz) {
-            const auto weight_dz = weight + dz * blockNum * src_depth_quad * (GEMMINT8_AVX2_L * GEMMINT8_AVX2_H);
+            const auto weight_dz = weight + dz * src_depth_quad * (GEMMINT8_AVX2_L * GEMMINT8_AVX2_H);
             const auto weightBias_dz = post->weightQuanBias + dz * AVX2_PACKINT8;
             const float* scale_dz = post->scale + dz * AVX2_PACKINT8;
             auto dst_z           = dst + dz * dst_step_tmp;

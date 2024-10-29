@@ -1,5 +1,5 @@
 //
-//  CropAndResizeTest.cpp
+//  GridSamplerTest.cpp
 //  MNNTests
 //
 //  Created by MNN on 2021/03/11.
@@ -149,6 +149,7 @@ public:
 
             std::random_device rd{};
             std::mt19937 gen{rd()};
+            gen.seed(1024);
             std::normal_distribution<> inputDist{0.0f, 1.0};
             std::normal_distribution<> gridDist{0.0f, 3.0f / outWidth};
 
@@ -172,7 +173,7 @@ public:
             input = _Convert(input, NC4HW4);
 
             std::vector<InterpolationMethod> modes({BILINEAR});
-            std::vector<GridSamplePaddingMode> paddingModes({GRID_SAMPLE_PADDING_ZEROS});
+            std::vector<GridSamplePaddingMode> paddingModes({GRID_SAMPLE_PADDING_ZEROS, GRID_SAMPLE_PADDING_BORDER});
             std::vector<int> alignCornersVec = {1, 0};
             std::vector<float> expectedOutput(batch * outHeight * outWidth * depth);
             for (auto mode : modes) {

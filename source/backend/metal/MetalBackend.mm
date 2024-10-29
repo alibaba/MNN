@@ -229,6 +229,7 @@ Execution *MetalBackend::onCreate(const std::vector<Tensor *> &inputs, const std
         }
         return NULL;
     }
+    //MNN_PRINT("support type [%s]\n", EnumNameOpType(op->type()));
 
     auto exe = iter->second->onCreate(inputs, op, this, outputs);
     if (NULL == exe) {
@@ -258,15 +259,8 @@ void MetalBackend::onExecuteBegin() const {
 void MetalBackend::onExecuteEnd() const {
     flushEncoder();
     commit_net();
-
-    if(mFrameEncodeCache) {
-        // Prepare for next execute
-        for(auto opEncoder : mOpEncoders) {
-            opEncoder();
-        }
-        mOpEncoderSet = true;
-    }
 }
+    
 BufferAllocator* MetalBackend::getBufferPool() const {
     return mCurrentAllocator;
 }
@@ -302,29 +296,16 @@ bool MetalBackend::onGetTensorInfo(const Tensor* tensor, void* dstInfo) {
     return true;
 }
 
-bool MetalBackend::isCommandEncoderSet() {
-    return mOpEncoderSet;// !isCommitEachShader & mOpFullSupport
-}
-
 bool MetalBackend::isCmdBufferCommit() {
     auto ctx = (__bridge MNNMetalContext *)context();
-    if(!ctx.isCommitEachShader) {
-        return false;
-    }
     
     //TODO: set magic number
-    const int magicNum = 2;
+    const int magicNum = mRuntime->hint().encorderNumForCommit;
     mEncoderCount++;
     if(mEncoderCount != 0 && mEncoderCount % magicNum == 0) {
         return true;
     }
     return false;
-}
-
-void MetalBackend::addOpEncoder(std::function<void(void)> opEncoder) {
-    if(mFrameEncodeCache) {
-        mOpEncoders.push_back(opEncoder);
-    }
 }
 
 id<MTLBuffer> MetalBackend::getHostBuffer(size_t size) const {
@@ -534,11 +515,7 @@ kernel void main0(const device IType *in [[buffer(0)]], device OType *out [[buff
     }
 })metal";
 
-void MetalBackend::onResizeBegin() {
-    mFrameEncodeCache = false;
-    mOpEncoderSet = false;
-    mOpEncoders.clear();
-    
+void MetalBackend::onResizeBegin() {    
     // Abort last inference task if needed
     flushEncoder();
     _commandBuffer_net = nil;
@@ -549,7 +526,6 @@ void MetalBackend::onResizeBegin() {
 
 ErrorCode MetalBackend::onResizeEnd() {
     auto ctx = (__bridge MNNMetalContext *)context();
-    mFrameEncodeCache = (!ctx.isCommitEachShader && mSupportDeferEncode);
     return mCurrentAllocator->compute();
 }
 
@@ -711,9 +687,8 @@ void MetalBackend::onCopyDeviceToDevice(const Tensor *src, const Tensor *dst,
 void MetalBackend::onCopyBuffer(const Tensor *src, const Tensor *dst) const {
     flushEncoder();
     auto ctx = (__bridge MNNMetalContext *)context();
-    if(!mFrameEncodeCache) {
-        commit_net();
-    }
+    commit_net();
+    
     _resetDynamicMemory();
     onCopyBuffer(src, dst, nil, nil);
 }
@@ -789,9 +764,8 @@ void MetalBackend::onCopyBuffer(const Tensor *src, const Tensor *dst, id<MTLComp
 int MetalBackend::onSync(Tensor::MapType mtype, bool toCpu, const Tensor* dstTensor) {
     flushEncoder();
     auto ctx = (__bridge MNNMetalContext *)context();
-    if(!mOpEncoderSet) {
-        commit_net();
-    }
+    commit_net();
+    
     if (toCpu) {
         wait();
     }

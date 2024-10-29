@@ -5,6 +5,7 @@ using namespace metal;
 // Macro
 // –––––––––––––––––––––––––––––––––––––––––––––––––––
 
+#define SIMD_GROUP_WIDTH 32 // setting SIMD group size is 32
 #define UP_DIV(x, y)    ( ((x) + (y) - 1) / (y) )
 #define ROUND_UP(x, y)  ( ((x) + (y) - 1) / (y) * (y) )
 

@@ -5,6 +5,8 @@ on:
       - '.github/workflows/pymnn_release.yml'
     tags:
       - '*'
+  workflow_dispatch:
+
 jobs:
   build_wheels:
     name: ${{ matrix.arch }} ${{ matrix.build }} on ${{ matrix.os }}
@@ -42,7 +44,6 @@ jobs:
         CIBW_ARCHS_LINUX: ${{ matrix.arch }}
         CIBW_ARCHS_WINDOWS: ${{ matrix.arch }}
         CIBW_BUILD: ${{ matrix.build }}
-        CIBW_SKIP: cp311-*
         CIBW_BUILD_VERBOSITY: 1
         CIBW_ENVIRONMENT: CMAKE_BUILD_PARALLEL_LEVEL=2
       with:
@@ -75,7 +76,7 @@ jobs:
       with:
         python-version: '3.x'
 
-    - uses: actions/download-artifact@v3
+    - uses: actions/download-artifact@v4.1.7
       with:
         name: artifact
         path: dist

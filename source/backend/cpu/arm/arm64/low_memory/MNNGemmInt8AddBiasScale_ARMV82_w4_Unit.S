@@ -124,9 +124,7 @@ stp x27, x28, [sp, #(16 * 6)]
 stp x25, x26, [sp, #(16 * 7)]
 stp x23, x24, [sp, #(16 * 8)]
 
-ldr x27, [x6, #64]  // blockNum
-mul x27, x27, x3    // blockNum * src_depth_quad_perblock
-lsl x15, x27, #4     // x15 = src_depth_quad * UNIT * SRC_UNIT * sizeof(int4_t)
+lsl x15, x3, #4     // x15 = src_depth_quad * UNIT * SRC_UNIT * sizeof(int4_t)
 
 ldr x25, [x6, #40]  // xKernelSum
 ldr x26, [x6, #48]  // weightQuantBias

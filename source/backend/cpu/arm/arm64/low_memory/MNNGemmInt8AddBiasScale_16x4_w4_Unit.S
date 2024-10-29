@@ -113,10 +113,8 @@ stp x21, x22, [sp, #(16 * 5)]
 stp x23, x24, [sp, #(16 * 6)]
 
 ldr x19, [x15, #56] // fp32 min max
-ldr x21, [x15, #64] // blockNum
 ldr x23, [x15, #80] // extraScale
-mul x21, x21, x3    // blockNum * src_depth_quad_perblock
-lsl x21, x21, #5    // src_depth_quad* SRC_UNIT * UNIT * sizeof(int4_t)
+lsl x21, x3, #5    // src_depth_quad* SRC_UNIT * UNIT * sizeof(int4_t)
 add x20, x19, #4
 
 Start:

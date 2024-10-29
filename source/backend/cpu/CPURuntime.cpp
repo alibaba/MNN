@@ -1373,6 +1373,9 @@ static void _fillInfo(MNNCPUInfo* cpuinfo_isa) {
                     }
                     group.ids = _readNumber((const char*)buffer.get(), buffer.size());
                 }
+                if (group.ids.empty()) {
+                    continue;
+                }
                 std::string minfreq = policyName + "/cpuinfo_min_freq";
                 {
                     MNN::AutoStorage<uint8_t> buffer;
@@ -1437,6 +1440,11 @@ static void _fillInfo(MNNCPUInfo* cpuinfo_isa) {
 // MacOS / IOS
 #if defined(__APPLE__) && defined(__aarch64__)
     _getInfoApple(cpuinfo_isa);
+#endif
+
+#if defined(__aarch64__) && defined(_WIN32)
+    cpuinfo_isa->fp16arith = true;
+    cpuinfo_isa->dot = true;
 #endif
 
     MNN_PRINT("The device supports: i8sdot:%d, fp16:%d, i8mm: %d, sve2: %d\n", cpuinfo_isa->dot, cpuinfo_isa->fp16arith, cpuinfo_isa->i8mm, cpuinfo_isa->sve2);

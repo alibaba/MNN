@@ -138,9 +138,7 @@ ldr w23, [x6, #24]
 ldr x27, [x6, #40] // srcKernelSum
 ldr x28, [x6, #48] // weightQuanBias
 
-ldr x22, [x6, #64] // blockNum
-mul x22, x22, x3   // UP_DIV(ic*ky*kx, SRC_UNIT) = blockNum * src_depth_quad_per_block
-lsl x15, x22, #6 // x15 = src_depth_quad * UNIT * UNIT_SRC = src_depth_quad * 64 = src_depth_quad << 6
+lsl x15, x3, #6 // x15 = src_depth_quad * UNIT * UNIT_SRC = src_depth_quad * 64 = src_depth_quad << 6
 
 ldr x10, [x6, #80]  // extra scale
 mov x21, #4 // sizeof(int8_t) * pack

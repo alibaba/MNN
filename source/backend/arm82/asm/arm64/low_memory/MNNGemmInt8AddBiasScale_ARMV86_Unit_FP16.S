@@ -150,15 +150,13 @@ stp x27, x28, [sp, #(16 * 8)]
 // ldr w23, [x6, #24]
 ldr x27, [x6, #40] // srcKernelSum
 ldr x28, [x6, #48] // weightQuanBias
-ldr x23, [x6, #64] // blockNum
 ldr x14, [x6, #56]  // fp32minmax
 
-mul x23, x23, x3 // UP_DIV(ic*ky*kx, SRC_UNIT) = blockNum * src_depth_quad_per_block
 mov x22, #80 // GEMM_INT8_DST_XUNIT * GEMM_INT8_SRC_UNIT = 10 * 8 = 80
 mov x21, #16 // sizeof(float16_t) * UNIT
 
 Start:
-lsl x15, x23, #6 // x15 = src_depth_quad * UNIT * UNIT_SRC * sizeof(int8_t) = src_depth_quad * 64 = src_depth_quad << 6
+lsl x15, x3, #6 // x15 = src_depth_quad * UNIT * UNIT_SRC * sizeof(int8_t) = src_depth_quad * 64 = src_depth_quad << 6
 ldr x23, [x6, #80] // extra scale
 TILE_10:
     cmp x7, #10

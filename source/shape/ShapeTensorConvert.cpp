@@ -23,6 +23,11 @@ public:
             sourceFmt = MNN_DATA_FORMAT_NCHW;
         }
         auto destFmt                                          = info->dest();
+#if KAI_CONV_NCHW_IN_OUT
+        if(KleidiAI::getInstance().canAccelerate()) {
+            destFmt = MNN_DATA_FORMAT_NCHW;
+        }
+#endif
         TensorUtils::getDescribe(outputs[0])->dimensionFormat = destFmt;
         if (destFmt == MNN_DATA_FORMAT_NC4HW4) {
             destFmt = MNN_DATA_FORMAT_NCHW;

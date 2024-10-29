@@ -50,10 +50,10 @@ void MNNQuantSumFP16(float* sum, const float* dequant_scale, size_t thread, size
 #endif
 #if defined(__aarch64__)
 void CountMinMaxValue_FP16(float* source, float* minVal, float* maxVal, size_t sizeQuad);
+void MNNDepthwiseConvFastKernelFP16(float* dst, const float* src, const float* weight, size_t width, size_t src_w_setup,
+                                    size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step, size_t height,
+                                    size_t srcHStep, size_t dstHStep, const float* bias, const float* parameters);
 #endif
-void MNNConvDwF23MulTransUnitFP16(FLOAT16 **cacheLine, const FLOAT16 *weight, FLOAT16 *dest, size_t ow);
-
-void MNNConvDwF23SourceTransUnitFP16(const FLOAT16 *source, FLOAT16 *dest, size_t unit);
 
 void MNNConvRunForLineDepthwiseFP16(float* dst, const float* src, const float* weight, size_t width, size_t src_w_setup,
                                 size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step, size_t height, size_t srcHStep, size_t dstHStep);
@@ -336,94 +336,6 @@ static void MNNAxByClampBroadcastC8FP16(float* CF, const float* AF, const float*
     }
 }
 
-void ARM82MultiAndDestTransformCommon(FLOAT16 **cacheLine, const FLOAT16 *weight, FLOAT16 *dest, int cacheLineSize, int ow, const float* bias, const float* parameters) {
-    constexpr int pack = 8;
-    int unit = ow / 2;
-    auto biasF = Vec::load((const float16_t*)bias);
-    auto minF = Vec(parameters[2]);
-    auto maxF = Vec(parameters[3]);
-    MNN_ASSERT(cacheLineSize >= 1);
-    for (int x = 0; x < unit; ++x) {
-        int offset = 4 * pack * x, i = 0;
-        Vec m0 = Vec::load(weight + i * 4 * pack) * Vec::load(cacheLine[i] + offset);
-        Vec m1 = Vec::load(weight + (i * 4 + 1) * pack) * Vec::load(cacheLine[i] + offset + pack * 1);
-        Vec m2 = Vec::load(weight + (i * 4 + 2) * pack) * Vec::load(cacheLine[i] + offset + pack * 2);
-        Vec m3 = Vec::load(weight + (i * 4 + 3) * pack) * Vec::load(cacheLine[i] + offset + pack * 3);
-        for (i = 1; i < cacheLineSize; ++i) {
-            m0 = m0 + Vec::load(weight + i * 4 * pack) * Vec::load(cacheLine[i] + offset);
-            m1 = m1 + Vec::load(weight + (i * 4 + 1) * pack) * Vec::load(cacheLine[i] + offset + pack * 1);
-            m2 = m2 + Vec::load(weight + (i * 4 + 2) * pack) * Vec::load(cacheLine[i] + offset + pack * 2);
-            m3 = m3 + Vec::load(weight + (i * 4 + 3) * pack) * Vec::load(cacheLine[i] + offset + pack * 3);
-        }
-        auto o0 = m0 + m1 + m2 + biasF;
-        auto o1 = m1 - m2 + m3 + biasF;
-        o0 = Vec::min(maxF, o0);
-        o1 = Vec::min(maxF, o1);
-        o0 = Vec::max(minF, o0);
-        o1 = Vec::max(minF, o1);
-        Vec::save(dest + (2 * x + 0) * pack, o0);
-        Vec::save(dest + (2 * x + 1) * pack, o1);
-    }
-    if (unit * 2 < ow) {
-        int offset = 4 * pack * unit, i = 0;
-        Vec m0 = Vec::load(weight + i * 4 * pack) * Vec::load(cacheLine[i] + offset);
-        Vec m1 = Vec::load(weight + (i * 4 + 1) * pack) * Vec::load(cacheLine[i] + offset + pack);
-        Vec m2 = Vec::load(weight + (i * 4 + 2) * pack) * Vec::load(cacheLine[i] + offset + pack * 2);
-        for (i = 1; i < cacheLineSize; ++i) {
-            m0 = m0 + Vec::load(weight + i * 4 * pack) * Vec::load(cacheLine[i] + offset);
-            m1 = m1 + Vec::load(weight + (i * 4 + 1) * pack) * Vec::load(cacheLine[i] + offset + pack);
-            m2 = m2 + Vec::load(weight + (i * 4 + 2) * pack) * Vec::load(cacheLine[i] + offset + pack * 2);
-        }
-        auto o0 = m0 + m1 + m2 + biasF;
-        o0 = Vec::min(maxF, o0);
-        o0 = Vec::max(minF, o0);
-        Vec::save(dest + 2 * unit * pack, o0);
-    }
-}
-// unit: winograd unit (output is w/2)
-void ARM82SourceTransformCommon(const FLOAT16 *source, FLOAT16 *dest, int unit, int iw, int pad, int su, int eu) {
-    constexpr int pack = 8; // float16x8
-    for (int x = 0; x < su; ++x) {
-        auto dstX = dest + 4 * pack * x;
-        auto sx   = x * 2 - (int)pad;
-        auto ex   = sx + 4;
-        auto clampSx = std::max(sx, 0);
-        auto clampEx = std::min(ex, (int)iw);
-        Vec v[4] = {0.0f, 0.0f, 0.0f, 0.0f};
-        for (int i = clampSx; i < clampEx; ++i) {
-            v[i - sx] = Vec::load(source + pack * i);
-        }
-        auto m0 = v[0] - v[2];
-        auto m1 = v[1] + v[2];
-        auto m2 = v[2] - v[1];
-        auto m3 = v[3] - v[1];
-        Vec::save(dstX + pack * 0, m0);
-        Vec::save(dstX + pack * 1, m1);
-        Vec::save(dstX + pack * 2, m2);
-        Vec::save(dstX + pack * 3, m3);
-    }
-    MNNConvDwF23SourceTransUnitFP16(source + pack * (su * 2 - pad), dest + 4 * pack * su, eu - su);
-    for (int x = eu; x < unit; ++x) {
-        auto dstX = dest + 4 * pack * x;
-        auto sx   = x * 2 - (int)pad;
-        auto ex   = sx + 4;
-        auto clampSx = std::max(sx, 0);
-        auto clampEx = std::min(ex, (int)iw);
-        Vec v[4] = {0.0f, 0.0f, 0.0f, 0.0f};
-        for (int i = clampSx; i < clampEx; ++i) {
-            v[i - sx] = Vec::load(source + pack * i);
-        }
-        auto m0 = v[0] - v[2];
-        auto m1 = v[1] + v[2];
-        auto m2 = v[2] - v[1];
-        auto m3 = v[3] - v[1];
-        Vec::save(dstX + pack * 0, m0);
-        Vec::save(dstX + pack * 1, m1);
-        Vec::save(dstX + pack * 2, m2);
-        Vec::save(dstX + pack * 3, m3);
-    }
-}
-
 void ARM82StrassenMerge(FLOAT16* c11, FLOAT16* c12, FLOAT16* c21, FLOAT16* c22, FLOAT16* xAddr,
                           size_t cStride, size_t eSub, size_t hSub) {
     const int pack = 8;
@@ -514,24 +426,6 @@ void MNNPackTransposeInt16C8(int16_t* dst, const int16_t* src, size_t area, size
             dstHeight[ci] = srcHeight[ci];
         }
     }
-}
-
-static void MNNConvRunForUnitDepthWiseFP16(float* dst, const float* src, const float* weight, size_t fw, size_t fh,
-                                           size_t weight_y_step, size_t dilateX_step, size_t dilateY_step) {
-    int fx, fy;
-    Vec dstValue(0.0f);
-    auto src_z    = (const FLOAT16*)src;
-    auto weight_z = (const FLOAT16*)weight;
-    for (fy = 0; fy < fh; ++fy) {
-        auto src_y    = src_z + fy * dilateY_step;
-        auto weight_y = weight_z + fy * weight_y_step;
-        for (fx = 0; fx < fw; ++fx) {
-            auto weight_x = weight_y + 8 * fx;
-            auto src_x    = src_y + fx * dilateX_step;
-            dstValue = dstValue + Vec::load(src_x) * Vec::load(weight_x);
-        }
-    }
-    Vec::save((FLOAT16*)dst, dstValue);
 }
 
 static void _MNNDeconvRunForUnitDepthWise(const FLOAT16* dst, FLOAT16* src, const FLOAT16* weight, size_t fw, size_t fh,
@@ -706,12 +600,8 @@ bool Arm82Functions::init() {
     FUNC_PTR_ASSIGN(gInstance->MNNUnpackCUnit, MNNUnPackC8FP16);
     FUNC_PTR_ASSIGN(gInstance->MNNPackCUnitTranspose, MNNPackTransposeInt16C8);
     FUNC_PTR_ASSIGN(gInstance->MNNUnpackCUnitTranspose, MNNUnpackTransposeInt16C8);
-    FUNC_PTR_ASSIGN(gInstance->MNNConvRunForUnitDepthWise, MNNConvRunForUnitDepthWiseFP16);
     FUNC_PTR_ASSIGN(gInstance->MNNConvRunForLineDepthwise, MNNConvRunForLineDepthwiseFP16);
     FUNC_PTR_ASSIGN(gInstance->MNNAxByClampBroadcastUnit, MNNAxByClampBroadcastC8FP16);
-    FUNC_PTR_ASSIGN(gInstance->MNNConvDwF23MulTransUnit, MNNConvDwF23MulTransUnitFP16);
-    FUNC_PTR_ASSIGN(gInstance->MNNSourceTransformCommonF23, ARM82SourceTransformCommon);
-    FUNC_PTR_ASSIGN(gInstance->MNNMultiAndDestTransformCommon23, ARM82MultiAndDestTransformCommon);
     FUNC_PTR_ASSIGN(gInstance->MNNMatrixSub, MNNMatrixSubFP16);
     FUNC_PTR_ASSIGN(gInstance->MNNMatrixAdd, MNNMatrixAddFP16);
     FUNC_PTR_ASSIGN(gInstance->MNNStrassenMergeCFunction, ARM82StrassenMerge);
@@ -754,6 +644,7 @@ bool Arm82Functions::init() {
     FUNC_PTR_ASSIGN(gInstance->MNNCountMaxMinValue, ARM82CountMinMaxValue);
 #endif
     FUNC_PTR_ASSIGN(gInstance->MNNSumByAxisLForMatmul_A, origin->MNNSumByAxisLForMatmul_A);
+    FUNC_PTR_ASSIGN(gInstance->MNNDepthwiseConvFastKernel, MNNDepthwiseConvFastKernelFP16);
 #endif
     FUNC_PTR_ASSIGN(gInstance->MNNPackC4ForMatMul_A, Arm82MNNPackForMatMul_A);
     FUNC_PTR_ASSIGN(gInstance->MNNGetMatMulPackMode, Arm82MNNGetMatMulPackMode);

@@ -29,24 +29,6 @@ class Tokenizer;
 class Pipeline;
 class LlmConfig;
 
-// Llm start
-// llm stream buffer with callback
-class MNN_PUBLIC LlmStreamBuffer : public std::streambuf {
-public:
-    using CallBack = std::function<void(const char* str, size_t len)>;;
-    LlmStreamBuffer(CallBack callback) : callback_(callback) {}
-
-protected:
-    virtual std::streamsize xsputn(const char* s, std::streamsize n) override {
-        if (callback_) {
-            callback_(s, n);
-        }
-        return n;
-    }
-
-private:
-    CallBack callback_ = nullptr;
-};
 class MNN_PUBLIC Llm {
     using PromptItem = std::pair<std::string, std::string>; // <role, content>
 public:

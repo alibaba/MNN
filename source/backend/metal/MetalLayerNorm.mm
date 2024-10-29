@@ -76,6 +76,7 @@ ErrorCode MetalLayerNorm::onResize(const std::vector<Tensor *> &inputs, const st
     ((int *)mShapeBuffer.contents)[3]   = (int)has_gamma_beta_;
 
     
+    
     bool parallel = (mInside > 32) && ((mInside & 3) == 0);
     if(RMSNorm){
         mPipeline = [context pipelineWithName:parallel ? @"layernorm_x4_rms" : @"layernorm_x1_rms" fp16:backend->useFp16InsteadFp32()];
@@ -85,10 +86,17 @@ ErrorCode MetalLayerNorm::onResize(const std::vector<Tensor *> &inputs, const st
     
     auto inside = parallel ? mInside/4 : mInside;
     mThreads = [context computeBestGroupAndLocal:mPipeline threads:MTLSizeMake((NSUInteger)inside, (NSUInteger)mOutside, 1)];
+    if(context.isSimdGroupAvailable) {
+        if(mOutside == 1 && RMSNorm && parallel) {
+            mPipeline = [context pipelineWithName:@"layernorm_m1x4_rms" fp16:backend->useFp16InsteadFp32()];
+            mThreads = std::make_pair(MTLSizeMake((NSUInteger)UP_DIV(inside, 4) * mOutside, 1, 1), MTLSizeMake(128, 1, 1));
+        }
+    }
     return NO_ERROR;
 }
 
 void MetalLayerNorm::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder) {
+
     auto backend = static_cast<MetalBackend *>(this->backend());
     auto context = (__bridge MNNMetalContext *)backend->context();
     auto input = inputs[0], output = outputs[0];
