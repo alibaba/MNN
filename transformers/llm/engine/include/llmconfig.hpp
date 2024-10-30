@@ -251,7 +251,7 @@ public:
     }
 
     bool reuse_kv() const {
-        return config_.value("reuse_kv", true);
+        return config_.value("reuse_kv", false);
     }
     // generate config end >
 

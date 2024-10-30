@@ -289,6 +289,7 @@ VARP Llm::forward(const std::vector<int>& input_ids, int kv_seq_len_, int gen_se
 
 void Llm::reset() {
     // clear KV cache
+    // KV cache automatically cleared as long as seq_len reset!
 }
 
 bool Llm::reuse_kv() const {

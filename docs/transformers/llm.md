@@ -233,14 +233,14 @@ sh package_scripts/ios/buildiOS.sh "-DMNN_ARM82=true -DMNN_LOW_MEMORY=true -DMNN
 # 使用config.json
 ## 交互式聊天
 ./chat_demo model_dir/config.json
-<!-- ## 针对prompt中的每行进行回复
-./chat_demo model_dir/config.json prompt.txt -->
+## 针对prompt中的每行进行回复
+./chat_demo model_dir/config.json prompt.txt
 
 # 不使用config.json, 使用默认配置
 ## 交互式聊天
 ./chat_demo model_dir/llm.mnn
-<!-- ## 针对prompt中的每行进行回复
-./chat_demo model_dir/llm.mnn prompt.txt -->
+## 针对prompt中的每行进行回复
+./chat_demo model_dir/llm.mnn prompt.txt
 ```
 
 #### GPTQ权重加载

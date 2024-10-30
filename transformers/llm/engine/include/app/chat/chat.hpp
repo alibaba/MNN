@@ -30,11 +30,14 @@ protected:
     std::unique_ptr<Llm> mLlm;
     std::unique_ptr<Sampler> mSampler;
     std::unique_ptr<PromptLib> mPromptLib;
+    bool getPrompt(bool from_file, std::istream* is, std::string& user_str);
     void generate_init();
     std::string generate(const std::string& prompt, std::ostream* os = &std::cout, const char* end_with = "\n");
 public:
     Chat(std::string config_path);
-    void chat(std::istream* is = &std::cin, std::ostream* os = &std::cout, const char* end_with = "\n");
+    void chat(bool session_by_line = false, bool from_file = false, 
+              std::istream* is = &std::cin, std::ostream* os = &std::cout, 
+              const char* end_with = "\n", std::string exit_prompt = "/exit", std::string reset_token = "/reset");
     ~Chat() {}
 };
 

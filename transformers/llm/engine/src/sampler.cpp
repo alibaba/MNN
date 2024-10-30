@@ -544,6 +544,8 @@ void LocalSampler::reset() {
     // in the future, only reset its own.
     mCandidates.clear();
     mCandidates.emplace_back(SampleCandidate()); // for LocalSampler, reference have never been modified manually.
+    // KV cache reset as long as seq_len becomes 0.
+    mLlm->reset();
 }
 
 

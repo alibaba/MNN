@@ -60,33 +60,39 @@ std::string Chat::generate(const std::string& prompt, std::ostream* os, const ch
     return out_str;
 }
 
+bool Chat::getPrompt(bool from_file, std::istream* is, std::string& user_str) {
+    if (!from_file) std::cout << "\nQ: ";
+    return (bool)std::getline(*is, user_str);
+}
 
-void Chat::chat(std::istream* is, std::ostream* os, const char* end_with) {
+void Chat::chat(bool session_by_line, bool from_file, std::istream* is, std::ostream* os, const char* end_with, 
+                    std::string exit_token, std::string reset_token) {
     // handle system prompt
     mPromptLib->reset();
     mPromptLib->appendSystemPrompt("You are a helpful assistant!\n");
-    while (true) {
-        // get user string
-        std::cout << "\nQ: ";
-        std::string user_str;
-        std::getline(*is, user_str);
-        // special instructions
-        if (user_str == "/exit") {
+    std::string user_str;
+    while (getPrompt(from_file, is, user_str)) {
+        // whether to end
+        if (user_str == exit_token) {
             mPromptLib->reset();
+            mSampler->reset();
             break;
         }
-        if (user_str == "/reset") {
+        // whether to reset
+        if (session_by_line || user_str == reset_token) {
             mPromptLib->reset();
-            std::cout << "\nA: reset done." << std::endl;
+            mSampler->reset();
+            if (!from_file) std::cout << "\nreset done." << std::endl;
             continue;
         }
         // get answer
-        std::cout << "\nA: " << std::flush;
+        (*os) << "\nA: " << std::flush;
         mPromptLib->appendUserPrompt(user_str);
         auto assistant_str = generate(mPromptLib->getLLMInput(), os, end_with);
         mPromptLib->appendLLMOutput(assistant_str);
-        std::cout << std::endl;
+        (*os) << std::endl;
     }
+    mPromptLib->reset();
 }
 
 } // Transformer
