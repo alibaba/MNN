@@ -351,7 +351,7 @@ public:
 
     // < sampler config start
     std::string sampler_type() const {
-        return config_.value("sampler_type", "greedy");
+        return config_.value("sampler_type", "mixed");
     }
 
     std::vector<std::string> mixed_samplers() const {

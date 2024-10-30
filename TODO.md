@@ -1,4 +1,24 @@
+## Change Log
+- [x] implement an independent `Sampler` Module.
+- [x] implement 8 individual basic samplers: `greedy`, `temperature`, `topK`, `topP`, `minP`, `tfs`, `typical`, `penalty`. (can be configured through config.json)
+- [x] implement `mixed` sampler, whose sampling order (Penalties -> top_k -> tfs_z -> typical_p -> top_p -> min_p -> temperature). one can change the samplers through configuring `mixed_samplers`. field in config.json
+- [x] implement `PromptLib` to enable `chat_demo` for all LLM.
+- [x] remove the `seq_len` control in `Llm` to `Sampler` and higher level modules to migrate design complexity. 
+- [x] implement `Chat` to organize the workflow of a chatbot APP. 
+- [x] change `#define FP16_QSCALE 0.25` in `CPUAttention` to ensure Llama3.2 FP16 correctness.
+- [x] `chat_demo` tested on ubuntu 22.04, android(including ARM64, ARM82, OPENCL backend).  
+
+Motivation: 
+1. Sampler: performance, variety, different user-preferrence.
+2. System Prompt: support history context, memory; few-shot generation (examples); role-play role profile.
+
 ## TODO Lists
+
+### 0. Overall TODO Lists
+- [ ] test ShareGPT, VQA, Audio...
+- [ ] merge KV cache implementation
+- [ ] verify the possibility of hetereogeneous computing (CPU + opencl/...)
+- [ ] Kv cache + sampler
 
 ### 1. Engineering TODO Lists
 - [x] llm-export convert Qwen2.5-1.5B-Instructx, Qwen2.5-3B-Instructx, Qwen2.5-7B-Instruct (Qwen2.5 language series) https://qwenlm.github.io/zh/blog/qwen2.5/ (<7B: 32K/8K, >=7B: 128K/8K)
@@ -17,8 +37,11 @@
 
 ```bash
 python llmexport.py --path ../../../model/Qwen2.5-1.5B-Instruct/ --dst_path ../../../model/qwen2_5-1_5b-instruct-mnn/ --export mnn --quant_bit 4 --quant_block 128
+
+python llmexport.py --path ../../../model/Llama-3.2-3B-Instruct/ --dst_path ../../../model/llama3_2-3b-instruct-mnn --export mnn --quant_bit 4 --quant_block 128
 ```
 
 
 ### 2. Experiments TODO Lists
-- [ ] test `Chat` on ShareGPT datasets, measuring time and space.
+- [ ] test `Chat` on ShareGPT datasets, measuring time and space
+- [ ] test VQA

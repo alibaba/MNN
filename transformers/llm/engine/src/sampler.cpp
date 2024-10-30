@@ -91,7 +91,7 @@ Sampler* Sampler::createSampler(Llm* llm, const std::string& config_path) {
     std::string sampler_type = config->sampler_type();
     if (sampler_type == "greedy"
         || sampler_type == "temperature"
-        || sampler_type == "penalty" || sampler_type == "penalize_ngram"
+        || sampler_type == "penalty"
         || sampler_type == "topK"
         || sampler_type == "topP"
         || sampler_type == "minP"
@@ -124,7 +124,7 @@ void LocalSampler::LocalSamplerConfig::configSampler( std::string sampler_type, 
         this->configTFS(llmConfig);
     } else if (sampler_type == "typical"){
         this->configTypical(llmConfig);
-    } else if (sampler_type == "penalty" || sampler_type == "penalize_ngram"){
+    } else if (sampler_type == "penalty"){
         this->configPenalty(llmConfig);
     } else if (sampler_type == "mixed"){
         this->configMixed(llmConfig);
@@ -396,9 +396,8 @@ struct SubsetLogits LocalSampler::penalty(struct SubsetLogits subset) {
     int ngram = mConfig.penaltyConfig.ngram; 
     float ngram_factor = mConfig.penaltyConfig.ngram_factor;
     float temperature = mConfig.temperature;
-    bool penalizeNgram = (mConfig.type == "penalize_ngram");
+    bool penalizeNgram = (ngram_factor > 1.0f);
     if (penalty <= 1.0f) return subset; // no penalty!
-    if (ngram_factor <= 1.0f) penalizeNgram = false; // no extra penalty for n gram.
     penalty = std::min(penalty, mConfig.penaltyConfig.max_penalty);
     // initialization
     std::vector<int>& prev = mCandidates[0].tokens;
