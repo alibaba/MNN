@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <group android:checkableBehavior="single">
+        <item
+            android:id="@+id/nav_contacts"
+            android:icon="@drawable/ic_action_contacts"
+            android:title="Contacts" />
+        <item
+            android:id="@+id/nav_chats"
+            app:actionViewClass="android.widget.TextView"
+            android:icon="@drawable/ic_action_chats"
+            android:title="Chats" />
+        <item
+            android:id="@+id/nav_trash"
+            app:actionViewClass="android.widget.TextView"
+            android:icon="@drawable/ic_action_trash"
+            android:title="Trash" />
+    </group>
+</menu>
