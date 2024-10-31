@@ -322,22 +322,9 @@ public:
         return llm_config_.value("attention_fused", true);
     }
 
-    // std::string chat_template() const {
-    //     return llm_config_.value("chat_template", "");
-    // }
-
-    // std::string prompt_template() const {
-    //     return llm_config_.value("prompt_template", "");
-    // }
-
-    // std::string eos_token() const {
-    //     return llm_config_.value("eos_token", "")
-    // }
-
     std::string system_prompt_template() const {
         return llm_config_.value("system_prompt_template", "<|im_start|>system\n%s<|im_end|>\n");
     }
-
     std::string user_prompt_template() const {
         return llm_config_.value("user_prompt_template", "<|im_start|>user\n%s<|im_end|>\n");
     }

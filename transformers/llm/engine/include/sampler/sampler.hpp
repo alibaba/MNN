@@ -24,6 +24,8 @@
 namespace MNN {
 namespace Transformer {
 
+MNN_PUBLIC VARP _TempratureSoftmax(VARP logits, float temperature, int axis = -1);
+
 class Llm;
 
 // a index and its corresponding score

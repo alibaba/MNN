@@ -13,6 +13,10 @@
 namespace MNN{
 namespace Transformer{
 
+VARP _TempratureSoftmax(VARP logits, float temperature, int axis) {
+    return _Softmax(logits * _Scalar<float>(1.0f / temperature), axis);
+}
+
 /* ----------Sampler's members---------- */
 int Sampler::select(struct SubsetLogits& subset, int id) {
     if (!(subset.is_subset)) return id;
