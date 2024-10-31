@@ -24,7 +24,7 @@
 namespace MNN {
 namespace Transformer {
 
-MNN_PUBLIC VARP _TempratureSoftmax(VARP logits, float temperature, int axis = -1);
+MNN_PUBLIC MNN::Express::VARP _TempratureSoftmax(MNN::Express::VARP logits, float temperature, int axis = -1);
 
 class Llm;
 

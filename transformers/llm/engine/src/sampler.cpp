@@ -13,8 +13,8 @@
 namespace MNN{
 namespace Transformer{
 
-VARP _TempratureSoftmax(VARP logits, float temperature, int axis) {
-    return _Softmax(logits * _Scalar<float>(1.0f / temperature), axis);
+MNN::Express::VARP _TempratureSoftmax(MNN::Express::VARP logits, float temperature, int axis) {
+    return MNN::Express::_Softmax(logits * MNN::Express::_Scalar<float>(1.0f / temperature), axis);
 }
 
 /* ----------Sampler's members---------- */
@@ -43,7 +43,7 @@ int Sampler::randomSelect(MNN::Express::VARP probs) {
 }
 
 int Sampler::reSoftmaxSelect(struct SubsetLogits subset, float temperature) {
-    int token_index_id = randomSelect(MNN::Express::_TempratureSoftmax(subset.logits, temperature));
+    int token_index_id = randomSelect(_TempratureSoftmax(subset.logits, temperature));
     return ((subset.is_subset) ? subset.index[token_index_id] : token_index_id);
 }
 
@@ -257,7 +257,7 @@ struct SubsetLogits LocalSampler::topK(struct SubsetLogits superset) {
 }
 
 int LocalSampler::packSoftmax(MNN::Express::VARP logits, std::vector<IndexScore>& index_scores, float temperature) {
-    auto prob_varp = MNN::Express::_TempratureSoftmax(logits, temperature);
+    auto prob_varp = _TempratureSoftmax(logits, temperature);
     auto probs = (float*)(prob_varp->readMap<float>());
     auto size = prob_varp->getInfo()->size;
     index_scores.resize(size);
@@ -358,7 +358,7 @@ struct SubsetLogits LocalSampler::tfs(struct SubsetLogits superset) {
 
 struct SubsetLogits LocalSampler::typical(struct SubsetLogits superset) {
     float p = mConfig.typical, temperature = mConfig.temperature;
-    auto prob_varp = MNN::Express::_TempratureSoftmax(superset.logits, temperature);
+    auto prob_varp = _TempratureSoftmax(superset.logits, temperature);
     auto probs = (float*)(prob_varp->readMap<float>());
     auto size = prob_varp->getInfo()->size;
     std::vector<IndexScore> index_scores;
