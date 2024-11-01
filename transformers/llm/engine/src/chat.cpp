@@ -27,14 +27,17 @@ Chat::Chat(std::string config_path) {
     auto executor = MNN::Express::Executor::newExecutor(MNN_FORWARD_CPU, backendConfig, 1);
     MNN::Express::ExecutorScope s(executor);
     // 1. create Llm
-    std::cout << "LLM config path is " << config_path << std::endl;
+    MNN_PRINT("LLM config path is: %s\n", config_path.c_str());
     mLlm.reset(Llm::createLLM(config_path));
     mLlm->load();
     mLlm->set_config("{\"tmp_path\":\"tmp\"}");
+    MNN_PRINT("Llm loaded!\n");
     // 2. create Sampler
     mSampler.reset(Sampler::createSampler(mLlm.get(), config_path));
+    MNN_PRINT("Sampler initiated!\n");
     // 3. create PromptLib
     mPromptLib.reset(PromptLib::createPromptLib("BaseChat", config_path));
+    MNN_PRINT("PromptLib initiated!\n");
 }
 
 void Chat::generate_init() {
@@ -65,34 +68,45 @@ bool Chat::getPrompt(bool from_file, std::istream* is, std::string& user_str) {
     return (bool)std::getline(*is, user_str);
 }
 
+void Chat::getAnswer(std::string user_str, std::ostream* os, const char* end_with) {
+    mPromptLib->appendUserPrompt(user_str);
+    auto assistant_str = generate(mPromptLib->getLLMInput(), os, end_with);
+    mPromptLib->appendLLMOutput(assistant_str);
+}
+
+void Chat::chat_init(std::string systemPrompt) {
+    chat_reset();
+    mPromptLib->appendSystemPrompt(systemPrompt);
+}
+
+void Chat::chat_reset() {
+    mPromptLib->reset();
+    mSampler->reset();
+}
+
 void Chat::chat(bool session_by_line, bool from_file, std::istream* is, std::ostream* os, const char* end_with, 
                     std::string exit_token, std::string reset_token) {
     // handle system prompt
-    mPromptLib->reset();
-    mPromptLib->appendSystemPrompt("You are a helpful assistant!\n");
+    chat_init("You are a helpful assistant!\n");
     std::string user_str;
     while (getPrompt(from_file, is, user_str)) {
         // whether to end
         if (user_str == exit_token) {
-            mPromptLib->reset();
-            mSampler->reset();
+            chat_reset();
             break;
         }
         // whether to reset
         if (session_by_line || user_str == reset_token) {
-            mPromptLib->reset();
-            mSampler->reset();
+            chat_init("You are a helpful assistant!\n");
             if (!from_file) std::cout << "\nreset done." << std::endl;
             continue;
         }
         // get answer
         (*os) << "\nA: " << std::flush;
-        mPromptLib->appendUserPrompt(user_str);
-        auto assistant_str = generate(mPromptLib->getLLMInput(), os, end_with);
-        mPromptLib->appendLLMOutput(assistant_str);
+        getAnswer(user_str, os, end_with);
         (*os) << std::endl;
     }
-    mPromptLib->reset();
+    chat_reset();
 }
 
 } // Transformer

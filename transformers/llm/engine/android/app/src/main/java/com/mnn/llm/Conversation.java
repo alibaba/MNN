@@ -19,6 +19,8 @@ import android.content.Intent;
 import android.content.Context;
 import android.widget.TextView;
 import android.widget.ImageView;
+import android.util.Log;
+
 
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.LinearLayoutManager;

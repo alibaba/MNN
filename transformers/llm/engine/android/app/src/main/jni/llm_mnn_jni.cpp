@@ -8,9 +8,12 @@
 #include <sstream>
 #include <thread>
 
-#include "llm.hpp"
+#include "app/chat/chat.hpp"
 
-static std::unique_ptr<Llm> llm(nullptr);
+using namespace MNN;
+using namespace MNN::Transformer;
+
+static std::unique_ptr<Chat> agent(nullptr);
 static std::stringstream response_buffer;
 
 extern "C" {
@@ -26,27 +29,30 @@ JNIEXPORT void JNI_OnUnload(JavaVM* vm, void* reserved) {
 
 JNIEXPORT jboolean JNICALL Java_com_mnn_llm_Chat_Init(JNIEnv* env, jobject thiz, jstring modelDir) {
     const char* model_dir = env->GetStringUTFChars(modelDir, 0);
-    if (!llm.get()) {
-        llm.reset(Llm::createLLM(model_dir));
-        llm->load();
+    __android_log_print(ANDROID_LOG_DEBUG, "MNN_DEBUG", "model path: %s", model_dir);
+    if (!agent.get()) {
+        agent.reset(new Chat(model_dir));
+        __android_log_print(ANDROID_LOG_DEBUG, "MNN_DEBUG", "Model Loaded!");
+        agent->chat_init();
+        __android_log_print(ANDROID_LOG_DEBUG, "MNN_DEBUG", "Chat Loaded!");
     }
     return JNI_TRUE;
 }
 
 JNIEXPORT jboolean JNICALL Java_com_mnn_llm_Chat_Ready(JNIEnv* env, jobject thiz) {
-    if (llm.get()) {
+    if (agent.get()) {
         return JNI_TRUE;
     }
     return JNI_FALSE;
 }
 
 JNIEXPORT jstring JNICALL Java_com_mnn_llm_Chat_Submit(JNIEnv* env, jobject thiz, jstring inputStr) {
-    if (!llm.get()) {
+    if (!agent.get()) {
         return env->NewStringUTF("Failed, Chat is not ready!");
     }
     const char* input_str = env->GetStringUTFChars(inputStr, 0);
     auto chat = [&](std::string str) {
-        llm->response(str, &response_buffer, "<eop>");
+        agent->getAnswer(str, &response_buffer, "<eop>");
     };
     std::thread chat_thread(chat, input_str);
     chat_thread.detach();
@@ -66,7 +72,7 @@ JNIEXPORT void JNICALL Java_com_mnn_llm_Chat_Done(JNIEnv* env, jobject thiz) {
 }
 
 JNIEXPORT void JNICALL Java_com_mnn_llm_Chat_Reset(JNIEnv* env, jobject thiz) {
-    llm->reset();
+    agent->chat_init();
 }
 
 } // extern "C"

@@ -1,18 +1,17 @@
 apply plugin: 'com.android.application'
 
 android {
-    compileSdkVersion 28
-    buildToolsVersion "29.0.2"
+    namespace "com.mnn.llm"
+    compileSdkVersion 30
     defaultConfig {
         applicationId "com.mnn.llm"
-        minSdkVersion 21
-        targetSdkVersion 28
+        minSdkVersion 30
+        targetSdkVersion 30
         versionCode 1
         versionName "1.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         externalNativeBuild {
             cmake {
-                arguments "-DBUILD_JNI=TRUE", "-DANDROID_STL=c++_shared", "-DLLM_SUPPORT_VISION=TRUE", "-DMNN_OPENCL=TRUE"
                 abiFilters 'arm64-v8a'
             }
         }
@@ -25,7 +24,7 @@ android {
     }
     externalNativeBuild {
         cmake {
-            path file('../../CMakeLists.txt')
+            path file('./CMakeLists.txt')
         }
     }
     sourceSets {
@@ -47,6 +46,12 @@ android {
         exclude("META-INF/notice.txt")
         exclude("META-INF/ASL2.0")
         exclude("META-INF/*.kotlin_module")
+    }
+    signingConfigs {
+        release {
+            v1SigningEnabled true
+            v2SigningEnabled true
+        }
     }
 }
 
