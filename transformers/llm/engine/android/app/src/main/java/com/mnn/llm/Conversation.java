@@ -54,7 +54,7 @@ public class Conversation extends BaseActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_conversation);
 
-        mChat = (Chat) getIntent().getSerializableExtra("chat");
+        mChat = (Chat) getIntent().getSerializableExtra("com.mnn.llm.chat");
         mDateFormat = new SimpleDateFormat("hh:mm aa");
 
         setupToolbarWithUpNav(R.id.toolbar, "mnn-llm", R.drawable.ic_action_back);

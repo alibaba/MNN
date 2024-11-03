@@ -10,6 +10,6 @@ public class Chat implements Serializable {
     public native void Reset();
 
     static {
-        System.loadLibrary("chat");
+        System.loadLibrary("chatbot");
     }
 }

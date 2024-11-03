@@ -18,12 +18,12 @@ include_directories("${CMAKE_CURRENT_LIST_DIR}/../../include/")
 include_directories("${CMAKE_CURRENT_LIST_DIR}/../../../../../include/")
 include_directories("${CMAKE_CURRENT_LIST_DIR}/../../../../../3rd_party/")
 
-add_library(chat SHARED ${SRCS})
+add_library(chatbot SHARED ${SRCS})
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17")
 
 # compile dynamic so, support Linux/Mac
-set_target_properties(chat PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS TRUE)
-target_link_libraries(chat
+set_target_properties(chatbot PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS TRUE)
+target_link_libraries(chatbot
                       ${LIB_PATH}/libllm.so
                       ${LIB_PATH}/libMNN.so
                       ${LIB_PATH}/libMNN_Express.so

@@ -6,6 +6,7 @@ import android.annotation.SuppressLint;
 import android.content.Intent;
 import android.graphics.Color;
 import android.os.Bundle;
+import android.util.Log;
 import android.view.View;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
@@ -64,8 +65,11 @@ public class MainActivity extends AppCompatActivity {
             mChat = new Chat();
             mChat.Init(mModelDir);
             runOnUiThread(() -> {
-                mIntent.putExtra("chat", mChat);
+                Log.d("MNN_DEBUG", "Before putExtra!\n");
+                mIntent.putExtra("com.mnn.llm.chat", mChat);
+                Log.d("MNN_DEBUG", "After putExtra, Before Activity Starts!\n");
                 startActivity(mIntent);
+                Log.d("MNN_DEBUG", "After Activity Starts!\n");
             });
         }).start();
     }
