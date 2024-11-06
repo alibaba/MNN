@@ -228,25 +228,26 @@ sh package_scripts/ios/buildiOS.sh "-DMNN_ARM82=true -DMNN_LOW_MEMORY=true -DMNN
   ```
 
 #### 推理用法
-`chat_demo`的用法如下：
+`llm_demo`的用法如下：
 pc端直接推理
 ```
 # 使用config.json
 ## 交互式聊天
-./chat_demo model_dir/config.json
+./llm_demo model_dir/config.json
 ## 针对prompt中的每行进行回复
-./chat_demo model_dir/config.json prompt.txt
+./llm_demo model_dir/config.json prompt.txt
 
 # 不使用config.json, 使用默认配置
 ## 交互式聊天
-./chat_demo model_dir/llm.mnn
+./llm_demo model_dir/llm.mnn
 ## 针对prompt中的每行进行回复
-./chat_demo model_dir/llm.mnn prompt.txt
+./llm_demo model_dir/llm.mnn prompt.txt
 ```
 
 手机端adb推理用法：
 ```bash
 # 利用adb push将链接库push到手机上
+adb shell mkdir /data/local/tmp/llm
 adb push chat_demo libllm.so libMNN_CL.so libMNN_Express.so libMNN.so tools/cv/libMNNOpenCV.so /data/local/tmp/llm
 ```
 

@@ -385,6 +385,15 @@ public:
         return config_.value("penalty_sampler", "greedy");
     }
     // sampler config end >
+
+    // < app config start
+    std::string app_type() const {
+        return config_.value("app_type", "chat");
+    }
+    std::string system_prompt() const {
+        return config_.value("system_prompt", "You are a helpful assistant!\n");
+    }
+    // app config end >
 };
 } // Transformer
 } // MNN

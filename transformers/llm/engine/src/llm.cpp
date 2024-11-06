@@ -16,7 +16,9 @@
 #include <MNN/AutoTime.hpp>
 #include "cpp/ExprDebug.hpp"
 #include "llm/llm.hpp"
-#include "sampler/sampler.hpp"
+#include "evaluation/evaluation.hpp"
+#include "sampler.hpp"
+#include "prompt.hpp"
 #include "tokenizer.hpp"
 #include "llmconfig.hpp"
 // 0: no debug, 1: test op time, 2: print tensor info
@@ -31,6 +33,84 @@ using namespace MNN::Express;
 namespace MNN {
 namespace Transformer {
 
+// LlmSessionInfo starts
+void LlmSessionInfo::resetSamplerFields() {
+    all_seq_len_ = 0;
+    gen_seq_len_ = 0;
+    tokens.clear();
+}
+void LlmSessionInfo::resetPromptFields() {
+    mHistory.clear();
+    mInputs.clear();
+}
+void LlmSessionInfo::resetPerformanceFields() {
+    clearPerformance(&mTimePerformance);
+}
+float LlmSessionInfo::average_total_speed() {
+    return (getTotalPromptLen()+getTotalDecodeLen())/(getTotalPrefillTime()+getTotalDecodeTime());
+}
+float LlmSessionInfo::average_prefill_speed() {
+    // prefill response rate
+    return getTotalPromptLen()/getTotalPrefillTime();
+}
+float LlmSessionInfo::average_decode_speed() {
+    return getTotalDecodeLen()/getTotalDecodeTime();
+}
+float LlmSessionInfo::getTotalPrefillTime() {
+    float sum = 0.f;
+    for (auto record : mTimePerformance.prefill_record_) {
+        sum += ((float)record.prefill_us_)*MICRO_TO_SEC;
+    }
+    return sum;
+}
+float LlmSessionInfo::getTotalDecodeTime() {
+    float sum = 0.0f;
+    for (auto record : mTimePerformance.decode_record_) {
+        sum += ((float)record.decode_us_)*MICRO_TO_SEC;
+    }
+    return sum;
+}
+int LlmSessionInfo::getTotalPromptLen() {
+    int prompt_len = 0;
+    if (mTimePerformance.prefill_record_.size() != mTimePerformance.prompt_record_.size()) {
+        for (auto record : mTimePerformance.prefill_record_) {
+            prompt_len += record.prefill_token_;
+        }
+    } else {
+        for (int r=0; r < mTimePerformance.prompt_record_.size(); ++r) {
+            prompt_len += mTimePerformance.prompt_record_[r];
+        }
+    } 
+    return prompt_len;
+}
+int LlmSessionInfo::getTotalDecodeLen() {
+    return mTimePerformance.decode_record_.size();
+}
+void LlmSessionInfo::print_speed(std::ostream* os) {
+    (*os) << "prefill " << mTimePerformance.prefill_record_.size() << std::endl;
+    if (mTimePerformance.prefill_record_.size() != mTimePerformance.prompt_record_.size()) {
+        (*os) << "prev_token input_token speed(token/s)" << std::endl;
+        for (auto record : mTimePerformance.prefill_record_) {
+            (*os) << record.prefill_prev_token_ << " " << record.prefill_token_ << " " << record.prefill_token_/(((float)record.prefill_us_)*MICRO_TO_SEC) << std::endl;
+        }
+    } else {
+        (*os) << "prev_token input_token prompt_token response_speed(token/s)" << std::endl;
+        for (int r=0; r < mTimePerformance.prompt_record_.size(); ++r) {
+            auto record = mTimePerformance.prefill_record_[r];
+            auto prompt_len = mTimePerformance.prompt_record_[r];
+            (*os) << record.prefill_prev_token_ << " " << record.prefill_token_ << " " << prompt_len << " " << prompt_len/(((float)record.prefill_us_)*MICRO_TO_SEC) << std::endl;
+        }
+    }
+    (*os) << "decode " << mTimePerformance.decode_record_.size() << std::endl;
+    (*os) << "prev_token speed(token/s)" << std::endl;
+    for (auto record : mTimePerformance.decode_record_) {
+        (*os) << record.decode_prev_token_ << " " << 1./(((float)record.decode_us_)*MICRO_TO_SEC) << std::endl;
+    }
+}
+
+
+
+// Lvlm starts
 class Lvlm : public Llm {
 public:
     Lvlm(std::shared_ptr<LlmConfig> config) : Llm(config) {
@@ -149,7 +229,7 @@ void Llm::load() {
     MNN_PRINT("load tokenizer\n");
     tokenizer_.reset(Tokenizer::createTokenizer(config_->tokenizer_file()));
     MNN_PRINT("load tokenizer Done\n");
-    // 3. load model
+    // 2. load model
     Module::Config module_config;
     module_config.shapeMutable = true;
     module_config.rearrange = true;
@@ -176,7 +256,7 @@ void Llm::load() {
         }
         MNN_PRINT("Load Module Done!\n");
     } else {
-        MNN_ERROR("Split version is depercerate\n");
+        MNN_ERROR("Split version is deprecated\n");
     }
     decode_modules_.resize(modules_.size());
     for (int v=0; v<modules_.size(); ++v) {
@@ -185,6 +265,17 @@ void Llm::load() {
     MNN_PRINT("Clone Decode Module Done!\n");
 
     prefill_modules_ = modules_;
+
+    // workflow instruments
+    // 3. create Sampler
+    mSampler.reset(Sampler::createSampler(this, config_));
+    MNN_PRINT("Sampler initiated!\n");
+    // 4. create PromptLib
+    mPromptLib.reset(PromptLib::createPromptLib(this, config_));
+    MNN_PRINT("PromptLib initiated!\n");
+    // 5. reset
+    reset();
+    MNN_PRINT("Llm Session Init!\n");
 }
 
 size_t Llm::apply_lora(const std::string& lora_path) {
@@ -278,24 +369,68 @@ VARP Llm::forward(const std::vector<int>& input_ids, int kv_seq_len_, int gen_se
             past_key_values_[0] = outputs[1];
         }
     } else {
-        MNN_ERROR("Split models is depercarate\n");
+        MNN_ERROR("Split models is deprecated\n");
         return nullptr;
     }
     return logits;
 }
 
+// < "app_type": "chat"
+bool Llm::getUserPrompt(bool from_file, std::istream* is, std::string& user_str) {
+    if (!from_file) std::cout << "\nQ: ";
+    return (bool)std::getline(*is, user_str);
+}
+
+void Llm::chat(bool session_by_line, bool from_file, 
+               std::istream* is, std::ostream* os, 
+               const char* end_with, std::string exit_token, std::string reset_token) {
+    // handle system prompt
+    reset();
+    std::string user_str;
+    while (getUserPrompt(from_file, is, user_str)) {
+        // whether to end
+        if (user_str == exit_token) {
+            reset();
+            break;
+        }
+        // whether to reset
+        if (session_by_line || user_str == reset_token) {
+            reset();
+            if (!from_file) std::cout << "\nreset done." << std::endl;
+            continue;
+        }
+        // get answer
+        (*os) << "\nA: " << std::flush;
+        response(user_str, os, end_with);
+        (*os) << std::endl;
+    }
+    reset();
+}
+
+std::string Llm::response(const std::string& user_str, std::ostream* os, const char* end_with) {
+    mLlmSessionInfos[0].mTimePerformance.prompt_record_.push_back(tokenizer(user_str).size());
+    mPromptLib->appendUserPrompt(user_str);
+    auto assistant_str = generate(mPromptLib->getLLMInput(), os, end_with);
+    mPromptLib->appendLLMOutput(assistant_str);
+    return assistant_str;
+}
+// "app_type": "chat" >
 
 
 
 void Llm::reset() {
     // clear KV cache
     // KV cache automatically cleared as long as seq_len reset!
+    mLlmSessionInfos.clear();
+    mLlmSessionInfos.emplace_back(LlmSessionInfo()); 
 }
 
 bool Llm::reuse_kv() const {
     return config_->reuse_kv();
 }
 
+
+// < generate
 void Llm::generate_init() {
     // handle past_key_values if not attention_fused_
     past_key_values_.clear();
@@ -303,9 +438,32 @@ void Llm::generate_init() {
         if (is_single_) {
             past_key_values_.push_back(_Input(key_value_shape_, NCHW));
         } else {
-            MNN_ERROR("Split version is depercerate\n");
+            MNN_ERROR("Split version is deprecated\n");
         }
     }
+    if (!reuse_kv()) {
+        // only reset sampler. The history is handled by mPromptLib.
+        mLlmSessionInfos[0].resetSamplerFields();
+    }
+}
+
+std::string Llm::generate(const std::string& prompt, std::ostream* os, const char* end_with) {
+    if (prompt.empty()) { return ""; }
+    if (!end_with) { end_with = "\n"; }
+    // std::cout << "# prompt : " << prompt << std::endl;
+    auto input_ids = tokenizer(prompt);
+    std::string out_str = generate(input_ids, os, end_with);
+    return out_str;
+}
+
+std::string Llm::generate(const std::vector<int>& input_ids, std::ostream* os, const char* end_with) {
+    if (mTracing) return generateTrace(input_ids, os, end_with);
+    if (input_ids.empty()) { return ""; }
+    if (!end_with) { end_with = "\n"; }
+    generate_init();
+    // printf("input_ids (%lu): ", input_ids.size()); for (auto id : input_ids) printf("%d, ", id); printf("\n");
+    std::string out_str = mSampler->sample(input_ids, os, end_with, &(mLlmSessionInfos[0].mTimePerformance));
+    return out_str;
 }
 
 
@@ -325,6 +483,8 @@ std::string Llm::generateTrace(const std::vector<int>& input_ids, std::ostream* 
 std::vector<int> Llm::tokenizer(const std::string& prompt) {
     return tokenizer_->encode(prompt);
 }
+
+// generate >
 
 
 Llm::~Llm() {
@@ -357,23 +517,42 @@ Llm::~Llm() {
     runtime_manager_.reset();
 }
 
+// < speed
 void Llm::print_speed() {
-    // auto prefill_s = prefill_us_ * 1e-6;
-    // auto decode_s = decode_us_ * 1e-6;
-    // auto total_s = prefill_s + decode_s;
-    // printf("\n#################################\n");
-    // printf(" total tokens num  = %d\n", prompt_len_ + gen_seq_len_);
-    // printf("prompt tokens num  = %d\n", prompt_len_);
-    // printf("output tokens num  = %d\n", gen_seq_len_);
-    // printf("  total time = %.2f s\n", total_s);
-    // printf("prefill time = %.2f s\n", prefill_s);
-    // printf(" decode time = %.2f s\n", decode_s);
-    // printf("  total speed = %.2f tok/s\n", (prompt_len_ + gen_seq_len_) / total_s);
-    // printf("prefill speed = %.2f tok/s\n", prompt_len_ / prefill_s);
-    // printf(" decode speed = %.2f tok/s\n", gen_seq_len_ / decode_s);
-    // printf("   chat speed = %.2f tok/s\n", gen_seq_len_ / total_s);
-    // printf("##################################\n");
+    printf("\n#################################\n");
+    printf("average   total speed = %.3f tok/s\n", average_total_speed());
+    printf("average prefill speed = %.3f tok/s\n", average_prefill_speed());
+    printf("average  decode speed = %.3f tok/s\n", average_decode_speed());
+    printf("##################################\n");
 }
+
+void Llm::print_speed(std::ostream* os) {
+    mLlmSessionInfos[0].print_speed(os);
+}
+
+float Llm::average_total_speed() {
+    return mLlmSessionInfos[0].average_total_speed();
+}  
+float Llm::average_prefill_speed() {
+    // prefill response rate
+    return mLlmSessionInfos[0].average_prefill_speed();
+}
+float Llm::average_decode_speed() {
+    return mLlmSessionInfos[0].average_decode_speed();
+}
+float Llm::getTotalPrefillTime() {
+    return mLlmSessionInfos[0].getTotalPrefillTime();
+}
+float Llm::getTotalDecodeTime() {
+    return mLlmSessionInfos[0].getTotalDecodeTime();
+}
+int Llm::getTotalPromptLen() {
+    return mLlmSessionInfos[0].getTotalPromptLen();
+}
+int Llm::getTotalDecodeLen() {
+    return mLlmSessionInfos[0].getTotalDecodeLen();
+}
+// speed >
 
 static inline bool needNewVar(VARP var, int axis, int seq_len) {
     if (var == nullptr) {

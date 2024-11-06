@@ -7,7 +7,7 @@
 #include <MNN/expr/Executor.hpp>
 #include <MNN/expr/ExecutorScope.hpp>
 #include "llm/llm.hpp"
-#include "sampler/sampler.hpp"
+#include "sampler.hpp"
 #include "llmconfig.hpp"
 
 namespace MNN{
@@ -91,7 +91,10 @@ void Sampler::transformIndex(struct SubsetLogits& superset, struct SubsetLogits&
 }
 
 Sampler* Sampler::createSampler(Llm* llm, const std::string& config_path) {
-    std::shared_ptr<LlmConfig> config(new LlmConfig(config_path));
+    return createSampler(llm, std::shared_ptr<LlmConfig>(new LlmConfig(config_path)));
+}
+
+Sampler* Sampler::createSampler(Llm* llm, std::shared_ptr<LlmConfig> config) {
     std::string sampler_type = config->sampler_type();
     if (sampler_type == "greedy"
         || sampler_type == "temperature"
@@ -103,7 +106,7 @@ Sampler* Sampler::createSampler(Llm* llm, const std::string& config_path) {
         || sampler_type == "typical"
         || sampler_type == "mixed"
         ) {
-        return new LocalSampler(llm, config_path);
+        return new LocalSampler(llm, config);
     } else {
         std::cout << "Designated Sampler Not Supported yet!";
         exit(1);
@@ -200,13 +203,11 @@ LocalSampler::LocalSamplerConfig LocalSampler::getSamplerConfig(std::shared_ptr<
     return samplerConfig;
 }
 
-LocalSampler::LocalSampler(Llm* llm, const std::string& config_path) {
+LocalSampler::LocalSampler(Llm* llm, std::shared_ptr<LlmConfig> config) {
     // initialize model and candidates
     mLlm = llm;
-    mCandidates.emplace_back(SampleCandidate()); // for LocalSampler, reference have never been modified manually.
     // initialize config
-    std::shared_ptr<LlmConfig> llmConfig(new LlmConfig(config_path));
-    mConfig = getSamplerConfig(llmConfig);
+    mConfig = getSamplerConfig(config);
 }
 
 int LocalSampler::argmaxSelect(struct SubsetLogits superset) {
@@ -404,7 +405,7 @@ struct SubsetLogits LocalSampler::penalty(struct SubsetLogits subset) {
     if (penalty <= 1.0f) return subset; // no penalty!
     penalty = std::min(penalty, mConfig.penaltyConfig.max_penalty);
     // initialization
-    std::vector<int>& prev = mCandidates[0].tokens;
+    std::vector<int>& prev = mLlm->mLlmSessionInfos[0].tokens;
     std::unordered_map<int, float> penalty_map;
     // 1. local ngram info, reversed order
     std::vector<int> ngram_info(ngram-1);
@@ -474,10 +475,10 @@ int LocalSampler::algorithm(MNN::Express::VARP logits) {
 
 std::string LocalSampler::handleToken(int token, std::ostream* os, const char* end_with) {
     // CommonPrefix and Candidates managements
-    mCandidates[0].tokens.push_back(token);
-    mCandidates[0].all_seq_len_++;
-    mCandidates[0].gen_seq_len_++;
-    std::string output_str = mLlm->decode(mCandidates[0].tokens.back());
+    mLlm->mLlmSessionInfos[0].tokens.push_back(token);
+    mLlm->mLlmSessionInfos[0].all_seq_len_++;
+    mLlm->mLlmSessionInfos[0].gen_seq_len_++;
+    std::string output_str = mLlm->decode(mLlm->mLlmSessionInfos[0].tokens.back());
     // print
     *os << output_str << std::flush;
     return output_str;
@@ -486,17 +487,17 @@ std::string LocalSampler::handleToken(int token, std::ostream* os, const char* e
 std::string LocalSampler::sample(const std::vector<int>& input_ids, std::ostream* os, const char* end_with, struct TimePerformance* time_perf) {
     // initialization for time performance
     PrefillTimePerformance prefill_time;
-    prefill_time.prefill_prev_token_ = mCandidates[0].tokens.size();
+    prefill_time.prefill_prev_token_ = mLlm->mLlmSessionInfos[0].tokens.size();
     prefill_time.prefill_token_ = input_ids.size();
     // initialization
     std::string output_str; 
-    mCandidates[0].tokens.insert(mCandidates[0].tokens.end(), input_ids.begin(), input_ids.end());
+    mLlm->mLlmSessionInfos[0].tokens.insert(mLlm->mLlmSessionInfos[0].tokens.end(), input_ids.begin(), input_ids.end());
     // all_seq_len_ in sampler functions as kv_seq_len_, prev_seq_len_ = all_seq_len_ - seq_len
-    mCandidates[0].all_seq_len_ = mCandidates[0].tokens.size(); 
-    mCandidates[0].gen_seq_len_ = 0;
+    mLlm->mLlmSessionInfos[0].all_seq_len_ = mLlm->mLlmSessionInfos[0].tokens.size(); 
+    mLlm->mLlmSessionInfos[0].gen_seq_len_ = 0;
     // prefill 
     auto st = std::chrono::system_clock::now();
-    auto logits = mLlm->forward(input_ids, mCandidates[0].all_seq_len_, mCandidates[0].gen_seq_len_, true);
+    auto logits = mLlm->forward(input_ids, mLlm->mLlmSessionInfos[0].all_seq_len_, mLlm->mLlmSessionInfos[0].gen_seq_len_, true);
     if (nullptr == logits.get()) {
         return "";
     }
@@ -508,13 +509,13 @@ std::string LocalSampler::sample(const std::vector<int>& input_ids, std::ostream
     // handle the new token
     output_str += handleToken(token, os, end_with);
     // decode
-    while (mCandidates[0].gen_seq_len_ < mConfig.max_new_tokens
-            && mCandidates[0].all_seq_len_ < mConfig.max_all_tokens) {
+    while (mLlm->mLlmSessionInfos[0].gen_seq_len_ < mConfig.max_new_tokens
+            && mLlm->mLlmSessionInfos[0].all_seq_len_ < mConfig.max_all_tokens) {
         DecodeTimePerformance decode_time;
-        decode_time.decode_prev_token_ = mCandidates[0].tokens.size();
+        decode_time.decode_prev_token_ = mLlm->mLlmSessionInfos[0].tokens.size();
         st = std::chrono::system_clock::now();
         // next token
-        logits = mLlm->forward({mCandidates[0].tokens.back()}, mCandidates[0].all_seq_len_, mCandidates[0].gen_seq_len_, false);
+        logits = mLlm->forward({mLlm->mLlmSessionInfos[0].tokens.back()}, mLlm->mLlmSessionInfos[0].all_seq_len_, mLlm->mLlmSessionInfos[0].gen_seq_len_, false);
         if (nullptr == logits.get()) {
             return output_str;
         }
@@ -532,24 +533,11 @@ std::string LocalSampler::sample(const std::vector<int>& input_ids, std::ostream
             output_str += handleToken(token);
         }
     }
-    if (mCandidates[0].all_seq_len_ == mConfig.max_all_tokens) {
+    if (mLlm->mLlmSessionInfos[0].all_seq_len_ == mConfig.max_all_tokens) {
         std::cout << "sequence length reaches maximum allowed." << std::endl;
     }
     // return output_str
     return output_str;
-}
-
-void LocalSampler::reset(Llm* llm) {
-    mLlm = llm;
-    reset();
-}
-
-void LocalSampler::reset() {
-    // in the future, only reset its own.
-    mCandidates.clear();
-    mCandidates.emplace_back(SampleCandidate()); // for LocalSampler, reference have never been modified manually.
-    // KV cache reset as long as seq_len becomes 0.
-    mLlm->reset();
 }
 
 

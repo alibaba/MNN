@@ -1,64 +1,65 @@
-#include "prompt/prompt.hpp"
+#include "prompt.hpp"
 
 namespace MNN {
 namespace Transformer {
 
 /* ----------PromptLib---------- */
-PromptLib* PromptLib::createPromptLib(const std::string prompt_type, const std::string& config_path) {
-    std::shared_ptr<LlmConfig> config(new LlmConfig(config_path));
-    if (prompt_type == "BaseChat") {
-        return new BaseChatPromptLib(config);
+PromptLib* PromptLib::createPromptLib(Llm* llm, const std::string& config_path) {
+    return createPromptLib(llm, std::shared_ptr<LlmConfig>(new LlmConfig(config_path)));
+}
+PromptLib* PromptLib::createPromptLib(Llm* llm, std::shared_ptr<LlmConfig> config) {
+    if (config->app_type() == "chat") {
+        return new BaseChatPromptLib(llm, config);
     } else {
         std::cout << "PromptLib not Implemented!\n" << std::endl; 
         return nullptr;
     }
 }
 
-void PromptLib::reset() {
-    mHistory.clear();
-    mInputs.clear();
-}
-
 /* ----------BaseChatPromptLib---------- */
-BaseChatPromptLib::BaseChatPromptLib(std::shared_ptr<LlmConfig> config) {
+BaseChatPromptLib::BaseChatPromptLib(Llm* llm, std::shared_ptr<LlmConfig> config) {
+    mLlm = llm;
     mReuseKV = config->reuse_kv();
+    mDefaultSystemPrompt = config->system_prompt();
     mSystemTemplate = config->system_prompt_template();
     mUserTemplate = config->user_prompt_template();
     mAssistantPrefix = config->assistant_prefix();
     mAssistantSuffix = config->assistant_suffix();
-    mHistory.clear();
-    mInputs.clear();
 }
 
-void BaseChatPromptLib::appendSystemPrompt(const std::string& sys_prompt) {
-    mHistory.emplace_back(std::make_pair("system", sys_prompt));
-    mInputs.emplace_back(std::make_pair("system", sys_prompt));
+void BaseChatPromptLib::appendSystemPrompt() {
+    appendSystemPrompt(mDefaultSystemPrompt);
 }
-void BaseChatPromptLib::appendUserPrompt(const std::string& user_prompt) {
-    mHistory.emplace_back(std::make_pair("user", user_prompt));
-    mInputs.emplace_back(std::make_pair("user", user_prompt));
+void BaseChatPromptLib::appendSystemPrompt(const std::string sys_prompt) {
+    mLlm->mLlmSessionInfos[0].mHistory.emplace_back(std::make_pair("system", sys_prompt));
+    mLlm->mLlmSessionInfos[0].mInputs.emplace_back(std::make_pair("system", sys_prompt));
+}
+void BaseChatPromptLib::appendUserPrompt(const std::string user_prompt) {
+    if (mLlm->mLlmSessionInfos[0].mHistory.empty()) { appendSystemPrompt(); } // prevent no system prompt appendix.
+    mLlm->mLlmSessionInfos[0].mHistory.emplace_back(std::make_pair("user", user_prompt));
+    mLlm->mLlmSessionInfos[0].mInputs.emplace_back(std::make_pair("user", user_prompt));
 }
 void BaseChatPromptLib::appendLLMOutput(std::string out_str) {
-    mHistory.emplace_back(std::make_pair("assistant", out_str));
+    mLlm->mLlmSessionInfos[0].mHistory.emplace_back(std::make_pair("assistant", out_str));
     if (mReuseKV) {
         // clear input
-        mInputs.clear();
+        mLlm->mLlmSessionInfos[0].mInputs.clear();
     } else {
         // keep input, append output
-        mInputs.emplace_back(std::make_pair("assistant", out_str));
+        mLlm->mLlmSessionInfos[0].mInputs.emplace_back(std::make_pair("assistant", out_str));
     }
 }
 
 std::string BaseChatPromptLib::getLLMInput() {
     std::string input_str;
     if (mReuseKV) {
-        if (mHistory.size() != mInputs.size()) {
+        if (mLlm->mLlmSessionInfos[0].mHistory.size() != mLlm->mLlmSessionInfos[0].mInputs.size()) {
             // 1.1 not first prefill, add end of speech.
             input_str += mAssistantSuffix;
         }
     }
     // 1.2 generate from template
-    input_str += applyTemplates(mInputs);
+    input_str += applyTemplates(mLlm->mLlmSessionInfos[0].mInputs);
     input_str += mAssistantPrefix;
     return input_str;
 }

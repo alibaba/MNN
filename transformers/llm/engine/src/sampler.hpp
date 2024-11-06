@@ -19,6 +19,7 @@
 
 #include "evaluation/evaluation.hpp"
 #include "llmconfig.hpp"
+#include "llm/llm.hpp"
 
 
 namespace MNN {
@@ -49,12 +50,6 @@ struct SubsetLogits{
     MNN::Express::VARP logits;
     bool is_subset;
 };
-// sample candidate
-struct SampleCandidate {
-    // StateCacheReference
-    int all_seq_len_=0, gen_seq_len_=0;
-    std::vector<int> tokens;
-};
 
 class MNN_PUBLIC Sampler {
 public:
@@ -65,7 +60,6 @@ public:
     };
 protected:
     Llm* mLlm;
-    std::vector<struct SampleCandidate> mCandidates;
     int select(struct SubsetLogits& subset, int id);
     int randomSelect(float* probs, size_t size);
     int randomSelect(MNN::Express::VARP probs);
@@ -77,11 +71,11 @@ protected:
     void transformIndex(struct SubsetLogits& superset, struct SubsetLogits& subset);
 public:
     static Sampler* createSampler(Llm* llm, const std::string& config_path);
+    static Sampler* createSampler(Llm* llm, std::shared_ptr<LlmConfig> config);
     virtual std::string sample(const std::vector<int>& input_ids, std::ostream* os = &std::cout, const char* end_with = nullptr, struct TimePerformance* time_perf = nullptr) = 0;
     // prepare for another round of sampling
     // in the future, only reset its own.
-    virtual void reset(Llm* llm) {}
-    virtual void reset() {}
+    virtual void reset(Llm* llm) { mLlm = llm; }
 };
 
 
@@ -133,11 +127,9 @@ protected:
     int handleSelect(struct SubsetLogits subset);
     std::string handleToken(int token, std::ostream* os = &std::cout, const char* end_with = nullptr);
 public:
-    LocalSampler(Llm* llm, const std::string& config_path);
+    LocalSampler(Llm* llm, std::shared_ptr<LlmConfig> config);
     int algorithm(MNN::Express::VARP logits);
     virtual std::string sample(const std::vector<int>& input_ids, std::ostream* os = &std::cout, const char* end_with = nullptr, struct TimePerformance* time_perf = nullptr) override;
-    virtual void reset(Llm* llm) override;
-    virtual void reset() override;
 };
 
 

@@ -38,6 +38,7 @@ struct DecodeTimePerformance {
 struct TimePerformance {
     std::vector<PrefillTimePerformance> prefill_record_;
     std::vector<DecodeTimePerformance> decode_record_;
+    std::vector<int> prompt_record_;
 };
 
 struct PrefillMemPerformance {

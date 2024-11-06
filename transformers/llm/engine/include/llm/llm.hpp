@@ -18,6 +18,7 @@
 #include <functional>
 #include <unordered_map>
 
+#include "evaluation/evaluation.hpp"
 #include <MNN/expr/Expr.hpp>
 #include <MNN/expr/Module.hpp>
 #include <MNN/expr/MathOp.hpp>
@@ -28,20 +29,58 @@ namespace Transformer {
 class Tokenizer;
 class Pipeline;
 class LlmConfig;
+class Sampler;
+class PromptLib;
+struct TimePerformance;
+
+
+// <role, content>
+#define PromptItem std::pair<std::string, std::string>
+
+class MNN_PUBLIC LlmSessionInfo {
+public:
+    // Sampler needs
+    int all_seq_len_=0, gen_seq_len_=0;
+    std::vector<int> tokens;
+    // PromptLib needs
+    std::vector<PromptItem> mHistory;
+    std::vector<PromptItem> mInputs;
+    // Performance needs
+    struct TimePerformance mTimePerformance;
+public:
+    LlmSessionInfo():all_seq_len_(0),gen_seq_len_(0){}
+    void resetSamplerFields();
+    void resetPromptFields();
+    void resetPerformanceFields();
+    void print_speed(std::ostream* os);
+    float average_total_speed();
+    float average_prefill_speed();
+    float average_decode_speed();
+    float getTotalPrefillTime();
+    float getTotalDecodeTime();
+    int getTotalPromptLen();
+    int getTotalDecodeLen();
+};
 
 class MNN_PUBLIC Llm {
-    using PromptItem = std::pair<std::string, std::string>; // <role, content>
 public:
     Llm(std::shared_ptr<LlmConfig> config) : config_(config) {}
     virtual ~Llm();
     static Llm* createLLM(const std::string& config_path);
+    void chat(bool session_by_line = false, bool from_file = false, 
+              std::istream* is = &std::cin, std::ostream* os = &std::cout, 
+              const char* end_with = "\n", std::string exit_prompt = "/exit", std::string reset_token = "/reset");
     void reset();
     void trace(bool start);
     virtual void load();
     MNN::Express::VARP forward(const std::vector<int>& input_ids, int kv_seq_len_, int gen_seq_len_, bool is_prefill);
+    std::string response(const std::string& user_content, std::ostream* os = &std::cout, const char* end_with = nullptr);
+    std::string generate(const std::string& prompt, std::ostream* os = &std::cout, const char* end_with = "\n");
+    std::string generate(const std::vector<int>& input_ids, std::ostream* os = &std::cout, const char* end_with = "\n");
     void generate_init();
     std::string generateTrace(const std::vector<int>& input_ids, std::ostream* os, const char* end_with);
     void print_speed();
+    void print_speed(std::ostream* os);
     // config function
     std::string dump_config();
     bool set_config(const std::string& content);
@@ -52,18 +91,26 @@ public:
     bool select_module(size_t index);
     friend class Pipeline;
 public:
-    // time
-    int64_t prefill_us_ = 0;
-    int64_t decode_us_ = 0;
+    std::vector<LlmSessionInfo> mLlmSessionInfos; // currently, only mLlmSessionInfos[0] is allowed!
     bool is_single_ = true;
     bool attention_fused_ = true;
     virtual std::vector<int> tokenizer(const std::string& query);
     std::string decode(int id);
     bool is_stop(int token_id);
     bool reuse_kv() const;
+public:
+    float average_total_speed();
+    float average_prefill_speed();
+    float average_decode_speed();
+    float getTotalPrefillTime();
+    float getTotalDecodeTime();
+    int getTotalPromptLen();
+    int getTotalDecodeLen();
 protected:
     std::shared_ptr<LlmConfig> config_;
     std::shared_ptr<Tokenizer> tokenizer_;
+    std::shared_ptr<Sampler> mSampler;
+    std::shared_ptr<PromptLib> mPromptLib;
     std::vector<int> key_value_shape_ = {};
     std::vector<MNN::Express::VARP> past_key_values_;
     MNN::Express::VARP inputs_embeds_, attention_mask_, position_ids_;
@@ -76,6 +123,10 @@ protected:
     virtual MNN::Express::VARP gen_attention_mask(int seq_len, int kv_seq_len_, int gen_seq_len_);
     virtual MNN::Express::VARP gen_position_ids(int seq_len, int kv_seq_len_, int gen_seq_len);
     bool mTracing = false;
+protected:
+    bool getUserPrompt(bool from_file, std::istream* is, std::string& user_str);
+    void chat_init();
+    void chat_reset();
 };
 
 // Embedding start
