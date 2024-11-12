@@ -41,6 +41,8 @@ struct TimePerformance {
     std::vector<int> prompt_record_;
 };
 
+void appendNewPromptRecord(struct TimePerformance* perf, int input_len, bool reuse_kv);
+
 struct PrefillMemPerformance {
     size_t prefill_prev_token_ = 0;
     size_t prefill_token_ = 0;

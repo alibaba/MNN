@@ -6,6 +6,7 @@
 //
 
 #include "llm/llm.hpp"
+#include "evaluation/dataset.hpp"
 #define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
 #include <MNN/expr/ExecutorScope.hpp>
@@ -21,49 +22,6 @@ static void trace_prepare(Llm* llm) {
     MNN_PRINT("Prepare for resize opt End\n");
     llm->trace(false);
     llm->reset();
-}
-
-std::vector<std::vector<std::string>> parse_csv(const std::vector<std::string>& lines) {
-    std::vector<std::vector<std::string>> csv_data;
-    std::string line;
-    std::vector<std::string> row;
-    std::string cell;
-    bool insideQuotes = false;
-    bool startCollecting = false;
-
-    // content to stream
-    std::string content = "";
-    for (auto line : lines) {
-        content = content + line + "\n";
-    }
-    std::istringstream stream(content);
-
-    while (stream.peek() != EOF) {
-        char c = stream.get();
-        if (c == '"') {
-            if (insideQuotes && stream.peek() == '"') { // quote
-                cell += '"';
-                stream.get(); // skip quote
-            } else {
-                insideQuotes = !insideQuotes; // start or end text in quote
-            }
-            startCollecting = true;
-        } else if (c == ',' && !insideQuotes) { // end element, start new element
-            row.push_back(cell);
-            cell.clear();
-            startCollecting = false;
-        } else if ((c == '\n' || stream.peek() == EOF) && !insideQuotes) { // end line
-            row.push_back(cell);
-            csv_data.push_back(row);
-            cell.clear();
-            row.clear();
-            startCollecting = false;
-        } else {
-            cell += c;
-            startCollecting = true;
-        }
-    }
-    return csv_data;
 }
 
 static int benchmark(Llm* llm, const std::vector<std::string>& prompts) {

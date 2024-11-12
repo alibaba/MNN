@@ -73,6 +73,7 @@ public:
     static Sampler* createSampler(Llm* llm, const std::string& config_path);
     static Sampler* createSampler(Llm* llm, std::shared_ptr<LlmConfig> config);
     virtual std::string sample(const std::vector<int>& input_ids, std::ostream* os = &std::cout, const char* end_with = nullptr, struct TimePerformance* time_perf = nullptr) = 0;
+    virtual std::vector<float> perplexity(std::string prompt_file, std::ostream* perfOS) { return std::vector<float>(); }
     // prepare for another round of sampling
     // in the future, only reset its own.
     virtual void reset(Llm* llm) { mLlm = llm; }

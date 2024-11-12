@@ -12,7 +12,7 @@
 #include <iostream>
 #include <sstream>
 #include <fstream>
-#include "rapidjson/document.h"
+#include <rapidjson/document.h>
 #include <rapidjson/writer.h>
 #include <rapidjson/stringbuffer.h>
 		
@@ -394,6 +394,18 @@ public:
         return config_.value("system_prompt", "You are a helpful assistant!\n");
     }
     // app config end >
+
+    // < evaulation config start
+    int ppl_stride() const {
+        return config_.value("ppl_stride", 0);
+    }
+    std::string dataset() const {
+        return config_.value("dataset", "wikitext");
+    }
+    int dataset_sample_size() const {
+        return config_.value("dataset_sample_size", -1); // -1 stands for no sampling, use all.
+    }
+    // evaulation config end
 };
 } // Transformer
 } // MNN

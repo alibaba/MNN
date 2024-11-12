@@ -365,4 +365,5 @@ MNN_compression_pb2.py
 model/
 
 # datasets
-datasets/
+datasets/*
+!datasets/*.sh

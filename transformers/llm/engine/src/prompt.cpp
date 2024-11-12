@@ -8,7 +8,7 @@ PromptLib* PromptLib::createPromptLib(Llm* llm, const std::string& config_path) 
     return createPromptLib(llm, std::shared_ptr<LlmConfig>(new LlmConfig(config_path)));
 }
 PromptLib* PromptLib::createPromptLib(Llm* llm, std::shared_ptr<LlmConfig> config) {
-    if (config->app_type() == "chat") {
+    if (config->app_type() == "chat" || config->app_type() == "perplexity") {
         return new BaseChatPromptLib(llm, config);
     } else {
         std::cout << "PromptLib not Implemented!\n" << std::endl; 

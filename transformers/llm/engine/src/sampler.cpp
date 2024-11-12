@@ -6,8 +6,11 @@
 
 #include <MNN/expr/Executor.hpp>
 #include <MNN/expr/ExecutorScope.hpp>
+
 #include "llm/llm.hpp"
+#include "evaluation/dataset.hpp"
 #include "sampler.hpp"
+#include "perplexity.hpp"
 #include "llmconfig.hpp"
 
 namespace MNN{
@@ -107,6 +110,10 @@ Sampler* Sampler::createSampler(Llm* llm, std::shared_ptr<LlmConfig> config) {
         || sampler_type == "mixed"
         ) {
         return new LocalSampler(llm, config);
+    } else if (config->app_type() == "perplexity") {
+        std::string ppl_type = getPPLType(config->dataset());
+        if (ppl_type == "text") { return new TextPPLMeasurer(llm, config); }
+        else if (ppl_type == "chat") { return new ChatPPLMeasurer(llm, config); }
     } else {
         std::cout << "Designated Sampler Not Supported yet!";
         exit(1);
@@ -489,6 +496,7 @@ std::string LocalSampler::sample(const std::vector<int>& input_ids, std::ostream
     PrefillTimePerformance prefill_time;
     prefill_time.prefill_prev_token_ = mLlm->mLlmSessionInfos[0].tokens.size();
     prefill_time.prefill_token_ = input_ids.size();
+    appendNewPromptRecord(time_perf, input_ids.size(), mLlm->reuse_kv());
     // initialization
     std::string output_str; 
     mLlm->mLlmSessionInfos[0].tokens.insert(mLlm->mLlmSessionInfos[0].tokens.end(), input_ids.begin(), input_ids.end());

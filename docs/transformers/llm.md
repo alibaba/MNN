@@ -248,7 +248,7 @@ pc端直接推理
 ```bash
 # 利用adb push将链接库push到手机上
 adb shell mkdir /data/local/tmp/llm
-adb push chat_demo libllm.so libMNN_CL.so libMNN_Express.so libMNN.so tools/cv/libMNNOpenCV.so /data/local/tmp/llm
+adb push llm_demo ppl_demo libllm.so libMNN_CL.so libMNN_Express.so libMNN.so tools/cv/libMNNOpenCV.so /data/local/tmp/llm
 ```
 
 #### GPTQ权重加载

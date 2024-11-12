@@ -475,7 +475,7 @@ void Tiktoken::encode(const std::string& str, std::vector<int>& ids) {
         } else {
             // If no matching symbol is found, this typically means an error in the encoding
             // or the input text contains characters that the encoder doesn't know how to handle
-            std::cerr << "Error: No encoding found for the sequence starting at position " << i << std::endl;
+            std::cerr << "Error: No encoding found for the sequence starting at position " << i << " , symbol: " << str[i-2] << std::endl;
             return;
         }
     }

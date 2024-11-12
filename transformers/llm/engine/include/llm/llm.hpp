@@ -64,6 +64,10 @@ public:
 
 class MNN_PUBLIC Llm {
 public:
+    std::shared_ptr<Sampler> mSampler;
+    std::shared_ptr<PromptLib> mPromptLib;
+    std::vector<LlmSessionInfo> mLlmSessionInfos; // Llm conversation session information. Currently, only mLlmSessionInfos[0] is allowed!
+public:
     Llm(std::shared_ptr<LlmConfig> config) : config_(config) {}
     virtual ~Llm();
     static Llm* createLLM(const std::string& config_path);
@@ -81,6 +85,7 @@ public:
     std::string generateTrace(const std::vector<int>& input_ids, std::ostream* os, const char* end_with);
     void print_speed();
     void print_speed(std::ostream* os);
+    std::vector<float> perplexity(std::string prompt_file, std::ostream* statsOS = nullptr);
     // config function
     std::string dump_config();
     bool set_config(const std::string& content);
@@ -91,7 +96,6 @@ public:
     bool select_module(size_t index);
     friend class Pipeline;
 public:
-    std::vector<LlmSessionInfo> mLlmSessionInfos; // currently, only mLlmSessionInfos[0] is allowed!
     bool is_single_ = true;
     bool attention_fused_ = true;
     virtual std::vector<int> tokenizer(const std::string& query);
@@ -109,8 +113,6 @@ public:
 protected:
     std::shared_ptr<LlmConfig> config_;
     std::shared_ptr<Tokenizer> tokenizer_;
-    std::shared_ptr<Sampler> mSampler;
-    std::shared_ptr<PromptLib> mPromptLib;
     std::vector<int> key_value_shape_ = {};
     std::vector<MNN::Express::VARP> past_key_values_;
     MNN::Express::VARP inputs_embeds_, attention_mask_, position_ids_;
