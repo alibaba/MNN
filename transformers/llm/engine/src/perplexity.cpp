@@ -221,7 +221,6 @@ float ChatPPLMeasurer::perplexity_one(const std::vector<std::vector<PromptItem>>
 
     // record time performance to file
     if (perfOS != nullptr) {
-        (*perfOS) << "<chat>" << std::endl;
         mLlm->mLlmSessionInfos[0].print_speed(perfOS);
     }
 
