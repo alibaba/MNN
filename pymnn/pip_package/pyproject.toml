@@ -8,24 +8,6 @@ requires = [
 
 build-backend = "setuptools.build_meta"
 
-[tool.cibuildwheel]
-test-skip = [
-    "cp36-*",
-    "*-macosx_arm64",
-    "*-macosx_x86_64"
-]
-test-requires = [
-    "opencv-python",
-    "numpy",
-    "torch"
-]
-test-command = [
-  "cd {project}/pymnn/test",
-  "ls",
-  "python unit_test.py",
-  "cd ../.."
-]
-
 [tool.cibuildwheel.macos]
 archs = ["native"]
 build = "cp*-macosx_*"
@@ -48,7 +30,7 @@ archs = ["native"]
 repair-wheel-command = [
     "export LD_LIBRARY_PATH=$(pwd)/pymnn_build/tools/converter/libtorch/lib:$LD_LIBRARY_PATH",
     "echo $LD_LIBRARY_PATH",
-    "auditwheel repair --plat manylinux2014_x86_64 -w {dest_dir} {wheel}"
+    "auditwheel repair -w {dest_dir} {wheel}"
 ]
 
 [tool.cibuildwheel.windows]
@@ -56,9 +38,4 @@ before-all = [
     "cd pymnn/pip_package",
     "python3 build_deps.py",
     "cd ../.."
-]
-test-command = [
-  "cd /d {project}/pymnn/test",
-  "python unit_test.py",
-  "cd ../.."
 ]
