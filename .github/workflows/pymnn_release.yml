@@ -69,6 +69,7 @@ jobs:
     - name: Upload wheels
       uses: actions/upload-artifact@v4
       with:
+        name: artifact-${{ matrix.arch }}-${{ matrix.arch }}
         path: wheelhouse/*.whl
 
   publish_wheels:
@@ -83,9 +84,9 @@ jobs:
       with:
         python-version: '3.x'
 
-    - uses: actions/download-artifact@v4.1.7
+    - uses: actions/download-artifact@v4
       with:
-        name: artifact
+        pattern: artifact-*
         path: dist
 
     - uses: pypa/gh-action-pypi-publish@release/v1

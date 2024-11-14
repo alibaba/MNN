@@ -3,6 +3,8 @@ on:
   push:
     tags:
       - '*'
+  workflow_dispatch:
+
 jobs:
   setup:
     permissions:
@@ -34,8 +36,9 @@ jobs:
         rm -f ${{ env.PACKAGENAME }}.zip
         zip -9 -y -r ${{ env.PACKAGENAME }}.zip ${{ env.PACKAGENAME }}
     - name: upload-zip
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
+        name: artifact-${{ env.PACKAGENAME }}
         path: ${{ env.PACKAGENAME }}.zip
 
   windows-release:
@@ -44,7 +47,7 @@ jobs:
     env:
       PACKAGENAME: mnn_${{ needs.setup.outputs.VERSION }}_windows_x64_cpu_opencl
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
       with:
         submodules: true
 
@@ -58,6 +61,7 @@ jobs:
     - name: upload-zip
       uses: actions/upload-artifact@v4
       with:
+        name: artifact-${{ env.PACKAGENAME }}
         path: ${{ env.PACKAGENAME }}.zip
 
   macos-release:
@@ -79,8 +83,9 @@ jobs:
         rm -f ${{ env.PACKAGENAME }}.zip
         zip -9 -y -r ${{ env.PACKAGENAME }}.zip ${{ env.PACKAGENAME }}
     - name: upload-zip
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
+        name: artifact-${{ env.PACKAGENAME }}
         path: ${{ env.PACKAGENAME }}.zip
 
   android-release:
@@ -99,8 +104,9 @@ jobs:
         rm -f ${{ env.PACKAGENAME }}.zip
         zip -9 -y -r ${{ env.PACKAGENAME }}.zip ${{ env.PACKAGENAME }}
     - name: upload-zip
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
+        name: artifact-${{ env.PACKAGENAME }}
         path: ${{ env.PACKAGENAME }}.zip
 
   ios-release:
@@ -123,8 +129,9 @@ jobs:
         rm -f ${{ env.PACKAGENAME }}.zip
         zip -9 -y -r ${{ env.PACKAGENAME }}.zip ios_build/Release-iphoneos/MNN.framework
     - name: upload-zip
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
+        name: artifact-${{ env.PACKAGENAME }}
         path: ${{ env.PACKAGENAME }}.zip
 
   upload-release:
@@ -132,9 +139,9 @@ jobs:
     needs: [linux-release, windows-release, macos-release, android-release, ios-release]
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/download-artifact@v4.1.7
+    - uses: actions/download-artifact@v4
       with:
-        name: artifact
+        pattern: artifact-*
         path: assert
 
     - name: show file
