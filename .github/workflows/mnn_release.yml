@@ -15,7 +15,14 @@ jobs:
     steps:
     - name: get-version
       id: get_version
-      run: echo "VERSION=${GITHUB_REF/refs\/tags\//}" >> $GITHUB_OUTPUT
+      run: |
+        if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+          # 提取标签版本号
+          echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+        else
+          # 如果不是标签，则设置版本为 'dev'
+          echo "VERSION=dev" >> $GITHUB_OUTPUT
+        fi
 
   linux-release:
     needs: [setup]
