@@ -150,6 +150,7 @@ jobs:
       with:
         pattern: artifact-*
         path: assert
+        merge-multiple: true
 
     - name: show file
       run: ls assert
