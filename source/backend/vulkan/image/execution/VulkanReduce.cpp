@@ -81,7 +81,7 @@ ErrorCode VulkanReduce::onEncode(const std::vector<Tensor*>& inputs, const std::
     mDescriptorSet->writeBuffer(mConstBuffer->buffer(), 2, mConstBuffer->size());
     cmdBuffer->barrierSource(mSource.buffer->buffer(), 0, mSource.buffer->size());
     mPipeline->bind(cmdBuffer->get(), mDescriptorSet->get());
-    vkCmdDispatch(cmdBuffer->get(), UP_DIV(total, 256), 1, 1);
+    vkCmdDispatch(cmdBuffer->get(), 1, total, 1);
     cmdBuffer->barrierSource(mOutput.buffer->buffer(), 0, mOutput.buffer->size());
     mOutput.convert->encodeBufferToTensor(mOutput.buffer->buffer(), output, mOutput.buffer->size(), 0, VulkanImageConverter::getTensorLinearFormat(output), cmdBuffer);
     {

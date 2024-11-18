@@ -20,16 +20,20 @@ static inline CoreMLExecutor* getCoreMLExecutoreRef(void* ptr) {
     return (__bridge CoreMLExecutor*)ptr;
 }
 
-CoreMLExecutorWrapper::CoreMLExecutorWrapper() {
+CoreMLExecutorWrapper::CoreMLExecutorWrapper(int precision) {
     if (mCoreMLExecutorPtr == nullptr)  {
         mCoreMLExecutorPtr = (__bridge_retained void*)[[CoreMLExecutor alloc] init];
+        auto executor = getCoreMLExecutoreRef(mCoreMLExecutorPtr);
+        executor.precision = precision;
     }
 }
 
 CoreMLExecutorWrapper::~CoreMLExecutorWrapper() {
-    auto executor = getCoreMLExecutoreOwn(mCoreMLExecutorPtr);
-    (void)executor;
-    mCoreMLExecutorPtr = nullptr;
+    @autoreleasepool {
+        auto executor = getCoreMLExecutoreOwn(mCoreMLExecutorPtr);
+        (void)executor;
+        executor = nullptr;
+    }
 }
 
 bool CoreMLExecutorWrapper::compileModel(CoreML__Specification__Model* model) {

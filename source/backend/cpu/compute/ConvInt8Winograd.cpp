@@ -323,7 +323,7 @@ ErrorCode ConvInt8Winograd::onExecute(const std::vector<Tensor *> &inputs, const
 
     std::vector<float> scale(pack, inputQuant[0]);
     int size = bn->getTensorSize(mInputFloat.get());
-    core->MNNInt8ScaleToFloat(mInputFloat->host<float>(), inputs[0]->host<int8_t>(), scale.data(), size / pack, inputQuant[1]);
+    core->MNNInt8ScaleToFloat(mInputFloat->host<float>(), inputs[0]->host<int8_t>(), &inputQuant[0], size / pack, &inputQuant[1], 0);
     std::vector<Tensor*> tmp_outputs;
     for (auto& unit : mUnits) {
         unit.input->buffer().host = TensorUtils::getDescribeOrigin(unit.input.get())->mem->chunk().ptr();
@@ -557,7 +557,7 @@ ErrorCode ConvInt8Winograd::WinoExecution::onExecute(const std::vector<Tensor *>
                     quanParam.extraScale = nullptr;
                     quanParam.bias = nullptr;
                     quanParam.blockNum = 1;
-                    gemmFunc((int8_t*)_dstFloatPtr, _srcInt8Ptr, _weightInt8Ptr, mTempInputBuffer->length(2), xC * pack * sizeof(float), dc_4, &quanParam, xC);
+                    gemmFunc((int8_t*)_dstFloatPtr, _srcInt8Ptr, _weightInt8Ptr, mTempInputBuffer->length(2), xC * pack * sizeof(float), dc_4, &quanParam, DST_XUNIT);
                 }
     #ifndef MNN_WINO_TRANFORM_TEST_CLOSE
                 {

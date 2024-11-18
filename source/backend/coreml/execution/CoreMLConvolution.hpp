@@ -22,7 +22,7 @@ public:
     virtual ~CoreMLConvolution() = default;
 private:
     void loadWeightBias(const std::vector<Tensor *> &inputs);
-    void addPadLayer(const Tensor * input, const Convolution2DCommon* common);
+    void addPadLayer(const Tensor * input, const Tensor* output, const Convolution2DCommon* common);
     std::string mConvInputName, mConvOutputName;
     std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
     const float *weightPtr, *biasPtr;

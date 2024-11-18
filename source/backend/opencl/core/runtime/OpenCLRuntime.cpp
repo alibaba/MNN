@@ -17,7 +17,8 @@
 //#define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
 #include "CLCache_generated.h"
-#include "backend/opencl/execution/cl/opencl_source_map.hpp" 
+#include "backend/opencl/execution/cl/opencl_source_map.hpp"
+//#define ARM_OPENCL_PRINTF_DEBUG
 using namespace CLCache;
 namespace MNN {
 
@@ -29,6 +30,13 @@ bool OpenCLRuntime::getDeviceSupportsExtension(const cl::Device &device, const c
     auto pos               = extensions.find(extensionName);
     return (pos != std::string::npos);
 }
+
+#ifdef ARM_OPENCL_PRINTF_DEBUG
+static void callback(const char *buffer, size_t length, size_t final, void *user_data)
+{
+    fwrite(buffer, 1, length, stdout);
+}
+#endif
 
 OpenCLRuntime::OpenCLRuntime(const BackendConfig::PrecisionMode precision, const int cl_mode, int platformSize, int platformId, int deviceId, void *contextPtr, void *glShared) {
 #ifdef LOG_VERBOSE
@@ -182,7 +190,18 @@ OpenCLRuntime::OpenCLRuntime(const BackendConfig::PrecisionMode precision, const
                     mContext = std::shared_ptr<cl::Context>(new cl::Context(std::vector<cl::Device>({*mFirstGPUDevicePtr}), context_properties.data(), nullptr, nullptr, &res));
                     mIsDeviceSupportedLowPower = true;
                 }else{
+                    #ifdef ARM_OPENCL_PRINTF_DEBUG
+                    cl_context_properties context_properties[] =
+                    {
+                        CL_CONTEXT_PLATFORM, (cl_context_properties)platforms[platformId](),
+                        CL_PRINTF_CALLBACK_ARM, (cl_context_properties)callback,
+                        CL_PRINTF_BUFFERSIZE_ARM, 0x1000,
+                        0
+                    };
+                    mContext = std::shared_ptr<cl::Context>(new cl::Context(std::vector<cl::Device>({*mFirstGPUDevicePtr}), context_properties, nullptr, nullptr, &res));
+                    #else
                     mContext = std::shared_ptr<cl::Context>(new cl::Context(std::vector<cl::Device>({*mFirstGPUDevicePtr}), nullptr, nullptr, nullptr, &res));
+                    #endif
                 }
                 
                 MNN_CHECK_CL_SUCCESS(res, "context");

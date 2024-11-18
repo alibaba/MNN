@@ -335,33 +335,22 @@ REGISTER_METAL_OP_CREATOR(MetalMyCustomOpCreator, OpType_MyCustomOp);
 重新运行一下 CMake ，或者手动在Xcode工程中新加文件
 
 ### 添加Vulkan实现
-1. 添加Shader
-在`source/backend/vulkan/execution/glsl`目录下添加具体的shader(*.comp)。若输入内存布局为`NC4HW4`，则按`image`实现，否则采用buffer实现。可以参考目录下已有实现。然后，执行`makeshader.py`脚本编译Shader。
+Vulkan后端当前包含两种张量存储类型：buffer与image。开发者可在编译时通过宏`MNN_VULKAN_IMAGE`自行选择需要的存储类型。当开发者需要为Vulkan后端添加算子时，亦需要考虑选择何种存储类型并在相应目录下进行开发。下以image类型为例，阐述为Vulkan后端添加算子的主要流程。
 
-2. 实现类声明
-在目录`source/backend/vulkan/execution/`下添加`VulkanMyCustomOp.hpp`和`VulkanMyCustomOp.cpp`：
-```cpp
-class VulkanMyCustomOp : public VulkanBasicExecution {
-public:
-    VulkanMyCustomOp(const Op* op, Backend* bn);
-    virtual ~VulkanMyCustomOp();
-    ErrorCode onEncode(const std::vector<Tensor*>& inputs, 
-                       const std::vector<Tensor*>& outputs,
-                       const VulkanCommandPool::Buffer* cmdBuffer) override;
-private:
-    // GPU Shader所需的参数
-    std::shared_ptr<VulkanBuffer> mConstBuffer;
-    // Pipeline
-    const VulkanPipeline* mPipeline;
-    // Layout Descriptor Set
-    std::shared_ptr<VulkanPipeline::DescriptorSet> mDescriptorSet;
-};
-```
-
-3. 实现
-实现函数`onEncode`，首先需要做内存布局检查：若为`NC4HW4`，则Shader用image实现，否则用buffer。执行完毕返回NO_ERROR。
-
-4. 注册实现类
+1. 实现Execution
+- 执行脚本`source/backend/vulkan/image/compiler/VulkanCodeGen.py`，该脚本将向`source/backend/vulkan/image/execution`中添加`VulkanMyOp.hpp`与`VulkanMyOp.cpp`的模版代码
+- 实现构造函数
+  - 从CPU中读取常量参数，并写入GPU中
+  - 创建算子所需的pipeline
+    - 确定要使用的shader以及Macro
+    - set descriptorTypes，即确定shader中用到的显存对象的类型
+    - 调用getPipeline接口
+- 实现onEncode
+  - 显存资源申请并更新descriptorSet，将shader中需要读写的显存对象写入descriptorSet
+  - 添加memoryBarrier
+  - 把pipeline绑到cmdBuffer与descriptorSet
+  - command dispatch
+- 注册算子并添加创建类
 ```cpp
 class VulkanMyCustomOpCreator : public VulkanBackend::Creator {
 public:
@@ -376,6 +365,15 @@ static bool gResistor = []() {
     return true;
 }();
 ```
+
+2. 实现shader及编译
+- 编写Compute Shader文件`myOp.comp`，添加至目录`source/backend/vulkan/image/execution/glsl`
+- 将算子中用到的宏加入`source/backend/vulkan/image/execution/glsl/macro.json`
+- 执行脚本`source/backend/vulkan/image/compiler/makeshader.py`，该脚本将编译`myOp.comp`，并更新`source/backend/vulkan/image/compiler/AllShader.cpp`、`source/backend/vulkan/image/shaders/AllShader.h`以及`source/backend/vulkan/image/compiler/VulkanShaderMap.cpp`
+> MNN Vulkan当前使用glslangValidator（glslang仓库地址：<https://github.com/KhronosGroup/glslang>，版本号：12.2.0，commit id：d1517d64cfca91f573af1bf7341dc3a5113349c0）编译所有的compute shader。开发者如需保持自行编译后得到的二进制编译结果与MNN仓库中现有的编译结果一致，需要确保环境中的glslang的版本与MNN所使用的一致。
+
+
+
 
 ### 添加OpenCL实现
 1. 添加Kernel

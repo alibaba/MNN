@@ -331,9 +331,14 @@ int main(int argc, char *argv[]) {
             auto inputName = inputNames[i];
             // Resize
             auto shapeIter = inputShape.find(inputName);
+            auto order = mInfo->inputs[i].order;
+            if (MNN::Express::Dimensionformat::NC4HW4 == mInfo->inputs[i].order) {
+                order = MNN::Express::Dimensionformat::NCHW;
+            }
+
             if (shapeIter != inputShape.end()) {
                 auto s = shapeIter->second;
-                inputs[i] = _Input(s, mInfo->defaultFormat, mInfo->inputs[i].type);
+                inputs[i] = _Input(s, order, mInfo->inputs[i].type);
             }
             auto info = inputs[i]->getInfo();
             if (info->type == halide_type_of<float>()){
@@ -346,7 +351,9 @@ int main(int argc, char *argv[]) {
                 auto temp = _Cast(floatVar, info->type);
                 inputs[i]->input(temp);
             }
-            inputs[i] = _Convert(inputs[i], mInfo->inputs[i].order);
+            if (MNN::Express::Dimensionformat::NC4HW4 == mInfo->inputs[i].order) {
+                inputs[i] = _Convert(inputs[i], MNN::Express::Dimensionformat::NC4HW4);
+            }
         }
     }
 #undef LOAD_DATA

@@ -3,6 +3,8 @@
 - [模型转换后结果与其他框架不一致](faq.html#id8)
 - [compute shape error](faq.html#compute-shape-error-for-xxx)
 - [模型转换时有Error信息](faq.html#reshape-error)
+- [模型转换加上fp16没有性能提升](faq.html#fp16)
+- [如何开启动态量化](faq.html#weightquantbits)
 - [模型量化后为什么比浮点慢](faq.html#id14)
 - [输入输出的elementSize与实际有区别](faq.html#tensor-elementsize)
 - [MNN模型如何加密](faq.html#id18)
@@ -112,6 +114,14 @@ opConverter ==> MNN Converter NOT_SUPPORTED_OP: [ ANY_OP_NAME ]
 ### 模型转换后与原框架结果不一致
 先使用MNN中的模型一致性验证脚本进行测试，确定不是调用方法或其他错误，[使用方法](./tools/convert.html#id3)
 
+### 模型转换加上fp16后没有性能提升
+此功能只支持压缩模型数据，在运行时仍然先解压到float32运算。如果希望使用 fp16 加速，打开 `MNN_ARM82` 并在加载模型时设置 precision = low
+
+### 模型转换加上weightQuantBits后如何进行加速
+可以通过动态量化功能，加载仅权重量化的模型，降低内存占用和提升性能
+1. 打开 `MNN_LOW_MEMORY` 编译宏编译 MNN （支持动态量化功能）
+2. 使用 mnn 模型时 memory 设成 low
+
 ## Pymnn
 ### import MNN 出现 import numpy error
 临时解决方案：升级 numpy 版本到 1.20.0 或以上
@@ -169,10 +179,10 @@ const float* outputPtr = output->readMap<float>();
 
 ### Android 设备无法查看日志
 Android 系统有两类打印日志的方式: printf 和 logcat. 默认 MNN 的编译脚本使用 printf，这样方便在命令行中调试。集成到 App 上时，用 cmake  -DMNN_USE_LOGCAT=ON 将打印日志的方式改成 logcat 即可用 adb logcat 查看
-### 
+
 ### 如何增加 opencl so 地址?
 MNN opencl 后端默认采用 dlopen 的方式动态打开设备的 opencl 驱动，相应位置若找不到您设备上的驱动，请修改 **OpenCLWrapper.cpp**
-### 
+
 ### TensorArray Op 与 Switch / Merge 控制流支持
 TensorArray 和控制流支持需要借助 MNN-Express ，
 请参考 demo/exec/transformerDemo.cpp 的接口使用
@@ -284,6 +294,7 @@ GPU 后端调用 copy 的时间包含两个部分
    - x64 + vnni 指令，量化计算有 sdot 指令，明显快于 FP32 ，编译 MNN 时需要开启 MNN_AVX512 以支持这个指令，一般相比 AVX512 的浮点运算快 30%
    - ARM v7a / ARMv8 ：量化计算采用 int8 乘加到 int16，再双加到 int32 的方式，计算效率略快于浮点（一般 30% 左右提升）。
    - ARMv8.2 架构有 sdot 指令，但同时 FP32 相对之前架构发射数也提升了一倍，也支持了比 FP32 快一倍的 FP16 向量计算指令，MNN 会检查设备架构以开启 sdot / smmla ，理想情况下量化计算性能比 FP32 快1倍以上，比 FP16 快 20%。
+   - ARMv8.6 架构有 smmla 指令，理想情况下量化计算性能比 FP32 快3倍以上，比 FP16 快1倍以上，比 BF16 快 20%。
 
 ## 其他问题
 ### MNN模型如何加密

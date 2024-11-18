@@ -167,7 +167,7 @@ kernel void conv1x1_g1z4_w4(const device ftype4 *in            [[buffer(0)]],
     //if (computeSize > 3) {xy_out[3] = activate(ftype4(result3), cst.activation); }
 }
 
-kernel void conv1x1_g1z4_m1w4(const device ftype4 *in            [[buffer(0)]],
+kernel void conv1x1_gemv_g8_w4(const device ftype4 *in            [[buffer(0)]],
                             device ftype4 *out                 [[buffer(1)]],
                             constant conv1x1_constants& cst    [[buffer(2)]],
                             const device MNN::uchar4x2 *wt      [[buffer(3)]],
@@ -176,7 +176,12 @@ kernel void conv1x1_g1z4_m1w4(const device ftype4 *in            [[buffer(0)]],
                             uint3 gid[[threadgroup_position_in_grid]],
                             uint  tiisg[[thread_index_in_simdgroup]],
                             uint  sgitg[[simdgroup_index_in_threadgroup]]) {
+    // each threadgroup contain 2 simdgroup
+    // each simdgroup compute 4 data
     int uz = gid.x * 2 + sgitg;
+    if(uz >= cst.output_slice) {
+        return;
+    }
 
     int rx = gid.y;
     auto xy_wt = wt + uz * cst.input_slice;
@@ -186,17 +191,24 @@ kernel void conv1x1_g1z4_m1w4(const device ftype4 *in            [[buffer(0)]],
     FLOAT4 result0 = FLOAT4(0);
 
     int block = (cst.input_slice + cst.block_size - 1) / cst.block_size;
-    for (int bi=0; bi<cst.block_size; bi++) {
+    
+    int middle_step = min(SIMD_GROUP_WIDTH, block);
+    int outer_step  = SIMD_GROUP_WIDTH / middle_step;
+    int middle_index = (tiisg) % middle_step;
+    int outer_index  = (tiisg) / middle_step;
+    
+    for (int bi= outer_index; bi<cst.block_size; bi += outer_step) {
         FLOAT4 scale = FLOAT4(dequantScale[2 * (uz * cst.block_size + bi) + 0]);
         FLOAT4 dequant_bias = FLOAT4(dequantScale[2 * (uz * cst.block_size + bi) + 1]);
         int zmin = bi * block;
         int zmax = min(zmin + block, cst.input_slice);
-        for (int z = zmin + tiisg; z < zmax; z+=SIMD_GROUP_WIDTH) {
-            auto in40 = (FLOAT4)*(xy_in0 + z * cst.input_size * cst.batch);
+        for (int z = zmin + middle_index; z < zmax; z += middle_step) {
+            FLOAT4 in40 = (FLOAT4)*(xy_in0 + z);
+            
             MNN::uchar4x2 w_int4 = xy_wt[z];
 
             FLOAT4x4 w_dequant;
-            for (int i = 0; i < 4; ++i) {
+            for (int i = 0; i < 4; i += 1) {
                 FLOAT4 w4 = FLOAT4((float)(w_int4[i][0] >> 4) - 8, (float)(w_int4[i][0] & 15) - 8, (float)(w_int4[i][1] >> 4) - 8, (float)(w_int4[i][1] & 15) - 8);
                 FLOAT4 res = w4 * scale[i] + dequant_bias[i];
                 w_dequant[i] = res;
@@ -204,25 +216,92 @@ kernel void conv1x1_g1z4_m1w4(const device ftype4 *in            [[buffer(0)]],
 
             result0 += FLOAT4(in40 * w_dequant);
             
-//            FLOAT4x4 w_dequant;
-//            for (int i = 0; i < 4; ++i) {
-//                FLOAT4 w4 = FLOAT4((float)(w_int4[i][0] >> 4) - 8, (float)(w_int4[i][0] & 15) - 8, (float)(w_int4[i][1] >> 4) - 8, (float)(w_int4[i][1] & 15) - 8);
-//                FLOAT4 res = w4 * scale[i] + dequant_bias[i];
-//                w_dequant[i] = w4;
-//            }
-//
-//            FLOAT4 temp = FLOAT4(in40 * w_dequant);
-//            result0 += temp * scale + (in40.x + in40.y + in40.z + in40.w) * dequant_bias;
         }
     }
-    FLOAT4 res;
-    res.x = simd_sum(result0.x);
-    res.y = simd_sum(result0.y);
-    res.z = simd_sum(result0.z);
-    res.w = simd_sum(result0.w);
+
+    FLOAT4 res = simd_sum(result0);
     /* true */
     if (tiisg == 0) {
         xy_out[0] = activate(ftype4(res + biasValue), cst.activation);
+    }
+}
+
+
+
+
+kernel void conv1x1_gemv_g16_w4(const device ftype4 *in            [[buffer(0)]],
+                            device ftype4 *out                 [[buffer(1)]],
+                            constant conv1x1_constants& cst    [[buffer(2)]],
+                            const device MNN::uchar4x2 *wt      [[buffer(3)]],
+                            const device ftype4 *biasTerms     [[buffer(4)]],
+                            const device float4 *dequantScale  [[buffer(5)]],
+                            uint3 gid[[threadgroup_position_in_grid]],
+                            uint  tiisg[[thread_index_in_simdgroup]],
+                            uint  sgitg[[simdgroup_index_in_threadgroup]]) {
+    // each threadgroup contain 2 simdgroup
+    // each simdgroup compute 8 data
+    int uz = 2 * (gid.x * 2 + sgitg);
+    if(uz >= cst.output_slice) {
+        return;
+    }
+    
+    auto xy_wt = wt + uz * cst.input_slice;
+    auto xy_in0  = in;
+    auto xy_out = out + (int)gid.z * cst.output_size + uz;
+    auto biasValue0 = FLOAT4(biasTerms[uz]);
+    auto biasValue1 = FLOAT4(biasTerms[uz + 1]);
+
+    FLOAT4 result0 = FLOAT4(0);
+    FLOAT4 result1 = FLOAT4(0);
+
+    int block = (cst.input_slice + cst.block_size - 1) / cst.block_size;
+    
+    int middle_step = min(SIMD_GROUP_WIDTH, block);
+    int outer_step  = SIMD_GROUP_WIDTH / middle_step;
+    int middle_index = (tiisg) % middle_step;
+    int outer_index  = (tiisg) / middle_step;
+    
+    for (int bi= outer_index; bi<cst.block_size; bi += outer_step) {
+        const int quant_offset = 2 * (uz * cst.block_size + bi);
+        FLOAT4 scale0 = FLOAT4(dequantScale[quant_offset + 0]);
+        FLOAT4 dequant_bias0 = FLOAT4(dequantScale[quant_offset + 1]);
+        FLOAT4 scale1 = FLOAT4(dequantScale[quant_offset + (cst.block_size << 1)]);
+        FLOAT4 dequant_bias1 = FLOAT4(dequantScale[quant_offset + (cst.block_size << 1) + 1]);
+        int zmin = bi * block;
+        int zmax = min(zmin + block, cst.input_slice);
+        for (int z = zmin + middle_index; z < zmax; z += middle_step) {
+            FLOAT4 in40 = (FLOAT4)*(xy_in0 + z);
+            
+            MNN::uchar4x2 w_int4 = xy_wt[z];
+
+            FLOAT4x4 w_dequant;
+            for (int i = 0; i < 4; i += 1) {
+                FLOAT4 w4 = FLOAT4((float)(w_int4[i][0] >> 4) - 8, (float)(w_int4[i][0] & 15) - 8, (float)(w_int4[i][1] >> 4) - 8, (float)(w_int4[i][1] & 15) - 8);
+                FLOAT4 res = w4 * scale0[i] + dequant_bias0[i];
+                w_dequant[i] = res;
+            }
+            result0 += FLOAT4(in40 * w_dequant);
+
+            w_int4 = xy_wt[cst.input_slice + z];
+            for (int i = 0; i < 4; i += 1) {
+                FLOAT4 w4 = FLOAT4((float)(w_int4[i][0] >> 4) - 8, (float)(w_int4[i][0] & 15) - 8, (float)(w_int4[i][1] >> 4) - 8, (float)(w_int4[i][1] & 15) - 8);
+                FLOAT4 res = w4 * scale1[i] + dequant_bias1[i];
+                w_dequant[i] = res;
+            }
+            
+            result1 += FLOAT4(in40 * w_dequant);
+            
+        }
+    }
+
+    FLOAT4 res0 = simd_sum(result0);
+    FLOAT4 res1 = simd_sum(result1);
+
+    /* true */
+    if (tiisg == 0) {
+        xy_out[0] = activate(ftype4(res0 + biasValue0), cst.activation);
+        xy_out[1] = activate(ftype4(res1 + biasValue1), cst.activation);
+
     }
 }
 

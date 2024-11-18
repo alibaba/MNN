@@ -1,5 +1,6 @@
 file(GLOB TORCH_SRC ${CMAKE_CURRENT_LIST_DIR}/*.cpp ${CMAKE_CURRENT_LIST_DIR}/*.hpp)
 add_library(MNNConverterTorch OBJECT ${TORCH_SRC})
+target_compile_options(MNNConverterTorch PRIVATE -std=c++17)
 
 IF (CMAKE_SYSTEM_NAME MATCHES "Linux" AND "${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
     SET(LIB_TORCH_PATH "${CMAKE_CURRENT_BINARY_DIR}/libtorch/share/cmake")

@@ -685,7 +685,7 @@ void CLRuntime::convertFromDevice(const Tensor* srcTensor, const Tensor* dstTens
         }
 #ifdef MNN_SUPPORT_INTEL_SUBGROUP
         int cPack = TensorUtils::getTensorChannelPack(srcTensor);
-        if (cPack == 16) {
+        if (cPack == 16 && mOpenCLRuntime->isSupportedIntelSubgroup()) {
             switch (data_format) {
                 case MNN_DATA_FORMAT_NHWC:
                     OpenCL::convertNC4HW4OrNC16HW16BufferToNCHWOrNHWCBuffer(srcTensor, const_cast<Tensor*>(dstTensor),
@@ -803,7 +803,7 @@ void CLRuntime::convertToDevice(const Tensor* srcTensor, const Tensor* dstTensor
         }
 #ifdef MNN_SUPPORT_INTEL_SUBGROUP
         int cPack = TensorUtils::getTensorChannelPack(dstTensor);
-        if (cPack == 16) {
+        if (cPack == 16 && mOpenCLRuntime->isSupportedIntelSubgroup()) {
             if (MNN_DATA_FORMAT_NHWC == data_format) {
                 OpenCL::converNCHWOrNHWCBufferToNC4HW4OrNC16HW16Buffer(srcTensor, const_cast<Tensor*>(dstTensor), "nhwc_buffer_to_nc16hw16_buffer", mOpenCLRuntime.get(), true, false, svmFlag);
             } else if (MNN_DATA_FORMAT_NCHW == data_format) {
@@ -855,7 +855,7 @@ void OpenCLBackend::copyToDevice(const Tensor* srcTensor, const Tensor* dstTenso
     auto memType = srcTensor->buffer().flags;
     void* hostPtr = srcTensor->host<float>();
     // 1*1*1*1 don't need convert
-    if(srcTensor->getType().code == halide_type_float && mOpenCLRuntime->isSupportedFP16() && 1 == shape[0] * shape[1] * shape[2] * shape[3]){
+    if(BUFFER == mOpenCLRuntime->getGpuMemType() && srcTensor->getType().code == halide_type_float && mOpenCLRuntime->isSupportedFP16() && 1 == shape[0] * shape[1] * shape[2] * shape[3]){
         needSize /= 2;
         void *tmpPtr = malloc(needSize);
         ((half_float::half*)tmpPtr)[0] = (half_float::half)(((float*)hostPtr)[0]);

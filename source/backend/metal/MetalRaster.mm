@@ -284,6 +284,10 @@ MetalRaster::~MetalRaster() {
     if (nil != mZeroCopy) {
         mtbn->returnConstBuffer(mZeroCopy);
     }
+    auto bufferAlloc = mtbn->getStaticBufferPool();
+    for(auto& iter : mTempInputCopy) {
+        bufferAlloc->free(iter.second.blit);
+    }
 }
 struct MemsetInfo {
     int value[4];
@@ -320,6 +324,9 @@ ErrorCode MetalRaster::onResize(const std::vector<Tensor *> &____inputs, const s
         }
     }
 
+    for (auto& iter : mTempInputCopy) {
+        bufferAlloc->free(iter.second.blit);
+    }
     mTempInputCopy.clear();
     mOutputPtr = output;
 #ifndef MNN_METAL_FORBID_RASTER_C4

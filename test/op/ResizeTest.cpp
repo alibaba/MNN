@@ -41,6 +41,49 @@ public:
         return true;
     }
 };
+class Interp2DTest : public MNNTestCase {
+public:
+    virtual ~Interp2DTest() = default;
+    virtual bool run(int precision) {
+        auto input = _Input({2, 2}, NCHW);
+        input->setName("input_tensor");
+        // set input data
+        const float inpudata[] = {-1.0, -2.0, 3.0, 4.0};
+        auto inputPtr          = input->writeMap<float>();
+        memcpy(inputPtr, inpudata, 4 * sizeof(float));
+        input->unMap();
+        input                                   = _Convert(input, NC4HW4);
+        
+        float hScale = 2.0;
+        float wScale = 2.0;
+        float scales[] = {hScale, wScale};
+        auto scaleVar = _Const((void*)scales, {2}, NCHW);
+        int outW = int(wScale * 2);
+        int outH = int(hScale * 2);
+        
+        //Interp Type:1
+        {
+            auto output                             = _Interp({input, scaleVar}, wScale, hScale, outW, outH, 1, false);
+            output                                  = _Convert(output, NHWC);
+            const std::vector<float> expectedOutput = {-1.0, -1.0, -2.0, -2.0, -1.0, -1.0, -2.0, -2.0,
+                3.0,  3.0,  4.0,  4.0,  3.0, 3.0, 4.0, 4.0};
+            auto gotOutput                          = output->readMap<float>();
+            
+            if (!checkVector<float>(gotOutput, expectedOutput.data(), 16, 0.01)) {
+                MNN_ERROR("Interp2D Type:1 test failed!\n");
+                return false;
+            }
+            
+            const std::vector<int> expectedDim = {4, 4};
+            auto gotDim                        = output->getInfo()->dim;
+            if (!checkVector<int>(gotDim.data(), expectedDim.data(), 2, 0)) {
+                MNN_ERROR("Interp2D Type:1 test failed!\n");
+                return false;
+            }
+        }
+        return true;
+    }
+};
 
 class InterpTest : public MNNTestCase {
 public:
@@ -226,4 +269,5 @@ public:
 
 MNNTestSuiteRegister(ResizeTest, "op/resize");
 MNNTestSuiteRegister(InterpTest, "op/Interp");
+MNNTestSuiteRegister(Interp2DTest, "op/Interp2D");
 MNNTestSuiteRegister(InterpInt8Test, "op/InterpInt8");

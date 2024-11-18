@@ -6,11 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#if defined(_MSC_VER)
-#include <intrin.h>
-#else
-#include <x86intrin.h>
-#endif
+#include "core/SimdHeader.h"
+
 #include <MNN/MNNDefine.h>
 #include <stdint.h>
 #include "backend/cpu/compute/Int8FunctionsOpt.h"
@@ -75,7 +72,7 @@ void _SSE_MNNExpC8(float* dest, const float* source, float* offset, const float*
 void _SSE_MNNPackForMatMul_B(float* dest, const float* source, size_t h, size_t l, bool transpose);
 void _SSE_MNNFloat2Int8(const float* src, int8_t* dst, size_t sizeQuad, const float* scalep, ssize_t minValue, ssize_t maxValue, const float* zeroPoint, ssize_t quanParamVec);
 
-void _SSE_MNNInt8ScaleToFloat(float* dst, const int8_t* src, const float* scale, size_t size, ssize_t zeroPoint);
+void _SSE_MNNInt8ScaleToFloat(float* dst, const int8_t* src, const float* scale, size_t size, const float* zeroPoint, ssize_t quanParamVec);
 void _SSE_MNNLineDepthWiseInt8AddBiasScaleUnit(int8_t* dst, const int8_t* src, const int8_t* weight, const QuanPostTreatParameters* parameters, size_t width, size_t src_w_step, size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step, int8_t* idxOrder=nullptr);
 void _SSE_MNNInt8ToInt16(int16_t* dest, const int8_t* source, size_t count);
 

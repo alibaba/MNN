@@ -7,12 +7,7 @@
 //
 
 #include <algorithm>
-#if defined(_MSC_VER)
-#include <intrin.h>
-#else
-#include <x86intrin.h>
-#endif
-
+#include "core/SimdHeader.h"
 #include "AVX2Functions.hpp"
 #include "AVX2Backend.hpp"
 #include "core/BufferAllocator.hpp"

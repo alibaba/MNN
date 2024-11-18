@@ -130,12 +130,12 @@ static bool testKernel (std::vector<float> inputdata, std::vector<float> targetd
     if (!checkVector<float>(outputPtr, targetdata.data(), size, ratio)) {
         MNN_ERROR("%s failed: data dimension=[", testName.c_str());
         for (int i = 0; i < dimensions.size(); ++i) {
-            if (i < dimensions.size() - 1) MNN_PRINT("%d, ", dimensions[i]);
-            else MNN_PRINT("%d], reduce axis=[", dimensions[i]);
+            if (i < dimensions.size() - 1) {MNN_PRINT("%d, ", dimensions[i]);}
+            else {MNN_PRINT("%d], reduce axis=[", dimensions[i]);};
         }
         for (int i = 0; i < reduceAxis.size(); ++i) {
-            if (i < reduceAxis.size() - 1) MNN_PRINT("%d, ", reduceAxis[i]);
-            else MNN_PRINT("%d]\n", reduceAxis[i]);
+            if (i < reduceAxis.size() - 1) {MNN_PRINT("%d, ", reduceAxis[i]);}
+            else {MNN_PRINT("%d]\n", reduceAxis[i]);};
         }
         return false;
     }

@@ -123,7 +123,7 @@ ldr x14, [x6, #56]  // float32 maxmin ptr
 ldr x23, [x6, #80]  // extra scale
 
 Start:
-mov x22, #80 // GEMM_INT8_DST_XUNIT * GEMM_INT8_SRC_UNIT = 10 * 8 = 80
+lsl x22, x7, #3// eDest * GEMM_INT8_SRC_UNIT
 
 TILE_10:
     cmp x7, #10

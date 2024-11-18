@@ -52,6 +52,7 @@ public:
     bool alignDenormalizedValue = true;
     bool detectSparseSpeedUp = true;
     bool convertMatmulToConv = true;
+    bool useGeluApproximation = true;
     bool transformerFuse = false;
     bool allowCustomOp = false;
     std::string customOpLibs = "";

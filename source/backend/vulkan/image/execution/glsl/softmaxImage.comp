@@ -1,0 +1,288 @@
+#version 450
+
+#define UP_DIV(x, y) (((x)+(y)-1)/(y))
+#define LOCAL_SIZE (256)
+#define MAX_FLOAT (3.402823466e+38)
+
+layout(set=0, binding=0) writeonly uniform image2D uOutput;
+
+layout(set=0, binding=1) uniform sampler2D uInput;
+
+layout(set=0, binding=2) readonly uniform constBuffer {
+    uint N;
+    uint H;
+    uint W;
+    uint C4;
+    uint CLeft;
+} uConst;
+
+shared vec4 sharedValues[LOCAL_SIZE];
+
+layout(local_size_x = LOCAL_SIZE, local_size_y = 1, local_size_z = 1) in;
+
+uint calculateNumElePerInvocation() {
+    uint numElePerInvocation = 0;
+#ifdef AXIS_N
+    numElePerInvocation = UP_DIV(uConst.N, LOCAL_SIZE);
+#endif
+#ifdef AXIS_H
+    numElePerInvocation = UP_DIV(uConst.H, LOCAL_SIZE);
+#endif
+#ifdef AXIS_W
+    numElePerInvocation = UP_DIV(uConst.W, LOCAL_SIZE);
+#endif
+#ifdef AXIS_C
+    numElePerInvocation = UP_DIV(uConst.C4, LOCAL_SIZE);
+#endif
+    return numElePerInvocation;
+}
+
+ivec2 calculatePos(uint indexN, uint indexH, uint indexW, uint indexCOut, uint H, uint W) {
+    uint x = indexW + indexCOut * W;
+    uint y = indexH + indexN * H;
+    return ivec2(int(x), int(y));
+}
+
+vec4 eleMaskMax(vec4 ele, uint CLeft) {
+    vec4 mask = vec4(0.0);
+    mask[3] = (CLeft >= 1) ? 1.0 : 0.0;
+    mask[2] = (CLeft >= 2) ? 1.0 : 0.0;
+    mask[1] = (CLeft >= 3) ? 1.0 : 0.0;
+    return mix(ele, vec4(-MAX_FLOAT), mask);
+}
+
+vec4 eleMaskSum(vec4 ele, uint CLeft) {
+    vec4 mask = vec4(0.0);
+    mask[3] = (CLeft >= 1) ? 1.0 : 0.0;
+    mask[2] = (CLeft >= 2) ? 1.0 : 0.0;
+    mask[1] = (CLeft >= 3) ? 1.0 : 0.0;
+    return mix(ele, vec4(0.0), mask);
+}
+
+void main() {
+    uint numElePerInvocation = calculateNumElePerInvocation();
+    uint localIndex = gl_LocalInvocationID.x;
+
+
+// ***************************
+// Index calculation starts.
+// ***************************
+#ifdef AXIS_N
+    uint indexC4 = gl_GlobalInvocationID.y % uConst.C4;
+    uint indexHW = gl_GlobalInvocationID.y / uConst.C4;
+    uint indexW = indexHW % uConst.W;
+    uint indexH = indexHW / uConst.W;
+    uint indexNBase = localIndex;
+#endif
+
+#ifdef AXIS_H
+    uint indexC4 = gl_GlobalInvocationID.y % uConst.C4;
+    uint indexNW = gl_GlobalInvocationID.y / uConst.C4;
+    uint indexW = indexNW % uConst.W;
+    uint indexN = indexNW / uConst.W;
+    uint indexHBase = localIndex;
+#endif
+
+#ifdef AXIS_W
+    uint indexC4 = gl_GlobalInvocationID.y % uConst.C4;
+    uint indexNH = gl_GlobalInvocationID.y / uConst.C4;
+    uint indexH = indexNH % uConst.H;
+    uint indexN = indexNH / uConst.H;
+    uint indexWBase = localIndex;
+#endif
+
+#ifdef AXIS_C
+    uint indexW = gl_GlobalInvocationID.y % uConst.W;
+    uint indexNH = gl_GlobalInvocationID.y / uConst.W;
+    uint indexH = indexNH % uConst.H;
+    uint indexN = indexNH / uConst.H;
+    uint indexC4Base = localIndex;
+#endif
+// ***************************
+// Index calculation ends.
+// ***************************
+
+
+// ***************************
+// Max reduction starts.
+// ***************************
+    vec4 maxValue = vec4(-1 * (MAX_FLOAT));
+#ifdef AXIS_N
+    for (uint indexN = indexNBase; indexN < uConst.N; indexN += gl_WorkGroupSize.x) {
+        ivec2 pos = calculatePos(indexN, indexH, indexW, indexC4, uConst.H, uConst.W);
+        vec4 ele = texelFetch(uInput, pos, 0);
+        if (indexC4 == (uConst.C4 - 1) && uConst.CLeft > 0) {
+            ele = eleMaskMax(ele, uConst.CLeft);
+        }
+        maxValue = max(maxValue, ele);
+    }
+#endif
+
+#ifdef AXIS_H
+    for (uint indexH = indexHBase; indexH < uConst.H; indexH += gl_WorkGroupSize.x) {
+        ivec2 pos = calculatePos(indexN, indexH, indexW, indexC4, uConst.H, uConst.W);
+        vec4 ele = texelFetch(uInput, pos, 0);
+        if (indexC4 == (uConst.C4 - 1) && uConst.CLeft > 0) {
+            ele = eleMaskMax(ele, uConst.CLeft);
+        }
+        maxValue = max(maxValue, ele);
+    }
+#endif
+
+#ifdef AXIS_W
+    for (uint indexW = indexWBase; indexW < uConst.W; indexW += gl_WorkGroupSize.x) {
+        ivec2 pos = calculatePos(indexN, indexH, indexW, indexC4, uConst.H, uConst.W);
+        vec4 ele = texelFetch(uInput, pos, 0);
+        if (indexC4 == (uConst.C4 - 1) && uConst.CLeft > 0) {
+            ele = eleMaskMax(ele, uConst.CLeft);
+        }
+        maxValue = max(maxValue, ele);
+    }
+#endif
+
+#ifdef AXIS_C
+    for (uint indexC4 = indexC4Base; indexC4 < uConst.C4; indexC4 += gl_WorkGroupSize.x) {
+        ivec2 pos = calculatePos(indexN, indexH, indexW, indexC4, uConst.H, uConst.W);
+        vec4 ele = texelFetch(uInput, pos, 0);
+        if (indexC4 == (uConst.C4 - 1) && uConst.CLeft > 0) {
+            ele = eleMaskMax(ele, uConst.CLeft);
+        }
+        maxValue = max(maxValue, ele);
+    }
+#endif
+
+    sharedValues[localIndex] = maxValue;
+    barrier();
+
+    for (uint stride = gl_WorkGroupSize.x >> 1; stride > 0; stride = stride >> 1) {
+        if (localIndex < stride) {
+            sharedValues[localIndex] = max(sharedValues[localIndex], sharedValues[localIndex + stride]);
+        }
+        barrier();
+    }
+    maxValue = sharedValues[0];
+
+#ifdef AXIS_C
+    float maxC = max(max(maxValue[0], maxValue[1]), max(maxValue[2], maxValue[3]));
+    maxValue[0] = maxC;
+#endif
+// ***************************
+// Max reduction ends.
+// ***************************
+
+
+// ***************************
+// Sum reduction starts.
+// ***************************
+    vec4 sumValue = vec4(0.0f);
+
+#ifdef AXIS_N
+    for (uint indexN = indexNBase; indexN < uConst.N; indexN += gl_WorkGroupSize.x) {
+        ivec2 pos = calculatePos(indexN, indexH, indexW, indexC4, uConst.H, uConst.W);
+        vec4 ele = texelFetch(uInput, pos, 0);
+        vec4 expEle = exp(ele - maxValue);
+        if (indexC4 == (uConst.C4 - 1) && uConst.CLeft > 0) {
+            expEle = eleMaskSum(expEle, uConst.CLeft);
+        }
+        sumValue += expEle;
+    }
+#endif
+
+#ifdef AXIS_H
+    for (uint indexH = indexHBase; indexH < uConst.H; indexH += gl_WorkGroupSize.x) {
+        ivec2 pos = calculatePos(indexN, indexH, indexW, indexC4, uConst.H, uConst.W);
+        vec4 ele = texelFetch(uInput, pos, 0);
+        vec4 expEle = exp(ele - maxValue);
+        if (indexC4 == (uConst.C4 - 1) && uConst.CLeft > 0) {
+            expEle = eleMaskSum(expEle, uConst.CLeft);
+        }
+        sumValue += expEle;
+    }
+#endif
+
+#ifdef AXIS_W
+    for (uint indexW = indexWBase; indexW < uConst.W; indexW += gl_WorkGroupSize.x) {
+        ivec2 pos = calculatePos(indexN, indexH, indexW, indexC4, uConst.H, uConst.W);
+        vec4 ele = texelFetch(uInput, pos, 0);
+        vec4 expEle = exp(ele - maxValue);
+        if (indexC4 == (uConst.C4 - 1) && uConst.CLeft > 0) {
+            expEle = eleMaskSum(expEle, uConst.CLeft);
+        }
+        sumValue += expEle;
+    }
+#endif
+
+#ifdef AXIS_C
+    for (uint indexC4 = indexC4Base; indexC4 < uConst.C4; indexC4 += gl_WorkGroupSize.x) {
+        ivec2 pos = calculatePos(indexN, indexH, indexW, indexC4, uConst.H, uConst.W);
+        vec4 ele = texelFetch(uInput, pos, 0);
+        vec4 expEle = exp(ele - vec4(maxValue[0])); // different from other cases
+        if (indexC4 == (uConst.C4 - 1) && uConst.CLeft > 0) {
+            expEle = eleMaskSum(expEle, uConst.CLeft);
+        }
+        sumValue += expEle;
+    }
+#endif
+
+    sharedValues[localIndex] = sumValue;
+    barrier();
+
+    for (uint stride = gl_WorkGroupSize.x >> 1; stride > 0; stride = stride >> 1) {
+        if (localIndex < stride) {
+            sharedValues[localIndex] += sharedValues[localIndex + stride];
+        }
+        barrier();
+    }
+    sumValue = sharedValues[0];
+
+#ifdef AXIS_C
+    float sumC = dot(sumValue, vec4(1.0f));
+    sumValue[0] = sumC;
+#endif
+// ***************************
+// Sum reduction ends.
+// ***************************
+
+
+// ***************************
+// Results output starts.
+// ***************************
+#ifdef AXIS_N
+    for (uint indexN = indexNBase; indexN < uConst.N; indexN += gl_WorkGroupSize.x) {
+        ivec2 pos = calculatePos(indexN, indexH, indexW, indexC4, uConst.H, uConst.W);
+        vec4 ele = texelFetch(uInput, pos, 0);
+        vec4 expEle = exp(ele - maxValue) / sumValue;
+        imageStore(uOutput, pos, expEle);
+    }
+#endif
+
+#ifdef AXIS_H
+    for (uint indexH = indexHBase; indexH < uConst.H; indexH += gl_WorkGroupSize.x) {
+        ivec2 pos = calculatePos(indexN, indexH, indexW, indexC4, uConst.H, uConst.W);
+        vec4 ele = texelFetch(uInput, pos, 0);
+        vec4 expEle = exp(ele - maxValue) / sumValue;
+        imageStore(uOutput, pos, expEle);
+    }
+#endif
+
+#ifdef AXIS_W
+    for (uint indexW = indexWBase; indexW < uConst.W; indexW += gl_WorkGroupSize.x) {
+        ivec2 pos = calculatePos(indexN, indexH, indexW, indexC4, uConst.H, uConst.W);
+        vec4 ele = texelFetch(uInput, pos, 0);
+        vec4 expEle = exp(ele - maxValue) / sumValue;
+        imageStore(uOutput, pos, expEle);
+    }
+#endif
+
+#ifdef AXIS_C
+    for (uint indexC4 = indexC4Base; indexC4 < uConst.C4; indexC4 += gl_WorkGroupSize.x) {
+        ivec2 pos = calculatePos(indexN, indexH, indexW, indexC4, uConst.H, uConst.W);
+        vec4 ele = texelFetch(uInput, pos, 0);
+        vec4 expEle = exp(ele - vec4(maxValue[0])) / vec4(sumValue[0]); // different from other cases
+        imageStore(uOutput, pos, expEle);
+    }
+#endif
+// ***************************
+// Results output ends.
+// ***************************
+}

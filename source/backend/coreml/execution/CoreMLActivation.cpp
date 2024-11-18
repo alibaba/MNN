@@ -35,38 +35,6 @@ ErrorCode CoreMLActivation::onResize(const std::vector<Tensor *> &inputs, const 
                 core_ml__specification__activation_leaky_re_lu__init(mLayer_->activation->leakyrelu);
                 mLayer_->activation->leakyrelu->alpha = mOp->main_as_Relu()->slope();
                 break;
-            case OpType_ReLU6:
-            {
-                // relu + threshold
-                auto reluLayer = mCoreMLBackend->create<CoreML__Specification__NeuralNetworkLayer>();
-                core_ml__specification__neural_network_layer__init(reluLayer);
-                mCoreMLBackend->setLayerName(reluLayer, "relu6-relu");
-                reluLayer->activation = mCoreMLBackend->create<CoreML__Specification__ActivationParams>();
-                reluLayer->activation->nonlinearity_type_case = CORE_ML__SPECIFICATION__ACTIVATION_PARAMS__NONLINEARITY_TYPE_RE_LU;
-                reluLayer->activation->relu = mCoreMLBackend->create<CoreML__Specification__ActivationReLU>();
-                core_ml__specification__activation_re_lu__init(reluLayer->activation->relu);
-                std::string reluOutput = mCoreMLBackend->getTensorName(inputs[0]) + "-relu";
-                setLayerInputsAndOutputs(reluLayer, {mCoreMLBackend->getTensorName(inputs[0])}, {reluOutput});
-                mCoreMLBackend->addLayer(reluLayer);
-
-                auto thresholdLayer = mCoreMLBackend->create<CoreML__Specification__NeuralNetworkLayer>();
-                core_ml__specification__neural_network_layer__init(thresholdLayer);
-                mCoreMLBackend->setLayerName(thresholdLayer, "relu6-threshold");
-                thresholdLayer->layer_case = CORE_ML__SPECIFICATION__NEURAL_NETWORK_LAYER__LAYER_UNARY;
-                thresholdLayer->unary = mCoreMLBackend->create<CoreML__Specification__UnaryFunctionLayerParams>();
-                core_ml__specification__unary_function_layer_params__init(thresholdLayer->unary);
-                thresholdLayer->unary->type = CORE_ML__SPECIFICATION__UNARY_FUNCTION_LAYER_PARAMS__OPERATION__THRESHOLD;
-                thresholdLayer->unary->alpha = -6;
-                thresholdLayer->unary->scale = -1;
-                inputName = reluOutput + "-threshold";
-                setLayerInputsAndOutputs(thresholdLayer, {reluOutput}, {inputName});
-                mCoreMLBackend->addLayer(thresholdLayer);
-
-                mLayer_->activation->linear = mCoreMLBackend->create<CoreML__Specification__ActivationLinear>();
-                core_ml__specification__activation_linear__init(mLayer_->activation->linear);
-                mLayer_->activation->linear->alpha = -1;
-                break;
-            }
             case OpType_ELU:
                 mLayer_->activation->nonlinearity_type_case = CORE_ML__SPECIFICATION__ACTIVATION_PARAMS__NONLINEARITY_TYPE_ELU;
                 mLayer_->activation->elu = mCoreMLBackend->create<CoreML__Specification__ActivationELU>();
@@ -74,6 +42,13 @@ ErrorCode CoreMLActivation::onResize(const std::vector<Tensor *> &inputs, const 
                 break;
             case OpType_PReLU:
             {
+                if (mOp->main_as_PRelu()->slopeCount() == 1) {
+                    mLayer_->activation->nonlinearity_type_case = CORE_ML__SPECIFICATION__ACTIVATION_PARAMS__NONLINEARITY_TYPE_LEAKY_RE_LU;
+                    mLayer_->activation->leakyrelu = mCoreMLBackend->create<CoreML__Specification__ActivationLeakyReLU>();
+                    core_ml__specification__activation_leaky_re_lu__init(mLayer_->activation->leakyrelu);
+                    mLayer_->activation->leakyrelu->alpha = mOp->main_as_PRelu()->slope()->data()[0];
+                    break;
+                }
                 mLayer_->activation->nonlinearity_type_case = CORE_ML__SPECIFICATION__ACTIVATION_PARAMS__NONLINEARITY_TYPE_PRE_LU;
                 mLayer_->activation->prelu = mCoreMLBackend->create<CoreML__Specification__ActivationPReLU>();
                 core_ml__specification__activation_pre_lu__init(mLayer_->activation->prelu);
@@ -100,7 +75,6 @@ ErrorCode CoreMLActivation::onResize(const std::vector<Tensor *> &inputs, const 
 }
 
 REGISTER_COREML_OP_CREATOR(CoreMLActivation, OpType_ReLU)
-REGISTER_COREML_OP_CREATOR(CoreMLActivation, OpType_ReLU6)
 REGISTER_COREML_OP_CREATOR(CoreMLActivation, OpType_ELU)
 REGISTER_COREML_OP_CREATOR(CoreMLActivation, OpType_PReLU)
 REGISTER_COREML_OP_CREATOR(CoreMLActivation, OpType_Sigmoid)

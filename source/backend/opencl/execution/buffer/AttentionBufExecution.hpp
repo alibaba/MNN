@@ -61,6 +61,7 @@ class AttentionBufExecution : public CommonExecution {
 public:
     AttentionBufExecution(const MNN::Op *op, Backend *backend, bool kv_cache);
     AttentionBufExecution(std::shared_ptr<KVCacheCLManager> manager, const MNN::Op *op, Backend *backend);
+    ErrorCode longPrefillResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
 
     virtual ~AttentionBufExecution() = default;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
@@ -72,7 +73,9 @@ private:
     int getLocalSize(int size, int maxGroupSize);
     void reallocKVCache();
     bool mIsDecode = false;
+    bool mIsFirstPrefill = true;
     int mKv_seq_len = 0;
+    int mMax_len = 0;
     std::shared_ptr<KernelWrap> mKernel_qk;
     std::shared_ptr<KernelWrap> mKernel_softmax;
     std::shared_ptr<KernelWrap> mKernel_qkv;
@@ -84,17 +87,25 @@ private:
     std::vector<uint32_t> mLocalWorkSizeQkv{1, 1, 1, 1};
     uint32_t mMaxWorkGroupSize;
     OpenCLBackend *mOpenCLBackend;
+    RecordUpdateInfo mRgUpdateInfo;
     RecordUpdateInfo mQkUpdateInfo;
     RecordUpdateInfo mSoftMaxUpdateInfo;
+    RecordUpdateInfo mRgVUpdateInfo;
     RecordUpdateInfo mQkvUpdateInfo;
     int mGlobalWorkSizeQk0 = 0;
-    size_t mQkGlobal_size[3];
+    size_t mQkGlobal_size[2];
     std::vector<RecordUpdateInfo*> mOpRecordUpdateInfo;
     std::shared_ptr<KVCacheCLManager> mKVCacheCLManager;
     std::shared_ptr<Tensor> mTempQK, mTempSoftMax;
 private:
     int mAlignQ, mAlignKV, mAlignHDK, mAlignHDN;
     bool mLongPrefill = false;
+    std::shared_ptr<KernelWrap> mKernel_rearrangeQ;
+    std::vector<uint32_t> mGlobalWorkSizeRearrgQ{1, 1, 1};
+    std::vector<uint32_t> mLocalWorkSizeRearrgQ{1, 1, 1, 1};
+    std::shared_ptr<KernelWrap> mKernel_rearrangeV;
+    std::vector<uint32_t> mGlobalWorkSizeRearrgV{1, 1, 1};
+    std::vector<uint32_t> mLocalWorkSizeRearrgV{1, 1, 1, 1};
     std::shared_ptr<KernelWrap> mKernel_rearrange;
     std::vector<uint32_t> mGlobalWorkSizeRearrg{1, 1, 1};
     std::vector<uint32_t> mLocalWorkSizeRearrg{1, 1, 1, 1};

@@ -133,7 +133,7 @@ ldr x24, [x6, #80]  // extraScale
 mov x21, #16 // sizeof(float) * pack
 ldr x23, [x6, #56]  // fp32minmax
 Start:
-mov x22, #48 // src_steps
+lsl x22, x7, #2 // eDest * SRC_UNIT
 
 TILE_12:
     cmp x7, #12
@@ -823,8 +823,8 @@ L8LoopDz_TILE_1:
 
     movi v8.16b, #0
     movi v9.16b, #0
-    cmp x13, #4
-    blt L8LoopSz_TILE_1_lu1
+    //cmp x13, #4
+    b L8LoopSz_TILE_1_lu1
     //lsl x22, x22, #2
 
     L8LoopSz_TILE_1_lu4:

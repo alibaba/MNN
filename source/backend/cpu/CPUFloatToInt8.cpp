@@ -35,8 +35,11 @@ CPUFloatToInt8::CPUFloatToInt8(Backend* backend, const MNN::Op* param) : Executi
         memset(mScales->host<float>(), 0, UP_DIV(scaleLen, pack) * pack * sizeof(float));
         memcpy(mScales->host<float>(), scale->tensorScale()->data(), scaleLen * sizeof(float));
     }
-
-    mZeroPoint = static_cast<float>(scale->zeroPoint());
+    if (scale->floatzeros()) {
+        mZeroPoint = scale->floatzeros()->data()[0];
+    } else {
+        mZeroPoint = static_cast<float>(scale->zeroPoint());
+    }
     mClampMin = scale->clampMin();
     mClampMax = scale->clampMax();
 }

@@ -432,31 +432,35 @@ static std::unique_ptr<IDSTQuanT> encode(const float* weight, const std::vector<
     bool shapeUseInt32 = false;
     std::unique_ptr<IDSTQuanT> idst(new IDSTQuanT);
     std::ostringstream outputStringStreamCQ;
-    WriteCQBlobs(outputStringStreamCQ, weight, scale.data(), kernelSize, kernelNum, asymmetricQuantFlag, shapeUseInt32, bits);
-    auto cqStr = outputStringStreamCQ.str();
-    if (detectSparse) {
-        std::ostringstream outputStringStreamSQ;
-        bool sparseValid = WriteSparseQuanBlobs(outputStringStreamSQ, weight, scale.data(), kernelSize, kernelNum, asymmetricQuantFlag, shapeUseInt32, bits);
-        auto sqStr = outputStringStreamSQ.str();
-        int int8Size = kernelNum * kernelSize;
-        if (quantWeightPtr && (int8Size <= cqStr.size() && int8Size <= sqStr.size())) {
-            idst->type = 4;
-            idst->aMax = kernelNum;
-            idst->buffer.resize(int8Size);
-            ::memcpy(idst->buffer.data(), quantWeightPtr, int8Size);
-        } else if (cqStr.size() <= sqStr.size() || (!sparseValid)) {
+    if (quantWeightPtr && nullptr == weight) {
+        auto int8Size = kernelNum * kernelSize;
+        // Use Quanted weight
+        idst->type = 4;
+        idst->aMax = kernelNum;
+        idst->buffer.resize(int8Size);
+        ::memcpy(idst->buffer.data(), quantWeightPtr, int8Size);
+    } else {
+        WriteCQBlobs(outputStringStreamCQ, weight, scale.data(), kernelSize, kernelNum, asymmetricQuantFlag, shapeUseInt32, bits);
+        auto cqStr = outputStringStreamCQ.str();
+        if (detectSparse) {
+            std::ostringstream outputStringStreamSQ;
+            bool sparseValid = WriteSparseQuanBlobs(outputStringStreamSQ, weight, scale.data(), kernelSize, kernelNum, asymmetricQuantFlag, shapeUseInt32, bits);
+            auto sqStr = outputStringStreamSQ.str();
+            int int8Size = kernelNum * kernelSize;
+            if (cqStr.size() <= sqStr.size() || (!sparseValid)) {
+                idst->type = 1;
+                idst->buffer.resize(cqStr.size());
+                ::memcpy(idst->buffer.data(), cqStr.data(), cqStr.size());
+            } else {
+                idst->type = 2;
+                idst->buffer.resize(sqStr.size());
+                ::memcpy(idst->buffer.data(), sqStr.data(), sqStr.size());
+            }
+        } else {
             idst->type = 1;
             idst->buffer.resize(cqStr.size());
             ::memcpy(idst->buffer.data(), cqStr.data(), cqStr.size());
-        } else {
-            idst->type = 2;
-            idst->buffer.resize(sqStr.size());
-            ::memcpy(idst->buffer.data(), sqStr.data(), sqStr.size());
         }
-    } else {
-        idst->type = 1;
-        idst->buffer.resize(cqStr.size());
-        ::memcpy(idst->buffer.data(), cqStr.data(), cqStr.size());
     }
     idst->shapeInt32 = shapeUseInt32;
     idst->alpha.resize(scale.size());

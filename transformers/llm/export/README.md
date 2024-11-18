@@ -77,7 +77,7 @@ options:
   --dst_path DST_PATH   export onnx/mnn model to path, defaut is `./model`.
   --test TEST           test model inference with query `TEST`.
   --export EXPORT       export model to an onnx/mnn model.
-  --skip_slim           Whether or not to skip onnx-slim.
+  --onnx_slim           Whether or not to use onnx-slim.
   --quant_bit QUANT_BIT
                         mnn quant bit, 4 or 8, default is 4.
   --quant_block QUANT_BLOCK

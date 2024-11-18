@@ -132,7 +132,6 @@ ErrorCode VulkanRaster::onEncode(const std::vector<Tensor *> &____inputs, const 
                 break;
             }
         }
-        fast = false;
         if (fast) {
             onEncodeFast(output, output, cmdBuffer, needZero);
             return NO_ERROR;

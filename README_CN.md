@@ -6,6 +6,10 @@
 
 [MNN](https://github.com/alibaba/MNN)是一个轻量级的深度神经网络引擎，支持深度学习的推理与训练。适用于服务器/个人电脑/手机/嵌入式各类设备。目前，MNN已经在阿里巴巴的手机淘宝、手机天猫、优酷等30多个App中使用，覆盖直播、短视频、搜索推荐、商品图像搜索、互动营销、权益发放、安全风控等场景。
 
+[MNN-LLM](https://github.com/alibaba/MNN/tree/master/transformers/llm)是基于MNN引擎开发的大语言模型运行方案，解决大语言模型在本地设备的高效部署问题(手机/个人电脑/嵌入式设备)。支持常见的千问/百川/智谱/LLAMA等大语言模型。使用教程：[MNN-LLM使用教程](https://mnn-docs.readthedocs.io/en/latest/transformers/llm.html)
+
+[MNN-Diffusion](https://github.com/alibaba/MNN/tree/master/transformers/diffusion)是基于MNN引擎开发的Stable Diffusion文生图模型运行方案，解决Stable Diffusion模型在本地设备的高效部署问题。使用教程：[MNN-Diffusion使用教程](https://mnn-docs.readthedocs.io/en/latest/transformers/diffusion.html)
+
 ![架构图](doc/architecture.png)
 
 在阿里巴巴中，[MNN](https://mp.weixin.qq.com/s/5I1ISpx8lQqvCS8tGd6EJw)被用作为[Walle](https://mp.weixin.qq.com/s/qpeCETty0BqqNJV9CMJafA)系统中计算容器的基础模块。Walle是首个端到端、通用型、规模化产业应用的端云协同机器学习系统，发表于操作系统顶会OSDI 2022。Walle的论文中解释了MNN的关键设计理念，并提供了MNN相对于其他深度学习框架（TensorFlow, TensorFlow Lite, PyTorch, PyTorch Mobile, TVM）的benchmark测试结果。相关测试脚本和说明文档被放在“/benchmark”目录下。如果MNN或Walle的设计对你的研究或生产有所助益，欢迎引用我们的OSDI论文：
@@ -26,7 +30,9 @@
 ## 文档与工作台
 MNN文档：
 - [最新文档(readthedocs)](https://mnn-docs.readthedocs.io/en/latest/index.html)
-- [语雀文档](https://www.yuque.com/mnn/cn)
+
+- 也可阅读 docs/README ，编译本地文档
+
 
 [MNN官网](http://www.mnn.zone)上还可以下载MNN团队全新力作MNN工作台，涵盖开箱即用模型、可视化训练等工具，更可以一键部署到多端设备。
 

@@ -31,6 +31,8 @@ stp d8,  d9,  [sp, #(16 * 3)]
 Start:
 movi v31.4s, #127
 scvtf v31.4s, v31.4s
+fcvtn v30.4h, v31.4s
+dup v30.2d, v30.d[0]
 //fcvtn v31.4h, v0.4s
 //fcvtn2 v31.8h, v0.4s
 lsl x9, x4, #1 // src_step = batch * sizeof(float16_t)
@@ -65,6 +67,10 @@ add x0, x0, #24
 // quant_scale = 127 / absmax
 // dequant_scale = absmax / 127
 
+fcmle v28.8h, v0.8h, #0
+fcmle v29.4h, v1.4h, #0
+bit v0.16b, v30.16b, v28.16b
+bit v1.16b, v30.16b, v29.16b
 // float16->float32
 fcvtl v4.4s, v0.4h
 fcvtl2 v5.4s, v0.8h
@@ -122,6 +128,10 @@ add x0, x0, #20
 // quant_scale = 127 / absmax
 // dequant_scale = absmax / 127
 
+fcmle v28.8h, v0.8h, #0
+fcmle v29.4h, v1.4h, #0
+bit v0.16b, v30.16b, v28.16b
+bit v1.16b, v30.16b, v29.16b
 // float16->float32
 fcvtl v4.4s, v0.4h
 fcvtl2 v5.4s, v0.8h
@@ -140,14 +150,6 @@ st1 {v10.d}[0], [x1], #8
 st1 {v12.4s, v13.4s}, [x2], #32
 st1 {v14.d}[0], [x2], #8
 
-// fdiv v4.8h, v31.8h, v0.8h
-// fdiv v5.8h, v31.8h, v1.8h
-// fdiv v6.8h, v0.8h, v31.8h
-// fdiv v7.8h, v1.8h, v31.8h
-// st1 {v4.8h}, [x1], #16
-// st1 {v5.s}[0], [x1], #4
-// st1 {v6.8h}, [x2], #16
-// st1 {v7.s}[0], [x2], #4
 b TILE_10
 
 
@@ -176,6 +178,8 @@ sub x4, x4, #8
 add x0, x0, #16
 // quant_scale = 127 / absmax
 // dequant_scale = absmax / 127
+fcmle v28.8h, v0.8h, #0
+bit v0.16b, v30.16b, v28.16b
 // float16->float32
 fcvtl v4.4s, v0.4h
 fcvtl2 v5.4s, v0.8h
@@ -189,10 +193,6 @@ fdiv v13.4s, v5.4s, v31.4s
 st1 {v8.4s, v9.4s}, [x1], #32
 st1 {v12.4s, v13.4s}, [x2], #32
 
-// fdiv v2.8h, v31.8h, v0.8h
-// fdiv v3.8h, v0.8h, v31.8h
-// st1 {v2.8h}, [x1], #16
-// st1 {v3.8h}, [x2], #16
 b TILE_8
 
 
@@ -221,6 +221,8 @@ sub x4, x4, #1
 add x0, x0, #2
 // quant_scale = 127 / absmax
 // dequant_scale = absmax / 127
+fcmle v28.8h, v0.8h, #0
+bit v0.16b, v30.16b, v28.16b
 fcvtl v4.4s, v0.4h
 
 fdiv v8.4s, v31.4s, v4.4s
@@ -229,10 +231,6 @@ fdiv v12.4s, v4.4s, v31.4s
 st1 {v8.s}[0], [x1], #4
 st1 {v12.s}[0], [x2], #4
 
-// fdiv h2, h31, h0
-// fdiv h3, h0, h31
-// st1 {v2.h}[0], [x1], #2
-// st1 {v3.h}[0], [x2], #2
 b TILE_1
 
 

@@ -179,6 +179,7 @@ class UnaryBufCreator : public OpenCLBackend::Creator {
 public:
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op, Backend* backend) const override {
+#ifdef MNN_SUPPORT_INTEL_SUBGROUP
         for (int i = 0; i < inputs.size(); ++i) {
             int channel = inputs[i]->channel();
             if (channel >= 16 && static_cast<OpenCLBackend *>(backend)->getOpenCLRuntime()->isSupportedIntelSubgroup()
@@ -186,6 +187,7 @@ public:
                 TensorUtils::setTensorChannelPack(inputs[i], 16);
             }
         }
+#endif /* MNN_SUPPORT_INTEL_SUBGROUP */
         if (op->type() == OpType_UnaryOp) {
             switch (op->main_as_UnaryOp()->opType()) {
                 case UnaryOpOperation_ABS:

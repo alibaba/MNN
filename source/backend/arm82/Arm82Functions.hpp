@@ -12,6 +12,7 @@ class Arm82Functions {
 public:
     static bool init();
     static CoreFunctions* get();
+    static CoreInt8Functions* getInt8();
 };
 
 };

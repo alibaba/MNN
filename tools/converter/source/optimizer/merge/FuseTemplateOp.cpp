@@ -384,7 +384,7 @@ static auto gRegister = []() {
         auto transform = [templatesExprs, input](EXPRP expr) {
             auto config = Global<modelConfig>::Get();
             auto unaryType = UnaryOpOperation_GELU_STANDARD;
-            if (config->optimizeLevel == 2) {
+            if (config->useGeluApproximation) {
                 unaryType = UnaryOpOperation_GELU;
             }
             for (auto templateExpr : templatesExprs) {

@@ -28,6 +28,12 @@ namespace Transformer {
 class Tokenizer;
 class Pipeline;
 class LlmConfig;
+class DiskEmbedding;
+
+enum TuneType {
+    // op encoder number for commit
+    OP_ENCODER_NUMBER = 0,
+};
 
 class MNN_PUBLIC Llm {
     using PromptItem = std::pair<std::string, std::string>; // <role, content>
@@ -38,6 +44,7 @@ public:
     void chat();
     void reset();
     void trace(bool start);
+    void tuning(TuneType type, std::vector<int> candidates);
     virtual void load();
     MNN::Express::VARP forward(const std::vector<int>& input_ids);
     int sample(MNN::Express::VARP logits, const std::vector<int>& pre_ids);
@@ -57,6 +64,10 @@ public:
     Llm* create_lora(const std::string& lora_path);
     bool release_module(size_t index);
     bool select_module(size_t index);
+    // tokenier function
+    bool is_stop(int token_id);
+    std::string tokenizer_decode(int id);
+    virtual std::vector<int> tokenizer_encode(const std::string& query, bool use_template = true);
     friend class Pipeline;
 public:
     // forward info
@@ -72,6 +83,7 @@ public:
 protected:
     std::shared_ptr<LlmConfig> config_;
     std::shared_ptr<Tokenizer> tokenizer_;
+    std::shared_ptr<DiskEmbedding> disk_embedding_;
     std::vector<int> key_value_shape_ = {};
     std::vector<MNN::Express::VARP> past_key_values_;
     MNN::Express::VARP inputs_embeds_, attention_mask_, position_ids_;
@@ -80,9 +92,6 @@ protected:
     std::vector<std::shared_ptr<MNN::Express::Module>> prefill_modules_, decode_modules_, current_modules_;
     const MNN::Express::Module* base_module_ = nullptr;
     void init_runtime();
-    std::string decode(int id);
-    bool is_stop(int token_id);
-    virtual std::vector<int> tokenizer(const std::string& query);
     virtual MNN::Express::VARP embedding(const std::vector<int>& input_ids);
     virtual MNN::Express::VARP gen_attention_mask(int seq_len);
     virtual MNN::Express::VARP gen_position_ids(int seq_len);
@@ -100,7 +109,6 @@ public:
     MNN::Express::VARP txt_embedding(const std::string& txt);
     int dim() const;
 private:
-    virtual std::vector<int> tokenizer(const std::string& query) override;
     virtual MNN::Express::VARP gen_attention_mask(int seq_len) override;
     virtual MNN::Express::VARP gen_position_ids(int seq_len) override;
 };

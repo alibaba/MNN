@@ -1,5 +1,7 @@
-#version 440 core
+#version 450
+
 #define FLOAT float
+#define MAX_FLOAT (3.402823466e+38)
 
 layout(std430) buffer;
 layout(set=0, binding=0) writeonly buffer destBuffer{
@@ -17,45 +19,81 @@ layout(set=0, binding=2) uniform constBuffer {
     float k;//For mean
 }uConst;
 
-layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+shared float sharedValues[128];
 
-void main()
-{
-    ivec3 posTmp = ivec3(gl_GlobalInvocationID);
-    ivec2 pos;
-    pos.x = posTmp.x / uConst.w;
-    pos.y = posTmp.x % uConst.w;
-    // x: index in outside, y: index in inside
-    if(pos.y < uConst.w && pos.x < uConst.c)
-    {
-        int h = uConst.h;
-        int W = uConst.w;
-        int H = uConst.h;
-        int C = uConst.c;
-        int basicOffset = pos.x * uConst.w * uConst.h + pos.y;
-        FLOAT res = uInput.data[basicOffset];
-        for(int i = 1; i < uConst.h; ++i)
-        {
-            FLOAT next = uInput.data[basicOffset + i * uConst.w];
-#ifdef VMAX
-            res = max(res, next);
-#endif
-#ifdef VMIN
-            res = min(res, next);
-#endif
-#ifdef SUM
-            res = res + next;
-#endif
-#ifdef PROD
-            res = res * next;
-#endif
-#ifdef MEAN
-            res = res + next;
-#endif
+
+FLOAT initValue() {
+    FLOAT result;
+    #ifdef VMAX
+    result = -1 * MAX_FLOAT;
+    #endif
+    #ifdef VMIN
+    result = MAX_FLOAT;
+    #endif
+    #ifdef SUM
+    result = 0.0f;
+    #endif
+    #ifdef MEAN
+    result = 0.0f;
+    #endif
+    #ifdef PROD
+    result = 1.0f;
+    #endif
+    return result;
+}
+
+FLOAT reduceFunc(FLOAT a, FLOAT b) {
+    FLOAT result;
+    #ifdef VMAX
+    result = max(a, b);
+    #endif
+    #ifdef VMIN
+    result = min(a, b);
+    #endif
+    #ifdef SUM
+    result = a + b;
+    #endif
+    #ifdef MEAN
+    result = a + b;
+    #endif
+    #ifdef PROD
+    result = a * b;
+    #endif
+    return result;
+}
+
+layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
+
+void main() {
+    uint axisIndex = gl_GlobalInvocationID.x;
+
+    uint outputIndex = gl_WorkGroupID.y;
+    uint insideIndex = outputIndex % uConst.w;
+    uint outsideIndex = outputIndex / uConst.w;
+
+    uint inputOffsetBase = insideIndex + uConst.w * (uConst.h * outsideIndex);
+    FLOAT beforeSharedResult = initValue();
+    for (uint i = axisIndex; i < uConst.h; i += gl_WorkGroupSize.x) {
+        beforeSharedResult = reduceFunc(beforeSharedResult, uInput.data[inputOffsetBase + i * uConst.w]);
+    }
+
+    sharedValues[axisIndex] = beforeSharedResult;
+
+    barrier();
+
+    for (uint stride = gl_WorkGroupSize.x >> 1; stride > 0; stride = stride >> 1) {
+        if (axisIndex < stride) {
+            sharedValues[axisIndex] = reduceFunc(sharedValues[axisIndex + stride], sharedValues[axisIndex]);
         }
-#ifdef MEAN
-        res = res * uConst.k;
-#endif
-        uOutput.data[posTmp.x] = res;
+        barrier();
+    }
+
+    if (axisIndex == 0) {
+        FLOAT result = sharedValues[0];
+        #ifdef MEAN
+        uOutput.data[outputIndex] = result * uConst.k;
+        #else
+        uOutput.data[outputIndex] = result;
+        #endif
     }
 }

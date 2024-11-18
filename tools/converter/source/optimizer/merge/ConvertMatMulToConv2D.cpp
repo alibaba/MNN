@@ -418,7 +418,7 @@ ConvertMatMulToConv2D::ConvertMatMulToConv2D() {
                         matmul_expr = matmul_var->expr().first;
                     }
                 }
-                if (matmul_expr->inputs().size() != 8 && matmul_expr->inputs().size() != 9) { // matmul 8 input: (x,y,x_scale,x_zero,y_scale,y_zero,out_scale,out_zero,bias
+                if (matmul_expr->inputs().size() != 8 && matmul_expr->inputs().size() != 9) { // matmul 8 input: for MatMulInteger (x,y,x_scale,x_zero,y_scale,y_zero,out_scale,out_zero,bias
                     return false;
                 }
                 if (matmul_var->linkNumber() > 1) {

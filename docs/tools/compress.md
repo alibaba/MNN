@@ -1,11 +1,13 @@
-# 模型压缩工具箱
+# 模型压缩 / 模型量化
 
 ## 介绍
 ### 是什么？
-MNN模型压缩工具箱提供了包括低秩分解、剪枝、量化等模型压缩算法的实现，并且MNN进一步实现了其中一些需要软件特殊实现的算法（如稀疏计算和量化）的底层计算过程，因此，此工具箱需要配合MNN推理框架来使用。
-具体来说，MNN压缩工具箱包含两个组成部分：
-1. **MNN框架自身提供的压缩工具**（输入MNN模型，输出MNN模型）
-2. **mnncompress**（基于主流训练框架TF/Pytorch的模型压缩工具）。
+MNN模型压缩工具提供了包括低秩分解、剪枝、量化等模型压缩算法的实现，并且MNN进一步实现了其中一些需要软件特殊实现的算法（如稀疏计算和量化）的底层计算过程，因此，此工具箱需要配合MNN推理框架来使用。
+具体来说，MNN压缩工具/量化工具包含三个部分，使用复杂度逐步上升：
+1. **模型转换工具中的压缩功能**（只实现权值量化，在模型转换过程中增加参数即可实现）
+2. **离线量化工具**（实现权值量化及特征量化，需要少量测试数据）
+3. **mnncompress**（基于主流训练框架TF/Pytorch的模型压缩工具，需要训练数据和对应的训练框架环境）。
+
 ### 有什么？
 目前提供的能力如下表所示：
 
@@ -26,64 +28,79 @@ MNN模型压缩工具箱提供了包括低秩分解、剪枝、量化等模型�
 | 训练量化 | 将float卷积转换为int8卷积计算，需要进行训练，可提高量化模型精度，降低存储量到原始模型的四分之一，降低内存，加速计算（某些模型可能会比float模型慢，因为float的优化方法和int8不同） | LSQ，OAQ，WAQ |
 | 直接权值量化 | 仅将模型中的权值进行量化，计算时还原为float进行计算，因此仅减少模型存储量，计算速度和float相同，可以在模型转换时一键完成，8bit量化情况下，精度基本不变，模型大小减小到原来的1/4 | 对称量化，非对称量化 |
 | 训练权值量化 | 特点同直接权值量化，但通过mnncompress压缩算法插件实现，因而可以提供更低比特的权值量化，以减少更多的存储量，并提高权值量化之后模型的精度，例如4bit量化情况下，模型大小减小到原来的1/8 | 对称量化 |
-| FP16 | 将FP32计算转换为FP16计算，可在模型转换时一键完成，模型大小减小为原来的1/2，精度基本无损，并提高计算速度（需要硬件支持FP16计算） | - |
+| FP16 | 将FP32计算转换为FP16计算，可在模型转换时一键完成，模型大小减小为原来的1/2，精度基本无损 | - |
 
 ### 怎么用？
-1. 如果只想使用离线压缩方法，可以将模型转换为MNN模型之后使用对应的工具进行压缩。这类压缩算法不需要进行训练finetune，所以通常运行得很快。
-2. 如果离线压缩方法的精度不满足要求，且能够进行训练finetune的话，可以使用**mnncompress**中提供的压缩算法插件将原始模型进行压缩，得到压缩之后的模型和压缩信息描述文件，然后将这两个文件输入到MNN模型转换工具得到最终的MNN压缩模型。需要训练的压缩算法可以提供更好的精度，但需要一定的时间进行finetune训练，此finetune训练需要的时间一般比模型从0开始训练要少很多。
-3. 这些算法中有些是可以叠加使用的，以取得更好的压缩效果。推荐使用pipeline（**其中方框中的算法均为可选，叠加压缩算法若精度不好，可选择使用**）：
+1. 使用模型转换工具中的压缩功能无需额外数据，只要在模型转换时加对应参数即可，开启动态量化功能后也可以对卷积等计算量大的算子实现量化加速。
+2. 使用离线量化可以使大部分算子支持量化加速，这个可以将模型转换为MNN模型之后使用离线量化工具进行压缩，需要少量测试数据，但不需要进行训练finetune，通常运行得很快。
+3. 如果离线压缩方法的精度不满足要求，且能够进行训练finetune的话，可以使用**mnncompress**中提供的压缩算法插件将原始模型进行压缩，得到压缩之后的模型和压缩信息描述文件，然后将这两个文件输入到MNN模型转换工具得到最终的MNN压缩模型。需要训练的压缩算法可以提供更好的精度，但需要一定的时间进行finetune训练，此finetune训练需要的时间一般比模型从0开始训练要少很多。
+4. 这些算法中有些是可以叠加使用的，以取得更好的压缩效果。推荐使用pipeline（**其中方框中的算法均为可选，叠加压缩算法若精度不好，可选择使用**）：
 ![](../_static/images/tools/mnncompress.jpg)
 
-## MNN框架自身提供的压缩工具
-### 使用方法
-MNN框架压缩工具是基于离线量化工具和MNN转换工具来实现压缩功能的，这两个工具均提供c++版本和python版本，安装方式如下：
+## 使用模型转换工具的压缩功能
+
+### 模型转换工具安装
 - c++工具安装
 
-    需要源码编译MNN转换工具 `MNNConvert` 和量化工具 `quantized.out`
+    源码编译MNN转换工具 `MNNConvert`
     ```bash
     cd build
-    cmake ..  -DMNN_BUILD_CONVERTER=ON -DMNN_BUILD_QUANTOOLS=ON
-    make -j 8
+    cmake ..  -DMNN_BUILD_CONVERTER=ON
+    make -j8
     ```
 - python工具安装
     ```bash
-    # 外部版本MNN，外网安装方式
     pip install MNN
-    # 外部版本MNN，集团内安装方式
-    pip install --index-url https://pypi.antfin-inc.com/simple/ -U MNN
-    # 内部版本MNN
-    pip install --index-url https://pypi.antfin-inc.com/simple/ -U MNN-Internal
     # 安装之后，命令行中将有如下工具：
     mnn：显示MNN命令行工具
     mnnconvert：转换器 MNNConvert 的预编译工具，功能同 MNNConvert
     mnnquant：量化工具 quantized.out 的预编译工具，功能同 quantized.out
     ```
-### MNN离线量化工具
-#### 原理
-将float卷积转换为int8卷积进行计算（仅量化卷积，建议将FC转为1*1卷积实现），同时会通过MNN几何计算机制将量化信息在网络中进行传播，以支持尽可能多的算子的量化计算。模型大小减少为原始模型的1/4，并减少内存，提高推理速度（某些模型可能量化之后变慢，因为float的计算可以使用winograd、strassen等优化算法，而离线量化的int8计算并没有这些优化，如果要使用int8量化的特殊优化，如OAQ、WAQ等，需要使用mnncompress）。
-#### 单输入、图片输入模型的量化
-这类模型可以使用 `quantized.out`（或`mnnquant`）进行量化，使用文档在：[quantized.out](quant.md)，[mnnquant.md](python.html#mnnquant)
-#### 通用模型的量化
-通用模型量化工具可以支持任意输入和任意输入类型的模型的量化，基于MNN python包，使用文档在：[MNNPythonOfflineQuant](https://github.com/alibaba/MNN/tree/master/tools/MNNPythonOfflineQuant)
 
-**注意：**`calibration_dataset.py`中`__getitem__`返回为一个输入sample，其形状不应该包含batch维度，在量化时我们会根据工具命令行中传入的batch参数，stack出一个batch的数据，但我们默认batch维度在第一维，所以，如果你的某个输入的batch维不在第一维，你需要在你对应的输入之前加一个transpose。
-### MNN权值量化工具
-#### 原理
-仅将模型中卷积的float权值量化为int8存储，推理时反量化还原为float权值进行计算。因此，其推理速度和float模型一致，但是模型大小可以减小到原来的1/4，可以通过模型转换工具一键完成，比较方便。推荐float模型性能够用，仅需要减少模型大小的场景使用。
-#### 使用方法
-使用`MNNConvert`（c++）或者`mnnconvert`（python包中自带）进行转换，转换命令行中加上下述选项即可：
+### 权值量化
+- 仅将模型中卷积的float权值量化为int8存储，在不开启动态量化功能的情况下，推理时反量化还原为float权值进行计算。因此，其推理速度和float模型一致，但是模型大小可以减小到原来的1/4，可以通过模型转换工具一键完成，比较方便，推荐优先使用。
+- 使用`MNNConvert`（c++）或者`mnnconvert`（python包中自带）进行转换，转换命令行中加上下述选项即可：
 ```bash
---weightQuantBits 8 [--weightQuantAsymmetric](可选)
+--weightQuantBits 8 [--weightQuantAsymmetric](可选) [--weightQuantBlock 128](可选) 
 ```
 `--weightQuantAsymmetric` 选项是指使用非对称量化方法，精度要比默认的对称量化精度好一些。
-### MNN FP16压缩工具
-#### 原理
-将模型中FP32权值转换为FP16存储，并在支持的设备上开启FP16推理，可以获得推理加速，并且速度减少到原来的1/2。可以在模型转换时一键完成，使用方便。
-#### 使用方法
-使用`MNNConvert`（c++）或者`mnnconvert`（python包中自带）进行转换，转换命令行中加上下述选项即可：
+`--weightQuantBlock 128` 表示以128为单位进行量化，如不设置则以输入通道数为单位进行量化。如果牺牲一些存储大小来提升量化精度，可以增加这个设置，理论上越小精度越高，但建议不要低于32。
+- 动态量化
+可以通过如下方式打开MNN运行时的动态量化支持，使权值量化后的模型中卷积等核心算子使用量化计算，降低内存并提升性能
+1. 打开 MNN_LOW_MEMORY 编译宏编译 MNN （支持动态量化功能）
+2. 使用 mnn 模型时 memory mode 设成 low 
+
+### FP16压缩
+- 将模型中FP32权值转换为FP16存储，并在支持的设备上开启FP16推理，可以获得推理加速，并且速度减少到原来的1/2。可以在模型转换时一键完成，使用方便。
+- 使用`MNNConvert`（c++）或者`mnnconvert`（python包中自带）进行转换，转换命令行中加上下述选项即可：
 ```bash
 --fp16
 ```
+
+## 离线量化工具
+### 离线量化工具安装
+- c++工具安装
+
+    需要源码编译量化工具 `quantized.out`
+    ```bash
+    cd build
+    cmake ..  -DMNN_BUILD_QUANTOOLS=ON
+    make -j8
+    ```
+- python工具安装
+    ```bash
+    pip install MNN
+    # 安装之后，命令行中将有如下工具：
+    mnn：显示MNN命令行工具
+    mnnconvert：转换器 MNNConvert 的预编译工具，功能同 MNNConvert
+    mnnquant：量化工具 quantized.out 的预编译工具，功能同 quantized.out
+    ```
+
+### 离线量化原理
+
+将float卷积转换为int8卷积进行计算（仅量化卷积，建议将FC转为1*1卷积实现），同时会通过MNN几何计算机制将量化信息在网络中进行传播，以支持尽可能多的算子的量化计算。模型大小减少为原始模型的1/4，并减少内存，提高推理速度（某些模型可能量化之后变慢，因为float的计算可以使用winograd、strassen等优化算法，而离线量化的int8计算并没有这些优化，如果要使用int8量化的特殊优化，如OAQ、WAQ等，需要使用mnncompress）。
+可以使用 `quantized.out`（或`mnnquant`）进行量化，使用文档在：[quantized.out](quant.md)，[mnnquant.md](python.html#mnnquant)
+
 ## mnncompress
 ### 使用方法
 #### 安装

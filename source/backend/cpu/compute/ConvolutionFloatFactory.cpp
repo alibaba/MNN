@@ -56,13 +56,18 @@ static Execution* _createUnit(const Tensor* input, const Tensor* output, Backend
             return new DenseConvolutionTiledExecutor(common, backend, originWeight, originWeightSize, bias, biasSize, weightQuantInfo);
         }
     }
+#ifndef MNN_LOW_MEMORY
+    if (cpuBackend->memoryMode() == BackendConfig::Memory_Low) {
+        return new DenseConvolutionTiledExecutor(common, backend, originWeight, originWeightSize, bias, biasSize, weightQuantInfo);
+    }
+#endif
     if (fastWay && cpuBackend->functions()->matmulBytes == 0) {
         return new Convolution1x1Strassen(common, backend, originWeight, originWeightSize, bias, biasSize, weightQuantInfo);
     }
     if (originWeightSize == 0) {
         return new DenseConvolutionTiledExecutor(common, backend, originWeight, originWeightSize, bias, biasSize, weightQuantInfo);
     }
-    if (!ConvolutionWinogradBridge::canUseWinograd(common)) {
+    if (cpuBackend->getRuntime()->hint().winogradMemoryUsed == 0 || (!ConvolutionWinogradBridge::canUseWinograd(common))) {
         return new DenseConvolutionTiledExecutor(common, backend, originWeight, originWeightSize, bias, biasSize, nullptr);
     }
     PerfConfig convPerfconfig = DenseConvolutionTiledExecutor::bestTileConvolutionConfig(common, input, output, cpuBackend->threadNumber(), backend);

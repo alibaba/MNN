@@ -280,7 +280,7 @@ L1LoopDz:
     vmlal.s8 q0, d5, d13
     vmlal.s8 q1, d5, d15
     vpaddl.s16 q10, q0
-    add r1, r1, #16
+
     vpaddl.s16 q11, q1
 
     beq L1LoopSzEnd
@@ -307,7 +307,7 @@ L1LoopDz:
         vmull.s8 q1, d4, d14
         vmlal.s8 q0, d5, d13
         vmlal.s8 q1, d5, d15
-        add r1, r1, #16
+
         vpadal.s16 q10, q0
         vpadal.s16 q11, q1
 

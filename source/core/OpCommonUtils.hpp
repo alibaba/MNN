@@ -63,6 +63,8 @@ public:
     static bool computeMatMulSize(bool transposeA, bool transposeB, const Tensor* A, const Tensor* B, int& e, int& l, int& h);
     static Execution* createExecutionWithExternal(Backend* backend, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                                   const MNN::Op* op, FileLoader* externalFile, std::shared_ptr<BufferStorage>& tmpstore);
+    static DataType convertDataType(halide_type_t type);
+
 };
 } // namespace MNN
 

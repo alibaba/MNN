@@ -39,13 +39,13 @@ stp d8,  d9,  [sp, #(16 * 3)]
 
 movi v31.16b, #1
 ld1r {v30.4s}, [x2] // dequant scale
-mov x8, #80 // EP*LP
 sdiv x5, x5, x6    // src_depth_quad_per_block
 
 START:
 lsl x11, x3, #2
 
 cmp x3, #1
+mov x8, #8 // for LLM decode, otherwise update in Remain
 beq TILE_1
 
 TILE_10: // realDstCount >= EP(10)
@@ -114,7 +114,8 @@ Remain: // remain realDstCount < EP
 cbz x3, End
 
 lsl x11, x3, #2
-/* For remain dstCount, each E's block step is x11. */ 
+lsl x8, x3, #3 // x8: eDest*LP
+/* For remain dstCount, each E's block step is x11. */
 TILE_8: // realDstCount >= 8
 cmp x3, #8
 blt TILE_4

@@ -20,13 +20,16 @@ void ConvLowMemoryExecution::getInfoFromOpLowMemory(std::shared_ptr<ConvolutionC
         MNN_ASSERT(false);
     }
     
-    mResource->mInputChannel = quanCommon->weight.size() / (mResource->mKernelWidth * mResource->mKernelHeight * mResource->mOutputChannel);
     // set mNumQuantBit
     if(quanCommon->canUseInt4){
         mNumQuantBit = 4;
-        mResource->mInputChannel = (quanCommon->weight.size() * 2) / (mResource->mKernelWidth * mResource->mKernelHeight * mResource->mOutputChannel);
     }else{
         mNumQuantBit = 8;
+    }
+    if (mOp->main_as_Convolution2D()->common()->inputCount() > 0) {
+        mResource->mInputChannel = mOp->main_as_Convolution2D()->common()->inputCount();
+    } else {
+        mResource->mInputChannel = quanCommon->weight.size() / (mResource->mKernelWidth * mResource->mKernelHeight * mResource->mOutputChannel);
     }
     // src of alpha in CPU
     float * dequantAlpha = quanCommon->alpha.get();

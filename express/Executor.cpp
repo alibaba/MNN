@@ -41,6 +41,11 @@ void Executor::setGlobalExecutorConfig(MNNForwardType type, const BackendConfig&
     }
     MNN_ASSERT(nullptr != rt);
     mAttr->firstType = type;
+    // Cache threadnumber and config
+    mAttr->numThread = numberThread;
+    mAttr->config = config;
+    // Remove sharedContext because it's not used for create backend
+    mAttr->config.sharedContext = nullptr;
 }
 
 int Executor::getCurrentRuntimeStatus(RuntimeStatus statusEnum) {
@@ -219,6 +224,11 @@ void Executor::RuntimeManager::setMode(Interpreter::SessionMode mode) {
 }
 void Executor::RuntimeManager::setHint(Interpreter::HintMode mode, int value) {
     mInside->modes.setHint(mode, value);
+    auto current = ExecutorScope::Current();
+    auto rt = current->getRuntime();
+    for (auto& iter : rt.first) {
+        iter.second->setRuntimeHint(mInside->modes.runtimeHint);
+    }
 }
 void Executor::RuntimeManager::setExternalPath(std::string path, int type) {
     mInside->modes.setExternalPath(path, type);

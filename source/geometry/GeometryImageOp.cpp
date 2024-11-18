@@ -64,51 +64,96 @@ public:
             flatbuffers::FlatBufferBuilder builder;
             builder.Finish(makeInterp(builder, &info, 2, op, OpType_Interp));
             res.command.emplace_back(GeometryComputerUtils::makeCommand(builder, {newInputs[0]}, newOutputs));
-        }
-        else if (OpType_Interp == op->type() && inputs[0]->dimensions() <= 4) {
-            // Compute cord transform for interp
-            auto resize                           = op->main_as_Interp();
-            auto inW = inputs[0]->width();
-            auto inH = inputs[0]->height();
-            auto outW = outputs[0]->width();
-            auto outH = outputs[0]->height();
-            InterpInfo info;
-            bool computeScale = true;
-            if (inputs.size() > 1 && inputs[1]->getType().code == halide_type_float) {
-                computeScale = false;
-                info.heightScale = 1.0f / inputs[1]->host<float>()[2];
-                if (inputs[0]->dimensions() >= 4) {
-                    info.widthScale = 1.0f / inputs[1]->host<float>()[3];
+        } else if (OpType_Interp == op->type()) {
+            auto tempInput = newInputs[0];
+            auto tempOutput = newOutputs[0];
+            int offset = 2;
+            for (int d=0; d<tempInput->dimensions() && d<2; ++d) {
+                if (tempInput->length(d) != tempOutput->length(d)) {
+                    offset = d;
+                    break;
                 }
             }
-            const int defaultDepth = 10;
-            _ConverterInterp(resize, &info, inW, inH, defaultDepth, outW, outH, defaultDepth, computeScale);
-            flatbuffers::FlatBufferBuilder builder;
-            builder.Finish(makeInterp(builder, &info, resize->resizeType(), op, OpType_Interp));
-            res.command.emplace_back(GeometryComputerUtils::makeCommand(builder, {newInputs[0]}, newOutputs));
-        } else if (OpType_Interp == op->type() && inputs[0]->dimensions() == 5) {
-            // Compute cord transform for interp
-            auto resize                           = op->main_as_Interp();
-            auto inShape = newInputs[0]->shape();
-            auto outShape = newOutputs[0]->shape();
-            auto inW = inShape[4];
-            auto inH = inShape[3];
-            auto inD = inShape[2];
-            auto outW = outShape[4];
-            auto outH = outShape[3];
-            auto outD = outShape[2];
-            InterpInfo info;
-            bool computeScale = true;
-            if (inputs.size() > 1 && inputs[1]->getType().code == halide_type_float) {
-                computeScale = false;
-                info.depthScale = 1.0f / inputs[1]->host<float>()[2];
-                info.heightScale = 1.0f / inputs[1]->host<float>()[3];
-                info.widthScale = 1.0f / inputs[1]->host<float>()[4];
+            if (offset < 2) {
+                int enlargeDim = 2 - offset;
+                std::shared_ptr<Tensor> flattentInput(new Tensor(enlargeDim + tempInput->dimensions(), Tensor::CAFFE_C4));
+                std::shared_ptr<Tensor> flattentOutput(new Tensor(enlargeDim + tempInput->dimensions(), Tensor::CAFFE_C4));
+
+                if (0 == offset) {
+                    flattentInput->setLength(0, 1);
+                    flattentInput->setLength(1, 1);
+                    flattentOutput->setLength(0, 1);
+                    flattentOutput->setLength(1, 1);
+                } else {
+                    flattentInput->setLength(0, tempInput->length(0));
+                    flattentInput->setLength(1, 1);
+                    flattentOutput->setLength(0, tempOutput->length(0));
+                    flattentOutput->setLength(1, 1);
+                }
+                for (int v=offset; v<tempInput->buffer().dimensions; ++v) {
+                    flattentInput->setLength(v+enlargeDim, tempInput->length(v));
+                    flattentOutput->setLength(v+enlargeDim, tempOutput->length(v));
+                }
+                TensorUtils::getDescribe(flattentInput.get())->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+                TensorUtils::getDescribe(flattentInput.get())->regions = {TensorUtils::makeFullSlice(tempInput)};
+
+                TensorUtils::getDescribe(tempOutput)->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+                TensorUtils::getDescribe(tempOutput)->regions = {TensorUtils::makeFullSlice(flattentOutput.get())};
+                
+                tempInput = flattentInput.get();
+                tempOutput = flattentOutput.get();
+
+                res.extras.emplace_back(flattentInput);
+                res.extras.emplace_back(flattentOutput);
             }
-            _ConverterInterp(resize, &info, inW, inH, inD, outW, outH, outD, computeScale);
-            flatbuffers::FlatBufferBuilder builder;
-            builder.Finish(makeInterp(builder, &info, resize->resizeType(), op, OpType_Interp3D));
-            res.command.emplace_back(GeometryComputerUtils::makeCommand(builder, {newInputs[0]}, newOutputs));
+            if (tempInput->dimensions() <= 4) {
+                // Compute cord transform for interp
+                auto resize = op->main_as_Interp();
+                auto inW = tempInput->width();
+                auto inH = tempInput->height();
+                auto outW = tempOutput->width();
+                auto outH = tempOutput->height();
+                InterpInfo info;
+                bool computeScale = true;
+                if (inputs.size() > 1 && inputs[1]->getType().code == halide_type_float) {
+                    computeScale = false;
+                    info.heightScale = 1.0f / inputs[1]->host<float>()[offset];
+                    if (tempInput->dimensions() >= 4) {
+                        info.widthScale = 1.0f / inputs[1]->host<float>()[offset+1];
+                    }
+                }
+                const int defaultDepth = 10;
+                _ConverterInterp(resize, &info, inW, inH, defaultDepth, outW, outH, defaultDepth, computeScale);
+                flatbuffers::FlatBufferBuilder builder;
+                builder.Finish(makeInterp(builder, &info, resize->resizeType(), op, OpType_Interp));
+                res.command.emplace_back(GeometryComputerUtils::makeCommand(builder, {tempInput}, {tempOutput}));
+            } else if(tempInput->dimensions() == 5) {
+                // Compute cord transform for interp
+                auto resize = op->main_as_Interp();
+                auto inShape = tempInput->shape();
+                auto outShape = tempOutput->shape();
+                auto inW = inShape[4];
+                auto inH = inShape[3];
+                auto inD = inShape[2];
+                auto outW = outShape[4];
+                auto outH = outShape[3];
+                auto outD = outShape[2];
+                InterpInfo info;
+                bool computeScale = true;
+                if (inputs.size() > 1 && inputs[1]->getType().code == halide_type_float) {
+                    computeScale = false;
+                    info.depthScale = 1.0f / inputs[1]->host<float>()[offset];
+                    info.heightScale = 1.0f / inputs[1]->host<float>()[offset+1];
+                    info.widthScale = 1.0f / inputs[1]->host<float>()[offset+2];
+                }
+                _ConverterInterp(resize, &info, inW, inH, inD, outW, outH, outD, computeScale);
+                flatbuffers::FlatBufferBuilder builder;
+                builder.Finish(makeInterp(builder, &info, resize->resizeType(), op, OpType_Interp3D));
+                res.command.emplace_back(GeometryComputerUtils::makeCommand(builder, {tempInput}, {tempOutput}));
+            } else {
+                MNN_ERROR("MNN Interp don't support >= 6 dimension Interp\n");
+                return false;
+            }
         } else {
             std::shared_ptr<Command> cmdP(new Command);
             auto& cmd = *cmdP;;

@@ -550,34 +550,24 @@ static auto gRegister = []() { // convInt8->(relu)->quant->cast->dequant->convIn
         if (nullptr == expr->get()) {
             return false;
         }
-        if (expr->get()->type() == OpType_Const || expr->get()->type() == OpType_TrainableParam) {
+        if (expr->get()->type() != OpType_Cast) {
             return false;
         }
-
-        int inputs_size = static_cast<int32_t>(expr->inputs().size());
-        for (int i = 0; i < inputs_size; ++i) {
-            if (!matchConvInt8ToOther(expr, i) && !matchOtherToOther(expr, i)) {
-                return false;
-            }
+        auto castparam = expr->get()->main_as_CastParam();
+        if (castparam->dstT() != MNN::DataType_DT_UINT8) {
+            return false;
+        }
+        auto quantExpr = expr->inputs()[0]->expr().first;
+        if (quantExpr->get()->type() != OpType_FloatToInt8) {
+            return false;
         }
         return true;
     };
     auto transformXToOther = [](EXPRP expr) { // X->quant->cast->dequant->output_other => X->output_other
-        int input_size = static_cast<int32_t>(expr->inputs().size());
-        std::vector<VARP> new_inputs(input_size);
-        for (int i = 0; i < input_size; ++i) {
-            if (matchConvInt8ToOther(expr, i)) {
-                VARP input_i = transformConvInt8ToOther(expr, i);
-                new_inputs[i] = input_i;
-            } else {
-                VARP input_i = transformOtherToOther(expr, i);
-                new_inputs[i] = input_i;
-            }
-        }
-
+        auto quantExpr = expr->inputs()[0]->expr().first;
         // generate a new oher op.
-        std::unique_ptr<OpT> oldOtherOp(expr->get()->UnPack());
-        auto newop_expr = Expr::create(oldOtherOp.get(), new_inputs);
+        std::unique_ptr<OpT> oldOtherOp(quantExpr->get()->UnPack());
+        auto newop_expr = Expr::create(oldOtherOp.get(), quantExpr->inputs());
         Expr::replace(expr, newop_expr);
         return true;
         
@@ -708,8 +698,8 @@ static auto gRegister = []() { // convInt8->(relu)->quant->cast->dequant->convIn
             Expr::replace(expr, conv_expr);
             return true;
         }
-        float output_scale = quan_expr->inputs().at(2)->readMap<float>()[0];
-        float output_zero  = quan_expr->inputs().at(3)->readMap<float>()[0];
+        float output_scale = quan_expr->get()->main_as_QuantizedFloatParam()->tensorScale()->data()[0];
+        float output_zero  = quan_expr->get()->main_as_QuantizedFloatParam()->floatzeros()->data()[0];
         // directly return the op output.
         std::unique_ptr<OpT> oldOtherOp(X_expr->get()->UnPack());
         auto newop_expr = Expr::create(oldOtherOp.get(), X_expr->inputs());

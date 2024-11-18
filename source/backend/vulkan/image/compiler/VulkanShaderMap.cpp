@@ -5,6 +5,11 @@ namespace MNN {
 void VulkanShaderMap::init() {
 mMaps.insert(std::make_pair("glsl_dwweightcopy_comp", std::make_pair(glsl_dwweightcopy_comp,glsl_dwweightcopy_comp_len)));
 mMaps.insert(std::make_pair("glsl_deconvCol2Im_comp", std::make_pair(glsl_deconvCol2Im_comp,glsl_deconvCol2Im_comp_len)));
+mMaps.insert(std::make_pair("glsl_softmaxImage_comp", std::make_pair(glsl_softmaxImage_comp,glsl_softmaxImage_comp_len)));
+mMaps.insert(std::make_pair("glsl_softmaxImage_AXIS_N_comp", std::make_pair(glsl_softmaxImage_AXIS_N_comp,glsl_softmaxImage_AXIS_N_comp_len)));
+mMaps.insert(std::make_pair("glsl_softmaxImage_AXIS_H_comp", std::make_pair(glsl_softmaxImage_AXIS_H_comp,glsl_softmaxImage_AXIS_H_comp_len)));
+mMaps.insert(std::make_pair("glsl_softmaxImage_AXIS_W_comp", std::make_pair(glsl_softmaxImage_AXIS_W_comp,glsl_softmaxImage_AXIS_W_comp_len)));
+mMaps.insert(std::make_pair("glsl_softmaxImage_AXIS_C_comp", std::make_pair(glsl_softmaxImage_AXIS_C_comp,glsl_softmaxImage_AXIS_C_comp_len)));
 mMaps.insert(std::make_pair("glsl_convolutionDepthwiseMali_comp", std::make_pair(glsl_convolutionDepthwiseMali_comp,glsl_convolutionDepthwiseMali_comp_len)));
 mMaps.insert(std::make_pair("glsl_convolutionDepthwiseMali_RELU_comp", std::make_pair(glsl_convolutionDepthwiseMali_RELU_comp,glsl_convolutionDepthwiseMali_RELU_comp_len)));
 mMaps.insert(std::make_pair("glsl_convolutionDepthwiseMali_RELU6_comp", std::make_pair(glsl_convolutionDepthwiseMali_RELU6_comp,glsl_convolutionDepthwiseMali_RELU6_comp_len)));
@@ -67,7 +72,6 @@ mMaps.insert(std::make_pair("glsl_blit_comp", std::make_pair(glsl_blit_comp,glsl
 mMaps.insert(std::make_pair("glsl_blit_image_comp", std::make_pair(glsl_blit_image_comp,glsl_blit_image_comp_len)));
 mMaps.insert(std::make_pair("glsl_fill_image_comp", std::make_pair(glsl_fill_image_comp,glsl_fill_image_comp_len)));
 mMaps.insert(std::make_pair("glsl_imageTonchw_comp", std::make_pair(glsl_imageTonchw_comp,glsl_imageTonchw_comp_len)));
-mMaps.insert(std::make_pair("glsl_softmaxHeight_NHWC_comp", std::make_pair(glsl_softmaxHeight_NHWC_comp,glsl_softmaxHeight_NHWC_comp_len)));
 mMaps.insert(std::make_pair("glsl_resizeNearest_comp", std::make_pair(glsl_resizeNearest_comp,glsl_resizeNearest_comp_len)));
 mMaps.insert(std::make_pair("glsl_resizeNearest_NEAREST_ROUND_comp", std::make_pair(glsl_resizeNearest_NEAREST_ROUND_comp,glsl_resizeNearest_NEAREST_ROUND_comp_len)));
 mMaps.insert(std::make_pair("glsl_reduce_comp", std::make_pair(glsl_reduce_comp,glsl_reduce_comp_len)));
