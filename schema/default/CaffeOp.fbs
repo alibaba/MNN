@@ -96,6 +96,7 @@ table QuantizedFloatParam{
     // binary proto: [originKySize, originKxSize, transKySize, transKxSize, {kyStart, kxStart, unitY, unitX}, {...} ...]
     winogradAttr:[int];
     outputDataType:DataType=DT_INT8;
+    floatzeros: [float];
 }
 
 table Convolution2D {

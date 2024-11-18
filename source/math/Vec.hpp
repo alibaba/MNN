@@ -9,19 +9,10 @@
 #ifndef Vec_hpp
 #define Vec_hpp
 #include "core/Macro.h"
+#include "core/SimdHeader.h"
 #include <array>
 #include <algorithm>  // supply std::max and std::min
 #include <math.h>
-#ifdef MNN_USE_NEON
-#include <arm_neon.h>
-#endif
-#ifdef MNN_USE_SSE
-#if defined(_MSC_VER)
-#include <intrin.h>
-#else
-#include <x86intrin.h>
-#endif
-#endif
 namespace MNN {
 namespace Math {
 

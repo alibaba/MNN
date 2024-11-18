@@ -138,7 +138,7 @@ cbnz w28, Start
 mov x21, #16 // sizeof(float) * pack
 ldr x23, [x6, #56]  // fp32minmax
 Start:
-mov x22, #48 // src_steps
+lsl x22, x7, #2 // eDest * SRC_UNIT
 
 TILE_12:
     cmp x7, #12
@@ -483,7 +483,6 @@ TILE_8:
     cmp x5, #2
     blt L4LoopDz_TILE_8
 L8LoopDz_TILE_8:
-    //ld1 {v0.4s, v1.4s}, [x20], #32 // bias
     mov x11, x1
     mov x13, x3
     mov x27, x12
@@ -640,7 +639,6 @@ L8LoopDz_TILE_8:
     cbz x14, Tile8End
 
 L4LoopDz_TILE_8:
-    //ld1 {v0.4s}, [x20], #16 // bias
     mov x11, x1
     mov x13, x3
 
@@ -868,7 +866,6 @@ L8LoopDz_TILE_4:
     cbz x14, Tile4End
 
 L4LoopDz_TILE_4:
-    //ld1 {v0.4s}, [x20], #16 // bias
     mov x11, x1
     mov x13, x3
     SET_BIAS v8, v9, v10, v11
@@ -962,7 +959,6 @@ TILE_1:
     cmp x5, #2
     blt L4LoopDz_TILE_1
 L8LoopDz_TILE_1:
-    //ld1 {v0.4s, v1.4s}, [x20], #32 // bias
     mov x11, x1
     mov x13, x3
     mov x27, x12
@@ -1056,7 +1052,6 @@ L8LoopDz_TILE_1:
     cbz x14, Tile1End
 
 L4LoopDz_TILE_1:
-    //ld1 {v0.4s}, [x20], #16 // bias
     mov x11, x1
     mov x13, x3
     movi v8.16b, #0

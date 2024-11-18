@@ -91,6 +91,7 @@ bool VARP::fix(VARP::InputType type) const {
         newVARP->expr().first->inside()->mHoldBackend = pipelineInfo.first.cache.second;
     }
     Variable::replace(VARP(mContent), newVARP);
+    inputTensor->wait(MNN::Tensor::MAP_TENSOR_READ, true);
     return true;
 }
 

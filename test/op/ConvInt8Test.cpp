@@ -258,7 +258,7 @@ protected:
             auto error = (int32_t)targetValue - (int32_t)computeResult;
             if (error * error > 1) {
                 MNN_PRINT("ic=%d, oc=%d, ow=%d, oh=%d, ConvInt8 result No.%d Error: right=%d, error=%d\n", channel[0], channel[1], ow, oh, i, targetValue, computeResult);
-#ifdef DEBUG
+#ifdef DEBUG 
                 x->writeMap<int8_t>();
                 auto ptr = y->readMap<int8_t>();
                 FUNC_PRINT_ALL(ptr, p);
@@ -290,7 +290,52 @@ class ConvInt8Im2colGemmTest : public ConvInt8TestCommon {
 public:
 
     virtual bool run(int precision) {
-        return true;
+        auto backendType = getCurrentType();
+        if (backendType != MNN_FORWARD_CPU && backendType != MNN_FORWARD_CPU_EXTENSION) {
+            // Skip other backend test for conv int8
+            return true;
+        }
+        std::vector< std::vector<int>> iwih = {{27, 27}, {20, 20}, {11, 11}, {14, 11}, {14, 12}};
+        std::vector< std::vector<int>> kxky = {{3, 3}, {5, 5}};
+        std::vector< std::vector<int>> icoc = {{3, 64}, {8, 32}, {1, 32}, {54, 8}};
+        std::vector<int> batch              = {1, 2, 5};
+        std::vector< std::vector<int>> pxpy = {{1, 1}, {0, 0}, {2, 3}};
+        std::vector< std::vector<int>> sxsy = {{1, 1}, {2, 2}};
+        std::vector< std::vector<int>> dxdy = {{1, 1}, {2, 2}};
+        
+        for (int i0 = 0; i0 < kxky.size(); i0++) {
+            for (int i1 = 0; i1 < icoc.size(); i1++) {
+                for (int i2 = 0; i2 < batch.size(); i2++) {
+                    for (int i3 = 0; i3 < pxpy.size(); i3++) {
+                        for (int i4 = 0; i4 < sxsy.size(); i4++) {
+                            for (int i5 = 0; i5 < dxdy.size(); i5++) {
+                                for (int i6 = 3; i6 < iwih.size(); i6++) {
+                                    auto res = testKernel(iwih[i6], kxky[i0], icoc[i1], pxpy[i3], sxsy[i4], dxdy[i5], 8, false, 1, batch[i2], MNN::SparseAlgo_RANDOM, 1, false);
+                                    if (!res) {
+                                        MNN_ERROR("kx=%d, ky=%d, iw=%d, ih=%d, overflow=false, bit=8, batch=%d, Conv info: sx=%d, sy=%d, dx=%d, dy=%d, px=%d, py=%d, ic=%d, oc=%d\n", 
+                                                   kxky[i0][0], kxky[i0][1], iwih[i6][0], iwih[i6][1], batch[i2], sxsy[i4][0], sxsy[i4][1], dxdy[i5][0], dxdy[i5][1], pxpy[i3][0], pxpy[i3][1], icoc[i1][0], icoc[i1][1]);
+                                        return false;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        int sx = 1, sy = 1, dx = 1, dy = 1, px = 1, py = 1, ic = 17, oc = 8, kx = 3, ky = 3; // ic=17,54,{14,11},{7,7}
+        auto res = testKernel({7, 7}, {kx, ky}, {ic, oc}, {px, py}, {sx, sy}, {dx, dy}, 8, false, 1, 1, MNN::SparseAlgo_RANDOM, 1, false);
+        if (!res) {
+            MNN_ERROR("overflow=false, bit=8, batch=%d, Conv info: sx=%d, sy=%d, dx=%d, dy=%d, px=%d, py=%d, ic=%d, oc=%d\n", 1, sx, sy, dx, dy, px, py, ic, oc);
+            return false;
+        }
+        res = testKernel({4, 4}, {1, 3}, {ic, oc}, {px, py}, {sx, sy}, {dx, dy}, 8, false, 1, 1, MNN::SparseAlgo_RANDOM, 1, false);
+        if (!res) {
+            MNN_ERROR("overflow=false, bit=8, batch=%d, Conv info: sx=%d, sy=%d, dx=%d, dy=%d, px=%d, py=%d, ic=%d, oc=%d\n", 1, sx, sy, dx, dy, px, py, ic, oc);
+            return false;
+        }
+        
         std::vector<std::vector<int>> kernels = {
             {4, 2}, {1, 5}, {7, 1}
         };
@@ -566,7 +611,8 @@ public:
                 MNN_ERROR("[ConvInt8WinogradTestCommon] getInfo not match\n");
                 return false;
             }
-            auto yTargetPtr = yTarget->readMap<int>(), yPtr = y->readMap<int>();
+            auto yTargetPtr = yTarget->readMap<int>();
+            auto yPtr = y->readMap<int>();
             if (yTargetPtr == nullptr || yPtr == nullptr) {
                 MNN_ERROR("[ConvInt8WinogradTestCommon] result is nullptr\n");
                 return false;

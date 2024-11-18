@@ -12,6 +12,7 @@
 #include <vector>
 #include "MNNTestSuite.h"
 #include "TestUtils.h"
+#include "core/IDSTEncoder.hpp"
 using namespace std;
 using namespace MNN;
 using namespace MNN::Express;
@@ -60,12 +61,8 @@ VARP _Deconv(std::vector<int8_t>&& weight, std::vector<float>&& bias, std::vecto
     conv2D->common->kernelY     = kernelSize[1];
     conv2D->common->relu6 = relu6;
     conv2D->common->relu = relu;
-    MNN_ASSERT(weight.size() == channel[1] * (channel[0] / group) * kernelSize[0] * kernelSize[1]);
+    conv2D->quanParameter = IDSTEncoder::encode(nullptr, scale, channel[1], channel[0] * kernelSize[0] * kernelSize[1], false, weight.data(), -128);
     conv2D->symmetricQuan.reset(new QuantizedFloatParamT);
-    conv2D->symmetricQuan->weight = std::move(weight);
-    MNN_ASSERT(bias.size() == channel[1]);
-    conv2D->quanParameter.reset(new IDSTQuanT);
-    conv2D->quanParameter->alpha = std::move(scale);
     conv2D->bias = std::move(bias);
     return (Variable::create(Expr::create(convOp.get(), {x})));
 }

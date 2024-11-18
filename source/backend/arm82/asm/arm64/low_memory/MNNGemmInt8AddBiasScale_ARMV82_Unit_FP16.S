@@ -114,7 +114,7 @@ ldr x23, [x6, #56]  // fp32minmax
 mov x21, #16 // sizeof(float16_t) * PACK
 Start:
 lsl x15, x3, #5 // x15 = src_depth_quad * UNIT * SRC_UNIT
-mov x22, #48 // src_steps
+lsl x22, x7, #2 // src_steps
 ldr x27, [x6, #80] // extra scale
 TILE_12:
     cmp x7, #12

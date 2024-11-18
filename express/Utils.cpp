@@ -13,6 +13,7 @@
 #include <MNN/expr/ExecutorScope.hpp>
 #include "MNN_generated.h"
 #include "core/TensorUtils.hpp"
+#include "core/OpCommonUtils.hpp"
 #include "core/Session.hpp"
 #include "core/MNNMemoryUtils.h"
 #include "core/Backend.hpp"
@@ -61,19 +62,7 @@ int Utils::convertFormat(Dimensionformat format) {
 }
 
 DataType Utils::convertDataType(halide_type_t type) {
-    if (type.code == halide_type_float) {
-        return DataType_DT_FLOAT;
-    }
-    if (type.code == halide_type_uint && type.bits == 8) {
-        return DataType_DT_UINT8;
-    }
-    if (type.code == halide_type_int && type.bits == 8) {
-        return DataType_DT_INT8;
-    }
-    if (type.code == halide_type_int && type.bits == 32) {
-        return DataType_DT_INT32;
-    }
-    return DataType_DT_INVALID;
+    return OpCommonUtils::convertDataType(type);
 }
 halide_type_t Utils::revertDataType(DataType dataType) {
     CONVERT(DataType_DT_FLOAT, halide_type_of<float>(), dataType);

@@ -135,7 +135,11 @@ Session::Session(Schedule::ScheduleInfo&& info, const ModeGroup& mode, RuntimeIn
         attr.autoSetOpType = mode.backendMode == Interpreter::Session_Backend_Auto;
         auto rt    = mRuntime.first.find(iter.first.info.type)->second.get();
         auto cpuRuntime = mRuntime.second;
-        std::shared_ptr<Pipeline> newPipeline(new Pipeline( mInfo.externalWeightPath, std::move(iter), mode.inputMode == Interpreter::Session_Input_Inside, mode.outputMode == Interpreter::Session_Output_User, attr, rt, cpuRuntime.get(), mMode.geometryMask));
+        auto geoMask = mMode.geometryMask;
+        if (rt->onGetCompilerType() != Runtime::Compiler_Loop) {
+            geoMask = 0;
+        }
+        std::shared_ptr<Pipeline> newPipeline(new Pipeline( mInfo.externalWeightPath, std::move(iter), mode.inputMode == Interpreter::Session_Input_Inside, mode.outputMode == Interpreter::Session_Output_User, attr, rt, cpuRuntime.get(), geoMask));
         mPipelines.emplace_back(std::move(newPipeline));
     }
     mCallBackMode = mode.callBackMode;

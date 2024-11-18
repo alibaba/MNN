@@ -6,13 +6,15 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#include <float.h>
+#include "core/ConvolutionCommon.hpp"
 #include "CoreMLConvolution.hpp"
 
 namespace MNN {
 
 
 CoreMLConvolution::CoreMLConvolution(MNN::Backend *b, const MNN::Op *op, const std::vector<Tensor *> &inputs, const std::vector<MNN::Tensor *> &outputs) : CoreMLCommonExecution(b, op) {
-    isDeconv = op->type() == OpType_Deconvolution;
+    isDeconv = op->type() == OpType_Deconvolution || op->type() == OpType_DeconvolutionDepthwise;
     initLayer();
 }
 
@@ -47,21 +49,17 @@ void CoreMLConvolution::loadWeightBias(const std::vector<Tensor *> &inputs) {
     biasPtr  = conv2D->bias()->data();
 }
 
-void CoreMLConvolution::addPadLayer(const Tensor * input, const Convolution2DCommon* common) {
-    MNN_ASSERT(common->padMode() == PadMode_CAFFE);
-    int top, left, bottom, right;
-    if (nullptr != common->pads()) {
-        MNN_ASSERT(common->pads()->size() >= 4);
-        top = common->pads()->Get(0);
-        left = common->pads()->Get(1);
-        bottom = common->pads()->Get(2);
-        right = common->pads()->Get(3);
+void CoreMLConvolution::addPadLayer(const Tensor * input, const Tensor * output, const Convolution2DCommon* common) {
+    std::pair<int, int> pads;
+    if (isDeconv) {
+        pads = ConvolutionCommon::convolutionTransposePad(input, output, common);
     } else {
-        top = common->padY();
-        left = common->padX();
-        bottom = common->padY();
-        right = common->padX();
+        pads = ConvolutionCommon::convolutionPad(input, output, common);
     }
+    int top = pads.second;
+    int left = pads.first;
+    int bottom = pads.second;
+    int right = pads.first;
     if (top == 0 && left == 0 && bottom == 0 && right == 0) {
         return;
     }
@@ -69,31 +67,9 @@ void CoreMLConvolution::addPadLayer(const Tensor * input, const Convolution2DCom
         isSamePadding = true;
         return;
     }
-    if (!isDeconv && outputWidth == UP_DIV(inputWidth, common->strideX()) && outputHeight == UP_DIV(outputHeight, common->strideY())) {
+    if (!isDeconv && outputWidth == UP_DIV(inputWidth, common->strideX()) && outputHeight == UP_DIV(inputHeight, common->strideY())) {
         isSamePadding = true;
         return;
-    }
-    if (isDeconv) {
-        int ky = common->kernelY();
-        int kx = common->kernelX();
-        int sy = common->strideY();
-        int sx = common->strideX();
-        int pad_out_height = (outputHeight - ky) / sy + 1;
-        int pad_out_width = (outputWidth - kx) / sx + 1;
-        top = (pad_out_height - inputHeight) / 2;
-        bottom = (pad_out_height - inputHeight) - top;
-        left = (pad_out_width - inputWidth) / 2;
-        right = (pad_out_width - inputWidth) - left;
-
-        if (top < 0 || bottom < 0 || left < 0 || right < 0) {
-            isSamePadding = true;
-            pad_out_width = outputWidth / sx;
-            pad_out_height = outputHeight / sy;
-            bottom = 0;
-            top = pad_out_height - inputHeight;
-            right = 0;
-            left = pad_out_width - inputWidth;
-        }
     }
     std::string layerName = "ConvPadding-" + mConvInputName;
     auto paddingLayer = mCoreMLBackend->create<CoreML__Specification__NeuralNetworkLayer>();
@@ -132,6 +108,7 @@ ErrorCode CoreMLConvolution::onResize(const std::vector<Tensor *> &inputs, const
     outputWidth = outputs[0]->width();
     outputHeight = outputs[0]->height();
     loadWeightBias(inputs);
+    isSamePadding = false;
     auto conv2D      = mOp->main_as_Convolution2D();
     auto common      = conv2D->common();
     auto kernelX     = common->kernelX();
@@ -156,6 +133,12 @@ ErrorCode CoreMLConvolution::onResize(const std::vector<Tensor *> &inputs, const
     mLayer_->convolution->dilationfactor = mCoreMLBackend->create<uint64_t>(mLayer_->convolution->n_dilationfactor);
     mLayer_->convolution->dilationfactor[0] = dilateY;
     mLayer_->convolution->dilationfactor[1] = dilateX;
+    if (isDeconv) {
+        mLayer_->convolution->n_outputshape = 2;
+        mLayer_->convolution->outputshape = mCoreMLBackend->create<uint64_t>(2);
+        mLayer_->convolution->outputshape[0] = outputHeight;
+        mLayer_->convolution->outputshape[1] = outputWidth;
+    }
     switch (padMod) {
         case PadMode_SAME:
             mLayer_->convolution->convolution_padding_type_case = CORE_ML__SPECIFICATION__CONVOLUTION_LAYER_PARAMS__CONVOLUTION_PADDING_TYPE_SAME;
@@ -168,11 +151,12 @@ ErrorCode CoreMLConvolution::onResize(const std::vector<Tensor *> &inputs, const
             core_ml__specification__valid_padding__init(mLayer_->convolution->valid);
             break;
         case PadMode_CAFFE:
-            addPadLayer(inputs[0], common);
+            addPadLayer(inputs[0], outputs[0], common);
             if (isSamePadding){
                 mLayer_->convolution->convolution_padding_type_case = CORE_ML__SPECIFICATION__CONVOLUTION_LAYER_PARAMS__CONVOLUTION_PADDING_TYPE_SAME;
                 mLayer_->convolution->same = mCoreMLBackend->create<CoreML__Specification__SamePadding>();
                 core_ml__specification__same_padding__init(mLayer_->convolution->same);
+                mLayer_->convolution->same->asymmetrymode = CORE_ML__SPECIFICATION__SAME_PADDING__SAME_PADDING_MODE__TOP_LEFT_HEAVY;
                 break;
             } else {
                 mLayer_->convolution->convolution_padding_type_case = CORE_ML__SPECIFICATION__CONVOLUTION_LAYER_PARAMS__CONVOLUTION_PADDING_TYPE_VALID;
@@ -183,9 +167,11 @@ ErrorCode CoreMLConvolution::onResize(const std::vector<Tensor *> &inputs, const
         default:
             break;
     }
-
-    int inputCount = weightSize / (kernelX * kernelY * outputCount);
-    mLayer_->convolution->kernelchannels = inputCount;
+    if (isDeconv) {
+        mLayer_->convolution->kernelchannels = inputs[0]->channel();
+    } else {
+        mLayer_->convolution->kernelchannels = weightSize / (kernelX * kernelY * outputCount);
+    }
     mLayer_->convolution->outputchannels = outputCount;
     mLayer_->convolution->n_kernelsize = 2;
     mLayer_->convolution->kernelsize = mCoreMLBackend->create<uint64_t>(mLayer_->convolution->n_kernelsize);
@@ -214,12 +200,16 @@ ErrorCode CoreMLConvolution::onResize(const std::vector<Tensor *> &inputs, const
         auto reluLayer = mCoreMLBackend->create<CoreML__Specification__NeuralNetworkLayer>();
         core_ml__specification__neural_network_layer__init(reluLayer);
         mCoreMLBackend->setLayerName(reluLayer, "ConvRelu");
-        reluLayer->layer_case = CORE_ML__SPECIFICATION__NEURAL_NETWORK_LAYER__LAYER_ACTIVATION;
-        reluLayer->activation = mCoreMLBackend->create<CoreML__Specification__ActivationParams>();
-        core_ml__specification__activation_params__init(reluLayer->activation);
-        reluLayer->activation->nonlinearity_type_case = CORE_ML__SPECIFICATION__ACTIVATION_PARAMS__NONLINEARITY_TYPE_RE_LU;
-        reluLayer->activation->relu = mCoreMLBackend->create<CoreML__Specification__ActivationReLU>();
-        core_ml__specification__activation_re_lu__init(reluLayer->activation->relu);
+        reluLayer->layer_case = CORE_ML__SPECIFICATION__NEURAL_NETWORK_LAYER__LAYER_CLIP;
+        reluLayer->clip = mCoreMLBackend->create<CoreML__Specification__ClipLayerParams>();
+        core_ml__specification__clip_layer_params__init(reluLayer->clip);
+        if (common->relu()) {
+            reluLayer->clip->minval = 0.0f;
+            reluLayer->clip->maxval = FLT_MAX;
+        } else {
+            reluLayer->clip->minval = 0.0f;
+            reluLayer->clip->maxval = 6.0f;
+        }
         setLayerInputsAndOutputs(reluLayer, {mConvOutputName}, {mCoreMLBackend->getTensorName(outputs[0])});
         mCoreMLBackend->addLayer(reluLayer);
     }
@@ -229,4 +219,5 @@ ErrorCode CoreMLConvolution::onResize(const std::vector<Tensor *> &inputs, const
 REGISTER_COREML_OP_CREATOR(CoreMLConvolution, OpType_Convolution)
 REGISTER_COREML_OP_CREATOR(CoreMLConvolution, OpType_ConvolutionDepthwise)
 REGISTER_COREML_OP_CREATOR(CoreMLConvolution, OpType_Deconvolution)
+REGISTER_COREML_OP_CREATOR(CoreMLConvolution, OpType_DeconvolutionDepthwise)
 } // namespace MNN

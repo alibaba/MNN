@@ -6,11 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#if defined(_MSC_VER)
-#include <intrin.h>
-#else
-#include <x86intrin.h>
-#endif
+#include "core/SimdHeader.h"
+
 #include <stdint.h>
 #include "backend/cpu/compute/Int8FunctionsOpt.h"
 #include "backend/cpu/compute/CommonOptFunction.h"

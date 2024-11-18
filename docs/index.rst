@@ -58,7 +58,6 @@
    train/expr
    train/data
    train/optim
-   train/quant
    train/finetune
    train/distl
 
@@ -69,6 +68,7 @@
 
    transformers/diffusion
    transformers/llm
+   transformers/models
 
 .. toctree::
    :maxdepth: 1
@@ -78,7 +78,6 @@
    tools/convert
    tools/test
    tools/benchmark
-   tools/quant
    tools/compress
    tools/visual
    tools/python

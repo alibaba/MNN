@@ -34,8 +34,6 @@ ldr x8, [x4, #32] // blockNum
 ldr x5, [x4, #40] // oneScale
 ldr x4, [x4, #0]  // kernelCountUnitDouble
 
-//ldr x8, [sp, #0] // blockNum
-
 stp d14, d15, [sp, #(-16 * 4)]!
 stp d12, d13, [sp, #(16 * 1)]
 stp d10, d11, [sp, #(16 * 2)]
@@ -43,7 +41,6 @@ stp d8,  d9,  [sp, #(16 * 3)]
 
 movi v31.16b, #1
 ld1r {v30.4s}, [x2] // Dequant scale
-mov x6, #48 // EP*LP
 sdiv x4, x4, x8     // src_depth_quad per block
 
 TILE_12:
@@ -103,6 +100,7 @@ Remain: // remain realDstCount < EP
 cbz x3, End
 /* x11: Remain dstCount step for each block */
 lsl x11, x3, #2
+lsl x6, x3, #2 // x6=eDest * LP
 
 TILE_2: // realDstCount >= 1
 cmp x3, #2

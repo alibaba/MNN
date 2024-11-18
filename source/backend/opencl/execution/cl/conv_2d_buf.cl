@@ -38,7 +38,7 @@ void conv_2d_1x1_local(__private const int out_w_blocks,
     COMPUTE_FLOAT4 out0 = (COMPUTE_FLOAT4)0;
 
     int offset = out_c_idx*4;
-    int inp_offset = (((out_b_idx+in_c_block*batch)*out_h + out_h_idx)* out_w + out_w_idx) << 2;
+    int inp_offset = ((out_b_idx*out_h + out_h_idx)* out_w + out_w_idx) << 2;
     
     const int inp_add = batch*out_h*out_w*4;
     for (ushort in_channel_block_idx = lid; in_channel_block_idx < in_c_block; in_channel_block_idx+=CONV_LOCAL_SIZE) {

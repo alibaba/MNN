@@ -202,6 +202,7 @@ __kernel void softmax_inside(GLOBAL_SIZE_3_DIMS
 
     const int offset = (outside * shape.y + axis) * shape.z + 0;
 
+#if SOFTMAX_LOCAL_SIZE >= 4
     int lid = get_local_id(0);
     float local sum[SOFTMAX_LOCAL_SIZE];
 
@@ -257,6 +258,41 @@ __kernel void softmax_inside(GLOBAL_SIZE_3_DIMS
             #endif
         }
     }
+#else
+    /*Compute Max */
+    float maxValue = (float)(-FLT_MAX);
+    // clip to seq_len
+    for (int i=0; i<inside_len; i++) {
+        maxValue = fmax(maxValue, (float)input[offset+ i]);
+    }
+
+    /*Compute Exp Sum*/
+    float sumValue = 0;
+    for (int i=0; i<inside_len; i++) {
+        sumValue += exp((float)input[offset+ i] - maxValue);
+    }
+    #ifdef OUTPUT_TRANSPOSE
+    const int out_offset = (outside * shape.z + 0) * shape.y + axis;
+    #endif
+    /*Compute Result */
+    for (int i=0; i<inside_len; i++) {
+        float value = exp((float)input[offset+ i] - maxValue) / sumValue;
+        #ifdef OUTPUT_TRANSPOSE
+        output[out_offset+ i*shape.y] = value;
+        #else
+        output[offset+ i] = value;
+        #endif
+    }
+    if(shape.z > inside_len){
+        for(int i = inside_len; i < shape.z; i++){
+            #ifdef OUTPUT_TRANSPOSE
+            output[out_offset+ i*shape.y] = (FLOAT)0;
+            #else
+            output[offset+ i] = (FLOAT)0;
+            #endif
+        }
+    }
+#endif
 }
 
 // [N X Y4 4] -> [N Y X]

@@ -298,6 +298,10 @@ void VulkanBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTenso
         mHostBuffer->unmap();
         auto key    = std::make_tuple(TensorUtils::getDescribe(dstTensor), true, format);
         auto iter   = mConverters.find(key);
+        if (iter != mConverters.end() && std::get<2>(iter->second).lock() == nullptr) {
+            mConverters.erase(iter);
+            iter = mConverters.end();
+        }
         if (iter == mConverters.end()) {
             if (mConverters.size() > MNN_VULKAN_MAX_CACHE_CONVSIZE) {
                 mConverters.clear();
@@ -317,10 +321,10 @@ void VulkanBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTenso
                 vkTensor->image(i)->barrierRead(convertorBuffer->get());
             }
             convertorBuffer->end();
-            mConverters.insert(std::make_pair(key, std::make_pair(converter, convertorBuffer)));
+            mConverters.insert(std::make_pair(key, std::make_tuple(converter, convertorBuffer, std::weak_ptr<Tensor::InsideDescribe::NativeInsideDescribe>(TensorUtils::getDescribeOrigin(dstTensor)->mContent))));
             iter = mConverters.find(key);
         }
-        mCmdBuffers.push_back(iter->second.second->get());
+        mCmdBuffers.push_back(std::get<1>(iter->second)->get());
         if (TensorUtils::getDescribe(srcTensor)->isMutable == false) {
             _finish();
         }
@@ -333,6 +337,10 @@ void VulkanBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTenso
         auto key    = std::make_tuple(TensorUtils::getDescribe(srcTensor), false, format);
 
         auto iter = mConverters.find(key);
+        if (iter != mConverters.end() && std::get<2>(iter->second).lock() == nullptr) {
+            mConverters.erase(iter);
+            iter = mConverters.end();
+        }
         if (iter == mConverters.end()) {
             if (mConverters.size() > MNN_VULKAN_MAX_CACHE_CONVSIZE) {
                 mConverters.clear();
@@ -345,10 +353,10 @@ void VulkanBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTenso
                                             format,
                                             convertorBuffer.get());
             convertorBuffer->end();
-            mConverters.insert(std::make_pair(key, std::make_pair(converter, convertorBuffer)));
+            mConverters.insert(std::make_pair(key, std::make_tuple(converter, convertorBuffer, std::weak_ptr<Tensor::InsideDescribe::NativeInsideDescribe>(TensorUtils::getDescribeOrigin(srcTensor)->mContent))));
             iter = mConverters.find(key);
         }
-        mCmdBuffers.push_back(iter->second.second->get());
+        mCmdBuffers.push_back(std::get<1>(iter->second)->get());
         _finish();
         std::shared_ptr<Tensor> tempTensor(new Tensor);
         TensorUtils::copyShape(srcTensor, tempTensor.get(), true);

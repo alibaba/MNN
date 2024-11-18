@@ -27,12 +27,10 @@ static bool _supportQuant(const Op* op, const std::vector<Tensor*>& inputs, cons
     switch (otype) {
         case OpType_Convolution:
         case OpType_ConvolutionDepthwise:
-            if (op->main_as_Convolution2D() && op->main_as_Convolution2D()->weight() != nullptr) {
-                return false;
-            } else {
-                return true;
-            }
         case OpType_Deconvolution:
+            if (inputs.size() > 1) {
+                return false;
+            }
             if (op->main_as_Convolution2D() && op->main_as_Convolution2D()->weight() != nullptr) {
                 return false;
             } else {
@@ -1138,7 +1136,7 @@ ErrorCode Pipeline::allocMemory(bool firstMalloc, bool forbidReplace) {
             if (!mRuntime->hasAsyncWork()) {
                 _pushTuningTask(std::move(initInfos));
             }
-            mBackend.reset(mCpuRuntime->onCreate(nullptr));
+            mBackend.reset(mCpuRuntime->onCreate(nullptr, mBackupBackend.get()));
         }
     }
     {

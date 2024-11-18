@@ -109,11 +109,11 @@ static std::tuple<int, int, int> _computeStride(const std::tuple<int, int, int>&
     return std::make_tuple(inside, axis, outside);
 }
 
-static bool _checkFuseValid(const OpCommonUtils::SPLITS& srcTup, const OpCommonUtils::SPLITS& srcSplits, bool swapnc, bool swapcw, bool srcAllLengthValid) {
+static bool _checkFuseValid(const OpCommonUtils::SPLITS& srcTup, const OpCommonUtils::SPLITS& srcSplits, bool swapnc, bool swapcw, const std::tuple<bool,bool,bool>& valid) {
     auto srcFused = _computeAxisFused(srcTup);
     if (swapnc) {
         // cw can't be fused if n > 1, because layout is c, n, w
-        if (std::get<1>(srcFused) && srcAllLengthValid) {
+        if (std::get<1>(srcFused) && std::get<2>(valid)) {
             return false;
         }
         if (std::get<0>(srcFused)) {
@@ -124,7 +124,7 @@ static bool _checkFuseValid(const OpCommonUtils::SPLITS& srcTup, const OpCommonU
         }
     } else if (swapcw) {
         // nc can't be fused if w > 1
-        if (std::get<0>(srcFused) && srcAllLengthValid) {
+        if (std::get<0>(srcFused) && std::get<0>(valid)) {
             return false;
         }
         if (std::get<1>(srcFused)) {
@@ -135,7 +135,15 @@ static bool _checkFuseValid(const OpCommonUtils::SPLITS& srcTup, const OpCommonU
         }
     } else {
         // nw can't be fused if c > 1
-        if (std::get<2>(srcFused) && srcAllLengthValid) {
+        if (std::get<2>(srcFused) && std::get<1>(valid)) {
+            return false;
+        }
+        // nc can't be fused if w > 1
+        if (std::get<0>(srcFused) && std::get<0>(valid)) {
+            return false;
+        }
+        // cw can't be fused if n > 1, because layout is c, n, w
+        if (std::get<1>(srcFused) && std::get<2>(valid)) {
             return false;
         }
     }
@@ -151,10 +159,15 @@ bool OpCommonUtils::canBlitFast(const Tensor::InsideDescribe::Region& region, co
     if (dstCOffset % pack != 0) {
         return false;
     }
-    bool srcAllLengthValid = std::get<0>(srcSplits) > 1 && std::get<1>(srcSplits) > 1 && std::get<2>(srcSplits) > 1;
-    bool dstAllLengthValid = std::get<0>(dstSplits) > 1 && std::get<1>(dstSplits) > 1 && std::get<2>(dstSplits) > 1;
+    auto wValid = std::get<0>(srcSplits) > 1 || std::get<0>(dstSplits) > 1;
+    auto cValid = std::get<1>(srcSplits) > 1 || std::get<1>(dstSplits) > 1;
+    auto nValid = std::get<2>(srcSplits) > 1 || std::get<2>(dstSplits) > 1;
+    auto valid = std::make_tuple(wValid, cValid, nValid);
     // Check Dst stride
     for (int i = 0; i < 3; ++i) {
+        if (region.size[i] <= 1) {
+            continue;
+        }
         int dstStride  = (region.size[i] - 1) * region.dst.stride[i];
         auto srcStride = region.src.stride[i] * (region.size[i] - 1);
         auto dstTup = _split(dstStride, std::get<1>(dstSplits), std::get<0>(dstSplits));
@@ -162,10 +175,10 @@ bool OpCommonUtils::canBlitFast(const Tensor::InsideDescribe::Region& region, co
         if (std::get<1>(dstTup) != std::get<1>(srcTup)) {
             return false;
         }
-        if (!_checkFuseValid(srcTup, srcSplits, swapnc, swapcw, srcAllLengthValid)) {
+        if (!_checkFuseValid(srcTup, srcSplits, swapnc, swapcw, valid)) {
             return false;
         }
-        if (!_checkFuseValid(dstTup, dstSplits, swapnc, swapcw, dstAllLengthValid)) {
+        if (!_checkFuseValid(dstTup, dstSplits, swapnc, swapcw, valid)) {
             return false;
         }
     }
@@ -571,6 +584,7 @@ bool OpCommonUtils::opCompabilityForLowp(const Op* op, int bytes) {
         case OpType_GridSample:
         case OpType_ROIPooling:
         case OpType_ROIAlign:
+        case OpType_RNNSequenceGRU:
         case OpType_DynamicQuant:
         case OpType_Attention:
         case OpType_LayerNorm:
@@ -879,4 +893,19 @@ bool OpCommonUtils::computeMatMulSize(bool transposeA, bool transposeB, const Te
 }
 
 
+DataType OpCommonUtils::convertDataType(halide_type_t type) {
+    if (type.code == halide_type_float) {
+        return DataType_DT_FLOAT;
+    }
+    if (type.code == halide_type_uint && type.bits == 8) {
+        return DataType_DT_UINT8;
+    }
+    if (type.code == halide_type_int && type.bits == 8) {
+        return DataType_DT_INT8;
+    }
+    if (type.code == halide_type_int && type.bits == 32) {
+        return DataType_DT_INT32;
+    }
+    return DataType_DT_INVALID;
+}
 } // namespace MNN

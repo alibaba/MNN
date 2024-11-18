@@ -326,12 +326,14 @@ Calibration::Calibration(MNN::NetT* model, const uint8_t* modelBuffer, const int
     }
     DLOG(INFO) << "feature_clamp_value: " << _featureClampValue;
     DLOG(INFO) << "weight_clamp_value: " << _weightClampValue;
-    if (picObj.HasMember("winogradOpt") && picObj["winogradOpt"].GetBool() == true) {
-        if (_featureQuantizeMethod == "EMA") {
-            _winogradOpt = true;
-        } else {
-            DLOG(ERROR) << "winogradOpt only be available under EMA";
-        }
+    if (_featureQuantizeMethod == "EMA") {
+        _winogradOpt = true;
+    } else {
+        DLOG(INFO) << "winogradOpt only be available under EMA";
+    }
+    if (picObj.HasMember("winogradOpt") && picObj["winogradOpt"].GetBool() == false) {
+        DLOG(INFO) << "Close winogradOpt because set winogradOpt as false";
+        _winogradOpt = false;
     }
     if (picObj.HasMember("skip_quant_op_names")) {
         auto skip_quant_op_names = picObj["skip_quant_op_names"].GetArray();

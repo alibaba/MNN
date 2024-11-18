@@ -34,46 +34,68 @@ static void _AVX512BasicMNNPackC4ForMatMul_A(int8_t* destOrigin, int8_t const** 
     const int EP = GEMMINT8_AVX512_E;
     int eDest = EP;
     const int LP = 4;
+    int realDstCount = info[4];
     for (int n=0; n<number; ++n) {
         int e = el[4 * n + 0];
         int l = el[4 * n + 1];
         int eOffset = el[4 * n + 2];
         int lOffset = el[4 * n + 3];
-        int eC = eOffset / eDest;
-        int eR = eOffset % eDest;
+        int eC = eOffset / EP;
+        int eR = eOffset % EP;
         int eS = eDest - eR;
+        // a bag: e_filled*LP, e_filled<=EP.
+        bool willReachBag = false;// will fill last bag(EP*LP) but this bag has e_filled<EP, maybe not the first bag.
+        int elast = EP;
+        int eOutsideStride4LastBag = eOutsideStride;
+        if (realDstCount % EP > 0) {
+            int jobsE = realDstCount - eOffset - e;
+            if (jobsE == 0 || (jobsE < (realDstCount % EP))) {
+                willReachBag = true;
+            }
+        }
         auto source = (float*)sourceGroup[n];
         auto dest = (float*)(destOrigin + eC * info[2] + eR * LP + lOffset * EP);
         l = l / 4; // Use float instead of int8 * 4
+        if (willReachBag && e + eR < EP) { // The first bag to fill has e_filled<EP.
+            elast = ALIMAX(eR + e, realDstCount % EP); // maybe padding, so max().
+            dest = (float*)(destOrigin + lOffset * elast + eC * info[2] + eR * LP);
+        }
+        int offsetLC_ = lOffset / 4;
         if (eR > 0) {
             int eStep = ALIMIN(e, eS);
             for (int y = 0; y < eStep; ++y) {
                 for (int x = 0; x < l; ++x) {
                     auto xR                  = x % 4;
                     auto xC                  = x / 4;
-                    dest[x * eDest + y] = source[xC * eReal * 4 + y * xS4 + xR];
+                    dest[x * elast + y] = source[xC * eReal * 4 + y * xS4 + xR];
                 }
             }
             e-= eStep;
-            dest += (eOutsideStride - eR);
+            if (!willReachBag || e >= EP) {
+                dest += (eOutsideStride - eR);
+            } else { // The bag to fill: e_filled < EP
+                int e_tofill = ALIMAX(e, realDstCount % EP); // maybe padding>0
+                eOutsideStride4LastBag = eOutsideStride - (EP * offsetLC_);
+                dest += (eOutsideStride4LastBag - eR + offsetLC_ * e_tofill);
+            }
             source += eStep * xS4;
         }
         if (e <=0 ) {
             continue;
         }
-        const int pack   = GEMMINT8_AVX512_E;
-        auto ePack       = e / pack;
-        auto lC4         = l / 4;
+
+        auto ePack       = e / EP;
+        auto lC4         = l / LP;
         auto lDiv        = UP_DIV(l, 4);
-        auto eRemain     = ePack * pack;
+        auto eRemain     = ePack * EP;
         auto lRemain     = lC4 * 4;
         auto lRes        = l - lRemain;
         for (int y = 0; y < ePack; ++y) {
             auto dstY = dest + y * eOutsideStride;
-            auto srcY = source + y * pack * xS4;
+            auto srcY = source + y * EP * xS4;
             for (int x = 0; x < lC4; ++x) {
                 auto srcX = srcY + x * 4 * eReal;
-                auto dstX = dstY + x * pack * 4;
+                auto dstX = dstY + x * EP * 4;
                 auto s00  = _mm_loadu_ps(srcX + 0 * xS4);
                 auto s01  = _mm_loadu_ps(srcX + 1 * xS4);
                 auto s02  = _mm_loadu_ps(srcX + 2 * xS4);
@@ -92,8 +114,9 @@ static void _AVX512BasicMNNPackC4ForMatMul_A(int8_t* destOrigin, int8_t const** 
             if (lRes == 0) {
                 continue;
             }
-            auto srcX = srcY + lC4 * 4 * eReal;
-            auto dstX = dstY + lC4 * eDest * 4;
+            auto srcX = srcY + lC4 * LP * eReal;
+            auto dstX = dstY + lC4 * EP * LP;
+            
             auto s00  = _mm_loadu_ps(srcX + 0 * xS4);
             auto s01  = _mm_loadu_ps(srcX + 1 * xS4);
             auto s02  = _mm_loadu_ps(srcX + 2 * xS4);
@@ -113,14 +136,21 @@ static void _AVX512BasicMNNPackC4ForMatMul_A(int8_t* destOrigin, int8_t const** 
         }
         // Down
         {
-            auto eLast    = e - eRemain;
+            auto eLast    = e - eRemain; // e - ePack * EP
             auto lastDest = dest + ePack * eOutsideStride;
+            int eFill = EP;
+            if (eLast > 0 && willReachBag) {
+                eFill = ALIMAX((realDstCount % EP), eLast);
+                if (ePack > 0) {
+                    lastDest = dest + ePack * eOutsideStride - offsetLC_ * (EP - eFill);
+                }
+            }
             for (int y = eRemain; y < e; ++y) {
                 auto yR = y - eRemain;
                 for (int x = 0; x < l; ++x) {
                     auto xR                  = x % 4;
                     auto xC                  = x / 4;
-                    lastDest[x * eDest + yR] = source[xC * eReal * 4 + y * 4 * xStride + xR];
+                    lastDest[x * eFill + yR] = source[xC * eReal * 4 + y * 4 * xStride + xR];
                 }
             }
         }
@@ -205,7 +235,8 @@ void _AVX512_MNNFloat2Int8(const float* src, int8_t* dst, size_t sizeQuad, const
     auto zero = _mm256_set1_epi32(0);
     auto minValue = _mm256_set1_ps(minV);
     auto maxValue = _mm256_set1_ps(maxV);
-    auto zeroPointValue = _mm256_set1_ps(zeroPoint[0]);
+    auto zeroPointValue0 = _mm256_set1_ps(zeroPoint[0]);
+    auto zeroPointValue1 = zeroPointValue0;
     auto offset = _mm256_set1_epi32(128);
     auto plus = _mm256_set1_ps(0.5f);
     auto minus = _mm256_set1_ps(-0.5f);
@@ -216,7 +247,8 @@ void _AVX512_MNNFloat2Int8(const float* src, int8_t* dst, size_t sizeQuad, const
         scaleValue1 = _mm256_loadu_ps(scalep + 8);
     }
     if (quanParamVec >> 1) {
-        zeroPointValue = _mm256_loadu_ps(zeroPoint);
+        zeroPointValue0 = _mm256_loadu_ps(zeroPoint);
+        zeroPointValue1 = _mm256_loadu_ps(zeroPoint + 8);
     }
 
     for (int i = 0; i < sizeQuad; ++i) {
@@ -224,8 +256,8 @@ void _AVX512_MNNFloat2Int8(const float* src, int8_t* dst, size_t sizeQuad, const
         auto f1 = _mm256_loadu_ps(src + PACK_UNIT * i + 8);
         f0 = _mm256_mul_ps(f0, scaleValue0);
         f1 = _mm256_mul_ps(f1, scaleValue1);
-        f0 = _mm256_add_ps(f0, zeroPointValue);
-        f1 = _mm256_add_ps(f1, zeroPointValue);
+        f0 = _mm256_add_ps(f0, zeroPointValue0);
+        f1 = _mm256_add_ps(f1, zeroPointValue1);
         f0 = _mm256_min_ps(f0, maxValue);
         f1 = _mm256_min_ps(f1, maxValue);
         f0 = _mm256_max_ps(f0, minValue);
@@ -259,13 +291,24 @@ void _AVX512_MNNFloat2Int8(const float* src, int8_t* dst, size_t sizeQuad, const
     }
 }
 
-void _AVX512_MNNInt8ScaleToFloat(float* dst, const int8_t* src, const float* scale, size_t sizeQuad, ssize_t zeroPoint) {
+void _AVX512_MNNInt8ScaleToFloat(float* dst, const int8_t* src, const float* scale, size_t sizeQuad, const float* zeroPoint, ssize_t quanParamVec) {
     auto sizeC4 = sizeQuad / 2;
     auto sizeRemain = sizeQuad % 2;
     auto zero = _mm256_set1_epi32(0);
-    auto scaleValue0 = _mm256_loadu_ps(scale);
-    auto scaleValue1 = _mm256_loadu_ps(scale + 8);
-    auto zeroPointValue = _mm256_set1_epi32(zeroPoint + 128);
+    
+    auto scaleValue0 = _mm256_set1_ps(scale[0]);
+    auto scaleValue1 = scaleValue0;
+    if (quanParamVec & 1) {
+        scaleValue0 = _mm256_loadu_ps(scale);
+        scaleValue1 = _mm256_loadu_ps(scale + 8);
+    }
+    auto zeroPointValue0 = _mm256_set1_ps(zeroPoint[0]) + _mm256_set1_ps(128.f);
+    auto zeroPointValue1 = zeroPointValue0;
+    if (quanParamVec >> 1) {
+        zeroPointValue0 = _mm256_loadu_ps(zeroPoint) + _mm256_set1_ps(128.f);
+        zeroPointValue1 = _mm256_loadu_ps(zeroPoint + 8) + _mm256_set1_ps(128.f);
+    }
+
     for (int i = 0; i < sizeC4; ++i) {
         auto s = _mm256_castps_si256(_mm256_loadu_ps((const float*)(src)));
         auto s0_16 = _mm256_permute4x64_epi64(_mm256_unpacklo_epi8(s, zero), 0XD8);
@@ -274,14 +317,14 @@ void _AVX512_MNNInt8ScaleToFloat(float* dst, const int8_t* src, const float* sca
         auto s1_32 = _mm256_unpacklo_epi16(s1_16, zero);
         auto s2_32 = _mm256_unpackhi_epi16(s0_16, zero);
         auto s3_32 = _mm256_unpackhi_epi16(s1_16, zero);
-        s0_32 = _mm256_sub_epi32(s0_32, zeroPointValue);
-        s1_32 = _mm256_sub_epi32(s1_32, zeroPointValue);
-        s2_32 = _mm256_sub_epi32(s2_32, zeroPointValue);
-        s3_32 = _mm256_sub_epi32(s3_32, zeroPointValue);
         auto s0_f = _mm256_cvtepi32_ps(s0_32);
         auto s1_f = _mm256_cvtepi32_ps(s1_32);
         auto s2_f = _mm256_cvtepi32_ps(s2_32);
         auto s3_f = _mm256_cvtepi32_ps(s3_32);
+        s0_f = _mm256_sub_ps(s0_f, zeroPointValue0);
+        s1_f = _mm256_sub_ps(s1_f, zeroPointValue1);
+        s2_f = _mm256_sub_ps(s2_f, zeroPointValue0);
+        s3_f = _mm256_sub_ps(s3_f, zeroPointValue1);
         _mm256_storeu_ps(dst + 8 * 0, _mm256_mul_ps(s0_f, scaleValue0));
         _mm256_storeu_ps(dst + 8 * 1, _mm256_mul_ps(s1_f, scaleValue1));
         _mm256_storeu_ps(dst + 8 * 2, _mm256_mul_ps(s2_f, scaleValue0));
@@ -297,10 +340,10 @@ void _AVX512_MNNInt8ScaleToFloat(float* dst, const int8_t* src, const float* sca
         auto s1_32 = _mm256_unpacklo_epi16(s1_16, zero);
         auto s2_32 = _mm256_unpackhi_epi16(s0_16, zero);
         auto s3_32 = _mm256_unpackhi_epi16(s1_16, zero);
-        s0_32 = _mm256_sub_epi32(s0_32, zeroPointValue);
-        s1_32 = _mm256_sub_epi32(s1_32, zeroPointValue);
         auto s0_f = _mm256_cvtepi32_ps(s0_32);
         auto s1_f = _mm256_cvtepi32_ps(s1_32);
+        s0_f = _mm256_sub_ps(s0_f, zeroPointValue0);
+        s1_f = _mm256_sub_ps(s1_f, zeroPointValue1);
         _mm256_storeu_ps(dst + 8 * 0, _mm256_mul_ps(s0_f, scaleValue0));
         _mm256_storeu_ps(dst + 8 * 1, _mm256_mul_ps(s1_f, scaleValue1));
     }

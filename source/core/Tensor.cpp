@@ -77,7 +77,7 @@ Tensor::Tensor(const Tensor* tensor, DimensionType type, bool allocMemory) {
 
     // format mapping
     auto originType = tensor->getDimensionType();
-    if (originType != type && buffer.dimensions >= 4) {
+    if (originType != type && buffer.dimensions >= 3) {
         std::vector<int> axisMap;
         // NCHW -> NHWC
         if (originType == CAFFE) {

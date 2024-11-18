@@ -30,12 +30,14 @@ public:
                 }
             }
         }
-        MNN_ASSERT(inputs.size() == 3);
+        MNN_ASSERT(inputs.size() >= 2);
         auto input     = inputs[0];
         auto weight    = inputs[1];
-        auto bias      = inputs[2];
         input = _Reshape(input, {0, -1}, NHWC);
-        auto newOutput = _MatMul(input, weight, false, true) + bias;
+        auto newOutput = _MatMul(input, weight, false, true);
+        if (inputs.size() == 3) {
+            newOutput = newOutput + inputs[2];
+        }
         if (activation == tflite::ActivationFunctionType_RELU) {
             newOutput = _Relu(newOutput);
         } else if (activation == tflite::ActivationFunctionType_RELU6) {

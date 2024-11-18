@@ -215,8 +215,13 @@ void MNNQuantScaleFP32(float* absmax, float* quant_scale, float* dequant_scale, 
         for (int t = 0; t < thread; ++t) {
             absVal = std::max(absVal, absmaxPtr[t * batch]);
         }
-        quant_scale[i] = 127.0f / absVal;
-        dequant_scale[i] = absVal / 127.0f;
+        if (absVal < 1e-7) {
+            quant_scale[i] = 1.f;
+            dequant_scale[i] = 1.f;
+        } else {
+            quant_scale[i] = 127.0f / absVal;
+            dequant_scale[i] = absVal / 127.0f;
+        }
     }
 }
 void MNNQuantSumFP32(float* sum, const float* dequant_scale, size_t thread, size_t batch) {
@@ -287,7 +292,7 @@ static void MNNSumByAxisLForMatmul_A(float* dest, int8_t* source, const float* s
 
         for (int k = 0; k < blockNum; ++k) {
             // const auto src_x   = srcInt8 + w * LP;
-            const auto src_x = srcInt8 + k * (EP * LP * blockSizeQuad);
+            const auto src_x = srcInt8 + k * (step * LP * blockSizeQuad);
             for (int w = 0; w < step; ++w) {
                 float dequantScale = scale[0];
                 if (oneScale == 0) {
@@ -296,7 +301,7 @@ static void MNNSumByAxisLForMatmul_A(float* dest, int8_t* source, const float* s
                 int sumint32 = 0;
                 const auto src_y = src_x + w * LP;
                 for (int j = 0; j < blockSizeQuad; ++j) {
-                    const auto src_z = src_y + j * (EP * LP);
+                    const auto src_z = src_y + j * (step * LP);
                     for (int i = 0; i < LP; ++i) {
                         sumint32 += src_z[i];
                     }
@@ -2762,7 +2767,7 @@ void MNNComputeMatMulForE_1(const float* A, const float* B, float* C, const floa
             Vec4 sumValue = Vec4(0.0f);
             auto by = B + y * l;
             for (int x=0; x<lC4; ++x) {
-                sumValue = sumValue + Vec4::load(A + x * 4) * Vec4::load(by + x * 4);
+                sumValue = Vec4::fma(sumValue, Vec4::load(A + x * 4), Vec4::load(by + x * 4));
             }
             float sumRemain = 0.0f;
             for (int x=lR; x<l; ++x) {
@@ -2791,10 +2796,10 @@ void MNNComputeMatMulForE_1(const float* A, const float* B, float* C, const floa
             auto srcY = A + y * l;
             for (int x=0; x<l; ++x) {
                 auto a = Vec4(A[x]);
-                sumValue0 = sumValue0 + a * Vec4::load(bs + h * x);
-                sumValue1 = sumValue1 + a * Vec4::load(bs + h * x + 4);
-                sumValue2 = sumValue2 + a * Vec4::load(bs + h * x + 8);
-                sumValue3 = sumValue3 + a * Vec4::load(bs + h * x + 12);
+                sumValue0 = Vec4::fma(sumValue0, a, Vec4::load(bs + h * x));
+                sumValue1 = Vec4::fma(sumValue1, a, Vec4::load(bs + h * x + 4));
+                sumValue2 = Vec4::fma(sumValue2, a, Vec4::load(bs + h * x + 8));
+                sumValue3 = Vec4::fma(sumValue3, a, Vec4::load(bs + h * x + 12));
             }
             Vec4::save(C + 16 * y, sumValue0);
             Vec4::save(C + 16 * y + 4, sumValue1);

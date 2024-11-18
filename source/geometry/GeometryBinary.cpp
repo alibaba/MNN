@@ -99,7 +99,7 @@ public:
         auto outFormat  = TensorUtils::getDescribe(output)->dimensionFormat;
         MNN_ASSERT(0 != inputL1 && 0 != inputL0 && 0 != outputSize);
         //MNN_PRINT("On compute geometry: %d - %d - %d\n", inputL0, inputL1, outputSize);
-        if (1 == inputL0 || 1 == inputL1) {
+        if (1 == inputL0 || 1 == inputL1 || context.forwardType() == MNN_FORWARD_NN) {
             // Can directly compute
             std::shared_ptr<Command> cmdP(new Command);
             auto& cmd = *cmdP;

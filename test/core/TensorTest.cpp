@@ -44,10 +44,10 @@ public:
             MNNTEST_ASSERT(alloc.deviceId() == 0);
 
             MNNTEST_ASSERT(alloc.length(0) == 3);
-            MNNTEST_ASSERT(alloc.length(1) == 5);
-            MNNTEST_ASSERT(alloc.length(2) == 7);
+            MNNTEST_ASSERT(alloc.length(1) == 7);
+            MNNTEST_ASSERT(alloc.length(2) == 5);
             MNNTEST_ASSERT(alloc.stride(0) == 5 * 7);
-            MNNTEST_ASSERT(alloc.stride(1) == 7);
+            MNNTEST_ASSERT(alloc.stride(1) == 5);
             MNNTEST_ASSERT(alloc.stride(2) == 1);
         }
         {

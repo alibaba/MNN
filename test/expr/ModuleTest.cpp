@@ -1148,7 +1148,10 @@ MNNTestSuiteRegister(ResizeOptimizationTest, "expr/ResizeOptimizationTest");
 class WinogradMemoryTest : public MNNTestCase {
 public:
     float memoryUsed(int level) {
-        auto y = _mobileNetV1Expr();
+        auto x = _Input({1, 64, 224, 224}, MNN::Express::NC4HW4, halide_type_of<float>());
+        x->setName("Input");
+        auto y = _Conv(0.0f, 0.0f, x, {64, 112}, {3, 3});
+        y->setName("Prob");
         std::unique_ptr<MNN::NetT> net(new NetT);
         Variable::save({y}, net.get());
         y = nullptr;
@@ -1181,9 +1184,10 @@ public:
     }
     virtual bool run(int precision) {
         float mem0 = memoryUsed(0);
+        float mem1 = memoryUsed(1);
         float mem3 = memoryUsed(3);
-        printf("level=0,3: %fMb, %fMb\n", mem0,mem3);
-        if (mem3 < mem0) {
+        MNN_PRINT("level=0, 1, 3: %fMb, %fMb, %fMb\n", mem0,mem1,mem3);
+        if (mem3 <= mem1 || mem1 <= mem0) {
             return false;
         }
         return true;
@@ -1331,3 +1335,52 @@ public:
 };
 MNNTestSuiteRegister(PrearrangeTest, "expr/PrearrangeTest");
 
+class ExecutorResetLoadModuleTest : public MNNTestCase {
+public:
+    virtual bool run(int precision) {
+        BackendConfig originConfig;
+        auto exe = Executor::newExecutor(MNN_FORWARD_CPU, originConfig, 1);
+        ExecutorScope _s(exe);
+        // Make Model include convolution in shape compute and content compute
+        auto x = _Input({1, 3, 24, 24}, NCHW, halide_type_of<float>());
+        x->setName("x");
+        auto xs = _Convert(_Reshape(_Cast<float>(_Shape(x, NCHW)), {1, 1, 2, 2}), NC4HW4);
+        xs = _Convert(_Conv(1.0f, 0.0f, xs, {1, 1}, {2, 2}), NCHW);
+        auto y = _Conv(0.1f, 0.0f, _Convert(x, NC4HW4), {3, 1}, {3, 3});
+        y = _Convert(y, NCHW);
+        y = _ReduceMean(y);
+        y = y * _Reciprocal(xs);
+        auto info = y->getInfo();
+        y->setName("y");
+        auto buffer = Variable::save({y});
+        MNN::ScheduleConfig sconfig;
+        BackendConfig bnConfig;
+        bnConfig.precision = MNN::BackendConfig::Precision_Low;
+        bnConfig.memory = MNN::BackendConfig::Memory_Low;
+        sconfig.backendConfig = &bnConfig;
+        sconfig.numThread = 4;
+        exe->setGlobalExecutorConfig(MNN_FORWARD_CPU, bnConfig, 4);
+        std::shared_ptr<Executor::RuntimeManager> rtMgr(Executor::RuntimeManager::createRuntimeManager(sconfig));
+        Module::Config config;
+        config.rearrange = false;
+        std::shared_ptr<MNN::Express::Module> m0(Module::load({"x"}, {"y"}, (const unsigned char*)buffer.data(), buffer.size(), nullptr, &config), Module::destroy);
+        config.rearrange = true;
+        std::shared_ptr<MNN::Express::Module> m1(Module::load({"x"}, {"y"}, (const unsigned char*)buffer.data(), buffer.size(), rtMgr, &config), Module::destroy);
+        auto m0Rt = m0->getInfo()->runTimeManager;
+        auto m1Rt = m1->getInfo()->runTimeManager;
+        if (nullptr == m0Rt->getBnConfig() || nullptr == m1Rt->getBnConfig()) {
+            FUNC_PRINT(1);
+            return false;
+        }
+        if (MNN::BackendConfig::Precision_Low != m0Rt->getBnConfig()->precision || MNN::BackendConfig::Memory_Low != m0Rt->getBnConfig()->memory) {
+            FUNC_PRINT(1);
+            return false;
+        }
+        if (MNN::BackendConfig::Precision_Low != m1Rt->getBnConfig()->precision || MNN::BackendConfig::Memory_Low != m1Rt->getBnConfig()->memory) {
+            FUNC_PRINT(1);
+            return false;
+        }
+        return true;
+    }
+};
+MNNTestSuiteRegister(ExecutorResetLoadModuleTest, "expr/ExecutorResetLoadModuleTest");

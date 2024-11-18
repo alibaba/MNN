@@ -728,7 +728,7 @@ protected:
             1, 3, 10, 17
         };
         std::vector<int> icSize = {
-            1, 3, 10, 17
+            4, 1, 3, 8, 11
         };
         std::vector<int> isSize = {
             1, 7, 9
@@ -883,8 +883,8 @@ protected:
         for (int b = 1; b <= 2; b++) {
             for (int oc = 4; oc <= 16; oc *= 2) {
                 for (int ic = oc; ic <= oc; ic++) {
-                    for (int isw = 1; isw <= 8; ++isw) {
-                        for (int ish = 1; ish <= 8; ++ish) {
+                    for (int isw = 1; isw <= 8; isw+=2) {
+                        for (int ish = 1; ish <= 8; ish*=2) {
                             for (int kw = 1; kw <= 4; kw++) {
                                 for (int kh = 1; kh <= 4; kh++) {
                                     for (int d = 1; d <= 2; d++) {

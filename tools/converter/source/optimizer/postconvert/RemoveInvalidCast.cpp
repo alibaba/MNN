@@ -62,12 +62,6 @@ public:
         for (auto iter = net->oplists.begin(); iter != net->oplists.end(); iter++) {
             auto& op = *iter;
             switch (op->type) {
-                case MNN::OpType_Input:
-                    types[op->outputIndexes[0]] = op->main.AsInput()->dtype;
-                    break;
-                case MNN::OpType_Cast:
-                    types[op->outputIndexes[0]] = op->main.AsCastParam()->dstT;
-                    break;
                 // Float Op
                 case MNN::OpType_PReLU:
                 case MNN::OpType_Softmax:
@@ -76,11 +70,33 @@ public:
                 case MNN::OpType_Convolution3D:
                 case MNN::OpType_Deconvolution:
                 case MNN::OpType_DeconvolutionDepthwise:
+                case MNN::OpType_Interp:
+                case MNN::OpType_LSTM:
+                case MNN::OpType_LSTMBlockCell:
+                case MNN::OpType_GridSample:
+                case MNN::OpType_RNNSequenceGRU:
                 case MNN::OpType_MatMul:
+                    types[op->inputIndexes[0]] = MNN::DataType_DT_FLOAT;
                     if (op->outputIndexes.size() == 1) {
                         // 4 is integer matmul
                         types[op->outputIndexes[0]] = MNN::DataType_DT_FLOAT;
                     }
+                    break;
+                default:
+                    break;
+            }
+        }
+        for (auto iter = net->oplists.begin(); iter != net->oplists.end(); iter++) {
+            auto& op = *iter;
+            switch (op->type) {
+                case MNN::OpType_Input:
+                    types[op->outputIndexes[0]] = op->main.AsInput()->dtype;
+                    break;
+                case MNN::OpType_Cast:
+                    types[op->outputIndexes[0]] = op->main.AsCastParam()->dstT;
+                    break;
+                case MNN::OpType_CastLike:
+                    types[op->outputIndexes[0]] = types[op->inputIndexes[1]];
                     break;
                 case MNN::OpType_Const:
                 case MNN::OpType_TrainableParam:
@@ -96,11 +112,23 @@ public:
                         types[v] = types[op->inputIndexes[0]];
                     }
                     break;
+                case MNN::OpType_GatherV2:
+                case MNN::OpType_GatherND:
+                case MNN::OpType_Reduction:
+                case MNN::OpType_Range:
+                    types[op->outputIndexes[0]] = types[op->inputIndexes[0]];
+                    break;
                 case MNN::OpType_Shape:
                 case MNN::OpType_Size:
                 case MNN::OpType_Rank:
                 case MNN::OpType_UnravelIndex:
                     types[op->outputIndexes[0]] = MNN::DataType_DT_INT32;
+                    break;
+                case MNN::OpType_Unique:
+                    types[op->outputIndexes[0]] = types[op->inputIndexes[0]];
+                    for (int v=1; v<op->outputIndexes.size(); ++v) {
+                        types[op->outputIndexes[v]] = MNN::DataType_DT_INT32;
+                    }
                     break;
                 case MNN::OpType_RandomUniform:
                     types[op->outputIndexes[0]] = op->main.AsRandomUniform()->type;
@@ -167,7 +195,7 @@ public:
         const MNN::NetT* const netPtr = net.get();
         for (auto iter = net->oplists.begin(); iter != net->oplists.end();) {
             auto& op          = *iter;
-            if (op->type != MNN::OpType_Cast) {
+            if (op->type != MNN::OpType_Cast && op->type != MNN::OpType_CastLike) {
                 iter++;
                 continue;
             }
@@ -176,6 +204,18 @@ public:
                 continue;
             }
             if (types[op->inputIndexes[0]] != types[op->outputIndexes[0]]) {
+                auto type = types[op->outputIndexes[0]];
+                if (op->type == MNN::OpType_CastLike) {
+                    if (type != MNN::DataType_DT_INVALID) {
+                        // Turn Castlike to cast
+                        op->type = MNN::OpType_Cast;
+                        op->inputIndexes = {op->inputIndexes[0]};
+                        op->main.Reset();
+                        op->main.value = new CastParamT;
+                        op->main.type = OpParameter_CastParam;
+                        op->main.AsCastParam()->dstT = type;
+                    }
+                }
                 iter++;
                 continue;
             }

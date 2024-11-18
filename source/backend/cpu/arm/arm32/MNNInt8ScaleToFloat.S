@@ -16,19 +16,40 @@
 
 asm_function MNNInt8ScaleToFloat
 
-// void MNNInt8ScaleToFloat(float* dst, const int8_t* src, const float* scale, size_t size, ssize_t zeroPoint)
-
+// void MNNInt8ScaleToFloat(float* dst, const int8_t* src, const float* scale, size_t size, const float* zeroPoint, ssize_t quanParamVec)
+// Auto Load: r0: dst*, r1: src*, r2: scale*, r3: size, 
+// Load from sp: r4: zeroPoint, r5: quanParamVec
 push {lr}
-ldr r12, [sp, #4]
-vdup.s32 q13, r12
-vcvt.f32.s32 q13, q13
 
+vld1.32 {d30[0]}, [r2] // scale
+vdup.32 q15, d30[0]
+
+ldr r12, [sp, #4]
+vld1.32 {d26[0]},[r12] // zero
+vdup.32 q13, d26[0]
+
+ldr lr, [sp, #8]     // quanParamVec
+cmp lr, #0
+beq COMPUTE
+
+cmp lr, #3
+bne LOAD_VEC_ZERO
+vld1.32 {q15}, [r2]
+vld1.32 {q13}, [r12]
+b COMPUTE
+
+LOAD_VEC_ZERO:
+cmp lr, #2
+bne LOAD_VEC_SCALE
+vld1.32 {q13}, [r12]
+b COMPUTE
+
+LOAD_VEC_SCALE:
+vld1.32 {q15}, [r2]
+
+COMPUTE:
 vpush {q4-q7}
 
-// Auto Load:
-// r0: dst*, r1: src*, r2: scale*, r3: size, r4: zeroPoint
-
-vld1.32 {q15}, [r2]
 
 L4:
 cmp r3, #4

@@ -154,6 +154,9 @@ ErrorCode IdstConvolutionInt8::onExecute(const std::vector<Tensor*>& inputs, con
     int PackUnit = static_cast<CPUBackend*>(backend())->functions()->pack;
     
     auto gemmKernel = coreInt->Int8GemmKernel;
+    if (SRC_UNIT > PackUnit) {
+        memset(mTempBuffer.host<int8_t>(), 0, mTempBuffer.size());
+    }
     
     //        AUTOTIME;
     auto input        = inputs[0];
@@ -210,7 +213,7 @@ ErrorCode IdstConvolutionInt8::onExecute(const std::vector<Tensor*>& inputs, con
             auto srcPtr     = (int8_t const **)(mBlitInfo.ptr() + tId * mBlitInfoStride.first);
             auto el         = (int32_t *)(srcPtr + mBlitInfoStride.second);
 
-            int32_t info[4];
+            int32_t info[5];
             info[1] = mIm2ColParamter.iw * mIm2ColParamter.ih;
             info[2] = DST_XUNIT;
             info[3] = mIm2ColParamter.strideX;
@@ -225,6 +228,7 @@ ErrorCode IdstConvolutionInt8::onExecute(const std::vector<Tensor*>& inputs, con
                     ::memset(colAddr, zeroPoint, col_buffer_size);
                 }
                 info[0] = number;
+                info[4] = realDstCount;
                 if (number > 0) {
                     blitProc(colAddr, srcPtr, info, el);
                 }

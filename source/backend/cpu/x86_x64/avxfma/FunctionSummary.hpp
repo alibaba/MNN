@@ -6,11 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#if defined(_MSC_VER)
-#include <intrin.h>
-#else
-#include <x86intrin.h>
-#endif
+#include "core/SimdHeader.h"
 #include <MNN/MNNDefine.h>
 #include <stdint.h>
 

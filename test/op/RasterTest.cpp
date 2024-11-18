@@ -297,3 +297,50 @@ public:
 
 };
 MNNTestSuiteRegister(ConcatSliceTest, "op/concat_slice");
+
+class TransposeC4Test : public MNNTestCase {
+public:
+    virtual ~TransposeC4Test() = default;
+    bool _run(int precision, bool lazy) {
+        int n = 32;
+        int c = 32;
+        auto input = _Input({n, c, 1, 1}, NCHW, halide_type_of<int>());
+        auto inputPtr = input->writeMap<int>();
+        for (int i=0; i<n; ++i) {
+            for (int j=0; j<c; ++j) {
+                inputPtr[c*i+j] = 1000 * i + j;
+            }
+        }
+        input = _Convert(input, NC4HW4);
+        input.fix(MNN::Express::VARP::CONSTANT);
+        std::vector<int> output0(n*c);
+        {
+            // Split Compute
+            auto o0 = _RasterRaw({input}, {
+                0, 0, 1, 1, 0, 0, 1, 1, 1,1,n*c,
+            }, {1, c, 1, n}, halide_type_of<int>(), NC4HW4);
+            o0.fix(MNN::Express::VARP::CONSTANT);
+            o0 = _Convert(o0, NCHW);
+            auto ptr = o0->readMap<int>();
+            ::memcpy(output0.data(), ptr, n*c*sizeof(int));
+        }
+        for (int i=0; i<n; ++i) {
+            for (int j=0; j<c; ++j) {
+                int value = 1000 * i + j;
+                if (output0[i*c+j] != value) {
+                    MNN_PRINT("%d - %d, %d : %d\n", i,j,output0[i*c+j], value);
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+    virtual bool run(int precision) {
+        ExecutorScope::Current()->lazyEval = true;
+        ExecutorScope::Current()->setLazyComputeMode(MNN::Express::Executor::LAZY_FULL);
+        auto res = _run(precision, true);
+        return res;
+    }
+
+};
+MNNTestSuiteRegister(TransposeC4Test, "op/transpose_c4");

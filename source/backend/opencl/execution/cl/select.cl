@@ -35,6 +35,6 @@ __kernel void select_img(GLOBAL_SIZE_2_DIMS
 #else
     FLOAT4 in1 = RI_F(input1, SAMPLER, (int2)(idx, idy));
 #endif
-    FLOAT4 out = select(in1, in0, select_vec == (int4)1);
+    FLOAT4 out = select(in1, in0, CONVERT_FLOAT4(select_vec) == (FLOAT4)(1));
     WI_F(output, (int2)(idx, idy), out);
 }

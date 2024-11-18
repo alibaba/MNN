@@ -318,6 +318,10 @@ public:
     std::string prompt_template() const {
         return llm_config_.value("prompt_template", "");
     }
+
+    std::vector<int> tie_embeddings() const {
+        return llm_config_.value("tie_embeddings", std::vector<int>{});
+    }
     // llm model config end >
 };
 } // Transformer

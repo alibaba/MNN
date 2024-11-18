@@ -17,6 +17,10 @@ public:
         auto output = outputs[0];
         auto input  = inputs[0];
         TensorUtils::copyShape(input, output, true);
+        if (OpType_CastLike == op->type()) {
+            output->buffer().type = inputs[1]->buffer().type;
+            return true;
+        }
         if (OpType_FloatToInt8 == op->type()) {
             output->buffer().type = halide_type_of<int8_t>();
             return true;
@@ -33,6 +37,7 @@ public:
     }
 };
 REGISTER_SHAPE(CastSizeComputer, OpType_Cast);
+REGISTER_SHAPE(CastSizeComputer, OpType_CastLike);
 REGISTER_SHAPE(CastSizeComputer, OpType_FloatToInt8);
 REGISTER_SHAPE(CastSizeComputer, OpType_Int8ToFloat);
 } // namespace MNN

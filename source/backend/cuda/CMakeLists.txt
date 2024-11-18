@@ -25,8 +25,11 @@ if(CUDA_FOUND)
 
     list(LENGTH CUDA_ARCH_FLAGS_readable_code arch_count)
     # Current Supported Arch List 
+    IF (MSVC)
+     set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -allow-unsupported-compiler")
+    ENDIF()
     IF (${arch_count} EQUAL 1)
-        set(support_archs 60 61 62 70 72 75 80 86)
+        set(support_archs 60 61 62 70 72 75 80 86 89)
         list(FIND support_archs ${CUDA_ARCH_FLAGS_readable_code} list_index)
         IF (${list_index} EQUAL -1)
             message(FATAL_ERROR "Please add your own sm arch ${CUDA_ARCH_FLAGS_readable_code} to CmakeLists.txt!")
@@ -53,6 +56,11 @@ if(CUDA_FOUND)
         set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -gencode arch=compute_80,code=sm_80")
         set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -gencode arch=compute_86,code=sm_86")
         add_definitions(-DMNN_CUDA_ENABLE_SM80 -DMNN_CUDA_ENABLE_SM86)
+    ENDIF()
+
+    IF ((CUDA_VERSION VERSION_GREATER "12.2") OR (CUDA_VERSION VERSION_EQUAL "12.2"))
+        set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -gencode arch=compute_89,code=sm_89")
+        add_definitions(-DMNN_CUDA_ENABLE_SM89 -DMNN_CUDA_ENABLE_SM89)
     ENDIF()
 
     # Limit minimum cuda version for each archs

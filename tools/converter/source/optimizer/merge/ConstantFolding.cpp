@@ -52,8 +52,20 @@ ConstantFolding::ConstantFolding() {
             if (!output_info) {
                 return false;
             }
-            const void* output_data = output->readMap<void>();
-            VARP const_var          = _Const(output_data, output_info->dim, output_info->order, output_info->type);
+            VARP const_var;
+            if (expr->get() && expr->get()->type() == OpType_Int8ToFloat) {
+                auto yy = expr->inputs()[0];
+                int size_ = expr->get()->main_as_QuantizedFloatParam()->tensorScale()->size();
+                auto ss = _Const(expr->get()->main_as_QuantizedFloatParam()->tensorScale()->data(), {size_});
+                auto zz = _Const(expr->get()->main_as_QuantizedFloatParam()->floatzeros()->data(), {size_});
+                auto wf = (_Cast<float>(yy) - zz) * ss;
+                auto weightDataPtr = wf->readMap<float>();
+                const_var = _Const(weightDataPtr, output_info->dim, output_info->order, output_info->type);
+            } else {
+                const void* output_data = output->readMap<void>();
+                const_var = _Const(output_data, output_info->dim, output_info->order, output_info->type);
+            }
+            
             const_var->setName(expr->name());
             EXPRP constant = const_var->expr().first;
             constant->setName(expr->name());

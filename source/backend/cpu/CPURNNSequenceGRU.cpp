@@ -11,77 +11,74 @@
 #include "backend/cpu/CPUBackend.hpp"
 #include "backend/cpu/compute/ConvOpt.h"
 #include "backend/cpu/compute/CommonOptFunction.h"
-#include "math/Matrix.hpp"
 #include "core/TensorUtils.hpp"
 
 namespace MNN {
 
-static inline void ArrayProduct(float* C, float* A, float* B, const int length) {
-    MNNMatrixProdCommon(C, A, B, length, 0, 0, 0, 1);
-    return;
-}
-
 // implement GRU cell function
 // Ref: tensorflow/python/ops/rnn_cell_impl.py
-void CPURNNSequenceGRU::runRNNStep(const float* input, const int inputLength, const bool linearBeforeReset,
+void CPURNNSequenceGRU::runRNNStep(const uint8_t* input, const int inputLength, const bool linearBeforeReset,
                        std::shared_ptr<Tensor>& hiddenState, const int numUnits, Tensor* gateWeight, Tensor* gateBias,
                        Tensor* candidateWeight, Tensor* candidateBias, Tensor* recurrentBias,
                        std::shared_ptr<Tensor>& inputAndState, std::shared_ptr<Tensor>& gate,
                        std::shared_ptr<Tensor>& resetHt) {
     auto bn = static_cast<CPUBackend*>(backend());
+    auto mulFunction = bn->functions()->MNNSelectBinaryFunctionForFloat(BinaryOpOperation_MUL);
+    auto addFunction = bn->functions()->MNNSelectBinaryFunctionForFloat(BinaryOpOperation_ADD);
+    auto subFunction = bn->functions()->MNNSelectBinaryFunctionForFloat(BinaryOpOperation_SUB);
+    auto tanhFunction = bn->functions()->MNNSelectUnaryFunctionForFloat(UnaryOpOperation_TANH, bn->precisionMode());
+    auto bytes = bn->functions()->bytes;
+    auto sigmoidFunc = bn->functions()->MNNSelectUnaryFunctionForFloat(UnaryOpOperation_SIGMOID, bn->precisionMode());
     // gate is (z_t, r_t)
-    auto inputAndStatePtr = inputAndState->host<float>();
-    auto hiddenStatePtr   = hiddenState->host<float>();
-    ::memcpy(inputAndStatePtr, input, inputLength * sizeof(float));
-    ::memcpy(inputAndStatePtr + inputLength, hiddenStatePtr, numUnits * sizeof(float));
+    auto inputAndStatePtr = inputAndState->host<uint8_t>();
+    auto hiddenStatePtr   = hiddenState->host<uint8_t>();
+    ::memcpy(inputAndStatePtr, input, inputLength * bytes);
+    ::memcpy(inputAndStatePtr + inputLength * bytes, hiddenStatePtr, numUnits * bytes);
     inputAndState->setLength(1, inputLength + numUnits);
 
     // // [x_t, h_t-1] * [W_zr, R_zr]: (1, inputLength + numUnits) X (inputLength + numUnits, 2 * numUnits)
     mMatMulIU2U->execute(inputAndState->host<float>(), gateWeight->host<float>(), gate->host<float>(), gateBias->host<float>());
 
     recurrentBias->setLength(1, 2 * numUnits);
-    Math::Matrix::add(gate.get(), gate.get(), recurrentBias);
+    addFunction(gate->host<float>(), gate->host<float>(), recurrentBias->host<float>(), 2*numUnits, -1);
     // (1, 2*numUnits)
     const int gateSize = gate->elementSize();
-    auto gatePtr       = gate->host<float>();
-    auto core = bn->functions();
-    auto sigmoidFunc = core->MNNSelectUnaryFunctionForFloat(UnaryOpOperation_SIGMOID, bn->precisionMode());
+    auto gatePtr       = gate->host<uint8_t>();
     sigmoidFunc(gatePtr, gatePtr, gateSize);
     // reset gate, // r_t is the second segment
-    auto rtPtr = gatePtr + numUnits;
+    auto rtPtr = gatePtr + numUnits * bytes;
 
     if (linearBeforeReset) {
         // calculate Rt (.) (Ht_1 * Rh + Rbh)
-        auto recurrentHiddenBiasPtr = recurrentBias->host<float>() + 2 * numUnits;
-        auto rhWeightPtr = candidateWeight->host<float>() + inputLength * numUnits;
-        mMatMulU2U->execute(hiddenState->host<float>(), rhWeightPtr, resetHt->host<float>(), recurrentHiddenBiasPtr);
-        ArrayProduct(resetHt->host<float>(), rtPtr, resetHt->host<float>(), numUnits);
+        auto recurrentHiddenBiasPtr = recurrentBias->host<uint8_t>() + 2 * numUnits * bytes;
+        auto rhWeightPtr = candidateWeight->host<uint8_t>() + inputLength * numUnits * bytes;
+        mMatMulU2U->execute(hiddenState->host<float>(), (float*)rhWeightPtr, resetHt->host<float>(), (float*)recurrentHiddenBiasPtr);
+        mulFunction(resetHt->host<float>(), rtPtr, resetHt->host<float>(), numUnits, -1);
 
         // calculate Xt * Wh
-        mMatMulI2U->execute(input, candidateWeight->host<float>(), inputAndStatePtr + inputLength + numUnits, nullptr);
+        mMatMulI2U->execute((float*)input, candidateWeight->host<float>(), (float*)(inputAndStatePtr + (inputLength + numUnits) * bytes), nullptr);
         // sum 3 parts
-        Math::Matrix::add(resetHt->host<float>(), resetHt->host<float>(), inputAndStatePtr + inputLength + numUnits, numUnits);
-        Math::Matrix::add(rtPtr, resetHt->host<float>(), candidateBias->host<float>(), numUnits);
+        addFunction(resetHt->host<float>(), resetHt->host<float>(), inputAndStatePtr + (inputLength + numUnits) * bytes, numUnits, -1);
+        addFunction(rtPtr, resetHt->host<float>(), candidateBias->host<float>(), numUnits, -1);
 
     } else {
         // r_t: (1, numUnits)
-        auto resetGatePtr = inputAndStatePtr + inputLength;
+        auto resetGatePtr = inputAndStatePtr + inputLength * bytes;
         // h_t1(1, numUnits) = r_t(1, numUnits) * h_t-1_(1, numUnits)
-        ArrayProduct(resetGatePtr, rtPtr, hiddenStatePtr, numUnits);
+        mulFunction(resetGatePtr, rtPtr, hiddenStatePtr, numUnits, -1);
         // deal with recurrent bias and linear_before_reset parameter
-        auto recurrentBiasAddedPtr = inputAndStatePtr + inputLength + numUnits;
-        auto recurrentHiddenBiasPtr = recurrentBias->host<float>() + 2 * numUnits;
-        Math::Matrix::add(recurrentBiasAddedPtr, recurrentHiddenBiasPtr, candidateBias->host<float>(), numUnits);
+        auto recurrentBiasAddedPtr = inputAndStatePtr + (inputLength + numUnits) * bytes;
+        auto recurrentHiddenBiasPtr = recurrentBias->host<float>() + 2 * numUnits * bytes;
+        addFunction(recurrentBiasAddedPtr, recurrentHiddenBiasPtr, candidateBias->host<float>(), numUnits, -1);
         mMatMulI2U->execute(inputAndState->host<float>(), candidateWeight->host<float>(),  resetHt->host<float>(), nullptr);
         // reuse r_t memory as h_t'
-        Math::Matrix::add(rtPtr, resetHt->host<float>(), recurrentBiasAddedPtr, numUnits);
+        addFunction(rtPtr, resetHt->host<float>(), recurrentBiasAddedPtr, numUnits, -1);
     }
-
-    for (int i = 0; i < numUnits; ++i) {
-        hiddenStatePtr[i] =
-            (1 - gatePtr[i]) * tanhf(rtPtr[i]) + gatePtr[i] * hiddenStatePtr[i];
-    }
-
+    // h = (1-g)*t+g*h = t + g*(h-t)
+    tanhFunction(resetHt->host<float>(), rtPtr, numUnits);
+    subFunction(hiddenStatePtr, hiddenStatePtr, resetHt->host<float>(), numUnits, -1);
+    mulFunction(hiddenStatePtr, hiddenStatePtr, gatePtr, numUnits, -1);
+    addFunction(hiddenStatePtr, hiddenStatePtr, resetHt->host<float>(), numUnits, -1);
     inputAndState->setLength(1, inputLength + 2 * numUnits);
 }
 
@@ -162,6 +159,7 @@ ErrorCode CPURNNSequenceGRU::onExecute(const std::vector<Tensor*>& inputs, const
     auto fwCandidateBias = inputs[4];
     auto fwRecurrentBias = inputs[5];
     auto cpuBn = static_cast<CPUBackend*>(backend());
+    auto bytes = cpuBn->functions()->bytes;
 
     // fwGateWeight->printShape();// mFwGateWeight
     // fwGateBias->printShape();// mFwGateBias
@@ -170,15 +168,15 @@ ErrorCode CPURNNSequenceGRU::onExecute(const std::vector<Tensor*>& inputs, const
     // fwRecurrentBias->printShape();// mFwRecurrentBias
 
     // firstly set the hidden state to zero
-    float* const hiddenStatePtr   = mHiddenState->host<float>();
-    const int hiddenStateDataSize = mHiddenState->size();
+    auto const hiddenStatePtr   = mHiddenState->host<uint8_t>();
+    const int hiddenStateDataSize = mHiddenState->elementSize() * bytes;
 
     auto input                    = inputs[0];  // shape :(seq_length, batch_size, input_size)
     auto output                   = outputs[0]; // shape :(seq_length, num_directions, batch_size, hidden_size)
-    float* const inputPtr         = input->host<float>();
-    float* const outputPtr        = output->host<float>();
+    auto const inputPtr         = input->host<uint8_t>();
+    auto const outputPtr        = output->host<uint8_t>();
 
-    float* outputYhPtr = mKeepAllOutputs && outputSize > 1 ? outputs[1]->host<float>() : outputs[0]->host<float>();
+    auto outputYhPtr = mKeepAllOutputs && outputSize > 1 ? outputs[1]->host<uint8_t>() : outputs[0]->host<uint8_t>();
     const int batchSize           = input->length(1);
     const int SequenceStride      = input->stride(0);
     const int inputSequenceLength = input->length(0);
@@ -194,24 +192,24 @@ ErrorCode CPURNNSequenceGRU::onExecute(const std::vector<Tensor*>& inputs, const
 
         for (int i = 0; i < inputSequenceLength; ++i) {
             const int inputOffset = i * SequenceStride + b * inputCodeLength;
-            runRNNStep(inputPtr + inputOffset, inputCodeLength, mlinearBeforeReset, mHiddenState, mNumUnits, fwGateWeight, fwGateBias,
+            runRNNStep(inputPtr + inputOffset * bytes, inputCodeLength, mlinearBeforeReset, mHiddenState, mNumUnits, fwGateWeight, fwGateBias,
                        fwCandidateWeight, fwCandidateBias, fwRecurrentBias, mInputAndState, mGate, mResetHt);
 
             if (mKeepAllOutputs) {
-                ::memcpy(outputPtr + i * output->stride(0) + b * mNumUnits, hiddenStatePtr, hiddenStateDataSize);
+                ::memcpy(outputPtr + (i * output->stride(0) + b * mNumUnits) * bytes, hiddenStatePtr, hiddenStateDataSize);
             }
         }
         if ((mKeepAllOutputs && outputSize > 1) || !mKeepAllOutputs) {
             ::memcpy(outputYhPtr, hiddenStatePtr, hiddenStateDataSize);
-            outputYhPtr += mNumUnits;
+            outputYhPtr += mNumUnits * bytes;
         }
 
     }
 
     // backward rnn
     if (mIsBidirectionalRNN) {
-        float* outputYhPtr = mKeepAllOutputs && outputSize > 1 ? outputs[1]->host<float>() : outputs[0]->host<float>();
-        outputYhPtr += batchSize * mNumUnits;
+        auto outputYhPtr = mKeepAllOutputs && outputSize > 1 ? outputs[1]->host<uint8_t>() : outputs[0]->host<uint8_t>();
+        outputYhPtr += batchSize * mNumUnits * bytes;
         // todo: modify the inputOffset
         MNN_ASSERT(11 <= inputs.size());
         auto bwGateWeight = inputs[6];
@@ -221,7 +219,7 @@ ErrorCode CPURNNSequenceGRU::onExecute(const std::vector<Tensor*>& inputs, const
         auto bwRecurrentBias = inputs[10];
 
         auto outputBw            = outputs[0];
-        float* const outputBwPtr = outputBw->host<float>();
+        auto const outputBwPtr = outputBw->host<uint8_t>();
         for (int b = 0; b < batchSize; ++b) {
 
             if (inputSize > 1 + forwardParamNumber * 2) {
@@ -233,16 +231,16 @@ ErrorCode CPURNNSequenceGRU::onExecute(const std::vector<Tensor*>& inputs, const
 
             for (int i = inputSequenceLength - 1; i >= 0; i--) {
                 const int inputOffset = i * SequenceStride + b * inputCodeLength;
-                runRNNStep(inputPtr + inputOffset, inputCodeLength, mlinearBeforeReset, mHiddenState, mNumUnits, bwGateWeight, bwGateBias,
+                runRNNStep(inputPtr + inputOffset * bytes, inputCodeLength, mlinearBeforeReset, mHiddenState, mNumUnits, bwGateWeight, bwGateBias,
                            bwCandidateWeight, bwCandidateBias, bwRecurrentBias, mInputAndState, mGate, mResetHt);
                 if (mKeepAllOutputs) {
-                    ::memcpy(outputBwPtr + i * outputBw->stride(0) + (batchSize + b) * mNumUnits,
+                    ::memcpy(outputBwPtr + (i * outputBw->stride(0) + (batchSize + b) * mNumUnits) * bytes,
                              hiddenStatePtr, hiddenStateDataSize);
                 }
             }
             if ((mKeepAllOutputs && outputSize > 1) || !mKeepAllOutputs) {
                 ::memcpy(outputYhPtr, hiddenStatePtr, hiddenStateDataSize);
-                outputYhPtr += mNumUnits;
+                outputYhPtr += mNumUnits * bytes;
             }
         }
     }

@@ -147,7 +147,8 @@ int main(int argc, const char* argv[]) {
         
         void* host = inputTensor->map(MNN::Tensor::MAP_TENSOR_WRITE,  inputTensor->getDimensionType());
         if(host != nullptr) {
-            ::memset(host, 0, inputTensor->size());
+            // TODO: Find better way to memset zero
+            ::memset(host, 0, MNN::TensorUtils::getRawSize(inputTensor) * inputTensor->getType().bytes());
         }
         inputTensor->unmap(MNN::Tensor::MAP_TENSOR_WRITE,  inputTensor->getDimensionType(), host);
     }

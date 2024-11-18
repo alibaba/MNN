@@ -42,6 +42,7 @@ int main(int argc, char *argv[]) {
         modelPath.MNNModel = defaultCacheFile;
         modelPath.keepInputFormat = true;
         modelPath.saveExternalData = true;
+        modelPath.useGeluApproximation = false;
         MNN::Cli::convertModel(modelPath);
     }
     return MNN::Cli::testconvert(defaultCacheFile, directName, 0.01f, configFile);

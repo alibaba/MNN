@@ -132,7 +132,7 @@ ldr x27, [x6, #40] // srcKernelSum
 ldr x28, [x6, #48] // weightQuanBias
 ldr x14, [x6, #56]  // fp32minmax
 
-mov x22, #80 // GEMM_INT8_DST_XUNIT * GEMM_INT8_SRC_UNIT = 10 * 8 = 80
+lsl x22, x7, #3 // eDest * GEMM_INT8_SRC_UNIT
 mov x21, #16 // sizeof(float16_t) * UNIT
 
 Start:
@@ -771,15 +771,15 @@ LoopDz_TILE_1:
     movi v18.4s, #0 // oc:4,5,4,5
     movi v19.4s, #0 // oc:6,7,6,7
 
-    cmp x13, #4
-    blt LoopSz1_TILE_1_lu1
+cmp x22, #8
+bne LoopSz1_TILE_1_lu1
+cmp x13, #4
+blt LoopSz1_TILE_1_lu1
+
 LoopSz1_TILE_1_lu4:
     ld1 {v5.16b, v6.16b, v7.16b, v8.16b}, [x12], #64     // weight
     ld1 {v9.16b, v10.16b, v11.16b, v12.16b}, [x12], #64
-    ld1 {v0.8b}, [x11], x22                              // src
-    ld1 {v1.8b}, [x11], x22
-    ld1 {v2.8b}, [x11], x22
-    ld1 {v3.8b}, [x11], x22
+    ld1 {v0.8b, v1.8b, v2.8b, v3.8b}, [x11], #32         // src
 
     // int4->int8
     ushr v4.16b, v5.16b, #4

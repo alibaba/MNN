@@ -1,5 +1,6 @@
 #!/bin/bash
-DIR=yanxing
+DIR=MNN
+hdc shell mkdir /data/local/tmp/MNN
 
 make -j16
 hdc file send ./libMNN.so /data/local/tmp/$DIR/libMNN.so

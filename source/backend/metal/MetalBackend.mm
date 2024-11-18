@@ -219,6 +219,7 @@ bool MetalBackend::onClearBuffer() {
 Execution *MetalBackend::onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                   const Op *op) {
     auto map  = getCreatorMap();
+
     auto iter = map->find(op->type());
     if (iter == map->end()) {
         mSupportDeferEncode = false;
@@ -967,6 +968,9 @@ MetalRuntime::MetalRuntime(void* context) {
     mContext = context;
     auto ctx = (__bridge MNNMetalContext *)mContext;
     std::shared_ptr<EagerBufferAllocator::Allocator> allocator(new MetalRuntimeAllocator([ctx device]));
+    mSimdGroupReduce = [[ctx device] supportsFamily:MTLGPUFamilyApple7];
+    mSimdGroupReduce |= [[ctx device] supportsFamily:MTLGPUFamilyMetal3];
+    mSimdGroupMatrix = [[ctx device] supportsFamily:MTLGPUFamilyApple7];
     mStatic.reset(new EagerBufferAllocator(allocator));
     mDynamic.resize(METAL_SEPERATE_MAX_COUNT);
     for (auto& buf : mDynamic) {

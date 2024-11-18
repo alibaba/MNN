@@ -18,13 +18,16 @@ void ConvBufLowMemoryExecution::getInfoFromOpLowMemory(std::shared_ptr<Convoluti
         MNN_ERROR("Conv buf low memory init error.\n");
         MNN_ASSERT(false);
     }
-    mResource->mInputChannel = quanCommon->weight.size() / (mResource->mKernelWidth * mResource->mKernelHeight * mResource->mOutputChannel);
     // set mResource->mNumQuantBit
     if(quanCommon->canUseInt4){
         mResource->mNumQuantBit = 4;
-        mResource->mInputChannel = (quanCommon->weight.size() * 2) / (mResource->mKernelWidth * mResource->mKernelHeight * mResource->mOutputChannel);
     }else{
         mResource->mNumQuantBit = 8;
+    }
+    if (mOp->main_as_Convolution2D()->common()->inputCount() > 0) {
+        mResource->mInputChannel = mOp->main_as_Convolution2D()->common()->inputCount();
+    } else {
+        mResource->mInputChannel = quanCommon->weight.size() / (mResource->mKernelWidth * mResource->mKernelHeight * mResource->mOutputChannel);
     }
     // src of alpha in CPU
     float * dequantAlpha = quanCommon->alpha.get();

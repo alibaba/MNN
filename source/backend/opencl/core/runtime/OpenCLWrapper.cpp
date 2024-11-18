@@ -29,19 +29,17 @@ bool OpenCLSymbols::LoadOpenCLLibrary() {
 
     #if defined(__APPLE__) || defined(__MACOSX)
         "libOpenCL.so", "/System/Library/Frameworks/OpenCL.framework/OpenCL"
+    #elif defined(__OHOS__)
+        "/vendor/lib64/chipsetsdk/libhvgr_v200.so",
+        "/vendor/lib64/chipsetsdk/libGLES_mali.so",
+        "/system/lib64/libGLES_mali.so",
+        "libGLES_mali.so",
+        "/vendor/lib64/chipsetsdk/libEGI_imp1.so",
     #elif defined(__ANDROID__)
         "libOpenCL.so",
         "libGLES_mali.so",
         "libmali.so",
         "libOpenCL-pixel.so",
-    /*
-    #elif defined(__OHOS__)
-        "/vendor/lib64/chipsetsdk/libGLES_mali.so",
-        "/system/lib64/libGLES_mali.so",
-        "libGLES_mali.so",
-        "/vendor/lib64/chipsetsdk/libhvgr_v200.so",
-        "/vendor/lib64/chipsetsdk/libEGI_imp1.so",
-    */
     #if defined(__aarch64__)
         // Qualcomm Adreno
         "/system/vendor/lib64/libOpenCL.so",
