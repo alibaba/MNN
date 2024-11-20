@@ -14,6 +14,7 @@
 #include <sstream>
 
 #include "MNN_generated.h"
+#include "core/MNNFileUtils.h"
 #include "logkit.h"
 #include "writeFb.hpp"
 #include "CommonUtils.hpp"
@@ -145,8 +146,7 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, c
         }
     }
     {
-        std::ofstream erase(".__convert_external_data.bin");
-        erase << "0";
+        MNNRemoveFile(".__convert_external_data.bin");
     }
     std::set<std::string> notSupportOps;
     auto CheckIfNotSupported = [&] (const std::unique_ptr<MNN::OpT>& op) {

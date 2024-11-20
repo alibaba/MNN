@@ -20,9 +20,15 @@
 #endif
 
 #ifdef MNN_USE_LOGCAT
+#if defined(__OHOS__)
+#include <hilog/log.h>
+#define MNN_ERROR(format, ...) {char logtmp[4096]; snprintf(logtmp, 4096, format, ##__VA_ARGS__); OH_LOG_Print(LOG_APP, LOG_ERROR, LOG_DOMAIN, "MNNJNI", (const char*)logtmp);}
+#define MNN_PRINT(format, ...) {char logtmp[4096]; snprintf(logtmp, 4096, format, ##__VA_ARGS__); OH_LOG_Print(LOG_APP, LOG_DEBUG, LOG_DOMAIN, "MNNJNI", (const char*)logtmp);}
+#else
 #include <android/log.h>
 #define MNN_ERROR(format, ...) __android_log_print(ANDROID_LOG_ERROR, "MNNJNI", format, ##__VA_ARGS__)
 #define MNN_PRINT(format, ...) __android_log_print(ANDROID_LOG_INFO, "MNNJNI", format, ##__VA_ARGS__)
+#endif
 #elif defined MNN_BUILD_FOR_IOS
 // on iOS, stderr prints to XCode debug area and syslog prints Console. You need both.
 #include <syslog.h>
@@ -67,8 +73,8 @@ MNN_ERROR("Check failed: %s ==> %s\n", #success, #log); \
 #endif
 #define STR_IMP(x) #x
 #define STR(x) STR_IMP(x)
-#define MNN_VERSION_MAJOR 2
-#define MNN_VERSION_MINOR 9
-#define MNN_VERSION_PATCH 6
+#define MNN_VERSION_MAJOR 3
+#define MNN_VERSION_MINOR 0
+#define MNN_VERSION_PATCH 0
 #define MNN_VERSION STR(MNN_VERSION_MAJOR) "." STR(MNN_VERSION_MINOR) "." STR(MNN_VERSION_PATCH)
 #endif /* MNNDefine_h */

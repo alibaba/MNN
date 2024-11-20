@@ -270,7 +270,16 @@ const std::map<std::string, Tensor*>& getSessionInputAll(const Session* session)
 
 在只有一个输入tensor时，可以在调用`getSessionInput`时传入NULL以获取tensor。
 
-### 拷贝数据
+### 【推荐】映射填充数据
+**映射输入Tensor的内存，部分后端可以免数据拷贝**
+```cpp
+auto input = interpreter->getSessionInput(session, NULL);
+void* host = input->map(MNN::Tensor::MAP_TENSOR_WRITE, input->getDimensionType());
+// fill host memory data
+input->unmap(MNN::Tensor::MAP_TENSOR_WRITE,  input->getDimensionType(), host);
+```
+
+### 【不推荐】拷贝填充数据
 NCHW示例，适用 ONNX / Caffe / Torchscripts 转换而来的模型：
 ```cpp
 auto inputTensor = interpreter->getSessionInput(session, NULL);
@@ -293,7 +302,7 @@ delete nhwcTensor;
 通过这类拷贝数据的方式，用户只需要关注自己创建的tensor的数据布局，`copyFromHostTensor`会负责处理数据布局上的转换（如需）和后端间的数据拷贝（如需）。
 
 
-### 直接填充数据
+### 【不推荐】直接填充数据
 ```cpp
 auto inputTensor = interpreter->getSessionInput(session, NULL);
 inputTensor->host<float>()[0] = 1.f;
@@ -549,8 +558,16 @@ const std::map<std::string, Tensor*>& getSessionOutputAll(const Session* session
 
 **注意：当`Session`析构之后使用`getSessionOutput`获取的`Tensor`将不可用**
 
-### 拷贝数据
-**不熟悉MNN源码的用户，必须使用这种方式获取输出！！！**
+### 【推荐】映射输出数据
+**映射输出Tensor的内存数据，部分后端可以免数据拷贝**
+```cpp
+auto outputTensor = net->getSessionOutput(session, NULL);
+void* host = outputTensor->map(MNN::Tensor::MAP_TENSOR_READ,  outputTensor->getDimensionType());
+// use host memory by yourself
+outputTensor->unmap(MNN::Tensor::MAP_TENSOR_READ,  outputTensor->getDimensionType(), host);
+```
+### 【不推荐】拷贝输出数据
+**采用纯内存拷贝的方式，拷贝需要花费时间**
 NCHW （适用于 Caffe / TorchScript / Onnx 转换而来的模型）示例：
 ```cpp
 auto outputTensor = interpreter->getSessionOutput(session, NULL);
@@ -577,7 +594,7 @@ delete nhwcTensor;
 
 
 
-### 直接读取数据
+### 【不推荐】直接读取数据
 **由于绝大多数用户都不熟悉MNN底层数据布局，所以不要使用这种方式！！！**
 ```cpp
 auto outputTensor = interpreter->getSessionOutput(session, NULL);

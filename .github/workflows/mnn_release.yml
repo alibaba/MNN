@@ -3,6 +3,8 @@ on:
   push:
     tags:
       - '*'
+  workflow_dispatch:
+
 jobs:
   setup:
     permissions:
@@ -13,7 +15,14 @@ jobs:
     steps:
     - name: get-version
       id: get_version
-      run: echo "VERSION=${GITHUB_REF/refs\/tags\//}" >> $GITHUB_OUTPUT
+      run: |
+        if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+          # 提取标签版本号
+          echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+        else
+          # 如果不是标签，则设置版本为 'dev'
+          echo "VERSION=dev" >> $GITHUB_OUTPUT
+        fi
 
   linux-release:
     needs: [setup]
@@ -34,8 +43,9 @@ jobs:
         rm -f ${{ env.PACKAGENAME }}.zip
         zip -9 -y -r ${{ env.PACKAGENAME }}.zip ${{ env.PACKAGENAME }}
     - name: upload-zip
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
+        name: artifact-${{ env.PACKAGENAME }}
         path: ${{ env.PACKAGENAME }}.zip
 
   windows-release:
@@ -44,7 +54,7 @@ jobs:
     env:
       PACKAGENAME: mnn_${{ needs.setup.outputs.VERSION }}_windows_x64_cpu_opencl
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
       with:
         submodules: true
 
@@ -56,8 +66,9 @@ jobs:
     - name: package
       run: 7z a -r ${{ env.PACKAGENAME }}.zip ${{ env.PACKAGENAME }}
     - name: upload-zip
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
+        name: artifact-${{ env.PACKAGENAME }}
         path: ${{ env.PACKAGENAME }}.zip
 
   macos-release:
@@ -79,8 +90,9 @@ jobs:
         rm -f ${{ env.PACKAGENAME }}.zip
         zip -9 -y -r ${{ env.PACKAGENAME }}.zip ${{ env.PACKAGENAME }}
     - name: upload-zip
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
+        name: artifact-${{ env.PACKAGENAME }}
         path: ${{ env.PACKAGENAME }}.zip
 
   android-release:
@@ -99,8 +111,9 @@ jobs:
         rm -f ${{ env.PACKAGENAME }}.zip
         zip -9 -y -r ${{ env.PACKAGENAME }}.zip ${{ env.PACKAGENAME }}
     - name: upload-zip
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
+        name: artifact-${{ env.PACKAGENAME }}
         path: ${{ env.PACKAGENAME }}.zip
 
   ios-release:
@@ -123,8 +136,9 @@ jobs:
         rm -f ${{ env.PACKAGENAME }}.zip
         zip -9 -y -r ${{ env.PACKAGENAME }}.zip ios_build/Release-iphoneos/MNN.framework
     - name: upload-zip
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
+        name: artifact-${{ env.PACKAGENAME }}
         path: ${{ env.PACKAGENAME }}.zip
 
   upload-release:
@@ -132,10 +146,11 @@ jobs:
     needs: [linux-release, windows-release, macos-release, android-release, ios-release]
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/download-artifact@v4.1.7
+    - uses: actions/download-artifact@v4
       with:
-        name: artifact
+        pattern: artifact-*
         path: assert
+        merge-multiple: true
 
     - name: show file
       run: ls assert

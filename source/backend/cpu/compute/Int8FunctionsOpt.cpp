@@ -1440,7 +1440,7 @@ static void MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, co
 
             for (int sz = 0; sz < src_depth_quad; ++sz) {
                 const auto weight_sz = weight_dz + weight_step_Y * sz;
-                const auto src_z     = src_x + sz * GEMM_INT8_DST_XUNIT * GEMM_INT8_SRC_UNIT;
+                const auto src_z     = src_x + sz * realCount * GEMM_INT8_SRC_UNIT;
 
                 for (int j = 0; j < GEMM_INT8_UNIT; ++j) {
                     const auto weight_j = weight_sz + j * GEMM_INT8_SRC_UNIT;
@@ -1506,7 +1506,7 @@ static void MNNGemmInt8AddBiasScale_16x4_w4_Unit(int8_t* dst, const int8_t* src,
 
             for (int sz = 0; sz < src_depth_quad; ++sz) {
                 const auto weight_sz = (uint8_t*)weight_dz + weight_step_Y * sz;
-                const auto src_z     = src_x + sz * GEMM_INT8_DST_XUNIT * GEMM_INT8_SRC_UNIT;
+                const auto src_z     = src_x + sz * realCount * GEMM_INT8_SRC_UNIT;
 
                 int w8[64]; // 64=GEMM_INT8_UNIT * GEMM_INT8_SRC_UNIT
                 for (int k = 0; k < 32; ++k) {
@@ -1671,12 +1671,20 @@ void MNNFloat2Int8(const float* src, int8_t* dst, size_t sizeQuad, const float* 
     }
 }
 
-void MNNInt8ScaleToFloat(float* dst, const int8_t* src, const float* scale, size_t size, ssize_t zeroPoint) {
+void MNNInt8ScaleToFloat(float* dst, const int8_t* src, const float* scale, size_t size, const float* zeroPoint, ssize_t quantParamVec) {
+    float scale_[4] = {scale[0], scale[0], scale[0], scale[0]};
+    float zero_[4] = {zeroPoint[0], zeroPoint[0], zeroPoint[0], zeroPoint[0]};
+    if (quantParamVec & 1) {
+        ::memcpy(scale_, scale, 4 * sizeof(float));
+    }
+    if (quantParamVec >> 1) {
+        ::memcpy(zero_, zeroPoint, 4 * sizeof(float));
+    }
     for (int i = 0; i < size; ++i) {
         const auto srcStart = src + i * 4;
         auto dstStart       = dst + i * 4;
         for (int j = 0; j < 4; ++j) {
-            dstStart[j] = static_cast<float>(srcStart[j] - zeroPoint) * scale[j];
+            dstStart[j] = static_cast<float>(srcStart[j] - zero_[j]) * scale_[j];
         }
     }
 }
@@ -2033,22 +2041,39 @@ static void _ArmBasicMNNPackC4ForMatMul_A(int8_t* destOrigin, int8_t const** sou
     int eDest = EP;
     int offset = info[3];
     const int LUNIT = LP / sizeof(float);
+    int realDstCount = info[4];
     for (int n=0; n<number; ++n) {
-        int e = el[4 * n + 0];
+        int e = el[4 * n + 0];       // to fill
         int l = el[4 * n + 1];
-        int eOffset = el[4 * n + 2];
+        int eOffset = el[4 * n + 2]; // have filled
         int lOffset = el[4 * n + 3];
         int lC = lOffset / LP;
         int lR = lOffset % LP;
         int eC = eOffset / eDest;
         int eR = eOffset % eDest;
+        int eS = eDest - eR;
+//        printf("e=%d, eC=%d, lC=%d, eR=%d, lR=%d\n", e, eC, lC, eR, lR);
+        bool lastBag = false;
+        int eOutsideStride4LastBag = eOutsideStride;
+        if (realDstCount % EP > 0) {
+            int jobsE = realDstCount - eOffset - e;
+            if (jobsE == 0 || (jobsE < (realDstCount % EP))) {
+                lastBag = true;
+            }
+        }
         auto dest = (int32_t*)(destOrigin + lC * eDest * LP + lR + eC * info[2] + eR * LP);
         auto source = (int32_t*)sourceGroup[n];
         int lRemain = l / 4;
-        int lR4 = lR / LUNIT;
+        int lR4 = lR / 4;
         int lS = LUNIT - lR4;
-        int eS = eDest - eR;
+        
+        if (lastBag && e + eR < EP) {
+            int elast = ALIMAX(eR + e, realDstCount % EP);
+            dest = (int32_t*)(destOrigin + lC * elast * LP + lR + eC * info[2] + eR * LP);
+        }
         // Step for start
+        int offsetLC = lC * LUNIT + lR / 4;
+
         if (lR4 > 0) {
             int step = ALIMIN(lS, lRemain);
             for (int x=0; x<step; ++x) {
@@ -2061,7 +2086,13 @@ static void _ArmBasicMNNPackC4ForMatMul_A(int8_t* destOrigin, int8_t const** sou
                         d[yi * LUNIT] = s[yi * offset];
                     }
                     eRemain-=eStep;
-                    d += (eOutsideStride - eR * LUNIT);
+                    if (!lastBag ||eRemain >= EP) {
+                        d += (eOutsideStride - eR * LUNIT);
+                    } else {
+                        int eFill = ALIMAX(eRemain, realDstCount % EP); // maybe padding>0
+                        eOutsideStride4LastBag = eOutsideStride - ((offsetLC / LUNIT) * EP * LUNIT);
+                        d += (eOutsideStride4LastBag - eR * LUNIT + (offsetLC / LUNIT) * eFill * LUNIT);
+                    }
                     s += eS * offset;
                 }
                 while (eRemain > 0) {
@@ -2070,14 +2101,29 @@ static void _ArmBasicMNNPackC4ForMatMul_A(int8_t* destOrigin, int8_t const** sou
                         d[yi * LUNIT] = s[yi * offset];
                     }
                     eRemain-=eStep;
-                    d+= eOutsideStride;
+                    if (!lastBag || eRemain >= EP) {
+                        d+= eOutsideStride;
+                    } else {
+                        int eFill = ALIMAX(eRemain, realDstCount % EP); // maybe padding>0
+                        eOutsideStride4LastBag = eOutsideStride - ((offsetLC / LUNIT) * EP * LUNIT);
+                        d+= (eOutsideStride4LastBag + (offsetLC / LUNIT) * eFill * LUNIT);
+                    }
                     s+= eStep * offset;
                 }
+                offsetLC++;
             }
             lRemain -= step;
-            dest += step;
+            if (lastBag && e + eR < EP) {
+                int eFill = ALIMAX(realDstCount % EP, e + eR);
+                int nextLP = (eFill * LP - lR) / sizeof(int32_t);
+                dest += nextLP;
+            } else {
+                int nextLP = (eDest * LP - lR) / sizeof(int32_t);
+                dest += nextLP;
+            }
             source += eReal * step;
         }
+        
         while (lRemain > 0) {
             int step = ALIMIN(lRemain, LUNIT);
             for (int x=0; x<step; ++x) {
@@ -2090,7 +2136,13 @@ static void _ArmBasicMNNPackC4ForMatMul_A(int8_t* destOrigin, int8_t const** sou
                         d[yi * LUNIT] = s[yi * offset];
                     }
                     eRemain-=eStep;
-                    d += (eOutsideStride - eR * LUNIT);
+                    if (!lastBag ||eRemain >= EP) {
+                        d += (eOutsideStride - eR * LUNIT);
+                    } else {
+                        int eFill = ALIMAX(eRemain, realDstCount % EP); // maybe padding>0
+                        eOutsideStride4LastBag = eOutsideStride - ((offsetLC / LUNIT) * EP * LUNIT);
+                        d += (eOutsideStride4LastBag - eR * LUNIT + (offsetLC / LUNIT) * eFill * LUNIT);
+                    }
                     s += eS * offset;
                 }
                 while (eRemain > 0) {
@@ -2099,12 +2151,25 @@ static void _ArmBasicMNNPackC4ForMatMul_A(int8_t* destOrigin, int8_t const** sou
                         d[yi * LUNIT] = s[yi * offset];
                     }
                     eRemain-=eStep;
-                    d+= eOutsideStride;
+                    if (!lastBag || eRemain >= EP) {
+                        d+= eOutsideStride;
+                    } else {
+                        int eFill = ALIMAX(eRemain, realDstCount % EP); // maybe padding>0
+                        eOutsideStride4LastBag = eOutsideStride - ((offsetLC / LUNIT) * EP * LUNIT);
+                        d+= (eOutsideStride4LastBag + (offsetLC / LUNIT) * eFill * LUNIT);
+                    }
                     s+= eStep * offset;
                 }
+                offsetLC++;
             }
+            
             lRemain -= step;
-            dest += eDest * LUNIT;
+            if (lastBag && e + eR < EP) {
+                int efill = ALIMAX(e + eR, realDstCount % EP);
+                dest += efill * LUNIT;
+            } else {
+                dest += eDest * LUNIT;
+            }
             source += eReal * step;
         }
     }
@@ -2136,17 +2201,33 @@ static void _ArmBasicMNNPackC4ForMatMul_A_L4(int8_t* destOrigin, int8_t const** 
     int offset = info[3];
     const int LP = 4;
     int eOutsideStride = info[2] / sizeof(float);
+    int kernelCountUnit = eOutsideStride;
+    int realDstCount = info[4];
     for (int n=0; n<number; ++n) {
         int e = el[4 * n + 0];
         int l = el[4 * n + 1];
         int eOffset = el[4 * n + 2];
         int lOffset = el[4 * n + 3];
-        int eC = eOffset / eDest;
-        int eR = eOffset % eDest;
-        auto dest = (int32_t*)(destOrigin + lOffset * eDest + eC * info[2] + eR * LP);
+        int eC = eOffset / EP;
+        int eR = eOffset % EP;
         int eS = eDest - eR;
+        bool lastBag = false;
+        int eOutsideStride4LastBag = eOutsideStride;
+        int eres = realDstCount - eOffset;
+        if (realDstCount % EP > 0) {
+            int jobsE = realDstCount - eOffset - e;
+            if (jobsE == 0 || (jobsE < (realDstCount % EP))) {
+                lastBag = true;
+            }
+        }
+        auto dest = (int32_t*)(destOrigin + lOffset * eDest + eC * info[2] + eR * LP);
         auto source = (int32_t*)sourceGroup[n];
         int lRemain = l / sizeof(float);
+        if (lastBag && e + eR < EP) {
+            int elast = ALIMIN(ALIMAX(eR + e, realDstCount % EP), EP);
+            dest = (int32_t*)(destOrigin + lOffset * elast + eC * info[2] + eR * LP);
+        }
+        int offsetLC = lOffset / 4;
         for (int x=0; x<lRemain; ++x) {
             int eRemain = e;
             auto d = dest;
@@ -2156,14 +2237,26 @@ static void _ArmBasicMNNPackC4ForMatMul_A_L4(int8_t* destOrigin, int8_t const** 
                     int eStep = ALIMIN(eRemain, eS);
                     ::memcpy(d, s, eStep * sizeof(int32_t));
                     eRemain-=eStep;
-                    d += (eOutsideStride - eR);
+                    if (!lastBag ||eRemain >= EP) {
+                        d += (eOutsideStride - eR);
+                    } else {
+                        int eFill = ALIMAX(eRemain, realDstCount % EP); // maybe padding>0
+                        eOutsideStride4LastBag = eOutsideStride - (EP * 4 * offsetLC / sizeof(float));
+                        d += (eOutsideStride4LastBag - eR + offsetLC * eFill);
+                    }
                     s += eS * offset;
                 }
                 while (eRemain > 0) {
                     int eStep = ALIMIN(eDest, eRemain);
                     ::memcpy(d, s, eStep * sizeof(int32_t));
                     eRemain-=eStep;
-                    d+= eOutsideStride;
+                    if (!lastBag || eRemain >= EP) {
+                        d+= eOutsideStride;
+                    } else {
+                        int eFill = ALIMAX(eRemain, realDstCount % EP); // maybe padding>0
+                        eOutsideStride4LastBag = eOutsideStride - (EP * 4 * offsetLC / sizeof(float));
+                        d+= (eOutsideStride4LastBag + offsetLC * eFill);
+                    }
                     s+= eStep * offset;
                 }
             } else {
@@ -2173,7 +2266,13 @@ static void _ArmBasicMNNPackC4ForMatMul_A_L4(int8_t* destOrigin, int8_t const** 
                         d[yi] = s[yi * offset];
                     }
                     eRemain-=eStep;
-                    d += (eOutsideStride - eR);
+                    if (!lastBag ||eRemain >= EP) {
+                        d += (eOutsideStride - eR);
+                    } else {
+                        int eFill = ALIMAX(eRemain, realDstCount % EP); // maybe padding>0
+                        eOutsideStride4LastBag = eOutsideStride - (EP * 4 * offsetLC / sizeof(float));
+                        d += (eOutsideStride4LastBag - eR + offsetLC * eFill);
+                    }
                     s += eS * offset;
                 }
                 while (eRemain > 0) {
@@ -2182,12 +2281,24 @@ static void _ArmBasicMNNPackC4ForMatMul_A_L4(int8_t* destOrigin, int8_t const** 
                         d[yi] = s[yi * offset];
                     }
                     eRemain-=eStep;
-                    d+= eOutsideStride;
+                    if (!lastBag || eRemain >= EP) {
+                        d+= eOutsideStride;
+                    } else {
+                        int eFill = ALIMAX(eRemain, realDstCount % EP); // maybe padding>0
+                        eOutsideStride4LastBag = eOutsideStride - (EP * 4 * offsetLC / sizeof(float));
+                        d+= (eOutsideStride4LastBag + offsetLC * eFill);
+                    }
                     s+= eStep * offset;
                 }
             }
-            dest += eDest;
             source += eReal;
+            if (lastBag && e + eR < EP ) { // eR=0;eR>0
+                int efill = ALIMAX(e + eR, realDstCount % EP);
+                dest += efill;
+            } else {
+                dest += eDest;
+            }
+            offsetLC++;
         }
     }
 }
@@ -2237,7 +2348,7 @@ void MNNCoreInt8FunctionInit() {
         gCoreFunc->Int8GemmKernelFast = MNNGemmInt8AddBiasScale_ARMV82_Unit;
         gCoreFunc->MNNGetGemmUnit = MNNGetGemmUnitSdot;
         // Im2Col
-        gCoreFunc->MNNPackC4Int8ForMatMul_A = _ArmBasicMNNPackC4ForMatMul_A_L4<12, 4>;
+        gCoreFunc->MNNPackC4Int8ForMatMul_A = _ArmBasicMNNPackC4ForMatMul_A_L4<12, 8>;
         // ConvDepthwise
         gCoreFunc->ConvDepthwise3x3LineInt8_ARM82 = MNNLineDepthWiseInt8AddBiasScale_ARMV82_Unit3X3;
         core->MNNSumByAxisLForMatmul_A = MNNSumByAxisLForMatmul_A_ARM82;

@@ -287,6 +287,11 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
      cxxopts::value<bool>()
      )
     (
+     "useGeluApproximation",
+     "Use Gelu Approximation Compute Instead of use ERF",
+     cxxopts::value<int>()
+     )
+    (
      "convertMatmulToConv",
      "if 1, converter matmul with constant input to convolution. default: 1, range: {0, 1}",
      cxxopts::value<int>()
@@ -478,7 +483,9 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
     if (result.count("convertMatmulToConv")) {
         modelPath.convertMatmulToConv = result["convertMatmulToConv"].as<int>();
     }
-
+    if (result.count("useGeluApproximation")) {
+        modelPath.useGeluApproximation = result["useGeluApproximation"].as<int>();
+    }
     if (result.count("testdir")) {
         modelPath.testDir = result["testdir"].as<std::string>();
     }
@@ -783,6 +790,14 @@ static bool compareOutput(MNN::Express::VARP output, const std::string& directNa
     absMax = MNN::Express::_Maximum(absMax, MNN::Express::_Scalar<float>(0.0001f));
     auto diff = MNN::Express::_Abs(targetValue - output);
     auto outputPtr = output->readMap<float>();
+#define MNN_IS_INF(x) (fabs(x) == INFINITY)
+#define MNN_IS_NAN(x) ((x) != (x))
+    for (int i=0; i<info->size; ++i) {
+        if (MNN_IS_INF(outputPtr[i]) || MNN_IS_NAN(outputPtr[i])) {
+            MNN_ERROR("TESTERROR %s value error:%f\n", name.c_str(), outputPtr[i]);
+            return false;
+        }
+    }
     auto diffAbsMax = MNN::Express::_ReduceMax(diff);
     auto absMaxV = absMax->readMap<float>()[0];
     auto diffAbsMaxV = diffAbsMax->readMap<float>()[0];

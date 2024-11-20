@@ -13,6 +13,32 @@
 namespace MNN {
 namespace Express {
 
+static VARP _Int8ToFloat(VARP x, VARP scale, VARP zero) {
+    MNN_ASSERT(scale->getInfo() && zero->getInfo());
+    MNN_ASSERT(scale->getInfo()->size == zero->getInfo()->size || zero->getInfo()->size <= 1);
+    auto size = 1;
+    if (scale->getInfo()->size > 1) {
+        size = scale->getInfo()->size;
+    }
+    std::unique_ptr<OpT> op(new OpT);
+    op->type = OpType_Int8ToFloat;
+    op->main.type = OpParameter_QuantizedFloatParam;
+    op->main.value = new QuantizedFloatParamT;
+    op->main.AsQuantizedFloatParam()->tensorScale.resize(size);
+    if (scale->readMap<float>()) {
+        ::memcpy(op->main.AsQuantizedFloatParam()->tensorScale.data(), scale->readMap<float>(), size * sizeof(float));
+    }
+    op->main.AsQuantizedFloatParam()->floatzeros.resize(size);
+    if (zero->readMap<float>()) {
+        auto zerosize = 1;
+        if (zero->getInfo()->size > 1) {
+            zerosize = zero->getInfo()->size;
+        }
+        ::memcpy(op->main.AsQuantizedFloatParam()->floatzeros.data(), zero->readMap<float>(), zerosize * sizeof(float));
+    }
+    return Variable::create(Expr::create(op.get(), {x}));
+}
+
 class OnnxDequantizeLinearTransform : public OnnxExtraManager::Transform {
 public:
     virtual EXPRP onExecute(EXPRP expr) const override {
@@ -23,64 +49,71 @@ public:
             MNN_ERROR("Onnx QuantizeLinear input error: inputs size<2\n");
             return nullptr;
         }
+        bool int32Dequant = false;
         auto input = inputs[0];
         auto scale = inputs[1];
-        
-        if (nullptr == scale || nullptr == input) {
-            MNN_ERROR("QuantizeLinear should provide scale and input\n");
-            return nullptr;
-        }
 
         auto dataType = halide_type_int;
         VARP zeropoint = _Const(0.f);
         if (inputs.size() > 2) {
-            if (inputs[2]->getInfo() == nullptr) {
-                MNN_ERROR("DequantizeLinear layer inputs.size>2, but zeroPoint is not const\n");
-            }
-            MNN_ASSERT(inputs[2]->getInfo() != nullptr);
-            auto zeroDim = inputs[2]->getInfo()->dim;
-            dataType = static_cast<halide_type_code_t>(inputs[2]->getInfo()->type.code);
-            std::vector<float> fp32Zero(inputs[2]->getInfo()->size);
-            if (dataType == halide_type_int) {
-                const int8_t* zeroPtr = inputs[2]->readMap<int8_t>();
-                for (int j = 0; j < fp32Zero.size(); ++j) {
-                    fp32Zero[j] = static_cast<float>(zeroPtr[j]);
-                }
-                zeropoint = _Const(fp32Zero.data(), zeroDim, inputs[2]->getInfo()->order, halide_type_of<float>());
-            } else {
-                const uint8_t* zeroPtr = inputs[2]->readMap<uint8_t>();
-                for (int j = 0; j < fp32Zero.size(); ++j) {
-                    fp32Zero[j] = static_cast<float>(zeroPtr[j]) - 128.f;
-                }
-                zeropoint = _Const(fp32Zero.data(), zeroDim, inputs[2]->getInfo()->order, halide_type_of<float>());
+            if (inputs[2]->getInfo()) {
+                dataType = static_cast<halide_type_code_t>(inputs[2]->getInfo()->type.code);
             }
             zeropoint = _Cast<float>(inputs[2]);
+
         }
         
         std::vector<int32_t> inputDim = {};
         if (input->getInfo()) {
             inputDim = input->getInfo()->dim;
             dataType = static_cast<halide_type_code_t>(input->getInfo()->type.code);
+            if (input->getInfo()->type.bits == 32) {
+                // from onnx document.
+                auto floatinput = _Cast<float>(input);
+                auto output = floatinput * scale;
+                output->expr().first->setName(expr->name());
+                return output->expr().first;
+            }
+            if (dataType == halide_type_uint && input->readMap<uint8_t>()) {
+                auto floatinput = _Cast<float>(input);
+                auto output = (floatinput - zeropoint) * scale;
+                output->expr().first->setName(expr->name());
+                return output->expr().first;
+            }
         }
         auto offset = _Const(0.f);
         if (dataType == halide_type_uint) {
             offset = _Const(128.f);
         }
-        // if (!scale->getInfo()->dim.empty()) {
-        //     zeropoint = _Unsqueeze(zeropoint, {1,2,3});
-        //     scale = _Unsqueeze(scale, {1, 2, 3});
-        // } else {
-        //     scale = _Reshape(scale, {1});
-        //     zeropoint = _Reshape(zeropoint, {1});
-        // }
-        auto _shape  = _Const(inputDim.data(), {static_cast<int32_t>(inputDim.size())}, NHWC, halide_type_of<int>());
-        auto output = (_Cast<float>(input) - zeropoint) * scale;
         std::unique_ptr<MNN::OpT> iden(new MNN::OpT);
         iden->type = OpType_Int8ToFloat;
 
-        auto newExpr = MNN::Express::Expr::create(iden.get(), {input, output, scale, zeropoint - offset, _shape}, 5);
-        newExpr->setName(expr->name());
-        return newExpr;
+        if (input->getInfo() && input->getInfo()->dim.size() == 4) { // convolution weight
+            auto shape_ = input->getInfo()->dim;
+            int size = scale->getInfo()->dim[0];
+            // [oc,ic,kx,ky] -> [ic,oc,kx,ky]
+            auto x = _Permute(input, {1, 0, 2, 3});
+            auto y = _Int8ToFloat(x, scale, zeropoint - offset);
+            y->expr().first->setName(expr->name());
+            return y->expr().first;
+        }
+        if (scale->readMap<float>() && input->getInfo() && input->getInfo()->type.bits == 8) { // matmul B const
+            auto newvar = _Int8ToFloat(input, scale, (zeropoint- offset));
+            newvar->expr().first->setName(expr->name());
+            return newvar->expr().first;
+        }
+        
+        if (scale->readMap<float>() == nullptr) { // dynamic layer's input
+            auto int8ToFloatvar = _Int8ToFloat(input, _Const(1.0f), _Const(0.f));
+            auto output = (int8ToFloatvar - zeropoint) * scale;
+            output->expr().first->setName(expr->name());
+            return output->expr().first;
+        }
+        auto newvar = _Int8ToFloat(input, scale, (zeropoint- offset));
+        newvar->expr().first->setName(expr->name());
+        return newvar->expr().first;
+        
+        
     }
 };
 

@@ -175,6 +175,14 @@ ErrorCode CPUConvolutionDepthwise::BasicFloatExecution::onResize(const std::vect
     divides[0] = 0;
     static_cast<CPUBackend *>(backend())->computeDivideSizes(total, divides.data()+1);
     mNumber = numberThread;
+    for (int i=1; i<numberThread; ++i) {
+        if (divides[i+1] <= divides[i]) {
+            // Only 0-(i-1) thread has work
+            mNumber = i;
+            break;
+        }
+    }
+    MNN_ASSERT(mNumber > 0);
     auto postData = getPostParameters();
     if (static_cast<CPUBackend*>(backend())->functions()->bytes < 4) {
         static_cast<CPUBackend*>(backend())->functions()->MNNFp32ToLowp(postData.data() + 2, (int16_t*)(postData.data() + 2), 2);
@@ -196,6 +204,7 @@ ErrorCode CPUConvolutionDepthwise::BasicFloatExecution::onResize(const std::vect
         src_y_step     = paddedWidth * unit;
     }
     mExecutor   = [=](const uint8_t* inputPtr, uint8_t* outputPtr, int tId) {
+        MNN_ASSERT(divides[tId] < divides[tId+1]);
         const auto inputPadPtr = mInputPad->host<uint8_t>() + mInputPad->stride(0) * tId * bytes;
         ::memset(inputPadPtr, 0, mInputPad->stride(0) * bytes);
         auto biasP   = inputs[2]->host<uint8_t>();

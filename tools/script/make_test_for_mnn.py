@@ -3,6 +3,17 @@ import MNN.expr as F
 import MNN.numpy as np
 import sys
 import os
+def makeDirForPath(filename):
+    if filename.find('/') < 0:
+        return
+    names = filename.split('/')
+    dirname = ""
+    for l in range(0, len(names)-1):
+        dirname = dirname + names[l] + '/'
+    print(dirname)
+    if os.path.exists(dirname):
+        return
+    os.makedirs(dirname)
 
 def run():
     if len(sys.argv) < 3:
@@ -30,7 +41,7 @@ def run():
         dims = var.shape
         for j in range(0, len(dims)):
             if dims[j] == -1:
-                dims[j] = 20
+                dims[j] = 1
         input['shape'] = dims
         dformat = var.data_format
         var = np.random.random(dims)
@@ -38,7 +49,9 @@ def run():
             var = var * 10.0
         var = var.astype(dtype)
         data = var.read().flatten()
-        with open(os.path.join(outputDir, input['name'] + '.txt'), 'w') as f:
+        fname = os.path.join(outputDir, input['name'] + '.txt')
+        makeDirForPath(fname)
+        with open(fname, 'w') as f:
             for floatValue in data:
                 f.write('%f\n' %floatValue)
         var = F.convert(var, dformat)
@@ -52,8 +65,13 @@ def run():
     
     outputs = net.forward(inputs)
     for i in range(0, len(outputs)):
-        data = outputs[i].read().flatten()
-        with open(os.path.join(outputDir, info['outputNames'][i] + '.txt'), 'w') as f:
+        out = outputs[i]
+        if out.data_format == F.NC4HW4:
+            out = F.convert(out, F.NCHW)
+        data = out.read().flatten()
+        fname = os.path.join(outputDir, info['outputNames'][i] + '.txt')
+        makeDirForPath(fname)
+        with open(fname, 'w') as f:
             for floatValue in data:
                 f.write('%f\n' %floatValue)
 

@@ -17,11 +17,6 @@
 #include "cpu_id.h"
 #include "sse/FunctionSummary.hpp"
 // https://stackoverflow.com/a/11230437
-#if defined(_MSC_VER)
-#include <intrin.h>
-#else
-#include <x86intrin.h>
-#endif
 
 struct FunctionGroup {
     int tileNumber                                                                               = 8;
@@ -45,6 +40,11 @@ void _SSEMNNGetMatMulPackMode(int* eP, int *lP, int* hP) {
 }
 void MNNFunctionInit() {
     auto cpuFlags = libyuv::InitCpuFlags();
+#ifdef __EMSCRIPTEN__
+    // TODO: Find better way
+    cpuFlags |= libyuv::kCpuHasSSE41;
+    cpuFlags |= libyuv::kCpuHasSSSE3;
+#endif
     auto coreFunction = MNN::MNNGetCoreFunctions();
     if (cpuFlags & libyuv::kCpuHasSSSE3) {
         coreFunction->MNNGetMatMulPackMode = _SSEMNNGetMatMulPackMode;
@@ -65,6 +65,7 @@ void MNNFunctionInit() {
         // Dynamic Quant
         coreFunction->MNNCountMaxMinValue = _SSE_MNNComputeScaleZeroScalar;
     }
+#ifdef MNN_USE_AVX
     if (cpuFlags & libyuv::kCpuHasAVX2) {
         MNN::AVX2Functions::init(cpuFlags);
         gFunc.MNNExpC8 = _AVX_MNNExpC8;
@@ -76,6 +77,7 @@ void MNNFunctionInit() {
         }
         gFunc.MNNNorm = _AVX_MNNNorm;
     }
+#endif
     _SSE_ImageProcessInit(coreFunction, cpuFlags);
 }
 

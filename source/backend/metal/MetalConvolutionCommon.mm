@@ -156,15 +156,15 @@ void MetalConvolutionCommon::loadWeight(const MNN::Op *op, bool loadWeightInt8) 
     }
     // param
     auto size   = qnt ? MAX(qnt->weight.size(), qnt->weightFloat.size()) : conv->weight()->size();
-    if (loadWeightInt8 && qnt->canUseInt4) {
-        size *= 2;
-    }
     auto common = conv->common();
     auto kw     = common->kernelX();
     auto kh     = common->kernelY();
     auto group  = common->group();
     auto oc     = common->outputCount();
-    auto ic     = size / kw / kh / (oc / group);
+    int ic     = common->inputCount();
+    if (0 == ic) {
+        ic = size / kw / kh / (oc / group);
+    }
 
     // convert
     if (loadWeightInt8 && qnt->weight.get() != nullptr) {

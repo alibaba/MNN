@@ -645,6 +645,11 @@ WinogradConfig ConvolutionPackFreeWinograd::updateBestWinogradUnit(const Convolu
     auto oc4 = UP_DIV(oc, pack);
     int ePackMax, hPack, lPack;
     core->MNNGetMatMulPackMode(&ePackMax, &lPack, &hPack);
+    auto winogradMemoryLevel = static_cast<CPUBackend*>(b)->getRuntime()->hint().winogradMemoryUsed;
+    int unitMaxLimit = CONVOLUTION_WINOGRAD_MAX_UNIT;
+    if (winogradMemoryLevel != 3) {
+        unitMaxLimit = CONVOLUTION_WINOGRAD_MIN_UNIT;
+    }
 
     WinogradConfig bestConfig(0, false, 0, 0, 0, std::numeric_limits<float>().max());
     auto kernelSize  = common->kernelY();
@@ -659,7 +664,7 @@ WinogradConfig ConvolutionPackFreeWinograd::updateBestWinogradUnit(const Convolu
     for (int ePack = ePackUnit; ePack <= ePackUnit; ePack += ePackUnit) {
         int unit2   = UP_DIV(batch * ow * oh, ePack);
         int maxUnit = (int)::sqrtf((float)unit2);
-        maxUnit     = std::min(maxUnit, CONVOLUTION_WINOGRAD_MAX_UNIT);
+        maxUnit     = std::min(maxUnit, unitMaxLimit);
         maxUnit     = std::max(maxUnit, CONVOLUTION_WINOGRAD_MIN_UNIT);
         std::set<int> supportSu{4, 6, 8};
 

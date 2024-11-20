@@ -199,7 +199,7 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit_VNNI(int8_t* dst, const int8_t* s
 
             for (int sz = 0; sz < src_depth_quad; ++sz) {
                 const auto weight_sz = weight_dz + (GEMMINT8_AVX512_L * GEMMINT8_AVX512_H) * sz;
-                const auto src_z     = (const float*)(src_x + sz * GEMMINT8_AVX512_E * GEMMINT8_AVX512_L);
+                const auto src_z     = (const float*)(src_x + sz * realDst * GEMMINT8_AVX512_L);
                 auto w0 = _mm512_loadu_si512(weight_sz);
                 auto w1 = _mm512_loadu_si512(weight_sz + 1 * PACK_UNIT * GEMMINT8_AVX512_L);
                 auto w2 = _mm512_loadu_si512(weight_sz + 2 * PACK_UNIT * GEMMINT8_AVX512_L);
@@ -474,7 +474,7 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit_VNNI(int8_t* dst, const int8_t* s
 
             for (int sz = 0; sz < src_depth_quad; ++sz) {
                 const auto weight_sz = weight_dz + (GEMMINT8_AVX512_L * GEMMINT8_AVX512_H) * sz;
-                const auto src_z     = (const float*)(src_x + sz * GEMMINT8_AVX512_E * GEMMINT8_AVX512_L);
+                const auto src_z     = (const float*)(src_x + sz * realDst * GEMMINT8_AVX512_L);
                 auto w0 = _mm512_loadu_si512(weight_sz);
 
                 auto s0 = AVX512_BROADCAST_INT32(src_z + 0);
@@ -592,7 +592,7 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit_VNNI(int8_t* dst, const int8_t* s
 
             for (int sz = 0; sz < src_depth_quad; ++sz) {
                 const auto weight_sz = weight_dz + (GEMMINT8_AVX512_L * GEMMINT8_AVX512_H) * sz;
-                const auto src_z     = (const float*)(src_x + sz * GEMMINT8_AVX512_E * GEMMINT8_AVX512_L);
+                const auto src_z     = (const float*)(src_x + sz * realDst * GEMMINT8_AVX512_L);
                 auto w0 = _mm512_loadu_si512(weight_sz);
                 auto w1 = _mm512_loadu_si512(weight_sz + 1 * PACK_UNIT * GEMMINT8_AVX512_L);
                 auto w2 = _mm512_loadu_si512(weight_sz + 2 * PACK_UNIT * GEMMINT8_AVX512_L);
@@ -829,7 +829,7 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit_VNNI(int8_t* dst, const int8_t* s
 
             for (int sz = 0; sz < src_depth_quad; ++sz) {
                 const auto weight_sz = weight_dz + (GEMMINT8_AVX512_L * GEMMINT8_AVX512_H) * sz;
-                const auto src_z     = (const float*)(src_x + sz * GEMMINT8_AVX512_E * GEMMINT8_AVX512_L);
+                const auto src_z     = (const float*)(src_x + sz * realDst * GEMMINT8_AVX512_L);
                 auto w0 = _mm512_loadu_si512(weight_sz);
 
                 auto s0 = AVX512_BROADCAST_INT32(src_z + 0);
@@ -934,7 +934,7 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit_VNNI(int8_t* dst, const int8_t* s
 
             for (int sz = 0; sz < src_depth_quad; ++sz) {
                 const auto weight_sz = weight_dz + (GEMMINT8_AVX512_L * GEMMINT8_AVX512_H) * sz;
-                const auto src_z     = (const float*)(src_x + sz * GEMMINT8_AVX512_E * GEMMINT8_AVX512_L);
+                const auto src_z     = (const float*)(src_x + sz * realDst * GEMMINT8_AVX512_L);
                 auto w0 = _mm512_loadu_si512(weight_sz);
                 auto w1 = _mm512_loadu_si512(weight_sz + 1 * PACK_UNIT * GEMMINT8_AVX512_L);
                 auto w2 = _mm512_loadu_si512(weight_sz + 2 * PACK_UNIT * GEMMINT8_AVX512_L);
@@ -1132,7 +1132,7 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit_VNNI(int8_t* dst, const int8_t* s
 
             for (int sz = 0; sz < src_depth_quad; ++sz) {
                 const auto weight_sz = weight_dz + (GEMMINT8_AVX512_L * GEMMINT8_AVX512_H) * sz;
-                const auto src_z     = (const float*)(src_x + sz * GEMMINT8_AVX512_E * GEMMINT8_AVX512_L);
+                const auto src_z     = (const float*)(src_x + sz * realDst * GEMMINT8_AVX512_L);
                 auto w0 = _mm512_loadu_si512(weight_sz);
 
                 auto s0 = AVX512_BROADCAST_INT32(src_z + 0);
@@ -1218,7 +1218,7 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit_VNNI(int8_t* dst, const int8_t* s
 
             for (int sz = 0; sz < src_depth_quad; ++sz) {
                 const auto weight_sz = weight_dz + (GEMMINT8_AVX512_L * GEMMINT8_AVX512_H) * sz;
-                const auto src_z     = (const float*)(src_x + sz * GEMMINT8_AVX512_E * GEMMINT8_AVX512_L);
+                const auto src_z     = (const float*)(src_x + sz * realDst * GEMMINT8_AVX512_L);
                 auto w0 = _mm512_loadu_si512(weight_sz);
                 auto w1 = _mm512_loadu_si512(weight_sz + 1 * PACK_UNIT * GEMMINT8_AVX512_L);
                 auto w2 = _mm512_loadu_si512(weight_sz + 2 * PACK_UNIT * GEMMINT8_AVX512_L);
@@ -1380,7 +1380,7 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_Unit_VNNI(int8_t* dst, const int8_t* s
 
             for (int sz = 0; sz < src_depth_quad; ++sz) {
                 const auto weight_sz = weight_dz + (GEMMINT8_AVX512_L * GEMMINT8_AVX512_H) * sz;
-                const auto src_z     = (const float*)(src_x + sz * GEMMINT8_AVX512_E * GEMMINT8_AVX512_L);
+                const auto src_z     = (const float*)(src_x + sz * realDst * GEMMINT8_AVX512_L);
                 auto w0 = _mm512_loadu_si512(weight_sz);
 
                 auto s0 = AVX512_BROADCAST_INT32(src_z + 0);
@@ -1538,7 +1538,7 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_w4_Unit_VNNI(int8_t* dst, const int8_t
 
             for (int sz = 0; sz < src_depth_quad; ++sz) {
                 const auto weight_sz = weight_dz + weight_step_Y * sz;
-                const auto src_z     = (const float*)(src_x + sz * GEMMINT8_AVX512_E * GEMMINT8_AVX512_L);
+                const auto src_z     = (const float*)(src_x + sz * realDst * GEMMINT8_AVX512_L);
 
                 // int4->int8: total count=4*64(GEMMINT8_AVX512_L * GEMMINT8_AVX512_H)
                 // Load 4*64 int4 weight
@@ -1794,7 +1794,7 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_w4_Unit_VNNI(int8_t* dst, const int8_t
 
             for (int sz = 0; sz < src_depth_quad; ++sz) {
                 const auto weight_sz = weight_dz + weight_step_Y * sz;
-                const auto src_z     = (const float*)(src_x + sz * GEMMINT8_AVX512_E * GEMMINT8_AVX512_L);
+                const auto src_z     = (const float*)(src_x + sz * realDst * GEMMINT8_AVX512_L);
                 auto w0_int4_64 = _mm512_loadu_si512(weight_sz); // 128xint4_t=64 byte
                 // 256xint4_t->256xint8_t
                 auto w0 = _mm512_and_si512(mask, _mm512_srli_epi16(w0_int4_64, 4)); // 64xint8_t
@@ -1908,7 +1908,7 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_w4_Unit_VNNI(int8_t* dst, const int8_t
 
             for (int sz = 0; sz < src_depth_quad; ++sz) {
                 const auto weight_sz = weight_dz + weight_step_Y * sz;
-                const auto src_z     = (const float*)(src_x + sz * GEMMINT8_AVX512_E * GEMMINT8_AVX512_L);
+                const auto src_z     = (const float*)(src_x + sz * realDst * GEMMINT8_AVX512_L);
                 // int4->int8: total count=4*64(GEMMINT8_AVX512_L * GEMMINT8_AVX512_H)
                 // Load 4*64 int4 weight
                 auto w0_int4_64 = _mm512_loadu_si512(weight_sz); // 128xint4_t=64 byte
@@ -2130,7 +2130,7 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_w4_Unit_VNNI(int8_t* dst, const int8_t
 
             for (int sz = 0; sz < src_depth_quad; ++sz) {
                 const auto weight_sz = weight_dz + weight_step_Y * sz;
-                const auto src_z     = (const float*)(src_x + sz * GEMMINT8_AVX512_E * GEMMINT8_AVX512_L);
+                const auto src_z     = (const float*)(src_x + sz * realDst * GEMMINT8_AVX512_L);
                 auto w0_int4_64 = _mm512_loadu_si512(weight_sz); // 128xint4_t=64 byte
                 auto w0 = _mm512_and_si512(mask, _mm512_srli_epi16(w0_int4_64, 4)); // 64xint8_t
 
@@ -2231,7 +2231,7 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_w4_Unit_VNNI(int8_t* dst, const int8_t
 
             for (int sz = 0; sz < src_depth_quad; ++sz) {
                 const auto weight_sz = weight_dz + weight_step_Y * sz;
-                const auto src_z     = (const float*)(src_x + sz * GEMMINT8_AVX512_E * GEMMINT8_AVX512_L);
+                const auto src_z     = (const float*)(src_x + sz * realDst * GEMMINT8_AVX512_L);
                 // int4->int8: total count=4*64(GEMMINT8_AVX512_L * GEMMINT8_AVX512_H)
                 // Load 4*64 int4 weight
                 auto w0_int4_64 = _mm512_loadu_si512(weight_sz); // 128xint4_t=64 byte
@@ -2418,7 +2418,7 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_w4_Unit_VNNI(int8_t* dst, const int8_t
 
             for (int sz = 0; sz < src_depth_quad; ++sz) {
                 const auto weight_sz = weight_dz + weight_step_Y * sz;
-                const auto src_z     = (const float*)(src_x + sz * GEMMINT8_AVX512_E * GEMMINT8_AVX512_L);
+                const auto src_z     = (const float*)(src_x + sz * realDst * GEMMINT8_AVX512_L);
                 auto w0_int4_64 = _mm512_loadu_si512(weight_sz); // 128xint4_t=64 byte
                 auto w0 = _mm512_and_si512(mask, _mm512_srli_epi16(w0_int4_64, 4)); // 64xint8_t
 
@@ -2501,7 +2501,7 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_w4_Unit_VNNI(int8_t* dst, const int8_t
 
             for (int sz = 0; sz < src_depth_quad; ++sz) {
                 const auto weight_sz = weight_dz + weight_step_Y * sz;
-                const auto src_z     = (const float*)(src_x + sz * GEMMINT8_AVX512_E * GEMMINT8_AVX512_L);
+                const auto src_z     = (const float*)(src_x + sz * realDst * GEMMINT8_AVX512_L);
                 // int4->int8: total count=4*64(GEMMINT8_AVX512_L * GEMMINT8_AVX512_H)
                 // Load 4*64 int4 weight
                 auto w0_int4_64 = _mm512_loadu_si512(weight_sz); // 128xint4_t=64 byte
@@ -2656,7 +2656,7 @@ void _AVX512_MNNGemmInt8AddBiasScale_16x4_w4_Unit_VNNI(int8_t* dst, const int8_t
 
             for (int sz = 0; sz < src_depth_quad; ++sz) {
                 const auto weight_sz = weight_dz + weight_step_Y * sz;
-                const auto src_z     = (const float*)(src_x + sz * GEMMINT8_AVX512_E * GEMMINT8_AVX512_L);
+                const auto src_z     = (const float*)(src_x + sz * realDst * GEMMINT8_AVX512_L);
                 auto w0_int4_64 = _mm512_loadu_si512(weight_sz); // 128xint4_t=64 byte
                 auto w0 = _mm512_and_si512(mask, _mm512_srli_epi16(w0_int4_64, 4)); // 64xint8_t
 

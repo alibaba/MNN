@@ -117,5 +117,11 @@
         "VMAX",
         "VMIN",
         "SQUDIFF"
+    ],
+    "softmaxImage.comp":[
+        "AXIS_N",
+        "AXIS_H",
+        "AXIS_W",
+        "AXIS_C"
     ]
 }

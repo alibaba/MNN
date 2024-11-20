@@ -172,9 +172,6 @@ L2LoopDz:
     vpadd.s32 d18, d24, d26
     vpadd.s32 d19, d28, d30
 
-    // vaddq.s32 q0, q8, q4 // add bias
-    // vaddq.s32 q1, q9, q4
-
     vcvt.f32.s32 q0, q8
     vcvt.f32.s32 q1, q9
 
@@ -295,7 +292,6 @@ L1LoopDz:
     vmlal.s8 q0, d5, d13
     vmlal.s8 q1, d5, d15
     vpaddl.s16 q10, q0
-    add r1, r1, #16
     vpaddl.s16 q11, q1
 
     beq L1LoopSzEnd
@@ -316,7 +312,7 @@ L1LoopDz:
         vmull.s8 q1, d4, d14
         vmlal.s8 q0, d5, d13
         vmlal.s8 q1, d5, d15
-        add r1, r1, #16
+
         vpadal.s16 q10, q0
         vpadal.s16 q11, q1
 

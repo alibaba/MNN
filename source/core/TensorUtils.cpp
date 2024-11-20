@@ -798,8 +798,30 @@ TensorUtils::FuseWrap::~ FuseWrap() {
 bool TensorUtils::FuseWrap::match(const Tensor::InsideDescribe::Region& srcReg, const Tensor::InsideDescribe::Region& dstReg) {
     return mStatus->match(srcReg, dstReg);
 }
+#ifdef MNN_DEBUG_BLIT
+static std::string _printRegion(const Tensor::InsideDescribe::Region& reg) {
+    char info[2048];
+    sprintf(info, "size: %d, %d, %d; src: %d, %d, %d, %d; dst: %d, %d, %d, %d", reg.size[0], reg.size[1], reg.size[2], reg.src.offset, reg.src.stride[0], reg.src.stride[1], reg.src.stride[2], reg.dst.offset, reg.dst.stride[0], reg.dst.stride[1], reg.dst.stride[2]);
+    info[2047] = 0;
+    return std::string(info);
+}
+#endif
+
 void TensorUtils::FuseWrap::apply(const Tensor::InsideDescribe::Region& srcReg, Tensor::InsideDescribe::Region& dstReg) {
+#ifdef MNN_DEBUG_BLIT
+    {
+        auto src = _printRegion(srcReg);
+        auto dst = _printRegion(dstReg);
+        MNN_PRINT("Fuse:\n %s \n %s\n To: \n", src.c_str(), dst.c_str());
+    }
+#endif
     mStatus->apply(srcReg, dstReg);
+#ifdef MNN_DEBUG_BLIT
+    {
+        auto dst = _printRegion(dstReg);
+        MNN_PRINT("%s\n", dst.c_str());
+    }
+#endif
 }
 
 void TensorUtils::adjustTensorForCompability(Tensor* newTensor) {

@@ -45,6 +45,10 @@ bne LoopSz_8
 
 Tile8End:
 sub x4, x4, #8
+fcmle v28.4s, v1.4s, #0
+fcmle v29.4s, v2.4s, #0
+bit v1.16b, v31.16b, v28.16b
+bit v2.16b, v31.16b, v29.16b
 add x0, x0, #32
 fdiv v5.4s, v31.4s, v1.4s
 fdiv v6.4s, v31.4s, v2.4s
@@ -80,6 +84,8 @@ sub x4, x4, #4
 add x0, x0, #16
 // quant_scale = 127 / absmax
 // dequant_scale = absmax / 127
+fcmle v28.4s, v1.4s, #0
+bit v1.16b, v31.16b, v28.16b
 fdiv v2.4s, v31.4s, v1.4s
 fdiv v3.4s, v1.4s, v31.4s
 st1 {v2.4s}, [x1], #16
@@ -113,6 +119,8 @@ sub x4, x4, #1
 add x0, x0, #4
 // quant_scale = 127 / absmax
 // dequant_scale = absmax / 127
+fcmle v28.4s, v1.4s, #0
+bit v1.16b, v31.16b, v28.16b
 fdiv s2, s31, s1
 fdiv s3, s1, s31
 st1 {v2.s}[0], [x1], #4

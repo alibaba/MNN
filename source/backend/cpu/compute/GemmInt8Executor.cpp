@@ -200,11 +200,10 @@ ErrorCode GemmInt8Executor::onExecute(const std::vector<Tensor *> &inputs, const
     auto threadFunction = [&](int tId) {
         auto colAddr        = im2colPtr + tId * mInputCol->stride(0);
         auto col_buffer_size = mInputCol->stride(0);
-        int32_t info[6];
+        int32_t info[5];
         info[1] = mIm2ColParamter.iw * mIm2ColParamter.ih * batch;
         info[2] = DST_XUNIT;
         info[3] = mIm2ColParamter.strideX;
-        info[5] = mIm2ColParamter.kernelCountUnit;
         float paramsf[1];
         paramsf[0] = dequantScale;
         auto srcPtr     = (int8_t const **)(mBlitInfo.ptr() + tId * mBlitInfoStride.first);

@@ -10,6 +10,7 @@
 #include <MNN/expr/ExprCreator.hpp>
 #include "MNNTestSuite.h"
 #include "TestUtils.h"
+#include <random>
 using namespace MNN::Express;
 class ReduceSumTest : public MNNTestCase {
 public:
@@ -40,33 +41,68 @@ class ReduceSumMultiTest : public MNNTestCase {
 public:
     virtual ~ReduceSumMultiTest() = default;
     virtual bool run(int precision) {
-        auto input = _Input({4, 10, 1, 4}, NCHW, halide_type_of<float>());
-        // set input data
-        auto inputPtr  = input->writeMap<float>();
-        auto inputInfo = input->getInfo();
-        std::vector<float> inputData(inputInfo->size);
-        for (int i = 0; i < inputData.size(); ++i) {
-            inputData[i] = (float)((10.3 - i) * (i + 0.2));
-        }
-        memcpy(inputPtr, inputData.data(), inputData.size() * sizeof(float));
-        input->unMap();
-        auto output = _ReduceSum(input, {0, 2, 3});
-        std::vector<float> expectedOutput(10);
-        auto func = FP32Converter[precision];
-        for (int i = 0; i < 10; ++i) {
-            float sumValue = 0.0f;
-            for (int j = 0; j < 4; ++j) {
-                for (int k = 0; k < 4; ++k) {
-                    sumValue = func(func(inputData[i * 4 + k + j * 40]) + sumValue);
-                }
+        {
+            auto input = _Input({4, 10, 1, 4}, NCHW, halide_type_of<float>());
+            // set input data
+            auto inputPtr  = input->writeMap<float>();
+            auto inputInfo = input->getInfo();
+            std::vector<float> inputData(inputInfo->size);
+            for (int i = 0; i < inputData.size(); ++i) {
+                inputData[i] = (float)((10.3 - i) * (i + 0.2));
             }
-            expectedOutput[i] = sumValue;
+            memcpy(inputPtr, inputData.data(), inputData.size() * sizeof(float));
+            input->unMap();
+            auto output = _ReduceSum(input, {0, 2, 3});
+            std::vector<float> expectedOutput(10);
+            auto func = FP32Converter[precision];
+            for (int i = 0; i < 10; ++i) {
+                float sumValue = 0.0f;
+                for (int j = 0; j < 4; ++j) {
+                    for (int k = 0; k < 4; ++k) {
+                        sumValue = func(func(inputData[i * 4 + k + j * 40]) + sumValue);
+                    }
+                }
+                expectedOutput[i] = sumValue;
+            }
+            auto gotOutput = output->readMap<float>();
+            if (!checkVector<float>(gotOutput, expectedOutput.data(), 1, 0.01)) {
+                MNN_ERROR("ReduceSumMultiTest test failed!\n");
+                return false;
+            }
         }
-        auto gotOutput = output->readMap<float>();
-        if (!checkVector<float>(gotOutput, expectedOutput.data(), 1, 0.01)) {
-            MNN_ERROR("ReduceSumMultiTest test failed!\n");
-            return false;
+
+        {
+            std::mt19937 gen(42);
+            std::uniform_real_distribution<> dis(0.0, 1.0);
+            std::vector<int> inputShape = {3136, 16};
+            auto input = _Input({inputShape[0], inputShape[1]}, NCHW, halide_type_of<float>());
+            // set input data
+            auto inputPtr  = input->writeMap<float>();
+            auto inputInfo = input->getInfo();
+            std::vector<float> inputData(inputInfo->size);
+            for (int i = 0; i < inputData.size(); ++i) {
+                float randomValue = dis(gen);
+                inputData[i] = randomValue;
+            }
+            memcpy(inputPtr, inputData.data(), inputData.size() * sizeof(float));
+            input->unMap();
+            auto output = _ReduceSum(input, {0});
+            std::vector<float> expectedOutput(inputShape[1]);
+            auto func = FP32Converter[precision];
+            for (int i = 0; i < inputShape[1]; ++i) {
+                float sumValue = 0.0f;
+                for (int j = 0; j < inputShape[0]; ++j) {
+                    sumValue = func(func(inputData[i + j * inputShape[1]]) + sumValue);
+                }
+                expectedOutput[i] = sumValue;
+            }
+            auto gotOutput = output->readMap<float>();
+            if (!checkVector<float>(gotOutput, expectedOutput.data(), 1, 0.01)) {
+                MNN_ERROR("ReduceSumMultiTest test failed!\n");
+                return false;
+            }
         }
+
         return true;
     }
 };

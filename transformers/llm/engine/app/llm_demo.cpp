@@ -14,6 +14,7 @@
 #include <sstream>
 #include <stdlib.h>
 using namespace MNN::Transformer;
+
 static void trace_prepare(Llm* llm) {
     MNN_PRINT("Prepare for resize opt Begin\n");
     llm->trace(true);
@@ -22,6 +23,12 @@ static void trace_prepare(Llm* llm) {
     MNN_PRINT("Prepare for resize opt End\n");
     llm->trace(false);
     llm->reset();
+}
+
+static void tuning_prepare(Llm* llm) {
+    MNN_PRINT("Prepare for tuning opt Begin\n");
+    llm->tuning(OP_ENCODER_NUMBER, {1, 5, 10, 20, 30, 50, 100});
+    MNN_PRINT("Prepare for tuning opt End\n");
 }
 
 static int benchmark(Llm* llm, const std::vector<std::string>& prompts) {
@@ -124,6 +131,10 @@ int main(int argc, const char* argv[]) {
     if (true) {
         AUTOTIME;
         trace_prepare(llm.get());
+    }
+    if (true) {
+        AUTOTIME;
+        tuning_prepare(llm.get());
     }
     if (argc < 3) {
         llm->chat();

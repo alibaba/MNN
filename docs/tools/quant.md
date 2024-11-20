@@ -1,9 +1,8 @@
-# 单输入模型离线量化工具
+# 离线量化工具（输入少量数据量化）
 `./quantized.out origin.mnn quan.mnn imageInputConfig.json`
 
 MNN quantized.out工具已支持通用（任意输入个数、维度、类型）模型离线量化， 但这里的多输入模型仅仅支持非图片输入类模型。
 
-MNN现已推出基于TensorFlow/Pytorch的模型压缩工具mnncompress，请查看[文档](https://mnn-docs.readthedocs.io/en/latest/tools/compress.html)选择使用
 
 ## 参数
   - 第一个参数为原始模型文件路径，即待量化的浮点模
@@ -31,7 +30,7 @@ MNN现已推出基于TensorFlow/Pytorch的模型压缩工具mnncompress，请查
 |--------------------|------|
 | KL | 使用KL散度进行特征量化系数的校正，一般需要100 ~ 1000张图片(若发现精度损失严重，可以适当增减样本数量，特别是检测/对齐等回归任务模型，样本建议适当减少) |
 | ADMM | 使用ADMM（Alternating Direction Method of Multipliers）方法进行特征量化系数的校正，一般需要一个batch的数据 |
-| EMA | 使用指数滑动平均来计算特征量化参数，这个方法会对特征进行非对称量化，精度可能比上面两种更好。这个方法也是[MNNPythonOfflineQuant](https://github.com/alibaba/MNN/tree/master/tools/MNNPythonOfflineQuant)的底层方法，建议使用这个方法量化时，保留你pb或onnx模型中的BatchNorm，并使用 --forTraining 将你的模型转到MNN，然后基于此带BatchNorm的模型使用EMA方法量化。另外，使用这个方法时batch size应设置为和训练时差不多最好。 |
+| EMA | 使用指数滑动平均来计算特征量化参数，这个方法会对特征进行非对称量化，精度可能比上面两种更好。使用这个方法时batch size应设置为和训练时差不多最好。|
 
 | weight_quantize_method | 说明 |
 |--------------------|------|
@@ -39,10 +38,12 @@ MNN现已推出基于TensorFlow/Pytorch的模型压缩工具mnncompress，请查
 | ADMM | 使用ADMM方法进行权值量化 |
 
 ## 多输入模型的参数设置的特别说明(MNN现阶段仅支持输入数据类型是非图片的多输入模型)
+
 | 需要特别指定的参数 | 设置值 |
 |--------------------|------|
 | input_type | `str`：输入数据的类型，"sequence" |
-| path | `str`：存放校正特征量化系数的输入数据目录 |，
+| path | `str`：存放校正特征量化系数的输入数据目录 |
+
 例如在quant.json文件中 "path": "/home/data/inputs_dir/"，你所构造的矫正数据集有两个，分别存放在input_0和input_1子目录下，即"/home/data/inputs_dir/input_0"和"/home/data/inputs_dir/input_1".由GetMNNInfo工具可以得到模型的输入输出名称，例如该模型的输入有三个：data0, data1, data2，输出有两个：out1, out2. 那么在input_0和input_1子目录下分别有六个文件：data0.txt, data1.txt, data2.txt, out1.txt, out2.txt, input.json. 其中的五个文件名要和模型的输入输出名对应，最后一个input.json文件则描述的是输入名和对应的shape内容：
 ```json
 {

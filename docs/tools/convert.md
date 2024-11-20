@@ -31,7 +31,7 @@ Usage:
       --MNNModel arg            转换之后保存的MNN模型文件名, ex: *.mnn
       
       --fp16                    将conv/matmul/LSTM的float32参数保存为float16，
-      													模型将减小一半，精度基本无损
+      													模型将减小一半，精度基本无损，运行速度和float32模型一致
       
       --bizCode arg             MNN模型Flag, ex: MNN
       
@@ -41,7 +41,7 @@ Usage:
       
       --weightQuantBits arg     arg=2~8，此功能仅对conv/matmul/LSTM的float32权值进行量化，
       													仅优化模型大小，加载模型后会解码为float32，量化位宽可选2~8，
-                                运行速度和float32模型一致。8bit时精度基本无损，模型大小减小4倍
+                                不开启动态量化的情况下，运行速度和float32模型一致。8bit时精度基本无损，模型大小减小4倍
                                 default: 0，即不进行权值量化
 
       --weightQuantAsymmetric   与weightQuantBits结合使用，决定是否用非对称量化，默认为`true`
@@ -77,7 +77,9 @@ Usage:
       --detectSparseSpeedUp arg
                                 可选值：{0, 1}， 默认为1, 会检测权重是否使用稀疏化加速
 
-      --saveExternalData        将权重，常量等数据存储在额外文件中，默认为`false`
+      --saveExternalData        将权重，常量等数据存储在额外文件中，默认为0，也就是`false`
+      
+      --useGeluApproximation    在进行Gelu算子合并时，使用Gelu的近似算法，默认为1 ，也就是`true`
 
 ```
 

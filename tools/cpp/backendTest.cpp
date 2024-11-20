@@ -17,11 +17,63 @@
 #include <map>
 #include <sstream>
 #include <string>
+#include "MNN_generated.h"
+#include <MNN/expr/Module.hpp>
 #include <MNN/AutoTime.hpp>
 #include <MNN/Interpreter.hpp>
 #include <MNN/Tensor.hpp>
 #include "core/TensorUtils.hpp"
+#include "core/Session.hpp"
 #include "rapidjson/document.h"
+typedef std::vector<std::pair<std::string, std::vector<std::string>>> OUTPUTCONFIG;
+
+static OUTPUTCONFIG _getAllOutputs(const MNN::Net* net, const MNN::Session* session) {
+    auto info = session->getPipelineInfo(0);
+    std::vector<std::pair<std::string, std::vector<std::string>>> res;
+    auto tensorName = net->tensorName();
+    auto oplist = net->oplists();
+    if (nullptr == oplist || nullptr == tensorName) {
+        FUNC_PRINT(1);
+        return res;
+    }
+    for (int i=0; i<info.second.size(); ++i) {
+        auto& unit = info.second[i];
+        if (unit.type != MNN::Schedule::SEPARATE) {
+            continue;
+        }
+        auto op = unit.op;
+        if (op->type() == MNN::OpType_Const || op->type() == MNN::OpType_TrainableParam || op->type() == MNN::OpType_Input) {
+            continue;
+        }
+        if (nullptr == op->outputIndexes() || op->outputIndexes()->size() == 0) {
+            continue;
+        }
+        std::vector<std::string> outputNames(op->outputIndexes()->size());
+        for (int v=0; v<op->outputIndexes()->size(); ++v) {
+            auto index = op->outputIndexes()->data()[v];
+            outputNames[v] = tensorName->GetAsString(index)->str();
+        }
+        res.emplace_back(std::make_pair(op->name()->str(), outputNames));
+    }
+    return res;
+}
+static std::vector<std::string> _getAllInputs(const MNN::Net* net) {
+    auto tensorName = net->tensorName();
+    auto oplist = net->oplists();
+    std::vector<std::string> res;
+    if (nullptr == oplist || nullptr == tensorName) {
+        FUNC_PRINT(1);
+        return res;
+    }
+    for (int i=0; i<oplist->size(); ++i) {
+        auto op = oplist->GetAs<MNN::Op>(i);
+        if (op->type() == MNN::OpType_Input) {
+            auto index = op->outputIndexes()->data()[0];
+            res.emplace_back(tensorName->GetAsString(index)->str());
+        }
+    }
+    return res;
+}
 
 template<typename T>
 inline T stringConvert(const char* number) {
@@ -47,114 +99,91 @@ static void _zeroInputs(const Interpreter* net, const Session* session) {
         inputTensor->copyFromHostTensor(&tempTensor);
     }
 }
-static void compareForwadType(Interpreter* net, MNNForwardType expectType, MNNForwardType compareType, float tolerance,
+static void compareForwadType(OUTPUTCONFIG outputNames, Interpreter* net, MNNForwardType expectType, MNNForwardType compareType, float tolerance,
                               const std::map<std::string, std::shared_ptr<Tensor>>& inputs, const std::string& stopOp, BackendConfig::PrecisionMode precision, int modeNum) {
-    std::map<std::string, std::vector<std::shared_ptr<MNN::Tensor>>> correctResult;
-    int index;
-    MNN::ScheduleConfig expectConfig, compareConfig;
-    BackendConfig backendConfig;
-    backendConfig.precision = precision;
-    expectConfig.type   = expectType;
-    compareConfig.type  = compareType;
-    compareConfig.backendConfig = &backendConfig;
-    compareConfig.mode = modeNum;
-    auto expectSession  = net->createSession(expectConfig);
-    auto compareSession = net->createSession(compareConfig);
-    _zeroInputs(net, expectSession);
-    _zeroInputs(net, compareSession);
-    bool allCorrect = true;
+    auto inputNames = _getAllInputs(MNN::GetNet(net->getModelBuffer().first));
+    for (int v=0; v<outputNames.size(); ++v) {
+        auto outputName = outputNames[v].second;
+        auto opName = outputNames[v].first;
+        MNN::ScheduleConfig expectConfig, compareConfig;
+        BackendConfig backendConfig;
+        backendConfig.precision = precision;
+        expectConfig.type   = expectType;
+        expectConfig.path.inputs = inputNames;
+        expectConfig.path.outputs = outputName;
+        expectConfig.saveTensors = outputName;
+        expectConfig.path.mode = MNN::ScheduleConfig::Path::Tensor;
 
-    MNN::TensorCallBackWithInfo beginCallBack = [&](const std::vector<MNN::Tensor*>& t, const OperatorInfo* op) {
-        if (op->name() == stopOp) {
-            return false;
+        compareConfig.type  = compareType;
+        compareConfig.backendConfig = &backendConfig;
+        compareConfig.mode = modeNum;
+        compareConfig.path.inputs = inputNames;
+        compareConfig.path.outputs = outputName;
+        compareConfig.saveTensors = outputName;
+        compareConfig.path.mode = MNN::ScheduleConfig::Path::Tensor;
+        auto expectSession  = net->createSession(expectConfig);
+        auto compareSession = net->createSession(compareConfig);
+        _zeroInputs(net, expectSession);
+        _zeroInputs(net, compareSession);
+        for (auto& iter : inputs) {
+            Tensor* expectInput = net->getSessionInput(expectSession, iter.first.empty() ? NULL : iter.first.c_str());
+            expectInput->copyFromHostTensor(iter.second.get());
+            Tensor* compareInput = net->getSessionInput(compareSession, iter.first.empty() ? NULL : iter.first.c_str());
+            compareInput->copyFromHostTensor(iter.second.get());
         }
-        return true;
-    };
-    MNN::TensorCallBackWithInfo saveExpect = [&](const std::vector<MNN::Tensor*>& t, const OperatorInfo* op) {
-        if (op->name() == stopOp) {
-            return false;
-        }
-        if (op->name().empty()) {
-            return true;
-        }
-        if (op->type() == "Raster") {
-            return true;
-        }
-        std::vector<std::shared_ptr<MNN::Tensor>> tensors(t.size());
-        for (int i=0; i<t.size(); ++i) {
-            auto tensor = t[i];
-            if (tensor->elementSize() <= 0) {
-                continue;
+        net->runSession(expectSession);
+        net->runSession(compareSession);
+        bool allCorrect = true;
+        bool outputValid = false;
+        auto compare = [&]() {
+            for(auto name : outputName) {
+                auto expectTensor = net->getSessionOutput(expectSession, name.c_str());
+                if (nullptr == expectTensor || expectTensor->host<void>() == nullptr) {
+                    MNN_ERROR("Can't compare tensor: %s\n", name.c_str());
+                    continue;
+                }
+                outputValid = true;
+                auto compareTensor = net->getSessionOutput(compareSession, name.c_str());
+                if (nullptr == compareTensor) {
+                    MNN_ERROR("%d [%s] Tensor %s invalid\n", v, opName.c_str(), name.c_str());
+                    allCorrect = false;
+                    break;
+                }
+                auto correct      = TensorUtils::compareTensors(compareTensor, expectTensor, tolerance, true);
+                if (!correct) {
+                    MNN_PRINT("%d [%s] Op outputs %s is error\n", v, opName.c_str(), name.c_str());
+                    allCorrect = false;
+                    break;
+                }
             }
-            if (tensor->buffer().device == 0 && tensor->buffer().host == nullptr) {
-                continue;
-            }
+        };
+        compare();
+        if (!outputValid) {
+            net->releaseSession(expectSession);
+            net->releaseSession(compareSession);
+            continue;
+        }
 
-            std::shared_ptr<MNN::Tensor> copyTensor(new MNN::Tensor(tensor, tensor->getDimensionType()));
-            tensor->copyToHostTensor(copyTensor.get());
-            tensors[i] = copyTensor;
+        if (allCorrect) {
+            MNN_PRINT("Correct ! Run second pass\n");
+        } else {
+            return;
         }
-        correctResult.insert(std::make_pair(op->name(), tensors));
-        return true;
-    };
-    MNN::TensorCallBackWithInfo compareExpect = [&](const std::vector<MNN::Tensor*>& t, const OperatorInfo* op) {
-        if (op->name() == stopOp) {
-            return false;
+        for (auto& iter : inputs) {
+            Tensor* compareInput = net->getSessionInput(compareSession, iter.first.empty() ? NULL : iter.first.c_str());
+            compareInput->copyFromHostTensor(iter.second.get());
         }
-        if (op->type() == "Raster") {
-            return true;
+        net->runSession(compareSession);
+        compare();
+        if (allCorrect) {
+            MNN_PRINT("Correct for %d, name=%s\n", v, opName.c_str());
+        } else {
+            return;
         }
-        if (correctResult.find(op->name()) == correctResult.end()) {
-            return true;
-        }
-        auto correctTensors = correctResult[op->name()];
-        for (int i=0; i<t.size(); ++i) {
-            auto tensor = t[i];
-            if (tensor->elementSize() <= 0) {
-                continue;
-            }
-            if (tensor->buffer().device == 0 && tensor->buffer().host == nullptr) {
-                continue;
-            }
-            
-            tensor->wait(MNN::Tensor::MAP_TENSOR_READ, false);
-            std::shared_ptr<MNN::Tensor> copyTensor(new MNN::Tensor(tensor, tensor->getDimensionType()));
-            tensor->copyToHostTensor(copyTensor.get());
-            auto expectTensor = correctTensors[i];
-            auto correct      = TensorUtils::compareTensors(copyTensor.get(), expectTensor.get(), tolerance, true);
-            if (!correct) {
-                MNN_PRINT("%s - %d is error\n", op->name().c_str(), i);
-                allCorrect = false;
-            }
-        }
-        return allCorrect;
-    };
-
-    for (auto& iter : inputs) {
-        Tensor* expectInput = net->getSessionInput(expectSession, iter.first.empty() ? NULL : iter.first.c_str());
-        expectInput->copyFromHostTensor(iter.second.get());
-        Tensor* compareInput = net->getSessionInput(compareSession, iter.first.empty() ? NULL : iter.first.c_str());
-        compareInput->copyFromHostTensor(iter.second.get());
+        net->releaseSession(expectSession);
+        net->releaseSession(compareSession);
     }
-    correctResult.clear();
-    net->runSessionWithCallBackInfo(expectSession, beginCallBack, saveExpect);
-    index = 0;
-    net->runSessionWithCallBackInfo(compareSession, beginCallBack, compareExpect);
-    if (allCorrect) {
-        MNN_PRINT("Correct ! Run second pass\n");
-    } else {
-        return;
-    }
-    _zeroInputs(net, compareSession);
-    index = 0;
-    for (auto& iter : inputs) {
-        Tensor* compareInput = net->getSessionInput(compareSession, iter.first.empty() ? NULL : iter.first.c_str());
-        compareInput->copyFromHostTensor(iter.second.get());
-    }
-    net->runSessionWithCallBackInfo(compareSession, beginCallBack, compareExpect);
-    if (allCorrect) {
-        MNN_PRINT("Correct !\n");
-    }
+    MNN_PRINT("Correct !\n");
 }
 
 int main(int argc, const char* argv[]) {
@@ -288,8 +317,10 @@ int main(int argc, const char* argv[]) {
         stopOp = argv[6];
     }
     FUNC_PRINT_ALL(stopOp.c_str(), s);
+    auto outputNames = _getAllOutputs(MNN::GetNet(net->getModelBuffer().first), session);
+
     net->releaseSession(session);
-    compareForwadType(net.get(), MNN_FORWARD_CPU, type, tolerance, inputs, stopOp, precision, modeNum);
+    compareForwadType(outputNames, net.get(), MNN_FORWARD_CPU, type, tolerance, inputs, stopOp, precision, modeNum);
 
     return 0;
 }

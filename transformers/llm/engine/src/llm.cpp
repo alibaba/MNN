@@ -33,8 +33,99 @@ using namespace MNN::Express;
 namespace MNN {
 namespace Transformer {
 
+typedef void (*DequantFunction)(const uint8_t*, float*, float, float, int);
 
-// Lvlm starts
+static void q41_dequant_ref(const uint8_t* src, float* dst, float scale, float zero, int size) {
+    for (int i = 0; i < size / 2; i++) {
+        int x = src[i];
+        int x1 = x / 16 - 8;
+        int x2= x % 16 - 8;
+        float w1 = x1 * scale + zero;
+        float w2 = x2 * scale + zero;
+        dst[2 * i] = w1;
+        dst[2 * i + 1] = w2;
+    }
+}
+
+static void q81_dequant_ref(const uint8_t* src, float* dst, float scale, float zero, int size) {
+    for (int i = 0; i < size; i++) {
+        dst[i] = src[i] * scale + zero;
+    }
+}
+
+class DiskEmbedding {
+public:
+    explicit DiskEmbedding(const std::shared_ptr<LlmConfig>& config);
+    ~DiskEmbedding() {}
+    void embedding(const std::vector<int>& input_ids, float* ptr);
+private:
+    void seek_read(uint8_t* dst, int size, int offset);
+    std::unique_ptr<uint8_t[]> alpha_ = nullptr;
+    std::unique_ptr<uint8_t[]> weight_ = nullptr;
+    std::unique_ptr<FILE, decltype(&fclose)> fp_;
+    DequantFunction dequant_;
+    int hidden_size_, weight_token_size_;
+    int w_offset_, block_num_, quant_block_, quant_bit_;
+};
+
+void DiskEmbedding::seek_read(uint8_t* dst, int size, int offset) {
+    fseek(fp_.get(), offset, SEEK_SET);
+    size_t bytes_read = fread(dst, 1, size, fp_.get());
+    (void)bytes_read;
+}
+
+DiskEmbedding::DiskEmbedding(const std::shared_ptr<LlmConfig>& config) : fp_(nullptr, &fclose) {
+    auto tie_embeddings = config->tie_embeddings();
+    hidden_size_ = config->hidden_size();
+    if (tie_embeddings.size() == 5) {
+        w_offset_    = tie_embeddings[0];
+        quant_bit_   = tie_embeddings[3];
+        quant_block_ = tie_embeddings[4];
+        block_num_ = hidden_size_ / quant_block_;
+        weight_token_size_ = hidden_size_ * quant_bit_ / 8;
+        fp_.reset(fopen(config->llm_weight().c_str(), "rb"));
+        // TODO: optimize dequant function
+        dequant_ = quant_bit_ == 8 ? q81_dequant_ref : q41_dequant_ref;
+        int a_offset    = tie_embeddings[1];
+        int alpha_size  = tie_embeddings[2];
+        alpha_.reset(new uint8_t[alpha_size]);
+        seek_read(alpha_.get(), alpha_size, a_offset);
+    } else {
+        weight_token_size_ = hidden_size_ * sizeof(int16_t);
+        fp_.reset(fopen(config->embedding_file().c_str(), "rb"));
+    }
+    weight_.reset(new uint8_t[weight_token_size_]);
+}
+
+void DiskEmbedding::embedding(const std::vector<int>& input_ids, float* dst) {
+    if (alpha_.get()) {
+        // quant
+        for (size_t i = 0; i < input_ids.size(); i++) {
+            int token = input_ids[i];
+            seek_read(weight_.get(), weight_token_size_, w_offset_ + token * weight_token_size_);
+            auto dptr = dst + i * hidden_size_;
+            auto alpha_ptr = reinterpret_cast<float*>(alpha_.get()) + token * block_num_ * 2;
+            for (int n = 0; n < block_num_; n++) {
+                auto dst_ptr = dptr + n * quant_block_;
+                uint8_t* src_ptr = weight_.get() + n * (quant_block_ * quant_bit_ / 8);
+                float zero = (alpha_ptr + n * 2)[0];
+                float scale = (alpha_ptr + n * 2)[1];
+                dequant_(src_ptr, dst_ptr, scale, zero, quant_block_);
+            }
+        }
+    } else {
+        // bf16
+        for (size_t i = 0; i < input_ids.size(); i++) {
+            seek_read(weight_.get(), weight_token_size_, input_ids[i] * weight_token_size_);
+            int16_t* dst_ptr = reinterpret_cast<int16_t*>(dst + i * hidden_size_);
+            for (int j = 0; j < hidden_size_; j++) {
+                dst_ptr[j * 2] = 0;
+                dst_ptr[j * 2 + 1] = reinterpret_cast<int16_t*>(weight_.get())[j];
+            }
+        }
+    }
+}
+
 class Lvlm : public Llm {
 public:
     Lvlm(std::shared_ptr<LlmConfig> config) : Llm(config) {
@@ -47,7 +138,8 @@ public:
     }
     ~Lvlm() { visual_module_.reset(); }
     virtual void load() override;
-    virtual std::vector<int> tokenizer(const std::string& query) override;
+
+    virtual std::vector<int> tokenizer_encode(const std::string& query, bool use_template = true) override;
     virtual MNN::Express::VARP embedding(const std::vector<int>& input_ids) override;
 private:
     int image_size_ = 448, vision_start_ = 151857, vision_end_ = 151858, image_pad_ = 151859;
@@ -144,16 +236,13 @@ void Llm::load() {
     key_value_shape_ = config_->key_value_shape();
     is_single_ = config_->is_single();
     attention_fused_ = config_->attention_fused();
-    {
-        std::ifstream embedding_bin(config_->embedding_file());
-        embedding_bin.close();
-    }
     MNN_PRINT("### is_single_ = %d\n", is_single_);
     // 1. load vocab
     MNN_PRINT("load tokenizer\n");
     tokenizer_.reset(Tokenizer::createTokenizer(config_->tokenizer_file()));
     MNN_PRINT("load tokenizer Done\n");
-    // 2. load model
+    disk_embedding_.reset(new DiskEmbedding(config_));
+    // 3. load model
     Module::Config module_config;
     module_config.shapeMutable = true;
     module_config.rearrange = true;
@@ -270,6 +359,41 @@ void Llm::trace(bool start) {
     mTracing = start;
 }
 
+void Llm::tuning(TuneType type, std::vector<int> candidates) {
+    if(type != OP_ENCODER_NUMBER) {
+        MNN_ERROR("tuning type not supported\n");
+        return;
+    }
+    if(config_->backend_type() != "metal") {
+        return;
+    }
+
+    current_modules_ = decode_modules_;
+    int64_t min_time = INT64_MAX;
+    int prefer_candidate = 10;
+    for(auto& candidate : candidates) {
+        runtime_manager_->setHint(MNN::Interpreter::OP_ENCODER_NUMBER_FOR_COMMIT, candidate);
+
+        auto st = std::chrono::system_clock::now();
+        auto logits = forward({0});
+        if (nullptr == logits.get()) {
+            return;
+        }
+        if (logits->getInfo()->size == 0) {
+            return;
+        }
+        auto token = sample(logits, {});
+        auto et = std::chrono::system_clock::now();
+        int64_t time = std::chrono::duration_cast<std::chrono::microseconds>(et - st).count();
+        if(time < min_time) {
+            prefer_candidate = candidate;
+            min_time = time;
+            //MNN_PRINT("op encode number:%d, decode time: %lld us\n", candidate, time);
+        }
+    }
+    runtime_manager_->setHint(MNN::Interpreter::OP_ENCODER_NUMBER_FOR_COMMIT, prefer_candidate);
+}
+
 VARP Llm::forward(const std::vector<int>& input_ids, int kv_seq_len_, int gen_seq_len_, bool is_prefill) {
     if (is_prefill) current_modules_ = prefill_modules_;
     else current_modules_ = decode_modules_;
@@ -368,6 +492,7 @@ void Llm::generate_init() {
         // only reset sampler. The history is handled by mPromptLib.
         mLlmSessionInfos[0].resetSamplerFields();
     }
+    current_modules_ = prefill_modules_;
 }
 
 std::string Llm::generate(const std::string& prompt, std::ostream* os, const char* end_with) {
@@ -400,14 +525,15 @@ std::string Llm::generateTrace(const std::vector<int>& input_ids, std::ostream* 
         forward({input_ids[0]}, input_ids.size() + 2, 1, false);
         return "Test";
     }
-    return "Test";
-}
 
-std::vector<int> Llm::tokenizer(const std::string& prompt) {
-    return tokenizer_->encode(prompt);
+std::vector<int> Llm::tokenizer_encode(const std::string& user_content, bool use_template) {
+    if (!use_template) {
+        return tokenizer_->encode(user_content);
+    }
+    auto prompt = apply_prompt_template(user_content);
+    auto input_ids = tokenizer_->encode(prompt);
+    return input_ids;
 }
-
-// generate >
 
 
 // < evaluation
@@ -496,31 +622,17 @@ static inline bool needNewVar(VARP var, int axis, int seq_len) {
 
 VARP Llm::embedding(const std::vector<int>& input_ids) {
     AUTOTIME;
-    // disk embedding to save memory
     int hidden_size = config_->hidden_size();
     int seq_len = static_cast<int>(input_ids.size());
     if (needNewVar(inputs_embeds_, 0, seq_len)) {
         inputs_embeds_ = _Input({seq_len, 1, hidden_size}, NCHW);
     }
-
-    size_t size = hidden_size * sizeof(int16_t);
-    FILE* file = fopen(config_->embedding_file().c_str(), "rb");
-    std::unique_ptr<int16_t[]> buffer(new int16_t[hidden_size]);
-    for (size_t i = 0; i < seq_len; i++) {
-        fseek(file, input_ids[i] * size, SEEK_SET);
-        size_t bytes_read = fread(buffer.get(), 1, size, file);
-        (void)bytes_read;
-        auto ptr = inputs_embeds_->writeMap<int16_t>() + i * hidden_size * 2;
-        for (int j = 0; j < hidden_size; j++) {
-            ptr[j * 2] = 0;
-            ptr[j * 2 + 1] = buffer[j];
-        }
-    }
-    fclose(file);
+    // disk embedding to save memory
+    disk_embedding_->embedding(input_ids, inputs_embeds_->writeMap<float>());
     return inputs_embeds_;
 }
 
-std::string Llm::decode(int id) {
+std::string Llm::tokenizer_decode(int id) {
     std::string word = tokenizer_->decode(id);
     // Fix utf-8 garbled characters
     if (word.length() == 6 && word[0] == '<' && word[word.length()-1] == '>' && word[1] == '0' && word[2] == 'x') {
@@ -677,7 +789,8 @@ std::vector<int> Lvlm::image_process(const std::string& image_info) {
 #endif
 }
 
-std::vector<int> Lvlm::tokenizer(const std::string& prompt) {
+std::vector<int> Lvlm::tokenizer_encode(const std::string& query, bool use_template) {
+    auto prompt = apply_prompt_template(query);
     // split query
     std::regex img_regex("<img>(.*?)</img>");
     std::string::const_iterator searchStart(prompt.cbegin());
@@ -784,11 +897,7 @@ VARP Embedding::ids_embedding(const std::vector<int>& ids) {
 }
 
 VARP Embedding::txt_embedding(const std::string& txt) {
-    return ids_embedding(tokenizer(txt));
-}
-
-std::vector<int> Embedding::tokenizer(const std::string& query) {
-    return tokenizer_->encode(query);
+    return ids_embedding(tokenizer_encode(txt));
 }
 
 VARP Embedding::gen_attention_mask(int seq_len) {

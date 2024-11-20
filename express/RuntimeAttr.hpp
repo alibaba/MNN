@@ -25,6 +25,8 @@ struct RuntimeAttr {
 struct ExecutorAttr {
     std::shared_ptr<Backend> constantBackend;
     MNNForwardType firstType;
+    int numThread = 1;
+    BackendConfig config;
     std::string externalFile;
 };
 };

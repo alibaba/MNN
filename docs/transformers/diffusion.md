@@ -2,9 +2,9 @@
 
 ## 模型支持与下载
 
-1. runwayml/stable-diffusion-v1-5
+1. stable-diffusion-v1-5
 ```
-https://huggingface.co/runwayml/stable-diffusion-v1-5/tree/main
+https://huggingface.co/stable-diffusion-v1-5/stable-diffusion-v1-5/tree/main
 ```
 2. chilloutmix
 ```

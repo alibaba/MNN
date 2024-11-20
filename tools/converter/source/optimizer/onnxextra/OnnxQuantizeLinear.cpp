@@ -13,6 +13,22 @@
 namespace MNN {
 namespace Express {
 
+static VARP _Float2Int8(VARP x, VARP scale, VARP zero) {
+    int size = 1;
+    if (scale->getInfo()->size > 1) {
+        size = scale->getInfo()->size;
+    }
+    std::unique_ptr<OpT> op(new OpT);
+    op->type = OpType_FloatToInt8;
+    op->main.type = OpParameter_QuantizedFloatParam;
+    op->main.value = new QuantizedFloatParamT;
+    op->main.AsQuantizedFloatParam()->tensorScale.resize(size);
+    op->main.AsQuantizedFloatParam()->floatzeros.resize(size);
+    ::memcpy(op->main.AsQuantizedFloatParam()->tensorScale.data(), scale->readMap<float>(), size * sizeof(float));
+    ::memcpy(op->main.AsQuantizedFloatParam()->floatzeros.data(), zero->readMap<float>(), size * sizeof(float));
+    return Variable::create(Expr::create(op.get(), {x}));
+}
+
 /* Given a float input value x, it quantizes x to corresponding int8 value quant_x using scales and zeroPoint. */
 class OnnxQuantizeLinearTransform : public OnnxExtraManager::Transform {
 public:
@@ -26,35 +42,22 @@ public:
         }
         auto input = inputs[0];
         auto scale = inputs[1];
-        
-        if (nullptr == scale || nullptr == input) {
-            MNN_ERROR("QuantizeLinear should provide scale and input\n");
-            return nullptr;
-        }
         auto dataType = halide_type_int;
         VARP zeropoint = _Const(0.f);
         auto offset = _Const(0.f);
         if (inputs.size() > 2) {
             zeropoint = _Cast<float>(inputs[2]);
-            dataType = static_cast<halide_type_code_t>(inputs[2]->getInfo()->type.code);
+            if (inputs[2]->getInfo()) {
+                dataType = static_cast<halide_type_code_t>(inputs[2]->getInfo()->type.code);
+            }
         }
         if (dataType == halide_type_uint) {
             offset = _Const(128.f);
         }
-        auto scaleReq = _Reciprocal(scale);
-        // auto output = _Cast<int8_t>(_Round(_Relu6(_Round(input * scaleReq) + zeropoint, -128.0f, 127.0f)));
-        auto output = _FloatToInt8(input, scaleReq, -128, 127, static_cast<int8_t>(zeropoint->readMap<float>()[0] - offset->readMap<float>()[0]));
-        std::unique_ptr<MNN::OpT> iden(new MNN::OpT);
-        iden->type = OpType_FloatToInt8;
-        std::vector<int32_t> inputDim = {};
-        
-        if (input->getInfo()) {
-            inputDim = input->getInfo()->dim;
-        }
-        auto _shape  = _Const(inputDim.data(), {static_cast<int32_t>(inputDim.size())}, NHWC, halide_type_of<int>());
-        auto newExpr = MNN::Express::Expr::create(iden.get(), {input, output, scale, zeropoint - offset, _shape}, 5);
-        newExpr->setName(expr->name());
-        return newExpr;
+        MNN_ASSERT(scale->readMap<float>() != nullptr);
+        auto newvar = _Float2Int8(input, _Reciprocal(scale), zeropoint - offset);
+        newvar->expr().first->setName(expr->name());
+        return newvar->expr().first;
     }
 };
 

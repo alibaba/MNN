@@ -727,7 +727,7 @@
 		952298B22B4D39050043978B /* MetalLoop.mm in Sources */ = {isa = PBXBuildFile; fileRef = 952298B12B4D39050043978B /* MetalLoop.mm */; };
 		952298B42B4D39260043978B /* MetalArgMax.mm in Sources */ = {isa = PBXBuildFile; fileRef = 952298B32B4D39250043978B /* MetalArgMax.mm */; };
 		952298B72B4D4CC80043978B /* CoreMLLayerNorm.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 952298B52B4D4CC80043978B /* CoreMLLayerNorm.cpp */; };
-		952298B82B4D4CC80043978B /* coreMLLayerNorm.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 952298B62B4D4CC80043978B /* coreMLLayerNorm.hpp */; };
+		952298B82B4D4CC80043978B /* CoreMLLayerNorm.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 952298B62B4D4CC80043978B /* CoreMLLayerNorm.hpp */; };
 		95278CE72B9F0999009E9B29 /* CPUDynamicQuant.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 95278CE52B9F0999009E9B29 /* CPUDynamicQuant.hpp */; };
 		95278CE82B9F0999009E9B29 /* CPUDynamicQuant.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 95278CE62B9F0999009E9B29 /* CPUDynamicQuant.cpp */; };
 		95278CEA2B9F09C0009E9B29 /* ShapeDynamicQuant.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 95278CE92B9F09C0009E9B29 /* ShapeDynamicQuant.cpp */; };
@@ -796,6 +796,10 @@
 		CEA49AA92AFD010900971CB7 /* MetalExecution.hpp in Headers */ = {isa = PBXBuildFile; fileRef = CEA49AA72AFD010900971CB7 /* MetalExecution.hpp */; };
 		CEA82BDB2A15F8AD002CBC95 /* IdstConvolutionInt8.cpp in Sources */ = {isa = PBXBuildFile; fileRef = CEA82BD92A15F8AD002CBC95 /* IdstConvolutionInt8.cpp */; };
 		CEA82BDC2A15F8AD002CBC95 /* IdstConvolutionInt8.hpp in Headers */ = {isa = PBXBuildFile; fileRef = CEA82BDA2A15F8AD002CBC95 /* IdstConvolutionInt8.hpp */; };
+		CED81F8F2CC23C8A00666B48 /* CoreMLRelu6.cpp in Sources */ = {isa = PBXBuildFile; fileRef = CED81F8E2CC23C8A00666B48 /* CoreMLRelu6.cpp */; };
+		CED81F902CC23C8A00666B48 /* CoreMLRelu6.hpp in Headers */ = {isa = PBXBuildFile; fileRef = CED81F8D2CC23C8A00666B48 /* CoreMLRelu6.hpp */; };
+		CED81F932CC23FE800666B48 /* CoreMLMatMul.cpp in Sources */ = {isa = PBXBuildFile; fileRef = CED81F922CC23FE800666B48 /* CoreMLMatMul.cpp */; };
+		CED81F942CC23FE800666B48 /* CoreMLMatMul.hpp in Headers */ = {isa = PBXBuildFile; fileRef = CED81F912CC23FE800666B48 /* CoreMLMatMul.hpp */; };
 		CEDB20EB2846D07100AE9DC4 /* AppDelegate.m in Sources */ = {isa = PBXBuildFile; fileRef = CEDB20EA2846D07100AE9DC4 /* AppDelegate.m */; };
 		CEDB20F42846D07100AE9DC4 /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = CEDB20F22846D07100AE9DC4 /* Main.storyboard */; };
 		CEDB20F62846D07200AE9DC4 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = CEDB20F52846D07200AE9DC4 /* Assets.xcassets */; };
@@ -1580,7 +1584,7 @@
 		952298B12B4D39050043978B /* MetalLoop.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = MetalLoop.mm; sourceTree = "<group>"; };
 		952298B32B4D39250043978B /* MetalArgMax.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = MetalArgMax.mm; sourceTree = "<group>"; };
 		952298B52B4D4CC80043978B /* CoreMLLayerNorm.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = CoreMLLayerNorm.cpp; sourceTree = "<group>"; };
-		952298B62B4D4CC80043978B /* coreMLLayerNorm.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = coreMLLayerNorm.hpp; sourceTree = "<group>"; };
+		952298B62B4D4CC80043978B /* CoreMLLayerNorm.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = CoreMLLayerNorm.hpp; sourceTree = "<group>"; };
 		95278CE52B9F0999009E9B29 /* CPUDynamicQuant.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = CPUDynamicQuant.hpp; sourceTree = "<group>"; };
 		95278CE62B9F0999009E9B29 /* CPUDynamicQuant.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = CPUDynamicQuant.cpp; sourceTree = "<group>"; };
 		95278CE92B9F09C0009E9B29 /* ShapeDynamicQuant.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ShapeDynamicQuant.cpp; sourceTree = "<group>"; };
@@ -1649,6 +1653,10 @@
 		CEA49AA72AFD010900971CB7 /* MetalExecution.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = MetalExecution.hpp; sourceTree = "<group>"; };
 		CEA82BD92A15F8AD002CBC95 /* IdstConvolutionInt8.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = IdstConvolutionInt8.cpp; sourceTree = "<group>"; };
 		CEA82BDA2A15F8AD002CBC95 /* IdstConvolutionInt8.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; path = IdstConvolutionInt8.hpp; sourceTree = "<group>"; };
+		CED81F8D2CC23C8A00666B48 /* CoreMLRelu6.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = CoreMLRelu6.hpp; sourceTree = "<group>"; };
+		CED81F8E2CC23C8A00666B48 /* CoreMLRelu6.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = CoreMLRelu6.cpp; sourceTree = "<group>"; };
+		CED81F912CC23FE800666B48 /* CoreMLMatMul.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = CoreMLMatMul.hpp; sourceTree = "<group>"; };
+		CED81F922CC23FE800666B48 /* CoreMLMatMul.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = CoreMLMatMul.cpp; sourceTree = "<group>"; };
 		CEDB20E72846D07100AE9DC4 /* demo.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = demo.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		CEDB20E92846D07100AE9DC4 /* AppDelegate.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = AppDelegate.h; sourceTree = "<group>"; };
 		CEDB20EA2846D07100AE9DC4 /* AppDelegate.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = AppDelegate.m; sourceTree = "<group>"; };
@@ -2364,8 +2372,12 @@
 		4D9A933A26255BDA00F9B43C /* execution */ = {
 			isa = PBXGroup;
 			children = (
+				CED81F912CC23FE800666B48 /* CoreMLMatMul.hpp */,
+				CED81F922CC23FE800666B48 /* CoreMLMatMul.cpp */,
+				CED81F8D2CC23C8A00666B48 /* CoreMLRelu6.hpp */,
+				CED81F8E2CC23C8A00666B48 /* CoreMLRelu6.cpp */,
 				952298B52B4D4CC80043978B /* CoreMLLayerNorm.cpp */,
-				952298B62B4D4CC80043978B /* coreMLLayerNorm.hpp */,
+				952298B62B4D4CC80043978B /* CoreMLLayerNorm.hpp */,
 				4DF63F2E2660D9D100590730 /* CoreMLInterp.hpp */,
 				4DF63F2C2660D9CB00590730 /* CoreMLInterp.cpp */,
 				4D9A933B26255BDA00F9B43C /* CoreMLReduction.cpp */,
@@ -3009,6 +3021,7 @@
 				92FF037823AA0B5A00AC97F6 /* CPUROIPooling.hpp in Headers */,
 				4D9A935626255BDA00F9B43C /* Model.pb-c.h in Headers */,
 				48747D6D245D9E33000B9709 /* ConvertUtils.hpp in Headers */,
+				CED81F902CC23C8A00666B48 /* CoreMLRelu6.hpp in Headers */,
 				4838EA832611C00B0027232C /* MetalGridSample.hpp in Headers */,
 				92FF038723AA0B5A00AC97F6 /* CPUTensorConvert.hpp in Headers */,
 				92FF036E23AA0B5A00AC97F6 /* CPUQuantizedSoftmax.hpp in Headers */,
@@ -3018,7 +3031,7 @@
 				489D7A9B2550FDC900AD896A /* MetalDeconvolution.hpp in Headers */,
 				4D9A935726255BDA00F9B43C /* protobuf-c.h in Headers */,
 				489D7A982550FDC900AD896A /* MNNMetalContext.h in Headers */,
-				952298B82B4D4CC80043978B /* coreMLLayerNorm.hpp in Headers */,
+				952298B82B4D4CC80043978B /* CoreMLLayerNorm.hpp in Headers */,
 				92FF029323AA0B5A00AC97F6 /* CPURange.hpp in Headers */,
 				CEEDB5542C7475A100FED0DC /* MNNFileUtils.h in Headers */,
 				4D9A937526255BDA00F9B43C /* CoreMLCommonExecution.hpp in Headers */,
@@ -3141,6 +3154,7 @@
 				48C84B6C250F709E00EE7666 /* SizeComputer.hpp in Headers */,
 				92FF035023AA0B5A00AC97F6 /* CPUOneHot.hpp in Headers */,
 				92FF039123AA0B5A00AC97F6 /* CPUBackend.hpp in Headers */,
+				CED81F942CC23FE800666B48 /* CoreMLMatMul.hpp in Headers */,
 				489D7AA52550FDC900AD896A /* MetalInterp.hpp in Headers */,
 				486E1A9A24F5078D00C16006 /* CPURandomUniform.hpp in Headers */,
 				92FF038C23AA0B5A00AC97F6 /* CPUEltwise.hpp in Headers */,
@@ -3411,6 +3425,7 @@
 				92FF02B023AA0B5A00AC97F6 /* CPUDequantize.cpp in Sources */,
 				92FF04C223AA0BFB00AC97F6 /* Pipeline.cpp in Sources */,
 				92FF04C423AA0BFB00AC97F6 /* Session.cpp in Sources */,
+				CED81F932CC23FE800666B48 /* CoreMLMatMul.cpp in Sources */,
 				952298B72B4D4CC80043978B /* CoreMLLayerNorm.cpp in Sources */,
 				4D9A936826255BDA00F9B43C /* CoreMLCommonExecution.cpp in Sources */,
 				92FF02D123AA0B5A00AC97F6 /* MNNMaxFloat.S in Sources */,
@@ -3640,6 +3655,7 @@
 				CE072A262C91AF0700F190FD /* MNNC3ToYUVFast.S in Sources */,
 				92FF042823AA0B7100AC97F6 /* ShapeInterp.cpp in Sources */,
 				92FF02D623AA0B5A00AC97F6 /* MNNConvRunForLineDepthWiseInt8.S in Sources */,
+				CED81F8F2CC23C8A00666B48 /* CoreMLRelu6.cpp in Sources */,
 				48FB9DCA24A848D0008E1A2D /* MNNAxByClampBroadcastC4.S in Sources */,
 				489D7A832550FDC900AD896A /* MetalMatMul.mm in Sources */,
 				482BFBD028351BA1009210E4 /* AllShader.cpp in Sources */,
@@ -4148,7 +4164,7 @@
 				METAL_LIBRARY_FILE_BASE = mnn;
 				ONLY_ACTIVE_ARCH = YES;
 				OTHER_CFLAGS = "";
-				PRODUCT_BUNDLE_IDENTIFIER = com.taobao.mnn.abcde3;
+				PRODUCT_BUNDLE_IDENTIFIER = com.taobao.mnn.abcde3vjk;
 				PRODUCT_NAME = "$(TARGET_NAME:c99extidentifier)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				"PROVISIONING_PROFILE_SPECIFIER[sdk=macosx*]" = "";
@@ -4210,7 +4226,7 @@
 				MACH_O_TYPE = staticlib;
 				METAL_LIBRARY_FILE_BASE = mnn;
 				OTHER_CFLAGS = "";
-				PRODUCT_BUNDLE_IDENTIFIER = com.taobao.mnn.abcde3;
+				PRODUCT_BUNDLE_IDENTIFIER = com.taobao.mnn.abcde3vjk;
 				PRODUCT_NAME = "$(TARGET_NAME:c99extidentifier)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				"PROVISIONING_PROFILE_SPECIFIER[sdk=macosx*]" = "";
@@ -4244,7 +4260,7 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 9.0;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
 				OTHER_CPLUSPLUSFLAGS = "$(OTHER_CFLAGS)";
-				PRODUCT_BUNDLE_IDENTIFIER = com.taobao.mnn.abcde3vj;
+				PRODUCT_BUNDLE_IDENTIFIER = com.taobao.mnn.abcde3vjk;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -4271,7 +4287,7 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 9.0;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
 				OTHER_CPLUSPLUSFLAGS = "$(OTHER_CFLAGS)";
-				PRODUCT_BUNDLE_IDENTIFIER = com.taobao.mnn.abcdedddddd;
+				PRODUCT_BUNDLE_IDENTIFIER = com.taobao.mnn.abcde3vjk;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -4303,7 +4319,7 @@
 				MARKETING_VERSION = 1.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = com.taobao.mnn.abcde3vj;
+				PRODUCT_BUNDLE_IDENTIFIER = com.taobao.mnn.abcde3vjk;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -4335,7 +4351,7 @@
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
 				MARKETING_VERSION = 1.0;
 				MTL_FAST_MATH = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = com.taobao.mnn.abcde3vj;
+				PRODUCT_BUNDLE_IDENTIFIER = com.taobao.mnn.abcde3vjk;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				TARGETED_DEVICE_FAMILY = "1,2";

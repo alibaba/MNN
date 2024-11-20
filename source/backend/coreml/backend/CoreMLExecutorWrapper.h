@@ -18,7 +18,7 @@
 namespace MNN {
     class CoreMLExecutorWrapper {
     public:
-        CoreMLExecutorWrapper();
+        CoreMLExecutorWrapper(int precision);
         ~CoreMLExecutorWrapper();
         bool compileModel(CoreML__Specification__Model* model);
         void invokModel(const std::vector<std::pair<const MNN::Tensor*, std::string>>& inputs,

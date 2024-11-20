@@ -32,11 +32,12 @@ struct Region {
 - (bool)build:(NSURL*)modelUrl API_AVAILABLE(ios(11));
 - (bool)cleanup;
 
+@property int precision;
 @property MLModel* model API_AVAILABLE(ios(11));
 @property NSString* mlModelFilePath;
 @property NSString* compiledModelFilePath;
 @property(nonatomic, readonly) int coreMlVersion;
-@property __strong id<MLFeatureProvider> outputFeature API_AVAILABLE(ios(11));
+@property __strong NSMutableArray* outputArray;
 @end
 
 // RasterLayer

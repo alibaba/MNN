@@ -21,7 +21,7 @@ public:
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
 private:
-    void runRNNStep(const float* input, const int inputLength, const bool linearBeforeReset,
+    void runRNNStep(const uint8_t* input, const int inputLength, const bool linearBeforeReset,
                            std::shared_ptr<Tensor>& hiddenState, const int numUnits, Tensor* gateWeight, Tensor* gateBias,
                            Tensor* candidateWeight, Tensor* candidateBias, Tensor* recurrentBias,
                            std::shared_ptr<Tensor>& inputAndState, std::shared_ptr<Tensor>& gate,

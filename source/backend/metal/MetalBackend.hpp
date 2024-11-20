@@ -36,7 +36,12 @@ public:
     void *context() const {
         return mContext;
     }
-
+    bool supportSimdGroupReduce() {
+        return mSimdGroupReduce;
+    }
+    bool supportSimdGroupMatrix() {
+        return mSimdGroupMatrix;
+    }
     void setGpuMode(const int cl_mode_num);
     void setCommandQueue(id<MTLCommandQueue> queue, bool userSync);
     id<MTLCommandQueue> getCommandQueue() const {
@@ -93,6 +98,9 @@ private:
     TunedInfo* mTunedInfo;
     BackendConfig mDefaultConfig;
     mutable std::map<std::vector<std::string>, id<MTLComputePipelineState>> mCachePipeine;
+private:
+    bool mSimdGroupReduce;
+    bool mSimdGroupMatrix;
 };
 
 

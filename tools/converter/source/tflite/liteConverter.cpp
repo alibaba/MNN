@@ -305,8 +305,6 @@ int tflite2MNNNet(const std::string inputModel, const std::string bizCode,
             op->type      = creator->opType(quantizedModel);
             op->main.type = creator->type(quantizedModel);
             // set default input output index
-            op->inputIndexes.resize(ops[j]->inputs.size());
-            op->outputIndexes.resize(ops[j]->outputs.size());
             auto insertQuantinfo = [&](int idx) {
                 if (quantizedModel != 2) {
                     return;
@@ -327,12 +325,19 @@ int tflite2MNNNet(const std::string inputModel, const std::string bizCode,
                 tensorDescribe->quantInfo->zero = quant->zero_point[0];
                 MNNNetT->extraTensorDescribe.emplace_back(std::move(tensorDescribe));
             };
+            op->inputIndexes.clear();
+            op->outputIndexes.clear();
+
             for (int i = 0; i < ops[j]->inputs.size(); i++) {
-                op->inputIndexes[i] = ops[j]->inputs[i];
+                if (ops[j]->inputs[i] >= 0) {
+                    op->inputIndexes.emplace_back(ops[j]->inputs[i]);
+                }
             }
             for (int i = 0; i < ops[j]->outputs.size(); i++) {
-                op->outputIndexes[i] = ops[j]->outputs[i];
-                insertQuantinfo(ops[j]->outputs[i]);
+                if (ops[j]->outputs[i] >= 0) {
+                    op->outputIndexes.emplace_back(ops[j]->outputs[i]);
+                    insertQuantinfo(ops[j]->outputs[i]);
+                }
             }
             // Run actual conversion
             creator->run(op, ops[j], tensors, tfliteModelBuffer, tfliteOpSet, quantizedModel);

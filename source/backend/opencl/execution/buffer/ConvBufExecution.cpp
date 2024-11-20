@@ -801,6 +801,7 @@ public:
         }
 
         if (ConvBufWinograd::valid(conv2D->common(), inputs[0], outputs[0], static_cast<OpenCLBackend *>(backend)->getOpenCLRuntime()->getGpuType() == INTEL)) {
+#ifdef MNN_SUPPORT_INTEL_SUBGROUP
             if(static_cast<OpenCLBackend *>(backend)->getOpenCLRuntime()->isSupportedIntelSubgroup()){
                 std::vector<int> inputShape = tensorShapeFormat(input);
                 std::vector<int> outputShape = tensorShapeFormat(output);
@@ -810,6 +811,7 @@ public:
                 TensorUtils::setTensorPad(input, padding.first, pad_right, 0, 0);
                 TensorUtils::setTensorChannelPack(input, 16);
             }
+#endif /* MNN_SUPPORT_INTEL_SUBGROUP */
             return new ConvBufWinograd(op, backend);
         }
 #ifdef MNN_SUPPORT_INTEL_SUBGROUP

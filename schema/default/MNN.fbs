@@ -107,7 +107,7 @@ enum OpType : int {
     Segment,
     Squeeze,
     StridedSlice,
-    StringJoin,
+    CastLike,
     StringSplit,
     StringToNumber,
     TanH,

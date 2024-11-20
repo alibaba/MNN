@@ -75,22 +75,33 @@ ErrorCode MetalLayerNorm::onResize(const std::vector<Tensor *> &inputs, const st
     ((float *)mShapeBuffer.contents)[2] = mEps;
     ((int *)mShapeBuffer.contents)[3]   = (int)has_gamma_beta_;
 
-    
-    
     bool parallel = (mInside > 32) && ((mInside & 3) == 0);
-    if(RMSNorm){
-        mPipeline = [context pipelineWithName:parallel ? @"layernorm_x4_rms" : @"layernorm_x1_rms" fp16:backend->useFp16InsteadFp32()];
-    }else{
-        mPipeline = [context pipelineWithName:parallel ? @"layernorm_x4" : @"layernorm_x1" fp16:backend->useFp16InsteadFp32()];
-    }
-    
     auto inside = parallel ? mInside/4 : mInside;
-    mThreads = [context computeBestGroupAndLocal:mPipeline threads:MTLSizeMake((NSUInteger)inside, (NSUInteger)mOutside, 1)];
-    if(context.isSimdGroupAvailable) {
-        if(mOutside == 1 && RMSNorm && parallel) {
-            mPipeline = [context pipelineWithName:@"layernorm_m1x4_rms" fp16:backend->useFp16InsteadFp32()];
-            mThreads = std::make_pair(MTLSizeMake((NSUInteger)UP_DIV(inside, 4) * mOutside, 1, 1), MTLSizeMake(128, 1, 1));
+    if(((MetalRuntime *)backend->runtime())->supportSimdGroupReduce()) {
+        if(RMSNorm) {
+            if(parallel) {
+                mPipeline = [context pipelineWithName:@"layernorm_x4_rms_sg" fp16:backend->useFp16InsteadFp32()];
+                mThreads = std::make_pair(MTLSizeMake(inside, mOutside, 1), MTLSizeMake(32, 1, 1));
+            } else {
+                mPipeline = [context pipelineWithName:@"layernorm_x1_rms_sg" fp16:backend->useFp16InsteadFp32()];
+                mThreads = std::make_pair(MTLSizeMake(inside, mOutside, 1), MTLSizeMake(32, 1, 1));
+            }
+        } else {
+            if(parallel) {
+                mPipeline = [context pipelineWithName:@"layernorm_x4_sg" fp16:backend->useFp16InsteadFp32()];
+                mThreads = std::make_pair(MTLSizeMake(inside, mOutside, 1), MTLSizeMake(32, 1, 1));
+            } else {
+                mPipeline = [context pipelineWithName:@"layernorm_x1_sg" fp16:backend->useFp16InsteadFp32()];
+                mThreads = std::make_pair(MTLSizeMake(inside, mOutside, 1), MTLSizeMake(32, 1, 1));
+            }
         }
+    } else {
+        if(RMSNorm){
+            mPipeline = [context pipelineWithName:parallel ? @"layernorm_x4_rms" : @"layernorm_x1_rms" fp16:backend->useFp16InsteadFp32()];
+        }else{
+            mPipeline = [context pipelineWithName:parallel ? @"layernorm_x4" : @"layernorm_x1" fp16:backend->useFp16InsteadFp32()];
+        }
+        mThreads = [context computeBestGroupAndLocal:mPipeline threads:MTLSizeMake((NSUInteger)inside, (NSUInteger)mOutside, 1)];
     }
     return NO_ERROR;
 }

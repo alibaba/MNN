@@ -28,8 +28,9 @@ struct Param {
     int head_dim;
     float scale;
 };
+#define SIMD_GROUP_WIDTH 32
 
-kernel void main0(const device T* input0 [[buffer(0)]],
+kernel void prefill(const device T* input0 [[buffer(0)]],
     const device T* input1 [[buffer(1)]],
     device T* output [[buffer(2)]],
     device T* past_key [[buffer(3)]],
@@ -61,7 +62,7 @@ kernel void main0(const device T* input0 [[buffer(0)]],
     const device T* A_offset = input0 + x * offset + offset_head;
     device T* Pastkey_offset = past_key + z * offset / group + offset_head_kv;
     float Vscale = (float)param.scale;
-#ifdef FOR_PREFILL
+
     device const T* B_offset = input1 + z * offset / group + offset_head_kv;
     const int output_offset = y * query_seq_len * key_seq_len;
     float out0 = 0.0;
@@ -83,11 +84,52 @@ kernel void main0(const device T* input0 [[buffer(0)]],
     out0 = mask[((x + 0) * key_seq_len + (z + 0))] == 0 ? -FLT_MAX : out0;
 #endif
     output[output_offset + x * key_seq_len + z] = (T)out0;
+}
+
+kernel void decode(const device T* input0 [[buffer(0)]],
+    const device T* input1 [[buffer(1)]],
+    device T* output [[buffer(2)]],
+    device T* past_key [[buffer(3)]],
+#ifdef FLOAT_MASK
+    const device T* mask [[buffer(4)]],
 #else
+    const device int* mask [[buffer(4)]],
+#endif
+    constant Param& param [[buffer(5)]],
+#ifdef SIMD_GROUP_REDUCE
+    uint3 gid[[threadgroup_position_in_grid]],
+    uint  tiisg[[thread_index_in_simdgroup]],
+    uint  sgitg[[simdgroup_index_in_threadgroup]]
+#else
+    uint3 gid[[thread_position_in_grid]]
+#endif
+) {
+    const int x = gid.x; // query_seq_len
+    const int y = gid.y; // head_num
+    const int z = gid.z; // key_seq_len
+    if (x >= param.query_seq_len || y >= param.head_num || z >= param.key_seq_len) {
+        return;
+    }
+    int group = param.group;
+
+    int key_seq_len = param.key_seq_len;
+    int head_num = param.head_num;
+    int head_dim = param.head_dim;
+    int yr = y % param.group;
+    
+    const int offset = head_num * head_dim;
+    const int offset_head = y * head_dim;
+    const int offset_head_kv = (y / param.group) * head_dim;
+    const device T* A_offset = input0 + x * offset + offset_head;
+    device T* Pastkey_offset = past_key + z * offset / group + offset_head_kv;
+    float Vscale = (float)param.scale;
+
     const device T *B_offset = input1 + offset_head_kv;
     float out = 0.0;
+
+#ifdef SIMD_GROUP_REDUCE
     if (z == key_seq_len - 1) {
-        for(int i = 0; i < head_dim; ++i){
+        for(int i = tiisg; i < head_dim; i+=SIMD_GROUP_WIDTH){
             float A = (float)(A_offset[i]);
             float B = (float)(B_offset[i]);
             out += B * A;
@@ -96,7 +138,30 @@ kernel void main0(const device T* input0 [[buffer(0)]],
             }
         }
     } else {
-        for(int i = 0; i < head_dim; ++i){
+        for(int i = tiisg; i < head_dim; i+=SIMD_GROUP_WIDTH){
+            float A = A_offset[i];
+            float B = (float)Pastkey_offset[i];
+            
+            out += A * B;
+        }
+    }
+    out = simd_sum(out);
+    if(tiisg == 0) {
+        out *= Vscale;
+        output[y * key_seq_len + z] = (T)out;
+    }
+#else
+    if (z == key_seq_len - 1) {
+        for(int i = 0; i < head_dim; i++){
+            float A = (float)(A_offset[i]);
+            float B = (float)(B_offset[i]);
+            out += B * A;
+            if (yr == 0) {
+                Pastkey_offset[i] = (T)B;
+            }
+        }
+    } else {
+        for(int i = 0; i < head_dim; i++){
             float A = A_offset[i];
             float B = (float)Pastkey_offset[i];
             
@@ -123,7 +188,8 @@ struct Param {
     int head_dim;
     float scale;
 };
-kernel void main0(const device T* input0 [[buffer(0)]],
+#define SIMD_GROUP_WIDTH 32
+kernel void prefill(const device T* input0 [[buffer(0)]],
     const device T* input1 [[buffer(1)]],
     device T* output [[buffer(2)]],
     device T* past_value [[buffer(3)]],
@@ -144,7 +210,7 @@ kernel void main0(const device T* input0 [[buffer(0)]],
     int head_dim = param.head_dim;
     const int stride = head_num * head_dim / group;
     const int offset_head = yin * head_dim + z;
-#ifdef FOR_PREFILL
+
     device const T *A_offset = input0 + (y * qk_seq_len + x) * value_seq_len;
     device const T *B_offset = input1 + offset_head;
     device T *Pastvalue_offset = past_value + offset_head;
@@ -159,13 +225,59 @@ kernel void main0(const device T* input0 [[buffer(0)]],
         }
     }
     output[ x * stride * group + (y * head_dim + z)] = out;
+}
+
+kernel void decode(const device T* input0 [[buffer(0)]],
+    const device T* input1 [[buffer(1)]],
+    device T* output [[buffer(2)]],
+    device T* past_value [[buffer(3)]],
+    constant Param& param [[buffer(4)]],
+#ifdef SIMD_GROUP_REDUCE
+    uint3 gid[[threadgroup_position_in_grid]],
+    uint  tiisg[[thread_index_in_simdgroup]],
+    uint  sgitg[[simdgroup_index_in_threadgroup]]
 #else
+    uint3 gid[[thread_position_in_grid]]
+#endif
+) {
+    const int x = gid.x; // query_seq_len
+    const int y = gid.y; // head_num
+    const int z = gid.z; // head_dim
+    if (x >= param.query_seq_len || y >= param.head_num || z >= param.head_dim) {
+        return;
+    }
+    int group = param.group;
+    int yin = y / param.group;
+    int yr = y % param.group;
+
+    int value_seq_len = param.key_seq_len;
+    int head_num = param.head_num;
+    int head_dim = param.head_dim;
+    const int stride = head_num * head_dim / group;
+    const int offset_head = yin * head_dim + z;
+
     device const T *A_offset = input0 + y * value_seq_len;
     device const T *B_offset = input1 + offset_head;
     device T *Pastvalue_offset = past_value + offset_head;
     float out = 0;
     
-    for(int i = 0; i < value_seq_len - 1; ++i){
+#ifdef SIMD_GROUP_REDUCE
+    for(int i = tiisg; i < value_seq_len - 1; i+=SIMD_GROUP_WIDTH){
+        float A = (float)A_offset[i];
+        float B = (float)Pastvalue_offset[i * stride];
+        
+        out += A * B;
+    }
+    out = simd_sum(out);
+    if(tiisg == 0) {
+        out += (float)A_offset[(value_seq_len - 1)] * (float)B_offset[0];
+        if (yr == 0) {
+            Pastvalue_offset[(value_seq_len - 1)*stride] = B_offset[0];
+        }
+        output[(y * head_dim + z)] = (T)out;
+    }
+#else
+    for(int i = 0; i < value_seq_len - 1; i++){
         float A = (float)A_offset[i];
         float B = (float)Pastvalue_offset[i * stride];
         
@@ -177,7 +289,6 @@ kernel void main0(const device T* input0 [[buffer(0)]],
     }
     output[(y * head_dim + z)] = (T)out;
 #endif
-
 }
 )metal";
 
@@ -292,68 +403,6 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor *> &inputs, const 
     auto mtbn = static_cast<MetalBackend *>(backend());
     auto context = (__bridge MNNMetalContext *)mtbn->context();
     auto shape = query->shape();
-    if (nil == mKernel_softmax) {
-        // Init Kernel
-        bool float_mask = (mask->getType() == halide_type_of<float>());
-        auto rt = mtbn->runtime();
-        std::string T = "float";
-        if (mtbn->useFp16InsteadFp32()) {
-            T = "half";
-        }
-        std::vector<std::string> qkKeys = {
-            {"matmul_qk_div_mask", T}
-        };
-        std::vector<std::string> qkvKeys = {
-            {"matmul_qkv", T}
-        };
-        std::vector<std::string> qkPrefillKeys = {
-            {"matmul_qk_div_mask", T, "FOR_PREFILL"}
-        };
-        if (float_mask) {
-            qkPrefillKeys.emplace_back("FLOAT_MASK");
-        }
-        std::vector<std::string> qkvPrefillKeys = {
-            {"matmul_qkv", T, "FOR_PREFILL"}
-        };
-        std::vector<std::vector<std::string>> keys = {
-            qkKeys,
-            qkvKeys,
-            qkPrefillKeys,
-            qkvPrefillKeys
-        };
-        std::vector<const char*> sources = {
-            gMatMulDivMask,
-            gMatMulQKV,
-            gMatMulDivMask,
-            gMatMulQKV,
-        };
-        std::vector<id<MTLComputePipelineState>> pipelines(keys.size());
-        for (int i=0; i<keys.size(); ++i) {
-            auto pipeline = rt->findPipeline(keys[i]);
-            if (nil == pipeline) {
-                // Rebuild Pipeline
-                MTLCompileOptions *option = [[MTLCompileOptions alloc] init];
-                auto dic = [NSMutableDictionary dictionaryWithCapacity:0];
-                [dic setValue:@(keys[i][1].c_str()) forKey:@"T"];
-                for (int j=2; j<keys[i].size(); ++j) {
-                    [dic setValue:@"1" forKey:@(keys[i][j].c_str())];;
-                }
-                option.preprocessorMacros = dic;
-                pipeline = mtbn->makeComputePipelineWithSourceOption(sources[i], "main0", option);
-                rt->insertPipeline(keys[i], pipeline);
-            }
-            pipelines[i] = pipeline;
-        }
-        mKernel_qk = pipelines[0];
-        mKernel_qkv = pipelines[1];
-        mKernelPrefill_qk = pipelines[2];
-        mKernelPrefill_qkv = pipelines[3];
-        MNN_ASSERT(nil != mKernel_qk);
-        MNN_ASSERT(nil != mKernel_qkv);
-        MNN_ASSERT(nil != mKernelPrefill_qk);
-        MNN_ASSERT(nil != mKernelPrefill_qkv);
-        mKernel_softmax = [context pipelineWithName:@"softmax_plane" fp16:mtbn->useFp16InsteadFp32()];
-    }
     int seq_len = shape[1];
     mNumHead = shape[2];
     mHeadDim = shape[3];
@@ -367,6 +416,87 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor *> &inputs, const 
         mCache->mKv_seq_len = mCache->mPastLength + 1;
     }
     mKvNumHead = key->shape()[2];
+    
+    auto rt = (MetalRuntime*)mtbn->runtime();
+    bool supportSimdReduce = rt->supportSimdGroupReduce();
+    // decode and thread number not too large
+    bool qkSimdReduce = supportSimdReduce && seq_len == 1 && mCache->mKv_seq_len * mNumHead < mHeadDim * 32;
+    bool sftmSimdReduce = supportSimdReduce;
+    bool qkvSimdReduce = supportSimdReduce && seq_len == 1 && mHeadDim * mNumHead < mCache->mKv_seq_len * 32;
+    
+    // Init Kernel
+    bool float_mask = (mask->getType() == halide_type_of<float>());
+    std::string T = "float";
+    if (mtbn->useFp16InsteadFp32()) {
+        T = "half";
+    }
+    std::vector<std::string> qkKeys = {
+        {"matmul_qk_div_mask", T}
+    };
+    if(qkSimdReduce) {
+        qkKeys.emplace_back("SIMD_GROUP_REDUCE");
+    }
+    std::vector<std::string> qkvKeys = {
+        {"matmul_qkv", T}
+    };
+    if(qkvSimdReduce) {
+        qkvKeys.emplace_back("SIMD_GROUP_REDUCE");
+    }
+    std::vector<std::string> qkPrefillKeys = {
+        {"matmul_qk_div_mask", T, "FOR_PREFILL"}
+    };
+    if (float_mask) {
+        qkPrefillKeys.emplace_back("FLOAT_MASK");
+    }
+    std::vector<std::string> qkvPrefillKeys = {
+        {"matmul_qkv", T, "FOR_PREFILL"}
+    };
+    std::vector<std::vector<std::string>> keys = {
+        qkKeys,
+        qkvKeys,
+        qkPrefillKeys,
+        qkvPrefillKeys
+    };
+    std::vector<const char*> sources = {
+        gMatMulDivMask,
+        gMatMulQKV,
+        gMatMulDivMask,
+        gMatMulQKV,
+    };
+    std::vector<id<MTLComputePipelineState>> pipelines(keys.size());
+    for (int i=0; i<keys.size(); ++i) {
+        auto pipeline = rt->findPipeline(keys[i]);
+        if (nil == pipeline) {
+            // Rebuild Pipeline
+            MTLCompileOptions *option = [[MTLCompileOptions alloc] init];
+            auto dic = [NSMutableDictionary dictionaryWithCapacity:0];
+            [dic setValue:@(keys[i][1].c_str()) forKey:@"T"];
+            for (int j=2; j<keys[i].size(); ++j) {
+                [dic setValue:@"1" forKey:@(keys[i][j].c_str())];;
+            }
+            option.preprocessorMacros = dic;
+            if(std::find(keys[i].begin(), keys[i].end(), "FOR_PREFILL") != keys[i].end()) {
+                pipeline = mtbn->makeComputePipelineWithSourceOption(sources[i], "prefill", option);
+            } else {
+                pipeline = mtbn->makeComputePipelineWithSourceOption(sources[i], "decode", option);
+            }
+            rt->insertPipeline(keys[i], pipeline);
+        }
+        pipelines[i] = pipeline;
+    }
+    mKernel_qk = pipelines[0];
+    mKernel_qkv = pipelines[1];
+    mKernelPrefill_qk = pipelines[2];
+    mKernelPrefill_qkv = pipelines[3];
+    MNN_ASSERT(nil != mKernel_qk);
+    MNN_ASSERT(nil != mKernel_qkv);
+    MNN_ASSERT(nil != mKernelPrefill_qk);
+    MNN_ASSERT(nil != mKernelPrefill_qkv);
+    if(sftmSimdReduce) {
+        mKernel_softmax = [context pipelineWithName:@"softmax_plane_sg" fp16:mtbn->useFp16InsteadFp32()];
+    } else {
+        mKernel_softmax = [context pipelineWithName:@"softmax_plane" fp16:mtbn->useFp16InsteadFp32()];
+    }
 
     int group_size = mNumHead / mKvNumHead;
 
@@ -440,7 +570,13 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor *> &inputs, const 
         MetalBackend::setTensor(mCache->mPastKey.get(), encoder, 3);
         MetalBackend::setTensor(mask, encoder, 4);
         [encoder setBuffer:mParamQKV offset:0 atIndex:5];
-        auto gl = [context computeBestGroupAndLocal:pipeline threads:MTLSizeMake(seq_len, mNumHead, mCache->mKv_seq_len)];
+
+        std::pair<MTLSize, MTLSize> gl;
+        if(qkSimdReduce) {
+            gl = std::make_pair(MTLSizeMake(seq_len, mNumHead, mCache->mKv_seq_len), MTLSizeMake(32, 1, 1));
+        } else {
+            gl = [context computeBestGroupAndLocal:pipeline threads:MTLSizeMake(seq_len, mNumHead, mCache->mKv_seq_len)];
+        }
         [encoder dispatchThreadgroups:gl.first threadsPerThreadgroup:gl.second];
     }
     // Run Softmax Kernel
@@ -449,7 +585,15 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor *> &inputs, const 
         MetalBackend::setTensor(mTempQK.get(), encoder, 0);
         MetalBackend::setTensor(mTempSoftMax.get(), encoder, 1);
         [encoder setBuffer:mParamSoftmax offset:0 atIndex:2];
-        auto gl = [context computeBestGroupAndLocal: mKernel_softmax threads:MTLSizeMake(inside, outside, 1)];
+
+        int thread_group_size = 32;
+        std::pair<MTLSize, MTLSize> gl;
+        if(sftmSimdReduce) {
+            gl = std::make_pair(MTLSizeMake(inside, outside, 1), MTLSizeMake(thread_group_size, 1, 1));
+        } else {
+            gl = [context computeBestGroupAndLocal: mKernel_softmax threads:MTLSizeMake(inside, outside, 1)];
+        }
+
         [encoder dispatchThreadgroups:gl.first threadsPerThreadgroup:gl.second];
     }
     // Run QKV Kernel
@@ -466,7 +610,12 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor *> &inputs, const 
         MetalBackend::setTensor(outputs[0], encoder, 2);
         MetalBackend::setTensor(mCache->mPastValue.get(), encoder, 3);
         [encoder setBuffer:mParamQKV offset:0 atIndex:4];
-        auto gl = [context computeBestGroupAndLocal:pipeline threads:MTLSizeMake(seq_len, mNumHead, mHeadDim)];
+        std::pair<MTLSize, MTLSize> gl;
+        if(qkvSimdReduce) {
+            gl = std::make_pair(MTLSizeMake(seq_len, mNumHead, mHeadDim), MTLSizeMake(32, 1, 1));
+        } else {
+            gl = [context computeBestGroupAndLocal:pipeline threads:MTLSizeMake(seq_len, mNumHead, mHeadDim)];
+        }
         [encoder dispatchThreadgroups:gl.first threadsPerThreadgroup:gl.second];
     }
     // Update status
@@ -474,6 +623,7 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor *> &inputs, const 
         mCache->mPastLength += 1;
         mCache->mKv_seq_len = mCache->mPastLength + 1;
     }
+//    printf("qk:%d %d %d, softmax:%d %d %d, qkv:%d %d %d\n", seq_len, mNumHead, mCache->mKv_seq_len, inside, outside, 1, seq_len, mNumHead, mHeadDim);
     return;
 }
 

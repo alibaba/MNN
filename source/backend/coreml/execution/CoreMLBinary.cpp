@@ -7,6 +7,7 @@
 //
 
 #include "CoreMLBinary.hpp"
+#include "core/TensorUtils.hpp"
 
 namespace MNN {
 
@@ -40,21 +41,25 @@ ErrorCode CoreMLBinary::onResize(const std::vector<Tensor *> &inputs, const std:
     bool oneInput = false;
     float constVal = 0.f;
     const Tensor* input = nullptr;
-    if (TensorUtils::getDescribe(inputs[0])->usage == Tensor::InsideDescribe::CONSTANT) {
+    if (TensorUtils::getDescribe(inputs[0])->usage == Tensor::InsideDescribe::CONSTANT && 1 == TensorUtils::getRawSize(inputs[0])) {
         constVal = inputs[0]->host<float>()[0];
         input = inputs[1];
-    } else if (TensorUtils::getDescribe(inputs[1])->usage == Tensor::InsideDescribe::CONSTANT) {
+    } else if (TensorUtils::getDescribe(inputs[1])->usage == Tensor::InsideDescribe::CONSTANT && 1 == TensorUtils::getRawSize(inputs[1])) {
         constVal = inputs[1]->host<float>()[0];
         input = inputs[0];
     }
     switch (binaryType) {
         case BinaryOpOperation_ADD:
-            mLayer_->layer_case = CORE_ML__SPECIFICATION__NEURAL_NETWORK_LAYER__LAYER_ADD;
-            mLayer_->add = mCoreMLBackend->create<CoreML__Specification__AddLayerParams>();
-            core_ml__specification__add_layer_params__init(mLayer_->add);
             if (input) {
+                mLayer_->layer_case = CORE_ML__SPECIFICATION__NEURAL_NETWORK_LAYER__LAYER_ADD;
+                mLayer_->add = mCoreMLBackend->create<CoreML__Specification__AddLayerParams>();
+                core_ml__specification__add_layer_params__init(mLayer_->add);
                 mLayer_->add->alpha = constVal;
                 oneInput = true;
+            } else {
+                mLayer_->layer_case = CORE_ML__SPECIFICATION__NEURAL_NETWORK_LAYER__LAYER_ADD_BROADCASTABLE;
+                mLayer_->addbroadcastable = mCoreMLBackend->create<CoreML__Specification__AddBroadcastableLayerParams>();
+                core_ml__specification__add_broadcastable_layer_params__init(mLayer_->addbroadcastable);
             }
             break;
         case BinaryOpOperation_SUB:
@@ -75,12 +80,16 @@ ErrorCode CoreMLBinary::onResize(const std::vector<Tensor *> &inputs, const std:
             }
             break;
         case BinaryOpOperation_MUL:
-            mLayer_->layer_case = CORE_ML__SPECIFICATION__NEURAL_NETWORK_LAYER__LAYER_MULTIPLY;
-            mLayer_->multiply = mCoreMLBackend->create<CoreML__Specification__MultiplyLayerParams>();
-            core_ml__specification__multiply_layer_params__init(mLayer_->multiply);
             if (input) {
+                mLayer_->layer_case = CORE_ML__SPECIFICATION__NEURAL_NETWORK_LAYER__LAYER_MULTIPLY;
+                mLayer_->multiply = mCoreMLBackend->create<CoreML__Specification__MultiplyLayerParams>();
+                core_ml__specification__multiply_layer_params__init(mLayer_->multiply);
                 mLayer_->multiply->alpha = constVal;
                 oneInput = true;
+            } else {
+                mLayer_->layer_case = CORE_ML__SPECIFICATION__NEURAL_NETWORK_LAYER__LAYER_MULTIPLY_BROADCASTABLE;
+                mLayer_->multiplybroadcastable = mCoreMLBackend->create<_CoreML__Specification__MultiplyBroadcastableLayerParams>();
+                core_ml__specification__multiply_broadcastable_layer_params__init(mLayer_->multiplybroadcastable);
             }
             break;
         case BinaryOpOperation_DIV:

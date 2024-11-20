@@ -16,6 +16,7 @@ jobs:
       matrix:
         include:
           - { os: ubuntu-latest,    arch: x86_64,     build: 'cp*-manylinux*' }
+          - { os: ubuntu-latest,    arch: aarch64,    build: 'cp*-manylinux*' }
           - { os: windows-latest,   arch: AMD64,      build: 'cp*'          }
           - { os: macos-13,         arch: x86_64,     build: 'cp*'          }
           - { os: macos-14,         arch: arm64,      build: 'cp*'          }
@@ -32,6 +33,12 @@ jobs:
     - uses: actions/setup-python@v4
       with:
         python-version: '3.12'
+
+    - name: set up qemu
+      if: matrix.os == 'ubuntu-latest' && matrix.arch == 'aarch64'
+      uses: docker/setup-qemu-action@v3
+      with:
+        platforms: all
 
     - name: install pipx
       if: matrix.os == 'macos-14'
@@ -60,8 +67,9 @@ jobs:
       shell: bash
 
     - name: Upload wheels
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
+        name: artifact-${{ matrix.os }}-${{ matrix.arch }}
         path: wheelhouse/*.whl
 
   publish_wheels:
@@ -76,10 +84,11 @@ jobs:
       with:
         python-version: '3.x'
 
-    - uses: actions/download-artifact@v4.1.7
+    - uses: actions/download-artifact@v4
       with:
-        name: artifact
+        pattern: artifact-*
         path: dist
+        merge-multiple: true
 
     - uses: pypa/gh-action-pypi-publish@release/v1
       with:

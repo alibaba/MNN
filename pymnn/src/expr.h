@@ -137,7 +137,7 @@ static PyMethodDef PyMNNVar_methods[] = {
     {"set_device_ptr", (PyCFunction)PyMNNVar_set_device_ptr, METH_VARARGS, "set_device_ptr data"},
     {"copy_to_device_ptr", (PyCFunction)PyMNNVar_copy_to_device_ptr, METH_VARARGS, "copy_to_device_ptr data"},
 
-    
+
     {NULL}  /* Sentinel */
 };
 static PyObject* PyMNNVar_add(PyObject*, PyObject*);

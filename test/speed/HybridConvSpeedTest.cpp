@@ -121,10 +121,10 @@ public:
         INTS channel0 = {4096, 4096}; // {ic, co}
         INTS channel1 = {1496, 256};
         int batch[3] = {23, 13, 1};
-        std::vector<int> blocks = {0, 32, 128};
+        std::vector<int> blocks = {32, 128, 0};
 
         std::vector<int> kernels = {1, 1};
-        std::vector<int> weightBits = {8, 4};
+        std::vector<int> weightBits = {4, 8};
         bool lowmemory = true;
         int batchNum = sizeof(batch) / sizeof(int);
         bool correct = true;
@@ -158,13 +158,13 @@ public:
         INTS strides = {1, 1}, dilate = {1, 1}, pad = {0, 0}, inputShape = {1, 1}; // {w, h}
         int testBatchCount = 5;
         // std::vector<int> batch(testBatchCount);
-        std::vector<int> batch = {1, 23, 1479, 38, 29};
+        std::vector<int> batch = {1, 23, 149, 38, 29};
         std::vector<int> kernels = {1, 1};
         bool lowmemory = true;
         {
-           std::vector< std::vector<int>> channels = {{7, 9}, {2048, 6144}, {1, 10}, {20, 153}, {9, 18}};
+           std::vector< std::vector<int>> channels = {{7, 9}, {2048, 54}, {1, 10}, {20, 153}, {9, 18}};
            for (int i = 0; i < channels.size(); ++i) {
-               for (int n = 0; n < 5; ++n) {
+               for (int n = 0; n < batch.size(); ++n) {
                    auto res = testKernel("Low memory HybridConv test:", inputShape, kernels, channels[i], pad, strides, dilate, batch[n], 8, precision);
                    if (!res) {
                        MNN_ERROR("Error: low memory hybridConv when bits=8, n=%d, ic=%d, oc=%d\n", batch[n], channels[i][0], channels[i][1]);
@@ -174,9 +174,9 @@ public:
            }
         }
         {
-            std::vector< std::vector<int>> channels = {{2048, 6144}, {8, 8}, {8, 9}, {8, 16}};
+            std::vector< std::vector<int>> channels = {{2048, 54}, {8, 8}, {8, 9}, {8, 16}};
             for (int i = 0; i < channels.size(); ++i) {
-                for (int n = 0; n < 5; ++n) {
+                for (int n = 0; n < batch.size(); ++n) {
                     auto res = testKernel("Low memory HybridConv test:", inputShape, kernels, channels[i], pad, strides, dilate, batch[n], 4, precision);
                     if (!res) {
                         MNN_ERROR("Error: low memory hybridConv when bits=4, n=%d, ic=%d, oc=%d\n", batch[n], channels[i][0], channels[i][1]);
@@ -193,7 +193,7 @@ class DenseConvInt8Test : public HybridConvSpeedTestCommon {
 public:
     virtual bool run(int precision) {
         std::vector< std::vector<int>> channels = {{4, 256}, {512, 128}, {1, 8}, {7, 9}};
-        INTS strides = {1, 1}, dilate = {1, 3}, pad = {0, 3}, inputShape = {1, 2640}; // {w, h}
+        INTS strides = {1, 1}, dilate = {1, 3}, pad = {0, 3}, inputShape = {1, 131}; // {w, h}
         std::vector<int> batch = {1, 13};
         std::vector<std::vector<int>> kernels = {{1, 1}, {1, 3}};
         std::vector<int> weightBits = {4, 8};

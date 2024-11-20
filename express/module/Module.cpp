@@ -32,8 +32,10 @@ static MNN::Express::Executor::RuntimeManager* _createDefaultRuntimeManager(cons
         sche_config.backendConfig = config->backend->config;
     } else {
         auto exe = ExecutorScope::Current();
-        sche_config.type = exe->getAttr()->firstType;
-        sche_config.numThread = 1;
+        auto attr = exe->getAttr();
+        sche_config.type = attr->firstType;
+        sche_config.numThread = attr->numThread;
+        sche_config.backendConfig = &attr->config;
     }
     return Executor::RuntimeManager::createRuntimeManager(sche_config);
 }

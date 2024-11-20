@@ -22,6 +22,12 @@ static void _MNNGetMatMulPackMode(int* eP, int *lP, int* hP) {
     *hP = ghP;
 }
 
+#ifndef MNN_USE_AVX
+bool AVX2Functions::init(int cpuFlags) {
+    return false;
+}
+#else
+
 bool AVX2Functions::init(int cpuFlags) {
     gAVX2CoreFunctions = new CoreFunctions;
     auto coreFunction = gAVX2CoreFunctions;
@@ -99,11 +105,12 @@ bool AVX2Functions::init(int cpuFlags) {
 #endif
     return true;
 }
+#endif
+
 CoreFunctions* AVX2Functions::get() {
     return gAVX2CoreFunctions;
 }
 CoreInt8Functions* AVX2Functions::getInt8() {
     return gAVX2CoreInt8Functions;
 }
-
 };

@@ -16,7 +16,7 @@ class ShapeUnique : public SizeComputer {
     virtual bool onComputeSize(const MNN::Op* op, const std::vector<Tensor*>& inputs,
                                const std::vector<Tensor*>& outputs) const override {
         MNN_ASSERT(1 == inputs.size());
-        if (inputs[0]->getType().code != halide_type_int) {
+        if (inputs[0]->getType().bytes() != 4) {
             return false;
         }
         auto& ib = inputs[0]->buffer();
@@ -36,6 +36,18 @@ class ShapeUnique : public SizeComputer {
         if (outputs.size() > 1) {
             TensorUtils::copyShape(outputs[0], outputs[1], true);
             outputs[1]->buffer().type = halide_type_of<int>();
+        }
+        if (outputs.size() > 2) {
+            outputs[2]->buffer().dimensions = 1;
+            outputs[2]->buffer().dim[0].extent = eleSize;
+            TensorUtils::getDescribe(outputs[2])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
+            outputs[2]->buffer().type = halide_type_of<int>();
+        }
+        if (outputs.size() > 3) {
+            outputs[3]->buffer().dimensions = 1;
+            outputs[3]->buffer().dim[0].extent = (int)values.size();
+            TensorUtils::getDescribe(outputs[3])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
+            outputs[3]->buffer().type = halide_type_of<int>();
         }
         return true;
     }

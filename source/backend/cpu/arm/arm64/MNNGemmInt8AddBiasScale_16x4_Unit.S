@@ -120,7 +120,7 @@ ldr x21, [x15, #64] // blockNum
 ldr x23, [x15, #80] // extraScale
 lsl x21, x3, #6    // src_depth_quad* SRC_UNIT * UNIT * sizeof(int8_t)
 add x20, x19, #4
-
+lsl x24, x8, #4    // eDest * SRC_UNIT
 Start:
 cmp x8, #3
 beq L3Dz
@@ -367,8 +367,7 @@ L3LoopDz:
     mov x8, x1
     mov x22, x2
     ld1 {v0.16b, v1.16b, v2.16b, v3.16b}, [x2], #64
-    ld1 {v4.16b, v5.16b, v6.16b}, [x1], #48
-    add x1, x1, #16
+    ld1 {v4.16b, v5.16b, v6.16b}, [x1], x24
 
     smull v8.8h, v0.8b, v4.8b
     smull v9.8h, v1.8b, v4.8b
@@ -418,7 +417,7 @@ L3LoopDz:
         beq L3ComputeSum
 
     L3LoopSz:
-        ld1 {v4.16b, v5.16b, v6.16b}, [x1], #48
+        ld1 {v4.16b, v5.16b, v6.16b}, [x1], x24
         ld1 {v0.16b, v1.16b, v2.16b, v3.16b}, [x2], #64
 
         smull v8.8h, v0.8b, v4.8b
@@ -454,7 +453,6 @@ L3LoopDz:
         smull v11.8h, v3.8b, v6.8b
 
         subs x9, x9, #1
-        add x1, x1, #16
 
         smlal2 v8.8h,  v0.16b, v6.16b
         smlal2 v9.8h,  v1.16b, v6.16b
@@ -571,7 +569,7 @@ L2LoopDz:
     mov x8, x1
     mov x22, x2
     ld1 {v0.16b, v1.16b, v2.16b, v3.16b}, [x2], #64
-    ld1 {v4.16b, v5.16b}, [x1], #32
+    ld1 {v4.16b, v5.16b}, [x1], x24
     
     
     smull v8.8h, v0.8b, v4.8b
@@ -582,7 +580,7 @@ L2LoopDz:
     smull v13.8h, v1.8b, v5.8b
     smull v14.8h, v2.8b, v5.8b
     smull v15.8h, v3.8b, v5.8b
-    add x1, x1, #32
+
     smlal2 v8.8h, v0.16b, v4.16b
     smlal2 v9.8h, v1.16b, v4.16b
     smlal2 v10.8h, v2.16b, v4.16b
@@ -606,7 +604,7 @@ L2LoopDz:
         beq L2ComputeSum
 
     L2LoopSz:
-        ld1 {v4.16b, v5.16b}, [x1], #32
+        ld1 {v4.16b, v5.16b}, [x1], x24
         ld1 {v0.16b, v1.16b, v2.16b, v3.16b}, [x2], #64
 
         smull v8.8h, v0.8b, v4.8b
@@ -622,7 +620,7 @@ L2LoopDz:
         smlal2 v9.8h, v1.16b, v4.16b
         smlal2 v10.8h, v2.16b, v4.16b
         smlal2 v11.8h, v3.16b, v4.16b
-        add x1, x1, #32
+
         subs x9, x9, #1
         smlal2 v12.8h, v0.16b, v5.16b
         smlal2 v13.8h, v1.16b, v5.16b
@@ -727,8 +725,7 @@ L1LoopDz:
     ld1 {v0.16b, v1.16b, v2.16b, v3.16b}, [x2], #64
     dup v16.4s, wzr
     dup v17.4s, wzr
-    ld1 {v4.16b}, [x1], #16
-    add x1, x1, #48
+    ld1 {v4.16b}, [x1], x24
     
     smull v8.8h, v0.8b, v4.8b
     dup v18.4s, wzr
@@ -745,7 +742,7 @@ L1LoopDz:
 
     L1LoopSz:
         sadalp v16.4s, v8.8h
-        ld1 {v4.16b}, [x1], #16
+        ld1 {v4.16b}, [x1], x24
         sadalp v17.4s, v9.8h
         sadalp v18.4s, v10.8h
         sadalp v19.4s, v11.8h
@@ -755,7 +752,6 @@ L1LoopDz:
         sadalp v23.4s, v15.8h
 
         ld1 {v0.16b, v1.16b, v2.16b, v3.16b}, [x2], #64
-        add x1, x1, #48
 
         smull v8.8h, v0.8b, v4.8b
         smull v9.8h, v1.8b, v4.8b
@@ -776,7 +772,6 @@ L1LoopDz:
     sadalp v18.4s, v10.8h
     sadalp  v19.4s, v11.8h
 
-    //ld1 {v0.4s}, [x10], #16
     addp v4.4s, v16.4s, v17.4s
     addp v5.4s, v18.4s, v19.4s
 

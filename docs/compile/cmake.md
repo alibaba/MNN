@@ -40,7 +40,8 @@ MNN使用CMake构建项目，CMake中的宏定义列表如下：
 | MNN_VULKAN           | 是否构建`Vulkan`后端，默认为`OFF` |
 | MNN_ARM82            | 编译ARM架构时，是否构建`Armv8.2`后端，以支持FP16计算，默认为`ON` |
 | MNN_ONEDNN           | 是否使用`oneDNN`，默认为`OFF` |
-| MNN_AVX512           | 是否构建`avx512`后端，默认为`OFF` |
+| MNN_AVX2             | 在`MNN_USE_SSE`开启的基础上，是否增加AVX2指令的支持，默认为`ON` |
+| MNN_AVX512           | 在`MNN_USE_SSE`和`MNN_AVX2`开启的基础上，是否增加`avx512`指令集的支持，默认为`OFF` |
 | MNN_CUDA             | 是否构建`Cuda`后端，默认为`OFF` |
 | MNN_CUDA_PROFILE     | 是否打开CUDA profile工具，默认为`OFF` |
 | MNN_CUDA_QUANT       | 是否打开CUDA 量化文件编译，默认为`OFF` |
@@ -85,3 +86,4 @@ MNN使用CMake构建项目，CMake中的宏定义列表如下：
 | MNN_SUPPORT_TRANSFORMER_FUSE | 是否支持Fuse Transformer相关OP实现，默认为 `OFF` |
 | MNN_BUILD_LLM        | 是否构建基于MNN的llm库和demo，默认为`OFF` |
 | MNN_BUILD_DIFFUSION  | 是否构建基于MNN的diffusion demo，需要打开MNN_BUILD_OPENCV和MNN_IMGCODECS宏使用 默认为`OFF` |
+| MNN_KLEIDIAI         | 是否集成ARM的klediAI加速库【目前处于实验状态，只能跑对称量化的LLM模型】，默认为`OFF` |

@@ -152,7 +152,7 @@ ldr x27, [x6, #40] // srcKernelSum
 ldr x28, [x6, #48] // weightQuanBias
 ldr x14, [x6, #56]  // fp32minmax
 
-mov x22, #80 // GEMM_INT8_DST_XUNIT * GEMM_INT8_SRC_UNIT = 10 * 8 = 80
+lsl x22, x7, #3 // eDest * GEMM_INT8_SRC_UNIT
 mov x21, #16 // sizeof(float16_t) * UNIT
 
 Start:

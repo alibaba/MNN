@@ -228,11 +228,6 @@ L4LoopDz:
     addp v14.4s, v20.4s, v21.4s
     addp v15.4s, v22.4s, v23.4s
 
-    //add v16.4s, v12.4s, v0.4s
-    //add v17.4s, v13.4s, v0.4s
-    //add v18.4s, v14.4s, v0.4s
-    //add v19.4s, v15.4s, v0.4s
-
     L4Quan:
     ld1 {v1.4s}, [x7], #16 // scale
     ld1 {v2.4s}, [x19] // x kernel sum
@@ -329,7 +324,7 @@ L3LoopDz:
     smull v23.8h, v3.8b, v5.8b
     smull v24.8h, v0.8b, v6.8b
     smull v25.8h, v1.8b, v6.8b
-    add x1, x1, #16
+    // add x1, x1, #16
     smull v26.8h, v2.8b, v6.8b
     smull v27.8h, v3.8b, v6.8b
     subs x9, x9, #1
@@ -357,7 +352,7 @@ L3LoopDz:
         ld1 {v2.16b}, [x2], #16
 
         smlal v16.8h, v0.8b, v4.8b
-        add x1, x1, #16
+
         smlal v17.8h, v1.8b, v4.8b
         ld1 {v3.16b}, [x2], #16
         smlal v18.8h, v2.8b, v4.8b
@@ -490,7 +485,7 @@ L2LoopDz:
     smull v21.8h, v1.8b, v5.8b
     smull v22.8h, v2.8b, v5.8b
     smull v23.8h, v3.8b, v5.8b
-    add x1, x1, #32
+
     subs x9, x9, #1
     
     beq L2LoopSzEnd
@@ -511,7 +506,6 @@ L2LoopDz:
         ld1 {v2.16b}, [x2], #16
 
         smlal v16.8h, v0.8b, v4.8b
-        add x1, x1, #32
         smlal v17.8h, v1.8b, v4.8b
         ld1 {v3.16b}, [x2], #16
         smlal v18.8h, v2.8b, v4.8b
@@ -611,7 +605,7 @@ L1LoopDz:
     smull v17.8h, v1.8b, v4.8b
     smull v18.8h, v2.8b, v4.8b
     smull v19.8h, v3.8b, v4.8b
-    add x1, x1, #48
+
     subs x9, x3, #1
 
     beq L1LoopSzEnd
@@ -627,7 +621,6 @@ L1LoopDz:
         ld1 {v2.16b}, [x2], #16
 
         smlal v16.8h, v0.8b, v4.8b
-        add x1, x1, #48
         smlal v17.8h, v1.8b, v4.8b
         ld1 {v3.16b}, [x2], #16
         smlal v18.8h, v2.8b, v4.8b

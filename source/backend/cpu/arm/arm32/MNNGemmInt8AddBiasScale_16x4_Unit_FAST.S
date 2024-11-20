@@ -147,9 +147,6 @@ L2LoopDz:
     vpadd.s32 d18, d24, d25
     vpadd.s32 d19, d26, d27
 
-    //vaddq.s32 q0, q8, q14 // add bias
-    //vaddq.s32 q1, q9, q14
-
     vcvt.f32.s32 q0, q8
     vcvt.f32.s32 q1, q9
     vmulq.f32 q0, q0, q15 // mul scale
@@ -210,7 +207,6 @@ L1LoopDz:
     vmull.s8 q8, d0, d4
     vld1.8 {q4,q5}, [r2]!
     vmull.s8 q9, d0, d6
-    add r1, r1, #16
     vmull.s8 q10, d0, d8
     subs r12, r3, #1
     vmull.s8 q11, d0, d10
@@ -230,7 +226,7 @@ L1LoopDz:
 
         vmlal.s8 q8, d0, d4
         vmlal.s8 q9, d0, d6
-        add r1, r1, #16
+
         vmlal.s8 q10, d0, d8
         vmlal.s8 q11, d0, d10
 
@@ -261,8 +257,6 @@ L1LoopDz:
     // q8,q9
     vpadd.s32 d16, d20, d21
     vpadd.s32 d17, d22, d23
-
-    //vaddq.s32 q0, q8, q14
 
     vcvt.f32.s32 q0, q8
     vmulq.f32 q0, q0, q15

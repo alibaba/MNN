@@ -33,12 +33,12 @@ ErrorCode CPUCastCreator::cast(const void* inputRaw, void* outputRaw, ConvertTyp
     }
     if (type == INT8_TO_FlOAT) {
         std::vector<float> scales(pack, scale);
-        bn->int8Functions()->MNNInt8ScaleToFloat((float*)(outputRaw), (int8_t*)(inputRaw), scales.data(), c4Size, zero);
+        bn->int8Functions()->MNNInt8ScaleToFloat((float*)(outputRaw), (int8_t*)(inputRaw), &scale, c4Size, &zero, 0);
         if (remain > 0) {
             std::vector<float> tempDst(pack);
             std::vector<int8_t> tempSrc(pack);
             ::memcpy(tempSrc.data(), (int8_t*)(inputRaw) + c4Size * pack, remain * sizeof(int8_t));
-            bn->int8Functions()->MNNInt8ScaleToFloat(tempDst.data(), tempSrc.data(), scales.data(), 1, zero);
+            bn->int8Functions()->MNNInt8ScaleToFloat(tempDst.data(), tempSrc.data(), &scale, 1, &zero, 0);
             ::memcpy(static_cast<float*>(outputRaw) + c4Size * pack, tempDst.data(), remain * sizeof(float));
         }
         return NO_ERROR;

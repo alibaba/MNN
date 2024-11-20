@@ -79,20 +79,6 @@ static void createLibrary(id<MTLDevice> device, NSMutableDictionary<NSString *, 
     }
 }
 
-+ (BOOL)isSimdGroupAvailable{
-#if TARGET_OS_IPHONE
-    if(@available(iOS 14, *)) {
-        return YES;
-    }
-#endif
-#if TARGET_OS_MAC
-    if(@available(macOS 10.14, *)) {
-        return YES;
-    }
-#endif
-    return NO;
-}
-
 + (BOOL)isIphone{
     struct utsname systemInfo;
     uname(&systemInfo);
@@ -112,7 +98,6 @@ static void createLibrary(id<MTLDevice> device, NSMutableDictionary<NSString *, 
     _cachesFp16   = [NSMutableDictionary dictionary];
     _cachesFp32   = [NSMutableDictionary dictionary];
     _isIphone = self.class.isIphone;
-    _isSimdGroupAvailable = self.class.isSimdGroupAvailable;
     createLibrary(_device, _cachesFp16, true);
     createLibrary(_device, _cachesFp32, false);
     return nil != _device;

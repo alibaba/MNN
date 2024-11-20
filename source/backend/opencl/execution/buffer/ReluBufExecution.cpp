@@ -229,13 +229,14 @@ public:
         // So we use ternary operation (A ? B: C) instead of function call with comma
         // (e.g, fmax(in,(float4)(0))), when there is a Radeon GPU.
         bool isRadeonGpu = (static_cast<OpenCLBackend*>(backend)->getOpenCLRuntime()->getGpuType() == RADEON);
+#ifdef MNN_SUPPORT_INTEL_SUBGROUP
         for (int i = 0; i < inputs.size(); ++i) {
             int channel = inputs[i]->channel();
             if (channel >= 16 && static_cast<OpenCLBackend *>(backend)->getOpenCLRuntime()->isSupportedIntelSubgroup()) {
                 TensorUtils::setTensorChannelPack(inputs[i], 16);
             }
         }
-
+#endif /* MNN_SUPPORT_INTEL_SUBGROUP */
         if (op->type() == OpType_ReLU6) {
             char storage[256];
             float minValue = 0.0f;

@@ -34,7 +34,6 @@ typedef enum {
 @property (strong, nonatomic, readonly) id<MTLDevice> device;
 /** max memory length cound be used in threadgroup */
 @property (assign, nonatomic, readonly) BOOL isIphone;
-@property (assign, nonatomic, readonly) BOOL isSimdGroupAvailable;
 
 /**
  * @brief alloc temp buffer on device

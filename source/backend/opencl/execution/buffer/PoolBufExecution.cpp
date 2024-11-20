@@ -327,13 +327,15 @@ public:
     virtual ~PoolBufCreator() = default;
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                 const MNN::Op *op, Backend *backend) const override {
+#ifdef MNN_SUPPORT_INTEL_SUBGROUP
         for (int i = 0; i < inputs.size(); ++i) {
             int channel = inputs[i]->channel();
             if (channel >= 16 && static_cast<OpenCLBackend *>(backend)->getOpenCLRuntime()->isSupportedIntelSubgroup()) {
                 TensorUtils::setTensorChannelPack(inputs[i], 16);
             }
         }
-        return new PoolBufExecution(inputs, op, backend); 
+#endif /* MNN_SUPPORT_INTEL_SUBGROUP */
+        return new PoolBufExecution(inputs, op, backend);
     }
 };
 

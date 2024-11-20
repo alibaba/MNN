@@ -334,6 +334,10 @@ public:
     std::string assistant_suffix() const {
         return llm_config_.value("assistant_suffix", "<|im_end|>\n");
     }
+
+    std::vector<int> tie_embeddings() const {
+        return llm_config_.value("tie_embeddings", std::vector<int>{});
+    }
     // llm model config end >
 
     // < sampler config start

@@ -344,7 +344,6 @@ L3LoopDz:
     mov x22, x2
     ld1 {v10.16b, v11.16b}, [x2], #32
     ld1 {v4.16b, v5.16b, v6.16b}, [x1], #48
-    add x1, x1, #16
     // int4->int8
     movi v8.16b, #15
     ushr v0.16b, v10.16b, #4
@@ -442,7 +441,6 @@ L3LoopDz:
         smull v11.8h, v3.8b, v6.8b
 
         subs x9, x9, #1
-        add x1, x1, #16
 
         smlal2 v8.8h,  v0.16b, v6.16b
         smlal2 v9.8h,  v1.16b, v6.16b
@@ -544,7 +542,7 @@ L2LoopDz:
     smull v13.8h, v1.8b, v5.8b
     smull v14.8h, v2.8b, v5.8b
     smull v15.8h, v3.8b, v5.8b
-    add x1, x1, #32
+
     smlal2 v8.8h, v0.16b, v4.16b
     smlal2 v9.8h, v1.16b, v4.16b
     smlal2 v10.8h, v2.16b, v4.16b
@@ -590,7 +588,7 @@ L2LoopDz:
         smlal2 v9.8h, v1.16b, v4.16b
         smlal2 v10.8h, v2.16b, v4.16b
         smlal2 v11.8h, v3.16b, v4.16b
-        add x1, x1, #32
+
         subs x9, x9, #1
         smlal2 v12.8h, v0.16b, v5.16b
         smlal2 v13.8h, v1.16b, v5.16b
@@ -680,7 +678,6 @@ L1LoopDz:
     dup v16.4s, wzr
     dup v17.4s, wzr
     ld1 {v4.16b}, [x1], #16
-    add x1, x1, #48
     
     smull v8.8h, v0.8b, v4.8b
     dup v18.4s, wzr
@@ -707,7 +704,6 @@ L1LoopDz:
         sadalp v23.4s, v15.8h
 
         ld1 {v10.16b, v11.16b}, [x2], #32
-        add x1, x1, #48
         // int4->int8
         movi v8.16b, #15
         ushr v0.16b, v10.16b, #4

@@ -24,6 +24,18 @@ static PyObject* PyMNNLLM_load(LLM *self, PyObject *args) {
     Py_RETURN_NONE;
 }
 
+static PyObject* PyMNNLLM_forward(LLM *self, PyObject *args) {
+    PyObject *input_ids = nullptr;
+    if (!PyArg_ParseTuple(args, "O", &input_ids) && isInts(input_ids)) {
+        Py_RETURN_NONE;
+    }
+    auto logits = getVar();
+    self->llm->generate_init();
+    *(logits->var) = self->llm->forward(toInts(input_ids));
+    self->llm->reset();
+    return (PyObject *)logits;
+}
+
 static PyObject* PyMNNLLM_generate(LLM *self, PyObject *args) {
     PyObject *input_ids = nullptr;
     if (!PyArg_ParseTuple(args, "O", &input_ids) && isInts(input_ids)) {
@@ -44,10 +56,32 @@ static PyObject* PyMNNLLM_response(LLM *self, PyObject *args) {
     return string2Object(res);
 }
 
+static PyObject* PyMNNLLM_tokenizer_encode(LLM *self, PyObject *args) {
+    const char* prompt = NULL;
+    int use_template = 0;
+    if (!PyArg_ParseTuple(args, "s|p", &prompt, &use_template)) {
+        Py_RETURN_NONE;
+    }
+    auto ids = self->llm->tokenizer_encode(prompt, use_template);
+    return toPyObj<int, toPyObj>(ids);
+}
+
+static PyObject* PyMNNLLM_tokenizer_decode(LLM *self, PyObject *args) {
+    PyObject *id = nullptr;
+    if (!PyArg_ParseTuple(args, "O", &id) && isInt(id)) {
+        Py_RETURN_NONE;
+    }
+    auto query = self->llm->tokenizer_decode(toInt(id));
+    return string2Object(query);
+}
+
 static PyMethodDef PyMNNLLM_methods[] = {
     {"load", (PyCFunction)PyMNNLLM_load, METH_VARARGS, "load model."},
+    {"forward", (PyCFunction)PyMNNLLM_forward, METH_VARARGS, "forward `logits` by `input_ids`."},
     {"generate", (PyCFunction)PyMNNLLM_generate, METH_VARARGS, "generate `output_ids` by `input_ids`."},
     {"response", (PyCFunction)PyMNNLLM_response, METH_VARARGS, "response `query` without hsitory."},
+    {"tokenizer_encode", (PyCFunction)PyMNNLLM_tokenizer_encode, METH_VARARGS, "tokenizer encode."},
+    {"tokenizer_decode", (PyCFunction)PyMNNLLM_tokenizer_decode, METH_VARARGS, "tokenizer decode."},
     {NULL}  /* Sentinel */
 };
 

@@ -24,6 +24,7 @@ out/
 .gradle
 .gradle/
 build/
+buildvisionOs/
 
 # Signing files
 .signing/
