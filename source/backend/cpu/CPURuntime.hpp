@@ -21,6 +21,7 @@ struct MNNCPUInfo {
     bool dot;
     bool i8mm;
     bool sve2;
+    bool sme2;
     std::vector<CPUGroup> groups;
     int cpuNumber = 0;
 };
