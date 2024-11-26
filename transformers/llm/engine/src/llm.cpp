@@ -382,7 +382,7 @@ void Llm::tuning(TuneType type, std::vector<int> candidates) {
         if (logits->getInfo()->size == 0) {
             return;
         }
-        auto token = sample(logits, {});
+        // no need for sampling here, because metal OP does not affects much in sampling.
         auto et = std::chrono::system_clock::now();
         int64_t time = std::chrono::duration_cast<std::chrono::microseconds>(et - st).count();
         if(time < min_time) {
@@ -394,12 +394,12 @@ void Llm::tuning(TuneType type, std::vector<int> candidates) {
     runtime_manager_->setHint(MNN::Interpreter::OP_ENCODER_NUMBER_FOR_COMMIT, prefer_candidate);
 }
 
-VARP Llm::forward(const std::vector<int>& input_ids, int kv_seq_len_, int gen_seq_len_, bool is_prefill) {
+VARP Llm::forward(const std::vector<int>& input_ids, bool is_prefill) {
     if (is_prefill) current_modules_ = prefill_modules_;
     else current_modules_ = decode_modules_;
     int seq_len = input_ids.size();
-    auto attention_mask = gen_attention_mask(seq_len, kv_seq_len_, gen_seq_len_);
-    auto position_ids = gen_position_ids(seq_len, kv_seq_len_, gen_seq_len_);
+    auto attention_mask = gen_attention_mask(seq_len);
+    auto position_ids = gen_position_ids(seq_len);
     VARP logits;
     if (is_single_) {
         std::vector<MNN::Express::VARP> outputs;
@@ -420,6 +420,9 @@ VARP Llm::forward(const std::vector<int>& input_ids, int kv_seq_len_, int gen_se
         MNN_ERROR("Split models is deprecated\n");
         return nullptr;
     }
+    // sequence length is handled in forward.
+    mLlmSessionInfos[0].all_seq_len_ += seq_len;
+    mLlmSessionInfos[0].gen_seq_len_++;
     return logits;
 }
 
@@ -499,7 +502,7 @@ std::string Llm::generate(const std::string& prompt, std::ostream* os, const cha
     if (prompt.empty()) { return ""; }
     if (!end_with) { end_with = "\n"; }
     // std::cout << "# prompt : " << prompt << std::endl;
-    auto input_ids = tokenizer(prompt);
+    auto input_ids = tokenizer_encode(prompt, false);
     std::string out_str = generate(input_ids, os, end_with);
     return out_str;
 }
@@ -518,19 +521,19 @@ std::string Llm::generate(const std::vector<int>& input_ids, std::ostream* os, c
 std::string Llm::generateTrace(const std::vector<int>& input_ids, std::ostream* os, const char* end_with) {
     if (mTracing) {
         // Skip real forward
-        current_modules_ = prefill_modules_;
-        forward(input_ids, input_ids.size(), 0, true);
-        current_modules_ = decode_modules_;
-        forward({input_ids[0]}, input_ids.size() + 1, 1, false);
-        forward({input_ids[0]}, input_ids.size() + 2, 1, false);
+        forward(input_ids, true);
+        forward({input_ids[0]}, false);
+        forward({input_ids[0]}, false);
         return "Test";
     }
+    return "Test";
+}
 
 std::vector<int> Llm::tokenizer_encode(const std::string& user_content, bool use_template) {
     if (!use_template) {
         return tokenizer_->encode(user_content);
     }
-    auto prompt = apply_prompt_template(user_content);
+    auto prompt = mPromptLib->applyTemplate(user_content);
     auto input_ids = tokenizer_->encode(prompt);
     return input_ids;
 }
@@ -580,6 +583,28 @@ void Llm::print_speed() {
     printf("average prefill speed = %.3f tok/s\n", average_prefill_speed());
     printf("average  decode speed = %.3f tok/s\n", average_decode_speed());
     printf("##################################\n");
+    #if DEBUG_MODE==1
+        if (nullptr != gTimeTraceInfo) {
+            float opSummer = 0.0f;
+            float opFlopsSummber = 0.0f;
+            for (auto& iter : gTimeTraceInfo->mTypes) {
+                float summer = 0.0f;
+                float summerflops = 0.0f;
+                for (auto& t : iter.second) {
+                    for (auto& t0 : t.second) {
+                        summer += t0.first;
+                        summerflops += t0.second;
+                    }
+                }
+                summer = summer;
+                summerflops = summerflops;
+                MNN_PRINT("%s : %.7f, FLOP: %.7f, Speed: %.7f GFlops\n", iter.first.c_str(), summer, summerflops, summerflops / summer);
+                opSummer += summer;
+                opFlopsSummber+= summerflops;
+            }
+            MNN_PRINT("OP Summer: %.7f, Flops: %.7f, Speed: %.7f GFlops\n", opSummer, opFlopsSummber, opFlopsSummber/opSummer);
+        }
+    #endif
 }
 
 void Llm::print_speed(std::ostream* os) {
@@ -642,7 +667,8 @@ std::string Llm::tokenizer_decode(int id) {
     return word;
 }
 
-VARP Llm::gen_attention_mask(int seq_len, int kv_seq_len_, int gen_seq_len_) {
+VARP Llm::gen_attention_mask(int seq_len) {
+    int kv_seq_len_=mLlmSessionInfos[0].all_seq_len_+seq_len, gen_seq_len_=mLlmSessionInfos[0].gen_seq_len_;
     int prev_seq_len_ = kv_seq_len_ - seq_len;
     if (seq_len == 1) {
         kv_seq_len_ = seq_len;
@@ -691,7 +717,8 @@ VARP Llm::gen_attention_mask(int seq_len, int kv_seq_len_, int gen_seq_len_) {
     }
 }
 
-VARP Llm::gen_position_ids(int seq_len, int kv_seq_len_, int gen_seq_len_) {
+VARP Llm::gen_position_ids(int seq_len) {
+    int kv_seq_len_=mLlmSessionInfos[0].all_seq_len_+seq_len, gen_seq_len_=mLlmSessionInfos[0].gen_seq_len_;
     int prev_seq_len_ = kv_seq_len_ - seq_len;
     if (config_->attention_mask() == "glm") {
         // chatglm
@@ -790,7 +817,8 @@ std::vector<int> Lvlm::image_process(const std::string& image_info) {
 }
 
 std::vector<int> Lvlm::tokenizer_encode(const std::string& query, bool use_template) {
-    auto prompt = apply_prompt_template(query);
+    auto prompt = query;
+    if (!use_template) { prompt = mPromptLib->applyTemplate(query); }
     // split query
     std::regex img_regex("<img>(.*?)</img>");
     std::string::const_iterator searchStart(prompt.cbegin());
@@ -897,7 +925,7 @@ VARP Embedding::ids_embedding(const std::vector<int>& ids) {
 }
 
 VARP Embedding::txt_embedding(const std::string& txt) {
-    return ids_embedding(tokenizer_encode(txt));
+    return ids_embedding(tokenizer_encode(txt, false));
 }
 
 VARP Embedding::gen_attention_mask(int seq_len) {

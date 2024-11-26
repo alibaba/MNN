@@ -80,19 +80,19 @@ float TextPPLMeasurer::perplexity_one(const std::vector<int>& prompt) {
         for (int it = begin_loc; it < prev_end_loc; ++it) tokens[it - begin_loc] = prompt[it];
         mLlm->mLlmSessionInfos[0].all_seq_len_ = tokens.size();
         mLlm->mLlmSessionInfos[0].gen_seq_len_ = mLlm->mLlmSessionInfos[0].all_seq_len_;
-        auto logits = mLlm->forward(tokens, mLlm->mLlmSessionInfos[0].all_seq_len_, mLlm->mLlmSessionInfos[0].gen_seq_len_, true);
+        auto logits = mLlm->forward(tokens, true);
         logits = MNN::Express::_Softmax(logits);
         nlls.push_back(-std::log(((float*)(logits->readMap<float>()))[prompt[prev_end_loc]]));
-        // std::cout << mLlm->decode(argmax(logits)) << "  " << mLlm->decode(prompt[prev_end_loc]) << "  " << -std::log(((float*)(logits->readMap<float>()))[prompt[prev_end_loc]]) << std::endl;
+        // std::cout << mLlm->tokenizer_decode(argmax(logits)) << "  " << mLlm->tokenizer_decode(prompt[prev_end_loc]) << "  " << -std::log(((float*)(logits->readMap<float>()))[prompt[prev_end_loc]]) << std::endl;
         std::cout << -std::log(((float*)(logits->readMap<float>()))[prompt[prev_end_loc]]) << std::endl;
         // decode following tokens
         for (int it = prev_end_loc+1; it < end_loc; ++it) {
             mLlm->mLlmSessionInfos[0].all_seq_len_ += 1;
             mLlm->mLlmSessionInfos[0].gen_seq_len_ = mLlm->mLlmSessionInfos[0].all_seq_len_;
-            auto logits = mLlm->forward({prompt[it-1]},mLlm->mLlmSessionInfos[0].all_seq_len_, mLlm->mLlmSessionInfos[0].gen_seq_len_, false);
+            auto logits = mLlm->forward({prompt[it-1]}, false);
             logits = MNN::Express::_Softmax(logits);
             nlls.push_back(-std::log(((float*)(logits->readMap<float>()))[prompt[it]]));
-            // std::cout << mLlm->decode(argmax(logits)) << "  " << mLlm->decode(prompt[it]) << "  " << -std::log(((float*)(logits->readMap<float>()))[prompt[it]]) << std::endl;
+            // std::cout << mLlm->tokenizer_decode(argmax(logits)) << "  " << mLlm->tokenizer_decode(prompt[it]) << "  " << -std::log(((float*)(logits->readMap<float>()))[prompt[it]]) << std::endl;
             std::cout << -std::log(((float*)(logits->readMap<float>()))[prompt[it]]) << std::endl;
         }
         // clean up once
@@ -122,7 +122,7 @@ std::vector<float> TextPPLMeasurer::perplexity(std::vector<std::vector<int>> pro
 
 std::vector<float> TextPPLMeasurer::perplexity(std::vector<std::string> prompts) {
     std::vector<std::vector<int>> tokens(prompts.size());
-    for (int p = 0; p < prompts.size(); ++p) tokens[p] = mLlm->tokenizer(prompts[p]);
+    for (int p = 0; p < prompts.size(); ++p) tokens[p] = mLlm->tokenizer_encode(prompts[p], false);
     return perplexity(tokens);
 }
 
@@ -158,8 +158,6 @@ ChatPPLMeasurer::ChatPPLMeasurer(Llm* llm, std::shared_ptr<LlmConfig> llmConfig)
 void ChatPPLMeasurer::handleToken(int token) {
     // CommonPrefix and Candidates managements
     mLlm->mLlmSessionInfos[0].tokens.push_back(token);
-    mLlm->mLlmSessionInfos[0].all_seq_len_++;
-    mLlm->mLlmSessionInfos[0].gen_seq_len_++;
 }
 
 std::vector<float> ChatPPLMeasurer::sample(const std::vector<int>& input_ids, const std::vector<int>& prompt, struct TimePerformance* time_perf) {
@@ -172,11 +170,11 @@ std::vector<float> ChatPPLMeasurer::sample(const std::vector<int>& input_ids, co
     // initialization
     mLlm->mLlmSessionInfos[0].tokens.insert(mLlm->mLlmSessionInfos[0].tokens.end(), input_ids.begin(), input_ids.end());
     // all_seq_len_ in sampler functions as kv_seq_len_, prev_seq_len_ = all_seq_len_ - seq_len
-    mLlm->mLlmSessionInfos[0].all_seq_len_ = mLlm->mLlmSessionInfos[0].tokens.size(); 
+    mLlm->mLlmSessionInfos[0].all_seq_len_ = mLlm->mLlmSessionInfos[0].tokens.size() - input_ids.size(); 
     mLlm->mLlmSessionInfos[0].gen_seq_len_ = 0;
     // prefill 
     auto st = std::chrono::system_clock::now();
-    auto logits = mLlm->forward(input_ids, mLlm->mLlmSessionInfos[0].all_seq_len_, mLlm->mLlmSessionInfos[0].gen_seq_len_, true);
+    auto logits = mLlm->forward(input_ids, true);
     logits = MNN::Express::_Softmax(logits);
     nlls.push_back(-std::log(((float*)(logits->readMap<float>()))[prompt[mLlm->mLlmSessionInfos[0].gen_seq_len_]]));
     // record time
@@ -191,7 +189,7 @@ std::vector<float> ChatPPLMeasurer::sample(const std::vector<int>& input_ids, co
         decode_time.decode_prev_token_ = mLlm->mLlmSessionInfos[0].tokens.size();
         st = std::chrono::system_clock::now();
         // next token
-        logits = mLlm->forward({mLlm->mLlmSessionInfos[0].tokens.back()}, mLlm->mLlmSessionInfos[0].all_seq_len_, mLlm->mLlmSessionInfos[0].gen_seq_len_, false);
+        logits = mLlm->forward({mLlm->mLlmSessionInfos[0].tokens.back()}, false);
         logits = MNN::Express::_Softmax(logits);
         nlls.push_back(-std::log(((float*)(logits->readMap<float>()))[prompt[mLlm->mLlmSessionInfos[0].gen_seq_len_]]));
         et = std::chrono::system_clock::now();
@@ -212,9 +210,9 @@ float ChatPPLMeasurer::perplexity_one(const std::vector<std::vector<PromptItem>>
     mLlm->reset();
     for (auto& turn : prompt) {
         mLlm->mPromptLib->appendUserPrompt(turn[0].second);
-        std::vector<int> input_ids = mLlm->tokenizer(mLlm->mPromptLib->getLLMInput());
+        std::vector<int> input_ids = mLlm->tokenizer_encode(mLlm->mPromptLib->getLLMInput(), false);
         mLlm->generate_init();
-        auto turn_nlls = sample(input_ids, mLlm->tokenizer(turn[1].second), &(mLlm->mLlmSessionInfos[0].mTimePerformance));
+        auto turn_nlls = sample(input_ids, mLlm->tokenizer_encode(turn[1].second, false), &(mLlm->mLlmSessionInfos[0].mTimePerformance));
         nlls.insert(nlls.end(), turn_nlls.begin(), turn_nlls.end());
         mLlm->mPromptLib->appendLLMOutput(turn[1].second);
     }
@@ -262,8 +260,8 @@ void ChatPPLMeasurer::getStats(const std::vector<std::vector<std::vector<PromptI
         float decode_len_turn = 0;
         for (auto& turn : dialog) {
             // turn: prefill, decode
-            int prefill_len = mLlm->tokenizer(turn[0].second).size();
-            int decode_len = mLlm->tokenizer(turn[1].second).size();
+            int prefill_len = mLlm->tokenizer_encode(turn[0].second, false).size();
+            int decode_len = mLlm->tokenizer_encode(turn[1].second, false).size();
             prefill_len_turn += prefill_len;
             decode_len_turn += decode_len;
             average_total_tokens += prefill_len + decode_len;

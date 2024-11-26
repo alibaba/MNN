@@ -23,6 +23,8 @@ protected:
 public:
     static PromptLib* createPromptLib(Llm* llm, const std::string& config_path);
     static PromptLib* createPromptLib(Llm* llm, std::shared_ptr<LlmConfig> config);
+    virtual std::string applyTemplate(std::string user_content) = 0;
+    virtual std::string getAssistantSuffix() const = 0;
     virtual void appendSystemPrompt(const std::string sys_prompt) = 0;
     virtual void appendSystemPrompt() = 0;
     virtual void appendUserPrompt(const std::string use_prompt) = 0;
@@ -43,6 +45,8 @@ protected:
     std::string applyTemplates(std::vector<PromptItem> inputs);
 public:
     BaseChatPromptLib(Llm* llm, std::shared_ptr<LlmConfig> config);
+    virtual std::string applyTemplate(std::string user_content) override;
+    virtual std::string getAssistantSuffix() const override;
     virtual void appendSystemPrompt(const std::string sys_prompt) override;
     virtual void appendSystemPrompt() override;
     virtual void appendUserPrompt(const std::string user_prompt) override;

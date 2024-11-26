@@ -39,8 +39,9 @@ struct TimePerformance;
 
 class MNN_PUBLIC LlmSessionInfo {
 public:
-    // Sampler needs
+    // Llm::forward needs, for mask and embedding.
     int all_seq_len_=0, gen_seq_len_=0;
+    // Sampler needs
     std::vector<int> tokens;
     // PromptLib needs
     std::vector<PromptItem> mHistory;
@@ -86,7 +87,7 @@ public:
     void trace(bool start);
     void tuning(TuneType type, std::vector<int> candidates);
     virtual void load();
-    MNN::Express::VARP forward(const std::vector<int>& input_ids, int kv_seq_len_, int gen_seq_len_, bool is_prefill);
+    MNN::Express::VARP forward(const std::vector<int>& input_ids, bool is_prefill=true);
     std::string response(const std::string& user_content, std::ostream* os = &std::cout, const char* end_with = nullptr);
     std::string generate(const std::string& prompt, std::ostream* os = &std::cout, const char* end_with = "\n");
     std::string generate(const std::vector<int>& input_ids, std::ostream* os = &std::cout, const char* end_with = "\n");
@@ -111,9 +112,9 @@ public:
 public:
     bool is_single_ = true;
     bool attention_fused_ = true;
-    bool is_stop(int token_id);
     bool reuse_kv() const;
 public:
+    // time profile
     float average_total_speed();
     float average_prefill_speed();
     float average_decode_speed();
@@ -134,8 +135,8 @@ protected:
     const MNN::Express::Module* base_module_ = nullptr;
     void init_runtime();
     virtual MNN::Express::VARP embedding(const std::vector<int>& input_ids);
-    virtual MNN::Express::VARP gen_attention_mask(int seq_len, int kv_seq_len_, int gen_seq_len_);
-    virtual MNN::Express::VARP gen_position_ids(int seq_len, int kv_seq_len_, int gen_seq_len);
+    virtual MNN::Express::VARP gen_attention_mask(int seq_len);
+    virtual MNN::Express::VARP gen_position_ids(int seq_len);
     bool mTracing = false;
 protected:
     bool getUserPrompt(bool from_file, std::istream* is, std::string& user_str);
@@ -154,8 +155,8 @@ public:
     MNN::Express::VARP txt_embedding(const std::string& txt);
     int dim() const;
 private:
-    virtual MNN::Express::VARP gen_attention_mask(int seq_len);
-    virtual MNN::Express::VARP gen_position_ids(int seq_len);
+    virtual MNN::Express::VARP gen_attention_mask(int seq_len) override;
+    virtual MNN::Express::VARP gen_position_ids(int seq_len) override;
 };
 // Embedding end
 }

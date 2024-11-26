@@ -483,9 +483,7 @@ int LocalSampler::algorithm(MNN::Express::VARP logits) {
 std::string LocalSampler::handleToken(int token, std::ostream* os, const char* end_with) {
     // CommonPrefix and Candidates managements
     mLlm->mLlmSessionInfos[0].tokens.push_back(token);
-    mLlm->mLlmSessionInfos[0].all_seq_len_++;
-    mLlm->mLlmSessionInfos[0].gen_seq_len_++;
-    std::string output_str = mLlm->decode(mLlm->mLlmSessionInfos[0].tokens.back());
+    std::string output_str = mLlm->tokenizer_decode(mLlm->mLlmSessionInfos[0].tokens.back());
     // print
     *os << output_str << std::flush;
     return output_str;
@@ -501,11 +499,11 @@ std::string LocalSampler::sample(const std::vector<int>& input_ids, std::ostream
     std::string output_str; 
     mLlm->mLlmSessionInfos[0].tokens.insert(mLlm->mLlmSessionInfos[0].tokens.end(), input_ids.begin(), input_ids.end());
     // all_seq_len_ in sampler functions as kv_seq_len_, prev_seq_len_ = all_seq_len_ - seq_len
-    mLlm->mLlmSessionInfos[0].all_seq_len_ = mLlm->mLlmSessionInfos[0].tokens.size(); 
+    mLlm->mLlmSessionInfos[0].all_seq_len_ = mLlm->mLlmSessionInfos[0].tokens.size() - input_ids.size(); 
     mLlm->mLlmSessionInfos[0].gen_seq_len_ = 0;
     // prefill 
     auto st = std::chrono::system_clock::now();
-    auto logits = mLlm->forward(input_ids, mLlm->mLlmSessionInfos[0].all_seq_len_, mLlm->mLlmSessionInfos[0].gen_seq_len_, true);
+    auto logits = mLlm->forward(input_ids, true);
     if (nullptr == logits.get()) {
         return "";
     }
@@ -523,7 +521,7 @@ std::string LocalSampler::sample(const std::vector<int>& input_ids, std::ostream
         decode_time.decode_prev_token_ = mLlm->mLlmSessionInfos[0].tokens.size();
         st = std::chrono::system_clock::now();
         // next token
-        logits = mLlm->forward({mLlm->mLlmSessionInfos[0].tokens.back()}, mLlm->mLlmSessionInfos[0].all_seq_len_, mLlm->mLlmSessionInfos[0].gen_seq_len_, false);
+        logits = mLlm->forward({mLlm->mLlmSessionInfos[0].tokens.back()}, false);
         if (nullptr == logits.get()) {
             return output_str;
         }

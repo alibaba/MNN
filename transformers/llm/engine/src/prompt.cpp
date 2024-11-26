@@ -95,5 +95,16 @@ std::string BaseChatPromptLib::applyTemplates(std::vector<PromptItem> inputs) {
     return input_str;
 }
 
+std::string BaseChatPromptLib::applyTemplate(std::string user_content) {
+    std::vector<PromptItem> prompts;
+    prompts.push_back(std::make_pair("system", mDefaultSystemPrompt));
+    prompts.push_back(std::make_pair("user", user_content));
+    return applyTemplates(prompts) + mAssistantPrefix;
+}
+
+std::string BaseChatPromptLib::getAssistantSuffix() const {
+    return mAssistantSuffix;
+}
+
 }
 }

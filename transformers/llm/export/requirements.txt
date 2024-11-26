@@ -1,5 +1,5 @@
 datasets==2.18.0
-MNN==2.9.6
+MNN==3.0.0
 onnx==1.16.2
 onnxslim==0.1.34
 onnxruntime==1.19.2
