@@ -69,5 +69,5 @@ if((CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64" OR CMAKE_SYSTEM_PROCESSOR STREQUAL
     set_source_files_properties(${KLEIDIAI_FILES_SCALAR}       PROPERTIES COMPILE_OPTIONS -march=armv8-a)
     set_source_files_properties(${KLEIDIAI_FILES_NEON_DOTPROD} PROPERTIES COMPILE_OPTIONS -march=armv8.2-a+dotprod)
     set_source_files_properties(${KLEIDIAI_FILES_NEON_I8MM}    PROPERTIES COMPILE_OPTIONS -march=armv8.2-a+i8mm)
-    set_source_files_properties(${KLEIDIAI_FILES_SME2_MOPA}    PROPERTIES COMPILE_OPTIONS -march=armv9.2-a+sme2)
+    set_source_files_properties(${KLEIDIAI_FILES_SME2_MOPA}    PROPERTIES COMPILE_OPTIONS -march=armv8.2-a+sve2)
 endif()
