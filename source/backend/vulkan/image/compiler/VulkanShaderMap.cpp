@@ -44,6 +44,7 @@ mMaps.insert(std::make_pair("glsl_unaryImage_LOG1P_comp", std::make_pair(glsl_un
 mMaps.insert(std::make_pair("glsl_unaryImage_ROUND_comp", std::make_pair(glsl_unaryImage_ROUND_comp,glsl_unaryImage_ROUND_comp_len)));
 mMaps.insert(std::make_pair("glsl_unaryImage_HARDSWISH_comp", std::make_pair(glsl_unaryImage_HARDSWISH_comp,glsl_unaryImage_HARDSWISH_comp_len)));
 mMaps.insert(std::make_pair("glsl_unaryImage_GELU_comp", std::make_pair(glsl_unaryImage_GELU_comp,glsl_unaryImage_GELU_comp_len)));
+mMaps.insert(std::make_pair("glsl_unaryImage_SILU_comp", std::make_pair(glsl_unaryImage_SILU_comp,glsl_unaryImage_SILU_comp_len)));
 mMaps.insert(std::make_pair("glsl_im2col_comp", std::make_pair(glsl_im2col_comp,glsl_im2col_comp_len)));
 mMaps.insert(std::make_pair("glsl_convolutionDepthwise_comp", std::make_pair(glsl_convolutionDepthwise_comp,glsl_convolutionDepthwise_comp_len)));
 mMaps.insert(std::make_pair("glsl_convolutionDepthwise_RELU_comp", std::make_pair(glsl_convolutionDepthwise_RELU_comp,glsl_convolutionDepthwise_RELU_comp_len)));
@@ -107,6 +108,9 @@ mMaps.insert(std::make_pair("glsl_binary_blit_POW_comp", std::make_pair(glsl_bin
 mMaps.insert(std::make_pair("glsl_binary_blit_VMAX_comp", std::make_pair(glsl_binary_blit_VMAX_comp,glsl_binary_blit_VMAX_comp_len)));
 mMaps.insert(std::make_pair("glsl_binary_blit_VMIN_comp", std::make_pair(glsl_binary_blit_VMIN_comp,glsl_binary_blit_VMIN_comp_len)));
 mMaps.insert(std::make_pair("glsl_binary_blit_SQUDIFF_comp", std::make_pair(glsl_binary_blit_SQUDIFF_comp,glsl_binary_blit_SQUDIFF_comp_len)));
+mMaps.insert(std::make_pair("glsl_convolutionDepthwise_s1d1_w2_comp", std::make_pair(glsl_convolutionDepthwise_s1d1_w2_comp,glsl_convolutionDepthwise_s1d1_w2_comp_len)));
+mMaps.insert(std::make_pair("glsl_convolutionDepthwise_s1d1_w2_RELU_comp", std::make_pair(glsl_convolutionDepthwise_s1d1_w2_RELU_comp,glsl_convolutionDepthwise_s1d1_w2_RELU_comp_len)));
+mMaps.insert(std::make_pair("glsl_convolutionDepthwise_s1d1_w2_RELU6_comp", std::make_pair(glsl_convolutionDepthwise_s1d1_w2_RELU6_comp,glsl_convolutionDepthwise_s1d1_w2_RELU6_comp_len)));
 mMaps.insert(std::make_pair("glsl_matmul_output_comp", std::make_pair(glsl_matmul_output_comp,glsl_matmul_output_comp_len)));
 mMaps.insert(std::make_pair("glsl_matmul_output_BIAS_comp", std::make_pair(glsl_matmul_output_BIAS_comp,glsl_matmul_output_BIAS_comp_len)));
 mMaps.insert(std::make_pair("glsl_matmul_output_TRANSPOSE_comp", std::make_pair(glsl_matmul_output_TRANSPOSE_comp,glsl_matmul_output_TRANSPOSE_comp_len)));

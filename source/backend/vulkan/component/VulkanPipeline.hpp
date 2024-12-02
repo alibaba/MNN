@@ -176,6 +176,7 @@ public:
     ~VulkanPipelineFactory();
     const VulkanPipeline* getPipeline(const std::string& key, const std::vector<VkDescriptorType>& types,
                                       const std::vector<uint32_t>& localSize = std::vector<uint32_t>(), const bool separate = false) const;
+    SharedPtr<VulkanPipeline> getPrivatePipeline(const std::string& key, const std::vector<VkDescriptorType>& types);
     VulkanPipeline* createGraphicPipeline(SharedPtr<VulkanLayout> layout, VulkanGraphicPipelineCache* cache) const;
     VulkanPipeline* createComputePipeline(const uint8_t* data, size_t dataSize, const std::vector<VkDescriptorType>& types, const std::vector<uint32_t>& localSize) const;
     SharedPtr<VulkanShaderModule> createShader(const std::string& key) const;
@@ -183,8 +184,8 @@ public:
 private:
     const VulkanDevice& mDevice;
     mutable std::map<std::string, SharedPtr<VulkanPipeline>> mPipelines;
+    mutable std::map<const uint32_t *, SharedPtr<VulkanShaderModule>> mComputeShaderModules;
     SharedPtr<VulkanPipelineCache> mCache;
-
     std::shared_ptr<VulkanShaderMap> mStorage;
 };
 } // namespace MNN

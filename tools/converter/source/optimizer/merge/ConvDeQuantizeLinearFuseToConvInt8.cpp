@@ -568,6 +568,7 @@ static auto gRegister = []() { // convInt8->(relu)->quant->cast->dequant->convIn
         // generate a new oher op.
         std::unique_ptr<OpT> oldOtherOp(quantExpr->get()->UnPack());
         auto newop_expr = Expr::create(oldOtherOp.get(), quantExpr->inputs());
+        newop_expr->setName(expr->name());
         Expr::replace(expr, newop_expr);
         return true;
         

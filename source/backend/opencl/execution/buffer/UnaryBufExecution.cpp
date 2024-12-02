@@ -244,6 +244,8 @@ public:
                     return new UnaryBufExecution("expm1(convert_float4(in))", op, backend);
                 case UnaryOpOperation_SIGMOID:
                     return new UnaryBufExecution("native_recip((float4)1+native_exp(convert_float4(-in)))", op, backend);
+                case UnaryOpOperation_SILU:
+                    return new UnaryBufExecution("(convert_float4(in)*native_recip((float4)1+native_exp(convert_float4(-in))))", op, backend);
                 case UnaryOpOperation_TANH:
                     return new UnaryBufExecution("tanh(convert_float4(in))", op, backend);
                 case UnaryOpOperation_HARDSWISH:

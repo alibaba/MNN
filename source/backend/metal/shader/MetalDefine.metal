@@ -56,6 +56,7 @@ typedef float3x4 FLOAT3x4;
 typedef float4x2 FLOAT4x2;
 typedef float4x3 FLOAT4x3;
 typedef float4x4 FLOAT4x4;
+typedef simdgroup_float8x8 simdgroup_T8x8;
 #else
 typedef half     FLOAT;
 typedef half2    FLOAT2;
@@ -70,6 +71,7 @@ typedef half3x4  FLOAT3x4;
 typedef half4x2  FLOAT4x2;
 typedef half4x3  FLOAT4x3;
 typedef half4x4  FLOAT4x4;
+typedef simdgroup_half8x8 simdgroup_T8x8;
 #endif
 
 namespace MNN {

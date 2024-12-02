@@ -88,6 +88,10 @@ const VulkanPipeline* VulkanBackend::getPipeline(const std::string& key, const s
     return mRuntime->mPipelineFactory->getPipeline(key, types, localSize);
 }
 
+SharedPtr<VulkanPipeline> VulkanBackend::getPrivatePipeline(const std::string& key, const std::vector<VkDescriptorType>& types) {
+    return mRuntime->mPipelineFactory->getPrivatePipeline(key, types);
+}
+
 bool VulkanBackend::_supportImageSize(const Tensor* MTensor) {
     auto format = TensorUtils::getDescribe(MTensor)->dimensionFormat;
     if (format != MNN_DATA_FORMAT_NC4HW4) {

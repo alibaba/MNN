@@ -37,6 +37,14 @@ ErrorCode CPUBinary::onResize(const std::vector<Tensor*>& inputs, const std::vec
         mActivationExe.reset(new CPURelu(backend(), 0.0));
         mActivationExe->onResize(outputs, outputs);
     }
+    const int threads = static_cast<CPUBackend*>(backend())->threadNumber();
+    if (static_cast<CPUBackend*>(backend())->getTensorSize(outputs[0], false) < LAUNCH_MULTI_THREADS_WORKLOAD) {
+        mThreadNum = 1;
+        mWorkDiv = mTotalSize;
+    } else {
+        mThreadNum = threads;
+        mWorkDiv = UP_DIV(mTotalSize, threads);
+    }
     return NO_ERROR;
 }
 
@@ -44,8 +52,7 @@ ErrorCode CPUBinary::onExecute(const std::vector<Tensor*>& inputs, const std::ve
     auto input  = inputs[0];
     auto input1 = inputs[1];
     auto output = outputs[0];
-    
-    auto schedule = ((CPUBackend*)backend())->multiThreadDivide(mTotalSize);
+
     auto input0Ptr = input->host<uint8_t>();
     auto input1Ptr = input1->host<uint8_t>();
     
@@ -60,12 +67,10 @@ ErrorCode CPUBinary::onExecute(const std::vector<Tensor*>& inputs, const std::ve
         outBytes = static_cast<CPUBackend*>(backend())->functions()->bytes;
     }
     auto precision = static_cast<CPUBackend*>(backend())->precisionMode();
-    MNN_CONCURRENCY_BEGIN(tId, schedule.second) {
-        int start = schedule.first * (int)tId;
-        int realSize = schedule.first;
-        if (tId == schedule.second -1 ) {
-            realSize = mTotalSize - start;
-        }
+    
+    MNN_CONCURRENCY_BEGIN(tId, mThreadNum) {
+        int start = tId * mWorkDiv;
+        int realSize = ALIMIN(mWorkDiv, mTotalSize - start);
         if (realSize > 0) {
             auto inp0 = input0Ptr + start * inpBytes;
             auto inp1 = input1Ptr + start * inpBytes;

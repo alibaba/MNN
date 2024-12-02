@@ -33,14 +33,16 @@ warnings.filterwarnings("ignore")
 logging.basicConfig(level=logging.ERROR)
 os.environ['TOKENIZERS_PARALLELISM'] = 'false'
 
-def spinner_run(text='Processing...'):
+def spinner_run(text='Processing...', hide=False):
     def decorator(func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             with yaspin(text=text, color="cyan") as spinner:
                 start = time.time()
                 try:
+                    if hide: spinner.hide()
                     result = func(*args, **kwargs)
+                    if hide: spinner.show()
                 except Exception as e:
                     spinner.fail("💥 Failed")
                     traceback.print_exc()
@@ -1370,6 +1372,20 @@ class MNNConveter:
         self.convert(convert_args)
         return mnn_path
 
+    def removeDupOps(self, mnn_path):
+        convert_args = [
+            '',
+            '-f',
+            'MNN',
+            '--modelFile',
+            str(mnn_path),
+            '--MNNModel',
+            str(mnn_path),
+            '--optimizeLevel=1'
+        ]
+        self.convert(convert_args)
+        return mnn_path
+
     def export(self, quant_bit = None, quant_block = None):
         if self.weight_ops is None:
             if quant_bit is None:
@@ -1392,24 +1408,28 @@ class MNNConveter:
             self.mnn2json(self.mnn_model_path, mnn_json)
             self.rebuild(mnn_json)
             self.json2mnn(mnn_json, self.mnn_model_path)
+            self.removeDupOps(self.mnn_model_path)
 
-    @spinner_run(f'quant model weight to ')
+    @spinner_run(f'quant model weight to ', True)
     def rebuild(self, json_path):
-        self.mnn_weight = open(self.mnn_weight_path, 'wb')
         mnn_graph = json.load(open(json_path, 'rt'))
         new_ops = []
-        for op in mnn_graph['oplists']:
-            if op['type'] == 'Extra':
-                new_ops += self.rebuild_op(op, mnn_graph)
-            else:
-                new_ops.append(op)
+        with open(self.mnn_weight_path, 'wb') as self.mnn_weight:
+            for op in tqdm(mnn_graph['oplists'], 'Quant weights'):
+                if op['type'] == 'Extra':
+                    new_ops += self.rebuild_op(op, mnn_graph)
+                else:
+                    new_ops.append(op)
         mnn_graph['oplists'] = new_ops
         with open(json_path, 'w', encoding='utf-8') as file:
             json.dump(mnn_graph, file, ensure_ascii=False, indent=4)
         return self.mnn_weight_path
 
     def quant(self, weight, quant_bit, quant_block, symmetric):
-        weight = weight.numpy()
+        if torch.cuda.is_available():
+            weight = weight.cuda()
+        if torch.mps.is_available():
+            weight = weight.to('mps')
         oc, ic = weight.shape
         if quant_block == 0:
             block_size = ic
@@ -1421,34 +1441,39 @@ class MNNConveter:
         clip_max = offset - 1
         if symmetric:
             clip_min = -clip_max
-            abs_max = np.max(np.abs(weight), axis=-1, keepdims=True)
+            abs_max, _ = torch.max(torch.abs(weight), axis=-1, keepdims=True)
             scale = abs_max / clip_max
-            q_weight = np.round(weight / scale)
-            q_weight = (np.clip(q_weight.flatten(), clip_min, clip_max) + offset).astype(np.uint8)
+            q_weight = torch.round(weight / scale)
+            q_weight = (torch.clamp(q_weight.flatten(), clip_min, clip_max) + offset).to(torch.uint8)
             alpha = scale.flatten()
         else:
             clip_min = -offset
-            max_val = np.max(weight, axis=-1, keepdims=True)
-            min_val = np.min(weight, axis=-1, keepdims=True)
+            max_val, _ = torch.max(weight, axis=-1, keepdims=True)
+            min_val, _ = torch.min(weight, axis=-1, keepdims=True)
             scale = (max_val - min_val) / (clip_max - clip_min)
 
             if False:
                 q_weight = np.round((weight - min_val) / scale) + clip_min
                 zeros =  min_val - scale * clip_min
             else:
-                q_weight = np.round(weight / scale) - np.round(min_val / scale) + clip_min
-                zeros =  (np.round(min_val / scale) - clip_min) * scale
-            q_weight = (np.clip(q_weight.flatten(), clip_min, clip_max) + offset).astype(np.uint8)
-            alpha = np.stack([zeros.flatten(), scale.flatten()], axis=-1).flatten()
+                q_weight = torch.round(weight / scale) - torch.round(min_val / scale) + clip_min
+                zeros =  (torch.round(min_val / scale) - clip_min) * scale
+            q_weight = (torch.clamp(q_weight.flatten(), clip_min, clip_max) + offset).to(torch.uint8)
+            alpha = torch.stack([zeros.flatten(), scale.flatten()], axis=-1).flatten()
 
         q_weight = q_weight.reshape(-1, 2)
         if quant_bit == 4:
             q_weight = q_weight[:, 0] * 16 + q_weight[:, 1]
 
         clip_min = 1
-        return q_weight, alpha, clip_min
 
-    def write_npy(self, data):
+        if q_weight.device is not torch.device('cpu'):
+            return q_weight.cpu(), alpha.float().cpu(), clip_min
+        return q_weight, alpha.float(), clip_min
+
+    def write_weight(self, data):
+        if isinstance(data, torch.Tensor):
+            data = data.numpy()
         return self.mnn_weight.write(data.tobytes())
 
     def write_header(self, ic, oc, quant_bit):
@@ -1456,36 +1481,36 @@ class MNNConveter:
         shape_dtype = np.int16
         if oc > 65535 or ic > 65535:
             shape_dtype = np.int32
-        dim_length = self.write_npy(np.array([oc, ic]).astype(shape_dtype))
+        dim_length = self.write_weight(np.array([oc, ic]).astype(shape_dtype))
         offset = 1 << (quant_bit - 1)
         weight_map = [i for i in range(-offset, offset)]
         if len(weight_map) == 256:
             weight_map.insert(0, 0)
         else:
             weight_map.insert(0, len(weight_map))
-        map_length = self.write_npy(np.array(weight_map, dtype=np.int8))
+        map_length = self.write_weight(np.array(weight_map, dtype=np.int8))
         header_length = dim_num + dim_length + map_length
         return header_length, shape_dtype == np.int32
 
     def build_weight(self, linear, quant_bit, quant_block, symmetric):
         ic, oc = linear.in_features, linear.out_features
         if quant_bit == 16:
-            half_weight = linear.weight.data.half().flatten().numpy()
-            weight_len = self.write_npy(half_weight)
+            half_weight = linear.weight.data.flatten().half()
+            weight_len = self.write_weight(half_weight)
             alpha_len, q_min, shape_int32 = 0, 0, False
         else:
             assert(quant_bit in (4, 8))
             q_weight, alpha, q_min = self.quant(linear.weight.data, quant_bit, quant_block, symmetric)
             header_len, shape_int32 = self.write_header(ic, oc, quant_bit)
-            weight_len = self.write_npy(q_weight) + header_len
-            alpha_len = self.write_npy(alpha)
+            weight_len = self.write_weight(q_weight) + header_len
+            alpha_len = self.write_weight(alpha)
         if linear.bias is not None:
-            bias = linear.bias.data.flatten().numpy()
-            bias_length = self.write_npy(bias)
+            bias = linear.bias.data.flatten().float()
+            bias_length = self.write_weight(bias)
         else:
             bias_length = 0
             # bias = np.zeros([oc], dtype=np.float32)
-            # bias_length = self.write_npy(bias)
+            # bias_length = self.write_weight(bias)
         external = [self.mnn_weight_offset, weight_len, alpha_len, bias_length, 0]
         self.mnn_weight_offset += (weight_len + alpha_len + bias_length)
         return external, q_min, shape_int32, header_len
@@ -2257,15 +2282,15 @@ class LlmExporter(torch.nn.Module):
         self.tokenizer = AutoTokenizer.from_pretrained(self.tokenizer_path, trust_remote_code=True, use_fast=False)
         if 'Qwen2-VL' in model_path:
             from transformers import Qwen2VLForConditionalGeneration
-            self.model = Qwen2VLForConditionalGeneration.from_pretrained(model_path).float().eval()
+            self.model = Qwen2VLForConditionalGeneration.from_pretrained(model_path, torch_dtype='auto').eval()
         elif 'Llama-3.2' in model_path and 'Vision' in model_path:
             from transformers import MllamaForConditionalGeneration
-            self.model = MllamaForConditionalGeneration.from_pretrained(model_path).float().eval()
+            self.model = MllamaForConditionalGeneration.from_pretrained(model_path, torch_dtype='auto').eval()
         else:
             try:
-                self.model = AutoModelForCausalLM.from_pretrained(model_path, trust_remote_code=True).float().eval()
+                self.model = AutoModelForCausalLM.from_pretrained(model_path, torch_dtype='auto', trust_remote_code=True).eval()
             except:
-                self.model = AutoModel.from_pretrained(model_path, trust_remote_code=True).float().eval()
+                self.model = AutoModel.from_pretrained(model_path, torch_dtype='auto', trust_remote_code=True).eval()
         self.config = self.model.config
         if self.lora_path is not None:
             from peft import PeftModel
@@ -2276,7 +2301,7 @@ class LlmExporter(torch.nn.Module):
     def has_attr(obj, attr):
         return hasattr(obj, attr) and getattr(obj, attr) is not None
 
-    @spinner_run(f'load pretrained model ')
+    @spinner_run(f'load pretrained model ', True)
     def load_model(self, model_path):
         self.load_pretrained(model_path)
         self.attention_mask_type = 'float'
@@ -2301,6 +2326,16 @@ class LlmExporter(torch.nn.Module):
 
         self.tie_word_embeddings = (hasattr(self.config, 'tie_word_embeddings') and self.config.tie_word_embeddings)
         self.model_type, self.model_map = model_mapper.get_map(self.config)
+        if self.awq:
+            self.model.float()
+        else:
+            # set norm's weight as float for export
+            def visit_module(module):
+                if not isinstance(module, torch.nn.Linear) and hasattr(module, 'weight'):
+                    module.float()
+                for name, child in module.named_children():
+                    visit_module(child)
+            visit_module(self.model)
         # print(self.config, self.model_type, self.model_map, self.model)
         # load config info
         ModelMapper.do_map(self, self.config, self.model_map['config'])
@@ -2361,6 +2396,7 @@ class LlmExporter(torch.nn.Module):
         self.lm = Lm(self.lm_, self.final_layernorm_, self)
         # visual model
         if self.visual is not None:
+            self.visual.float()
             self.visual = Visual.get_visual(self.model_type)(self.visual, self)
         return model_path
 
@@ -2435,7 +2471,7 @@ class LlmExporter(torch.nn.Module):
     # some test functions
     def build_prompt(self, query):
         # just for test
-        if 'Qwen2' in self.path or 'reader' in self.path:
+        if 'Qwen2' in self.path or 'QwQ' in self.path or 'reader' in self.path:
             return f'<|im_start|>user\n{query}<|im_end|>\n<|im_start|>assistant\n'
         if 'Qwen' in self.path:
             return f'\n<|im_start|>user\n{query}<|im_end|>\n<|im_start|>assistant\n'
@@ -2704,8 +2740,10 @@ class LlmExporter(torch.nn.Module):
             MNNConveter(onnx_model, self.unloaded_ops, self).export()
             # delete onnx file
             if os.path.exists(onnx_model):
+                import glob
                 try:
-                    os.remove(onnx_model)
+                    for file in glob.glob(f'{self.onnx_path}/*'):
+                        os.remove(file)
                     os.rmdir(self.onnx_path)
                 except Exception as e:
                     print(f"remove onnx error: {e}")

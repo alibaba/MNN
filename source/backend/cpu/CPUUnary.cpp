@@ -368,6 +368,13 @@ MNNUnaryExecute CPUUnary::selectForFloat(int type, int precision) {
                 return (MNNUnaryExecute)MNNSigmoid;
             }
             break;
+        case UnaryOpOperation_SILU:
+            if (BackendConfig::Precision_Low == precision) {
+                return (MNNUnaryExecute)MNNSiLuLowp;
+            } else {
+                return (MNNUnaryExecute)MNNSiLu;
+            }
+            break;
         case UnaryOpOperation_TANH:
             return (MNNUnaryExecute)MNNTanh;
         case UnaryOpOperation_TAN:
@@ -549,6 +556,7 @@ public:
             proc = selectForInt(op->main_as_UnaryOp()->opType());
         } else if (type.code == halide_type_float) {
             proc = core->MNNSelectUnaryFunctionForFloat(op->main_as_UnaryOp()->opType(), static_cast<CPUBackend*>(backend)->precisionMode());
+           
         }
         if (nullptr == proc && nullptr == procInt8 && nullptr == op->main_as_UnaryOp()->tableInt8()) {
             MNN_ERROR("ERROR: Unary Op can not execute\n");

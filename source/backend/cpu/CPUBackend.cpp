@@ -48,8 +48,8 @@ ErrorCode CastWrapExecution::onExecute(const std::vector<Tensor*>& inputs, const
     CPUCastCreator::cast(inputs[0], outputs[0], cpuBackend, convertType);
     return NO_ERROR;
 }
-void CPUBackend::computeDivideSizes(int size, int* dst) const {
-    if (mGroupWithComputeRate.size() <= 1) {
+void CPUBackend::computeDivideSizes(int size, int* dst, float avgDiv) const {
+    if (mGroupWithComputeRate.size() <= 1 || (avgDiv > 0 && avgDiv < mComputeI)) {
         // Avg divide
         int length = UP_DIV(size, mThreadNumber);
         int cur = length;
@@ -60,6 +60,7 @@ void CPUBackend::computeDivideSizes(int size, int* dst) const {
         }
         return;
     }
+
     int cur = 0;
     int curPos = 0;
     for (auto& group : mGroupWithComputeRate) {
@@ -379,11 +380,17 @@ CPUBackend::CPUBackend(const CPURuntime* runtime, BackendConfig::PrecisionMode p
         if (cpuInfo->groups.size() < 2) {
             break;
         }
+        if (cpuInfo->i8mm) {
+            mComputeI = 28.f;
+        } else if (cpuInfo->dot) {
+            mComputeI = 14.f;
+        } else {
+            mComputeI = 7.f;
+        }
         mGroupWithComputeRate.clear();
         float decreaseRate = (float)(rate) / 100.0f;
         int validCpuSize = (int)(cpuInfo->groups[cpuInfo->groups.size()-1].ids.size());
         int groupIndex = (int)cpuInfo->groups.size()-2;
-        float maxFreq = (float)cpuInfo->groups[cpuInfo->groups.size()-1].maxFreq;
         validCpuSize = ALIMIN(validCpuSize, mThreadNumber);
         float totalComputeRate = 1.0f * validCpuSize;
         mGroupWithComputeRate.emplace_back(std::make_pair(totalComputeRate, validCpuSize));

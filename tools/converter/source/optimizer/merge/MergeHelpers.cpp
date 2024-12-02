@@ -91,6 +91,11 @@ bool IsUnaryOp(EXPRP expr) {
     return op && op->type() == OpType_UnaryOp;
 }
 
+bool IsLayerNorm(EXPRP expr) {
+    const Op* op = expr->get();
+    return op && op->type() == OpType_LayerNorm;
+}
+
 #define IS_BINARY_OP_TYPE(op_type)                        \
     if (!IsBinaryOp(expr)) {                              \
         return false;                                     \

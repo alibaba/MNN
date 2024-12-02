@@ -39,6 +39,7 @@ public:
     const VulkanPipelineFactory* getPipelineFactory() const;
     const VulkanPipeline* getPipeline(const std::string& key, const std::vector<VkDescriptorType>& types,
                                       const std::vector<uint32_t>& localSize = std::vector<uint32_t>()) const;
+    SharedPtr<VulkanPipeline> getPrivatePipeline(const std::string& key, const std::vector<VkDescriptorType>& types);
 
     const VulkanCommandPool& getPool() const {
         return (* mRuntime->mCmdPool);

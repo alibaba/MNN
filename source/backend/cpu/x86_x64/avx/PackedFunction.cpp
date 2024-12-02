@@ -241,7 +241,7 @@ void _AVX_MNNDeconvRunForLineDepthwise(const float* dst, float* src, const float
     }
 }
 
-void _AVX_MNNGridSampleComputeCord(float* dst, const float* src, size_t inH, size_t inW, size_t outH, size_t outW, size_t stride, bool alignCorners) {
+void _AVX_MNNGridSampleComputeCord(float* dst, const float* src, size_t inH, size_t inW, size_t outH, size_t outW, bool alignCorners) {
     __m256 zero = _mm256_setzero_ps();
     __m256 one = _mm256_set1_ps(1);
     __m256 half = _mm256_set1_ps(0.5f);
@@ -372,15 +372,22 @@ void _AVX_MNNRoiAlignAvg(float* dst, const float* src, const std::vector<std::ve
     }
 }
 
-void _AVX_MNNGridSampleComputeCord3D(float* dst, const float* src, size_t inD, size_t inH, size_t inW, size_t outD, size_t outH, size_t outW, size_t strideD, size_t strideH, bool alignCorners) {
-    __m256 zero = _mm256_setzero_ps();
-    __m256 one = _mm256_set1_ps(1);
-    __m256 half = _mm256_set1_ps(0.5f);
-    __m256 a = alignCorners ? one : zero;
-    __m256 b = alignCorners ? zero : one;
-    __m256 in0 = _mm256_set_ps(inH, inW, inD, inH, inW, inD, inH, inW);
-    __m256 in1 = _mm256_set_ps(inW, inD, inH, inW, inD, inH, inW, inD);
-    __m256 in2 = _mm256_set_ps(inD, inH, inW, inD, inH, inW, inD, inH);
+void _AVX_MNNGridSampleComputeCord3D(float* dst, const float* src, size_t inD, size_t inH, size_t inW, size_t outD, size_t outH, size_t outW, bool alignCorners) {
+    float a = alignCorners ? 1.0f : 0.0f;
+    float b = alignCorners ? 0.0f : 1.0f;
+    float kx = 0.5f * ((float)inW - a);
+    float bx = 0.5f * ((float)inW - a - b);
+    float ky = 0.5f * ((float)inH - a);
+    float by = 0.5f * ((float)inH - a - b);
+    float kz = 0.5f * ((float)inD - a);
+    float bz = 0.5f * ((float)inD - a - b);
+
+    __m256 vk0 = _mm256_set_ps(ky, kx, kz, ky, kx, kz, ky, kx);
+    __m256 vb0 = _mm256_set_ps(by, bx, bz, by, bx, bz, by, bx);
+    __m256 vk1 = _mm256_set_ps(kx, kz, ky, kx, kz, ky, kx, kz);
+    __m256 vb1 = _mm256_set_ps(bx, bz, by, bx, bz, by, bx, bz);
+    __m256 vk2 = _mm256_set_ps(kz, ky, kx, kz, ky, kx, kz, ky);
+    __m256 vb2 = _mm256_set_ps(bz, by, bx, bz, by, bx, bz, by);
     int area = outD * outH * outW;
     int areaC4 = area / PACK_UNIT;
     int areaRemain = area - areaC4 * PACK_UNIT;
@@ -389,53 +396,22 @@ void _AVX_MNNGridSampleComputeCord3D(float* dst, const float* src, size_t inD, s
         __m256 cord0 = _mm256_loadu_ps(src);
         __m256 cord1 = _mm256_loadu_ps(src + PACK_UNIT);
         __m256 cord2 = _mm256_loadu_ps(src + PACK_UNIT * 2);
-        cord0 = _mm256_mul_ps(half, _mm256_sub_ps(_mm256_mul_ps(_mm256_add_ps(one, cord0), _mm256_sub_ps(in0, a)), b));
-        cord1 = _mm256_mul_ps(half, _mm256_sub_ps(_mm256_mul_ps(_mm256_add_ps(one, cord1), _mm256_sub_ps(in1, a)), b));
-        cord2 = _mm256_mul_ps(half, _mm256_sub_ps(_mm256_mul_ps(_mm256_add_ps(one, cord2), _mm256_sub_ps(in2, a)), b));
+        cord0 = _mm256_add_ps(_mm256_mul_ps(cord0, vk0), vb0);
+        cord1 = _mm256_add_ps(_mm256_mul_ps(cord1, vk1), vb1);
+        cord2 = _mm256_add_ps(_mm256_mul_ps(cord2, vk2), vb2);
         _mm256_storeu_ps(dst, cord0);
         _mm256_storeu_ps(dst + PACK_UNIT, cord1);
         _mm256_storeu_ps(dst + PACK_UNIT * 2, cord2);
         src += PACK_UNIT * 3;
         dst += PACK_UNIT * 3;
     }
-
-    if (areaRemain > 0) {
-        float flag[PACK_UNIT] = {0.f};
-        __m256i mask;
-        if (areaRemain < 3) {
-            for (int i = 0; i < areaRemain * 3; i++) {
-                flag[i] = -0.1f;
-            }
-            mask = _mm256_loadu_si256((__m256i*)flag);
-            __m256 cord0 = _mm256_loadu_ps(src);
-            cord0 = _mm256_mul_ps(half, _mm256_sub_ps(_mm256_mul_ps(_mm256_add_ps(one, cord0), _mm256_sub_ps(in0, a)), b));
-            _mm256_maskstore_ps(dst, mask, cord0);
-        } else if (areaRemain < 6) {
-            for (int i = 0; i < areaRemain * 3 - 8; i++) {
-                flag[i] = -0.1f;;
-            }
-            mask = _mm256_loadu_si256((__m256i*)flag);
-            __m256 cord0 = _mm256_loadu_ps(src);
-            __m256 cord1 = _mm256_maskload_ps(src + PACK_UNIT, mask);
-            cord0 = _mm256_mul_ps(half, _mm256_sub_ps(_mm256_mul_ps(_mm256_add_ps(one, cord0), _mm256_sub_ps(in0, a)), b));
-            cord1 = _mm256_mul_ps(half, _mm256_sub_ps(_mm256_mul_ps(_mm256_add_ps(one, cord1), _mm256_sub_ps(in1, a)), b));
-            _mm256_storeu_ps(dst, cord0);
-            _mm256_maskstore_ps(dst + PACK_UNIT, mask, cord1);
-        } else {
-            for (int i = 0; i < areaRemain * 3 - 16; i++) {
-                flag[i] = -0.1f;;
-            }
-            mask = _mm256_loadu_si256((__m256i*)flag);
-            __m256 cord0 = _mm256_loadu_ps(src);
-            __m256 cord1 = _mm256_loadu_ps(src + PACK_UNIT);
-            __m256 cord2 = _mm256_maskload_ps(src + PACK_UNIT * 2, mask);
-            cord0 = _mm256_mul_ps(half, _mm256_sub_ps(_mm256_mul_ps(_mm256_add_ps(one, cord0), _mm256_sub_ps(in0, a)), b));
-            cord1 = _mm256_mul_ps(half, _mm256_sub_ps(_mm256_mul_ps(_mm256_add_ps(one, cord1), _mm256_sub_ps(in1, a)), b));
-            cord2 = _mm256_mul_ps(half, _mm256_sub_ps(_mm256_mul_ps(_mm256_add_ps(one, cord2), _mm256_sub_ps(in2, a)), b));
-            _mm256_storeu_ps(dst, cord0);
-            _mm256_storeu_ps(dst + PACK_UNIT, cord1);
-            _mm256_maskstore_ps(dst + PACK_UNIT * 2, mask, cord2);
-        }
+    for (int w=0; w<areaRemain; ++w) {
+        auto x = src[3 * w + 0];
+        auto y = src[3 * w + 1];
+        auto z = src[3 * w + 2];
+        dst[3 * w + 0] = kx * x + bx;
+        dst[3 * w + 1] = ky * y + by;
+        dst[3 * w + 2] = kz * z + bz;
     }
 }
 

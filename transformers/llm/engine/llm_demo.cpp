@@ -18,7 +18,7 @@ static void trace_prepare(Llm* llm) {
     MNN_PRINT("Prepare for resize opt Begin\n");
     llm->trace(true);
     std::ostringstream cacheOs;
-    llm->response("Hello", &cacheOs);
+    llm->generate({200, 200}, &cacheOs, "");
     MNN_PRINT("Prepare for resize opt End\n");
     llm->trace(false);
 }

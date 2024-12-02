@@ -93,6 +93,8 @@ void MNNSin(float* dst, const float* src, size_t dataSize);
 void MNNTanh(float* dst, const float* src, size_t dataSize);
 void MNNSigmoid(float* dst, const float* src, size_t dataSize);
 void MNNSigmoidLowp(float* dst, const float* src, size_t dataSize);
+void MNNSiLu(float* dst, const float* src, size_t dataSize);
+void MNNSiLuLowp(float* dst, const float* src, size_t dataSize);
 void MNNReluWithSlopeCommon(float* dst, const float* src, size_t size, float slope);
 void MNNHardSwishCommon(float* dst, const float* src, size_t size);
 void MNNGeluCommon(float* dst, const float* src, size_t size);
@@ -274,11 +276,11 @@ struct CoreFunctions {
                       size_t bStride, size_t height);
     void(*MNNStrassenMergeCFunction)(float* c11, float* c12, float* c21, float* c22, float* xAddr, size_t cStride, size_t eSub, size_t hSub);
     void(*MNNScaleAndAddBias)(float* dst, const float* src, const float* bias, const float* alpha, size_t planeNumber, size_t biasNumber);
-    void(*MNNGridSampleComputeCord)(float* dst, const float* src, size_t inH, size_t inW, size_t outH, size_t outW, size_t stride, bool alignCorners);
+    void(*MNNGridSampleComputeCord)(float* dst, const float* src, size_t inH, size_t inW, size_t outH, size_t outW, bool alignCorners);
     void(*MNNGridSampleInterp)(float* outputPtr, const float* inputPtr, const float* cordPtr, size_t inH, size_t inW, size_t outW, size_t channelCUnit, size_t inOffset, size_t outOffset, bool sampleMode, bool padMode);
     void (*MNNGridSampleInterpGrad)(float* outputPtr, float* inputPtr, const float* cordPtr, size_t inH, size_t inW, size_t outW, size_t channelCUnit, size_t inOffset, size_t outOffset, bool sampleMode, bool padMode);
 
-    void(*MNNGridSampleComputeCord3D)(float* dst, const float* src, size_t inD, size_t inH, size_t inW, size_t outD, size_t outH, size_t outW, size_t stride1, size_t stride2, bool alignCorners);
+    void(*MNNGridSampleComputeCord3D)(float* dst, const float* src, size_t inD, size_t inH, size_t inW, size_t outD, size_t outH, size_t outW, bool alignCorners);
     void(*MNNGridSampleInterp3D)(float* outputPtr, const float* inputPtr, const float* cordPtr, size_t inD, size_t inH, size_t inW, size_t outW, size_t channelCUnit, size_t inOffset, size_t outOffset, bool sampleMode, bool padMode) = nullptr;
     void(*MNNRoiPoolingMax)(float* dst, const float* src, int hLen, int wLen, int iw);
     void(*MNNRoiAlignMax)(float* dst, const float* src, const std::vector<std::vector<int>> &vecPos, const std::vector<std::vector<float>> &vecArea, int samplingRatioArea, int pooledHeight, int pooledWidth);

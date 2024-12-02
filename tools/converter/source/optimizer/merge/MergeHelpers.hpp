@@ -30,6 +30,7 @@ bool IsSoftmax(Express::EXPRP expr);
 bool IsSlice(Express::EXPRP expr);
 bool IsSelect(Express::EXPRP expr);
 bool IsGatherV2(Express::EXPRP expr);
+bool IsLayerNorm(Express::EXPRP expr);
 
 bool IsBinaryAdd(Express::EXPRP expr);
 bool IsBinarySub(Express::EXPRP expr);

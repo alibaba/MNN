@@ -334,6 +334,7 @@ std::unique_ptr<MNN::NetT> optimizeNetImpl(std::unique_ptr<MNN::NetT>& originNet
         "TransformGroupConvolution",
         "TransformGroupConvolution3D",
 
+        "FuseDupOp",
         // Remove output tensor convert
         "RemoveOutputTensorConvert",
     };
@@ -589,8 +590,12 @@ bool fuseConstIntoSubgraph(MNN::NetT* net, const std::vector<MNN::SubGraphProtoT
 
 using namespace MNN;
 using namespace MNN::Express;
-std::unique_ptr<MNN::NetT> optimizeNet(std::unique_ptr<MNN::NetT>& originNet, bool forTraining, modelConfig& config) {
+std::unique_ptr<MNN::NetT> optimizeNet(std::unique_ptr<MNN::NetT>& originNet, bool forTraining, modelConfig& config, const std::vector<std::string>& expectPasses) {
     Global<modelConfig>::Reset(&config);
+    if (!expectPasses.empty()) {
+        RunNetPass(expectPasses, originNet);
+        return std::move(originNet);
+    }
     std::unique_ptr<std::ofstream, void(*)(std::ofstream*)> externalFile(
         new std::ofstream(".__convert_external_data.bin", std::ios::binary),
         [](std::ofstream* fs){

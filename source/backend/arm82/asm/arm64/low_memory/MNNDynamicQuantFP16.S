@@ -279,6 +279,7 @@ mov x10, x1  // dst
 mov x12, x3  // src_depth_quad
 sub x13, x7, #128 // src_step - 128
 sub x14, x6, #32 // dst_step - 32
+sub x15, x6, #64
 
 // quant_scale: v10, v11
 //ld1 {v10.8h}, [x2], #16
