@@ -129,9 +129,11 @@ ErrorCode MatMulBufExecution::onEncode(const std::vector<Tensor *> &inputs, cons
         }
         if(M % 4 != 0) {
             buildOptions.emplace(" -DM_LEAVE");
+            buildOptions.emplace(" -DM_LEAVE_NUM=" + std::to_string(M % 4));
         }
         if(N % 4 != 0) {
             buildOptions.emplace(" -DN_LEAVE");
+            buildOptions.emplace(" -DN_LEAVE_NUM=" + std::to_string(N % 4));
         }
         if(K % 4 != 0) {
             buildOptions.emplace(" -DK_LEAVE");

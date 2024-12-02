@@ -37,6 +37,10 @@ ErrorCode NPUUnary::onResize(const std::vector<Tensor *> &inputs, const std::vec
         (*unary).set_input_x(*xOp.get())
                 .set_attr_mode(6);
         mNpuBackend->setOutputOps(mOp, {unary}, outputs);
+    } else if (unary_type == UnaryOpOperation_SILU) {
+        shared_ptr<hiai::op::Swish> unary(new hiai::op::Swish(opName));
+        (*unary).set_input_x(*xOp.get());
+        mNpuBackend->setOutputOps(mOp, {unary}, outputs);
     } else if (unary_type == UnaryOpOperation_SQRT){
         shared_ptr<hiai::op::Sqrt> unary(new hiai::op::Sqrt(opName));
         (*unary).set_input_x(*xOp.get());

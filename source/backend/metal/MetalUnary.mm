@@ -38,6 +38,7 @@ static inline float4 square(float4 value) { return value * value; }
 static inline float4 expm1(float4 value) {return MNNEXP(value) - 1;}
 static inline float4 reciprocal(float4 value) {return 1.0/(value);}
 static inline float4 sigmoid(float4 value) {return 1.f / (1.f + MNNEXP(-value));}
+static inline float4 silu(float4 value) {return value / (1.f + MNNEXP(-value));}
 static inline float4 log1p(float4 value) {return log(1.f + value);}
 static inline float4 hardswish(float4 value) {
     return (float4)(1.0/6.0) * (value * min(max(value+(float4)3, 0), (float4)6));
@@ -82,6 +83,7 @@ static NSString *kernelForType(UnaryOpOperation type) {
         op_case(TAN, tan);
         op_case(TANH, MNNTANH);
         op_case(SIGMOID, sigmoid);
+        op_case(SILU, silu);
         op_case(ASIN, asin);
         op_case(ACOS, acos);
         op_case(ATAN, atan);

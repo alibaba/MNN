@@ -99,7 +99,7 @@ protected:
 };
 
 // Embedding start
-class Embedding : public Llm {
+class MNN_PUBLIC Embedding : public Llm {
 public:
     Embedding(std::shared_ptr<LlmConfig> config);
     static Embedding* createEmbedding(const std::string& config_path, bool load = true);

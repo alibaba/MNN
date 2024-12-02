@@ -55,6 +55,7 @@ EliminateQuantAndDequant::EliminateQuantAndDequant() {
         identity_op->main.value = identity;
 
         EXPRP identity_expr = Expr::create(identity_op.get(), {input});
+        identity_expr->setName(input->name());
         Expr::replace(expr, identity_expr);
         return true /*modified*/;
     };

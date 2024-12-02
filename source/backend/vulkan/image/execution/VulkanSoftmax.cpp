@@ -13,14 +13,14 @@
 namespace MNN {
 
 struct SoftmaxConstBuffer {
-    uint32_t N;
-    uint32_t H;
-    uint32_t W;
-    uint32_t C4;
-    uint32_t CLeft;
+    uint N;
+    uint H;
+    uint W;
+    uint C4;
+    uint CLeft;
 };
 
-VulkanSoftmax::VulkanSoftmax(const Op* op, Backend* bn, const uint32_t axisIndex) : VulkanBasicExecution(bn) {
+VulkanSoftmax::VulkanSoftmax(const Op* op, Backend* bn, const uint axisIndex) : VulkanBasicExecution(bn) {
     mAxisIndex = axisIndex;
     auto vkBn = (VulkanBackend*)backend();
     std::string shaderName = "glsl_softmaxImage_";
@@ -55,7 +55,7 @@ ErrorCode VulkanSoftmax::onEncode(const std::vector<Tensor*>& inputs, const std:
     auto input  = inputs[0];
     auto output = outputs[0];
     auto inputShapeNHWC = VulkanTensor::tensorShapeFormat(input);
-    std::vector<uint32_t> cpuSoftmaxConstBuffer = {(uint32_t)inputShapeNHWC[0], (uint32_t)inputShapeNHWC[1], (uint32_t)inputShapeNHWC[2], (uint32_t)UP_DIV(inputShapeNHWC[3], 4), (uint32_t)ROUND_UP(inputShapeNHWC[3], 4) - inputShapeNHWC[3]};
+    std::vector<uint> cpuSoftmaxConstBuffer = {(uint)inputShapeNHWC[0], (uint)inputShapeNHWC[1], (uint)inputShapeNHWC[2], (uint)UP_DIV(inputShapeNHWC[3], 4), (uint)ROUND_UP(inputShapeNHWC[3], 4) - inputShapeNHWC[3]};
 
     {
         auto softmaxConst = reinterpret_cast<SoftmaxConstBuffer*>(mSoftmaxConstBuffer->map());
@@ -69,8 +69,8 @@ ErrorCode VulkanSoftmax::onEncode(const std::vector<Tensor*>& inputs, const std:
     }
 
     // N * H * W * C4
-    uint32_t numTotal = cpuSoftmaxConstBuffer[0] * cpuSoftmaxConstBuffer[1] * cpuSoftmaxConstBuffer[2] * cpuSoftmaxConstBuffer[3];
-    uint32_t numY = numTotal / cpuSoftmaxConstBuffer[mAxisIndex];
+    uint numTotal = cpuSoftmaxConstBuffer[0] * cpuSoftmaxConstBuffer[1] * cpuSoftmaxConstBuffer[2] * cpuSoftmaxConstBuffer[3];
+    uint numY = numTotal / cpuSoftmaxConstBuffer[mAxisIndex];
 
     auto vkOutput  = (VulkanTensor*)output->deviceId();
     auto vkInput   = (VulkanTensor*)input->deviceId();
@@ -98,7 +98,7 @@ public:
                                 Backend* backend) const override {
         auto input = inputs[0];
 
-        uint32_t dimension = input->dimensions();
+        uint dimension = input->dimensions();
         if (dimension > 4) {
             return nullptr;
         }
@@ -109,7 +109,7 @@ public:
         if (axis < 0) {
             axis = input->dimensions() + axis;
         }
-        std::vector<uint32_t> axisMap;
+        std::vector<uint> axisMap;
 
         if (dimension == 4) {
             if (format == MNN_DATA_FORMAT_NCHW) {
@@ -130,7 +130,7 @@ public:
         } else {
             return nullptr;
         }
-        uint32_t axisIndex = axisMap[axis];
+        uint axisIndex = axisMap[axis];
 
         return new VulkanSoftmax(op, backend, axisIndex);
     }

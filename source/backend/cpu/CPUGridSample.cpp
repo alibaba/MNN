@@ -74,7 +74,7 @@ ErrorCode CPUGridSample::onExecute(const std::vector<Tensor *> &inputs, const st
             auto _inputPtr = inputPtr + b * inH * inW * core->pack * core->bytes;
             auto _gridPtr = gridPtr + b * gridTensor->buffer().dim[0].stride * core->bytes;
             auto _outputPtr = outputPtr + b * outH * outW * core->pack * core->bytes;
-            core->MNNGridSampleComputeCord((float *)cordPtr, (const float *)_gridPtr, inH, inW, outH, outW, gridTensor->buffer().dim[1].stride, mAlignCorners);
+            core->MNNGridSampleComputeCord((float *)cordPtr, (const float *)_gridPtr, inH, inW, outH, outW, mAlignCorners);
             // Compute cord
             MNN_CONCURRENCY_BEGIN(tId, threadCount) {
                 for (int index=tId; index < tileCount; index += threadCount) {
@@ -105,7 +105,7 @@ ErrorCode CPUGridSample::onExecute(const std::vector<Tensor *> &inputs, const st
             auto _inputPtr = inputPtr + b * inD * inH * inW * core->pack * core->bytes;
             auto _gridPtr = gridPtr + b * gridTensor->buffer().dim[0].stride * core->bytes;
             auto _outputPtr = outputPtr + b * outD * outH * outW * core->pack * core->bytes;
-            core->MNNGridSampleComputeCord3D((float *)cordPtr, (const float *)_gridPtr, inD, inH, inW, outD, outH, outW, gridTensor->buffer().dim[1].stride, gridTensor->buffer().dim[2].stride, mAlignCorners);
+            core->MNNGridSampleComputeCord3D((float *)cordPtr, (const float *)_gridPtr, inD, inH, inW, outD, outH, outW, mAlignCorners);
             // Compute cord
             MNN_CONCURRENCY_BEGIN(tId, threadCount) {
                 for (int index=tId; index < tileCount; index += threadCount) {
@@ -184,7 +184,7 @@ public:
             auto _inputPtr = inputPtr + b * inH * inW * core->pack * core->bytes;
             auto _gridPtr = gridPtr + b * gridTensor->buffer().dim[0].stride * core->bytes;
             auto _outputPtr = outputPtr + b * outH * outW * core->pack * core->bytes;
-            core->MNNGridSampleComputeCord((float *)cordPtr, (const float *)_gridPtr, inH, inW, outH, outW, gridTensor->buffer().dim[1].stride, mAlignCorners);
+            core->MNNGridSampleComputeCord((float *)cordPtr, (const float *)_gridPtr, inH, inW, outH, outW, mAlignCorners);
             // Compute cord
             for (int index=0; index < tileCount; index++) {
                 auto c = index / outH;

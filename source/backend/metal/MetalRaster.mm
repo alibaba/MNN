@@ -471,19 +471,19 @@ ErrorCode MetalRaster::onResize(const std::vector<Tensor *> &____inputs, const s
         
         uint32_t* shape = (uint32_t*)((uint8_t*)[buffer contents] + memory.second);
         int origin_area = 1;
-        for(int i = 2; i < origin->shape().size(); i++) {
+        for(int i = 2; i < origin->dimensions(); i++) {
             origin_area *= origin->shape()[i];
         }
         int output_area = 1;
-        for(int i = 2; i < output->shape().size(); i++) {
-            output_area *= output->shape()[i];
+        for(int i = 2; i < output->dimensions(); i++) {
+            output_area *= output->length(i);
         }
-        shape[0] = ALIMAX(1, origin->shape()[0]);
-        shape[1] = ALIMAX(1, origin->shape()[1]);
+        shape[0] = ALIMAX(1, origin->length(0));
+        shape[1] = ALIMAX(1, origin->length(1));
         shape[2] = ALIMAX(1, origin_area);
         shape[3] = 1;
-        shape[4] = ALIMAX(1, output->shape()[0]);
-        shape[5] = ALIMAX(1, output->shape()[1]);
+        shape[4] = ALIMAX(1, output->length(0));
+        shape[5] = ALIMAX(1, output->length(1));
         shape[6] = ALIMAX(1, output_area);
         shape[7] = 1;
         shape[8] = maxSize[0];

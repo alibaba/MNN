@@ -218,6 +218,29 @@ ErrorCode CoreMLUnary::onResize(const std::vector<Tensor *> &inputs, const std::
             mCoreMLBackend->addLayer(mLayer_);
             return NO_ERROR;
         }
+        case UnaryOpOperation_SILU:
+        {
+            auto sigmoidLayer = mCoreMLBackend->create<CoreML__Specification__NeuralNetworkLayer>();
+            core_ml__specification__neural_network_layer__init(sigmoidLayer);
+            mCoreMLBackend->setLayerName(sigmoidLayer, "silu-sigmoid");
+            sigmoidLayer->layer_case = CORE_ML__SPECIFICATION__NEURAL_NETWORK_LAYER__LAYER_ACTIVATION;
+            sigmoidLayer->activation = mCoreMLBackend->create<CoreML__Specification__ActivationParams>();
+            core_ml__specification__activation_params__init(sigmoidLayer->activation);
+            sigmoidLayer->activation->nonlinearity_type_case = CORE_ML__SPECIFICATION__ACTIVATION_PARAMS__NONLINEARITY_TYPE_SIGMOID;
+            sigmoidLayer->activation->sigmoid = mCoreMLBackend->create<CoreML__Specification__ActivationSigmoid>();
+            core_ml__specification__activation_sigmoid__init(sigmoidLayer->activation->sigmoid);
+            std::string sigOutput = inputName + "-sigmoid";
+            setLayerInputsAndOutputs(sigmoidLayer, {inputName}, {sigOutput});
+            mCoreMLBackend->addLayer(sigmoidLayer);
+
+            mLayer_->layer_case = CORE_ML__SPECIFICATION__NEURAL_NETWORK_LAYER__LAYER_MULTIPLY;
+            mLayer_->multiply = mCoreMLBackend->create<CoreML__Specification__MultiplyLayerParams>();
+            core_ml__specification__multiply_layer_params__init(mLayer_->multiply);
+            setLayerInputsAndOutputs(mLayer_, {sigOutput, inputName}, {mCoreMLBackend->getTensorName(outputs[0])});
+            mCoreMLBackend->addLayer(mLayer_);
+
+            return NO_ERROR;
+        }
         case UnaryOpOperation_GELU:
         case UnaryOpOperation_GELU_STANDARD:
             mLayer_->layer_case = CORE_ML__SPECIFICATION__NEURAL_NETWORK_LAYER__LAYER_GELU;

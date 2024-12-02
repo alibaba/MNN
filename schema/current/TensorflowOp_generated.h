@@ -400,11 +400,12 @@ enum UnaryOpOperation {
   UnaryOpOperation_HARDSWISH = 31,
   UnaryOpOperation_GELU = 32,
   UnaryOpOperation_GELU_STANDARD = 33,
+  UnaryOpOperation_SILU = 34,
   UnaryOpOperation_MIN = UnaryOpOperation_ABS,
-  UnaryOpOperation_MAX = UnaryOpOperation_GELU_STANDARD
+  UnaryOpOperation_MAX = UnaryOpOperation_SILU
 };
 
-inline const UnaryOpOperation (&EnumValuesUnaryOpOperation())[34] {
+inline const UnaryOpOperation (&EnumValuesUnaryOpOperation())[35] {
   static const UnaryOpOperation values[] = {
     UnaryOpOperation_ABS,
     UnaryOpOperation_NEG,
@@ -439,7 +440,8 @@ inline const UnaryOpOperation (&EnumValuesUnaryOpOperation())[34] {
     UnaryOpOperation_TANH,
     UnaryOpOperation_HARDSWISH,
     UnaryOpOperation_GELU,
-    UnaryOpOperation_GELU_STANDARD
+    UnaryOpOperation_GELU_STANDARD,
+    UnaryOpOperation_SILU
   };
   return values;
 }
@@ -480,13 +482,14 @@ inline const char * const *EnumNamesUnaryOpOperation() {
     "HARDSWISH",
     "GELU",
     "GELU_STANDARD",
+    "SILU",
     nullptr
   };
   return names;
 }
 
 inline const char *EnumNameUnaryOpOperation(UnaryOpOperation e) {
-  if (e < UnaryOpOperation_ABS || e > UnaryOpOperation_GELU_STANDARD) return "";
+  if (e < UnaryOpOperation_ABS || e > UnaryOpOperation_SILU) return "";
   const size_t index = static_cast<int>(e);
   return EnumNamesUnaryOpOperation()[index];
 }
@@ -5063,6 +5066,7 @@ inline const flatbuffers::TypeTable *UnaryOpOperationTypeTable() {
     { flatbuffers::ET_INT, 0, 0 },
     { flatbuffers::ET_INT, 0, 0 },
     { flatbuffers::ET_INT, 0, 0 },
+    { flatbuffers::ET_INT, 0, 0 },
     { flatbuffers::ET_INT, 0, 0 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
@@ -5102,10 +5106,11 @@ inline const flatbuffers::TypeTable *UnaryOpOperationTypeTable() {
     "TANH",
     "HARDSWISH",
     "GELU",
-    "GELU_STANDARD"
+    "GELU_STANDARD",
+    "SILU"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_ENUM, 34, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_ENUM, 35, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }

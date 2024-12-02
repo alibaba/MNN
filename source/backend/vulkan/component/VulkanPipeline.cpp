@@ -44,7 +44,14 @@ VulkanPipeline* VulkanPipelineFactory::createGraphicPipeline(SharedPtr<VulkanLay
     return new VulkanPipeline(mDevice, pipeline, layout, VK_PIPELINE_BIND_POINT_GRAPHICS, nullptr, mCache);
 }
 VulkanPipeline* VulkanPipelineFactory::createComputePipeline(const uint8_t* data, size_t dataSize, const std::vector<VkDescriptorType>& types, const std::vector<uint32_t>& localSize) const {
-    SharedPtr<VulkanShaderModule> shader = VulkanShaderModule::create(mDevice, (const uint32_t*)data, dataSize);
+    SharedPtr<VulkanShaderModule> shader;
+    auto iter = mComputeShaderModules.find((const uint32_t*)data);
+    if (iter == mComputeShaderModules.end()) {
+        shader = VulkanShaderModule::create(mDevice, (const uint32_t*)data, dataSize);
+        mComputeShaderModules.insert(std::make_pair((const uint32_t*)data, shader));
+    } else {
+        shader = iter->second;
+    }
     std::vector<VulkanLayout::LayoutType> layoutTypes(types.size());
     for (int i=0; i<types.size(); ++i) {
         layoutTypes[i].binding = i;
@@ -101,6 +108,18 @@ const VulkanPipeline* VulkanPipelineFactory::getPipeline(const std::string& key,
     SharedPtr<VulkanPipeline> resPipeline = pipeline;
     mPipelines.insert(std::make_pair(pipelineKey, resPipeline));
     return pipeline;
+}
+
+SharedPtr<VulkanPipeline> VulkanPipelineFactory::getPrivatePipeline(const std::string& key, const std::vector<VkDescriptorType>& types) {
+    std::pair<const unsigned char*, size_t> content = mStorage->search(key);
+    if (nullptr == content.first) {
+        MNN_ERROR("Don't find shader for %s\n", key.c_str());
+        return nullptr;
+    }
+
+    VulkanPipeline * pipeline = createComputePipeline((uint8_t*)content.first, content.second, types, {});
+    SharedPtr<VulkanPipeline> resPipeline = pipeline;
+    return resPipeline;
 }
 
 VulkanPipeline::VulkanPipeline(const VulkanDevice& dev, VkPipeline p, SharedPtr<VulkanLayout> layout, VkPipelineBindPoint type, SharedPtr<VulkanShaderModule> shader, SharedPtr<VulkanPipelineCache> cache)

@@ -55,6 +55,7 @@ ErrorCode CPURaster::onResize(const std::vector<Tensor *> &____inputs, const std
     auto outputDes = TensorUtils::getDescribe(output);
     mNeedZero = !TensorUtils::regionIsFull(output);
     mZeroPoint = 0;
+    mUseThreads = false;
     if (outputDes->quantAttr != nullptr && outputDes->type == DataType_DT_INT8) {
 #ifdef MNN_USE_SSE
         mZeroPoint = (int)outputDes->quantAttr->zero + 128;
@@ -86,6 +87,7 @@ ErrorCode CPURaster::onResize(const std::vector<Tensor *> &____inputs, const std
             }
         }
         if (mFast) {
+            mUseThreads = des->regions.size() > 16 ? true : false;
             for (int i=0; i< des->regions.size(); ++i) {
                 auto& slice = des->regions[i];
                 if (slice.origin == nullptr) {
@@ -102,6 +104,7 @@ ErrorCode CPURaster::onResize(const std::vector<Tensor *> &____inputs, const std
     if (des->regions.size() == 1) {
         OpCommonUtils::turnRegion2Convert(des->regions[0], output, mSingleConvert);
         if (mSingleConvert.type > 0) {
+            mUseThreads = (mSingleConvert.batch * mSingleConvert.channel * mSingleConvert.area > LAUNCH_MULTI_THREADS_WORKLOAD) ? true : false;
             return NO_ERROR;
         }
     }
@@ -128,6 +131,9 @@ ErrorCode CPURaster::onResize(const std::vector<Tensor *> &____inputs, const std
         }
         // if tensor is not NC4HW4 or has been merged, don't need deal
         if (TensorUtils::getDescribe(origin)->dimensionFormat != MNN_DATA_FORMAT_NC4HW4) {
+            if (slice.size[0] * slice.size[1] * slice.size[2] > LAUNCH_MULTI_THREADS_WORKLOAD) {
+                mUseThreads = true;
+            }
             mTempInputCopy.emplace_back(std::make_pair(origin, &slice));
             continue;
         }
@@ -158,6 +164,9 @@ ErrorCode CPURaster::onResize(const std::vector<Tensor *> &____inputs, const std
                 *newSlice = slice;
                 fuseUtils.apply(regionTmp, *newSlice);
                 // cache the merged tensor
+                if (newSlice->size[0] * newSlice->size[1] * newSlice->size[2] > LAUNCH_MULTI_THREADS_WORKLOAD) {
+                    mUseThreads = true;
+                }
                 mTempInputCopy.emplace_back(std::make_pair(origin, newSlice.get()));
                 mCacheRegions.emplace_back(newSlice);
                 continue;
@@ -185,6 +194,9 @@ ErrorCode CPURaster::onResize(const std::vector<Tensor *> &____inputs, const std
         if (--TensorUtils::getDescribe(tempTensor)->useCount == 0) {
             forRelease.emplace_back(tempTensor);
         }
+        if (slice.size[0] * slice.size[1] * slice.size[2] > LAUNCH_MULTI_THREADS_WORKLOAD) {
+            mUseThreads = true;
+        }
         mTempInputCopy.emplace_back(std::make_pair(tempTensor, &slice));
     }
     for (auto t : forRelease) {
@@ -205,9 +217,12 @@ ErrorCode CPURaster::onResize(const std::vector<Tensor *> &____inputs, const std
     if (mTempInputCopy.size() == 1 && threadNumber > 1 && (!mHasReduce)) {
         // Split to multi region
         auto region = mTempInputCopy[0].second;
-        const int thredHold = 100;//TODO: Find better way to determine it
-        if (region->size[0] * region->size[1] * region->size[2] < thredHold) {
+        if (region->size[0] * region->size[1] * region->size[2] < LAUNCH_MULTI_THREADS_WORKLOAD) {
+            mUseThreads = false;
             return NO_ERROR;
+        }
+        if (region->size[0] * region->size[1] * region->size[2] > LAUNCH_MULTI_THREADS_WORKLOAD) {
+            mUseThreads = true;
         }
         auto tensorPtr = mTempInputCopy[0].first;
         int pos = -1;
@@ -330,6 +345,9 @@ void CPURaster::executeFaster(const std::vector<Tensor *> &inputs, const std::ve
         default:
             C4proc = core->MNNSelectBlitFunction(byteC4);
             break;
+    }
+    if (!mUseThreads) {
+        threadNum = 1;
     }
     MNN_CONCURRENCY_BEGIN(tId, threadNum) {
         for (int u=(int)tId; u<mFastBlit.size(); u+=threadNum) {
@@ -553,6 +571,9 @@ void CPURaster::tensorConvert(Tensor* input, Tensor* output, int bytes) {
     const int bitLength = bytes;
     auto core = static_cast<CPUBackend*>(backend())->functions();
     auto threadNumber = static_cast<CPUBackend*>(backend())->threadNumber();
+    if (mUseThreads) {
+        threadNumber = 1;
+    }
     MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
         CPUTensorConverter::convert(subIb.host, subOb.host, source, dest, batch, area, channel, bitLength, core, tId, threadNumber);
     };
@@ -609,6 +630,9 @@ ErrorCode CPURaster::onExecute(const std::vector<Tensor *> &____inputs, const st
                 sourceFormat = MNN_DATA_FORMAT_NCHW;
             }
         }
+        if (!mUseThreads) {
+            threadNum = 1;
+        }
         MNN_CONCURRENCY_BEGIN(tId, threadNum) {
             CPUTensorConverter::convert(realInput->host<uint8_t>(), output->host<uint8_t>(), sourceFormat, destFormat, srcBatch, srcArea, srcChannel, bytes, core, tId, threadNum);
         };
@@ -625,9 +649,11 @@ ErrorCode CPURaster::onExecute(const std::vector<Tensor *> &____inputs, const st
     for (auto& iter : mTempInput) {
         tensorConvert(iter.first, iter.second, bytes);
     }
-    threadNum = ALIMIN(threadNum, (int)mTempInputCopy.size());
     if (mHasReduce) {
         // Don't support reduce with multi thread now
+        threadNum = 1;
+    }
+    if (!mUseThreads) {
         threadNum = 1;
     }
     MNN_CONCURRENCY_BEGIN(tId, threadNum) {
@@ -1088,6 +1114,7 @@ public:
             }
         };
         if (mLoop->parallel()) {
+//            threadNumber = 1;
             MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
                 for (int iter=tId; iter < mLoop->loopNumber(); iter+=threadNumber) {
                     func(iter, tId);

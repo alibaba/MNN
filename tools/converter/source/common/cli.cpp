@@ -712,9 +712,19 @@ bool Cli::convertModel(modelConfig& modelPath) {
             }
         }
     }
-    if (modelPath.model != modelConfig::MNN || modelPath.optimizeLevel >= 2) {
+    bool needOptimize = modelPath.model != modelConfig::MNN || modelPath.optimizeLevel >= 1;
+    if (modelPath.saveStaticModel) {
+        needOptimize = false;
+    }
+    std::vector<std::string> expectedPass;
+    if (1 == modelPath.optimizeLevel && modelPath.model == modelConfig::MNN) {
+        expectedPass = {
+            "FuseDupOp"
+        };
+    }
+    if (needOptimize) {
         std::cout << "Start to Optimize the MNN Net..." << std::endl;
-        std::unique_ptr<MNN::NetT> newNet = optimizeNet(netT, modelPath.forTraining, modelPath);
+        std::unique_ptr<MNN::NetT> newNet = optimizeNet(netT, modelPath.forTraining, modelPath, expectedPass);
         if (newNet->extraTensorDescribe.size()>0) {
             MNN_PRINT("MNN net has tensor quant info\n");
             computeUnaryBuffer(newNet.get());

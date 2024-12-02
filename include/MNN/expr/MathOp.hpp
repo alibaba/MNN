@@ -68,6 +68,7 @@ MNN_PUBLIC VARP _Erfc(VARP x);
 MNN_PUBLIC VARP _Erfinv(VARP x);
 MNN_PUBLIC VARP _Expm1(VARP x);
 MNN_PUBLIC VARP _Hardswish(VARP x);
+MNN_PUBLIC VARP _Silu(VARP x);
 
 //ReduceOPs
 MNN_PUBLIC VARP _ReduceSum(VARP input_variable, INTS axis = {}, bool keepDims = false);

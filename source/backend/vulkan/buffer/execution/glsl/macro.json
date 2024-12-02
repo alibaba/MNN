@@ -119,7 +119,8 @@
         "RELU",
         "CLAMP",
         "HARDSWISH",
-        "GELU"
+        "GELU",
+        "SILU"
     ],
     "unary_int.comp":[
         "ABS",

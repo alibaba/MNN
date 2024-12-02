@@ -2075,36 +2075,41 @@ void MNNPowC8(float* dest, const float* source, const float* powfParam, size_t b
 }
 #endif // no MNN_USE_NEON
 
-void MNNGridSampleComputeCord(float* dst, const float* src, size_t inH, size_t inW, size_t outH, size_t outW, size_t stride, bool alignCorners) {
+void MNNGridSampleComputeCord(float* dst, const float* src, size_t inH, size_t inW, size_t outH, size_t outW, bool alignCorners) {
     float a = alignCorners ? 1.0f : 0.0f;
     float b = alignCorners ? 0.0f : 1.0f;
-    for (auto h = 0; h < outH; ++h) {
-        auto __gridPtr = src + h * stride;
-        auto cordH = dst + h * outW * 2;
-        for (auto w = 0; w < outW; ++w) {
-            auto x = __gridPtr[2 * w + 0];
-            auto y = __gridPtr[2 * w + 1];
-            cordH[2 * w + 0] = ((1 + x) * (inW - a) - b) * 0.5f;
-            cordH[2 * w + 1] = ((1 + y) * (inH - a) - b) * 0.5f;
-        }
+    int area = outH * outW;
+    float kx = 0.5f * ((float)inW - a);
+    float bx = 0.5f * ((float)inW - a - b);
+    float ky = 0.5f * ((float)inH - a);
+    float by = 0.5f * ((float)inH - a - b);
+    for (int w = 0; w < area; ++w) {
+        auto x = src[2 * w + 0];
+        auto y = src[2 * w + 1];
+        dst[2 * w + 0] = kx * x + bx;
+        dst[2 * w + 1] = ky * y + by;
     }
 }
-void MNNGridSampleComputeCord3D(float* dst, const float* src, size_t inD, size_t inH, size_t inW, size_t outD, size_t outH, size_t outW, size_t strideD, size_t strideH, bool alignCorners) {
+void MNNGridSampleComputeCord3D(float* dst, const float* src, size_t inD, size_t inH, size_t inW, size_t outD, size_t outH, size_t outW, bool alignCorners) {
+    int strideD = outH * outW * 3;
+    int strideH = outW * 3;
     float a = alignCorners ? 1.0f : 0.0f;
     float b = alignCorners ? 0.0f : 1.0f;
-    for (auto d = 0; d < outD; ++d) {
-        for (auto h = 0; h < outH; ++h) {
-            auto __gridPtr = src + d * strideD + h * strideH;
-            auto cordH = dst + (d * outH + h) * outW * 3;
-            for (auto w = 0; w < outW; ++w) {
-                auto x = __gridPtr[3 * w + 0];
-                auto y = __gridPtr[3 * w + 1];
-                auto z = __gridPtr[3 * w + 2];
-                cordH[3 * w + 0] = ((1 + x) * (inW - a) - b) * 0.5f;
-                cordH[3 * w + 1] = ((1 + y) * (inH - a) - b) * 0.5f;
-                cordH[3 * w + 2] = ((1 + z) * (inD - a) - b) * 0.5f;
-            }
-        }
+    int area = outD * outH * outW;
+    float kx = 0.5f * ((float)inW - a);
+    float bx = 0.5f * ((float)inW - a - b);
+    float ky = 0.5f * ((float)inH - a);
+    float by = 0.5f * ((float)inH - a - b);
+    float kz = 0.5f * ((float)inD - a);
+    float bz = 0.5f * ((float)inD - a - b);
+
+    for (int w=0; w<area; ++w) {
+        auto x = src[3 * w + 0];
+        auto y = src[3 * w + 1];
+        auto z = src[3 * w + 2];
+        dst[3 * w + 0] = kx * x + bx;
+        dst[3 * w + 1] = ky * y + by;
+        dst[3 * w + 2] = kz * z + bz;
     }
 }
 
@@ -2988,6 +2993,19 @@ void MNNSigmoid(float* dst, const float* src, size_t dataSize) {
     }
 }
 
+void MNNSiLu(float* dst, const float* src, size_t dataSize) {
+    float offset[4] = {
+       -1.0f,
+        0.0f,
+        0.0f,
+        0.0f
+    };
+    MNNExp(dst, src, offset, dataSize);
+    for (int i = 0; i < dataSize; ++i) {
+        dst[i] = src[i] / (1.0f + dst[i]);
+    }
+}
+
 /**
  Modified from https://github.com/alibaba/MNN/pull/1359
  Thanks for https://github.com/hroken
@@ -3029,6 +3047,54 @@ void MNNSigmoidLowp(float* dst, const float* src, size_t dataSize) {
 #else
     for (int i = 0; i < dataSize; ++i) {
         dst[i] = 1.0f / (1.0f + dst[i]);
+    }
+#endif
+}
+
+void MNNSiLuLowp(float* dst, const float* src, size_t dataSize) {
+    float offset[4] = {
+       -1.0f,
+        0.0f,
+        0.0f,
+        0.0f
+    };
+    MNNExp(dst, src, offset, dataSize);
+#ifdef __aarch64__
+    int dataC4 = static_cast<int32_t>(dataSize) / 4;
+    int remain = static_cast<int32_t>(dataSize) % 4;
+    float32x4_t one = vdupq_n_f32(1.0f);
+
+    if(dataC4 > 0) {
+        float32x4_t out = vld1q_f32(dst);
+        float32x4_t in = vld1q_f32(src);
+        // neon optimization for sigmid cpu
+        for (int i = 1; i < dataC4; ++i) {
+            out = vdivq_f32(in, vaddq_f32(one,out));
+            vst1q_f32(dst ,out);
+            dst += 4;
+            src += 4;
+            out = vld1q_f32(dst);
+            in = vld1q_f32(src);
+        }
+        out = vdivq_f32(in, vaddq_f32(one,out));
+        vst1q_f32(dst, out);
+        dst += 4;
+        src += 4;
+    }
+    if (remain > 0) {
+        float intmp[4] = {0};
+        float atmp[4] = {0};
+        ::memcpy(intmp, dst, remain * sizeof(float));
+        ::memcpy(atmp, src, remain * sizeof(float));
+        float32x4_t out = vld1q_f32(intmp);
+        float32x4_t in = vld1q_f32(atmp);
+        out = vdivq_f32(in, vaddq_f32(one, out));
+        vst1q_f32(intmp, out);
+        ::memcpy(dst, intmp, remain * sizeof(float));
+    }
+#else
+    for (int i = 0; i < dataSize; ++i) {
+        dst[i] = src[i] / (1.0f + dst[i]);
     }
 #endif
 }
