@@ -48,19 +48,22 @@ python llmexport.py \
 ```
 
 ### 功能
-- 将模型先转为onnx模型，使用`--export onnx`，然后使用./MNNConvert工具将onnx模型转为mnn模型: ./MNNConvert --modelFile ../transformers/llm/export/model/onnx/llm.onnx --MNNModel llm.mnn --keepInputFormat --weightQuantBits=4 -f ONNX --transformerFuse=1 --allowCustomOp
-- 更快的方式：直接转为mnn模型，使用`--export mnn`，注意，你需要先安装pymnn或者通过--mnnconvert选项指定MNNConvert工具的地址，两种条件必须满足其中一个。如果没有安装pymnn并且没有通过--mnnconvert指定MNNConvert工具的地址，那么llmexport.py脚本会在目录"../../../build/"下寻找MNNConvert工具，需保证该目录下存在MNNConvert文件。
+- 直接转为mnn模型，使用`--export mnn`，注意，你需要先安装pymnn或者通过`--mnnconvert`选项指定MNNConvert工具的地址，两种条件必须满足其中一个。如果没有安装pymnn并且没有通过`--mnnconvert`指定MNNConvert工具的地址，那么llmexport.py脚本会在目录"../../../build/"下寻找MNNConvert工具，需保证该目录下存在MNNConvert文件。此方案目前支持导出4bit和8bit模型
+- 如果直接转为mnn模型遇到问题，或者需要其他bits数的量化（如5bit/6bit），可以先将模型先转为onnx模型，使用`--export onnx`，然后使用./MNNConvert工具将onnx模型转为mnn模型: 
+
+```
+./MNNConvert --modelFile ../transformers/llm/export/model/onnx/llm.onnx --MNNModel llm.mnn --keepInputFormat --weightQuantBits=4 --weightQuantBlock=128 -f ONNX --transformerFuse=1 --allowCustomOp --saveExternalData
+```
+
 - 支持对模型进行对话测试，使用`--test $query`会返回llm的回复内容
-- 默认会使用onnx-slim对onnx模型进行优化，跳过该步骤使用`--skip_slim`
 - 支持合并lora权重后导出，指定lora权重的目录使用`--lora_path`
 - 制定量化bit数使用`--quant_bit`；量化的block大小使用`--quant_block`
 - 使用`--lm_quant_bit`来制定lm_head层权重的量化bit数，不指定则使用`--quant_bit`的量化bit数
-- 支持使用自己编译的`MNNConvert`，使用`--mnnconvert`
 
 ### 参数
 ```
 usage: llmexport.py [-h] --path PATH [--type TYPE] [--lora_path LORA_PATH] [--dst_path DST_PATH] [--test TEST] [--export EXPORT]
-                    [--skip_slim] [--quant_bit QUANT_BIT] [--quant_block QUANT_BLOCK] [--lm_quant_bit LM_QUANT_BIT]
+                    [--quant_bit QUANT_BIT] [--quant_block QUANT_BLOCK] [--lm_quant_bit LM_QUANT_BIT]
                     [--mnnconvert MNNCONVERT]
 
 llm_exporter
@@ -78,7 +81,6 @@ options:
   --dst_path DST_PATH   export onnx/mnn model to path, defaut is `./model`.
   --test TEST           test model inference with query `TEST`.
   --export EXPORT       export model to an onnx/mnn model.
-  --skip_slim           Whether or not to skip onnx-slim.
   --quant_bit QUANT_BIT
                         mnn quant bit, 4 or 8, default is 4.
   --quant_block QUANT_BLOCK
@@ -94,9 +96,17 @@ options:
 ### 编译
 
 [从源码编译](../compile/other.html#id4)
-在原有编译过程中增加必需编译宏即可： -DMNN_LOW_MEMORY=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true 
+在原有编译过程中增加必需编译宏即可：
+```
+-DMNN_LOW_MEMORY=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true 
+```
 
-- mac / linux / windows
+- 需要开启视觉功能时，增加相关编译宏
+```
+-DLLM_SUPPORT_VISION=true -DMNN_BUILD_OPENCV=true -DMNN_IMGCODECS=true
+```
+
+#### mac / linux / windows
 
 以 mac / linux 为例 :
 ```
@@ -106,7 +116,7 @@ cmake ../ -DMNN_LOW_MEMORY=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true -DMNN_BUILD_L
 make -j16
 ```
 
-x86架构额外加 MNN_AVX512 的宏：
+x86架构额外加 `MNN_AVX512` 的宏：
 ```
 make build
 cd build
@@ -114,16 +124,38 @@ cmake ../ -DMNN_LOW_MEMORY=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true -DMNN_BUILD_L
 make -j16
 ```
 
-- Android：额外增加 MNN_ARM82 的宏
+#### Android：额外增加 `MNN_ARM82` 和`MNN_OPENCL`的宏
 ```
 cd project/android
 mkdir build_64
-../build_64.sh "-DMNN_LOW_MEMORY=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true -DMNN_ARM82=true"
+../build_64.sh "-DMNN_LOW_MEMORY=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true -DMNN_ARM82=true -DMNN_OPENCL=true -DMNN_USE_LOGCAT=true"
 ```
 
-- iOS: 参考 transformers/llm/engine/ios/README.md
+#### iOS: 参考 transformers/llm/engine/ios/README.md
 ```
 sh package_scripts/ios/buildiOS.sh "-DMNN_ARM82=true -DMNN_LOW_MEMORY=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true -DMNN_BUILD_LLM=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true"
+```
+
+#### Web
+环境配置参考 https://mnn-docs.readthedocs.io/en/latest/compile/engine.html#web 
+
+- 编译库，产出 `libMNN.a`，`libMNN_Express.a`，`libllm.a`
+
+```
+mkdir buildweb
+emcmake cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="-msimd128 -msse4.1" -DMNN_FORBID_MULTI_THREAD=ON -DMNN_USE_THREAD_POOL=OFF -DMNN_USE_SSE=ON -DMNN_LOW_MEMORY=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true
+make -j16
+```
+
+- Demo 编译
+
+```
+emcc ../transformers/llm/engine/llm_demo.cpp -DCMAKE_CXX_FLAGS="-msimd128 -msse4.1" -I ../include -I ../transformers/llm/engine/include libMNN.a libllm.a express/libMNN_Express.a -o llm_demo.js --preload-file ~/qwen2.0_1.5b/ -s ALLOW_MEMORY_GROWTH=1 -o llm_demo.js
+```
+
+使用如下命令测试：
+```
+node llm_demo.js ~/qwen2.0_1.5b/config.json ~/qwen2.0_1.5b/prompt.txt
 ```
 
 ### 使用
@@ -244,11 +276,17 @@ pc端直接推理
 ./llm_demo model_dir/llm.mnn prompt.txt
 ```
 
+<<<<<<< HEAD
 手机端adb推理用法：
 ```bash
 # 利用adb push将链接库push到手机上
 adb shell mkdir /data/local/tmp/llm
 adb push llm_demo ppl_demo libllm.so libMNN_CL.so libMNN_Express.so libMNN.so tools/cv/libMNNOpenCV.so /data/local/tmp/llm
+=======
+- 对于视觉大模型，在prompt中嵌入图片输入
+```
+<img>https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-VL/assets/demo.jpeg</img>介绍一下图片里的内容
+>>>>>>> alibaba/master
 ```
 
 #### GPTQ权重加载

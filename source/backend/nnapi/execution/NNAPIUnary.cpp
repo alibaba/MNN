@@ -50,7 +50,8 @@ ErrorCode NNAPIUnary::onResize(const std::vector<Tensor *> &inputs, const std::v
         {UnaryOpOperation_EXPM1, -1},
         {UnaryOpOperation_ERFC, -1},
         {UnaryOpOperation_BNLL, -1},
-        {UnaryOpOperation_ERFINV, -1}
+        {UnaryOpOperation_ERFINV, -1},
+        {UnaryOpOperation_SILU, -1}
     };
     auto opType = mOp->main_as_UnaryOp()->opType();
     auto iter = unary_map.find(opType);

@@ -1,0 +1,96 @@
+#version 440 core
+
+layout(set=0, binding=0) writeonly uniform image2D uOutput;
+layout(set=0, binding=1) uniform sampler2D uInput;
+
+layout(set=0, binding=2) uniform sampler2D uKernel;
+
+layout(set=0, binding=3) uniform sampler2D uBias;
+
+layout(set=0, binding=4) readonly uniform constBuffer {
+    ivec2 pad;
+    ivec2 kernelSize;
+    ivec2 stride;
+    ivec2 dilate;
+    ivec4 inputSize; // w h icDiv4 n
+    ivec4 outputSize; // w h ocDiv4 n
+    ivec4 offset; // 0 0 oh
+} uConstant;
+
+#define UP_DIV(x, y) (((x)+(y)-1)/(y))
+
+layout (local_size_x = 8, local_size_y = 8, local_size_z_id = 2) in;
+
+void main()
+{
+    // index calculation
+    int outputIndexW2 = int(gl_GlobalInvocationID.x);
+    int outputIndexH = int(gl_GlobalInvocationID.y);
+
+    int outputW2 = UP_DIV(uConstant.outputSize.x, 2);
+
+    if (outputIndexW2 < outputW2 && outputIndexH < uConstant.outputSize.y) {
+
+    int outputIndexNC4 = int(gl_GlobalInvocationID.z);
+    int outputIndexC4 = outputIndexNC4 % uConstant.outputSize.z;
+    int outputIndexN = outputIndexNC4 / uConstant.outputSize.z;
+
+    ivec2 inputIndexOffset = ivec2(outputIndexW2 * 2, outputIndexH) - uConstant.pad;
+    int inputIndexStartH = max(0, -inputIndexOffset.y);
+    int inputIndexEndH = min(uConstant.kernelSize.y, uConstant.inputSize.y - inputIndexOffset.y);
+
+    vec4 result0 = texelFetch(uBias, ivec2(outputIndexC4, 0), 0);
+    vec4 result1 = result0;
+
+    // accumulate result
+    vec2 inputImageSize = textureSize(uInput, 0);
+    for (int kernelIndexH = inputIndexStartH; kernelIndexH < inputIndexEndH; kernelIndexH++) {
+        int inputIndexH = inputIndexOffset.y + kernelIndexH;
+        int inputPosH = inputIndexH + outputIndexN * uConstant.inputSize.y;
+
+        vec4 input0 = vec4(0.0f);
+
+        int inputIndexW0 = inputIndexOffset.x;
+        int inputPosW0 = (inputIndexW0 < 0 || inputIndexW0 >= uConstant.inputSize.x) ? -1 : inputIndexW0 + outputIndexC4 * uConstant.inputSize.x;
+        vec4 input1 = texture(uInput, vec2(inputPosW0, inputPosH) / inputImageSize);
+
+
+        for (int kernelIndexW = 0; kernelIndexW < uConstant.kernelSize.x; kernelIndexW++) {
+            // load input
+            input0 = input1;
+
+            inputIndexW0 ++;
+            inputPosW0 = (inputIndexW0 < 0 || inputIndexW0 >= uConstant.inputSize.x) ? -1 : inputIndexW0 + outputIndexC4 * uConstant.inputSize.x;
+            input1 = texture(uInput, vec2(inputPosW0, inputPosH) / inputImageSize);
+
+            // load weight
+            vec4 weight = texelFetch(uKernel, ivec2(kernelIndexW + kernelIndexH * uConstant.kernelSize.x, outputIndexC4), 0);
+            result0 = fma(input0, weight, result0);
+            result1 = fma(input1, weight, result1);
+        }
+    }
+
+#ifdef RELU
+    result0 = max(result0, vec4(0));
+    result1 = max(result1, vec4(0));
+#endif
+
+#ifdef RELU6
+    result0 = clamp(result0, vec4(0), vec4(6));
+    result1 = clamp(result1, vec4(0), vec4(6));
+#endif
+
+    // write output
+    int outputPosXBase = (outputIndexW2 * 2) + outputIndexC4 * uConstant.outputSize.x;
+    int outputPosY = outputIndexH + outputIndexN * uConstant.outputSize.y;
+    int WLeft = outputW2 * 2 - uConstant.outputSize.x;
+
+    if (outputIndexW2 != (outputW2 - 1) || WLeft == 0) {
+        imageStore(uOutput, ivec2(outputPosXBase, outputPosY), result0);
+        imageStore(uOutput, ivec2(outputPosXBase + 1, outputPosY), result1);
+    } else {
+        imageStore(uOutput, ivec2(outputPosXBase, outputPosY), result0);
+    }
+
+    }
+}

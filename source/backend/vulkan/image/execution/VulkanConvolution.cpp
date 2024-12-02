@@ -119,15 +119,23 @@ bool VulkanConvolutionDepthwise::_init(const float* weightData, size_t weightSiz
                                             VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER};
     MNN_ASSERT(OpType_ConvolutionDepthwise == convOp->type());
     auto macro = getPostTreatMacro(common);
-    if (extra->gpuType() == VulkanRuntime::ADRENO) {
-        mConvPipeline = extra->getPipeline("glsl_convolutionDepthwise_" + macro + "comp", convTypes);
-        mLocalX       = 16;
-        mLocalY       = 16;
-    } else {
-        mConvPipeline = extra->getPipeline("glsl_convolutionDepthwiseMali_" + macro + "comp", convTypes);
+    if (common->strideX() == 1 && common->strideY() == 1 && common->dilateX() == 1 && common->dilateY() == 1 ) {
+        mConvPipeline = extra->getPipeline("glsl_convolutionDepthwise_s1d1_w2_" + macro + "comp", convTypes);
         mLocalX       = 8;
         mLocalY       = 8;
+    } else {
+        if (extra->gpuType() == VulkanRuntime::ADRENO) {
+            MNN_PRINT("S1D1 depthwise conv!\n");
+            mConvPipeline = extra->getPipeline("glsl_convolutionDepthwise_" + macro + "comp", convTypes);
+            mLocalX       = 16;
+            mLocalY       = 16;
+        } else {
+            mConvPipeline = extra->getPipeline("glsl_convolutionDepthwiseMali_" + macro + "comp", convTypes);
+            mLocalX       = 8;
+            mLocalY       = 8;
+        }
     }
+
     auto c4 = UP_DIV(common->outputCount(), 4);
     mKernel = std::make_shared<VulkanImage>(extra->getMemoryPool(), false, common->kernelX() * common->kernelY(), c4);
     if (nullptr != weightData){

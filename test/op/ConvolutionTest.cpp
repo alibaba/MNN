@@ -515,7 +515,7 @@ public:
         for (int ri = 0; ri < numbers; ri++) {
             int data = ri - numbers / 2;
             auto floatData = (float)(data) * rate;
-            weightData[ri] = data;
+            weightData[ri] = floatData;
         }
     }
     ConvolutionInt8CommonTest& speed() {

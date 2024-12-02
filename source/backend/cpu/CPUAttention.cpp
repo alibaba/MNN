@@ -24,9 +24,12 @@
 #define FLOAT16_T float
 #endif
 
+<<<<<<< HEAD
 // reduce the value of 'query' to 'query * FP16_QSCALE', avoid fp16 overflow
 #define FP16_QSCALE 0.25
 
+=======
+>>>>>>> alibaba/master
 namespace MNN {
 
 template <typename T>
@@ -155,10 +158,10 @@ ErrorCode CPUAttention::onResize(const std::vector<Tensor*>& inputs, const std::
     }
     auto query = inputs[0];
     auto key   = inputs[1];
-    int seq_len = query->shape()[1];
-    mNumHead = query->shape()[2];
-    mHeadDim = query->shape()[3];
-    mKvNumHead = key->shape()[2];
+    int seq_len = query->length(1);
+    mNumHead = query->length(2);
+    mHeadDim = query->length(3);
+    mKvNumHead = key->length(2);
     mKVCacheManager->onResize(mKvNumHead, mHeadDim);
     if (mUseGemmInt8) {
         mPackQ.reset(Tensor::createDevice<int8_t>({mThreadNum, UP_DIV(seq_len, eP8), UP_DIV(mHeadDim, lP8), eP8 * lP8}));
@@ -191,11 +194,10 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
     auto key   = inputs[1];
     auto value = inputs[2];
     auto mask = inputs[3];
-    auto mask_shape = mask->shape();
     bool float_mask = (mask->getType() == halide_type_of<float>());
-    int mask_seqlen = mask_shape[2];
-    int mask_kvlen  = mask_shape[3];
-    int seq_len = query->shape()[1];
+    int mask_seqlen = mask->length(2);
+    int mask_kvlen  = mask->length(3);
+    int seq_len = query->length(1);
     MNN_ASSERT(seq_len == mask_seqlen);
     mIsPrefill = (seq_len > 1);
     // isPrefill and mask is Square Matrix, is FirstPrefill
@@ -206,7 +208,16 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
     float mScale = 1.0 / sqrt(mHeadDim);
     float q_scale = 1.0;
     if (bytes == 2) {
-        q_scale = FP16_QSCALE;
+        // reduce the value of 'query' to 'query * FP16_QSCALE', avoid fp16 overflow
+        FLOAT16_T minValue;
+        FLOAT16_T maxValue;
+        core->MNNCountMaxMinValue(query->host<float>(), (float*)(&minValue), (float*)(&maxValue), query->elementSize());
+        float maxV = maxValue;
+        float minV = minValue;
+        float absMax = ALIMAX(fabsf(maxV), fabsf(minV));
+        if (absMax > 1.0f) {
+            q_scale = 1.0f / absMax;
+        }
         mScale /= q_scale;
     }
 

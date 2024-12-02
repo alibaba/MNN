@@ -121,7 +121,7 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, c
     }
     // Check If need external weight
     bool needExternalWeight = config.saveExternalData;
-    if (!needExternalWeight) {
+    if ((!needExternalWeight) && config.model != modelConfig::MNN) {
         needExternalWeight = _largeModel(netT.get());
     }
     std::ofstream externalWeightOs;

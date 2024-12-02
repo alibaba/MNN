@@ -143,7 +143,7 @@ void Helper::readClibrationFiles(std::vector<std::string>& images, const std::st
     DLOG(INFO) << "used dataset num: " << images.size();
 }
 
-void Helper::preprocessInput(MNN::CV::ImageProcess* pretreat, PreprocessConfig preprocessConfig, const std::string& filename, MNN::Tensor* input, InputType inputType) {
+void Helper::preprocessInput(MNN::CV::ImageProcess* pretreat, PreprocessConfig preprocessConfig, const std::string& filename, MNN::Tensor* input, InputType inputType, MNN::Express::VARP var) {
     if (inputType == InputType::IMAGE) {
         int originalWidth, originalHeight, comp;
         auto bitmap32bits = stbi_load(filename.c_str(), &originalWidth, &originalHeight, &comp, 4);
@@ -223,10 +223,9 @@ void Helper::preprocessInput(MNN::CV::ImageProcess* pretreat, PreprocessConfig p
             }
             data.insert(data.end(), rawData[i].begin(), rawData[i].end());
         }
-
-        std::vector<int> shape = {1, int(rawData.size()), int(rawData[0].size())};
-        std::shared_ptr<MNN::Tensor> tensorWarp(MNN::Tensor::create(shape, input->getType(), data.data(), MNN::Tensor::CAFFE));
-        input->copyFromHostTensor(tensorWarp.get());
+        auto ptr = var->writeMap<float>();
+        ::memcpy(ptr, data.data(), var->getInfo()->size * sizeof(float));
+        var->unMap();
     }
 }
 

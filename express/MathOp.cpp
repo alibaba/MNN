@@ -527,6 +527,16 @@ VARP _Sigmoid(VARP x) {
     return _Unary(x, UnaryOpOperation_SIGMOID);
 }
 
+/*Computes sigmoid of x element-wise.
+Args:
+x: A variable. Must be one of the following types: Halide_Type_Float
+Returns:
+A variable. Has the same type as x.
+*/
+VARP _Silu(VARP x) {
+    return _Unary(x, UnaryOpOperation_SILU);
+}
+
 
 /*Computes ((exponential of x) - 1) element-wise.
 Args:

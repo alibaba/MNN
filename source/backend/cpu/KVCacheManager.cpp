@@ -572,7 +572,7 @@ void KVCacheManager::pack_value(const Tensor* value, int seq_len, int kv_h) { //
 
 void KVCacheManager::onPushBack(const Tensor * key, const Tensor * value) {
     auto core = static_cast<CPUBackend*>(mBackend)->functions();
-    int seq_len = key->shape()[1];
+    int seq_len = key->length(1);
     int tileCount = UP_DIV(mKvNumHead, mThreadNum);
     std::function<void(int)> packKV = [=](int tid) {
         for (int kv_h = tid * tileCount; kv_h < (tid+1) * tileCount && kv_h < mKvNumHead; kv_h++) {

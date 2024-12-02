@@ -701,8 +701,9 @@ public:
 MNNTestSuiteRegister(ImageProcessYUVBlitterTest, "cv/image_process/yuv_blitter");
 
 static bool funcToColorResize(int iw, int ih, int ic, int ow, int oh, int oc, Filter filtertype, ImageFormat srcFormat, ImageFormat dstFormat) {
-    auto srcImg = genSourceData(ih, iw, ic);
-    auto dstType = halide_type_of<uint8_t>();
+   auto srcImg = genSourceData(ih, iw, ic);
+    auto dstType = halide_type_of<float>();
+    auto int8Type = halide_type_of<uint8_t>();
 
     float fx = static_cast<float>(iw) / ow;
     float fy = static_cast<float>(ih) / oh;
@@ -713,17 +714,23 @@ static bool funcToColorResize(int iw, int ih, int ic, int ow, int oh, int oc, Fi
     config0.destFormat = srcFormat;
     config0.filterType = filtertype;
     std::unique_ptr<ImageProcess> process0(ImageProcess::create(config0));
-    auto resizeTensor = Tensor::create({1, oh, ow, ic}, dstType);
+    auto resizeTensor = Tensor::create({1, oh, ow, ic}, int8Type);
     Matrix tr;
     tr.postScale(fx, fy);
     tr.postTranslate(0.5 * (fx - 1), 0.5 * (fy - 1));
     process0->setMatrix(tr);
-    process0->convert(srcImg.data(), iw, ih, 0, resizeTensor->host<uint8_t>(), ow, oh, ic, 0, dstType);
+    process0->convert(srcImg.data(), iw, ih, 0, resizeTensor->host<uint8_t>(), ow, oh, ic, 0, int8Type);
 
     // then convert color
     config1.sourceFormat = srcFormat;
     config1.destFormat = dstFormat;
     config1.filterType = filtertype;
+    config1.mean[0] = 127;
+    config1.mean[1] = 127;
+    config1.mean[2] = 127;
+    config1.normal[0] = 1.0/128;
+    config1.normal[1] = 1.0/128;
+    config1.normal[2] = 1.0/128;
     std::unique_ptr<ImageProcess> process1(ImageProcess::create(config1));
     auto colorTensor = Tensor::create({1, oh, ow, oc}, dstType);
     Matrix tr1;
@@ -739,17 +746,23 @@ static bool funcToColorResize(int iw, int ih, int ic, int ow, int oh, int oc, Fi
     config2.filterType = filtertype;
     
     std::unique_ptr<ImageProcess> process2(ImageProcess::create(config2));
-    auto colorTensor2 = Tensor::create({1, ih, iw, oc}, dstType);
+    auto colorTensor2 = Tensor::create({1, ih, iw, oc}, int8Type);
     Matrix tr2;
     tr2.postScale(1.f, 1.f);
     tr2.postTranslate(0.f, 0.f);
     process2->setMatrix(tr2);
-    process2->convert(srcImg.data(), iw, ih, 0, colorTensor2->host<uint8_t>(), iw, ih, oc, 0, dstType);
+    process2->convert(srcImg.data(), iw, ih, 0, colorTensor2->host<uint8_t>(), iw, ih, oc, 0, int8Type);
     
     // Second: resize
     config3.sourceFormat = dstFormat;
     config3.destFormat = dstFormat;
     config3.filterType = filtertype;
+    config3.mean[0] = 127;
+    config3.mean[1] = 127;
+    config3.mean[2] = 127;
+    config3.normal[0] = 1.0/128;
+    config3.normal[1] = 1.0/128;
+    config3.normal[2] = 1.0/128;
     
     std::unique_ptr<ImageProcess> process3(ImageProcess::create(config3));
     auto resizeTensor3 = Tensor::create({1, oh, ow, oc}, dstType);
@@ -760,9 +773,9 @@ static bool funcToColorResize(int iw, int ih, int ic, int ow, int oh, int oc, Fi
     process3->convert(colorTensor2->host<uint8_t>(), iw, ih, 0, resizeTensor3->host<uint8_t>(), ow, oh, oc, 0, dstType);
 
     // compare these two results
-    auto res1Ptr = colorTensor->host<uint8_t>();
-    auto res2Ptr = resizeTensor3->host<uint8_t>();
-    auto size_ = resizeTensor3->size();
+    auto res1Ptr = colorTensor->host<float>();
+    auto res2Ptr = resizeTensor3->host<float>();
+    auto size_ = resizeTensor3->length(0) * resizeTensor3->length(1) * resizeTensor3->length(2) * resizeTensor3->length(3);
     for (int i = 0; i < (int)size_; ++i) {
         if (res1Ptr[i] != res2Ptr[i]) {
             return false;
@@ -776,36 +789,21 @@ class ImageProcessColorResizeTest: public MNNTestCase {
     virtual ~ImageProcessColorResizeTest() = default;
     virtual bool run(int precison) {
         std::vector<Filter> filters = {MNN::CV::Filter::NEAREST, MNN::CV::Filter::BILINEAR};
-        for (int iw = 2; iw < 200; iw += 17) {
-            for (int ih = 7; ih < 200; ih += 19) {
-                for (int ow = 2; ow < 200; ow += 17) {
-                    for (int oh = 8; oh < 240; oh += 30) {
-                        for (int f = 0; f < filters.size(); ++f) {
-                            int ic = 4;
-                            int oc = 3;
-                            bool res = funcToColorResize(iw, ih, ic, ow, oh, oc, filters[f], RGBA, RGB);
-                            if (!res) {
-                                MNN_PRINT("iw=%d, ih=%d, ic=%d, ow=%d, oh=%d, oc=%d, filtertype=%d, RGBA->RGB\n", iw, ih, ic, ow, oh, oc, filters[f]);
-                                return false;
-                            }
-                            ic = 3;
-                            oc = 4;
-                            res &= funcToColorResize(iw, ih, ic, ow, oh, oc, filters[f], RGB, RGBA);
-                            if (!res) {
-                                MNN_PRINT("iw=%d, ih=%d, ic=%d, ow=%d, oh=%d, oc=%d, filtertype=%d, RGB->RGBA\n", iw, ih, ic, ow, oh, oc, filters[f]);
-                                return false;
-                            }
-                            
-                        }
-                        
-                    }
+        std::vector<int> iw{220, 420};
+        std::vector<int> ih{300, 340};
+
+        for (auto &width: iw) {
+            for (auto &height: ih) {
+                bool res = funcToColorResize(width, height, 3, 240, 320, 3, MNN::CV::Filter::BILINEAR, BGR, RGB);
+                if (!res) {
+                    return false;
                 }
             }
         }
         return true;
     }
 };
-// MNNTestSuiteRegister(ImageProcessColorResizeTest, "cv/image_process/color_resize_test");
+ MNNTestSuiteRegister(ImageProcessColorResizeTest, "cv/image_process/color_resize_test");
 
 static int format2Channel(CV::ImageFormat format) {
     switch (format) {

@@ -49,7 +49,7 @@ static void q41_dequant_ref(const uint8_t* src, float* dst, float scale, float z
 
 static void q81_dequant_ref(const uint8_t* src, float* dst, float scale, float zero, int size) {
     for (int i = 0; i < size; i++) {
-        dst[i] = src[i] * scale + zero;
+        dst[i] = (src[i] - 128) * scale + zero;
     }
 }
 
@@ -59,16 +59,16 @@ public:
     ~DiskEmbedding() {}
     void embedding(const std::vector<int>& input_ids, float* ptr);
 private:
-    void seek_read(uint8_t* dst, int size, int offset);
+    void seek_read(uint8_t* dst, size_t size, size_t offset);
     std::unique_ptr<uint8_t[]> alpha_ = nullptr;
     std::unique_ptr<uint8_t[]> weight_ = nullptr;
     std::unique_ptr<FILE, decltype(&fclose)> fp_;
     DequantFunction dequant_;
     int hidden_size_, weight_token_size_;
-    int w_offset_, block_num_, quant_block_, quant_bit_;
+    int64_t w_offset_, block_num_, quant_block_, quant_bit_;
 };
 
-void DiskEmbedding::seek_read(uint8_t* dst, int size, int offset) {
+void DiskEmbedding::seek_read(uint8_t* dst, size_t size, size_t offset) {
     fseek(fp_.get(), offset, SEEK_SET);
     size_t bytes_read = fread(dst, 1, size, fp_.get());
     (void)bytes_read;
@@ -86,8 +86,8 @@ DiskEmbedding::DiskEmbedding(const std::shared_ptr<LlmConfig>& config) : fp_(nul
         fp_.reset(fopen(config->llm_weight().c_str(), "rb"));
         // TODO: optimize dequant function
         dequant_ = quant_bit_ == 8 ? q81_dequant_ref : q41_dequant_ref;
-        int a_offset    = tie_embeddings[1];
-        int alpha_size  = tie_embeddings[2];
+        auto a_offset    = tie_embeddings[1];
+        auto alpha_size  = tie_embeddings[2];
         alpha_.reset(new uint8_t[alpha_size]);
         seek_read(alpha_.get(), alpha_size, a_offset);
     } else {
@@ -901,6 +901,7 @@ void Embedding::load() {
     // 1. load vocab
     tokenizer_.reset(Tokenizer::createTokenizer(config_->tokenizer_file()));
     printf("load tokenizer Done\n");
+    disk_embedding_.reset(new DiskEmbedding(config_));
     // 2. load model
     Module::Config module_config;
     module_config.shapeMutable = true;

@@ -64,43 +64,162 @@ __kernel void matmul_buf(GLOBAL_SIZE_2_DIMS __global const FLOAT* input_a,
         int kindex = k << 2;
         COMPUTE_FLOAT4 A[4]; // m4 x k4
         COMPUTE_FLOAT4 B[4]; // k4 x n4
-        #ifdef TRANSPOSE_A
-        {
-            COMPUTE_FLOAT4 tmp0 = CONVERT_COMPUTE_FLOAT4(vload4(0, input_a_offset + kindex * M));
-            COMPUTE_FLOAT4 tmp1 = CONVERT_COMPUTE_FLOAT4(vload4(0, input_a_offset + (kindex + 1) * M));
-            COMPUTE_FLOAT4 tmp2 = CONVERT_COMPUTE_FLOAT4(vload4(0, input_a_offset + (kindex + 2) * M));
-            COMPUTE_FLOAT4 tmp3 = CONVERT_COMPUTE_FLOAT4(vload4(0, input_a_offset + (kindex + 3) * M));
+        #ifdef M_LEAVE
+        if(idm + 3 >= M){
+            #ifdef TRANSPOSE_A
+                #if M_LEAVE_NUM == 3
+                {
+                    COMPUTE_FLOAT3 tmp0 = CONVERT_COMPUTE_FLOAT3(vload3(0, input_a_offset + kindex * M));
+                    COMPUTE_FLOAT3 tmp1 = CONVERT_COMPUTE_FLOAT3(vload3(0, input_a_offset + (kindex + 1) * M));
+                    COMPUTE_FLOAT3 tmp2 = CONVERT_COMPUTE_FLOAT3(vload3(0, input_a_offset + (kindex + 2) * M));
+                    COMPUTE_FLOAT3 tmp3 = CONVERT_COMPUTE_FLOAT3(vload3(0, input_a_offset + (kindex + 3) * M));
             
-            A[0] = (COMPUTE_FLOAT4)(tmp0.x, tmp1.x, tmp2.x, tmp3.x);
-            A[1] = (COMPUTE_FLOAT4)(tmp0.y, tmp1.y, tmp2.y, tmp3.y);
-            A[2] = (COMPUTE_FLOAT4)(tmp0.z, tmp1.z, tmp2.z, tmp3.z);
-            A[3] = (COMPUTE_FLOAT4)(tmp0.w, tmp1.w, tmp2.w, tmp3.w);
-        }
-        #else
-        A[0] = CONVERT_COMPUTE_FLOAT4(vload4(0, input_a_offset + kindex));
-        A[1] = CONVERT_COMPUTE_FLOAT4(vload4(0, input_a_offset + kindex + K));
-        A[2] = CONVERT_COMPUTE_FLOAT4(vload4(0, input_a_offset + kindex + 2 * K));
-        A[3] = CONVERT_COMPUTE_FLOAT4(vload4(0, input_a_offset + kindex + 3 * K));
+                    A[0] = (COMPUTE_FLOAT4)(tmp0.x, tmp1.x, tmp2.x, tmp3.x);
+                    A[1] = (COMPUTE_FLOAT4)(tmp0.y, tmp1.y, tmp2.y, tmp3.y);
+                    A[2] = (COMPUTE_FLOAT4)(tmp0.z, tmp1.z, tmp2.z, tmp3.z);
+                    A[3] = (COMPUTE_FLOAT4)0;
+                }
+                #elif M_LEAVE_NUM == 2
+                {
+                    COMPUTE_FLOAT2 tmp0 = CONVERT_COMPUTE_FLOAT2(vload2(0, input_a_offset + kindex * M));
+                    COMPUTE_FLOAT2 tmp1 = CONVERT_COMPUTE_FLOAT2(vload2(0, input_a_offset + (kindex + 1) * M));
+                    COMPUTE_FLOAT2 tmp2 = CONVERT_COMPUTE_FLOAT2(vload2(0, input_a_offset + (kindex + 2) * M));
+                    COMPUTE_FLOAT2 tmp3 = CONVERT_COMPUTE_FLOAT2(vload2(0, input_a_offset + (kindex + 3) * M));
+                    
+                    A[0] = (COMPUTE_FLOAT4)(tmp0.x, tmp1.x, tmp2.x, tmp3.x);
+                    A[1] = (COMPUTE_FLOAT4)(tmp0.y, tmp1.y, tmp2.y, tmp3.y);
+                    A[2] = (COMPUTE_FLOAT4)0;
+                    A[3] = (COMPUTE_FLOAT4)0;
+                }
+                #elif M_LEAVE_NUM == 1
+                {
+                    A[0] = (COMPUTE_FLOAT4)((COMPUTE_FLOAT)input_a_offset[kindex * M], (COMPUTE_FLOAT)input_a_offset[(kindex + 1) * M], (COMPUTE_FLOAT)input_a_offset[(kindex + 2) * M], (COMPUTE_FLOAT)input_a_offset[(kindex + 3) * M]);
+                    A[1] = (COMPUTE_FLOAT4)0;
+                    A[2] = (COMPUTE_FLOAT4)0;
+                    A[3] = (COMPUTE_FLOAT4)0;
+                }
+                #endif
+            #else
+                #if M_LEAVE_NUM == 3
+                    A[0] = CONVERT_COMPUTE_FLOAT4(vload4(0, input_a_offset + kindex));
+                    A[1] = CONVERT_COMPUTE_FLOAT4(vload4(0, input_a_offset + kindex + K));
+                    A[2] = CONVERT_COMPUTE_FLOAT4(vload4(0, input_a_offset + kindex + 2 * K));
+                    A[3] = (COMPUTE_FLOAT4)0;
+                #elif M_LEAVE_NUM == 2
+                    A[0] = CONVERT_COMPUTE_FLOAT4(vload4(0, input_a_offset + kindex));
+                    A[1] = CONVERT_COMPUTE_FLOAT4(vload4(0, input_a_offset + kindex + K));
+                    A[2] = (COMPUTE_FLOAT4)0;
+                    A[3] = (COMPUTE_FLOAT4)0;
+                #elif M_LEAVE_NUM == 1
+                    A[0] = CONVERT_COMPUTE_FLOAT4(vload4(0, input_a_offset + kindex));
+                    A[1] = (COMPUTE_FLOAT4)0;
+                    A[2] = (COMPUTE_FLOAT4)0;
+                    A[3] = (COMPUTE_FLOAT4)0;
+                #endif
+            #endif
+        } else
         #endif
+        {
+            #ifdef TRANSPOSE_A
+            {
+                COMPUTE_FLOAT4 tmp0 = CONVERT_COMPUTE_FLOAT4(vload4(0, input_a_offset + kindex * M));
+                COMPUTE_FLOAT4 tmp1 = CONVERT_COMPUTE_FLOAT4(vload4(0, input_a_offset + (kindex + 1) * M));
+                COMPUTE_FLOAT4 tmp2 = CONVERT_COMPUTE_FLOAT4(vload4(0, input_a_offset + (kindex + 2) * M));
+                COMPUTE_FLOAT4 tmp3 = CONVERT_COMPUTE_FLOAT4(vload4(0, input_a_offset + (kindex + 3) * M));
+            
+                A[0] = (COMPUTE_FLOAT4)(tmp0.x, tmp1.x, tmp2.x, tmp3.x);
+                A[1] = (COMPUTE_FLOAT4)(tmp0.y, tmp1.y, tmp2.y, tmp3.y);
+                A[2] = (COMPUTE_FLOAT4)(tmp0.z, tmp1.z, tmp2.z, tmp3.z);
+                A[3] = (COMPUTE_FLOAT4)(tmp0.w, tmp1.w, tmp2.w, tmp3.w);
+            }
+            #else
+            A[0] = CONVERT_COMPUTE_FLOAT4(vload4(0, input_a_offset + kindex));
+            A[1] = CONVERT_COMPUTE_FLOAT4(vload4(0, input_a_offset + kindex + K));
+            A[2] = CONVERT_COMPUTE_FLOAT4(vload4(0, input_a_offset + kindex + 2 * K));
+            A[3] = CONVERT_COMPUTE_FLOAT4(vload4(0, input_a_offset + kindex + 3 * K));
+            #endif
+        }
+    
+        #ifdef N_LEAVE
+        if(idn + 3 >= N){
+            #ifdef TRANSPOSE_B
+                #if N_LEAVE_NUM == 3
+                {
+                    COMPUTE_FLOAT4 tmp0 = CONVERT_COMPUTE_FLOAT4(vload4(0, input_b_offset + kindex));
+                    COMPUTE_FLOAT4 tmp1 = idn + 1 >= N ? (COMPUTE_FLOAT4)0 : CONVERT_COMPUTE_FLOAT4(vload4(0, input_b_offset + kindex + K));
+                    COMPUTE_FLOAT4 tmp2 = idn + 2 >= N ? (COMPUTE_FLOAT4)0 : CONVERT_COMPUTE_FLOAT4(vload4(0, input_b_offset + kindex + 2 * K));
         
-        #ifdef TRANSPOSE_B
-        {
-            COMPUTE_FLOAT4 tmp0 = CONVERT_COMPUTE_FLOAT4(vload4(0, input_b_offset + kindex));
-            COMPUTE_FLOAT4 tmp1 = CONVERT_COMPUTE_FLOAT4(vload4(0, input_b_offset + kindex + K));
-            COMPUTE_FLOAT4 tmp2 = CONVERT_COMPUTE_FLOAT4(vload4(0, input_b_offset + kindex + 2 * K));
-            COMPUTE_FLOAT4 tmp3 = CONVERT_COMPUTE_FLOAT4(vload4(0, input_b_offset + kindex + 3 * K));
-            
-            B[0] = (COMPUTE_FLOAT4)(tmp0.x, tmp1.x, tmp2.x, tmp3.x);
-            B[1] = (COMPUTE_FLOAT4)(tmp0.y, tmp1.y, tmp2.y, tmp3.y);
-            B[2] = (COMPUTE_FLOAT4)(tmp0.z, tmp1.z, tmp2.z, tmp3.z);
-            B[3] = (COMPUTE_FLOAT4)(tmp0.w, tmp1.w, tmp2.w, tmp3.w);
-        }
-        #else
-        B[0] = CONVERT_COMPUTE_FLOAT4(vload4(0, input_b_offset + kindex * N));
-        B[1] = CONVERT_COMPUTE_FLOAT4(vload4(0, input_b_offset + (kindex + 1) * N));
-        B[2] = CONVERT_COMPUTE_FLOAT4(vload4(0, input_b_offset + (kindex + 2) * N));
-        B[3] = CONVERT_COMPUTE_FLOAT4(vload4(0, input_b_offset + (kindex + 3) * N));
+                    B[0] = (COMPUTE_FLOAT4)(tmp0.x, tmp1.x, tmp2.x, 0);
+                    B[1] = (COMPUTE_FLOAT4)(tmp0.y, tmp1.y, tmp2.y, 0);
+                    B[2] = (COMPUTE_FLOAT4)(tmp0.z, tmp1.z, tmp2.z, 0);
+                    B[3] = (COMPUTE_FLOAT4)(tmp0.w, tmp1.w, tmp2.w, 0);
+                }
+                #elif N_LEAVE_NUM == 2
+                {
+                    COMPUTE_FLOAT4 tmp0 = CONVERT_COMPUTE_FLOAT4(vload4(0, input_b_offset + kindex));
+                    COMPUTE_FLOAT4 tmp1 = idn + 1 >= N ? (COMPUTE_FLOAT4)0 : CONVERT_COMPUTE_FLOAT4(vload4(0, input_b_offset + kindex + K));
+        
+                    B[0] = (COMPUTE_FLOAT4)(tmp0.x, tmp1.x, 0, 0);
+                    B[1] = (COMPUTE_FLOAT4)(tmp0.y, tmp1.y, 0, 0);
+                    B[2] = (COMPUTE_FLOAT4)(tmp0.z, tmp1.z, 0, 0);
+                    B[3] = (COMPUTE_FLOAT4)(tmp0.w, tmp1.w, 0, 0);
+                }
+                #elif N_LEAVE_NUM == 1
+                {
+                    COMPUTE_FLOAT4 tmp0 = CONVERT_COMPUTE_FLOAT4(vload4(0, input_b_offset + kindex));
+        
+                    B[0] = (COMPUTE_FLOAT4)(tmp0.x, 0, 0, 0);
+                    B[1] = (COMPUTE_FLOAT4)(tmp0.y, 0, 0, 0);
+                    B[2] = (COMPUTE_FLOAT4)(tmp0.z, 0, 0, 0);
+                    B[3] = (COMPUTE_FLOAT4)(tmp0.w, 0, 0, 0);
+                }
+                #endif
+            #else
+                #if N_LEAVE_NUM == 3
+                {
+                    B[0] = (COMPUTE_FLOAT4)(CONVERT_COMPUTE_FLOAT3(vload3(0, input_b_offset + kindex * N)), 0);
+                    B[1] = (COMPUTE_FLOAT4)(CONVERT_COMPUTE_FLOAT3(vload3(0, input_b_offset + (kindex + 1) * N)), 0);
+                    B[2] = (COMPUTE_FLOAT4)(CONVERT_COMPUTE_FLOAT3(vload3(0, input_b_offset + (kindex + 2) * N)), 0);
+                    B[3] = (COMPUTE_FLOAT4)(CONVERT_COMPUTE_FLOAT3(vload3(0, input_b_offset + (kindex + 3) * N)), 0);
+                }
+                #elif N_LEAVE_NUM == 2
+                {
+                    B[0] = (COMPUTE_FLOAT4)(CONVERT_COMPUTE_FLOAT2(vload2(0, input_b_offset + kindex * N)), 0, 0);
+                    B[1] = (COMPUTE_FLOAT4)(CONVERT_COMPUTE_FLOAT2(vload2(0, input_b_offset + (kindex + 1) * N)), 0, 0);
+                    B[2] = (COMPUTE_FLOAT4)(CONVERT_COMPUTE_FLOAT2(vload2(0, input_b_offset + (kindex + 2) * N)), 0, 0);
+                    B[3] = (COMPUTE_FLOAT4)(CONVERT_COMPUTE_FLOAT2(vload2(0, input_b_offset + (kindex + 3) * N)), 0, 0);
+                }
+                #elif N_LEAVE_NUM == 1
+                {
+                    B[0] = (COMPUTE_FLOAT4)((COMPUTE_FLOAT)input_b_offset[kindex * N], 0, 0, 0);
+                    B[1] = (COMPUTE_FLOAT4)((COMPUTE_FLOAT)input_b_offset[(kindex + 1) * N], 0, 0, 0);
+                    B[2] = (COMPUTE_FLOAT4)((COMPUTE_FLOAT)input_b_offset[(kindex + 2) * N], 0, 0, 0);
+                    B[3] = (COMPUTE_FLOAT4)((COMPUTE_FLOAT)input_b_offset[(kindex + 3) * N], 0, 0, 0);
+                }
+                #endif
+            #endif
+        } else
         #endif
+        {
+            #ifdef TRANSPOSE_B
+            {
+                COMPUTE_FLOAT4 tmp0 = CONVERT_COMPUTE_FLOAT4(vload4(0, input_b_offset + kindex));
+                COMPUTE_FLOAT4 tmp1 = CONVERT_COMPUTE_FLOAT4(vload4(0, input_b_offset + kindex + K));
+                COMPUTE_FLOAT4 tmp2 = CONVERT_COMPUTE_FLOAT4(vload4(0, input_b_offset + kindex + 2 * K));
+                COMPUTE_FLOAT4 tmp3 = CONVERT_COMPUTE_FLOAT4(vload4(0, input_b_offset + kindex + 3 * K));
+            
+                B[0] = (COMPUTE_FLOAT4)(tmp0.x, tmp1.x, tmp2.x, tmp3.x);
+                B[1] = (COMPUTE_FLOAT4)(tmp0.y, tmp1.y, tmp2.y, tmp3.y);
+                B[2] = (COMPUTE_FLOAT4)(tmp0.z, tmp1.z, tmp2.z, tmp3.z);
+                B[3] = (COMPUTE_FLOAT4)(tmp0.w, tmp1.w, tmp2.w, tmp3.w);
+            }
+            #else
+            B[0] = CONVERT_COMPUTE_FLOAT4(vload4(0, input_b_offset + kindex * N));
+            B[1] = CONVERT_COMPUTE_FLOAT4(vload4(0, input_b_offset + (kindex + 1) * N));
+            B[2] = CONVERT_COMPUTE_FLOAT4(vload4(0, input_b_offset + (kindex + 2) * N));
+            B[3] = CONVERT_COMPUTE_FLOAT4(vload4(0, input_b_offset + (kindex + 3) * N));
+            #endif
+        }
         
         #pragma unroll
         for (int vec_m = 0; vec_m < 4; ++vec_m){
@@ -114,23 +233,69 @@ __kernel void matmul_buf(GLOBAL_SIZE_2_DIMS __global const FLOAT* input_a,
      for (int k = loop_end << 2; k < K; ++k){
         COMPUTE_FLOAT4 A; // m4
         COMPUTE_FLOAT4 B; // n4
-        #ifdef TRANSPOSE_A
-        A = CONVERT_COMPUTE_FLOAT4(vload4(0, input_a_offset + k * M));
-        #else
-        A.x = (COMPUTE_FLOAT)input_a_offset[k];
-        A.y = (COMPUTE_FLOAT)input_a_offset[k + K];
-        A.z = (COMPUTE_FLOAT)input_a_offset[k + 2 * K];
-        A.w = (COMPUTE_FLOAT)input_a_offset[k + 3 * K];
+        #ifdef M_LEAVE
+        if(idm + 3 >= M){
+            #ifdef TRANSPOSE_A
+                #if M_LEAVE_NUM == 3
+                A.s012 = CONVERT_COMPUTE_FLOAT3(vload3(0, input_a_offset + k * M));
+                #elif M_LEAVE_NUM == 2
+                A.s01 = CONVERT_COMPUTE_FLOAT2(vload2(0, input_a_offset + k * M));
+                #elif M_LEAVE_NUM == 1
+                A.s0 = (COMPUTE_FLOAT)input_a_offset[k * M];
+                #endif
+            #else
+                A.x = (COMPUTE_FLOAT)input_a_offset[k];
+                #if M_LEAVE_NUM >= 2
+                A.y = (COMPUTE_FLOAT)input_a_offset[k + K];
+                #endif
+                #if M_LEAVE_NUM >= 3
+                A.z = (COMPUTE_FLOAT)input_a_offset[k + 2 * K];
+                #endif
+            #endif
+        } else
         #endif
+        {
+            #ifdef TRANSPOSE_A
+            A = CONVERT_COMPUTE_FLOAT4(vload4(0, input_a_offset + k * M));
+            #else
+            A.x = (COMPUTE_FLOAT)input_a_offset[k];
+            A.y = (COMPUTE_FLOAT)input_a_offset[k + K];
+            A.z = (COMPUTE_FLOAT)input_a_offset[k + 2 * K];
+            A.w = (COMPUTE_FLOAT)input_a_offset[k + 3 * K];
+            #endif
+        }
         
-        #ifdef TRANSPOSE_B
-        B.x = (COMPUTE_FLOAT)input_b_offset[k];
-        B.y = (COMPUTE_FLOAT)input_b_offset[k + K];
-        B.z = (COMPUTE_FLOAT)input_b_offset[k + 2 * K];
-        B.w = (COMPUTE_FLOAT)input_b_offset[k + 3 * K];
-        #else
-        B = CONVERT_COMPUTE_FLOAT4(vload4(0, input_b_offset + k * N));
+        #ifdef N_LEAVE
+        if(idn + 3 >= N){
+            #ifdef TRANSPOSE_B
+                B.x = (COMPUTE_FLOAT)input_b_offset[k];
+                #if N_LEAVE_NUM >= 2
+                B.y = (COMPUTE_FLOAT)input_b_offset[k + K];
+                #endif
+                #if N_LEAVE_NUM >= 3
+                B.z = (COMPUTE_FLOAT)input_b_offset[k + 2 * K];
+                #endif
+            #else
+                #if N_LEAVE_NUM == 3
+                B.s012 = CONVERT_COMPUTE_FLOAT3(vload3(0, input_b_offset + k * N));
+                #elif N_LEAVE_NUM == 2
+                B.s01 = CONVERT_COMPUTE_FLOAT2(vload2(0, input_b_offset + k * N));
+                #elif N_LEAVE_NUM == 1
+                B.s0 = (COMPUTE_FLOAT)input_b_offset[k * N];
+                #endif
+            #endif
+        } else
         #endif
+        {
+            #ifdef TRANSPOSE_B
+            B.x = (COMPUTE_FLOAT)input_b_offset[k];
+            B.y = (COMPUTE_FLOAT)input_b_offset[k + K];
+            B.z = (COMPUTE_FLOAT)input_b_offset[k + 2 * K];
+            B.w = (COMPUTE_FLOAT)input_b_offset[k + 3 * K];
+            #else
+            B = CONVERT_COMPUTE_FLOAT4(vload4(0, input_b_offset + k * N));
+            #endif
+        }
         out[0] = mad((COMPUTE_FLOAT4)A.x, B, out[0]);
         out[1] = mad((COMPUTE_FLOAT4)A.y, B, out[1]);
         out[2] = mad((COMPUTE_FLOAT4)A.z, B, out[2]);
