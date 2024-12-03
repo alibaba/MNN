@@ -1428,7 +1428,7 @@ class MNNConveter:
     def quant(self, weight, quant_bit, quant_block, symmetric):
         if torch.cuda.is_available():
             weight = weight.cuda()
-        if torch.mps.is_available():
+        if torch.backends.mps.is_available():
             weight = weight.to('mps')
         oc, ic = weight.shape
         if quant_block == 0:
@@ -2259,7 +2259,7 @@ class LlmExporter(torch.nn.Module):
         self.onnx_path = os.path.join(self.dst_path, 'onnx')
         self.tokenizer_path = args.tokenizer_path
         self.lora_path = args.lora_path
-        self.onnx_slim = args.onnx_slim
+        self.need_onnx_slim = args.onnx_slim
         self.ppl = args.ppl
         self.awq = args.awq
         self.quant_bit = args.quant_bit
@@ -2727,13 +2727,13 @@ class LlmExporter(torch.nn.Module):
             self.export_embed()
         if self.visual:
             visual_onnx = self.export_visual()
-            #if self.onnx_slim:
+            #if self.need_onnx_slim:
                 #visual_onnx = self.onnx_slim(visual_onnx)
             if export_mnn:
                 MNNConveter(visual_onnx, None, self).export(quant_bit=self.visual.quant_bit)
         # export graph to llm.onnx
         onnx_model = self.export_onnx()
-        if self.onnx_slim:
+        if self.need_onnx_slim:
             self.onnx_slim(onnx_model)
         if export_mnn:
             # convert onnx to mnn and quant weight
@@ -3033,7 +3033,7 @@ class EmbeddingExporter(LlmExporter):
         self.export_config(export_mnn)
         self.export_embed()
         onnx_model = self.export_onnx()
-        if self.onnx_slim:
+        if self.need_onnx_slim:
             self.onnx_slim(onnx_model)
         if export_mnn:
             MNNConveter(onnx_model, None, self).export()
