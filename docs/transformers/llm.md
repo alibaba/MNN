@@ -262,7 +262,7 @@ node llm_demo.js ~/qwen2.0_1.5b/config.json ~/qwen2.0_1.5b/prompt.txt
 #### 推理用法
 `llm_demo`的用法如下：
 pc端直接推理
-```
+```bash
 # 使用config.json
 ## 交互式聊天
 ./llm_demo model_dir/config.json
@@ -276,17 +276,16 @@ pc端直接推理
 ./llm_demo model_dir/llm.mnn prompt.txt
 ```
 
-<<<<<<< HEAD
-手机端adb推理用法：
+android手机端adb推理用法：
 ```bash
 # 利用adb push将链接库push到手机上
 adb shell mkdir /data/local/tmp/llm
 adb push llm_demo ppl_demo libllm.so libMNN_CL.so libMNN_Express.so libMNN.so tools/cv/libMNNOpenCV.so /data/local/tmp/llm
-=======
+```
+
 - 对于视觉大模型，在prompt中嵌入图片输入
 ```
 <img>https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-VL/assets/demo.jpeg</img>介绍一下图片里的内容
->>>>>>> alibaba/master
 ```
 
 #### GPTQ权重加载

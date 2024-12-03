@@ -24,12 +24,6 @@
 #define FLOAT16_T float
 #endif
 
-<<<<<<< HEAD
-// reduce the value of 'query' to 'query * FP16_QSCALE', avoid fp16 overflow
-#define FP16_QSCALE 0.25
-
-=======
->>>>>>> alibaba/master
 namespace MNN {
 
 template <typename T>
