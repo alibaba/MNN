@@ -13,13 +13,14 @@
 #include <fstream>
 #include <sstream>
 #include <stdlib.h>
+#include <initializer_list>
 using namespace MNN::Transformer;
 
 static void trace_prepare(Llm* llm) {
     MNN_PRINT("Prepare for resize opt Begin\n");
     llm->trace(true);
     std::ostringstream cacheOs;
-    llm->generate({200, 200}, &cacheOs, "");
+    llm->generate(std::initializer_list<int>{200, 200}, &cacheOs, "");
     MNN_PRINT("Prepare for resize opt End\n");
     llm->trace(false);
     llm->reset();
