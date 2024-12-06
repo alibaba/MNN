@@ -1,5 +1,5 @@
 datasets
-MNN
+MNN>=3.0.0
 onnx
 onnxslim
 onnxruntime
@@ -9,6 +9,6 @@ Requests
 sentencepiece
 torch
 tqdm
-transformers
+transformers>=4.45
 yaspin
 numpy
