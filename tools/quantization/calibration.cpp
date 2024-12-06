@@ -1056,7 +1056,7 @@ void Calibration::_quantizeModelEMA() {
                 auto singleInput = _Input(originDims, originFormat, originType);
                 auto inputTensor = (MNN::Tensor*)singleInput->getTensor();
                 Helper::preprocessInput(_process.get(), _preprocessConfig, file, inputTensor, _inputType, inputs[0]);
-                ::memcpy(inputs[0]->writeMap<float>() + k * inputTensor->elementSize(), inputTensor->host<float>(), inputTensor->elementSize() * sizeof(float));
+                ::memcpy(inputs[0]->writeMap<float>() + (k - indicesStart) * inputTensor->elementSize(), inputTensor->host<float>(), inputTensor->elementSize() * sizeof(float));
 
             }
         }
