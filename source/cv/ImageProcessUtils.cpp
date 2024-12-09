@@ -456,16 +456,14 @@ ErrorCode ImageProcessUtils::transformImage(const uint8_t* source, uint8_t* dst,
                 }
             }
             // Convert format
+            const uint8_t* blitFloatSrc = blitSrc;
             if (mInside->mBlitter) {
                 mInside->mBlitter(blitSrc, blitDest, count);
+                blitFloatSrc = blitDest;
             }
             // Turn float
             if (mInside->mBlitFloat) {
-                if (mInside->mSampler) {
-                    mInside->mBlitFloat(blitDest, (float*)dstStart, mInside->config.mean, mInside->config.normal, count);
-                } else {
-                    mInside->mBlitFloat(sourcePos, (float*)dstStart, mInside->config.mean, mInside->config.normal, count);
-                }
+                mInside->mBlitFloat(blitFloatSrc, (float*)dstStart, mInside->config.mean, mInside->config.normal, count);
             }
         }
     }

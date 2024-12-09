@@ -30,29 +30,6 @@
     k10 = z_wt[3], k11 = z_wt[4], k12 = z_wt[5];\
     k20 = z_wt[6], k21 = z_wt[7], k22 = z_wt[8];
 
-
-#define CONV_MUL_PACK_H2(x,y)  \
-    x += FLOAT4(in10 * k00);\
-    y += FLOAT4(in11 * k00);\
-    x += FLOAT4(in11 * k01);\
-    y += FLOAT4(in12 * k01);\
-    x += FLOAT4(in12 * k02);\
-    y += FLOAT4(in13 * k02);\
-                            \
-    x += FLOAT4(in20 * k10);\
-    y += FLOAT4(in21 * k10);\
-    x += FLOAT4(in21 * k11);\
-    y += FLOAT4(in22 * k11);\
-    x += FLOAT4(in22 * k12);\
-    y += FLOAT4(in23 * k12);\
-                            \
-    x += FLOAT4(in30 * k20);\
-    y += FLOAT4(in31 * k20);\
-    x += FLOAT4(in31 * k21);\
-    y += FLOAT4(in32 * k21);\
-    x += FLOAT4(in32 * k22);\
-    y += FLOAT4(in33 * k22);
-
 struct conv_constants {
     int input_width;
     int input_height;

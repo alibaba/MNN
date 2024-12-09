@@ -123,6 +123,8 @@ public:
                     return new UnaryExecution("expm1(convert_float4(in))", op, backend);
                 case UnaryOpOperation_SIGMOID:
                     return new UnaryExecution("native_recip((float4)1+native_exp(convert_float4(-in)))", op, backend);
+                case UnaryOpOperation_SILU:
+                    return new UnaryExecution("(convert_float4(in)*native_recip((float4)1+native_exp(convert_float4(-in))))", op, backend);
                 case UnaryOpOperation_TANH:
                     return new UnaryExecution("tanh(convert_float4(in))", op, backend);
                 case UnaryOpOperation_HARDSWISH:

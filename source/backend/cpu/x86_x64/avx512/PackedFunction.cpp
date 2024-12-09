@@ -241,7 +241,7 @@ void _AVX512_MNNDeconvRunForLineDepthwise(const float* dst, float* src, const fl
     }
 }
 
-void _AVX512_MNNGridSampleComputeCord(float* dst, const float* src, size_t inH, size_t inW, size_t outH, size_t outW, size_t stride, bool alignCorners) {
+void _AVX512_MNNGridSampleComputeCord(float* dst, const float* src, size_t inH, size_t inW, size_t outH, size_t outW, bool alignCorners) {
     __m512 zero = _mm512_setzero_ps();
     __m512 one = _mm512_set1_ps(1);
     __m512 half = _mm512_set1_ps(0.5f);

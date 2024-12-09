@@ -59,7 +59,8 @@
         "LOG1P",
         "ROUND",
         "HARDSWISH",
-        "GELU"
+        "GELU",
+        "SILU"
     ],
     "unPackImage4x4.comp":[
         "TRANSPOSE"
@@ -88,6 +89,10 @@
         "RELU6"
     ],
     "convolutionDepthwise.comp":[
+        "RELU",
+        "RELU6"
+    ],
+    "convolutionDepthwise_s1d1_w2.comp":[
         "RELU",
         "RELU6"
     ],

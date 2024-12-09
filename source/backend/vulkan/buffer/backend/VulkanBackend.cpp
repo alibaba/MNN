@@ -86,6 +86,10 @@ const VulkanPipeline* VulkanBackend::getPipeline(const std::string& key, const s
     return mRuntime->mPipelineFactory->getPipeline(key, types, localSize);
 }
 
+SharedPtr<VulkanPipeline> VulkanBackend::getPrivatePipeline(const std::string& key, const std::vector<VkDescriptorType>& types) {
+    return mRuntime->mPipelineFactory->getPrivatePipeline(key, types);
+}
+
 void VulkanBackend::onResizeBegin() {
     if (!mDirect) {
         mCmdBuffer->begin(0);

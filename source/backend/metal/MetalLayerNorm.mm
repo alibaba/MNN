@@ -80,8 +80,13 @@ ErrorCode MetalLayerNorm::onResize(const std::vector<Tensor *> &inputs, const st
     if(((MetalRuntime *)backend->runtime())->supportSimdGroupReduce()) {
         if(RMSNorm) {
             if(parallel) {
-                mPipeline = [context pipelineWithName:@"layernorm_x4_rms_sg" fp16:backend->useFp16InsteadFp32()];
-                mThreads = std::make_pair(MTLSizeMake(inside, mOutside, 1), MTLSizeMake(32, 1, 1));
+                if(inside >= 16 && inside * mOutside >= 2048) {
+                    mPipeline = [context pipelineWithName:@"layernorm_x16_rms_sg" fp16:backend->useFp16InsteadFp32()];
+                    mThreads = std::make_pair(MTLSizeMake(UP_DIV(inside, 4), mOutside, 1), MTLSizeMake(32, 1, 1));
+                } else {
+                    mPipeline = [context pipelineWithName:@"layernorm_x4_rms_sg" fp16:backend->useFp16InsteadFp32()];
+                    mThreads = std::make_pair(MTLSizeMake(inside, mOutside, 1), MTLSizeMake(32, 1, 1));
+                }
             } else {
                 mPipeline = [context pipelineWithName:@"layernorm_x1_rms_sg" fp16:backend->useFp16InsteadFp32()];
                 mThreads = std::make_pair(MTLSizeMake(inside, mOutside, 1), MTLSizeMake(32, 1, 1));
