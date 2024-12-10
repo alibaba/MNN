@@ -17,7 +17,7 @@ def main(args):
     dataset_dir = eval_dataset.split("/")[1]
 
     dataset = load_dataset(dataset_name, dataset_dir, split="test")
-    input_ids = model.tokenizer_encode("\n\n".join(dataset["text"]))
+    input_ids = model.tokenizer_encode("\n\n".join(dataset["text"]), False)
     stride = 512
     context_length = stride + stride // 2
     seq_len = len(input_ids)
