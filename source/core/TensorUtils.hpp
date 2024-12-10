@@ -20,7 +20,7 @@
 #endif // CONSTANT
 
 #ifdef MNN_KLEIDIAI_ENABLED
-#include "../backend/cpu/arm/kleidiAI/mnn_kleidiai.h"
+#include "../backend/cpu/arm/mnn_kleidiai.h"
 /**
  * Set DenseConvInt8TiledExecutor's input/output tensor format: 
  * KAI_CONV_NCHW_IN_OUT = 1: format will be NCHW, skip pack/unpack functions.
