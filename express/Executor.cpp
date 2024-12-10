@@ -376,9 +376,9 @@ void Executor::RuntimeManager::updateCache() {
         MNN_PRINT("Update cache to %s, size = %zu\n", mInside->mCache->cacheFile.c_str(), buffer.second);
         writeCacheFile(mInside->mCache, buffer);
         mInside->mCache->lastCacheSize = buffer.second;
+        // Reset cache
+        loadCache(mInside->mInfo, buffer.first, buffer.second);
     }
-    // Reset cache
-    loadCache(mInside->mInfo, nullptr, 0);
 }
 
 std::vector<bool> Executor::RuntimeManager::isBackendSupport(const std::vector<MNNForwardType> types) {
