@@ -204,6 +204,9 @@ bool initTensors(std::vector<std::shared_ptr<Tensor>>& tensors, const Net* net, 
         }
         auto blob = des->blob();
         auto& tb = tensors[index]->buffer();
+        if (nullptr == blob) {
+            continue;
+        }
         if (auto idims = blob->dims()) {
             for (int d = 0; d < idims->size(); d++) {
                 tb.dim[d].extent = idims->Get(d);
