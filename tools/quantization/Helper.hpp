@@ -31,8 +31,6 @@ public:
 
     static std::set<std::string> gNotNeedFeatureOp;
 
-    static std::set<MNN::OpType> INT8SUPPORTED_OPS;
-
     static std::set<std::string> featureQuantizeMethod;
     static std::set<std::string> weightQuantizeMethod;
 

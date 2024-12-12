@@ -147,7 +147,6 @@ protected:
     }
 
 private:
-    void _clearCache();
     void _setUpTensorInfo(const Schedule::ScheduleInfo& info);
 
 private:
