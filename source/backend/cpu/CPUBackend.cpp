@@ -37,6 +37,13 @@
 #include "x86_x64/AVX2Backend.hpp"
 #endif
 
+#ifdef MNN_USE_THREAD_POOL
+#include <sys/types.h>
+#include <sched.h>
+#include "core/Concurrency.h"
+#endif
+
+// #define UNIFORM_DIVIDE
 #define MNN_CPU_MAX_BUFFER_INDEX 2
 #define MNN_CPU_CHECK_NAN 1
 #define MNN_CPU_USE_DEFAULT_BACKEND 4
@@ -48,8 +55,18 @@ ErrorCode CastWrapExecution::onExecute(const std::vector<Tensor*>& inputs, const
     CPUCastCreator::cast(inputs[0], outputs[0], cpuBackend, convertType);
     return NO_ERROR;
 }
+
+float getTotalRate(const std::vector<float>& rate, const std::vector<int>& cpuids) {
+    float totalRate = 0.0f;
+    for (auto id : cpuids) {
+        totalRate += rate[id];
+    }
+    return totalRate;
+}
+
+// Shall be called in onExecute!!!
 void CPUBackend::computeDivideSizes(int size, int* dst, float avgDiv) const {
-    if (mGroupWithComputeRate.size() <= 1 || (avgDiv > 0 && avgDiv < mComputeI)) {
+    if (mGroupWithComputeRate.size() <= 1 || (avgDiv > 0.0f && avgDiv < mComputeI)) {
         // Avg divide
         int length = UP_DIV(size, mThreadNumber);
         int cur = length;
@@ -61,18 +78,43 @@ void CPUBackend::computeDivideSizes(int size, int* dst, float avgDiv) const {
         return;
     }
 
-    int cur = 0;
-    int curPos = 0;
-    for (auto& group : mGroupWithComputeRate) {
-        int currentGroupTotal = (int)(ceilf((float)size*group.first));
-        int length = UP_DIV(currentGroupTotal, group.second);
-        for (int i=0; i<group.second; ++i) {
-            cur = cur + length;
-            cur = ALIMIN(cur, size);
-            dst[curPos+i] = cur;
-        }
-        curPos += group.second;
+#if defined(MNN_USE_THREAD_POOL) && !defined(UNIFORM_DIVIDE)
+    // probe cpuid
+    std::vector<int> cpuids(mThreadNumber);
+    Backend* this_ptr = (Backend*)this;
+    std::function<void(int)> mGetCPUId = [&](int tId) {
+        // MNN_PRINT("Current id: %d, tid: %d, cpuid: %d\n", tId, gettid(), sched_getcpu());
+        cpuids[tId] = sched_getcpu();
+    };
+    std::function<Backend*(void)> backend = [=](void) {
+        return this_ptr;
+    };
+    MNN_CONCURRENCY_BEGIN(tId, mThreadNumber) {
+        mGetCPUId((int)tId);
     }
+    MNN_CONCURRENCY_END();
+
+    // assign workload according to physical cpu power.
+    float totalRate = getTotalRate(mGroupWithComputeRate, cpuids); 
+    int cur = 0;
+    for (int i=0; i<mThreadNumber; ++i) {
+        // MNN_PRINT("totalRate: %.4f, rate: %.4f\n", totalRate, mGroupWithComputeRate[cpuids[i]]/totalRate);
+        int length = (int)(ceilf((float)size*(mGroupWithComputeRate[cpuids[i]]/totalRate)));
+        cur += length;
+        cur = ALIMIN(cur, size);
+        dst[i] = cur;
+    }
+    MNN_ASSERT(cur==size);
+#else
+    // Avg divide
+    int length = UP_DIV(size, mThreadNumber);
+    int cur = length;
+    for (int i=0; i<mThreadNumber; ++i) {
+        dst[i] = cur;
+        cur = cur + length;
+        cur = ALIMIN(cur, size);
+    }
+#endif
 }
 
 void CPURuntime::_bindCPUCore() const {
@@ -372,8 +414,12 @@ CPUBackend::CPUBackend(const CPURuntime* runtime, BackendConfig::PrecisionMode p
         if (mThreadNumber <= 1 || mRuntime->mPower == BackendConfig::Power_Low) {
             break;
         }
-        auto rate = mRuntime->hint().cpuDecreaseRate;
-        if (rate >= 100 || rate <= 0) {
+        auto middleRate = mRuntime->hint().cpuMiddleDecreaseRate;
+        auto littleRate = mRuntime->hint().cpuLittleDecreaseRate;
+        if (middleRate >= 100 || middleRate <= 0) {
+            break;
+        }
+        if (littleRate >= 100 || littleRate <= 0) {
             break;
         }
         auto cpuInfo = MNNGetCPUInfo();
@@ -387,24 +433,24 @@ CPUBackend::CPUBackend(const CPURuntime* runtime, BackendConfig::PrecisionMode p
         } else {
             mComputeI = 7.f;
         }
+        // initialize rate.
         mGroupWithComputeRate.clear();
-        float decreaseRate = (float)(rate) / 100.0f;
-        int validCpuSize = (int)(cpuInfo->groups[cpuInfo->groups.size()-1].ids.size());
-        int groupIndex = (int)cpuInfo->groups.size()-2;
-        validCpuSize = ALIMIN(validCpuSize, mThreadNumber);
-        float totalComputeRate = 1.0f * validCpuSize;
-        mGroupWithComputeRate.emplace_back(std::make_pair(totalComputeRate, validCpuSize));
-        float currentRate = 1.0f;
-        while (validCpuSize < mThreadNumber && groupIndex >= 0) {
-            auto& group = cpuInfo->groups[groupIndex];
-            int selectSize = ALIMIN(mThreadNumber - validCpuSize, (int)group.ids.size());
-            validCpuSize += group.ids.size();
-            currentRate *= decreaseRate;
-            totalComputeRate += currentRate * selectSize;
-            mGroupWithComputeRate.emplace_back(std::make_pair(currentRate * selectSize, selectSize));
+        mGroupWithComputeRate.resize(cpuInfo->cpuNumber, 1.0f);
+        int groupIndex = (int)cpuInfo->groups.size()-1;
+        // initialize to be little-core.
+        std::vector<float> rate((int)cpuInfo->groups.size(), (float)(littleRate) / 100.0f);
+        // set big core
+        rate[(int)cpuInfo->groups.size()-1] = 1.0f;
+        // set middle core
+        if ((int)cpuInfo->groups.size() >= 2) {
+            rate[(int)cpuInfo->groups.size()-2] = (float)(middleRate) / 100.0f;
         }
-        for (auto& g : mGroupWithComputeRate) {
-            g.first = g.first / totalComputeRate;
+        while (groupIndex >= 0) {
+            auto& group = cpuInfo->groups[groupIndex].ids;
+            for (auto cpuid : group) {
+                mGroupWithComputeRate[cpuid] = rate[groupIndex];
+            }
+            groupIndex--;
         }
     } while (false);
     auto dynamicAlloc = mRuntime->mSharedDmaInfo;

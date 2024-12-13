@@ -127,11 +127,13 @@ bool ConvolutionPackWinograd::onClone(Backend* bn, const Op* op, Execution** dst
 }
 
 ErrorCode ConvolutionPackWinograd::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+    static_cast<CPUBackend *>(backend())->computeDivideSizes(mTotalWork, divides.data()+1);
     MNN_CONCURRENCY_BEGIN(tId, mMainFunction.first) {
         mMainFunction.second(tId, inputs[0]->host<uint8_t>(), outputs[0]->host<uint8_t>());
     };
     MNN_CONCURRENCY_END();
 
+    static_cast<CPUBackend *>(backend())->computeDivideSizes(mPostWork, divides.data()+1);
     MNN_CONCURRENCY_BEGIN(tId, mPostFunction.first) {
         mPostFunction.second(tId, outputs[0]->host<uint8_t>());
     };
@@ -261,9 +263,8 @@ ErrorCode ConvolutionPackWinograd::onResize(const std::vector<Tensor *> &inputs,
     auto totalCount   = wUnit * hUnit * batch;
     // MNN_PRINT("ow=%d, oh=%d\n", ow, oh);
     
-    std::vector<int> divides(threadNumber+1);
-    static_cast<CPUBackend *>(backend())->computeDivideSizes(totalCount, divides.data()+1);
-    divides[0] = 0;
+    divides.resize(threadNumber+1, 0);
+    mTotalWork = totalCount;
     auto midBuffer0Bytes = srcUnit2 * pack * bytes;
     bool allow_x86_bf16_winograd = true;
 #ifdef MNN_USE_SSE
@@ -541,15 +542,13 @@ ErrorCode ConvolutionPackWinograd::onResize(const std::vector<Tensor *> &inputs,
             /*Dest Transform And Post Treat End*/
         }
     };
-    std::vector<int> postDivides(threadNumber+1);
-    static_cast<CPUBackend *>(backend())->computeDivideSizes(dc_4, postDivides.data()+1);
-    postDivides[0] = 0;
+    mPostWork = dc_4;
 
     mPostFunction.first = threadNumber;
     mPostFunction.second = [=](int tId, uint8_t* outputOrigin) {
         auto dstOrigin = outputOrigin;
-        int tSta = postDivides[tId];
-        int tFin = postDivides[tId+1];
+        int tSta = divides[tId];
+        int tFin = divides[tId+1];
         for (int dy=tSta; dy < tFin; ++dy) {
             auto dataFloatPtr = (float*)(dstOrigin + ow * oh * batch * dy * pack * bytes);
             auto biasFloatPtr = (const float*)(bias + pack * dy * bytes);

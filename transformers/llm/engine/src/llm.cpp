@@ -202,6 +202,8 @@ void Llm::init_runtime() {
     ExecutorScope::Current()->setGlobalExecutorConfig(config.type, cpuBackendConfig, config.numThread);
 
     runtime_manager_.reset(Executor::RuntimeManager::createRuntimeManager(config));
+    runtime_manager_->setHint(MNN::Interpreter::CPU_PERFORMANCECORE_DECREASE_RATE, config_->perfcore_ratio());
+    runtime_manager_->setHint(MNN::Interpreter::CPU_LITTLECORE_DECREASE_RATE, config_->littlecore_ratio());
     runtime_manager_->setHint(MNN::Interpreter::MEM_ALLOCATOR_TYPE, 0);
     runtime_manager_->setHint(MNN::Interpreter::DYNAMIC_QUANT_OPTIONS, 1); // 1: per batch quant, 2: per tensor quant
     runtime_manager_->setHint(MNN::Interpreter::QKV_QUANT_OPTIONS, config_->quant_qkv());
@@ -473,7 +475,7 @@ void Llm::chat() {
     while (true) {
         std::cout << "\nQ: ";
         std::string user_str;
-        std::cin >> user_str;
+        std::getline(std::cin, user_str);
         if (user_str == "/exit") {
             break;
         }

@@ -515,6 +515,17 @@ void DenseConvInt8TiledExecutor::getPackParameter(int* Unit, int* srcUnit, int* 
     core->MNNGetGemmUnit(Unit, srcUnit, DestUnit);
 }
 
+void DenseConvInt8TiledExecutor::computeDivideSizes() {
+    if (mSplitByOc) {
+        static_cast<CPUBackend *>(backend())->computeDivideSizes(mTotalWork, mDivides.data() + 1, mflops / mios);
+        for (int i = 0; i < mDivides.size(); ++i) {
+            mDivides[i] *= mPart;
+        }
+    } else {
+        static_cast<CPUBackend *>(backend())->computeDivideSizes(mTotalWork, mDivides.data() + 1, mflops / mios);
+    }
+}
+
 
 ErrorCode DenseConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     mUseBatchQuan = (static_cast<CPUBackend*>(backend())->getRuntime()->hint().dynamicQuantOption == 1);
@@ -631,21 +642,21 @@ ErrorCode DenseConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& input
         }
         mThreadNums = ALIMIN(threads, threadNeed);
         mSplitByOc = true;
+        mTotalWork = totalWork;
+        mPart = part;
 
-        mDivides.resize(threads+1);
-        mDivides[0] = 0;
-        static_cast<CPUBackend *>(backend())->computeDivideSizes(totalWork, mDivides.data() + 1, flop / ios);
-        for (int i = 0; i < mDivides.size(); ++i) {
-            mDivides[i] *= part;
-        }
     }
 
     if (!mSplitByOc) {
         mThreadNums = ALIMIN(threads, mTileCount);
-        mDivides.resize(threads+1);
-        mDivides[0] = 0;
-        static_cast<CPUBackend *>(backend())->computeDivideSizes(mTileCount, mDivides.data() + 1, flop / ios);
+        mTotalWork = mTileCount;
     }
+
+    // record flop and ios and prepare for divide compute.
+    mDivides.resize(threads+1, 0);
+    mflops = flop, mios = ios;
+
+
     int ocUp4 = ROUND_UP(outC, gcore->pack);
     int alphaSize = mResourceInt8->mOriginScale->size() / (sizeof(float) * 2);
     int k = mThreadNums;
@@ -1239,6 +1250,7 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
         
     };
     const int threads = static_cast<CPUBackend*>(backend())->threadNumber();
+    computeDivideSizes();
     if (!mSplitByOc) {
         MNN_CONCURRENCY_BEGIN(tId, threads) {
                 ThreadFunction((int)tId, mDivides[tId], mDivides[tId + 1], 1, 0);

@@ -36,6 +36,8 @@ private:
     }
     std::pair<int, std::function<void(int tId, const uint8_t*, uint8_t*)>> mMainFunction;
     std::pair<int, std::function<void(int, uint8_t*)>> mPostFunction;
+    std::vector<int> divides;
+    int mTotalWork, mPostWork;
 
 };
 } // namespace MNN

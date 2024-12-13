@@ -79,8 +79,11 @@ void Session::ModeGroup::setHint(Interpreter::HintMode mode, int hint) {
         case Interpreter::WINOGRAD_MEMORY_LEVEL:
             runtimeHint.winogradMemoryUsed = hint;
             break;
+        case Interpreter::CPU_PERFORMANCECORE_DECREASE_RATE:
+            runtimeHint.cpuMiddleDecreaseRate = hint;
+            break;
         case Interpreter::CPU_LITTLECORE_DECREASE_RATE:
-            runtimeHint.cpuDecreaseRate = hint;
+            runtimeHint.cpuLittleDecreaseRate = hint;
             break;
         case Interpreter::GEOMETRY_COMPUTE_MASK:
             geometryMask = hint;

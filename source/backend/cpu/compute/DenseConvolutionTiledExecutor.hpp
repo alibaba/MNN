@@ -31,6 +31,8 @@ public:
     static PerfConfig bestTileConvolutionConfig(const Convolution2DCommon *common, const Tensor *inputTensor,
                                           const Tensor *outputTensor, int threadNumber, Backend* b);
 protected:
+    std::vector<int> divides;
+    int mTotalWork;
 };
 class DenseConvolutionTiledExecutor : public ConvolutionTiledExecutor {
 public:

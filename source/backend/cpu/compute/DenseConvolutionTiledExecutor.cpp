@@ -539,9 +539,6 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
 
     if (mConvPerfconfig.isParallelInner) {
         auto rt = static_cast<const CPURuntime*>(backend()->getRuntime());
-        std::vector<int> ocC4ParralSize(threadNumber + 1);
-        ocC4ParralSize[0] = 0;
-        static_cast<CPUBackend *>(backend())->computeDivideSizes(oC4, ocC4ParralSize.data()+1);
         mFunction.second = [=](int placeholder) {
         const float* biasPtr = bias ? bias->host<float>() : nullptr;
         auto gemmBuffer = mTempBufferTranspose.host<uint8_t>() + mTempBufferTranspose.stride(0) * 0;
@@ -601,6 +598,8 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
             }
             MNN_CONCURRENCY_END();
 
+            std::vector<int> ocC4ParralSize(threadNumber + 1, 0);
+            static_cast<CPUBackend *>(backend())->computeDivideSizes(oC4, ocC4ParralSize.data()+1);
             if (xC == eP) {
                 MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
                     size_t paraParameters[PARAMETERSIZE];
@@ -669,10 +668,8 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
     };
 
     } else {
-        std::vector<int> divides(threadNumber + 1);
-        divides[0] = 0;
-
-        static_cast<CPUBackend *>(backend())->computeDivideSizes(tileCount, divides.data() + 1);
+        divides.resize(threadNumber + 1, 0);
+        mTotalWork = tileCount;
 
         mFunction.second       = [=](int tId) {
             const float* biasPtr = bias ? bias->host<float>() : nullptr;
@@ -757,6 +754,7 @@ ErrorCode DenseConvolutionTiledImpl::onExecute(const std::vector<Tensor*>& input
     if (mConvPerfconfig.isParallelInner) {
         mFunction.second(0);
     } else {
+        static_cast<CPUBackend *>(backend())->computeDivideSizes(mTotalWork, divides.data() + 1);
         MNN_CONCURRENCY_BEGIN(tId, mFunction.first) {
             mFunction.second((int)tId);
         }

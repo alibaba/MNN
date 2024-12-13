@@ -30,8 +30,10 @@ struct RuntimeHint {
     int memoryAllocatorType = 0;
     int winogradMemoryUsed = 3;
     
-    // 0-100, 50 means litter core has 50% capacity of large core
-    int cpuDecreaseRate = 50;
+    // 0-100, 70 means performance core has 70% capacity of large core
+    // 0-100, 20 means little core has 20% capacity of large core
+    int cpuMiddleDecreaseRate = 70;
+    int cpuLittleDecreaseRate = 15;
     int dynamicQuantOption = 0;
 
     // 0: Do not quantize

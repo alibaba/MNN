@@ -30,6 +30,8 @@ public:
                            size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step, size_t height,
                            size_t srcHStep, size_t dstHStep)> mFastKernel;
         int mNumber = 1;
+        std::vector<int> divides;
+        int mTotalWork;
         std::shared_ptr<Tensor> mInputPad;
         bool mFastKernelApply = false;
     };

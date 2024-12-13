@@ -219,10 +219,9 @@ public:
         // 0: Close dynamic quant; 1: per batch quant; 2: per tensor quant
         DYNAMIC_QUANT_OPTIONS = 5,
 
-        // For Mobile CPU with big-litter core, set decrease rate to let MNN divide task differential by CPU's performance
-        // 0-100, 50 means litter core has 50% capacity of large core
-        // Default is 50
-        CPU_LITTLECORE_DECREASE_RATE = 6,
+        // For Mobile CPU with big-little core, set decrease rate to let MNN divide task differential by CPU's performance
+        // 0-100, e.g., 70 means performance core has 70% capacity of large core
+        CPU_PERFORMANCECORE_DECREASE_RATE = 6,
 
         // 0: Do not quantize
         // 1: Only quantize key, use int8 asymmetric quantization 
@@ -236,6 +235,10 @@ public:
         KVCACHE_SIZE_LIMIT = 8,
         // Op encoder number for commit
         OP_ENCODER_NUMBER_FOR_COMMIT = 9,
+
+        // For Mobile CPU with big-little core, set decrease rate to let MNN divide task differential by CPU's performance
+        // 0-100, e.g., 20 means little core has 20% capacity of large core
+        CPU_LITTLECORE_DECREASE_RATE = 10,
     };
 
     enum ExternalPathType {

@@ -171,17 +171,9 @@ ErrorCode CPUConvolutionDepthwise::BasicFloatExecution::onResize(const std::vect
     auto batch = inputs[0]->batch();
     int total = batch * dst_depth_quad;
     int numberThread = ((CPUBackend*)backend())->threadNumber();
-    std::vector<int> divides(numberThread+1);
-    divides[0] = 0;
-    static_cast<CPUBackend *>(backend())->computeDivideSizes(total, divides.data()+1);
+    mTotalWork = total;
+    divides.resize(numberThread+1, 0);
     mNumber = numberThread;
-    for (int i=1; i<numberThread; ++i) {
-        if (divides[i+1] <= divides[i]) {
-            // Only 0-(i-1) thread has work
-            mNumber = i;
-            break;
-        }
-    }
     MNN_ASSERT(mNumber > 0);
     auto postData = getPostParameters();
     if (static_cast<CPUBackend*>(backend())->functions()->bytes < 4) {
@@ -204,7 +196,6 @@ ErrorCode CPUConvolutionDepthwise::BasicFloatExecution::onResize(const std::vect
         src_y_step     = paddedWidth * unit;
     }
     mExecutor   = [=](const uint8_t* inputPtr, uint8_t* outputPtr, int tId) {
-        MNN_ASSERT(divides[tId] < divides[tId+1]);
         const auto inputPadPtr = mInputPad->host<uint8_t>() + mInputPad->stride(0) * tId * bytes;
         ::memset(inputPadPtr, 0, mInputPad->stride(0) * bytes);
         auto biasP   = inputs[2]->host<uint8_t>();
@@ -239,6 +230,7 @@ ErrorCode CPUConvolutionDepthwise::BasicFloatExecution::onExecute(const std::vec
     auto outputTensor = outputs[0];
     const auto srcOrigin = inputTensor->host<uint8_t>();
     auto dstOrigin       = outputTensor->host<uint8_t>();
+    static_cast<CPUBackend *>(backend())->computeDivideSizes(mTotalWork, divides.data()+1);
     MNN_CONCURRENCY_BEGIN(tId, mNumber) {
         mExecutor(srcOrigin, dstOrigin, (int)tId);
     }

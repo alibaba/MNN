@@ -72,7 +72,10 @@ private:
     std::shared_ptr<Tensor> mTempMaxMinValueBuffer;
     std::vector<uint8_t> mTempSrcSum;
     std::vector<int32_t> mDivides;
+    void computeDivideSizes();
 
+    float mflops, mios;
+    int mTotalWork, mPart;
     int mThreadNums;
     int mBlockNum = 1;
     int mOcPerThread;

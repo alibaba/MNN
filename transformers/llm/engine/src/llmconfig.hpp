@@ -277,6 +277,14 @@ public:
         return config_.value("memory", "low");
     }
 
+    int perfcore_ratio() const {
+        return config_.value("perfcore_ratio", 70);
+    }
+
+    int littlecore_ratio() const {
+        return config_.value("littlecore_ratio", 20);
+    }
+
     int quant_qkv() const {
         return config_.value("quant_qkv", 0);
     }
@@ -329,7 +337,7 @@ public:
     }
 
     std::string prompt_template() const {
-        return llm_config_.value("prompt_template", "");
+        return llm_config_.value("prompt_template", "<|im_start|>user\n%s<|im_end|>\n<|im_start|>assistant\n'");
     }
 
     std::vector<int64_t> tie_embeddings() const {

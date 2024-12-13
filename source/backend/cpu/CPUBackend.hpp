@@ -183,7 +183,7 @@ protected:
     CoreInt8Functions* mInt8CoreFunctions;
 private:
     int mThreadNumber;
-    std::vector<std::pair<float, int>> mGroupWithComputeRate;
+    std::vector<float> mGroupWithComputeRate;
     float mComputeI = 0.f;
 
     std::shared_ptr<CPURuntime::DynamicAllocator> mDmaInfo;

@@ -245,7 +245,7 @@ int main(int argc, char *argv[]) {
     std::shared_ptr<Executor::RuntimeManager> rtmgr(Executor::RuntimeManager::createRuntimeManager(config));
     rtmgr->setCache(cacheFileName);
     if (cpuDecreaseRate > 0 && cpuDecreaseRate <= 100) {
-        rtmgr->setHint(Interpreter::CPU_LITTLECORE_DECREASE_RATE, cpuDecreaseRate);
+        rtmgr->setHint(Interpreter::CPU_PERFORMANCECORE_DECREASE_RATE, cpuDecreaseRate);
     }
     if (runMask & 1) {
         // Need dump tensor, open debug
