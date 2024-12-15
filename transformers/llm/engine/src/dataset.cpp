@@ -209,8 +209,8 @@ std::vector<std::vector<std::vector<PromptItem>>> shareGPT(std::string prompt_fi
     if (sample_size > 0 && sample_size < dialogs.size()){
         std::random_device rd;
         std::mt19937 g(rd());
-        std::sample(dialogs.begin(), dialogs.end(), std::back_inserter(dataset),
-                    sample_size, g);
+        std::shuffle(dialogs.begin(), dialogs.end(), g);
+        dataset.insert(dataset.end(), dialogs.begin(), dialogs.begin() + sample_size);
         dialogs = dataset;
         // store dialogs to file
         write_jsonl(genSampleName(prompt_file, sample_size), dialogs);
