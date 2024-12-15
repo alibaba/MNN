@@ -12,6 +12,9 @@
 #include <fstream>
 #include <sstream>
 #include <stdlib.h>
+#include <iterator>
+#include <random>
+#include <algorithm>
 using namespace MNN::Transformer;
 
 static void trace_prepare(Llm* llm) {
@@ -193,5 +196,10 @@ int main(int argc, const char* argv[]) {
         return 0;
     }
     std::string prompt_file = argv[2];
+    std::vector<std::vector<int>> dialogs, dataset;
+    std::random_device rd;
+    std::mt19937 g(rd());
+    std::sample(dialogs.begin(), dialogs.end(), std::back_inserter(dataset),
+                    sample_size, g);
     return eval(llm.get(), prompt_file);
 }
