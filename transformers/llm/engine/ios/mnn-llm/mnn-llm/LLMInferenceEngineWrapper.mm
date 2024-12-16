@@ -89,26 +89,16 @@ private:
             }
             prompts.push_back(prompt);
         }
-        int prompt_len = 0;
-        int decode_len = 0;
-        int64_t prefill_time = 0;
-        int64_t decode_time = 0;
         for (int i = 0; i < prompts.size(); i++) {
             llm->response(prompts[i], &os, "\n");
-            prompt_len += llm->prompt_len_;
-            decode_len += llm->gen_seq_len_;
-            prefill_time += llm->prefill_us_;
-            decode_time += llm->decode_us_;
         }
-        float prefill_s = prefill_time / 1e6;
-        float decode_s = decode_time / 1e6;
         os << "\n#################################\n"
-           << "prompt tokens num  = " << prompt_len << "\n"
-           << "decode tokens num  = " << decode_len << "\n"
-           << "prefill time = " << std::fixed << std::setprecision(2) << prefill_s << " s\n"
-           << " decode time = " << std::fixed << std::setprecision(2) << decode_s << " s\n"
-           << "prefill speed = " << std::fixed << std::setprecision(2) << prompt_len / prefill_s << " tok/s\n"
-           << " decode speed = " << std::fixed << std::setprecision(2) << decode_len / decode_s << " tok/s\n"
+           << "prompt tokens num  = " << llm->getTotalPromptLen() << "\n"
+           << "decode tokens num  = " << llm->getTotalDecodeLen() << "\n"
+           << "prefill time = " << std::fixed << std::setprecision(2) << llm->getTotalPrefillTime() << " s\n"
+           << " decode time = " << std::fixed << std::setprecision(2) << llm->getTotalDecodeTime() << " s\n"
+           << "prefill speed = " << std::fixed << std::setprecision(2) << llm->average_prefill_speed() << " tok/s\n"
+           << " decode speed = " << std::fixed << std::setprecision(2) << llm->average_decode_speed() << " tok/s\n"
            << "##################################\n";
         os << "<eop>";
     } else {

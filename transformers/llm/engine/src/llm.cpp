@@ -16,6 +16,9 @@
 #include <MNN/AutoTime.hpp>
 #include "cpp/ExprDebug.hpp"
 #include "llm/llm.hpp"
+#include "evaluation/evaluation.hpp"
+#include "sampler.hpp"
+#include "prompt.hpp"
 #include "tokenizer.hpp"
 #include "llmconfig.hpp"
 // 0: no debug, 1: test op time, 2: print tensor info
@@ -266,7 +269,7 @@ void Llm::load() {
         }
         MNN_PRINT("Load Module Done!\n");
     } else {
-        MNN_ERROR("Split version is depercerate\n");
+        MNN_ERROR("Split version is deprecated\n");
     }
     decode_modules_.resize(modules_.size());
     for (int v=0; v<modules_.size(); ++v) {
@@ -275,6 +278,17 @@ void Llm::load() {
     MNN_PRINT("Clone Decode Module Done!\n");
 
     prefill_modules_ = modules_;
+
+    // workflow instruments
+    // 3. create Sampler
+    mSampler.reset(Sampler::createSampler(this, config_));
+    MNN_PRINT("Sampler initiated!\n");
+    // 4. create PromptLib
+    mPromptLib.reset(PromptLib::createPromptLib(this, config_));
+    MNN_PRINT("PromptLib initiated!\n");
+    // 5. reset
+    reset();
+    MNN_PRINT("Llm Session Init!\n");
 }
 
 size_t Llm::apply_lora(const std::string& lora_path) {
@@ -368,7 +382,7 @@ void Llm::tuning(TuneType type, std::vector<int> candidates) {
         if (logits->getInfo()->size == 0) {
             return;
         }
-        auto token = sample(logits, {});
+        // no need for sampling here, because metal OP does not affects much in sampling.
         auto et = std::chrono::system_clock::now();
         int64_t time = std::chrono::duration_cast<std::chrono::microseconds>(et - st).count();
         if(time < min_time) {
@@ -380,7 +394,9 @@ void Llm::tuning(TuneType type, std::vector<int> candidates) {
     runtime_manager_->setHint(MNN::Interpreter::OP_ENCODER_NUMBER_FOR_COMMIT, prefer_candidate);
 }
 
-VARP Llm::forward(const std::vector<int>& input_ids) {
+VARP Llm::forward(const std::vector<int>& input_ids, bool is_prefill) {
+    if (is_prefill) current_modules_ = prefill_modules_;
+    else current_modules_ = decode_modules_;
     int seq_len = input_ids.size();
     auto attention_mask = gen_attention_mask(seq_len);
     auto position_ids = gen_position_ids(seq_len);
@@ -401,245 +417,134 @@ VARP Llm::forward(const std::vector<int>& input_ids) {
             past_key_values_[0] = outputs[1];
         }
     } else {
-        MNN_ERROR("Split models is depercarate\n");
+        MNN_ERROR("Split models is deprecated\n");
         return nullptr;
     }
-    all_seq_len_ += seq_len;
-    gen_seq_len_++;
+    // sequence length is handled in forward.
+    mLlmSessionInfos[0].all_seq_len_ += seq_len;
+    mLlmSessionInfos[0].gen_seq_len_++;
     return logits;
 }
 
-int Llm::sample(VARP logits, const std::vector<int>& pre_ids) {
-    std::unordered_set<int> ids_set(pre_ids.begin(), pre_ids.end());
-    auto scores = (float*)(logits->readMap<float>());
-    auto size = logits->getInfo()->size;
-    // repetition penalty
-    const float repetition_penalty = 1.1;
-    for (auto id : ids_set) {
-        float score = scores[id];
-        scores[id] = score < 0 ? score * repetition_penalty : score / repetition_penalty;
-    }
-    // argmax
-    float max_score = 0;
-    int token_id = 0;
-    for (int i = 0; i < size; i++) {
-        float score = scores[i];
-        if (score > max_score) {
-            max_score = score;
-            token_id = i;
-        }
-    }
-    return token_id;
+// < "app_type": "chat"
+bool Llm::getUserPrompt(bool from_file, std::istream* is, std::string& user_str) {
+    if (!from_file) std::cout << "\nQ: ";
+    return (bool)std::getline(*is, user_str);
 }
 
-static std::string apply_template(std::string prompt_template, const std::string& content, const std::string& role = "") {
-    if (prompt_template.empty()) return content;
-    if (!role.empty()) {
-        const std::string placeholder = "%r";
-        size_t start_pos = prompt_template.find(placeholder);
-        if (start_pos == std::string::npos) return content;
-        prompt_template.replace(start_pos, placeholder.length(), role);
-    }
-    const std::string placeholder = "%s";
-    size_t start_pos = prompt_template.find(placeholder);
-    if (start_pos == std::string::npos) return content;
-    prompt_template.replace(start_pos, placeholder.length(), content);
-    return prompt_template;
-}
-
-std::string Llm::apply_prompt_template(const std::string& user_content) const {
-    auto chat_prompt = config_->prompt_template();
-    return apply_template(chat_prompt, user_content);
-}
-
-std::string Llm::apply_chat_template(const std::vector<PromptItem>& chat_prompts) const {
-    auto chat_template = config_->chat_template();
-    std::string prompt_result;
-    auto iter = chat_prompts.begin();
-    for (; iter != chat_prompts.end() - 1; ++iter) {
-        prompt_result += apply_template(chat_template, iter->second, iter->first);
-    }
-    if (iter->first == "user") {
-        prompt_result += apply_prompt_template(iter->second);
-    } else {
-        prompt_result += apply_template(chat_template, iter->second, iter->first);
-    }
-    return prompt_result;
-}
-
-void Llm::chat() {
-    std::vector<PromptItem> history;
-    history.push_back(std::make_pair("system", "You are a helpful assistant."));
-    while (true) {
-        std::cout << "\nQ: ";
-        std::string user_str;
-        std::cin >> user_str;
-        if (user_str == "/exit") {
+void Llm::chat(bool session_by_line, bool from_file, 
+               std::istream* is, std::ostream* os, 
+               const char* end_with, std::string exit_token, std::string reset_token) {
+    // handle system prompt
+    reset();
+    std::string user_str;
+    while (getUserPrompt(from_file, is, user_str)) {
+        // whether to end
+        if (user_str == exit_token) {
+            reset();
             break;
         }
-        if (user_str == "/reset") {
-            history.resize(1);
-            std::cout << "\nA: reset done." << std::endl;
+        // whether to reset
+        if (session_by_line || user_str == reset_token) {
+            reset();
+            if (!from_file) std::cout << "\nreset done." << std::endl;
             continue;
         }
-        std::cout << "\nA: " << std::flush;
-        if (config_->reuse_kv()) {
-            response(user_str);
-        } else {
-            history.emplace_back(std::make_pair("user", user_str));
-            auto assistant_str = response(history);
-            history.emplace_back(std::make_pair("assistant", assistant_str));
-        }
-        std::cout << std::endl;
+        // get answer
+        (*os) << "\nA: " << std::flush;
+        response(user_str, os, end_with);
+        (*os) << std::endl;
     }
+    reset();
 }
+
+std::string Llm::response(const std::string& user_str, std::ostream* os, const char* end_with) {
+    mPromptLib->appendUserPrompt(user_str);
+    auto assistant_str = generate(mPromptLib->getLLMInput(), os, end_with);
+    mPromptLib->appendLLMOutput(assistant_str);
+    return assistant_str;
+}
+// "app_type": "chat" >
+
+
 
 void Llm::reset() {
-    history_ids_.clear();
-    all_seq_len_ = 0;
+    // clear KV cache
+    // KV cache automatically cleared as long as seq_len reset!
+    mLlmSessionInfos.clear();
+    mLlmSessionInfos.emplace_back(LlmSessionInfo()); 
 }
 
+bool Llm::reuse_kv() const {
+    return config_->reuse_kv();
+}
+
+
+// < generate
 void Llm::generate_init() {
-    // init status
-    gen_seq_len_ = 0;
-    prefill_us_ = 0;
-    decode_us_ = 0;
+    // handle past_key_values if not attention_fused_
     past_key_values_.clear();
-    if (is_single_) {
-        past_key_values_.push_back(_Input(key_value_shape_, NCHW));
-    } else {
-        for (int i = 0; i < config_->layer_nums(); i++) {
+    if (!attention_fused_) {
+        if (is_single_) {
             past_key_values_.push_back(_Input(key_value_shape_, NCHW));
+        } else {
+            MNN_ERROR("Split version is deprecated\n");
         }
     }
-    if (!config_->reuse_kv()) {
-        all_seq_len_ = 0;
-        history_ids_.clear();
+    if (!reuse_kv()) {
+        // only reset sampler. The history is handled by mPromptLib.
+        mLlmSessionInfos[0].resetSamplerFields();
     }
     current_modules_ = prefill_modules_;
 }
 
-std::vector<int> Llm::generate(const std::vector<int>& input_ids, int max_new_tokens) {
-    generate_init();
-    std::vector<int> output_ids, all_ids = input_ids;
-    prompt_len_ = static_cast<int>(input_ids.size());
-    if (max_new_tokens < 0) { max_new_tokens = config_->max_new_tokens(); }
-    // prefill
-    current_modules_ = prefill_modules_;
-    auto logits = forward(input_ids);
-    if (logits.get() == nullptr) {
-        return {};
-    }
-    int token = sample(logits, all_ids);
-    output_ids.push_back(token);
-    all_ids.push_back(token);
-    // decode
-    current_modules_ = decode_modules_;
-    while (gen_seq_len_ < max_new_tokens) {
-        logits = nullptr;
-        logits = forward({token});
-        if (logits.get() == nullptr) {
-            return {};
-        }
-        token = sample(logits, all_ids);
-        if (is_stop(token)) { break; }
-        output_ids.push_back(token);
-        all_ids.push_back(token);
-    }
-    return output_ids;
+std::string Llm::generate(const std::string& prompt, std::ostream* os, const char* end_with) {
+    if (prompt.empty()) { return ""; }
+    if (!end_with) { end_with = "\n"; }
+    // std::cout << "# prompt : " << prompt << std::endl;
+    auto input_ids = tokenizer_encode(prompt, false);
+    std::string out_str = generate(input_ids, os, end_with);
+    return out_str;
 }
 
 std::string Llm::generate(const std::vector<int>& input_ids, std::ostream* os, const char* end_with) {
+    if (mTracing) return generateTrace(input_ids, os, end_with);
+    if (input_ids.empty()) { return ""; }
+    if (!end_with) { end_with = "\n"; }
+    generate_init();
+    // printf("input_ids (%lu): ", input_ids.size()); for (auto id : input_ids) printf("%d, ", id); printf("\n");
+    std::string out_str = mSampler->sample(input_ids, os, end_with, &(mLlmSessionInfos[0].mTimePerformance));
+    return out_str;
+}
+
+
+std::string Llm::generateTrace(const std::vector<int>& input_ids, std::ostream* os, const char* end_with) {
     if (mTracing) {
         // Skip real forward
-        current_modules_ = prefill_modules_;
-        forward(input_ids);
-        current_modules_ = decode_modules_;
-        forward({input_ids[0]});
-        forward({input_ids[0]});
+        forward(input_ids, true);
+        forward({input_ids[0]}, false);
+        forward({input_ids[0]}, false);
         return "Test";
     }
-    prompt_len_ = static_cast<int>(input_ids.size());
-    history_ids_.insert(history_ids_.end(), input_ids.begin(), input_ids.end()); // push to history_ids_
-    auto st = std::chrono::system_clock::now();
-    current_modules_ = prefill_modules_;
-    auto logits = forward(input_ids);
-    if (nullptr == logits.get()) {
-        return "";
-    }
-    int token = sample(logits, history_ids_);
-    auto et = std::chrono::system_clock::now();
-    current_modules_ = decode_modules_;
-    std::string output_str = tokenizer_decode(token);
-    prefill_us_ = std::chrono::duration_cast<std::chrono::microseconds>(et - st).count();
-    *os << output_str << std::flush;
-    while (gen_seq_len_ < config_->max_new_tokens()) {
-        st = std::chrono::system_clock::now();
-        history_ids_.push_back(token);
-        logits = nullptr;
-        logits = forward({token});
-        if (nullptr == logits.get()) {
-            return "";
-        }
-        if (logits->getInfo()->size == 0) {
-            return "";
-        }
-        token = sample(logits, history_ids_);
-        et = std::chrono::system_clock::now();
-        decode_us_ += std::chrono::duration_cast<std::chrono::microseconds>(et - st).count();
-        if (is_stop(token)) {
-            *os << end_with << std::flush;
-            break;
-        }
-        auto word = tokenizer_decode(token);
-        *os << word << std::flush;
-        output_str += word;
-    }
-    ExecutorScope::Current()->gc(Executor::FULL);
-#ifdef DUMP_PROFILE_INFO
-    print_speed();
-#endif
-    return output_str;
+    return "Test";
 }
 
 std::vector<int> Llm::tokenizer_encode(const std::string& user_content, bool use_template) {
     if (!use_template) {
         return tokenizer_->encode(user_content);
     }
-    auto prompt = apply_prompt_template(user_content);
+    auto prompt = mPromptLib->applyTemplate(user_content);
     auto input_ids = tokenizer_->encode(prompt);
     return input_ids;
 }
 
-std::string Llm::response(const std::string& user_content, std::ostream* os, const char* end_with) {
-    generate_init();
-    if (!end_with) { end_with = "\n"; }
-    std::vector<int> input_ids;
-    if (config_->reuse_kv()) {
-        auto prompt = apply_prompt_template(user_content);
-        if (all_seq_len_ > 0) {
-            prompt = "<|im_end|>\n" + prompt;
-        }
-        input_ids = tokenizer_->encode(prompt);
-    } else {
-        input_ids = tokenizer_encode(user_content);
-    }
-    return generate(input_ids, os, end_with);
-}
 
-std::string Llm::response(const std::vector<PromptItem>& chat_prompts, std::ostream* os, const char* end_with) {
-    if (chat_prompts.empty()) { return ""; }
-    generate_init();
-    if (!end_with) { end_with = "\n"; }
-    auto prompt = apply_chat_template(chat_prompts);
-    if (config_->reuse_kv() && all_seq_len_ > 0) {
-        prompt = "<|im_end|>\n" + prompt;
-    }
-    // std::cout << "# prompt : " << prompt << std::endl;
-    auto input_ids = tokenizer_->encode(prompt);
-    // printf("input_ids (%lu): ", input_ids.size()); for (auto id : input_ids) printf("%d, ", id); printf("\n");
-    return generate(input_ids, os, end_with);
+// < evaluation
+std::vector<float> Llm::perplexity(std::string prompt_file, std::ostream* perfOS) {
+    return mSampler->perplexity(prompt_file, perfOS);
 }
+// evaluation >
+
 
 Llm::~Llm() {
 #if DEBUG_MODE==1
@@ -671,23 +576,64 @@ Llm::~Llm() {
     runtime_manager_.reset();
 }
 
+// < speed
 void Llm::print_speed() {
-    auto prefill_s = prefill_us_ * 1e-6;
-    auto decode_s = decode_us_ * 1e-6;
-    auto total_s = prefill_s + decode_s;
     printf("\n#################################\n");
-    printf(" total tokens num  = %d\n", prompt_len_ + gen_seq_len_);
-    printf("prompt tokens num  = %d\n", prompt_len_);
-    printf("output tokens num  = %d\n", gen_seq_len_);
-    printf("  total time = %.2f s\n", total_s);
-    printf("prefill time = %.2f s\n", prefill_s);
-    printf(" decode time = %.2f s\n", decode_s);
-    printf("  total speed = %.2f tok/s\n", (prompt_len_ + gen_seq_len_) / total_s);
-    printf("prefill speed = %.2f tok/s\n", prompt_len_ / prefill_s);
-    printf(" decode speed = %.2f tok/s\n", gen_seq_len_ / decode_s);
-    printf("   chat speed = %.2f tok/s\n", gen_seq_len_ / total_s);
+    printf("average   total speed = %.3f tok/s\n", average_total_speed());
+    printf("average prefill speed = %.3f tok/s\n", average_prefill_speed());
+    printf("average  decode speed = %.3f tok/s\n", average_decode_speed());
     printf("##################################\n");
+    #if DEBUG_MODE==1
+        if (nullptr != gTimeTraceInfo) {
+            float opSummer = 0.0f;
+            float opFlopsSummber = 0.0f;
+            for (auto& iter : gTimeTraceInfo->mTypes) {
+                float summer = 0.0f;
+                float summerflops = 0.0f;
+                for (auto& t : iter.second) {
+                    for (auto& t0 : t.second) {
+                        summer += t0.first;
+                        summerflops += t0.second;
+                    }
+                }
+                summer = summer;
+                summerflops = summerflops;
+                MNN_PRINT("%s : %.7f, FLOP: %.7f, Speed: %.7f GFlops\n", iter.first.c_str(), summer, summerflops, summerflops / summer);
+                opSummer += summer;
+                opFlopsSummber+= summerflops;
+            }
+            MNN_PRINT("OP Summer: %.7f, Flops: %.7f, Speed: %.7f GFlops\n", opSummer, opFlopsSummber, opFlopsSummber/opSummer);
+        }
+    #endif
 }
+
+void Llm::print_speed(std::ostream* os) {
+    mLlmSessionInfos[0].print_speed(os);
+}
+
+float Llm::average_total_speed() {
+    return mLlmSessionInfos[0].average_total_speed();
+}  
+float Llm::average_prefill_speed() {
+    // prefill response rate
+    return mLlmSessionInfos[0].average_prefill_speed();
+}
+float Llm::average_decode_speed() {
+    return mLlmSessionInfos[0].average_decode_speed();
+}
+float Llm::getTotalPrefillTime() {
+    return mLlmSessionInfos[0].getTotalPrefillTime();
+}
+float Llm::getTotalDecodeTime() {
+    return mLlmSessionInfos[0].getTotalDecodeTime();
+}
+int Llm::getTotalPromptLen() {
+    return mLlmSessionInfos[0].getTotalPromptLen();
+}
+int Llm::getTotalDecodeLen() {
+    return mLlmSessionInfos[0].getTotalDecodeLen();
+}
+// speed >
 
 static inline bool needNewVar(VARP var, int axis, int seq_len) {
     if (var == nullptr) {
@@ -722,34 +668,35 @@ std::string Llm::tokenizer_decode(int id) {
 }
 
 VARP Llm::gen_attention_mask(int seq_len) {
-    int kv_seq_len = all_seq_len_ + seq_len;
+    int kv_seq_len_=mLlmSessionInfos[0].all_seq_len_+seq_len, gen_seq_len_=mLlmSessionInfos[0].gen_seq_len_;
+    int prev_seq_len_ = kv_seq_len_ - seq_len;
     if (seq_len == 1) {
-        kv_seq_len = seq_len;
+        kv_seq_len_ = seq_len;
     }
     if (config_->attention_mask() == "float") {
         if (needNewVar(attention_mask_, 2, seq_len)) {
-            attention_mask_ = _Input({1, 1, seq_len, kv_seq_len}, NCHW, halide_type_of<float>());
+            attention_mask_ = _Input({1, 1, seq_len, kv_seq_len_}, NCHW, halide_type_of<float>());
         } else {
             return attention_mask_;
         }
         auto ptr = attention_mask_->writeMap<float>();
         for (int i = 0; i < seq_len; i++) {
-            for (int j = 0; j < kv_seq_len; j++) {
-                int row = i + all_seq_len_;
-                ptr[kv_seq_len * i + j] = (j > row) * std::numeric_limits<float>::lowest();
+            for (int j = 0; j < kv_seq_len_; j++) {
+                int row = i + prev_seq_len_;
+                ptr[kv_seq_len_ * i + j] = (j > row) * std::numeric_limits<float>::lowest();
             }
         }
         return attention_mask_;
     } else {
         if (needNewVar(attention_mask_, 2, seq_len)) {
-            attention_mask_ = _Input({1, 1, seq_len, kv_seq_len}, NCHW, halide_type_of<int>());
+            attention_mask_ = _Input({1, 1, seq_len, kv_seq_len_}, NCHW, halide_type_of<int>());
         } else {
             return attention_mask_;
         }
         auto ptr = attention_mask_->writeMap<int>();
         if (config_->attention_mask() == "glm") {
             // chatglm
-            for (int i = 0; i < seq_len * kv_seq_len; i++) {
+            for (int i = 0; i < seq_len * kv_seq_len_; i++) {
                 ptr[i] = 0;
             }
             if (seq_len > 1) {
@@ -760,8 +707,8 @@ VARP Llm::gen_attention_mask(int seq_len) {
         } else {
             bool is_glm2 = config_->attention_mask() == "glm2";
             for (int i = 0; i < seq_len; i++) {
-                for (int j = 0; j < kv_seq_len; j++) {
-                    int row = i + all_seq_len_;
+                for (int j = 0; j < kv_seq_len_; j++) {
+                    int row = i + prev_seq_len_;
                     ptr[seq_len * i + j] = is_glm2 ? j > row : j <= row;
                 }
             }
@@ -771,6 +718,8 @@ VARP Llm::gen_attention_mask(int seq_len) {
 }
 
 VARP Llm::gen_position_ids(int seq_len) {
+    int kv_seq_len_=mLlmSessionInfos[0].all_seq_len_+seq_len, gen_seq_len_=mLlmSessionInfos[0].gen_seq_len_;
+    int prev_seq_len_ = kv_seq_len_ - seq_len;
     if (config_->attention_mask() == "glm") {
         // chatglm
         if (needNewVar(position_ids_, 2, seq_len)) {
@@ -778,7 +727,7 @@ VARP Llm::gen_position_ids(int seq_len) {
         }
         auto ptr = position_ids_->writeMap<int>();
         if (seq_len == 1) {
-            ptr[0] = all_seq_len_ - gen_seq_len_ - 2;
+            ptr[0] = prev_seq_len_ - gen_seq_len_ - 2;
             ptr[1] = gen_seq_len_ + 1;
         } else {
             for (int i = 0; i < seq_len - 1; i++) {
@@ -796,10 +745,10 @@ VARP Llm::gen_position_ids(int seq_len) {
         }
         auto ptr = position_ids_->writeMap<int>();
         if (seq_len == 1) {
-            ptr[0] = is_glm2 ? gen_seq_len_ : all_seq_len_;
+            ptr[0] = is_glm2 ? gen_seq_len_ : prev_seq_len_;
         } else {
             for (int i = 0; i < seq_len; i++) {
-                ptr[i] = i + all_seq_len_;
+                ptr[i] = i + prev_seq_len_;
             }
         }
         return position_ids_;
@@ -868,7 +817,8 @@ std::vector<int> Lvlm::image_process(const std::string& image_info) {
 }
 
 std::vector<int> Lvlm::tokenizer_encode(const std::string& query, bool use_template) {
-    auto prompt = apply_prompt_template(query);
+    auto prompt = query;
+    if (!use_template) { prompt = mPromptLib->applyTemplate(query); }
     // split query
     std::regex img_regex("<img>(.*?)</img>");
     std::string::const_iterator searchStart(prompt.cbegin());
@@ -976,7 +926,7 @@ VARP Embedding::ids_embedding(const std::vector<int>& ids) {
 }
 
 VARP Embedding::txt_embedding(const std::string& txt) {
-    return ids_embedding(tokenizer_encode(txt));
+    return ids_embedding(tokenizer_encode(txt, false));
 }
 
 VARP Embedding::gen_attention_mask(int seq_len) {

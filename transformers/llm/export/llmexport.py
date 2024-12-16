@@ -1428,7 +1428,7 @@ class MNNConveter:
     def quant(self, weight, quant_bit, quant_block, symmetric):
         if torch.cuda.is_available():
             weight = weight.cuda()
-        if torch.mps.is_available():
+        if torch.backends.mps.is_available():
             weight = weight.to('mps')
         oc, ic = weight.shape
         if quant_block == 0:
@@ -2259,7 +2259,7 @@ class LlmExporter(torch.nn.Module):
         self.onnx_path = os.path.join(self.dst_path, 'onnx')
         self.tokenizer_path = args.tokenizer_path
         self.lora_path = args.lora_path
-        self.onnx_slim = args.onnx_slim
+        self.need_onnx_slim = args.onnx_slim
         self.ppl = args.ppl
         self.awq = args.awq
         self.quant_bit = args.quant_bit
@@ -2365,12 +2365,16 @@ class LlmExporter(torch.nn.Module):
             "position_ids" : { 1: "seq_len" },
             "past_key_values" : { 3: "history_len" }
         }
+        prompt_template = self.build_prompt_template()
         self.llm_config = {
             'hidden_size' : self.hidden_size,
             'layer_nums' : self.num_hidden_layers,
             'attention_mask': self.attention_mask_type,
             'key_value_shape': self.past_kv_shape[1:],
-            "prompt_template": self.build_prompt('%s'),
+            "system_prompt_template": prompt_template['system'].format(query='%s'),
+            'user_prompt_template': prompt_template['user'].format(query='%s'),
+            'assistant_prefix': prompt_template['assistant_prefix'],
+            'assistant_suffix': prompt_template['assistant_suffix'],
             'is_visual': False
         }
         # load modules
@@ -2469,43 +2473,105 @@ class LlmExporter(torch.nn.Module):
         return logits, presents
 
     # some test functions
-    def build_prompt(self, query):
+    def build_prompt_template(self) -> Dict[str, str]:
+        template = {
+            'system': '',
+            'user': '',
+            'assistant_prefix': '',
+            'assistant_suffix': '',
+        }
         # just for test
-        if 'Qwen2' in self.path or 'QwQ' in self.path or 'reader' in self.path:
-            return f'<|im_start|>user\n{query}<|im_end|>\n<|im_start|>assistant\n'
-        if 'Qwen' in self.path:
-            return f'\n<|im_start|>user\n{query}<|im_end|>\n<|im_start|>assistant\n'
+        if 'Qwen' in self.path or 'Qwen2' in self.path or 'QwQ' in self.path or 'reader' in self.path:
+            template['system'] = '<|im_start|>system\n{query}<|im_end|>\n'
+            template['user'] = '<|im_start|>user\n{query}<|im_end|>\n'
+            template['assistant_prefix'] = '<|im_start|>assistant\n'
+            template['assistant_suffix'] = '<|im_end|>\n'
+            return template
         if 'Baichuan2' in self.path:
-            return f'<reserved_106>{query}<reserved_107>'
+            template['user'] = '<reserved_106>{query}<reserved_107>'
+            return template
         if 'internlm' in self.path:
-            return f'<|User|>:{query}<eoh>\n<|Bot|>:'
+            template['user'] = '<|User|>:{query}<eoh>\n'
+            template['assistant_prefix'] = '<|Bot|>:'
+            template['assistant_suffix'] = '<eoh>\n'
+            return template
         if 'TinyLlama' in self.path:
-            return f'<s><|system|>\nYou are a friendly chatbot who always responds in the style of a pirate</s>\n<|user|>\n{query}</s>\n<|assistant|>\n'
+            template['system'] = '<s><|system|>\n{query}</s>\n'
+            template['user'] = '<|user|>\n{query}</s>\n'
+            template['assistant_prefix'] = '<|assistant|>\n'
+            template['assistant_suffix'] = '</s>\n'
+            return template
         if 'Yi' in self.path:
-            return f'<|im_start|> user\n{query}<|im_end|>\n<|im_start|> assistant\n'
+            template['user'] = '<|im_start|> user\n{query}<|im_end|>\n'
+            template['assistant_prefix'] = '<|im_start|> assistant\n'
+            template['assistant_suffix'] = '<|im_end|>\n'
+            return template
         if 'deepseek' in self.path:
-            return f'<|begin_of_sentence|>User: {query}\n\nAssistant:'
+            template['user'] = '<|begin_of_sentence|>User: {query}\n'
+            template['assistant_prefix'] = '\nAssistant: '
+            template['assistant_suffix'] = '\n<|end_of_sentence|>'
+            return template
         if 'Llama-3.1' in self.path:
-            return f'<|start_header_id|>user<|end_header_id|>\n\n{query}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n'
+            template['system'] = '<|start_header_id|>system<|end_header_id|>\n\n{query}<|eot_id|>'
+            template['user'] = '<|start_header_id|>user<|end_header_id|>\n\n{query}<|eot_id|>'
+            template['assistant_prefix'] = '<|start_header_id|>assistant<|end_header_id|>\n\n'
+            template['assistant_suffix'] = '<|eot_id|>'
+            return template
         if 'Llama-3' in self.path:
-            return f'<|begin_of_text|><|start_header_id|>user<|end_header_id|>\n\n{query}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n'
+            template['system'] = '<|start_header_id|>system<|end_header_id|>\n\n{query}<|eot_id|>'
+            template['user'] = '<|begin_of_text|><|start_header_id|>user<|end_header_id|>\n\n{query}<|eot_id|>'
+            template['assistant_prefix'] = '<|start_header_id|>assistant<|end_header_id|>\n\n'
+            template['assistant_suffix'] = '<|eot_id|>'
+            return template
         if 'Llama-2' in self.path:
-            return f'[INST]{query}[/INST]'
+            template['user'] = '[INST]{query}[/INST]'
+            return template
         if 'chatglm2' in self.path:
-            return f'[Round 1]\n\n问：{query}\n\n答：'
+            template['user'] = '[Round 1]\n\n问：{query}\n\n'
+            template['assistant_prefix'] = '答：'
+            template['assistant_suffix'] = '\n\n'
+            return template
         if 'chatglm3' in self.path or 'glm-4' in self.path:
-            return f'<|user|>\n{query}\n<|assistant|>\n'
+            template['user'] = '<|user|>\n{query}\n'
+            template['assistant_prefix'] = '<|assistant|>\n'
+            template['assistant_suffix'] = '\n'
+            return template
         if 'chatglm' in self.path:
-            return f'{query}[gMASK]<sop>'
+            template['user'] = '{query}[gMASK]<sop>'
+            return template
         if 'phi-2' in self.path:
-            return f'Instruct: {query}\nOutput:'
+            template['user'] = 'Instruct: {query}\n'
+            template['assistant_prefix'] = 'Output:'
+            template['assistant_suffix'] = '\n'
+            return template
         if 'gemma-2' in self.path:
-            return f'<bos><start_of_turn>user\n{query}<end_of_turn>\n<start_of_turn>model\n'
+            template['system'] = '<start_of_turn>system\n{query}<end_of_turn>\n'
+            template['user'] = '<bos><start_of_turn>user\n{query}<end_of_turn>\n'
+            template['assistant_prefix'] = '<start_of_turn>model\n'
+            template['assistant_suffix'] = '<end_of_turn>\n'
+            return template
         if 'OpenELM' in self.path:
-            return f'<s>{query}'
+            template['user'] = '<s>{query}'
+            return template
         if 'SmolLM2' in self.path:
-            return f'<|im_start|>system\nYou are a helpful AI assistant named SmolLM, trained by Hugging Face<|im_end|>\n<|im_start|>user\n{query}<|im_end|>\n<|im_start|>assistant\n'
-        return query
+            template['system'] = '<|im_start|>system\n{query}<|im_end|>\n'
+            template['user'] = '<|im_start|>user\n{query}<|im_end|>\n'
+            template['assistant_prefix'] = '<|im_start|>assistant\n'
+            template['assistant_suffix'] = '<|im_end|>\n'
+            return template
+        # not matched
+        return template
+    
+    def build_prompt(self, queries, roles):
+        template = self.build_prompt_template(self)
+        prompt = ""
+        for item in zip(queries, roles):
+            query, role = item
+            if '{query}' in template[role]:
+                prompt += template[role].format(query=query)
+            else:
+                prompt += role + '\n' + query +'\n'
+        return prompt + template['assistant_prefix']
 
     def str_to_ids(self, prompt):
         if self.visual is not None:
@@ -2536,7 +2602,7 @@ class LlmExporter(torch.nn.Module):
     def response(self, query):
         # self.imitate_quant()
         self.decode_buffer = []
-        prompt = self.build_prompt(query)
+        prompt = self.build_prompt(['You are a helpful assistant!', query], roles=['system', 'user'])
         input_ids = self.str_to_ids(prompt)
         if self.visual is not None:
             cross_attention_states = self.visual.cross_attention_states
@@ -2727,13 +2793,13 @@ class LlmExporter(torch.nn.Module):
             self.export_embed()
         if self.visual:
             visual_onnx = self.export_visual()
-            #if self.onnx_slim:
+            #if self.need_onnx_slim:
                 #visual_onnx = self.onnx_slim(visual_onnx)
             if export_mnn:
                 MNNConveter(visual_onnx, None, self).export(quant_bit=self.visual.quant_bit)
         # export graph to llm.onnx
         onnx_model = self.export_onnx()
-        if self.onnx_slim:
+        if self.need_onnx_slim:
             self.onnx_slim(onnx_model)
         if export_mnn:
             # convert onnx to mnn and quant weight
@@ -3033,7 +3099,7 @@ class EmbeddingExporter(LlmExporter):
         self.export_config(export_mnn)
         self.export_embed()
         onnx_model = self.export_onnx()
-        if self.onnx_slim:
+        if self.need_onnx_slim:
             self.onnx_slim(onnx_model)
         if export_mnn:
             MNNConveter(onnx_model, None, self).export()

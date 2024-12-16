@@ -1,0 +1,7 @@
+datasets/*
+!datasets/*.sh
+
+
+!datasets/visualization/
+datasets/visualization/data
+datasets/visualization/pic
