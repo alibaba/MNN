@@ -27,7 +27,7 @@ static bool _supportQuant(const Op* op, const std::vector<Tensor*>& inputs, cons
     switch (otype) {
         case OpType_Convolution:
         case OpType_ConvolutionDepthwise:
-        case OpType_Deconvolution:
+//        case OpType_Deconvolution:
             if (inputs.size() > 1) {
                 return false;
             }

@@ -23,6 +23,9 @@
 #include "../CPUBinary.hpp"
 #include "../CPUUnary.hpp"
 #include "../CPUPool.hpp"
+#ifndef M_PI
+#define M_PI 3.141592654
+#endif
 #define PACK 4
 #define FLOAT float
 using Vec = MNN::Math::Vec<float, 4>;
@@ -314,7 +317,7 @@ static void MNNSumByAxisLForMatmul_A(float* dest, int8_t* source, const float* s
         dest += (step * blockNum);
         realDstCount -= step;
         srcInt8 += col_buffer_unit_size;
-    } while(realDstCount > 0); 
+    } while(realDstCount > 0);
 }
 
 template<typename T>
@@ -3099,6 +3102,21 @@ void MNNSiLuLowp(float* dst, const float* src, size_t dataSize) {
 #endif
 }
 
+void MNNDftAbs(const float* input, const float* window, float* output, float* buffer, int nfft) {
+    for (int i = 0; i < nfft; ++i) {
+        buffer[i] = input[i] * window[i];
+    }
+    for (int k = 0; k < nfft / 2 + 1; ++k) {
+        float real_sum = 0.f, imag_sum = 0.f;
+        for (int n = 0; n < nfft; ++n) {
+            float angle = 2 * M_PI * k * n / nfft;
+            real_sum += buffer[n] * std::cos(angle);
+            imag_sum -= buffer[n] * std::sin(angle);
+        }
+        output[k] = std::sqrt(real_sum * real_sum + imag_sum * imag_sum);
+    }
+}
+
 static void _MNNAdjustOptimalSparseKernel(int& sparseBlockOC, MNN::CoreFunctions::MNNPackedSparseMatMul& packedSparseMatMul) {
     if(sparseBlockOC == 4) {
         packedSparseMatMul = MNNPackedSparseMatMulEpx4;
@@ -3202,7 +3220,7 @@ void MNNCoreFunctionInit() {
     gCoreFunction->MNNFp16ToFp8 = MNNFp16ToFp8;
     gCoreFunction->MNNFp8ToFp32 = MNNFp8ToFp32;
     gCoreFunction->MNNFp8ToFp16 = MNNFp8ToFp16;
-    
+
     // MatMul
     gCoreFunction->MNNGetMatMulPackMode = MNNGetMatMulPackMode;
     gCoreFunction->MNNPackC4ForMatMul_A = MNNPackC4ForMatMul_A;

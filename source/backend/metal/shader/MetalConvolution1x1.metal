@@ -32,6 +32,7 @@ struct conv1x1_constants {
     int batch;
     int block_size;
     conv_activation_type activation;
+    float scale_coef;
 };
 
 kernel void conv1x1_g1z4(const device ftype4 *in            [[buffer(0)]],
@@ -76,7 +77,7 @@ kernel void conv1x1_g1z4_w8(const device ftype4 *in            [[buffer(0)]],
                             constant conv1x1_constants& cst    [[buffer(2)]],
                             const device MNN::char4x4 *wt      [[buffer(3)]],
                             const device ftype4 *biasTerms     [[buffer(4)]],
-                            const device float4 *dequantScale  [[buffer(5)]],
+                            const device ftype4 *dequantScale  [[buffer(5)]],
                             uint3 gid                          [[thread_position_in_grid]]) {
     if ((int)gid.x * CONV_UNROLL >= cst.output_size || (int)gid.y >= cst.output_slice || (int)gid.z >= cst.batch) return;
 
@@ -90,8 +91,8 @@ kernel void conv1x1_g1z4_w8(const device ftype4 *in            [[buffer(0)]],
     int computeSize = min(cst.output_size - rx, CONV_UNROLL);
     int block = (cst.input_slice + cst.block_size - 1) / cst.block_size;
     for (int bi=0; bi<cst.block_size; ++bi) {
-        FLOAT4 bs0 = FLOAT4(dequantScale[2 * (uz * cst.block_size + bi) + 0]);
-        FLOAT4 bs1 = FLOAT4(dequantScale[2 * (uz * cst.block_size + bi) + 1]);
+        FLOAT4 bs0 = FLOAT4(dequantScale[2 * (uz * cst.block_size + bi) + 0]) / (FLOAT)cst.scale_coef;
+        FLOAT4 bs1 = FLOAT4(dequantScale[2 * (uz * cst.block_size + bi) + 1]) / (FLOAT)cst.scale_coef;
         FLOAT4 scale = bs0;
         FLOAT4 dequant_bias = bs1;
         int zmin = bi * block;
@@ -127,7 +128,7 @@ kernel void conv1x1_gemm_16x16_w4(const device ftype4 *in            [[buffer(0)
                             constant conv1x1_constants& cst    [[buffer(2)]],
                             const device uchar2 *wt      [[buffer(3)]],
                             const device ftype4 *biasTerms     [[buffer(4)]],
-                            const device float4 *dequantScale  [[buffer(5)]],
+                            const device ftype4 *dequantScale  [[buffer(5)]],
                             uint3 gid                          [[threadgroup_position_in_grid]],
                             uint                  tiitg[[thread_index_in_threadgroup]],
                             uint                  sgitg[[simdgroup_index_in_threadgroup]]) {
@@ -161,8 +162,8 @@ kernel void conv1x1_gemm_16x16_w4(const device ftype4 *in            [[buffer(0)
     int block = (cst.input_slice + cst.block_size - 1) / cst.block_size;
     for (int bi=0; bi<cst.block_size; ++bi) {
         // [N/4, cst.block_size, 2/*scale_bias*/, N4]
-        FLOAT4 scale = FLOAT4(dequantScale[2 * (idx_n4 * cst.block_size + bi) + 0]);
-        FLOAT4 dequant_bias = FLOAT4(dequantScale[2 * (idx_n4 * cst.block_size + bi) + 1]);
+        FLOAT4 scale = FLOAT4(dequantScale[2 * (idx_n4 * cst.block_size + bi) + 0]) / (FLOAT)cst.scale_coef;
+        FLOAT4 dequant_bias = FLOAT4(dequantScale[2 * (idx_n4 * cst.block_size + bi) + 1]) / (FLOAT)cst.scale_coef;
         int zmin = bi * block;
         int zmax = min(zmin + block, cst.input_slice);
 
@@ -220,7 +221,7 @@ kernel void conv1x1_gemm_32x16_w4(const device ftype4 *in            [[buffer(0)
                             constant conv1x1_constants& cst    [[buffer(2)]],
                             const device uchar2 *wt      [[buffer(3)]],
                             const device ftype4 *biasTerms     [[buffer(4)]],
-                            const device float4 *dequantScale  [[buffer(5)]],
+                            const device ftype4 *dequantScale  [[buffer(5)]],
                             uint3 gid                          [[threadgroup_position_in_grid]],
                             uint                  tiitg[[thread_index_in_threadgroup]],
                             uint                  sgitg[[simdgroup_index_in_threadgroup]]) {
@@ -258,8 +259,8 @@ kernel void conv1x1_gemm_32x16_w4(const device ftype4 *in            [[buffer(0)
     int block = (cst.input_slice + cst.block_size - 1) / cst.block_size;
     for (int bi=0; bi<cst.block_size; ++bi) {
         // [N/4, cst.block_size, 2/*scale_bias*/, N4]
-        FLOAT4 scale = FLOAT4(dequantScale[2 * (idx_n4 * cst.block_size + bi) + 0]);
-        FLOAT4 dequant_bias = FLOAT4(dequantScale[2 * (idx_n4 * cst.block_size + bi) + 1]);
+        FLOAT4 scale = FLOAT4(dequantScale[2 * (idx_n4 * cst.block_size + bi) + 0]) / (FLOAT)cst.scale_coef;
+        FLOAT4 dequant_bias = FLOAT4(dequantScale[2 * (idx_n4 * cst.block_size + bi) + 1]) / (FLOAT)cst.scale_coef;
         int zmin = bi * block;
         int zmax = min(zmin + block, cst.input_slice);
 
@@ -324,7 +325,7 @@ kernel void conv1x1_gemm_16x32_w4(const device ftype4 *in            [[buffer(0)
                             constant conv1x1_constants& cst    [[buffer(2)]],
                             const device uchar2 *wt      [[buffer(3)]],
                             const device ftype4 *biasTerms     [[buffer(4)]],
-                            const device float4 *dequantScale  [[buffer(5)]],
+                            const device ftype4 *dequantScale  [[buffer(5)]],
                             uint3 gid                          [[threadgroup_position_in_grid]],
                             uint                  tiitg[[thread_index_in_threadgroup]],
                             uint                  sgitg[[simdgroup_index_in_threadgroup]]) {
@@ -360,10 +361,10 @@ kernel void conv1x1_gemm_16x32_w4(const device ftype4 *in            [[buffer(0)
     int block = (cst.input_slice + cst.block_size - 1) / cst.block_size;
     for (int bi=0; bi<cst.block_size; ++bi) {
         // [N/4, cst.block_size, 2/*scale_bias*/, N4]
-        FLOAT4 scale0 = FLOAT4(dequantScale[2 * (idx_n40 * cst.block_size + bi) + 0]);
-        FLOAT4 dequant_bias0 = FLOAT4(dequantScale[2 * (idx_n40 * cst.block_size + bi) + 1]);
-        FLOAT4 scale1 = FLOAT4(dequantScale[2 * (idx_n41 * cst.block_size + bi) + 0]);
-        FLOAT4 dequant_bias1 = FLOAT4(dequantScale[2 * (idx_n41 * cst.block_size + bi) + 1]);
+        FLOAT4 scale0 = FLOAT4(dequantScale[2 * (idx_n40 * cst.block_size + bi) + 0]) / (FLOAT)cst.scale_coef;
+        FLOAT4 dequant_bias0 = FLOAT4(dequantScale[2 * (idx_n40 * cst.block_size + bi) + 1]) / (FLOAT)cst.scale_coef;
+        FLOAT4 scale1 = FLOAT4(dequantScale[2 * (idx_n41 * cst.block_size + bi) + 0]) / (FLOAT)cst.scale_coef;
+        FLOAT4 dequant_bias1 = FLOAT4(dequantScale[2 * (idx_n41 * cst.block_size + bi) + 1]) / (FLOAT)cst.scale_coef;
         int zmin = bi * block;
         int zmax = min(zmin + block, cst.input_slice);
 
@@ -434,7 +435,7 @@ kernel void conv1x1_gemm_32x64_w4(const device ftype2 *in            [[buffer(0)
                             constant conv1x1_constants& cst    [[buffer(2)]],
                             const device uchar2 *wt      [[buffer(3)]],
                             const device ftype4 *biasTerms     [[buffer(4)]],
-                            const device float4 *dequantScale  [[buffer(5)]],
+                            const device ftype4 *dequantScale  [[buffer(5)]],
                             uint3 gid                          [[threadgroup_position_in_grid]],
                             uint                  tiitg[[thread_index_in_threadgroup]],
                             uint                  tiisg[[thread_index_in_simdgroup]],
@@ -494,8 +495,8 @@ kernel void conv1x1_gemm_32x64_w4(const device ftype2 *in            [[buffer(0)
     int block = (cst.input_slice + cst.block_size - 1) / cst.block_size;
     for (int bi=0; bi<cst.block_size; ++bi) {
         // [N/4, cst.block_size, 2/*scale_bias*/, N4]
-        FLOAT4 scale0 = FLOAT4(dequantScale[2 * (idx_n40 * cst.block_size + bi) + 0]);
-        FLOAT4 dequant_bias0 = FLOAT4(dequantScale[2 * (idx_n40 * cst.block_size + bi) + 1]);
+        FLOAT4 scale0 = FLOAT4(dequantScale[2 * (idx_n40 * cst.block_size + bi) + 0]) / (FLOAT)cst.scale_coef;
+        FLOAT4 dequant_bias0 = FLOAT4(dequantScale[2 * (idx_n40 * cst.block_size + bi) + 1]) / (FLOAT)cst.scale_coef;
 
         int zmin = bi * block;
         int zmax = min(zmin + block, cst.input_slice);
@@ -566,7 +567,7 @@ kernel void conv1x1_g1z4_w4(const device ftype4 *in            [[buffer(0)]],
                             constant conv1x1_constants& cst    [[buffer(2)]],
                             const device MNN::uchar4x2 *wt      [[buffer(3)]],
                             const device ftype4 *biasTerms     [[buffer(4)]],
-                            const device float4 *dequantScale  [[buffer(5)]],
+                            const device ftype4 *dequantScale  [[buffer(5)]],
                             uint3 gid                          [[thread_position_in_grid]]) {
     if ((int)gid.x * CONV_UNROLL >= cst.output_size || (int)gid.y >= cst.output_slice || (int)gid.z >= cst.batch) return;
 
@@ -580,8 +581,8 @@ kernel void conv1x1_g1z4_w4(const device ftype4 *in            [[buffer(0)]],
     int computeSize = min(cst.output_size - rx, CONV_UNROLL);
     int block = (cst.input_slice + cst.block_size - 1) / cst.block_size;
     for (int bi=0; bi<cst.block_size; ++bi) {
-        FLOAT4 scale = FLOAT4(dequantScale[2 * (uz * cst.block_size + bi) + 0]);
-        FLOAT4 dequant_bias = FLOAT4(dequantScale[2 * (uz * cst.block_size + bi) + 1]);
+        FLOAT4 scale = FLOAT4(dequantScale[2 * (uz * cst.block_size + bi) + 0]) / (FLOAT)cst.scale_coef;
+        FLOAT4 dequant_bias = FLOAT4(dequantScale[2 * (uz * cst.block_size + bi) + 1]) / (FLOAT)cst.scale_coef;
         int zmin = bi * block;
         int zmax = min(zmin + block, cst.input_slice);
         for (int z = zmin; z < zmax; z++) {
@@ -621,7 +622,7 @@ kernel void conv1x1_gemv_g8_w4(const device ftype4 *in            [[buffer(0)]],
                             constant conv1x1_constants& cst    [[buffer(2)]],
                             const device MNN::uchar4x2 *wt      [[buffer(3)]],
                             const device ftype4 *biasTerms     [[buffer(4)]],
-                            const device float4 *dequantScale  [[buffer(5)]],
+                            const device ftype4 *dequantScale  [[buffer(5)]],
                             uint3 gid[[threadgroup_position_in_grid]],
                             uint  tiisg[[thread_index_in_simdgroup]],
                             uint  sgitg[[simdgroup_index_in_threadgroup]]) {
@@ -647,8 +648,8 @@ kernel void conv1x1_gemv_g8_w4(const device ftype4 *in            [[buffer(0)]],
     int outer_index  = (tiisg) / middle_step;
     
     for (int bi= outer_index; bi<cst.block_size; bi += outer_step) {
-        FLOAT4 scale = FLOAT4(dequantScale[2 * (uz * cst.block_size + bi) + 0]);
-        FLOAT4 dequant_bias = FLOAT4(dequantScale[2 * (uz * cst.block_size + bi) + 1]);
+        FLOAT4 scale = FLOAT4(dequantScale[2 * (uz * cst.block_size + bi) + 0]) / (FLOAT)cst.scale_coef;
+        FLOAT4 dequant_bias = FLOAT4(dequantScale[2 * (uz * cst.block_size + bi) + 1]) / (FLOAT)cst.scale_coef;
         int zmin = bi * block;
         int zmax = min(zmin + block, cst.input_slice);
         for (int z = zmin + middle_index; z < zmax; z += middle_step) {
@@ -683,7 +684,7 @@ kernel void conv1x1_gemv_g16_w4(const device ftype4 *in            [[buffer(0)]]
                             constant conv1x1_constants& cst    [[buffer(2)]],
                             const device MNN::uchar4x2 *wt      [[buffer(3)]],
                             const device ftype4 *biasTerms     [[buffer(4)]],
-                            const device float4 *dequantScale  [[buffer(5)]],
+                            const device ftype4 *dequantScale  [[buffer(5)]],
                             uint3 gid[[threadgroup_position_in_grid]],
                             uint  tiisg[[thread_index_in_simdgroup]],
                             uint  sgitg[[simdgroup_index_in_threadgroup]]) {
@@ -712,10 +713,10 @@ kernel void conv1x1_gemv_g16_w4(const device ftype4 *in            [[buffer(0)]]
     
     for (int bi= outer_index; bi<cst.block_size; bi += outer_step) {
         const int quant_offset = 2 * (uz * cst.block_size + bi);
-        FLOAT4 scale0 = FLOAT4(dequantScale[quant_offset + 0]);
-        FLOAT4 dequant_bias0 = FLOAT4(dequantScale[quant_offset + 1]);
-        FLOAT4 scale1 = FLOAT4(dequantScale[quant_offset + (cst.block_size << 1)]);
-        FLOAT4 dequant_bias1 = FLOAT4(dequantScale[quant_offset + (cst.block_size << 1) + 1]);
+        FLOAT4 scale0 = FLOAT4(dequantScale[quant_offset + 0]) / (FLOAT)cst.scale_coef;
+        FLOAT4 dequant_bias0 = FLOAT4(dequantScale[quant_offset + 1]) / (FLOAT)cst.scale_coef;
+        FLOAT4 scale1 = FLOAT4(dequantScale[quant_offset + (cst.block_size << 1)]) / (FLOAT)cst.scale_coef;
+        FLOAT4 dequant_bias1 = FLOAT4(dequantScale[quant_offset + (cst.block_size << 1) + 1]) / (FLOAT)cst.scale_coef;
         int zmin = bi * block;
         int zmax = min(zmin + block, cst.input_slice);
         for (int z = zmin + middle_index; z < zmax; z += middle_step) {

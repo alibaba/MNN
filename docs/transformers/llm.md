@@ -49,7 +49,7 @@ python llmexport.py \
 
 ### 功能
 - 直接转为mnn模型，使用`--export mnn`，注意，你需要先安装pymnn或者通过`--mnnconvert`选项指定MNNConvert工具的地址，两种条件必须满足其中一个。如果没有安装pymnn并且没有通过`--mnnconvert`指定MNNConvert工具的地址，那么llmexport.py脚本会在目录"../../../build/"下寻找MNNConvert工具，需保证该目录下存在MNNConvert文件。此方案目前支持导出4bit和8bit模型
-- 如果直接转为mnn模型遇到问题，或者需要其他bits数的量化（如5bit/6bit），可以先将模型先转为onnx模型，使用`--export onnx`，然后使用./MNNConvert工具将onnx模型转为mnn模型: 
+- 如果直接转为mnn模型遇到问题，或者需要其他bits数的量化（如5bit/6bit），可以先将模型先转为onnx模型，使用`--export onnx`，然后使用./MNNConvert工具将onnx模型转为mnn模型:
 
 ```
 ./MNNConvert --modelFile ../transformers/llm/export/model/onnx/llm.onnx --MNNModel llm.mnn --keepInputFormat --weightQuantBits=4 --weightQuantBlock=128 -f ONNX --transformerFuse=1 --allowCustomOp --saveExternalData
@@ -98,12 +98,16 @@ options:
 [从源码编译](../compile/other.html#id4)
 在原有编译过程中增加必需编译宏即可：
 ```
--DMNN_LOW_MEMORY=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true 
+-DMNN_LOW_MEMORY=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true
 ```
 
 - 需要开启视觉功能时，增加相关编译宏
 ```
 -DLLM_SUPPORT_VISION=true -DMNN_BUILD_OPENCV=true -DMNN_IMGCODECS=true
+```
+- 需要开启音频功能时，增加相关编译宏
+```
+-DLLM_SUPPORT_AUDIO=true
 ```
 
 #### mac / linux / windows
@@ -137,7 +141,7 @@ sh package_scripts/ios/buildiOS.sh "-DMNN_ARM82=true -DMNN_LOW_MEMORY=true -DMNN
 ```
 
 #### Web
-环境配置参考 https://mnn-docs.readthedocs.io/en/latest/compile/engine.html#web 
+环境配置参考 https://mnn-docs.readthedocs.io/en/latest/compile/engine.html#web
 
 - 编译库，产出 `libMNN.a`，`libMNN_Express.a`，`libllm.a`
 
@@ -189,7 +193,7 @@ node llm_demo.js ~/qwen2.0_1.5b/config.json ~/qwen2.0_1.5b/prompt.txt
   - visual_model: 当使用VL模型时，visual_model的实际路径为`base_dir + visual_model`，默认为`base_dir + 'visual.mnn'`
 - 推理配置
   - max_new_tokens: 生成时最大token数，默认为`512`
-  - reuse_kv: 多轮对话时是否复用之前对话的`kv cache`，默认为`false`, 目前只有CPU后端支持设置为`true`.
+  - reuse_kv: 多轮对话时是否复用之前对话的`kv cache`，默认为`false`
   - quant_qkv: CPU attention 算子中`query, key, value`是否量化，可选为：`0, 1, 2, 3, 4`，默认为`0`，含义如下：
     - 0: key和value都不量化
     - 1: 使用非对称8bit量化存储key
@@ -205,19 +209,6 @@ node llm_demo.js ~/qwen2.0_1.5b/config.json ~/qwen2.0_1.5b/prompt.txt
   - thread_num: CPU推理使用硬件线程数，默认为：`4`; OpenCL推理时使用`68`
   - precision: 推理使用精度策略，默认为：`"low"`，尽量使用`fp16`
   - memory: 推理使用内存策略，默认为：`"low"`，开启运行时量化
-- Sampler配置
-  - sampler_type: 使用的sampler种类，目前支持`greedy`, `temperature`, `topK`, `topP`, `minP`, `tfs`, `typical`, `penalty`8种基本sampler，外加`mixed`(混合sampler)。当选择`mixed`时，依次执行mixed_samplers中的sampler。默认为`mixed`。
-  - mixed_samplers: 当`sampler_type`为`mixed`时有效，默认为`["topK", "tfs", "typical", "topP", "min_p", "temperature"]`
-  - temperature: `temperature`, `topP`, `minP`, `tfsZ`, `typical`中temerature值，默认为1.0
-  - topK: `topK`中top K 个的个数，默认为40
-  - topP: `topP`中top P的值，默认为0.9
-  - minP: `minP`中min P的值，默认为0.1
-  - tfsZ: `tfs`中Z的值，默认为1.0，即不使用tfs算法
-  - typical: `typical`中p的值，默认为1.0，即不使用typical算法
-  - penalty: `penalty`中对于logits的惩罚项，默认为0.0，即不惩罚
-  - n_gram: `penalty`中最大存储的ngram大小，默认为8
-  - ngram_factor: `penalty`中对于重复ngram的额外惩罚，默认为1.0，即没有额外惩罚
-  - penalty_sampler: `penalty`中最后一步采用的sampling策略，可选"greedy"或"temperature"，默认greedy.
 
 ##### 配置文件示例
 - `config.json`
@@ -229,15 +220,7 @@ node llm_demo.js ~/qwen2.0_1.5b/config.json ~/qwen2.0_1.5b/prompt.txt
       "backend_type": "cpu",
       "thread_num": 4,
       "precision": "low",
-      "memory": "low",
-      "sampler_type": "mixed",
-      "mixed_samplers": ["topK", "tfs", "typical", "topP", "min_p", "temperature"],
-      "temperature": 1.0,
-      "topK": 40,
-      "topP": 0.9,
-      "tfsZ": 1.0,
-      "minP": 0.1,
-      "reuse_kv": true
+      "memory": "low"
   }
   ```
 - `llm_config.json`
@@ -261,8 +244,7 @@ node llm_demo.js ~/qwen2.0_1.5b/config.json ~/qwen2.0_1.5b/prompt.txt
 
 #### 推理用法
 `llm_demo`的用法如下：
-pc端直接推理
-```bash
+```
 # 使用config.json
 ## 交互式聊天
 ./llm_demo model_dir/config.json
@@ -276,16 +258,15 @@ pc端直接推理
 ./llm_demo model_dir/llm.mnn prompt.txt
 ```
 
-android手机端adb推理用法：
-```bash
-# 利用adb push将链接库push到手机上
-adb shell mkdir /data/local/tmp/llm
-adb push llm_demo ppl_demo libllm.so libMNN_CL.so libMNN_Express.so libMNN.so tools/cv/libMNNOpenCV.so /data/local/tmp/llm
-```
-
 - 对于视觉大模型，在prompt中嵌入图片输入
 ```
 <img>https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-VL/assets/demo.jpeg</img>介绍一下图片里的内容
+# 指定图片大小
+<img><hw>280, 420</hw>https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-VL/assets/demo.jpeg</img>介绍一下图片里的内容
+```
+- 对于音频大模型，在prompt中嵌入音频输入
+```
+<audio>https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen2-Audio/audio/translate_to_chinese.wav</audio>介绍一下音频里的内容
 ```
 
 #### GPTQ权重加载

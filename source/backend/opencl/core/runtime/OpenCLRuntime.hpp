@@ -110,9 +110,9 @@ public:
         return mCLVersion;
     }
 	uint32_t getPrecisionLevel() const;
-    bool isSupportGL(){
-    	return mIsSupportGL;
-	}
+    bool isSupportAHD(){
+        return mIsSupportAHD;
+    }
 #ifdef MNN_OPENCL_SVM_ENABLE
     cl_device_svm_capabilities getSvmCapabilities() {
         return mSvmCapabilities;
@@ -215,7 +215,7 @@ private:
     bool mSupportDotInt8 = false;
     bool mSupportDotAccInt8 = false;
     bool mSupportedIntelSubgroup = false;
-    bool mIsSupportGL = true;
+    bool mIsSupportAHD = false;
     GpuType mGpuType;
     MaliAr mMaliAr;
     float mCLVersion = 1.0f;

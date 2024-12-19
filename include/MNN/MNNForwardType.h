@@ -40,14 +40,16 @@ typedef enum {
     MNN_FORWARD_USER_2 = 10,
     MNN_FORWARD_USER_3 = 11,
 
-    MNN_FORWARD_ALL,
+    MNN_FORWARD_ALL = 12,
 
     /* Apply arm extension instruction set to accelerate some Ops, this forward type
        is only used in MNN internal, and will be active automatically when user set forward type
        to be MNN_FORWARD_CPU and extension instruction set is valid on hardware.
     */
-    MNN_FORWARD_CPU_EXTENSION
-
+    MNN_FORWARD_CPU_EXTENSION = 13,
+    // use for shared memory on android device
+    
+    MNN_MEMORY_AHARDWAREBUFFER = 14
 } MNNForwardType;
 
 typedef enum {

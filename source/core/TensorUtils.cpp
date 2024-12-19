@@ -487,7 +487,7 @@ static bool _ClipDst(int* stride, int srcOffset, int dstOffset, const int* srcSi
      dx=sx-xo -> [max(0, -xo), max(0, min(sxr-xo, dxr))]
      dy,dz compute the same
      **/
-    
+
     int offsetBias = dstOffset - srcOffset;
     if (sizeNum == 0) {
         // All stride is zero, then size will be all one
@@ -901,6 +901,16 @@ void TensorUtils::setTensorPad(const Tensor* tensor, int left, int right, int bo
     srcDes->mPads.right = std::max(srcDes->mPads.right, right);
     srcDes->mPads.bottom = std::max(srcDes->mPads.bottom, bottom);
     srcDes->mPads.top = std::max(srcDes->mPads.top, top);
+}
+
+void TensorUtils::setSharedMem(const Tensor *tensor, Backend::MemObj *mem){
+    auto srcDes = TensorUtils::getDescribe(tensor);
+    srcDes->mSharedMem = mem;
+}
+
+Backend::MemObj* TensorUtils::getSharedMem(const Tensor* tensor){
+    auto srcDes = TensorUtils::getDescribe(tensor);
+    return srcDes->mSharedMem.get();
 }
 
 } // namespace MNN

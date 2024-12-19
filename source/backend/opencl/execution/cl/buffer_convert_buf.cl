@@ -74,7 +74,7 @@ __kernel void buffer_copy_to_buffer(GLOBAL_SIZE_2_DIMS
 #endif
 }
 
-// convert kernel : from buffer(oihw) to image(oc/4 h w , ic oc4)
+// convert kernel : from buffer(oihw) to image(ic, oc/4, h, w, oc4)
 __kernel void conv2d_filter_buffer_to_nc4hw4_buffer(GLOBAL_SIZE_2_DIMS
                                             __global const FLOAT *input_ptr,
                                             __private const int output_channel,

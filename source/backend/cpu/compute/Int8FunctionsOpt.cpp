@@ -29,7 +29,7 @@ void MNNLineDepthWiseInt8AddBiasScaleUnit(int8_t* dst, const int8_t* src, const 
 void MNNMaxPoolInt8(int8_t* dst, int8_t* src, size_t outputWidth, size_t inputWidth, size_t kernelx, size_t kernely, size_t stridesx);
 
 void MNNAvgPoolInt8(int8_t* dst, int8_t* src, size_t outputWidth, size_t inputWidth, size_t kernelx, size_t kernely, size_t stridesx, ssize_t paddingx, ssize_t factor);
-void MNNReluWithSlopeChannelInt8(int8_t* dst, const int8_t* src, const float* slope, size_t planeNumber, size_t depthQuad, QuanPrePostParameters *params);
+void MNNReluWithSlopeChannelInt8(int8_t* dst, const int8_t* src, const float* slope, size_t planeNumber, size_t depthQuad, const QuanPrePostParameters *params, size_t pack);
 #if defined(__aarch64__) // aarch32 sdot workaround
 void MNNGemmInt8AddBiasScale_ARMV82_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad,
                                         const QuanPostTreatParameters* post, size_t realDstCount);
@@ -1543,7 +1543,7 @@ static void MNNGemmInt8AddBiasScale_16x4_w4_Unit(int8_t* dst, const int8_t* src,
     }
 }
 
-static void MNNReluWithSlopeChannelInt8(int8_t* dst, const int8_t* src, const float* slope, size_t planeNumber, size_t depthQuad, QuanPrePostParameters *params) {
+static void MNNReluWithSlopeChannelInt8(int8_t* dst, const int8_t* src, const float* slope, size_t planeNumber, size_t depthQuad, const QuanPrePostParameters *params, size_t pack) {
 #ifdef MNN_USE_SSE
 float offset = 128.f;
 uint8_t* srcPtr = (uint8_t*)src;
@@ -1554,24 +1554,22 @@ const int8_t* srcPtr = src;
 int8_t* dstPtr = dst;
 #endif
     float mulVal = 0.f;
-    float inputScale = params->inputScale[0];
-    float outputScale = params->outputScale[0];
     float inputZero = static_cast<float>(params->inputZeroPoint[0]) + offset;
     float outputZero = static_cast<float>(params->outputZeroPoint[0]) + offset;
     int32_t minval = params->minValue + offset;
     int32_t maxval = params->maxValue + offset;
     for (int j = 0;j < depthQuad; ++j) {
-        const float* slopeZ = slope + 4 * j;
-        const auto srcZ = srcPtr + 4 * j * planeNumber;
-        auto dstZ = dstPtr + 4 * j * planeNumber;
+        const float* slopeZ = slope + pack * j;
+        const auto srcZ = srcPtr + pack * j * planeNumber;
+        auto dstZ = dstPtr + pack * j * planeNumber;
         for (int i = 0; i < planeNumber; ++i) {
-            for (int c = 0; c < 4; ++c) {
-                if ((float)srcZ[4 * i + c] < inputZero) {
-                    mulVal = (srcZ[4 * i + c] - inputZero) * slopeZ[c];
-                    dstZ[4 * i + c] = ALIMIN(ALIMAX(static_cast<int32_t>(roundf(mulVal)) + outputZero, minval), maxval);
-                } else {
-                    dstZ[4 * i + c] = srcZ[4 * i + c];
+            for (int c = 0; c < pack; ++c) {
+                float valInput = (static_cast<float>(srcZ[pack * i + c]) - inputZero) * params->inputScale[0];
+                if (valInput < 0) {
+                    valInput *= slopeZ[c];
                 }
+                auto mulVal = valInput * params->outputScale[0] + outputZero;
+                dstZ[pack * i + c] = ALIMIN(ALIMAX(static_cast<int32_t>(roundf(mulVal)), minval), maxval);
             }
         }
     }

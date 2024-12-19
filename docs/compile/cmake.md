@@ -16,7 +16,7 @@ MNN使用CMake构建项目，CMake中的宏定义列表如下：
 | MNN_BUILD_QUANTOOLS  | 是否构建MNN的量化工具，默认为`OFF` |
 | MNN_EVALUATION       | 是否构建MNN的评估工具，默认为`OFF` |
 | MNN_BUILD_CONVERTER  | 是否构建MNN的转换工具，默认为`OFF` |
-| MNN_SUPPORT_DEPRECATED_OP | 是否支持Tflite的量化算子，默认为`ON` |
+| MNN_SUPPORT_DEPRECATED_OP | 是否支持Tflite的量化算子等已经废弃的算子，用于兼容历史模型(1.1.0版本之前)，默认为`OFF` |
 | MNN_DEBUG_MEMORY     | 是否开启MNN内存调试，默认为`OFF` |
 | MNN_DEBUG_TENSOR_SIZE | 是否开启MNN tensor size调试，默认为`OFF` |
 | MNN_GPU_TRACE        | 是否开启MNN GPU调试，默认为`OFF` |
@@ -32,6 +32,7 @@ MNN使用CMake构建项目，CMake中的宏定义列表如下：
 | MNN_ENABLE_COVERAGE  | 是否开启MNN的代码覆盖率，默认为`OFF` |
 | MNN_BUILD_PROTOBUFFER | 是否使用MNN中的`protobuffer`，默认为`ON` |
 | MNN_BUILD_OPENCV     | 是否构建MNN的OpenCV功能，默认为`OFF` |
+| MNN_BUILD_AUDIO      | 是否构建MNN的Audio功能，默认为`OFF` |
 | MNN_INTERNAL         | 是否构建MNN的一些内部功能，如：日志；默认为`OFF` |
 | MNN_JNI              | 是否构建MNN的JNI支持，默认为`OFF` |
 | MNN_METAL            | 是否构建`Metal`后端，默认为`OFF` |
@@ -79,6 +80,7 @@ MNN使用CMake构建项目，CMake中的宏定义列表如下：
 | MNN_CVCORE           | 构建MNN的OpenCV功能是否开启`core`功能，默认为`ON` |
 | MNN_OPENCV_TEST      | 构建MNN的OpenCV功能是否开启单元测试，默认为`OFF` |
 | MNN_OPENCV_BENCH     | 构建MNN的OpenCV功能是否开启性能benchmark，默认为`OFF` |
+| MNN_AUDIO_TEST       | 构建MNN的Audio功能是否开启单元测试，默认为`OFF` |
 | MNN_VULKAN_IMAGE     | 构建MNN的Vulkan后端时采用Image内存模式，以便支持FP16和部分移动端上GPU的加速，默认为`ON` |
 | MNN_LOW_MEMORY       | 是否支持低内存模式，支持低内存模式使用权值量化模型并设置`low_memory`则会使用计算时反量化，默认为`OFF` |
 | MNN_CPU_WEIGHT_DEQUANT_GEMM       | 是否编译CPU权重反量化的矩阵乘Kernel， 如果打开该编译宏并且在CPU推理时设置MNN::BackendConfig::MemoryMode=Memory_Normal，就会使用权重反量化算子进行权重量化模型的推理，默认为`OFF` |

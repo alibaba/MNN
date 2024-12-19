@@ -1,9 +1,15 @@
 option(LLM_SUPPORT_VISION "Llm model support vision input." OFF)
+option(LLM_SUPPORT_AUDIO "Llm model support audio input." OFF)
 
-if (LLM_SUPPORT_VISION)
-    add_definitions(-DLLM_SUPPORT_VISION)
+
+if (LLM_SUPPORT_VISION AND MNN_BUILD_OPENCV)
     list(APPEND MNN_DEPS MNNOpenCV)
     include_directories(${CMAKE_SOURCE_DIR}/tools/cv/include/)
+endif()
+
+if (LLM_SUPPORT_AUDIO AND MNN_BUILD_AUDIO)
+    list(APPEND MNN_DEPS MNNAudio)
+    include_directories(${CMAKE_SOURCE_DIR}/tools/audio/include/)
 endif()
 
 # include dir
@@ -25,15 +31,19 @@ else()
     add_library(llm OBJECT ${SRCS})
 endif()
 
-add_executable(llm_demo ${CMAKE_CURRENT_LIST_DIR}/app/llm_demo.cpp)
-add_executable(ppl_demo ${CMAKE_CURRENT_LIST_DIR}/app/ppl_demo.cpp)
-add_executable(embedding_demo ${CMAKE_CURRENT_LIST_DIR}/app/embedding_demo.cpp)
+if (LLM_SUPPORT_VISION AND MNN_BUILD_OPENCV)
+    target_compile_definitions(llm PRIVATE LLM_SUPPORT_VISION)
+endif()
+if (LLM_SUPPORT_AUDIO AND MNN_BUILD_AUDIO)
+    target_compile_definitions(llm PRIVATE LLM_SUPPORT_AUDIO)
+endif()
+
+add_executable(llm_demo ${CMAKE_CURRENT_LIST_DIR}/llm_demo.cpp)
+add_executable(embedding_demo ${CMAKE_CURRENT_LIST_DIR}/embedding_demo.cpp)
 IF (NOT MNN_SEP_BUILD)
     target_link_libraries(llm_demo ${MNN_DEPS})
-    target_link_libraries(ppl_demo ${MNN_DEPS})
     target_link_libraries(embedding_demo ${MNN_DEPS})
 ELSE ()
     target_link_libraries(llm_demo ${MNN_DEPS} llm)
-    target_link_libraries(ppl_demo ${MNN_DEPS} llm)
     target_link_libraries(embedding_demo ${MNN_DEPS} llm)
 ENDIF ()

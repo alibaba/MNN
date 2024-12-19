@@ -48,3 +48,4 @@
 | [reader-lm-1.5b](https://huggingface.co/jinaai/reader-lm-1.5b) | [Q4_1](https://modelscope.cn/models/MNN/reader-lm-1.5b-MNN) | [Q4_1](https://huggingface.co/taobao-mnn/reader-lm-1.5b-MNN) |
 | [TinyLlama-1.1B-Chat-v1.0](https://modelscope.cn/models/AI-ModelScope/TinyLlama-1.1B-Chat-v1.0/summary) | [Q4_1](https://modelscope.cn/models/MNN/TinyLlama-1.1B-Chat-MNN) | [Q4_1](https://huggingface.co/taobao-mnn/TinyLlama-1.1B-Chat-MNN) |
 | [Yi-6B-Chat](https://modelscope.cn/models/01ai/Yi-6B-Chat/summary) | [Q4_1](https://modelscope.cn/models/MNN/Yi-6B-Chat-MNN) | [Q4_1](https://huggingface.co/taobao-mnn/Yi-6B-Chat-MNN) |
+| [QwQ-32B-Preview](https://modelscope.cn/models/Qwen/QwQ-32B-Preview/summary) | [Q4_1](https://modelscope.cn/models/MNN/QwQ-32B-Preview-MNN) | [Q4_1](https://huggingface.co/taobao-mnn/QwQ-32B-Preview-MNN) |

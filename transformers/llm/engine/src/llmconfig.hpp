@@ -5,18 +5,9 @@
 //  ZhaodeWang
 //
 
-#ifndef LLMCONFIG_Hpp
-#define LLMCONFIG_Hpp
-
-#include <vector>
-#include <iostream>
-#include <sstream>
-#include <fstream>
-#include <rapidjson/document.h>
+#include "rapidjson/document.h"
 #include <rapidjson/writer.h>
 #include <rapidjson/stringbuffer.h>
-		
-
 
 namespace MNN {
 namespace Transformer {
@@ -45,7 +36,31 @@ static inline std::string file_name(const std::string& path) {
 }
 
 bool merge_json(rapidjson::Value& destination, const rapidjson::Value& source,
-                rapidjson::Document::AllocatorType& allocator);
+                rapidjson::Document::AllocatorType& allocator) {
+    if (!source.IsObject() || !destination.IsObject()) {
+        return false;
+    }
+
+    for (auto it = source.MemberBegin(); it != source.MemberEnd(); ++it) {
+        const char* key = it->name.GetString();
+        if (destination.HasMember(key)) {
+            if (destination[key].IsObject() && it->value.IsObject()) {
+                // Recursively merge the two JSON objects
+                merge_json(destination[key], it->value, allocator);
+            } else {
+                // Overwrite the value in the destination
+                destination[key].CopyFrom(it->value, allocator);
+            }
+        } else {
+            // Add the value to the destination
+            rapidjson::Value newKey(key, allocator);
+            rapidjson::Value newValue;
+            newValue.CopyFrom(it->value, allocator);
+            destination.AddMember(newKey, newValue, allocator);
+        }
+    }
+    return true;
+}
 
 class rapid_json_wrapper {
 public:
@@ -66,6 +81,7 @@ public:
         rapid_json_wrapper json_wrapper(std::move(document));
         return json_wrapper;
     }
+    bool empty() { return document.IsNull(); }
     bool merge(const char* str) {
         rapidjson::Document input_doc;
         input_doc.Parse(str);
@@ -83,12 +99,13 @@ public:
         return buffer.GetString();
     }
     // read value
-    float value(const char* key, const float& default_value) const {
-        if (document.HasMember(key)) {
-            const auto& value = document[key];
-            if (value.IsFloat()) return value.GetFloat();
+    rapid_json_wrapper value(const char* key) const {
+        if (document.HasMember(key)  && document[key].IsObject()) {
+            rapidjson::Document subDoc;
+            subDoc.CopyFrom(document[key], subDoc.GetAllocator());
+            return rapid_json_wrapper(std::move(subDoc));
         }
-        return default_value;
+        return rapid_json_wrapper();
     }
     int value(const char* key, const int& default_value) const {
         if (document.HasMember(key)) {
@@ -154,21 +171,6 @@ public:
         }
         return default_value;
     }
-    std::vector<std::string> value(const char* key, const std::vector<std::string>& default_value) const {
-        if (document.HasMember(key)) {
-            const auto& value = document[key];
-            if (value.IsArray()) {
-                std::vector<std::string> result;
-                for (auto& v : value.GetArray()) {
-                    if (v.IsString()) {
-                        result.push_back(v.GetString());
-                    }
-                }
-                return result;
-            }
-        }
-        return default_value;
-    }
     std::string value(const char key[], const char default_value[]) const {
         return value(key, std::string(default_value));
     }
@@ -177,7 +179,7 @@ public:
 class LlmConfig {
 public:
     std::string base_dir_;
-    rapid_json_wrapper config_, llm_config_;
+    rapid_json_wrapper config_, llm_config_, mllm_config_, cur_config_;
     LlmConfig() {}
     LlmConfig(const std::string& path) {
         // load config
@@ -214,6 +216,7 @@ public:
         } else {
             std::cerr << "Unable to open llm_config file: " << llm_config() << std::endl;
         }
+        mllm_config_ = config_.value("mllm");
     }
 
     // < model file config start
@@ -252,13 +255,13 @@ public:
     std::string visual_model() const {
         return base_dir_ + config_.value("visual_model", "visual.mnn");
     }
+
+    std::string audio_model() const {
+        return base_dir_ + config_.value("audio_model", "audio.mnn");
+    }
     // model file config end >
 
     // < generate config start
-    int max_all_tokens() const {
-        return config_.value("max_all_tokens", 2048);
-    }
-
     int max_new_tokens() const {
         return config_.value("max_new_tokens", 512);
     }
@@ -269,22 +272,27 @@ public:
     // generate config end >
 
     // < backend config start
-    std::string backend_type() const {
+    std::string backend_type(bool mllm = false) const {
+        if (mllm) return mllm_config_.value("backend_type", "cpu");
         return config_.value("backend_type", "cpu");
     }
 
-    int thread_num() const {
+    int thread_num(bool mllm = false) const {
+        if (mllm) return mllm_config_.value("thread_num", 4);
         return config_.value("thread_num", 4);
     }
 
-    std::string precision() const {
+    std::string precision(bool mllm = false) const {
+        if (mllm) return mllm_config_.value("precision", "low");
         return config_.value("precision", "low");
     }
-    std::string power() const {
+    std::string power(bool mllm = false) const {
+        if (mllm) return mllm_config_.value("power", "normal");
         return config_.value("power", "normal");
     }
 
-    std::string memory() const {
+    std::string memory(bool mllm = false) const {
+        if (mllm) return mllm_config_.value("memory", "low");
         return config_.value("memory", "low");
     }
 
@@ -304,6 +312,10 @@ public:
 
     bool is_visual() const {
         return llm_config_.value("is_visual", false);
+    }
+
+    bool is_audio() const {
+        return llm_config_.value("is_audio", false);
     }
 
     bool use_mmap() const {
@@ -335,96 +347,18 @@ public:
         return llm_config_.value("attention_fused", true);
     }
 
-    std::string system_prompt_template() const {
-        return llm_config_.value("system_prompt_template", "<|im_start|>system\n%s<|im_end|>\n");
+    std::string chat_template() const {
+        return llm_config_.value("chat_template", "");
     }
-    std::string user_prompt_template() const {
-        return llm_config_.value("user_prompt_template", "<|im_start|>user\n%s<|im_end|>\n");
-    }
-    std::string assistant_prefix() const {
-        return llm_config_.value("assistant_prefix", "<|im_start|>assistant\n");
-    }
-    std::string assistant_suffix() const {
-        return llm_config_.value("assistant_suffix", "<|im_end|>\n");
+
+    std::string prompt_template() const {
+        return llm_config_.value("prompt_template", "");
     }
 
     std::vector<int64_t> tie_embeddings() const {
         return llm_config_.value("tie_embeddings", std::vector<int64_t>{});
     }
     // llm model config end >
-
-    // < sampler config start
-    std::string sampler_type() const {
-        return config_.value("sampler_type", "mixed");
-    }
-
-    std::vector<std::string> mixed_samplers() const {
-        return config_.value("mixed_samplers", std::vector<std::string>({"topK", "tfs", "typical", "topP", "min_p", "temperature"}));
-    }
-
-    float temperature() const {
-        return config_.value("temperature", 1.0f);
-    }
-
-    int topK() const {
-        return config_.value("topK", 40);
-    }
-
-    float topP() const {
-        return config_.value("topP", 0.9f);
-    }
-
-    float minP() const {
-        return config_.value("minP", 0.1f);
-    }
-
-    float tfsZ() const {
-        return config_.value("tfsZ", 1.0f);
-    }
-
-    float typical() const {
-        return config_.value("typical", 1.0f);
-    }
-
-    float penalty() const {
-        return config_.value("penalty", 0.0f);
-    }
-
-    int ngram() const {
-        return config_.value("n_gram", 8);
-    }
-
-    float ngram_factor() const {
-        return config_.value("ngram_factor", 1.0f);
-    }
-
-    std::string penalty_sampler() const {
-        return config_.value("penalty_sampler", "greedy");
-    }
-    // sampler config end >
-
-    // < app config start
-    std::string app_type() const {
-        return config_.value("app_type", "chat");
-    }
-    std::string system_prompt() const {
-        return config_.value("system_prompt", "You are a helpful assistant!\n");
-    }
-    // app config end >
-
-    // < evaulation config start
-    int ppl_stride() const {
-        return config_.value("ppl_stride", 0);
-    }
-    std::string dataset() const {
-        return config_.value("dataset", "wikitext");
-    }
-    int dataset_sample_size() const {
-        return config_.value("dataset_sample_size", -1); // -1 stands for no sampling, use all.
-    }
-    // evaulation config end
 };
 } // Transformer
 } // MNN
-
-#endif
