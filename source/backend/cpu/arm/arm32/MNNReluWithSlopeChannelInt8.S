@@ -48,9 +48,9 @@ beq PReluEnd
 cmp r3, #0
 beq PReluEnd
 
-vmov.f32 q12, #0.5
-vmov.f32 q13, #-0.5
 .macro ROUND_TWO x0, x1
+    vmov.f32 q12, #0.5
+    vmov.f32 q13, #-0.5
     vcgt.f32 q10, \x0, #0
     vcgt.f32 q11, \x1, #0
     vbsl.f32 q10, q12, q13
@@ -62,6 +62,8 @@ vmov.f32 q13, #-0.5
 .endm
 
 .macro ROUND_ONE x0
+    vmov.f32 q12, #0.5
+    vmov.f32 q13, #-0.5
     vcgt.f32 q10, \x0, #0
     vbsl.f32 q10, q12, q13
     vadd.f32 \x0, q10, \x0
@@ -69,10 +71,12 @@ vmov.f32 q13, #-0.5
 .endm
 
 vld1.8 d30[0], [r8]
-vdup.8 d30, d30[0]  // inputZeroPoint
-
 vld1.8 d31[0], [r6]
+vdup.8 d30, d30[0]  // inputZeroPoint
 vdup.8 d31, d31[0]  // outputZeroPoint
+
+ldr r6, [r5, #0]    // inputScale
+ldr r8, [r5, #4]    // outputScale
 
 PReluZLoop:
 vld1.32 {q14}, [r2]!
@@ -93,17 +97,38 @@ vmovl.s16 q4, d3
 vmovl.s16 q5, d4
 vmovl.s16 q6, d5
 
-vclt.s8 q1, q0, #0
-
 vcvt.f32.s32 q3, q3
 vcvt.f32.s32 q4, q4
 vcvt.f32.s32 q5, q5
 vcvt.f32.s32 q6, q6
+// *input_scale
+vld1.f32 {d14[0]}, [r6]
+vld1.f32 {d14[1]}, [r8] // outputscale
+vmul.f32 q3, q3, d14[0]
+vmul.f32 q4, q4, d14[0]
+vmul.f32 q5, q5, d14[0]
+vmul.f32 q6, q6, d14[0]
 
-vmul.f32 q3, q3, q14
-vmul.f32 q4, q4, q14
-vmul.f32 q5, q5, q14
-vmul.f32 q6, q6, q14
+vclt.f32 q0, q3, #0
+vclt.f32 q1, q4, #0
+vclt.f32 q2, q5, #0
+vclt.f32 q12, q6, #0
+
+// *slope
+vmul.f32 q8, q3, q14
+vmul.f32 q9, q4, q14
+vmul.f32 q10, q5, q14
+vmul.f32 q11, q6, q14
+
+vbit.32 q3, q8, q0
+vbit.32 q4, q9, q1
+vbit.32 q5, q10, q2
+vbit.32 q6, q11, q12
+
+vmul.f32 q3, q3, d14[1]
+vmul.f32 q4, q4, d14[1]
+vmul.f32 q5, q5, d14[1]
+vmul.f32 q6, q6, d14[1]
 
 ROUND_TWO q3, q4
 ROUND_TWO q5, q6
@@ -122,8 +147,7 @@ vqmovn.s16 d19, q8
 vmax.s8 q9, q9, q10
 vmin.s8 q9, q9, q11
 
-vbit.8 q0, q9, q1
-vst1.8 {q0}, [r0]!
+vst1.8 {q9}, [r0]!
 
 sub r5, r5, #4
 cmp r5, #4
@@ -139,10 +163,18 @@ vmovl.s8 q1, d0
 vsubw.s8 q1, q1, d30
 
 vmovl.s16 q2, d2
-vclt.s8 d10, d0, #0
 
 vcvt.f32.s32 q2, q2
-vmul.f32 q2, q2, q14
+// *input_scale
+vld1.f32 {d14[0]}, [r6]
+vld1.f32 {d14[1]}, [r8] // outputscale
+vmul.f32 q2, q2, d14[0]
+vclt.f32 q4, q2, #0     // index
+// *slope
+vmul.f32 q3, q2, q14
+vbit q2, q3, q4
+// *output_scale
+vmul.f32 q2, q2, d14[1]
 
 ROUND_ONE q2
 

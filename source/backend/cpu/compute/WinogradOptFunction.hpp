@@ -15,9 +15,6 @@
 namespace MNN {
 class WinogradFunction {
 public:
-    static void productLeft(const float* S, const float* B, float* M, size_t w, size_t h, size_t k, size_t length);
-    static void productRight(const float* S, const float* B, float* M, size_t w, size_t h, size_t k, size_t length);
-
     static int getPreferNumber();
 
     typedef void (*TransformFunc)(const float* srcBlock, float* dstStart, size_t srcStep, size_t dstStep);

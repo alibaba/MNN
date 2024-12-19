@@ -25,8 +25,10 @@ asm_function MNNReluWithSlopeChannelInt8
 // MNNReluWithSlopeChannelInt8(int8_t* dst, const int8_t* src, const float* slope, size_t planeNumber, size_t depthQuad, QuanPrePostParameters *params)
 // Auto load:
 // x0: dst, x1: src, x2: slope, x3: planeNumber, x4: depthQuad, x5: params
-// Load from x5:  x8: inputZeroPoint, x9: outputZeroPoint, x10: minValue, x11: maxValue
+// Load from x5: x9: outputZeroPoint, x10: minValue, x11: maxValue
 
+ldr x12, [x5, #0]
+ldr x13, [x5, #8]
 ldr x8, [x5, #16]
 ldr x9, [x5, #24]
 ldr x10, [x5, #32]
@@ -43,10 +45,12 @@ beq End
 cmp x4, #0
 beq End
 
-ld1r {v29.8b}, [x8] // inputZeroPoint
-ld1r {v28.8b}, [x9] // outputZeroPoint
+ld1r {v29.16b}, [x8] // inputZeroPoint
+ld1r {v28.16b}, [x9] // outputZeroPoint
 dup v26.16b, w10
 dup v27.16b, w11
+ld1r {v24.4s}, [x12] // inputscale
+ld1r {v25.4s}, [x13] // outputscale
 /*
 Quant parameters
 */
@@ -60,7 +64,6 @@ ble PReluL1
 
 PReluL4Loop:
 ld1 {v0.16b}, [x1], #16
-cmlt v30.16b, v0.16b, #0 // mask0: x<0
 
 sxtl v1.8h, v0.8b
 sxtl2 v2.8h, v0.16b
@@ -76,10 +79,33 @@ scvtf v4.4s, v4.4s
 scvtf v5.4s, v5.4s
 scvtf v6.4s, v6.4s
 
-fmul v3.4s, v3.4s, v31.4s
-fmul v4.4s, v4.4s, v31.4s
-fmul v5.4s, v5.4s, v31.4s
-fmul v6.4s, v6.4s, v31.4s
+// input_scale
+fmul v3.4s, v3.4s, v24.4s
+fmul v4.4s, v4.4s, v24.4s
+fmul v5.4s, v5.4s, v24.4s
+fmul v6.4s, v6.4s, v24.4s
+
+fcmle v7.4s, v3.4s, #0
+fcmle v8.4s, v4.4s, #0
+fcmle v9.4s, v5.4s, #0
+fcmle v10.4s, v6.4s, #0
+
+// *slope
+fmul v11.4s, v3.4s, v31.4s
+fmul v12.4s, v4.4s, v31.4s
+fmul v13.4s, v5.4s, v31.4s
+fmul v14.4s, v6.4s, v31.4s
+
+bit v3.16b, v11.16b, v7.16b
+bit v4.16b, v12.16b, v8.16b
+bit v5.16b, v13.16b, v9.16b
+bit v6.16b, v14.16b, v10.16b
+
+// *output_scale
+fmul v3.4s, v3.4s, v25.4s
+fmul v4.4s, v4.4s, v25.4s
+fmul v5.4s, v5.4s, v25.4s
+fmul v6.4s, v6.4s, v25.4s
 
 fcvtas v3.4s, v3.4s
 fcvtas v4.4s, v4.4s
@@ -99,8 +125,7 @@ sqxtn2 v9.16b, v8.8h
 smax v9.16b, v9.16b, v26.16b
 smin v9.16b, v9.16b, v27.16b
 
-bit v0.16b, v9.16b, v30.16b
-st1 {v0.16b}, [x0], #16
+st1 {v9.16b}, [x0], #16
 
 sub x5, x5, #4
 cmp x5, #4
@@ -113,13 +138,20 @@ beq PReluL1End
 
 PReluL1Loop:
 ld1 {v0.s}[0], [x1], #4
-cmlt v30.8b, v0.8b, #0
 
 sxtl v1.8h, v0.8b
 ssubw v1.8h, v1.8h, v29.8b
 sxtl v1.4s, v1.4h
 scvtf v1.4s, v1.4s
-fmul v1.4s, v1.4s, v31.4s
+// *input_scale
+fmul v1.4s, v1.4s, v24.4s
+fcmle v7.4s, v1.4s, #0
+// *slope
+fmul v11.4s, v1.4s, v31.4s
+bit v1.16b, v11.16b, v7.16b
+// *output_scale
+fmul v1.4s, v1.4s, v25.4s
+
 fcvtas v1.4s, v1.4s
 sqxtn v1.4h, v1.4s
 saddw v1.8h, v1.8h, v28.8b
@@ -127,8 +159,7 @@ sqxtn v1.8b, v1.8h
 smax v1.8b, v1.8b, v26.8b
 smin v1.8b, v1.8b, v27.8b
 
-bit v0.8b, v1.8b, v30.8b
-st1 {v0.s}[0], [x0], #4
+st1 {v1.s}[0], [x0], #4
 subs x5, x5, #1
 bne PReluL1Loop
 

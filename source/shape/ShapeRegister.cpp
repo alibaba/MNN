@@ -122,6 +122,9 @@ extern void ___FmhaV2SizeComputer__OpType_FmhaV2__();
 extern void ___FmhcaSizeComputer__OpType_Fmhca__();
 extern void ___AttentionSizeComputer__OpType_Attention__();
 #endif
+#ifdef MNN_BUILD_AUDIO
+extern void ___StftOpComputer__OpType_Stft__();
+#endif
 void registerShapeOps() {
 ___ShapeSizeComputer__OpType_Shape__();
 ___ShapeRasterComputer__OpType_Raster__();
@@ -243,6 +246,9 @@ ___SeqLen2SpatialSizeComputer__OpType_SeqLen2Spatial__();
 ___FmhaV2SizeComputer__OpType_FmhaV2__();
 ___FmhcaSizeComputer__OpType_Fmhca__();
 ___AttentionSizeComputer__OpType_Attention__();
+#endif
+#ifdef MNN_BUILD_AUDIO
+___StftOpComputer__OpType_Stft__();
 #endif
 }
 }

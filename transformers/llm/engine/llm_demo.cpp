@@ -6,24 +6,21 @@
 //
 
 #include "llm/llm.hpp"
-#include "evaluation/dataset.hpp"
 #define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
 #include <MNN/expr/ExecutorScope.hpp>
 #include <fstream>
 #include <sstream>
 #include <stdlib.h>
-#include <initializer_list>
 using namespace MNN::Transformer;
 
 static void trace_prepare(Llm* llm) {
     MNN_PRINT("Prepare for resize opt Begin\n");
     llm->trace(true);
     std::ostringstream cacheOs;
-    llm->generate(std::initializer_list<int>{200, 200}, &cacheOs, "");
+    llm->generate({200, 200}, &cacheOs, "");
     MNN_PRINT("Prepare for resize opt End\n");
     llm->trace(false);
-    llm->reset();
 }
 
 static void tuning_prepare(Llm* llm) {
@@ -32,7 +29,57 @@ static void tuning_prepare(Llm* llm) {
     MNN_PRINT("Prepare for tuning opt End\n");
 }
 
+std::vector<std::vector<std::string>> parse_csv(const std::vector<std::string>& lines) {
+    std::vector<std::vector<std::string>> csv_data;
+    std::string line;
+    std::vector<std::string> row;
+    std::string cell;
+    bool insideQuotes = false;
+    bool startCollecting = false;
+
+    // content to stream
+    std::string content = "";
+    for (auto line : lines) {
+        content = content + line + "\n";
+    }
+    std::istringstream stream(content);
+
+    while (stream.peek() != EOF) {
+        char c = stream.get();
+        if (c == '"') {
+            if (insideQuotes && stream.peek() == '"') { // quote
+                cell += '"';
+                stream.get(); // skip quote
+            } else {
+                insideQuotes = !insideQuotes; // start or end text in quote
+            }
+            startCollecting = true;
+        } else if (c == ',' && !insideQuotes) { // end element, start new element
+            row.push_back(cell);
+            cell.clear();
+            startCollecting = false;
+        } else if ((c == '\n' || stream.peek() == EOF) && !insideQuotes) { // end line
+            row.push_back(cell);
+            csv_data.push_back(row);
+            cell.clear();
+            row.clear();
+            startCollecting = false;
+        } else {
+            cell += c;
+            startCollecting = true;
+        }
+    }
+    return csv_data;
+}
+
 static int benchmark(Llm* llm, const std::vector<std::string>& prompts) {
+    int prompt_len = 0;
+    int decode_len = 0;
+    int64_t vision_time = 0;
+    int64_t audio_time = 0;
+    int64_t prefill_time = 0;
+    int64_t decode_time = 0;
+    // llm->warmup();
     for (int i = 0; i < prompts.size(); i++) {
         const auto& prompt = prompts[i];
         // prompt start with '#' will be ignored
@@ -40,14 +87,26 @@ static int benchmark(Llm* llm, const std::vector<std::string>& prompts) {
             continue;
         }
         llm->response(prompt);
+        prompt_len += llm->prompt_len_;
+        decode_len += llm->gen_seq_len_;
+        vision_time += llm->vision_us_;
+        audio_time += llm->audio_us_;
+        prefill_time += llm->prefill_us_;
+        decode_time += llm->decode_us_;
     }
+    float vision_s = vision_time / 1e6;
+    float audio_s = audio_time / 1e6;
+    float prefill_s = prefill_time / 1e6;
+    float decode_s = decode_time / 1e6;
     printf("\n#################################\n");
-    printf("prompt tokens num  = %d\n", llm->getTotalPromptLen());
-    printf("decode tokens num  = %d\n", llm->getTotalDecodeLen());
-    printf("prefill time = %.2f s\n", llm->getTotalPrefillTime());
-    printf(" decode time = %.2f s\n", llm->getTotalDecodeTime());
-    printf("prefill speed = %.2f tok/s\n", llm->average_prefill_speed());
-    printf(" decode speed = %.2f tok/s\n", llm->average_decode_speed());
+    printf("prompt tokens num = %d\n", prompt_len);
+    printf("decode tokens num = %d\n", decode_len);
+    printf(" vision time = %.2f s\n", vision_s);
+    printf("  audio time = %.2f s\n", audio_s);
+    printf("prefill time = %.2f s\n", prefill_s);
+    printf(" decode time = %.2f s\n", decode_s);
+    printf("prefill speed = %.2f tok/s\n", prompt_len / prefill_s);
+    printf(" decode speed = %.2f tok/s\n", decode_len / decode_s);
     printf("##################################\n");
     return 0;
 }

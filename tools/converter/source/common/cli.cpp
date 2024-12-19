@@ -1412,14 +1412,17 @@ bool CommonKit::json2protobuf(const char* jsonFile, const char* protoFile, MNN::
     auto algos = pipelineInfo["algo"].GetArray();
     for (auto iter = algos.begin(); iter != algos.end(); ++iter) {
         auto algoInfo = iter->GetObject();
+        MNN_ASSERT(algoInfo["type"].GetInt() == 0);
         auto compressionType = (MNN::Compression::CompressionAlgo_CompressionType)algoInfo["type"].GetInt();
-        std::unique_ptr<MNN::Compression::QuantizeParams> quant_params(new MNN::Compression::QuantizeParams());
         auto quantParamsInfo = algoInfo["quant_params"].GetObject();
         auto round_mode = quantParamsInfo["round_mode"].GetInt();
+        MNN::Compression::CompressionAlgo* algo = pipeline->add_algo();
+        algo->set_type(compressionType);
+        auto quant_params = algo->mutable_quant_params();
         quant_params->set_round_mode((MNN::Compression::QuantizeParams_RoundMode)round_mode);
 
-        auto layer = quantParamsInfo["layer"].GetArray();
-        for (auto ly = layer.begin(); ly != layer.end(); ++ly) {
+        auto layers = quantParamsInfo["layer"].GetArray();
+        for (auto ly = layers.begin(); ly != layers.end(); ++ly) {
             auto layerInfo = ly->GetObject();
             auto newLayer = quant_params->add_layer();
             if (layerInfo.HasMember("method")) {
@@ -1450,7 +1453,6 @@ bool CommonKit::json2protobuf(const char* jsonFile, const char* protoFile, MNN::
             // Input.
             auto inputs_ = layerInfo["input"].GetArray();
             for (auto w = inputs_.begin(); w != inputs_.end(); ++w) {
-                // Get weight info.
                 int bits = w->GetObject()["bits"].GetInt();
                 auto name = w->GetObject()["name"].GetString();
                 auto scale = w->GetObject()["scales"].GetArray();
@@ -1471,7 +1473,6 @@ bool CommonKit::json2protobuf(const char* jsonFile, const char* protoFile, MNN::
             // Output.
             auto outputs_ = layerInfo["output"].GetArray();
             for (auto w = outputs_.begin(); w != outputs_.end(); ++w) {
-                // Get weight info.
                 int bits = w->GetObject()["bits"].GetInt();
                 auto name = w->GetObject()["name"].GetString();
                 auto scale = w->GetObject()["scales"].GetArray();
@@ -1489,10 +1490,6 @@ bool CommonKit::json2protobuf(const char* jsonFile, const char* protoFile, MNN::
                 }
             }
         }
-        MNN::Compression::CompressionAlgo* algo = pipeline->add_algo();
-        algo->set_type(compressionType);
-        auto params = algo->quant_params();
-        params.CopyFrom(*quant_params.get());
     }
     // Write protobuf.bin
     if (protoFile) {

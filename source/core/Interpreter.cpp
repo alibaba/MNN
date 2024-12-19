@@ -193,6 +193,9 @@ void Interpreter::setExternalFile(const char* file, size_t flag) {
 }
 
 ErrorCode Interpreter::updateCacheFile(Session *session, int flag) {
+    if (mNet->cacheFile.empty()) {
+        return NOT_SUPPORT;
+    }
     std::lock_guard<std::mutex> _l(mNet->lock);
 
     // Backend_Auto and no Async work, then don't need updateCache

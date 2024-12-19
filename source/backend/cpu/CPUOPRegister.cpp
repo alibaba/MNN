@@ -78,6 +78,9 @@ extern void ___CPUTextureCreator__OpType_Texture__();
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
 extern void ___CPUAttentionCreator__OpType_Attention__();
 #endif
+#ifdef MNN_BUILD_AUDIO
+extern void ___CPUStftCreator__OpType_Stft__();
+#endif
 void registerCPUOps() {
 ___CPUCropAndResizeCreator__OpType_CropAndResize__();
 ___CPUArgMaxCreator__OpType_ArgMax__();
@@ -155,6 +158,9 @@ ___CPUTextureCreator__OpType_Texture__();
 #endif
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
 ___CPUAttentionCreator__OpType_Attention__();
+#endif
+#ifdef MNN_BUILD_AUDIO
+___CPUStftCreator__OpType_Stft__();
 #endif
 }
 }

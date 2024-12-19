@@ -97,7 +97,8 @@ void weightInBlock(int group, int oc, int ic, int kh, int kw, const FType *src, 
     }
 }
 
-static std::shared_ptr<MNN::Tensor> getDequantScale(const float* scale, int size, MetalBackend *backend, bool asymmetric, int oc) {
+template<typename DType>
+static std::pair<std::shared_ptr<MNN::Tensor>, float> getDequantScale(const float* scale, int size, MetalBackend *backend, bool asymmetric, int oc) {
     int totalCount = 0;
     if (asymmetric) {
         totalCount = size / 2;
@@ -106,15 +107,32 @@ static std::shared_ptr<MNN::Tensor> getDequantScale(const float* scale, int size
     }
     int blockSize = totalCount / oc;
     int alignOutputCount = ALIGN_UP4(oc);
-    std::shared_ptr<MNN::Tensor> dequantScale(MNN::Tensor::createDevice<uint8_t>({alignOutputCount, blockSize, (int)(sizeof(float) * 2)}));
+    std::shared_ptr<MNN::Tensor> dequantScale(MNN::Tensor::createDevice<uint8_t>({alignOutputCount, blockSize, (int)(sizeof(DType) * 2)}));
     bool res = backend->onAcquireBuffer(dequantScale.get(), Backend::STATIC);
     if (!res) {
         MNN_ERROR("Buffer allocated error!\n");
-        return nullptr;
+        return std::make_pair(nullptr, 1.0);
     }
     auto buffer0 = MetalBackend::getBuffer(dequantScale.get());
-    auto dst_scale = (float*)((uint8_t*)[buffer0.first contents] + buffer0.second);
+    DType* dst_scale = (DType*)((uint8_t*)[buffer0.first contents] + buffer0.second);
     ::memset(dst_scale, 0, dequantScale->usize());
+    
+    float coef = 1.0;
+    if(std::is_same<DType, __fp16>::value) {
+        float max_data = 0.0;
+        for (int z=0; z<oc; ++z) {
+            auto srcZ = scale + z * blockSize * 2;
+            for (int bi=0; bi<blockSize; ++bi) {
+                float s = fabs(srcZ[2*bi+1]);
+                float b = fabs(srcZ[2*bi+0]);
+                float temp = ALIMAX(s, b);
+                if(temp > max_data) {
+                    max_data = temp;
+                }
+            }
+        }
+        coef = 65504.0 / max_data;
+    }
     if (asymmetric) {
         for (int z=0; z<oc; ++z) {
             int zo = z / 4;
@@ -125,8 +143,8 @@ static std::shared_ptr<MNN::Tensor> getDequantScale(const float* scale, int size
             for (int bi=0; bi<blockSize; ++bi) {
                 float s = srcZ[2*bi+1];
                 float b = srcZ[2*bi+0];
-                dstSZ[bi * 8] = s;
-                dstBZ[bi * 8] = b;
+                dstSZ[bi * 8] = (DType)(s * coef);
+                dstBZ[bi * 8] = (DType)(b * coef);
             }
         }
     } else {
@@ -139,12 +157,12 @@ static std::shared_ptr<MNN::Tensor> getDequantScale(const float* scale, int size
             for (int bi=0; bi<blockSize; ++bi) {
                 float s = srcZ[bi];
                 float b = 0.0f;
-                dstSZ[bi * 8] = s;
+                dstSZ[bi * 8] = (DType)(s * coef);
                 dstBZ[bi * 8] = b;
             }
         }
     }
-    return dequantScale;
+    return std::make_pair(dequantScale, coef);
 }
 void MetalConvolutionCommon::loadWeight(const MNN::Op *op, bool loadWeightInt8) {
     auto conv = op->main_as_Convolution2D();
@@ -166,12 +184,20 @@ void MetalConvolutionCommon::loadWeight(const MNN::Op *op, bool loadWeightInt8) 
         ic = size / kw / kh / (oc / group);
     }
 
-    // convert
+    // convert
     if (loadWeightInt8 && qnt->weight.get() != nullptr) {
         auto backend = static_cast<MetalBackend *>(this->backend());
         mWeight = weightTransform(group, oc, ic, kh, kw, (float*)qnt->weight.get(), !qnt->canUseInt4, qnt->canUseInt4);
-        auto dequantParams = getDequantScale(qnt->alpha.get(), qnt->alpha.size(), backend, qnt->asymmetric, oc);
-        mDequantScaleBias = dequantParams;
+        if(backend->useFp16InsteadFp32()) {
+            auto dequantParams = getDequantScale<__fp16>(qnt->alpha.get(), qnt->alpha.size(), backend, qnt->asymmetric, oc);
+            mDequantScaleBias = dequantParams.first;
+            mScaleCoef = dequantParams.second;
+        } else {
+            auto dequantParams = getDequantScale<float>(qnt->alpha.get(), qnt->alpha.size(), backend, qnt->asymmetric, oc);
+            mDequantScaleBias = dequantParams.first;
+            mScaleCoef = dequantParams.second;
+        }
+
         mDequantBits = qnt->canUseInt4 ? 4:8;
     } else if (qnt && qnt->weightFloat.size() > 0) {
         mWeight = weightTransform(group, oc, ic, kh, kw, qnt->weightFloat.get(), false, false);

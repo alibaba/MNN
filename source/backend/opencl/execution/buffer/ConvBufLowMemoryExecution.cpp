@@ -265,8 +265,8 @@ void ConvBufLowMemoryExecution::tuneGeneralCaseLowMemory(Tensor * input, Tensor 
     // MNN_PRINT("Checking kernel %d.\n", knlCheck);
     for (int knl_idx = 0; knl_idx < actual_kernel; knl_idx++) {
         std::set<std::string> buildOption = mResource->mBuildOptions;
-        if(outputShape.at(3) % itemC[knl_idx] != 0){
-            buildOption.emplace("-DCHANNEL_LEAVE");
+        if(itemC[knl_idx] == 8 && outputShape.at(3) % itemC[knl_idx] > 0 && outputShape.at(3) % itemC[knl_idx] <= 4){
+            buildOption.emplace("-DCHANNEL_BOUNDARY_PROTECT");
         }
         if((outputShape.at(2) % itemW[knl_idx]) != 0 || (outputShape.at(1) % itemH[knl_idx]) != 0){
             buildOption.emplace("-DBLOCK_LEAVE");
@@ -313,8 +313,8 @@ void ConvBufLowMemoryExecution::tuneGeneralCaseLowMemory(Tensor * input, Tensor 
     mGlobalWorkSize = {globalWorkSize[min_index][0], globalWorkSize[min_index][1]};
 
     std::set<std::string> buildOption = mResource->mBuildOptions;
-    if(outputShape.at(3) % itemC[min_index] != 0){
-        buildOption.emplace("-DCHANNEL_LEAVE");
+    if(itemC[min_index] == 8 && outputShape.at(3) % itemC[min_index] > 0 && outputShape.at(3) % itemC[min_index] <= 4){
+        buildOption.emplace("-DCHANNEL_BOUNDARY_PROTECT");
     }
     if((outputShape.at(2) % itemW[min_index]) != 0 || (outputShape.at(1) % itemH[min_index]) != 0){
         buildOption.emplace("-DBLOCK_LEAVE");

@@ -16,77 +16,10 @@
 
 using Vec4 = MNN::Math::Vec<float, 4>;
 #define DEFAULT_UNIT 8
-extern "C" {
-void MNNWinogradMatrixProductLeft(const float* S, const float* B, float* M, size_t w, size_t h, size_t k,
-                                  size_t length);
-void MNNWinogradMatrixProductRight(const float* S, const float* B, float* M, size_t w, size_t h, size_t k,
-                                   size_t length);
-}
 
-#ifndef MNN_USE_NEON
-
-// M = BT * S , M = w*h * l, S = w*k * l, B = h*k
-void MNNWinogradMatrixProductLeft(const float* S, const float* B, float* M, size_t w, size_t h, size_t k,
-                                  size_t length) {
-    auto unitStep = 4 * length;
-    for (int y = 0; y < h; ++y) {
-        auto dstY = M + y * w * unitStep;
-        for (int x = 0; x < w; ++x) {
-            auto dstX = dstY + x * unitStep;
-            auto srcX = S + x * unitStep;
-            ::memset(dstX, 0, unitStep * sizeof(float));
-            for (int i = 0; i < k; ++i) {
-                auto b    = B[i * h + y];
-                auto srcY = srcX + i * w * unitStep;
-                if (0.0f == b) {
-                    continue;
-                }
-                for (int j = 0; j < unitStep; ++j) {
-                    dstX[j] += srcY[j] * b;
-                }
-            }
-        }
-    }
-}
-
-// M = S * B , M = w*h * l, S = k*h * l, B = w*k
-void MNNWinogradMatrixProductRight(const float* S, const float* B, float* M, size_t w, size_t h, size_t k,
-                                   size_t length) {
-    auto unitStep = 4 * length;
-    for (int y = 0; y < h; ++y) {
-        auto dstY = M + y * w * unitStep;
-        auto srcY = S + y * k * unitStep;
-
-        for (int x = 0; x < w; ++x) {
-            auto dstX = dstY + x * unitStep;
-            ::memset(dstX, 0, unitStep * sizeof(float));
-            for (int i = 0; i < k; ++i) {
-                auto srcX = srcY + i * unitStep;
-                auto b    = B[i * h + x];
-                if (0.0f == b) {
-                    continue;
-                }
-                for (int j = 0; j < unitStep; ++j) {
-                    dstX[j] += srcX[j] * b;
-                }
-            }
-        }
-    }
-}
-#endif
 
 namespace MNN {
 
-
-void WinogradFunction::productLeft(const float* S, const float* B, float* M, size_t w, size_t h, size_t k,
-                                   size_t length) {
-    MNNWinogradMatrixProductLeft(S, B, M, w, h, k, length);
-}
-
-void WinogradFunction::productRight(const float* S, const float* B, float* M, size_t w, size_t h, size_t k,
-                                    size_t length) {
-    MNNWinogradMatrixProductRight(S, B, M, w, h, k, length);
-}
 int WinogradFunction::getPreferNumber() {
     return DEFAULT_UNIT;
 }

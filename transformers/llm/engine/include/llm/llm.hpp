@@ -18,7 +18,6 @@
 #include <functional>
 #include <unordered_map>
 
-#include "evaluation/evaluation.hpp"
 #include <MNN/expr/Expr.hpp>
 #include <MNN/expr/Module.hpp>
 #include <MNN/expr/MathOp.hpp>
@@ -29,41 +28,6 @@ namespace Transformer {
 class Tokenizer;
 class Pipeline;
 class LlmConfig;
-class Sampler;
-class PromptLib;
-struct TimePerformance;
-
-
-// <role, content>
-#define PromptItem std::pair<std::string, std::string>
-
-class MNN_PUBLIC LlmSessionInfo {
-public:
-    // Llm::forward needs, for mask and embedding.
-    int all_seq_len_=0, gen_seq_len_=0;
-    // Sampler needs
-    std::vector<int> tokens;
-    // PromptLib needs
-    std::vector<PromptItem> mHistory;
-    std::vector<PromptItem> mInputs;
-    // Performance needs
-    struct TimePerformance mTimePerformance;
-public:
-    LlmSessionInfo():all_seq_len_(0),gen_seq_len_(0){}
-    void resetSamplerFields();
-    void resetPromptFields();
-    void resetPerformanceFields();
-    void print_speed(std::ostream* os);
-    float average_total_speed();
-    float average_prefill_speed();
-    float average_decode_speed();
-    float getTotalPrefillTime();
-    float getTotalDecodeTime();
-    int getTotalPromptLen();
-    int getTotalDecodeLen();
-};
-
-
 class DiskEmbedding;
 
 enum TuneType {
@@ -72,30 +36,26 @@ enum TuneType {
 };
 
 class MNN_PUBLIC Llm {
-public:
-    std::shared_ptr<Sampler> mSampler;
-    std::shared_ptr<PromptLib> mPromptLib;
-    std::vector<LlmSessionInfo> mLlmSessionInfos; // Llm conversation session information. Currently, only mLlmSessionInfos[0] is allowed!
+    using PromptItem = std::pair<std::string, std::string>; // <role, content>
 public:
     Llm(std::shared_ptr<LlmConfig> config) : config_(config) {}
     virtual ~Llm();
     static Llm* createLLM(const std::string& config_path);
-    void chat(bool session_by_line = false, bool from_file = false, 
-              std::istream* is = &std::cin, std::ostream* os = &std::cout, 
-              const char* end_with = "\n", std::string exit_prompt = "/exit", std::string reset_token = "/reset");
+    void chat();
     void reset();
     void trace(bool start);
     void tuning(TuneType type, std::vector<int> candidates);
     virtual void load();
-    MNN::Express::VARP forward(const std::vector<int>& input_ids, bool is_prefill=true);
+    MNN::Express::VARP forward(const std::vector<int>& input_ids);
+    int sample(MNN::Express::VARP logits, const std::vector<int>& pre_ids);
+    std::string apply_prompt_template(const std::string& user_content) const;
+    std::string apply_chat_template(const std::vector<PromptItem>& chat_prompts) const;
     std::string response(const std::string& user_content, std::ostream* os = &std::cout, const char* end_with = nullptr);
-    std::string generate(const std::string& prompt, std::ostream* os = &std::cout, const char* end_with = "\n");
-    std::string generate(const std::vector<int>& input_ids, std::ostream* os = &std::cout, const char* end_with = "\n");
+    std::string response(const std::vector<PromptItem>& chat_prompts, std::ostream* os = &std::cout, const char* end_with = nullptr);
     void generate_init();
-    std::string generateTrace(const std::vector<int>& input_ids, std::ostream* os, const char* end_with);
+    std::string generate(const std::vector<int>& input_ids, std::ostream* os, const char* end_with);
+    std::vector<int> generate(const std::vector<int>& input_ids, int max_new_tokens = -1);
     void print_speed();
-    void print_speed(std::ostream* os);
-    std::vector<float> perplexity(std::string prompt_file, std::ostream* statsOS = nullptr);
     // config function
     std::string dump_config();
     bool set_config(const std::string& content);
@@ -110,18 +70,18 @@ public:
     virtual std::vector<int> tokenizer_encode(const std::string& query, bool use_template = true);
     friend class Pipeline;
 public:
+    // forward info
+    int prompt_len_ = 0;
+    int gen_seq_len_ = 0;
+    int all_seq_len_ = 0;
+    std::vector<int> history_ids_;
+    // time
+    int64_t vision_us_ = 0;
+    int64_t audio_us_ = 0;
+    int64_t prefill_us_ = 0;
+    int64_t decode_us_ = 0;
     bool is_single_ = true;
     bool attention_fused_ = true;
-    bool reuse_kv() const;
-public:
-    // time profile
-    float average_total_speed();
-    float average_prefill_speed();
-    float average_decode_speed();
-    float getTotalPrefillTime();
-    float getTotalDecodeTime();
-    int getTotalPromptLen();
-    int getTotalDecodeLen();
 protected:
     std::shared_ptr<LlmConfig> config_;
     std::shared_ptr<Tokenizer> tokenizer_;
@@ -130,6 +90,7 @@ protected:
     std::vector<MNN::Express::VARP> past_key_values_;
     MNN::Express::VARP inputs_embeds_, attention_mask_, position_ids_;
     std::shared_ptr<MNN::Express::Executor::RuntimeManager> runtime_manager_;
+    std::shared_ptr<MNN::Express::Executor::RuntimeManager> mllm_runtime_manager_;
     std::vector<std::shared_ptr<MNN::Express::Module>> modules_;
     std::vector<std::shared_ptr<MNN::Express::Module>> prefill_modules_, decode_modules_, current_modules_;
     const MNN::Express::Module* base_module_ = nullptr;
@@ -138,10 +99,6 @@ protected:
     virtual MNN::Express::VARP gen_attention_mask(int seq_len);
     virtual MNN::Express::VARP gen_position_ids(int seq_len);
     bool mTracing = false;
-protected:
-    bool getUserPrompt(bool from_file, std::istream* is, std::string& user_str);
-    void chat_init();
-    void chat_reset();
 };
 
 // Embedding start

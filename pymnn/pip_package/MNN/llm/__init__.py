@@ -57,7 +57,25 @@ class LLM(_F.LLM):
         '''
         return super.response(prompt, stream)
 
-def create(config_path):
+    def txt_embedding(self, prompt):
+        '''
+        get prompt's embedding
+
+        Parameters
+        ----------
+        prompt : input prompt
+
+        Returns
+        -------
+        res : embedding var
+
+        Example:
+        -------
+        >>> res = qwen.txt_embedding('Hello')
+        '''
+        return super.txt_embedding(prompt)
+
+def create(config_path, embedding_model = False):
     '''
     create LLM instance by `config.json`
 
@@ -73,4 +91,4 @@ def create(config_path):
     -------
     >>> qwen = llm.create('./qwen-1.8b-int4/config.json')
     '''
-    return _F.create(config_path)
+    return _F.create(config_path, embedding_model)

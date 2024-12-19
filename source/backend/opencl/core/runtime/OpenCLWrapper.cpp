@@ -121,11 +121,23 @@ bool OpenCLSymbols::isPropError() {
 bool OpenCLSymbols::isQcomError() {
     return mQcomError;
 }
-
-bool OpenCLSymbols::isGlError() {
-    return mGlError;
+    
+bool OpenCLSymbols::getFuncAddress(cl_platform_id platform, const char *func_name){
+    if(clGetExtensionFunctionAddressForPlatform != nullptr){
+        clImportMemoryARM = reinterpret_cast<clImportMemoryARMFunc>(clGetExtensionFunctionAddressForPlatform(platform, "clImportMemoryARM"));
+        if(clImportMemoryARM == nullptr){
+            return false;
+        }
+    }else if(clGetExtensionFunctionAddress != nullptr){
+        clImportMemoryARM = reinterpret_cast<clImportMemoryARMFunc>(clGetExtensionFunctionAddress("clImportMemoryARM"));
+        if(clImportMemoryARM == nullptr){
+            return false;
+        }
+    } else{
+        return false;
+    }
+    return true;
 }
-
 
 bool OpenCLSymbols::LoadLibraryFromPath(const std::string &library_path) {
 #if defined(_WIN32)
@@ -203,15 +215,7 @@ bool OpenCLSymbols::LoadLibraryFromPath(const std::string &library_path) {
     if(func_name == nullptr){ \
         mQcomError = true; \
     }
-
-#define MNN_LOAD_GL_PTR(func_name) func_name = reinterpret_cast<func_name##Func>(dlsym(handle_, #func_name)); \
-    if(func_name == nullptr && loadOpenCLPointer != nullptr){ \
-        func_name = reinterpret_cast<func_name##Func>(loadOpenCLPointer(#func_name)); \
-    } \
-    if(func_name == nullptr){ \
-        mGlError = true; \
-    }
-
+    
 #endif
 
     MNN_LOAD_FUNCTION_PTR(clGetPlatformIDs);
@@ -261,10 +265,8 @@ bool OpenCLSymbols::LoadLibraryFromPath(const std::string &library_path) {
     MNN_LOAD_FUNCTION_PTR(clEnqueueCopyImage);
     MNN_LOAD_FUNCTION_PTR(clEnqueueReadImage);
     MNN_LOAD_FUNCTION_PTR(clEnqueueWriteImage);
-    MNN_LOAD_GL_PTR(clCreateFromGLBuffer);
-    MNN_LOAD_GL_PTR(clCreateFromGLTexture);
-    MNN_LOAD_GL_PTR(clEnqueueAcquireGLObjects);
-    MNN_LOAD_GL_PTR(clEnqueueReleaseGLObjects);
+    MNN_LOAD_FUNCTION_PTR(clGetExtensionFunctionAddress);
+    MNN_LOAD_FUNCTION_PTR(clGetExtensionFunctionAddressForPlatform);
 
     MNN_LOAD_PROP_PTR(clCreateCommandQueueWithProperties);
     MNN_LOAD_SVM_PTR(clSVMAlloc);
@@ -671,49 +673,6 @@ cl_int CL_API_CALL clEnqueueCopyImage(cl_command_queue queue,
     return func(queue, src_image, dst_image, src_origin, dst_origin, region, num_events_in_wait_list, event_wait_list, event);
 }
 
-cl_mem CL_API_CALL clCreateFromGLBuffer(cl_context context,
-                                        cl_mem_flags flags,
-                                        cl_GLuint bufobj,
-                                        int *errcode_ret){
-    auto func = MNN::OpenCLSymbolsOperator::getOpenclSymbolsPtr()->clCreateFromGLBuffer;
-    MNN_CHECK_NOTNULL(func);
-    return func(context, flags, bufobj, errcode_ret);
-}
-
-cl_mem CL_API_CALL clCreateFromGLTexture(cl_context context,
-                                         cl_mem_flags flags,
-                                         cl_GLenum target,
-                                         cl_GLint miplevel,
-                                         cl_GLuint texture,
-                                         cl_int *errcode_ret){
-    auto func = MNN::OpenCLSymbolsOperator::getOpenclSymbolsPtr()->clCreateFromGLTexture;
-    MNN_CHECK_NOTNULL(func);
-    return func(context, flags, target, miplevel, texture, errcode_ret);
-
-}
-
-cl_int CL_API_CALL clEnqueueAcquireGLObjects(cl_command_queue command_queue,
-                                             cl_uint num_objects,
-                                             const cl_mem *mem_objects,
-                                             cl_uint num_events_in_wait_list,
-                                             const cl_event *event_wait_list,
-                                             cl_event *event){
-    auto func = MNN::OpenCLSymbolsOperator::getOpenclSymbolsPtr()->clEnqueueAcquireGLObjects;
-    MNN_CHECK_NOTNULL(func);
-    return func(command_queue, num_objects, mem_objects, num_events_in_wait_list, event_wait_list, event);
-}
-
-cl_int CL_API_CALL clEnqueueReleaseGLObjects(cl_command_queue command_queue,
-                                             cl_uint num_objects,
-                                             const cl_mem *mem_objects,
-                                             cl_uint num_events_in_wait_list,
-                                             const cl_event *event_wait_list,
-                                             cl_event *event){
-    auto func = MNN::OpenCLSymbolsOperator::getOpenclSymbolsPtr()->clEnqueueReleaseGLObjects;
-    MNN_CHECK_NOTNULL(func);
-    return func(command_queue, num_objects, mem_objects, num_events_in_wait_list, event_wait_list, event);
-}
-
 // clCreateCommandQueueWithProperties wrapper
 cl_command_queue CL_API_CALL clCreateCommandQueueWithProperties(cl_context context, cl_device_id device, const cl_queue_properties *properties, cl_int *errcode_ret) {
     auto func = MNN::OpenCLSymbolsOperator::getOpenclSymbolsPtr()->clCreateCommandQueueWithProperties;
@@ -799,5 +758,22 @@ clEnqueueRecordingSVMQCOM(cl_command_queue command_queue, cl_recording_qcom reco
     return func(command_queue, recording, num_args, arg_array, num_svm_args, arg_svm_array, num_global_offsets, global_offset_array, num_global_workgroups, global_workgroup_array, num_local_workgroups, local_workgroups_array, num_non_arg_objs, non_arg_obj_array, num_events_in_wait_list, event_wait_list, event);
 }
 
+void * CL_API_CALL clGetExtensionFunctionAddress(const char *func_name){
+    auto func = MNN::OpenCLSymbolsOperator::getOpenclSymbolsPtr()->clGetExtensionFunctionAddress;
+    MNN_CHECK_NOTNULL(func);
+    return func(func_name);
+}
+
+void * CL_API_CALL clGetExtensionFunctionAddressForPlatform(cl_platform_id platform, const char *func_name){
+    auto func = MNN::OpenCLSymbolsOperator::getOpenclSymbolsPtr()->clGetExtensionFunctionAddressForPlatform;
+    MNN_CHECK_NOTNULL(func);
+    return func(platform, func_name);
+}
+
+cl_mem CL_API_CALL clImportMemoryARM(cl_context context, cl_mem_flags flags, const cl_import_properties_arm *properties, void *memory, size_t size, cl_int *errcode_ret){
+    auto func = MNN::OpenCLSymbolsOperator::getOpenclSymbolsPtr()->clImportMemoryARM;
+    MNN_CHECK_NOTNULL(func);
+    return func(context, flags, properties, memory, size, errcode_ret);
+}
 
 #endif //MNN_USE_LIB_WRAPPER

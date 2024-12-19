@@ -25,12 +25,12 @@ ConvCommonExecution::ConvCommonExecution(const Convolution2D *conv2dParams, Back
     int biasSize             = conv2dParams->bias()->size();
     const float *biasDataPtr = conv2dParams->bias()->data();
     
-    int buffer_size = ALIGN_UP4(biasSize) * sizeof(float);
+    int buffer_size = ALIGN_UP8(biasSize) * sizeof(float);
     cl::Buffer biasBuffer(runtime->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, buffer_size);
     cl_int error;
     auto biasPtrCL = runtime->commandQueue().enqueueMapBuffer(biasBuffer, true, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &error);
     if(biasPtrCL != nullptr && error == CL_SUCCESS){
-        ::memset(biasPtrCL, 0, ALIGN_UP4(biasSize) * sizeof(float));
+        ::memset(biasPtrCL, 0, ALIGN_UP8(biasSize) * sizeof(float));
         ::memcpy(biasPtrCL, biasDataPtr, biasSize * sizeof(float));
     }else{
         MNN_ERROR("Map error biasPtrCL == nullptr \n");
@@ -328,7 +328,11 @@ ErrorCode ConvExecution::onEncode(const std::vector<Tensor *> &inputs, const std
             std::pair<int, int> min_cost(INT_MAX, 0);//(min_time, min_index)
             
             for(int knl_idx = 0; knl_idx < 1; knl_idx++) {
-                kernel[knl_idx]        = mOpenCLBackend->getOpenCLRuntime()->buildKernel("conv_2d", kernelName[knl_idx], mResource->mBuildOptions);
+                std::set<std::string> buildOption = mResource->mBuildOptions;
+                if(itemC[knl_idx] == 8 && outputShape.at(3) % itemC[knl_idx] > 0 && outputShape.at(3) % itemC[knl_idx] <= 4){
+                    buildOption.emplace("-DCHANNEL_BOUNDARY_PROTECT");
+                }
+                kernel[knl_idx]        = mOpenCLBackend->getOpenCLRuntime()->buildKernel("conv_2d", kernelName[knl_idx], buildOption);
                 uint32_t maxWorkGroupSize = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(kernel[knl_idx]));
                 
                 globalWorkSize[knl_idx] = {static_cast<uint32_t>(UP_DIV(outputShape.at(3), itemC[knl_idx]) * UP_DIV(outputShape.at(2), itemW[knl_idx])), static_cast<uint32_t>(outputShape.at(0) * UP_DIV(outputShape.at(1), itemH[knl_idx]))};
@@ -363,7 +367,11 @@ ErrorCode ConvExecution::onEncode(const std::vector<Tensor *> &inputs, const std
             int min_index  = min_cost.second;
             //printf("min_index = %d  %d\n", min_index, min_cost.first);
             mGlobalWorkSize = {globalWorkSize[min_index][0], globalWorkSize[min_index][1]};
-            unit.kernel        = mOpenCLBackend->getOpenCLRuntime()->buildKernel("conv_2d", kernelName[min_index], mResource->mBuildOptions);
+            std::set<std::string> buildOption = mResource->mBuildOptions;
+            if(itemC[min_index] == 8 && outputShape.at(3) % itemC[min_index] > 0 && outputShape.at(3) % itemC[min_index] <= 4){
+                buildOption.emplace("-DCHANNEL_BOUNDARY_PROTECT");
+            }
+            unit.kernel        = mOpenCLBackend->getOpenCLRuntime()->buildKernel("conv_2d", kernelName[min_index], buildOption);
             
             uint32_t idx = 0;
             unit.kernel->get().setArg(idx++, mGlobalWorkSize[0]);
@@ -407,7 +415,11 @@ ErrorCode ConvExecution::onEncode(const std::vector<Tensor *> &inputs, const std
         std::pair<int, int> min_cost(INT_MAX, 0);//(min_time, min_index)
         
         for(int knl_idx = 0; knl_idx < total_kernel; knl_idx++) {
-            kernel[knl_idx]        = mOpenCLBackend->getOpenCLRuntime()->buildKernel("conv_2d", kernelName[knl_idx], mResource->mBuildOptions);
+            std::set<std::string> buildOption = mResource->mBuildOptions;
+            if(itemC[knl_idx] == 8 && outputShape.at(3) % itemC[knl_idx] > 0 && outputShape.at(3) % itemC[knl_idx] <= 4){
+                buildOption.emplace("-DCHANNEL_BOUNDARY_PROTECT");
+            }
+            kernel[knl_idx]        = mOpenCLBackend->getOpenCLRuntime()->buildKernel("conv_2d", kernelName[knl_idx], buildOption);
             uint32_t maxWorkGroupSize = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(kernel[knl_idx]));
             
             globalWorkSize[knl_idx] = {static_cast<uint32_t>(UP_DIV(outputShape.at(3), itemC[knl_idx]) * UP_DIV(outputShape.at(2), itemW[knl_idx])), static_cast<uint32_t>(outputShape.at(0) * UP_DIV(outputShape.at(1), itemH[knl_idx]))};
@@ -446,7 +458,11 @@ ErrorCode ConvExecution::onEncode(const std::vector<Tensor *> &inputs, const std
         }
         int min_index  = min_cost.second;
         mGlobalWorkSize = {globalWorkSize[min_index][0], globalWorkSize[min_index][1]};
-        unit.kernel        = mOpenCLBackend->getOpenCLRuntime()->buildKernel("conv_2d", kernelName[min_index], mResource->mBuildOptions);
+        std::set<std::string> buildOption = mResource->mBuildOptions;
+        if(itemC[min_index] == 8 && outputShape.at(3) % itemC[min_index] > 0 && outputShape.at(3) % itemC[min_index] <= 4){
+            buildOption.emplace("-DCHANNEL_BOUNDARY_PROTECT");
+        }
+        unit.kernel        = mOpenCLBackend->getOpenCLRuntime()->buildKernel("conv_2d", kernelName[min_index], buildOption);
         
         uint32_t idx            = 0;
         cl_int ret = CL_SUCCESS;

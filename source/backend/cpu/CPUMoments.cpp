@@ -6,9 +6,10 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#include "backend/cpu/CPUBackend.hpp"
+#ifdef MNN_SUPPORT_DEPRECATED_OP
 #include "backend/cpu/CPUMoments.hpp"
 #include <math.h>
-#include "backend/cpu/CPUBackend.hpp"
 #include "core/Concurrency.h"
 #include <MNN/MNNDefine.h>
 #include "core/Macro.h"
@@ -129,7 +130,9 @@ public:
         return new CPUMoments(backend, op);
     }
 };
-
-REGISTER_CPU_OP_CREATOR(CPUMomentsCreator, OpType_Moments);
-
 } // namespace MNN
+#endif
+namespace MNN {
+REGISTER_CPU_OP_CREATOR_OLD(CPUMomentsCreator, OpType_Moments);
+};
+

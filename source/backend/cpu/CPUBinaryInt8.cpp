@@ -80,16 +80,16 @@ ErrorCode CPUBinaryInt8::onExecute(const std::vector<Tensor*>& inputs, const std
 
     int inpBytes = 1;
     int outBytes = 1;
+    QuanPrePostParameters params;
+    
+    params.inputScale = mInputScales.data();
+    params.outputScale = mOutputScales.data();
+    params.outputZeroPoint = mOutputZeros.data();
+    params.inputZeroPoint = mInputZeros.data();
+    params.minValue = (ssize_t)mMinValue;
+    params.maxValue = (ssize_t)TensorUtils::getDescribe(outputs[0])->quantAttr->max;
 
     MNN_CONCURRENCY_BEGIN(tId, schedule.second) {
-        QuanPrePostParameters params;
-        
-        params.inputScale = mInputScales.data();
-        params.outputScale = mOutputScales.data();
-        params.outputZeroPoint = mOutputZeros.data();
-        params.inputZeroPoint = mInputZeros.data();
-        params.minValue = (ssize_t)mMinValue;
-        params.maxValue = (ssize_t)TensorUtils::getDescribe(outputs[0])->quantAttr->max;
 
         int start = schedule.first * (int)tId;
         int realSize = schedule.first;

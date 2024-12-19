@@ -22,6 +22,9 @@ using namespace MNN::Express;
 #ifdef PYMNN_OPENCV_API
 #include "cv/cv.hpp"
 #endif
+#ifdef PYMNN_AUDIO_API
+#include "audio/audio.hpp"
+#endif
 #endif // PYMNN_EXPR_API
 
 #ifdef BUILD_OPTYPE
@@ -63,6 +66,9 @@ using RegularizationMethod = ParameterOptimizer::RegularizationMethod;
 #endif
 #ifdef PYMNN_OPENCV_API
 #include "cv.h"
+#endif
+#ifdef PYMNN_AUDIO_API
+#include "audio.h"
 #endif
 #endif
 
@@ -1587,7 +1593,8 @@ static PyObject* PyMNNTensor_repr(PyObject *self) {
 #ifdef PYMNN_NUMPY_USABLE
     auto content = PyMNNTensor_getNumpyData(((PyMNNTensor*)self), NULL);
 #else
-    auto content = PyMNNVar_read_as_tuple((PyMNNVar*)self, NULL);
+    // print shape of tensor
+    auto content = PyMNNTensor_getShape((PyMNNTensor*)self, NULL);
 #endif
     auto reprfunc = PyObject_GetAttrString(content, "__repr__");
     auto str = PyEval_CallObject(reprfunc, NULL);
@@ -2711,6 +2718,15 @@ PyMODINIT_FUNC MOD_INIT_FUNC(void) {
     constexpr int cv_method_num = sizeof(PyMNNCV_methods) / sizeof(PyMethodDef);
     for (int i = 0; i < cv_method_num; i++) {
         def_method(cv_module, &PyMNNCV_methods[i]);
+    }
+#endif
+#ifdef PYMNN_AUDIO_API
+    // audio submodule
+    auto audio_module = def_submodule(m, "audio");
+    // add methods of audio
+    constexpr int audio_method_num = sizeof(PyMNNAUDIO_methods) / sizeof(PyMethodDef);
+    for (int i = 0; i < audio_method_num; i++) {
+        def_method(audio_module, &PyMNNAUDIO_methods[i]);
     }
 #endif
 #endif

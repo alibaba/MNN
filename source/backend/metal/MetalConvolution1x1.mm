@@ -31,11 +31,12 @@ MetalConvolution1x1::MetalConvolution1x1(Backend *backend, const MNN::Op *op) : 
     loadWeight(op, ldInt8Weight);
 }
 
-MetalConvolution1x1::MetalConvolution1x1(Backend *backend, const MNN::Op *op, std::shared_ptr<MNN::Tensor> weight, std::shared_ptr<MNN::Tensor> bias, std::shared_ptr<MNN::Tensor> dequantScale, int dequantBits) : MetalConvolutionCommon(backend, op, bias) {
+MetalConvolution1x1::MetalConvolution1x1(Backend *backend, const MNN::Op *op, std::shared_ptr<MNN::Tensor> weight, std::shared_ptr<MNN::Tensor> bias, std::shared_ptr<MNN::Tensor> dequantScale, int dequantBits, float scaleCoef) : MetalConvolutionCommon(backend, op, bias) {
     mWeight = weight;
     mBias = bias;
     mDequantScaleBias = dequantScale;
     mDequantBits = dequantBits;
+    mScaleCoef = scaleCoef;
 }
 
 
@@ -46,7 +47,7 @@ bool MetalConvolution1x1::onClone(Backend* bn, const Op* op, Execution** dst) {
     if (nullptr == dst) {
         return true;
     }
-    *dst = new MetalConvolution1x1(bn, op, mWeight, mBias, mDequantScaleBias, mDequantBits);
+    *dst = new MetalConvolution1x1(bn, op, mWeight, mBias, mDequantScaleBias, mDequantBits, mScaleCoef);
     return true;
 }
 
@@ -72,12 +73,26 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
     auto context = (__bridge MNNMetalContext *)backend->context();
     int blockSize = 1;
     if (mDequantScaleBias.get()) {
-        blockSize = (int)(mDequantScaleBias->usize() /sizeof(float) / oc_4 / 2 / 4);
+        int bytes = sizeof(float);
+        if(backend->useFp16InsteadFp32()) {
+            bytes = sizeof(__fp16);
+        }
+        blockSize = (int)(mDequantScaleBias->usize() / bytes / oc_4 / 2 / 4);
     }
     // create const buffer
-    int constants[] = {is, ic_4, ow, oh, os, oc_4, oc, ob, blockSize, mActivationType};
-    mConstBuffer = backend->getConstBuffer(sizeof(constants));
-    ::memcpy(mConstBuffer.contents, constants, sizeof(constants));
+    mConstBuffer = backend->getConstBuffer(sizeof(Param));
+    auto param = (Param *)mConstBuffer.contents;
+    param->input_size = is;
+    param->input_slice = ic_4;
+    param->output_width = ow;
+    param->output_height = oh;
+    param->output_size = os;
+    param->output_slice = oc_4;
+    param->output_channel = oc;
+    param->batch = ob;
+    param->block_size = blockSize;
+    param->activation = mActivationType;
+    param->scale_coef = mScaleCoef;
 
     MetalRuntime* rt = (MetalRuntime *)backend->runtime();
     if (mDequantScaleBias.get()) {

@@ -459,6 +459,7 @@ void conv_2d_1x1_c8h1w4(GLOBAL_SIZE_2_DIMS __read_only image2d_t input,
     for (int in_channel_block_idx = 0; in_channel_block_idx < in_channel_block; ++in_channel_block_idx) {
 #if (defined USE_LOW_BIT_WEIGHT_INT8) || (defined USE_LOW_BIT_WEIGHT_INT4)
         int kindex = (in_channel_block_idx * 4) / blockDim * out_channel_blocks * 8;
+        // already pack to 16, no need boundry protect
         COMPUTE_FLOAT8 ScaleOffset0 = CONVERT_COMPUTE_FLOAT8(vload8(output_channel_idx, dequantScaleOffset + kindex));
         COMPUTE_FLOAT4 scale0 = (COMPUTE_FLOAT4)(ScaleOffset0.s0, ScaleOffset0.s2, ScaleOffset0.s4, ScaleOffset0.s6);
         COMPUTE_FLOAT4 offset0 = (COMPUTE_FLOAT4)(ScaleOffset0.s1, ScaleOffset0.s3, ScaleOffset0.s5, ScaleOffset0.s7);
@@ -476,7 +477,11 @@ void conv_2d_1x1_c8h1w4(GLOBAL_SIZE_2_DIMS __read_only image2d_t input,
 
 #if (defined USE_LOW_BIT_WEIGHT_INT8)
         FLOAT16 weightsInt80 = CONVERT_FLOAT16(vload16(0, kernel_ptr + weight_ic_offset + in_channel_block_idx * weight_oc_offset));
+        #ifdef CHANNEL_BOUNDARY_PROTECT
+        FLOAT16 weightsInt81 = output_channel_idx + 1 >= out_channel_blocks ? (FLOAT16)0 : CONVERT_FLOAT16(vload16(0, kernel_ptr + 16 + weight_ic_offset + in_channel_block_idx * weight_oc_offset));
+        #else
         FLOAT16 weightsInt81 = CONVERT_FLOAT16(vload16(0, kernel_ptr + 16 + weight_ic_offset + in_channel_block_idx * weight_oc_offset));
+        #endif
         FLOAT4 weights0 = CONVERT_FLOAT4(weightsInt80.s0123) * scale0 + offset0;
         FLOAT4 weights1 = CONVERT_FLOAT4(weightsInt80.s4567) * scale0 + offset0;
         FLOAT4 weights2 = CONVERT_FLOAT4(weightsInt80.s89ab) * scale0 + offset0;
@@ -541,10 +546,17 @@ void conv_2d_1x1_c8h1w4(GLOBAL_SIZE_2_DIMS __read_only image2d_t input,
         weights2 = vload4(weights_width_base + 2, weights + weight_offset);
         weights3 = vload4(weights_width_base + 3, weights + weight_offset);
 
+        #ifdef CHANNEL_BOUNDARY_PROTECT
+        weights4 = output_channel_idx + 1 >= out_channel_blocks ? (FLOAT4)0 : vload4(weights_width_base, weights + weight_offset1);
+        weights5 = output_channel_idx + 1 >= out_channel_blocks ? (FLOAT4)0 : vload4(weights_width_base + 1, weights + weight_offset1);
+        weights6 = output_channel_idx + 1 >= out_channel_blocks ? (FLOAT4)0 : vload4(weights_width_base + 2, weights + weight_offset1);
+        weights7 = output_channel_idx + 1 >= out_channel_blocks ? (FLOAT4)0 : vload4(weights_width_base + 3, weights + weight_offset1);
+        #else
         weights4 = vload4(weights_width_base, weights + weight_offset1);
         weights5 = vload4(weights_width_base + 1, weights + weight_offset1);
         weights6 = vload4(weights_width_base + 2, weights + weight_offset1);
         weights7 = vload4(weights_width_base + 3, weights + weight_offset1);
+        #endif
 #else
         weights0 = RI_F(weights, SAMPLER, (int2)(weights_width_base + 0, output_channel_idx));
         weights1 = RI_F(weights, SAMPLER, (int2)(weights_width_base + 1, output_channel_idx));
@@ -1081,10 +1093,18 @@ void conv_2d_c8h4w1(GLOBAL_SIZE_2_DIMS __read_only image2d_t input,
                 weights1 = mad(CONVERT_FLOAT4(charWeight1), scale0, offset0);
                 weights2 = mad(CONVERT_FLOAT4(charWeight2), scale0, offset0);
                 weights3 = mad(CONVERT_FLOAT4(charWeight3), scale0, offset0);
+                #ifdef CHANNEL_BOUNDARY_PROTECT
+                charWeight0 = out_channel_block_idx + 1 >= out_channel_blocks ? (char4)0 : vload4(0, kernel_ptr+weight_offset+weight_oc_offset);
+                charWeight1 = out_channel_block_idx + 1 >= out_channel_blocks ? (char4)0 : vload4(0, kernel_ptr+weight_offset+weight_oc_offset+weight_ic_offset);
+                charWeight2 = out_channel_block_idx + 1 >= out_channel_blocks ? (char4)0 : vload4(0, kernel_ptr+weight_offset+weight_oc_offset+weight_ic_offset*2);
+                charWeight3 = out_channel_block_idx + 1 >= out_channel_blocks ? (char4)0 : vload4(0, kernel_ptr+weight_offset+weight_oc_offset+weight_ic_offset*3);
+                
+                #else
                 charWeight0 = vload4(0, kernel_ptr+weight_offset+weight_oc_offset);
                 charWeight1 = vload4(0, kernel_ptr+weight_offset+weight_oc_offset+weight_ic_offset);
                 charWeight2 = vload4(0, kernel_ptr+weight_offset+weight_oc_offset+weight_ic_offset*2);
                 charWeight3 = vload4(0, kernel_ptr+weight_offset+weight_oc_offset+weight_ic_offset*3);
+                #endif
                 weights4 = mad(CONVERT_FLOAT4(charWeight0), scale1, offset1);
                 weights5 = mad(CONVERT_FLOAT4(charWeight1), scale1, offset1);
                 weights6 = mad(CONVERT_FLOAT4(charWeight2), scale1, offset1);
@@ -1153,10 +1173,18 @@ void conv_2d_c8h4w1(GLOBAL_SIZE_2_DIMS __read_only image2d_t input,
                 weights1 = vload4(0, weights+weight_offset+weight_ic_offset);
                 weights2 = vload4(0, weights+weight_offset+weight_ic_offset*2);
                 weights3 = vload4(0, weights+weight_offset+weight_ic_offset*3);
+                #ifdef CHANNEL_BOUNDARY_PROTECT
+                charWeight0 =
+                weights4 = out_channel_block_idx + 1 >= out_channel_blocks ? (FLOAT4)0 : vload4(0, weights+weight_offset + weight_oc_offset);
+                weights5 = out_channel_block_idx + 1 >= out_channel_blocks ? (FLOAT4)0 : vload4(0, weights+weight_offset+weight_ic_offset + weight_oc_offset);
+                weights6 = out_channel_block_idx + 1 >= out_channel_blocks ? (FLOAT4)0 : vload4(0, weights+weight_offset+weight_ic_offset*2 + weight_oc_offset);
+                weights7 = out_channel_block_idx + 1 >= out_channel_blocks ? (FLOAT4)0 : vload4(0, weights+weight_offset+weight_ic_offset*3 + weight_oc_offset);
+                #else
                 weights4 = vload4(0, weights+weight_offset + weight_oc_offset);
                 weights5 = vload4(0, weights+weight_offset+weight_ic_offset + weight_oc_offset);
                 weights6 = vload4(0, weights+weight_offset+weight_ic_offset*2 + weight_oc_offset);
                 weights7 = vload4(0, weights+weight_offset+weight_ic_offset*3 + weight_oc_offset);
+                #endif
                 weight_offset += 4;
 #else
                 weights0 = RI_F(weights, SAMPLER, (int2)(weights_x_idx + 0, weights_y_idx));

@@ -6,9 +6,10 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#include "backend/cpu/CPUBackend.hpp"
+#ifdef MNN_SUPPORT_DEPRECATED_OP
 #include "backend/cpu/CPUInstanceNorm.hpp"
 #include <math.h>
-#include "backend/cpu/CPUBackend.hpp"
 #include "core/Concurrency.h"
 #include <MNN/MNNDefine.h>
 #include "core/Macro.h"
@@ -106,7 +107,9 @@ public:
         return new CPUInstanceNorm(backend, op);
     }
 };
-
-REGISTER_CPU_OP_CREATOR(CPUInstanceNormCreator, OpType_InstanceNorm);
-
 } // namespace MNN
+#endif
+namespace MNN {
+REGISTER_CPU_OP_CREATOR_OLD(CPUInstanceNormCreator, OpType_InstanceNorm);
+};
+

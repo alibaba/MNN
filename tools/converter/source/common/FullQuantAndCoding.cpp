@@ -114,7 +114,6 @@ void FullQuantAndCoding(std::unique_ptr<MNN::NetT>& netT, std::unique_ptr<MNN::O
     auto quanWeight = _Cast<int8_t>(quanWeightClamp);
     auto convScale  = _Reshape(_Reciprocal(outputScaleVar), {-1, 1, 1, 1}) * weightScale * inputScaleVar;
 
-    std::vector<float> quantWeightFloat;
     std::vector<int8_t> quantWeights;
     std::vector<float> biasData;
     std::vector<float> scale;
@@ -122,10 +121,8 @@ void FullQuantAndCoding(std::unique_ptr<MNN::NetT>& netT, std::unique_ptr<MNN::O
     {
         auto info = quanWeight->getInfo();
         quantWeights.resize(info->size);
-        quantWeightFloat.resize(info->size);
         auto ptr = quanWeight->readMap<int8_t>();
-        for (int i = 0; i < quantWeightFloat.size(); i++) {
-            quantWeightFloat[i] = ptr[i];
+        for (int i = 0; i < quantWeights.size(); i++) {
             quantWeights[i] = ptr[i];
         }
     }
@@ -144,7 +141,7 @@ void FullQuantAndCoding(std::unique_ptr<MNN::NetT>& netT, std::unique_ptr<MNN::O
 
     bool asymmetricQuantFlag = false;
     std::vector<float> fakeScales(kernelNum, 1.0f);
-    convParams->quanParameter = IDSTEncoder::encode(quantWeightFloat.data(), fakeScales, kernelSize, kernelNum, asymmetricQuantFlag, quantWeights.data(), wClampMin);
+    convParams->quanParameter = IDSTEncoder::encode(nullptr, fakeScales, kernelSize, kernelNum, asymmetricQuantFlag, quantWeights.data(), wClampMin);
     convParams->weight.clear();
     convParams->quanParameter->alpha = std::move(scale);
     convParams->quanParameter->scaleIn = inputParams.scales(0);

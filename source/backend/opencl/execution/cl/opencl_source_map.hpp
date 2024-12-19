@@ -71,6 +71,7 @@ extern const char* unary_buf;
 #ifndef MNN_OPENCL_BUFFER_CLOSED
 extern const char* depthwise_conv2d_buf;
 #endif
+extern const char* glmem_convert;
 #ifndef MNN_OPENCL_BUFFER_CLOSED
 extern const char* winogradTransform_buf;
 #endif
@@ -242,6 +243,7 @@ const std::map<std::string, const char*> OpenCLProgramMap =
 #ifndef MNN_OPENCL_BUFFER_CLOSED
   { "depthwise_conv2d_buf", depthwise_conv2d_buf },
 #endif
+  { "glmem_convert", glmem_convert },
 #ifndef MNN_OPENCL_BUFFER_CLOSED
   { "winogradTransform_buf", winogradTransform_buf },
 #endif

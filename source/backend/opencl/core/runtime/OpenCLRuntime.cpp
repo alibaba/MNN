@@ -159,62 +159,43 @@ OpenCLRuntime::OpenCLRuntime(const BackendConfig::PrecisionMode precision, const
             }
             const std::string extensions = platforms[0].getInfo<CL_PLATFORM_EXTENSIONS>();
             bool isPriorityHint = (extensions.find("cl_khr_priority_hints") != std::string::npos);
-
+            std::vector<cl_context_properties> context_properties;
+            if(mGpuType == ADRENO && !isPriorityHint){
+                context_properties.push_back(CL_CONTEXT_PERF_HINT_QCOM);
+                context_properties.push_back(CL_PERF_HINT_HIGH_QCOM);
+                context_properties.push_back(CL_CONTEXT_PRIORITY_HINT_QCOM);
+                context_properties.push_back(CL_PRIORITY_HINT_LOW_QCOM);
+                mIsDeviceSupportedLowPower = true;
+            }
+            #ifdef ARM_OPENCL_PRINTF_DEBUG
+            context_properties.push_back(CL_PRINTF_CALLBACK_ARM);
+            context_properties.push_back((cl_context_properties)callback);
+            context_properties.push_back(CL_PRINTF_BUFFERSIZE_ARM);
+            context_properties.push_back(0x1000);
+            #endif
+            std::string deviceextensions = mFirstGPUDevicePtr.get()->getInfo<CL_DEVICE_EXTENSIONS>();
+#ifdef MNN_USE_LIB_WRAPPER
+            mIsSupportAHD = (getDeviceSupportsExtension(*(mFirstGPUDevicePtr.get()), "cl_arm_import_memory_android_hardware_buffer")
+                 && mGpuType == MALI && OpenCLSymbolsOperator::getOpenclSymbolsPtr()->getFuncAddress(platforms[platformId](), "clImportMemoryARM"))
+                 || (mGpuType == ADRENO && getDeviceSupportsExtension(*(mFirstGPUDevicePtr.get()), "cl_qcom_android_ahardwarebuffer_host_ptr"));
+#endif
             if(nullptr != contextPtr){
-                if(nullptr != glShared && getDeviceSupportsExtension(*(mFirstGPUDevicePtr.get()), "cl_khr_gl_sharing")){
-                    std::vector<cl_context_properties> context_properties;
-                    context_properties.reserve(7);
-                    context_properties.push_back(CL_GL_CONTEXT_KHR);
-                    context_properties.push_back((cl_context_properties)contextPtr);
-                    context_properties.push_back(CL_EGL_DISPLAY_KHR);
-                    context_properties.push_back((cl_context_properties)glShared);
-                    context_properties.push_back(CL_CONTEXT_PLATFORM);
-                    context_properties.push_back((cl_context_properties)platforms[platformId]());
-                    context_properties.push_back(0);
-                    mContext = std::shared_ptr<cl::Context>(new cl::Context(std::vector<cl::Device>({*mFirstGPUDevicePtr}), context_properties.data(), nullptr, nullptr, &res));
-                }
-                else{
-                    mContext = std::shared_ptr<cl::Context>((cl::Context*)contextPtr, [](void* ptr) {
-                        // Do nothing
-                    });
-                }
+                mContext = std::shared_ptr<cl::Context>((cl::Context*)contextPtr, [](void* ptr) {
+                    // Do nothing
+                });
             }else{
-                if(mGpuType == ADRENO && !isPriorityHint){
-                    std::vector<cl_context_properties> context_properties;
-                    context_properties.reserve(5);
-                    context_properties.push_back(CL_CONTEXT_PERF_HINT_QCOM);
-                    context_properties.push_back(CL_PERF_HINT_HIGH_QCOM);
-                    context_properties.push_back(CL_CONTEXT_PRIORITY_HINT_QCOM);
-                    context_properties.push_back(CL_PRIORITY_HINT_LOW_QCOM);
-                    context_properties.push_back(0);
-                    mContext = std::shared_ptr<cl::Context>(new cl::Context(std::vector<cl::Device>({*mFirstGPUDevicePtr}), context_properties.data(), nullptr, nullptr, &res));
-                    mIsDeviceSupportedLowPower = true;
-                }else{
-                    #ifdef ARM_OPENCL_PRINTF_DEBUG
-                    cl_context_properties context_properties[] =
-                    {
-                        CL_CONTEXT_PLATFORM, (cl_context_properties)platforms[platformId](),
-                        CL_PRINTF_CALLBACK_ARM, (cl_context_properties)callback,
-                        CL_PRINTF_BUFFERSIZE_ARM, 0x1000,
-                        0
-                    };
-                    mContext = std::shared_ptr<cl::Context>(new cl::Context(std::vector<cl::Device>({*mFirstGPUDevicePtr}), context_properties, nullptr, nullptr, &res));
-                    #else
-                    mContext = std::shared_ptr<cl::Context>(new cl::Context(std::vector<cl::Device>({*mFirstGPUDevicePtr}), nullptr, nullptr, nullptr, &res));
-                    #endif
-                }
-                
-                MNN_CHECK_CL_SUCCESS(res, "context");
-                if (res != CL_SUCCESS) {
-                    mIsCreateError = true;
-                    return;
-                }
+                context_properties.push_back(0);
+                mContext = std::shared_ptr<cl::Context>(new cl::Context(std::vector<cl::Device>({*mFirstGPUDevicePtr}), context_properties.data(), nullptr, nullptr, &res));
+            }
+            MNN_CHECK_CL_SUCCESS(res, "context");
+            if (res != CL_SUCCESS) {
+                mIsCreateError = true;
+                return;
             }
             
             mIsDeviceSupportedLowPower = (mIsDeviceSupportedLowPower || isPriorityHint);
             
             #ifdef MNN_USE_LIB_WRAPPER
-            mIsSupportGL = !OpenCLSymbolsOperator::getOpenclSymbolsPtr()->isGlError();
             if(isPriorityHint)
             {
                 if(true == OpenCLSymbolsOperator::getOpenclSymbolsPtr()->isPropError())
@@ -646,7 +627,7 @@ std::shared_ptr<KernelWrap> OpenCLRuntime::buildKernelWithCache(const std::strin
                 buildOptionsStr += " -DCONVERT_OUTPUT16=convert_int16";
                 buildOptionsStr += " -DWI_DATA=write_imagei";
             } else {
-                MNN_PRINT("opencl input datatype not support, bit:%d\n", output->getType().bits);
+                MNN_PRINT("opencl output datatype not support, bit:%d\n", output->getType().bits);
                 MNN_ASSERT(false);
             }
         } else if(output->getType().code == halide_type_uint){
@@ -668,7 +649,7 @@ std::shared_ptr<KernelWrap> OpenCLRuntime::buildKernelWithCache(const std::strin
                 buildOptionsStr += " -DCONVERT_OUTPUT16=convert_uint16";
                 buildOptionsStr += " -DWI_DATA=write_imageui";
             } else {
-                MNN_PRINT("opencl input datatype not support, bit:%d\n", output->getType().bits);
+                MNN_PRINT("opencl output datatype not support, bit:%d\n", output->getType().bits);
                 MNN_ASSERT(false);
             }
         } else {

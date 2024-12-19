@@ -14,7 +14,33 @@
 
 #if MNN_METAL_ENABLED
 namespace MNN {
-
+struct deconv_constants {
+    int input_width;
+    int input_height;
+    int input_size;
+    int input_slice;
+    int output_width;
+    int output_height;
+    int output_size;
+    int output_slice;
+    
+    int kernel_x;
+    int kernel_y;
+    int kernel_size;
+    int stride_x;
+    int stride_y;
+    int pad_x;
+    int pad_y;
+    int dilation_x;
+    int dilation_y;
+    
+    int delta_ky;
+    int delta_kx;
+    int delta_iy;
+    int delta_ix;
+    int batch;
+    int activation;
+};
 static int leastCommonMultiple(int m, int n) {
     int a = m, b = n;
     while(a != b){
@@ -130,17 +156,7 @@ MetalDeconvolution::MetalDeconvolution(Backend *backend, const MNN::Op *op) : Me
     auto common  = deconv->common();
     mOp          = op;
     mDepthwise   = op->type() == MNN::OpType_DeconvolutionDepthwise;
-    mGroup       = common->group();
-    mKernelX     = common->kernelX();
-    mKernelY     = common->kernelY();
     mPadMode     = common->padMode();
-    mPadX        = common->padX();
-    mPadY        = common->padY();
-    mStrideX     = common->strideX();
-    mStrideY     = common->strideY();
-    mDilateX     = common->dilateX();
-    mDilateY     = common->dilateY();
-    mActivationType = common->relu() ? 1 : (common->relu6() ? 2 : 0);
 
     // forcy downgrade to float like what CPU does
     std::shared_ptr<ConvolutionCommon::Int8Common> qnt = NULL;
@@ -167,9 +183,13 @@ MetalDeconvolution::MetalDeconvolution(Backend *backend, const MNN::Op *op) : Me
         mValid = false;
         return;
     }
+    auto weightBuffer = MetalBackend::getBuffer(mWeight.get());
+    auto ptr = (uint8_t*)weightBuffer.first.contents + weightBuffer.second;
     if (mtbn->useFp16InsteadFp32()) {
+        ::memset(ptr, 0, weightSize * sizeof(int16_t));
         weightForDeconv<__fp16>(mWeight, mDepthwise, deconv, qnt.get());
     } else {
+        ::memset(ptr, 0, weightSize * sizeof(float));
         weightForDeconv<float>(mWeight, mDepthwise, deconv, qnt.get());
     }
     mBias = biasForDeconv(backend, deconv, mtbn->useFp16InsteadFp32());
@@ -182,6 +202,24 @@ MetalDeconvolution::MetalDeconvolution(Backend *backend, const MNN::Op *op) : Me
     } else {
         mPipeline = [context pipelineWithName:@"deconv" fp16:mtbn->useFp16InsteadFp32()];
     }
+    mConstBuffer = [context newDeviceBuffer:sizeof(deconv_constants) access:CPUWriteOnly];
+    auto param = (deconv_constants*)mConstBuffer.contents;
+    
+    mGroup       = common->group();
+    param->kernel_x = common->kernelX();
+    param->kernel_y = common->kernelY();
+    param->kernel_size = common->kernelX() * common->kernelY();
+    param->stride_x = common->strideX();
+    param->stride_y = common->strideY();
+    param->dilation_x = common->dilateX();
+    param->dilation_y = common->dilateY();
+    param->activation = common->relu() ? 1 : (common->relu6() ? 2 : 0);
+    auto deltaKy = leastCommonMultiple(common->dilateY(), common->strideY()) / common->dilateY();
+    auto deltaKx = leastCommonMultiple(common->dilateX(), common->strideX()) / common->dilateX();
+    param->delta_kx = deltaKx;
+    param->delta_ky = deltaKy;
+    param->delta_iy = deltaKy * common->dilateY() / common->strideY();
+    param->delta_ix = deltaKx * common->dilateX() / common->strideX();
 }
 
 ErrorCode MetalDeconvolution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
@@ -197,46 +235,28 @@ ErrorCode MetalDeconvolution::onResize(const std::vector<Tensor *> &inputs, cons
     const int padY = pad.second;
 
     // const buffer
-    auto deltaKy = leastCommonMultiple(mDilateY, mStrideY) / mDilateY;
-    auto deltaKx = leastCommonMultiple(mDilateX, mStrideX) / mDilateX;
-
-    int consts[] = {
-        iw,
-        ih,
-        iw * ih,
-        iz,
-        ow,
-        oh,
-        ow * oh,
-        oz,
-        mKernelX,
-        mKernelY,
-        mKernelX * mKernelY,
-        mStrideX,
-        mStrideY,
-        padX,
-        padY,
-        mDilateX,
-        mDilateY,
-        deltaKy,
-        deltaKx,
-        deltaKy * mDilateY / mStrideY,
-        deltaKx * mDilateX / mStrideX,
-        1,
-        ob,
-        mActivationType
-    };
-    mConstBuffer = [context newDeviceBuffer:sizeof(consts) bytes:consts access:CPUWriteOnly];
+    auto param = (deconv_constants*)mConstBuffer.contents;
+    param->input_width = iw;
+    param->input_height = ih;
+    param->input_size = iw * ih;
+    param->input_slice = iz;
+    param->output_width = ow;
+    param->output_height = oh;
+    param->output_size = ow * oh;
+    param->output_slice = oz;
+    param->batch = ob;
+    param->pad_x = padX;
+    param->pad_y = padY;
 
     mThreads = [context computeBestGroupAndLocal:mPipeline threads:MTLSizeMake((NSUInteger) ow, (NSUInteger)oh, (NSUInteger)oz * ob)];
     return NO_ERROR;
 }
 
 void MetalDeconvolution::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder) {
-        auto input = inputs[0], output = outputs[0];
+    auto input = inputs[0], output = outputs[0];
     [encoder setComputePipelineState:mPipeline];
-    [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer() offset:TensorUtils::getDescribe(input)->extra.offset atIndex:0];
-    [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId())->getBuffer() offset:TensorUtils::getDescribe(output)->extra.offset atIndex:1];
+    MetalBackend::setTensor(input, encoder, 0);
+    MetalBackend::setTensor(output, encoder, 1);
     [encoder setBuffer:mConstBuffer offset:0 atIndex:2];
     MetalBackend::setTensor(mWeight.get(), encoder, 3);
     MetalBackend::setTensor(mBias.get(), encoder, 4);

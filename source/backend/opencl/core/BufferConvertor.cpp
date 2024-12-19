@@ -574,6 +574,80 @@ bool convertBufferToBuffer(Tensor *input, Tensor *output, OpenCLRuntime *runtime
     return true;
 }
 
+bool convertBetweenAHDandCLmem(const Tensor *input, const Tensor *output, OpenCLRuntime *runtime, int memType, bool toDevice, bool toHost) {
+    std::set<std::string> buildOptions;
+    auto srcDimensionFormat = TensorUtils::getDescribe(input)->dimensionFormat;
+    auto dstDimensionFormat = TensorUtils::getDescribe(output)->dimensionFormat;
+    if(runtime->getGpuMemType() == IMAGE){
+        buildOptions.emplace("-DUSE_IMAGE");
+    }
+    
+    buildOptions.emplace("-DINPUT_FORMAT=" + std::to_string(srcDimensionFormat));
+    buildOptions.emplace("-DOUTPUT_FORMAT=" + std::to_string(dstDimensionFormat));
+    std::vector<int> outputShape;
+    std::shared_ptr<KernelWrap> kernelW;
+    if(toDevice){
+        buildOptions.emplace("-DSHARED_TO_CL");
+        kernelW = runtime->buildKernelWithCache("glmem_convert", "gl_to_cl", buildOptions, nullptr, output);
+        outputShape = tensorShapeFormat(output);
+    } else if(toHost){
+        buildOptions.emplace("-DCL_TO_SHARED");
+        kernelW = runtime->buildKernelWithCache("glmem_convert", "cl_to_gl", buildOptions, input, nullptr);
+        outputShape = tensorShapeFormat(input);
+    }else{
+        MNN_PRINT("convertGLMemBetweenCLmem only support toDevice or toHost!\n");
+        return false;
+    }
+    
+    int shape[4] = {outputShape[0], outputShape[3], outputShape[1], outputShape[2]};//N C H W
+    uint32_t gws[3] = {static_cast<uint32_t>(UP_DIV(shape[3], 4)),
+                                  static_cast<uint32_t>(UP_DIV(shape[1], 4)),
+                                  static_cast<uint32_t>(shape[0] * shape[2])};
+    auto Kernel = kernelW->get();
+    uint32_t idx = 0;
+    cl_int ret = CL_SUCCESS;
+    ret |= Kernel.setArg(idx++, gws[0]);
+    ret |= Kernel.setArg(idx++, gws[1]);
+    ret |= Kernel.setArg(idx++, gws[2]);
+    if(toDevice){
+        ret |= Kernel.setArg(idx++, *((CLSharedMemReleaseBuffer*)TensorUtils::getSharedMem(input))->getMem());
+    }else{
+        if(runtime->getGpuMemType() == IMAGE) {
+            ret |= Kernel.setArg(idx++, openCLImage(input));
+        }
+        else {
+            ret |= Kernel.setArg(idx++, openCLBuffer(input));
+        }
+    }
+    if (toHost){
+        ret |= Kernel.setArg(idx++, *((CLSharedMemReleaseBuffer*)TensorUtils::getSharedMem(output))->getMem());
+    }else{
+        if(runtime->getGpuMemType() == IMAGE) {
+            ret |= Kernel.setArg(idx++, openCLImage(output));
+        } else {
+            ret |= Kernel.setArg(idx++, openCLBuffer(output));
+        }
+    }
+    ret |= Kernel.setArg(idx++, sizeof(shape), shape);
+    MNN_CHECK_CL_SUCCESS(ret, "setArg glmem_convert");
+    
+    const uint32_t maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(kernelW));
+    const std::vector<uint32_t> lws = {16, std::max((uint32_t)1, maxWorkGroupSize / 16), 1};
+    cl::Event event;
+    cl_int res;
+    std::vector<uint32_t> roundUpGroupWorkSize(lws.size());
+    for (size_t i = 0; i < lws.size(); ++i) {
+        roundUpGroupWorkSize[i] = ROUND_UP(gws[i], lws[i]);
+    }
+    
+    res = runtime->commandQueue().enqueueNDRangeKernel(Kernel, cl::NullRange,
+                                                       cl::NDRange(roundUpGroupWorkSize[0], roundUpGroupWorkSize[1], roundUpGroupWorkSize[2]),
+                                                       cl::NDRange(lws[0], lws[1], lws[2]), nullptr, &event);
+    event.wait();
+    MNN_CHECK_CL_SUCCESS(res, "glmem_convert");
+    return true;
+}
+
 } // namespace OpenCL
 } // namespace MNN
 #endif /* MNN_OPENCL_BUFFER_CLOSED */

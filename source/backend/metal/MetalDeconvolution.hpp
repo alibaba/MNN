@@ -24,16 +24,7 @@ public:
 private:
     bool mDepthwise  = false;
     int mGroup       = 0;
-    int mKernelX     = 0;
-    int mKernelY     = 0;
     PadMode mPadMode = PadMode_CAFFE;
-    int mPadX        = 0;
-    int mPadY        = 0;
-    int mStrideX     = 0;
-    int mStrideY     = 0;
-    int mDilateX     = 0;
-    int mDilateY     = 0;
-    int mActivationType = 0;
 
     const MNN::Op *mOp = nullptr;
 

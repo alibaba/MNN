@@ -16,6 +16,7 @@ class MomentsTest : public MNNTestCase {
 public:
     virtual ~MomentsTest() = default;
     virtual bool run(int precision) {
+#ifdef MNN_SUPPORT_DEPRECATED_OP
         auto input = _Input({1, 4, 4, 1}, NCHW);
         input->setName("input_tensor");
         // set input data
@@ -39,6 +40,7 @@ public:
             MNN_ERROR("MomentsTest test failed!\n");
             return false;
         }
+#endif
         return true;
     }
 };

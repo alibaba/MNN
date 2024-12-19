@@ -12,7 +12,6 @@
 #include "CPUConvolution.hpp"
 #include "compute/CommonOptFunction.h"
 #include "compute/StrassenMatmulComputor.hpp"
-#include "compute/GemmInt8Executor.hpp"
 #include "core/TensorUtils.hpp"
 namespace MNN {
 class CPUDeconvolutionBasic : public CPUConvolution {
@@ -44,11 +43,11 @@ public:
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
 private:
-    std::shared_ptr<StrassenMatrixComputor> mMatMul;
-    std::shared_ptr<GemmInt8Executor> mDeconvInt8Exe;
-    std::vector<std::pair<std::function<void(uint8_t*, int)>, int>> mPostFunctions;
-    std::shared_ptr<Tensor> mTempOutput;
-    std::shared_ptr<CPUConvolution::ResourceInt8> mResource;
+    MemChunk mGemmOutput;
+    MemChunk mGemmInput;
+    MemChunk mExtraOutput;
+
+    std::vector<std::pair<std::function<void(uint8_t*, int)>, int>> mExecuteFuntion;
 };
 
 class CPUDeconvolution : public CPUDeconvolutionCommon {
