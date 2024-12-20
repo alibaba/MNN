@@ -160,7 +160,11 @@ ErrorCode DepthwiseConvBufExecution::onEncode(const std::vector<Tensor *> &input
         std::vector<uint32_t> localWorkSize[total_kernel];
         std::pair<int, int> min_cost(INT_MAX, 0);//(min_time, min_index)
         for(int knl_idx = 0; knl_idx < actual_kernel; knl_idx++) {
-            kernel[knl_idx]        = mOpenCLBackend->getOpenCLRuntime()->buildKernel("depthwise_conv2d_buf", kernelName[knl_idx], mResource->mBuildOptions);
+            std::set<std::string> buildOption = mResource->mBuildOptions;
+            if(itemC[knl_idx] == 8 && outputShape.at(3) % itemC[knl_idx] > 0 && outputShape.at(3) % itemC[knl_idx] <= 4){
+                buildOption.emplace("-DCHANNEL_BOUNDARY_PROTECT");
+            }
+            kernel[knl_idx]        = mOpenCLBackend->getOpenCLRuntime()->buildKernel("depthwise_conv2d_buf", kernelName[knl_idx], buildOption);
             uint32_t maxWorkGroupSize = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(kernel[knl_idx]));
                         
             globalWorkSize[knl_idx] = {static_cast<uint32_t>(UP_DIV(outputShape.at(3), itemC[knl_idx]) * UP_DIV(outputShape.at(2), itemW[knl_idx])), static_cast<uint32_t>(outputShape.at(0) * UP_DIV(outputShape.at(1), itemH[knl_idx]))};
@@ -196,7 +200,11 @@ ErrorCode DepthwiseConvBufExecution::onEncode(const std::vector<Tensor *> &input
         int min_index  = min_cost.second;
         mGlobalWorkSize = {globalWorkSize[min_index][0], globalWorkSize[min_index][1]};
         
-        unit.kernel     = mOpenCLBackend->getOpenCLRuntime()->buildKernel("depthwise_conv2d_buf", kernelName[min_index], mResource->mBuildOptions);
+        std::set<std::string> buildOption = mResource->mBuildOptions;
+        if(itemC[min_index] == 8 && outputShape.at(3) % itemC[min_index] > 0 && outputShape.at(3) % itemC[min_index] <= 4){
+            buildOption.emplace("-DCHANNEL_BOUNDARY_PROTECT");
+        }
+        unit.kernel     = mOpenCLBackend->getOpenCLRuntime()->buildKernel("depthwise_conv2d_buf", kernelName[min_index], buildOption);
         
         uint32_t idx = 0;
         cl_int ret = CL_SUCCESS;

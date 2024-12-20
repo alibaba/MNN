@@ -10,7 +10,7 @@
     }
 
 #define MOD_NUM 15
-#ifdef INPUT_CHANNEL_LEAVE
+#ifdef INPUT_CHANNEL_BOUNDARY_PROTECT
     #define PADZEROSVEC(k, channel, data0, data1, data2, data3) \
         data0 = (k << 2) < channel ? data0 : 0; \
         data1 = (k << 2) + 1 < channel ? data1 : 0; \
@@ -674,17 +674,19 @@ void conv_2d_int_c8h4w1(GLOBAL_SIZE_2_DIMS
 
     DEAL_NON_UNIFORM_DIM2(out_c_w_idx, out_b_h_idx);
 
-    const int out_c_idx = (out_c_w_idx / out_w_blocks) << 1;
+    const int out_c_idx_0 = (out_c_w_idx / out_w_blocks) << 1;
+    const int out_c_idx_1 = out_c_idx_0 + 1;
     const int out_w_idx = out_c_w_idx % out_w_blocks;
     const int out_b_idx = out_b_h_idx / out_h_blocks;//equal to in_b_idx
     const int out_h_idx = (out_b_h_idx % out_h_blocks) << 2;
     
-    COMPUTE_FLOAT4 bias0 = CONVERT_COMPUTE_FLOAT4(vload4(out_c_idx, bias));
+    COMPUTE_FLOAT4 bias0 = CONVERT_COMPUTE_FLOAT4(vload4(out_c_idx_0, bias));
     COMPUTE_FLOAT4 out0 = bias0;
     COMPUTE_FLOAT4 out1 = bias0;
     COMPUTE_FLOAT4 out2 = bias0;
     COMPUTE_FLOAT4 out3 = bias0;
-    COMPUTE_FLOAT4 bias1 = CONVERT_COMPUTE_FLOAT4(vload4(out_c_idx + 1, bias));
+    // bias align to 8, no need boundry protect
+    COMPUTE_FLOAT4 bias1 = CONVERT_COMPUTE_FLOAT4(vload4(out_c_idx_1, bias));
     COMPUTE_FLOAT4 out4 = bias1;
     COMPUTE_FLOAT4 out5 = bias1;
     COMPUTE_FLOAT4 out6 = bias1;
@@ -706,18 +708,22 @@ void conv_2d_int_c8h4w1(GLOBAL_SIZE_2_DIMS
     const int in_hw_size = in_hw.x * in_hw.y;
     for(ushort in_c_idx = 0; in_c_idx < in_c_blocks; in_c_idx++) {
         int kindex = (in_c_idx * 4) / blockDim * out_c_blocks * 8;
-        COMPUTE_FLOAT8 ScaleOffset0 = CONVERT_COMPUTE_FLOAT8(vload8(out_c_idx, dequantScaleOffset + kindex));
-        COMPUTE_FLOAT8 ScaleOffset1 = CONVERT_COMPUTE_FLOAT8(vload8(out_c_idx + 1, dequantScaleOffset + kindex));
+        COMPUTE_FLOAT8 ScaleOffset0 = CONVERT_COMPUTE_FLOAT8(vload8(out_c_idx_0, dequantScaleOffset + kindex));
+        #ifdef CHANNEL_BOUNDARY_PROTECT
+        COMPUTE_FLOAT8 ScaleOffset1 = out_c_idx_1 >= out_c_blocks ? (COMPUTE_FLOAT8)0 : CONVERT_COMPUTE_FLOAT8(vload8(out_c_idx_1, dequantScaleOffset + kindex));
+        #else
+        COMPUTE_FLOAT8 ScaleOffset1 = CONVERT_COMPUTE_FLOAT8(vload8(out_c_idx_1, dequantScaleOffset + kindex));
+        #endif
         COMPUTE_FLOAT4 scale0 = (COMPUTE_FLOAT4)(ScaleOffset0.s0, ScaleOffset0.s2, ScaleOffset0.s4, ScaleOffset0.s6);
         COMPUTE_FLOAT4 offset0 = (COMPUTE_FLOAT4)(ScaleOffset0.s1, ScaleOffset0.s3, ScaleOffset0.s5, ScaleOffset0.s7);
         COMPUTE_FLOAT4 scale1 = (COMPUTE_FLOAT4)(ScaleOffset1.s0, ScaleOffset1.s2, ScaleOffset1.s4, ScaleOffset1.s6);
         COMPUTE_FLOAT4 offset1 = (COMPUTE_FLOAT4)(ScaleOffset1.s1, ScaleOffset1.s3, ScaleOffset1.s5, ScaleOffset1.s7);
         //weights  NC4HW4  [1,  4*icC4,  ocC4*kh*kw,  1] xic4
-        //index:   [0, 4*in_c_idx, out_c_idx*kh*kw + kh_start*kw + kw_start, 0]
+        //index:   [0, 4*in_c_idx, out_c_idx_0*kh*kw + kh_start*kw + kw_start, 0]
         const int inp_offset_base = (out_b_idx + in_c_idx*batch) * in_hw.x * in_hw.y * 4;
 
         for(int iy = 0; iy < filter_hw.x; iy++) {
-            int weight_offset = ((((4*in_c_idx+0)* out_c_blocks + out_c_idx) *filter_hw.x + iy)*filter_hw.y + kw_start) * 4;
+            int weight_offset = ((((4*in_c_idx+0)* out_c_blocks + out_c_idx_0) *filter_hw.x + iy)*filter_hw.y + kw_start) * 4;
             const int in_h0_idx = (iy * dilate_hw.x + in_h0_idx_base) * in_hw.y;
             const int in_h1_idx = (iy * dilate_hw.x + in_h1_idx_base) * in_hw.y;
             const int in_h2_idx = (iy * dilate_hw.x + in_h2_idx_base) * in_hw.y;
@@ -791,10 +797,17 @@ void conv_2d_int_c8h4w1(GLOBAL_SIZE_2_DIMS
                 out3 = mad(in3.w, weight3, out3);
 
 #if (defined USE_LOW_BIT_WEIGHT_INT8)
+                #ifdef CHANNEL_BOUNDARY_PROTECT
+                charWeight0 = out_c_idx_1 >= out_c_blocks ? (char4)0 : vload4(0, weight+weight_offset+weight_oc_offset);
+                charWeight1 = out_c_idx_1 >= out_c_blocks ? (char4)0 : vload4(0, weight+weight_offset+weight_oc_offset+weight_ic_offset);
+                charWeight2 = out_c_idx_1 >= out_c_blocks ? (char4)0 : vload4(0, weight+weight_offset+weight_oc_offset+weight_ic_offset*2);
+                charWeight3 = out_c_idx_1 >= out_c_blocks ? (char4)0 : vload4(0, weight+weight_offset+weight_oc_offset+weight_ic_offset*3);
+                #else
                 charWeight0 = vload4(0, weight+weight_offset+weight_oc_offset);
                 charWeight1 = vload4(0, weight+weight_offset+weight_oc_offset+weight_ic_offset);
                 charWeight2 = vload4(0, weight+weight_offset+weight_oc_offset+weight_ic_offset*2);
                 charWeight3 = vload4(0, weight+weight_offset+weight_oc_offset+weight_ic_offset*3);
+                #endif
                 weight0 = CONVERT_COMPUTE_FLOAT4(charWeight0) * scale1 + offset1;
                 weight1 = CONVERT_COMPUTE_FLOAT4(charWeight1) * scale1 + offset1;
                 weight2 = CONVERT_COMPUTE_FLOAT4(charWeight2) * scale1 + offset1;
@@ -878,7 +891,7 @@ void conv_2d_int_c8h4w1(GLOBAL_SIZE_2_DIMS
     out7 = clamp(out7, (COMPUTE_FLOAT4)0, (COMPUTE_FLOAT4)6);
 #endif
 
-    int out_offset = (((out_b_idx + out_c_idx*batch)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
+    int out_offset = (((out_b_idx + out_c_idx_0*batch)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
 #ifdef BLOCK_LEAVE
     const int remain = out_hw.x - out_h_idx;
     if(remain >= 4){
@@ -896,12 +909,12 @@ void conv_2d_int_c8h4w1(GLOBAL_SIZE_2_DIMS
     }else if(remain == 1){
         vstore4(CONVERT_FLOAT4(out0), 0, output+out_offset);
     }
-#ifdef CHANNEL_LEAVE
-    if(out_c_idx + 1 >= out_c_blocks){
+#ifdef CHANNEL_BOUNDARY_PROTECT
+    if(out_c_idx_1 >= out_c_blocks){
         return;
     }
 #endif
-    out_offset = (((out_b_idx + (out_c_idx + 1)*batch)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
+    out_offset = (((out_b_idx + out_c_idx_1*batch)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
     if(remain >= 4){
         vstore4(CONVERT_FLOAT4(out4), 0, output+out_offset);
         vstore4(CONVERT_FLOAT4(out5), out_hw.y, output+out_offset);
@@ -922,12 +935,12 @@ void conv_2d_int_c8h4w1(GLOBAL_SIZE_2_DIMS
     vstore4(CONVERT_FLOAT4(out1), out_hw.y, output+out_offset);
     vstore4(CONVERT_FLOAT4(out2), 2 * out_hw.y, output+out_offset);
     vstore4(CONVERT_FLOAT4(out3), 3 * out_hw.y, output+out_offset);
-#ifdef CHANNEL_LEAVE
-    if(out_c_idx + 1 >= out_c_blocks){
+#ifdef CHANNEL_BOUNDARY_PROTECT
+    if(out_c_idx_1 >= out_c_blocks){
         return;
     }
 #endif
-    out_offset = (((out_b_idx + (out_c_idx + 1)*batch)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
+    out_offset = (((out_b_idx + out_c_idx_1*batch)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
     vstore4(CONVERT_FLOAT4(out4), 0, output+out_offset);
     vstore4(CONVERT_FLOAT4(out5), out_hw.y, output+out_offset);
     vstore4(CONVERT_FLOAT4(out6), 2 * out_hw.y, output+out_offset);
@@ -964,15 +977,17 @@ void conv_2d_int_c8h2w1(GLOBAL_SIZE_2_DIMS
 
     DEAL_NON_UNIFORM_DIM2(out_c_w_idx, out_b_h_idx);
 
-    const int out_c_idx = (out_c_w_idx / out_w_blocks) << 1;
+    const int out_c_idx_0 = (out_c_w_idx / out_w_blocks) << 1;
+    const int out_c_idx_1 = out_c_idx_0 + 1;
     const int out_w_idx = out_c_w_idx % out_w_blocks;
     const int out_b_idx = out_b_h_idx / out_h_blocks;//equal to in_b_idx
     const int out_h_idx = (out_b_h_idx % out_h_blocks) << 1;
 
-    COMPUTE_FLOAT4 bias0 = CONVERT_COMPUTE_FLOAT4(vload4(out_c_idx, bias));
+    COMPUTE_FLOAT4 bias0 = CONVERT_COMPUTE_FLOAT4(vload4(out_c_idx_0, bias));
     COMPUTE_FLOAT4 out0 = bias0;
     COMPUTE_FLOAT4 out1 = bias0;
-    COMPUTE_FLOAT4 bias1 = CONVERT_COMPUTE_FLOAT4(vload4(out_c_idx + 1, bias));
+    // bias align to 8, no need boundry protect
+    COMPUTE_FLOAT4 bias1 = CONVERT_COMPUTE_FLOAT4(vload4(out_c_idx_1, bias));
     COMPUTE_FLOAT4 out2 = bias1;
     COMPUTE_FLOAT4 out3 = bias1;
 
@@ -991,18 +1006,22 @@ void conv_2d_int_c8h2w1(GLOBAL_SIZE_2_DIMS
     // weight: [ic/4, oc, 4], loop: ic/4
     for(ushort in_c_idx = 0; in_c_idx < in_c_blocks; in_c_idx++) {
         int kindex = (in_c_idx * 4) / blockDim * out_c_blocks * 8;
-        COMPUTE_FLOAT8 ScaleOffset0 = CONVERT_COMPUTE_FLOAT8(vload8(out_c_idx, dequantScaleOffset + kindex));
-        COMPUTE_FLOAT8 ScaleOffset1 = CONVERT_COMPUTE_FLOAT8(vload8(out_c_idx + 1, dequantScaleOffset + kindex));
+        COMPUTE_FLOAT8 ScaleOffset0 = CONVERT_COMPUTE_FLOAT8(vload8(out_c_idx_0, dequantScaleOffset + kindex));
+        #ifdef CHANNEL_BOUNDARY_PROTECT
+        COMPUTE_FLOAT8 ScaleOffset1 = out_c_idx_1 >= out_c_blocks ? (COMPUTE_FLOAT8)0 : CONVERT_COMPUTE_FLOAT8(vload8(out_c_idx_1, dequantScaleOffset + kindex));
+        #else
+        COMPUTE_FLOAT8 ScaleOffset1 = CONVERT_COMPUTE_FLOAT8(vload8(out_c_idx_1, dequantScaleOffset + kindex));
+        #endif
         COMPUTE_FLOAT4 scale0 = (COMPUTE_FLOAT4)(ScaleOffset0.s0, ScaleOffset0.s2, ScaleOffset0.s4, ScaleOffset0.s6);
         COMPUTE_FLOAT4 offset0 = (COMPUTE_FLOAT4)(ScaleOffset0.s1, ScaleOffset0.s3, ScaleOffset0.s5, ScaleOffset0.s7);
         COMPUTE_FLOAT4 scale1 = (COMPUTE_FLOAT4)(ScaleOffset1.s0, ScaleOffset1.s2, ScaleOffset1.s4, ScaleOffset1.s6);
         COMPUTE_FLOAT4 offset1 = (COMPUTE_FLOAT4)(ScaleOffset1.s1, ScaleOffset1.s3, ScaleOffset1.s5, ScaleOffset1.s7);
         //weights  NC4HW4  [1,  4*icC4,  ocC4*kh*kw,  1] xic4
-        //index:   [0, 4*in_c_idx, out_c_idx*kh*kw + kh_start*kw + kw_start, 0]
+        //index:   [0, 4*in_c_idx, out_c_idx_0*kh*kw + kh_start*kw + kw_start, 0]
         const int inp_offset_base = (out_b_idx + in_c_idx*batch) * in_hw.x * in_hw.y * 4;
 
         for(int iy = 0; iy < filter_hw.x; iy++) {
-            int weight_offset = ((((4*in_c_idx+0)* out_c_blocks + out_c_idx) *filter_hw.x + iy)*filter_hw.y + kw_start) * 4;
+            int weight_offset = ((((4*in_c_idx+0)* out_c_blocks + out_c_idx_0) *filter_hw.x + iy)*filter_hw.y + kw_start) * 4;
             const int in_h0_idx = (iy * dilate_hw.x + in_h0_idx_base) * in_hw.y;
             const int in_h1_idx = (iy * dilate_hw.x + in_h1_idx_base) * in_hw.y;
 
@@ -1060,10 +1079,17 @@ void conv_2d_int_c8h2w1(GLOBAL_SIZE_2_DIMS
                 out1 = mad(in1.w, weight3, out1);
                 
 #if (defined USE_LOW_BIT_WEIGHT_INT8)
+                #ifdef CHANNEL_BOUNDARY_PROTECT
+                charWeight0 = out_c_idx_1 >= out_c_blocks ? (char4)0 : vload4(0, weight+weight_offset+weight_oc_offset);
+                charWeight1 = out_c_idx_1 >= out_c_blocks ? (char4)0 : vload4(0, weight+weight_offset+weight_oc_offset+weight_ic_offset);
+                charWeight2 = out_c_idx_1 >= out_c_blocks ? (char4)0 : vload4(0, weight+weight_offset+weight_oc_offset+weight_ic_offset*2);
+                charWeight3 = out_c_idx_1 >= out_c_blocks ? (char4)0 : vload4(0, weight+weight_offset+weight_oc_offset+weight_ic_offset*3);
+                #else
                 charWeight0 = vload4(0, weight+weight_offset+weight_oc_offset);
                 charWeight1 = vload4(0, weight+weight_offset+weight_oc_offset+weight_ic_offset);
                 charWeight2 = vload4(0, weight+weight_offset+weight_oc_offset+weight_ic_offset*2);
                 charWeight3 = vload4(0, weight+weight_offset+weight_oc_offset+weight_ic_offset*3);
+                #endif
                 weight0 = CONVERT_COMPUTE_FLOAT4(charWeight0) * scale1 + offset1;
                 weight1 = CONVERT_COMPUTE_FLOAT4(charWeight1) * scale1 + offset1;
                 weight2 = CONVERT_COMPUTE_FLOAT4(charWeight2) * scale1 + offset1;
@@ -1128,7 +1154,7 @@ void conv_2d_int_c8h2w1(GLOBAL_SIZE_2_DIMS
     out3 = clamp(out3, (COMPUTE_FLOAT4)0, (COMPUTE_FLOAT4)6);
 #endif
 
-    int out_offset = (((out_b_idx + out_c_idx*batch)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
+    int out_offset = (((out_b_idx + out_c_idx_0*batch)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
 #ifdef BLOCK_LEAVE
     const int remain = out_hw.x - out_h_idx;
     if(remain >= 2){
@@ -1137,12 +1163,12 @@ void conv_2d_int_c8h2w1(GLOBAL_SIZE_2_DIMS
     }else if(remain == 1){
         vstore4(CONVERT_FLOAT4(out0), 0, output+out_offset);
     }
-#ifdef CHANNEL_LEAVE
-    if(out_c_idx + 1 >= out_c_blocks){
+#ifdef CHANNEL_BOUNDARY_PROTECT
+    if(out_c_idx_1 >= out_c_blocks){
         return;
     }
 #endif
-    out_offset = (((out_b_idx + (out_c_idx + 1)*batch)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
+    out_offset = (((out_b_idx + out_c_idx_1*batch)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
     if(remain >= 2){
         vstore4(CONVERT_FLOAT4(out2), 0, output+out_offset);
         vstore4(CONVERT_FLOAT4(out3), out_hw.y, output+out_offset);
@@ -1152,12 +1178,12 @@ void conv_2d_int_c8h2w1(GLOBAL_SIZE_2_DIMS
 #else
     vstore4(CONVERT_FLOAT4(out0), 0, output+out_offset);
     vstore4(CONVERT_FLOAT4(out1), out_hw.y, output+out_offset);
-#ifdef CHANNEL_LEAVE
-    if(out_c_idx + 1 >= out_c_blocks){
+#ifdef CHANNEL_BOUNDARY_PROTECT
+    if(out_c_idx_1 >= out_c_blocks){
         return;
     }
 #endif
-    out_offset = (((out_b_idx + (out_c_idx + 1)*batch)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
+    out_offset = (((out_b_idx + out_c_idx_1*batch)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
     vstore4(CONVERT_FLOAT4(out2), 0, output+out_offset);
     vstore4(CONVERT_FLOAT4(out3), out_hw.y, output+out_offset);
 #endif
@@ -1192,17 +1218,19 @@ void conv_2d_int_c8h1w4(GLOBAL_SIZE_2_DIMS
 
     DEAL_NON_UNIFORM_DIM2(out_c_w_idx, out_b_h_idx);
 
-    const int out_c_idx = (out_c_w_idx / out_w_blocks) << 1;
+    const int out_c_idx_0 = (out_c_w_idx / out_w_blocks) << 1;
+    const int out_c_idx_1 = out_c_idx_0 + 1;
     const int out_w_idx = (out_c_w_idx % out_w_blocks) << 2;
     const int out_b_idx = out_b_h_idx / out_hw.x;//equal to in_b_idx
     const int out_h_idx = out_b_h_idx % out_hw.x;
     
-    COMPUTE_FLOAT4 bias0 = CONVERT_COMPUTE_FLOAT4(vload4(out_c_idx, bias));
+    COMPUTE_FLOAT4 bias0 = CONVERT_COMPUTE_FLOAT4(vload4(out_c_idx_0, bias));
     COMPUTE_FLOAT4 out0 = bias0;
     COMPUTE_FLOAT4 out1 = bias0;
     COMPUTE_FLOAT4 out2 = bias0;
     COMPUTE_FLOAT4 out3 = bias0;
-    COMPUTE_FLOAT4 bias1 = CONVERT_COMPUTE_FLOAT4(vload4(out_c_idx + 1, bias));
+    // bias align to 8, no need boundry protect
+    COMPUTE_FLOAT4 bias1 = CONVERT_COMPUTE_FLOAT4(vload4(out_c_idx_1, bias));
     COMPUTE_FLOAT4 out4 = bias1;
     COMPUTE_FLOAT4 out5 = bias1;
     COMPUTE_FLOAT4 out6 = bias1;
@@ -1223,15 +1251,19 @@ void conv_2d_int_c8h1w4(GLOBAL_SIZE_2_DIMS
     const int weight_ic_offset = out_c_blocks * weight_oc_offset;
     for(ushort in_c_idx = 0; in_c_idx < in_c_blocks; in_c_idx++) {
         int kindex = (in_c_idx * 4) / blockDim * out_c_blocks * 8;
-        COMPUTE_FLOAT8 ScaleOffset0 = CONVERT_COMPUTE_FLOAT8(vload8(out_c_idx, dequantScaleOffset + kindex));
-        COMPUTE_FLOAT8 ScaleOffset1 = CONVERT_COMPUTE_FLOAT8(vload8(out_c_idx + 1, dequantScaleOffset + kindex));
+        COMPUTE_FLOAT8 ScaleOffset0 = CONVERT_COMPUTE_FLOAT8(vload8(out_c_idx_0, dequantScaleOffset + kindex));
+        #ifdef CHANNEL_BOUNDARY_PROTECT
+        COMPUTE_FLOAT8 ScaleOffset1 = out_c_idx_1 >= out_c_blocks ? (COMPUTE_FLOAT8)0 : CONVERT_COMPUTE_FLOAT8(vload8(out_c_idx_1, dequantScaleOffset + kindex));
+        #else
+        COMPUTE_FLOAT8 ScaleOffset1 = CONVERT_COMPUTE_FLOAT8(vload8(out_c_idx_1, dequantScaleOffset + kindex));
+        #endif
         COMPUTE_FLOAT4 scale0 = (COMPUTE_FLOAT4)(ScaleOffset0.s0, ScaleOffset0.s2, ScaleOffset0.s4, ScaleOffset0.s6);
         COMPUTE_FLOAT4 offset0 = (COMPUTE_FLOAT4)(ScaleOffset0.s1, ScaleOffset0.s3, ScaleOffset0.s5, ScaleOffset0.s7);
         COMPUTE_FLOAT4 scale1 = (COMPUTE_FLOAT4)(ScaleOffset1.s0, ScaleOffset1.s2, ScaleOffset1.s4, ScaleOffset1.s6);
         COMPUTE_FLOAT4 offset1 = (COMPUTE_FLOAT4)(ScaleOffset1.s1, ScaleOffset1.s3, ScaleOffset1.s5, ScaleOffset1.s7);
         //weights  NC4HW4  [1,  4*icC4,  ocC4*kh*kw,  1] xic4
-        //index:   [0, 4*in_c_idx, out_c_idx*kh*kw + kh_start*kw + kw_start, 0]
-        int weight_offset = ((((4*in_c_idx+0)* out_c_blocks + out_c_idx) *filter_hw.x + kh_start)*filter_hw.y + 0) * 4;
+        //index:   [0, 4*in_c_idx, out_c_idx_0*kh*kw + kh_start*kw + kw_start, 0]
+        int weight_offset = ((((4*in_c_idx+0)* out_c_blocks + out_c_idx_0) *filter_hw.x + kh_start)*filter_hw.y + 0) * 4;
 
         for(int iy = in_h_idx_start; iy < in_h_idx_end; iy += dilate_hw.x) {
             const int inp_offset_base = (((out_b_idx + in_c_idx*batch) * in_hw.x + iy) * in_hw.y + 0) * 4;
@@ -1309,10 +1341,17 @@ void conv_2d_int_c8h1w4(GLOBAL_SIZE_2_DIMS
                 out3 = mad(in3.w, weight3, out3);
                 
 #if (defined USE_LOW_BIT_WEIGHT_INT8)
+                #ifdef CHANNEL_BOUNDARY_PROTECT
+                charWeight0 = out_c_idx_1 >= out_c_blocks ? (char4)0 : vload4(0, weight+weight_offset+weight_oc_offset);
+                charWeight1 = out_c_idx_1 >= out_c_blocks ? (char4)0 : vload4(0, weight+weight_offset+weight_oc_offset+weight_ic_offset);
+                charWeight2 = out_c_idx_1 >= out_c_blocks ? (char4)0 : vload4(0, weight+weight_offset+weight_oc_offset+weight_ic_offset*2);
+                charWeight3 = out_c_idx_1 >= out_c_blocks ? (char4)0 : vload4(0, weight+weight_offset+weight_oc_offset+weight_ic_offset*3);
+                #else
                 charWeight0 = vload4(0, weight+weight_offset+weight_oc_offset);
                 charWeight1 = vload4(0, weight+weight_offset+weight_oc_offset+weight_ic_offset);
                 charWeight2 = vload4(0, weight+weight_offset+weight_oc_offset+weight_ic_offset*2);
                 charWeight3 = vload4(0, weight+weight_offset+weight_oc_offset+weight_ic_offset*3);
+                #endif
                 weight0 = CONVERT_COMPUTE_FLOAT4(charWeight0) * scale1 + offset1;
                 weight1 = CONVERT_COMPUTE_FLOAT4(charWeight1) * scale1 + offset1;
                 weight2 = CONVERT_COMPUTE_FLOAT4(charWeight2) * scale1 + offset1;
@@ -1396,7 +1435,7 @@ void conv_2d_int_c8h1w4(GLOBAL_SIZE_2_DIMS
     out7 = clamp(out7, (COMPUTE_FLOAT4)0, (COMPUTE_FLOAT4)6);
 #endif
 
-    int out_offset = (((out_b_idx + out_c_idx*batch)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
+    int out_offset = (((out_b_idx + out_c_idx_0*batch)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
 #ifdef BLOCK_LEAVE
     const int remain = out_hw.y - out_w_idx;
     if(remain >= 4){
@@ -1409,10 +1448,10 @@ void conv_2d_int_c8h1w4(GLOBAL_SIZE_2_DIMS
     }else if(remain == 1){
         vstore4(CONVERT_FLOAT4(out0), 0, output+out_offset);
     }
-#ifdef CHANNEL_LEAVE
-    if(out_c_idx + 1 >= out_c_blocks)return;
+#ifdef CHANNEL_BOUNDARY_PROTECT
+    if(out_c_idx_1 >= out_c_blocks)return;
 #endif
-    out_offset = (((out_b_idx + (out_c_idx + 1)*batch)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
+    out_offset = (((out_b_idx + out_c_idx_1*batch)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
     if(remain >= 4){
         vstore16(CONVERT_FLOAT16((COMPUTE_FLOAT16)(out4, out5, out6, out7)), 0, output+out_offset);
     }else if(remain == 3){
@@ -1425,10 +1464,10 @@ void conv_2d_int_c8h1w4(GLOBAL_SIZE_2_DIMS
     }
 #else
     vstore16(CONVERT_FLOAT16((COMPUTE_FLOAT16)(out0, out1, out2, out3)), 0, output+out_offset);
-#ifdef CHANNEL_LEAVE
-    if(out_c_idx + 1 >= out_c_blocks)return;
+#ifdef CHANNEL_BOUNDARY_PROTECT
+    if(out_c_idx_1 >= out_c_blocks)return;
 #endif
-    out_offset = (((out_b_idx + (out_c_idx + 1)*batch)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
+    out_offset = (((out_b_idx + out_c_idx_1*batch)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
     vstore16(CONVERT_FLOAT16((COMPUTE_FLOAT16)(out4, out5, out6, out7)), 0, output+out_offset);
 #endif
 }

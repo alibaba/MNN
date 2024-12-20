@@ -234,15 +234,6 @@ ErrorCode Session::runWithCallBack(const TensorCallBackWithInfo& before, const T
     return NO_ERROR;
 }
 
-void Session::_clearCache() {
-    for (auto& t : mInfo.allTensors) {
-        auto describe = TensorUtils::getDescribe(t.get());
-        if (describe->usage == Tensor::InsideDescribe::TRAINABLE || describe->usage == Tensor::InsideDescribe::CONSTANT) {
-            continue;
-        }
-        describe->regions.clear();
-    }
-}
 
 ErrorCode Session::resize() {
 #ifdef LOG_VERBOSE

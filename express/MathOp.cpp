@@ -1208,7 +1208,7 @@ VARP _LinSpace(VARP start, VARP stop, VARP num) {
     return (Variable::create(Expr::create(std::move(op), {start, stop, num})));
 }
 
-VARP _EltwiseProdInt8(VARP x, VARP y, 
+VARP _EltwiseProdInt8(VARP x, VARP y,
                     std::vector<int8_t> x_weight, std::vector<int32_t> x_bias, std::vector<float> x_scale, std::vector<float> x_tensorScale,
                     std::vector<int8_t> y_weight, std::vector<int32_t> y_bias, std::vector<float> y_scale, std::vector<float> y_tensorScale,
                     std::vector<int8_t> output_weight, std::vector<int32_t> output_bias, std::vector<float> output_scale, std::vector<float> output_tensorScale)
@@ -1219,7 +1219,7 @@ VARP _EltwiseProdInt8(VARP x, VARP y,
                         output_weight, output_bias, output_scale, output_tensorScale);
 }
 
-VARP _EltwiseSumInt8(VARP x, VARP y, 
+VARP _EltwiseSumInt8(VARP x, VARP y,
                     std::vector<int8_t> x_weight, std::vector<int32_t> x_bias, std::vector<float> x_scale, std::vector<float> x_tensorScale,
                     std::vector<int8_t> y_weight, std::vector<int32_t> y_bias, std::vector<float> y_scale, std::vector<float> y_tensorScale,
                     std::vector<int8_t> output_weight, std::vector<int32_t> output_bias, std::vector<float> output_scale, std::vector<float> output_tensorScale)
@@ -1230,7 +1230,7 @@ VARP _EltwiseSumInt8(VARP x, VARP y,
                         output_weight, output_bias, output_scale, output_tensorScale);
 }
 
-VARP _EltwiseSubInt8(VARP x, VARP y, 
+VARP _EltwiseSubInt8(VARP x, VARP y,
                     std::vector<int8_t> x_weight, std::vector<int32_t> x_bias, std::vector<float> x_scale, std::vector<float> x_tensorScale,
                     std::vector<int8_t> y_weight, std::vector<int32_t> y_bias, std::vector<float> y_scale, std::vector<float> y_tensorScale,
                     std::vector<int8_t> output_weight, std::vector<int32_t> output_bias, std::vector<float> output_scale, std::vector<float> output_tensorScale)
@@ -1241,7 +1241,7 @@ VARP _EltwiseSubInt8(VARP x, VARP y,
                         output_weight, output_bias, output_scale, output_tensorScale);
 }
 
-VARP _EltwiseMaxInt8(VARP x, VARP y, 
+VARP _EltwiseMaxInt8(VARP x, VARP y,
                     std::vector<int8_t> x_weight, std::vector<int32_t> x_bias, std::vector<float> x_scale, std::vector<float> x_tensorScale,
                     std::vector<int8_t> y_weight, std::vector<int32_t> y_bias, std::vector<float> y_scale, std::vector<float> y_tensorScale,
                     std::vector<int8_t> output_weight, std::vector<int32_t> output_bias, std::vector<float> output_scale, std::vector<float> output_tensorScale)
@@ -1319,6 +1319,21 @@ VARP _Histogram(VARP x, int bin, int min, int max, int channel) {
     EXPRP expr = Expr::create(std::move(op), {x});
     return (Variable::create(Expr::create(std::move(op), {x})));
 }
+
+#ifdef MNN_BUILD_AUDIO
+VARP _Stft(VARP sample, VARP window, int n_fft, int hop_length, bool abs) {
+    std::unique_ptr<OpT> op(new OpT);
+    op->type      = OpType_Stft;
+    op->main.type = OpParameter_StftParam;
+    auto param = new StftParamT;
+    param->n_fft = n_fft;
+    param->hop_length = hop_length;
+    param->abs = abs;
+    op->main.value = param;
+    EXPRP expr = Expr::create(std::move(op), {sample, window});
+    return Variable::create(expr);
+}
+#endif
 
 } // namespace Express
 } // namespace MNN

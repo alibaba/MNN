@@ -133,6 +133,19 @@
   - `libMNNOpenCV.so` MNN OpenCV函数库
   - `opencv_test` MNN OpenCV单元测试
   - `opencv_bench` MNN OpenCV性能测试
+## MNN Audio库
+- 相关编译选项
+  - `MNN_BUILD_AUDIO` 是否编译Audio函数接口
+  - `MNN_AUDIO_TEST` 是否编译Audio单元测试
+- 编译命令
+    ```bash
+    mkdir build && cd build
+    cmake .. -MNN_BUILD_AUDIO=ON -MNN_AUDIO_TEST=ON
+    make -j4
+    ```
+- 编译产物
+  - `libMNNAudio.so` MNN Audio函数库
+  - `audio_test` MNN Audio单元测试
 
 ## 示例工程
 - 相关编译选项

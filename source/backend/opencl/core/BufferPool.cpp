@@ -28,7 +28,6 @@ cl::Buffer* BufferPool::alloc(size_t size, bool separate) {
         return nullptr;
     }
     mAllBuffer.insert(std::make_pair(node->buffer.get(), node));
-
     return node->buffer.get();
 }
 

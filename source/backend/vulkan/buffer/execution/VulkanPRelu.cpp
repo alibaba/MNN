@@ -80,7 +80,7 @@ class VulkanReluCreator : public VulkanBackend::Creator {
 public:
     virtual VulkanBasicExecution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor*>& outputs, const MNN::Op *op, Backend *bn) const override {
         if (1 == op->main_as_PRelu()->slopeCount()) {
-            return new VulkanUnary("RELU", bn, op->main_as_PRelu()->slope()->data()[0]);
+            return new VulkanUnary("RELU", bn, false, op->main_as_PRelu()->slope()->data()[0]);
         }
         return new VulkanPrelu(bn, op);
     }

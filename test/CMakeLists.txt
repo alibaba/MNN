@@ -4,6 +4,10 @@ if(MNN_WITH_PLUGIN)
   list(APPEND TEST_DEPS plugin_matmul)
 endif()
 
+if (CMAKE_SYSTEM_NAME MATCHES "^Android")
+  list(APPEND TEST_DEPS android)
+endif()
+
 if(APPLE)
   file(GLOB_RECURSE Files ${CMAKE_CURRENT_LIST_DIR}/*.cpp ${CMAKE_CURRENT_LIST_DIR}/*.mm)
 else()

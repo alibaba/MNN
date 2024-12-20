@@ -43,7 +43,7 @@ public:
         auto input = _Input({1, 12, 4, 2}, NCHW);
         input->setName("input_tensor");
         // set input data
-        input->writeScaleMap(0.03567, 1.0);
+        input->writeScaleMap(0.02745, -18.714);
         const float inpudata[] = {-1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0,
                                   2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0,
                                   -3.0, -3.0, -3.0, -3.0, -3.0, -3.0, -3.0, -3.0,
@@ -57,7 +57,7 @@ public:
                                   -3.0, -3.0, -3.0, -3.0, -3.0, -3.0, -3.0, -3.0,
                                   4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0};
         auto inputPtr          = input->writeMap<float>();
-        memcpy(inputPtr, inpudata, 4 * sizeof(float));
+        memcpy(inputPtr, inpudata, 96 * sizeof(float));
         input->unMap();
         input                                   = _Convert(input, NC4HW4);
         auto output                             = _PRelu(input, {3.0, 1.5, 1.5, 1.5, 3.0, 1.5, 1.5, 1.5, 3.0, 1.5, 1.5, 1.5});
@@ -75,10 +75,32 @@ public:
                                                    -4.5, -4.5, -4.5, -4.5, -4.5, -4.5, -4.5, -4.5,
                                                    4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0
                                                    };
-        output->writeScaleMap(0.03567, 1.0);
+        output->writeScaleMap(0.03333, 7.f);
         auto gotOutput                          = output->readMap<float>();
-        if (!checkVector<float>(gotOutput, expectedOutput.data(), 4, 0.05)) {
-            MNN_ERROR("PreluTest test failed!\n");
+        if (!checkVector<float>(gotOutput, expectedOutput.data(), 96, 0.1)) {
+            MNN_ERROR("PreluTest test 1 failed!\n");
+            return false;
+        }
+        // prelu: one slope
+        auto output1 = _PRelu(input, {3.0});
+        output1      = _Convert(output1, NCHW);
+        const std::vector<float> expectedOutput1 = {-3.0, -3.0, -3.0, -3.0, -3.0, -3.0, -3.0, -3.0,
+                                                   2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0,
+                                                   -9.0, -9.0, -9.0, -9.0, -9.0, -9.0, -9.0, -9.0,
+                                                   4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0,
+                                                   -3.0, -3.0, -3.0, -3.0, -3.0, -3.0, -3.0, -3.0,
+                                                   2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0,
+                                                   -9.0, -9.0, -9.0, -9.0, -9.0, -9.0, -9.0, -9.0,
+                                                   4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0,
+                                                   -3.0, -3.0, -3.0, -3.0, -3.0, -3.0, -3.0, -3.0,
+                                                   2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0,
+                                                   -9.0, -9.0, -9.0, -9.0, -9.0, -9.0, -9.0, -9.0,
+                                                   4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0,
+                                                   };
+        output1->writeScaleMap(0.05098, 48.54);
+        auto gotOutput1 = output1->readMap<float>();
+        if (!checkVector<float>(gotOutput1, expectedOutput1.data(), 96, 0.1)) {
+            MNN_ERROR("PreluTest test 2 failed!\n");
             return false;
         }
         return true;

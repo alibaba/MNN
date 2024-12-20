@@ -167,7 +167,7 @@ android_static_build() {
     -DMNN_INTERNAL=ON \
     -DMNN_USE_LOGCAT=false \
     -DMNN_BUILD_BENCHMARK=ON \
-    -DANDROID_NATIVE_API_LEVEL=android-21  \
+    -DANDROID_NATIVE_API_LEVEL=android-26  \
     -DMNN_BUILD_FOR_ANDROID_COMMAND=true \
     -DMNN_OPENGL=true \
     -DMNN_BUILD_TRAIN=true \
@@ -198,7 +198,7 @@ android_static_build() {
     -DMNN_USE_LOGCAT=false \
     -DMNN_BUILD_BENCHMARK=ON \
     -DMNN_INTERNAL=ON \
-    -DANDROID_NATIVE_API_LEVEL=android-21  \
+    -DANDROID_NATIVE_API_LEVEL=android-26  \
     -DMNN_BUILD_FOR_ANDROID_COMMAND=true \
     -DMNN_OPENGL=true \
     -DMNN_BUILD_TRAIN=true \

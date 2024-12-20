@@ -186,4 +186,13 @@ public:
 
 #endif
 
+#ifdef MNN_BUILD_AUDIO
+#define REGISTER_SHAPE_AUDIO(name, op)            \
+    void ___##name##__##op##__() {                        \
+        name* _temp = new name;                            \
+        SizeComputerSuite* ts = SizeComputerSuite::get(); \
+        ts->insert(_temp, op);                           \
+    }
+#endif
+
 #endif
