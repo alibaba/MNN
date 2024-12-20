@@ -184,8 +184,12 @@ OpenCLRuntime::OpenCLRuntime(const BackendConfig::PrecisionMode precision, const
                     // Do nothing
                 });
             }else{
-                context_properties.push_back(0);
-                mContext = std::shared_ptr<cl::Context>(new cl::Context(std::vector<cl::Device>({*mFirstGPUDevicePtr}), context_properties.data(), nullptr, nullptr, &res));
+                if(context_properties.size() > 0){
+                    context_properties.push_back(0);
+                    mContext = std::shared_ptr<cl::Context>(new cl::Context(std::vector<cl::Device>({*mFirstGPUDevicePtr}), context_properties.data(), nullptr, nullptr, &res));
+                }else{
+                    mContext = std::shared_ptr<cl::Context>(new cl::Context(std::vector<cl::Device>({*mFirstGPUDevicePtr}), nullptr, nullptr, nullptr, &res));
+                }
             }
             MNN_CHECK_CL_SUCCESS(res, "context");
             if (res != CL_SUCCESS) {
