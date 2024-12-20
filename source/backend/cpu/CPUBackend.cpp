@@ -645,8 +645,8 @@ Execution* CPUBackend::onCreate(const std::vector<Tensor*>& inputs, const std::v
     // TODO: rm this convert when merge diff datatyoe of op
     auto map  = gCreator;
     auto iter = map->find(opType);
-    if (iter == map->end()) {
-        MNN_PRINT("Don't support type [%s], %s\n", MNN::EnumNameOpType(op->type()), op->name()->c_str());
+    if (iter == map->end() ) {
+        MNN_PRINT("Don't support type [%s]\n", MNN::EnumNameOpType(op->type()));
         return nullptr;
     }
     Execution* exe = nullptr;

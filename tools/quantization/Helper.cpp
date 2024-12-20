@@ -26,12 +26,6 @@
 
 std::set<std::string> Helper::gNotNeedFeatureOp = { "Raster", "Pooling", "ReLU", "ReLU6", "Interp", "CropAndResize", "ROIPooling", "Gather", "GatherV2", "GatherND", "ScatterNd" };
 
-std::set<MNN::OpType> Helper::INT8SUPPORTED_OPS = {
-    MNN::OpType_ConvInt8, MNN::OpType_DepthwiseConvInt8, MNN::OpType_PoolInt8, MNN::OpType_EltwiseInt8
-    // MNN::OpType_Int8ToFloat,
-    // MNN::OpType_FloatToInt8,
-};
-
 std::set<std::string> Helper::featureQuantizeMethod = {"EMA", "KL", "ADMM"};
 std::set<std::string> Helper::weightQuantizeMethod  = {"MAX_ABS", "ADMM"};
 

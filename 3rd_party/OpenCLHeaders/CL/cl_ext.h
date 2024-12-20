@@ -430,6 +430,23 @@ typedef struct _cl_mem_android_native_buffer_host_ptr
 } cl_mem_android_native_buffer_host_ptr;
 
 
+/*********************************
+* cl_qcom_ahardwarebuffer_host_ptr extension
+*********************************/
+
+#define CL_MEM_ANDROID_AHARDWAREBUFFER_HOST_PTR_QCOM                0x4119
+
+typedef struct _cl_mem_ahardwarebuffer_host_ptr
+{
+    /* Type of external memory allocation. */
+    /* Must be CL_MEM_ANDROID_AHARDWAREBUFFER_HOST_PTR_QCOM for Android Hardware buffers. */
+    cl_mem_ext_host_ptr  ext_host_ptr;
+
+    /* Virtual pointer to the android hardware buffer */
+    void*                ahb_ptr;
+
+} cl_mem_ahardwarebuffer_host_ptr;
+
 /******************************************
  * cl_img_yuv_image extension *
  ******************************************/
@@ -583,6 +600,11 @@ typedef intptr_t cl_import_properties_arm;
 
 /* Protected DMA BUF memory type value for CL_IMPORT_TYPE_ARM property */
 #define CL_IMPORT_TYPE_PROTECTED_ARM              0x40B5
+#define CL_IMPORT_TYPE_ANDROID_HARDWARE_BUFFER_ARM          0x41E2
+#define CL_IMPORT_DMA_BUF_DATA_CONSISTENCY_WITH_HOST_ARM    0x41E3
+#define CL_IMPORT_MEMORY_WHOLE_ALLOCATION_ARM               SIZE_MAX
+#define CL_IMPORT_ANDROID_HARDWARE_BUFFER_PLANE_INDEX_ARM   0x41EF
+#define CL_IMPORT_ANDROID_HARDWARE_BUFFER_LAYER_INDEX_ARM   0x41F0
 
 /* This extension adds a new function that allows for direct memory import into
  * OpenCL via the clImportMemoryARM function.

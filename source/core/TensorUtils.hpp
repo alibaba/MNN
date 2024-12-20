@@ -124,6 +124,8 @@ struct Tensor::InsideDescribe {
         pad mPads;
         // For isMutable = false Tensor , determine whether the content can be convert to main backend
         uint32_t stageMask = 0;
+        // Use for shared memory
+        SharedPtr<Backend::MemObj> mSharedMem;
     };
     std::shared_ptr<NativeInsideDescribe> mContent;
     SharedPtr<Backend::MemObj> mem;
@@ -224,6 +226,10 @@ public:
     static void setTensorSupportPack(const Tensor* tensor, bool flag);
 
     static void setTensorPad(const Tensor* tensor, int left, int right, int bottom, int top);
+    
+    static void setSharedMem(const Tensor* tensor, Backend::MemObj *mem);
+    
+    static Backend::MemObj* getSharedMem(const Tensor* tensor);
 };
 } // namespace MNN
 

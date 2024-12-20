@@ -6,8 +6,9 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "backend/cpu/CPUEltwiseInt8.hpp"
 #include "backend/cpu/CPUBackend.hpp"
+#ifdef MNN_SUPPORT_DEPRECATED_OP
+#include "backend/cpu/CPUEltwiseInt8.hpp"
 #include "core/Concurrency.h"
 #include "core/Macro.h"
 #include "core/TensorUtils.hpp"
@@ -129,7 +130,9 @@ public:
         return new CPUEltwiseInt8(backend, op);
     }
 };
-
-REGISTER_CPU_OP_CREATOR(CPUEltwiseInt8Creator, OpType_EltwiseInt8);
-
 } // namespace MNN
+#endif
+namespace MNN {
+REGISTER_CPU_OP_CREATOR_OLD(CPUEltwiseInt8Creator, OpType_EltwiseInt8);
+};
+

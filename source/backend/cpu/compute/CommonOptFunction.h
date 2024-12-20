@@ -101,6 +101,7 @@ void MNNGeluCommon(float* dst, const float* src, size_t size);
 void MNNGeluStandardCommon(float* dst, const float* src, size_t size);
 void MNNSoftmax(float* dest, const float* source, size_t size);
 void MNNNorm(float* dest, const float* source, const float *gamma, const float *beta, float epsilon, size_t size, bool RMSNorm = false);
+void MNNDftAbs(const float* input, const float* window, float* output, float* buffer, int nfft);
 
 // Get Pack for MatMul's e , l , h , the pack number must be 1 or 4 * n
 void MNNGetMatMulPackMode(int* eP, int *lP, int* hP);
@@ -313,7 +314,7 @@ struct CoreFunctions {
     void(*MNNPoolingMax)(const void* channelInput, int inputWidth, int inputHeight, void *channelOutput,
                            int outputWidth, int outputHeight, int kernelWidth, int kernelHeight, int strideWidth,
                            int strideHeight, int padWidth, int padHeight, int padType, int countType);
-    
+
     void(*MNNPoolingMaxWithRedice)(const void* channelInput, int inputWidth, int inputHeight, void *channelOutput,
                            int outputWidth, int outputHeight, int kernelWidth, int kernelHeight, int strideWidth,
                            int strideHeight, int padWidth, int padHeight, int padType, int countType, int *RediceOutput);

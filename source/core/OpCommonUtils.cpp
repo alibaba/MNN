@@ -692,6 +692,9 @@ static bool _RebuildExternalOp(FileLoader* external, const MNN::Op* origin, flat
 }
 Execution* OpCommonUtils::createExecutionWithExternal(Backend* backend, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                               const MNN::Op* op, FileLoader* externalFile, std::shared_ptr<BufferStorage>& tmpstore) {
+#ifdef MNN_BUILD_MINI
+    return backend->onCreate(inputs, outputs, op);
+#else
     bool hasExternal = false;
     switch (op->main_type()) {
         case OpParameter_Convolution2D:
@@ -735,6 +738,7 @@ Execution* OpCommonUtils::createExecutionWithExternal(Backend* backend, const st
         }
     }
     return execution;
+#endif
 }
 
 void OpCommonUtils::loadExternalDatas(FileLoader* fileloader, std::vector<char*> addrs,  const int64_t* external) {

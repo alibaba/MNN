@@ -1,3 +1,0 @@
-calculate 8*12
-translate the following into Chinese：It's a beautiful day to learn something new.
-Describe top 5 characters a leader needs, and explain why.

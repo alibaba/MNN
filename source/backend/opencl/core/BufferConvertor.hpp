@@ -14,6 +14,7 @@
 #include "core/Macro.h"
 #include <MNN/Tensor.hpp>
 #include "backend/opencl/core/OpenCLRunningUtils.hpp"
+#include "backend/opencl/core/OpenCLBackend.hpp"
 
 namespace MNN {
 namespace OpenCL {
@@ -33,6 +34,7 @@ bool convertNC4HW4BufferBetweenNC16HW16Buffer(const Tensor *input, Tensor *outpu
 #endif
 
 bool convertBufferToBuffer(Tensor *input, Tensor *output, OpenCLRuntime *runtime, bool toDevice, bool toHost, bool needWait = false, bool svmFlag = false);
+bool convertBetweenAHDandCLmem(const Tensor *input, const Tensor *output, OpenCLRuntime *runtime, int memType, bool toDevice, bool toHost);
                                        
 class BufferConvertor {
 public:
