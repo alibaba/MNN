@@ -8,6 +8,11 @@ endif()
 
 # include dir
 include_directories(${CMAKE_CURRENT_LIST_DIR}/include/)
+MESSAGE(STATUS "include dir: ${CMAKE_CURRENT_LIST_DIR}/include/")
+
+
+
+add_definitions(-DCPPHTTPLIB_OPENSSL_SUPPORT)
 
 # source files
 FILE(GLOB SRCS ${CMAKE_CURRENT_LIST_DIR}/src/*.cpp)
@@ -28,12 +33,43 @@ endif()
 add_executable(llm_demo ${CMAKE_CURRENT_LIST_DIR}/app/llm_demo.cpp)
 add_executable(ppl_demo ${CMAKE_CURRENT_LIST_DIR}/app/ppl_demo.cpp)
 add_executable(embedding_demo ${CMAKE_CURRENT_LIST_DIR}/app/embedding_demo.cpp)
+add_executable(mls
+        ${CMAKE_CURRENT_LIST_DIR}/app/mls.cpp
+        ${CMAKE_CURRENT_LIST_DIR}/app/downloader/remote_model_downloader.cpp
+        ${CMAKE_CURRENT_LIST_DIR}/app/downloader/downloader_file_utils.cpp
+        ${CMAKE_CURRENT_LIST_DIR}/app/llm_benchmark.cpp
+)
+target_compile_options(mls PRIVATE -std=c++17)
+
+# Find OpenSSL
+find_package(OpenSSL REQUIRED)
+
+if (OpenSSL_FOUND)
+    message(STATUS "OpenSSL found: ${OPENSSL_INCLUDE_DIR} ${OPENSSL_LIBRARIES}")
+    target_include_directories(mls PRIVATE ${OPENSSL_INCLUDE_DIR})
+    target_link_libraries(mls ${OPENSSL_LIBRARIES})
+    if(APPLE)
+        find_library(SECURITY_FRAMEWORK Security)
+        if(SECURITY_FRAMEWORK)
+            target_link_libraries(mls  ${SECURITY_FRAMEWORK})
+        else()
+            message(FATAL_ERROR "Could not find Security framework")
+        endif()
+    endif()
+else()
+    message(FATAL_ERROR "OpenSSL not found. Please install OpenSSL and set paths.")
+endif()
+
+
+
 IF (NOT MNN_SEP_BUILD)
     target_link_libraries(llm_demo ${MNN_DEPS})
     target_link_libraries(ppl_demo ${MNN_DEPS})
     target_link_libraries(embedding_demo ${MNN_DEPS})
+    target_link_libraries(mls ${MNN_DEPS})
 ELSE ()
     target_link_libraries(llm_demo ${MNN_DEPS} llm)
     target_link_libraries(ppl_demo ${MNN_DEPS} llm)
     target_link_libraries(embedding_demo ${MNN_DEPS} llm)
+    target_link_libraries(mls ${MNN_DEPS} llm)
 ENDIF ()
