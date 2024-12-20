@@ -10,6 +10,7 @@
 #include <MNN/expr/MathOp.hpp>
 #include <MNN/expr/NeuralNetWorkOp.hpp>
 #include <cmath>
+#include <algorithm>
 #include <complex>
 #include <fstream>
 #include <iostream>
@@ -17,10 +18,29 @@
 #ifndef M_PI
 #define M_PI 3.141592654
 #endif
+#ifdef _MSC_VER
+#define NOMINMAX
+#include <intrin.h>
+#include <windows.h>
+#endif
 
 namespace MNN {
 namespace AUDIO {
-
+#ifdef _MSC_VER
+inline uint32_t mnn_clz( uint32_t value ) {
+    DWORD leading_zero = 0;
+    if (_BitScanReverse(&leading_zero, value)) {
+        return 31 - leading_zero;
+    }else {
+         // Same remarks as above
+         return 32;
+    }
+}
+#else
+inline uint32_t mnn_clz( uint32_t value ) {
+    return __builtin_clz(value);
+}
+#endif
 struct WaveHeader {
     void SeekToDataChunk(std::istream &is) {
         //                              a t a d
@@ -263,7 +283,7 @@ unsigned int next_power_of_2(unsigned int x) {
         return 1;
     if ((x & (x - 1)) == 0)
         return x;
-    return 1U << (32 - __builtin_clz(x));
+    return 1U << (32 - mnn_clz(x));
 }
 
 VARP hamming_window(int n_fft, bool periodic, float alpha, float beta) {
