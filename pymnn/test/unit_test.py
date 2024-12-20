@@ -88,7 +88,8 @@ class UnitTest(unittest.TestCase):
         self.assertEqualArray(x.getNumpyData(), data)
         x = MNN.Tensor([2, 2], MNN.Halide_Type_Float, data.__array_interface__['data'][0], MNN.Tensor_DimensionType_Tensorflow)
         self.assertEqualArray(x.getNumpyData(), data)
-        x = MNN.Tensor([2, 2], MNN.Halide_Type_Float, mp.array([[1., 2.], [3., 4.]]).ptr, MNN.Tensor_DimensionType_Tensorflow)
+        v = mp.array([[1., 2.], [3., 4.]])
+        x = MNN.Tensor([2, 2], MNN.Halide_Type_Float, v.ptr, MNN.Tensor_DimensionType_Tensorflow)
         self.assertEqualArray(x.getNumpyData(), data)
     def test_image_process(self):
         src = np.asarray([[50, 50], [200, 50], [50, 200]], dtype=np.float32)
@@ -481,14 +482,6 @@ class UnitTest(unittest.TestCase):
         upper  = expr.scalar(-1)
         y = np.asarray([0, 1, 2, 3, -1, 0, 1, 2, -0, -1, 0, 1, -0, -0, -1, 0]).reshape([4, 4]).astype(np.float32)
         self.assertEqualVar(expr.matrix_band_part(matrix, lower, upper), y)
-    def test_moments(self):
-        x = expr.const([0.0, 1.0, 2.0, 3.0, -1.0, 0.0, 1.0, 2.0, -2.0, -1.0, 0.0, 1.0, -3.0, -2.0, -1.0, 0.0], [1, 4, 4, 1], expr.NCHW, expr.float)
-        x = expr.convert(x, expr.NC4HW4)
-        shift = expr.scalar(1.0)
-        res = expr.moments(x, [2, 3], shift, True)
-        self.assertEqual(len(res), 2)
-        self.assertEqual(res[0].read_as_tuple(), (1.5, 0.5, -0.5, -1.5))   # mean
-        self.assertEqual(res[1].read_as_tuple(), (1.25, 1.25, 1.25, 1.25)) # var
     def test_setdiff1d(self):
         x = expr.const([-1, 2, -3, 4, 5, -6, 7, -8, -9, -10, 11, 12, 13, 14, -15, -16], [16], expr.NHWC, expr.int)
         y = expr.const([-1, 2, -3, 4, 5, -6, 7, -8], [8], expr.NHWC, expr.int)

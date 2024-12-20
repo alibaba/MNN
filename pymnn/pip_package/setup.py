@@ -442,6 +442,7 @@ if __name__ == '__main__':
     extensions, cmdclass, packages, entry_points, lib_files = configure_extension_build()
 
     setup(
+        zip_safe=False,
         name=package_name,
         version=version,
         description=("C methods for MNN Package"),
