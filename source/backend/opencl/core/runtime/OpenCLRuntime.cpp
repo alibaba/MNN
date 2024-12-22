@@ -296,11 +296,12 @@ OpenCLRuntime::OpenCLRuntime(const BackendConfig::PrecisionMode precision, const
             
         }else{
             mIsCreateError = true;
-            MNN_ASSERT(1 <= gpuDevices.size());
         }
     }else{
         mIsCreateError = true;
-        MNN_ASSERT(platforms.size() > 0);
+    }
+    if (mIsCreateError) {
+        return;
     }
     {
         // Init info
