@@ -91,6 +91,7 @@ public:
     uint64_t GetKernelWaveSize(std::shared_ptr<KernelWrap> kernel);
     std::vector<uint32_t> getMaxWorkItemSizes();
     uint64_t getMaxLocalMem() const;
+    void setPrecision(const BackendConfig::PrecisionMode precision);
     uint32_t getUseRecordableQueueSize(){
         return mUseRecordableQueueSize;
     }

@@ -237,11 +237,6 @@ OpenCLRuntime::OpenCLRuntime(const BackendConfig::PrecisionMode precision, const
             mFirstGPUDevicePtr->getInfo(CL_DEVICE_MAX_MEM_ALLOC_SIZE, &mMaxMemAllocSize);
             mFirstGPUDevicePtr->getInfo(CL_DEVICE_LOCAL_MEM_SIZE, &mMaxLocalMemSize);
             mMaxWorkGroupSize = mFirstGPUDevicePtr->getInfo<CL_DEVICE_MAX_WORK_GROUP_SIZE>();
-            cl_device_fp_config fpConfig;
-            auto success = mFirstGPUDevicePtr->getInfo(CL_DEVICE_HALF_FP_CONFIG, &fpConfig);
-            mIsDeviceSupportedFP16     = CL_SUCCESS == success && fpConfig > 0;
-            bool checkFp16Exetension = getDeviceSupportsExtension(*(mFirstGPUDevicePtr.get()), "cl_khr_fp16");
-            mIsDeviceSupportedFP16 = (mIsDeviceSupportedFP16 && checkFp16Exetension);
             
             //set gpu mode, tuning level and memory object
             setGpuMode(cl_mode);
@@ -253,18 +248,8 @@ OpenCLRuntime::OpenCLRuntime(const BackendConfig::PrecisionMode precision, const
                     mMemType = IMAGE;
                 }
             }
-            mPrecisionLevel = 1;
-            if (mIsDeviceSupportedFP16) {
-                if (precision == BackendConfig::Precision_Low) {
-                    mPrecisionLevel = 2;
-                } else if (precision == BackendConfig::Precision_Normal && mMemType == BUFFER) {
-                    mPrecisionLevel = 0;
-                }
-            }
+            setPrecision(precision);
             
-            // Is supported fp16 IO storage
-            mIsSupportedFP16 = (mPrecisionLevel == 2 || mPrecisionLevel == 0);
-
             if(getDeviceSupportsExtension(*(mFirstGPUDevicePtr.get()), "cl_arm_integer_dot_product_int8")){
                 mSupportDotInt8 = true;
             }
@@ -513,6 +498,25 @@ uint32_t OpenCLRuntime::maxFreq() const {
 
 uint64_t OpenCLRuntime::maxAllocSize() const {
     return mMaxMemAllocSize;
+}
+
+void OpenCLRuntime::setPrecision(const BackendConfig::PrecisionMode precision){
+    cl_device_fp_config fpConfig;
+    auto success = mFirstGPUDevicePtr->getInfo(CL_DEVICE_HALF_FP_CONFIG, &fpConfig);
+    mIsDeviceSupportedFP16     = CL_SUCCESS == success && fpConfig > 0;
+    bool checkFp16Exetension = getDeviceSupportsExtension(*(mFirstGPUDevicePtr.get()), "cl_khr_fp16");
+    mIsDeviceSupportedFP16 = (mIsDeviceSupportedFP16 && checkFp16Exetension);
+    mPrecisionLevel = 1;
+    if (mIsDeviceSupportedFP16) {
+        if (precision == BackendConfig::Precision_Low) {
+            mPrecisionLevel = 2;
+        } else if (precision == BackendConfig::Precision_Normal && mMemType == BUFFER) {
+            mPrecisionLevel = 0;
+        }
+    }
+    
+    // Is supported fp16 IO storage
+    mIsSupportedFP16 = (mPrecisionLevel == 2 || mPrecisionLevel == 0);
 }
 
 bool OpenCLRuntime::loadProgram(const std::string &programName, cl::Program *program) {
