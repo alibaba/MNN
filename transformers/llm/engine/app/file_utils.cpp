@@ -3,7 +3,8 @@
 // Copyright (c) 2024 Alibaba Group Holding Limited All rights reserved.
 //
 
-#include "downloader_file_utils.hpp"
+#include "file_utils.hpp"
+
 #include <stdexcept>
 #include <string>
 #include <sstream>
@@ -11,7 +12,7 @@
 
 namespace mls {
 // Helper function: Combine paths
-std::string DownloaderFileUtils::JoinPaths(const std::string& base, const std::vector<std::string>& parts) {
+std::string FileUtils::JoinPaths(const std::string& base, const std::vector<std::string>& parts) {
     std::string result = base;
     for (const auto& part : parts) {
         if (!result.empty() && result.back() != '/' && !part.empty() && part.front() != '/') {
@@ -23,7 +24,7 @@ std::string DownloaderFileUtils::JoinPaths(const std::string& base, const std::v
 }
 
 // Helper function: Get the absolute path
-std::string DownloaderFileUtils::GetAbsolutePath(const std::string& path) {
+std::string FileUtils::GetAbsolutePath(const std::string& path) {
     char absolute_path[PATH_MAX];
     if (realpath(path.c_str(), absolute_path)) {
         return {absolute_path};
@@ -33,15 +34,15 @@ std::string DownloaderFileUtils::GetAbsolutePath(const std::string& path) {
 }
 
 // Helper function: Check if `child` is a sub-path of `parent`
-bool DownloaderFileUtils::IsSubPath(const std::string& parent, const std::string& child) {
+bool FileUtils::IsSubPath(const std::string& parent, const std::string& child) {
     return child.find(parent) == 0 && (child.size() == parent.size() || child[parent.size()] == '/');
 }
 
 // Main function: Get the pointer path
-std::string DownloaderFileUtils::GetPointerPath(const std::string& storage_folder, const std::string& revision, const std::string& relative_filename, std::string& error_info) {
+std::string FileUtils::GetPointerPath(const std::string& storage_folder, const std::string& revision, const std::string& relative_filename, std::string& error_info) {
     // Create paths
-    const std::string snapshot_path = DownloaderFileUtils::JoinPaths(storage_folder, {"snapshots"});
-    const std::string pointer_path = DownloaderFileUtils::JoinPaths(snapshot_path, {revision, relative_filename});
+    const std::string snapshot_path = FileUtils::JoinPaths(storage_folder, {"snapshots"});
+    const std::string pointer_path = FileUtils::JoinPaths(snapshot_path, {revision, relative_filename});
 
     // Resolve to absolute paths
     const std::string abs_snapshot_path = GetAbsolutePath(snapshot_path);
@@ -52,12 +53,11 @@ std::string DownloaderFileUtils::GetPointerPath(const std::string& storage_folde
         error_info = "Invalid pointer path: cannot create pointer path in snapshot folder with storage_folder='" +
                                     storage_folder + "', revision='" + revision + "', and relative_filename='" + relative_filename + "'.";
     }
-
     return abs_pointer_path;
 }
 
 
-std::string DownloaderFileUtils::RepoFolderName(const std::string& repo_id, const std::string& repo_type) {
+std::string FileUtils::RepoFolderName(const std::string& repo_id, const std::string& repo_type) {
     std::vector<std::string> repo_parts;
     std::stringstream ss(repo_id);
     std::string part;
@@ -80,7 +80,7 @@ std::string DownloaderFileUtils::RepoFolderName(const std::string& repo_id, cons
     return oss.str();
 }
 
-std::string DownloaderFileUtils::ExpandTilde(const std::string &path) {
+std::string FileUtils::ExpandTilde(const std::string &path) {
     if (!path.empty() && path[0] == '~') {
         const char *home = getenv("HOME");
         if (home) {
@@ -90,16 +90,23 @@ std::string DownloaderFileUtils::ExpandTilde(const std::string &path) {
     return path;
 }
 
-fs::path DownloaderFileUtils::GetPointerPath(const fs::path& storage_folder, const std::string& commit_hash, const fs::path& relative_filename) {
+fs::path FileUtils::GetPointerPathParent(const fs::path& storage_folder, const std::string& commit_hash) {
+    return storage_folder / "snapshots" / commit_hash;
+}
+
+fs::path FileUtils::GetPointerPath(const fs::path& storage_folder, const std::string& commit_hash, const fs::path& relative_filename) {
     return storage_folder / "snapshots" / commit_hash / relative_filename;
 }
 
-void DownloaderFileUtils::CreateSymlink(const fs::path& target, const fs::path& link) {
+void FileUtils::CreateSymlink(const fs::path& target, const fs::path& link) {
     if (!fs::exists(link)) {
         fs::create_symlink(target, link);
     }
 }
 
-
+std::string FileUtils::GetFileName(const std::string& path) {
+    const auto pos = path.rfind('/');
+    return pos == std::string::npos ? path : path.substr(pos + 1);
+}
 
 }

@@ -1,5 +1,5 @@
-option(LLM_SUPPORT_VISION "Llm model support vision input." OFF)
-option(LLM_SUPPORT_AUDIO "Llm model support audio input." OFF)
+option(LLM_SUPPORT_VISION "Llm model support vision input." ON)
+option(LLM_SUPPORT_AUDIO "Llm model support audio input." ON)
 
 
 if (LLM_SUPPORT_VISION AND MNN_BUILD_OPENCV)
@@ -15,10 +15,6 @@ endif()
 # include dir
 include_directories(${CMAKE_CURRENT_LIST_DIR}/include/)
 MESSAGE(STATUS "include dir: ${CMAKE_CURRENT_LIST_DIR}/include/")
-
-
-
-add_definitions(-DCPPHTTPLIB_OPENSSL_SUPPORT)
 
 # source files
 FILE(GLOB SRCS ${CMAKE_CURRENT_LIST_DIR}/src/*.cpp)
@@ -45,12 +41,18 @@ endif()
 
 add_executable(llm_demo ${CMAKE_CURRENT_LIST_DIR}/llm_demo.cpp)
 add_executable(embedding_demo ${CMAKE_CURRENT_LIST_DIR}/embedding_demo.cpp)
+
+#add_definitions(-DCPPHTTPLIB_OPENSSL_SUPPORT)
+
 add_executable(mls
         ${CMAKE_CURRENT_LIST_DIR}/app/mls.cpp
-        ${CMAKE_CURRENT_LIST_DIR}/app/downloader/remote_model_downloader.cpp
-        ${CMAKE_CURRENT_LIST_DIR}/app/downloader/downloader_file_utils.cpp
+        ${CMAKE_CURRENT_LIST_DIR}/app/remote_model_downloader.cpp
+        ${CMAKE_CURRENT_LIST_DIR}/app/file_utils.cpp
         ${CMAKE_CURRENT_LIST_DIR}/app/llm_benchmark.cpp
+        ${CMAKE_CURRENT_LIST_DIR}/app/hf_api_client.cpp
+        ${CMAKE_CURRENT_LIST_DIR}/app/mls_server.cpp
 )
+
 target_compile_options(mls PRIVATE -std=c++17)
 
 # Find OpenSSL
@@ -72,8 +74,6 @@ else()
     message(FATAL_ERROR "OpenSSL not found. Please install OpenSSL and set paths.")
 endif()
 
-
-
 IF (NOT MNN_SEP_BUILD)
     target_link_libraries(llm_demo ${MNN_DEPS})
     target_link_libraries(embedding_demo ${MNN_DEPS})
@@ -83,3 +83,4 @@ ELSE ()
     target_link_libraries(embedding_demo ${MNN_DEPS} llm)
     target_link_libraries(mls ${MNN_DEPS} llm)
 ENDIF ()
+target_compile_definitions(mls PRIVATE CPPHTTPLIB_OPENSSL_SUPPORT)

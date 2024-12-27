@@ -1,7 +1,7 @@
 //
 // Created by ruoyi.sjd on 2024/12/20.
 // Copyright (c) 2024 Alibaba Group Holding Limited All rights reserved.
-
+#pragma once
 #include <string>
 #include <vector>
 #include "llm/llm.hpp"

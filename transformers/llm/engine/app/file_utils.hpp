@@ -13,7 +13,7 @@ namespace fs = std::filesystem;
 
 namespace mls {
 
-class DownloaderFileUtils {
+class FileUtils {
 public:
     /**
      * @brief Get the pointer path inside the storage folder
@@ -62,7 +62,11 @@ public:
 
     static fs::path GetPointerPath(const fs::path& storage_folder, const std::string& commit_hash, const fs::path& relative_filename);
 
+    static fs::path GetPointerPathParent(const fs::path& storage_folder, const std::string& commit_hash);
+
     static void CreateSymlink(const fs::path& target, const fs::path& link);
+
+    static std::string GetFileName(const std::string& path);
 
 private:
 

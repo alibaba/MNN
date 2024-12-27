@@ -559,23 +559,29 @@ std::vector<int> Llm::generate(const std::vector<int>& input_ids, int max_new_to
         max_new_tokens = config_->max_new_tokens();
     }
     // prefill
+    auto st          = std::chrono::system_clock::now();
     current_modules_ = prefill_modules_;
     auto logits      = forward(input_ids);
     if (logits.get() == nullptr) {
         return {};
     }
     int token = sample(logits, all_ids);
+    auto et                = std::chrono::system_clock::now();
     output_ids.push_back(token);
     all_ids.push_back(token);
+    prefill_us_            = std::chrono::duration_cast<std::chrono::microseconds>(et - st).count();
     // decode
     current_modules_ = decode_modules_;
     while (gen_seq_len_ < max_new_tokens) {
+        st = std::chrono::system_clock::now();
         logits = nullptr;
         logits = forward({token});
         if (logits.get() == nullptr) {
             return {};
         }
         token = sample(logits, all_ids);
+        et    = std::chrono::system_clock::now();
+        decode_us_ += std::chrono::duration_cast<std::chrono::microseconds>(et - st).count();
         if (is_stop(token)) {
             break;
         }
@@ -678,7 +684,7 @@ std::string Llm::response(const std::vector<PromptItem>& chat_prompts, std::ostr
         prompt = "<|im_end|>\n" + prompt;
     }
     // std::cout << "# prompt : " << prompt << std::endl;
-    auto input_ids = tokenizer_->encode(prompt);
+    auto input_ids = tokenizer_encode(prompt);
     // printf("input_ids (%lu): ", input_ids.size()); for (auto id : input_ids) printf("%d, ", id); printf("\n");
     return generate(input_ids, os, end_with);
 }
