@@ -13,9 +13,9 @@
 
 #include "core/Macro.h"
 #include "core/MNNFileUtils.h"
+#include "core/OpCommonUtils.hpp"
 #include "backend/cpu/CPUBackend.hpp"
 #include "backend/cpu/compute/CommonOptFunction.h"
-
 #if defined (__aarch64__)
 #define FLOAT16_T __fp16
 #else
@@ -103,6 +103,14 @@ public:
     int maxLength() {
         return mMaxLength;
     }
+    uint8_t* keyAddr() {
+        char * baseAddr = mKVCacheInDisk ? mMapKeyAddr : mPastKey->host<char>();
+        return (uint8_t*)baseAddr;
+    }
+    uint8_t* valudAddr() {
+        char * baseAddr = mKVCacheInDisk ? mMapValueAddr : mPastValue->host<char>();
+        return (uint8_t*)baseAddr;
+    }
     char * addrOfKey(int kv_h) {
         char * baseAddr = mKVCacheInDisk ? mMapKeyAddr : mPastKey->host<char>();
         if (mConfig.mUseInt8Kernel) {
@@ -148,7 +156,7 @@ public:
     }
     void onResize(int kv_num_head, int head_dim);
     void onAlloc(int kv_seq_len);
-    void onRealloc(int kv_seq_len);
+    void onRealloc(const KVMeta* meta);
     void onClear();
     void onPushBack(const Tensor * key, const Tensor * value);
     void onDequantValue(Tensor * dequantedValues);

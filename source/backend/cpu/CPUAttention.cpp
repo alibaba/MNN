@@ -177,7 +177,7 @@ ErrorCode CPUAttention::onResize(const std::vector<Tensor*>& inputs, const std::
         backend()->onAcquireBuffer(mPackQ.get(), Backend::DYNAMIC);
         backend()->onAcquireBuffer(mPackQKV.get(), Backend::DYNAMIC);
         backend()->onReleaseBuffer(mPackQ.get(), Backend::DYNAMIC);
-        backend()->onReleaseBuffer(mPackQKV.get(), Backend::DYNAMIC);    
+        backend()->onReleaseBuffer(mPackQKV.get(), Backend::DYNAMIC);
     }
     return NO_ERROR;
 }
@@ -193,9 +193,6 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
     int mask_kvlen  = mask->length(3);
     int seq_len = query->length(1);
     MNN_ASSERT(seq_len == mask_seqlen);
-    mIsPrefill = (seq_len > 1);
-    // isPrefill and mask is Square Matrix, is FirstPrefill
-    mIsFirstPrefill = mIsPrefill && (mask_kvlen == mask_seqlen);
     int tileCount = UP_DIV(mNumHead, mThreadNum);
     int group_size = mNumHead / mKvNumHead;
     // reduce the value of 'query' to avoid fp16 overflow
@@ -215,15 +212,12 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
         mScale /= q_scale;
     }
 
-    if (mIsPrefill) {
-        if (mIsFirstPrefill) {
-            mKVCacheManager->onClear();
-            mKVCacheManager->onAlloc(seq_len);
-        } else {
-            mKVCacheManager->onRealloc(mKVCacheManager->kvLength() + seq_len);
-        }
-    } else { // Decode
-        mKVCacheManager->onRealloc(mKVCacheManager->kvLength() + 1);
+    if (mMeta->previous == mMeta->remove) {
+        mKVCacheManager->onClear();
+        mKVCacheManager->onAlloc(mMeta->add);
+    } else {
+        MNN_ASSERT(mMeta->previous == mKVCacheManager->kvLength());
+        mKVCacheManager->onRealloc(mMeta);
     }
     // Add the new kv to the kvcache
     mKVCacheManager->onPushBack(key, value);
@@ -383,6 +377,7 @@ bool CPUAttention::onClone(Backend* bn, const Op* op, Execution** dst) {
 }
 
 CPUAttention::CPUAttention(Backend *backend, bool kv_cache) : Execution(backend), mKVCache(kv_cache) {
+    mMeta = (KVMeta*)(backend->getRuntime()->pMeta);
     if (mKVCache) {
         mPackQ.reset(Tensor::createDevice<float>({1, 1, 1, 1}));
         mPackQKV.reset(Tensor::createDevice<float>({1, 1, 1, 1}));

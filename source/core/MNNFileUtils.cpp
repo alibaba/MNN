@@ -6,6 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#include <cstring>
 #include "MNNFileUtils.h"
 
 std::string MNNFilePathConcat(std::string prefix, std::string suffix) {
@@ -35,6 +36,25 @@ bool MNNFileExist(const char * file_name)
 #endif
 }
 
+bool MNNCreateDir(const char * path) {
+    if (MNNDirExist(path)) {
+        return true;
+    }
+#if defined(WIN32) || defined(_WIN32) || defined(_WIN64) || defined(_MSC_VER)
+    if (CreateDirectory(path, NULL) || ERROR_ALREADY_EXISTS == GetLastError()) {
+        return true;
+    } else {
+        return false;
+    }
+#else
+    if (mkdir(path, 0755) == 0 || errno == EEXIST) {
+        return true;
+    } else {
+        return false;
+    }
+#endif
+}
+
 file_t MNNCreateFile(const char * file_name)
 {
 #if defined(WIN32) || defined(_WIN32) || defined(_WIN64) || defined(_MSC_VER)
@@ -48,7 +68,7 @@ file_t MNNCreateFile(const char * file_name)
         NULL                            // No Template
     );
     if (hd == INVALID_HANDLE_VALUE) {
-        printf("Failed to create the file: %s\n", file_name);
+        MNN_PRINT("Failed to create the file: %s\n", file_name);
         return INVALID_FILE;
     }
     return hd;
@@ -59,7 +79,7 @@ file_t MNNCreateFile(const char * file_name)
         0666                            // Read and Write Permission for Everyone
     );
     if (fd == -1) {
-        printf("Failed to create the file: %s\n", file_name);
+        MNN_PRINT("Failed to create the file: %s\n", file_name);
         return INVALID_FILE;
     }
     return fd;
@@ -69,6 +89,7 @@ file_t MNNCreateFile(const char * file_name)
 file_t MNNOpenFile(const char * file_name, uint32_t flags)
 {
     if (!MNNFileExist(file_name)) {
+        MNN_PRINT("File not exist: %s\n", file_name);
         return INVALID_FILE;
     }
 #if defined(WIN32) || defined(_WIN32) || defined(_WIN64) || defined(_MSC_VER)
@@ -89,7 +110,7 @@ file_t MNNOpenFile(const char * file_name, uint32_t flags)
         NULL                    // No Template
     );
     if (hd == INVALID_HANDLE_VALUE) {
-        printf("Failed to open the file: %s\n", file_name);
+        MNN_PRINT("Failed to open the file: %s\n", file_name);
         return INVALID_FILE;
     }
     return hd;
@@ -103,7 +124,7 @@ file_t MNNOpenFile(const char * file_name, uint32_t flags)
     }
     int fd = open(file_name, mode);
     if (fd == -1) {
-        printf("Failed to open the file: %s\n", file_name);
+        MNN_PRINT("Failed to open the file: %s\n", file_name);
         return INVALID_FILE;
     }
     return fd;
@@ -255,6 +276,7 @@ void * MNNMmapFile(file_t file, size_t size)
 #if defined(WIN32) || defined(_WIN32) || defined(_WIN64) || defined(_MSC_VER)
     HANDLE hFileMapping = CreateFileMapping(file, NULL, PAGE_READWRITE, (size >> 32) & 0xffffffff, size & 0xffffffff, NULL);
     if (hFileMapping == NULL) {
+        MNN_ERROR("MNN: Mmap failed\n");
         return nullptr;
     }
     void * addr = MapViewOfFile(hFileMapping, FILE_MAP_READ | FILE_MAP_WRITE, 0, 0, size);
@@ -263,6 +285,7 @@ void * MNNMmapFile(file_t file, size_t size)
 #else
     void * addr = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, file, 0);
     if (addr == MAP_FAILED) {
+        MNN_ERROR("MNN: Mmap failed: %s\n", strerror(errno));
         return nullptr;
     }
     return addr;

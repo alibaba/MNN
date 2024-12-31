@@ -121,11 +121,11 @@ bool VulkanConvolutionDepthwise::_init(const float* weightData, size_t weightSiz
     auto macro = getPostTreatMacro(common);
     if (common->strideX() == 1 && common->strideY() == 1 && common->dilateX() == 1 && common->dilateY() == 1 ) {
         mConvPipeline = extra->getPipeline("glsl_convolutionDepthwise_s1d1_w2_" + macro + "comp", convTypes);
+        mUseS1D1W2 = true;
         mLocalX       = 8;
         mLocalY       = 8;
     } else {
         if (extra->gpuType() == VulkanRuntime::ADRENO) {
-            MNN_PRINT("S1D1 depthwise conv!\n");
             mConvPipeline = extra->getPipeline("glsl_convolutionDepthwise_" + macro + "comp", convTypes);
             mLocalX       = 16;
             mLocalY       = 16;
@@ -236,7 +236,11 @@ ErrorCode VulkanConvolutionDepthwise::onEncodeConvolution(const Convolution2DCom
     mBias->barrierRead(cmdBuffer->get());
     ((VulkanTensor*)input->deviceId())->image()->barrierRead(cmdBuffer->get());
     ((VulkanTensor*)output->deviceId())->image()->barrierWrite(cmdBuffer->get());
-    vkCmdDispatch(cmdBuffer->get(), UP_DIV(ow, mLocalX), UP_DIV(oh, mLocalY), ocDiv4 * input->batch());
+    if (mUseS1D1W2) {
+        vkCmdDispatch(cmdBuffer->get(), UP_DIV(UP_DIV(ow, 2), mLocalX), UP_DIV(oh, mLocalY), ocDiv4 * input->batch());
+    } else {
+        vkCmdDispatch(cmdBuffer->get(), UP_DIV(ow, mLocalX), UP_DIV(oh, mLocalY), ocDiv4 * input->batch());
+    }
     return NO_ERROR;
 }
 

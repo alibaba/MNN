@@ -203,9 +203,32 @@ std::vector<uint32_t> getGemmParams(const std::vector<uint32_t> &gemmSize, const
     if (tunedGemmParams.find(info) != tunedGemmParams.end()) {
         return tunedGemmParams[info];
     }
+    
+    // top gpu device and large computation
+    if(runtime->getGpuLevel() == TOP && (runtime->getCLTuneLevel() == None || runtime->getCLTuneLevel() == Fast)) {
+        // total computation
+        auto compute_ratio = 1.0 * gemmSize[4] * gemmSize[0] / 1024.0 * gemmSize[1] / 1024.0 * gemmSize[2] / 1024.0;
+        auto thread_ratio = 1.0 * gemmSize[4] * gemmSize[0] / 1024.0 * gemmSize[1] / 1024.0;
+
+        // each dimension is even
+        bool is_even =  gemmSize[0] >= 512 && gemmSize[1] >= 256;
+        bool is_div = gemmSize[0] % 128 == 0 && gemmSize[1] % 128 == 0;
+        if(compute_ratio >= 2.0 && thread_ratio >= 2.0 &&  is_even && is_div) {
+            return {16, 2, 16, 16, 128, 16, 16, 128, 0, 0, 0, 0, 8, 8};
+        }
+    }
     std::vector<uint32_t> tuneLwsRes;
     if(GemmlocalWSTune(tuneLws, gemmSize, tuneLwsRes, runtime)){
         return tuneLwsRes;
+    }
+    
+    std::vector<uint32_t> params_prefer = {16, 2, 4, 4, 16, 4, 4, 16, 0, 0, 1, 0, 2, 2};
+
+    auto thread_ratio = 1.0 * gemmSize[4] * gemmSize[0] / 512.0 * gemmSize[1] / 512.0;
+    bool is_div = gemmSize[0] % 64 == 0 && gemmSize[1] % 32 == 0;
+    // init params with pretty suitable candidate to avoid to slow initial
+    if(thread_ratio >= 1.0 && is_div) {
+        params_prefer.assign({16, 2, 16, 16, 64 , 8 , 8 , 32 , 0, 0, 0, 0, 4, 4});
     }
     
     if(runtime->getCLTuneLevel() == None) {
@@ -240,11 +263,10 @@ std::vector<uint32_t> getGemmParams(const std::vector<uint32_t> &gemmSize, const
                 return {16, 2, 8, 8, 64, 8, 8, 64, 0, 0, 1, 0, 4, 4};
             }
         }
-        return {16, 2, 4, 4, 16, 4, 4, 16, 0, 0, 1, 0, 2, 2};
+        return params_prefer;
     }
 
     std::vector<std::vector<uint32_t>> totalCombinations; // save total candidate combinations
-    std::vector<uint32_t> params_prefer = {16, 2, 4, 4, 16, 4, 4, 16, 0, 0, 1, 0, 2, 2};
     totalCombinations.emplace_back(params_prefer);
     uint32_t min_cost = UINT_MAX;
     
@@ -257,7 +279,6 @@ std::vector<uint32_t> getGemmParams(const std::vector<uint32_t> &gemmSize, const
         totalCombinations.push_back({16, 2, 8 , 8 , 16 , 8 , 8 , 64, 0, 0, 0, 0, 2, 8});
         totalCombinations.push_back({16, 2, 16, 16, 64 , 8 , 8 , 128, 0, 0, 0, 1, 4, 8});//10
 
-        totalCombinations.push_back({16, 2, 16, 16, 64 , 8 , 8 , 32 , 0, 0, 0, 0, 4, 4});
         totalCombinations.push_back({16, 2, 8,  8 , 32 , 8 , 8 , 128, 0, 0, 1, 0, 2, 8});//2
         totalCombinations.push_back({16, 2, 16, 16, 64 , 8 , 8 , 128, 0, 0, 1, 1, 2, 8});//12
         totalCombinations.push_back({16, 2, 16, 16, 128, 8 , 8 , 64 , 0, 0, 1, 1, 2, 8});//2
@@ -416,6 +437,8 @@ std::vector<uint32_t> getGemmParams(const std::vector<uint32_t> &gemmSize, const
                 int batch_offset_b = gemmSize[1] * gemmSize[2];
                 int batch_offset_c = gemmSize[0] * gemmSize[1];
                 int batch_offset[4] = {batch_offset_a, batch_offset_b, batch_offset_c, 0};
+                int base_ptr_offset[4] = {0, 0, 0, 0};
+
                 int group[4] = {1, (int)groupSize, 1, (int)gemmSize[4]};
 
                 ret |= kernel->get().setArg(idx++, tensorMemory[0]);
@@ -425,6 +448,7 @@ std::vector<uint32_t> getGemmParams(const std::vector<uint32_t> &gemmSize, const
                 }
                 ret |= kernel->get().setArg(idx++, tensorMemory[2]);
                 ret |= kernel->get().setArg(idx++, sizeof(batch_offset), batch_offset);
+                ret |= kernel->get().setArg(idx++, sizeof(batch_offset), base_ptr_offset);
                 ret |= kernel->get().setArg(idx++, sizeof(stride), stride);
                 ret |= kernel->get().setArg(idx++, sizeof(group), group);
 

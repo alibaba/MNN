@@ -71,7 +71,7 @@ public:
     virtual std::pair<const void*, size_t> onGetCache() override;
     virtual bool onSetCache(const void* buffer, size_t size) override;
 
-    static MetalRuntime* create(const Backend::Info& info, id<MTLDevice> device);
+    static MetalRuntime* create(const Backend::Info& info);
     virtual void onMaskOpReady(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                const MNN::Op* op) override;
     virtual bool onMeasure(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
@@ -160,8 +160,11 @@ public:
     void returnConstBuffer(id<MTLBuffer> buffer) const;
     id<MTLComputePipelineState> makeComputePipelineWithSourceOption(const char* csource, const char* cname, MTLCompileOptions *options) const;
 public:
-    MetalBackend(std::shared_ptr<EagerBufferAllocator> staticMem, const MetalRuntime* runtime, bool usefp16AsFp32);
+    MetalBackend(std::shared_ptr<EagerBufferAllocator> staticMem, const MetalRuntime* runtime, bool usefp16AsFp32, BackendConfig::MemoryMode mode);
     virtual ~MetalBackend();
+    virtual Runtime* getRuntime() override {
+        return (Runtime*)mRuntime;
+    }
     const MetalRuntime* runtime() const {
         return mRuntime;
     }
@@ -224,6 +227,11 @@ public:
         MTLSize localSize;
         MTLSize groupSize;
     };
+    BackendConfig::MemoryMode getMemoryMode() const {
+        return mMemoryMode;
+    }
+private:
+    BackendConfig::MemoryMode mMemoryMode;
 private:
     MetalRuntimeAllocator::MetalBufferAlloc mEmptyMem;
     id<MTLCommandBuffer> getCommandBufferForBufferCopy() const;

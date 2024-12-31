@@ -76,7 +76,7 @@ private:
     std::vector<int> mPaddings{0, 0};
     std::vector<uint32_t> mGlobalWorkSize{1, 1, 1};
     std::vector<uint32_t> mLocalWorkSize{1, 1, 1, 1};
-    std::shared_ptr<KernelWrap> mKernel;
+    std::vector<std::shared_ptr<KernelWrap>> mKernel;
     std::shared_ptr<Tensor> mConvGemmInpTensor;
     std::shared_ptr<Tensor> mConvGemmOutTensor;
     std::shared_ptr<KernelWrap> mPreKernel = nullptr;

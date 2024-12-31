@@ -62,6 +62,7 @@ public:
     AttentionBufExecution(const MNN::Op *op, Backend *backend, bool kv_cache);
     AttentionBufExecution(std::shared_ptr<KVCacheCLManager> manager, const MNN::Op *op, Backend *backend);
     ErrorCode longPrefillResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
+    ErrorCode DecodeSetArgs(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
 
     virtual ~AttentionBufExecution() = default;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
@@ -71,11 +72,11 @@ public:
 private:
     
     int getLocalSize(int size, int maxGroupSize);
-    void reallocKVCache();
     bool mIsDecode = false;
     bool mIsFirstPrefill = true;
     int mKv_seq_len = 0;
-    int mMax_len = 0;
+    int mKeyValueMaxlen = 0;
+    int mDecodeTmpMaxlen = 0;
     std::shared_ptr<KernelWrap> mKernel_qk;
     std::shared_ptr<KernelWrap> mKernel_softmax;
     std::shared_ptr<KernelWrap> mKernel_qkv;

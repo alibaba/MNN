@@ -162,6 +162,7 @@ private:
 
     ImagePool* mImagePool;
     BufferPool* mBufferPool;
+    std::shared_ptr<BufferExecutionPool> mExecutionBufferPool;
 
     std::shared_ptr<ImagePool> mImagePoolFirst;
     std::shared_ptr<BufferPool> mBufferPoolFirst;

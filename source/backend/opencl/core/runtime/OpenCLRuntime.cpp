@@ -125,9 +125,13 @@ OpenCLRuntime::OpenCLRuntime(const BackendConfig::PrecisionMode precision, const
                 // if device is QUALCOMM's and version is 2.0 , set spacial optimized param
                 //if Adreno version is less than Adreno512, donot set WorkGroupAttribute option
                 std::string adrenoVersion = deviceVersion.substr(deviceVersion.size()-3);
-                //printf("Adreno Version:%s\n", adrenoVersion.c_str());
+                // MNN_PRINT("Adreno Version:%s   %s\n", deviceVersion.c_str(), adrenoVersion.c_str());
                 if(mCLVersion > 1.99f && adrenoVersion >= "512") {
                     isSetWorkGroupAttribute = true;
+                }
+                // 8Gen1 and after
+                if(adrenoVersion >= "730") {
+                    mGpuLevel = TOP;
                 }
             } else if (deviceName.find("Mali") != std::string::npos) {
                 mGpuType = MALI;
@@ -281,14 +285,16 @@ OpenCLRuntime::OpenCLRuntime(const BackendConfig::PrecisionMode precision, const
             
         }else{
             mIsCreateError = true;
+            MNN_ASSERT(1 <= gpuDevices.size());
         }
     }else{
         mIsCreateError = true;
+        MNN_ASSERT(platforms.size() > 0);
     }
     if (mIsCreateError) {
         return;
     }
-    {
+    if (mMemType == IMAGE){
         // Init info
         size_t max_height, max_width;
         res = mFirstGPUDevicePtr->getInfo(CL_DEVICE_IMAGE2D_MAX_HEIGHT, &max_height);

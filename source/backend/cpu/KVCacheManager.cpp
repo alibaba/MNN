@@ -386,73 +386,133 @@ void KVCacheManager::onAlloc(int kv_seq_len) {
     }
 }
 
-void KVCacheManager::onRealloc(int kv_seq_len) {
-    if (kv_seq_len <= mMaxLength) {
+void KVCacheManager::onRealloc(const KVMeta* meta) {
+    auto kv_seq_len = meta->previous + meta->add - meta->remove + meta->computeReverseSize();
+    if (kv_seq_len > mMaxLength) {
+        // Realloc
+        int oldMaxLength = mMaxLength;
+        mMaxLength = kv_seq_len + mConfig.mExpandChunk;
+        size_t oldKeySize, oldValueSize, keySize, valueSize;
+        if (mConfig.mUseInt8Kernel) {
+            oldKeySize = (size_t)mKvNumHead * UP_DIV(oldMaxLength, hP8) * UP_DIV(mHeadDim, lP8) * hP8 * lP8;
+            keySize = (size_t)mKvNumHead * UP_DIV(mMaxLength, hP8) * UP_DIV(mHeadDim, lP8) * hP8 * lP8;
+        } else if (mConfig.mQuantKey) {
+            oldKeySize = (size_t)mKvNumHead * UP_DIV(oldMaxLength, hP) * mHeadDim * hP;
+            keySize = (size_t)mKvNumHead * UP_DIV(mMaxLength, hP) * mHeadDim * hP;
+        } else {
+            oldKeySize = (size_t)mKvNumHead * UP_DIV(oldMaxLength, hP) * mHeadDim * hP * mBytes;
+            keySize = (size_t)mKvNumHead * UP_DIV(mMaxLength, hP) * mHeadDim * hP * mBytes;
+        }
+        oldValueSize = (size_t)mKvNumHead * UP_DIV(mHeadDim, hP) * oldMaxLength * hP * (mConfig.mQuantValue ? 1 : mBytes);
+        valueSize = (size_t)mKvNumHead * UP_DIV(mHeadDim, hP) * mMaxLength * hP * (mConfig.mQuantValue ? 1 : mBytes);
+        /*==== No limit for kvcache ====*/
+        if (mConfig.mKVCacheSizeLimit == -1) {
+            expandKVCacheInMem(oldMaxLength);
+        }
+        /*==== Last time the kvcache is memory, now it should be in memory too ====*/
+        else if (keySize + valueSize <= mConfig.mKVCacheSizeLimit) {
+            expandKVCacheInMem(oldMaxLength);
+        }
+        /*==== Last time the kvcache is in memory, but now it should be moved to disk ====*/
+        else if (oldKeySize + oldValueSize <= mConfig.mKVCacheSizeLimit) {
+            createKVCacheFile();
+            resetKVCacheFileSize(keySize, valueSize);
+            mmapKVCache(keySize, valueSize);
+            moveKVCacheFromMemToDisk(oldMaxLength);
+            mKVCacheInDisk = true;
+        }
+        /*==== Last time the kvcache is disk, now it should be in disk too ====*/
+        else {
+            expandKVCacheInDisk(oldMaxLength, oldKeySize, oldValueSize, keySize, valueSize);
+        }
+        /* No matter where is the kvcache, the scales and zero points are always in memory, since their size is very small */
+        if (mConfig.mUseInt8Kernel) {
+            auto new_scale = Tensor::createDevice<int32_t>({mKvNumHead, UP_DIV(mMaxLength, hP8), hP8});
+            auto new_zeroPoint = Tensor::createDevice<int32_t>({mKvNumHead, UP_DIV(mMaxLength, hP8), hP8});
+            auto new_sum = Tensor::createDevice<int32_t>({mKvNumHead, UP_DIV(mMaxLength, hP8), hP8});
+            mBackend->onAcquireBuffer(new_scale, Backend::STATIC);
+            mBackend->onAcquireBuffer(new_zeroPoint, Backend::STATIC);
+            mBackend->onAcquireBuffer(new_sum, Backend::STATIC);
+            for (int h = 0; h < mKvNumHead; h++) {
+                memcpy(new_scale->host<char>() + h * UP_DIV(mMaxLength, hP8) * hP8 * 4, mKeyScale->host<char>() + h * UP_DIV(oldMaxLength, hP8) * hP8 * 4, UP_DIV(oldMaxLength, hP8) * hP8 * 4);
+                memcpy(new_zeroPoint->host<char>() + h * UP_DIV(mMaxLength, hP8) * hP8 * 4, mKeyZeroPoint->host<char>() + h * UP_DIV(oldMaxLength, hP8) * hP8 * 4, UP_DIV(oldMaxLength, hP8) * hP8 * 4);
+                memcpy(new_sum->host<char>() + h * UP_DIV(mMaxLength, hP8) * hP8 * 4, mKeySum->host<char>() + h * UP_DIV(oldMaxLength, hP8) * hP8 * 4, UP_DIV(oldMaxLength, hP8) * hP8 * 4);
+            }
+            mKeyScale.reset(new_scale);
+            mKeyZeroPoint.reset(new_zeroPoint);
+            mKeySum.reset(new_sum);
+        } else if (mConfig.mQuantKey) {
+            auto new_scale = Tensor::createDevice<float>({mKvNumHead, UP_DIV(mMaxLength, hP), 1, hP});
+            auto new_zeroPoint = Tensor::createDevice<float>({mKvNumHead, UP_DIV(mMaxLength, hP), 1, hP});
+            mBackend->onAcquireBuffer(new_scale, Backend::STATIC);
+            mBackend->onAcquireBuffer(new_zeroPoint, Backend::STATIC);
+            for (int h = 0; h < mKvNumHead; h++) {
+                memcpy(new_scale->host<char>() + h * UP_DIV(mMaxLength, hP) * hP * mBytes, mKeyScale->host<char>() + h * UP_DIV(oldMaxLength, hP) * hP * mBytes, UP_DIV(oldMaxLength, hP) * hP * mBytes);
+                memcpy(new_zeroPoint->host<char>() + h * UP_DIV(mMaxLength, hP) * hP * mBytes, mKeyZeroPoint->host<char>() + h * UP_DIV(oldMaxLength, hP) * hP * mBytes, UP_DIV(oldMaxLength, hP) * hP * mBytes);
+            }
+            mKeyScale.reset(new_scale);
+            mKeyZeroPoint.reset(new_zeroPoint);
+        }
+    }
+    // Remove
+    auto start = mPastLength - meta->remove;
+    if (0 == meta->n_reserve) {
+        mPastLength = start;
         return;
     }
-    int oldMaxLength = mMaxLength;
-    mMaxLength = kv_seq_len + mConfig.mExpandChunk;
-    size_t oldKeySize, oldValueSize, keySize, valueSize;
-    if (mConfig.mUseInt8Kernel) {
-        oldKeySize = (size_t)mKvNumHead * UP_DIV(oldMaxLength, hP8) * UP_DIV(mHeadDim, lP8) * hP8 * lP8;
-        keySize = (size_t)mKvNumHead * UP_DIV(mMaxLength, hP8) * UP_DIV(mHeadDim, lP8) * hP8 * lP8;
-    } else if (mConfig.mQuantKey) {
-        oldKeySize = (size_t)mKvNumHead * UP_DIV(oldMaxLength, hP) * mHeadDim * hP;
-        keySize = (size_t)mKvNumHead * UP_DIV(mMaxLength, hP) * mHeadDim * hP;
-    } else {
-        oldKeySize = (size_t)mKvNumHead * UP_DIV(oldMaxLength, hP) * mHeadDim * hP * mBytes;
-        keySize = (size_t)mKvNumHead * UP_DIV(mMaxLength, hP) * mHeadDim * hP * mBytes;
-    }
-    oldValueSize = (size_t)mKvNumHead * UP_DIV(mHeadDim, hP) * oldMaxLength * hP * (mConfig.mQuantValue ? 1 : mBytes);
-    valueSize = (size_t)mKvNumHead * UP_DIV(mHeadDim, hP) * mMaxLength * hP * (mConfig.mQuantValue ? 1 : mBytes);
-    /*==== No limit for kvcache ====*/
-    if (mConfig.mKVCacheSizeLimit == -1) {
-        expandKVCacheInMem(oldMaxLength);
-    }
-    /*==== Last time the kvcache is memory, now it should be in memory too ====*/
-    else if (keySize + valueSize <= mConfig.mKVCacheSizeLimit) {
-        expandKVCacheInMem(oldMaxLength);
-    }
-    /*==== Last time the kvcache is in memory, but now it should be moved to disk ====*/
-    else if (oldKeySize + oldValueSize <= mConfig.mKVCacheSizeLimit) {
-        createKVCacheFile();
-        resetKVCacheFileSize(keySize, valueSize);
-        mmapKVCache(keySize, valueSize);
-        moveKVCacheFromMemToDisk(oldMaxLength);
-        mKVCacheInDisk = true;
-    }
-    /*==== Last time the kvcache is disk, now it should be in disk too ====*/
-    else {
-        expandKVCacheInDisk(oldMaxLength, oldKeySize, oldValueSize, keySize, valueSize);
-    }
-    /* No matter where is the kvcache, the scales and zero points are always in memory, since their size is very small */
-    if (mConfig.mUseInt8Kernel) {
-        auto new_scale = Tensor::createDevice<int32_t>({mKvNumHead, UP_DIV(mMaxLength, hP8), hP8});
-        auto new_zeroPoint = Tensor::createDevice<int32_t>({mKvNumHead, UP_DIV(mMaxLength, hP8), hP8});
-        auto new_sum = Tensor::createDevice<int32_t>({mKvNumHead, UP_DIV(mMaxLength, hP8), hP8});
-        mBackend->onAcquireBuffer(new_scale, Backend::STATIC);
-        mBackend->onAcquireBuffer(new_zeroPoint, Backend::STATIC);
-        mBackend->onAcquireBuffer(new_sum, Backend::STATIC);
-        for (int h = 0; h < mKvNumHead; h++) {
-            memcpy(new_scale->host<char>() + h * UP_DIV(mMaxLength, hP8) * hP8 * 4, mKeyScale->host<char>() + h * UP_DIV(oldMaxLength, hP8) * hP8 * 4, UP_DIV(oldMaxLength, hP8) * hP8 * 4);
-            memcpy(new_zeroPoint->host<char>() + h * UP_DIV(mMaxLength, hP8) * hP8 * 4, mKeyZeroPoint->host<char>() + h * UP_DIV(oldMaxLength, hP8) * hP8 * 4, UP_DIV(oldMaxLength, hP8) * hP8 * 4);
-            memcpy(new_sum->host<char>() + h * UP_DIV(mMaxLength, hP8) * hP8 * 4, mKeySum->host<char>() + h * UP_DIV(oldMaxLength, hP8) * hP8 * 4, UP_DIV(oldMaxLength, hP8) * hP8 * 4);
+    // Don't support not align reserve
+    auto align = hP;
+    auto dstStart = start;
+    auto lastValidSrcEnd = start;
+    for (int n=0; n<meta->n_reserve; ++n) {
+        auto lastEndAlign = UP_DIV(lastValidSrcEnd, align) * align;
+        auto begin = meta->reserve[2 * n];
+        auto size = meta->reserve[2 * n + 1];
+        auto startAlign = ((begin + start) / align) * align;
+        if (startAlign <= lastEndAlign) {
+            // Fullly reserve
+            dstStart = dstStart + size;
+            lastValidSrcEnd = begin + start + size;
+            continue;
         }
-        mKeyScale.reset(new_scale);
-        mKeyZeroPoint.reset(new_zeroPoint);
-        mKeySum.reset(new_sum);
-    } else if (mConfig.mQuantKey) {
-        auto new_scale = Tensor::createDevice<float>({mKvNumHead, UP_DIV(mMaxLength, hP), 1, hP});
-        auto new_zeroPoint = Tensor::createDevice<float>({mKvNumHead, UP_DIV(mMaxLength, hP), 1, hP});
-        mBackend->onAcquireBuffer(new_scale, Backend::STATIC);
-        mBackend->onAcquireBuffer(new_zeroPoint, Backend::STATIC);
-        for (int h = 0; h < mKvNumHead; h++) {
-            memcpy(new_scale->host<char>() + h * UP_DIV(mMaxLength, hP) * hP * mBytes, mKeyScale->host<char>() + h * UP_DIV(oldMaxLength, hP) * hP * mBytes, UP_DIV(oldMaxLength, hP) * hP * mBytes);
-            memcpy(new_zeroPoint->host<char>() + h * UP_DIV(mMaxLength, hP) * hP * mBytes, mKeyZeroPoint->host<char>() + h * UP_DIV(oldMaxLength, hP) * hP * mBytes, UP_DIV(oldMaxLength, hP) * hP * mBytes);
+        auto end = begin + start + size;
+        auto endAlign = UP_DIV(end, align) * align;
+        
+        auto sizeUnit = (endAlign - startAlign) / align;
+        auto dstStartAlign = UP_DIV(dstStart, align) * align;
+
+        //TODO: Support Quant
+//        mPastKey.reset(Tensor::createDevice<float>({mKvNumHead, UP_DIV(mMaxLength, hP), mHeadDim, hP}));
+
+        // Move K
+        auto keyStride = UP_DIV(mMaxLength, align) * align * mHeadDim;
+        auto dstKAddr = keyAddr() + dstStartAlign * mHeadDim * mBytes;
+        auto srcKAddr = keyAddr() + startAlign * mHeadDim * mBytes;
+        for (int i=0; i<mKvNumHead; ++i) {
+            auto dst = dstKAddr + i * keyStride * mBytes;
+            auto src = srcKAddr + i * keyStride * mBytes;
+            for (int j=0; j<sizeUnit; ++j) {
+                ::memcpy(dst + j * align * mHeadDim * mBytes, src + j * align * mHeadDim * mBytes, align * mHeadDim * mBytes);
+            }
         }
-        mKeyScale.reset(new_scale);
-        mKeyZeroPoint.reset(new_zeroPoint);
+
+        //        mPastValue.reset(Tensor::createDevice<float>({mKvNumHead, UP_DIV(mHeadDim, hP), mMaxLength, hP}));
+
+        // Move V
+        auto dstVAddr = valudAddr() + dstStartAlign * align * mBytes;
+        auto srcVAddr = valudAddr() + startAlign * align * mBytes;
+        auto number = mKvNumHead * UP_DIV(mHeadDim, align);
+        for (int i=0; i<number; ++i) {
+            auto dst = dstVAddr + i * mMaxLength * align * mBytes;
+            auto src = srcVAddr + i * mMaxLength * align * mBytes;
+            for (int j=0; j<sizeUnit; ++j) {
+                ::memcpy(dst + j * align * align * mBytes, src + j * align * align * mBytes, align * align * mBytes);
+            }
+        }
+        dstStart = dstStart + size;
+        lastValidSrcEnd = begin + start + size;
     }
+    mPastLength = dstStart;
 }
 
 void KVCacheManager::onClear() {

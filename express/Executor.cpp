@@ -233,6 +233,13 @@ void Executor::RuntimeManager::setHint(Interpreter::HintMode mode, int value) {
 void Executor::RuntimeManager::setExternalPath(std::string path, int type) {
     mInside->modes.setExternalPath(path, type);
 }
+void Executor::RuntimeManager::setHintPtr(Interpreter::HintMode mode, void* value) {
+    auto current = ExecutorScope::Current();
+    auto rt = current->getRuntime();
+    for (auto& iter : rt.first) {
+        iter.second->pMeta = value;
+    }
+}
 
 bool Executor::RuntimeManager::getInfo(Interpreter::SessionInfoCode code, void* ptr) {
     // Only support get memory

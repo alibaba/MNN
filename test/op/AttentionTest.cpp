@@ -8,6 +8,7 @@
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
 #include <MNN/expr/Expr.hpp>
 #include <MNN/expr/ExprCreator.hpp>
+#include "core/OpCommonUtils.hpp"
 #include "MNNTestSuite.h"
 #include "TestUtils.h"
 #include <stdlib.h>
@@ -216,6 +217,11 @@ public:
     
     virtual bool run(int precision) {
         srand(2024);
+        auto rt = ExecutorScope::Current()->getRuntime();
+        MNN::KVMeta meta;
+        for (auto& iter : rt.first) {
+            iter.second->pMeta = &meta;
+        }
         std::shared_ptr<NaiveAttention> naiveAttention(new NaiveAttention);
         std::shared_ptr<MNN::OpT> attention(new MNN::OpT);
         attention->type = MNN::OpType_Attention;
@@ -223,6 +229,7 @@ public:
         attention->main.value = new MNN::AttentionParamT;
         attention->main.AsAttentionParam()->kv_cache = true;
         int seq_len = 10;
+        meta.add = seq_len;
         generateInput(seq_len);
         generateMask(seq_len, seq_len);
         expected_result = naiveAttention->onExecute(query, key, value, mask, seq_len);
