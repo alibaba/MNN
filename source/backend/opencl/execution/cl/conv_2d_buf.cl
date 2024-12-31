@@ -645,13 +645,16 @@ void conv_2d_c4h1w1(GLOBAL_SIZE_2_DIMS
                       __private const int2 dilate_hw,
                       __private const int out_w_blocks,
                       __private const int out_c_blocks,
-                      __private const int out_h_blocks) {
+                      __private const int out_h_blocks,
+                      __private const int out_c_base_index
+) {
     const int out_c_w_idx = get_global_id(0); //c/4 w
     const int out_b_h_idx  = get_global_id(1); //b h
 
     DEAL_NON_UNIFORM_DIM2(out_c_w_idx, out_b_h_idx);
 
-    const int out_c_idx = out_c_w_idx / out_hw.y;
+    const int out_c_idx = out_c_w_idx / out_hw.y + out_c_base_index;
+    if(out_c_idx >= out_c_blocks) return;
     const int out_w_idx = out_c_w_idx % out_hw.y;
     const int out_b_idx = out_b_h_idx / out_hw.x;//equal to in_b_idx
     const int out_h_idx = out_b_h_idx % out_hw.x;
@@ -725,13 +728,16 @@ void conv_2d_c4h1w2(GLOBAL_SIZE_2_DIMS
                       __private const int2 dilate_hw,
                       __private const int out_w_blocks,//generate width's num
                       __private const int out_c_blocks,
-                      __private const int out_h_blocks) {
+                      __private const int out_h_blocks,
+                      __private const int out_c_base_index
+) {
     const int out_c_w_idx = get_global_id(0); //c/4 w
     const int out_b_h_idx  = get_global_id(1); //b h
 
     DEAL_NON_UNIFORM_DIM2(out_c_w_idx, out_b_h_idx);
 
-    const int out_c_idx = out_c_w_idx / out_w_blocks;
+    const int out_c_idx = out_c_w_idx / out_w_blocks + out_c_base_index;
+    if(out_c_idx >= out_c_blocks) return;
     const int out_w_idx = (out_c_w_idx % out_w_blocks) << 1;
     const int out_b_idx = out_b_h_idx / out_hw.x;//equal to in_b_idx
     const int out_h_idx = out_b_h_idx % out_hw.x;
@@ -820,13 +826,16 @@ void conv_2d_c4h1w4(GLOBAL_SIZE_2_DIMS
                       __private const int2 dilate_hw,
                       __private const int out_w_blocks,
                       __private const int out_c_blocks,
-                      __private const int out_h_blocks) {
+                      __private const int out_h_blocks,
+                      __private const int out_c_base_index
+) {
     const int out_c_w_idx = get_global_id(0); //c/4 w
     const int out_b_h_idx  = get_global_id(1); //b h
 
     DEAL_NON_UNIFORM_DIM2(out_c_w_idx, out_b_h_idx);
 
-    const int out_c_idx = out_c_w_idx / out_w_blocks;
+    const int out_c_idx = out_c_w_idx / out_w_blocks + out_c_base_index;
+    if(out_c_idx >= out_c_blocks) return;
     const int out_w_idx = (out_c_w_idx % out_w_blocks) << 2;
     const int out_b_idx = out_b_h_idx / out_hw.x;//equal to in_b_idx
     const int out_h_idx = out_b_h_idx % out_hw.x;
@@ -946,13 +955,16 @@ void conv_2d_c4h4w1(GLOBAL_SIZE_2_DIMS
                       __private const int2 dilate_hw,
                       __private const int out_w_blocks,
                       __private const int out_c_blocks,
-                      __private const int out_h_blocks) {
+                      __private const int out_h_blocks,
+                      __private const int out_c_base_index
+) {
     const int out_c_w_idx = get_global_id(0); //c/4 w
     const int out_b_h_idx  = get_global_id(1); //b h
 
     DEAL_NON_UNIFORM_DIM2(out_c_w_idx, out_b_h_idx);
 
-    const int out_c_idx = out_c_w_idx / out_w_blocks;
+    const int out_c_idx = out_c_w_idx / out_w_blocks + out_c_base_index;
+    if(out_c_idx >= out_c_blocks) return;
     const int out_w_idx = out_c_w_idx % out_w_blocks;
     const int out_b_idx = out_b_h_idx / out_h_blocks;//equal to in_b_idx
     const int out_h_idx = (out_b_h_idx % out_h_blocks) << 2;
@@ -1079,13 +1091,16 @@ void conv_2d_c8h4w1(GLOBAL_SIZE_2_DIMS
                       __private const int2 dilate_hw,
                       __private const int out_w_blocks,
                       __private const int out_c_blocks,
-                      __private const int out_h_blocks) {
+                      __private const int out_h_blocks,
+                      __private const int out_c_base_index
+) {
     const int out_c_w_idx = get_global_id(0); //c/4 w
     const int out_b_h_idx  = get_global_id(1); //b h
 
     DEAL_NON_UNIFORM_DIM2(out_c_w_idx, out_b_h_idx);
 
-    const int out_c_idx_0 = (out_c_w_idx / out_w_blocks) << 1;
+    const int out_c_idx_0 = ((out_c_w_idx / out_w_blocks + out_c_base_index) << 1);
+    if(out_c_idx_0 >= out_c_blocks) return;
     const int out_c_idx_1 = out_c_idx_0 + 1;
     const int out_w_idx = out_c_w_idx % out_w_blocks;
     const int out_b_idx = out_b_h_idx / out_h_blocks;//equal to in_b_idx
@@ -1293,13 +1308,16 @@ void conv_2d_c8h2w1(GLOBAL_SIZE_2_DIMS
                       __private const int2 dilate_hw,
                       __private const int out_w_blocks,
                       __private const int out_c_blocks,
-                      __private const int out_h_blocks) {
+                      __private const int out_h_blocks,
+                      __private const int out_c_base_index
+) {
     const int out_c_w_idx = get_global_id(0); //c/4 w
     const int out_b_h_idx  = get_global_id(1); //b h
 
     DEAL_NON_UNIFORM_DIM2(out_c_w_idx, out_b_h_idx);
 
-    const int out_c_idx_0 = (out_c_w_idx / out_w_blocks) << 1;
+    const int out_c_idx_0 = (out_c_w_idx / out_w_blocks + out_c_base_index) << 1;
+    if(out_c_idx_0 >= out_c_blocks) return;
     const int out_c_idx_1 = out_c_idx_0 + 1;
     const int out_w_idx = out_c_w_idx % out_w_blocks;
     const int out_b_idx = out_b_h_idx / out_h_blocks;//equal to in_b_idx
@@ -1446,13 +1464,16 @@ void conv_2d_c8h1w4(GLOBAL_SIZE_2_DIMS
                       __private const int2 dilate_hw,
                       __private const int out_w_blocks,
                       __private const int out_c_blocks,
-                      __private const int out_h_blocks) {
+                      __private const int out_h_blocks,
+                      __private const int out_c_base_index
+) {
     const int out_c_w_idx = get_global_id(0); //c/4 w
     const int out_b_h_idx  = get_global_id(1); //b h
 
     DEAL_NON_UNIFORM_DIM2(out_c_w_idx, out_b_h_idx);
 
-    const int out_c_idx_0 = (out_c_w_idx / out_w_blocks) << 1;
+    const int out_c_idx_0 = (out_c_w_idx / out_w_blocks + out_c_base_index) << 1;
+    if(out_c_idx_0 >= out_c_blocks) return;
     const int out_c_idx_1 = out_c_idx_0 + 1;
     const int out_w_idx = (out_c_w_idx % out_w_blocks) << 2;
     const int out_b_idx = out_b_h_idx / out_hw.x;//equal to in_b_idx

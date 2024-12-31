@@ -239,6 +239,7 @@ OpenCLBackend::OpenCLBackend(BackendConfig::PrecisionMode precision, BackendConf
 
         mImagePoolFirst.reset(new ImagePool(mOpenCLRuntime->context()));
         mBufferPoolFirst.reset(new BufferPool(mOpenCLRuntime->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR));
+        mExecutionBufferPool.reset(new BufferExecutionPool(mOpenCLRuntime->context(), mOpenCLRuntime->commandQueue(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR));
         mImagePool = mImagePoolFirst.get();
         mBufferPool = mBufferPoolFirst.get();
     }
@@ -256,6 +257,7 @@ OpenCLBackend::~OpenCLBackend() {
     mRecordings.clear();
     mImagePool = nullptr;
     mBufferPool = nullptr;
+    mExecutionBufferPool->clear();
     if(mMapMem.second != nullptr) {
     #ifdef MNN_OPENCL_SVM_ENABLE
         if(mUseSvm)
@@ -274,6 +276,20 @@ OpenCLBackend::~OpenCLBackend() {
 OpenCLRuntime* OpenCLBackend::getOpenCLRuntime() {
     return mOpenCLRuntime.get();
 }
+
+class CLReleaseExecutionBuffer : public Backend::MemObj {
+public:
+    CLReleaseExecutionBuffer(std::shared_ptr<OpenCLBufferNode> node, BufferExecutionPool* bufferPool) {
+        mNode = node;
+        mBufferPool = bufferPool;
+    }
+    virtual ~ CLReleaseExecutionBuffer() {
+        mBufferPool->recycle(mNode);
+    }
+private:
+    std::shared_ptr<OpenCLBufferNode> mNode;
+    BufferExecutionPool* mBufferPool;
+};
 
 class CLMemReleaseBuffer : public Backend::MemObj {
 public:
@@ -368,6 +384,11 @@ Backend::MemObj* OpenCLBackend::onAcquire(const Tensor* nativeTensor, StorageTyp
             auto buffer = mBufferPool->alloc(size*typeSize);
             ((Tensor*)nativeTensor)->buffer().device = (uint64_t)buffer;
             return new CLMemReleaseBuffer(buffer, mBufferPool);
+        }
+        if (storageType == DYNAMIC_IN_EXECUTION){
+            auto node = mExecutionBufferPool->alloc(size*typeSize);
+            ((Tensor*)nativeTensor)->buffer().device = reinterpret_cast<uint64_t>(node.get());
+            return new CLReleaseExecutionBuffer(node, mExecutionBufferPool.get());
         }
         MNN_ASSERT(storageType == STATIC);
 

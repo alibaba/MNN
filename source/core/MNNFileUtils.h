@@ -56,6 +56,14 @@ MNN_PUBLIC std::string MNNFilePathConcat(std::string prefix, std::string suffix)
 MNN_PUBLIC bool MNNDirExist(const char * path);
 
 /*=============================================================================================
+**  @brief      Create a directory if not exists
+**  @param      path -- path of the directory
+**  @return     If the directory exists or create success, returns true
+**              If the directory does not exist and create fail, return false
+*/
+MNN_PUBLIC bool MNNCreateDir(const char * path);
+
+/*=============================================================================================
 **  @brief      Check whether a file exists
 **  @param      file_name -- path of the file
 **  @return     If the file exists, returns true

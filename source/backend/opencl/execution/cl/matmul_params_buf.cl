@@ -1410,6 +1410,7 @@ void XgemmBatched(const int kSizeM,
                   #endif
                   __global realM* cgm,
                   const int4 batch_offset, // [batch_offset_a, batch_offset_b, batch_offset_c, batch_offset_e]
+                  const int4 base_ptr_offset, // [base_ptr_offset_a, base_ptr_offset_b, base_ptr_offset_c, base_ptr_offset_e]
                   const int4 stride, // [stride_a, stride_b, stride_c, stride_e]
                   /*
                      total_batch -> [loop_y, loop_x]
@@ -1421,15 +1422,15 @@ void XgemmBatched(const int kSizeM,
     const int batch = get_group_id(2);
     
     // Sets the offsets
-    const int a_offset = ((batch / group.w) * group.x + (batch % group.w) / group.x) * batch_offset.x;
-    const int b_offset = ((batch / group.w) * group.y + (batch % group.w) / group.y) * batch_offset.y;
-    const int c_offset = batch * batch_offset.z;
+    const int a_offset = base_ptr_offset.x + ((batch / group.w) * group.x + (batch % group.w) / group.x) * batch_offset.x;
+    const int b_offset = base_ptr_offset.y + ((batch / group.w) * group.y + (batch % group.w) / group.y) * batch_offset.y;
+    const int c_offset = base_ptr_offset.z + batch * batch_offset.z;
     const __global realM* restrict agm_ = &agm[a_offset / VWM];
     const __global realN* restrict bgm_ = &bgm[b_offset / VWN];
     __global realM* restrict cgm_ = &cgm[c_offset / VWM];
     
     #if BIAS_TYPE > 0
-    const int e_offset = ((batch / group.w) * group.z + (batch % group.w) / group.z) * batch_offset.w;
+    const int e_offset = base_ptr_offset.w + ((batch / group.w) * group.z + (batch % group.w) / group.z) * batch_offset.w;
     __global realN* restrict egm_ = &egm[e_offset / VWN];
     #endif
   

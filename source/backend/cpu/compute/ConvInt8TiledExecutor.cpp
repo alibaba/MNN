@@ -102,7 +102,7 @@ void ConvInt8TiledExecutor::reorderWeight(Tensor* weight, const uint8_t* weightS
 
 static bool _reorderWeightInside(Backend* bn, const Convolution2DCommon* common,
                                  const std::shared_ptr<Tensor>& weightOrigin,
-                                 std::shared_ptr<Tensor>& weight, int blockNum) {
+                                 std::shared_ptr<Tensor>& weight, int blockNum, bool alloc) {
     MNN_ASSERT(blockNum > 0);
     auto core = static_cast<CPUBackend*>(bn)->int8Functions();
     auto gcore = static_cast<CPUBackend*>(bn)->functions();
@@ -118,13 +118,20 @@ static bool _reorderWeightInside(Backend* bn, const Convolution2DCommon* common,
     } else {
         shape = {UP_DIV(oc, UNIT), UP_DIV(ic, SRC_UNIT) * kernelCount, UNIT, SRC_UNIT};
     }
-
-    weight.reset(Tensor::createDevice<int8_t>(shape));
-
-    bool succ = bn->onAcquireBuffer(weight.get(), Backend::STATIC);
-    if (!succ) {
-        MNN_ERROR("Memory not enough");
-        return false;
+    bool useCachedMmap = bn->getRuntime()->hint().useCachedMmap > 1;
+    if (alloc) {
+        weight.reset(Tensor::createDevice<int8_t>(shape));
+        bool succ = bn->onAcquireBuffer(weight.get(), Backend::STATIC);
+        if (!succ) {
+            MNN_ERROR("Memory not enough");
+            return false;
+        }
+    } else {
+        // useCachedMmap don't need alloc memory
+        weight.reset(useCachedMmap ? Tensor::createDevice<int8_t>(shape) : Tensor::create<int8_t>(shape));
+    }
+    if (useCachedMmap) {
+        return true;
     }
     ConvInt8TiledExecutor::reorderWeight(weight.get(), weightOrigin->host<uint8_t>(), SRC_UNIT, UNIT, ic, oc, kernelCount, pack, blockNum);
     return true;
@@ -136,6 +143,7 @@ static void GetResourceInt8(std::shared_ptr<CPUConvolution::ResourceInt8> resour
     auto core = static_cast<CPUBackend*>(backend)->functions();
     int LSize = conv2d->common()->inputCount() * conv2d->common()->kernelX() * conv2d->common()->kernelY();
     int ocUp4 = ROUND_UP(outputCount, core->pack);
+    bool useCachedMmap = backend->getRuntime()->hint().useCachedMmap > 1;
 
     int dequantCnt = quantCommon->alpha.size();
     if (quantCommon->asymmetric) {
@@ -151,20 +159,13 @@ static void GetResourceInt8(std::shared_ptr<CPUConvolution::ResourceInt8> resour
         originOffset = -8;
         resource->mActBits = 4;
     }
-    // Save bias
+    // alloc memory
     resource->mOriginBias.reset(Tensor::createDevice<int32_t>({ocUp4})); // float
     auto success = backend->onAcquireBuffer(resource->mOriginBias.get(), Backend::STATIC);
     if (!success) {
         MNN_ERROR("Alloc bias memory error\n");
         return;
     }
-    ::memset(resource->mOriginBias->host<float>(), 0, ocUp4 * sizeof(float));
-    if (conv2d->bias()) {
-        ::memcpy(resource->mOriginBias->host<float>(), conv2d->bias()->data(), outputCount * sizeof(float));
-    } else {
-        ::memset(resource->mOriginBias->host<float>(), 0, ocUp4 * sizeof(float));
-    }
-    // Save weight quant alpha and zero: wf=alpha*wi+zero
     int bytes = 4;
     resource->mOriginScale.reset(Tensor::createDevice<uint8_t>({2 * scaleSize * bytes}));
     success = backend->onAcquireBuffer(resource->mOriginScale.get(), Backend::STATIC);
@@ -172,6 +173,23 @@ static void GetResourceInt8(std::shared_ptr<CPUConvolution::ResourceInt8> resour
         MNN_ERROR("Alloc denquant alpha, zero memory error\n");
         return;
     }
+    resource->mWeightKernelSum.reset(Tensor::createDevice<uint8_t>({bytes * ocUp4}));
+    success = backend->onAcquireBuffer(resource->mWeightKernelSum.get(), Backend::STATIC);
+    if (!success) {
+        MNN_ERROR("Alloc denquant weight kernel sum memory error\n");
+        return;
+    }
+    if (useCachedMmap) {
+        return;
+    }
+    // Save bias
+    ::memset(resource->mOriginBias->host<float>(), 0, ocUp4 * sizeof(float));
+    if (conv2d->bias()) {
+        ::memcpy(resource->mOriginBias->host<float>(), conv2d->bias()->data(), outputCount * sizeof(float));
+    } else {
+        ::memset(resource->mOriginBias->host<float>(), 0, ocUp4 * sizeof(float));
+    }
+    // Save weight quant alpha and zero: wf=alpha*wi+zero
     auto alphaPtr = resource->mOriginScale->host<float>();
     auto biasPtr = reinterpret_cast<float*>(reinterpret_cast<uint8_t*>(alphaPtr) + scaleSize * bytes);
     if (outputCount % core->pack != 0) {
@@ -202,12 +220,6 @@ static void GetResourceInt8(std::shared_ptr<CPUConvolution::ResourceInt8> resour
         }
     }
     // Save float weight kernel sum
-    resource->mWeightKernelSum.reset(Tensor::createDevice<uint8_t>({bytes * ocUp4}));
-    success = backend->onAcquireBuffer(resource->mWeightKernelSum.get(), Backend::STATIC);
-    if (!success) {
-        MNN_ERROR("Alloc denquant weight kernel sum memory error\n");
-        return;
-    }
     auto weightKernelSum = resource->mWeightKernelSum->host<float>();
     auto realWeightData = quantCommon->weight.get();
     ::memset(weightKernelSum, 0, resource->mWeightKernelSum->size());
@@ -266,7 +278,7 @@ DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const O
     int oc = convOp->common()->outputCount();
     int ic = convOp->common()->inputCount();
     bool directReadInt4weight = (kernelCount == 1 && ROUND_UP(oc, UNIT) == oc && ROUND_UP(ic, SRC_UNIT) == ic);
-
+    bool useCachedMmap = backend->getRuntime()->hint().useCachedMmap > 1;
 #ifdef MNN_KLEIDIAI_ENABLED
     bool half_act = gcore->bytes == 2;
     int biasSize = mResourceInt8->mOriginBias->size();
@@ -323,44 +335,42 @@ DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const O
             MNN_ERROR("int4 weight acquire buffer error\n");
             return ;
         }
-        auto srcPtr = (uint8_t*)quanCommon->weight.get();
-        auto dstPtr = mResourceInt8->mWeightInt8->host<uint8_t>();
-        ::memset(dstPtr, 0, mResourceInt8->mWeightInt8->size());
-
-        // Pack two int4-weight to one int8-weight.
-        int cnt = lP * hP / 4;
-        int L = lU * lP;
-        int blockL = lU / blockNum;
-        int stride0 = (lP * hP) * hU * blockL;
-        int stride1 = (lP * hP) * blockL;
-        for (int i = 0; i < hU; ++i) {
-            for (int j = 0; j < lU; ++j) {
-                int blockId = j / blockL;
-                int blockkInsideId = j % blockL;
-                for (int k = 0; k < cnt; ++k) {
-                    int dstIndx0 = (blockId * stride0 + i * stride1 + blockkInsideId * lP * hP) / 2 + (2 * k);
-
-                    int hpId0     = (2 * k + 1) / lP;
-                    int lpId0     = (2 * k) % lP;
-                    int hpId1     = (2 * (k + cnt) + 1) / lP;
-                    int lpId1     = (2 * (k + cnt)) % lP;
-                    int srcIndx0 = ((i * hP + hpId0) * L + (j * lP + lpId0)) / 2;
-                    int srcIndx1 = ((i * hP + hpId1) * L + (j * lP + lpId1)) / 2;
-                    int s0 = (srcPtr[srcIndx0] >> 4);
-                    int s1 = (srcPtr[srcIndx0] & 15);
-                    int s2 = (srcPtr[srcIndx1] >> 4);
-                    int s3 = (srcPtr[srcIndx1] & 15);
-                    int d0 = s0 * 16 + s2;
-                    int d1 = s1 * 16 + s3;
-
-                    dstPtr[dstIndx0] = d0;
-                    dstPtr[dstIndx0 + 1] = d1;
+        if (!useCachedMmap) {
+            auto srcPtr = (uint8_t*)quanCommon->weight.get();
+            auto dstPtr = mResourceInt8->mWeightInt8->host<uint8_t>();
+            ::memset(dstPtr, 0, mResourceInt8->mWeightInt8->size());
+            // Pack two int4-weight to one int8-weight.
+            int cnt = lP * hP / 4;
+            int L = lU * lP;
+            int blockL = lU / blockNum;
+            int stride0 = (lP * hP) * hU * blockL;
+            int stride1 = (lP * hP) * blockL;
+            for (int i = 0; i < hU; ++i) {
+                for (int j = 0; j < lU; ++j) {
+                    int blockId = j / blockL;
+                    int blockkInsideId = j % blockL;
+                    for (int k = 0; k < cnt; ++k) {
+                        int dstIndx0 = (blockId * stride0 + i * stride1 + blockkInsideId * lP * hP) / 2 + (2 * k);
+                        int hpId0     = (2 * k + 1) / lP;
+                        int lpId0     = (2 * k) % lP;
+                        int hpId1     = (2 * (k + cnt) + 1) / lP;
+                        int lpId1     = (2 * (k + cnt)) % lP;
+                        int srcIndx0 = ((i * hP + hpId0) * L + (j * lP + lpId0)) / 2;
+                        int srcIndx1 = ((i * hP + hpId1) * L + (j * lP + lpId1)) / 2;
+                        int s0 = (srcPtr[srcIndx0] >> 4);
+                        int s1 = (srcPtr[srcIndx0] & 15);
+                        int s2 = (srcPtr[srcIndx1] >> 4);
+                        int s3 = (srcPtr[srcIndx1] & 15);
+                        int d0 = s0 * 16 + s2;
+                        int d1 = s1 * 16 + s3;
+                        dstPtr[dstIndx0] = d0;
+                        dstPtr[dstIndx0 + 1] = d1;
+                    }
                 }
             }
         }
     } else {
         // std::shared_ptr<Tensor> srcWeight;
-
         if (quanCommon->canUseInt4) {
             mResourceInt8->mWeightAsymmetricQuant = true;
             auto srcPtr = reinterpret_cast<uint8_t*>(quanCommon->weight.get());
@@ -372,34 +382,39 @@ DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const O
                 tmpWeight[2 * i + 1] = s1;
             }
             std::shared_ptr<Tensor> srcWeight(Tensor::create<uint8_t>({weightLength * 2}, (void*)tmpWeight.data()));
-            mValid = _reorderWeightInside(backend, convOp->common(), srcWeight, mResourceInt8->mWeightInt8, blockNum);
+            std::shared_ptr<Tensor> tmpWeightInt8;
+            mValid = _reorderWeightInside(backend, convOp->common(), srcWeight, tmpWeightInt8, blockNum, false);
             if(!mValid) {
                 return;
             }
-            MNN_ASSERT(mResourceInt8->mWeightInt8->size() % 2 == 0);
-            int leng = mResourceInt8->mWeightInt8->size();
+            MNN_ASSERT(tmpWeightInt8->size() % 2 == 0);
+            int leng = tmpWeightInt8->size();
             int halflen = leng / 2;
-            std::shared_ptr<Tensor> weightLow(Tensor::create<uint8_t>({halflen}));
-            auto dstint4Ptr = weightLow->host<uint8_t>();
-            auto srcint4Ptr = mResourceInt8->mWeightInt8->host<int8_t>();
-            int permuteUnit = UNIT * SRC_UNIT;
-            int halfPermuteStride = static_cast<int32_t>(permuteUnit / 2);
-            for (int i = 0; i < leng / permuteUnit; ++i) {
-                auto src0 = srcint4Ptr + i * permuteUnit;
-                auto dst0 = dstint4Ptr + i * halfPermuteStride;
-                for (int j = 0; j < halfPermuteStride; ++j) {
-                    int s0 = src0[j];
-                    int s1 = src0[j + halfPermuteStride];
-                    int d = (s0 + 8) * 16 + (s1 + 8);
-                    dst0[j] = d;
+            mResourceInt8->mWeightInt8.reset(Tensor::createDevice<int8_t>({halflen}));
+            bool succ = backend->onAcquireBuffer(mResourceInt8->mWeightInt8.get(), Backend::STATIC);
+            if (!succ) {
+                MNN_ERROR("Memory not enough");
+                return;
+            }
+            if (!useCachedMmap) {
+                auto srcint4Ptr = tmpWeightInt8->host<int8_t>();
+                auto dstint4Ptr = mResourceInt8->mWeightInt8->host<uint8_t>();
+                int permuteUnit = UNIT * SRC_UNIT;
+                int halfPermuteStride = static_cast<int32_t>(permuteUnit / 2);
+                for (int i = 0; i < leng / permuteUnit; ++i) {
+                    auto src0 = srcint4Ptr + i * permuteUnit;
+                    auto dst0 = dstint4Ptr + i * halfPermuteStride;
+                    for (int j = 0; j < halfPermuteStride; ++j) {
+                        int s0 = src0[j];
+                        int s1 = src0[j + halfPermuteStride];
+                        int d = (s0 + 8) * 16 + (s1 + 8);
+                        dst0[j] = d;
+                    }
                 }
             }
-
-            // Update int4 weight to mWeightInt8.
-            mResourceInt8->mWeightInt8 = weightLow;
         } else {
             std::shared_ptr<Tensor> srcWeight(Tensor::create<uint8_t>({weightLength}, (void*)quanCommon->weight.get()));
-            mValid = _reorderWeightInside(backend, convOp->common(), srcWeight, mResourceInt8->mWeightInt8, blockNum);
+            mValid = _reorderWeightInside(backend, convOp->common(), srcWeight, mResourceInt8->mWeightInt8, blockNum, true);
             if(!mValid) {
                 return;
             }
@@ -471,7 +486,7 @@ static void _computeAlphaScale(Backend* backend, const Convolution2D* conv2d, st
 DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const Op* op, std::shared_ptr<ResourceInt8> res) : ConvInt8TiledExecutor(backend, op, res) {
     std::shared_ptr<Tensor> weightOrigin = mResourceInt8->mWeightInt8;
     auto convOp = op->main_as_Convolution2D();
-    mValid = _reorderWeightInside(backend, convOp->common(), weightOrigin, mResourceInt8->mWeightInt8, mBlockNum);
+    mValid = _reorderWeightInside(backend, convOp->common(), weightOrigin, mResourceInt8->mWeightInt8, mBlockNum, true);
     if(!mValid) {
         return;
     }

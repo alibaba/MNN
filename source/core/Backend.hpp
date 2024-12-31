@@ -29,18 +29,18 @@ struct RuntimeHint {
     // 0: Defer, 1: Eager
     int memoryAllocatorType = 0;
     int winogradMemoryUsed = 3;
-    
+
     // 0-100, 50 means litter core has 50% capacity of large core
     int cpuDecreaseRate = 50;
     int dynamicQuantOption = 0;
 
     // 0: Do not quantize
-    // 1: Only quantize key, use int8 asymmetric quantization 
+    // 1: Only quantize key, use int8 asymmetric quantization
     // 2: Only quantize value, use fp8 quantization
     // 3: quantize both key and value
     // 4: quantize query, key and value, and use gemm int8 kernel to compute K*V
     int qkvQuantOption = 0;
-    
+
     // the kvcache size limit of each layer
     // if the size of kvcache in memory exceeds the limit
     // it will be moved to disk to save memory
@@ -49,10 +49,12 @@ struct RuntimeHint {
 
     // path of the kvcache directory
     std::string kvcacheDirPath = "/tmp";
-    
+
     std::string midMemoryPath;
     std::string weightMemoryPath;
-    
+    int mmapFileSize = 1024; // MB
+    int useCachedMmap = 0;
+
     // op encoder number for once commit
     int encorderNumForCommit = 10;
 };
@@ -103,7 +105,9 @@ public:
          - do NOTHING when `onReleaseBuffer` is called.
          - releases memory when `onClearBuffer` is called or when the backend is deleted.
          */
-        DYNAMIC_SEPERATE
+        DYNAMIC_SEPERATE,
+        
+        DYNAMIC_IN_EXECUTION
     };
 
 public:
@@ -155,7 +159,7 @@ public:
     virtual const Runtime* getRuntime() {
         return nullptr;
     }
-    
+
     /**
      * @brief allocate buffer of tensor for given storage type.
      * @param tensor        buffer provider.
@@ -185,7 +189,7 @@ public:
      * @return MemObj for release, if failed, return nullptr.
      */
     virtual MemObj* onAcquire(const Tensor* tensor, StorageType storageType) = 0;
-    
+
     virtual bool onSelectDynamicAllocator(int index, int maxIndex) {
         return false;
     }
@@ -340,6 +344,9 @@ public:
     MNN_PUBLIC bool hasAsyncWork() const;
     void setAsyncWork(std::future<int>&& future);
     MNN_PUBLIC void waitAsyncWork();
+
+    // TODO: Move to Backend
+    void* pMeta;
 private:
     std::future<int> mFuture;
     RuntimeHint mHint;

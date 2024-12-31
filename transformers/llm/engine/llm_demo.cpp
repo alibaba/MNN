@@ -14,15 +14,6 @@
 #include <stdlib.h>
 using namespace MNN::Transformer;
 
-static void trace_prepare(Llm* llm) {
-    MNN_PRINT("Prepare for resize opt Begin\n");
-    llm->trace(true);
-    std::ostringstream cacheOs;
-    llm->generate({200, 200}, &cacheOs, "");
-    MNN_PRINT("Prepare for resize opt End\n");
-    llm->trace(false);
-}
-
 static void tuning_prepare(Llm* llm) {
     MNN_PRINT("Prepare for tuning opt Begin\n");
     llm->tuning(OP_ENCODER_NUMBER, {1, 5, 10, 20, 30, 50, 100});
@@ -72,7 +63,7 @@ std::vector<std::vector<std::string>> parse_csv(const std::vector<std::string>& 
     return csv_data;
 }
 
-static int benchmark(Llm* llm, const std::vector<std::string>& prompts) {
+static int benchmark(Llm* llm, const std::vector<std::string>& prompts, int max_token_number) {
     int prompt_len = 0;
     int decode_len = 0;
     int64_t vision_time = 0;
@@ -80,19 +71,30 @@ static int benchmark(Llm* llm, const std::vector<std::string>& prompts) {
     int64_t prefill_time = 0;
     int64_t decode_time = 0;
     // llm->warmup();
+    auto& state = llm->getState();
+    if (max_token_number > 0) {
+        llm->set_config("{\"max_new_tokens\":1}");
+    }
     for (int i = 0; i < prompts.size(); i++) {
         const auto& prompt = prompts[i];
         // prompt start with '#' will be ignored
         if (prompt.substr(0, 1) == "#") {
             continue;
         }
-        llm->response(prompt);
-        prompt_len += llm->prompt_len_;
-        decode_len += llm->gen_seq_len_;
-        vision_time += llm->vision_us_;
-        audio_time += llm->audio_us_;
-        prefill_time += llm->prefill_us_;
-        decode_time += llm->decode_us_;
+        if (max_token_number > 0) {
+            llm->response(prompt, &std::cout, nullptr, 0);
+            while (!llm->stoped() && state.gen_seq_len_ < max_token_number) {
+                llm->generate(1);
+            }
+        } else {
+            llm->response(prompt);
+        }
+        prompt_len += state.prompt_len_;
+        decode_len += state.gen_seq_len_;
+        vision_time += state.vision_us_;
+        audio_time += state.audio_us_;
+        prefill_time += state.prefill_us_;
+        decode_time += state.decode_us_;
     }
     float vision_s = vision_time / 1e6;
     float audio_s = audio_time / 1e6;
@@ -125,8 +127,11 @@ static int ceval(Llm* llm, const std::vector<std::string>& lines, std::string fi
         prompt += "\n\n";
         printf("%s", prompt.c_str());
         printf("## 进度: %d / %lu\n", i, lines.size() - 1);
-        auto res = llm->response(prompt.c_str());
-        answers.push_back(res);
+        std::ostringstream lineOs;
+        llm->response(prompt.c_str(), &lineOs);
+        auto line = lineOs.str();
+        printf("%s", line.c_str());
+        answers.push_back(line);
     }
     {
         auto position = filename.rfind("/");
@@ -149,7 +154,7 @@ static int ceval(Llm* llm, const std::vector<std::string>& lines, std::string fi
     return 0;
 }
 
-static int eval(Llm* llm, std::string prompt_file) {
+static int eval(Llm* llm, std::string prompt_file, int max_token_number) {
     std::cout << "prompt file is " << prompt_file << std::endl;
     std::ifstream prompt_fs(prompt_file);
     std::vector<std::string> prompts;
@@ -168,7 +173,7 @@ static int eval(Llm* llm, std::string prompt_file) {
     if (prompts[0] == "id,question,A,B,C,D,answer") {
         return ceval(llm, prompts, prompt_file);
     }
-    return benchmark(llm, prompts);
+    return benchmark(llm, prompts, max_token_number);
 }
 
 int main(int argc, const char* argv[]) {
@@ -190,16 +195,17 @@ int main(int argc, const char* argv[]) {
     }
     if (true) {
         AUTOTIME;
-        trace_prepare(llm.get());
-    }
-    if (true) {
-        AUTOTIME;
         tuning_prepare(llm.get());
     }
     if (argc < 3) {
         llm->chat();
         return 0;
     }
+    int max_token_number = -1;
+    if (argc >= 4) {
+        std::istringstream os(argv[3]);
+        os >> max_token_number;
+    }
     std::string prompt_file = argv[2];
-    return eval(llm.get(), prompt_file);
+    return eval(llm.get(), prompt_file, max_token_number);
 }

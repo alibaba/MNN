@@ -7,7 +7,11 @@
 //
 
 #ifdef MNN_BUILD_AUDIO
-
+#ifndef M_PI
+#define M_PI 3.141592654
+#endif
+#include <algorithm>
+#include <cmath>
 #include "backend/cpu/CPUStft.hpp"
 #include "backend/cpu/CPUBackend.hpp"
 #include "core/Concurrency.h"
@@ -16,6 +20,21 @@
 #include "compute/CommonOptFunction.h"
 
 namespace MNN {
+static void MNNDftAbs(const float* input, const float* window, float* output, float* buffer, int nfft) {
+    for (int i = 0; i < nfft; ++i) {
+        buffer[i] = input[i] * window[i];
+    }
+    for (int k = 0; k < nfft / 2 + 1; ++k) {
+        float real_sum = 0.f, imag_sum = 0.f;
+        for (int n = 0; n < nfft; ++n) {
+            float angle = 2 * M_PI * k * n / nfft;
+            real_sum += buffer[n] * cosf(angle);
+            imag_sum -= buffer[n] * sinf(angle);
+        }
+        output[k] = sqrtf(real_sum * real_sum + imag_sum * imag_sum);
+    }
+}
+
 
 CPUStft::CPUStft(Backend* backend, int nfft, int hop_length, bool abs)
     : Execution(backend), mNfft(nfft), mHopLength(hop_length), mAbs(abs) {

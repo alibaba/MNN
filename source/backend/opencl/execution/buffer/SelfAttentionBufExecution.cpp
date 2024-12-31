@@ -219,6 +219,8 @@ ErrorCode SelfAttentionBufImpl::onResize(Backend *backend, const std::vector<Ten
             int batch_offset_c = e_pack * h_pack;
             
             int batch_offset[4] = {batch_offset_a, batch_offset_b, batch_offset_c, 0};
+            int base_ptr_offset[4] = {0, 0, 0, 0};
+
             int stride[4] = {e_pack, h_pack, h_pack, h_pack};
             int group[4] = {1, 1, 1, loop};
             int idx            = 0;
@@ -232,6 +234,7 @@ ErrorCode SelfAttentionBufImpl::onResize(Backend *backend, const std::vector<Ten
             ret |= mKernel_qk[seq_idx]->get().setArg(idx++, openCLBuffer(mTempK.get()));
             ret |= mKernel_qk[seq_idx]->get().setArg(idx++, openCLBuffer(mTempQK.get()));
             ret |= mKernel_qk[seq_idx]->get().setArg(idx++, batch_offset);
+            ret |= mKernel_qk[seq_idx]->get().setArg(idx++, base_ptr_offset);
             ret |= mKernel_qk[seq_idx]->get().setArg(idx++, stride);
             ret |= mKernel_qk[seq_idx]->get().setArg(idx++, group);
             MNN_CHECK_CL_SUCCESS(ret, "setArg Self-Attention batchmatmul qk Kernel");
@@ -374,6 +377,7 @@ ErrorCode SelfAttentionBufImpl::onResize(Backend *backend, const std::vector<Ten
             int batch_offset_b = h_pack * l_pack;
             int batch_offset_c = e_pack * h_pack;
             int batch_offset[4] = {batch_offset_a, batch_offset_b, batch_offset_c, 0};
+            int base_ptr_offset[4] = {0, 0, 0, 0};
             int stride[4] = {e_pack, h_pack, e_pack, h_pack};
             int group[4] = {1, 1, 1, loop};
             
@@ -388,6 +392,7 @@ ErrorCode SelfAttentionBufImpl::onResize(Backend *backend, const std::vector<Ten
             ret |= mKernel_qkv[seq_idx]->get().setArg(idx++, openCLBuffer(mTempV.get()));
             ret |= mKernel_qkv[seq_idx]->get().setArg(idx++, openCLBuffer(mTempQKV.get()));
             ret |= mKernel_qkv[seq_idx]->get().setArg(idx++, batch_offset);
+            ret |= mKernel_qkv[seq_idx]->get().setArg(idx++, base_ptr_offset);
             ret |= mKernel_qkv[seq_idx]->get().setArg(idx++, stride);
             ret |= mKernel_qkv[seq_idx]->get().setArg(idx++, group);
             MNN_CHECK_CL_SUCCESS(ret, "setArg Self-Attention batchmatmul qkv Kernel");

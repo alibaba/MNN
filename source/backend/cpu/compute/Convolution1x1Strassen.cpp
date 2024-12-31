@@ -59,6 +59,9 @@ Convolution1x1Strassen::Convolution1x1Strassen(const Convolution2DCommon *common
         MNN_ERROR("Not Enough Memory\n");
         return;
     }
+    if (b->getRuntime()->hint().useCachedMmap > 1) {
+        return;
+    }
     if (core->bytes < 4) {
         AutoRelease<Tensor> tempTensor(Tensor::createDevice<float>({outputCount * mSrcCount}));
         mValid = b->onAcquireBuffer(tempTensor.get(), Backend::STATIC);
