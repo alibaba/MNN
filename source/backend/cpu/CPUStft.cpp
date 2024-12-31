@@ -11,6 +11,7 @@
 #define M_PI 3.141592654
 #endif
 #include <algorithm>
+#include <cmath>
 #include "backend/cpu/CPUStft.hpp"
 #include "backend/cpu/CPUBackend.hpp"
 #include "core/Concurrency.h"
@@ -27,10 +28,10 @@ static void MNNDftAbs(const float* input, const float* window, float* output, fl
         float real_sum = 0.f, imag_sum = 0.f;
         for (int n = 0; n < nfft; ++n) {
             float angle = 2 * M_PI * k * n / nfft;
-            real_sum += buffer[n] * std::cos(angle);
-            imag_sum -= buffer[n] * std::sin(angle);
+            real_sum += buffer[n] * cosf(angle);
+            imag_sum -= buffer[n] * sinf(angle);
         }
-        output[k] = std::sqrt(real_sum * real_sum + imag_sum * imag_sum);
+        output[k] = sqrtf(real_sum * real_sum + imag_sum * imag_sum);
     }
 }
 
