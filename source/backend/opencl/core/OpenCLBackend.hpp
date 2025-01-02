@@ -80,7 +80,7 @@ private:
 
 class OpenCLBackend : public Backend {
 public:
-    OpenCLBackend(std::shared_ptr<ImagePool>imgPool, std::shared_ptr<BufferPool> bufPool, const CLRuntime *runtime);
+    OpenCLBackend(BackendConfig::PrecisionMode precision, BackendConfig::MemoryMode memory, std::shared_ptr<ImagePool>imgPool, std::shared_ptr<BufferPool> bufPool, const CLRuntime *runtime);
     ~OpenCLBackend();
 
     OpenCLRuntime *getOpenCLRuntime();
@@ -162,6 +162,7 @@ private:
 
     ImagePool* mImagePool;
     BufferPool* mBufferPool;
+    std::shared_ptr<BufferExecutionPool> mExecutionBufferPool;
 
     std::shared_ptr<ImagePool> mImagePoolFirst;
     std::shared_ptr<BufferPool> mBufferPoolFirst;

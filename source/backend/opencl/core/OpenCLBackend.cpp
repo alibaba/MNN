@@ -192,8 +192,13 @@ std::pair<const void*, size_t> CLRuntime::onGetCache() {
 }
 
 Backend* CLRuntime::onCreate(const BackendConfig* config, Backend* origin) const {
-    // FIXME: Use config info
-    return new OpenCLBackend(mImagePool, mBufferPool, this);
+    auto precision = mPrecision;
+    auto memory = mMemory;
+    if (nullptr != config) {
+        precision = config->precision;
+        memory = config->memory;
+    }
+    return new OpenCLBackend(precision, memory, mImagePool, mBufferPool, this);
 }
 
 void CLRuntime::onGabageCollect(int level) {
@@ -217,13 +222,14 @@ std::map<std::pair<OpType, GpuMemObject>, OpenCLBackend::Creator*>* gCreator() {
     return creators;
 };
 
-OpenCLBackend::OpenCLBackend(std::shared_ptr<ImagePool>imgPool, std::shared_ptr<BufferPool> bufPool, const CLRuntime *runtime)
+OpenCLBackend::OpenCLBackend(BackendConfig::PrecisionMode precision, BackendConfig::MemoryMode memory, std::shared_ptr<ImagePool>imgPool, std::shared_ptr<BufferPool> bufPool, const CLRuntime *runtime)
     : Backend(MNN_FORWARD_OPENCL) {
 
     mCLRuntime = runtime;
     mOpenCLRuntime = mCLRuntime->mOpenCLRuntime;
-    mPrecision = mCLRuntime->mPrecision;
-    mMemory = mCLRuntime->mMemory;
+    mPrecision = precision;
+    mMemory = memory;
+    mOpenCLRuntime->setPrecision(precision);
     mStaticImagePool = imgPool;
     mStaticBufferPool = bufPool;
     if(mOpenCLRuntime.get()){
@@ -233,6 +239,7 @@ OpenCLBackend::OpenCLBackend(std::shared_ptr<ImagePool>imgPool, std::shared_ptr<
 
         mImagePoolFirst.reset(new ImagePool(mOpenCLRuntime->context()));
         mBufferPoolFirst.reset(new BufferPool(mOpenCLRuntime->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR));
+        mExecutionBufferPool.reset(new BufferExecutionPool(mOpenCLRuntime->context(), mOpenCLRuntime->commandQueue(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR));
         mImagePool = mImagePoolFirst.get();
         mBufferPool = mBufferPoolFirst.get();
     }
@@ -250,6 +257,7 @@ OpenCLBackend::~OpenCLBackend() {
     mRecordings.clear();
     mImagePool = nullptr;
     mBufferPool = nullptr;
+    mExecutionBufferPool->clear();
     if(mMapMem.second != nullptr) {
     #ifdef MNN_OPENCL_SVM_ENABLE
         if(mUseSvm)
@@ -268,6 +276,20 @@ OpenCLBackend::~OpenCLBackend() {
 OpenCLRuntime* OpenCLBackend::getOpenCLRuntime() {
     return mOpenCLRuntime.get();
 }
+
+class CLReleaseExecutionBuffer : public Backend::MemObj {
+public:
+    CLReleaseExecutionBuffer(std::shared_ptr<OpenCLBufferNode> node, BufferExecutionPool* bufferPool) {
+        mNode = node;
+        mBufferPool = bufferPool;
+    }
+    virtual ~ CLReleaseExecutionBuffer() {
+        mBufferPool->recycle(mNode);
+    }
+private:
+    std::shared_ptr<OpenCLBufferNode> mNode;
+    BufferExecutionPool* mBufferPool;
+};
 
 class CLMemReleaseBuffer : public Backend::MemObj {
 public:
@@ -362,6 +384,11 @@ Backend::MemObj* OpenCLBackend::onAcquire(const Tensor* nativeTensor, StorageTyp
             auto buffer = mBufferPool->alloc(size*typeSize);
             ((Tensor*)nativeTensor)->buffer().device = (uint64_t)buffer;
             return new CLMemReleaseBuffer(buffer, mBufferPool);
+        }
+        if (storageType == DYNAMIC_IN_EXECUTION){
+            auto node = mExecutionBufferPool->alloc(size*typeSize);
+            ((Tensor*)nativeTensor)->buffer().device = reinterpret_cast<uint64_t>(node.get());
+            return new CLReleaseExecutionBuffer(node, mExecutionBufferPool.get());
         }
         MNN_ASSERT(storageType == STATIC);
 

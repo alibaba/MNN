@@ -64,7 +64,6 @@ __kernel void split_transpose_qkv(GLOBAL_SIZE_3_DIMS
     const int b = z / head_num;
     const int hn = z % head_num;
     
-    const int seq_len_4 = (seq_len + 3) / 4;
     const int offset_q = ((b * head_num + hn) * head_dim_pack_k + 4 * hd) * seq_len_piece + 4 * sl;
 
     if(seq_index > 0) {

@@ -72,6 +72,37 @@ kernel void conv1x1_g1z4(const device ftype4 *in            [[buffer(0)]],
     if (computeSize > 3) {xy_out[3] = activate(ftype4(result3), cst.activation); }
 }
 
+kernel void conv1x1_z4_sg(const device ftype4 *in            [[buffer(0)]],
+                         device ftype4 *out                 [[buffer(1)]],
+                         constant conv1x1_constants& cst    [[buffer(2)]],
+                         const device ftype4x4 *wt          [[buffer(3)]],
+                         const device ftype4 *biasTerms     [[buffer(4)]],
+                         uint3 gid[[threadgroup_position_in_grid]],
+                         uint  tiisg[[thread_index_in_simdgroup]],
+                         uint  sgitg[[simdgroup_index_in_threadgroup]]) {
+    if ((int)gid.x >= cst.output_size || (int)gid.y >= cst.output_slice || (int)gid.z >= cst.batch) return;
+    
+    int rx = gid.x;
+    int uz = gid.y;
+    auto xy_wt = wt + uz * cst.input_slice;
+    auto xy_in0  = in  + (int)gid.z  * cst.input_size + rx + 0;
+    auto xy_out = out + (int)gid.z * cst.output_size + uz * cst.output_size * cst.batch + rx;
+    auto biasValue = FLOAT4(biasTerms[uz]);
+    FLOAT4 result0 = 0;
+    int computeSize = min(cst.output_size - rx, CONV_UNROLL);
+
+    for (auto z = tiisg; z < cst.input_slice; z+SIMD_GROUP_WIDTH) {
+        auto in40 = *xy_in0;
+        auto w = xy_wt[z];
+        
+        result0 += FLOAT4(in40 * w);
+        xy_in0 += cst.input_size * cst.batch;
+    }
+    result0 = simd_sum(result0);
+    
+    *xy_out = activate(ftype4(result0 + biasValue), cst.activation);
+}
+
 kernel void conv1x1_g1z4_w8(const device ftype4 *in            [[buffer(0)]],
                             device ftype4 *out                 [[buffer(1)]],
                             constant conv1x1_constants& cst    [[buffer(2)]],
@@ -123,7 +154,7 @@ kernel void conv1x1_g1z4_w8(const device ftype4 *in            [[buffer(0)]],
 }
 
 
-kernel void conv1x1_gemm_16x16_w4(const device ftype4 *in            [[buffer(0)]],
+kernel void conv1x1_gemm_16x16_w4_sg(const device ftype4 *in            [[buffer(0)]],
                             device ftype4 *out                 [[buffer(1)]],
                             constant conv1x1_constants& cst    [[buffer(2)]],
                             const device uchar2 *wt      [[buffer(3)]],
@@ -216,7 +247,7 @@ kernel void conv1x1_gemm_16x16_w4(const device ftype4 *in            [[buffer(0)
     }
 }
 
-kernel void conv1x1_gemm_32x16_w4(const device ftype4 *in            [[buffer(0)]],
+kernel void conv1x1_gemm_32x16_w4_sg(const device ftype4 *in            [[buffer(0)]],
                             device ftype4 *out                 [[buffer(1)]],
                             constant conv1x1_constants& cst    [[buffer(2)]],
                             const device uchar2 *wt      [[buffer(3)]],
@@ -320,7 +351,7 @@ kernel void conv1x1_gemm_32x16_w4(const device ftype4 *in            [[buffer(0)
     }
 }
 
-kernel void conv1x1_gemm_16x32_w4(const device ftype4 *in            [[buffer(0)]],
+kernel void conv1x1_gemm_16x32_w4_sg(const device ftype4 *in            [[buffer(0)]],
                             device ftype4 *out                 [[buffer(1)]],
                             constant conv1x1_constants& cst    [[buffer(2)]],
                             const device uchar2 *wt      [[buffer(3)]],
@@ -430,7 +461,7 @@ kernel void conv1x1_gemm_16x32_w4(const device ftype4 *in            [[buffer(0)
 }
 
 
-kernel void conv1x1_gemm_32x64_w4(const device ftype2 *in            [[buffer(0)]],
+kernel void conv1x1_gemm_32x64_w4_sg(const device ftype2 *in            [[buffer(0)]],
                             device ftype4 *out                 [[buffer(1)]],
                             constant conv1x1_constants& cst    [[buffer(2)]],
                             const device uchar2 *wt      [[buffer(3)]],
@@ -617,7 +648,7 @@ kernel void conv1x1_g1z4_w4(const device ftype4 *in            [[buffer(0)]],
     if (computeSize > 3) {xy_out[3] = activate(ftype4(result3), cst.activation); }
 }
 
-kernel void conv1x1_gemv_g8_w4(const device ftype4 *in            [[buffer(0)]],
+kernel void conv1x1_gemv_g8_w4_sg(const device ftype4 *in            [[buffer(0)]],
                             device ftype4 *out                 [[buffer(1)]],
                             constant conv1x1_constants& cst    [[buffer(2)]],
                             const device MNN::uchar4x2 *wt      [[buffer(3)]],
@@ -679,7 +710,7 @@ kernel void conv1x1_gemv_g8_w4(const device ftype4 *in            [[buffer(0)]],
 
 
 
-kernel void conv1x1_gemv_g16_w4(const device ftype4 *in            [[buffer(0)]],
+kernel void conv1x1_gemv_g16_w4_sg(const device ftype4 *in            [[buffer(0)]],
                             device ftype4 *out                 [[buffer(1)]],
                             constant conv1x1_constants& cst    [[buffer(2)]],
                             const device MNN::uchar4x2 *wt      [[buffer(3)]],
@@ -1004,7 +1035,7 @@ kernel void conv1x1_w4c2(const device ftype4 *in            [[buffer(0)]],
     }
 }
 
-kernel void conv1x1_gemm_16x16(const device ftype4 *in            [[buffer(0)]],
+kernel void conv1x1_gemm_16x16_sg(const device ftype4 *in            [[buffer(0)]],
                             device ftype4 *out                 [[buffer(1)]],
                             constant conv1x1_constants& cst    [[buffer(2)]],
                             const device ftype4 *wt      [[buffer(3)]],
@@ -1072,7 +1103,7 @@ kernel void conv1x1_gemm_16x16(const device ftype4 *in            [[buffer(0)]],
 }
 
 
-kernel void conv1x1_gemm_32x16(const device ftype4 *in            [[buffer(0)]],
+kernel void conv1x1_gemm_32x16_sg(const device ftype4 *in            [[buffer(0)]],
                             device ftype4 *out                 [[buffer(1)]],
                             constant conv1x1_constants& cst    [[buffer(2)]],
                             const device ftype4 *wt      [[buffer(3)]],

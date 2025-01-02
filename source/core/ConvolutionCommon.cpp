@@ -200,6 +200,32 @@ static bool isLinearSample(const std::vector<int8_t>& sample, int bit) {
     return true;
 }
 
+static void ReadQuanInfo(BaseLoader* s, size_t* len, ConvolutionCommon::Int8Common* result, bool shapeInt32) {
+    *len  = 1;
+    // blob shape
+    unsigned int shape[32] = {0};
+    uint32_t shapeDim = (uint32_t)ReadBlobDim(s, shape, 32, shapeInt32);
+    if (shapeDim == 0 || shapeDim > 32)
+        return;
+    for (uint32_t i = 0; i < shapeDim; i++)
+        *len *= shape[i];
+
+    // sample
+    uint32_t sampleCnt = 0;
+    s->read((char*)&sampleCnt, 1);
+    if (sampleCnt == 0) {
+        sampleCnt = 256;
+    }
+    result->weightMap.resize(sampleCnt);
+    auto samples = result->weightMap.data();
+    if (samples == nullptr)
+        return;
+    s->read((char*)samples, sampleCnt);
+    SimpleRank(samples, sampleCnt, 1);
+    uint32_t idxBitsCnt = atLestBitsCnt(sampleCnt);
+    result->canUseInt4 = idxBitsCnt == 4;
+}
+
 static int8_t *ReadQuanData_c(BaseLoader* s, size_t* len, ConvolutionCommon::Int8Common* result, bool shapeInt32, bool forceQuant) {
     int8_t *blob      = nullptr;
     uint8_t *idxBuf   = nullptr;
@@ -464,30 +490,41 @@ std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const Op*
     std::unique_ptr<int8_t[]> external_buffer;
     size_t weightLength = 0;
     int8_t *buffer        = nullptr;
+    bool useCachedMmap = false;
+    if (backend && backend->getRuntime()) {
+        useCachedMmap = backend->getRuntime()->hint().useCachedMmap > 1;
+    }
     if (USE_EXTERNAL_DATA(conv) && op->externalPath() && quan->buffer() == nullptr) {
-        // external data
         auto external_info = conv->external()->data();
+        buffer_size = external_info[1];
+        alpha_size = external_info[2] / sizeof(float);
         std::unique_ptr<FileLoader> external_file(new FileLoader(op->externalPath()->c_str()));
         external_file->offset(external_info[0]);
-        buffer_size = external_info[1];
-        if (0 != buffer_size) {
-            if (1 == quan->type() && !forceFloat) {
-                buffer = IDSTDecoder::ReadQuanData_c(external_file.get(), &weightLength, result.get(), quan->shapeInt32(), forceInt8);
-            } else {
-                external_buffer.reset(new int8_t[buffer_size]);
-                buffer_ptr = external_buffer.get();
-                external_file->read((char*)buffer_ptr, buffer_size);
+        if (useCachedMmap) {
+            if (alpha_size) {
+                result->alpha.reset(alpha_size);
+                IDSTDecoder::ReadQuanInfo(external_file.get(), &weightLength, result.get(), quan->shapeInt32());
             }
-        }
-        alpha_size = external_info[2] / sizeof(float);
-        if (0 != alpha_size) {
-            result->alpha.reset(alpha_size);
-            if (nullptr == result->alpha.get()) {
-                MNN_PRINT("Alloc memory error for extract idst int8\n");
-                return nullptr;
+        } else {
+            // external data
+            if (0 != buffer_size) {
+                if (1 == quan->type() && !forceFloat) {
+                    buffer = IDSTDecoder::ReadQuanData_c(external_file.get(), &weightLength, result.get(), quan->shapeInt32(), forceInt8);
+                } else {
+                    external_buffer.reset(new int8_t[buffer_size]);
+                    buffer_ptr = external_buffer.get();
+                    external_file->read((char*)buffer_ptr, buffer_size);
+                }
             }
-            alpha_ptr = result->alpha.get();
-            external_file->read((char*)alpha_ptr, alpha_size * sizeof(float));
+            if (0 != alpha_size) {
+                result->alpha.reset(alpha_size);
+                if (nullptr == result->alpha.get()) {
+                    MNN_PRINT("Alloc memory error for extract idst int8\n");
+                    return nullptr;
+                }
+                alpha_ptr = result->alpha.get();
+                external_file->read((char*)alpha_ptr, alpha_size * sizeof(float));
+            }
         }
     } else {
         if (quan->buffer()) {
@@ -535,6 +572,11 @@ std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const Op*
     }
     // read fp16 data
     if (3 == quan->type()) {
+        if (useCachedMmap) {
+            weightLength = buffer_size / sizeof(half_float::half);
+            result->weightFloat.reset(weightLength);
+            return result;
+        }
         weightLength = buffer_size / sizeof(half_float::half);
         std::vector<int8_t> tempHalfWeight(buffer_size);
         ::memcpy(tempHalfWeight.data(), buffer_ptr, buffer_size);
@@ -556,24 +598,23 @@ std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const Op*
         ::memcpy(result->weight.get(), buffer_ptr, weightLength);
     }
 
-    if (result->weight.get() == nullptr) {
-        if (nullptr == buffer) {
-            MNN_PRINT("Alloc memory error for extract idst int8\n");
-            return nullptr;
-        }
-        result->weight.set(buffer, weightLength);
+    bool oldType4 = (quan->type() == 4 && quan->aMin() == 0 && std::abs(quan->quantScale()) < 1e-6);
+    if (quan->readType() != 0 || oldType4) {
+        result->asymmetric = true;
+    } else {
+        result->asymmetric = false;
     }
-    {
-        int outputCount = 0;
-        bool oldType4 = (quan->type() == 4 && quan->aMin() == 0 && std::abs(quan->quantScale()) < 1e-6);
-        if (quan->readType() != 0 || oldType4) {
-            result->asymmetric = true;
-            outputCount   = result->alpha.size() / 2;
-        } else {
-            result->asymmetric = false;
-            outputCount   = result->alpha.size(); // backward compability with previous symmetric quantization
+    if (!useCachedMmap) {
+        if (result->weight.get() == nullptr) {
+            if (nullptr == buffer) {
+                MNN_PRINT("Alloc memory error for extract idst int8\n");
+                return nullptr;
+            }
+            result->weight.set(buffer, weightLength);
         }
+        int outputCount = 0;
         if (result->asymmetric) {
+            outputCount   = result->alpha.size() / 2;
             // clampMin is minVal in asymmetric quant, clampMin = -(2^(bit))
             // and old version clampMin is -128
             float clampMin = quan->aMin() == 0 ? -128 : quan->aMin();
@@ -582,6 +623,8 @@ std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const Op*
                     result->alpha.get()[2 * o] = result->alpha.get()[2 * o] - clampMin * result->alpha.get()[2 * o + 1];
                 }
             }
+        } else {
+            outputCount   = result->alpha.size(); // backward compability with previous symmetric quantization
         }
         if (!quan->has_scaleInt()) {
             float extraFactor = quan->quantScale();

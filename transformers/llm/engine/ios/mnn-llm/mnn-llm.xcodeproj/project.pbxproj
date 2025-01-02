@@ -14,7 +14,6 @@
 		4D5B97C42B2B29CF003AF2F1 /* LLMInferenceEngineWrapper.mm in Sources */ = {isa = PBXBuildFile; fileRef = 4D5B97C32B2B29CF003AF2F1 /* LLMInferenceEngineWrapper.mm */; };
 		CE1A4A5D2C8596D900A62A4F /* MNN.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CE1A4A5C2C8596D900A62A4F /* MNN.framework */; };
 		CE1A4A7C2C85B69800A62A4F /* config.json in Resources */ = {isa = PBXBuildFile; fileRef = CE1A4A722C85B69800A62A4F /* config.json */; };
-		CE1A4A7D2C85B69800A62A4F /* embeddings_bf16.bin in Resources */ = {isa = PBXBuildFile; fileRef = CE1A4A732C85B69800A62A4F /* embeddings_bf16.bin */; };
 		CE1A4A7E2C85B69800A62A4F /* llm_config.json in Resources */ = {isa = PBXBuildFile; fileRef = CE1A4A742C85B69800A62A4F /* llm_config.json */; };
 		CE1A4A7F2C85B69800A62A4F /* llm.mnn in Resources */ = {isa = PBXBuildFile; fileRef = CE1A4A752C85B69800A62A4F /* llm.mnn */; };
 		CE1A4A802C85B69800A62A4F /* llm.mnn.weight in Resources */ = {isa = PBXBuildFile; fileRef = CE1A4A762C85B69800A62A4F /* llm.mnn.weight */; };
@@ -46,7 +45,6 @@
 		4D5B97C32B2B29CF003AF2F1 /* LLMInferenceEngineWrapper.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = LLMInferenceEngineWrapper.mm; sourceTree = "<group>"; };
 		CE1A4A5C2C8596D900A62A4F /* MNN.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MNN.framework; path = ../MNN.framework; sourceTree = "<group>"; };
 		CE1A4A722C85B69800A62A4F /* config.json */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.json; path = config.json; sourceTree = "<group>"; };
-		CE1A4A732C85B69800A62A4F /* embeddings_bf16.bin */ = {isa = PBXFileReference; lastKnownFileType = archive.macbinary; path = embeddings_bf16.bin; sourceTree = "<group>"; };
 		CE1A4A742C85B69800A62A4F /* llm_config.json */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.json; path = llm_config.json; sourceTree = "<group>"; };
 		CE1A4A752C85B69800A62A4F /* llm.mnn */ = {isa = PBXFileReference; lastKnownFileType = file; path = llm.mnn; sourceTree = "<group>"; };
 		CE1A4A762C85B69800A62A4F /* llm.mnn.weight */ = {isa = PBXFileReference; lastKnownFileType = file; path = llm.mnn.weight; sourceTree = "<group>"; };
@@ -119,7 +117,6 @@
 			children = (
 				CE1A4A852C85D43E00A62A4F /* bench.txt */,
 				CE1A4A722C85B69800A62A4F /* config.json */,
-				CE1A4A732C85B69800A62A4F /* embeddings_bf16.bin */,
 				CE1A4A742C85B69800A62A4F /* llm_config.json */,
 				CE1A4A752C85B69800A62A4F /* llm.mnn */,
 				CE1A4A762C85B69800A62A4F /* llm.mnn.weight */,
@@ -196,7 +193,6 @@
 				CE1A4A7E2C85B69800A62A4F /* llm_config.json in Resources */,
 				CE1A4A802C85B69800A62A4F /* llm.mnn.weight in Resources */,
 				CE1A4A7F2C85B69800A62A4F /* llm.mnn in Resources */,
-				CE1A4A7D2C85B69800A62A4F /* embeddings_bf16.bin in Resources */,
 				CE1A4A7C2C85B69800A62A4F /* config.json in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

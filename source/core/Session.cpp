@@ -99,6 +99,10 @@ void Session::ModeGroup::setHint(Interpreter::HintMode mode, int hint) {
             break;
         case Interpreter::OP_ENCODER_NUMBER_FOR_COMMIT:
             runtimeHint.encorderNumForCommit = hint;
+        case Interpreter::MMAP_FILE_SIZE:
+            runtimeHint.mmapFileSize = hint;
+        case Interpreter::USE_CACHED_MMAP:
+            runtimeHint.useCachedMmap = hint;
         default:
             break;
     }

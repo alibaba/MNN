@@ -258,6 +258,17 @@ OpenCL / Vulkan 采用静态变量自注册的方式往 MNN 主库注册后端. 
 ### Register 相关内存泄露说明
 用 valgrind 工具检查时会报 MNN Register 相关的内存泄露，这个属于一次性的初始化内存，后续也不会增加，可视为误报
 
+### Metal 相关内存增长说明
+
+Metal 后端使用的是OC对象，需要用OC的自动回收机制来清除内存，可在使用代码中把相关mnn的API调用放到autorealse中以自动回收内存
+
+```
+@autoreleasepool {
+    /* MNN 相关调用代码 */
+}
+
+```
+
 
 ## 性能相关
 ### 使用 GPU 时，调用 copyToHostTensor / readMap 非常慢

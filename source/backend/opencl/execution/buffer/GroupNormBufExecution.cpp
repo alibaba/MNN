@@ -100,8 +100,7 @@ ErrorCode GroupNormBufExecution::onEncode(const std::vector<Tensor*>& inputs, co
     MNN_ASSERT(outputs.size() == 1);
     auto input = inputs[0];
     auto output = outputs[0];
-    MNN_ASSERT(input->dimensions() == 4);
-    MNN_ASSERT(output->dimensions() == 4);
+
     mBatch = input->length(0);
     if(inputs.size() > 1) {
         MNN_ASSERT(inputs[1]->dimensions() == 2);

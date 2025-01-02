@@ -236,6 +236,12 @@ public:
         KVCACHE_SIZE_LIMIT = 8,
         // Op encoder number for commit
         OP_ENCODER_NUMBER_FOR_COMMIT = 9,
+
+        // KVCache Info
+        KVCACHE_INFO = 10,
+        // mmap allocate file size, KB
+        MMAP_FILE_SIZE = 11,
+        USE_CACHED_MMAP = 12
     };
 
     enum ExternalPathType {

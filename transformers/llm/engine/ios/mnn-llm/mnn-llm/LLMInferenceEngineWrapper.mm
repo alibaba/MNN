@@ -93,12 +93,13 @@ private:
         int decode_len = 0;
         int64_t prefill_time = 0;
         int64_t decode_time = 0;
+        auto status = llm->getState();
         for (int i = 0; i < prompts.size(); i++) {
             llm->response(prompts[i], &os, "\n");
-            prompt_len += llm->prompt_len_;
-            decode_len += llm->gen_seq_len_;
-            prefill_time += llm->prefill_us_;
-            decode_time += llm->decode_us_;
+            prompt_len += status.prompt_len_;
+            decode_len += status.gen_seq_len_;
+            prefill_time += status.prefill_us_;
+            decode_time += status.decode_us_;
         }
         float prefill_s = prefill_time / 1e6;
         float decode_s = decode_time / 1e6;

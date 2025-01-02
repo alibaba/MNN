@@ -31,8 +31,8 @@ private:
     void tuneGeneralCaseLowMemory(Tensor * input, Tensor * output);
 	void useFPWeightGemmLowMemory(Tensor * input, Tensor * output);
     void tuneGemvLowMemory(Tensor * input, Tensor * output);
-    unsigned int tuneGemmLowMemory(Tensor * input, Tensor * output, std::string option, bool onlyGetTime = false);
-    bool convertToQuantWeight1x1Buffer(cl::Buffer input, int pack);
+    void tuneGemmLowMemory(Tensor * input, Tensor * output);
+    bool convertToQuantWeight1x1Buffer(cl::Buffer input, int packCin, int packCout);
     std::vector<int> mPaddings{0, 0};
     std::vector<uint32_t> mGlobalWorkSize{1, 1, 1};
     std::vector<uint32_t> mLocalWorkSize{1, 1, 1, 1};

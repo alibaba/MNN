@@ -85,7 +85,7 @@ public:
         virtual MemChunk onAlloc(size_t size, size_t align) = 0;
         virtual void onRelease(MemChunk chunk) = 0;
         static std::shared_ptr<Allocator> createDefault();
-        static std::shared_ptr<Allocator> createMmap(const char* dirName, const char* posfix, bool autoRemove = true);
+        static std::shared_ptr<Allocator> createMmap(const char* dirName, const char* prefix, const char* posfix, bool autoRemove = true);
         static std::shared_ptr<Allocator> createRecurse(BufferAllocator* parent);
     };
     BufferAllocator() = default;

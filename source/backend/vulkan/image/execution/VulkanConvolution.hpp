@@ -102,6 +102,7 @@ private:
 
     int mLocalX = 0;
     int mLocalY = 0;
+    bool mUseS1D1W2 = false;
 };
 } // namespace MNN
 

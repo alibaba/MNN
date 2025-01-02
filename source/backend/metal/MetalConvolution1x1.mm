@@ -25,8 +25,10 @@ bool MetalConvolution1x1::isValid(const Convolution2D *conv, const Tensor *input
 MetalConvolution1x1::MetalConvolution1x1(Backend *backend, const MNN::Op *op) : MetalConvolutionCommon(backend, op, nullptr) {
     auto conv2D = op->main_as_Convolution2D();
     bool ldInt8Weight = false;
-    if (conv2D->quanParameter() && (conv2D->external() || conv2D->quanParameter()->buffer())) {
-        ldInt8Weight = true;
+    if(static_cast<MetalBackend*>(backend)->getMemoryMode() == BackendConfig::Memory_Low) {
+        if (conv2D->quanParameter() && (conv2D->external() || conv2D->quanParameter()->buffer())) {
+            ldInt8Weight = true;
+        }
     }
     loadWeight(op, ldInt8Weight);
 }
@@ -105,13 +107,12 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
             if(rt->supportSimdGroupReduce() && ob * ow * oh == 1) {
                 // unrool c for avoid memory exceed
                 if(oc > 16384 && oc_4 % 2 == 0) {
-                    mPipeline = [context pipelineWithName:@"conv1x1_gemv_g16_w4" fp16:backend->useFp16InsteadFp32()];
-                    name = "conv1x1_gemv_g16_w4";
+                    mPipeline = [context pipelineWithName:@"conv1x1_gemv_g16_w4_sg" fp16:backend->useFp16InsteadFp32()];
+                    
 //                    MNN_PRINT("g16 ic: %d oc: %d\n", input->channel(), oc);
                     mThreads = std::make_pair(MTLSizeMake(UP_DIV(oc, 16), 1, 1), MTLSizeMake(64, 1, 1));
                 } else {
-                    mPipeline = [context pipelineWithName:@"conv1x1_gemv_g8_w4" fp16:backend->useFp16InsteadFp32()];
-                    name = "conv1x1_gemv_g8_w4";
+                    mPipeline = [context pipelineWithName:@"conv1x1_gemv_g8_w4_sg" fp16:backend->useFp16InsteadFp32()];
 //                    MNN_PRINT("g8  ic: %d oc: %d\n", input->channel(), oc);
                     mThreads = std::make_pair(MTLSizeMake(UP_DIV(oc, 8), 1, 1), MTLSizeMake(64, 1, 1));
                 }
@@ -121,21 +122,17 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
                 auto smem_size = [[context device] maxThreadgroupMemoryLength];
                 // choose different tile for different computation
                 if(ob * ow * oh >= 128 && oc >= 512 && ob * ow * oh * oc > 512 * 2048 && smem_size >= 8192) {
-                    mPipeline = [context pipelineWithName:@"conv1x1_gemm_32x64_w4" fp16:backend->useFp16InsteadFp32()];
-                    name = "conv1x1_gemm_32x64_w4";
+                    mPipeline = [context pipelineWithName:@"conv1x1_gemm_32x64_w4_sg" fp16:backend->useFp16InsteadFp32()];
                     mThreads = std::make_pair(MTLSizeMake(UP_DIV(ob * ow * oh, 32), UP_DIV(oc, 64), 1), MTLSizeMake(128, 1, 1));
                                         
                 } else if(ob * ow * oh >= 32 && ob * ow * oh * oc > 128 * 2048) {
-                    mPipeline = [context pipelineWithName:@"conv1x1_gemm_32x16_w4" fp16:backend->useFp16InsteadFp32()];
-                    name = "conv1x1_gemm_32x16_w4";
+                    mPipeline = [context pipelineWithName:@"conv1x1_gemm_32x16_w4_sg" fp16:backend->useFp16InsteadFp32()];
                     mThreads = std::make_pair(MTLSizeMake(UP_DIV(ob * ow * oh, 32), UP_DIV(oc, 16), 1), MTLSizeMake(32, 1, 1));
                 } else if(oc > 512 && ob * ow * oh * oc > 128 * 2048) {
-                    mPipeline = [context pipelineWithName:@"conv1x1_gemm_16x32_w4" fp16:backend->useFp16InsteadFp32()];
-                    name = "conv1x1_gemm_16x32_w4";
+                    mPipeline = [context pipelineWithName:@"conv1x1_gemm_16x32_w4_sg" fp16:backend->useFp16InsteadFp32()];
                     mThreads = std::make_pair(MTLSizeMake(UP_DIV(ob * ow * oh, 16), UP_DIV(oc, 32), 1), MTLSizeMake(32, 1, 1));
                 } else {
-                    mPipeline = [context pipelineWithName:@"conv1x1_gemm_16x16_w4" fp16:backend->useFp16InsteadFp32()];
-                    name = "conv1x1_gemm_16x16_w4";
+                    mPipeline = [context pipelineWithName:@"conv1x1_gemm_16x16_w4_sg" fp16:backend->useFp16InsteadFp32()];
 //                                    MNN_PRINT("gemm M: %d N: %d\n", ob * ow * oh, oc);
                     mThreads = std::make_pair(MTLSizeMake(UP_DIV(ob * ow * oh, 16), UP_DIV(oc, 16), 1), MTLSizeMake(32, 1, 1));
                 }
@@ -173,16 +170,25 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
         if(ob * ow * oh >= 16 && ic_4 >= 4 && ic_4 % 2 == 0 && oc_4 >= 4 && ob * ow * oh * ic_4 * oc_4 >= 64 * 64 * 64) {
             // Enough threads
             if(ob * ow * oh * oc_4 / ic_4 >= 1024) {
-                mPipeline = [context pipelineWithName:@"conv1x1_gemm_32x16" fp16:backend->useFp16InsteadFp32()];
+                mPipeline = [context pipelineWithName:@"conv1x1_gemm_32x16_sg" fp16:backend->useFp16InsteadFp32()];
                 mThreads = std::make_pair(MTLSizeMake(UP_DIV(ob * ow * oh, 32), UP_DIV(oc, 16), 1), MTLSizeMake(32, 1, 1));
             } else {
-                mPipeline = [context pipelineWithName:@"conv1x1_gemm_16x16" fp16:backend->useFp16InsteadFp32()];
+                mPipeline = [context pipelineWithName:@"conv1x1_gemm_16x16_sg" fp16:backend->useFp16InsteadFp32()];
                 mThreads = std::make_pair(MTLSizeMake(UP_DIV(ob * ow * oh, 16), UP_DIV(oc, 16), 1), MTLSizeMake(32, 1, 1));
             }
             return NO_ERROR;
         }
     }
-    
+    if(rt->supportSimdGroupReduce()) {
+        // do input_channel reduce
+        auto magic_num = 4.0; // total threads pretty small and loop pretty large
+        if(ic_4 >= 32 && ic_4 % 2 == 0 && 1.0 * ob * ow * oh * oc_4 / ic_4 < magic_num) {
+            mPipeline = [context pipelineWithName:@"conv1x1_z4_sg" fp16:backend->useFp16InsteadFp32()];
+            mThreads = std::make_pair(MTLSizeMake(ow * oh, oc_4, ob), MTLSizeMake(32, 1, 1));
+            return NO_ERROR;
+        }
+    }
+//    printf("lora: %d %d %d %d %d\n", ob, oh, ow, oc, input->channel());
     if(rt->getTuneLevel() == Never) {
         if (ow * oh >= 128) {
             NSUInteger gid_x = UP_DIV(ow * oh, 8);

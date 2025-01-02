@@ -125,6 +125,7 @@ public:
         friend class Executor;
         void setMode(Interpreter::SessionMode mode);
         void setHint(Interpreter::HintMode mode, int value);
+        void setHintPtr(Interpreter::HintMode mode, void* value);
         bool getInfo(Interpreter::SessionInfoCode code, void* ptr);
         BackendConfig* getBnConfig();
         const RuntimeAttr* getInside() const {

@@ -12,6 +12,7 @@
 #define METAL_CONST_BUFFER_LIMIT 128
 #define METAL_SEPERATE_MAX_COUNT 2
 #if MNN_METAL_ENABLED
+#include <mutex>
 #import "backend/metal/MNNMetalContext.h"
 #import "core/Macro.h"
 #import "core/TensorUtils.hpp"
@@ -70,7 +71,7 @@ void MetalBackend::addCreator(OpType t, Creator *c) {
     map->insert(std::make_pair(t, c));
 }
 
-MetalBackend::MetalBackend(std::shared_ptr<EagerBufferAllocator> staticMem, const MetalRuntime* runtime, bool usefp16AsFp32) : Backend(MNN_FORWARD_METAL),
+MetalBackend::MetalBackend(std::shared_ptr<EagerBufferAllocator> staticMem, const MetalRuntime* runtime, bool usefp16AsFp32, BackendConfig::MemoryMode mode) : Backend(MNN_FORWARD_METAL),
     mEmptyMem(nil)
     {
     mRuntime = runtime;
@@ -79,6 +80,7 @@ MetalBackend::MetalBackend(std::shared_ptr<EagerBufferAllocator> staticMem, cons
     mCurrentAllocator = mBufferPool.get();
     mStaticBufferPool = staticMem;
     mUseFloatAsFp16 = usefp16AsFp32;
+    mMemoryMode = mode;
     mIsIphone = ctx.isIphone;
     if (runtime->getCommandQueue() == nil) {
         // one command queue can create only a few command buffer, so let each backend own a command queue
@@ -191,6 +193,9 @@ Backend::MemObj* MetalBackend::onAcquire(const Tensor *_tensor, StorageType stor
             buffer = mCurrentAllocator->alloc(size, true);
             allocator = mCurrentAllocator;
         } break;
+        default:{
+            break;
+        }
     }
     if (storageType == Backend::STATIC) {
         if(nullptr == buffer.first) {
@@ -928,7 +933,14 @@ void MetalRuntime::setGpuMode(const int mode_num) {
     }
 }
 
-MetalRuntime* MetalRuntime::create(const Backend::Info& info, id<MTLDevice> device) {
+struct MetalContext {
+    std::mutex pLock;
+    MNNMetalContext* pContext;
+    id<MTLDevice> pDevice;
+};
+static MetalContext* gContext = nullptr;
+MetalRuntime* MetalRuntime::create(const Backend::Info& info) {
+    std::unique_lock<std::mutex> _l(gContext->pLock);
     MNNMetalSharedContext sharedContext;
     sharedContext.device = nil;
     sharedContext.queue = nil;
@@ -939,15 +951,18 @@ MetalRuntime* MetalRuntime::create(const Backend::Info& info, id<MTLDevice> devi
         }
     }
     if (nil == sharedContext.device) {
-        sharedContext.device = device;
+        sharedContext.device = MTLCreateSystemDefaultDevice();
     }
-    auto mContext = (__bridge_retained void *)[[MNNMetalContext alloc] init];
-    auto ctx = (__bridge MNNMetalContext *)mContext;
-    BOOL res = [ctx initWithSharedContext:&sharedContext dev:device];
-    if (!res) {
-        CFRelease(mContext);
-        return nullptr;
+    if (nil == gContext->pContext || gContext->pDevice != sharedContext.device) {
+        gContext->pContext = [[MNNMetalContext alloc] init];
+        gContext->pDevice = sharedContext.device;
+        BOOL res = [gContext->pContext initWithSharedContext:&sharedContext dev:sharedContext.device];
+        if (!res) {
+            gContext->pContext = nil;
+            return nullptr;
+        }
     }
+    auto mContext = (__bridge_retained void *)(gContext->pContext);
     auto rt = new MetalRuntime(mContext);
     rt->setGpuMode(info.gpuMode);
     if (nil != sharedContext.queue) {
@@ -1175,17 +1190,19 @@ public:
 Backend* MetalRuntime::onCreate(const BackendConfig* config, Backend* origin) const {
     if (hint().weightMemoryPath.size() > 0 && mStaticCache.get() == nullptr) {
         auto ctx = (__bridge MNNMetalContext *)mContext;
-        auto mmap = BufferAllocator::Allocator::createMmap(hint().weightMemoryPath.c_str(), "metal.weight");
+        auto mmap = BufferAllocator::Allocator::createMmap(hint().weightMemoryPath.c_str(), "", "metal.weight");
         std::shared_ptr<BufferAllocator::Allocator> mmapMem(new MetalWrapAllocator(mmap, [ctx device]));
         mStaticCache = mStatic;
         mStatic.reset(new EagerBufferAllocator(mmapMem, 32, 1024 * 1024 * 1024));
     }
     BackendConfig::PrecisionMode precision = mDefaultConfig.precision;
+    BackendConfig::MemoryMode memory = mDefaultConfig.memory;
     if (nullptr != config) {
         precision = config->precision;
+        memory = config->memory;
     }
     bool useFp16AsFp32 = precision != BackendConfig::Precision_High;
-    return new MetalBackend(mStatic, this, useFp16AsFp32);
+    return new MetalBackend(mStatic, this, useFp16AsFp32, memory);
 }
 
 void MetalRuntime::onGabageCollect(int level) {
@@ -1231,14 +1248,14 @@ void MetalRuntimeAllocator::onRelease(MemChunk ptr) {
 
 class MetalRuntimeCreator : public RuntimeCreator {
 public:
-    MetalRuntimeCreator(id<MTLDevice> device) {
-        mDevice = device;
+    MetalRuntimeCreator() {
+        // Do nothing
     }
     virtual ~ MetalRuntimeCreator() {
         // Do nothing
     }
     virtual Runtime *onCreate(const Backend::Info &info) const {
-        auto rt = MetalRuntime::create(info, mDevice);
+        auto rt = MetalRuntime::create(info);
         return rt;
     }
 private:
@@ -1251,11 +1268,14 @@ void registerMetalRuntimeCreator() {
     // not all device with iOS 8+ supports metal.
     id<MTLDevice> device = MTLCreateSystemDefaultDevice();
     if (nil != device) {
+        gContext = new MetalContext;
+        gContext->pContext = nil;
+        gContext->pDevice = nil;
         registerMetalOps();
 #ifdef MNN_SUPPORT_RENDER
         registerMetalRenderOps();
 #endif
-        MNNInsertExtraRuntimeCreator(MNN_FORWARD_METAL, new MetalRuntimeCreator(device), false);
+        MNNInsertExtraRuntimeCreator(MNN_FORWARD_METAL, new MetalRuntimeCreator, false);
     } else {
         MNN_ERROR("Init Metal Error\n");
     }

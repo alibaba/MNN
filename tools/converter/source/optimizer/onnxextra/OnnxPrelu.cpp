@@ -134,7 +134,7 @@ public:
         }
         auto k = (inputs.size() == 2 ? inputs[1] : _Scalar<int>(0));
         auto mask = (upper ? _GreaterEqual(rangeW, rangeH + k) : _GreaterEqual(rangeH, rangeW - k));
-        mask = _Reshape(mask, _Concat({_Fill(_Size(shape) - _Scalar<int>(2), oneV), _Shape(mask)}, 0));
+        mask = _Reshape(mask, _Concat({_Fill(_Unsqueeze(_Size(shape) - _Scalar<int>(2), {0}), oneV), _Shape(mask)}, 0));
         auto res = _Select(mask, inputs[0], zero);
         res->setName(expr->outputName(0));
         return res->expr().first;

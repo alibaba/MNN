@@ -152,7 +152,7 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS3DDefault(const std::vector<ui
             while(lws[1] <= gws[1] || lws[1] <= 6) {
                 lws[0] = 1;
                 while(lws[0] <= gws[0] || lws[0] <= 6) {
-                    if(lws[0] <= maxWorkItemSizes[0] && lws[1] <= maxWorkItemSizes[1] && lws[2] <= maxWorkItemSizes[2] && lws[0]*lws[1]*lws[2] <= maxWorkGroupSize) {
+                    if(lws[0] <= maxWorkItemSizes[0] && lws[1] <= maxWorkItemSizes[1] && lws[2] <= maxWorkItemSizes[2] && lws[0]*lws[1]*lws[2] <= maxWorkGroupSize && lws[0]*lws[1]*lws[2] >= ALIMIN(16, gws[0]*gws[1]*gws[2] / 100)) {
                         cl::Event event;
                         std::vector<uint32_t> internalGlobalWS(3, 1);
                         for (size_t i = 0; i < gws.size(); ++i) {
@@ -197,7 +197,16 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS3DDefault(const std::vector<ui
             while(lws[1] <= gws[1] && lws[1] <= 16) {
                 lws[0] = 1;
                 while(lws[0] <= gws[0] && lws[0] <= 16) {
-                    if(lws[0] <= maxWorkItemSizes[0] && lws[1] <= maxWorkItemSizes[1] && lws[2] <= maxWorkItemSizes[2] && lws[0]*lws[1]*lws[2] <= std::min(maxWorkGroupSize, static_cast<uint32_t>(64)) && lws[0]*lws[1]*lws[2] >= 16) {
+                    bool isTune = lws[0] <= maxWorkItemSizes[0] && lws[1] <= maxWorkItemSizes[1] && lws[2] <= maxWorkItemSizes[2] && lws[0]*lws[1]*lws[2] <= ALIMIN(maxWorkGroupSize, static_cast<uint32_t>(64)) && lws[0]*lws[1]*lws[2] >= 16;
+                    if(isTune) {
+                        // pretty much thread count
+                        if(gws[0]*gws[1]*gws[2] >= 256 * 256) {
+                            if(lws[0]*lws[1]*lws[2] < 64) {
+                                isTune = false;
+                            }
+                        }
+                    }
+                    if(isTune) {
                         cl::Event event;
                         std::vector<uint32_t> internalGlobalWS(3, 1);
                         for (size_t i = 0; i < gws.size(); ++i) {
@@ -368,7 +377,7 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS2DDefault(const std::vector<ui
         while(lws[1] <= gws[1] && lws[1] <= 8) {
             lws[0] = 1;
             while(lws[0] <= gws[0] || lws[0] <= 6) {
-                if(lws[0] <= maxWorkItemSizes[0] && lws[1] <= maxWorkItemSizes[1] && lws[0]*lws[1] <= maxWorkGroupSize) {
+                if(lws[0] <= maxWorkItemSizes[0] && lws[1] <= maxWorkItemSizes[1] && lws[0]*lws[1] <= maxWorkGroupSize && lws[0]*lws[1] >= ALIMIN(16, gws[0]*gws[1] / 100)) {
                     cl::Event event;
                     std::vector<uint32_t> internalGlobalWS(2, 1);
                     for (size_t i = 0; i < gws.size(); ++i) {
@@ -405,7 +414,17 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS2DDefault(const std::vector<ui
         while(lws[1] <= gws[1] && lws[1] <= 8) {
             lws[0] = 1;
             while(lws[0] <= gws[0] && lws[0] <= 8) {
-                if(lws[0] <= maxWorkItemSizes[0] && lws[1] <= maxWorkItemSizes[1] && lws[0]*lws[1] <= maxWorkGroupSize && lws[0]*lws[1] >= 16) {
+                bool isTune = lws[0] <= maxWorkItemSizes[0] && lws[1] <= maxWorkItemSizes[1] && lws[0]*lws[1] <= ALIMIN(maxWorkGroupSize, static_cast<uint32_t>(64)) && lws[0]*lws[1] >= 16;
+                
+                if(isTune) {
+                    // pretty much thread count
+                    if(gws[0]*gws[1] >= 256 * 256) {
+                        if(lws[0]*lws[1] < 64) {
+                            isTune = false;
+                        }
+                    }
+                }
+                if(isTune) {
                     cl::Event event;
                     std::vector<uint32_t> internalGlobalWS(2, 1);
                     for (size_t i = 0; i < gws.size(); ++i) {
@@ -471,6 +490,31 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS2DDefault(const std::vector<ui
     }
 
     return std::make_pair(lws_prefer, min_cost);
+}
+
+uint32_t get2DUseLocalMemTime(const std::vector<uint32_t> &gws, const std::vector<uint32_t> &lws, OpenCLRuntime *runtime, const std::string &kernelName, const std::shared_ptr<KernelWrap> &mKernelW){
+    auto mKernel = mKernelW->get();
+    auto& tunedLws = runtime->tunedLwsMap();
+    std::pair<std::string, std::vector<uint32_t>> info = std::make_pair(kernelName, gws);
+    if (tunedLws.find(info) != tunedLws.end()) {
+        return tunedLws[info].second;
+    }
+    
+    cl::Event event;
+    cl_int res = runtime->commandQueue().enqueueNDRangeKernel(mKernel, cl::NullRange,
+                                                              cl::NDRange(gws[0], gws[1]),
+                                                              cl::NDRange(lws[0], lws[1]),
+                                                              nullptr, &event);
+    MNN_CHECK_CL_SUCCESS(res, kernelName.c_str());
+    if (res != CL_SUCCESS) {
+        MNN_PRINT("lws tune res %s\n", kernelName.c_str());
+    }
+    
+    int cost_time = (int)runtime->getCostTime(&event);
+    if (tunedLws.find(info) == tunedLws.end()) {
+        tunedLws.insert(std::make_pair(info, std::make_pair(lws, cost_time)));
+    }
+    return cost_time;
 }
 
 void run3DKernelDefault(const ::std::shared_ptr<KernelWrap> &kernelw, const std::vector<uint32_t> &gws, const std::vector<uint32_t> &lws,

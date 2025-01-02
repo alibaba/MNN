@@ -34,11 +34,31 @@ enum TuneType {
     // op encoder number for commit
     OP_ENCODER_NUMBER = 0,
 };
-
+struct KVMeta;
 class MNN_PUBLIC Llm {
     using PromptItem = std::pair<std::string, std::string>; // <role, content>
 public:
-    Llm(std::shared_ptr<LlmConfig> config) : config_(config) {}
+    enum Stage {
+        Prefill,
+        Decode
+    };
+    struct GenerateState {
+        // forward info
+        int prompt_len_ = 0;
+        int gen_seq_len_ = 0;
+        int all_seq_len_ = 0;
+        std::vector<int> history_ids_;
+        // time
+        int64_t vision_us_ = 0;
+        int64_t audio_us_ = 0;
+        int64_t prefill_us_ = 0;
+        int64_t decode_us_ = 0;
+        int current_token_ = 0;
+        std::vector<int> output_ids_;
+        std::ostream* os_ = nullptr;
+        std::string end_with_;
+    };
+    Llm(std::shared_ptr<LlmConfig> config);
     virtual ~Llm();
     static Llm* createLLM(const std::string& config_path);
     void chat();
@@ -46,15 +66,23 @@ public:
     void trace(bool start);
     void tuning(TuneType type, std::vector<int> candidates);
     virtual void load();
+    void switchMode(Stage stage);
+    MNN::Express::VARP forwardRaw(MNN::Express::VARP hiddenState, MNN::Express::VARP mask, MNN::Express::VARP inputPos);
+    virtual MNN::Express::VARP gen_attention_mask(int seq_len);
+    virtual MNN::Express::VARP embedding(const std::vector<int>& input_ids);
+
     MNN::Express::VARP forward(const std::vector<int>& input_ids);
-    int sample(MNN::Express::VARP logits, const std::vector<int>& pre_ids);
+    int sample(MNN::Express::VARP logits, const std::vector<int>& pre_ids, int offset = 0, int size = 0);
     std::string apply_prompt_template(const std::string& user_content) const;
     std::string apply_chat_template(const std::vector<PromptItem>& chat_prompts) const;
-    std::string response(const std::string& user_content, std::ostream* os = &std::cout, const char* end_with = nullptr);
-    std::string response(const std::vector<PromptItem>& chat_prompts, std::ostream* os = &std::cout, const char* end_with = nullptr);
-    void generate_init();
-    std::string generate(const std::vector<int>& input_ids, std::ostream* os, const char* end_with);
+    size_t getCurrentHistory() const;
+    void eraseHistory(size_t begin, size_t end);
+    void response(const std::string& user_content, std::ostream* os = &std::cout, const char* end_with = nullptr, int max_new_tokens = -1);
+    void response(const std::vector<PromptItem>& chat_prompts, std::ostream* os = &std::cout, const char* end_with = nullptr, int max_new_tokens = -1);
+    void generate_init(std::ostream* os = nullptr, const char* end_with = nullptr);
+    void generate(int max_token);
     std::vector<int> generate(const std::vector<int>& input_ids, int max_new_tokens = -1);
+    bool stoped();
     void print_speed();
     // config function
     std::string dump_config();
@@ -69,25 +97,14 @@ public:
     std::string tokenizer_decode(int id);
     virtual std::vector<int> tokenizer_encode(const std::string& query, bool use_template = true);
     friend class Pipeline;
-public:
-    // forward info
-    int prompt_len_ = 0;
-    int gen_seq_len_ = 0;
-    int all_seq_len_ = 0;
-    std::vector<int> history_ids_;
-    // time
-    int64_t vision_us_ = 0;
-    int64_t audio_us_ = 0;
-    int64_t prefill_us_ = 0;
-    int64_t decode_us_ = 0;
-    bool is_single_ = true;
-    bool attention_fused_ = true;
+    const GenerateState& getState() const {
+        return mState;
+    }
 protected:
+    std::shared_ptr<KVMeta> mMeta;
     std::shared_ptr<LlmConfig> config_;
     std::shared_ptr<Tokenizer> tokenizer_;
     std::shared_ptr<DiskEmbedding> disk_embedding_;
-    std::vector<int> key_value_shape_ = {};
-    std::vector<MNN::Express::VARP> past_key_values_;
     MNN::Express::VARP inputs_embeds_, attention_mask_, position_ids_;
     std::shared_ptr<MNN::Express::Executor::RuntimeManager> runtime_manager_;
     std::shared_ptr<MNN::Express::Executor::RuntimeManager> mllm_runtime_manager_;
@@ -95,10 +112,9 @@ protected:
     std::vector<std::shared_ptr<MNN::Express::Module>> prefill_modules_, decode_modules_, current_modules_;
     const MNN::Express::Module* base_module_ = nullptr;
     void init_runtime();
-    virtual MNN::Express::VARP embedding(const std::vector<int>& input_ids);
-    virtual MNN::Express::VARP gen_attention_mask(int seq_len);
     virtual MNN::Express::VARP gen_position_ids(int seq_len);
     bool mTracing = false;
+    GenerateState mState;
 };
 
 // Embedding start

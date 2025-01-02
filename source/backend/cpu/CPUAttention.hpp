@@ -13,6 +13,7 @@
 
 #include <functional>
 #include "core/Execution.hpp"
+#include "core/OpCommonUtils.hpp"
 #include "MNN/ErrorCode.hpp"
 #include "KVCacheManager.hpp"
 
@@ -26,8 +27,6 @@ public:
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
 private:
-    bool mIsPrefill      = true;
-    bool mIsFirstPrefill = true;
     bool mKVCache        = true;
     bool mUseGemmInt8    = false;
     int bytes = 4;
@@ -40,6 +39,7 @@ private:
     std::vector<float> mMinQ, mMaxQ, mQueryScale, mQueryZeroPoint;
     template <typename T> void pack_query(Tensor* query, char* pack_q, char* sum_q, int seq_len, int h, float q_scale);
     template <typename T> void unpack_QK(float * unpack_qk_dst, char * pack_qk_src, int seq_len, int kv_seq_len);
+    KVMeta* mMeta;
 };
 
 } // namespace MNN

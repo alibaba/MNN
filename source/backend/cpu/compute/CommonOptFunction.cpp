@@ -23,9 +23,6 @@
 #include "../CPUBinary.hpp"
 #include "../CPUUnary.hpp"
 #include "../CPUPool.hpp"
-#ifndef M_PI
-#define M_PI 3.141592654
-#endif
 #define PACK 4
 #define FLOAT float
 using Vec = MNN::Math::Vec<float, 4>;
@@ -693,9 +690,7 @@ void MNNAccumulateSequenceNumber (float* dst, const float* src, int size) {
             src += 8;
         }
         sum4_1 = vaddq_f32(sum4_1, sum4_2);
-        for (int j = 0;j < 4; ++j) {
-            sum += sum4_1[j];
-        }
+        sum = (sum4_1[0] + sum4_1[1]) + (sum4_1[2] + sum4_1[3]);
     }
 #elif defined(MNN_USE_SSE)
     if (size >= 8) {
@@ -3100,21 +3095,6 @@ void MNNSiLuLowp(float* dst, const float* src, size_t dataSize) {
         dst[i] = src[i] / (1.0f + dst[i]);
     }
 #endif
-}
-
-void MNNDftAbs(const float* input, const float* window, float* output, float* buffer, int nfft) {
-    for (int i = 0; i < nfft; ++i) {
-        buffer[i] = input[i] * window[i];
-    }
-    for (int k = 0; k < nfft / 2 + 1; ++k) {
-        float real_sum = 0.f, imag_sum = 0.f;
-        for (int n = 0; n < nfft; ++n) {
-            float angle = 2 * M_PI * k * n / nfft;
-            real_sum += buffer[n] * std::cos(angle);
-            imag_sum -= buffer[n] * std::sin(angle);
-        }
-        output[k] = std::sqrt(real_sum * real_sum + imag_sum * imag_sum);
-    }
 }
 
 static void _MNNAdjustOptimalSparseKernel(int& sparseBlockOC, MNN::CoreFunctions::MNNPackedSparseMatMul& packedSparseMatMul) {
