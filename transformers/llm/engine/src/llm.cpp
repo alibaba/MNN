@@ -1085,7 +1085,7 @@ std::vector<int> Mllm::vision_process(const std::string& file) {
         image_embedding = mul_module_->forward(image);
     }
     auto et    = std::chrono::system_clock::now();
-    vision_us_ = std::chrono::duration_cast<std::chrono::microseconds>(et - st).count();
+    mState.vision_us_ = std::chrono::duration_cast<std::chrono::microseconds>(et - st).count();
     mul_embeddings_.push_back(image_embedding);
     int visual_len = image_embedding->getInfo()->dim[0];
     std::vector<int> img_ids(visual_len, img_pad_);
@@ -1115,7 +1115,7 @@ std::vector<int> Mllm::audio_process(const std::string& file) {
     auto audio_embedding = mul_module_->forward(input_features);
     audio_embedding = _Permute(audio_embedding, {1, 0, 2});
     auto et         = std::chrono::system_clock::now();
-    audio_us_       = std::chrono::duration_cast<std::chrono::microseconds>(et - st).count();
+    mState.audio_us_       = std::chrono::duration_cast<std::chrono::microseconds>(et - st).count();
     mul_embeddings_.push_back(audio_embedding);
     int embed_len = audio_embedding->getInfo()->dim[0];
     std::vector<int> audio_ids(embed_len, audio_pad_);
@@ -1172,11 +1172,9 @@ std::vector<int> Mllm::multimode_process(const std::string& mode, std::string in
                 file.close();
             } else {
                 std::cerr << "Unable to open file to write." << std::endl;
-                exit(0);
             }
         } else {
             std::cerr << "Failed to download file. Status code: " << (res ? res->status : 0) << std::endl;
-            exit(0);
         }
     }
     if (mode == "img" && config_->is_visual()) {
