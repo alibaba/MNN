@@ -1,5 +1,6 @@
 option(LLM_SUPPORT_VISION "Llm model support vision input." ON)
 option(LLM_SUPPORT_AUDIO "Llm model support audio input." ON)
+option(BUILD_MLS "Build PC Commandline." OFF)
 
 
 if (LLM_SUPPORT_VISION AND MNN_BUILD_OPENCV)
@@ -46,6 +47,7 @@ add_executable(embedding_demo ${CMAKE_CURRENT_LIST_DIR}/embedding_demo.cpp)
 
 #add_definitions(-DCPPHTTPLIB_OPENSSL_SUPPORT)
 
+if (BUILD_MLS)
 add_executable(mls
         ${CMAKE_CURRENT_LIST_DIR}/app/mls.cpp
         ${CMAKE_CURRENT_LIST_DIR}/app/remote_model_downloader.cpp
@@ -54,10 +56,6 @@ add_executable(mls
         ${CMAKE_CURRENT_LIST_DIR}/app/hf_api_client.cpp
         ${CMAKE_CURRENT_LIST_DIR}/app/mls_server.cpp
 )
-
-target_compile_options(mls PRIVATE -std=c++17)
-
-# Find OpenSSL
 find_package(OpenSSL REQUIRED)
 
 if (OpenSSL_FOUND)
@@ -75,9 +73,11 @@ if (OpenSSL_FOUND)
 else()
     message(FATAL_ERROR "OpenSSL not found. Please install OpenSSL and set paths.")
 endif()
-
+target_compile_options(mls PRIVATE -std=c++17)
 target_link_libraries(mls ${MNN_DEPS} llm)
 target_compile_definitions(mls PRIVATE CPPHTTPLIB_OPENSSL_SUPPORT)
+endif()
+
 target_link_libraries(embedding_demo ${MNN_DEPS})
 add_executable(audio_demo ${CMAKE_CURRENT_LIST_DIR}/audio_demo.cpp)
 target_link_libraries(audio_demo ${MNN_DEPS})
