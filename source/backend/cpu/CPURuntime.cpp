@@ -30,7 +30,9 @@
 // ref: https://cs.android.com/android/platform/superproject/+/master:bionic/libc/kernel/uapi/asm-arm64/asm/hwcap.h;drc=04da58f5b3bc40dbbafb4f8422aa2991479d9e1e;l=70
 #define CPUINFO_ARM_LINUX_FEATURE_I8MM UINT32_C(0x00002000)
 #define CPUINFO_ARM_LINUX_FEATURE_SVE UINT32_C(0x00400000)
-#define CPUINFO_ARM_LINUX_FEATURE_SVE2 UINT32_C(0x00000002)
+
+#define CPUINFO_ARM_LINUX_FEATURE2_SVE2 UINT32_C(0x00000002)
+#define CPUINFO_ARM_LINUX_FEATURE2_SME2 UINT64_C(0x0000002000000000)
 #endif
 
 #include <algorithm>
@@ -1281,6 +1283,9 @@ static void _getInfoApple(MNNCPUInfo* cpuinfo_isa) {
     if (have_feature("hw.optional.arm.FEAT_I8MM")) {
         cpuinfo_isa->i8mm = true;
     }
+    if (have_feature("hw.optional.arm.FEAT_SME2")) {
+        cpuinfo_isa->sme2 = true;
+    }
 }
 #endif
 
@@ -1288,6 +1293,8 @@ static void _getInfoApple(MNNCPUInfo* cpuinfo_isa) {
 static void _getInfoAux(MNNCPUInfo* cpuinfo_isa) {
     // Use AUX to get info for linux-aarch64
     uint32_t isa_features = 0;
+    uint64_t isa_features2 = 0;
+
     isa_features = (uint32_t)getauxval(AT_HWCAP);
     if (isa_features & CPUINFO_ARM_LINUX_FEATURE_ASIMDDP) {
         cpuinfo_isa->dot = true;
@@ -1299,9 +1306,13 @@ static void _getInfoAux(MNNCPUInfo* cpuinfo_isa) {
     if (isa_features & CPUINFO_ARM_LINUX_FEATURE_I8MM) {
         cpuinfo_isa->i8mm = true;
     }
-    isa_features = (uint32_t)getauxval(AT_HWCAP2);
-    if (isa_features & CPUINFO_ARM_LINUX_FEATURE_SVE2) {
+
+    isa_features2 = (uint64_t)getauxval(AT_HWCAP2);
+    if (isa_features & CPUINFO_ARM_LINUX_FEATURE2_SVE2) {
         cpuinfo_isa->sve2 = true;
+    }
+    if (isa_features & CPUINFO_ARM_LINUX_FEATURE2_SME2) {
+        cpuinfo_isa->sme2 = true;
     }
 }
 #endif
@@ -1353,6 +1364,7 @@ static void _fillInfo(MNNCPUInfo* cpuinfo_isa) {
     cpuinfo_isa->fp16arith = false;
     cpuinfo_isa->i8mm = false;
     cpuinfo_isa->sve2 = false;
+    cpuinfo_isa->sme2 = false;
     // android
     /**Get CPU Info*/
 #ifdef __linux__
@@ -1449,6 +1461,7 @@ static void _fillInfo(MNNCPUInfo* cpuinfo_isa) {
     cpuinfo_isa->dot = true;
 #endif
 
-    MNN_PRINT("The device supports: i8sdot:%d, fp16:%d, i8mm: %d, sve2: %d\n", cpuinfo_isa->dot, cpuinfo_isa->fp16arith, cpuinfo_isa->i8mm, cpuinfo_isa->sve2);
+    MNN_PRINT("The device supports: i8sdot:%d, fp16:%d, i8mm: %d, sve2: %d, sme2: %d\n",
+            cpuinfo_isa->dot, cpuinfo_isa->fp16arith, cpuinfo_isa->i8mm, cpuinfo_isa->sve2, cpuinfo_isa->sme2);
     return;
 }

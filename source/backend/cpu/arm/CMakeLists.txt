@@ -47,7 +47,9 @@ if (MNN_KLEIDIAI)
     endif()
 
     list(APPEND MNN_SOURCES_KLEIDIAI ${CMAKE_CURRENT_LIST_DIR}/mnn_kleidiai.cpp)
+    list(APPEND MNN_SOURCES_KLEIDIAI ${CMAKE_CURRENT_LIST_DIR}/mnn_kleidiai_util.cpp)
     list(APPEND MNN_HEADERS_KLEIDIAI ${CMAKE_CURRENT_LIST_DIR}/mnn_kleidiai.h)
+    list(APPEND MNN_HEADERS_KLEIDIAI ${CMAKE_CURRENT_LIST_DIR}/mnn_kleidiai_util.h)
 
     # KleidiAI
     include_directories(
