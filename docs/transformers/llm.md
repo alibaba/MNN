@@ -107,7 +107,7 @@ options:
 ```
 - 需要开启音频功能时，增加相关编译宏
 ```
--DLLM_SUPPORT_AUDIO=true
+-DLLM_SUPPORT_AUDIO=true -DMNN_BUILD_AUDIO=true
 ```
 
 #### mac / linux / windows
