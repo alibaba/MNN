@@ -25,31 +25,6 @@ inline static size_t kai_num_blocks_per_row(size_t k, size_t bl) {
     return k / bl;
 }
 
-inline static size_t kai_num_bytes_per_block(size_t bl) {
-    return (bl / 2) + kai_num_bytes_multiplier_rhs + kai_num_bytes_adder_rhs;
-}
-
-inline static size_t kai_rhs_packed_stride_q4c32p(size_t k, size_t nr, size_t kr, size_t bl) {
-    KAI_ASSUME((k % 2) == 0);
-    KAI_ASSUME((k % kr) == 0);
-    KAI_ASSUME((k % bl) == 0);
-    KAI_ASSUME((bl % kr) == 0);
-
-    const size_t num_blocks_per_row = kai_num_blocks_per_row(k, bl);
-    const size_t num_bytes_per_block = kai_num_bytes_per_block(bl);
-
-    return nr * (num_bytes_per_block * num_blocks_per_row + kai_num_bytes_bias);
-}
-
-inline static size_t kai_rhs_packed_stride(size_t k, size_t kr, size_t nr, size_t sr) {
-    const size_t k_internal = kai_k_roundedup(k, kr, sr);
-
-    // multiple of 2 because 2 elements in a byte
-    KAI_ASSERT((k_internal % 2) == 0);
-
-    return nr * ((k_internal / 2) + kai_num_bytes_multiplier_rhs + kai_num_bytes_adder_rhs + kai_num_bytes_bias);
-}
-
 void KleidiAIUtil::transferNCHWToNC4HW4(float* src, float* dst, size_t rowNum, size_t rowSize) {
     size_t blockNum = rowSize / 4;
     size_t blockSize = 4 * sizeof(float);
@@ -247,7 +222,7 @@ void KleidiAIUtil::packQsi4cxps16s0Qs4cx(
     KAI_ASSERT(params->lhs_zero_point == 1);
 
     const size_t rhs_zero_point = params->rhs_zero_point;
-    const size_t rhs_packed_stride = kai_rhs_packed_stride(k, nr, kr, sr);
+    const size_t rhs_packed_stride = kai_get_rhs_packed_stride_rhs_pack_nxk_qsi4cxp_qs4cxs1s0(k, nr, kr, sr);
     const size_t k_internal = kai_k_roundedup(k, kr, sr);
     const size_t dst_num_rows = kai_roundup(n, nr) / nr;
     const size_t dst_num_bytes_per_row = nr * (kai_k_roundedup(k, kr, sr) / 2);

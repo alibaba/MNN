@@ -154,13 +154,15 @@ namespace MNN {
         void runRhsPack(AccelType type, size_t numGroups, size_t n, size_t k, size_t bl, size_t rhsStride,
                         const void* rhs, const void* scale, const void* zeroPoint, const void* bias,
                         void* rhsPacked, bool packedQ4);
+
         //Dst
         size_t getDstOffset(size_t mIdx, size_t nIdx, size_t n, size_t elementSize) { return (nIdx * elementSize) + mIdx * (n * elementSize); }
 
         //Matmul
         void runMatmul(AccelType type, size_t m, size_t n, size_t k, size_t bl,
                        const void* lhsPacked, const void* rhsPacked, void* dst,
-                       size_t dstStrideRow, size_t dstStrideCol);
+                       size_t dstStrideRow, size_t dstStrideCol,
+                       const float scalarMax, const float scalarMin);
 
     private:
         KleidiAI() {}

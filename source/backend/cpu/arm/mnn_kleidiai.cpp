@@ -145,6 +145,7 @@ KleidiAI::AccelType KleidiAI::getQIntAccelType(size_t bits, bool bAsymmetric, si
 //Lhs
 size_t KleidiAI::getLhsQuantedPackedSize(AccelType type, size_t m, size_t k, size_t bl) {
     MNN_ASSERT(type >= AccelType::QINT && type <= AccelType::QINT_END);
+    KAI_UNUSED(bl);
 
     switch(type) {
     case AccelType::QI4_SYM_CHNLQT:
@@ -158,6 +159,7 @@ size_t KleidiAI::getLhsQuantedPackedSize(AccelType type, size_t m, size_t k, siz
 
 size_t KleidiAI::getLhsQuantedPackedOffset(AccelType type, size_t m, size_t mIdx, size_t k, size_t bl) {
     MNN_ASSERT(type >= AccelType::QINT && type <= AccelType::QINT_END);
+    KAI_UNUSED(bl);
 
     if(mIdx == 0) {
         return 0;
@@ -181,6 +183,7 @@ void KleidiAI::runLhsPack(AccelType type, size_t m, size_t k, size_t mIdx, const
 
 void KleidiAI::runLhsQuantPack(AccelType type, size_t m, size_t k, size_t bl, size_t mr, const void* lhs, void* lhsQuantedPacked) {
     MNN_ASSERT(type >= AccelType::QINT && type <= AccelType::QINT_END);
+    KAI_UNUSED(bl);
 
     switch(type) {
     case AccelType::QI4_SYM_CHNLQT:
@@ -193,6 +196,8 @@ void KleidiAI::runLhsQuantPack(AccelType type, size_t m, size_t k, size_t bl, si
 
 //Rhs
 size_t KleidiAI::getRhsPackedSize(AccelType type, size_t n, size_t k, size_t bl) {
+    KAI_UNUSED(bl);
+    
     switch(type) {
     case AccelType::QI4_SYM_CHNLQT:
         return kai_get_rhs_packed_size_rhs_pack_nxk_qsi4cxp_qs4cxs1s0(n, k, getNr(type), getKr(type), getSr(type));
@@ -203,6 +208,8 @@ size_t KleidiAI::getRhsPackedSize(AccelType type, size_t n, size_t k, size_t bl)
 }
 
 size_t KleidiAI::getRhsPackedOffset(AccelType type, size_t nIdx, size_t k, size_t bl) {
+    KAI_UNUSED(bl);
+
     if(nIdx == 0) {
         return 0;
     }
@@ -219,6 +226,8 @@ size_t KleidiAI::getRhsPackedOffset(AccelType type, size_t nIdx, size_t k, size_
 void KleidiAI::runRhsPack(AccelType type, size_t numGroups, size_t n, size_t k, size_t bl, size_t rhsStride,
                           const void* rhs, const void* scale, const void* zeroPoint, const void* bias,
                           void* rhsPacked, bool packedQ4) {
+    KAI_UNUSED(bl);
+
     switch(type) {
     case AccelType::QI4_SYM_CHNLQT:
     {
@@ -242,20 +251,21 @@ void KleidiAI::runRhsPack(AccelType type, size_t numGroups, size_t n, size_t k, 
 //Matmul
 void KleidiAI::runMatmul(AccelType type, size_t m, size_t n, size_t k, size_t bl,
                          const void* lhsPacked, const void* rhsPacked, void* dst,
-                         size_t dstStrideRow, size_t dstStrideCol) {
+                         size_t dstStrideRow, size_t dstStrideCol,
+                         const float scalarMax, const float scalarMin) {
+    KAI_UNUSED(bl);
+
     switch(type) {
     case AccelType::QI4_SYM_CHNLQT:
     {
-        const float scalar_max = FLT_MAX;
-        const float scalar_min = -scalar_max;
         if(m == 1) {
             kai_run_matmul_clamp_f32_qai8dxp1x8_qsi4cxp4x8_1x4x32_neon_dotprod(m, n, k,
                                                                                (const void *)lhsPacked, (const void *)rhsPacked, (float *)dst,
-                                                                               dstStrideRow, dstStrideCol, scalar_min, scalar_max);
+                                                                               dstStrideRow, dstStrideCol, scalarMin, scalarMax);
         } else {
             kai_run_matmul_clamp_f32_qai8dxp4x8_qsi4cxp4x8_8x4x32_neon_i8mm(m, n, k,
                                                                             (const void *)lhsPacked, (const void *)rhsPacked, (float *)dst,
-                                                                            dstStrideRow, dstStrideCol, scalar_min, scalar_max);
+                                                                            dstStrideRow, dstStrideCol, scalarMin, scalarMax);
         }
         break;
     }
