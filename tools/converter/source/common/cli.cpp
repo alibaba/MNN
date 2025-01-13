@@ -713,7 +713,8 @@ bool Cli::convertModel(modelConfig& modelPath) {
         }
     }
     bool needOptimize = modelPath.model != modelConfig::MNN || modelPath.optimizeLevel >= 1;
-    if (modelPath.saveStaticModel) {
+    if (modelPath.saveStaticModel && modelPath.model == modelConfig::MNN) {
+        MNN_PRINT("Skip Optimize for static model\n");
         needOptimize = false;
     }
     std::vector<std::string> expectedPass;
