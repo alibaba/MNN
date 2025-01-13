@@ -248,7 +248,12 @@ std::shared_ptr<Tensor> GeometryConvUtils::im2Col(Tensor* im2Col, Tensor* input,
 }
 bool GeometryConvUtils::computeSingle(const Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, GeometryComputer::Context& context, CommandBuffer& res) {
 #if KAI_CONV_NCHW_IN_OUT
-    if(KleidiAI::getInstance().canAccelerate()) {
+    KleidiAI& kai = KleidiAI::getInstance();
+    if(kai.canAccelerate()) {
+        TensorUtils::getDescribe(inputs[0])->dimensionFormat = MNN_DATA_FORMAT_NCHW;
+        TensorUtils::getDescribe(outputs[0])->dimensionFormat = MNN_DATA_FORMAT_NCHW;
+        kai.setLinear(true);
+
         std::shared_ptr<Command> cmd(new Command);
         cmd->op      = op;
         cmd->inputs  = std::move(inputs);

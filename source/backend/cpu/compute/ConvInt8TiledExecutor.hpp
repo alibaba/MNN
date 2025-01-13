@@ -78,6 +78,9 @@ private:
     int mOcPerThread;
     bool mSplitByOc;
     bool mUseBatchQuan;
+#ifdef MNN_KLEIDIAI_ENABLED
+    KleidiAI::AccelType mAccelType = KleidiAI::AccelType::ACC_TYPE_NUMBER;
+#endif
 };
 
 } // namespace MNN

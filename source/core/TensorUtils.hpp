@@ -22,9 +22,9 @@
 #ifdef MNN_KLEIDIAI_ENABLED
 #include "../backend/cpu/arm/mnn_kleidiai.h"
 /**
- * Set DenseConvInt8TiledExecutor's input/output tensor format: 
- * KAI_CONV_NCHW_IN_OUT = 1: format will be NCHW, skip pack/unpack functions.
- * KAI_CONV_NCHW_IN_OUT = 0: format will be NC4HW4, need pack/unpack functions to fit kleidiAI ukernel.
+ * Set Convolution's input/output tensor format:
+ * 1: format will be NCHW, skip pack/unpack functions.
+ * 0: format will be NC4HW4, need pack/unpack functions to fit kleidiAI ukernel.
  **/
 #define KAI_CONV_NCHW_IN_OUT 1
 #endif
