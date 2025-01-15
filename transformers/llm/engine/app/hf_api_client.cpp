@@ -12,6 +12,7 @@
 
 #include "file_utils.hpp"
 #include "functional"
+#include "mls_config.hpp"
 
 namespace mls {
 
@@ -162,7 +163,7 @@ mls::RepoInfo HfApiClient::GetRepoInfo(
 }
 
 HfApiClient::HfApiClient() {
-    cache_path_ = FileUtils::ExpandTilde("~/.mnnmodels");
+    cache_path_ = FileUtils::ExpandTilde(kCachePath);
     if (const char* hf_endpoint  = std::getenv("HF_ENDPOINT")) {
         std::string path;
         std::tie(this->host_, path) = ParseUrl(std::string(hf_endpoint));
@@ -188,18 +189,22 @@ bool HfApiClient::PerformRequestWithRetry(std::function<bool()> request_func, in
 
 void HfApiClient::DownloadRepo(const RepoInfo& repo_info) {
     mls::RemoteModelDownloader model_downloader{this->host_, this->max_attempts_, this->retry_delay_seconds_};
-    std::cout << "repo_info sha " <<repo_info.sha << std::endl;
     std::string error_info;
     bool has_error = false;
     auto repo_folder_name = FileUtils::RepoFolderName(repo_info.model_id, "model");
     fs::path storage_folder = fs::path(this->cache_path_) / repo_folder_name;
     const auto parent_pointer_path = FileUtils::GetPointerPathParent(storage_folder,  repo_info.sha);
+    const auto folder_link_path = fs::path(this->cache_path_) / FileUtils::GetFileName(repo_info.model_id);
+    if (fs::exists(folder_link_path)) {
+        printf("already donwnloaded at %s\n", folder_link_path.c_str());
+        return;
+    }
     for (auto & sub_file :  repo_info.siblings) {
         model_downloader.DownloadFile(storage_folder, repo_info.model_id, repo_info.sha, sub_file, error_info);
+        printf("download sub_file %s result %s\n", sub_file.c_str(), error_info.c_str());
         has_error = has_error || !error_info.empty();
     }
     if (!has_error) {
-        const auto folder_link_path = fs::path(this->cache_path_) / FileUtils::GetFileName(repo_info.model_id);
         FileUtils::CreateSymlink(parent_pointer_path, folder_link_path);
     }
 }

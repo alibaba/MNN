@@ -1,10 +1,10 @@
 #!/bin/bash
 cmake ../../../ \
 -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK/build/cmake/android.toolchain.cmake \
--DCMAKE_BUILD_TYPE=Release \
+-DCMAKE_BUILD_TYPE=Debug \
 -DANDROID_ABI="arm64-v8a" \
 -DANDROID_STL=c++_static \
--DMNN_USE_LOGCAT=false \
+-DMNN_USE_LOGCAT=true \
 -DMNN_BUILD_BENCHMARK=ON \
 -DMNN_USE_SSE=OFF \
 -DMNN_BUILD_TEST=ON \

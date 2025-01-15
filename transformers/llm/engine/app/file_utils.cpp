@@ -10,8 +10,9 @@
 #include <sstream>
 #include <vector>
 
+#include "mls_config.hpp"
+
 namespace mls {
-// Helper function: Combine paths
 std::string FileUtils::JoinPaths(const std::string& base, const std::vector<std::string>& parts) {
     std::string result = base;
     for (const auto& part : parts) {
@@ -107,6 +108,34 @@ void FileUtils::CreateSymlink(const fs::path& target, const fs::path& link) {
 std::string FileUtils::GetFileName(const std::string& path) {
     const auto pos = path.rfind('/');
     return pos == std::string::npos ? path : path.substr(pos + 1);
+}
+
+std::string FileUtils::GetFolderLinkerPath(const std::string& model_id) {
+    return fs::path(ExpandTilde(kCachePath)) /  GetFileName(model_id);
+}
+
+std::string FileUtils::GetStorageFolderPath(const std::string& model_id) {
+    const auto repo_folder_name = RepoFolderName(model_id, "model");
+    return fs::path(ExpandTilde(kCachePath)) / repo_folder_name;
+}
+
+bool FileUtils::RemoveFileIfExists(const std::string& path) {
+    std::error_code ec;
+    bool result;
+
+    if (fs::is_directory(path)) {
+        result = fs::remove_all(path, ec); // Remove directories and their contents
+    } else if (fs::is_regular_file(path)) {
+        result = fs::remove(path, ec);      // Remove files
+    } else if (!fs::exists(path)){
+        return true; // if the file doesn't exist, it is considered a success
+    } else {
+        return false;
+    }
+    if (ec && ec != std::errc::no_such_file_or_directory) {
+        return false;
+    }
+    return result;
 }
 
 }

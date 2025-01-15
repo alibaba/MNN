@@ -7,4 +7,5 @@
 
 namespace mls {
    const char* const kCachePath = "~/.mnnmodels";
+
 }

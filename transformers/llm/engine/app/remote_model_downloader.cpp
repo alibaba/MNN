@@ -5,14 +5,9 @@
 
 #include "remote_model_downloader.hpp"
 #include "../include/httplib.h"
-#include <../../../../3rd_party/rapidjson/document.h>
-#include <../../../../3rd_party/rapidjson/writer.h>
-#include <../../../../3rd_party/rapidjson/stringbuffer.h>
 #include <cstdio>
 #include <fstream>
 #include <functional>
-#include <regex>
-#include <sys/stat.h>
 #include "file_utils.hpp"
 
 static const std::string HUGGINGFACE_HEADER_X_REPO_COMMIT = "x-repo-commit";
@@ -77,7 +72,6 @@ namespace mls {
         url += repo;
         url += "/resolve/" + revision + "/" + relative_path;
         printf("DownloadFile  %s begin\n", relative_path.c_str());
-        // Step 1: 获取文件元信息
         auto metadata = GetFileMetadata(url, error_info);
         if (!error_info.empty()) {
             printf("DownloadFile GetFileMetadata faield\n");
@@ -104,13 +98,12 @@ namespace mls {
 
         std::mutex lock;
         {
-            std::lock_guard<std::mutex> guard(lock);
+            std::lock_guard guard(lock);
             httplib::Headers headers;
-            std::string error_info;
             DownloadToTmpAndMove(blob_path_incomplete, blob_path, metadata.location, headers, metadata.size,
                                  relative_path, false, error_info);
             if (error_info.empty()) {
-                mls::FileUtils::CreateSymlink(blob_path, pointer_path);
+                FileUtils::CreateSymlink(blob_path, pointer_path);
             }
         }
         return pointer_path.string();
@@ -183,6 +176,7 @@ namespace mls {
         if (res) {
             if (res->status >= 200 && res->status < 300 || res->status == 416) {
                 progress.success = true;
+                printf("\n");
             } else {
                 error_info = "HTTP error: " + std::to_string(res->status);
             }

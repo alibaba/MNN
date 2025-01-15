@@ -74,7 +74,7 @@ else()
     message(FATAL_ERROR "OpenSSL not found. Please install OpenSSL and set paths.")
 endif()
 target_compile_options(mls PRIVATE -std=c++17)
-target_link_libraries(mls ${MNN_DEPS} llm)
+target_link_libraries(mls ${MNN_DEPS})
 target_compile_definitions(mls PRIVATE CPPHTTPLIB_OPENSSL_SUPPORT)
 endif()
 

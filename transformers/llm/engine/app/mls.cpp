@@ -249,17 +249,20 @@ static int eval_file(Llm* llm, std::string prompt_file) {
 
 static int print_usage() {
     std::cout << "Available Commands:" << std::endl;
-    std::cout << "  ./mls list: list all local model names" << std::endl;
-    std::cout << "  ./mls search keyword: search all available remote models by key" << std::endl;
-    std::cout << "  ./mls download model_name : download the model" << std::endl;
-    std::cout << "  ./mls run  model_name : download the model" << std::endl;
+    std::cout << "  mls list: list all local model names" << std::endl;
+    std::cout << "  mls search keyword: search all available remote models by key" << std::endl;
+    std::cout << "  mls download model_name : download the model" << std::endl;
+    std::cout << "  mls run  model_name : download the model" << std::endl;
+    std::cout << "  mls benchmark:  model_name test benchmark of a model" << std::endl;
+    std::cout << "  mls server: serve with openai compatible api" << std::endl;
+    std::cout << "  mls delete model_name: remove the download model" << std::endl;
     return 0;
 }
 
 //list files int the directory of ~/.cache/modelscope/hub/MNN/Qwen-7B-Chat-MNN/
 static int list_models(int argc, const char* argv[]) {
     std::vector<std::string> model_names;
-    list_local_models(mls::FileUtils::ExpandTilde("~/.mnnmodels"), model_names);
+    list_local_models(mls::FileUtils::ExpandTilde(mls::kCachePath), model_names);
     if (!model_names.empty()) {
         for (auto& name : model_names) {
             printf("%s\n", name.c_str());
@@ -271,9 +274,30 @@ static int list_models(int argc, const char* argv[]) {
 }
 
 static int serve(int argc, const char* argv[]) {
-    printf("serve todo");
+    bool invalid_param{false};
+    std::string config_path{};
+    std::string arg{};
+    if (argc < 3) {
+        print_usage();
+        return 1;
+    }
+    arg = argv[2];
+    if (arg.find('-') != 0) {
+        config_path =  fs::path(mls::FileUtils::ExpandTilde(mls::kCachePath))/arg/"config.json";;
+    }
+    for (int i = 2; i < argc; i++) {
+        arg = argv[i];
+        if (arg == "-c") {
+            if (++i >= argc) {
+                invalid_param = true;
+                break;
+            }
+            config_path = mls::FileUtils::ExpandTilde(argv[i]);
+        }
+    }
     mls::MlsServer server;
-    server.Start();
+    auto llm = create_and_prepare_llm(config_path.c_str());
+    server.Start(llm.get());
     return 0;
 }
 
@@ -281,6 +305,14 @@ static int benchmark(int argc, const char* argv[]) {
     std::string arg{};
     bool invalid_param{false};
     std::string config_path{};
+    if (argc < 3) {
+        print_usage();
+        return 1;
+    }
+    arg = argv[2];
+    if (arg.find('-') != 0) {
+        config_path =  fs::path(mls::FileUtils::ExpandTilde(mls::kCachePath))/arg/"config.json";;
+    }
     for (int i = 2; i < argc; i++) {
         arg = argv[i];
         if (arg == "-c") {
@@ -416,6 +448,21 @@ int search(int argc, const char* argv[]) {
     }
 }
 
+int delete_model(int argc, const char* argv[]) {
+    if (argc < 3) {
+        print_usage();
+        return 1;
+    }
+    std::string model_name = argv[2];
+    std::string linker_path = mls::FileUtils::GetFolderLinkerPath(model_name);
+    mls::FileUtils::RemoveFileIfExists(linker_path);
+    if (model_name.find("taobao-mnn") != 0) {
+        model_name = "taobao-mnn/" + model_name;
+    }
+    std::string storage_path = mls::FileUtils::GetStorageFolderPath(model_name);
+    mls::FileUtils::RemoveFileIfExists(storage_path);
+}
+
 int main(int argc, const char* argv[]) {
     if (argc < 2) {
         print_usage();
@@ -434,6 +481,8 @@ int main(int argc, const char* argv[]) {
         download(argc, argv);
     } else if (cmd == "search") {
         search(argc, argv);
+    } else if (cmd == "delete") {
+        delete_model(argc, argv);
     } else {
         print_usage();
     }

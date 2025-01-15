@@ -1,7 +1,7 @@
 #include <random>
 #include <fstream>
 #include <chrono>
-#include "pipeline.hpp"
+#include "diffusion/diffusion.hpp"
 #include "tokenizer.hpp"
 #define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
@@ -22,8 +22,9 @@
 
 using namespace CV;
 
-namespace diffusion {
-
+namespace MNN {
+namespace DIFFUSION {
+    
 void display_progress(int cur, int total){
     putchar('\r');
     MNN_PRINT("[");
@@ -35,11 +36,16 @@ void display_progress(int cur, int total){
     fflush(stdout);
 }
 
-Pipeline::Pipeline(std::string modelPath, DiffusionModelType modelType, MNNForwardType backendType, int memoryMode) : 
-    mModelPath(modelPath), mModelType(modelType), mBackendType(backendType), mMemoryMode(memoryMode) {
+Diffusion* Diffusion::createDiffusion(std::string modelPath, DiffusionModelType modelType, MNNForwardType backendType, int memoryMode, int iterationNum) {
+    Diffusion* diffusion = new Diffusion(modelPath, modelType, backendType, memoryMode, iterationNum);
+    return diffusion;
+}
+    
+Diffusion::Diffusion(std::string modelPath, DiffusionModelType modelType, MNNForwardType backendType, int memoryMode, int iterationNum) :
+mModelPath(modelPath), mModelType(modelType), mBackendType(backendType), mMemoryMode(memoryMode), mIterationNum(iterationNum) {
     if(modelType == STABLE_DIFFUSION_1_5) {
         mMaxTextLen = 77;
-    } else if(modelType == diffusion::STABLE_DIFFUSION_TAIYI_CHINESE) {
+    } else if(modelType == STABLE_DIFFUSION_TAIYI_CHINESE) {
         mMaxTextLen = 512;
     }
     std::ifstream alphaFile(modelPath + "/alphas.txt");
@@ -48,29 +54,27 @@ Pipeline::Pipeline(std::string modelPath, DiffusionModelType modelType, MNNForwa
     while (alphaFile >> alpha) {
         mAlphas.push_back(alpha);
     }
-#if 0 // Different steps setting
-    mTimeSteps = { // 50 steps
-        981, 961, 961, 941, 921, 901, 881, 861, 841, 821, 801, 781, 761, 741,
-        721, 701, 681, 661, 641, 621, 601, 581, 561, 541, 521, 501, 481, 461,
-        441, 421, 401, 381, 361, 341, 321, 301, 281, 261, 241, 221, 201, 181,
-        161, 141, 121, 101,  81,  61,  41,  21,   1
-    };
-   mTimeSteps = { // 20 steps
-        951, 901, 901, 851, 801, 751, 701, 651, 601, 551, 501, 451,
-        401, 351, 301, 251,  201,  151,  101,  51,   1
-   };
-    mTimeSteps = { // 5 steps
-        801, 601, 601,
-        401, 201,  1
-    };
-#endif
-     mTimeSteps = {
-         951, 901, 901, 851, 801, 751, 701, 651, 601, 551, 501, 451,
-         401, 351, 301, 251,  201,  151,  101,  51,   1
-     };
+    if(iterationNum > 50) {
+        iterationNum = 50;
+        MNN_PRINT("too much number of iterations, iterations will be set to 50.\n");
+    }
+    if(iterationNum < 1) {
+        iterationNum = 10;
+        MNN_PRINT("illegal number of iterations, iterations will be set to 10.\n");
+    }
+    mTimeSteps.resize(iterationNum + 1);
+    int step = 1000 / (iterationNum + 1);
+    for(int i = iterationNum; i >= 0; i--) {
+        mTimeSteps[i] = 1 + (iterationNum - i) * step;
+    }
 }
-
-bool Pipeline::load_modules() {
+    
+Diffusion::~Diffusion() {
+    mModules.clear();
+    runtime_manager_.reset();
+}
+    
+bool Diffusion::load() {
     AUTOTIME;
     ScheduleConfig config;
     BackendConfig backendConfig;
@@ -83,19 +87,19 @@ bool Pipeline::load_modules() {
     } else {
         config.numThread = 1;
     }
-
+    
     backendConfig.precision = BackendConfig::Precision_Low;
     config.backendConfig = &backendConfig;
-
+    
     auto exe = ExecutorScope::Current();
     exe->lazyEval = false;
     exe->setGlobalExecutorConfig(config.type, backendConfig, config.numThread);
-
+    
     Module::Config module_config;
     module_config.shapeMutable = false;
     // module_config.rearrange = true;
     runtime_manager_.reset(Executor::RuntimeManager::createRuntimeManager(config));
-
+    
     if (config.type == MNN_FORWARD_OPENCL) {
         const char* cacheFileName = ".tempcache";
         runtime_manager_->setCache(cacheFileName);
@@ -106,8 +110,10 @@ bool Pipeline::load_modules() {
     mTimestepVar = _Input({1}, NCHW, halide_type_of<int>());
     mSampleVar = _Concat({mLatentVar, mLatentVar}, 0);
     
-    MNN_PRINT("First time initilizing may cost a few seconds to create cachefile, please wait ...\n");
-
+    if(mMemoryMode > 0) {
+        MNN_PRINT("First time initilizing may cost a few seconds to create cachefile, please wait ...\n");
+    }
+    
     VARP text_embeddings;
     mModules.resize(3);
     // load text_encoder model
@@ -115,12 +121,12 @@ bool Pipeline::load_modules() {
         std::string model_path = mModelPath + "/text_encoder.mnn";
         MNN_PRINT("Load %s\n", model_path.c_str());
         mModules[0].reset(Module::load(
-            {"input_ids"}, {"last_hidden_state", "pooler_output"}, model_path.c_str(), runtime_manager_, &module_config));
+                                       {"input_ids"}, {"last_hidden_state", "pooler_output"}, model_path.c_str(), runtime_manager_, &module_config));
         
-	if(mMemoryMode > 0) { 
+        if(mMemoryMode > 0) {
             auto outputs = mModules[0]->onForward({mPromptVar});
             text_embeddings = _Convert(outputs[0], NCHW);
-	}
+        }
         display_progress(1, 3);
     }
     // load unet model
@@ -128,12 +134,12 @@ bool Pipeline::load_modules() {
         std::string model_path = mModelPath + "/unet.mnn";
         MNN_PRINT("Load %s\n", model_path.c_str());
         mModules[1].reset(Module::load(
-            {"sample", "timestep", "encoder_hidden_states"}, {"out_sample"}, model_path.c_str(), runtime_manager_, &module_config));
+                                       {"sample", "timestep", "encoder_hidden_states"}, {"out_sample"}, model_path.c_str(), runtime_manager_, &module_config));
         
-	if(mMemoryMode > 0) {
+        if(mMemoryMode > 0) {
             auto outputs = mModules[1]->onForward({mSampleVar, mTimestepVar, text_embeddings});
             auto output = _Convert(outputs[0], NCHW);
-	}
+        }
         display_progress(2, 3);
     }
     // load vae_decoder model
@@ -141,19 +147,29 @@ bool Pipeline::load_modules() {
         std::string model_path = mModelPath + "/vae_decoder.mnn";
         MNN_PRINT("Load %s\n", model_path.c_str());
         mModules[2].reset(Module::load(
-            {"latent_sample"}, {"sample"}, model_path.c_str(), runtime_manager_, &module_config));
+                                       {"latent_sample"}, {"sample"}, model_path.c_str(), runtime_manager_, &module_config));
         
-	if(mMemoryMode > 0) {
-        auto outputs = mModules[2]->onForward({mLatentVar});
-        auto output = _Convert(outputs[0], NCHW);
-	}
-	display_progress(3, 3);
+        if(mMemoryMode > 0) {
+            auto outputs = mModules[2]->onForward({mLatentVar});
+            auto output = _Convert(outputs[0], NCHW);
+            // sync
+            output->readMap<float>();
+        }
+        display_progress(3, 3);
     }
-
+    
+    // tokenizer loading
+    if(mModelType == STABLE_DIFFUSION_1_5) {
+        mTokenizer.reset(new CLIPTokenizer);
+    } else if(mModelType == STABLE_DIFFUSION_TAIYI_CHINESE) {
+        mTokenizer.reset(new BertTokenizer);
+    }
+    mTokenizer->load(mModelPath);
+    
     return true;
 }
 
-VARP Pipeline::text_encoder(const std::vector<int>& ids) {
+VARP Diffusion::text_encoder(const std::vector<int>& ids) {
     AUTOTIME;
     
     memcpy((void *)mPromptVar->writeMap<int8_t>(), ids.data(), 2*mMaxTextLen*sizeof(int));
@@ -172,7 +188,7 @@ VARP Pipeline::text_encoder(const std::vector<int>& ids) {
     return output;
 }
 
-VARP Pipeline::step_plms(VARP sample, VARP model_output, int index) {
+VARP Diffusion::step_plms(VARP sample, VARP model_output, int index) {
     int timestep = mTimeSteps[index];
     int prev_timestep = 0;
     if (index + 1 < mTimeSteps.size()) {
@@ -210,95 +226,105 @@ VARP Pipeline::step_plms(VARP sample, VARP model_output, int index) {
     return prev_sample;
 }
 
-VARP Pipeline::unet(VARP text_embeddings) {
-    mModules[0].reset();
-    std::mt19937 rng;
-    rng.seed(std::random_device()());
-    std::normal_distribution<float> normal(0, 1);
-    std::vector<float> initVal(16384);
-
+VARP Diffusion::unet(VARP text_embeddings, std::function<void(int)> progressCallback) {
+    if(mMemoryMode == 0) {
+        mModules[0].reset();
+    }
+    if(mInitNoise.size() != 16384) {
+        mInitNoise.resize(16384);
+    }
 #ifdef MNN_DUMP_DATA
     std::ostringstream fileName;
     fileName << "random.txt";
     std::ifstream input(fileName.str().c_str());
     for (int i = 0; i < 16384; ++i) {
-        input >> initVal[i];
+        input >> mInitNoise[i];
     }
 #else
+    std::mt19937 rng;
+    rng.seed(std::random_device()());
+    std::normal_distribution<float> normal(0, 1);
     for (int i = 0; i < 16384; i++) {
-        initVal[i] = normal(rng);
+        mInitNoise[i] = normal(rng);
     }
 #endif
     
-    memcpy((void *)mLatentVar->writeMap<int8_t>(), initVal.data(), 16384*sizeof(float));
-
+    memcpy((void *)mLatentVar->writeMap<int8_t>(), mInitNoise.data(), 16384*sizeof(float));
+    
     VARP scalevar = _Input({1}, NCHW, halide_type_of<float>());
     auto scaleptr = scalevar->writeMap<float>();
     scaleptr[0] = 7.5;
-
+    
     
     auto floatVar = _Input({1}, NCHW, halide_type_of<float>());
     auto ptr = floatVar->writeMap<float>();
-
+    auto plms = mLatentVar;
+    
     for (int i = 0; i < mTimeSteps.size(); i++) {
         AUTOTIME;
-        display_progress(i, mTimeSteps.size());
-
+        //display_progress(i, mTimeSteps.size());
+        
         int timestep = mTimeSteps[i];
-
         ptr[0] = timestep;
         auto temp = _Cast(floatVar, halide_type_of<int>());
         mTimestepVar->input(temp);
 
-        mSampleVar = _Concat({mLatentVar, mLatentVar}, 0);
+        mSampleVar = _Concat({plms, plms}, 0);
         auto outputs = mModules[1]->onForward({mSampleVar, mTimestepVar, text_embeddings});
         auto output = _Convert(outputs[0], NCHW);
-
+        
         auto noise_pred = output;
         
-         auto splitvar = _Split(noise_pred, {2}, 0);
-         auto noise_pred_uncond = splitvar[0];
-         auto noise_pred_text = splitvar[1];
-
+        auto splitvar = _Split(noise_pred, {2}, 0);
+        auto noise_pred_uncond = splitvar[0];
+        auto noise_pred_text = splitvar[1];
+        
         noise_pred = scalevar * (noise_pred_text - noise_pred_uncond) + noise_pred_uncond;
-
-        mLatentVar = step_plms(mLatentVar, noise_pred, i);
-
-        // mLatentVar.fix(VARP::CONSTANT);
+        
+        plms = step_plms(plms, noise_pred, i);
+        
 #ifdef MNN_DUMP_DATA
         auto xx = output->readMap<float>();
         auto yy = mSampleVar->readMap<float>();
         auto zz = text_embeddings->readMap<float>();
+        auto mm = mTimestepVar->readMap<int>();
 
         for(int i=0; i<6; i+=2) {
-            MNN_PRINT("%f %f %f ", xx[i], yy[i], zz[i]);
+            MNN_PRINT("(0)%f (1)%f (2)%f (3)%d ", xx[i], yy[i], zz[i] ,mm[0]);
         }
+        MNN_PRINT("\n");
         for(int i=0; i<6; i+=2) {
-            MNN_PRINT("%f %f %f ", xx[16384+i], yy[16384+i], zz[mMaxTextLen*768+i]);
+            MNN_PRINT("(0)%f (1)%f (2)%f ", xx[16384+i], yy[16384+i], zz[mMaxTextLen*768+i]);
         }
         MNN_PRINT("\n\n");
 #endif
+        if (progressCallback) {
+            progressCallback((2 + i) * 100 / (mIterationNum + 3)); // percent
+        }
+        
     }
-    mLatentVar.fix(VARP::CONSTANT);
+    plms.fix(VARP::CONSTANT);
     
 #ifdef MNN_DUMP_DATA
-    auto xx = mLatentVar->readMap<float>();
+    auto xx = plms->readMap<float>();
     for(int i=0; i<10; i+=2) {
         MNN_PRINT("%f ", xx[i]);
     }
     MNN_PRINT("\n\n");
 #endif
-    return mLatentVar;
+    return plms;
 }
 
-VARP Pipeline::vae_decoder(VARP latent) {
-    mModules[1].reset();
+VARP Diffusion::vae_decoder(VARP latent) {
+    if(mMemoryMode == 0) {
+        mModules[1].reset();
+    }
     latent = latent * _Const(1 / 0.18215);
     
     AUTOTIME;
     auto outputs = mModules[2]->onForward({latent});
     auto output = _Convert(outputs[0], NCHW);
-
+    
 #ifdef MNN_DUMP_DATA
     auto xx = output->readMap<float>();
     for(int i=0; i<320; i+=32) {
@@ -316,27 +342,32 @@ VARP Pipeline::vae_decoder(VARP latent) {
     return image;
 }
 
-bool Pipeline::run(const std::string& prompt, const std::string& imagePath) {
-    std::unique_ptr<diffusion::Tokenizer> tok;
-    if(mModelType == STABLE_DIFFUSION_1_5) {
-        tok.reset(new diffusion::CLIPTokenizer);
-    } else if(mModelType == STABLE_DIFFUSION_TAIYI_CHINESE) {
-        tok.reset(new diffusion::BertTokenizer);
-    }
-    tok->load(mModelPath);
-    load_modules();
-    
+bool Diffusion::run(const std::string prompt, const std::string imagePath, std::function<void(int)> progressCallback) {
     AUTOTIME;
-    auto ids = tok->encode(prompt, mMaxTextLen);
+    mEts.clear();
+ 
+    auto ids = mTokenizer->encode(prompt, mMaxTextLen);
     auto text_embeddings = text_encoder(ids);
     
-    auto latent = unet(text_embeddings);
-
+    if (progressCallback) {
+        progressCallback(1 * 100 / (mIterationNum + 3)); // percent
+    }
+    auto latent = unet(text_embeddings, progressCallback);
+    
     auto image = vae_decoder(latent);
     bool res = imwrite(imagePath, image);
     if (res) {
         MNN_PRINT("SUCCESS! write generated image to %s\n", imagePath.c_str());
     }
+
+    if(mMemoryMode == 0) {
+        mModules[2].reset();
+    }
+    
+    if (progressCallback) {
+        progressCallback(100); // percent
+    }
     return true;
+}
 }
 }
