@@ -48,7 +48,7 @@ private:
         const std::unordered_map<std::string, std::string>& proxies,
         size_t resume_size,
         const httplib::Headers& headers,
-        const std::optional<size_t>& expected_size,
+        const size_t expected_size,
         const std::string& displayed_filename,
         std::string& error_info);
 

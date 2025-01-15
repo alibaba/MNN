@@ -1,6 +1,6 @@
 option(LLM_SUPPORT_VISION "Llm model support vision input." ON)
 option(LLM_SUPPORT_AUDIO "Llm model support audio input." ON)
-option(BUILD_MLS "Build PC Commandline." OFF)
+option(BUILD_MLS "Build PC Commandline." ON)
 
 
 if (LLM_SUPPORT_VISION AND MNN_BUILD_OPENCV)
@@ -73,6 +73,8 @@ if (OpenSSL_FOUND)
 else()
     message(FATAL_ERROR "OpenSSL not found. Please install OpenSSL and set paths.")
 endif()
+set_property(TARGET mls PROPERTY CXX_STANDARD 17)
+set_property(TARGET mls PROPERTY CXX_STANDARD_REQUIRED ON)
 target_compile_options(mls PRIVATE -std=c++17)
 target_link_libraries(mls ${MNN_DEPS})
 target_compile_definitions(mls PRIVATE CPPHTTPLIB_OPENSSL_SUPPORT)

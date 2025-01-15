@@ -254,7 +254,7 @@ static int print_usage() {
     std::cout << "  mls download model_name : download the model" << std::endl;
     std::cout << "  mls run  model_name : download the model" << std::endl;
     std::cout << "  mls benchmark:  model_name test benchmark of a model" << std::endl;
-    std::cout << "  mls server: serve with openai compatible api" << std::endl;
+    std::cout << "  mls serve: serve with openai compatible api" << std::endl;
     std::cout << "  mls delete model_name: remove the download model" << std::endl;
     return 0;
 }
@@ -268,7 +268,7 @@ static int list_models(int argc, const char* argv[]) {
             printf("%s\n", name.c_str());
         }
     } else {
-        printf("no local models use --remote to show all remote models and download\n");
+        printf("no local models; use mls search to search remote models and download\n");
     }
     return 0;
 }
@@ -336,6 +336,7 @@ static int benchmark(int argc, const char* argv[]) {
     auto llm = create_and_prepare_llm(config_path.c_str());
     mls::LLMBenchmark benchmark;
     benchmark.Start(llm.get(), {});
+    return 0;
 }
 
 static int run(int argc, const char* argv[]) {
@@ -446,6 +447,7 @@ int search(int argc, const char* argv[]) {
             printf("%s\n", repo.model_id.substr(pos + 1).c_str());
         }
     }
+    return 0;
 }
 
 int delete_model(int argc, const char* argv[]) {

@@ -24,9 +24,8 @@ std::string FileUtils::JoinPaths(const std::string& base, const std::vector<std:
     return result;
 }
 
-// Helper function: Get the absolute path
 std::string FileUtils::GetAbsolutePath(const std::string& path) {
-    char absolute_path[PATH_MAX];
+    char absolute_path[1024];
     if (realpath(path.c_str(), absolute_path)) {
         return {absolute_path};
     } else {

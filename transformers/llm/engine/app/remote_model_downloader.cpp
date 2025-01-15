@@ -71,7 +71,6 @@ namespace mls {
         std::string url = "https://" + this->host_ + "/";
         url += repo;
         url += "/resolve/" + revision + "/" + relative_path;
-        printf("DownloadFile  %s begin\n", relative_path.c_str());
         auto metadata = GetFileMetadata(url, error_info);
         if (!error_info.empty()) {
             printf("DownloadFile GetFileMetadata faield\n");
@@ -86,7 +85,6 @@ namespace mls {
         fs::create_directories(pointer_path.parent_path());
 
         if (fs::exists(pointer_path)) {
-            printf("DownloadFile  %s already exists\n", relative_path.c_str());
             return pointer_path.string();
         }
 
@@ -141,7 +139,7 @@ namespace mls {
         const std::unordered_map<std::string, std::string>& proxies,
         size_t resume_size,
         const httplib::Headers& headers,
-        const std::optional<size_t>& expected_size,
+        const size_t expected_size,
         const std::string& displayed_filename,
         std::string& error_info
     ) {
@@ -164,8 +162,7 @@ namespace mls {
               [&](const char* data, size_t data_length) {
                   output.write(data, data_length);
                   progress.downloaded += data_length;
-
-                  if (expected_size.has_value()) {
+                  if (expected_size > 0) {
                       double percentage = (static_cast<double>(progress.downloaded) / progress.content_length) * 100.0;
                       printf("\rDownloadFile %s progress: %.2f%%", displayed_filename.c_str(), percentage);
                       fflush(stdout);
