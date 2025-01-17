@@ -1,0 +1,7 @@
+//
+//  {THIS_FILE_NAME}
+//  MNN
+//
+//  Created by MNN on {CURRENT_TIME}.
+//  Copyright © 2018, Alibaba Group Holding Limited
+//
