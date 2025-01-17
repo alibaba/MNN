@@ -4,6 +4,13 @@ echo "MNN_ROOT: ${MNN_ROOT}"
 export QNN_LIB_ROOT=${MNN_ROOT}/source/backend/qnn/3rd_party/
 echo "QNN_LIB_ROOT: ${QNN_LIB_ROOT}"
 
+if !(test -d ${MNN_ROOT}/source/backend/qnn/) then
+    mkdir ${MNN_ROOT}/source/backend/qnn/
+fi
+if !(test -d ${QNN_LIB_ROOT}) then
+    mkdir ${QNN_LIB_ROOT}
+fi
+
 # generate json config file
 echo "{\n\t\"CustomInstallPath\" : \"${QNN_LIB_ROOT}/Hexagon\"\n}" > ${MNN_ROOT}/codegen/qnn/install_Hexagon.json
 echo "{\n\t\"CustomInstallPath\" : \"${QNN_LIB_ROOT}/qnn_ai\"\n}" > ${MNN_ROOT}/codegen/qnn/install_qnn_ai.json
