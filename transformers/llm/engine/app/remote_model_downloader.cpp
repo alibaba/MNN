@@ -9,7 +9,6 @@
 #include <fstream>
 #include <functional>
 #include "file_utils.hpp"
-#include <Windows.h>
 
 static const std::string HUGGINGFACE_HEADER_X_REPO_COMMIT = "x-repo-commit";
 static const std::string HUGGINGFACE_HEADER_X_LINKED_ETAG = "x-linked-etag";

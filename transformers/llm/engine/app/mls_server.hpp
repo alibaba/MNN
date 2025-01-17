@@ -10,8 +10,8 @@ namespace mls {
 class LlmStreamBuffer : public std::streambuf {
 public:
   using CallBack = std::function<void(const char* str, size_t len)>;
-  LlmStreamBuffer(CallBack callback) : callback_(std::move(callback)) {}
-  virtual ~LlmStreamBuffer() = default;
+  explicit LlmStreamBuffer(CallBack callback) : callback_(std::move(callback)) {}
+  ~LlmStreamBuffer() override = default;
 protected:
   virtual std::streamsize xsputn(const char* s, std::streamsize n) override {
     if (callback_) {

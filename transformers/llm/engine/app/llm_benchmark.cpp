@@ -36,28 +36,18 @@ static void TestGen(Llm * llm, LLMBenchMarkInstance& t) {
     llm->generate(ids, t.n_gen);
     prompt_len += llm->getState().prompt_len_;
     decode_len += llm->getState().gen_seq_len_;
-    // vision_time += llm->vision_us_;
-    // audio_time += llm->audio_us_;
     prefill_time += llm->getState().prefill_us_;
     decode_time += llm->getState().decode_us_;
-    float vision_s = vision_time / 1e6;
-    float audio_s = audio_time / 1e6;
     float prefill_s = prefill_time / 1e6;
     float decode_s = decode_time / 1e6;
-    // printf("\n#################################\n");
     printf("prompt tokens num = %d\n", prompt_len);
     printf("decode tokens num = %d\n", decode_len);
-    // printf(" vision time = %.2f s\n", vision_s);
-    // printf("  audio time = %.2f s\n", audio_s);
-    // printf("prefill time = %.2f s\n", prefill_s);
-    // printf(" decode time = %.2f s\n", decode_s);
     printf("prefill speed = %.2f tok/s\n", prompt_len / prefill_s);
     printf("decode speed = %.2f tok/s\n", decode_len / decode_s);
-    // printf("##################################\n");*/
 }
 
 void LLMBenchmark::Start(MNN::Transformer::Llm* llm, const LLMBenchMarkOptions& params) {
-    LLMBenchMarkInstance t {"smo", 128, 512};
+    LLMBenchMarkInstance t {"", 128, 512};
     for (int i = 0; i < 1; i++) {
         TestGen(llm, t);
     }

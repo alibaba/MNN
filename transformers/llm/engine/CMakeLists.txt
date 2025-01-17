@@ -1,6 +1,6 @@
 option(LLM_SUPPORT_VISION "Llm model support vision input." ON)
 option(LLM_SUPPORT_AUDIO "Llm model support audio input." ON)
-option(BUILD_MLS "Build PC Commandline." ON)
+option(BUILD_MLS "Build PC Commandline." OFF)
 
 
 if (LLM_SUPPORT_VISION AND MNN_BUILD_OPENCV)
@@ -15,7 +15,6 @@ endif()
 
 # include dir
 include_directories(${CMAKE_CURRENT_LIST_DIR}/include/)
-MESSAGE(STATUS "include dir: ${CMAKE_CURRENT_LIST_DIR}/include/")
 
 # source files
 FILE(GLOB SRCS ${CMAKE_CURRENT_LIST_DIR}/src/*.cpp)

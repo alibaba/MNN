@@ -195,7 +195,7 @@ void HfApiClient::DownloadRepo(const RepoInfo& repo_info) {
     const auto parent_pointer_path = FileUtils::GetPointerPathParent(storage_folder,  repo_info.sha);
     const auto folder_link_path = fs::path(this->cache_path_) / FileUtils::GetFileName(repo_info.model_id);
     std::error_code ec;
-    bool downloaded = fs::is_symlink(folder_link_path, ec);
+    bool downloaded = is_symlink(folder_link_path, ec);
     if (downloaded) {
         printf("already donwnloaded at %s\n", folder_link_path.string().c_str());
         return;

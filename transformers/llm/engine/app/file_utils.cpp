@@ -4,7 +4,6 @@
 //
 
 #include "file_utils.hpp"
-
 #include <stdexcept>
 #include <string>
 #include <sstream>
@@ -131,7 +130,7 @@ bool FileUtils::RemoveFileIfExists(const std::string& path) {
 }
 
 std::string FileUtils::GetBaseCacheDir() {
-        std::string cache_dir;
+    std::string cache_dir;
 
 #ifdef _WIN32
     const char* home_dir = std::getenv("USERPROFILE");
@@ -139,9 +138,10 @@ std::string FileUtils::GetBaseCacheDir() {
         cache_dir = std::string(home_dir) + "\\" + kCachePath;
     }
 #else
-    const char* homeDir = std::getenv("HOME");
-    if (homeDir) {
-        cacheDir = std::string(homeDir) + "/" + kCachePath;
+    const char* home_dir = std::getenv("HOME");
+    if (home_dir) {
+        cache_dir = std::string(home_dir) + "/" + kCachePath;
+    }
 #endif
 
     if (cache_dir.empty()) {
@@ -151,8 +151,8 @@ std::string FileUtils::GetBaseCacheDir() {
 
     std::filesystem::path cache_path(cache_dir);
 
-    if (!std::filesystem::exists(cache_path)) {
-        std::filesystem::create_directory(cache_path);
+    if (!exists(cache_path)) {
+        create_directory(cache_path);
     }
 
     return cache_path.string();
@@ -182,7 +182,5 @@ bool FileUtils::Move(const fs::path& src, const fs::path& dest, std::string& err
     }
     return true;
 }
-
-
 
 }

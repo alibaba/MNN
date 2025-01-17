@@ -9,26 +9,13 @@
 #define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
 #include <fstream>
-#include <sstream>
-#include <stdlib.h>
-#include <initializer_list>
+#include <cstdlib>
 #include "file_utils.hpp"
 #include "remote_model_downloader.hpp"
 #include "llm_benchmark.hpp"
-#include "mls_config.hpp"
 #include "mls_server.hpp"
 
 using namespace MNN::Transformer;
-
-// static void trace_prepare(Llm* llm) {
-//     MNN_PRINT("Prepare for resize opt Begin\n");
-//     llm->trace(true);
-//     std::ostringstream cacheOs;
-//     llm->generate(std::initializer_list<int>{200, 200}, &cacheOs, "");
-//     MNN_PRINT("Prepare for resize opt End\n");
-//     llm->trace(false);
-//     llm->reset();
-// }
 
 static void tuning_prepare(Llm *llm) {
     MNN_PRINT("Prepare for tuning opt Begin\n");
@@ -43,10 +30,6 @@ static std::unique_ptr<Llm> create_and_prepare_llm(const char *config_path) {
         AUTOTIME;
         llm->load();
     }
-    // if (true) {
-    //     AUTOTIME;
-    //     trace_prepare(llm.get());
-    // }
     if (true)
     {
         AUTOTIME;
@@ -54,119 +37,6 @@ static std::unique_ptr<Llm> create_and_prepare_llm(const char *config_path) {
     }
     return llm;
 }
-
-// static int eval_prompts(Llm* llm, const std::vector<std::string>& prompts) {
-//     for (int i = 0; i < prompts.size(); i++) {
-//         const auto& prompt = prompts[i];
-//         // prompt start with '#' will be ignored
-//         if (prompt.substr(0, 1) == "#") {
-//             continue;
-//         }
-//         llm->response(prompt);
-//     }
-//     printf("\n#################################\n");
-//     printf("prompt tokens num  = %d\n", llm-);
-//     printf("decode tokens num  = %d\n", llm->getTotalDecodeLen());
-//     printf("prefill time = %.2f s\n", llm->getTotalPrefillTime());
-//     printf(" decode time = %.2f s\n", llm->getTotalDecodeTime());
-//     printf("prefill speed = %.2f tok/s\n", llm->average_prefill_speed());
-//     printf(" decode speed = %.2f tok/s\n", llm->average_decode_speed());
-//     printf("##################################\n");
-//     return 0;
-// }
-
-static std::vector<std::vector<std::string>> parse_csv(const std::vector<std::string> &lines) {
-    std::vector<std::vector<std::string>> csv_data;
-    std::string line;
-    std::vector<std::string> row;
-    std::string cell;
-    bool insideQuotes = false;
-    bool startCollecting = false;
-
-    // content to stream
-    std::string content = "";
-    for (auto line : lines)
-    {
-        content = content + line + "\n";
-    }
-    std::istringstream stream(content);
-
-    while (stream.peek() != EOF)
-    {
-        char c = stream.get();
-        if (c == '"')
-        {
-            if (insideQuotes && stream.peek() == '"')
-            { // quote
-                cell += '"';
-                stream.get(); // skip quote
-            }
-            else
-            {
-                insideQuotes = !insideQuotes; // start or end text in quote
-            }
-            startCollecting = true;
-        }
-        else if (c == ',' && !insideQuotes)
-        { // end element, start new element
-            row.push_back(cell);
-            cell.clear();
-            startCollecting = false;
-        }
-        else if ((c == '\n' || stream.peek() == EOF) && !insideQuotes)
-        { // end line
-            row.push_back(cell);
-            csv_data.push_back(row);
-            cell.clear();
-            row.clear();
-            startCollecting = false;
-        }
-        else
-        {
-            cell += c;
-            startCollecting = true;
-        }
-    }
-    return csv_data;
-}
-//
-// static int eval_csv(Llm* llm, const std::vector<std::string>& lines, std::string filename) {
-//     auto csv_data = parse_csv(lines);
-//     int right = 0, wrong = 0;
-//     std::vector<std::string> answers;
-//     for (int i = 1; i < csv_data.size(); i++) {
-//         const auto& elements = csv_data[i];
-//         std::string prompt = elements[1];
-//         prompt += "\n\nA. " + elements[2];
-//         prompt += "\nB. " + elements[3];
-//         prompt += "\nC. " + elements[4];
-//         prompt += "\nD. " + elements[5];
-//         prompt += "\n\n";
-//         printf("%s", prompt.c_str());
-//         printf("## 进度: %d / %lu\n", i, lines.size() - 1);
-//         auto res = llm->response(prompt.c_str());
-//         answers.push_back(res);
-//     }
-//     {
-//         auto position = filename.rfind("/");
-//         if (position != std::string::npos) {
-//             filename = filename.substr(position + 1, -1);
-//         }
-//         position = filename.find("_val");
-//         if (position != std::string::npos) {
-//             filename.replace(position, 4, "_res");
-//         }
-//         std::cout << "store to " << filename << std::endl;
-//     }
-//     std::ofstream ofp(filename);
-//     ofp << "id,answer" << std::endl;
-//     for (int i = 0; i < answers.size(); i++) {
-//         auto& answer = answers[i];
-//         ofp << i << ",\""<< answer << "\"" << std::endl;
-//     }
-//     ofp.close();
-//     return 0;
-// }
 
 int list_local_models(const std::string &directory_path, std::vector<std::string> &model_names, bool sort = true) {
     std::error_code ec;
@@ -211,12 +81,6 @@ static int eval_prompts(Llm *llm, const std::vector<std::string> &prompts) {
             continue;
         }
         llm->response(prompt);
-        // prompt_len += llm->prompt_len_;
-        // decode_len += llm->gen_seq_len_;
-        // vision_time += llm->vision_us_;
-        // audio_time += llm->audio_us_;
-        // prefill_time += llm->prefill_us_;
-        // decode_time += llm->decode_us_;
     }
     float vision_s = vision_time / 1e6;
     float audio_s = audio_time / 1e6;
@@ -253,10 +117,6 @@ static int eval_file(Llm *llm, std::string prompt_file) {
     {
         return 1;
     }
-    // eval_csv
-    // if (prompts[0] == "id,question,A,B,C,D,answer") {
-    //     return eval_csv(llm, prompts, prompt_file);
-    // }
     return eval_prompts(llm, prompts);
 }
 
@@ -428,10 +288,6 @@ static int run(int argc, const char *argv[]) {
         AUTOTIME;
         llm->load();
     }
-    // if (true) {
-    //     AUTOTIME;
-    //     trace_prepare(llm.get());
-    // }
     if (true)
     {
         AUTOTIME;
@@ -511,51 +367,34 @@ int delete_model(int argc, const char *argv[]) {
     }
     std::string storage_path = mls::FileUtils::GetStorageFolderPath(model_name);
     mls::FileUtils::RemoveFileIfExists(storage_path);
-    return 1;
+    return 0;
 }
 
 int main(int argc, const char *argv[]) {
-    if (argc < 2)
-    {
-        // print_usage();
-        const char* argvx[3] = {"dd", "download", "gemma-2-2b-it-MNN"};
-        download(3, argvx);
-        return 1;
-    }
     std::string cmd = argv[1];
-    if (cmd == "list")
-    {
+    if (cmd == "list") {
         list_models(argc, argv);
     }
-    else if (cmd == "serve")
-    {
+    else if (cmd == "serve") {
         serve(argc, argv);
     }
-    else if (cmd == "run")
-    {
+    else if (cmd == "run") {
         run(argc, argv);
     }
-    else if (cmd == "benchmark")
-    {
+    else if (cmd == "benchmark") {
         benchmark(argc, argv);
     }
-    else if (cmd == "download")
-    {
+    else if (cmd == "download") {
         download(argc, argv);
     }
-    else if (cmd == "search")
-    {
+    else if (cmd == "search") {
         search(argc, argv);
     }
-    else if (cmd == "delete")
-    {
+    else if (cmd == "delete") {
         delete_model(argc, argv);
     }
-    else
-    {
+    else {
         print_usage();
     }
-    std::cout << "Press Enter to exit...";
-    std::cin.ignore();
     return 0;
 }
