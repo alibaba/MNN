@@ -30,7 +30,7 @@ public:
 
     static fs::path GetPointerPathParent(const fs::path& storage_folder, const std::string& commit_hash);
 
-    static void CreateSymlink(const fs::path& target, const fs::path& link);
+    static void CreateSymlink(const fs::path& target, const fs::path& link, std::error_code& ec);
 
     static std::string GetFileName(const std::string& path);
 
@@ -38,7 +38,13 @@ public:
 
     static std::string GetStorageFolderPath(const std::string& model_id);
 
+    static std::string GetBaseCacheDir();
+
     static bool RemoveFileIfExists(const std::string& path);
+    
+    static std::string GetConfigPath(const std::string& model_id);
+
+    static bool Move(const fs::path& source, const fs::path& dest, std::string& error_info);
 
 private:
 

@@ -20,7 +20,6 @@
 
 using namespace MNN::Transformer;
 
-
 // static void trace_prepare(Llm* llm) {
 //     MNN_PRINT("Prepare for resize opt Begin\n");
 //     llm->trace(true);
@@ -31,13 +30,13 @@ using namespace MNN::Transformer;
 //     llm->reset();
 // }
 
-static void tuning_prepare(Llm* llm) {
+static void tuning_prepare(Llm *llm) {
     MNN_PRINT("Prepare for tuning opt Begin\n");
     llm->tuning(OP_ENCODER_NUMBER, {1, 5, 10, 20, 30, 50, 100});
     MNN_PRINT("Prepare for tuning opt End\n");
 }
 
-static std::unique_ptr<Llm> create_and_prepare_llm(const char* config_path) {
+static std::unique_ptr<Llm> create_and_prepare_llm(const char *config_path) {
     std::unique_ptr<Llm> llm(Llm::createLLM(config_path));
     llm->set_config("{\"tmp_path\":\"tmp\"}");
     {
@@ -48,7 +47,8 @@ static std::unique_ptr<Llm> create_and_prepare_llm(const char* config_path) {
     //     AUTOTIME;
     //     trace_prepare(llm.get());
     // }
-    if (true) {
+    if (true)
+    {
         AUTOTIME;
         tuning_prepare(llm.get());
     }
@@ -75,7 +75,7 @@ static std::unique_ptr<Llm> create_and_prepare_llm(const char* config_path) {
 //     return 0;
 // }
 
-static std::vector<std::vector<std::string>> parse_csv(const std::vector<std::string>& lines) {
+static std::vector<std::vector<std::string>> parse_csv(const std::vector<std::string> &lines) {
     std::vector<std::vector<std::string>> csv_data;
     std::string line;
     std::vector<std::string> row;
@@ -85,32 +85,44 @@ static std::vector<std::vector<std::string>> parse_csv(const std::vector<std::st
 
     // content to stream
     std::string content = "";
-    for (auto line : lines) {
+    for (auto line : lines)
+    {
         content = content + line + "\n";
     }
     std::istringstream stream(content);
 
-    while (stream.peek() != EOF) {
+    while (stream.peek() != EOF)
+    {
         char c = stream.get();
-        if (c == '"') {
-            if (insideQuotes && stream.peek() == '"') { // quote
+        if (c == '"')
+        {
+            if (insideQuotes && stream.peek() == '"')
+            { // quote
                 cell += '"';
                 stream.get(); // skip quote
-            } else {
+            }
+            else
+            {
                 insideQuotes = !insideQuotes; // start or end text in quote
             }
             startCollecting = true;
-        } else if (c == ',' && !insideQuotes) { // end element, start new element
+        }
+        else if (c == ',' && !insideQuotes)
+        { // end element, start new element
             row.push_back(cell);
             cell.clear();
             startCollecting = false;
-        } else if ((c == '\n' || stream.peek() == EOF) && !insideQuotes) { // end line
+        }
+        else if ((c == '\n' || stream.peek() == EOF) && !insideQuotes)
+        { // end line
             row.push_back(cell);
             csv_data.push_back(row);
             cell.clear();
             row.clear();
             startCollecting = false;
-        } else {
+        }
+        else
+        {
             cell += c;
             startCollecting = true;
         }
@@ -156,7 +168,7 @@ static std::vector<std::vector<std::string>> parse_csv(const std::vector<std::st
 //     return 0;
 // }
 
-int list_local_models(const std::string& directory_path, std::vector<std::string>& model_names, bool sort = true) {
+int list_local_models(const std::string &directory_path, std::vector<std::string> &model_names, bool sort = true) {
     std::error_code ec;
     if (!fs::exists(directory_path, ec)) {
         return 1;
@@ -164,19 +176,16 @@ int list_local_models(const std::string& directory_path, std::vector<std::string
     if (!fs::is_directory(directory_path, ec)) {
         return 1;
     }
-    for (const auto& entry : fs::directory_iterator(directory_path, ec)) {
+    for (const auto &entry : fs::directory_iterator(directory_path, ec)) {
         if (ec) {
             return 1;
         }
-        if (fs::is_directory(entry, ec)) {
+        if (fs::is_symlink(entry, ec)) {
             if (ec) {
                 return 1;
             }
-            std::string file_name = entry.path().filename();
-            std::string prefix = "models--taobao-mnn--";
-            if (file_name.find(prefix) == 0) {
-                model_names.push_back(file_name.substr(prefix.length()));
-            }
+            std::string file_name = entry.path().filename().string();
+            model_names.emplace_back(file_name);
         }
     }
     if (sort) {
@@ -185,7 +194,7 @@ int list_local_models(const std::string& directory_path, std::vector<std::string
     return 0;
 }
 
-static int eval_prompts(Llm* llm, const std::vector<std::string>& prompts) {
+static int eval_prompts(Llm *llm, const std::vector<std::string> &prompts) {
     int prompt_len = 0;
     int decode_len = 0;
     int64_t vision_time = 0;
@@ -193,10 +202,12 @@ static int eval_prompts(Llm* llm, const std::vector<std::string>& prompts) {
     int64_t prefill_time = 0;
     int64_t decode_time = 0;
     // llm->warmup();
-    for (int i = 0; i < prompts.size(); i++) {
-        const auto& prompt = prompts[i];
+    for (int i = 0; i < prompts.size(); i++)
+    {
+        const auto &prompt = prompts[i];
         // prompt start with '#' will be ignored
-        if (prompt.substr(0, 1) == "#") {
+        if (prompt.substr(0, 1) == "#")
+        {
             continue;
         }
         llm->response(prompt);
@@ -224,19 +235,22 @@ static int eval_prompts(Llm* llm, const std::vector<std::string>& prompts) {
     return 0;
 }
 
-static int eval_file(Llm* llm, std::string prompt_file) {
+static int eval_file(Llm *llm, std::string prompt_file) {
     std::cout << "prompt file is " << prompt_file << std::endl;
     std::ifstream prompt_fs(prompt_file);
     std::vector<std::string> prompts;
     std::string prompt;
-    while (std::getline(prompt_fs, prompt)) {
-        if (prompt.back() == '\r') {
+    while (std::getline(prompt_fs, prompt))
+    {
+        if (prompt.back() == '\r')
+        {
             prompt.pop_back();
         }
         prompts.push_back(prompt);
     }
     prompt_fs.close();
-    if (prompts.empty()) {
+    if (prompts.empty())
+    {
         return 1;
     }
     // eval_csv
@@ -245,7 +259,6 @@ static int eval_file(Llm* llm, std::string prompt_file) {
     // }
     return eval_prompts(llm, prompts);
 }
-
 
 static int print_usage() {
     std::cout << "Available Commands:" << std::endl;
@@ -259,21 +272,22 @@ static int print_usage() {
     return 0;
 }
 
-//list files int the directory of ~/.cache/modelscope/hub/MNN/Qwen-7B-Chat-MNN/
-static int list_models(int argc, const char* argv[]) {
+// list files int the directory of ~/.cache/modelscope/hub/MNN/Qwen-7B-Chat-MNN/
+static int list_models(int argc, const char *argv[]) {
     std::vector<std::string> model_names;
-    list_local_models(mls::FileUtils::ExpandTilde(mls::kCachePath), model_names);
+    list_local_models(mls::FileUtils::GetBaseCacheDir(), model_names);
     if (!model_names.empty()) {
-        for (auto& name : model_names) {
+        for (auto &name : model_names)
+        {
             printf("%s\n", name.c_str());
         }
     } else {
-        printf("no local models; use mls search to search remote models and download\n");
+        printf("no local models; use \'mls search\' to search remote models and download\n");
     }
     return 0;
 }
 
-static int serve(int argc, const char* argv[]) {
+static int serve(int argc, const char *argv[]) {
     bool invalid_param{false};
     std::string config_path{};
     std::string arg{};
@@ -283,7 +297,7 @@ static int serve(int argc, const char* argv[]) {
     }
     arg = argv[2];
     if (arg.find('-') != 0) {
-        config_path =  fs::path(mls::FileUtils::ExpandTilde(mls::kCachePath))/arg/"config.json";;
+        config_path = (fs::path(mls::FileUtils::GetBaseCacheDir()) / arg / "config.json").string();
     }
     for (int i = 2; i < argc; i++) {
         arg = argv[i];
@@ -301,34 +315,41 @@ static int serve(int argc, const char* argv[]) {
     return 0;
 }
 
-static int benchmark(int argc, const char* argv[]) {
+static int benchmark(int argc, const char *argv[]) {
     std::string arg{};
     bool invalid_param{false};
     std::string config_path{};
-    if (argc < 3) {
+    if (argc < 3)
+    {
         print_usage();
         return 1;
     }
     arg = argv[2];
-    if (arg.find('-') != 0) {
-        config_path =  fs::path(mls::FileUtils::ExpandTilde(mls::kCachePath))/arg/"config.json";;
+    if (arg.find('-') != 0)
+    {
+        config_path = mls::FileUtils::GetConfigPath(arg);
     }
-    for (int i = 2; i < argc; i++) {
+    for (int i = 2; i < argc; i++)
+    {
         arg = argv[i];
-        if (arg == "-c") {
-            if (++i >= argc) {
+        if (arg == "-c")
+        {
+            if (++i >= argc)
+            {
                 invalid_param = true;
                 break;
             }
             config_path = argv[i];
         }
     }
-    if (invalid_param) {
+    if (invalid_param)
+    {
         fprintf(stderr, "error: invalid parameter for argument: %s\n", arg.c_str());
         print_usage();
         exit(1);
     }
-    if (config_path.empty()) {
+    if (config_path.empty())
+    {
         fprintf(stderr, "error: config path is empty\n");
         print_usage();
         exit(1);
@@ -339,49 +360,62 @@ static int benchmark(int argc, const char* argv[]) {
     return 0;
 }
 
-static int run(int argc, const char* argv[]) {
+static int run(int argc, const char *argv[]) {
     std::cout << "Start run..." << std::endl;
     std::string arg{};
     std::string config_path{};
     std::string prompt;
     std::string prompt_file;
     bool invalid_param = false;
-    if (argc < 3) {
+    if (argc < 3)
+    {
         print_usage();
         return 1;
     }
     arg = argv[2];
-    if (arg.find('-') != 0) {
-        config_path =  fs::path(mls::FileUtils::ExpandTilde(mls::kCachePath))/arg/"config.json";;
+    if (arg.find('-') != 0)
+    {
+        config_path = mls::FileUtils::GetConfigPath(arg);
     }
-    for (int i = 2; i < argc; i++) {
+    for (int i = 2; i < argc; i++)
+    {
         arg = argv[i];
-        if (arg == "-c") {
-            if (++i >= argc) {
+        if (arg == "-c")
+        {
+            if (++i >= argc)
+            {
                 invalid_param = true;
                 break;
             }
             config_path = mls::FileUtils::ExpandTilde(argv[i]);
-        } else if (arg == "-p") {
-            if (++i >= argc) {
+        }
+        else if (arg == "-p")
+        {
+            if (++i >= argc)
+            {
                 invalid_param = true;
                 break;
             }
             prompt = argv[i];
-        } else if (arg == "-pf") {
-            if (++i >= argc) {
+        }
+        else if (arg == "-pf")
+        {
+            if (++i >= argc)
+            {
                 invalid_param = true;
                 break;
             }
             prompt_file = argv[i];
         }
     }
-    if (invalid_param) {
+    if (invalid_param)
+    {
         fprintf(stderr, "error: invalid parameter for argument: %s\n", arg.c_str());
         print_usage();
         exit(1);
     }
-    if (config_path.empty()) {
+    if (config_path.empty())
+    {
         fprintf(stderr, "error: config path is empty\n");
         print_usage();
         exit(1);
@@ -398,95 +432,130 @@ static int run(int argc, const char* argv[]) {
     //     AUTOTIME;
     //     trace_prepare(llm.get());
     // }
-    if (true) {
+    if (true)
+    {
         AUTOTIME;
         tuning_prepare(llm.get());
     }
-    if (prompt.empty() && prompt_file.empty()) {
+    if (prompt.empty() && prompt_file.empty())
+    {
         llm->chat();
-    } else if (!prompt.empty()) {
+    }
+    else if (!prompt.empty())
+    {
         eval_prompts(llm.get(), {prompt});
-    } else {
+    }
+    else
+    {
         eval_file(llm.get(), prompt_file);
     }
     return 0;
 }
 
-int download(int argc, const char* argv[]) {
-    if (argc < 3) {
+int download(int argc, const char *argv[]) {
+    if (argc < 3)
+    {
         print_usage();
         return 1;
     }
     std::string repo_name = argv[2];
-    std::cout<<"download repo: "<<repo_name<<std::endl;
+    std::cout << "download repo: " << repo_name << std::endl;
     mls::HfApiClient api_client;
     std::string error_info;
-    if (repo_name.find("taobao-mnn/") != 0) {
+    if (repo_name.find("taobao-mnn/") != 0)
+    {
         repo_name = "taobao-mnn/" + repo_name;
     }
     const auto repo_info = api_client.GetRepoInfo(repo_name, "main", error_info);
-    if (!error_info.empty()) {
-        std::cout << "get repo info error: "<< error_info << std::endl;
+    if (!error_info.empty())
+    {
+        std::cout << "get repo info error: " << error_info << std::endl;
         return 1;
     }
     api_client.DownloadRepo(repo_info);
     return 0;
 }
 
-int search(int argc, const char* argv[]) {
-    if (argc < 3) {
+int search(int argc, const char *argv[]) {
+    if (argc < 3)
+    {
         print_usage();
         return 1;
     }
     const std::string key = argv[2];
     mls::HfApiClient client = mls::HfApiClient();
     auto repos = std::move(client.SearchRepos(key));
-    for (auto &repo : repos) {
+    for (auto &repo : repos)
+    {
         auto pos = repo.model_id.rfind('/');
-        if (pos != std::string::npos) {
+        if (pos != std::string::npos)
+        {
             printf("%s\n", repo.model_id.substr(pos + 1).c_str());
         }
     }
     return 0;
 }
 
-int delete_model(int argc, const char* argv[]) {
-    if (argc < 3) {
+int delete_model(int argc, const char *argv[]) {
+    if (argc < 3)
+    {
         print_usage();
         return 1;
     }
     std::string model_name = argv[2];
     std::string linker_path = mls::FileUtils::GetFolderLinkerPath(model_name);
     mls::FileUtils::RemoveFileIfExists(linker_path);
-    if (model_name.find("taobao-mnn") != 0) {
+    if (model_name.find("taobao-mnn") != 0)
+    {
         model_name = "taobao-mnn/" + model_name;
     }
     std::string storage_path = mls::FileUtils::GetStorageFolderPath(model_name);
     mls::FileUtils::RemoveFileIfExists(storage_path);
+    return 1;
 }
 
-int main(int argc, const char* argv[]) {
-    if (argc < 2) {
-        print_usage();
+int main(int argc, const char *argv[]) {
+    if (argc < 2)
+    {
+        // print_usage();
+        const char* argvx[3] = {"dd", "download", "gemma-2-2b-it-MNN"};
+        download(3, argvx);
         return 1;
     }
     std::string cmd = argv[1];
-    if (cmd == "list") {
+    if (cmd == "list")
+    {
         list_models(argc, argv);
-    } else if (cmd == "serve") {
+    }
+    else if (cmd == "serve")
+    {
         serve(argc, argv);
-    } else if (cmd == "run") {
+    }
+    else if (cmd == "run")
+    {
         run(argc, argv);
-    } else if (cmd == "benchmark") {
+    }
+    else if (cmd == "benchmark")
+    {
         benchmark(argc, argv);
-    } else if (cmd == "download") {
+    }
+    else if (cmd == "download")
+    {
         download(argc, argv);
-    } else if (cmd == "search") {
+    }
+    else if (cmd == "search")
+    {
         search(argc, argv);
-    } else if (cmd == "delete") {
+    }
+    else if (cmd == "delete")
+    {
         delete_model(argc, argv);
-    } else {
+    }
+    else
+    {
         print_usage();
     }
+    std::cout << "Press Enter to exit...";
+    std::cin.ignore();
     return 0;
 }

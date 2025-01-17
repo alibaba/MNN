@@ -6,6 +6,6 @@
 #pragma once
 
 namespace mls {
-   const char* const kCachePath = "~/.mnnmodels";
+   const char* const kCachePath = ".mnnmodels";
 
 }

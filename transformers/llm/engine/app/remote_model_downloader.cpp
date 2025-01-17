@@ -9,6 +9,7 @@
 #include <fstream>
 #include <functional>
 #include "file_utils.hpp"
+#include <Windows.h>
 
 static const std::string HUGGINGFACE_HEADER_X_REPO_COMMIT = "x-repo-commit";
 static const std::string HUGGINGFACE_HEADER_X_LINKED_ETAG = "x-linked-etag";
@@ -25,7 +26,7 @@ namespace mls {
 
     std::string NormalizeETag(const std::string& etag) {
         if (!etag.empty() && etag[0] == '"' && etag[etag.size() - 1] == '"') {
-            return etag.substr(1, etag.size() - 2); // 去掉引号
+            return etag.substr(1, etag.size() - 2);
         }
         return etag;
     }
@@ -48,7 +49,6 @@ namespace mls {
         std::string linked_etag = res->get_header_value(HUGGINGFACE_HEADER_X_LINKED_ETAG);
         std::string etag = res->get_header_value("ETag");
         metadata.etag = NormalizeETag(!linked_etag.empty() ? linked_etag : etag);
-        // 文件大小解析
         std::string linked_size = res->get_header_value(HUGGINGFACE_HEADER_X_LINKED_SIZE);
         std::string content_length = res->get_header_value("Content-Length");
         metadata.size = ParseContentLength(!linked_size.empty() ? linked_size : content_length);
@@ -60,6 +60,32 @@ namespace mls {
         : max_attempts_(max_attempts),
           retry_delay_seconds_(retry_delay_seconds),
         host_(std::move(host)){
+    }
+
+    std::string RemoteModelDownloader::DownloadWithRetries(
+                      const fs::path& storage_folder,
+                      const std::string& repo,
+                      const std::string& revision,
+                      const std::string& relative_path,
+                      std::string& error_info,
+                      int max_retries) {
+        int attempt = 0;
+        bool success = false;
+        while (attempt < max_retries) {
+            // Reset error message for each attempt
+            error_info.clear();
+            auto result = this->DownloadFile(storage_folder, repo, revision, relative_path, error_info);
+            if (error_info.empty()) {
+                success = true;
+                return result;
+            } else {
+                attempt++;
+                fprintf(stderr, "DownloadFile error at file: %s error message: %s, attempt: %d\n", 
+                        relative_path.c_str(), error_info.c_str(), attempt);
+                std::this_thread::sleep_for(std::chrono::seconds(1));
+            }
+        }
+        return "";
     }
 
     std::string RemoteModelDownloader::DownloadFile(
@@ -86,10 +112,14 @@ namespace mls {
 
         if (fs::exists(pointer_path)) {
             return pointer_path.string();
-        }
-
-        if (fs::exists(blob_path)) {
-            mls::FileUtils::CreateSymlink(blob_path, pointer_path);
+        } else if (fs::exists(blob_path)) {
+            std::error_code ec;
+            mls::FileUtils::CreateSymlink(blob_path, pointer_path, ec);
+            if (ec) {
+                fprintf(stderr, "DownloadFile create symlink error for pointer_path: %s", pointer_path.string().c_str());
+                error_info = ec.message();
+                return "";
+            }
             printf("DownloadFile  %s already exists just create symlink\n", relative_path.c_str());
             return pointer_path.string();
         }
@@ -101,7 +131,11 @@ namespace mls {
             DownloadToTmpAndMove(blob_path_incomplete, blob_path, metadata.location, headers, metadata.size,
                                  relative_path, false, error_info);
             if (error_info.empty()) {
-                FileUtils::CreateSymlink(blob_path, pointer_path);
+                std::error_code ec;
+                FileUtils::CreateSymlink(blob_path, pointer_path, ec);
+                if (ec) {
+                    error_info = "create link error" + ec.message();
+                }
             }
         }
         return pointer_path.string();
@@ -122,18 +156,17 @@ namespace mls {
         if (std::filesystem::exists(incomplete_path) && force_download) {
             std::filesystem::remove(incomplete_path);
         }
-        std::ofstream temp_file(incomplete_path, std::ios::binary | std::ios::app);
         size_t resume_size = std::filesystem::exists(incomplete_path) ? std::filesystem::file_size(incomplete_path) : 0;
-        HttpGet(url_to_download, incomplete_path, {}, resume_size, headers, expected_size, file_name, error_info);
+        DownloadFileInner(url_to_download, incomplete_path, {}, resume_size, headers, expected_size, file_name, error_info);
         if (error_info.empty()) {
             printf("DownloadFile  %s success\n", file_name.c_str());
-            MoveWithPermissions(incomplete_path, destination_path);
+            MoveWithPermissions(incomplete_path, destination_path, error_info);
         } else {
             printf("DownloadFile  %s failed\n", file_name.c_str());
         }
     }
 
-    void RemoteModelDownloader::HttpGet(
+    void RemoteModelDownloader::DownloadFileInner(
         const std::string& url,
         const std::filesystem::path& temp_file,
         const std::unordered_map<std::string, std::string>& proxies,
@@ -147,10 +180,12 @@ namespace mls {
         httplib::SSLClient client(host, 443);
         httplib::Headers request_headers(headers.begin(), headers.end());
         if (resume_size > 0) {
+            printf("DownloadFile %s resume size %zu", displayed_filename.c_str(), resume_size);
             request_headers.emplace("Range", "bytes=" + std::to_string(resume_size) + "-");
         }
         std::ofstream output(temp_file, std::ios::binary | std::ios::app);
         DownloadProgress progress;
+        progress.downloaded = resume_size;
         auto res = client.Get(path, request_headers,
               [&](const httplib::Response& response) {
                   auto content_length_str = response.get_header_value("Content-Length");
@@ -170,6 +205,8 @@ namespace mls {
                   return true;
               }
         );
+        output.flush();
+        output.close();
         if (res) {
             if (res->status >= 200 && res->status < 300 || res->status == 416) {
                 progress.success = true;
@@ -194,9 +231,11 @@ namespace mls {
     }
 
     void RemoteModelDownloader::MoveWithPermissions(const std::filesystem::path& src,
-                                                    const std::filesystem::path& dest) {
-        std::filesystem::rename(src, dest);
-        std::filesystem::permissions(dest, std::filesystem::perms::owner_all);
+                                                    const std::filesystem::path& dest,
+                                                    std::string& error_info) {
+        if (FileUtils::Move(src, dest, error_info)) {
+            std::filesystem::permissions(dest, std::filesystem::perms::owner_all);
+        }
     }
 
 }

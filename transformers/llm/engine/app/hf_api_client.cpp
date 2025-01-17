@@ -9,7 +9,7 @@
 #include <httplib.h>
 #include <thread>
 #include <rapidjson/document.h>
-
+#include <cstdlib>
 #include "file_utils.hpp"
 #include "functional"
 #include "mls_config.hpp"
@@ -21,7 +21,7 @@ std::tuple<std::string, std::string> HfApiClient::ParseUrl(const std::string &ur
     std::string host;
     std::string path;
     if (https_pos != std::string::npos) {
-        auto host_start = https_pos + 8; // 跳过 "https://"
+        auto host_start = https_pos + 8;
         auto path_start = url.find('/', host_start);
         if (path_start != std::string::npos) {
             host = url.substr(host_start, path_start - host_start);
@@ -163,7 +163,7 @@ mls::RepoInfo HfApiClient::GetRepoInfo(
 }
 
 HfApiClient::HfApiClient() {
-    cache_path_ = FileUtils::ExpandTilde(kCachePath);
+    cache_path_ = FileUtils::GetBaseCacheDir();
     if (const char* hf_endpoint  = std::getenv("HF_ENDPOINT")) {
         std::string path;
         std::tie(this->host_, path) = ParseUrl(std::string(hf_endpoint));
@@ -180,7 +180,6 @@ bool HfApiClient::PerformRequestWithRetry(std::function<bool()> request_func, in
            return true;
        }
        attempts_left--;
-       // 指数退避 delay = (retry_delay_seconds ^ (attempt_count-1)) * 1000 ms
        int backoff_ms = static_cast<int>(std::pow(retry_delay_seconds, attempt_count - 1) * 1000);
        std::this_thread::sleep_for(std::chrono::milliseconds(backoff_ms));
    }
@@ -195,17 +194,26 @@ void HfApiClient::DownloadRepo(const RepoInfo& repo_info) {
     fs::path storage_folder = fs::path(this->cache_path_) / repo_folder_name;
     const auto parent_pointer_path = FileUtils::GetPointerPathParent(storage_folder,  repo_info.sha);
     const auto folder_link_path = fs::path(this->cache_path_) / FileUtils::GetFileName(repo_info.model_id);
-    if (fs::exists(folder_link_path)) {
-        printf("already donwnloaded at %s\n", folder_link_path.c_str());
+    std::error_code ec;
+    bool downloaded = fs::is_symlink(folder_link_path, ec);
+    if (downloaded) {
+        printf("already donwnloaded at %s\n", folder_link_path.string().c_str());
         return;
     }
     for (auto & sub_file :  repo_info.siblings) {
-        model_downloader.DownloadFile(storage_folder, repo_info.model_id, repo_info.sha, sub_file, error_info);
-        printf("download sub_file %s result %s\n", sub_file.c_str(), error_info.c_str());
+        model_downloader.DownloadWithRetries(storage_folder, repo_info.model_id, repo_info.sha, sub_file, error_info, 3);
         has_error = has_error || !error_info.empty();
+        if (has_error) {
+            fprintf(stderr, "DownloadFile error at file: %s error message: %s",sub_file.c_str(), error_info.c_str());
+            break;
+        }
     }
     if (!has_error) {
-        FileUtils::CreateSymlink(parent_pointer_path, folder_link_path);
+        std::error_code ec;
+        FileUtils::CreateSymlink(parent_pointer_path, folder_link_path, ec);
+        if (ec) {
+            fprintf(stderr, "DownlodRepo CreateSymlink error: %s", ec.message().c_str());
+        }
     }
 }
 

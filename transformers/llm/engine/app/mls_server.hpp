@@ -7,11 +7,11 @@
 #include "llm/llm.hpp"
 
 namespace mls {
-class MNN_PUBLIC LlmStreamBuffer : public std::streambuf {
+class LlmStreamBuffer : public std::streambuf {
 public:
-  using CallBack = std::function<void(const char* str, size_t len)>;;
+  using CallBack = std::function<void(const char* str, size_t len)>;
   LlmStreamBuffer(CallBack callback) : callback_(std::move(callback)) {}
-
+  virtual ~LlmStreamBuffer() = default;
 protected:
   virtual std::streamsize xsputn(const char* s, std::streamsize n) override {
     if (callback_) {
@@ -21,7 +21,7 @@ protected:
   }
 
 private:
-  CallBack callback_ = nullptr;
+  CallBack callback_{};
 };
 
 class Utf8StreamProcessor {
@@ -30,43 +30,32 @@ class Utf8StreamProcessor {
             : callback(callback) {}
 
     void processStream(const char* str, size_t len) {
-      // 将新数据拼接到缓冲区中
       utf8Buffer.append(str, len);
 
       size_t i = 0;
       std::string completeChars;
-
-      // 提取完整的 UTF-8 字符
       while (i < utf8Buffer.size()) {
         int length = utf8CharLength(static_cast<unsigned char>(utf8Buffer[i]));
-
-        // 检查是否是合法的 UTF-8 字符
         if (length == 0 || i + length > utf8Buffer.size()) {
-          break; // 不完整字符，等待更多数据
+          break;
         }
-
-        // 将完整字符追加到结果字符串
         completeChars.append(utf8Buffer, i, length);
         i += length;
       }
-
-      // 删除已处理的部分，只保留不完整字符
       utf8Buffer = utf8Buffer.substr(i);
-
-      // 如果有完整的字符，执行回调
       if (!completeChars.empty()) {
         callback(completeChars);
       }
     }
     int utf8CharLength(unsigned char byte) {
-      if ((byte & 0x80) == 0) return 1;         // 1字节 (0xxxxxxx)
-      if ((byte & 0xE0) == 0xC0) return 2;      // 2字节 (110xxxxx)
-      if ((byte & 0xF0) == 0xE0) return 3;      // 3字节 (1110xxxx)
-      if ((byte & 0xF8) == 0xF0) return 4;      // 4字节 (11110xxx)
+      if ((byte & 0x80) == 0) return 1;     
+      if ((byte & 0xE0) == 0xC0) return 2;
+      if ((byte & 0xF0) == 0xE0) return 3;
+      if ((byte & 0xF8) == 0xF0) return 4;
       return 0; // 非法前导字节
     }
   private:
-    std::string utf8Buffer; // 缓冲区存储不完整的字符
+    std::string utf8Buffer;
     std::function<void(const std::string&)> callback;
   };
 class MlsServer {

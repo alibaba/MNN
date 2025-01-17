@@ -21,7 +21,6 @@ struct DownloadProgress {
 
 class RemoteModelDownloader {
 public:
-    // 构造函数可选地接收重试次数、重试间隔等配置
     explicit RemoteModelDownloader(std::string host, int max_attempts = 3, int retry_delay_seconds = 2);
 
     std::string DownloadFile(
@@ -30,7 +29,13 @@ public:
                       const std::string& revision,
                       const std::string& relative_path,
                       std::string& error_info);
-
+    std::string DownloadWithRetries(
+                      const fs::path& storage_folder,
+                      const std::string& repo,
+                      const std::string& revision,
+                      const std::string& relative_path,
+                      std::string& error_info,
+                      int max_retries);
 private:
     void DownloadToTmpAndMove(
         const fs::path& incomplete_path,
@@ -42,7 +47,7 @@ private:
         bool force_download,
         std::string& error_info);
 
-    void HttpGet(
+    void DownloadFileInner(
         const std::string& url,
         const std::filesystem::path& temp_file,
         const std::unordered_map<std::string, std::string>& proxies,
@@ -54,7 +59,7 @@ private:
 
     bool CheckDiskSpace(size_t required_size, const std::filesystem::path& path);
 
-    void MoveWithPermissions(const std::filesystem::path& src, const std::filesystem::path& dest);
+    void MoveWithPermissions(const std::filesystem::path& src, const std::filesystem::path& dest, std::string& error_info);
 
     HfFileMetadata GetFileMetadata(const std::string& url, std::string& error_info);
 

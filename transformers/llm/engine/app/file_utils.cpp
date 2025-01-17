@@ -25,15 +25,10 @@ std::string FileUtils::JoinPaths(const std::string& base, const std::vector<std:
 }
 
 std::string FileUtils::GetAbsolutePath(const std::string& path) {
-    char absolute_path[1024];
-    if (realpath(path.c_str(), absolute_path)) {
-        return {absolute_path};
-    } else {
-        return "";
-    }
+    auto absolute_path = std::filesystem::absolute(path);
+    return absolute_path.string();
 }
 
-// Helper function: Check if `child` is a sub-path of `parent`
 bool FileUtils::IsSubPath(const std::string& parent, const std::string& child) {
     return child.find(parent) == 0 && (child.size() == parent.size() || child[parent.size()] == '/');
 }
@@ -98,10 +93,8 @@ fs::path FileUtils::GetPointerPath(const fs::path& storage_folder, const std::st
     return storage_folder / "snapshots" / commit_hash / relative_filename;
 }
 
-void FileUtils::CreateSymlink(const fs::path& target, const fs::path& link) {
-    if (!fs::exists(link)) {
-        fs::create_symlink(target, link);
-    }
+void FileUtils::CreateSymlink(const fs::path& target, const fs::path& link, std::error_code& ec) {
+    fs::create_symlink(target, link, ec);
 }
 
 std::string FileUtils::GetFileName(const std::string& path) {
@@ -110,12 +103,12 @@ std::string FileUtils::GetFileName(const std::string& path) {
 }
 
 std::string FileUtils::GetFolderLinkerPath(const std::string& model_id) {
-    return fs::path(ExpandTilde(kCachePath)) /  GetFileName(model_id);
+    return (fs::path(GetBaseCacheDir()) /  GetFileName(model_id)).string();
 }
 
 std::string FileUtils::GetStorageFolderPath(const std::string& model_id) {
     const auto repo_folder_name = RepoFolderName(model_id, "model");
-    return fs::path(ExpandTilde(kCachePath)) / repo_folder_name;
+    return (fs::path(GetBaseCacheDir()) / repo_folder_name).string();
 }
 
 bool FileUtils::RemoveFileIfExists(const std::string& path) {
@@ -136,5 +129,60 @@ bool FileUtils::RemoveFileIfExists(const std::string& path) {
     }
     return result;
 }
+
+std::string FileUtils::GetBaseCacheDir() {
+        std::string cache_dir;
+
+#ifdef _WIN32
+    const char* home_dir = std::getenv("USERPROFILE");
+    if (home_dir) {
+        cache_dir = std::string(home_dir) + "\\" + kCachePath;
+    }
+#else
+    const char* homeDir = std::getenv("HOME");
+    if (homeDir) {
+        cacheDir = std::string(homeDir) + "/" + kCachePath;
+#endif
+
+    if (cache_dir.empty()) {
+        fprintf(stderr, "Unable to get home directory.");
+        return ""; // Handle error appropriately in your application
+    }
+
+    std::filesystem::path cache_path(cache_dir);
+
+    if (!std::filesystem::exists(cache_path)) {
+        std::filesystem::create_directory(cache_path);
+    }
+
+    return cache_path.string();
+}
+
+std::string FileUtils::GetConfigPath(const std::string& model_id) {
+    return (fs::path(GetBaseCacheDir())/model_id/"config.json").string();
+}
+
+bool FileUtils::Move(const fs::path& src, const fs::path& dest, std::string& error_info) {
+    if (!std::filesystem::exists(src)) {
+        error_info = "Source file does not exist.";
+        return false;
+    }
+
+    if (std::filesystem::exists(dest)) {
+        error_info = "Destination file already exists.";
+        return false;
+    }
+
+    std::error_code ec;
+    std::filesystem::rename(src, dest, ec);
+
+    if (ec) {
+        error_info =  "Error moving file: " + ec.message();
+        return false;
+    }
+    return true;
+}
+
+
 
 }
