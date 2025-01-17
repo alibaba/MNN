@@ -12,8 +12,9 @@
 #include "rapidjson/document.h"
 #include "rapidjson/filereadstream.h"
 #include "rapidjson/error/en.h"
-namespace diffusion {
-
+namespace MNN {
+namespace DIFFUSION {
+    
 bool BertTokenizer::load(const std::string& dictPath) {
     std::ifstream dictFile(dictPath + "/vocab.txt");
     if(!dictFile.is_open()) {
@@ -64,7 +65,7 @@ std::vector<int> BertTokenizer::word_piece(const std::string& token) {
     return ids;
 }
 
-    
+
 std::vector<int> BertTokenizer::encode(const std::string& str, int maxlen) {
     std::vector<int> ids(maxlen * 2, 0);
     // uncond
@@ -73,7 +74,7 @@ std::vector<int> BertTokenizer::encode(const std::string& str, int maxlen) {
     // ids
     int idx = maxlen;
     ids[idx++] = mStartIdx;
-
+    
     std::vector<std::string> tokens;
     std::string current_token;
     size_t i = 0;
@@ -117,23 +118,23 @@ std::vector<int> BertTokenizer::encode(const std::string& str, int maxlen) {
             tokens.push_back(current_token);
         }
     }
-
+    
     for (auto token : tokens) {
         for (auto id : word_piece(token)) {
             ids[idx++] = id;
         }
     }
-   
+    
     ids[idx++] = mEndIdx;
     return ids;
 }
-    
+
 bool CLIPTokenizer::load(const std::string& filePath) {
     bool res_0 = loadVocab(filePath + "/vocab.json");
     bool res_1 = loadMerges(filePath + "/merges.txt");
     return res_0 && res_1;
 }
-    
+
 std::wstring utf8_to_wstring(const std::string& str) {
     std::wstring_convert<std::codecvt_utf8<wchar_t>> myconv;
     return myconv.from_bytes(str);
@@ -150,47 +151,47 @@ bool CLIPTokenizer::loadVocab(const std::string& vocabFilePath) {
         MNN_ERROR("File %s open failed.\n", vocabFilePath.c_str());
         return false;
     }
-
+    
     char readBuffer[65536];
     rapidjson::FileReadStream is(fp, readBuffer, sizeof(readBuffer));
-
+    
     rapidjson::Document doc;
     doc.ParseStream(is);
     fclose(fp);
-
+    
     if (doc.HasParseError()) {
         MNN_ERROR("JSON parse error: %s\n", rapidjson::GetParseError_En(doc.GetParseError()));
         return false;
     }
-
+    
     if (!doc.IsObject()) {
         MNN_ERROR("JSON is not an object.\n");
         return false;
     }
-
+    
     for (rapidjson::Value::ConstMemberIterator itr = doc.MemberBegin(); itr != doc.MemberEnd(); ++itr) {
         const char* key = itr->name.GetString();
         
         if (itr->value.IsInt()) {
             int intValue = itr->value.GetInt();
             mVocabs[std::string(key)] = intValue;
-//            std::cout << key << ": " << intValue << std::endl;
+            //            std::cout << key << ": " << intValue << std::endl;
         } else {
             MNN_ERROR("Value for key: %s is not an integer.\n", key);
         }
     }
     
     auto _insert_range = [=](int start, int end) {
-       for (int c = start; c <= end; c++) {
-           b2u_.insert({uint8_t(c), wchar_t(c)});
-       }
-   };
+        for (int c = start; c <= end; c++) {
+            b2u_.insert({uint8_t(c), wchar_t(c)});
+        }
+    };
     
     b2u_.clear();
     _insert_range(L'!', L'~');
     _insert_range(L'¡', L'¬');
     _insert_range(L'®', L'ÿ');
-
+    
     int n = 0;
     for (int b = 0; b < 256; b++) {
         if (b2u_.find(uint8_t(b)) == b2u_.end()) {
@@ -208,7 +209,7 @@ bool CLIPTokenizer::loadVocab(const std::string& vocabFilePath) {
 bool CLIPTokenizer::loadMerges(const std::string& mergesFilePath) {
     std::ifstream file(mergesFilePath);
     std::string line;
-
+    
     if (!file.is_open()) {
         MNN_ERROR("Failed to open merges file: %s\n", mergesFilePath.c_str());
         return false;
@@ -218,7 +219,7 @@ bool CLIPTokenizer::loadMerges(const std::string& mergesFilePath) {
         if (line.empty() || line[0] == '#') {
             continue;
         }
-
+        
         size_t colonPos = line.find(' ');
         if (colonPos != std::string::npos) {
             std::string token_0 = line.substr(0, colonPos);
@@ -228,12 +229,12 @@ bool CLIPTokenizer::loadMerges(const std::string& mergesFilePath) {
     }
     return true;
 }
-    
+
 void get_pairs(const std::wstring& word, std::vector<std::pair<std::wstring, std::wstring>>* pairs) {
     pairs->clear();
-
+    
     if (word.size() < 2) return;
-
+    
     wchar_t previous = word[0];
     for (int i = 1; i < word.size(); i++) {
         pairs->push_back({std::wstring(1, previous), std::wstring(1, word[i])});
@@ -245,49 +246,49 @@ void CLIPTokenizer::bpe(const std::wstring& token, const BPERanks& bpe_ranks, st
     std::set<int> merged;  // records indices in pairs that were merged.
     auto _left = [](int i, std::set<int>& merged) {
         for (int j = i - 1; j >= -1; j--) {
-        if (merged.find(j) == merged.end()) return j;
+            if (merged.find(j) == merged.end()) return j;
         }
         return -1;
     };
     auto _right = [](int i, int cap, std::set<int>& merged) {
         for (int j = i + 1; j < cap; j++) {
-        if (merged.find(j) == merged.end()) return j;
+            if (merged.find(j) == merged.end()) return j;
         }
         return cap;
     };
-
+    
     std::vector<std::pair<std::wstring, std::wstring>> pairs;
     get_pairs(token, &pairs);
-
+    
     while (true) {
         int min_score = INT_MAX;
         int to_merge = -1;  // indices into pairs.
-
+        
         for (int i = 0; i < pairs.size(); ++i) {
-        if (merged.find(i) == merged.end()) {  // pair i is not merged.
-            auto iter = bpe_ranks.find(pairs[i]);
-            int score = iter != bpe_ranks.end() ? iter->second : INT_MAX;
-            if (score < min_score) {
-            min_score = score;
-            to_merge = i;
+            if (merged.find(i) == merged.end()) {  // pair i is not merged.
+                auto iter = bpe_ranks.find(pairs[i]);
+                int score = iter != bpe_ranks.end() ? iter->second : INT_MAX;
+                if (score < min_score) {
+                    min_score = score;
+                    to_merge = i;
+                }
             }
         }
-        }
-
+        
         if (to_merge == -1) break;
-
+        
         merged.insert(to_merge);
         std::wstring merge_into = pairs[to_merge].first + pairs[to_merge].second;
-
+        
         int l = _left(to_merge, merged);
         if (l >= 0) pairs[l].second = merge_into;
         int r = _right(to_merge, pairs.size(), merged);
         if (r < pairs.size()) pairs[r].first = merge_into;
     }  // end while (true)
-
+    
     if (merged.size() == pairs.size()) {
         result->push_back(token);
-
+        
     } else {
         for (int i = 0; i < pairs.size(); ++i) {
             if (merged.find(i) == merged.end()) {
@@ -315,12 +316,12 @@ std::vector<int> CLIPTokenizer::encode(const std::string& text, int maxlen) {
         }
         std::vector<std::wstring> bpe_tokens;
         bpe(wtoken, bpe_ranks_, &bpe_tokens);
-
+        
         for (auto ws : bpe_tokens) {
             result.push_back(wstring_to_utf8(ws));
         }
     }
-
+    
     std::vector<int> ids(maxlen * 2, 0);
     // uncond
     ids[0] = mStartIdx;
@@ -332,8 +333,8 @@ std::vector<int> CLIPTokenizer::encode(const std::string& text, int maxlen) {
         ids[idx++] = mVocabs.at(s);
     }
     ids[idx++] = mEndIdx;
-
+    
     return ids;
 }
-
+}
 } // diffusion

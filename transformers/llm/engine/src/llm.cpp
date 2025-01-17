@@ -528,9 +528,9 @@ void Llm::chat() {
     std::vector<PromptItem> history;
     history.push_back(std::make_pair("system", "You are a helpful assistant."));
     while (true) {
-        std::cout << "\nQ: ";
+        std::cout << "\nUser: ";
         std::string user_str;
-        std::cin >> user_str;
+        std::getline(std::cin, user_str);
         if (user_str == "/exit") {
             break;
         }
@@ -539,7 +539,7 @@ void Llm::chat() {
             std::cout << "\nA: reset done." << std::endl;
             continue;
         }
-        std::cout << "\nA: " << std::flush;
+        std::cout << "\nAssistant: " << std::flush;
         if (config_->reuse_kv()) {
             response(user_str);
         } else {
@@ -555,7 +555,6 @@ void Llm::chat() {
             }
             history.emplace_back(std::make_pair("assistant", line));
         }
-        std::cout << std::endl;
     }
 }
 
