@@ -22,6 +22,7 @@
 #undef NO_ERROR
 #else
 #include <unistd.h>
+#include <errno.h>
 #include <sys/stat.h>
 #include <sys/fcntl.h>
 #include <sys/mman.h>
