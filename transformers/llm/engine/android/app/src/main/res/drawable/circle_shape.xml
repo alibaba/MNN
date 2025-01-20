@@ -1,0 +1,5 @@
+<!-- res/drawable/circle_shape.xml -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <solid android:color="#f8ffff" /> <!-- 圆的颜色 -->
+    <corners android:radius="75dp" /> <!-- 圆的半径，确保这个值是宽度和高度的一半 -->
+</shape>

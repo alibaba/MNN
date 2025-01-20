@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.appcompat.widget.Toolbar
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:orientation="vertical"
+    android:layout_width="match_parent"
+    android:layout_height="100dp"
+    android:contentInsetLeft="0dp"
+    android:contentInsetStart="0dp"
+    app:contentInsetLeft="0dp"
+    app:contentInsetStart="0dp"
+    android:contentInsetRight="0dp"
+    android:contentInsetEnd="0dp"
+    app:contentInsetRight="0dp"
+    android:background="#525F68"
+    app:contentInsetEnd="0dp">
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="match_parent">
+        <LinearLayout
+            android:layout_width="10dp"
+            android:background="#FFA500"
+            android:layout_height="match_parent"/>
+        <RelativeLayout
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent">
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginLeft="10dp"
+                android:layout_centerInParent="true"
+                android:orientation="vertical">
+                <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+                    <ImageView
+                        android:layout_width="120dp"
+                        android:layout_height="30dp"
+                        android:layout_gravity="bottom|left"
+                        app:srcCompat="@drawable/arm_kleidiai_horizontal_color" />
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:textColor="#FFFFFF"
+                        android:textSize="20dp"
+                        android:text="Accelerate"/>
+                </LinearLayout>
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal">
+                    <ImageView
+                        android:layout_width="40dp"
+                        android:layout_height="30dp"
+                        android:layout_gravity="bottom|left"
+                        app:srcCompat="@drawable/logo_mnn" />
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:textColor="#FFFFFF"
+                        android:textSize="20dp"
+                        android:text="MNN Inference Engine"/>
+                </LinearLayout>
+            </LinearLayout>
+    </RelativeLayout>
+    </LinearLayout>
+</androidx.appcompat.widget.Toolbar>

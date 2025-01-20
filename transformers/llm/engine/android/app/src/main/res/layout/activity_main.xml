@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/drawer_layout"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/arm_dev_background3"
+    android:fitsSystemWindows="true"
+    tools:openDrawer="start">
+    <RelativeLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_alignParentBottom="true"
+        android:orientation="vertical">
+        <ImageView
+            android:layout_width="120dp"
+            android:layout_above="@id/loading_spinner"
+            android:layout_height="wrap_content"
+            android:layout_centerInParent="true"
+            android:src="@drawable/arm_black"/>
+        <ProgressBar
+            android:layout_above="@id/model_info"
+            android:id="@+id/loading_spinner"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:indeterminate="false"
+            android:indeterminateDrawable="@drawable/indeterminate_drawable"
+            android:layout_centerInParent="true" />
+        <TextView
+            android:id="@+id/model_info"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_centerInParent="true"
+            android:text="Loading models"
+            android:layout_marginBottom="20dp"
+            android:textColor="@color/armBlack900" />
+    </RelativeLayout>
+
+</RelativeLayout>

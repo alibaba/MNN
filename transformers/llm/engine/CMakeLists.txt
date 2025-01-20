@@ -18,6 +18,11 @@ include_directories(${CMAKE_CURRENT_LIST_DIR}/include/)
 # source files
 FILE(GLOB SRCS ${CMAKE_CURRENT_LIST_DIR}/src/*.cpp)
 
+if (MNN_JNI)
+    FILE(GLOB JNI_FILES ${CMAKE_CURRENT_LIST_DIR}/jni/*.cpp)
+    list(APPEND SRCS ${JNI_FILES})
+endif()
+
 if (MNN_SEP_BUILD)
     if (MNN_BUILD_SHARED_LIBS)
         # compile dynamic so, support Linux/Mac
