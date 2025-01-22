@@ -34,13 +34,14 @@ protected:
 
         float threshold = (float)(1 << (nbit - 1)) - 1.0f;
         float clampMin = -threshold;
-        VARP x = _Input({batch, ic, ih, iw}, NC4HW4, halide_type_of<float>());
+        VARP x = _Input({batch, ic, ih, iw}, NCHW, halide_type_of<float>());
         auto xInfo = x->getInfo();
         auto xPtr = x->writeMap<float>();
         int8_t xMin = -(1<<(nbit-1))+1, xMax = (1<<(nbit-1))-1;
         for (int i=0; i<xInfo->size; ++i) {
-            xPtr[i] = (i % (xMax - xMin + 1)) * 0.27;
+            xPtr[i] = (i % (xMax - xMin + 1) - (xMax / 2)) * 0.27;
         }
+        x = _Convert(x, NC4HW4);
         for (int i = 0; i < oc; ++i) {
             bias[i] = i % 10 + 0.005;
             for (int j = 0; j < ic; ++j) {
@@ -162,10 +163,11 @@ public:
         std::vector<int> kernels = {1, 1};
         bool lowmemory = true;
         {
-           std::vector< std::vector<int>> channels = {{7, 9}, {2048, 54}, {1, 10}, {20, 153}, {9, 18}};
+           std::vector< std::vector<int>> channels = {{7, 9}, {9, 9}, {2048, 54}, {1, 10}, {20, 153}, {9, 18}};
            for (int i = 0; i < channels.size(); ++i) {
                for (int n = 0; n < batch.size(); ++n) {
                    auto res = testKernel("Low memory HybridConv test:", inputShape, kernels, channels[i], pad, strides, dilate, batch[n], 8, precision);
+                   res &= testKernel("Low memory HybridConv test:", inputShape, kernels, channels[i], pad, strides, dilate, batch[n], 4, precision);
                    if (!res) {
                        MNN_ERROR("Error: low memory hybridConv when bits=8, n=%d, ic=%d, oc=%d\n", batch[n], channels[i][0], channels[i][1]);
                        return false;
@@ -174,7 +176,7 @@ public:
            }
         }
         {
-            std::vector< std::vector<int>> channels = {{2048, 54}, {8, 8}, {8, 9}, {8, 16}};
+            std::vector< std::vector<int>> channels = {{12, 16}, {2048, 54}, {8, 8}, {8, 9}, {8, 16}};
             for (int i = 0; i < channels.size(); ++i) {
                 for (int n = 0; n < batch.size(); ++n) {
                     auto res = testKernel("Low memory HybridConv test:", inputShape, kernels, channels[i], pad, strides, dilate, batch[n], 4, precision);
@@ -210,7 +212,7 @@ public:
                         for (auto block : blocks) {
                             auto res = testKernel("Low memory ConvInt8 with kernel test:", inputShape, kernel, channels[i], pad, strides, dilate, batch[n], bits, precision, false, block);
                             if (!res) {
-                                MNN_ERROR("Error: low memory ConvInt8 with %dx%d kernel when n=%d, ic=%d, oc=%d, block=%d\n", kernel[0], kernel[1], batch[n], channels[i][0], channels[i][1], block);
+                                MNN_ERROR("Error: low memory ConvInt8 with %dx%d kernel when bits=%d n=%d, ic=%d, oc=%d, block=%d\n", kernel[0], kernel[1], bits, batch[n], channels[i][0], channels[i][1], block);
                                 return false;
                             }
                         }

@@ -300,6 +300,9 @@ ErrorCode MetalRaster::onResize(const std::vector<Tensor *> &____inputs, const s
     auto outputDes = TensorUtils::getDescribe(output);
     auto des = outputDes;
     mNeedZero = !TensorUtils::regionIsFull(output);
+    if (outputDes->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 && output->length(1) % 4 != 0) {
+        mNeedZero = true;
+    }
     auto context  = (__bridge MNNMetalContext *)static_cast<MetalBackend *>(backend())->context();
     auto mtbn = static_cast<MetalBackend*>(backend());
     auto bufferAlloc = mtbn->getStaticBufferPool();

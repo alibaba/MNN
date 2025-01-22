@@ -161,6 +161,9 @@ public:
     VulkanLayout::DescriptorSet* createSet() const;
     void changePipeline(const std::vector<uint32_t>& localSize) const;
 
+public:
+    std::string mTuneName;
+
 private:
     const VulkanDevice& mDevice;
     mutable VkPipeline mPipeline;

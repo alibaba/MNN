@@ -44,8 +44,8 @@ private:
     bool mValid = true;
     const int _binNums = 2048;
     int _calibrationFileNum      = 0;
-    int _width;
-    int _height;
+    int _width = 1;
+    int _height = 1;
     int _channels;
     int _batch = 32;
     int _quant_bits = 8;

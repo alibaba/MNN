@@ -15,7 +15,7 @@
 #include "MNN_generated.h"
 #include "Utils.hpp"
 #include "RuntimeAttr.hpp"
-
+#include "ModuleInside.hpp"
 #include <MNN/AutoTime.hpp>
 #ifdef MNN_INTERNAL_ENABLED
 #include "internal/auth/ModelAuth.hpp"
@@ -176,7 +176,7 @@ public:
             int mode = 1;
             if (info->runTimeManager.get() != nullptr) {
                 auto attr = info->runTimeManager->getInside();
-                mode = attr->mNumberThread;
+                mode = attr->mContent->mNumberThread;
                 int backendTypes[MNN_FORWARD_ALL];
                 info->runTimeManager->getInfo(Interpreter::BACKENDS, &backendTypes);
                 backend = backendTypes[0];
@@ -208,7 +208,8 @@ public:
 
     virtual std::vector<Express::VARP> onForward(const std::vector<Express::VARP>& inputs) override {
         auto mModule = mChildren[0];
-
+        // Reset resize staus
+        mInfo->runTimeManager->getInside()->mResizeStatus = 0;
 #ifdef MNN_INTERNAL_ENABLED
         Timer _time;
         auto glo = ExecutorScope::Current();
@@ -246,9 +247,18 @@ public:
     }
     virtual Module* clone(CloneContext* ctx) const override {
         auto mModule = mChildren[0];
+        auto origin = mInfo->runTimeManager->getInside();
+        ScheduleConfig config;
+        config.type = origin->mRuntime.first.begin()->first;
+        config.numThread = origin->mContent->mNumberThread;
+        std::shared_ptr<Executor::RuntimeManager> newRt (Executor::RuntimeManager::createRuntimeManager(config));
+        const_cast<RuntimeAttr*>(newRt->getInside())->mContent = origin->mContent;
+        std::shared_ptr<Module::Info> newInfo(new Module::Info);
+        *newInfo = *mInfo;
+        ctx->pRuntimeManager = newRt;
+        newInfo->runTimeManager = newRt;
         std::shared_ptr<Module> submodule(mModule->clone(ctx));
-
-        NetModule* module(new NetModule(submodule, mInfo, nullptr, 0, 0.0f));
+        NetModule* module(new NetModule(submodule, newInfo, nullptr, 0, 0.0f));
 #ifdef MNN_INTERNAL_ENABLED
         module->mLogInfo = mLogInfo;
 #endif
@@ -333,7 +343,7 @@ Module* Module::load(const std::vector<std::string>& inputs, const std::vector<s
         rtMgr.reset(_createDefaultRuntimeManager(config));
     }
     bool needReset = false;
-    if (rtMgr->getInside()->mExternalFile.empty()) {
+    if (rtMgr->getInside()->mContent->mExternalFile.empty()) {
         // Set Default externalFile
         rtMgr->setExternalFile(std::string(fileName) + ".weight");
         needReset = true;
@@ -361,7 +371,7 @@ static Module* loadInternal(const std::vector<std::string>& inputs, const std::v
     }
     bool checkMNNBuffer = true;
     if (nullptr != _rtMgr) {
-        checkMNNBuffer = _rtMgr->getInside()->modes.checkNetBuffer;
+        checkMNNBuffer = _rtMgr->getInside()->mContent->modes.checkNetBuffer;
     }
     if (checkMNNBuffer) {
         flatbuffers::Verifier verify(buffer, length);

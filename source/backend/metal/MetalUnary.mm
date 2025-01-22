@@ -14,7 +14,7 @@
 
 #if MNN_METAL_ENABLED
 namespace MNN {
-static const char* gBinaryTemplate = R"metal(
+static const char* gUnaryTemplate = R"metal(
 #include <metal_stdlib>
 #include <simd/simd.h>
 using namespace metal;
@@ -162,7 +162,7 @@ public:
                 @"T" : T,
                 @"FUNC" : kernel,
             };
-            pipeline = mtbn->makeComputePipelineWithSourceOption(gBinaryTemplate, "main0", compileOptions);
+            pipeline = mtbn->makeComputePipelineWithSourceOption(gUnaryTemplate, "main0", compileOptions);
             mtbn->runtime()->insertPipeline(keys, pipeline);
         }
         if (nil == pipeline) {

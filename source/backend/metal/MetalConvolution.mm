@@ -211,6 +211,7 @@ public:
                 return new MetalConvolutionWinograd(backend, op);
             }
             if (MetalConvolution1x1::isValid(conv, input)) {
+
                 return new MetalConvolution1x1(backend, op);
             }
         }

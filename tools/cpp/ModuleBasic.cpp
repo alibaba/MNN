@@ -83,6 +83,7 @@ static bool compareOutput(VARP output, const std::string& directName, const std:
     auto diffAbsMax = _ReduceMax(diff);
     auto absMaxV = absMax->readMap<float>()[0];
     auto diffAbsMaxV = diffAbsMax->readMap<float>()[0];
+    MNN_PRINT("For %s, max = %f, diffmax = %f, diff rate = %f\n", name.c_str(), absMaxV, diffAbsMaxV, diffAbsMaxV / fmaxf(absMaxV, 1e-6));
     if (absMaxV * 0.01f < diffAbsMaxV || MNN_IS_NAN(absMaxV)) {
         MNN_ERROR("TESTERROR %s value error : absMaxV:%f - DiffMax %f\n", name.c_str(), absMaxV, diffAbsMaxV);
         return false;
@@ -278,9 +279,6 @@ int main(int argc, char *argv[]) {
     }
     if (runMask & 512) {
         rtmgr->setHint(Interpreter::WINOGRAD_MEMORY_LEVEL, 0);
-    }
-    if (runMask & 1024) {
-        rtmgr->setHint(Interpreter::DYNAMIC_QUANT_OPTIONS, 1);
     }
     if (runMask & 2048) {
         rtmgr->setExternalPath("tmp", Interpreter::EXTERNAL_FEATUREMAP_DIR);

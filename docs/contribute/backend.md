@@ -179,6 +179,23 @@ virtual void onExecuteEnd() const = 0;
 对于使用同一种后端，且存在先后顺序，不会同时运行的模型，MNN提供机制使其共享部分计算资源，比如线程池，内存池等等。
 这部分计算资源使用Runtime存储。而Backend则由Runtime创建
 
+### CompileType
+
+Runtime 可以通过指定 CompileType ，决定 MNN 是否跳过几何计算步骤：
+
+```
+enum CompilerType {
+    // 部分执行几何计算，分解形变算子，但不分解 BatchMatMul / Gather 等算子
+    Compiler_Geometry = 0,
+
+    // 完全跳过几何计算步骤，直接使用原始算子
+    Compiler_Origin = 1,
+
+    // 完全执行几何计算，仅此模式下，可以在算子不支持时自动回退到CPU计算
+    Compiler_Loop = 2,
+};
+```
+
 ### 实现Runtime
 Runtime主要实现如下接口：
 

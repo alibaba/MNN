@@ -242,7 +242,11 @@ static void WriteCQBlobs(std::ostream &out, const float* weightData, const float
                     {
                         value = fmax(fmin(round((weight - min) / alpha) + min_value, max_value), min_value);
                     }
+#ifdef LINEAR_WEIGHT_SET
+                    *tmp = value + offset;
+#else
                     *tmp = mapWeight[value];
+#endif
                     tmp++;
                 }
             }
@@ -258,7 +262,11 @@ static void WriteCQBlobs(std::ostream &out, const float* weightData, const float
                     {
                         value = fmax(fmin(round(weight / alpha), max_value), min_value);
                     }
+#ifdef LINEAR_WEIGHT_SET
+                    *tmp = value + offset;
+#else
                     *tmp = mapWeight[value];
+#endif
                     tmp++;
                 }
             }

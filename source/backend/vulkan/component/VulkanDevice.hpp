@@ -171,6 +171,10 @@ public:
         }
     }
 
+    uint32_t getSubgroupSize() const {
+        return mSubgroupSize;
+    }
+
 private:
     const VkResult enumerateDeviceExtensionProperties(const VkPhysicalDevice& dev,
                                                       std::vector<VkExtensionProperties>& exts_props) const;
@@ -184,6 +188,7 @@ private:
     VkPhysicalDeviceProperties mDeviceProty;
     VkQueue mQueue;
     VkPhysicalDeviceMemoryProperties mMemoryProty;
+    uint32_t mSubgroupSize;
 };
 } // namespace MNN
 #endif /* VulkanDevice_hpp */

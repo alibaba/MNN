@@ -57,7 +57,8 @@ public:
         int32_t srcYStep;
         int32_t packCUnit;
         int32_t destICStride;
-        int32_t ic;
+        int32_t ic; // ic packed by LP, used by im2col dst data.
+        int32_t icup4; // ic packed by LP, used by im2col src data.
     };
 };
 } // namespace MNN

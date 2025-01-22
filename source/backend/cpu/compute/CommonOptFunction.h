@@ -19,7 +19,12 @@
 #include "backend/cpu/compute/Int8FunctionsOpt.h"
 
 extern "C" {
-
+#ifdef MNN_LOW_MEMORY
+#ifdef __aarch64__
+void MNNGeneralIm2col_Fp32Arm82(float* destOrigin, float const** sourceGroup, const int32_t* info, const int32_t* el, int32_t LP, int32_t pack);
+void MNNGeneralIm2col_Fp32Arm86(float* destOrigin, float const** sourceGroup, const int32_t* info, const int32_t* el, int32_t LP, int32_t pack);
+#endif
+#endif
 void MNNFp32ToFp8(uint8_t* dst, const float* src, size_t size);
 void MNNFp8ToFp32(float* dst, const uint8_t* src, size_t size);
 void MNNFp16ToFp8(uint8_t* dst, const uint16_t* src, size_t size);
@@ -131,9 +136,9 @@ void MNNPackedMatMul_int4(float* C, const float* A, const float* B, const size_t
 void MNNPackedMatMulRemain_int4(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, const float* k, const float* b);
 void MNNPackedMatMul_int8(float* C, const float* A, const float* B, const size_t* parameter, const float* postParameters, const float* bias, const float* k, const float* b);
 void MNNPackedMatMulRemain_int8(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, const float* k, const float* b);
-void MNNAbsMaxFP32(const float* source, float* absmax, size_t src_depth_quad, size_t realSize, int pack);
+void MNNAbsMaxFP32_Pack4(const float* source, float* absmax, size_t src_depth_quad, size_t realSize, int pack);
 void MNNQuantScaleFP32(float* absmax, float* quant_scale, float* dequant_scale, size_t thread, size_t batch);
-void MNNDynamicQuantFP32(const float* src, int8_t* dst, const float* scale, size_t src_depth_quad, size_t realSize, int pack);
+void MNNDynamicQuantFP32_Pack4(const float* src, int8_t* dst, const float* scale, size_t src_depth_quad, size_t realSize, int pack);
 void MNNQuantSumFP32(float* sum, const float* dequant_scale, size_t thread, size_t batch);
 void MNNDynamicUpdateConvBiasScale(float* newbias, float* newscale, float* oldbias, float* weightScale, float* inputScale, float* weightKernelSum, float* inputZero, size_t ocQuad, size_t scaleSize);
 
@@ -181,6 +186,9 @@ struct SumByAxisParams {
     ssize_t SRC_UNIT;
     ssize_t blockNum;
     ssize_t oneScale;
+    ssize_t valid;
+    ssize_t kernelxy;
+    ssize_t LU;
 };
 }
 
@@ -209,11 +217,10 @@ struct CoreFunctions {
     void(*MNNGetSparseMatMulPackMode)(int* eP, int *lP, int* hP);
     void(*MNNPackC4ForMatMul_A)(float* destOrigin, float const** sourceGroup, const int32_t* info, const int32_t* el);
     void(*MNNPackForMatMul_B)(float* dest, const float* source, size_t h, size_t l, bool transpose);
+    void(*MNNGeneralIm2Col)(float* destOrigin, float const** sourceGroup, const int32_t* info, const int32_t* el, int32_t LP, int32_t pack);
     // parameters: e, l, h, CStride, AStride, BStride
     void(*MNNPackedMatMul)(float* C, const float* A, const float* B, const size_t* parameter, const float* postParameters, const float* bias, const float* k, const float* b);
     void(*MNNPackedMatMulRemain)(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, const float* k, const float* b);
-    void(*MNNPackedMatMul_int4)(float* C, const float* A, const float* B, const size_t* parameter, const float* postParameters, const float* bias, const float* k, const float* b) = nullptr;
-    void(*MNNPackedMatMulRemain_int4)(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, const float* k, const float* b) = nullptr;
     void(*MNNAbsMax)(const float* source, float* absmax, size_t src_depth_quad, size_t realSize, int pack) = nullptr;
     void(*MNNQuantScale)(float* absmax, float* quant_scale, float* dequant_scale, size_t thread, size_t batch) = nullptr;
     void(*MNNDynamicQuant)(const float* src, int8_t* dst, const float* scale, size_t src_depth_quad, size_t realSize, int pack) = nullptr;

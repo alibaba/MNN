@@ -41,8 +41,7 @@ public:
             if (op->type() == OpType_ELU) {
                 alpha = op->main_as_ELU()->alpha();
             } else if (op->type() == OpType_Selu){
-                alpha = op->main_as_Selu()->alpha() *
-                        op->main_as_Selu()->scale();
+                alpha = op->main_as_Selu()->scale() * op->main_as_Selu()->alpha();
             }
             alphaConst->host<float>()[0] = alpha;
             initTensor(mulValue, input);

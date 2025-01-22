@@ -49,9 +49,9 @@ VulkanMatrixMultier4x4::VulkanMatrixMultier4x4(VulkanBackend* backend, const flo
                                             VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER};
         bool supportFp16 = backend->getMemoryPool().permitFp16();
         if ((backend->gpuType() == VulkanRuntime::ADRENO || backend->gpuType() == VulkanRuntime::MALI) && supportFp16) {
-            mPipeline = mBackend->getPipeline("glsl_gemm16x16_FP16_comp", types);
+            mPipeline = mBackend->getPrivatePipeline("glsl_gemm16x16_FP16_comp", types);
         } else {
-            mPipeline = mBackend->getPipeline("glsl_gemm16x16_comp", types);
+            mPipeline = mBackend->getPrivatePipeline("glsl_gemm16x16_comp", types); 
         }
     }
     mDescriptorSet.reset(mPipeline->createSet());
@@ -101,6 +101,7 @@ void VulkanMatrixMultier4x4::prepare(const VulkanCommandPool::Buffer* commandBuf
     mDescriptorSet->writeBuffer(mConstBuffer->buffer(), 3, mConstBuffer->size());
     mOutputWidth  = ow;
     mOutputHeight = oh;
+    mLws = mBackend->autoTunePipeline(mPipeline, mDescriptorSet, {(uint32_t)mOutputWidth, (uint32_t)mOutputHeight / 4, (uint32_t)mDepth}, 2, {8, 8, 1});
 }
 
 void VulkanMatrixMultier4x4::compute(const VulkanCommandPool::Buffer* commandBuffer) const {
@@ -108,7 +109,7 @@ void VulkanMatrixMultier4x4::compute(const VulkanCommandPool::Buffer* commandBuf
     mDest->barrierWrite(commandBuffer->get());
     mSource->barrierRead(commandBuffer->get());
     mKernel->barrierRead(commandBuffer->get());
-    vkCmdDispatch(commandBuffer->get(), UP_DIV(mOutputWidth, 8), UP_DIV(mOutputHeight / 4, 8), mDepth);
+    vkCmdDispatch(commandBuffer->get(), UP_DIV(mOutputWidth, mLws[0]), UP_DIV(mOutputHeight / 4, mLws[1]), mDepth);
 }
 
 } // namespace MNN

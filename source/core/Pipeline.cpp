@@ -273,7 +273,7 @@ ErrorCode Pipeline::encode(bool supportDebug, bool permitCodegen) {
         mContext.mNeedRelease = mGeometryNeedRelease;
         FileLoader l(mExternalFile.c_str());
         /** Size Compute and compute Const Begin */
-        auto res = GeometryComputerUtils::shapeComputeAndGeometryTransform(&l, mInfo.second, mContext, mInfo.first.cache.second, mUseGeometry, false, permitCodegen);
+        auto res = GeometryComputerUtils::shapeComputeAndGeometryTransform(mCpuRuntime, &l, mInfo.second, mContext, mInfo.first.cache.second, mUseGeometry, false, permitCodegen);
         if (res != NO_ERROR) {
             return res;
         }
@@ -1182,9 +1182,12 @@ void Pipeline::_copyInputs() {
 }
 ErrorCode Pipeline::execute() {
     _copyInputs();
+    auto enterCode = _enterExecute();
+    if (NO_ERROR != enterCode) {
+        return enterCode;
+    }
     auto& mBackend = mInfo.first.cache.first;
     auto& mBackupBackend = mInfo.first.cache.second;
-    mBackend->onExecuteBegin();
     for (auto& info : mInfo.second) {
         if (info.type == Schedule::CONSTANT) {
             continue;
@@ -1214,20 +1217,42 @@ ErrorCode Pipeline::execute() {
 #endif
             auto code = cmd.execution->onExecute(cmd.workInputs, cmd.workOutputs);
             if (NO_ERROR != code) {
-                mBackend->onExecuteEnd();
+                _exitExecute();
                 return code;
             }
         }
     }
-    mBackend->onExecuteEnd();
+    _exitExecute();
     return NO_ERROR;
+}
+ErrorCode Pipeline::_enterExecute() {
+    auto& mBackend = mInfo.first.cache.first;
+    auto& mBackupBackend = mInfo.first.cache.second;
+    mBackend->onExecuteBegin();
+    mBackupBackend->onExecuteBegin();
+    if (mRuntime->pCurrentStatus != NO_ERROR) {
+        return (ErrorCode)mRuntime->pCurrentStatus;
+    }
+    if (mCpuRuntime->pCurrentStatus != NO_ERROR) {
+        return (ErrorCode)mCpuRuntime->pCurrentStatus;
+    }
+    return NO_ERROR;
+}
+void Pipeline::_exitExecute() {
+    auto& mBackend = mInfo.first.cache.first;
+    auto& mBackupBackend = mInfo.first.cache.second;
+    mBackupBackend->onExecuteEnd();
+    mBackend->onExecuteEnd();
 }
 
 ErrorCode Pipeline::executeCallBack(const TensorCallBackWithInfo& before, const TensorCallBackWithInfo& after) {
     _copyInputs();
+    auto enterCode = _enterExecute();
+    if (NO_ERROR != enterCode) {
+        return enterCode;
+    }
     auto& mBackend = mInfo.first.cache.first;
     auto& mBackupBackend = mInfo.first.cache.second;
-    mBackend->onExecuteBegin();
     for (auto& info : mInfo.second) {
         if (info.type == Schedule::CONSTANT) {
             continue;
@@ -1239,7 +1264,7 @@ ErrorCode Pipeline::executeCallBack(const TensorCallBackWithInfo& before, const 
             if (nullptr == cmd.info.get()) {
                 auto code = cmd.execution->onExecute(cmd.workInputs, cmd.workOutputs);
                 if (NO_ERROR != code) {
-                    mBackend->onExecuteEnd();
+                    _exitExecute();
                     return code;
                 }
                 continue;
@@ -1248,18 +1273,18 @@ ErrorCode Pipeline::executeCallBack(const TensorCallBackWithInfo& before, const 
             if (run) {
                 auto code = cmd.execution->onExecute(cmd.workInputs, cmd.workOutputs);
                 if (NO_ERROR != code) {
-                    mBackend->onExecuteEnd();
+                    _exitExecute();
                     return code;
                 }
             }
             auto stop = !(after(cmd.workOutputs, cmd.info.get()));
             if (stop) {
-                mBackend->onExecuteEnd();
+                _exitExecute();
                 return CALL_BACK_STOP;
             }
         }
     }
-    mBackend->onExecuteEnd();
+    _exitExecute();
     return NO_ERROR;
 }
 

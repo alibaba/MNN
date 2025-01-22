@@ -574,14 +574,17 @@ public:
                 auto minValue = minMax.first;
                 wScale[2*k] = minMax.first;
                 auto absMax = minMax.second - minMax.first;
-                wScale[2*k+1] = absMax / (threshold - clampMin);
-                float scale = 0.0f;
+                wScale[2*k+1] = 1;
+                
+                float quantscale = 1.0f;
                 if (absMax >= 0.000001f) {
-                    scale = 1.0f / wScale[2*k+1];
+                    wScale[2 * k + 1] = absMax / (threshold - clampMin);
+                    quantscale = 1.0f / wScale[2*k+1];
+                    
                 }
                 float* ptr = weightData.data() + beginIndex;
                 for (int i = 0; i < kernel_size; ++i) {
-                    int8_t quantValue = int8_t(std::round((ptr[i] - minValue) * scale + clampMin));
+                    int8_t quantValue = int8_t(std::round((ptr[i] - minValue) * quantscale + clampMin));
                     float floatValue = ((float)quantValue - clampMin) * wScale[2*k+1] + minValue;
                     quantWeight[k * kernel_size + i] = quantValue;
                     ptr[i] = floatValue;
@@ -602,8 +605,7 @@ public:
                 }
             }
         }
-        reference_conv2d(inputData, weightData, biasData, outputData, outputDataSeparateBias, batch, ic, oc, ih, iw, mode, pad_h, pad_w, kh, kw,
-                         stride, dilation, group, FP32Converter[precision]);
+        reference_conv2d(inputData, weightData, biasData, outputData, outputDataSeparateBias, batch, ic, oc, ih, iw, mode, pad_h, pad_w, kh, kw, stride, dilation, group, FP32Converter[precision]);
         if (outputData.size() == 0) {
             return true;
         }
@@ -616,7 +618,8 @@ public:
         if (nbit == 4 && weightLength > 10000) {
             errorScale = 50.0f;
         }
-        if (precision > MNN::BackendConfig::Precision_High) {
+        int memory = MNNTestSuite::get()->pStaus.memory;
+        if (precision > MNN::BackendConfig::Precision_High || memory > MNN::BackendConfig::Memory_High) {
             errorScale = 100.0f;
         }
         std::vector<std::pair<bool, bool>> activations = {
@@ -646,15 +649,18 @@ public:
             }
 
             // difference below 0.5% relative error is considered correct.
+            output = _Convert(output, NCHW);
             auto outputPtr = output->readMap<float>();
             // when using low precision, im2col or strassen convolution error rate to reference value is about 1e-4, winograd has larger error rate.
 
             if (!checkVectorByRelativeError<float>(outputPtr, toutputData.data(), toutputData.data(), toutputData.size(), 0.001 * errorScale)) {
-                MNN_PRINT("precision:%d, expect:\t expect2:\t real:\t\n", precision);
+                MNN_PRINT("precision:%d, memory:%d\n", precision, memory);
+                MNN_PRINT("expect:\t real:\t\n");
                 for (int i = 0; i < toutputData.size(); ++i)
                 {
-                    MNN_PRINT("%f\t, %f\n", toutputData[i], outputPtr[i]);
+                    MNN_PRINT("%f, %f\n", toutputData[i], outputPtr[i]);
                 }
+                MNN_PRINT("output shape: n=%d c=%d h=%d w=%d\n", output->getInfo()->dim[0], output->getInfo()->dim[1], output->getInfo()->dim[2], output->getInfo()->dim[3]);
                 MNN_ERROR("%s(%s) test failed for %d bits, async=%d , relu: %d, relu6: %d!\n", test_op_name.c_str(), device_name.c_str(), nbit, async, activation.first, activation.second);
                 return false;
             }
@@ -725,10 +731,10 @@ protected:
         int icStep = 1;
         int isStep = 3;
         std::vector<int> ocSize = {
-            1, 3, 10, 17
+            1, 4, 3, 10, 17
         };
         std::vector<int> icSize = {
-            4, 1, 3, 8, 11
+            1, 4, 3, 8, 11
         };
         std::vector<int> isSize = {
             1, 7, 9
@@ -747,9 +753,7 @@ protected:
                                     for (int s = 1; s <= 2; s++) {
                                         for (auto block : blocks) {
                                             for (int p = 0; p <= 1; p++) {
-                                                bool succ =
-                                                    ConvolutionType().test(type, device_name, "Conv2D", b, ic, oc, is,
-                                                                                is, PadMode_CAFFE, p, p, kh, kw, s, d, 1, precision, sparseAlgo, block, false);
+                                                bool succ =  ConvolutionType().test(type, device_name, "Conv2D", b, ic, oc, is, is, PadMode_CAFFE, p, p, kh, kw, s, d, 1, precision, sparseAlgo, block, false);
                                                 if (!succ) {
                                                     MNN_ERROR(
                                                         "Error for conv b=%d, oc=%d, ic=%d, ih=%d, "

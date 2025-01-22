@@ -66,25 +66,25 @@ OpenCLRuntime::OpenCLRuntime(const BackendConfig::PrecisionMode precision, const
             const std::string deviceName    = mFirstGPUDevicePtr->getInfo<CL_DEVICE_NAME>();
             mDeviceName = deviceName;
             const std::string deviceVersion = mFirstGPUDevicePtr->getInfo<CL_DEVICE_VERSION>();
-            std::map<std::string, MNN::MaliAr> maliArMap {
-                {"Mali-T860", MIDGARD},
-                {"Mali-T880", MIDGARD},
-                {"Mali-G31", BIFROST},
-                {"Mali-G51", BIFROST},
-                {"Mali-G52", BIFROST},
-                {"Mali-G71", BIFROST},
-                {"Mali-G72", BIFROST},
-                {"Mali-G76", BIFROST},
-                {"Mali-G57", VALHALL},
-                {"Mali-G68", VALHALL},
-                {"Mali-G77", VALHALL},
-                {"Mali-G78", VALHALL},
-                {"Mali-G310", VALHALL},
-                {"Mali-G510", VALHALL},
-                {"Mali-G610", VALHALL},
-                {"Mali-G615", VALHALL},
-                {"Mali-G710", VALHALL},
-                {"Mali-G715", VALHALL},
+            std::map<std::string, std::pair<MNN::MaliAr, MNN::GpuLevel>> maliArMap {
+                {"Mali-T860", {MIDGARD, LOW}},
+                {"Mali-T880", {MIDGARD, LOW}},
+                {"Mali-G31", {BIFROST, LOW}},
+                {"Mali-G51", {BIFROST, LOW}},
+                {"Mali-G52", {BIFROST, LOW}},
+                {"Mali-G71", {BIFROST, LOW}},
+                {"Mali-G72", {BIFROST, LOW}},
+                {"Mali-G76", {BIFROST, MEDIUM}},
+                {"Mali-G57", {VALHALL, LOW}},
+                {"Mali-G68", {VALHALL, LOW}},
+                {"Mali-G77", {VALHALL, MEDIUM}},
+                {"Mali-G78", {VALHALL, MEDIUM}},
+                {"Mali-G310", {VALHALL, LOW}},
+                {"Mali-G510", {VALHALL, LOW}},
+                {"Mali-G610", {VALHALL, LOW}},
+                {"Mali-G615", {VALHALL, LOW}},
+                {"Mali-G710", {VALHALL, TOP}},
+                {"Mali-G715", {VALHALL, TOP}},
             };
         
             const std::string deviceVendor  = mFirstGPUDevicePtr->getInfo<CL_DEVICE_VENDOR>();
@@ -136,9 +136,11 @@ OpenCLRuntime::OpenCLRuntime(const BackendConfig::PrecisionMode precision, const
             } else if (deviceName.find("Mali") != std::string::npos) {
                 mGpuType = MALI;
                 if(maliArMap.find(deviceName) != maliArMap.end()){
-                    mMaliAr = maliArMap[deviceName];
+                    mMaliAr = maliArMap[deviceName].first;
+                    mGpuLevel = maliArMap[deviceName].second;
                 }else{
                     mMaliAr = VALHALL;
+                    mGpuLevel = UNDEFINED;
                 }
             } else if (deviceVendor.find("Advanced Micro Devices") != std::string::npos) {
                 // Radeon series GPU is main product of Advanced Micro Devices (AMD)

@@ -34,8 +34,9 @@ static EXPRP _transformConv3D(EXPRP expr) {
     auto weight = inputs[1];
     
     auto weightInfo = weight->getInfo();
-    if (nullptr == weightInfo) {
-        MNN_ERROR("Convolution3D should know weight shape infromation!\n");
+    auto weightPtr = weight->readMap<float>();
+    if (nullptr == weightInfo || nullptr == weightPtr) {
+        MNN_ERROR("Convolution3D should has constant weight!\n");
         return nullptr;
     }
     auto& weightShape = weightInfo->dim;
@@ -52,19 +53,7 @@ static EXPRP _transformConv3D(EXPRP expr) {
         co = weightShape[1];
         ci = weightShape[0];
     }
-    std::unique_ptr<Convolution3DT> conv3d(new MNN::Convolution3DT);
-    const float* weightDataPtr = weight->readMap<float>();
-    conv3d->weight.resize(weightInfo->size);
-    ::memcpy(conv3d->weight.data(), weightDataPtr, weightInfo->size * sizeof(float));
-    conv3d->bias.resize(co);
-    std::fill(conv3d->bias.begin(), conv3d->bias.end(), 0.0f);
-    if (inputSize == 3) {
-        auto biasDataPtr = inputs[2]->readMap<float>();
-        ::memcpy(conv3d->bias.data(), biasDataPtr, co * sizeof(float));
-    }
-    
-    conv3d->common.reset(new MNN::Convolution3DCommonT);
-    auto common = conv3d->common.get();
+    std::unique_ptr<MNN::Convolution3DCommonT> common(new MNN::Convolution3DCommonT);
     common->pads = {0, 0, 0, 0, 0, 0};
     common->dilates = {1, 1, 1};
     common->kernels = {1, 1, 1};
@@ -110,7 +99,22 @@ static EXPRP _transformConv3D(EXPRP expr) {
         common->outputCount = co;
         common->inputCount  = ci * common->group; // conv set inputCount to be ci, dw to be group
     }
-    common->kernels              = std::vector<int>({depth, kh, kw});
+    common->kernels = std::vector<int>({depth, kh, kw});
+    std::unique_ptr<Convolution3DT> conv3d(new MNN::Convolution3DT);
+    conv3d->weight.resize(weightInfo->size);
+    ::memcpy(conv3d->weight.data(), weightPtr, weightInfo->size * sizeof(float));
+    conv3d->bias.resize(co);
+    std::fill(conv3d->bias.begin(), conv3d->bias.end(), 0.0f);
+    bool needExtraBias = false;
+    if (inputSize == 3) {
+        auto biasDataPtr = inputs[2]->readMap<float>();
+        if (nullptr != biasDataPtr) {
+            ::memcpy(conv3d->bias.data(), biasDataPtr, co * sizeof(float));
+        } else {
+            needExtraBias = true;
+        }
+    }
+    conv3d->common.reset(common.release());;
 
     std::unique_ptr<OpT> newOp(new OpT);
     newOp->name       = expr->name();
@@ -119,6 +123,10 @@ static EXPRP _transformConv3D(EXPRP expr) {
     newOp->main.value = conv3d.release();
 
     auto newExpr = Expr::create(newOp.get(), {inputs[0]}, 1);
+    if (needExtraBias) {
+        auto newVar = _Add(Variable::create(newExpr), inputs[2]);
+        newExpr = newVar->expr().first;
+    }
     return newExpr;
 }
 

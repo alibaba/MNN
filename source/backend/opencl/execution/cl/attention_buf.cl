@@ -62,7 +62,8 @@ __kernel void rearrange_qkv(GLOBAL_SIZE_3_DIMS
                               __global FLOAT *past_v, // [batch, headNum/group, seqLenKV_4, headDim]
                               __private const int4 tile, // [mTileQ, mTileKV, mTileHDK, mTileHDN]
                               __private const int4 shape,// [seqLenQ, seqLenKV, headNum, headDim]
-                              __private const int4 param // [group, batch, max_len, past_len]
+                              __private const int4 param, // [group, batch, max_len, past_len]
+                              __private const int maxLenKV
 ) {
     const int sl = get_global_id(0); // seqLen/4 : max(seqLenPackQ/4, seqLenPackKV/4)
     const int hd = get_global_id(1); // headDim/4 : max(headDimPackQK/4, headDimPackV/4)
@@ -75,7 +76,6 @@ __kernel void rearrange_qkv(GLOBAL_SIZE_3_DIMS
     const int headDim = shape.w;
     const int group = param.x;
     const int batch = param.y;
-    const int maxLenKV = param.z;
 
     const int b = z % batch;
     const int hn = z / batch;

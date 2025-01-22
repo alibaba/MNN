@@ -104,7 +104,7 @@ ErrorCode CPURaster::onResize(const std::vector<Tensor *> &____inputs, const std
     if (des->regions.size() == 1) {
         OpCommonUtils::turnRegion2Convert(des->regions[0], output, mSingleConvert);
         if (mSingleConvert.type > 0) {
-            mUseThreads = (mSingleConvert.batch * mSingleConvert.channel * mSingleConvert.area > LAUNCH_MULTI_THREADS_WORKLOAD) ? true : false;
+            mUseThreads = (mSingleConvert.batch * mSingleConvert.area > LAUNCH_MULTI_THREADS_WORKLOAD) ? true : false;
             return NO_ERROR;
         }
     }
@@ -571,7 +571,7 @@ void CPURaster::tensorConvert(Tensor* input, Tensor* output, int bytes) {
     const int bitLength = bytes;
     auto core = static_cast<CPUBackend*>(backend())->functions();
     auto threadNumber = static_cast<CPUBackend*>(backend())->threadNumber();
-    if (mUseThreads) {
+    if (!mUseThreads) {
         threadNumber = 1;
     }
     MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
@@ -871,8 +871,9 @@ public:
                 ::memcpy(reg.src.stride, srcView->stride()->data(), 3 * sizeof(int32_t));
                 ::memcpy(reg.dst.stride, dstView->stride()->data(), 3 * sizeof(int32_t));
                 auto input = mStack[cmd->indexes()->data()[1]];
-                auto inputSize = input->elementSize();
+                auto inputSize = input->usize() / input->buffer().type.bytes();
                 auto output = mStack[cmd->indexes()->data()[0]];
+                auto outputSize = output->usize() / output->buffer().type.bytes();
                 auto bytes = input->getType().bytes();
                 if (halide_type_float == input->getType().code) {
                     bytes = static_cast<CPUBackend*>(backend())->functions()->bytes;
@@ -885,7 +886,7 @@ public:
                     auto dstIter = *(iter0 + iter0Stride * iter);
                     auto srcOffset = srcIter * step1 + srcView->offset();
                     auto dstOffset = dstIter * step0 + dstView->offset();
-                    if (dstOffset >= 0) {
+                    if (dstOffset >= 0 && dstOffset < outputSize) {
                         if (srcOffset >= 0 && srcOffset < inputSize) {
                             _blit(reg, bytes, input->host<uint8_t>() + bytes * srcOffset, output->host<uint8_t>() + bytes * dstOffset, false);
                         } else {
@@ -1114,7 +1115,6 @@ public:
             }
         };
         if (mLoop->parallel()) {
-//            threadNumber = 1;
             MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
                 for (int iter=tId; iter < mLoop->loopNumber(); iter+=threadNumber) {
                     func(iter, tId);

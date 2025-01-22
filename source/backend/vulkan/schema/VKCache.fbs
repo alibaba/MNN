@@ -1,0 +1,22 @@
+namespace VKCache;
+
+attribute "priority";
+
+table WorkSize {
+    x: uint;
+    y: uint;
+    z: uint;
+}
+
+table TuneInfo {
+    shaderName: string;
+    gws: WorkSize;
+    optimalLws: WorkSize;
+    optimalCost: float;
+}
+
+table TuneInfoCache {
+    TuneInfos: [TuneInfo];
+}
+
+root_type TuneInfoCache;

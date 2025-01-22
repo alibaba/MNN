@@ -136,7 +136,7 @@ void _AVX_MNNGemmInt8AddBiasScale_16x4_w4(int8_t* dst, const int8_t* src, const 
                 const auto weight_sz = weight_dz + sz * weight_step_Y;
                 const auto src_z     = src_x + sz * GEMMINT8_AVX2_L * realDst;
                 LOAD_INT4_TO_INT8;
-                auto w0 = _mm256_set_m128i(w_1, w_0);
+                auto w0 = _mm256_insertf128_si256(_mm256_castsi128_si256(w_0), w_1, 1);
                 auto s0 = _mm256_castps_si256(_mm256_broadcast_ss((float*)src_z + 0));
                 auto s1 = _mm256_castps_si256(_mm256_broadcast_ss((float*)src_z + 1));
                 auto s2 = _mm256_castps_si256(_mm256_broadcast_ss((float*)src_z + 2));
@@ -243,7 +243,7 @@ void _AVX_MNNGemmInt8AddBiasScale_16x4_w4(int8_t* dst, const int8_t* src, const 
                 const auto src_z     = src_x + sz * GEMMINT8_AVX2_L * realDst;
                 LOAD_INT4_TO_INT8;
 
-                auto w0 = _mm256_set_m128i(w_1, w_0);
+                auto w0 = _mm256_insertf128_si256(_mm256_castsi128_si256(w_0), w_1, 1);
                 auto s0 = _mm256_castps_si256(_mm256_broadcast_ss((float*)src_z + 0));
                 auto s1 = _mm256_castps_si256(_mm256_broadcast_ss((float*)src_z + 1));
                 auto s2 = _mm256_castps_si256(_mm256_broadcast_ss((float*)src_z + 2));
@@ -335,7 +335,7 @@ void _AVX_MNNGemmInt8AddBiasScale_16x4_w4(int8_t* dst, const int8_t* src, const 
                 const auto weight_sz = weight_dz + sz * weight_step_Y;
                 const auto src_z     = src_x + sz * GEMMINT8_AVX2_L * realDst;
                 LOAD_INT4_TO_INT8;
-                auto w0 = _mm256_set_m128i(w_1, w_0);
+                auto w0 = _mm256_insertf128_si256(_mm256_castsi128_si256(w_0), w_1, 1);
                 auto s0 = _mm256_castps_si256(_mm256_broadcast_ss((float*)src_z + 0));
                 auto s1 = _mm256_castps_si256(_mm256_broadcast_ss((float*)src_z + 1));
 
@@ -409,7 +409,7 @@ void _AVX_MNNGemmInt8AddBiasScale_16x4_w4(int8_t* dst, const int8_t* src, const 
                 const auto weight_sz = weight_dz + sz * weight_step_Y;
                 const auto src_z     = src_x + sz * GEMMINT8_AVX2_L * realDst;
                 LOAD_INT4_TO_INT8;
-                auto w0 = _mm256_set_m128i(w_1, w_0);
+                auto w0 = _mm256_insertf128_si256(_mm256_castsi128_si256(w_0), w_1, 1);
                 auto s0 = _mm256_castps_si256(_mm256_broadcast_ss((float*)src_z + 0));
 
                 D00 = _mm256_add_epi32(D00, _mm256_madd_epi16(_mm256_maddubs_epi16(s0, w0), oneValue));

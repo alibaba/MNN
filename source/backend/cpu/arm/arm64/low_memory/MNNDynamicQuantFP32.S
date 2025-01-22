@@ -1,5 +1,5 @@
 //
-//  MNNDynamicQuantFP32.S
+//  MNNDynamicQuantFP32_Pack4.S
 //  MNN
 //
 //  Created by MNN on 2023/10/31.
@@ -37,8 +37,8 @@
     add \d0\().4s, \d0\().4s, \d2\().4s
 .endm
 
-//void MNNDynamicQuantFP32(const float* src, int8_t* dst, const float* scale, size_t src_depth_quad, size_t realSize, int pack)
-asm_function MNNDynamicQuantFP32
+//void MNNDynamicQuantFP32_Pack4(const float* src, int8_t* dst, const float* scale, size_t src_depth_quad, size_t realSize, int pack)
+asm_function MNNDynamicQuantFP32_Pack4
 
 // x0: src, x1:dst, x2:scale, x3:src_depth_quad, x4:realSize
 stp d14, d15, [sp, #(-16 * 4)]!

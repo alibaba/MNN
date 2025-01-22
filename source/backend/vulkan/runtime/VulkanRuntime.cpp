@@ -114,6 +114,16 @@ VulkanRuntime::VulkanRuntime(const Backend::Info& info, std::shared_ptr<VulkanDe
     mClampSampler         = std::make_shared<VulkanSampler>(dev, VK_FILTER_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
     mPipelineFactory = std::make_shared<VulkanPipelineFactory>(dev);
     mQueryPool = std::make_shared<VulkanQueryPool>(dev);
+
+    std::vector<int> legalModeValues = {0x00000001, 0x00000002, 0x00000004,
+                                        0x00000201, 0x00000202, 0x00000204};
+    auto iter = std::find(legalModeValues.begin(), legalModeValues.end(), (uint32_t)mInfo.gpuMode);
+    if (iter == legalModeValues.end()) {
+        MNN_PRINT("The customized gpu mode is illegal for Vulkan backend. Using the default mode.\n");
+        mGpuMode = 0x00000004;
+    } else {
+        mGpuMode = mInfo.gpuMode;
+    }
 }
 
 VulkanRuntime::~VulkanRuntime() {
@@ -186,6 +196,71 @@ int VulkanRuntime::onGetRuntimeStatus(RuntimeStatus statusEnum) const {
     }
     return 0;
 }
+
+bool VulkanRuntime::onSetCache(const void* buffer, size_t size) {
+    // check the validity of the buffer
+    if (nullptr == buffer) {
+        mTuneBuffer.clear();
+        return false;
+    }
+
+    flatbuffers::Verifier verifier(static_cast<const uint8_t*>(buffer), size);
+    if (!VKCache::VerifyTuneInfoCacheBuffer(verifier)) {
+        return false;
+    }
+
+    auto tuneInfoCache = VKCache::GetTuneInfoCache(buffer);
+    auto tuneInfos = tuneInfoCache->TuneInfos();
+    if (!tuneInfos) {
+        return false;
+    }
+    // read from buffer, write to mTuneMap
+    for (const auto & tuneInfo : * tuneInfos) {
+        VKTuneKey k;
+        k.shaderName = tuneInfo->shaderName()->str();
+        k.gws = {tuneInfo->gws()->x(), tuneInfo->gws()->y(), tuneInfo->gws()->z()};
+
+        VKTuneValue v;
+        v.optimalLws = {tuneInfo->optimalLws()->x(), tuneInfo->optimalLws()->y(), tuneInfo->optimalLws()->z()};
+        v.optimalCost = tuneInfo->optimalCost();
+        mTuneMap[k] = v;
+    }
+
+    return true;
+}
+
+std::pair<const void*, size_t> VulkanRuntime::onGetCache() {
+    std::unique_ptr<flatbuffers::FlatBufferBuilder> builder(new flatbuffers::FlatBufferBuilder());
+    std::unique_ptr<VKCache::TuneInfoCacheT> tuneInfoCache(new VKCache::TuneInfoCacheT());
+
+    for (const auto & kvPair : mTuneMap) {
+        const VKTuneKey & k = kvPair.first;
+        const VKTuneValue & v = kvPair.second;
+        std::unique_ptr<VKCache::TuneInfoT> tuneInfo(new VKCache::TuneInfoT());
+        tuneInfo->shaderName = k.shaderName;
+
+        std::unique_ptr<VKCache::WorkSizeT> gwsTemp(new VKCache::WorkSizeT());
+        gwsTemp->x = k.gws[0]; gwsTemp->y = k.gws[1]; gwsTemp->z = k.gws[2];
+        tuneInfo->gws = std::move(gwsTemp);
+
+        std::unique_ptr<VKCache::WorkSizeT> optimalLwsTemp(new VKCache::WorkSizeT());
+        optimalLwsTemp->x = v.optimalLws[0]; optimalLwsTemp->y = v.optimalLws[1]; optimalLwsTemp->z = v.optimalLws[2];
+        tuneInfo->optimalLws = std::move(optimalLwsTemp);
+
+        tuneInfo->optimalCost = v.optimalCost;
+
+        tuneInfoCache->TuneInfos.push_back(std::move(tuneInfo));
+    }
+
+    auto tuneInfoCacheOffset = VKCache::TuneInfoCache::Pack(*(builder.get()), tuneInfoCache.get());
+    builder->Finish(tuneInfoCacheOffset);
+    uint8_t *bufTemp = builder->GetBufferPointer();
+    size_t size = builder->GetSize();
+    mTuneBuffer.resize(size);
+    ::memcpy(mTuneBuffer.data(), bufTemp, size);
+    return std::make_pair(mTuneBuffer.data(), size);
+}
+
 class VulkanRuntimeCreator : public RuntimeCreator {
 public:
     virtual Runtime* onCreate(const Backend::Info& info) const {

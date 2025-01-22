@@ -82,6 +82,11 @@ public:
     const VulkanCommandPool::Buffer* getInitCommandBuffer() const {
         return mInitBuffer.get();
     }
+
+    std::vector<uint32_t> autoTunePipeline(SharedPtr<VulkanPipeline> pipeline, std::shared_ptr<VulkanLayout::DescriptorSet> des, const std::vector<uint32_t> gws, const uint32_t tuneDimension = 3, std::vector<uint32_t> defaultLws = {}, float * const minCostPtr = nullptr);
+
+    float getPipelineTime(const VulkanPipeline* pipeline, std::shared_ptr<VulkanLayout::DescriptorSet> des, std::vector<uint32_t> groupSize);
+
 private:
     bool _supportImageSize(const Tensor* tensor);
     const VulkanDevice& device() const;

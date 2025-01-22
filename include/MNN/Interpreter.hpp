@@ -216,7 +216,8 @@ public:
         // Geometry Compute option, default is 0xFFFF
         GEOMETRY_COMPUTE_MASK = 4,
 
-        // 0: Close dynamic quant; 1: per batch quant; 2: per tensor quant
+        // 0: Close dynamic quant; 
+        // 1: For general convolution, use one scale&zeropoint to quant.
         DYNAMIC_QUANT_OPTIONS = 5,
 
         // For Mobile CPU with big-litter core, set decrease rate to let MNN divide task differential by CPU's performance
@@ -423,7 +424,10 @@ public:
         /** Backends in session in M, int*, length >= 1 + number of configs when create session */
         BACKENDS = 2,
 
-        /** Resize Info, int*, 0: ready to execute, 1: need malloc, 2: need resize */
+        /** Resize Info, int* , the mean different from API
+         Interpreter::getSessionInfo: 0: ready to execute, 1: need malloc, 2: need resize
+         RuntimeManager::getInfo: 0: no resize, 1: re-malloc, 2: resize
+         */
         RESIZE_STATUS = 3,
         
         /** Mode / NumberThread, int* */

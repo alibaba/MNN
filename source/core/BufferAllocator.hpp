@@ -84,6 +84,7 @@ public:
         virtual ~ Allocator() = default;
         virtual MemChunk onAlloc(size_t size, size_t align) = 0;
         virtual void onRelease(MemChunk chunk) = 0;
+        virtual void sync() {};
         static std::shared_ptr<Allocator> createDefault();
         static std::shared_ptr<Allocator> createMmap(const char* dirName, const char* prefix, const char* posfix, bool autoRemove = true);
         static std::shared_ptr<Allocator> createRecurse(BufferAllocator* parent);
@@ -103,6 +104,7 @@ public:
     virtual void reset() {}
     virtual ErrorCode compute();
     virtual ErrorCode apply();
+    virtual void sync() {}
 protected:
     size_t mTotalSize = 0;
 };
@@ -163,7 +165,7 @@ public:
     void barrierEnd() override;
     void beginGroup() override;
     void endGroup() override;
-
+    void sync() override;
 private:
     class Node : public RefCount {
     public:

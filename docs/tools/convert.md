@@ -47,7 +47,7 @@ Usage:
       --weightQuantAsymmetric   与weightQuantBits结合使用，决定是否用非对称量化，默认为`true`
       
       --compressionParamsFile arg
-                                使用MNN模型压缩工具箱生成的模型压缩信息文件或根据用户提供的量化参数来生成对应的量化模型，量化参数文件可参考tools/converter/user_provide_quant_params.json
+                                使用MNN模型压缩工具箱生成的模型压缩信息文件或根据用户提供的量化参数来生成对应的量化模型，量化参数文件可参考tools/converter/user_provide_quant_params.json 。如果文件不存在，且开启了weightQuantBits等量化功能，会在相应路径生成模型压缩信息文件(json格式)，可后续编辑
                                 
       --saveStaticModel         固定输入形状，保存静态模型， default: false
 
@@ -74,8 +74,7 @@ Usage:
       --alignDenormalizedValue arg
                                 可选值：{0, 1}， 默认为1, 当`float(|x| < 1.18e-38)`会被视为0
 
-      --detectSparseSpeedUp arg
-                                可选值：{0, 1}， 默认为1, 会检测权重是否使用稀疏化加速
+      --detectSparseSpeedUp     检测权重是否使用稀疏化加速/压缩，有可能减少模型大小，但增大模型转换时间
 
       --saveExternalData        将权重，常量等数据存储在额外文件中，默认为0，也就是`false`
       

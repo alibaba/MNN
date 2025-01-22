@@ -93,7 +93,7 @@ def _to_var(x, dtype=None):
                     x = x.astype(np.float32)
                     x = _F.const(x, x.shape, dtype=_F.float)
                 else:
-                    raise ValueError('Just support i/f dtype numpy.')
+                    raise ValueError('Just support int32/float dtype numpy. Please Call numpy.astype(float32) / numpy.astype(int32) before')
         except:
             pass
     # 3. Sequence
