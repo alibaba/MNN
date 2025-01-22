@@ -29,6 +29,9 @@ void FullQuantAndCoding(std::unique_ptr<MNN::NetT>& netT, std::unique_ptr<MNN::O
             if (algo.type() == Compression::CompressionAlgo::QUANTIZE) {
                 auto quantParams = algo.quant_params();
                 for (const auto& layerProto : quantParams.layer()) {
+                    if (layerProto.output_size() <= 0) {
+                        continue;
+                    }
                     const std::string& outputName = layerProto.output(0).name();
                     if ((outputName == outputTensorName) || (outputTensorName == outputName+"__matmul_converted")) {
                         return layerProto;

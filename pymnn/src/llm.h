@@ -48,6 +48,7 @@ static PyObject* PyMNNLLM_generate(LLM *self, PyObject *args) {
     if (!PyArg_ParseTuple(args, "O", &input_ids) && isInts(input_ids)) {
         Py_RETURN_NONE;
     }
+
     auto output_ids = self->llm->generate(toInts(input_ids));
     return toPyObj<int, toPyObj>(output_ids);
 }
@@ -123,6 +124,42 @@ static PyObject* PyMNNLLM_txt_embedding(LLM *self, PyObject *args) {
     return (PyObject *)embeds;
 }
 
+static PyObject* PyMNNLLM_apply_lora(LLM *self, PyObject *args) {
+    if (self->is_embedding) {
+        Py_RETURN_NONE;
+    }
+    const char* path = NULL;
+    if (!PyArg_ParseTuple(args, "s", &path)) {
+        Py_RETURN_NONE;
+    }
+    int model_index = self->llm->apply_lora(path);
+    return toPyObj(model_index);
+}
+
+static PyObject* PyMNNLLM_select_module(LLM *self, PyObject *args) {
+    if (self->is_embedding) {
+        Py_RETURN_NONE;
+    }
+    PyObject *index = nullptr;
+    if (!PyArg_ParseTuple(args, "O", &index) && isInt(index)) {
+        Py_RETURN_NONE;
+    }
+    bool res = self->llm->select_module(toInt(index));
+    return toPyObj(res);
+}
+
+static PyObject* PyMNNLLM_release_module(LLM *self, PyObject *args) {
+    if (self->is_embedding) {
+        Py_RETURN_NONE;
+    }
+    PyObject *index = nullptr;
+    if (!PyArg_ParseTuple(args, "O", &index) && isInt(index)) {
+        Py_RETURN_NONE;
+    }
+    bool res = self->llm->release_module(toInt(index));
+    return toPyObj(res);
+}
+
 static PyMethodDef PyMNNLLM_methods[] = {
     {"load", (PyCFunction)PyMNNLLM_load, METH_VARARGS, "load model."},
     {"forward", (PyCFunction)PyMNNLLM_forward, METH_VARARGS, "forward `logits` by `input_ids`."},
@@ -133,6 +170,9 @@ static PyMethodDef PyMNNLLM_methods[] = {
     {"tokenizer_encode", (PyCFunction)PyMNNLLM_tokenizer_encode, METH_VARARGS, "tokenizer encode."},
     {"tokenizer_decode", (PyCFunction)PyMNNLLM_tokenizer_decode, METH_VARARGS, "tokenizer decode."},
     {"txt_embedding", (PyCFunction)PyMNNLLM_txt_embedding, METH_VARARGS, "txt embedding."},
+    {"apply_lora", (PyCFunction)PyMNNLLM_apply_lora, METH_VARARGS, "apply_lora."},
+    {"select_module", (PyCFunction)PyMNNLLM_select_module, METH_VARARGS, "select_module."},
+    {"release_module", (PyCFunction)PyMNNLLM_release_module, METH_VARARGS, "release_module."},
     {NULL}  /* Sentinel */
 };
 

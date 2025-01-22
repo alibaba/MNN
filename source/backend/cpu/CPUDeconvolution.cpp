@@ -227,6 +227,11 @@ ErrorCode CPUDeconvolutionOrigin::onResize(const std::vector<Tensor*>& inputs, c
     auto threadNumber = static_cast<CPUBackend*>(backend())->threadNumber();
     auto tileCount = UP_DIV(plane, eP);
     threadNumber = ALIMIN(tileCount, threadNumber);
+    auto memMode = static_cast<CPUBackend*>(backend())->memoryMode();
+    if (memMode != BackendConfig::Memory_High) {
+        // Limit threadNumber to avoid too large memory
+        threadNumber = ALIMIN(threadNumber, 4);
+    }
     auto im2colOutputStride = input->channel() * eP * core->bytes;
     mGemmInput = allocator->alloc(threadNumber * im2colOutputStride);
     auto gemmOutputStride = kernelCount * core->pack * eP * core->bytes;

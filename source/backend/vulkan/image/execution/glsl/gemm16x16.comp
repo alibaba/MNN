@@ -17,7 +17,7 @@ layout(set=0, binding=3) readonly uniform constBuffer {
     ivec4 outputSize;
 }uConst;
 
-layout (local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+layout (local_size_x_id = 0, local_size_y_id = 1, local_size_z_id = 2) in;
 
 void main()
 {

@@ -71,6 +71,16 @@ class AttentionSizeComputer : public SizeComputer {
         TensorUtils::getDescribe(output)->dimensionFormat = TensorUtils::getDescribe(input)->dimensionFormat;
         return true;
     }
+    virtual float onComputeFlops(const MNN::Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) const override {
+        auto seqLen = outputs[0]->length(1);
+        auto headDim = outputs[0]->length(2);
+        float flops = 0.f;
+        // qk + qkv
+        flops += (2 * seqLen * headDim * seqLen);
+        // softmax
+        flops += (seqLen * seqLen);
+        return flops;
+    }
 };
 
 

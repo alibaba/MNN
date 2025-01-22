@@ -16,7 +16,7 @@
 #include <sys/syscall.h>
 #include <unistd.h>
 #include <fcntl.h>
-#if defined(__linux__) && defined(__aarch64__)
+#if defined(__aarch64__)
 #include <sys/auxv.h>
 #endif
 #include <sys/time.h>

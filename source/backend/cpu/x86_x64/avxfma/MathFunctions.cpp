@@ -62,8 +62,8 @@ void _AVX_MNNExpC8FMA(float* dest, const float* source, float* offset, const flo
     auto C     = _mm256_broadcast_ss(offset + 2);
     auto p0    = _mm256_set1_ps(parameters[0]);
     auto p1    = _mm256_set1_ps(parameters[1]);
-    auto p2    = _mm256_set1_ps(parameters[2]);
-    auto p3    = _mm256_set1_ps(parameters[3]);
+    auto p2    = _mm256_set1_ps(0.25f);
+    auto p3    = _mm256_set1_ps(1.0f);
     auto p4    = _mm256_set1_ps(parameters[4]);
     auto p5    = _mm256_set1_ps(parameters[5]);
     auto p6    = _mm256_set1_ps(parameters[6]);
@@ -86,13 +86,14 @@ void _AVX_MNNExpC8FMA(float* dest, const float* source, float* offset, const flo
         div2 = _mm256_mullo_epi32(div2, basic);
         auto expBasic  = _mm256_castsi256_ps(div2);
         auto xReamin   = _mm256_sub_ps(x, _mm256_mul_ps(div, p0));
-        auto t         = xReamin;
+        auto t         = _mm256_mul_ps(xReamin, p2);
         auto c1        = _mm256_fmadd_ps(p7, t, p6);
         auto c3        = _mm256_fmadd_ps(c1, t, p5);
         auto c5        = _mm256_fmadd_ps(c3, t, p4);
         auto c7        = _mm256_fmadd_ps(c5, t, p3);
-        auto c9        = _mm256_fmadd_ps(c7, t, p2);
-        auto expRemain = c9;
+        auto c9        = _mm256_fmadd_ps(c7, t, p3);
+        auto expRemain = _mm256_mul_ps(c9, c9);
+        expRemain = _mm256_mul_ps(expRemain, expRemain);
         auto res = _mm256_fmadd_ps(expBasic, expRemain, B);
         summer = _mm256_add_ps(summer, res);
         _mm256_storeu_ps(dest + 8 * i, res);

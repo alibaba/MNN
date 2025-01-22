@@ -38,9 +38,13 @@ public:
             if (layer->padMode() == PadMode_SAME) {
                 outputLength = UP_DIV(inputLength, stride);
             } else {
-                const int pad = (*layer->pads())[i], kernel = (*layer->kernels())[i], dialate = (*layer->dilates())[i];
+                const int padl = layer->pads()->data()[i], kernel = layer->kernels()->data()[i], dialate = layer->dilates()->data()[i];
+                int padr = padl;
+                if (layer->pads()->size() == 6) {
+                    padr = layer->pads()->data()[i+3];
+                }
                 const int dialatedKernel = (kernel - 1) * dialate + 1;
-                outputLength = (inputLength + 2 * pad - dialatedKernel) / stride + 1;
+                outputLength = (inputLength + padl + padr - dialatedKernel) / stride + 1;
             }
             outputBuffer.dim[i + 2].extent = outputLength;
         }

@@ -18,7 +18,7 @@ asm_function MNNExpC8
 //r0: dest, r1:source, r2: offset, r3:parameters, r4:countC8
 push {r4, r5, lr}
 ldr r4, [sp, #12]
-vpush {q4, q5, q6, q7}
+vpush {q4-q7}
 vmov.i32 q7, #0
 ldr r5, [r2, #0]
 vdup.32 q4, r5 // Alpha
@@ -59,6 +59,9 @@ vcvt.f32.s32 q13, q9
 vmls.f32 q10, q12, d0[0]
 vmls.f32 q11, q13, d0[0]
 
+vmul.f32 q10, q10, d1[0]
+vmul.f32 q11, q11, d1[0]
+
 .macro MLA_TWO z0 z1 z2 z3
 vdup.32 \z1, \z0
 vmla.f32 \z1, \z2, \z3
@@ -72,10 +75,15 @@ MLA_TWO d2[0], q12, q10, q14
 MLA_TWO d2[0], q13, q11, q15
 MLA_TWO d1[1], q14, q10, q12
 MLA_TWO d1[1], q15, q11, q13
-MLA_TWO d1[0], q12, q10, q14
-MLA_TWO d1[0], q13, q11, q15
+MLA_TWO d1[1], q12, q10, q14
+MLA_TWO d1[1], q13, q11, q15
 
 //q12, q13 is expRemain
+
+vmul.f32 q12, q12, q12
+vmul.f32 q13, q13, q13
+vmul.f32 q12, q12, q12
+vmul.f32 q13, q13, q13
 
 vshl.i32 q8, q8, #23
 vshl.i32 q9, q9, #23
@@ -99,7 +107,7 @@ vadd.f32 d14, d14, d15
 vadd.f32 d0, d14, d0
 vst1.32 {d0[0]}, [r5]
 
-vpop {q4, q5, q6, q7}
+vpop {q4-q7}
 pop {r4, r5, pc}
 
 

@@ -140,6 +140,7 @@ int GeometryComputerUtils::buildConstantTensors(std::vector<Schedule::OpCacheInf
 }
 
 ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
+    const Runtime* cpuRuntime,
     FileLoader* external,
     std::vector<Schedule::OpCacheInfo>& infos,
     GeometryComputer::Context& geoContext,
@@ -321,6 +322,9 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
             info.computeCache.needExecuteConst = dirty;
             if (dirty) {
                 backupBackend->onExecuteBegin();
+                if (cpuRuntime->pCurrentStatus != NO_ERROR) {
+                    return (ErrorCode)cpuRuntime->pCurrentStatus;
+                }
                 auto code = cp->execution->onExecute(c.inputs, c.outputs);
                 if (NO_ERROR != code) {
                     return NOT_SUPPORT;

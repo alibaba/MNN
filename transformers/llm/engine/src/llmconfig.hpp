@@ -67,6 +67,25 @@ public:
     rapidjson::Document document;
     rapid_json_wrapper() {}
     rapid_json_wrapper(rapidjson::Document doc) : document(std::move(doc)) {}
+    rapid_json_wrapper(const rapid_json_wrapper &other) {
+        document.CopyFrom(other.document, document.GetAllocator());
+    }
+    rapid_json_wrapper& operator=(const rapid_json_wrapper& other) {
+        if (this != &other) {
+            document.SetObject();
+            document.CopyFrom(other.document, document.GetAllocator());
+        }
+        return *this;
+    }
+    rapid_json_wrapper(rapid_json_wrapper&& other) noexcept : document(std::move(other.document)) {}
+    rapid_json_wrapper& operator=(rapid_json_wrapper&& other) noexcept {
+        if (this != &other) {
+            document.SetObject();
+            document.GetAllocator().Clear();
+            document = std::move(other.document);
+        }
+        return *this;
+    }
     static rapid_json_wrapper parse(const std::ifstream& ifile) {
         std::ostringstream ostr;
         ostr << ifile.rdbuf();
@@ -181,6 +200,12 @@ public:
     std::string base_dir_;
     rapid_json_wrapper config_, llm_config_, mllm_config_, cur_config_;
     LlmConfig() {}
+    LlmConfig(const LlmConfig& other)
+        : base_dir_(other.base_dir_),
+          config_(other.config_),
+          llm_config_(other.llm_config_),
+          mllm_config_(other.mllm_config_),
+          cur_config_(other.cur_config_) {}
     LlmConfig(const std::string& path) {
         // load config
         if (has_suffix(path, ".json")) {
@@ -318,8 +343,15 @@ public:
         return llm_config_.value("is_audio", false);
     }
 
+    bool use_template() const {
+        return config_.value("use_template", true);
+    }
+
     bool use_mmap() const {
         return config_.value("use_mmap", false);
+    }
+    bool use_cached_mmap() const {
+        return config_.value("use_cached_mmap", true);
     }
     bool kvcache_mmap() const {
         return config_.value("kvcache_mmap", false);

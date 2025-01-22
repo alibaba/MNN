@@ -62,10 +62,7 @@ static Execution* _createUnit(const Tensor* input, const Tensor* output, Backend
     }
 #endif
     if (fastWay && cpuBackend->functions()->matmulBytes == 0) {
-        return new Convolution1x1Strassen(common, backend, originWeight, originWeightSize, bias, biasSize, weightQuantInfo);
-    }
-    if (originWeightSize == 0) {
-        return new DenseConvolutionTiledExecutor(common, backend, originWeight, originWeightSize, bias, biasSize, weightQuantInfo);
+        return new Convolution1x1Strassen(common, backend, originWeight, originWeightSize, bias, biasSize);
     }
     if (cpuBackend->getRuntime()->hint().winogradMemoryUsed == 0 || (!ConvolutionWinogradBridge::canUseWinograd(common))) {
         return new DenseConvolutionTiledExecutor(common, backend, originWeight, originWeightSize, bias, biasSize, nullptr);

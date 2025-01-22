@@ -46,7 +46,7 @@ void SEluOnnx::run(MNN::OpT *dstOp, const onnx::NodeProto *onnxNode, OnnxScope* 
     
     auto seluParam = new MNN::SeluT;
     
-    float alpha = 1.67326, gamma = 1.0507;
+    float alpha = 1.6732632423543772848170429916717f, gamma = 1.0507009873554804934193349852946f;
     for (int i = 0; i < onnxNode->attribute_size(); ++i) {
         const auto &attributeProto = onnxNode->attribute(i);
         const auto &attributeName  = attributeProto.name();

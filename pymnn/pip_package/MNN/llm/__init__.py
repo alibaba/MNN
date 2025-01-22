@@ -34,7 +34,7 @@ class LLM(_F.LLM):
         Example:
         -------
         >>> input_ids = [151644, 872, 198, 108386, 151645, 198, 151644, 77091]
-        >>> output_ids = qwen.generate(input_ids)
+        >>> output_ids = llm.generate(input_ids)
         '''
         return super.generate(input_ids)
 
@@ -53,7 +53,7 @@ class LLM(_F.LLM):
 
         Example:
         -------
-        >>> res = qwen.response('Hello', True)
+        >>> res = llm.response('Hello', True)
         '''
         return super.response(prompt, stream)
 
@@ -71,9 +71,63 @@ class LLM(_F.LLM):
 
         Example:
         -------
-        >>> res = qwen.txt_embedding('Hello')
+        >>> res = llm.txt_embedding('Hello')
         '''
         return super.txt_embedding(prompt)
+
+    def apply_lora(self, lora_path):
+        '''
+        apply lora model on base model
+
+        Parameters
+        ----------
+        lora_path : lora model path
+
+        Returns
+        -------
+        index : int index
+
+        Example:
+        -------
+        >>> lora_index = llm.apply_lora('./qwen-1.8b-int4/qwen-1.8b-lora.mnn')
+        '''
+        return super.apply_lora(lora_path)
+
+    def select_module(self, module_index):
+        '''
+        select current module
+
+        Parameters
+        ----------
+        module_index : module index
+
+        Returns
+        -------
+        res : bool
+
+        Example:
+        -------
+        >>> res = llm.select_module(lora_index)
+        '''
+        return super.select_module(module_index)
+
+    def release_module(self, module_index):
+        '''
+        release module
+
+        Parameters
+        ----------
+        module_index : module index, int
+
+        Returns
+        -------
+        res : bool
+
+        Example:
+        -------
+        >>> res = llm.release_module(lora_index)
+        '''
+        return super.release_module(module_index)
 
 def create(config_path, embedding_model = False):
     '''
@@ -89,6 +143,6 @@ def create(config_path, embedding_model = False):
 
     Example:
     -------
-    >>> qwen = llm.create('./qwen-1.8b-int4/config.json')
+    >>> llm = mllm.create('./qwen-1.8b-int4/config.json')
     '''
     return _F.create(config_path, embedding_model)

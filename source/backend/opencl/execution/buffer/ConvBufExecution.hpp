@@ -36,6 +36,7 @@ struct ConvBufResource {
     bool mConv1x1Opt = false;
     bool mConv1x1C8Opt = false;
     bool mConv1x1Local = false;
+    float mCoef = 1.0f;
     /*
      0 -> not use
      1 -> use small tile

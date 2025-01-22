@@ -6,6 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+//#define MNN_OPEN_TIME_TRACE
+#include <MNN/AutoTime.hpp>
 #include "GeometryConvUtils.hpp"
 #include "ConvertUtils.hpp"
 
@@ -40,6 +42,7 @@ flatbuffers::Offset<Op> GeometryConvUtils::makeRelu6(flatbuffers::FlatBufferBuil
 }
 void GeometryConvUtils::im2Col3d(Tensor* im2Col, Tensor* input, int ic, int kd, int kh, int kw, int batch, int od, int oh, int ow,
     int id, int ih, int iw, int sd, int sh, int sw, int dd, int dh, int dw, int pd, int ph, int pw, int srcKernelOffset) {
+    AUTOTIME;
     im2Col->buffer().type       = halide_type_of<float>();
     im2Col->buffer().dimensions = 2;
     im2Col->setLength(0, ic * kd * kh * kw);
@@ -49,6 +52,24 @@ void GeometryConvUtils::im2Col3d(Tensor* im2Col, Tensor* input, int ic, int kd, 
     des->memoryType      = Tensor::InsideDescribe::MEMORY_VIRTUAL;
     des->dimensionFormat = MNN_DATA_FORMAT_NCHW;
     des->regions.clear();
+    if (id == kd && ih == kh && iw == kw & pd == 0 && ph == 0 && pw == 0 && dd == 1 && dh == 1 && dw == 1) {
+        // fast impl: n, ic, id, ih, iw -> ic*id*ih*iw, n
+        Tensor::InsideDescribe::Region region;
+        region.origin        = input;
+        region.size[0]       = 1;
+        region.size[1]       = ic * id * ih * iw;
+        region.size[2]       = batch;
+        region.src.offset    = 0;
+        region.dst.offset    = 0;
+        region.src.stride[0] = 1;
+        region.dst.stride[0] = 1;
+        region.src.stride[1] = 1;
+        region.dst.stride[1] = batch;
+        region.src.stride[2] = ic * id * ih * iw;
+        region.dst.stride[2] = 1;
+        des->regions.emplace_back(std::move(region));
+        return;
+    }
     des->regions.reserve(batch * ic * kd * kh * kw);
     for (int c = 0; c < ic; ++c) {
         for (int n = 0; n < batch; ++n) {

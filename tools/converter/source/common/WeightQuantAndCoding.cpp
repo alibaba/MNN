@@ -39,7 +39,7 @@ static std::vector<float> findMinMax(const float *weights, const int count) {
     return {min, max};
 }
 
-void WeightQuantAndCoding(std::unique_ptr<MNN::OpT>& op, const modelConfig& config) {
+void WeightQuantAndCoding(std::unique_ptr<MNN::OpT>& op, const modelConfig& config, const PostTreatContext* context) {
     const auto opType = op->type;
     // config.weightQuantBits only control weight quantization for float convolution
     // by default, do coding for convint8 and depthwiseconvint8, if there is any
@@ -49,13 +49,51 @@ void WeightQuantAndCoding(std::unique_ptr<MNN::OpT>& op, const modelConfig& conf
         opType != MNN::OpType_ConvInt8 && opType != MNN::OpType_DepthwiseConvInt8) {
             return;
     }
-    auto param           = op->main.AsConvolution2D();
+    auto param = op->main.AsConvolution2D();
     auto& common = param->common;
     if (param->quanParameter.get() != nullptr) {
         return;
     }
+    auto weightQuantBits = config.weightQuantBits;
+    bool asymmetricQuantFlag = config.weightQuantAsymmetric;
+    auto weightQuantBlock = config.weightQuantBlock;
+    // Read or write config in proto
+    if (context->quantInfo.find(std::make_pair(context->subgraph, op->name)) != context->quantInfo.end()) {
+        auto param = context->quantInfo.find(std::make_pair(context->subgraph, op->name))->second;
+        if (param->weight_size() > 0) {
+            auto weight = param->weight(0);
+            if (weight.has_asymmetric()) {
+                asymmetricQuantFlag = weight.asymmetric();
+            }
+            if (weight.has_bits()) {
+                weightQuantBits = weight.bits();
+            }
+            if (weight.has_block_size()) {
+                weightQuantBlock = weight.block_size();
+            }
+        }
+    }
+    if (nullptr != context->quantMutableInfo) {
+        auto& proto = context->proto;
+        auto layer = context->quantMutableInfo->add_layer();
+        layer->set_op_name(op->name);
+        if (!context->subgraph.empty()) {
+            layer->set_subgraph_name(context->subgraph);
+        }
+        auto conv = layer->mutable_conv();
+        conv->set_input_channel(common->inputCount);
+        conv->set_output_channel(common->outputCount);
+        conv->clear_kernel_size();
+        conv->add_kernel_size(common->kernelX);
+        conv->add_kernel_size(common->kernelY);
+        auto weight = layer->add_weight();
+        weight->set_bits(weightQuantBits);
+        weight->set_asymmetric(asymmetricQuantFlag);
+        weight->set_block_size(weightQuantBlock);
+        weight->set_name(op->name);
+    }
 
-    if (config.weightQuantBits == 0) {
+    if (weightQuantBits == 0) {
         if (opType == MNN::OpType_ConvInt8 || opType == MNN::OpType_DepthwiseConvInt8) {
             // Do nothing
         } else {
@@ -64,9 +102,9 @@ void WeightQuantAndCoding(std::unique_ptr<MNN::OpT>& op, const modelConfig& conf
         }
     }
     int bits = 8;
-    if ((config.weightQuantBits > 0) && (
+    if ((weightQuantBits > 0) && (
         opType != MNN::OpType_ConvInt8 && opType != MNN::OpType_DepthwiseConvInt8)) {
-        bits = config.weightQuantBits;
+        bits = weightQuantBits;
     }
     // Bits must from 2-8
     bits = std::max(bits, 2);
@@ -85,8 +123,6 @@ void WeightQuantAndCoding(std::unique_ptr<MNN::OpT>& op, const modelConfig& conf
     int kxky = common->kernelX * common->kernelY;
     int icCount = kernelSize / kxky;
 
-    bool asymmetricQuantFlag = config.weightQuantAsymmetric;
-
     float threshold = (float)(1 << (bits - 1)) - 1.0f;
     float clampMin = -threshold;
     if (asymmetricQuantFlag) {
@@ -95,8 +131,8 @@ void WeightQuantAndCoding(std::unique_ptr<MNN::OpT>& op, const modelConfig& conf
     std::vector<float> weightData, scales;
     // block-wise quant
     int block_size = kernelSize, block_num = 1;
-    if (config.weightQuantBlock > 0 && (kernelSize % config.weightQuantBlock == 0) && kxky == 1) {
-        block_size = config.weightQuantBlock;
+    if (weightQuantBlock > 0 && (kernelSize % weightQuantBlock == 0) && kxky == 1) {
+        block_size = weightQuantBlock;
         block_num = kernelSize / block_size;
     }
 
@@ -161,14 +197,3 @@ void WeightQuantAndCoding(std::unique_ptr<MNN::OpT>& op, const modelConfig& conf
         param->weight.swap(empty);
     }
 };
-
-void weightQuantAndCoding(std::unique_ptr<MNN::NetT>& netT, const modelConfig& config) {
-    for (auto& op : netT->oplists) {
-        WeightQuantAndCoding(op, config);
-    }
-    for (auto& subgraph : netT->subgraphs) {
-        for (auto& op : subgraph->nodes) {
-            WeightQuantAndCoding(op, config);
-        }
-    }
-}

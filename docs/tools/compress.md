@@ -69,7 +69,7 @@ MNN模型压缩工具提供了包括低秩分解、剪枝、量化等模型压�
 - 动态量化
 可以通过如下方式打开MNN运行时的动态量化支持，使权值量化后的模型中卷积等核心算子使用量化计算，降低内存并提升性能
 
-1. 打开 MNN_LOW_MEMORY 编译宏编译 MNN （支持动态量化功能）
+1. 打开 `MNN_LOW_MEMORY` 编译宏编译 MNN （支持动态量化功能）
 ```
 cmake .. -DMNN_LOW_MEMORY=ON
 ```
@@ -99,6 +99,43 @@ backendConfig.precision = BackendConfig::Precision_Low;
 config.backendConfig     = &backendConfig;
 ```
 
+### 自动压缩工具
+可使用脚本 `tools/converter/tools/auto_quant.py` 依据测试误差，自动确定量化方案。使用步骤如下：
+
+1. 将模型转成MNN格式，示例：
+```
+./MNNConvert -f ONNX --modelFile src.onnx --MNNModel float.mnn
+```
+
+2. 参考[正确性校验](convert.html#id3)，构建测试文件夹 mnntest
+
+3. 在编译好 MNNConvert 的目录下执行脚本
+```
+# 查看参数
+python ../tools/converter/tools/auto_quant.py -h
+# 压缩，产出文件 quant.mnn 及相关参数 quant.mnn.json
+python ../tools/converter/tools/auto_quant.py --model float.mnn --quant_model quant.mnn --test_dir mnntest --rate 0.05
+```
+
+### 自行定制方案
+若默认压缩方案无法满足精度需求，可以按如下步骤定制压缩方案。一般来说跳过一些重要的算子压缩，可以缓解精度下降的问题。
+
+1. 生成模型压缩信息文件: user.json
+```
+rm user.json
+./MNNConvert -f ONNX --modelFile src.onnx --MNNModel dst.mnn --weightQuantBits 8 --compressionParamsFile user.json
+```
+
+2. 编辑 user.json ，把不需要量化的算子，bits数设为0 或者调高 bits数（不超过8）。也可以参考脚本 `tools/converter/tools/user_quant_modify_demo.py` ，批量处理压缩信息，然后执行脚本:
+
+```
+python3 ../tools/converter/tools/user_quant_modify_demo.py user.json user.json
+```
+
+3. 使用 user.json 重新转换模型
+```
+./MNNConvert -f ONNX --modelFile src.onnx --MNNModel dst.mnn --compressionParamsFile user.json
+```
 
 ## 离线量化工具
 ### 离线量化工具安装

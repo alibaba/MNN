@@ -557,9 +557,9 @@ ErrorCode ConvBufExecution::onResize(const std::vector<Tensor *> &inputs, const 
 
         mKernel.resize(conv_block_num);
         
-        std::vector<std::shared_ptr<KernelWrap>> kernel(actual_kernel);
-        std::vector<std::vector<uint32_t>> globalWorkSize(actual_kernel);
-        std::vector<std::vector<uint32_t>> localWorkSize(actual_kernel);
+        std::shared_ptr<KernelWrap> kernel[total_kernel];
+        std::vector<uint32_t> globalWorkSize[total_kernel];
+        std::vector<uint32_t> localWorkSize[total_kernel];
         std::pair<int, int> min_cost(INT_MAX, 0);//(min_time, min_index)
         for(int knl_idx = 0; knl_idx < actual_kernel; knl_idx++) {
             std::set<std::string> buildOption = mResource->mBuildOptions;

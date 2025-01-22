@@ -42,6 +42,8 @@ message LayerQuantizeParams {
     repeated float scales = 3;
     optional int32 clamp_min = 4 [default = -128];
     optional int32 clamp_max = 5 [default = 127];
+    optional bool asymmetric = 6 [default = false];
+    optional int32 block_size = 7 [default = 0];
   }
 
   message WinogradParams {
@@ -56,11 +58,20 @@ message LayerQuantizeParams {
     WinogradAware = 2;
   }
 
+  message ConvolutionInfo {
+    required int32 input_channel = 1;
+    required int32 output_channel = 2;
+    repeated int32 kernel_size = 3;
+  }
+
   repeated ActivationParams input = 1;
   repeated WeightParams weight = 2;
   repeated ActivationParams output = 3;
   optional QuantMethod method = 4 [default = QAT];
   optional WinogradParams wino_params = 5;
+  optional string op_name = 6;
+  optional string subgraph_name = 7;
+  optional ConvolutionInfo conv = 8;
 }
 
 message LevelPrunerParams {
@@ -104,4 +115,5 @@ message Pipeline {
 
   repeated CompressionAlgo algo = 2;
   optional string mnn_uuid = 3;
+  optional bool for_guide = 4 [default = false];
 }

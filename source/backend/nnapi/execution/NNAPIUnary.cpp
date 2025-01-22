@@ -40,7 +40,7 @@ ErrorCode NNAPIUnary::onResize(const std::vector<Tensor *> &inputs, const std::v
         {UnaryOpOperation_FLOOR, ANEURALNETWORKS_FLOOR},
         {UnaryOpOperation_ROUND, -1},
         {UnaryOpOperation_SIGN, -1},
-        {UnaryOpOperation_SIGMOID, -1},
+        {UnaryOpOperation_SIGMOID, ANEURALNETWORKS_LOGISTIC},
         {UnaryOpOperation_LOG1P, -1},
         {UnaryOpOperation_SQUARE, -1},
         {UnaryOpOperation_NEG, ANEURALNETWORKS_NEG},

@@ -302,7 +302,7 @@ delete nhwcTensor;
 通过这类拷贝数据的方式，用户只需要关注自己创建的tensor的数据布局，`copyFromHostTensor`会负责处理数据布局上的转换（如需）和后端间的数据拷贝（如需）。
 
 
-### 【不推荐】直接填充数据
+### 【已废弃】直接填充数据
 ```cpp
 auto inputTensor = interpreter->getSessionInput(session, NULL);
 inputTensor->host<float>()[0] = 1.f;
@@ -594,7 +594,7 @@ delete nhwcTensor;
 
 
 
-### 【不推荐】直接读取数据
+### 【已废弃】直接读取数据
 **由于绝大多数用户都不熟悉MNN底层数据布局，所以不要使用这种方式！！！**
 ```cpp
 auto outputTensor = interpreter->getSessionOutput(session, NULL);

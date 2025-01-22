@@ -89,18 +89,22 @@
         "RELU6"
     ],
     "convolutionDepthwise.comp":[
-        "RELU",
-        "RELU6"
+        "FP32",
+        "RELU_FP32",
+        "RELU6_FP32",
+        "FP16",
+        "RELU_FP16",
+        "RELU6_FP16"
     ],
     "convolutionDepthwise_s1d1_w2.comp":[
-        "RELU",
-        "RELU6"
+        "FP32",
+        "RELU_FP32",
+        "RELU6_FP32",
+        "FP16",
+        "RELU_FP16",
+        "RELU6_FP16"
     ],
     "deconvolutionDepthwise.comp":[
-        "RELU",
-        "RELU6"
-    ],
-    "convolutionDepthwiseMali.comp":[
         "RELU",
         "RELU6"
     ],
@@ -128,5 +132,29 @@
         "AXIS_H",
         "AXIS_W",
         "AXIS_C"
+    ],
+    "convolution1x1.comp":[
+        "FP32",
+        "RELU_FP32",
+        "RELU6_FP32",
+        "FP16",
+        "RELU_FP16",
+        "RELU6_FP16"
+    ],
+    "convolution1x1_w4.comp":[
+        "FP32",
+        "RELU_FP32",
+        "RELU6_FP32",
+        "FP16",
+        "RELU_FP16",
+        "RELU6_FP16"
+    ],
+    "convolution1x1_c8w4.comp":[
+        "FP32",
+        "RELU_FP32",
+        "RELU6_FP32",
+        "FP16",
+        "RELU_FP16",
+        "RELU6_FP16"
     ]
 }

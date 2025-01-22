@@ -53,6 +53,8 @@ constexpr LayerQuantizeParams_WeightParams::LayerQuantizeParams_WeightParams(
   ::PROTOBUF_NAMESPACE_ID::internal::ConstantInitialized)
   : scales_()
   , name_(&::PROTOBUF_NAMESPACE_ID::internal::fixed_address_empty_string)
+  , asymmetric_(false)
+  , block_size_(0)
   , clamp_max_(127)
   , bits_(8)
   , clamp_min_(-128){}
@@ -78,12 +80,29 @@ struct LayerQuantizeParams_WinogradParamsDefaultTypeInternal {
   };
 };
 PROTOBUF_ATTRIBUTE_NO_DESTROY PROTOBUF_CONSTINIT LayerQuantizeParams_WinogradParamsDefaultTypeInternal _LayerQuantizeParams_WinogradParams_default_instance_;
+constexpr LayerQuantizeParams_ConvolutionInfo::LayerQuantizeParams_ConvolutionInfo(
+  ::PROTOBUF_NAMESPACE_ID::internal::ConstantInitialized)
+  : kernel_size_()
+  , input_channel_(0)
+  , output_channel_(0){}
+struct LayerQuantizeParams_ConvolutionInfoDefaultTypeInternal {
+  constexpr LayerQuantizeParams_ConvolutionInfoDefaultTypeInternal()
+    : _instance(::PROTOBUF_NAMESPACE_ID::internal::ConstantInitialized{}) {}
+  ~LayerQuantizeParams_ConvolutionInfoDefaultTypeInternal() {}
+  union {
+    LayerQuantizeParams_ConvolutionInfo _instance;
+  };
+};
+PROTOBUF_ATTRIBUTE_NO_DESTROY PROTOBUF_CONSTINIT LayerQuantizeParams_ConvolutionInfoDefaultTypeInternal _LayerQuantizeParams_ConvolutionInfo_default_instance_;
 constexpr LayerQuantizeParams::LayerQuantizeParams(
   ::PROTOBUF_NAMESPACE_ID::internal::ConstantInitialized)
   : input_()
   , weight_()
   , output_()
+  , op_name_(&::PROTOBUF_NAMESPACE_ID::internal::fixed_address_empty_string)
+  , subgraph_name_(&::PROTOBUF_NAMESPACE_ID::internal::fixed_address_empty_string)
   , wino_params_(nullptr)
+  , conv_(nullptr)
   , method_(0)
 {}
 struct LayerQuantizeParamsDefaultTypeInternal {
@@ -158,7 +177,8 @@ constexpr Pipeline::Pipeline(
   ::PROTOBUF_NAMESPACE_ID::internal::ConstantInitialized)
   : algo_()
   , version_(nullptr)
-  , mnn_uuid_(&::PROTOBUF_NAMESPACE_ID::internal::fixed_address_empty_string){}
+  , mnn_uuid_(&::PROTOBUF_NAMESPACE_ID::internal::fixed_address_empty_string)
+  , for_guide_(false){}
 struct PipelineDefaultTypeInternal {
   constexpr PipelineDefaultTypeInternal()
     : _instance(::PROTOBUF_NAMESPACE_ID::internal::ConstantInitialized{}) {}
@@ -170,7 +190,7 @@ struct PipelineDefaultTypeInternal {
 PROTOBUF_ATTRIBUTE_NO_DESTROY PROTOBUF_CONSTINIT PipelineDefaultTypeInternal _Pipeline_default_instance_;
 }  // namespace Compression
 }  // namespace MNN
-static ::PROTOBUF_NAMESPACE_ID::Metadata file_level_metadata_MNN_5fcompression_2eproto[10];
+static ::PROTOBUF_NAMESPACE_ID::Metadata file_level_metadata_MNN_5fcompression_2eproto[11];
 static const ::PROTOBUF_NAMESPACE_ID::EnumDescriptor* file_level_enum_descriptors_MNN_5fcompression_2eproto[4];
 static constexpr ::PROTOBUF_NAMESPACE_ID::ServiceDescriptor const** file_level_service_descriptors_MNN_5fcompression_2eproto = nullptr;
 
@@ -214,11 +234,15 @@ const uint32_t TableStruct_MNN_5fcompression_2eproto::offsets[] PROTOBUF_SECTION
   PROTOBUF_FIELD_OFFSET(::MNN::Compression::LayerQuantizeParams_WeightParams, scales_),
   PROTOBUF_FIELD_OFFSET(::MNN::Compression::LayerQuantizeParams_WeightParams, clamp_min_),
   PROTOBUF_FIELD_OFFSET(::MNN::Compression::LayerQuantizeParams_WeightParams, clamp_max_),
+  PROTOBUF_FIELD_OFFSET(::MNN::Compression::LayerQuantizeParams_WeightParams, asymmetric_),
+  PROTOBUF_FIELD_OFFSET(::MNN::Compression::LayerQuantizeParams_WeightParams, block_size_),
   0,
-  2,
+  4,
   ~0u,
+  5,
   3,
   1,
+  2,
   PROTOBUF_FIELD_OFFSET(::MNN::Compression::LayerQuantizeParams_WinogradParams, _has_bits_),
   PROTOBUF_FIELD_OFFSET(::MNN::Compression::LayerQuantizeParams_WinogradParams, _internal_metadata_),
   ~0u,  // no _extensions_
@@ -228,6 +252,18 @@ const uint32_t TableStruct_MNN_5fcompression_2eproto::offsets[] PROTOBUF_SECTION
   PROTOBUF_FIELD_OFFSET(::MNN::Compression::LayerQuantizeParams_WinogradParams, version_),
   PROTOBUF_FIELD_OFFSET(::MNN::Compression::LayerQuantizeParams_WinogradParams, units_attr_),
   0,
+  ~0u,
+  PROTOBUF_FIELD_OFFSET(::MNN::Compression::LayerQuantizeParams_ConvolutionInfo, _has_bits_),
+  PROTOBUF_FIELD_OFFSET(::MNN::Compression::LayerQuantizeParams_ConvolutionInfo, _internal_metadata_),
+  ~0u,  // no _extensions_
+  ~0u,  // no _oneof_case_
+  ~0u,  // no _weak_field_map_
+  ~0u,  // no _inlined_string_donated_
+  PROTOBUF_FIELD_OFFSET(::MNN::Compression::LayerQuantizeParams_ConvolutionInfo, input_channel_),
+  PROTOBUF_FIELD_OFFSET(::MNN::Compression::LayerQuantizeParams_ConvolutionInfo, output_channel_),
+  PROTOBUF_FIELD_OFFSET(::MNN::Compression::LayerQuantizeParams_ConvolutionInfo, kernel_size_),
+  0,
+  1,
   ~0u,
   PROTOBUF_FIELD_OFFSET(::MNN::Compression::LayerQuantizeParams, _has_bits_),
   PROTOBUF_FIELD_OFFSET(::MNN::Compression::LayerQuantizeParams, _internal_metadata_),
@@ -240,11 +276,17 @@ const uint32_t TableStruct_MNN_5fcompression_2eproto::offsets[] PROTOBUF_SECTION
   PROTOBUF_FIELD_OFFSET(::MNN::Compression::LayerQuantizeParams, output_),
   PROTOBUF_FIELD_OFFSET(::MNN::Compression::LayerQuantizeParams, method_),
   PROTOBUF_FIELD_OFFSET(::MNN::Compression::LayerQuantizeParams, wino_params_),
+  PROTOBUF_FIELD_OFFSET(::MNN::Compression::LayerQuantizeParams, op_name_),
+  PROTOBUF_FIELD_OFFSET(::MNN::Compression::LayerQuantizeParams, subgraph_name_),
+  PROTOBUF_FIELD_OFFSET(::MNN::Compression::LayerQuantizeParams, conv_),
   ~0u,
   ~0u,
   ~0u,
-  1,
+  4,
+  2,
   0,
+  1,
+  3,
   ~0u,  // no _has_bits_
   PROTOBUF_FIELD_OFFSET(::MNN::Compression::LevelPrunerParams, _internal_metadata_),
   ~0u,  // no _extensions_
@@ -297,21 +339,24 @@ const uint32_t TableStruct_MNN_5fcompression_2eproto::offsets[] PROTOBUF_SECTION
   PROTOBUF_FIELD_OFFSET(::MNN::Compression::Pipeline, version_),
   PROTOBUF_FIELD_OFFSET(::MNN::Compression::Pipeline, algo_),
   PROTOBUF_FIELD_OFFSET(::MNN::Compression::Pipeline, mnn_uuid_),
+  PROTOBUF_FIELD_OFFSET(::MNN::Compression::Pipeline, for_guide_),
   0,
   ~0u,
   1,
+  2,
 };
 static const ::PROTOBUF_NAMESPACE_ID::internal::MigrationSchema schemas[] PROTOBUF_SECTION_VARIABLE(protodesc_cold) = {
   { 0, 8, -1, sizeof(::MNN::Compression::QuantizeParams)},
   { 10, 22, -1, sizeof(::MNN::Compression::LayerQuantizeParams_ActivationParams)},
-  { 28, 39, -1, sizeof(::MNN::Compression::LayerQuantizeParams_WeightParams)},
-  { 44, 52, -1, sizeof(::MNN::Compression::LayerQuantizeParams_WinogradParams)},
-  { 54, 65, -1, sizeof(::MNN::Compression::LayerQuantizeParams)},
-  { 70, -1, -1, sizeof(::MNN::Compression::LevelPrunerParams)},
-  { 79, -1, -1, sizeof(::MNN::Compression::SIMDOCPrunerParams)},
-  { 89, 98, -1, sizeof(::MNN::Compression::PruneParams)},
-  { 101, 110, -1, sizeof(::MNN::Compression::CompressionAlgo)},
-  { 113, 122, -1, sizeof(::MNN::Compression::Pipeline)},
+  { 28, 41, -1, sizeof(::MNN::Compression::LayerQuantizeParams_WeightParams)},
+  { 48, 56, -1, sizeof(::MNN::Compression::LayerQuantizeParams_WinogradParams)},
+  { 58, 67, -1, sizeof(::MNN::Compression::LayerQuantizeParams_ConvolutionInfo)},
+  { 70, 84, -1, sizeof(::MNN::Compression::LayerQuantizeParams)},
+  { 92, -1, -1, sizeof(::MNN::Compression::LevelPrunerParams)},
+  { 101, -1, -1, sizeof(::MNN::Compression::SIMDOCPrunerParams)},
+  { 111, 120, -1, sizeof(::MNN::Compression::PruneParams)},
+  { 123, 132, -1, sizeof(::MNN::Compression::CompressionAlgo)},
+  { 135, 145, -1, sizeof(::MNN::Compression::Pipeline)},
 };
 
 static ::PROTOBUF_NAMESPACE_ID::Message const * const file_default_instances[] = {
@@ -319,6 +364,7 @@ static ::PROTOBUF_NAMESPACE_ID::Message const * const file_default_instances[] =
   reinterpret_cast<const ::PROTOBUF_NAMESPACE_ID::Message*>(&::MNN::Compression::_LayerQuantizeParams_ActivationParams_default_instance_),
   reinterpret_cast<const ::PROTOBUF_NAMESPACE_ID::Message*>(&::MNN::Compression::_LayerQuantizeParams_WeightParams_default_instance_),
   reinterpret_cast<const ::PROTOBUF_NAMESPACE_ID::Message*>(&::MNN::Compression::_LayerQuantizeParams_WinogradParams_default_instance_),
+  reinterpret_cast<const ::PROTOBUF_NAMESPACE_ID::Message*>(&::MNN::Compression::_LayerQuantizeParams_ConvolutionInfo_default_instance_),
   reinterpret_cast<const ::PROTOBUF_NAMESPACE_ID::Message*>(&::MNN::Compression::_LayerQuantizeParams_default_instance_),
   reinterpret_cast<const ::PROTOBUF_NAMESPACE_ID::Message*>(&::MNN::Compression::_LevelPrunerParams_default_instance_),
   reinterpret_cast<const ::PROTOBUF_NAMESPACE_ID::Message*>(&::MNN::Compression::_SIMDOCPrunerParams_default_instance_),
@@ -335,7 +381,7 @@ const char descriptor_table_protodef_MNN_5fcompression_2eproto[] PROTOBUF_SECTIO
   "$.MNN.Compression.LayerQuantizeParams\"U\n"
   "\tRoundMode\022\026\n\022ROUND_TOWARDS_ZERO\020\000\022\030\n\024RO"
   "UND_AWAY_FROM_ZERO\020\001\022\026\n\022ROUND_HALF_TO_EV"
-  "EN\020\002\"\352\005\n\023LayerQuantizeParams\022D\n\005input\030\001 "
+  "EN\020\002\"\340\007\n\023LayerQuantizeParams\022D\n\005input\030\001 "
   "\003(\01325.MNN.Compression.LayerQuantizeParam"
   "s.ActivationParams\022A\n\006weight\030\002 \003(\01321.MNN"
   ".Compression.LayerQuantizeParams.WeightP"
@@ -344,42 +390,48 @@ const char descriptor_table_protodef_MNN_5fcompression_2eproto[] PROTOBUF_SECTIO
   "method\030\004 \001(\01620.MNN.Compression.LayerQuan"
   "tizeParams.QuantMethod:\003QAT\022H\n\013wino_para"
   "ms\030\005 \001(\01323.MNN.Compression.LayerQuantize"
-  "Params.WinogradParams\032\211\001\n\020ActivationPara"
-  "ms\022\014\n\004name\030\001 \002(\t\022\017\n\004bits\030\002 \001(\005:\0018\022\016\n\006sca"
-  "les\030\003 \003(\002\022\025\n\nzero_point\030\004 \001(\005:\0010\022\027\n\tclam"
-  "p_min\030\005 \001(\005:\004-128\022\026\n\tclamp_max\030\006 \001(\005:\00312"
-  "7\032n\n\014WeightParams\022\014\n\004name\030\001 \002(\t\022\017\n\004bits\030"
-  "\002 \001(\005:\0018\022\016\n\006scales\030\003 \003(\002\022\027\n\tclamp_min\030\004 "
-  "\001(\005:\004-128\022\026\n\tclamp_max\030\005 \001(\005:\003127\0328\n\016Win"
-  "ogradParams\022\022\n\007version\030\001 \002(\005:\0010\022\022\n\nunits"
-  "_attr\030\004 \003(\005\"<\n\013QuantMethod\022\007\n\003QAT\020\000\022\021\n\rO"
-  "verflowAware\020\001\022\021\n\rWinogradAware\020\002\"[\n\021Lev"
-  "elPrunerParams\022\033\n\023weight_tensor_names\030\001 "
-  "\003(\t\022\024\n\014prune_ratios\030\002 \003(\002\022\023\n\013layer_names"
-  "\030\003 \003(\t\"o\n\022SIMDOCPrunerParams\022\033\n\023weight_t"
-  "ensor_names\030\001 \003(\t\022\024\n\014prune_ratios\030\002 \003(\002\022"
-  "\023\n\013layer_names\030\003 \003(\t\022\021\n\toc_blocks\030\004 \003(\005\""
-  "\202\002\n\013PruneParams\022<\n\004type\030\001 \001(\0162&.MNN.Comp"
-  "ression.PruneParams.PruneType:\006RANDOM\022\?\n"
-  "\023level_pruner_params\030\002 \001(\0132\".MNN.Compres"
-  "sion.LevelPrunerParams\022B\n\025simd_oc_pruner"
-  "_params\030\003 \001(\0132#.MNN.Compression.SIMDOCPr"
-  "unerParams\"0\n\tPruneType\022\n\n\006RANDOM\020\000\022\013\n\007S"
-  "IMD_OC\020\001\022\n\n\006FILTER\020\002\"\362\001\n\017CompressionAlgo"
-  "\022H\n\004type\030\001 \001(\01620.MNN.Compression.Compres"
-  "sionAlgo.CompressionType:\010QUANTIZE\0225\n\014qu"
-  "ant_params\030\002 \001(\0132\037.MNN.Compression.Quant"
-  "izeParams\0222\n\014prune_params\030\003 \001(\0132\034.MNN.Co"
-  "mpression.PruneParams\"*\n\017CompressionType"
-  "\022\014\n\010QUANTIZE\020\000\022\t\n\005PRUNE\020\001\"d\n\010Pipeline\022\026\n"
-  "\007version\030\001 \002(\t:\0050.0.0\022.\n\004algo\030\002 \003(\0132 .MN"
-  "N.Compression.CompressionAlgo\022\020\n\010mnn_uui"
-  "d\030\003 \001(\t"
+  "Params.WinogradParams\022\017\n\007op_name\030\006 \001(\t\022\025"
+  "\n\rsubgraph_name\030\007 \001(\t\022B\n\004conv\030\010 \001(\01324.MN"
+  "N.Compression.LayerQuantizeParams.Convol"
+  "utionInfo\032\211\001\n\020ActivationParams\022\014\n\004name\030\001"
+  " \002(\t\022\017\n\004bits\030\002 \001(\005:\0018\022\016\n\006scales\030\003 \003(\002\022\025\n"
+  "\nzero_point\030\004 \001(\005:\0010\022\027\n\tclamp_min\030\005 \001(\005:"
+  "\004-128\022\026\n\tclamp_max\030\006 \001(\005:\003127\032\240\001\n\014Weight"
+  "Params\022\014\n\004name\030\001 \002(\t\022\017\n\004bits\030\002 \001(\005:\0018\022\016\n"
+  "\006scales\030\003 \003(\002\022\027\n\tclamp_min\030\004 \001(\005:\004-128\022\026"
+  "\n\tclamp_max\030\005 \001(\005:\003127\022\031\n\nasymmetric\030\006 \001"
+  "(\010:\005false\022\025\n\nblock_size\030\007 \001(\005:\0010\0328\n\016Wino"
+  "gradParams\022\022\n\007version\030\001 \002(\005:\0010\022\022\n\nunits_"
+  "attr\030\004 \003(\005\032U\n\017ConvolutionInfo\022\025\n\rinput_c"
+  "hannel\030\001 \002(\005\022\026\n\016output_channel\030\002 \002(\005\022\023\n\013"
+  "kernel_size\030\003 \003(\005\"<\n\013QuantMethod\022\007\n\003QAT\020"
+  "\000\022\021\n\rOverflowAware\020\001\022\021\n\rWinogradAware\020\002\""
+  "[\n\021LevelPrunerParams\022\033\n\023weight_tensor_na"
+  "mes\030\001 \003(\t\022\024\n\014prune_ratios\030\002 \003(\002\022\023\n\013layer"
+  "_names\030\003 \003(\t\"o\n\022SIMDOCPrunerParams\022\033\n\023we"
+  "ight_tensor_names\030\001 \003(\t\022\024\n\014prune_ratios\030"
+  "\002 \003(\002\022\023\n\013layer_names\030\003 \003(\t\022\021\n\toc_blocks\030"
+  "\004 \003(\005\"\202\002\n\013PruneParams\022<\n\004type\030\001 \001(\0162&.MN"
+  "N.Compression.PruneParams.PruneType:\006RAN"
+  "DOM\022\?\n\023level_pruner_params\030\002 \001(\0132\".MNN.C"
+  "ompression.LevelPrunerParams\022B\n\025simd_oc_"
+  "pruner_params\030\003 \001(\0132#.MNN.Compression.SI"
+  "MDOCPrunerParams\"0\n\tPruneType\022\n\n\006RANDOM\020"
+  "\000\022\013\n\007SIMD_OC\020\001\022\n\n\006FILTER\020\002\"\362\001\n\017Compressi"
+  "onAlgo\022H\n\004type\030\001 \001(\01620.MNN.Compression.C"
+  "ompressionAlgo.CompressionType:\010QUANTIZE"
+  "\0225\n\014quant_params\030\002 \001(\0132\037.MNN.Compression"
+  ".QuantizeParams\0222\n\014prune_params\030\003 \001(\0132\034."
+  "MNN.Compression.PruneParams\"*\n\017Compressi"
+  "onType\022\014\n\010QUANTIZE\020\000\022\t\n\005PRUNE\020\001\"~\n\010Pipel"
+  "ine\022\026\n\007version\030\001 \002(\t:\0050.0.0\022.\n\004algo\030\002 \003("
+  "\0132 .MNN.Compression.CompressionAlgo\022\020\n\010m"
+  "nn_uuid\030\003 \001(\t\022\030\n\tfor_guide\030\004 \001(\010:\005false"
   ;
 static ::PROTOBUF_NAMESPACE_ID::internal::once_flag descriptor_table_MNN_5fcompression_2eproto_once;
 const ::PROTOBUF_NAMESPACE_ID::internal::DescriptorTable descriptor_table_MNN_5fcompression_2eproto = {
-  false, false, 1847, descriptor_table_protodef_MNN_5fcompression_2eproto, "MNN_compression.proto", 
-  &descriptor_table_MNN_5fcompression_2eproto_once, nullptr, 0, 10,
+  false, false, 2119, descriptor_table_protodef_MNN_5fcompression_2eproto, "MNN_compression.proto", 
+  &descriptor_table_MNN_5fcompression_2eproto_once, nullptr, 0, 11,
   schemas, file_default_instances, TableStruct_MNN_5fcompression_2eproto::offsets,
   file_level_metadata_MNN_5fcompression_2eproto, file_level_enum_descriptors_MNN_5fcompression_2eproto, file_level_service_descriptors_MNN_5fcompression_2eproto,
 };
@@ -1107,13 +1159,19 @@ class LayerQuantizeParams_WeightParams::_Internal {
     (*has_bits)[0] |= 1u;
   }
   static void set_has_bits(HasBits* has_bits) {
-    (*has_bits)[0] |= 4u;
+    (*has_bits)[0] |= 16u;
   }
   static void set_has_clamp_min(HasBits* has_bits) {
-    (*has_bits)[0] |= 8u;
+    (*has_bits)[0] |= 32u;
   }
   static void set_has_clamp_max(HasBits* has_bits) {
+    (*has_bits)[0] |= 8u;
+  }
+  static void set_has_asymmetric(HasBits* has_bits) {
     (*has_bits)[0] |= 2u;
+  }
+  static void set_has_block_size(HasBits* has_bits) {
+    (*has_bits)[0] |= 4u;
   }
   static bool MissingRequiredFields(const HasBits& has_bits) {
     return ((has_bits[0] & 0x00000001) ^ 0x00000001) != 0;
@@ -1143,9 +1201,9 @@ LayerQuantizeParams_WeightParams::LayerQuantizeParams_WeightParams(const LayerQu
     name_.Set(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, from._internal_name(), 
       GetArenaForAllocation());
   }
-  ::memcpy(&clamp_max_, &from.clamp_max_,
+  ::memcpy(&asymmetric_, &from.asymmetric_,
     static_cast<size_t>(reinterpret_cast<char*>(&clamp_min_) -
-    reinterpret_cast<char*>(&clamp_max_)) + sizeof(clamp_min_));
+    reinterpret_cast<char*>(&asymmetric_)) + sizeof(clamp_min_));
   // @@protoc_insertion_point(copy_constructor:MNN.Compression.LayerQuantizeParams.WeightParams)
 }
 
@@ -1154,6 +1212,10 @@ name_.UnsafeSetDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlready
 #ifdef PROTOBUF_FORCE_COPY_DEFAULT_STRING
   name_.Set(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), "", GetArenaForAllocation());
 #endif // PROTOBUF_FORCE_COPY_DEFAULT_STRING
+::memset(reinterpret_cast<char*>(this) + static_cast<size_t>(
+    reinterpret_cast<char*>(&asymmetric_) - reinterpret_cast<char*>(this)),
+    0, static_cast<size_t>(reinterpret_cast<char*>(&block_size_) -
+    reinterpret_cast<char*>(&asymmetric_)) + sizeof(block_size_));
 clamp_max_ = 127;
 bits_ = 8;
 clamp_min_ = -128;
@@ -1189,10 +1251,13 @@ void LayerQuantizeParams_WeightParams::Clear() {
 
   scales_.Clear();
   cached_has_bits = _has_bits_[0];
-  if (cached_has_bits & 0x0000000fu) {
-    if (cached_has_bits & 0x00000001u) {
-      name_.ClearNonDefaultToEmpty();
-    }
+  if (cached_has_bits & 0x00000001u) {
+    name_.ClearNonDefaultToEmpty();
+  }
+  if (cached_has_bits & 0x0000003eu) {
+    ::memset(&asymmetric_, 0, static_cast<size_t>(
+        reinterpret_cast<char*>(&block_size_) -
+        reinterpret_cast<char*>(&asymmetric_)) + sizeof(block_size_));
     clamp_max_ = 127;
     bits_ = 8;
     clamp_min_ = -128;
@@ -1263,6 +1328,24 @@ const char* LayerQuantizeParams_WeightParams::_InternalParse(const char* ptr, ::
         } else
           goto handle_unusual;
         continue;
+      // optional bool asymmetric = 6 [default = false];
+      case 6:
+        if (PROTOBUF_PREDICT_TRUE(static_cast<uint8_t>(tag) == 48)) {
+          _Internal::set_has_asymmetric(&has_bits);
+          asymmetric_ = ::PROTOBUF_NAMESPACE_ID::internal::ReadVarint64(&ptr);
+          CHK_(ptr);
+        } else
+          goto handle_unusual;
+        continue;
+      // optional int32 block_size = 7 [default = 0];
+      case 7:
+        if (PROTOBUF_PREDICT_TRUE(static_cast<uint8_t>(tag) == 56)) {
+          _Internal::set_has_block_size(&has_bits);
+          block_size_ = ::PROTOBUF_NAMESPACE_ID::internal::ReadVarint32(&ptr);
+          CHK_(ptr);
+        } else
+          goto handle_unusual;
+        continue;
       default:
         goto handle_unusual;
     }  // switch
@@ -1305,7 +1388,7 @@ uint8_t* LayerQuantizeParams_WeightParams::_InternalSerialize(
   }
 
   // optional int32 bits = 2 [default = 8];
-  if (cached_has_bits & 0x00000004u) {
+  if (cached_has_bits & 0x00000010u) {
     target = stream->EnsureSpace(target);
     target = ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::WriteInt32ToArray(2, this->_internal_bits(), target);
   }
@@ -1317,15 +1400,27 @@ uint8_t* LayerQuantizeParams_WeightParams::_InternalSerialize(
   }
 
   // optional int32 clamp_min = 4 [default = -128];
-  if (cached_has_bits & 0x00000008u) {
+  if (cached_has_bits & 0x00000020u) {
     target = stream->EnsureSpace(target);
     target = ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::WriteInt32ToArray(4, this->_internal_clamp_min(), target);
   }
 
   // optional int32 clamp_max = 5 [default = 127];
-  if (cached_has_bits & 0x00000002u) {
+  if (cached_has_bits & 0x00000008u) {
     target = stream->EnsureSpace(target);
     target = ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::WriteInt32ToArray(5, this->_internal_clamp_max(), target);
+  }
+
+  // optional bool asymmetric = 6 [default = false];
+  if (cached_has_bits & 0x00000002u) {
+    target = stream->EnsureSpace(target);
+    target = ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::WriteBoolToArray(6, this->_internal_asymmetric(), target);
+  }
+
+  // optional int32 block_size = 7 [default = 0];
+  if (cached_has_bits & 0x00000004u) {
+    target = stream->EnsureSpace(target);
+    target = ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::WriteInt32ToArray(7, this->_internal_block_size(), target);
   }
 
   if (PROTOBUF_PREDICT_FALSE(_internal_metadata_.have_unknown_fields())) {
@@ -1360,19 +1455,29 @@ size_t LayerQuantizeParams_WeightParams::ByteSizeLong() const {
   }
 
   cached_has_bits = _has_bits_[0];
-  if (cached_has_bits & 0x0000000eu) {
-    // optional int32 clamp_max = 5 [default = 127];
+  if (cached_has_bits & 0x0000003eu) {
+    // optional bool asymmetric = 6 [default = false];
     if (cached_has_bits & 0x00000002u) {
+      total_size += 1 + 1;
+    }
+
+    // optional int32 block_size = 7 [default = 0];
+    if (cached_has_bits & 0x00000004u) {
+      total_size += ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::Int32SizePlusOne(this->_internal_block_size());
+    }
+
+    // optional int32 clamp_max = 5 [default = 127];
+    if (cached_has_bits & 0x00000008u) {
       total_size += ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::Int32SizePlusOne(this->_internal_clamp_max());
     }
 
     // optional int32 bits = 2 [default = 8];
-    if (cached_has_bits & 0x00000004u) {
+    if (cached_has_bits & 0x00000010u) {
       total_size += ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::Int32SizePlusOne(this->_internal_bits());
     }
 
     // optional int32 clamp_min = 4 [default = -128];
-    if (cached_has_bits & 0x00000008u) {
+    if (cached_has_bits & 0x00000020u) {
       total_size += ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::Int32SizePlusOne(this->_internal_clamp_min());
     }
 
@@ -1401,17 +1506,23 @@ void LayerQuantizeParams_WeightParams::MergeFrom(const LayerQuantizeParams_Weigh
 
   scales_.MergeFrom(from.scales_);
   cached_has_bits = from._has_bits_[0];
-  if (cached_has_bits & 0x0000000fu) {
+  if (cached_has_bits & 0x0000003fu) {
     if (cached_has_bits & 0x00000001u) {
       _internal_set_name(from._internal_name());
     }
     if (cached_has_bits & 0x00000002u) {
-      clamp_max_ = from.clamp_max_;
+      asymmetric_ = from.asymmetric_;
     }
     if (cached_has_bits & 0x00000004u) {
-      bits_ = from.bits_;
+      block_size_ = from.block_size_;
     }
     if (cached_has_bits & 0x00000008u) {
+      clamp_max_ = from.clamp_max_;
+    }
+    if (cached_has_bits & 0x00000010u) {
+      bits_ = from.bits_;
+    }
+    if (cached_has_bits & 0x00000020u) {
       clamp_min_ = from.clamp_min_;
     }
     _has_bits_[0] |= cached_has_bits;
@@ -1443,6 +1554,12 @@ void LayerQuantizeParams_WeightParams::InternalSwap(LayerQuantizeParams_WeightPa
       &name_, lhs_arena,
       &other->name_, rhs_arena
   );
+  ::PROTOBUF_NAMESPACE_ID::internal::memswap<
+      PROTOBUF_FIELD_OFFSET(LayerQuantizeParams_WeightParams, block_size_)
+      + sizeof(LayerQuantizeParams_WeightParams::block_size_)
+      - PROTOBUF_FIELD_OFFSET(LayerQuantizeParams_WeightParams, asymmetric_)>(
+          reinterpret_cast<char*>(&asymmetric_),
+          reinterpret_cast<char*>(&other->asymmetric_));
   swap(clamp_max_, other->clamp_max_);
   swap(bits_, other->bits_);
   swap(clamp_min_, other->clamp_min_);
@@ -1684,21 +1801,325 @@ void LayerQuantizeParams_WinogradParams::InternalSwap(LayerQuantizeParams_Winogr
 
 // ===================================================================
 
+class LayerQuantizeParams_ConvolutionInfo::_Internal {
+ public:
+  using HasBits = decltype(std::declval<LayerQuantizeParams_ConvolutionInfo>()._has_bits_);
+  static void set_has_input_channel(HasBits* has_bits) {
+    (*has_bits)[0] |= 1u;
+  }
+  static void set_has_output_channel(HasBits* has_bits) {
+    (*has_bits)[0] |= 2u;
+  }
+  static bool MissingRequiredFields(const HasBits& has_bits) {
+    return ((has_bits[0] & 0x00000003) ^ 0x00000003) != 0;
+  }
+};
+
+LayerQuantizeParams_ConvolutionInfo::LayerQuantizeParams_ConvolutionInfo(::PROTOBUF_NAMESPACE_ID::Arena* arena,
+                         bool is_message_owned)
+  : ::PROTOBUF_NAMESPACE_ID::Message(arena, is_message_owned),
+  kernel_size_(arena) {
+  SharedCtor();
+  if (!is_message_owned) {
+    RegisterArenaDtor(arena);
+  }
+  // @@protoc_insertion_point(arena_constructor:MNN.Compression.LayerQuantizeParams.ConvolutionInfo)
+}
+LayerQuantizeParams_ConvolutionInfo::LayerQuantizeParams_ConvolutionInfo(const LayerQuantizeParams_ConvolutionInfo& from)
+  : ::PROTOBUF_NAMESPACE_ID::Message(),
+      _has_bits_(from._has_bits_),
+      kernel_size_(from.kernel_size_) {
+  _internal_metadata_.MergeFrom<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(from._internal_metadata_);
+  ::memcpy(&input_channel_, &from.input_channel_,
+    static_cast<size_t>(reinterpret_cast<char*>(&output_channel_) -
+    reinterpret_cast<char*>(&input_channel_)) + sizeof(output_channel_));
+  // @@protoc_insertion_point(copy_constructor:MNN.Compression.LayerQuantizeParams.ConvolutionInfo)
+}
+
+inline void LayerQuantizeParams_ConvolutionInfo::SharedCtor() {
+::memset(reinterpret_cast<char*>(this) + static_cast<size_t>(
+    reinterpret_cast<char*>(&input_channel_) - reinterpret_cast<char*>(this)),
+    0, static_cast<size_t>(reinterpret_cast<char*>(&output_channel_) -
+    reinterpret_cast<char*>(&input_channel_)) + sizeof(output_channel_));
+}
+
+LayerQuantizeParams_ConvolutionInfo::~LayerQuantizeParams_ConvolutionInfo() {
+  // @@protoc_insertion_point(destructor:MNN.Compression.LayerQuantizeParams.ConvolutionInfo)
+  if (GetArenaForAllocation() != nullptr) return;
+  SharedDtor();
+  _internal_metadata_.Delete<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>();
+}
+
+inline void LayerQuantizeParams_ConvolutionInfo::SharedDtor() {
+  GOOGLE_DCHECK(GetArenaForAllocation() == nullptr);
+}
+
+void LayerQuantizeParams_ConvolutionInfo::ArenaDtor(void* object) {
+  LayerQuantizeParams_ConvolutionInfo* _this = reinterpret_cast< LayerQuantizeParams_ConvolutionInfo* >(object);
+  (void)_this;
+}
+void LayerQuantizeParams_ConvolutionInfo::RegisterArenaDtor(::PROTOBUF_NAMESPACE_ID::Arena*) {
+}
+void LayerQuantizeParams_ConvolutionInfo::SetCachedSize(int size) const {
+  _cached_size_.Set(size);
+}
+
+void LayerQuantizeParams_ConvolutionInfo::Clear() {
+// @@protoc_insertion_point(message_clear_start:MNN.Compression.LayerQuantizeParams.ConvolutionInfo)
+  uint32_t cached_has_bits = 0;
+  // Prevent compiler warnings about cached_has_bits being unused
+  (void) cached_has_bits;
+
+  kernel_size_.Clear();
+  cached_has_bits = _has_bits_[0];
+  if (cached_has_bits & 0x00000003u) {
+    ::memset(&input_channel_, 0, static_cast<size_t>(
+        reinterpret_cast<char*>(&output_channel_) -
+        reinterpret_cast<char*>(&input_channel_)) + sizeof(output_channel_));
+  }
+  _has_bits_.Clear();
+  _internal_metadata_.Clear<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>();
+}
+
+const char* LayerQuantizeParams_ConvolutionInfo::_InternalParse(const char* ptr, ::PROTOBUF_NAMESPACE_ID::internal::ParseContext* ctx) {
+#define CHK_(x) if (PROTOBUF_PREDICT_FALSE(!(x))) goto failure
+  _Internal::HasBits has_bits{};
+  while (!ctx->Done(&ptr)) {
+    uint32_t tag;
+    ptr = ::PROTOBUF_NAMESPACE_ID::internal::ReadTag(ptr, &tag);
+    switch (tag >> 3) {
+      // required int32 input_channel = 1;
+      case 1:
+        if (PROTOBUF_PREDICT_TRUE(static_cast<uint8_t>(tag) == 8)) {
+          _Internal::set_has_input_channel(&has_bits);
+          input_channel_ = ::PROTOBUF_NAMESPACE_ID::internal::ReadVarint32(&ptr);
+          CHK_(ptr);
+        } else
+          goto handle_unusual;
+        continue;
+      // required int32 output_channel = 2;
+      case 2:
+        if (PROTOBUF_PREDICT_TRUE(static_cast<uint8_t>(tag) == 16)) {
+          _Internal::set_has_output_channel(&has_bits);
+          output_channel_ = ::PROTOBUF_NAMESPACE_ID::internal::ReadVarint32(&ptr);
+          CHK_(ptr);
+        } else
+          goto handle_unusual;
+        continue;
+      // repeated int32 kernel_size = 3;
+      case 3:
+        if (PROTOBUF_PREDICT_TRUE(static_cast<uint8_t>(tag) == 24)) {
+          ptr -= 1;
+          do {
+            ptr += 1;
+            _internal_add_kernel_size(::PROTOBUF_NAMESPACE_ID::internal::ReadVarint32(&ptr));
+            CHK_(ptr);
+            if (!ctx->DataAvailable(ptr)) break;
+          } while (::PROTOBUF_NAMESPACE_ID::internal::ExpectTag<24>(ptr));
+        } else if (static_cast<uint8_t>(tag) == 26) {
+          ptr = ::PROTOBUF_NAMESPACE_ID::internal::PackedInt32Parser(_internal_mutable_kernel_size(), ptr, ctx);
+          CHK_(ptr);
+        } else
+          goto handle_unusual;
+        continue;
+      default:
+        goto handle_unusual;
+    }  // switch
+  handle_unusual:
+    if ((tag == 0) || ((tag & 7) == 4)) {
+      CHK_(ptr);
+      ctx->SetLastTag(tag);
+      goto message_done;
+    }
+    ptr = UnknownFieldParse(
+        tag,
+        _internal_metadata_.mutable_unknown_fields<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(),
+        ptr, ctx);
+    CHK_(ptr != nullptr);
+  }  // while
+message_done:
+  _has_bits_.Or(has_bits);
+  return ptr;
+failure:
+  ptr = nullptr;
+  goto message_done;
+#undef CHK_
+}
+
+uint8_t* LayerQuantizeParams_ConvolutionInfo::_InternalSerialize(
+    uint8_t* target, ::PROTOBUF_NAMESPACE_ID::io::EpsCopyOutputStream* stream) const {
+  // @@protoc_insertion_point(serialize_to_array_start:MNN.Compression.LayerQuantizeParams.ConvolutionInfo)
+  uint32_t cached_has_bits = 0;
+  (void) cached_has_bits;
+
+  cached_has_bits = _has_bits_[0];
+  // required int32 input_channel = 1;
+  if (cached_has_bits & 0x00000001u) {
+    target = stream->EnsureSpace(target);
+    target = ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::WriteInt32ToArray(1, this->_internal_input_channel(), target);
+  }
+
+  // required int32 output_channel = 2;
+  if (cached_has_bits & 0x00000002u) {
+    target = stream->EnsureSpace(target);
+    target = ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::WriteInt32ToArray(2, this->_internal_output_channel(), target);
+  }
+
+  // repeated int32 kernel_size = 3;
+  for (int i = 0, n = this->_internal_kernel_size_size(); i < n; i++) {
+    target = stream->EnsureSpace(target);
+    target = ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::WriteInt32ToArray(3, this->_internal_kernel_size(i), target);
+  }
+
+  if (PROTOBUF_PREDICT_FALSE(_internal_metadata_.have_unknown_fields())) {
+    target = ::PROTOBUF_NAMESPACE_ID::internal::WireFormat::InternalSerializeUnknownFieldsToArray(
+        _internal_metadata_.unknown_fields<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(::PROTOBUF_NAMESPACE_ID::UnknownFieldSet::default_instance), target, stream);
+  }
+  // @@protoc_insertion_point(serialize_to_array_end:MNN.Compression.LayerQuantizeParams.ConvolutionInfo)
+  return target;
+}
+
+size_t LayerQuantizeParams_ConvolutionInfo::RequiredFieldsByteSizeFallback() const {
+// @@protoc_insertion_point(required_fields_byte_size_fallback_start:MNN.Compression.LayerQuantizeParams.ConvolutionInfo)
+  size_t total_size = 0;
+
+  if (_internal_has_input_channel()) {
+    // required int32 input_channel = 1;
+    total_size += ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::Int32SizePlusOne(this->_internal_input_channel());
+  }
+
+  if (_internal_has_output_channel()) {
+    // required int32 output_channel = 2;
+    total_size += ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::Int32SizePlusOne(this->_internal_output_channel());
+  }
+
+  return total_size;
+}
+size_t LayerQuantizeParams_ConvolutionInfo::ByteSizeLong() const {
+// @@protoc_insertion_point(message_byte_size_start:MNN.Compression.LayerQuantizeParams.ConvolutionInfo)
+  size_t total_size = 0;
+
+  if (((_has_bits_[0] & 0x00000003) ^ 0x00000003) == 0) {  // All required fields are present.
+    // required int32 input_channel = 1;
+    total_size += ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::Int32SizePlusOne(this->_internal_input_channel());
+
+    // required int32 output_channel = 2;
+    total_size += ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::Int32SizePlusOne(this->_internal_output_channel());
+
+  } else {
+    total_size += RequiredFieldsByteSizeFallback();
+  }
+  uint32_t cached_has_bits = 0;
+  // Prevent compiler warnings about cached_has_bits being unused
+  (void) cached_has_bits;
+
+  // repeated int32 kernel_size = 3;
+  {
+    size_t data_size = ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::
+      Int32Size(this->kernel_size_);
+    total_size += 1 *
+                  ::PROTOBUF_NAMESPACE_ID::internal::FromIntSize(this->_internal_kernel_size_size());
+    total_size += data_size;
+  }
+
+  return MaybeComputeUnknownFieldsSize(total_size, &_cached_size_);
+}
+
+const ::PROTOBUF_NAMESPACE_ID::Message::ClassData LayerQuantizeParams_ConvolutionInfo::_class_data_ = {
+    ::PROTOBUF_NAMESPACE_ID::Message::CopyWithSizeCheck,
+    LayerQuantizeParams_ConvolutionInfo::MergeImpl
+};
+const ::PROTOBUF_NAMESPACE_ID::Message::ClassData*LayerQuantizeParams_ConvolutionInfo::GetClassData() const { return &_class_data_; }
+
+void LayerQuantizeParams_ConvolutionInfo::MergeImpl(::PROTOBUF_NAMESPACE_ID::Message* to,
+                      const ::PROTOBUF_NAMESPACE_ID::Message& from) {
+  static_cast<LayerQuantizeParams_ConvolutionInfo *>(to)->MergeFrom(
+      static_cast<const LayerQuantizeParams_ConvolutionInfo &>(from));
+}
+
+
+void LayerQuantizeParams_ConvolutionInfo::MergeFrom(const LayerQuantizeParams_ConvolutionInfo& from) {
+// @@protoc_insertion_point(class_specific_merge_from_start:MNN.Compression.LayerQuantizeParams.ConvolutionInfo)
+  GOOGLE_DCHECK_NE(&from, this);
+  uint32_t cached_has_bits = 0;
+  (void) cached_has_bits;
+
+  kernel_size_.MergeFrom(from.kernel_size_);
+  cached_has_bits = from._has_bits_[0];
+  if (cached_has_bits & 0x00000003u) {
+    if (cached_has_bits & 0x00000001u) {
+      input_channel_ = from.input_channel_;
+    }
+    if (cached_has_bits & 0x00000002u) {
+      output_channel_ = from.output_channel_;
+    }
+    _has_bits_[0] |= cached_has_bits;
+  }
+  _internal_metadata_.MergeFrom<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(from._internal_metadata_);
+}
+
+void LayerQuantizeParams_ConvolutionInfo::CopyFrom(const LayerQuantizeParams_ConvolutionInfo& from) {
+// @@protoc_insertion_point(class_specific_copy_from_start:MNN.Compression.LayerQuantizeParams.ConvolutionInfo)
+  if (&from == this) return;
+  Clear();
+  MergeFrom(from);
+}
+
+bool LayerQuantizeParams_ConvolutionInfo::IsInitialized() const {
+  if (_Internal::MissingRequiredFields(_has_bits_)) return false;
+  return true;
+}
+
+void LayerQuantizeParams_ConvolutionInfo::InternalSwap(LayerQuantizeParams_ConvolutionInfo* other) {
+  using std::swap;
+  _internal_metadata_.InternalSwap(&other->_internal_metadata_);
+  swap(_has_bits_[0], other->_has_bits_[0]);
+  kernel_size_.InternalSwap(&other->kernel_size_);
+  ::PROTOBUF_NAMESPACE_ID::internal::memswap<
+      PROTOBUF_FIELD_OFFSET(LayerQuantizeParams_ConvolutionInfo, output_channel_)
+      + sizeof(LayerQuantizeParams_ConvolutionInfo::output_channel_)
+      - PROTOBUF_FIELD_OFFSET(LayerQuantizeParams_ConvolutionInfo, input_channel_)>(
+          reinterpret_cast<char*>(&input_channel_),
+          reinterpret_cast<char*>(&other->input_channel_));
+}
+
+::PROTOBUF_NAMESPACE_ID::Metadata LayerQuantizeParams_ConvolutionInfo::GetMetadata() const {
+  return ::PROTOBUF_NAMESPACE_ID::internal::AssignDescriptors(
+      &descriptor_table_MNN_5fcompression_2eproto_getter, &descriptor_table_MNN_5fcompression_2eproto_once,
+      file_level_metadata_MNN_5fcompression_2eproto[4]);
+}
+
+// ===================================================================
+
 class LayerQuantizeParams::_Internal {
  public:
   using HasBits = decltype(std::declval<LayerQuantizeParams>()._has_bits_);
   static void set_has_method(HasBits* has_bits) {
-    (*has_bits)[0] |= 2u;
+    (*has_bits)[0] |= 16u;
   }
   static const ::MNN::Compression::LayerQuantizeParams_WinogradParams& wino_params(const LayerQuantizeParams* msg);
   static void set_has_wino_params(HasBits* has_bits) {
+    (*has_bits)[0] |= 4u;
+  }
+  static void set_has_op_name(HasBits* has_bits) {
     (*has_bits)[0] |= 1u;
+  }
+  static void set_has_subgraph_name(HasBits* has_bits) {
+    (*has_bits)[0] |= 2u;
+  }
+  static const ::MNN::Compression::LayerQuantizeParams_ConvolutionInfo& conv(const LayerQuantizeParams* msg);
+  static void set_has_conv(HasBits* has_bits) {
+    (*has_bits)[0] |= 8u;
   }
 };
 
 const ::MNN::Compression::LayerQuantizeParams_WinogradParams&
 LayerQuantizeParams::_Internal::wino_params(const LayerQuantizeParams* msg) {
   return *msg->wino_params_;
+}
+const ::MNN::Compression::LayerQuantizeParams_ConvolutionInfo&
+LayerQuantizeParams::_Internal::conv(const LayerQuantizeParams* msg) {
+  return *msg->conv_;
 }
 LayerQuantizeParams::LayerQuantizeParams(::PROTOBUF_NAMESPACE_ID::Arena* arena,
                          bool is_message_owned)
@@ -1719,16 +2140,45 @@ LayerQuantizeParams::LayerQuantizeParams(const LayerQuantizeParams& from)
       weight_(from.weight_),
       output_(from.output_) {
   _internal_metadata_.MergeFrom<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(from._internal_metadata_);
+  op_name_.UnsafeSetDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
+  #ifdef PROTOBUF_FORCE_COPY_DEFAULT_STRING
+    op_name_.Set(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), "", GetArenaForAllocation());
+  #endif // PROTOBUF_FORCE_COPY_DEFAULT_STRING
+  if (from._internal_has_op_name()) {
+    op_name_.Set(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, from._internal_op_name(), 
+      GetArenaForAllocation());
+  }
+  subgraph_name_.UnsafeSetDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
+  #ifdef PROTOBUF_FORCE_COPY_DEFAULT_STRING
+    subgraph_name_.Set(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), "", GetArenaForAllocation());
+  #endif // PROTOBUF_FORCE_COPY_DEFAULT_STRING
+  if (from._internal_has_subgraph_name()) {
+    subgraph_name_.Set(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, from._internal_subgraph_name(), 
+      GetArenaForAllocation());
+  }
   if (from._internal_has_wino_params()) {
     wino_params_ = new ::MNN::Compression::LayerQuantizeParams_WinogradParams(*from.wino_params_);
   } else {
     wino_params_ = nullptr;
+  }
+  if (from._internal_has_conv()) {
+    conv_ = new ::MNN::Compression::LayerQuantizeParams_ConvolutionInfo(*from.conv_);
+  } else {
+    conv_ = nullptr;
   }
   method_ = from.method_;
   // @@protoc_insertion_point(copy_constructor:MNN.Compression.LayerQuantizeParams)
 }
 
 inline void LayerQuantizeParams::SharedCtor() {
+op_name_.UnsafeSetDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
+#ifdef PROTOBUF_FORCE_COPY_DEFAULT_STRING
+  op_name_.Set(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), "", GetArenaForAllocation());
+#endif // PROTOBUF_FORCE_COPY_DEFAULT_STRING
+subgraph_name_.UnsafeSetDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
+#ifdef PROTOBUF_FORCE_COPY_DEFAULT_STRING
+  subgraph_name_.Set(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), "", GetArenaForAllocation());
+#endif // PROTOBUF_FORCE_COPY_DEFAULT_STRING
 ::memset(reinterpret_cast<char*>(this) + static_cast<size_t>(
     reinterpret_cast<char*>(&wino_params_) - reinterpret_cast<char*>(this)),
     0, static_cast<size_t>(reinterpret_cast<char*>(&method_) -
@@ -1744,7 +2194,10 @@ LayerQuantizeParams::~LayerQuantizeParams() {
 
 inline void LayerQuantizeParams::SharedDtor() {
   GOOGLE_DCHECK(GetArenaForAllocation() == nullptr);
+  op_name_.DestroyNoArena(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
+  subgraph_name_.DestroyNoArena(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited());
   if (this != internal_default_instance()) delete wino_params_;
+  if (this != internal_default_instance()) delete conv_;
 }
 
 void LayerQuantizeParams::ArenaDtor(void* object) {
@@ -1767,9 +2220,21 @@ void LayerQuantizeParams::Clear() {
   weight_.Clear();
   output_.Clear();
   cached_has_bits = _has_bits_[0];
-  if (cached_has_bits & 0x00000001u) {
-    GOOGLE_DCHECK(wino_params_ != nullptr);
-    wino_params_->Clear();
+  if (cached_has_bits & 0x0000000fu) {
+    if (cached_has_bits & 0x00000001u) {
+      op_name_.ClearNonDefaultToEmpty();
+    }
+    if (cached_has_bits & 0x00000002u) {
+      subgraph_name_.ClearNonDefaultToEmpty();
+    }
+    if (cached_has_bits & 0x00000004u) {
+      GOOGLE_DCHECK(wino_params_ != nullptr);
+      wino_params_->Clear();
+    }
+    if (cached_has_bits & 0x00000008u) {
+      GOOGLE_DCHECK(conv_ != nullptr);
+      conv_->Clear();
+    }
   }
   method_ = 0;
   _has_bits_.Clear();
@@ -1843,6 +2308,38 @@ const char* LayerQuantizeParams::_InternalParse(const char* ptr, ::PROTOBUF_NAME
         } else
           goto handle_unusual;
         continue;
+      // optional string op_name = 6;
+      case 6:
+        if (PROTOBUF_PREDICT_TRUE(static_cast<uint8_t>(tag) == 50)) {
+          auto str = _internal_mutable_op_name();
+          ptr = ::PROTOBUF_NAMESPACE_ID::internal::InlineGreedyStringParser(str, ptr, ctx);
+          #ifndef NDEBUG
+          ::PROTOBUF_NAMESPACE_ID::internal::VerifyUTF8(str, "MNN.Compression.LayerQuantizeParams.op_name");
+          #endif  // !NDEBUG
+          CHK_(ptr);
+        } else
+          goto handle_unusual;
+        continue;
+      // optional string subgraph_name = 7;
+      case 7:
+        if (PROTOBUF_PREDICT_TRUE(static_cast<uint8_t>(tag) == 58)) {
+          auto str = _internal_mutable_subgraph_name();
+          ptr = ::PROTOBUF_NAMESPACE_ID::internal::InlineGreedyStringParser(str, ptr, ctx);
+          #ifndef NDEBUG
+          ::PROTOBUF_NAMESPACE_ID::internal::VerifyUTF8(str, "MNN.Compression.LayerQuantizeParams.subgraph_name");
+          #endif  // !NDEBUG
+          CHK_(ptr);
+        } else
+          goto handle_unusual;
+        continue;
+      // optional .MNN.Compression.LayerQuantizeParams.ConvolutionInfo conv = 8;
+      case 8:
+        if (PROTOBUF_PREDICT_TRUE(static_cast<uint8_t>(tag) == 66)) {
+          ptr = ctx->ParseMessage(_internal_mutable_conv(), ptr);
+          CHK_(ptr);
+        } else
+          goto handle_unusual;
+        continue;
       default:
         goto handle_unusual;
     }  // switch
@@ -1899,18 +2396,46 @@ uint8_t* LayerQuantizeParams::_InternalSerialize(
 
   cached_has_bits = _has_bits_[0];
   // optional .MNN.Compression.LayerQuantizeParams.QuantMethod method = 4 [default = QAT];
-  if (cached_has_bits & 0x00000002u) {
+  if (cached_has_bits & 0x00000010u) {
     target = stream->EnsureSpace(target);
     target = ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::WriteEnumToArray(
       4, this->_internal_method(), target);
   }
 
   // optional .MNN.Compression.LayerQuantizeParams.WinogradParams wino_params = 5;
-  if (cached_has_bits & 0x00000001u) {
+  if (cached_has_bits & 0x00000004u) {
     target = stream->EnsureSpace(target);
     target = ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::
       InternalWriteMessage(
         5, _Internal::wino_params(this), target, stream);
+  }
+
+  // optional string op_name = 6;
+  if (cached_has_bits & 0x00000001u) {
+    ::PROTOBUF_NAMESPACE_ID::internal::WireFormat::VerifyUTF8StringNamedField(
+      this->_internal_op_name().data(), static_cast<int>(this->_internal_op_name().length()),
+      ::PROTOBUF_NAMESPACE_ID::internal::WireFormat::SERIALIZE,
+      "MNN.Compression.LayerQuantizeParams.op_name");
+    target = stream->WriteStringMaybeAliased(
+        6, this->_internal_op_name(), target);
+  }
+
+  // optional string subgraph_name = 7;
+  if (cached_has_bits & 0x00000002u) {
+    ::PROTOBUF_NAMESPACE_ID::internal::WireFormat::VerifyUTF8StringNamedField(
+      this->_internal_subgraph_name().data(), static_cast<int>(this->_internal_subgraph_name().length()),
+      ::PROTOBUF_NAMESPACE_ID::internal::WireFormat::SERIALIZE,
+      "MNN.Compression.LayerQuantizeParams.subgraph_name");
+    target = stream->WriteStringMaybeAliased(
+        7, this->_internal_subgraph_name(), target);
+  }
+
+  // optional .MNN.Compression.LayerQuantizeParams.ConvolutionInfo conv = 8;
+  if (cached_has_bits & 0x00000008u) {
+    target = stream->EnsureSpace(target);
+    target = ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::
+      InternalWriteMessage(
+        8, _Internal::conv(this), target, stream);
   }
 
   if (PROTOBUF_PREDICT_FALSE(_internal_metadata_.have_unknown_fields())) {
@@ -1951,16 +2476,37 @@ size_t LayerQuantizeParams::ByteSizeLong() const {
   }
 
   cached_has_bits = _has_bits_[0];
-  if (cached_has_bits & 0x00000003u) {
-    // optional .MNN.Compression.LayerQuantizeParams.WinogradParams wino_params = 5;
+  if (cached_has_bits & 0x0000001fu) {
+    // optional string op_name = 6;
     if (cached_has_bits & 0x00000001u) {
+      total_size += 1 +
+        ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::StringSize(
+          this->_internal_op_name());
+    }
+
+    // optional string subgraph_name = 7;
+    if (cached_has_bits & 0x00000002u) {
+      total_size += 1 +
+        ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::StringSize(
+          this->_internal_subgraph_name());
+    }
+
+    // optional .MNN.Compression.LayerQuantizeParams.WinogradParams wino_params = 5;
+    if (cached_has_bits & 0x00000004u) {
       total_size += 1 +
         ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::MessageSize(
           *wino_params_);
     }
 
+    // optional .MNN.Compression.LayerQuantizeParams.ConvolutionInfo conv = 8;
+    if (cached_has_bits & 0x00000008u) {
+      total_size += 1 +
+        ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::MessageSize(
+          *conv_);
+    }
+
     // optional .MNN.Compression.LayerQuantizeParams.QuantMethod method = 4 [default = QAT];
-    if (cached_has_bits & 0x00000002u) {
+    if (cached_has_bits & 0x00000010u) {
       total_size += 1 +
         ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::EnumSize(this->_internal_method());
     }
@@ -1992,11 +2538,20 @@ void LayerQuantizeParams::MergeFrom(const LayerQuantizeParams& from) {
   weight_.MergeFrom(from.weight_);
   output_.MergeFrom(from.output_);
   cached_has_bits = from._has_bits_[0];
-  if (cached_has_bits & 0x00000003u) {
+  if (cached_has_bits & 0x0000001fu) {
     if (cached_has_bits & 0x00000001u) {
-      _internal_mutable_wino_params()->::MNN::Compression::LayerQuantizeParams_WinogradParams::MergeFrom(from._internal_wino_params());
+      _internal_set_op_name(from._internal_op_name());
     }
     if (cached_has_bits & 0x00000002u) {
+      _internal_set_subgraph_name(from._internal_subgraph_name());
+    }
+    if (cached_has_bits & 0x00000004u) {
+      _internal_mutable_wino_params()->::MNN::Compression::LayerQuantizeParams_WinogradParams::MergeFrom(from._internal_wino_params());
+    }
+    if (cached_has_bits & 0x00000008u) {
+      _internal_mutable_conv()->::MNN::Compression::LayerQuantizeParams_ConvolutionInfo::MergeFrom(from._internal_conv());
+    }
+    if (cached_has_bits & 0x00000010u) {
       method_ = from.method_;
     }
     _has_bits_[0] |= cached_has_bits;
@@ -2021,16 +2576,31 @@ bool LayerQuantizeParams::IsInitialized() const {
   if (_internal_has_wino_params()) {
     if (!wino_params_->IsInitialized()) return false;
   }
+  if (_internal_has_conv()) {
+    if (!conv_->IsInitialized()) return false;
+  }
   return true;
 }
 
 void LayerQuantizeParams::InternalSwap(LayerQuantizeParams* other) {
   using std::swap;
+  auto* lhs_arena = GetArenaForAllocation();
+  auto* rhs_arena = other->GetArenaForAllocation();
   _internal_metadata_.InternalSwap(&other->_internal_metadata_);
   swap(_has_bits_[0], other->_has_bits_[0]);
   input_.InternalSwap(&other->input_);
   weight_.InternalSwap(&other->weight_);
   output_.InternalSwap(&other->output_);
+  ::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::InternalSwap(
+      &::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(),
+      &op_name_, lhs_arena,
+      &other->op_name_, rhs_arena
+  );
+  ::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::InternalSwap(
+      &::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(),
+      &subgraph_name_, lhs_arena,
+      &other->subgraph_name_, rhs_arena
+  );
   ::PROTOBUF_NAMESPACE_ID::internal::memswap<
       PROTOBUF_FIELD_OFFSET(LayerQuantizeParams, method_)
       + sizeof(LayerQuantizeParams::method_)
@@ -2042,7 +2612,7 @@ void LayerQuantizeParams::InternalSwap(LayerQuantizeParams* other) {
 ::PROTOBUF_NAMESPACE_ID::Metadata LayerQuantizeParams::GetMetadata() const {
   return ::PROTOBUF_NAMESPACE_ID::internal::AssignDescriptors(
       &descriptor_table_MNN_5fcompression_2eproto_getter, &descriptor_table_MNN_5fcompression_2eproto_once,
-      file_level_metadata_MNN_5fcompression_2eproto[4]);
+      file_level_metadata_MNN_5fcompression_2eproto[5]);
 }
 
 // ===================================================================
@@ -2310,7 +2880,7 @@ void LevelPrunerParams::InternalSwap(LevelPrunerParams* other) {
 ::PROTOBUF_NAMESPACE_ID::Metadata LevelPrunerParams::GetMetadata() const {
   return ::PROTOBUF_NAMESPACE_ID::internal::AssignDescriptors(
       &descriptor_table_MNN_5fcompression_2eproto_getter, &descriptor_table_MNN_5fcompression_2eproto_once,
-      file_level_metadata_MNN_5fcompression_2eproto[5]);
+      file_level_metadata_MNN_5fcompression_2eproto[6]);
 }
 
 // ===================================================================
@@ -2614,7 +3184,7 @@ void SIMDOCPrunerParams::InternalSwap(SIMDOCPrunerParams* other) {
 ::PROTOBUF_NAMESPACE_ID::Metadata SIMDOCPrunerParams::GetMetadata() const {
   return ::PROTOBUF_NAMESPACE_ID::internal::AssignDescriptors(
       &descriptor_table_MNN_5fcompression_2eproto_getter, &descriptor_table_MNN_5fcompression_2eproto_once,
-      file_level_metadata_MNN_5fcompression_2eproto[6]);
+      file_level_metadata_MNN_5fcompression_2eproto[7]);
 }
 
 // ===================================================================
@@ -2915,7 +3485,7 @@ void PruneParams::InternalSwap(PruneParams* other) {
 ::PROTOBUF_NAMESPACE_ID::Metadata PruneParams::GetMetadata() const {
   return ::PROTOBUF_NAMESPACE_ID::internal::AssignDescriptors(
       &descriptor_table_MNN_5fcompression_2eproto_getter, &descriptor_table_MNN_5fcompression_2eproto_once,
-      file_level_metadata_MNN_5fcompression_2eproto[7]);
+      file_level_metadata_MNN_5fcompression_2eproto[8]);
 }
 
 // ===================================================================
@@ -3219,7 +3789,7 @@ void CompressionAlgo::InternalSwap(CompressionAlgo* other) {
 ::PROTOBUF_NAMESPACE_ID::Metadata CompressionAlgo::GetMetadata() const {
   return ::PROTOBUF_NAMESPACE_ID::internal::AssignDescriptors(
       &descriptor_table_MNN_5fcompression_2eproto_getter, &descriptor_table_MNN_5fcompression_2eproto_once,
-      file_level_metadata_MNN_5fcompression_2eproto[8]);
+      file_level_metadata_MNN_5fcompression_2eproto[9]);
 }
 
 // ===================================================================
@@ -3232,6 +3802,9 @@ class Pipeline::_Internal {
   }
   static void set_has_mnn_uuid(HasBits* has_bits) {
     (*has_bits)[0] |= 2u;
+  }
+  static void set_has_for_guide(HasBits* has_bits) {
+    (*has_bits)[0] |= 4u;
   }
   static bool MissingRequiredFields(const HasBits& has_bits) {
     return ((has_bits[0] & 0x00000001) ^ 0x00000001) != 0;
@@ -3267,6 +3840,7 @@ Pipeline::Pipeline(const Pipeline& from)
     mnn_uuid_.Set(::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::EmptyDefault{}, from._internal_mnn_uuid(), 
       GetArenaForAllocation());
   }
+  for_guide_ = from.for_guide_;
   // @@protoc_insertion_point(copy_constructor:MNN.Compression.Pipeline)
 }
 
@@ -3276,6 +3850,7 @@ mnn_uuid_.UnsafeSetDefault(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlr
 #ifdef PROTOBUF_FORCE_COPY_DEFAULT_STRING
   mnn_uuid_.Set(&::PROTOBUF_NAMESPACE_ID::internal::GetEmptyStringAlreadyInited(), "", GetArenaForAllocation());
 #endif // PROTOBUF_FORCE_COPY_DEFAULT_STRING
+for_guide_ = false;
 }
 
 Pipeline::~Pipeline() {
@@ -3317,6 +3892,7 @@ void Pipeline::Clear() {
       mnn_uuid_.ClearNonDefaultToEmpty();
     }
   }
+  for_guide_ = false;
   _has_bits_.Clear();
   _internal_metadata_.Clear<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>();
 }
@@ -3361,6 +3937,15 @@ const char* Pipeline::_InternalParse(const char* ptr, ::PROTOBUF_NAMESPACE_ID::i
           #ifndef NDEBUG
           ::PROTOBUF_NAMESPACE_ID::internal::VerifyUTF8(str, "MNN.Compression.Pipeline.mnn_uuid");
           #endif  // !NDEBUG
+          CHK_(ptr);
+        } else
+          goto handle_unusual;
+        continue;
+      // optional bool for_guide = 4 [default = false];
+      case 4:
+        if (PROTOBUF_PREDICT_TRUE(static_cast<uint8_t>(tag) == 32)) {
+          _Internal::set_has_for_guide(&has_bits);
+          for_guide_ = ::PROTOBUF_NAMESPACE_ID::internal::ReadVarint64(&ptr);
           CHK_(ptr);
         } else
           goto handle_unusual;
@@ -3424,6 +4009,12 @@ uint8_t* Pipeline::_InternalSerialize(
         3, this->_internal_mnn_uuid(), target);
   }
 
+  // optional bool for_guide = 4 [default = false];
+  if (cached_has_bits & 0x00000004u) {
+    target = stream->EnsureSpace(target);
+    target = ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::WriteBoolToArray(4, this->_internal_for_guide(), target);
+  }
+
   if (PROTOBUF_PREDICT_FALSE(_internal_metadata_.have_unknown_fields())) {
     target = ::PROTOBUF_NAMESPACE_ID::internal::WireFormat::InternalSerializeUnknownFieldsToArray(
         _internal_metadata_.unknown_fields<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(::PROTOBUF_NAMESPACE_ID::UnknownFieldSet::default_instance), target, stream);
@@ -3453,14 +4044,21 @@ size_t Pipeline::ByteSizeLong() const {
       ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::MessageSize(msg);
   }
 
-  // optional string mnn_uuid = 3;
   cached_has_bits = _has_bits_[0];
-  if (cached_has_bits & 0x00000002u) {
-    total_size += 1 +
-      ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::StringSize(
-        this->_internal_mnn_uuid());
-  }
+  if (cached_has_bits & 0x00000006u) {
+    // optional string mnn_uuid = 3;
+    if (cached_has_bits & 0x00000002u) {
+      total_size += 1 +
+        ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::StringSize(
+          this->_internal_mnn_uuid());
+    }
 
+    // optional bool for_guide = 4 [default = false];
+    if (cached_has_bits & 0x00000004u) {
+      total_size += 1 + 1;
+    }
+
+  }
   return MaybeComputeUnknownFieldsSize(total_size, &_cached_size_);
 }
 
@@ -3485,13 +4083,17 @@ void Pipeline::MergeFrom(const Pipeline& from) {
 
   algo_.MergeFrom(from.algo_);
   cached_has_bits = from._has_bits_[0];
-  if (cached_has_bits & 0x00000003u) {
+  if (cached_has_bits & 0x00000007u) {
     if (cached_has_bits & 0x00000001u) {
       _internal_set_version(from._internal_version());
     }
     if (cached_has_bits & 0x00000002u) {
       _internal_set_mnn_uuid(from._internal_mnn_uuid());
     }
+    if (cached_has_bits & 0x00000004u) {
+      for_guide_ = from.for_guide_;
+    }
+    _has_bits_[0] |= cached_has_bits;
   }
   _internal_metadata_.MergeFrom<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(from._internal_metadata_);
 }
@@ -3527,12 +4129,13 @@ void Pipeline::InternalSwap(Pipeline* other) {
       &mnn_uuid_, lhs_arena,
       &other->mnn_uuid_, rhs_arena
   );
+  swap(for_guide_, other->for_guide_);
 }
 
 ::PROTOBUF_NAMESPACE_ID::Metadata Pipeline::GetMetadata() const {
   return ::PROTOBUF_NAMESPACE_ID::internal::AssignDescriptors(
       &descriptor_table_MNN_5fcompression_2eproto_getter, &descriptor_table_MNN_5fcompression_2eproto_once,
-      file_level_metadata_MNN_5fcompression_2eproto[9]);
+      file_level_metadata_MNN_5fcompression_2eproto[10]);
 }
 
 // @@protoc_insertion_point(namespace_scope)
@@ -3550,6 +4153,9 @@ template<> PROTOBUF_NOINLINE ::MNN::Compression::LayerQuantizeParams_WeightParam
 }
 template<> PROTOBUF_NOINLINE ::MNN::Compression::LayerQuantizeParams_WinogradParams* Arena::CreateMaybeMessage< ::MNN::Compression::LayerQuantizeParams_WinogradParams >(Arena* arena) {
   return Arena::CreateMessageInternal< ::MNN::Compression::LayerQuantizeParams_WinogradParams >(arena);
+}
+template<> PROTOBUF_NOINLINE ::MNN::Compression::LayerQuantizeParams_ConvolutionInfo* Arena::CreateMaybeMessage< ::MNN::Compression::LayerQuantizeParams_ConvolutionInfo >(Arena* arena) {
+  return Arena::CreateMessageInternal< ::MNN::Compression::LayerQuantizeParams_ConvolutionInfo >(arena);
 }
 template<> PROTOBUF_NOINLINE ::MNN::Compression::LayerQuantizeParams* Arena::CreateMaybeMessage< ::MNN::Compression::LayerQuantizeParams >(Arena* arena) {
   return Arena::CreateMessageInternal< ::MNN::Compression::LayerQuantizeParams >(arena);
