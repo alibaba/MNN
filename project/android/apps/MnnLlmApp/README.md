@@ -3,24 +3,12 @@
 ## Introduction
 This is our full multimodal language model (LLM) Android app
 
-<div style="display: flex; justify-content: center; align-items: center; text-align: center; width: 100%;">
-  <div style="flex: 0 0 20%; display: flex; flex-direction: column; align-items: center;">
-    <p style="margin: 0; font-weight: bold;">Models List</p>
-    <img alt="Icon" style="width: 80%;" src="./assets/image_home.jpg">
-  </div>
-  <div style="flex: 0 0 20%; display: flex; flex-direction: column; align-items: center;">
-    <p style="margin: 0; font-weight: bold;">Text To Image</p>
-    <img alt="Icon" style="width: 80%;" src="./assets/image_diffusion.jpg">
-  </div>
-  <div style="flex: 0 0 20%; display: flex; flex-direction: column; align-items: center;">
-    <p style="margin: 0; font-weight: bold;">Audio To Text</p>
-    <img alt="Icon" style="width: 80%;" src="./assets/image_sound.jpg">
-  </div>
-  <div style="flex: 0 0 20%; display: flex; flex-direction: column; align-items: center;">
-    <p style="margin: 0; font-weight: bold;">Image To Text</p>
-    <img alt="Icon" style="width: 80%;" src="./assets/image_image.jpg">
-  </div>
-</div>
+<p align="center">
+  <img width="20%" alt="Icon"  src="./assets/image_home.jpg" style="margin: 0 10px;">
+  <img width="20%" alt="Icon" src="./assets/image_diffusion.jpg" style="margin: 0 10px;">
+  <img width="20%" alt="Icon" src="./assets/image_sound.jpg" style="margin: 0 10px;">
+  <img width="20%" alt="Icon" src="./assets/image_image.jpg" style="margin: 0 10px;">
+</p>
 
 
 ### Features
@@ -64,7 +52,7 @@ This is our full multimodal language model (LLM) Android app
 
 # Releases
 ## Version 0.1
-+ Click here to [download](./assets/mnn_llm_app_debug_0_1.apk)
++ Click here to [download](https://meta.alicdn.com/data/mnnx/mnn_llm_app_debug_0_1.apk)
 + this is our first public released version; you can :
   + search all our supported models, download  and chat with it in the app; 
   + diffusion model:

@@ -3,25 +3,12 @@
 ## 简介
 这是我们的全功能多模态语言模型（LLM）安卓应用。
 
-<div style="display: flex; justify-content: center; align-items: center; text-align: center; width: 100%;">
-  <div style="flex: 0 0 20%; display: flex; flex-direction: column; align-items: center;">
-    <p style="margin: 0; font-weight: bold;">模型列表</p>
-    <img alt="Icon" style="width: 80%;" src="./assets/image_home.jpg">
-  </div>
-  <div style="flex: 0 0 20%; display: flex; flex-direction: column; align-items: center;">
-    <p style="margin: 0; font-weight: bold;">文生图</p>
-    <img alt="Icon" style="width: 80%;" src="./assets/image_diffusion.jpg">
-  </div>
-  <div style="flex: 0 0 20%; display: flex; flex-direction: column; align-items: center;">
-    <p style="margin: 0; font-weight: bold;">语音能力</p>
-    <img alt="Icon" style="width: 80%;" src="./assets/image_sound.jpg">
-  </div>
-  <div style="flex: 0 0 20%; display: flex; flex-direction: column; align-items: center;">
-    <p style="margin: 0; font-weight: bold;">图像能力</p>
-    <img alt="Icon" style="width: 80%;" src="./assets/image_image.jpg">
-  </div>
-</div>
-
+<p align="center">
+  <img width="20%" alt="Icon"  src="./assets/image_home.jpg" style="margin: 0 10px;">
+  <img width="20%" alt="Icon" src="./assets/image_diffusion.jpg" style="margin: 0 10px;">
+  <img width="20%" alt="Icon" src="./assets/image_sound.jpg" style="margin: 0 10px;">
+  <img width="20%" alt="Icon" src="./assets/image_image.jpg" style="margin: 0 10px;">
+</p>
 
 ### 功能亮点
 
@@ -65,7 +52,7 @@
 
 # Releases
 ## Version 0.1
-+ 点击这里[下载] (./assets/mnn_llm_app_debug_0_1.apk)
++ 点击这里[下载] ([./assets/mnn_llm_app_debug_0_1.apk](https://meta.alicdn.com/data/mnnx/mnn_llm_app_debug_0_1.apk))
 + 这是我们的首个公开发布版本，您可以：
   + 搜索我们支持的所有模型，在应用中下载并与其聊天；
   + 生成扩散模型：
