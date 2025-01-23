@@ -52,7 +52,7 @@ This is our full multimodal language model (LLM) Android app
 
 # Releases
 ## Version 0.1
-+ Click here to [download](https://meta.alicdn.com/data/mnnx/mnn_llm_app_debug_0_1.apk)
++ Click here to [download](https://meta.alicdn.com/data/mnn/mnn_llm_app_debug_0_1.apk)
 + this is our first public released version; you can :
   + search all our supported models, download  and chat with it in the app; 
   + diffusion model:
