@@ -26,6 +26,7 @@
 #include <MNN/expr/Module.hpp>
 #include <MNN/expr/MathOp.hpp>
 #include <MNN/expr/NeuralNetWorkOp.hpp>
+#include <cmath>
 
 #define NONE "\e[0m"
 #define RED "\e[0;31m"
