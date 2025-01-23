@@ -24,8 +24,8 @@ using namespace MNN;
 @property (strong, nonatomic) id<MTLDevice> device;
 @property (assign, nonatomic) BOOL isIphone;
 // private
-@property (strong, nonatomic) NSMutableDictionary<NSString *, id<MTLComputePipelineState>> *cachesFp32;
-@property (strong, nonatomic) NSMutableDictionary<NSString *, id<MTLComputePipelineState>> *cachesFp16;
+@property (strong, nonatomic) NSDictionary<NSString *, id<MTLComputePipelineState>> *cachesFp32;
+@property (strong, nonatomic) NSDictionary<NSString *, id<MTLComputePipelineState>> *cachesFp16;
 @end
 
 @implementation MNNMetalContext
@@ -95,11 +95,15 @@ static void createLibrary(id<MTLDevice> device, NSMutableDictionary<NSString *, 
 - (BOOL) initWithSharedContext:(const MNNMetalSharedContext*)context dev:(id<MTLDevice>)device {
     MNN_ASSERT(nullptr != context);
     _device = context->device;
-    _cachesFp16   = [NSMutableDictionary dictionary];
-    _cachesFp32   = [NSMutableDictionary dictionary];
+    NSMutableDictionary* tmp_cachesFp16   = [NSMutableDictionary dictionary];
+    NSMutableDictionary* tmp_cachesFp32   = [NSMutableDictionary dictionary];
     _isIphone = self.class.isIphone;
-    createLibrary(_device, _cachesFp16, true);
-    createLibrary(_device, _cachesFp32, false);
+    createLibrary(_device, tmp_cachesFp16, true);
+    createLibrary(_device, tmp_cachesFp32, false);
+    _cachesFp16 = [NSDictionary dictionaryWithDictionary:tmp_cachesFp16];
+    _cachesFp32 = [NSDictionary dictionaryWithDictionary:tmp_cachesFp32];
+    tmp_cachesFp16 = nil;
+    tmp_cachesFp32 = nil;
     return nil != _device;
 }
 
@@ -141,15 +145,19 @@ static void createLibrary(id<MTLDevice> device, NSMutableDictionary<NSString *, 
 - (id<MTLComputePipelineState>)pipelineWithSourceOption:(NSString *)source name:(NSString *)name options:(MTLCompileOptions *)options {
     NSError *err = nil;
     auto library = [_device newLibraryWithSource:source options:options error:&err];
+    if (err) {
+        NSLog(@"Warning: pipelineWithSource error: %@, source is: %@", err, source);
+    }
     if (nil == library) {
-        if (err) {
-            NSLog(@"Warning: pipelineWithSource error: %@", err);
-        }
         return nil;
     }
     id<MTLFunction> function = [library newFunctionWithName:name];
-    NSError *error = nil;
-    id<MTLComputePipelineState> result = [_device newComputePipelineStateWithFunction:function error:&error];
+    if (nil == function) {
+        NSLog(@"Warning: Create function failed: %@", name);
+        return nil;
+    }
+    err = nil;
+    id<MTLComputePipelineState> result = [_device newComputePipelineStateWithFunction:function error:&err];
     return result;
 }
 

@@ -252,9 +252,12 @@ void MetalBackend::flushEncoder() const {
     }
 }
 void MetalBackend::_resetDynamicMemory() const {
-    mCurrentAllocator->apply();
+    mRuntime->pCurrentStatus = mCurrentAllocator->apply();
+    if (NO_ERROR != mRuntime->pCurrentStatus) {
+        return;
+    }
     if (nullptr != mBufferPoolShapeImmutable.get()) {
-        mBufferPoolShapeImmutable->apply();
+        mRuntime->pCurrentStatus = mBufferPoolShapeImmutable->apply();
     }
 }
 
@@ -801,6 +804,13 @@ id<MTLCommandBuffer> MetalBackend::getCommandBufferForNet() const {
 void MetalBackend::setTensor(const MNN::Tensor* tensor, id<MTLComputeCommandEncoder> encoder, int index) {
     [encoder setBuffer:((MetalRuntimeAllocator::MetalBufferAlloc *)tensor->deviceId())->getBuffer() offset:TensorUtils::getDescribe(tensor)->extra.offset atIndex:index];
 }
+void MetalBackend::setMem(const MemChunk& chunk, id<MTLComputeCommandEncoder> encoder, int index) {
+    [encoder setBuffer:((MetalRuntimeAllocator::MetalBufferAlloc *)chunk.first)->getBuffer() offset:chunk.second atIndex:index];
+}
+uint8_t* MetalBackend::getMemPtr(const MemChunk& chunk) {
+    return (uint8_t*)((MetalRuntimeAllocator::MetalBufferAlloc *)chunk.first)->getBuffer().contents + chunk.second;
+}
+
 std::pair<id<MTLBuffer>, int> MetalBackend::getBuffer(const MNN::Tensor* tensor) {
     return std::make_pair(((MetalRuntimeAllocator::MetalBufferAlloc *)tensor->deviceId())->getBuffer(), TensorUtils::getDescribe(tensor)->extra.offset);
 }
@@ -866,7 +876,11 @@ id<MTLComputePipelineState> MetalBackend::makeComputePipelineWithSourceOption(co
     auto ctx = (__bridge MNNMetalContext *)context();
     auto source = [[NSString alloc] initWithUTF8String:csource];
     auto name = [[NSString alloc] initWithUTF8String:cname];
-    return [ctx pipelineWithSourceOption:source name:name options:options];
+    auto pipeline = [ctx pipelineWithSourceOption:source name:name options:options];
+    if (nil == pipeline) {
+        mRuntime->pCurrentStatus = NOT_SUPPORT;
+    }
+    return pipeline;
 }
 void MetalRuntime::setCommandQueue(id<MTLCommandQueue> queue, bool userSync) {
     mQueue = queue;
@@ -880,7 +894,9 @@ id<MTLComputePipelineState> MetalRuntime::findPipeline(const std::vector<std::st
     return iter->second;
 }
 void MetalRuntime::insertPipeline(const std::vector<std::string>& keys, id<MTLComputePipelineState> pipeline) const {
-    mCachePipeine.insert(std::make_pair(keys, pipeline));
+    if (nil != pipeline) {
+        mCachePipeine.insert(std::make_pair(keys, pipeline));
+    }
 }
 
 void MetalRuntime::setGpuMode(const int mode_num) {

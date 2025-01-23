@@ -24,12 +24,14 @@ __kernel void inverse_quant_weight(GLOBAL_SIZE_DIM2
     __global const uchar *weight,
     #endif
     #endif
-    __global const float *dequantScaleOffset,
+    __global const FLOAT *dequantScaleOffset,
     __global FLOAT* output,
+    __private const int inputChannel,
     __private const int inputChannel4Align,
     __private const int outputChannelAlign,
     __private const int outputChannel4Align,
-    __private const int blockDim){
+    __private const int blockDim,
+    __private const float coef){
     const int x = get_global_id(0); //ic
     const int y = get_global_id(1); //oc
 
@@ -40,13 +42,16 @@ __kernel void inverse_quant_weight(GLOBAL_SIZE_DIM2
     const int oc = y << 3;
     const int output_offset = ic * outputChannelAlign + oc;
 
-    int kindex = (ic / blockDim) * outputChannel4Align * 2;
+    #ifdef ASYMMETRIC
     COMPUTE_FLOAT8 scale, offset;
     {
-        COMPUTE_FLOAT16 ScaleOffset = CONVERT_COMPUTE_FLOAT16(vload16(0, dequantScaleOffset + kindex + oc * 2));
+        COMPUTE_FLOAT16 ScaleOffset = CONVERT_COMPUTE_FLOAT16(convert_float16(vload16(0, dequantScaleOffset + ((ic / blockDim) * outputChannel4Align + oc) * 2)) / coef);
         scale = ScaleOffset.s02468ace;
         offset = ScaleOffset.s13579bdf;
     }
+    #else
+    COMPUTE_FLOAT8 scale = CONVERT_COMPUTE_FLOAT8(convert_float8(vload8(0, dequantScaleOffset + (ic / blockDim) * outputChannel4Align + oc)) / coef);
+    #endif
     COMPUTE_FLOAT8 weights0, weights1, weights2, weights3;
     {
         #ifdef USE_IMAGE
@@ -55,34 +60,51 @@ __kernel void inverse_quant_weight(GLOBAL_SIZE_DIM2
         uchar16 charWeightsInt40 = vload16(x, weight + y * inputChannel4Align * 4);
         #endif
         char8 charWeights0;
+        #ifdef ASYMMETRIC
         UCHAR4_TO_CHAR8(charWeights0, charWeightsInt40.s0123);
         weights0 = CONVERT_COMPUTE_FLOAT8(charWeights0) * scale + offset;
         
         UCHAR4_TO_CHAR8(charWeights0, charWeightsInt40.s4567);
-        weights1 = CONVERT_COMPUTE_FLOAT8(charWeights0) * scale + offset;
+        weights1 = ic + 1 >= inputChannel ? 0 : CONVERT_COMPUTE_FLOAT8(charWeights0) * scale + offset;
         
         UCHAR4_TO_CHAR8(charWeights0, charWeightsInt40.s89ab);
-        weights2 = CONVERT_COMPUTE_FLOAT8(charWeights0) * scale + offset;
+        weights2 = ic + 2 >= inputChannel ? 0 : CONVERT_COMPUTE_FLOAT8(charWeights0) * scale + offset;
         
         UCHAR4_TO_CHAR8(charWeights0, charWeightsInt40.scdef);
-        weights3 = CONVERT_COMPUTE_FLOAT8(charWeights0) * scale + offset;
+        weights3 = ic + 3 >= inputChannel ? 0 : CONVERT_COMPUTE_FLOAT8(charWeights0) * scale + offset;
+        #else
+        UCHAR4_TO_CHAR8(charWeights0, charWeightsInt40.s0123);
+        weights0 = CONVERT_COMPUTE_FLOAT8(charWeights0) * scale;
+        
+        UCHAR4_TO_CHAR8(charWeights0, charWeightsInt40.s4567);
+        weights1 = ic + 1 >= inputChannel ? 0 : CONVERT_COMPUTE_FLOAT8(charWeights0) * scale;
+        
+        UCHAR4_TO_CHAR8(charWeights0, charWeightsInt40.s89ab);
+        weights2 = ic + 2 >= inputChannel ? 0 : CONVERT_COMPUTE_FLOAT8(charWeights0) * scale;
+        
+        UCHAR4_TO_CHAR8(charWeights0, charWeightsInt40.scdef);
+        weights3 = ic + 3 >= inputChannel ? 0 : CONVERT_COMPUTE_FLOAT8(charWeights0) * scale;
+        #endif
     }
-    vstore8(weights0, 0, output+output_offset);
-    vstore8(weights1, 0, output+output_offset+outputChannelAlign);
-    vstore8(weights2, 0, output+output_offset+2*outputChannelAlign);
-    vstore8(weights3, 0, output+output_offset+3*outputChannelAlign);
+    vstore8(CONVERT_FLOAT8(weights0), 0, output+output_offset);
+    vstore8(CONVERT_FLOAT8(weights1), 0, output+output_offset+outputChannelAlign);
+    vstore8(CONVERT_FLOAT8(weights2), 0, output+output_offset+2*outputChannelAlign);
+    vstore8(CONVERT_FLOAT8(weights3), 0, output+output_offset+3*outputChannelAlign);
 #else
     const int ic = x << 1;
     const int oc = y << 3;
     const int output_offset = ic * outputChannelAlign + oc;
-
-    int kindex = (ic / blockDim) * outputChannel4Align * 2;
+    
+    #ifdef ASYMMETRIC
     COMPUTE_FLOAT8 scale, offset;
     {
-        COMPUTE_FLOAT16 ScaleOffset = CONVERT_COMPUTE_FLOAT16(vload16(0, dequantScaleOffset + kindex + oc * 2));
+        COMPUTE_FLOAT16 ScaleOffset = CONVERT_COMPUTE_FLOAT16(convert_float16(vload16(0, dequantScaleOffset + ((ic / blockDim) * outputChannel4Align + oc) * 2)) / coef);
         scale = ScaleOffset.s02468ace;
         offset = ScaleOffset.s13579bdf;
     }
+    #else
+    COMPUTE_FLOAT8 scale = CONVERT_COMPUTE_FLOAT8(convert_float8(vload8(0, dequantScaleOffset + (ic / blockDim) * outputChannel4Align + oc)) / coef);
+    #endif
     COMPUTE_FLOAT8 weights0, weights1;
     {
         #ifdef USE_IMAGE
@@ -90,12 +112,17 @@ __kernel void inverse_quant_weight(GLOBAL_SIZE_DIM2
         #else
         COMPUTE_FLOAT16 wei = CONVERT_COMPUTE_FLOAT16(vload16(x, weight + y * inputChannel4Align * 8));
         #endif
+        #ifdef ASYMMETRIC
         weights0 = wei.s01234567 * scale + offset;
-        weights1 = wei.s89abcdef * scale + offset;
+        weights1 = ic + 1 >= inputChannel ? 0 : wei.s89abcdef * scale + offset;
+        #else
+        weights0 = wei.s01234567 * scale;
+        weights1 = ic + 1 >= inputChannel ? 0 : wei.s89abcdef * scale;
+        #endif
     }
-    vstore8(weights0, 0, output+output_offset);
-    vstore8(weights1, 0, output+output_offset+outputChannelAlign);
-#endif
+    vstore8(CONVERT_FLOAT8(weights0), 0, output+output_offset);
+    vstore8(CONVERT_FLOAT8(weights1), 0, output+output_offset+outputChannelAlign);
+    #endif
 }
 
 #define UCHAR4_TO_FLOAT8(b, scale, offset) \
@@ -109,7 +136,6 @@ __kernel void inverse_quant_weight(GLOBAL_SIZE_DIM2
     wei.s7 = (COMPUTE_FLOAT)((b.s3 & 15) - 8); \
     wei = wei * scale + offset;
 
-
 __kernel void gemm_b4_c8_int4_buf(GLOBAL_SIZE_DIM2
                         __global const FLOAT* input,
 #ifdef USE_IMAGE
@@ -117,14 +143,15 @@ __kernel void gemm_b4_c8_int4_buf(GLOBAL_SIZE_DIM2
 #else
                         __global const uchar *weight,
 #endif
-                        __global const float *dequantScaleOffset,
+                        __global const FLOAT *dequantScaleOffset,
                         __global const FLOAT *bias,
                         __global FLOAT* output,
                         __private const int bhw,
                         __private const int dstChannelAlign,
                         __private const int srcChannelAlign,
                         __private const int blockNum,
-                        __private const int blockDim) {
+                        __private const int blockDim,
+                        __private const float coef) {
     const int x = get_global_id(0); //b/4
     const int y  = get_global_id(1); //c/8
 
@@ -133,7 +160,7 @@ __kernel void gemm_b4_c8_int4_buf(GLOBAL_SIZE_DIM2
     const int out_b_idx = x << 2;
     const int out_c_idx = y << 1;
 
-    COMPUTE_FLOAT8 out0 = CONVERT_FLOAT8(vload8(0, bias + (out_c_idx << 2)));
+    COMPUTE_FLOAT8 out0 = CONVERT_COMPUTE_FLOAT8(vload8(0, bias + (out_c_idx << 2)));
     COMPUTE_FLOAT8 out1 = out0;
     COMPUTE_FLOAT8 out2 = out0;
     COMPUTE_FLOAT8 out3 = out0;
@@ -154,12 +181,17 @@ __kernel void gemm_b4_c8_int4_buf(GLOBAL_SIZE_DIM2
 #if INPUT_BATCH_LEAVES_NUM != 0
     if(out_b_idx + 3 >= bhw){
         for (int i = 0; i < blockNum; i++){
+            #ifdef ASYMMETRIC
             COMPUTE_FLOAT8 scale, offset;
             {
-                COMPUTE_FLOAT16 scaleOffset = CONVERT_COMPUTE_FLOAT16(vload16(0, dequantScaleOffset + (out_c_idx << 3) + i * dstChannelAlign * 2));
+                COMPUTE_FLOAT16 scaleOffset = CONVERT_COMPUTE_FLOAT16(convert_float16(vload16(0, dequantScaleOffset + (out_c_idx << 3) + i * dstChannelAlign * 2)) / coef);
                 scale = scaleOffset.s02468ace;
                 offset = scaleOffset.s13579bdf;
             }
+            #else
+            COMPUTE_FLOAT8 scale = CONVERT_COMPUTE_FLOAT8(convert_float8(vload8(0, dequantScaleOffset + (out_c_idx << 2) + i * dstChannelAlign)) / coef);
+            COMPUTE_FLOAT8 offset = 0;
+            #endif
             for (int j = 0; j < loop_end; j++) {
                 int k = i * loop + j;
                 COMPUTE_FLOAT8 wei;
@@ -272,12 +304,17 @@ __kernel void gemm_b4_c8_int4_buf(GLOBAL_SIZE_DIM2
     } else {
 #endif
     for (int i = 0; i < blockNum; i++){
+        #ifdef ASYMMETRIC
         COMPUTE_FLOAT8 scale, offset;
         {
-            COMPUTE_FLOAT16 scaleOffset = CONVERT_COMPUTE_FLOAT16(vload16(0, dequantScaleOffset + (out_c_idx << 3) + i * dstChannelAlign * 2));
+            COMPUTE_FLOAT16 scaleOffset = CONVERT_COMPUTE_FLOAT16(convert_float16(vload16(0, dequantScaleOffset + (out_c_idx << 3) + i * dstChannelAlign * 2)) / coef);
             scale = scaleOffset.s02468ace;
             offset = scaleOffset.s13579bdf;
         }
+        #else
+        COMPUTE_FLOAT8 scale = CONVERT_COMPUTE_FLOAT8(convert_float8(vload8(0, dequantScaleOffset + (out_c_idx << 2) + i * dstChannelAlign)) / coef);
+        COMPUTE_FLOAT8 offset = 0;
+        #endif
         for (int j = 0; j < loop_end; j++) {
             int k = i * loop + j;
             COMPUTE_FLOAT8 wei;
@@ -395,14 +432,15 @@ __kernel void gemm_b4_c8_int8_buf(GLOBAL_SIZE_DIM2
 #else
                         __global const char *weight,
 #endif
-                        __global const float *dequantScaleOffset,
+                        __global const FLOAT *dequantScaleOffset,
                         __global const FLOAT *bias,
                         __global FLOAT* output,
                         __private const int bhw,
                         __private const int dstChannelAlign,
                         __private const int srcChannelAlign,
                         __private const int blockNum,
-                        __private const int blockDim) {
+                        __private const int blockDim,
+                        __private const float coef) {
     const int x = get_global_id(0); //b/4
     const int y  = get_global_id(1); //c/8
 
@@ -411,7 +449,7 @@ __kernel void gemm_b4_c8_int8_buf(GLOBAL_SIZE_DIM2
     const int out_b_idx = x << 2;
     const int out_c_idx = y << 1;
 
-    COMPUTE_FLOAT8 out0 = CONVERT_FLOAT8(vload8(0, bias + (out_c_idx << 2)));
+    COMPUTE_FLOAT8 out0 = CONVERT_COMPUTE_FLOAT8(vload8(0, bias + (out_c_idx << 2)));
     COMPUTE_FLOAT8 out1 = out0;
     COMPUTE_FLOAT8 out2 = out0;
     COMPUTE_FLOAT8 out3 = out0;
@@ -434,9 +472,15 @@ __kernel void gemm_b4_c8_int8_buf(GLOBAL_SIZE_DIM2
         for (int i = 0; i < blockNum; i++){
             COMPUTE_FLOAT16 scale, offset;
             {
-                COMPUTE_FLOAT16 scaleOffset = CONVERT_COMPUTE_FLOAT16(vload16(0, dequantScaleOffset + (out_c_idx << 3) + i * dstChannelAlign * 2));
+                #ifdef ASYMMETRIC
+                COMPUTE_FLOAT16 scaleOffset = CONVERT_COMPUTE_FLOAT16(convert_float16(vload16(0, dequantScaleOffset + (out_c_idx << 3) + i * dstChannelAlign * 2)) / coef);
                 scale = (COMPUTE_FLOAT16)(scaleOffset.s02468ace, scaleOffset.s02468ace);
                 offset = (COMPUTE_FLOAT16)(scaleOffset.s13579bdf, scaleOffset.s13579bdf);
+                #else
+                scale.s01234567 = CONVERT_COMPUTE_FLOAT8(convert_float8(vload8(0, dequantScaleOffset + (out_c_idx << 2) + i * dstChannelAlign)) / coef);
+                scale.s89abcdef = scale.s01234567;
+                offset = 0;
+                #endif
             }
             for (int j = 0; j < loop_end; j++) {
                 int k = i * loop + j;
@@ -549,9 +593,15 @@ __kernel void gemm_b4_c8_int8_buf(GLOBAL_SIZE_DIM2
     for (int i = 0; i < blockNum; i++){
         COMPUTE_FLOAT16 scale, offset;
         {
-            COMPUTE_FLOAT16 scaleOffset = CONVERT_COMPUTE_FLOAT16(vload16(0, dequantScaleOffset + (out_c_idx << 3) + i * dstChannelAlign * 2));
+            #ifdef ASYMMETRIC
+            COMPUTE_FLOAT16 scaleOffset = CONVERT_COMPUTE_FLOAT16(convert_float16(vload16(0, dequantScaleOffset + (out_c_idx << 3) + i * dstChannelAlign * 2)) / coef);
             scale = (COMPUTE_FLOAT16)(scaleOffset.s02468ace, scaleOffset.s02468ace);
             offset = (COMPUTE_FLOAT16)(scaleOffset.s13579bdf, scaleOffset.s13579bdf);
+            #else
+            scale.s01234567 = CONVERT_COMPUTE_FLOAT8(convert_float8(vload8(0, dequantScaleOffset + (out_c_idx << 2) + i * dstChannelAlign)) / coef);
+            scale.s89abcdef = scale.s01234567;
+            offset = 0;
+            #endif
         }
         for (int j = 0; j < loop_end; j++) {
             int k = i * loop + j;

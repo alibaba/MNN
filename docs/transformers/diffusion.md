@@ -60,23 +60,33 @@ cd mnn_path/project/android/build
 ```
 ## 运行Diffusion Demo
 ```
-./diffusion_demo <resource_path> <model_type> <output_image_name> <memory_mode> <backend_type> <input_text>
+./diffusion_demo <resource_path> <model_type> <memory_mode> <backend_type> <iteration_num> <output_image_name> <prompt_text>
 ```
 其中，resource_path 就是mnn模型文件的路径，除了mnn文件，还需要:
-1. 将MNN目录transformers/diffusion/scheduler/alphas.txt文件拷贝到该文件夹下。
-2. 针对stable-diffusion-v1-5/chilloutmix模型需要将huggingfacetokenizer目录下merges.txt和vocab.json拷贝到该文件夹中。
-3. 针对Taiyi-Stable-Diffusion模型需要将huggingfacetokenizer目录下vocab.txt拷贝到该文件夹中。
-4. model_type是目前支持的两种diffusion模型的类别。如果是stable-diffusion-v1-5/chilloutmix模型设为0，如果是Taiyi-Stable-Diffusion模型设为1。
-5. output_image_name是生成图片的名字，默认图片位置在当前运行目录下。
-6. memory_mode代表设备是否内存足够，设为0表示内存节约模式(demo中每个模型使用前等待初始化，用完释放)，1代表内存足够模式(所有模式启动时全初始化完，用时无需等待初始化)。
-7. backend_type代表选择的运行后端。
-8. input_text是文生图的prompt，如果是stable-diffusion-v1-5/chilloutmix模型建议英文prompt，如果是Taiyi-Stable-Diffusion建议中文prompt。
-
-运行指令例如: 
+### 资源拷贝
 ```
-./diffusion_demo mnn_sd1.5_path 0 demo.jpg 0 3 "a cute cat"
-./diffusion_demo mnn_chilloutmix_path 0 demo.jpg 0 3 "a pure girl"
-./diffusion_demo mnn_taiyi_path 1 demo.jpg 0 3 "一只可爱的猫"
+(a) 将MNN目录transformers/diffusion/engine/scheduler/alphas.txt文件拷贝到resource_path文件夹下。
+(b) 针对stable-diffusion-v1-5/chilloutmix模型需要将huggingfacetokenizer目录下merges.txt和vocab.json拷贝到resource_path文件夹中。
+(c) 针对Taiyi-Stable-Diffusion模型需要将huggingfacetokenizer目录下vocab.txt拷贝到resource_path文件夹中。
+```
+### 参数设置
+```
+1. model_type是目前支持的两种diffusion模型的类别。如果是stable-diffusion-v1-5/chilloutmix模型设为0，如果是Taiyi-Stable-Diffusion模型设为1。
+2. memory_mode代表设备是否内存足够，设为0表示内存节约模式(demo中每个模型使用前等待初始化，用完释放)，1代表内存足够模式(所有模式启动时全初始化完，用时无需等待初始化)。
+3. backend_type代表选择的运行后端，如OpenCL/CPU等。
+4. iteration_num代表文生图迭代次数，通常建议设置10到20之间。
+
+```
+### 提示词和图片名称设置
+```
+1. output_image_name是生成图片的名字，默认图片位置在当前运行目录下。
+2. prompt_text是文生图的prompt，如果是stable-diffusion-v1-5/chilloutmix模型建议英文prompt，如果是Taiyi-Stable-Diffusion建议中文prompt。
+```
+### 运行命令示例
+```
+./diffusion_demo mnn_sd1.5_path 0 1 3 20 demo.jpg "a cute cat"
+./diffusion_demo mnn_chilloutmix_path 0 0 3 10 demo.jpg "a pure girl"
+./diffusion_demo mnn_taiyi_path 1 0 3 10 demo.jpg "一只可爱的猫"
 ```
 ## FAQ
 1. Demo运行报错、段错误，怎么解决？

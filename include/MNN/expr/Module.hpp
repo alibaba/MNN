@@ -10,7 +10,6 @@
 #define MNN_Train_Module_hpp
 
 #include <vector>
-#include <unordered_map>
 
 #include <MNN/expr/Expr.hpp>
 #include <MNN/expr/Executor.hpp>
@@ -97,23 +96,7 @@ public:
         std::string bizCode;
     };
     const Info* getInfo() const;
-    class CloneContext {
-    public:
-        CloneContext() = default;
-        explicit CloneContext(const bool shareParams)
-            : mShareParams(shareParams) {}
-        virtual ~CloneContext() = default;
-
-        const bool shareParams() const { return mShareParams; }
-
-        EXPRP getOrClone(const EXPRP expr);
-        VARP getOrClone(const VARP var);
-    private:
-        bool mShareParams = false;
-        std::unordered_map<const Expr*, EXPRP> mExprMap;
-        std::unordered_map<const Variable*, VARP> mVarMap;
-    };
-
+    class CloneContext;
     virtual Module* clone(CloneContext* ctx) const {
         return nullptr;
     }

@@ -20,7 +20,6 @@ MNN使用CMake构建项目，CMake中的宏定义列表如下：
 | MNN_DEBUG_MEMORY     | 是否开启MNN内存调试，默认为`OFF` |
 | MNN_DEBUG_TENSOR_SIZE | 是否开启MNN tensor size调试，默认为`OFF` |
 | MNN_GPU_TRACE        | 是否开启MNN GPU调试，默认为`OFF` |
-| MNN_PORTABLE_BUILD   | 尽可能链接第三方库的静态版本，以提高构建的可执行文件的可移植性，默认为`OFF` |
 | MNN_SEP_BUILD        | 是否构建MNN的后端和表达式分离版本，只在`MNN_BUILD_SHARED_LIBS=ON`时生效，默认为`ON` |
 | NATIVE_LIBRARY_OUTPUT | 如果构建为动态库，则指定动态库的输出路径，默认为`OFF` |
 | NATIVE_INCLUDE_OUTPUT | 如果构建为动态库，则指定动态库的头文件路径，默认为`OFF` |

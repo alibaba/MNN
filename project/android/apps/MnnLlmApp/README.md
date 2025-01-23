@@ -38,7 +38,7 @@ This is our full multimodal language model (LLM) Android app
 + you can download the app from [Releases](#releases) or [build it yourself](#development);
 + After installing the application, you can browse all supported models, download them, and interact with them directly within the app.;
 + Additionally, you can access your chat history in the sidebar and revisit previous conversations seamlessly.
- !!!warning!!! This version has been tested exclusively on the OnePlus 13 and Xiaomi 14 Ultra, and its stability on other devices cannot be guaranteed. If you encounter any issues, please feel free to open an issue for assistance.
+ !!!warning!!! This version has been tested exclusively on the OnePlus 13 and Xiaomi 14 Ultra, Due to the demanding performance requirements of large language models (LLMs), many budget or low-spec devices may experience issues such as slow inference speeds, application instability, or even failure to run entirely. and its stability on other devices cannot be guaranteed. If you encounter any issues, please feel free to open an issue for assistance.
 
 
 # Development 
@@ -64,7 +64,7 @@ This is our full multimodal language model (LLM) Android app
 
 # Releases
 ## Version 0.1
-+ click here to [download](./assets/mnn_llm_app_debug_0_1.apk)
++ Click here to [download](./assets/mnn_llm_app_debug_0_1.apk)
 + this is our first public released version; you can :
   + search all our supported models, download  and chat with it in the app; 
   + diffusion model:

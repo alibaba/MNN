@@ -13,6 +13,7 @@
 #import "MNNMetalContext.h"
 #import "MetalAttentionShader.hpp"
 #include "MNN_generated.h"
+#include "core/OpCommonUtils.hpp"
 
 #if MNN_METAL_ENABLED
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
@@ -41,15 +42,16 @@ public:
 
 private:
     void _init();
-    void reallocKVCache(int history_len);
+    void reallocKVCache();
     void compilerShader(const std::vector<Tensor *> &inputs);
     bool mKVCache;
     std::shared_ptr<SharedCache> mCache;
     float mScale;
     const int mExpandChunk = 64;
-    bool mIsDecode = false;
+    bool mShortSeq = false;
     std::shared_ptr<Tensor> mTempQK, mTempSoftMax;
     int mNumHead = 0, mHeadDim = 0, mValueH = 0, mKvNumHead = 0;
+    int mSeqLen;
     id<MTLComputePipelineState> mKernel_softmax = nil;
     
     id<MTLComputePipelineState> mKernel_qk = nil;
@@ -62,6 +64,7 @@ private:
     id<MTLBuffer> mParamCopy;
     
 private:
+    KVMeta* mMeta;
     bool mQkSimdReduce = false;
     bool mQkSimdMatrix = false;
     bool mSftmSimdReduce = false;
@@ -87,6 +90,8 @@ void AttentionBufExecution::_init() {
     mCache.reset(new SharedCache);
     auto mtbn = static_cast<MetalBackend *>(backend());
     auto context = (__bridge MNNMetalContext *)mtbn->context();
+    mMeta = (KVMeta*)(mtbn->getRuntime()->pMeta);
+
     mParamQKV = [context newDeviceBuffer:sizeof(Param) access:CPUWriteOnly];
     mParamSoftmax = [context newDeviceBuffer:4 * sizeof(int) access:CPUWriteOnly];
     mParamCopy = [context newDeviceBuffer:5 * sizeof(int) access:CPUWriteOnly];
@@ -94,63 +99,94 @@ void AttentionBufExecution::_init() {
     mTempSoftMax.reset(Tensor::createDevice<float>({0, 0}));
 }
 
-void AttentionBufExecution::reallocKVCache(int history_len) {
-    /*
-     when kv-cache
-     decoding: past_len > max_len, realloc and copy past_len cache
-     prefill : max_len == 0 (first prefill), realloc and copy history_len cache
-     prefill : max_len > 0 (not first prefill) && past_len >= max_len, realloc and copy history_len cache. copy current prompt in copy shader(not this function)
-     prefill : max_len > 0 (not first prefill) && past_len < max_len, not realloc and no need copy history_len cache, just copy current prompt in copy shader(not this function)
-
-     */
+void AttentionBufExecution::reallocKVCache() {
     if (!mKVCache) {
         return;
     }
+    auto kv_seq_len = mMeta->previous + mMeta->add - mMeta->remove + mMeta->computeReverseSize();
     
-    if (mIsDecode && mCache->mPastLength < mCache->mMaxLength) {
-        return;
-    }
-
-    // not first prefill (do reuse_kvcache) and total past_len < max_len
-    if(!mIsDecode && mCache->mMaxLength > 0 && mCache->mPastLength < mCache->mMaxLength && history_len != 0) {
-        return;
-    }
     auto mtbn = static_cast<MetalBackend *>(backend());
     int byte = 4;
     if(mtbn->useFp16InsteadFp32()) {
         byte = 2;
     }
-    bool needCopy = history_len > 0;
+    
+    auto start = mCache->mPastLength - mMeta->remove;
+    // latest length larger than maxLen
+    if (kv_seq_len > mCache->mMaxLength) {
 
-    size_t old_size = mKvNumHead * history_len * mHeadDim * byte;
-    size_t old_piece_size = history_len * byte;
-    size_t old_piece_stride = mCache->mMaxLength * byte;
-
-    mCache->mMaxLength = mCache->mPastLength + mExpandChunk;
-    // past_key: [1, numhead, headdim, maxlen]
-    auto new_key = Tensor::createDevice<float>({mCache->mMaxLength, mKvNumHead, mHeadDim});
-    // past_value: [1, numhead, maxlen, headdim]
-    auto new_value = Tensor::createDevice<float>({mKvNumHead, mHeadDim, mCache->mMaxLength});
-    size_t size = mKvNumHead * mCache->mMaxLength * mHeadDim * byte;
-    backend()->onAcquireBuffer(new_key, Backend::STATIC);
-    backend()->onAcquireBuffer(new_value, Backend::STATIC);
-    if (needCopy) {
-        auto newKeyBuf = MetalBackend::getBuffer(new_key);
-        auto new_key_ptr = (uint8_t*)[newKeyBuf.first contents] + newKeyBuf.second;
-        auto keyBuf = MetalBackend::getBuffer(mCache->mPastKey.get());
-        auto key_ptr = (uint8_t*)[keyBuf.first contents] + keyBuf.second;;
-        ::memcpy(new_key_ptr, key_ptr, old_size);
+        auto copy_len = mCache->mPastLength - mMeta->remove + mMeta->computeReverseSize();
+        bool needCopy = copy_len > 0;
         
-        auto newValueBuf = MetalBackend::getBuffer(new_value);
-        auto new_value_ptr = (uint8_t*)[newValueBuf.first contents] + newValueBuf.second;
+        size_t old_size = mKvNumHead * start * mHeadDim * byte;
+        size_t old_piece_size = start * byte;
+        size_t old_piece_stride = mCache->mMaxLength * byte;
+
+        mCache->mMaxLength = kv_seq_len + mExpandChunk;
+        // past_key: [1, numhead, headdim, maxlen]
+        auto new_key = Tensor::createDevice<float>({mCache->mMaxLength, mKvNumHead, mHeadDim});
+        // past_value: [1, numhead, maxlen, headdim]
+        auto new_value = Tensor::createDevice<float>({mKvNumHead, mHeadDim, mCache->mMaxLength});
+        size_t size = mKvNumHead * mCache->mMaxLength * mHeadDim * byte;
+        auto res = backend()->onAcquireBuffer(new_key, Backend::STATIC);
+        res = res && backend()->onAcquireBuffer(new_value, Backend::STATIC);
+        if(!res) {
+            MNN_ERROR("attition kv cache realloc memory error:%d\n", res);
+        }
+        if (needCopy) {
+            auto newKeyBuf = MetalBackend::getBuffer(new_key);
+            auto new_key_ptr = (uint8_t*)[newKeyBuf.first contents] + newKeyBuf.second;
+            auto keyBuf = MetalBackend::getBuffer(mCache->mPastKey.get());
+            auto key_ptr = (uint8_t*)[keyBuf.first contents] + keyBuf.second;;
+            ::memcpy(new_key_ptr, key_ptr, old_size);
+            
+            auto newValueBuf = MetalBackend::getBuffer(new_value);
+            auto new_value_ptr = (uint8_t*)[newValueBuf.first contents] + newValueBuf.second;
+            auto valueBuf = MetalBackend::getBuffer(mCache->mPastValue.get());
+            auto value_ptr = (uint8_t*)[valueBuf.first contents] + valueBuf.second;
+            for(int i = 0; i <  mKvNumHead * mHeadDim; i++) {
+                ::memcpy(new_value_ptr + i * mCache->mMaxLength * byte, value_ptr + i * old_piece_stride, old_piece_size);
+            }
+        }
+        mCache->mPastLength = (int)start;
+
+        mCache->mPastKey.reset(new_key);
+        mCache->mPastValue.reset(new_value);
+    }
+    
+    // Remove
+    {
+        if (0 == mMeta->n_reserve) {
+            mCache->mPastLength = start;
+            return;
+        }
+        
+        auto keyBuf = MetalBackend::getBuffer(mCache->mPastKey.get());
+        auto key_ptr = (uint8_t*)[keyBuf.first contents] + keyBuf.second;
         auto valueBuf = MetalBackend::getBuffer(mCache->mPastValue.get());
         auto value_ptr = (uint8_t*)[valueBuf.first contents] + valueBuf.second;
-        for(int i = 0; i <  mKvNumHead * mHeadDim; i++) {
-            ::memcpy(new_value_ptr + i * mCache->mMaxLength * byte, value_ptr + i * old_piece_stride, old_piece_size);
+        
+        // TODO: need to ensure reserve info is sorted
+        for (int n = 0; n < mMeta->n_reserve; ++n) {
+            auto begin = mMeta->reserve[2 * n];
+            auto length = mMeta->reserve[2 * n + 1];
+            // past_key   : [mCache->mPastLength, mKvNumHead, mHeadDim]
+            // past_value : [mKvNumHead, mHeadDim, mCache->mMaxLength]
+
+            auto copy_src_index = mCache->mPastLength - mMeta->remove + begin;
+            auto copy_dst_index = start;
+            for(int i = 0; i < length; i++) {
+                ::memcpy(key_ptr + (copy_dst_index + i) * mKvNumHead * mHeadDim * byte, key_ptr + (copy_src_index + i) * mKvNumHead * mHeadDim * byte, mKvNumHead * mHeadDim * byte);
+            }
+            for(int j = 0; j <  mKvNumHead * mHeadDim; j++) {
+                for(int i = 0; i < length; i++) {
+                    ::memcpy(value_ptr + (j * mCache->mMaxLength + copy_dst_index + i) * byte, value_ptr + (j * mCache->mMaxLength + copy_src_index + i) * byte, byte);
+                }
+            }
+            start += length;
         }
+        mCache->mPastLength = (int)start;
     }
-    mCache->mPastKey.reset(new_key);
-    mCache->mPastValue.reset(new_value);
 }
 
 void AttentionBufExecution::compilerShader(const std::vector<Tensor *> &inputs) {
@@ -173,7 +209,7 @@ void AttentionBufExecution::compilerShader(const std::vector<Tensor *> &inputs) 
     }
     
     // QK matmul total thread is large
-    mUseHeadNum2 = mIsDecode && mCache->mKv_seq_len > 1024;
+    mUseHeadNum2 = mShortSeq && mCache->mKv_seq_len > 1024;
     if(mUseHeadNum2) {
         qkKeys.emplace_back("HEAD_NUM_2");
     }
@@ -252,7 +288,25 @@ void AttentionBufExecution::compilerShader(const std::vector<Tensor *> &inputs) 
     MNN_ASSERT(nil != mKernel_copy);
 
     if(mSftmSimdReduce) {
-        mKernel_softmax = [context pipelineWithName:@"softmax_plane_sg" fp16:mtbn->useFp16InsteadFp32()];
+        // basic marco info
+        std::string ftype = "float";
+        if (mtbn->useFp16InsteadFp32()) {
+            ftype = "half";
+        }
+
+        MTLCompileOptions *option = [[MTLCompileOptions alloc] init];
+        auto dic = [NSMutableDictionary dictionaryWithCapacity:0];
+        option.preprocessorMacros = @{
+            @"ftype" : @(ftype.c_str()),
+        };
+        std::vector<std::string> keys = {"softmax_sg_reduce", ftype, "softmax_plane_sg"};
+        
+        auto pipeline = rt->findPipeline(keys);
+        if (nil == pipeline) {
+            pipeline = mtbn->makeComputePipelineWithSourceOption(gSoftmaxSgReduce, "softmax_plane_sg", option);
+            rt->insertPipeline(keys, pipeline);
+        }
+        mKernel_softmax = pipeline;
     } else {
         mKernel_softmax = [context pipelineWithName:@"softmax_plane" fp16:mtbn->useFp16InsteadFp32()];
     }
@@ -268,67 +322,47 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor *> &inputs, const 
     auto mtbn = static_cast<MetalBackend *>(backend());
     auto context = (__bridge MNNMetalContext *)mtbn->context();
     auto shape = query->shape();
-    int seq_len = shape[1];
+    mSeqLen = shape[1];
     mNumHead = shape[2];
     mHeadDim = shape[3];
     mScale = 1.0 / sqrt(mHeadDim);
-    mIsDecode = seq_len == 1;
-
-    int history_len = mCache->mPastLength;
-    // first prefill set history_len to 0
-    if(!mIsDecode && mask->length(2) == mask->length(3)) {
-        history_len = 0;
-    }
-    if (!mIsDecode) {
-        mCache->mPastLength = mask->length(3);
-    }
-    mCache->mKv_seq_len = mCache->mPastLength;
-    if(mIsDecode){
-        mCache->mKv_seq_len = mCache->mPastLength + 1;
-    }
+    // currently only mSeqLen=1 means short_seq
+    mShortSeq = mSeqLen == 1;
     mKvNumHead = key->shape()[2];
+    int group_size = mNumHead / mKvNumHead;
+
+    mCache->mPastLength = mMeta->previous;
+    // kv-cache realloc function
+    reallocKVCache();
+
+    mCache->mKv_seq_len = mCache->mPastLength + mSeqLen;
     
     auto rt = (MetalRuntime*)mtbn->runtime();
     bool supportSimdReduce = rt->supportSimdGroupReduce();
     bool supportSimdMatrix = rt->supportSimdGroupMatrix();
 
     // decode and thread number not too large
-    mQkSimdReduce = supportSimdReduce && seq_len == 1;
+    mQkSimdReduce = supportSimdReduce && mSeqLen == 1;
     // loop_k can divide 8, thus avoid branch
-    mQkSimdMatrix = supportSimdMatrix && seq_len >= 16 && mHeadDim % 8 == 0;
+    mQkSimdMatrix = supportSimdMatrix && mSeqLen >= 16 && mHeadDim % 8 == 0;
 
     mSftmSimdReduce = supportSimdReduce;
-    mQkvSimdReduce = supportSimdReduce && seq_len == 1 && mHeadDim * mNumHead < mCache->mKv_seq_len * 32;
-    mQkvSimdMatrix = supportSimdMatrix && seq_len >= 16;
+    mQkvSimdReduce = supportSimdReduce && mSeqLen == 1 && mHeadDim * mNumHead < mCache->mKv_seq_len * 32;
+    mQkvSimdMatrix = supportSimdMatrix && mSeqLen >= 16;
     
     // start to compile attention shaders
     compilerShader(inputs);
     
-    int group_size = mNumHead / mKvNumHead;
-
-    // kv-cache realloc function
-    reallocKVCache(history_len);
-    
     // temp tensor alloc memory
     bool needMalloc = mTempQK->length(0) != mNumHead;
-    if (mIsDecode) {
-        if (mTempQK->length(1) != mCache->mMaxLength) {
-            needMalloc = true;
-        }
-        mTempQK->setLength(0, mNumHead);
-        mTempQK->setLength(1, mCache->mMaxLength);
-        mTempSoftMax->setLength(0, mNumHead);
-        mTempSoftMax->setLength(1, mCache->mMaxLength);
-
-    } else {
-        if (mTempQK->length(1) != seq_len * mCache->mPastLength) {
-            needMalloc = true;
-        }
-        mTempQK->setLength(0, mNumHead);
-        mTempQK->setLength(1, seq_len * mCache->mPastLength);
-        mTempSoftMax->setLength(0, mNumHead);
-        mTempSoftMax->setLength(1, seq_len * mCache->mPastLength);
+    if (mTempQK->length(1) != mSeqLen * mCache->mMaxLength) {
+        needMalloc = true;
     }
+    mTempQK->setLength(0, mNumHead);
+    mTempQK->setLength(1, mSeqLen * mCache->mMaxLength);
+    mTempSoftMax->setLength(0, mNumHead);
+    mTempSoftMax->setLength(1, mSeqLen * mCache->mMaxLength);
+
     if (needMalloc) {
         auto res = backend()->onAcquireBuffer(mTempQK.get(), Backend::STATIC) && backend()->onAcquireBuffer(mTempSoftMax.get(), Backend::STATIC);
         if (!res) {
@@ -345,18 +379,12 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor *> &inputs, const 
         param->key_seq_len = mCache->mKv_seq_len;
         param->head_num = mNumHead;
         param->group = group_size;
-        param->query_seq_len = seq_len;
+        param->query_seq_len = mSeqLen;
         param->max_kv_len = mCache->mMaxLength;
     }
     // For softmax parameter
-    int inside, outside;
-    if (mIsDecode) {
-        inside = 1;
-        outside = mNumHead;
-    } else {
-        inside = 1;
-        outside = seq_len * mNumHead;
-    }
+    int inside = 1;
+    int outside = mSeqLen * mNumHead;
     int axis = mCache->mKv_seq_len;
     {
         auto softmax = (int*)mParamSoftmax.contents;
@@ -370,32 +398,16 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor *> &inputs, const 
     // Run Copy Kernel
     {
         auto copyp = (int*)mParamCopy.contents;
+        /*
+         Key -> K-Cache :   [mCache->mKv_seq_len, mKvNumHead, mHeadDim] -> [mCache->mKv_seq_len, mKvNumHead, mHeadDim]
+         Value -> V-Cache : [mCache->mKv_seq_len, mKvNumHead, mHeadDim] -> [mKvNumHead, mHeadDim, mCache->mMaxLength (fill when decode)]
+         */
         copyp[0] = mKvNumHead * mHeadDim;
-        
-        int copy_line;
-        if(mIsDecode) {
-            /*
-             each decode fill one kv_seq.
-             Key -> K-Cache :   [1, mKvNumHead, mHeadDim] -> [mCache->mKv_seq_len + 1, mKvNumHead, mHeadDim]
-             Value -> V-Cache : [1, mKvNumHead, mHeadDim] -> [mKvNumHead, mHeadDim, mCache->mKv_seq_len + 1]
-             */
-            copyp[1] = 1;
-            copyp[2] = mCache->mMaxLength;
-            copyp[3] = (mCache->mKv_seq_len - 1) * copyp[0];
-            copyp[4] = mCache->mKv_seq_len - 1;
-            copy_line = 1;
-        } else {
-            /*
-             first time copy.
-             Key -> K-Cache :   [mCache->mKv_seq_len, mKvNumHead, mHeadDim] -> [mCache->mKv_seq_len, mKvNumHead, mHeadDim]
-             Value -> V-Cache : [mCache->mKv_seq_len, mKvNumHead, mHeadDim] -> [mKvNumHead, mHeadDim, mCache->mMaxLength (fill when decode)]
-             */
-            copyp[1] = seq_len;
-            copyp[2] = mCache->mMaxLength;
-            copyp[3] = history_len * copyp[0];
-            copyp[4] = history_len;
-            copy_line = seq_len;
-        }
+        copyp[1] = mSeqLen;
+        copyp[2] = mCache->mMaxLength;
+        copyp[3] = mCache->mPastLength * copyp[0];
+        copyp[4] = mCache->mPastLength;
+        int copy_line = mSeqLen;
 
         id<MTLComputePipelineState> pipeline = mKernel_copy;
         [encoder setComputePipelineState:pipeline];
@@ -414,7 +426,7 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor *> &inputs, const 
     // Run QK Kernel
     {
         id<MTLComputePipelineState> pipeline;
-        if (mIsDecode) {
+        if (mShortSeq) {
             pipeline = mKernel_qk;
         } else {
             pipeline = mKernelPrefill_qk;
@@ -432,13 +444,13 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor *> &inputs, const 
         }
         std::pair<MTLSize, MTLSize> gl;
         if(mQkSimdReduce) {
-            gl = std::make_pair(MTLSizeMake(seq_len, decode_grid_y, mCache->mKv_seq_len), MTLSizeMake(32, 1, 1));
+            gl = std::make_pair(MTLSizeMake(mSeqLen, decode_grid_y, mCache->mKv_seq_len), MTLSizeMake(32, 1, 1));
         } else if(mQkSimdMatrix) {
-            gl = std::make_pair(MTLSizeMake(UP_DIV(seq_len, 16), UP_DIV(mCache->mKv_seq_len, 16), mNumHead), MTLSizeMake(32, 1, 1));
-        } else if(mIsDecode){
-            gl = [context computeBestGroupAndLocal:pipeline threads:MTLSizeMake(seq_len, decode_grid_y, mCache->mKv_seq_len)];
+            gl = std::make_pair(MTLSizeMake(UP_DIV(mSeqLen, 16), UP_DIV(mCache->mKv_seq_len, 16), mNumHead), MTLSizeMake(32, 1, 1));
+        } else if(mShortSeq){
+            gl = [context computeBestGroupAndLocal:pipeline threads:MTLSizeMake(mSeqLen, decode_grid_y, mCache->mKv_seq_len)];
         } else {
-            gl = [context computeBestGroupAndLocal:pipeline threads:MTLSizeMake(seq_len, mNumHead, mCache->mKv_seq_len)];
+            gl = [context computeBestGroupAndLocal:pipeline threads:MTLSizeMake(mSeqLen, mNumHead, mCache->mKv_seq_len)];
         }
         [encoder dispatchThreadgroups:gl.first threadsPerThreadgroup:gl.second];
 
@@ -464,7 +476,7 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor *> &inputs, const 
     // Run QKV Kernel
     {
         id<MTLComputePipelineState> pipeline;
-        if (mIsDecode) {
+        if (mShortSeq) {
             pipeline = mKernel_qkv;
         } else {
             pipeline = mKernelPrefill_qkv;
@@ -476,21 +488,17 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor *> &inputs, const 
         [encoder setBuffer:mParamQKV offset:0 atIndex:3];
         std::pair<MTLSize, MTLSize> gl;
         if(mQkvSimdReduce) {
-            gl = std::make_pair(MTLSizeMake(seq_len, mNumHead, mHeadDim), MTLSizeMake(32, 1, 1));
+            gl = std::make_pair(MTLSizeMake(mSeqLen, mNumHead, mHeadDim), MTLSizeMake(32, 1, 1));
         } else if(mQkvSimdMatrix){
-            gl = std::make_pair(MTLSizeMake(UP_DIV(seq_len, 16), UP_DIV(mHeadDim, 16), mNumHead), MTLSizeMake(32, 1, 1));
+            gl = std::make_pair(MTLSizeMake(UP_DIV(mSeqLen, 16), UP_DIV(mHeadDim, 16), mNumHead), MTLSizeMake(32, 1, 1));
         } else {
-            gl = [context computeBestGroupAndLocal:pipeline threads:MTLSizeMake(seq_len, mNumHead, mHeadDim)];
+            gl = [context computeBestGroupAndLocal:pipeline threads:MTLSizeMake(mSeqLen, mNumHead, mHeadDim)];
         }
         [encoder dispatchThreadgroups:gl.first threadsPerThreadgroup:gl.second];
 
     }
     // Update status
-    if(mIsDecode){
-        mCache->mPastLength += 1;
-        mCache->mKv_seq_len = mCache->mPastLength + 1;
-    }
-
+    mCache->mPastLength += mSeqLen;
     return;
 }
 

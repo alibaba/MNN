@@ -10,7 +10,7 @@
 #include "MNN_generated.h"
 #include "MergeHelpers.hpp"
 #include "cli.hpp"
-#include "commonKit.hpp"
+#include "../../common/CommonUtils.hpp"
 #include "MNN_compression.pb.h"
 #include <fstream>
 
@@ -36,19 +36,7 @@ auto getConv1dPostCase = [](EXPRP expr) {
 
     auto gConverterConfig = Global<modelConfig>::Get();
     std::string compressFileName = gConverterConfig->compressionParamsFile;
-    Compression::Pipeline proto;
-    if (compressFileName != "") {
-        std::string jsonSuffix = "json";
-        std::string suffix = compressFileName.substr(compressFileName.find_last_of('.') + 1);
-        if (suffix.compare(jsonSuffix) != 0) {
-            std::fstream input(compressFileName.c_str(), std::ios::in | std::ios::binary);
-            if (!proto.ParseFromIstream(&input)) {
-                MNN_ERROR("Failed to parse compression pipeline proto.\n");
-            }
-        } else {
-            CommonKit::json2protobuf(compressFileName.c_str(), nullptr, &proto);
-        }
-    }
+    auto& proto = gConverterConfig->compressInfo->proto;
 
     auto findQuantParameters = [&](Compression::Pipeline& proto, std::string outputTensorName) {
         for (const auto& algo : proto.algo()) {

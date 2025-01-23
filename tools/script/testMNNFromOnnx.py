@@ -151,6 +151,8 @@ class TestModel():
             else:
                 # Float
                 inputs[inputVar.name] = np.random.uniform(0.1, 1.2, shapes).astype(np.float32)
+            if inputVar.type.find("float16") >= 0:
+                inputs[inputVar.name] = inputs[inputVar.name].astype(np.float16)
             jsonDict['inputs'].append(inp)
         print([output.name for output in self.model.graph.output])
         for output in self.model.graph.output:

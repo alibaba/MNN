@@ -31,14 +31,15 @@ __kernel void gemv_conv_c8_int4_buf(GLOBAL_SIZE_DIM_2
 #else
                         __global const uchar *weight,
 #endif
-                        __global const float *dequantScaleOffset,
+                        __global const FLOAT *dequantScaleOffset,
                         __global const FLOAT *bias,
                         __global FLOAT* output,
                         __private const int dstChannelC4,
                         __private const int srcChannelC4,
                         __private const int srcChannel,
                         __private const int blockNum,
-                        __private const int blockDim) {
+                        __private const int blockDim,
+                        __private const float coef) {
     const int lid = get_local_id(0);
     const int oc = get_global_id(1); //oc/8
     const int oc8 = oc << 3;
@@ -55,12 +56,17 @@ __kernel void gemv_conv_c8_int4_buf(GLOBAL_SIZE_DIM_2
     
     for(int j = lid; j < loop; j+=WGS){
         int k4 = j << 2;
+#ifdef ASYMMETRIC
         COMPUTE_FLOAT8 scale, offset;
         {
-            COMPUTE_FLOAT16 scaleOffset = CONVERT_COMPUTE_FLOAT16(vload16(0, dequantScaleOffset + oc8 * 2 + (k4 / blockDim) * dstChannelC4 * 8));
+            COMPUTE_FLOAT16 scaleOffset = CONVERT_COMPUTE_FLOAT16(convert_float16(vload16(0, dequantScaleOffset + oc8 * 2 + (k4 / blockDim) * dstChannelC4 * 8)) / coef);
             scale = scaleOffset.s02468ace;
             offset = scaleOffset.s13579bdf;
         }
+#else
+        COMPUTE_FLOAT8 scale = CONVERT_COMPUTE_FLOAT8(convert_float8(vload8(0, dequantScaleOffset + oc8 + (k4 / blockDim) * dstChannelC4 * 4)) / coef);
+        COMPUTE_FLOAT8 offset = 0;
+#endif
         COMPUTE_FLOAT8 wei;
         COMPUTE_FLOAT4 in = CONVERT_COMPUTE_FLOAT4(vload4(0, input + k4));
         #ifdef USE_IMAGE
@@ -88,14 +94,18 @@ __kernel void gemv_conv_c8_int4_buf(GLOBAL_SIZE_DIM_2
 #if INPUT_CHANNEL_LEAVES_NUM != 0
     {
         int k4 = loop << 2;
+#ifdef ASYMMETRIC
         COMPUTE_FLOAT8 scale, offset;
         {
-            COMPUTE_FLOAT16 scaleOffset = CONVERT_COMPUTE_FLOAT16(vload16(0, dequantScaleOffset + oc8 * 2 + (k4 / blockDim) * dstChannelC4 * 8));
+            COMPUTE_FLOAT16 scaleOffset = CONVERT_COMPUTE_FLOAT16(convert_float16(vload16(0, dequantScaleOffset + oc8 * 2 + (k4 / blockDim) * dstChannelC4 * 8)) / coef);
             scale = scaleOffset.s02468ace;
             offset = scaleOffset.s13579bdf;
         }
+#else
+        COMPUTE_FLOAT8 scale = CONVERT_COMPUTE_FLOAT8(convert_float8(vload8(0, dequantScaleOffset + oc8 + (k4 / blockDim) * dstChannelC4 * 4)) / coef);
+        COMPUTE_FLOAT8 offset = 0;
+#endif
         COMPUTE_FLOAT8 wei;
-        COMPUTE_FLOAT4 in = CONVERT_COMPUTE_FLOAT4(vload4(0, input + k4));
         #ifdef USE_IMAGE
         uchar16 charWeightsInt40 = as_uchar16(read_imagei(weight, SAMPLER, (int2)(j, oc)));
         #else
@@ -146,14 +156,15 @@ __kernel void gemv_conv_c8_int8_buf(GLOBAL_SIZE_DIM_2
 #else
                         __global const char *weight,
 #endif
-                        __global const float *dequantScaleOffset,
+                        __global const FLOAT *dequantScaleOffset,
                         __global const FLOAT *bias,
                         __global FLOAT* output,
                         __private const int dstChannelC4,
                         __private const int srcChannelC4,
                         __private const int srcChannel,
                         __private const int blockNum,
-                        __private const int blockDim) {
+                        __private const int blockDim,
+                        __private const float coef) {
     const int lid = get_local_id(0);
     const int oc = get_global_id(1); //oc/8
     const int oc8 = oc << 3;
@@ -171,9 +182,15 @@ __kernel void gemv_conv_c8_int8_buf(GLOBAL_SIZE_DIM_2
         int k2 = j << 1;
         COMPUTE_FLOAT16 scale, offset;
         {
-            COMPUTE_FLOAT16 scaleOffset = CONVERT_COMPUTE_FLOAT16(vload16(0, dequantScaleOffset + oc8 * 2 + (k2 / blockDim) * dstChannelC4 * 8));
+            #ifdef ASYMMETRIC
+            COMPUTE_FLOAT16 scaleOffset = CONVERT_COMPUTE_FLOAT16(convert_float16(vload16(0, dequantScaleOffset + oc8 * 2 + (k2 / blockDim) * dstChannelC4 * 8)) / coef);
             scale = (COMPUTE_FLOAT16)(scaleOffset.s02468ace, scaleOffset.s02468ace);
             offset = (COMPUTE_FLOAT16)(scaleOffset.s13579bdf, scaleOffset.s13579bdf);
+            #else
+            COMPUTE_FLOAT8 scaleOffset = CONVERT_COMPUTE_FLOAT8(convert_float8(vload8(0, dequantScaleOffset + oc8 + (k2 / blockDim) * dstChannelC4 * 4)) / coef);
+            scale = (COMPUTE_FLOAT16)(scaleOffset, scaleOffset);
+            offset = 0;
+            #endif
         }
         COMPUTE_FLOAT2 in = CONVERT_COMPUTE_FLOAT2(vload2(0, input + k2));
         #ifdef USE_IMAGE
@@ -191,12 +208,17 @@ __kernel void gemv_conv_c8_int8_buf(GLOBAL_SIZE_DIM_2
 #if INPUT_CHANNEL_LEAVES_NUM != 0
     {
         int k2 = loop << 1;
-        COMPUTE_FLOAT8 scale, offset;
         COMPUTE_FLOAT16 scale, offset;
         {
-            COMPUTE_FLOAT16 scaleOffset = CONVERT_COMPUTE_FLOAT16(vload16(0, dequantScaleOffset + oc8 * 2 + (k2 / blockDim) * dstChannelC4 * 8));
+            #ifdef ASYMMETRIC
+            COMPUTE_FLOAT16 scaleOffset = CONVERT_COMPUTE_FLOAT16(convert_float16(vload16(0, dequantScaleOffset + oc8 * 2 + (k2 / blockDim) * dstChannelC4 * 8)) / coef);
             scale = (COMPUTE_FLOAT16)(scaleOffset.s02468ace, scaleOffset.s02468ace);
             offset = (COMPUTE_FLOAT16)(scaleOffset.s13579bdf, scaleOffset.s13579bdf);
+            #else
+            COMPUTE_FLOAT8 scaleOffset = CONVERT_COMPUTE_FLOAT8(convert_float8(vload8(0, dequantScaleOffset + oc8 + (k2 / blockDim) * dstChannelC4 * 4)) / coef);
+            scale = (COMPUTE_FLOAT16)(scaleOffset, scaleOffset);
+            offset = 0;
+            #endif
         }
         #ifdef USE_IMAGE
         COMPUTE_FLOAT16 wei = CONVERT_COMPUTE_FLOAT16(as_char16(read_imagei(weight, SAMPLER, (int2)(j, oc)))) * scale + offset;
@@ -204,7 +226,7 @@ __kernel void gemv_conv_c8_int8_buf(GLOBAL_SIZE_DIM_2
         COMPUTE_FLOAT16 wei = CONVERT_COMPUTE_FLOAT16(vload16(j, weight + weight_offset)) * scale + offset;
         #endif
         {
-            out0 = mad((COMPUTE_FLOAT8)in[k2], wei.s01234567, out0);
+            out0 = mad((COMPUTE_FLOAT8)input[k2], wei.s01234567, out0);
         }
     }
 #endif
@@ -235,14 +257,15 @@ __kernel void gemv_conv_c8_int4_buf(GLOBAL_SIZE_DIM_2
 #else
                         __global const uchar *weight,
 #endif
-                        __global const float *dequantScaleOffset,
+                        __global const FLOAT *dequantScaleOffset,
                         __global const FLOAT *bias,
                         __global FLOAT* output,
                         __private const int dstChannelC4,
                         __private const int srcChannelC4,
                         __private const int srcChannel,
                         __private const int blockNum,
-                        __private const int blockDim) {
+                        __private const int blockDim,
+                        __private const float coef) {
     const int ic = get_global_id(0);
     const int oc = get_global_id(1); //oc/8
     
@@ -260,12 +283,17 @@ __kernel void gemv_conv_c8_int4_buf(GLOBAL_SIZE_DIM_2
     const int weight_offset = oc * srcChannelC4 * 16;
 #endif
     for (int i = 0; i < blockNum; i++){
+#ifdef ASYMMETRIC
         COMPUTE_FLOAT8 scale, offset;
         {
-            COMPUTE_FLOAT16 scaleOffset = CONVERT_COMPUTE_FLOAT16(vload16(0, dequantScaleOffset + oc8 * 2 + i * dstChannelC4 * 8));
+            COMPUTE_FLOAT16 scaleOffset = CONVERT_COMPUTE_FLOAT16(convert_float16(vload16(0, dequantScaleOffset + oc8 * 2 + i * dstChannelC4 * 8)) / coef);
             scale = scaleOffset.s02468ace;
             offset = scaleOffset.s13579bdf;
         }
+#else
+        COMPUTE_FLOAT8 scale = CONVERT_COMPUTE_FLOAT8(convert_float8(vload8(0, dequantScaleOffset + oc8 + i * dstChannelC4 * 4)) / coef);
+        COMPUTE_FLOAT8 offset = 0;
+#endif
         for (int j = 0; j < loop_end; j++) {
             int k = i * loop + j;
             COMPUTE_FLOAT8 wei;
@@ -338,14 +366,15 @@ __kernel void gemv_conv_c8_int8_buf(GLOBAL_SIZE_DIM_2
 #else
                         __global const char *weight,
 #endif
-                        __global const float *dequantScaleOffset,
+                        __global const FLOAT *dequantScaleOffset,
                         __global const FLOAT *bias,
                         __global FLOAT* output,
                         __private const int dstChannelC4,
                         __private const int srcChannelC4,
                         __private const int srcChannel,
                         __private const int blockNum,
-                        __private const int blockDim) {
+                        __private const int blockDim,
+                        __private const float coef) {
     const int ic = get_global_id(0);
     const int oc = get_global_id(1); //oc/8
     UNIFORM_BOUNDRY_CHECK_2(ic, oc);
@@ -363,9 +392,15 @@ __kernel void gemv_conv_c8_int8_buf(GLOBAL_SIZE_DIM_2
     for (int i = 0; i < blockNum; i++){
         COMPUTE_FLOAT16 scale, offset;
         {
-            COMPUTE_FLOAT16 scaleOffset = CONVERT_COMPUTE_FLOAT16(vload16(0, dequantScaleOffset + oc8 * 2 + i * dstChannelC4 * 8));
+            #ifdef ASYMMETRIC
+            COMPUTE_FLOAT16 scaleOffset = CONVERT_COMPUTE_FLOAT16(convert_float16(vload16(0, dequantScaleOffset + oc8 * 2 + i * dstChannelC4 * 8)) / coef);
             scale = (COMPUTE_FLOAT16)(scaleOffset.s02468ace, scaleOffset.s02468ace);
             offset = (COMPUTE_FLOAT16)(scaleOffset.s13579bdf, scaleOffset.s13579bdf);
+            #else
+            COMPUTE_FLOAT8 scaleOffset = CONVERT_COMPUTE_FLOAT8(convert_float8(vload8(0, dequantScaleOffset + oc8 + i * dstChannelC4 * 4)) / coef);
+            scale = (COMPUTE_FLOAT16)(scaleOffset, scaleOffset);
+            offset = 0;
+            #endif
         }
         for (int j = 0; j < loop_end; j++) {
             int k = i * loop + j;

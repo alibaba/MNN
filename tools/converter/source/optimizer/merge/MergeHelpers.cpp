@@ -9,7 +9,6 @@
 #include <unordered_map>
 #include <vector>
 
-#include "../../common/Common.hpp"
 #include "MNN_generated.h"
 #include "MergeHelpers.hpp"
 
@@ -17,6 +16,18 @@ using namespace MNN::Express;
 
 namespace MNN {
 namespace helpers {
+static MNN_DATA_FORMAT convertFormat(Express::Dimensionformat format) {
+    switch (format) {
+        case Express::NCHW:
+            return MNN_DATA_FORMAT_NCHW;
+        case Express::NHWC:
+            return MNN_DATA_FORMAT_NHWC;
+        case Express::NC4HW4:
+            return MNN_DATA_FORMAT_NC4HW4;
+        default:
+            return MNN_DATA_FORMAT_UNKNOWN;
+    }
+}
 
 bool IsConstant(EXPRP expr) {
     const Op* op = expr->get();

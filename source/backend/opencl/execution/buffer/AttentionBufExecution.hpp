@@ -62,7 +62,7 @@ public:
     AttentionBufExecution(const MNN::Op *op, Backend *backend, bool kv_cache);
     AttentionBufExecution(std::shared_ptr<KVCacheCLManager> manager, const MNN::Op *op, Backend *backend);
     ErrorCode longPrefillResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
-    ErrorCode DecodeSetArgs(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
+    ErrorCode UpdateArgs(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
 
     virtual ~AttentionBufExecution() = default;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;

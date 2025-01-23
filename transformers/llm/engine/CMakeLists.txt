@@ -4,7 +4,6 @@ option(BUILD_MLS "Build PC Commandline." OFF)
 
 
 if (LLM_SUPPORT_VISION AND MNN_BUILD_OPENCV)
-    list(APPEND MNN_DEPS MNNOpenCV)
     include_directories(${CMAKE_SOURCE_DIR}/tools/cv/include/)
 endif()
 

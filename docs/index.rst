@@ -42,6 +42,7 @@
    inference/session
    inference/module
    inference/python
+   inference/npu
 
 .. toctree::
    :maxdepth: 1
@@ -81,7 +82,6 @@
    tools/compress
    tools/visual
    tools/python
-   tools/script
 
 .. toctree::
    :maxdepth: 1

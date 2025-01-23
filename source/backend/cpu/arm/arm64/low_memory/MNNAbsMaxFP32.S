@@ -1,5 +1,5 @@
 //
-//  MNNAbsMaxFP32.S
+//  MNNAbsMaxFP32_Pack4.S
 //
 //  Created by MNN on 2023/10/31.
 //  Copyright © 2018, Alibaba Group Holding Limited
@@ -30,8 +30,8 @@
     fmaxp \s2\().4s, \s2\().4s, \s3\().4s // 2 2 3 3
     fmaxp \z0\().4s, \s0\().4s, \s2\().4s // 0 1 2 3
 .endm
-//void MNNAbsMaxFP32(const float* source, float* absmax, size_t src_depth_quad, size_t realSize, int pack)
-asm_function MNNAbsMaxFP32
+//void MNNAbsMaxFP32_Pack4(const float* source, float* absmax, size_t src_depth_quad, size_t realSize, int pack)
+asm_function MNNAbsMaxFP32_Pack4
 
 // x0: source, x1:absmax, x2:src_depth_quad, x3:realSize
 stp d14, d15, [sp, #(-16 * 4)]!

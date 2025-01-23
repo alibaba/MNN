@@ -48,11 +48,10 @@ bool MNNCreateDir(const char * path) {
         return false;
     }
 #else
-    if (mkdir(path, 0755) == 0 || errno == EEXIST) {
+    if (mkdir(path, 0755) == 0) {
         return true;
-    } else {
-        return false;
     }
+    return MNNDirExist(path);
 #endif
 }
 
@@ -286,7 +285,7 @@ void * MNNMmapFile(file_t file, size_t size)
 #else
     void * addr = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, file, 0);
     if (addr == MAP_FAILED) {
-        MNN_ERROR("MNN: Mmap failed: %s\n", strerror(errno));
+        MNN_ERROR("MNN: Mmap failed\n");
         return nullptr;
     }
     return addr;
@@ -301,6 +300,20 @@ ErrorCode MNNUnmapFile(void * addr, size_t size)
     }
 #else
     if (-1 == munmap(addr, size)) {
+        return FILE_UNMAP_FAILED;
+    }
+#endif
+    return NO_ERROR;
+}
+
+ErrorCode MNNMmapSync(void * addr, size_t size)
+{
+#if defined(WIN32) || defined(_WIN32) || defined(_WIN64) || defined(_MSC_VER)
+    if (!FlushViewOfFile(addr, 0)) {
+        return FILE_UNMAP_FAILED;
+    }
+#else
+    if (-1 == msync(addr, size, MS_SYNC)) {
         return FILE_UNMAP_FAILED;
     }
 #endif

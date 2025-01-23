@@ -55,6 +55,9 @@ scvtf v21.4s, v17.4s
 fmls v18.4s, v20.4s, v0.s[0]
 fmls v19.4s, v21.4s, v0.s[0]
 
+fmul v18.4s, v18.4s, v0.s[2]
+fmul v19.4s, v19.4s, v0.s[2]
+
 .macro MLA_TWO z0 z1 z2 z3
 dup \z1, \z0
 fmla \z1, \z2, \z3
@@ -68,10 +71,14 @@ MLA_TWO v1.s[0], v20.4s, v18.4s, v22.4s
 MLA_TWO v1.s[0], v21.4s, v19.4s, v23.4s
 MLA_TWO v0.s[3], v22.4s, v18.4s, v20.4s
 MLA_TWO v0.s[3], v23.4s, v19.4s, v21.4s
-MLA_TWO v0.s[2], v20.4s, v18.4s, v22.4s
-MLA_TWO v0.s[2], v21.4s, v19.4s, v23.4s
+MLA_TWO v0.s[3], v20.4s, v18.4s, v22.4s
+MLA_TWO v0.s[3], v21.4s, v19.4s, v23.4s
 
 //v20.4s, v21.4s is expRemain
+fmul v20.4s, v20.4s, v20.4s
+fmul v21.4s, v21.4s, v21.4s
+fmul v20.4s, v20.4s, v20.4s
+fmul v21.4s, v21.4s, v21.4s
 
 ushl v16.4s, v16.4s, v2.4s
 ushl v17.4s, v17.4s, v2.4s

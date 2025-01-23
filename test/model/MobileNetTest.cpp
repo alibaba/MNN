@@ -11,6 +11,7 @@
 #endif
 
 #include <MNN/Interpreter.hpp>
+#include <MNN/AutoTime.hpp>
 #include <fstream>
 #include "MNNTestSuite.h"
 #include "TestUtils.h"
@@ -109,13 +110,12 @@ public:
             std::shared_ptr<MNN::Tensor> hostTensor(MNN::Tensor::createHostTensorFromDevice(outputTensor, false));
             for(int i=0; i<20; i++)//warmm up
             {
-                auto timeBegin = getTimeInUs();
+                MNN::Timer _t;
                 inputTensor->copyFromHostTensor(input.get());
                 net->runSession(session);
                 outputTensor->copyToHostTensor(hostTensor.get());
 
-                auto timeEnd = getTimeInUs();
-                printf("run cost %f ms\n", ((timeEnd - timeBegin) / 1000.0));
+                printf("run cost %f ms\n", ((_t.durationInUs()) / 1000.0));
             }
             
             float tolerance = backend == MNN_FORWARD_CPU ? 0.04 : 0.1;

@@ -17,7 +17,7 @@
 #include "execution/VulkanBasicExecution.hpp"
 //#define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
-#define MNN_OP_SUPPORT_LOG
+// #define MNN_OP_SUPPORT_LOG
 //#define MNN_VULKAN_DUMP_MEMORY_USAGE
 
 namespace MNN {

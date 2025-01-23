@@ -1,5 +1,5 @@
 //
-//  MNNDynamicQuantFP16.S
+//  MNNDynamicQuantFP16_Pack8.S
 //  MNN
 //
 //  Created by MNN on 2023/10/31.
@@ -20,7 +20,7 @@
 .endm
 
 //void MNNDynamicQuantFP16(const float* src, int8_t* dst, const float* scale, size_t src_depth_quad, size_t realSize, int pack)
-asm_function MNNDynamicQuantFP16
+asm_function MNNDynamicQuantFP16_Pack8
 
 // x0: src, x1:dst, x2:scale, x3:src_depth_quad, x4:realSize
 stp d14, d15, [sp, #(-16 * 4)]!
@@ -278,7 +278,6 @@ mov x9, x0   // src
 mov x10, x1  // dst
 mov x12, x3  // src_depth_quad
 sub x13, x7, #128 // src_step - 128
-sub x14, x6, #32 // dst_step - 32
 sub x15, x6, #64
 
 // quant_scale: v10, v11

@@ -73,6 +73,8 @@ int InitVulkanOnce(void) {
         MNN_DLSYM(libvulkan, "vkGetPhysicalDeviceImageFormatProperties"));
     vkGetPhysicalDeviceProperties =
         reinterpret_cast<PFN_vkGetPhysicalDeviceProperties>(MNN_DLSYM(libvulkan, "vkGetPhysicalDeviceProperties"));
+    vkGetPhysicalDeviceProperties2 =
+        reinterpret_cast<PFN_vkGetPhysicalDeviceProperties2>(MNN_DLSYM(libvulkan, "vkGetPhysicalDeviceProperties2"));
     vkGetPhysicalDeviceQueueFamilyProperties = reinterpret_cast<PFN_vkGetPhysicalDeviceQueueFamilyProperties>(
         MNN_DLSYM(libvulkan, "vkGetPhysicalDeviceQueueFamilyProperties"));
     vkGetPhysicalDeviceMemoryProperties = reinterpret_cast<PFN_vkGetPhysicalDeviceMemoryProperties>(
@@ -331,6 +333,7 @@ PFN_vkGetPhysicalDeviceFeatures vkGetPhysicalDeviceFeatures;
 PFN_vkGetPhysicalDeviceFormatProperties vkGetPhysicalDeviceFormatProperties;
 PFN_vkGetPhysicalDeviceImageFormatProperties vkGetPhysicalDeviceImageFormatProperties;
 PFN_vkGetPhysicalDeviceProperties vkGetPhysicalDeviceProperties;
+PFN_vkGetPhysicalDeviceProperties2 vkGetPhysicalDeviceProperties2;
 PFN_vkGetPhysicalDeviceQueueFamilyProperties vkGetPhysicalDeviceQueueFamilyProperties;
 PFN_vkGetPhysicalDeviceMemoryProperties vkGetPhysicalDeviceMemoryProperties;
 PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr;

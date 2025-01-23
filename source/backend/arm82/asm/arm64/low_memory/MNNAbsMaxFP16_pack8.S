@@ -1,5 +1,5 @@
 //
-//  MNNAbsMaxFP16.S
+//  MNNAbsMaxFP16_Pack8.S
 //  MNN
 //
 //  Created by MNN on 2023/10/31.
@@ -50,8 +50,8 @@
     fmaxp \s0\().8h, \s0\().8h, \s0\().8h // 0 0 1 1 2 2 3 3
 .endm
 
-//void MNNAbsMaxFP16(const float* source, float* absmax, size_t src_depth_quad, size_t realSize, int pack)
-asm_function MNNAbsMaxFP16
+//void MNNAbsMaxFP16_Pack8(const float* source, float* absmax, size_t src_depth_quad, size_t realSize, int pack)
+asm_function MNNAbsMaxFP16_Pack8
 
 // x0: source, x1:absmax, x2:src_depth_quad, x3:realSize, x4: pack(no used)
 stp d14, d15, [sp, #(-16 * 4)]!

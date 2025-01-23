@@ -120,6 +120,7 @@ int main(int argc, const char* argv[]) {
         for (int i=0; i<T+3; ++i) {
             inputPos->writeMap<int>()[i] = i;
         }
+        llm->setKVCacheInfo(inputIds[0].size(), 0);
         auto logits = llm->forwardRaw(embeddings, llm->gen_attention_mask(T+3), inputPos);
         {
             auto info = logits->getInfo();
@@ -136,6 +137,7 @@ int main(int argc, const char* argv[]) {
     llm->switchMode(MNN::Transformer::Llm::Decode);
     std::vector<MNN::Express::VARP> embeddingsVec(inputIds.size());
     for (int index=0; index<1; ++index) {
+        llm->setKVCacheInfo(1, 0);
         MNN::Express::VARP embeddings;
         for (int i=0; i<inputIds.size(); ++i) {
             auto emb = llm->embedding(inputIds[i]);
@@ -147,7 +149,7 @@ int main(int argc, const char* argv[]) {
         }
         embeddings = embeddings * MNN::Express::_Scalar<float>(1.0f/8.0f);
         auto inputPos = MNN::Express::_Input({1, 1}, MNN::Express::NCHW, halide_type_of<int>());
-        inputPos->writeMap<int>()[0] = T+3;
+        inputPos->writeMap<int>()[0] = T+3 + index;
         auto logits = llm->forwardRaw(embeddings, llm->gen_attention_mask(1), inputPos);
         saveVar(logits, "logit_decode.txt");
         auto size = logits->getInfo()->size;

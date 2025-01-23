@@ -224,4 +224,47 @@ __kernel void conv2d_1x1_weight_quant_buffer(GLOBAL_SIZE_2_DIMS
 #endif
 }
 
+__kernel void conv2d_1x1_ic_oc_weight_quant_buffer(GLOBAL_SIZE_2_DIMS
+#ifdef USE_LOW_BIT_WEIGHT_INT4
+                                            __global const uchar *input_ptr,
+                                            __global uchar *output_ptr, //(Ci/packCin， Co/packCout, packCin， packCout)
+#else
+                                            __global const char *input_ptr,
+                                            __global char *output_ptr, //(Ci/packCin， Co/packCout, packCin， packCout)
+#endif
+                                            __private const int input_channel,
+                                            __private const int output_channel,
+                                            __private const int icPack,
+                                            __private const int ocPack) {
+    int x  = get_global_id(0); // ic / icPack
+    int y = get_global_id(1); // oc / ocPack
 
+    DEAL_NON_UNIFORM_DIM2(x, y);
+    const int xin = x * icPack;
+    const int yin = y * ocPack;
+    const int inputChannelC4 = (input_channel + icPack - 1) / icPack;
+    const int outputChannelC4 = (output_channel + ocPack - 1) / ocPack;
+#ifdef USE_LOW_BIT_WEIGHT_INT4
+    const int inputOffset = (yin * input_channel + xin) / 2;
+    const int outputOffset = ((x * outputChannelC4 + y) * icPack * ocPack) / 2;
+    for(int i = 0; i < icPack; ++i){
+        for(int j = 0; j < ocPack / 2; ++j){
+            int index0 = (yin + j * 2) * input_channel + xin + i;
+            int index1 = (yin + j * 2 + 1) * input_channel + xin + i;
+            uchar s0 = input_ptr[index0/2];
+            uchar s1 = input_ptr[index1/2];
+            s0 = (index0 % 2) == 0 ? (s0 & 0xf0) : ((s0 & 0x0f) << 4);
+            s1 = (index1 % 2) == 0 ? (s1 >> 4) : (s1 & 0x0f);
+            output_ptr[outputOffset + i * (ocPack / 2) + j] = s0 | s1;
+        }
+    }
+#else
+    const int inputOffset = yin * input_channel + xin;
+    const int outputOffset = (x * outputChannelC4 + y) * icPack * ocPack;
+    for(int i = 0; i < icPack; ++i){
+        for(int j = 0; j < ocPack; ++j){
+            output_ptr[outputOffset + i * ocPack + j] = input_ptr[inputOffset + j * input_channel + i];
+        }
+    }
+#endif
+}

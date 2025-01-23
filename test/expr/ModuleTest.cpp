@@ -10,6 +10,7 @@
 #include <MNN/expr/ExprCreator.hpp>
 #include <thread>
 #include "MNNTestSuite.h"
+#include "TestUtils.h"
 #include "core/Backend.hpp"
 #include "RuntimeAttr.hpp"
 #include <MNN/expr/Executor.hpp>
@@ -1206,7 +1207,41 @@ public:
         }
         return _run(precision, true);
     }
-    virtual bool _run(int precision, bool shapeMultable) {
+    bool _checkResult(std::shared_ptr<MNN::Express::Module> basic, int precision, bool shapeMultable) {
+        std::shared_ptr<MNN::Express::Module> m0(Module::clone(basic.get()), Module::destroy);
+        std::shared_ptr<MNN::Express::Module> m1(Module::clone(basic.get()), Module::destroy);
+        
+        auto x = _Input({1, 3, 32, 32}, NCHW, halide_type_of<float>());
+        auto ptr = x->writeMap<float>();
+        for (int i=0; i<x->getInfo()->size; ++i) {
+            ptr[i] = i * 0.0001f;
+        }
+        x->unMap();
+        x = x + _Scalar<float>(0.001f);
+        auto firstResult = m0->onForward({x})[0]->readMap<float>()[0];
+        auto y = _Input({1, 3, 33, 33}, NCHW, halide_type_of<float>());
+        y->writeMap<float>();
+        y->unMap();
+        m0->onForward({y});
+        auto z = _Input({1, 3, 34, 34}, NCHW, halide_type_of<float>());
+        z->writeMap<float>();
+        z->unMap();
+        m1->onForward({z});
+        x = _Input({1, 3, 32, 32}, NCHW, halide_type_of<float>());
+        ptr = x->writeMap<float>();
+        for (int i=0; i<x->getInfo()->size; ++i) {
+            ptr[i] = i * 0.0001f;
+        }
+        x->unMap();
+        x = x + _Scalar<float>(0.001f);
+        auto secondResult = m0->onForward({x})[0]->readMap<float>()[0];
+        if (fabsf(firstResult - secondResult) >= 1e-6) {
+            return false;
+        }
+        return true;
+    }
+    
+    bool _run(int precision, bool shapeMultable) {
         BackendConfig bnConfig;
         auto exe = Executor::newExecutor(MNN_FORWARD_CPU, bnConfig, 1);
         ExecutorScope scope(exe);
@@ -1280,6 +1315,8 @@ public:
         if (!res) {
             return false;
         }
+        m1.reset();
+        _checkResult(m0, precision, shapeMultable);
         return true;
     }
 };
@@ -1384,3 +1421,110 @@ public:
     }
 };
 MNNTestSuiteRegister(ExecutorResetLoadModuleTest, "expr/ExecutorResetLoadModuleTest");
+
+class SequenceForwardResizeTest : public MNNTestCase {
+public:
+    virtual bool run(int precision) {
+        // Make Model include convolution in shape compute and content compute
+        auto x = _Input({1, 3, 24, 24}, NCHW, halide_type_of<float>());
+        x->setName("x");
+        auto y = _Square(x);
+        auto z = _Erf(y);
+        z = _Sqrt(z);
+        z->setName("z");
+        auto buffer = Variable::save({z});
+        ScheduleConfig config;
+        config.type = getCurrentType();
+        std::shared_ptr<Executor::RuntimeManager> rtm0( Executor::RuntimeManager::createRuntimeManager(config));
+        std::shared_ptr<Executor::RuntimeManager> rtm1( Executor::RuntimeManager::createRuntimeManager(config));
+
+        Module::Config mconfig;
+        mconfig.rearrange = false;
+        std::shared_ptr<MNN::Express::Module> m0(Module::load({"x"}, {"z"}, (const unsigned char*)buffer.data(), buffer.size(), rtm0, &mconfig), Module::destroy);
+        std::shared_ptr<MNN::Express::Module> m1(Module::load({"x"}, {"z"}, (const unsigned char*)buffer.data(), buffer.size(), rtm1, &mconfig), Module::destroy);
+        x = _Input({1, 3, 24, 24}, NCHW, halide_type_of<float>());
+        auto xPtr = x->writeMap<float>();
+        ::memset(xPtr, 0, x->getInfo()->size * sizeof(float));
+        x->unMap();
+        y = m0->onForward({x})[0];
+        z = m1->onForward({y})[0];
+        int status0 = 0;
+        int status1 = 0;
+        rtm0->getInfo(MNN::Interpreter::RESIZE_STATUS, &status0);
+        rtm1->getInfo(MNN::Interpreter::RESIZE_STATUS, &status1);
+        if (status0 != 2 || status1 != 2) {
+            FUNC_PRINT(1);
+            return false;
+        }
+        const_cast<Tensor*>(z->getTensor())->wait(MNN::Tensor::MAP_TENSOR_READ, true);
+        y = m0->onForward({x})[0];
+        z = m1->onForward({y})[0];
+        rtm0->getInfo(MNN::Interpreter::RESIZE_STATUS, &status0);
+        rtm1->getInfo(MNN::Interpreter::RESIZE_STATUS, &status1);
+        if (status0 != 1 || status1 != 1) {
+            FUNC_PRINT(1);
+            return false;
+        }
+        y = nullptr;
+        z = nullptr;
+        y = m0->onForward({x})[0];
+        z = m1->onForward({y})[0];
+        rtm0->getInfo(MNN::Interpreter::RESIZE_STATUS, &status0);
+        rtm1->getInfo(MNN::Interpreter::RESIZE_STATUS, &status1);
+        if (status0 != 0 || status1 != 0) {
+            FUNC_PRINT(1);
+            return false;
+        }
+        x = _Input({1, 3, 12, 12}, NCHW, halide_type_of<float>());
+        y = m0->onForward({x})[0];
+        rtm0->getInfo(MNN::Interpreter::RESIZE_STATUS, &status0);
+        if (2 != status0) {
+            FUNC_PRINT(1);
+            return false;
+        }
+        BackendConfig originConfig;
+        auto exe = Executor::newExecutor(MNN_FORWARD_CPU, originConfig, 1);
+        {
+            ExecutorScope _s(exe);
+            std::shared_ptr<MNN::Express::Module> m2(Module::clone(m0.get()));
+            auto rtm2 = m2->getInfo()->runTimeManager;
+            if (rtm2 == rtm0) {
+                FUNC_PRINT(1);
+                return false;
+            }
+            int status2 = 0;
+            rtm2->getInfo(MNN::Interpreter::RESIZE_STATUS, &status2);
+            if (0 != status2) {
+                FUNC_PRINT(1);
+                return false;
+            }
+            auto x2 = _Input({1, 3, 24, 24}, NCHW, halide_type_of<float>());
+            auto xPtr = x2->writeMap<float>();
+            ::memset(xPtr, 0, x2->getInfo()->size * sizeof(float));
+            x2->unMap();
+            auto y2 = m2->onForward({x})[0];
+
+            rtm2->getInfo(MNN::Interpreter::RESIZE_STATUS, &status2);
+            if (2 != status2) {
+                FUNC_PRINT(1);
+                return false;
+            }
+        }
+        x = nullptr;
+        y = nullptr;
+        z = nullptr;
+        x = _Input({1, 3, 12, 12}, NCHW, halide_type_of<float>());
+        x->writeMap<float>();
+        m0->onForward({x});
+        m1->onForward({x});
+        x = _Input({1, 3, 36, 36}, NCHW, halide_type_of<float>());
+        x->writeMap<float>();
+        m0->onForward({x});
+        x = _Input({1, 3, 12, 12}, NCHW, halide_type_of<float>());
+        x->writeMap<float>();
+        m1->onForward({x});
+
+        return true;
+    }
+};
+MNNTestSuiteRegister(SequenceForwardResizeTest, "expr/SequenceForwardResizeTest");

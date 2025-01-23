@@ -50,50 +50,24 @@ bool DenseConvolutionTiledExecutor::initQuantizeResource(std::shared_ptr<Convolu
         return false;
     }
     int originOffset = 0;
+    auto srcWInt8 = int8Info->weight.get();
+    std::vector<int8_t> blob;
     if (int8Info->canUseInt4) {
-        MNN_ASSERT(weightLength % 2 == 0);
-        weightLength = UP_DIV(weightLength, 2);
-        resource->mDequantize.bits = 4;
-        resource->mWeight.reset(Tensor::createDevice<int8_t>(std::vector<int>{weightLength}));
-        auto res = resource->backend->onAcquireBuffer(resource->mWeight.get(), Backend::STATIC);
-        if (!res) {
-            return false;
+        // Revert int4 to int8
+        auto size = int8Info->weight.size();
+        blob.resize(int8Info->weight.size() * 2);
+        auto idxBuf = (uint8_t*)srcWInt8;
+        for (int i=0; i<size; ++i) {
+            int val = idxBuf[i];
+            int x1 = val / 16;
+            int x2 = val % 16;
+            blob[2 * i] = x1 - 8;
+            blob[2 * i + 1] = x2 - 8;
+
         }
-        auto dstWInt4 = resource->mWeight->host<uint8_t>();
-        auto srcWInt4 = int8Info->weight.get();
-        if (kernelSize == 1 && srcChannel % 2 == 0 && hU * hP == outputCount) {
-            for (int i = 0; i < hU; i++) {
-                for (int j = 0; j < srcChannel/2; j++) {
-                    for (int k = 0; k < hP/2; k++) {
-                        uint8_t s0 = srcWInt4[((i * hP + (k * 2 + 0)) * srcChannel) / 2 + j];
-                        uint8_t s1 = srcWInt4[((i * hP + (k * 2 + 1)) * srcChannel) / 2 + j];
-                        uint8_t d0 = (s0 & 0xf0) | (s1 >> 4);
-                        uint8_t d1 = (s0 << 4) | (s1 & 0x0f);
-                        dstWInt4[(i * srcChannel + (j * 2 + 0)) * hP / 2 + k] = d0;
-                        dstWInt4[(i * srcChannel + (j * 2 + 1)) * hP / 2 + k] = d1;
-                    }
-                }
-            }
-        } else {
-            // [oc, ic, ks] -> [oc/hP, ks, ic, hP]
-            ::memset(dstWInt4, 0, resource->mWeight->usize());
-            for (int y = 0; y < outputCount; ++y) {
-                int yo = y / hP;
-                int yi = y % hP;
-                for (int iz = 0; iz < srcChannel; ++iz) {
-                    for (int k=0; k < kernelSize; ++k) {
-                        int sx = y * srcChannel * kernelSize + iz * kernelSize + k;
-                        int dx = yo * lP * hP * lU + (iz + k * srcChannel) * hP + yi;
-                        uint8_t s = srcWInt4[sx/2];
-                        s = (sx % 2) ? (s & 0xf) : (s >> 4);
-                        s = (dx % 2) ? s : (s << 4);
-                        dstWInt4[dx/2] |= s;
-                    }
-                }
-            }
-        }
-        originOffset = -8;
-    } else {
+        srcWInt8 = blob.data();
+    }
+    {
         resource->mWeight.reset(Tensor::createDevice<int8_t>(std::vector<int>{hU, lU * lP, hP}));
         auto res = resource->backend->onAcquireBuffer(resource->mWeight.get(), Backend::STATIC);
         if (!res) {
@@ -101,7 +75,6 @@ bool DenseConvolutionTiledExecutor::initQuantizeResource(std::shared_ptr<Convolu
         }
         // Reorder weight for int8
         auto dstWInt8 = resource->mWeight->host<int8_t>();
-        auto srcWInt8 = int8Info->weight.get();
         ::memset(dstWInt8, 0, resource->mWeight->usize());
         for (int y=0; y<outputCount; ++y) {
             int yo = y / hP;
@@ -179,11 +152,6 @@ void DenseConvolutionTiledExecutor::selectLowMemoryMatmulFunc(lowMemoryMatmulUni
         *matmulUnit = core->MNNPackedMatMul_int8;
         *matmulRemain = core->MNNPackedMatMulRemain_int8;
         *weightBytes  = 1;
-    }
-    if (weightQuantBits == 4) {
-        *matmulUnit   = core->MNNPackedMatMul_int4;
-        *matmulRemain = core->MNNPackedMatMulRemain_int4;
-        *weightBytes  = 0.5;
     }
 }
 
@@ -485,6 +453,7 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
     size_t weightStride = 0;
 #ifdef MNN_LOW_MEMORY
     if (mResource && mResource->mDequantize.bits <= 8) {
+        MNN_ASSERT(mResource->mDequantize.bits == 8);
         DenseConvolutionTiledExecutor::selectLowMemoryMatmulFunc(&matmulUnit, &matmulRemain, &weightBytes, mResource->mDequantize.bits, core);
         int scaleSize = mResource->mDequantize.mScaleBias->size() / (2 * bytes);
         blockNum = scaleSize / (mResource->hU * mResource->hP);
@@ -492,10 +461,6 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
         dequantAlpha = mResource->mDequantize.mScaleBias->host<uint8_t>();
         dequantBias = dequantAlpha + scaleSize * bytes;
         weightStride = (L - blockSize) * hP;
-        if (mResource->mDequantize.bits == 4) {
-            halfStride = 0.5;
-            weightStride = static_cast<size_t>(weightStride * halfStride);
-        }
     }
 #endif
     auto kernel_width      = mCommon->kernelX();

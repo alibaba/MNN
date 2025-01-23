@@ -462,7 +462,7 @@ Calibration::Calibration(MNN::NetT* model, const uint8_t* modelBuffer, const int
             mInputs = getModuleInputs(_calibrationFiles[0], _module->getInfo(), mInputNames);
         } else {
             mInputs.resize(1);
-            mInputs[0] = _Input(netInfo->inputs[0].dim, netInfo->inputs[0].order, netInfo->inputs[0].type);
+            mInputs[0] = _Input(mInputShape[mInputNames[0]], netInfo->inputs[0].order, netInfo->inputs[0].type);
             auto inputTensor = (MNN::Tensor*)mInputs[0]->getTensor();
             Helper::preprocessInput(_process.get(), _preprocessConfig, _calibrationFiles[0], inputTensor, _inputType, mInputs[0]);
         }
@@ -964,10 +964,8 @@ void Calibration::_computeQuantError() {
             inputs = getModuleInputs(file, netInfo, mInputNames);
         } else {
             inputs.resize(1);
-            inputs[0] = _Input(netInfo->inputs[0].dim, netInfo->inputs[0].order, netInfo->inputs[0].type);
-            inputs[0] = _Convert(inputs[0], netInfo->inputs[0].order);
-            auto inputTensor = (MNN::Tensor*)inputs[0]->getTensor();
-            Helper::preprocessInput(_process.get(), _preprocessConfig, file, inputTensor, _inputType, mInputs[0]);
+            inputs[0] = _Input(mInputShape[mInputNames[0]], netInfo->inputs[0].order, netInfo->inputs[0].type);
+            Helper::preprocessInput(_process.get(), _preprocessConfig, file, (MNN::Tensor*)inputs[0]->getTensor(), _inputType, inputs[0]);
         }
         Express::Executor::getGlobalExecutor()->setCallBack(std::move(before), std::move(after));
         _module->onForward(inputs);
@@ -1292,6 +1290,8 @@ static unaryProc selectUnaryProc(int type) {
             return MNN::Express::_Hardswish;
         case UnaryOpOperation_GELU:
             return MNN::Express::_Gelu;
+        case UnaryOpOperation_SILU:
+            return MNN::Express::_Silu;
         default:
             MNN_ASSERT(false);
             break;

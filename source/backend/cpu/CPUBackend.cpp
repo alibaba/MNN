@@ -241,14 +241,14 @@ Backend* CPURuntime::onCreate(const BackendConfig* config, Backend* origin) cons
         bool autoRemove = true;
         if (hint().useCachedMmap) {
             autoRemove = false;
-            std::string fileName = MNNFilePathConcat(hint().weightMemoryPath, prefix + "0.static");
+            std::string fileName = MNNFilePathConcat(hint().weightMemoryPath, prefix + "sync.static");
             const_cast<RuntimeHint&>(hint()).useCachedMmap += MNNFileExist(fileName.c_str());
         }
         if (nullptr == mStaticAllocatorCache.get()) {
             // Only support set weightmap dir once
             mStaticAllocatorCache = mStaticAllocator;
             auto mmapMem = BufferAllocator::Allocator::createMmap(hint().weightMemoryPath.c_str(), prefix.c_str(), "static", autoRemove);
-            int mmapSize = hint().mmapFileSize * 1024 * 1024;
+            size_t mmapSize = static_cast<size_t>(hint().mmapFileSize) * 1024 * 1024;
             mStaticAllocator.reset(new EagerBufferAllocator(mmapMem, 32, mmapSize));
         }
     }
@@ -445,9 +445,12 @@ CPUBackend::~CPUBackend() {
     mCacheGroup.clear();
 }
 void CPUBackend::_resetDynamicMemory() const {
-    mDmaInfo->mDynamicAllocator->apply();
+    mRuntime->pCurrentStatus = mDmaInfo->mDynamicAllocator->apply();
+    if (NO_ERROR != mRuntime->pCurrentStatus) {
+        return;
+    }
     if (nullptr != mDmaInfo->mDynamicAllocatorBackup.get()) {
-        mDmaInfo->mDynamicAllocatorBackup->apply();
+        mRuntime->pCurrentStatus  = mDmaInfo->mDynamicAllocatorBackup->apply();
     }
 }
 
@@ -677,6 +680,7 @@ const Runtime* CPUBackend::getRuntime() {
 
 bool CPUBackend::onClearBuffer() {
     if (nullptr != mRuntime->mStaticAllocatorCache.get()) {
+        mStaticAllocator->sync();
         mStaticAllocator = mRuntime->mStaticAllocatorCache;
     }
     mCache->reset();

@@ -204,17 +204,61 @@ std::vector<uint32_t> getGemmParams(const std::vector<uint32_t> &gemmSize, const
         return tunedGemmParams[info];
     }
     
+    auto getMaxDivisor = [](uint32_t num) -> uint32_t {
+        std::vector<int> divisors = {128, 64, 32};
+        for (const auto& divisor : divisors) {
+            if (num % divisor == 0) {
+                return divisor;
+            }
+        }
+        return 16;
+    };
+    
     // top gpu device and large computation
+    if(runtime->getGpuLevel() >= MEDIUM){
+        // total computation
+        auto compute_ratio = 1.0 * gemmSize[4] * gemmSize[0] / 256.0 * gemmSize[1] / 256.0 * gemmSize[2] / 256.0;
+        auto thread_ratio = 1.0 * gemmSize[4] * gemmSize[0] / 256.0 * gemmSize[1] / 256.0;
+            
+        // each dimension is even
+        bool is_even =  gemmSize[0] >= 256 && gemmSize[1] >= 128 && gemmSize[2] >= 128;
+        is_even |= gemmSize[1] >= 128 && gemmSize[2] >= 128 && gemmSize[4] >= 4;
+        bool is_div = gemmSize[0] % 64 == 0 && gemmSize[1] % 32 == 0;
+        if(compute_ratio >= 1.0 && thread_ratio >= 1.0 && is_even && is_div) {
+            int maxDivsorM = getMaxDivisor(gemmSize[0]);
+            int maxDivsorN = getMaxDivisor(gemmSize[1]);
+            maxDivsorM = maxDivsorM > 64 ? 64 : maxDivsorM;
+            maxDivsorN = maxDivsorN > 32 ? 32 : maxDivsorN;
+            std::vector<uint32_t> params_prefer = {16, 2, 16, 16, 64, 8, 8, 32, 0, 0, 0, 0, 4, 4};
+            params_prefer[2] = maxDivsorM / 4;
+            params_prefer[3] = maxDivsorM / 4;
+            params_prefer[4] = maxDivsorM;
+            params_prefer[5] = maxDivsorN / 4;
+            params_prefer[6] = maxDivsorN / 4;
+            params_prefer[7] = maxDivsorN;
+                
+            return params_prefer;
+        }
+    }
     if(runtime->getGpuLevel() == TOP && (runtime->getCLTuneLevel() == None || runtime->getCLTuneLevel() == Fast)) {
         // total computation
-        auto compute_ratio = 1.0 * gemmSize[4] * gemmSize[0] / 1024.0 * gemmSize[1] / 1024.0 * gemmSize[2] / 1024.0;
-        auto thread_ratio = 1.0 * gemmSize[4] * gemmSize[0] / 1024.0 * gemmSize[1] / 1024.0;
+        auto compute_ratio = 1.0 * gemmSize[4] * gemmSize[0] / 512.0 * gemmSize[1] / 512.0 * gemmSize[2] / 512.0;
+        auto thread_ratio = 1.0 * gemmSize[4] * gemmSize[0] / 512.0 * gemmSize[1] / 512.0;
 
         // each dimension is even
-        bool is_even =  gemmSize[0] >= 512 && gemmSize[1] >= 256;
-        bool is_div = gemmSize[0] % 128 == 0 && gemmSize[1] % 128 == 0;
-        if(compute_ratio >= 2.0 && thread_ratio >= 2.0 &&  is_even && is_div) {
-            return {16, 2, 16, 16, 128, 16, 16, 128, 0, 0, 0, 0, 8, 8};
+        bool is_even =  gemmSize[0] >= 512 && gemmSize[1] >= 256 && gemmSize[2] >= 256;
+        is_even |= gemmSize[1] >= 128 && gemmSize[2] >= 128 && gemmSize[4] >= 4;
+        bool is_div = gemmSize[0] % 64 == 0 && gemmSize[1] % 64 == 0;
+        if(compute_ratio >= 1.0 && thread_ratio >= 1.0 && is_even && is_div) {
+            int maxDivsorM = getMaxDivisor(gemmSize[0]);
+            int maxDivsorN = getMaxDivisor(gemmSize[1]);
+            std::vector<uint32_t> params_prefer = {16, 2, 16, 16, 128, 16, 16, 128, 0, 0, 0, 0, 8, 8};
+            params_prefer[4] = maxDivsorM;
+            params_prefer[7] = maxDivsorN;
+            params_prefer[12] = maxDivsorM / 16;
+            params_prefer[13] = maxDivsorN / 16;
+            
+            return params_prefer;
         }
     }
     std::vector<uint32_t> tuneLwsRes;
@@ -232,15 +276,6 @@ std::vector<uint32_t> getGemmParams(const std::vector<uint32_t> &gemmSize, const
     }
     
     if(runtime->getCLTuneLevel() == None) {
-        auto getMaxDivisor = [](uint32_t num) -> uint32_t {
-            std::vector<int> divisors = {128, 64, 32};
-            for (const auto& divisor : divisors) {
-                if (num % divisor == 0) {
-                    return divisor;
-                }
-            }
-            return 16;
-        };
         float multiNum = 1.0 * gemmSize[0] / 512.0 * gemmSize[1] / 512.0 * gemmSize[2] / 512.0;
         int maxDivsorM = getMaxDivisor(gemmSize[0]);
         int maxDivsorN = getMaxDivisor(gemmSize[1]);

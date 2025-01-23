@@ -152,6 +152,8 @@ public:
      */
     static void addCreator(OpType type, Creator *creator);
     static void setTensor(const MNN::Tensor* tensor, id<MTLComputeCommandEncoder> encoder, int index);
+    static void setMem(const MemChunk& chunk, id<MTLComputeCommandEncoder> encoder, int index);
+    static uint8_t* getMemPtr(const MemChunk& chunk);
     static std::pair<id<MTLBuffer>, int> getBuffer(const MNN::Tensor* tensor);
     size_t getTensorSizeInBytes(const Tensor* tensor) const;
     virtual bool onSelectDynamicAllocator(int index, int maxIndex) override;

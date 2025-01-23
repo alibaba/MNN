@@ -20,8 +20,8 @@ void _SSE_MNNExpC8(float* dest, const float* source, float* offset, const float*
     auto C    = _mm_set1_ps(offset[2]);
     auto p0    = _mm_set1_ps(parameters[0]);
     auto p1    = _mm_set1_ps(parameters[1]);
-    auto p2    = _mm_set1_ps(parameters[2]);
-    auto p3    = _mm_set1_ps(parameters[3]);
+    auto p2    = _mm_set1_ps(0.25f);
+    auto p3    = _mm_set1_ps(1.0f);
     auto p4    = _mm_set1_ps(parameters[4]);
     auto p5    = _mm_set1_ps(parameters[5]);
     auto p6    = _mm_set1_ps(parameters[6]);
@@ -43,7 +43,7 @@ void _SSE_MNNExpC8(float* dest, const float* source, float* offset, const float*
         div2 = _mm_slli_epi32(div2, 23);
         auto expBasic  = _mm_castsi128_ps(div2);
         auto xReamin   = _mm_sub_ps(x, _mm_mul_ps(div, p0));
-        auto t         = xReamin;
+        auto t         = _mm_mul_ps(xReamin, p2);
         auto c0        = _mm_mul_ps(p7, t);
         auto c1        = _mm_add_ps(c0, p6);
         auto c2        = _mm_mul_ps(c1, t);
@@ -53,8 +53,9 @@ void _SSE_MNNExpC8(float* dest, const float* source, float* offset, const float*
         auto c6        = _mm_mul_ps(c5, t);
         auto c7        = _mm_add_ps(c6, p3);
         auto c8        = _mm_mul_ps(c7, t);
-        auto c9        = _mm_add_ps(c8, p2);
-        auto expRemain = c9;
+        auto c9        = _mm_add_ps(c8, p3);
+        auto expRemain = _mm_mul_ps(c9, c9);
+        expRemain = _mm_mul_ps(expRemain, expRemain);
         auto res = _mm_add_ps(_mm_mul_ps(expBasic, expRemain), B);
         _mm_storeu_ps(dest + 4 * i, res);
         summer = _mm_add_ps(summer, res);

@@ -43,10 +43,14 @@ void MNNPackedMatMulRemainFP16_int8(float* C, const float* A, const float* B, si
 #endif
 
 #ifdef MNN_LOW_MEMORY
-void MNNAbsMaxFP16(const float* source, float* absmax, size_t src_depth_quad, size_t realSize, int pack);
+void MNNAbsMaxFP16_Pack8(const float* source, float* absmax, size_t src_depth_quad, size_t realSize, int pack);
+void MNNAbsMaxFP16_Pack4(const float* source, float* absmax, size_t src_depth_quad, size_t realSize, int pack);
 void MNNQuantScaleFP16(float* sum, float* absmax, float* quant_scale, float* dequant_scale, size_t thread, size_t batch);
-void MNNDynamicQuantFP16(const float* src, int8_t* dst, const float* scale, size_t src_depth_quad, size_t realSize, int pack);
+void MNNDynamicQuantFP16_Pack8(const float* src, int8_t* dst, const float* scale, size_t src_depth_quad, size_t realSize, int pack);
+void MNNDynamicQuantFP16_Pack4(const float* src, int8_t* dst, const float* scale, size_t src_depth_quad, size_t realSize, int pack);
 void MNNQuantSumFP16(float* sum, const float* dequant_scale, size_t thread, size_t batch);
+void MNNGeneralIm2col_Arm82(float* destOrigin, float const** sourceGroup, const int32_t* info, const int32_t* el, int32_t LP, int32_t pack);
+void MNNGeneralIm2col_Arm86(float* destOrigin, float const** sourceGroup, const int32_t* info, const int32_t* el, int32_t LP, int32_t pack);
 #endif
 #if defined(__aarch64__)
 void CountMinMaxValue_FP16(float* source, float* minVal, float* maxVal, size_t sizeQuad);
@@ -799,6 +803,62 @@ static void _ArmBasicMNNPackC4ForMatMul_A_L8(int8_t* destOrigin, int8_t const** 
     }
 }
 
+#ifdef MNN_LOW_MEMORY
+void MNNAbsMaxFP16(const float* source, float* absmax, size_t src_depth_quad, size_t realSize, int pack) {
+    if (pack == 4) {
+        MNNAbsMaxFP16_Pack4(source, absmax, src_depth_quad, realSize, pack);
+        return;
+    }
+    if (pack == 8) {
+        MNNAbsMaxFP16_Pack8(source, absmax, src_depth_quad, realSize, pack);
+        return;
+    }
+    // source: (src_depth_quad, realSize, pack)
+    auto srcStep = pack * realSize;
+    auto srcPtr = (FLOAT16*)source;
+    auto dstPtr = (FLOAT16*)absmax;
+    for (int i = 0; i < realSize; ++i) {
+        FLOAT16 absmaxVal = 0; // absmaxVal>=0
+        for (int c = 0; c < src_depth_quad; ++c) {
+            auto src = srcPtr + c * srcStep + i * pack;
+            for (int k = 0; k < pack; ++k) {
+                if (std::abs(src[k]) > absmaxVal) {
+                    absmaxVal = std::abs(src[k]);
+                }
+            }
+        }
+        dstPtr[i] = absmaxVal;
+    }
+    return;
+}
+
+static void MNNDynamicQuantFP16(const float* src, int8_t* dst, const float* scale, size_t src_depth_quad, size_t realSize, int pack) {
+    if (pack == 8) {
+        MNNDynamicQuantFP16_Pack8(src, dst, scale, src_depth_quad,realSize, pack);
+        return;
+    }
+    if (pack == 4) {
+        MNNDynamicQuantFP16_Pack4(src, dst, scale, src_depth_quad,realSize, pack);
+        return;
+    }
+    int8_t* dstPtr = dst;
+    auto srcPtr = (FLOAT16*)src;
+
+    for (int i = 0; i < realSize; ++i) {
+        auto scaleVal = static_cast<FLOAT16>(scale[i]);
+        for (int c = 0; c < src_depth_quad; ++c) {
+            auto srcZ = srcPtr + c * pack * realSize + i * pack;
+            auto dstZ = dstPtr + c * pack * realSize + i * pack;
+            for (int k = 0; k < pack; ++k) {
+                int val = (int)roundf(srcZ[k] * scaleVal);
+                dstZ[k] = val;
+            }
+        }
+    }
+    return;
+}
+#endif
+
 static CoreFunctions* gInstance = nullptr;
 static CoreInt8Functions* gArm82CoreInt8Functions = nullptr;
 
@@ -840,6 +900,13 @@ bool Arm82Functions::init() {
     FUNC_PTR_ASSIGN(gInstance->MNNStrassenMergeCFunction, ARM82StrassenMerge);
 #ifdef MNN_LOW_MEMORY
     FUNC_PTR_ASSIGN(gInstance->MNNDynamicUpdateConvBiasScale, origin->MNNDynamicUpdateConvBiasScale);
+    if (origin->supportSDot) {
+        FUNC_PTR_ASSIGN(gInstance->MNNGeneralIm2Col, MNNGeneralIm2col_Arm82);
+    }
+    if (origin->supportI8mm) {
+        FUNC_PTR_ASSIGN(gInstance->MNNGeneralIm2Col, MNNGeneralIm2col_Arm86);
+    }
+    
 #endif
     gInstance->penalty = 2.0f;
     FUNC_PTR_ASSIGN(gInstance->MNNScaleAndAddBias, MNNScaleAndAddBiasFP16);
@@ -863,8 +930,6 @@ bool Arm82Functions::init() {
     gInstance->supportI8mm = origin->supportI8mm;
 #ifdef MNN_CPU_WEIGHT_DEQUANT_GEMM
     // Weight Dequant Gemm Kernels
-    FUNC_PTR_ASSIGN(gInstance->MNNPackedMatMul_int4, MNNPackedMatMulFP16_int4);
-    FUNC_PTR_ASSIGN(gInstance->MNNPackedMatMulRemain_int4, MNNPackedMatMulRemainFP16_int4);
     FUNC_PTR_ASSIGN(gInstance->MNNPackedMatMul_int8, MNNPackedMatMulFP16_int8);
     FUNC_PTR_ASSIGN(gInstance->MNNPackedMatMulRemain_int8, MNNPackedMatMulRemainFP16_int8);
 #endif

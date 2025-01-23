@@ -1,5 +1,12 @@
 #version 440 core
 
+#if defined(FP16) || defined(RELU_FP16) || defined(RELU6_FP16)
+#extension GL_AMD_gpu_shader_half_float: enable
+#define FLOAT4 f16vec4
+#else
+#define FLOAT4 vec4
+#endif
+
 layout(set=0, binding=0) writeonly uniform image2D uOutput;
 layout(set=0, binding=1) uniform sampler2D uInput;
 
@@ -19,7 +26,7 @@ layout(set=0, binding=4) readonly uniform constBuffer {
 
 #define UP_DIV(x, y) (((x)+(y)-1)/(y))
 
-layout (local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+layout (local_size_x_id = 0, local_size_y_id = 1, local_size_z_id = 2) in;
 
 void main()
 {
@@ -35,26 +42,26 @@ void main()
         ivec2 sta = max(ivec2(0, 0), (UP_DIV(-s0, uConstant.dilate)));
         ivec2 end = min(uConstant.kernelSize, UP_DIV(uConstant.inputSize.xy - s0, uConstant.dilate));
         int fx, fy, fz;
-        vec4 color = texelFetch(uBias, ivec2(oz, 0), 0);
+        FLOAT4 color = FLOAT4(texelFetch(uBias, ivec2(oz, 0), 0));
         for (fy=sta.y; fy<end.y; ++fy)
         {
             int sy = fy*uConstant.dilate.y + s0.y;
             for (fx=sta.x; fx<end.x; ++fx)
             {
                 int sx = fx*uConstant.dilate.x + s0.x;
-                vec4 inputValue = texelFetch(uInput, ivec2(sx+oz*uConstant.inputSize.x, sy+ob*uConstant.inputSize.y), 0);
+                FLOAT4 inputValue = FLOAT4(texelFetch(uInput, ivec2(sx+oz*uConstant.inputSize.x, sy+ob*uConstant.inputSize.y), 0));
 
-                vec4 k = texelFetch(uKernel, ivec2(fx+fy*uConstant.kernelSize.x, oz), 0);
+                FLOAT4 k = FLOAT4(texelFetch(uKernel, ivec2(fx+fy*uConstant.kernelSize.x, oz), 0));
 
                 color  += k*inputValue;
             }
         }
 
-#ifdef RELU
-        color = max(color, vec4(0));
+#if defined(RELU_FP32) || defined(RELU_FP16)
+        color = FLOAT4(max(color, FLOAT4(0)));
 #endif
-#ifdef RELU6
-        color = clamp(color, vec4(0), vec4(6));
+#if defined(RELU6_FP32) || defined(RELU6_FP16)
+        color = FLOAT4(clamp(color, FLOAT4(0), FLOAT4(6)));
 #endif
         imageStore(uOutput, ivec2(pos.x+oz*uConstant.outputSize.x, pos.y+ob*uConstant.outputSize.y), color);
     }
