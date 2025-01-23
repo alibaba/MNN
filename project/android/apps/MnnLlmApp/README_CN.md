@@ -52,7 +52,7 @@
 
 # Releases
 ## Version 0.1
-+ 点击这里[下载] ([./assets/mnn_llm_app_debug_0_1.apk](https://meta.alicdn.com/data/mnnx/mnn_llm_app_debug_0_1.apk))
++ 点击这里[下载](https://meta.alicdn.com/data/mnn/mnn_llm_app_debug_0_1.apk)
 + 这是我们的首个公开发布版本，您可以：
   + 搜索我们支持的所有模型，在应用中下载并与其聊天；
   + 生成扩散模型：
