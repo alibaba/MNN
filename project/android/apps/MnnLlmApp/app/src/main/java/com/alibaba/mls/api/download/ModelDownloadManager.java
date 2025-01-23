@@ -39,7 +39,7 @@ public class ModelDownloadManager {
     private final Context context;
     private DownloadListener downloadListener;
     private final String cachePath;
-    public static final String TAG = "DownloadManager";
+    public static final String TAG = "ModelDownloadManager";
 
     private HfApiClient hfApiClient;
     private OkHttpClient metaInfoClient;
@@ -50,6 +50,8 @@ public class ModelDownloadManager {
     private final AtomicInteger activeDownloadCount;
 
     public static final int REQUEST_CODE_POST_NOTIFICATIONS = 998;
+
+    private boolean foregroundServiceStarted = false;
 
     private ModelDownloadManager(Context context) {
         this.context = context;
@@ -149,14 +151,9 @@ public class ModelDownloadManager {
         if (downloadListener != null) {
             downloadListener.onDownloadPaused(modelId);
         }
-        checkDownloadingCount();
     }
 
-    private void checkDownloadingCount() {
-
-    }
-
-    private void onDownlodTaskAdded(int count) {
+    private void onDownloadTaskAdded(int count) {
         if (count == 1) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 if (ContextCompat.checkSelfPermission(context, android.Manifest.permission.POST_NOTIFICATIONS)
@@ -168,14 +165,16 @@ public class ModelDownloadManager {
                     );
                 } else {
                     ApplicationUtils.get().startForegroundService(foregroundSerivceIntent);
+                    foregroundServiceStarted = true;
                 }
             }
         }
     }
 
-    private void onDownlodTaskRemoved(int count) {
+    private void onDownloadTaskRemoved(int count) {
         if (count == 0) {
             ApplicationUtils.get().stopService(foregroundSerivceIntent);
+            foregroundServiceStarted = false;
         }
     }
 
@@ -187,7 +186,6 @@ public class ModelDownloadManager {
         if (downloadListener != null) {
             downloadListener.onDownloadFailed(modelId, e);
         }
-        checkDownloadingCount();
     }
 
     private void updateDownloadingProgress(String modelId, String stage, String currentFile, long saved, long total) {
@@ -208,7 +206,6 @@ public class ModelDownloadManager {
         if (downloadListener != null) {
             downloadListener.onDownloadProgress(modelId, downloadInfo);
         }
-        checkDownloadingCount();
     }
     private OkHttpClient getMetaInfoHttpClient() {
         if (metaInfoClient == null) {
@@ -258,9 +255,9 @@ public class ModelDownloadManager {
     public void downloadRepo(HfRepoInfo hfRepoInfo) {
         Log.d(TAG, "DownloadStart " + hfRepoInfo.getModelId() + " host: " + getApiClient().getHost());
         DownloadExecutor.getExecutor().submit(() -> {
-            onDownlodTaskAdded(this.activeDownloadCount.incrementAndGet());
+            onDownloadTaskAdded(this.activeDownloadCount.incrementAndGet());
             downloadRepoInner(hfRepoInfo);
-            onDownlodTaskRemoved(this.activeDownloadCount.decrementAndGet());
+            onDownloadTaskRemoved(this.activeDownloadCount.decrementAndGet());
         });
     }
 
@@ -367,6 +364,8 @@ public class ModelDownloadManager {
     }
 
     public void startForegroundService() {
-        ApplicationUtils.get().startForegroundService(foregroundSerivceIntent);
+        if (!foregroundServiceStarted && activeDownloadCount.get() > 0) {
+            ApplicationUtils.get().startForegroundService(foregroundSerivceIntent);
+        }
     }
 }

@@ -1,6 +1,8 @@
 # MNN-LLM Android App
 
 ## Introduction
+This is our full multimodal language model (LLM) Android app
+
 <div style="display: flex; justify-content: center; align-items: center; text-align: center; width: 100%;">
   <div style="flex: 0 0 20%; display: flex; flex-direction: column; align-items: center;">
     <p style="margin: 0; font-weight: bold;">Models List</p>
@@ -20,8 +22,8 @@
   </div>
 </div>
 
-This is our full multimodal language model (LLM) Android app
 
+### Features
 
 + **Multimodal Support:** Enables functionality across diverse tasks, including text-to-text, image-to-text, audio-to-text, and text-to-image generation (via diffusion models).
 
@@ -36,6 +38,7 @@ This is our full multimodal language model (LLM) Android app
 + you can download the app from [Releases](#releases) or [build it yourself](#development);
 + After installing the application, you can browse all supported models, download them, and interact with them directly within the app.;
 + Additionally, you can access your chat history in the sidebar and revisit previous conversations seamlessly.
+ !!!warning!!! This version has been tested exclusively on the OnePlus 13 and Xiaomi 14 Ultra, and its stability on other devices cannot be guaranteed. If you encounter any issues, please feel free to open an issue for assistance.
 
 
 # Development 
@@ -73,11 +76,22 @@ This is our full multimodal language model (LLM) Android app
     + qwen2-vl-2b
     + qwen2-vl-7b
 
-+  !!!warning!!! This version has been tested exclusively on the OnePlus 13 and Xiaomi 14 Ultra, and its stability on other devices cannot be guaranteed. If you encounter any issues, please feel free to open an issue for assistance.
+
 
 
 # About MNN-LLM
-MNN-LLM is a versatile inference framework designed to optimize and accelerate the deployment of large language models on both mobile devices and local PCs, addressing challenges like high memory consumption and computational costs through innovations such as model quantization, hybrid storage, and hardware-specific optimizations. In CPU benchmarking, MNN-LLM excels, achieving prefill speed boosts of 8.6x over llama.cpp and 20.5x over fastllm, complemented by decoding speeds that are 2.3x and 8.9x faster, respectively. For more detailed information, please refer to the paper:[MNN-LLM: A Generic Inference Engine for Fast Large LanguageModel Deployment on Mobile Devices](https://dl.acm.org/doi/pdf/10.1145/3700410.3702126) 
+MNN-LLM is a versatile inference framework designed to optimize and accelerate the deployment of large language models on both mobile devices and local PCs, addressing challenges like high memory consumption and computational costs through innovations such as model quantization, hybrid storage, and hardware-specific optimizations. In CPU benchmarking, MNN-LLM excels, achieving prefill speed boosts of 8.6x over llama.cpp and 20.5x over fastllm, complemented by decoding speeds that are 2.3x and 8.9x faster, respectively. In
+GPU-based assessments, MNN-LLM’s performance slightly declines
+compared to MLC-LLM, particularly when using Qwen2-7B with shorter prompts, due to MLC-LLM’s advantageous symmetric quantization technique. MNN-LLM excels, achieving up to 25.3x faster prefill and 7.1x faster decoding than llama.cpp, and 2.8x and 1.7x improvements over MLC-LLM, respectively.
+ For more detailed information, please refer to the paper:[MNN-LLM: A Generic Inference Engine for Fast Large LanguageModel Deployment on Mobile Devices](https://dl.acm.org/doi/pdf/10.1145/3700410.3702126) 
 
 
 # Acknowledgements
+This project is built upon the following open-source projects:
+
++ [progress-dialog](https://github.com/techinessoverloaded/progress-dialog)
++ [okhttp](https://github.com/square/okhttp)
++ [retrofit](https://github.com/square/retrofit)
++ [Android-SpinKit](https://github.com/ybq/Android-SpinKit)
++ [expandable-fab](https://github.com/nambicompany/expandable-fab)
++ [Android-Wave-Recorder](https://github.com/squti/Android-Wave-Recorder)
