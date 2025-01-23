@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:orientation="vertical"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <com.google.android.material.appbar.AppBarLayout
+        android:id="@+id/chat_app_bar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:theme="@style/ThemeOverlay.AppCompat.Dark.ActionBar">
+
+        <androidx.appcompat.widget.Toolbar
+            android:id="@+id/toolbar"
+            android:layout_width="match_parent"
+            android:layout_height="?attr/actionBarSize"
+            android:elevation="4dp"
+            app:popupTheme="@style/ThemeOverlay.AppCompat.Light" />
+    </com.google.android.material.appbar.AppBarLayout>
+
+    <RelativeLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        >
+        <include layout="@layout/layout_chat_content"/>
+        <RelativeLayout
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:visibility="gone"
+            android:id="@+id/layout_model_loading"
+            android:background="#33333333">
+            <com.github.ybq.android.spinkit.SpinKitView
+                android:id="@+id/model_list_loading_view"
+                style="@style/SpinKitView.Large.FadingCircle"
+                android:layout_width="100dp"
+                android:layout_height="100dp"
+                android:layout_centerInParent="true"
+                app:SpinKit_Color="@color/colorAccent" />
+<!--            <TextView-->
+<!--                android:text="@string/model_loading"-->
+<!--                android:layout_width="wrap_content"-->
+<!--                android:layout_centerHorizontal="true"-->
+<!--                android:layout_below="@id/model_list_loading_view"-->
+<!--                android:textColor="#333333"-->
+<!--                android:textSize="20sp"-->
+<!--                android:layout_height="wrap_content"/>-->
+        </RelativeLayout>
+    </RelativeLayout>
+
+</LinearLayout>

@@ -1,0 +1,23 @@
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+    <item
+        android:id="@+id/action_search"
+        android:title="Search"
+        android:icon="@drawable/ic_action_search"
+        app:actionViewClass="androidx.appcompat.widget.SearchView"
+        app:showAsAction="ifRoom|collapseActionView" />
+    <item
+        android:id="@+id/action_github_issue"
+        android:title="@string/raise_issue"
+        app:showAsAction="never" />
+
+    <item
+        android:id="@+id/action_star_project"
+        android:title="@string/star_project"
+        app:showAsAction="never" />
+
+    <item
+        android:id="@+id/action_resume_all_downloads"
+        android:title="@string/resume_all_downloads"
+        app:showAsAction="never" />
+</menu>

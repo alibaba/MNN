@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_marginEnd="@dimen/spaceLR"
+    android:padding="@dimen/space10">
+
+    <ImageView
+        android:id="@+id/ic_header"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:layout_marginEnd="@dimen/space10"
+        android:src="@drawable/logo" />
+
+    <TextView
+        android:id="@+id/tv_chat_text"
+        tools:text="Hello World"
+        android:layout_toEndOf="@id/ic_header"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:background="@drawable/bg_chat_assistant"
+        android:padding="@dimen/space10"
+        android:textAppearance="@style/Light"
+        android:textColor="@color/colorTextBlack"
+        android:textIsSelectable="true"
+        android:textSize="@dimen/h3"
+        android:visibility="visible" />
+    <ImageView
+        android:id="@+id/image_generated"
+        android:layout_width="200dp"
+        android:layout_height="200dp"
+        android:layout_marginTop="10dp"
+        android:layout_toEndOf="@id/ic_header"
+        android:layout_below="@id/tv_chat_text"
+        android:scaleType="centerCrop"
+        android:visibility="gone"
+        tools:visibility="visible"
+        android:background="#00f"
+        tools:src="@drawable/testtest"/>
+    <TextView
+        android:id="@+id/tv_chat_benchmark"
+        android:layout_below="@id/image_generated"
+        android:layout_alignStart="@id/tv_chat_text"
+        tools:text="prefill: 149 tokens/s decode: 149 tokens/s"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        />
+
+    <com.github.ybq.android.spinkit.SpinKitView
+        android:id="@+id/view_assistant_loading"
+        android:layout_centerVertical="true"
+        android:layout_toEndOf="@id/ic_header"
+        android:layout_marginStart="10dp"
+        style="@style/SpinKitView.Small.ThreeBounce"
+        android:layout_width="50dp"
+        android:layout_height="50dp"
+        app:SpinKit_Color="@color/colorAccent" />
+</RelativeLayout>

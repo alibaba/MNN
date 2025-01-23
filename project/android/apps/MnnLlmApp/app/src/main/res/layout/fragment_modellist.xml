@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    tools:context=".MainActivity">
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/model_list_recycler_view"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone"
+        android:overScrollMode="never" />
+
+    <com.github.ybq.android.spinkit.SpinKitView
+        android:id="@+id/model_list_loading_view"
+        android:layout_centerVertical="true"
+        android:layout_centerHorizontal="true"
+        style="@style/SpinKitView.Large.FadingCircle"
+        android:layout_width="50dp"
+        android:layout_height="50dp"
+        android:layout_gravity="center"
+        app:SpinKit_Color="@color/colorAccent" />
+
+    <RelativeLayout
+        android:id="@+id/model_list_failed_view"
+        android:visibility="gone"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        >
+        <TextView
+            android:id="@+id/tv_error_text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="30dp"
+            android:layout_marginEnd="30dp"
+            android:layout_centerInParent="true"
+            android:textSize="16sp"
+            android:text="@string/loading_failed_click_tor_retry"/>
+    </RelativeLayout>
+
+</RelativeLayout>

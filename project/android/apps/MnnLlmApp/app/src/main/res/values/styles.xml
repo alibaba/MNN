@@ -1,0 +1,9 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+
+    <style name="Light" parent="android:TextAppearance">
+    </style>
+
+    <style name="ExtraLight" parent="android:TextAppearance">
+    </style>
+
+</resources>
