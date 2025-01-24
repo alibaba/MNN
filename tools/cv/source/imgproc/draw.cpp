@@ -614,8 +614,8 @@ static void EllipseEx(std::vector<Region>& regions, Size size, Point2l center, S
     for (unsigned int i = 0; i < _v.size(); ++i)
     {
         Point2l pt;
-        pt.x = (int64_t)std::round(_v[i].x / XY_ONE) << XY_SHIFT;
-        pt.y = (int64_t)std::round(_v[i].y / XY_ONE) << XY_SHIFT;
+        pt.x = (int64_t)std::round(_v[i].x / static_cast<double>(XY_ONE)) << XY_SHIFT;
+        pt.y = (int64_t)std::round(_v[i].y / static_cast<double>(XY_ONE)) << XY_SHIFT;
         pt.x += std::round(_v[i].x - pt.x);
         pt.y += std::round(_v[i].y - pt.y);
         if (pt != prevPt) {
