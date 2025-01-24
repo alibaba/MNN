@@ -8,7 +8,6 @@
 
 #include <cstring>
 #include "MNNFileUtils.h"
-#include <errno.h>
 
 std::string MNNFilePathConcat(std::string prefix, std::string suffix) {
 #if defined(WIN32) || defined(_WIN32) || defined(_WIN64) || defined(_MSC_VER)
