@@ -214,6 +214,7 @@ public:
                 config_ = rapid_json_wrapper::parse(config_file);
             } else {
                 std::cerr << "Unable to open config file: " << path << std::endl;
+                std::cerr << "Error: " << std::strerror(errno) << " (errno: " << errno << ")" << std::endl;
             }
             base_dir_ = base_dir(path);
         } else {
