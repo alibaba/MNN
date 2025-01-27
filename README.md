@@ -2,6 +2,8 @@
 
 [中文版本](README_CN.md)
 
+[日本語バージョン](README_JP.md)
+
 [MNN Homepage](http://www.mnn.zone)
 
 ## News 🔥
