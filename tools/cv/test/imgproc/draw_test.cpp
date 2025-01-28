@@ -47,6 +47,25 @@ TEST(circle, fill) {
     EXPECT_TRUE(testEnv.equal(testEnv.cvSrc, testEnv.mnnSrc));
 }
 
+// ellipse
+TEST(ellipse, basic) {
+    cv::ellipse(testEnv.cvSrc, {50, 50}, {20, 30}, 0, 0, 360, {10, 120, 230}, 1);
+    ellipse(testEnv.mnnSrc, {50, 50}, {20, 30}, 0, 0, 360, {10, 120, 230}, 1);
+    EXPECT_TRUE(testEnv.equal(testEnv.cvSrc, testEnv.mnnSrc));
+}
+
+TEST(ellipse, thickness) {
+    cv::ellipse(testEnv.cvSrc, {100, 100}, {30, 50}, 0, 0, 360, {1, 128, 255}, 5);
+    ellipse(testEnv.mnnSrc, {100, 100}, {30, 50}, 0, 0, 360, {1, 128, 255}, 5);
+    EXPECT_TRUE(testEnv.equal(testEnv.cvSrc, testEnv.mnnSrc));
+}
+
+TEST(ellipse, fill) {
+    cv::ellipse(testEnv.cvSrc, {150, 150}, {40, 70}, 0, 0, 360, {10, 20, 30}, -1);
+    ellipse(testEnv.mnnSrc, {150, 150}, {40, 70}, 0, 0, 360, {10, 20, 30}, -1);
+    EXPECT_TRUE(testEnv.equal(testEnv.cvSrc, testEnv.mnnSrc));
+}
+
 // line
 TEST(line, basic) {
     // cv::line(testEnv.cvSrc, {10, 10}, {200, 300}, {0, 0, 255}, 1);

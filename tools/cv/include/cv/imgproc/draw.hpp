@@ -29,6 +29,10 @@ MNN_PUBLIC void arrowedLine(VARP& img, Point pt1, Point pt2, const Scalar& color
 MNN_PUBLIC void circle(VARP& img, Point center, int radius, const Scalar& color,
                        int thickness=1, int line_type=8, int shift=0);
 
+MNN_PUBLIC void ellipse(VARP& img, Point center, Size axes, double angle,
+                        double start_angle, double end_angle, const Scalar& color,
+                        int thickness=1, int line_type=8, int shift=0);
+
 MNN_PUBLIC void line(VARP& img, Point pt1, Point pt2, const Scalar& color,
                      int thickness = 1, int lineType = LINE_8, int shift = 0);
 

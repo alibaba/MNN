@@ -874,6 +874,25 @@ void circle(VARP& img, Point center, int radius, const Scalar& color, int thickn
     doDraw(img, regions, color);
 }
 
+void ellipse(VARP& img, Point center, Size axes, double angle,
+             double start_angle, double end_angle, const Scalar& color,
+             int thickness, int line_type, int shift){
+    int h, w, c; getVARPSize(img, &h, &w, &c);
+    Size size(w, h);
+    std::vector<Region> regions;
+    auto _angle = static_cast<int>(std::round(angle));
+    auto _start_angle = static_cast<int>(std::round(start_angle));
+    auto _end_angle = static_cast<int>(std::round(end_angle));
+    Point2l _center(static_cast<int64_t>(center.fX), static_cast<int64_t>(center.fY));
+    Size2l _axes(axes);
+    _center.x <<= XY_SHIFT - shift;
+    _center.y <<= XY_SHIFT - shift;
+    _axes.width <<= XY_SHIFT - shift;
+    _axes.height <<= XY_SHIFT - shift;
+    EllipseEx(regions, size, _center, _axes, _angle, _start_angle, _end_angle, thickness, line_type);
+    doDraw(img, regions, color);
+}
+
 void line(VARP& img, Point pt1, Point pt2, const Scalar& color,
           int thickness, int lineType, int shift) {
     int h, w, c; getVARPSize(img, &h, &w, &c);
