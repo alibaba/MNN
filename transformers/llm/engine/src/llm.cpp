@@ -530,6 +530,12 @@ std::string Llm::apply_chat_template(const std::vector<PromptItem>& chat_prompts
     auto chat_template = config_->chat_template();
     std::string prompt_result;
     auto iter = chat_prompts.begin();
+    if (!config_->use_template()) {
+        for (; iter != chat_prompts.end(); ++iter) {
+            prompt_result += iter->second;
+        }
+        return prompt_result;
+    }
     for (; iter != chat_prompts.end() - 1; ++iter) {
         prompt_result += apply_template(chat_template, iter->second, iter->first);
     }
