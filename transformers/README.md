@@ -121,7 +121,7 @@ Add the required compilation macros during the standard compilation process:
 #### mac / linux / windows
 For macOS/Linux:
 ```
-make build
+mkdir build
 cd build
 cmake ../ -DMNN_LOW_MEMORY=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true
 make -j16
@@ -129,7 +129,7 @@ make -j16
 
 For x86 architecture, additionally include the `MNN_AVX512` macro:
 ```
-make build
+mkdir build
 cd build
 cmake ../ -DMNN_LOW_MEMORY=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true -DMNN_AVX512=true
 make -j16
