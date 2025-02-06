@@ -21,26 +21,28 @@ public class ChatService{
 
     private static ChatService instance;
 
-    public synchronized ChatSession createSession(String modelDir,
+    public synchronized ChatSession createSession(String modelName,
+                                                  String modelDir,
                                                   boolean useTmpPath,
                                                   String sessionId,
                                                   List<ChatDataItem> chatDataItemList) {
         if (TextUtils.isEmpty(sessionId)) {
             sessionId = String.valueOf(System.currentTimeMillis());
         }
-        ChatSession session = new ChatSession(sessionId, modelDir, useTmpPath, chatDataItemList);
+        ChatSession session = new ChatSession(modelName, sessionId, modelDir, useTmpPath, chatDataItemList);
         sessionMap.put(sessionId, session);
         return session;
     }
 
     public synchronized ChatSession createDiffusionSession(
+                                                  String modelName,
                                                   String modelDir,
                                                   String sessionId,
                                                   List<ChatDataItem> chatDataItemList) {
         if (TextUtils.isEmpty(sessionId)) {
             sessionId = String.valueOf(System.currentTimeMillis());
         }
-        ChatSession session = new ChatSession(sessionId, modelDir, false, chatDataItemList, true);
+        ChatSession session = new ChatSession(modelName, sessionId, modelDir, false, chatDataItemList, true);
         sessionMap.put(sessionId, session);
         return session;
     }

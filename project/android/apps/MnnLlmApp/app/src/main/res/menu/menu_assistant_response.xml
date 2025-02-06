@@ -1,0 +1,15 @@
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+    <item
+        android:id="@+id/assistant_text_copy"
+        android:title="@string/copy_text"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/assistant_text_select"
+        android:title="@string/select_text"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/assistant_text_report"
+        android:title="@string/raise_issue"
+        app:showAsAction="never" />
+</menu>

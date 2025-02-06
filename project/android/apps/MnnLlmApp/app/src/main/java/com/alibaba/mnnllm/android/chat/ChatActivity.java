@@ -133,10 +133,10 @@ public class ChatActivity extends AppCompatActivity {
         }
         if (ModelUtils.isDiffusionModel(modelName)) {
             String diffusionDir = getIntent().getStringExtra("diffusionDir");
-            chatSession =  chatService.createDiffusionSession(diffusionDir, chatSessionId, chatDataItemList);
+            chatSession =  chatService.createDiffusionSession(modelName, diffusionDir, chatSessionId, chatDataItemList);
         } else {
             String configFilePath = getIntent().getStringExtra("configFilePath");
-            chatSession = chatService.createSession(configFilePath, true, chatSessionId, chatDataItemList);
+            chatSession = chatService.createSession(modelName, configFilePath, true, chatSessionId, chatDataItemList);
         }
         chatSessionId = chatSession.getSessionId();
         chatSession.setKeepHistory(!ModelUtils.isVisualModel(modelName) && !ModelUtils.isAudioModel(modelName));
@@ -497,7 +497,6 @@ public class ChatActivity extends AppCompatActivity {
     private void submitRequest(String input) {
         isUserScrolling = false;
         stopGenerating = false;
-        StringBuilder stringBuilder = new StringBuilder();
         ChatDataItem chatDataItem = adapter.getRecentItem();
         HashMap<String, Object> benchMarkResult;
         if (ModelUtils.isDiffusionModel(this.modelName)) {
@@ -513,12 +512,16 @@ public class ChatActivity extends AppCompatActivity {
                 return false;
             });
         } else {
+            GenerateResultProcessor generateResultProcessor = ModelUtils.isR1Model(this.modelName) ?
+                    new GenerateResultProcessor.R1GenerateResultProcessor(getString(R.string.r1_thinking_message),
+                            getString(R.string.r1_think_complete_template)) :
+                    new GenerateResultProcessor.NormalGenerateResultProcessor();
+            generateResultProcessor.generateBegin();
             benchMarkResult = chatSession.generate(input, progress -> {
-                if (progress != null) {
-                    stringBuilder.append(progress);
-                    chatDataItem.setText(stringBuilder.toString());
-                    runOnUiThread(() -> updateAssistantResponse(chatDataItem));
-                }
+                generateResultProcessor.process(progress);
+                chatDataItem.setDisplayText(generateResultProcessor.getDisplayResult());
+                chatDataItem.setText(generateResultProcessor.getRawResult());
+                runOnUiThread(() -> updateAssistantResponse(chatDataItem));
                 if (stopGenerating) {
                     Log.d(TAG, "stopGenerating requeted");
                 }

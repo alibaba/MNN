@@ -21,7 +21,9 @@ public class ModelUtils {
             return 0;
         }
         String modelLower = modelName.toLowerCase();
-        if (modelLower.contains("qwen") || modelLower.contains("qwq")) {
+        if (modelLower.contains("deepseek")) {
+            return R.drawable.deepseek_icon;
+        } else if (modelLower.contains("qwen") || modelLower.contains("qwq")) {
             return R.drawable.qwen_icon;
         } else if (modelLower.contains("llama") || modelLower.contains("mobilellm")) {
             return R.drawable.llama_icon;
@@ -37,8 +39,6 @@ public class ModelUtils {
             return R.drawable.chatglm_icon;
         } else if (modelLower.contains("reader")) {
             return R.drawable.jina_icon;
-        } else if (modelLower.contains("deepseek")) {
-            return R.drawable.deepseek_icon;
         } else if (modelLower.contains("internlm")) {
             return R.drawable.internlm_icon;
         } else if (modelLower.contains("gemma")) {
@@ -83,6 +83,7 @@ public class ModelUtils {
     //list that are more stable
     private static final Set<String> goodList = new HashSet<>();
     static {
+        goodList.add("taobao-mnn/DeepSeek-R1-1.5B-Qwen-MNN");
         goodList.add("taobao-mnn/Qwen2.5-0.5B-Instruct-MNN");
         goodList.add("taobao-mnn/Qwen2.5-1.5B-Instruct-MNN");
         goodList.add("taobao-mnn/Qwen2.5-7B-Instruct-MNN");
@@ -154,5 +155,9 @@ public class ModelUtils {
 
     public static boolean isVisualModel(String modelName) {
         return modelName.toLowerCase().contains("vl");
+    }
+
+    public static boolean isR1Model(String modelName) {
+        return modelName.toLowerCase().contains("deepseek-r1");
     }
 }

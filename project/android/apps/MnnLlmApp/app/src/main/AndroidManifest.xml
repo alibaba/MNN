@@ -44,6 +44,15 @@
             android:foregroundServiceType="dataSync"
             />
 
+        <activity android:name=".chat.SelectTextActivity"
+            android:theme="@style/Theme.MnnLlmApp"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
         <activity android:name=".MainActivity"
             android:exported="true"
             android:configChanges="orientation|screenSize">

@@ -10,7 +10,7 @@ import android.database.sqlite.SQLiteOpenHelper;
 public class ChatDatabaseHelper extends SQLiteOpenHelper {
 
     private static final String DB_NAME = "chat.db";
-    private static final int DB_VERSION = 1;
+    private static final int DB_VERSION = 2;
 
     // 会话表
     public static final String TABLE_SESSION = "Session";
@@ -28,6 +28,9 @@ public class ChatDatabaseHelper extends SQLiteOpenHelper {
     public static final String COLUMN_AUDIO_URI = "audioUri";
     public static final String COLUMN_AUDIO_DURATION = "audioDuration";
 
+    public static final String COLUMN_RESERVE1 = "reserve1";
+    public static final String COLUMN_RESERVE2 = "reserve2";
+    public static final String COLUMN_DISPLAY_TEXT = "displayText";
 
     private static final String CREATE_TABLE_SESSION = "CREATE TABLE IF NOT EXISTS " +
             TABLE_SESSION + " (" +
@@ -44,7 +47,10 @@ public class ChatDatabaseHelper extends SQLiteOpenHelper {
             COLUMN_TEXT + " TEXT, " +
             COLUMN_IMAGE_URI + " TEXT," +
             COLUMN_AUDIO_URI + " TEXT," +
-            COLUMN_AUDIO_DURATION + " REAL)";
+            COLUMN_AUDIO_DURATION + " REAL," +
+            COLUMN_DISPLAY_TEXT + " TEXT," +
+            COLUMN_RESERVE1 + " TEXT, " +
+            COLUMN_RESERVE2 + " TEXT)";
 
     public ChatDatabaseHelper(Context context) {
         super(context, DB_NAME, null, DB_VERSION);
@@ -58,8 +64,10 @@ public class ChatDatabaseHelper extends SQLiteOpenHelper {
 
     @Override
     public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
-        db.execSQL("DROP TABLE IF EXISTS " + TABLE_SESSION);
-        db.execSQL("DROP TABLE IF EXISTS " + TABLE_CHAT);
-        onCreate(db);
+        if (oldVersion < 2) {
+            db.execSQL("ALTER TABLE " + TABLE_CHAT + " ADD COLUMN " + COLUMN_RESERVE1 + " TEXT");
+            db.execSQL("ALTER TABLE " + TABLE_CHAT + " ADD COLUMN " + COLUMN_RESERVE2 + " TEXT");
+            db.execSQL("ALTER TABLE " + TABLE_CHAT + " ADD COLUMN " + COLUMN_DISPLAY_TEXT + " TEXT");
+        }
     }
 }

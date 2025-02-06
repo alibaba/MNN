@@ -61,7 +61,20 @@ public class ChatRecyclerViewAdapter extends RecyclerView.Adapter<RecyclerView.V
         if (viewType == HEADER) {
             ((ChatViewHolders.HeaderViewHolder)holder).bind(items.get(position));
         } else if (viewType == ASSISTANT) {
-            ((ChatViewHolders.AssistantViewHolder)holder).bind(items.get(position), modelName);
+            ((ChatViewHolders.AssistantViewHolder)holder).bind(items.get(position), modelName, null);
+        } else if (viewType == USER) {
+            ((ChatViewHolders.UserViewHolder)holder).bind(items.get(position));
+        }
+    }
+
+    @Override
+    public void onBindViewHolder(@NonNull RecyclerView.ViewHolder holder, int position, @NonNull List<Object> payloads) {
+        super.onBindViewHolder(holder, position, payloads);
+        int viewType = getItemViewType(position);
+        if (viewType == HEADER) {
+            ((ChatViewHolders.HeaderViewHolder)holder).bind(items.get(position));
+        } else if (viewType == ASSISTANT) {
+            ((ChatViewHolders.AssistantViewHolder)holder).bind(items.get(position), modelName, payloads);
         } else if (viewType == USER) {
             ((ChatViewHolders.UserViewHolder)holder).bind(items.get(position));
         }
@@ -77,7 +90,7 @@ public class ChatRecyclerViewAdapter extends RecyclerView.Adapter<RecyclerView.V
     }
 
     public void updateRecentItem(ChatDataItem item) {
-        notifyItemChanged(items.size() - 1);
+        notifyItemChanged(items.size() - 1, new Object());
     }
 
     public boolean reset() {
