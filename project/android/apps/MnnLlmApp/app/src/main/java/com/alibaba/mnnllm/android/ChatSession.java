@@ -30,12 +30,14 @@ public class ChatSession implements Serializable {
 
     private boolean useTmpPath;
     private boolean keepHistory;
+    private String modelName;
 
-    public ChatSession(String sessionId, String configPath, boolean useTmpPath, List<ChatDataItem> history) {
-        this(sessionId, configPath, useTmpPath, history, false);
+    public ChatSession(String modelName, String sessionId, String configPath, boolean useTmpPath, List<ChatDataItem> history) {
+        this(modelName, sessionId, configPath, useTmpPath, history, false);
     }
 
-    public ChatSession(String sessionId, String configPath, boolean useTmpPath, List<ChatDataItem> history, boolean isDiffusion) {
+    public ChatSession(String modelname, String sessionId, String configPath, boolean useTmpPath, List<ChatDataItem> history, boolean isDiffusion) {
+        this.modelName = modelname;
         this.sessionId = sessionId;
         this.configPath = configPath;
         this.savedHistory = history;
@@ -49,7 +51,7 @@ public class ChatSession implements Serializable {
         if (this.savedHistory != null && !this.savedHistory.isEmpty()) {
             historyStringList = this.savedHistory.stream().map(ChatDataItem::getText).collect(Collectors.toList());
         }
-        nativePtr = initNative(configPath, useTmpPath, historyStringList, isDiffusion);
+        nativePtr = initNative(configPath, useTmpPath, historyStringList, isDiffusion, ModelUtils.isR1Model(modelName));
     }
 
     public List<ChatDataItem> getSavedHistory() {
@@ -122,7 +124,7 @@ public class ChatSession implements Serializable {
         release();
     }
 
-    public native long initNative(String configPath, boolean useTmpPath, List<String> history, boolean isDiffusion);
+    public native long initNative(String configPath, boolean useTmpPath, List<String> history, boolean isDiffusion, boolean isR1);
     private native HashMap<String, Object> submitNative(long instanceId, String input, boolean keepHistory, GenerateProgressListener listener);
 
     private native HashMap<String, Object> submitDiffusionNative(long instanceId, String input, String outputPath, GenerateProgressListener progressListener);

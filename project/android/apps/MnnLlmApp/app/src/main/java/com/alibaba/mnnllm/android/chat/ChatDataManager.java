@@ -10,6 +10,7 @@ import android.content.Context;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.net.Uri;
+import android.text.TextUtils;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -75,6 +76,7 @@ public class ChatDataManager {
             values.put(ChatDatabaseHelper.COLUMN_AUDIO_URI, (String) null);
         }
         values.put(ChatDatabaseHelper.COLUMN_AUDIO_DURATION, chatDataItem.getAudioDuration());
+        values.put(ChatDatabaseHelper.COLUMN_DISPLAY_TEXT, chatDataItem.getDisplayText());
         db.insert(ChatDatabaseHelper.TABLE_CHAT, null, values);
         db.close();
     }
@@ -97,9 +99,13 @@ public class ChatDataManager {
                 String imageUriStr = cursor.getString(cursor.getColumnIndex(ChatDatabaseHelper.COLUMN_IMAGE_URI));
                 String audioUriStr = cursor.getString(cursor.getColumnIndex(ChatDatabaseHelper.COLUMN_AUDIO_URI));
                 float audioDuration = cursor.getFloat(cursor.getColumnIndex(ChatDatabaseHelper.COLUMN_AUDIO_DURATION));
+                String displayText = cursor.getString(cursor.getColumnIndex(ChatDatabaseHelper.COLUMN_DISPLAY_TEXT));
                 ChatDataItem chatDataItem = new ChatDataItem(time, type, text);
                 if (imageUriStr != null) {
                     chatDataItem.setImageUri(Uri.parse(imageUriStr));
+                }
+                if (!TextUtils.isEmpty(displayText)) {
+                    chatDataItem.setDisplayText(displayText);
                 }
                 if (audioUriStr != null) {
                     chatDataItem.setAudioUri(Uri.parse(audioUriStr));

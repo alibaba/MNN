@@ -4,6 +4,7 @@
 package com.alibaba.mnnllm.android.chat;
 
 import android.net.Uri;
+import android.text.TextUtils;
 
 import java.io.File;
 
@@ -17,6 +18,8 @@ public class ChatDataItem {
     private Uri audioUri;
 
     private String benchmarkInfo;
+
+    private String displayText;
 
     private float audioDuration;
 
@@ -100,6 +103,14 @@ public class ChatDataItem {
             return this.audioUri.getPath();
         }
         return null;
+    }
+
+    public String getDisplayText() {
+        return TextUtils.isEmpty(this.displayText) ? this.text : this.displayText;
+    }
+
+    public void setDisplayText(String displayText) {
+        this.displayText = displayText;
     }
 }
 

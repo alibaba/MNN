@@ -55,6 +55,12 @@ This is our full multimodal language model (LLM) Android app
   ```
 
 # Releases
+## Version 0.2
++ Click here to [download](https://meta.alicdn.com/data/mnn/mnn_llm_app_debug_0_2_0.apk)
++ Optimized for DeepSeek R1 1.5B
++ Added support for Markdown
++ Resolved several bugs and improved stability
+
 ## Version 0.1
 + Click here to [download](https://meta.alicdn.com/data/mnn/mnn_llm_app_debug_0_1.apk)
 + this is our first public released version; you can :

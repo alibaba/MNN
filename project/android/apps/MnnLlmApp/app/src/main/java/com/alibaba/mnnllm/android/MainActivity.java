@@ -24,6 +24,7 @@ import com.alibaba.mnnllm.android.chat.ChatActivity;
 import com.alibaba.mnnllm.android.R;
 import com.alibaba.mnnllm.android.history.ChatHistoryFragment;
 import com.alibaba.mnnllm.android.modelist.ModelListFragment;
+import com.alibaba.mnnllm.android.utils.GithubUtils;
 import com.alibaba.mnnllm.android.utils.ModelUtils;
 import com.google.android.material.navigation.NavigationView;
 import com.techiness.progressdialoglibrary.ProgressDialog;
@@ -33,7 +34,6 @@ public class MainActivity extends AppCompatActivity {
 
     public static final String TAG = "MainActivity";
     private ProgressDialog progressDialog;
-    private final String repoGithubUrl = "https://github.com/alibaba/MNN";
     private DrawerLayout drawerLayout;
     private ActionBarDrawerToggle toggle;
     private ModelListFragment modelListFragment;
@@ -99,10 +99,6 @@ public class MainActivity extends AppCompatActivity {
         return super.onOptionsItemSelected(item);
     }
 
-    private void openInBrowser(String url) {
-        Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
-        startActivity(intent);
-    }
 
     public void runModel(String destModelDir, String modelName, String sessionId) {
         ModelDownloadManager.getInstance(this).pauseAllDownloads();
@@ -138,11 +134,11 @@ public class MainActivity extends AppCompatActivity {
     }
 
     public void onStarProject(View view) {
-        openInBrowser(this.repoGithubUrl);
+        GithubUtils.starProject(this);
     }
 
     public void onReportIssue(View view) {
-        openInBrowser(this.repoGithubUrl + "/issues");
+        GithubUtils.reportIssue(this);
     }
 
     @Override
