@@ -188,8 +188,8 @@ MNN_PUBLIC VARP _Conv(std::vector<int8_t>&& weight, std::vector<float>&& bias, V
 - `dilate` 扩张操作：控制kernel点（卷积核点）的间距，默认值为{1, 1}
 - `group` 控制分组卷积，默认不分组，为1组
 - `pads` 填充操作，默认为{0, 0}
-- `relu` 是否修正线性单元，默认为fasle
-- `relu6` 修正线性单元6，默认为fasle
+- `relu` 是否修正线性单元，默认为false
+- `relu6` 修正线性单元6，默认为false
 - `nbits` 默认为8
 
 返回：卷积
@@ -214,8 +214,8 @@ MNN_PUBLIC VARP _Conv(std::vector<float>&& weight, std::vector<float>&& bias, VA
 - `dilate` 扩张操作：控制kernel点（卷积核点）的间距，默认值为{1, 1}
 - `group` 控制分组卷积，默认不分组，为1组
 - `pads` 填充操作，默认为{0, 0}
-- `relu` 是否修正线性单元，默认为fasle
-- `relu6` 修正线性单元6，默认为fasle
+- `relu` 是否修正线性单元，默认为false
+- `relu6` 修正线性单元6，默认为false
 
 返回：卷积
 
@@ -260,8 +260,8 @@ PaddingMode pad, INTS stride = {1, 1}, INTS dilate = {1, 1}, int group = 1, INTS
 - `dilate` 扩张操作：控制kernel点（反卷积核点）的间距，默认值为{1, 1}
 - `group` 控制分组反卷积，默认不分组，为1组
 - `pads` 填充操作，默认为{0, 0}
-- `relu` 是否修正线性单元，默认为fasle
-- `relu6` 是否修正线性单元6，默认为fasle
+- `relu` 是否修正线性单元，默认为false
+- `relu6` 是否修正线性单元6，默认为false
 
 返回：转置卷积（反卷积）
 
@@ -792,7 +792,7 @@ MNN_PUBLIC VARP _Tile(VARP input, VARP multiples);
 
 
 参数：
-- `Fill` 一个变量，一维或更高
+- `input` 一个变量，一维或更高
 - `multiples` 一个变量，必须是1-D Halide_Type_Int，长度必须与输入的维度数相同
 
 返回：一个变量，与输入的类型相同
@@ -1279,7 +1279,7 @@ MNN_PUBLIC VARP _Conv(std::vector<int8_t>&& weight, std::vector<int>&& bias, std
 - `dilate` 扩张操作：控制kernel点（卷积核点）的间距，默认值为{1, 1}
 - `group` 控制分组卷积，默认不分组，为1组
 - `pads` 填充操作，默认为{0, 0}
-- `relu` 是否修正线性单元，默认为fasle
+- `relu` 是否修正线性单元，默认为false
 - `nbits`  默认为8
 
 返回：卷积
@@ -1308,7 +1308,7 @@ MNN_PUBLIC VARP _Conv(std::vector<int8_t>&& weight, std::vector<int>&& bias, std
 - `dilate` 扩张操作：控制kernel点（卷积核点）的间距，默认值为{1, 1}
 - `group` 控制分组卷积，默认不分组，为1组
 - `pads` 填充操作，默认为{0, 0}
-- `relu` 是否修正线性单元，默认为fasle
+- `relu` 是否修正线性单元，默认为false
 - `inputZeroPoint` 输入变量
 - `outputZeroPoint` 输入变量
 - `minValue` 最小值
@@ -1342,7 +1342,7 @@ MNN_PUBLIC VARP _Conv(std::vector<int8_t>&& weight, std::vector<float>&& bias, s
 - `dilate` 扩张操作：控制kernel点（卷积核点）的间距，默认值为{1, 1}
 - `group` 控制分组卷积，默认不分组，为1组
 - `pads` 填充操作，默认为{0, 0}
-- `relu` 是否修正线性单元，默认为fasle
+- `relu` 是否修正线性单元，默认为false
 - `scaleIn` 向内扩展值
 - `scaleOut` 向外扩展值
 - `inputZeroPoint` 输入变量
