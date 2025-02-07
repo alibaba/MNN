@@ -76,7 +76,6 @@ mkdir build && cd build && cmake .. -DCMAKE_OSX_ARCHITECTURES=arm64 && make -j8
   - ndk
 - 相关编译选项
   - `MNN_OPENCL` 是否使用OpenCL后端，OpenCL后端可以利用GPU加速
-  - `MNN_NNAPI` 是否使用NNAPI后端，NNAPI后端会尝试使用设备上的NPU进行加速
   - `MNN_ARM82`  是否支持fp16推理，开启该编译选项后，在precision设成Precision_Low时，会在支持的设备（ARMv8.2 及以上架构）上启用低精度(fp16)推理，减少内存占用，提升性能
   - `MNN_SUPPORT_BF16`  是否支持bf16推理，开启该编译选项后，在precision设成Precision_Low_BF16 时，会启用bf16推理，减少内存占用，提升性能
 - 具体步骤
@@ -112,6 +111,24 @@ mkdir build && cd build && cmake .. -DCMAKE_OSX_ARCHITECTURES=arm64 && make -j8
 ```
 sh package_scripts/ios/buildiOS.sh "-DMNN_ARM82=true"
 ```
+
+## 鸿蒙(Harmony)
+
+### 环境要求
+- cmake >= 3.10
+- 下载鸿蒙开发工具并配置环境 https://developer.huawei.com/consumer/cn/deveco-studio/
+
+### 编译
+
+```
+cd project/harmony
+mkdir build && cd build
+../build_64.sh
+```
+
+- 默认编译 arm64 架构
+- 如需编译模拟器的 x86 架构，将`project/harmony/build_64.sh`中`-DOHOS_ARCH="arm64-v8a"` 改成`-DOHOS_ARCH="x86_64"`
+
 
 ## 其他平台交叉编译
 由于交叉编译的目标设备及厂商提供的编译环境类型众多，本文恕无法提供手把手教学。 以下是大致流程，请按照具体场景做相应修改。  
