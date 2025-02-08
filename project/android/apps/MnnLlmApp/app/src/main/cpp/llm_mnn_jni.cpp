@@ -43,6 +43,7 @@ private:
 using PromptItem = std::pair<std::string, std::string>;
 static std::vector<PromptItem> history{};
 static bool stop_requested = false;
+static bool is_r1 = false;
 
 int utf8CharLength(unsigned char byte) {
     if ((byte & 0x80) == 0) return 1;
@@ -81,6 +82,13 @@ private:
     std::function<void(const std::string&)> callback;
 };
 
+const char* getUserString(const char* user_content) {
+    if (is_r1) {
+        return ("<|User|>" + std::string(user_content) + "<|Assistant|><think>\n").c_str();
+    } else {
+        return user_content;
+    }
+}
 
 extern "C" {
 
@@ -96,7 +104,9 @@ JNIEXPORT void JNI_OnUnload(JavaVM* vm, void* reserved) {
 JNIEXPORT jlong JNICALL Java_com_alibaba_mnnllm_android_ChatSession_initNative(JNIEnv* env, jobject thiz, jstring modelDir,
                                                                                     jboolean use_tmp_path,
                                                                                     jobject chat_history,
-                                                                                    jboolean is_diffusion) {
+                                                                                    jboolean is_diffusion,
+                                                                                    jboolean r1) {
+    is_r1 = r1;
     const char* model_dir = env->GetStringUTFChars(modelDir, 0);
     MNN_DEBUG("createLLM BeginLoad %s", model_dir);
     if (is_diffusion) {
@@ -108,12 +118,12 @@ JNIEXPORT jlong JNICALL Java_com_alibaba_mnnllm_android_ChatSession_initNative(J
         auto model_dir_str = std::string(model_dir);
         std::string model_dir_parent = model_dir_str.substr(0, model_dir_str.find_last_of('/'));
         std::string temp_dir = model_dir_parent + R"(/tmp")";
-        auto extra_config = R"({"tmp_path":")" + temp_dir + R"(,"reuse_kv":true, "backend_type":"opencl"})";
+        auto extra_config = R"({"tmp_path":")" + temp_dir + R"(,"reuse_kv":true, "backend_type":"cpu"})";
         MNN_DEBUG("extra_config: %s", extra_config.c_str());
         llm->set_config(temp_dir);
     }
     history.clear();
-    history.emplace_back("system", "You are a helpful assistant.");
+    history.emplace_back("system", is_r1 ? "<|begin_of_sentence|>You are a helpful assistant." : "You are a helpful assistant.");
     if (chat_history != nullptr) {
         jclass listClass = env->GetObjectClass(chat_history);
         jmethodID sizeMethod = env->GetMethodID(listClass, "size", "()I");
@@ -122,7 +132,7 @@ JNIEXPORT jlong JNICALL Java_com_alibaba_mnnllm_android_ChatSession_initNative(J
         for (jint i = 0; i < listSize; i++) {
             jobject element = env->CallObjectMethod(chat_history, getMethod, i);
             const char *elementCStr = env->GetStringUTFChars((jstring)element, nullptr);
-            history.emplace_back(i == 0 ? "user" : "assistant",elementCStr);
+            history.emplace_back(i == 0 ? "user" : "assistant",i == 0 ? getUserString(elementCStr) : elementCStr);
             env->ReleaseStringUTFChars((jstring)element, elementCStr);
             env->DeleteLocalRef(element);
         }
@@ -131,6 +141,8 @@ JNIEXPORT jlong JNICALL Java_com_alibaba_mnnllm_android_ChatSession_initNative(J
     MNN_DEBUG("createLLM EndLoad %ld ", reinterpret_cast<jlong>(llm));
     return reinterpret_cast<jlong>(llm);
 }
+
+
 
 JNIEXPORT jobject JNICALL Java_com_alibaba_mnnllm_android_ChatSession_submitNative(JNIEnv* env, jobject thiz,
                                                                                    jlong llmPtr, jstring inputStr,jboolean keepHistory,
@@ -161,7 +173,8 @@ JNIEXPORT jobject JNICALL Java_com_alibaba_mnnllm_android_ChatSession_submitNati
         }
         if (progressListener && onProgressMethod) {
             jstring javaString = is_eop ? nullptr : env->NewStringUTF(utf8Char.c_str());
-            stop_requested = is_eop || env->CallBooleanMethod(progressListener, onProgressMethod,  javaString);
+            jboolean user_stop_requested = env->CallBooleanMethod(progressListener, onProgressMethod,  javaString);
+            stop_requested = is_eop || user_stop_requested;
             env->DeleteLocalRef(javaString);
         }
     });
@@ -169,10 +182,10 @@ JNIEXPORT jobject JNICALL Java_com_alibaba_mnnllm_android_ChatSession_submitNati
         processor.processStream(str, len);
     }};
     std::ostream output_ostream(&stream_buffer);
-    history.emplace_back("user", input_str);
+    history.emplace_back("user", getUserString(input_str));
     MNN_DEBUG("submitNative history count %zu", history.size());
     llm->response(history, &output_ostream, "<eop>", 1);
-    while (!stop_requested && llm->getState().gen_seq_len_ < 512) {
+    while (!stop_requested) {
         llm->generate(1);
     }
     auto& state = llm->getState();

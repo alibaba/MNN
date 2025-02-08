@@ -15,8 +15,19 @@
         android:src="@drawable/logo" />
 
     <TextView
+        android:id="@+id/tv_chat_reasoning"
+        android:layout_toEndOf="@id/ic_header"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:visibility="gone"
+        tools:visibility="visible"
+        android:layout_marginBottom="4dp"
+        tools:text="reasoning textreasoning textreasoning textreasoning textreasoning textreasoning textreasoning text"
+        />
+    <TextView
+        android:layout_below="@id/tv_chat_reasoning"
         android:id="@+id/tv_chat_text"
-        tools:text="Hello World"
+        tools:text="this is the generated text"
         android:layout_toEndOf="@id/ic_header"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
@@ -24,7 +35,6 @@
         android:padding="@dimen/space10"
         android:textAppearance="@style/Light"
         android:textColor="@color/colorTextBlack"
-        android:textIsSelectable="true"
         android:textSize="@dimen/h3"
         android:visibility="visible" />
     <ImageView

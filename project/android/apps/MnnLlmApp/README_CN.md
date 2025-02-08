@@ -56,6 +56,12 @@
   ```
 
 # Releases
+
++ 点击这里[下载](https://meta.alicdn.com/data/mnn/mnn_llm_app_debug_0_2_0.apk)
++ 针对 DeepSeek R1 1.5B 进行了优化
++ 新增支持 Markdown 格式
++ 修复了一些已知问题
+
 ## Version 0.1
 + 点击这里[下载](https://meta.alicdn.com/data/mnn/mnn_llm_app_debug_0_1.apk)
 + 这是我们的首个公开发布版本，您可以：

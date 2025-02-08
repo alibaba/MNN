@@ -4,15 +4,27 @@
 - 模型导出：将torch模型导出为onnx，然后转换为mnn模型；导出tokenizer文件，embedding等文件；
 - 模型推理：支持导出的模型推理，支持LLM模型的文本生成；
 
+
 ## 模型导出
 
+
 `llmexport`是一个llm模型导出工具，能够将llm模型导出为onnx和mnn模型。
+
+### 依赖安装
+```
+cd ./transformers/llm/export
+pip install -r requirements.txt
+```
 
 ### 用法
 1. 将需要导出的LLM项目clone到本地，如：Qwen2-0.5B-Instruct
 ```sh
+git lfs install
 git clone https://www.modelscope.cn/qwen/Qwen2-0.5B-Instruct.git
 ```
+
+***clone 后检查一下模型大小，有可能因为lfs没安装导致下载的是空模型***
+
 3. 执行`llmexport.py`导出模型
 ```sh
 cd ./transformers/llm/export
