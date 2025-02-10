@@ -34,25 +34,54 @@ This is our full multimodal language model (LLM) Android app
 
 
 # Development 
-+ Clone the repository:
++ Clone the repository：
   ```shell
     git clone https://github.com/alibaba/MNN.git
   ```
-+ Build library:
-  ```shell
-  cd project/android
-  mkdir build_64
-  ../build_64.sh "-DMNN_LOW_MEMORY=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true -DMNN_ARM82=true -DMNN_USE_LOGCAT=true -DMNN_OPENCL=true -DLLM_SUPPORT_VISION=true -DMNN_BUILD_OPENCV=true -DMNN_IMGCODECS=true -DLLM_SUPPORT_AUDIO=true -DMNN_BUILD_AUDIO=true -DMNN_BUILD_DIFFUSION=ON -DMNN_SEP_BUILD=ON"
-  ```
-+ copy to llm android app project
-  ```shell
-  find . -name "*.so" -exec cp {} ../apps/MnnLlmApp/app/src/main/jniLibs/arm64-v8a/  \;
-  ```
-+ build android app project and install
+  
+#### 1.Build the Library for 64-bit:
+
+1. Build the arm64 library:
+
+	  ```shell
+	  cd project/android
+	  mkdir build_64
+	  cd build_64
+	  ../build_64.sh "-DMNN_LOW_MEMORY=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true -DMNN_ARM82=true -DMNN_USE_LOGCAT=true -DMNN_OPENCL=true -DLLM_SUPPORT_VISION=true -DMNN_BUILD_OPENCV=true -DMNN_IMGCODECS=true -DLLM_SUPPORT_AUDIO=true -DMNN_BUILD_AUDIO=true -DMNN_BUILD_DIFFUSION=ON -DMNN_SEP_BUILD=ON"
+	  ```
++ Copy the arm64-v8a .so libraries to the LLM Android application project:
+
+	  ```shell
+	  mkdir -p ../apps/MnnLlmApp/app/src/main/jniLibs/arm64-v8a
+	  find . -name "*.so" -exec cp {} ../apps/MnnLlmApp/app/src/main/jniLibs/arm64-v8a/  \;
+	  ```
+  
+#### 2.Build the Library for 32-bit (Optional):
+
+1. Build the armeabi-v7a library:
+
+	  ```shell
+	  cd project/android
+	  mkdir build_32
+	  cd build_32
+	  ../build_32.sh "-DMNN_LOW_MEMORY=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true -DMNN_ARM82=true -DMNN_USE_LOGCAT=true -DMNN_OPENCL=true -DLLM_SUPPORT_VISION=true -DMNN_BUILD_OPENCV=true -DMNN_IMGCODECS=true -DLLM_SUPPORT_AUDIO=true -DMNN_BUILD_AUDIO=true -DMNN_BUILD_DIFFUSION=ON -DMNN_SEP_BUILD=ON"
+	  ```
+	  
++ Copy the armeabi-v7a .so libraries to the LLM Android application project:
+
+	  ```shell
+	  mkdir -p ../apps/MnnLlmApp/app/src/main/jniLibs/armeabi-v7a
+	  find . -name "*.so" -exec cp {} ../apps/MnnLlmApp/app/src/main/jniLibs/armeabi-v7a/  \;
+	  ```
+  
+#### 3.Build the Android Application Project and Install:
++ Execute the installation command:
+
   ```shell
   cd ../apps/MnnLlmApp/
   ./gradlew installDebug
   ```
+  
 
 # Releases
 ## Version 0.2
