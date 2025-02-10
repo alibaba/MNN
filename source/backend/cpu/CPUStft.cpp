@@ -20,6 +20,9 @@
 #include "compute/CommonOptFunction.h"
 
 namespace MNN {
+std::vector<float> CPUStft::gSinTable;
+std::vector<float> CPUStft::gCosTable;
+
 static void MNNDftAbs(const float* input, const float* window, float* output, float* buffer, int nfft) {
     for (int i = 0; i < nfft; ++i) {
         buffer[i] = input[i] * window[i];
@@ -27,9 +30,9 @@ static void MNNDftAbs(const float* input, const float* window, float* output, fl
     for (int k = 0; k < nfft / 2 + 1; ++k) {
         float real_sum = 0.f, imag_sum = 0.f;
         for (int n = 0; n < nfft; ++n) {
-            float angle = 2 * M_PI * k * n / nfft;
-            real_sum += buffer[n] * cosf(angle);
-            imag_sum -= buffer[n] * sinf(angle);
+            int index = (n * k) % nfft;
+            real_sum += buffer[n] * CPUStft::gCosTable[index];
+            imag_sum -= buffer[n] * CPUStft::gSinTable[index];
         }
         output[k] = sqrtf(real_sum * real_sum + imag_sum * imag_sum);
     }
@@ -38,7 +41,15 @@ static void MNNDftAbs(const float* input, const float* window, float* output, fl
 
 CPUStft::CPUStft(Backend* backend, int nfft, int hop_length, bool abs)
     : Execution(backend), mNfft(nfft), mHopLength(hop_length), mAbs(abs) {
-    // nothing to do
+    if (gSinTable.empty() || gCosTable.empty()) {
+        gSinTable.resize(nfft);
+        gCosTable.resize(nfft);
+        for (int i = 0; i < nfft; i++) {
+            float angle = 2 * M_PI * i / nfft;
+            gSinTable[i] = sinf(angle);
+            gCosTable[i] = cosf(angle);
+        }
+    }
 }
 
 ErrorCode CPUStft::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {

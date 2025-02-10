@@ -19,6 +19,8 @@ public:
     virtual ~CPUStft() = default;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    static std::vector<float> gSinTable;
+    static std::vector<float> gCosTable;
 private:
     int mNfft, mHopLength;
     bool mAbs;
