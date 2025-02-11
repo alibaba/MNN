@@ -7,6 +7,7 @@ import static com.alibaba.mls.api.HfApiClient.HOST_DEFAULT;
 import static com.alibaba.mls.api.HfApiClient.HOST_MIRROR;
 
 import android.content.Context;
+import android.content.res.AssetManager;
 import android.os.Handler;
 import android.text.TextUtils;
 import android.util.Log;
@@ -19,11 +20,23 @@ import com.alibaba.mls.api.download.DownloadListener;
 import com.alibaba.mls.api.download.ModelDownloadManager;
 import com.alibaba.mnnllm.android.utils.ModelUtils;
 import com.alibaba.mnnllm.android.R;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.reflect.TypeToken;
 
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.FileReader;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.lang.reflect.Type;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import com.google.gson.JsonSyntaxException;
 
 public class ModelListPresenter implements ModelItemListener, DownloadListener {
 
@@ -53,6 +66,10 @@ public class ModelListPresenter implements ModelItemListener, DownloadListener {
 
     public void onCreate() {
         modelDownloadManager.setListener(this);
+        List<HfRepoItem> items = loadFromCache();
+        if (items != null) {
+            onListAvailable(items, null);
+        }
         requestRepoList(null);
     }
 
@@ -86,6 +103,69 @@ public class ModelListPresenter implements ModelItemListener, DownloadListener {
         }
     }
 
+    private void saveToCache(List<HfRepoItem> hfRepoItems) {
+        Gson gson = new GsonBuilder().setPrettyPrinting().create();
+        String json = gson.toJson(hfRepoItems);
+
+        try (FileWriter writer = new FileWriter(this.context.getFilesDir() + "/model_list.json")) {
+            writer.write(json);
+        } catch (IOException e) {
+            Log.e(TAG, "saveToCacheError");
+        }
+    }
+
+    private List<HfRepoItem> loadFromAssets(Context context, String fileName) {
+        AssetManager assetManager = context.getAssets();
+        try {
+            InputStream inputStream = assetManager.open(fileName);
+            InputStreamReader inputStreamReader = new InputStreamReader(inputStream);
+            BufferedReader bufferedReader = new BufferedReader(inputStreamReader);
+            Gson gson = new Gson();
+            Type listType = new TypeToken<List<HfRepoItem>>() {}.getType();
+            return gson.fromJson(bufferedReader, listType);
+
+        } catch (IOException e) {
+            Log.e(TAG, "loadFromAssets: Error reading from assets", e);
+            return null;
+        } catch (JsonSyntaxException e) {
+            Log.e(TAG, "loadFromAssets: Invalid JSON in assets", e);
+            return null;
+        }
+    }
+    private List<HfRepoItem> loadFromCache() {
+        String cacheFileName = "model_list.json";
+        File cacheFile = new File(this.context.getFilesDir(), "model_list.json");
+        if (!cacheFile.exists()) {
+            return loadFromAssets(this.context, cacheFileName);
+        }
+        try (FileReader reader = new FileReader(cacheFile.getAbsolutePath())) {
+            Gson gson = new Gson();
+            Type listType = new TypeToken<List<HfRepoItem>>() {}.getType();
+            return gson.fromJson(reader, listType);
+        } catch (FileNotFoundException e) {
+            Log.d(TAG, "Cache file not found.");
+            return null;
+        } catch (IOException e) {
+            Log.e(TAG, "loadFromCacheError", e); // Log the full exception for debugging
+            return null;
+        } catch (JsonSyntaxException e) {
+            Log.e(TAG, "loadFromCacheError: Invalid JSON", e);
+            return null;
+        }
+    }
+
+
+    private void onListAvailable(List<HfRepoItem> hfRepoItems, Runnable onSuccess) {
+        hfRepoItems = ModelUtils.processList(hfRepoItems);
+        for (HfRepoItem item : hfRepoItems) {
+            modelDownloadManager.getDownloadInfo(item.getModelId());
+        }
+        modelListAdapter.updateItems(hfRepoItems, getModelItemState(hfRepoItems));
+        if (onSuccess != null) {
+            onSuccess.run();
+        }
+        view.onListAvailable();
+    }
     private void requestRepoListWithClient(HfApiClient hfApiClient, String tag, int loadCount, Runnable onSuccess) {
         hfApiClient.searchRepos("", new HfApiClient.RepoSearchCallback() {
             @Override
@@ -93,16 +173,9 @@ public class ModelListPresenter implements ModelItemListener, DownloadListener {
                 if (bestApiClient == null) {
                     bestApiClient =  hfApiClient;
                     if (hfRepoItems != null) {
-                        hfRepoItems = ModelUtils.processList(hfRepoItems);
-                        for (HfRepoItem item : hfRepoItems) {
-                            modelDownloadManager.getDownloadInfo(item.getModelId());
-                        }
-                        modelListAdapter.updateItems(hfRepoItems, getModelItemState(hfRepoItems));
-                        if (onSuccess != null) {
-                            onSuccess.run();
-                        }
+                        saveToCache(hfRepoItems);
+                        onListAvailable(hfRepoItems, onSuccess);
                     }
-                    view.onListAvailable();
                     HfApiClient.setBestClient(bestApiClient);
                 }
                 Log.d(TAG, "requestRepoListWithClient success : " + tag);
@@ -131,8 +204,8 @@ public class ModelListPresenter implements ModelItemListener, DownloadListener {
         this.lastClickTime = now;
         DownloadInfo downloadInfo = modelDownloadManager.getDownloadInfo(hfRepoItem.getModelId());
         if (downloadInfo.downlodaState == DownloadInfo.DownloadSate.COMPLETED) {
-            File localDownloadPath = modelDownloadManager.getDownloadPath(hfRepoItem.getModelId());
-            this.view.runModel(localDownloadPath.getAbsolutePath(), hfRepoItem.getModelName());
+            File localDownloadPath = modelDownloadManager.getDownloadedFile(hfRepoItem.getModelId());
+            this.view.runModel(localDownloadPath.getAbsolutePath(), hfRepoItem.getModelId());
         } else if (downloadInfo.downlodaState == DownloadInfo.DownloadSate.NOT_START
                 || downloadInfo.downlodaState == DownloadInfo.DownloadSate.FAILED ||
                  downloadInfo.downlodaState == DownloadInfo.DownloadSate.PAUSED) {
@@ -150,9 +223,11 @@ public class ModelListPresenter implements ModelItemListener, DownloadListener {
 
     @Override
     public void onDownloadFailed(String modelId, Exception hfApiException) {
-        this.mainHandler.post(() -> {
-            this.modelListAdapter.updateItem(modelId);
-        });
+        if (this.mainHandler != null) {
+            this.mainHandler.post(() -> {
+                this.modelListAdapter.updateItem(modelId);
+            });
+        }
     }
 
     @Override
@@ -166,10 +241,23 @@ public class ModelListPresenter implements ModelItemListener, DownloadListener {
         lastDownloadProgressStage.put(modelId, downloadInfo.progressStage);
         lastUpdateTimeMap.put(modelId, now);
         if (lastUpdateTime != null && lastUpdateTime > 0 && !progressStateChanged) {
-            this.mainHandler.post(() -> {
-                this.modelListAdapter.updateProgres(modelId, downloadInfo.progress);
-            });
+            if (this.mainHandler != null) {
+                this.mainHandler.post(() -> {
+                    this.modelListAdapter.updateProgres(modelId, downloadInfo.progress);
+                });
+            }
         } else {
+            if (this.mainHandler != null) {
+                this.mainHandler.post(() -> {
+                    this.modelListAdapter.updateItem(modelId);
+                });
+            }
+        }
+    }
+
+    @Override
+    public void onDownloadFinished(String modelId, String path) {
+        if (this.mainHandler != null) {
             this.mainHandler.post(() -> {
                 this.modelListAdapter.updateItem(modelId);
             });
@@ -177,17 +265,12 @@ public class ModelListPresenter implements ModelItemListener, DownloadListener {
     }
 
     @Override
-    public void onDownloadFinished(String modelId, String path) {
-        this.mainHandler.post(() -> {
-            this.modelListAdapter.updateItem(modelId);
-        });
-    }
-
-    @Override
     public void onDownloadPaused(String modelId) {
-        this.mainHandler.post(() -> {
-            this.modelListAdapter.updateItem(modelId);
-        });
+        if (this.mainHandler != null) {
+            this.mainHandler.post(() -> {
+                this.modelListAdapter.updateItem(modelId);
+            });
+        }
     }
 
     @Override

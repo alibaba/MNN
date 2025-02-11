@@ -77,6 +77,7 @@ public class ModelUtils {
         blackList.add("taobao-mnn/codegeex2-6b-MNN");//not for chat
         blackList.add("taobao-mnn/chatglm-6b-MNN");//deprecated
         blackList.add("taobao-mnn/chatglm2-6b-MNN");
+        blackList.add("taobao-mnn/DeepSeek-R1-7B-Qwen-MNN");//add to first item
         blackList.add("taobao-mnn/stable-diffusion-v1-5-mnn-general");//in android, we use opencl version
     }
 
@@ -112,6 +113,10 @@ public class ModelUtils {
             }
         }
         List<HfRepoItem> result = new ArrayList<>(chatItems.size() + otherItems.size());
+//      7B performance not good, comment it
+//        HfRepoItem hfRepoItem = new HfRepoItem();
+//        hfRepoItem.setModelId("taobao-mnn/DeepSeek-R1-7B-Qwen-MNN");
+//        result.add(hfRepoItem);
         result.addAll(goodItems);
         result.addAll(chatItems);
         result.addAll(otherItems);
@@ -126,6 +131,12 @@ public class ModelUtils {
         return modelName.toLowerCase().contains("stable-diffusion");
     }
 
+    public static String getModelName(String modelId) {
+        if (modelId != null && modelId.contains("/")) {
+            return modelId.substring(modelId.lastIndexOf("/") + 1);
+        }
+        return modelId;
+    }
     public static ArrayList<String> generateSimpleTags(String modelName) {
         String[] splits = modelName.split("-");
         ArrayList<String> tags = new ArrayList<>();

@@ -9,6 +9,7 @@ import android.net.Uri;
 import android.util.Log;
 
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -104,7 +105,24 @@ public class FileUtils {
             } catch (Exception ignored) {}
         }
     }
-
-
+    public static void saveStringToFile(Context context, String fileName, String data) {
+        FileOutputStream fileOutputStream = null;
+        try {
+            fileOutputStream = context.openFileOutput(fileName, Context.MODE_PRIVATE);
+            fileOutputStream.write(data.getBytes());
+            fileOutputStream.close();
+            System.out.println("File saved successfully");
+        } catch (Exception e) {
+            Log.e(TAG, "saveStringToFile error", e);
+        } finally {
+            if (fileOutputStream != null) {
+                try {
+                    fileOutputStream.close();
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+        }
+    }
 }
 

@@ -6,6 +6,7 @@ package com.alibaba.mnnllm.android;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
+import android.util.Log;
 import android.view.MenuItem;
 import android.view.View;
 import android.widget.Toast;
@@ -100,16 +101,17 @@ public class MainActivity extends AppCompatActivity {
     }
 
 
-    public void runModel(String destModelDir, String modelName, String sessionId) {
+    public void runModel(String destModelDir, String modelId, String sessionId) {
+        Log.d(TAG, "runModel destModelDir: " + destModelDir);
         ModelDownloadManager.getInstance(this).pauseAllDownloads();
         drawerLayout.close();
         progressDialog = new ProgressDialog(this);
         progressDialog.setMessage(getResources().getString(R.string.model_loading));
         progressDialog.show();
         if (destModelDir == null) {
-            destModelDir = ModelDownloadManager.getInstance(this).getDownloadPath(modelName).getAbsolutePath();
+            destModelDir = ModelDownloadManager.getInstance(this).getDownloadedFile(modelId).getAbsolutePath();
         }
-        boolean isDiffusion = ModelUtils.isDiffusionModel(modelName);
+        boolean isDiffusion = ModelUtils.isDiffusionModel(modelId);
         String configFilePath = null;
         if (!isDiffusion) {
             String configFileName = "config.json";
@@ -129,7 +131,8 @@ public class MainActivity extends AppCompatActivity {
         } else {
             intent.putExtra("configFilePath", configFilePath);
         }
-        intent.putExtra("modelName", modelName);
+        intent.putExtra("modelId", modelId);
+        intent.putExtra("modelName", ModelUtils.getModelName(modelId));
         startActivity(intent);
     }
 

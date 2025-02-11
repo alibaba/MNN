@@ -48,9 +48,11 @@
     <string name="recording_permission_denied">请允许录音权限</string>
     <string name="release_to_send">松开发送，上滑取消</string>
     <string name="release_to_cancel">松开取消</string>
-    <string name="r1_thinking_message">思考中...</string>
-    <string name="r1_think_complete_template">已思考ss秒</string>
+    <string name="r1_thinking_message">思考中…\n</string>
+    <string name="r1_think_complete_template">已思考ss秒\n</string>
     <string name="copy_text">复制</string>
     <string name="select_text">选择文本</string>
     <string name="copy_success">复制成功</string>
+    <string name="debug_message_copied">已经复制调试信息到粘贴板，请在github 上提交Issue</string>
+    <string name="use_model_scope_download">使用 ModelScope 下载</string>
 </resources>
