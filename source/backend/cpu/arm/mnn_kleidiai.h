@@ -138,6 +138,7 @@ namespace MNN {
         size_t getNStep(AccelType type);
         size_t getVecNumPerThread(size_t totalVec, size_t totalThread, size_t minStep);
         //Get Static info
+        bool bSupportSme2() { return mStaticInfo.mSme2; }
         bool isFP16() { return mStaticInfo.mFP16; }
         bool isBF16() { return mStaticInfo.mBF16; }
         bool isHalf() { return mStaticInfo.mFP16 || mStaticInfo.mBF16; }
