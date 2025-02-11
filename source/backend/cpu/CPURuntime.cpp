@@ -1291,8 +1291,6 @@ static void _getInfoApple(MNNCPUInfo* cpuinfo_isa) {
 static void _getInfoAux(MNNCPUInfo* cpuinfo_isa) {
     // Use AUX to get info for linux-aarch64
     uint32_t isa_features = 0;
-    uint64_t isa_features2 = 0;
-
     isa_features = (uint32_t)getauxval(AT_HWCAP);
     if (isa_features & CPUINFO_ARM_LINUX_FEATURE_ASIMDDP) {
         cpuinfo_isa->dot = true;
@@ -1304,13 +1302,9 @@ static void _getInfoAux(MNNCPUInfo* cpuinfo_isa) {
     if (isa_features & CPUINFO_ARM_LINUX_FEATURE_I8MM) {
         cpuinfo_isa->i8mm = true;
     }
-
-    isa_features2 = (uint64_t)getauxval(AT_HWCAP2);
-    if (isa_features & (uint64_t)CPUINFO_ARM_LINUX_FEATURE_SVE2) {
+    isa_features = (uint32_t)getauxval(AT_HWCAP2);
+    if (isa_features & CPUINFO_ARM_LINUX_FEATURE_SVE2) {
         cpuinfo_isa->sve2 = true;
-    }
-    if (isa_features & CPUINFO_ARM_LINUX_FEATURE2_SME2) {
-        cpuinfo_isa->sme2 = true;
     }
 }
 #endif
