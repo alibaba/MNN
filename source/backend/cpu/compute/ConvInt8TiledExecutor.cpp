@@ -251,36 +251,65 @@ DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const O
     int ic = convOp->common()->inputCount();
     bool directReadInt4weight = (kernelCount == 1 && ROUND_UP(oc, UNIT) == oc && ROUND_UP(ic, SRC_UNIT) == ic);
     bool useCachedMmap = backend->getRuntime()->hint().useCachedMmap > 1;
+
 #ifdef MNN_KLEIDIAI_ENABLED
-    bool half_act = gcore->bytes == 2;
-    int biasSize = mResourceInt8->mOriginBias->size();
-    int alphaSize = mResourceInt8->mOriginScale->size();
-    bool blockwise = (biasSize * 2) != alphaSize;
-    KleidiAI kai = KleidiAI::getInstance(quanCommon->asymmetric, half_act, blockwise);
-    if(quanCommon->canUseInt4 && kai.canAccelerate()) {
-        int n = oc;
-        int k = ic;
-        int packedWeightSize = kai.getRhsPackedSize(n, k);
+    if(quanCommon->canUseInt4) {
+        bool bFP16 = gcore->bytes == 2 ? true : false;
+        bool bAsym = quanCommon->asymmetric;
+        size_t blkSize = mBlockNum == 1 ? 0 : ic / mBlockNum;
+        KleidiAI::AccelType accelType = KleidiAI::getQIntAccelType(4, bAsym, blkSize);
 
-        //Alloc packed weight tensor.
-        mResourceInt8->mWeightInt8.reset(Tensor::createDevice<uint8_t>({packedWeightSize}));
-        bool success = backend->onAcquireBuffer(mResourceInt8->mWeightInt8.get(), Backend::STATIC);
-
-        if (!success) {
-            MNN_ERROR("Out of static memory!\n");
-            return;
+        if(!KleidiAI::mKaiInitialized) {
+            KleidiAI& kai = KleidiAI::getInstance(*MNNGetCPUInfo(), bFP16, false);
         }
 
-        //Run rhs pack.
-        kai.runRhsPack(n, k, (uint8_t*)quanCommon->weight.get(),
-                       mResourceInt8->mOriginScale->host<float>(),
-                       mResourceInt8->mOriginBias->host<float>(),
-                       mResourceInt8->mWeightInt8->host<uint8_t>(),
-                       directReadInt4weight);
+        KleidiAI& kai = KleidiAI::getInstance();
+        if(!kai.isLoaded(accelType)) {
+            kai.setLoaded(accelType);
+            kai.printInfo(accelType);
+        }
 
-        return;
+        if(kai.canAccelerate(accelType)) {
+            mAccelType = accelType;
+            int n = oc;
+            int k = ic;
+            int packedWeightSize = kai.getRhsPackedSize(mAccelType, n, k, blkSize);
+
+            //Alloc packed weight tensor.
+            mResourceInt8->mWeightInt8.reset(Tensor::createDevice<uint8_t>({packedWeightSize}));
+            bool success = backend->onAcquireBuffer(mResourceInt8->mWeightInt8.get(), Backend::STATIC);
+
+            if (!success) {
+                MNN_ERROR("Out of static memory!\n");
+                return;
+            }
+
+            size_t paraNum = blockNum * ROUND_UP(oc, pack);
+            float *scalePtr = mResourceInt8->mOriginScale->host<float>();
+            float *zeroPtr = mResourceInt8->mOriginScale->host<float>() + paraNum;
+            float *biasPtr = mResourceInt8->mOriginBias->host<float>();
+            //Reload some parameters to fit ukernels' layout.
+            auto quanInfoPtr = quanCommon->alpha.get();
+            if(bAsym) {
+                for(int i = 0; i < paraNum; i++) {
+                    zeroPtr[i] = quanInfoPtr[i * 2];
+                    scalePtr[i] = quanInfoPtr[i * 2 + 1];
+                }
+            } else {
+                if(blkSize != 0) {
+                    memcpy(scalePtr, (uint8_t*)quanInfoPtr, paraNum * sizeof(float));
+                }
+            }
+
+            //Run rhs pack.
+            auto weightPackedData = mResourceInt8->mWeightInt8->host<uint8_t>();
+            kai.runRhsPack(mAccelType, 1, n, k, blkSize, 0/*unused*/,
+                           (uint8_t*)quanCommon->weight.get(),
+                           (const void*)scalePtr, (const void*)zeroPtr, (const void*)biasPtr,
+                           weightPackedData, directReadInt4weight);
+            return;
+        }
     }
-
 #endif
 
     if (quanCommon->canUseInt4 && directReadInt4weight) {
@@ -497,6 +526,9 @@ bool DenseConvInt8TiledExecutor::onClone(Backend* bn, const Op* op, Execution** 
     if (!exe->valid()) {
         return false;
     }
+#ifdef MNN_KLEIDIAI_ENABLED
+    exe->mAccelType = this->mAccelType;
+#endif
     *dst = exe;
     return true;
 }
@@ -540,11 +572,25 @@ ErrorCode DenseConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& input
 
 #ifdef MNN_KLEIDIAI_ENABLED
     KleidiAI& kai = KleidiAI::getInstance();
-    if(mResourceInt8->mDynamicQuant && mResourceInt8->mActBits == 4 && kai.canAccelerate()) {
-        int batch = inputs[0]->batch();
-        int channel = inputs[0]->channel();
+    if(mResourceInt8->mDynamicQuant && mResourceInt8->mActBits == 4 && kai.canAccelerate(mAccelType)) {
+        MNN_ASSERT(kai.isLoaded(mAccelType));
+        const size_t m = inputs[0]->batch(); //lhs vector number.
+        const size_t n = outputs[0]->channel(); //rhs vector number.
+        const size_t k = inputs[0]->channel(); //vector size.
+        const size_t blkSize = mBlockNum == 1 ? 0 : k / mBlockNum;
 
-        int packedSize = kai.getLhsQuantedPackedSize(batch, channel);
+        int packedSize = kai.getLhsQuantedPackedSize(mAccelType, m, k, blkSize);
+        int elementSize = kai.isHalf() ? sizeof(__fp16) : sizeof(float);
+        if(m > 1 && !kai.isLinear()) {
+            int srcSize = m * k * elementSize;
+            int dstSize = m * n * elementSize;
+            int extraSize = srcSize > dstSize ? srcSize : dstSize;
+            packedSize += extraSize;
+        }
+
+        //Split mTempIm2ColBuffer as two parts for linear/tile transfer:
+        //Part0: Lhs_packed.
+        //Part1: Lhs/Dst before transfer.
         mTempIm2ColBuffer.reset(Tensor::createDevice<int8_t>({packedSize}));
         bool success = backend()->onAcquireBuffer(mTempIm2ColBuffer.get(), Backend::DYNAMIC);
         if (!success) {
@@ -766,36 +812,55 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
 
 #ifdef MNN_KLEIDIAI_ENABLED
     KleidiAI& kai = KleidiAI::getInstance();
-    if(mResourceInt8->mDynamicQuant && mResourceInt8->mActBits == 4 && kai.canAccelerate()) {
+    if(mResourceInt8->mDynamicQuant && mResourceInt8->mActBits == 4 && kai.canAccelerate(mAccelType)) {
+        MNN_ASSERT(kai.isLoaded(mAccelType));
         const size_t m = input->batch(); //lhs vector number.
         const size_t n = output->channel(); //rhs vector number.
         const size_t k = input->channel(); //vector size.
+        const size_t blkSize = mBlockNum == 1 ? 0 : k / mBlockNum;
+
+        bool bHalf = kai.isHalf();
+        size_t elementSize = bHalf ? sizeof(__fp16) : sizeof(float);
+        size_t lhsPackedSize = kai.getLhsQuantedPackedSize(mAccelType, m, k, blkSize);
 
         auto lhs = input->host<uint8_t>();
         auto lhsPacked = mTempIm2ColBuffer->host<int8_t>();
         auto rhsPacked = mResourceInt8->mWeightInt8->host<uint8_t>();
         auto dst = output->host<uint8_t>();
 
+        uint8_t *linearLhs, *linearDst;
+        if(m > 1 && !kai.isLinear()) {
+            linearLhs = (uint8_t *)lhsPacked + lhsPackedSize;
+            linearDst = linearLhs;
+        } else {
+            linearLhs = lhs;
+            linearDst = dst;
+        }
+
         int threadNum = static_cast<CPUBackend*>(backend())->threadNumber();
         int threadNeed, vecPerThread;
 
-#if !KAI_CONV_NCHW_IN_OUT
-        kai.packNC4HW4ToNCHW((float *)lhs, m, k);
-#endif
-
         //Dynamic quant pack lhs.
         if(m == 1) {
-            kai.runLhsQuantPack(1, k, 1, lhs, lhsPacked);
+            kai.runLhsQuantPack(mAccelType, 1, k, blkSize, 1, linearLhs, lhsPacked);
         } else {
-            vecPerThread = kai.getVecNumPerThread(m, threadNum, kai.getMr(m));
+            if(!kai.isLinear()) {
+                if(bHalf) {
+                    KleidiAIUtil::transferNC4HW4ToNCHW((__fp16 *)lhs, (__fp16 *)linearLhs, m, k);
+                } else {
+                    KleidiAIUtil::transferNC4HW4ToNCHW((float *)lhs, (float *)linearLhs, m, k);
+                }
+            }
+
+            vecPerThread = kai.getVecNumPerThread(m, threadNum, kai.getMr(mAccelType, m));
             threadNeed = m % vecPerThread == 0 ? m / vecPerThread : (m / vecPerThread + 1);
-            size_t srcStride = vecPerThread * k * sizeof(float);
+            size_t srcStride = vecPerThread * k * elementSize;
 
             auto BatchDynamicQuant = [=, &kai](int tId) {
-                auto threadSrc = lhs + tId * srcStride;
-                auto threadDst = lhsPacked + kai.getLhsQuantedPackedOffset(m, tId * vecPerThread, k);
+                auto threadSrc = linearLhs + tId * srcStride;
+                auto threadDst = lhsPacked + kai.getLhsQuantedPackedOffset(mAccelType, m, tId * vecPerThread, k, blkSize);
                 int vecNum = (tId == threadNeed - 1) ? (m - vecPerThread * tId) : vecPerThread; //Last threadN may less than vecPerThread.
-                kai.runLhsQuantPack(vecNum, k, kai.getMr(m), threadSrc, threadDst);
+                kai.runLhsQuantPack(mAccelType, vecNum, k, blkSize, kai.getMr(mAccelType, m), threadSrc, threadDst);
             };
 
             MNN_CONCURRENCY_BEGIN(tId, threadNeed) {
@@ -804,15 +869,14 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
             MNN_CONCURRENCY_END();
         }
 
-        //Run matmul.
-        vecPerThread = kai.getVecNumPerThread(n, threadNum, kai.getNStep());
+        vecPerThread = kai.getVecNumPerThread(n, threadNum, kai.getNStep(mAccelType));
         threadNeed = n % vecPerThread == 0 ? n / vecPerThread : (n / vecPerThread + 1);
 
         auto ThreadFunction = [=, &kai](int tId) {
-            auto threadRhsPacked = rhsPacked + kai.getRhsPackedOffset(tId * vecPerThread, k);
-            auto threadDst = dst + kai.getDstOffset(0, tId * vecPerThread, n);
+            auto threadRhsPacked = rhsPacked + kai.getRhsPackedOffset(mAccelType, tId * vecPerThread, k, blkSize);
+            auto threadDst = linearDst + kai.getDstOffset(0, tId * vecPerThread, n, elementSize);
             int vecNum = (tId == threadNeed - 1) ? (n - vecPerThread * tId) : vecPerThread; //Last threadN may less than vecPerThread.
-            kai.runMatmul(m, vecNum, k, lhsPacked, threadRhsPacked, n * sizeof(float), threadDst);
+            kai.runMatmul(mAccelType, m, vecNum, k, blkSize, lhsPacked, threadRhsPacked, threadDst, n * elementSize, elementSize, FLT_MAX, -FLT_MAX);
         };
 
         MNN_CONCURRENCY_BEGIN(tId, threadNeed) {
@@ -820,9 +884,13 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
         }
         MNN_CONCURRENCY_END();
 
-#if !KAI_CONV_NCHW_IN_OUT
-        kai.packNCHWToNC4HW4((float *)dst, m, n);
-#endif
+        if(m > 1 && !kai.isLinear()) {
+            if(bHalf) {
+                KleidiAIUtil::transferNCHWToNC4HW4((__fp16 *)linearDst, (__fp16 *)dst, m, n);
+            } else {
+                KleidiAIUtil::transferNCHWToNC4HW4((float *)linearDst, (float *)dst, m, n);
+            }
+        }
 
         return NO_ERROR;
     }
