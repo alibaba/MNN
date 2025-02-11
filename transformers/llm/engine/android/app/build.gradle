@@ -1,12 +1,13 @@
 apply plugin: 'com.android.application'
+apply from: 'signing.gradle'
 
 android {
     signingConfigs {
         release {
-            storeFile file('C:\\Users\\shuden01\\OneDrive - Arm\\AndroidSign\\arm.jks')
-            storePassword 'arm123456'
-            keyAlias 'arm'
-            keyPassword 'arm123456'
+            storeFile signingConfigs.release.storeFile
+            storePassword signingConfigs.release.storePassword
+            keyAlias signingConfigs.release.keyAlias
+            keyPassword signingConfigs.release.keyPassword
         }
     }
     compileSdk 34

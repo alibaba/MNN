@@ -21,7 +21,49 @@
         android:layout_above="@id/rl_bottom"
         android:orientation="vertical">
         <LinearLayout
-            android:id="@+id/promptBubbleList"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_above="@id/rl_bottom">
+            <TextView
+                android:id="@+id/promptBubble5"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="@drawable/bubble_background"
+                android:padding="10dp"
+                android:text="What kind of dishes could be made with these ingredients"
+                android:layout_marginBottom="8dp"
+                android:textColor="@android:color/black"
+                android:clickable="true"
+                android:focusable="true" />
+        </LinearLayout>
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_above="@id/rl_bottom">
+            <TextView
+                android:id="@+id/promptBubble3"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="@drawable/bubble_background"
+                android:padding="10dp"
+                android:text="How many people are in this image"
+                android:layout_marginBottom="8dp"
+                android:textColor="@android:color/black"
+                android:clickable="true"
+                android:focusable="true" />
+            <TextView
+                android:id="@+id/promptBubble4"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="@drawable/bubble_background"
+                android:padding="10dp"
+                android:text="What's the weather'?"
+                android:layout_marginBottom="8dp"
+                android:textColor="@android:color/black"
+                android:clickable="true"
+                android:focusable="true" />
+        </LinearLayout>
+        <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_above="@id/rl_bottom">
@@ -76,8 +118,31 @@
                 android:layout_width="50dp"
                 android:layout_height="50dp"
                 android:scaleType="centerCrop"
+                android:clickable="true"
+                android:focusable="true" />
+            <ImageView
+                android:id="@+id/examplePicture4"
+                android:layout_width="50dp"
+                android:layout_height="50dp"
+                android:scaleType="centerCrop"
                 android:padding="10dp"
                 android:layout_marginBottom="8dp"
+                android:clickable="true"
+                android:focusable="true" />
+            <ImageView
+                android:id="@+id/examplePicture5"
+                android:layout_width="50dp"
+                android:layout_height="50dp"
+                android:scaleType="centerCrop"
+                android:padding="10dp"
+                android:layout_marginBottom="8dp"
+                android:clickable="true"
+                android:focusable="true" />
+            <ImageView
+                android:id="@+id/examplePicture6"
+                android:layout_width="50dp"
+                android:layout_height="50dp"
+                android:scaleType="centerCrop"
                 android:clickable="true"
                 android:focusable="true" />
         </LinearLayout>

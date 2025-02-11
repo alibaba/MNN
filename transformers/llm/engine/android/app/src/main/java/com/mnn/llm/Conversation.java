@@ -127,11 +127,59 @@ public class Conversation extends BaseActivity {
                 inputField.setText(promptBubble2.getText().toString());
             }
         });
+        TextView promptBubble3 = findViewById(R.id.promptBubble3);
+        promptBubble3.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                promptBubble3.setBackgroundResource(R.drawable.bubble_background_onclick);
+                new Handler().postDelayed(new Runnable() {
+                    @Override
+                    public void run() {
+                        promptBubble3.setBackgroundResource(R.drawable.bubble_background);
+                    }
+                }, 200);
+                EditText inputField = findViewById(R.id.et_message);
+                inputField.setText(promptBubble3.getText().toString());
+            }
+        });
+        TextView promptBubble4 = findViewById(R.id.promptBubble4);
+        promptBubble4.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                promptBubble4.setBackgroundResource(R.drawable.bubble_background_onclick);
+                new Handler().postDelayed(new Runnable() {
+                    @Override
+                    public void run() {
+                        promptBubble4.setBackgroundResource(R.drawable.bubble_background);
+                    }
+                }, 200);
+                EditText inputField = findViewById(R.id.et_message);
+                inputField.setText(promptBubble4.getText().toString());
+            }
+        });
+        TextView promptBubble5 = findViewById(R.id.promptBubble5);
+        promptBubble5.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                promptBubble5.setBackgroundResource(R.drawable.bubble_background_onclick);
+                new Handler().postDelayed(new Runnable() {
+                    @Override
+                    public void run() {
+                        promptBubble5.setBackgroundResource(R.drawable.bubble_background);
+                    }
+                }, 200);
+                EditText inputField = findViewById(R.id.et_message);
+                inputField.setText(promptBubble5.getText().toString());
+            }
+        });
 
         String imgDir = new File(getFilesDir(), "image").getAbsolutePath();
         ImageView img1 = findViewById(R.id.examplePicture1);
         ImageView img2 = findViewById(R.id.examplePicture2);
         ImageView img3 = findViewById(R.id.examplePicture3);
+        ImageView img4 = findViewById(R.id.examplePicture4);
+        ImageView img5 = findViewById(R.id.examplePicture5);
+        ImageView img6 = findViewById(R.id.examplePicture6);
         File imgFile1 = new File(imgDir,"1.png");
         if (imgFile1.exists()) {
             Bitmap myBitmap = BitmapFactory.decodeFile(imgFile1.getAbsolutePath());
@@ -169,6 +217,48 @@ public class Conversation extends BaseActivity {
                 public void onClick(View v) {
                     imageUri = Uri.fromFile(imgFile3);
                     selectedImagePath = imgFile3.getAbsolutePath();
+                    imagePreview.setImageURI(imageUri);
+                    imagePreview.setVisibility(View.VISIBLE);
+                }
+            });
+        }
+        File imgFile4 = new File(imgDir,"4.png");
+        if (imgFile4.exists()) {
+            Bitmap myBitmap = BitmapFactory.decodeFile(imgFile4.getAbsolutePath());
+            img4.setImageBitmap(myBitmap);
+            img4.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    imageUri = Uri.fromFile(imgFile4);
+                    selectedImagePath = imgFile4.getAbsolutePath();
+                    imagePreview.setImageURI(imageUri);
+                    imagePreview.setVisibility(View.VISIBLE);
+                }
+            });
+        }
+        File imgFile5 = new File(imgDir,"5.png");
+        if (imgFile5.exists()) {
+            Bitmap myBitmap = BitmapFactory.decodeFile(imgFile5.getAbsolutePath());
+            img5.setImageBitmap(myBitmap);
+            img5.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    imageUri = Uri.fromFile(imgFile5);
+                    selectedImagePath = imgFile5.getAbsolutePath();
+                    imagePreview.setImageURI(imageUri);
+                    imagePreview.setVisibility(View.VISIBLE);
+                }
+            });
+        }
+        File imgFile6 = new File(imgDir,"6.png");
+        if (imgFile6.exists()) {
+            Bitmap myBitmap = BitmapFactory.decodeFile(imgFile6.getAbsolutePath());
+            img6.setImageBitmap(myBitmap);
+            img6.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    imageUri = Uri.fromFile(imgFile6);
+                    selectedImagePath = imgFile6.getAbsolutePath();
                     imagePreview.setImageURI(imageUri);
                     imagePreview.setVisibility(View.VISIBLE);
                 }
