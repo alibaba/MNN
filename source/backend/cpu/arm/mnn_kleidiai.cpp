@@ -86,10 +86,10 @@ void KleidiAI::initKernelInfo() {
         switch(static_cast<AccelType>(type)) {
         case AccelType::QI4_SYM_CHNLQT:
         {
-            if(mStaticInfo.mSme2) {
-                bSupport = !mStaticInfo.mFP16 && !mStaticInfo.mBF16;
-                if(bSupport) {
-                    KernelParam *pParam = &pInfo->mKernelParam;
+            if(!mStaticInfo.mFP16 && !mStaticInfo.mBF16) { //Currently only support FP32.
+                KernelParam *pParam = &pInfo->mKernelParam;
+                if(mStaticInfo.mSme2) {
+                    bSupport = true;
                     pParam->mKaiMstepGemv = 1;
                     pParam->mKaiMstepGemm = kai_get_m_step_matmul_clamp_f32_qai8dxp1vlx8_qsi4cxp4vlx8_1vlx4vl_sme2_mopa();
                     pParam->mKaiNStep = kai_get_n_step_matmul_clamp_f32_qai8dxp1vlx8_qsi4cxp4vlx8_1vlx4vl_sme2_mopa();
@@ -98,11 +98,8 @@ void KleidiAI::initKernelInfo() {
                     pParam->mKaiNr = kai_get_nr_matmul_clamp_f32_qai8dxp1vlx8_qsi4cxp4vlx8_1vlx4vl_sme2_mopa();
                     pParam->mKaiKr = 4;
                     pParam->mKaiSr = 1;
-                }
-            } else {
-                bSupport = (mStaticInfo.mDot && mStaticInfo.mI8mm) && (!mStaticInfo.mFP16 && !mStaticInfo.mBF16);
-                if(bSupport) {
-                    KernelParam *pParam = &pInfo->mKernelParam;
+                } else if(mStaticInfo.mDot && mStaticInfo.mI8mm) {
+                    bSupport = true;
                     pParam->mKaiMstepGemv = 1;
                     pParam->mKaiMstepGemm = 8;
                     pParam->mKaiNStep = 4;
@@ -111,6 +108,8 @@ void KleidiAI::initKernelInfo() {
                     pParam->mKaiNr = 4;
                     pParam->mKaiKr = 16;
                     pParam->mKaiSr = 2;
+                } else {
+                    bSupport = false;
                 }
             }
             break;
@@ -304,8 +303,8 @@ void KleidiAI::runMatmul(AccelType type, size_t m, size_t n, size_t k, size_t bl
         } else {
             if(m == 1) {
                 kai_run_matmul_clamp_f32_qai8dxp1x8_qsi4cxp4x8_1x4x32_neon_dotprod(m, n, k,
-                                                                                (const void *)lhsPacked, (const void *)rhsPacked, (float *)dst,
-                                                                                dstStrideRow, dstStrideCol, scalarMin, scalarMax);
+                                                                                   (const void *)lhsPacked, (const void *)rhsPacked, (float *)dst,
+                                                                                   dstStrideRow, dstStrideCol, scalarMin, scalarMax);
             } else {
                 kai_run_matmul_clamp_f32_qai8dxp4x8_qsi4cxp4x8_8x4x32_neon_i8mm(m, n, k,
                                                                                 (const void *)lhsPacked, (const void *)rhsPacked, (float *)dst,
