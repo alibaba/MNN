@@ -30,9 +30,10 @@
 #define CPUINFO_ARM_LINUX_FEATURE_ASIMDDP UINT32_C(0x00100000)
 #define CPUINFO_ARM_LINUX_FEATURE_SVE UINT32_C(0x00400000)
 // HWCAP2 flags
-#define CPUINFO_ARM_LINUX_FEATURE_SVE2 UINT32_C(0x00000002)
+#define CPUINFO_ARM_LINUX_FEATURE2_SVE2 UINT32_C(0x00000002)
 // ref: https://cs.android.com/android/platform/superproject/+/master:bionic/libc/kernel/uapi/asm-arm64/asm/hwcap.h;drc=04da58f5b3bc40dbbafb4f8422aa2991479d9e1e;l=70
-#define CPUINFO_ARM_LINUX_FEATURE_I8MM UINT32_C(0x00002000)
+#define CPUINFO_ARM_LINUX_FEATURE2_I8MM UINT32_C(0x00002000)
+#define CPUINFO_ARM_LINUX_FEATURE2_SME2 UINT64_C(0x0000002000000000)
 #endif
 
 #include <algorithm>
@@ -1293,6 +1294,7 @@ static void _getInfoApple(MNNCPUInfo* cpuinfo_isa) {
 static void _getInfoAux(MNNCPUInfo* cpuinfo_isa) {
     // Use AUX to get info for linux-aarch64
     uint32_t isa_features = 0;
+    uint64_t isa_features2 = 0;
     // HWCAP features
     isa_features = (uint32_t)getauxval(AT_HWCAP);
     if (isa_features & CPUINFO_ARM_LINUX_FEATURE_ASIMDDP) {
@@ -1303,12 +1305,15 @@ static void _getInfoAux(MNNCPUInfo* cpuinfo_isa) {
         cpuinfo_isa->fp16arith = true;
     }
     // HWCAP2 features
-    isa_features = (uint32_t)getauxval(AT_HWCAP2);
-    if (isa_features & CPUINFO_ARM_LINUX_FEATURE_I8MM) {
+    isa_features2 = (uint64_t)getauxval(AT_HWCAP2);
+    if (isa_features2 & CPUINFO_ARM_LINUX_FEATURE2_I8MM) {
         cpuinfo_isa->i8mm = true;
     }
-    if (isa_features & CPUINFO_ARM_LINUX_FEATURE_SVE2) {
+    if (isa_features2 & CPUINFO_ARM_LINUX_FEATURE2_SVE2) {
         cpuinfo_isa->sve2 = true;
+    }
+    if (isa_features & CPUINFO_ARM_LINUX_FEATURE2_SME2) {
+        cpuinfo_isa->sme2 = true;
     }
 }
 #endif
