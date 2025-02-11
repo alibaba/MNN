@@ -17,13 +17,14 @@ public interface HfApiService {
     Call<List<HfRepoItem>> searchRepos(
             @Query("search") String keyword,
             @Query("author") String author,
-            @Query("limit") int limit
+            @Query("limit") int limit,
+            @Query("sort") String sort
     );
 
-    // Get repository information
     @GET("/api/models/{repoName}/revision/{revision}")
     Call<HfRepoInfo> getRepoInfo(
             @Path("repoName") String repoName,
             @Path("revision") String revision
     );
+
 }

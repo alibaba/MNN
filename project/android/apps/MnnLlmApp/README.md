@@ -55,6 +55,12 @@ This is our full multimodal language model (LLM) Android app
   ```
 
 # Releases
+## Version 0.2.1
++ Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_d_0_2_1.apk)
++ Support for ModelScope downloads
++ Optimization of DeepSeek's multi-turn conversation capabilities and UI presentation
++ Added support for including debug information when submitting feedback or issues
+
 ## Version 0.2
 + Click here to [download](https://meta.alicdn.com/data/mnn/mnn_llm_app_debug_0_2_0.apk)
 + Optimized for DeepSeek R1 1.5B

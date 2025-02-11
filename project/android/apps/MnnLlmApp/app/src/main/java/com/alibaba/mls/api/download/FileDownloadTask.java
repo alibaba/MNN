@@ -15,6 +15,6 @@ public class FileDownloadTask {
     File blobPathIncomplete;
     File pointerPath;
 
-    long resumeSize;
+    long downloadedSize;
 
 }

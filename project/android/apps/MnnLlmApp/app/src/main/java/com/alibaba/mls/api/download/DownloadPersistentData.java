@@ -23,7 +23,7 @@ public class DownloadPersistentData {
 
 
     public static void saveMetaData(Context context, String modelId, List<HfFileMetadata> metaDataList) {
-        modelId = HfFileUtils.getLastFileName(modelId);
+        modelId = DownloadFileUtils.getLastFileName(modelId);
         SharedPreferences sharedPreferences = context.getSharedPreferences("DOWNLOAD_" + modelId, Context.MODE_PRIVATE);
         SharedPreferences.Editor editor = sharedPreferences.edit();
         Gson gson = new Gson();
@@ -33,7 +33,7 @@ public class DownloadPersistentData {
     }
 
     public static List<HfFileMetadata> getMetaData(Context context, String modelId) {
-        modelId = HfFileUtils.getLastFileName(modelId);
+        modelId = DownloadFileUtils.getLastFileName(modelId);
         SharedPreferences sharedPreferences = context.getSharedPreferences("DOWNLOAD_" + modelId, Context.MODE_PRIVATE);
         String json = sharedPreferences.getString(METADATA_KEY, null);
         if (json != null) {
@@ -45,7 +45,7 @@ public class DownloadPersistentData {
     }
 
     public static void saveDownloadSizeTotal(Context context, String modelId, long total) {
-        modelId = HfFileUtils.getLastFileName(modelId);
+        modelId = DownloadFileUtils.getLastFileName(modelId);
         SharedPreferences sharedPreferences = context.getSharedPreferences("DOWNLOAD_" + modelId, Context.MODE_PRIVATE);
         SharedPreferences.Editor editor = sharedPreferences.edit();
         editor.putLong(SIZE_TOTAL_KEY, total);
@@ -53,13 +53,13 @@ public class DownloadPersistentData {
     }
 
     public static long getDownloadSizeTotal(Context context, String modelId) {
-        modelId = HfFileUtils.getLastFileName(modelId);
+        modelId = DownloadFileUtils.getLastFileName(modelId);
         SharedPreferences sharedPreferences = context.getSharedPreferences("DOWNLOAD_" + modelId, Context.MODE_PRIVATE);
         return sharedPreferences.getLong(SIZE_TOTAL_KEY, 0);
     }
 
     public static void saveDownloadSizeSaved(Context context, String modelId, long saved) {
-        modelId = HfFileUtils.getLastFileName(modelId);
+        modelId = DownloadFileUtils.getLastFileName(modelId);
         SharedPreferences sharedPreferences = context.getSharedPreferences("DOWNLOAD_" + modelId, Context.MODE_PRIVATE);
         SharedPreferences.Editor editor = sharedPreferences.edit();
         editor.putLong(SIZE_SAVED_KEY, saved);
@@ -67,13 +67,13 @@ public class DownloadPersistentData {
     }
 
     public static long getDownloadSizeSaved(Context context, String modelId) {
-        modelId = HfFileUtils.getLastFileName(modelId);
+        modelId = DownloadFileUtils.getLastFileName(modelId);
         SharedPreferences sharedPreferences = context.getSharedPreferences("DOWNLOAD_" + modelId, Context.MODE_PRIVATE);
         return sharedPreferences.getLong(SIZE_SAVED_KEY, 0);
     }
 
     public static void removeProgress(Context context, String modelId) {
-        modelId = HfFileUtils.getLastFileName(modelId);
+        modelId = DownloadFileUtils.getLastFileName(modelId);
         SharedPreferences sharedPreferences = context.getSharedPreferences("DOWNLOAD_" + modelId, Context.MODE_PRIVATE);
         SharedPreferences.Editor editor = sharedPreferences.edit();
         editor.remove(SIZE_SAVED_KEY);

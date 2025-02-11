@@ -17,7 +17,7 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.List;
 
-public class HfFileUtils {
+public class DownloadFileUtils {
 
     public static final String TAG = "FileUtils";
 

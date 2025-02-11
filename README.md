@@ -7,6 +7,7 @@
 [MNN Homepage](http://www.mnn.zone)
 
 ## News 🔥
+- [2025/02/11] support for deepseek r1 1.5b[MNN-LLM-Android Version0.2.1](./project/android/apps/MnnLlmApp/README.md#version-021). including text-to-text, image-to-text, audio-to-text, and text-to-image generation.
 - [2025/01/23] We released our full multimodal LLM Android App:[MNN-LLM-Android](./project/android/apps/MnnLlmApp/README.md). including text-to-text, image-to-text, audio-to-text, and text-to-image generation.
 <p align="center">
   <img width="20%" alt="Icon"  src="./project/android/apps/MnnLlmApp/assets/image_home.jpg" style="margin: 0 10px;">

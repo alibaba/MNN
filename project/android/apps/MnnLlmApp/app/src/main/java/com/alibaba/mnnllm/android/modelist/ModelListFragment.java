@@ -26,6 +26,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.alibaba.mls.api.HfRepoItem;
 import com.alibaba.mnnllm.android.MainActivity;
 import com.alibaba.mnnllm.android.R;
+import com.alibaba.mnnllm.android.utils.PreferenceUtils;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -86,6 +87,14 @@ public class ModelListFragment extends Fragment implements ModelListContract.Vie
             MenuItem starGithub = menu.findItem(R.id.action_star_project);
             starGithub.setOnMenuItemClickListener(item -> {
                 ((MainActivity) getActivity()).onStarProject(null);
+                return true;
+            });
+
+            MenuItem menuUseModelScope = menu.findItem(R.id.action_use_modelscope);
+            menuUseModelScope.setChecked(PreferenceUtils.isUseModelsScopeDownload(getContext()));
+            menuUseModelScope.setOnMenuItemClickListener(item -> {
+                menuUseModelScope.setChecked(!menuUseModelScope.isChecked());
+                PreferenceUtils.setUseModelsScopeDownload(getContext(), menuUseModelScope.isChecked());
                 return true;
             });
         }
@@ -156,15 +165,19 @@ public class ModelListFragment extends Fragment implements ModelListContract.Vie
 
     @Override
     public void onLoading() {
+        if (modelListAdapter.getItemCount() > 0) {
+            return;
+        }
         modelListErrorView.setVisibility(View.GONE);
         modelListLoadingView.setVisibility(View.VISIBLE);
         modelListRecyclerView.setVisibility(View.GONE);
     }
 
-
-
     @Override
     public void onListLoadError(String error) {
+        if (modelListAdapter.getItemCount() > 0) {
+            return;
+        }
         modelListErrorText.setText(getString(R.string.loading_failed_click_tor_retry, error));
         modelListErrorView.setVisibility(View.VISIBLE);
         modelListLoadingView.setVisibility(View.GONE);
@@ -177,7 +190,7 @@ public class ModelListFragment extends Fragment implements ModelListContract.Vie
     }
 
     @Override
-    public void runModel(String absolutePath, String modelName) {
-        ((MainActivity) getActivity()).runModel(absolutePath, modelName, null);
+    public void runModel(String absolutePath, String modelId) {
+        ((MainActivity) getActivity()).runModel(absolutePath, modelId, null);
     }
 }
