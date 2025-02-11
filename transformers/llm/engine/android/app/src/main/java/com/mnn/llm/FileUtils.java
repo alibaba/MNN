@@ -26,6 +26,11 @@ public class FileUtils {
         for (String file : files) {
             String assetPath = assetDir.isEmpty() ? file : assetDir + File.separator + file;
             String targetPath = targetDir + File.separator + file;
+            File targetFile = new File(targetPath);
+            if (targetFile.exists()) {
+                //File exists, skip
+                continue;
+            }
             if (assetManager.list(assetPath).length > 0) {
                 copyAssetsRecursively(context, assetPath, targetPath);
             } else {

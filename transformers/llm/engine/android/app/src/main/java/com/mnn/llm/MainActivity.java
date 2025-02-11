@@ -31,6 +31,7 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        //copy models
         try {
             String assetDir = "models";
             String targetDir = new File(getFilesDir(), "models").getAbsolutePath();
@@ -39,6 +40,15 @@ public class MainActivity extends AppCompatActivity {
         } catch (IOException e) {
             e.printStackTrace();
         }
+        //copy images
+        try {
+            String assetDir = "image";
+            String targetDir = new File(getFilesDir(), "image").getAbsolutePath();
+            FileUtils.copyAssetsRecursively(this, assetDir, targetDir);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
         setContentView(R.layout.activity_main);
         mIntent = new Intent(this, Conversation.class);
         mModelInfo = findViewById(R.id.model_info);

@@ -6,10 +6,12 @@ import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.Handler;
 import android.provider.MediaStore;
 import android.provider.Settings;
 import android.util.Log;
@@ -95,6 +97,83 @@ public class Conversation extends BaseActivity {
                 startActivityForResult(intent, REQUEST_CODE);
             }
         }
+        TextView promptBubble1 = findViewById(R.id.promptBubble1);
+        promptBubble1.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                promptBubble1.setBackgroundResource(R.drawable.bubble_background_onclick);
+                new Handler().postDelayed(new Runnable() {
+                    @Override
+                    public void run() {
+                        promptBubble1.setBackgroundResource(R.drawable.bubble_background);
+                    }
+                }, 200);
+                EditText inputField = findViewById(R.id.et_message);
+                inputField.setText(promptBubble1.getText().toString());
+            }
+        });
+        TextView promptBubble2 = findViewById(R.id.promptBubble2);
+        promptBubble2.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                promptBubble2.setBackgroundResource(R.drawable.bubble_background_onclick);
+                new Handler().postDelayed(new Runnable() {
+                    @Override
+                    public void run() {
+                        promptBubble2.setBackgroundResource(R.drawable.bubble_background);
+                    }
+                }, 200);
+                EditText inputField = findViewById(R.id.et_message);
+                inputField.setText(promptBubble2.getText().toString());
+            }
+        });
+
+        String imgDir = new File(getFilesDir(), "image").getAbsolutePath();
+        ImageView img1 = findViewById(R.id.examplePicture1);
+        ImageView img2 = findViewById(R.id.examplePicture2);
+        ImageView img3 = findViewById(R.id.examplePicture3);
+        File imgFile1 = new File(imgDir,"1.png");
+        if (imgFile1.exists()) {
+            Bitmap myBitmap = BitmapFactory.decodeFile(imgFile1.getAbsolutePath());
+            img1.setImageBitmap(myBitmap);
+            img1.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    imageUri = Uri.fromFile(imgFile1);
+                    selectedImagePath = imgFile1.getAbsolutePath();
+                    imagePreview.setImageURI(imageUri);
+                    imagePreview.setVisibility(View.VISIBLE);
+                }
+            });
+        }
+        File imgFile2 = new File(imgDir,"2.png");
+        if (imgFile2.exists()) {
+            Bitmap myBitmap = BitmapFactory.decodeFile(imgFile2.getAbsolutePath());
+            img2.setImageBitmap(myBitmap);
+            img2.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    imageUri = Uri.fromFile(imgFile2);
+                    selectedImagePath = imgFile2.getAbsolutePath();
+                    imagePreview.setImageURI(imageUri);
+                    imagePreview.setVisibility(View.VISIBLE);
+                }
+            });
+        }
+        File imgFile3 = new File(imgDir,"3.png");
+        if (imgFile3.exists()) {
+            Bitmap myBitmap = BitmapFactory.decodeFile(imgFile3.getAbsolutePath());
+            img3.setImageBitmap(myBitmap);
+            img3.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    imageUri = Uri.fromFile(imgFile3);
+                    selectedImagePath = imgFile3.getAbsolutePath();
+                    imagePreview.setImageURI(imageUri);
+                    imagePreview.setVisibility(View.VISIBLE);
+                }
+            });
+        }
     }
 
     @Override
@@ -146,15 +225,6 @@ public class Conversation extends BaseActivity {
         if (!inputString.isEmpty() || selectedImagePath != null) {
             String combinedInput = inputString;
             if (selectedImagePath != null) {
-                File file = new File(selectedImagePath);
-                String absolutePath = file.getAbsolutePath();
-                // copy image
-                String targetDir = new File(getFilesDir(), "pictures").getAbsolutePath();
-                try {
-                    selectedImagePath = FileUtils.copyFile(absolutePath, targetDir);
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
                 combinedInput = String.format("<img>%s</img>%s", selectedImagePath, combinedInput);
             }
             addUserMessage(inputString, imageUri);
