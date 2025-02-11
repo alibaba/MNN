@@ -93,9 +93,9 @@ private:
         int decode_len = 0;
         int64_t prefill_time = 0;
         int64_t decode_time = 0;
-        auto status = llm->getState();
         for (int i = 0; i < prompts.size(); i++) {
             llm->response(prompts[i], &os, "\n");
+            auto status = llm->getState();
             prompt_len += status.prompt_len_;
             decode_len += status.gen_seq_len_;
             prefill_time += status.prefill_us_;
