@@ -126,7 +126,11 @@ JNIEXPORT jlong JNICALL Java_com_alibaba_mnnllm_android_ChatSession_initNative(J
         auto model_dir_str = std::string(model_dir);
         std::string model_dir_parent = model_dir_str.substr(0, model_dir_str.find_last_of('/'));
         std::string temp_dir = model_dir_parent + R"(/tmp")";
-        auto extra_config = R"({"tmp_path":")" + temp_dir + R"(,"reuse_kv":true, "backend_type":"cpu"})";
+        auto extra_config = R"({"tmp_path":")" + temp_dir;
+        if (is_r1) {
+            extra_config += R"(,"use_template":false)";
+        }
+        extra_config = extra_config +  R"(,"reuse_kv":true, "backend_type":"cpu", "use_mmap":true})";
         MNN_DEBUG("extra_config: %s", extra_config.c_str());
         llm->set_config(temp_dir);
     }
