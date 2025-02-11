@@ -89,7 +89,8 @@ public interface GenerateResultProcessor {
                 rawStringBuilder.append(progress);
             }
             rawStringBuilder.append(progress);
-            FileUtils.saveStringToFile(ApplicationUtils.get(), "r1_result.txt", rawStringBuilder.toString());
+            //uncomment this to debug long output
+            //FileUtils.saveStringToFile(ApplicationUtils.get(), "r1_result.txt", rawStringBuilder.toString());
             if (progress.contains("</think>")) {
                 progress = progress.replace("</think>", "\n");
                 long thinkTime = (System.currentTimeMillis() - this.generateBeginTime) / 1000;
