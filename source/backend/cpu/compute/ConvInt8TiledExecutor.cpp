@@ -869,6 +869,12 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
             MNN_CONCURRENCY_END();
         }
 
+        //Run matmul.
+        if(kai.bSupportSme2()) {
+            //SME prefer running on single thread to obtain better performance/power consumption ratio.
+            threadNum = 1;
+        }
+
         vecPerThread = kai.getVecNumPerThread(n, threadNum, kai.getNStep(mAccelType));
         threadNeed = n % vecPerThread == 0 ? n / vecPerThread : (n / vecPerThread + 1);
 

@@ -86,17 +86,32 @@ void KleidiAI::initKernelInfo() {
         switch(static_cast<AccelType>(type)) {
         case AccelType::QI4_SYM_CHNLQT:
         {
-            bSupport = (mStaticInfo.mDot && mStaticInfo.mI8mm) && (!mStaticInfo.mFP16 && !mStaticInfo.mBF16);
-            if(bSupport) {
-                KernelParam *pParam = &pInfo->mKernelParam;
-                pParam->mKaiMstepGemv = 1;
-                pParam->mKaiMstepGemm = 8;
-                pParam->mKaiNStep = 4;
-                pParam->mKaiMrGemv = 1;
-                pParam->mKaiMrGemm = 4;
-                pParam->mKaiNr = 4;
-                pParam->mKaiKr = 16;
-                pParam->mKaiSr = 2;
+            if(mStaticInfo.mSme2) {
+                bSupport = !mStaticInfo.mFP16 && !mStaticInfo.mBF16;
+                if(bSupport) {
+                    KernelParam *pParam = &pInfo->mKernelParam;
+                    pParam->mKaiMstepGemv = 1;
+                    pParam->mKaiMstepGemm = kai_get_m_step_matmul_clamp_f32_qai8dxp1vlx8_qsi4cxp4vlx8_1vlx4vl_sme2_mopa();
+                    pParam->mKaiNStep = kai_get_n_step_matmul_clamp_f32_qai8dxp1vlx8_qsi4cxp4vlx8_1vlx4vl_sme2_mopa();
+                    pParam->mKaiMrGemv = 1;
+                    pParam->mKaiMrGemm = kai_get_mr_matmul_clamp_f32_qai8dxp1vlx8_qsi4cxp4vlx8_1vlx4vl_sme2_mopa();
+                    pParam->mKaiNr = kai_get_nr_matmul_clamp_f32_qai8dxp1vlx8_qsi4cxp4vlx8_1vlx4vl_sme2_mopa();
+                    pParam->mKaiKr = 4;
+                    pParam->mKaiSr = 1;
+                }
+            } else {
+                bSupport = (mStaticInfo.mDot && mStaticInfo.mI8mm) && (!mStaticInfo.mFP16 && !mStaticInfo.mBF16);
+                if(bSupport) {
+                    KernelParam *pParam = &pInfo->mKernelParam;
+                    pParam->mKaiMstepGemv = 1;
+                    pParam->mKaiMstepGemm = 8;
+                    pParam->mKaiNStep = 4;
+                    pParam->mKaiMrGemv = 1;
+                    pParam->mKaiMrGemm = 4;
+                    pParam->mKaiNr = 4;
+                    pParam->mKaiKr = 16;
+                    pParam->mKaiSr = 2;
+                }
             }
             break;
         }
@@ -200,7 +215,11 @@ size_t KleidiAI::getRhsPackedSize(AccelType type, size_t n, size_t k, size_t bl)
     
     switch(type) {
     case AccelType::QI4_SYM_CHNLQT:
-        return kai_get_rhs_packed_size_rhs_pack_nxk_qsi4cxp_qs4cxs1s0(n, k, getNr(type), getKr(type), getSr(type));
+        if(mStaticInfo.mSme2) {
+            return kai_get_rhs_packed_size_rhs_pack_nxk_qsi4cxps1s0_qsu4cxs1s0_neon(n, k, getNr(type), getKr(type), getSr(type));
+        } else {
+            return kai_get_rhs_packed_size_rhs_pack_nxk_qsi4cxp_qs4cxs1s0(n, k, getNr(type), getKr(type), getSr(type));
+        }
     default:
         MNN_ASSERT(0);
         return 0;
@@ -216,7 +235,11 @@ size_t KleidiAI::getRhsPackedOffset(AccelType type, size_t nIdx, size_t k, size_
 
     switch(type) {
     case AccelType::QI4_SYM_CHNLQT:
-        return kai_get_rhs_packed_offset_rhs_pack_nxk_qsi4cxp_qs4cxs1s0(nIdx, k, getNr(type), getKr(type), getSr(type));
+        if(mStaticInfo.mSme2) {
+            return kai_get_rhs_packed_offset_rhs_pack_nxk_qsi4cxps1s0_qsu4cxs1s0_neon(nIdx, k, getNr(type), getKr(type), getSr(type));
+        } else {
+            return kai_get_rhs_packed_offset_rhs_pack_nxk_qsi4cxp_qs4cxs1s0(nIdx, k, getNr(type), getKr(type), getSr(type));
+        }
     default:
         MNN_ASSERT(0);
         return 0;
@@ -232,14 +255,24 @@ void KleidiAI::runRhsPack(AccelType type, size_t numGroups, size_t n, size_t k, 
     case AccelType::QI4_SYM_CHNLQT:
     {
         KleidiAIUtil::rhsPackParamCommon paramCommon;
-        if(packedQ4) {
-            KleidiAIUtil::packQsi4cxps16s0Qs4cxs0s1(numGroups, n, k, getNr(type), getKr(type), getSr(type),
+        if(mStaticInfo.mSme2) {
+            if(packedQ4) {
+                KleidiAIUtil::packQsi4cxps1s0Qsu4cxs0s1(numGroups, n, k, getNr(type), getKr(type), getSr(type),
+                                                        (const uint8_t *)rhs, (const float *)bias, (const float *)scale,
+                                                        rhsPacked, 0, &paramCommon);
+            } else {
+                MNN_ASSERT(0);
+            }
+        } else {
+            if(packedQ4) {
+                KleidiAIUtil::packQsi4cxps16s0Qs4cxs0s1(numGroups, n, k, getNr(type), getKr(type), getSr(type),
+                                                        (const uint8_t *)rhs, (const float *)bias, (const float *)scale,
+                                                        rhsPacked, 0, &paramCommon);
+            } else {
+                KleidiAIUtil::packQsi4cxps16s0Qs4cx(numGroups, n, k, getNr(type), getKr(type), getSr(type),
                                                     (const uint8_t *)rhs, (const float *)bias, (const float *)scale,
                                                     rhsPacked, 0, &paramCommon);
-        } else {
-            KleidiAIUtil::packQsi4cxps16s0Qs4cx(numGroups, n, k, getNr(type), getKr(type), getSr(type),
-                                                (const uint8_t *)rhs, (const float *)bias, (const float *)scale,
-                                                rhsPacked, 0, &paramCommon);
+            }
         }
         break;
     }
@@ -258,15 +291,28 @@ void KleidiAI::runMatmul(AccelType type, size_t m, size_t n, size_t k, size_t bl
     switch(type) {
     case AccelType::QI4_SYM_CHNLQT:
     {
-        if(m == 1) {
-            kai_run_matmul_clamp_f32_qai8dxp1x8_qsi4cxp4x8_1x4x32_neon_dotprod(m, n, k,
-                                                                               (const void *)lhsPacked, (const void *)rhsPacked, (float *)dst,
-                                                                               dstStrideRow, dstStrideCol, scalarMin, scalarMax);
+        if(mStaticInfo.mSme2) {
+            if(m == 1) {
+                kai_run_matmul_clamp_f32_qai8dxp1x4_qsi4cxp4vlx4_1x4vl_sme2_sdot(m, n, k,
+                                                                                 (const void *)lhsPacked, (const void *)rhsPacked, (float *)dst,
+                                                                                 dstStrideRow, dstStrideCol, scalarMin, scalarMax);
+            } else {
+                kai_run_matmul_clamp_f32_qai8dxp1vlx8_qsi4cxp4vlx8_1vlx4vl_sme2_mopa(m, n, k,
+                                                                                     (const void *)lhsPacked, (const void *)rhsPacked, (float *)dst,
+                                                                                     dstStrideRow, dstStrideCol, scalarMin, scalarMax);
+            }
         } else {
-            kai_run_matmul_clamp_f32_qai8dxp4x8_qsi4cxp4x8_8x4x32_neon_i8mm(m, n, k,
-                                                                            (const void *)lhsPacked, (const void *)rhsPacked, (float *)dst,
-                                                                            dstStrideRow, dstStrideCol, scalarMin, scalarMax);
+            if(m == 1) {
+                kai_run_matmul_clamp_f32_qai8dxp1x8_qsi4cxp4x8_1x4x32_neon_dotprod(m, n, k,
+                                                                                (const void *)lhsPacked, (const void *)rhsPacked, (float *)dst,
+                                                                                dstStrideRow, dstStrideCol, scalarMin, scalarMax);
+            } else {
+                kai_run_matmul_clamp_f32_qai8dxp4x8_qsi4cxp4x8_8x4x32_neon_i8mm(m, n, k,
+                                                                                (const void *)lhsPacked, (const void *)rhsPacked, (float *)dst,
+                                                                                dstStrideRow, dstStrideCol, scalarMin, scalarMax);
+            }
         }
+
         break;
     }
     default:
