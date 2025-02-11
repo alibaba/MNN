@@ -1878,8 +1878,13 @@ VARP _Im2Col(VARP x, INTS kernelSize, INTS dilate, INTS pads, INTS stride) {
     auto common    = new Convolution2DCommonT;
     param->common.reset(common);
     op->main.value = param;
-    common->padX        = pads[0];
-    common->padY        = pads[1];
+    if (pads.size() >= 4) {
+        common->pads = pads;
+    } else {
+        // Compability for old model
+        common->padX = pads[0];
+        common->padY = pads[1];
+    }
     common->strideX     = stride[0];
     common->strideY     = stride[1];
     common->dilateX     = dilate[0];

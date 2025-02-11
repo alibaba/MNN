@@ -2,18 +2,18 @@
 //  StaticModule.cpp
 //  MNN
 //
-//  Created by MNN on b'2020/09/10'.
+//  Created by MNN on 2020/09/10.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
 #include "StaticModule.hpp"
 #include <MNN/AutoTime.hpp>
-#include <MNN/expr/Executor.hpp>
 #include <MNN/expr/ExecutorScope.hpp>
 #include <MNN/expr/ExprCreator.hpp>
 #include "Utils.hpp"
 #include "core/WrapExecution.hpp"
 #include "core/MNNMemoryUtils.h"
+#include "ModuleInside.hpp"
 #include "RuntimeAttr.hpp"
 #include "core/TensorUtils.hpp"
 #include "core/FileLoader.hpp"
@@ -233,7 +233,7 @@ void StaticModule::resetInputOutputs() {
         }
         pipelineInfo.first.inputTensorCopyCache.insert(std::make_pair(mInputTensors[i], std::make_tuple(nullptr, nullptr, true, true)));
         mPrevInputTensor[i].first = nullptr;
-        mPrevInputTensor[i].second = nullptr;
+        mPrevInputTensor[i].second = MNN_FORWARD_CPU;
     }
     mOutputTensors.resize(mResource->mOutputFromTensor.size());
     for (int i = 0; i < mResource->mOutputFromTensor.size(); ++i) {
@@ -294,11 +294,14 @@ StaticModule::StaticModule(std::vector<int> inputs,
                            Schedule::ScheduleInfo&& scheduleInfo,
                            std::shared_ptr<Schedule::ScheduleInfo> sharedConst,
                            Session::ModeGroup&& mode,
-                           RuntimeInfo&& rt,
+                           std::shared_ptr<Executor::RuntimeManager> rtm,
                            const Module::Config& config
                            ) {
     setType("StaticModule");
     mResource.reset(new Resource);
+    mRuntimeManager = rtm;
+    MNN_ASSERT(nullptr != rtm);
+    auto rt = rtm->getInside()->mRuntime;
     mResource->mSharedConst = sharedConst;
     mResource->mModes = std::move(mode);
     mResource->mBnInfo.user = &mResource->mBnConfig;
@@ -371,7 +374,6 @@ void StaticModule::onClearCache() {
     if (nullptr != mSession) {
         for (int i=0; i<mPrevInputTensor.size(); ++i) {
             mPrevInputTensor[i].first = nullptr;
-            mPrevInputTensor[i].second = nullptr;
         }
         for (auto& iter : mSession->getPipelineInfo(0).first.inputTensorCopyCache) {
             std::get<3>(iter.second) = true;
@@ -381,6 +383,8 @@ void StaticModule::onClearCache() {
 ErrorCode StaticModule::_resize(const std::vector<Express::VARP>& inputs) {
     ErrorCode code = NO_ERROR;
     auto& pipelineInfo = mSession->getPipelineInfo(0);
+    auto rtmInside = mRuntimeManager->getInside();
+    int curStatus = 0;
     if (mResource->mModes.inputMode == Interpreter::Session_Input_User) {
         pipelineInfo.first.inputBackendChange = false;
         bool needResize = mResource->mUseContentInputs;
@@ -392,14 +396,18 @@ ErrorCode StaticModule::_resize(const std::vector<Express::VARP>& inputs) {
             Schedule::TENSORCACHE* cacheTensor = nullptr;
             if (mPrevInputTensor[i].first != inputTensor) {
                 auto newBackend = TensorUtils::getDescribeOrigin(inputTensor)->getBackend();
-                if (mPrevInputTensor[i].second != newBackend) {
+                auto newType = MNN_FORWARD_CPU;
+                if (nullptr != newBackend) {
+                    newType = newBackend->type();
+                }
+                if (mPrevInputTensor[i].second != newType) {
                     pipelineInfo.first.inputBackendChange = true;
                 }
                 auto cacheIter = pipelineInfo.first.inputTensorCopyCache.find(mInputTensors[i]);
                 cacheTensor = &cacheIter->second;
                 MNN_ASSERT(cacheIter != pipelineInfo.first.inputTensorCopyCache.end());
                 std::get<3>(cacheIter->second) = true;
-                mPrevInputTensor[i] = std::make_pair(inputTensor, newBackend);
+                mPrevInputTensor[i] = std::make_pair(inputTensor, newType);
                 if (std::get<1>(*cacheTensor) != nullptr) {
                     if (!WrapExecution::needWrap(inputTensor,   TensorUtils::getDescribeOrigin(std::get<0>(*cacheTensor))->getBackend())) {
                         // No need copy now, reset it
@@ -480,6 +488,7 @@ ErrorCode StaticModule::_resize(const std::vector<Express::VARP>& inputs) {
                 }
             }
         }
+        mSession->getInfo(Interpreter::RESIZE_STATUS, &curStatus);
         code = mSession->resize();
     } else {
         // Resize
@@ -496,6 +505,7 @@ ErrorCode StaticModule::_resize(const std::vector<Express::VARP>& inputs) {
                 mSession->setNeedResize();
             }
         }
+        mSession->getInfo(Interpreter::RESIZE_STATUS, &curStatus);
         code = mSession->resize();
         // Copy
         for (int i = 0; i < inputs.size(); ++i) {
@@ -507,6 +517,7 @@ ErrorCode StaticModule::_resize(const std::vector<Express::VARP>& inputs) {
             mInputTensors[i]->copyFromHostTensor(inputTensor);
         }
     }
+    rtmInside->mResizeStatus = ALIMAX(rtmInside->mResizeStatus, curStatus);
     return code;
 }
 
@@ -605,11 +616,11 @@ std::vector<Express::VARP> StaticModule::onForward(const std::vector<Express::VA
 Module* StaticModule::clone(CloneContext* ctx) const {
     StaticModule* module(new StaticModule);
     module->mResource = mResource;
+    module->mRuntimeManager = ctx->pRuntimeManager;
     if (mResource->mOutputFromTensor.empty()) {
         return this->cloneBaseTo(ctx, module);
     }
-    // TODO: If RuntimeManager is not the same as Runtime, may copy error
-    auto rt = Executor::getRuntime();
+    auto rt = ctx->pRuntimeManager->getInside()->mRuntime;
     module->mSession.reset(mSession->clone(std::move(rt), mResource->mSharedConst));
     module->resetInputOutputs();
     return this->cloneBaseTo(ctx, module);

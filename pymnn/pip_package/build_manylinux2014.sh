@@ -24,7 +24,7 @@ for PYBIN in /opt/python/*/bin; do
     elif [ "$1" == "-cuda" ]; then
         USE_CUDA=true "${PYBIN}/python" setup.py bdist_wheel
     else
-        "${PYBIN}/python" setup.py bdist_wheel
+        "${PYBIN}/python" setup.py bdist_wheel $1
     fi
 done
 

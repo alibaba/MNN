@@ -11,6 +11,7 @@
 #include "VulkanConvolution.hpp"
 #include "VulkanConvolutionWinograd.hpp"
 #include "VulkanMatMul.hpp"
+#include "VulkanConvolution1x1.hpp"
 //#define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
 namespace MNN {
@@ -219,6 +220,13 @@ VulkanBasicExecution* VulkanConvolutionImpl::create(VulkanBackend* backend, cons
     if (ALIGN_UP4(ci) * convOption->kernelX() * convOption->kernelY() > imageLimit) {
         return nullptr;
     }
+
+    if (convOption->kernelX() == 1 && convOption->kernelY() == 1 &&
+        convOption->strideX() == 1 && convOption->strideY() == 1 &&
+        inputs[0]->width() == output->width() && inputs[0]->height() == output->height()) {
+        return new VulkanConvolution1x1(backend, convOption, weightPtr, biasPtr, ci, co);
+    }
+
     return new VulkanConvolutionIm2Col(backend, convOption, weightPtr, biasPtr, ci, co);
 }
 

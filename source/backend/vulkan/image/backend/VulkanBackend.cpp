@@ -22,7 +22,7 @@
 #ifdef MNN_USE_NEON
 #include <arm_neon.h>
 #endif
-#define MNN_OP_SUPPORT_LOG
+// #define MNN_OP_SUPPORT_LOG
 //#define MNN_VULKAN_DUMP_MEMORY_USAGE
 #define MNN_VULKAN_MAX_CACHE_CONVSIZE 50
 namespace MNN {
@@ -57,7 +57,7 @@ static void _copyTensorToBuffer(const Tensor* source, const VulkanBuffer* dest) 
 
 VulkanBackend::VulkanBackend(const VulkanRuntime* runtime, const Backend::Info& info) : Backend(MNN_FORWARD_VULKAN) {
     mRuntime = runtime;
-    mDirect = Backend::Info::INDIRECT != info.mode;
+    mDirect = (mRuntime->mGpuMode & MNNGpuMode::MNN_GPU_RECORD_BATCH) == 0;
     mDynamicMemoryPool.reset(new VulkanMemoryPool(runtime->mMemoryPool.get()));
 
     auto& dev              = device();
@@ -499,6 +499,115 @@ void VulkanBackend::copyBufferToImage(const VulkanBuffer* buffer, const VulkanIm
     cmdbuffer->end();
     mRuntime->mCmdPool->submitAndWait(cmdbuffer->get());
 }
+
+float VulkanBackend::getPipelineTime(const VulkanPipeline* pipeline, std::shared_ptr<VulkanLayout::DescriptorSet> des, std::vector<uint32_t> groupSize) {
+    std::shared_ptr<VulkanCommandPool::Buffer> cmd;
+    cmd.reset(const_cast<VulkanCommandPool::Buffer *>(mRuntime->mCmdPool->allocBuffer()));
+    cmd->begin(0);
+    mRuntime->mQueryPool->VulkanCmdResetQueryPool(cmd.get()->get());
+    mRuntime->mQueryPool->VulkanCmdWriteTimestamp(cmd.get()->get(), 0);
+    pipeline->bind(cmd.get()->get(), des->get());
+    vkCmdDispatch(cmd.get()->get(), groupSize[0], groupSize[1], groupSize[2]);
+    mRuntime->mQueryPool->VulkanCmdWriteTimestamp(cmd.get()->get(), 1);
+    cmd->end();
+    mRuntime->mCmdPool->submitAndWait(cmd.get()->get());
+    float time = mRuntime->mQueryPool->VulkanGetQueryPoolResults();
+    return time;
+}
+
+
+std::vector<uint32_t> VulkanBackend::autoTunePipeline(SharedPtr<VulkanPipeline> pipeline, std::shared_ptr<VulkanLayout::DescriptorSet> des, const std::vector<uint32_t> gws, const uint32_t tuneDimension, std::vector<uint32_t> defaultLws,float * const minCostPtr) {
+    bool isPrivate = !(pipeline->mTuneName.empty());
+    MNN_ASSERT(isPrivate);
+    if (mRuntime->mGpuMode & MNNGpuMode::MNN_GPU_TUNING_NONE) {
+        MNN_ASSERT(defaultLws.size() == 3);
+        MNN_ASSERT(minCostPtr == nullptr);
+        pipeline->changePipeline(defaultLws);
+        return defaultLws;
+    }
+    MNN_ASSERT(tuneDimension > 0 && tuneDimension <= 3);
+
+    std::unordered_map<VKTuneKey, VKTuneValue, VkTuneHash> & tuneMap = mRuntime->mTuneMap;
+    VKTuneKey tuneKey = {pipeline->mTuneName, {gws[0], gws[1], gws[2]}};
+    if (tuneMap.find(tuneKey) != tuneMap.end()) {
+        VKTuneValue tuneValue = tuneMap[tuneKey];
+        if (minCostPtr) {
+            *minCostPtr = tuneValue.optimalCost;
+        }
+        pipeline->changePipeline({tuneValue.optimalLws[0], tuneValue.optimalLws[1], tuneValue.optimalLws[2]});
+        return {tuneValue.optimalLws[0], tuneValue.optimalLws[1], tuneValue.optimalLws[2]};
+    }
+
+    std::vector<uint32_t> workGroupCount(3, 1);
+    std::vector<uint32_t> lwsOptimal(3, 1);
+    float minCost = -1.0f;
+
+    std::vector<int> maxLocalWorkGroupSize(3, 1);
+    int maxNumInvocation = mRuntime->mDevice->getMaxComputeWorkGroupInvocations();
+    mRuntime->mDevice->getMaxComputeWorkGroupSize(maxLocalWorkGroupSize);
+    uint32_t subgroupSize = mRuntime->mDevice->getSubgroupSize();
+
+    uint32_t minLocalSize, maxLocalX, maxLocalY, maxLocalZ;
+    minLocalSize = 1;
+    maxLocalX = ALIMIN(maxLocalWorkGroupSize[0], gws[0] << 1);
+    maxLocalY = ALIMIN(maxLocalWorkGroupSize[1], gws[1] << 1);
+    maxLocalZ = ALIMIN(maxLocalWorkGroupSize[2], gws[2] << 1);
+
+    std::pair<uint32_t, uint32_t> localSizeRangeX = std::pair<uint32_t, uint32_t>(minLocalSize, maxLocalX);
+    std::pair<uint32_t, uint32_t> localSizeRangeY = (tuneDimension > 1) ? std::pair<uint32_t, uint32_t>(minLocalSize, maxLocalY) : std::pair<uint32_t, uint32_t>(1, 1);
+    std::pair<uint32_t, uint32_t> localSizeRangeZ = (tuneDimension > 2) ? std::pair<uint32_t, uint32_t>(minLocalSize, maxLocalZ) : std::pair<uint32_t, uint32_t>(1, 1);
+
+    bool tuneNormalFlag = (mRuntime->mGpuMode & MNNGpuMode::MNN_GPU_TUNING_WIDE);
+
+    auto checkInvalid = tuneNormalFlag
+                    ? [](uint32_t x, uint32_t y, uint32_t z, uint32_t subgroupSize) -> bool { return x * y * z > 4 * subgroupSize || x > 128 || y > 128 || z > 128 ; } // MNN_GPU_TUNING_WIDE
+                    : [](uint32_t x, uint32_t y, uint32_t z, uint32_t subgroupSize) -> bool { return x * y * z > 16 * subgroupSize; };                                 // MNN_GPU_TUNING_HEAVY
+
+    for (uint32_t z = localSizeRangeZ.first; z <= localSizeRangeZ.second; z = z << 1) {
+        for (uint32_t y = localSizeRangeY.first; y <= localSizeRangeY.second; y = y << 1) {
+            for (uint32_t x = localSizeRangeX.first; x <= localSizeRangeX.second; x = x << 1) {
+                if (x * y * z > maxNumInvocation) {
+                    continue;
+                }
+                if (x * y * z <= 16) {
+                    continue;
+                }
+                if (checkInvalid(x, y, z, subgroupSize)) {
+                    continue;
+                }
+                
+                workGroupCount[0] = UP_DIV(gws[0], x);
+                workGroupCount[1] = UP_DIV(gws[1], y);
+                workGroupCount[2] = UP_DIV(gws[2], z);
+                pipeline->changePipeline({x, y, z});
+                auto costTime = getPipelineTime(pipeline.get(), des, {workGroupCount[0], workGroupCount[1], workGroupCount[2]});
+                // MNN_PRINT("LWS[%4u,%4u,%4u]---Time[%4.2f]ms\n", x, y, z, costTime);
+                if(costTime < minCost || minCost < 0.0f) {
+                    minCost = costTime;
+                    lwsOptimal[0] = x;
+                    lwsOptimal[1] = y;
+                    lwsOptimal[2] = z;
+                }
+
+            }
+        }
+    }
+
+    // MNN_PRINT("Optimal LWS[%4u, %4u, %4u]. GWS[%4u, %4u, %4u]. Time[%4.2f]ms\n", lwsOptimal[0], lwsOptimal[1], lwsOptimal[2],
+    //                                                                              gws[0], gws[1], gws[2],
+    //                                                                              minCost);
+
+    pipeline->changePipeline(lwsOptimal);
+
+    if (minCostPtr) {
+        *minCostPtr = minCost;
+    }
+
+    tuneMap[tuneKey] = {{lwsOptimal[0], lwsOptimal[1], lwsOptimal[2]}, minCost};
+
+    return lwsOptimal;
+}
+
 
 
 } // namespace MNN

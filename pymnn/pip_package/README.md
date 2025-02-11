@@ -12,5 +12,5 @@ Installation
 Dependencies
 ---------------------------------------------------
 
-    flatbuffers, numpy 
+    numpy 
 

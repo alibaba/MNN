@@ -2,7 +2,18 @@
 
 [中文版本](README_CN.md)
 
+[日本語バージョン](README_JP.md)
+
 [MNN Homepage](http://www.mnn.zone)
+
+## News 🔥
+- [2025/01/23] We released our full multimodal LLM Android App:[MNN-LLM-Android](./project/android/apps/MnnLlmApp/README.md). including text-to-text, image-to-text, audio-to-text, and text-to-image generation.
+<p align="center">
+  <img width="20%" alt="Icon"  src="./project/android/apps/MnnLlmApp/assets/image_home.jpg" style="margin: 0 10px;">
+  <img width="20%" alt="Icon" src="./project/android/apps/MnnLlmApp/assets/image_diffusion.jpg" style="margin: 0 10px;">
+  <img width="20%" alt="Icon" src="./project/android/apps/MnnLlmApp/assets/image_sound.jpg" style="margin: 0 10px;">
+  <img width="20%" alt="Icon" src="./project/android/apps/MnnLlmApp/assets/image_image.jpg" style="margin: 0 10px;">
+</p>
 
 ## Intro
 MNN is a highly efficient and lightweight deep learning framework. It supports inference and training of deep learning models and has industry-leading performance for inference and training on-device. At present, MNN has been integrated into more than 30 apps of Alibaba Inc, such as Taobao, Tmall, Youku, DingTalk, Xianyu, etc., covering more than 70 usage scenarios such as live broadcast, short video capture, search recommendation, product searching by image, interactive marketing, equity distribution, security risk control. In addition, MNN is also used on embedded devices, such as IoT.

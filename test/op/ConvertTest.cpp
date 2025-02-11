@@ -29,6 +29,7 @@ public:
         {
             auto gotOutput = output->readMap<float>();
             if (!checkVector<float>(gotOutput, expectedOutput.data(), 16, 0.01)) {
+                FUNC_PRINT(1);
                 MNN_ERROR("ConvertTest test failed!\n");
                 for (int i = 0; i < 16; ++i) {
                     MNN_PRINT("Correct: %f - Compute: %f\n", expectedOutput[i], gotOutput[i]);
@@ -40,6 +41,7 @@ public:
         {
             auto gotOutput = output->readMap<float>();
             if (!checkVector<float>(gotOutput, inpudata, 12, 0.01)) {
+                FUNC_PRINT(1);
                 MNN_ERROR("ConvertTest test failed!\n");
                 for (int i = 0; i < 12; ++i) {
                     MNN_PRINT("Correct: %f - Compute: %f\n", inpudata[i], gotOutput[i]);

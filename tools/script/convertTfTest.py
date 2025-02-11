@@ -25,7 +25,10 @@ for name in os.listdir(root_dir):
     if name == '.DS_Store':
         continue
     print(name)
-    message = run_cmd(['./TestConvertResult', 'Tf', root_dir + '/' + name])
+    cmd = './MNNConvert -f TF --MNNModel convert_cache.mnn --useGeluApproximation=0 --saveExternalData --keepInputFormat=1 --bizCode Test'
+    cmd += ' --modelFile ' + os.path.join(root_dir, name, "test.pb")
+    cmd += ' --testdir ' + os.path.join(root_dir, name)
+    message = run_cmd([cmd])
     if (message.find('TEST_SUCCESS') == -1):
         gWrong.append(name)
     print(message)

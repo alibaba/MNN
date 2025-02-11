@@ -354,8 +354,6 @@ bool BF16Functions::init() {
         gInstance->MNNPackedMatMulRemain = ARMV86_MNNPackedMatMulRemain_BF16;
     }
 #endif
-    gInstance->MNNPackedMatMul_int4 = nullptr;
-    gInstance->MNNPackedMatMul_int8 = nullptr;
     // TODO: raw cpu version of bf16
     return true;
 #endif

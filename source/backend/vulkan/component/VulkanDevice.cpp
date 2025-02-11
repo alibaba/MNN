@@ -105,6 +105,20 @@ VulkanDevice::VulkanDevice(std::shared_ptr<VulkanInstance> instance)
     vkGetPhysicalDeviceProperties(mPhysicalDevice, &mDeviceProty);
     vkGetPhysicalDeviceMemoryProperties(mPhysicalDevice, &mMemoryProty);
     getDeviceQueue(mQueueFamilyIndex, 0, mQueue);
+
+    // query subgroupSize
+    {
+        VkPhysicalDeviceProperties2 deviceProperties2 = {};
+        deviceProperties2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+
+        VkPhysicalDeviceSubgroupProperties subgroupProperties = {};
+        subgroupProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES;
+
+        deviceProperties2.pNext = &subgroupProperties;
+        vkGetPhysicalDeviceProperties2(mPhysicalDevice, &deviceProperties2);
+        mSubgroupSize = subgroupProperties.subgroupSize;
+    }
+
 #ifdef MNN_VULKAN_PRINT_EXT
     uint32_t pPropertyCount;
     vkEnumerateInstanceExtensionProperties(nullptr, &pPropertyCount, nullptr);

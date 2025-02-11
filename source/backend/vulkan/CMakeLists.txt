@@ -35,7 +35,7 @@ ELSE()
         )
 ENDIF()
 
-include_directories("${CMAKE_CURRENT_LIST_DIR}/include/" "${CMAKE_CURRENT_LIST_DIR}/component/" "${CMAKE_CURRENT_LIST_DIR}/runtime")
+include_directories("${CMAKE_CURRENT_LIST_DIR}/include/" "${CMAKE_CURRENT_LIST_DIR}/component/" "${CMAKE_CURRENT_LIST_DIR}/runtime" "${CMAKE_CURRENT_LIST_DIR}/schema/current")
 if (MNN_VULKAN_IMAGE)
     include_directories("${CMAKE_CURRENT_LIST_DIR}/image/execution" "${CMAKE_CURRENT_LIST_DIR}/image/backend" "${CMAKE_CURRENT_LIST_DIR}/image" "${CMAKE_CURRENT_LIST_DIR}/image/shaders")
 else()

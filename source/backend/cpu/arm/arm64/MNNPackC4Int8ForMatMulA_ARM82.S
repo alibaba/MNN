@@ -27,12 +27,14 @@ asm_function MNNSumByAxisLForMatmul_A_ARM82
 // MNNSumByAxisLForMatmul_A_ARM82(float_t* dest, int8_t* source, float* dequantScale, ssize_t realDstCount, 
 //                                ssize_t kernelCountUnitDouble, ssize_t col_buffer_unit_size, ssize_t EP, ssize_t LP, ssize_t blockNum, ssize_t oneScale);
 // x0: dest, x1: source, x2: dequantScale, x3: realDstCount, x4: sumParams
-// x4: kernelCountUnitDouble, x5: col_buffer_unit_size
+// x5: oneScale
 // Load from sp: x8: blockNum
 
+ldr x12, [x4, #48] // Valid
 ldr x8, [x4, #32] // blockNum
 ldr x5, [x4, #40] // oneScale
-ldr x4, [x4, #0]  // kernelCountUnitDouble
+ldr x14, [x4, #56] // kx*ky
+ldr x4, [x4, #64] // LU
 
 stp d14, d15, [sp, #(-16 * 4)]!
 stp d12, d13, [sp, #(16 * 1)]
@@ -40,8 +42,16 @@ stp d10, d11, [sp, #(16 * 2)]
 stp d8,  d9,  [sp, #(16 * 3)]
 
 movi v31.16b, #1
+mov v29.16b, v31.16b
 ld1r {v30.4s}, [x2] // Dequant scale
 sdiv x4, x4, x8     // src_depth_quad per block
+cbz x12, TILE_12
+mov x13, #0xFFFFFFFF
+lsl x12, x12, #3
+lsl x13, x13, x12
+dup v28.4s, w13
+bic v29.16b, v31.16b, v28.16b
+
 
 TILE_12:
 cmp x3, #12
@@ -52,21 +62,30 @@ cbnz x5, TILE12_BLOCK_NUM
 ld1 {v13.4s, v14.4s, v15.4s}, [x2], #48 // batch quant scale
 
 TILE12_BLOCK_NUM:
-mov x15, x4 // kernelCountUnitDouble
-
+mov x15, x14 // kx*ky
 movi v10.4s, #0
 movi v11.4s, #0
 movi v12.4s, #0
-
+/* for range(kx*ky)...for range(ic/pack) */
 TILE12_BLOCK_INNER:
+sub x12, x4, #1        // icDiv4
+cbz x12, TILE12_LAST_QUAD
 
+TILE12_PRE_QUAD:
 ld1 {v0.16b, v1.16b, v2.16b}, [x1], #48 // E: 0,1,2,3,...,11
-subs x15, x15, #1
-
 .inst 0x4e8097ea // sdot v10.4s, v31.16b, v0.16b // sum LP axis for E0, E1, E2, E3
 .inst 0x4e8197eb // sdot v11.4s, v31.16b, v1.16b
 .inst 0x4e8297ec // sdot v12.4s, v31.16b, v2.16b
+subs x12, x12, #1      // icDiv4--
+bne TILE12_PRE_QUAD
 
+TILE12_LAST_QUAD:
+ld1 {v0.16b, v1.16b, v2.16b}, [x1], #48 // E: 0,1,2,3,...,11
+.inst 0x4e8097aa // sdot v10.4s, v29.16b, v0.16b // sum LP axis for E0, E1, E2, E3
+.inst 0x4e8197ab // sdot v11.4s, v29.16b, v1.16b
+.inst 0x4e8297ac // sdot v12.4s, v29.16b, v2.16b
+
+subs x15, x15, #1
 bne TILE12_BLOCK_INNER
 
 TILE12_BLOCK_INNER_END:
@@ -114,17 +133,29 @@ cbnz x5, TILE2_BLOCK_NUM
 ld1 {v13.d}[0], [x2], #8 // batch quant scale
 
 TILE2_BLOCK_NUM:
-mov x15, x4 // kernelCountUnitDouble
+mov x15, x14 // kx*ky
 movi v10.4s, #0
 
-TILE2_BLOCK_INNER:
+TILE2_BLOCK_INNER: // range(kxky)
+sub x12, x4, #1    // icDiv4
+cbz x12, TILE2_LAST_QUAD
+
+TILE2_PRE_QUAD: // range(icDiv4)
 ld1 {v0.d}[0], [x7] // E: 0,1
 add x7, x7, x6
-subs x15, x15, #1
+subs x12, x12, #1
 .inst 0x4e8097ea // sdot v10.4s, v31.16b, v0.16b // sum LP axis for E0
+bne TILE2_PRE_QUAD
+
+TILE2_LAST_QUAD:
+ld1 {v0.d}[0], [x7] // E: 0,1
+add x7, x7, x6
+.inst 0x4e8097aa // sdot v10.4s, v29.16b, v0.16b
+
+subs x15, x15, #1   // kxky--
 bne TILE2_BLOCK_INNER
 
-TILE2_BLOCK_INNER_ENd:
+TILE2_BLOCK_INNER_END:
 scvtf v10.4s, v10.4s
 
 cbnz x5, TILE2_MUL_ONE_SCALE
@@ -158,15 +189,26 @@ cbnz x5, TILE1_BLOCK_NUM
 ld1 {v13.s}[0], [x2], #4 // batch quant scale
 
 TILE1_BLOCK_NUM:
-mov x15, x4 // kernelCountUnitDouble
+mov x15, x14 // kx*ky
 movi v10.4s, #0
 
 TILE1_BLOCK_INNER:
+sub x12, x4, #1
+cbz x12, TILE1_LAST_QUAD
+
+TILE1_PRE_QUAD:
 ld1 {v0.s}[0], [x7] // E: 0
-subs x15, x15, #1
 add x7, x7, x6
 .inst 0x4e8097ea // sdot v10.4s, v31.16b, v0.16b // sum LP axis for E0
+subs x12, x12, #1 // icDiv4--
+bne TILE1_PRE_QUAD
 
+TILE1_LAST_QUAD:
+ld1 {v0.s}[0], [x7] // E: 0
+add x7, x7, x6
+.inst 0x4e8097aa // sdot v10.4s, v29.16b, v0.16b
+
+subs x15, x15, #1 // kxky--
 bne TILE1_BLOCK_INNER
 
 TILE1_BLOCK_INNER_END:

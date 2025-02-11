@@ -20,6 +20,7 @@
 #include "tokenizer.hpp"
 // 0: no debug, 1: test op time, 2: print tensor info, 3: print tensor in output
 #define DEBUG_MODE 0
+//#define DEBUG_IMAGE
 
 #include "httplib.h"
 #ifdef LLM_SUPPORT_VISION
@@ -257,11 +258,11 @@ void Llm::init_runtime() {
 
     runtime_manager_.reset(Executor::RuntimeManager::createRuntimeManager(config));
     runtime_manager_->setHint(MNN::Interpreter::MEM_ALLOCATOR_TYPE, 0);
-    runtime_manager_->setHint(MNN::Interpreter::DYNAMIC_QUANT_OPTIONS, 1); // 1: per batch quant, 2: per tensor quant
     runtime_manager_->setHint(MNN::Interpreter::QKV_QUANT_OPTIONS, config_->quant_qkv());
     runtime_manager_->setHint(MNN::Interpreter::KVCACHE_SIZE_LIMIT, config_->kvcache_limit());
-    runtime_manager_->setHint(MNN::Interpreter::MMAP_FILE_SIZE, file_size_m(config_->llm_weight()) + 128);
-    runtime_manager_->setHint(MNN::Interpreter::USE_CACHED_MMAP, 1);
+    if (config_->use_cached_mmap()) {
+        runtime_manager_->setHint(MNN::Interpreter::USE_CACHED_MMAP, 1);
+    }
     std::string tmpPath = config_->tmp_path();
     if (config_->kvcache_mmap()) {
         runtime_manager_->setExternalPath(tmpPath, MNN::Interpreter::EXTERNAL_PATH_KVCACHE_DIR);
@@ -335,15 +336,16 @@ size_t Llm::apply_lora(const std::string& lora_path) {
     module_config.rearrange    = true;
     module_config.base         = modules_.begin()->get();
     size_t lora_index          = modules_.size();
+    runtime_manager_->setHint(MNN::Interpreter::USE_CACHED_MMAP, 0);
     modules_.emplace_back(Module::load({"input_ids", "attention_mask", "position_ids"}, {"logits"},
-                                           model_path.c_str(), runtime_manager_, &module_config));
+                                        model_path.c_str(), runtime_manager_, &module_config));
     select_module(lora_index);
     return lora_index;
 }
 
 Llm* Llm::create_lora(const std::string& lora_path) {
-    auto llm = new Llm(config_);
-    llm->set_config("{\"llm_model\": \"" + lora_path + "\"}");
+    auto llm = new Llm(std::make_shared<LlmConfig>(*config_));
+    llm->set_config("{\"llm_model\": \"" + lora_path + "\", \"use_mmap\": false, \"use_cached_mmap\": false}");
     llm->base_module_ = modules_.begin()->get();
     llm->load();
     return llm;
@@ -405,7 +407,7 @@ void Llm::tuning(TuneType type, std::vector<int> candidates) {
     int prefer_candidate = 10;
     for (auto& candidate : candidates) {
         runtime_manager_->setHint(MNN::Interpreter::OP_ENCODER_NUMBER_FOR_COMMIT, candidate);
-
+        mMeta->add = 1;
         auto st     = std::chrono::system_clock::now();
         auto logits = forward({0});
         if (nullptr == logits.get()) {
@@ -424,6 +426,9 @@ void Llm::tuning(TuneType type, std::vector<int> candidates) {
         }
     }
     runtime_manager_->setHint(MNN::Interpreter::OP_ENCODER_NUMBER_FOR_COMMIT, prefer_candidate);
+    // clear dirty tuning kv history
+    setKVCacheInfo(0, getCurrentHistory());
+    reset();
 }
 void Llm::switchMode(Llm::Stage stage) {
     switch (stage) {
@@ -438,6 +443,16 @@ void Llm::switchMode(Llm::Stage stage) {
     }
 }
 
+void Llm::setKVCacheInfo(size_t add, size_t remove, int* reserve, int n_reserve) {
+    if (remove > mMeta->previous) {
+        remove = mMeta->previous;
+    }
+    mMeta->remove = remove;
+    mMeta->reserve = reserve;
+    mMeta->n_reserve = n_reserve;
+    mMeta->add = add;
+}
+
 MNN::Express::VARP Llm::forwardRaw(MNN::Express::VARP hiddenState, MNN::Express::VARP mask, MNN::Express::VARP inputPos) {
     VARP logits;
     std::vector<MNN::Express::VARP> outputs;
@@ -446,6 +461,7 @@ MNN::Express::VARP Llm::forwardRaw(MNN::Express::VARP hiddenState, MNN::Express:
         return nullptr;
     }
     logits = outputs[0];
+    mMeta->sync();
     return logits;
 }
 
@@ -482,6 +498,7 @@ int Llm::sample(VARP logits, const std::vector<int>& pre_ids, int offset, int si
             token_id  = i;
         }
     }
+    mState.output_ids_.push_back(token_id);
     return token_id;
 }
 
@@ -513,6 +530,12 @@ std::string Llm::apply_chat_template(const std::vector<PromptItem>& chat_prompts
     auto chat_template = config_->chat_template();
     std::string prompt_result;
     auto iter = chat_prompts.begin();
+    if (!config_->use_template()) {
+        for (; iter != chat_prompts.end(); ++iter) {
+            prompt_result += iter->second;
+        }
+        return prompt_result;
+    }
     for (; iter != chat_prompts.end() - 1; ++iter) {
         prompt_result += apply_template(chat_template, iter->second, iter->first);
     }
@@ -528,9 +551,9 @@ void Llm::chat() {
     std::vector<PromptItem> history;
     history.push_back(std::make_pair("system", "You are a helpful assistant."));
     while (true) {
-        std::cout << "\nQ: ";
+        std::cout << "\nUser: ";
         std::string user_str;
-        std::cin >> user_str;
+        std::getline(std::cin, user_str);
         if (user_str == "/exit") {
             break;
         }
@@ -539,7 +562,7 @@ void Llm::chat() {
             std::cout << "\nA: reset done." << std::endl;
             continue;
         }
-        std::cout << "\nA: " << std::flush;
+        std::cout << "\nAssistant: " << std::flush;
         if (config_->reuse_kv()) {
             response(user_str);
         } else {
@@ -555,7 +578,6 @@ void Llm::chat() {
             }
             history.emplace_back(std::make_pair("assistant", line));
         }
-        std::cout << std::endl;
     }
 }
 
@@ -624,7 +646,6 @@ void Llm::generate(int max_token) {
         mMeta->add = 1;
         mMeta->remove = 0;
         auto logits = forward({mState.current_token_});
-        mMeta->sync();
         len++;
         if (nullptr == logits.get()) {
             break;
@@ -660,7 +681,6 @@ std::vector<int> Llm::generate(const std::vector<int>& input_ids, int max_tokens
     auto et = std::chrono::system_clock::now();
     current_modules_ = decode_modules_;
     mState.prefill_us_ = std::chrono::duration_cast<std::chrono::microseconds>(et - st).count();
-    mMeta->sync();
     generate(max_tokens);
 
 #ifdef DUMP_PROFILE_INFO
@@ -670,10 +690,10 @@ std::vector<int> Llm::generate(const std::vector<int>& input_ids, int max_tokens
 }
 
 std::vector<int> Llm::tokenizer_encode(const std::string& user_content, bool use_template) {
-    if (!use_template) {
-        return tokenizer_->encode(user_content);
+    auto prompt = user_content;
+    if (config_->use_template() && use_template) {
+        prompt = apply_prompt_template(user_content);
     }
-    auto prompt    = apply_prompt_template(user_content);
     auto input_ids = tokenizer_->encode(prompt);
     return input_ids;
 }
@@ -904,7 +924,6 @@ void Mllm::load() {
         config.backendConfig = &cpuBackendConfig;
         mllm_runtime_manager_.reset(Executor::RuntimeManager::createRuntimeManager(config));
         mllm_runtime_manager_->setHint(MNN::Interpreter::MEM_ALLOCATOR_TYPE, 0);
-        mllm_runtime_manager_->setHint(MNN::Interpreter::DYNAMIC_QUANT_OPTIONS, 1); // 1: per batch quant, 2: per tensor quant
         mllm_runtime_manager_->setHint(MNN::Interpreter::QKV_QUANT_OPTIONS, config_->quant_qkv());
         mllm_runtime_manager_->setHint(MNN::Interpreter::KVCACHE_SIZE_LIMIT, config_->kvcache_limit());
         std::string tmpPath = config_->tmp_path();
@@ -1020,6 +1039,10 @@ printf("]\n}\n");
 std::vector<int> Mllm::vision_process(const std::string& file) {
 #ifdef LLM_SUPPORT_VISION
     VARP image = MNN::CV::imread(file);
+    if (image == nullptr) {
+        MNN_PRINT("Mllm Can't open image: %s\n", file.c_str());
+        return std::vector<int>(0);
+    }
     auto st    = std::chrono::system_clock::now();
     VARP image_embedding;
 
@@ -1075,7 +1098,20 @@ std::vector<int> Mllm::vision_process(const std::string& file) {
         // build attention_mask
         VARP attention_mask = MNN::Express::_Input({1, seq_len, seq_len}, NCHW);
         ::memset(attention_mask->writeMap<float>(), 0, seq_len * seq_len * sizeof(float));
+#ifdef DEBUG_IMAGE
+        patches.fix(MNN::Express::VARP::CONSTANT);
+        patches->setName("patches");
+        position_ids.fix(MNN::Express::VARP::CONSTANT);
+        position_ids->setName("position_ids");
+        attention_mask.fix(MNN::Express::VARP::CONSTANT);
+        attention_mask->setName("attention_mask");
+        MNN::Express::Variable::save({patches, position_ids, attention_mask}, "input.mnn");
+#endif
         image_embedding = mul_module_->onForward({patches, position_ids, attention_mask})[0];
+#ifdef DEBUG_IMAGE
+        image_embedding->setName("image_embeds");
+        MNN::Express::Variable::save({image_embedding}, "output.mnn");
+#endif
     } else {
         image           = MNN::CV::resize(image, {image_height_, image_width_}, 0, 0,
                                           MNN::CV::INTER_LINEAR, MNN::CV::COLOR_BGR2RGB,
@@ -1107,6 +1143,10 @@ std::vector<int> Mllm::audio_process(const std::string& file) {
     constexpr int sample_rate = 16000;
     auto load_res        = MNN::AUDIO::load(file, sample_rate);
     VARP waveform        = load_res.first;
+    if (waveform == nullptr) {
+        MNN_PRINT("Mllm Can't open audio: %s\n", file.c_str());
+        return std::vector<int>(0);
+    }
     // int sample_rate      = load_res.second;
     int wav_len          = waveform->getInfo()->dim[0];
     int hop_length       = 160;

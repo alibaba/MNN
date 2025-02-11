@@ -191,15 +191,25 @@ public:
         auto sh    = common->strideY();
         auto dw    = common->dilateX();
         auto dh    = common->dilateY();
-        auto pw    = common->padX();
-        auto ph    = common->padY();
+        int pl,pt,pr,pb;
+        if (common->pads() == nullptr) {
+            pl = common->padX();
+            pr = common->padX();
+            pt = common->padY();
+            pb = common->padY();
+        } else {
+            pl = common->pads()->data()[1];
+            pr = common->pads()->data()[3];
+            pt = common->pads()->data()[0];
+            pb = common->pads()->data()[2];
+        }
         auto batch = input->batch();
         auto ic    = input->channel();
         auto iw    = input->width();
         auto ih    = input->height();
-        auto pads  = std::make_pair(pw, ph);
-        auto ow    = (iw + pw * 2 - kw) / sw + 1;
-        auto oh    = (ih + ph * 2 - kh) / sh + 1;
+        auto pads  = std::make_pair(pl, pt);
+        auto ow    = (iw + pl + pr - kw) / sw + 1;
+        auto oh    = (ih + pt + pb - kh) / sh + 1;
         auto tmpT = GeometryConvUtils::im2Col(output, input, ic, kh, kw, batch, oh, ow, ih, iw, sh, sw, dh, dw, pads);
         if (nullptr != tmpT) {
             res.extras.emplace_back(tmpT);

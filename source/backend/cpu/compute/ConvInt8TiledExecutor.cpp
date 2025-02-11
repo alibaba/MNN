@@ -1,4 +1,3 @@
-//
 //  ConvInt8TiledExecutor.cpp
 //  MNN
 //
@@ -43,58 +42,32 @@ ErrorCode ConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& inputs, co
     return NO_ERROR;
 }
 
-void ConvInt8TiledExecutor::reorderWeight(Tensor* weight, const uint8_t* weightSrc, int SRC_UNIT, int UNIT, int ic, int oc, int kernelCount, int pack, int blockNum) {
-    auto weightDst = weight->host<uint8_t>();
-    memset(weightDst, 0, weight->size());
+void ConvInt8TiledExecutor::reorderWeight(Tensor* weight, const uint8_t* weightSrc, int SRC_UNIT, int UNIT, int ic, int oc, int kernelCount, int pack, int blockNum, int32_t initval) {
+    auto weightDst = weight->host<int8_t>();
+    memset(weightDst, (int8_t)initval, weight->size());
     int kernelCountUnit = weight->length(1);
     int blockL = kernelCountUnit / blockNum;
     int strideOutside = ROUND_UP(oc, UNIT) * SRC_UNIT * blockL;
     int strideInside   = weight->stride(0) / blockNum;
-    if (SRC_UNIT > pack) { // shape = {blockNum, UP_DIV(oc, UNIT), UP_DIV(UP_DIV(ic, pack) * kernelCount, SRC_UNIT / pack) / blockNum, UNIT, SRC_UNIT};
-        auto icDivU = UP_DIV(ic, pack);
-        for (int k = 0; k < kernelCount; ++k) {
-            const auto srcK = weightSrc + k;
-            for (int y = 0; y < ic; ++y) {
-                const int yOutSide    = y / pack;
-                const int yInSide     = y % pack;
-                const int yIndex      = yOutSide + k * icDivU;
-                const int ySubOutSide = yIndex / (SRC_UNIT / pack);
-                const int ySubInSide  = yIndex % (SRC_UNIT / pack);
+    // shape = {blockNum, UP_DIV(oc, UNIT), UP_DIV(ic, SRC_UNIT) * kernelCount / blockNum, UNIT, SRC_UNIT};
+    for (int k = 0; k < kernelCount; ++k) {
+        auto icDivU = UP_DIV(ic, SRC_UNIT);
+        const auto srcK = weightSrc + k;
+        for (int y = 0; y < ic; ++y) {
+            const int yOutSide    = y / SRC_UNIT;
+            const int yInSide     = y % SRC_UNIT;
 
-                int blockId = ySubOutSide / blockL;
-                int blockInsideId = ySubOutSide % blockL;
+            int blockId = (yOutSide + k * icDivU) / blockL;
+            int blockInsideId = (yOutSide + k * icDivU) % blockL;
 
-                auto dstY       = weightDst + blockId * strideOutside + blockInsideId * weight->stride(1) + ySubInSide * pack + yInSide;
-                const auto srcY = srcK + y * kernelCount;
-                for (int x = 0; x < oc; ++x) {
-                    const int xOutSide = x / UNIT;
-                    const int xInSide  = x % UNIT;
-                    const int dstIndex = xOutSide * strideInside + xInSide * SRC_UNIT;
-                    const int srcIndex = x * kernelCount * ic;
-                    dstY[dstIndex]     = srcY[srcIndex];
-                }
-            }
-        }
-    } else { // shape = {blockNum, UP_DIV(oc, UNIT), UP_DIV(ic, SRC_UNIT) * kernelCount / blockNum, UNIT, SRC_UNIT};
-        for (int k = 0; k < kernelCount; ++k) {
-            auto icDivU = UP_DIV(ic, SRC_UNIT);
-            const auto srcK = weightSrc + k;
-            for (int y = 0; y < ic; ++y) {
-                const int yOutSide    = y / SRC_UNIT;
-                const int yInSide     = y % SRC_UNIT;
-
-                int blockId = (yOutSide + k * icDivU) / blockL;
-                int blockInsideId = (yOutSide + k * icDivU) % blockL;
-
-                auto dstY       = weightDst + blockId * strideOutside + blockInsideId * weight->stride(1) + yInSide;
-                const auto srcY = srcK + y * kernelCount;
-                for (int x = 0; x < oc; ++x) {
-                    const int xOutSide = x / UNIT;
-                    const int xInSide  = x % UNIT;
-                    const int dstIndex = xOutSide * strideInside + xInSide * SRC_UNIT;
-                    const int srcIndex = x * kernelCount * ic;
-                    dstY[dstIndex]     = srcY[srcIndex];
-                }
+            auto dstY       = weightDst + blockId * strideOutside + blockInsideId * weight->stride(1) + yInSide;
+            const auto srcY = srcK + y * kernelCount;
+            for (int x = 0; x < oc; ++x) {
+                const int xOutSide = x / UNIT;
+                const int xInSide  = x % UNIT;
+                const int dstIndex = xOutSide * strideInside + xInSide * SRC_UNIT;
+                const int srcIndex = x * kernelCount * ic;
+                dstY[dstIndex]     = srcY[srcIndex];
             }
         }
     }
@@ -102,7 +75,7 @@ void ConvInt8TiledExecutor::reorderWeight(Tensor* weight, const uint8_t* weightS
 
 static bool _reorderWeightInside(Backend* bn, const Convolution2DCommon* common,
                                  const std::shared_ptr<Tensor>& weightOrigin,
-                                 std::shared_ptr<Tensor>& weight, int blockNum, bool alloc) {
+                                 std::shared_ptr<Tensor>& weight, int blockNum, bool alloc, int32_t initval = 0) {
     MNN_ASSERT(blockNum > 0);
     auto core = static_cast<CPUBackend*>(bn)->int8Functions();
     auto gcore = static_cast<CPUBackend*>(bn)->functions();
@@ -112,12 +85,8 @@ static bool _reorderWeightInside(Backend* bn, const Convolution2DCommon* common,
     int oc = common->outputCount(), ic = common->inputCount(), kernelCount = common->kernelX() * common->kernelY();
     std::vector<int> shape;
     int pack = gcore->pack;
-    if (SRC_UNIT > pack) {
-        MNN_ASSERT(SRC_UNIT % pack == 0);
-        shape = {UP_DIV(oc, UNIT), UP_DIV(UP_DIV(ic, pack) * kernelCount, SRC_UNIT / pack), UNIT, SRC_UNIT};
-    } else {
-        shape = {UP_DIV(oc, UNIT), UP_DIV(ic, SRC_UNIT) * kernelCount, UNIT, SRC_UNIT};
-    }
+
+    shape = {UP_DIV(oc, UNIT), UP_DIV(ic, SRC_UNIT) * kernelCount, UNIT, SRC_UNIT};
     bool useCachedMmap = bn->getRuntime()->hint().useCachedMmap > 1;
     if (alloc) {
         weight.reset(Tensor::createDevice<int8_t>(shape));
@@ -133,7 +102,7 @@ static bool _reorderWeightInside(Backend* bn, const Convolution2DCommon* common,
     if (useCachedMmap) {
         return true;
     }
-    ConvInt8TiledExecutor::reorderWeight(weight.get(), weightOrigin->host<uint8_t>(), SRC_UNIT, UNIT, ic, oc, kernelCount, pack, blockNum);
+    ConvInt8TiledExecutor::reorderWeight(weight.get(), weightOrigin->host<uint8_t>(), SRC_UNIT, UNIT, ic, oc, kernelCount, pack, blockNum, initval);
     return true;
 }
 
@@ -141,7 +110,9 @@ static void GetResourceInt8(std::shared_ptr<CPUConvolution::ResourceInt8> resour
     // common parameters
     int outputCount = conv2d->common()->outputCount();
     auto core = static_cast<CPUBackend*>(backend)->functions();
-    int LSize = conv2d->common()->inputCount() * conv2d->common()->kernelX() * conv2d->common()->kernelY();
+    int inputChannel = conv2d->common()->inputCount();
+    int kernelSize   = conv2d->common()->kernelX() * conv2d->common()->kernelY();
+    int LSize = inputChannel * kernelSize;
     int ocUp4 = ROUND_UP(outputCount, core->pack);
     bool useCachedMmap = backend->getRuntime()->hint().useCachedMmap > 1;
 
@@ -266,6 +237,7 @@ DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const O
     auto gcore = static_cast<CPUBackend*>(backend)->functions();
     mResourceInt8.reset(new CPUConvolution::ResourceInt8);
     mResourceInt8->mDynamicQuant = true;
+    mResourceInt8->mWeightAsymmetricQuant = quanCommon->asymmetric;
     int blockNum = 1;
     GetResourceInt8(mResourceInt8, quanCommon, convOp, backend, &blockNum);
     mBlockNum = blockNum;
@@ -351,12 +323,8 @@ DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const O
 
         // weight shape.
         std::vector<int32_t> shape;
-        if (SRC_UNIT > pack) {
-            MNN_ASSERT(SRC_UNIT % pack == 0);
-            shape = {UP_DIV(oc, UNIT), UP_DIV(UP_DIV(ic, pack) * kernelCount, SRC_UNIT / pack), UNIT * SRC_UNIT / 2};
-        } else {
-            shape = {UP_DIV(oc, UNIT), UP_DIV(ic, SRC_UNIT) * kernelCount, UNIT * SRC_UNIT / 2};
-        }
+        shape = {UP_DIV(oc, UNIT), UP_DIV(ic, SRC_UNIT) * kernelCount, UNIT * SRC_UNIT / 2};
+        
         mResourceInt8->mWeightInt8.reset(Tensor::createDevice<uint8_t>(shape));
 
         auto res = backend->onAcquireBuffer(mResourceInt8->mWeightInt8.get(), Backend::STATIC);
@@ -400,19 +368,26 @@ DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const O
         }
     } else {
         // std::shared_ptr<Tensor> srcWeight;
+        int blocksize = ic * kernelCount / blockNum;
+        int originOffset = 0;
         if (quanCommon->canUseInt4) {
+            originOffset = -8;
             mResourceInt8->mWeightAsymmetricQuant = true;
             auto srcPtr = reinterpret_cast<uint8_t*>(quanCommon->weight.get());
-            std::vector<int8_t> tmpWeight(weightLength * 2, 0);
-            for (int i = 0; i < weightLength; ++i) {
-                int8_t s0 = (srcPtr[i] >> 4) - 8; // For int4 quant weight, +8 saved in quant buffer
-                int8_t s1 = (srcPtr[i] & 0x0f) - 8;
-                tmpWeight[2 * i + 0] = s0;
-                tmpWeight[2 * i + 1] = s1;
+            std::vector<int8_t> tmpWeight(weightLength * 2, originOffset);
+            for (int j = 0; j < oc; ++j) {
+                for (int k = 0; k < blockNum; ++k) {
+                    for (int i = 0; i < blocksize; ++i) {
+                        int index = j * blockNum * blocksize + k * blocksize + i;
+                        uint8_t w_ = srcPtr[index / 2];
+                        int truew = index % 2 ? (w_ & 0x0f) : (w_ >> 4);
+                        tmpWeight[index] = truew - 8;
+                    }
+                }
             }
             std::shared_ptr<Tensor> srcWeight(Tensor::create<uint8_t>({weightLength * 2}, (void*)tmpWeight.data()));
             std::shared_ptr<Tensor> tmpWeightInt8;
-            mValid = _reorderWeightInside(backend, convOp->common(), srcWeight, tmpWeightInt8, blockNum, false);
+            mValid = _reorderWeightInside(backend, convOp->common(), srcWeight, tmpWeightInt8, blockNum, false, -8);
             if(!mValid) {
                 return;
             }
@@ -564,20 +539,36 @@ void DenseConvInt8TiledExecutor::getPackParameter(int* Unit, int* srcUnit, int* 
 
 
 ErrorCode DenseConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
-    mUseBatchQuan = (static_cast<CPUBackend*>(backend())->getRuntime()->hint().dynamicQuantOption == 1);
-    mUseBatchQuan &= mCommon->kernelY() == 1 && mCommon->kernelX() == 1
-        && outputs[0]->width() == inputs[0]->width() && outputs[0]->height() == inputs[0]->height()
-        && mCommon->strideX() == 1 && mCommon->strideY() == 1 && mCommon->padX() == 0 && mCommon->padY() == 0
-        && outputs[0]->height() == 1 && outputs[0]->width() == 1;
-    mUseBatchQuan &= mResourceInt8->mDynamicQuant;
-    mUseBatchQuan &= (inputs[0]->batch() > 1);
+    // default option
+    mUseBatchQuan = false;
+    mQuantFirst = true;
+    auto option = static_cast<CPUBackend*>(backend())->getRuntime()->hint().dynamicQuantOption;
+    int batch = inputs[0]->batch();
+    int inC   = inputs[0]->channel();
+    auto output = outputs[0];
+    int inputPlane  = batch * inputs[0]->width() * inputs[0]->height();
+    auto planeSize = output->width() * output->height() * output->batch();
     auto core = static_cast<CPUBackend*>(backend())->int8Functions();
     auto gcore =static_cast<CPUBackend*>(backend())->functions();
     int UNIT, SRC_UNIT, DST_XUNIT;
     core->MNNGetGemmUnit(&UNIT, &SRC_UNIT, &DST_XUNIT);
-    auto output = outputs[0];
+    int kernelCount = mCommon->kernelY() * mCommon->kernelX();
+    bool fastway = (kernelCount == 1) && (output->width() == inputs[0]->width()) && (output->height() == inputs[0]->height()) && (mCommon->strideX() * mCommon->strideY()) == 1;
+    if (inputPlane > 1) {
+        mUseBatchQuan = true;
+    }
+    if (!fastway) { // general conv
+        mQuantFirst = false;
+        if (planeSize > 1) {
+            mUseBatchQuan = true;
+        }
+        if (option == 1) { // lowest level.
+            mQuantFirst = true;
+            mUseBatchQuan = false;
+        }
+    }
+    
     float weightBytes = mResourceInt8->mActBits == 4 ? 0.5 : 1;
-
 
 #ifdef MNN_KLEIDIAI_ENABLED
     KleidiAI& kai = KleidiAI::getInstance();
@@ -617,6 +608,8 @@ ErrorCode DenseConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& input
         CPUConvolution::onResize(inputs, outputs);
         ConvolutionTiledExecutor::setIm2ColParameter(mIm2ColParamter, mCommon, inputs[0], outputs[0], mPadX, mPadY, gcore, core);
         mBlockNum = 1;
+        mQuantFirst = true;
+        mUseBatchQuan = false;
     } else { // Dynamic Quant kernels
         CPUConvolution::onResize(inputs, outputs);
         // Gemm Kernel
@@ -644,15 +637,18 @@ ErrorCode DenseConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& input
     }
 
     // input scale buffer
-    int batch = inputs[0]->batch();
-    mInputDeqScales.reset(Tensor::createDevice<int8_t>({batch * 4}));
-    bool success = backend()->onAcquireBuffer(mInputDeqScales.get(), Backend::DYNAMIC);
+    const int threads = static_cast<CPUBackend*>(backend())->threadNumber();
 
     // Im2col info
-    const int threads = static_cast<CPUBackend*>(backend())->threadNumber();
-    auto planeSize = output->width() * output->height() * output->batch();
+    int im2colBytes = 1;
     const int L2Size = 2048;
-    const int tileLimitByC = UP_DIV(L2Size, mIm2ColParamter.kernelCountUnit * SRC_UNIT);
+    int tileLimitByC = UP_DIV(L2Size, mIm2ColParamter.kernelCountUnit * SRC_UNIT);
+    
+    if (mQuantFirst == false) {
+        im2colBytes = gcore->bytes;
+        tileLimitByC = 1;
+    }
+    int ic = inputs[0]->channel();
     int tileLimit = 0;
     int outC    = output->channel();
     int outC4 = UP_DIV(outC, gcore->pack);
@@ -691,7 +687,6 @@ ErrorCode DenseConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& input
             part = UNIT / gcore->pack;
         }
         mThreadNums = ALIMIN(threads, threadNeed);
-        mSplitByOc = true;
 
         mDivides.resize(threads+1);
         mDivides[0] = 0;
@@ -716,15 +711,23 @@ ErrorCode DenseConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& input
         workPT = mTileCount * DST_XUNIT * mIm2ColCount;
     }
 
+    mInputDeqScales.reset(Tensor::createDevice<int8_t>({inputPlane * 4}));
+    if (mQuantFirst == false && !mSplitByOc) {
+        mInputDeqScales.reset(Tensor::createDevice<int8_t>({threads, DST_XUNIT * 4}));
+    }
+    bool success = backend()->onAcquireBuffer(mInputDeqScales.get(), Backend::DYNAMIC);
+
     auto bufferAlloc = static_cast<CPUBackend*>(backend())->getBufferAllocator();
     auto blitInfoSize = ConvolutionTiledExecutor::computeBlitInfoSize(workPT, mIm2ColParamter.ow, mIm2ColParamter.kernelX * mIm2ColParamter.kernelY, k);
     mBlitInfoStride = blitInfoSize.second;
     mBlitInfo = bufferAlloc->alloc(blitInfoSize.first);
+    int im2colBuffSize = DST_XUNIT * mIm2ColCount * icDiv4KernelCount * SRC_UNIT;
+    
     if (!mSplitByOc) {
-        mTempIm2ColBuffer.reset(Tensor::createDevice<int8_t>({threads, DST_XUNIT * mIm2ColCount * icDiv4KernelCount * SRC_UNIT}));
+        mTempIm2ColBuffer.reset(Tensor::createDevice<int8_t>({threads, im2colBuffSize * im2colBytes}));
         mTempSrcSum.resize(threads * mBlockNum * DST_XUNIT * mIm2ColCount * 4); // Use 4 bytes to save kernel sum.
     } else {
-        mTempIm2ColBuffer.reset(Tensor::createDevice<int8_t>({mTileCount, DST_XUNIT * mIm2ColCount * icDiv4KernelCount * SRC_UNIT}));
+        mTempIm2ColBuffer.reset(Tensor::createDevice<int8_t>({mTileCount, im2colBuffSize * im2colBytes}));
         mTempSrcSum.resize(mTileCount * mBlockNum * DST_XUNIT * mIm2ColCount * 4); // Use 4 bytes to save kernel sum.
     }
     
@@ -740,25 +743,45 @@ ErrorCode DenseConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& input
         return NO_ERROR;
     }
 
-
-    int inC   = inputs[0]->channel();
     // set im2col tensor info
-    mQuantInput.reset((Tensor::createDevice<int8_t>({batch, mIm2ColParamter.ih, mIm2ColParamter.iw, ROUND_UP(inC, gcore->pack)})));
-    // set dynamic quant buffer
-    mTempMaxMinValueBuffer.reset(Tensor::createDevice<uint8_t>({mThreadNums, 2 * gcore->bytes}));
-    // set compute buffer
-    mDynamicBias.reset(Tensor::createDevice<uint8_t>({ocUp4 * 4}));
-    mScaleFuse.reset(Tensor::createDevice<uint8_t>({alphaSize * 4}));
-
+    if (mQuantFirst) {
+        mQuantInput.reset((Tensor::createDevice<int8_t>({batch, mIm2ColParamter.ih, mIm2ColParamter.iw, ROUND_UP(inC, gcore->pack)})));
+    } else if (!mSplitByOc){
+        mQuantInput.reset((Tensor::createDevice<int8_t>({threads, im2colBuffSize * 1})));
+        // mIm2ColParamter.ic = inC;
+    } else {
+        mQuantInput.reset((Tensor::createDevice<int8_t>({mTileCount, im2colBuffSize * 1})));
+    }
     success &= backend()->onAcquireBuffer(mQuantInput.get(), Backend::DYNAMIC);
-    success &= backend()->onAcquireBuffer(mDynamicBias.get(), Backend::DYNAMIC);
-    success &= backend()->onAcquireBuffer(mTempMaxMinValueBuffer.get(), Backend::DYNAMIC);
-    success &= backend()->onAcquireBuffer(mScaleFuse.get(), Backend::DYNAMIC);
+    // set dynamic quant buffer
+    
+    // set compute buffer
+    if (!mUseBatchQuan) {
+        mTempMaxMinValueBuffer.reset(Tensor::createDevice<uint8_t>({threads, 2 * gcore->bytes}));
+        if (mQuantFirst) {
+            mDynamicBias.reset(Tensor::createDevice<uint8_t>({ocUp4 * 4}));
+            mScaleFuse.reset(Tensor::createDevice<uint8_t>({alphaSize * 4}));
+        } else {
+            mDynamicBias.reset(Tensor::createDevice<uint8_t>({threads, ocUp4 * 4}));
+            mScaleFuse.reset(Tensor::createDevice<uint8_t>({threads, alphaSize * 4}));
+        }
+        success &= backend()->onAcquireBuffer(mDynamicBias.get(), Backend::DYNAMIC);
+        success &= backend()->onAcquireBuffer(mTempMaxMinValueBuffer.get(), Backend::DYNAMIC);
+        success &= backend()->onAcquireBuffer(mScaleFuse.get(), Backend::DYNAMIC);
+    }
+
+    
 
     if (mUseBatchQuan) {
         int infobytes = 4; // use float32 to save dequant scale and quant scale.
-        int size = mThreadNums * batch * gcore->bytes + 2 * batch * infobytes;
-        mBatchQuantInfo.reset(Tensor::createDevice<int8_t>({size}));
+        if (mQuantFirst == false) {
+            int size = threads * DST_XUNIT * gcore->bytes + 2 * DST_XUNIT * infobytes;
+            mBatchQuantInfo.reset(Tensor::createDevice<int8_t>({threads, size}));
+        } else {
+            int size = mThreadNums * inputPlane * gcore->bytes + 2 * inputPlane * infobytes;
+            mBatchQuantInfo.reset(Tensor::createDevice<int8_t>({size}));
+        }
+        
         success &= backend()->onAcquireBuffer(mBatchQuantInfo.get(), Backend::DYNAMIC);
     }
     if (!success) {
@@ -768,9 +791,12 @@ ErrorCode DenseConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& input
     backend()->onReleaseBuffer(mInputDeqScales.get(), Backend::DYNAMIC);
     backend()->onReleaseBuffer(mTempIm2ColBuffer.get(), Backend::DYNAMIC);
     backend()->onReleaseBuffer(mQuantInput.get(), Backend::DYNAMIC);
-    backend()->onReleaseBuffer(mDynamicBias.get(), Backend::DYNAMIC);
-    backend()->onReleaseBuffer(mTempMaxMinValueBuffer.get(), Backend::DYNAMIC);
-    backend()->onReleaseBuffer(mScaleFuse.get(), Backend::DYNAMIC);
+
+    if (mUseBatchQuan == false) {
+        backend()->onReleaseBuffer(mDynamicBias.get(), Backend::DYNAMIC);
+        backend()->onReleaseBuffer(mScaleFuse.get(), Backend::DYNAMIC);
+        backend()->onReleaseBuffer(mTempMaxMinValueBuffer.get(), Backend::DYNAMIC);
+    }
     if (mUseBatchQuan) {
         backend()->onReleaseBuffer(mBatchQuantInfo.get(), Backend::DYNAMIC);
     }
@@ -890,7 +916,6 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
     int weight_step_Y                = weightBytes * (UNIT__ * SRC_UNIT);
     int src_step_Y                   = DST_XUNIT * SRC_UNIT;
 
-    auto inputDataPtr        = input->host<int8_t>();
     auto im2colPtr           = mTempIm2ColBuffer->host<int8_t>();
     if (SRC_UNIT > PackUnit) {
         memset(im2colPtr, 0, mTempIm2ColBuffer->size());
@@ -911,39 +936,20 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
         (reinterpret_cast<float*>(inputScalePtr))[0] =  mMutableResource->mInputScale;
     }
 
-    auto SingleDynamicQuant = [&] () {
-        const auto floatptr = input->host<float>();
-        auto int8ptr        = mQuantInput->host<int8_t>();
-        auto inputsize      = static_cast<CPUBackend*>(backend())->getTensorSize(inputs[0]);
+    auto SingleDynamicQuant = [&] (uint8_t* floatPtr, int32_t& inputZero, uint8_t* inputDequantScale, uint8_t* matmulBiasPtr, uint8_t* matmulScalePtr, int inputsize, int threads, uint8_t* maxMinValPtr, int8_t* int8ptr) {
         float quantscale    = 0.f;
         float dequantscale  = 0.f;
         float zeropoint       = 0;
 
          /* Count max and min value to compute input scale and zeropoint */
-        auto maxMinValPtr = mTempMaxMinValueBuffer->host<uint8_t>();
-        int threadNeed = mThreadNums;
-        auto inputSizeCount = UP_DIV(inputsize, mThreadNums);
-        if (true) {
-            threadNeed = 1;
-            inputSizeCount = inputsize;
-        } else {
-            threadNeed = ALIMIN(UP_DIV(inputsize, inputSizeCount), mThreadNums);
-            inputSizeCount = UP_DIV(inputsize, threadNeed);
-        }
-        auto findMaxMinValueFunction = [&](int tId) {
-            auto perThreadWorkCount = ALIMIN(inputSizeCount, inputsize - tId * inputSizeCount);
-            auto minValPtrTid = reinterpret_cast<float*>(maxMinValPtr + tId * mTempMaxMinValueBuffer->stride(0));
-            auto maxValPtrTid = reinterpret_cast<float*>(maxMinValPtr + tId * mTempMaxMinValueBuffer->stride(0) + gcore->bytes);
-            auto inputDataPtrTid = reinterpret_cast<float*>(reinterpret_cast<uint8_t*>(floatptr) + tId * inputSizeCount * gcore->bytes);
-            gcore->MNNCountMaxMinValue(inputDataPtrTid, minValPtrTid, maxValPtrTid, perThreadWorkCount);
+        auto findMaxMinValueFunction = [&]() {
+            auto perThreadWorkCount = inputsize;
+            auto minValPtrTid = reinterpret_cast<float*>(maxMinValPtr);
+            auto maxValPtrTid = reinterpret_cast<float*>(maxMinValPtr + gcore->bytes);
+            auto inputDataPtrTid = reinterpret_cast<float*>(floatPtr);
+            gcore->MNNCountMaxMinValue(inputDataPtrTid, minValPtrTid, maxValPtrTid, inputsize);
         };
-        MNN_CONCURRENCY_BEGIN(tId, threadNeed) {
-            findMaxMinValueFunction((int)tId);
-        }
-        MNN_CONCURRENCY_END();
-        if (threadNeed > 1) {
-            gcore->MNNCountMaxMinValue(reinterpret_cast<float*>(maxMinValPtr),reinterpret_cast<float*>(maxMinValPtr), reinterpret_cast<float*>(maxMinValPtr + gcore->bytes), 2 * mThreadNums);
-        }
+        findMaxMinValueFunction();
         float maxVal = 0;
         float minVal = 0;
         if (gcore->bytes == 4) {
@@ -958,7 +964,7 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
         }
 
         /* Dynamic quant */
-        if (mCommon->padX() > 0 || mCommon->padY() > 0) { // Ensure "0.0f" included in range.
+        if (mIm2ColParamter.padX > 0 || mIm2ColParamter.padY > 0) { // Ensure "0.0f" included in range.
             if (minVal > 0.f) {
                 minVal = 0.f;
             } else if (maxVal < 0.f){
@@ -969,7 +975,7 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
         }
         float range = maxVal - minVal;
         if (fabs(range) < 1e-7) {
-            zeropoint = maxVal;
+            zeropoint = (-1 * maxVal)-128;
             quantscale = 1.0f;
             dequantscale = 1.0f;
         } else {
@@ -978,22 +984,7 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
             zeropoint = roundf(-minVal * 255.f / range) - 128.0f;
         }
         auto sizeDiv = UP_DIV(inputsize, PackUnit);
-
-        threadNeed = mThreadNums;
-        inputSizeCount = UP_DIV(sizeDiv, mThreadNums);
-        if (true) {
-            threadNeed = 1;
-            inputSizeCount = sizeDiv;
-        } else {
-            threadNeed = ALIMIN(UP_DIV(sizeDiv, inputSizeCount), mThreadNums);
-            inputSizeCount = UP_DIV(sizeDiv, threadNeed);
-        }
-        MNN_CONCURRENCY_BEGIN(tId, threadNeed) {
-            auto perThreadWorkCount = ALIMIN(inputSizeCount, sizeDiv - tId * inputSizeCount);
-            auto inptr_ = (float*)(((int8_t*)floatptr) + tId * inputSizeCount * PackUnit * gcore->bytes);
-            mQuantFunc(inptr_ , int8ptr + tId * inputSizeCount * PackUnit, perThreadWorkCount, &quantscale, -128, 127, &zeropoint, 0);
-        }
-        MNN_CONCURRENCY_END();
+        mQuantFunc((float*)floatPtr , int8ptr, sizeDiv, &quantscale, -128, 127, &zeropoint, 0);
 
         /* bias float */
     #ifdef MNN_USE_SSE
@@ -1005,83 +996,86 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
         auto weightDequantScale = mResourceInt8->mOriginScale->host<float>();
         float zerofp32 = (zeropoint + offset) * dequantscale;
 
-        gcore->MNNDynamicUpdateConvBiasScale(mDynamicBias->host<float>(), mScaleFuse->host<float>(), biasfp32, weightDequantScale, &dequantscale, mResourceInt8->mWeightKernelSum->host<float>(), &zerofp32, UP_DIV(output->channel(), 4), alphaSize);
+        gcore->MNNDynamicUpdateConvBiasScale((float*)matmulBiasPtr, (float*)matmulScalePtr, biasfp32, weightDequantScale, &dequantscale, mResourceInt8->mWeightKernelSum->host<float>(), &zerofp32, UP_DIV(output->channel(), 4), alphaSize);
         // Move step for A and B for each block computing
 
-        inputZeroPoint = zeropoint;
-        (reinterpret_cast<float*>(inputScalePtr))[0]  = dequantscale;
-        biasPtr   = mDynamicBias->host<uint8_t>();
-        scalePtr  = mScaleFuse->host<uint8_t>();
-        inputDataPtr = int8ptr;
+        inputZero = zeropoint;
+        (reinterpret_cast<float*>(inputDequantScale))[0]  = dequantscale;
+        biasPtr = matmulBiasPtr;
+        scalePtr = matmulScalePtr;
     };
 
-    auto BatchDynamicQuant = [&]() {
+    auto BatchDynamicQuant = [&](uint8_t* floatPtr, int32_t& inputZero, uint8_t* inputDequantScale, int LU, int EP, int LP, uint8_t* info, int32_t availableThreads, int8_t* dstInt8) {
         // Allocate input max/sum/dequant/quant buffer
         auto infobytes = 4;
-        auto dequantPtr = mBatchQuantInfo->host<uint8_t>();
-        auto quantPtr = dequantPtr + batch * infobytes;
-        auto maxPtr = mBatchQuantInfo->host<uint8_t>() + 2 * batch * infobytes;
-
+        auto quantPtr = info;
+        auto maxPtr = info + 2 * EP * infobytes;
+        
         // compute sum and absmax
-        int icDiv4 = UP_DIV(input->channel(), PackUnit);
-        int threadwork = UP_DIV(icDiv4, mThreadNums);
-        int threadNeed = UP_DIV(icDiv4, threadwork);
-        int threadTmp = ALIMIN(mThreadNums, threadNeed);
-        threadwork = UP_DIV(icDiv4, threadTmp);
+        int threadwork = UP_DIV(LU, availableThreads);
+        int threadNeed = UP_DIV(LU, threadwork);
+        int threadTmp = ALIMIN(availableThreads, threadNeed);
+        threadwork = UP_DIV(LU, threadTmp);
+
         MNN_CONCURRENCY_BEGIN(tId, threadTmp) {
             int workCount = threadwork;
             if (tId == threadTmp - 1) {
-                workCount = icDiv4 - tId * threadwork;
+                workCount = LU - tId * threadwork;
             }
             int icIndex = tId * threadwork;
-            auto inputData = reinterpret_cast<const float*>(input->host<uint8_t>() + icIndex * batch * PackUnit * gcore->bytes);
-            auto batchMax = reinterpret_cast<float*>(maxPtr + tId * batch * gcore->bytes);
-            gcore->MNNAbsMax(inputData, batchMax, workCount, batch, PackUnit);
+            auto inputData = reinterpret_cast<const float*>(floatPtr + icIndex * EP * LP * gcore->bytes);
+            auto batchMax = reinterpret_cast<float*>(maxPtr + tId * EP * gcore->bytes);
+            gcore->MNNAbsMax(inputData, batchMax, workCount, EP, LP);
         }
         MNN_CONCURRENCY_END();
 
         // Compute quant scale
-        gcore->MNNQuantScale((float*)maxPtr, (float*)quantPtr, (float*)dequantPtr, threadTmp, batch);
+        gcore->MNNQuantScale((float*)maxPtr, (float*)quantPtr, (float*)inputDequantScale, threadTmp, EP);
 
         // quant
         MNN_CONCURRENCY_BEGIN(tId, threadTmp) {
             int workCount = threadwork;
             if (tId == threadTmp - 1) {
-                workCount = icDiv4 - tId * threadwork;
+                workCount = LU - tId * threadwork;
             }
             auto icIndex    = tId * threadwork;
-            auto inputData = reinterpret_cast<float*>(input->host<uint8_t>() + icIndex * batch * PackUnit * gcore->bytes);
-            auto int8ptr   = mQuantInput->host<int8_t>() + icIndex * batch * PackUnit;
+            auto inputData = reinterpret_cast<float*>(floatPtr + icIndex * EP * LP * gcore->bytes);
+            auto int8ptr   = dstInt8 + icIndex * EP * LP;
             auto scale_ptr = reinterpret_cast<float*>(quantPtr);
-            gcore->MNNDynamicQuant(inputData, int8ptr, scale_ptr, workCount, batch, PackUnit);
+            gcore->MNNDynamicQuant(inputData, int8ptr, scale_ptr, workCount, EP, LP);
         }
         MNN_CONCURRENCY_END();
 
-        inputZeroPoint = 0;
-        inputScalePtr     = (uint8_t*)dequantPtr;
-        inputDataPtr = mQuantInput->host<int8_t>();
+        inputZero = 0;
+    };
+
+    ssize_t oneScale = mUseBatchQuan ? 0 : 1;
+    if (mUseBatchQuan) {
         biasPtr = mResourceInt8->mOriginBias->host<uint8_t>();
         scalePtr = mResourceInt8->mOriginScale->host<uint8_t>();
-    };
-    ssize_t oneScale = 1;
-    if (mUseBatchQuan) {
-        BatchDynamicQuant();
-        oneScale = 0;
-    } else if (mResourceInt8->mDynamicQuant) {
-//        MNN::Timer _t;
-        SingleDynamicQuant();
-//        auto time = (float)_t.durationInUs() / 1000.0f;
-//        printf("time = %f \n", time);
-    } else {
-        // offline quant.
     }
-
+    int8_t* inputDataPtr = nullptr; // Matmul input.
+    auto im2colSrc = input->host<uint8_t>(); // if not quant first, im2colSrc is original float input data.
+    auto inputsize = UP_DIV(input->channel(), PackUnit)  * PackUnit * batch * input->height() * input->width();
+    if (mQuantFirst) { // quant first, then im2col
+        if (mUseBatchQuan) {
+            BatchDynamicQuant(input->host<uint8_t>(), inputZeroPoint, inputScalePtr, UP_DIV(input->channel(), PackUnit), batch, PackUnit, mBatchQuantInfo->host<uint8_t>(), mThreadNums, mQuantInput->host<int8_t>());
+            inputDataPtr = mQuantInput->host<int8_t>();
+        } else if (mResourceInt8->mDynamicQuant) {
+            SingleDynamicQuant(input->host<uint8_t>(), inputZeroPoint, inputScalePtr, mDynamicBias->host<uint8_t>(), mScaleFuse->host<uint8_t>(), inputsize, 1, mTempMaxMinValueBuffer->host<uint8_t>(), mQuantInput->host<int8_t>());
+            inputDataPtr = mQuantInput->host<int8_t>();
+        } else {
+            // offline quant.
+            inputDataPtr = input->host<int8_t>();
+        }
+        im2colSrc = (uint8_t*)inputDataPtr;
+    }
 
     if (mResourceInt8->mActBits == 4) {
         weightBytes   = 0.5;
         weight_step_Y *= 0.5;
     }
-
+    auto inputchannel = input->channel();
     SumByAxisParams sumParams;
     sumParams.oneScale = oneScale;
     sumParams.SRC_UNIT = SRC_UNIT;
@@ -1089,21 +1083,19 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
     sumParams.DST_XUNIT = DST_XUNIT;
     sumParams.col_buffer_unit_size = col_buffer_unit_size;
     sumParams.kernelCountUnitDouble = kernelCountUnitDouble;
+    sumParams.valid = inputchannel % SRC_UNIT;
+    sumParams.kernelxy = mIm2ColParamter.kernelX * mIm2ColParamter.kernelY;
+    sumParams.LU = UP_DIV(inputchannel, SRC_UNIT);
+    
+    int im2colBytes = mQuantFirst == true ? 1 : gcore->bytes;
 
-    auto ThreadFunction = [&](int tId, int eStartIndex, int eEndIndex, int estep, int ocIndex) {
+    auto tileSplitFunction = [&](int tId, int eStartIndex, int eEndIndex, int estep) {
         auto ocDivThread = ocDiv4;
-        if (mSplitByOc) { // Thread split by OC
-            ocDivThread = ALIMIN(mDivides[tId + 1] - mDivides[tId], ocDiv4 - mDivides[tId]);
-        }
         float* reluPtr = mResourceInt8->mReluThreshold.data();
-        uint8_t* extraScale = nullptr; // input scale for batch dynamic quant.
         QuanPostTreatParameters quanParam;
         quanParam.blockNum = mBlockNum;
-        if (mUseBatchQuan) {
-            extraScale = inputScalePtr;
-        }
 #ifdef MNN_USE_SSE
-        quanParam.extraBias = mResourceInt8->mWeightKernelSum->host<float>() + ocIndex;
+        quanParam.extraBias = mResourceInt8->mWeightKernelSum->host<float>();
 #endif
         if (dstBytes != 1) {
             quanParam.useInt8 = 0;
@@ -1116,71 +1108,94 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
                 quanParam.minValue = mMutableResource->mClampMin;
             }
         }
-        auto outputTid = outputDataPtr + ocIndex * plane * dstBytes;
-        const auto biasFloatTid = reinterpret_cast<float*>(biasPtr + ocIndex * 4);
-        const auto scaleFloatTid = reinterpret_cast<float*>(scalePtr + ocIndex * 4);
-        const auto weightDequanBiasTid  = reinterpret_cast<float*>(weightDequantBias + ocIndex * 4);
-        const auto weightPtrTid = weightDataPtr + static_cast<int32_t>(ocIndex * blockL * SRC_UNIT * weightBytes);
+        auto biasFloatTid = reinterpret_cast<float*>(biasPtr);
+        auto scaleFloatTid = reinterpret_cast<float*>(scalePtr);
+        auto weightDequanBiasTid  = reinterpret_cast<float*>(weightDequantBias);
+        auto weightPtrTid = weightDataPtr;
         if (mBlockNum == 1) {
             quanParam.biasFloat = biasFloatTid;
             quanParam.scale = scaleFloatTid;
             quanParam.weightQuanBias = weightDequanBiasTid;
         }
-
+        // auto im2colPtr           = mTempIm2ColBuffer->host<int8_t>();
         auto colAddr        = im2colPtr + tId * mTempIm2ColBuffer->stride(0);
         auto srcPtr     = (int8_t const **)(mBlitInfo.ptr() + tId * mBlitInfoStride.first);
         auto el         = (int32_t *)(srcPtr + mBlitInfoStride.second);
         auto xKernelSumPtrTid = reinterpret_cast<float*>(srcKernelSumPtr + tId * mBlockNum * DST_XUNIT * mIm2ColCount * 4);
 
-        int32_t info[6];
+        int32_t info[5];
         info[1] = mIm2ColParamter.iw * mIm2ColParamter.ih * batch;
         info[2] = static_cast<int32_t>(col_buffer_unit_size);
         info[3] = mIm2ColParamter.strideX;
-        info[5] = kernelCountUnitDouble;
         for (int tIndex = eStartIndex; tIndex < eEndIndex; tIndex += estep) {
             const int xIndexStart  = tIndex * DST_XUNIT * mIm2ColCount;
+            auto outputInTilePtr = outputDataPtr + xIndexStart * PackUnit * dstBytes;
             int realDstCount = ALIMIN(plane - xIndexStart, DST_XUNIT * mIm2ColCount);
-            auto ptrExtraScale = extraScale != nullptr ? (extraScale + xIndexStart * 4) : nullptr;
             auto ptrInputscale = mUseBatchQuan == true ? (inputScalePtr + xIndexStart * 4) : inputScalePtr;
+            auto ptrExtraScale = mUseBatchQuan == true ? ptrInputscale : nullptr;
             // im2col
-            auto res = ConvolutionTiledExecutor::turnIm2ColToBlitInfo((const float**)srcPtr, el, xIndexStart, realDstCount, mIm2ColParamter, (const uint8_t*)inputDataPtr, 1);
+            auto res = ConvolutionTiledExecutor::turnIm2ColToBlitInfo((const float**)srcPtr, el, xIndexStart, realDstCount, mIm2ColParamter, (uint8_t*)im2colSrc, im2colBytes);
             int number = res.first;
             bool needZero = res.second;
-            if (needZero) {
+            if (needZero && mQuantFirst) {
 #ifdef MNN_USE_SSE
                 ::memset(colAddr, inputZeroPoint + 128, col_buffer_size);
 #else
                 ::memset(colAddr, inputZeroPoint, col_buffer_size);
 #endif
+            } else if (needZero) {
+                ::memset(colAddr, 0, mTempIm2ColBuffer->stride(0));
             }
             info[0] = number;
             info[4] = realDstCount;
-            if (number > 0) {
+            int8_t* colAddrTemp = colAddr;
+            if (mQuantFirst && number > 0) {
                 blitProc(colAddr, srcPtr, info, el);
+                colAddrTemp = colAddr;
+            } else if (number > 0) {
+                if (SRC_UNIT > PackUnit) {
+                    memset(colAddr, 0, mTempIm2ColBuffer->stride(0));
+                }
+                info[2] = realDstCount;
+                gcore->MNNGeneralIm2Col((float*)colAddr, (float const**)srcPtr, info, el, SRC_UNIT, PackUnit); // colAddr: [lu, realDstCount, lp]
+            }
+            if (!mQuantFirst) {
+                ptrInputscale = mInputDeqScales->host<uint8_t>() + tId * mInputDeqScales->stride(0);
+                if (mUseBatchQuan) {
+                    BatchDynamicQuant((uint8_t*)colAddr, inputZeroPoint, ptrInputscale, kernelCountUnitDouble, realDstCount, SRC_UNIT, mBatchQuantInfo->host<uint8_t>() + tId * mBatchQuantInfo->stride(0), 1, mQuantInput->host<int8_t>() + tId * mQuantInput->stride(0));
+                    ptrExtraScale = ptrInputscale;
+                } else {
+                    biasFloatTid = reinterpret_cast<float*>(mDynamicBias->host<uint8_t>() + tId * mDynamicBias->stride(0));
+                    scaleFloatTid = reinterpret_cast<float*>(mScaleFuse->host<uint8_t>() + tId * mScaleFuse->stride(0));
+                    auto maxMinPtr = mTempMaxMinValueBuffer->host<uint8_t>() + tId * mTempMaxMinValueBuffer->stride(0);
+                    SingleDynamicQuant((uint8_t*)colAddr, inputZeroPoint, ptrInputscale, (uint8_t*)biasFloatTid, (uint8_t*)scaleFloatTid, kernelCountUnitDouble*realDstCount*SRC_UNIT, 1, maxMinPtr, mQuantInput->host<int8_t>() + tId * mQuantInput->stride(0));
+                    if (mBlockNum == 1) {
+                        quanParam.biasFloat = biasFloatTid;
+                        quanParam.scale = scaleFloatTid;
+                    }
+                }
+                colAddrTemp = mQuantInput->host<int8_t>() + tId * mQuantInput->stride(0);
             }
             if (mResourceInt8->mWeightAsymmetricQuant) {
-                mSumByAxisLFunc(xKernelSumPtrTid, colAddr, (float*)ptrInputscale, realDstCount, sumParams);
+                mSumByAxisLFunc(xKernelSumPtrTid, colAddrTemp, (float*)ptrInputscale, realDstCount, sumParams);
             }
-            auto outputInTilePtr = outputTid + xIndexStart * PackUnit * dstBytes;
-            auto colAddrTemp = colAddr;
             auto ptrX = xKernelSumPtrTid;
             if (mBlockNum == 1) {
                 do {
                     int step = ALIMIN(DST_XUNIT, realDstCount);
                     quanParam.srcKernelSum = ptrX;
-                    quanParam.extraScale = extraScale != nullptr ? (float*)ptrExtraScale : nullptr;
-                    // printf("step=%d, ocDivThread=%d\n", step, ocDivThread);
+                    quanParam.extraScale = mUseBatchQuan == true ? (float*)ptrExtraScale : nullptr;
                     mGemmKernel(outputInTilePtr, colAddrTemp, weightPtrTid, kernelCountUnitDouble, dstZStep * dstBytes, ocDivThread, &quanParam, step);
                     ptrX += step;
                     realDstCount-=step;
                     outputInTilePtr += DST_XUNIT * PackUnit * dstBytes;
                     colAddrTemp += col_buffer_unit_size;
-                    ptrExtraScale = extraScale != nullptr ? (ptrExtraScale + step * 4) : nullptr;
+                    ptrExtraScale = mUseBatchQuan == true ? (ptrExtraScale + step * 4) : nullptr;
                 } while(realDstCount > 0);
             } else { // Now offline quant do not run into.
                 do {
                     int step = ALIMIN(DST_XUNIT, realDstCount);
-                    quanParam.extraScale = extraScale != nullptr ? (float*)ptrExtraScale : nullptr;
+                    quanParam.extraScale = mUseBatchQuan == true ? (float*)ptrExtraScale : nullptr;
                     for (int k = 0; k < mBlockNum; ++k) {
                         quanParam.biasFloat = nullptr;
                         quanParam.fp32minmax = nullptr;
@@ -1200,48 +1215,91 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
                     realDstCount-=step;
                     outputInTilePtr += DST_XUNIT * PackUnit * dstBytes;
                     colAddrTemp += col_buffer_unit_size;
-                    ptrExtraScale = extraScale != nullptr ? (ptrExtraScale + step * 4) : nullptr;
+                    ptrExtraScale = mUseBatchQuan == true ? (ptrExtraScale + step * 4) : nullptr;
                 } while(realDstCount > 0);
             }
         }
     };
-    auto exeFunction = [&](int threads) { // Thread split by OC
-        auto colAddr        = im2colPtr;
+    auto ocSplitFunction = [&](int threads) { // Thread split by OC
+        auto colAddr           = mTempIm2ColBuffer->host<int8_t>();
         auto srcPtr     = (int8_t const **)(mBlitInfo.ptr());
         auto el         = (int32_t *)(srcPtr + mBlitInfoStride.second);
         auto xKernelSumPtrTid = reinterpret_cast<float*>(srcKernelSumPtr);
 
-        int32_t info[6];
+        int32_t info[5];
         info[1] = mIm2ColParamter.iw * mIm2ColParamter.ih * batch;
         info[2] = static_cast<int32_t>(col_buffer_unit_size);
         info[3] = mIm2ColParamter.strideX;
-        info[5] = kernelCountUnitDouble;
         
         float* reluPtr = mResourceInt8->mReluThreshold.data();
-        // im2col
-        auto res = ConvolutionTiledExecutor::turnIm2ColToBlitInfo((const float**)srcPtr, el, 0, plane, mIm2ColParamter, (const uint8_t*)inputDataPtr, 1);
-        int number = res.first;
-        bool needZero = res.second;
-        if (needZero) {
+        int8_t* matmulInput;
+        if (mQuantFirst) { // im2col
+            auto res = ConvolutionTiledExecutor::turnIm2ColToBlitInfo((const float**)srcPtr, el, 0, plane, mIm2ColParamter, (uint8_t*)im2colSrc, im2colBytes);
+            int number = res.first;
+            bool needZero = res.second;
+            if (needZero) {
 #ifdef MNN_USE_SSE
-            ::memset(colAddr, inputZeroPoint + 128, mTempIm2ColBuffer->size());
+                ::memset(colAddr, inputZeroPoint + 128, mTempIm2ColBuffer->size());
 #else
-            ::memset(colAddr, inputZeroPoint, mTempIm2ColBuffer->size());
+                ::memset(colAddr, inputZeroPoint, mTempIm2ColBuffer->size());
 #endif
+            }
+            info[0] = number;
+            info[4] = plane;
+            if (number > 0) {
+                blitProc(colAddr, srcPtr, info, el);
+            }
+            matmulInput = colAddr;
         }
-        info[0] = number;
-        info[4] = plane;
-        if (number > 0) {
-            blitProc(colAddr, srcPtr, info, el);
+        if (false == mQuantFirst) {
+            int realDstCount = plane;
+            int start = 0;
+            auto im2colDst = colAddr;
+            auto ptrInputscale = mInputDeqScales->host<uint8_t>();
+            auto int8Ptr = mQuantInput->host<int8_t>();
+            int sizePacked = 0;
+            if (SRC_UNIT > PackUnit) {
+                memset(colAddr, 0, mTempIm2ColBuffer->size());
+            }
+            while (realDstCount > 0) {
+                int work = std::min(realDstCount, DST_XUNIT);
+                sizePacked += (work * SRC_UNIT * kernelCountUnitDouble);
+                auto res = ConvolutionTiledExecutor::turnIm2ColToBlitInfo((const float**)srcPtr, el, start, work, mIm2ColParamter, (uint8_t*)im2colSrc, im2colBytes);
+                int number = res.first;
+                bool needZero = res.second;
+                if (needZero) {
+                    ::memset(im2colDst, 0, col_buffer_unit_size * gcore->bytes);
+                }
+                info[0] = number;
+                info[2] = work;
+                if (number > 0) { // im2col
+                    gcore->MNNGeneralIm2Col((float*)im2colDst, (float const**)srcPtr, info, el, SRC_UNIT, PackUnit); // colAddr: [lu, realDstCount, lp]
+                }
+                // batch quant
+                if (mUseBatchQuan) {
+                    BatchDynamicQuant((uint8_t*)im2colDst, inputZeroPoint, ptrInputscale, kernelCountUnitDouble, work, SRC_UNIT, mBatchQuantInfo->host<uint8_t>(), 1, int8Ptr);
+                    ptrInputscale += (work * sizeof(int32_t));
+                    int8Ptr += col_buffer_unit_size;
+                }
+                realDstCount -= work;
+                start += work;
+                im2colDst += (col_buffer_unit_size * gcore->bytes);
+            }
+            if (!mUseBatchQuan) {
+                SingleDynamicQuant((uint8_t*)colAddr, inputZeroPoint, ptrInputscale, mDynamicBias->host<uint8_t>(), mScaleFuse->host<uint8_t>(), sizePacked, 1, mTempMaxMinValueBuffer->host<uint8_t>(), mQuantInput->host<int8_t>());
+            }
+            matmulInput = mQuantInput->host<int8_t>();
         }
+
         if (mResourceInt8->mWeightAsymmetricQuant) {
-            mSumByAxisLFunc(xKernelSumPtrTid, colAddr, (float*)inputScalePtr, plane, sumParams);
+            mSumByAxisLFunc(xKernelSumPtrTid, matmulInput, (float*)inputScalePtr, plane, sumParams);
         }
         
         MNN_CONCURRENCY_BEGIN(tId, threads) {
             int ocIndex = PackUnit * mDivides[tId];
             auto ocDivThread = ALIMIN(mDivides[tId + 1] - mDivides[tId], ocDiv4 - mDivides[tId]);
             if (ocIndex < ocUp4) {
+                auto colAddrTemp = matmulInput;
                 QuanPostTreatParameters quanParam;
                 quanParam.blockNum = mBlockNum;
                 uint8_t* extraScale = nullptr; // input scale for batch dynamic quant.
@@ -1275,14 +1333,12 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
 
                 int realDstCount = plane;
                 auto ptrExtraScale = extraScale != nullptr ? (extraScale) : nullptr;
-                auto colAddrTemp = colAddr;
                 auto ptrX = xKernelSumPtrTid;
                 if (mBlockNum == 1) {
                     do {
                         int step = ALIMIN(DST_XUNIT, realDstCount);
                         quanParam.srcKernelSum = ptrX;
                         quanParam.extraScale = extraScale != nullptr ? (float*)ptrExtraScale : nullptr;
-                        // printf("step=%d, ocDivThread=%d\n", step, ocDivThread);
                         mGemmKernel(outputInTilePtr, colAddrTemp, weightPtrTid, kernelCountUnitDouble, dstZStep * dstBytes, ocDivThread, &quanParam, step);
                         ptrX += step;
                         realDstCount-=step;
@@ -1324,12 +1380,13 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
     const int threads = static_cast<CPUBackend*>(backend())->threadNumber();
     if (!mSplitByOc) {
         MNN_CONCURRENCY_BEGIN(tId, threads) {
-                ThreadFunction((int)tId, mDivides[tId], mDivides[tId + 1], 1, 0);
-
+            if (mDivides[tId + 1] - mDivides[tId] > 0) {
+                tileSplitFunction((int)tId, mDivides[tId], mDivides[tId + 1], 1);
+            }
         }
         MNN_CONCURRENCY_END();
     } else {
-        exeFunction(threads);
+        ocSplitFunction(threads);
     }
     return NO_ERROR;
 }

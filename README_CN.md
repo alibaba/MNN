@@ -2,6 +2,8 @@
 
 [English Version](README.md)
 
+[日本語バージョン](README_JP.md)
+
 [MNN Homepage](http://www.mnn.zone)
 
 [MNN](https://github.com/alibaba/MNN)是一个轻量级的深度神经网络引擎，支持深度学习的推理与训练。适用于服务器/个人电脑/手机/嵌入式各类设备。目前，MNN已经在阿里巴巴的手机淘宝、手机天猫、优酷等30多个App中使用，覆盖直播、短视频、搜索推荐、商品图像搜索、互动营销、权益发放、安全风控等场景。

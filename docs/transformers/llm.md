@@ -4,15 +4,27 @@
 - 模型导出：将torch模型导出为onnx，然后转换为mnn模型；导出tokenizer文件，embedding等文件；
 - 模型推理：支持导出的模型推理，支持LLM模型的文本生成；
 
+
 ## 模型导出
 
+
 `llmexport`是一个llm模型导出工具，能够将llm模型导出为onnx和mnn模型。
+
+### 依赖安装
+```
+cd ./transformers/llm/export
+pip install -r requirements.txt
+```
 
 ### 用法
 1. 将需要导出的LLM项目clone到本地，如：Qwen2-0.5B-Instruct
 ```sh
+git lfs install
 git clone https://www.modelscope.cn/qwen/Qwen2-0.5B-Instruct.git
 ```
+
+***clone 后检查一下模型大小，有可能因为lfs没安装导致下载的是空模型***
+
 3. 执行`llmexport.py`导出模型
 ```sh
 cd ./transformers/llm/export
@@ -269,21 +281,41 @@ node llm_demo.js ~/qwen2.0_1.5b/config.json ~/qwen2.0_1.5b/prompt.txt
 <audio>https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen2-Audio/audio/translate_to_chinese.wav</audio>介绍一下音频里的内容
 ```
 
-#### GPTQ权重加载
-- 使用脚本生成GPTQ模型权重，用法参考: [apply_gptq.py](../tools/script.html#apply-gptq-py)
-- 创建`gptq.json`配置文件
-  ```json
-  {
-      "llm_model": "model.mnn",
-      "llm_weight": "gptq.mnn.weight",
-  }
-  ```
+#### GPTQ权重
+需要使用GPTQ权重，可以在导出[Qwen2.5-0.5B-Instruct]模型时，使用`--gptq_path PATH`来指定[Qwen2.5-0.5B-Instruct-GPTQ-Int4]()的路径，使用如下：
+```bash
+# 导出GPTQ量化的模型
+python llmexport.py --path /path/to/Qwen2.5-0.5B-Instruct --gptq_path /path/to/Qwen2.5-0.5B-Instruct-GPTQ-Int4 --export mnn
+```
 
+#### LoRA权重
+LoRA权重有两使用方式：1. 合并LoRA权重到原始模型；2. LoRA模型单独导出。
 
-#### LoRA权重加载
-- 使用脚本生成lora模型，用法参考: [apply_lora.py](../tools/script.html#apply-lora-py)
+第一种模式速度更快，使用更简单但是不支持运行时切换；第二种略微增加一些内存和计算开销，但是更加灵活，支持运行时切换LoRA，适合多LoRA场景。
+##### 融合LoRA
+
+###### 导出
+将LoRA权重合并到原始模型中导出，在模型导出时指定`--lora_path PATH`参数，默认使用合并方式导出，使用如下：
+```bash
+# 导出LoRA合并的模型
+python llmexport.py --path /path/to/Qwen2.5-0.5B-Instruct --lora_path /path/to/lora --export mnn
+```
+
+###### 使用
+融合LoRA模型使用与原始模型使用方法完全一样。
+
+##### 分离LoRA
+
+###### 导出
+将LoRA单独导出为一个模型，支持运行时切换，在模型导出时指定`--lora_path PATH`参数，并指定`--lora_split`，就会将LoRA分离导出，使用如下：
+```bash
+python llmexport.py --path /path/to/Qwen2.5-0.5B-Instruct --lora_path /path/to/lora --lora_split --export mnn
+```
+导出后模型文件夹内除了原始模型外，还会增加`lora.mnn`，这个就是lora模型文件。
+
+###### 使用
 - lora模型使用
-  - 直接加载lora模型使用，创建`lora.json`配置文件
+  - 直接加载lora模型使用，创建`lora.json`配置文件，这样与直接运行融合LoRA的模型相似。
   ```json
   {
       "llm_model": "lora.mnn",

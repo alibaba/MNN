@@ -67,6 +67,7 @@ public:
     void tuning(TuneType type, std::vector<int> candidates);
     virtual void load();
     void switchMode(Stage stage);
+    void setKVCacheInfo(size_t add, size_t remove, int* reserve = nullptr, int n_reserve = 0);
     MNN::Express::VARP forwardRaw(MNN::Express::VARP hiddenState, MNN::Express::VARP mask, MNN::Express::VARP inputPos);
     virtual MNN::Express::VARP gen_attention_mask(int seq_len);
     virtual MNN::Express::VARP embedding(const std::vector<int>& input_ids);

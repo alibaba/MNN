@@ -1,0 +1,13 @@
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+    <item
+        android:id="@+id/start_new_chat"
+        android:title="@string/start_new_chat"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/show_performance_metrics"
+        android:title="@string/show_performance_metrics"
+        app:showAsAction="never"
+        android:checkable="true"
+        android:checked="true"/>
+</menu>

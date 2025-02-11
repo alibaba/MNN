@@ -21,7 +21,7 @@ namespace MNN {
  */
 class StrassenMatrixComputor {
 public:
-    StrassenMatrixComputor(Backend* bn, bool multithread, int maxDepth, uint8_t* dequantAlpha=nullptr, uint8_t* dequantBias=nullptr, int32_t dequantBits=32);
+    StrassenMatrixComputor(Backend* bn, bool multithread, int maxDepth);
     virtual ~StrassenMatrixComputor();
 
     /*
@@ -83,10 +83,7 @@ private:
     
     std::vector<MemChunk> mStack;
     
-    uint8_t* mDequantAlpha = nullptr;
-    uint8_t* mDequantBias = nullptr;
-    int32_t mDequantBits;
-    float mWeightBytes = 4;
+    int mWeightBytes = 4;
 };
 } // namespace MNN
 

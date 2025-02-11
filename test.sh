@@ -619,6 +619,26 @@ android_unit_test_low_memory_armv8() {
         echo '### Android 64位Low Memory 权重反量化, precision=2 单元测试失败，测试终止！'
         failed
     fi
+    adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out op/convolution/weighti8i4conv2d 0 2 4 $1 2 1"
+    if [ $? -ne 0 ]; then
+        echo '### Android 64位Low Memory 设置dynamicOption=1, precision=2 4线程测试失败，测试终止！'
+        failed
+    fi
+    adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out op/convolution/weighti8i4conv2d 0 1 4 $1 2 1"
+    if [ $? -ne 0 ]; then
+        echo '### Android 64位Low Memory 设置dynamicOption=1, precision=1 4线程测试失败，测试终止！'
+        failed
+    fi
+    adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out op/convolution/weighti8i4conv2d 0 2 4 $1 2 2"
+    if [ $? -ne 0 ]; then
+        echo '### Android 64位Low Memory 设置dynamicOption=2, precision=2 4线程测试失败，测试终止！'
+        failed
+    fi
+    adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out op/convolution/weighti8i4conv2d 0 1 4 $1 2 2"
+    if [ $? -ne 0 ]; then
+        echo '### Android 64位Low Memory 设置dynamicOption=2, precision=1 4线程测试失败，测试终止！'
+        failed
+    fi
 }
 
 android_unit_test_low_memory_armv7() {

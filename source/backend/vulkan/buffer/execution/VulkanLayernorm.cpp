@@ -95,12 +95,13 @@ ErrorCode VulkanLayernorm::onEncode(const std::vector<Tensor*>& inputs, const st
             inside *= inputs.at(0)->length(i);
         }
         inside /= mGroup;
-    }
-    for (int i = 0; i < rank - mAxisSize; ++i) {
-        outside *= inputs.at(0)->length(i);
-    }
-    for (int i = rank - mAxisSize; i < rank; ++i) {
-        inside *= inputs.at(0)->length(i);
+    } else {
+        for (int i = 0; i < rank - mAxisSize; ++i) {
+            outside *= inputs.at(0)->length(i);
+        }
+        for (int i = rank - mAxisSize; i < rank; ++i) {
+            inside *= inputs.at(0)->length(i);
+        }
     }
     auto param = reinterpret_cast<Param*>(mParam->map());
     param->size[0] = inside;

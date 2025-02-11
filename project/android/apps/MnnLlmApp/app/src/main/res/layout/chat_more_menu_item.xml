@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<merge xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:layout_marginStart="20dp"
+    android:paddingBottom="10dp"
+    tools:ignore="UselessParent">
+
+    <androidx.cardview.widget.CardView
+        android:id="@+id/background"
+        android:layout_width="65dp"
+        android:layout_height="65dp"
+        app:cardBackgroundColor="#EEEEEE"
+        app:cardCornerRadius="10dp">
+
+        <ImageView
+            android:id="@+id/icon"
+            android:layout_width="30dp"
+            android:layout_height="30dp"
+            android:layout_gravity="center"
+            tools:srcCompat="@drawable/ic_camera"
+            tools:ignore="ContentDescription" />
+    </androidx.cardview.widget.CardView>
+
+    <TextView
+        android:id="@+id/text"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_below="@id/background"
+        android:layout_centerHorizontal="true"
+        android:layout_marginTop="10dp"
+        tools:text="照片" />
+</merge>

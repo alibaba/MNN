@@ -118,6 +118,7 @@ SharedPtr<VulkanPipeline> VulkanPipelineFactory::getPrivatePipeline(const std::s
     }
 
     VulkanPipeline * pipeline = createComputePipeline((uint8_t*)content.first, content.second, types, {});
+    pipeline->mTuneName = key;
     SharedPtr<VulkanPipeline> resPipeline = pipeline;
     return resPipeline;
 }

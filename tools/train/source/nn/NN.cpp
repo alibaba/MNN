@@ -9,6 +9,7 @@
 #include <MNN/expr/ExecutorScope.hpp>
 #include "NN.hpp"
 #include "Distributions.hpp"
+#include "module/ModuleInside.hpp"
 #include "module/PipelineModule.hpp"
 #include "module/WhileModule.hpp"
 #include "module/IfModule.hpp"

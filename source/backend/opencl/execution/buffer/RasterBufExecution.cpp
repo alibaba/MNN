@@ -58,9 +58,9 @@ ErrorCode RasterBufExecution::onEncode(const std::vector<Tensor *> &____inputs, 
     }
     mNeedZero = !TensorUtils::regionIsFull(output);
     mNeedZero = mNeedZero || ((outputShape[3] % 4) != 0 && MNN_DATA_FORMAT_NC4HW4 == outputDes->dimensionFormat && !mFast);
-    bool cancombine = CanCombine(outputs) && (!mFast);
-    if(cancombine){
-        regionNum = 1;
+    if(mFast == false){
+        CanCombine(outputs);
+        regionNum = mCombineInfo.size();
     }
     mUnits.resize(regionNum);
     if(mNeedZero)
@@ -149,12 +149,11 @@ ErrorCode RasterBufExecution::onEncode(const std::vector<Tensor *> &____inputs, 
         return NO_ERROR;
     }
     
-    if(cancombine){
-        auto regions = des->regions;
-        auto slice = regions[0];
-        int nums = regions.size();
-        int src_offset = regions[1].src.offset - slice.src.offset;
-        int dst_offset = regions[1].dst.offset - slice.dst.offset;
+    for(auto& info : mCombineInfo){
+        auto slice = info.mRegion;
+        int nums = info.mCanCombineNum;
+        int src_offset = info.mSrc_offset;
+        int dst_offset = info.mDst_offset;
         std::set<std::string> buildOptions;
         auto origin = slice.origin;
         auto inputShape = tensorShapeFormat(origin);
@@ -163,7 +162,6 @@ ErrorCode RasterBufExecution::onEncode(const std::vector<Tensor *> &____inputs, 
         
         Unit &unit          = mUnits[kernel_idx++];
         unit.kernel         = runtime->buildKernel("raster_buf", "raster_direct_buffer", buildOptions, origin, output);
-        
         const std::vector<uint32_t> gws =  {(uint32_t)slice.size[2] * nums,
             (uint32_t)slice.size[1],
             (uint32_t)slice.size[0]};
@@ -206,61 +204,6 @@ ErrorCode RasterBufExecution::onEncode(const std::vector<Tensor *> &____inputs, 
         unit.localWorkSize = {lws[0], lws[1], lws[2]};
         unit.globalWorkSize = {gws[0], gws[1], gws[2]};
         mOpenCLBackend->recordKernel3d(unit.kernel, gws, lws);
-    }else{
-        for(auto& slice : des->regions){
-            std::set<std::string> buildOptions;
-            auto origin = slice.origin;
-            auto inputShape = tensorShapeFormat(origin);
-            int src_offset = 0;
-            int dst_offset = 0;
-            buildOptions.emplace("-DINPUT_FORMAT=" + std::to_string(TensorUtils::getDescribe(origin)->dimensionFormat));
-            buildOptions.emplace("-DOUTPUT_FORMAT=" + std::to_string(outputDes->dimensionFormat));
-            
-            Unit &unit          = mUnits[kernel_idx++];
-            unit.kernel         = runtime->buildKernel("raster_buf", "raster_direct_buffer", buildOptions, origin, output);
-            const std::vector<uint32_t> gws =  {(uint32_t)slice.size[2],
-                (uint32_t)slice.size[1],
-                (uint32_t)slice.size[0]};
-            uint32_t mMaxWorkGroupSize      = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
-            
-            uint32_t idx   = 0;
-            cl_int ret = CL_SUCCESS;
-            ret |= unit.kernel->get().setArg(idx++, gws[0]);
-            ret |= unit.kernel->get().setArg(idx++, gws[1]);
-            ret |= unit.kernel->get().setArg(idx++, gws[2]);
-            ret |= unit.kernel->get().setArg(idx++, slice.size[2]);
-            ret |= unit.kernel->get().setArg(idx++, openCLBuffer(origin));
-            ret |= unit.kernel->get().setArg(idx++, slice.src.offset);
-            ret |= unit.kernel->get().setArg(idx++, src_offset);
-            ret |= unit.kernel->get().setArg(idx++, slice.src.stride[0]);
-            ret |= unit.kernel->get().setArg(idx++, slice.src.stride[1]);
-            ret |= unit.kernel->get().setArg(idx++, slice.src.stride[2]);
-            ret |= unit.kernel->get().setArg(idx++, inputShape[2]);
-            ret |= unit.kernel->get().setArg(idx++, inputShape[1]);
-            ret |= unit.kernel->get().setArg(idx++, inputShape[3]);
-            ret |= unit.kernel->get().setArg(idx++, inputShape[0]);
-            ret |= unit.kernel->get().setArg(idx++, openCLBuffer(output));
-            ret |= unit.kernel->get().setArg(idx++, slice.dst.offset);
-            ret |= unit.kernel->get().setArg(idx++, dst_offset);
-            ret |= unit.kernel->get().setArg(idx++, slice.dst.stride[0]);
-            ret |= unit.kernel->get().setArg(idx++, slice.dst.stride[1]);
-            ret |= unit.kernel->get().setArg(idx++, slice.dst.stride[2]);
-            ret |= unit.kernel->get().setArg(idx++, outputShape[2]);
-            ret |= unit.kernel->get().setArg(idx++, outputShape[1]);
-            ret |= unit.kernel->get().setArg(idx++, outputShape[3]);
-            ret |= unit.kernel->get().setArg(idx++, outputShape[0]);
-            if(ret != CL_SUCCESS)
-            {
-                MNN_PRINT("setArg err %d\n", (int)ret);
-            }
-            
-            std::string name = "raster_buffer";
-            const std::vector<uint32_t> lws = localWS3DDefault(gws, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, unit.kernel).first;
-            
-            unit.localWorkSize = {lws[0], lws[1], lws[2]};
-            unit.globalWorkSize = {gws[0], gws[1], gws[2]};
-            mOpenCLBackend->recordKernel3d(unit.kernel, gws, lws);
-        }
     }
 #ifdef LOG_VERBOSE
     MNN_PRINT("end RasterBufExecution onResize !\n");
@@ -283,42 +226,103 @@ public:
     }
 };
 
-bool RasterBufExecution::CanCombine(const std::vector<Tensor *> &outputs){
+void RasterBufExecution::CanCombine(const std::vector<Tensor *> &outputs){
     auto des = TensorUtils::getDescribe(outputs[0]);
     auto regions = des->regions;
-    if(regions.size() < 2)
-        return false;
-    auto origin = regions[0].origin;
-    const int size0 = regions[0].size[0];
-    const int size1 = regions[0].size[1];
-    const int size2 = regions[0].size[2];
-    const int src_offset = regions[1].src.offset - regions[0].src.offset;
-    const int dst_offset = regions[1].dst.offset - regions[0].dst.offset;
-    const int src_sride0 = regions[0].src.stride[0];
-    const int src_sride1 = regions[0].src.stride[1];
-    const int src_sride2 = regions[0].src.stride[2];
-    const int dst_sride0 = regions[0].dst.stride[0];
-    const int dst_sride1 = regions[0].dst.stride[1];
-    const int dst_sride2 = regions[0].dst.stride[2];
-    bool res = true;
-    for(int i = 1; i < regions.size(); ++i){
-        res &= regions[i].origin == origin;
-        res &= regions[i].size[0] == size0;
-        res &= regions[i].size[1] == size1;
-        res &= regions[i].size[2] == size2;
-        res &= regions[i].src.stride[0] == src_sride0;
-        res &= regions[i].src.stride[1] == src_sride1;
-        res &= regions[i].src.stride[2] == src_sride2;
-        res &= regions[i].dst.stride[0] == dst_sride0;
-        res &= regions[i].dst.stride[1] == dst_sride1;
-        res &= regions[i].dst.stride[2] == dst_sride2;
-        res &= (regions[i].src.offset - regions[i - 1].src.offset) == src_offset;
-        res &= (regions[i].dst.offset - regions[i - 1].dst.offset) == dst_offset;
-        if(res == false){
-            return res;
+    Tensor* origin;
+    int size0, size1, size2, src_offset, dst_offset, last_src_offset, last_dst_offset, src_sride0, src_sride1, src_sride2, dst_sride0, dst_sride1, dst_sride2;
+    int canCombineNum = 0;
+    for(auto& slice : des->regions){
+        bool res = true;
+        if(canCombineNum == 0){
+            origin = slice.origin;
+            size0 = slice.size[0];
+            size1 = slice.size[1];
+            size2 = slice.size[2];
+            src_sride0 = slice.src.stride[0];
+            src_sride1 = slice.src.stride[1];
+            src_sride2 = slice.src.stride[2];
+            dst_sride0 = slice.dst.stride[0];
+            dst_sride1 = slice.dst.stride[1];
+            dst_sride2 = slice.dst.stride[2];
+            canCombineNum++;
+            // push back
+            mCombineInfo.push_back(CanCombineInfo(slice, 0, 0, 1));
+        } else if(canCombineNum == 1){
+            res &= slice.origin == origin;
+            res &= slice.size[0] == size0;
+            res &= slice.size[1] == size1;
+            res &= slice.size[2] == size2;
+            res &= slice.src.stride[0] == src_sride0;
+            res &= slice.src.stride[1] == src_sride1;
+            res &= slice.src.stride[2] == src_sride2;
+            res &= slice.dst.stride[0] == dst_sride0;
+            res &= slice.dst.stride[1] == dst_sride1;
+            res &= slice.dst.stride[2] == dst_sride2;
+            if(res){
+                src_offset = slice.src.offset - last_src_offset;
+                dst_offset = slice.dst.offset - last_dst_offset;
+                canCombineNum++;
+                // change canCombineNum
+                mCombineInfo.back().mSrc_offset = src_offset;
+                mCombineInfo.back().mDst_offset = dst_offset;
+                mCombineInfo.back().mCanCombineNum = canCombineNum;
+            } else{
+                origin = slice.origin;
+                size0 = slice.size[0];
+                size1 = slice.size[1];
+                size2 = slice.size[2];
+                src_sride0 = slice.src.stride[0];
+                src_sride1 = slice.src.stride[1];
+                src_sride2 = slice.src.stride[2];
+                dst_sride0 = slice.dst.stride[0];
+                dst_sride1 = slice.dst.stride[1];
+                dst_sride2 = slice.dst.stride[2];
+                // recover
+                canCombineNum = 1;
+                // push back
+                mCombineInfo.push_back(CanCombineInfo(slice, 0, 0, 1));
+            }
+        } else{
+            res &= slice.origin == origin;
+            res &= slice.size[0] == size0;
+            res &= slice.size[1] == size1;
+            res &= slice.size[2] == size2;
+            res &= slice.src.stride[0] == src_sride0;
+            res &= slice.src.stride[1] == src_sride1;
+            res &= slice.src.stride[2] == src_sride2;
+            res &= slice.dst.stride[0] == dst_sride0;
+            res &= slice.dst.stride[1] == dst_sride1;
+            res &= slice.dst.stride[2] == dst_sride2;
+            res &= slice.src.offset - last_src_offset == src_offset;
+            res &= slice.dst.offset - last_dst_offset == dst_offset;
+            if(res){
+                canCombineNum++;
+                // change canCombineNum
+                mCombineInfo.back().mSrc_offset = src_offset;
+                mCombineInfo.back().mDst_offset = dst_offset;
+                mCombineInfo.back().mCanCombineNum = canCombineNum;
+            } else{
+                origin = slice.origin;
+                size0 = slice.size[0];
+                size1 = slice.size[1];
+                size2 = slice.size[2];
+                src_sride0 = slice.src.stride[0];
+                src_sride1 = slice.src.stride[1];
+                src_sride2 = slice.src.stride[2];
+                dst_sride0 = slice.dst.stride[0];
+                dst_sride1 = slice.dst.stride[1];
+                dst_sride2 = slice.dst.stride[2];
+                // recover
+                canCombineNum = 1;
+                // push back
+                mCombineInfo.push_back(CanCombineInfo(slice, 0, 0, 1));
+                
+            }
         }
+        last_src_offset = slice.src.offset;
+        last_dst_offset = slice.dst.offset;
     }
-    return res;
 }
 
 REGISTER_OPENCL_OP_CREATOR(RasterBufCreator, OpType_Raster, BUFFER);

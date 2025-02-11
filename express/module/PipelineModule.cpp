@@ -9,6 +9,7 @@
 #include "PipelineModule.hpp"
 #include <set>
 #include <vector>
+#include "ModuleInside.hpp"
 #include "StaticModule.hpp"
 #include "IfModule.hpp"
 #include "WhileModule.hpp"
@@ -612,7 +613,7 @@ static std::vector<SubModuleInfo> _createSubModuleInfo(std::shared_ptr<BufferSto
 
 struct ModuleRuntimeConfig {
     bool needGeometry;
-    RuntimeInfo rt;
+    std::shared_ptr<Executor::RuntimeManager> rt;
     Backend::Info compute;
     const BackendConfig* userConfig = nullptr;
     Session::ModeGroup modes;
@@ -722,10 +723,10 @@ Module* PipelineModule::load(const std::vector<std::string>& inputs, const std::
     auto curExe = ExecutorScope::Current();
     bool permitCodeGen = false;
     std::shared_ptr<ModuleRuntimeConfig> modRuntimeCfgPtr(new ModuleRuntimeConfig);
-    if (!rtMgr->getInside()->mExternalFile.empty()) {
-        modRuntimeCfgPtr->externalFile = rtMgr->getInside()->mExternalFile;
+    if (!rtMgr->getInside()->mContent->mExternalFile.empty()) {
+        modRuntimeCfgPtr->externalFile = rtMgr->getInside()->mContent->mExternalFile;
     }
-    permitCodeGen = rtMgr->getInside()->modes.codegenMode == Interpreter::Session_Codegen_Enable;
+    permitCodeGen = rtMgr->getInside()->mContent->modes.codegenMode == Interpreter::Session_Codegen_Enable;
     std::shared_ptr<Backend> defaultBackend = curExe->getAttr()->constantBackend;
     std::vector<std::shared_ptr<Tensor>> allTensors;
     sharedConst->allTensors.resize(net->tensorName()->size());
@@ -733,16 +734,15 @@ Module* PipelineModule::load(const std::vector<std::string>& inputs, const std::
     ModuleRuntimeConfig& modRuntime = *modRuntimeCfgPtr;
     modRuntime.needGeometry = needGeometry;
     {
-        modRuntime.modes = rtMgr->getInside()->modes;
-        modRuntime.rt = rtMgr->getInside()->mRuntime;
-        modRuntime.externalFile = rtMgr->getInside()->mExternalFile;
-        modRuntime.userConfig = &rtMgr->getInside()->mConfig;
-        modRuntime.compute.type      = modRuntime.rt.first.begin()->first;
-        modRuntime.compute.numThread = 1;
-        modRuntime.rt.first.begin()->second->setRuntimeHint(rtMgr->getInside()->modes.runtimeHint);
+        modRuntime.modes = rtMgr->getInside()->mContent->modes;
+        modRuntime.rt = rtMgr;
+        rtMgr->getInside()->mRuntime.first.begin()->second->setRuntimeHint(rtMgr->getInside()->mContent->modes.runtimeHint);
+        modRuntime.externalFile = rtMgr->getInside()->mContent->mExternalFile;
+        modRuntime.userConfig = &rtMgr->getInside()->mContent->mConfig;
+        modRuntime.compute.type = rtMgr->getInside()->mRuntime.first.begin()->first;
     }
-    auto& rt = modRuntime.rt;
-    auto firstRt = rt.first[modRuntime.compute.type];
+    auto& rt = modRuntime.rt->getInside()->mRuntime;
+    auto firstRt = rt.first.find(modRuntime.compute.type)->second;
     sharedConst->constReplaceBackend.reset(firstRt->onCreate(modRuntime.userConfig));
     ErrorCode code = NO_ERROR;
     std::set<int> noneedComputeIndexes;

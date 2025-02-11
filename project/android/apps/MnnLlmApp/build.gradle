@@ -1,0 +1,21 @@
+// Top-level build file where you can add configuration options common to all sub-projects/modules.
+plugins {
+id 'com.android.application' version '8.1.3' apply false
+id 'org.jetbrains.kotlin.jvm' version '1.9.0'
+id 'org.jetbrains.kotlin.android' version '1.9.0' apply false
+
+}
+
+dependencies {
+    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8"
+}
+compileKotlin {
+    kotlinOptions {
+        jvmTarget = "1.8"
+    }
+}
+compileTestKotlin {
+    kotlinOptions {
+        jvmTarget = "1.8"
+    }
+}

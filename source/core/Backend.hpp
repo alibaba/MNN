@@ -345,6 +345,8 @@ public:
     void setAsyncWork(std::future<int>&& future);
     MNN_PUBLIC void waitAsyncWork();
 
+    mutable int pCurrentStatus = 0; // NO_ERROR
+
     // TODO: Move to Backend
     void* pMeta;
 private:

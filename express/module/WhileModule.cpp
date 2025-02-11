@@ -2,7 +2,7 @@
 //  WhileModule.cpp
 //  MNN
 //
-//  Created by MNN on b'2020/09/10'.
+//  Created by MNN on 2020/09/10.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 

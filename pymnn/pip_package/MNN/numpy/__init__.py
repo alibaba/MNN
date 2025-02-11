@@ -516,12 +516,7 @@ def array(object, dtype=None, copy=True, order='K', subok=False, ndmin=0, like=N
         else:
             x = object
     else:
-        if not isinstance(object, _F._Sequence):
-            x = _F.scalar(object, dtype)
-        else:
-            # get shape and dtype of sequence
-            dst_shape, item_type = _F._list_shape_type(object)
-            x = _F.const(object, dst_shape, dtype=item_type)
+        x = _F._to_var(object)
     # if give dtype, cast to dtype
     if dtype is not None and dtype != x.dtype:
         x = _F.cast(x, dtype)
