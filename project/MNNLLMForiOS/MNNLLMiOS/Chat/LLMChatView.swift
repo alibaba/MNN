@@ -35,9 +35,6 @@ struct LLMChatView: View {
         .messageUseMarkdown(true)
         .chatTheme(
             ChatTheme(
-//                colors: .init(
-//                    sendButtonBackground: .customLightPink
-//                ),
                 images: .init(
                     attach: Image(systemName: "photo"),
                     attachCamera: Image("attachCamera", bundle: .current)

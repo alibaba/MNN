@@ -30,13 +30,11 @@ static std::vector<PromptItem> history{};
 - (instancetype)initWithModelPath:(NSString *)modelPath completion:(CompletionHandler)completion {
     self = [super init];
     if (self) {
-        // 在后台线程异步加载模型
         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
              BOOL success = [self loadModelFromPath:modelPath];
             // MARK: Test Local Model
-//            BOOL success = [self loadModel];
+            // BOOL success = [self loadModel];
             
-            // 切回主线程回调
             dispatch_async(dispatch_get_main_queue(), ^{
                 completion(success);
             });
