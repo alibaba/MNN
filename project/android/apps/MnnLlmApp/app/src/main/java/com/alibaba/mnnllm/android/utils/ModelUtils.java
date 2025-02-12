@@ -114,9 +114,9 @@ public class ModelUtils {
         }
         List<HfRepoItem> result = new ArrayList<>(chatItems.size() + otherItems.size());
 //      7B performance not good, comment it
-//        HfRepoItem hfRepoItem = new HfRepoItem();
-//        hfRepoItem.setModelId("taobao-mnn/DeepSeek-R1-7B-Qwen-MNN");
-//        result.add(hfRepoItem);
+        HfRepoItem hfRepoItem = new HfRepoItem();
+        hfRepoItem.setModelId("taobao-mnn/DeepSeek-R1-7B-Qwen-MNN");
+        result.add(hfRepoItem);
         result.addAll(goodItems);
         result.addAll(chatItems);
         result.addAll(otherItems);

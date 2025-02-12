@@ -4,7 +4,12 @@
 package com.alibaba.mnnllm.android.utils;
 
 import android.content.Context;
+import android.content.res.Configuration;
 import android.preference.PreferenceManager;
+
+import com.alibaba.mls.api.ApplicationUtils;
+
+import java.util.Locale;
 
 public class PreferenceUtils {
 
@@ -21,8 +26,20 @@ public class PreferenceUtils {
         return PreferenceManager.getDefaultSharedPreferences(context).getBoolean(key, defaultValue);
     }
 
+    private static boolean isChinese() {
+        Configuration config = ApplicationUtils.get().getResources().getConfiguration();
+        Locale locale = config.getLocales().get(0);
+        String language = locale.getLanguage();
+        String country = locale.getCountry();
+        if (language.equals("zh") && country.equals("CN")) {
+            return true;
+        } else {
+            return false;
+        }
+    }
+
     public static boolean isUseModelsScopeDownload(Context context) {
-        return getBoolean(context, KEY_USE_MODELSCOPE_DOWNLOAD, false);
+        return getBoolean(context, KEY_USE_MODELSCOPE_DOWNLOAD, isChinese());
     }
 
     public static void setUseModelsScopeDownload(Context context, boolean value) {
