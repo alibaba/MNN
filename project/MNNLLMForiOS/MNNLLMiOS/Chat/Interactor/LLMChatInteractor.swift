@@ -19,6 +19,7 @@ enum UserType {
 final class LLMChatInteractor: ChatInteractorProtocol {
     
     var chatData: LLMChatData
+    var modelInfo: ModelInfo
     var historyMessages: [HistoryMessage]?
     
     private let processor = ThinkResultProcessor(thinkingPrefix: "<think>", completePrefix: "</think>")
@@ -44,6 +45,7 @@ final class LLMChatInteractor: ChatInteractorProtocol {
     }
     
     init(modelInfo: ModelInfo, historyMessages: [HistoryMessage]? = nil) {
+        self.modelInfo = modelInfo
         self.chatData = LLMChatData(modelInfo: modelInfo)
         self.historyMessages = historyMessages
     }
@@ -97,7 +99,8 @@ final class LLMChatInteractor: ChatInteractorProtocol {
                     
                     var updateLastMsg = self?.chatState.value[(self?.chatState.value.count ?? 1) - 1]
                     
-                    if let text = self?.processor.process(progress: message.text) {
+                    if let isDeepSeek = self?.modelInfo.name.lowercased().contains("deepseek"), isDeepSeek == true,
+                        let text = self?.processor.process(progress: message.text) {
                         updateLastMsg?.text = text
                     } else {
                         updateLastMsg?.text += message.text
