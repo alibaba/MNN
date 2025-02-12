@@ -39,7 +39,12 @@ public class PreferenceUtils {
     }
 
     public static boolean isUseModelsScopeDownload(Context context) {
-        return getBoolean(context, KEY_USE_MODELSCOPE_DOWNLOAD, isChinese());
+        boolean defaultValue = isChinese();
+        if (!PreferenceManager.getDefaultSharedPreferences(context).getAll().containsKey(KEY_USE_MODELSCOPE_DOWNLOAD)) {
+            setUseModelsScopeDownload(context, defaultValue);
+            return defaultValue;
+        }
+        return getBoolean(context, KEY_USE_MODELSCOPE_DOWNLOAD, defaultValue);
     }
 
     public static void setUseModelsScopeDownload(Context context, boolean value) {

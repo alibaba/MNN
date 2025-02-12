@@ -77,11 +77,13 @@ public class ModelUtils {
         blackList.add("taobao-mnn/codegeex2-6b-MNN");//not for chat
         blackList.add("taobao-mnn/chatglm-6b-MNN");//deprecated
         blackList.add("taobao-mnn/chatglm2-6b-MNN");
-        blackList.add("taobao-mnn/DeepSeek-R1-7B-Qwen-MNN");//add to first item
         blackList.add("taobao-mnn/stable-diffusion-v1-5-mnn-general");//in android, we use opencl version
     }
 
-    //list that are more stable
+    private static final Set<String> hotList = new HashSet<>();
+    static {
+        hotList.add("taobao-mnn/DeepSeek-R1-7B-Qwen-MNN");
+    }
     private static final Set<String> goodList = new HashSet<>();
     static {
         goodList.add("taobao-mnn/DeepSeek-R1-1.5B-Qwen-MNN");
@@ -97,6 +99,7 @@ public class ModelUtils {
     }
     public static List<HfRepoItem> processList(List<HfRepoItem> hfRepoItems) {
         List<HfRepoItem> goodItems = new ArrayList<>();
+        List<HfRepoItem> recommendedItems = new ArrayList<>();
         List<HfRepoItem> chatItems = new ArrayList<>();
         List<HfRepoItem> otherItems = new ArrayList<>();
         for (HfRepoItem item : hfRepoItems) {
@@ -104,7 +107,9 @@ public class ModelUtils {
             if (blackList.contains(item.getModelId()) || isBlackListPattern(modelIdLowerCase)) {
                 continue;
             }
-            if (goodList.contains(item.getModelId())) {
+            if (hotList.contains(item.getModelId())) {
+                recommendedItems.add(item);
+            } else if (goodList.contains(item.getModelId())) {
                 goodItems.add(item);
             } else if (modelIdLowerCase.contains("chat")) {//optimized for chat, should at top
                 chatItems.add(item);
@@ -113,10 +118,7 @@ public class ModelUtils {
             }
         }
         List<HfRepoItem> result = new ArrayList<>(chatItems.size() + otherItems.size());
-//      7B performance not good, comment it
-        HfRepoItem hfRepoItem = new HfRepoItem();
-        hfRepoItem.setModelId("taobao-mnn/DeepSeek-R1-7B-Qwen-MNN");
-        result.add(hfRepoItem);
+        result.addAll(recommendedItems);
         result.addAll(goodItems);
         result.addAll(chatItems);
         result.addAll(otherItems);

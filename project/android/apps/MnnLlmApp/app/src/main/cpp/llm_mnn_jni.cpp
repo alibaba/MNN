@@ -132,7 +132,8 @@ JNIEXPORT jlong JNICALL Java_com_alibaba_mnnllm_android_ChatSession_initNative(J
         }
         extra_config = extra_config +  R"(,"reuse_kv":true, "backend_type":"cpu", "use_mmap":true})";
         MNN_DEBUG("extra_config: %s", extra_config.c_str());
-        llm->set_config(temp_dir);
+        llm->set_config(extra_config);
+        MNN_DEBUG("dumped config: %s", llm->dump_config().c_str());
     }
     history.clear();
     history.emplace_back("system", is_r1 ? "<|begin_of_sentence|>You are a helpful assistant." : "You are a helpful assistant.");
