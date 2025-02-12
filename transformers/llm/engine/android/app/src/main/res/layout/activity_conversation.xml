@@ -9,7 +9,7 @@
     tools:context="com.mnn.chatglm.MainActivity">
     <com.google.android.material.appbar.AppBarLayout
         android:layout_width="match_parent"
-        android:layout_height="?actionBarSize"
+        android:layout_height="wrap_content"
         app:elevation="0dp">
         <include
             android:id="@+id/toolbar"

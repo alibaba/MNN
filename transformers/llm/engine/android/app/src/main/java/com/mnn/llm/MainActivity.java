@@ -31,10 +31,11 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        //copy models
+        //copy models if exist
         try {
             String assetDir = "models";
-            String targetDir = new File(getFilesDir(), "models").getAbsolutePath();
+            //String targetDir = new File(getFilesDir(), "models").getAbsolutePath();
+            String targetDir = "/data/local/tmp/models";
             FileUtils.copyAssetsRecursively(this, assetDir, targetDir);
             mSearchPath = targetDir + "/";
         } catch (IOException e) {
@@ -75,7 +76,7 @@ public class MainActivity extends AppCompatActivity {
     public void loadModel(View view) {
         onCheckModels();
         mLoadButton.setClickable(false);
-        mLoadButton.setBackgroundColor(Color.parseColor("#2454e4"));
+        mLoadButton.setBackgroundColor(Color.parseColor("#AAAAAA"));
         mLoadButton.setText("Model loading ...");
 
         new Thread(() -> {

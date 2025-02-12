@@ -14,6 +14,9 @@ import android.os.Environment;
 import android.os.Handler;
 import android.provider.MediaStore;
 import android.provider.Settings;
+import android.text.Editable;
+import android.text.TextUtils;
+import android.text.TextWatcher;
 import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
@@ -22,6 +25,7 @@ import android.view.ViewGroup;
 import android.view.LayoutInflater;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.LinearLayout;
 import android.widget.Toast;
 import android.content.Intent;
 import android.content.Context;
@@ -57,10 +61,15 @@ public class Conversation extends BaseActivity {
     private ImageView imagePreview;
     private Uri imageUri;
     private EditText text;
-    private Button send;
+    private ImageView send;
     private DateFormat mDateFormat;
     private Chat mChat;
     private String selectedImagePath;
+    private Button toggleButton;
+    private LinearLayout targetLayout;
+    private boolean isLayoutVisible = true;
+    private boolean isGenerating = false;
+    private boolean isLoading = false;
     private final ScheduledExecutorService executor = Executors.newScheduledThreadPool(1);
 
     @Override
@@ -71,8 +80,6 @@ public class Conversation extends BaseActivity {
         mChat = (Chat) getIntent().getSerializableExtra("chat");
         mDateFormat = new SimpleDateFormat("hh:mm aa");
 
-        setupToolbarWithUpNav(R.id.toolbar, "mnn-llm", R.drawable.ic_action_back);
-
         mRecyclerView = findViewById(R.id.recyclerView);
         mRecyclerView.setLayoutManager(new LinearLayoutManager(this));
         mAdapter = new ConversationRecyclerView(this, initData());
@@ -80,9 +87,25 @@ public class Conversation extends BaseActivity {
 
         text = findViewById(R.id.et_message);
         text.setOnClickListener(view -> smoothScrollToBottom());
+        text.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+
+            }
+
+            @Override
+            public void afterTextChanged(Editable s) {
+                updateSenderButton();
+            }
+        });
 
         findViewById(R.id.bt_select_image).setOnClickListener(view -> selectImage());
         send = findViewById(R.id.bt_send);
+        send.setEnabled(false);
         send.setOnClickListener(view -> handleSendClick());
         imagePreview = findViewById(R.id.image_preview);
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE)
@@ -264,6 +287,22 @@ public class Conversation extends BaseActivity {
                 }
             });
         }
+        toggleButton = findViewById(R.id.toggleButton);
+        targetLayout = findViewById(R.id.predefineList);
+
+        toggleButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if (isLayoutVisible) {
+                    targetLayout.setVisibility(View.GONE);
+                    toggleButton.setText("Show");
+                } else {
+                    targetLayout.setVisibility(View.VISIBLE);
+                    toggleButton.setText("Hide");
+                }
+                isLayoutVisible = !isLayoutVisible;
+            }
+        });
     }
 
     @Override
@@ -275,6 +314,14 @@ public class Conversation extends BaseActivity {
             imagePreview.setImageURI(imageUri);
             imagePreview.setVisibility(View.VISIBLE);
         }
+    }
+
+    private void updateSenderButton() {
+        boolean enabled = true;
+        if (TextUtils.isEmpty(text.getText().toString())) {
+            enabled = false;
+        }
+        send.setEnabled(enabled);
     }
 
     private String getPathFromUri(Uri uri) {
@@ -306,6 +353,9 @@ public class Conversation extends BaseActivity {
     }
 
     private void handleSendClick() {
+        if (!send.isEnabled()) {
+            return;
+        }
         if (imagePreview.getVisibility() == View.VISIBLE) {
             imagePreview.setVisibility(View.GONE);
         } else {

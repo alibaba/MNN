@@ -36,7 +36,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:padding="@dimen/space10"
-            android:text="你好"
+            android:text="Hello"
             android:textColor="@android:color/white"
             android:textSize="@dimen/h3"
             android:layout_alignParentRight="true"
