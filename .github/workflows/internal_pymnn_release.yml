@@ -1,10 +1,13 @@
-name: pymnn_release
+name: internal_pymnn_release
 on:
   push:
     paths:
-      - '.github/workflows/pymnn_release.yml'
+      - '.github/workflows/internal_pymnn_release.yml'
     tags:
       - '*'
+  pull_request:
+    branches:
+      - 'master'
   workflow_dispatch:
 
 jobs:
@@ -30,6 +33,36 @@ jobs:
       if: matrix.os == 'windows-latest'
       uses: ilammy/msvc-dev-cmd@v1
 
+    - name: using private schema patch
+      if: matrix.os != 'windows-latest'
+      env:
+        PATCH_CONTENT: ${{ secrets.PRIVATE_SCHEMA_PATCH }}
+      run: |
+        patch_file=$(mktemp schema_patch.XXXXXX.diff)
+        echo "$PATCH_CONTENT" > $patch_file
+        git apply $patch_file
+        rm $patch_file
+        git status
+        cd schema
+        ls -lh
+        ./generate.sh
+        cd ..
+        git status
+    - name: using private schema patch
+      if: matrix.os == 'windows-latest'
+      env:
+        PATCH_CONTENT: ${{ secrets.PRIVATE_SCHEMA_PATCH }}
+      run: |
+        $patchFile = [System.IO.Path]::GetTempFileName() + ".diff"
+        [System.IO.File]::WriteAllText($patchFile, $env:PATCH_CONTENT)
+        git apply $patchFile
+        Remove-Item $patchFile
+        git status
+        Push-Location schema
+        Get-ChildItem -Name
+        ./generate.ps1
+        Set-Location ..
+        git status
     - uses: actions/setup-python@v4
       with:
         python-version: '3.12'
@@ -56,35 +89,8 @@ jobs:
       run: ls -lh wheelhouse
       shell: bash
 
-    - name: Verify clean directory
-      run: git diff --exit-code
-      shell: bash
-
     - name: Upload wheels
       uses: actions/upload-artifact@v4
       with:
         name: artifact-${{ matrix.os }}-${{ matrix.arch }}
         path: wheelhouse/*.whl
-
-  publish_wheels:
-    permissions:
-      contents: none
-    name: Upload
-    needs: [build_wheels]
-    runs-on: ubuntu-latest
-
-    steps:
-    - uses: actions/setup-python@v4
-      with:
-        python-version: '3.x'
-
-    - uses: actions/download-artifact@v4
-      with:
-        pattern: artifact-*
-        path: dist
-        merge-multiple: true
-
-    - uses: pypa/gh-action-pypi-publish@release/v1
-      with:
-        password: ${{ secrets.PYPI_API_TOKEN }}
-        skip_existing: true
