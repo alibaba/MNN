@@ -1312,7 +1312,7 @@ static void _getInfoAux(MNNCPUInfo* cpuinfo_isa) {
     if (isa_features2 & CPUINFO_ARM_LINUX_FEATURE2_SVE2) {
         cpuinfo_isa->sve2 = true;
     }
-    if (isa_features & CPUINFO_ARM_LINUX_FEATURE2_SME2) {
+    if (isa_features2 & CPUINFO_ARM_LINUX_FEATURE2_SME2) {
         cpuinfo_isa->sme2 = true;
     }
 }
