@@ -182,11 +182,10 @@ final class LLMChatViewModel: ObservableObject {
                 }
             }
             
-            // MARK: Add recording audio
             if let audio = draft.recording, let path = audio.url {
-                if let wavFile = await convertACCToWAV(accFileUrl: path) {
-                    content = "<audio>\(wavFile.path)</audio>" + content
-                }
+//                if let wavFile = await convertACCToWAV(accFileUrl: path) {
+                content = "<audio>\(path.path)</audio>" + content
+//                }
             }
             
             let convertedContent = self.convertDeepSeekMutliChat(content: content)

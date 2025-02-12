@@ -8,6 +8,7 @@
 import Foundation
 import SwiftUI
 import ExyteChat
+import AVFoundation
 
 struct LLMChatView: View {
     @StateObject private var viewModel: LLMChatViewModel
@@ -15,7 +16,9 @@ struct LLMChatView: View {
     
     private let title: String
     private let modelPath: String
-    
+
+    private let recorderSettings = RecorderSettings(audioFormatID: kAudioFormatLinearPCM, sampleRate: 44100, numberOfChannels: 2, linearPCMBitDepth: 16)
+
     init(modelInfo: ModelInfo, history: ChatHistory? = nil) {
         self.title = modelInfo.name
         self.modelPath = modelInfo.localPath
@@ -33,6 +36,7 @@ struct LLMChatView: View {
             (self.title.isEmpty ? .textOnly : .textOnly)
         )
         .messageUseMarkdown(true)
+        .setRecorderSettings(recorderSettings)
         .chatTheme(
             ChatTheme(
                 colors: .init(
