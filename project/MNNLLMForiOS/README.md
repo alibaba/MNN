@@ -4,26 +4,27 @@
 
 ## Introduction
 
-This project is an iOS application based on the MNN engine, supporting local large-model multimodal conversations.
+This project is an iOS application based on the MNN engine, supporting local large models and multi-modal conversations.
 
-It operates fully offline with high privacy. Once the models are downloaded to the device, all conversations occur locally without any network uploads or processing.
+It operates entirely offline, ensuring strong privacy. Once the model is downloaded locally, all dialogues will be processed locally without any network uploads.
 
 ## Features
 
-1. **Model List**
-   - Browse models supported by MNN.
-   - Manage models: download and delete models.
-   - Search for models locally.
-   
-2. **Multimodal Chat**
-   - Text-to-text conversation.
-   - Audio-to-text conversation.
-   - Image-to-text conversation: capture images via camera or select from the gallery.
+1. **Model Management**
+    - Get a list of models supported by MNN.
+    - Support for downloading and deleting models.
+    - Local model search support.
 
-3. **Chat History**
-   - View conversation history, with the ability to restore previous chat sessions.
+2. **Multi-modal Conversations**
+    - **Text to Text**: Engage in text-based dialogues.
+    - **Speech to Text**: Convert speech input into text for dialogue.
+    - **Image to Text**: Take or select an image from the gallery and get a textual description.
 
-### Application Preview:
+3. **Conversation History**
+    - View historical dialogues and restore conversation scenes.
+
+### Application Preview
+
 
 <div style="display: flex; justify-content: center; align-items: center; text-align: center; width: 100%;">
 
@@ -63,15 +64,16 @@ It operates fully offline with high privacy. Once the models are downloaded to t
 
 </div>
 
+
 ## How to Build and Use
 
-1. Clone the repository:
+### 1. Clone the Repository:
 
     ```shell
     git clone https://github.com/alibaba/MNN.git
     ```
 
-2. Build the MNN.framework:
+### 2. Build MNN.framework:
 
     ```shell
     cd MNN/
@@ -85,39 +87,39 @@ It operates fully offline with high privacy. Once the models are downloaded to t
     -DMNN_SUPPORT_TRANSFORMER_FUSE=ON"
     ```
 
-3. Copy the framework to the iOS project:
+### 3. Copy the Framework into Your iOS Project:
 
     ```shell
     mv MNN-iOS-CPU-GPU/Static/MNN.framework transformers/llm/engine/ios/MNN.framework
     project/ios/MNNLLMForiOS/MNN.framework
     ```
 
-    Ensure the `Link Binary With Libraries` section includes the `MNN.framework`:
+    Ensure that `MNN.framework` and other three libraries are included in the **Link Binary With Libraries** section.
     
-    ![framework](./assets/framework.png)
+    ![](./assets/framework.png)
 
-    If it's missing, add it manually:
+    If it's missing, you can add `MNN.framework` manually:
 
-    ![addFramework](./assets/addFramework.png)
+    ![](./assets/addFramework.png)
 
-    ![addFramework2](./assets/addFramework2.png)
+    ![](./assets/addFramework2.png)
 
-4. Update iOS signing and build the project:
+### 4. Modify iOS Signing and Build the Project:
 
     ```shell
     cd project/ios/MNNLLMForiOS
     open MNNLLMiOS.xcodeproj
     ```
 
-    In Xcode, go to `Signing & Capabilities > Team` and input your Apple ID and Bundle Identifier:
+    In the Xcode project properties, go to **Signing & Capabilities** > **Team** and enter your account and Bundle Identifier:
 
     ![signing](./assets/signing.png)
 
-    Wait for the Swift Package to finish downloading before building.
+    Wait for the Swift Package to finish downloading, then build and use the project.
 
 ## Notes
 
-Due to memory limitations on iPhones, it is recommended to use models with 7B parameters or fewer to avoid memory-related crashes.
+Due to limited memory on iPhones, it is recommended to use models of size 7B or smaller to avoid crashes caused by insufficient memory.
 
 ## References
 
