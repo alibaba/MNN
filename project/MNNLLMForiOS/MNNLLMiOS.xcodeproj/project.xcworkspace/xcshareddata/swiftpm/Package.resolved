@@ -15,7 +15,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/Yogayu/Chat.git",
       "state" : {
-        "revision" : "32c09bef42eb8c6316b4cbdd5ccd13b9782f51ba"
+        "branch" : "main",
+        "revision" : "76b84fe18df1c2bc4b5c5f48ad7340feebb92f28"
       }
     },
     {

@@ -141,18 +141,17 @@ private:
                 }
             }
         };
-//        dispatch_async(dispatch_get_main_queue(), ^{
-            LlmStreamBuffer streambuf(callback);
-            std::ostream os(&streambuf);
-            
-            history.emplace_back(PromptItem("user", [input UTF8String]));
-            
-            if (std::string([input UTF8String]) == "benchmark") {
-                [self performBenchmarkWithOutput:&os];
-            } else {
-                llm->response(history, &os, "<eop>", 999999);
-            }
-//        });
+
+        LlmStreamBuffer streambuf(callback);
+        std::ostream os(&streambuf);
+        
+        history.emplace_back(PromptItem("user", [input UTF8String]));
+        
+        if (std::string([input UTF8String]) == "benchmark") {
+            [self performBenchmarkWithOutput:&os];
+        } else {
+            llm->response(history, &os, "<eop>", 999999);
+        }
         
     });
 }

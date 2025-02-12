@@ -8,9 +8,9 @@
 
 /* Begin PBXBuildFile section */
 		3E003D782D2B85A3004BA18F /* Transformers in Frameworks */ = {isa = PBXBuildFile; productRef = 3E003D772D2B85A3004BA18F /* Transformers */; };
-		3E8A57232D5B80660018104D /* ExyteChat in Frameworks */ = {isa = PBXBuildFile; productRef = 3E8A57222D5B80660018104D /* ExyteChat */; };
+		3E301C692D5C84730045E5E1 /* MNN.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3E301C682D5C84730045E5E1 /* MNN.framework */; };
+		3E301C922D5C9A510045E5E1 /* ExyteChat in Frameworks */ = {isa = PBXBuildFile; productRef = 3E301C912D5C9A510045E5E1 /* ExyteChat */; };
 		3E94DFF12D37DBA900BE39A7 /* SQLite in Frameworks */ = {isa = PBXBuildFile; productRef = 3E94DFF02D37DBA900BE39A7 /* SQLite */; };
-		3E94E2832D5A251500BE39A7 /* MNN.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3E94E2822D5A251500BE39A7 /* MNN.framework */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -31,10 +31,10 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		3E301C682D5C84730045E5E1 /* MNN.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; path = MNN.framework; sourceTree = "<group>"; };
 		3E8591FE2D1D45070067B46F /* MNNLLMiOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MNNLLMiOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		3E85920F2D1D45080067B46F /* MNNLLMiOSTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MNNLLMiOSTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		3E8592192D1D45090067B46F /* MNNLLMiOSUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MNNLLMiOSUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		3E94E2822D5A251500BE39A7 /* MNN.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MNN.framework; path = ../MNN/project/ios/MNNLLMForiOS/MNN.framework; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -77,9 +77,9 @@
 			path = MNNLLMiOS;
 			sourceTree = "<group>";
 		};
-		3EAD33932D2BF38800021CF7 /* model */ = {
+		3EAD33932D2BF38800021CF7 /* LocalModel */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			path = model;
+			path = LocalModel;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -89,8 +89,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				3E8A57232D5B80660018104D /* ExyteChat in Frameworks */,
-				3E94E2832D5A251500BE39A7 /* MNN.framework in Frameworks */,
+				3E301C922D5C9A510045E5E1 /* ExyteChat in Frameworks */,
+				3E301C692D5C84730045E5E1 /* MNN.framework in Frameworks */,
 				3E94DFF12D37DBA900BE39A7 /* SQLite in Frameworks */,
 				3E003D782D2B85A3004BA18F /* Transformers in Frameworks */,
 			);
@@ -117,7 +117,7 @@
 			isa = PBXGroup;
 			children = (
 				3E94DF1F2D30CCF900BE39A7 /* MNNLLMiOS */,
-				3EAD33932D2BF38800021CF7 /* model */,
+				3EAD33932D2BF38800021CF7 /* LocalModel */,
 				3E8592122D1D45090067B46F /* MNNLLMiOSTests */,
 				3E85921C2D1D45090067B46F /* MNNLLMiOSUITests */,
 				3EAD33842D2BDDC300021CF7 /* Frameworks */,
@@ -138,7 +138,7 @@
 		3EAD33842D2BDDC300021CF7 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
-				3E94E2822D5A251500BE39A7 /* MNN.framework */,
+				3E301C682D5C84730045E5E1 /* MNN.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -160,13 +160,13 @@
 			);
 			fileSystemSynchronizedGroups = (
 				3E94DF1F2D30CCF900BE39A7 /* MNNLLMiOS */,
-				3EAD33932D2BF38800021CF7 /* model */,
+				3EAD33932D2BF38800021CF7 /* LocalModel */,
 			);
 			name = MNNLLMiOS;
 			packageProductDependencies = (
 				3E003D772D2B85A3004BA18F /* Transformers */,
 				3E94DFF02D37DBA900BE39A7 /* SQLite */,
-				3E8A57222D5B80660018104D /* ExyteChat */,
+				3E301C912D5C9A510045E5E1 /* ExyteChat */,
 			);
 			productName = MNNLLMiOS;
 			productReference = 3E8591FE2D1D45070067B46F /* MNNLLMiOS.app */;
@@ -254,7 +254,7 @@
 			packageReferences = (
 				3E003D312D27E37C004BA18F /* XCRemoteSwiftPackageReference "swift-transformers" */,
 				3E94DF8A2D37D8FF00BE39A7 /* XCRemoteSwiftPackageReference "SQLite" */,
-				3E8A57212D5B7F270018104D /* XCRemoteSwiftPackageReference "Chat" */,
+				3E301C902D5C9A430045E5E1 /* XCRemoteSwiftPackageReference "Chat" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 3E8591FF2D1D45070067B46F /* Products */;
@@ -694,12 +694,12 @@
 				minimumVersion = 0.1.14;
 			};
 		};
-		3E8A57212D5B7F270018104D /* XCRemoteSwiftPackageReference "Chat" */ = {
+		3E301C902D5C9A430045E5E1 /* XCRemoteSwiftPackageReference "Chat" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/Yogayu/Chat.git";
 			requirement = {
-				kind = revision;
-				revision = 32c09bef42eb8c6316b4cbdd5ccd13b9782f51ba;
+				branch = main;
+				kind = branch;
 			};
 		};
 		3E94DF8A2D37D8FF00BE39A7 /* XCRemoteSwiftPackageReference "SQLite" */ = {
@@ -718,9 +718,9 @@
 			package = 3E003D312D27E37C004BA18F /* XCRemoteSwiftPackageReference "swift-transformers" */;
 			productName = Transformers;
 		};
-		3E8A57222D5B80660018104D /* ExyteChat */ = {
+		3E301C912D5C9A510045E5E1 /* ExyteChat */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 3E8A57212D5B7F270018104D /* XCRemoteSwiftPackageReference "Chat" */;
+			package = 3E301C902D5C9A430045E5E1 /* XCRemoteSwiftPackageReference "Chat" */;
 			productName = ExyteChat;
 		};
 		3E94DFF02D37DBA900BE39A7 /* SQLite */ = {
