@@ -63,7 +63,7 @@ public class HfApiClient {
 
     // Searches repositories based on a keyword
     public void searchRepos(String keyword, RepoSearchCallback callback) {
-        Call<List<HfRepoItem>> call = apiService.searchRepos(keyword, "taobao-mnn", 500);
+        Call<List<HfRepoItem>> call = apiService.searchRepos(keyword, "taobao-mnn", 500, "downloads");
         call.enqueue(new Callback<List<HfRepoItem>>() {
             @Override
             public void onResponse(Call<List<HfRepoItem>> call, Response<List<HfRepoItem>> response) {

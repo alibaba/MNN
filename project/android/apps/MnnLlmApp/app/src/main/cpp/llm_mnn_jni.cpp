@@ -22,7 +22,6 @@
 using MNN::Transformer::Llm;
 using mls::DiffusionSession;
 
-
 class MNN_PUBLIC LlmStreamBuffer : public std::streambuf {
 public:
     using CallBack = std::function<void(const char* str, size_t len)>;;
@@ -44,7 +43,15 @@ using PromptItem = std::pair<std::string, std::string>;
 static std::vector<PromptItem> history{};
 static bool stop_requested = false;
 static bool is_r1 = false;
+static std::string prompt_string_for_debug{};
+static std::string response_string_for_debug{};
 
+std::string trimLeadingWhitespace(const std::string& str) {
+    auto it = std::find_if(str.begin(), str.end(), [](unsigned char ch) {
+        return !std::isspace(ch); // Find the first non-whitespace character
+    });
+    return std::string(it, str.end()); // Create a substring from the first non-whitespace character
+}
 int utf8CharLength(unsigned char byte) {
     if ((byte & 0x80) == 0) return 1;
     if ((byte & 0xE0) == 0xC0) return 2;
@@ -82,9 +89,10 @@ private:
     std::function<void(const std::string&)> callback;
 };
 
-const char* getUserString(const char* user_content) {
+//for_history true for insert to history, false for submit prompt
+const char* getUserString(const char* user_content, bool for_history) {
     if (is_r1) {
-        return ("<|User|>" + std::string(user_content) + "<|Assistant|><think>\n").c_str();
+        return ("<|User|>" + std::string(user_content) + "<|Assistant|>" + (for_history ? "" : "<think>\n")).c_str();
     } else {
         return user_content;
     }
@@ -118,9 +126,14 @@ JNIEXPORT jlong JNICALL Java_com_alibaba_mnnllm_android_ChatSession_initNative(J
         auto model_dir_str = std::string(model_dir);
         std::string model_dir_parent = model_dir_str.substr(0, model_dir_str.find_last_of('/'));
         std::string temp_dir = model_dir_parent + R"(/tmp")";
-        auto extra_config = R"({"tmp_path":")" + temp_dir + R"(,"reuse_kv":true, "backend_type":"cpu"})";
+        auto extra_config = R"({"tmp_path":")" + temp_dir;
+        if (is_r1) {
+            extra_config += R"(,"use_template":false)";
+        }
+        extra_config = extra_config +  R"(,"reuse_kv":true, "backend_type":"cpu", "use_mmap":true})";
         MNN_DEBUG("extra_config: %s", extra_config.c_str());
-        llm->set_config(temp_dir);
+        llm->set_config(extra_config);
+        MNN_DEBUG("dumped config: %s", llm->dump_config().c_str());
     }
     history.clear();
     history.emplace_back("system", is_r1 ? "<|begin_of_sentence|>You are a helpful assistant." : "You are a helpful assistant.");
@@ -132,7 +145,15 @@ JNIEXPORT jlong JNICALL Java_com_alibaba_mnnllm_android_ChatSession_initNative(J
         for (jint i = 0; i < listSize; i++) {
             jobject element = env->CallObjectMethod(chat_history, getMethod, i);
             const char *elementCStr = env->GetStringUTFChars((jstring)element, nullptr);
-            history.emplace_back(i == 0 ? "user" : "assistant",i == 0 ? getUserString(elementCStr) : elementCStr);
+            if (is_r1) {
+                if (i % 2 == 0) {
+                    history.emplace_back("user",getUserString(elementCStr, true));
+                } else {
+                    history.emplace_back("assistant",elementCStr);
+                }
+            } else {
+                history.emplace_back(i % 2 == 0 ? "user" : "assistant",elementCStr);
+            }
             env->ReleaseStringUTFChars((jstring)element, elementCStr);
             env->DeleteLocalRef(element);
         }
@@ -151,6 +172,8 @@ JNIEXPORT jobject JNICALL Java_com_alibaba_mnnllm_android_ChatSession_submitNati
     if (!llm) {
         return env->NewStringUTF("Failed, Chat is not ready!");
     }
+    prompt_string_for_debug.clear();
+    response_string_for_debug.clear();
     stop_requested = false;
     if (!keepHistory) {
         history.resize(1);
@@ -168,8 +191,21 @@ JNIEXPORT jobject JNICALL Java_com_alibaba_mnnllm_android_ChatSession_submitNati
             response_buffer << utf8Char;
         } else {
             std::string response_result =  response_buffer.str();
-            history.emplace_back("assistant", response_result);
             MNN_DEBUG("submitNative Result %s", response_result.c_str());
+            response_string_for_debug = response_result;
+            if (is_r1) {
+                auto& last_message = history.at(history.size() - 1);
+                std::size_t user_think_pos = last_message.second.find("<think>\n");
+                if (user_think_pos != std::string::npos) {
+                    last_message.second.erase(user_think_pos, std::string("<think>\n").length());
+                }
+                std::size_t pos = response_result.find("</think>");
+                if (pos != std::string::npos) {
+                    response_result.erase(0, pos + std::string("</think>").length());
+                }
+                response_result = trimLeadingWhitespace(response_result) + "<|end_of_sentence|>";
+            }
+            history.emplace_back("assistant", response_result);
         }
         if (progressListener && onProgressMethod) {
             jstring javaString = is_eop ? nullptr : env->NewStringUTF(utf8Char.c_str());
@@ -182,8 +218,12 @@ JNIEXPORT jobject JNICALL Java_com_alibaba_mnnllm_android_ChatSession_submitNati
         processor.processStream(str, len);
     }};
     std::ostream output_ostream(&stream_buffer);
-    history.emplace_back("user", getUserString(input_str));
+    history.emplace_back("user", getUserString(input_str, false));
     MNN_DEBUG("submitNative history count %zu", history.size());
+    for (auto iter= history.begin(); iter != history.end(); ++iter) {
+        prompt_string_for_debug += iter->second;
+    }
+    MNN_DEBUG("submitNative prompt_string_for_debug count %s", prompt_string_for_debug.c_str());
     llm->response(history, &output_ostream, "<eop>", 1);
     while (!stop_requested) {
         llm->generate(1);
@@ -223,6 +263,12 @@ JNIEXPORT void JNICALL Java_com_alibaba_mnnllm_android_ChatSession_resetNative(J
     if (llm) {
         llm->reset();
     }
+}
+
+extern "C"
+JNIEXPORT jstring JNICALL
+Java_com_alibaba_mnnllm_android_ChatSession_getDebugInfoNative(JNIEnv *env, jobject thiz, jlong objecPtr) {
+    return env->NewStringUTF(("last_prompt:\n" + prompt_string_for_debug + "\nlast_response:\n" + response_string_for_debug).c_str());
 }
 
 JNIEXPORT void JNICALL Java_com_alibaba_mnnllm_android_ChatSession_releaseNative(JNIEnv* env,

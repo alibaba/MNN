@@ -57,6 +57,14 @@
 
 # Releases
 
+## Version 0.2.1
++ 点击这里[下载](https://meta.alicdn.com/data/mnn/mnn_chat_d_0_2_1_1.apk)
++ 支持 modelscope 下载，
++ 优化deepseek 多轮会话能力以及展示 ui
++ 支持 反馈 issue 时候增加调试信息
+
+
+## Version 0.2.0
 + 点击这里[下载](https://meta.alicdn.com/data/mnn/mnn_llm_app_debug_0_2_0.apk)
 + 针对 DeepSeek R1 1.5B 进行了优化
 + 新增支持 Markdown 格式
