@@ -1,5 +1,5 @@
-option(LLM_SUPPORT_VISION "Llm model support vision input." ON)
-option(LLM_SUPPORT_AUDIO "Llm model support audio input." ON)
+option(LLM_SUPPORT_VISION "Llm model support vision input." OFF)
+option(LLM_SUPPORT_AUDIO "Llm model support audio input." OFF)
 option(BUILD_MLS "Build PC Commandline." OFF)
 
 

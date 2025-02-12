@@ -61,6 +61,9 @@ public:
     std::map<std::pair<std::string, std::vector<uint32_t>>, std::tuple<std::vector<uint32_t>, std::vector<uint32_t>,  uint32_t>>& getTunedThreadGroup() {
         return mTunedThreadGroup;
     };
+    std::map<std::string, std::vector<std::pair<std::vector<uint32_t>, std::tuple<std::vector<uint32_t>, std::vector<uint32_t>, uint32_t>>>>& getTunedThreadGroupVec() {
+        return mTunedThreadGroupVec;
+    }
     virtual Backend *onCreate(const BackendConfig* config, Backend* origin) const override;
     virtual void onGabageCollect(int level) override;
     virtual CompilerType onGetCompilerType() const override {
@@ -88,6 +91,7 @@ private:
     mutable std::vector<SingleBufferWithAllocator> mDynamic;
     MetalTuneLevel mTuneLevel = Wide;
     std::map<std::pair<std::string, std::vector<uint32_t>>, std::tuple<std::vector<uint32_t>, std::vector<uint32_t>, uint32_t>> mTunedThreadGroup;
+    std::map<std::string, std::vector<std::pair<std::vector<uint32_t>, std::tuple<std::vector<uint32_t>, std::vector<uint32_t>, uint32_t>>>> mTunedThreadGroupVec;
 
 private:
     id<MTLCommandQueue> mQueue = nil;

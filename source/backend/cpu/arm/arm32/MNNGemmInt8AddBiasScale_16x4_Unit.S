@@ -39,7 +39,7 @@ struct QuanPostTreatParameters {
 
 //Auto: r0: dst*, r1: src*, r2:weight*, r3: src_depth_quad
 // Load from sp: r4: dst_step, r5: dst_depth_quad, r6: post, r10: real
-// Load from post: r8: scale, lr: bias, r7: maxValue, r6: minValue
+// Load from post: lr: bias, r7: maxValue, r6: minValue
 
 push {r4-r8, r10, lr} // avoid to touch platform-register r-9
 
@@ -47,28 +47,25 @@ ldr r4, [sp, #28]
 ldr r5, [sp, #32]
 ldr r6, [sp, #36]
 ldr r10, [sp, #40]
-ldr r8, [r6, #0]
 ldr lr, [r6, #4]
 
 vpush {q4-q7}
-sub sp, sp, #36
+sub sp, sp, #40
 
 ldr r7, [r6, #16]  // r7: useInt8
 
-ldr r12, [r6, #28] // srcKernelSum
-str r12, [sp, #4]
-ldr r12, [r6, #32] // weightBias
-str r12, [sp, #8]
+ldr r8, [r6, #28] // srcKernelSum
 ldr r12, [r6, #36] // f32minmax
 str r12, [sp, #12]
 ldr r12, [r6, #8] // int8 max
 str r12, [sp, #16]
 ldr r12, [r6, #12] // int8 min
 str r12, [sp, #20]
-lsl r12, r3, #6   // weight_stride = src_depth_quad*LP*HP
-str r12, [sp, #24]
 ldr r12, [r6, #48] // extraScale
 str r12, [sp, #28]
+ldr r12, [r6, #56] // accumBuffer
+str r12, [sp, #32]
+str r12, [sp, #36]
 
 Start:
 cmp r10, #2
@@ -76,7 +73,6 @@ blt L1LoopDz
 
 L2LoopDz:
     mov r10, r1
-    str r2, [sp, #32] // store weight ptr
     subs r12, r3, #1
     // first four output
     vld1.8 {q2}, [r1]!
@@ -153,7 +149,7 @@ L2LoopDz:
     L2LoopSzEnd:
 
     L2Quan:
-    vld1.f32 {q5}, [r8]! // scale
+    vld1.f32 {q5}, [r2]! // scale
 
     vpadd.s32 d16, d16, d17
     vpadd.s32 d20, d20, d21
@@ -188,12 +184,10 @@ L2LoopDz:
     vmulq.f32 q1, q1, d10[1]
 
     L2_MLA:
-    ldr r6, [sp, #4] // srcKernelSum
-    vld1.f32 {d12[0]}, [r6]! // tile 0
-    vld1.f32 {d12[1]}, [r6] // tile 1
-    ldr r6, [sp, #8] // weightBias
-    vld1.f32 {q7}, [r6]!
-    str r6, [sp, #8] // update next 4 weightBias
+    vld1.f32 {d12[0]}, [r8]! // tile 0
+    vld1.f32 {d12[1]}, [r8] // tile 1
+    sub r8, r8, #4
+    vld1.f32 {q7}, [r2]!
 
     vmla.f32 q0, q7, d12[0]
     vmla.f32 q1, q7, d12[1]
@@ -207,12 +201,24 @@ L2LoopDz:
     vld1.f32 {q4}, [lr]! // bias
     vadd.f32 q0, q0, q4  // bias
     vadd.f32 q1, q1, q4
-    b L2_POST
+    cmp r0, #0
+    bne L2_POST
+    b L2_BUFFER
 
     L2_ADD_DSTV:
-    vld1.f32 {q4, q5}, [r0]
+    ldr r6, [sp, #32] // accumBuffer
+    vld1.f32 {q4, q5}, [r6]!
     vadd.f32 q0, q0, q4
     vadd.f32 q1, q1, q5
+    str r6, [sp, #32]
+    cmp r0, #0
+    bne L2_POST
+
+    L2_BUFFER:
+    ldr r6, [sp, #36] // accumBuffer
+    vst1.f32 {q0, q1}, [r6]!
+    str r6, [sp, #36]
+    b L2LoopCheck
 
     L2_POST:
     ldr r6, [sp, #12] // fp32 minmax
@@ -265,16 +271,12 @@ L2LoopDz:
 L2LoopCheck:
     subs r5, r5, #1
     mov r1, r10
-    ldr r2, [sp, #32] // origin weight ptr
-    ldr r6, [sp, #24] // weight stride
-    add r2, r2, r6    // next oc4 weight ptr
     bne L2LoopDz
 
 b End
 
 L1LoopDz:
     mov r10, r1
-    str r2, [sp, #32] // store weight ptr
     subs r12, r3, #1
     // first four output
     vld1.8 {q2}, [r1]!
@@ -321,8 +323,7 @@ L1LoopDz:
 
     L1LoopSzEnd:
     L1Quan:
-    //vld1.f32 {q4}, [lr]! // bias
-    vld1.f32 {q5}, [r8]! // scale
+    vld1.f32 {q5}, [r2]! // scale
 
     vpadd.s32 d16, d16, d17
     vpadd.s32 d20, d20, d21
@@ -344,13 +345,9 @@ L1LoopDz:
     vmulq.f32 q0, q0, d10[0]
 
     L1_MLA:
-    ldr r6, [sp, #4] // srcKernelSum
-    vld1.f32 {d12[0]}, [r6] // tile 0
-    ldr r6, [sp, #8] // weightBias
-    vld1.f32 {q7}, [r6]!
-    str r6, [sp, #8] // update next 4 weightBias
+    vld1.f32 {d12[0]}, [r8] // tile 0
+    vld1.f32 {q7}, [r2]!
     vmla.f32 q0, q7, d12[0]
-    //vadd.f32 q0, q0, q4
 
     cmp r7, #0
     bne L1QuanUseInt8
@@ -359,11 +356,23 @@ L1LoopDz:
     beq L1_ADD_DSTV
     vld1.f32 {q4}, [lr]! // bias
     vadd.f32 q0, q0, q4
-    b L1_POST
+    cmp r0, #0
+    bne L1_POST
+    b L1_BUFFER
 
     L1_ADD_DSTV:
-    vld1.f32 {q4}, [r0]
+    ldr r6, [sp, #32] // accumBuffer
+    vld1.f32 {q4}, [r6]!
     vadd.f32 q0, q0, q4
+    str r6, [sp, #32]
+    cmp r0, #0
+    bne L1_POST
+
+    L1_BUFFER:
+    ldr r6, [sp, #36] // accumBuffer
+    vst1.f32 {q0}, [r6]!
+    str r6, [sp, #36]
+    b L1LoopCheck
 
     L1_POST:
     ldr r6, [sp, #12] // fp32 minmax
@@ -406,13 +415,10 @@ L1LoopDz:
 L1LoopCheck:
     subs r5, r5, #1
     mov r1, r10
-    ldr r2, [sp, #32] // origin weight ptr
-    ldr r6, [sp, #24] // weight stride
-    add r2, r2, r6    // next oc4 weight ptr
     bne L1LoopDz
 
 End:
-add sp, sp, #36
+add sp, sp, #40
 vpop {q4-q7}
 pop {r4-r8, r10, pc}
 

@@ -1320,20 +1320,5 @@ VARP _Histogram(VARP x, int bin, int min, int max, int channel) {
     return (Variable::create(Expr::create(std::move(op), {x})));
 }
 
-#ifdef MNN_BUILD_AUDIO
-VARP _Stft(VARP sample, VARP window, int n_fft, int hop_length, bool abs) {
-    std::unique_ptr<OpT> op(new OpT);
-    op->type      = OpType_Stft;
-    op->main.type = OpParameter_StftParam;
-    auto param = new StftParamT;
-    param->n_fft = n_fft;
-    param->hop_length = hop_length;
-    param->abs = abs;
-    op->main.value = param;
-    EXPRP expr = Expr::create(std::move(op), {sample, window});
-    return Variable::create(expr);
-}
-#endif
-
 } // namespace Express
 } // namespace MNN

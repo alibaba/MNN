@@ -713,6 +713,7 @@ Module* PipelineModule::load(const std::vector<std::string>& inputs, const std::
 
 Module* PipelineModule::load(const std::vector<std::string>& inputs, const std::vector<std::string>& outputs, std::shared_ptr<BufferStorage> bufferStorage, std::shared_ptr<MNN::Express::Executor::RuntimeManager> rtMgr, const Module::Config* config, std::map<std::string, SubGraph>& subGraphMap) {
     MNN_ASSERT(nullptr != rtMgr);
+    MNN_ASSERT(nullptr != config);
     std::shared_ptr<Schedule::ScheduleInfo> sharedConst;
     auto buffer = bufferStorage->buffer();
     auto length = bufferStorage->size();
@@ -721,12 +722,14 @@ Module* PipelineModule::load(const std::vector<std::string>& inputs, const std::
     // Extra Const Tensors
     sharedConst.reset(new Schedule::ScheduleInfo);
     auto curExe = ExecutorScope::Current();
-    bool permitCodeGen = false;
+    bool preReplaceConstTensor = true;
     std::shared_ptr<ModuleRuntimeConfig> modRuntimeCfgPtr(new ModuleRuntimeConfig);
     if (!rtMgr->getInside()->mContent->mExternalFile.empty()) {
         modRuntimeCfgPtr->externalFile = rtMgr->getInside()->mContent->mExternalFile;
     }
-    permitCodeGen = rtMgr->getInside()->mContent->modes.codegenMode == Interpreter::Session_Codegen_Enable;
+    if (rtMgr->getInside()->mContent->modes.codegenMode == Interpreter::Session_Codegen_Enable || (!config->shapeMutable)) {
+        preReplaceConstTensor = false;
+    }
     std::shared_ptr<Backend> defaultBackend = curExe->getAttr()->constantBackend;
     std::vector<std::shared_ptr<Tensor>> allTensors;
     sharedConst->allTensors.resize(net->tensorName()->size());
@@ -795,7 +798,7 @@ Module* PipelineModule::load(const std::vector<std::string>& inputs, const std::
     for (int i=0; i<subModulesInfo.size(); ++i) {
         subModules[i].reset(_createSubModule(bufferStorage, subModulesInfo[i], subGraphMap, sharedConst, *config, modRuntime));
     }
-    if (!permitCodeGen) {
+    if (preReplaceConstTensor) {
         // Prereplace const tensor
         auto curBackend = sharedConst->constReplaceBackend.get();
         if (sharedConst->constReplaceBackend->type() != sharedConst->defaultBackend->type()) {

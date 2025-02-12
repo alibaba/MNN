@@ -69,10 +69,9 @@ struct QuanPostTreatParameters {
 // x5: dst_depth_quad, x6: post, x7: remain
 
 //Load from post:
-// x7: scale, x10: bias, w11: maxValue, w13: minValue, w12: useInt8
-// x19: srcKernelSum, x20: weightQuanBias
+// x10: bias, w11: maxValue, w13: minValue, w12: useInt8
+// x7: srcKernelSum
 mov x8, x7
-ldr x7, [x6, #0]
 ldr x10, [x6, #8]
 ldr w11, [x6, #16]
 ldr w13, [x6, #20]
@@ -83,9 +82,8 @@ stp d12, d13, [sp, #(16 * 1)]
 stp d10, d11, [sp, #(16 * 2)]
 stp d8,  d9,  [sp, #(16 * 3)]
 stp x21, x22, [sp, #(16 * 4)]
-stp x19, x20, [sp, #(16 * 5)]
-ldr x19, [x6, #40]
-ldr x20, [x6, #48]
+ldr x7, [x6, #40]
+ldr x15, [x6, #96] // extraScale
 
 cmp x8, #3
 beq L3Dz
@@ -229,16 +227,24 @@ L4LoopDz:
     addp v15.4s, v22.4s, v23.4s
 
     L4Quan:
-    ld1 {v1.4s}, [x7], #16 // scale
-    ld1 {v2.4s}, [x19] // x kernel sum
-    ld1 {v24.4s}, [x20], #16 // weight quan zeropoint
+    ld1 {v1.4s}, [x2], #16 // scale
+    ld1 {v2.4s}, [x7] // x kernel sum
+    ld1 {v24.4s}, [x2], #16 // weight quan zeropoint
 
     TILE4_INT2FLOAT:
     scvtf v4.4s, v12.4s
     scvtf v5.4s, v13.4s
     scvtf v6.4s, v14.4s
     scvtf v7.4s, v15.4s
+    
+    cbz x15, TILE4_SCALE
+    ld1 {v12.4s}, [x15]
+    fmul v4.4s, v4.4s, v12.s[0]
+    fmul v5.4s, v5.4s, v12.s[1]
+    fmul v6.4s, v6.4s, v12.s[2]
+    fmul v7.4s, v7.4s, v12.s[3]
 
+    TILE4_SCALE:
     fmul v12.4s, v4.4s, v1.4s
     fmul v13.4s, v5.4s, v1.4s
     fmul v14.4s, v6.4s, v1.4s
@@ -297,7 +303,7 @@ L4LoopCheck:
 b End
 
 L3Dz:
-add x3, x19, #8
+add x3, x7, #8
 cmp w12, #1
 bne L3LoopDz
 sub x4, x4, #8
@@ -408,16 +414,24 @@ L3LoopDz:
     ld1 {v0.4s}, [x10], #16
 
     L3Quan:
-    ld1 {v1.4s}, [x7], #16
-    ld1 {v2.d}[0], [x19] // x kernel sum
+    ld1 {v1.4s}, [x2], #16
+    ld1 {v2.d}[0], [x7] // x kernel sum
     ld1 {v2.s}[2], [x6]
-    ld1 {v24.4s}, [x20], #16 // weight quan zeropoint
+    ld1 {v24.4s}, [x2], #16 // weight quan zeropoint
 
     TILE3_INT2FLOAT:
     scvtf v4.4s, v12.4s
     scvtf v5.4s, v13.4s
     scvtf v6.4s, v14.4s
+    cbz x15, TILE3_SCALE
+    ld1 {v12.d}[0], [x15], #8
+    ld1 {v12.s}[2], [x15]
+    sub x15, x15, #8
+    fmul v4.4s, v4.4s, v12.s[0]
+    fmul v5.4s, v5.4s, v12.s[1]
+    fmul v6.4s, v6.4s, v12.s[2]
 
+    TILE3_SCALE:
     fmul v12.4s, v4.4s, v1.4s
     fmul v13.4s, v5.4s, v1.4s
     fmul v14.4s, v6.4s, v1.4s
@@ -544,15 +558,20 @@ L2LoopDz:
     addp v13.4s, v18.4s, v19.4s
 
     L2Quan:
-    ld1 {v1.4s}, [x7], #16
-    ld1 {v2.d}[0], [x19] // x kernel sum
-    ld1 {v24.4s}, [x20], #16 // weight quan zeropoint
+    ld1 {v1.4s}, [x2], #16
+    ld1 {v2.d}[0], [x7] // x kernel sum
+    ld1 {v24.4s}, [x2], #16 // weight quan zeropoint
     ld1 {v0.4s}, [x10], #16
 
     TILE2_INT2FLOAT:
     scvtf v4.4s, v12.4s
     scvtf v5.4s, v13.4s
+    cbz x15, TILE2_SCALE
+    ld1 {v12.d}[0], [x15]
+    fmul v4.4s, v4.4s, v12.s[0]
+    fmul v5.4s, v5.4s, v12.s[1]
 
+    TILE2_SCALE:
     fmul v12.4s, v4.4s, v1.4s
     fmul v13.4s, v5.4s, v1.4s
     MLA_WEIGHTZERO v12, v2, v24, 0 // tile:0, oc:0-3
@@ -647,12 +666,17 @@ L1LoopDz:
 
 
     L1Quan:
-    ld1 {v1.4s}, [x7], #16
-    ld1 {v2.s}[0], [x19] // x kernel sum
-    ld1 {v24.4s}, [x20], #16 // weight quan zeropoint
+    ld1 {v1.4s}, [x2], #16
+    ld1 {v2.s}[0], [x7] // x kernel sum
+    ld1 {v24.4s}, [x2], #16 // weight quan zeropoint
 
     TILE1_INT2FLOAT:
     scvtf v4.4s, v12.4s
+    cbz x15, TILE1_SCALE
+    ld1 {v12.s}[0], [x15]
+    fmul v4.4s, v4.4s, v12.s[0]
+
+    TILE1_SCALE:
     fmul v12.4s, v4.4s, v1.4s
     MLA_WEIGHTZERO v12, v2, v24, 0 // tile:0, oc:0-3
     fadd v12.4s, v12.4s, v0.4s
@@ -682,7 +706,6 @@ L1LoopCheck:
     bne L1LoopDz
 
 End:
-ldp x19, x20, [sp, #80]
 ldp x21, x22, [sp, #64]
 ldp d8,  d9,  [sp, #48]
 ldp d10, d11, [sp, #32]

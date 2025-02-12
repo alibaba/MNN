@@ -28,7 +28,9 @@ public:
             if (currentOp.type != MNN::OpType_Convolution
                 && currentOp.type != MNN::OpType_Deconvolution
                 && currentOp.type != MNN::OpType_ConvolutionDepthwise
-                && currentOp.type != MNN::OpType_Convolution3D) {
+                && currentOp.type != MNN::OpType_Convolution3D
+                && currentOp.type != MNN::OpType_ConvTranspose3D
+                ) {
                 continue;
             }
             DCHECK(currentOp.outputIndexes.size() == 1) << "Conv output ERROR!";
@@ -44,7 +46,7 @@ public:
                 }
                 const int nextOutputIndex = nextOp[0]->outputIndexes[0];
                 bool succ;
-                if (currentOp.type == MNN::OpType_Convolution3D) {
+                if (currentOp.type == MNN::OpType_Convolution3D || currentOp.type == MNN::OpType_ConvTranspose3D) {
                     succ = merge2Convolution3D(nextOp[0], &currentOp);
                 } else {
                     succ = merge2Convolution(nextOp[0], &currentOp);

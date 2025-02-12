@@ -25,9 +25,9 @@ if (MNN_KLEIDIAI)
     set(KLEIDIAI_BUILD_TESTS  OFF)
     # Fetch KleidiAI sources:
     include(FetchContent)
-    set(KLEIDIAI_COMMIT_SHA "v0.5.0")
-    set(KLEIDIAI_DOWNLOAD_URL "${CMAKE_CURRENT_LIST_DIR}/kleidiai-v0.5.0.tar.gz")
-    set(KLEIDIAI_ARCHIVE_MD5  "b75f2d3c1bd2a5457091cc3976e2fdde")
+    set(KLEIDIAI_COMMIT_SHA "v1.3.0")
+    set(KLEIDIAI_DOWNLOAD_URL "${CMAKE_CURRENT_LIST_DIR}/kleidiai-${KLEIDIAI_COMMIT_SHA}.tar.gz")
+    set(KLEIDIAI_ARCHIVE_MD5  "ad74c8b9c9d42450fe938a5997ea794a")
 
     if (POLICY CMP0135)
         cmake_policy(SET CMP0135 NEW)
@@ -47,7 +47,9 @@ if (MNN_KLEIDIAI)
     endif()
 
     list(APPEND MNN_SOURCES_KLEIDIAI ${CMAKE_CURRENT_LIST_DIR}/mnn_kleidiai.cpp)
+    list(APPEND MNN_SOURCES_KLEIDIAI ${CMAKE_CURRENT_LIST_DIR}/mnn_kleidiai_util.cpp)
     list(APPEND MNN_HEADERS_KLEIDIAI ${CMAKE_CURRENT_LIST_DIR}/mnn_kleidiai.h)
+    list(APPEND MNN_HEADERS_KLEIDIAI ${CMAKE_CURRENT_LIST_DIR}/mnn_kleidiai_util.h)
 
     # KleidiAI
     include_directories(
@@ -60,8 +62,11 @@ if (MNN_KLEIDIAI)
 
     list(APPEND MNN_SOURCES_KLEIDIAI ${KLEIDIAI_SRC}/kai/ukernels/matmul/pack/kai_lhs_quant_pack_qai8dxp_f32.c)
     list(APPEND MNN_SOURCES_KLEIDIAI ${KLEIDIAI_SRC}/kai/ukernels/matmul/pack/kai_rhs_pack_nxk_qsi4cxp_qs4cxs1s0.c)
+    list(APPEND MNN_SOURCES_KLEIDIAI ${KLEIDIAI_SRC}/kai/ukernels/matmul/pack/kai_rhs_pack_nxk_qsi4cxps1s0_qsu4cxs1s0_neon.c)
     list(APPEND MNN_SOURCES_KLEIDIAI ${KLEIDIAI_SRC}/kai/ukernels/matmul/matmul_clamp_f32_qai8dxp_qsi4cxp/kai_matmul_clamp_f32_qai8dxp1x8_qsi4cxp4x8_1x4x32_neon_dotprod.c)
     list(APPEND MNN_SOURCES_KLEIDIAI ${KLEIDIAI_SRC}/kai/ukernels/matmul/matmul_clamp_f32_qai8dxp_qsi4cxp/kai_matmul_clamp_f32_qai8dxp4x8_qsi4cxp4x8_8x4x32_neon_i8mm.c)
+    list(APPEND MNN_SOURCES_KLEIDIAI ${KLEIDIAI_SRC}/kai/ukernels/matmul/matmul_clamp_f32_qai8dxp_qsi4cxp/kai_matmul_clamp_f32_qai8dxp1x4_qsi4cxp4vlx4_1x4vl_sme2_sdot.c)
+    list(APPEND MNN_SOURCES_KLEIDIAI ${KLEIDIAI_SRC}/kai/ukernels/matmul/matmul_clamp_f32_qai8dxp_qsi4cxp/kai_matmul_clamp_f32_qai8dxp1vlx8_qsi4cxp4vlx8_1vlx4vl_sme2_mopa.c)
     list(APPEND MNN_CDEF_PUBLIC MNN_USE_KLEIDIAI)
 
     set_source_files_properties(${MNN_SOURCES_KLEIDIAI} PROPERTIES COMPILE_OPTIONS -march=armv8.2-a+i8mm+dotprod+sve+sve2+fp16)

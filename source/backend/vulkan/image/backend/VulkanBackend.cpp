@@ -25,6 +25,13 @@
 // #define MNN_OP_SUPPORT_LOG
 //#define MNN_VULKAN_DUMP_MEMORY_USAGE
 #define MNN_VULKAN_MAX_CACHE_CONVSIZE 50
+
+#ifdef ENABLE_VULKAN_TIME_PROFILE
+#include <chrono>
+#include <unordered_map>
+#include <algorithm>
+#endif
+
 namespace MNN {
 
 static std::map<OpType, VulkanBackend::Creator*>* gCreator = nullptr;
@@ -224,6 +231,9 @@ Execution* VulkanBackend::onCreate(const std::vector<Tensor*>& inputs, const std
         return nullptr;
     }
     auto originExecution = (VulkanBasicExecution*)iter->second->onCreate(inputs, outputs, op, this);
+#ifdef ENABLE_VULKAN_TIME_PROFILE
+    originExecution->setName(EnumNameOpType(op->type()));
+#endif
     if (nullptr == originExecution) {
 #ifdef MNN_OP_SUPPORT_LOG
         MNN_ERROR("Vulkan don't support for %s, type=%s, Special case\n", name.c_str(), EnumNameOpType(op->type()));
@@ -242,7 +252,23 @@ void VulkanBackend::onExecuteBegin() const {
     }
     // FUNC_PRINT_ALL(mDynamicMemoryPool->computeSize(), f);
 }
+
 void VulkanBackend::onExecuteEnd() const {
+#ifdef ENABLE_VULKAN_TIME_PROFILE
+    auto startTime = std::chrono::high_resolution_clock::now();
+    _finish();
+    auto endTime = std::chrono::high_resolution_clock::now();
+    float totalTime = std::chrono::duration_cast<std::chrono::nanoseconds>(endTime - startTime).count() / (1e6f);
+    printTimeProfile();
+    MNN_PRINT("Total time calculated by CPU is %6.2f ms.\n", totalTime);
+    mQueryPools.clear();
+    mExecutionNames.clear();
+#else
+    _finish();
+#endif
+}
+
+void VulkanBackend::finish() {
     _finish();
 }
 void VulkanBackend::_finish() const {
@@ -515,6 +541,9 @@ float VulkanBackend::getPipelineTime(const VulkanPipeline* pipeline, std::shared
     return time;
 }
 
+static bool checkInvalid(uint32_t x, uint32_t y, uint32_t z, uint32_t subgroupSize) {
+    return x * y * z > 4 * subgroupSize || x > 128 || y > 128 || z > 128;
+}
 
 std::vector<uint32_t> VulkanBackend::autoTunePipeline(SharedPtr<VulkanPipeline> pipeline, std::shared_ptr<VulkanLayout::DescriptorSet> des, const std::vector<uint32_t> gws, const uint32_t tuneDimension, std::vector<uint32_t> defaultLws,float * const minCostPtr) {
     bool isPrivate = !(pipeline->mTuneName.empty());
@@ -558,10 +587,6 @@ std::vector<uint32_t> VulkanBackend::autoTunePipeline(SharedPtr<VulkanPipeline> 
     std::pair<uint32_t, uint32_t> localSizeRangeZ = (tuneDimension > 2) ? std::pair<uint32_t, uint32_t>(minLocalSize, maxLocalZ) : std::pair<uint32_t, uint32_t>(1, 1);
 
     bool tuneNormalFlag = (mRuntime->mGpuMode & MNNGpuMode::MNN_GPU_TUNING_WIDE);
-
-    auto checkInvalid = tuneNormalFlag
-                    ? [](uint32_t x, uint32_t y, uint32_t z, uint32_t subgroupSize) -> bool { return x * y * z > 4 * subgroupSize || x > 128 || y > 128 || z > 128 ; } // MNN_GPU_TUNING_WIDE
-                    : [](uint32_t x, uint32_t y, uint32_t z, uint32_t subgroupSize) -> bool { return x * y * z > 16 * subgroupSize; };                                 // MNN_GPU_TUNING_HEAVY
 
     for (uint32_t z = localSizeRangeZ.first; z <= localSizeRangeZ.second; z = z << 1) {
         for (uint32_t y = localSizeRangeY.first; y <= localSizeRangeY.second; y = y << 1) {
@@ -607,6 +632,35 @@ std::vector<uint32_t> VulkanBackend::autoTunePipeline(SharedPtr<VulkanPipeline> 
 
     return lwsOptimal;
 }
+
+
+
+#ifdef ENABLE_VULKAN_TIME_PROFILE
+void VulkanBackend::printTimeProfile() const {
+    MNN_ASSERT(mQueryPools.size() == mExecutionNames.size());
+    float timeTotal = 0.0f;
+    std::unordered_map<std::string, float> timeTable;
+    MNN_PRINT("Vulkan Time Profiling:\n");
+    for (int i = 0; i < mQueryPools.size(); i++) {
+        float timeCurr = mQueryPools[i]->VulkanGetQueryPoolResults();
+        timeTable[mExecutionNames[i]] += timeCurr;
+        timeTotal += timeCurr;
+        MNN_PRINT("%-30s time is %4.2f ms.\n", mExecutionNames[i].c_str(), timeCurr);
+    }
+
+    std::vector<std::pair<std::string, float>> timeVectorForSort(timeTable.begin(), timeTable.end());
+    std::sort(timeVectorForSort.begin(), timeVectorForSort.end(), [](const std::pair<std::string, float>& a, const std::pair<std::string, float>& b) {
+        return a.second > b.second;
+    });
+
+    MNN_PRINT("\nSummary:\n");
+    for (int i = 0; i < timeVectorForSort.size(); i++) {
+        MNN_PRINT("%-30s time is %4.2f ms.\n", timeVectorForSort[i].first.c_str(), timeVectorForSort[i].second);
+    }
+
+    MNN_PRINT("\nTotal time summed up by commandBuffers is %6.2f ms\n", timeTotal);
+}
+#endif
 
 
 

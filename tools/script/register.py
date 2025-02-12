@@ -6,7 +6,6 @@ def generateShape(rootDir):
     shapeLists = []
     renderShape = []
     transformerFuseShape = []
-    audioShape = []
     def collectFile(f):
         if os.path.isdir(f):
             return
@@ -51,13 +50,6 @@ def generateShape(rootDir):
                     l = l.split(',')
                     func = '___' + l[0] + '__'+l[1]+"__"
                     transformerFuseShape.append(func)
-                elif l.find('REGISTER_SHAPE_AUDIO') >= 0:
-                    l = l.replace("REGISTER_SHAPE_AUDIO(", "")
-                    l = l.split(')')[0]
-                    l = l.replace(' ', "")
-                    l = l.split(',')
-                    func = '___' + l[0] + '__'+l[1]+"__"
-                    audioShape.append(func)
     shapeRegFile = os.path.join(shapeDir, "ShapeRegister.cpp")
     print(shapeRegFile)
     for fi in os.listdir(shapeDir):
@@ -84,10 +76,6 @@ def generateShape(rootDir):
         for l in transformerFuseShape:
             f.write("extern void " + l + '();\n')
         f.write('#endif\n')
-        f.write('#ifdef ' + 'MNN_BUILD_AUDIO' + '\n')
-        for l in audioShape:
-            f.write("extern void " + l + '();\n')
-        f.write('#endif\n')
         f.write('void registerShapeOps() {\n')
         for l in shapeLists:
             f.write(l+'();\n')
@@ -97,10 +85,6 @@ def generateShape(rootDir):
         f.write('#endif\n')
         f.write('#ifdef ' + 'MNN_SUPPORT_TRANSFORMER_FUSE' + '\n')
         for l in transformerFuseShape:
-            f.write(l+'();\n')
-        f.write('#endif\n')
-        f.write('#ifdef ' + 'MNN_BUILD_AUDIO' + '\n')
-        for l in audioShape:
             f.write(l+'();\n')
         f.write('#endif\n')
         f.write("}\n}\n")
@@ -113,7 +97,6 @@ def generateCPUFile(rootDir):
     funcNames = []
     renderNames = []
     transformerNamse = []
-    audioNames = []
     def collectFile(fileNames, dirname):
         for fi in fileNames:
             f = os.path.join(dirname, fi)
@@ -133,8 +116,6 @@ def generateCPUFile(rootDir):
                         renderNames.append(funcName)
                     elif lo.find('REGISTER_CPU_OP_CREATOR_TRANSFORMER') >= 0:
                         transformerNamse.append(funcName)
-                    elif lo.find('REGISTER_CPU_OP_CREATOR_AUDIO') >= 0:
-                        audioNames.append(funcName)
                     else:
                         funcNames.append(funcName)
     fileNames = os.listdir(cpuDir)
@@ -158,10 +139,6 @@ def generateCPUFile(rootDir):
         for l in transformerNamse:
             f.write("extern void " + l + '();\n')
         f.write('#endif\n')
-        f.write('#ifdef ' + 'MNN_BUILD_AUDIO' + '\n')
-        for l in audioNames:
-            f.write("extern void " + l + '();\n')
-        f.write('#endif\n')
         f.write('void registerCPUOps() {\n')
         for l in funcNames:
             f.write(l+'();\n')
@@ -171,10 +148,6 @@ def generateCPUFile(rootDir):
         f.write('#endif\n')
         f.write('#ifdef ' + 'MNN_SUPPORT_TRANSFORMER_FUSE' + '\n')
         for l in transformerNamse:
-            f.write(l+'();\n')
-        f.write('#endif\n')
-        f.write('#ifdef ' + 'MNN_BUILD_AUDIO' + '\n')
-        for l in audioNames:
             f.write(l+'();\n')
         f.write('#endif\n')
         f.write("}\n}\n")

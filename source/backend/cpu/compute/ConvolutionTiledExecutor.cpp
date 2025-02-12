@@ -189,7 +189,7 @@ std::pair<int, bool> ConvolutionTiledExecutor::turnIm2ColToBlitInfo(float const 
                     auto srcKx   = srcKy + ((oxBegin + sta) * p.strideX + p.dilateX * kx - p.padX) * bytes * unit;
                     srcPtr[number]     = (const float*)srcKx;
                     el[4 * number + 0] = end - sta;
-                     el[4 * number + 1] = p.icup4;
+                    el[4 * number + 1] = p.icup4;
                     el[4 * number + 2] = eStart + sta;
                     el[4 * number + 3] = lOffset;
                     number++;

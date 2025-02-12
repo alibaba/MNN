@@ -187,9 +187,6 @@ endif()
 if(MNN_SUPPORT_TRANSFORMER_FUSE)
     add_definitions(-DMNN_SUPPORT_TRANSFORMER_FUSE)
 endif()
-if(MNN_BUILD_AUDIO)
-    add_definitions(-DMNN_BUILD_AUDIO)
-endif()
 # debug options
 if(MNN_DEBUG_MEMORY)
     add_definitions(-DMNN_DEBUG_MEMORY)
@@ -215,6 +212,8 @@ option(MNN_CUDA "Enable CUDA" OFF)
 option(MNN_TENSORRT "Enable TensorRT" OFF)
 option(MNN_COREML "Enable CoreML" OFF)
 option(MNN_NNAPI "Enable NNAPI" OFF)
+
+option(MNN_GPU_TIME_PROFILE "Enable time profiling for the OpenCL backend and Vulkan backend." OFF)
 
 option(MNN_CUDA_PROFILE "Enable CUDA profile" OFF)
 
@@ -468,6 +467,11 @@ ENDIF()
 IF(MNN_BUILD_LLM)
   file(GLOB MNN_LLM_HDRS ${CMAKE_CURRENT_SOURCE_DIR}/transformers/llm/engine/include/llm/*)
   list(APPEND MNN_EXTRA_HEADERS ${CMAKE_CURRENT_SOURCE_DIR}/transformers/llm/engine/include/llm/llm.hpp)
+ENDIF()
+
+IF(MNN_BUILD_DIFFUSION)
+  file(GLOB MNN_DIFFUSION_HDRS ${CMAKE_CURRENT_SOURCE_DIR}/transformers/diffusion/engine/include/diffusion/*)
+  list(APPEND MNN_EXTRA_HEADERS ${CMAKE_CURRENT_SOURCE_DIR}/transformers/diffusion/engine/include/diffusion/diffusion.hpp)
 ENDIF()
 
 
@@ -918,6 +922,15 @@ ELSE()
     endif()
     FOREACH(HDR ${MNN_LLM_HDRS})
       SET_SOURCE_FILES_PROPERTIES(${HDR} PROPERTIES MACOSX_PACKAGE_LOCATION Headers/llm )
+    ENDFOREACH()
+  ENDIF()
+
+  IF(MNN_BUILD_DIFFUSION)
+    if (NOT MNN_AAPL_FMWK)
+        INSTALL(FILES ${MNN_DIFFUSION_HDRS} DESTINATION include/MNN/diffusion)
+    endif()
+    FOREACH(HDR ${MNN_DIFFUSION_HDRS})
+      SET_SOURCE_FILES_PROPERTIES(${HDR} PROPERTIES MACOSX_PACKAGE_LOCATION Headers/diffusion )
     ENDFOREACH()
   ENDIF()
 

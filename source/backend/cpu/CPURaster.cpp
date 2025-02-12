@@ -104,7 +104,7 @@ ErrorCode CPURaster::onResize(const std::vector<Tensor *> &____inputs, const std
     if (des->regions.size() == 1) {
         OpCommonUtils::turnRegion2Convert(des->regions[0], output, mSingleConvert);
         if (mSingleConvert.type > 0) {
-            mUseThreads = (mSingleConvert.batch * mSingleConvert.area > LAUNCH_MULTI_THREADS_WORKLOAD) ? true : false;
+            mUseThreads = (mSingleConvert.batch * mSingleConvert.channel * mSingleConvert.area > LAUNCH_MULTI_THREADS_WORKLOAD) ? true : false;
             return NO_ERROR;
         }
     }

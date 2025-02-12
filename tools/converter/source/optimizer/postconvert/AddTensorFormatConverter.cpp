@@ -334,6 +334,9 @@ public:
                     op->main.AsBlob()->dataFormat = originTensorType;
                 }
             }
+            if (OpParameter_Reshape == op->main.type) {
+                op->main.AsReshape()->dimType = originTensorType;
+            }
         }
 
         auto config = Global<modelConfig>::Get();

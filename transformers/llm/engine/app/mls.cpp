@@ -81,6 +81,11 @@ static int eval_prompts(Llm *llm, const std::vector<std::string> &prompts) {
             continue;
         }
         llm->response(prompt);
+        auto status = llm->getState();
+        prompt_len += status.prompt_len_;
+        decode_len += status.gen_seq_len_;
+        prefill_time += status.prefill_us_;
+        decode_time += status.decode_us_;
     }
     float vision_s = vision_time / 1e6;
     float audio_s = audio_time / 1e6;

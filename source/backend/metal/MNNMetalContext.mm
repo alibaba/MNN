@@ -179,19 +179,58 @@ static void createLibrary(id<MTLDevice> device, NSMutableDictionary<NSString *, 
     return cmdBuffer;
 }
 
+bool getCloseThreadgroup(const std::map<std::string, std::vector<std::pair<std::vector<uint32_t>, std::tuple<std::vector<uint32_t>, std::vector<uint32_t>, uint32_t>>>> &tuneMap, const std::vector<uint32_t> &gws, const std::string &kernelName, std::tuple<std::vector<uint32_t>, std::vector<uint32_t>, uint32_t>& res){
+    float minScale = 0.1;
+    auto iter = tuneMap.find(kernelName);
+    if(iter == tuneMap.end()){
+        return false;
+    }
+    auto gwsAndLws = iter->second;
+    int size = gws.size();
+    uint32_t minPoint = UINT_MAX;
+    int index = -1;
+    for(int i = 0; i < gwsAndLws.size(); ++i){
+        uint32_t point = 0;
+        for(int j = 0; j < size; ++j){
+            point += std::abs(static_cast<int>(gws[j]) - static_cast<int>(gwsAndLws[i].first[j]));
+        }
+        if(point < minPoint){
+            index = i;
+            minPoint = point;
+        }
+    }
+    if(index != -1){
+        res = gwsAndLws[index].second;
+        return true;
+    }
+    return false;
+}
+
 - (std::tuple<MTLSize, MTLSize, NSUInteger>) getGridAndThreadgroup: (id<MTLComputePipelineState>)pipeline gid:(MTLSize)threads loop:(NSUInteger)count buffer:(NSArray *)buffers runtime:(MetalRuntime *) rt shaderName:(std::string) kernelName offsets:(int *) offset_arr queue:(id<MTLCommandQueue>) cmdqueue {
     NSUInteger gid_x = threads.width;
     NSUInteger gid_y = threads.height;
     NSUInteger gid_z = threads.depth;
-
+    
     auto& tunedThreadGroup = rt->getTunedThreadGroup();
     std::vector<uint32_t> gws = {(uint32_t)gid_x, (uint32_t)gid_y, (uint32_t)gid_z};
     std::pair<std::string, std::vector<uint32_t>> info = std::make_pair(kernelName, gws);
-    if (tunedThreadGroup.find(info) != tunedThreadGroup.end()) {
+    bool exactRes = tunedThreadGroup.find(info) != tunedThreadGroup.end();
+    std::tuple<std::vector<uint32_t>, std::vector<uint32_t>, uint32_t> tuneLwsRes;
+
+    bool closeRes = false;
+    if(!exactRes) {
+        auto& tunedThreadGroupVec = rt->getTunedThreadGroupVec();
+        if(getCloseThreadgroup(tunedThreadGroupVec, gws, kernelName, tuneLwsRes)){
+            closeRes = true;
+        }
+    } else {
+        tuneLwsRes = tunedThreadGroup[info];
+    }
+    if (exactRes || closeRes) {
         //printf("conv2d1x1LocalWSOpt Found! gws:%d %d lws:%d %d\n", gws[0], gws[1], tunedLws[info][0], tunedLws[info][1]);
-        auto groupNum = std::get<0>(tunedThreadGroup[info]);
-        auto groupSize = std::get<1>(tunedThreadGroup[info]);
-        auto timeCost = std::get<2>(tunedThreadGroup[info]);
+        auto groupNum  = std::get<0>(tuneLwsRes);
+        auto groupSize = std::get<1>(tuneLwsRes);
+        auto timeCost  = std::get<2>(tuneLwsRes);
 
         MTLSize _groupNum = {(NSUInteger)groupNum[0], (NSUInteger)groupNum[1], (NSUInteger)groupNum[2]};
         MTLSize _groupSize = {(NSUInteger)groupSize[0], (NSUInteger)groupSize[1], (NSUInteger)groupSize[2]};

@@ -14,8 +14,8 @@
 namespace MNN {
 class CPUDeconvolutionDepthwiseBasic : public CPUDeconvolutionBasic {
 public:
-    CPUDeconvolutionDepthwiseBasic(const Tensor *input, const Op *convOp, Backend *b)
-        : CPUDeconvolutionBasic(input, convOp, b) {
+    CPUDeconvolutionDepthwiseBasic(int inputChannel, const Op *convOp, Backend *b)
+        : CPUDeconvolutionBasic(inputChannel, convOp, b) {
     }
     virtual ~CPUDeconvolutionDepthwiseBasic() = default;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
@@ -27,8 +27,8 @@ private:
 
 class CPUDeconvolutionDepthwiseMultiInput : public CPUDeconvolutionDepthwiseBasic {
 public:
-    CPUDeconvolutionDepthwiseMultiInput(const Tensor *input, const Op *convOp, Backend *b)
-        : CPUDeconvolutionDepthwiseBasic(input, convOp, b) {
+    CPUDeconvolutionDepthwiseMultiInput(int inputChannel, const Op *convOp, Backend *b)
+        : CPUDeconvolutionDepthwiseBasic(inputChannel, convOp, b) {
     }
     virtual ~CPUDeconvolutionDepthwiseMultiInput() = default;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
@@ -40,20 +40,23 @@ private:
     std::vector<Tensor *> mInputs;
 };
 
-class CPUDeconvolutionDepthwise : public CPUDeconvolutionCommon {
+class CPUDeconvolutionDepthwise : public CPUDeconvolutionBasic {
 public:
-    CPUDeconvolutionDepthwise(const Tensor *input, const Op *convOp, Backend *b);
+    static std::shared_ptr<DeconvolutionResource> makeResource(int inputChannel, const Op *convOp, Backend *b);
+    CPUDeconvolutionDepthwise(int inputChannel, const Op *convOp, Backend *b, std::shared_ptr<DeconvolutionResource> res);
     virtual ~CPUDeconvolutionDepthwise();
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override {
-        mInputs = {inputs[0], mWeight.get(), mBias.get()};
+        mInputs = {inputs[0], mResource->mWeight.get(), mResource->mBias.get()};
         return mOrigin->onResize(mInputs, outputs);
     }
+    virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
+
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override {
         return mOrigin->onExecute(mInputs, outputs);
     }
 
 private:
-    std::shared_ptr<Tensor> mWeight;
+    std::shared_ptr<DeconvolutionResource> mResource;
     std::vector<Tensor *> mInputs;
     std::unique_ptr<CPUDeconvolutionDepthwiseBasic> mOrigin;
 };

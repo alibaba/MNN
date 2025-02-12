@@ -27,6 +27,7 @@ public:
                                 const MNN::Op* op) override;
     virtual void onExecuteBegin() const override;
     virtual void onExecuteEnd() const override;
+    void finish();
     virtual bool onSelectDynamicAllocator(int index, int maxIndex) override;
     virtual void onResizeBegin() override;
     virtual ErrorCode onResizeEnd() override;
@@ -94,9 +95,21 @@ public:
     void copyToGPUBuffer(const void* src, VkBuffer buffer, VkDeviceSize size, VkDeviceSize offset) const;
 
     const VulkanDevice& device() const;
+#ifdef ENABLE_VULKAN_TIME_PROFILE
+    void pushQueryPool(std::shared_ptr<VulkanQueryPool> queryPool) {
+        mQueryPools.push_back(queryPool);
+    }
+    void pushExecutionName(std::string executionName) {
+        mExecutionNames.push_back(executionName);
+    }
+#endif
+
 private:
     void _finish() const;
     void _requireHostBuffer(size_t size) const;
+#ifdef ENABLE_VULKAN_TIME_PROFILE
+    void printTimeProfile() const;
+#endif
     mutable std::shared_ptr<VulkanBuffer> mHostBuffer;
 
     std::shared_ptr<VulkanCommandPool::Buffer> mCmdBuffer;
@@ -111,6 +124,11 @@ private:
     bool mDirect;
     const VulkanRuntime* mRuntime;
     bool mUseAutoTune = true;
+
+#ifdef ENABLE_VULKAN_TIME_PROFILE
+    mutable std::vector<std::shared_ptr<VulkanQueryPool>> mQueryPools;
+    mutable std::vector<std::string> mExecutionNames;
+#endif
 };
 
 

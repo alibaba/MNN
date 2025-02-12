@@ -24,7 +24,8 @@ public:
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
     virtual void getPackParameter(int* Unit, int* SrcUnit, int* DestUnit, const CoreInt8Functions* core) = 0;
-    static void reorderWeight(Tensor* weight, const uint8_t* weightSrc, int SRC_UNIT, int UNIT, int ic, int oc, int kernelCount, int pack, int blockNum = 1, int32_t initval = 0);
+    static void packWeightAndQuantInfo(int8_t* dstbuffer, const int8_t* weight, const int8_t* quantInfo, int32_t* info, int infoBytes = 4);
+    static void reorderWeight(uint8_t* dst, const uint8_t* src, int32_t* info, int32_t initval = 0);
 
 protected:
     ConvolutionCommon::Im2ColParameter mIm2ColParamter;
@@ -67,9 +68,8 @@ private:
     std::function<void(float* dest, int8_t* source, const float* scale, ssize_t realDstCount, SumByAxisParams sumParams)> mSumByAxisLFunc;
     std::shared_ptr<Tensor> mQuantInput;
     std::shared_ptr<Tensor> mDynamicBias;
-    std::shared_ptr<Tensor> mScaleFuse;
+    std::shared_ptr<Tensor> mAccumBuffer;
     std::shared_ptr<Tensor> mBatchQuantInfo;
-    std::shared_ptr<Tensor> mInputDeqScales;
     std::shared_ptr<Tensor> mTempMaxMinValueBuffer;
     std::vector<uint8_t> mTempSrcSum;
     std::vector<int32_t> mDivides;
@@ -79,6 +79,9 @@ private:
     int mOcPerThread;
     bool mSplitByOc;
     bool mUseBatchQuan;
+#ifdef MNN_KLEIDIAI_ENABLED
+    KleidiAI::AccelType mAccelType = KleidiAI::AccelType::ACC_TYPE_NUMBER;
+#endif
 };
 
 } // namespace MNN

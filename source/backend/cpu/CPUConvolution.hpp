@@ -45,11 +45,11 @@ public:
         std::shared_ptr<Tensor> mScaleBias;
     };
     struct Resource {
-        std::shared_ptr<Tensor> mWeightKernelSum;
         std::shared_ptr<Tensor> mWeight;
         std::shared_ptr<Tensor> mBias;
         ResourceDequantizeInfo mDequantize;
         Backend* backend;
+        static void copyBias(float* dst, const float* bias, int outputCount, Backend* backend);
         bool copyBiasAlign(const float* bias, int outputCount);
         int hU;
         int lU;
@@ -79,6 +79,7 @@ public:
         int8_t mClampMin;
         int8_t mClampMax;
         bool mDynamicQuant = false;
+        int32_t mBlockNum = 1;
     };
     struct MutableResourceInt8 {
         MutableResourceInt8(std::shared_ptr<ResourceInt8> res, Backend* backend);

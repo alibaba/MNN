@@ -24,7 +24,9 @@ public:
         }
         auto destFmt                                          = info->dest();
 #if KAI_CONV_NCHW_IN_OUT
-        if(KleidiAI::getInstance().canAccelerate()) {
+        KleidiAI& kai = KleidiAI::getInstance();
+        if(kai.canAccelerate()) {
+            kai.setLinear(true);
             destFmt = MNN_DATA_FORMAT_NCHW;
         }
 #endif

@@ -25,6 +25,7 @@ using Vec = MNN::Math::Vec<FLOAT16, 8>;
 extern "C" {
 // (UP_DIV(l,8), e, 8) -> (UP_DIV(e,eP), l, eP)
 void Arm82MNNPackForMatMul_A(float* destOrigin, float const** sourceGroup, const int32_t* info, const int32_t* el);
+// void MNNPackTransposeInt16C8(int16_t* dst, const int16_t* src, size_t area, size_t depth, int32_t* areaOffset);
 
 // C(UP_DIV(h,8), e, h8) = B(UP_DIV(h,hP), l, hP) * A(l, eP), hP = 24
 // parameter: [aStride, l, h, cStride, bExtraStride]
@@ -372,13 +373,43 @@ void MNNUnpackTransposeInt16C8(int16_t* dst, const int16_t* src, size_t area, si
     int c      = (int)depth;
     int cDiv4  = c / 8;
     int cAlign = cDiv4 * 8;
+    int areaDiv4 = area / 4;
+    int areaAlign = areaDiv4 * 4;
 
-    for (int hi = 0; hi < area; ++hi) {
-        auto srcHeight = src + hi * 8;
-        auto dstHeight = dst + hi * c;
+    if (areaAlign > 0) {
         for (int ci = 0; ci < cDiv4; ++ci) {
-            vst1q_s16(dstHeight + ci * 8, vld1q_s16(srcHeight + 8 * ci * srcAreaOffset));
+            auto srcH = src + ci * 8 * srcAreaOffset;
+            auto dstH = dst + ci * 8;
+            for (int hi = 0; hi < areaAlign; hi+=4) {
+                auto src0 = srcH + hi * 8;
+                auto src1 = srcH + hi * 8 + 8;
+                auto src2 = srcH + hi * 8 + 16;
+                auto src3 = srcH + hi * 8 + 24;
+                
+                auto dst0 = dstH + hi * c;
+                auto dst1 = dstH + hi * c + c;
+                auto dst2 = dstH + hi * c + 2 * c;
+                auto dst3 = dstH + hi * c + 3 * c;
+                vst1q_s16(dst0, vld1q_s16(src0));
+                vst1q_s16(dst1, vld1q_s16(src1));
+                vst1q_s16(dst2, vld1q_s16(src2));
+                vst1q_s16(dst3, vld1q_s16(src3));
+            }
         }
+    }
+    if (areaAlign < area) {
+        for (int ci = 0; ci < cDiv4; ++ci) {
+            auto srcH = src + 8 * ci * srcAreaOffset;
+            auto dstH = dst + ci * 8;
+            for (int hi = areaAlign; hi < area; ++hi) {
+                auto src0 = srcH + hi * 8;
+                auto dst0 = dstH + hi * c;
+                vst1q_s16(dst0, vld1q_s16(src0));
+            }
+        }
+    }
+    if (c == cAlign) {
+        return;
     }
 
     int cReamin   = c - cAlign;
@@ -404,11 +435,37 @@ void MNNPackTransposeInt16C8(int16_t* dst, const int16_t* src, size_t area, size
     int c      = (int)depth;
     int cDiv4  = c / 8;
     int cAlign = cDiv4 * 8;
-    for (int hi = 0; hi < area; ++hi) {
-        auto srcHeight = (src + hi * c);
-        auto dstHeight = (dst + hi * 8);
+    int areaDiv4 = area / 4;
+    int areaAlign = areaDiv4 * 4;
+    if (areaAlign > 0) {
         for (int ci = 0; ci < cDiv4; ++ci) {
-            vst1q_s16(dstHeight + ci * dstAreaOffset * 8, vld1q_s16(srcHeight + 8 * ci));
+            auto srcH = src + ci * 8;
+            auto dstH = dst + ci * dstAreaOffset * 8;
+            for (int hi = 0; hi < areaAlign; hi+=4) {
+                auto src0 = srcH + hi * c;
+                auto src1 = srcH + hi * c + c;
+                auto src2 = srcH + hi * c + 2 * c;
+                auto src3 = srcH + hi * c + 3 * c;
+                auto dst0 = dstH + hi * 8;
+                auto dst1 = dstH + hi * 8 + 8;
+                auto dst2 = dstH + hi * 8 + 16;
+                auto dst3 = dstH + hi * 8 + 24;
+                vst1q_s16(dst0, vld1q_s16(src0));
+                vst1q_s16(dst1, vld1q_s16(src1));
+                vst1q_s16(dst2, vld1q_s16(src2));
+                vst1q_s16(dst3, vld1q_s16(src3));
+            }
+        }
+    }
+    if (areaAlign < area) {
+        for (int ci = 0; ci < cDiv4; ++ci) {
+            auto srcH = src + ci * 8;
+            auto dstH = dst + ci * dstAreaOffset * 8;
+            for (int hi = areaAlign; hi < area; ++hi) {
+                auto src0 = srcH + hi * c;
+                auto dst0 = dstH + hi * 8;
+                vst1q_s16(dst0, vld1q_s16(src0));
+            }
         }
     }
 

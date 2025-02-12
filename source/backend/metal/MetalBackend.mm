@@ -1060,6 +1060,7 @@ bool MetalRuntime::setCache(std::pair<const void*, size_t> cache) {//Get Cache
             }
             uint32_t cost = tun->timeCost();
             mTunedThreadGroup.insert(std::make_pair(std::make_pair(tun->key()->str(), glo), std::make_tuple(grop, loc, cost)));
+            mTunedThreadGroupVec[tun->key()->str()].emplace_back(std::make_pair(glo, std::make_tuple(grop, loc, cost)));
         }
     }
     return true;
