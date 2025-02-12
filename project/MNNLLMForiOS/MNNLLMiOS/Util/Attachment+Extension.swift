@@ -14,7 +14,6 @@ extension Attachment {
             return "\(full.path)"
         case .video:
             return "\(full.path)"
-        // 可以根据需要添加其他类型的处理
         }
     }
 }

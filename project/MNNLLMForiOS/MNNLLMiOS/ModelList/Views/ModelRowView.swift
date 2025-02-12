@@ -8,6 +8,7 @@
 import SwiftUI
 
 struct ModelRowView: View {
+    
     let model: ModelInfo
     let downloadProgress: Double
     let isDownloading: Bool

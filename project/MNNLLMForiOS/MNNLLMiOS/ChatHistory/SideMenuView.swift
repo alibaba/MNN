@@ -42,14 +42,13 @@ struct SideMenuView: View {
                                 historyToDelete = history
                                 showingAlert = true
                             }
-                        
-                        .listRowBackground(Color.customLightGray)
+                            .listRowBackground(Color.sidemenuBg)
                     }
                 }
-                .background(Color.customLightGray)
+                .background(Color.sidemenuBg)
                 .listStyle(PlainListStyle())
             }
-            .background(Color.customLightGray)
+            .background(Color.sidemenuBg)
             .frame(width: geometry.size.width * 0.8)
             .offset(x: isOpen ? 0 : -geometry.size.width * 0.8)
             .animation(.easeOut, value: isOpen)

@@ -8,12 +8,14 @@
 import SwiftUI
 
 struct ModelListView: View {
-    @StateObject private var viewModel = ModelListViewModel()
+    
     @State private var scrollOffset: CGFloat = 0
     @State private var showHelp = false
     @State private var showHistory = false
     @State private var selectedHistory: ChatHistory?
     @State private var histories: [ChatHistory] = []
+    
+    @StateObject private var viewModel = ModelListViewModel()
     
     var body: some View {
         ZStack {
@@ -128,7 +130,8 @@ struct ModelListView: View {
             updateHistory()
         }
     }
-    func updateHistory() {
+    
+    private func updateHistory() {
         histories = ChatHistoryManager.shared.getAllHistory()
     }
 }
