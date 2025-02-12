@@ -86,8 +86,10 @@ static EXPRP _transformConv3D(EXPRP expr) {
             for (int k = 0; k < size; ++k) {
                 outputPadding.push_back(dataList->i()->data()[k]);
             }
+        } else if (key == "output_shape") {
+            // TODO: Support outputshape
+            MNN_ERROR("ConvTranspose3d currently not support output_shape");
         }
-        // TODO: Support outputshape
     }
     common->outPads = outputPadding;
 

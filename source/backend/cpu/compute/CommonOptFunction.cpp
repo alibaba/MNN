@@ -221,17 +221,11 @@ void MNNQuantSumFP32(float* sum, const float* dequant_scale, size_t thread, size
     }
 }
 
-void MNNDynamicUpdateConvBiasScale(float* newbias, float* newscale, float* oldbias, float* weightScale, float* inputScale, float* weightKernelSum, float* inputZero, size_t ocQuad, size_t scaleSize) {
+void MNNDynamicUpdateConvBiasScale(float* newbias, float* oldbias, float* weightKernelSum, float* inputZero, size_t ocQuad) {
     int ocUp4 = 4 * ocQuad;
     int pack = 4;
-    int blockNum = scaleSize / ocUp4;
     for (int i = 0; i < ocUp4; ++i) {
         newbias[i] = oldbias[i] - weightKernelSum[i] * inputZero[0];
-    }
-    for (int k = 0; k < blockNum; ++k) {
-        for (int i = 0; i < ocUp4; ++i) {
-           newscale[i + k * ocUp4] = weightScale[i + k * ocUp4] * inputScale[0];
-        }
     }
 }
 
@@ -243,6 +237,10 @@ static void MNNAbsMaxFP32(const float* source, float* absmax, size_t src_depth_q
 #ifdef __aarch64__
     if (pack == 4) {
         MNNAbsMaxFP32_Pack4(source, absmax, src_depth_quad, realSize, pack);
+        return;
+    }
+    if (pack == 8) {
+        MNNAbsMaxFP32_Pack8(source, absmax, src_depth_quad, realSize, pack);
         return;
     }
 #endif
@@ -264,6 +262,10 @@ void MNNDynamicQuantFP32(const float* src, int8_t* dst, const float* scale, size
 #ifdef __aarch64__
     if (pack == 4) {
         MNNDynamicQuantFP32_Pack4(src, dst, scale, src_depth_quad, realSize, pack);
+        return;
+    }
+    if (pack == 8) {
+        MNNDynamicQuantFP32_Pack8(src, dst, scale, src_depth_quad, realSize, pack);
         return;
     }
 #endif
@@ -3254,7 +3256,7 @@ static void generalIm2col(float* destOrigin, float const** sourceGroup, const in
         }
     }
 }
-#endif
+#endif // MNN_LOW_MEMORY
 
 namespace MNN {
 

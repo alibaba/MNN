@@ -237,9 +237,6 @@ private:
         CPUBackend::addCreator(opType, &_temp); \
     }
 
-#define REGISTER_CPU_OP_CREATOR_AUDIO(name, opType) \
-    REGISTER_CPU_OP_CREATOR(name, opType)
-
 } // namespace MNN
 
 #endif /* CPUBackend_hpp */

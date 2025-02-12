@@ -57,6 +57,7 @@ void MNNFunctionInit() {
 
 #ifdef MNN_LOW_MEMORY
         coreFunction->MNNAbsMax = _SSE_MNNAbsMaxFP32;
+        coreFunction->MNNDynamicQuant = _SSE_MNNDynamicQuant;
 #endif
         coreFunction->MNNPackC4ForMatMul_A  = _SSE_MNNPackC4ForMatMul_A;
         coreFunction->MNNPackForMatMul_B    = _SSE_MNNPackForMatMul_B;

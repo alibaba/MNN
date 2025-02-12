@@ -673,10 +673,12 @@ static bool _RebuildExternalOp(FileLoader* external, const MNN::Op* origin, flat
                     external->read((char*)param->quanParameter->index.data(), param->external[4]);
                 }
             } else {
-                external->offset(param->external[0]);
-                param->weight.resize(param->external[1] / sizeof(float));
-                external->read((char*)param->weight.data(), param->external[1]);
+                // Create quanParameter, will load external weight in ConvolutionCommon::load
+                param->quanParameter.reset(new IDSTQuanT);
+                param->quanParameter->type = 8;
+                op->externalPath = external->path();
                 param->bias.resize(param->external[2] / sizeof(float));
+                external->offset(param->external[0] + param->external[1]);
                 external->read((char*)param->bias.data(), param->external[2]);
             }
             break;
@@ -724,6 +726,7 @@ Execution* OpCommonUtils::createExecutionWithExternal(Backend* backend, const st
         return execution;
     }
     if (op->main_type() == OpParameter_Convolution2D) {
+        // For convolution / deconvolution, execution will need op info after created, try clone it and remove newOp
         Execution* copyExe = nullptr;
         execution->onClone(backend, op, &copyExe);
         if (nullptr != copyExe) {

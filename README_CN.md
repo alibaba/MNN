@@ -155,4 +155,5 @@ MNN参考、借鉴了下列项目：
 - [libyuv](https://chromium.googlesource.com/libyuv/libyuv)
 - [libjpeg](https://github.com/libjpeg-turbo/libjpeg-turbo)
 - [opencv](https://github.com/opencv/opencv)
+- [onnxruntime](https://github.com/microsoft/onnxruntime)
 

@@ -1416,7 +1416,7 @@ static void MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, co
                                               size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realCount) {
     const int bytes = ((post->useInt8 == 1) ? 1 : 4);
     float fp32min = 0, fp32max = 0;
-    int weight_step_Z = src_depth_quad * (GEMM_INT8_UNIT * GEMM_INT8_SRC_UNIT);
+    int weight_step_Z = src_depth_quad * (GEMM_INT8_UNIT * GEMM_INT8_SRC_UNIT) + 4 * 2 * GEMM_INT8_UNIT;
     int weight_step_Y = (GEMM_INT8_UNIT * GEMM_INT8_SRC_UNIT);
     const auto srcSumPtr = post->srcKernelSum;
     if (0 == post->useInt8 && post->fp32minmax) {
@@ -1425,17 +1425,19 @@ static void MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, co
     }
 
     float* biasPtr = (float*)post->biasFloat;
+    auto accumbuff = post->accumBuffer;
     
     for (int dz = 0; dz < dst_depth_quad; ++dz) {
-        const auto weight_dz = weight + weight_step_Z * dz;
-        const auto bias_dz   = biasPtr + dz * GEMM_INT8_UNIT;
-        const auto weight_zero = post->weightQuanBias + (dz * GEMM_INT8_UNIT);
-        const float* scale_dz = nullptr;
-        scale_dz  = post->scale + (dz * GEMM_INT8_UNIT);
-        auto dst_z           = dst + dz * dst_step;
+        const auto weight_dz    = weight + weight_step_Z * dz;
+        const auto bias_dz      = biasPtr + dz * GEMM_INT8_UNIT;
+        const float* scale_dz   = reinterpret_cast<const float*>(weight_dz + src_depth_quad * weight_step_Y);
+        const auto weight_zero  = scale_dz + GEMM_INT8_UNIT;
+        auto dst_z              = dst + dz * dst_step;
+        auto accum_z            = accumbuff + dz * realCount * GEMM_INT8_UNIT;
         for (int w = 0; w < realCount; ++w) {
             const auto src_x   = src + w * GEMM_INT8_SRC_UNIT;
             auto dst_x         = dst_z + w * GEMM_INT8_UNIT * bytes;
+            auto accum_x       = accum_z + w * GEMM_INT8_UNIT;
             int32_t dstTemp[4] = {0, 0, 0, 0};
 
             for (int sz = 0; sz < src_depth_quad; ++sz) {
@@ -1459,13 +1461,18 @@ static void MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, co
                     if (biasPtr) {
                         value += bias_dz[j];
                     } else {
-                        float dstv = ((float*)dst_x)[j];
+                        float dstv = ((float*)accum_x)[j];
                         value += dstv;
                     }
-                    if (post->fp32minmax) {
-                        value = std::min(std::max(fp32min, value), fp32max);
+                    if (dst) {
+                        if (post->fp32minmax) {
+                            value = std::min(std::max(fp32min, value), fp32max);
+                        }
+                        ((float*)dst_x)[j] = value;             
+                    } else {
+                        ((float*)accum_x)[j] = value;
                     }
-                    ((float*)dst_x)[j] = value;
+                    
                 } else {
                     value += bias_dz[j];
                     value       = ALIMAX(value, post->minValue);
@@ -1481,8 +1488,8 @@ static void MNNGemmInt8AddBiasScale_16x4_w4_Unit(int8_t* dst, const int8_t* src,
     uint32_t c = 0xf;
     const int bytes = 4;
     float fp32min = 0, fp32max = 0;
-    int weight_step_Z = 0.5 * (src_depth_quad) * (GEMM_INT8_UNIT * GEMM_INT8_SRC_UNIT);
     int weight_step_Y = 0.5 * (GEMM_INT8_UNIT * GEMM_INT8_SRC_UNIT);
+    int weight_step_Z = weight_step_Y * src_depth_quad + 4 * 2 * GEMM_INT8_UNIT;
     MNN_ASSERT(post->useInt8==0);
     if (post->fp32minmax) {
         fp32min = (post->fp32minmax)[0];
@@ -1490,18 +1497,20 @@ static void MNNGemmInt8AddBiasScale_16x4_w4_Unit(int8_t* dst, const int8_t* src,
     }
 
     float* biasPtr = (float*)post->biasFloat;
+    auto accumbuff = post->accumBuffer;
 
     const auto srcSumPtr = post->srcKernelSum;
     for (int dz = 0; dz < dst_depth_quad; ++dz) {
         const auto weight_dz = weight + weight_step_Z * dz;
         const auto bias_dz   = biasPtr + dz * GEMM_INT8_UNIT;
-        const auto weight_zero = post->weightQuanBias + (dz * GEMM_INT8_UNIT);
-        const float* scale_dz = nullptr;
-        scale_dz  = post->scale + (dz * GEMM_INT8_UNIT);
+        const float* scale_dz = reinterpret_cast<const float*>(weight_dz + src_depth_quad * weight_step_Y);
+        const auto weight_zero = scale_dz + GEMM_INT8_UNIT;
         auto dst_z           = dst + dz * dst_step;
+        auto accum_z         = accumbuff + dz * realCount * GEMM_INT8_UNIT;
         for (int w = 0; w < realCount; ++w) {
             const auto src_x   = src + w * GEMM_INT8_SRC_UNIT;
             auto dst_x         = dst_z + w * GEMM_INT8_UNIT * bytes;
+            auto accum_x       = accum_z + w * GEMM_INT8_UNIT;
             int32_t dstTemp[4] = {0, 0, 0, 0};
 
             for (int sz = 0; sz < src_depth_quad; ++sz) {
@@ -1531,13 +1540,17 @@ static void MNNGemmInt8AddBiasScale_16x4_w4_Unit(int8_t* dst, const int8_t* src,
                 if (biasPtr) {
                     value += bias_dz[j];
                 } else {
-                    float dstv = ((float*)dst_x)[j];
+                    float dstv = ((float*)accum_x)[j];
                     value += dstv;
                 }
-                if (post->fp32minmax) {
-                    value = std::min(std::max(fp32min, value), fp32max);
+                if (dst) {
+                    if (post->fp32minmax) {
+                        value = std::min(std::max(fp32min, value), fp32max);
+                    }    
+                    ((float*)dst_x)[j] = value;         
+                } else {
+                    ((float*)accum_x)[j] = value;
                 }
-                ((float*)dst_x)[j] = value;
             }
         }
     }

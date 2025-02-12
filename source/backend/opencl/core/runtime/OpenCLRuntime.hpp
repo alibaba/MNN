@@ -69,7 +69,7 @@ private:
 };
 class OpenCLRuntime {
 public:
-    OpenCLRuntime(const BackendConfig::PrecisionMode precision, const int cl_mode, int platformSize, int platformId, int deviceId, void *contextPtr, void *glShared);
+    OpenCLRuntime(const BackendConfig::PrecisionMode precision, const int cl_mode, int platformSize, int platformId, int deviceId, void *contextPtr, void *glShared, const RuntimeHint& hint);
     ~OpenCLRuntime();
     OpenCLRuntime(const OpenCLRuntime &) = delete;
     OpenCLRuntime &operator=(const OpenCLRuntime &) = delete;

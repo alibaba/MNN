@@ -11,7 +11,7 @@ os.environ['PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION'] = 'python'
 
 import onnx
 import torch
-from typing import Optional
+from typing import Optional, List
 from transformers import AutoConfig, AutoModel, AutoModelForCausalLM, AutoTokenizer
 
 from utils.spinner import spinner_run
@@ -247,7 +247,7 @@ class LlmExporter(torch.nn.Module):
                 input_ids: torch.Tensor,
                 attention_mask: torch.Tensor,
                 position_ids: torch.Tensor,
-                past_key_values: Optional[list[torch.Tensor]] = None,
+                past_key_values: Optional[List[torch.Tensor]] = None,
                 cross_attention_states: Optional[torch.Tensor] = None,
                 cross_attention_mask: Optional[torch.Tensor] = None,
                 ):

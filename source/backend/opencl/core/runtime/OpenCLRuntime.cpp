@@ -38,7 +38,7 @@ static void callback(const char *buffer, size_t length, size_t final, void *user
 }
 #endif
 
-OpenCLRuntime::OpenCLRuntime(const BackendConfig::PrecisionMode precision, const int cl_mode, int platformSize, int platformId, int deviceId, void *contextPtr, void *glShared) {
+OpenCLRuntime::OpenCLRuntime(const BackendConfig::PrecisionMode precision, const int cl_mode, int platformSize, int platformId, int deviceId, void *contextPtr, void *glShared, const RuntimeHint& hint) {
 #ifdef LOG_VERBOSE
     MNN_PRINT("start OpenCLRuntime !\n");
 #endif
@@ -271,8 +271,7 @@ OpenCLRuntime::OpenCLRuntime(const BackendConfig::PrecisionMode precision, const
                     uint32_t MaxRecordableQueueSize = mFirstGPUDevicePtr->getInfo<CL_DEVICE_RECORDABLE_QUEUE_MAX_SIZE>();
                     cl_int err;
                     if(MaxRecordableQueueSize > 0){
-                        // TODO: Use setSessionHint to set the number of mUseRecordableQueueSize
-                        mUseRecordableQueueSize = MaxRecordableQueueSize;
+                        mUseRecordableQueueSize = hint.encorderNumForCommit;
                         mUseRecordableQueueSize = MaxRecordableQueueSize < mUseRecordableQueueSize ? MaxRecordableQueueSize : mUseRecordableQueueSize;
                         mUseRecordQueue = true;
                         mRecordableQueuePtr = std::make_shared<cl::CommandQueue>(*mContext, *mFirstGPUDevicePtr, CL_QUEUE_RECORDABLE_QCOM, &err);

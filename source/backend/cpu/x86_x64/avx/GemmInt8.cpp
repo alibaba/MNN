@@ -72,8 +72,9 @@ void _AVX_MNNGemmInt8AddBiasScale_16x4_w4(int8_t* dst, const int8_t* src, const 
     if (post->biasFloat) {
         biasPtr = post->biasFloat;
     }
+    auto accumbuff = post->accumBuffer;
 
-    int weight_step_Z = 0.5 * src_depth_quad * (GEMMINT8_AVX2_L * GEMMINT8_AVX2_H);
+    int weight_step_Z = 0.5 * src_depth_quad * (GEMMINT8_AVX2_L * GEMMINT8_AVX2_H) + 4 * 2 * GEMMINT8_AVX2_H;
     int weight_step_Y = 0.5 * (GEMMINT8_AVX2_L * GEMMINT8_AVX2_H);
     const __m128i mask = _mm_set1_epi8(0xf);
     
@@ -122,11 +123,13 @@ void _AVX_MNNGemmInt8AddBiasScale_16x4_w4(int8_t* dst, const int8_t* src, const 
     if (GEMMINT8_AVX2_E == realDst) {
         for (int dz = 0; dz < dst_depth_quad; ++dz) {
             const auto weight_dz = weight + dz * weight_step_Z;
-            const auto weightBias_dz = post->weightQuanBias + dz * AVX2_PACKINT8;
-            const float* scale_dz = post->scale + dz * AVX2_PACKINT8;
+            const float* scale_dz = reinterpret_cast<const float*>(weight_dz + src_depth_quad * weight_step_Y);
+            const auto weightBias_dz = scale_dz + GEMMINT8_AVX2_H;
             auto dst_z           = dst + dz * dst_step_tmp;
             const auto src_x   = src;
             auto dst_x         = dst_z;
+            auto accum_z         = accumbuff + dz * realDst * AVX2_PACKINT8;
+            auto accum_x       = accum_z;
             __m256i D00 = _mm256_set1_epi32(0);
             __m256i D01 = _mm256_set1_epi32(0);
             __m256i D02 = _mm256_set1_epi32(0);
@@ -199,41 +202,49 @@ void _AVX_MNNGemmInt8AddBiasScale_16x4_w4(int8_t* dst, const int8_t* src, const 
                 f2 = _mm256_add_ps(f2, biasValue);
                 f3 = _mm256_add_ps(f3, biasValue);
             } else {
-                auto dstv0 = _mm256_loadu_ps(((float*)dst_x) + 0 * AVX2_PACKINT8);
-                auto dstv1 = _mm256_loadu_ps(((float*)dst_x) + 1 * AVX2_PACKINT8);
-                auto dstv2 = _mm256_loadu_ps(((float*)dst_x) + 2 * AVX2_PACKINT8);
-                auto dstv3 = _mm256_loadu_ps(((float*)dst_x) + 3 * AVX2_PACKINT8);
+                auto dstv0 = _mm256_loadu_ps(((float*)accum_x) + 0 * AVX2_PACKINT8);
+                auto dstv1 = _mm256_loadu_ps(((float*)accum_x) + 1 * AVX2_PACKINT8);
+                auto dstv2 = _mm256_loadu_ps(((float*)accum_x) + 2 * AVX2_PACKINT8);
+                auto dstv3 = _mm256_loadu_ps(((float*)accum_x) + 3 * AVX2_PACKINT8);
                 f0 = _mm256_add_ps(f0, dstv0);
                 f1 = _mm256_add_ps(f1, dstv1);
                 f2 = _mm256_add_ps(f2, dstv2);
                 f3 = _mm256_add_ps(f3, dstv3);
             }
-            if (post->fp32minmax) {
-                f0 = _mm256_min_ps(f0, fp32max);
-                f1 = _mm256_min_ps(f1, fp32max);
-                f2 = _mm256_min_ps(f2, fp32max);
-                f3 = _mm256_min_ps(f3, fp32max);
-                f0 = _mm256_max_ps(f0, fp32min);
-                f1 = _mm256_max_ps(f1, fp32min);
-                f2 = _mm256_max_ps(f2, fp32min);
-                f3 = _mm256_max_ps(f3, fp32min);
+            if (dst) {
+                if (post->fp32minmax) {
+                    f0 = _mm256_min_ps(f0, fp32max);
+                    f1 = _mm256_min_ps(f1, fp32max);
+                    f2 = _mm256_min_ps(f2, fp32max);
+                    f3 = _mm256_min_ps(f3, fp32max);
+                    f0 = _mm256_max_ps(f0, fp32min);
+                    f1 = _mm256_max_ps(f1, fp32min);
+                    f2 = _mm256_max_ps(f2, fp32min);
+                    f3 = _mm256_max_ps(f3, fp32min);
+                    _mm256_storeu_ps(((float*)dst_x) + 0 * AVX2_PACKINT8, f0);
+                    _mm256_storeu_ps(((float*)dst_x) + 1 * AVX2_PACKINT8, f1);
+                    _mm256_storeu_ps(((float*)dst_x) + 2 * AVX2_PACKINT8, f2);
+                    _mm256_storeu_ps(((float*)dst_x) + 3 * AVX2_PACKINT8, f3);
+                }
+            } else {
+                _mm256_storeu_ps(((float*)accum_x) + 0 * AVX2_PACKINT8, f0);
+                _mm256_storeu_ps(((float*)accum_x) + 1 * AVX2_PACKINT8, f1);
+                _mm256_storeu_ps(((float*)accum_x) + 2 * AVX2_PACKINT8, f2);
+                _mm256_storeu_ps(((float*)accum_x) + 3 * AVX2_PACKINT8, f3);
             }
-            _mm256_storeu_ps(((float*)dst_x) + 0 * AVX2_PACKINT8, f0);
-            _mm256_storeu_ps(((float*)dst_x) + 1 * AVX2_PACKINT8, f1);
-            _mm256_storeu_ps(((float*)dst_x) + 2 * AVX2_PACKINT8, f2);
-            _mm256_storeu_ps(((float*)dst_x) + 3 * AVX2_PACKINT8, f3);
-            
         }
         return;
     }
     if (3 == realDst) {
         for (int dz = 0; dz < dst_depth_quad; ++dz) {
             const auto weight_dz = weight + dz * weight_step_Z;
-            const auto weightBias_dz = post->weightQuanBias + dz * AVX2_PACKINT8;
-            const float* scale_dz = post->scale + dz * AVX2_PACKINT8;
+            const float* scale_dz = reinterpret_cast<const float*>(weight_dz + src_depth_quad * weight_step_Y);
+            const auto weightBias_dz = scale_dz + GEMMINT8_AVX2_H;
             auto dst_z           = dst + dz * dst_step_tmp;
             const auto src_x   = src;
             auto dst_x         = dst_z;
+            auto accum_z         = accumbuff + dz * realDst * AVX2_PACKINT8;
+            auto accum_x       = accum_z;
             __m256i D00 = _mm256_set1_epi32(0);
             __m256i D01 = _mm256_set1_epi32(0);
             __m256i D02 = _mm256_set1_epi32(0);
@@ -295,36 +306,43 @@ void _AVX_MNNGemmInt8AddBiasScale_16x4_w4(int8_t* dst, const int8_t* src, const 
                 f1 = _mm256_add_ps(f1, biasValue);
                 f2 = _mm256_add_ps(f2, biasValue);
             } else {
-                auto dstv0 = _mm256_loadu_ps(((float*)dst_x) + 0 * AVX2_PACKINT8);
-                auto dstv1 = _mm256_loadu_ps(((float*)dst_x) + 1 * AVX2_PACKINT8);
-                auto dstv2 = _mm256_loadu_ps(((float*)dst_x) + 2 * AVX2_PACKINT8);
+                auto dstv0 = _mm256_loadu_ps(((float*)accum_x) + 0 * AVX2_PACKINT8);
+                auto dstv1 = _mm256_loadu_ps(((float*)accum_x) + 1 * AVX2_PACKINT8);
+                auto dstv2 = _mm256_loadu_ps(((float*)accum_x) + 2 * AVX2_PACKINT8);
                 f0 = _mm256_add_ps(f0, dstv0);
                 f1 = _mm256_add_ps(f1, dstv1);
                 f2 = _mm256_add_ps(f2, dstv2);
             }
-            if (post->fp32minmax) {
-                f0 = _mm256_min_ps(f0, fp32max);
-                f1 = _mm256_min_ps(f1, fp32max);
-                f2 = _mm256_min_ps(f2, fp32max);
-                f0 = _mm256_max_ps(f0, fp32min);
-                f1 = _mm256_max_ps(f1, fp32min);
-                f2 = _mm256_max_ps(f2, fp32min);
+            if (dst) {
+                if (post->fp32minmax) {
+                    f0 = _mm256_min_ps(f0, fp32max);
+                    f1 = _mm256_min_ps(f1, fp32max);
+                    f2 = _mm256_min_ps(f2, fp32max);
+                    f0 = _mm256_max_ps(f0, fp32min);
+                    f1 = _mm256_max_ps(f1, fp32min);
+                    f2 = _mm256_max_ps(f2, fp32min);
+                    _mm256_storeu_ps(((float*)dst_x) + 0 * AVX2_PACKINT8, f0);
+                    _mm256_storeu_ps(((float*)dst_x) + 1 * AVX2_PACKINT8, f1);
+                    _mm256_storeu_ps(((float*)dst_x) + 2 * AVX2_PACKINT8, f2);
+                }
+            } else {
+                _mm256_storeu_ps(((float*)accum_x) + 0 * AVX2_PACKINT8, f0);
+                _mm256_storeu_ps(((float*)accum_x) + 1 * AVX2_PACKINT8, f1);
+                _mm256_storeu_ps(((float*)accum_x) + 2 * AVX2_PACKINT8, f2);
             }
-            _mm256_storeu_ps(((float*)dst_x) + 0 * AVX2_PACKINT8, f0);
-            _mm256_storeu_ps(((float*)dst_x) + 1 * AVX2_PACKINT8, f1);
-            _mm256_storeu_ps(((float*)dst_x) + 2 * AVX2_PACKINT8, f2);
-            
         }
         return;
     }    
     if (2 == realDst) {
         for (int dz = 0; dz < dst_depth_quad; ++dz) {
             const auto weight_dz = weight + dz * weight_step_Z;
-            const auto weightBias_dz = post->weightQuanBias + dz * AVX2_PACKINT8;
-            const float* scale_dz = post->scale + dz * AVX2_PACKINT8;
+            const float* scale_dz = reinterpret_cast<const float*>(weight_dz + src_depth_quad * weight_step_Y);
+            const auto weightBias_dz = scale_dz + GEMMINT8_AVX2_H;
             auto dst_z           = dst + dz * dst_step_tmp;
             const auto src_x   = src;
             auto dst_x         = dst_z;
+            auto accum_z         = accumbuff + dz * realDst * AVX2_PACKINT8;
+            auto accum_x       = accum_z;
             __m256i D00 = _mm256_set1_epi32(0);
             __m256i D01 = _mm256_set1_epi32(0);
 
@@ -377,31 +395,37 @@ void _AVX_MNNGemmInt8AddBiasScale_16x4_w4(int8_t* dst, const int8_t* src, const 
                 f0 = _mm256_add_ps(f0, biasValue);
                 f1 = _mm256_add_ps(f1, biasValue);
             } else {
-                auto dstv0 = _mm256_loadu_ps(((float*)dst_x) + 0 * AVX2_PACKINT8);
-                auto dstv1 = _mm256_loadu_ps(((float*)dst_x) + 1 * AVX2_PACKINT8);
+                auto dstv0 = _mm256_loadu_ps(((float*)accum_x) + 0 * AVX2_PACKINT8);
+                auto dstv1 = _mm256_loadu_ps(((float*)accum_x) + 1 * AVX2_PACKINT8);
                 f0         = _mm256_add_ps(f0, dstv0);
                 f1         = _mm256_add_ps(f1, dstv1);
             }
-            if (post->fp32minmax) {
-                f0 = _mm256_min_ps(f0, fp32max);
-                f1 = _mm256_min_ps(f1, fp32max);
-                f0 = _mm256_max_ps(f0, fp32min);
-                f1 = _mm256_max_ps(f1, fp32min);
+            if (dst) {
+                if (post->fp32minmax) {
+                    f0 = _mm256_min_ps(f0, fp32max);
+                    f1 = _mm256_min_ps(f1, fp32max);
+                    f0 = _mm256_max_ps(f0, fp32min);
+                    f1 = _mm256_max_ps(f1, fp32min);
+                    _mm256_storeu_ps(((float*)dst_x) + 0 * AVX2_PACKINT8, f0);
+                    _mm256_storeu_ps(((float*)dst_x) + 1 * AVX2_PACKINT8, f1);
+                }
+            } else {
+                _mm256_storeu_ps(((float*)accum_x) + 0 * AVX2_PACKINT8, f0);
+                _mm256_storeu_ps(((float*)accum_x) + 1 * AVX2_PACKINT8, f1);
             }
-            _mm256_storeu_ps(((float*)dst_x) + 0 * AVX2_PACKINT8, f0);
-            _mm256_storeu_ps(((float*)dst_x) + 1 * AVX2_PACKINT8, f1);
-            
         }
         return;
     }    
     if (1 == realDst) {
         for (int dz = 0; dz < dst_depth_quad; ++dz) {
             const auto weight_dz = weight + dz * weight_step_Z;
-            const auto weightBias_dz = post->weightQuanBias + dz * AVX2_PACKINT8;
-            const float* scale_dz = post->scale + dz * AVX2_PACKINT8;
+            const float* scale_dz = reinterpret_cast<const float*>(weight_dz + src_depth_quad * weight_step_Y);
+            const auto weightBias_dz = scale_dz + GEMMINT8_AVX2_H;
             auto dst_z           = dst + dz * dst_step_tmp;
             const auto src_x   = src;
             auto dst_x         = dst_z;
+            auto accum_z         = accumbuff + dz * realDst * AVX2_PACKINT8;
+            auto accum_x       = accum_z;
             __m256i D00 = _mm256_set1_epi32(0);
             __m256i D10 = _mm256_set1_epi32(0);
 
@@ -441,16 +465,19 @@ void _AVX_MNNGemmInt8AddBiasScale_16x4_w4(int8_t* dst, const int8_t* src, const 
                 auto biasValue       = _mm256_loadu_ps(bias_dz);
                 f0 = _mm256_add_ps(f0, biasValue);
             } else {
-                auto dstv = _mm256_loadu_ps(((float*)dst_x) + 0 * AVX2_PACKINT8);
+                auto dstv = _mm256_loadu_ps(((float*)accum_x));
                 f0        = _mm256_add_ps(f0, dstv);
             }
-            if (post->fp32minmax) {
-                f0 = _mm256_min_ps(f0, fp32max);
-                f0 = _mm256_max_ps(f0, fp32min);
+            if (dst) {
+                if (post->fp32minmax) {
+                    f0 = _mm256_min_ps(f0, fp32max);
+                    f0 = _mm256_max_ps(f0, fp32min);
+                            
+                    _mm256_storeu_ps(((float*)dst_x), f0);
+                }
+            } else {
+                _mm256_storeu_ps(((float*)accum_x) , f0);
             }
-            
-            _mm256_storeu_ps(((float*)dst_x) + 0 * AVX2_PACKINT8, f0);
-            
         }
         return;
     }    
@@ -474,6 +501,7 @@ void _AVX_MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, cons
     if (post->biasFloat) {
         biasPtr = post->biasFloat;
     }
+    auto accumbuff = post->accumBuffer;
     auto srcKernelSumPtr = post->srcKernelSum;
     __m256 kernelSum0 = _mm256_setzero_ps();
     __m256 kernelSum1 = _mm256_setzero_ps();
@@ -514,15 +542,18 @@ void _AVX_MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, cons
             }
         }
     }
-    //printf("e=%d, sz=%d, dz=%d\n", realDst, src_depth_quad, dst_depth_quad);
+    int weight_step_Z = src_depth_quad * (GEMMINT8_AVX2_L * GEMMINT8_AVX2_H) + 4 * 2 * GEMMINT8_AVX2_H;
+    int weight_step_Y = (GEMMINT8_AVX2_L * GEMMINT8_AVX2_H);
     if (GEMMINT8_AVX2_E == realDst) {
         for (int dz = 0; dz < dst_depth_quad; ++dz) {
-            const auto weight_dz = weight + dz * src_depth_quad * (GEMMINT8_AVX2_L * GEMMINT8_AVX2_H);
-            const auto weightBias_dz = post->weightQuanBias + dz * AVX2_PACKINT8;
-            const float* scale_dz = post->scale + dz * AVX2_PACKINT8;
+            const auto weight_dz = weight + dz * weight_step_Z;
+            const float* scale_dz = reinterpret_cast<const float*>(weight_dz + src_depth_quad * weight_step_Y);
+            const auto weightBias_dz = scale_dz + GEMMINT8_AVX2_H;
             auto dst_z           = dst + dz * dst_step_tmp;
             const auto src_x   = src;
             auto dst_x         = dst_z;
+            auto accum_z         = accumbuff + dz * realDst * AVX2_PACKINT8;
+            auto accum_x       = accum_z;
             __m256i D00 = _mm256_set1_epi32(0);
             __m256i D01 = _mm256_set1_epi32(0);
             __m256i D02 = _mm256_set1_epi32(0);
@@ -616,42 +647,51 @@ void _AVX_MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, cons
                 POSTTREAT(3);
             } else {
                 if (nullptr == biasPtr) {
-                    auto dstv0 = _mm256_loadu_ps(((float*)dst_x) + 0 * AVX2_PACKINT8);
-                    auto dstv1 = _mm256_loadu_ps(((float*)dst_x) + 1 * AVX2_PACKINT8);
-                    auto dstv2 = _mm256_loadu_ps(((float*)dst_x) + 2 * AVX2_PACKINT8);
-                    auto dstv3 = _mm256_loadu_ps(((float*)dst_x) + 3 * AVX2_PACKINT8);
+                    auto dstv0 = _mm256_loadu_ps(((float*)accum_x) + 0 * AVX2_PACKINT8);
+                    auto dstv1 = _mm256_loadu_ps(((float*)accum_x) + 1 * AVX2_PACKINT8);
+                    auto dstv2 = _mm256_loadu_ps(((float*)accum_x) + 2 * AVX2_PACKINT8);
+                    auto dstv3 = _mm256_loadu_ps(((float*)accum_x) + 3 * AVX2_PACKINT8);
 
                     f0 = _mm256_add_ps(f0, dstv0);
                     f1 = _mm256_add_ps(f1, dstv1);
                     f2 = _mm256_add_ps(f2, dstv2);
                     f3 = _mm256_add_ps(f3, dstv3);
                 }
-                if (post->fp32minmax) {
-                    f0 = _mm256_min_ps(f0, fp32max);
-                    f1 = _mm256_min_ps(f1, fp32max);
-                    f2 = _mm256_min_ps(f2, fp32max);
-                    f3 = _mm256_min_ps(f3, fp32max);
-                    f0 = _mm256_max_ps(f0, fp32min);
-                    f1 = _mm256_max_ps(f1, fp32min);
-                    f2 = _mm256_max_ps(f2, fp32min);
-                    f3 = _mm256_max_ps(f3, fp32min);
+                if (dst) {
+                    if (post->fp32minmax) {
+                        f0 = _mm256_min_ps(f0, fp32max);
+                        f1 = _mm256_min_ps(f1, fp32max);
+                        f2 = _mm256_min_ps(f2, fp32max);
+                        f3 = _mm256_min_ps(f3, fp32max);
+                        f0 = _mm256_max_ps(f0, fp32min);
+                        f1 = _mm256_max_ps(f1, fp32min);
+                        f2 = _mm256_max_ps(f2, fp32min);
+                        f3 = _mm256_max_ps(f3, fp32min);
+                        _mm256_storeu_ps(((float*)dst_x) + 0 * AVX2_PACKINT8, f0);
+                        _mm256_storeu_ps(((float*)dst_x) + 1 * AVX2_PACKINT8, f1);
+                        _mm256_storeu_ps(((float*)dst_x) + 2 * AVX2_PACKINT8, f2);
+                        _mm256_storeu_ps(((float*)dst_x) + 3 * AVX2_PACKINT8, f3);
+                    }
+                } else {
+                    _mm256_storeu_ps(((float*)accum_x) + 0 * AVX2_PACKINT8, f0);
+                    _mm256_storeu_ps(((float*)accum_x) + 1 * AVX2_PACKINT8, f1);
+                    _mm256_storeu_ps(((float*)accum_x) + 2 * AVX2_PACKINT8, f2);
+                    _mm256_storeu_ps(((float*)accum_x) + 3 * AVX2_PACKINT8, f3);
                 }
-                _mm256_storeu_ps(((float*)dst_x) + 0 * AVX2_PACKINT8, f0);
-                _mm256_storeu_ps(((float*)dst_x) + 1 * AVX2_PACKINT8, f1);
-                _mm256_storeu_ps(((float*)dst_x) + 2 * AVX2_PACKINT8, f2);
-                _mm256_storeu_ps(((float*)dst_x) + 3 * AVX2_PACKINT8, f3);
             }
         }
         return;
     }
     if (3 == realDst) {
         for (int dz = 0; dz < dst_depth_quad; ++dz) {
-            const auto weight_dz = weight + dz * src_depth_quad * (GEMMINT8_AVX2_L * GEMMINT8_AVX2_H);
-            const auto weightBias_dz = post->weightQuanBias + dz * AVX2_PACKINT8;
-            const float* scale_dz = post->scale + dz * AVX2_PACKINT8;
+            const auto weight_dz = weight + dz * weight_step_Z;
+            const float* scale_dz = reinterpret_cast<const float*>(weight_dz + src_depth_quad * weight_step_Y);
+            const auto weightBias_dz = scale_dz + GEMMINT8_AVX2_H;
             auto dst_z           = dst + dz * dst_step_tmp;
             const auto src_x   = src;
             auto dst_x         = dst_z;
+            auto accum_z         = accumbuff + dz * realDst * AVX2_PACKINT8;
+            auto accum_x         = accum_z;
             __m256i D00 = _mm256_set1_epi32(0);
             __m256i D01 = _mm256_set1_epi32(0);
             __m256i D02 = _mm256_set1_epi32(0);
@@ -730,36 +770,45 @@ void _AVX_MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, cons
                 POSTTREAT(2);
             } else {
                 if (nullptr == biasPtr) {
-                    auto dstv0 = _mm256_loadu_ps(((float*)dst_x) + 0 * AVX2_PACKINT8);
-                    auto dstv1 = _mm256_loadu_ps(((float*)dst_x) + 1 * AVX2_PACKINT8);
-                    auto dstv2 = _mm256_loadu_ps(((float*)dst_x) + 2 * AVX2_PACKINT8);
+                    auto dstv0 = _mm256_loadu_ps(((float*)accum_x) + 0 * AVX2_PACKINT8);
+                    auto dstv1 = _mm256_loadu_ps(((float*)accum_x) + 1 * AVX2_PACKINT8);
+                    auto dstv2 = _mm256_loadu_ps(((float*)accum_x) + 2 * AVX2_PACKINT8);
                     f0 = _mm256_add_ps(f0, dstv0);
                     f1 = _mm256_add_ps(f1, dstv1);
                     f2 = _mm256_add_ps(f2, dstv2);
                 }
-                if (post->fp32minmax) {
-                    f0 = _mm256_min_ps(f0, fp32max);
-                    f1 = _mm256_min_ps(f1, fp32max);
-                    f2 = _mm256_min_ps(f2, fp32max);
-                    f0 = _mm256_max_ps(f0, fp32min);
-                    f1 = _mm256_max_ps(f1, fp32min);
-                    f2 = _mm256_max_ps(f2, fp32min);
+                if (dst){
+                    if (post->fp32minmax) {
+                        f0 = _mm256_min_ps(f0, fp32max);
+                        f1 = _mm256_min_ps(f1, fp32max);
+                        f2 = _mm256_min_ps(f2, fp32max);
+                        f0 = _mm256_max_ps(f0, fp32min);
+                        f1 = _mm256_max_ps(f1, fp32min);
+                        f2 = _mm256_max_ps(f2, fp32min);
+                    }
+                    _mm256_storeu_ps(((float*)dst_x) + 0 * AVX2_PACKINT8, f0);
+                    _mm256_storeu_ps(((float*)dst_x) + 1 * AVX2_PACKINT8, f1);
+                    _mm256_storeu_ps(((float*)dst_x) + 2 * AVX2_PACKINT8, f2);
+                } else {
+                    _mm256_storeu_ps(((float*)accum_x) + 0 * AVX2_PACKINT8, f0);
+                    _mm256_storeu_ps(((float*)accum_x) + 1 * AVX2_PACKINT8, f1);
+                    _mm256_storeu_ps(((float*)accum_x) + 2 * AVX2_PACKINT8, f2);
                 }
-                _mm256_storeu_ps(((float*)dst_x) + 0 * AVX2_PACKINT8, f0);
-                _mm256_storeu_ps(((float*)dst_x) + 1 * AVX2_PACKINT8, f1);
-                _mm256_storeu_ps(((float*)dst_x) + 2 * AVX2_PACKINT8, f2);
+                
             }
         }
         return;
     }    
     if (2 == realDst) {
         for (int dz = 0; dz < dst_depth_quad; ++dz) {
-            const auto weight_dz = weight + dz * src_depth_quad * (GEMMINT8_AVX2_L * GEMMINT8_AVX2_H);
-            const auto weightBias_dz = post->weightQuanBias + dz * AVX2_PACKINT8;
-            const float* scale_dz = post->scale + dz * AVX2_PACKINT8;
+            const auto weight_dz = weight + dz * weight_step_Z;
+            const float* scale_dz = reinterpret_cast<const float*>(weight_dz + src_depth_quad * weight_step_Y);
+            const auto weightBias_dz = scale_dz + GEMMINT8_AVX2_H;
             auto dst_z           = dst + dz * dst_step_tmp;
             const auto src_x   = src;
             auto dst_x         = dst_z;
+            auto accum_z         = accumbuff + dz * realDst * AVX2_PACKINT8;
+            auto accum_x         = accum_z;
             __m256i D00 = _mm256_set1_epi32(0);
             __m256i D01 = _mm256_set1_epi32(0);
 
@@ -823,31 +872,38 @@ void _AVX_MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, cons
                 POSTTREAT(1);
             } else {
                 if (nullptr == biasPtr) {
-                    auto dstv0 = _mm256_loadu_ps(((float*)dst_x) + 0 * AVX2_PACKINT8);
-                    auto dstv1 = _mm256_loadu_ps(((float*)dst_x) + 1 * AVX2_PACKINT8);
+                    auto dstv0 = _mm256_loadu_ps(((float*)accum_x) + 0 * AVX2_PACKINT8);
+                    auto dstv1 = _mm256_loadu_ps(((float*)accum_x) + 1 * AVX2_PACKINT8);
                     f0 = _mm256_add_ps(f0, dstv0);
                     f1 = _mm256_add_ps(f1, dstv1);
                 }
-                if (post->fp32minmax) {
-                    f0 = _mm256_min_ps(f0, fp32max);
-                    f1 = _mm256_min_ps(f1, fp32max);
-                    f0 = _mm256_max_ps(f0, fp32min);
-                    f1 = _mm256_max_ps(f1, fp32min);
+                if (dst) {
+                    if (post->fp32minmax) {
+                        f0 = _mm256_min_ps(f0, fp32max);
+                        f1 = _mm256_min_ps(f1, fp32max);
+                        f0 = _mm256_max_ps(f0, fp32min);
+                        f1 = _mm256_max_ps(f1, fp32min);
+                    }
+                    _mm256_storeu_ps(((float*)dst_x) + 0 * AVX2_PACKINT8, f0);
+                    _mm256_storeu_ps(((float*)dst_x) + 1 * AVX2_PACKINT8, f1);
+                } else {
+                    _mm256_storeu_ps(((float*)accum_x) + 0 * AVX2_PACKINT8, f0);
+                    _mm256_storeu_ps(((float*)accum_x) + 1 * AVX2_PACKINT8, f1);
                 }
-                _mm256_storeu_ps(((float*)dst_x) + 0 * AVX2_PACKINT8, f0);
-                _mm256_storeu_ps(((float*)dst_x) + 1 * AVX2_PACKINT8, f1);
             }
         }
         return;
     }    
     if (1 == realDst) {
         for (int dz = 0; dz < dst_depth_quad; ++dz) {
-            const auto weight_dz = weight + dz * src_depth_quad * (GEMMINT8_AVX2_L * GEMMINT8_AVX2_H);
-            const auto weightBias_dz = post->weightQuanBias + dz * AVX2_PACKINT8;
-            const float* scale_dz = post->scale + dz * AVX2_PACKINT8;
+            const auto weight_dz = weight + dz * weight_step_Z;
+            const float* scale_dz = reinterpret_cast<const float*>(weight_dz + src_depth_quad * weight_step_Y);
+            const auto weightBias_dz = scale_dz + GEMMINT8_AVX2_H;
             auto dst_z           = dst + dz * dst_step_tmp;
             const auto src_x   = src;
             auto dst_x         = dst_z;
+            auto accum_z         = accumbuff + dz * realDst * AVX2_PACKINT8;
+            auto accum_x         = accum_z;
             __m256i D00 = _mm256_set1_epi32(0);
             __m256i D10 = _mm256_set1_epi32(0);
 
@@ -895,14 +951,18 @@ void _AVX_MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, cons
                 POSTTREAT(0);
             } else {
                 if (nullptr == biasPtr) {
-                    auto dstv0 = _mm256_loadu_ps(((float*)dst_x) + 0 * AVX2_PACKINT8);
+                    auto dstv0 = _mm256_loadu_ps(((float*)accum_x) + 0 * AVX2_PACKINT8);
                     f0 = _mm256_add_ps(f0, dstv0);
                 }
-                if (post->fp32minmax) {
-                    f0 = _mm256_min_ps(f0, fp32max);
-                    f0 = _mm256_max_ps(f0, fp32min);
+                if (dst) {
+                    if (post->fp32minmax) {
+                        f0 = _mm256_min_ps(f0, fp32max);
+                        f0 = _mm256_max_ps(f0, fp32min);
+                    }
+                    _mm256_storeu_ps(((float*)dst_x) + 0 * AVX2_PACKINT8, f0);
+                } else {
+                    _mm256_storeu_ps(((float*)accum_x) + 0 * AVX2_PACKINT8, f0);
                 }
-                _mm256_storeu_ps(((float*)dst_x) + 0 * AVX2_PACKINT8, f0);
             }
         }
         return;
@@ -942,13 +1002,13 @@ void _AVX_MNNGemmInt8AddBiasScale_16x4_Unit_Fast(int8_t* dst, const int8_t* src,
             kernelSum2 = _mm256_set1_ps(post->srcKernelSum[2]);
         }
     }
-    //printf("e=%d, sz=%d, dz=%d\n", realDst, src_depth_quad, dst_depth_quad);
+    int weight_step_Z = src_depth_quad * (GEMMINT8_AVX2_L * GEMMINT8_AVX2_H) + 4 * 2 * GEMMINT8_AVX2_H;
+    int weight_step_Y = (GEMMINT8_AVX2_L * GEMMINT8_AVX2_H);
     if (GEMMINT8_AVX2_E == realDst) {
         for (int dz = 0; dz < dst_depth_quad; ++dz) {
-            const auto weight_dz = weight + dz * src_depth_quad * (GEMMINT8_AVX2_L * GEMMINT8_AVX2_H);
-            const auto bias_dz = post->biasFloat + dz * AVX2_PACKINT8;
-            const auto weightBias_dz = post->weightQuanBias + dz * AVX2_PACKINT8;
-            const float* scale_dz = post->scale + dz * AVX2_PACKINT8;
+            const auto weight_dz = weight + dz * weight_step_Z;
+            const float* scale_dz = reinterpret_cast<const float*>(weight_dz + src_depth_quad * weight_step_Y);
+            const auto weightBias_dz = scale_dz + GEMMINT8_AVX2_H;
             auto dst_z           = dst + dz * dst_step_tmp;
             const auto src_x   = src;
             auto dst_x         = dst_z;
@@ -978,12 +1038,7 @@ void _AVX_MNNGemmInt8AddBiasScale_16x4_Unit_Fast(int8_t* dst, const int8_t* src,
             auto D2 = D02;
             auto D3 = D03;
 
-            // auto biasValue0 = _mm256_loadu_si256((__m256i*)(bias_dz));
             auto weightBiasValue = _mm256_loadu_ps((float*)weightBias_dz);
-            // D0 = _mm256_add_epi32(D0, biasValue0);
-            // D1 = _mm256_add_epi32(D1, biasValue0);
-            // D2 = _mm256_add_epi32(D2, biasValue0);
-            // D3 = _mm256_add_epi32(D3, biasValue0);
 
             auto scaleValue = _mm256_loadu_ps(scale_dz);
             auto f0 = _mm256_cvtepi32_ps(D0);
@@ -1003,7 +1058,7 @@ void _AVX_MNNGemmInt8AddBiasScale_16x4_Unit_Fast(int8_t* dst, const int8_t* src,
             f1 = _mm256_add_ps(f1, xy0_1);
             f2 = _mm256_add_ps(f2, xy0_2);
             f3 = _mm256_add_ps(f3, xy0_3);
-            auto biasValue       = _mm256_loadu_ps(bias_dz);
+            auto biasValue       = _mm256_loadu_ps(weightBias_dz);
             f0 = _mm256_add_ps(f0, biasValue);
             f1 = _mm256_add_ps(f1, biasValue);
             f2 = _mm256_add_ps(f2, biasValue);
@@ -1032,10 +1087,9 @@ void _AVX_MNNGemmInt8AddBiasScale_16x4_Unit_Fast(int8_t* dst, const int8_t* src,
     }
     if (3 == realDst) {
         for (int dz = 0; dz < dst_depth_quad; ++dz) {
-            const auto weight_dz = weight + dz * src_depth_quad * (GEMMINT8_AVX2_L * GEMMINT8_AVX2_H);
-            const auto bias_dz = post->biasFloat + dz * AVX2_PACKINT8;
-            const auto weightBias_dz = post->weightQuanBias + dz * AVX2_PACKINT8;
-            const float* scale_dz = post->scale + dz * AVX2_PACKINT8;
+            const auto weight_dz = weight + dz * weight_step_Z;
+            const float* scale_dz = reinterpret_cast<const float*>(weight_dz + src_depth_quad * weight_step_Y);
+            const auto weightBias_dz = scale_dz + GEMMINT8_AVX2_H;
             auto dst_z           = dst + dz * dst_step_tmp;
             const auto src_x   = src;
             auto dst_x         = dst_z;
@@ -1081,7 +1135,7 @@ void _AVX_MNNGemmInt8AddBiasScale_16x4_Unit_Fast(int8_t* dst, const int8_t* src,
             f0 = _mm256_add_ps(f0, xy0_0);
             f1 = _mm256_add_ps(f1, xy0_1);
             f2 = _mm256_add_ps(f2, xy0_2);
-            auto biasValue       = _mm256_loadu_ps(bias_dz);
+            auto biasValue       = _mm256_loadu_ps(weightBias_dz);
             f0 = _mm256_add_ps(f0, biasValue);
             f1 = _mm256_add_ps(f1, biasValue);
             f2 = _mm256_add_ps(f2, biasValue);
@@ -1105,10 +1159,9 @@ void _AVX_MNNGemmInt8AddBiasScale_16x4_Unit_Fast(int8_t* dst, const int8_t* src,
     }    
     if (2 == realDst) {
         for (int dz = 0; dz < dst_depth_quad; ++dz) {
-            const auto weight_dz = weight + dz * src_depth_quad * (GEMMINT8_AVX2_L * GEMMINT8_AVX2_H);
-            const auto bias_dz = post->biasFloat + dz * AVX2_PACKINT8;
-            const auto weightBias_dz = post->weightQuanBias + dz * AVX2_PACKINT8;
-            const float* scale_dz = post->scale + dz * AVX2_PACKINT8;
+            const auto weight_dz = weight + dz * weight_step_Z;
+            const float* scale_dz = reinterpret_cast<const float*>(weight_dz + src_depth_quad * weight_step_Y);
+            const auto weightBias_dz = scale_dz + GEMMINT8_AVX2_H;
             auto dst_z           = dst + dz * dst_step_tmp;
             const auto src_x   = src;
             auto dst_x         = dst_z;
@@ -1141,7 +1194,7 @@ void _AVX_MNNGemmInt8AddBiasScale_16x4_Unit_Fast(int8_t* dst, const int8_t* src,
             f1 = _mm256_mul_ps(f1, scaleValue);
             f0 = _mm256_add_ps(f0, xy0_0);
             f1 = _mm256_add_ps(f1, xy0_1);
-            auto biasValue       = _mm256_loadu_ps(bias_dz);
+            auto biasValue       = _mm256_loadu_ps(weightBias_dz);
             f0 = _mm256_add_ps(f0, biasValue);
             f1 = _mm256_add_ps(f1, biasValue);
             if (post->useInt8 == 0) {
@@ -1160,10 +1213,9 @@ void _AVX_MNNGemmInt8AddBiasScale_16x4_Unit_Fast(int8_t* dst, const int8_t* src,
     }    
     if (1 == realDst) {
         for (int dz = 0; dz < dst_depth_quad; ++dz) {
-            const auto weight_dz = weight + dz * src_depth_quad * (GEMMINT8_AVX2_L * GEMMINT8_AVX2_H);
-            const auto bias_dz = post->biasFloat + dz * AVX2_PACKINT8;
-            const auto weightBias_dz = post->weightQuanBias + dz * AVX2_PACKINT8;
-            const float* scale_dz = post->scale + dz * AVX2_PACKINT8;
+            const auto weight_dz = weight + dz * weight_step_Z;
+            const float* scale_dz = reinterpret_cast<const float*>(weight_dz + src_depth_quad * weight_step_Y);
+            const auto weightBias_dz = scale_dz + GEMMINT8_AVX2_H;
             auto dst_z           = dst + dz * dst_step_tmp;
             const auto src_x   = src;
             auto dst_x         = dst_z;
@@ -1187,7 +1239,7 @@ void _AVX_MNNGemmInt8AddBiasScale_16x4_Unit_Fast(int8_t* dst, const int8_t* src,
             auto xy0_0 = _mm256_mul_ps(kernelSum0, weightBiasValue); // x dimemsion first
             f0 = _mm256_mul_ps(f0, scaleValue);
             f0 = _mm256_add_ps(f0, xy0_0);
-            auto biasValue       = _mm256_loadu_ps(bias_dz);
+            auto biasValue       = _mm256_loadu_ps(weightBias_dz);
             f0 = _mm256_add_ps(f0, biasValue);
             if (post->useInt8 == 0) {
                 f0 = _mm256_min_ps(f0, fp32max);

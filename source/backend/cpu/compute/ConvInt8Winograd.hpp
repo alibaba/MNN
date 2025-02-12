@@ -11,6 +11,7 @@
 
 #include "backend/cpu/CPUConvolution.hpp"
 #include "backend/cpu/compute/Int8FunctionsOpt.h"
+#include "ConvInt8TiledExecutor.hpp"
 
 namespace MNN {
 class ConvInt8Winograd : public CPUConvolution {

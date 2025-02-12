@@ -46,6 +46,7 @@ void _AVX_MNNPackedMatMulRemain_int8(float* C, const float* A, const float* B, s
 
 #ifdef MNN_LOW_MEMORY
 void _AVX_MNNAbsMaxFP32(const float* source, float* absmax, size_t src_depth_quad, size_t realSize, int pack);
+void _AVX_MNNDynamicQuant(const float* src, int8_t* dst, const float* scale, size_t src_depth_quad, size_t realSize, int pack);
 #endif
 void _AVX_MNNPackC4ForMatMul_A(float* destOrigin, float const** sourceGroup, const int32_t* info, const int32_t* el);
 

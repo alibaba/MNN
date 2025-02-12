@@ -202,6 +202,29 @@ MNN_ERROR("input.json must have inputs infomation!\n");\
     return inputs;
 }
 
+static int _getBpp(CV::ImageFormat format) {
+    switch (format) {
+        case CV::RGB:
+        case CV::BGR:
+        case CV::YCrCb:
+        case CV::YUV:
+        case CV::HSV:
+        case CV::XYZ:
+            return 3;
+        case CV::RGBA:
+        case CV::BGRA:
+            return 4;
+        case CV::GRAY:
+            return 1;
+        case CV::BGR555:
+        case CV::BGR565:
+            return 2;
+        default:
+            break;
+    }
+    return 0;
+}
+
 Calibration::Calibration(MNN::NetT* model, const uint8_t* modelBuffer, const int bufferSize, const std::string& configPath, std::string originalModelFile, std::string destModelFile) : _originalModel(model), _originalModelFile(originalModelFile), _destModelFile(destModelFile) {
     // when the format of input image is RGB/BGR, channels equal to 3, GRAY is 1
     _channels = 3;
@@ -396,22 +419,18 @@ Calibration::Calibration(MNN::NetT* model, const uint8_t* modelBuffer, const int
     }
     if (!picObj.HasMember("inputs")) { // User do not provide input names and shapes.
         std::string name = mInputNames[0];
-        auto shape = moduleInfo->inputs[0].dim;
+        std::vector<int> shape(4);
         auto dimensionFormat = moduleInfo->inputs[0].order;
+        shape.resize(4);
+        shape[0] = 1;
         if (dimensionFormat == NCHW || dimensionFormat == NC4HW4) {
-            if (shape.size() > 2) {
-                shape[2] = _preprocessConfig.targetHeight;
-            }
-            if (shape.size() > 3) {
-                shape[3] = _preprocessConfig.targetWidth;
-            }
+            shape[1] = _getBpp(_imageProcessConfig.destFormat);
+            shape[2] = _preprocessConfig.targetHeight;
+            shape[3] = _preprocessConfig.targetWidth;
         } else { // NHWC
-            if (shape.size() > 1) {
-                shape[1] = _preprocessConfig.targetHeight;
-            }
-            if (shape.size() > 2) {
-                shape[2] = _preprocessConfig.targetWidth;
-            }
+            shape[3] = _getBpp(_imageProcessConfig.destFormat);
+            shape[1] = _preprocessConfig.targetHeight;
+            shape[2] = _preprocessConfig.targetWidth;
         }
         mInputShape.insert(std::make_pair(name, shape));
     }

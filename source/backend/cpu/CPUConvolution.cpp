@@ -25,6 +25,21 @@
 #endif
 
 namespace MNN {
+void CPUConvolution::Resource::copyBias(float* dst, const float* bias, int outputCount, Backend* backend) {
+    auto core = static_cast<CPUBackend*>(backend)->functions();
+    int bytes = core->bytes;
+    int unit = core->pack;
+    auto alignOutput = UP_DIV(outputCount, unit) * unit;
+    int remain = alignOutput - outputCount;
+    if (bytes < 4) {
+        core->MNNFp32ToLowp(bias, (int16_t*)dst, outputCount);
+    } else {
+        ::memcpy(dst, bias, outputCount * bytes);
+    }
+    if (remain > 0) {
+        ::memset((uint8_t*)dst + outputCount * bytes, 0, remain * bytes);
+    }
+}
 
 bool CPUConvolution::Resource::copyBiasAlign(const float* bias, int outputCount) {
     auto core = static_cast<CPUBackend*>(backend)->functions();
@@ -38,14 +53,7 @@ bool CPUConvolution::Resource::copyBiasAlign(const float* bias, int outputCount)
         MNN_ERROR("Error for alloc memory for Alloc Bias\n");
         return false;;
     }
-    if (bytes < 4) {
-        core->MNNFp32ToLowp(bias, mBias->host<int16_t>(), outputCount);
-    } else {
-        ::memcpy(mBias->host<float>(), bias, outputCount * bytes);
-    }
-    if (remain > 0) {
-        ::memset(mBias->host<uint8_t>() + outputCount * bytes, 0, remain * bytes);
-    }
+    copyBias(mBias->host<float>(), bias, outputCount, backend);
     return true;
 }
 CPUConvolution::MutableResourceInt8::MutableResourceInt8(std::shared_ptr<ResourceInt8> res, Backend* backend) : mResource(res) {
@@ -104,9 +112,6 @@ void CPUConvolution::MutableResourceInt8::updateInputOutputScale(std::vector<flo
     mOutputScale = mResource->mOutputScale;
     mInputZeroPoint = mResource->mInputZeroPoint;
     mOutputZeroPoint = mResource->mOutputZeroPoint;
-//    if (mInputScale == inputScale && mOutputScale == outputScale) {
-//        return;
-//    }
     if (inputScale != 0 && outputScale != 0) {
         mInputScale = inputScale;
         mOutputScale = outputScale;
@@ -138,7 +143,6 @@ void CPUConvolution::MutableResourceInt8::updateInputOutputScale(std::vector<flo
         // compute outputZeroPointFused in asymmetric quant
         int outputZeroPointFused = static_cast<int32_t>(mOutputZeroPoint / scale[i]);
         bias[i] = static_cast<int32_t>(biasData[i] / (mInputScale * alphaValue)) - mResource->mInt8WeightKernelSum[i] * (mInputZeroPoint + offset) + outputZeroPointFused;
-        // biasfloat[i] = biasData[i] / mOutputScale - mResource->mInt8WeightKernelSum[i] * (mInputZeroPoint + offset) * scale[i] + mOutputZeroPoint;
         biasfloat[i] = bias[i] * scale[i];
     }
 }

@@ -23,9 +23,9 @@
 
 namespace MNN {
 
-CPUDeconvolutionBasic::CPUDeconvolutionBasic(const Tensor* input, const Op* convOp, Backend* b)
+CPUDeconvolutionBasic::CPUDeconvolutionBasic(int inputChannel, const Op* convOp, Backend* b)
     : CPUConvolution(convOp->main_as_Convolution2D()->common(), b) {
-    mSrcCount = input->channel();
+    mSrcCount = inputChannel;
     mPostParameters = getPostParameters();
 }
 
@@ -36,33 +36,6 @@ ErrorCode CPUDeconvolutionBasic::onResize(const std::vector<Tensor*>& inputs, co
     mPadY = pad.second;
     mPadX = pad.first;
     return NO_ERROR;
-}
-
-CPUDeconvolutionCommon::CPUDeconvolutionCommon(const Tensor* input, const Op* convOp, Backend* b, bool dynamicWeight)
-    : CPUDeconvolutionBasic(input, convOp, b) {
-    auto conv2D     = convOp->main_as_Convolution2D();
-    int outputCount = mCommon->outputCount();
-    auto core = static_cast<CPUBackend*>(b)->functions();
-    mDynamicWeight = dynamicWeight;
-    mBias.reset(Tensor::createDevice<float>(std::vector<int>{UP_DIV(outputCount, core->pack) * core->pack}));
-    if (dynamicWeight) {
-        return;
-    }
-    bool success = b->onAcquireBuffer(mBias.get(), Backend::STATIC);
-    if (!success) {
-        mValid = false;
-        return;
-    }
-    ::memset(mBias->host<float>(), 0, mBias->length(0) * core->bytes);
-    if (core->bytes == 4) {
-        ::memcpy(mBias->host<float>(), conv2D->bias()->data(), conv2D->bias()->size() * sizeof(float));
-    } else {
-        core->MNNFp32ToLowp(conv2D->bias()->data(), mBias->host<int16_t>(), conv2D->bias()->size());
-    }
-}
-
-CPUDeconvolutionCommon::~CPUDeconvolutionCommon() {
-    // Do nothing
 }
 
 // Float Weight.
@@ -82,66 +55,90 @@ static void _transformWeight(const uint8_t* tempWeight, uint8_t* dest, int outpu
     //printf("%d - %d - %d - %d\n", outputCount, srcCount, fh, fw);
     core->MNNPackForMatMul_B((float*)dest, (const float*)cache, outputC4 * fw * fh * core->pack, srcCount, false);
 }
-
-CPUDeconvolution::CPUDeconvolution(const Tensor* input, const Op* convOp, Backend* backend, bool dynamicWeight)
-    : MNN::CPUDeconvolutionCommon(input, convOp, backend, dynamicWeight) {
-    auto core               = static_cast<CPUBackend*>(backend)->functions();
-    auto coreInt8           = static_cast<CPUBackend*>(backend)->int8Functions();
+std::shared_ptr<DeconvolutionResource> CPUDeconvolution::makeResource(int srcCount, const Op *convOp, Backend* backend, bool dynamic) {
+    auto core = static_cast<CPUBackend*>(backend)->functions();
+    auto coreInt8 = static_cast<CPUBackend*>(backend)->int8Functions();
     int eP, lP, hP;
     core->MNNGetMatMulPackMode(&eP, &lP, &hP);
-    auto conv2d                  = convOp->main_as_Convolution2D();
-    auto layer                   = conv2d->common();
-    int outputCount              = layer->outputCount();
+    auto conv2d = convOp->main_as_Convolution2D();
+    auto layer = conv2d->common();
+    int outputCount = layer->outputCount();
     const auto outputChannleUp4  = UP_DIV(outputCount, hP) * hP;
-    int fw                  = layer->kernelX();
-    int fh                  = layer->kernelY();
-    int srcCount            = mSrcCount;
-    mParam.fh = fh;
-    mParam.fw = fw;
-    mParam.srcCount = srcCount;
-    mParam.outputCount = outputCount;
+    int fw = layer->kernelX();
+    int fh = layer->kernelY();
+    std::shared_ptr<DeconvolutionResource> res(new DeconvolutionResource);
+    res->mParam.fh = fh;
+    res->mParam.fw = fw;
+    res->mParam.srcCount = srcCount;
+    res->mParam.outputCount = outputCount;
+    if (dynamic) {
+        return res;
+    }
     auto outputAlign = UP_DIV(layer->outputCount(), core->pack) * core->pack * fw * fh;
-    mWeight.reset(Tensor::createDevice<float>(std::vector<int>{UP_DIV(outputAlign, hP), UP_DIV(srcCount, lP) * lP, hP}));
-    std::shared_ptr<Tensor> cache(Tensor::createDevice<float>({outputAlign * srcCount}));
-    if (dynamicWeight) {
-        mOrigin.reset(new CPUDeconvolutionOrigin(input, mWeight.get(), convOp, backend, false));
-        mWeightTransformCache = cache;
-        return;
-    }
-
-    const float* tempWeight      = nullptr;
-
-    int tempWeightSize   = 0;
+    const float* tempWeight = nullptr;
+    int tempWeightSize = 0;
     std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
-
     ConvolutionCommon::getConvParameters(&quanCommon, backend, convOp, &tempWeight, &tempWeightSize);
-
-    bool success = backend->onAcquireBuffer(mWeight.get(), Backend::STATIC) &&
-                   backend->onAcquireBuffer(cache.get(), Backend::STATIC);
-    if (!success) {
-        mValid = false;
-        return;
-    }
     AutoStorage<uint8_t> lowpWeight;
     if (core->bytes < 4) {
         lowpWeight.reset(outputCount * srcCount * fh * fw * core->bytes);
         if (lowpWeight.get() == nullptr) {
-            mValid = false;
-            return;
+            return nullptr;
         }
         core->MNNFp32ToLowp(tempWeight, (int16_t*)lowpWeight.get(), outputCount * srcCount * fh * fw);
         tempWeight = (float*)lowpWeight.get();
+        quanCommon.reset();
     }
-    mWeight.reset(Tensor::createDevice<float>(std::vector<int>{UP_DIV(outputAlign, hP), UP_DIV(srcCount, lP) * lP, hP}));
-    success = backend->onAcquireBuffer(mWeight.get(), Backend::STATIC);
-    if (!success) {
-        mValid = false;
+    res->mWeight.reset(Tensor::createDevice<float>(std::vector<int>{UP_DIV(outputAlign, hP), UP_DIV(srcCount, lP) * lP, hP}));
+    res->mBias.reset(Tensor::createDevice<float>({UP_DIV(outputCount, core->pack) * core->pack}));
+    bool success = backend->onAcquireBuffer(res->mWeight.get(), Backend::STATIC) && backend->onAcquireBuffer(res->mBias.get(), Backend::STATIC);
+    AutoStorage<float> cache(outputAlign * srcCount);
+    if (!success || cache.get() == nullptr) {
+        MNN_ERROR("Alloc memory error for deconvolution\n");
+        return nullptr;
+    }
+    CPUConvolution::Resource::copyBias(res->mBias->host<float>(), convOp->main_as_Convolution2D()->bias()->data(), outputCount, backend);
+    _transformWeight((uint8_t*)tempWeight, res->mWeight->host<uint8_t>(), outputCount, srcCount, fh, fw, (uint8_t*)cache.get(), core);
+    return res;
+}
+
+bool CPUDeconvolution::onClone(Backend* bn, const Op* op, Execution** dst) {
+    if (mDynamicWeight) {
+        return false;
+    }
+    if (nullptr == dst) {
+        return true;
+    }
+    auto exe = new CPUDeconvolution(mSrcCount, op, bn, mDynamicWeight, mResource);
+    *dst = exe;
+    return true;
+}
+
+CPUDeconvolution::CPUDeconvolution(int srcCount, const Op* convOp, Backend* backend, bool dynamicWeight, std::shared_ptr<DeconvolutionResource> resource) : MNN::CPUDeconvolutionBasic(srcCount, convOp, backend) {
+    mDynamicWeight = dynamicWeight;
+    mResource = resource;
+    if (dynamicWeight) {
+        auto core = static_cast<CPUBackend*>(backend)->functions();
+        auto coreInt8 = static_cast<CPUBackend*>(backend)->int8Functions();
+        int eP, lP, hP;
+        core->MNNGetMatMulPackMode(&eP, &lP, &hP);
+        auto conv2d                  = convOp->main_as_Convolution2D();
+        auto layer                   = conv2d->common();
+        int outputCount              = layer->outputCount();
+        const auto outputChannleUp4  = UP_DIV(outputCount, hP) * hP;
+        int fw                  = layer->kernelX();
+        int fh                  = layer->kernelY();
+        auto outputAlign = UP_DIV(layer->outputCount(), core->pack) * core->pack * fw * fh;
+        mWeight.reset(Tensor::createDevice<float>(std::vector<int>{UP_DIV(outputAlign, hP), UP_DIV(srcCount, lP) * lP, hP}));
+        mBias.reset(Tensor::createDevice<float>({UP_DIV(outputCount, core->pack) * core->pack}));
+        mOrigin.reset(new CPUDeconvolutionOrigin(srcCount, convOp, backend));
+        mWeightTransformCache.reset(Tensor::createDevice<float>({outputAlign * srcCount}));
         return;
+    } else {
+        mWeight = mResource->mWeight;
+        mBias = mResource->mBias;
     }
-    auto dest = mWeight->host<uint8_t>();
-    _transformWeight((uint8_t*)tempWeight, dest, outputCount, srcCount, fh, fw, cache->host<uint8_t>(), core);
-    backend->onReleaseBuffer(cache.get(), Backend::STATIC);
-    mOrigin.reset(new CPUDeconvolutionOrigin(input, mWeight.get(), convOp, backend, false));
+    mOrigin.reset(new CPUDeconvolutionOrigin(srcCount, convOp, backend));
 }
 
 CPUDeconvolution::~CPUDeconvolution() {
@@ -150,7 +147,7 @@ CPUDeconvolution::~CPUDeconvolution() {
 ErrorCode CPUDeconvolution::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     if (mDynamicWeight) {
         auto core = static_cast<CPUBackend*>(backend())->functions();
-        _transformWeight(inputs[1]->host<uint8_t>(), mWeight->host<uint8_t>(), mParam.outputCount, mParam.srcCount, mParam.fh, mParam.fw, mWeightTransformCache->host<uint8_t>(), core);
+        _transformWeight(inputs[1]->host<uint8_t>(), mWeight->host<uint8_t>(), mResource->mParam.outputCount, mResource->mParam.srcCount, mResource->mParam.fh, mResource->mParam.fw, mWeightTransformCache->host<uint8_t>(), core);
         ::memset(mBias->host<uint8_t>(), 0, mBias->length(0) * core->bytes);
         if (inputs.size() >= 3) {
             ::memcpy(mBias->host<uint8_t>(), inputs[2]->host<uint8_t>(), TensorUtils::getRawSize(inputs[2]) * core->bytes);
@@ -186,7 +183,7 @@ ErrorCode CPUDeconvolution::onResize(const std::vector<Tensor *> &inputs, const 
     return NO_ERROR;
 }
 
-CPUDeconvolutionOrigin::CPUDeconvolutionOrigin(const Tensor *input, Tensor *weight, const Op *convOp, Backend *b, bool ModeInt8) : CPUDeconvolutionBasic(input, convOp, b) {
+CPUDeconvolutionOrigin::CPUDeconvolutionOrigin(int inputChannel, const Op *convOp, Backend *b) : CPUDeconvolutionBasic(inputChannel, convOp, b) {
     // Do nothing
 }
 
@@ -362,7 +359,12 @@ public:
                                 const MNN::Op* op, Backend* backend) const {
         auto convOp = op->main_as_Convolution2D();
         auto common = convOp->common();
-        return new CPUDeconvolution(inputs[0], op, backend, inputs.size() > 1);
+        auto res = CPUDeconvolution::makeResource(inputs[0]->channel(), op, backend, inputs.size() > 1);
+        if (nullptr == res) {
+            MNN_ERROR("CPUDeconvolution makeResource error\n");
+            return nullptr;
+        }
+        return new CPUDeconvolution(inputs[0]->channel(), op, backend, inputs.size() > 1, res);
     }
 };
 

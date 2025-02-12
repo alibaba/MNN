@@ -280,6 +280,9 @@ int main(int argc, char *argv[]) {
     if (runMask & 512) {
         rtmgr->setHint(Interpreter::WINOGRAD_MEMORY_LEVEL, 0);
     }
+    if (runMask & 1024) {
+        rtmgr->setHint(Interpreter::DYNAMIC_QUANT_OPTIONS, 1);
+    }
     if (runMask & 2048) {
         rtmgr->setExternalPath("tmp", Interpreter::EXTERNAL_FEATUREMAP_DIR);
     }

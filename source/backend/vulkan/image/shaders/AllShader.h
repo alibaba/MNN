@@ -14,8 +14,6 @@ extern const unsigned char glsl_softmaxImage_AXIS_W_comp[];
 extern unsigned int glsl_softmaxImage_AXIS_W_comp_len;
 extern const unsigned char glsl_softmaxImage_AXIS_C_comp[];
 extern unsigned int glsl_softmaxImage_AXIS_C_comp_len;
-extern const unsigned char glsl_convolutionDepthwiseMali_comp[];
-extern unsigned int glsl_convolutionDepthwiseMali_comp_len;
 extern const unsigned char glsl_relu_comp[];
 extern unsigned int glsl_relu_comp_len;
 extern const unsigned char glsl_unaryImage_comp[];

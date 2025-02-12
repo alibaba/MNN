@@ -779,31 +779,7 @@ public:
         std::vector<int> outputShape = tensorShapeFormat(output);
         const int outputChannel         = outputShape.at(3);
         const int inputChannels = inputShape.at(3);
-#ifdef MNN_LOW_MEMORY
-        if (static_cast<OpenCLBackend *>(backend)->getMemory() == BackendConfig::Memory_Low){
-            auto conv2dParams = op->main_as_Convolution2D();
-            if (conv2dParams->quanParameter() != nullptr) {
-                if (((conv2dParams->quanParameter()->type() == 4) ||
-                     (conv2dParams->quanParameter()->type() == 1) ||
-                     (conv2dParams->quanParameter()->type() == 2))) {
-                    if ((1 == conv2dParams->quanParameter()->type() || 2 == conv2dParams->quanParameter()->type()) && conv2dParams->quanParameter()->has_scaleInt()) {
-                        // Don't support IDST-int8 because of error
-                        return nullptr;
-                    }
-                    for (int i = 0; i < inputs.size(); ++i) {
-                        TensorUtils::setTensorSupportPack(inputs[i], false);
-                    }
-                    for (int i = 0; i < outputs.size(); ++i) {
-                        TensorUtils::setTensorSupportPack(outputs[i], false);
-                    }
-                    return new ConvBufLowMemoryExecution(inputs, outputs, op, backend);
-                } else {
-                    //MNN_ERROR("OpenCL Conv buf low memory init error. For Opencl Backend, only support low memory mode of int8 or int4 dequantization currently.\n");
-                    return nullptr;
-                }
-            }
-        }
-#endif
+
         if (nullptr != op->main_as_Convolution2D()->quanParameter()) {
             auto quan = op->main_as_Convolution2D()->quanParameter();
             if (1 == quan->type() || 2 == quan->type()) {
@@ -854,6 +830,33 @@ public:
             return new ConvSubgroupBuf(inputs, outputs, op, backend);
         }
 #endif /* MNN_SUPPORT_INTEL_SUBGROUP */
+        
+#ifdef MNN_LOW_MEMORY
+        if (static_cast<OpenCLBackend *>(backend)->getMemory() == BackendConfig::Memory_Low){
+            auto conv2dParams = op->main_as_Convolution2D();
+            if (conv2dParams->quanParameter() != nullptr) {
+                if (((conv2dParams->quanParameter()->type() == 4) ||
+                     (conv2dParams->quanParameter()->type() == 1) ||
+                     (conv2dParams->quanParameter()->type() == 2))) {
+                    if ((1 == conv2dParams->quanParameter()->type() || 2 == conv2dParams->quanParameter()->type()) && conv2dParams->quanParameter()->has_scaleInt()) {
+                        // Don't support IDST-int8 because of error
+                        return nullptr;
+                    }
+                    for (int i = 0; i < inputs.size(); ++i) {
+                        TensorUtils::setTensorSupportPack(inputs[i], false);
+                    }
+                    for (int i = 0; i < outputs.size(); ++i) {
+                        TensorUtils::setTensorSupportPack(outputs[i], false);
+                    }
+                    return new ConvBufLowMemoryExecution(inputs, outputs, op, backend);
+                } else {
+                    MNN_ERROR("OpenCL Conv buf low memory init error. For Opencl Backend, only support low memory mode of int8 or int4 dequantization currently.\n");
+                    return nullptr;
+                }
+            }
+        }
+#endif
+        
         for (int i = 0; i < inputs.size(); ++i) {
             TensorUtils::setTensorSupportPack(inputs[i], false);
         }

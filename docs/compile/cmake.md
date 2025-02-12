@@ -59,7 +59,7 @@ MNN使用CMake构建项目，CMake中的宏定义列表如下：
 | MNN_SSE_USE_FP16_INSTEAD | 在X86平台是否使用`FP16`替代`BF16`，默认为`OFF` |
 | MNN_AVX512_VNNI      | 是否使用`avx512_vnni`指令，该宏仅在`MNN_AVX512=ON`时生效，默认为`OFF` |
 | MNN_OPENCL_SIZE_CUT  | 是否为了降低OpenCL大小而关闭OpenCL Buffer实现，该宏仅在`MNN_OPENCL=ON`时生效，默认为`OFF` |
-| MNN_OPENCL_PROFILE   | 是否打开OpenCL Kernel性能Profile，该宏仅在`MNN_OPENCL=ON`时生效，默认为`OFF` |
+| MNN_GPU_TIME_PROFILE | 是否打开OpenCL后端及Vulkan后端的Kernel性能Profile，该宏仅在`MNN_OPENCL=ON`或`MNN_VULKAN=ON`时生效，默认为`OFF` |
 | MNN_METALLIB_SOURCE  | 使用Metal时是否直接使用Metal源码，该宏仅在`MNN_METAL=ON`时生效，默认为`ON` |
 | MNN_VULKAN_DEBUG     | 是否打开Vulkan的DEBUG模式，该宏仅在`MNN_VULKAN=ON`时生效，默认为`OFF` |
 | MNN_OPENGL_REGEN     | 是否重新生成OpenGL Kenel，该宏仅在`MNN_OPENGL=ON`时生效，默认为`OFF` |

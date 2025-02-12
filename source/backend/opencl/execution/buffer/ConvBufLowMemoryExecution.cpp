@@ -832,7 +832,8 @@ ErrorCode ConvBufLowMemoryExecution::onResize(const std::vector<Tensor *> &input
         if(batch == 1){
             tuneGemvLowMemory(input, output);
         } else {
-            if(batch > 512){
+            // when batch is big, convert to float weight and do gemm computation in floating field
+            if(batch > 128){
                 useFPWeightGemmLowMemory(input, output);
                 mUseFPWeight = true;
             } else {

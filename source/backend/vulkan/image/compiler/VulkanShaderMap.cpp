@@ -10,7 +10,6 @@ mMaps.insert(std::make_pair("glsl_softmaxImage_AXIS_N_comp", std::make_pair(glsl
 mMaps.insert(std::make_pair("glsl_softmaxImage_AXIS_H_comp", std::make_pair(glsl_softmaxImage_AXIS_H_comp,glsl_softmaxImage_AXIS_H_comp_len)));
 mMaps.insert(std::make_pair("glsl_softmaxImage_AXIS_W_comp", std::make_pair(glsl_softmaxImage_AXIS_W_comp,glsl_softmaxImage_AXIS_W_comp_len)));
 mMaps.insert(std::make_pair("glsl_softmaxImage_AXIS_C_comp", std::make_pair(glsl_softmaxImage_AXIS_C_comp,glsl_softmaxImage_AXIS_C_comp_len)));
-mMaps.insert(std::make_pair("glsl_convolutionDepthwiseMali_comp", std::make_pair(glsl_convolutionDepthwiseMali_comp,glsl_convolutionDepthwiseMali_comp_len)));
 mMaps.insert(std::make_pair("glsl_relu_comp", std::make_pair(glsl_relu_comp,glsl_relu_comp_len)));
 mMaps.insert(std::make_pair("glsl_unaryImage_comp", std::make_pair(glsl_unaryImage_comp,glsl_unaryImage_comp_len)));
 mMaps.insert(std::make_pair("glsl_unaryImage_SIGMOID_comp", std::make_pair(glsl_unaryImage_SIGMOID_comp,glsl_unaryImage_SIGMOID_comp_len)));

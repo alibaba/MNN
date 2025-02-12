@@ -131,9 +131,15 @@ void WeightQuantAndCoding(std::unique_ptr<MNN::OpT>& op, const modelConfig& conf
     std::vector<float> weightData, scales;
     // block-wise quant
     int block_size = kernelSize, block_num = 1;
-    if (weightQuantBlock > 0 && (kernelSize % weightQuantBlock == 0) && kxky == 1) {
+    if (weightQuantBlock > 0 && (kernelSize % weightQuantBlock == 0) && kxky == 1 && weightQuantBlock > 16 && (weightQuantBlock % 16 == 0)) {
         block_size = weightQuantBlock;
         block_num = kernelSize / block_size;
+    } else if (weightQuantBlock > 0 && (kernelSize % weightQuantBlock == 0) && kxky == 1) {
+        MNN_PRINT("weightQuantBlock=%d, inputChannel=%d, kxky=1, don't use block-quant for the layer: %s.\n", weightQuantBlock, icCount, op->name.c_str());
+    } else if (weightQuantBlock > 0 && kxky > 1) {
+        MNN_PRINT("The method of block quantization is not adopted to the layer: %s, because (kernel_x*kernel_y>1).\n", op->name.c_str());
+    } else {
+        // pass
     }
 
     switch (opType) {

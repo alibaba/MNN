@@ -163,3 +163,4 @@ MNNは以下のプロジェクトを参照しています：
 - [libyuv](https://chromium.googlesource.com/libyuv/libyuv)
 - [libjpeg](https://github.com/libjpeg-turbo/libjpeg-turbo)
 - [opencv](https://github.com/opencv/opencv)
+- [onnxruntime](https://github.com/microsoft/onnxruntime)

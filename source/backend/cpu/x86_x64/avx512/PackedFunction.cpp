@@ -70,19 +70,182 @@ void _AVX512_MNNComputeScaleZeroScalar(float* source, float* min, float* max, si
     max[0] = max_;
 }
 
-void _AVX512_MNNAbsMaxFP32(const float* source, float* absmax, size_t src_depth_quad, size_t realSize, int pack) {
-    // source: (ic/4, N, 4)
-    auto srcStep = pack * realSize;
-    for (int i = 0; i < realSize; ++i) {
-        float absmaxVal = 0.f; // absmaxVal>=0
-        for (int c = 0; c < src_depth_quad; ++c) {
-            auto src = source + c * srcStep + i * pack;
-            for (int k = 0; k < pack; ++k) {
-                absmaxVal = std::max(absmaxVal, std::abs(src[k]));
+static void _AVX512_MNNAbsMaxFP32(const float* source, float* absmax, size_t src_depth_quad, size_t realSize, int pack) {
+    auto srcStep = realSize * pack;
+    if (pack == 4) {
+        __m128 mask = _mm_set1_ps(-0.0f);
+        float tmp[4];
+        for (int i = 0; i < realSize; ++i) {
+            __m128 absmax_ = _mm_loadu_ps(source + i * pack);
+            absmax_ = _mm_andnot_ps(mask, absmax_);
+            auto src0 = source + i * pack;
+            for (int j = 1; j < src_depth_quad; ++j) {
+                __m128 vec = _mm_loadu_ps(src0 + j * srcStep);
+                vec = _mm_andnot_ps(mask, vec);
+                absmax_ = _mm_max_ps(absmax_, vec);
+            }
+            _mm_storeu_ps(tmp, absmax_);
+            float res = tmp[0];
+            for (int j = 1; j < pack; ++j) {
+                res = ALIMAX(res, tmp[j]);
+            }
+            absmax[i] = res;
+        }
+        return;
+    }
+    if (pack == 16) {
+        float tmp[16];
+        for (int i = 0; i < realSize; ++i) {
+            auto absmax_ = _mm512_loadu_ps(source + i * pack);
+            absmax_ = _mm512_abs_ps(absmax_);
+            auto src0 = source + i * pack;
+            for (int j = 1; j < src_depth_quad; ++j) {
+                auto vec = _mm512_loadu_ps(src0 + j * srcStep);
+                vec = _mm512_abs_ps(vec);
+                absmax_ = _mm512_max_ps(absmax_, vec);
+            }
+            auto maxval = _mm512_reduce_max_ps(absmax_);
+            absmax[i] = maxval;
+        }
+        return;
+    }
+    MNN_ERROR("absMax error: x86_x64 avx512 don't suppport pack=%d yet\n", pack);
+}
+
+static void _AVX512_DynamicQuant(const float* src, int8_t* dst, const float* scale, size_t src_depth_quad, size_t realSize, int pack) {
+    auto srcStep = realSize * pack;
+    if (pack == 16) { // core->pack=16
+        auto offset = _mm512_set1_epi32(128);
+        int32_t tmp[16];
+        int32_t* dstPtr = reinterpret_cast<int32_t*>(dst);
+        for (int i = 0; i < src_depth_quad; ++i) {
+            int xcount = realSize;
+            auto srcPtr = src + i * srcStep;
+            auto scalePtr = scale;
+            while (xcount > 3) {
+                auto scale0 = _mm512_set1_ps(scalePtr[0]);
+                auto scale1 = _mm512_set1_ps(scalePtr[1]);
+                auto scale2 = _mm512_set1_ps(scalePtr[2]);
+                auto scale3 = _mm512_set1_ps(scalePtr[3]);
+                auto data0 = _mm512_loadu_ps(srcPtr);
+                auto data1 = _mm512_loadu_ps(srcPtr + pack);
+                auto data2 = _mm512_loadu_ps(srcPtr + 2 * pack);
+                auto data3 = _mm512_loadu_ps(srcPtr + 3 * pack);
+                data0 = _mm512_mul_ps(data0, scale0);
+                data1 = _mm512_mul_ps(data1, scale1);
+                data2 = _mm512_mul_ps(data2, scale2);
+                data3 = _mm512_mul_ps(data3, scale3);
+                auto r0 = _mm512_cvt_roundps_epi32(data0, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC);
+                auto r1 = _mm512_cvt_roundps_epi32(data1, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC);
+                auto r2 = _mm512_cvt_roundps_epi32(data2, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC);
+                auto r3 = _mm512_cvt_roundps_epi32(data3, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC);
+                r0 = _mm512_add_epi32(r0, offset); // int32x16
+                r1 = _mm512_add_epi32(r1, offset); // int32x16
+                r2 = _mm512_add_epi32(r2, offset);
+                r3 = _mm512_add_epi32(r3, offset);
+                auto r0_16 = _mm512_packs_epi32(r0, r1); // 00001111 00001111 00001111 00001111
+                auto r1_16 = _mm512_packs_epi32(r2, r3); // 22223333 22223333 22223333 22223333
+                auto r0_8  = _mm512_packus_epi16(r0_16, r1_16); // 0000111122223333 0000111122223333 0000111122223333 0000111122223333
+                _mm512_storeu_si512(tmp, r0_8);
+                for (int k = 0; k < 4; ++k) {
+                    dstPtr[k * 4 + 0] = tmp[k + 4 * 0];
+                    dstPtr[k * 4 + 1] = tmp[k + 4 * 1];
+                    dstPtr[k * 4 + 2] = tmp[k + 4 * 2];
+                    dstPtr[k * 4 + 3] = tmp[k + 4 * 3];
+                }
+                // next round
+                xcount -= 4;
+                scalePtr += 4;
+                srcPtr += (4 * pack);
+                dstPtr += 16;
+            }
+            while (xcount) {
+                auto scale0 = _mm512_set1_ps(scalePtr[0]);
+                auto data0 = _mm512_loadu_ps(srcPtr);
+                data0 = _mm512_mul_ps(data0, scale0);
+                auto r0 = _mm512_cvt_roundps_epi32(data0, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC);
+                r0 = _mm512_add_epi32(r0, offset); // int32x16
+                auto r0_16 = _mm512_packs_epi32(r0, r0); // 00001111 00001111 00001111 00001111
+                auto r0_8  = _mm512_packus_epi16(r0_16, r0_16); // 0000111122223333 0000111122223333 0000111122223333 0000111122223333
+                _mm512_storeu_si512(tmp, r0_8);
+                dstPtr[0] = tmp[4 * 0];
+                dstPtr[1] = tmp[4 * 1];
+                dstPtr[2] = tmp[4 * 2];
+                dstPtr[3] = tmp[4 * 3];
+                
+                // next round
+                xcount--;
+                scalePtr += 1;
+                srcPtr += pack;
+                dstPtr += 4;
             }
         }
-        absmax[i] = absmaxVal;
+        return;
     }
+    if (pack == 4) { // LP=4;
+        auto offset = _mm_set1_epi32(128);
+        int32_t tmp[4];
+        int32_t* dstPtr = reinterpret_cast<int32_t*>(dst);
+        for (int i = 0; i < src_depth_quad; ++i) {
+            int xcount = realSize;
+            auto srcPtr = src + i * srcStep;
+            auto scalePtr = scale;
+            while (xcount > 3) {
+                auto scale0 = _mm_set1_ps(scalePtr[0]);
+                auto scale1 = _mm_set1_ps(scalePtr[1]);
+                auto scale2 = _mm_set1_ps(scalePtr[2]);
+                auto scale3 = _mm_set1_ps(scalePtr[3]);
+                auto data0 = _mm_loadu_ps(srcPtr);
+                auto data1 = _mm_loadu_ps(srcPtr + pack);
+                auto data2 = _mm_loadu_ps(srcPtr + 2 * pack);
+                auto data3 = _mm_loadu_ps(srcPtr + 3 * pack);
+                data0 = _mm_mul_ps(data0, scale0);
+                data1 = _mm_mul_ps(data1, scale1);
+                data2 = _mm_mul_ps(data2, scale2);
+                data3 = _mm_mul_ps(data3, scale3);
+                data0 = _mm_round_ps(data0, 0);
+                data1 = _mm_round_ps(data1, 0);
+                data2 = _mm_round_ps(data2, 0);
+                data3 = _mm_round_ps(data3, 0);
+                auto r0 = _mm_cvtps_epi32(data0);
+                auto r1 = _mm_cvtps_epi32(data1);
+                auto r2 = _mm_cvtps_epi32(data2);
+                auto r3 = _mm_cvtps_epi32(data3);
+                r0 = _mm_add_epi32(r0, offset);
+                r1 = _mm_add_epi32(r1, offset);
+                r2 = _mm_add_epi32(r2, offset);
+                r3 = _mm_add_epi32(r3, offset);
+                auto r0_16 = _mm_packs_epi32(r0, r1); // 00001111
+                auto r1_16 = _mm_packs_epi32(r2, r3); // 22223333
+                auto r0_8  = _mm_packus_epi16(r0_16, r1_16); // 0000111122223333
+                _mm_storeu_si128((__m128i *)dstPtr, r0_8);
+                // next round
+                xcount -= 4;
+                scalePtr += 4;
+                srcPtr += (4 * pack);
+                dstPtr += 4;
+            }
+            while (xcount) {
+                auto scale0 = _mm_set1_ps(scalePtr[0]);
+                auto data0 = _mm_loadu_ps(srcPtr);
+                data0 = _mm_mul_ps(data0, scale0);
+                auto r0 = _mm_cvtps_epi32(_mm_round_ps(data0, 0));
+                r0 = _mm_add_epi32(r0, offset);
+                auto r0_16 = _mm_packs_epi32(r0, r0); // 00001111
+                auto r0_8  = _mm_packus_epi16(r0_16, r0_16); // 0000111122223333
+                _mm_storeu_si128((__m128i *)tmp, r0_8);
+                dstPtr[0] = tmp[0];
+                // next round
+                xcount--;
+                scalePtr += 1;
+                srcPtr += pack;
+                dstPtr += 1;
+            }
+        }
+        return;
+    }
+    MNN_ERROR("dynamic quant error: x86_x64 avx512 don't suppport pack=%d yet\n", pack);
+    return;
 }
 
 void _AVX512_MNNReluWithSlopeChannel(float* dst, const float* src, const float* slope, size_t sizeQuad, size_t depthQuad) {
@@ -701,5 +864,5 @@ void _AVX512_ExtraInit(void* functions) {
 
     coreFunction->MNNGetSparseMatMulPackMode = _AVX512_MNNGetSparseMatMulPackMode;
     coreFunction->MNNAdjustOptimalSparseKernel = _AVX512_MNNAdjustOptimalSparseKernel;
-
+    coreFunction->MNNDynamicQuant = _AVX512_DynamicQuant;
 }

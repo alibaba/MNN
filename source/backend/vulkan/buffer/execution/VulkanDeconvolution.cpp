@@ -133,7 +133,7 @@ VulkanDeconvolution* VulkanDeconvolution::create(Backend* bn, const Op* op, OpTy
         exeRes->mKernelReorder.exe->onEncode({}, {exeRes->mKernel.get()}, prearrangeCmd.get());
         prearrangeCmd->end();
         vkBn->pushCommand(prearrangeCmd->get());
-        vkBn->onExecuteEnd();
+        vkBn->finish();
         exeRes->mKernelReorder.exe = nullptr;
     }
     std::vector<VkDescriptorType> types{
