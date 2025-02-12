@@ -115,7 +115,6 @@ UNIT = 8;
 SRC_UNIT = 8;
 DST_XUNIT = 10;
  */
-ldr x8, [x6, #0]
 ldr x9, [x6, #8]
 
 stp d14, d15, [sp, #(-16 * 10)]!
@@ -127,27 +126,24 @@ stp x19, x20, [sp, #(16 * 5)]
 stp x23, x24, [sp, #(16 * 6)]
 stp x25, x26, [sp, #(16 * 7)]
 stp x27, x28, [sp, #(16 * 8)]
-// ldr w23, [x6, #24]
 ldr x27, [x6, #40] // srcKernelSum
-ldr x28, [x6, #48] // weightQuanBias
 ldr x14, [x6, #56]  // fp32minmax
 
 lsl x22, x7, #3 // eDest * GEMM_INT8_SRC_UNIT
 mov x21, #16 // sizeof(float16_t) * UNIT
-
-Start:
-lsl x15, x3, #5 // x15 = src_depth_quad * UNIT * UNIT_SRC * sizeof(int4_t) = src_depth_quad * 8 * 8 * 0.5 = src_depth_quad << 5
 ldr x23, [x6, #80] // extra scale
+ldr x15, [x6, #96]
+mov x10, x15 // tag dst address
+mov x25, x23
+
 TILE_10:
     cmp x7, #10
     blt TILE_8
 sub x4, x4, #128 // For Tile10
 LoopDz_TILE_10:
-    //ld1 {v0.4s, v1.4s}, [x9], #32  // bias
     mov x11, x1 // src
-    mov x12, x2 // weight
     mov x13, x3 // src_depth_quad
-    mov x10, x0 // tag dst address
+    
     movi v2.16b, #15
 
     SET_0_5 v12, v16, v20, v24, v28 // oc:0,1,0,1
@@ -156,11 +152,10 @@ LoopDz_TILE_10:
     SET_0_5 v15, v19, v23, v27, v31 // oc:6,7,6,7
 
 LoopSz_TILE_10:
-    ld1 {v0.16b, v1.16b}, [x12], #32                    // weight
+    ld1 {v0.16b, v1.16b}, [x2], #32                    // weight
     ld1 {v3.16b, v4.16b, v5.16b, v6.16b}, [x11], #64    // src: E0-E9
     ld1 {v7.16b}, [x11], #16
     // int4->int8
-    
     ushr v8.16b, v0.16b, #4 // oc:0-1
     ushr v9.16b, v1.16b, #4 // oc:2-3
     and v10.16b, v0.16b, v2.16b // oc:4-5
@@ -193,8 +188,6 @@ LoopSz_TILE_10:
     .inst 0x4e8ba4ff // smmla v31.4s, v7.16b, v11.16b // tile8-oc6, tile8-oc7, tile9-oc6, tile9-oc7
     bne LoopSz_TILE_10
 LoopSzEnd_TILE_10:
-    add x2, x2, x15 // weight += dz * src_depth_quad * (GEMM_INT8_UNIT * GEMM_INT8_SRC_UNIT * 0.5);
-    sub x5, x5, #1  // dz--
     // transpose
     uzp1 v0.2d, v12.2d, v13.2d // E0: oc:0-3
     uzp2 v1.2d, v12.2d, v13.2d // E1: oc:0-3
@@ -227,11 +220,11 @@ LoopSzEnd_TILE_10:
     Int32ToFloat v16, v17, v18, v19
 
 Tile10Quan:
-    ld1 {v20.4s, v21.4s}, [x8], #32  // scale
+    ld1 {v20.4s, v21.4s}, [x2], #32  // scale
     ld1 {v22.4s, v23.4s}, [x27], #32 // x kernel sum
     ld1 {v24.d}[0], [x27]
     sub x27, x27, #32
-    ld1 {v25.4s, v26.4s}, [x28], #32 // weight quan zeropoint
+    ld1 {v25.4s, v26.4s}, [x2], #32 // weight quan zeropoint
     MUL_SCALE v20, v0, v1, v4, v5
     MUL_SCALE v21, v2, v3, v6, v7
     MUL_SCALE v20, v8, v9, v12, v13
@@ -241,7 +234,7 @@ Tile10Quan:
     fmul v18.4s, v18.4s, v21.4s
     fmul v19.4s, v19.4s, v21.4s
 
-    cbz x23, TILE10_MLA
+    cbz x25, TILE10_MLA
     ld1 {v27.4s, v28.4s}, [x23], #32
     ld1 {v29.d}[0], [x23]
     MUL_EXTRA_SCALE v27, v0, v1, v4, v5
@@ -292,16 +285,46 @@ Tile10Quan:
     fadd v17.4s, v17.4s, v20.4s
     fadd v18.4s, v18.4s, v21.4s
     fadd v19.4s, v19.4s, v21.4s
-
-    // float32->float16
-    Float32ToHalf v0, v2, v1, v3, v20, v21
-    Float32ToHalf v4, v6, v5, v7, v22, v23
-    Float32ToHalf v8, v10, v9, v11, v24, v25
-    Float32ToHalf v12, v14, v13, v15, v26, v27
-    Float32ToHalf v16, v18, v17, v19, v30, v31
-    b TILE10_POST // to Relu post
+    cbnz x0, TILE10_POST // to Relu post
+    b TILE10_TEMP_BUFFER
 
     TILE10_ADD_DSTV:
+    ld1 {v20.4s, v21.4s, v22.4s, v23.4s}, [x10], #64
+    ld1 {v24.4s, v25.4s, v26.4s, v27.4s}, [x10], #64
+    ld1 {v28.4s, v29.4s, v30.4s, v31.4s}, [x10], #64
+    fadd v0.4s, v0.4s, v20.4s
+    fadd v1.4s, v1.4s, v21.4s
+    fadd v2.4s, v2.4s, v22.4s
+    fadd v3.4s, v3.4s, v23.4s
+    fadd v4.4s, v4.4s, v24.4s
+    fadd v5.4s, v5.4s, v25.4s
+    fadd v6.4s, v6.4s, v26.4s
+    fadd v7.4s, v7.4s, v27.4s
+    ld1 {v20.4s, v21.4s, v22.4s, v23.4s}, [x10], #64
+    ld1 {v24.4s, v25.4s, v26.4s, v27.4s}, [x10], #64
+    fadd v8.4s, v8.4s, v28.4s
+    fadd v9.4s, v9.4s, v29.4s
+    fadd v10.4s, v10.4s, v30.4s
+    fadd v11.4s, v11.4s, v31.4s
+    fadd v12.4s, v12.4s, v20.4s
+    fadd v13.4s, v13.4s, v21.4s
+    fadd v14.4s, v14.4s, v22.4s
+    fadd v15.4s, v15.4s, v23.4s
+    fadd v16.4s, v16.4s, v24.4s
+    fadd v17.4s, v17.4s, v25.4s
+    fadd v18.4s, v18.4s, v26.4s
+    fadd v19.4s, v19.4s, v27.4s
+    cbnz x0, TILE10_POST
+
+    TILE10_TEMP_BUFFER:
+    st1 {v0.4s, v1.4s, v2.4s, v3.4s}, [x15], #64
+    st1 {v4.4s, v5.4s, v6.4s, v7.4s}, [x15], #64
+    st1 {v8.4s, v9.4s, v10.4s, v11.4s}, [x15], #64
+    st1 {v12.4s, v13.4s, v14.4s, v15.4s}, [x15], #64
+    st1 {v16.4s, v17.4s, v18.4s, v19.4s}, [x15], #64
+    b Tile10LoopCheck
+
+    TILE10_POST:
     // float32->float16
     Float32ToHalf v0, v2, v1, v3, v20, v21
     Float32ToHalf v4, v6, v5, v7, v22, v23
@@ -309,22 +332,6 @@ Tile10Quan:
     Float32ToHalf v12, v14, v13, v15, v26, v27
     Float32ToHalf v16, v18, v17, v19, v30, v31
 
-    ld1 {v0.8h, v1.8h, v2.8h, v3.8h}, [x10], #64
-    ld1 {v4.8h, v5.8h, v6.8h, v7.8h}, [x10], #64
-    ld1 {v8.8h, v9.8h}, [x10]
-
-    fadd v20.8h, v20.8h, v0.8h
-    fadd v21.8h, v21.8h, v1.8h
-    fadd v22.8h, v22.8h, v2.8h
-    fadd v23.8h, v23.8h, v3.8h
-    fadd v24.8h, v24.8h, v4.8h
-    fadd v25.8h, v25.8h, v5.8h
-    fadd v26.8h, v26.8h, v6.8h
-    fadd v27.8h, v27.8h, v7.8h
-    fadd v30.8h, v30.8h, v8.8h
-    fadd v31.8h, v31.8h, v9.8h
-
-    TILE10_POST:
     cbz x14, TILE10_STORE
     ld1r {v29.8h}, [x14], #2 // f32 min
     ld1r {v28.8h}, [x14] // f32 max
@@ -341,29 +348,22 @@ Tile10Quan:
     st1 {v30.8h, v31.8h}, [x0], x4
 
 Tile10LoopCheck:
-    cmp x5, #1
-    bge LoopDz_TILE_10
+    subs x5, x5, #1  // dz--
+    bne LoopDz_TILE_10
     b End
 
 TILE_8:
-    //ld1r {v28.4s}, [x6], #4 // f32 min
-    //ld1r {v29.4s}, [x6] // f32 max
     movi v30.16b, #15
     cmp x7, #8
     blt TILE_4
-    sub x4, x4, #64 // just for Tile8, revert it when Tile8end
+    sub x8, x4, #64 // just for Tile8, revert it when Tile8end
     mov x24, x5 // dst_depth_quad
     mov x26, x0 // dst
-    mov x25, x2 // weight
-    mov x19, x8 // scale
+    mov x12, x2 // weight
     mov x20, x9 // bias
-    mov x6, x28 // weightQuanBias
 LoopDz_TILE_8:
-    //ld1 {v0.4s, v1.4s}, [x20], #32  // bias
     mov x11, x1 // src
-    mov x12, x25 // weight
     mov x13, x3 // src_depth_quad
-    mov x10, x26 // tag dst
 
     SET_0_4 v12, v16, v20, v24 // oc:0,1,0,1
     SET_0_4 v13, v17, v21, v25 // oc:2,3,2,3
@@ -371,7 +371,6 @@ LoopDz_TILE_8:
     SET_0_4 v15, v19, v23, v27 // oc:6,7,6,7
 LoopSz_TILE_8:
     ld1 {v0.16b, v1.16b}, [x12], #32                    // weight
-    //movi v2.16b, #15
     ld1 {v3.16b, v4.16b, v5.16b, v6.16b}, [x11], x22    // src: E0-E7
 
     // int4->int8
@@ -403,7 +402,6 @@ LoopSz_TILE_8:
     
     bne LoopSz_TILE_8
 LoopSzEnd_TILE_8:
-    add x25, x25, x15
     sub x24, x24, #1
     uzp1 v0.2d, v12.2d, v13.2d // E0: oc:0-3
     uzp2 v1.2d, v12.2d, v13.2d // E1: oc:0-3
@@ -430,15 +428,15 @@ LoopSzEnd_TILE_8:
     Int32ToFloat v12, v13, v14, v15
 
 Tile8Quan:
-    ld1 {v20.4s, v21.4s}, [x19], #32  // scale
+    ld1 {v20.4s, v21.4s}, [x12], #32  // scale
     ld1 {v22.4s, v23.4s}, [x27] // x kernel sum
-    ld1 {v25.4s, v26.4s}, [x6], #32 // weight quan zeropoint
+    ld1 {v25.4s, v26.4s}, [x12], #32 // weight quan zeropoint
     MUL_SCALE v20, v0, v1, v4, v5
     MUL_SCALE v21, v2, v3, v6, v7
     MUL_SCALE v20, v8, v9, v12, v13
     MUL_SCALE v21, v10, v11, v14, v15
 
-    cbz x23, TILE8_MLA
+    cbz x25, TILE8_MLA
     ld1 {v27.4s, v28.4s}, [x23]
     MUL_EXTRA_SCALE v27, v0, v1, v4, v5
     MUL_EXTRA_SCALE v28, v8, v9, v12, v13
@@ -473,31 +471,45 @@ Tile8Quan:
     ADD_BIAS_FLOAT v2, v3, v6, v7, v17
     ADD_BIAS_FLOAT v8, v9, v12, v13, v16
     ADD_BIAS_FLOAT v10, v11, v14, v15, v17
-    // float32->float16
-    Float32ToHalf v0, v2, v1, v3, v20, v21
-    Float32ToHalf v4, v6, v5, v7, v22, v23
-    Float32ToHalf v8, v10, v9, v11, v24, v25
-    Float32ToHalf v12, v14, v13, v15, v26, v27
-    b TILE8_POST
+    cbnz x0, TILE8_POST
+    b TILE8_TEMP_BUFFER
     
     TILE8_ADD_DSTV:
+    ld1 {v16.4s, v17.4s, v18.4s, v19.4s}, [x10], #64
+    ld1 {v20.4s, v21.4s, v22.4s, v23.4s}, [x10], #64
+    ld1 {v24.4s, v25.4s, v26.4s, v27.4s}, [x10], #64
+    fadd v0.4s, v0.4s, v16.4s
+    fadd v1.4s, v1.4s, v17.4s
+    fadd v2.4s, v2.4s, v18.4s
+    fadd v3.4s, v3.4s, v19.4s
+    ld1 {v16.4s, v17.4s, v18.4s, v19.4s}, [x10], #64
+    fadd v4.4s, v4.4s, v20.4s
+    fadd v5.4s, v5.4s, v21.4s
+    fadd v6.4s, v6.4s, v22.4s
+    fadd v7.4s, v7.4s, v23.4s
+    fadd v8.4s, v8.4s, v24.4s
+    fadd v9.4s, v9.4s, v25.4s
+    fadd v10.4s, v10.4s, v26.4s
+    fadd v11.4s, v11.4s, v27.4s
+    fadd v12.4s, v12.4s, v16.4s
+    fadd v13.4s, v13.4s, v17.4s
+    fadd v14.4s, v14.4s, v18.4s
+    fadd v15.4s, v15.4s, v19.4s
+    cbnz x0, TILE8_POST
+
+    TILE8_TEMP_BUFFER:
+    st1 {v0.4s, v1.4s, v2.4s, v3.4s}, [x15], #64
+    st1 {v4.4s, v5.4s, v6.4s, v7.4s}, [x15], #64
+    st1 {v8.4s, v9.4s, v10.4s, v11.4s}, [x15], #64
+    st1 {v12.4s, v13.4s, v14.4s, v15.4s}, [x15], #64
+    b Tile8LoopCheck
+
+    TILE8_POST:
     // float32->float16
     Float32ToHalf v0, v2, v1, v3, v20, v21
     Float32ToHalf v4, v6, v5, v7, v22, v23
     Float32ToHalf v8, v10, v9, v11, v24, v25
     Float32ToHalf v12, v14, v13, v15, v26, v27
-    ld1 {v0.8h, v1.8h, v2.8h, v3.8h}, [x10], #64
-    ld1 {v4.8h, v5.8h, v6.8h, v7.8h}, [x10]
-    fadd v20.8h, v20.8h, v0.8h
-    fadd v21.8h, v21.8h, v1.8h
-    fadd v22.8h, v22.8h, v2.8h
-    fadd v23.8h, v23.8h, v3.8h
-    fadd v24.8h, v24.8h, v4.8h
-    fadd v25.8h, v25.8h, v5.8h
-    fadd v26.8h, v26.8h, v6.8h
-    fadd v27.8h, v27.8h, v7.8h
-
-    TILE8_POST:
     cbz x14, TILE8_STORE
     ld1r {v29.8h}, [x14], #2 // f32 min
     ld1r {v28.8h}, [x14] // f32 max
@@ -507,35 +519,29 @@ Tile8Quan:
 
     TILE8_STORE:
     st1 {v20.8h, v21.8h, v22.8h, v23.8h}, [x26], #64
-    st1 {v24.8h, v25.8h, v26.8h, v27.8h}, [x26], x4
+    st1 {v24.8h, v25.8h, v26.8h, v27.8h}, [x26], x8
 
 Tile8LoopCheck:
     cmp x24, #1
     bge LoopDz_TILE_8
-cbz x23, Tile8End
-add x23, x23, #32
+cbz x0, Tile8End
+add x0, x0, x21, LSL #3
 Tile8End:
     sub x7, x7, #8
-    add x0, x0, x21, LSL #3
+    add x23, x23, #32
     add x1, x1, #64
     add x27, x27, #32
-    add x4, x4, #64 // Revert x4 for following tiles
 
 TILE_4:
     cmp x7, #4
     blt TILE_2
     mov x24, x5 // dst_depth_quad
     mov x26, x0 // dst
-    mov x25, x2 // weight
-    mov x19, x8 // scale
+    mov x12, x2 // weight
     mov x20, x9 // bias
-    mov x6, x28 // weightQuanBias
 LoopDz_TILE_4:
-    //ld1 {v0.4s, v1.4s}, [x20], #32  // bias
     mov x11, x1 // src
-    mov x12, x25 // weight
     mov x13, x3 // src_depth_quad
-    mov x10, x26 // tag dst
 
     SET_0_2 v12, v16 // oc:0,1,0,1
     SET_0_2 v13, v17 // oc:2,3,2,3
@@ -562,7 +568,6 @@ LoopSz_TILE_4:
 
     bne LoopSz_TILE_4
 LoopSzEnd_TILE_4:
-    add x25, x25, x15
     sub x24, x24, #1
     uzp1 v0.2d, v12.2d, v13.2d // E0: oc:0-3
     uzp2 v1.2d, v12.2d, v13.2d // E1: oc:0-3
@@ -577,13 +582,13 @@ LoopSzEnd_TILE_4:
     Int32ToFloat v4, v5, v6, v7
 
 Tile4Quan:
-    ld1 {v20.4s, v21.4s}, [x19], #32  // scale
+    ld1 {v20.4s, v21.4s}, [x12], #32  // scale
     ld1 {v22.4s}, [x27] // x kernel sum
-    ld1 {v25.4s, v26.4s}, [x6], #32 // weight quan zeropoint
+    ld1 {v25.4s, v26.4s}, [x12], #32 // weight quan zeropoint
     MUL_SCALE v20, v0, v1, v4, v5
     MUL_SCALE v21, v2, v3, v6, v7
 
-    cbz x23, TILE4_MLA
+    cbz x25, TILE4_MLA
     ld1 {v27.4s}, [x23]
     MUL_EXTRA_SCALE v27, v0, v1, v4, v5
     MUL_EXTRA_SCALE v27, v2, v3, v6, v7
@@ -604,22 +609,31 @@ Tile4Quan:
     ld1 {v16.4s, v17.4s}, [x20], #32 // bias
     ADD_BIAS_FLOAT v0, v1, v4, v5, v16
     ADD_BIAS_FLOAT v2, v3, v6, v7, v17
-    // float32->float16
-    Float32ToHalf v0, v2, v1, v3, v20, v21
-    Float32ToHalf v4, v6, v5, v7, v22, v23
-    b TILE4_POST
+    cbnz x0, TILE4_POST
+    b TILE4_TEMP_BUFFER
 
     TILE4_ADD_DSTV:
-    // float32->float16
-    Float32ToHalf v0, v2, v1, v3, v20, v21
-    Float32ToHalf v4, v6, v5, v7, v22, v23
-    ld1 {v24.8h, v25.8h, v26.8h, v27.8h}, [x10]
-    fadd v20.8h, v20.8h, v24.8h
-    fadd v21.8h, v21.8h, v25.8h
-    fadd v22.8h, v22.8h, v26.8h
-    fadd v23.8h, v23.8h, v27.8h
+    ld1 {v20.4s, v21.4s, v22.4s, v23.4s}, [x10], #64
+    ld1 {v24.4s, v25.4s, v26.4s, v27.4s}, [x10], #64
+    fadd v0.4s, v0.4s, v20.4s
+    fadd v1.4s, v1.4s, v21.4s
+    fadd v2.4s, v2.4s, v22.4s
+    fadd v3.4s, v3.4s, v23.4s
+    fadd v4.4s, v4.4s, v24.4s
+    fadd v5.4s, v5.4s, v25.4s
+    fadd v6.4s, v6.4s, v26.4s
+    fadd v7.4s, v7.4s, v27.4s
+    cbnz x0, TILE4_POST
+
+    TILE4_TEMP_BUFFER:
+    st1 {v0.4s, v1.4s, v2.4s, v3.4s}, [x15], #64
+    st1 {v4.4s, v5.4s, v6.4s, v7.4s}, [x15], #64
+    b Tile4LoopCheck
 
     TILE4_POST:
+     // float32->float16
+    Float32ToHalf v0, v2, v1, v3, v20, v21
+    Float32ToHalf v4, v6, v5, v7, v22, v23
     cbz x14, TILE4_STORE
     ld1r {v29.8h}, [x14], #2 // f32 min
     ld1r {v28.8h}, [x14] // f32 max
@@ -632,35 +646,25 @@ Tile4Quan:
 Tile4LoopCheck:
     cmp x24, #1
     bge LoopDz_TILE_4
-cbz x23, Tile4End
-add x23, x23, #16
+cbz x0, Tile4End
+add x0, x0, x21, LSL #2
 Tile4End:
     sub x7, x7, #4
-    add x0, x0, x21, LSL #2
     add x1, x1, #32
     add x27, x27, #16
-    //b TILE_4
+    add x23, x23, #16
 
 TILE_2:
     cmp x7, #2
     blt TILE_1
     mov x24, x5 // dst_depth_quad
     mov x26, x0 // dst
-    mov x25, x2 // weight
-    mov x19, x8 // scale
+    mov x12, x2 // weight
     mov x20, x9 // bias
-    mov x6, x28 // weightQuanBias
 LoopDz_TILE_2:
-    //ld1 {v0.4s, v1.4s}, [x20], #32  // bias
     mov x11, x1 // src
-    mov x12, x25 // weight
     mov x13, x3 // src_depth_quad
-    mov x10, x26 // tag dst
-    
-    // v12 oc:0,1,0,1
-    // v13 oc:2,3,2,3
-    // v14 oc:4,5,4,5
-    // v15 oc:6,7,6,7
+
     SET_0_4 v12, v13, v14, v15
 LoopSz_TILE_2:
     ld1 {v2.16b, v3.16b}, [x12], #32   // weight
@@ -678,7 +682,6 @@ LoopSz_TILE_2:
     subs x13, x13, #1
     bne LoopSz_TILE_2
 LoopSzEnd_TILE_2:
-    add x25, x25, x15
     sub x24, x24, #1
     uzp1 v0.2d, v12.2d, v13.2d // E0: oc:0-3
     uzp2 v1.2d, v12.2d, v13.2d // E1: oc:0-3
@@ -687,15 +690,15 @@ LoopSzEnd_TILE_2:
     Int32ToFloat v0, v1, v2, v3
 
 Tile2Quan:
-    ld1 {v20.4s, v21.4s}, [x19], #32  // scale
+    ld1 {v20.4s, v21.4s}, [x12], #32  // scale
     ld1 {v22.d}[0], [x27] // x kernel sum
-    ld1 {v25.4s, v26.4s}, [x6], #32 // weight quan zeropoint
+    ld1 {v25.4s, v26.4s}, [x12], #32 // weight quan zeropoint
     fmul v0.4s, v0.4s, v20.4s
     fmul v1.4s, v1.4s, v20.4s
     fmul v2.4s, v2.4s, v21.4s
     fmul v3.4s, v3.4s, v21.4s
 
-    cbz x23, TILE2_MLA
+    cbz x25, TILE2_MLA
     ld1 {v27.d}[0], [x23]
     fmul v0.4s, v0.4s, v27.s[0]
     fmul v1.4s, v1.4s, v27.s[1]
@@ -715,17 +718,24 @@ Tile2Quan:
     fadd v1.4s, v1.4s, v16.4s
     fadd v2.4s, v2.4s, v17.4s
     fadd v3.4s, v3.4s, v17.4s
-    // float32->float16
-    Float32ToHalf v0, v2, v1, v3, v20, v21
-    b TILE2_POST
+    cbnz x0, TILE2_POST
+    b TILE2_TEMP_BUFFER
 
     TILE2_ADD_DSTV:
-    Float32ToHalf v0, v2, v1, v3, v20, v21
-    ld1 {v24.8h, v25.8h}, [x10]
-    fadd v20.8h, v20.8h, v24.8h
-    fadd v21.8h, v21.8h, v25.8h
+    ld1 {v4.4s, v5.4s, v6.4s, v7.4s}, [x10], #64
+    fadd v0.4s, v0.4s, v4.4s
+    fadd v1.4s, v1.4s, v5.4s
+    fadd v2.4s, v2.4s, v6.4s
+    fadd v3.4s, v3.4s, v7.4s
+    cbnz x0, TILE2_POST
+
+    TILE2_TEMP_BUFFER:
+    st1 {v0.4s, v1.4s, v2.4s, v3.4s}, [x15], #64
+    b Tile2LoopCheck
 
     TILE2_POST:
+    // float32->float16
+    Float32ToHalf v0, v2, v1, v3, v20, v21
     cbz x14, TILE2_STORE
     ld1r {v29.8h}, [x14], #2 // f32 min
     ld1r {v28.8h}, [x14] // f32 max
@@ -741,14 +751,13 @@ Tile2Quan:
 Tile2LoopCheck:
     cmp x24, #1
     bge LoopDz_TILE_2
-cbz x23, Tile2End
-add x23, x23, #8
+cbz x0, Tile2End
+add x0, x0, x21, LSL #1
 Tile2End:
     sub x7, x7, #2
-    add x0, x0, x21, LSL #1
     add x1, x1, #16
     add x27, x27, #8
-    //b TILE_2
+    add x23, x23, #8
 
 TILE_1:
 
@@ -756,15 +765,11 @@ TILE_1:
     blt End
     mov x24, x5 // dst_depth_quad
     mov x26, x0 // dst
-    mov x25, x2 // weight
-    mov x19, x8 // scale
+    mov x12, x2 // weight
     mov x20, x9 // bias
-    mov x6, x28 // weightQuanBias
 LoopDz_TILE_1:
     mov x11, x1 // src
-    mov x12, x25 // weight
     mov x13, x3 // src_depth_quad
-    mov x10, x26
 
     movi v16.4s, #0 // oc:0,1,0,1
     movi v17.4s, #0 // oc:2,3,2,3
@@ -845,44 +850,48 @@ LoopSz1_TILE_1_lu1:
     bne LoopSz1_TILE_1_lu1
 
 LoopSzEnd_TILE_1:
-    add x25, x25, x15
     sub x24, x24, #1
-    uzp1 v27.2d, v16.2d, v17.2d
+    uzp1 v25.2d, v16.2d, v17.2d
     uzp1 v26.2d, v18.2d, v19.2d
-    scvtf v27.4s, v27.4s
+    scvtf v25.4s, v25.4s
     scvtf v26.4s, v26.4s
 
 Tile1Quan:
-    ld1 {v0.4s, v1.4s}, [x19], #32  // scale
+    ld1 {v0.4s, v1.4s}, [x12], #32  // scale
     ld1 {v6.s}[0], [x27] // x kernel sum
-    ld1 {v8.4s, v9.4s}, [x6], #32 // weight quan zeropoint
-    fmul v27.4s, v27.4s, v0.4s
+    ld1 {v8.4s, v9.4s}, [x12], #32 // weight quan zeropoint
+    fmul v25.4s, v25.4s, v0.4s
     fmul v26.4s, v26.4s, v1.4s
 
-    cbz x23, TILE1_MLA
+    cbz x25, TILE1_MLA
     ld1 {v4.s}[0], [x23]
-    fmul v27.4s, v27.4s, v4.s[0]
+    fmul v25.4s, v25.4s, v4.s[0]
     fmul v26.4s, v26.4s, v4.s[0]
     TILE1_MLA:
-    MLA_WEIGHTZERO v27, v6, v8, 0 // tile:0, oc:0-3
+    MLA_WEIGHTZERO v25, v6, v8, 0 // tile:0, oc:0-3
     MLA_WEIGHTZERO v26, v6, v9, 0 // tile:0, oc:4-7
 
     cbz x9, TILE1_ADD_DSTV
     TILE1_ADD_BIAS:
     ld1 {v16.4s, v17.4s}, [x20], #32 // bias
-    fadd v27.4s, v27.4s, v16.4s
+    fadd v25.4s, v25.4s, v16.4s
     fadd v26.4s, v26.4s, v17.4s
-    fcvtn v0.4h, v27.4s
-    fcvtn2 v0.8h, v26.4s
-    b TILE1_POST
+    cbnz x0, TILE1_POST
+    b TILE1_TEMP_BUFFER
 
     TILE1_ADD_DSTV:
-    fcvtn v0.4h, v27.4s
-    fcvtn2 v0.8h, v26.4s
-    ld1 {v24.8h}, [x10]
-    fadd v0.8h, v0.8h, v24.8h
+    ld1 {v16.4s, v17.4s}, [x10], #32
+    fadd v25.4s, v25.4s, v16.4s
+    fadd v26.4s, v26.4s, v17.4s
+    cbnz x0, TILE1_POST
+
+    TILE1_TEMP_BUFFER:
+    st1 {v25.4s, v26.4s}, [x15], #32
+    b Tile1LoopEnd
 
     TILE1_POST:
+    fcvtn v0.4h, v25.4s
+    fcvtn2 v0.8h, v26.4s
     cbz x14, TILE1_STORE
     ld1r {v29.8h}, [x14], #2 // f32 min
     ld1r {v28.8h}, [x14] // f32 max

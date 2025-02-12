@@ -15,49 +15,66 @@
 
 
 namespace MNN {
-CPUDeconvolutionDepthwise::CPUDeconvolutionDepthwise(const Tensor* input, const Op* convOp, Backend* b)
-    : MNN::CPUDeconvolutionCommon(input, convOp, b, false) {
-    auto conv               = convOp->main_as_Convolution2D();
-    auto layer              = convOp->main_as_Convolution2D()->common();
-    int kw                  = layer->kernelX();
-    int kh                  = layer->kernelY();
-    int outputCount         = layer->outputCount();
-    auto core               = static_cast<CPUBackend*>(backend())->functions();
-    int depthQuad           = UP_DIV(outputCount, core->pack);
+std::shared_ptr<DeconvolutionResource> CPUDeconvolutionDepthwise::makeResource(int inputChannel, const Op *convOp, Backend* backend) {
+    std::shared_ptr<DeconvolutionResource> res(new DeconvolutionResource);
+    auto conv = convOp->main_as_Convolution2D();
+    auto layer = convOp->main_as_Convolution2D()->common();
+    int kw = layer->kernelX();
+    int kh = layer->kernelY();
+    int outputCount = layer->outputCount();
+    auto core = static_cast<CPUBackend*>(backend)->functions();
+    int depthQuad = UP_DIV(outputCount, core->pack);
     const float* tempWeight = nullptr;
     int tempWeightSize   = 0;
     std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
-    ConvolutionCommon::getConvParameters(&quanCommon, b, convOp, &tempWeight, &tempWeightSize);
+    ConvolutionCommon::getConvParameters(&quanCommon, backend, convOp, &tempWeight, &tempWeightSize);
+    if (nullptr == tempWeight) {
+        return nullptr;
+    }
 
     // Reorder weight from whc -> pwhc4
     int kernelSize = depthQuad * core->pack * kw * kh;
-    mWeight.reset(Tensor::createDevice<float>(std::vector<int>{kernelSize}));
-    auto sucess = backend()->onAcquireBuffer(mWeight.get(), Backend::STATIC);
+    res->mWeight.reset(Tensor::createDevice<float>(std::vector<int>{kernelSize}));
+    res->mBias.reset(Tensor::createDevice<float>(std::vector<int>{depthQuad * core->pack}));
+
+    auto sucess = backend->onAcquireBuffer(res->mWeight.get(), Backend::STATIC) && backend->onAcquireBuffer(res->mBias.get(), Backend::STATIC);
     if (!sucess) {
-        mValid = false;
-        return;
+        return nullptr;
     }
+    CPUConvolution::Resource::copyBias(res->mBias->host<float>(), convOp->main_as_Convolution2D()->bias()->data(), outputCount, backend);
     AutoStorage<uint8_t> weightTempStorage;
     if (core->bytes < 4) {
         weightTempStorage.reset(kernelSize * core->bytes);
         if (weightTempStorage.get() == nullptr) {
-            mValid = false;
-            return;
+            return nullptr;
         }
         core->MNNFp32ToLowp(tempWeight, (int16_t*)weightTempStorage.get(), kernelSize);
         tempWeight = (const float*)weightTempStorage.get();
     }
-    auto weight = mWeight->host<float>();
+    auto weight = res->mWeight->host<float>();
     int offset[] = {
         kw * kh,
         kw * kh
     };
     core->MNNPackCUnit(weight, tempWeight, kw * kh, outputCount, offset);
-    mOrigin.reset(new CPUDeconvolutionDepthwiseBasic(input, convOp, b));
+    return res;
+}
+
+CPUDeconvolutionDepthwise::CPUDeconvolutionDepthwise(int inputChannel, const Op* convOp, Backend* b, std::shared_ptr<DeconvolutionResource> res)
+    : MNN::CPUDeconvolutionBasic(inputChannel, convOp, b) {
+    mResource = res;
+    mOrigin.reset(new CPUDeconvolutionDepthwiseBasic(inputChannel, convOp, b));
+}
+bool CPUDeconvolutionDepthwise::onClone(Backend* bn, const Op* op, Execution** dst) {
+    if (nullptr == dst) {
+        return true;
+    }
+    *dst = new CPUDeconvolutionDepthwise(mSrcCount, op, bn, mResource);
+    return true;
 }
 
 CPUDeconvolutionDepthwise::~CPUDeconvolutionDepthwise() {
-    backend()->onReleaseBuffer(mWeight.get(), Backend::STATIC);
+    // Do nothing
 }
 
 ErrorCode CPUDeconvolutionDepthwiseMultiInput::onResize(const std::vector<Tensor*>& inputs,
@@ -214,9 +231,14 @@ public:
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op, Backend* backend) const {
         if (1 < inputs.size()) {
-            return new CPUDeconvolutionDepthwiseMultiInput(inputs[0], op, backend);
+            return new CPUDeconvolutionDepthwiseMultiInput(inputs[0]->channel(), op, backend);
         }
-        return new CPUDeconvolutionDepthwise(inputs[0], op, backend);
+        auto res = CPUDeconvolutionDepthwise::makeResource(inputs[0]->channel(), op, backend);
+        if (nullptr == res.get()) {
+            MNN_ERROR("Create Resource error for DeconvolutionDepthwise\n");
+            return nullptr;
+        }
+        return new CPUDeconvolutionDepthwise(inputs[0]->channel(), op, backend, res);
     }
 };
 

@@ -29,7 +29,7 @@ asm_function MNNGemmInt8AddBiasScale_16x4_Unit_FAST
 
 //Auto: r0: dst*, r1: src*, r2:weight*, r3: src_depth_quad
 // Load from sp: r4: dst_step, r5: dst_depth_quad, r6: post, r10: real
-// Load from post: r8: scale, lr: bias, r7: maxValue, r6: minValue
+// Load from post: lr: bias, r7: maxValue, r6: minValue
 
 push {r4-r8, r10, lr} // avoid to touch platform-register r-9
 
@@ -38,18 +38,14 @@ ldr r5, [sp, #32]
 ldr r6, [sp, #36]
 ldr r10, [sp, #40]
 
-ldr r8, [r6, #0]
 ldr lr, [r6, #4]
 
 vpush {q4-q7}
-sub sp, sp, #36
+sub sp, sp, #24
 
 // Only int8 output use this kernel.
 
-ldr r12, [r6, #28] // srcKernelSum
-str r12, [sp, #4]
-ldr r12, [r6, #32] // weightBias
-str r12, [sp, #8]
+ldr r8, [r6, #28] // srcKernelSum
 ldr r12, [r6, #36] // f32minmax
 str r12, [sp, #12]
 ldr r12, [r6, #8] // int8 max
@@ -130,7 +126,7 @@ L2LoopDz:
     
     L2Quan:
     vld1.f32 {q14}, [lr]! // bias
-    vld1.f32 {q15}, [r8]! // scale
+    vld1.f32 {q15}, [r2]! // scale
     vpadd.s32 d20, d0, d1
     vpadd.s32 d21, d2, d3
     
@@ -152,12 +148,10 @@ L2LoopDz:
     vmulq.f32 q0, q0, q15 // mul scale
     vmulq.f32 q1, q1, q15
 
-    ldr r6, [sp, #4] // srcKernelSum
-    vld1.f32 {d12[0]}, [r6]! // tile 0
-    vld1.f32 {d12[1]}, [r6] // tile 1
-    ldr r6, [sp, #8] // weightBias
-    vld1.f32 {q7}, [r6]!
-    str r6, [sp, #8] // update next 4 weightBias
+    vld1.f32 {d12[0]}, [r8]! // tile 0
+    vld1.f32 {d12[1]}, [r8] // tile 1
+    vld1.f32 {q7}, [r2]!
+    sub r8, r8, #4
 
     vmla.f32 q0, q7, d12[0] // add srcKernelSum x weightBias
     vmla.f32 q1, q7, d12[1]
@@ -250,7 +244,7 @@ L1LoopDz:
     vld1.f32 {q14}, [lr]!
     vpadd.s32 d20, d0, d1
     vpadd.s32 d21, d2, d3
-    vld1.f32 {q15}, [r8]!
+    vld1.f32 {q15}, [r2]!
     vpadd.s32 d22, d4, d5
     vpadd.s32 d23, d6, d7
 
@@ -261,11 +255,8 @@ L1LoopDz:
     vcvt.f32.s32 q0, q8
     vmulq.f32 q0, q0, q15
 
-    ldr r6, [sp, #4] // srcKernelSum
-    vld1.f32 {d12[0]}, [r6] // tile 0
-    ldr r6, [sp, #8] // weightBias
-    vld1.f32 {q7}, [r6]!
-    str r6, [sp, #8] // update next 4 weightBias
+    vld1.f32 {d12[0]}, [r8] // tile 0
+    vld1.f32 {q7}, [r2]!
     vmla.f32 q0, q7, d12[0]
     vadd.f32 q0, q0, q14 // add bias
 
@@ -296,7 +287,7 @@ L1LoopCheck:
     bne L1LoopDz
 
 End:
-add sp, sp, #36
+add sp, sp, #24
 vpop {q4-q7}
 pop {r4-r8, r10, pc}
 

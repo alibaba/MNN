@@ -66,26 +66,189 @@ void _AVX_MNNPackedMatMulRemain_int8(float* C, const float* A, const float* B, s
 void _AVX_MNNAbsMaxFP32(const float* source, float* absmax, size_t src_depth_quad, size_t realSize, int pack) {
     // source: (ic/8, N, 8)
     auto srcStep = pack * realSize;
-    auto constant = _mm256_castsi256_ps(_mm256_set1_epi32(0x7FFFFFFF));
-    float temp[8];
-    for (int i = 0; i < realSize; ++i) {
-        __m256 res = _mm256_setzero_ps();
-        for (int c = 0; c < src_depth_quad; ++c) {
-            auto src0 = source + c * srcStep + i * pack;
-            __m256 vecA = _mm256_loadu_ps(src0);
-            __m256 absVecA = _mm256_and_ps(vecA, constant);
-            __m256 mask = _mm256_cmp_ps(absVecA, res, 1);
-            res = _mm256_blendv_ps(absVecA, res, mask);
+    if (pack == 8) {
+        float temp[8];
+        auto constant = _mm256_castsi256_ps(_mm256_set1_epi32(0x7FFFFFFF));
+        for (int i = 0; i < realSize; ++i) {
+            __m256 res = _mm256_setzero_ps();
+            for (int c = 0; c < src_depth_quad; ++c) {
+                auto src0 = source + c * srcStep + i * pack;
+                __m256 vecA = _mm256_loadu_ps(src0);
+                __m256 absVecA = _mm256_and_ps(vecA, constant);
+                __m256 mask = _mm256_cmp_ps(absVecA, res, 1);
+                res = _mm256_blendv_ps(absVecA, res, mask);
+            }
+            _mm256_storeu_ps(temp, res);
+            float absmaxVal = temp[0];
+            for (int k = 1; k < pack; ++k) {
+                if (absmaxVal < temp[k]) {
+                    absmaxVal = temp[k];
+                }
+            }
+            absmax[i] = absmaxVal;
         }
-        _mm256_storeu_ps(temp, res);
-        float absmaxVal = temp[0];
-        for (int k = 1; k < pack; ++k) {
-            if (absmaxVal < temp[k]) {
-                absmaxVal = temp[k];
+        return;
+    }
+    if (pack == 4) {
+        float tmp[4];
+        __m128 mask = _mm_set1_ps(-0.0f);
+        for (int i = 0; i < realSize; ++i) {
+            __m128 absmax_ = _mm_loadu_ps(source + i * pack);
+            absmax_ = _mm_andnot_ps(mask, absmax_);
+            auto src0 = source + i * pack;
+            for (int j = 1; j < src_depth_quad; ++j) {
+                __m128 vec = _mm_loadu_ps(src0 + j * srcStep);
+                vec = _mm_andnot_ps(mask, vec);
+                absmax_ = _mm_max_ps(absmax_, vec);
+            }
+            _mm_storeu_ps(tmp, absmax_);
+            float res = tmp[0];
+            for (int j = 1; j < pack; ++j) {
+                res = ALIMAX(res, tmp[j]);
+            }
+            absmax[i] = res;
+        }
+        return;
+    }
+    MNN_ERROR("absmax error: x86_x64 avx2 don't suppport pack=%d yet\n", pack);
+    return;
+}
+
+void _AVX_MNNDynamicQuant(const float* src, int8_t* dst, const float* scale, size_t src_depth_quad, size_t realSize, int pack) {
+    auto srcStep = realSize * pack;
+    if (pack == 8) { // core->pack
+        auto offset = _mm256_set1_epi32(128);
+        int32_t* dstPtr = reinterpret_cast<int32_t*>(dst);
+        int32_t tmp[8];
+        for (int i = 0; i < src_depth_quad; ++i) {
+            int xcount = realSize;
+            auto srcPtr = src + i * srcStep;
+            auto scalePtr = scale;
+            while (xcount > 3) {
+                auto scale0 = _mm256_set1_ps(scalePtr[0]);
+                auto scale1 = _mm256_set1_ps(scalePtr[1]);
+                auto scale2 = _mm256_set1_ps(scalePtr[2]);
+                auto scale3 = _mm256_set1_ps(scalePtr[3]);
+                auto data0 = _mm256_loadu_ps(srcPtr);
+                auto data1 = _mm256_loadu_ps(srcPtr + pack);
+                auto data2 = _mm256_loadu_ps(srcPtr + 2 * pack);
+                auto data3 = _mm256_loadu_ps(srcPtr + 3 * pack);
+                data0 = _mm256_mul_ps(data0, scale0);
+                data1 = _mm256_mul_ps(data1, scale1);
+                data2 = _mm256_mul_ps(data2, scale2);
+                data3 = _mm256_mul_ps(data3, scale3);
+                data0 = _mm256_round_ps(data0, 0);
+                data1 = _mm256_round_ps(data1, 0);
+                data2 = _mm256_round_ps(data2, 0);
+                data3 = _mm256_round_ps(data3, 0);
+                auto r0 = _mm256_cvtps_epi32(data0);
+                auto r1 = _mm256_cvtps_epi32(data1);
+                auto r2 = _mm256_cvtps_epi32(data2);
+                auto r3 = _mm256_cvtps_epi32(data3);
+                r0 = _mm256_add_epi32(r0, offset);
+                r1 = _mm256_add_epi32(r1, offset);
+                r2 = _mm256_add_epi32(r2, offset);
+                r3 = _mm256_add_epi32(r3, offset);
+                auto r0_16 = _mm256_packs_epi32(r0, r1); // 0000111100001111
+                auto r1_16 = _mm256_packs_epi32(r2, r3); // 2222333322223333
+                auto r0_8 = _mm256_packus_epi16(r0_16, r1_16); // 0000111122223333 0000111122223333
+                _mm256_storeu_si256((__m256i *)tmp, r0_8);
+                for (int k = 0; k < 4; ++k) {
+                    dstPtr[2 * k] = tmp[k];
+                    dstPtr[2 * k + 1] = tmp[k + 4];
+                }
+                // next round
+                xcount -= 4;
+                scalePtr += 4;
+                srcPtr += (4 * pack);
+                dstPtr += 8;
+            }
+            while (xcount) {
+                auto scale0 = _mm256_set1_ps(scalePtr[0]);
+                auto data0 = _mm256_loadu_ps(srcPtr);
+                data0 = _mm256_mul_ps(data0, scale0);
+                data0 = _mm256_round_ps(data0, 0);
+                auto r0 = _mm256_cvtps_epi32(data0);
+                r0 = _mm256_add_epi32(r0, offset);
+                auto r0_16 = _mm256_packs_epi32(r0, r0); // 0000111100001111
+                auto r0_8 = _mm256_packus_epi16(r0_16, r0_16); // 0000111122223333 0000111122223333
+                _mm256_storeu_si256((__m256i *)tmp, r0_8);
+                dstPtr[0] = tmp[0];
+                dstPtr[1] = tmp[4];
+                
+                // next round
+                xcount--;
+                scalePtr += 1;
+                srcPtr += pack;
+                dstPtr += 2;
             }
         }
-        absmax[i] = absmaxVal;
+        return;
     }
+    if (pack == 4) { // LP=4;
+        auto offset = _mm_set1_epi32(128);
+        int32_t tmp[4];
+        int32_t* dstPtr = reinterpret_cast<int32_t*>(dst);
+        for (int i = 0; i < src_depth_quad; ++i) {
+            int xcount = realSize;
+            auto srcPtr = src + i * srcStep;
+            auto scalePtr = scale;
+            while (xcount > 3) {
+                auto scale0 = _mm_set1_ps(scalePtr[0]);
+                auto scale1 = _mm_set1_ps(scalePtr[1]);
+                auto scale2 = _mm_set1_ps(scalePtr[2]);
+                auto scale3 = _mm_set1_ps(scalePtr[3]);
+                auto data0 = _mm_loadu_ps(srcPtr);
+                auto data1 = _mm_loadu_ps(srcPtr + pack);
+                auto data2 = _mm_loadu_ps(srcPtr + 2 * pack);
+                auto data3 = _mm_loadu_ps(srcPtr + 3 * pack);
+                data0 = _mm_mul_ps(data0, scale0);
+                data1 = _mm_mul_ps(data1, scale1);
+                data2 = _mm_mul_ps(data2, scale2);
+                data3 = _mm_mul_ps(data3, scale3);
+                data0 = _mm_round_ps(data0, 0);
+                data1 = _mm_round_ps(data1, 0);
+                data2 = _mm_round_ps(data2, 0);
+                data3 = _mm_round_ps(data3, 0);
+                auto r0 = _mm_cvtps_epi32(data0);
+                auto r1 = _mm_cvtps_epi32(data1);
+                auto r2 = _mm_cvtps_epi32(data2);
+                auto r3 = _mm_cvtps_epi32(data3);
+                r0 = _mm_add_epi32(r0, offset);
+                r1 = _mm_add_epi32(r1, offset);
+                r2 = _mm_add_epi32(r2, offset);
+                r3 = _mm_add_epi32(r3, offset);
+                auto r0_16 = _mm_packs_epi32(r0, r1); // 00001111
+                auto r1_16 = _mm_packs_epi32(r2, r3); // 22223333
+                auto r0_8  = _mm_packus_epi16(r0_16, r1_16); // 0000111122223333
+                _mm_storeu_si128((__m128i *)dstPtr, r0_8);
+                // next round
+                xcount -= 4;
+                scalePtr += 4;
+                srcPtr += (4 * pack);
+                dstPtr += 4;
+            }
+            while (xcount) {
+                auto scale0 = _mm_set1_ps(scalePtr[0]);
+                auto data0 = _mm_loadu_ps(srcPtr);
+                data0 = _mm_mul_ps(data0, scale0);
+                auto r0 = _mm_cvtps_epi32(_mm_round_ps(data0, 0));
+                r0 = _mm_add_epi32(r0, offset);
+                auto r0_16 = _mm_packs_epi32(r0, r0); // 00001111
+                auto r0_8  = _mm_packus_epi16(r0_16, r0_16); // 0000111122223333
+                _mm_storeu_si128((__m128i *)tmp, r0_8);
+                dstPtr[0] = tmp[0];
+                // next round
+                xcount--;
+                scalePtr += 1;
+                srcPtr += pack;
+                dstPtr += 1;
+            }
+        }
+        return;
+    }
+    MNN_ERROR("dynamic quant error: x86_x64 avx2 don't suppport pack=%d yet\n", pack);
+    return;
 }
 
 #endif

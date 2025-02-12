@@ -451,8 +451,16 @@ public:
             if (newAxis == 0) {
                 concatLen = attr->elemShape[shapeIndex][concatAxis];
             }
+            if (1 == outside && outDes->regions.size() > 0) {
+                // If outside is 1, fuse to one region
+                outDes->regions[outDes->regions.size() - 1].size[2] += inside * concatLen;
+                concatSum += concatLen;
+                continue;
+            }
             if (concatLast == concatLen) {
+                // Fuse to last region
                 outDes->regions[outDes->regions.size() - 1].size[0] += 1;
+                concatSum += concatLen;
                 continue;
             }
             Tensor::InsideDescribe::Region reg;

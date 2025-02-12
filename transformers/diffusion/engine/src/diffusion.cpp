@@ -83,6 +83,7 @@ bool Diffusion::load() {
         backendConfig.memory = BackendConfig::Memory_Low;
         config.numThread = 4;
     } else if(config.type == MNN_FORWARD_OPENCL) {
+        backendConfig.memory = BackendConfig::Memory_Low;
         config.mode = MNN_GPU_MEMORY_BUFFER | MNN_GPU_TUNING_FAST;
     } else {
         config.numThread = 1;

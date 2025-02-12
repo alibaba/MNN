@@ -96,47 +96,39 @@ struct QuanPostTreatParameters {
 // x5: dst_depth_quad, x6: post, x7: realSize
 
 //Load from post:
-// x7: scale, x10: bias, w11: maxValue, w6: minValue, w13: UseInt8, x14: srcKernelSum, x12: weightQuantBias
-mov x8, x7
-mov x15, x6
-ldr x7, [x15, #0]
-ldr x10, [x15, #8]
-ldr w11, [x15, #16]
-ldr w6, [x15, #20]
-ldr w13, [x15, #24]
-ldr x14, [x15, #40] // srcKernelSum
-ldr x12, [x15, #48] // weightQuantBias
+// x10: bias, w11: maxValue, w6: minValue, w13: UseInt8, x14: srcKernelSum
 
-stp d14, d15, [sp, #(-16 * 8)]!
+ldr x10, [x6, #8]
+ldr w11, [x6, #16]
+ldr w13, [x6, #24]
+ldr x14, [x6, #40] // srcKernelSum
+
+stp d14, d15, [sp, #(-16 * 6)]!
 stp d12, d13, [sp, #(16 * 1)]
 stp d10, d11, [sp, #(16 * 2)]
 stp d8,  d9,  [sp, #(16 * 3)]
 stp x19, x20, [sp, #(16 * 4)]
-stp x21, x22, [sp, #(16 * 5)]
-stp x23, x24, [sp, #(16 * 6)]
+stp x23, x24, [sp, #(16 * 5)]
 
-ldr x19, [x15, #56] // fp32 min max
-ldr x21, [x15, #64] // blockNum
-ldr x23, [x15, #80] // extraScale
-lsl x21, x3, #6    // src_depth_quad* SRC_UNIT * UNIT * sizeof(int8_t)
+ldr x19, [x6, #56] // fp32 min max
+ldr x23, [x6, #80] // extraScale
+ldr x15, [x6, #96] // accumBuffer
+ldr w6, [x6, #20]  // minValue
 add x20, x19, #4
-lsl x24, x8, #4    // eDest * SRC_UNIT
+lsl x24, x7, #4    // eDest * SRC_UNIT
 Start:
-cmp x8, #3
+cmp x7, #3
 beq L3Dz
 
-cmp x8, #2
+cmp x7, #2
 beq L2Dz
 
-cmp x8, #1
+cmp x7, #1
 beq L1Dz
 
-cmp w13, #1
-bne L4LoopDz
-
+mov x7, x15
 L4LoopDz:
     mov x8, x1
-    mov x22, x2
     ld1 {v0.16b, v1.16b, v2.16b, v3.16b}, [x2], #64
     ld1 {v4.16b, v5.16b, v6.16b, v7.16b}, [x1], #64
     
@@ -276,9 +268,9 @@ L4LoopDz:
     addp v15.4s, v10.4s, v11.4s
 
     L4Quan:
-    ld1 {v1.4s}, [x7], #16 // scalefuse
+    ld1 {v1.4s}, [x2], #16 // scalefuse
     ld1 {v20.4s}, [x14] // srcKernelSum
-    ld1 {v21.4s}, [x12], #16 // weightQuanZero
+    ld1 {v21.4s}, [x2], #16 // weightQuanZero
 
     scvtf v4.4s, v12.4s
     scvtf v5.4s, v13.4s
@@ -307,14 +299,20 @@ L4LoopDz:
     fadd v5.4s, v5.4s, v0.4s
     fadd v6.4s, v6.4s, v0.4s
     fadd v7.4s, v7.4s, v0.4s
-    b L4_POST
+    cbnz x0, L4_POST
+    b L4_BUFFER
 
     L4_ADD_DSTV:
-    ld1 {v8.4s, v9.4s, v10.4s, v11.4s}, [x0]
+    ld1 {v8.4s, v9.4s, v10.4s, v11.4s}, [x7], #64
     fadd v4.4s, v4.4s, v8.4s
     fadd v5.4s, v5.4s, v9.4s
     fadd v6.4s, v6.4s, v10.4s
     fadd v7.4s, v7.4s, v11.4s
+    cbnz x0, L4_POST
+
+    L4_BUFFER:
+    st1 {v4.4s, v5.4s, v6.4s, v7.4s}, [x15], #64
+    b L4LoopCheck
 
     L4_POST:
     cbz x19, L4_STORE
@@ -354,18 +352,17 @@ L4LoopDz:
 L4LoopCheck:
     subs x5, x5, #1
     mov x1, x8
-    add x2, x22, x21
     bne L4LoopDz
 
 b End
 
 L3Dz:
+mov x7, x15
 cmp w13, #1
 bne L3LoopDz
 sub x4, x4, #8
 L3LoopDz:
     mov x8, x1
-    mov x22, x2
     ld1 {v0.16b, v1.16b, v2.16b, v3.16b}, [x2], #64
     ld1 {v4.16b, v5.16b, v6.16b}, [x1], x24
 
@@ -479,10 +476,10 @@ L3LoopDz:
     addp v14.4s, v8.4s, v9.4s
 
     L3Quan:
-    ld1 {v1.4s}, [x7], #16
+    ld1 {v1.4s}, [x2], #16
     ld1 {v20.d}[0], [x14], #8 // srcKernelSum
     ld1 {v20.s}[2], [x14]
-    ld1 {v21.4s}, [x12], #16 // weightQuanZero
+    ld1 {v21.4s}, [x2], #16 // weightQuanZero
 
     scvtf v4.4s, v12.4s
     scvtf v5.4s, v13.4s
@@ -512,13 +509,19 @@ L3LoopDz:
     fadd v4.4s, v4.4s, v0.4s
     fadd v5.4s, v5.4s, v0.4s
     fadd v6.4s, v6.4s, v0.4s
-    b L3_POST
+    cbnz x0, L3_POST
+    b L3_BUFFER
 
     L3_ADD_DSTV:
-    ld1 {v0.4s, v1.4s, v2.4s}, [x0]
-    fadd v4.4s, v4.4s, v0.4s
-    fadd v5.4s, v5.4s, v1.4s
-    fadd v6.4s, v6.4s, v2.4s
+    ld1 {v8.4s, v9.4s, v10.4s}, [x7], #48
+    fadd v4.4s, v4.4s, v8.4s
+    fadd v5.4s, v5.4s, v9.4s
+    fadd v6.4s, v6.4s, v10.4s
+    cbnz x0, L3_POST
+
+    L3_BUFFER:
+    st1 {v4.4s, v5.4s, v6.4s}, [x15], #48
+    b L3LoopCheck
 
     L3_POST:
     cbz x19, L3_STORE
@@ -559,15 +562,14 @@ L3LoopDz:
 L3LoopCheck:
     subs x5, x5, #1
     mov x1, x8
-    add x2, x22, x21
     bne L3LoopDz
 
 b End
 
 L2Dz:
+mov x7, x15
 L2LoopDz:
     mov x8, x1
-    mov x22, x2
     ld1 {v0.16b, v1.16b, v2.16b, v3.16b}, [x2], #64
     ld1 {v4.16b, v5.16b}, [x1], x24
     
@@ -649,9 +651,9 @@ L2LoopDz:
     addp v13.4s, v6.4s, v7.4s
 
     L2Quan:
-    ld1 {v1.4s}, [x7], #16
+    ld1 {v1.4s}, [x2], #16
     ld1 {v20.d}[0], [x14] // srcKernelSum
-    ld1 {v21.4s}, [x12], #16 // weightQuanZero
+    ld1 {v21.4s}, [x2], #16 // weightQuanZero
 
     scvtf v4.4s, v12.4s
     scvtf v5.4s, v13.4s
@@ -674,12 +676,18 @@ L2LoopDz:
     ld1 {v0.4s}, [x10], #16
     fadd v4.4s, v4.4s, v0.4s
     fadd v5.4s, v5.4s, v0.4s
-    b L2_POST
-    
+    cbnz x0, L2_POST
+    b L2_BUFFER
+
     L2_ADD_DSTV:
-    ld1 {v0.4s, v1.4s}, [x0]
-    fadd v4.4s, v4.4s, v0.4s
-    fadd v5.4s, v5.4s, v1.4s
+    ld1 {v8.4s, v9.4s}, [x7], #32
+    fadd v4.4s, v4.4s, v8.4s
+    fadd v5.4s, v5.4s, v9.4s
+    cbnz x0, L2_POST
+
+    L2_BUFFER:
+    st1 {v4.4s, v5.4s}, [x15], #32
+    b L2LoopCheck
 
     L2_POST:
     cbz x19, L2_STORE
@@ -713,19 +721,18 @@ L2LoopDz:
 L2LoopCheck:
     subs x5, x5, #1
     mov x1, x8
-    add x2, x22, x21
     bne L2LoopDz
 
 b End
 
 L1Dz:
+mov x7, x15
 L1LoopDz:
     mov x8, x1
-    mov x22, x2
     ld1 {v0.16b, v1.16b, v2.16b, v3.16b}, [x2], #64
     dup v16.4s, wzr
     dup v17.4s, wzr
-    ld1 {v4.16b}, [x1], x24
+    ld1 {v4.16b}, [x1], #16
     
     smull v8.8h, v0.8b, v4.8b
     dup v18.4s, wzr
@@ -742,7 +749,7 @@ L1LoopDz:
 
     L1LoopSz:
         sadalp v16.4s, v8.8h
-        ld1 {v4.16b}, [x1], x24
+        ld1 {v4.16b}, [x1], #16
         sadalp v17.4s, v9.8h
         sadalp v18.4s, v10.8h
         sadalp v19.4s, v11.8h
@@ -778,9 +785,9 @@ L1LoopDz:
     addp v12.4s, v4.4s, v5.4s
 
     L1Quan:
-    ld1 {v1.4s}, [x7], #16
+    ld1 {v1.4s}, [x2], #16
     ld1 {v20.s}[0], [x14] // srcKernelSum
-    ld1 {v21.4s}, [x12], #16 // weightQuanZero
+    ld1 {v21.4s}, [x2], #16 // weightQuanZero
 
     scvtf v4.4s, v12.4s
     MUL_SCALE1 v1, v4
@@ -799,11 +806,17 @@ L1LoopDz:
     cbz x10, L1_ADD_DSTV
     ld1 {v0.4s}, [x10], #16
     fadd v4.4s, v4.4s, v0.4s
-    b L1_POST
+    cbnz x0, L1_POST
+    b L1_BUFFER
 
     L1_ADD_DSTV:
-    ld1 {v0.4s}, [x0]
-    fadd v4.4s, v4.4s, v0.4s
+    ld1 {v8.4s}, [x7], #16
+    fadd v4.4s, v4.4s, v8.4s
+    cbnz x0, L1_POST
+
+    L1_BUFFER:
+    st1 {v4.4s}, [x15], #16
+    b L1LoopCheck
 
     L1_POST:
     cbz x19, L1_STORE
@@ -834,17 +847,15 @@ L1LoopDz:
 L1LoopCheck:
     subs x5, x5, #1
     mov x1, x8
-    add x2, x22, x21
     bne L1LoopDz
 
 End:
-ldp x23, x24, [sp, #(16 * 6)]
-ldp x21, x22, [sp, #(16 * 5)]
+ldp x23, x24, [sp, #(16 * 5)]
 ldp x19, x20, [sp, #(16 * 4)]
 ldp d8,  d9,  [sp, #(16 * 3)]
 ldp d10, d11, [sp, #(16 * 2)]
 ldp d12, d13, [sp, #(16 * 1)]
-ldp d14, d15, [sp], #(16 * 8)
+ldp d14, d15, [sp], #(16 * 6)
 ret
 
 #endif

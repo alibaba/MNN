@@ -23,7 +23,7 @@ public:
     OnnxScope(const onnx::GraphProto* graph, MNN::NetT* net, const std::string& modelDir) : mGraph(graph), ConverterScope(net) { onnxInit(); mModelDir = modelDir;}
     OnnxScope(const onnx::GraphProto* graph, MNN::SubGraphProtoT* subnet, MNN::NetT* net,
               OnnxScope* parent) : mGraph(graph), ConverterScope(subnet, net, parent) { onnxInit(); mModelDir = parent->mModelDir;}
-    std::pair<int, int> buildTensorArrayOp(std::vector<int> element_shape, bool identical, const std::string& name, int init_size = 1);
+    std::pair<int, int> buildTensorArrayOp(std::vector<int> element_shape, bool identical, const std::string& name, int init_size = 1, MNN::DataType type = MNN::DataType_DT_FLOAT);
     void buildAccumulate(const std::string& name, const std::string& uName, const std::string& iName, const std::string& oName);
     // Return extra input needed from subgraph
     // WhileModule implemention acquire

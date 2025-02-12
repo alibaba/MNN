@@ -240,7 +240,17 @@ MNN::OpParameter SequenceEmptyOnnx::type() {
 }
 void SequenceEmptyOnnx::run(MNN::OpT* dstOp, const onnx::NodeProto* onnxNode,
                          OnnxScope* scope) {
-    auto tensorArrayIdx = scope->buildTensorArrayOp({}, false, dstOp->name + "/tensorArray", 0);
+    MNN::DataType dataType = MNN::DataType_DT_FLOAT;
+    for (int i = 0; i < onnxNode->attribute_size(); ++i) {
+        const auto& attributeProto = onnxNode->attribute(i);
+        const auto& attributeName  = attributeProto.name();
+
+        if (attributeName == "dtype") {
+            dataType = convertDataType(attributeProto.i());
+        }
+    }
+
+    auto tensorArrayIdx = scope->buildTensorArrayOp({}, false, dstOp->name + "/tensorArray", 0, dataType);
     dstOp->inputIndexes.resize(1);
     dstOp->inputIndexes[0] = tensorArrayIdx.second;
 }

@@ -5,6 +5,15 @@ else()
     FILE(GLOB_RECURSE MNN_Vulkan_SRC ${CMAKE_CURRENT_LIST_DIR}/buffer/* ${CMAKE_CURRENT_LIST_DIR}/component/* ${CMAKE_CURRENT_LIST_DIR}/runtime/* ${CMAKE_CURRENT_LIST_DIR}/vulkan/*)
 endif()
 
+if(MNN_GPU_TIME_PROFILE)
+    if(APPLE)
+        message(STATUS "Timeprofile feature for Vulkan backend is currently not supported on Apple systems.")
+    else()
+        add_definitions(-DENABLE_VULKAN_TIME_PROFILE)
+    endif()
+ENDIF()
+
+
 include_directories("./")
 if(MNN_USE_SYSTEM_LIB)
     find_package(Vulkan REQUIRED)

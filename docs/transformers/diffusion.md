@@ -49,13 +49,13 @@ python3 convert_mnn.py onnx_path mnn_save_path "--weightQuantBits=8 --transforme
 cd mnn_path
 mkdir build
 cd build
-cmake .. -DMNN_BUILD_DIFFUSION=ON -DMNN_BUILD_OPENCV=ON -DMNN_IMGCODECS=ON -DMNN_OPENCL=ON -DMNN_SEP_BUILD=OFF -DMNN_SUPPORT_TRANSFORMER_FUSE=ON
+cmake .. -DMNN_LOW_MEMORY=ON -DMNN_BUILD_DIFFUSION=ON -DMNN_BUILD_OPENCV=ON -DMNN_IMGCODECS=ON -DMNN_OPENCL=ON -DMNN_SEP_BUILD=OFF -DMNN_SUPPORT_TRANSFORMER_FUSE=ON
 make -j32
 ```
 ### Android上
 ```
 cd mnn_path/project/android/build
-../build_64.sh -DMNN_BUILD_DIFFUSION=ON -DMNN_BUILD_OPENCV=ON -DMNN_IMGCODECS=ON -DMNN_OPENCL=ON -DMNN_SEP_BUILD=OFF -DMNN_SUPPORT_TRANSFORMER_FUSE=ON
+../build_64.sh -DMNN_LOW_MEMORY=ON -DMNN_BUILD_DIFFUSION=ON -DMNN_BUILD_OPENCV=ON -DMNN_IMGCODECS=ON -DMNN_OPENCL=ON -DMNN_SEP_BUILD=OFF -DMNN_SUPPORT_TRANSFORMER_FUSE=ON
 ../updateTest.sh
 ```
 ## 运行Diffusion Demo
@@ -90,6 +90,6 @@ cd mnn_path/project/android/build
 ```
 ## FAQ
 1. Demo运行报错、段错误，怎么解决？
-- 常见错误可能是设备内存不足，通常支持opencl fp16的设备需要保证3GB以上的内存，不支持fp16则需要6GB以上显存了。
+- 常见错误可能是设备内存不足，通常支持opencl fp16的设备需要保证2GB以上的内存，不支持fp16则需要4GB以上显存了。
 2. 使用其他后端，出现报错，什么原因？
 - 目前其他后端暂不支持transformer插件算子，需要在onnx->mnn模型转换阶段，去掉--transformerFuse。

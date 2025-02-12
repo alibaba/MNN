@@ -89,6 +89,7 @@ private:
     uint32_t mMaxWorkGroupSize;
     OpenCLBackend *mOpenCLBackend;
     RecordUpdateInfo mRgUpdateInfo;
+    RecordUpdateInfo mRgQUpdateInfo;
     RecordUpdateInfo mQkUpdateInfo;
     RecordUpdateInfo mSoftMaxUpdateInfo;
     RecordUpdateInfo mRgVUpdateInfo;

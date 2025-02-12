@@ -51,6 +51,7 @@ struct QuanPostTreatParameters {
     const int32_t* bias = nullptr;
     const float* extraScale = nullptr;
     const float* extraBias = nullptr;
+    float* accumBuffer = nullptr;
 };
 struct QuanPrePostParameters{
     float* inputScale;

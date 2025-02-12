@@ -9,6 +9,7 @@
 #include "audio/audio.hpp"
 #include <MNN/expr/MathOp.hpp>
 #include <MNN/expr/NeuralNetWorkOp.hpp>
+#include "MNN_generated.h"
 #include <cmath>
 #include <algorithm>
 #include <complex>
@@ -399,11 +400,12 @@ VARP spectrogram(VARP waveform, const SpectrogramParams *params) {
         power       = params->power;
     }
     if (pad_left > 1 || pad_right > 1) {
-        waveform = _Pad(waveform, _var<int>({pad_left, pad_right}, {2}), CONSTANT);
+        waveform = MNN::Express::_Pad(waveform, _var<int>({pad_left, pad_right}, {2}), MNN::Express::CONSTANT);
     }
     if (center) {
-        waveform = _Pad(waveform, _var<int>({n_fft / 2, n_fft / 2}, {2}), static_cast<PadValueMode>(pad_mode));
+        waveform = MNN::Express::_Pad(waveform, _var<int>({n_fft / 2, n_fft / 2}, {2}), static_cast<MNN::Express::PadValueMode>(pad_mode));
     }
+    waveform = _Reshape(waveform, {1, -1, 1});
     hop_length = hop_length ? hop_length : n_fft / 2;
     win_length = win_length ? win_length : n_fft;
     VARP window;
@@ -418,15 +420,35 @@ VARP spectrogram(VARP waveform, const SpectrogramParams *params) {
             window = hann_window(win_length);
             break;
     }
-    auto specgram = _Stft(waveform, window, n_fft, hop_length);
+    std::unique_ptr<OpT> op(new OpT);
+    op->type      = OpType_Stft;
+    op->main.type = OpParameter_StftParam;
+    auto param = new StftParamT;
+    param->abs = true;
+    op->main.value = param;
+    EXPRP stftexpr = Expr::create(std::move(op), {waveform, _Scalar<int>(hop_length), window});
+    int nstfts = ((waveform->getInfo()->dim[1] - n_fft) / hop_length) + 1;
+    int dft_unique_bins = n_fft / 2 + 1;
+    auto specgram = MNN::Express::Variable::create(stftexpr);
+    specgram = _Square(specgram);
+    auto startsDims = std::vector<int>{0, 0, 0, 0};
+    auto starts1Dims = std::vector<int>{0, 0, 0, 1};
+    auto sizeDims = std::vector<int>{1, nstfts, dft_unique_bins, 1};
+    auto startVar = _Const(startsDims.data(), {4}, NCHW, halide_type_of<int>());
+    auto start1Var = _Const(starts1Dims.data(), {4}, NCHW, halide_type_of<int>());
+    auto sizeVar = _Const(sizeDims.data(), {4}, NCHW, halide_type_of<int>());
+    auto specgramReal = _Slice(specgram, startVar, sizeVar);
+    auto specgramVirt = _Slice(specgram, start1Var, sizeVar);
+    specgram = specgramReal + specgramVirt;
+    specgram = _Reshape(specgram, {nstfts, dft_unique_bins});
     if (normalized) {
-        float window_norm = std::sqrt(_ReduceSum(_Square(window))->readMap<float>()[0]);
-        specgram          = specgram / _Scalar<float>(window_norm);
+        float window_norm = 1.0f / _ReduceSum(_Square(window))->readMap<float>()[0];
+        specgram = specgram * _Scalar<float>(window_norm);
     }
-    if (power == 2.0) {
-        specgram = _Square(specgram);
-    } else if (power > 2.0) {
-        specgram = _Pow(specgram, _Scalar<float>(power));
+    if (power == 1.0f) {
+        specgram = _Sqrt(specgram);
+    } else if (power != 2.0f) {
+        specgram = _Pow(specgram, _Scalar<float>(power / 2.0f));
     }
     return specgram;
 }

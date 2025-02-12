@@ -40,7 +40,7 @@ CLRuntime::CLRuntime(const Backend::Info& info, int platformSize, int platformId
     }
 
     // Shader precision
-    mOpenCLRuntime.reset(new OpenCLRuntime(precision, mInfo.gpuMode, platformSize, platformId, deviceId, contextPtr, glshared));
+    mOpenCLRuntime.reset(new OpenCLRuntime(precision, mInfo.gpuMode, platformSize, platformId, deviceId, contextPtr, glshared, hint()));
     //Whether runtimeError
     mCLRuntimeError = mOpenCLRuntime->isCreateError();
     mPrecision = precision;
@@ -588,6 +588,8 @@ void OpenCLBackend::onResizeBegin() {
 #ifndef ENABLE_OPENCL_TIME_PROFILER
     mOpenCLRuntime->setCommandQueueProfileEnable();
 #endif
+    // update mUseRecordableQueueSize if hint has changed
+    mUseRecordableQueueSize = mCLRuntime->hint().encorderNumForCommit <= mUseRecordableQueueSize ? mCLRuntime->hint().encorderNumForCommit : mUseRecordableQueueSize;
     releaseRecord();
 }
 
@@ -1352,15 +1354,16 @@ void OpenCLBackend::recordKernel2d(const std::shared_ptr<KernelWrap> &kernelW, c
     cl_int res = CL_SUCCESS;
     if(!mDevideOpRecord){
         RecordInfo info;
+        int recordNum = mRecordNums == mUseRecordableQueueSize ? 0 : mRecordNums;
         if(updateInfo != nullptr){
             for(int i = 0; i < updateInfo->update_kernel_args.size(); ++i){
-                updateInfo->update_kernel_args[i].dispatch_index = mRecordNums;
+                updateInfo->update_kernel_args[i].dispatch_index = recordNum;
             }
             for(int i = 0; i < updateInfo->update_global_size.size(); ++i){
-                updateInfo->update_global_size[i].dispatch_index = mRecordNums;
+                updateInfo->update_global_size[i].dispatch_index = recordNum;
             }
             for(int i = 0; i < updateInfo->update_local_size.size(); ++i){
-                updateInfo->update_local_size[i].dispatch_index = mRecordNums;
+                updateInfo->update_local_size[i].dispatch_index = recordNum;
             }
             info.updateInfo.emplace_back(updateInfo);
         }
@@ -1421,15 +1424,16 @@ void OpenCLBackend::recordKernel3d(const std::shared_ptr<KernelWrap> &kernelW, c
     }
     if(!mDevideOpRecord){
         RecordInfo info;
+        int recordNum = mRecordNums == mUseRecordableQueueSize ? 0 : mRecordNums;
         if(updateInfo != nullptr){
             for(int i = 0; i < updateInfo->update_kernel_args.size(); ++i){
-                updateInfo->update_kernel_args[i].dispatch_index = mRecordNums;
+                updateInfo->update_kernel_args[i].dispatch_index = recordNum;
             }
             for(int i = 0; i < updateInfo->update_global_size.size(); ++i){
-                updateInfo->update_global_size[i].dispatch_index = mRecordNums;
+                updateInfo->update_global_size[i].dispatch_index = recordNum;
             }
             for(int i = 0; i < updateInfo->update_local_size.size(); ++i){
-                updateInfo->update_local_size[i].dispatch_index = mRecordNums;
+                updateInfo->update_local_size[i].dispatch_index = recordNum;
             }
             info.updateInfo.emplace_back(updateInfo);
         }

@@ -494,6 +494,14 @@ std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const Op*
     if (backend && backend->getRuntime()) {
         useCachedMmap = backend->getRuntime()->hint().useCachedMmap > 1;
     }
+    if (USE_EXTERNAL_DATA(conv) && op->externalPath() && quan->type() == 8) {
+        std::unique_ptr<FileLoader> external(new FileLoader(op->externalPath()->c_str()));
+        auto param = op->main_as_Convolution2D();
+        external->offset(param->external()->data()[0]);
+        result->weightFloat.reset(param->external()->data()[1] / sizeof(float));
+        external->read((char*)(result->weightFloat.get()), param->external()->data()[1]);
+        return result;
+    }
     if (USE_EXTERNAL_DATA(conv) && op->externalPath() && quan->buffer() == nullptr) {
         auto external_info = conv->external()->data();
         buffer_size = external_info[1];

@@ -437,14 +437,14 @@ int OnnxScope::lookupTensor(std::string name) {
     return -1;
 }
 
-std::pair<int, int> OnnxScope::buildTensorArrayOp(std::vector<int> element_shape, bool identical, const std::string& name, int init_size) {
+std::pair<int, int> OnnxScope::buildTensorArrayOp(std::vector<int> element_shape, bool identical, const std::string& name, int init_size, DataType dataType) {
     std::unique_ptr<MNN::OpT> tensorArrayOp(new MNN::OpT);
     tensorArrayOp->name      = name;
     tensorArrayOp->type      = MNN::OpType_TensorArray;
     tensorArrayOp->defaultDimentionFormat = MNN_DATA_FORMAT_NCHW;
     tensorArrayOp->main.type = MNN::OpParameter_TensorArray;
     auto tensorArray = new MNN::TensorArrayT;
-    tensorArray->T = DataType_DT_FLOAT;
+    tensorArray->T = dataType;
     tensorArray->dynamic_size = true;
     tensorArray->identical_element_shapes = identical;
     tensorArray->element_shape = element_shape;

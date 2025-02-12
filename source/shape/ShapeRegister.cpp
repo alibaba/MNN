@@ -102,6 +102,7 @@ extern void ___Conv2DBackpropFilterSizeComputer__OpType_Conv2DBackPropFilter__()
 extern void ___Im2ColSizeComputer__OpType_Im2Col__();
 extern void ___Col2ImSizeComputer__OpType_Col2Im__();
 extern void ___ShapeScatterNd__OpType_ScatterNd__();
+extern void ___StftOpComputer__OpType_Stft__();
 extern void ___LSTMComputer__OpType_LSTM__();
 extern void ___LSTMBlockCellComputer__OpType_LSTMBlockCell__();
 extern void ___RNNComputer__OpType_RNN__();
@@ -121,9 +122,6 @@ extern void ___SeqLen2SpatialSizeComputer__OpType_SeqLen2Spatial__();
 extern void ___FmhaV2SizeComputer__OpType_FmhaV2__();
 extern void ___FmhcaSizeComputer__OpType_Fmhca__();
 extern void ___AttentionSizeComputer__OpType_Attention__();
-#endif
-#ifdef MNN_BUILD_AUDIO
-extern void ___StftOpComputer__OpType_Stft__();
 #endif
 void registerShapeOps() {
 ___ShapeSizeComputer__OpType_Shape__();
@@ -228,6 +226,7 @@ ___Conv2DBackpropFilterSizeComputer__OpType_Conv2DBackPropFilter__();
 ___Im2ColSizeComputer__OpType_Im2Col__();
 ___Col2ImSizeComputer__OpType_Col2Im__();
 ___ShapeScatterNd__OpType_ScatterNd__();
+___StftOpComputer__OpType_Stft__();
 ___LSTMComputer__OpType_LSTM__();
 ___LSTMBlockCellComputer__OpType_LSTMBlockCell__();
 ___RNNComputer__OpType_RNN__();
@@ -246,9 +245,6 @@ ___SeqLen2SpatialSizeComputer__OpType_SeqLen2Spatial__();
 ___FmhaV2SizeComputer__OpType_FmhaV2__();
 ___FmhcaSizeComputer__OpType_Fmhca__();
 ___AttentionSizeComputer__OpType_Attention__();
-#endif
-#ifdef MNN_BUILD_AUDIO
-___StftOpComputer__OpType_Stft__();
 #endif
 }
 }

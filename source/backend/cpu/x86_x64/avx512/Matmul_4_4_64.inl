@@ -111,9 +111,10 @@ void MATMULCOREFUNC_NAME(int8_t* dst, const int8_t* src, const int8_t* weight, s
     if (post->biasFloat) {
         biasPtr = post->biasFloat;
     }
+    auto accumbuff = post->accumBuffer;
+    int weightZStride = src_depth_quad * (GEMMINT8_AVX512_L * GEMMINT8_AVX512_H) + (4 * 2 * GEMMINT8_AVX512_H);
+    int weightYStride = (GEMMINT8_AVX512_L * GEMMINT8_AVX512_H);
 
-    int weightZStride = src_depth_quad * (GEMMINT8_AVX512_L * GEMMINT8_AVX512_H);
-    
     auto srcKernelSumPtr = post->srcKernelSum;
     __m512 kernelSum0 = _mm512_setzero_ps();
     __m512 kernelSum1 = _mm512_setzero_ps();
@@ -163,10 +164,12 @@ void MATMULCOREFUNC_NAME(int8_t* dst, const int8_t* src, const int8_t* weight, s
             if (post->extraBias) {
                 extraB_dz = post->extraBias + dz * PACK_UNIT * dzUnit;
             }
-            const auto weightBias_dz = post->weightQuanBias + dz * PACK_UNIT * dzUnit;
-            float* scale_dz = (float*)post->scale + dz * PACK_UNIT * dzUnit;
+            auto scale_dz = (float*)(weight_dz + src_depth_quad * weightYStride);
+            auto weightBias_dz = scale_dz + GEMMINT8_AVX512_H;
             auto dst_z = dst + dz * dst_step_tmp * dzUnit;
             const auto src_x   = src;
+            auto accum_z = accumbuff + dz * realDst * PACK_UNIT * dzUnit;
+            auto accum_x = accum_z;
             auto dst_x         = dst_z;
             __m512i D0 = _mm512_set1_epi32(0);
             __m512i D1 = _mm512_set1_epi32(0);
@@ -373,53 +376,75 @@ void MATMULCOREFUNC_NAME(int8_t* dst, const int8_t* src, const int8_t* weight, s
 
             if (post->useInt8 == 0) {
                 if (biasPtr == nullptr) {
-                    auto destTmp = dst_x;
+                    auto destTmp = accum_x;
                     f0 = _mm512_add_ps(_mm512_loadu_ps((float*)destTmp), f0);
                     f1 = _mm512_add_ps(_mm512_loadu_ps(((float*)destTmp) + 16), f1);
                     f2 = _mm512_add_ps(_mm512_loadu_ps(((float*)destTmp) + 16 * 2), f2);
                     f3 = _mm512_add_ps(_mm512_loadu_ps(((float*)destTmp) + 16 * 3), f3);
-                    destTmp += dst_step_tmp;
+                    destTmp += (realDst * PACK_UNIT);
                     f4 = _mm512_add_ps(_mm512_loadu_ps(((float*)destTmp) + 16 * 0), f4);
                     f5 = _mm512_add_ps(_mm512_loadu_ps(((float*)destTmp) + 16 * 1), f5);
                     f6 = _mm512_add_ps(_mm512_loadu_ps(((float*)destTmp) + 16 * 2), f6);
                     f7 = _mm512_add_ps(_mm512_loadu_ps(((float*)destTmp) + 16 * 3), f7);
-                    destTmp += dst_step_tmp;
+                    destTmp += (realDst * PACK_UNIT);
                     f8 = _mm512_add_ps(_mm512_loadu_ps(((float*)destTmp) + 16 * 0), f8);
                     f9 = _mm512_add_ps(_mm512_loadu_ps(((float*)destTmp) + 16 * 1), f9);
                     f10 = _mm512_add_ps(_mm512_loadu_ps(((float*)destTmp) + 16 * 2), f10);
                     f11 = _mm512_add_ps(_mm512_loadu_ps(((float*)destTmp) + 16 * 3), f11);
-                    destTmp += dst_step_tmp;
+                    destTmp += (realDst * PACK_UNIT);
                     f12 = _mm512_add_ps(_mm512_loadu_ps(((float*)destTmp) + 16 * 0), f12);
                     f13 = _mm512_add_ps(_mm512_loadu_ps(((float*)destTmp) + 16 * 1), f13);
                     f14 = _mm512_add_ps(_mm512_loadu_ps(((float*)destTmp) + 16 * 2), f14);
                     f15 = _mm512_add_ps(_mm512_loadu_ps(((float*)destTmp) + 16 * 3), f15);
                 }
-                if (post->fp32minmax) {
-                    POST_TREAT_FLOAT(0,1,2,3);
-                    POST_TREAT_FLOAT(4,5,6,7);
-                    POST_TREAT_FLOAT(8,9,10,11);
-                    POST_TREAT_FLOAT(12,13,14,15);
+                if (dst) {
+                    if (post->fp32minmax) {
+                        POST_TREAT_FLOAT(0,1,2,3);
+                        POST_TREAT_FLOAT(4,5,6,7);
+                        POST_TREAT_FLOAT(8,9,10,11);
+                        POST_TREAT_FLOAT(12,13,14,15);
+                    }
+                        _mm512_storeu_ps(((float*)dst_x), f0);
+                        _mm512_storeu_ps(((float*)dst_x) + 16, f1);
+                        _mm512_storeu_ps(((float*)dst_x) + 16 * 2, f2);
+                        _mm512_storeu_ps(((float*)dst_x) + 16 * 3, f3);
+                        dst_x += dst_step_tmp;
+                        _mm512_storeu_ps(((float*)dst_x) + 16 * 0, f4);
+                        _mm512_storeu_ps(((float*)dst_x) + 16 * 1, f5);
+                        _mm512_storeu_ps(((float*)dst_x) + 16 * 2, f6);
+                        _mm512_storeu_ps(((float*)dst_x) + 16 * 3, f7);
+                        dst_x += dst_step_tmp;
+                        _mm512_storeu_ps(((float*)dst_x) + 16 * 0, f8);
+                        _mm512_storeu_ps(((float*)dst_x) + 16 * 1, f9);
+                        _mm512_storeu_ps(((float*)dst_x) + 16 * 2, f10);
+                        _mm512_storeu_ps(((float*)dst_x) + 16 * 3, f11);
+                        dst_x += dst_step_tmp;
+                        _mm512_storeu_ps(((float*)dst_x) + 16 * 0, f12);
+                        _mm512_storeu_ps(((float*)dst_x) + 16 * 1, f13);
+                        _mm512_storeu_ps(((float*)dst_x) + 16 * 2, f14);
+                        _mm512_storeu_ps(((float*)dst_x) + 16 * 3, f15);
+                    
+                } else {
+                    _mm512_storeu_ps(((float*)accum_x), f0);
+                    _mm512_storeu_ps(((float*)accum_x) + 16, f1);
+                    _mm512_storeu_ps(((float*)accum_x) + 16 * 2, f2);
+                    _mm512_storeu_ps(((float*)accum_x) + 16 * 3, f3);
+                    accum_x += (realDst * PACK_UNIT);;
+                    _mm512_storeu_ps(((float*)accum_x) + 16 * 0, f4);
+                    _mm512_storeu_ps(((float*)accum_x) + 16 * 1, f5);
+                    _mm512_storeu_ps(((float*)accum_x) + 16 * 2, f6);
+                    _mm512_storeu_ps(((float*)accum_x) + 16 * 3, f7);
+                    accum_x += (realDst * PACK_UNIT);;
+                    _mm512_storeu_ps(((float*)accum_x) + 16 * 0, f8);
+                    _mm512_storeu_ps(((float*)accum_x) + 16 * 1, f9);
+                    _mm512_storeu_ps(((float*)accum_x) + 16 * 2, f10);
+                    _mm512_storeu_ps(((float*)accum_x) + 16 * 3, f11);
+                    accum_x += (realDst * PACK_UNIT);;
+                    _mm512_storeu_ps(((float*)accum_x) + 16 * 0, f12);
+                    _mm512_storeu_ps(((float*)accum_x) + 16 * 1, f13);
+                    _mm512_storeu_ps(((float*)accum_x) + 16 * 2, f14);
+                    _mm512_storeu_ps(((float*)accum_x) + 16 * 3, f15);
                 }
-
-                _mm512_storeu_ps(((float*)dst_x), f0);
-                _mm512_storeu_ps(((float*)dst_x) + 16, f1);
-                _mm512_storeu_ps(((float*)dst_x) + 16 * 2, f2);
-                _mm512_storeu_ps(((float*)dst_x) + 16 * 3, f3);
-                dst_x += dst_step_tmp;
-                _mm512_storeu_ps(((float*)dst_x) + 16 * 0, f4);
-                _mm512_storeu_ps(((float*)dst_x) + 16 * 1, f5);
-                _mm512_storeu_ps(((float*)dst_x) + 16 * 2, f6);
-                _mm512_storeu_ps(((float*)dst_x) + 16 * 3, f7);
-                dst_x += dst_step_tmp;
-                _mm512_storeu_ps(((float*)dst_x) + 16 * 0, f8);
-                _mm512_storeu_ps(((float*)dst_x) + 16 * 1, f9);
-                _mm512_storeu_ps(((float*)dst_x) + 16 * 2, f10);
-                _mm512_storeu_ps(((float*)dst_x) + 16 * 3, f11);
-                dst_x += dst_step_tmp;
-                _mm512_storeu_ps(((float*)dst_x) + 16 * 0, f12);
-                _mm512_storeu_ps(((float*)dst_x) + 16 * 1, f13);
-                _mm512_storeu_ps(((float*)dst_x) + 16 * 2, f14);
-                _mm512_storeu_ps(((float*)dst_x) + 16 * 3, f15);
             } else {
                 POSTTREAT(0, 0);
                 POSTTREAT(1, 1);
@@ -452,12 +477,14 @@ void MATMULCOREFUNC_NAME(int8_t* dst, const int8_t* src, const int8_t* weight, s
         if (post->extraBias) {
             extraB_dz = post->extraBias + dzU * PACK_UNIT * dzUnit;
         }
-        float* scale_dz = (float*)post->scale + dzU * PACK_UNIT * dzUnit;
-        const auto weightBias_dz = post->weightQuanBias + dzU * PACK_UNIT * dzUnit;
+        auto scale_dz = (float*)(weight_dz + src_depth_quad * weightYStride);
+        auto weightBias_dz = scale_dz + (dzR * PACK_UNIT);
 
         auto dst_z = dst + dzU * dst_step_tmp * dzUnit;
         const auto src_x   = src;
         auto dst_x         = dst_z;
+        auto accum_z = accumbuff + dzU * PACK_UNIT * dzUnit * realDst;
+        auto accum_x = accum_z; 
         for (int i=0; i<dzR; ++i) {
             __m512i D0 = _mm512_set1_epi32(0);
             __m512i D1 = _mm512_set1_epi32(0);
@@ -480,8 +507,8 @@ void MATMULCOREFUNC_NAME(int8_t* dst, const int8_t* src, const int8_t* weight, s
                 D3 = mnn_mm512_dpbusds_epi32(D3, s3, w0);
             }
 
-            auto scaleValue = _mm512_loadu_ps(scale_dz);
-            auto weightBiasValue = _mm512_loadu_ps(weightBias_dz);
+            auto scaleValue = _mm512_loadu_ps(scale_dz + i * PACK_UNIT);
+            auto weightBiasValue = _mm512_loadu_ps(weightBias_dz + i * PACK_UNIT);
             __m512 xy0_0, xy0_1, xy0_2, xy0_3;
             // x_kernelSum x w_quantZero
             SRCKERNELSUM_MUL_WEIGHTQUANBIAS;
@@ -520,18 +547,26 @@ void MATMULCOREFUNC_NAME(int8_t* dst, const int8_t* src, const int8_t* weight, s
 
             if (post->useInt8 == 0) {
                 if (nullptr == biasPtr) {
-                    f0 = _mm512_add_ps(_mm512_loadu_ps((float*)dst_x), f0);
-                    f1 = _mm512_add_ps(_mm512_loadu_ps(((float*)dst_x) + 16), f1);
-                    f2 = _mm512_add_ps(_mm512_loadu_ps(((float*)dst_x) + 16 * 2), f2);
-                    f3 = _mm512_add_ps(_mm512_loadu_ps(((float*)dst_x) + 16 * 3), f3);
+                    f0 = _mm512_add_ps(_mm512_loadu_ps((float*)accum_x), f0);
+                    f1 = _mm512_add_ps(_mm512_loadu_ps(((float*)accum_x) + 16), f1);
+                    f2 = _mm512_add_ps(_mm512_loadu_ps(((float*)accum_x) + 16 * 2), f2);
+                    f3 = _mm512_add_ps(_mm512_loadu_ps(((float*)accum_x) + 16 * 3), f3);
                 }
-                if (post->fp32minmax) {
-                    POST_TREAT_FLOAT(0,1,2,3);
+                if (dst) {
+                    if (post->fp32minmax) {
+                        POST_TREAT_FLOAT(0,1,2,3);
+                    }
+                        _mm512_storeu_ps(((float*)dst_x), f0);
+                        _mm512_storeu_ps(((float*)dst_x) + 16, f1);
+                        _mm512_storeu_ps(((float*)dst_x) + 16 * 2, f2);
+                        _mm512_storeu_ps(((float*)dst_x) + 16 * 3, f3);
+                    
+                } else {
+                    _mm512_storeu_ps(((float*)accum_x), f0);
+                    _mm512_storeu_ps(((float*)accum_x) + 16, f1);
+                    _mm512_storeu_ps(((float*)accum_x) + 16 * 2, f2);
+                    _mm512_storeu_ps(((float*)accum_x) + 16 * 3, f3);
                 }
-                _mm512_storeu_ps(((float*)dst_x), f0);
-                _mm512_storeu_ps(((float*)dst_x) + 16, f1);
-                _mm512_storeu_ps(((float*)dst_x) + 16 * 2, f2);
-                _mm512_storeu_ps(((float*)dst_x) + 16 * 3, f3);
             } else {
                 POSTTREAT(0, 0);
                 POSTTREAT(1, 1);
@@ -539,7 +574,8 @@ void MATMULCOREFUNC_NAME(int8_t* dst, const int8_t* src, const int8_t* weight, s
                 POSTTREAT(3, 3);
             }
             dst_x += dst_step_tmp;
-            scale_dz += PACK_UNIT;
+            accum_x += (realDst * PACK_UNIT);
+            // scale_dz += PACK_UNIT;
             if (biasPtr) {
                 bias_dz += PACK_UNIT;
             }
@@ -560,11 +596,13 @@ void MATMULCOREFUNC_NAME(int8_t* dst, const int8_t* src, const int8_t* weight, s
             if (post->extraBias) {
                 extraB_dz = post->extraBias + dz * PACK_UNIT * dzUnit;
             }
-            float* scale_dz = (float*)post->scale + dz * PACK_UNIT * dzUnit;
-            const auto weightBias_dz = post->weightQuanBias + dz * PACK_UNIT * dzUnit;
+            auto scale_dz = reinterpret_cast<const float*>(weight_dz + src_depth_quad * weightYStride);
+            auto weightBias_dz = scale_dz + GEMMINT8_AVX512_H;
             auto dst_z = dst + dz * dst_step_tmp * dzUnit;
             const auto src_x   = src;
             auto dst_x         = dst_z;
+            auto accum_z = accumbuff + dz * realDst * PACK_UNIT * dzUnit;
+            auto accum_x = accum_z;
             __m512i D0 = _mm512_set1_epi32(0);
             __m512i D1 = _mm512_set1_epi32(0);
             __m512i D2 = _mm512_set1_epi32(0);
@@ -742,44 +780,63 @@ void MATMULCOREFUNC_NAME(int8_t* dst, const int8_t* src, const int8_t* weight, s
 
             if (post->useInt8 == 0) {
                 if (biasPtr == nullptr) {
-                    auto dstTmp = dst_x;
+                    auto dstTmp = accum_x;
                     f0 = _mm512_add_ps(_mm512_loadu_ps(((float*)dstTmp)), f0);
                     f1 = _mm512_add_ps(_mm512_loadu_ps(((float*)dstTmp) + 16), f1);
                     f2 = _mm512_add_ps(_mm512_loadu_ps(((float*)dstTmp) + 16 * 2), f2);
-                    dstTmp += dst_step_tmp;
+                    dstTmp += (realDst * PACK_UNIT);
                     f4 = _mm512_add_ps(_mm512_loadu_ps(((float*)dstTmp) + 16 * 0), f4);
                     f5 = _mm512_add_ps(_mm512_loadu_ps(((float*)dstTmp) + 16 * 1), f5);
                     f6 = _mm512_add_ps(_mm512_loadu_ps(((float*)dstTmp) + 16 * 2), f6);
-                    dstTmp += dst_step_tmp;
+                    dstTmp += (realDst * PACK_UNIT);
                     f8 = _mm512_add_ps(_mm512_loadu_ps(((float*)dstTmp) + 16 * 0), f8);
                     f9 = _mm512_add_ps(_mm512_loadu_ps(((float*)dstTmp) + 16 * 1), f9);
                     f10 = _mm512_add_ps(_mm512_loadu_ps(((float*)dstTmp) + 16 * 2), f10);
-                    dstTmp += dst_step_tmp;
+                    dstTmp += (realDst * PACK_UNIT);
                     f12 = _mm512_add_ps(_mm512_loadu_ps(((float*)dstTmp) + 16 * 0), f12);
                     f13 = _mm512_add_ps(_mm512_loadu_ps(((float*)dstTmp) + 16 * 1), f13);
                     f14 = _mm512_add_ps(_mm512_loadu_ps(((float*)dstTmp) + 16 * 2), f14);
                 }
-                if (post->fp32minmax) {
-                    POST_TREAT_FLOAT_3(0,1,2);
-                    POST_TREAT_FLOAT_3(4,5,6);
-                    POST_TREAT_FLOAT_3(8,9,10);
-                    POST_TREAT_FLOAT_3(12,13,14);
+                if (dst) {
+                    if (post->fp32minmax) {
+                        POST_TREAT_FLOAT_3(0,1,2);
+                        POST_TREAT_FLOAT_3(4,5,6);
+                        POST_TREAT_FLOAT_3(8,9,10);
+                        POST_TREAT_FLOAT_3(12,13,14);
+                    }
+                        _mm512_storeu_ps(((float*)dst_x), f0);
+                        _mm512_storeu_ps(((float*)dst_x) + 16, f1);
+                        _mm512_storeu_ps(((float*)dst_x) + 16 * 2, f2);
+                        dst_x += dst_step_tmp;
+                        _mm512_storeu_ps(((float*)dst_x) + 16 * 0, f4);
+                        _mm512_storeu_ps(((float*)dst_x) + 16 * 1, f5);
+                        _mm512_storeu_ps(((float*)dst_x) + 16 * 2, f6);
+                        dst_x += dst_step_tmp;
+                        _mm512_storeu_ps(((float*)dst_x) + 16 * 0, f8);
+                        _mm512_storeu_ps(((float*)dst_x) + 16 * 1, f9);
+                        _mm512_storeu_ps(((float*)dst_x) + 16 * 2, f10);
+                        dst_x += dst_step_tmp;
+                        _mm512_storeu_ps(((float*)dst_x) + 16 * 0, f12);
+                        _mm512_storeu_ps(((float*)dst_x) + 16 * 1, f13);
+                        _mm512_storeu_ps(((float*)dst_x) + 16 * 2, f14);
+                    
+                } else {
+                    _mm512_storeu_ps(((float*)accum_x), f0);
+                    _mm512_storeu_ps(((float*)accum_x) + 16, f1);
+                    _mm512_storeu_ps(((float*)accum_x) + 16 * 2, f2);
+                    accum_x += (realDst * PACK_UNIT);;
+                    _mm512_storeu_ps(((float*)accum_x) + 16 * 0, f4);
+                    _mm512_storeu_ps(((float*)accum_x) + 16 * 1, f5);
+                    _mm512_storeu_ps(((float*)accum_x) + 16 * 2, f6);
+                    accum_x += (realDst * PACK_UNIT);;
+                    _mm512_storeu_ps(((float*)accum_x) + 16 * 0, f8);
+                    _mm512_storeu_ps(((float*)accum_x) + 16 * 1, f9);
+                    _mm512_storeu_ps(((float*)accum_x) + 16 * 2, f10);
+                    accum_x += (realDst * PACK_UNIT);;
+                    _mm512_storeu_ps(((float*)accum_x) + 16 * 0, f12);
+                    _mm512_storeu_ps(((float*)accum_x) + 16 * 1, f13);
+                    _mm512_storeu_ps(((float*)accum_x) + 16 * 2, f14);
                 }
-                _mm512_storeu_ps(((float*)dst_x), f0);
-                _mm512_storeu_ps(((float*)dst_x) + 16, f1);
-                _mm512_storeu_ps(((float*)dst_x) + 16 * 2, f2);
-                dst_x += dst_step_tmp;
-                _mm512_storeu_ps(((float*)dst_x) + 16 * 0, f4);
-                _mm512_storeu_ps(((float*)dst_x) + 16 * 1, f5);
-                _mm512_storeu_ps(((float*)dst_x) + 16 * 2, f6);
-                dst_x += dst_step_tmp;
-                _mm512_storeu_ps(((float*)dst_x) + 16 * 0, f8);
-                _mm512_storeu_ps(((float*)dst_x) + 16 * 1, f9);
-                _mm512_storeu_ps(((float*)dst_x) + 16 * 2, f10);
-                dst_x += dst_step_tmp;
-                _mm512_storeu_ps(((float*)dst_x) + 16 * 0, f12);
-                _mm512_storeu_ps(((float*)dst_x) + 16 * 1, f13);
-                _mm512_storeu_ps(((float*)dst_x) + 16 * 2, f14);
             } else {
                 POSTTREAT(0, 0);
                 POSTTREAT(1, 1);
@@ -808,12 +865,14 @@ void MATMULCOREFUNC_NAME(int8_t* dst, const int8_t* src, const int8_t* weight, s
         if (post->extraBias) {
             extraB_dz = post->extraBias + dzU * PACK_UNIT * dzUnit;
         }
-        float* scale_dz = (float*)post->scale + dzU * PACK_UNIT * dzUnit;
-        const auto weightBias_dz = post->weightQuanBias + dzU * PACK_UNIT * dzUnit;
+        auto scale_dz = reinterpret_cast<const float*>(weight_dz + src_depth_quad * weightYStride);
+        auto weightBias_dz = scale_dz + (dzR * PACK_UNIT);
 
         auto dst_z = dst + dzU * dst_step_tmp * dzUnit;
         const auto src_x   = src;
         auto dst_x         = dst_z;
+        auto accum_z = accumbuff + dzU * PACK_UNIT * dzUnit * realDst;
+        auto accum_x = accum_z;
         for (int i=0; i<dzR; ++i) {
             __m512i D0 = _mm512_set1_epi32(0);
             __m512i D1 = _mm512_set1_epi32(0);
@@ -834,8 +893,8 @@ void MATMULCOREFUNC_NAME(int8_t* dst, const int8_t* src, const int8_t* weight, s
             }
 
             
-            auto scaleValue = _mm512_loadu_ps(scale_dz);
-            auto weightBiasValue = _mm512_loadu_ps(weightBias_dz);
+            auto scaleValue = _mm512_loadu_ps(scale_dz + i * PACK_UNIT);
+            auto weightBiasValue = _mm512_loadu_ps(weightBias_dz + i * PACK_UNIT);
             __m512 xy0_0, xy0_1, xy0_2;
             // x_kernelSum x w_quantZero
             SRCKERNELSUM_MUL_WEIGHTQUANBIAS_3;
@@ -869,23 +928,31 @@ void MATMULCOREFUNC_NAME(int8_t* dst, const int8_t* src, const int8_t* weight, s
             
             if (post->useInt8 == 0) {
                 if (biasPtr == nullptr) {
-                    f0 = _mm512_add_ps(_mm512_loadu_ps(((float*)dst_x)), f0);
-                    f1 = _mm512_add_ps(_mm512_loadu_ps(((float*)dst_x) + 16), f1);
-                    f2 = _mm512_add_ps(_mm512_loadu_ps(((float*)dst_x) + 16 * 2), f2);
+                    f0 = _mm512_add_ps(_mm512_loadu_ps(((float*)accum_x)), f0);
+                    f1 = _mm512_add_ps(_mm512_loadu_ps(((float*)accum_x) + 16), f1);
+                    f2 = _mm512_add_ps(_mm512_loadu_ps(((float*)accum_x) + 16 * 2), f2);
                 }
-                if (post->fp32minmax) {
-                    POST_TREAT_FLOAT_3(0,1,2);
+                if (dst) {
+                    if (post->fp32minmax) {
+                        POST_TREAT_FLOAT_3(0,1,2);
+                    }
+                        _mm512_storeu_ps(((float*)dst_x), f0);
+                        _mm512_storeu_ps(((float*)dst_x) + 16, f1);
+                        _mm512_storeu_ps(((float*)dst_x) + 16 * 2, f2);
+                    
+                } else {
+                    _mm512_storeu_ps(((float*)accum_x), f0);
+                    _mm512_storeu_ps(((float*)accum_x) + 16, f1);
+                    _mm512_storeu_ps(((float*)accum_x) + 16 * 2, f2);
                 }
-                _mm512_storeu_ps(((float*)dst_x), f0);
-                _mm512_storeu_ps(((float*)dst_x) + 16, f1);
-                _mm512_storeu_ps(((float*)dst_x) + 16 * 2, f2);
             } else {
                 POSTTREAT(0, 0);
                 POSTTREAT(1, 1);
                 POSTTREAT(2, 2);
             }
             dst_x += dst_step_tmp;
-            scale_dz += PACK_UNIT;
+            accum_x += (realDst * PACK_UNIT);
+            // scale_dz += PACK_UNIT;
             if (biasPtr) {
                 bias_dz += PACK_UNIT;
             }
@@ -906,11 +973,13 @@ void MATMULCOREFUNC_NAME(int8_t* dst, const int8_t* src, const int8_t* weight, s
             if (post->extraBias) {
                 extraB_dz = post->extraBias + dz * PACK_UNIT * dzUnit;
             }
-            float* scale_dz = (float*)post->scale + dz * PACK_UNIT * dzUnit;
-            const auto weightBias_dz = post->weightQuanBias + dz * PACK_UNIT * dzUnit;
+            auto scale_dz = reinterpret_cast<const float*>(weight_dz + src_depth_quad * weightYStride);
+            auto weightBias_dz = scale_dz + GEMMINT8_AVX512_H;
             auto dst_z = dst + dz * dst_step_tmp * dzUnit;
             const auto src_x   = src;
             auto dst_x         = dst_z;
+            auto accum_z = accumbuff + dz * realDst * PACK_UNIT * dzUnit;
+            auto accum_x = accum_z;
             __m512i D0 = _mm512_set1_epi32(0);
             __m512i D1 = _mm512_set1_epi32(0);
 
@@ -1058,36 +1127,51 @@ void MATMULCOREFUNC_NAME(int8_t* dst, const int8_t* src, const int8_t* weight, s
 
             if (post->useInt8 == 0) {
                 if (nullptr == biasPtr) {
-                    auto dstTmp = dst_x;
+                    auto dstTmp = accum_x;
                     f0 = _mm512_add_ps(_mm512_loadu_ps(((float*)dstTmp)), f0);
                     f1 = _mm512_add_ps(_mm512_loadu_ps(((float*)dstTmp) + 16), f1);
-                    dstTmp += dst_step_tmp;
+                    dstTmp += (realDst * PACK_UNIT);
                     f4 = _mm512_add_ps(_mm512_loadu_ps(((float*)dstTmp) + 16 * 0), f4);
                     f5 = _mm512_add_ps(_mm512_loadu_ps(((float*)dstTmp) + 16 * 1), f5);
-                    dstTmp += dst_step_tmp;
+                    dstTmp += (realDst * PACK_UNIT);
                     f8 = _mm512_add_ps(_mm512_loadu_ps(((float*)dstTmp) + 16 * 0), f8);
                     f9 = _mm512_add_ps(_mm512_loadu_ps(((float*)dstTmp) + 16 * 1), f9);
-                    dstTmp += dst_step_tmp;
+                    dstTmp += (realDst * PACK_UNIT);
                     f12 = _mm512_add_ps(_mm512_loadu_ps(((float*)dstTmp) + 16 * 0), f12);
                     f13 = _mm512_add_ps(_mm512_loadu_ps(((float*)dstTmp) + 16 * 1), f13);
                 }
-                if (post->fp32minmax) {
-                    POST_TREAT_FLOAT_2(0,1);
-                    POST_TREAT_FLOAT_2(4,5);
-                    POST_TREAT_FLOAT_2(8,9);
-                    POST_TREAT_FLOAT_2(12,13);
+                if (dst) {
+                    if (post->fp32minmax) {
+                        POST_TREAT_FLOAT_2(0,1);
+                        POST_TREAT_FLOAT_2(4,5);
+                        POST_TREAT_FLOAT_2(8,9);
+                        POST_TREAT_FLOAT_2(12,13);
+                    }
+                        _mm512_storeu_ps(((float*)dst_x), f0);
+                        _mm512_storeu_ps(((float*)dst_x) + 16, f1);
+                        dst_x += dst_step_tmp;
+                        _mm512_storeu_ps(((float*)dst_x) + 16 * 0, f4);
+                        _mm512_storeu_ps(((float*)dst_x) + 16 * 1, f5);
+                        dst_x += dst_step_tmp;
+                        _mm512_storeu_ps(((float*)dst_x) + 16 * 0, f8);
+                        _mm512_storeu_ps(((float*)dst_x) + 16 * 1, f9);
+                        dst_x += dst_step_tmp;
+                        _mm512_storeu_ps(((float*)dst_x) + 16 * 0, f12);
+                        _mm512_storeu_ps(((float*)dst_x) + 16 * 1, f13);
+                    
+                } else {
+                    _mm512_storeu_ps(((float*)accum_x), f0);
+                    _mm512_storeu_ps(((float*)accum_x) + 16, f1);
+                    accum_x += (realDst * PACK_UNIT);
+                    _mm512_storeu_ps(((float*)accum_x) + 16 * 0, f4);
+                    _mm512_storeu_ps(((float*)accum_x) + 16 * 1, f5);
+                    accum_x += (realDst * PACK_UNIT);
+                    _mm512_storeu_ps(((float*)accum_x) + 16 * 0, f8);
+                    _mm512_storeu_ps(((float*)accum_x) + 16 * 1, f9);
+                    accum_x += (realDst * PACK_UNIT);
+                    _mm512_storeu_ps(((float*)accum_x) + 16 * 0, f12);
+                    _mm512_storeu_ps(((float*)accum_x) + 16 * 1, f13);
                 }
-                _mm512_storeu_ps(((float*)dst_x), f0);
-                _mm512_storeu_ps(((float*)dst_x) + 16, f1);
-                dst_x += dst_step_tmp;
-                _mm512_storeu_ps(((float*)dst_x) + 16 * 0, f4);
-                _mm512_storeu_ps(((float*)dst_x) + 16 * 1, f5);
-                dst_x += dst_step_tmp;
-                _mm512_storeu_ps(((float*)dst_x) + 16 * 0, f8);
-                _mm512_storeu_ps(((float*)dst_x) + 16 * 1, f9);
-                dst_x += dst_step_tmp;
-                _mm512_storeu_ps(((float*)dst_x) + 16 * 0, f12);
-                _mm512_storeu_ps(((float*)dst_x) + 16 * 1, f13);
             } else {
                 POSTTREAT(0, 0);
                 POSTTREAT(1, 1);
@@ -1112,12 +1196,14 @@ void MATMULCOREFUNC_NAME(int8_t* dst, const int8_t* src, const int8_t* weight, s
         if (post->extraBias) {
             extraB_dz = post->extraBias + dzU * PACK_UNIT * dzUnit;
         }
-        float* scale_dz = (float*)post->scale + dzU * PACK_UNIT * dzUnit;
-        const auto weightBias_dz = post->weightQuanBias + dzU * PACK_UNIT * dzUnit;
+        auto scale_dz = reinterpret_cast<const float*>(weight_dz + src_depth_quad * weightYStride);
+        auto weightBias_dz = scale_dz + (dzR * PACK_UNIT); 
 
         auto dst_z = dst + dzU * dst_step_tmp * dzUnit;
         const auto src_x   = src;
         auto dst_x         = dst_z;
+        auto accum_z = accumbuff + dzU * PACK_UNIT * dzUnit * realDst;
+        auto accum_x = accum_z;
         for (int i=0; i<dzR; ++i) {
             __m512i D0 = _mm512_set1_epi32(0);
             __m512i D1 = _mm512_set1_epi32(0);
@@ -1134,8 +1220,8 @@ void MATMULCOREFUNC_NAME(int8_t* dst, const int8_t* src, const int8_t* weight, s
                 D1 = mnn_mm512_dpbusds_epi32(D1, s1, w0);
             }
 
-            auto scaleValue = _mm512_loadu_ps(scale_dz);
-            auto weightBiasValue = _mm512_loadu_ps(weightBias_dz);
+            auto scaleValue = _mm512_loadu_ps(scale_dz + i * PACK_UNIT);
+            auto weightBiasValue = _mm512_loadu_ps(weightBias_dz + i * PACK_UNIT);
             __m512 xy0_0, xy0_1;
             // x_kernelSum x w_quantZero
             SRCKERNELSUM_MUL_WEIGHTQUANBIAS_2;
@@ -1164,18 +1250,27 @@ void MATMULCOREFUNC_NAME(int8_t* dst, const int8_t* src, const int8_t* weight, s
 
             if (post->useInt8 == 0) {
                 if (nullptr == biasPtr) {
-                    f0 = _mm512_add_ps(_mm512_loadu_ps(((float*)dst_x)), f0);
-                    f1 = _mm512_add_ps(_mm512_loadu_ps(((float*)dst_x) + 16), f1);
+                    f0 = _mm512_add_ps(_mm512_loadu_ps(((float*)accum_x)), f0);
+                    f1 = _mm512_add_ps(_mm512_loadu_ps(((float*)accum_x) + 16), f1);
                 }
-                POST_TREAT_FLOAT_2(0,1);
-                _mm512_storeu_ps(((float*)dst_x), f0);
-                _mm512_storeu_ps(((float*)dst_x) + 16, f1);
+                if (dst) {
+                    if (post->fp32minmax) {
+                        POST_TREAT_FLOAT_2(0,1);
+                    }
+                        _mm512_storeu_ps(((float*)dst_x), f0);
+                        _mm512_storeu_ps(((float*)dst_x) + 16, f1);
+                    
+                } else {
+                    _mm512_storeu_ps(((float*)accum_x), f0);
+                    _mm512_storeu_ps(((float*)accum_x) + 16, f1);
+                }
             } else {
                 POSTTREAT(0, 0);
                 POSTTREAT(1, 1);
             }
             dst_x += dst_step_tmp;
-            scale_dz += PACK_UNIT;
+            accum_x += (realDst * PACK_UNIT);
+            // scale_dz += PACK_UNIT;
             if (biasPtr) {
                 bias_dz += PACK_UNIT;
             }
@@ -1195,11 +1290,13 @@ void MATMULCOREFUNC_NAME(int8_t* dst, const int8_t* src, const int8_t* weight, s
             if (post->extraBias) {
                 extraB_dz = post->extraBias + dz * PACK_UNIT * dzUnit;
             }
-            float* scale_dz = (float*)post->scale + dz * PACK_UNIT * dzUnit;
-            const auto weightBias_dz = post->weightQuanBias + dz * PACK_UNIT * dzUnit;
+            auto scale_dz = reinterpret_cast<const float*>(weight_dz + src_depth_quad * weightYStride);
+            auto weightBias_dz = scale_dz + GEMMINT8_AVX512_H;
             auto dst_z = dst + dz * dst_step_tmp * dzUnit;
             const auto src_x   = src;
             auto dst_x         = dst_z;
+            auto accum_z = accumbuff + dz * realDst * PACK_UNIT * dzUnit;
+            auto accum_x = accum_z;
             __m512i D0 = _mm512_set1_epi32(0);
 
             __m512i D4 = _mm512_set1_epi32(0);
@@ -1319,28 +1416,39 @@ void MATMULCOREFUNC_NAME(int8_t* dst, const int8_t* src, const int8_t* weight, s
 
             if (post->useInt8 == 0) {
                 if (nullptr == biasPtr) {
-                    auto dstTemp = dst_x;
-                    f0 = _mm512_add_ps(_mm512_loadu_ps(((float*)dstTemp)), f0);
-                    dstTemp += dst_step_tmp;
-                    f4 = _mm512_add_ps(_mm512_loadu_ps(((float*)dstTemp) + 16 * 0), f4);
-                    dstTemp += dst_step_tmp;
-                    f8 = _mm512_add_ps(_mm512_loadu_ps(((float*)dstTemp) + 16 * 0), f8);
-                    dstTemp += dst_step_tmp;
-                    f12 = _mm512_add_ps(_mm512_loadu_ps(((float*)dstTemp) + 16 * 0), f12);
+                    auto dstTmp = accum_x;
+                    f0 = _mm512_add_ps(_mm512_loadu_ps(((float*)dstTmp)), f0);
+                    dstTmp += (realDst * PACK_UNIT);
+                    f4 = _mm512_add_ps(_mm512_loadu_ps(((float*)dstTmp) + 16 * 0), f4);
+                    dstTmp += (realDst * PACK_UNIT);
+                    f8 = _mm512_add_ps(_mm512_loadu_ps(((float*)dstTmp) + 16 * 0), f8);
+                    dstTmp += (realDst * PACK_UNIT);
+                    f12 = _mm512_add_ps(_mm512_loadu_ps(((float*)dstTmp) + 16 * 0), f12);
                 }
-                if (post->fp32minmax) {
-                    POST_TREAT_FLOAT_1(0);
-                    POST_TREAT_FLOAT_1(4);
-                    POST_TREAT_FLOAT_1(8);
-                    POST_TREAT_FLOAT_1(12);
+                if (dst) {
+                    if (post->fp32minmax) {
+                        POST_TREAT_FLOAT_1(0);
+                        POST_TREAT_FLOAT_1(4);
+                        POST_TREAT_FLOAT_1(8);
+                        POST_TREAT_FLOAT_1(12);
+                    }
+                        _mm512_storeu_ps(((float*)dst_x), f0);
+                        dst_x += dst_step_tmp;
+                        _mm512_storeu_ps(((float*)dst_x) + 16 * 0, f4);
+                        dst_x += dst_step_tmp;
+                        _mm512_storeu_ps(((float*)dst_x) + 16 * 0, f8);
+                        dst_x += dst_step_tmp;
+                        _mm512_storeu_ps(((float*)dst_x) + 16 * 0, f12);
+                    
+                } else {
+                    _mm512_storeu_ps(((float*)accum_x), f0);
+                    accum_x += (realDst * PACK_UNIT);;
+                    _mm512_storeu_ps(((float*)accum_x) + 16 * 0, f4);
+                    accum_x += (realDst * PACK_UNIT);;
+                    _mm512_storeu_ps(((float*)accum_x) + 16 * 0, f8);
+                    accum_x += (realDst * PACK_UNIT);;
+                    _mm512_storeu_ps(((float*)accum_x) + 16 * 0, f12);
                 }
-                _mm512_storeu_ps(((float*)dst_x), f0);
-                dst_x += dst_step_tmp;
-                _mm512_storeu_ps(((float*)dst_x) + 16 * 0, f4);
-                dst_x += dst_step_tmp;
-                _mm512_storeu_ps(((float*)dst_x) + 16 * 0, f8);
-                dst_x += dst_step_tmp;
-                _mm512_storeu_ps(((float*)dst_x) + 16 * 0, f12);
             } else {
                 POSTTREAT(0, 0);
                 dst_x += dst_step_tmp;
@@ -1361,12 +1469,14 @@ void MATMULCOREFUNC_NAME(int8_t* dst, const int8_t* src, const int8_t* weight, s
         if (post->extraBias) {
             extraB_dz = post->extraBias + dzU * PACK_UNIT * dzUnit;
         }
-        float* scale_dz = (float*)post->scale + dzU * PACK_UNIT * dzUnit;
-        const auto weightBias_dz = post->weightQuanBias + dzU * PACK_UNIT * dzUnit;
+        auto scale_dz = reinterpret_cast<const float*>(weight_dz + src_depth_quad * weightYStride);
+        auto weightBias_dz = scale_dz + (dzR * PACK_UNIT);
 
         auto dst_z = dst + dzU * dst_step_tmp * dzUnit;
         const auto src_x   = src;
         auto dst_x         = dst_z;
+        auto accum_z = accumbuff + dzU * PACK_UNIT * dzUnit * realDst;
+        auto accum_x = accum_z;
         for (int i=0; i<dzR; ++i) {
             __m512i D0 = _mm512_set1_epi32(0);
 
@@ -1380,9 +1490,9 @@ void MATMULCOREFUNC_NAME(int8_t* dst, const int8_t* src, const int8_t* weight, s
                 D0 = mnn_mm512_dpbusds_epi32(D0, s0, w0);
             }
 
-            auto scaleValue = _mm512_loadu_ps(scale_dz);
+            auto scaleValue = _mm512_loadu_ps(scale_dz + i * PACK_UNIT);
 
-            auto weightBiasValue = _mm512_loadu_ps(weightBias_dz);
+            auto weightBiasValue = _mm512_loadu_ps(weightBias_dz + i * PACK_UNIT);
             __m512 xy0_0;
             // x_kernelSum x w_quantZero
             SRCKERNELSUM_MUL_WEIGHTQUANBIAS_1;
@@ -1406,17 +1516,23 @@ void MATMULCOREFUNC_NAME(int8_t* dst, const int8_t* src, const int8_t* weight, s
 
             if (post->useInt8 == 0) {
                 if (nullptr == biasPtr) {
-                    f0 = _mm512_add_ps(_mm512_loadu_ps(((float*)dst_x)), f0);
+                    f0 = _mm512_add_ps(_mm512_loadu_ps(((float*)accum_x)), f0);
                 }
-                if (post->fp32minmax) {
-                    POST_TREAT_FLOAT_1(0);
+                if (dst) {
+                    if (post->fp32minmax) {
+                        POST_TREAT_FLOAT_1(0);
+                    }
+                        _mm512_storeu_ps(((float*)dst_x), f0);
+                    
+                } else {
+                    _mm512_storeu_ps(((float*)accum_x), f0);
                 }
-                _mm512_storeu_ps(((float*)dst_x), f0);
             } else {
                 POSTTREAT(0, 0);
             }
             dst_x += dst_step_tmp;
-            scale_dz += PACK_UNIT;
+            accum_x += (realDst * PACK_UNIT);
+            // scale_dz += PACK_UNIT;
             if (biasPtr) {
                 bias_dz += PACK_UNIT;
             }
@@ -1429,8 +1545,10 @@ void MATMULCOREFUNC_NAME(int8_t* dst, const int8_t* src, const int8_t* weight, s
     }
 }
 
+#define SUB_ORDER {0,2,1,3}
 void MATMULCOREFUNC_NAME_W4(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step, size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realDst) {
     MNN_ASSERT(post->useInt8==0);
+    int suborder[4] = SUB_ORDER;
     const auto dst_step_tmp = dst_step / sizeof(int8_t);
     auto zero512 = _mm512_set1_ps(0.0f);
     auto offset = _mm256_set1_epi16(128);
@@ -1449,15 +1567,16 @@ void MATMULCOREFUNC_NAME_W4(int8_t* dst, const int8_t* src, const int8_t* weight
     if (post->biasFloat) {
         biasPtr = post->biasFloat;
     }
-    
+    auto accumbuff = post->accumBuffer;
     auto srcKernelSumPtr = post->srcKernelSum;
     __m512 kernelSum0 = _mm512_setzero_ps();
     __m512 kernelSum1 = _mm512_setzero_ps();
     __m512 kernelSum2 = _mm512_setzero_ps();
     __m512 kernelSum3 = _mm512_setzero_ps();
 
-    int weight_step_Z = static_cast<int32_t>(src_depth_quad * (GEMMINT8_AVX512_L * GEMMINT8_AVX512_H) / 2);
+    int weight_step_Z = static_cast<int32_t>(src_depth_quad * (GEMMINT8_AVX512_L * GEMMINT8_AVX512_H) / 2) + (2 * 4 * GEMMINT8_AVX512_H); // sizeof(int4_t)
     int weight_step_Y = static_cast<int32_t>(GEMMINT8_AVX512_L * GEMMINT8_AVX512_H / 2);
+    int weight_stride_Y = static_cast<int32_t>(GEMMINT8_AVX512_L * PACK_UNIT / 2);
     const __m512i mask = _mm512_set1_epi8(0xf);
     if (GEMMINT8_AVX512_E == realDst) {
         kernelSum0 = _mm512_set1_ps(post->srcKernelSum[0]);
@@ -1504,10 +1623,12 @@ void MATMULCOREFUNC_NAME_W4(int8_t* dst, const int8_t* src, const int8_t* weight
             if (post->extraBias) {
                 extraB_dz = post->extraBias + dz * PACK_UNIT * dzUnit;
             }
-            const auto weightBias_dz = post->weightQuanBias + dz * PACK_UNIT * dzUnit;
-            float* scale_dz = (float*)post->scale + dz * PACK_UNIT * dzUnit;
+            auto scale_dz = (float*)(weight_dz + src_depth_quad * weight_step_Y);
+            auto weightBias_dz = scale_dz + GEMMINT8_AVX512_H;
             auto dst_z = dst + dz * dst_step_tmp * dzUnit;
             const auto src_x   = src;
+            auto accum_z = accumbuff + dz * realDst * PACK_UNIT * dzUnit;
+            auto accum_x = accum_z;
             auto dst_x         = dst_z;
             __m512i D0 = _mm512_set1_epi32(0);
             __m512i D1 = _mm512_set1_epi32(0);
@@ -1717,54 +1838,74 @@ void MATMULCOREFUNC_NAME_W4(int8_t* dst, const int8_t* src, const int8_t* weight
                 SCALE_BIAS_VEC(15);
             }
             if (biasPtr == nullptr) {
-                    auto destTmp = dst_x;
-                    f0 = _mm512_add_ps(_mm512_loadu_ps((float*)destTmp), f0);
-                    f1 = _mm512_add_ps(_mm512_loadu_ps(((float*)destTmp) + 16), f1);
-                    f2 = _mm512_add_ps(_mm512_loadu_ps(((float*)destTmp) + 16 * 2), f2);
-                    f3 = _mm512_add_ps(_mm512_loadu_ps(((float*)destTmp) + 16 * 3), f3);
-                    destTmp += dst_step_tmp;
-                    f4 = _mm512_add_ps(_mm512_loadu_ps(((float*)destTmp) + 16 * 0), f4);
-                    f5 = _mm512_add_ps(_mm512_loadu_ps(((float*)destTmp) + 16 * 1), f5);
-                    f6 = _mm512_add_ps(_mm512_loadu_ps(((float*)destTmp) + 16 * 2), f6);
-                    f7 = _mm512_add_ps(_mm512_loadu_ps(((float*)destTmp) + 16 * 3), f7);
-                    destTmp += dst_step_tmp;
-                    f8 = _mm512_add_ps(_mm512_loadu_ps(((float*)destTmp) + 16 * 0), f8);
-                    f9 = _mm512_add_ps(_mm512_loadu_ps(((float*)destTmp) + 16 * 1), f9);
-                    f10 = _mm512_add_ps(_mm512_loadu_ps(((float*)destTmp) + 16 * 2), f10);
-                    f11 = _mm512_add_ps(_mm512_loadu_ps(((float*)destTmp) + 16 * 3), f11);
-                    destTmp += dst_step_tmp;
-                    f12 = _mm512_add_ps(_mm512_loadu_ps(((float*)destTmp) + 16 * 0), f12);
-                    f13 = _mm512_add_ps(_mm512_loadu_ps(((float*)destTmp) + 16 * 1), f13);
-                    f14 = _mm512_add_ps(_mm512_loadu_ps(((float*)destTmp) + 16 * 2), f14);
-                    f15 = _mm512_add_ps(_mm512_loadu_ps(((float*)destTmp) + 16 * 3), f15);
-                }
-            if (post->fp32minmax) {
-                POST_TREAT_FLOAT(0,1,2,3);
-                POST_TREAT_FLOAT(4,5,6,7);
-                POST_TREAT_FLOAT(8,9,10,11);
-                POST_TREAT_FLOAT(12,13,14,15);
+                auto destTmp = accum_x;
+                f0 = _mm512_add_ps(_mm512_loadu_ps((float*)destTmp), f0);
+                f1 = _mm512_add_ps(_mm512_loadu_ps(((float*)destTmp) + 16), f1);
+                f2 = _mm512_add_ps(_mm512_loadu_ps(((float*)destTmp) + 16 * 2), f2);
+                f3 = _mm512_add_ps(_mm512_loadu_ps(((float*)destTmp) + 16 * 3), f3);
+                destTmp += (realDst * PACK_UNIT);
+                f4 = _mm512_add_ps(_mm512_loadu_ps(((float*)destTmp) + 16 * 0), f4);
+                f5 = _mm512_add_ps(_mm512_loadu_ps(((float*)destTmp) + 16 * 1), f5);
+                f6 = _mm512_add_ps(_mm512_loadu_ps(((float*)destTmp) + 16 * 2), f6);
+                f7 = _mm512_add_ps(_mm512_loadu_ps(((float*)destTmp) + 16 * 3), f7);
+                destTmp += (realDst * PACK_UNIT);
+                f8 = _mm512_add_ps(_mm512_loadu_ps(((float*)destTmp) + 16 * 0), f8);
+                f9 = _mm512_add_ps(_mm512_loadu_ps(((float*)destTmp) + 16 * 1), f9);
+                f10 = _mm512_add_ps(_mm512_loadu_ps(((float*)destTmp) + 16 * 2), f10);
+                f11 = _mm512_add_ps(_mm512_loadu_ps(((float*)destTmp) + 16 * 3), f11);
+                destTmp += (realDst * PACK_UNIT);
+                f12 = _mm512_add_ps(_mm512_loadu_ps(((float*)destTmp) + 16 * 0), f12);
+                f13 = _mm512_add_ps(_mm512_loadu_ps(((float*)destTmp) + 16 * 1), f13);
+                f14 = _mm512_add_ps(_mm512_loadu_ps(((float*)destTmp) + 16 * 2), f14);
+                f15 = _mm512_add_ps(_mm512_loadu_ps(((float*)destTmp) + 16 * 3), f15);
             }
-
-            _mm512_storeu_ps(((float*)dst_x), f0);
-            _mm512_storeu_ps(((float*)dst_x) + 16, f1);
-            _mm512_storeu_ps(((float*)dst_x) + 16 * 2, f2);
-            _mm512_storeu_ps(((float*)dst_x) + 16 * 3, f3);
-            dst_x += dst_step_tmp;
-            _mm512_storeu_ps(((float*)dst_x) + 16 * 0, f4);
-            _mm512_storeu_ps(((float*)dst_x) + 16 * 1, f5);
-            _mm512_storeu_ps(((float*)dst_x) + 16 * 2, f6);
-            _mm512_storeu_ps(((float*)dst_x) + 16 * 3, f7);
-            dst_x += dst_step_tmp;
-            _mm512_storeu_ps(((float*)dst_x) + 16 * 0, f8);
-            _mm512_storeu_ps(((float*)dst_x) + 16 * 1, f9);
-            _mm512_storeu_ps(((float*)dst_x) + 16 * 2, f10);
-            _mm512_storeu_ps(((float*)dst_x) + 16 * 3, f11);
-            dst_x += dst_step_tmp;
-            _mm512_storeu_ps(((float*)dst_x) + 16 * 0, f12);
-            _mm512_storeu_ps(((float*)dst_x) + 16 * 1, f13);
-            _mm512_storeu_ps(((float*)dst_x) + 16 * 2, f14);
-            _mm512_storeu_ps(((float*)dst_x) + 16 * 3, f15);
-            
+            if (dst) {
+                if (post->fp32minmax) {
+                    POST_TREAT_FLOAT(0,1,2,3);
+                    POST_TREAT_FLOAT(4,5,6,7);
+                    POST_TREAT_FLOAT(8,9,10,11);
+                    POST_TREAT_FLOAT(12,13,14,15);
+                }
+                _mm512_storeu_ps(((float*)dst_x), f0);
+                _mm512_storeu_ps(((float*)dst_x) + 16, f1);
+                _mm512_storeu_ps(((float*)dst_x) + 16 * 2, f2);
+                _mm512_storeu_ps(((float*)dst_x) + 16 * 3, f3);
+                dst_x += dst_step_tmp;
+                _mm512_storeu_ps(((float*)dst_x) + 16 * 0, f4);
+                _mm512_storeu_ps(((float*)dst_x) + 16 * 1, f5);
+                _mm512_storeu_ps(((float*)dst_x) + 16 * 2, f6);
+                _mm512_storeu_ps(((float*)dst_x) + 16 * 3, f7);
+                dst_x += dst_step_tmp;
+                _mm512_storeu_ps(((float*)dst_x) + 16 * 0, f8);
+                _mm512_storeu_ps(((float*)dst_x) + 16 * 1, f9);
+                _mm512_storeu_ps(((float*)dst_x) + 16 * 2, f10);
+                _mm512_storeu_ps(((float*)dst_x) + 16 * 3, f11);
+                dst_x += dst_step_tmp;
+                _mm512_storeu_ps(((float*)dst_x) + 16 * 0, f12);
+                _mm512_storeu_ps(((float*)dst_x) + 16 * 1, f13);
+                _mm512_storeu_ps(((float*)dst_x) + 16 * 2, f14);
+                _mm512_storeu_ps(((float*)dst_x) + 16 * 3, f15);
+            } else {
+                _mm512_storeu_ps(((float*)accum_x), f0);
+                _mm512_storeu_ps(((float*)accum_x) + 16, f1);
+                _mm512_storeu_ps(((float*)accum_x) + 16 * 2, f2);
+                _mm512_storeu_ps(((float*)accum_x) + 16 * 3, f3);
+                accum_x += (realDst * PACK_UNIT);;
+                _mm512_storeu_ps(((float*)accum_x) + 16 * 0, f4);
+                _mm512_storeu_ps(((float*)accum_x) + 16 * 1, f5);
+                _mm512_storeu_ps(((float*)accum_x) + 16 * 2, f6);
+                _mm512_storeu_ps(((float*)accum_x) + 16 * 3, f7);
+                accum_x += (realDst * PACK_UNIT);;
+                _mm512_storeu_ps(((float*)accum_x) + 16 * 0, f8);
+                _mm512_storeu_ps(((float*)accum_x) + 16 * 1, f9);
+                _mm512_storeu_ps(((float*)accum_x) + 16 * 2, f10);
+                _mm512_storeu_ps(((float*)accum_x) + 16 * 3, f11);
+                accum_x += (realDst * PACK_UNIT);;
+                _mm512_storeu_ps(((float*)accum_x) + 16 * 0, f12);
+                _mm512_storeu_ps(((float*)accum_x) + 16 * 1, f13);
+                _mm512_storeu_ps(((float*)accum_x) + 16 * 2, f14);
+                _mm512_storeu_ps(((float*)accum_x) + 16 * 3, f15);
+            }
         }
         auto weight_dz = weight + dzU * weight_step_Z;
         if (biasPtr) {
@@ -1773,20 +1914,23 @@ void MATMULCOREFUNC_NAME_W4(int8_t* dst, const int8_t* src, const int8_t* weight
         if (post->extraBias) {
             extraB_dz = post->extraBias + dzU * PACK_UNIT * dzUnit;
         }
-        float* scale_dz = (float*)post->scale + dzU * PACK_UNIT * dzUnit;
-        const auto weightBias_dz = post->weightQuanBias + dzU * PACK_UNIT * dzUnit;
+        auto scale_dz = (float*)(weight_dz + src_depth_quad * weight_step_Y);
+        auto weightBias_dz = scale_dz + (dzR * PACK_UNIT);
 
         auto dst_z = dst + dzU * dst_step_tmp * dzUnit;
         const auto src_x   = src;
         auto dst_x         = dst_z;
+        auto accum_z = accumbuff + dzU * PACK_UNIT * dzUnit * realDst;
+        auto accum_x = accum_z; 
         for (int i=0; i<dzR; ++i) {
             __m512i D0 = _mm512_set1_epi32(0);
             __m512i D1 = _mm512_set1_epi32(0);
             __m512i D2 = _mm512_set1_epi32(0);
             __m512i D3 = _mm512_set1_epi32(0);
+            auto weightDzSub = weight_dz + weight_stride_Y * suborder[i];
 
             for (int sz = 0; sz < src_depth_quad; ++sz) {
-                const auto weight_sz = weight_dz + weight_step_Y * sz;
+                const auto weight_sz = weightDzSub + weight_step_Y * sz;
                 const auto src_z     = (const float*)(src_x + sz * realDst * GEMMINT8_AVX512_L);
                 auto w0_int4_64 = _mm512_loadu_si512(weight_sz); // 128xint4_t=64 byte
                 auto w0 = _mm512_and_si512(mask, _mm512_srli_epi16(w0_int4_64, 4)); // 64xint8_t
@@ -1802,8 +1946,8 @@ void MATMULCOREFUNC_NAME_W4(int8_t* dst, const int8_t* src, const int8_t* weight
                 D3 = mnn_mm512_dpbusds_epi32(D3, s3, w0);
             }
 
-            auto scaleValue = _mm512_loadu_ps(scale_dz);
-            auto weightBiasValue = _mm512_loadu_ps(weightBias_dz);
+            auto scaleValue = _mm512_loadu_ps(scale_dz + i * PACK_UNIT);
+            auto weightBiasValue = _mm512_loadu_ps(weightBias_dz + i * PACK_UNIT);
             __m512 xy0_0, xy0_1, xy0_2, xy0_3;
             // x_kernelSum x w_quantZero
             SRCKERNELSUM_MUL_WEIGHTQUANBIAS;
@@ -1841,29 +1985,35 @@ void MATMULCOREFUNC_NAME_W4(int8_t* dst, const int8_t* src, const int8_t* weight
             }
 
             if (nullptr == biasPtr) {
-                f0 = _mm512_add_ps(_mm512_loadu_ps((float*)dst_x), f0);
-                f1 = _mm512_add_ps(_mm512_loadu_ps(((float*)dst_x) + 16), f1);
-                f2 = _mm512_add_ps(_mm512_loadu_ps(((float*)dst_x) + 16 * 2), f2);
-                f3 = _mm512_add_ps(_mm512_loadu_ps(((float*)dst_x) + 16 * 3), f3);
+                f0 = _mm512_add_ps(_mm512_loadu_ps((float*)accum_x), f0);
+                f1 = _mm512_add_ps(_mm512_loadu_ps(((float*)accum_x) + 16), f1);
+                f2 = _mm512_add_ps(_mm512_loadu_ps(((float*)accum_x) + 16 * 2), f2);
+                f3 = _mm512_add_ps(_mm512_loadu_ps(((float*)accum_x) + 16 * 3), f3);
             }
-            if (post->fp32minmax) {
-                POST_TREAT_FLOAT(0,1,2,3);
+            if (dst) {
+                if (post->fp32minmax) {
+                    POST_TREAT_FLOAT(0,1,2,3);
+                }
+                _mm512_storeu_ps(((float*)dst_x), f0);
+                _mm512_storeu_ps(((float*)dst_x) + 16, f1);
+                _mm512_storeu_ps(((float*)dst_x) + 16 * 2, f2);
+                _mm512_storeu_ps(((float*)dst_x) + 16 * 3, f3);
+            } else {
+                _mm512_storeu_ps(((float*)accum_x), f0);
+                _mm512_storeu_ps(((float*)accum_x) + 16, f1);
+                _mm512_storeu_ps(((float*)accum_x) + 16 * 2, f2);
+                _mm512_storeu_ps(((float*)accum_x) + 16 * 3, f3);
             }
-            _mm512_storeu_ps(((float*)dst_x), f0);
-            _mm512_storeu_ps(((float*)dst_x) + 16, f1);
-            _mm512_storeu_ps(((float*)dst_x) + 16 * 2, f2);
-            _mm512_storeu_ps(((float*)dst_x) + 16 * 3, f3);
-
+            
             dst_x += dst_step_tmp;
-            scale_dz += PACK_UNIT;
+            accum_x += (realDst * PACK_UNIT);
             if (biasPtr) {
                 bias_dz += PACK_UNIT;
             }
             if (post->extraBias) {
                 extraB_dz += PACK_UNIT;
             }
-            weight_dz += PACK_UNIT * GEMMINT8_AVX512_L;
-        }
+                    }
         return;
     }
     // e = 3
@@ -1876,11 +2026,13 @@ void MATMULCOREFUNC_NAME_W4(int8_t* dst, const int8_t* src, const int8_t* weight
             if (post->extraBias) {
                 extraB_dz = post->extraBias + dz * PACK_UNIT * dzUnit;
             }
-            float* scale_dz = (float*)post->scale + dz * PACK_UNIT * dzUnit;
-            const auto weightBias_dz = post->weightQuanBias + dz * PACK_UNIT * dzUnit;
+            auto scale_dz = (float*)(weight_dz + src_depth_quad * weight_step_Y);
+            auto weightBias_dz = scale_dz + GEMMINT8_AVX512_H;
             auto dst_z = dst + dz * dst_step_tmp * dzUnit;
             const auto src_x   = src;
             auto dst_x         = dst_z;
+            auto accum_z = accumbuff + dz * realDst * PACK_UNIT * dzUnit;
+            auto accum_x = accum_z;
             __m512i D0 = _mm512_set1_epi32(0);
             __m512i D1 = _mm512_set1_epi32(0);
             __m512i D2 = _mm512_set1_epi32(0);
@@ -2030,7 +2182,7 @@ void MATMULCOREFUNC_NAME_W4(int8_t* dst, const int8_t* src, const int8_t* weight
             }
 
             scaleValue = _mm512_loadu_ps(scale_dz + 3 * PACK_UNIT);
-             weightBiasValue = _mm512_loadu_ps(weightBias_dz + 3 * PACK_UNIT);
+            weightBiasValue = _mm512_loadu_ps(weightBias_dz + 3 * PACK_UNIT);
             // x_kernelSum x w_quantZero
             SRCKERNELSUM_MUL_WEIGHTQUANBIAS_3;
             DEQUANT_VALUE(12);
@@ -2062,45 +2214,63 @@ void MATMULCOREFUNC_NAME_W4(int8_t* dst, const int8_t* src, const int8_t* weight
             }
 
             if (biasPtr == nullptr) {
-                auto dstTmp = dst_x;
+                auto dstTmp = accum_x;
                 f0 = _mm512_add_ps(_mm512_loadu_ps(((float*)dstTmp)), f0);
                 f1 = _mm512_add_ps(_mm512_loadu_ps(((float*)dstTmp) + 16), f1);
                 f2 = _mm512_add_ps(_mm512_loadu_ps(((float*)dstTmp) + 16 * 2), f2);
-                dstTmp += dst_step_tmp;
+                dstTmp += (realDst * PACK_UNIT);
                 f4 = _mm512_add_ps(_mm512_loadu_ps(((float*)dstTmp) + 16 * 0), f4);
                 f5 = _mm512_add_ps(_mm512_loadu_ps(((float*)dstTmp) + 16 * 1), f5);
                 f6 = _mm512_add_ps(_mm512_loadu_ps(((float*)dstTmp) + 16 * 2), f6);
-                dstTmp += dst_step_tmp;
+                dstTmp += (realDst * PACK_UNIT);
                 f8 = _mm512_add_ps(_mm512_loadu_ps(((float*)dstTmp) + 16 * 0), f8);
                 f9 = _mm512_add_ps(_mm512_loadu_ps(((float*)dstTmp) + 16 * 1), f9);
                 f10 = _mm512_add_ps(_mm512_loadu_ps(((float*)dstTmp) + 16 * 2), f10);
-                dstTmp += dst_step_tmp;
+                dstTmp += (realDst * PACK_UNIT);
                 f12 = _mm512_add_ps(_mm512_loadu_ps(((float*)dstTmp) + 16 * 0), f12);
                 f13 = _mm512_add_ps(_mm512_loadu_ps(((float*)dstTmp) + 16 * 1), f13);
                 f14 = _mm512_add_ps(_mm512_loadu_ps(((float*)dstTmp) + 16 * 2), f14);
             }
-            if (post->fp32minmax) {
-                POST_TREAT_FLOAT_3(0,1,2);
-                POST_TREAT_FLOAT_3(4,5,6);
-                POST_TREAT_FLOAT_3(8,9,10);
-                POST_TREAT_FLOAT_3(12,13,14);
+            if (dst) {
+                if (post->fp32minmax) {
+                    POST_TREAT_FLOAT_3(0,1,2);
+                    POST_TREAT_FLOAT_3(4,5,6);
+                    POST_TREAT_FLOAT_3(8,9,10);
+                    POST_TREAT_FLOAT_3(12,13,14);
+                }
+                    _mm512_storeu_ps(((float*)dst_x), f0);
+                    _mm512_storeu_ps(((float*)dst_x) + 16, f1);
+                    _mm512_storeu_ps(((float*)dst_x) + 16 * 2, f2);
+                    dst_x += dst_step_tmp;
+                    _mm512_storeu_ps(((float*)dst_x) + 16 * 0, f4);
+                    _mm512_storeu_ps(((float*)dst_x) + 16 * 1, f5);
+                    _mm512_storeu_ps(((float*)dst_x) + 16 * 2, f6);
+                    dst_x += dst_step_tmp;
+                    _mm512_storeu_ps(((float*)dst_x) + 16 * 0, f8);
+                    _mm512_storeu_ps(((float*)dst_x) + 16 * 1, f9);
+                    _mm512_storeu_ps(((float*)dst_x) + 16 * 2, f10);
+                    dst_x += dst_step_tmp;
+                    _mm512_storeu_ps(((float*)dst_x) + 16 * 0, f12);
+                    _mm512_storeu_ps(((float*)dst_x) + 16 * 1, f13);
+                    _mm512_storeu_ps(((float*)dst_x) + 16 * 2, f14);
+                
+            } else {
+                _mm512_storeu_ps(((float*)accum_x), f0);
+                _mm512_storeu_ps(((float*)accum_x) + 16, f1);
+                _mm512_storeu_ps(((float*)accum_x) + 16 * 2, f2);
+                accum_x += (realDst * PACK_UNIT);;
+                _mm512_storeu_ps(((float*)accum_x) + 16 * 0, f4);
+                _mm512_storeu_ps(((float*)accum_x) + 16 * 1, f5);
+                _mm512_storeu_ps(((float*)accum_x) + 16 * 2, f6);
+                accum_x += (realDst * PACK_UNIT);;
+                _mm512_storeu_ps(((float*)accum_x) + 16 * 0, f8);
+                _mm512_storeu_ps(((float*)accum_x) + 16 * 1, f9);
+                _mm512_storeu_ps(((float*)accum_x) + 16 * 2, f10);
+                accum_x += (realDst * PACK_UNIT);;
+                _mm512_storeu_ps(((float*)accum_x) + 16 * 0, f12);
+                _mm512_storeu_ps(((float*)accum_x) + 16 * 1, f13);
+                _mm512_storeu_ps(((float*)accum_x) + 16 * 2, f14);
             }
-            _mm512_storeu_ps(((float*)dst_x), f0);
-            _mm512_storeu_ps(((float*)dst_x) + 16, f1);
-            _mm512_storeu_ps(((float*)dst_x) + 16 * 2, f2);
-            dst_x += dst_step_tmp;
-            _mm512_storeu_ps(((float*)dst_x) + 16 * 0, f4);
-            _mm512_storeu_ps(((float*)dst_x) + 16 * 1, f5);
-            _mm512_storeu_ps(((float*)dst_x) + 16 * 2, f6);
-            dst_x += dst_step_tmp;
-            _mm512_storeu_ps(((float*)dst_x) + 16 * 0, f8);
-            _mm512_storeu_ps(((float*)dst_x) + 16 * 1, f9);
-            _mm512_storeu_ps(((float*)dst_x) + 16 * 2, f10);
-            dst_x += dst_step_tmp;
-            _mm512_storeu_ps(((float*)dst_x) + 16 * 0, f12);
-            _mm512_storeu_ps(((float*)dst_x) + 16 * 1, f13);
-            _mm512_storeu_ps(((float*)dst_x) + 16 * 2, f14);
-            
         }
         auto weight_dz = weight + dzU * weight_step_Z;
         if (biasPtr) {
@@ -2109,19 +2279,22 @@ void MATMULCOREFUNC_NAME_W4(int8_t* dst, const int8_t* src, const int8_t* weight
         if (post->extraBias) {
             extraB_dz = post->extraBias + dzU * PACK_UNIT * dzUnit;
         }
-        float* scale_dz = (float*)post->scale + dzU * PACK_UNIT * dzUnit;
-        const auto weightBias_dz = post->weightQuanBias + dzU * PACK_UNIT * dzUnit;
+        auto scale_dz = reinterpret_cast<const float*>(weight_dz + src_depth_quad * weight_step_Y);
+        auto weightBias_dz = scale_dz + (dzR * PACK_UNIT);
 
         auto dst_z = dst + dzU * dst_step_tmp * dzUnit;
         const auto src_x   = src;
         auto dst_x         = dst_z;
+        auto accum_z = accumbuff + dzU * PACK_UNIT * dzUnit * realDst;
+        auto accum_x = accum_z;
         for (int i=0; i<dzR; ++i) {
             __m512i D0 = _mm512_set1_epi32(0);
             __m512i D1 = _mm512_set1_epi32(0);
             __m512i D2 = _mm512_set1_epi32(0);
+            auto weightDzSub = weight_dz + weight_stride_Y * suborder[i];
 
             for (int sz = 0; sz < src_depth_quad; ++sz) {
-                const auto weight_sz = weight_dz + weight_step_Y * sz;
+                const auto weight_sz = weightDzSub + weight_step_Y * sz;
                 const auto src_z     = (const float*)(src_x + sz * realDst * GEMMINT8_AVX512_L);
                 auto w0_int4_64 = _mm512_loadu_si512(weight_sz); // 128xint4_t=64 byte
                 auto w0 = _mm512_and_si512(mask, _mm512_srli_epi16(w0_int4_64, 4)); // 64xint8_t
@@ -2136,8 +2309,8 @@ void MATMULCOREFUNC_NAME_W4(int8_t* dst, const int8_t* src, const int8_t* weight
             }
 
             
-            auto scaleValue = _mm512_loadu_ps(scale_dz);
-            auto weightBiasValue = _mm512_loadu_ps(weightBias_dz);
+            auto scaleValue = _mm512_loadu_ps(scale_dz + i * PACK_UNIT);
+            auto weightBiasValue = _mm512_loadu_ps(weightBias_dz + i * PACK_UNIT);
             __m512 xy0_0, xy0_1, xy0_2;
             // x_kernelSum x w_quantZero
             SRCKERNELSUM_MUL_WEIGHTQUANBIAS_3;
@@ -2170,26 +2343,31 @@ void MATMULCOREFUNC_NAME_W4(int8_t* dst, const int8_t* src, const int8_t* weight
             }
 
             if (biasPtr == nullptr) {
-                f0 = _mm512_add_ps(_mm512_loadu_ps(((float*)dst_x)), f0);
-                f1 = _mm512_add_ps(_mm512_loadu_ps(((float*)dst_x) + 16), f1);
-                f2 = _mm512_add_ps(_mm512_loadu_ps(((float*)dst_x) + 16 * 2), f2);
+                f0 = _mm512_add_ps(_mm512_loadu_ps(((float*)accum_x)), f0);
+                f1 = _mm512_add_ps(_mm512_loadu_ps(((float*)accum_x) + 16), f1);
+                f2 = _mm512_add_ps(_mm512_loadu_ps(((float*)accum_x) + 16 * 2), f2);
             }
-            if (post->fp32minmax) {
-                POST_TREAT_FLOAT_3(0,1,2);
+            if (dst) {
+                if (post->fp32minmax) {
+                    POST_TREAT_FLOAT_3(0,1,2);
+                }
+                    _mm512_storeu_ps(((float*)dst_x), f0);
+                    _mm512_storeu_ps(((float*)dst_x) + 16, f1);
+                    _mm512_storeu_ps(((float*)dst_x) + 16 * 2, f2);
+            } else {
+                _mm512_storeu_ps(((float*)accum_x), f0);
+                _mm512_storeu_ps(((float*)accum_x) + 16, f1);
+                _mm512_storeu_ps(((float*)accum_x) + 16 * 2, f2);
             }
-            _mm512_storeu_ps(((float*)dst_x), f0);
-            _mm512_storeu_ps(((float*)dst_x) + 16, f1);
-            _mm512_storeu_ps(((float*)dst_x) + 16 * 2, f2);
             
             dst_x += dst_step_tmp;
-            scale_dz += PACK_UNIT;
+            accum_x += (realDst * PACK_UNIT);
             if (biasPtr) {
                 bias_dz += PACK_UNIT;
             }
             if (post->extraBias) {
                 extraB_dz += PACK_UNIT;
             }
-            weight_dz += PACK_UNIT * GEMMINT8_AVX512_L;
         }
         return;
     }
@@ -2203,11 +2381,13 @@ void MATMULCOREFUNC_NAME_W4(int8_t* dst, const int8_t* src, const int8_t* weight
             if (post->extraBias) {
                 extraB_dz = post->extraBias + dz * PACK_UNIT * dzUnit;
             }
-            float* scale_dz = (float*)post->scale + dz * PACK_UNIT * dzUnit;
-            const auto weightBias_dz = post->weightQuanBias + dz * PACK_UNIT * dzUnit;
+            auto scale_dz = (float*)(weight_dz + src_depth_quad * weight_step_Y);
+            auto weightBias_dz = scale_dz + GEMMINT8_AVX512_H;
             auto dst_z = dst + dz * dst_step_tmp * dzUnit;
             const auto src_x   = src;
             auto dst_x         = dst_z;
+            auto accum_z = accumbuff + dz * realDst * PACK_UNIT * dzUnit;
+            auto accum_x = accum_z;
             __m512i D0 = _mm512_set1_epi32(0);
             __m512i D1 = _mm512_set1_epi32(0);
 
@@ -2359,37 +2539,50 @@ void MATMULCOREFUNC_NAME_W4(int8_t* dst, const int8_t* src, const int8_t* weight
             }
 
             if (nullptr == biasPtr) {
-                auto dstTmp = dst_x;
+                auto dstTmp = accum_x;
                 f0 = _mm512_add_ps(_mm512_loadu_ps(((float*)dstTmp)), f0);
                 f1 = _mm512_add_ps(_mm512_loadu_ps(((float*)dstTmp) + 16), f1);
-                dstTmp += dst_step_tmp;
+                dstTmp += (realDst * PACK_UNIT);
                 f4 = _mm512_add_ps(_mm512_loadu_ps(((float*)dstTmp) + 16 * 0), f4);
                 f5 = _mm512_add_ps(_mm512_loadu_ps(((float*)dstTmp) + 16 * 1), f5);
-                dstTmp += dst_step_tmp;
+                dstTmp += (realDst * PACK_UNIT);
                 f8 = _mm512_add_ps(_mm512_loadu_ps(((float*)dstTmp) + 16 * 0), f8);
                 f9 = _mm512_add_ps(_mm512_loadu_ps(((float*)dstTmp) + 16 * 1), f9);
-                dstTmp += dst_step_tmp;
+                dstTmp += (realDst * PACK_UNIT);
                 f12 = _mm512_add_ps(_mm512_loadu_ps(((float*)dstTmp) + 16 * 0), f12);
                 f13 = _mm512_add_ps(_mm512_loadu_ps(((float*)dstTmp) + 16 * 1), f13);
             }
-            if (post->fp32minmax) {
-                POST_TREAT_FLOAT_2(0,1);
-                POST_TREAT_FLOAT_2(4,5);
-                POST_TREAT_FLOAT_2(8,9);
-                POST_TREAT_FLOAT_2(12,13);
+            if (dst) {
+                if (post->fp32minmax) {
+                    POST_TREAT_FLOAT_2(0,1);
+                    POST_TREAT_FLOAT_2(4,5);
+                    POST_TREAT_FLOAT_2(8,9);
+                    POST_TREAT_FLOAT_2(12,13);
+                }
+                    _mm512_storeu_ps(((float*)dst_x), f0);
+                    _mm512_storeu_ps(((float*)dst_x) + 16, f1);
+                    dst_x += dst_step_tmp;
+                    _mm512_storeu_ps(((float*)dst_x) + 16 * 0, f4);
+                    _mm512_storeu_ps(((float*)dst_x) + 16 * 1, f5);
+                    dst_x += dst_step_tmp;
+                    _mm512_storeu_ps(((float*)dst_x) + 16 * 0, f8);
+                    _mm512_storeu_ps(((float*)dst_x) + 16 * 1, f9);
+                    dst_x += dst_step_tmp;
+                    _mm512_storeu_ps(((float*)dst_x) + 16 * 0, f12);
+                    _mm512_storeu_ps(((float*)dst_x) + 16 * 1, f13);
+            } else {
+                _mm512_storeu_ps(((float*)accum_x), f0);
+                _mm512_storeu_ps(((float*)accum_x) + 16, f1);
+                accum_x += (realDst * PACK_UNIT);;
+                _mm512_storeu_ps(((float*)accum_x) + 16 * 0, f4);
+                _mm512_storeu_ps(((float*)accum_x) + 16 * 1, f5);
+                accum_x += (realDst * PACK_UNIT);;
+                _mm512_storeu_ps(((float*)accum_x) + 16 * 0, f8);
+                _mm512_storeu_ps(((float*)accum_x) + 16 * 1, f9);
+                accum_x += (realDst * PACK_UNIT);;
+                _mm512_storeu_ps(((float*)accum_x) + 16 * 0, f12);
+                _mm512_storeu_ps(((float*)accum_x) + 16 * 1, f13);
             }
-            _mm512_storeu_ps(((float*)dst_x), f0);
-            _mm512_storeu_ps(((float*)dst_x) + 16, f1);
-            dst_x += dst_step_tmp;
-            _mm512_storeu_ps(((float*)dst_x) + 16 * 0, f4);
-            _mm512_storeu_ps(((float*)dst_x) + 16 * 1, f5);
-            dst_x += dst_step_tmp;
-            _mm512_storeu_ps(((float*)dst_x) + 16 * 0, f8);
-            _mm512_storeu_ps(((float*)dst_x) + 16 * 1, f9);
-            dst_x += dst_step_tmp;
-            _mm512_storeu_ps(((float*)dst_x) + 16 * 0, f12);
-            _mm512_storeu_ps(((float*)dst_x) + 16 * 1, f13);
-
         }
         auto weight_dz = weight + dzU * weight_step_Z;
         if (biasPtr) {
@@ -2398,18 +2591,21 @@ void MATMULCOREFUNC_NAME_W4(int8_t* dst, const int8_t* src, const int8_t* weight
         if (post->extraBias) {
             extraB_dz = post->extraBias + dzU * PACK_UNIT * dzUnit;
         }
-        float* scale_dz = (float*)post->scale + dzU * PACK_UNIT * dzUnit;
-        const auto weightBias_dz = post->weightQuanBias + dzU * PACK_UNIT * dzUnit;
+        auto scale_dz = (float*)(weight_dz + src_depth_quad * weight_step_Y);
+        auto weightBias_dz = scale_dz + (dzR * PACK_UNIT);
 
         auto dst_z = dst + dzU * dst_step_tmp * dzUnit;
         const auto src_x   = src;
         auto dst_x         = dst_z;
+        auto accum_z = accumbuff + dzU * PACK_UNIT * dzUnit * realDst;
+        auto accum_x = accum_z;
         for (int i=0; i<dzR; ++i) {
             __m512i D0 = _mm512_set1_epi32(0);
             __m512i D1 = _mm512_set1_epi32(0);
+            auto weightDzSub = weight_dz + weight_stride_Y * suborder[i];
 
             for (int sz = 0; sz < src_depth_quad; ++sz) {
-                const auto weight_sz = weight_dz + weight_step_Y * sz;
+                const auto weight_sz = weightDzSub + weight_step_Y * sz;
                 const auto src_z     = (const float*)(src_x + sz * realDst * GEMMINT8_AVX512_L);
                 auto w0_int4_64 = _mm512_loadu_si512(weight_sz); // 128xint4_t=64 byte
                 // 256xint4_t->256xint8_t
@@ -2422,8 +2618,8 @@ void MATMULCOREFUNC_NAME_W4(int8_t* dst, const int8_t* src, const int8_t* weight
                 D1 = mnn_mm512_dpbusds_epi32(D1, s1, w0);
             }
 
-            auto scaleValue = _mm512_loadu_ps(scale_dz);
-            auto weightBiasValue = _mm512_loadu_ps(weightBias_dz);
+            auto scaleValue = _mm512_loadu_ps(scale_dz + i * PACK_UNIT);
+            auto weightBiasValue = _mm512_loadu_ps(weightBias_dz + i * PACK_UNIT);
             __m512 xy0_0, xy0_1;
             // x_kernelSum x w_quantZero
             SRCKERNELSUM_MUL_WEIGHTQUANBIAS_2;
@@ -2451,22 +2647,28 @@ void MATMULCOREFUNC_NAME_W4(int8_t* dst, const int8_t* src, const int8_t* weight
             }
 
             if (nullptr == biasPtr) {
-                f0 = _mm512_add_ps(_mm512_loadu_ps(((float*)dst_x)), f0);
-                f1 = _mm512_add_ps(_mm512_loadu_ps(((float*)dst_x) + 16), f1);
+                f0 = _mm512_add_ps(_mm512_loadu_ps(((float*)accum_x)), f0);
+                f1 = _mm512_add_ps(_mm512_loadu_ps(((float*)accum_x) + 16), f1);
             }
-            POST_TREAT_FLOAT_2(0,1);
-            _mm512_storeu_ps(((float*)dst_x), f0);
-            _mm512_storeu_ps(((float*)dst_x) + 16, f1);
-            
+            if (dst) {
+                if (post->fp32minmax) {
+                    POST_TREAT_FLOAT_2(0,1);
+                }
+                    _mm512_storeu_ps(((float*)dst_x), f0);
+                    _mm512_storeu_ps(((float*)dst_x) + 16, f1);
+            } else {
+                _mm512_storeu_ps(((float*)accum_x), f0);
+                _mm512_storeu_ps(((float*)accum_x) + 16, f1);
+            }
+
             dst_x += dst_step_tmp;
-            scale_dz += PACK_UNIT;
+            accum_x += (realDst * PACK_UNIT);
             if (biasPtr) {
                 bias_dz += PACK_UNIT;
             }
             if (post->extraBias) {
                 extraB_dz += PACK_UNIT;
             }
-            weight_dz += PACK_UNIT * GEMMINT8_AVX512_L;
         }
         return;
     }
@@ -2479,11 +2681,13 @@ void MATMULCOREFUNC_NAME_W4(int8_t* dst, const int8_t* src, const int8_t* weight
             if (post->extraBias) {
                 extraB_dz = post->extraBias + dz * PACK_UNIT * dzUnit;
             }
-            float* scale_dz = (float*)post->scale + dz * PACK_UNIT * dzUnit;
-            const auto weightBias_dz = post->weightQuanBias + dz * PACK_UNIT * dzUnit;
+            auto scale_dz = (float*)(weight_dz + src_depth_quad * weight_step_Y);
+            auto weightBias_dz = scale_dz + GEMMINT8_AVX512_H;
             auto dst_z = dst + dz * dst_step_tmp * dzUnit;
             const auto src_x   = src;
             auto dst_x         = dst_z;
+            auto accum_z = accumbuff + dz * realDst * PACK_UNIT * dzUnit;
+            auto accum_x = accum_z;
             __m512i D0 = _mm512_set1_epi32(0);
 
             __m512i D4 = _mm512_set1_epi32(0);
@@ -2607,29 +2811,38 @@ void MATMULCOREFUNC_NAME_W4(int8_t* dst, const int8_t* src, const int8_t* weight
             }
 
             if (nullptr == biasPtr) {
-                auto dstTemp = dst_x;
+                auto dstTemp = accum_x;
                 f0 = _mm512_add_ps(_mm512_loadu_ps(((float*)dstTemp)), f0);
-                dstTemp += dst_step_tmp;
+                dstTemp += (realDst * PACK_UNIT);
                 f4 = _mm512_add_ps(_mm512_loadu_ps(((float*)dstTemp) + 16 * 0), f4);
-                dstTemp += dst_step_tmp;
+                dstTemp += (realDst * PACK_UNIT);
                 f8 = _mm512_add_ps(_mm512_loadu_ps(((float*)dstTemp) + 16 * 0), f8);
-                dstTemp += dst_step_tmp;
+                dstTemp += (realDst * PACK_UNIT);
                 f12 = _mm512_add_ps(_mm512_loadu_ps(((float*)dstTemp) + 16 * 0), f12);
             }
-            if (post->fp32minmax) {
-                POST_TREAT_FLOAT_1(0);
-                POST_TREAT_FLOAT_1(4);
-                POST_TREAT_FLOAT_1(8);
-                POST_TREAT_FLOAT_1(12);
+            if (dst) {
+                if (post->fp32minmax) {
+                    POST_TREAT_FLOAT_1(0);
+                    POST_TREAT_FLOAT_1(4);
+                    POST_TREAT_FLOAT_1(8);
+                    POST_TREAT_FLOAT_1(12);
+                }
+                    _mm512_storeu_ps(((float*)dst_x), f0);
+                    dst_x += dst_step_tmp;
+                    _mm512_storeu_ps(((float*)dst_x) + 16 * 0, f4);
+                    dst_x += dst_step_tmp;
+                    _mm512_storeu_ps(((float*)dst_x) + 16 * 0, f8);
+                    dst_x += dst_step_tmp;
+                    _mm512_storeu_ps(((float*)dst_x) + 16 * 0, f12);
+            } else {
+                _mm512_storeu_ps(((float*)accum_x), f0);
+                accum_x += (realDst * PACK_UNIT);;
+                _mm512_storeu_ps(((float*)accum_x) + 16 * 0, f4);
+                accum_x += (realDst * PACK_UNIT);;
+                _mm512_storeu_ps(((float*)accum_x) + 16 * 0, f8);
+                accum_x += (realDst * PACK_UNIT);;
+                _mm512_storeu_ps(((float*)accum_x) + 16 * 0, f12);
             }
-            _mm512_storeu_ps(((float*)dst_x), f0);
-            dst_x += dst_step_tmp;
-            _mm512_storeu_ps(((float*)dst_x) + 16 * 0, f4);
-            dst_x += dst_step_tmp;
-            _mm512_storeu_ps(((float*)dst_x) + 16 * 0, f8);
-            dst_x += dst_step_tmp;
-            _mm512_storeu_ps(((float*)dst_x) + 16 * 0, f12);
-            
         }
         auto weight_dz = weight + dzU * weight_step_Z;
         if (biasPtr) {
@@ -2638,17 +2851,20 @@ void MATMULCOREFUNC_NAME_W4(int8_t* dst, const int8_t* src, const int8_t* weight
         if (post->extraBias) {
             extraB_dz = post->extraBias + dzU * PACK_UNIT * dzUnit;
         }
-        float* scale_dz = (float*)post->scale + dzU * PACK_UNIT * dzUnit;
-        const auto weightBias_dz = post->weightQuanBias + dzU * PACK_UNIT * dzUnit;
+        auto scale_dz = (float*)(weight_dz + src_depth_quad * weight_step_Y);
+        auto weightBias_dz = scale_dz + (dzR * PACK_UNIT);
 
         auto dst_z = dst + dzU * dst_step_tmp * dzUnit;
         const auto src_x   = src;
         auto dst_x         = dst_z;
+        auto accum_z = accumbuff + dzU * PACK_UNIT * dzUnit * realDst;
+        auto accum_x = accum_z;
         for (int i=0; i<dzR; ++i) {
             __m512i D0 = _mm512_set1_epi32(0);
+            auto weightDzSub = weight_dz + weight_stride_Y * suborder[i];
 
             for (int sz = 0; sz < src_depth_quad; ++sz) {
-                const auto weight_sz = weight_dz + weight_step_Y * sz;
+                const auto weight_sz = weightDzSub + weight_step_Y * sz;
                 const auto src_z     = (const float*)(src_x + sz * realDst * GEMMINT8_AVX512_L);
                 auto w0_int4_64 = _mm512_loadu_si512(weight_sz); // 128xint4_t=64 byte
                 auto w0 = _mm512_and_si512(mask, _mm512_srli_epi16(w0_int4_64, 4)); // 64xint8_t
@@ -2658,9 +2874,9 @@ void MATMULCOREFUNC_NAME_W4(int8_t* dst, const int8_t* src, const int8_t* weight
                 D0 = mnn_mm512_dpbusds_epi32(D0, s0, w0);
             }
 
-            auto scaleValue = _mm512_loadu_ps(scale_dz);
+            auto scaleValue = _mm512_loadu_ps(scale_dz + i * PACK_UNIT);
 
-            auto weightBiasValue = _mm512_loadu_ps(weightBias_dz);
+            auto weightBiasValue = _mm512_loadu_ps(weightBias_dz + i * PACK_UNIT);
             __m512 xy0_0;
             // x_kernelSum x w_quantZero
             SRCKERNELSUM_MUL_WEIGHTQUANBIAS_1;
@@ -2683,21 +2899,25 @@ void MATMULCOREFUNC_NAME_W4(int8_t* dst, const int8_t* src, const int8_t* weight
             }
 
             if (nullptr == biasPtr) {
-                f0 = _mm512_add_ps(_mm512_loadu_ps(((float*)dst_x)), f0);
+                f0 = _mm512_add_ps(_mm512_loadu_ps(((float*)accum_x)), f0);
             }
-            if (post->fp32minmax) {
-                POST_TREAT_FLOAT_1(0);
+            if (dst) {
+                if (post->fp32minmax) {
+                    POST_TREAT_FLOAT_1(0);
+                }
+                _mm512_storeu_ps(((float*)dst_x), f0);
+            } else {
+                _mm512_storeu_ps(((float*)accum_x), f0);
             }
-            _mm512_storeu_ps(((float*)dst_x), f0);
+
             dst_x += dst_step_tmp;
-            scale_dz += PACK_UNIT;
+            accum_x += (realDst * PACK_UNIT);
             if (biasPtr) {
                 bias_dz += PACK_UNIT;
             }
             if (post->extraBias) {
                 extraB_dz += PACK_UNIT;
             }
-            weight_dz += PACK_UNIT * GEMMINT8_AVX512_L;
         }
         return;
     }

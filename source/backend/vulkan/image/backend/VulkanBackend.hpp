@@ -33,6 +33,7 @@ public:
                                 const MNN::Op* op) override;
     virtual void onExecuteBegin() const override;
     virtual void onExecuteEnd() const override;
+    void finish();
     virtual void onResizeBegin() override;
     virtual ErrorCode onResizeEnd() override;
     virtual void onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) const override;
@@ -87,11 +88,24 @@ public:
 
     float getPipelineTime(const VulkanPipeline* pipeline, std::shared_ptr<VulkanLayout::DescriptorSet> des, std::vector<uint32_t> groupSize);
 
+
+    const VulkanDevice& device() const;
+#ifdef ENABLE_VULKAN_TIME_PROFILE
+    void pushQueryPool(std::shared_ptr<VulkanQueryPool> queryPool) {
+        mQueryPools.push_back(queryPool);
+    }
+    void pushExecutionName(std::string executionName) {
+        mExecutionNames.push_back(executionName);
+    }
+#endif
+
 private:
     bool _supportImageSize(const Tensor* tensor);
-    const VulkanDevice& device() const;
     void _finish() const;
     void _allocHostBuffer(size_t size) const;
+#ifdef ENABLE_VULKAN_TIME_PROFILE
+    void printTimeProfile() const;
+#endif
 
     std::shared_ptr<VulkanCommandPool::Buffer> mCmdBuffer;
     std::shared_ptr<VulkanCommandPool::Buffer> mInitBuffer;
@@ -108,6 +122,11 @@ private:
     bool mDirect;
     const VulkanRuntime* mRuntime;
     std::shared_ptr<VulkanMemoryPool> mDynamicMemoryPool;
+
+#ifdef ENABLE_VULKAN_TIME_PROFILE
+    mutable std::vector<std::shared_ptr<VulkanQueryPool>> mQueryPools;
+    mutable std::vector<std::string> mExecutionNames;
+#endif
 };
 
 
