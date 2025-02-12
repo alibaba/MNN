@@ -11,6 +11,6 @@ public class ModelListContract {
 
         ModelListAdapter getAdapter();
 
-        void runModel(String absolutePath, String modelName);
+        void runModel(String absolutePath, String modelId);
     }
 }

@@ -26,10 +26,7 @@ public class HfRepoItem {
     public String getCreatedAt() { return createdAt; }
 
     public String getModelName() {
-        if (modelId != null && modelId.contains("/")) {
-            return modelId.substring(modelId.lastIndexOf("/") + 1);
-        }
-        return modelId;
+        return ModelUtils.getModelName(this.modelId);
     }
     public void setCreatedAt(String createdAt) { this.createdAt = createdAt; }
 
