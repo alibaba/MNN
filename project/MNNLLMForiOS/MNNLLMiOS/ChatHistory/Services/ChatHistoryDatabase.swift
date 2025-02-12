@@ -62,14 +62,16 @@ class ChatHistoryDatabase {
                 var copiedImages:[LLMChatImage] = []
                 for msg in message.attachments {
                     if msg.type == .image {
-                        
                         var imageUrl = msg.full
+
                         guard let copiedImage = ChatHistoryFileManager.shared.copyFile(from: imageUrl, for: historyId) else {
                             continue
                         }
                         
-                        if copiedImage.isHEICImage() {
-                            guard let jpgUrl = AssetExtractor.convertHEICToJPG(heicUrl: copiedImage) else { continue }
+                        imageUrl = copiedImage
+                        
+                        if imageUrl.isHEICImage() {
+                            guard let jpgUrl = AssetExtractor.convertHEICToJPG(heicUrl: imageUrl) else { continue }
                             imageUrl = jpgUrl
                         }
                         

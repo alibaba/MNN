@@ -48,7 +48,7 @@ class ChatHistoryFileManager {
         // Check if the file already exists at the destination
         if FileManager.default.fileExists(atPath: destinationURL.path) {
             print("File already exists at \(destinationURL), returning original URL.")
-            return url // Return the original URL if the file already exists
+            return destinationURL
         }
         
         do {
