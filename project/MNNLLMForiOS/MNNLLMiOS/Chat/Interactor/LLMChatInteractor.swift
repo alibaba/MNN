@@ -20,7 +20,8 @@ final class LLMChatInteractor: ChatInteractorProtocol {
     
     var chatData: LLMChatData
     var historyMessages: [HistoryMessage]?
-
+    
+    private let processor = ThinkResultProcessor(thinkingPrefix: "<think>", completePrefix: "</think>")
     private lazy var chatState = CurrentValueSubject<[LLMChatMessage], Never>(generateStartMessages(historyMessages: historyMessages))
     private lazy var sharedState = chatState.share()
 
@@ -90,10 +91,17 @@ final class LLMChatInteractor: ChatInteractorProtocol {
                         sender = self?.chatData.system ?? message.sender
                     }
                     
+                    self?.processor.startNewChat()
+                    
                 case .assistant:
                     
                     var updateLastMsg = self?.chatState.value[(self?.chatState.value.count ?? 1) - 1]
-                    updateLastMsg?.text += message.text
+                    
+                    if let text = self?.processor.process(progress: message.text) {
+                        updateLastMsg?.text = text
+                    } else {
+                        updateLastMsg?.text += message.text
+                    }
                     
                     message.text = self?.chatState.value[(self?.chatState.value.count ?? 1) - 1].text ?? ""
                     

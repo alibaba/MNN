@@ -1,5 +1,5 @@
 {
-  "originHash" : "8678be89dbfe55b5291835e2c3a7c5a810c1d5b343a69e8a853f0a3ebabb542c",
+  "originHash" : "160ca88ee9cc9d8a4de6ec53503412c897e3ed9f19931b032d10094d6e9fe330",
   "pins" : [
     {
       "identity" : "activityindicatorview",
@@ -13,10 +13,9 @@
     {
       "identity" : "chat",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/exyte/Chat.git",
+      "location" : "https://github.com/Yogayu/Chat.git",
       "state" : {
-        "revision" : "be0910b293ec8183c210a6014c93582764092d58",
-        "version" : "2.0.10"
+        "revision" : "32c09bef42eb8c6316b4cbdd5ccd13b9782f51ba"
       }
     },
     {
@@ -47,6 +46,15 @@
       }
     },
     {
+      "identity" : "networkimage",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/gonzalezreal/NetworkImage",
+      "state" : {
+        "revision" : "2849f5323265386e200484b0d0f896e73c3411b9",
+        "version" : "6.0.1"
+      }
+    },
+    {
       "identity" : "sqlite.swift",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/stephencelis/SQLite.swift",
@@ -62,6 +70,24 @@
       "state" : {
         "revision" : "41982a3656a71c768319979febd796c6fd111d5c",
         "version" : "1.5.0"
+      }
+    },
+    {
+      "identity" : "swift-cmark",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/swiftlang/swift-cmark",
+      "state" : {
+        "revision" : "3ccff77b2dc5b96b77db3da0d68d28068593fa53",
+        "version" : "0.5.0"
+      }
+    },
+    {
+      "identity" : "swift-markdown-ui",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/gonzalezreal/swift-markdown-ui",
+      "state" : {
+        "revision" : "5f613358148239d0292c0cef674a3c2314737f9e",
+        "version" : "2.4.1"
       }
     },
     {

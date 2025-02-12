@@ -68,6 +68,7 @@ final class LLMChatViewModel: ObservableObject {
         Task { @MainActor in
             self.send(draft: DraftMessage(
                 text: NSLocalizedString("ModelLoadingText", comment: ""),
+                thinkText: "",
                 medias: [],
                 recording: nil,
                 replyMessage: nil,
@@ -93,6 +94,7 @@ final class LLMChatViewModel: ObservableObject {
                 
                 self?.send(draft: DraftMessage(
                     text: loadResult,
+                    thinkText: "",
                     medias: [],
                     recording: nil,
                     replyMessage: nil,
@@ -197,6 +199,7 @@ final class LLMChatViewModel: ObservableObject {
                     } else {
                         self?.send(draft: DraftMessage(
                             text: output,
+                            thinkText: "",
                             medias: [],
                             recording: nil,
                             replyMessage: nil,
@@ -214,12 +217,21 @@ final class LLMChatViewModel: ObservableObject {
              <|User|>{text}<|Assistant|>{text}<|end_of_sentence|>
              */
             var deepSeekContent = "<|begin_of_sentence|>"
+            
             for message in messages {
-                let senderTag = message.user.id == "1" ? "<|User|>" : "<|Assistant|>"
+                let senderTag: String
+                switch message.user.id {
+                case "1":
+                    senderTag = "<|User|>"
+                case "2":
+                    senderTag = "<|Assistant|>"
+                default:
+                    continue
+                }
                 deepSeekContent += "\(senderTag)\(message.text)"
             }
-            deepSeekContent += "<|User|>" + content
-            deepSeekContent += "<|end_of_sentence|>"
+            
+            deepSeekContent += "<|end_of_sentence|><think><\n>"
             
             return deepSeekContent
         } else {

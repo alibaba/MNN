@@ -129,28 +129,32 @@ private:
         output(@"Error: Model not loaded");
         return;
     }
-
-    LlmStreamBuffer::CallBack callback = [output](const char* str, size_t len) {
-        if (output) {
-            NSString *nsOutput = [[NSString alloc] initWithBytes:str 
-                                                            length:len 
-                                                          encoding:NSUTF8StringEncoding];
-            if (nsOutput) {
-                output(nsOutput);
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+    
+        LlmStreamBuffer::CallBack callback = [output](const char* str, size_t len) {
+            if (output) {
+                NSString *nsOutput = [[NSString alloc] initWithBytes:str
+                                                                length:len
+                                                              encoding:NSUTF8StringEncoding];
+                if (nsOutput) {
+                    output(nsOutput);
+                }
             }
-        }
-    };
-    
-    LlmStreamBuffer streambuf(callback);
-    std::ostream os(&streambuf);
-    
-    history.emplace_back(PromptItem("user", [input UTF8String]));
-    
-    if (std::string([input UTF8String]) == "benchmark") {
-        [self performBenchmarkWithOutput:&os];
-    } else {
-        llm->response(history, &os, "<eop>", 999999);
-    }
+        };
+//        dispatch_async(dispatch_get_main_queue(), ^{
+            LlmStreamBuffer streambuf(callback);
+            std::ostream os(&streambuf);
+            
+            history.emplace_back(PromptItem("user", [input UTF8String]));
+            
+            if (std::string([input UTF8String]) == "benchmark") {
+                [self performBenchmarkWithOutput:&os];
+            } else {
+                llm->response(history, &os, "<eop>", 999999);
+            }
+//        });
+        
+    });
 }
 
 // New method to handle benchmarking
