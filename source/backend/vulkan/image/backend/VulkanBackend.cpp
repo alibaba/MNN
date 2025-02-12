@@ -541,6 +541,9 @@ float VulkanBackend::getPipelineTime(const VulkanPipeline* pipeline, std::shared
     return time;
 }
 
+static bool checkInvalid(uint32_t x, uint32_t y, uint32_t z, uint32_t subgroupSize) {
+    return x * y * z > 4 * subgroupSize || x > 128 || y > 128 || z > 128;
+}
 
 std::vector<uint32_t> VulkanBackend::autoTunePipeline(SharedPtr<VulkanPipeline> pipeline, std::shared_ptr<VulkanLayout::DescriptorSet> des, const std::vector<uint32_t> gws, const uint32_t tuneDimension, std::vector<uint32_t> defaultLws,float * const minCostPtr) {
     bool isPrivate = !(pipeline->mTuneName.empty());
@@ -584,10 +587,6 @@ std::vector<uint32_t> VulkanBackend::autoTunePipeline(SharedPtr<VulkanPipeline> 
     std::pair<uint32_t, uint32_t> localSizeRangeZ = (tuneDimension > 2) ? std::pair<uint32_t, uint32_t>(minLocalSize, maxLocalZ) : std::pair<uint32_t, uint32_t>(1, 1);
 
     bool tuneNormalFlag = (mRuntime->mGpuMode & MNNGpuMode::MNN_GPU_TUNING_WIDE);
-
-    auto checkInvalid = tuneNormalFlag
-                    ? [](uint32_t x, uint32_t y, uint32_t z, uint32_t subgroupSize) -> bool { return x * y * z > 4 * subgroupSize || x > 128 || y > 128 || z > 128 ; } // MNN_GPU_TUNING_WIDE
-                    : [](uint32_t x, uint32_t y, uint32_t z, uint32_t subgroupSize) -> bool { return x * y * z > 16 * subgroupSize; };                                 // MNN_GPU_TUNING_HEAVY
 
     for (uint32_t z = localSizeRangeZ.first; z <= localSizeRangeZ.second; z = z << 1) {
         for (uint32_t y = localSizeRangeY.first; y <= localSizeRangeY.second; y = y << 1) {
