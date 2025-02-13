@@ -26,4 +26,9 @@
         android:id="@+id/action_resume_all_downloads"
         android:title="@string/resume_all_downloads"
         app:showAsAction="never" />
+
+    <item
+        android:id="@+id/action_check_for_update"
+        android:title="@string/check_for_update"
+        app:showAsAction="never" />
 </menu>

@@ -173,4 +173,8 @@ public class ModelUtils {
     public static boolean isR1Model(String modelName) {
         return modelName.toLowerCase().contains("deepseek-r1");
     }
+
+    public static String safeModelId(String modelId) {
+        return modelId.replaceAll("/", "_");
+    }
 }

@@ -25,6 +25,7 @@ import com.alibaba.mnnllm.android.chat.ChatActivity;
 import com.alibaba.mnnllm.android.R;
 import com.alibaba.mnnllm.android.history.ChatHistoryFragment;
 import com.alibaba.mnnllm.android.modelist.ModelListFragment;
+import com.alibaba.mnnllm.android.update.UpdateChecker;
 import com.alibaba.mnnllm.android.utils.GithubUtils;
 import com.alibaba.mnnllm.android.utils.ModelUtils;
 import com.google.android.material.navigation.NavigationView;
@@ -39,6 +40,7 @@ public class MainActivity extends AppCompatActivity {
     private ActionBarDrawerToggle toggle;
     private ModelListFragment modelListFragment;
     private ChatHistoryFragment chatHistoryFragment;
+    private UpdateChecker updateChecker;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -46,7 +48,8 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main_test);
         Toolbar toolbar = findViewById(R.id.toolbar);
         drawerLayout = findViewById(R.id.drawer_layout);
-        NavigationView navigationView = findViewById(R.id.nav_view);
+        updateChecker = new UpdateChecker(this);
+        updateChecker.checkForUpdates(this, false);
 
         // Set up ActionBar toggle
         toggle = new ActionBarDrawerToggle(
@@ -100,7 +103,6 @@ public class MainActivity extends AppCompatActivity {
         return super.onOptionsItemSelected(item);
     }
 
-
     public void runModel(String destModelDir, String modelId, String sessionId) {
         Log.d(TAG, "runModel destModelDir: " + destModelDir);
         ModelDownloadManager.getInstance(this).pauseAllDownloads();
@@ -150,5 +152,9 @@ public class MainActivity extends AppCompatActivity {
         if (requestCode == ModelDownloadManager.REQUEST_CODE_POST_NOTIFICATIONS) {
             ModelDownloadManager.getInstance(this).startForegroundService();
         }
+    }
+
+    public void checkForUpdate() {
+        updateChecker.checkForUpdates(this, true);
     }
 }
