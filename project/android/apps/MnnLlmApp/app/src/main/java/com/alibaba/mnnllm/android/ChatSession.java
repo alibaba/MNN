@@ -5,10 +5,13 @@ package com.alibaba.mnnllm.android;
 
 import android.util.Log;
 
+import com.alibaba.mls.api.ApplicationUtils;
 import com.alibaba.mnnllm.android.chat.ChatDataItem;
-import com.alibaba.mnnllm.android.utils.DeviceUtils;
+import com.alibaba.mnnllm.android.utils.FileUtils;
+import com.alibaba.mnnllm.android.utils.ModelPreferences;
 import com.alibaba.mnnllm.android.utils.ModelUtils;
 
+import java.io.File;
 import java.io.Serializable;
 import java.util.HashMap;
 import java.util.List;
@@ -23,6 +26,8 @@ public class ChatSession implements Serializable {
 
     private String sessionId;
 
+    private volatile boolean modelLoading = false;
+
     private volatile boolean mGenerating = false;
     private volatile boolean mReleaseRequeted = false;
 
@@ -31,14 +36,14 @@ public class ChatSession implements Serializable {
 
     private boolean useTmpPath;
     private boolean keepHistory;
-    private String modelName;
+    private String modelId;
 
-    public ChatSession(String modelName, String sessionId, String configPath, boolean useTmpPath, List<ChatDataItem> history) {
-        this(modelName, sessionId, configPath, useTmpPath, history, false);
+    public ChatSession(String modelId, String sessionId, String configPath, boolean useTmpPath, List<ChatDataItem> history) {
+        this(modelId, sessionId, configPath, useTmpPath, history, false);
     }
 
-    public ChatSession(String modelname, String sessionId, String configPath, boolean useTmpPath, List<ChatDataItem> history, boolean isDiffusion) {
-        this.modelName = modelname;
+    public ChatSession(String modelId, String sessionId, String configPath, boolean useTmpPath, List<ChatDataItem> history, boolean isDiffusion) {
+        this.modelId = modelId;
         this.sessionId = sessionId;
         this.configPath = configPath;
         this.savedHistory = history;
@@ -48,11 +53,21 @@ public class ChatSession implements Serializable {
 
     public void load() {
         Log.d(TAG, "MNN_DEBUG load begin");
+        modelLoading = true;
         List<String> historyStringList = null;
         if (this.savedHistory != null && !this.savedHistory.isEmpty()) {
             historyStringList = this.savedHistory.stream().map(ChatDataItem::getText).collect(Collectors.toList());
         }
-        nativePtr = initNative(configPath, useTmpPath, historyStringList, isDiffusion, ModelUtils.isR1Model(modelName));
+        String rootCacheDir = "";
+        if (ModelPreferences.useMmap(ApplicationUtils.get(), modelId)) {
+            rootCacheDir = FileUtils.getMmapDir(modelId, configPath.contains("modelscope"));
+            new File(rootCacheDir).mkdirs();
+        }
+        nativePtr = initNative(rootCacheDir, modelId, configPath, useTmpPath, historyStringList, isDiffusion, ModelUtils.isR1Model(modelId));
+        modelLoading = false;
+        if (mReleaseRequeted) {
+            release();
+        }
     }
 
     public String getDebugInfo() {
@@ -79,7 +94,7 @@ public class ChatSession implements Serializable {
             HashMap<String, Object> result = submitNative(nativePtr, input, keepHistory, progressListener);
             mGenerating = false;
             if (mReleaseRequeted) {
-                releaseInner();
+                release();
             }
             return result;
         }
@@ -106,20 +121,29 @@ public class ChatSession implements Serializable {
 
     public void release() {
         synchronized (this) {
-            Log.d(TAG, "MNN_DEBUG release" + nativePtr);
-            if (!mGenerating) {
+            Log.d(TAG, "MNN_DEBUG release nativePtr: " + nativePtr + " mGenerating: " + mGenerating);
+            if (!mGenerating && !modelLoading) {
                 releaseInner();
             } else {
                 mReleaseRequeted = true;
+                while (mGenerating || modelLoading) {
+                    try {
+                        wait();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        Log.e(TAG, "Thread interrupted while waiting for release", e);
+                    }
+                }
+                releaseInner();
             }
         }
     }
-
     private void releaseInner() {
-        if (nativePtr > 0) {
+        if (nativePtr != 0) {
             releaseNative(nativePtr, isDiffusion);
             nativePtr = 0;
             ChatService.provide().removeSession(sessionId);
+            notifyAll();
         }
     }
 
@@ -129,7 +153,7 @@ public class ChatSession implements Serializable {
         release();
     }
 
-    public native long initNative(String configPath, boolean useTmpPath, List<String> history, boolean isDiffusion, boolean isR1);
+    public native long initNative(String rootCacheDir,String modelId, String configPath, boolean useTmpPath, List<String> history, boolean isDiffusion, boolean isR1);
     private native HashMap<String, Object> submitNative(long instanceId, String input, boolean keepHistory, GenerateProgressListener listener);
 
     private native HashMap<String, Object> submitDiffusionNative(long instanceId, String input, String outputPath, GenerateProgressListener progressListener);
@@ -148,6 +172,9 @@ public class ChatSession implements Serializable {
         this.keepHistory = keepHistory;
     }
 
+    public void clearMmapCache() {
+        FileUtils.clearMmapCache(modelId);
+    }
 
     public interface GenerateProgressListener {
         boolean onProgress(String progress);

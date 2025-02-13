@@ -32,6 +32,7 @@ import com.alibaba.mnnllm.android.ChatService;
 import com.alibaba.mnnllm.android.ChatSession;
 import com.alibaba.mnnllm.android.R;
 import com.alibaba.mnnllm.android.utils.FileUtils;
+import com.alibaba.mnnllm.android.utils.ModelPreferences;
 import com.alibaba.mnnllm.android.utils.ModelUtils;
 import com.alibaba.mnnllm.android.utils.AudioPlayService;
 import com.alibaba.mnnllm.android.utils.PreferenceUtils;
@@ -135,10 +136,10 @@ public class ChatActivity extends AppCompatActivity {
         }
         if (ModelUtils.isDiffusionModel(modelName)) {
             String diffusionDir = getIntent().getStringExtra("diffusionDir");
-            chatSession =  chatService.createDiffusionSession(modelName, diffusionDir, chatSessionId, chatDataItemList);
+            chatSession =  chatService.createDiffusionSession(modelId, diffusionDir, chatSessionId, chatDataItemList);
         } else {
             String configFilePath = getIntent().getStringExtra("configFilePath");
-            chatSession = chatService.createSession(modelName, configFilePath, true, chatSessionId, chatDataItemList);
+            chatSession = chatService.createSession(modelId, configFilePath, true, chatSessionId, chatDataItemList);
         }
         chatSessionId = chatSession.getSessionId();
         chatSession.setKeepHistory(!ModelUtils.isVisualModel(modelName) && !ModelUtils.isAudioModel(modelName));
@@ -345,6 +346,7 @@ public class ChatActivity extends AppCompatActivity {
         getMenuInflater().inflate(R.menu.menu_chat, menu);
         menu.findItem(R.id.show_performance_metrics)
                 .setChecked(PreferenceUtils.getBoolean(this, PreferenceUtils.KEY_SHOW_PERFORMACE_METRICS, true));
+        menu.findItem(R.id.menu_item_use_mmap).setChecked(ModelPreferences.getBoolean(this, modelId, ModelPreferences.KEY_USE_MMAP, true));
         return true;
     }
 
@@ -358,6 +360,19 @@ public class ChatActivity extends AppCompatActivity {
             adapter.notifyItemRangeChanged(0, adapter.getItemCount());
         } else if (item.getItemId() == android.R.id.home) {
             finish();
+        } else if (item.getItemId() == R.id.menu_item_clear_mmap_cache) {
+            if (ModelPreferences.useMmap(this, modelId)) {
+                Toast.makeText(this, R.string.mmap_cacche_cleared, Toast.LENGTH_LONG).show();
+                chatSession.clearMmapCache();
+                recreate();
+            } else {
+                Toast.makeText(this, R.string.mmap_not_used, Toast.LENGTH_SHORT).show();
+            }
+        } else if (item.getItemId() == R.id.menu_item_use_mmap) {
+            item.setChecked(!item.isChecked());
+            Toast.makeText(this, R.string.reloading_session, Toast.LENGTH_LONG).show();
+            ModelPreferences.setBoolean(this, modelId, ModelPreferences.KEY_USE_MMAP, item.isChecked());
+            recreate();
         }
         return super.onOptionsItemSelected(item);
     }
@@ -551,6 +566,7 @@ public class ChatActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        stopGenerating = true;
         chatExecutor.submit(() -> {
             chatSession.reset();
             chatSession.release();
