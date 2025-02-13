@@ -63,6 +63,14 @@ It operates fully offline with high privacy. Once the models are downloaded to t
 
 </div>
 
+<p></p>
+
+Additionally, the app supports edge-side usage of DeepSeek with Think mode:
+
+<img src="./assets/deepseek.jpg" alt="deepThink" width="200" />
+
+
+
 ## How to Build and Use
 
 1. Clone the repository:
@@ -100,13 +108,13 @@ It operates fully offline with high privacy. Once the models are downloaded to t
 
     Ensure the `Link Binary With Libraries` section includes the `MNN.framework`:
     
-    ![framework](./assets/framework.png)
+    <img src="./assets/framework.png" alt="deepThink" width="400" />
 
     If it's missing, add it manually:
 
-    ![addFramework](./assets/addFramework.png)
-
-    ![addFramework2](./assets/addFramework2.png)
+    <img src="./assets/addFramework.png" alt="deepThink" width="200" />
+    <img src="./assets/addFramework2.png" alt="deepThink" width="200" />
+    
 
 4. Update iOS signing and build the project:
 

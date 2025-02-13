@@ -13,13 +13,12 @@
     - 获取 MNN 支持的模型礼拜；
     - 模型管理，支持下载和删除模型；
     - 模型搜索，支持本地模型搜索；
-2. 多模态聊天对话
+2. 多模态聊天对话：支持完整的Markdown格式输出
     - 文本到文本
     - 语音到文本
     - 图片到文本，图片可以拍摄输入或从图库中选择
 3. 对话历史
     - 包含对话历史列表，可以还原对话场景
-
 
 应用预览图：
 
@@ -61,6 +60,12 @@
 
 </div>
 
+<p></p>
+
+此外，本应用支持 DeepSeek  带think模式端侧使用：
+
+<img src="./assets/deepseek.jpg" alt="deepThink" width="200" />
+
 
 ## 如何构建并使用
 
@@ -92,14 +97,12 @@
 
     确保 Link Binary With Libraried 中包含 MNN.framework
     
-    ![](./assets/framework.png)
+    <img src="./assets/framework.png" alt="deepThink" width="400" />
 
     如果没有包含，可以手动添加 MNN.framework:
 
-    ![](./assets/addFramework.png)
-
-    ![](./assets/addFramework2.png)
-
+    <img src="./assets/addFramework.png" alt="deepThink" width="200" />
+    <img src="./assets/addFramework2.png" alt="deepThink" width="200" />
     
 
 4. 修改 iOS 签名并编译项目
