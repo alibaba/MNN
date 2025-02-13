@@ -53,7 +53,9 @@ struct LLMChatView: View {
             main: .init(
                 text: .white,
                 albumSelectionBackground: .customPickerBg,
-                fullscreenPhotoBackground: .customPickerBg
+                fullscreenPhotoBackground: .customPickerBg,
+                cameraBackground: .black,
+                cameraSelectionBackground: .black
             ),
             selection: .init(
                 emptyTint: .white,
