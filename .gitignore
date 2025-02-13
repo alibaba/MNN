@@ -363,3 +363,4 @@ pymnn_build/
 MNN_compression_pb2.py
 project/ios/MNNLLMForiOS/MNN.framework
 project/MNNLLMForiOS/Chat
+project/MNNLLMForiOS/MNN.framework

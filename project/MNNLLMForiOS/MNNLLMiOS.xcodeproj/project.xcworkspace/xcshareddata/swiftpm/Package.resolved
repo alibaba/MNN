@@ -15,8 +15,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/Yogayu/Chat.git",
       "state" : {
-        "branch" : "main",
-        "revision" : "76b84fe18df1c2bc4b5c5f48ad7340feebb92f28"
+        "revision" : "e015bd9b36a737486c6ddc7c5af585ac5aee8015",
+        "version" : "1.0.0"
       }
     },
     {
@@ -40,10 +40,10 @@
     {
       "identity" : "mediapicker",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/exyte/MediaPicker.git",
+      "location" : "https://github.com/Yogayu/MediaPicker.git",
       "state" : {
-        "revision" : "88769b1b69c2b5e5fa5b65522c08bc7b667a6cb8",
-        "version" : "2.2.3"
+        "revision" : "a09658984bfd1b30541daf02a9d7ffc690e17862",
+        "version" : "2.0.0"
       }
     },
     {
