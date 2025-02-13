@@ -6,6 +6,7 @@ package com.alibaba.mnnllm.android;
 import android.util.Log;
 
 import com.alibaba.mnnllm.android.chat.ChatDataItem;
+import com.alibaba.mnnllm.android.utils.DeviceUtils;
 import com.alibaba.mnnllm.android.utils.ModelUtils;
 
 import java.io.Serializable;
@@ -52,6 +53,10 @@ public class ChatSession implements Serializable {
             historyStringList = this.savedHistory.stream().map(ChatDataItem::getText).collect(Collectors.toList());
         }
         nativePtr = initNative(configPath, useTmpPath, historyStringList, isDiffusion, ModelUtils.isR1Model(modelName));
+    }
+
+    public String getDebugInfo() {
+        return getDebugInfoNative(nativePtr) + "\n";
     }
 
     public List<ChatDataItem> getSavedHistory() {
@@ -130,6 +135,8 @@ public class ChatSession implements Serializable {
     private native HashMap<String, Object> submitDiffusionNative(long instanceId, String input, String outputPath, GenerateProgressListener progressListener);
     private native void resetNative(long instanceId);
 
+    private native String getDebugInfoNative(long instanceId);
+
     private native void releaseNative(long instanceId, boolean isDiffusion);
 
     static {
@@ -140,6 +147,7 @@ public class ChatSession implements Serializable {
     public void setKeepHistory(boolean keepHistory) {
         this.keepHistory = keepHistory;
     }
+
 
     public interface GenerateProgressListener {
         boolean onProgress(String progress);

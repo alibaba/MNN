@@ -80,7 +80,10 @@ public class ModelUtils {
         blackList.add("taobao-mnn/stable-diffusion-v1-5-mnn-general");//in android, we use opencl version
     }
 
-    //list that are more stable
+    private static final Set<String> hotList = new HashSet<>();
+    static {
+        hotList.add("taobao-mnn/DeepSeek-R1-7B-Qwen-MNN");
+    }
     private static final Set<String> goodList = new HashSet<>();
     static {
         goodList.add("taobao-mnn/DeepSeek-R1-1.5B-Qwen-MNN");
@@ -96,6 +99,7 @@ public class ModelUtils {
     }
     public static List<HfRepoItem> processList(List<HfRepoItem> hfRepoItems) {
         List<HfRepoItem> goodItems = new ArrayList<>();
+        List<HfRepoItem> recommendedItems = new ArrayList<>();
         List<HfRepoItem> chatItems = new ArrayList<>();
         List<HfRepoItem> otherItems = new ArrayList<>();
         for (HfRepoItem item : hfRepoItems) {
@@ -103,7 +107,9 @@ public class ModelUtils {
             if (blackList.contains(item.getModelId()) || isBlackListPattern(modelIdLowerCase)) {
                 continue;
             }
-            if (goodList.contains(item.getModelId())) {
+            if (hotList.contains(item.getModelId())) {
+                recommendedItems.add(item);
+            } else if (goodList.contains(item.getModelId())) {
                 goodItems.add(item);
             } else if (modelIdLowerCase.contains("chat")) {//optimized for chat, should at top
                 chatItems.add(item);
@@ -112,6 +118,7 @@ public class ModelUtils {
             }
         }
         List<HfRepoItem> result = new ArrayList<>(chatItems.size() + otherItems.size());
+        result.addAll(recommendedItems);
         result.addAll(goodItems);
         result.addAll(chatItems);
         result.addAll(otherItems);
@@ -126,6 +133,12 @@ public class ModelUtils {
         return modelName.toLowerCase().contains("stable-diffusion");
     }
 
+    public static String getModelName(String modelId) {
+        if (modelId != null && modelId.contains("/")) {
+            return modelId.substring(modelId.lastIndexOf("/") + 1);
+        }
+        return modelId;
+    }
     public static ArrayList<String> generateSimpleTags(String modelName) {
         String[] splits = modelName.split("-");
         ArrayList<String> tags = new ArrayList<>();

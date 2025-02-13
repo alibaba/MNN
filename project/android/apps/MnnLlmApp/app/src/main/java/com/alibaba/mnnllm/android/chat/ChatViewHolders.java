@@ -19,15 +19,15 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
-import androidx.appcompat.widget.PopupMenu;
 import androidx.recyclerview.widget.RecyclerView;
 
-import com.alibaba.mls.api.HfRepoItem;
-import com.alibaba.mls.api.download.ModelDownloadManager;
+import com.alibaba.mnnllm.android.utils.ClipboardUtils;
+import com.alibaba.mnnllm.android.utils.DeviceUtils;
 import com.alibaba.mnnllm.android.utils.GithubUtils;
 import com.alibaba.mnnllm.android.utils.ModelUtils;
 import com.alibaba.mnnllm.android.R;
 import com.alibaba.mnnllm.android.utils.PreferenceUtils;
+import com.alibaba.mnnllm.android.utils.UiUtils;
 import com.alibaba.mnnllm.android.widgets.FullScreenImageViewer;
 import com.alibaba.mnnllm.android.widgets.PopupWindowHelper;
 
@@ -159,7 +159,7 @@ public class ChatViewHolders {
                 markdown.setMarkdown(viewText, data.getDisplayText());
                 return;
             }
-            if (TextUtils.isEmpty(data.getText())) {
+            if (TextUtils.isEmpty(data.getDisplayText())) {
                 viewAssistantLoading.setVisibility(View.VISIBLE);
                 viewText.setVisibility(View.GONE);
             } else {
@@ -192,7 +192,7 @@ public class ChatViewHolders {
 
         @Override
         public boolean onLongClick(View v) {
-            TextView textView = (TextView) v;
+              TextView textView = (TextView) v;
             ChatDataItem chatDataItem = (ChatDataItem) v.getTag();
             new PopupWindowHelper().showPopupWindow(v.getContext(), v, this.lastTouchX, this.lastTouchY, new View.OnClickListener() {
                 @Override
@@ -204,6 +204,9 @@ public class ChatViewHolders {
                     intent.putExtra("content", chatDataItem.getText());
                     v.getContext().startActivity(intent);
                 } else if (v.getId() == R.id.assistant_text_report) {
+                    ChatActivity chatActivity = (ChatActivity) UiUtils.getActivity(v.getContext());
+                    ClipboardUtils.copyToClipboard(chatActivity, DeviceUtils.getDeviceInfo() + "\n" +  chatActivity.getSessionDebugInfo());
+                    Toast.makeText(chatActivity, R.string.debug_message_copied, Toast.LENGTH_LONG).show();
                     GithubUtils.reportIssue(v.getContext());
                 }
                 }

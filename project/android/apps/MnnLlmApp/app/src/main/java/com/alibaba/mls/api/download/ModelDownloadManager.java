@@ -19,6 +19,11 @@ import com.alibaba.mls.api.HfApiClient;
 import com.alibaba.mls.api.HfApiException;
 import com.alibaba.mls.api.HfFileMetadata;
 import com.alibaba.mls.api.HfRepoInfo;
+import com.alibaba.mls.api.ms.MsApiClient;
+import com.alibaba.mls.api.ms.MsRepoInfo;
+import com.alibaba.mls.api.source.ModelSources;
+import com.alibaba.mls.api.source.RepoConfig;
+
 import java.util.concurrent.atomic.AtomicInteger;
 
 import java.io.File;
@@ -32,6 +37,9 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 import okhttp3.OkHttpClient;
+import retrofit2.Call;
+import retrofit2.Callback;
+import retrofit2.Response;
 
 public class ModelDownloadManager {
 
@@ -39,9 +47,13 @@ public class ModelDownloadManager {
     private final Context context;
     private DownloadListener downloadListener;
     private final String cachePath;
+    private final String modelScopeCachePath;
+
     public static final String TAG = "ModelDownloadManager";
 
     private HfApiClient hfApiClient;
+    private MsApiClient msApiClient;
+
     private OkHttpClient metaInfoClient;
     private final HashMap<String, DownloadInfo> downloadInfoMap = new HashMap<>();
     private final Set<String> pausedSet = Collections.synchronizedSet(new HashSet<>());
@@ -56,6 +68,7 @@ public class ModelDownloadManager {
     private ModelDownloadManager(Context context) {
         this.context = context;
         this.cachePath = context.getFilesDir().getAbsolutePath() + "/.mnnmodels";
+        this.modelScopeCachePath = this.cachePath + "/modelscope";
         foregroundSerivceIntent = new Intent(context.getApplicationContext(), DownlodForegroundService.class);
         this.activeDownloadCount = new AtomicInteger(0);
     }
@@ -76,7 +89,32 @@ public class ModelDownloadManager {
     }
 
     public File getDownloadPath(String modelId) {
-        return new File(cachePath, HfFileUtils.getLastFileName(modelId));
+        if (ModelSources.get().getRemoteSourceType() == ModelSources.ModelSourceType.HUGGING_FACE) {
+            return getHfDownloadModelPath(modelId);
+        } else {
+            return getMsModelPath(modelId);
+        }
+    }
+
+    public File getDownloadedFile(String modelId) {
+        File file = getDownloadPath(modelId);
+        if (file.exists()) {
+            return file;
+        } else if (getHfDownloadModelPath(modelId).exists()) {
+            return getHfDownloadModelPath(modelId);
+        } else if (getMsModelPath(modelId).exists()) {
+            return getMsModelPath(modelId);
+        }
+        return null;
+    }
+
+    private File getHfDownloadModelPath(String modelId) {
+        return new File(cachePath, DownloadFileUtils.getLastFileName(modelId));
+    }
+
+    private File getMsModelPath(String modelId) {
+        String modelScopeId = ModelSources.get().getConfig().getRepoConfig(modelId).modelScopePath;
+        return new File(this.modelScopeCachePath, DownloadFileUtils.getLastFileName(modelScopeId));
     }
 
     public void pauseDownload(String modelId) {
@@ -86,7 +124,7 @@ public class ModelDownloadManager {
         pausedSet.add(modelId);
     }
 
-    private HfApiClient getApiClient() {
+    private HfApiClient getHfApiClient() {
         if (hfApiClient == null) {
             hfApiClient = HfApiClient.getBestClient();
         }
@@ -96,21 +134,103 @@ public class ModelDownloadManager {
         return hfApiClient;
     }
 
+    private MsApiClient getMsApiClient() {
+        if (msApiClient == null) {
+            msApiClient = new MsApiClient();
+        }
+        return msApiClient;
+    }
+
     public void startDownload(String modelId) {
         if (downloadListener != null) {
             downloadListener.onDownloadStart(modelId);
         }
         this.updateDownloadingProgress(modelId, "Preparing", null, 0, 10);
-        getApiClient().getRepoInfo(modelId, "main", new HfApiClient.RepoInfoCallback() {
+        if (ModelSources.get().getRemoteSourceType() == ModelSources.ModelSourceType.HUGGING_FACE) {
+            getHfApiClient().getRepoInfo(modelId, "main", new HfApiClient.RepoInfoCallback() {
+                @Override
+                public void onSuccess(HfRepoInfo hfRepoInfo) {
+                    downloadHfRepo(hfRepoInfo);
+                }
+
+                @Override
+                public void onFailure(String error) {
+                    setDownloadFailed(modelId, new HfApiException("getRepoInfoFailed" + error));
+                }
+            });
+        } else {
+            downloadMsRepo(modelId);
+        }
+    }
+
+    private void downloadMsRepo(String modelId) {
+        RepoConfig repoConfig = ModelSources.get().getConfig().getRepoConfig(modelId);
+        String modelScopeId = repoConfig.repositoryPath();
+        String[] split = modelScopeId.split("/");
+        if (split.length != 2) {
+            setDownloadFailed(modelId, new HfApiException("getRepoInfoFailed modelId format error: " + modelId));
+        }
+        getMsApiClient().getApiService().getModelFiles(split[0], split[1]).enqueue(new Callback<MsRepoInfo>() {
             @Override
-            public void onSuccess(HfRepoInfo hfRepoInfo) {
-                downloadRepo(hfRepoInfo);
+            public void onResponse(Call<MsRepoInfo> call, Response<MsRepoInfo> response) {
+                downloadMsRepoInner(repoConfig, response.body());
             }
 
             @Override
-            public void onFailure(String error) {
-                setDownloadFailed(modelId, new HfApiException("getRepoInfoFailed" + error));
+            public void onFailure(Call<MsRepoInfo> call, Throwable t) {
+                setDownloadFailed(modelId, new HfApiException("getRepoInfoFailed" + t.getMessage()));
             }
+        });
+    }
+
+    private void downloadMsRepoInner(RepoConfig repoConfig, MsRepoInfo msRepoInfo) {
+        Log.d(TAG, "downloadMsRepoInner");
+        String modelId = repoConfig.modelId;
+        DownloadExecutor.getExecutor().submit(() -> {
+            Log.d(TAG, "downloadMsRepoInner executor");
+            onDownloadTaskAdded(this.activeDownloadCount.incrementAndGet());
+            File folderLinkFile = new File(this.modelScopeCachePath, DownloadFileUtils.getLastFileName(repoConfig.repositoryPath()));
+            if (folderLinkFile.exists()) {
+                Log.d(TAG, "downloadMsRepoInner already exists");
+                setDownloadFinished(modelId, folderLinkFile.getAbsolutePath());
+                return;
+            }
+            ModelFileDownloader modelDownloader = new ModelFileDownloader();
+            boolean hasError = false;
+            StringBuilder errorInfo = new StringBuilder();
+            String repoFolderName = DownloadFileUtils.repoFolderName(repoConfig.repositoryPath(), "model");
+            File storageFolder = new File(this.modelScopeCachePath, repoFolderName);
+            File parentPointerPath = DownloadFileUtils.getPointerPathParent(storageFolder, "_no_sha_");
+            List<FileDownloadTask> downloadTaskList;
+            long[] totalAndDownloadSize = new long[2];
+            Log.d(TAG, "downloadMsRepoInner collectMsTaskList");
+            downloadTaskList = collectMsTaskList(repoConfig, storageFolder, parentPointerPath, msRepoInfo, totalAndDownloadSize);
+            Log.d(TAG, "downloadMsRepoInner downloadTaskList： " + downloadTaskList.size());
+            ModelFileDownloader.FileDownloadListener fileDownloadListener = (filename, downloadedBytes, totalBytes, delta) -> {
+                totalAndDownloadSize[1] += delta;
+                updateDownloadingProgress(modelId, "file", filename,  totalAndDownloadSize[1] , totalAndDownloadSize[0]);
+                return pausedSet.contains(modelId);
+            };
+            try {
+                for (FileDownloadTask fileDownloadTask: downloadTaskList) {
+                    modelDownloader.downloadFile(fileDownloadTask, fileDownloadListener);
+                }
+            } catch (DownloadPausedException e) {
+                pausedSet.remove(modelId);
+                setDownloadPaused(modelId);
+                return;
+            } catch (Exception e) {
+                setDownloadFailed(modelId, e);
+                return;
+            }
+            if (!hasError) {
+                String folderLinkPath = folderLinkFile.getAbsolutePath();
+                DownloadFileUtils.createSymlink(parentPointerPath.toString(), folderLinkPath);
+                setDownloadFinished(modelId, folderLinkPath);
+            } else {
+                Log.e(TAG, "Errors occurred during download: " + errorInfo.toString());
+            }
+            onDownloadTaskRemoved(this.activeDownloadCount.decrementAndGet());
         });
     }
 
@@ -118,8 +238,7 @@ public class ModelDownloadManager {
     public DownloadInfo getDownloadInfo(String modelId) {
         if (!downloadInfoMap.containsKey(modelId)) {
             DownloadInfo downloadInfo = new DownloadInfo();
-            File downloadPath = getDownloadPath(modelId);
-            if ( downloadPath.exists()) {
+            if (getDownloadedFile(modelId) != null) {
                 downloadInfo.downlodaState = DownloadInfo.DownloadSate.COMPLETED;
                 downloadInfo.progress = 1.0;
             } else if (DownloadPersistentData.getDownloadSizeTotal(ApplicationUtils.get(), modelId) > 0) {
@@ -228,6 +347,28 @@ public class ModelDownloadManager {
         return list;
     }
 
+    private List<FileDownloadTask> collectMsTaskList(RepoConfig repoConfig, File storageFolder, File parentPointerPath, MsRepoInfo msRepoInfo, long[] totalAndDownloadSize) {
+        List<FileDownloadTask> fileDownloadTasks = new ArrayList<>();
+        for (int i = 0; i < msRepoInfo.Data.Files.size(); i++) {
+            MsRepoInfo.FileInfo subFile = msRepoInfo.Data.Files.get(i);
+            FileDownloadTask fileDownloadTask = new FileDownloadTask();
+            fileDownloadTask.relativePath = subFile.Path;
+            fileDownloadTask.hfFileMetadata = new HfFileMetadata();
+            fileDownloadTask.hfFileMetadata.location = String.format("https://modelscope.cn/api/v1/models/%s/repo?FilePath=%s", repoConfig.repositoryPath(), subFile.Path);
+            fileDownloadTask.hfFileMetadata.size = subFile.Size;
+            fileDownloadTask.hfFileMetadata.etag = subFile.Sha256;
+            fileDownloadTask.blobPath = new File(storageFolder, "blobs/" + subFile.Sha256);
+            fileDownloadTask.blobPathIncomplete = new File(storageFolder, "blobs/" + subFile.Sha256 + ".incomplete");
+            fileDownloadTask.pointerPath = new File(parentPointerPath, subFile.Path);
+            fileDownloadTask.downloadedSize = fileDownloadTask.blobPath.exists() ? fileDownloadTask.blobPath.length() :
+                    (fileDownloadTask.blobPathIncomplete.exists() ? fileDownloadTask.blobPathIncomplete.length() : 0);
+            totalAndDownloadSize[0] += subFile.Size;
+            totalAndDownloadSize[1] += fileDownloadTask.downloadedSize;
+            fileDownloadTasks.add(fileDownloadTask);
+        }
+        return fileDownloadTasks;
+    }
+
     private List<FileDownloadTask> collectTaskList(File storageFolder, File parentPointerPath, HfRepoInfo hfRepoInfo, long[] totalAndDownloadSize) throws HfApiException {
         HfFileMetadata metaData;
         List<HfFileMetadata> metaDataList = DownloadPersistentData.getMetaData(ApplicationUtils.get(), hfRepoInfo.getModelId());
@@ -244,27 +385,25 @@ public class ModelDownloadManager {
             fileDownloadTask.blobPath = new File(storageFolder, "blobs/" + metaData.etag);
             fileDownloadTask.blobPathIncomplete = new File(storageFolder, "blobs/" + metaData.etag + ".incomplete");
             fileDownloadTask.pointerPath = new File(parentPointerPath, subFile.rfilename);
-            fileDownloadTask.resumeSize = fileDownloadTask.blobPath.exists() ? fileDownloadTask.blobPath.length() :
+            fileDownloadTask.downloadedSize = fileDownloadTask.blobPath.exists() ? fileDownloadTask.blobPath.length() :
                     (fileDownloadTask.blobPathIncomplete.exists() ? fileDownloadTask.blobPathIncomplete.length() : 0);
             totalAndDownloadSize[0] += metaData.size;
-            totalAndDownloadSize[1] += fileDownloadTask.resumeSize;
+            totalAndDownloadSize[1] += fileDownloadTask.downloadedSize;
             fileDownloadTasks.add(fileDownloadTask);
         }
         return fileDownloadTasks;
     }
-    public void downloadRepo(HfRepoInfo hfRepoInfo) {
-        Log.d(TAG, "DownloadStart " + hfRepoInfo.getModelId() + " host: " + getApiClient().getHost());
+    public void downloadHfRepo(HfRepoInfo hfRepoInfo) {
+        Log.d(TAG, "DownloadStart " + hfRepoInfo.getModelId() + " host: " + getHfApiClient().getHost());
         DownloadExecutor.getExecutor().submit(() -> {
             onDownloadTaskAdded(this.activeDownloadCount.incrementAndGet());
-            downloadRepoInner(hfRepoInfo);
+            downloadHfRepoInner(hfRepoInfo);
             onDownloadTaskRemoved(this.activeDownloadCount.decrementAndGet());
         });
     }
 
-
-
-    private void downloadRepoInner(HfRepoInfo hfRepoInfo) {
-        File folderLinkFile = new File(cachePath, HfFileUtils.getLastFileName(hfRepoInfo.getModelId()));
+    private void downloadHfRepoInner(HfRepoInfo hfRepoInfo) {
+        File folderLinkFile = new File(cachePath, DownloadFileUtils.getLastFileName(hfRepoInfo.getModelId()));
         if (folderLinkFile.exists()) {
             setDownloadFinished(hfRepoInfo.getModelId(), folderLinkFile.getAbsolutePath());
             return;
@@ -275,9 +414,9 @@ public class ModelDownloadManager {
         boolean hasError = false;
         StringBuilder errorInfo = new StringBuilder();
 
-        String repoFolderName = HfFileUtils.repoFolderName(hfRepoInfo.getModelId(), "model");
+        String repoFolderName = DownloadFileUtils.repoFolderName(hfRepoInfo.getModelId(), "model");
         File storageFolder = new File(cachePath, repoFolderName);
-        File parentPointerPath = HfFileUtils.getPointerPathParent(storageFolder, hfRepoInfo.getSha());
+        File parentPointerPath = DownloadFileUtils.getPointerPathParent(storageFolder, hfRepoInfo.getSha());
         List<FileDownloadTask> downloadTaskList;
         long[] totalAndDownloadSize = new long[2];
         try {
@@ -305,7 +444,7 @@ public class ModelDownloadManager {
         }
         if (!hasError) {
             String folderLinkPath = folderLinkFile.getAbsolutePath();
-            HfFileUtils.createSymlink(parentPointerPath.toString(), folderLinkPath);
+            DownloadFileUtils.createSymlink(parentPointerPath.toString(), folderLinkPath);
             setDownloadFinished(hfRepoInfo.getModelId(), folderLinkPath);
         } else {
             Log.e(TAG, "Errors occurred during download: " + errorInfo.toString());
@@ -313,19 +452,34 @@ public class ModelDownloadManager {
     }
 
     public void removeDownload(String modelId) {
-        String repoFolderName = HfFileUtils.repoFolderName(modelId, "model");
-        File storageFolder = new File(cachePath, repoFolderName);
-        Log.d(TAG, "removeStorageFolder: " + storageFolder.getAbsolutePath());
-        if (storageFolder.exists()) {
-            boolean result = HfFileUtils.deleteDirectoryRecursively2(storageFolder);
+        String repoFolderName = DownloadFileUtils.repoFolderName(modelId, "model");
+        File hfStorageFolder = new File(cachePath, repoFolderName);
+        Log.d(TAG, "removeStorageFolder: " + hfStorageFolder.getAbsolutePath());
+        if (hfStorageFolder.exists()) {
+            boolean result = DownloadFileUtils.deleteDirectoryRecursively2(hfStorageFolder);
             if (!result) {
-                Log.e(TAG, "remove storageFolder" + storageFolder.getAbsolutePath() + " faield");
+                Log.e(TAG, "remove storageFolder" + hfStorageFolder.getAbsolutePath() + " faield");
+            }
+        }
+        String msModelId = ModelSources.get().getConfig().getRepoConfig(modelId).modelScopePath;
+        String msRepoFolderName = DownloadFileUtils.repoFolderName(msModelId, "model");
+        File msStorageFolder = new File(this.modelScopeCachePath, msRepoFolderName);
+        Log.d(TAG, "removeStorageFolder: " + msStorageFolder.getAbsolutePath());
+        if (msStorageFolder.exists()) {
+            boolean result = DownloadFileUtils.deleteDirectoryRecursively2(msStorageFolder);
+            if (!result) {
+                Log.e(TAG, "remove storageFolder" + msStorageFolder.getAbsolutePath() + " faield");
             }
         }
         DownloadPersistentData.removeProgress(ApplicationUtils.get(), modelId);
-        File linkFolder = this.getDownloadPath(modelId);
-        Log.d(TAG, "removeLinkFolder: " + linkFolder.getAbsolutePath());
-        linkFolder.delete();
+        File hfLinkFolder = this.getHfDownloadModelPath(modelId);
+        Log.d(TAG, "removeHfLinkFolder: " + hfLinkFolder.getAbsolutePath());
+        hfLinkFolder.delete();
+
+        File msLinkFolder = this.getMsModelPath(modelId);
+        Log.d(TAG, "removeMsLinkFolder: " + msLinkFolder.getAbsolutePath());
+        msLinkFolder.delete();
+
         if (downloadListener != null) {
             DownloadInfo downloadInfo = getDownloadInfo(modelId);
             downloadInfo.downlodaState = DownloadInfo.DownloadSate.NOT_START;

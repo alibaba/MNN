@@ -28,11 +28,13 @@ public class ModelFileDownloader {
                 .connectTimeout(30, TimeUnit.SECONDS)
                 .followRedirects(false)
                 .followSslRedirects(false)
+//                .addInterceptor(OkHttpUtils.createLoggingInterceptor())
                 .build();
     }
 
     public void downloadFile(FileDownloadTask fileDownloadTask, FileDownloadListener fileDownloadListener) throws HfApiException, DownloadPausedException, IOException {
         // Create necessary directories
+        Log.d(TAG, "downloadFile inner");
         fileDownloadTask.pointerPath.getParentFile().mkdirs();
         fileDownloadTask.blobPath.getParentFile().mkdirs();
 
@@ -42,24 +44,25 @@ public class ModelFileDownloader {
         }
 
         if (fileDownloadTask.blobPath.exists()) {
-            HfFileUtils.createSymlink(fileDownloadTask.blobPath.toString(), fileDownloadTask.pointerPath.toString());
+            DownloadFileUtils.createSymlink(fileDownloadTask.blobPath.toString(), fileDownloadTask.pointerPath.toString());
             Log.d(TAG, "DownloadFile " + fileDownloadTask.relativePath + " already exists just create symlink");
             return;
         }
         synchronized (this) {
             HfFileMetadata hfFileMetadata = fileDownloadTask.hfFileMetadata;
-            downloadToTmpAndMove(fileDownloadTask.blobPathIncomplete,
+            downloadToTmpAndMove(fileDownloadTask,
+                    fileDownloadTask.blobPathIncomplete,
                     fileDownloadTask.blobPath,
                     hfFileMetadata.location,
                     hfFileMetadata.size,
-                    fileDownloadTask.relativePath, false, fileDownloadTask.resumeSize, fileDownloadListener);
-            HfFileUtils.createSymlink(fileDownloadTask.blobPath.toPath(), fileDownloadTask.pointerPath.toPath());
+                    fileDownloadTask.relativePath, false, fileDownloadListener);
+            DownloadFileUtils.createSymlink(fileDownloadTask.blobPath.toPath(), fileDownloadTask.pointerPath.toPath());
         }
     }
 
-    private void downloadToTmpAndMove(File incompletePath, File destinationPath, String urlToDownload,
+    private void downloadToTmpAndMove(FileDownloadTask fileDownloadTask,
+                                      File incompletePath, File destinationPath, String urlToDownload,
                                       long expectedSize, String fileName, boolean forceDownload,
-                                      long resumeSize,
                                       FileDownloadListener fileDownloadListener) throws HfApiException, DownloadPausedException {
         if (destinationPath.exists() && !forceDownload) {
             return;
@@ -67,34 +70,62 @@ public class ModelFileDownloader {
         if (incompletePath.exists() && forceDownload) {
             incompletePath.delete();
         }
-        downloadChunk(urlToDownload, incompletePath, resumeSize, expectedSize, fileName, fileDownloadListener);
-        HfFileUtils.moveWithPermissions(incompletePath, destinationPath);
+        Log.d(TAG, "downloadChunk " + urlToDownload + " to file: " + incompletePath + " to destination: " + destinationPath);
+        int maxRetry = 10;
+        if (fileDownloadTask.downloadedSize < expectedSize) {
+            for (int i = 0; i < maxRetry; i++) {
+                try {
+                    Log.d(TAG, "downloadChunk try the "  + i + " turn");
+                    downloadChunk(fileDownloadTask, urlToDownload, incompletePath, expectedSize, fileName, fileDownloadListener);
+                    Log.d(TAG, "downloadChunk try the "  + i + " turn finish");
+                    break;
+                } catch (DownloadPausedException e) {
+                    throw e;
+                } catch (Exception e) {
+                    if (i == maxRetry -1) {
+                        throw e;
+                    } else {
+                        Log.e(TAG, "downloadChunk failed sleep and retrying: " + e.getMessage());
+                        try {
+                            Thread.sleep(1000);
+                        } catch (InterruptedException ex) {
+                            throw new RuntimeException(ex);
+                        }
+                    }
+                }
+            }
+        }
+        DownloadFileUtils.moveWithPermissions(incompletePath, destinationPath);
     }
 
-    private void downloadChunk(String url, File tempFile, long resumeSize, long expectedSize,
+    private void downloadChunk(FileDownloadTask fileDownloadTask, String url, File tempFile, long expectedSize,
                                String displayedFilename, FileDownloadListener fileDownloadListener) throws HfApiException, DownloadPausedException {
         Request.Builder requestBuilder = new Request.Builder()
                 .url(url)
                 .get()
                 .header("Accept-Encoding", "identity");
-        long downloadedBytes = resumeSize;
-
-        if (resumeSize > 0) {
-            requestBuilder.header("Range", "bytes=" + resumeSize + "-");
+        if (fileDownloadTask.downloadedSize >= expectedSize) {
+            return;
         }
+        long downloadedBytes = fileDownloadTask.downloadedSize;
 
+        if (fileDownloadTask.downloadedSize > 0) {
+            requestBuilder.header("Range", "bytes=" + fileDownloadTask.downloadedSize + "-");
+        }
+        Log.d(TAG, "resume size: " + fileDownloadTask.downloadedSize + " expectedSize: " + expectedSize);
         Request request = requestBuilder.build();
-
         try (Response response = client.newCall(request).execute()) {
+            Log.d(TAG, "downloadChunk response: success: " + response.isSuccessful() + " code: " + response.code());
             if (response.isSuccessful() || response.code() == 416) {
                 try (InputStream is = response.body().byteStream();
                      RandomAccessFile raf = new RandomAccessFile(tempFile, "rw")) {
-                    raf.seek(resumeSize);
+                    raf.seek(fileDownloadTask.downloadedSize);
                     byte[] buffer = new byte[8192];
                     int bytesRead;
                     while ((bytesRead = is.read(buffer)) != -1) {
                         raf.write(buffer, 0, bytesRead);
                         downloadedBytes += bytesRead;
+                        fileDownloadTask.downloadedSize += bytesRead;
                         if (fileDownloadListener != null) {
                             boolean paused = fileDownloadListener.onDownloadDelta(displayedFilename, downloadedBytes, expectedSize,  bytesRead);
                             if (paused) {
@@ -104,9 +135,11 @@ public class ModelFileDownloader {
                     }
                 }
             } else {
+                Log.e(TAG, "downloadChunk error HfApiException " + response.code());
                 throw new HfApiException("HTTP error: " + response.code());
             }
         } catch (IOException e) {
+            Log.e(TAG, "downloadChunk error IOException", e);
             throw new HfApiException( "Connection error: " + e.getMessage());
         }
     }

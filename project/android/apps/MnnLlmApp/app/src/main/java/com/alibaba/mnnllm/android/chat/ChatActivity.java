@@ -61,6 +61,7 @@ public class ChatActivity extends AppCompatActivity {
     private String chatSessionId;
 
     private String modelName;
+    private String modelId;
     private ScheduledExecutorService chatExecutor;
 
     private LinearLayoutManager linearLayoutManager;
@@ -91,6 +92,7 @@ public class ChatActivity extends AppCompatActivity {
         Toolbar toolbar = findViewById(R.id.toolbar);
         setSupportActionBar(toolbar);
         modelName = getIntent().getStringExtra("modelName");
+        modelId = getIntent().getStringExtra("modelId");
         layoutModelLoading = findViewById(R.id.layout_model_loading);
         if (getSupportActionBar() != null) {
             getSupportActionBar().setDisplayHomeAsUpEnabled(true);
@@ -342,7 +344,7 @@ public class ChatActivity extends AppCompatActivity {
     public boolean onCreateOptionsMenu(Menu menu) {
         getMenuInflater().inflate(R.menu.menu_chat, menu);
         menu.findItem(R.id.show_performance_metrics)
-                .setChecked(PreferenceUtils.getBoolean(this, PreferenceUtils.KEY_SHOW_PERFORMACE_METRICS, false));
+                .setChecked(PreferenceUtils.getBoolean(this, PreferenceUtils.KEY_SHOW_PERFORMACE_METRICS, true));
         return true;
     }
 
@@ -472,7 +474,7 @@ public class ChatActivity extends AppCompatActivity {
             }
         }
         if (!hasSessionName) {
-            chatDataManager.addOrUpdateSession(chatSessionId, modelName);
+            chatDataManager.addOrUpdateSession(chatSessionId, modelId);
             this.sessionName = sessionName.length() > 100 ? sessionName.substring(0, 100) : sessionName;
             chatDataManager.updateSessionName(this.chatSessionId, this.sessionName);
         }
@@ -568,5 +570,9 @@ public class ChatActivity extends AppCompatActivity {
 
     public String getModelName() {
         return modelName;
+    }
+
+    public String getSessionDebugInfo() {
+        return chatSession.getDebugInfo();
     }
 }
