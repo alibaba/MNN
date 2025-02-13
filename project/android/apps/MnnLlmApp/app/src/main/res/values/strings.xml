@@ -60,4 +60,8 @@
     <string name="mmap_cacche_cleared">mmap cache cleared, you need to restart the session</string>
     <string name="mmap_not_used">mmap not used</string>
     <string name="reloading_session">Reloading chat session</string>
+    <string name="wait_install_apk">please wait for download complete and install</string>
+    <string name="check_for_update">Check for update</string>
+    <string name="get_update_info_failed">get update info failed</string>
+    <string name="no_update">No update available</string>
 </resources>

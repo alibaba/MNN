@@ -30,6 +30,13 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
+        <receiver
+            android:name="com.alibaba.mnnllm.android.chat.DownloadReciver"
+            android:exported="true" >
+            <intent-filter>
+                <action android:name="android.intent.action.DOWNLOAD_COMPLETE" />
+            </intent-filter>
+        </receiver>
         <activity android:name="com.alibaba.mnnllm.android.chat.ChatActivity"
             android:exported="true"
             android:configChanges="orientation|screenSize"

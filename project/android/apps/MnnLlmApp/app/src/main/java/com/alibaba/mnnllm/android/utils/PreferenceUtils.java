@@ -22,6 +22,14 @@ public class PreferenceUtils {
         PreferenceManager.getDefaultSharedPreferences(context).edit().putBoolean(key, value).apply();
     }
 
+    public static void setLong(Context context, String key , long value) {
+        PreferenceManager.getDefaultSharedPreferences(context).edit().putLong(key, value).apply();
+    }
+
+    public static long getLong(Context context, String key , long defaultValue) {
+        return PreferenceManager.getDefaultSharedPreferences(context).getLong(key, defaultValue);
+    }
+
     public static boolean getBoolean(Context context, String key , boolean defaultValue) {
         return PreferenceManager.getDefaultSharedPreferences(context).getBoolean(key, defaultValue);
     }
