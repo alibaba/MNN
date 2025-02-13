@@ -2,25 +2,26 @@
 
 ## 介绍
 
-本项目是一个基于MNN引擎，支持本地大模型、多模态对话的iOS应用。
+本项目是一个基于MNN引擎，支持本地大模型多模态对话的iOS应用。
 
 纯本地运行，隐私性强。当模型下载到本地之后，所有的对话都将在本地进行，不会有任何网络上传处理。
 
 
-## 功能
+## 功能：
 
-1. **模型管理**
-    - 获取 MNN 支持的模型；
-    - 支持下载和删除模型；
-    - 支持本地模型搜索；
-2. **多模态对话**
-    - 文本到文本：进行文本对话。
-    - 语音到文本：将语音输入转化为文本进行对话。
-    - 图片到文本：拍摄或选择图库中的图片，并获取文本解释。
-3. **对话历史**
-    - 查看历史对话记录，支持恢复对话场景。
+1. 模型列表
+    - 获取 MNN 支持的模型礼拜；
+    - 模型管理，支持下载和删除模型；
+    - 模型搜索，支持本地模型搜索；
+2. 多模态聊天对话
+    - 文本到文本
+    - 语音到文本
+    - 图片到文本，图片可以拍摄输入或从图库中选择
+3. 对话历史
+    - 包含对话历史列表，可以还原对话场景
 
-### 应用预览
+
+应用预览图：
 
 <div style="display: flex; justify-content: center; align-items: center; text-align: center; width: 100%;">
 
@@ -36,7 +37,7 @@
 
 <div style="flex: 0 0 20%; display: flex; flex-direction: column; align-items: center;">
 <p style="margin: 0; font-weight: bold;">Audio To Text</p>
-<img alt="Icon" style="width: 80%;" src="./assets/audio.PNG">
+<img alt="Icon" style="width: 80%;" src="./assets/audio.jpg">
 </div>
 
 </div>
@@ -63,13 +64,13 @@
 
 ## 如何构建并使用
 
-### 1. 下载仓库代码：
+1. 下载仓库代码：
 
     ```shell
     git clone https://github.com/alibaba/MNN.git
     ```
 
-### 2. 编译 MNN.framework:
+2. 编译 MNN.framework:
 
     ```shell
     cd MNN/
@@ -83,16 +84,13 @@
     -DMNN_SUPPORT_TRANSFORMER_FUSE=ON"
     ```
 
-### 3. 拷贝 framework 到 iOS 项目中
+3. 拷贝 framework 到 iOS 项目中
 
     ```shell
-    mv MNN-iOS-CPU-GPU/Static/MNN.framework transformers/llm/engine/ios/MNN.framework
-    
-    project/ios/MNNLLMForiOS/MNN.framework
-
+    mv MNN-iOS-CPU-GPU/Static/MNN.framework project/MNNLLMForiOS/MNN.framework
     ```
 
-    确保 Link Binary With Libraried 中包含 MNN.framework 和其他三个库引用。
+    确保 Link Binary With Libraried 中包含 MNN.framework
     
     ![](./assets/framework.png)
 
@@ -103,14 +101,15 @@
     ![](./assets/addFramework2.png)
 
     
-### 4. 修改 iOS 签名并编译项目
+
+4. 修改 iOS 签名并编译项目
     
     ```shell
     cd project/ios/MNNLLMForiOS
     open MNNLLMiOS.xcodeproj
     ```
 
-    在 Xcode 项目属性中 Signing & Capabilities > Team 输入自己的账号和Bundle Identifier：
+    在 Xcode 项目属性中 Signing & Capabilities > Team 输入自己的账号和Bundle Identifier
     
     ![signing](./assets/signing.png)
 
@@ -118,9 +117,11 @@
     等待 Swift Package 下载完成之后，进行编译使用。
 
 ## 注意
-由于 iPhone 内存有限，建议使用 7B 或更小的模型，避免因内存不足导致应用崩溃。
+
+iPhone 因为内存有限，建议使用7B以及以下的模型，避免内存不足导致的崩溃。
 
 ## 引用
 
 - [Exyte/Chat](https://github.com/exyte/Chat)
 - [stephencelis/CSQLite](https://github.com/stephencelis/SQLite.swift)
+- [swift-transformers](https://github.com/huggingface/swift-transformers/)

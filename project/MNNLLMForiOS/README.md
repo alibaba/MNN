@@ -4,27 +4,26 @@
 
 ## Introduction
 
-This project is an iOS application based on the MNN engine, supporting local large models and multi-modal conversations.
+This project is an iOS application based on the MNN engine, supporting local large-model multimodal conversations.
 
-It operates entirely offline, ensuring strong privacy. Once the model is downloaded locally, all dialogues will be processed locally without any network uploads.
+It operates fully offline with high privacy. Once the models are downloaded to the device, all conversations occur locally without any network uploads or processing.
 
 ## Features
 
-1. **Model Management**
-    - Get a list of models supported by MNN.
-    - Support for downloading and deleting models.
-    - Local model search support.
+1. **Model List**
+   - Browse models supported by MNN.
+   - Manage models: download and delete models.
+   - Search for models locally.
+   
+2. **Multimodal Chat**
+   - Text-to-text conversation.
+   - Audio-to-text conversation.
+   - Image-to-text conversation: capture images via camera or select from the gallery.
 
-2. **Multi-modal Conversations**
-    - **Text to Text**: Engage in text-based dialogues.
-    - **Speech to Text**: Convert speech input into text for dialogue.
-    - **Image to Text**: Take or select an image from the gallery and get a textual description.
+3. **Chat History**
+   - View conversation history, with the ability to restore previous chat sessions.
 
-3. **Conversation History**
-    - View historical dialogues and restore conversation scenes.
-
-### Application Preview
-
+### Application Preview:
 
 <div style="display: flex; justify-content: center; align-items: center; text-align: center; width: 100%;">
 
@@ -40,7 +39,7 @@ It operates entirely offline, ensuring strong privacy. Once the model is downloa
 
 <div style="flex: 0 0 20%; display: flex; flex-direction: column; align-items: center;">
 <p style="margin: 0; font-weight: bold;">Audio To Text</p>
-<img alt="Icon" style="width: 80%;" src="./assets/audio.PNG">
+<img alt="Icon" style="width: 80%;" src="./assets/audio.jpg">
 </div>
 
 </div>
@@ -64,64 +63,70 @@ It operates entirely offline, ensuring strong privacy. Once the model is downloa
 
 </div>
 
-
 ## How to Build and Use
 
-### 1. Clone the Repository:
+1. Clone the repository:
 
     ```shell
     git clone https://github.com/alibaba/MNN.git
     ```
 
-### 2. Build MNN.framework:
+2. Build the MNN.framework:
 
     ```shell
-    cd MNN/
-    sh package_scripts/ios/buildiOS.sh "-DMNN_ARM82=true -DMNN_LOW_MEMORY=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true -DMNN_BUILD_LLM=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true
+    sh package_scripts/ios/buildiOS.sh "
+    -DMNN_ARM82=ON
+    -DMNN_LOW_MEMORY=ON
+    -DMNN_SUPPORT_TRANSFORMER_FUSE=ON
+    -DMNN_BUILD_LLM=ON
+    -DMNN_CPU_WEIGHT_DEQUANT_GEMM=ON
     -DMNN_METAL=ON
     -DMNN_BUILD_DIFFUSION=ON
-    -DMNN_BUILD_OPENCV=ON
-    -DMNN_IMGCODECS=ON
     -DMNN_OPENCL=OFF
     -DMNN_SEP_BUILD=OFF
-    -DMNN_SUPPORT_TRANSFORMER_FUSE=ON"
+    -DLLM_SUPPORT_AUDIO=ON
+    -DMNN_BUILD_AUDIO=ON
+    -DLLM_SUPPORT_VISION=ON 
+    -DMNN_BUILD_OPENCV=ON 
+    -DMNN_IMGCODECS=ON
+    "
     ```
 
-### 3. Copy the Framework into Your iOS Project:
+3. Copy the framework to the iOS project:
 
     ```shell
-    mv MNN-iOS-CPU-GPU/Static/MNN.framework transformers/llm/engine/ios/MNN.framework
-    project/ios/MNNLLMForiOS/MNN.framework
+    mv MNN-iOS-CPU-GPU/Static/MNN.framework project/MNNLLMForiOS/MNN.framework
     ```
 
-    Ensure that `MNN.framework` and other three libraries are included in the **Link Binary With Libraries** section.
+    Ensure the `Link Binary With Libraries` section includes the `MNN.framework`:
     
-    ![](./assets/framework.png)
+    ![framework](./assets/framework.png)
 
-    If it's missing, you can add `MNN.framework` manually:
+    If it's missing, add it manually:
 
-    ![](./assets/addFramework.png)
+    ![addFramework](./assets/addFramework.png)
 
-    ![](./assets/addFramework2.png)
+    ![addFramework2](./assets/addFramework2.png)
 
-### 4. Modify iOS Signing and Build the Project:
+4. Update iOS signing and build the project:
 
     ```shell
     cd project/ios/MNNLLMForiOS
     open MNNLLMiOS.xcodeproj
     ```
 
-    In the Xcode project properties, go to **Signing & Capabilities** > **Team** and enter your account and Bundle Identifier:
+    In Xcode, go to `Signing & Capabilities > Team` and input your Apple ID and Bundle Identifier:
 
     ![signing](./assets/signing.png)
 
-    Wait for the Swift Package to finish downloading, then build and use the project.
+    Wait for the Swift Package to finish downloading before building.
 
 ## Notes
 
-Due to limited memory on iPhones, it is recommended to use models of size 7B or smaller to avoid crashes caused by insufficient memory.
+Due to memory limitations on iPhones, it is recommended to use models with 7B parameters or fewer to avoid memory-related crashes.
 
 ## References
 
 - [Exyte/Chat](https://github.com/exyte/Chat)
 - [stephencelis/CSQLite](https://github.com/stephencelis/SQLite.swift)
+- [swift-transformers](https://github.com/huggingface/swift-transformers/)
