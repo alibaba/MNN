@@ -26,7 +26,9 @@ It operates fully offline with high privacy. Once the models are downloaded to t
 
 ### Video Introduction
 
-[Click here to watch the introduction video](https://github.com/Yogayu/MNN/raw/master/project/MNNLLMForiOS/assets/introduction.mov/raw)
+<img width="200" alt="image" src="https://github.com/user-attachments/assets/389c2360-3bb9-41d1-a80f-b0906df4bf8d" />
+
+[Click here to download the original introduction video](https://github.com/Yogayu/MNN/blob/master/project/MNNLLMForiOS/assets/introduction.mov)
 
 ### Application Preview:
 

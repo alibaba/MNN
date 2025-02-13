@@ -22,7 +22,9 @@
 
 ### 视频介绍
 
-[点击这里观看介绍视频](https://github.com/Yogayu/MNN/raw/master/project/MNNLLMForiOS/assets/introduction.mov/raw)
+<img width="200" alt="image" src="https://github.com/user-attachments/assets/389c2360-3bb9-41d1-a80f-b0906df4bf8d" />
+
+[点击这里下载原分辨率介绍视频](https://github.com/Yogayu/MNN/blob/master/project/MNNLLMForiOS/assets/introduction.mov)
 
 ### 应用预览图
 
