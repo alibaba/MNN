@@ -23,45 +23,19 @@ It operates fully offline with high privacy. Once the models are downloaded to t
 3. **Chat History**
    - View conversation history, with the ability to restore previous chat sessions.
 
+
+### Video Introduction
+
+[Click here to watch the introduction video](https://github.com/Yogayu/MNN/raw/master/project/MNNLLMForiOS/assets/introduction.mov/raw)
+
 ### Application Preview:
 
-<div style="display: flex; justify-content: center; align-items: center; text-align: center; width: 100%;">
-
-<div style="flex: 0 0 20%; display: flex; flex-direction: column; align-items: center;">
-<p style="margin: 0; font-weight: bold;">Text To Text</p>
-<img alt="Icon" style="width: 80%;" src="./assets/text.PNG">
-</div>
-
-<div style="flex: 0 0 20%; display: flex; flex-direction: column; align-items: center;">
-<p style="margin: 0; font-weight: bold;">Image To Text</p>
-<img alt="Icon" style="width: 80%;" src="./assets/image.PNG">
-</div>
-
-<div style="flex: 0 0 20%; display: flex; flex-direction: column; align-items: center;">
-<p style="margin: 0; font-weight: bold;">Audio To Text</p>
-<img alt="Icon" style="width: 80%;" src="./assets/audio.jpg">
-</div>
-
-</div>
-
-<div style="display: flex; justify-content: center; align-items: center; text-align: center; width: 100%;">
-
-<div style="flex: 0 0 20%; display: flex; flex-direction: column; align-items: center;">
-<p style="margin: 0; font-weight: bold;">Model List</p>
-<img alt="Icon" style="width: 80%;" src="./assets/list.PNG">
-</div>
-
-<div style="flex: 0 0 20%; display: flex; flex-direction: column; align-items: center;">
-<p style="margin: 0; font-weight: bold;">History</p>
-<img alt="Icon" style="width: 80%;" src="./assets/history2.PNG">
-</div>
-
-<div style="flex: 0 0 20%; display: flex; flex-direction: column; align-items: center;">
-<p style="margin: 0; font-weight: bold;">History</p>
-<img alt="Icon" style="width: 80%;" src="./assets/history.PNG">
-</div>
-
-</div>
+|  |  |  |
+|--|--|--|
+| **Text To Text**  | **Image To Text**  | **Audio To Text**  |
+| ![Text To Text](./assets/text.PNG) | ![Image To Text](./assets/image.PNG) | ![Audio To Text](./assets/audio.jpg) |
+| **Model List**  | **History**  | **History**  |
+| ![Model List](./assets/list.PNG) | ![History](./assets/history2.PNG) | ![History](./assets/history.PNG) |
 
 <p></p>
 

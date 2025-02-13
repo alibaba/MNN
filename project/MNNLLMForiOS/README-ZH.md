@@ -20,45 +20,19 @@
 3. 对话历史
     - 包含对话历史列表，可以还原对话场景
 
-应用预览图：
+### 视频介绍
 
-<div style="display: flex; justify-content: center; align-items: center; text-align: center; width: 100%;">
+[点击这里观看介绍视频](https://github.com/Yogayu/MNN/raw/master/project/MNNLLMForiOS/assets/introduction.mov/raw)
 
-<div style="flex: 0 0 20%; display: flex; flex-direction: column; align-items: center;">
-<p style="margin: 0; font-weight: bold;">Text To Text</p>
-<img alt="Icon" style="width: 80%;" src="./assets/text.PNG">
-</div>
+### 应用预览图
 
-<div style="flex: 0 0 20%; display: flex; flex-direction: column; align-items: center;">
-<p style="margin: 0; font-weight: bold;">Image To Text</p>
-<img alt="Icon" style="width: 80%;" src="./assets/image.PNG">
-</div>
+|  |  |  |
+|--|--|--|
+| **Text To Text**  | **Image To Text**  | **Audio To Text**  |
+| ![Text To Text](./assets/text.PNG) | ![Image To Text](./assets/image.PNG) | ![Audio To Text](./assets/audio.jpg) |
+| **Model List**  | **History**  | **History**  |
+| ![Model List](./assets/list.PNG) | ![History](./assets/history2.PNG) | ![History](./assets/history.PNG) |
 
-<div style="flex: 0 0 20%; display: flex; flex-direction: column; align-items: center;">
-<p style="margin: 0; font-weight: bold;">Audio To Text</p>
-<img alt="Icon" style="width: 80%;" src="./assets/audio.jpg">
-</div>
-
-</div>
-
-<div style="display: flex; justify-content: center; align-items: center; text-align: center; width: 100%;">
-
-<div style="flex: 0 0 20%; display: flex; flex-direction: column; align-items: center;">
-<p style="margin: 0; font-weight: bold;">Model List</p>
-<img alt="Icon" style="width: 80%;" src="./assets/list.PNG">
-</div>
-
-<div style="flex: 0 0 20%; display: flex; flex-direction: column; align-items: center;">
-<p style="margin: 0; font-weight: bold;">History</p>
-<img alt="Icon" style="width: 80%;" src="./assets/history2.PNG">
-</div>
-
-<div style="flex: 0 0 20%; display: flex; flex-direction: column; align-items: center;">
-<p style="margin: 0; font-weight: bold;">History</p>
-<img alt="Icon" style="width: 80%;" src="./assets/history.PNG">
-</div>
-
-</div>
 
 <p></p>
 

@@ -9,8 +9,8 @@
 /* Begin PBXBuildFile section */
 		3E003D782D2B85A3004BA18F /* Transformers in Frameworks */ = {isa = PBXBuildFile; productRef = 3E003D772D2B85A3004BA18F /* Transformers */; };
 		3E301C692D5C84730045E5E1 /* MNN.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3E301C682D5C84730045E5E1 /* MNN.framework */; };
-		3E301C922D5C9A510045E5E1 /* ExyteChat in Frameworks */ = {isa = PBXBuildFile; productRef = 3E301C912D5C9A510045E5E1 /* ExyteChat */; };
 		3E94DFF12D37DBA900BE39A7 /* SQLite in Frameworks */ = {isa = PBXBuildFile; productRef = 3E94DFF02D37DBA900BE39A7 /* SQLite */; };
+		3EDD77432D5DEEA400532BA0 /* ExyteChat in Frameworks */ = {isa = PBXBuildFile; productRef = 3EDD77422D5DEEA400532BA0 /* ExyteChat */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -89,7 +89,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				3E301C922D5C9A510045E5E1 /* ExyteChat in Frameworks */,
+				3EDD77432D5DEEA400532BA0 /* ExyteChat in Frameworks */,
 				3E301C692D5C84730045E5E1 /* MNN.framework in Frameworks */,
 				3E94DFF12D37DBA900BE39A7 /* SQLite in Frameworks */,
 				3E003D782D2B85A3004BA18F /* Transformers in Frameworks */,
@@ -166,7 +166,7 @@
 			packageProductDependencies = (
 				3E003D772D2B85A3004BA18F /* Transformers */,
 				3E94DFF02D37DBA900BE39A7 /* SQLite */,
-				3E301C912D5C9A510045E5E1 /* ExyteChat */,
+				3EDD77422D5DEEA400532BA0 /* ExyteChat */,
 			);
 			productName = MNNLLMiOS;
 			productReference = 3E8591FE2D1D45070067B46F /* MNNLLMiOS.app */;
@@ -254,7 +254,7 @@
 			packageReferences = (
 				3E003D312D27E37C004BA18F /* XCRemoteSwiftPackageReference "swift-transformers" */,
 				3E94DF8A2D37D8FF00BE39A7 /* XCRemoteSwiftPackageReference "SQLite" */,
-				3E301C902D5C9A430045E5E1 /* XCRemoteSwiftPackageReference "Chat" */,
+				3EDD77412D5DEE9D00532BA0 /* XCRemoteSwiftPackageReference "Chat" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 3E8591FF2D1D45070067B46F /* Products */;
@@ -694,20 +694,20 @@
 				minimumVersion = 0.1.14;
 			};
 		};
-		3E301C902D5C9A430045E5E1 /* XCRemoteSwiftPackageReference "Chat" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/Yogayu/Chat.git";
-			requirement = {
-				branch = main;
-				kind = branch;
-			};
-		};
 		3E94DF8A2D37D8FF00BE39A7 /* XCRemoteSwiftPackageReference "SQLite" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/stephencelis/SQLite.swift";
 			requirement = {
 				kind = upToNextMajorVersion;
 				minimumVersion = 0.15.3;
+			};
+		};
+		3EDD77412D5DEE9D00532BA0 /* XCRemoteSwiftPackageReference "Chat" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/Yogayu/Chat.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.0.0;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
@@ -718,15 +718,15 @@
 			package = 3E003D312D27E37C004BA18F /* XCRemoteSwiftPackageReference "swift-transformers" */;
 			productName = Transformers;
 		};
-		3E301C912D5C9A510045E5E1 /* ExyteChat */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 3E301C902D5C9A430045E5E1 /* XCRemoteSwiftPackageReference "Chat" */;
-			productName = ExyteChat;
-		};
 		3E94DFF02D37DBA900BE39A7 /* SQLite */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 3E94DF8A2D37D8FF00BE39A7 /* XCRemoteSwiftPackageReference "SQLite" */;
 			productName = SQLite;
+		};
+		3EDD77422D5DEEA400532BA0 /* ExyteChat */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 3EDD77412D5DEE9D00532BA0 /* XCRemoteSwiftPackageReference "Chat" */;
+			productName = ExyteChat;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
