@@ -19,6 +19,8 @@
 #include "diffusion_session.h"
 #include <chrono>
 #include "mls_log.h"
+#include "MNN/expr/ExecutorScope.hpp"
+
 using MNN::Transformer::Llm;
 using mls::DiffusionSession;
 
@@ -109,32 +111,47 @@ JNIEXPORT void JNI_OnUnload(JavaVM* vm, void* reserved) {
     __android_log_print(ANDROID_LOG_DEBUG, "MNN_DEBUG", "JNI_OnUnload");
 }
 
-JNIEXPORT jlong JNICALL Java_com_alibaba_mnnllm_android_ChatSession_initNative(JNIEnv* env, jobject thiz, jstring modelDir,
+JNIEXPORT jlong JNICALL Java_com_alibaba_mnnllm_android_ChatSession_initNative(JNIEnv* env, jobject thiz,
+                                                                                    jstring rootCacheDir,
+                                                                                    jstring modelId,
+                                                                                    jstring modelDir,
                                                                                     jboolean use_tmp_path,
                                                                                     jobject chat_history,
                                                                                     jboolean is_diffusion,
                                                                                     jboolean r1) {
     is_r1 = r1;
+    const char* root_cache_dir = env->GetStringUTFChars(rootCacheDir, 0);
+    const char* model_id = env->GetStringUTFChars(modelId, 0);
+    std::string new_model_id(model_id);
     const char* model_dir = env->GetStringUTFChars(modelDir, 0);
+    auto model_dir_str = std::string(model_dir);
+    std::string root_cache_dir_str = std::string(root_cache_dir);
+    env->ReleaseStringUTFChars(modelId, model_id);
+    env->ReleaseStringUTFChars(modelDir, model_dir);
+    env->ReleaseStringUTFChars(rootCacheDir, root_cache_dir);
     MNN_DEBUG("createLLM BeginLoad %s", model_dir);
     if (is_diffusion) {
         auto diffusion = new DiffusionSession(model_dir);
         return reinterpret_cast<jlong>(diffusion);
     }
-    auto llm = Llm::createLLM(model_dir);
-    if (use_tmp_path) {
-        auto model_dir_str = std::string(model_dir);
-        std::string model_dir_parent = model_dir_str.substr(0, model_dir_str.find_last_of('/'));
-        std::string temp_dir = model_dir_parent + R"(/tmp")";
-        auto extra_config = R"({"tmp_path":")" + temp_dir;
-        if (is_r1) {
-            extra_config += R"(,"use_template":false)";
-        }
-        extra_config = extra_config +  R"(,"reuse_kv":true, "backend_type":"cpu", "use_mmap":true})";
-        MNN_DEBUG("extra_config: %s", extra_config.c_str());
-        llm->set_config(extra_config);
-        MNN_DEBUG("dumped config: %s", llm->dump_config().c_str());
+    bool use_mmap = !root_cache_dir_str.empty();
+    MNN::BackendConfig backendConfig;
+    auto executor = MNN::Express::Executor::newExecutor(MNN_FORWARD_CPU, backendConfig, 1);
+    MNN::Express::ExecutorScope s(executor);
+    auto llm = Llm::createLLM(model_dir_str);
+    std::string extra_config = use_mmap ? R"({"use_mmap":true)" : R"({"use_mmap":false)";
+    if (use_mmap) {
+        std::string temp_dir = root_cache_dir_str + R"(/tmp)";
+        extra_config += R"(,"tmp_path":")" + temp_dir + R"(")";
     }
+    if (is_r1) {
+        extra_config += R"(,"use_template":false, "precision": "high")";
+    }
+    extra_config = extra_config + R"(})";
+    MNN_DEBUG("extra_config: %s", extra_config.c_str());
+    llm->set_config(extra_config);
+    MNN_DEBUG("dumped config: %s", llm->dump_config().c_str());
+
     history.clear();
     history.emplace_back("system", is_r1 ? "<|begin_of_sentence|>You are a helpful assistant." : "You are a helpful assistant.");
     if (chat_history != nullptr) {
@@ -162,7 +179,6 @@ JNIEXPORT jlong JNICALL Java_com_alibaba_mnnllm_android_ChatSession_initNative(J
     MNN_DEBUG("createLLM EndLoad %ld ", reinterpret_cast<jlong>(llm));
     return reinterpret_cast<jlong>(llm);
 }
-
 
 
 JNIEXPORT jobject JNICALL Java_com_alibaba_mnnllm_android_ChatSession_submitNative(JNIEnv* env, jobject thiz,
@@ -261,6 +277,7 @@ JNIEXPORT void JNICALL Java_com_alibaba_mnnllm_android_ChatSession_resetNative(J
     history.resize(1);
     Llm* llm = reinterpret_cast<Llm*>(llmPtr);
     if (llm) {
+        MNN_DEBUG("RESET");
         llm->reset();
     }
 }

@@ -22,24 +22,22 @@ public class PreferenceUtils {
         PreferenceManager.getDefaultSharedPreferences(context).edit().putBoolean(key, value).apply();
     }
 
+    public static void setLong(Context context, String key , long value) {
+        PreferenceManager.getDefaultSharedPreferences(context).edit().putLong(key, value).apply();
+    }
+
+    public static long getLong(Context context, String key , long defaultValue) {
+        return PreferenceManager.getDefaultSharedPreferences(context).getLong(key, defaultValue);
+    }
+
     public static boolean getBoolean(Context context, String key , boolean defaultValue) {
         return PreferenceManager.getDefaultSharedPreferences(context).getBoolean(key, defaultValue);
     }
 
-    private static boolean isChinese() {
-        Configuration config = ApplicationUtils.get().getResources().getConfiguration();
-        Locale locale = config.getLocales().get(0);
-        String language = locale.getLanguage();
-        String country = locale.getCountry();
-        if (language.equals("zh") && country.equals("CN")) {
-            return true;
-        } else {
-            return false;
-        }
-    }
+
 
     public static boolean isUseModelsScopeDownload(Context context) {
-        boolean defaultValue = isChinese();
+        boolean defaultValue = DeviceUtils.isChinese();
         if (!PreferenceManager.getDefaultSharedPreferences(context).getAll().containsKey(KEY_USE_MODELSCOPE_DOWNLOAD)) {
             setUseModelsScopeDownload(context, defaultValue);
             return defaultValue;
