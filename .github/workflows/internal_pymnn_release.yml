@@ -1,13 +1,5 @@
 name: internal_pymnn_release
 on:
-  push:
-    paths:
-      - '.github/workflows/internal_pymnn_release.yml'
-    tags:
-      - '*'
-  pull_request:
-    branches:
-      - 'master'
   workflow_dispatch:
 
 jobs:
