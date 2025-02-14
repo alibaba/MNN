@@ -19,6 +19,6 @@ public class HistoryUtils {
         Log.d(TAG, "delete historySessionId: " + historySessionId);
         chatDataManager.deleteSession(historySessionId);
         File sessionResourceDir = new File(FileUtils.getSessionResourceBasePath(context, historySessionId));
-        DownloadFileUtils.deleteDirectoryRecursively2(sessionResourceDir);
+        DownloadFileUtils.deleteDirectoryRecursively(sessionResourceDir);
     }
 }

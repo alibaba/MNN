@@ -8,6 +8,9 @@ import android.media.MediaMetadataRetriever;
 import android.net.Uri;
 import android.util.Log;
 
+import com.alibaba.mls.api.ApplicationUtils;
+import com.alibaba.mls.api.download.DownloadFileUtils;
+
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -123,6 +126,17 @@ public class FileUtils {
                 }
             }
         }
+    }
+    public static String getMmapDir(String modelId, boolean isModelScope) {
+        String rootCacheDir = ApplicationUtils.get().getFilesDir() + "/tmps/" + ModelUtils.safeModelId(modelId);
+        if (isModelScope) {
+            rootCacheDir = rootCacheDir + "/modelscope";
+        }
+        return rootCacheDir;
+    }
+    public static void clearMmapCache(String modelId) {
+        DownloadFileUtils.deleteDirectoryRecursively(new File(getMmapDir(modelId, true)));
+        DownloadFileUtils.deleteDirectoryRecursively(new File(getMmapDir(modelId, false)));
     }
 }
 

@@ -84,6 +84,12 @@ public class ModelListFragment extends Fragment implements ModelListContract.Vie
                 return true;
             });
 
+            MenuItem checkUpdateMenu = menu.findItem(R.id.action_check_for_update);
+            checkUpdateMenu.setOnMenuItemClickListener(item -> {
+                ((MainActivity) getActivity()).checkForUpdate();
+                return true;
+            });
+
             MenuItem starGithub = menu.findItem(R.id.action_star_project);
             starGithub.setOnMenuItemClickListener(item -> {
                 ((MainActivity) getActivity()).onStarProject(null);

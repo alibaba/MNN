@@ -4,7 +4,9 @@
 package com.alibaba.mnnllm.android;
 
 import android.text.TextUtils;
+import android.widget.Toast;
 
+import com.alibaba.mls.api.ApplicationUtils;
 import com.alibaba.mnnllm.android.chat.ChatDataItem;
 
 import java.util.HashMap;
@@ -17,49 +19,54 @@ public class ChatService{
         System.loadLibrary("mnnllmapp");
     }
 
-    private final Map<String, ChatSession> sessionMap = new HashMap<>();
+    private final Map<String, ChatSession> transformerSessionMap = new HashMap<>();
+    private final Map<String, ChatSession> diffusionSessionMap = new HashMap<>();
 
     private static ChatService instance;
 
-    public synchronized ChatSession createSession(String modelName,
+    public synchronized ChatSession createSession(String modelId,
                                                   String modelDir,
                                                   boolean useTmpPath,
                                                   String sessionId,
                                                   List<ChatDataItem> chatDataItemList) {
+//        if (!transformerSessionMap.isEmpty()) {
+//            Toast.makeText(ApplicationUtils.get(), "wait for other models to release", Toast.LENGTH_SHORT).show();
+//           for (ChatSession session : transformerSessionMap.values()) {
+//               session.release();
+//           }
+//        }
         if (TextUtils.isEmpty(sessionId)) {
             sessionId = String.valueOf(System.currentTimeMillis());
         }
-        ChatSession session = new ChatSession(modelName, sessionId, modelDir, useTmpPath, chatDataItemList);
-        sessionMap.put(sessionId, session);
+        ChatSession session = new ChatSession(modelId, sessionId, modelDir, useTmpPath, chatDataItemList);
+        transformerSessionMap.put(sessionId, session);
         return session;
     }
 
     public synchronized ChatSession createDiffusionSession(
-                                                  String modelName,
+                                                  String modelId,
                                                   String modelDir,
                                                   String sessionId,
                                                   List<ChatDataItem> chatDataItemList) {
         if (TextUtils.isEmpty(sessionId)) {
             sessionId = String.valueOf(System.currentTimeMillis());
         }
-        ChatSession session = new ChatSession(modelName, sessionId, modelDir, false, chatDataItemList, true);
-        sessionMap.put(sessionId, session);
+        ChatSession session = new ChatSession(modelId, sessionId, modelDir, false, chatDataItemList, true);
+        diffusionSessionMap.put(sessionId, session);
         return session;
     }
 
     public synchronized ChatSession getSession(String sessionId) {
-        return sessionMap.get(sessionId);
-    }
-
-    public synchronized void releaseSession(String sessionId) {
-        ChatSession session = sessionMap.remove(sessionId);
-        if (session != null) {
-            session.release();
+        if (transformerSessionMap.containsKey(sessionId)) {
+            return transformerSessionMap.get(sessionId);
+        } else {
+            return diffusionSessionMap.get(sessionId);
         }
     }
 
     public synchronized void removeSession(String sessionId) {
-        sessionMap.remove(sessionId);
+        transformerSessionMap.remove(sessionId);
+        diffusionSessionMap.remove(sessionId);
     }
 
     public static synchronized ChatService provide() {
@@ -67,12 +74,5 @@ public class ChatService{
             instance = new ChatService();
         }
         return instance;
-    }
-
-    public synchronized void releaseAllSessions() {
-        for (ChatSession session : sessionMap.values()) {
-            session.release();
-        }
-        sessionMap.clear();
     }
 }

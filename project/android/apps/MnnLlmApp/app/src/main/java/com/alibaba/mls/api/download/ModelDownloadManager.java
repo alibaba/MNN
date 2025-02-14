@@ -23,6 +23,7 @@ import com.alibaba.mls.api.ms.MsApiClient;
 import com.alibaba.mls.api.ms.MsRepoInfo;
 import com.alibaba.mls.api.source.ModelSources;
 import com.alibaba.mls.api.source.RepoConfig;
+import com.alibaba.mnnllm.android.utils.FileUtils;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -173,7 +174,13 @@ public class ModelDownloadManager {
         getMsApiClient().getApiService().getModelFiles(split[0], split[1]).enqueue(new Callback<MsRepoInfo>() {
             @Override
             public void onResponse(Call<MsRepoInfo> call, Response<MsRepoInfo> response) {
-                downloadMsRepoInner(repoConfig, response.body());
+                DownloadExecutor.getExecutor().submit(() -> {
+                    Log.d(TAG, "downloadMsRepoInner executor");
+                    onDownloadTaskAdded(ModelDownloadManager.this.activeDownloadCount.incrementAndGet());
+                    downloadMsRepoInner(repoConfig, response.body());
+                    onDownloadTaskRemoved(ModelDownloadManager.this.activeDownloadCount.decrementAndGet());
+                });
+
             }
 
             @Override
@@ -186,52 +193,47 @@ public class ModelDownloadManager {
     private void downloadMsRepoInner(RepoConfig repoConfig, MsRepoInfo msRepoInfo) {
         Log.d(TAG, "downloadMsRepoInner");
         String modelId = repoConfig.modelId;
-        DownloadExecutor.getExecutor().submit(() -> {
-            Log.d(TAG, "downloadMsRepoInner executor");
-            onDownloadTaskAdded(this.activeDownloadCount.incrementAndGet());
-            File folderLinkFile = new File(this.modelScopeCachePath, DownloadFileUtils.getLastFileName(repoConfig.repositoryPath()));
-            if (folderLinkFile.exists()) {
-                Log.d(TAG, "downloadMsRepoInner already exists");
-                setDownloadFinished(modelId, folderLinkFile.getAbsolutePath());
-                return;
+        File folderLinkFile = new File(this.modelScopeCachePath, DownloadFileUtils.getLastFileName(repoConfig.repositoryPath()));
+        if (folderLinkFile.exists()) {
+            Log.d(TAG, "downloadMsRepoInner already exists");
+            setDownloadFinished(repoConfig.modelId, folderLinkFile.getAbsolutePath());
+            return;
+        }
+        ModelFileDownloader modelDownloader = new ModelFileDownloader();
+        boolean hasError = false;
+        StringBuilder errorInfo = new StringBuilder();
+        String repoFolderName = DownloadFileUtils.repoFolderName(repoConfig.repositoryPath(), "model");
+        File storageFolder = new File(this.modelScopeCachePath, repoFolderName);
+        File parentPointerPath = DownloadFileUtils.getPointerPathParent(storageFolder, "_no_sha_");
+        List<FileDownloadTask> downloadTaskList;
+        long[] totalAndDownloadSize = new long[2];
+        Log.d(TAG, "downloadMsRepoInner collectMsTaskList");
+        downloadTaskList = collectMsTaskList(repoConfig, storageFolder, parentPointerPath, msRepoInfo, totalAndDownloadSize);
+        Log.d(TAG, "downloadMsRepoInner downloadTaskList： " + downloadTaskList.size());
+        ModelFileDownloader.FileDownloadListener fileDownloadListener = (filename, downloadedBytes, totalBytes, delta) -> {
+            totalAndDownloadSize[1] += delta;
+            updateDownloadingProgress(modelId, "file", filename,  totalAndDownloadSize[1] , totalAndDownloadSize[0]);
+            return pausedSet.contains(modelId);
+        };
+        try {
+            for (FileDownloadTask fileDownloadTask: downloadTaskList) {
+                modelDownloader.downloadFile(fileDownloadTask, fileDownloadListener);
             }
-            ModelFileDownloader modelDownloader = new ModelFileDownloader();
-            boolean hasError = false;
-            StringBuilder errorInfo = new StringBuilder();
-            String repoFolderName = DownloadFileUtils.repoFolderName(repoConfig.repositoryPath(), "model");
-            File storageFolder = new File(this.modelScopeCachePath, repoFolderName);
-            File parentPointerPath = DownloadFileUtils.getPointerPathParent(storageFolder, "_no_sha_");
-            List<FileDownloadTask> downloadTaskList;
-            long[] totalAndDownloadSize = new long[2];
-            Log.d(TAG, "downloadMsRepoInner collectMsTaskList");
-            downloadTaskList = collectMsTaskList(repoConfig, storageFolder, parentPointerPath, msRepoInfo, totalAndDownloadSize);
-            Log.d(TAG, "downloadMsRepoInner downloadTaskList： " + downloadTaskList.size());
-            ModelFileDownloader.FileDownloadListener fileDownloadListener = (filename, downloadedBytes, totalBytes, delta) -> {
-                totalAndDownloadSize[1] += delta;
-                updateDownloadingProgress(modelId, "file", filename,  totalAndDownloadSize[1] , totalAndDownloadSize[0]);
-                return pausedSet.contains(modelId);
-            };
-            try {
-                for (FileDownloadTask fileDownloadTask: downloadTaskList) {
-                    modelDownloader.downloadFile(fileDownloadTask, fileDownloadListener);
-                }
-            } catch (DownloadPausedException e) {
-                pausedSet.remove(modelId);
-                setDownloadPaused(modelId);
-                return;
-            } catch (Exception e) {
-                setDownloadFailed(modelId, e);
-                return;
-            }
-            if (!hasError) {
-                String folderLinkPath = folderLinkFile.getAbsolutePath();
-                DownloadFileUtils.createSymlink(parentPointerPath.toString(), folderLinkPath);
-                setDownloadFinished(modelId, folderLinkPath);
-            } else {
-                Log.e(TAG, "Errors occurred during download: " + errorInfo.toString());
-            }
-            onDownloadTaskRemoved(this.activeDownloadCount.decrementAndGet());
-        });
+        } catch (DownloadPausedException e) {
+            pausedSet.remove(modelId);
+            setDownloadPaused(modelId);
+            return;
+        } catch (Exception e) {
+            setDownloadFailed(modelId, e);
+            return;
+        }
+        if (!hasError) {
+            String folderLinkPath = folderLinkFile.getAbsolutePath();
+            DownloadFileUtils.createSymlink(parentPointerPath.toString(), folderLinkPath);
+            setDownloadFinished(modelId, folderLinkPath);
+        } else {
+            Log.e(TAG, "Errors occurred during download: " + errorInfo.toString());
+        }
     }
 
     @NonNull
@@ -456,7 +458,7 @@ public class ModelDownloadManager {
         File hfStorageFolder = new File(cachePath, repoFolderName);
         Log.d(TAG, "removeStorageFolder: " + hfStorageFolder.getAbsolutePath());
         if (hfStorageFolder.exists()) {
-            boolean result = DownloadFileUtils.deleteDirectoryRecursively2(hfStorageFolder);
+            boolean result = DownloadFileUtils.deleteDirectoryRecursively(hfStorageFolder);
             if (!result) {
                 Log.e(TAG, "remove storageFolder" + hfStorageFolder.getAbsolutePath() + " faield");
             }
@@ -466,7 +468,7 @@ public class ModelDownloadManager {
         File msStorageFolder = new File(this.modelScopeCachePath, msRepoFolderName);
         Log.d(TAG, "removeStorageFolder: " + msStorageFolder.getAbsolutePath());
         if (msStorageFolder.exists()) {
-            boolean result = DownloadFileUtils.deleteDirectoryRecursively2(msStorageFolder);
+            boolean result = DownloadFileUtils.deleteDirectoryRecursively(msStorageFolder);
             if (!result) {
                 Log.e(TAG, "remove storageFolder" + msStorageFolder.getAbsolutePath() + " faield");
             }
@@ -479,6 +481,7 @@ public class ModelDownloadManager {
         File msLinkFolder = this.getMsModelPath(modelId);
         Log.d(TAG, "removeMsLinkFolder: " + msLinkFolder.getAbsolutePath());
         msLinkFolder.delete();
+        FileUtils.clearMmapCache(modelId);
 
         if (downloadListener != null) {
             DownloadInfo downloadInfo = getDownloadInfo(modelId);

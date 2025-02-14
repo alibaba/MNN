@@ -56,6 +56,10 @@
   ```
 
 # Releases
+## Version 0.2.2
++ 点击这里 [下载](https://meta.alicdn.com/data/mnn/mnn_chat_d_0_2_2.apk)
++ 支持 mmap 增加启动速度
++ 增加 版本更新检查
 
 ## Version 0.2.1
 + 点击这里[下载](https://meta.alicdn.com/data/mnn/mnn_chat_d_0_2_1_1.apk)
