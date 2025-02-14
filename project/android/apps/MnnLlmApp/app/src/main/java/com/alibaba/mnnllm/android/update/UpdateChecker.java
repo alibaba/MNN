@@ -17,10 +17,12 @@ import android.os.Build;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
+import android.text.TextUtils;
 import android.util.Log;
 import android.widget.Toast;
 
 import com.alibaba.mnnllm.android.R;
+import com.alibaba.mnnllm.android.utils.DeviceUtils;
 import com.alibaba.mnnllm.android.utils.PreferenceUtils;
 import com.alibaba.mnnllm.android.utils.UiUtils;
 
@@ -55,7 +57,7 @@ public class UpdateChecker {
         OkHttpClient client = new OkHttpClient();
 
         Request request = new Request.Builder()
-                .url("https://modelscope.cn/datasets/JuudeS/mnn_llm_app_config/resolve/master/main_config.json")
+                .url("https://modelscope.cn/datasets/MNN/mnn_llm_app_config/resolve/master/main_config.json")
                 .build();
 
         client.newCall(request).enqueue(new Callback() {
@@ -81,13 +83,14 @@ public class UpdateChecker {
                     JSONObject jsonObject = new JSONObject(responseData);
                     String latestVersion = jsonObject.getString("latest_version");
                     String updateMessage = jsonObject.getString("update_message");
+                    String updateMessageZh = jsonObject.getString("update_message_zh");
                     String downloadUrl = jsonObject.getString("download_url");
 
                     String currentVersion = getVersionName();
                     Log.d(TAG, "currentVersion : " + currentVersion);
                     if (isNewerVersion(latestVersion, currentVersion)) {
                         new Handler(Looper.getMainLooper()).post(() -> {
-                            showUpdateDialog(context, latestVersion, updateMessage, downloadUrl);
+                            showUpdateDialog(context, latestVersion, updateMessage,updateMessageZh, downloadUrl);
                         });
                     } else if (forceCheck) {
                         UiUtils.showToast(context, context.getString(R.string.no_update), Toast.LENGTH_SHORT);
@@ -115,16 +118,17 @@ public class UpdateChecker {
         return false;
     }
 
-    private void showUpdateDialog(Context context, String latestVersion, String updateMessage, String downloadUrl) {
+    private void showUpdateDialog(Context context, String latestVersion, String updateMessage,
+                                  String updateMessageZh, String downloadUrl) {
         PreferenceUtils.setLong(context, "download_last_show_time", System.currentTimeMillis());
         new AlertDialog.Builder(context)
-                .setTitle("Update Available (" + latestVersion + ")")
-                .setMessage(updateMessage)
-                .setPositiveButton("Download", (dialog, which) -> {
+                .setTitle(context.getString(R.string.download_update_available, latestVersion))
+                .setMessage(DeviceUtils.isChinese() && !TextUtils.isEmpty(updateMessageZh) ? updateMessageZh : updateMessage)
+                .setPositiveButton(R.string.download, (dialog, which) -> {
                     dialog.dismiss();
                     downloadApk(context, downloadUrl);
                 })
-                .setNegativeButton("Cancel", (dialog, which) -> dialog.dismiss())
+                .setNegativeButton(android.R.string.cancel, (dialog, which) -> dialog.dismiss())
                 .show();
     }
 

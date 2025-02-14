@@ -64,4 +64,6 @@
     <string name="check_for_update">Check for update</string>
     <string name="get_update_info_failed">get update info failed</string>
     <string name="no_update">No update available</string>
+    <string name="download">Download</string>
+    <string name="download_update_available">Update Available: (%1$s)</string>
 </resources>
