@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/drawer_layout"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/arm_dev_background"
+    android:fitsSystemWindows="true"
+    tools:openDrawer="start">
+    <com.google.android.material.appbar.AppBarLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        app:elevation="0dp">
+        <include
+            android:id="@+id/toolbar"
+            layout="@layout/toolbar"/>
+    </com.google.android.material.appbar.AppBarLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="406dp"
+        android:layout_alignParentBottom="true"
+        android:orientation="vertical">
+
+        <Spinner
+            android:id="@+id/spinner_models"
+            android:layout_width="220dp"
+            android:layout_height="40dp"
+            android:layout_gravity="center"
+            android:layout_marginHorizontal="30pt"
+            android:background="@drawable/spinner_background"
+            android:prompt="@string/spinner_prompt"
+            android:spinnerMode="dropdown"
+            android:textColor="#ffffff" />
+
+        <TextView
+            android:id="@+id/model_info"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginBottom="20dp"
+            android:textColor="#ffffff"
+            android:visibility="gone" />
+
+        <RelativeLayout
+            android:id="@+id/process_view"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="20dp"
+            android:orientation="horizontal"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/process_name"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_alignParentLeft="true"
+                android:layout_centerVertical="true"
+                android:padding="@dimen/space10"
+                android:text="加载进度" />
+
+            <TextView
+                android:id="@+id/process_percent"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_alignParentRight="true"
+                android:layout_centerVertical="true"
+                android:padding="@dimen/space10"
+                android:text="0%" />
+
+            <ProgressBar
+                android:id="@+id/process_bar"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_centerVertical="true"
+                android:layout_toLeftOf="@id/process_percent"
+                android:layout_toRightOf="@id/process_name"
+                android:max="100"
+                android:progressTint="#2454e4" />
+        </RelativeLayout>
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="335dp"
+        android:layout_alignParentBottom="true"
+        android:orientation="vertical">
+
+        <Button
+            android:id="@+id/load_button"
+            android:layout_width="220dp"
+            android:layout_height="40dp"
+            android:layout_gravity="center"
+            android:layout_marginHorizontal="@dimen/space20"
+            android:layout_marginBottom="40dp"
+            android:background="@drawable/rounded_button"
+            android:onClick="loadModel"
+            android:text="Load Model"
+            android:textColor="#647e90"
+            android:textSize="6pt"
+            android:textStyle="bold"></Button>
+
+    </LinearLayout>
+
+</RelativeLayout>

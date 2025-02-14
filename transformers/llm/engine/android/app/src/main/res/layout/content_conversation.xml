@@ -1,0 +1,240 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:background="@drawable/arm_dev_background2"
+    app:layout_behavior="@string/appbar_scrolling_view_behavior">
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/recyclerView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_alignParentTop="true"
+        android:layout_alignParentLeft="true"
+        android:layout_alignParentStart="true"
+        android:layout_above="@id/rl_bottom"
+        android:overScrollMode="never" />
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_above="@id/rl_bottom"
+        android:orientation="vertical">
+
+        <Button
+            android:id="@+id/toggleButton"
+            android:layout_width="51dp"
+            android:layout_height="29dp"
+            android:layout_marginBottom="8dp"
+            android:background="@drawable/bubble_background"
+            android:text="hide"
+            android:textColor="@android:color/white"
+            android:textSize="10dp" />
+        <LinearLayout
+            android:id="@+id/predefineList"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_above="@id/rl_bottom"
+            android:orientation="vertical">
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_above="@id/rl_bottom">
+
+                <TextView
+                    android:id="@+id/promptBubble5"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="8dp"
+                    android:background="@drawable/bubble_background"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:padding="10dp"
+                    android:text="What kind of dishes could be made with these ingredients"
+                    android:textColor="@android:color/white" />
+            </LinearLayout>
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_above="@id/rl_bottom">
+                <TextView
+                    android:id="@+id/promptBubble3"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/bubble_background"
+                    android:padding="10dp"
+                    android:text="How many people are in this image"
+                    android:layout_marginBottom="8dp"
+                    android:textColor="@android:color/white"
+                    android:clickable="true"
+                    android:focusable="true" />
+                <TextView
+                    android:id="@+id/promptBubble4"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/bubble_background"
+                    android:padding="10dp"
+                    android:text="What's the weather'?"
+                    android:layout_marginLeft="4dp"
+                    android:layout_marginBottom="8dp"
+                    android:textColor="@android:color/white"
+                    android:clickable="true"
+                    android:focusable="true" />
+            </LinearLayout>
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_above="@id/rl_bottom">
+                <TextView
+                    android:id="@+id/promptBubble1"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/bubble_background"
+                    android:padding="10dp"
+                    android:text="What is happening in this image"
+                    android:layout_marginBottom="8dp"
+                    android:textColor="@android:color/white"
+                    android:clickable="true"
+                    android:focusable="true" />
+                <TextView
+                    android:id="@+id/promptBubble2"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/bubble_background"
+                    android:padding="10dp"
+                    android:text="What is it in the picture?"
+                    android:layout_marginBottom="8dp"
+                    android:layout_marginLeft="4dp"
+                    android:textColor="@android:color/white"
+                    android:clickable="true"
+                    android:focusable="true" />
+            </LinearLayout>
+            <LinearLayout
+                android:id="@+id/examplePictureList"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_above="@id/rl_bottom">
+                <ImageView
+                    android:id="@+id/examplePicture1"
+                    android:layout_width="50dp"
+                    android:layout_height="50dp"
+                    android:scaleType="center"
+                    android:padding="10dp"
+                    android:layout_marginBottom="8dp"
+                    android:clickable="true"
+                    android:focusable="true" />
+                <ImageView
+                    android:id="@+id/examplePicture2"
+                    android:layout_width="50dp"
+                    android:layout_height="50dp"
+                    android:scaleType="center"
+                    android:padding="10dp"
+                    android:layout_marginBottom="8dp"
+                    android:clickable="true"
+                    android:focusable="true" />
+                <ImageView
+                    android:id="@+id/examplePicture3"
+                    android:layout_width="50dp"
+                    android:layout_height="50dp"
+                    android:scaleType="center"
+                    android:clickable="true"
+                    android:focusable="true" />
+                <ImageView
+                    android:id="@+id/examplePicture4"
+                    android:layout_width="50dp"
+                    android:layout_height="50dp"
+                    android:scaleType="center"
+                    android:padding="10dp"
+                    android:layout_marginBottom="8dp"
+                    android:clickable="true"
+                    android:focusable="true" />
+                <ImageView
+                    android:id="@+id/examplePicture5"
+                    android:layout_width="50dp"
+                    android:layout_height="50dp"
+                    android:scaleType="center"
+                    android:padding="10dp"
+                    android:layout_marginBottom="8dp"
+                    android:clickable="true"
+                    android:focusable="true" />
+                <ImageView
+                    android:id="@+id/examplePicture6"
+                    android:layout_width="50dp"
+                    android:layout_height="50dp"
+                    android:scaleType="center"
+                    android:clickable="true"
+                    android:focusable="true" />
+            </LinearLayout>
+        </LinearLayout>
+    </LinearLayout>
+    <RelativeLayout
+        android:id="@+id/rl_bottom"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingLeft="@dimen/space10"
+        android:paddingRight="@dimen/space5"
+        android:paddingTop="@dimen/space5"
+        android:paddingBottom="@dimen/space5"
+        android:background="#E9EDED"
+        android:layout_alignParentBottom="true"
+        android:focusable="true"
+        android:focusableInTouchMode="true">
+
+        <ImageView
+            android:id="@+id/image_preview"
+            android:layout_width="55dp"
+            android:layout_height="50dp"
+            android:paddingRight="5dp"
+            android:layout_alignParentStart="true"
+            android:layout_marginBottom="@dimen/space5"
+            android:layout_alignParentLeft="true"
+            android:scaleType="centerCrop"
+            android:visibility="gone" />
+
+        <ImageView
+            android:id="@+id/bt_send"
+            android:layout_width="30dp"
+            android:layout_height="30dp"
+            android:layout_alignParentRight="true"
+            android:layout_centerInParent="true"
+            android:layout_marginLeft="10dp"
+            app:srcCompat="@drawable/button_send"
+            android:layout_marginEnd="10dp"
+            tools:ignore="ContentDescription"/>
+
+        <RelativeLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_toLeftOf="@id/bt_send"
+            android:layout_toRightOf="@id/image_preview"
+            android:background="@drawable/bg_white_rounded"
+            android:layout_centerVertical="true">
+
+            <ImageButton
+                android:id="@+id/bt_select_image"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                app:srcCompat="@drawable/ic_image"
+                android:padding="@dimen/space10"
+                android:layout_alignParentRight="true"
+                android:background="@android:color/transparent"
+                android:layout_centerVertical="true"/>
+
+            <EditText
+                android:id="@+id/et_message"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_toLeftOf="@id/bt_select_image"
+                android:padding="@dimen/space15"
+                android:hint="Ask me anything..."
+                android:maxLines="3"
+                android:textSize="@dimen/h3"
+                android:textColor="@color/colorTextBlack"
+                android:textColorHint="@color/colorTextHint"
+                android:textAppearance="@style/Light"
+                android:background="@android:color/transparent"
+                android:inputType="textCapSentences"/>
+        </RelativeLayout>
+    </RelativeLayout>
+</RelativeLayout>
