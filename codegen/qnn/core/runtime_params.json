@@ -1,0 +1,7 @@
+{
+    "QnnFunctionPointers": "m_qnnFunctionPointers",
+    "void*": "m_backendLibraryHandle",
+    "Qnn_BackendHandle_t": "m_backendHandle",
+    "QnnBackend_Config_t**": "m_backendConfig",
+    "Qnn_LogHandle_t": "m_logHandle"
+}

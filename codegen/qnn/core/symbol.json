@@ -1,0 +1,5 @@
+{
+    "XPU": "QNN",
+    "XPU_LOWER": "qnn",
+    "XPU_FOWARD_TYPE": "MNN_FORWARD_QNN"
+}
