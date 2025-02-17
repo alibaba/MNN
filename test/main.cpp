@@ -15,6 +15,7 @@
 #include <string.h>
 #include "MNNTestSuite.h"
 #include "TestUtils.h"
+#include "core/Backend.hpp"
 
 int main(int argc, char* argv[]) {
     if (argc == 2 && strcmp(argv[1], "--help") == 0) {
@@ -67,6 +68,14 @@ int main(int argc, char* argv[]) {
     }
     MNN::Express::ExecutorScope scope(exe);
     exe->setGlobalExecutorConfig(type, config, thread);
+    // set hint
+    int dynamicOption = 0;
+    if (argc > 7) {
+        dynamicOption = atoi(argv[7]);
+    }
+    MNN::RuntimeHint hint;
+    hint.dynamicQuantOption = dynamicOption;
+    scope.Current()->getRuntime().second->setRuntimeHint(hint);
     MNNTestSuite::get()->pStaus.memory = memory;
     MNNTestSuite::get()->pStaus.precision = precision;
     if (argc > 1) {

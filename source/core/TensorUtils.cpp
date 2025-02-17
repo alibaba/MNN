@@ -475,7 +475,7 @@ bool TensorUtils::refTensorContent(Tensor* dst, const Tensor* src) {
     return needMalloc;
 }
 
-static bool _ClipDst(int* stride, int srcOffset, int dstOffset, const int* srcSize, const int* dstSize, const int sizeNum, int* dstMax, int* dstMin) {
+static bool _ClipDst(int* stride, const int srcOffsetO, const int dstOffsetO, const int* srcSize, const int* dstSize, const int sizeNum, int* dstMax, int* dstMin, bool checkFull = true) {
     /* Compute The range of dx, dy, dz:
      s0 * (dx-sx) + s1 * (dy-sy) + s2 * (dz-sz) + (doff-soff) = 0
      Assume the region won't be overlapped, then extract doff -> s0*xd+ s1*yd+s2*zd, soff -> s0*xs+s1*ys+s2*zs
@@ -488,6 +488,8 @@ static bool _ClipDst(int* stride, int srcOffset, int dstOffset, const int* srcSi
      dy,dz compute the same
      **/
 
+    int srcOffset = srcOffsetO;
+    int dstOffset = dstOffsetO;
     int offsetBias = dstOffset - srcOffset;
     if (sizeNum == 0) {
         // All stride is zero, then size will be all one
@@ -554,7 +556,7 @@ static bool _ClipDst(int* stride, int srcOffset, int dstOffset, const int* srcSi
             }
         }
     }
-    if (srcMin < 0) {
+    if (srcMin < 0 || (!checkFull)) {
         // Src is fully used
         return true;
     }
@@ -568,7 +570,35 @@ static bool _ClipDst(int* stride, int srcOffset, int dstOffset, const int* srcSi
         int bias = offsetBias + dstMax[i] * stride[i];
         if (bias < srcMax && bias >= srcMin) {
             // for [dstMax, dstSize], may exist value match formula
-            return false;
+            // Try Clip a new region
+            for (int k=0; k<sizeNum; ++k) {
+                if (dstMax[k] < srcSize[k]) {
+                    int newDstSize[3];
+                    int newSrcSize[3];
+                    for (int j=0; j<sizeNum; ++j) {
+                        newDstSize[j] = dstSize[j];
+                        newSrcSize[j] = srcSize[j];
+                    }
+                    newSrcSize[k] = srcSize[k] - dstMax[k];
+                    newDstSize[i] = dstSize[i] - dstMax[i];
+                    int dstMaxNew[3];
+                    int dstMinNew[3];
+                    auto status = _ClipDst(stride, srcOffsetO + dstMax[k] * stride[k], dstOffsetO + dstMax[i] * stride[i], newSrcSize, newDstSize, sizeNum, dstMaxNew, dstMinNew, false);
+                    if (status) {
+                        bool valid = true;
+                        for (int j=0; j<sizeNum; ++j) {
+                            if (dstMaxNew[j] <= dstMinNew[j]) {
+                                valid = false;
+                                break;
+                            }
+                        }
+                        if (valid) {
+                            // Need new region
+                            return false;
+                        }
+                    }
+                }
+            }
         }
     }
     return true;
@@ -799,6 +829,37 @@ bool TensorUtils::FuseWrap::match(const Tensor::InsideDescribe::Region& srcReg, 
     return mStatus->match(srcReg, dstReg);
 }
 #ifdef MNN_DEBUG_BLIT
+static std::pair<size_t, size_t> _computeMinSrcDstSize(const Tensor::InsideDescribe::Region& reg) {
+    size_t srcSize = 1 + reg.src.offset;
+    size_t dstSize = 1 + reg.dst.offset;
+    for (int i=0; i<3; ++i) {
+        if (reg.src.stride[i] > 0) {
+            srcSize += reg.src.stride[i] * reg.size[i];
+        }
+        if (reg.dst.stride[i] > 0) {
+            dstSize += reg.dst.stride[i] * reg.size[i];
+        }
+    }
+    return std::make_pair(srcSize, dstSize);
+}
+static void _computeRaw(std::vector<int>& dst, const std::vector<int>& src, const Tensor::InsideDescribe::Region& reg) {
+    int dstOffset = reg.dst.offset;
+    int srcOffset = reg.src.offset;
+    ::memset(dst.data(), 0, dst.size() * sizeof(int));
+    for (int z=0; z<reg.size[0]; ++z) {
+        int srcZ = srcOffset + z * reg.src.stride[0];
+        int dstZ = dstOffset + z * reg.dst.stride[0];
+        for (int y=0; y<reg.size[1]; ++y) {
+            int srcY = srcZ + y * reg.src.stride[1];
+            int dstY = dstZ + y * reg.dst.stride[1];
+            for (int x=0; x<reg.size[2]; ++x) {
+                int srcX = srcY + x * reg.src.stride[2];
+                int dstX = dstY + x * reg.dst.stride[2];
+                dst[dstX] = src[srcX];
+            }
+        }
+    }
+}
 static std::string _printRegion(const Tensor::InsideDescribe::Region& reg) {
     char info[2048];
     sprintf(info, "size: %d, %d, %d; src: %d, %d, %d, %d; dst: %d, %d, %d, %d", reg.size[0], reg.size[1], reg.size[2], reg.src.offset, reg.src.stride[0], reg.src.stride[1], reg.src.stride[2], reg.dst.offset, reg.dst.stride[0], reg.dst.stride[1], reg.dst.stride[2]);
@@ -809,6 +870,18 @@ static std::string _printRegion(const Tensor::InsideDescribe::Region& reg) {
 
 void TensorUtils::FuseWrap::apply(const Tensor::InsideDescribe::Region& srcReg, Tensor::InsideDescribe::Region& dstReg) {
 #ifdef MNN_DEBUG_BLIT
+    auto srcSize = _computeMinSrcDstSize(srcReg);
+    auto dstSize = _computeMinSrcDstSize(dstReg);
+    auto midSize = ALIMAX(srcSize.second, dstSize.first);
+    std::vector<int> srcData(srcSize.first);
+    std::vector<int> midData(midSize);
+    std::vector<int> dstData(dstSize.second);
+    std::vector<int> dstDataFuse(dstSize.second);
+    for (int i=0; i<srcSize.first; ++i) {
+        srcData[i] = i;
+    }
+    _computeRaw(midData, srcData, srcReg);
+    _computeRaw(dstData, midData, dstReg);
     {
         auto src = _printRegion(srcReg);
         auto dst = _printRegion(dstReg);
@@ -820,6 +893,11 @@ void TensorUtils::FuseWrap::apply(const Tensor::InsideDescribe::Region& srcReg, 
     {
         auto dst = _printRegion(dstReg);
         MNN_PRINT("%s\n", dst.c_str());
+        _computeRaw(dstDataFuse, srcData, dstReg);
+        if (dstDataFuse != dstData) {
+            FUNC_PRINT(1);
+            MNN_ASSERT(false);
+        }
     }
 #endif
 }

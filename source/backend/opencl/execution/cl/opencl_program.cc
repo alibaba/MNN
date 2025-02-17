@@ -1072,7 +1072,6 @@ const char* conv_2d =
 " weights2=vload4(0,weights+weight_offset+weight_ic_offset*2);\n"
 " weights3=vload4(0,weights+weight_offset+weight_ic_offset*3);\n"
 " #ifdef CHANNEL_BOUNDARY_PROTECT\n"
-" charWeight0 =\n"
 " weights4=out_channel_block_idx+1 >= out_channel_blocks ? (FLOAT4)0 : vload4(0,weights+weight_offset+weight_oc_offset);\n"
 " weights5=out_channel_block_idx+1 >= out_channel_blocks ? (FLOAT4)0 : vload4(0,weights+weight_offset+weight_ic_offset+weight_oc_offset);\n"
 " weights6=out_channel_block_idx+1 >= out_channel_blocks ? (FLOAT4)0 : vload4(0,weights+weight_offset+weight_ic_offset*2+weight_oc_offset);\n"
