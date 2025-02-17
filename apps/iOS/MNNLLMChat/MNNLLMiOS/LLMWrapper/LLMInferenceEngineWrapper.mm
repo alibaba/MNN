@@ -129,7 +129,8 @@ private:
         output(@"Error: Model not loaded");
         return;
     }
-    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+    
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_LOW, 0), ^{
     
         LlmStreamBuffer::CallBack callback = [output](const char* str, size_t len) {
             if (output) {

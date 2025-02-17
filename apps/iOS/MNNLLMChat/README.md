@@ -28,7 +28,6 @@ It operates fully offline with high privacy. Once the models are downloaded to t
 
 <img width="200" alt="image" src="./assets/introduction.gif" />
 
-[Click here to download the original introduction video](https://github.com/Yogayu/MNN/blob/master/project/MNNLLMForiOS/assets/introduction.mov)
 
 ### Application Preview:
 
@@ -79,7 +78,7 @@ Additionally, the app supports edge-side usage of DeepSeek with Think mode:
 3. Copy the framework to the iOS project:
 
     ```shell
-    mv MNN-iOS-CPU-GPU/Static/MNN.framework project/MNNLLMForiOS/MNN.framework
+    mv MNN-iOS-CPU-GPU/Static/MNN.framework /apps/iOS/MNNLLMChat/MNN.framework
     ```
 
     Ensure the `Link Binary With Libraries` section includes the `MNN.framework`:
@@ -95,7 +94,7 @@ Additionally, the app supports edge-side usage of DeepSeek with Think mode:
 4. Update iOS signing and build the project:
 
     ```shell
-    cd project/ios/MNNLLMForiOS
+    cd /apps/iOS/MNNLLMChat
     open MNNLLMiOS.xcodeproj
     ```
 

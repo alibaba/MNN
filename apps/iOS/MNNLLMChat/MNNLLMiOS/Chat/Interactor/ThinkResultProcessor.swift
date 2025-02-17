@@ -62,6 +62,6 @@ class ThinkResultProcessor {
         }
         
         displayString.append(updatedProgress)
-        return displayString.replacingOccurrences(of: "<think>", with: "")
+        return displayString.replacingOccurrences(of: "<think>", with: "> ")
     }
 }

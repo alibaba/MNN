@@ -231,7 +231,7 @@ final class LLMChatViewModel: ObservableObject {
             }
             
             deepSeekContent += "<|end_of_sentence|><think><\n>"
-            
+            print(deepSeekContent)
             return deepSeekContent
         } else {
             return content
@@ -286,7 +286,7 @@ final class LLMChatViewModel: ObservableObject {
         
         let tmpFolderURL = URL(fileURLWithPath: self.modelInfo.localPath).appendingPathComponent("temp")
         
-        self.cleanFolder(tmpFolderURL: tmpFolderURL)
+//        self.cleanFolder(tmpFolderURL: tmpFolderURL)
         self.cleanFolder(tmpFolderURL: tmpDirectoryURL)
     }
     

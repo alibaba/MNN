@@ -364,3 +364,5 @@ MNN_compression_pb2.py
 project/ios/MNNLLMForiOS/MNN.framework
 project/MNNLLMForiOS/Chat
 project/MNNLLMForiOS/MNN.framework
+MNN-iOS-CPU-GPU/Static/MNN.framework
+apps/iOS/MNNLLMChat/MNN.framework
