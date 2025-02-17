@@ -7,7 +7,10 @@ import android.app.Activity;
 import android.content.Context;
 import android.content.ContextWrapper;
 import android.graphics.Point;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.Display;
+import android.widget.Toast;
 
 public class UiUtils {
     public static Point getWindowSize(Context context) {
@@ -32,4 +35,19 @@ public class UiUtils {
         }
         return null;
     }
+
+    private static final Handler uiHandler = new Handler(Looper.getMainLooper());
+
+    public static void showToast(final Context context, final String message, final int duration) {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            Toast.makeText(context, message, duration).show();
+        } else {
+            uiHandler.post(() -> Toast.makeText(context, message, duration).show());
+        }
+    }
+
+    public static void showToast(Context context, String message) {
+        showToast(context, message, Toast.LENGTH_SHORT);
+    }
+
 }

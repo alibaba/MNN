@@ -37,7 +37,7 @@ public class DownloadFileUtils {
         return String.join("--", parts);
     }
 
-    public static boolean deleteDirectoryRecursively2(File dir) {
+    public static boolean deleteDirectoryRecursively(File dir) {
         if (dir == null || !dir.exists()) {
             return false;
         }
