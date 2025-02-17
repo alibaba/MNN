@@ -25,6 +25,7 @@ class Vision(torch.nn.Module):
         visual_models = {
             'qwen': QwenVision,
             'qwen2_vl': Qwen2Vision,
+            'qwen2_5_vl':Qwen2Vision,
             'mllama': MllamaVision
         }
         if model_type in visual_models:
@@ -125,7 +126,10 @@ class Qwen2Vision(Vision):
         self.llm_config['image_pad'] = self.image_pad_id
         # load model
         config = self.visual.config
-        self.hidden_size = config.embed_dim
+        if hasattr(config, "embed_dim"):
+            self.hidden_size = config.embed_dim
+        else:
+            self.hidden_size = config.hidden_size
         self.num_attention_heads = config.num_heads
         self.num_key_value_heads = config.num_heads
         self.head_dim = self.hidden_size // self.num_attention_heads

@@ -1174,7 +1174,6 @@ void conv_2d_c8h4w1(GLOBAL_SIZE_2_DIMS __read_only image2d_t input,
                 weights2 = vload4(0, weights+weight_offset+weight_ic_offset*2);
                 weights3 = vload4(0, weights+weight_offset+weight_ic_offset*3);
                 #ifdef CHANNEL_BOUNDARY_PROTECT
-                charWeight0 =
                 weights4 = out_channel_block_idx + 1 >= out_channel_blocks ? (FLOAT4)0 : vload4(0, weights+weight_offset + weight_oc_offset);
                 weights5 = out_channel_block_idx + 1 >= out_channel_blocks ? (FLOAT4)0 : vload4(0, weights+weight_offset+weight_ic_offset + weight_oc_offset);
                 weights6 = out_channel_block_idx + 1 >= out_channel_blocks ? (FLOAT4)0 : vload4(0, weights+weight_offset+weight_ic_offset*2 + weight_oc_offset);

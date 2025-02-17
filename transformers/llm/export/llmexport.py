@@ -50,7 +50,10 @@ class LlmExporter(torch.nn.Module):
 
     def load_pretrained(self, model_path: str):
         self.tokenizer = AutoTokenizer.from_pretrained(self.args.tokenizer_path, trust_remote_code=True, use_fast=False)
-        if 'Qwen2-VL' in model_path:
+        if 'Qwen2.5-VL' in model_path:
+            from transformers import Qwen2_5_VLForConditionalGeneration
+            self.model = Qwen2_5_VLForConditionalGeneration.from_pretrained(model_path, torch_dtype='auto').eval()
+        elif 'Qwen2-VL' in model_path:
             from transformers import Qwen2VLForConditionalGeneration
             self.model = Qwen2VLForConditionalGeneration.from_pretrained(model_path, torch_dtype='auto').eval()
         elif 'Qwen2-Audio' in model_path:
@@ -536,15 +539,7 @@ class LlmExporter(torch.nn.Module):
         self.is_awq_quantized = True
 
     def export(self, export_type):
-        if self.args.awq:
-            self.awq_quant()
         export_mnn = export_type == 'mnn'
-        # export tokenizer
-        self.export_tokenizer()
-        if export_mnn and self.tie_word_embeddings:
-            pass # mnn tie_word_embeddings need't export embedding
-        else:
-            self.export_embed()
         if self.visual:
             visual_onnx = self.export_visual()
             if export_mnn:
@@ -553,6 +548,14 @@ class LlmExporter(torch.nn.Module):
             audio_onnx = self.export_audio()
             if export_mnn:
                 MNNConveter(audio_onnx, None, self).export(quant_bit=self.audio.quant_bit)
+        if self.args.awq:
+            self.awq_quant()
+        # export tokenizer
+        self.export_tokenizer()
+        if export_mnn and self.tie_word_embeddings:
+            pass # mnn tie_word_embeddings need't export embedding
+        else:
+            self.export_embed()
         # export graph to llm.onnx
         onnx_model = self.export_onnx()
         if self.args.onnx_slim:

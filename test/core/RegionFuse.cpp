@@ -9,9 +9,52 @@
 #include "MNNTestSuite.h"
 #include "MNN_generated.h"
 #include <MNN/Tensor.hpp>
+#include <string.h>
 #include "core/TensorUtils.hpp"
 
 using namespace MNN;
+static std::string _printRegion(const Tensor::InsideDescribe::Region& reg) {
+    char info[2048];
+    sprintf(info, "size: %d, %d, %d; src: %d, %d, %d, %d; dst: %d, %d, %d, %d", reg.size[0], reg.size[1], reg.size[2], reg.src.offset, reg.src.stride[0], reg.src.stride[1], reg.src.stride[2], reg.dst.offset, reg.dst.stride[0], reg.dst.stride[1], reg.dst.stride[2]);
+    info[2047] = 0;
+    return std::string(info);
+}
+static std::pair<size_t, size_t> _computeMinSrcDstSize(const Tensor::InsideDescribe::Region& reg) {
+    size_t srcSize = 1 + reg.src.offset;
+    size_t dstSize = 1 + reg.dst.offset;
+    for (int i=0; i<3; ++i) {
+        if (reg.src.stride[i] > 0) {
+            srcSize += reg.src.stride[i] * reg.size[i];
+        }
+        if (reg.dst.stride[i] > 0) {
+            dstSize += reg.dst.stride[i] * reg.size[i];
+        }
+    }
+    return std::make_pair(srcSize, dstSize);
+}
+static bool _computeRaw(std::vector<int>& dst, const std::vector<int>& src, const Tensor::InsideDescribe::Region& reg) {
+    int dstOffset = reg.dst.offset;
+    int srcOffset = reg.src.offset;
+    ::memset(dst.data(), 0, dst.size() * sizeof(int));
+    for (int z=0; z<reg.size[0]; ++z) {
+        int srcZ = srcOffset + z * reg.src.stride[0];
+        int dstZ = dstOffset + z * reg.dst.stride[0];
+        for (int y=0; y<reg.size[1]; ++y) {
+            int srcY = srcZ + y * reg.src.stride[1];
+            int dstY = dstZ + y * reg.dst.stride[1];
+            for (int x=0; x<reg.size[2]; ++x) {
+                int srcX = srcY + x * reg.src.stride[2];
+                int dstX = dstY + x * reg.dst.stride[2];
+                if (srcX < 0 || srcX >= src.size() || dstX < 0 || dstX >= dst.size()) {
+                    return false;
+                }
+                dst[dstX] = src[srcX];
+            }
+        }
+    }
+    return true;
+}
+
 class RegionFuseTest : public MNNTestCase {
 public:
     using Region = Tensor::InsideDescribe::Region;
@@ -76,6 +119,21 @@ public:
             dst.origin = nullptr;
             ::memcpy(&src, data[3 * i], 44);
             ::memcpy(&dst, data[3 * i + 1], 44);
+            auto srcSize = _computeMinSrcDstSize(src);
+            auto dstSize = _computeMinSrcDstSize(dst);
+            auto midSize = ALIMAX(srcSize.second, dstSize.first);
+            std::vector<int> srcData(srcSize.first);
+            std::vector<int> midData(midSize);
+            std::vector<int> dstData(dstSize.second);
+            std::vector<int> dstDataFuse(dstSize.second);
+            for (int v=0; v<srcSize.first; ++v) {
+                srcData[v] = v + 1;
+            }
+            auto computeRes = _computeRaw(midData, srcData, src);
+            MNN_ASSERT(computeRes);
+            computeRes = _computeRaw(dstData, midData, dst);
+            MNN_ASSERT(computeRes);
+
             bool fused = fuseUtils.match(src, dst);
             Region newDst = dst;
             if (fused) {
@@ -86,31 +144,17 @@ public:
             }
             if (!fused) {
                 MNN_ERROR("regionfuse %d test failed for fuse!\n", i);
+                auto srcStr = _printRegion(src);
+                auto dstStr = _printRegion(dst);
+                auto tarStr = _printRegion(newDst);
+                MNN_PRINT("Fuse Error:\n %s \n %s\n To: \n", srcStr.c_str(), dstStr.c_str());
+                MNN_PRINT("%s\n", tarStr.c_str());
                 return false;
             }
-            Region target;
-            ::memcpy(&target, data[3 * i + 2], 44);
-            if (target.src.offset != newDst.src.offset || target.dst.offset != newDst.dst.offset) {
-                MNN_ERROR("regionfuse %d test failed!\n", i);
+            computeRes = _computeRaw(dstDataFuse, srcData, newDst);
+            if ((0 != ::memcmp(dstDataFuse.data(), dstData.data(), dstData.size() * sizeof(int))) || (!computeRes)) {
+                MNN_ERROR("%d regionfuse compute error\n", i);
                 return false;
-            }
-            int cmp = ::memcmp(&newDst.size, target.size, 3 * sizeof(int));
-            if (cmp != 0) {
-                MNN_ERROR("regionfuse %d test size not match\n", i);
-                return false;
-            }
-            for (int u=0; u<3; ++u) {
-                if (newDst.size[u] == 1) {
-                    continue;
-                }
-                if (newDst.src.stride[u] != target.src.stride[u]) {
-                    MNN_ERROR("regionfuse %d test src stride not match\n", i);
-                    return false;
-                }
-                if (newDst.dst.stride[u] != target.dst.stride[u]) {
-                    MNN_ERROR("regionfuse %d test dst stride not match\n", i);
-                    return false;
-                }
             }
         }
         return true;
