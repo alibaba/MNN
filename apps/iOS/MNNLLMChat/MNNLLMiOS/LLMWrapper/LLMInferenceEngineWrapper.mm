@@ -69,9 +69,15 @@ bool remove_directory(const std::string& path) {
 
 - (BOOL)loadModelFromPath:(NSString *)modelPath {
     if (!llm) {
-        
         std::string config_path = std::string([modelPath UTF8String]) + "/config.json";
-
+        
+        // Read the config file to get use_mmap value
+        NSError *error = nil;
+        NSData *configData = [NSData dataWithContentsOfFile:[NSString stringWithUTF8String:config_path.c_str()]];
+        NSDictionary *configDict = [NSJSONSerialization JSONObjectWithData:configData options:0 error:&error];
+        // If use_mmap key doesn't exist, default to YES
+        BOOL useMmap = configDict[@"use_mmap"] == nil ? YES : [configDict[@"use_mmap"] boolValue];
+        
         llm.reset(Llm::createLLM(config_path));
         if (!llm) {
             return NO;
@@ -97,8 +103,17 @@ bool remove_directory(const std::string& path) {
             return NO;
         }
         std::cerr << "Temp directory created: " << temp_directory_path << std::endl;
+
+        // NSLog(@"useMmap value: %@", useMmap ? @"YES" : @"NO");
         
-        llm->set_config("{\"tmp_path\":\"" + temp_directory_path + "\", \"use_mmap\":true}");
+        // Explicitly convert BOOL to bool and ensure proper string conversion
+        bool useMmapCpp = (useMmap == YES);
+        std::string configStr = "{\"tmp_path\":\"" + temp_directory_path + "\", \"use_mmap\":" + (useMmapCpp ? "true" : "false") + "}";
+        // Debug print to check the final config string
+        // NSLog(@"Config string: %s", configStr.c_str());
+        
+        llm->set_config(configStr);
+        
         llm->load();
     }
     else {
