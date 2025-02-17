@@ -376,6 +376,10 @@ int delete_model(int argc, const char *argv[]) {
 }
 
 int main(int argc, const char *argv[]) {
+    if (argc < 2) {
+        print_usage();
+        return 0;
+    }
     std::string cmd = argv[1];
     if (cmd == "list") {
         list_models(argc, argv);
