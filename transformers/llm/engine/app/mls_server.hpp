@@ -258,8 +258,10 @@ class MlsServer {
 </body>
 </html>
     )""";
-    void Start(MNN::Transformer::Llm* llm);
+    void Start(MNN::Transformer::Llm* llm, bool is_r1);
+    bool is_r1_{false};
 private:
+  void Answer(MNN::Transformer::Llm* llm, const json &messages, std::function<void(const std::string&)> on_result);
   void AnswerStreaming(MNN::Transformer::Llm* llm,
                      const json& messages,
                      std::function<void(const std::string&, bool end)> on_partial);

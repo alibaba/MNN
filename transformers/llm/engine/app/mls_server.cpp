@@ -37,7 +37,48 @@ bool FromJson(const json& j, PromptItem& item) {
   return true;
 }
 
-void Answer(MNN::Transformer::Llm* llm, const json &messages, std::function<void(const std::string&)> on_result) {
+std::string trimLeadingWhitespace(const std::string& str) {
+    auto it = std::find_if(str.begin(), str.end(), [](unsigned char ch) {
+        return !std::isspace(ch); // Find the first non-whitespace character
+    });
+    return std::string(it, str.end()); // Create a substring from the first non-whitespace character
+}
+
+    const std::string getR1AssistantString(std::string assistant_content) {
+    std::size_t pos = assistant_content.find("</think>");
+    if (pos != std::string::npos) {
+        assistant_content.erase(0, pos + std::string("</think>").length());
+    }
+    return trimLeadingWhitespace(assistant_content) + "<|end_of_sentence|>";
+}
+
+std::string GetR1UserString(std::string user_content, bool last) {
+    return "<|User|>" + std::string(user_content) + "<|Assistant|>";
+}
+
+    std::vector<PromptItem> ConvertToR1(std::vector<PromptItem> chat_prompts) {
+    std::vector<PromptItem> result_prompts = {};
+    std::string prompt_result = "";
+    result_prompts.emplace_back("system", "<|begin_of_sentence|>You are a helpful assistant.");
+    auto iter = chat_prompts.begin();
+    for (; iter != chat_prompts.end() - 1; ++iter) {
+        if (iter->first == "system") {
+            continue;
+        } else if (iter->first == "assistant") {
+            result_prompts.emplace_back("assistant", getR1AssistantString(iter->second));
+        } else if (iter->first == "user") {
+            result_prompts.emplace_back("user", GetR1UserString(iter->second, false));
+        }
+    }
+    if (iter->first == "user") {
+        result_prompts.emplace_back("user", GetR1UserString(iter->second, true));
+    } else {
+        result_prompts.emplace_back("assistant", getR1AssistantString(iter->second));
+    }
+    return result_prompts;
+}
+
+void MlsServer::Answer(MNN::Transformer::Llm* llm, const json &messages, std::function<void(const std::string&)> on_result) {
   std::vector<PromptItem> prompts{};
   if (messages.is_array()) {
     for (const auto& item_json : messages) {
@@ -63,8 +104,8 @@ void Answer(MNN::Transformer::Llm* llm, const json &messages, std::function<void
   LlmStreamBuffer stream_buffer{[&processor](const char* str, size_t len){
     processor.processStream(str, len);
   }};
-  std::ostream output_ostream(&stream_buffer);
-  llm->response(prompts, &output_ostream, "<eop>");
+  std::ostream output_ostream(&stream_buffer);std::lock_guard<std::mutex> lock(llm_mutex_);
+  llm->response(this->is_r1_ ? ConvertToR1(prompts) : prompts, &output_ostream, "<eop>");
 }
 
 void MlsServer::AnswerStreaming(MNN::Transformer::Llm* llm,
@@ -100,8 +141,10 @@ void MlsServer::AnswerStreaming(MNN::Transformer::Llm* llm,
     });
     std::ostream output_ostream(&stream_buffer);
     std::lock_guard<std::mutex> lock(llm_mutex_);
-    llm->response(prompts, &output_ostream, "<eop>");
+    llm->response(this->is_r1_ ? ConvertToR1(prompts) : prompts, &output_ostream, "<eop>");
 }
+
+
 
 void AllowCors(httplib::Response& res) {
     res.set_header("Access-Control-Allow-Origin",  "*");
@@ -109,7 +152,8 @@ void AllowCors(httplib::Response& res) {
     res.set_header("Access-Control-Allow-Headers",  "Content-Type, Authorization");
 }
 
-void MlsServer::Start(MNN::Transformer::Llm* llm) {
+void MlsServer::Start(MNN::Transformer::Llm* llm, bool is_r1) {
+    this->is_r1_ = is_r1;
     // Create a server instance
     httplib::Server server;
 
