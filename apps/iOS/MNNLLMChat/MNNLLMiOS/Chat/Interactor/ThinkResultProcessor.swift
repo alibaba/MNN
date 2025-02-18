@@ -57,7 +57,7 @@ class ThinkResultProcessor {
             
             displayString = displayString.replacingOccurrences(of: "</think>", with: "")
             hasProcessed = true
-        } else if !hasProcessed && progress.contains("\n") {
+        } else if !hasProcessed && progress.contains("\n") && !progress.contains("\n >") {
             updatedProgress = updatedProgress.replacingOccurrences(of: "\n", with: "\n > ")
         }
         
