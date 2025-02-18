@@ -1,4 +1,4 @@
-# MNN-LLM Android App
+# MNN Chat Android App
 [中文版本](./README_CN.md)
 ## Introduction
 This is our full multimodal language model (LLM) Android app

@@ -17,7 +17,7 @@
   <img width="20%" alt="Icon"  src="./apps/Android/MnnLlmChat/assets/deepseek_support.gif" style="margin: 0 10px;">
 </p>
 
-- [2025/01/23] We released our full multimodal LLM Android App:[MNN-LLM-Android](./project/android/apps/MnnLlmApp/README.md). including text-to-text, image-to-text, audio-to-text, and text-to-image generation.
+- [2025/01/23] We released our full multimodal LLM Android App:[MNN-LLM-Android](./apps/Android/MnnLlmChat/README.md). including text-to-text, image-to-text, audio-to-text, and text-to-image generation.
 <p align="center">
   <img width="20%" alt="Icon"  src="./apps/Android/MnnLlmChat/assets/image_home.jpg" style="margin: 0 10px;">
   <img width="20%" alt="Icon" src="./apps/Android/MnnLlmChat/assets/image_diffusion.jpg" style="margin: 0 10px;">

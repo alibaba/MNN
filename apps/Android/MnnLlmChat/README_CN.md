@@ -1,4 +1,4 @@
-# MNN 大模型 Android App
+# MNN Chat Android App
 
 ## 简介
 这是我们的全功能多模态语言模型（LLM）安卓应用。
