@@ -123,7 +123,7 @@ class MlsServer {
     const OPENAI_API_KEY = "no";  // put your real key or leave "no" if your server doesn't check it
     const OPENAI_MODEL = "unknown";
     let messages = [
-      { role: "system", content: "Current model: gpt-4o\nCurrent date: 2025-02-17T09:51:20.496Z\nYou are a helpful assistant." },
+      { role: "system", content: "You are a helpful assistant." },
     ];
 
     async function resetChat() {
