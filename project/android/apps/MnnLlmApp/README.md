@@ -1,5 +1,5 @@
 # MNN-LLM Android App
-**The App has been renamed "MNN Chat" the home page has bee moved to [Here](../../../../apps/Android/MnnLlmChat/README.md)**
+**The App has been renamed "MNN Chat" and the home page has been moved to [Here](../../../../apps/Android/MnnLlmChat/README.md)**
 
 [中文版本](./README_CN.md)
 ## Introduction
