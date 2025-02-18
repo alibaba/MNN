@@ -15,5 +15,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "MnnLlmApp"
+rootProject.name = "MnnLlmChat"
 include ':app'

@@ -1,15 +1,13 @@
 # MNN 大模型 Android App
 
-**App 已经重命名为 "MNN Chat" 并且主页被移动到 [这里](../../../../apps/Android/MnnLlmChat/README_CN.md)**
-
 ## 简介
 这是我们的全功能多模态语言模型（LLM）安卓应用。
 
 <p align="center">
-  <img width="20%" alt="Icon"  src="../../../../apps/Android/MnnLlmChat/assets/image_home.jpg" style="margin: 0 10px;">
-  <img width="20%" alt="Icon" src="../../../../apps/Android/MnnLlmChat/assets/image_diffusion.jpg" style="margin: 0 10px;">
-  <img width="20%" alt="Icon" src="../../../../apps/Android/MnnLlmChat/assets/image_sound.jpg" style="margin: 0 10px;">
-  <img width="20%" alt="Icon" src="../../../../apps/Android/MnnLlmChat/assets/image_image.jpg" style="margin: 0 10px;">
+  <img width="20%" alt="Icon"  src="../../../apps/Android/MnnLlmChat/assets/image_home.jpg" style="margin: 0 10px;">
+  <img width="20%" alt="Icon" src="./assets/image_diffusion.jpg" style="margin: 0 10px;">
+  <img width="20%" alt="Icon" src="./assets/image_sound.jpg" style="margin: 0 10px;">
+  <img width="20%" alt="Icon" src="./assets/image_image.jpg" style="margin: 0 10px;">
 </p>
 
 
@@ -19,7 +17,7 @@
 
 + **CPU推理优化：** 在安卓平台上，MNN-LLM展现了卓越的CPU性能，预填充速度相较于llama.cpp提高了8.6倍，相较于fastllm提升了20.5倍，解码速度分别快了2.3倍和8.9倍。下图为 llama.cpp 与 MNN-LLM 与 llama.cpp 的比较。
 <p align="center">
-  <img width="60%"   src="../../../../apps/Android/MnnLlmChat/assets/compare.gif" style="margin: 0 10px;">
+  <img width="60%"   src="./assets/compare.gif" style="margin: 0 10px;">
 </p>
 
 
@@ -35,6 +33,28 @@
 
  !!!warning!!!  此版本目前仅在 OnePlus 13 和 小米 14 Ultra 上进行了测试。由于大型语言模型（LLM）对设备性能要求较高，许多低配置设备可能会遇到以下问题：推理速度缓慢、应用不稳定甚至无法运行。对于其他设备的稳定性无法保证。如果您在使用过程中遇到问题，请随时提交问题以获取帮助。
 
+
+# 开发 
++ 克隆代码库：
+  ```shell
+    git clone https://github.com/alibaba/MNN.git
+  ```
++ 构建库：
+  ```shell
+  cd project/android
+  mkdir build_64
+  ../build_64.sh "-DMNN_LOW_MEMORY=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true -DMNN_ARM82=true -DMNN_USE_LOGCAT=true -DMNN_OPENCL=true -DLLM_SUPPORT_VISION=true -DMNN_BUILD_OPENCV=true -DMNN_IMGCODECS=true -DLLM_SUPPORT_AUDIO=true -DMNN_BUILD_AUDIO=true -DMNN_BUILD_DIFFUSION=ON -DMNN_SEP_BUILD=ON"
+  ```
++ 复制到 LLM Android 应用项目：
+  ```shell
+  mkdir -p ../../../apps/Android/MnnLlmChat/app/src/main/jniLibs/arm64-v8a
+  find . -name "*.so" -exec cp {} ../../../apps/Android/MnnLlmChat/app/src/main/jniLibs/arm64-v8a \;
+  ```
++ 构建 Android 应用项目并安装：
+  ```shell
+  cd ../../../apps/Android/MnnLlmChat
+  ./gradlew installDebug
+  ```
 
 # Releases
 ## Version 0.2.2
