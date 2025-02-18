@@ -699,7 +699,6 @@ std::vector<int> Llm::tokenizer_encode(const std::string& user_content, bool use
 }
 
 void Llm::response(const std::string& user_content, std::ostream* os, const char* end_with, int max_new_tokens) {
-    std::cout<<"prompts: "<<user_content<<std::endl;
     if (!end_with) {
         end_with = "\n";
     }
