@@ -100,6 +100,14 @@ const char* getUserString(const char* user_content, bool for_history) {
     }
 }
 
+const std::string getR1AssistantString(std::string assistant_content) {
+    std::size_t pos = assistant_content.find("</think>");
+    if (pos != std::string::npos) {
+        assistant_content.erase(0, pos + std::string("</think>").length());
+    }
+    return trimLeadingWhitespace(assistant_content) + "<|end_of_sentence|>";
+}
+
 extern "C" {
 
 JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void* reserved) {
@@ -166,7 +174,7 @@ JNIEXPORT jlong JNICALL Java_com_alibaba_mnnllm_android_ChatSession_initNative(J
                 if (i % 2 == 0) {
                     history.emplace_back("user",getUserString(elementCStr, true));
                 } else {
-                    history.emplace_back("assistant",elementCStr);
+                    history.emplace_back("assistant", getR1AssistantString(elementCStr));
                 }
             } else {
                 history.emplace_back(i % 2 == 0 ? "user" : "assistant",elementCStr);
@@ -215,11 +223,7 @@ JNIEXPORT jobject JNICALL Java_com_alibaba_mnnllm_android_ChatSession_submitNati
                 if (user_think_pos != std::string::npos) {
                     last_message.second.erase(user_think_pos, std::string("<think>\n").length());
                 }
-                std::size_t pos = response_result.find("</think>");
-                if (pos != std::string::npos) {
-                    response_result.erase(0, pos + std::string("</think>").length());
-                }
-                response_result = trimLeadingWhitespace(response_result) + "<|end_of_sentence|>";
+                response_result = getR1AssistantString(response_result);
             }
             history.emplace_back("assistant", response_result);
         }

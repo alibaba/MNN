@@ -65,7 +65,7 @@ public interface GenerateResultProcessor {
 
         @Override
         public String getRawResult() {
-            return processEnded ? rawStringBuilder.toString().trim() + "<|end_of_sentence|>" : super.getRawResult();
+            return super.getRawResult();
         }
 
         @Override
@@ -85,12 +85,7 @@ public interface GenerateResultProcessor {
                 processEnded = true;
                 return;
             }
-            if (hasThinkProcessed) {
-                rawStringBuilder.append(progress);
-            }
             rawStringBuilder.append(progress);
-            //uncomment this to debug long output
-            //FileUtils.saveStringToFile(ApplicationUtils.get(), "r1_result.txt", rawStringBuilder.toString());
             if (progress.contains("</think>")) {
                 progress = progress.replace("</think>", "\n");
                 long thinkTime = (System.currentTimeMillis() - this.generateBeginTime) / 1000;

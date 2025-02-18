@@ -23,9 +23,13 @@ static void tuning_prepare(Llm *llm) {
     MNN_PRINT("Prepare for tuning opt End\n");
 }
 
-static std::unique_ptr<Llm> create_and_prepare_llm(const char *config_path) {
+static std::unique_ptr<Llm> create_and_prepare_llm(const char *config_path, bool use_template) {
     std::unique_ptr<Llm> llm(Llm::createLLM(config_path));
-    llm->set_config("{\"tmp_path\":\"tmp\"}");
+    if (use_template) {
+        llm->set_config("{\"tmp_path\":\"tmp\"}");
+    } else {
+        llm->set_config("{\"tmp_path\":\"tmp\",\"use_template\":false}");
+    }
     {
         AUTOTIME;
         llm->load();
@@ -152,6 +156,12 @@ static int list_models(int argc, const char *argv[]) {
     return 0;
 }
 
+static bool IsR1(const std::string& path) {
+    std::string lowerModelName = path;
+    std::transform(lowerModelName.begin(), lowerModelName.end(), lowerModelName.begin(), ::tolower);
+    return lowerModelName.find("deepseek-r1") != std::string::npos;
+}
+
 static int serve(int argc, const char *argv[]) {
     bool invalid_param{false};
     std::string config_path{};
@@ -175,8 +185,9 @@ static int serve(int argc, const char *argv[]) {
         }
     }
     mls::MlsServer server;
-    auto llm = create_and_prepare_llm(config_path.c_str());
-    server.Start(llm.get());
+    bool is_r1 = IsR1(config_path);
+    auto llm = create_and_prepare_llm(config_path.c_str(), !is_r1);
+    server.Start(llm.get(), is_r1);
     return 0;
 }
 
@@ -219,7 +230,7 @@ static int benchmark(int argc, const char *argv[]) {
         print_usage();
         exit(1);
     }
-    auto llm = create_and_prepare_llm(config_path.c_str());
+    auto llm = create_and_prepare_llm(config_path.c_str(), true);
     mls::LLMBenchmark benchmark;
     benchmark.Start(llm.get(), {});
     return 0;
@@ -376,6 +387,10 @@ int delete_model(int argc, const char *argv[]) {
 }
 
 int main(int argc, const char *argv[]) {
+    if (argc < 2) {
+        print_usage();
+        return 0;
+    }
     std::string cmd = argv[1];
     if (cmd == "list") {
         list_models(argc, argv);

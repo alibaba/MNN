@@ -5,7 +5,10 @@
 
 #pragma once
 #include "llm/llm.hpp"
-
+#include "httplib.h"
+#include "jsonhpp/json.hpp"
+using nlohmann::json;
+using PromptItem = std::pair<std::string, std::string>;
 namespace mls {
 class LlmStreamBuffer : public std::streambuf {
 public:
@@ -61,146 +64,208 @@ class Utf8StreamProcessor {
 class MlsServer {
   public:
     const char* html_content = R"""(
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-      <meta charset="UTF-8" />
-      <title>MNN Frontend</title>
-      <style>
-        body {
-          font-family: sans-serif;
-          margin: 2rem;
-        }
-        #chat-container {
-          border: 1px solid #ccc;
-          border-radius: 4px;
-          padding: 1rem;
-          height: 400px;
-          overflow-y: auto;
-          margin-bottom: 1rem;
-        }
-        .message {
-          margin: 0.5rem 0;
-        }
-        .user {
-          color: #333;
-          font-weight: bold;
-        }
-        .assistant {
-          color: #007bff;
-        }
-        #user-input {
-          width: 80%;
-          padding: 0.5rem;
-          font-size: 1rem;
-        }
-        .button {
-          padding: 0.5rem 1rem;
-          font-size: 1rem;
-          cursor: pointer;
-        }
-      </style>
-    </head>
-    <body>
-      <h1>Chat with MNN</h1>
-      <h3>MNN-LLM's server api is  openai api compatible , you can use other frameworks like openwebui,lobechat</h3>
-      <div id="chat-container"></div>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>MNN Frontend</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      margin: 2rem;
+    }
+    #chat-container {
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      padding: 1rem;
+      height: 400px;
+      overflow-y: auto;
+      margin-bottom: 1rem;
+    }
+    .message {
+      margin: 0.5rem 0;
+    }
+    .user {
+      color: #333;
+      font-weight: bold;
+    }
+    .assistant {
+      color: #007bff;
+    }
+    #user-input {
+      width: 80%;
+      padding: 0.5rem;
+      font-size: 1rem;
+    }
+    .button {
+      padding: 0.5rem 1rem;
+      font-size: 1rem;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <h1>Chat with MNN</h1>
+  <h3>MNN-LLM's server API is OpenAI API compatible. You can use other frameworks like OpenWebUI or LobeChat.</h3>
+  <div id="chat-container"></div>
 
-      <input
-        type="text"
-        id="user-input"
-        placeholder="Type your message here..."
-        onkeydown="if(event.key==='Enter'){ sendMessage(); }"
-      />
-      <br/>
-      <button id="send-btn" class='button' onclick="sendMessage()">Send</button>
-      <button id="reset-btn" class='button' onclick="resetChat()">Reset</button>
+  <input
+    type="text"
+    id="user-input"
+    placeholder="Type your message here..."
+    onkeydown="if(event.key==='Enter'){ sendMessage(); }"
+  />
+  <br />
+  <button id="send-btn" class="button" onclick="sendMessage()">Send</button>
+  <button id="reset-btn" class="button" onclick="resetChat()">Reset</button>
 
-      <script>
-        const OPENAI_API_KEY = "no";
-        const OPENAI_MODEL = "unknown";
-        const messages = [
-          {
-            role: "system",
-            content: "You are a helpful assistant.",
+  <script>
+    const OPENAI_API_KEY = "no";  // put your real key or leave "no" if your server doesn't check it
+    const OPENAI_MODEL = "unknown";
+    let messages = [
+      { role: "system", content: "You are a helpful assistant." },
+    ];
+
+    async function resetChat() {
+      document.getElementById("user-input").value = "";
+      document.getElementById("chat-container").innerHTML = "";
+      messages = [];
+
+      await fetch("/reset", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${OPENAI_API_KEY}`,
+        },
+        body: JSON.stringify({ reset: true }),
+      });
+    }
+
+    async function sendMessage() {
+      const userInput = document.getElementById("user-input").value.trim();
+      if (!userInput) return;
+
+      // Display user message
+      displayMessage(userInput, "user");
+      document.getElementById("user-input").value = "";
+
+      messages.push({ role: "user", content: userInput });
+
+      try {
+        // We set "stream": true to indicate we want SSE streaming from our server
+        const payload = {
+          model: OPENAI_MODEL,
+          messages: messages,
+          max_tokens: 100,
+          temperature: 0.7,
+          stream: true,
+        };
+
+        const response = await fetch("/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${OPENAI_API_KEY}`,
+            Accept: "text/event-stream",
           },
-        ];
+          body: JSON.stringify(payload),
+        });
 
-        async function resetChat() {
-            document.getElementById('user-input').value = '';
-            document.getElementById('chat-container').innerHTML = '';
-            messages= [];
-            const response = await fetch("/reset", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${OPENAI_API_KEY}`,
-              },
-              body:reset,
-            });
+        if (!response.ok) {
+          throw new Error(`Error: ${response.status} - ${response.statusText}`);
         }
 
-        async function sendMessage() {
-          const userInput = document.getElementById("user-input").value.trim();
-          if (!userInput) return;
+        // Prepare to stream the response
+        await handleStream(response);
 
-          displayMessage(userInput, "user");
-          document.getElementById("user-input").value = "";
+      } catch (error) {
+        displayMessage(`Error: ${error.message}`, "assistant");
+      }
+    }
 
-          messages.push({
-            role: "user",
-            content: userInput,
-          });
+    async function handleStream(response) {
+      // We'll accumulate tokens into this variable
+      let assistantMessage = "";
 
-          try {
-            const response = await fetch("/v1/chat/completions", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${OPENAI_API_KEY}`,
-              },
-              body: JSON.stringify({
-                model: OPENAI_MODEL,
-                messages: messages,
-                max_tokens: 100,
-                temperature: 0.7,
-              }),
-            });
+      // Create a DOM element for the assistant's streaming message
+      const chatContainer = document.getElementById("chat-container");
+      const messageElem = document.createElement("div");
+      messageElem.classList.add("message", "assistant");
+      messageElem.innerHTML = `<strong class="assistant">Assistant:</strong> <span></span>`;
+      chatContainer.appendChild(messageElem);
+      chatContainer.scrollTop = chatContainer.scrollHeight;
+      const messageTextSpan = messageElem.querySelector("span");
 
-            if (!response.ok) {
-              throw new Error(`Error: ${response.status} - ${response.statusText}`);
+      // Read the response body as a stream
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder("utf-8");
+
+      try {
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) {
+            break;
+          }
+
+          const chunk = decoder.decode(value, { stream: true });
+          const lines = chunk.split("\n");
+          for (let line of lines) {
+            if (!line || !line.startsWith("data: ")) {
+              continue;
+            }
+            const jsonStr = line.substring("data: ".length).trim();
+            if (jsonStr === "[DONE]") {
+              messages.push({ role: "assistant", content: assistantMessage });
+              return;
             }
 
-            const data = await response.json();
-            const assistantMessage = data.choices[0].message.content;
-            messages.push({
-              role: "assistant",
-              content: assistantMessage,
-            });
-
-            displayMessage(assistantMessage, "assistant");
-          } catch (error) {
-            displayMessage(`Error: ${error.message}`, "assistant");
+            try {
+              const parsed = JSON.parse(jsonStr);
+              if (parsed.choices && parsed.choices.length > 0) {
+                const deltaContent = parsed.choices[0].delta.content;
+                if (deltaContent) {
+                  assistantMessage += deltaContent;
+                  // Update the DOM text
+                  messageTextSpan.textContent = assistantMessage;
+                  chatContainer.scrollTop = chatContainer.scrollHeight;
+                }
+              }
+            } catch (e) {
+              console.error("Could not parse SSE line:", e, line);
+            }
           }
         }
+      } finally {
+        reader.releaseLock();
+      }
+    }
 
-        function displayMessage(text, sender) {
-          const chatContainer = document.getElementById("chat-container");
-          const messageElem = document.createElement("div");
-          messageElem.classList.add("message", sender);
-          if (sender === "user") {
-            messageElem.innerHTML = `<strong class="user">User:</strong> ${text}`;
-          } else {
-            messageElem.innerHTML = `<strong class="assistant">Assistant:</strong> ${text}`;
-          }
+    function displayMessage(text, sender) {
+      const chatContainer = document.getElementById("chat-container");
+      const messageElem = document.createElement("div");
+      messageElem.classList.add("message", sender);
 
-          chatContainer.appendChild(messageElem);
-          chatContainer.scrollTop = chatContainer.scrollHeight;
-        }
-      </script>
-    </body>
-    </html>
+      if (sender === "user") {
+        messageElem.innerHTML = `<strong class="user">User:</strong> ${text}`;
+      } else {
+        messageElem.innerHTML = `<strong class="assistant">Assistant:</strong> ${text}`;
+      }
+
+      chatContainer.appendChild(messageElem);
+      chatContainer.scrollTop = chatContainer.scrollHeight;
+    }
+  </script>
+</body>
+</html>
     )""";
-    void Start(MNN::Transformer::Llm* llm);
+    void Start(MNN::Transformer::Llm* llm, bool is_r1);
+    bool is_r1_{false};
+private:
+  void Answer(MNN::Transformer::Llm* llm, const json &messages, std::function<void(const std::string&)> on_result);
+  void AnswerStreaming(MNN::Transformer::Llm* llm,
+                     const json& messages,
+                     std::function<void(const std::string&, bool end)> on_partial);
+    std::mutex llm_mutex_;
+
 };
 }
