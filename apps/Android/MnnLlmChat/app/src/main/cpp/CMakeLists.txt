@@ -29,7 +29,8 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
         llm_mnn_jni.cpp
         diffusion_session.cpp)
 #mnn
-set (MNN_ROOT "${CMAKE_SOURCE_DIR}/../../../../../../../../")
+set (MNN_ROOT "${CMAKE_SOURCE_DIR}/../../../../../../../")
+message(ERROR "MNN_ROOT: ${MNN_ROOT}")
 include_directories("${MNN_ROOT}/include/")
 
 #diffusion

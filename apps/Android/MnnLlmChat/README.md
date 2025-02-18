@@ -1,15 +1,13 @@
-# MNN-LLM Android App
-**The App has been renamed "MNN Chat" and the home page has been moved to [Here](../../../../apps/Android/MnnLlmChat/README.md)**
-
+# MNN Chat Android App
 [中文版本](./README_CN.md)
 ## Introduction
 This is our full multimodal language model (LLM) Android app
 
 <p align="center">
-  <img width="20%" alt="Icon"  src="../../../../apps/Android/MnnLlmChat/assets/image_home.jpg" style="margin: 0 10px;">
-  <img width="20%" alt="Icon" src="../../../../apps/Android/MnnLlmChat/assets/image_diffusion.jpg" style="margin: 0 10px;">
-  <img width="20%" alt="Icon" src="../../../../apps/Android/MnnLlmChat/assets/image_sound.jpg" style="margin: 0 10px;">
-  <img width="20%" alt="Icon" src="../../../../apps/Android/MnnLlmChat/assets/image_image.jpg" style="margin: 0 10px;">
+  <img width="20%" alt="Icon"  src="./assets/image_home.jpg" style="margin: 0 10px;">
+  <img width="20%" alt="Icon" src="./assets/image_diffusion.jpg" style="margin: 0 10px;">
+  <img width="20%" alt="Icon" src="./assets/image_sound.jpg" style="margin: 0 10px;">
+  <img width="20%" alt="Icon" src="./assets/image_image.jpg" style="margin: 0 10px;">
 </p>
 
 
@@ -35,6 +33,28 @@ This is our full multimodal language model (LLM) Android app
  !!!warning!!! This version has been tested exclusively on the OnePlus 13 and Xiaomi 14 Ultra, Due to the demanding performance requirements of large language models (LLMs), many budget or low-spec devices may experience issues such as slow inference speeds, application instability, or even failure to run entirely. and its stability on other devices cannot be guaranteed. If you encounter any issues, please feel free to open an issue for assistance.
 
 
+# Development
++ Clone the repository:
+  ```shell
+    git clone https://github.com/alibaba/MNN.git
+  ```
++ Build library:
+  ```shell
+  cd project/android
+  mkdir build_64
+  ../build_64.sh "-DMNN_LOW_MEMORY=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true -DMNN_ARM82=true -DMNN_USE_LOGCAT=true -DMNN_OPENCL=true -DLLM_SUPPORT_VISION=true -DMNN_BUILD_OPENCV=true -DMNN_IMGCODECS=true -DLLM_SUPPORT_AUDIO=true -DMNN_BUILD_AUDIO=true -DMNN_BUILD_DIFFUSION=ON -DMNN_SEP_BUILD=ON"
+  ```
++ copy to llm android app project
+  ```shell
+  mkdir -p ../../../apps/Android/MnnLlmChat/app/src/main/jniLibs/arm64-v8a
+  find . -name "*.so" -exec cp {} ../../../apps/Android/MnnLlmChat/app/src/main/jniLibs/arm64-v8a \;
+  ```
++ build android app project and install
+  ```shell
+  cd ../../../apps/Android/MnnLlmChat
+  ./gradlew installDebug
+  ```
+
 # Releases
 ## Version 0.2.2
 + Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_d_0_2_2.apk)
@@ -59,7 +79,7 @@ This is our full multimodal language model (LLM) Android app
 ## Version 0.1
 + Click here to [download](https://meta.alicdn.com/data/mnn/mnn_llm_app_debug_0_1.apk)
 + this is our first public released version; you can :
-  + search all our supported models, download  and chat with it in the app; 
+  + search all our supported models, download  and chat with it in the app;
   + diffusion model:
     + stable-diffusion-v1-5
   + audio model:
@@ -76,7 +96,7 @@ This is our full multimodal language model (LLM) Android app
 MNN-LLM is a versatile inference framework designed to optimize and accelerate the deployment of large language models on both mobile devices and local PCs, addressing challenges like high memory consumption and computational costs through innovations such as model quantization, hybrid storage, and hardware-specific optimizations. In CPU benchmarking, MNN-LLM excels, achieving prefill speed boosts of 8.6x over llama.cpp and 20.5x over fastllm, complemented by decoding speeds that are 2.3x and 8.9x faster, respectively. In
 GPU-based assessments, MNN-LLM’s performance slightly declines
 compared to MLC-LLM, particularly when using Qwen2-7B with shorter prompts, due to MLC-LLM’s advantageous symmetric quantization technique. MNN-LLM excels, achieving up to 25.3x faster prefill and 7.1x faster decoding than llama.cpp, and 2.8x and 1.7x improvements over MLC-LLM, respectively.
- For more detailed information, please refer to the paper:[MNN-LLM: A Generic Inference Engine for Fast Large LanguageModel Deployment on Mobile Devices](https://dl.acm.org/doi/pdf/10.1145/3700410.3702126) 
+ For more detailed information, please refer to the paper:[MNN-LLM: A Generic Inference Engine for Fast Large LanguageModel Deployment on Mobile Devices](https://dl.acm.org/doi/pdf/10.1145/3700410.3702126)
 
 
 # Acknowledgements

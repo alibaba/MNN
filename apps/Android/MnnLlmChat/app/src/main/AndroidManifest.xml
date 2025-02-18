@@ -17,7 +17,7 @@
         android:roundIcon="@drawable/ic_launcher"
         android:supportsRtl="true"
         android:name="com.alibaba.mnnllm.android.DemoApplication"
-        android:theme="@style/Theme.MnnLlmApp"
+        android:theme="@style/Theme.MnnLlmChat"
         tools:targetApi="31">
         <uses-native-library android:name="libOpenCL.so"
             android:required="true"/>
@@ -52,7 +52,6 @@
             />
 
         <activity android:name=".chat.SelectTextActivity"
-            android:theme="@style/Theme.MnnLlmApp"
             android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
