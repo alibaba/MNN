@@ -25,7 +25,7 @@ class ThinkResultProcessor {
     }
     
     func startNewChat() {
-        displayString = ""
+        displayString = "> "
         hasProcessed = false
         self.startGeneration()
     }
@@ -45,23 +45,14 @@ class ThinkResultProcessor {
         var rawBuilder = ""
         rawBuilder.append(progress)
         
-        if progress.contains("</think>") {
+        if progress.contains("</think>")   {
             updatedProgress = updatedProgress.replacingOccurrences(of: "</think>", with: "\n")
-            let thinkDuration = Int(Date().timeIntervalSince1970 - startTime)
-            let prefixEndIndex = displayString.index(displayString.startIndex, offsetBy: thinkingPrefix.count, limitedBy: displayString.endIndex) ?? displayString.endIndex
-            
-            displayString.replaceSubrange(
-                displayString.startIndex..<prefixEndIndex,
-                with: completePrefix.replacingOccurrences(of: "ss", with: "\(thinkDuration)")
-            )
-            
-            displayString = displayString.replacingOccurrences(of: "</think>", with: "")
             hasProcessed = true
         } else if !hasProcessed && progress.contains("\n") && !progress.contains("\n >") {
             updatedProgress = updatedProgress.replacingOccurrences(of: "\n", with: "\n > ")
         }
         
         displayString.append(updatedProgress)
-        return displayString.replacingOccurrences(of: "<think>", with: "> ")
+        return displayString
     }
 }
