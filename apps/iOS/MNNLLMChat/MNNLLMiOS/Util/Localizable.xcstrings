@@ -275,7 +275,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "使用Hugging Face下载"
+            "value" : "使用HuggingFace下载"
           }
         }
       }
@@ -295,7 +295,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "使用ModelScop下载"
+            "value" : "使用ModelScope下载"
           }
         }
       }

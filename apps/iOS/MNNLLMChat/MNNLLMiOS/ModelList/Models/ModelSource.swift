@@ -14,9 +14,9 @@ enum ModelSource: String, CaseIterable {
     var description: String {
         switch self {
         case .modelScope:
-            return "Use ModelScope"
+            return NSLocalizedString("Use ModelScope", comment: "")
         case .huggingFace:
-            return "Use Hugging Face"
+            return NSLocalizedString("Use Hugging Face", comment: "")
         }
     }
 } 

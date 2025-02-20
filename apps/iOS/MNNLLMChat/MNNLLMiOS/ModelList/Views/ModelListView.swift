@@ -132,12 +132,6 @@ struct ModelListView: View {
         }
         .actionSheet(isPresented: $showSettings) {
             ActionSheet(title: Text("Settings"), buttons: [
-                .default(Text(ModelSource.modelScope.description)) {
-                    ModelSourceManager.shared.updateSelectedSource(.modelScope)
-                },
-                .default(Text(ModelSource.huggingFace.description)) {
-                    ModelSourceManager.shared.updateSelectedSource(.huggingFace)
-                },
                 .default(Text("Report an Issue")) {
                     webViewURL = URL(string: "https://github.com/alibaba/MNN/issues")
                     showWebView = true
@@ -145,6 +139,12 @@ struct ModelListView: View {
                 .default(Text("Go to MNN Homepage")) {
                     webViewURL = URL(string: "https://github.com/alibaba/MNN")
                     showWebView = true
+                },
+                .default(Text(ModelSource.modelScope.description)) {
+                    ModelSourceManager.shared.updateSelectedSource(.modelScope)
+                },
+                .default(Text(ModelSource.huggingFace.description)) {
+                    ModelSourceManager.shared.updateSelectedSource(.huggingFace)
                 },
                 .cancel()
             ])
