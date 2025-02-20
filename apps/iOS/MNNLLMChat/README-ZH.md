@@ -7,13 +7,23 @@
 纯本地运行，隐私性强。当模型下载到本地之后，所有的对话都将在本地进行，不会有任何网络上传处理。
 
 
+[02/20/2025]新增：
+
+- 支持配置mmap和手动缓存清理
+
+- 支持使用 ModelScope 源进行模型下载
+
+| <img width="200" alt="image" src="./assets/usemmap.PNG" /> | <img width="200" alt="image" src="./assets/downloadSource.PNG" /> |
+
+
 ## 功能：
 
 1. 模型列表
     - 获取 MNN 支持的模型礼拜；
     - 模型管理，支持下载和删除模型；
+        - 支持切换 Hugging Face 和 ModelScope 源
     - 模型搜索，支持本地模型搜索；
-2. 多模态聊天对话：支持完整的Markdown格式输出
+2. 多模态聊天对话：支持完整的Markdown格式输出，支持配置mmap
     - 文本到文本
     - 语音到文本
     - 图片到文本，图片可以拍摄输入或从图库中选择
