@@ -301,29 +301,16 @@ public actor ModelScopeDownloadManager: Sendable {
             } else if file.type == "blob" {
                 ModelScopeLogger.debug("Downloading: \(file.name)")
                 if !storage.isFileDownloaded(file, at: destinationPath) {
-                    
-                    let destination = URL(fileURLWithPath: destinationPath)
-                        .appendingPathComponent(file.name.sanitizedPath)
-                    
-                    let url = try buildURL(
-                        path: "/repo",
-                        queryItems: [
-                            URLQueryItem(name: "Revision", value: "master"),
-                            URLQueryItem(name: "FilePath", value: file.path)
-                        ]
-                    )
-
                     try await downloadFile(
                         file: file,
                         destinationPath: destinationPath,
                         onProgress: { downloadedBytes in
                             let currentProgress = Double(self.downloadedSize + downloadedBytes) / Double(self.totalSize)
                             progress(currentProgress)
-                            // 检查是否达到1MB（1MB = 1,024 * 1,024 字节）
+                            // 1MB = 1,024 * 1,024
                            let bytesDelta = self.downloadedSize - self.lastUpdatedBytes
                            if bytesDelta >= 1_024 * 1_024 {
                                self.lastUpdatedBytes = self.downloadedSize
-                               // 在主线程上更新 Progress
                                DispatchQueue.main.async {
                                    progress(currentProgress)
                                }
