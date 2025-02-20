@@ -25,15 +25,38 @@ class ModelClient {
     }
 
     @MainActor
-    func downloadWithHub(model: ModelInfo,
-                         progress: @escaping (Double) -> Void) async throws {
-        let repo = Hub.Repo(id: model.modelId)
-        let modelFiles = ["*.*"]
-        
-        let mirrorHubApi = HubApi(endpoint:"https://hf-mirror.com")
-        try await mirrorHubApi.snapshot(from: repo, matching: modelFiles) { fileProgress in
-            progress(fileProgress.fractionCompleted)
+    func downloadModel(model: ModelInfo,
+                       progress: @escaping (Double) -> Void) async throws {
+        switch ModelSourceManager.shared.selectedSource {
+        case .modelScope:
+            try await downloadFromModelScope(model, progress: progress)
+        case .huggingFace:
+            try await downloadFromHuggingFace(model, progress: progress)
         }
+    }
+
+    private func downloadFromModelScope(_ model: ModelInfo,
+                                        progress: @escaping (Double) -> Void) async throws {
+        let ModelScopeId = model.modelId.replacingOccurrences(of: "taobao-mnn", with: "MNN")
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 30
+        config.timeoutIntervalForResource = 300
+        
+        let manager = ModelScopeDownloadManager.init(repoPath: ModelScopeId, config: config, enableLogging: false)
+        
+        try await manager.downloadModel(to:"huggingface/models/taobao-mnn", modelId: ModelScopeId, modelName: model.name) { fileProgress in
+            progress(fileProgress)
+        }
+    }
+
+    private func downloadFromHuggingFace(_ model: ModelInfo,
+                                         progress: @escaping (Double) -> Void) async throws {
+       let repo = Hub.Repo(id: model.modelId)
+       let modelFiles = ["*.*"]
+       let mirrorHubApi = HubApi(endpoint:"https://hf-mirror.com")
+       try await mirrorHubApi.snapshot(from: repo, matching: modelFiles) { fileProgress in
+           progress(fileProgress.fractionCompleted)
+       }
     }
     
     private func performRequest<T: Decodable>(url: URL, retries: Int = 3) async throws -> T {

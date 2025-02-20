@@ -128,6 +128,16 @@
         }
       }
     },
+    "Go to MNN Homepage" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "查看 MNN 主页"
+          }
+        }
+      }
+    },
     "Help" : {
       "localizations" : {
         "zh-Hans" : {
@@ -219,6 +229,16 @@
         }
       }
     },
+    "Report an Issue" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "反馈问题"
+          }
+        }
+      }
+    },
     "Search models..." : {
       "localizations" : {
         "zh-Hans" : {
@@ -250,12 +270,32 @@
         }
       }
     },
+    "Use Hugging Face" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "使用Hugging Face下载"
+          }
+        }
+      }
+    },
     "Use mmap" : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "使用 mmap"
+          }
+        }
+      }
+    },
+    "Use ModelScope" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "使用ModelScop下载"
           }
         }
       }
