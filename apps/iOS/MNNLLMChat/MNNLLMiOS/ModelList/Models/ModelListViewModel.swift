@@ -99,7 +99,7 @@ class ModelListViewModel: ObservableObject {
                 options: [.skipsHiddenFiles]
             ) {
                 // 清理每个文件的下载状态
-                let storage = DownloadStorage()
+                let storage = ModelDownloadStorage()
                 for file in files {
                     storage.clearFileStatus(at: file.path)
                 }

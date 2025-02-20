@@ -7,51 +7,86 @@
 
 import Foundation
 
+// MARK: - ModelScopeDownloadManager
+
+/// A manager class that handles downloading models from ModelScope repository
+/// Supports features like:
+/// - Resume interrupted downloads
+/// - Progress tracking
+/// - File integrity validation
+/// - Directory structure preservation
 @available(iOS 13.0, macOS 10.15, *)
 public actor ModelScopeDownloadManager: Sendable {
+    // MARK: - Properties
     
     private let repoPath: String
-    private let baseURL = "https://modelscope.cn/api/v1/models"
     private let session: URLSession
     private let fileManager: FileManager
-    private let storage: DownloadStorage
+    private let storage: ModelDownloadStorage
+    private let baseURL = "https://modelscope.cn/api/v1"
     
-    private var totalFiles = 0
-    private var downloadedFiles = 0
+    private var totalFiles: Int = 0
+    private var downloadedFiles: Int = 0
     private var totalSize: Int64 = 0
     private var downloadedSize: Int64 = 0
     
+    // MARK: - Initialization
+    
+    /// Creates a new ModelScope download manager
+    /// - Parameters:
+    ///   - repoPath: The repository path in format "owner/model-name"
+    ///   - config: URLSession configuration for customizing network behavior.
+    ///             Use `.default` for standard downloads, `.background` for background downloads.
+    ///             Defaults to `.default`
+    ///   - enableLogging: Whether to enable debug logging. Defaults to true
+    /// - Note: When using background configuration, the app must handle URLSession background events
     public init(
         repoPath: String,
-        inBackground: Bool = true
+        config: URLSessionConfiguration = .default,
+        enableLogging: Bool = true
     ) {
         self.repoPath = repoPath
         self.fileManager = .default
-        self.storage = DownloadStorage()
-        
-        let config = URLSessionConfiguration.default
-        
-        config.timeoutIntervalForRequest = 30
-        config.timeoutIntervalForResource = 300
+        self.storage = ModelDownloadStorage()
         self.session = URLSession(configuration: config)
+        ModelScopeLogger.isEnabled = enableLogging
     }
     
     // MARK: - Public Methods
     
+    /// Downloads a model from ModelScope repository
+    /// - Parameters:
+    ///   - destinationPath: Local path where the model will be saved
+    ///   - revision: Model revision/version to download (defaults to latest)
+    ///   - progress: Closure called with download progress (0.0 to 1.0)
+    /// - Throws: ModelScopeError for network, file system, or validation failures
+    /// - Returns: Void when download completes successfully
+    ///
+    /// Example usage:
+    /// ```swift
+    /// let manager = ModelScopeDownloadManager(repoPath: "damo/Qwen-1.5B")
+    /// try await manager.downloadModel(
+    ///     to: "/path/to/models",
+    ///     progress: { progress in
+    ///         print("Download progress: \(progress * 100)%")
+    ///     }
+    /// )
+    /// Will download to /path/to/models/Qwen-1.5B
+    /// ```
     public func downloadModel(
         to destinationFolder: String = "",
         modelId: String,
         modelName: String,
         progress: ((Double) -> Void)? = nil
     ) async throws {
-        print("Starting download for modelId: \(modelId)")
+        ModelScopeLogger.info("Starting download for modelId: \(modelId)")
         
         let destination = try resolveDestinationPath(base: destinationFolder, modelId: modelName)
-        print("Will download to: \(destination)")
+        ModelScopeLogger.info("Will download to: \(destination)")
         
         let files = try await fetchFileList(root: "", revision: "")
         totalFiles = files.count
-        print("Fetched \(files.count) files")
+        ModelScopeLogger.info("Fetched \(files.count) files")
                 
         try await downloadFiles(
             files: files,
@@ -99,7 +134,7 @@ public actor ModelScopeDownloadManager: Sendable {
                     destinationPath: destinationPath,
                     onProgress: onProgress
                 )
-                return // 下载成功，直接返回
+                return
             } catch {
                 lastError = error
                 print("Download failed (attempt \(attempt)): \(error.localizedDescription)")
@@ -111,7 +146,6 @@ public actor ModelScopeDownloadManager: Sendable {
             }
         }
         
-        // 所有重试都失败了，抛出最后一个错误
         throw lastError ?? ModelScopeError.downloadFailed(NSError(
             domain: "ModelScope",
             code: -1,
@@ -124,16 +158,14 @@ public actor ModelScopeDownloadManager: Sendable {
         destinationPath: String,
         onProgress: @escaping (Int64) -> Void
     ) async throws {
-        // 创建一个强引用来保持 session 存活
         let session = self.session
         
-        print("Starting download for file: \(file.name)")
-        print("Destination path: \(destinationPath)")
+        ModelScopeLogger.info("Starting download for file: \(file.name)")
+        ModelScopeLogger.debug("Destination path: \(destinationPath)")
         
         let destination = URL(fileURLWithPath: destinationPath)
             .appendingPathComponent(file.name.sanitizedPath)
         
-        // 使用模型ID和文件路径组合生成唯一的临时文件名
         let modelHash = repoPath.hash
         let fileHash = file.path.hash
         let tempURL = FileManager.default.temporaryDirectory
@@ -141,13 +173,11 @@ public actor ModelScopeDownloadManager: Sendable {
         
         var resumeOffset: Int64 = 0
         
-        // 如果临时文件存在，获取已下载的大小
         if fileManager.fileExists(atPath: tempURL.path) {
             let attributes = try fileManager.attributesOfItem(atPath: tempURL.path)
             resumeOffset = attributes[.size] as? Int64 ?? 0
-            print("Resuming download from offset: \(resumeOffset)")
+            ModelScopeLogger.info("Resuming download from offset: \(resumeOffset)")
         } else {
-            // 创建新的临时文件
             try Data().write(to: tempURL)
         }
         
@@ -159,24 +189,20 @@ public actor ModelScopeDownloadManager: Sendable {
             ]
         )
         
-        // 创建带有 Range 头的请求
         var request = URLRequest(url: url)
         if resumeOffset > 0 {
             request.setValue("bytes=\(resumeOffset)-", forHTTPHeaderField: "Range")
         }
         
-        // 使用 URLSession 的 bytes API 来获取下载进度
-        print("Requesting URL: \(url)")
+        ModelScopeLogger.debug("Requesting URL: \(url)")
         
-        // 使用 withCheckedThrowingContinuation 来管理异步操作的生命周期
         return try await withCheckedThrowingContinuation { continuation in
             Task {
                 do {
                     let (asyncBytes, response) = try await session.bytes(for: request)
-                    print("Response status code: \((response as? HTTPURLResponse)?.statusCode ?? -1)")
+                    ModelScopeLogger.debug("Response status code: \((response as? HTTPURLResponse)?.statusCode ?? -1)")
                     try validateResponse(response)
                     
-                    // 打开文件用于追加
                     let fileHandle = try FileHandle(forWritingTo: tempURL)
                     if resumeOffset > 0 {
                         try fileHandle.seek(toOffset: UInt64(resumeOffset))
@@ -184,39 +210,36 @@ public actor ModelScopeDownloadManager: Sendable {
                     
                     var downloadedBytes: Int64 = resumeOffset
                     
-                    // 分块下载并报告进度
                     for try await byte in asyncBytes {
                         try fileHandle.write(contentsOf: [byte])
                         downloadedBytes += 1
-                        if downloadedBytes % 1024 == 0 { // 每 1KB 更新一次进度
+                        if downloadedBytes % 1024 == 0 {
                             onProgress(downloadedBytes)
                         }
                     }
                     
-                    // 确保文件已关闭
                     try fileHandle.close()
                     
-                    // 验证文件大小
                     let finalSize = try FileManager.default.attributesOfItem(atPath: tempURL.path)[.size] as? Int64 ?? 0
                     guard finalSize == file.size else {
+                        storage.clearFileStatus(at: destination.path)
                         throw ModelScopeError.downloadFailed(NSError(
                             domain: "ModelScope",
                             code: -1,
-                            userInfo: [NSLocalizedDescriptionKey: "Downloaded file size mismatch: expected \(file.size), got \(finalSize)"]
+                            userInfo: [NSLocalizedDescriptionKey: "Size mismatch: expected \(file.size), got \(finalSize)"]
                         ))
                     }
                     
-                    // 移动到最终位置
                     if fileManager.fileExists(atPath: destination.path) {
                         try fileManager.removeItem(at: destination)
                     }
                     try fileManager.moveItem(at: tempURL, to: destination)
                     
-                    // 报告最终进度
                     onProgress(downloadedBytes)
-                    
                     continuation.resume()
                 } catch {
+                    ModelScopeLogger.error("Download failed: \(error.localizedDescription)")
+                    storage.clearFileStatus(at: destination.path)
                     continuation.resume(throwing: error)
                 }
             }
@@ -229,9 +252,8 @@ public actor ModelScopeDownloadManager: Sendable {
         destinationPath: String,
         progress: @escaping (Double) -> Void
     ) async throws {
-        print("Starting downloadFiles with \(files.count) files")
+        ModelScopeLogger.info("Starting download with \(files.count) files")
         
-        // 计算所有文件的总大小
         func calculateTotalSize(files: [ModelFile]) async throws -> Int64 {
             var size: Int64 = 0
             for file in files {
@@ -248,19 +270,18 @@ public actor ModelScopeDownloadManager: Sendable {
             return size
         }
         
-        // 在开始下载前计算总大小
         if totalSize == 0 {
             totalSize = try await calculateTotalSize(files: files)
             print("Total download size: \(totalSize) bytes")
         }
         
         for file in files {
-            print("Processing file: \(file.name), type: \(file.type)")
+            ModelScopeLogger.debug("Processing: \(file.name), type: \(file.type)")
             
             if file.type == "tree" {
                 let newPath = (destinationPath as NSString)
                     .appendingPathComponent(file.name.sanitizedPath)
-                print("Created directory at: \(newPath)")
+                ModelScopeLogger.debug("Creating directory: \(newPath)")
                 
                 try fileManager.createDirectoryIfNeeded(at: newPath)
                 
@@ -268,7 +289,7 @@ public actor ModelScopeDownloadManager: Sendable {
                     root: file.path,
                     revision: revision
                 )
-                print("Found \(subFiles.count) subfiles in \(file.path)")
+                ModelScopeLogger.debug("Found \(subFiles.count) subfiles in \(file.path)")
                 
                 try await downloadFiles(
                     files: subFiles,
@@ -277,7 +298,7 @@ public actor ModelScopeDownloadManager: Sendable {
                     progress: progress
                 )
             } else if file.type == "blob" {
-                print("Downloading blob: \(file.name)")
+                ModelScopeLogger.debug("Downloading: \(file.name)")
                 if !storage.isFileDownloaded(file, at: destinationPath) {
                     
                     let destination = URL(fileURLWithPath: destinationPath)
@@ -296,20 +317,19 @@ public actor ModelScopeDownloadManager: Sendable {
                         destinationPath: destinationPath,
                         onProgress: { downloadedBytes in
                             let currentProgress = Double(self.downloadedSize + downloadedBytes) / Double(self.totalSize)
-                            print("currentProgress:\(currentProgress), self.downloadedSize\(self.downloadedSize), \(self.totalSize)")
                             progress(currentProgress)
                         },
-                        maxRetries: 10,  // 最多重试3次
-                        retryDelay: 1.0 // 每次重试间隔2秒
+                        maxRetries: 6, 
+                        retryDelay: 1.0
                     )
                     
                     downloadedSize += Int64(file.size)
                     storage.saveFileStatus(file, at: destinationPath)
-                    print("Downloaded and saved: \(file.name)")
+                    ModelScopeLogger.info("Downloaded and saved: \(file.name)")
                     
                 } else {
                     downloadedSize += Int64(file.size)
-                    print("File already exists: \(file.name)")
+                    ModelScopeLogger.debug("File exists: \(file.name)")
                 }
                 
                 progress(Double(downloadedSize) / Double(totalSize))
@@ -354,11 +374,13 @@ public actor ModelScopeDownloadManager: Sendable {
             )
         }
         
-        let modelScopePath = documentsPath
-            .appendingPathComponent("huggingface", isDirectory: true)
-            .appendingPathComponent("models", isDirectory: true)
-            .appendingPathComponent("taobao-mnn", isDirectory: true)
-            .appendingPathComponent(modelId, isDirectory: true)
+        let components = base.components(separatedBy: "/")
+
+        var currentURL = documentsPath
+        components.forEach { component in
+            currentURL = currentURL.appendingPathComponent(component, isDirectory: true)
+        }
+        let modelScopePath = currentURL.appendingPathComponent(modelId, isDirectory: true)
         
         try fileManager.createDirectoryIfNeeded(at: modelScopePath.path)
         
