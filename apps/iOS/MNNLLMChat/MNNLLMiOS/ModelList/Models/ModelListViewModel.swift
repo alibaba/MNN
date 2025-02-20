@@ -67,24 +67,29 @@ class ModelListViewModel: ObservableObject {
         
         currentlyDownloading = model.modelId
         downloadProgress[model.modelId] = 0
-        
-        do {
-            try await modelClient.downloadModel(model: model) { progress in
-                Task { @MainActor in
-                    self.downloadProgress[model.modelId] = progress
+        Task(priority: .background) {
+            do {
+                try await modelClient.downloadModel(model: model) { progress in
+                    Task { @MainActor in
+                        DispatchQueue.main.async {
+                            self.downloadProgress[model.modelId] = progress
+                        }
+                    }
                 }
+                
+                if let index = models.firstIndex(where: { $0.modelId == model.modelId }) {
+                    models[index].isDownloaded = true
+                    DispatchQueue.main.async {
+                        ModelStorageManager.shared.markModelAsDownloaded(model.modelId)
+                    }
+                }
+            } catch {
+                showError = true
+                errorMessage = "Failed to download model: \(error.localizedDescription)"
             }
-            
-            if let index = models.firstIndex(where: { $0.modelId == model.modelId }) {
-                models[index].isDownloaded = true
-                ModelStorageManager.shared.markModelAsDownloaded(model.modelId)
-            }
-        } catch {
-            showError = true
-            errorMessage = "Failed to download model: \(error.localizedDescription)"
-        }
         
-        currentlyDownloading = nil
+            currentlyDownloading = nil
+        }
     }
     
     func deleteModel(_ model: ModelInfo) async {
