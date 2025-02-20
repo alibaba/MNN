@@ -29,6 +29,7 @@ public actor ModelScopeDownloadManager: Sendable {
     private var downloadedFiles: Int = 0
     private var totalSize: Int64 = 0
     private var downloadedSize: Int64 = 0
+    private var lastUpdatedBytes: Int64 = 0
     
     // MARK: - Initialization
     
@@ -318,6 +319,15 @@ public actor ModelScopeDownloadManager: Sendable {
                         onProgress: { downloadedBytes in
                             let currentProgress = Double(self.downloadedSize + downloadedBytes) / Double(self.totalSize)
                             progress(currentProgress)
+                            // 检查是否达到1MB（1MB = 1,024 * 1,024 字节）
+                           let bytesDelta = self.downloadedSize - self.lastUpdatedBytes
+                           if bytesDelta >= 1_024 * 1_024 {
+                               self.lastUpdatedBytes = self.downloadedSize
+                               // 在主线程上更新 Progress
+                               DispatchQueue.main.async {
+                                   progress(currentProgress)
+                               }
+                           }
                         },
                         maxRetries: 6, 
                         retryDelay: 1.0
