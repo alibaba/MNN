@@ -67,53 +67,70 @@ class ModelListViewModel: ObservableObject {
         
         currentlyDownloading = model.modelId
         downloadProgress[model.modelId] = 0
-        
-        do {
-            try await modelClient.downloadWithHub(model: model, progress: { progress in
-                Task { @MainActor in
-                    self.downloadProgress[model.modelId] = progress
+        Task(priority: .background) {
+            do {
+                try await modelClient.downloadModel(model: model) { progress in
+                    Task { @MainActor in
+                        DispatchQueue.main.async {
+                            self.downloadProgress[model.modelId] = progress
+                        }
+                    }
                 }
-            })
-            
-            if let index = models.firstIndex(where: { $0.modelId == model.modelId }) {
                 
-                models[index].isDownloaded = true
-                ModelStorageManager.shared.markModelAsDownloaded(model.modelId)
+                if let index = models.firstIndex(where: { $0.modelId == model.modelId }) {
+                    models[index].isDownloaded = true
+                    DispatchQueue.main.async {
+                        ModelStorageManager.shared.markModelAsDownloaded(model.modelId)
+                    }
+                }
+            } catch {
+                showError = true
+                errorMessage = "Failed to download model: \(error.localizedDescription)"
             }
-            
-        } catch {
-            showError = true
-            errorMessage = "Failed to download model: \(error.localizedDescription)"
-        }
         
-        currentlyDownloading = nil
+            currentlyDownloading = nil
+        }
     }
     
     func deleteModel(_ model: ModelInfo) async {
-           do {
-               let fileManager = FileManager.default
-               let modelPath = URL.init(filePath: model.localPath)
-               
-               if fileManager.fileExists(atPath: modelPath.path) {
-                   try fileManager.removeItem(at: modelPath)
-               }
-               
-               await MainActor.run {
-                   if let index = models.firstIndex(where: { $0.modelId == model.modelId }) {
-                       models[index].isDownloaded = false
-                       ModelStorageManager.shared.clearDownloadStatus(for: model.modelId)
-                   }
-                   if selectedModel?.modelId == model.modelId {
-                       selectedModel = nil
-                   }
-               }
-               
-           } catch {
-               print("Error deleting model: \(error)")
-               await MainActor.run {
-                   self.errorMessage = "Failed to delete model: \(error.localizedDescription)"
-                   self.showError = true
-               }
-           }
-       }
+        do {
+            let fileManager = FileManager.default
+            let modelPath = URL.init(filePath: model.localPath)
+            
+            // 获取模型目录下的所有文件
+            if let files = try? fileManager.contentsOfDirectory(
+                at: modelPath,
+                includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles]
+            ) {
+                // 清理每个文件的下载状态
+                let storage = ModelDownloadStorage()
+                for file in files {
+                    storage.clearFileStatus(at: file.path)
+                }
+            }
+            
+            // 删除文件
+            if fileManager.fileExists(atPath: modelPath.path) {
+                try fileManager.removeItem(at: modelPath)
+            }
+            
+            await MainActor.run {
+                if let index = models.firstIndex(where: { $0.modelId == model.modelId }) {
+                    models[index].isDownloaded = false
+                    ModelStorageManager.shared.clearDownloadStatus(for: model.modelId)
+                }
+                if selectedModel?.modelId == model.modelId {
+                    selectedModel = nil
+                }
+            }
+            
+        } catch {
+            print("Error deleting model: \(error)")
+            await MainActor.run {
+                self.errorMessage = "Failed to delete model: \(error.localizedDescription)"
+                self.showError = true
+            }
+        }
+    }
 }

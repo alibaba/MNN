@@ -14,6 +14,9 @@ struct ModelListView: View {
     @State private var showHistory = false
     @State private var selectedHistory: ChatHistory?
     @State private var histories: [ChatHistory] = []
+    @State private var showSettings = false
+    @State private var showWebView = false
+    @State private var webViewURL: URL?
     
     @StateObject private var viewModel = ModelListViewModel()
     
@@ -65,17 +68,15 @@ struct ModelListView: View {
                             .aspectRatio(contentMode: .fit)
                             .frame(width: 22, height: 22)
                     },
-                    trailing: Button(action: {
-                        showHelp = true
-                    }) {
-                        Image(systemName: "questionmark.circle")
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .frame(width: 22, height: 22)
-                    }
+                    trailing: settingsButton
                 )
                 .sheet(isPresented: $showHelp) {
                     HelpView()
+                }
+                .sheet(isPresented: $showWebView) {
+                    if let url = webViewURL {
+                        WebView(url: url)
+                    }
                 }
                 .refreshable {
                     await viewModel.fetchModels()
@@ -129,9 +130,39 @@ struct ModelListView: View {
         .onAppear {
             updateHistory()
         }
+        .actionSheet(isPresented: $showSettings) {
+            ActionSheet(title: Text("Settings"), buttons: [
+                .default(Text("Report an Issue")) {
+                    webViewURL = URL(string: "https://github.com/alibaba/MNN/issues")
+                    showWebView = true
+                },
+                .default(Text("Go to MNN Homepage")) {
+                    webViewURL = URL(string: "https://github.com/alibaba/MNN")
+                    showWebView = true
+                },
+                .default(Text(ModelSource.modelScope.description)) {
+                    ModelSourceManager.shared.updateSelectedSource(.modelScope)
+                },
+                .default(Text(ModelSource.huggingFace.description)) {
+                    ModelSourceManager.shared.updateSelectedSource(.huggingFace)
+                },
+                .cancel()
+            ])
+        }
     }
     
     private func updateHistory() {
         histories = ChatHistoryManager.shared.getAllHistory()
+    }
+    
+    private var settingsButton: some View {
+        Button(action: {
+            showSettings.toggle()
+        }) {
+            Image(systemName: "gear")
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 22, height: 22)
+        }
     }
 }

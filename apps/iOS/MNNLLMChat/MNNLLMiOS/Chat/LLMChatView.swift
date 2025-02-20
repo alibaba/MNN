@@ -19,6 +19,8 @@ struct LLMChatView: View {
 
     private let recorderSettings = RecorderSettings(audioFormatID: kAudioFormatLinearPCM, sampleRate: 44100, numberOfChannels: 2, linearPCMBitDepth: 16)
 
+    @State private var showSettings = false
+
     init(modelInfo: ModelInfo, history: ChatHistory? = nil) {
         self.title = modelInfo.name
         self.modelPath = modelInfo.localPath
@@ -90,6 +92,15 @@ struct LLMChatView: View {
                     Spacer()
                 }
                 .padding(.leading, 10)
+            }
+
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button(action: { showSettings.toggle() }) {
+                    Image(systemName: "gear")
+                }
+                .sheet(isPresented: $showSettings) {
+                    ModelSettingsView(showSettings: $showSettings, viewModel: viewModel)
+                }
             }
         }
         

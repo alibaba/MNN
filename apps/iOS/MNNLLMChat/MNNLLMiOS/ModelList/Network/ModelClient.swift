@@ -9,28 +9,61 @@ import Hub
 import Foundation
 
 class ModelClient {
-    private let baseURL = "https://hf-mirror.com"
+    private let baseMirrorURL = "https://hf-mirror.com"
+    private let baseURL = "https://huggingface.co"
     private let maxRetries = 3
+    
+    private lazy var baseURLString: String = {
+        switch ModelSourceManager.shared.selectedSource {
+        case .huggingFace:
+            return baseURL
+        default:
+            return baseMirrorURL
+        }
+    }()
     
     init() {}
     
     func getModelList() async throws -> [ModelInfo] {
-        let url = URL(string: "\(baseURL)/api/models?author=taobao-mnn&limit=100")!
+        let url = URL(string: "\(baseURLString)/api/models?author=taobao-mnn&limit=100")!
         return try await performRequest(url: url, retries: maxRetries)
     }
     
     func getRepoInfo(repoName: String, revision: String) async throws -> RepoInfo {
-        let url = URL(string: "\(baseURL)/api/models/\(repoName)")!
+        let url = URL(string: "\(baseURLString)/api/models/\(repoName)")!
         return try await performRequest(url: url, retries: maxRetries)
     }
 
     @MainActor
-    func downloadWithHub(model: ModelInfo,
-                         progress: @escaping (Double) -> Void) async throws {
+    func downloadModel(model: ModelInfo,
+                       progress: @escaping (Double) -> Void) async throws {
+        switch ModelSourceManager.shared.selectedSource {
+        case .modelScope:
+            try await downloadFromModelScope(model, progress: progress)
+        case .huggingFace:
+            try await downloadFromHuggingFace(model, progress: progress)
+        }
+    }
+
+    private func downloadFromModelScope(_ model: ModelInfo,
+                                        progress: @escaping (Double) -> Void) async throws {
+        let ModelScopeId = model.modelId.replacingOccurrences(of: "taobao-mnn", with: "MNN")
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 30
+        config.timeoutIntervalForResource = 300
+        
+        let manager = ModelScopeDownloadManager.init(repoPath: ModelScopeId, config: config, enableLogging: false)
+        
+        try await manager.downloadModel(to:"huggingface/models/taobao-mnn", modelId: ModelScopeId, modelName: model.name) { fileProgress in
+            progress(fileProgress)
+        }
+    }
+
+    private func downloadFromHuggingFace(_ model: ModelInfo,
+                                         progress: @escaping (Double) -> Void) async throws {
         let repo = Hub.Repo(id: model.modelId)
         let modelFiles = ["*.*"]
-        
-        let mirrorHubApi = HubApi(endpoint:"https://hf-mirror.com")
+        let mirrorHubApi = HubApi(endpoint: baseURL)
         try await mirrorHubApi.snapshot(from: repo, matching: modelFiles) { fileProgress in
             progress(fileProgress.fractionCompleted)
         }
