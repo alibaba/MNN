@@ -366,3 +366,5 @@ project/MNNLLMForiOS/Chat
 project/MNNLLMForiOS/MNN.framework
 MNN-iOS-CPU-GPU/Static/MNN.framework
 apps/iOS/MNNLLMChat/MNN.framework
+apps/iOS/MNNLLMChat/swift-transformers
+apps/iOS/MNNLLMChat/Chat

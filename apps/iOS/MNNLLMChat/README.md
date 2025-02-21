@@ -8,14 +8,23 @@ This project is an iOS application based on the MNN engine, supporting local lar
 
 It operates fully offline with high privacy. Once the models are downloaded to the device, all conversations occur locally without any network uploads or processing.
 
+[02/20/2025] Update:
+
+- Support for configuring mmap and manual cache clearing
+
+- Support for model downloads using the ModelScope source
+    
+| <img width="200" alt="image" src="./assets/usemmap_en.PNG" /> | <img width="200" alt="image" src="./assets/downloadSource_en.PNG" /> |
+
 ## Features
 
 1. **Model List**
    - Browse models supported by MNN.
    - Manage models: download and delete models.
+    - Support for switching between Hugging Face and ModelScope sources
    - Search for models locally.
    
-2. **Multimodal Chat**
+2. **Multimodal Chat**: Supports full Markdown format output and configuration of mmap
    - Text-to-text conversation.
    - Audio-to-text conversation.
    - Image-to-text conversation: capture images via camera or select from the gallery.

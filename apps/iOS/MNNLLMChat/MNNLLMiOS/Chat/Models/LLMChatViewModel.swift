@@ -52,12 +52,18 @@ final class LLMChatViewModel: ObservableObject {
     var history: ChatHistory?
     private var historyId: String
     
+    private lazy var configManager = ModelConfigManager(modelPath: modelInfo.localPath)
+    @Published var useMmap: Bool = false
+    
     init(modelInfo: ModelInfo, history: ChatHistory? = nil) {
         self.modelInfo = modelInfo
         self.history = history
         self.historyId = history?.id ?? UUID().uuidString
         let messages = self.history?.messages
         self.interactor = LLMChatInteractor(modelInfo: modelInfo, historyMessages: messages)
+        
+        // Initialize useMmap from config
+        self.useMmap = configManager.readUseMmap()
     }
     
     deinit {
@@ -279,15 +285,21 @@ final class LLMChatViewModel: ObservableObject {
             .store(in: &subscriptions)
     }
     
+    
+    func cleanModelTmpFolder() {
+        let tmpFolderURL = URL(fileURLWithPath: self.modelInfo.localPath).appendingPathComponent("temp")
+        self.cleanFolder(tmpFolderURL: tmpFolderURL)
+    }
+    
     private func cleanTmpFolder() {
-        
         let fileManager = FileManager.default
         let tmpDirectoryURL = fileManager.temporaryDirectory
         
-        let tmpFolderURL = URL(fileURLWithPath: self.modelInfo.localPath).appendingPathComponent("temp")
-        
-//        self.cleanFolder(tmpFolderURL: tmpFolderURL)
         self.cleanFolder(tmpFolderURL: tmpDirectoryURL)
+        
+        if !useMmap {
+            cleanModelTmpFolder()
+        }
     }
     
     private func cleanFolder(tmpFolderURL: URL) {
@@ -307,5 +319,10 @@ final class LLMChatViewModel: ObservableObject {
         } catch {
             print("Error accessing tmp directory: \(error.localizedDescription)")
         }
+    }
+    
+    func updateUseMmap(_ value: Bool) {
+        useMmap = value
+        configManager.updateUseMmap(value)
     }
 }
