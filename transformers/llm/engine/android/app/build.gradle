@@ -1,0 +1,82 @@
+apply plugin: 'com.android.application'
+apply from: 'signing.gradle'
+
+android {
+    signingConfigs {
+        release {
+            storeFile signingConfigs.release.storeFile
+            storePassword signingConfigs.release.storePassword
+            keyAlias signingConfigs.release.keyAlias
+            keyPassword signingConfigs.release.keyPassword
+        }
+    }
+    compileSdk 34
+    buildToolsVersion '34.0.0'
+    defaultConfig {
+        applicationId "com.mnn.llm"
+        minSdkVersion 21
+        targetSdkVersion 34
+        versionCode 1
+        versionName "1.0"
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        externalNativeBuild {
+            cmake {
+                arguments "-DMNN_JNI=TRUE", "-DANDROID_STL=c++_shared", "-DLLM_SUPPORT_VISION=TRUE", "-DMNN_KLEIDIAI=TRUE", "-DMNN_CPU_WEIGHT_DEQUANT_GEMM=true", "-DMNN_BUILD_LLM=true", "-DMNN_SUPPORT_TRANSFORMER_FUSE=true", "-DMNN_IMGCODECS=true", "-DMNN_BUILD_OPENCV=true", "-DMNN_LOW_MEMORY=true"
+                abiFilters 'arm64-v8a'
+            }
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            signingConfig signingConfigs.release
+        }
+        debug {
+            jniDebuggable true
+        }
+    }
+    externalNativeBuild {
+        cmake {
+            path file('../../../../../CMakeLists.txt')
+        }
+    }
+    sourceSets {
+        main {
+            jniLibs.srcDirs = ['src/main/jni/libs']
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+    packagingOptions {
+        exclude("META-INF/DEPENDENCIES")
+        exclude("META-INF/LICENSE")
+        exclude("META-INF/LICENSE.txt")
+        exclude("META-INF/license.txt")
+        exclude("META-INF/NOTICE")
+        exclude("META-INF/NOTICE.txt")
+        exclude("META-INF/notice.txt")
+        exclude("META-INF/ASL2.0")
+        exclude("META-INF/*.kotlin_module")
+    }
+    ndkVersion '28.0.12916984 rc3'
+}
+
+dependencies {
+    implementation fileTree(dir: 'libs', include: ['*.jar'])
+    implementation 'androidx.appcompat:appcompat:1.0.2'
+    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+    testImplementation 'junit:junit:4.12'
+    androidTestImplementation 'androidx.test.ext:junit:1.1.0'
+    androidTestImplementation 'androidx.test.espresso:espresso-core:3.1.1'
+    implementation 'androidx.recyclerview:recyclerview:1.1.0'
+    implementation 'com.android.support:appcompat-v7:28.0.0'
+    implementation 'com.android.support:design:28.0.0'
+    implementation 'io.github.inflationx:calligraphy3:3.1.1'
+    implementation 'io.github.inflationx:viewpump:2.0.3'
+    implementation 'com.android.support:support-v4:28.0.0'
+    implementation 'com.google.android.material:material:1.0.0'
+    implementation "com.squareup.okhttp3:okhttp:4.11.0"
+}
