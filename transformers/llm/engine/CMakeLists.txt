@@ -104,7 +104,7 @@ else()
     message(FATAL_ERROR "OpenSSL not found. Please install OpenSSL and set paths.")
 endif()
 
-target_include_directories(mls PRIVATE ${MNN_INCLUDES})
+target_include_directories(mls PRIVATE ${MNN_INCLUDES} ${CMAKE_CURRENT_LIST_DIR}/src/)
 set_property(TARGET mls PROPERTY CXX_STANDARD 17)
 set_property(TARGET mls PROPERTY CXX_STANDARD_REQUIRED ON)
 # target_compile_options(mls PRIVATE -std=c++17)
