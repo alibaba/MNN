@@ -194,13 +194,11 @@ class ModelMapper:
         self.regist('phi-msft', phi_map)
 
     def regist_gemma2(self):
-        gemma2_config = copy.deepcopy(self.default_config)
-        gemma2_config['head_dim'] = 'head_dim'
         gemma2_decoder = copy.deepcopy(self.default_decoder)
         gemma2_decoder['pre_feedforward_layernorm'] = 'pre_feedforward_layernorm'
         gemma2_decoder['post_feedforward_layernorm'] = 'post_feedforward_layernorm'
         gemma2_map = {
-            'config': gemma2_config,
+            'config': self.default_config,
             'model': self.defualt_model,
             'decoder': gemma2_decoder,
             'attention': self.default_attention
@@ -250,6 +248,7 @@ class ModelMapper:
         self.attention_key = 'attention'
         self.default_config = {
             'hidden_size': 'hidden_size',
+            'head_dim': 'head_dim',
             'num_attention_heads': 'num_attention_heads',
             'num_hidden_layers': 'num_hidden_layers',
             'num_key_value_heads': 'num_key_value_heads',

@@ -25,18 +25,26 @@ pip install .
 
 ## 用法
 
-1. 将需要导出的LLM项目clone到本地，如：chatglm2-6b
+1. 下载模型
 ```sh
-git clone https://huggingface.co/THUDM/chatglm2-6b
+git clone https://huggingface.co/Qwen/Qwen2-1.5B-Instruct
 # 如果huggingface下载慢可以使用modelscope
-git clone https://modelscope.cn/ZhipuAI/chatglm2-6b.git
+git clone https://modelscope.cn/qwen/Qwen2-1.5B-Instruct.git
 ```
-2. 导出模型
+2. 测试模型
 ```sh
-# 将chatglm2-6b导出为onnx模型
-llmexport --path ../chatglm2-6b --export onnx
-# 将chatglm2-6b导出为mnn模型, 量化参数为4bit, blokc-wise = 128
-llmexport --path ../chatglm2-6b --export mnn --quant_bit 4 --quant_block 128
+# 测试文本输入
+llmexport --path Qwen2-1.5B-Instruct --test "你好"
+# 测试图像文本
+llmexport --path Qwen2-VL-2B-Instruct  --test "<img>https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-VL/assets/demo.jpeg</img>介绍一下图片里的内容"
+```
+
+3. 导出模型
+```sh
+# 将Qwen2-1.5B-Instruct导出为onnx模型
+llmexport --path Qwen2-1.5B-Instruct --export onnx
+# 将Qwen2-1.5B-Instruct导出为mnn模型, 量化参数为4bit, blokc-wise = 128
+llmexport --path Qwen2-1.5B-Instruct --export mnn --quant_bit 4 --quant_block 128
 ```
 
 ## 功能
@@ -47,14 +55,6 @@ llmexport --path ../chatglm2-6b --export mnn --quant_bit 4 --quant_block 128
 - 制定量化bit数使用`--quant_bit`；量化的block大小使用`--quant_block`
 - 使用`--lm_quant_bit`来制定lm_head层权重的量化bit数，不指定则使用`--quant_bit`的量化bit数
 - 支持使用自己编译的`MNNConvert`，使用`--mnnconvert`
-
-`--test`测试示例
-```sh
-# 测试文本输入
-llmexport --path Qwen2-1.5B-Instruct --test "你好"
-# 测试图像文本
-llmexport --path Qwen2-VL-2B-Instruct  --test "<img>https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-VL/assets/demo.jpeg</img>介绍一下图片里的内容"
-```
 
 ## 参数
 ```
@@ -90,8 +90,8 @@ options:
 
 ## 支持模型
 
-- llama/llama2/llama3/tinyllama
-- qwen/qwen1.5/qwen2/qwen-vl
+- llama/llama2/llama3/llama3.2/tinyllama
+- qwen/qwen1.5/qwen2/qwen-vl/qwen2-vl/qwen2.5
 - baichuan2/phi-2/internlm/yi/deepseek
 - chatglm/codegeex/chatglm2/chatglm3
 - phi-2/gemma-2

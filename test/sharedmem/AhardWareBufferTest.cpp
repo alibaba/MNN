@@ -45,7 +45,7 @@ using PFAHardwareBuffer_unlock = int (*)(AHardwareBuffer* buffer,
 class AndroidHardwareBufferCompat {
  public:
   bool IsSupportAvailable() const {
-    return true;
+    return mIsSupportAvailable;
   }
   AndroidHardwareBufferCompat();
   int Allocate(const AHardwareBuffer_Desc* desc, AHardwareBuffer** outBuffer);
@@ -61,6 +61,7 @@ class AndroidHardwareBufferCompat {
   int SendHandleToUnixSocket(const AHardwareBuffer* buffer, int socketFd);
   int Unlock(AHardwareBuffer* buffer, int32_t* fence);
  private:
+  bool mIsSupportAvailable = true;
   PFAHardwareBuffer_allocate allocate_;
   PFAHardwareBuffer_acquire acquire_;
   PFAHardwareBuffer_describe describe_;
@@ -81,28 +82,44 @@ AndroidHardwareBufferCompat::AndroidHardwareBufferCompat() {
   void* main_dl_handle = dlopen(nullptr, RTLD_NOW);
   *reinterpret_cast<void**>(&allocate_) =
       dlsym(main_dl_handle, "AHardwareBuffer_allocate");
-  DCHECK(allocate_);
+  if(nullptr == allocate_){
+      mIsSupportAvailable = false;
+  }
   *reinterpret_cast<void**>(&acquire_) =
       dlsym(main_dl_handle, "AHardwareBuffer_acquire");
-  DCHECK(acquire_);
+  if(nullptr == acquire_){
+      mIsSupportAvailable = false;
+  }
   *reinterpret_cast<void**>(&describe_) =
       dlsym(main_dl_handle, "AHardwareBuffer_describe");
-  DCHECK(describe_);
+  if(nullptr == describe_){
+      mIsSupportAvailable = false;
+  }
   *reinterpret_cast<void**>(&lock_) =
       dlsym(main_dl_handle, "AHardwareBuffer_lock");
-  DCHECK(lock_);
+  if(nullptr == lock_){
+      mIsSupportAvailable = false;
+  }
   *reinterpret_cast<void**>(&recv_handle_) =
       dlsym(main_dl_handle, "AHardwareBuffer_recvHandleFromUnixSocket");
-  DCHECK(recv_handle_);
+  if(nullptr == recv_handle_){
+      mIsSupportAvailable = false;
+  }
   *reinterpret_cast<void**>(&release_) =
       dlsym(main_dl_handle, "AHardwareBuffer_release");
-  DCHECK(release_);
+  if(nullptr == release_){
+      mIsSupportAvailable = false;
+  }
   *reinterpret_cast<void**>(&send_handle_) =
       dlsym(main_dl_handle, "AHardwareBuffer_sendHandleToUnixSocket");
-  DCHECK(send_handle_);
+  if(nullptr == send_handle_){
+      mIsSupportAvailable = false;
+  }
   *reinterpret_cast<void**>(&unlock_) =
       dlsym(main_dl_handle, "AHardwareBuffer_unlock");
-  DCHECK(unlock_);
+  if(nullptr == unlock_){
+      mIsSupportAvailable = false;
+  }
 }
 
 int AndroidHardwareBufferCompat::Allocate(const AHardwareBuffer_Desc* desc,

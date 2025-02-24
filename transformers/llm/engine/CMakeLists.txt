@@ -2,14 +2,16 @@ option(LLM_SUPPORT_VISION "Llm model support vision input." OFF)
 option(LLM_SUPPORT_AUDIO "Llm model support audio input." OFF)
 option(BUILD_MLS "Build PC Commandline." OFF)
 
-
+set(LLM_DEPS ${MNN_DEPS})
 if (LLM_SUPPORT_VISION AND MNN_BUILD_OPENCV)
-    include_directories(${CMAKE_SOURCE_DIR}/tools/cv/include/)
+    add_definitions(-DLLM_SUPPORT_VISION)
+    list(APPEND LLM_DEPS MNNOpenCV)
+    include_directories(${CMAKE_CURRENT_LIST_DIR}/../../../tools/cv/include/)
 endif()
 
 if (LLM_SUPPORT_AUDIO AND MNN_BUILD_AUDIO)
-    list(APPEND MNN_DEPS MNNAudio)
-    include_directories(${CMAKE_SOURCE_DIR}/tools/audio/include/)
+    list(APPEND LLM_DEPS MNNAudio)
+    include_directories(${CMAKE_CURRENT_LIST_DIR}/../../../tools/audio/include/)
 endif()
 
 # include dir
@@ -23,11 +25,11 @@ if (MNN_SEP_BUILD)
         # compile dynamic so, support Linux/Mac
         add_library(llm SHARED ${SRCS})
         set_target_properties(llm PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS TRUE)
-        target_link_libraries(llm ${MNN_DEPS})
+        target_link_libraries(llm ${LLM_DEPS})
     else()
         add_library(llm STATIC ${SRCS})
     endif()
-    list(APPEND MNN_DEPS llm)
+    list(APPEND LLM_DEPS llm)
 else()
     add_library(llm OBJECT ${SRCS})
 endif()
@@ -39,16 +41,12 @@ if (LLM_SUPPORT_AUDIO AND MNN_BUILD_AUDIO)
     target_compile_definitions(llm PRIVATE LLM_SUPPORT_AUDIO)
 endif()
 
-add_executable(llm_demo ${CMAKE_CURRENT_LIST_DIR}/llm_demo.cpp)
-target_link_libraries(llm_demo ${MNN_DEPS})
-add_executable(embedding_demo ${CMAKE_CURRENT_LIST_DIR}/embedding_demo.cpp)
-
-
-target_link_libraries(embedding_demo ${MNN_DEPS})
-add_executable(audio_demo ${CMAKE_CURRENT_LIST_DIR}/audio_demo.cpp)
-target_link_libraries(audio_demo ${MNN_DEPS})
-add_executable(rollback_demo ${CMAKE_CURRENT_LIST_DIR}/rollback_demo.cpp)
-target_link_libraries(rollback_demo ${MNN_DEPS})
+add_executable(llm_demo ${CMAKE_CURRENT_LIST_DIR}/demo/llm_demo.cpp)
+add_executable(embedding_demo ${CMAKE_CURRENT_LIST_DIR}/demo/embedding_demo.cpp)
+add_executable(rollback_demo ${CMAKE_CURRENT_LIST_DIR}/demo/rollback_demo.cpp)
+target_link_libraries(llm_demo ${LLM_DEPS})
+target_link_libraries(embedding_demo ${LLM_DEPS})
+target_link_libraries(rollback_demo ${LLM_DEPS})
 
 if (BUILD_MLS)
 add_executable(mls
@@ -79,7 +77,7 @@ endif()
 # Check if OpenSSL is found
 if(OpenSSL_FOUND)
     message(STATUS "OpenSSL found: ${OPENSSL_INCLUDE_DIR} ${OPENSSL_LIBRARIES}")
-    
+
     # Use the OpenSSL include directory
     target_include_directories(mls PRIVATE ${OPENSSL_INCLUDE_DIR})
 

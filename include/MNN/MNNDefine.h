@@ -75,7 +75,7 @@ MNN_ERROR("Check failed: %s ==> %s\n", #success, #log); \
 #define STR_IMP(x) #x
 #define STR(x) STR_IMP(x)
 #define MNN_VERSION_MAJOR 3
-#define MNN_VERSION_MINOR 0
-#define MNN_VERSION_PATCH 5
+#define MNN_VERSION_MINOR 1
+#define MNN_VERSION_PATCH 0
 #define MNN_VERSION STR(MNN_VERSION_MAJOR) "." STR(MNN_VERSION_MINOR) "." STR(MNN_VERSION_PATCH)
 #endif /* MNNDefine_h */
