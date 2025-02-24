@@ -248,19 +248,19 @@ JNIEXPORT jobject JNICALL Java_com_alibaba_mnnllm_android_ChatSession_submitNati
     while (!stop_requested) {
         llm->generate(1);
     }
-    auto& state = llm->getState();
+    auto context = llm->getContext();
     int64_t prompt_len = 0;
     int64_t decode_len = 0;
     int64_t vision_time = 0;
     int64_t audio_time = 0;
     int64_t prefill_time = 0;
     int64_t decode_time = 0;
-    prompt_len += state.prompt_len_;
-    decode_len += state.gen_seq_len_;
-    vision_time += state.vision_us_;
-    audio_time += state.audio_us_;
-    prefill_time += state.prefill_us_;
-    decode_time += state.decode_us_;
+    prompt_len += context->prompt_len;
+    decode_len += context->gen_seq_len;
+    vision_time += context->vision_us;
+    audio_time += context->audio_us;
+    prefill_time += context->prefill_us;
+    decode_time += context->decode_us;
     jclass hashMapClass = env->FindClass("java/util/HashMap");
     jmethodID hashMapInit = env->GetMethodID(hashMapClass, "<init>", "()V");
     jmethodID putMethod = env->GetMethodID(hashMapClass, "put", "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;");

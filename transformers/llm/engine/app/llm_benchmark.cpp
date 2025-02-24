@@ -34,10 +34,11 @@ static void TestGen(Llm * llm, LLMBenchMarkInstance& t) {
         ids.push_back(random_number);
     }
     llm->generate(ids, t.n_gen);
-    prompt_len += llm->getState().prompt_len_;
-    decode_len += llm->getState().gen_seq_len_;
-    prefill_time += llm->getState().prefill_us_;
-    decode_time += llm->getState().decode_us_;
+    auto context = llm->getContext();
+    prompt_len += context->prompt_len;
+    decode_len += context->gen_seq_len;
+    prefill_time += context->prefill_us;
+    decode_time += context->decode_us;
     float prefill_s = prefill_time / 1e6;
     float decode_s = decode_time / 1e6;
     printf("prompt tokens num = %d\n", prompt_len);

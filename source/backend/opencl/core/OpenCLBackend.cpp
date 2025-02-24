@@ -590,6 +590,7 @@ void OpenCLBackend::onResizeBegin() {
 #endif
     // update mUseRecordableQueueSize if hint has changed
     mUseRecordableQueueSize = mCLRuntime->hint().encorderNumForCommit <= mUseRecordableQueueSize ? mCLRuntime->hint().encorderNumForCommit : mUseRecordableQueueSize;
+    mUseRecordQueue &= mUseRecordableQueueSize > 0 ? true : false;
     releaseRecord();
 }
 

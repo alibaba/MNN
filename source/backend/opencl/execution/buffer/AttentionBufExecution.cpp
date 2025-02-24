@@ -161,6 +161,17 @@ ErrorCode AttentionBufExecution::longPrefillResize(const std::vector<Tensor *> &
         if((headDim % 4) != 0){
             buildOption.emplace("-DHEADDIM_LEAVE");
         }
+        // generate cache for every option
+        {
+            auto option = buildOption;
+            auto kernel = runtime->buildKernel("attention_buf", "rearrange_qkv", option, inputs[0], outputs[0]);
+        }
+        {
+            auto option = buildOption;
+            option.emplace("-DSEQLEN_LEAVE");
+            auto kernel = runtime->buildKernel("attention_buf", "rearrange_qkv", option, inputs[0], outputs[0]);
+        }
+        
         if((seq_len % 4) != 0){
             buildOption.emplace("-DSEQLEN_LEAVE");
         }
@@ -347,10 +358,7 @@ ErrorCode AttentionBufExecution::longPrefillResize(const std::vector<Tensor *> &
         softmaxShape[2] = ROUND_UP(mKv_seq_len, mAlignKV);
         
         auto MaxLocalSize = std::min(std::min(runtime->getMaxWorkItemSizes()[0], mMaxWorkGroupSize), static_cast<uint32_t>(256));
-        int localSize = getLocalSize(softmaxShape[2], MaxLocalSize);
-        if(localSize < 4){
-            localSize = 1;
-        }
+        int localSize = 64;
         
         std::set<std::string> buildOption;
         buildOption.emplace("-DSOFTMAX_LOCAL_SIZE=" + std::to_string(localSize));
@@ -698,10 +706,7 @@ ErrorCode AttentionBufExecution::onResize(const std::vector<Tensor *> &inputs, c
             // softmax
             int inside  = ROUND_UP(seq_len, 4);
             int outside = numHead;
-            int localSize = getLocalSize(mask_kvlen, 128);
-            if(localSize < 4){
-                localSize = 1;
-            }
+            int localSize = 64;
             
             std::set<std::string> buildOption;
             buildOption.emplace("-DSOFTMAX_LOCAL_SIZE=" + std::to_string(localSize));
@@ -888,10 +893,7 @@ ErrorCode AttentionBufExecution::onResize(const std::vector<Tensor *> &inputs, c
             // softmax
             int inside  = 1;
             int outside = numHead;
-            int localSize = getLocalSize(UP_DIV(mKv_seq_len, 4), 128);
-            if(localSize < 4){
-                localSize = 1;
-            }
+            int localSize = 64;
             
             std::set<std::string> buildOption;
             buildOption.emplace("-DSOFTMAX_LOCAL_SIZE=" + std::to_string(localSize));

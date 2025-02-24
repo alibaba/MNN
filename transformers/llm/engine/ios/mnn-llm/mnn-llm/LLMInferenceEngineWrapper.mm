@@ -93,16 +93,19 @@ private:
         int decode_len = 0;
         int64_t prefill_time = 0;
         int64_t decode_time = 0;
+        auto context = llm->getContext();
         for (int i = 0; i < prompts.size(); i++) {
             llm->response(prompts[i], &os, "\n");
-            auto status = llm->getState();
-            prompt_len += status.prompt_len_;
-            decode_len += status.gen_seq_len_;
-            prefill_time += status.prefill_us_;
-            decode_time += status.decode_us_;
+            prompt_len += context->prompt_len;
+            decode_len += context->gen_seq_len;
+            prefill_time += context->prefill_us;
+            decode_time += context->decode_us;
         }
+        float vision_s = vision_time / 1e6;
+        float audio_s = audio_time / 1e6;
         float prefill_s = prefill_time / 1e6;
         float decode_s = decode_time / 1e6;
+        float sample_s = sample_time / 1e6;
         os << "\n#################################\n"
            << "prompt tokens num  = " << prompt_len << "\n"
            << "decode tokens num  = " << decode_len << "\n"

@@ -20,8 +20,8 @@
 
 using namespace MNN::Transformer;
 
-using PromptItem = std::pair<std::string, std::string>;
-static std::vector<PromptItem> history{};
+using ChatMessage = std::pair<std::string, std::string>;
+static std::vector<ChatMessage> history{};
 
 @implementation LLMInferenceEngineWrapper {
     std::shared_ptr<Llm> llm;
@@ -31,10 +31,10 @@ static std::vector<PromptItem> history{};
     self = [super init];
     if (self) {
         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-             BOOL success = [self loadModelFromPath:modelPath];
+            BOOL success = [self loadModelFromPath:modelPath];
             // MARK: Test Local Model
             // BOOL success = [self loadModel];
-            
+
             dispatch_async(dispatch_get_main_queue(), ^{
                 completion(success);
             });
@@ -70,19 +70,19 @@ bool remove_directory(const std::string& path) {
 - (BOOL)loadModelFromPath:(NSString *)modelPath {
     if (!llm) {
         std::string config_path = std::string([modelPath UTF8String]) + "/config.json";
-        
+
         // Read the config file to get use_mmap value
         NSError *error = nil;
         NSData *configData = [NSData dataWithContentsOfFile:[NSString stringWithUTF8String:config_path.c_str()]];
         NSDictionary *configDict = [NSJSONSerialization JSONObjectWithData:configData options:0 error:&error];
         // If use_mmap key doesn't exist, default to YES
         BOOL useMmap = configDict[@"use_mmap"] == nil ? YES : [configDict[@"use_mmap"] boolValue];
-        
+
         llm.reset(Llm::createLLM(config_path));
         if (!llm) {
             return NO;
         }
-        
+
         // Create temp directory inside the modelPath folder
         std::string model_path_str([modelPath UTF8String]);
         std::string temp_directory_path = model_path_str + "/temp";
@@ -105,15 +105,15 @@ bool remove_directory(const std::string& path) {
         std::cerr << "Temp directory created: " << temp_directory_path << std::endl;
 
         // NSLog(@"useMmap value: %@", useMmap ? @"YES" : @"NO");
-        
+
         // Explicitly convert BOOL to bool and ensure proper string conversion
         bool useMmapCpp = (useMmap == YES);
         std::string configStr = "{\"tmp_path\":\"" + temp_directory_path + "\", \"use_mmap\":" + (useMmapCpp ? "true" : "false") + "}";
         // Debug print to check the final config string
         // NSLog(@"Config string: %s", configStr.c_str());
-        
+
         llm->set_config(configStr);
-        
+
         llm->load();
     }
     else {
@@ -144,9 +144,9 @@ private:
         output(@"Error: Model not loaded");
         return;
     }
-    
+
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_LOW, 0), ^{
-    
+
         LlmStreamBuffer::CallBack callback = [output](const char* str, size_t len) {
             if (output) {
                 NSString *nsOutput = [[NSString alloc] initWithBytes:str
@@ -160,15 +160,15 @@ private:
 
         LlmStreamBuffer streambuf(callback);
         std::ostream os(&streambuf);
-        
-        history.emplace_back(PromptItem("user", [input UTF8String]));
-        
+
+        history.emplace_back(ChatMessage("user", [input UTF8String]));
+
         if (std::string([input UTF8String]) == "benchmark") {
             [self performBenchmarkWithOutput:&os];
         } else {
             llm->response(history, &os, "<eop>", 999999);
         }
-        
+
     });
 }
 
@@ -190,19 +190,19 @@ private:
         }
         prompts.push_back(prompt);
     }
-    
+
     int prompt_len = 0;
     int decode_len = 0;
     int64_t prefill_time = 0;
     int64_t decode_time = 0;
 
+    auto context = llm->getContext();
     for (const auto& p : prompts) {
         llm->response(p, os, "\n");
-        auto status = llm->getState(); // 获取最新状态
-        prompt_len += status.prompt_len_;
-        decode_len += status.gen_seq_len_;
-        prefill_time += status.prefill_us_;
-        decode_time += status.decode_us_;
+        prompt_len += context->prompt_len;
+        decode_len += context->gen_seq_len;
+        prefill_time += context->prefill_us;
+        decode_time += context->decode_us;
     }
 
     float prefill_s = prefill_time / 1e6;
@@ -229,16 +229,16 @@ private:
 - (void)init:(const std::vector<std::string>&)chatHistory {
     history.clear();
     history.emplace_back("system", "You are a helpful assistant.");
-    
+
     for (size_t i = 0; i < chatHistory.size(); ++i) {
         history.emplace_back(i % 2 == 0 ? "user" : "assistant", chatHistory[i]);
     }
 }
 
 - (void)addPromptsFromArray:(NSArray<NSDictionary *> *)array {
-    
+
     history.clear();
-    
+
     for (NSDictionary *dict in array) {
         [self addPromptsFromDictionary:dict];
     }
@@ -247,11 +247,11 @@ private:
 - (void)addPromptsFromDictionary:(NSDictionary *)dictionary {
     for (NSString *key in dictionary) {
         NSString *value = dictionary[key];
-        
+
         std::string keyString = [key UTF8String];
         std::string valueString = [value UTF8String];
-        
-        history.emplace_back(PromptItem(keyString, valueString));
+
+        history.emplace_back(ChatMessage(keyString, valueString));
     }
 }
 

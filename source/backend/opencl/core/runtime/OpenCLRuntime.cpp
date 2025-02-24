@@ -267,7 +267,8 @@ OpenCLRuntime::OpenCLRuntime(const BackendConfig::PrecisionMode precision, const
             {
                 if((false == OpenCLSymbolsOperator::getOpenclSymbolsPtr()->isQcomError()) 
                    && getDeviceSupportsExtension(*(mFirstGPUDevicePtr.get()), "cl_qcom_recordable_queues")
-                   && (cl_mode & MNN_GPU_RECORD_OP || cl_mode & MNN_GPU_RECORD_BATCH)){
+                   && (cl_mode & MNN_GPU_RECORD_OP || cl_mode & MNN_GPU_RECORD_BATCH)
+                   && hint.encorderNumForCommit > 0){
                     uint32_t MaxRecordableQueueSize = mFirstGPUDevicePtr->getInfo<CL_DEVICE_RECORDABLE_QUEUE_MAX_SIZE>();
                     cl_int err;
                     if(MaxRecordableQueueSize > 0){

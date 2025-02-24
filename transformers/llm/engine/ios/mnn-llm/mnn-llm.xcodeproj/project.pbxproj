@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 56;
+	objectVersion = 70;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -13,12 +13,6 @@
 		4D5B97932B2B21D5003AF2F1 /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 4D5B97922B2B21D5003AF2F1 /* Preview Assets.xcassets */; };
 		4D5B97C42B2B29CF003AF2F1 /* LLMInferenceEngineWrapper.mm in Sources */ = {isa = PBXBuildFile; fileRef = 4D5B97C32B2B29CF003AF2F1 /* LLMInferenceEngineWrapper.mm */; };
 		CE1A4A5D2C8596D900A62A4F /* MNN.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CE1A4A5C2C8596D900A62A4F /* MNN.framework */; };
-		CE1A4A7C2C85B69800A62A4F /* config.json in Resources */ = {isa = PBXBuildFile; fileRef = CE1A4A722C85B69800A62A4F /* config.json */; };
-		CE1A4A7E2C85B69800A62A4F /* llm_config.json in Resources */ = {isa = PBXBuildFile; fileRef = CE1A4A742C85B69800A62A4F /* llm_config.json */; };
-		CE1A4A7F2C85B69800A62A4F /* llm.mnn in Resources */ = {isa = PBXBuildFile; fileRef = CE1A4A752C85B69800A62A4F /* llm.mnn */; };
-		CE1A4A802C85B69800A62A4F /* llm.mnn.weight in Resources */ = {isa = PBXBuildFile; fileRef = CE1A4A762C85B69800A62A4F /* llm.mnn.weight */; };
-		CE1A4A842C85B69800A62A4F /* tokenizer.txt in Resources */ = {isa = PBXBuildFile; fileRef = CE1A4A7A2C85B69800A62A4F /* tokenizer.txt */; };
-		CE1A4A862C85D43E00A62A4F /* bench.txt in Resources */ = {isa = PBXBuildFile; fileRef = CE1A4A852C85D43E00A62A4F /* bench.txt */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -44,13 +38,11 @@
 		4D5B979A2B2B2677003AF2F1 /* mnn-llm-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "mnn-llm-Bridging-Header.h"; sourceTree = "<group>"; };
 		4D5B97C32B2B29CF003AF2F1 /* LLMInferenceEngineWrapper.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = LLMInferenceEngineWrapper.mm; sourceTree = "<group>"; };
 		CE1A4A5C2C8596D900A62A4F /* MNN.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MNN.framework; path = ../MNN.framework; sourceTree = "<group>"; };
-		CE1A4A722C85B69800A62A4F /* config.json */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.json; path = config.json; sourceTree = "<group>"; };
-		CE1A4A742C85B69800A62A4F /* llm_config.json */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.json; path = llm_config.json; sourceTree = "<group>"; };
-		CE1A4A752C85B69800A62A4F /* llm.mnn */ = {isa = PBXFileReference; lastKnownFileType = file; path = llm.mnn; sourceTree = "<group>"; };
-		CE1A4A762C85B69800A62A4F /* llm.mnn.weight */ = {isa = PBXFileReference; lastKnownFileType = file; path = llm.mnn.weight; sourceTree = "<group>"; };
-		CE1A4A7A2C85B69800A62A4F /* tokenizer.txt */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = tokenizer.txt; sourceTree = "<group>"; };
-		CE1A4A852C85D43E00A62A4F /* bench.txt */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = bench.txt; sourceTree = "<group>"; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		4D19EEDE2D67202200EA3FED /* model */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = model; sourceTree = "<group>"; };
+/* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		4D5B97852B2B21D3003AF2F1 /* Frameworks */ = {
@@ -67,7 +59,7 @@
 		4D5B977F2B2B21D3003AF2F1 = {
 			isa = PBXGroup;
 			children = (
-				CE1A4A7B2C85B69800A62A4F /* model */,
+				4D19EEDE2D67202200EA3FED /* model */,
 				4D5B978A2B2B21D3003AF2F1 /* mnn-llm */,
 				4D5B97892B2B21D3003AF2F1 /* Products */,
 				4D5B97C52B2B2C26003AF2F1 /* Frameworks */,
@@ -110,20 +102,6 @@
 				CE1A4A5C2C8596D900A62A4F /* MNN.framework */,
 			);
 			name = Frameworks;
-			sourceTree = "<group>";
-		};
-		CE1A4A7B2C85B69800A62A4F /* model */ = {
-			isa = PBXGroup;
-			children = (
-				CE1A4A852C85D43E00A62A4F /* bench.txt */,
-				CE1A4A722C85B69800A62A4F /* config.json */,
-				CE1A4A742C85B69800A62A4F /* llm_config.json */,
-				CE1A4A752C85B69800A62A4F /* llm.mnn */,
-				CE1A4A762C85B69800A62A4F /* llm.mnn.weight */,
-				CE1A4A7A2C85B69800A62A4F /* tokenizer.txt */,
-			);
-			name = model;
-			path = ../../model;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -186,14 +164,8 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				CE1A4A862C85D43E00A62A4F /* bench.txt in Resources */,
-				CE1A4A842C85B69800A62A4F /* tokenizer.txt in Resources */,
 				4D5B97932B2B21D5003AF2F1 /* Preview Assets.xcassets in Resources */,
 				4D5B97902B2B21D5003AF2F1 /* Assets.xcassets in Resources */,
-				CE1A4A7E2C85B69800A62A4F /* llm_config.json in Resources */,
-				CE1A4A802C85B69800A62A4F /* llm.mnn.weight in Resources */,
-				CE1A4A7F2C85B69800A62A4F /* llm.mnn in Resources */,
-				CE1A4A7C2C85B69800A62A4F /* config.json in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

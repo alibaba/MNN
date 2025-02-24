@@ -1,4 +1,4 @@
-message(STATUS "MNN Depends:" ${MNN_DEPS})
+# message(STATUS "MNN Depends:" ${MNN_DEPS})
 set(MNN_EXEC_DEMOS "")
 
 add_executable(pictureRecognition.out ${CMAKE_CURRENT_LIST_DIR}/pictureRecognition.cpp)

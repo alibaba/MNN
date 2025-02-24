@@ -93,6 +93,10 @@ class LlmExporter(torch.nn.Module):
             eot_id = self.tokenizer.encode('<|eot_id|>')
             if len(eot_id) == 1:
                 self.stop_ids.append(eot_id[0])
+            # gemma/gemma-2
+            eot_id = self.tokenizer.encode('<end_of_turn>')
+            if len(eot_id) == 2 and eot_id[0] == 2:
+                self.stop_ids.append(eot_id[1])
         except:
             pass
         if hasattr(self.model, 'generation_config') and self.model.generation_config is not None:
@@ -122,6 +126,7 @@ class LlmExporter(torch.nn.Module):
                     visit_module(child)
             visit_module(self.model)
         # print(self.config, self.model_type, self.model_map, self.model)
+        # print(self.model.model.layers[0].input_layernorm.weight); exit(0)
         # load config info
         ModelMapper.do_map(self, self.config, self.model_map['config'])
         if not hasattr(self, 'num_key_value_heads') or self.num_key_value_heads is None:
@@ -150,12 +155,16 @@ class LlmExporter(torch.nn.Module):
             "position_ids" : { 1: "seq_len" },
             "past_key_values" : { 3: "history_len" }
         }
+        prompt_template = self.build_prompt_template()
         self.llm_config = {
             'hidden_size' : self.hidden_size,
             'layer_nums' : self.num_hidden_layers,
             'attention_mask': self.attention_mask_type,
             'key_value_shape': self.past_kv_shape[1:],
-            "prompt_template": self.build_prompt('%s'),
+            "bos": prompt_template['bos'],
+            "system_prompt_template": prompt_template['system'].format(content='%s'),
+            'user_prompt_template': prompt_template['user'].format(content='%s'),
+            'assistant_prompt_template': prompt_template['assistant'].format(content='%s'),
             'is_visual': False
         }
         # load modules
@@ -171,6 +180,7 @@ class LlmExporter(torch.nn.Module):
             out_features, in_features = weight.shape
             self.lm_ = torch.nn.Linear(in_features, out_features)
             self.lm_.weight = weight
+            self.lm_.bias.data = torch.zeros(out_features, dtype=weight.dtype)
 
         if self.embed_.weight is self.lm_.weight:
             import copy
@@ -250,11 +260,15 @@ class LlmExporter(torch.nn.Module):
                 input_ids: torch.Tensor,
                 attention_mask: torch.Tensor,
                 position_ids: torch.Tensor,
-                past_key_values: Optional[List[torch.Tensor]] = None,
+                past_key_values: Optional[list[torch.Tensor]] = None,
+                logits_index: int = -1,
                 cross_attention_states: Optional[torch.Tensor] = None,
                 cross_attention_mask: Optional[torch.Tensor] = None,
                 ):
         hidden_states = input_ids # llm forward without embedding
+        if self.model_type == 'gemma':
+            normalizer = torch.tensor(self.hidden_size**0.5, dtype=hidden_states.dtype)
+            hidden_states = hidden_states * normalizer
         presents = [None for i in range(self.num_hidden_layers)]
         rotary_pos_emb = self.rotary(position_ids)
         if self.args.test and rotary_pos_emb.dtype != hidden_states.dtype:
@@ -264,9 +278,7 @@ class LlmExporter(torch.nn.Module):
                 continue
             hidden_states, kv = self.blocks[i](hidden_states, rotary_pos_emb, attention_mask, past_key_values[i])
             presents[i] = kv
-        logits = self.lm(hidden_states)
-        if not self.args.ppl:
-            logits = logits.reshape(-1)
+        logits = self.lm(hidden_states, logits_index)
         if presents[0].shape == presents[-1].shape and None not in presents:
             presents = torch.stack(presents)
         self.seq_len += 1
@@ -274,43 +286,86 @@ class LlmExporter(torch.nn.Module):
         return logits, presents
 
     # some test functions
-    def build_prompt(self, query):
-        # just for test
-        if 'Qwen2' in self.args.path or 'QwQ' in self.args.path or 'reader' in self.args.path:
-            return f'<|im_start|>user\n{query}<|im_end|>\n<|im_start|>assistant\n'
-        if 'Qwen' in self.args.path:
-            return f'\n<|im_start|>user\n{query}<|im_end|>\n<|im_start|>assistant\n'
-        if 'Baichuan2' in self.args.path:
-            return f'<reserved_106>{query}<reserved_107>'
-        if 'internlm' in self.args.path:
-            return f'<|User|>:{query}<eoh>\n<|Bot|>:'
-        if 'TinyLlama' in self.args.path:
-            return f'<s><|system|>\nYou are a friendly chatbot who always responds in the style of a pirate</s>\n<|user|>\n{query}</s>\n<|assistant|>\n'
-        if 'Yi' in self.args.path:
-            return f'<|im_start|> user\n{query}<|im_end|>\n<|im_start|> assistant\n'
-        if 'deepseek' in self.args.path:
-            return f'<|begin_of_sentence|>User: {query}\n\nAssistant:'
-        if 'Llama-3.1' in self.args.path:
-            return f'<|start_header_id|>user<|end_header_id|>\n\n{query}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n'
-        if 'Llama-3' in self.args.path:
-            return f'<|begin_of_text|><|start_header_id|>user<|end_header_id|>\n\n{query}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n'
-        if 'Llama-2' in self.args.path:
-            return f'[INST]{query}[/INST]'
-        if 'chatglm2' in self.args.path:
-            return f'[Round 1]\n\n问：{query}\n\n答：'
-        if 'chatglm3' in self.args.path or 'glm-4' in self.args.path:
-            return f'<|user|>\n{query}\n<|assistant|>\n'
-        if 'chatglm' in self.args.path:
-            return f'{query}[gMASK]<sop>'
-        if 'phi-2' in self.args.path:
-            return f'Instruct: {query}\nOutput:'
-        if 'gemma-2' in self.args.path:
-            return f'<bos><start_of_turn>user\n{query}<end_of_turn>\n<start_of_turn>model\n'
-        if 'OpenELM' in self.args.path:
-            return f'<s>{query}'
-        if 'SmolLM2' in self.args.path:
-            return f'<|im_start|>system\nYou are a helpful AI assistant named SmolLM, trained by Hugging Face<|im_end|>\n<|im_start|>user\n{query}<|im_end|>\n<|im_start|>assistant\n'
-        return query
+    def build_prompt_template(self):
+        template = {
+            'bos': '',
+            'system': '{content}',
+            'user': '{content}',
+            'assistant': '{content}',
+        }
+        if self.model_type == 'baichuan':
+            template['user'] = '<reserved_106>{content}'
+            template['assistant'] = '<reserved_107>{content}'
+        if self.model_type == 'chatglm':
+            template['user'] = '{content}[gMASK]<sop>'
+        if self.model_type == 'chatglm2' and 'codegeex' not in self.args.path:
+            template['user'] = '[Round 1]\n\n问：{content}\n\n'
+            template['assistant'] = '答：{content}\n\n'
+            if 'chatglm3' in self.args.path or 'glm-4' in self.args.path:
+                template['bos'] = '[gMASK]<sop>'
+                template['system'] = '<|system|>\n{content}\n'
+                template['user'] = '<|user|>\n{content}\n'
+                template['assistant'] = '<|assistant|>\n{content}\n'
+        if self.model_type == 'llama':
+            if 'deepseek' in self.args.path:
+                template['bos'] = '<|begin_of_sentence|>'
+                template['system'] = '{content}\n'
+                template['user'] = '\nUser: {content}\n'
+                template['assistant'] = '\nAssistant: {content}\n<|end_of_sentence|>'
+            if 'Llama-2' in self.args.path:
+                template['bos'] = '[INST] '
+                template['system'] =  "<<SYS>>\n{content}\n<</SYS>>\n\n"
+                template['user'] = '{content} [/INST]'
+                template['assistant'] = "{content}</s>";
+            if 'Llama-3' in self.args.path:
+                template['system'] = '<|start_header_id|>system<|end_header_id|>\n\n{content}<|eot_id|>'
+                template['user'] = '<|start_header_id|>user<|end_header_id|>\n\n{content}<|eot_id|>'
+                template['assistant'] = '<|start_header_id|>assistant<|end_header_id|>\n\n{content}<|eot_id|>'
+            if 'TinyLlama' in self.args.path:
+                template['bos'] = '<s>'
+                template['system'] = '<|system|>\n{content}</s>\n'
+                template['user'] = '<|user|>\n{content}</s>\n'
+                template['assistant'] = '<|assistant|>\n{content}</s>\n'
+            if 'Yi' in self.args.path or 'SmolLM2' in self.args.path:
+                template['system'] = '<|im_start|>system\n{content}<|im_end|>\n'
+                template['user'] = '<|im_start|>user\n{content}<|im_end|>\n'
+                template['assistant'] = '<|im_start|>assistant\n{content}<|im_end|>\n'
+        if self.model_type == 'gemma2':
+            template['bos'] = '<bos>'
+            template['system'] = '<start_of_turn>system\n{content}<end_of_turn>\n'
+            template['user'] = '<start_of_turn>user\n{content}<end_of_turn>\n'
+            template['assistant'] = '<start_of_turn>model\n{content}<end_of_turn>\n'
+        if self.model_type == 'gemma':
+            template['bos'] = '<bos>'
+        if self.model_type == 'internlm':
+            template['user'] = '<|User|>:{content}<eoh>\n'
+            template['assistant'] = '<|Bot|>:{content}<eoh>\n'
+        if self.model_type == 'phi-msft':
+            template['user'] = 'Instruct: {content}\n'
+            template['assistant'] = 'Output:{content}\n'
+        if self.model_type == 'openelm':
+            template['bos'] = '<s>'
+        if 'qwen' in self.model_type:
+            template['system'] = '<|im_start|>system\n{content}<|im_end|>\n'
+            template['user'] = '<|im_start|>user\n{content}<|im_end|>\n'
+            template['assistant'] = '<|im_start|>assistant\n{content}<|im_end|>\n'
+            if 'DeepSeek' in self.args.path:
+                template['bos'] = '<|begin_of_sentence|>'
+                template['user'] = '<|User|>{content}'
+                template['assistant'] = '<|Assistant|>{content}<|end_of_sentence|>'
+        return template
+
+    def build_prompt(self, messages):
+        template = self.build_prompt_template()
+        prompt = template['bos']
+        for item in messages:
+            role, content = item['role'], item['content']
+            if '{content}' in template[role]:
+                prompt += template[role].format(content=content)
+            else:
+                prompt += role + '\n' + content +'\n'
+        assistant_prefix = template['assistant'].split('{content}')[0]
+        return prompt + assistant_prefix
 
     def str_to_ids(self, prompt):
         if self.visual is not None:
@@ -346,7 +401,11 @@ class LlmExporter(torch.nn.Module):
     def response(self, query):
         # self.imitate_quant()
         self.decode_buffer = []
-        prompt = self.build_prompt(query)
+        messages = [
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": query}
+        ]
+        prompt = self.build_prompt(messages)
         input_ids = self.str_to_ids(prompt)
         if self.visual is not None:
             cross_attention_states = self.visual.cross_attention_states
@@ -518,13 +577,13 @@ class LlmExporter(torch.nn.Module):
         onnx_model = f'{self.onnx_path}/{self.dst_name}.onnx'
         input_ids = self.embedding(input_ids)
         past_key_values = torch.zeros(self.past_kv_shape)
-
+        logits_index = torch.tensor([-1], dtype=torch.int32)
         # export to onnx
         torch.onnx.export(
-            model, (input_ids, attention_mask, position_ids, past_key_values),
+            model, (input_ids, attention_mask, position_ids, past_key_values, logits_index),
             onnx_model,
             input_names=[
-                'input_ids', 'attention_mask', 'position_ids', 'past_key_values'
+                'input_ids', 'attention_mask', 'position_ids', 'past_key_values', 'logits_index'
             ],
             output_names=['logits', 'presents'],
             dynamic_axes=self.model_dynamic_axes,
@@ -619,6 +678,12 @@ class LlmExporter(torch.nn.Module):
                 special_list.append(v)
         if hasattr(self.tokenizer, 'gmask_token_id'):
             special_list.append(self.tokenizer.gmask_token_id)
+        if hasattr(self.model, 'generation_config') and self.model.generation_config is not None:
+            generation_config = self.model.generation_config
+            if hasattr(generation_config, 'user_token_id'):
+                special_list.append(generation_config.user_token_id)
+            if hasattr(generation_config, 'assistant_token_id'):
+                special_list.append(generation_config.assistant_token_id)
         vocab_list = []
         prefix_list = []
         if hasattr(self.tokenizer, 'get_prefix_tokens'):
@@ -723,16 +788,14 @@ class LlmExporter(torch.nn.Module):
             vocab = self.tokenizer.get_vocab()
             vocab_list = ['<unk>' for i in range(len(vocab))]
             for k, v in vocab.items():
-                try:
-                    vocab_list[int(v)] = bytes([unicode_to_byte(ord(c)) for c in k]).decode('utf-8', errors='ignore')
-                except:
-                    vocab_list[int(v)] = k
+                vocab_list[int(v)] = bytes([unicode_to_byte(ord(c)) for c in k])
+
             special_list = list(self.tokenizer.added_tokens_decoder.keys())
             with open(file_path, "w", encoding="utf8") as fp:
                 write_header(fp, tokenizer_type, special_list)
                 fp.write(f'{len(vocab_list)}\n')
                 for v in vocab_list:
-                    line = base64.b64encode(v.encode('utf-8')).decode("utf8") + "\n"
+                    line = base64.b64encode(v).decode("utf8") + "\n"
                     fp.write(line)
         return file_path
 
@@ -865,11 +928,11 @@ class EmbeddingExporter(LlmExporter):
         if export_mnn:
             MNNConveter(onnx_model, None, self).export()
 
-    def build_prompt(self, query):
+    def build_prompt(self, content):
         if self.model_type == 'bert':
-            return f'[CLS]{query}[SEP]'
+            return f'[CLS]{content}[SEP]'
         if self.model_type == 'new':
-            return f'<s> {query}</s>'
+            return f'<s> {content}</s>'
 
     def get_position_ids(self) -> torch.Tensor:
         return torch.arange(self.seq_len, dtype=torch.long).unsqueeze(0)

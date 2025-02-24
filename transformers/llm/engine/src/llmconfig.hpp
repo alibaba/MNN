@@ -5,9 +5,18 @@
 //  ZhaodeWang
 //
 
-#include "rapidjson/document.h"
+#ifndef LLMCONFIG_Hpp
+#define LLMCONFIG_Hpp
+
+#include <vector>
+#include <iostream>
+#include <sstream>
+#include <fstream>
+#include <rapidjson/document.h>
 #include <rapidjson/writer.h>
 #include <rapidjson/stringbuffer.h>
+
+
 
 namespace MNN {
 namespace Transformer {
@@ -36,31 +45,7 @@ static inline std::string file_name(const std::string& path) {
 }
 
 bool merge_json(rapidjson::Value& destination, const rapidjson::Value& source,
-                rapidjson::Document::AllocatorType& allocator) {
-    if (!source.IsObject() || !destination.IsObject()) {
-        return false;
-    }
-
-    for (auto it = source.MemberBegin(); it != source.MemberEnd(); ++it) {
-        const char* key = it->name.GetString();
-        if (destination.HasMember(key)) {
-            if (destination[key].IsObject() && it->value.IsObject()) {
-                // Recursively merge the two JSON objects
-                merge_json(destination[key], it->value, allocator);
-            } else {
-                // Overwrite the value in the destination
-                destination[key].CopyFrom(it->value, allocator);
-            }
-        } else {
-            // Add the value to the destination
-            rapidjson::Value newKey(key, allocator);
-            rapidjson::Value newValue;
-            newValue.CopyFrom(it->value, allocator);
-            destination.AddMember(newKey, newValue, allocator);
-        }
-    }
-    return true;
-}
+                rapidjson::Document::AllocatorType& allocator);
 
 class rapid_json_wrapper {
 public:
@@ -126,6 +111,13 @@ public:
         }
         return rapid_json_wrapper();
     }
+    float value(const char* key, const float& default_value) const {
+        if (document.HasMember(key)) {
+            const auto& value = document[key];
+            if (value.IsFloat()) return value.GetFloat();
+        }
+        return default_value;
+    }
     int value(const char* key, const int& default_value) const {
         if (document.HasMember(key)) {
             const auto& value = document[key];
@@ -183,6 +175,21 @@ public:
                 for (auto& v : value.GetArray()) {
                     if (v.IsFloat()) {
                         result.push_back(v.GetFloat());
+                    }
+                }
+                return result;
+            }
+        }
+        return default_value;
+    }
+    std::vector<std::string> value(const char* key, const std::vector<std::string>& default_value) const {
+        if (document.HasMember(key)) {
+            const auto& value = document[key];
+            if (value.IsArray()) {
+                std::vector<std::string> result;
+                for (auto& v : value.GetArray()) {
+                    if (v.IsString()) {
+                        result.push_back(v.GetString());
                     }
                 }
                 return result;
@@ -288,12 +295,20 @@ public:
     // model file config end >
 
     // < generate config start
+    int max_all_tokens() const {
+        return config_.value("max_all_tokens", 2048);
+    }
+
     int max_new_tokens() const {
         return config_.value("max_new_tokens", 512);
     }
 
     bool reuse_kv() const {
         return config_.value("reuse_kv", false);
+    }
+
+    bool all_logits() const {
+        return config_.value("all_logits", false);
     }
     // generate config end >
 
@@ -361,6 +376,10 @@ public:
         return config_.value("tmp_path", "");
     }
 
+    std::string system_prompt() const {
+        return config_.value("system_prompt", "");
+    }
+
     int hidden_size() const {
         return llm_config_.value("hidden_size", 4096);
     }
@@ -380,18 +399,84 @@ public:
         return llm_config_.value("attention_fused", true);
     }
 
+    std::string bos() const {
+        return llm_config_.value("bos", "");
+    }
+    std::string system_prompt_template() const {
+        return llm_config_.value("system_prompt_template", "<|im_start|>system\n%s<|im_end|>\n");
+    }
+    std::string user_prompt_template() const {
+        return llm_config_.value("user_prompt_template", "<|im_start|>user\n%s<|im_end|>\n");
+    }
+    std::string assistant_prompt_template() const {
+        return llm_config_.value("assistant_prompt_template", "<|im_start|>assistant\n%s<|im_end|>\n");
+    }
+
+    // for compatibility with the original usage
     std::string chat_template() const {
         return llm_config_.value("chat_template", "");
     }
 
     std::string prompt_template() const {
-        return llm_config_.value("prompt_template", "");
+        return llm_config_.value("prompt_template", "<|im_start|>user\n%s<|im_end|>\n<|im_start|>assistant\n");
     }
 
     std::vector<int64_t> tie_embeddings() const {
         return llm_config_.value("tie_embeddings", std::vector<int64_t>{});
     }
     // llm model config end >
+
+    // < sampler config start
+    std::string sampler_type() const {
+        return config_.value("sampler_type", "greedy");
+    }
+
+    std::vector<std::string> mixed_samplers() const {
+        return config_.value("mixed_samplers", std::vector<std::string>({"topK", "tfs", "typical", "topP", "min_p", "temperature"}));
+    }
+
+    float temperature() const {
+        return config_.value("temperature", 1.0f);
+    }
+
+    int topK() const {
+        return config_.value("topK", 40);
+    }
+
+    float topP() const {
+        return config_.value("topP", 0.9f);
+    }
+
+    float minP() const {
+        return config_.value("minP", 0.1f);
+    }
+
+    float tfsZ() const {
+        return config_.value("tfsZ", 1.0f);
+    }
+
+    float typical() const {
+        return config_.value("typical", 1.0f);
+    }
+
+    float penalty() const {
+        return config_.value("penalty", 0.0f);
+    }
+
+    int ngram() const {
+        return config_.value("n_gram", 8);
+    }
+
+    float ngram_factor() const {
+        return config_.value("ngram_factor", 1.0f);
+    }
+
+    std::string penalty_sampler() const {
+        return config_.value("penalty_sampler", "greedy");
+    }
+    // sampler config end >
 };
 } // Transformer
 } // MNN
+
+#endif

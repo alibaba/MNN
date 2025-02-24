@@ -45,8 +45,12 @@ ErrorCode NNAPIBinary::onResize(const std::vector<Tensor *> &inputs, const std::
         {BinaryOpOperation_RIGHTSHIFT, -1}
     };
     BinaryOpOperation binaryType;
+    auto fuseType = ANEURALNETWORKS_FUSED_NONE;
     if (mOp->type() == OpType_BinaryOp) {
         binaryType = static_cast<BinaryOpOperation>(mOp->main_as_BinaryOp()->opType());
+        if (mOp->main_as_BinaryOp()->activationType() == 1) {
+            fuseType = ANEURALNETWORKS_FUSED_RELU;
+        }
     } else if (mOp->type() == OpType_Eltwise) {
         auto elemType = mOp->main_as_Eltwise()->type();
         switch (elemType) {
@@ -73,7 +77,7 @@ ErrorCode NNAPIBinary::onResize(const std::vector<Tensor *> &inputs, const std::
         outputs[0]->buffer().type = halide_type_of<int8_t>();
     }
     auto inputIdxs = getTensorIdxs(inputs);
-    inputIdxs.push_back(buildScalar(ANEURALNETWORKS_FUSED_NONE));
+    inputIdxs.push_back(buildScalar(fuseType));
     return buildOperation(iter->second, inputIdxs, getTensorIdxs(outputs));
 }
 
