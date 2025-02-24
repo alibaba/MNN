@@ -29,12 +29,6 @@ public class ChatService{
                                                   boolean useTmpPath,
                                                   String sessionId,
                                                   List<ChatDataItem> chatDataItemList) {
-//        if (!transformerSessionMap.isEmpty()) {
-//            Toast.makeText(ApplicationUtils.get(), "wait for other models to release", Toast.LENGTH_SHORT).show();
-//           for (ChatSession session : transformerSessionMap.values()) {
-//               session.release();
-//           }
-//        }
         if (TextUtils.isEmpty(sessionId)) {
             sessionId = String.valueOf(System.currentTimeMillis());
         }
