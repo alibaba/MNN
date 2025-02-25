@@ -34,8 +34,6 @@ if (MNN_SEP_BUILD)
     list(APPEND LLM_DEPS llm)
 else()
     add_library(llm OBJECT ${SRCS})
-    list(APPEND MNN_TARGETS llm)
-    list(APPEND MNN_OBJECTS_TO_LINK $<TARGET_OBJECTS:llm>)
 endif()
 
 if (LLM_SUPPORT_VISION AND MNN_BUILD_OPENCV)
