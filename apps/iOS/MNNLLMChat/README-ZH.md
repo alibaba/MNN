@@ -78,28 +78,28 @@
 3. 拷贝 framework 到 iOS 项目中
 
     ```shell
-    mv MNN-iOS-CPU-GPU/Static/MNN.framework /apps/iOS/MNNLLMChat/MNN.framework
+    mv MNN-iOS-CPU-GPU/Static/MNN.framework apps/iOS/MNNLLMChat/MNN.framework
     ```
 
     确保 Link Binary With Libraried 中包含 MNN.framework，和其他三个 Framework。
-    
+
     <img src="./assets/framework.png" alt="deepThink" width="400" />
 
     如果没有包含，可以手动添加 MNN.framework:
 
     <img src="./assets/addFramework.png" alt="deepThink" width="200" />
     <img src="./assets/addFramework2.png" alt="deepThink" width="200" />
-    
+
 
 4. 修改 iOS 签名并编译项目
-    
+
     ```shell
-    cd /apps/iOS/MNNLLMChat
+    cd apps/iOS/MNNLLMChat
     open MNNLLMiOS.xcodeproj
     ```
 
     在 Xcode 项目属性中 Signing & Capabilities > Team 输入自己的账号和Bundle Identifier
-    
+
     ![signing](./assets/signing.png)
 
 

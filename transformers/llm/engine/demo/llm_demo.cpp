@@ -12,6 +12,7 @@
 #include <fstream>
 #include <sstream>
 #include <stdlib.h>
+#include <initializer_list>
 using namespace MNN::Transformer;
 
 static void tuning_prepare(Llm* llm) {
@@ -70,8 +71,9 @@ static int benchmark(Llm* llm, const std::vector<std::string>& prompts, int max_
     int64_t audio_time = 0;
     int64_t prefill_time = 0;
     int64_t decode_time = 0;
+    int64_t sample_time = 0;
     // llm->warmup();
-    auto& state = llm->getState();
+    auto context = llm->getContext();
     if (max_token_number > 0) {
         llm->set_config("{\"max_new_tokens\":1}");
     }
@@ -83,23 +85,26 @@ static int benchmark(Llm* llm, const std::vector<std::string>& prompts, int max_
         }
         if (max_token_number > 0) {
             llm->response(prompt, &std::cout, nullptr, 0);
-            while (!llm->stoped() && state.gen_seq_len_ < max_token_number) {
+            while (!llm->stoped() && context->gen_seq_len < max_token_number) {
                 llm->generate(1);
             }
         } else {
             llm->response(prompt);
         }
-        prompt_len += state.prompt_len_;
-        decode_len += state.gen_seq_len_;
-        vision_time += state.vision_us_;
-        audio_time += state.audio_us_;
-        prefill_time += state.prefill_us_;
-        decode_time += state.decode_us_;
+        llm->reset();
+        prompt_len += context->prompt_len;
+        decode_len += context->gen_seq_len;
+        vision_time += context->vision_us;
+        audio_time += context->audio_us;
+        prefill_time += context->prefill_us;
+        decode_time += context->decode_us;
+        sample_time += context->sample_us;
     }
     float vision_s = vision_time / 1e6;
     float audio_s = audio_time / 1e6;
     float prefill_s = prefill_time / 1e6;
     float decode_s = decode_time / 1e6;
+    float sample_s = sample_time / 1e6;
     printf("\n#################################\n");
     printf("prompt tokens num = %d\n", prompt_len);
     printf("decode tokens num = %d\n", decode_len);
@@ -107,6 +112,7 @@ static int benchmark(Llm* llm, const std::vector<std::string>& prompts, int max_
     printf("  audio time = %.2f s\n", audio_s);
     printf("prefill time = %.2f s\n", prefill_s);
     printf(" decode time = %.2f s\n", decode_s);
+    printf(" sample time = %.2f s\n", sample_s);
     printf("prefill speed = %.2f tok/s\n", prompt_len / prefill_s);
     printf(" decode speed = %.2f tok/s\n", decode_len / decode_s);
     printf("##################################\n");
@@ -176,6 +182,29 @@ static int eval(Llm* llm, std::string prompt_file, int max_token_number) {
     return benchmark(llm, prompts, max_token_number);
 }
 
+void chat(Llm* llm) {
+    ChatMessages messages;
+    messages.emplace_back("system", "You are a helpful assistant.");
+    auto context = llm->getContext();
+    while (true) {
+        std::cout << "\nUser: ";
+        std::string user_str;
+        std::getline(std::cin, user_str);
+        if (user_str == "/exit") {
+            return;
+        }
+        if (user_str == "/reset") {
+            llm->reset();
+            std::cout << "\nA: reset done." << std::endl;
+            continue;
+        }
+        messages.emplace_back("user", user_str);
+        std::cout << "\nA: " << std::flush;
+        llm->response(messages);
+        auto assistant_str = context->generate_str;
+        messages.emplace_back("assistant", assistant_str);
+    }
+}
 int main(int argc, const char* argv[]) {
     if (argc < 2) {
         std::cout << "Usage: " << argv[0] << " config.json <prompt.txt>" << std::endl;
@@ -198,7 +227,7 @@ int main(int argc, const char* argv[]) {
         tuning_prepare(llm.get());
     }
     if (argc < 3) {
-        llm->chat();
+        chat(llm.get());
         return 0;
     }
     int max_token_number = -1;

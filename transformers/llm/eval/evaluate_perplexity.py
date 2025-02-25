@@ -10,6 +10,8 @@ def main(args):
     # load model
     model = mnnllm.create(args.mnn_path)
     model.load()
+    model.set_config({'all_logits': True, 'use_template': False})
+    # model.set_config("")
 
     # load dataset
     eval_dataset = args.eval_dataset

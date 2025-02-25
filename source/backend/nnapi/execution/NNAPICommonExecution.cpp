@@ -15,7 +15,6 @@ NNAPICommonExecution::NNAPICommonExecution(Backend *backend, const Op *op) : Exe
 }
 
 ErrorCode NNAPICommonExecution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    printf("NNAPICommonExecution::onResize\n");
     return NO_ERROR;
 }
 

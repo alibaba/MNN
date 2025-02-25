@@ -86,6 +86,8 @@ protected:
     std::vector<int> special_tokens_;
     std::vector<int> stop_tokens_;
     std::vector<int> prefix_tokens_;
+private:
+    std::string mTemplate;
 };
 
 class Sentencepiece : public Tokenizer {

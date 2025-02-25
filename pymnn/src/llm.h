@@ -45,11 +45,12 @@ static PyObject* PyMNNLLM_generate(LLM *self, PyObject *args) {
         Py_RETURN_NONE;
     }
     PyObject *input_ids = nullptr;
-    if (!PyArg_ParseTuple(args, "O", &input_ids) && isInts(input_ids)) {
+    int max_new_tokens = 0;
+    if (!PyArg_ParseTuple(args, "O|i", &input_ids, &max_new_tokens) && isInts(input_ids)) {
         Py_RETURN_NONE;
     }
 
-    auto output_ids = self->llm->generate(toInts(input_ids));
+    auto output_ids = self->llm->generate(toInts(input_ids), max_new_tokens);
     return toPyObj<int, toPyObj>(output_ids);
 }
 
@@ -91,11 +92,10 @@ static PyObject* PyMNNLLM_tokenizer_encode(LLM *self, PyObject *args) {
         Py_RETURN_NONE;
     }
     const char* prompt = NULL;
-    int use_template = 0;
-    if (!PyArg_ParseTuple(args, "s|p", &prompt, &use_template)) {
+    if (!PyArg_ParseTuple(args, "s", &prompt)) {
         Py_RETURN_NONE;
     }
-    auto ids = self->llm->tokenizer_encode(prompt, use_template);
+    auto ids = self->llm->tokenizer_encode(prompt);
     return toPyObj<int, toPyObj>(ids);
 }
 
@@ -160,6 +160,20 @@ static PyObject* PyMNNLLM_release_module(LLM *self, PyObject *args) {
     return toPyObj(res);
 }
 
+static PyObject* PyMNNLLM_set_config(LLM *self, PyObject *args) {
+    const char* config = NULL;
+    if (!PyArg_ParseTuple(args, "s", &config)) {
+        Py_RETURN_NONE;
+    }
+    bool res = self->llm->set_config(config);
+    return toPyObj(res);
+}
+
+static PyObject* PyMNNLLM_reset(LLM *self, PyObject *args) {
+    self->llm->reset();
+    Py_RETURN_NONE;
+}
+
 static PyMethodDef PyMNNLLM_methods[] = {
     {"load", (PyCFunction)PyMNNLLM_load, METH_VARARGS, "load model."},
     {"forward", (PyCFunction)PyMNNLLM_forward, METH_VARARGS, "forward `logits` by `input_ids`."},
@@ -173,6 +187,8 @@ static PyMethodDef PyMNNLLM_methods[] = {
     {"apply_lora", (PyCFunction)PyMNNLLM_apply_lora, METH_VARARGS, "apply_lora."},
     {"select_module", (PyCFunction)PyMNNLLM_select_module, METH_VARARGS, "select_module."},
     {"release_module", (PyCFunction)PyMNNLLM_release_module, METH_VARARGS, "release_module."},
+    {"set_config", (PyCFunction)PyMNNLLM_set_config, METH_VARARGS, "set_config."},
+    {"reset", (PyCFunction)PyMNNLLM_reset, METH_VARARGS, "reset."},
     {NULL}  /* Sentinel */
 };
 

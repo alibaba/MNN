@@ -28,6 +28,7 @@ class MNNConveter:
             self.mnnconvert = config.args.mnnconvert
         else:
             self.mnnconvert = None
+        self.lm_weight = None
 
     def convert(self, convert_args):
         sfd = os.dup(1)
@@ -309,7 +310,12 @@ class MNNConveter:
         is_lm = 'lm_head' in name
         quant_bit = self.lm_quant_bit if is_lm else self.quant_bit
         block_size = ic if self.quant_block == 0 else self.quant_block
-        external, q_min, shape_int32, header_len = self.build_weight(linear, quant_bit, self.quant_block, self.symmetric)
+        if is_lm and self.lm_weight is not None:
+            external, q_min, shape_int32, header_len = self.lm_weight
+        else:
+            external, q_min, shape_int32, header_len = self.build_weight(linear, quant_bit, self.quant_block, self.symmetric)
+        if is_lm and self.lm_weight is None:
+            self.lm_weight = [external, q_min, shape_int32, header_len]
         if is_lm and self.config.tie_word_embeddings:
             weight_offset = external[0] + header_len
             alpha_offset = external[0] + external[1]

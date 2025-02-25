@@ -540,6 +540,13 @@ void ConvBufLowMemoryExecution::useFPWeightGemmLowMemory(Tensor * input, Tensor 
             pack_m = 4;
         }
         buildOptions.emplace("-DM_VEC=" + std::to_string(pack_m));
+        // generate cache for every option
+        std::vector<int> pack_m_vec = {1, 4, 8};
+        for (auto p : pack_m_vec) {
+            auto option = mResource->mBuildOptions;
+            option.emplace("-DM_VEC=" + std::to_string(p));
+            auto kernel = runtime->buildKernel("gemm_buf", "transpose_bias", option);
+        }
         unit.kernel = runtime->buildKernel("gemm_buf", "transpose_bias", buildOptions);
         uint32_t maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
 
@@ -705,6 +712,16 @@ void ConvBufLowMemoryExecution::tuneGemmLowMemory(Tensor * input, Tensor * outpu
     buildOption.emplace("-DINPUT_BATCH_LEAVES_NUM=" + std::to_string(inputBatchLeaves));
     if(mResource->mUseImage){
         buildOption.emplace("-DUSE_IMAGE");
+    }
+    // generate cache for every option
+    for (int i = 0; i < 4; i++) {
+        std::set<std::string> option = mResource->mBuildOptions;
+        if(mResource->mUseImage){
+            option.emplace("-DUSE_IMAGE");
+        }
+        option.emplace("-DINPUT_CHANNEL_LEAVES_NUM=" + std::to_string(inputChannelLeaves));
+        option.emplace("-DINPUT_BATCH_LEAVES_NUM=" + std::to_string(i));
+        auto kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("gemm_conv1x1_buf", kernelName, option);
     }
     std::string info = std::to_string(inputChannels) + "_" + std::to_string(outChannel);
     

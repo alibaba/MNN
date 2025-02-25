@@ -81,9 +81,10 @@ class Attention(torch.nn.Module):
                     self.k_proj.bias.data = kb
                     self.v_proj.bias.data = vb
                 else:
-                    self.q_proj.bias.data = torch.zeros(split_sizes[0])
-                    self.k_proj.bias.data = torch.zeros(split_sizes[1])
-                    self.v_proj.bias.data = torch.zeros(split_sizes[2])
+                    data_type = self.q_proj.weight.dtype
+                    self.q_proj.bias.data = torch.zeros(split_sizes[0], dtype=data_type)
+                    self.k_proj.bias.data = torch.zeros(split_sizes[1], dtype=data_type)
+                    self.v_proj.bias.data = torch.zeros(split_sizes[2], dtype=data_type)
             self.q_proj.weight.requires_grad = False
             self.k_proj.weight.requires_grad = False
             self.v_proj.weight.requires_grad = False
@@ -324,10 +325,8 @@ class Lm(torch.nn.Module):
         self.hidden_size = config.hidden_size
         self.ppl = config.args.ppl
 
-    def forward(self, hidden_states):
-        if not self.ppl:
-            # just need last logit for predict next token
-            hidden_states = hidden_states.view(-1, self.hidden_size)[-1].view(1, 1, self.hidden_size)
+    def forward(self, hidden_states, logits_index: int = -1):
+        hidden_states = hidden_states[:, logits_index:, :]
         hidden_states = self.final_layernorm(hidden_states)
         m_logits = self.lm(hidden_states)
         return m_logits

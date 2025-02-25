@@ -10,7 +10,7 @@
 | [chatglm-6b](https://modelscope.cn/models/ZhipuAI/ChatGLM-6B/summary) | [Q4_1](https://modelscope.cn/models/MNN/chatglm-6b-MNN) | [Q4_1](https://huggingface.co/taobao-mnn/chatglm-6b-MNN) |
 | [chatglm2-6b](https://modelscope.cn/models/ZhipuAI/chatglm2-6b/summary) | [Q4_1](https://modelscope.cn/models/MNN/chatglm2-6b-MNN) | [Q4_1](https://huggingface.co/taobao-mnn/chatglm2-6b-MNN) |
 | [chatglm3-6b](https://modelscope.cn/models/ZhipuAI/chatglm3-6b/summary) | [Q4_1](https://modelscope.cn/models/MNN/chatglm3-6b-MNN) | [Q4_1](https://huggingface.co/taobao-mnn/chatglm3-6b-MNN) |
-| [codegeex2-6b](https://modelscope.cn/models/MNN/codegeex2-6b-MNN/summary) | [Q4_1](https://modelscope.cn/models/MNN/codegeex2-6b-MNN) | [Q4_1](https://huggingface.co/taobao-mnn/codegeex2-6b-MNN) |
+| [codegeex2-6b](https://modelscope.cn/models/ZhipuAI/codegeex2-6b/summary) | [Q4_1](https://modelscope.cn/models/MNN/codegeex2-6b-MNN) | [Q4_1](https://huggingface.co/taobao-mnn/codegeex2-6b-MNN) |
 | [deepseek-llm-7b-chat](https://modelscope.cn/models/deepseek-ai/deepseek-llm-7b-chat/summary) | [Q4_1](https://modelscope.cn/models/MNN/deepseek-llm-7b-chat-MNN) | [Q4_1](https://huggingface.co/taobao-mnn/deepseek-llm-7b-chat-MNN) |
 | [gemma-2-2b-it](https://modelscope.cn/models/llm-research/gemma-2-2b-it) | [Q4_1](https://modelscope.cn/models/MNN/gemma-2-2b-it-MNN) | [Q4_1](https://huggingface.co/taobao-mnn/gemma-2-2b-it-MNN) |
 | [glm-4-9b-chat](https://modelscope.cn/models/ZhipuAI/glm-4-9b-chat/summary) | [Q4_1](https://modelscope.cn/models/MNN/glm-4-9b-chat-MNN) | [Q4_1](https://huggingface.co/taobao-mnn/glm-4-9b-chat-MNN) |

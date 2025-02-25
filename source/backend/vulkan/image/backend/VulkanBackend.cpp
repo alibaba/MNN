@@ -541,9 +541,6 @@ float VulkanBackend::getPipelineTime(const VulkanPipeline* pipeline, std::shared
     return time;
 }
 
-static bool checkInvalid(uint32_t x, uint32_t y, uint32_t z, uint32_t subgroupSize) {
-    return x * y * z > 4 * subgroupSize || x > 128 || y > 128 || z > 128;
-}
 
 std::vector<uint32_t> VulkanBackend::autoTunePipeline(SharedPtr<VulkanPipeline> pipeline, std::shared_ptr<VulkanLayout::DescriptorSet> des, const std::vector<uint32_t> gws, const uint32_t tuneDimension, std::vector<uint32_t> defaultLws,float * const minCostPtr) {
     bool isPrivate = !(pipeline->mTuneName.empty());
@@ -586,7 +583,7 @@ std::vector<uint32_t> VulkanBackend::autoTunePipeline(SharedPtr<VulkanPipeline> 
     std::pair<uint32_t, uint32_t> localSizeRangeY = (tuneDimension > 1) ? std::pair<uint32_t, uint32_t>(minLocalSize, maxLocalY) : std::pair<uint32_t, uint32_t>(1, 1);
     std::pair<uint32_t, uint32_t> localSizeRangeZ = (tuneDimension > 2) ? std::pair<uint32_t, uint32_t>(minLocalSize, maxLocalZ) : std::pair<uint32_t, uint32_t>(1, 1);
 
-    bool tuneNormalFlag = (mRuntime->mGpuMode & MNNGpuMode::MNN_GPU_TUNING_WIDE);
+    bool tuneWideFlag = (mRuntime->mGpuMode & MNNGpuMode::MNN_GPU_TUNING_WIDE);
 
     for (uint32_t z = localSizeRangeZ.first; z <= localSizeRangeZ.second; z = z << 1) {
         for (uint32_t y = localSizeRangeY.first; y <= localSizeRangeY.second; y = y << 1) {
@@ -597,10 +594,16 @@ std::vector<uint32_t> VulkanBackend::autoTunePipeline(SharedPtr<VulkanPipeline> 
                 if (x * y * z <= 16) {
                     continue;
                 }
-                if (checkInvalid(x, y, z, subgroupSize)) {
-                    continue;
+                if (tuneWideFlag) { // MNN_GPU_TUNING_WIDE
+                    if (x * y * z > 4 * subgroupSize || x > 128 || y > 128 || z > 128) {
+                        continue;
+                    }
+                } else { // MNN_GPU_TUNING_HEAVY
+                    if (x * y * z > 16 * subgroupSize) {
+                        continue;
+                    }
                 }
-                
+
                 workGroupCount[0] = UP_DIV(gws[0], x);
                 workGroupCount[1] = UP_DIV(gws[1], y);
                 workGroupCount[2] = UP_DIV(gws[2], z);

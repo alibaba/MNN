@@ -63,7 +63,7 @@ static int benchmark(Llm* llm, const std::vector<std::string>& prompts, int max_
         MNN_ERROR("Need larger than 3 inputs\n");
         return 0;
     }
-    auto& state = llm->getState();
+    auto context = llm->getContext();
     int initSize = 2;
     if (max_token_number <= 0) {
         max_token_number = 512;
@@ -76,11 +76,11 @@ static int benchmark(Llm* llm, const std::vector<std::string>& prompts, int max_
         history.emplace_back(llm->getCurrentHistory());
     }
     MNN_PRINT("\n");
-    
+
     MNN_PRINT("[LLM Test: Erase 1]\n");
     llm->eraseHistory(history[0], history[1]);
     llm->response(prompts[prompts.size()-1], &std::cout, nullptr, 0);
-    while (!llm->stoped() && state.gen_seq_len_ < max_token_number) {
+    while (!llm->stoped() && context->gen_seq_len < max_token_number) {
         llm->generate(1);
     }
     MNN_PRINT("\n[LLM Test End]\n");
@@ -95,7 +95,7 @@ static int benchmark(Llm* llm, const std::vector<std::string>& prompts, int max_
     MNN_PRINT("[LLM Test: Erase 2]\n");
     llm->eraseHistory(history[1], history[2]);
     llm->response(prompts[prompts.size()-1], &std::cout, nullptr, 0);
-    while (!llm->stoped() && state.gen_seq_len_ < max_token_number) {
+    while (!llm->stoped() && context->gen_seq_len < max_token_number) {
         llm->generate(1);
     }
     MNN_PRINT("\n[LLM Test End]\n");
@@ -103,7 +103,7 @@ static int benchmark(Llm* llm, const std::vector<std::string>& prompts, int max_
     llm->reset();
     llm->eraseHistory(0, 0);
     llm->response(prompts[prompts.size()-1], &std::cout, nullptr, 0);
-    while (!llm->stoped() && state.gen_seq_len_ < max_token_number) {
+    while (!llm->stoped() && context->gen_seq_len < max_token_number) {
         llm->generate(1);
     }
     MNN_PRINT("\n[LLM Test End]\n");

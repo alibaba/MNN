@@ -13,7 +13,7 @@ It operates fully offline with high privacy. Once the models are downloaded to t
 - Support for configuring mmap and manual cache clearing
 
 - Support for model downloads using the ModelScope source
-    
+
 | <img width="200" alt="image" src="./assets/usemmap_en.PNG" /> | <img width="200" alt="image" src="./assets/downloadSource_en.PNG" /> |
 
 ## Features
@@ -23,7 +23,7 @@ It operates fully offline with high privacy. Once the models are downloaded to t
    - Manage models: download and delete models.
     - Support for switching between Hugging Face and ModelScope sources
    - Search for models locally.
-   
+
 2. **Multimodal Chat**: Supports full Markdown format output and configuration of mmap
    - Text-to-text conversation.
    - Audio-to-text conversation.
@@ -78,8 +78,8 @@ Additionally, the app supports edge-side usage of DeepSeek with Think mode:
     -DMNN_SEP_BUILD=OFF
     -DLLM_SUPPORT_AUDIO=ON
     -DMNN_BUILD_AUDIO=ON
-    -DLLM_SUPPORT_VISION=ON 
-    -DMNN_BUILD_OPENCV=ON 
+    -DLLM_SUPPORT_VISION=ON
+    -DMNN_BUILD_OPENCV=ON
     -DMNN_IMGCODECS=ON
     "
     ```
@@ -87,23 +87,23 @@ Additionally, the app supports edge-side usage of DeepSeek with Think mode:
 3. Copy the framework to the iOS project:
 
     ```shell
-    mv MNN-iOS-CPU-GPU/Static/MNN.framework /apps/iOS/MNNLLMChat/MNN.framework
+    mv MNN-iOS-CPU-GPU/Static/MNN.framework apps/iOS/MNNLLMChat/MNN.framework
     ```
 
     Ensure the `Link Binary With Libraries` section includes the `MNN.framework`:
-    
+
     <img src="./assets/framework.png" alt="deepThink" width="400" />
 
     If it's missing, add it manually:
 
     <img src="./assets/addFramework.png" alt="deepThink" width="200" />
     <img src="./assets/addFramework2.png" alt="deepThink" width="200" />
-    
+
 
 4. Update iOS signing and build the project:
 
     ```shell
-    cd /apps/iOS/MNNLLMChat
+    cd apps/iOS/MNNLLMChat
     open MNNLLMiOS.xcodeproj
     ```
 
