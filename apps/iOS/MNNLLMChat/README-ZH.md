@@ -143,8 +143,17 @@ iPhone 因为内存有限，建议使用7B以及以下的模型，避免内存�
     }
     */
     ```
+5. 修改模型加载方式
 
-5. 运行项目，点击进入聊天对话页面，进行模型对话和调试。
+    在 LLMInferenceEngineWrapper 类中修改：
+
+    ```Swift
+    // BOOL success = [self loadModelFromPath:modelPath];
+    // MARK: Test Local Model
+    BOOL success = [self loadModel];
+    ```
+
+6. 运行项目，点击进入聊天对话页面，进行模型对话和调试。
 
 
 
