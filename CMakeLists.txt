@@ -381,8 +381,21 @@ include_directories(${CMAKE_CURRENT_LIST_DIR}/include/
                     ${CMAKE_CURRENT_LIST_DIR}/3rd_party/imageHelper
                     ${CMAKE_CURRENT_LIST_DIR}/3rd_party/OpenCLHeaders/
                   )
+list(APPEND MNN_INCLUDES
+        ${CMAKE_CURRENT_LIST_DIR}/include/
+        ${CMAKE_CURRENT_LIST_DIR}/source/
+        ${CMAKE_CURRENT_LIST_DIR}/express/
+        ${CMAKE_CURRENT_LIST_DIR}/tools/
+        ${CMAKE_CURRENT_LIST_DIR}/codegen/
+        ${CMAKE_CURRENT_LIST_DIR}/schema/current/
+        ${CMAKE_CURRENT_LIST_DIR}/3rd_party/
+        ${CMAKE_CURRENT_LIST_DIR}/3rd_party/flatbuffers/include
+        ${CMAKE_CURRENT_LIST_DIR}/3rd_party/half
+        ${CMAKE_CURRENT_LIST_DIR}/3rd_party/imageHelper
+        ${CMAKE_CURRENT_LIST_DIR}/3rd_party/OpenCLHeaders/
+)
 
-
+include_directories(${MNN_INCLUDES})
 set(MNN_OBJECTS_TO_LINK "")
 set(MNN_TARGETS "")
 

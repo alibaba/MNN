@@ -4,7 +4,7 @@
 //
 
 #include "remote_model_downloader.hpp"
-#include "../include/httplib.h"
+#include "httplib.h"
 #include <cstdio>
 #include <fstream>
 #include <functional>

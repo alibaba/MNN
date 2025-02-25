@@ -236,6 +236,31 @@ static int benchmark(int argc, const char *argv[]) {
     return 0;
 }
 
+
+void chat(Llm* llm) {
+    ChatMessages messages;
+    messages.emplace_back("system", "You are a helpful assistant.");
+    auto context = llm->getContext();
+    while (true) {
+        std::cout << "\nUser: ";
+        std::string user_str;
+        std::getline(std::cin, user_str);
+        if (user_str == "/exit") {
+            return;
+        }
+        if (user_str == "/reset") {
+            llm->reset();
+            std::cout << "\nA: reset done." << std::endl;
+            continue;
+        }
+        messages.emplace_back("user", user_str);
+        std::cout << "\nA: " << std::flush;
+        llm->response(messages);
+        auto assistant_str = context->generate_str;
+        messages.emplace_back("assistant", assistant_str);
+    }
+}
+
 static int run(int argc, const char *argv[]) {
     std::cout << "Start run..." << std::endl;
     std::string arg{};
@@ -311,7 +336,7 @@ static int run(int argc, const char *argv[]) {
     }
     if (prompt.empty() && prompt_file.empty())
     {
-        llm->chat();
+        chat(llm.get());
     }
     else if (!prompt.empty())
     {

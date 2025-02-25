@@ -42,23 +42,26 @@ public class ModelListFragment extends Fragment implements ModelListContract.Vie
     private View modelListErrorView;
 
     private TextView modelListErrorText;
-    private final MenuProvider menuProvider = new MenuProvider() {
-        @Override
-        public void onCreateMenu(@NonNull Menu menu, @NonNull MenuInflater menuInflater) {
-            // Inflate your menu resource here
-            menuInflater.inflate(R.menu.menu_main, menu);
-            android.view.MenuItem searchItem = menu.findItem(R.id.action_search);
-            SearchView searchView = (SearchView) searchItem.getActionView();
+
+    private boolean filterDownloaded = false;
+    private String filterQuery = "";
+
+    private void setupSearchView(Menu menu) {
+        android.view.MenuItem searchItem = menu.findItem(R.id.action_search);
+        SearchView searchView = (SearchView) searchItem.getActionView();
+        if (searchView != null) {
             searchView.setOnQueryTextListener(new SearchView.OnQueryTextListener() {
                 @Override
                 public boolean onQueryTextSubmit(String query) {
-                    modelListAdapter.filter(query);
+                    filterQuery = query;
+                    modelListAdapter.setFilter(query, filterDownloaded);
                     return false;
                 }
 
                 @Override
                 public boolean onQueryTextChange(String query) {
-                    modelListAdapter.filter(query);
+                    filterQuery = query;
+                    modelListAdapter.setFilter(query, filterDownloaded);
                     return true;
                 }
             });
@@ -78,21 +81,47 @@ public class ModelListFragment extends Fragment implements ModelListContract.Vie
                     return true;
                 }
             });
+        }
+    }
+
+    private final MenuProvider menuProvider = new MenuProvider() {
+        @Override
+        public void onCreateMenu(@NonNull Menu menu, @NonNull MenuInflater menuInflater) {
+            // Inflate your menu resource here
+            menuInflater.inflate(R.menu.menu_main, menu);
+            setupSearchView(menu);
             MenuItem issueMenu = menu.findItem(R.id.action_github_issue);
             issueMenu.setOnMenuItemClickListener(item -> {
-                ((MainActivity) getActivity()).onReportIssue(null);
+                if (getActivity() != null) {
+                    ((MainActivity) getActivity()).onReportIssue(null);
+                }
+                return true;
+            });
+
+            MenuItem filterDownloadedMenu = menu.findItem(R.id.action_filter_downloaded);
+            filterDownloadedMenu.setChecked(PreferenceUtils.isFilterDownloaded(getContext()));
+            filterDownloadedMenu.setOnMenuItemClickListener(item -> {
+                filterDownloaded = PreferenceUtils.isFilterDownloaded(getContext());
+                filterDownloaded = !filterDownloaded;
+                PreferenceUtils.setFilterDownloaded(getContext(), filterDownloaded);
+                filterDownloadedMenu.setChecked(filterDownloaded);
+                modelListAdapter.setFilter(filterQuery, filterDownloaded);
                 return true;
             });
 
             MenuItem checkUpdateMenu = menu.findItem(R.id.action_check_for_update);
             checkUpdateMenu.setOnMenuItemClickListener(item -> {
-                ((MainActivity) getActivity()).checkForUpdate();
+                if (getActivity() != null) {
+                    ((MainActivity) getActivity()).checkForUpdate();
+                }
                 return true;
             });
 
             MenuItem starGithub = menu.findItem(R.id.action_star_project);
             starGithub.setOnMenuItemClickListener(item -> {
-                ((MainActivity) getActivity()).onStarProject(null);
+                if (getActivity() != null) {
+                    ((MainActivity) getActivity()).onStarProject(null);
+                }
                 return true;
             });
 
@@ -145,6 +174,8 @@ public class ModelListFragment extends Fragment implements ModelListContract.Vie
         modelListRecyclerView.setAdapter(modelListAdapter);
         modelListPresenter = new ModelListPresenter(getContext(), this);
         modelListAdapter.setModelListListener(modelListPresenter);
+        filterDownloaded = PreferenceUtils.isFilterDownloaded(getContext());
+        modelListAdapter.setFilter(filterQuery, filterDownloaded);
         modelListPresenter.onCreate();
         return view;
     }
