@@ -11,6 +11,7 @@ struct ModelListView: View {
     
     @State private var scrollOffset: CGFloat = 0
     @State private var showHelp = false
+    @State private var showUserGuide = false
     @State private var showHistory = false
     @State private var selectedHistory: ChatHistory?
     @State private var histories: [ChatHistory] = []
@@ -110,6 +111,26 @@ struct ModelListView: View {
                         EmptyView()
                     }
                 )
+                .onAppear {
+                    checkFirstLaunch()
+                }
+                .alert(isPresented: $showUserGuide) {
+                    Alert(
+                        title: Text("User Guide"),
+                        message: Text("""
+                        This is a local large model application that requires certain performance from your device.
+                        It is recommended to choose different model sizes based on your device's memory. 
+                        
+                        The model recommendations for iPhone are as follows:
+                        - For 8GB of RAM, models up to 8B are recommended (e.g., iPhone 16 Pro).
+                        - For 6GB of RAM, models up to 3B are recommended (e.g., iPhone 15 Pro).
+                        - For 4GB of RAM, models up to 1B or smaller are recommended (e.g., iPhone 13).
+                        
+                        Choosing a model that is too large may cause insufficient memory and crashes.
+                        """),
+                        dismissButton: .default(Text("OK"))
+                    )
+                }
             }
             .disabled(showHistory)
             
@@ -153,6 +174,16 @@ struct ModelListView: View {
     
     private func updateHistory() {
         histories = ChatHistoryManager.shared.getAllHistory()
+    }
+    
+    private func checkFirstLaunch() {
+        let hasLaunchedBefore = UserDefaults.standard.bool(forKey: "hasLaunchedBefore")
+        if !hasLaunchedBefore {
+            // Show the user guide alert
+            showUserGuide = true
+            // Set the flag to true so it doesn't show again
+            UserDefaults.standard.set(true, forKey: "hasLaunchedBefore")
+        }
     }
     
     private var settingsButton: some View {

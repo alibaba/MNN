@@ -117,6 +117,45 @@ Additionally, the app supports edge-side usage of DeepSeek with Think mode:
 
 Due to memory limitations on iPhones, it is recommended to use models with 7B parameters or fewer to avoid memory-related crashes.
 
+Here is the professional technical translation of the provided text:
+
+---
+
+## Local Debugging
+
+If we want to directly download the models to the computer for debugging without downloading them through the app, we can follow these steps:
+
+1. First, download the MNN-related models from [Hugging Face](https://huggingface.co/taobao-mnn) or [Modelscope](https://modelscope.cn/organization/MNN):
+
+
+    <img width="400" alt="image" src="./assets/copyLocalModel.png" />
+
+
+2. After downloading, drag all the files from the model folder into the project's LocalModel folder:
+
+    <img width="300" alt="image" src="./assets/copyLocalModel2.png" />
+
+3. Ensure that the above files are included in the Copy Bundle Resources section:
+
+    <img width="400" alt="image" src="./assets/copyLocalMode3.png" />
+
+4. Comment out the model download code:
+
+    ```Swift
+    /*
+    try await modelClient.downloadModel(model: model) { progress in
+        Task { @MainActor in
+            DispatchQueue.main.async {
+                self.downloadProgress[model.modelId] = progress
+            }
+        }
+    }
+    */
+    ```
+
+5. Run the project, navigate to the chat page, and perform model interactions and debugging.
+
+
 ## References
 
 - [Exyte/Chat](https://github.com/exyte/Chat)
