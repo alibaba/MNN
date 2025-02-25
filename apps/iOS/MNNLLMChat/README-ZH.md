@@ -116,18 +116,18 @@ iPhone 因为内存有限，建议使用7B以及以下的模型，避免内存�
 
 1. 首先在 [huggingface](https://huggingface.co/taobao-mnn) 或者 [modelscope](https://modelscope.cn/organization/MNN) 下载 MNN 相关的模型
 
+    <img width="400" alt="image" src="./assets/copyLocalModel.png" />
 
-    ![](./assets/copyLocalModel.png)
 
 2. 将下载之后的模型文件夹内的所有文件，拖动到项目中 LocalModel 文件夹下：
 
-    ![](./assets/copyLocalModel2.png)
+    <img width="200" alt="image" src="./assets/copyLocalModel2.png" />
 
 
 3. 确保以上文件都已经在 copy bundle resources 中
 
 
-    ![](./assets/copyLocalMode3.png)
+    <img width="400" alt="image" src="./assets/copyLocalMode3.png" />
 
 
 4. 注释下载相关代码

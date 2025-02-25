@@ -127,15 +127,17 @@ If we want to directly download the models to the computer for debugging without
 
 1. First, download the MNN-related models from [Hugging Face](https://huggingface.co/taobao-mnn) or [Modelscope](https://modelscope.cn/organization/MNN):
 
-    ![](./assets/copyLocalModel.png)
+
+    <img width="400" alt="image" src="./assets/copyLocalModel.png" />
+
 
 2. After downloading, drag all the files from the model folder into the project's LocalModel folder:
 
-    ![](./assets/copyLocalModel2.png)
+    <img width="300" alt="image" src="./assets/copyLocalModel2.png" />
 
 3. Ensure that the above files are included in the Copy Bundle Resources section:
 
-    ![](./assets/copyLocalMode3.png)
+    <img width="400" alt="image" src="./assets/copyLocalMode3.png" />
 
 4. Comment out the model download code:
 
