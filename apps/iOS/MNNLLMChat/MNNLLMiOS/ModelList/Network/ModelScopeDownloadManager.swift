@@ -15,7 +15,7 @@ import Foundation
 /// - Progress tracking
 /// - File integrity validation
 /// - Directory structure preservation
-@available(iOS 13.0, macOS 10.15, *)
+@available(iOS 13.4, macOS 10.15, *)
 public actor ModelScopeDownloadManager: Sendable {
     // MARK: - Properties
     
