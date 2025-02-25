@@ -66,4 +66,5 @@
     <string name="no_update">没有可用更新</string>
     <string name="download">下载</string>
     <string name="download_update_available">有新版本: (%1$s)</string>
+    <string name="show_only_downloaded">只显示已下载模型</string>
 </resources>

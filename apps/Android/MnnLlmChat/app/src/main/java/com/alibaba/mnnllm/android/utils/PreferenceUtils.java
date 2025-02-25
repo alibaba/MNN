@@ -18,6 +18,9 @@ public class PreferenceUtils {
 
     public static final String KEY_USE_MODELSCOPE_DOWNLOAD = "USE_MODELSCOPE_DOWNLOAD";
 
+    public static final String KEY_LIST_FILTER_ONLY_DOWNLOADED = "LIST_FILTER_ONLY_DOWNLOADED";
+
+
     public static void setBoolean(Context context, String key , boolean value) {
         PreferenceManager.getDefaultSharedPreferences(context).edit().putBoolean(key, value).apply();
     }
@@ -47,5 +50,13 @@ public class PreferenceUtils {
 
     public static void setUseModelsScopeDownload(Context context, boolean value) {
         setBoolean(context, KEY_USE_MODELSCOPE_DOWNLOAD, value);
+    }
+
+    public static void setFilterDownloaded(Context context, boolean filterDownloaded) {
+        setBoolean(context, KEY_LIST_FILTER_ONLY_DOWNLOADED, filterDownloaded);
+    }
+
+    public static boolean isFilterDownloaded(Context context) {
+        return getBoolean(context, KEY_LIST_FILTER_ONLY_DOWNLOADED, false);
     }
 }

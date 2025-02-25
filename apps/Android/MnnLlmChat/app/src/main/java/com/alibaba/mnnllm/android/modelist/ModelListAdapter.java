@@ -11,6 +11,7 @@ import android.view.ViewGroup;
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
 import com.alibaba.mls.api.HfRepoItem;
+import com.alibaba.mls.api.download.DownloadInfo;
 import com.alibaba.mnnllm.android.R;
 import java.util.HashSet;
 import java.util.List;
@@ -25,6 +26,8 @@ public class ModelListAdapter extends RecyclerView.Adapter<RecyclerView.ViewHold
     private ModelItemListener modelListListener;
     private Map<String, ModelItemState> modelItemStatesMap;
     private Set<ModelItemHolder> modelItemHolders = new HashSet<>();
+    private String filterQuery;
+    private boolean filterDownloaded;
 
     public ModelListAdapter(List<HfRepoItem> items) {
         this.items = items;
@@ -58,7 +61,7 @@ public class ModelListAdapter extends RecyclerView.Adapter<RecyclerView.ViewHold
         this.modelItemStatesMap = modelItemStatesMap;
         this.items.clear();
         this.items.addAll(hfRepoItems);
-        notifyDataSetChanged();
+        filter(filterQuery, filterDownloaded);
     }
 
     public void updateItem(String modelId) {
@@ -91,9 +94,15 @@ public class ModelListAdapter extends RecyclerView.Adapter<RecyclerView.ViewHold
         return filteredItems != null ? filteredItems : items;
     }
 
-    public void filter(String query) {
+    public void filter(String query, boolean showDownloadedOnly) {
         List<HfRepoItem> filtered = this.items.stream()
                 .filter(hfRepoItem -> {
+                    if (showDownloadedOnly) {
+                        ModelItemState modelItemState = modelItemStatesMap.get(hfRepoItem.getModelId());
+                        if (modelItemState == null || modelItemState.downloadInfo.downlodaState != DownloadInfo.DownloadSate.COMPLETED) {
+                            return false;
+                        }
+                    }
                     String modelName = hfRepoItem.getModelName().toLowerCase();
                     return modelName.contains(query.toLowerCase()) ||
                             hfRepoItem.getNewTags().stream().anyMatch(
@@ -112,5 +121,11 @@ public class ModelListAdapter extends RecyclerView.Adapter<RecyclerView.ViewHold
     public void unfilter() {
         this.filteredItems = null;
         notifyDataSetChanged();
+    }
+
+    public void setFilter(String filterQuery, boolean filterDownloaded) {
+        this.filterQuery = filterQuery;
+        this.filterDownloaded = filterDownloaded;
+        filter(filterQuery, filterDownloaded);
     }
 }

@@ -7,11 +7,12 @@
         app:actionViewClass="androidx.appcompat.widget.SearchView"
         app:showAsAction="ifRoom|collapseActionView" />
     <item
-        android:id="@+id/action_use_modelscope"
-        android:title="@string/use_model_scope_download"
+        android:id="@+id/action_filter_downloaded"
+        android:title="@string/show_only_downloaded"
         android:checkable="true"
-        android:checked="true"
+        android:checked="false"
         app:showAsAction="never" />
+
     <item
         android:id="@+id/action_github_issue"
         android:title="@string/raise_issue"
@@ -27,6 +28,12 @@
         android:title="@string/resume_all_downloads"
         app:showAsAction="never" />
 
+    <item
+        android:id="@+id/action_use_modelscope"
+        android:title="@string/use_model_scope_download"
+        android:checkable="true"
+        android:checked="true"
+        app:showAsAction="never" />
     <item
         android:id="@+id/action_check_for_update"
         android:title="@string/check_for_update"
