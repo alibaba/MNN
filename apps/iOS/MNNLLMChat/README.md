@@ -153,7 +153,19 @@ If we want to directly download the models to the computer for debugging without
     */
     ```
 
-5. Run the project, navigate to the chat page, and perform model interactions and debugging.
+
+5. Modify the Model Loading Method
+
+    Modify the `LLMInferenceEngineWrapper` class:
+
+    ```Swift
+    // BOOL success = [self loadModelFromPath:modelPath];
+    // MARK: Test Local Model
+    BOOL success = [self loadModel];
+    ```
+
+
+6. Run the project, navigate to the chat page, and perform model interactions and debugging.
 
 
 ## References
