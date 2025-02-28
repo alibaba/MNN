@@ -11,7 +11,7 @@ import Foundation
 class ModelClient {
     private let baseMirrorURL = "https://hf-mirror.com"
     private let baseURL = "https://huggingface.co"
-    private let maxRetries = 3
+    private let maxRetries = 5
     
     private lazy var baseURLString: String = {
         switch ModelSourceManager.shared.selectedSource {
@@ -52,7 +52,7 @@ class ModelClient {
         config.timeoutIntervalForRequest = 30
         config.timeoutIntervalForResource = 300
         
-        let manager = ModelScopeDownloadManager.init(repoPath: ModelScopeId, config: config, enableLogging: false)
+        let manager = ModelScopeDownloadManager.init(repoPath: ModelScopeId, config: config, enableLogging: false, baseURL: "https://modelers.cn/api/v1")
         
         try await manager.downloadModel(to:"huggingface/models/taobao-mnn", modelId: ModelScopeId, modelName: model.name) { fileProgress in
             progress(fileProgress)

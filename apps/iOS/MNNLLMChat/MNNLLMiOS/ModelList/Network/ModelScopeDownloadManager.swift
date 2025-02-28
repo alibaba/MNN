@@ -23,8 +23,8 @@ public actor ModelScopeDownloadManager: Sendable {
     private let session: URLSession
     private let fileManager: FileManager
     private let storage: ModelDownloadStorage
-    private let baseURL = "https://modelscope.cn/api/v1"
-    
+
+    var baseURL: String
     private var totalFiles: Int = 0
     private var downloadedFiles: Int = 0
     private var totalSize: Int64 = 0
@@ -44,12 +44,14 @@ public actor ModelScopeDownloadManager: Sendable {
     public init(
         repoPath: String,
         config: URLSessionConfiguration = .default,
-        enableLogging: Bool = true
+        enableLogging: Bool = true,
+        baseURL: String = "https://modelscope.cn/api/v1"
     ) {
         self.repoPath = repoPath
         self.fileManager = .default
         self.storage = ModelDownloadStorage()
         self.session = URLSession(configuration: config)
+        self.baseURL = baseURL
         ModelScopeLogger.isEnabled = enableLogging
     }
     
@@ -316,7 +318,7 @@ public actor ModelScopeDownloadManager: Sendable {
                                }
                            }
                         },
-                        maxRetries: 6, 
+                        maxRetries: 50,
                         retryDelay: 1.0
                     )
                     
