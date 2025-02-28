@@ -78,14 +78,14 @@ public class ModelListAdapter extends RecyclerView.Adapter<RecyclerView.ViewHold
         }
     }
 
-    public void updateProgres(String modelId, double progress) {
+    public void updateProgress(String modelId, DownloadInfo downloadInfo) {
         for (ModelItemHolder modelItemHolder : modelItemHolders) {
             if (modelItemHolder.itemView.getTag() == null) {
                 continue;
             }
             String tempModelId = ((HfRepoItem)modelItemHolder.itemView.getTag()).getModelId();
             if (TextUtils.equals(tempModelId, modelId)) {
-                modelItemHolder.updateProgress(progress);
+                modelItemHolder.updateProgress(downloadInfo);
             }
         }
     }

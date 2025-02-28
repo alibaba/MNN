@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="download_provider_entries">
+        <item>HuggingFace</item>
+        <item>@string/modelscope</item>
+        <item>@string/modelers</item>
+    </string-array>
+
+    <string-array name="download_provider_values">
+        <item>HuggingFace</item>
+        <item>ModelScope</item>
+        <item>Modelers</item>
+    </string-array>
+</resources>

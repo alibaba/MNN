@@ -5,7 +5,7 @@ package com.alibaba.mnnllm.android;
 
 import android.util.Log;
 
-import com.alibaba.mls.api.ApplicationUtils;
+import com.alibaba.mls.api.ApplicationProvider;
 import com.alibaba.mnnllm.android.chat.ChatDataItem;
 import com.alibaba.mnnllm.android.utils.FileUtils;
 import com.alibaba.mnnllm.android.utils.ModelPreferences;
@@ -59,7 +59,7 @@ public class ChatSession implements Serializable {
             historyStringList = this.savedHistory.stream().map(ChatDataItem::getText).collect(Collectors.toList());
         }
         String rootCacheDir = "";
-        if (ModelPreferences.useMmap(ApplicationUtils.get(), modelId)) {
+        if (ModelPreferences.useMmap(ApplicationProvider.get(), modelId)) {
             rootCacheDir = FileUtils.getMmapDir(modelId, configPath.contains("modelscope"));
             new File(rootCacheDir).mkdirs();
         }

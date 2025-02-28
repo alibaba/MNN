@@ -10,7 +10,7 @@
     <string name="download_not_started">未下载, 点击下载</string>
     <string name="downloaded_click_to_chat">已下载, 点击开始聊天</string>
     <string name="download_failed_click_retry">下载失败: %1$s, 点击重试</string>
-    <string name="downloading_progress">下载中：%1$.2f%%</string>"
+    <string name="downloading_progress">下载中：%1$.2f%% %2$s</string>"
     <string name="config_file_not_found">模型配置文件不存在：%1$s</string>
     <string name="model_hello_prompt">你好，我是%1$s，有什么需要帮忙的么</string>
     <string name="model_hello_prompt_diffusion">你好，我是%1$s，请输入提示词生成图片</string>
@@ -67,4 +67,13 @@
     <string name="download">下载</string>
     <string name="download_update_available">有新版本: (%1$s)</string>
     <string name="show_only_downloaded">只显示已下载模型</string>
+    <string name="about">关于</string>
+    <string name="settings">设置</string>
+    <string name="current_version">当前版本:%1$s</string>
+    <string name="select_download_provider">选择下载提供商</string>
+    <string name="settings_complete">强烈建议删除未完成任务重新下载，否则可能有数据不一致问题。</string>
+    <string name="stop_download_tasks_when_chat">聊天时停止下载任务</string>
+    <string name="stop_download_reason">开启后，聊天时下载任务会被暂停，减少聊天卡顿。</string>
+    <string name="modelscope">Modelscope(魔搭)</string>
+    <string name="modelers">Modelers(魔乐)</string>
 </resources>

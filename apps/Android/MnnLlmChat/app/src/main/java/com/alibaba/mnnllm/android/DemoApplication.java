@@ -5,12 +5,12 @@ package com.alibaba.mnnllm.android;
 
 import android.app.Application;
 
-import com.alibaba.mls.api.ApplicationUtils;
+import com.alibaba.mls.api.ApplicationProvider;
 
 public class DemoApplication extends Application {
     @Override
     public void onCreate() {
         super.onCreate();
-        ApplicationUtils.set(this);
+        ApplicationProvider.set(this);
     }
 }

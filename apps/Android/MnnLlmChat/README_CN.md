@@ -57,6 +57,15 @@
   ```
 
 # Releases
+
+# Version 0.3.0
++ 点击这里 [下载](https://meta.alicdn.com/data/mnn/mnn_chat_d_0_3_0.apk)
++ 将 MNN 引擎升级至 v3.1.0
++ 新增设置页面
++ 显示下载速度
++ 支持筛选已下载的模型
++ 支持从 modelers.cn 下载模型
+
 ## Version 0.2.2
 + 点击这里 [下载](https://meta.alicdn.com/data/mnn/mnn_chat_d_0_2_2.apk)
 + 支持 mmap 增加启动速度

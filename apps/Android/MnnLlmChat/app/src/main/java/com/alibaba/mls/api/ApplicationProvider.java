@@ -5,10 +5,10 @@ package com.alibaba.mls.api;
 
 import android.app.Application;
 
-public class ApplicationUtils {
+public class ApplicationProvider {
     static Application application;
     public static void set(Application application ) {
-        ApplicationUtils.application = application;
+        ApplicationProvider.application = application;
     }
 
     public static Application get() {

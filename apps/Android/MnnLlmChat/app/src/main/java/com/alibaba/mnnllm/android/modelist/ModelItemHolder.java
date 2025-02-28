@@ -81,7 +81,7 @@ public class ModelItemHolder extends RecyclerView.ViewHolder implements View.OnC
                 if (TextUtils.equals("Preparing", modelItemState.downloadInfo.progressStage)) {
                     tvStatus.setText(tvStatus.getResources().getString(R.string.download_preparing));
                 } else {
-                    updateProgress(modelItemState.downloadInfo.progress);
+                    updateProgress(modelItemState.downloadInfo);
                 }
                 break;
             case DownloadInfo.DownloadSate.FAILED:
@@ -96,8 +96,8 @@ public class ModelItemHolder extends RecyclerView.ViewHolder implements View.OnC
     }
 
     @SuppressLint("DefaultLocale")
-    public void updateProgress(double progress) {
-        tvStatus.setText(itemView.getResources().getString(R.string.downloading_progress, progress * 100));
+    public void updateProgress(DownloadInfo downloadInfo) {
+        tvStatus.setText(itemView.getResources().getString(R.string.downloading_progress, downloadInfo.progress * 100, downloadInfo.speedInfo));
     }
 
     @Override
