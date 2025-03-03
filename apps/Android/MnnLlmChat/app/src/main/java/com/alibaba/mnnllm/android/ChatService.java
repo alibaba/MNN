@@ -4,9 +4,7 @@
 package com.alibaba.mnnllm.android;
 
 import android.text.TextUtils;
-import android.widget.Toast;
 
-import com.alibaba.mls.api.ApplicationUtils;
 import com.alibaba.mnnllm.android.chat.ChatDataItem;
 
 import java.util.HashMap;

@@ -5,7 +5,7 @@ package com.alibaba.mnnllm.android.utils;
 import android.content.res.Configuration;
 import android.os.Build;
 
-import com.alibaba.mls.api.ApplicationUtils;
+import com.alibaba.mls.api.ApplicationProvider;
 
 import java.util.Locale;
 
@@ -18,7 +18,7 @@ public class DeviceUtils {
     }
 
     public static boolean isChinese() {
-        Configuration config = ApplicationUtils.get().getResources().getConfiguration();
+        Configuration config = ApplicationProvider.get().getResources().getConfiguration();
         Locale locale = config.getLocales().get(0);
         String language = locale.getLanguage();
         String country = locale.getCountry();

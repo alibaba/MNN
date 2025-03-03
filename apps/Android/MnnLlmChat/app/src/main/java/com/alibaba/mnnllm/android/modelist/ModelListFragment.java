@@ -26,7 +26,9 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.alibaba.mls.api.HfRepoItem;
 import com.alibaba.mnnllm.android.MainActivity;
 import com.alibaba.mnnllm.android.R;
+import com.alibaba.mnnllm.android.settings.MainSettingsActivity;
 import com.alibaba.mnnllm.android.utils.PreferenceUtils;
+import com.alibaba.mnnllm.android.utils.RouterUtils;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -108,11 +110,10 @@ public class ModelListFragment extends Fragment implements ModelListContract.Vie
                 modelListAdapter.setFilter(filterQuery, filterDownloaded);
                 return true;
             });
-
-            MenuItem checkUpdateMenu = menu.findItem(R.id.action_check_for_update);
-            checkUpdateMenu.setOnMenuItemClickListener(item -> {
+            MenuItem settingsMenu = menu.findItem(R.id.action_settings);
+            settingsMenu.setOnMenuItemClickListener(item -> {
                 if (getActivity() != null) {
-                    ((MainActivity) getActivity()).checkForUpdate();
+                    RouterUtils.INSTANCE.startActivity(getActivity(), MainSettingsActivity.class);
                 }
                 return true;
             });
@@ -122,14 +123,6 @@ public class ModelListFragment extends Fragment implements ModelListContract.Vie
                 if (getActivity() != null) {
                     ((MainActivity) getActivity()).onStarProject(null);
                 }
-                return true;
-            });
-
-            MenuItem menuUseModelScope = menu.findItem(R.id.action_use_modelscope);
-            menuUseModelScope.setChecked(PreferenceUtils.isUseModelsScopeDownload(getContext()));
-            menuUseModelScope.setOnMenuItemClickListener(item -> {
-                menuUseModelScope.setChecked(!menuUseModelScope.isChecked());
-                PreferenceUtils.setUseModelsScopeDownload(getContext(), menuUseModelScope.isChecked());
                 return true;
             });
         }

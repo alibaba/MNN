@@ -8,7 +8,7 @@ import android.media.MediaMetadataRetriever;
 import android.net.Uri;
 import android.util.Log;
 
-import com.alibaba.mls.api.ApplicationUtils;
+import com.alibaba.mls.api.ApplicationProvider;
 import com.alibaba.mls.api.download.DownloadFileUtils;
 
 import java.io.File;
@@ -128,7 +128,7 @@ public class FileUtils {
         }
     }
     public static String getMmapDir(String modelId, boolean isModelScope) {
-        String rootCacheDir = ApplicationUtils.get().getFilesDir() + "/tmps/" + ModelUtils.safeModelId(modelId);
+        String rootCacheDir = ApplicationProvider.get().getFilesDir() + "/tmps/" + ModelUtils.safeModelId(modelId);
         if (isModelScope) {
             rootCacheDir = rootCacheDir + "/modelscope";
         }

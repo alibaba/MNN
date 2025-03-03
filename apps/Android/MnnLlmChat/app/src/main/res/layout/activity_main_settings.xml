@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
-    xmlns:tools="http://schemas.android.com/tools"
     android:orientation="vertical"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
@@ -20,25 +19,11 @@
             app:popupTheme="@style/ThemeOverlay.AppCompat.Light" />
     </com.google.android.material.appbar.AppBarLayout>
 
-    <RelativeLayout
+    <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent"
+        android:id="@+id/settings_container"
         >
-        <include layout="@layout/layout_chat_content"/>
-        <RelativeLayout
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:visibility="gone"
-            android:id="@+id/layout_model_loading"
-            android:background="#33333333">
-            <com.github.ybq.android.spinkit.SpinKitView
-                android:id="@+id/model_list_loading_view"
-                style="@style/SpinKitView.Large.FadingCircle"
-                android:layout_width="100dp"
-                android:layout_height="100dp"
-                android:layout_centerInParent="true"
-                app:SpinKit_Color="@color/colorAccent" />
-        </RelativeLayout>
-    </RelativeLayout>
+    </FrameLayout>
 
 </LinearLayout>

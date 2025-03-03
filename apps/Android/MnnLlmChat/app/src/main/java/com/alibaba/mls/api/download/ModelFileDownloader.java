@@ -70,7 +70,26 @@ public class ModelFileDownloader {
         if (incompletePath.exists() && forceDownload) {
             incompletePath.delete();
         }
-        Log.d(TAG, "downloadChunk " + urlToDownload + " to file: " + incompletePath + " to destination: " + destinationPath);
+
+        if (fileDownloadTask.downloadedSize >= expectedSize) {
+            return;
+        }
+        Request.Builder requestBuilder = new Request.Builder()
+                .url(urlToDownload)
+                .get();
+        Request request = requestBuilder.build();
+        try (Response response = client.newCall(request).execute()) {
+            Log.d(TAG, "response code: " + response.code());
+            for (String header : response.headers().names()) {
+                Log.d(TAG, "downloadToTmpAndMove response header: " + header + ": " + response.header(header));
+            }
+            if (response.code() == 302 || response.code() == 303) {
+                urlToDownload = response.header("Location");
+            }
+        } catch (IOException e) {
+            throw new HfApiException("get header error" + e.getMessage());
+        }
+        Log.d(TAG, "downloadToTmpAndMove urlToDownload: " + urlToDownload + " to file: " + incompletePath + " to destination: " + destinationPath);
         int maxRetry = 10;
         if (fileDownloadTask.downloadedSize < expectedSize) {
             for (int i = 0; i < maxRetry; i++) {

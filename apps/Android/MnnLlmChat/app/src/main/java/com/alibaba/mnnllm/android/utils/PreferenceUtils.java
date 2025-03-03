@@ -4,12 +4,7 @@
 package com.alibaba.mnnllm.android.utils;
 
 import android.content.Context;
-import android.content.res.Configuration;
 import android.preference.PreferenceManager;
-
-import com.alibaba.mls.api.ApplicationUtils;
-
-import java.util.Locale;
 
 public class PreferenceUtils {
 

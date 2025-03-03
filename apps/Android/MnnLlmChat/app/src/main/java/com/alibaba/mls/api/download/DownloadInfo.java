@@ -9,9 +9,15 @@ public class DownloadInfo {
     public long savedSize = 0;
     public double progress = 0;
 
+    //for calculate speed
+    public long lastLogTime = 0;
+
     public int downlodaState = DownloadSate.NOT_START;
     public String currentFile;
     public String progressStage;
+
+    public String speedInfo;
+
     public String errorMessage;
 
     public static class DownloadSate {

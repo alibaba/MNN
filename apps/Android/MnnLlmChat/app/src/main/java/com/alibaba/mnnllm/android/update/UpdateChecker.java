@@ -4,16 +4,12 @@
 package com.alibaba.mnnllm.android.update;
 
 
-import android.annotation.SuppressLint;
 import android.app.AlertDialog;
 import android.app.DownloadManager;
-import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
-import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.net.Uri;
-import android.os.Build;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
@@ -22,6 +18,7 @@ import android.util.Log;
 import android.widget.Toast;
 
 import com.alibaba.mnnllm.android.R;
+import com.alibaba.mnnllm.android.utils.AppUtils;
 import com.alibaba.mnnllm.android.utils.DeviceUtils;
 import com.alibaba.mnnllm.android.utils.PreferenceUtils;
 import com.alibaba.mnnllm.android.utils.UiUtils;
@@ -86,7 +83,7 @@ public class UpdateChecker {
                     String updateMessageZh = jsonObject.getString("update_message_zh");
                     String downloadUrl = jsonObject.getString("download_url");
 
-                    String currentVersion = getVersionName();
+                    String currentVersion = AppUtils.INSTANCE.getAppVersionName(context);
                     Log.d(TAG, "currentVersion : " + currentVersion);
                     if (isNewerVersion(latestVersion, currentVersion)) {
                         new Handler(Looper.getMainLooper()).post(() -> {
