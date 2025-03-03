@@ -48,8 +48,6 @@ if (MNN_KLEIDIAI)
 
     list(APPEND MNN_SOURCES_KLEIDIAI ${CMAKE_CURRENT_LIST_DIR}/mnn_kleidiai.cpp)
     list(APPEND MNN_SOURCES_KLEIDIAI ${CMAKE_CURRENT_LIST_DIR}/mnn_kleidiai_util.cpp)
-    list(APPEND MNN_HEADERS_KLEIDIAI ${CMAKE_CURRENT_LIST_DIR}/mnn_kleidiai.h)
-    list(APPEND MNN_HEADERS_KLEIDIAI ${CMAKE_CURRENT_LIST_DIR}/mnn_kleidiai_util.h)
 
     # KleidiAI
     include_directories(
@@ -88,7 +86,6 @@ elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^aarch64" OR ARCHS STREQUAL "arm64" OR AR
     message(STATUS "Enabling AArch64 Assemblies")
     add_library(MNNARM64 OBJECT ${MNN_AArch64_SRC} ${MNN_NEON_SRC} ${MNN_SOURCES_KLEIDIAI})
     target_include_directories(MNNARM64 PRIVATE ${CMAKE_CURRENT_LIST_DIR}/)
-    target_include_directories(MNNARM64 PRIVATE ${MNN_HEADERS_KLEIDIAI})
     list(APPEND MNN_OBJECTS_TO_LINK $<TARGET_OBJECTS:MNNARM64>)
     list(APPEND MNN_TARGETS MNNARM64)
     add_definitions(-DMNN_USE_NEON)
