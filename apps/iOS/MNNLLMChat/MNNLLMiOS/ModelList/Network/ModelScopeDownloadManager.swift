@@ -23,8 +23,8 @@ public actor ModelScopeDownloadManager: Sendable {
     private let session: URLSession
     private let fileManager: FileManager
     private let storage: ModelDownloadStorage
-    private let baseURL = "https://modelscope.cn/api/v1"
-    
+
+    private var source: ModelSource
     private var totalFiles: Int = 0
     private var downloadedFiles: Int = 0
     private var totalSize: Int64 = 0
@@ -40,16 +40,19 @@ public actor ModelScopeDownloadManager: Sendable {
     ///             Use `.default` for standard downloads, `.background` for background downloads.
     ///             Defaults to `.default`
     ///   - enableLogging: Whether to enable debug logging. Defaults to true
+    ///   - source: use modelScope or modeler
     /// - Note: When using background configuration, the app must handle URLSession background events
     public init(
         repoPath: String,
         config: URLSessionConfiguration = .default,
-        enableLogging: Bool = true
+        enableLogging: Bool = true,
+        source: ModelSource
     ) {
         self.repoPath = repoPath
         self.fileManager = .default
         self.storage = ModelDownloadStorage()
         self.session = URLSession(configuration: config)
+        self.source = source
         ModelScopeLogger.isEnabled = enableLogging
     }
     
@@ -182,13 +185,21 @@ public actor ModelScopeDownloadManager: Sendable {
             try Data().write(to: tempURL)
         }
         
-        let url = try buildURL(
-            path: "/repo",
-            queryItems: [
-                URLQueryItem(name: "Revision", value: "master"),
-                URLQueryItem(name: "FilePath", value: file.path)
-            ]
-        )
+        let url: URL
+        if source == .modelScope {
+            url = try buildURL(
+                path: "/repo",
+                queryItems: [
+                    URLQueryItem(name: "Revision", value: "master"),
+                    URLQueryItem(name: "FilePath", value: file.path)
+                ]
+            )
+        } else {
+            url = try buildModelerURL(
+                path: file.path,
+                queryItems: []
+            )
+        }
         
         var request = URLRequest(url: url)
         if resumeOffset > 0 {
@@ -316,7 +327,7 @@ public actor ModelScopeDownloadManager: Sendable {
                                }
                            }
                         },
-                        maxRetries: 6, 
+                        maxRetries: 50,
                         retryDelay: 1.0
                     )
                     
@@ -342,6 +353,22 @@ public actor ModelScopeDownloadManager: Sendable {
         components.scheme = "https"
         components.host = "modelscope.cn"
         components.path = "/api/v1/models/\(repoPath)\(path)"
+        components.queryItems = queryItems
+        
+        guard let url = components.url else {
+            throw ModelScopeError.invalidURL
+        }
+        return url
+    }
+    
+    private func buildModelerURL(
+        path: String,
+        queryItems: [URLQueryItem]
+    ) throws -> URL {
+        var components = URLComponents()
+        components.scheme = "https"
+        components.host = "modelers.cn"
+        components.path = "/coderepo/web/v1/file/\(repoPath)/main/media/\(path)"
         components.queryItems = queryItems
         
         guard let url = components.url else {

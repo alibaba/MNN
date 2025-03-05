@@ -300,6 +300,16 @@
         }
       }
     },
+    "Use modeler" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "使用 modeler  下载"
+          }
+        }
+      }
+    },
     "Use ModelScope" : {
       "localizations" : {
         "zh-Hans" : {
