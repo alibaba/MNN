@@ -123,6 +123,7 @@ MNNForwardType Schedule::getApprociateType(const ScheduleConfig& config) {
         priorityList.push_back(MNN_FORWARD_METAL);  //METAL
         priorityList.push_back(MNN_FORWARD_VULKAN); //Vulkan
         priorityList.push_back(MNN_FORWARD_CPU);    //CPU
+        priorityList.push_back(MNN_FORWARD_MTK_NEURON);    //neuron
 
         for (auto bn : priorityList) {
             if (MNNGetExtraRuntimeCreator(bn) != nullptr) {

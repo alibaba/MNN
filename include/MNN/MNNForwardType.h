@@ -38,7 +38,7 @@ typedef enum {
     MNN_FORWARD_USER_0 = 8,
     MNN_FORWARD_USER_1 = 9,
     MNN_FORWARD_USER_2 = 10,
-    MNN_FORWARD_USER_3 = 11,
+    MNN_FORWARD_MTK_NEURON = 11,
 
     MNN_FORWARD_ALL = 12,
 

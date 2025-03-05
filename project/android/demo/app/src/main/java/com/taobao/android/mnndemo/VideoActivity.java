@@ -446,6 +446,10 @@ public class VideoActivity extends AppCompatActivity implements AdapterView.OnIt
                 mConfig.forwardType = MNNForwardType.FORWARD_OPENGL.type;
             } else if (i == 3) {
                 mConfig.forwardType = MNNForwardType.FORWARD_VULKAN.type;
+            } else if (i == 4) {
+                mConfig.forwardType = MNNForwardType.FORWARD_NNAPI.type;
+            } else if (i == 5) {
+                mConfig.forwardType = MNNForwardType.FORWARD_NeuronAdaptAPI.type;
             }
         }
         // threads num

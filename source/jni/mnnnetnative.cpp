@@ -51,6 +51,9 @@ extern "C" JNIEXPORT jlong JNICALL Java_com_taobao_android_mnn_MNNNetNative_nati
     jobjectArray joutputTensors) {
     MNN::ScheduleConfig config;
     config.type = (MNNForwardType)forwardType;
+    MNN::BackendConfig backendConfig;
+    backendConfig.precision = MNN::BackendConfig::PrecisionMode::Precision_Low;
+    config.backendConfig = &backendConfig;
     if (numThread > 0) {
         config.numThread = numThread;
     }

@@ -1,40 +1,40 @@
 //
-//  NNAPIRaster.cpp
+//  NeuronAdapterRaster.cpp
 //  MNN
 //
 //  Created by MNN on 2022/09/30.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#include "NNAPIRaster.hpp"
+#include "NeuronAdapterRaster.hpp"
 #include "core/OpCommonUtils.hpp"
 
 
 namespace MNN {
 
-ErrorCode NNAPIRaster::buildReshape(const std::vector<Tensor *> &outputs) {
+ErrorCode NeuronAdapterRaster::buildReshape(const std::vector<Tensor *> &outputs) {
     mDatas.push_back(outputs[0]->shape());
-    mNNAPIBackend->dimsFormat<int>(mDatas.back(), TensorUtils::getDescribe(outputs[0])->dimensionFormat);
+    mNeuronAdapterBackend->dimsFormat<int>(mDatas.back(), TensorUtils::getDescribe(outputs[0])->dimensionFormat);
     const auto& regions = TensorUtils::getDescribe(outputs[0])->regions;
     std::vector<uint32_t> inputIdx(2);
-    inputIdx[0] = mNNAPIBackend->getTensorIdx(regions[0].origin);
+    inputIdx[0] = mNeuronAdapterBackend->getTensorIdx(regions[0].origin);
     inputIdx[1] = buildVector(mDatas.back());
-    return buildOperation(ANEURALNETWORKS_RESHAPE, inputIdx, getTensorIdxs(outputs));
+    return buildOperation(NEURON_RESHAPE, inputIdx, getTensorIdxs(outputs));
 }
 
-ErrorCode NNAPIRaster::buildPermute(const std::vector<Tensor *> &outputs) {
+ErrorCode NeuronAdapterRaster::buildPermute(const std::vector<Tensor *> &outputs) {
     const auto input = TensorUtils::getDescribe(outputs[0])->regions[0].origin;
     std::vector<uint32_t> inputIdx(2);
-    inputIdx[0] = mNNAPIBackend->getTensorIdx(input);
+    inputIdx[0] = mNeuronAdapterBackend->getTensorIdx(input);
     auto ishape = input->shape();
     auto oshape = outputs[0]->shape();
     // TODO
     mDatas.push_back(std::vector<int>(ishape.size()));
     inputIdx[1] = buildVector(mDatas.back());
-    return buildOperation(ANEURALNETWORKS_TRANSPOSE, inputIdx, getTensorIdxs(outputs));
+    return buildOperation(NEURON_TRANSPOSE, inputIdx, getTensorIdxs(outputs));
 }
 
-ErrorCode NNAPIRaster::buildTile(const std::vector<Tensor *> &outputs) {
+ErrorCode NeuronAdapterRaster::buildTile(const std::vector<Tensor *> &outputs) {
     const auto input = TensorUtils::getDescribe(outputs[0])->regions[0].origin;
     auto ishape = input->shape();
     auto oshape = outputs[0]->shape();
@@ -42,14 +42,14 @@ ErrorCode NNAPIRaster::buildTile(const std::vector<Tensor *> &outputs) {
     for (int i = 0; i < ishape.size(); i++) {
         mDatas.back()[i] = oshape[i] / ishape[i];
     }
-    mNNAPIBackend->dimsFormat(mDatas.back(), TensorUtils::getDescribe(input)->dimensionFormat);
+    mNeuronAdapterBackend->dimsFormat(mDatas.back(), TensorUtils::getDescribe(input)->dimensionFormat);
     std::vector<uint32_t> inputIdx(2);
-    inputIdx[0] = mNNAPIBackend->getTensorIdx(input);
+    inputIdx[0] = mNeuronAdapterBackend->getTensorIdx(input);
     inputIdx[1] = buildVector(mDatas.back());
-    return buildOperation(ANEURALNETWORKS_TILE, inputIdx, getTensorIdxs(outputs));
+    return buildOperation(NEURON_TILE, inputIdx, getTensorIdxs(outputs));
 }
 
-ErrorCode NNAPIRaster::buildPad(const std::vector<Tensor *> &outputs) {
+ErrorCode NeuronAdapterRaster::buildPad(const std::vector<Tensor *> &outputs) {
     const auto input = TensorUtils::getDescribe(outputs[0])->regions[0].origin;
     auto ishape = input->shape();
     auto oshape = outputs[0]->shape();
@@ -65,13 +65,13 @@ ErrorCode NNAPIRaster::buildPad(const std::vector<Tensor *> &outputs) {
         mDatas.back()[7] = padcr;
     }
     std::vector<uint32_t> inputIdx(2);
-    inputIdx[0] = mNNAPIBackend->getTensorIdx(input);
+    inputIdx[0] = mNeuronAdapterBackend->getTensorIdx(input);
     inputIdx[1] = buildConstant(mDatas.back().data(), mDatas.back().size() * sizeof(int),
-                                ANEURALNETWORKS_TENSOR_INT32, {static_cast<uint32_t>(ishape.size()), 2});
-    return buildOperation(ANEURALNETWORKS_PAD, inputIdx, getTensorIdxs(outputs));
+                                NEURON_TENSOR_INT32, {static_cast<uint32_t>(ishape.size()), 2});
+    return buildOperation(NEURON_PAD, inputIdx, getTensorIdxs(outputs));
 }
 
-ErrorCode NNAPIRaster::buildSlice(const std::vector<Tensor *> &outputs) {
+ErrorCode NeuronAdapterRaster::buildSlice(const std::vector<Tensor *> &outputs) {
     const auto& region = TensorUtils::getDescribe(outputs[0])->regions[0];
     const auto input = region.origin;
     auto ishape = input->shape();
@@ -88,43 +88,43 @@ ErrorCode NNAPIRaster::buildSlice(const std::vector<Tensor *> &outputs) {
     for (int i = 0; i < ishape.size(); i++) {
         mDatas.back()[i] = oshape[i];
     }
-    mNNAPIBackend->dimsFormat(mDatas[beginIdx], TensorUtils::getDescribe(input)->dimensionFormat);
-    mNNAPIBackend->dimsFormat(mDatas.back(), TensorUtils::getDescribe(input)->dimensionFormat);
+    mNeuronAdapterBackend->dimsFormat(mDatas[beginIdx], TensorUtils::getDescribe(input)->dimensionFormat);
+    mNeuronAdapterBackend->dimsFormat(mDatas.back(), TensorUtils::getDescribe(input)->dimensionFormat);
     std::vector<uint32_t> inputIdx(3);
-    inputIdx[0] = mNNAPIBackend->getTensorIdx(input);
+    inputIdx[0] = mNeuronAdapterBackend->getTensorIdx(input);
     inputIdx[1] = buildVector(mDatas[beginIdx]);
     inputIdx[2] = buildVector(mDatas.back());
-    return buildOperation(ANEURALNETWORKS_SLICE, inputIdx, getTensorIdxs(outputs));
+    return buildOperation(NEURON_SLICE, inputIdx, getTensorIdxs(outputs));
 }
 
-ErrorCode NNAPIRaster::buildDepthToSpace(const std::vector<Tensor *> &outputs) {
+ErrorCode NeuronAdapterRaster::buildDepthToSpace(const std::vector<Tensor *> &outputs) {
     const auto input = TensorUtils::getDescribe(outputs[0])->regions[0].origin;
     std::vector<uint32_t> inputIdx(3);
-    inputIdx[0] = mNNAPIBackend->getTensorIdx(input);
+    inputIdx[0] = mNeuronAdapterBackend->getTensorIdx(input);
     int blockSize = outputs[0]->height() / input->height();
     inputIdx[1] = buildScalar(blockSize);
     inputIdx[2] = buildScalar(mNCHW);
-    return buildOperation(ANEURALNETWORKS_DEPTH_TO_SPACE, inputIdx, getTensorIdxs(outputs));
+    return buildOperation(NEURON_DEPTH_TO_SPACE, inputIdx, getTensorIdxs(outputs));
 }
 
-ErrorCode NNAPIRaster::buildConcat(const std::vector<Tensor *> &outputs, int axis) {
+ErrorCode NeuronAdapterRaster::buildConcat(const std::vector<Tensor *> &outputs, int axis) {
     const auto& regions = TensorUtils::getDescribe(outputs[0])->regions;
     std::vector<uint32_t> inputIdx(regions.size()+1);
     for (int i = 0; i < regions.size(); i++) {
-        inputIdx[i] = mNNAPIBackend->getTensorIdx(regions[i].origin);
+        inputIdx[i] = mNeuronAdapterBackend->getTensorIdx(regions[i].origin);
     }
     inputIdx[regions.size()] = buildScalar(formatAxis(axis, outputs[0]));
-    return buildOperation(ANEURALNETWORKS_CONCATENATION, inputIdx, getTensorIdxs(outputs));
+    return buildOperation(NEURON_CONCATENATION, inputIdx, getTensorIdxs(outputs));
 }
 
-NNAPIRaster::NNAPIRaster(MNN::Backend *b, const MNN::Op *op, const std::vector<Tensor *> &inputs, const std::vector<MNN::Tensor *> &outputs) : NNAPICommonExecution(b, op) {
+NeuronAdapterRaster::NeuronAdapterRaster(MNN::Backend *b, const MNN::Op *op, const std::vector<Tensor *> &inputs, const std::vector<MNN::Tensor *> &outputs) : NeuronAdapterCommonExecution(b, op) {
 }
 static void dumpRegion(const Tensor::InsideDescribe::Region& reg) {
-    MNN_PRINT("\n{\nsize: [%d, %d, %d], origin: %p\n", reg.size[0], reg.size[1], reg.size[2], reg.origin);
-    MNN_PRINT("src: { stride: [%d, %d, %d], offset: %d }\n", reg.src.stride[0],reg.src.stride[1],reg.src.stride[2],reg.src.offset);
-    MNN_PRINT("dst: { stride: [%d, %d, %d], offset: %d }\n}\n", reg.dst.stride[0],reg.dst.stride[1],reg.dst.stride[2],reg.dst.offset);
+    printf("\n{\nsize: [%d, %d, %d], origin: %p\n", reg.size[0], reg.size[1], reg.size[2], reg.origin);
+    printf("src: { stride: [%d, %d, %d], offset: %d }\n", reg.src.stride[0],reg.src.stride[1],reg.src.stride[2],reg.src.offset);
+    printf("dst: { stride: [%d, %d, %d], offset: %d }\n}\n", reg.dst.stride[0],reg.dst.stride[1],reg.dst.stride[2],reg.dst.offset);
 }
-ErrorCode NNAPIRaster::onResize(const std::vector<Tensor *>& ____inputs, const std::vector<Tensor *> &outputs) {
+ErrorCode NeuronAdapterRaster::onResize(const std::vector<Tensor *>& ____inputs, const std::vector<Tensor *> &outputs) {
     OpCommonUtils::rasterInputReset(____inputs, outputs[0]);
     const auto& regions = TensorUtils::getDescribe(outputs[0])->regions;
     if (regions.empty()) {
@@ -133,7 +133,7 @@ ErrorCode NNAPIRaster::onResize(const std::vector<Tensor *>& ____inputs, const s
     const auto region = regions[0];
     const auto output = outputs[0];
 #if 1
-    MNN_PRINT("region.size = %d\n", regions.size());
+    printf("region.size = %d\n", regions.size());
     dumpRegion(regions[0]);
     regions[0].origin->printShape();
     outputs[0]->printShape();
@@ -162,12 +162,10 @@ ErrorCode NNAPIRaster::onResize(const std::vector<Tensor *>& ____inputs, const s
             if (TensorUtils::isTransposeRegion(region)) {
                 if (TensorUtils::getDescribe(region.origin)->dimensionFormat !=
                     TensorUtils::getDescribe(output)->dimensionFormat) {
-                    // NNAPI use same format, don't need convert tensor
+                    // NeuronAdapter use same format, don't need convert tensor
                     return buildReshape(outputs);
                 }
                 return buildPermute(outputs);
-            } else {
-
             }
         }
         // tile, broadcast
@@ -176,7 +174,7 @@ ErrorCode NNAPIRaster::onResize(const std::vector<Tensor *>& ____inputs, const s
                 //// TODO: find the way to judge the case
                 //if (region.origin->channel() < output->channel()) {
                 //    // tile for bianry input can skip, because nnapi support bianry broadcast
-                //    return mNNAPIBackend->replaceTensorWith(output, region.origin);
+                //    return mNeuronAdapterBackend->replaceTensorWith(output, region.origin);
                 //}
                 return buildTile(outputs);
             }
@@ -187,7 +185,7 @@ ErrorCode NNAPIRaster::onResize(const std::vector<Tensor *>& ____inputs, const s
             // TODO: support strided_slice
             return buildSlice(outputs);
         }
-        MNN_ERROR("[NNAPI] Don't support Raster Mode.\n");
+        MNN_ERROR("[NeuronAdapter] Don't support Raster Mode.\n");
         return NOT_SUPPORT;
     }
     if (TensorUtils::isDepthToSpaceRegions(outputs[0])) {
@@ -212,5 +210,5 @@ ErrorCode NNAPIRaster::onResize(const std::vector<Tensor *>& ____inputs, const s
     }
 }
 
-REGISTER_NNAPI_OP_CREATOR(NNAPIRaster, OpType_Raster)
+REGISTER_NeuronAdapter_OP_CREATOR(NeuronAdapterRaster, OpType_Raster)
 } // namespace MNN
