@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:orientation="horizontal" android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:gravity="center_vertical"
+    android:padding="@dimen/space10"
+    android:layout_marginLeft="@dimen/spaceLR">
+    <ImageView
+        android:id="@+id/tv_chat_image"
+        android:layout_width="100dp"
+        android:layout_height="100dp"
+        android:layout_alignParentRight="true"
+        android:layout_marginBottom="@dimen/space5"
+        android:visibility="gone"
+        android:scaleType="centerCrop"/>
+    <LinearLayout
+        android:layout_below="@+id/tv_chat_image"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:layout_alignParentRight="true">
+        <TextView
+            android:id="@+id/tv_chat_text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:padding="@dimen/space10"
+            android:text="Hello"
+            android:textColor="@android:color/white"
+            android:textSize="@dimen/h3"
+            android:layout_alignParentRight="true"
+            android:layout_alignParentEnd="true"
+            android:textAppearance="@style/Light"
+            android:background="@drawable/bg_chat_me"/>
+    </LinearLayout>
+</RelativeLayout>
