@@ -89,6 +89,13 @@ TEST(rectangle, basic) {
     rectangle(testEnv.mnnSrc, {10, 10}, {200, 300}, {0, 0, 255}, 1);
     EXPECT_TRUE(testEnv.equal(testEnv.cvSrc, testEnv.mnnSrc));
 }
+
+TEST(rectangle, fill) {
+    cv::rectangle(testEnv.cvSrc, {10, 10}, {200, 300}, {200, 20, 2}, -1);
+    rectangle(testEnv.mnnSrc, {10, 10}, {200, 300}, {200, 20, 2}, -1);
+    EXPECT_TRUE(testEnv.equal(testEnv.cvSrc, testEnv.mnnSrc));
+}
+
 // drawContours
 TEST(drawContours, basic) {
     cv::Mat gray, binary;

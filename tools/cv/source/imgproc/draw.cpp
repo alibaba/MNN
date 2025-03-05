@@ -905,14 +905,20 @@ void line(VARP& img, Point pt1, Point pt2, const Scalar& color,
 
 void rectangle(VARP& img, Point pt1, Point pt2, const Scalar& color,
                int thickness, int lineType, int shift) {
-    // top
-    line(img, pt1, {pt2.fX, pt1.fY}, color, thickness, lineType);
-    // left
-    line(img, pt1, {pt1.fX, pt2.fY}, color, thickness, lineType);
-    // right
-    line(img, {pt2.fX, pt1.fY}, pt2, color, thickness, lineType);
-    // bottom
-    line(img, {pt1.fX, pt2.fY}, pt2, color, thickness, lineType);
+    int h, w, c; getVARPSize(img, &h, &w, &c);
+    Size size(w, h);
+    std::vector<Point2l> pt(4);
+    pt[0] = {static_cast<int64_t>(pt1.fX), static_cast<int64_t>(pt1.fY)};
+    pt[1] = {static_cast<int64_t>(pt2.fX), static_cast<int64_t>(pt1.fY)};
+    pt[2] = {static_cast<int64_t>(pt2.fX), static_cast<int64_t>(pt2.fY)};
+    pt[3] = {static_cast<int64_t>(pt1.fX), static_cast<int64_t>(pt2.fY)};
+    std::vector<Region> regions;
+    if (thickness >= 0) {
+        PolyLine(regions, size, pt.data(), 4, true, thickness, lineType, shift);
+    } else {
+        FillConvexPoly(regions, size, pt.data(), 4, lineType, shift);
+    }
+    doDraw(img, regions, color);
 }
 
 void drawContours(VARP& img, std::vector<std::vector<Point>> _contours, int contourIdx, const Scalar& color, int thickness, int lineType) {
