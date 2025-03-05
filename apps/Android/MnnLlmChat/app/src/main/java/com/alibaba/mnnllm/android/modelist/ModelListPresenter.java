@@ -243,7 +243,7 @@ public class ModelListPresenter implements ModelItemListener, DownloadListener {
         if (lastUpdateTime != null && lastUpdateTime > 0 && !progressStateChanged) {
             if (this.mainHandler != null) {
                 this.mainHandler.post(() -> {
-                    this.modelListAdapter.updateProgres(modelId, downloadInfo.progress);
+                    this.modelListAdapter.updateProgress(modelId, downloadInfo);
                 });
             }
         } else {

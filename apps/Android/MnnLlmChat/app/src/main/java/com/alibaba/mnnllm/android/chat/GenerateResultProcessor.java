@@ -3,9 +3,6 @@
 
 package com.alibaba.mnnllm.android.chat;
 
-import com.alibaba.mls.api.ApplicationUtils;
-import com.alibaba.mnnllm.android.utils.FileUtils;
-
 public interface GenerateResultProcessor {
 
     void process(String progress);

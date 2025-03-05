@@ -34,6 +34,10 @@ This is our full multimodal language model (LLM) Android app
 
 
 # Development
++ Prepare
+  + Android Studio
+  + NDK(21 recommended)
+  + `export ANDROID_NDK=${YOUR_NDK_ROOT}`
 + Clone the repository:
   ```shell
     git clone https://github.com/alibaba/MNN.git
@@ -42,6 +46,7 @@ This is our full multimodal language model (LLM) Android app
   ```shell
   cd project/android
   mkdir build_64
+  cd build_64
   ../build_64.sh "-DMNN_LOW_MEMORY=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true -DMNN_ARM82=true -DMNN_USE_LOGCAT=true -DMNN_OPENCL=true -DLLM_SUPPORT_VISION=true -DMNN_BUILD_OPENCV=true -DMNN_IMGCODECS=true -DLLM_SUPPORT_AUDIO=true -DMNN_BUILD_AUDIO=true -DMNN_BUILD_DIFFUSION=ON -DMNN_SEP_BUILD=ON"
   ```
 + copy to llm android app project
@@ -56,6 +61,15 @@ This is our full multimodal language model (LLM) Android app
   ```
 
 # Releases
+
+## Version 0.3.0
++ Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_d_0_3_0.apk)
++ upgrade mnn engine to v3.1.0
++ add settings page
++ show download speed info
++ support filter only downloaded models.
++ support download models from modelers.cn
+
 ## Version 0.2.2
 + Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_d_0_2_2.apk)
 + Support mmap for speed up laoding speed.

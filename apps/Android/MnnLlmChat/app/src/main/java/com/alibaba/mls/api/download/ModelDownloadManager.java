@@ -3,6 +3,7 @@
 
 package com.alibaba.mls.api.download;
 
+import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
@@ -14,7 +15,7 @@ import androidx.annotation.NonNull;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
-import com.alibaba.mls.api.ApplicationUtils;
+import com.alibaba.mls.api.ApplicationProvider;
 import com.alibaba.mls.api.HfApiClient;
 import com.alibaba.mls.api.HfApiException;
 import com.alibaba.mls.api.HfFileMetadata;
@@ -190,6 +191,30 @@ public class ModelDownloadManager {
         });
     }
 
+    @SuppressLint("DefaultLocale")
+    private void calculateDownloadSpeed(DownloadInfo downloadInfo, long currentDownloadSize) {
+        long currentTime = System.currentTimeMillis();
+        long lastLogTime = downloadInfo.lastLogTime;
+        long lastDownloadSize = downloadInfo.savedSize;
+        if (lastLogTime == 0 || lastDownloadSize == 0) {
+            downloadInfo.lastLogTime = currentTime;
+            downloadInfo.savedSize =  currentDownloadSize;
+            downloadInfo.speedInfo =  "0.00K/s";
+        } else if (currentTime - lastLogTime >= 1000) {
+            long timeDiff = currentTime - lastLogTime;
+            double speedBytesPerSecond = ((currentDownloadSize - lastDownloadSize) * 1000.0) / timeDiff;
+            downloadInfo.lastLogTime = currentTime;
+            downloadInfo.savedSize = currentDownloadSize;
+            if (speedBytesPerSecond >= 1024 * 1024) {
+                downloadInfo.speedInfo = String.format("%.2fM/s", speedBytesPerSecond / (1024 * 1024));
+            } else if (speedBytesPerSecond >= 1024) {
+                downloadInfo.speedInfo =  String.format("%.2fK/s", speedBytesPerSecond / 1024);
+            } else {
+                downloadInfo.speedInfo = String.format("%.2fB/s", speedBytesPerSecond);
+            }
+        }
+    }
+
     private void downloadMsRepoInner(RepoConfig repoConfig, MsRepoInfo msRepoInfo) {
         Log.d(TAG, "downloadMsRepoInner");
         String modelId = repoConfig.modelId;
@@ -243,9 +268,9 @@ public class ModelDownloadManager {
             if (getDownloadedFile(modelId) != null) {
                 downloadInfo.downlodaState = DownloadInfo.DownloadSate.COMPLETED;
                 downloadInfo.progress = 1.0;
-            } else if (DownloadPersistentData.getDownloadSizeTotal(ApplicationUtils.get(), modelId) > 0) {
-                long totalSize = DownloadPersistentData.getDownloadSizeTotal(ApplicationUtils.get(), modelId);
-                long savedSize = DownloadPersistentData.getDownloadSizeSaved(ApplicationUtils.get(), modelId);
+            } else if (DownloadPersistentData.getDownloadSizeTotal(ApplicationProvider.get(), modelId) > 0) {
+                long totalSize = DownloadPersistentData.getDownloadSizeTotal(ApplicationProvider.get(), modelId);
+                long savedSize = DownloadPersistentData.getDownloadSizeSaved(ApplicationProvider.get(), modelId);
                 downloadInfo.totalSize = totalSize;
                 downloadInfo.savedSize = savedSize;
                 downloadInfo.progress = (double)savedSize / totalSize;
@@ -285,7 +310,7 @@ public class ModelDownloadManager {
                             REQUEST_CODE_POST_NOTIFICATIONS
                     );
                 } else {
-                    ApplicationUtils.get().startForegroundService(foregroundSerivceIntent);
+                    ApplicationProvider.get().startForegroundService(foregroundSerivceIntent);
                     foregroundServiceStarted = true;
                 }
             }
@@ -294,7 +319,7 @@ public class ModelDownloadManager {
 
     private void onDownloadTaskRemoved(int count) {
         if (count == 0) {
-            ApplicationUtils.get().stopService(foregroundSerivceIntent);
+            ApplicationProvider.get().stopService(foregroundSerivceIntent);
             foregroundServiceStarted = false;
         }
     }
@@ -317,13 +342,13 @@ public class ModelDownloadManager {
         DownloadInfo downloadInfo = downloadInfoMap.get(modelId);
         assert downloadInfo != null;
         downloadInfo.progress = (double)saved / total;
-        downloadInfo.savedSize  = saved;
+        calculateDownloadSpeed(downloadInfo, saved);
         downloadInfo.totalSize = total;
         downloadInfo.progressStage = stage;
         downloadInfo.currentFile = currentFile;
         downloadInfo.downlodaState = DownloadInfo.DownloadSate.DOWNLOADING;
-        DownloadPersistentData.saveDownloadSizeTotal(ApplicationUtils.get(), modelId, total);
-        DownloadPersistentData.saveDownloadSizeSaved(ApplicationUtils.get(), modelId, saved);
+        DownloadPersistentData.saveDownloadSizeTotal(ApplicationProvider.get(), modelId, total);
+        DownloadPersistentData.saveDownloadSizeSaved(ApplicationProvider.get(), modelId, saved);
         if (downloadListener != null) {
             downloadListener.onDownloadProgress(modelId, downloadInfo);
         }
@@ -356,7 +381,11 @@ public class ModelDownloadManager {
             FileDownloadTask fileDownloadTask = new FileDownloadTask();
             fileDownloadTask.relativePath = subFile.Path;
             fileDownloadTask.hfFileMetadata = new HfFileMetadata();
-            fileDownloadTask.hfFileMetadata.location = String.format("https://modelscope.cn/api/v1/models/%s/repo?FilePath=%s", repoConfig.repositoryPath(), subFile.Path);
+            if (ModelSources.get().getRemoteSourceType() == ModelSources.ModelSourceType.MODELERS) {
+                fileDownloadTask.hfFileMetadata.location  = String.format("https://modelers.cn/coderepo/web/v1/file/%s/main/media/%s", repoConfig.repositoryPath(), subFile.Path);
+            } else {
+                fileDownloadTask.hfFileMetadata.location = String.format("https://modelscope.cn/api/v1/models/%s/repo?FilePath=%s", repoConfig.repositoryPath(), subFile.Path);
+            }
             fileDownloadTask.hfFileMetadata.size = subFile.Size;
             fileDownloadTask.hfFileMetadata.etag = subFile.Sha256;
             fileDownloadTask.blobPath = new File(storageFolder, "blobs/" + subFile.Sha256);
@@ -373,11 +402,11 @@ public class ModelDownloadManager {
 
     private List<FileDownloadTask> collectTaskList(File storageFolder, File parentPointerPath, HfRepoInfo hfRepoInfo, long[] totalAndDownloadSize) throws HfApiException {
         HfFileMetadata metaData;
-        List<HfFileMetadata> metaDataList = DownloadPersistentData.getMetaData(ApplicationUtils.get(), hfRepoInfo.getModelId());
+        List<HfFileMetadata> metaDataList = DownloadPersistentData.getMetaData(ApplicationProvider.get(), hfRepoInfo.getModelId());
         Log.d(TAG, "collectTaskList savedMetaDataList: " +  (metaDataList == null ? "null" : metaDataList.size()));
         List<FileDownloadTask> fileDownloadTasks = new ArrayList<>();
         metaDataList = requestMedataDataList(hfRepoInfo);
-        DownloadPersistentData.saveMetaData(ApplicationUtils.get(), hfRepoInfo.getModelId(), metaDataList);
+        DownloadPersistentData.saveMetaData(ApplicationProvider.get(), hfRepoInfo.getModelId(), metaDataList);
         for (int i = 0; i < hfRepoInfo.getSiblings().size(); i++) {
             HfRepoInfo.SiblingItem subFile = hfRepoInfo.getSiblings().get(i);
             metaData = metaDataList.get(i);
@@ -473,7 +502,7 @@ public class ModelDownloadManager {
                 Log.e(TAG, "remove storageFolder" + msStorageFolder.getAbsolutePath() + " faield");
             }
         }
-        DownloadPersistentData.removeProgress(ApplicationUtils.get(), modelId);
+        DownloadPersistentData.removeProgress(ApplicationProvider.get(), modelId);
         File hfLinkFolder = this.getHfDownloadModelPath(modelId);
         Log.d(TAG, "removeHfLinkFolder: " + hfLinkFolder.getAbsolutePath());
         hfLinkFolder.delete();
@@ -522,7 +551,7 @@ public class ModelDownloadManager {
 
     public void startForegroundService() {
         if (!foregroundServiceStarted && activeDownloadCount.get() > 0) {
-            ApplicationUtils.get().startForegroundService(foregroundSerivceIntent);
+            ApplicationProvider.get().startForegroundService(foregroundSerivceIntent);
         }
     }
 }

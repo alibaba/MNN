@@ -4,7 +4,6 @@
 package com.alibaba.mnnllm.android;
 
 import android.content.Intent;
-import android.net.Uri;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.MenuItem;
@@ -22,15 +21,16 @@ import androidx.fragment.app.Fragment;
 
 import com.alibaba.mls.api.download.ModelDownloadManager;
 import com.alibaba.mnnllm.android.chat.ChatActivity;
-import com.alibaba.mnnllm.android.R;
 import com.alibaba.mnnllm.android.history.ChatHistoryFragment;
 import com.alibaba.mnnllm.android.modelist.ModelListFragment;
+import com.alibaba.mnnllm.android.settings.MainSettings;
 import com.alibaba.mnnllm.android.update.UpdateChecker;
 import com.alibaba.mnnllm.android.utils.GithubUtils;
 import com.alibaba.mnnllm.android.utils.ModelUtils;
 import com.google.android.material.navigation.NavigationView;
 import com.techiness.progressdialoglibrary.ProgressDialog;
 import java.io.File;
+import java.util.Objects;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -78,7 +78,7 @@ public class MainActivity extends AppCompatActivity {
             }
         });
         setSupportActionBar(toolbar);
-        getSupportActionBar().setDisplayHomeAsUpEnabled(true);
+        Objects.requireNonNull(getSupportActionBar()).setDisplayHomeAsUpEnabled(true);
     }
 
     private Fragment getModelListFragment() {
@@ -105,7 +105,9 @@ public class MainActivity extends AppCompatActivity {
 
     public void runModel(String destModelDir, String modelId, String sessionId) {
         Log.d(TAG, "runModel destModelDir: " + destModelDir);
-        ModelDownloadManager.getInstance(this).pauseAllDownloads();
+        if (MainSettings.INSTANCE.isStopDownloadOnChatEnabled(this)) {
+            ModelDownloadManager.getInstance(this).pauseAllDownloads();
+        }
         drawerLayout.close();
         progressDialog = new ProgressDialog(this);
         progressDialog.setMessage(getResources().getString(R.string.model_loading));

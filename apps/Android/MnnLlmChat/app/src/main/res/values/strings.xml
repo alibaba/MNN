@@ -10,7 +10,7 @@
     <string name="download_not_started">Not Downloaded, click to download</string>
     <string name="downloaded_click_to_chat">Downloaded, click to start chat</string>
     <string name="download_failed_click_retry">Download failed: %1$s, click to retry</string>
-    <string name="downloading_progress">Downloading: %1$.2f%%</string>.
+    <string name="downloading_progress">Downloading: %1$.2f%% %2$s</string>.
     <string name="downloading_paused">Download Paused: %1$.2f%%</string>
     <string name="config_file_not_found">Model config file not found: %1$s</string>
     <string name="model_hello_prompt">Hello, I am %1$s, is there anything I can help you with?</string>
@@ -67,4 +67,13 @@
     <string name="download">Download</string>
     <string name="download_update_available">Update Available: (%1$s)</string>
     <string name="show_only_downloaded">Show downloaded only</string>
+    <string name="about">About</string>
+    <string name="settings">Settings</string>
+    <string name="current_version">Current Version:%1$s</string>
+    <string name="select_download_provider">Select Download Provider</string>
+    <string name="settings_complete">it\'s recommended to remove unfinished tasks and redownload to prevent errors.</string>
+    <string name="stop_download_tasks_when_chat">Stop downloads when chat</string>
+    <string name="stop_download_reason">Stop downloads during chat ensures smoother chat experience</string>
+    <string name="modelscope">Modelscope</string>
+    <string name="modelers">Modelers</string>
 </resources>
