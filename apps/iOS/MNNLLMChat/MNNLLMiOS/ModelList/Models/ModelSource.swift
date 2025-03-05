@@ -7,16 +7,19 @@
 
 import Foundation
 
-enum ModelSource: String, CaseIterable {
+public enum ModelSource: String, CaseIterable {
     case modelScope = "ModelScope"
     case huggingFace = "Hugging Face"
+    case modeler = "Modeler"
     
     var description: String {
         switch self {
         case .modelScope:
-            return NSLocalizedString("Use ModelScope", comment: "")
+            return NSLocalizedString("Use ModelScope to download", comment: "")
+        case .modeler:
+            return NSLocalizedString("Use modeler to download", comment: "")
         case .huggingFace:
-            return NSLocalizedString("Use Hugging Face", comment: "")
+            return NSLocalizedString("Use HuggingFace to download", comment: "")
         }
     }
 } 

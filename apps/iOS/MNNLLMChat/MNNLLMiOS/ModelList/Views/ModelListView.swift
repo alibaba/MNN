@@ -164,6 +164,9 @@ struct ModelListView: View {
                 .default(Text(ModelSource.modelScope.description)) {
                     ModelSourceManager.shared.updateSelectedSource(.modelScope)
                 },
+                .default(Text(ModelSource.modeler.description)) {
+                    ModelSourceManager.shared.updateSelectedSource(.modeler)
+                },
                 .default(Text(ModelSource.huggingFace.description)) {
                     ModelSourceManager.shared.updateSelectedSource(.huggingFace)
                 },
