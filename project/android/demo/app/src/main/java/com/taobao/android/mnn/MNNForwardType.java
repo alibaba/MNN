@@ -20,7 +20,13 @@ public enum MNNForwardType {
     /**
      * VULKAN
      */
-    FORWARD_VULKAN(7);
+    FORWARD_VULKAN(7),
+    /**
+     * NNAPI 
+     */
+    FORWARD_VULKAN(5),
+
+    FORWARD_NeuronAdaptAPI(11);
 
     public int type;
 
