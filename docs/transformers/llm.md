@@ -222,18 +222,18 @@ node llm_demo.js ~/qwen2.0_1.5b/config.json ~/qwen2.0_1.5b/prompt.txt
   - precision: 推理使用精度策略，默认为：`"low"`，尽量使用`fp16`
   - memory: 推理使用内存策略，默认为：`"low"`，开启运行时量化
 - Sampler配置
-  - sampler_type: 使用的sampler种类，目前支持`greedy`, `temperature`, `topK`, `topP`, `minP`, `tfs`, `typical`, `penalty`8种基本sampler，外加`mixed`(混合sampler)。当选择`mixed`时，依次执行mixed_samplers中的sampler。默认为`mixed`。
-  - mixed_samplers: 当`sampler_type`为`mixed`时有效，默认为`["topK", "tfs", "typical", "topP", "min_p", "temperature"]`
+  - sampler_type: 使用的sampler种类，目前支持`greedy`, `temperature`, `topK`, `topP`, `minP`, `tfs`, `typical`, `penalty`8种基本sampler，外加`mixed`(混合sampler，当选择`mixed`时，依次执行mixed_samplers中的sampler)。默认为`greedy`，但是建议使用`mixed`、`temperature`来增加输出多样性，或使用`penalty`来降低重复。
+  - mixed_samplers: 当`sampler_type`为`mixed`时有效，默认为`["topK", "tfs", "typical", "topP", "min_p", "temperature"]`, 模型计算得到的logits会依次经过这些sampler采样。
   - temperature: `temperature`, `topP`, `minP`, `tfsZ`, `typical`中temerature值，默认为1.0
   - topK: `topK`中top K 个的个数，默认为40
   - topP: `topP`中top P的值，默认为0.9
   - minP: `minP`中min P的值，默认为0.1
-  - tfsZ: `tfs`中Z的值，默认为1.0，即不使用tfs算法
-  - typical: `typical`中p的值，默认为1.0，即不使用typical算法
-  - penalty: `penalty`中对于logits的惩罚项，默认为0.0，即不惩罚
-  - n_gram: `penalty`中最大存储的ngram大小，默认为8
-  - ngram_factor: `penalty`中对于重复ngram的额外惩罚，默认为1.0，即没有额外惩罚
-  - penalty_sampler: `penalty`中最后一步采用的sampling策略，可选"greedy"或"temperature"，默认greedy.
+  - tfsZ: `tfs`中Z的值，默认为1.0 (即不使用tfs算法)
+  - typical: `typical`中p的值，默认为1.0 (即不使用typical算法)
+  - penalty: `penalty`中对于logits中重复token的惩罚项，默认为0.0 (即不惩罚)
+  - n_gram: 最大存储的ngram大小，超过此大小的重复ngram将被禁止重复输出，仅在`penalty`选中时生效，默认为8
+  - ngram_factor: `penalty`中对于重复ngram (n>1) 的额外惩罚，默认为1.0，即没有额外惩罚
+  - penalty_sampler: `penalty`中施加完惩罚项后采用的sampling策略，可选"greedy"或"temperature"，默认greedy.
 
 ##### 配置文件示例
 - `config.json`

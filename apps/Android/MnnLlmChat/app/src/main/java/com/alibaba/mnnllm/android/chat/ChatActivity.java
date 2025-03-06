@@ -9,6 +9,7 @@ import static com.alibaba.mnnllm.android.utils.KeyboardUtils.showKeyboard;
 
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
 import android.text.Editable;
@@ -19,8 +20,12 @@ import android.view.KeyEvent;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
+import android.widget.AdapterView;
+import android.widget.ArrayAdapter;
 import android.widget.EditText;
 import android.widget.ImageView;
+import android.widget.Spinner;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
@@ -341,12 +346,41 @@ public class ChatActivity extends AppCompatActivity {
         voiceRecordingModule.setup(isAudioModel);
     }
 
+    private int getSamplerSelectionId(String[] items, String item) {
+        int id = 0;
+        while (id<items.length) {
+            if (items[id].equals(item)) {
+                return id;
+            }
+            id++;
+        }
+        return id;
+    }
+
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {
         getMenuInflater().inflate(R.menu.menu_chat, menu);
         menu.findItem(R.id.show_performance_metrics)
                 .setChecked(PreferenceUtils.getBoolean(this, PreferenceUtils.KEY_SHOW_PERFORMACE_METRICS, true));
         menu.findItem(R.id.menu_item_use_mmap).setChecked(ModelPreferences.getBoolean(this, modelId, ModelPreferences.KEY_USE_MMAP, true));
+        menu.findItem(R.id.menu_item_backend).setChecked(ModelPreferences.getBoolean(this, modelId, ModelPreferences.KEY_BACKEND, false));        
+        MenuItem samplerSpinnerItem = menu.findItem(R.id.menu_item_sampler_spinner);
+        Spinner samplerSpinner = samplerSpinnerItem.getActionView().findViewById(R.id.sampler_spinner);
+        String[] items = new String[]{getString(R.string.sampler), "greedy", "temperature", "topK", "topP", "minP", "typical", "tfs", "penalty", "mixed"};
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, items);
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        samplerSpinner.setAdapter(adapter);
+        samplerSpinner.setSelection(getSamplerSelectionId(items, ModelPreferences.getString(this, modelId, ModelPreferences.KEY_SAMPLER, getString(R.string.sampler))));
+        samplerSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                String selectedItem = parent.getItemAtPosition(position).toString();
+                ((TextView) view).setTextColor(Color.WHITE); // 设置选中项的字体颜色
+                handleSamplerSpinnerSelection(selectedItem);
+            }
+            @Override
+            public void onNothingSelected(AdapterView<?> parent) {}
+        });
         return true;
     }
 
@@ -373,9 +407,24 @@ public class ChatActivity extends AppCompatActivity {
             Toast.makeText(this, R.string.reloading_session, Toast.LENGTH_LONG).show();
             ModelPreferences.setBoolean(this, modelId, ModelPreferences.KEY_USE_MMAP, item.isChecked());
             recreate();
+        } else if (item.getItemId() == R.id.menu_item_backend) {
+            item.setChecked(!item.isChecked());
+            Toast.makeText(this, R.string.reloading_session, Toast.LENGTH_LONG).show();
+            ModelPreferences.setBoolean(this, modelId, ModelPreferences.KEY_BACKEND, item.isChecked());
+            recreate();
         }
         return super.onOptionsItemSelected(item);
     }
+
+    private void handleSamplerSpinnerSelection(String selectedItem) {
+        String currentSampler = ModelPreferences.getString(this, modelId, ModelPreferences.KEY_SAMPLER, getString(R.string.sampler));
+        if (!selectedItem.equals(currentSampler)) {
+            Toast.makeText(this, R.string.reloading_session, Toast.LENGTH_LONG).show();
+            ModelPreferences.setString(this, modelId, ModelPreferences.KEY_SAMPLER, selectedItem);
+            recreate();
+        }
+    }
+
 
     @Override
     public void onRequestPermissionsResult(int requestCode,
