@@ -296,7 +296,16 @@ namespace MNN {
         }
         uint32_t idx = -1;
         if (TensorUtils::getDescribe(t)->usage == Tensor::InsideDescribe::Usage::CONSTANT) {
-            idx = buildOperand(t->host<void>(), t->size(), code, udims);
+            if(TensorUtils::getDescribe(t)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 && udims.size() > 1) {
+		auto format = mNCHW ? Tensor::DimensionType::CAFFE : Tensor::DimensionType::TENSORFLOW;
+                std::unique_ptr<Tensor> tempTensor(Tensor::create<float>(t->shape(), nullptr, format));
+                CPUTensorConverter::convert(t, tempTensor.get());
+                idx = buildOperand(tempTensor->host<void>(), tempTensor->size(), code, udims);
+		mTensorIdxMap.insert(std::make_pair(tempTensor, idx));
+		return idx;
+            } else {
+                idx = buildOperand(t->host<void>(), t->size(), code, udims);
+            }
         } else {
             idx = buildOperand(nullptr, 0, code, udims, &scale, zero);
         }
@@ -499,6 +508,7 @@ namespace MNN {
                 break;
             }
         }
+
         MNN_PRINT("[NNAPI] using device [%d : %s].\n", selectDeviceIdx, mNNAPIDevices[selectDeviceIdx].name);
         CHECK(ANeuralNetworksCompilation_createForDevices_29, mNNAPIModel, &mNNAPIDevices[selectDeviceIdx].device, 1, &mNNAPICompilation);
         CHECK(ANeuralNetworksCompilation_setPreference_27, mNNAPICompilation, ANEURALNETWORKS_PREFER_SUSTAINED_SPEED);
@@ -523,6 +533,7 @@ namespace MNN {
             size_t size = mOutputContentTensors[i]->size();
             CHECK(ANeuralNetworksExecution_setOutput_27, execution, i, nullptr, data, size);
         }
+
 
         CHECK(ANeuralNetworksExecution_compute_29, execution);
 #ifdef NNAPI_PROFILE
