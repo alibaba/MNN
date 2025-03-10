@@ -57,6 +57,8 @@
     <string name="use_model_scope_download">Use modelscope to download</string>
     <string name="clear_mmap_cache">Clear mmap cache</string>
     <string name="use_mmap">Use mmap</string>
+    <string name="sampler">select sampler</string>
+    <string name="backend">use opencl</string>
     <string name="mmap_cacche_cleared">mmap cache cleared, you need to restart the session</string>
     <string name="mmap_not_used">mmap not used</string>
     <string name="reloading_session">Reloading chat session</string>

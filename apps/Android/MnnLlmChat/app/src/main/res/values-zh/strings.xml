@@ -57,6 +57,8 @@
     <string name="use_model_scope_download">使用 ModelScope 下载</string>
     <string name="clear_mmap_cache">清理 mmap 缓存</string>
     <string name="use_mmap">使用 mmap</string>
+    <string name="sampler">选择采样策略</string>
+    <string name="backend">使用opencl</string>
     <string name="mmap_cacche_cleared">mmap cache 已经清理，需要重新进入聊天</string>
     <string name="mmap_not_used">mmap 没有使用</string>
     <string name="reloading_session">重新加载会话中…</string>

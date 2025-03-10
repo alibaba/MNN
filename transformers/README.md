@@ -219,10 +219,25 @@ The configuration file supports the following options:
     ```
 
 - Hardware Configuration
-  - `backend_type`: Hardware backend type used for inference. Defaults to ：`"cpu"`
+  - backend_type: Hardware backend type used for inference. Defaults to ：`"cpu"`. `"opencl"` is supported for android gpu, and `"metal"` is supported for macOS and iOS GPU.
   - thread_num: Number of hardware threads used for CPU inference. Defaults to `4`. For OpenCL inference, use `68`.
   - precision: Precision strategy for inference. Defaults to `"low"`, preferring `fp16`.
   - memory: Memory strategy for inference. Defaults to `"low"`, enabling runtime quantization.
+
+- Sampler Configuration
+  - sampler_type: set the sampler type，currently support `greedy`, `temperature`, `topK`, `topP`, `minP`, `tfs`, `typical`, `penalty` 8 basic sampler types, and `mixed` (when set as `mixed`，samplers in mixed_samplers are executed one by one sequentially). Defaults to `greedy`, but `mixed`, `temperature` are suggested for output diversity, and `penalty` is suggested to avoid output repeatedness.
+  - mixed_samplers: takes effect when `sampler_type` is to be `mixed`. Defaults to `["topK", "tfs", "typical", "topP", "min_p", "temperature"]`, which means the logits will be sampled by these strategies sequentially, one after another.
+  - temperature: temerature value for `temperature`, `topP`, `minP`, `tfsZ`, `typical` strategies. Defaults to 1.0
+  - topK: number of top K tokens selected for `topK` sampler type. Defaults to 40
+  - topP: top P value for `topP` sampler type. Defaults to 0.9
+  - minP: min P value for `minP` sampler type. Defaults to 0.1
+  - tfsZ: Z value for `tfs` sampler type. Defaults to 1.0
+  - typical: p value for `typical` sampler type. Defaults to 1.0
+  - penalty: penalty factor to repeated token, used in `penalty` sampler type. Defaults to 0.0 (no penalty)
+  - n_gram: max n gram that will receive penalty, for any repeated tokens >=n_gram are forced not to be generated, used in `penalty` sampler type. Defaults to 8
+  - ngram_factor: extra penalty of repeated ngram when n>1, used in `penalty` sampler type. Defaults to 1.0 (no extra penalty)
+  - penalty_sampler: the sampling strategy after penalty, used in `penalty` sampler type，can be `"greedy"` or `"temperature"`. Defaults to `"greedy"`.
+
 
 ##### Config.json example
 - `config.json`
