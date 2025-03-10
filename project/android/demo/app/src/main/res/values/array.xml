@@ -5,6 +5,8 @@
         <item>OpenCL</item>
         <item>OpenGL</item>
         <item>Vulkan</item>
+        <item>NNAPI</item>
+        <item>Neuron</item>
     </string-array>
     <string-array name="thread_list">
         <item>thread 1</item>
