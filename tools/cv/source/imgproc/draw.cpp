@@ -815,7 +815,7 @@ std::vector<Region> mergeRegions(std::vector<Region> regions) {
         // merge
         res.emplace_back(Region{line.first, liner[0].first, liner[0].second});
         for (int i = 1; i < liner.size(); i++) {
-            if (res.back().xr >= liner[i].second) {
+            if (res.back().xr >= liner[i].first) {
                 res.back().xr = MAX(res.back().xr, liner[i].second);
             } else {
                 res.emplace_back(Region{line.first, liner[i].first, liner[i].second});
