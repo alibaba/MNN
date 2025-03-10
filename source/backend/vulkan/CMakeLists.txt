@@ -34,7 +34,7 @@ IF(MNN_SEP_BUILD)
     if (MNN_USE_SYSTEM_LIB)
         target_link_libraries(MNN_Vulkan ${Vulkan_LIBRARY})
     else()
-        target_link_libraries(MNN_Vulkan dl)
+        target_link_libraries(MNN_Vulkan ${CMAKE_DL_LIBS})
     endif()
 ELSE()
     add_library(
