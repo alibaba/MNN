@@ -113,6 +113,17 @@ final class LLMChatInteractor: ChatInteractorProtocol {
             }
         }
     }
+    
+    func sendImage(imageURL: URL) {
+        Task {
+            DispatchQueue.main.async { [weak self] in
+                let image = LLMChatImage(id: UUID().uuidString, thumbnail: imageURL, full: imageURL)
+                
+                let message = LLMChatMessage.init(uid: UUID().uuidString, sender: self?.chatData.assistant ?? LLMChatUser(uid: "0", name: ""), createdAt: Date(), text: "", images: [image], videos: [], recording: nil, replyMessage: nil)
+                self?.chatState.value.append(message)
+            }
+        }
+    }
 
     func connect() {
         Timer.publish(every: 2, on: .main, in: .default)
