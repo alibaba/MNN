@@ -301,7 +301,7 @@ namespace MNN {
                 std::unique_ptr<Tensor> tempTensor(Tensor::create<float>(t->shape(), nullptr, format));
                 CPUTensorConverter::convert(t, tempTensor.get());
                 idx = buildOperand(tempTensor->host<void>(), tempTensor->size(), code, udims);
-		mTensorIdxMap.insert(std::make_pair(tempTensor, idx));
+		mTensorIdxMap.insert(std::make_pair(tempTensor.get(), idx));
 		return idx;
             } else {
                 idx = buildOperand(t->host<void>(), t->size(), code, udims);
