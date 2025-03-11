@@ -53,6 +53,27 @@ final class LLMChatViewModel: ObservableObject {
     private var historyId: String
     
     private lazy var configManager = ModelConfigManager(modelPath: modelInfo.localPath)
+    
+    var isDiffusionModel: Bool {
+        return modelInfo.name.lowercased().contains("diffusion")
+    }
+
+    var iterations: Int {
+        return configManager.readIterations()
+    }
+
+    var seed: Int {
+        return configManager.readSeed()
+    }
+
+    func updateIterations(_ value: Int) {
+        configManager.updateIterations(value)
+    }
+
+    func updateSeed(_ value: Int) {
+        configManager.updateSeed(value)
+    }
+    
     @Published var useMmap: Bool = false
     
     init(modelInfo: ModelInfo, history: ChatHistory? = nil) {
@@ -168,7 +189,16 @@ final class LLMChatViewModel: ObservableObject {
             
             self.send(draft: DraftMessage(text: "Start Generating Image...", thinkText: "", medias: [], recording: nil, replyMessage: nil, createdAt: Date()), userType: .assistant)
             
-            diffusion?.run(withPrompt: draft.text, imagePath: tempImagePath, progressCallback: {progress in
+            // 获取用户设置的迭代次数和种子值
+            let userIterations = iterations
+            let userSeed = seed
+            
+            // 使用用户设置的参数调用新方法
+            diffusion?.run(withPrompt: draft.text, 
+                          imagePath: tempImagePath, 
+                         iterations: Int32(userIterations), 
+                               seed: Int32(userSeed),
+                    progressCallback: {progress in
                 if progress == 100 {
                     self.send(draft: DraftMessage(text: "Image generated successfully!", thinkText: "", medias: [], recording: nil, replyMessage: nil, createdAt: Date()), userType: .system)
                     self.interactor.sendImage(imageURL: URL(string: "file://" + tempImagePath)!)

@@ -21,8 +21,9 @@ using namespace MNN::DIFFUSION;
     self = [super init];
     if (self) {
         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-//            BOOL success = [self loadModelFromPath:modelPath];
-            Boolean success = [self loadLocalModel];
+            BOOL success = [self loadModelFromPath:modelPath];
+            // MARK: Local Debug
+            // BOOL success = [self loadLocalModel];
             dispatch_async(dispatch_get_main_queue(), ^{
                 completion(success);
             });
@@ -37,8 +38,7 @@ using namespace MNN::DIFFUSION;
                                         [modelPath UTF8String],
                                      DiffusionModelType::STABLE_DIFFUSION_1_5,
                                      MNNForwardType::MNN_FORWARD_METAL,
-                                     2,
-                                     10);
+                                     2);
 
         if (rawDiffusion) {
             diffusion = std::shared_ptr<Diffusion>(rawDiffusion);
@@ -58,8 +58,7 @@ using namespace MNN::DIFFUSION;
                                         [bundleDirectory UTF8String],
                                         DiffusionModelType::STABLE_DIFFUSION_1_5,
                                         MNNForwardType::MNN_FORWARD_METAL,
-                                        2,
-                                        20);
+                                        2);
 
         if (rawDiffusion) {
             diffusion = std::shared_ptr<Diffusion>(rawDiffusion);
@@ -71,12 +70,11 @@ using namespace MNN::DIFFUSION;
     return YES;
 }
 
-
-- (void)runWithPrompt:(NSString *)prompt imagePath:(NSString *)imagePath progressCallback:(void (^)(int))progressCallback {
+- (void)runWithPrompt:(NSString *)prompt imagePath:(NSString *)imagePath iterations:(int)iterations seed:(int)seed progressCallback:(void (^)(int))progressCallback {
     if (diffusion) {
-        NSLog(@"Diffusion model run.");
+        NSLog(@"Diffusion model run with iterations: %d, seed: %d", iterations, seed);
         if(diffusion->load()) {
-            diffusion->run([prompt UTF8String], [imagePath UTF8String], progressCallback);
+            diffusion->run([prompt UTF8String], [imagePath UTF8String], iterations, seed, progressCallback);
         }
     } else {
         NSLog(@"Diffusion model is not loaded.");

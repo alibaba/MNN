@@ -69,13 +69,13 @@ class ModelListViewModel: ObservableObject {
         downloadProgress[model.modelId] = 0
         Task(priority: .background) {
             do {
-                try await modelClient.downloadModel(model: model) { progress in
-                    Task { @MainActor in
-                        DispatchQueue.main.async {
-                            self.downloadProgress[model.modelId] = progress
-                        }
-                    }
-                }
+//                try await modelClient.downloadModel(model: model) { progress in
+//                    Task { @MainActor in
+//                        DispatchQueue.main.async {
+//                            self.downloadProgress[model.modelId] = progress
+//                        }
+//                    }
+//                }
                 
                 if let index = models.firstIndex(where: { $0.modelId == model.modelId }) {
                     models[index].isDownloaded = true

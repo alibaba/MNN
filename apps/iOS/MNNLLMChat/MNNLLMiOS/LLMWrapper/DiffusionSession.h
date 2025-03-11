@@ -18,9 +18,11 @@ typedef void (^OutputHandler)(NSString * _Nonnull output);
 - (instancetype)initWithModelPath:(NSString * _Nonnull)modelPath 
                       completion:(CompletionHandler _Nullable)completion;
 
-- (void)runWithPrompt:(NSString * _Nonnull)prompt
-           imagePath:(NSString * _Nonnull)imagePath
-      progressCallback:(void (^ _Nullable)(int progress))progressCallback;
+- (void)runWithPrompt:(NSString *)prompt 
+            imagePath:(NSString *)imagePath 
+           iterations:(int)iterations 
+                 seed:(int)seed
+      progressCallback:(void (^)(int))progressCallback;
 
 @end
 
