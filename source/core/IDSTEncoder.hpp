@@ -440,11 +440,11 @@ static std::unique_ptr<IDSTQuanT> encode(const float* weight, const std::vector<
     bool shapeUseInt32 = false;
     std::unique_ptr<IDSTQuanT> idst(new IDSTQuanT);
     std::ostringstream outputStringStreamCQ;
+    idst->aMaxOrBits = bits;
     if (quantWeightPtr && nullptr == weight) {
         auto int8Size = kernelNum * kernelSize;
         // Use Quanted weight
         idst->type = 4;
-        idst->aMax = kernelNum;
         idst->buffer.resize(int8Size);
         ::memcpy(idst->buffer.data(), quantWeightPtr, int8Size);
     } else {

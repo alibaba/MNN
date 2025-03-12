@@ -7,6 +7,7 @@
 //
 
 #define FLATBUFFERS_PREFER_PRINTF
+#include <stack>
 #include <MNN/expr/Expr.hpp>
 #include <MNN/expr/Executor.hpp>
 #include <MNN/expr/ExprCreator.hpp>
@@ -1334,17 +1335,36 @@ std::pair<std::map<std::string, VARP>, std::map<std::string, VARP>> Variable::ge
 
 std::vector<EXPRP> Variable::getExecuteOrder(const std::vector<VARP>& outputs) {
     std::vector<EXPRP> sequence;
+    std::stack<EXPRP> workStack;
     for (auto output : outputs) {
-        Expr::visit(
-                        output->mFrom, [](EXPRP expr) { return !expr->visited(); },
-                        [&sequence](EXPRP expr) {
-                            //FUNC_PRINT_ALL(var->name().c_str(), s);
-                            if (!expr->visited()) {
-                                sequence.emplace_back(expr);
-                                expr->setVisited(true);
-                            }
-                            return true;
-                        });
+        if (nullptr == output) {
+            continue;
+        }
+        workStack.push(output->expr().first);
+    }
+    while (!workStack.empty()) {
+        auto expr = workStack.top();
+        bool valid = true;
+        if (expr->visited()) {
+            workStack.pop();
+            continue;
+        }
+        for (auto input : expr->inputs()) {
+            if (input == nullptr) {
+                continue;
+            }
+            if (input->expr().first->visited()) {
+                continue;
+            }
+            valid = false;
+            workStack.push(input->expr().first);
+            break;
+        }
+        if (valid) {
+            sequence.emplace_back(expr);
+            expr->setVisited(true);
+            workStack.pop();
+        }
     }
     for (auto expr : sequence) {
         expr->setVisited(false);

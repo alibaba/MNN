@@ -240,7 +240,7 @@ FuseFmhca::FuseFmhca() {
     TemplateMerge::getInstance("Merge").insertTemplate("FuseFmhca", match, fold);
 }
 
-static FuseFmhca g_fuse_Fmhca;
+//static FuseFmhca g_fuse_Fmhca;
 
 } // namespace Express
 } // namespace MNN

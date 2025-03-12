@@ -119,7 +119,7 @@ int postTreat(std::unique_ptr<MNN::NetT>& netT, const modelConfig& config) {
     if (needExternalWeight) {
         auto weightName = config.MNNModel + ".weight";
         MNN_PRINT("Save Weight to %s\n", weightName.c_str());
-        externalWeightOs.open(weightName.c_str());
+        externalWeightOs.open(weightName.c_str(), ios::binary);
         if (externalWeightOs.fail()) {
             MNN_PRINT("Write %s failed\n", weightName.c_str());
         }

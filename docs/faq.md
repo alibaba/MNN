@@ -311,7 +311,8 @@ GPU 后端调用 copy 的时间包含两个部分
 ### MNN模型如何加密
 加密与破解是攻防的较量，端侧加密很难做到绝对安全。
 可以通过构造独有的模型格式来增加反向的难度，按照以下步骤操作可以得到独特的模型格式：
-1. 针对`schema/default/*.fbs`下的文件，对参数顺序，枚举类顺序进行重新排序；比如：可以重新调整`MNN.fbs`中`OpType`的顺序；重新调整`CaffeOp.fbs`中`Convolution2DCommon`成员变量的顺序；
+1. 复制一份 schema 到 schema/private：`cp -r schema/default schema/private`
+2. 针对`schema/private/*.fbs`下的文件，对参数顺序，枚举类顺序进行重新排序；比如：可以重新调整`MNN.fbs`中`OpType`的顺序；重新调整`CaffeOp.fbs`中`Convolution2DCommon`成员变量的顺序；
 2. 执行`schema/generate.sh`重新生成`flatbuffers`头文件；
 3. 重新编译`MNN`库文件， `Convert`等所有工具；
 4. 使用新的工具重新转换模型；

@@ -27,7 +27,31 @@ namespace OpenCL {
 void registerOpenCLOps();
 #endif
 
-CLRuntime::CLRuntime(const Backend::Info& info, int platformSize, int platformId, int deviceId, void *contextPtr, void* glshared){
+std::mutex CLRuntime::globalRuntimeLock;
+std::weak_ptr<OpenCLRuntime> CLRuntime::globalRuntime;
+void CLRuntime::setGlobalCLRuntime(std::shared_ptr<OpenCLRuntime> runtime){
+    std::lock_guard<std::mutex> _l(globalRuntimeLock);
+    globalRuntime = runtime;
+}
+std::shared_ptr<OpenCLRuntime> CLRuntime::getGlobalCLRuntime(){
+    auto sharedPtr = globalRuntime.lock();
+    return sharedPtr;
+}
+
+CLRuntime::CLRuntime(const Backend::Info& info){
+    int platform_id = 0;
+    int device_id = 0;
+    int platform_size = 0;
+    void *context_ptr = nullptr;
+    auto globalRuntimePtr = getGlobalCLRuntime();
+    if (nullptr != info.user) {
+        if (info.user->sharedContext != nullptr) {
+            platform_id   = ((MNNDeviceContext*)info.user->sharedContext)->platformId;
+            device_id     = ((MNNDeviceContext*)info.user->sharedContext)->deviceId;
+            platform_size = ((MNNDeviceContext*)info.user->sharedContext)->platformSize;
+            context_ptr = (((MNNDeviceContext*)info.user->sharedContext)->contextPtr);
+        }
+    }
     mInfo = info;
 
     BackendConfig::PrecisionMode precision = BackendConfig::Precision_Normal;
@@ -39,8 +63,13 @@ CLRuntime::CLRuntime(const Backend::Info& info, int platformSize, int platformId
         memory    = mInfo.user->memory;
     }
 
-    // Shader precision
-    mOpenCLRuntime.reset(new OpenCLRuntime(precision, mInfo.gpuMode, platformSize, platformId, deviceId, contextPtr, glshared, hint()));
+    if(globalRuntimePtr && globalRuntimePtr.get()->canShareRuntime(precision, mInfo.gpuMode, platform_size, platform_id, device_id, context_ptr)){
+        mOpenCLRuntime = globalRuntimePtr;
+    }else{
+        mOpenCLRuntime.reset(new OpenCLRuntime(precision, mInfo.gpuMode, platform_size, platform_id, device_id, context_ptr, hint()));
+        setGlobalCLRuntime(mOpenCLRuntime);
+    }
+    
     //Whether runtimeError
     mCLRuntimeError = mOpenCLRuntime->isCreateError();
     mPrecision = precision;
@@ -57,6 +86,7 @@ CLRuntime::~CLRuntime() {
     mOpenCLRuntime = nullptr;
     delete mTunedInfo;
 }
+
 static bool _checkTensorInfo(const CLCache::TensorInfoT* dst, const Tensor* src) {
     if (dst->shape.size() != src->dimensions()) {
         return false;
@@ -1168,21 +1198,7 @@ class CLRuntimeCreator : public RuntimeCreator {
             return nullptr;
         }
     #endif
-        int platform_id = 0;
-        int device_id = 0;
-        int platform_size = 0;
-        void *context_ptr = nullptr;
-        void *glShared = nullptr;
-        if (nullptr != info.user) {
-            if (info.user->sharedContext != nullptr) {
-                platform_id   = ((MNNDeviceContext*)info.user->sharedContext)->platformId;
-                device_id     = ((MNNDeviceContext*)info.user->sharedContext)->deviceId;
-                platform_size = ((MNNDeviceContext*)info.user->sharedContext)->platformSize;
-                context_ptr = (((MNNDeviceContext*)info.user->sharedContext)->contextPtr);
-                glShared = (((MNNDeviceContext*)info.user->sharedContext)->glShared);
-            }
-        }
-        auto rt = new CLRuntime(info, platform_size, platform_id, device_id, context_ptr, glShared);
+        auto rt = new CLRuntime(info);
         if(rt->isCLRuntimeError() == true) {
             delete rt;
             return nullptr;

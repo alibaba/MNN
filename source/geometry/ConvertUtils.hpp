@@ -45,14 +45,18 @@ struct InterpInfo {
     float widthOffset = 0.0f;
     float heightOffset = 0.0f;
     float depthOffset = 0.0f;
+    CoordinateTransformationMode ctm;
 };
 
 static void _ConverterInterp(const Interp* resize, InterpInfo* dstInfo, int inW, int inH, int inD, int outW, int outH, int outD, bool computeScale = true) {
+    dstInfo->ctm = resize->ctm();
     switch (resize->ctm()) {
         case CoordinateTransformationMode_NotSet:
         {
             // For compability, old model's nearest don't support halfpixels
             if (resize->halfPixelCenters() && resize->resizeType() != 1) {
+                dstInfo->ctm = CoordinateTransformationMode_HalfPixels;
+
                 if (computeScale) {
                     dstInfo->depthScale  = (float)(inD) / (float)(outD);
                     dstInfo->heightScale = (float)(inH) / (float)(outH);
@@ -62,6 +66,7 @@ static void _ConverterInterp(const Interp* resize, InterpInfo* dstInfo, int inW,
                 dstInfo->heightOffset = 0.5f * dstInfo->heightScale - 0.5f;
                 dstInfo->depthOffset = 0.5f * dstInfo->depthScale - 0.5f;
             } else if (resize->alignCorners()) {
+                dstInfo->ctm = CoordinateTransformationMode_AlignCorners;
                 if (computeScale) {
                     if (outD == 1) {
                         dstInfo->depthScale = 0.0f;

@@ -12,6 +12,7 @@
 #include "backend/cpu/CPUBackend.hpp"
 #include "half.hpp"
 #include "core/OpCommonUtils.hpp"
+#include "MNNFileUtils.h"
 
 namespace MNN {
 
@@ -256,7 +257,7 @@ static int8_t *ReadQuanData_c(BaseLoader* s, size_t* len, ConvolutionCommon::Int
         idxBitsCnt = idxBitsCnt < 1 ? 1 : idxBitsCnt;
         // index
         size_t idxBufSize   = ceil(idxBitsCnt * dataCnt * 0.125);
-        idxBuf              = (uint8_t *)MNNMemoryAllocAlignZeroAlign(idxBufSize);
+        idxBuf              = (uint8_t *)MNNMemoryAllocAlign(idxBufSize, MNN_MEMORY_ALIGN_DEFAULT);
         if (nullptr == idxBuf) {
             MNN_ERROR("Not enought memory\n");
             break;
@@ -446,7 +447,7 @@ static int8_t *ReadSparseQuanData_c(BaseLoader* myfile, size_t* len, const float
         if (alpha_size == 2 * shape[0]) {
             const int min_value = -(1 << (iDataNeedBits - 1));
             auto alphaPtr = alpha_ptr;
-            int area = Size / shape[0];
+            auto area = Size / shape[0];
             for (int i = 0; i < shape[0]; i++) {
                 float min = alphaPtr[2*i];
                 float scale = alphaPtr[2*i+1];
@@ -498,23 +499,35 @@ std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const Op*
         std::unique_ptr<FileLoader> external(new FileLoader(op->externalPath()->c_str()));
         auto param = op->main_as_Convolution2D();
         external->offset(param->external()->data()[0]);
-        result->weightFloat.reset(param->external()->data()[1] / sizeof(float));
+        result->weightFloat.reset((int)(param->external()->data()[1] / sizeof(float)));
         external->read((char*)(result->weightFloat.get()), param->external()->data()[1]);
         return result;
     }
-    if (USE_EXTERNAL_DATA(conv) && op->externalPath() && quan->buffer() == nullptr) {
+    if (USE_EXTERNAL_DATA(conv) && (op->externalPath() || useCachedMmap) && quan->buffer() == nullptr) {
         auto external_info = conv->external()->data();
         buffer_size = external_info[1];
         alpha_size = external_info[2] / sizeof(float);
-        std::unique_ptr<FileLoader> external_file(new FileLoader(op->externalPath()->c_str()));
-        external_file->offset(external_info[0]);
+        result->alphaSize = alpha_size;
+        
         if (useCachedMmap) {
             if (alpha_size) {
-                result->alpha.reset(alpha_size);
-                IDSTDecoder::ReadQuanInfo(external_file.get(), &weightLength, result.get(), quan->shapeInt32());
+                weightLength = conv->common()->inputCount() * conv->common()->outputCount() * conv->common()->kernelX() * conv->common()->kernelY();
+                int upperBound = 1;
+                if (conv->common()->inputCount() > 65535 || conv->common()->outputCount() > 65535) { // 65535: max(uint16_t)
+                    upperBound += 8; // shape dimension saved as type:int32_t
+                } else {
+                    upperBound += 4; // shape dimension saved as type:int16_t
+                }
+                upperBound += (UP_DIV(weightLength, 2) + 17); // 16(-8~7) + 1
+                result->canUseInt4 = false;
+                if (upperBound >= buffer_size) {
+                    result->canUseInt4 = true;
+                }
             }
         } else {
             // external data
+            std::unique_ptr<FileLoader> external_file(new FileLoader(op->externalPath()->c_str()));
+            external_file->offset(external_info[0]);
             if (0 != buffer_size) {
                 if (1 == quan->type() && !forceFloat) {
                     buffer = IDSTDecoder::ReadQuanData_c(external_file.get(), &weightLength, result.get(), quan->shapeInt32(), forceInt8);
@@ -525,7 +538,7 @@ std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const Op*
                 }
             }
             if (0 != alpha_size) {
-                result->alpha.reset(alpha_size);
+                result->alpha.reset((int)alpha_size);
                 if (nullptr == result->alpha.get()) {
                     MNN_PRINT("Alloc memory error for extract idst int8\n");
                     return nullptr;
@@ -542,7 +555,8 @@ std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const Op*
         if (quan->alpha()) {
             alpha_size = quan->alpha()->size();
             alpha_ptr = quan->alpha()->data();
-            result->alpha.reset(alpha_size);
+            result->alphaSize = alpha_size;
+            result->alpha.reset((int)alpha_size);
             if (nullptr == result->alpha.get()) {
                 MNN_PRINT("Alloc memory error for extract idst int8\n");
                 return nullptr;
@@ -582,14 +596,14 @@ std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const Op*
     if (3 == quan->type()) {
         if (useCachedMmap) {
             weightLength = buffer_size / sizeof(half_float::half);
-            result->weightFloat.reset(weightLength);
+            result->weightFloat.reset((int)weightLength);
             return result;
         }
         weightLength = buffer_size / sizeof(half_float::half);
         std::vector<int8_t> tempHalfWeight(buffer_size);
         ::memcpy(tempHalfWeight.data(), buffer_ptr, buffer_size);
         auto halfWeight = reinterpret_cast<half_float::half *>(tempHalfWeight.data());
-        result->weightFloat.reset(weightLength);
+        result->weightFloat.reset((int)weightLength);
         if (nullptr == result->weightFloat.get()) {
             MNN_PRINT("Alloc memory error for extract fp16 back to float\n");
             return nullptr;
@@ -602,7 +616,7 @@ std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const Op*
     // weight int8 only
     if (4 == quan->type()) {
         weightLength = buffer_size;
-        result->weight.reset(weightLength);
+        result->weight.reset((int)weightLength);
         ::memcpy(result->weight.get(), buffer_ptr, weightLength);
     }
 
@@ -618,7 +632,7 @@ std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const Op*
                 MNN_PRINT("Alloc memory error for extract idst int8\n");
                 return nullptr;
             }
-            result->weight.set(buffer, weightLength);
+            result->weight.set(buffer, (int)weightLength);
         }
         int outputCount = 0;
         if (result->asymmetric) {
@@ -651,7 +665,7 @@ std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const Op*
     }
     if (!quan->has_scaleInt() || forceFloat) {
         // Back to float
-        result->weightFloat.reset(weightLength);
+        result->weightFloat.reset((int)weightLength);
         if (nullptr == result->weightFloat.get()) {
             MNN_PRINT("Alloc memory error for extract idst int8/ Back to float\n");
             return nullptr;
@@ -662,7 +676,7 @@ std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const Op*
         } else {
             outputCount = result->alpha.size();
         }
-        int partWeightSize = weightLength / outputCount;
+        int partWeightSize = (int)weightLength / outputCount;
         for (int o = 0; o < outputCount; ++o) {
             float min = 0.0f;
             float alpha = 0.0f;

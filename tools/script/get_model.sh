@@ -28,7 +28,7 @@ download() {
 get_caffe1() { # model_URL, model_path, prototxt_URL, prototxt_path, model, MNN_path
   if [ ! -e $6 ]; then
     echo "download and convert $2 $4"
-    download $1 $2 && download $3 $4 && ./$CONVERTER -f CAFFE --modelFile $2 --prototxt $4 --MNNModel $6 --bizCode 0000
+    download $1 $2 && download $3 $4 && ./$CONVERTER -f CAFFE --modelFile $2 --prototxt $4 --MNNModel $6 --bizCode 0000 --keepInputFormat=0
   fi
 }
 
@@ -39,7 +39,7 @@ get_tensorflow_lite() {
     download $1 $2.tgz && tar -xzf $2.tgz $2
     succ=$?
     popd > /dev/null
-    [ $succ -eq 0 ] && ./$CONVERTER -f TFLITE --modelFile build/$2 --MNNModel $4 --bizCode 0000
+    [ $succ -eq 0 ] && ./$CONVERTER -f TFLITE --modelFile build/$2 --MNNModel $4 --bizCode 0000 --keepInputFormat=0
   fi
 }
 
@@ -50,7 +50,7 @@ get_portrait_lite() {
     download $1 $2
     succ=$?
     popd > /dev/null
-    [ $succ -eq 0 ] && ./$CONVERTER -f TFLITE --modelFile build/$2 --MNNModel $4 --bizCode 0000
+    [ $succ -eq 0 ] && ./$CONVERTER -f TFLITE --modelFile build/$2 --MNNModel $4 --bizCode 0000 --keepInputFormat=0
   fi
 }
 

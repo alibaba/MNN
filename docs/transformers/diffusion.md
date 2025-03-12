@@ -37,9 +37,9 @@ conda activate ldm
 python3 convert_mnn.py ../onnx ~/alicnn/AliNNPrivate/build/diffusion "--weightQuantBits=8"
 ```
 
-若希望在OpenCL后端上进一步加速，可加上--transformerFuse:
+若希望在OpenCL / Metal后端上进一步加速，可加上--transformerFuse:
 ```
-# 适用OpenCL 后端推理
+# 适用OpenCL / Metal后端推理
 python3 convert_mnn.py onnx_path mnn_save_path "--weightQuantBits=8 --transformerFuse"
 ```
 
@@ -60,7 +60,7 @@ cd mnn_path/project/android/build
 ```
 ## 运行Diffusion Demo
 ```
-./diffusion_demo <resource_path> <model_type> <memory_mode> <backend_type> <iteration_num> <output_image_name> <prompt_text>
+./diffusion_demo <resource_path> <model_type> <memory_mode> <backend_type> <iteration_num> <random_seed> <output_image_name> <prompt_text>
 ```
 其中，resource_path 就是mnn模型文件的路径，除了mnn文件，还需要:
 ### 资源拷贝
@@ -72,9 +72,10 @@ cd mnn_path/project/android/build
 ### 参数设置
 ```
 1. model_type是目前支持的两种diffusion模型的类别。如果是stable-diffusion-v1-5/chilloutmix模型设为0，如果是Taiyi-Stable-Diffusion模型设为1。
-2. memory_mode代表设备是否内存足够，设为0表示内存节约模式(demo中每个模型使用前等待初始化，用完释放)，1代表内存足够模式(所有模式启动时全初始化完，用时无需等待初始化)。
-3. backend_type代表选择的运行后端，如OpenCL/CPU等。
+2. memory_mode代表设备是否内存足够，设为0表示内存节约模式(demo中每个模型使用前等待初始化，用完释放)，1代表内存足够模式(所有模式启动时全初始化完，性能快，运行时无需等待初始化), 2代表内存&性能折中模式(启动时初始化部分模型)。
+3. backend_type代表选择的运行后端，如OpenCL/Metal/CPU等。
 4. iteration_num代表文生图迭代次数，通常建议设置10到20之间。
+5. random_seed代表固定输入噪声种子数，设置为负数表示随机生成噪声种子数。当随机噪声种子数生成图片质量不佳时，可以调节该参数种子数值。
 
 ```
 ### 提示词和图片名称设置
@@ -84,9 +85,9 @@ cd mnn_path/project/android/build
 ```
 ### 运行命令示例
 ```
-./diffusion_demo mnn_sd1.5_path 0 1 3 20 demo.jpg "a cute cat"
-./diffusion_demo mnn_chilloutmix_path 0 0 3 10 demo.jpg "a pure girl"
-./diffusion_demo mnn_taiyi_path 1 0 3 10 demo.jpg "一只可爱的猫"
+./diffusion_demo mnn_sd1.5_path 0 1 3 20 -1 demo.jpg "a cute cat"
+./diffusion_demo mnn_chilloutmix_path 0 0 3 10 42 demo.jpg "a pure girl"
+./diffusion_demo mnn_taiyi_path 1 0 3 10 -1 demo.jpg "一只可爱的猫"
 ```
 ## FAQ
 1. Demo运行报错、段错误，怎么解决？

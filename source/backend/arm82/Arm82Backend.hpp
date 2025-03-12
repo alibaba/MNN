@@ -13,7 +13,6 @@
 #include "backend/cpu/CPUBackend.hpp"
 #include "core/Macro.h"
 #include "core/TensorUtils.hpp"
-#include <MNN/HalideRuntime.h>
 
 // armv82's data type default is fp16, so set
 // armv82's dataformat: NC8HW8
@@ -29,7 +28,7 @@ namespace MNN {
 class Arm82Backend : public CPUBackend {
 public:
     virtual ~Arm82Backend();
-    Arm82Backend(const CPURuntime* runtime, BackendConfig::MemoryMode memory);
+    Arm82Backend(const CPURuntime* runtime, BackendConfig::MemoryMode memory, int initThreadNumber);
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op) override;
     virtual Backend::MemObj* onAcquire(const Tensor* nativeTensor, StorageType storageType) override;
@@ -39,20 +38,7 @@ public:
     int numberThread() const {
         return threadNumber();
     }
-public:
-    class Arm82Creator {
-    public:
-        virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
-                                    const MNN::Op* op, Backend* backend) const = 0;
-    };
-
-    static bool addArm82Creator(OpType t, Arm82Creator* ct);
 };
-
-#define REGISTER_ARM82_OP_CREATOR(type, creator) \
-    void ___##type##__##creator##__() { \
-        Arm82Backend::addArm82Creator(type, new creator); \
-    }
 
 inline int ARM82TensorElementSizeHelper(const Tensor* t) {
     int size = 1;

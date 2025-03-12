@@ -70,7 +70,6 @@ table MyCustomOpParam {
 目前，MNN支持TensorFlow、TensorFlow Lite、Caffe、ONNX和TorchScript模型格式的转换。
 
 ### TensorFlow模型转换
-1. 添加转换类
 在`tools/converter/source/tensorflow`下添加`MyCustomOpTf.cpp`。可以直接声明转换类，也可以利用宏定义简化代码。
 
 直接声明示例：
@@ -96,16 +95,6 @@ DECLARE_OP_CONVERTER(MyCustomOpTf);
 ```cpp
 REGISTER_CONVERTER(MyCustomOpTf, MyCustomOp);
 ```
-
-2. 添加映射
-在`OpMapper.hpp`中添加相应的TensorFlow Op名字到MNN Op名字的映射：
-```cpp
-{"OpName1", MNN::OpType_MyCustomOp},
-{"OpName2", MNN::OpType_MyCustomOp},
-```
-
-3. 处理Op附带的Const
-如果Const不作为此Op的参数，而是看成一个单独的Op，可以忽略此步骤；如果Op要把Const当成参数，要在文件`TmpGraph.cpp`里修改函数`_genMinGraph()`，把相应Const节点的`isCovered`属性设置为true。
 
 ### TensorFlow Lite模型转换
 1. 添加转换类
@@ -422,7 +411,7 @@ private:
 ```
 
 3. 实现
-实现函数`onResize`(可选)、`onExecute`。执行完毕返回NO_ERROR。
+实现函数`onResize`(可选)、`onExecute`。执行完毕返回`NO_ERROR`。
 
 4. 注册实现类-
 ```cpp

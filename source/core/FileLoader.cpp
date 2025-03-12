@@ -158,7 +158,11 @@ int FileLoader::offset(int64_t offset) {
     if (nullptr == mFile) {
         return 0;
     }
+#if defined(_MSC_VER)
+    return _fseeki64(mFile, offset, SEEK_SET);
+#else
     return fseek(mFile, offset, SEEK_SET);
+#endif
 }
 
 bool FileLoader::read(char* buffer, int64_t size) {

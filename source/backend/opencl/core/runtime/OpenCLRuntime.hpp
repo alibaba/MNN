@@ -46,6 +46,15 @@ enum GpuMemObject { AUTO = 0, BUFFER = 1, IMAGE = 2};
 enum CLTuneLevel { None = 0, Heavy = 1, Wide = 2, Normal = 3, Fast = 4};
 enum SvmType { FINE_BUFFER = 0, COARSE_BUFFER = 1, SVM_NONE = 2};
 
+struct RuntimeInitInfo {
+    BackendConfig::PrecisionMode precision;
+    int cl_mode;
+    int platformSize;
+    int platformId;
+    int deviceId;
+    void *contextPtr;
+};
+
 struct KernelPool {
     uint64_t maxWorkGroupSize;
     std::queue<std::shared_ptr<cl::Kernel>> recycle;
@@ -69,7 +78,7 @@ private:
 };
 class OpenCLRuntime {
 public:
-    OpenCLRuntime(const BackendConfig::PrecisionMode precision, const int cl_mode, int platformSize, int platformId, int deviceId, void *contextPtr, void *glShared, const RuntimeHint& hint);
+    OpenCLRuntime(const BackendConfig::PrecisionMode precision, const int cl_mode, int platformSize, int platformId, int deviceId, void *contextPtr, const RuntimeHint& hint);
     ~OpenCLRuntime();
     OpenCLRuntime(const OpenCLRuntime &) = delete;
     OpenCLRuntime &operator=(const OpenCLRuntime &) = delete;
@@ -173,6 +182,15 @@ public:
     float flops() const {
         return mFlops;
     }
+    
+    bool canShareRuntime(const BackendConfig::PrecisionMode precision, const int cl_mode, int platformSize, int platformId, int deviceId, void *contextPtr){
+        bool canShare = (platformSize == mInitInfo.platformSize) && (platformId == mInitInfo.platformId) && (deviceId == mInitInfo.deviceId) && (contextPtr == mInitInfo.contextPtr);
+        if(canShare){
+            setPrecision(precision);
+            setGpuMode(cl_mode);
+        }
+        return canShare;
+    }
 
     double getCostTime(const cl::Event *event);
     double getQueuedTime(const cl::Event *event);
@@ -246,6 +264,7 @@ private:
     std::map<std::pair<std::string, std::vector<uint32_t>>, std::pair<std::vector<uint32_t>,  uint32_t>> mTunedLws;
     std::map<std::string, std::vector<std::pair<std::vector<uint32_t>, std::pair<std::vector<uint32_t>,  uint32_t>>>> mTuneLws;
     std::vector<uint8_t> mBuffer;
+    RuntimeInitInfo mInitInfo;
 };
 
 } // namespace MNN
