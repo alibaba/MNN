@@ -42,6 +42,25 @@ class ModelListViewModel: ObservableObject {
     func fetchModels() async {
         do {
             var fetchedModels = try await modelClient.getModelList()
+            
+            let hasDiffusionModels = fetchedModels.contains { 
+                $0.name.lowercased().contains("diffusion") 
+            }
+            
+            if hasDiffusionModels {
+                fetchedModels = fetchedModels.filter { model in
+                    let name = model.name.lowercased()
+                    let tags = model.tags.map { $0.lowercased() }
+                    
+                    // only show metal diffusion
+                    if name.contains("diffusion") {
+                        return name.contains("metal") || tags.contains { $0.contains("metal") }
+                    }
+                    
+                    return true
+                }
+            }
+            
             for i in 0..<fetchedModels.count {
                 fetchedModels[i].isDownloaded = ModelStorageManager.shared.isModelDownloaded(fetchedModels[i].modelId)
             }
@@ -69,13 +88,13 @@ class ModelListViewModel: ObservableObject {
         downloadProgress[model.modelId] = 0
         Task(priority: .background) {
             do {
-//                try await modelClient.downloadModel(model: model) { progress in
-//                    Task { @MainActor in
-//                        DispatchQueue.main.async {
-//                            self.downloadProgress[model.modelId] = progress
-//                        }
-//                    }
-//                }
+                try await modelClient.downloadModel(model: model) { progress in
+                    Task { @MainActor in
+                        DispatchQueue.main.async {
+                            self.downloadProgress[model.modelId] = progress
+                        }
+                    }
+                }
                 
                 if let index = models.firstIndex(where: { $0.modelId == model.modelId }) {
                     models[index].isDownloaded = true
