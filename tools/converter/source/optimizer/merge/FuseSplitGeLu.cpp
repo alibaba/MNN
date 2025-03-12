@@ -178,7 +178,7 @@ FuseSplitGeLu::FuseSplitGeLu() {
     TemplateMerge::getInstance("Merge").insertTemplate("FuseSplitGeLu", match, fold);
 }
 
-static FuseSplitGeLu g_fuse_splitgelu;
+//static FuseSplitGeLu g_fuse_splitgelu;
 
 } // namespace Express
 } // namespace MNN

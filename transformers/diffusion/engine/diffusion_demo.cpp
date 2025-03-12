@@ -6,9 +6,9 @@
 using namespace MNN::DIFFUSION;
 
 int main(int argc, const char* argv[]) {
-    if (argc < 8) {
+    if (argc < 9) {
         MNN_PRINT("=====================================================================================================================\n");
-        MNN_PRINT("Usage: ./diffusion_demo <resource_path> <model_type> <memory_mode> <backend_type> <iteration_num> <output_image_name> <prompt_text>\n");
+        MNN_PRINT("Usage: ./diffusion_demo <resource_path> <model_type> <memory_mode> <backend_type> <iteration_num> <random_seed> <output_image_name> <prompt_text>\n");
         MNN_PRINT("=====================================================================================================================\n");
         return 0;
     }
@@ -18,10 +18,11 @@ int main(int argc, const char* argv[]) {
     auto memory_mode = atoi(argv[3]);
     auto backend_type = (MNNForwardType)atoi(argv[4]);
     auto iteration_num = atoi(argv[5]);
-    auto img_name = argv[6];
+    auto random_seed = atoi(argv[6]);
+    auto img_name = argv[7];
 
     std::string input_text;
-    for (int i = 7; i < argc; ++i) {
+    for (int i = 8; i < argc; ++i) {
         input_text += argv[i];
         if (i < argc - 1) {
             input_text += " ";
@@ -37,17 +38,17 @@ int main(int argc, const char* argv[]) {
         MNN_PRINT("Error: Model type %d not supported, please check\n", (int)model_type);
     }
 
-    if(memory_mode == 0) {
-	    MNN_PRINT("(Memory Lack) Each diffusion model will be initialized when using, freed after using. with slow initialization\n");
+    if(memory_mode == 1) {
+        MNN_PRINT("(Memory Enough) All Diffusion models will be initialized when application enter. with fast initialization\n");
     } else {
-	    MNN_PRINT("(Memory Enough) All Diffusion models will be initialized when application enter. with fast initialization\n");
+        MNN_PRINT("(Memory Lack) Each diffusion model will be initialized when using, freed after using. with slow initialization\n");
     }
     MNN_PRINT("Backend type: %d\n", (int)backend_type);
     MNN_PRINT("Output image name: %s\n", img_name);
     MNN_PRINT("Prompt text: %s\n", input_text.c_str());
 
     
-    std::unique_ptr<Diffusion> diffusion(Diffusion::createDiffusion(resource_path, model_type, backend_type, memory_mode, iteration_num));
+    std::unique_ptr<Diffusion> diffusion(Diffusion::createDiffusion(resource_path, model_type, backend_type, memory_mode));
 
     diffusion->load();
     
@@ -55,7 +56,7 @@ int main(int argc, const char* argv[]) {
     auto progressDisplay = [](int progress) {
         std::cout << "Progress: " << progress << "%" << std::endl;
     };
-    diffusion->run(input_text, img_name, progressDisplay);
+    diffusion->run(input_text, img_name, iteration_num, random_seed, progressDisplay);
     
     /*
      when need multi text-generation-image:
@@ -63,11 +64,11 @@ int main(int argc, const char* argv[]) {
      if you choose memory enough mode,  just start another diffusion run, only need diffusion load in first time.
      */
     while(0) {
-        if(memory_mode == 0) {
+        if(memory_mode != 1) {
             diffusion->load();
         }
         
-        diffusion->run("a big horse", "demo_2.jpg", progressDisplay);
+        diffusion->run("a big horse", "demo_2.jpg", 20, 42, progressDisplay);
     }
     return 0;
 }

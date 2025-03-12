@@ -79,9 +79,9 @@ kernel void conv1x1_g1z4_w8(const device ftype4 *in            [[buffer(0)]],
         int zmax = min(zmin + block, cst.input_slice);
         for (int z = zmin; z < zmax; z++) {
             auto in40 = (FLOAT4)*xy_in0;
-            auto in41 = (FLOAT4)*(xy_in0 + 1);
-            auto in42 = (FLOAT4)*(xy_in0 + 2);
-            auto in43 = (FLOAT4)*(xy_in0 + 3);
+            auto in41 = computeSize > 1 ? (FLOAT4)*(xy_in0 + 1) : (FLOAT4)0.0;
+            auto in42 = computeSize > 2 ? (FLOAT4)*(xy_in0 + 2) : (FLOAT4)0.0;
+            auto in43 = computeSize > 3 ? (FLOAT4)*(xy_in0 + 3) : (FLOAT4)0.0;
             auto w = xy_wt[z];
             FLOAT4x4 w_fp32 = FLOAT4x4(FLOAT4(w[0]), FLOAT4(w[1]), FLOAT4(w[2]), FLOAT4(w[3]));
             FLOAT4x4 w_dequant;

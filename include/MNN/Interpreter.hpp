@@ -242,7 +242,10 @@ public:
         KVCACHE_INFO = 10,
         // mmap allocate file size, KB
         MMAP_FILE_SIZE = 11,
-        USE_CACHED_MMAP = 12
+        USE_CACHED_MMAP = 12,
+        
+        // Multi-Thread Load module, default is 0 (don't use other Thread)
+        INIT_THREAD_NUMBER = 13
     };
 
     enum ExternalPathType {

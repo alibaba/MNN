@@ -13,27 +13,29 @@
 
 namespace MNN {
 namespace OpenCL {
-
+struct LayernormResource {
+    std::shared_ptr<cl::Buffer> mGammaBuffer;
+    std::shared_ptr<cl::Buffer> mBetaBuffer;
+    bool has_gamma_beta_;
+    uint32_t mMaxWorkGroupSize;
+    int axis_size ;
+    int group_ ;
+    float epsilon_;
+    bool RMSNorm;
+};
 class LayerNormExecution : public CommonExecution {
 public:
     LayerNormExecution(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend);
+    LayerNormExecution(std::shared_ptr<LayernormResource> resource, const Op* op, Backend* backend);
     virtual ~LayerNormExecution() = default;
 
     virtual ErrorCode onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
-
+    virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
 
 private:
     int getLocalSize(int size, int maxGroupSize);
     OpenCLBackend *mOpenCLBackend;
-    int axis_size = 0;
-    int group_ = 1;
-    bool RMSNorm = false;
-    float epsilon_ = 0.001;
-
-    std::shared_ptr<cl::Buffer> mGammaBuffer;
-    std::shared_ptr<cl::Buffer> mBetaBuffer;
-    bool has_gamma_beta_ = false;
-    uint32_t mMaxWorkGroupSize;
+    std::shared_ptr<LayernormResource> mResource;
 };
 
 } // namespace OpenCL

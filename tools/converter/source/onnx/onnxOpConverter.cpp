@@ -10,6 +10,8 @@
 #include "onnxOpConverter.hpp"
 #include "OpCount.hpp"
 #include "OnnxTmpGraph.hpp"
+#include "core/FileLoader.hpp"
+#include "core/MNNFileUtils.h"
 
 using namespace MNN;
 static int32_t _limit(int64_t i64) {
@@ -166,6 +168,30 @@ onnxOpConverter* onnxOpConverterSuit::search(const std::string& name) {
     }
     return iter->second;
 }
+static int _getDataSizeForRead(int32_t itype) {
+    static std::map<::onnx::TensorProto_DataType, int> dataTypeMap{
+        {onnx::TensorProto_DataType_FLOAT, 4},
+        {onnx::TensorProto_DataType_FLOAT16, 2},
+	    {onnx::TensorProto_DataType_BFLOAT16, 2},     
+   	    {onnx::TensorProto_DataType_INT8, 1},
+        {onnx::TensorProto_DataType_INT32, 4},
+        {onnx::TensorProto_DataType_INT64, 8}, 
+        {onnx::TensorProto_DataType_DOUBLE, 8},
+        {onnx::TensorProto_DataType_UINT8, 1},
+        {onnx::TensorProto_DataType_BOOL, 4}, 
+        {onnx::TensorProto_DataType_INT16, 2},
+        {onnx::TensorProto_DataType_UINT16, 2},
+        {onnx::TensorProto_DataType_UINT32, 4},
+        {onnx::TensorProto_DataType_UINT64, 8},
+    };
+    auto type = static_cast<::onnx::TensorProto_DataType>(itype);
+    if (dataTypeMap.find(type) != dataTypeMap.end()) {
+        return dataTypeMap[type];
+    }
+    // Use Max
+    return 8;
+}
+
 MNN::DataType onnxOpConverter::convertDataType(int32_t itype) {
     static std::map<::onnx::TensorProto_DataType, MNN::DataType> dataTypeMap{
         {onnx::TensorProto_DataType_FLOAT, MNN::DataType_DT_FLOAT},
@@ -236,19 +262,18 @@ MNN::BlobT* onnxOpConverter::convertTensorToBlob(const onnx::TensorProto* consta
         if (!modelDir.empty()) {
             location = modelDir + location;
         }
-        auto fp = fopen(location.c_str(), "rb");
-        if (fp == nullptr) {
-            DLOG(FATAL) << "Fail to open external data: " << location;
-            return nullptr;
+        if (0 <= length) {
+            length = _getDataSizeForRead(constantTp->data_type()) * dataSize;
         }
-        if (length < 0) {
-            fseek(fp, 0, SEEK_END);
-            length = ftell(fp) - offset;
-        }
-        fseek(fp, offset, SEEK_SET);
         if (_needConvert(constantTp->data_type())) {
+            MNN::FileLoader fp(location.c_str(), true);
+            if (!fp.valid()) {
+                DLOG(FATAL) << "Fail to open external data: " << location;
+                return nullptr;
+            }
+            fp.offset(offset);
             alignContent.resize((length + sizeof(int64_t) - 1) / sizeof(int64_t));
-            fread(alignContent.data(), 1, length, fp);
+            fp.read((char*)alignContent.data(), length);
         } else {
             op->externalPath = location;
             constantParam->external = {
@@ -256,7 +281,6 @@ MNN::BlobT* onnxOpConverter::convertTensorToBlob(const onnx::TensorProto* consta
             };
             dataSize = 0;
         }
-        fclose(fp);
     } else {
         alignContent.resize((constantTp->raw_data().size() + sizeof(int64_t) - 1) / sizeof(int64_t));
         ::memcpy(alignContent.data(), constantTp->raw_data().data(), constantTp->raw_data().size());

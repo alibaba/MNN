@@ -80,10 +80,14 @@ typedef half4x4 FLOAT4x4;
         simdgroup_store(sgd[i], ptr + 64*i, 8);\
     }
 
-kernel void conv1x1_gemm_16x16_w4_sg(const device ftype4 *in            [[buffer(0)]],
+kernel void conv1x1_gemm_16x16_wquant_sg(const device ftype4 *in            [[buffer(0)]],
                             device ftype4 *out                 [[buffer(1)]],
                             constant conv1x1_constants& cst    [[buffer(2)]],
+                        #ifdef W_QUANT_4
                             const device uchar2 *wt      [[buffer(3)]],
+                        #elif defined(W_QUANT_8)
+                            const device char4 *wt      [[buffer(3)]],
+                        #endif
                             const device ftype4 *biasTerms     [[buffer(4)]],
                             const device ftype4 *dequantScale  [[buffer(5)]],
                             uint3 gid                          [[threadgroup_position_in_grid]],
@@ -133,8 +137,14 @@ kernel void conv1x1_gemm_16x16_w4_sg(const device ftype4 *in            [[buffer
             
             #pragma unroll(4)
             for(int i = 0; i < 4; i++) {
+            
+            #ifdef W_QUANT_4
                 uchar2 w_int40 = xy_wt[4 * (z + 2*i)]; // [N/4, K/4, N4, K4]
                 FLOAT4 w40 = FLOAT4((float)(w_int40[0] >> 4) - 8, (float)(w_int40[0] & 15) - 8, (float)(w_int40[1] >> 4) - 8, (float)(w_int40[1] & 15) - 8);
+            #elif defined(W_QUANT_8)
+                char4 w_int40 = xy_wt[4 * (z + 2*i)]; // [N/4, K/4, N4, K4]
+                FLOAT4 w40 = FLOAT4((float)w_int40[0], (float)w_int40[1], (float)w_int40[2], (float)w_int40[3]);
+            #endif
                 
                 FLOAT4 res = w40 * scale[rcl % 4] + dequant_bias[rcl % 4];
                 ((threadgroup FLOAT*)sdata)[256 * i + 128 + (kl * 4 + 0) * 16 + rcl] = res[0];
@@ -173,10 +183,14 @@ kernel void conv1x1_gemm_16x16_w4_sg(const device ftype4 *in            [[buffer
     }
 }
 
-kernel void conv1x1_gemm_32x16_w4_sg(const device ftype4 *in            [[buffer(0)]],
+kernel void conv1x1_gemm_32x16_wquant_sg(const device ftype4 *in            [[buffer(0)]],
                             device ftype4 *out                 [[buffer(1)]],
                             constant conv1x1_constants& cst    [[buffer(2)]],
+                        #ifdef W_QUANT_4
                             const device uchar2 *wt      [[buffer(3)]],
+                        #elif defined(W_QUANT_8)
+                            const device char4 *wt      [[buffer(3)]],
+                        #endif
                             const device ftype4 *biasTerms     [[buffer(4)]],
                             const device ftype4 *dequantScale  [[buffer(5)]],
                             uint3 gid                          [[threadgroup_position_in_grid]],
@@ -225,8 +239,14 @@ kernel void conv1x1_gemm_32x16_w4_sg(const device ftype4 *in            [[buffer
             sdata[2* rcl + kl] = (FLOAT4)*xy_in0;
             sdata[32 + 2* rcl + kl] = (FLOAT4)*xy_in1;
 
-            uchar2 w_int4 = xy_wt[4*z]; // [N/4, K/4, N4, K4]
-            FLOAT4 w4 = FLOAT4((float)(w_int4[0] >> 4) - 8, (float)(w_int4[0] & 15) - 8, (float)(w_int4[1] >> 4) - 8, (float)(w_int4[1] & 15) - 8);
+            #ifdef W_QUANT_4
+                uchar2 w_int4 = xy_wt[4*z]; // [N/4, K/4, N4, K4]
+                FLOAT4 w4 = FLOAT4((float)(w_int4[0] >> 4) - 8, (float)(w_int4[0] & 15) - 8, (float)(w_int4[1] >> 4) - 8, (float)(w_int4[1] & 15) - 8);
+            #elif defined(W_QUANT_8)
+                char4 w_int4 = xy_wt[4*z]; // [N/4, K/4, N4, K4]
+                FLOAT4 w4 = FLOAT4((float)w_int4[0], (float)w_int4[1], (float)w_int4[2], (float)w_int4[3]);
+            #endif
+
             FLOAT4 res = w4 * scale[rcl % 4] + dequant_bias[rcl % 4];
             //            sdata[32 + 2* rcl + kl] = res;
             ((threadgroup FLOAT*)sdata)[256 + (kl * 4 + 0) * 16 + rcl] = res[0];
@@ -277,10 +297,14 @@ kernel void conv1x1_gemm_32x16_w4_sg(const device ftype4 *in            [[buffer
     }
 }
 
-kernel void conv1x1_gemm_16x32_w4_sg(const device ftype4 *in            [[buffer(0)]],
+kernel void conv1x1_gemm_16x32_wquant_sg(const device ftype4 *in            [[buffer(0)]],
                             device ftype4 *out                 [[buffer(1)]],
                             constant conv1x1_constants& cst    [[buffer(2)]],
+                        #ifdef W_QUANT_4
                             const device uchar2 *wt      [[buffer(3)]],
+                        #elif defined(W_QUANT_8)
+                            const device char4 *wt      [[buffer(3)]],
+                        #endif
                             const device ftype4 *biasTerms     [[buffer(4)]],
                             const device ftype4 *dequantScale  [[buffer(5)]],
                             uint3 gid                          [[threadgroup_position_in_grid]],
@@ -329,8 +353,13 @@ kernel void conv1x1_gemm_16x32_w4_sg(const device ftype4 *in            [[buffer
             sdata[2* rcl + kl] = (FLOAT4)*xy_in0;
             
             {
+            #ifdef W_QUANT_4
                 uchar2 w_int4 = xy_wt0[4*z]; // [N/4, K/4, N4, K4]
                 FLOAT4 w4 = FLOAT4((float)(w_int4[0] >> 4) - 8, (float)(w_int4[0] & 15) - 8, (float)(w_int4[1] >> 4) - 8, (float)(w_int4[1] & 15) - 8);
+            #elif defined(W_QUANT_8)
+                char4 w_int4 = xy_wt0[4*z]; // [N/4, K/4, N4, K4]
+                FLOAT4 w4 = FLOAT4((float)w_int4[0], (float)w_int4[1], (float)w_int4[2], (float)w_int4[3]);
+            #endif
                 FLOAT4 res = w4 * scale0[rcl % 4] + dequant_bias0[rcl % 4];
                 //            sdata[32 + 2* rcl + kl] = res;
                 ((threadgroup FLOAT*)sdata)[128 + (kl * 4 + 0) * 32 + rcl] = res[0];
@@ -339,8 +368,13 @@ kernel void conv1x1_gemm_16x32_w4_sg(const device ftype4 *in            [[buffer
                 ((threadgroup FLOAT*)sdata)[128 + (kl * 4 + 3) * 32 + rcl] = res[3];
             }
             {
+            #ifdef W_QUANT_4
                 uchar2 w_int4 = xy_wt1[4*z]; // [N/4, K/4, N4, K4]
                 FLOAT4 w4 = FLOAT4((float)(w_int4[0] >> 4) - 8, (float)(w_int4[0] & 15) - 8, (float)(w_int4[1] >> 4) - 8, (float)(w_int4[1] & 15) - 8);
+            #elif defined(W_QUANT_8)
+                char4 w_int4 = xy_wt1[4*z]; // [N/4, K/4, N4, K4]
+                FLOAT4 w4 = FLOAT4((float)w_int4[0], (float)w_int4[1], (float)w_int4[2], (float)w_int4[3]);
+            #endif
                 FLOAT4 res = w4 * scale1[rcl % 4] + dequant_bias1[rcl % 4];
                 //            sdata[32 + 2* rcl + kl] = res;
                 ((threadgroup FLOAT*)sdata)[128 + (kl * 4 + 0) * 32 + 16 + rcl] = res[0];
@@ -387,10 +421,14 @@ kernel void conv1x1_gemm_16x32_w4_sg(const device ftype4 *in            [[buffer
 }
 
 
-kernel void conv1x1_gemm_32x64_w4_sg(const device ftype2 *in            [[buffer(0)]],
+kernel void conv1x1_gemm_32x64_wquant_sg(const device ftype2 *in            [[buffer(0)]],
                             device ftype4 *out                 [[buffer(1)]],
                             constant conv1x1_constants& cst    [[buffer(2)]],
+                        #ifdef W_QUANT_4
                             const device uchar2 *wt      [[buffer(3)]],
+                        #elif defined(W_QUANT_8)
+                            const device char4 *wt      [[buffer(3)]],
+                        #endif
                             const device ftype4 *biasTerms     [[buffer(4)]],
                             const device ftype4 *dequantScale  [[buffer(5)]],
                             uint3 gid                          [[threadgroup_position_in_grid]],
@@ -464,8 +502,14 @@ kernel void conv1x1_gemm_32x64_w4_sg(const device ftype2 *in            [[buffer
             ((threadgroup FLOAT*)sdata)[idx_sa + 1] = data[1];
             
             {
+            #ifdef W_QUANT_4
                 uchar2 w_int4 = xy_wt0[4*z]; // [N/4, K/4, N4, K4]
                 FLOAT4 w4 = FLOAT4((float)(w_int4[0] >> 4) - 8, (float)(w_int4[0] & 15) - 8, (float)(w_int4[1] >> 4) - 8, (float)(w_int4[1] & 15) - 8);
+            #elif defined(W_QUANT_8)
+                char4 w_int4 = xy_wt0[4*z]; // [N/4, K/4, N4, K4]
+                FLOAT4 w4 = FLOAT4((float)w_int4[0], (float)w_int4[1], (float)w_int4[2], (float)w_int4[3]);
+            #endif
+
                 FLOAT4 res = w4 * scale0[ni] + dequant_bias0[ni];
                 //            sdata[32 + 2* rcl + kl] = res;
                 ((threadgroup FLOAT*)sdata)[idx_sb] = res[0];
@@ -911,6 +955,58 @@ namespace MNN {
             return float4x2( float2(v[0]), float2(v[1]), float2(v[2]), float2(v[3]) );
         }
     } uchar4x2;
+
+    typedef struct char4x4 {
+    private:
+        char4 v[4];
+    public:
+        char4x4(char4 a) {
+            v[0] = a; v[1] = a; v[2] = a; v[3] = a;
+        }
+        char4x4(char4 a, char4 b, char4 c, char4 d) {
+            v[0] = a; v[1] = b; v[2] = c; v[3] = d;
+        }
+        
+        inline thread char4& operator[] (const int index) {
+            return v[index];
+        }
+        inline device char4& operator[] (const int index) device {
+            return v[index];
+        }
+        inline threadgroup char4& operator[] (const int index) threadgroup {
+            return v[index];
+        }
+        
+        inline const thread char4& operator[] (const int index) const {
+            return v[index];
+        }
+        inline const device char4& operator[] (const int index) const device {
+            return v[index];
+        }
+        inline const threadgroup char4& operator[] (const int index) const threadgroup {
+            return v[index];
+        }
+        
+        inline explicit operator half4x4() const {
+            return half4x4( half4(v[0]), half4(v[1]), half4(v[2]), half4(v[3]) );
+        }
+        inline explicit operator half4x4() const device {
+            return half4x4( half4(v[0]), half4(v[1]), half4(v[2]), half4(v[3]) );
+        }
+        inline explicit operator half4x4() const threadgroup {
+            return half4x4( half4(v[0]), half4(v[1]), half4(v[2]), half4(v[3]) );
+        }
+        
+        inline explicit operator float4x4() const {
+            return float4x4( float4(v[0]), float4(v[1]), float4(v[2]), float4(v[3]) );
+        }
+        inline explicit operator float4x4() const device {
+            return float4x4( float4(v[0]), float4(v[1]), float4(v[2]), float4(v[3]) );
+        }
+        inline explicit operator float4x4() const threadgroup {
+            return float4x4( float4(v[0]), float4(v[1]), float4(v[2]), float4(v[3]) );
+        }
+    } char4x4;
 }
 
 struct conv1x1_constants {
@@ -946,10 +1042,14 @@ typedef half4x4 FLOAT4x4;
 #define CONV_UNROLL_L (8)
 
 
-kernel void conv1x1_gemv_g8_w4_sg(const device ftype4 *in            [[buffer(0)]],
+kernel void conv1x1_gemv_g8_wquant_sg(const device ftype4 *in            [[buffer(0)]],
                             device ftype4 *out                 [[buffer(1)]],
                             constant conv1x1_constants& cst    [[buffer(2)]],
+                        #ifdef W_QUANT_4
                             const device MNN::uchar4x2 *wt      [[buffer(3)]],
+                        #elif defined(W_QUANT_8)
+                            const device MNN::char4x4 *wt      [[buffer(3)]],
+                        #endif
                             const device ftype4 *biasTerms     [[buffer(4)]],
                             const device ftype4 *dequantScale  [[buffer(5)]],
                             uint3 gid[[threadgroup_position_in_grid]],
@@ -984,14 +1084,23 @@ kernel void conv1x1_gemv_g8_w4_sg(const device ftype4 *in            [[buffer(0)
         for (int z = zmin + middle_index; z < zmax; z += middle_step) {
             FLOAT4 in40 = (FLOAT4)*(xy_in0 + z);
             
-            MNN::uchar4x2 w_int4 = xy_wt[z];
+            #ifdef W_QUANT_4
+                MNN::uchar4x2 w_int4 = xy_wt[z];
 
-            FLOAT4x4 w_dequant;
-            for (int i = 0; i < 4; i += 1) {
-                FLOAT4 w4 = FLOAT4((float)(w_int4[i][0] >> 4) - 8, (float)(w_int4[i][0] & 15) - 8, (float)(w_int4[i][1] >> 4) - 8, (float)(w_int4[i][1] & 15) - 8);
-                FLOAT4 res = w4 * scale[i] + dequant_bias[i];
-                w_dequant[i] = res;
-            }
+                FLOAT4x4 w_dequant;
+                for (int i = 0; i < 4; i += 1) {
+                    FLOAT4 w4 = FLOAT4((float)(w_int4[i][0] >> 4) - 8, (float)(w_int4[i][0] & 15) - 8, (float)(w_int4[i][1] >> 4) - 8, (float)(w_int4[i][1] & 15) - 8);
+                    FLOAT4 res = w4 * scale[i] + dequant_bias[i];
+                    w_dequant[i] = res;
+                }
+            #elif defined(W_QUANT_8)
+                auto w = xy_wt[z];
+                FLOAT4x4 w_fp32 = FLOAT4x4(FLOAT4(w[0]), FLOAT4(w[1]), FLOAT4(w[2]), FLOAT4(w[3]));
+                FLOAT4x4 w_dequant;
+                for (int i = 0; i < 4; ++i) {
+                    w_dequant[i] = w_fp32[i] * scale[i] + dequant_bias[i];
+                }
+            #endif
 
             result0 += FLOAT4(in40 * w_dequant);
             
@@ -1005,10 +1114,14 @@ kernel void conv1x1_gemv_g8_w4_sg(const device ftype4 *in            [[buffer(0)
     }
 }
 
-kernel void conv1x1_gemv_g16_w4_sg(const device ftype4 *in            [[buffer(0)]],
+kernel void conv1x1_gemv_g16_wquant_sg(const device ftype4 *in            [[buffer(0)]],
                             device ftype4 *out                 [[buffer(1)]],
                             constant conv1x1_constants& cst    [[buffer(2)]],
+                        #ifdef W_QUANT_4
                             const device MNN::uchar4x2 *wt      [[buffer(3)]],
+                        #elif defined(W_QUANT_8)
+                            const device MNN::char4x4 *wt      [[buffer(3)]],
+                        #endif
                             const device ftype4 *biasTerms     [[buffer(4)]],
                             const device ftype4 *dequantScale  [[buffer(5)]],
                             uint3 gid[[threadgroup_position_in_grid]],
@@ -1048,23 +1161,42 @@ kernel void conv1x1_gemv_g16_w4_sg(const device ftype4 *in            [[buffer(0
         for (int z = zmin + middle_index; z < zmax; z += middle_step) {
             FLOAT4 in40 = (FLOAT4)*(xy_in0 + z);
             
-            MNN::uchar4x2 w_int4 = xy_wt[z];
 
-            FLOAT4x4 w_dequant;
-            for (int i = 0; i < 4; i += 1) {
-                FLOAT4 w4 = FLOAT4((float)(w_int4[i][0] >> 4) - 8, (float)(w_int4[i][0] & 15) - 8, (float)(w_int4[i][1] >> 4) - 8, (float)(w_int4[i][1] & 15) - 8);
-                FLOAT4 res = w4 * scale0[i] + dequant_bias0[i];
-                w_dequant[i] = res;
-            }
+            #ifdef W_QUANT_4
+                MNN::uchar4x2 w_int4 = xy_wt[z];
+
+                FLOAT4x4 w_dequant;
+                for (int i = 0; i < 4; i += 1) {
+                    FLOAT4 w4 = FLOAT4((float)(w_int4[i][0] >> 4) - 8, (float)(w_int4[i][0] & 15) - 8, (float)(w_int4[i][1] >> 4) - 8, (float)(w_int4[i][1] & 15) - 8);
+                    FLOAT4 res = w4 * scale0[i] + dequant_bias0[i];
+                    w_dequant[i] = res;
+                }
+            #elif defined(W_QUANT_8)
+                auto w = xy_wt[z];
+                FLOAT4x4 w_fp32 = FLOAT4x4(FLOAT4(w[0]), FLOAT4(w[1]), FLOAT4(w[2]), FLOAT4(w[3]));
+                FLOAT4x4 w_dequant;
+                for (int i = 0; i < 4; ++i) {
+                    w_dequant[i] = w_fp32[i] * scale0[i] + dequant_bias0[i];
+                }
+            #endif
+
             result0 += FLOAT4(in40 * w_dequant);
 
-            w_int4 = xy_wt[cst.input_slice + z];
-            for (int i = 0; i < 4; i += 1) {
-                FLOAT4 w4 = FLOAT4((float)(w_int4[i][0] >> 4) - 8, (float)(w_int4[i][0] & 15) - 8, (float)(w_int4[i][1] >> 4) - 8, (float)(w_int4[i][1] & 15) - 8);
-                FLOAT4 res = w4 * scale1[i] + dequant_bias1[i];
-                w_dequant[i] = res;
-            }
-            
+            #ifdef W_QUANT_4
+                w_int4 = xy_wt[cst.input_slice + z];
+                for (int i = 0; i < 4; i += 1) {
+                    FLOAT4 w4 = FLOAT4((float)(w_int4[i][0] >> 4) - 8, (float)(w_int4[i][0] & 15) - 8, (float)(w_int4[i][1] >> 4) - 8, (float)(w_int4[i][1] & 15) - 8);
+                    FLOAT4 res = w4 * scale1[i] + dequant_bias1[i];
+                    w_dequant[i] = res;
+                }
+            #elif defined(W_QUANT_8)
+                w = xy_wt[cst.input_slice + z];
+                w_fp32 = FLOAT4x4(FLOAT4(w[0]), FLOAT4(w[1]), FLOAT4(w[2]), FLOAT4(w[3]));
+                for (int i = 0; i < 4; ++i) {
+                    w_dequant[i] = w_fp32[i] * scale1[i] + dequant_bias1[i];
+                }
+            #endif
+
             result1 += FLOAT4(in40 * w_dequant);
             
         }

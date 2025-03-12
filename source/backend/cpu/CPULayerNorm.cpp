@@ -32,31 +32,35 @@ std::shared_ptr<CPULayerNorm::Resource> CPULayerNorm::makeResource(const MNN::Op
     res->mGroup = layer_norm_param->group();
     res->mEpsilon = layer_norm_param->epsilon();
     res->mRMSNorm = layer_norm_param->useRMSNorm();
-    if (layer_norm_param->gamma() && layer_norm_param->beta()) {
-        int size = layer_norm_param->gamma()->size();
+    bool hasGammaBeta = (layer_norm_param->gamma() && layer_norm_param->beta());
+    int gammasize = 0;
+    if (hasGammaBeta) {
+        MNN_ASSERT(layer_norm_param->gamma()->size() == layer_norm_param->beta()->size());
+        gammasize = layer_norm_param->gamma()->size();
+    }
+    hasGammaBeta = hasGammaBeta || (layer_norm_param->external() && layer_norm_param->external()->size() > 1 && layer_norm_param->external()->data()[1] > 0);
+    if (hasGammaBeta && gammasize == 0) {
+        gammasize = layer_norm_param->external()->data()[1] / sizeof(float);
+    }
+    if (hasGammaBeta) {
         res->mIniGammaBeta = true;
         // Use uint8_t to avoid lowp reduce float bytes
-        res->mGamma.reset(Tensor::createDevice<uint8_t>({size * 4}));
-        auto status = backend->onAcquireBuffer(res->mGamma.get(), Backend::STATIC);
+        res->mGamma.reset(Tensor::createDevice<uint8_t>({gammasize * 4}));
+        res->mBeta.reset(Tensor::createDevice<uint8_t>({gammasize * 4}));
+        auto status = backend->onAcquireBuffer(res->mGamma.get(), Backend::STATIC) && backend->onAcquireBuffer(res->mBeta.get(), Backend::STATIC);
         if (!status) {
             MNN_ERROR("Out of memory when gamma is acquired in CPULayerNorm.\n");
             return nullptr;
         }
-        // Use uint8_t to avoid lowp reduce float bytes
-        res->mBeta.reset(Tensor::createDevice<uint8_t>({size * 4}));
-        status = backend->onAcquireBuffer(res->mBeta.get(), Backend::STATIC);
-        if (!status) {
-            MNN_ERROR("Out of memory when beta is acquired in CPULayerNorm.\n");
-            return nullptr;
+        bool useCachedMmap = backend->getRuntime()->hint().useCachedMmap > 1;
+        if (useCachedMmap) {
+            return res;
         }
-
-        if (layer_norm_param->beta()->size() != size) {
-            MNN_ERROR("Size of gamma and beta are not match in CPULayerNorm.\n");
-        }
+        
         const float* gamma_data = layer_norm_param->gamma()->data();
-        memcpy(res->mGamma->host<float>(), gamma_data, size * sizeof(float));
+        memcpy(res->mGamma->host<float>(), gamma_data, gammasize * sizeof(float));
         const float* beta_data = layer_norm_param->beta()->data();
-        memcpy(res->mBeta->host<float>(), beta_data, size * sizeof(float));
+        memcpy(res->mBeta->host<float>(), beta_data, gammasize * sizeof(float));
     }
     return res;
 }

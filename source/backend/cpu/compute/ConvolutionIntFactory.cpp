@@ -36,6 +36,7 @@ Execution *ConvolutionIntFactory::create(const Tensor *input, const Tensor *outp
     auto groupWeightSize  = common->weight.size() / group;
     for (int i = 0; i < group; ++i) {
         auto subCommon = std::make_shared<ConvolutionCommon::Int8Common>();
+        subCommon->alphaSize = groupOutputCount;
         subCommon->alpha.reset(groupOutputCount);
         ::memcpy(subCommon->alpha.get(), common->alpha.get() + groupOutputCount * i, groupOutputCount * sizeof(float));
         subCommon->quan = common->quan;

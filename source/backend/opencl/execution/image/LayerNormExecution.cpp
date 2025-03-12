@@ -18,24 +18,25 @@ LayerNormExecution::LayerNormExecution(const std::vector<Tensor *> &inputs, cons
     auto &unit = mUnits[0];
     mOpenCLBackend = static_cast<OpenCLBackend *>(backend);
     auto runtime   = mOpenCLBackend->getOpenCLRuntime();
+    mResource.reset(new LayernormResource);
     const auto* layer_norm_param = op->main_as_LayerNorm();
     if (nullptr != layer_norm_param->axis()) {
-        axis_size = layer_norm_param->axis()->size();
+        mResource->axis_size = layer_norm_param->axis()->size();
     }
-    epsilon_ = layer_norm_param->epsilon();
-    group_ = layer_norm_param->group();
-    RMSNorm = layer_norm_param->useRMSNorm();
+    mResource->epsilon_ = layer_norm_param->epsilon();
+    mResource->group_ = layer_norm_param->group();
+    mResource->RMSNorm = layer_norm_param->useRMSNorm();
     auto bufferUnitSize = runtime->isSupportedFP16() ? sizeof(half_float::half) : sizeof(float);
     unit.kernel = runtime->buildKernel("layernorm", "layernorm_w", {"-DLOCAL_SIZE=512"});
-    mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
+    mResource->mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
 
     if(layer_norm_param->gamma() && layer_norm_param->beta()){
-        has_gamma_beta_ = true;
+        mResource->has_gamma_beta_ = true;
         {
             auto error = CL_SUCCESS;
             int size = layer_norm_param->gamma()->size();
-            mGammaBuffer.reset(new cl::Buffer(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, ALIGN_UP4(size) * bufferUnitSize));
-            auto GammaPtrCL = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(*(mGammaBuffer.get()), true, CL_MAP_WRITE, 0, ALIGN_UP4(size) * bufferUnitSize, nullptr, nullptr, &error);
+            mResource->mGammaBuffer.reset(new cl::Buffer(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, ALIGN_UP4(size) * bufferUnitSize));
+            auto GammaPtrCL = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(*(mResource->mGammaBuffer.get()), true, CL_MAP_WRITE, 0, ALIGN_UP4(size) * bufferUnitSize, nullptr, nullptr, &error);
             const float* gamma_data = layer_norm_param->gamma()->data();
             if(GammaPtrCL != nullptr && error == CL_SUCCESS){
                 if(mOpenCLBackend->getOpenCLRuntime()->isSupportedFP16()){
@@ -53,13 +54,13 @@ LayerNormExecution::LayerNormExecution(const std::vector<Tensor *> &inputs, cons
             }else{
                 MNN_ERROR("Map error GammaPtrCL == nullptr \n");
             }
-            mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(*mGammaBuffer.get(), GammaPtrCL);
+            mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(*mResource->mGammaBuffer.get(), GammaPtrCL);
         }
         {
             auto error = CL_SUCCESS;
             int size = layer_norm_param->beta()->size();
-            mBetaBuffer.reset(new cl::Buffer(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, ALIGN_UP4(size) * bufferUnitSize));
-            auto BetaPtrCL = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(*(mBetaBuffer.get()), true, CL_MAP_WRITE, 0, ALIGN_UP4(size) * bufferUnitSize, nullptr, nullptr, &error);
+            mResource->mBetaBuffer.reset(new cl::Buffer(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, ALIGN_UP4(size) * bufferUnitSize));
+            auto BetaPtrCL = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(*(mResource->mBetaBuffer.get()), true, CL_MAP_WRITE, 0, ALIGN_UP4(size) * bufferUnitSize, nullptr, nullptr, &error);
             const float* beta_data = layer_norm_param->beta()->data();
             if(BetaPtrCL != nullptr && error == CL_SUCCESS){
                 if(mOpenCLBackend->getOpenCLRuntime()->isSupportedFP16()){
@@ -77,9 +78,25 @@ LayerNormExecution::LayerNormExecution(const std::vector<Tensor *> &inputs, cons
             }else{
                 MNN_ERROR("Map error BetaPtrCL == nullptr \n");
             }
-            mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(*mBetaBuffer.get(), BetaPtrCL);
+            mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueUnmapMemObject(*mResource->mBetaBuffer.get(), BetaPtrCL);
         }
     }
+}
+
+LayerNormExecution::LayerNormExecution(std::shared_ptr<LayernormResource> resource, const Op* op, Backend* backend) : CommonExecution(backend, op) {
+    mResource = resource;
+    mOpenCLBackend = (OpenCLBackend *)backend;
+}
+
+bool LayerNormExecution::onClone(Backend *bn, const Op *op, Execution **dst) {
+    if (!mValid) {
+        return false;
+    }
+    if (nullptr == dst) {
+        return true;
+    }
+    *dst = new LayerNormExecution(mResource, op, bn);
+    return true;
 }
 
 int LayerNormExecution::getLocalSize(int size, int maxGroupSize){
@@ -95,7 +112,7 @@ ErrorCode LayerNormExecution::onEncode(const std::vector<Tensor *> &inputs, cons
     Tensor *input  = inputs[0];
     Tensor *output = outputs[0];
     auto runtime = ((OpenCLBackend *)backend())->getOpenCLRuntime();
-    auto MaxLocalSize = std::min(runtime->getMaxWorkItemSizes()[0], mMaxWorkGroupSize);
+    auto MaxLocalSize = std::min(runtime->getMaxWorkItemSizes()[0], mResource->mMaxWorkGroupSize);
 
     std::vector<int> inputShape  = tensorShapeFormat(input);
     std::vector<int> outputShape = tensorShapeFormat(output);
@@ -108,20 +125,20 @@ ErrorCode LayerNormExecution::onEncode(const std::vector<Tensor *> &inputs, cons
     int rank = inputs.at(0)->dimensions();
     int outter_size = 1;
     int inner_size = 1;
-    for (int i = 0; i < rank - axis_size; ++i) {
+    for (int i = 0; i < rank - mResource->axis_size; ++i) {
         outter_size *= inputs.at(0)->length(i);
     }
-    for (int i = rank - axis_size; i < rank; ++i) {
+    for (int i = rank - mResource->axis_size; i < rank; ++i) {
         inner_size *= inputs.at(0)->length(i);
     }
     
     std::vector<uint32_t> mLWS{0, 0, 0, 0};
     std::vector<uint32_t> mGWS{0, 0, 0, 0};
     std::set<std::string> buildOptions;
-    if(RMSNorm){
+    if(mResource->RMSNorm){
         buildOptions.emplace("-DRMSNORM");
     }
-    if(has_gamma_beta_){
+    if(mResource->has_gamma_beta_){
         buildOptions.emplace("-DGAMMA_BETA");
     }
     std::string kernelName;
@@ -165,11 +182,11 @@ ErrorCode LayerNormExecution::onEncode(const std::vector<Tensor *> &inputs, cons
     ret |= unit.kernel->get().setArg(idx++, static_cast<int32_t>(inputWidth));
     ret |= unit.kernel->get().setArg(idx++, static_cast<int32_t>(inputHeight));
     ret |= unit.kernel->get().setArg(idx++, static_cast<int32_t>(inputChannels));
-    if(has_gamma_beta_){
-        ret |= unit.kernel->get().setArg(idx++, *mGammaBuffer.get());
-        ret |= unit.kernel->get().setArg(idx++, *mBetaBuffer.get());
+    if(mResource->has_gamma_beta_){
+        ret |= unit.kernel->get().setArg(idx++, *mResource->mGammaBuffer.get());
+        ret |= unit.kernel->get().setArg(idx++, *mResource->mBetaBuffer.get());
     }
-    ret |= unit.kernel->get().setArg(idx++, epsilon_);
+    ret |= unit.kernel->get().setArg(idx++, mResource->epsilon_);
     MNN_CHECK_CL_SUCCESS(ret, "setArg LayerNormExecution");
 
     mOpenCLBackend->recordKernel3d(unit.kernel, mGWS, mLWS);

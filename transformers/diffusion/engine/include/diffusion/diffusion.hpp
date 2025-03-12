@@ -30,16 +30,16 @@ typedef enum {
 
 class MNN_PUBLIC Diffusion {
 public:
-    Diffusion(std::string modelPath, DiffusionModelType modelType, MNNForwardType backendType, int memoryMode, int iterationNum);
+    Diffusion(std::string modelPath, DiffusionModelType modelType, MNNForwardType backendType, int memoryMode);
     virtual ~Diffusion();
-    static Diffusion* createDiffusion(std::string modelPath, DiffusionModelType modelType, MNNForwardType backendType, int memoryMode, int iterationNum);
+    static Diffusion* createDiffusion(std::string modelPath, DiffusionModelType modelType, MNNForwardType backendType, int memoryMode);
 
-    bool run(const std::string prompt, const std::string imagePath, std::function<void(int)> progressCallback);
+    bool run(const std::string prompt, const std::string imagePath, int iterNum, int randomSeed, std::function<void(int)> progressCallback);
     bool load();
 private:
     VARP step_plms(VARP sample, VARP model_output, int index);
     VARP text_encoder(const std::vector<int>& ids);
-    VARP unet(VARP text_embeddings, std::function<void(int)> progressCallback);
+    VARP unet(VARP text_embeddings, int iterNum, int randomSeed, std::function<void(int)> progressCallback);
     VARP vae_decoder(VARP latent);
 private:
     std::shared_ptr<Executor::RuntimeManager> runtime_manager_;
@@ -56,8 +56,11 @@ private:
     std::string mModelPath;
     DiffusionModelType mModelType;
     int mMaxTextLen = 77;
+    /* 0 -> memory saving mode, for memory stictly limited application
+        1 -> memory enough mode, for better image generation speed
+        2 -> balance mode for memory and generation speed.
+     */
     int mMemoryMode;
-    int mIterationNum;
     MNNForwardType mBackendType;
     std::unique_ptr<Tokenizer> mTokenizer;
 };

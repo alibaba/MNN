@@ -24,6 +24,7 @@ public:
         bool canUseInt4 = false;
         Backend* backend = nullptr;
         int originBits = 8;
+        int alphaSize;
     };
     static std::shared_ptr<Int8Common> load(const Op* op, Backend* backend = nullptr, bool forceFloat = false, bool forceInt8 = false);
     static void getConvParameters(std::shared_ptr<ConvolutionCommon::Int8Common> *quanCommon, Backend* backend, const MNN::Op *op, const float** originWeight, int* originWeightSize);

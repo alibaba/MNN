@@ -98,7 +98,7 @@ public:
             }
         }
     }
-    virtual MemChunk onAlloc(size_t size, size_t align) {
+    virtual MemChunk onAlloc(size_t size, size_t align) override {
         MNN_ASSERT(size > 0);
         std::string name = mPrefix + std::to_string(mAllocTimes) + "." + mPosfix;
         std::string fileName = MNNFilePathConcat(mFileName, name);

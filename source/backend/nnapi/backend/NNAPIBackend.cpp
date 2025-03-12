@@ -297,12 +297,12 @@ namespace MNN {
         uint32_t idx = -1;
         if (TensorUtils::getDescribe(t)->usage == Tensor::InsideDescribe::Usage::CONSTANT) {
             if(TensorUtils::getDescribe(t)->dimensionFormat == MNN_DATA_FORMAT_NC4HW4 && udims.size() > 1) {
-		auto format = mNCHW ? Tensor::DimensionType::CAFFE : Tensor::DimensionType::TENSORFLOW;
+                auto format = mNCHW ? Tensor::DimensionType::CAFFE : Tensor::DimensionType::TENSORFLOW;
                 std::unique_ptr<Tensor> tempTensor(Tensor::create<float>(t->shape(), nullptr, format));
                 CPUTensorConverter::convert(t, tempTensor.get());
                 idx = buildOperand(tempTensor->host<void>(), tempTensor->size(), code, udims);
-		mTensorIdxMap.insert(std::make_pair(tempTensor, idx));
-		return idx;
+		        mTensorIdxMap.insert(std::make_pair(t, idx));
+		        return idx;
             } else {
                 idx = buildOperand(t->host<void>(), t->size(), code, udims);
             }

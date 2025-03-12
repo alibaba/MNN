@@ -61,7 +61,7 @@ table IDSTQuan {
     quantScale:float;
     scaleIn:float;
     scaleOut:float;
-    aMax:int;
+    aMaxOrBits:int;
     aMin:int;
     readType:int;
     has_scaleInt:bool;

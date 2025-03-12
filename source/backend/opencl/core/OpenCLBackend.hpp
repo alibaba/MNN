@@ -45,7 +45,7 @@ struct RecordInfo{
 };
 class CLRuntime : public Runtime {
 public:
-    CLRuntime(const Backend::Info& info, int platformSize, int platformId, int deviceId = 0, void *contextPtr = nullptr, void *glshared = nullptr);
+    CLRuntime(const Backend::Info& info);
     virtual ~CLRuntime();
 
     virtual Backend* onCreate(const BackendConfig* config, Backend* origin) const override;
@@ -63,6 +63,8 @@ public:
     void convertToDevice(const Tensor* srcTensor, const Tensor* dstTensor, MNN_DATA_FORMAT data_format, bool svmFlag = false, int memtype = MNN_FORWARD_CPU) const;
     void convertFromDevice(const Tensor* srcTensor, const Tensor* dstTensor, MNN_DATA_FORMAT data_format, bool svmFlag = false, int memtype = MNN_FORWARD_CPU) const;
     void copyBetweenDevice(const Tensor* srcTensor, const Tensor* dstTensor) const;
+    static void setGlobalCLRuntime(std::shared_ptr<OpenCLRuntime> runtime);
+    static std::shared_ptr<OpenCLRuntime> getGlobalCLRuntime();
 
 private:
     Backend::Info mInfo;
@@ -75,6 +77,8 @@ private:
 
     friend class OpenCLBackend;
     TuneInfo* mTunedInfo;
+    static std::weak_ptr<OpenCLRuntime> globalRuntime;
+    static std::mutex globalRuntimeLock;
 };
 
 
