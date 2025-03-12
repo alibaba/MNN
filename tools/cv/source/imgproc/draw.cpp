@@ -82,6 +82,13 @@ bool clipLine(Size img_size, Point2i& pt1, Point2i& pt2) {
 }
 
 enum { XY_SHIFT = 16, XY_ONE = 1 << XY_SHIFT, DRAWING_STORAGE_BLOCK = (1<<12) - 256 };
+
+static inline void PutPoint(std::vector<Region>& regions, Size size, int x, int y) {
+    if( 0 <= x && x < size.width && 0 <= y && y < size.height) {
+        regions.emplace_back(Region{y, x});
+    }
+}
+
 static void Line(std::vector<Region>& regions, Size size, Point2i pt1_, Point2i pt2_, int connectivity = 8) {
     if (connectivity == 0) {
         connectivity = 8;
@@ -152,13 +159,13 @@ static void Line(std::vector<Region>& regions, Size size, Point2i pt1_, Point2i 
         std::swap(minusStep, minusShift);
     }
     p = pt1;
-    regions.emplace_back(Region{p.y, p.x});
+    PutPoint(regions, size, p.x, p.y);
     for(int i = 1; i < count; i++) {
         int mask = err < 0 ? -1 : 0;
         err += minusDelta + (plusDelta & mask);
         p.y += minusStep + (plusStep & mask);
         p.x += minusShift + (plusShift & mask);
-        regions.emplace_back(Region{p.y, p.x});
+        PutPoint(regions, size, p.x, p.y);
     }
 }
 
@@ -207,11 +214,11 @@ static void Line2(std::vector<Region>& regions, Size size, Point2l pt1, Point2l 
     }
     pt1.x += (XY_ONE >> 1);
     pt1.y += (XY_ONE >> 1);
-    regions.emplace_back(Region{(int)((pt2.y + (XY_ONE >> 1)) >> XY_SHIFT), (int)((pt2.x + (XY_ONE >> 1)) >> XY_SHIFT)});
+    PutPoint(regions, size, (pt2.x + (XY_ONE >> 1)) >> XY_SHIFT, (pt2.y + (XY_ONE >> 1)) >> XY_SHIFT);
     if (ax > ay) {
         pt1.x >>= XY_SHIFT;
         while(ecount >= 0) {
-            regions.emplace_back(Region{(int)(pt1.y >> XY_SHIFT), (int)(pt1.x)});
+            PutPoint(regions, size, pt1.x, pt1.y >> XY_SHIFT);
             pt1.x++;
             pt1.y += y_step;
             ecount--;
@@ -219,7 +226,7 @@ static void Line2(std::vector<Region>& regions, Size size, Point2l pt1, Point2l 
     } else {
         pt1.y >>= XY_SHIFT;
         while(ecount >= 0) {
-            regions.emplace_back(Region{(int)(pt1.y), (int)(pt1.x >> XY_SHIFT)});
+            PutPoint(regions, size, pt1.x >> XY_SHIFT, pt1.y);
             pt1.x += x_step;
             pt1.y++;
             ecount--;
@@ -905,14 +912,20 @@ void line(VARP& img, Point pt1, Point pt2, const Scalar& color,
 
 void rectangle(VARP& img, Point pt1, Point pt2, const Scalar& color,
                int thickness, int lineType, int shift) {
-    // top
-    line(img, pt1, {pt2.fX, pt1.fY}, color, thickness, lineType);
-    // left
-    line(img, pt1, {pt1.fX, pt2.fY}, color, thickness, lineType);
-    // right
-    line(img, {pt2.fX, pt1.fY}, pt2, color, thickness, lineType);
-    // bottom
-    line(img, {pt1.fX, pt2.fY}, pt2, color, thickness, lineType);
+    int h, w, c; getVARPSize(img, &h, &w, &c);
+    Size size(w, h);
+    std::vector<Point2l> pt(4);
+    pt[0] = {static_cast<int64_t>(pt1.fX), static_cast<int64_t>(pt1.fY)};
+    pt[1] = {static_cast<int64_t>(pt2.fX), static_cast<int64_t>(pt1.fY)};
+    pt[2] = {static_cast<int64_t>(pt2.fX), static_cast<int64_t>(pt2.fY)};
+    pt[3] = {static_cast<int64_t>(pt1.fX), static_cast<int64_t>(pt2.fY)};
+    std::vector<Region> regions;
+    if (thickness >= 0) {
+        PolyLine(regions, size, pt.data(), 4, true, thickness, lineType, shift);
+    } else {
+        FillConvexPoly(regions, size, pt.data(), 4, lineType, shift);
+    }
+    doDraw(img, regions, color);
 }
 
 void drawContours(VARP& img, std::vector<std::vector<Point>> _contours, int contourIdx, const Scalar& color, int thickness, int lineType) {
