@@ -52,9 +52,9 @@ class ModelListViewModel: ObservableObject {
                     let name = model.name.lowercased()
                     let tags = model.tags.map { $0.lowercased() }
                     
-                    // only show metal diffusion
+                    // only show gpu diffusion
                     if name.contains("diffusion") {
-                        return name.contains("metal") || tags.contains { $0.contains("metal") }
+                        return name.contains("gpu") || tags.contains { $0.contains("gpu") }
                     }
                     
                     return true
