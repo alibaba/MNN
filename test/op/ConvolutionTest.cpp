@@ -536,9 +536,7 @@ public:
         for (int i = 0; i < oc; i++) {
             auto data      = (((i / kw) % 1317) * ((i / kh) % 1317) + i / ic + i / oc + (oc - i) * ic + i * (oc - i)) % 1317;
             auto floatData = (float)(data % 255) / 255.0f;
-            data           = data * data;
             biasData.push_back(floatData);
-            // biasData.push_back(0.0f);
         }
 
         std::vector<float> inputData, outputData, outputDataSeparateBias;

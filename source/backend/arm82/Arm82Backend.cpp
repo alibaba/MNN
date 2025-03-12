@@ -13,6 +13,7 @@
 
 #include "Arm82Backend.hpp"
 #include "Arm82OptFunc.hpp"
+#include "Arm82Interp.hpp"
 #include "Arm82Functions.hpp"
 #include "core/BufferAllocator.hpp"
 #include "core/TensorUtils.hpp"
@@ -23,24 +24,7 @@
 
 namespace MNN {
 
-void registerArm82Ops();
-
-static inline std::map<OpType, Arm82Backend::Arm82Creator*>* getArm82CreatorContainer() {
-    static std::once_flag fg;
-    static std::map<OpType, Arm82Backend::Arm82Creator*>* ret = nullptr;
-    std::call_once(fg, [&] { ret = new std::map<OpType, Arm82Backend::Arm82Creator*>; });
-    return ret;
-}
-
-bool Arm82Backend::addArm82Creator(OpType t, Arm82Creator* ct) {
-    auto creatorContainer = getArm82CreatorContainer();
-    if (creatorContainer->find(t) == creatorContainer->end()) {
-        creatorContainer->insert(std::make_pair(t, ct));
-    }
-    return true;
-}
-
-Arm82Backend::Arm82Backend(const CPURuntime* runtime, BackendConfig::MemoryMode memory) : CPUBackend(runtime, BackendConfig::Precision_Low, memory, MNN_FORWARD_CPU_EXTENSION) {
+Arm82Backend::Arm82Backend(const CPURuntime* runtime, BackendConfig::MemoryMode memory, int initThreadNumber) : CPUBackend(runtime, BackendConfig::Precision_Low, memory, MNN_FORWARD_CPU_EXTENSION, 0, initThreadNumber) {
     mCoreFunctions = Arm82Functions::get();
     mInt8CoreFunctions = Arm82Functions::getInt8();
 }
@@ -65,15 +49,10 @@ Execution* Arm82Backend::onCreate(const std::vector<Tensor*>& inputs, const std:
     if (originCreate) {
         return CPUBackend::onCreate(inputs, outputs, op);
     }
-    auto creatorContainer = getArm82CreatorContainer();
-    // MNN_PRINT("====> create Execution for type: %s\n", MNN::EnumNameOpType(op->type()));
-    auto iter = creatorContainer->find(op->type());
-
-    if (iter == creatorContainer->end()) {
-//        MNN_PRINT("[MNNWarning]: ARMV82 don't support type: [%s]\n", MNN::EnumNameOpType(op->type()));
-        return nullptr;
+    Execution* exe = nullptr;
+    if (op->type() == OpType_Interp) {
+        exe = Arm82Interp::create(inputs, outputs, op, this);
     }
-    auto exe = iter->second->onCreate(inputs, outputs, op, this);
     if (exe == nullptr) {
 //        MNN_PRINT("[MNNWarning]: ARMV82 don't support type: [%s]\n", MNN::EnumNameOpType(op->type()));
         return nullptr;
@@ -198,7 +177,6 @@ void Arm82Backend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor
 
 void registerArm82RuntimeCreator() {
     Arm82Functions::init();
-    registerArm82Ops();
 };
 } // namespace MNN
 #endif

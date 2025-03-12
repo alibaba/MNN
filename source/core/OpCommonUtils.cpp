@@ -669,8 +669,10 @@ static bool _RebuildExternalOp(FileLoader* external, const MNN::Op* origin, flat
 		            }
 		        }
                 if (param->quanParameter->index.empty() && param->external.size() > 4) {
-                    param->quanParameter->index.resize(param->external[4]/sizeof(uint32_t));
-                    external->read((char*)param->quanParameter->index.data(), param->external[4]);
+                    if (param->external[4] > 0) {
+                        param->quanParameter->index.resize(param->external[4]/sizeof(uint32_t));
+                        external->read((char*)param->quanParameter->index.data(), param->external[4]);
+                    }
                 }
             } else {
                 // Create quanParameter, will load external weight in ConvolutionCommon::load
@@ -715,13 +717,22 @@ Execution* OpCommonUtils::createExecutionWithExternal(Backend* backend, const st
         return backend->onCreate(inputs, outputs, op);
     }
     flatbuffers::FlatBufferBuilder builder;
-    bool res = _RebuildExternalOp(externalFile, op, builder);
-    if (!res) {
-        MNN_ERROR("Rebuild External Op failed\n");
-        return nullptr;
+    bool usemmap = false;
+    if (backend && backend->getRuntime()) {
+        usemmap = (backend->getRuntime()->hint().useCachedMmap > 1);
     }
-    auto newOp = flatbuffers::GetRoot<MNN::Op>(builder.GetBufferPointer());
-    auto execution  = backend->onCreate(inputs, outputs, newOp);
+    Execution* execution;
+    if ((!usemmap)) {
+        bool res = _RebuildExternalOp(externalFile, op, builder);
+        if (!res) {
+            MNN_ERROR("Rebuild External Op failed\n");
+            return nullptr;
+        }
+        auto newOp = flatbuffers::GetRoot<MNN::Op>(builder.GetBufferPointer());
+        execution  = backend->onCreate(inputs, outputs, newOp);
+    } else {
+        execution  = backend->onCreate(inputs, outputs, op);
+    }
     if (nullptr == execution) {
         return execution;
     }

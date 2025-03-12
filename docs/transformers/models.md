@@ -49,3 +49,10 @@
 | [TinyLlama-1.1B-Chat-v1.0](https://modelscope.cn/models/AI-ModelScope/TinyLlama-1.1B-Chat-v1.0/summary) | [Q4_1](https://modelscope.cn/models/MNN/TinyLlama-1.1B-Chat-MNN) | [Q4_1](https://huggingface.co/taobao-mnn/TinyLlama-1.1B-Chat-MNN) |
 | [Yi-6B-Chat](https://modelscope.cn/models/01ai/Yi-6B-Chat/summary) | [Q4_1](https://modelscope.cn/models/MNN/Yi-6B-Chat-MNN) | [Q4_1](https://huggingface.co/taobao-mnn/Yi-6B-Chat-MNN) |
 | [QwQ-32B-Preview](https://modelscope.cn/models/Qwen/QwQ-32B-Preview/summary) | [Q4_1](https://modelscope.cn/models/MNN/QwQ-32B-Preview-MNN) | [Q4_1](https://huggingface.co/taobao-mnn/QwQ-32B-Preview-MNN) |
+| [Qwen2-Audio-7B-Instruct](https://modelscope.cn/models/qwen/Qwen2-Audio-7B-Instruct/summary) | [Q4_1](https://modelscope.cn/models/MNN/Qwen2-Audio-7B-Instruct-MNN) | [Q4_1](https://huggingface.co/taobao-mnn/Qwen2-Audio-7B-Instruct-MNN) |
+| [DeepSeek-R1-1.5B-Qwen](https://huggingface.co/deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B) | [Q4_1](https://modelscope.cn/models/MNN/DeepSeek-R1-1.5B-Qwen-MNN) | [Q4_1](https://huggingface.co/taobao-mnn/DeepSeek-R1-1.5B-Qwen-MNN) |
+| [DeepSeek-R1-7B-Qwen](https://huggingface.co/deepseek-ai/DeepSeek-R1-Distill-Qwen-7B) | [Q4_1](https://modelscope.cn/models/MNN/DeepSeek-R1-7B-Qwen-MNN) | [Q4_1](https://huggingface.co/taobao-mnn/DeepSeek-R1-7B-Qwen-MNN) |
+| [gemma-2-9b-it](https://huggingface.co/google/gemma-2-9b-it) | [Q4_1](https://modelscope.cn/models/MNN/gemma-2-9b-it-MNN) | [Q4_1](https://huggingface.co/taobao-mnn/gemma-2-9b-it-MNN) |
+| [gemma-7b-it](https://huggingface.co/google/gemma-7b-it) | [Q4_1](https://modelscope.cn/models/MNN/gemma-7b-it-MNN) | [Q4_1](https://huggingface.co/taobao-mnn/gemma-7b-it-MNN) |
+| [Qwen2.5-VL-7B-Instruct](https://huggingface.co/Qwen/Qwen2.5-VL-7B-Instruct) | [Q4_1](https://modelscope.cn/models/MNN/Qwen2.5-VL-7B-Instruct-MNN) | [Q4_1](https://huggingface.co/taobao-mnn/Qwen2.5-VL-7B-Instruct-MNN) |
+| [Qwen2.5-VL-3B-Instruct](https://huggingface.co/Qwen/Qwen2.5-VL-3B-Instruct) | [Q4_1](https://modelscope.cn/models/MNN/Qwen2.5-VL-3B-Instruct-MNN) | [Q4_1](https://huggingface.co/taobao-mnn/Qwen2.5-VL-3B-Instruct-MNN) |

@@ -38,10 +38,17 @@ static void callback(const char *buffer, size_t length, size_t final, void *user
 }
 #endif
 
-OpenCLRuntime::OpenCLRuntime(const BackendConfig::PrecisionMode precision, const int cl_mode, int platformSize, int platformId, int deviceId, void *contextPtr, void *glShared, const RuntimeHint& hint) {
+OpenCLRuntime::OpenCLRuntime(const BackendConfig::PrecisionMode precision, const int cl_mode, int platformSize, int platformId, int deviceId, void *contextPtr, const RuntimeHint& hint) {
 #ifdef LOG_VERBOSE
     MNN_PRINT("start OpenCLRuntime !\n");
 #endif
+    // set init info
+    mInitInfo.precision = precision;
+    mInitInfo.cl_mode = cl_mode;
+    mInitInfo.platformSize = platformSize;
+    mInitInfo.platformId = platformId;
+    mInitInfo.deviceId = deviceId;
+    mInitInfo.contextPtr = contextPtr;
     mDefaultBuildParams = " -cl-mad-enable";
     std::vector<cl::Platform> platforms;
     cl_int res = cl::Platform::get(&platforms, platformSize);

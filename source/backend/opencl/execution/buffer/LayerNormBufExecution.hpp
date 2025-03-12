@@ -15,12 +15,26 @@
 namespace MNN {
 namespace OpenCL {
 
+struct LayernormResource {
+    std::shared_ptr<cl::Buffer> mGammaBuffer;
+    std::shared_ptr<cl::Buffer> mBetaBuffer;
+    bool has_gamma_beta_;
+    uint32_t mMaxWorkGroupSize;
+    int axis_size ;
+    int group_ ;
+    float epsilon_;
+    bool RMSNorm;
+};
+
 class LayerNormBufExecution : public CommonExecution {
 public:
     LayerNormBufExecution(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend);
+    LayerNormBufExecution(std::shared_ptr<LayernormResource> resource, const Op* op, Backend* backend);
+    
     virtual ~LayerNormBufExecution() = default;
 
     virtual ErrorCode onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
 
 
 private:
@@ -28,16 +42,7 @@ private:
     std::vector<uint32_t> mLWS{0, 0, 0, 0};
     std::vector<uint32_t> mGWS{0, 0, 0, 0};
     OpenCLBackend *mOpenCLBackend;
-    int axis_size = 0;
-    int group_ = 1;
-    float epsilon_ = 0.001;
-    bool RMSNorm = false;
-
-    std::shared_ptr<cl::Buffer> mGammaBuffer;
-    std::shared_ptr<cl::Buffer> mBetaBuffer;
-    std::shared_ptr<Tensor> mInputPlain, mOutputPlain;
-    bool has_gamma_beta_ = false;
-    uint32_t mMaxWorkGroupSize;
+    std::shared_ptr<LayernormResource> mResource;
 };
 
 } // namespace OpenCL

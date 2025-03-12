@@ -84,6 +84,7 @@ int main(int argc, const char* argv[]) {
     std::shared_ptr<MNN::Interpreter>(MNN::Interpreter::createFromFile(modelPath), [](void* net) {
         MNN::Interpreter::destroy((MNN::Interpreter*)net);
     });
+    net->setSessionHint(MNN::Interpreter::INIT_THREAD_NUMBER, 8);
 
     // create session
     MNN::ScheduleConfig config;

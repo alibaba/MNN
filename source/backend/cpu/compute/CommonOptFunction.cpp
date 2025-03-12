@@ -288,7 +288,208 @@ void MNNDynamicQuantFP32(const float* src, int8_t* dst, const float* scale, size
         }
     }
 }
-#endif
+#endif // MNN_LOW_MEMORY
+
+static void MNNReorderWeightInt4(uint8_t* dest, const uint8_t* source, int32_t* shape, size_t size, float* kernelsum) {
+    MNN_ASSERT(size > 4);
+    auto blocknum = shape[0];
+    auto hu       = shape[1];
+    auto lu       = shape[2];
+    auto hp       = shape[3];
+    auto lp       = shape[4];
+    auto ic       = blocknum * lu * lp;
+    auto stride0  = hu * hp * lu * lp;
+    auto stride1  = lu * hp * lp;
+    auto stride2  = hp * lp;
+    // [oc,ic]->[blocknum,hu,lu,hp,lp]
+    for (int i = 0; i < hu; ++i) {
+        for (int k = 0; k < hp; ++k) {
+            for (int bl = 0; bl < blocknum; ++bl) {
+                for (int j = 0; j < lu; ++j) {
+                    int srcindex = (i * hp + k) * ic + bl * (lu * lp) + j * lp;
+                    int dstindex = bl * stride0 + i * stride1 + j * stride2 + k * lp;
+                    memcpy(dest + dstindex, source + srcindex, lp);
+                }
+            }
+        }
+    }
+    // [blocknum,hu,lu,hp,lp] address [hp,lp] for int4
+    auto inside = lp * hp;
+    auto outside = blocknum * hu;
+    std::vector<uint8_t> buffer(inside);
+    for (int i = 0; i < outside; ++i) {
+        std::vector<float> accum(hp, 0);
+        for (int k = 0; k < lu; ++k) {
+            for (int j = 0; j < inside / 2; ++j) {
+                auto w0 = dest[j + (i * lu + k) * inside] >> 4;
+                auto w1 = dest[j + (i * lu + k) * inside] & 0x0f;
+                auto w2 = dest[(i * lu + k) * inside + j + inside / 2] >> 4;
+                auto w3 = dest[(i * lu + k) * inside + j + inside / 2] & 0x0f;
+                buffer[2 * j + 0] = w0 * 16 + w2;
+                buffer[2 * j + 1] = w1 * 16 + w3;
+                // sum
+                accum[j / lp] += ((float)w0 + (float)w1);
+                accum[(j + inside / 2) / lp] += ((float)w2 + (float)w3);
+            }
+            memcpy(dest + (i * lu + k) * inside, buffer.data(), inside);
+        }
+        memcpy(kernelsum + i * hp, accum.data(), hp * sizeof(float));
+    }
+}
+#ifdef __aarch64__
+static void MNNReorderWeightInt4Arm86(uint8_t* dest, const uint8_t* source, int32_t* shape, size_t size, float* kernelsum) {
+    MNN_ASSERT(size > 4);
+    auto blocknum = shape[0];
+    auto hu       = shape[1];
+    auto lu       = shape[2];
+    auto hp       = shape[3];
+    auto lp       = shape[4];
+    auto ic       = blocknum *lu * lp;
+    auto stride0  = hu * hp * lu * lp;
+    auto stride1  = lu * hp * lp;
+    auto stride2  = hp * lp;
+    auto dstPtr   = (int32_t*)dest;
+    auto srcPtr   = (int32_t*)source;
+    int unitpacksize = sizeof(int32_t) / sizeof(uint8_t);
+
+    for (int i = 0; i < hu; ++i) {
+        for (int k = 0; k < hp; ++k) {
+            for (int bl = 0; bl < blocknum; ++bl) {
+                int j = 0;
+                while (j + 7 < lu) {
+                    auto srcindex0 = ((i * hp + k) * ic + bl * (lu * lp) + j * lp) / unitpacksize;
+                    auto srcindex1 = ((i * hp + k) * ic + bl * (lu * lp) + (j + 4) * lp) / unitpacksize;
+                    auto dstindex0 = (bl * stride0 + i * stride1 + j * stride2 + k * lp) / unitpacksize;
+                    auto dstindex1 = (bl * stride0 + i * stride1 + (j + 1) * stride2 + k * lp) / unitpacksize;
+                    auto dstindex2 = (bl * stride0 + i * stride1 + (j + 2) * stride2 + k * lp) / unitpacksize;
+                    auto dstindex3 = (bl * stride0 + i * stride1 + (j + 3) * stride2 + k * lp) / unitpacksize;
+                    auto dstindex4 = (bl * stride0 + i * stride1 + (j + 4) * stride2 + k * lp) / unitpacksize;
+                    auto dstindex5 = (bl * stride0 + i * stride1 + (j + 5) * stride2 + k * lp) / unitpacksize;
+                    auto dstindex6 = (bl * stride0 + i * stride1 + (j + 6) * stride2 + k * lp) / unitpacksize;
+                    auto dstindex7 = (bl * stride0 + i * stride1 + (j + 7) * stride2 + k * lp) / unitpacksize;
+                    j += 8;
+                    auto srcdata0 = vld1q_s32(srcPtr + srcindex0);
+                    auto srcdata1 = vld1q_s32(srcPtr + srcindex1);
+                    vst1q_lane_s32(dstPtr + dstindex0, srcdata0, 0);
+                    vst1q_lane_s32(dstPtr + dstindex1, srcdata0, 1);
+                    vst1q_lane_s32(dstPtr + dstindex2, srcdata0, 2);
+                    vst1q_lane_s32(dstPtr + dstindex3, srcdata0, 3);
+                    vst1q_lane_s32(dstPtr + dstindex4, srcdata1, 0);
+                    vst1q_lane_s32(dstPtr + dstindex5, srcdata1, 1);
+                    vst1q_lane_s32(dstPtr + dstindex6, srcdata1, 2);
+                    vst1q_lane_s32(dstPtr + dstindex7, srcdata1, 3);
+                }
+                while (j + 3 < lu) {
+                    auto srcindex = ((i * hp + k) * ic + bl * (lu * lp) + j * lp) / unitpacksize;
+                    auto dstindex0 = (bl * stride0 + i * stride1 + j * stride2 + k * lp) / unitpacksize;
+                    auto dstindex1 = (bl * stride0 + i * stride1 + (j + 1) * stride2 + k * lp) / unitpacksize;
+                    auto dstindex2 = (bl * stride0 + i * stride1 + (j + 2) * stride2 + k * lp) / unitpacksize;
+                    auto dstindex3 = (bl * stride0 + i * stride1 + (j + 3) * stride2 + k * lp) / unitpacksize;
+                    j += 4;
+                    auto srcdata = vld1q_s32(srcPtr + srcindex);
+                    vst1q_lane_s32(dstPtr + dstindex0, srcdata, 0);
+                    vst1q_lane_s32(dstPtr + dstindex1, srcdata, 1);
+                    vst1q_lane_s32(dstPtr + dstindex2, srcdata, 2);
+                    vst1q_lane_s32(dstPtr + dstindex3, srcdata, 3);
+                }
+                while (j < lu) {
+                    auto srcindex = ((i * hp + k) * ic + bl * (lu * lp) + j * lp) / unitpacksize;
+                    auto dstindex = (bl * stride0 + i * stride1 + j * stride2 + k * lp) / unitpacksize;
+                    dstPtr[dstindex] = srcPtr[srcindex];
+                    j++;
+                }
+            }
+        }
+    }
+    MNNPermuteSumWeightInt4Arm86(dest, dest, blocknum * hu, lu, kernelsum);
+}
+
+static void MNNReorderWeightInt4Arm82(uint8_t* dest, const uint8_t* source, int32_t* shape, size_t size, float* kernelsum) {
+    MNN_ASSERT(size > 4);
+    auto blocknum = shape[0];
+    auto hu       = shape[1];
+    auto lu       = shape[2];
+    auto hp       = shape[3];
+    auto lp       = shape[4];
+    auto ic       = blocknum *lu * lp;
+    auto stride0  = hu * hp * lu * lp;
+    auto stride1  = lu * hp * lp;
+    auto stride2  = hp * lp;
+    auto dstPtr   = (int16_t*)dest;
+    auto srcPtr   = (int16_t*)source;
+    int unitpacksize = sizeof(int16_t) / sizeof(uint8_t);
+    for (int i = 0; i < hu; ++i) {
+        for (int k = 0; k < hp; ++k) {
+            for (int bl = 0; bl < blocknum; ++bl) {
+                int j = 0;
+                while (j + 7 < lu) {
+                    auto srcindex = ((i * hp + k) * ic + bl * (lu * lp) + j * lp) / unitpacksize;
+                    auto dstindex0 = (bl * stride0 + i * stride1 + j * stride2 + k * lp) / unitpacksize;
+                    auto dstindex1 = (bl * stride0 + i * stride1 + (j + 1) * stride2 + k * lp) / unitpacksize;
+                    auto dstindex2 = (bl * stride0 + i * stride1 + (j + 2) * stride2 + k * lp) / unitpacksize;
+                    auto dstindex3 = (bl * stride0 + i * stride1 + (j + 3) * stride2 + k * lp) / unitpacksize;
+                    auto dstindex4 = (bl * stride0 + i * stride1 + (j + 4) * stride2 + k * lp) / unitpacksize;
+                    auto dstindex5 = (bl * stride0 + i * stride1 + (j + 5) * stride2 + k * lp) / unitpacksize;
+                    auto dstindex6 = (bl * stride0 + i * stride1 + (j + 6) * stride2 + k * lp) / unitpacksize;
+                    auto dstindex7 = (bl * stride0 + i * stride1 + (j + 7) * stride2 + k * lp) / unitpacksize;
+                    j += 8;
+                    auto srcdata = vld1q_s16(srcPtr + srcindex);
+                    vst1q_lane_s16(dstPtr + dstindex0, srcdata, 0);
+                    vst1q_lane_s16(dstPtr + dstindex1, srcdata, 1);
+                    vst1q_lane_s16(dstPtr + dstindex2, srcdata, 2);
+                    vst1q_lane_s16(dstPtr + dstindex3, srcdata, 3);
+                    vst1q_lane_s16(dstPtr + dstindex4, srcdata, 4);
+                    vst1q_lane_s16(dstPtr + dstindex5, srcdata, 5);
+                    vst1q_lane_s16(dstPtr + dstindex6, srcdata, 6);
+                    vst1q_lane_s16(dstPtr + dstindex7, srcdata, 7);
+                }
+                while (j + 3 < lu) {
+                    auto srcindex = ((i * hp + k) * ic + bl * (lu * lp) + j * lp) / unitpacksize;
+                    auto dstindex0 = (bl * stride0 + i * stride1 + j * stride2 + k * lp) / unitpacksize;
+                    auto dstindex1 = (bl * stride0 + i * stride1 + (j + 1) * stride2 + k * lp) / unitpacksize;
+                    auto dstindex2 = (bl * stride0 + i * stride1 + (j + 2) * stride2 + k * lp) / unitpacksize;
+                    auto dstindex3 = (bl * stride0 + i * stride1 + (j + 3) * stride2 + k * lp) / unitpacksize;
+                    j += 4;
+                    auto srcdata = vld1_s16(srcPtr + srcindex);
+                    vst1_lane_s16(dstPtr + dstindex0, srcdata, 0);
+                    vst1_lane_s16(dstPtr + dstindex1, srcdata, 1);
+                    vst1_lane_s16(dstPtr + dstindex2, srcdata, 2);
+                    vst1_lane_s16(dstPtr + dstindex3, srcdata, 3);
+                    
+                }
+                while (j < lu)
+                {
+                    auto srcindex = ((i * hp + k) * ic + bl * (lu * lp) + j * lp) / 2;
+                    auto dstindex = (bl * stride0 + i * stride1 + j * stride2 + k * lp) / 2;
+                    dstPtr[dstindex] = srcPtr[srcindex];
+                    j++;
+                }
+            }
+        }
+    }
+    MNNPermuteSumWeightInt4Arm82(dest, dest, blocknum * hu, lu, kernelsum);
+}
+#endif // __aarch64__
+
+static void MNNSumWeightInt8(float* kernelsum, int8_t* source, size_t outside, size_t reduceAxis, size_t hP, size_t lP) {
+    // weight shape: [outside, axis, hP, lP]
+    // outside    = blocknum * hU
+    // reduceAxis = kernelCount * lU
+    auto inside = hP * lP;
+    auto stride0 = inside * reduceAxis;
+    std::vector<float> accum(hP);
+    for (int i = 0; i < outside; ++i) {
+        memset(accum.data(), 0, hP * 4);
+        for (int j = 0; j < reduceAxis; ++j) {
+            for (int k = 0; k < hP; ++k) {
+                for (int x = 0; x < lP; ++x) {
+                    accum[k] += (float)source[x + k * lP + j * inside + i * stride0];
+                }
+            }
+        }
+        memcpy(kernelsum + i * hP, accum.data(), hP * sizeof(float));
+    }
+}
 
 static void MNNSumByAxisLForMatmul_A(float* dest, int8_t* source, const float* scale, ssize_t realDstCount, SumByAxisParams sumParams) {
 #ifdef MNN_USE_SSE
@@ -3365,6 +3566,19 @@ void MNNCoreFunctionInit() {
     gCoreFunction->supportSDot = gCPUInfo.dot;
     gCoreFunction->supportI8mm = gCPUInfo.i8mm;
     gCoreFunction->MNNSumByAxisLForMatmul_A = MNNSumByAxisLForMatmul_A;
+    gCoreFunction->MNNReorderWeightInt4 = MNNReorderWeightInt4;
+    gCoreFunction->MNNSumWeightInt8  = MNNSumWeightInt8;
+#ifdef __aarch64__
+   if (gCoreFunction->supportSDot) {
+       gCoreFunction->MNNReorderWeightInt4 = MNNReorderWeightInt4Arm82;
+       gCoreFunction->MNNSumWeightInt8 = MNNSumWeightInt8Arm82;
+   }
+   if (gCoreFunction->supportI8mm) {
+       gCoreFunction->MNNReorderWeightInt4 = MNNReorderWeightInt4Arm86;
+       gCoreFunction->MNNSumWeightInt8 = MNNSumWeightInt8Arm86;
+       
+   }
+#endif
 #ifdef MNN_CPU_WEIGHT_DEQUANT_GEMM
     // Weight Dequant Gemm Kernels
     gCoreFunction->MNNPackedMatMul_int8 = MNNPackedMatMul_int8;

@@ -65,8 +65,6 @@ struct MNNDeviceContext {
     uint32_t platformSize = 0;
     // User set OpenCL context ptr
     void *contextPtr = nullptr;
-    // User set OpenGL shared data
-    void *glShared = nullptr;
 };
 
 #endif

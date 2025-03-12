@@ -23,6 +23,82 @@ struct layernorm_constants {
 #define CONV_UNROLL (4)
 #define CONV_UNROLL_L (8)
 
+kernel void layernorm_in_all_sg(const device ftype *in       [[buffer(0)]],
+                         device ftype *out            [[buffer(1)]],
+                         constant layernorm_constants& cst  [[buffer(2)]],
+                         const device float *gamma    [[buffer(3)]],
+                         const device float *beta     [[buffer(4)]],
+                         uint3  gid  [[threadgroup_position_in_grid]],
+                         uint  tiisg[[thread_index_in_simdgroup]],
+                         uint  sgitg[[simdgroup_index_in_threadgroup]]) {
+    if ((int)gid.y >= cst.outside) {
+        return;
+    }
+    auto in_data = in + gid.y * cst.inside;
+    auto out_data = out + gid.y * cst.inside;
+
+    float mean;
+    float sum = 0.0f;
+    float square_sum = 0.0f;
+    
+    for(int i = tiisg; i < cst.inside; i+=SIMD_GROUP_WIDTH) {
+        sum += in_data[i];
+    }
+    sum = simd_sum(sum);
+    mean = sum / cst.inside;
+    
+    for(int i = tiisg; i < cst.inside; i+=SIMD_GROUP_WIDTH) {
+        float dis = (in_data[i] - mean);
+        square_sum += dis * dis;
+    }
+    square_sum = simd_sum(square_sum);
+    float var = 1.0 / sqrt(square_sum / cst.inside + cst.eps);
+
+    for(int i = tiisg; i < cst.inside; i+=SIMD_GROUP_WIDTH) {
+        float norm = var * ((float)in_data[i] - mean);
+        if(cst.has_gamma_beta) {
+            out_data[i] = (ftype)(norm * gamma[i] + beta[i]);
+        } else {
+            out_data[i] = (ftype)(norm);
+        }
+    }
+}
+
+kernel void layernorm_in_all_rms_sg(const device ftype *in       [[buffer(0)]],
+                            device ftype *out            [[buffer(1)]],
+                            constant layernorm_constants& cst  [[buffer(2)]],
+                            const device float *gamma    [[buffer(3)]],
+                            const device float *beta     [[buffer(4)]],
+                            uint3  gid  [[threadgroup_position_in_grid]],
+                            uint  tiisg[[thread_index_in_simdgroup]],
+                            uint  sgitg[[simdgroup_index_in_threadgroup]]) {
+    if ((int)gid.y >= cst.outside) {
+        return;
+    }
+    auto in_data = in + gid.y * cst.inside;
+    auto out_data = out + gid.y * cst.inside;
+
+    float square_sum = 0.0f;
+    
+    for(int i = tiisg; i < cst.inside; i+=SIMD_GROUP_WIDTH) {
+        float dis = in_data[i];
+        square_sum += dis * dis;
+    }
+    
+    square_sum = simd_sum(square_sum);
+    float var = 1.0 / sqrt(square_sum / cst.inside + cst.eps);
+
+    for(int i = tiisg; i < cst.inside; i+=SIMD_GROUP_WIDTH) {
+        
+        float norm = var * ((float)in_data[i]);
+        if(cst.has_gamma_beta) {
+            out_data[i] = (ftype)(norm * gamma[i] + beta[i]);
+        } else {
+            out_data[i] = (ftype)(norm);
+        }
+    }
+}
+
 kernel void layernorm_x1_sg(const device ftype *in       [[buffer(0)]],
                          device ftype *out            [[buffer(1)]],
                          constant layernorm_constants& cst  [[buffer(2)]],

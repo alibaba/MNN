@@ -1,4 +1,9 @@
 # 模型转换工具
+
+模型转换工具能够将其他格式的模型（如：ONNX, TFLITE, TorchScript, Tensorflow等）转换为MNN模型，以方便MNN模型在各种平台上部署。
+- 从源码编译可参考[这里](../compile/other.html#id2)
+- 从pip安装（`pip install MNN`）使用可以参考[这里](python.html#mnnconvert)
+
 ## 参数说明
 ```bash
 Usage:
@@ -7,9 +12,9 @@ Usage:
   -h, --help                    Convert Other Model Format To MNN Model
 
   -v, --version                 显示当前转换器版本
-  
+
   -f, --framework arg           需要进行转换的模型类型, ex: [TF,CAFFE,ONNX,TFLITE,MNN,TORCH, JSON]
-  
+
       --modelFile arg           需要进行转换的模型文件名, ex: *.pb,*caffemodel
 
       --batch arg               如果模型时输入的batch是动态的，可以指定转换后的batch数
@@ -25,30 +30,30 @@ Usage:
                                     - 0：正常优化
                                     - 1：优化后模型尽可能小；
                                     - 2：优化后模型尽可能快；
-      
+
       --prototxt arg            caffe模型结构描述文件, ex: *.prototxt
-      
+
       --MNNModel arg            转换之后保存的MNN模型文件名, ex: *.mnn
-      
+
       --fp16                    将conv/matmul/LSTM的float32参数保存为float16，
       													模型将减小一半，精度基本无损，运行速度和float32模型一致
-      
+
       --bizCode arg             MNN模型Flag, ex: MNN
-      
+
       --debug                   使用debug模型显示更多转换信息
-      
+
       --forTraining             保存训练相关算子，如BN/Dropout，default: false
-      
+
       --weightQuantBits arg     arg=2~8，此功能仅对conv/matmul/LSTM的float32权值进行量化，
       													仅优化模型大小，加载模型后会解码为float32，量化位宽可选2~8，
                                 不开启动态量化的情况下，运行速度和float32模型一致。8bit时精度基本无损，模型大小减小4倍
                                 default: 0，即不进行权值量化
 
       --weightQuantAsymmetric   与weightQuantBits结合使用，决定是否用非对称量化，默认为`true`
-      
+
       --compressionParamsFile arg
                                 使用MNN模型压缩工具箱生成的模型压缩信息文件或根据用户提供的量化参数来生成对应的量化模型，量化参数文件可参考tools/converter/user_provide_quant_params.json 。如果文件不存在，且开启了weightQuantBits等量化功能，会在相应路径生成模型压缩信息文件(json格式)，可后续编辑
-                                
+
       --saveStaticModel         固定输入形状，保存静态模型， default: false
 
       --targetVersion arg       兼容旧的推理引擎版本，例如：1.2f
@@ -77,7 +82,7 @@ Usage:
       --detectSparseSpeedUp     检测权重是否使用稀疏化加速/压缩，有可能减少模型大小，但增大模型转换时间
 
       --saveExternalData        将权重，常量等数据存储在额外文件中，默认为0，也就是`false`
-      
+
       --useGeluApproximation    在进行Gelu算子合并时，使用Gelu的近似算法，默认为1 ，也就是`true`
 
 ```
@@ -203,7 +208,7 @@ model_script.save('model_script.pt')
 - 示例，以ONNX为例：
    - 假设存在错误；此处为实验将MNN的Binary_ADD实现修改为错误实现；执行上述测试脚本，效果如下，显示`TESTERROR`表明可以转换但是推理结果有错误：
       ```bash
-      python ../tools/script/testMNNFromOnnx.py mobilenetv2-7.onnx      
+      python ../tools/script/testMNNFromOnnx.py mobilenetv2-7.onnx
       Dir exist
       onnx/test.onnx
       tensor(float)
@@ -245,7 +250,7 @@ model_script.save('model_script.pt')
       Save mnn result to  .error director
       # binary search test layers ...
       # test layer output 339: ERROR, 339's inputs is [489, 498]
-      python ../tools/script/testMNNFromOnnx.py mobilenetv2-7.onnx 339 
+      python ../tools/script/testMNNFromOnnx.py mobilenetv2-7.onnx 339
       ...
       output: 339
       339: (1, 24, 56, 56, )
@@ -279,7 +284,7 @@ model_script.save('model_script.pt')
 ./MNNConvert -f CAFFE --OP
 ./MNNConvert -f TF --OP
 ./MNNConvert -f ONNX --OP
-./MNNConvert -f TORCH --OP 
+./MNNConvert -f TORCH --OP
 ```
 
 ## 模型打印
@@ -307,16 +312,16 @@ cat mobilenet_v1.json
 , "main_type": "Convolution2D", "main":
 { "common":
 { "dilateX": 1, "dilateY": 1, "strideX": 2, "strideY": 2, "kernelX": 3, "kernelY": 3, "padX": 1, "padY": 1, "group": 1, "outputCount": 32, "relu": true, "padMode": "CAFFE", "relu6": false, "inputCount": 0 }
-, weight: 
+, weight:
 [ -0.0, -0.0, 0.0, -0.0, ... ]
-, bias: 
+, bias:
 [ -0.000004, 0.694553, 0.416608,  ... ]
  }
 , "defaultDimentionFormat": "NHWC" }
-, 
+,
 ...
  ]
-, "tensorName": 
+, "tensorName":
 [ "data", "conv1", "conv2_1/dw", "conv2_1/sep", "conv2_2/dw", "conv2_2/sep", "conv3_1/dw", "conv3_1/sep", "conv3_2/dw", "conv3_2/sep", "conv4_1/dw", "conv4_1/sep", "conv4_2/dw", "conv4_2/sep", "conv5_1/dw", "conv5_1/sep", "conv5_2/dw", "conv5_2/sep", "conv5_3/dw", "conv5_3/sep", "conv5_4/dw", "conv5_4/sep", "conv5_5/dw", "conv5_5/sep", "conv5_6/dw", "conv5_6/sep", "conv6/dw", "conv6/sep", "pool6", "fc7", "prob" ]
 , "sourceType": "CAFFE", "bizCode": "AliNNTest", "tensorNumber": 0, "preferForwardType": "CPU" }
 ```

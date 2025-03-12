@@ -630,7 +630,8 @@ INLINE_FUNC INT2 StoreIndexM() {
 
 // layout : [N, M]
 INLINE_FUNC void StoreResultsM(__global realM* cgm, COMPUTE_FLOATM c_value, const INT2 baseOffset, const int _mi, const int _ni,
-                              const int kSizeM, const PRECISION_COMPUTE alpha, const PRECISION_COMPUTE beta) {
+                                const int cstride/*kSizeM*/,
+                                const PRECISION_COMPUTE alpha, const PRECISION_COMPUTE beta) {
   #if STRM == 0
     int idm = _mi + baseOffset.index[0];
   #elif STRM == 1
@@ -642,7 +643,7 @@ INLINE_FUNC void StoreResultsM(__global realM* cgm, COMPUTE_FLOATM c_value, cons
     int idn = _ni%VWN + baseOffset.index[1] + (_ni/VWN)*VWN*NDIMC;
   #endif
   
-  int index = idn*(kSizeM/VWM) + idm;
+  int index = idn*(cstride/VWM) + idm;
 
   COMPUTE_FLOATM result = c_value;
 
@@ -1324,7 +1325,7 @@ INLINE_FUNC void XgemmBody(const int kSizeM, const int kSizeN, const int kSizeK,
       for (int _ni = 0; _ni < NWI; _ni += 1) {
         #pragma unroll
         for (int _mi = 0; _mi < MWI/VWM; _mi += 1) {
-          StoreResultsM(cgm, cpm[_ni * (MWI/VWM) + _mi], baseOffset, _mi, _ni, cld, alpha, beta);
+          StoreResultsM(cgm, cpm[_ni * (MWI/VWM) + _mi], baseOffset, _mi, _ni, stride.s2, alpha, beta);
         }
       }
   #endif

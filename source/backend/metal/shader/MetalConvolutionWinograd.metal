@@ -16,13 +16,14 @@ static inline ftype4 get_input(const device ftype4 *input, int x, int y, constan
 kernel void winograd_transform_source2_5_1(const device ftype4 *in          [[buffer(0)]],
                                            device ftype4 *out               [[buffer(1)]],
                                            constant winograd_constants &cst [[buffer(2)]],
+                                           constant int &batch_idx [[buffer(3)]],
                                            uint3 gid                        [[thread_position_in_grid]]) {
     auto pos = int3(gid);
     if (pos.x < cst.unit_width && pos.y < cst.unit_height) {
         int ix = pos.x * cst.unit - cst.pad_x;
         int iy = pos.y * cst.unit - cst.pad_y;
 
-        auto z_in = in + pos.z * cst.input_shape.x * cst.input_shape.y;
+        auto z_in = in + (pos.z * cst.output_shape.w + batch_idx) * cst.input_shape.x * cst.input_shape.y;
         auto S00 = get_input(z_in, ix + 0, iy + 0, cst);
         auto S10 = get_input(z_in, ix + 1, iy + 0, cst);
         auto S20 = get_input(z_in, ix + 2, iy + 0, cst);
@@ -147,13 +148,15 @@ kernel void winograd_transform_source2_5_1(const device ftype4 *in          [[bu
 kernel void winograd_transform_source2_3_1(const device ftype4 *in          [[buffer(0)]],
                                            device ftype4 *out               [[buffer(1)]],
                                            constant winograd_constants &cst [[buffer(2)]],
+                                           constant int &batch_idx [[buffer(3)]],
+                                           constant int &split_idx [[buffer(4)]],
                                            uint3 gid                        [[thread_position_in_grid]]) {
     auto pos = int3(gid);
     if (pos.x < cst.unit_width && pos.y < cst.unit_height) {
         int ix = pos.x * cst.unit - cst.pad_x;
-        int iy = pos.y * cst.unit - cst.pad_y;
+        int iy = (pos.y + split_idx * cst.unit_height) * cst.unit - cst.pad_y;
 
-        auto z_in = in + pos.z * cst.input_shape.x * cst.input_shape.y;
+        auto z_in = in + (pos.z * cst.output_shape.w + batch_idx) * cst.input_shape.x * cst.input_shape.y;
         auto S00 = get_input(z_in, ix + 0, iy + 0, cst);
         auto S10 = get_input(z_in, ix + 1, iy + 0, cst);
         auto S20 = get_input(z_in, ix + 2, iy + 0, cst);
@@ -195,6 +198,7 @@ kernel void winograd_transform_source2_3_1(const device ftype4 *in          [[bu
         int dst_x        = dst_y_origin % 4 + 4 * dst_x_origin;
         int src_height   = UP_DIV(cst.unit_width * cst.unit_height, 4);
         int stride       = src_height * dst_y_stride;
+        // [mSrcUnit * mSrcUnit, UP_DIV(uw * wh, 4), UP_DIV(ci, 4), (uw * wh)_4, ci_4]
         auto xy_out = out + dst_y * dst_y_stride + dst_x;
                           *xy_out =  +m00 - m20;
         xy_out += stride; *xy_out =  +0.5 * m10 + 0.5 * m20;
@@ -223,6 +227,7 @@ kernel void winograd_transform_dest2_5_1(const device ftype4 *in            [[bu
                                          const device ftype4 *biasTerms     [[buffer(1)]],
                                          device ftype4 *out                 [[buffer(2)]],
                                          constant winograd_constants &cst   [[buffer(3)]],
+                                         constant int &batch_idx [[buffer(4)]],
                                          uint3 gid                          [[thread_position_in_grid]]) {
     auto pos = int3(gid);
     if (pos.x < cst.unit_width && pos.y < cst.unit_height) {
@@ -287,7 +292,7 @@ kernel void winograd_transform_dest2_5_1(const device ftype4 *in            [[bu
         auto b4 = biasTerms[int(pos.z)];
         int oy = pos.y * cst.unit;
         int ox = pos.x * cst.unit;
-        auto z_out = out + pos.z * cst.output_shape.x * cst.output_shape.y;
+        auto z_out = out + (pos.z * cst.output_shape.w + batch_idx) * cst.output_shape.x * cst.output_shape.y;
         
         /* if true */ {
             set_output(cst, z_out, ox + 0, oy + 0, b4 + m00 + m10 + m20 + m30 + m40);
@@ -308,6 +313,8 @@ kernel void winograd_transform_dest2_3_1(const device ftype4 *in            [[bu
                                          const device ftype4 *biasTerms     [[buffer(1)]],
                                          device ftype4 *out                 [[buffer(2)]],
                                          constant winograd_constants &cst   [[buffer(3)]],
+                                         constant int &batch_idx [[buffer(4)]],
+                                         constant int &split_idx [[buffer(5)]],
                                          uint3 gid                          [[thread_position_in_grid]]) {
     auto pos = int3(gid);
     if (pos.x < cst.unit_width && pos.y < cst.unit_height) {
@@ -346,9 +353,9 @@ kernel void winograd_transform_dest2_3_1(const device ftype4 *in            [[bu
 
         // write output
         auto b4 = biasTerms[int(pos.z)];
-        int oy = pos.y * cst.unit;
+        int oy = (pos.y + split_idx * cst.unit_height) * cst.unit;
         int ox = pos.x * cst.unit;
-        auto z_out = out + pos.z * cst.output_shape.x * cst.output_shape.y;
+        auto z_out = out + (pos.z * cst.output_shape.w + batch_idx) * cst.output_shape.x * cst.output_shape.y;
         
         /* if true */ {
             set_output(cst, z_out, ox + 0, oy + 0, b4 + m00 + m10 + m20);

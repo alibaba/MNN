@@ -44,7 +44,7 @@ IdstConvolutionInt8::IdstConvolutionInt8(const Convolution2DCommon* convOp, Back
     mBias.clear();
     auto biasDest = mBias.get();
     mAMin         = common->quan->aMin();
-    mAMax         = common->quan->aMax();
+    mAMax         = common->quan->aMaxOrBits();
     mQuanScale    = common->quan->quantScale();
 
     // The postTreat will contain scale_bias and biasRelu, so the bias will be add twice

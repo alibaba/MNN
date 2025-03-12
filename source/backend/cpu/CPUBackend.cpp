@@ -20,6 +20,7 @@
 #include "core/OpCommonUtils.hpp"
 #include "core/WrapExecution.hpp"
 #include "core/MNNFileUtils.h"
+#include "core/WorkerThread.hpp"
 #ifdef _OPENMP
 #include <omp.h>
 #endif // _OPENMP
@@ -268,23 +269,25 @@ Backend* CPURuntime::onCreate(const BackendConfig* config, Backend* origin) cons
     MNN_PRINT("cpu backend was created by runtime:%p\n", this);
 #endif
     CPUBackend* res = nullptr;
+    auto initThreadNumber = hint().initThreadNumber;
     do {
 #ifdef MNN_USE_ARMV82
         auto core = MNNGetCoreFunctions();
         if (core->supportFp16arith && precision == BackendConfig::Precision_Low) {
-            res = new Arm82Backend(this, memory);
+            res = new Arm82Backend(this, memory, initThreadNumber);
             break;
         }
 #endif
 #ifdef MNN_SUPPORT_BF16
         if (precision == BackendConfig::Precision_Low_BF16 && BF16Functions::get()) {
-            res = new CPUBackend(this, precision, memory, MNN_FORWARD_CPU_EXTENSION, 0);
+            res = new CPUBackend(this, precision, memory, MNN_FORWARD_CPU_EXTENSION, 0, initThreadNumber);
             res->mCoreFunctions = BF16Functions::get();
             break;
         }
 #endif
         if (flags == MNN_CPU_USE_DEFAULT_BACKEND) {
-            res = new CPUBackend(this, precision, memory, MNN_FORWARD_CPU, 0);
+            // Default don't use multi-thread init
+            res = new CPUBackend(this, precision, memory, MNN_FORWARD_CPU, 0, 0);
             break;
         }
 #ifdef MNN_USE_SSE
@@ -293,7 +296,7 @@ Backend* CPURuntime::onCreate(const BackendConfig* config, Backend* origin) cons
             break;
         }
 #endif
-        res = new CPUBackend(this, precision, memory, MNN_FORWARD_CPU, flags);
+        res = new CPUBackend(this, precision, memory, MNN_FORWARD_CPU, flags, initThreadNumber);
     } while (false);
     mSharedDmaInfo = nullptr;
     return res;
@@ -375,7 +378,7 @@ BufferAllocator* CPURuntime::createDynamicBufferAlloctor(int index) const {
     }
     return new EagerBufferAllocator(BufferAllocator::Allocator::createRecurse(mStaticAllocator.get()));
 }
-CPUBackend::CPUBackend(const CPURuntime* runtime, BackendConfig::PrecisionMode precision, BackendConfig::MemoryMode memory, MNNForwardType type, size_t flags) : Backend(type) {
+CPUBackend::CPUBackend(const CPURuntime* runtime, BackendConfig::PrecisionMode precision, BackendConfig::MemoryMode memory, MNNForwardType type, size_t flags, int initThreadNumber) : Backend(type) {
 #ifdef LOG_VERBOSE
     MNN_PRINT("cpu backend create\n");
 #endif
@@ -439,6 +442,11 @@ CPUBackend::CPUBackend(const CPURuntime* runtime, BackendConfig::PrecisionMode p
         mCacheGroup[i].reset(new CPUResizeCache);
     }
     mCache = mCacheGroup[0].get();
+#ifndef MNN_FORBIT_MULTI_THREADS
+    if (initThreadNumber > 0) {
+        mInitWorkQueue.reset(new WorkerThread(initThreadNumber));
+    }
+#endif
 }
 
 CPUBackend::~CPUBackend() {
@@ -455,6 +463,7 @@ void CPUBackend::_resetDynamicMemory() const {
 }
 
 void CPUBackend::onExecuteBegin() const {
+    mInitWorkQueue.reset();
     _resetDynamicMemory();
     mRuntime->onConcurrencyBegin();
 }
@@ -549,6 +558,14 @@ Backend::MemObj* CPUBackend::allocBuffer(size_t size, Tensor* dest, StorageType 
     }
     des->extra.offset = 0;
     return res;
+}
+
+void CPUBackend::enqueueTask(std::function<int()>&& task) {
+    if (mInitWorkQueue != nullptr) {
+        mInitWorkQueue->postTask(std::move(task));
+    } else {
+        task();
+    }
 }
 
 Backend::MemObj* CPUBackend::onAcquire(const MNN::Tensor* nativeTensorConst, StorageType storageType) {

@@ -270,8 +270,8 @@ FuseGroupNormNoSwish::FuseGroupNormNoSwish() {
     TemplateMerge::getInstance("Merge").insertTemplate("FuseGroupNormNoSwish", match_no_swish, fold_no_swish);
 }
 
-static FuseGroupNormWithSwish g_fuse_groupnorm_with_swish;
-static FuseGroupNormNoSwish g_fuse_groupnorm_no_swish;
+//static FuseGroupNormWithSwish g_fuse_groupnorm_with_swish;
+//static FuseGroupNormNoSwish g_fuse_groupnorm_no_swish;
 
 } // namespace Express
 } // namespace MNN

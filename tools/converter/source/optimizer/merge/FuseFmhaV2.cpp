@@ -27,16 +27,23 @@ private:
 
 EXPRP GetFmhaV2BlockCommonNode(EXPRP expr, bool hasReshape = true) {
     auto x = expr;
-    EXPRP z;
-    if (hasReshape) {
-        if (!helpers::IsReshape(expr)) {
-            return nullptr;
-        }
+    EXPRP z, res;
+    // 3 dimension or 4 dimension both ok
+    if (helpers::IsReshape(expr)) {
         z = expr;
         x = z->inputs().at(0)->expr().first;
     }
+
+    if (helpers::IsTranspose(x)) {
+        z = x;
+        x = z->inputs().at(0)->expr().first;
+        if (helpers::IsReshape(x)) {
+            res = x;
+            x = x->inputs().at(0)->expr().first;
+        }
+    }
     if (!helpers::IsTranspose(x)) {
-        return nullptr;
+        return res;
     }
     z = x;
     x = z->inputs().at(0)->expr().first;
@@ -64,6 +71,7 @@ int GetFmhaV2NumHeads(EXPRP expr) {
     auto var_num_head = z->inputs().at(2);
     return var_num_head->readMap<int32_t>()[0];
 }
+    
 
 FuseFmhaV2::FuseFmhaV2() {
     auto match = [this](EXPRP expr) -> bool {
@@ -87,13 +95,12 @@ FuseFmhaV2::FuseFmhaV2() {
         
         // whether reshape
         x = z->inputs().at(0)->expr().first;
-        if (!helpers::IsReshape(x)) {
-            return false;
+        if (helpers::IsReshape(x)) {
+            z = x;
+            x = z->inputs().at(0)->expr().first;
         }
-        z = x;
         
         // whether cast
-        x = z->inputs().at(0)->expr().first;
         if (helpers::IsCast(x)) {
             z = x->inputs().at(0)->expr().first;
         } else {
@@ -206,44 +213,56 @@ FuseFmhaV2::FuseFmhaV2() {
         auto config = Global<modelConfig>::Get();
         auto version = config->targetVersion;
         if (version < 2.8f) {
-            // For target version < 2.8 , don't support fmha_v2
+            // For target version < 2.8 , don't support attention
             return false;
         }
 
-        auto* var_q_weight_info    = var_q_weight->getInfo();
-        auto* var_k_weight_info    = var_k_weight->getInfo();
-        auto* var_v_weight_info    = var_v_weight->getInfo();
+        if (expr->name().size() > 0) {
+            MNN_PRINT("Fuse Original Self-Attention as %s\n", expr->name().c_str());
+        }
+
+        auto var_q_weight_info    = var_q_weight->getInfo();
+        auto var_k_weight_info    = var_k_weight->getInfo();
+        auto var_v_weight_info    = var_v_weight->getInfo();
 
         if (!var_q_weight_info || !var_k_weight_info || !var_v_weight_info || var_q_weight_info->size != var_k_weight_info->size || var_q_weight_info->size != var_v_weight_info->size) {
             return false;
         }
-        int size = var_q_weight_info->size;
-        int C = var_q_weight_info->dim[0];
-        int H = mNumHeads;
-        int D = var_q_weight_info->dim[1] / H;
-        if (var_q_weight_info->dim[1] % H != 0) {
-            return false;
-        }
         
-        // FuseQKV_Weight
-        /* [C, H, D]  -> [C, H, 3, D]*/
-        auto output = _MatMul(fmha_v2_input_, _Reshape(_Concat({_Reshape(var_q_weight, {C, H, D}), _Reshape(var_k_weight, {C, H, D}), _Reshape(var_v_weight, {C, H, D})}, -1), {C, 3*H*D}), false, false);
+        /*
+         query : [Batch, seqLen, headNum, headDim]
+         key   : [Batch, seqLen, headNum, headDim]
+         value : [Batch, seqLen, headNum, headDim]
+         ouput : [Batch, seqLen, headNum * headDim]
+         */
+        // [Batch, seqLen, headNum * headDim]
+        auto output_q = _MatMul(fmha_v2_input_, var_q_weight);
+        auto info    = fmha_v2_input_->getInfo();
+        // [Batch, seqLen, headNum, headDim]
+        output_q = _Reshape(output_q, {0, 0, mNumHeads, var_q_weight->getInfo()->dim[1] / mNumHeads});
         
-        std::unique_ptr<MNN::FmhaV2ParamT> param_fmha(new MNN::FmhaV2ParamT);
-        param_fmha->heads = mNumHeads;
+        auto output_k = _MatMul(fmha_v2_input_, var_k_weight);
+        output_k = _Reshape(output_k, {0, 0, mNumHeads, var_q_weight->getInfo()->dim[1] / mNumHeads});
         
-        std::unique_ptr<OpT> fmha_v2_op(new OpT);
-        fmha_v2_op->name       = "FmhaV2_" + expr->name();
-        fmha_v2_op->type       = OpType_FmhaV2;
-        fmha_v2_op->main.type  = OpParameter_FmhaV2Param;
-        fmha_v2_op->main.value = param_fmha.release();
+        auto output_v = _MatMul(fmha_v2_input_, var_v_weight);
+        output_v = _Reshape(output_v, {0, 0, mNumHeads, var_q_weight->getInfo()->dim[1] / mNumHeads});
 
-        auto fmha_v2_expr = Variable::create(Expr::create(fmha_v2_op.get(), { output }, 1));
+        std::unique_ptr<MNN::AttentionParamT> param_attn(new MNN::AttentionParamT);
+        param_attn->kv_cache = false;
+        std::unique_ptr<OpT> attention(new OpT);
+        attention->name       = "Attention" + expr->name();
+        attention->type       = OpType_Attention;
+        attention->main.type  = OpParameter_AttentionParam;
+        attention->main.value = param_attn.release();
 
-        fmha_v2_expr->setName(expr->name());
-        Expr::replace(expr, fmha_v2_expr->expr().first);
+        auto attention_expr = Variable::create(Expr::create(attention.get(), {output_q, output_k, output_v}, 1));
+
+        attention_expr->setName(expr->name());
+        Expr::replace(expr, attention_expr->expr().first);
+
         return true /*modified*/;
     };
+
     TemplateMerge::getInstance("Merge").insertTemplate("FuseFmhaV2", match, fold);
 }
 
@@ -279,13 +298,12 @@ FuseSelfAttentionV2::FuseSelfAttentionV2() {
         
         // whether reshape
         x = z->inputs().at(0)->expr().first;
-        if (!helpers::IsReshape(x)) {
-            return false;
+        if (helpers::IsReshape(x)) {
+            z = x;
+            x = z->inputs().at(0)->expr().first;
         }
-        z = x;
         
         // whether Einsum/MatMul
-        x = z->inputs().at(0)->expr().first;
         if (helpers::IsMatMul(x)) {
             z = x;
         } else {
@@ -322,69 +340,63 @@ FuseSelfAttentionV2::FuseSelfAttentionV2() {
         x = z->inputs().at(0)->expr().first;
         if (helpers::IsBinaryAdd(x)) {
             z = x;
-        } else {
-            return false;
-        }
-        
-        //add two inputs
-        auto x_0 = z->inputs().at(0)->expr().first;
-        bool add_0_zero = false;
-        if (helpers::IsBinaryMul(x_0)) {
-            auto temp_0 = x_0->inputs().at(0)->expr().first;
-            auto temp_1 = x_0->inputs().at(1)->expr().first;
-            if (helpers::IsConstant(temp_0)) {
-                float mul_y = x_0->inputs().at(0)->readMap<float>()[0];
-                if(mul_y >= -0.0000001 && mul_y <= 0.0000001) {
-                    add_0_zero = true;
+            
+            //add two inputs
+            auto x_0 = z->inputs().at(0)->expr().first;
+            bool add_0_zero = false;
+            if (helpers::IsBinaryMul(x_0)) {
+                auto temp_0 = x_0->inputs().at(0)->expr().first;
+                auto temp_1 = x_0->inputs().at(1)->expr().first;
+                if (helpers::IsConstant(temp_0)) {
+                    float mul_y = x_0->inputs().at(0)->readMap<float>()[0];
+                    if(mul_y >= -0.0000001 && mul_y <= 0.0000001) {
+                        add_0_zero = true;
+                    }
+                }
+                if (helpers::IsConstant(temp_1)) {
+                    float mul_y = x_0->inputs().at(1)->readMap<float>()[0];
+                    if(mul_y >= -0.0000001 && mul_y <= 0.0000001) {
+                        add_0_zero = true;
+                    }
                 }
             }
-            if (helpers::IsConstant(temp_1)) {
-                float mul_y = x_0->inputs().at(1)->readMap<float>()[0];
-                if(mul_y >= -0.0000001 && mul_y <= 0.0000001) {
-                    add_0_zero = true;
+            
+            auto x_1 = z->inputs().at(1)->expr().first;
+            bool add_1_zero = false;
+            if (helpers::IsBinaryMul(x_1)) {
+                auto temp_0 = x_1->inputs().at(0)->expr().first;
+                auto temp_1 = x_1->inputs().at(1)->expr().first;
+                if (helpers::IsConstant(temp_0)) {
+                    float mul_y = x_1->inputs().at(0)->readMap<float>()[0];
+                    if(mul_y >= -0.0000001 && mul_y <= 0.0000001) {
+                        add_1_zero = true;
+                    }
+                }
+                if (helpers::IsConstant(temp_1)) {
+                    float mul_y = x_1->inputs().at(1)->readMap<float>()[0];
+                    if(mul_y >= -0.0000001 && mul_y <= 0.0000001) {
+                        add_1_zero = true;
+                    }
                 }
             }
-        } else {
-            return false;
-        }
-        
-        auto x_1 = z->inputs().at(1)->expr().first;
-        bool add_1_zero = false;
-        if (helpers::IsBinaryMul(x_1)) {
-            auto temp_0 = x_1->inputs().at(0)->expr().first;
-            auto temp_1 = x_1->inputs().at(1)->expr().first;
-            if (helpers::IsConstant(temp_0)) {
-                float mul_y = x_1->inputs().at(0)->readMap<float>()[0];
-                if(mul_y >= -0.0000001 && mul_y <= 0.0000001) {
-                    add_1_zero = true;
+            
+            if(add_0_zero && !add_1_zero) {
+                x = z->inputs().at(1)->expr().first;
+                if(helpers::IsConstant(x->inputs().at(0)->expr().first)) {
+                    x = x->inputs().at(1)->expr().first;
+                } else {
+                    x = x->inputs().at(0)->expr().first;
                 }
-            }
-            if (helpers::IsConstant(temp_1)) {
-                float mul_y = x_1->inputs().at(1)->readMap<float>()[0];
-                if(mul_y >= -0.0000001 && mul_y <= 0.0000001) {
-                    add_1_zero = true;
+            } else if(!add_0_zero && add_1_zero) {
+                x = z->inputs().at(0)->expr().first;
+                if(helpers::IsConstant(x->inputs().at(0)->expr().first)) {
+                    x = x->inputs().at(1)->expr().first;
+                } else {
+                    x = x->inputs().at(0)->expr().first;
                 }
-            }
-        } else {
-            return false;
-        }
-        
-        if(add_0_zero && !add_1_zero) {
-            x = z->inputs().at(1)->expr().first;
-            if(helpers::IsConstant(x->inputs().at(0)->expr().first)) {
-                x = x->inputs().at(1)->expr().first;
             } else {
-                x = x->inputs().at(0)->expr().first;
+                return false;
             }
-        } else if(!add_0_zero && add_1_zero) {
-            x = z->inputs().at(0)->expr().first;
-            if(helpers::IsConstant(x->inputs().at(0)->expr().first)) {
-                x = x->inputs().at(1)->expr().first;
-            } else {
-                x = x->inputs().at(0)->expr().first;
-            }
-        } else {
-            return false;
         }
         
         //whether matmul
@@ -396,9 +408,14 @@ FuseSelfAttentionV2::FuseSelfAttentionV2() {
         
         auto q_pre = z->inputs().at(0)->expr().first;
         auto k_pre = z->inputs().at(1)->expr().first;
-        if(helpers::IsTranspose(k_pre)) {
+        // whether mul(scale)
+        if (helpers::IsBinaryMul(q_pre)) {
+            q_pre = q_pre->inputs().at(0)->expr().first;
+        }
+        if (helpers::IsBinaryMul(k_pre)) {
             k_pre = k_pre->inputs().at(0)->expr().first;
         }
+
         z = GetFmhaV2BlockCommonNode(k_pre);
         if (z == nullptr) {
             return false;
@@ -456,181 +473,55 @@ FuseSelfAttentionV2::FuseSelfAttentionV2() {
             return false;
         }
 
-        auto* var_q_weight_info    = var_q_weight->getInfo();
-        auto* var_k_weight_info    = var_k_weight->getInfo();
-        auto* var_v_weight_info    = var_v_weight->getInfo();
+        if (expr->name().size() > 0) {
+            MNN_PRINT("Fuse Original Self-Attention as %s\n", expr->name().c_str());
+        }
+
+        auto var_q_weight_info    = var_q_weight->getInfo();
+        auto var_k_weight_info    = var_k_weight->getInfo();
+        auto var_v_weight_info    = var_v_weight->getInfo();
 
         if (!var_q_weight_info || !var_k_weight_info || !var_v_weight_info || var_q_weight_info->size != var_k_weight_info->size || var_q_weight_info->size != var_v_weight_info->size) {
             return false;
         }
-        int size = var_q_weight_info->size;
-        int C = var_q_weight_info->dim[0];
-        int H = mNumHeads;
-        int D = var_q_weight_info->dim[1] / H;
-        if (var_q_weight_info->dim[1] % H != 0) {
-            return false;
-        }
         
-        // FuseQKV_Weight
-        /* [C, H, D]  -> [C, H, 3, D]*/
-        auto output = _MatMul(fmha_v2_input_, _Reshape(_Concat({_Reshape(var_q_weight, {C, H, D}), _Reshape(var_k_weight, {C, H, D}), _Reshape(var_v_weight, {C, H, D})}, -1), {C, H*3*D}), false, false);
+        /*
+         query : [Batch, seqLen, headNum, headDim]
+         key   : [Batch, seqLen, headNum, headDim]
+         value : [Batch, seqLen, headNum, headDim]
+         ouput : [Batch, seqLen, headNum * headDim]
+         */
+        // [Batch, seqLen, headNum * headDim]
+        auto output_q = _MatMul(fmha_v2_input_, var_q_weight);
+        // [Batch, seqLen, headNum, headDim]
+        output_q = _Reshape(output_q, {0, 0, mNumHeads, var_q_weight->getInfo()->dim[1] / mNumHeads});
         
-        std::unique_ptr<MNN::FmhaV2ParamT> param_fmha(new MNN::FmhaV2ParamT);
-        param_fmha->heads = mNumHeads;
+        auto output_k = _MatMul(fmha_v2_input_, var_k_weight);
+        output_k = _Reshape(output_k, {0, 0, mNumHeads, var_q_weight->getInfo()->dim[1] / mNumHeads});
         
-        std::unique_ptr<OpT> fmha_v2_op(new OpT);
-        fmha_v2_op->name       = "FmhaV2_" + expr->name();
-        fmha_v2_op->type       = OpType_FmhaV2;
-        fmha_v2_op->main.type  = OpParameter_FmhaV2Param;
-        fmha_v2_op->main.value = param_fmha.release();
+        auto output_v = _MatMul(fmha_v2_input_, var_v_weight);
+        output_v = _Reshape(output_v, {0, 0, mNumHeads, var_q_weight->getInfo()->dim[1] / mNumHeads});
 
-        auto fmha_v2_expr = Variable::create(Expr::create(fmha_v2_op.get(), { output }, 1));
+        std::unique_ptr<MNN::AttentionParamT> param_attn(new MNN::AttentionParamT);
+        param_attn->kv_cache = false;
+        std::unique_ptr<OpT> attention(new OpT);
+        attention->name       = "Attention" + expr->name();
+        attention->type       = OpType_Attention;
+        attention->main.type  = OpParameter_AttentionParam;
+        attention->main.value = param_attn.release();
 
-        fmha_v2_expr->setName(expr->name());
-        Expr::replace(expr, fmha_v2_expr->expr().first);
+        auto attention_expr = Variable::create(Expr::create(attention.get(), {output_q, output_k, output_v}, 1));
+
+        attention_expr->setName(expr->name());
+        Expr::replace(expr, attention_expr->expr().first);
+
         return true /*modified*/;
     };
     TemplateMerge::getInstance("Merge").insertTemplate("FuseSelfAttentionV2", match, fold);
 }
-
-
-class FuseSelfFmhaV2 {
-public:
-    FuseSelfFmhaV2();
-private:
-    VARP self_fmha_v2_input_;
-    int mNumHeads;
-};
-
-FuseSelfFmhaV2::FuseSelfFmhaV2() {
-    auto match = [this](EXPRP expr) -> bool {
-        auto config = Global<modelConfig>::Get();
-        if(!config->transformerFuse) {
-            return false;
-        }
-        // whether reshape
-        if (!expr->get() || !helpers::IsReshape(expr)) {
-            return false;
-        }
-        
-        EXPRP x, y, z;
-        
-        // whether transpose
-        x = expr->inputs().at(0)->expr().first;
-        if (!expr->get() || !helpers::IsTranspose(x)) {
-            return false;
-        }
-        z = x;
-        // whether Einsum/MatMul
-        x = z->inputs().at(0)->expr().first;
-        if (helpers::IsMatMul(x)) {
-            z = x;
-        } else {
-            return false;
-        }
-        
-        // whether V
-        auto qk_pre = z->inputs().at(0)->expr().first;
-        auto v_pre = z->inputs().at(1)->expr().first;
-        z = GetFmhaV2BlockCommonNode(v_pre, false);
-        if (z == nullptr) {
-            return false;
-        }
-        
-        mNumHeads = GetFmhaV2NumHeads(z);
-        if (mNumHeads == 0) {
-            return false;
-        }
-        // whether split
-        auto common_split = z->inputs().at(0)->expr().first;
-        if (!helpers::IsSlice(common_split)) {
-            return false;
-        }
-
-        z = qk_pre;
-        // whether softmax
-        if (!helpers::IsSoftmax(z)) {
-            return false;
-        }
-        
-        //whether add
-        x = z->inputs().at(0)->expr().first;
-        if (helpers::IsBinaryAdd(x)) {
-            z = x;
-        }
-        
-        //whether matmul
-        x = z->inputs().at(0)->expr().first;
-        if (helpers::IsMatMul(x)) {
-            z = x;
-        } else {
-            return false;
-        }
-        
-        auto q_pre = z->inputs().at(0)->expr().first;
-        auto k_pre = z->inputs().at(1)->expr().first;
-        z = GetFmhaV2BlockCommonNode(k_pre, false);
-        if (z == nullptr) {
-            return false;
-        }
-        if (mNumHeads != GetFmhaV2NumHeads(z)) {
-            return false;
-        }
-        
-        if (common_split != z->inputs().at(0)->expr().first) {
-            return false;
-        }
-        // whether mul(scale)
-        if (helpers::IsBinaryMul(q_pre)) {
-            q_pre = q_pre->inputs().at(0)->expr().first;
-        }
-        
-        z = GetFmhaV2BlockCommonNode(q_pre, false);
-        if (z == nullptr) {
-            return false;
-        }
-        if (mNumHeads != GetFmhaV2NumHeads(z)) {
-            return false;
-        }
-        
-        if (common_split != z->inputs().at(0)->expr().first) {
-            return false;
-        }
-        self_fmha_v2_input_ = common_split->inputs().at(0);
-        
-        return true;
-    };
-
-    auto fold = [this](EXPRP expr) -> bool {
-        auto config = Global<modelConfig>::Get();
-        auto version = config->targetVersion;
-        if (version < 2.8f) {
-            // For target version < 2.8 , don't support fmha_v2
-            return false;
-        }
-
-        std::unique_ptr<MNN::FmhaV2ParamT> param_fmha(new MNN::FmhaV2ParamT);
-        param_fmha->heads = mNumHeads;
-        
-        std::unique_ptr<OpT> fmha_v2_op(new OpT);
-        fmha_v2_op->name       = "Self_FmhaV2_" + expr->name();
-        fmha_v2_op->type       = OpType_FmhaV2;
-        fmha_v2_op->main.type  = OpParameter_FmhaV2Param;
-        fmha_v2_op->main.value = param_fmha.release();
-
-        auto fmha_v2_expr = Variable::create(Expr::create(fmha_v2_op.get(), { self_fmha_v2_input_ }, 1));
-
-        fmha_v2_expr->setName(expr->name());
-        Expr::replace(expr, fmha_v2_expr->expr().first);
-        return true /*modified*/;
-    };
-    TemplateMerge::getInstance("Merge").insertTemplate("FuseSelfFmhaV2", match, fold);
-}
-
-
+    
 static FuseFmhaV2 g_fuse_fmhaV2;
-static FuseSelfFmhaV2 g_fuse_self_fmhaV2;
-static FuseSelfAttentionV2 g_fuse_self_attentionV2;
+static FuseSelfAttentionV2 g_fuse_self_fmhaV2;
 
 } // namespace Express
 } // namespace MNN

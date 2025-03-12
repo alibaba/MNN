@@ -141,6 +141,7 @@ int main(int argc, const char* argv[]) {
     }
     Module::Config config;
     config.rearrange = true;
+    rtMgr->setHint(MNN::Interpreter::INIT_THREAD_NUMBER, 4);
     std::shared_ptr<Module> m(Module::load(inputNames, outputNames, modelPath, rtMgr, &config), [](void* net) {
         MNN::Express::Module::destroy((MNN::Express::Module*)net);
     });

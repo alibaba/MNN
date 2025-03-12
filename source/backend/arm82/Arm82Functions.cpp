@@ -965,6 +965,8 @@ bool Arm82Functions::init() {
     }
     
 #endif
+    gInstance->MNNReorderWeightInt4 = origin->MNNReorderWeightInt4;
+    gInstance->MNNSumWeightInt8 = origin->MNNSumWeightInt8;
     gInstance->penalty = 2.0f;
     FUNC_PTR_ASSIGN(gInstance->MNNScaleAndAddBias, MNNScaleAndAddBiasFP16);
     FUNC_PTR_ASSIGN(gInstance->MNNGridSampleComputeCord, MNNGridSampleComputeCordFP16);

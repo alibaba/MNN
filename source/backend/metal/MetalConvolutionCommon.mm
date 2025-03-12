@@ -229,12 +229,13 @@ std::shared_ptr<MNN::Tensor> MetalConvolutionCommon::weightTransform(int group, 
         auto dstPtr = (uint8_t*)[buf.first contents] + buf.second;
         auto oc_4  = UP_DIV(oc, 4);
         auto ic_4  = UP_DIV(ic, 4);
-        if (group == 1 && kh == 1 && kw == 1) {
+        if (group == 1 && kh == 1 && kw == 1 && ic % 2 == 0) {
             // fast int4 reorder
             for (int i = 0; i < oc; i++) {
                 auto zo = i / 4, ro = i % 4;
                 for (int j = 0; j < ic; j++) {
                     auto zi = j / 4, ri = j % 4;
+                    // [co, ci] -> [co/4, ci/4, co_4, ci_4]
                     dstPtr[((zo * ic_4 + zi) * 16 + ro * 4 + ri) / 2] = srcPtr[(i * ic + j) / 2];
                 }
             }
