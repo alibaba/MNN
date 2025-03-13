@@ -15,24 +15,27 @@ const char* gMatMulDivMask = R"metal(
 using namespace metal;
 struct Param {
     int query_seq_len;
+    int q_seq_piece_len;
     int key_seq_len;
     int head_num;
     int group;
     int head_dim;
     float scale;
     int max_kv_len;
+    int batch;
 };
 #define SIMD_GROUP_WIDTH 32
 
 kernel void prefill_qk(const device T* input0 [[buffer(0)]],
     device T* output [[buffer(1)]],
     device T* past_key [[buffer(2)]],
-#ifdef FLOAT_MASK
-    const device T* mask [[buffer(3)]],
-#else
-    const device int* mask [[buffer(3)]],
-#endif
+    constant int &seq_idx [[buffer(3)]],
     constant Param& param [[buffer(4)]],
+#ifdef ADD_MASK
+    const device T* mask [[buffer(5)]],
+#elif defined(SET_MASK)
+    const device int* mask [[buffer(5)]],
+#endif
 #ifdef SIMD_GROUP_MATRIX
     uint3 gid[[threadgroup_position_in_grid]],
     uint tiitg[[thread_index_in_threadgroup]],
@@ -64,14 +67,14 @@ kernel void prefill_qk(const device T* input0 [[buffer(0)]],
 
     const int slq = gid.x; // q_seq_len/16 -> M/16
     const int slk = gid.y; // k_seq_len/16 -> N/16
-    const int z = gid.z; // head_num
+    const int z = gid.z; // head_num * batch
 
     /** Q:
      threadgroup: [M16, K8]
      each thread: K4
-     layout: [M, B, K] -> [M/16, M16, B, K/8, K2, K4]
-     index : [slq, rcl, z, 0, kl, K4]
-     offset: ((slq * 16 + rcl) * B + z) * K + (0 * 2 + kl) * 4 + 0
+     layout: [B0, M, B1, K] -> [B0, M/16, M16, B1, K/8, K2, K4]
+     index : [z/head_num, slq, rcl, z%head_num, 0, kl, K4]
+     offset: ((z/head_num * q_seq_len + (slq * 16 + rcl)) * head_num + z%head_num) * K + (0 * 2 + kl) * 4 + 0
      */
     /** K:
      threadgroup: [K8, N16]
@@ -89,19 +92,24 @@ kernel void prefill_qk(const device T* input0 [[buffer(0)]],
      */
 
     int group = param.group;
-    int zin = z / param.group;
     int q_seq_len = param.query_seq_len;
+    int q_seq_piece_len = param.q_seq_piece_len;
     int k_seq_len = param.key_seq_len;
     int head_num = param.head_num;
     int head_dim = param.head_dim;
 
+    const int b = z / head_num;
+    const int hn = z % head_num;
+    int zin = hn / param.group;
+
     threadgroup float sdata[256] = {0.f};
 
-    int idx_slq = slq * 16 + rcl < q_seq_len ? slq * 16 + rcl : q_seq_len - 1;
+    int idx_slq = seq_idx * q_seq_piece_len + slq * 16 + rcl < q_seq_len ? seq_idx * q_seq_piece_len + slq * 16 + rcl : q_seq_len - 1;
     int idx_slk = slk * 16 + rcl < k_seq_len ? slk * 16 + rcl : k_seq_len - 1;
-
-    auto A_offset = input0 + (idx_slq * head_num + z) * head_dim + (0 * 2 + kl) * 4 + 0;
-    auto B_offset = past_key + (idx_slk * head_num / group + zin) * head_dim + 0 * 8 + kl * 4 + 0;
+    // [mBatch, mSeqLen, mNumHead, mHeadDim]
+    auto A_offset = input0 + ((b * q_seq_len + idx_slq) * head_num + hn) * head_dim + (0 * 2 + kl) * 4 + 0;
+    // [mKvSeqLen, mBatch, mKvNumHead, mHeadDim]
+    auto B_offset = past_key + ((idx_slk * param.batch + b)* head_num / group + zin) * head_dim + 0 * 8 + kl * 4 + 0;
 
     for(int i = 0; i < head_dim; i += 8){
         sdata[rcl * 8 + kl * 4 + 0] = A_offset[i + 0];
@@ -138,77 +146,78 @@ kernel void prefill_qk(const device T* input0 [[buffer(0)]],
     // [N2, M2, M8, N8]
     float Vscale = (float)param.scale;
 
-    auto xy_out = output + (z * q_seq_len + slq * 16 + rcl) * k_seq_len + slk * 16 + kl * 8 + 0;
-    if(slq * 16 + rcl < q_seq_len) {
+    auto xy_out = output + (z * q_seq_piece_len + slq * 16 + rcl) * k_seq_len + slk * 16 + kl * 8 + 0;
+    if(slq * 16 + rcl < q_seq_piece_len &&  seq_idx * q_seq_piece_len + slq * 16 + rcl < q_seq_len) {
+        int ori_q_idx = seq_idx * q_seq_piece_len + slq * 16 + rcl;
         if(slk * 16 + kl * 8 + 0 < k_seq_len) {
             auto out0 =  sdata[(kl * 16 + rcl) * 8 + 0] * Vscale;
-            #ifdef FLOAT_MASK
-                out0 = mask[((slq * 16 + rcl) * k_seq_len + (slk * 16 + kl * 8 + 0))] + out0;
-            #else
-                out0 = mask[((slq * 16 + rcl) * k_seq_len + (slk * 16 + kl * 8 + 0))] == 0 ? -FLT_MAX : out0;
+            #ifdef ADD_MASK
+                out0 = mask[(ori_q_idx * k_seq_len + (slk * 16 + kl * 8 + 0))] + out0;
+            #elif defined(SET_MASK)
+                out0 = mask[(ori_q_idx * k_seq_len + (slk * 16 + kl * 8 + 0))] == 0 ? -FLT_MAX : out0;
             #endif
             xy_out[0] = out0;
         }
         if(slk * 16 + kl * 8 + 1 < k_seq_len) {
             auto out0 =  sdata[(kl * 16 + rcl) * 8 + 1] * Vscale;
-            #ifdef FLOAT_MASK
-                out0 = mask[((slq * 16 + rcl) * k_seq_len + (slk * 16 + kl * 8 + 1))] + out0;
-            #else
-                out0 = mask[((slq * 16 + rcl) * k_seq_len + (slk * 16 + kl * 8 + 1))] == 0 ? -FLT_MAX : out0;
+            #ifdef ADD_MASK
+                out0 = mask[(ori_q_idx * k_seq_len + (slk * 16 + kl * 8 + 1))] + out0;
+            #elif defined(SET_MASK)
+                out0 = mask[(ori_q_idx * k_seq_len + (slk * 16 + kl * 8 + 1))] == 0 ? -FLT_MAX : out0;
             #endif
             xy_out[1] = out0;
         }
         if(slk * 16 + kl * 8 + 2 < k_seq_len) {
             auto out0 =  sdata[(kl * 16 + rcl) * 8 + 2] * Vscale;
-            #ifdef FLOAT_MASK
-                out0 = mask[((slq * 16 + rcl) * k_seq_len + (slk * 16 + kl * 8 + 2))] + out0;
-            #else
-                out0 = mask[((slq * 16 + rcl) * k_seq_len + (slk * 16 + kl * 8 + 2))] == 0 ? -FLT_MAX : out0;
+            #ifdef ADD_MASK
+                out0 = mask[(ori_q_idx * k_seq_len + (slk * 16 + kl * 8 + 2))] + out0;
+            #elif defined(SET_MASK)
+                out0 = mask[(ori_q_idx * k_seq_len + (slk * 16 + kl * 8 + 2))] == 0 ? -FLT_MAX : out0;
             #endif
             xy_out[2] = out0;
         }
         if(slk * 16 + kl * 8 + 3 < k_seq_len) {
             auto out0 =  sdata[(kl * 16 + rcl) * 8 + 3] * Vscale;
-            #ifdef FLOAT_MASK
-                out0 = mask[((slq * 16 + rcl) * k_seq_len + (slk * 16 + kl * 8 + 3))] + out0;
-            #else
-                out0 = mask[((slq * 16 + rcl) * k_seq_len + (slk * 16 + kl * 8 + 3))] == 0 ? -FLT_MAX : out0;
+            #ifdef ADD_MASK
+                out0 = mask[(ori_q_idx * k_seq_len + (slk * 16 + kl * 8 + 3))] + out0;
+            #elif defined(SET_MASK)
+                out0 = mask[(ori_q_idx * k_seq_len + (slk * 16 + kl * 8 + 3))] == 0 ? -FLT_MAX : out0;
             #endif
             xy_out[3] = out0;
         }
         if(slk * 16 + kl * 8 + 4 < k_seq_len) {
             auto out0 =  sdata[(kl * 16 + rcl) * 8 + 4] * Vscale;
-            #ifdef FLOAT_MASK
-                out0 = mask[((slq * 16 + rcl) * k_seq_len + (slk * 16 + kl * 8 + 4))] + out0;
-            #else
-                out0 = mask[((slq * 16 + rcl) * k_seq_len + (slk * 16 + kl * 8 + 4))] == 0 ? -FLT_MAX : out0;
+            #ifdef ADD_MASK
+                out0 = mask[(ori_q_idx * k_seq_len + (slk * 16 + kl * 8 + 4))] + out0;
+            #elif defined(SET_MASK)
+                out0 = mask[(ori_q_idx * k_seq_len + (slk * 16 + kl * 8 + 4))] == 0 ? -FLT_MAX : out0;
             #endif
             xy_out[4] = out0;
         }
         if(slk * 16 + kl * 8 + 5 < k_seq_len) {
             auto out0 =  sdata[(kl * 16 + rcl) * 8 + 5] * Vscale;
-            #ifdef FLOAT_MASK
-                out0 = mask[((slq * 16 + rcl) * k_seq_len + (slk * 16 + kl * 8 + 5))] + out0;
-            #else
-                out0 = mask[((slq * 16 + rcl) * k_seq_len + (slk * 16 + kl * 8 + 5))] == 0 ? -FLT_MAX : out0;
+            #ifdef ADD_MASK
+                out0 = mask[(ori_q_idx * k_seq_len + (slk * 16 + kl * 8 + 5))] + out0;
+            #elif defined(SET_MASK)
+                out0 = mask[(ori_q_idx * k_seq_len + (slk * 16 + kl * 8 + 5))] == 0 ? -FLT_MAX : out0;
             #endif
             xy_out[5] = out0;
         }
         if(slk * 16 + kl * 8 + 6 < k_seq_len) {
             auto out0 =  sdata[(kl * 16 + rcl) * 8 + 6] * Vscale;
-            #ifdef FLOAT_MASK
-                out0 = mask[((slq * 16 + rcl) * k_seq_len + (slk * 16 + kl * 8 + 6))] + out0;
-            #else
-                out0 = mask[((slq * 16 + rcl) * k_seq_len + (slk * 16 + kl * 8 + 6))] == 0 ? -FLT_MAX : out0;
+            #ifdef ADD_MASK
+                out0 = mask[(ori_q_idx * k_seq_len + (slk * 16 + kl * 8 + 6))] + out0;
+            #elif defined(SET_MASK)
+                out0 = mask[(ori_q_idx * k_seq_len + (slk * 16 + kl * 8 + 6))] == 0 ? -FLT_MAX : out0;
             #endif
             xy_out[6] = out0;
         }
         if(slk * 16 + kl * 8 + 7 < k_seq_len) {
             auto out0 =  sdata[(kl * 16 + rcl) * 8 + 7] * Vscale;
-            #ifdef FLOAT_MASK
-                out0 = mask[((slq * 16 + rcl) * k_seq_len + (slk * 16 + kl * 8 + 7))] + out0;
-            #else
-                out0 = mask[((slq * 16 + rcl) * k_seq_len + (slk * 16 + kl * 8 + 7))] == 0 ? -FLT_MAX : out0;
+            #ifdef ADD_MASK
+                out0 = mask[(ori_q_idx * k_seq_len + (slk * 16 + kl * 8 + 7))] + out0;
+            #elif defined(SET_MASK)
+                out0 = mask[(ori_q_idx * k_seq_len + (slk * 16 + kl * 8 + 7))] == 0 ? -FLT_MAX : out0;
             #endif
             xy_out[7] = out0;
         }
@@ -216,10 +225,11 @@ kernel void prefill_qk(const device T* input0 [[buffer(0)]],
 
 #else
     const int x = gid.x; // query_seq_len
-    const int y = gid.y; // head_num
+    const int y = gid.y; // head_num * batch
     const int z = gid.z; // key_seq_len
-
-    if (x >= param.query_seq_len || y >= param.head_num || z >= param.key_seq_len) {
+    
+    int q_idx = seq_idx * param.q_seq_piece_len + x;
+    if (x >= param.q_seq_piece_len || q_idx >= param.query_seq_len || y >= param.head_num * param.batch || z >= param.key_seq_len) {
         return;
     }
     int group = param.group;
@@ -227,16 +237,19 @@ kernel void prefill_qk(const device T* input0 [[buffer(0)]],
     int key_seq_len = param.key_seq_len;
     int head_num = param.head_num;
     int head_dim = param.head_dim;
+    int b  = y / head_num;
+    int hn = y % head_num;
     
     const int offset = head_num * head_dim;
     const int offset_head = y * head_dim;
-    const int offset_head_kv = (y / group) * head_dim;
-    const device T* A_offset = input0 + x * offset + offset_head;
+    const int offset_head_kv = (hn / group) * head_dim;
+    // [mBatch, mSeqLen, mNumHead, mHeadDim]
+    const device T* A_offset = input0 + (b * query_seq_len + q_idx) * offset + offset_head;
 
     float Vscale = (float)param.scale;
-
-    device const T* B_offset = past_key + z * offset / group + offset_head_kv;
-    const int output_offset = y * query_seq_len * key_seq_len;
+    // [mKvSeqLen, mBatch, mKvNumHead, mHeadDim]
+    device const T* B_offset = past_key + (z * param.batch + b) * offset / group + offset_head_kv;
+    const int output_offset = y * param.q_seq_piece_len * key_seq_len;
     float out0 = 0.0;
     
     for(int i = 0; i < head_dim; ++i){
@@ -247,10 +260,10 @@ kernel void prefill_qk(const device T* input0 [[buffer(0)]],
     
     out0 *= Vscale;
     
-#ifdef FLOAT_MASK
-    out0 = mask[((x + 0) * key_seq_len + (z + 0))] + out0;
-#else
-    out0 = mask[((x + 0) * key_seq_len + (z + 0))] == 0 ? -FLT_MAX : out0;
+#ifdef ADD_MASK
+    out0 = mask[((q_idx + 0) * key_seq_len + (z + 0))] + out0;
+#elif defined(SET_MASK)
+    out0 = mask[((q_idx + 0) * key_seq_len + (z + 0))] == 0 ? -FLT_MAX : out0;
 #endif
     output[output_offset + x * key_seq_len + z] = (T)out0;
 #endif
@@ -259,12 +272,14 @@ kernel void prefill_qk(const device T* input0 [[buffer(0)]],
 kernel void decode_qk(const device T* input0 [[buffer(0)]],
     device T* output [[buffer(1)]],
     device T* past_key [[buffer(2)]],
-#ifdef FLOAT_MASK
-    const device T* mask [[buffer(3)]],
-#else
-    const device int* mask [[buffer(3)]],
-#endif
+    // decode actually not compute in block
+    constant int &seq_idx [[buffer(3)]],
     constant Param& param [[buffer(4)]],
+#ifdef ADD_MASK
+    const device T* mask [[buffer(5)]],
+#elif defined(SET_MASK)
+    const device int* mask [[buffer(5)]],
+#endif
 #ifdef SIMD_GROUP_REDUCE
     uint3 gid[[threadgroup_position_in_grid]],
     uint  tiisg[[thread_index_in_simdgroup]],
@@ -274,13 +289,10 @@ kernel void decode_qk(const device T* input0 [[buffer(0)]],
 #endif
 ) {
     int x = gid.x; // query_seq_len
-    int y = gid.y; // head_num
+    int y = gid.y; // head_num * batch
     int z = gid.z; // key_seq_len
 
-#ifdef HEAD_NUM_2
-    y = y * 2;
-#endif
-    if (x >= param.query_seq_len || y >= param.head_num || z >= param.key_seq_len) {
+    if (x >= param.query_seq_len || y >= param.head_num * param.batch || z >= param.key_seq_len) {
         return;
     }
     int group = param.group;
@@ -289,19 +301,18 @@ kernel void decode_qk(const device T* input0 [[buffer(0)]],
     int head_num = param.head_num;
     int head_dim = param.head_dim;
     
+    int b  = y / head_num;
+    int hn = y % head_num;
     const int offset = head_num * head_dim;
-    const int offset_head = y * head_dim;
-    const int offset_head_kv = (y / param.group) * head_dim;
-    const device T* A_offset = input0 + x * offset + offset_head;
-    device T* Pastkey_offset = past_key + z * offset / group + offset_head_kv;
+    const int offset_head = hn * head_dim;
+    const int offset_head_kv = (hn / param.group) * head_dim;
+
+    // [mBatch, mSeqLen, mNumHead, mHeadDim]
+    const device T* A_offset = input0 + (b * param.query_seq_len + x) * offset + offset_head;
+    // [mKvSeqLen, mBatch, mKvNumHead, mHeadDim]
+    device T* Pastkey_offset = past_key + (z * param.batch + b) * offset / group + offset_head_kv;
     float Vscale = (float)param.scale;
     float out = 0.0;
-
-#ifdef HEAD_NUM_2
-    const device T* A_offset_1 = A_offset + head_dim;
-    device T* Pastkey_offset_1 = past_key + z * offset / group + ((y+1) / param.group) * head_dim;
-    float out_1 = 0.0;
-#endif
 
 #ifdef SIMD_GROUP_REDUCE
     for(int i = tiisg; i < head_dim; i+=SIMD_GROUP_WIDTH){
@@ -311,30 +322,10 @@ kernel void decode_qk(const device T* input0 [[buffer(0)]],
         out += A * B;
     }
 
-#ifdef HEAD_NUM_2
-    if(y + 1 < param.head_num) {
-        for(int i = tiisg; i < head_dim; i+=SIMD_GROUP_WIDTH){
-            float A = A_offset_1[i];
-            float B = (float)Pastkey_offset_1[i];
-            
-            out_1 += A * B;
-        }
-    }
-#endif
     out = simd_sum(out);
-
-#ifdef HEAD_NUM_2
-    if(y + 1 < param.head_num) {
-        out_1 = simd_sum(out_1);
-        if(tiisg == 1) {
-            out_1 *= Vscale;
-            output[(y+1) * key_seq_len + z] = (T)out_1;
-        }
-    }
-#endif
     if(tiisg == 0) {
         out *= Vscale;
-        output[y * key_seq_len + z] = (T)out;
+        output[(y * param.query_seq_len + x) * key_seq_len + z] = (T)out;
     }
 
 #else
@@ -347,20 +338,7 @@ kernel void decode_qk(const device T* input0 [[buffer(0)]],
         }
     }
     out *= Vscale;
-    output[y * key_seq_len + z] = (T)out;
-
-#ifdef HEAD_NUM_2
-    if(y + 1 < param.head_num) {
-        for(int i = 0; i < head_dim; i++){
-            float A = A_offset_1[i];
-            float B = (float)Pastkey_offset_1[i];
-            
-            out_1 += A * B;
-        }
-        out_1 *= Vscale;
-        output[(y+1) * key_seq_len + z] = (T)out_1;
-    }
-#endif
+    output[(y * param.query_seq_len + x) * key_seq_len + z] = (T)out;
 
 #endif
 }
@@ -372,11 +350,14 @@ const char* gCopyPastKV = R"metal(
 using namespace metal;
 struct Param {
     int head_count;
-    int q_seq_len;
+    int kv_seq_len;
     int max_kv_len;
     int dst_k_offset;
     int dst_v_offset;
+    int batch;
 };
+// Key:   [batch, kv_seq_len, head_num / group * head_dim] -> [max_kv_len, batch, head_num / group * head_dim]
+// Value: [batch, kv_seq_len, head_num / group * head_dim] -> [batch, head_num / group * head_dim, max_kv_len]
 kernel void copy(const device T* input0 [[buffer(0)]],
     const device T* input1 [[buffer(1)]],
     device T* output0 [[buffer(2)]],
@@ -385,13 +366,17 @@ kernel void copy(const device T* input0 [[buffer(0)]],
     uint3 gid[[thread_position_in_grid]]
 ) {
     const int x = gid.x; // head_num / group * head_dim
-    const int y = gid.y; // q_seq_len
-    if (x >= param.head_count || y >= param.q_seq_len) {
+    const int y = gid.y; // kv_seq_len
+    const int b = gid.z; // batch
+    if (x >= param.head_count || y >= param.kv_seq_len || b >= param.batch) {
         return;
     }
-    const int index = y * param.head_count + x;
-    output0[param.dst_k_offset + index] = input0[index];
-    output1[param.dst_v_offset + x * param.max_kv_len + y] = input1[index];
+    const int in_idx  = (b * param.kv_seq_len + y) * param.head_count + x;
+    int out_idx = param.dst_k_offset + (y * param.batch + b) * param.head_count + x;
+    output0[out_idx] = input0[in_idx];
+
+    out_idx = param.dst_v_offset + (b * param.head_count + x) * param.max_kv_len + y;
+    output1[out_idx] = input1[in_idx];
 }
 )metal";
 
@@ -402,18 +387,21 @@ const char* gMatMulQKV = R"metal(
 using namespace metal;
 struct Param {
     int query_seq_len;
+    int q_seq_piece_len;
     int key_seq_len;
     int head_num;
     int group;
     int head_dim;
     float scale;
     int max_kv_len;
+    int batch;
 };
 #define SIMD_GROUP_WIDTH 32
 kernel void prefill_qkv(const device T* input0 [[buffer(0)]],
     device T* output [[buffer(1)]],
     device T* past_value [[buffer(2)]],
-    constant Param& param [[buffer(3)]],
+    constant int &seq_idx [[buffer(3)]],
+    constant Param& param [[buffer(4)]],
 #ifdef SIMD_GROUP_MATRIX
     uint3 gid[[threadgroup_position_in_grid]],
     uint tiitg[[thread_index_in_threadgroup]],
@@ -447,7 +435,7 @@ kernel void prefill_qkv(const device T* input0 [[buffer(0)]],
 
     const int sl = gid.x; // q_seq_len/16 -> M/16
     const int hm = gid.y; // head_dim/16 -> N/16
-    const int z = gid.z; // head_num
+    const int z = gid.z; // head_num * batch
 
     /** QK:
      threadgroup: [M16, K8]
@@ -459,7 +447,7 @@ kernel void prefill_qkv(const device T* input0 [[buffer(0)]],
     /** V:
      threadgroup: [K8, N16]
      each thread: N4
-     layout: [K, B/G, N] -> [K/8, K8, B/G, N/16, N4, N4]
+     layout: [B/G, K, N] -> [B/G, K/8, K8, N/16, N4, N4]
      index : [0, kcl, B/G, hm, nl, 0]
      offset: ((0 * 8 + kcl) * B/G + z/G) * N + hm * 16 + nl * 4 + 0
      */
@@ -472,17 +460,20 @@ kernel void prefill_qkv(const device T* input0 [[buffer(0)]],
      */
 
     int group = param.group;
-    int zin = z / group;
     int q_seq_len = param.query_seq_len;
+    int q_seq_piece_len = param.q_seq_piece_len;
     int value_seq_len = param.key_seq_len;
     int head_num = param.head_num;
     int head_dim = param.head_dim;
+    int b = z / head_num;
+    int hn = z % head_num;
+    int zin = b * (head_num / group) + hn / group;
 
     threadgroup float sdata[256] = {0.f};
 
-    int idx_qk_sl = sl * 16 + rcl < q_seq_len ? (sl * 16 + rcl) : q_seq_len - 1;
+    int idx_qk_sl = sl * 16 + rcl < q_seq_piece_len ? (sl * 16 + rcl) : q_seq_piece_len - 1;
 
-    auto A_offset = input0 + (z * q_seq_len + idx_qk_sl) * value_seq_len + (0 * 2 + kl) * 4 + 0;
+    auto A_offset = input0 + (z * q_seq_piece_len + idx_qk_sl) * value_seq_len + (0 * 2 + kl) * 4 + 0;
     auto B_offset = past_value + (zin * head_dim + hm * 16 + nl * 4 + 0) * param.max_kv_len + (0 * 8 + kcl);
     
 
@@ -521,8 +512,9 @@ kernel void prefill_qkv(const device T* input0 [[buffer(0)]],
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
     // [N2, M2, M8, N8]
-    auto xy_out = output + ((sl * 16 + rcl) * head_num + z) * head_dim + hm * 16 + kl * 8 + 0;
-    if(sl * 16 + rcl < q_seq_len) {
+    // [mBatch, mSeqLen, mNumHead, mHeadDim]
+    auto xy_out = output + ((b * q_seq_len + seq_idx * q_seq_piece_len + sl * 16 + rcl) * head_num + hn) * head_dim + hm * 16 + kl * 8 + 0;
+    if(sl * 16 + rcl < q_seq_piece_len && seq_idx * q_seq_piece_len + sl * 16 + rcl < q_seq_len) {
         if(hm * 16 + kl * 8 + 0 < head_dim) {
             xy_out[0] =  sdata[(kl * 16 + rcl) * 8 + 0];
         }
@@ -550,22 +542,30 @@ kernel void prefill_qkv(const device T* input0 [[buffer(0)]],
     }
 
 #else
-    const int x = gid.x; // kv_seq_len
-    const int y = gid.y; // head_num
+    const int x = gid.x; // q_seq_len
+    const int y = gid.y; // head_num * batch
     const int z = gid.z; // head_dim
-    if (x >= param.query_seq_len || y >= param.head_num || z >= param.head_dim) {
+    int q_idx = seq_idx * param.q_seq_piece_len + x;
+    if (x >= param.q_seq_piece_len || q_idx >= param.query_seq_len || y >= param.head_num * param.batch || z >= param.head_dim) {
         return;
     }
     int group = param.group;
-    int yin = y / group;
     int q_seq_len = param.query_seq_len;
+    int q_seq_piece_len = param.q_seq_piece_len;
     int value_seq_len = param.key_seq_len;
     int head_num = param.head_num;
     int head_dim = param.head_dim;
+
+    int b = y / head_num;
+    int hn = y % head_num;
+
+    int yin = b * (head_num / group) + hn / group;
+
     const int stride = head_num * head_dim / group;
     const int offset_head = yin * head_dim + z;
 
-    device const T *A_offset = input0 + (y * q_seq_len + x) * value_seq_len;
+    // [mBatch, mNumHead, mSeqLen, mKvSeqLen]
+    device const T *A_offset = input0 + (y * q_seq_piece_len + x) * value_seq_len;
     device const T *B_offset = past_value + offset_head * param.max_kv_len;
     float out = 0.0;
     
@@ -574,14 +574,17 @@ kernel void prefill_qkv(const device T* input0 [[buffer(0)]],
         float B = (float)B_offset[i];
         out += A0 * B;
     }
-    output[ x * stride * group + (y * head_dim + z)] = out;
+    // [mBatch, mSeqLen, mNumHead, mHeadDim]
+    output[(b * q_seq_len + q_idx) * stride * group + (hn * head_dim + z)] = out;
 #endif
 }
 
 kernel void decode_qkv(const device T* input0 [[buffer(0)]],
     device T* output [[buffer(1)]],
     device T* past_value [[buffer(2)]],
-    constant Param& param [[buffer(3)]],
+    // docode actually not compute in block
+    constant int &seq_idx [[buffer(3)]],
+    constant Param& param [[buffer(4)]],
 #ifdef SIMD_GROUP_REDUCE
     uint3 gid[[threadgroup_position_in_grid]],
     uint  tiisg[[thread_index_in_simdgroup]],
@@ -591,16 +594,20 @@ kernel void decode_qkv(const device T* input0 [[buffer(0)]],
 #endif
 ) {
     const int x = gid.x; // query_seq_len
-    const int y = gid.y; // head_num
+    const int y = gid.y; // head_num * batch
     const int z = gid.z; // head_dim
-    if (x >= param.query_seq_len || y >= param.head_num || z >= param.head_dim) {
+    if (x >= param.query_seq_len || y >= param.head_num * param.batch || z >= param.head_dim) {
         return;
     }
-
-    int yin = y / param.group;
-    int value_seq_len = param.key_seq_len;
-
     int head_dim = param.head_dim;
+    int head_num = param.head_num;
+    int q_seq_len = param.query_seq_len;
+    int group = param.group;
+    int b = y / head_num;
+    int hn = y % head_num;
+
+    int yin = b * (head_num / group) + hn / group;
+    int value_seq_len = param.key_seq_len;
 
     const int offset_head = (yin * head_dim + z) * param.max_kv_len;
 
@@ -617,7 +624,8 @@ kernel void decode_qkv(const device T* input0 [[buffer(0)]],
     }
     out = simd_sum(out);
     if(tiisg == 0) {
-        output[(y * head_dim + z)] = (T)out;
+        // [mBatch, mSeqLen, mNumHead, mHeadDim]
+        output[((b * q_seq_len + x) * head_num + hn) * head_dim + z] = (T)out;
     }
 #else
     for(int i = 0; i < value_seq_len; i++){
@@ -626,7 +634,7 @@ kernel void decode_qkv(const device T* input0 [[buffer(0)]],
         
         out += A * B;
     }
-    output[(y * head_dim + z)] = (T)out;
+    output[((b * q_seq_len + x) * head_num + hn) * head_dim + z] = (T)out;
 #endif
 }
 )metal";

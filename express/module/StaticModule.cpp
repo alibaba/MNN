@@ -160,6 +160,22 @@ static std::vector<std::shared_ptr<BufferStorage>> preRearrangeWeights( // NOLIN
                 }
                 break;
             }
+            case MNN::OpType_LayerNorm: {
+                std::shared_ptr<BufferStorage> tmpstorage;
+                exe.reset(OpCommonUtils::createExecutionWithExternal(backend, info.inputs, info.outputs, op, &loader, tmpstorage));
+                if (exe.get() == nullptr) {
+                    exe.reset(OpCommonUtils::createExecutionWithExternal(backupBackend, info.inputs, info.outputs, op, &loader, tmpstorage));
+                }
+                if (nullptr == exe) {
+                    break;
+                }
+                // The exe can't clone
+                if (!exe->onClone(nullptr, op, nullptr)) {
+                    exe = nullptr;
+                    break;
+                }
+                break;
+            }
             default: {
                 break;
             }

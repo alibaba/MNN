@@ -277,22 +277,17 @@ ErrorCode Arm82Interp::onExecute(const std::vector<Tensor*>& inputs, const std::
     return NO_ERROR;
 }
 
-class Arm82InterpCreator : public Arm82Backend::Arm82Creator {
-    virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
-                                const MNN::Op* op, Backend* backend) const {
-        auto param = op->main_as_Interp();
-        // nearest and bilinear are supported
-        // TODO, support other resize types
-        if(param->resizeType() != 2 && param->resizeType() != 1){
-            return nullptr;
-        }
-        return new Arm82Interp(backend, param->widthScale(), param->heightScale(), param->resizeType(),
-                               param->widthOffset(), param->heightOffset());
+Execution* Arm82Interp::create(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+                         const MNN::Op* op, Backend* backend) {
+    auto param = op->main_as_Interp();
+    // nearest and bilinear are supported
+    // TODO, support other resize types
+    if(param->resizeType() != 2 && param->resizeType() != 1){
+        return nullptr;
     }
-};
-
-REGISTER_ARM82_OP_CREATOR(OpType_Interp, Arm82InterpCreator);
-
+    return new Arm82Interp(backend, param->widthScale(), param->heightScale(), param->resizeType(),
+                           param->widthOffset(), param->heightOffset());
+}
 } // namespace MNN
 
 #endif

@@ -97,13 +97,22 @@ computeAttention (
             }
         }
         /*---- Mask QK ----*/
-        float scale = 1.0 / sqrt(HeadDim);
-        for (int i = 0; i < seq_len; i++) {
-            for (int j = 0; j < kv_seq_len; j++) {
-                if (mask[i][j] == 1) {
+        if(mask.size() > 0) {
+            float scale = 1.0 / sqrt(HeadDim);
+            for (int i = 0; i < seq_len; i++) {
+                for (int j = 0; j < kv_seq_len; j++) {
+                    if (mask[i][j] == 1) {
+                        qk[i][j] *= scale;
+                    } else {
+                        qk[i][j] = std::numeric_limits<float>::lowest();
+                    }
+                }
+            }
+        } else {
+            float scale = 1.0 / sqrt(HeadDim);
+            for (int i = 0; i < seq_len; i++) {
+                for (int j = 0; j < kv_seq_len; j++) {
                     qk[i][j] *= scale;
-                } else {
-                    qk[i][j] = std::numeric_limits<float>::lowest();
                 }
             }
         }
@@ -217,32 +226,65 @@ public:
     
     virtual bool run(int precision) {
         srand(2024);
-        auto rt = ExecutorScope::Current()->getRuntime();
-        MNN::KVMeta meta;
-        for (auto& iter : rt.first) {
-            iter.second->pMeta = &meta;
+        // unit test 1
+        {
+            auto rt = ExecutorScope::Current()->getRuntime();
+            MNN::KVMeta meta;
+            for (auto& iter : rt.first) {
+                iter.second->pMeta = &meta;
+            }
+            std::shared_ptr<NaiveAttention> naiveAttention(new NaiveAttention);
+            std::shared_ptr<MNN::OpT> attention(new MNN::OpT);
+            attention->type = MNN::OpType_Attention;
+            attention->main.type = MNN::OpParameter_AttentionParam;
+            attention->main.value = new MNN::AttentionParamT;
+            attention->main.AsAttentionParam()->kv_cache = true;
+            int seq_len = 10;
+            meta.add = seq_len;
+            generateInput(seq_len);
+            generateMask(seq_len, seq_len);
+            expected_result = naiveAttention->onExecute(query, key, value, mask, seq_len);
+            Output = Variable::create(Expr::create(attention.get(), {Query, Key, Value, Mask}));
+            bool pass = compareResult(seq_len);
+            if (!pass) {
+                printf("Error: Attention with kv_cache unit test failed!\n");
+                return false;
+            }
         }
-        std::shared_ptr<NaiveAttention> naiveAttention(new NaiveAttention);
-        std::shared_ptr<MNN::OpT> attention(new MNN::OpT);
-        attention->type = MNN::OpType_Attention;
-        attention->main.type = MNN::OpParameter_AttentionParam;
-        attention->main.value = new MNN::AttentionParamT;
-        attention->main.AsAttentionParam()->kv_cache = true;
-        int seq_len = 10;
-        meta.add = seq_len;
-        generateInput(seq_len);
-        generateMask(seq_len, seq_len);
-        expected_result = naiveAttention->onExecute(query, key, value, mask, seq_len);
-        Output = Variable::create(Expr::create(attention.get(), {Query, Key, Value, Mask}));
-        bool pass = compareResult(seq_len);
-        if (pass) {
-            printf("CPU attention unit test passed!\n");
-        } else {
-            printf("Error: CPU attention unit test failed!\n");
+        // unit test 2
+        {
+            auto rtInfo = ExecutorScope::Current()->getRuntime().first;
+            bool cpuInfer = true;
+            for(auto &rt : rtInfo) {
+                if(rt.first != MNN_FORWARD_CPU) {
+                    cpuInfer = false;
+                    break;
+                }
+            }
+            if(cpuInfer) {
+                // TODO: CPU support kv_cache == false
+                return true;
+            }
+            std::shared_ptr<NaiveAttention> naiveAttention(new NaiveAttention);
+            std::shared_ptr<MNN::OpT> attention(new MNN::OpT);
+            attention->type = MNN::OpType_Attention;
+            attention->main.type = MNN::OpParameter_AttentionParam;
+            attention->main.value = new MNN::AttentionParamT;
+            attention->main.AsAttentionParam()->kv_cache = false;
+            int seq_len = 128;
+            generateInput(seq_len);
+            mask.clear();
+            expected_result = naiveAttention->onExecute(query, key, value, mask, seq_len);
+            Output = Variable::create(Expr::create(attention.get(), {Query, Key, Value}));
+            bool pass = compareResult(seq_len);
+            if (!pass) {
+                printf("Error: Attention without kv_cacheunit test failed!\n");
+                return false;
+            }
         }
-        return pass;
+        return true;
     }
 };
 
-MNNTestSuiteRegister(AttentionTest, "op/cpu_attention");
+MNNTestSuiteRegister(AttentionTest, "op/attention");
 #endif

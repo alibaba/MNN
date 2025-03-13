@@ -81,7 +81,7 @@
   - `checkFile.out` 测试两个文件是否一致
   - `winogradExample.out` winograd示例
   - `fuseTest` 测试 GPU 自定义算子的功能，目前仅支持 Vulkan Buffer 模式
-  - `GpuInterTest.out` 测试 GPU 内存输入的功能，目前仅支持 OpenCL Buffer 模式与 OpenGL texture 模式，编译时许打开 MNN_OPENCL 与 MNN_OPENGL
+  - `GpuInterTest.out` 测试 GPU 内存输入的功能，目前仅支持 OpenCL Buffer 模式与 OpenGL texture 模式，编译时需打开 MNN_OPENCL 与 MNN_OPENGL
   - `LoRA` 将LorA权重添加到模型权重中
 ## Benchmark工具
 - 相关编译选项
@@ -120,7 +120,7 @@
 ## MNN OpenCV库
 - 相关编译选项
   - `MNN_BUILD_OPENCV` 是否编译OpenCV函数接口
-  - `MNN_IMGCODECS` 是否编译OpenCV图像解码器
+  - `MNN_IMGCODECS` 是否编译OpenCV图像编解码器
   - `MNN_OPENCV_TEST` 是否编译OpenCV单元测试
   - `MNN_OPENCV_BENCH` 是否编译OpenCV性能测试
 - 编译命令

@@ -106,6 +106,9 @@ void Session::ModeGroup::setHint(Interpreter::HintMode mode, int hint) {
         case Interpreter::USE_CACHED_MMAP:
             runtimeHint.useCachedMmap = hint;
             break;
+        case Interpreter::INIT_THREAD_NUMBER:
+            runtimeHint.initThreadNumber = hint;
+            break;
         default:
             break;
     }

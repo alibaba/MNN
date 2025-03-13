@@ -14,7 +14,7 @@
 #include "CommonOptFunction.h"
 
 namespace MNN {
-
+typedef void (*weightSummerFuncion)(float* kernlesum, int8_t* source, size_t outside, size_t reduceAxis, size_t hP, size_t lP);
 class ConvInt8TiledExecutor : public CPUConvolution {
 public:
     // given weight+bias+scale, do post process
@@ -25,7 +25,7 @@ public:
     virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
     virtual void getPackParameter(int* Unit, int* SrcUnit, int* DestUnit, const CoreInt8Functions* core) = 0;
     static void packWeightAndQuantInfo(int8_t* dstbuffer, const int8_t* weight, const int8_t* quantInfo, int32_t* info, int infoBytes = 4);
-    static void reorderWeight(uint8_t* dst, const uint8_t* src, int32_t* info, int32_t initval = 0);
+    static void reorderWeight(uint8_t* dst, const uint8_t* src, int32_t* info, int32_t initval = 0, float* kernelsum = nullptr, weightSummerFuncion summerFunc = nullptr);
 
 protected:
     ConvolutionCommon::Im2ColParameter mIm2ColParamter;

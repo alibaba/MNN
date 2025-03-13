@@ -5,7 +5,7 @@ class Assembly():
         self.src_path = src_path
         self.dst_path = dst_path
         # instructions
-        self.ops = ['sdot', 'smmla', 'bfmmla', 'mov']
+        self.ops = ['sdot', 'udot', 'smmla', 'bfmmla', 'mov']
 
     def assembly(self):
         self.dst_content = []
@@ -81,6 +81,39 @@ class Assembly():
             return self.gen_inst(opcode, flag, Vm, Vn, Vd)
         else:
             opcode = list('01001110100') # different from the case with offset.
+            flag   = list('100101')
+            # set Q
+            if "2s" in Ta and "8b" in Tb:
+                opcode[1] = '0'
+            opcode = ''.join(opcode)
+            flag = ''.join(flag)
+            return self.gen_inst(opcode, flag, Vm, Vn, Vd)
+    
+    def udot(self, operand1, operand2, operand3):
+        # UDOT <Vd>.<Ta>, <Vn>.<Tb>, <Vm>.<Tc>[offset]
+        Vd, Ta = self.operand_spilt(operand1)
+        Vn, Tb = self.operand_spilt(operand2)
+        Vm, Tc = self.operand_spilt(operand3)
+        if "[" in Tc:
+            # other flag:
+            # offset = flag[4] * 2 + opcode[-1]
+            # dst == '4s' ? opcode[1] = 1 : opcode[1] = 0
+            Tc, offset = self.t_split(Tc)
+            opcode = list('01101111100')
+            flag = list('111000')
+            # set Q
+            if Ta == '2s' and Tb == '8b':
+                opcode[1] = '0'
+            # set offset
+            if offset == 1 or offset == 3:
+                opcode[-1] = '1'
+            if offset == 2 or offset == 3:
+                flag[4] = '1'
+            opcode = ''.join(opcode)
+            flag = ''.join(flag)
+            return self.gen_inst(opcode, flag, Vm, Vn, Vd)
+        else:
+            opcode = list('01101110100') # different from the case with offset.
             flag   = list('100101')
             # set Q
             if "2s" in Ta and "8b" in Tb:

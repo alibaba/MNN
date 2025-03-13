@@ -36,13 +36,13 @@ void display_progress(int cur, int total){
     fflush(stdout);
 }
 
-Diffusion* Diffusion::createDiffusion(std::string modelPath, DiffusionModelType modelType, MNNForwardType backendType, int memoryMode, int iterationNum) {
-    Diffusion* diffusion = new Diffusion(modelPath, modelType, backendType, memoryMode, iterationNum);
+Diffusion* Diffusion::createDiffusion(std::string modelPath, DiffusionModelType modelType, MNNForwardType backendType, int memoryMode) {
+    Diffusion* diffusion = new Diffusion(modelPath, modelType, backendType, memoryMode);
     return diffusion;
 }
     
-Diffusion::Diffusion(std::string modelPath, DiffusionModelType modelType, MNNForwardType backendType, int memoryMode, int iterationNum) :
-mModelPath(modelPath), mModelType(modelType), mBackendType(backendType), mMemoryMode(memoryMode), mIterationNum(iterationNum) {
+Diffusion::Diffusion(std::string modelPath, DiffusionModelType modelType, MNNForwardType backendType, int memoryMode) :
+mModelPath(modelPath), mModelType(modelType), mBackendType(backendType), mMemoryMode(memoryMode) {
     if(modelType == STABLE_DIFFUSION_1_5) {
         mMaxTextLen = 77;
     } else if(modelType == STABLE_DIFFUSION_TAIYI_CHINESE) {
@@ -53,19 +53,6 @@ mModelPath(modelPath), mModelType(modelType), mBackendType(backendType), mMemory
     float alpha;
     while (alphaFile >> alpha) {
         mAlphas.push_back(alpha);
-    }
-    if(iterationNum > 50) {
-        iterationNum = 50;
-        MNN_PRINT("too much number of iterations, iterations will be set to 50.\n");
-    }
-    if(iterationNum < 1) {
-        iterationNum = 10;
-        MNN_PRINT("illegal number of iterations, iterations will be set to 10.\n");
-    }
-    mTimeSteps.resize(iterationNum + 1);
-    int step = 1000 / (iterationNum + 1);
-    for(int i = iterationNum; i >= 0; i--) {
-        mTimeSteps[i] = 1 + (iterationNum - i) * step;
     }
 }
     
@@ -80,15 +67,13 @@ bool Diffusion::load() {
     BackendConfig backendConfig;
     config.type = mBackendType;
     if(config.type == MNN_FORWARD_CPU) {
-        backendConfig.memory = BackendConfig::Memory_Low;
         config.numThread = 4;
     } else if(config.type == MNN_FORWARD_OPENCL) {
-        backendConfig.memory = BackendConfig::Memory_Low;
         config.mode = MNN_GPU_MEMORY_BUFFER | MNN_GPU_TUNING_FAST;
     } else {
         config.numThread = 1;
     }
-    
+    backendConfig.memory = BackendConfig::Memory_Low;
     backendConfig.precision = BackendConfig::Precision_Low;
     config.backendConfig = &backendConfig;
     
@@ -105,7 +90,12 @@ bool Diffusion::load() {
         const char* cacheFileName = ".tempcache";
         runtime_manager_->setCache(cacheFileName);
     }
-    
+    // need to consider memory
+    if(mMemoryMode == 0) {
+        runtime_manager_->setHint(Interpreter::WINOGRAD_MEMORY_LEVEL, 0);
+    } else if(mMemoryMode == 2) {
+        runtime_manager_->setHint(Interpreter::WINOGRAD_MEMORY_LEVEL, 1);
+    }
     mLatentVar = _Input({1, 4, 64, 64}, NCHW, halide_type_of<float>());
     mPromptVar = _Input({2, mMaxTextLen}, NCHW, halide_type_of<int>());
     mTimestepVar = _Input({1}, NCHW, halide_type_of<int>());
@@ -123,12 +113,6 @@ bool Diffusion::load() {
         MNN_PRINT("Load %s\n", model_path.c_str());
         mModules[0].reset(Module::load(
                                        {"input_ids"}, {"last_hidden_state", "pooler_output"}, model_path.c_str(), runtime_manager_, &module_config));
-        
-        if(mMemoryMode > 0) {
-            auto outputs = mModules[0]->onForward({mPromptVar});
-            text_embeddings = _Convert(outputs[0], NCHW);
-        }
-        display_progress(1, 3);
     }
     // load unet model
     {
@@ -136,12 +120,6 @@ bool Diffusion::load() {
         MNN_PRINT("Load %s\n", model_path.c_str());
         mModules[1].reset(Module::load(
                                        {"sample", "timestep", "encoder_hidden_states"}, {"out_sample"}, model_path.c_str(), runtime_manager_, &module_config));
-        
-        if(mMemoryMode > 0) {
-            auto outputs = mModules[1]->onForward({mSampleVar, mTimestepVar, text_embeddings});
-            auto output = _Convert(outputs[0], NCHW);
-        }
-        display_progress(2, 3);
     }
     // load vae_decoder model
     {
@@ -149,14 +127,6 @@ bool Diffusion::load() {
         MNN_PRINT("Load %s\n", model_path.c_str());
         mModules[2].reset(Module::load(
                                        {"latent_sample"}, {"sample"}, model_path.c_str(), runtime_manager_, &module_config));
-        
-        if(mMemoryMode > 0) {
-            auto outputs = mModules[2]->onForward({mLatentVar});
-            auto output = _Convert(outputs[0], NCHW);
-            // sync
-            output->readMap<float>();
-        }
-        display_progress(3, 3);
     }
     
     // tokenizer loading
@@ -166,6 +136,33 @@ bool Diffusion::load() {
         mTokenizer.reset(new BertTokenizer);
     }
     mTokenizer->load(mModelPath);
+    
+    // Resize fix
+    for (auto& m : mModules) {
+        m->traceOrOptimize(MNN::Interpreter::Session_Resize_Fix);
+    }
+    // text encoder
+    {
+        auto outputs = mModules[0]->onForward({mPromptVar});
+        text_embeddings = _Convert(outputs[0], NCHW);
+    }
+    
+    if(mMemoryMode > 0) {
+        // unet
+        {
+            auto outputs = mModules[1]->onForward({mSampleVar, mTimestepVar, text_embeddings});
+            auto output = _Convert(outputs[0], NCHW);
+            output->readMap<float>();
+        }
+    }
+    if(mMemoryMode == 1) {
+        // vae decoder
+        {
+            auto outputs = mModules[2]->onForward({mLatentVar});
+            auto output = _Convert(outputs[0], NCHW);
+            output->readMap<float>();
+        }
+    }
     
     return true;
 }
@@ -227,8 +224,8 @@ VARP Diffusion::step_plms(VARP sample, VARP model_output, int index) {
     return prev_sample;
 }
 
-VARP Diffusion::unet(VARP text_embeddings, std::function<void(int)> progressCallback) {
-    if(mMemoryMode == 0) {
+VARP Diffusion::unet(VARP text_embeddings, int iterNum, int randomSeed, std::function<void(int)> progressCallback) {
+    if(mMemoryMode != 1) {
         mModules[0].reset();
     }
     if(mInitNoise.size() != 16384) {
@@ -242,8 +239,10 @@ VARP Diffusion::unet(VARP text_embeddings, std::function<void(int)> progressCall
         input >> mInitNoise[i];
     }
 #else
+    int seed = randomSeed < 0 ? std::random_device()() : randomSeed;
     std::mt19937 rng;
-    rng.seed(std::random_device()());
+    rng.seed(seed);
+    
     std::normal_distribution<float> normal(0, 1);
     for (int i = 0; i < 16384; i++) {
         mInitNoise[i] = normal(rng);
@@ -300,7 +299,7 @@ VARP Diffusion::unet(VARP text_embeddings, std::function<void(int)> progressCall
         MNN_PRINT("\n\n");
 #endif
         if (progressCallback) {
-            progressCallback((2 + i) * 100 / (mIterationNum + 3)); // percent
+            progressCallback((2 + i) * 100 / (iterNum + 3)); // percent
         }
         
     }
@@ -317,7 +316,7 @@ VARP Diffusion::unet(VARP text_embeddings, std::function<void(int)> progressCall
 }
 
 VARP Diffusion::vae_decoder(VARP latent) {
-    if(mMemoryMode == 0) {
+    if(mMemoryMode != 1) {
         mModules[1].reset();
     }
     latent = latent * _Const(1 / 0.18215);
@@ -343,17 +342,31 @@ VARP Diffusion::vae_decoder(VARP latent) {
     return image;
 }
 
-bool Diffusion::run(const std::string prompt, const std::string imagePath, std::function<void(int)> progressCallback) {
+bool Diffusion::run(const std::string prompt, const std::string imagePath, int iterNum, int randomSeed, std::function<void(int)> progressCallback) {
     AUTOTIME;
     mEts.clear();
  
+    if(iterNum > 50) {
+        iterNum = 50;
+        MNN_PRINT("too much number of iterations, iterations will be set to 50.\n");
+    }
+    if(iterNum < 1) {
+        iterNum = 10;
+        MNN_PRINT("illegal number of iterations, iterations will be set to 10.\n");
+    }
+    mTimeSteps.resize(iterNum + 1);
+    int step = 1000 / (iterNum + 1);
+    for(int i = iterNum; i >= 0; i--) {
+        mTimeSteps[i] = 1 + (iterNum - i) * step;
+    }
+
     auto ids = mTokenizer->encode(prompt, mMaxTextLen);
     auto text_embeddings = text_encoder(ids);
     
     if (progressCallback) {
-        progressCallback(1 * 100 / (mIterationNum + 3)); // percent
+        progressCallback(1 * 100 / (iterNum + 3)); // percent
     }
-    auto latent = unet(text_embeddings, progressCallback);
+    auto latent = unet(text_embeddings, iterNum, randomSeed, progressCallback);
     
     auto image = vae_decoder(latent);
     bool res = imwrite(imagePath, image);
@@ -361,7 +374,7 @@ bool Diffusion::run(const std::string prompt, const std::string imagePath, std::
         MNN_PRINT("SUCCESS! write generated image to %s\n", imagePath.c_str());
     }
 
-    if(mMemoryMode == 0) {
+    if(mMemoryMode != 1) {
         mModules[2].reset();
     }
     

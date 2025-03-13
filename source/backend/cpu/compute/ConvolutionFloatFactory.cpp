@@ -144,7 +144,7 @@ Execution* ConvolutionFloatFactory::create(const std::vector<Tensor*>& inputs, c
         originWeight     = op->main_as_Convolution2D()->weight()->data();
         originWeightSize = op->main_as_Convolution2D()->weight()->size();
     }
-    if (nullptr == originBias) {
+    if (nullptr == originBias && op->main_as_Convolution2D()->bias()) {
         originBias     = op->main_as_Convolution2D()->bias()->data();
         originBiasSize = op->main_as_Convolution2D()->bias()->size();
     }

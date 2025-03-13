@@ -4,6 +4,7 @@
 #include <cmath>
 #include <unordered_map>
 
+#include <MNN/AutoTime.hpp>
 #include <MNN/expr/Executor.hpp>
 #include <MNN/expr/ExecutorScope.hpp>
 
@@ -467,15 +468,14 @@ int Sampler::handleSelect(struct SubsetLogits subset) {
 }
 
 int Sampler::sample(Express::VARP logits) {
-    auto st = std::chrono::system_clock::now();
+    Timer _t;
     struct SubsetLogits subset = createSubsetLogits(logits);
     // process subsetSampler
     subset = subsetSampler(mConfig.type, subset);
     // select token from the subset
     int res = handleSelect(subset);
     Express::ExecutorScope::Current()->gc(Express::Executor::FULL);
-    auto et = std::chrono::system_clock::now();
-    mContext->sample_us += std::chrono::duration_cast<std::chrono::microseconds>(et - st).count();
+    mContext->sample_us += _t.durationInUs();
     return res;
 }
 

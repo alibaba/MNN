@@ -207,7 +207,7 @@ public:
         }
         if (op->type() == OpType_Convolution) {
             auto input = inputs[0];
-            if (MetalConvolutionWinograd::isValid(conv, inputs[0], outputs[0])) {
+            if (MetalConvolutionWinograd::isValid(backend, conv, inputs[0], outputs[0])) {
                 return new MetalConvolutionWinograd(backend, op);
             }
             if (MetalConvolution1x1::isValid(conv, input)) {

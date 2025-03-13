@@ -938,7 +938,7 @@ struct IDSTQuanT : public flatbuffers::NativeTable {
   float quantScale;
   float scaleIn;
   float scaleOut;
-  int32_t aMax;
+  int32_t aMaxOrBits;
   int32_t aMin;
   int32_t readType;
   bool has_scaleInt;
@@ -951,7 +951,7 @@ struct IDSTQuanT : public flatbuffers::NativeTable {
         quantScale(0.0f),
         scaleIn(0.0f),
         scaleOut(0.0f),
-        aMax(0),
+        aMaxOrBits(0),
         aMin(0),
         readType(0),
         has_scaleInt(false),
@@ -986,7 +986,7 @@ struct IDSTQuan FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   float scaleOut() const {
     return GetField<float>(16, 0.0f);
   }
-  int32_t aMax() const {
+  int32_t aMaxOrBits() const {
     return GetField<int32_t>(18, 0);
   }
   int32_t aMin() const {
@@ -1057,8 +1057,8 @@ struct IDSTQuanBuilder {
   void add_scaleOut(float scaleOut) {
     fbb_.AddElement<float>(16, scaleOut, 0.0f);
   }
-  void add_aMax(int32_t aMax) {
-    fbb_.AddElement<int32_t>(18, aMax, 0);
+  void add_aMaxOrBits(int32_t aMaxOrBits) {
+    fbb_.AddElement<int32_t>(18, aMaxOrBits, 0);
   }
   void add_aMin(int32_t aMin) {
     fbb_.AddElement<int32_t>(20, aMin, 0);
@@ -1099,7 +1099,7 @@ inline flatbuffers::Offset<IDSTQuan> CreateIDSTQuan(
     float quantScale = 0.0f,
     float scaleIn = 0.0f,
     float scaleOut = 0.0f,
-    int32_t aMax = 0,
+    int32_t aMaxOrBits = 0,
     int32_t aMin = 0,
     int32_t readType = 0,
     bool has_scaleInt = false,
@@ -1111,7 +1111,7 @@ inline flatbuffers::Offset<IDSTQuan> CreateIDSTQuan(
   builder_.add_weightSize(weightSize);
   builder_.add_readType(readType);
   builder_.add_aMin(aMin);
-  builder_.add_aMax(aMax);
+  builder_.add_aMaxOrBits(aMaxOrBits);
   builder_.add_scaleOut(scaleOut);
   builder_.add_scaleIn(scaleIn);
   builder_.add_quantScale(quantScale);
@@ -4441,7 +4441,7 @@ inline void IDSTQuan::UnPackTo(IDSTQuanT *_o, const flatbuffers::resolver_functi
   { auto _e = quantScale(); _o->quantScale = _e; };
   { auto _e = scaleIn(); _o->scaleIn = _e; };
   { auto _e = scaleOut(); _o->scaleOut = _e; };
-  { auto _e = aMax(); _o->aMax = _e; };
+  { auto _e = aMaxOrBits(); _o->aMaxOrBits = _e; };
   { auto _e = aMin(); _o->aMin = _e; };
   { auto _e = readType(); _o->readType = _e; };
   { auto _e = has_scaleInt(); _o->has_scaleInt = _e; };
@@ -4465,7 +4465,7 @@ inline flatbuffers::Offset<IDSTQuan> CreateIDSTQuan(flatbuffers::FlatBufferBuild
   auto _quantScale = _o->quantScale;
   auto _scaleIn = _o->scaleIn;
   auto _scaleOut = _o->scaleOut;
-  auto _aMax = _o->aMax;
+  auto _aMaxOrBits = _o->aMaxOrBits;
   auto _aMin = _o->aMin;
   auto _readType = _o->readType;
   auto _has_scaleInt = _o->has_scaleInt;
@@ -4481,7 +4481,7 @@ inline flatbuffers::Offset<IDSTQuan> CreateIDSTQuan(flatbuffers::FlatBufferBuild
       _quantScale,
       _scaleIn,
       _scaleOut,
-      _aMax,
+      _aMaxOrBits,
       _aMin,
       _readType,
       _has_scaleInt,
@@ -5991,7 +5991,7 @@ inline const flatbuffers::TypeTable *IDSTQuanTypeTable() {
     "quantScale",
     "scaleIn",
     "scaleOut",
-    "aMax",
+    "aMaxOrBits",
     "aMin",
     "readType",
     "has_scaleInt",

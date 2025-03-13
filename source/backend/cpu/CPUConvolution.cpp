@@ -169,7 +169,7 @@ std::shared_ptr<CPUConvolution::ResourceInt8> CPUConvolution::makeResourceInt8(B
         }
     }
     resource->mOriginBias.reset(Tensor::createDevice<int32_t>({quanCount}));
-    resource->mOriginScale.reset(Tensor::createDevice<uint8_t>({quanCount * core->bytes}));
+    resource->mOriginScale.reset(Tensor::createDevice<uint8_t>({2 * quanCount * core->bytes}));
     resource->mWeightQuantZero.reset(Tensor::createDevice<int32_t>({quanCount}));
     auto allocRes = backend->onAcquireBuffer(resource->mOriginBias.get(), Backend::STATIC);
     allocRes &= backend->onAcquireBuffer(resource->mOriginScale.get(), Backend::STATIC);

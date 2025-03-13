@@ -303,7 +303,7 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
      )
     (
      "transformerFuse",
-     "fuse attention op, like fmhaV2/fmhca/splitGelu/groupNorm. default: false",
+     "fuse key transformer op, like attention. default: false",
      cxxopts::value<bool>()
      )
      (
@@ -934,6 +934,8 @@ int Cli::testconvert(const std::string& defaultCacheFile, const std::string& dir
     for (int v=0; v<hints.size()/2; ++v) {
         rtmgr->setHint((Interpreter::HintMode)hints[2*v], hints[2*v+1]);
     }
+    rtmgr->setHint(MNN::Interpreter::INIT_THREAD_NUMBER, 2);
+
     rtmgr->setExternalFile("./convert_cache.mnn.weight");
     std::shared_ptr<MNN::Express::Module> net(MNN::Express::Module::load(inputNames, outputNames, defaultCacheFile.c_str(), rtmgr, &mConfig));
     std::shared_ptr<MNN::Express::Module> net2;

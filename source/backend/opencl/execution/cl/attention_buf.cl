@@ -58,8 +58,10 @@ __kernel void rearrange_qkv(GLOBAL_SIZE_3_DIMS
                               __global FLOAT *output_q, // [batch*headNum, ROUND_UP(headDim, mTileHDK), ROUND_UP(seqLenQ, mTileQ)]
                               __global FLOAT *output_k, // [batch*headNum/group, ROUND_UP(headDim, mTileHDK), ROUND_UP(seqLenKV, mTileKV)]
                               __global FLOAT *output_v, // [batch*headNum/group, ROUND_UP(seqLenKV, mTileKV), ROUND_UP(headDim, mTileHDN)]
+                              #ifdef SAVE_KV
                               __global FLOAT *past_k, // [batch, headNum/group, headDim, seqLenKV_4]
                               __global FLOAT *past_v, // [batch, headNum/group, seqLenKV_4, headDim]
+                              #endif
                               __private const int4 tile, // [mTileQ, mTileKV, mTileHDK, mTileHDN]
                               __private const int4 shape,// [seqLenQ, seqLenKV, headNum, headDim]
                               __private const int4 param, // [group, batch, max_len, past_len]
@@ -152,10 +154,12 @@ __kernel void rearrange_qkv(GLOBAL_SIZE_3_DIMS
             vstore4(key3, 0, output_k + out_offset_k + 3 * seqLenPackKV);
             
             // pastK
+            #ifdef SAVE_KV
             vstore4(key0, 0, past_k + past_offset_k);
             vstore4(key1, 0, past_k + past_offset_k + maxLenKV);
             vstore4(key2, 0, past_k + past_offset_k + 2*maxLenKV);
             vstore4(key3, 0, past_k + past_offset_k + 3*maxLenKV);
+            #endif
         }
         
     }
@@ -185,10 +189,12 @@ __kernel void rearrange_qkv(GLOBAL_SIZE_3_DIMS
             vstore4(temp_3, 0, output_v + out_offset_v + 3 * headDimPackV);
             
             // pastV
+            #ifdef SAVE_KV
             vstore4(temp_0, 0, past_v + past_offset_v);
             vstore4(temp_1, 0, past_v + past_offset_v + headDim);
             vstore4(temp_2, 0, past_v + past_offset_v + 2*headDim);
             vstore4(temp_3, 0, past_v + past_offset_v + 3*headDim);
+            #endif
         }
         
     }
@@ -299,28 +305,33 @@ __kernel void qkv_transpose_output(GLOBAL_SIZE_3_DIMS
 #endif
 
 __kernel void rearrange_q(GLOBAL_SIZE_3_DIMS
-                              __global const FLOAT *query, // [1 query_seq_len head_num head_dim]
-                              __global FLOAT *query_tmp, // [1 head_num head_dim key_seq_len4]
+                              __global const FLOAT *query, // [batch query_seq_len head_num head_dim]
+                              __global FLOAT *query_tmp, // [batch head_num head_dim_4 query_seq_len_4]
                               __private const int seq_len,
                               __private const int head_dim,
                               __private const int head_num) {
-                                  
-    const int x = get_global_id(0); // query_seq_len
-    const int y = get_global_id(1); // head_dim
-    const int z = get_global_id(2); // head_num
+    /*
+     the kernel assume head_dim is multiple of 4.
+     */
+    const int x = get_global_id(0); // query_seq_len/4
+    const int y = get_global_id(1); // head_dim/4
+    int z = get_global_id(2);
     DEAL_NON_UNIFORM_DIM3(x, y, z);
+    
+    const int b = z / head_num;// batch
+    z = z % head_num;// head_num
     
     const int x4 = x << 2;
     const int y4 = y << 2;
     const int seq_len4 = (seq_len + 3) / 4 * 4;;
     const int stride = head_num * head_dim;
-    int query_offset = (x4 * head_num + z) * head_dim + y4;
+    int query_offset = ((b * seq_len + x4) * head_num + z) * head_dim + y4;
     FLOAT4 query_vec0 = vload4(0, query + query_offset); query_offset += stride;
     FLOAT4 query_vec1 = (x4 + 1 >= seq_len) ? (FLOAT4)0 : vload4(0, query + query_offset); query_offset += stride;
     FLOAT4 query_vec2 = (x4 + 2 >= seq_len) ? (FLOAT4)0 : vload4(0, query + query_offset); query_offset += stride;
     FLOAT4 query_vec3 = (x4 + 3 >= seq_len) ? (FLOAT4)0 : vload4(0, query + query_offset);
     
-    const int queryout_offset = (z * head_dim + y4) * seq_len4 + x4;
+    const int queryout_offset = ((b * head_num + z) * head_dim + y4) * seq_len4 + x4;
     vstore4((FLOAT4)(query_vec0.s0, query_vec1.s0, query_vec2.s0, query_vec3.s0), 0, query_tmp + queryout_offset);
     vstore4((FLOAT4)(query_vec0.s1, query_vec1.s1, query_vec2.s1, query_vec3.s1), 0, query_tmp + queryout_offset + seq_len4);
     vstore4((FLOAT4)(query_vec0.s2, query_vec1.s2, query_vec2.s2, query_vec3.s2), 0, query_tmp + queryout_offset + seq_len4 + seq_len4);
@@ -328,8 +339,8 @@ __kernel void rearrange_q(GLOBAL_SIZE_3_DIMS
 }
 
 __kernel void rearrange_k(GLOBAL_SIZE_3_DIMS
-                              __global const FLOAT *key, // [1 key_seq_len kv_head_num head_dim]
-                              __global FLOAT *past_key, // [1 kv_head_num head_dim max_length]
+                              __global const FLOAT *key, // [batch key_seq_len kv_head_num head_dim]
+                              __global FLOAT *past_key, // [batch kv_head_num head_dim max_length]
                               __private const int past_len, // prefill = 0, decode = past_key len
                               __private const int max_len,
                               __private const int seq_len,
@@ -339,27 +350,29 @@ __kernel void rearrange_k(GLOBAL_SIZE_3_DIMS
                                   
     const int x = get_global_id(0); // seq_len decode = 1
     const int y = get_global_id(1); // head_dim
-    const int z = get_global_id(2); // kv_head_num
+    int z = get_global_id(2); //
     DEAL_NON_UNIFORM_DIM3(x, y, z);
     
+    const int b = z / kv_head_num;
+    z = z % kv_head_num;
     const int y4 = y << 2;
     
 #ifdef OPENCL_PREFILL_ATTENTION
     const int x4 = x << 2;
     const int stride = kv_head_num * head_dim;
-    int key_offset = (x4 * kv_head_num + z) * head_dim + y4;
+    int key_offset = ((b * seq_len + x4) * kv_head_num + z) * head_dim + y4;
     FLOAT4 key_vec0 = vload4(0, key + key_offset); key_offset += stride;
     FLOAT4 key_vec1 = (x4 + 1 >= seq_len) ? (FLOAT4)0 : vload4(0, key + key_offset); key_offset += stride;
     FLOAT4 key_vec2 = (x4 + 2 >= seq_len) ? (FLOAT4)0 : vload4(0, key + key_offset); key_offset += stride;
     FLOAT4 key_vec3 = (x4 + 3 >= seq_len) ? (FLOAT4)0 : vload4(0, key + key_offset);
-    const int output_offset = (z * head_dim + y4) * max_len + past_len + x4;
+    const int output_offset = ((b * kv_head_num + z) * head_dim + y4) * max_len + past_len + x4;
     vstore4((FLOAT4)(key_vec0.s0, key_vec1.s0, key_vec2.s0, key_vec3.s0), 0, past_key + output_offset);
     vstore4((FLOAT4)(key_vec0.s1, key_vec1.s1, key_vec2.s1, key_vec3.s1), 0, past_key + output_offset + max_len);
     vstore4((FLOAT4)(key_vec0.s2, key_vec1.s2, key_vec2.s2, key_vec3.s2), 0, past_key + output_offset + max_len + max_len);
     vstore4((FLOAT4)(key_vec0.s3, key_vec1.s3, key_vec2.s3, key_vec3.s3), 0, past_key + output_offset + max_len + max_len + max_len);
 #else
-    FLOAT4 key_vec = vload4(0, key + z * head_dim + y4);
-    const int output_offset = (z * head_dim + y4) * max_len + past_len - 1;
+    FLOAT4 key_vec = vload4(0, key + (b * kv_head_num + z) * head_dim + y4);
+    const int output_offset = ((b * kv_head_num + z) * head_dim + y4) * max_len + past_len - 1;
     past_key[output_offset] = key_vec.s0;
     past_key[output_offset + max_len] = key_vec.s1;
     past_key[output_offset + max_len + max_len] = key_vec.s2;
@@ -368,8 +381,8 @@ __kernel void rearrange_k(GLOBAL_SIZE_3_DIMS
 }
 
 __kernel void rearrange_v(GLOBAL_SIZE_3_DIMS
-                              __global const FLOAT *value, // [1 value_seq_len kv_head_num head_dim]
-                              __global FLOAT *past_value, // [1 kv_head_num max_length head_dim]
+                              __global const FLOAT *value, // [batch value_seq_len kv_head_num head_dim]
+                              __global FLOAT *past_value, // [batch kv_head_num max_length head_dim]
                               __private const int past_len,
                               __private const int max_len,
                               __private const int seq_len,
@@ -378,40 +391,42 @@ __kernel void rearrange_v(GLOBAL_SIZE_3_DIMS
                                   
     const int x = get_global_id(0); // head_dim
     const int y = get_global_id(1); // seq_len decode = 1
-    const int z = get_global_id(2); // kv_head_num
+    int z = get_global_id(2); // kv_head_num
     DEAL_NON_UNIFORM_DIM3(x, y, z);
     
+    const int b = z / kv_head_num;
+    z = z % kv_head_num;
     const int x4 = x << 2;
     
 #ifdef OPENCL_PREFILL_ATTENTION
     const int y4 = y << 2;
     const int stride = kv_head_num * head_dim;
-    int value_offset = (y4 * kv_head_num + z) * head_dim + x4;
+    int value_offset = ((b * seq_len + y4) * kv_head_num + z) * head_dim + x4;
     FLOAT4 value_vec0 = vload4(0, value + value_offset); value_offset += stride;
     FLOAT4 value_vec1 = (y4 + 1 >= seq_len) ? (FLOAT4)0 : vload4(0, value + value_offset); value_offset += stride;
     FLOAT4 value_vec2 = (y4 + 2 >= seq_len) ? (FLOAT4)0 : vload4(0, value + value_offset); value_offset += stride;
     FLOAT4 value_vec3 = (y4 + 3 >= seq_len) ? (FLOAT4)0 : vload4(0, value + value_offset);
-    const int output_offset = (z * max_len + past_len + y4) * head_dim + x4;
+    const int output_offset = ((b * kv_head_num + z) * max_len + past_len + y4) * head_dim + x4;
     vstore4(value_vec0, 0, past_value + output_offset);
     vstore4(value_vec1, 0, past_value + output_offset + head_dim);
     vstore4(value_vec2, 0, past_value + output_offset + head_dim + head_dim);
     vstore4(value_vec3, 0, past_value + output_offset + head_dim + head_dim + head_dim);
 #else
-    FLOAT4 value_vec = vload4(0, value + z * head_dim + x4);
-    const int output_offset = (z * max_len + past_len - 1) * head_dim + x4;
+    FLOAT4 value_vec = vload4(0, value + (b * kv_head_num + z) * head_dim + x4);
+    const int output_offset = ((b * kv_head_num + z) * max_len + past_len - 1) * head_dim + x4;
     vstore4(value_vec, 0, past_value + output_offset);
 #endif
 }
 
 __kernel void matmul_qk_div_mask_prefill(GLOBAL_SIZE_3_DIMS
-                              __global const FLOAT *query, // [1 head_num head_dim query_seq_len]
-                              __global const FLOAT *past_key, // [1 head_num head_dim max_length]
+                              __global const FLOAT *query, // [batch head_num head_dim_4 query_seq_len_4]
+                              __global const FLOAT *past_key, // [batch kv_head_num head_dim_4 kv_max_length]
                               #ifdef ADD_MASK
                               __global const FLOAT* mask,
-                              #else
+                              #elif defined(SET_MASK)
                               __global const int* mask, // [1 1 query_seq_len key_seq_len]
                               #endif
-                              __global FLOAT *qk, // [1 head_num key_seq_len query_seq_len]
+                              __global FLOAT *qk, // [batch head_num kv_seq_length query_seq_len_4]
                               __private const float scale,
                               __private const int query_seq_len,
                               __private const int key_seq_len,
@@ -420,9 +435,10 @@ __kernel void matmul_qk_div_mask_prefill(GLOBAL_SIZE_3_DIMS
                               __private const int head_dim) {
                                   
     const int x = get_global_id(0); // query_seq_len
-    const int y = get_global_id(1); // key_seq_len
-    const int z = get_global_id(2); // head_num
+    const int y = get_global_id(1); // kv_seq_length
+    const int z = get_global_id(2); // head_num * batch
     DEAL_NON_UNIFORM_DIM3(x, y, z);
+    
     const int x4 = x << 2;
     const int y4 = y << 2;
     
@@ -468,6 +484,7 @@ __kernel void matmul_qk_div_mask_prefill(GLOBAL_SIZE_3_DIMS
     out2 *= (float4)scale;
     out3 *= (float4)scale;
     {
+        #if defined(ADD_MASK) || defined(SET_MASK)
         int mask_offset = x4 * key_seq_len + y4;
         float4 mask_tmp0 = convert_float4(vload4(0, mask + mask_offset)); mask_offset += key_seq_len;
         float4 mask_tmp1 = (x4 + 1 >= query_seq_len) ? (float4)0 : convert_float4(vload4(0, mask + mask_offset)); mask_offset += key_seq_len;
@@ -477,12 +494,14 @@ __kernel void matmul_qk_div_mask_prefill(GLOBAL_SIZE_3_DIMS
         float4 mask1 = (float4)(mask_tmp0.s1, mask_tmp1.s1, mask_tmp2.s1, mask_tmp3.s1);
         float4 mask2 = (float4)(mask_tmp0.s2, mask_tmp1.s2, mask_tmp2.s2, mask_tmp3.s2);
         float4 mask3 = (float4)(mask_tmp0.s3, mask_tmp1.s3, mask_tmp2.s3, mask_tmp3.s3);
+        #endif
+        
         #ifdef ADD_MASK
         out0 += mask0;
         out1 += mask1;
         out2 += mask2;
         out3 += mask3;
-        #else
+        #elif defined(SET_MASK)
         out0 = (mask0 == (float4)0) ? (float4)(-FLT_MAX) : out0;
         out1 = (mask1 == (float4)0) ? (float4)(-FLT_MAX) : out1;
         out2 = (mask2 == (float4)0) ? (float4)(-FLT_MAX) : out2;
@@ -550,36 +569,38 @@ __kernel void matmul_qk_decode(GLOBAL_SIZE_2_DIMS
 }
 
 __kernel void matmul_qkv_prefill(GLOBAL_SIZE_3_DIMS
-                              __global const FLOAT *qk, // qk prefill [1 head_num qk_seq_len value_seq_len]
-                              __global const FLOAT *past_value, // [1 head_num max_len head_dim]
-                              __global FLOAT *output, // [1 value_seq_len head_num head_dim]
-                              __private const int qk_seq_len,
-                              __private const int value_seq_len,
+                              __global const FLOAT *qk, // qk prefill [batch head_num kv_seq_length query_seq_len]
+                              __global const FLOAT *past_value, // [batch kv_head_num max_len head_dim]
+                              __global FLOAT *output, // [batch query_seq_len head_num head_dim]
+                              __private const int query_seq_len,
+                              __private const int kv_seq_len,
                               __private const int max_len,
                               __private const int head_num,
                               __private const int kv_head_num,
                               __private const int head_dim) {
                                   
     const int x = get_global_id(0); // head_dim
-    const int y = get_global_id(1); // qk_seq_len
-    const int z = get_global_id(2); // head_num
+    const int y = get_global_id(1); // query_seq_len
+    int z = get_global_id(2); // head_num * batch
     
     DEAL_NON_UNIFORM_DIM3(x, y, z);
+    const int b = z / head_num;
+    z = z % head_num;
     const int x8 = x << 3;
     const int y4 = y << 2;
     
-    const int qk_seq_len4 = (qk_seq_len + 3) / 4 * 4;
-    const int qk_offset = z * value_seq_len * qk_seq_len4 + y4;
-    const int past_offset = ((z / NUMHEAD_GROUP_SIZE) * max_len) * head_dim + x8;
-    const int loop_end = max(value_seq_len / 4 - 1, 0);
+    const int query_seq_len4 = (query_seq_len + 3) / 4 * 4;
+    const int qk_offset = (b * head_num + z) * kv_seq_len * query_seq_len4 + y4;
+    const int past_offset = ((b * kv_head_num + z / NUMHEAD_GROUP_SIZE) * max_len) * head_dim + x8;
+    const int loop_end = max(kv_seq_len / 4 - 1, 0);
     COMPUTE_FLOAT8 out0 = 0, out1 = 0, out2 = 0, out3 = 0;
     
     for(int i = 0; i < loop_end; ++i){
         int i4 = i << 2;
-        COMPUTE_FLOAT4 qk_vec0 = CONVERT_COMPUTE_FLOAT4(vload4(0, qk + qk_offset + i4 * qk_seq_len4));
-        COMPUTE_FLOAT4 qk_vec1 = CONVERT_COMPUTE_FLOAT4(vload4(0, qk + qk_offset + (i4 + 1) * qk_seq_len4));
-        COMPUTE_FLOAT4 qk_vec2 = CONVERT_COMPUTE_FLOAT4(vload4(0, qk + qk_offset + (i4 + 2) * qk_seq_len4));
-        COMPUTE_FLOAT4 qk_vec3 = CONVERT_COMPUTE_FLOAT4(vload4(0, qk + qk_offset + (i4 + 3) * qk_seq_len4));
+        COMPUTE_FLOAT4 qk_vec0 = CONVERT_COMPUTE_FLOAT4(vload4(0, qk + qk_offset + i4 * query_seq_len4));
+        COMPUTE_FLOAT4 qk_vec1 = CONVERT_COMPUTE_FLOAT4(vload4(0, qk + qk_offset + (i4 + 1) * query_seq_len4));
+        COMPUTE_FLOAT4 qk_vec2 = CONVERT_COMPUTE_FLOAT4(vload4(0, qk + qk_offset + (i4 + 2) * query_seq_len4));
+        COMPUTE_FLOAT4 qk_vec3 = CONVERT_COMPUTE_FLOAT4(vload4(0, qk + qk_offset + (i4 + 3) * query_seq_len4));
         
         COMPUTE_FLOAT8 past_vec0 = CONVERT_COMPUTE_FLOAT8(vload8(0, past_value + past_offset + i4 * head_dim));
         COMPUTE_FLOAT8 past_vec1 = CONVERT_COMPUTE_FLOAT8(vload8(0, past_value + past_offset + (i4 + 1) * head_dim));
@@ -606,8 +627,8 @@ __kernel void matmul_qkv_prefill(GLOBAL_SIZE_3_DIMS
         out3 = mad((COMPUTE_FLOAT8)qk_vec2.s3, past_vec2, out3);
         out3 = mad((COMPUTE_FLOAT8)qk_vec3.s3, past_vec3, out3);
     }
-    for(int i = (loop_end << 2); i < value_seq_len; ++i){
-        COMPUTE_FLOAT4 qk_vec = CONVERT_COMPUTE_FLOAT4(vload4(0, qk + qk_offset + i * qk_seq_len4));
+    for(int i = (loop_end << 2); i < kv_seq_len; ++i){
+        COMPUTE_FLOAT4 qk_vec = CONVERT_COMPUTE_FLOAT4(vload4(0, qk + qk_offset + i * query_seq_len4));
         COMPUTE_FLOAT8 past_vec = CONVERT_COMPUTE_FLOAT8(vload8(0, past_value + past_offset + i * head_dim));
         
         out0 = mad((COMPUTE_FLOAT8)qk_vec.s0, past_vec, out0);
@@ -616,14 +637,14 @@ __kernel void matmul_qkv_prefill(GLOBAL_SIZE_3_DIMS
         out3 = mad((COMPUTE_FLOAT8)qk_vec.s3, past_vec, out3);
     }
     
-    const int output_offset = (y4 * head_num + z) * head_dim + x8;
+    const int output_offset = ((b * query_seq_len + y4) * head_num + z) * head_dim + x8;
     const int stride = head_num * head_dim;
     vstore8(CONVERT_FLOAT8(out0), 0, output + output_offset);
-    if(y4 + 1 >= qk_seq_len) return;
+    if(y4 + 1 >= query_seq_len) return;
     vstore8(CONVERT_FLOAT8(out1), 0, output + output_offset + stride);
-    if(y4 + 2 >= qk_seq_len) return;
+    if(y4 + 2 >= query_seq_len) return;
     vstore8(CONVERT_FLOAT8(out2), 0, output + output_offset + stride + stride);
-    if(y4 + 3 >= qk_seq_len) return;
+    if(y4 + 3 >= query_seq_len) return;
     vstore8(CONVERT_FLOAT8(out3), 0, output + output_offset + stride + stride + stride);
 }
 

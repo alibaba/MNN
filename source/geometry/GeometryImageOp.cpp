@@ -18,6 +18,7 @@ static flatbuffers::Offset<Op> makeInterp(flatbuffers::FlatBufferBuilder& builde
         temp = builder.CreateString(op->name()->str());
     }
     InterpBuilder intp3DB(builder);
+    intp3DB.add_ctm(info->ctm);
     intp3DB.add_resizeType(resizeType);
     intp3DB.add_widthScale(info->widthScale);
     intp3DB.add_heightScale(info->heightScale);
