@@ -6,6 +6,12 @@
 
 纯本地运行，隐私性强。当模型下载到本地之后，所有的对话都将在本地进行，不会有任何网络上传处理。
 
+[03/12/2025] 新增：
+
+- 支持 Modeler 源进行下载
+- 支持 Stable Diffusion 文生图
+
+| <img width="200" alt="image" src="./assets/diffusion.JPG" /> | <img width="200" alt="image" src="./assets/diffusionSettings.PNG" /> |
 
 [02/20/2025]新增：
 
@@ -78,7 +84,7 @@
 3. 拷贝 framework 到 iOS 项目中
 
     ```shell
-    mv MNN-iOS-CPU-GPU/Static/MNN.framework apps/iOS/MNNLLMChat/MNN.framework
+    mv MNN-iOS-CPU-GPU/Static/MNN.framework apps/iOS/MNNLLMChat
     ```
 
     确保 Link Binary With Libraried 中包含 MNN.framework，和其他三个 Framework。

@@ -42,6 +42,25 @@ class ModelListViewModel: ObservableObject {
     func fetchModels() async {
         do {
             var fetchedModels = try await modelClient.getModelList()
+            
+            let hasDiffusionModels = fetchedModels.contains { 
+                $0.name.lowercased().contains("diffusion") 
+            }
+            
+            if hasDiffusionModels {
+                fetchedModels = fetchedModels.filter { model in
+                    let name = model.name.lowercased()
+                    let tags = model.tags.map { $0.lowercased() }
+                    
+                    // only show gpu diffusion
+                    if name.contains("diffusion") {
+                        return name.contains("gpu") || tags.contains { $0.contains("gpu") }
+                    }
+                    
+                    return true
+                }
+            }
+            
             for i in 0..<fetchedModels.count {
                 fetchedModels[i].isDownloaded = ModelStorageManager.shared.isModelDownloaded(fetchedModels[i].modelId)
             }

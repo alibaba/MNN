@@ -8,6 +8,15 @@ This project is an iOS application based on the MNN engine, supporting local lar
 
 It operates fully offline with high privacy. Once the models are downloaded to the device, all conversations occur locally without any network uploads or processing.
 
+
+[03/13/2025] Update:
+
+- Support for downloading from the Modeler source  
+
+- Support for Stable Diffusion text-to-image generation
+
+| <img width="200" alt="image" src="./assets/diffusion.JPG" /> | <img width="200" alt="image" src="./assets/diffusionSettings.PNG" /> |
+
 [02/20/2025] Update:
 
 - Support for configuring mmap and manual cache clearing
@@ -87,7 +96,7 @@ Additionally, the app supports edge-side usage of DeepSeek with Think mode:
 3. Copy the framework to the iOS project:
 
     ```shell
-    mv MNN-iOS-CPU-GPU/Static/MNN.framework apps/iOS/MNNLLMChat/MNN.framework
+    mv MNN-iOS-CPU-GPU/Static/MNN.framework apps/iOS/MNNLLMChat
     ```
 
     Ensure the `Link Binary With Libraries` section includes the `MNN.framework`:

@@ -4,6 +4,9 @@
     "" : {
 
     },
+    "%lld" : {
+
+    },
     "Are you sure you want to delete this history?" : {
       "localizations" : {
         "zh-Hans" : {
@@ -91,6 +94,16 @@
         }
       }
     },
+    "Diffusion Settings" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diffusion 设置"
+          }
+        }
+      }
+    },
     "Done" : {
       "localizations" : {
         "zh-Hans" : {
@@ -144,6 +157,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "帮助"
+          }
+        }
+      }
+    },
+    "Iterations" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "迭代次数"
           }
         }
       }
@@ -229,6 +252,16 @@
         }
       }
     },
+    "Random Seed" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "随机种子数"
+          }
+        }
+      }
+    },
     "Report an Issue" : {
       "localizations" : {
         "zh-Hans" : {
@@ -245,6 +278,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "搜索模型"
+          }
+        }
+      }
+    },
+    "Seed" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "种子数"
           }
         }
       }
@@ -277,15 +320,21 @@
             "state" : "translated",
             "value" : "This is a local large model application that requires certain performance from your device.\nIt is recommended to choose different model sizes based on your device's memory. \n\nThe model recommendations for iPhone are as follows:\n- For 8GB of RAM, models up to 8B are recommended (e.g., iPhone 16 Pro).\n- For 6GB of RAM, models up to 3B are recommended (e.g., iPhone 15 Pro).\n- For 4GB of RAM, models up to 1B or smaller are recommended (e.g., iPhone 13).\n\nChoosing a model that is too large may cause insufficient memory and crashes."
           }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这是一个本地大型模型应用程序，对您的设备性能有一定要求。\n建议根据设备的内存选择不同尺寸的模型。\n\n对于 iPhone 设备，模型推荐如下：\n- 对于拥有8GB内存的设备，建议选择最大到8B的模型（例如，iPhone 16 Pro）。\n- 对于拥有6GB内存的设备，建议选择最大到3B的模型（例如，iPhone 15 Pro）。\n- 对于拥有4GB内存的设备，建议选择最大到1B或更小的模型（例如，iPhone 13）。\n\n选择过大的模型可能会导致内存不足和崩溃。"
+          }
         }
       }
     },
-    "Use Hugging Face" : {
+    "Use HuggingFace to download" : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "使用HuggingFace下载"
+            "value" : "使用HuggingFace下载模型"
           }
         }
       }
@@ -300,28 +349,35 @@
         }
       }
     },
-    "Use modeler" : {
+    "Use modeler to download" : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "使用 modeler  下载"
+            "value" : "使用Modeler下载模型"
           }
         }
       }
     },
-    "Use ModelScope" : {
+    "Use ModelScope to download" : {
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "使用ModelScope下载"
+            "value" : "使用ModelScope下载模型"
           }
         }
       }
     },
     "User Guide" : {
-
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "用户指南"
+          }
+        }
+      }
     },
     "WelcomeSceneText" : {
       "localizations" : {
