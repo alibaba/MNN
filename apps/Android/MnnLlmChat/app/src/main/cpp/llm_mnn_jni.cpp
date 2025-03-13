@@ -126,8 +126,12 @@ JNIEXPORT jlong JNICALL Java_com_alibaba_mnnllm_android_ChatSession_initNative(J
                                                                                     jboolean use_tmp_path,
                                                                                     jobject chat_history,
                                                                                     jboolean is_diffusion,
-                                                                                    jboolean r1) {
+                                                                                    jboolean r1,
+                                                                                    jboolean backend,
+                                                                                    jstring sampler) {
     is_r1 = r1;
+    bool use_opencl = backend;
+    std::string sp = std::string(env->GetStringUTFChars(sampler, 0));
     const char* root_cache_dir = env->GetStringUTFChars(rootCacheDir, 0);
     const char* model_id = env->GetStringUTFChars(modelId, 0);
     std::string new_model_id(model_id);
@@ -148,6 +152,12 @@ JNIEXPORT jlong JNICALL Java_com_alibaba_mnnllm_android_ChatSession_initNative(J
     MNN::Express::ExecutorScope s(executor);
     auto llm = Llm::createLLM(model_dir_str);
     std::string extra_config = use_mmap ? R"({"use_mmap":true)" : R"({"use_mmap":false)";
+    if (use_opencl) {
+        extra_config += R"(,"backend_type":"opencl")";
+    } else {
+        extra_config += R"(,"backend_type":"cpu")";
+    }
+    extra_config += R"(,"sampler_type":")" + sp + R"(")";
     if (use_mmap) {
         std::string temp_dir = root_cache_dir_str + R"(/tmp)";
         extra_config += R"(,"tmp_path":")" + temp_dir + R"(")";
