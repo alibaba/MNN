@@ -11,7 +11,7 @@
 - 支持 Modeler 源进行下载
 - 支持 Stable Diffusion 文生图
 
-| <img width="200" alt="image" src="./assets/diffusion.JPG" /> | <img width="200" alt="image" src="./assets/downloadSource_en.PNG" /> |
+| <img width="200" alt="image" src="./assets/diffusion.JPG" /> | <img width="200" alt="image" src="./assets/diffusionSettings.PNG" /> |
 
 [02/20/2025]新增：
 
