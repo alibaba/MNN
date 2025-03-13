@@ -27,7 +27,7 @@ struct ModelSettingsView: View {
                     ))
                 }
                 
-                // 仅对 Diffusion 模型显示额外设置
+                // Diffusion Settings
                 if viewModel.isDiffusionModel {
                     Section(header: Text("Diffusion Settings")) {
                         Stepper(value: $iterations, in: 1...100) {

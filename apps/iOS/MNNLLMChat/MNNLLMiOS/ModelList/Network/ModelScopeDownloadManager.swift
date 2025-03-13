@@ -327,7 +327,7 @@ public actor ModelScopeDownloadManager: Sendable {
                                }
                            }
                         },
-                        maxRetries: 50,
+                        maxRetries: 500,
                         retryDelay: 1.0
                     )
                     
