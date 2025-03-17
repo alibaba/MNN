@@ -134,6 +134,8 @@ class LlmExporter(torch.nn.Module):
             self.num_key_value_heads = self.num_attention_heads
         if not hasattr(self, 'rope_theta') or self.rope_theta is None:
             self.rope_theta = 10000.0
+        if not hasattr(self, 'rope_ratio') or self.rope_ratio is None:
+            self.rope_ratio = 1.0
         if not hasattr(self, 'head_dim') or self.head_dim is None:
             if isinstance(self.num_attention_heads, list):
                 self.head_dim = [self.hidden_size // atten_head for atten_head in self.num_attention_heads]
@@ -399,6 +401,7 @@ class LlmExporter(torch.nn.Module):
                     word = ''
         return word
 
+    @torch.no_grad()
     def response(self, query):
         # self.imitate_quant()
         self.decode_buffer = []
@@ -429,7 +432,7 @@ class LlmExporter(torch.nn.Module):
                                                    past_key_values,
                                                    cross_attention_states,
                                                    cross_attention_mask)
-            token_id = torch.argmax(logits)
+            token_id = torch.argmax(logits[:,-1,:])
             if token_id in self.stop_ids:
                 print("", end='\n')
                 break
