@@ -45,6 +45,7 @@ using PromptItem = std::pair<std::string, std::string>;
 static std::vector<PromptItem> history{};
 static bool stop_requested = false;
 static bool is_r1 = false;
+static bool s_is_diffusion = false;
 static std::string prompt_string_for_debug{};
 static std::string response_string_for_debug{};
 
@@ -129,6 +130,7 @@ JNIEXPORT jlong JNICALL Java_com_alibaba_mnnllm_android_ChatSession_initNative(J
                                                                                     jboolean r1,
                                                                                     jboolean backend,
                                                                                     jstring sampler) {
+    s_is_diffusion = is_diffusion;
     is_r1 = r1;
     bool use_opencl = backend;
     std::string sp = std::string(env->GetStringUTFChars(sampler, 0));
@@ -222,6 +224,7 @@ JNIEXPORT jobject JNICALL Java_com_alibaba_mnnllm_android_ChatSession_submitNati
     Utf8StreamProcessor processor([&response_buffer, env, progressListener, onProgressMethod](const std::string& utf8Char) {
         bool is_eop = utf8Char.find("<eop>") != std::string::npos;
         if (!is_eop) {
+            MNN_DEBUG("submitNative progress %s", utf8Char.c_str());
             response_buffer << utf8Char;
         } else {
             std::string response_result =  response_buffer.str();
@@ -288,6 +291,9 @@ JNIEXPORT jobject JNICALL Java_com_alibaba_mnnllm_android_ChatSession_submitNati
 
 
 JNIEXPORT void JNICALL Java_com_alibaba_mnnllm_android_ChatSession_resetNative(JNIEnv* env, jobject thiz, jlong llmPtr) {
+    if (s_is_diffusion) {
+        return;
+    }
     history.resize(1);
     Llm* llm = reinterpret_cast<Llm*>(llmPtr);
     if (llm) {
@@ -321,6 +327,8 @@ Java_com_alibaba_mnnllm_android_ChatSession_submitDiffusionNative(JNIEnv *env, j
                                                                        jlong instance_id,
                                                                        jstring input,
                                                                        jstring joutput_path,
+                                                                       jint iter_num,
+                                                                       jint random_seed,
                                                                        jobject progressListener) {
     auto* diffusion = reinterpret_cast<DiffusionSession*>(instance_id); // Cast back to Llm*
     if (!diffusion) {
@@ -334,7 +342,11 @@ Java_com_alibaba_mnnllm_android_ChatSession_submitDiffusionNative(JNIEnv *env, j
     std::string prompt = env->GetStringUTFChars(input, nullptr);
     std::string output_path = env->GetStringUTFChars(joutput_path, nullptr);
     auto start = std::chrono::high_resolution_clock::now();
-    diffusion->Run(prompt, output_path, [env, progressListener, onProgressMethod](int progress) {
+    diffusion->Run(prompt,
+                   output_path,
+                   iter_num,
+                   random_seed,
+                   [env, progressListener, onProgressMethod](int progress) {
         if (progressListener && onProgressMethod) {
             jstring javaString =  env->NewStringUTF(std::to_string(progress).c_str());
             env->CallBooleanMethod(progressListener, onProgressMethod,  javaString);

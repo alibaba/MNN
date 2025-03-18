@@ -82,6 +82,9 @@ public interface GenerateResultProcessor {
                 processEnded = true;
                 return;
             }
+            if (progress.contains("<think>")) {
+                progress = progress.replace("<think>", "");
+            }
             rawStringBuilder.append(progress);
             if (progress.contains("</think>")) {
                 progress = progress.replace("</think>", "\n");

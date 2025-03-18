@@ -12,14 +12,16 @@ mls::DiffusionSession::DiffusionSession(std::string  resource_path): resource_pa
             resource_path_,
                           DiffusionModelType::STABLE_DIFFUSION_1_5,
                           MNNForwardType::MNN_FORWARD_OPENCL,
-                          1,
-                          20
-
+                          1
             );
     MNN_DEBUG("diffusion session init resource_path_: %s ", resource_path_.c_str());
     this->diffusion_->load();
 }
 
-void mls::DiffusionSession::Run(const std::string &prompt, const std::string &image_path, const std::function<void(int)>& progressCallback) {
-    this->diffusion_->run(prompt, image_path, progressCallback);
+void mls::DiffusionSession::Run(const std::string &prompt,
+                                const std::string &image_path,
+                                int iter_num,
+                                int random_seed,
+                                const std::function<void(int)>& progressCallback) {
+    this->diffusion_->run(prompt, image_path, iter_num, random_seed, progressCallback);
 }

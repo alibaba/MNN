@@ -4,7 +4,7 @@
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:gravity="center_vertical"
-    android:padding="8dp">
+    android:padding="2dp">
 
     <Spinner
         android:id="@+id/sampler_spinner"

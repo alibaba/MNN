@@ -27,7 +27,6 @@ import com.alibaba.mnnllm.android.settings.MainSettings;
 import com.alibaba.mnnllm.android.update.UpdateChecker;
 import com.alibaba.mnnllm.android.utils.GithubUtils;
 import com.alibaba.mnnllm.android.utils.ModelUtils;
-import com.google.android.material.navigation.NavigationView;
 import com.techiness.progressdialoglibrary.ProgressDialog;
 import java.io.File;
 import java.util.Objects;
@@ -45,7 +44,7 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_main_test);
+        setContentView(R.layout.activity_main);
         Toolbar toolbar = findViewById(R.id.toolbar);
         drawerLayout = findViewById(R.id.drawer_layout);
         updateChecker = new UpdateChecker(this);
