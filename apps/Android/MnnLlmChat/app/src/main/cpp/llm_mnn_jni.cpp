@@ -224,7 +224,6 @@ JNIEXPORT jobject JNICALL Java_com_alibaba_mnnllm_android_ChatSession_submitNati
     Utf8StreamProcessor processor([&response_buffer, env, progressListener, onProgressMethod](const std::string& utf8Char) {
         bool is_eop = utf8Char.find("<eop>") != std::string::npos;
         if (!is_eop) {
-            MNN_DEBUG("submitNative progress %s", utf8Char.c_str());
             response_buffer << utf8Char;
         } else {
             std::string response_result =  response_buffer.str();
