@@ -110,46 +110,61 @@ class ModelConfigManager {
     
     // MARK: - TFS-Z
     func readTfsZ() -> Double {
-        return readValue("\(modelPath).tfsZ", defaultValue: defaultTfsZ)
+        return readValue("tfsZ", defaultValue: defaultTfsZ)
     }
     
     func updateTfsZ(_ value: Double) {
-        updateValue("\(modelPath).tfsZ", value: value)
+        updateValue("tfsZ", value: value)
     }
     
     // MARK: - Typical
     func readTypical() -> Double {
-        return readValue("\(modelPath).typical", defaultValue: defaultTypical)
+        return readValue("typical", defaultValue: defaultTypical)
     }
     
     func updateTypical(_ value: Double) {
-        updateValue("\(modelPath).typical", value: value)
+        updateValue("typical", value: value)
     }
     
     // MARK: - Penalty
     func readPenalty() -> Double {
-        return readValue("\(modelPath).penalty", defaultValue: defaultPenalty)
+        return readValue("penalty", defaultValue: defaultPenalty)
     }
     
     func updatePenalty(_ value: Double) {
-        updateValue("\(modelPath).penalty", value: value)
+        updateValue("penalty", value: value)
     }
     
     // MARK: - N-gram
     func readNGram() -> Int {
-        return readValue("\(modelPath).nGram", defaultValue: defaultNGram)
+        return readValue("nGram", defaultValue: defaultNGram)
     }
     
     func updateNGram(_ value: Int) {
-        updateValue("\(modelPath).nGram", value: value)
+        updateValue("nGram", value: value)
     }
     
     // MARK: - N-gram Factor
     func readNGramFactor() -> Double {
-        return readValue("\(modelPath).nGramFactor", defaultValue: defaultNGramFactor)
+        return readValue("nGramFactor", defaultValue: defaultNGramFactor)
     }
     
     func updateNGramFactor(_ value: Double) {
-        updateValue("\(modelPath).nGramFactor", value: value)
+        updateValue("nGramFactor", value: value)
+    }
+    
+    // MARK: - Read all config string
+    func readConfigAsJSONString() -> String? {
+        do {
+            let data = try Data(contentsOf: configFileURL)
+            if let jsonString = String(data: data, encoding: .utf8) {
+                print("Config JSON String: \(jsonString)") // 调试输出
+                return jsonString
+            }
+    
+        } catch {
+            print("Error reading config file: \(error.localizedDescription)")
+        }
+        return nil
     }
 }

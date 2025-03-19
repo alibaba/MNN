@@ -141,6 +141,16 @@
         }
       }
     },
+    "Generation Parameters" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "生成参数"
+          }
+        }
+      }
+    },
     "Go to MNN Homepage" : {
       "localizations" : {
         "zh-Hans" : {

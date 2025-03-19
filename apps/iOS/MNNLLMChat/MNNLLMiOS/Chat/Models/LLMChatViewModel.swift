@@ -252,6 +252,12 @@ final class LLMChatViewModel: ObservableObject {
         }
     }
     
+    func setModelConfig() {
+        if let configStr = self.modelConfigManager.readConfigAsJSONString(), let llm = self.llm {
+            llm.setConfigWithJSONString(configStr)
+        }
+    }
+    
     private func convertDeepSeekMutliChat(content: String) -> String {
         if self.modelInfo.name.lowercased().contains("deepseek") {
             /* formate:: <|begin_of_sentence|><|User|>{text}<|Assistant|>{text}<|end_of_sentence|>

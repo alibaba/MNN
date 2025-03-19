@@ -24,6 +24,8 @@ typedef void (^OutputHandler)(NSString * _Nonnull output);
 
 - (void)addPromptsFromArray:(NSArray<NSDictionary *> *)array;
 
+- (void)setConfigWithJSONString:(NSString *)jsonStr;
+
 @end
 
 NS_ASSUME_NONNULL_END

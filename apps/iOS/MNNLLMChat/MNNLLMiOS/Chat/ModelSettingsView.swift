@@ -196,6 +196,9 @@ struct ModelSettingsView: View {
                 nGramFactor = viewModel.modelConfigManager.readNGramFactor()
             }
         }
+        .onDisappear {
+            viewModel.setModelConfig()
+        }
     }
 }
 
