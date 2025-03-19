@@ -636,16 +636,19 @@ std::vector<int> Llm::tokenizer_encode(const std::string& user_content) {
     return mTokenizer->encode(user_content);
 }
 
-void Llm::response(const std::string& user_content, std::ostream* os, const char* end_with, int max_new_tokens) {
+void Llm::response(const std::vector<int>& input_ids, std::ostream* os, const char* end_with, int max_new_tokens) {
     if (!end_with) { end_with = "\n"; }
     generate_init(os, end_with);
+    generate(input_ids, max_new_tokens);
+}
+
+void Llm::response(const std::string& user_content, std::ostream* os, const char* end_with, int max_new_tokens) {
     auto prompt = user_content;
     if (mConfig->use_template()) {
         prompt = mPrompt->applyTemplate(user_content);
     }
-    // std::cout << prompt << std::endl;
     std::vector<int> input_ids = tokenizer_encode(prompt);
-    generate(input_ids, max_new_tokens);
+    response(input_ids, os, end_with, max_new_tokens);
 }
 
 void Llm::response(const ChatMessages& chat_prompts, std::ostream* os, const char* end_with, int max_new_tokens) {
@@ -653,8 +656,8 @@ void Llm::response(const ChatMessages& chat_prompts, std::ostream* os, const cha
         return;
     }
     auto prompt = mPrompt->applyTemplate(chat_prompts);
-    // std::cout << prompt << std::endl;
-    response(prompt, os, end_with, max_new_tokens);
+    std::vector<int> input_ids = tokenizer_encode(prompt);
+    response(input_ids, os, end_with, max_new_tokens);
 }
 
 Llm::Llm(std::shared_ptr<LlmConfig> config) : mConfig(config) {

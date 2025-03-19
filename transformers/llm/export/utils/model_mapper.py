@@ -147,6 +147,7 @@ class ModelMapper:
                 'num_attention_heads': 'num_attention_heads',
                 'num_key_value_heads': 'multi_query_group_num',
                 'num_hidden_layers': 'num_layers',
+                'rope_ratio': 'rope_ratio'
             },
             'model': {
                 'lm_': 'transformer.output_layer',
