@@ -49,6 +49,8 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
+import java.util.Random;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 
@@ -89,6 +91,7 @@ public class ChatActivity extends AppCompatActivity {
     private boolean isLoading = false;
     private String sessionName;
     private boolean stopGenerating = false;
+    private TextView toolbarTitle;
 
 
     @Override
@@ -102,7 +105,10 @@ public class ChatActivity extends AppCompatActivity {
         layoutModelLoading = findViewById(R.id.layout_model_loading);
         if (getSupportActionBar() != null) {
             getSupportActionBar().setDisplayHomeAsUpEnabled(true);
+            getSupportActionBar().setDisplayShowTitleEnabled(false);
         }
+        toolbarTitle = findViewById(R.id.toolbar_title);
+        toolbarTitle.setText(modelName);
         chatExecutor = Executors.newScheduledThreadPool(1);
         chatDataManager = ChatDataManager.getInstance(this);
         this.setupSession();
@@ -168,7 +174,7 @@ public class ChatActivity extends AppCompatActivity {
             layoutModelLoading.setVisibility(loading ? View.VISIBLE : View.GONE);
             if (getSupportActionBar() != null) {
                 getSupportActionBar().setDisplayHomeAsUpEnabled(true);
-                getSupportActionBar().setTitle(loading ? getString(R.string.model_loading) : modelName);
+                toolbarTitle.setText(loading ? getString(R.string.model_loading) : getString(R.string.app_name));
             }
         });
     }
@@ -347,14 +353,15 @@ public class ChatActivity extends AppCompatActivity {
     }
 
     private int getSamplerSelectionId(String[] items, String item) {
+        Log.d(TAG, "selected item: " + item);
         int id = 0;
-        while (id<items.length) {
+        while (id < items.length) {
             if (items[id].equals(item)) {
                 return id;
             }
             id++;
         }
-        return id;
+        return 0;
     }
 
     @Override
@@ -365,12 +372,14 @@ public class ChatActivity extends AppCompatActivity {
         menu.findItem(R.id.menu_item_use_mmap).setChecked(ModelPreferences.getBoolean(this, modelId, ModelPreferences.KEY_USE_MMAP, true));
         menu.findItem(R.id.menu_item_backend).setChecked(ModelPreferences.getBoolean(this, modelId, ModelPreferences.KEY_BACKEND, false));        
         MenuItem samplerSpinnerItem = menu.findItem(R.id.menu_item_sampler_spinner);
-        Spinner samplerSpinner = samplerSpinnerItem.getActionView().findViewById(R.id.sampler_spinner);
-        String[] items = new String[]{getString(R.string.sampler), "greedy", "temperature", "topK", "topP", "minP", "typical", "tfs", "penalty", "mixed"};
+        Spinner samplerSpinner = Objects.requireNonNull(samplerSpinnerItem.getActionView()).findViewById(R.id.sampler_spinner);
+        String[] items = new String[]{"greedy", "temperature", "topK", "topP", "minP", "typical", "tfs", "penalty", "mixed"};
         ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, items);
         adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         samplerSpinner.setAdapter(adapter);
-        samplerSpinner.setSelection(getSamplerSelectionId(items, ModelPreferences.getString(this, modelId, ModelPreferences.KEY_SAMPLER, getString(R.string.sampler))));
+        samplerSpinner.setSelection(
+                getSamplerSelectionId(items,
+                        ModelPreferences.getString(this, modelId, ModelPreferences.KEY_SAMPLER, getString(R.string.sampler))));
         samplerSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override
             public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
@@ -567,7 +576,9 @@ public class ChatActivity extends AppCompatActivity {
         HashMap<String, Object> benchMarkResult;
         if (ModelUtils.isDiffusionModel(this.modelName)) {
             String diffusionDestPath = FileUtils.generateDestDiffusionFilePath(this, chatSessionId);
-            benchMarkResult = chatSession.generateDiffusion(input,  diffusionDestPath, progress-> {
+            benchMarkResult = chatSession.generateDiffusion(input,  diffusionDestPath, 20,
+                    new Random(System.currentTimeMillis()).nextInt(),
+                    progress-> {
                 if ("100".equals(progress)) {
                     chatDataItem.setText(getString(R.string.diffusion_generated_message));
                     chatDataItem.setImageUri(Uri.parse(diffusionDestPath));
