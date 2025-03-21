@@ -14,6 +14,7 @@ class Vision(torch.nn.Module):
         self.config = base.config
         self.hidden_size = base.hidden_size
         self.llm_config = base.llm_config
+        self.rope_ratio = 1.0
         # mllama
         self.cross_attention_states = None
         self.cross_attention_mask = None
