@@ -5,7 +5,7 @@ This is the android app of the MNN Avatar, it will be open sourced soon.
 here is the demo video :
 
 <p align="center">
-  <img width="200px" alt="Icon"  src="./assets/demo_animation.gif" style="margin: 0 10px;">
+  <img width="200px" alt="Icon"  src="https://meta.alicdn.com/data/mnn/avatar/demo_animation.gif" style="margin: 0 10px;">
 </p>
 
 ## About MNN Avatar
