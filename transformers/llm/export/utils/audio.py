@@ -9,6 +9,7 @@ class Audio(torch.nn.Module):
         self.config = base.config
         self.hidden_size = base.hidden_size
         self.llm_config = base.llm_config
+        self.rope_ratio = 1.0
         self.quant_bit = 16
         self.init_config()
         self.load()
