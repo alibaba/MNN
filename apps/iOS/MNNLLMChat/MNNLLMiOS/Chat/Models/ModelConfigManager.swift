@@ -167,4 +167,50 @@ class ModelConfigManager {
         }
         return nil
     }
+    
+    // 添加读取和更新采样策略的方法
+    func readSamplerType() -> SamplerType {
+        let typeString = readValue("sampler_type", defaultValue: "temperature")
+        return SamplerType(rawValue: typeString) ?? .temperature
+    }
+    
+    func updateSamplerType(_ value: SamplerType) {
+        updateValue("sampler_type", value: value.rawValue)
+    }
+    
+    // 添加读取和更新 mixed_samplers 的方法
+    func readMixedSamplers() -> [String] {
+        return readValue("mixed_samplers", defaultValue: ["topK", "tfs", "typical", "topP", "minP", "temperature"])
+    }
+    
+    func updateMixedSamplers(_ value: [String]) {
+        updateValue("mixed_samplers", value: value)
+    }
+}
+
+// 添加采样策略枚举
+public enum SamplerType: String, CaseIterable {
+    case greedy = "greedy"
+    case temperature = "temperature"
+    case topK = "topK"
+    case topP = "topP"
+    case minP = "minP"
+    case tfs = "tfs"
+    case typical = "typical"
+    case penalty = "penalty"
+    case mixed = "mixed"
+    
+    var displayName: String {
+        switch self {
+        case .greedy: return "Greedy"
+        case .temperature: return "Temperature"
+        case .topK: return "Top-K"
+        case .topP: return "Top-P"
+        case .minP: return "Min-P"
+        case .tfs: return "TFS"
+        case .typical: return "Typical"
+        case .penalty: return "Penalty"
+        case .mixed: return "Mixed"
+        }
+    }
 }

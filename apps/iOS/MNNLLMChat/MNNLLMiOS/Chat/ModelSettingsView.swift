@@ -28,6 +28,10 @@ struct ModelSettingsView: View {
     @State private var nGram: Double = 8.0
     @State private var nGramFactor: Double = 1.0
     
+    @State private var selectedSampler: SamplerType = .temperature
+    @State private var selectedMixedSamplers: Set<String> = []
+    @State private var mixedSamplersOrder: [String] = []
+    
     var body: some View {
         NavigationView {
             Form {
@@ -80,88 +84,104 @@ struct ModelSettingsView: View {
                         }
                     }
                 } else {
-                    Section(header: Text("Generation Parameters")) {
-                        ParameterSliderView(
-                            title: "Temperature",
-                            value: $temperature,
-                            range: 0.0...2.0,
-                            format: "%.2f",
-                            intValue: false,
-                            onChanged: viewModel.modelConfigManager.updateTemperature(_:)
-                        )
+                    Section(header: Text("Sampling Strategy")) {
+                        Picker("Sampler Type", selection: $selectedSampler) {
+                            ForEach(SamplerType.allCases, id: \.self) { sampler in
+                                Text(sampler.displayName)
+                                    .tag(sampler)
+                            }
+                        }
+                        .onChange(of: selectedSampler) { newValue in
+                            viewModel.modelConfigManager.updateSamplerType(newValue)
+                        }
                         
-                        ParameterSliderView(
-                            title: "Top K",
-                            value: $topK,
-                            range: 1...100,
-                            format: "%.0f",
-                            intValue: true,
-                            onChanged: { viewModel.modelConfigManager.updateTopP(Double($0)) }
-                        )
-                        
-                        ParameterSliderView(
-                            title: "Top P",
-                            value: $topP,
-                            range: 0.0...1.0,
-                            format: "%.2f",
-                            intValue: false,
-                            onChanged: viewModel.modelConfigManager.updateTopP(_:)
-                        )
-                        
-                        ParameterSliderView(
-                            title: "Min P",
-                            value: $minP,
-                            range: 0.05...0.3,
-                            format: "%.2f",
-                            intValue: false,
-                            onChanged: viewModel.modelConfigManager.updateMinP(_:)
-                        )
-                        
-                        ParameterSliderView(
-                            title: "TFS-Z",
-                            value: $tfsZ,
-                            range: 0.9...0.99,
-                            format: "%.2f",
-                            intValue: false,
-                            onChanged: viewModel.modelConfigManager.updateTfsZ(_:)
-                        )
-                        
-                        
-                        ParameterSliderView(
-                            title: "Typical",
-                            value: $typical,
-                            range: 0.8...0.95,
-                            format: "%.2f",
-                            intValue: false,
-                            onChanged: viewModel.modelConfigManager.updateTypical(_:)
-                        )
-                        
-                        ParameterSliderView(
-                            title: "Penalty",
-                            value: $penalty,
-                            range: 0.0...0.5,
-                            format: "%.2f",
-                            intValue: false,
-                            onChanged: viewModel.modelConfigManager.updatePenalty(_:)
-                        )
-                        
-                        ParameterSliderView(
-                            title: "N-gram",
-                            value: $nGram,
-                            range: 3...8,
-                            format: "%.0f",
-                            intValue: true,
-                            onChanged: { viewModel.modelConfigManager.updateNGram(Int($0)) }
-                        )
-                        
-                        ParameterSliderView(
-                            title: "N-gram Factor",
-                            value: $nGramFactor,
-                            range: 1.0...3.0,
-                            format: "%.1f",
-                            intValue: false,
-                            onChanged: viewModel.modelConfigManager.updateNGramFactor(_:)
-                        )
+                        switch selectedSampler {
+                        case .temperature:
+                            ParameterSliderView(
+                                title: "Temperature",
+                                value: $temperature,
+                                range: 0.0...2.0,
+                                format: "%.2f",
+                                intValue: false,
+                                onChanged: viewModel.modelConfigManager.updateTemperature(_:)
+                            )
+                        case .topK:
+                            ParameterSliderView(
+                                title: "Top K",
+                                value: $topK,
+                                range: 1...100,
+                                format: "%.0f",
+                                intValue: true,
+                                onChanged: { viewModel.modelConfigManager.updateTopK(Int($0)) }
+                            )
+                        case .topP:
+                            ParameterSliderView(
+                                title: "Top P",
+                                value: $topP,
+                                range: 0.0...1.0,
+                                format: "%.2f",
+                                intValue: false,
+                                onChanged: viewModel.modelConfigManager.updateTopP(_:)
+                            )
+                        case .minP:
+                            ParameterSliderView(
+                                title: "Min P",
+                                value: $minP,
+                                range: 0.05...0.3,
+                                format: "%.2f",
+                                intValue: false,
+                                onChanged: viewModel.modelConfigManager.updateMinP(_:)
+                            )
+                        case .tfs:
+                            ParameterSliderView(
+                                title: "TFS-Z",
+                                value: $tfsZ,
+                                range: 0.9...0.99,
+                                format: "%.2f",
+                                intValue: false,
+                                onChanged: viewModel.modelConfigManager.updateTfsZ(_:)
+                            )
+                        case .typical:
+                            ParameterSliderView(
+                                title: "Typical",
+                                value: $typical,
+                                range: 0.8...0.95,
+                                format: "%.2f",
+                                intValue: false,
+                                onChanged: viewModel.modelConfigManager.updateTypical(_:)
+                            )
+                        case .penalty:
+                            ParameterSliderView(
+                                title: "Penalty",
+                                value: $penalty,
+                                range: 0.0...0.5,
+                                format: "%.2f",
+                                intValue: false,
+                                onChanged: viewModel.modelConfigManager.updatePenalty(_:)
+                            )
+                        case .mixed:
+                            MixedSamplersView(
+                                selectedSamplers: $selectedMixedSamplers,
+                                samplersOrder: $mixedSamplersOrder,
+                                onUpdate: updateMixedSamplers,
+                                temperature: $temperature,
+                                topK: $topK,
+                                topP: $topP,
+                                minP: $minP,
+                                tfsZ: $tfsZ,
+                                typical: $typical,
+                                penalty: $penalty,
+                                onUpdateTemperature: viewModel.modelConfigManager.updateTemperature(_:),
+                                onUpdateTopK: viewModel.modelConfigManager.updateTopK(_:),
+                                onUpdateTopP: viewModel.modelConfigManager.updateTopP(_:),
+                                onUpdateMinP: viewModel.modelConfigManager.updateMinP(_:),
+                                onUpdateTfsZ: viewModel.modelConfigManager.updateTfsZ(_:),
+                                onUpdateTypical: viewModel.modelConfigManager.updateTypical(_:),
+                                onUpdatePenalty: viewModel.modelConfigManager.updatePenalty(_:)
+                            )
+                        default:
+                            EmptyView()
+                        }
                     }
                 }
             }
@@ -171,8 +191,8 @@ struct ModelSettingsView: View {
                     Button("Done") {
                         showSettings = false
                     }
+                }
             }
-       }
         }
         .alert(NSLocalizedString("Success", comment: ""), isPresented: $showAlert) {
             Button("OK", role: .cancel) { }
@@ -180,6 +200,8 @@ struct ModelSettingsView: View {
             Text(NSLocalizedString("Cache Cleared Successfully", comment: ""))
         }
         .onAppear {
+            selectedSampler = viewModel.modelConfigManager.readSamplerType()
+            
             if viewModel.isDiffusionModel {
                 iterations = viewModel.modelConfigManager.readIterations()
                 seed = viewModel.modelConfigManager.readSeed()
@@ -195,10 +217,21 @@ struct ModelSettingsView: View {
                 nGram = Double(viewModel.modelConfigManager.readNGram())
                 nGramFactor = viewModel.modelConfigManager.readNGramFactor()
             }
+            
+            // 初始化 mixed samplers
+            let savedMixedSamplers = viewModel.modelConfigManager.readMixedSamplers()
+            mixedSamplersOrder = ["topK", "tfs", "typical", "topP", "minP", "temperature"]
+            selectedMixedSamplers = Set(savedMixedSamplers)
+            
         }
         .onDisappear {
             viewModel.setModelConfig()
         }
+    }
+    
+    private func updateMixedSamplers() {
+        let orderedSelection = mixedSamplersOrder.filter { selectedMixedSamplers.contains($0) }
+        viewModel.modelConfigManager.updateMixedSamplers(orderedSelection)
     }
 }
 
