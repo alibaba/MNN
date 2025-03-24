@@ -12,7 +12,9 @@ namespace mls {
 class DiffusionSession {
 public:
     explicit DiffusionSession(std::string  resource_path);
-    void Run(const std::string& prompt, const std::string& image_path, const std::function<void(int)>& progressCallback);
+    void Run(const std::string& prompt, const std::string& image_path,
+             int iter_num,
+             int random_seed, const std::function<void(int)>& progressCallback);
 private:
     std::string resource_path_;
     std::unique_ptr<Diffusion> diffusion_{nullptr};

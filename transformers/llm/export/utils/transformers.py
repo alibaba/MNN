@@ -171,6 +171,8 @@ class Rotary(torch.nn.Module):
     def __init__(self, config):
         super().__init__()
         self.rope_theta = config.rope_theta
+        self.rope_ratio = config.rope_ratio
+        self.rope_theta *= self.rope_ratio
         self.rotary_dim = config.head_dim
         self.model_type = config.model_type
         if hasattr(config, 'rotary_dim'):
