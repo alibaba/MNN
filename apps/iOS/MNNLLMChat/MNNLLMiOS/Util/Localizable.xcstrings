@@ -74,6 +74,16 @@
         }
       }
     },
+    "Configure mixed samplers:" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "配置 mixed samplers"
+          }
+        }
+      }
+    },
     "Delete" : {
       "localizations" : {
         "zh-Hans" : {
@@ -142,6 +152,7 @@
       }
     },
     "Generation Parameters" : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -262,6 +273,9 @@
         }
       }
     },
+    "Penalty Sampler" : {
+
+    },
     "Random Seed" : {
       "localizations" : {
         "zh-Hans" : {
@@ -278,6 +292,19 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "反馈问题"
+          }
+        }
+      }
+    },
+    "Sampler Type" : {
+
+    },
+    "Sampling Strategy" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "参数策略"
           }
         }
       }

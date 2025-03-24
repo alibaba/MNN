@@ -168,7 +168,7 @@ class ModelConfigManager {
         return nil
     }
     
-    // 添加读取和更新采样策略的方法
+    // MARK: - SamplerType
     func readSamplerType() -> SamplerType {
         let typeString = readValue("sampler_type", defaultValue: "temperature")
         return SamplerType(rawValue: typeString) ?? .temperature
@@ -178,7 +178,7 @@ class ModelConfigManager {
         updateValue("sampler_type", value: value.rawValue)
     }
     
-    // 添加读取和更新 mixed_samplers 的方法
+    // MARK: - MixedSamplers
     func readMixedSamplers() -> [String] {
         return readValue("mixed_samplers", defaultValue: ["topK", "tfs", "typical", "topP", "minP", "temperature"])
     }
@@ -186,9 +186,18 @@ class ModelConfigManager {
     func updateMixedSamplers(_ value: [String]) {
         updateValue("mixed_samplers", value: value)
     }
+    
+    // MARK: - PenaltySampler
+    func readPenaltySampler() -> PenaltySamplerType {
+        let typeString = readValue("penalty_sampler", defaultValue: "greedy")
+        return PenaltySamplerType(rawValue: typeString) ?? .greedy
+    }
+    
+    func updatePenaltySampler(_ value: PenaltySamplerType) {
+        updateValue("penalty_sampler", value: value.rawValue)
+    }
 }
 
-// 添加采样策略枚举
 public enum SamplerType: String, CaseIterable {
     case greedy = "greedy"
     case temperature = "temperature"
@@ -211,6 +220,18 @@ public enum SamplerType: String, CaseIterable {
         case .typical: return "Typical"
         case .penalty: return "Penalty"
         case .mixed: return "Mixed"
+        }
+    }
+}
+
+enum PenaltySamplerType: String, CaseIterable {
+    case greedy = "greedy"
+    case temperature = "temperature"
+    
+    var displayName: String {
+        switch self {
+        case .greedy: return "Greedy"
+        case .temperature: return "Temperature"
         }
     }
 }

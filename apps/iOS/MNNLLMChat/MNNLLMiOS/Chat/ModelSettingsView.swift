@@ -32,6 +32,8 @@ struct ModelSettingsView: View {
     @State private var selectedMixedSamplers: Set<String> = []
     @State private var mixedSamplersOrder: [String] = []
     
+    @State private var penaltySampler: PenaltySamplerType = .greedy
+    
     var body: some View {
         NavigationView {
             Form {
@@ -151,14 +153,48 @@ struct ModelSettingsView: View {
                                 onChanged: viewModel.modelConfigManager.updateTypical(_:)
                             )
                         case .penalty:
-                            ParameterSliderView(
-                                title: "Penalty",
-                                value: $penalty,
-                                range: 0.0...0.5,
-                                format: "%.2f",
-                                intValue: false,
-                                onChanged: viewModel.modelConfigManager.updatePenalty(_:)
-                            )
+                            VStack(spacing: 8) {
+                                // Penalty 参数
+                                ParameterSliderView(
+                                    title: "Penalty",
+                                    value: $penalty,
+                                    range: 0.0...0.5,
+                                    format: "%.2f",
+                                    intValue: false,
+                                    onChanged: viewModel.modelConfigManager.updatePenalty(_:)
+                                )
+                                
+                                // N-gram Size 参数
+                                ParameterSliderView(
+                                    title: "N-gram Size",
+                                    value: $nGram,
+                                    range: 3...8,
+                                    format: "%.0f",
+                                    intValue: true,
+                                    onChanged: { viewModel.modelConfigManager.updateNGram(Int($0)) }
+                                )
+                                
+                                // N-gram Factor 参数
+                                ParameterSliderView(
+                                    title: "N-gram Factor",
+                                    value: $nGramFactor,
+                                    range: 1.0...3.0,
+                                    format: "%.1f",
+                                    intValue: false,
+                                    onChanged: viewModel.modelConfigManager.updateNGramFactor(_:)
+                                )
+                                
+                                // Penalty Sampler 选择器
+                                Picker("Penalty Sampler", selection: $penaltySampler) {
+                                    ForEach(PenaltySamplerType.allCases, id: \.self) { samplerType in
+                                        Text(samplerType.displayName)
+                                            .tag(samplerType)
+                                    }
+                                }
+                                .onChange(of: penaltySampler) { newValue in
+                                    viewModel.modelConfigManager.updatePenaltySampler(newValue)
+                                }
+                            }
                         case .mixed:
                             MixedSamplersView(
                                 selectedSamplers: $selectedMixedSamplers,
@@ -223,6 +259,8 @@ struct ModelSettingsView: View {
             mixedSamplersOrder = ["topK", "tfs", "typical", "topP", "minP", "temperature"]
             selectedMixedSamplers = Set(savedMixedSamplers)
             
+            // 初始化 penalty sampler
+            penaltySampler = viewModel.modelConfigManager.readPenaltySampler()
         }
         .onDisappear {
             viewModel.setModelConfig()

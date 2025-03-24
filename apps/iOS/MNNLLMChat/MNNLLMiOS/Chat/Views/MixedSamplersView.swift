@@ -1,3 +1,9 @@
+//
+//  LLMChatView.swift
+//  MNNLLMiOS
+//
+//  Created by 游薪渝(揽清) on 2025/3/24.
+//
 
 import SwiftUI
 
@@ -6,7 +12,6 @@ struct MixedSamplersView: View {
     @Binding var samplersOrder: [String]
     let onUpdate: () -> Void
     
-    // 添加所需的参数状态
     @Binding var temperature: Double
     @Binding var topK: Double
     @Binding var topP: Double
@@ -15,7 +20,7 @@ struct MixedSamplersView: View {
     @Binding var typical: Double
     @Binding var penalty: Double
     
-    // 添加更新参数的回调
+
     let onUpdateTemperature: (Double) -> Void
     let onUpdateTopK: (Int) -> Void
     let onUpdateTopP: (Double) -> Void
@@ -26,17 +31,92 @@ struct MixedSamplersView: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Select and arrange samplers:")
+            Text("Configure mixed samplers:")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
             
             List {
                 ForEach(samplersOrder, id: \.self) { sampler in
-                    HStack {
-                        Image(systemName: "line.3.horizontal")
-                            .foregroundColor(.gray)
-                        Toggle(SamplerType(rawValue: sampler)?.displayName ?? sampler,
-                               isOn: Binding(
+                    VStack {
+                        HStack {
+                            
+                            switch sampler {
+                            case "temperature":
+                                ParameterSliderView(
+                                    title: "Temperature",
+                                    value: $temperature,
+                                    range: 0.0...2.0,
+                                    format: "%.2f",
+                                    intValue: false,
+                                    onChanged: onUpdateTemperature
+                                )
+                                .disabled(!selectedSamplers.contains(sampler))
+                            case "topK":
+                                ParameterSliderView(
+                                    title: "Top K",
+                                    value: $topK,
+                                    range: 1...100,
+                                    format: "%.0f",
+                                    intValue: true,
+                                    onChanged: { onUpdateTopK(Int($0)) }
+                                )
+                                .disabled(!selectedSamplers.contains(sampler))
+                            case "topP":
+                                ParameterSliderView(
+                                    title: "Top P",
+                                    value: $topP,
+                                    range: 0.0...1.0,
+                                    format: "%.2f",
+                                    intValue: false,
+                                    onChanged: onUpdateTopP
+                                )
+                                .disabled(!selectedSamplers.contains(sampler))
+                            case "minP":
+                                ParameterSliderView(
+                                    title: "Min P",
+                                    value: $minP,
+                                    range: 0.05...0.3,
+                                    format: "%.2f",
+                                    intValue: false,
+                                    onChanged: onUpdateMinP
+                                )
+                                .disabled(!selectedSamplers.contains(sampler))
+                            case "tfs":
+                                ParameterSliderView(
+                                    title: "TFS-Z",
+                                    value: $tfsZ,
+                                    range: 0.9...0.99,
+                                    format: "%.2f",
+                                    intValue: false,
+                                    onChanged: onUpdateTfsZ
+                                )
+                                .disabled(!selectedSamplers.contains(sampler))
+                            case "typical":
+                                ParameterSliderView(
+                                    title: "Typical",
+                                    value: $typical,
+                                    range: 0.8...0.95,
+                                    format: "%.2f",
+                                    intValue: false,
+                                    onChanged: onUpdateTypical
+                                )
+                                .disabled(!selectedSamplers.contains(sampler))
+                            case "penalty":
+                                ParameterSliderView(
+                                    title: "Penalty",
+                                    value: $penalty,
+                                    range: 0.0...0.5,
+                                    format: "%.2f",
+                                    intValue: false,
+                                    onChanged: onUpdatePenalty
+                                )
+                                .disabled(!selectedSamplers.contains(sampler))
+                            default:
+                                EmptyView()
+                            }
+                            
+                            // 开关
+                            Toggle("", isOn: Binding(
                                 get: { selectedSamplers.contains(sampler) },
                                 set: { isSelected in
                                     if isSelected {
@@ -46,7 +126,10 @@ struct MixedSamplersView: View {
                                     }
                                     onUpdate()
                                 }
-                               ))
+                            ))
+                            .labelsHidden()
+                        }
+                        .padding(.vertical, 4)
                     }
                 }
                 .onMove { from, to in
