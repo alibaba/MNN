@@ -158,7 +158,7 @@ class ModelConfigManager {
         do {
             let data = try Data(contentsOf: configFileURL)
             if let jsonString = String(data: data, encoding: .utf8) {
-                print("Config JSON String: \(jsonString)") // 调试输出
+                print("Config JSON String: \(jsonString)") // debug
                 return jsonString
             }
     
