@@ -169,7 +169,7 @@ If we want to directly download the models to the computer for debugging without
 
 ### Version 0.3.1  
 
-- Added support for model parameter configuration  
+- Add support for model parameter configuration  
 
 | <img width="200" alt="image" src="./assets/SamplingStrategy1.PNG" /> | <img width="200" alt="image" src="./assets/SamplingStrategy2.PNG" /> | <img width="200" alt="image" src="./assets/SamplingStrategy3.PNG" /> |  
 
@@ -177,8 +177,8 @@ If we want to directly download the models to the computer for debugging without
 
 New Features:  
 
-- Added support for downloading from the **Modeler** source  
-- Added support for **Stable Diffusion** text-to-image generation  
+- Add support for downloading from the **Modeler** source  
+- Add support for **Stable Diffusion** text-to-image generation  
 
 | <img width="200" alt="image" src="./assets/diffusion.JPG" /> | <img width="200" alt="image" src="./assets/diffusionSettings.PNG" /> |  
 
@@ -186,8 +186,8 @@ New Features:
 
 New Features:  
 
-- Added support for **mmap configuration** and **manual cache clearing**  
-- Added support for downloading models from the **ModelScope** source  
+- Add support for **mmap configuration** and **manual cache clearing**  
+- Add support for downloading models from the **ModelScope** source  
 
 | <img width="200" alt="image" src="./assets/usemmap.PNG" /> | <img width="200" alt="image" src="./assets/downloadSource.PNG" /> |  
 
