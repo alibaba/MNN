@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:gravity="center_vertical"
+    android:padding="@dimen/space10"
+    android:orientation="vertical"
+    android:layout_marginStart="@dimen/spaceLR">
+
+    <ImageView
+        android:id="@+id/tv_chat_image"
+        android:layout_width="100dp"
+        android:layout_height="100dp"
+        android:layout_gravity="end"
+        android:layout_marginBottom="@dimen/space10"
+        android:visibility="gone"
+        tools:src="@drawable/ic_launcher"
+        tools:visibility="visible"
+        android:scaleType="centerCrop"
+        tools:ignore="ContentDescription" />
+
+    <TextView
+        android:id="@+id/tv_chat_text"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="@dimen/space10"
+        android:layout_gravity="end"
+        android:textIsSelectable="true"
+        android:padding="@dimen/space10"
+        android:textColor="@android:color/white"
+        android:textSize="@dimen/h3"
+        android:textAppearance="@style/Light"
+        android:background="@drawable/bg_chat_user"
+        tools:text="This is a User Text"/>
+
+    <RelativeLayout
+        android:id="@+id/layout_audio"
+        android:layout_width="140dp"
+        android:layout_height="40dp"
+        android:layout_gravity="end"
+        android:visibility="gone"
+        tools:visibility="visible"
+        android:background="@drawable/bg_chat_user"
+        >
+        <ImageView
+            android:id="@+id/iv_audio_play_pause"
+            android:layout_width="25dp"
+            android:layout_height="25dp"
+            android:layout_marginStart="10dp"
+            android:layout_centerVertical="true"
+            app:srcCompat="@drawable/ic_audio_play"
+            android:clickable="true"
+            android:layout_gravity="center_vertical"
+            tools:ignore="ContentDescription" />
+
+        <TextView
+            android:id="@+id/tv_chat_voice_duration"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_centerVertical="true"
+            android:layout_alignParentEnd="true"
+            android:layout_marginEnd="10dp"
+            android:textColor="@android:color/white"
+            android:textSize="16sp"
+            tools:text="7s" />
+
+        <SeekBar
+            android:id="@+id/audio_seek_bar"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_centerVertical="true"
+            android:background="@null"
+            android:layout_toEndOf="@id/iv_audio_play_pause"
+            android:layout_toStartOf="@id/tv_chat_voice_duration"/>
+
+    </RelativeLayout>
+</LinearLayout>

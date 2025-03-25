@@ -30,6 +30,7 @@ private:
     void tune1x1CaseLowMemory(Tensor * input, Tensor * output);
     void tuneGeneralCaseLowMemory(Tensor * input, Tensor * output);
     void tuneGemmLowMemory(Tensor * input, Tensor * output);
+    bool convertToQuantWeight1x1Buffer(cl::Buffer input, int icPack, int ocPack);
     std::vector<int> mPaddings{0, 0};
     std::vector<uint32_t> mGlobalWorkSize{1, 1, 1};
     std::vector<uint32_t> mLocalWorkSize{1, 1, 1, 1};
@@ -37,6 +38,7 @@ private:
     void *mFilterDataPtr = nullptr;
     bool mLowMemoryFlag = false;
     int mNumQuantBit = 0;
+    std::shared_ptr<KernelWrap> mBufferToConv1x1Kernel = nullptr;
 };
 
 } // namespace OpenCL

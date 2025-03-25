@@ -1,4 +1,8 @@
 #include <cmath>
+#include <fstream>
+#include <sstream>
+#include <MNN/AutoTime.hpp>
+#include <MNN/expr/ExecutorScope.hpp>
 #define DUMP_NUM_DATA(type)                          \
     auto data = tensor->host<type>();                \
     for (int z = 0; z < outside; ++z) {              \
@@ -57,7 +61,7 @@ static void dumpTensor2File(const MNN::Tensor* tensor, const char* file, std::of
     }
 }
 
-std::ofstream gOrderFile;
+static std::ofstream gOrderFile;
 static void _initDebug() {
     gOrderFile.open("order.txt");
     MNN::TensorCallBackWithInfo beforeCallBack = [&](const std::vector<MNN::Tensor*>& ntensors, const MNN::OperatorInfo* info) {
@@ -123,34 +127,34 @@ static void _initDebug() {
         }
         return true;
     };
-    MNN::Express::Executor::getGlobalExecutor()->setCallBack(std::move(beforeCallBack), std::move(callBack));
+    MNN::Express::ExecutorScope::Current()->setCallBack(std::move(beforeCallBack), std::move(callBack));
 }
 
 
 struct TimeTraceInfo {
-    std::map<std::string, std::map<std::string, std::vector<float>>> mTypes;
-    
+    std::map<std::string, std::map<std::string, std::vector<std::pair<float, float>>>> mTypes;
+
     void begin(const MNN::OperatorInfo* info) {
         auto tIter = mTypes.find(info->type());
         if (tIter == mTypes.end()) {
-            std::map<std::string, std::vector<float>> _t;
+            std::map<std::string, std::vector<std::pair<float, float>>> _t;
             mTypes.insert(std::make_pair(info->type(), _t));
             tIter = mTypes.find(info->type());
         }
         mInserIter = tIter->second.find(info->name());
         if (mInserIter == tIter->second.end()) {
-            std::vector<float> _t;
+            std::vector<std::pair<float, float>> _t;
             tIter->second.insert(std::make_pair(info->name(), _t));
             mInserIter = tIter->second.find(info->name());
         }
         mTimer.reset();
     }
-    void end() {
+    void end(const MNN::OperatorInfo* info) {
         auto timeInMs = (float)mTimer.durationInUs() / 1000.0f;
-        mInserIter->second.emplace_back(timeInMs);
+        mInserIter->second.emplace_back(std::make_pair(timeInMs, info->flops()));
     }
 private:
-    std::map<std::string, std::vector<float>>::iterator mInserIter;
+    std::map<std::string, std::vector<std::pair<float, float>>>::iterator mInserIter;
     MNN::Timer mTimer;
 };
 static TimeTraceInfo* gTimeTraceInfo = nullptr;
@@ -165,10 +169,10 @@ static void _initTimeTrace() {
         for (auto t : ntensors) {
             t->wait(MNN::Tensor::MAP_TENSOR_READ, true);
         }
-        gTimeTraceInfo->end();
+        gTimeTraceInfo->end(info);
         return true;
     };
-    MNN::Express::Executor::getGlobalExecutor()->setCallBack(std::move(beforeCallBack), std::move(callBack));
+    MNN::Express::ExecutorScope::Current()->setCallBack(std::move(beforeCallBack), std::move(callBack));
 }
 
 template<typename T>
@@ -187,7 +191,7 @@ std::tuple<float, float, float> _countTensor(MNN::Tensor* tensor) {
     return std::make_tuple(maxValue, minValue, avgValue);
 }
 
-std::pair<bool, std::tuple<float, float, float>> _countForTensorValid(MNN::Tensor* ntensor) {
+static std::pair<bool, std::tuple<float, float, float>> _countForTensorValid(MNN::Tensor* ntensor) {
     bool valid = false;
     std::tuple<float, float, float> res;
     if (ntensor->elementSize() <= 0) {
@@ -238,7 +242,7 @@ static void _initTensorStatic() {
                 continue;
             }
             auto data = res.second;
-            MNN_PRINT("%s [Input] %s_%d, Max: %f, Min: %f, Avg: %f, [", info->type().c_str(), opName.c_str(), i, std::get<0>(data), std::get<1>(data), std::get<2>(data));
+            MNN_PRINT("%s [Input] %s_%d, type:%d-%d, Max: %f, Min: %f, Avg: %f, [", info->type().c_str(), opName.c_str(), i,  ntensor->getType().code, ntensor->getType().bits, std::get<0>(data), std::get<1>(data), std::get<2>(data));
             for (int v=0; v<ntensor->dimensions(); ++v) {
                 MNN_PRINT("%d", ntensor->length(v));
                 if (v!=ntensor->dimensions()-1) {
@@ -261,7 +265,7 @@ static void _initTensorStatic() {
                 continue;
             }
             auto data = res.second;
-            MNN_PRINT("%s [Output] %s_%d, Max: %f, Min: %f, Avg: %f, [", info->type().c_str(), opName.c_str(), i, std::get<0>(data), std::get<1>(data), std::get<2>(data));
+            MNN_PRINT("%s [Output] %s_%d, type:%d-%d, Max: %f, Min: %f, Avg: %f, [", info->type().c_str(), opName.c_str(), i,  ntensor->getType().code, ntensor->getType().bits, std::get<0>(data), std::get<1>(data), std::get<2>(data));
             for (int v=0; v<ntensor->dimensions(); ++v) {
                 MNN_PRINT("%d", ntensor->length(v));
                 if (v!=ntensor->dimensions()-1) {
@@ -272,5 +276,5 @@ static void _initTensorStatic() {
         }
         return true;
     };
-    MNN::Express::Executor::getGlobalExecutor()->setCallBack(std::move(beforeCallBack), std::move(callBack));
+    MNN::Express::ExecutorScope::Current()->setCallBack(std::move(beforeCallBack), std::move(callBack));
 }

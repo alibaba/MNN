@@ -14,7 +14,7 @@ class ConcatSizeComputer : public SizeComputer {
     virtual bool onComputeSize(const MNN::Op* op, const std::vector<Tensor*>& inputs,
                                const std::vector<Tensor*>& outputs) const override {
         MNN_ASSERT(1 == outputs.size());
-        MNN_ASSERT(inputs.size() >= 2);
+        // MNN_ASSERT(inputs.size() >= 2);
         auto& ob      = outputs[0]->buffer();
         int basicAxis = 0;
         if (op->type() == OpType_Concat) {

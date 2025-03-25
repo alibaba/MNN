@@ -34,22 +34,40 @@ private:
 float VulkanRuntime::onGetMemoryInMB() {
     return mMemoryPool->computeSize();
 }
-
-VulkanRuntime::VulkanRuntime(const Backend::Info& info) {
-    mInfo = info;
+VulkanRuntime* VulkanRuntime::create(const Backend::Info& info) {
     MNNVulkanContext* context = nullptr;
+    std::shared_ptr<VulkanDevice> device;
+    std::shared_ptr<VulkanInstance> instance;
     if (nullptr != info.user && nullptr != info.user->sharedContext) {
        MNN_PRINT("Use user's vulkan context\n");
        context = static_cast<MNNVulkanContext*>(info.user->sharedContext);
     }
     if (NULL != context) {
-        mInstance = std::make_shared<VulkanInstance>(context->pInstance);
-        mDevice   = std::make_shared<VulkanDevice>(mInstance, context->pPhysicalDevice, context->pDevice,
+        instance = std::make_shared<VulkanInstance>(context->pInstance);
+        if (context->pInstance == VK_NULL_HANDLE) {
+            MNN_ERROR("Invalide user's vulkan instance\n");
+            return nullptr;
+        }
+        device   = std::make_shared<VulkanDevice>(instance, context->pPhysicalDevice, context->pDevice,
                                                  context->iQueueFamilyIndex, context->pQueue);
     } else {
-        mInstance = std::make_shared<VulkanInstance>();
-        mDevice   = std::make_shared<VulkanDevice>(mInstance);
+        instance = std::make_shared<VulkanInstance>();
+        if (!instance->supportVulkan()) {
+            MNN_ERROR("Invalide device for support vulkan\n");
+            return nullptr;
+        }
+        device = std::make_shared<VulkanDevice>(instance);
     }
+    if (device->get() == VK_NULL_HANDLE) {
+        return nullptr;
+    }
+    return new VulkanRuntime(info, device, instance);
+}
+
+VulkanRuntime::VulkanRuntime(const Backend::Info& info, std::shared_ptr<VulkanDevice> device, std::shared_ptr<VulkanInstance> instance) {
+    mInfo = info;
+    mDevice = device;
+    mInstance = instance;
     auto& dev              = *mDevice;
     mCmdPool               = std::make_shared<VulkanCommandPool>(dev);
     //GFlops, Test by mobilenet v1's ms
@@ -96,6 +114,16 @@ VulkanRuntime::VulkanRuntime(const Backend::Info& info) {
     mClampSampler         = std::make_shared<VulkanSampler>(dev, VK_FILTER_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
     mPipelineFactory = std::make_shared<VulkanPipelineFactory>(dev);
     mQueryPool = std::make_shared<VulkanQueryPool>(dev);
+
+    std::vector<int> legalModeValues = {0x00000001, 0x00000002, 0x00000004,
+                                        0x00000201, 0x00000202, 0x00000204};
+    auto iter = std::find(legalModeValues.begin(), legalModeValues.end(), (uint32_t)mInfo.gpuMode);
+    if (iter == legalModeValues.end()) {
+        MNN_PRINT("The customized gpu mode is illegal for Vulkan backend. Using the default mode.\n");
+        mGpuMode = 0x00000004;
+    } else {
+        mGpuMode = mInfo.gpuMode;
+    }
 }
 
 VulkanRuntime::~VulkanRuntime() {
@@ -147,7 +175,7 @@ void VulkanRuntime::onGabageCollect(int level) {
     mPipelineFactory->reset();
 }
 
-Backend* VulkanRuntime::onCreate(const BackendConfig* config) const {
+Backend* VulkanRuntime::onCreate(const BackendConfig* config, Backend* origin) const {
     // FIXME: Use config
     return new VulkanBackend(this, mInfo);
 }
@@ -168,31 +196,76 @@ int VulkanRuntime::onGetRuntimeStatus(RuntimeStatus statusEnum) const {
     }
     return 0;
 }
-static bool _testVulkan() {
-    // std::make_unique need c++14
-    std::unique_ptr<VulkanInstance> instance(new VulkanInstance());
-    if (nullptr == instance) {
-        MNN_ERROR("Invalide device for support vulkan\n");
+
+bool VulkanRuntime::onSetCache(const void* buffer, size_t size) {
+    // check the validity of the buffer
+    if (nullptr == buffer) {
+        mTuneBuffer.clear();
         return false;
     }
-    if (!instance->success()) {
-        MNN_ERROR("Invalide device for support vulkan\n");
+
+    flatbuffers::Verifier verifier(static_cast<const uint8_t*>(buffer), size);
+    if (!VKCache::VerifyTuneInfoCacheBuffer(verifier)) {
         return false;
     }
-    if (!instance->supportVulkan()) {
-        MNN_ERROR("Invalide device for support vulkan\n");
+
+    auto tuneInfoCache = VKCache::GetTuneInfoCache(buffer);
+    auto tuneInfos = tuneInfoCache->TuneInfos();
+    if (!tuneInfos) {
         return false;
     }
+    // read from buffer, write to mTuneMap
+    for (const auto & tuneInfo : * tuneInfos) {
+        VKTuneKey k;
+        k.shaderName = tuneInfo->shaderName()->str();
+        k.gws = {tuneInfo->gws()->x(), tuneInfo->gws()->y(), tuneInfo->gws()->z()};
+
+        VKTuneValue v;
+        v.optimalLws = {tuneInfo->optimalLws()->x(), tuneInfo->optimalLws()->y(), tuneInfo->optimalLws()->z()};
+        v.optimalCost = tuneInfo->optimalCost();
+        mTuneMap[k] = v;
+    }
+
     return true;
+}
+
+std::pair<const void*, size_t> VulkanRuntime::onGetCache() {
+    std::unique_ptr<flatbuffers::FlatBufferBuilder> builder(new flatbuffers::FlatBufferBuilder());
+    std::unique_ptr<VKCache::TuneInfoCacheT> tuneInfoCache(new VKCache::TuneInfoCacheT());
+
+    for (const auto & kvPair : mTuneMap) {
+        const VKTuneKey & k = kvPair.first;
+        const VKTuneValue & v = kvPair.second;
+        std::unique_ptr<VKCache::TuneInfoT> tuneInfo(new VKCache::TuneInfoT());
+        tuneInfo->shaderName = k.shaderName;
+
+        std::unique_ptr<VKCache::WorkSizeT> gwsTemp(new VKCache::WorkSizeT());
+        gwsTemp->x = k.gws[0]; gwsTemp->y = k.gws[1]; gwsTemp->z = k.gws[2];
+        tuneInfo->gws = std::move(gwsTemp);
+
+        std::unique_ptr<VKCache::WorkSizeT> optimalLwsTemp(new VKCache::WorkSizeT());
+        optimalLwsTemp->x = v.optimalLws[0]; optimalLwsTemp->y = v.optimalLws[1]; optimalLwsTemp->z = v.optimalLws[2];
+        tuneInfo->optimalLws = std::move(optimalLwsTemp);
+
+        tuneInfo->optimalCost = v.optimalCost;
+
+        tuneInfoCache->TuneInfos.push_back(std::move(tuneInfo));
+    }
+
+    auto tuneInfoCacheOffset = VKCache::TuneInfoCache::Pack(*(builder.get()), tuneInfoCache.get());
+    builder->Finish(tuneInfoCacheOffset);
+    uint8_t *bufTemp = builder->GetBufferPointer();
+    size_t size = builder->GetSize();
+    mTuneBuffer.resize(size);
+    ::memcpy(mTuneBuffer.data(), bufTemp, size);
+    return std::make_pair(mTuneBuffer.data(), size);
 }
 
 class VulkanRuntimeCreator : public RuntimeCreator {
 public:
     virtual Runtime* onCreate(const Backend::Info& info) const {
         if (InitVulkan()) {
-            if (_testVulkan()) {
-                return new VulkanRuntime(info);
-            }
+            return VulkanRuntime::create(info);
         }
         return nullptr;
     }

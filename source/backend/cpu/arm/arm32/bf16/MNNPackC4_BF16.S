@@ -39,8 +39,8 @@ mul r4, r2, r3
 cmp r4, #0
 beq UpEnd
 
-//r4: srcDepthOffset:srcArea*sizeof(int16_t)
-mov r4, #2
+//r4: srcDepthOffset:srcArea*sizeof(float)
+mov r4, #4
 mul r4, lr, r4
 
 //r10 -> 4 * (dstArea * sizeof(int16_t) - area * sizeof(int16_t))
@@ -48,8 +48,8 @@ mov r12, #8
 sub r10, r10, r2
 mul r10, r12, r10
 
-//lr -> (srcArea * sizeof(int16_t) - area * sizeof(int16_t))
-mov r12, #2
+//lr -> (srcArea * sizeof(float) - area * sizeof(float))
+mov r12, #4
 sub lr, lr, r2
 mul lr, r12, lr
 
@@ -65,10 +65,15 @@ mov r8, r2
 cmp r8, #3
 ble UpL4AreaRemain
 UpL4AreaLoop:
-vld1.16 {d0}, [r1]! // load 4 elements of 16-bit into 64bit vector register d0
-vld1.16 {d1}, [r5]!
-vld1.16 {d2}, [r6]!
-vld1.16 {d3}, [r7]!
+vld1.32 {q0}, [r1]! // load 4 elements of 16-bit into 64bit vector register d0
+vld1.32 {q1}, [r5]!
+vld1.32 {q2}, [r6]!
+vld1.32 {q3}, [r7]!
+vshrn.i32 d0, q0, #16
+vshrn.i32 d1, q1, #16
+vshrn.i32 d2, q2, #16
+vshrn.i32 d3, q3, #16
+
 // transpose // no suitable instruction to transpose int16_t type
 vst4.16 {d0, d1, d2, d3}, [r0]!
 sub r8, r8, #4
@@ -79,10 +84,11 @@ UpL4AreaRemain:
 cmp r8, #0
 beq UpL4AreaRemainEnd
 UpL4AreaRemainLoop:
-vld1.16 {d0[0]}, [r1]!
-vld1.16 {d0[1]}, [r5]!
-vld1.16 {d0[2]}, [r6]!
-vld1.16 {d0[3]}, [r7]!
+vld1.32 {d0[0]}, [r1]!
+vld1.32 {d0[1]}, [r5]!
+vld1.32 {d1[0]}, [r6]!
+vld1.32 {d1[1]}, [r7]!
+vshrn.i32 d0, q0, #16
 
 vst1.16 {d0}, [r0]!
 
@@ -104,10 +110,14 @@ mov r8, r2
 cmp r8, #3
 ble UpL3AreaRemain
 UpL3AreaLoop:
-vld1.16 {d0}, [r1]!
+vld1.32 {q0}, [r1]!
+vld1.32 {q1}, [r5]!
+vld1.32 {q2}, [r6]!
+vshrn.i32 d0, q0, #16
+vshrn.i32 d1, q1, #16
+vshrn.i32 d2, q2, #16
 vmov.i16 d3, #0
-vld1.16 {d1}, [r5]!
-vld1.16 {d2}, [r6]!
+
 // transpose // no suitable instruction to transpose int16_t type
 vst4.16 {d0, d1, d2, d3}, [r0]!
 sub r8, r8, #4
@@ -117,10 +127,11 @@ bge UpL3AreaLoop
 cmp r8, #0
 beq UpL3AreaRemainEnd
 UpL3AreaRemain:
-vmov.i16 d0, #0
-vld1.16 {d0[0]}, [r1]!
-vld1.16 {d0[1]}, [r5]!
-vld1.16 {d0[2]}, [r6]!
+vmov.i32 q0, #0
+vld1.32 {d0[0]}, [r1]!
+vld1.32 {d0[1]}, [r5]!
+vld1.32 {d1[0]}, [r6]!
+vshrn.i32 d0, q0, #16
 
 vst1.16 {d0}, [r0]!
 
@@ -139,11 +150,13 @@ mov r8, r2
 cmp r8, #3
 ble UpL2AreaRemain
 UpL2AreaLoop:
-vld1.16 {d0}, [r1]!
+vld1.32 {q0}, [r1]!
+vld1.32 {q1}, [r5]!
+vshrn.i32 d0, q0, #16
+vshrn.i32 d1, q1, #16
+
 vmov.i16 d3, #0
-vld1.16 {d1}, [r5]!
 vmov.i16 d2, #0
-// transpose // no suitable instruction to transpose int16_t type
 vst4.16 {d0, d1, d2, d3}, [r0]!
 sub r8, r8, #4
 cmp r8, #4
@@ -152,9 +165,11 @@ bge UpL2AreaLoop
 cmp r8, #0
 beq UpL2AreaRemainEnd
 UpL2AreaRemain:
-vmov.i16 d0, #0
-vld1.16 {d0[0]}, [r1]!
-vld1.16 {d0[1]}, [r5]!
+vmov.i32 q0, #0
+vld1.32 {d0[0]}, [r1]!
+vld1.32 {d0[1]}, [r5]!
+
+vshrn.i32 d0, q0, #16
 
 vst1.16 {d0}, [r0]!
 
@@ -171,7 +186,8 @@ mov r8, r2
 cmp r8, #3
 ble UpL1AreaRemain
 UpL1AreaLoop:
-vld1.16 {d0}, [r1]!
+vld1.32 {q0}, [r1]!
+vshrn.i32 d0, q0, #16
 vmov.i16 d3, #0
 vmov.i16 d1, #0
 vmov.i16 d2, #0
@@ -184,8 +200,9 @@ bge UpL1AreaLoop
 cmp r8, #0
 beq UpL1AreaRemainEnd
 UpL1AreaRemain:
-vmov.i16 d0, #0
-vld1.16 {d0[0]}, [r1]!
+vmov.i16 q0, #0
+vld1.32 {d0[0]}, [r1]!
+vshrn.i32 d0, q0, #16
 
 vst1.16 {d0}, [r0]!
 

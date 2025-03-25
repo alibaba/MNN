@@ -34,39 +34,14 @@ NSURL* createTemporaryFile() {
     NSURL* temporaryFileURL = [temporaryDirectoryURL URLByAppendingPathComponent:temporaryFilename];
     return temporaryFileURL;
 }
-static id<MTLComputePipelineState> rasterPipeline;
-id<MTLComputePipelineState> getRasterPipeline() {
-    if (rasterPipeline == nil) {
-        id device = MTLCreateSystemDefaultDevice();
-#if TARGET_OS_IOS
-        NSString *path = [NSBundle.mainBundle pathForResource:@"coreml" ofType:@"metallib"];
-#else
-        NSString *path = @"coreml.metallib";
-#endif
-        NSError* error;
-        id library = path ? [device newLibraryWithFile:path error:&error] : [device newDefaultLibrary];
-        if (error) {
-            printf("[METAL] create library error: %s\n", error.localizedDescription.UTF8String);
-            return nullptr;
-        }
-        id function = [library newFunctionWithName:@"raster_texture"];
-        rasterPipeline = [device newComputePipelineStateWithFunction:function error:&error];
-        if (error) {
-            printf("[METAL] create pipeline error: %s\n", error.localizedDescription.UTF8String);
-            return nullptr;
-        }
-        return rasterPipeline;
-    }
-    return rasterPipeline;
-}
 }  // namespace
 
 @interface MultiArrayFeatureProvider : NSObject <MLFeatureProvider> {
-    const std::vector<std::pair<const MNN::Tensor*, std::string>>* _inputs;
+    NSMutableDictionary* _inputs;
     NSSet* _featureNames;
 }
 
-- (instancetype)initWithInputs:(const std::vector<std::pair<const MNN::Tensor*, std::string>>*)inputs
+- (instancetype)initWithInputs:(const std::vector<std::pair<const MNN::Tensor*, std::string>>*)inputs useImage:(bool)useImage
                  coreMlVersion:(int)coreMlVersion;
 - (MLFeatureValue*)featureValueForName:(NSString*)featureName API_AVAILABLE(ios(11));
 - (NSSet<NSString*>*)featureNames;
@@ -77,91 +52,69 @@ id<MTLComputePipelineState> getRasterPipeline() {
 
 @implementation MultiArrayFeatureProvider
 
-- (instancetype)initWithInputs:(const std::vector<std::pair<const MNN::Tensor*, std::string>>*)inputs
+- (instancetype)initWithInputs:(const std::vector<std::pair<const MNN::Tensor*, std::string>>*)inputs useImage:(bool)useImage
                   coreMlVersion:(int)coreMlVersion {
     self = [super init];
-    _inputs = inputs;
+    _inputs = [NSMutableDictionary dictionaryWithCapacity:inputs->size()];
     _coreMlVersion = coreMlVersion;
-    for (auto& input : *_inputs) {
-        if (input.second.empty()) {
-            return nil;
+    _featureNames = nil;
+    NSMutableArray* names = [[NSMutableArray alloc] init];
+    for (auto& input : *inputs) {
+        MLFeatureValue* value = nil;
+        auto tensor = input.first;
+        NSError* error = nil;
+        NSString* name = [NSString stringWithCString:input.second.c_str() encoding:[NSString defaultCStringEncoding]];
+        if (useImage) {
+            CVPixelBufferRef pixelBuffer = NULL;
+            OSType pixelFormat = kCVPixelFormatType_OneComponent8;
+            size_t bytePerRow = tensor->width();
+            CVReturn status = CVPixelBufferCreateWithBytes(nil, tensor->width(), tensor->height(), pixelFormat,
+                                                           tensor->host<void>(), bytePerRow, nil, nil, nil, &pixelBuffer);
+            if (status != kCVReturnSuccess) {
+                NSLog(@"Failed to create CVPixelBufferRef for feature %@", name);
+                return nil;
+            }
+            value = [MLFeatureValue featureValueWithPixelBuffer:pixelBuffer];
+        } else {
+            auto input_shape = input.first->shape();
+            NSMutableArray* shape = [NSMutableArray arrayWithCapacity:input_shape.size()];
+            NSMutableArray* strides = [NSMutableArray arrayWithCapacity:input_shape.size()];
+            std::vector<int> stridesDim(input_shape.size());
+            int curStride = 1;
+            if (input_shape.size() >= 1) {
+                for (int i=input_shape.size()-1; i>=0; --i) {
+                    stridesDim[i] = curStride;
+                    curStride *= input_shape[i];
+                }
+            }
+            for (int i=0; i<input_shape.size(); ++i) {
+                [shape addObject:@(input_shape[i])];
+                [strides addObject:@(stridesDim[i])];
+            }
+            MLMultiArray* mlArray = [[MLMultiArray alloc] initWithDataPointer:tensor->host<float>()
+                                                                        shape:shape
+                                                                     dataType:MLMultiArrayDataTypeFloat32
+                                                                      strides:strides
+                                                                  deallocator:(^(void* bytes){})error:&error];
+            if (error != nil) {
+                NSLog(@"Failed to create MLMultiArray for feature %@ error: %@", name, [error localizedDescription]);
+                return nil;
+            }
+            value= [MLFeatureValue featureValueWithMultiArray:mlArray];
         }
+        [names addObject:name];
+        [_inputs setValue:value forKey:(name)];
     }
+    _featureNames = [NSSet setWithArray:names];
     return self;
 }
 
 - (NSSet<NSString*>*)featureNames {
-    if (_featureNames == nil) {
-        NSMutableArray* names = [[NSMutableArray alloc] init];
-        for (auto& input : *_inputs) {
-            [names addObject:[NSString stringWithCString:input.second.c_str()
-                                          encoding:[NSString defaultCStringEncoding]]];
-        }
-        _featureNames = [NSSet setWithArray:names];
-    }
     return _featureNames;
 }
 
 - (MLFeatureValue*)featureValueForName:(NSString*)featureName {
-    for (auto& input : *_inputs) {
-        if ([featureName cStringUsingEncoding:NSUTF8StringEncoding] == input.second) {
-            auto input_shape = input.first->shape();
-            NSArray* shape = @[
-                @(input_shape[0]),
-                @(input_shape[1]),
-                @(input_shape[2]),
-            ];
-            NSArray* strides = @[
-                @(input_shape[1] * input_shape[2]),
-                @(input_shape[2]),
-                @1,
-            ];
-
-            if ([self coreMlVersion] >= 3) {
-                shape = @[
-                    @(input_shape[0]),
-                    @(input_shape[1]),
-                    @(input_shape[2]),
-                    @(input_shape[3]),
-                ];
-                strides = @[
-                    @(input_shape[1] * input_shape[2] * input_shape[3]),
-                    @(input_shape[2] * input_shape[3]),
-                    @(input_shape[3]),
-                    @1,
-                ];
-            };
-            auto tensor = input.first;
-            if (tensor->getType() == halide_type_of<uint8_t>()) {
-                CVPixelBufferRef pixelBuffer = NULL;
-                OSType pixelFormat = kCVPixelFormatType_OneComponent8;
-                size_t bytePerRow = tensor->width();
-                CVReturn status = CVPixelBufferCreateWithBytes(nil, tensor->width(), tensor->height(), pixelFormat,
-                                                               tensor->host<void>(), bytePerRow, nil, nil, nil, &pixelBuffer);
-                if (status != kCVReturnSuccess) {
-                    NSLog(@"Failed to create CVPixelBufferRef for feature %@", featureName);
-                    return nil;
-                }
-                auto* mlFeatureValue = [MLFeatureValue featureValueWithPixelBuffer:pixelBuffer];
-                return mlFeatureValue;
-            } else {
-                NSError* error = nil;
-                MLMultiArray* mlArray = [[MLMultiArray alloc] initWithDataPointer:tensor->host<float>()
-                                                                            shape:shape
-                                                                         dataType:MLMultiArrayDataTypeFloat32
-                                                                          strides:strides
-                                                                      deallocator:(^(void* bytes){})error:&error];
-                if (error != nil) {
-                    NSLog(@"Failed to create MLMultiArray for feature %@ error: %@", featureName, [error localizedDescription]);
-                    return nil;
-                }
-                auto* mlFeatureValue = [MLFeatureValue featureValueWithMultiArray:mlArray];
-                return mlFeatureValue;
-            }
-        }
-    }
-    NSLog(@"Feature %@ not found", featureName);
-    return nil;
+    return _inputs[featureName];
 }
 @end
 
@@ -171,16 +124,20 @@ id<MTLComputePipelineState> getRasterPipeline() {
     if (_model == nil) {
         return NO;
     }
-    @autoreleasepool {
+
+    @autoreleasepool{
+        _outputArray = nil;
+        _outputArray = [NSMutableArray arrayWithCapacity:0];
         NSError* error = nil;
-        MultiArrayFeatureProvider* inputFeature = [[MultiArrayFeatureProvider alloc] initWithInputs:&inputs coreMlVersion:[self coreMlVersion]];
+        bool useImage = _precision == 2;
+        MultiArrayFeatureProvider* inputFeature = [[MultiArrayFeatureProvider alloc] initWithInputs:&inputs useImage:useImage coreMlVersion:[self coreMlVersion]];
         if (inputFeature == nil) {
             NSLog(@"inputFeature is not initialized.");
             return NO;
         }
         MLPredictionOptions* options = [[MLPredictionOptions alloc] init];
         // options.usesCPUOnly = true;
-        _outputFeature = [_model predictionFromFeatures:inputFeature
+        auto _outputFeature = [_model predictionFromFeatures:inputFeature
                                                 options:options
                                                   error:&error];
         if (error != nil) {
@@ -207,9 +164,11 @@ id<MTLComputePipelineState> getRasterPipeline() {
                 if (data.dataPointer == nullptr) {
                     return NO;
                 }
+                [_outputArray addObject:data];
                 const_cast<MNN::Tensor*>(output.first)->buffer().host = (unsigned char*)data.dataPointer;
-            }
+           }
         }
+        inputFeature = nil;
     }
     return YES;
 }
@@ -279,9 +238,6 @@ id<MTLComputePipelineState> getRasterPipeline() {
 - (instancetype)initWithParameterDictionary:(NSDictionary<NSString *,id> *)parameters
                                       error:(NSError * _Nullable *)error {
     self = [super init];
-#ifdef COREML_METAL_RASTER
-    pipeline = getRasterPipeline();
-#endif
     return self;
 }
 - (void) setRegionSampler
@@ -438,31 +394,6 @@ id<MTLComputePipelineState> getRasterPipeline() {
     return YES;
 }
 
-// TODO: raster in metal with texture
-#ifdef COREML_METAL_RASTER
-// execute on gpu
-- (BOOL)encodeToCommandBuffer:(id<MTLCommandBuffer>)commandBuffer
-                       inputs:(NSArray<id<MTLTexture>> *)inputs
-                      outputs:(NSArray<id<MTLTexture>> *)outputs
-                        error:(NSError **)error {
-    printf("Raster GPU execute\n");
-    id outputBuffer = [ outputs[0] buffer];
-    NSLog(@"in  -> %@", inputs[0]);
-    NSLog(@"out -> %@", outputs[0]);
-    id encoder = [commandBuffer computeCommandEncoder];
-    [encoder setComputePipelineState:pipeline];
-    for (int i = 0; i < inputs.count; i++) {
-        [encoder setTexture:inputs[i] atIndex:0];
-        [encoder setTexture:outputs[0] atIndex:1];
-        [encoder setBytes:&samplers[i] length:sizeof(SamplerInfo) atIndex:0];
-        std::pair<MTLSize, MTLSize> group = [self computeBestGroupAndLocal:samplers[i]];
-        [encoder dispatchThreadgroups:group.first threadsPerThreadgroup:group.second];
-    }
-    // [encoder endEncoding];
-    return YES;
-
-}
-#endif
 @end
 
 @implementation DumpLayer

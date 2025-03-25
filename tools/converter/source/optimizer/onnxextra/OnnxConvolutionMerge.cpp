@@ -34,8 +34,9 @@ static EXPRP _transformConv3D(EXPRP expr) {
     auto weight = inputs[1];
     
     auto weightInfo = weight->getInfo();
-    if (nullptr == weightInfo) {
-        MNN_ERROR("Convolution3D should know weight shape infromation!\n");
+    auto weightPtr = weight->readMap<float>();
+    if (nullptr == weightInfo || nullptr == weightPtr) {
+        MNN_ERROR("Convolution3D should has constant weight!\n");
         return nullptr;
     }
     auto& weightShape = weightInfo->dim;
@@ -52,19 +53,7 @@ static EXPRP _transformConv3D(EXPRP expr) {
         co = weightShape[1];
         ci = weightShape[0];
     }
-    std::unique_ptr<Convolution3DT> conv3d(new MNN::Convolution3DT);
-    const float* weightDataPtr = weight->readMap<float>();
-    conv3d->weight.resize(weightInfo->size);
-    ::memcpy(conv3d->weight.data(), weightDataPtr, weightInfo->size * sizeof(float));
-    conv3d->bias.resize(co);
-    std::fill(conv3d->bias.begin(), conv3d->bias.end(), 0.0f);
-    if (inputSize == 3) {
-        auto biasDataPtr = inputs[2]->readMap<float>();
-        ::memcpy(conv3d->bias.data(), biasDataPtr, co * sizeof(float));
-    }
-    
-    conv3d->common.reset(new MNN::Convolution3DCommonT);
-    auto common = conv3d->common.get();
+    std::unique_ptr<MNN::Convolution3DCommonT> common(new MNN::Convolution3DCommonT);
     common->pads = {0, 0, 0, 0, 0, 0};
     common->dilates = {1, 1, 1};
     common->kernels = {1, 1, 1};
@@ -97,8 +86,10 @@ static EXPRP _transformConv3D(EXPRP expr) {
             for (int k = 0; k < size; ++k) {
                 outputPadding.push_back(dataList->i()->data()[k]);
             }
+        } else if (key == "output_shape") {
+            // TODO: Support outputshape
+            MNN_ERROR("ConvTranspose3d currently not support output_shape");
         }
-        // TODO: Support outputshape
     }
     common->outPads = outputPadding;
 
@@ -110,7 +101,22 @@ static EXPRP _transformConv3D(EXPRP expr) {
         common->outputCount = co;
         common->inputCount  = ci * common->group; // conv set inputCount to be ci, dw to be group
     }
-    common->kernels              = std::vector<int>({depth, kh, kw});
+    common->kernels = std::vector<int>({depth, kh, kw});
+    std::unique_ptr<Convolution3DT> conv3d(new MNN::Convolution3DT);
+    conv3d->weight.resize(weightInfo->size);
+    ::memcpy(conv3d->weight.data(), weightPtr, weightInfo->size * sizeof(float));
+    conv3d->bias.resize(co);
+    std::fill(conv3d->bias.begin(), conv3d->bias.end(), 0.0f);
+    bool needExtraBias = false;
+    if (inputSize == 3) {
+        auto biasDataPtr = inputs[2]->readMap<float>();
+        if (nullptr != biasDataPtr) {
+            ::memcpy(conv3d->bias.data(), biasDataPtr, co * sizeof(float));
+        } else {
+            needExtraBias = true;
+        }
+    }
+    conv3d->common.reset(common.release());;
 
     std::unique_ptr<OpT> newOp(new OpT);
     newOp->name       = expr->name();
@@ -119,6 +125,10 @@ static EXPRP _transformConv3D(EXPRP expr) {
     newOp->main.value = conv3d.release();
 
     auto newExpr = Expr::create(newOp.get(), {inputs[0]}, 1);
+    if (needExtraBias) {
+        auto newVar = _Add(Variable::create(newExpr), inputs[2]);
+        newExpr = newVar->expr().first;
+    }
     return newExpr;
 }
 
@@ -149,18 +159,9 @@ public:
             MNN_ERROR("Convolution should know weight shape infromation!\n");
             return nullptr;
         }
-        INTS weightShape;
-        if (weightIden) {
-            auto dim = weight_expr->inputs().at(4)->readMap<int32_t>();
-            int dimSize = weight_expr->inputs().at(4)->getInfo()->dim[0];
-            for (int k = 0; k < dimSize; ++k) {
-                weightShape.emplace_back(dim[k]);
-            }
-        } else {
-            weightShape = weight->getInfo()->dim;
-        }
+        INTS weightShape = weight->getInfo()->dim;
+        
         bool convertToConvint8 = false;
-        convertToConvint8 = (true == weightIden && true == xIden && weight_expr->inputs().size() == 5);
 
         auto op         = expr->get();
         auto extraParam = op->main_as_Extra();
@@ -176,6 +177,10 @@ public:
         }
 
         if (isDeconv) {
+            co = weightShape[1];
+            ci = weightShape[0];
+        }
+        if (weightIden) {
             co = weightShape[1];
             ci = weightShape[0];
         }
@@ -292,99 +297,23 @@ public:
             // Fastest
             limitNumber = 100;
         }
+        VARP wf = weight;
         if ( weight->linkNumber() <= limitNumber && !convertToConvint8) {
-            weightDataPtr = weight->readMap<float>();
+            if (!weightIden) {
+                weightDataPtr = weight->readMap<float>();
+            }
+            else {
+                auto yy = weight->expr().first->inputs()[0]; // weight shape: [ic,oc,kh,kw]
+                auto ss = _Const(weight->expr().first->get()->main_as_QuantizedFloatParam()->tensorScale()->data(), {co});
+                auto zz = _Const(weight->expr().first->get()->main_as_QuantizedFloatParam()->floatzeros()->data(), {co});
+                wf = (_Cast<float>(_Permute(yy, {0, 2, 3, 1})) - zz) * ss;
+                wf = _Permute(wf, {3, 0, 1, 2});
+                weightDataPtr = wf->readMap<float>();
+            }
         }
         EXPRP reluExpr;
         bool hasRelu = false;
-        if (convertToConvint8) {
-            // Get output quant info.
-            auto outputExpr = expr->outputs().front().lock();
-            
-            if (outputExpr->get() && (outputExpr->get()->type() == OpType::OpType_ReLU || outputExpr->get()->type() == OpType_ReLU6)) {
-                reluExpr = std::move(outputExpr);
-                outputExpr = reluExpr->outputs().front().lock();
-                hasRelu = true;
-            }
-            auto outputScaleVar = outputExpr->inputs()[1];
-            float outputScale = outputScaleVar->readMap<float>()[0];
-            if (hasRelu) {
-                outputScale = 1.0f;
-            }
-            int8_t outputZero = 0;
-            if (outputExpr->inputs().size() > 2) {
-                outputZero = static_cast<int8_t>(outputExpr->inputs()[2]->readMap<uint8_t>()[0]);
-            }
-            // Get weight quant info.
-            float inputClampMin = -128;
-            float inputClampMax = 127;
-            auto weightexpr = weight->expr().first;
-            auto weightInt8 = weightexpr->inputs()[0];
-            auto pw= weightInt8->readMap<int8_t>();
-            const size_t weightSize = co * ci * kh * kw;
-//            std::vector<int8_t> weightData(weightSize);
-            std::vector<int32_t> weightKenelSum(co);
-            const int kernelSize = static_cast<int32_t>(weightSize / co);
-//            for (int cnt = 0; cnt < weightSize; ++cnt) {
-//                weightData[cnt] = pw[cnt];
-//            }
-            for (int i = 0; i < co; i++) {
-                int temp = 0;
-                int offset = i * kernelSize;
-                for (int j = 0; j < kernelSize; j++) {
-                    temp += int(pw[offset + j]);
-                }
-                weightKenelSum[i] = temp;
-            }
-            std::vector<int32_t> biasInt32(common->outputCount, 0);
-            convParam->symmetricQuan.reset(new QuantizedFloatParamT);
-            convParam->symmetricQuan->weight.resize(weightSize);
-            ::memcpy(convParam->symmetricQuan->weight.data(), pw, weightSize * sizeof(int8_t));
-            convParam->symmetricQuan->nbits = 8;
-            if (hasRelu) {
-                convParam->symmetricQuan->outputDataType = DataType_DT_FLOAT;
-            }
-            
-            // Get input quant info.
-            auto inputExpr = inputs[0]->expr().first;
-            //x = inputExpr->inputs()[0]; // for op merge to convint8, so remain int8ToFloat layer for the moment
-            auto inputScaleVar = inputExpr->inputs()[2];
-            auto inputZeroVar = inputExpr->inputs()[3];
-            float inputScale = inputScaleVar->readMap<float>()[0];
-            int8_t inputZero = static_cast<int8_t>(inputZeroVar->readMap<float>()[0]);
-
-            // Compute convInt8 scale=(inputScale * weightScale)/outputScale
-            std::vector<float> scale(co);
-            auto weightScale = weightexpr->inputs().at(2);
-            auto ptrscale = weightScale->readMap<float>();
-            for (int cnt = 0; cnt < co; ++cnt) {
-                if (outputScale != 0){
-                    scale[cnt] = ptrscale[cnt] * inputScale / outputScale;
-                } else {
-                    scale[cnt] = 0.f;
-                }
-            }
-            if (inputSize > 2) {
-                auto biasExpr = inputs[2]->expr().first;
-                auto biasInt32Var = biasExpr->inputs()[0];
-                auto ptr = biasInt32Var->readMap<int32_t>();
-                if (!ptr) {
-                    MNN_ERROR("Convolution bias should be constant\n");
-                    return nullptr;
-                }
-                for (int cnt = 0; cnt < co; ++cnt) {
-                    biasInt32[cnt] = ptr[cnt] - weightKenelSum[cnt] * static_cast<int32_t>(inputZero) + static_cast<int32_t>(static_cast<float>(outputZero) / scale[cnt]);
-                }
-            }
-            convParam->symmetricQuan->bias = std::move(biasInt32);
-            convParam->symmetricQuan->scale = std::move(scale);
-            convParam->symmetricQuan->clampMax = 127;
-            convParam->symmetricQuan->clampMin = -128;
-            convParam->symmetricQuan->zeroPoint = std::move(inputZero);
-            convParam->symmetricQuan->outputZeroPoint = std::move(outputZero);
-        }
-        // Do not return convInt8.
-        if (false == convertToConvint8 && weightDataPtr) {
+        if (weightDataPtr) {
             if (weight->linkNumber() > 1) {
                 static bool gPrint = false;
                 if (!gPrint) {

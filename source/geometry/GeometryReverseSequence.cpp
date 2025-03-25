@@ -26,7 +26,7 @@ public:
             MNN_ERROR("Dont's has Parameters for OpType_ReverseSequence\n");
             return false;
         }
-        auto seqDim = op->main_as_ReverseSequenceParam()->seqDim();
+        auto seqDim = op->main_as_ReverseSequenceParam()->seqDim(); // time_axis for ONNX
         if (seqDim < 0) {
             seqDim += inputs[0]->dimensions();
         }
@@ -82,7 +82,7 @@ public:
         outputDes->regions.clear();
 
         for (int batch = 0; batch < batchSize; ++batch) {
-            auto q = reverse->host<int32_t>()[batch];
+            int q = reverse->host<int32_t>()[batch];
             if (q > input->length(seqDim) || q < 1) {
                 MNN_ERROR("ReverseSequence info error\n");
                 return false;

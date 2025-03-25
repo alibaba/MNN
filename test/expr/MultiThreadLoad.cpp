@@ -10,6 +10,7 @@
 #include <MNN/expr/ExprCreator.hpp>
 #include <thread>
 #include "MNNTestSuite.h"
+#include "TestUtils.h"
 #include "MNN_generated.h"
 using namespace MNN::Express;
 using namespace MNN;
@@ -34,10 +35,12 @@ public:
         auto bufferOutput = builderOutput.GetBufferPointer();
 
         std::vector<std::thread> threads;
+        auto forwardType = getCurrentType();
         for (int i = 0; i < 100; ++i) {
             threads.emplace_back([&]() {
                 std::shared_ptr<Interpreter> interp(Interpreter::createFromBuffer(bufferOutput, sizeOutput));
                 ScheduleConfig config;
+                config.type = forwardType;
                 auto session = interp->createSession(config);
                 interp->runSession(session);
             });

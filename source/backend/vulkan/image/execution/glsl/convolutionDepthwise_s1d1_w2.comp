@@ -1,0 +1,99 @@
+#version 440 core
+
+#if defined(FP16) || defined(RELU_FP16) || defined(RELU6_FP16)
+#extension GL_AMD_gpu_shader_half_float: enable
+#define FLOAT4 f16vec4
+#else
+#define FLOAT4 vec4
+#endif
+
+layout(set=0, binding=0) writeonly uniform image2D uOutput;
+layout(set=0, binding=1) uniform sampler2D uInput;
+
+layout(set=0, binding=2) uniform sampler2D uKernel;
+
+layout(set=0, binding=3) uniform sampler2D uBias;
+
+layout(set=0, binding=4) readonly uniform constBuffer {
+    ivec2 pad;
+    ivec2 kernelSize;
+    ivec2 stride;
+    ivec2 dilate;
+    ivec4 inputSize; // w h icDiv4 n
+    ivec4 outputSize; // w h ocDiv4 n
+    ivec4 offset; // 0 0 oh
+} uConstant;
+
+#define UP_DIV(x, y) (((x)+(y)-1)/(y))
+
+layout (local_size_x_id = 0, local_size_y_id = 1, local_size_z_id = 2) in;
+
+void main()
+{
+    // index calculation
+    int outputIndexW2 = int(gl_GlobalInvocationID.x);
+    int outputIndexH = int(gl_GlobalInvocationID.y);
+
+    int outputW2 = UP_DIV(uConstant.outputSize.x, 2);
+
+    if (outputIndexW2 >= outputW2 || outputIndexH >= uConstant.outputSize.y) {
+        return;
+    }
+
+    int outputIndexNC4 = int(gl_GlobalInvocationID.z);
+    int outputIndexC4 = outputIndexNC4 % uConstant.outputSize.z;
+    int outputIndexN = outputIndexNC4 / uConstant.outputSize.z;
+
+    FLOAT4 result0 = FLOAT4(texelFetch(uBias, ivec2(outputIndexC4, 0), 0));
+    FLOAT4 result1 = result0;
+
+    ivec2 inputIndexOffset = ivec2(outputIndexW2 * 2 - uConstant.pad.x, outputIndexH - uConstant.pad.y);
+    int inputIndexStartH = max(0, -inputIndexOffset.y);
+    int inputIndexEndH = min(uConstant.kernelSize.y, uConstant.inputSize.y - inputIndexOffset.y);
+
+    // accumulate result
+    for (int kernelIndexH = inputIndexStartH; kernelIndexH < inputIndexEndH; kernelIndexH++) {
+        int inputIndexH = inputIndexOffset.y + kernelIndexH;
+        int inputPosH = inputIndexH + outputIndexN * uConstant.inputSize.y;
+
+        FLOAT4 input0 = FLOAT4(0.0f);
+
+        int inputIndexW0 = inputIndexOffset.x;
+        FLOAT4 input1 = (inputIndexW0 >= 0 && inputIndexW0 < uConstant.inputSize.x) ? FLOAT4(texelFetch(uInput, ivec2(inputIndexW0 + outputIndexC4 * uConstant.inputSize.x, inputPosH), 0)) : FLOAT4(0);
+
+        for (int kernelIndexW = 0; kernelIndexW < uConstant.kernelSize.x; kernelIndexW++) {
+            // load input
+            input0 = input1;
+
+            inputIndexW0 = inputIndexOffset.x + kernelIndexW + 1;
+            input1 = (inputIndexW0 >= 0 && inputIndexW0 < uConstant.inputSize.x) ? FLOAT4(texelFetch(uInput, ivec2(inputIndexW0 + outputIndexC4 * uConstant.inputSize.x, inputPosH), 0)) : FLOAT4(0);
+
+            // load weight
+            FLOAT4 weight = FLOAT4(texelFetch(uKernel, ivec2(kernelIndexW + kernelIndexH * uConstant.kernelSize.x, outputIndexC4), 0));
+            result0 += input0 * weight;
+            result1 += input1 * weight;
+        }
+    }
+
+#if defined(RELU_FP32) || defined(RELU_FP16)
+    result0 = FLOAT4(max(result0, FLOAT4(0)));
+    result1 = FLOAT4(max(result1, FLOAT4(0)));
+#endif
+
+#if defined(RELU6_FP32) || defined(RELU6_FP16)
+    result0 = FLOAT4(clamp(result0, FLOAT4(0), FLOAT4(6)));
+    result1 = FLOAT4(clamp(result1, FLOAT4(0), FLOAT4(6)));
+#endif
+
+    // write output
+    int outputPosXBase = (outputIndexW2 * 2) + outputIndexC4 * uConstant.outputSize.x;
+    int outputPosY = outputIndexH + outputIndexN * uConstant.outputSize.y;
+
+    if (outputIndexW2 * 2 < uConstant.outputSize.x - 1) {
+        imageStore(uOutput, ivec2(outputPosXBase, outputPosY), result0);
+        imageStore(uOutput, ivec2(outputPosXBase + 1, outputPosY), result1);
+    } else {
+        imageStore(uOutput, ivec2(outputPosXBase, outputPosY), result0);
+    }
+
+}

@@ -16,4 +16,5 @@ static inline __m512i mnn_mm512_dpbusds_epi32_replace(__m512i dst, __m512i src, 
 }
 
 #define MATMULCOREFUNC_NAME _AVX512_NO_VNNI_4_4_64
+#define MATMULCOREFUNC_NAME_W4 _AVX512_NO_VNNI_4_4_64_w4
 #include "Matmul_4_4_64.inl"

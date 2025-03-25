@@ -23,17 +23,21 @@ namespace MNN {
 
 std::shared_ptr<ConvInt8Winograd::WinoResource> ConvInt8Winograd::makeWinoResource(const int8_t* originWeight, std::shared_ptr<Tensor> scaleFloat, const int32_t* attr, Backend* backend, int oc, int ic, int kernelY, int kernelX) {
     auto core = static_cast<CPUBackend*>(backend)->int8Functions();
+    auto gcore = static_cast<CPUBackend*>(backend)->functions();
     int UNIT, SRC_UNIT, DST_XUNIT;
     core->MNNGetGemmUnit(&UNIT, &SRC_UNIT, &DST_XUNIT);
-    int oc4 = UP_DIV(oc, UNIT), ic4 = UP_DIV(ic, SRC_UNIT);
+    int pack = gcore->pack;
+    int ocDivUnit = UP_DIV(oc, UNIT), ic4 = UP_DIV(ic, SRC_UNIT);
+    int oc4 = UP_DIV(oc, pack);
     int kySize = attr[2], kxSize = attr[3], unitY = attr[4], unitX = attr[5]; attr += 6;
     int alphaY = kySize + unitY - 1, alphaX = kxSize + unitX - 1, alpha2 = alphaY * alphaX;
     
-    std::shared_ptr<Tensor> weight, offsets, scales, inputScales;
-    weight.reset(Tensor::createDevice<int8_t>({alpha2, oc4, ic4, UNIT, SRC_UNIT}));
-    offsets.reset(Tensor::createDevice<int32_t>({alpha2, oc4, UNIT}));
-    scales.reset(Tensor::createDevice<float>({alpha2, oc4 * UNIT}));
-    inputScales.reset(Tensor::createDevice<float>({alpha2, UNIT}));
+    std::shared_ptr<Tensor> weight, offsets, scales, inputScales, mergeInfo;
+    weight.reset(Tensor::createDevice<int8_t>({1, ocDivUnit, ic4, UNIT, SRC_UNIT}));
+    offsets.reset(Tensor::createDevice<float>({alpha2, oc4, pack}));
+    scales.reset(Tensor::createDevice<float>({1, 2 * oc4 * pack}));
+    inputScales.reset(Tensor::createDevice<float>({alpha2, pack}));
+    mergeInfo.reset(Tensor::createDevice<int8_t>({alpha2, weight->stride(0) + scales->size()}));
     
     auto allocTensors = [=](std::vector<std::shared_ptr<Tensor>> tensors) -> bool {
         bool success = true;
@@ -42,29 +46,29 @@ std::shared_ptr<ConvInt8Winograd::WinoResource> ConvInt8Winograd::makeWinoResour
         }
         return success;
     };
-    if (!allocTensors({weight, offsets, scales, inputScales})) {
+    
+    if (!allocTensors({offsets, scales, inputScales, mergeInfo})) {
+        MNN_ERROR("Memory not enough\n");
+        return nullptr;
+    }
+    std::shared_ptr<Tensor> originWeightFloat, weightFloat;
+    originWeightFloat.reset(Tensor::createDevice<float>({oc, ic, kySize, kxSize}));
+    weightFloat.reset(Tensor::createDevice<float>({alpha2, oc, ic, 1, 1}));
+    if (!allocTensors({weight, originWeightFloat, weightFloat})) {
         MNN_ERROR("Memory not enough\n");
         return nullptr;
     }
     ::memset(weight->host<int8_t>(), 0, weight->size());
-    ::memset(offsets->host<int32_t>(), 0, offsets->size());
+    ::memset(offsets->host<float>(), 0, offsets->size());
     ::memset(scales->host<float>(), 0, scales->size());
     auto inputScaleData = (const float*)attr; attr += alpha2;
     auto inputPointData = (const int32_t*)attr; attr += alpha2;
     auto weightScaleData = (const float*)attr; attr += alpha2 * oc;
     for (int i = 0; i < alpha2; ++i) {
         auto scale = 1.0f / inputScaleData[i];
-        for (int u = 0; u < UNIT; ++u) {
-            inputScales->host<float>()[i * UNIT + u] = scale;
+        for (int u = 0; u < pack; ++u) {
+            inputScales->host<float>()[i * pack + u] = scale;
         }
-    }
-    
-    std::shared_ptr<Tensor> originWeightFloat, weightFloat;
-    originWeightFloat.reset(Tensor::createDevice<float>({oc, ic, kySize, kxSize}));
-    weightFloat.reset(Tensor::createDevice<float>({alpha2, oc, ic, 1, 1}));
-    if (!allocTensors({originWeightFloat, weightFloat})) {
-        MNN_ERROR("Memory not enough\n");
-        return nullptr;
     }
     for (int c = 0; c < oc * ic; ++c) {
         for (int h = 0; h < kySize; ++h) {
@@ -77,14 +81,16 @@ std::shared_ptr<ConvInt8Winograd::WinoResource> ConvInt8Winograd::makeWinoResour
     }
     Math::WinogradGenerater generator({unitY, unitX}, {kySize, kxSize}, 1, true);
     generator.transformWeight(weightFloat.get(), originWeightFloat.get(), true);
-    
+    auto scalePtr = scales->host<float>();
     for (int a = 0; a < alpha2; ++a) {
         for (int oz = 0; oz < oc; ++oz) {
-            int oz4 = oz / UNIT, ozRemain = oz % UNIT, offset = 0;
+            int oz4 = oz / UNIT, ozRemain = oz % UNIT;
+            int offset_int32 = 0;
+            float offset = 0.f;
             float scale = weightScaleData[a * oc + oz];
             for (int sz = 0; sz < ic; ++sz) {
                 int sz4 = sz / SRC_UNIT, szRemain = sz % SRC_UNIT;
-                int index = (((a * oc4 + oz4) * ic4 + sz4) * UNIT + ozRemain) * SRC_UNIT + szRemain;
+                int index = ((oz4 * ic4 + sz4) * UNIT + ozRemain) * SRC_UNIT + szRemain;
                 float srcData = weightFloat->host<float>()[(a * oc + oz) * ic + sz];
                 // -ffast-math may cause inexact input then wrong rounded result, add eps to avoid this
                 float eps = ((srcData/scale) > 0 ? 1 : -1) * 1e-6;
@@ -95,21 +101,26 @@ std::shared_ptr<ConvInt8Winograd::WinoResource> ConvInt8Winograd::makeWinoResour
                 offset += quanData * (-128);
 #endif
             }
-            offsets->host<int32_t>()[a * oc4 * UNIT + oz] = offset;
-            scales->host<float>()[a * oc4 * UNIT + oz] = scale * inputScaleData[a];
+            
+            offsets->host<float>()[a * oc4 * pack + oz] = offset * scale * inputScaleData[a];
+            scalePtr[oz] = scale * inputScaleData[a];
         }
+        int32_t params[6] = {1, ocDivUnit, ic4, UNIT, SRC_UNIT, oc4 * pack};
+        ConvInt8TiledExecutor::packWeightAndQuantInfo(mergeInfo->host<int8_t>() + a * mergeInfo->stride(0), weight->host<int8_t>(), scales->host<int8_t>(), params);
     }
-    backend->onReleaseBuffer(originWeightFloat.get(), Backend::STATIC);
-    backend->onReleaseBuffer(weightFloat.get(), Backend::STATIC);
     
     std::shared_ptr<WinoResource> resource(new WinoResource);
-    resource->weight = weight;
+    resource->weight = mergeInfo;
     resource->offsets = offsets;
     resource->scales = scales;
     resource->transInputScales = inputScales;
     std::vector<int32_t> inputZeroPoints(inputPointData, inputPointData + alpha2);
     resource->transInputZeroPoints = inputZeroPoints;
     resource->backend = backend;
+    
+    backend->onReleaseBuffer(weight.get(), Backend::STATIC);
+    backend->onReleaseBuffer(originWeightFloat.get(), Backend::STATIC);
+    backend->onReleaseBuffer(weightFloat.get(), Backend::STATIC);
     return resource;
 }
 
@@ -178,8 +189,22 @@ ErrorCode ConvInt8Winograd::onResize(const std::vector<Tensor *> &inputs, const 
     }
     
     auto core = static_cast<CPUBackend*>(backend())->int8Functions();
+    auto gcore = static_cast<CPUBackend*>(backend())->functions();
     int UNIT, SRC_UNIT, DST_XUNIT;
     core->MNNGetGemmUnit(&UNIT, &SRC_UNIT, &DST_XUNIT);
+    UNIT = gcore->pack;
+    int pack = gcore->pack;
+
+    mFusedBias.reset(Tensor::createDevice<float>({ROUND_UP(outputs[0]->channel(), pack)}));
+    mValid &= backend()->onAcquireBuffer(mFusedBias.get(), Backend::STATIC);
+    if (!mValid) {
+        return OUT_OF_MEMORY;
+    }
+    auto fusedBiasPtr = mFusedBias->host<float>();
+    ::memset(fusedBiasPtr, 0, mFusedBias->size());
+    for (int i = 0; i < outputs[0]->channel(); ++i) {
+        fusedBiasPtr[i] = mResource->mOriginBias->host<float>()[i] / mResource->mOutputScale + static_cast<float>(mResource->mOutputZeroPoint);
+    }
     
     auto input = mInputFloat.get(), output = outputs[0];
     int batch = input->batch(), ic = input->channel(), oc = output->channel();
@@ -193,7 +218,7 @@ ErrorCode ConvInt8Winograd::onResize(const std::vector<Tensor *> &inputs, const 
     }
     for (auto& unit : mUnits) {
         int sy = ALIMAX(unit.kyStart - mPadY, 0), sx = ALIMAX(unit.kxStart - mPadX, 0);
-        auto srcChunk = TensorUtils::getDescribeOrigin(input)->mem->chunk() + (sy * iw + sx) * UNIT;
+        auto srcChunk = TensorUtils::getDescribeOrigin(input)->mem->chunk() + (sy * iw + sx) * pack;
         unit.input.reset(Tensor::createDevice<float>({batch, ic, ih - sy, iw - sx}, Tensor::CAFFE_C4));
         TensorUtils::getDescribeOrigin(unit.input.get())->mem = (new CPUMemObj(nullptr, srcChunk, 0));
         for (int i = 0; i < input->dimensions(); ++i) {
@@ -219,21 +244,27 @@ static void mergeAddBiasScaleQuantize(const std::vector<Tensor*>& inputs, Tensor
     auto coreInt8 = cpuBn->int8Functions();
     int UNIT, SRC_UNIT, DST_XUNIT;
     coreInt8->MNNGetGemmUnit(&UNIT, &SRC_UNIT, &DST_XUNIT);
+    int pack = core->pack;
     
-    int countC4 = UP_DIV(output->channel(), UNIT), plane = output->height() * output->width() * output->batch();
+    int countC4 = UP_DIV(output->channel(), pack), plane = output->height() * output->width() * output->batch();
     auto mergeFloat = inputs[0]->host<float>();
     for (int i = 1; i < inputs.size(); ++i) {
         core->MNNMatrixAdd(mergeFloat, mergeFloat, inputs[i]->host<float>(), plane * countC4, 0, 0, 0, 1);
     }
-    std::vector<float> fakeScale(countC4 * UNIT, 1);
-    core->MNNScaleAndAddBias(mergeFloat, mergeFloat, (const float*)quanParam->bias, fakeScale.data(), plane, countC4);
-    coreInt8->MNNFloat2Int8(mergeFloat, output->host<int8_t>(), plane * countC4, quanParam->scale, quanParam->minValue, quanParam->maxValue, zeroPoint);
+    auto zeroPointPtr = quanParam->biasFloat;
+    for (int i = 0; i < countC4; ++i) {
+        coreInt8->MNNFloat2Int8(mergeFloat + i * plane * pack, output->host<int8_t>() + i * plane * pack, plane, quanParam->scale, quanParam->minValue, quanParam->maxValue, zeroPointPtr + i * pack, 2);
+    }
 }
 
 // AVX: 8 -> 16, arm32/64: 4 -> 16, AVX512: 16 -> 16, arm82: 4 -> 4
 static void _reorderCommon(float* dst, const float* src, size_t area, size_t depth, int* areaOffset, int uFrom, int uTo) {
     if (uFrom == 1 && uTo == 4) {
         MNNPackC4((float*)dst, (const float*)src, area, depth, areaOffset);
+        return;
+    }
+    if (uFrom == 1 && uTo == 2) {
+        MNNPackInt8C2((float*)dst, (const float*)src, area, depth, areaOffset);
         return;
     }
     size_t srcOffset = areaOffset[0], dstOffset = areaOffset[1];
@@ -274,8 +305,11 @@ static void _reorderCommon(float* dst, const float* src, size_t area, size_t dep
 ErrorCode ConvInt8Winograd::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto bn = static_cast<CPUBackend*>(backend());
     auto core = bn->int8Functions();
+    auto gcore = bn->functions();
     int UNIT, SRC_UNIT, DST_XUNIT;
     core->MNNGetGemmUnit(&UNIT, &SRC_UNIT, &DST_XUNIT);
+    // UNIT = gcore->pack;
+    int pack = gcore->pack;
     // scale, zero, min, max
     auto inputQuant = TensorUtils::getQuantInfo(inputs[0]);
     auto outputQuant = TensorUtils::getQuantInfo(outputs[0]);
@@ -292,9 +326,9 @@ ErrorCode ConvInt8Winograd::onExecute(const std::vector<Tensor *> &inputs, const
         };
     }
 
-    std::vector<float> scale(UNIT, inputQuant[0]);
+    std::vector<float> scale(pack, inputQuant[0]);
     int size = bn->getTensorSize(mInputFloat.get());
-    core->MNNInt8ScaleToFloat(mInputFloat->host<float>(), inputs[0]->host<int8_t>(), scale.data(), size / UNIT, inputQuant[1]);
+    core->MNNInt8ScaleToFloat(mInputFloat->host<float>(), inputs[0]->host<int8_t>(), &inputQuant[0], size / pack, &inputQuant[1], 0);
     std::vector<Tensor*> tmp_outputs;
     for (auto& unit : mUnits) {
         unit.input->buffer().host = TensorUtils::getDescribeOrigin(unit.input.get())->mem->chunk().ptr();
@@ -305,10 +339,11 @@ ErrorCode ConvInt8Winograd::onExecute(const std::vector<Tensor *> &inputs, const
         tmp_outputs.push_back(unit.output.get());
     }
     QuanPostTreatParameters quanParam;
-    scale.assign(UNIT, 1.0 / outputQuant[0]);
-    quanParam.scale = scale.data();
+    float outputdequantScale = 1.0 / mResource->mOutputScale;
+    quanParam.scale = &outputdequantScale;
     // For winograd Int8, will not treat origin bias to int32, use float directly
-    quanParam.bias = mResource->mOriginBias->host<int32_t>();
+    // quanParam.biasFloat = mResource->mOriginBias->host<float>();
+    quanParam.biasFloat = mFusedBias->host<float>();
     quanParam.maxValue = outputQuant[3];
     if (mResource->mRelu) {
         quanParam.minValue = outputQuant[1];
@@ -322,16 +357,18 @@ ErrorCode ConvInt8Winograd::onExecute(const std::vector<Tensor *> &inputs, const
 ConvInt8Winograd::WinoExecution::WinoExecution(std::shared_ptr<WinoResource> res, int kernelY, int kernelX, int unitY, int unitX, int outputCount, int inputCount)
 : Execution(res->backend), mWinoResource(res), mUnitY(unitY), mUnitX(unitX), mKernelY(kernelY), mKernelX(kernelX) {
     auto core = static_cast<CPUBackend*>(res->backend)->int8Functions();
+    auto gcore = static_cast<CPUBackend*>(res->backend)->functions();
     
     int UNIT, SRC_UNIT, DST_XUNIT;
     core->MNNGetGemmUnit(&UNIT, &SRC_UNIT, &DST_XUNIT);
+    int pack = gcore->pack;
 
     int threadNumber = ((CPUBackend *)backend())->threadNumber();
     int alphaY = mUnitY + mKernelY - 1, alphaX = mUnitX + mKernelX - 1, alpha2 = alphaY * alphaX;
-    int ic4 = UP_DIV(inputCount, SRC_UNIT), oc4 = UP_DIV(outputCount, UNIT);
+    int ic4 = UP_DIV(inputCount, SRC_UNIT), oc4 = UP_DIV(outputCount, pack);
     mTempInputBuffer.reset(Tensor::createDevice<int8_t>({threadNumber, alpha2, ic4, DST_XUNIT * SRC_UNIT}));
-    mTempOutputBuffer.reset(Tensor::createDevice<float>({threadNumber, alpha2, oc4, DST_XUNIT * UNIT}));
-    int midSize = alpha2 * DST_XUNIT * ALIMAX(ROUND_UP(inputCount, UNIT), oc4 * UNIT);
+    mTempOutputBuffer.reset(Tensor::createDevice<float>({threadNumber, alpha2, oc4, DST_XUNIT * pack}));
+    int midSize = alpha2 * DST_XUNIT * ALIMAX(ROUND_UP(inputCount, pack), oc4 * pack);
     mTransformMidBuffer.reset(Tensor::createDevice<float>({threadNumber, 3, midSize}));
 }
 ConvInt8Winograd::WinoExecution::WinoExecution(Backend* bn, const WinoExecution& exe)
@@ -364,6 +401,8 @@ ErrorCode ConvInt8Winograd::WinoExecution::onExecute(const std::vector<Tensor *>
     bool conv1d = (alphaY == 1 || alphaX == 1);
     int UNIT, SRC_UNIT, DST_XUNIT;
     coreInt8->MNNGetGemmUnit(&UNIT, &SRC_UNIT, &DST_XUNIT);
+    UNIT = core->pack;
+    int pack = core->pack;
     
     auto gemmFunc = coreInt8->Int8GemmKernel;
     CoreFunctions::WinoUnrollTransFunc srcTransXFunc = nullptr, srcTransYFunc = nullptr;
@@ -385,8 +424,8 @@ ErrorCode ConvInt8Winograd::WinoExecution::onExecute(const std::vector<Tensor *>
     
     int ow = output->width(), oh = output->height();
     int iw = input->width(), ih = input->height();
-    int ic = input->channel(), ic_4 = UP_DIV(ic, UNIT);
-    int dc_4 = UP_DIV(output->channel(), UNIT);
+    int ic = input->channel(), ic_4 = UP_DIV(ic, pack);
+    int dc_4 = UP_DIV(output->channel(), pack);
 
     int padY = mPadY, padX = mPadX;
     auto wUnit = UP_DIV(ow, mUnitX), hUnit = UP_DIV(oh, mUnitY);
@@ -408,9 +447,9 @@ ErrorCode ConvInt8Winograd::WinoExecution::onExecute(const std::vector<Tensor *>
         for (int hbIndex=oybBegin; hbIndex <= oybEnd; ++hbIndex) {
             auto hIndex = hbIndex % hUnit;
             auto bIndex = hbIndex / hUnit;
-            auto bOffset = iw * ih * UNIT * bIndex;
+            auto bOffset = iw * ih * pack * bIndex;
             auto srcBatch = srcOrigin + bOffset;
-            int dstZStep = DST_XUNIT * UNIT, unitStep = dstZStep * ic_4;
+            int dstZStep = DST_XUNIT * pack, unitStep = dstZStep * ic_4;
             int step = std::min(wUnit - oxBegin, remain);
             int srcY  = hIndex * mUnitY - padY;
             int ey    = ALIMIN(srcY + alphaY, ih) - srcY;
@@ -437,38 +476,38 @@ ErrorCode ConvInt8Winograd::WinoExecution::onExecute(const std::vector<Tensor *>
                 int srcX  = wIndex * mUnitX - padX;
                 int sx    = ALIMAX(0, srcX) - srcX;
                 int ex    = ALIMIN(srcX + alphaX, iw) - srcX;
-                auto dst_x = dstOrigin + si * UNIT;
+                auto dst_x = dstOrigin + si * pack;
                 
-                int sourceZStep = iw * ih * UNIT * batch, sourceYStep = iw * UNIT;
-                auto srcStart = srcBatch + srcY * sourceYStep + srcX * UNIT;
+                int sourceZStep = iw * ih * pack * batch, sourceYStep = iw * pack;
+                auto srcStart = srcBatch + srcY * sourceYStep + srcX * pack;
                 // when input window exceed limit (so need pad value), copy from src to midbuffer0
                 if (ex - sx != alphaX || ey - sy != alphaY) {
-                    ::memset(midBuffer0, 0, alpha2 * ic_4 * UNIT * sizeof(float));
-                    int count = UNIT * (ex - sx);
+                    ::memset(midBuffer0, 0, alpha2 * ic_4 * pack * sizeof(float));
+                    int count = pack * (ex - sx);
                     for (int z = 0; count > 0 && z < ic_4; ++z) {
                         for (int yy = sy; yy < ey; ++yy) {
-                            auto dst_yy = midBuffer0 + ((z * alphaY + yy) * alphaX + sx) * UNIT;
-                            auto src_yy = srcStart + z * sourceZStep + yy * sourceYStep + sx * UNIT;
+                            auto dst_yy = midBuffer0 + ((z * alphaY + yy) * alphaX + sx) * pack;
+                            auto src_yy = srcStart + z * sourceZStep + yy * sourceYStep + sx * pack;
                             ::memcpy(dst_yy, src_yy, count * sizeof(float));
                         }
                     }
                     srcStart = midBuffer0;
-                    sourceZStep = alpha2 * UNIT;
-                    sourceYStep = alphaX * UNIT;
+                    sourceZStep = alpha2 * pack;
+                    sourceYStep = alphaX * pack;
                 }
                 for (int sz = 0; sz < ic_4; ++sz) {
                     for (int s = 0; s < sStep; ++s) {
-                        auto dst = dst_x + sz * dstZStep + s * UNIT;
-                        auto src = srcStart + sz * sourceZStep + s * mUnitX * UNIT;
-                        srcTransXFunc(src, midBuffer1, sourceYStep, alphaX * UNIT, UNIT, UNIT);
-                        srcTransYFunc(midBuffer1, dst, UNIT, unitStep, alphaX * UNIT, alphaX * unitStep);
+                        auto dst = dst_x + sz * dstZStep + s * pack;
+                        auto src = srcStart + sz * sourceZStep + s * mUnitX * pack;
+                        srcTransXFunc(src, midBuffer1, sourceYStep, alphaX * pack, pack, pack);
+                        srcTransYFunc(midBuffer1, dst, pack, unitStep, alphaX * pack, alphaX * unitStep);
                     }
                 }
                 si += sStep;
             }
             oxBegin = 0;
             remain -= step;
-            dstOrigin += UNIT * step;
+            dstOrigin += pack * step;
         }
         
     };
@@ -477,9 +516,20 @@ ErrorCode ConvInt8Winograd::WinoExecution::onExecute(const std::vector<Tensor *>
         auto dstOrigin = output->host<float>();
 
         auto weight    = mWinoResource->weight->host<int8_t>();
+        std::vector<float> xkernelSum(DST_XUNIT, 0);
+        std::vector<float> wKernelSum(dc_4 * pack, 0);
+        std::vector<float> reluThred = {-std::numeric_limits<float>().max(), std::numeric_limits<float>().max()};
+        
         auto tFunction = [&](int tId) {
             auto _srcOrigin = mTempInputBuffer->host<int8_t>() + tId * mTempInputBuffer->stride(0);
             auto _dstOrigin = mTempOutputBuffer->host<float>() + tId * mTempOutputBuffer->stride(0);
+            QuanPostTreatParameters quanParam;
+            quanParam.useInt8 = 0;
+            quanParam.srcKernelSum = xkernelSum.data();
+            quanParam.weightQuanBias = wKernelSum.data();
+            quanParam.fp32minmax = reluThred.data();
+            quanParam.extraScale = nullptr;
+
             for (int tIndex = (int)tId; tIndex < tileCount; tIndex += threadNumber) {
                 int xIndex  = (int)tIndex * DST_XUNIT;
                 int xReamin = totalCount - xIndex;
@@ -491,33 +541,35 @@ ErrorCode ConvInt8Winograd::WinoExecution::onExecute(const std::vector<Tensor *>
     #ifndef MNN_WINO_TRANFORM_TEST_CLOSE
                 src_trans_func(buffer2, srcOrigin, buffer0, xIndex, xC);
     #endif
-                ::memset(buffer1, 0, dc_4 * UNIT * sizeof(float));
+                ::memset(buffer1, 0, dc_4 * pack * sizeof(float));
                 // Multi
                 for (int i = 0; i < alpha2; ++i) {
                     auto _srcInt8Ptr = _srcOrigin + i * mTempInputBuffer->stride(1);
                     
-                    auto scaleVec = mWinoResource->transInputScales->host<float>() + i * UNIT;
-                    int zeroPoint = mWinoResource->transInputZeroPoints[i];
-                    coreInt8->MNNFloat2Int8(buffer2 + i * DST_XUNIT * ic_4 * UNIT, (UNIT == SRC_UNIT ? _srcInt8Ptr: (int8_t*)buffer0), ic_4 * DST_XUNIT, scaleVec, -127, 127, zeroPoint);
-                    if (UNIT != SRC_UNIT) {
+                    auto scaleVec = mWinoResource->transInputScales->host<float>() + i * pack;
+                    float zeroPoint = static_cast<float>(mWinoResource->transInputZeroPoints[i]);
+                    coreInt8->MNNFloat2Int8(buffer2 + i * DST_XUNIT * ic_4 * pack, (pack == SRC_UNIT ? _srcInt8Ptr: (int8_t*)buffer0), ic_4 * DST_XUNIT, scaleVec, -127, 127, &zeroPoint, 0);
+                    if (pack != SRC_UNIT) {
                         int areaOffset[] = {DST_XUNIT, DST_XUNIT}, byte = sizeof(float);
-                        _reorderCommon((float*)_srcInt8Ptr, buffer0, DST_XUNIT, UP_DIV(ic, byte), areaOffset, UNIT / byte, SRC_UNIT / byte);
+                        _reorderCommon((float*)_srcInt8Ptr, buffer0, DST_XUNIT, UP_DIV(ic, byte), areaOffset, pack / byte, SRC_UNIT / byte);
                     }
                     
-                    auto _dstFloatPtr = _dstOrigin + i * dc_4 * xC * UNIT;
+                    auto _dstFloatPtr = _dstOrigin + i * dc_4 * xC * pack;
                     auto _weightInt8Ptr = weight + i * mWinoResource->weight->stride(0);
-                    QuanPostTreatParameters quanParam;
-                    quanParam.bias = mWinoResource->offsets->host<int32_t>() + i * mWinoResource->offsets->stride(0);
-                    quanParam.useInt8 = 0;
-                    quanParam.scale = mWinoResource->scales->host<float>() + i * dc_4 * UNIT;
-                    gemmFunc((int8_t*)_dstFloatPtr, _srcInt8Ptr, _weightInt8Ptr, mTempInputBuffer->length(2), xC * UNIT * sizeof(float), dc_4, &quanParam, xC);
+                    
+                    quanParam.biasFloat = (mWinoResource->offsets->host<float>() + i * mWinoResource->offsets->stride(0));
+                    quanParam.scale = mWinoResource->scales->host<float>() + i * dc_4 * pack;
+                    quanParam.extraScale = nullptr;
+                    quanParam.bias = nullptr;
+                    quanParam.blockNum = 1;
+                    gemmFunc((int8_t*)_dstFloatPtr, _srcInt8Ptr, _weightInt8Ptr, mTempInputBuffer->length(2), xC * pack * sizeof(float), dc_4, &quanParam, DST_XUNIT);
                 }
     #ifndef MNN_WINO_TRANFORM_TEST_CLOSE
                 {
                     auto midBuffer0 = buffer0;
                     auto midBuffer1 = (float*)((int8_t*)midBuffer0 + mTransformMidBuffer->stride(1));
-                    int srcZStep = xC * UNIT;
-                    int unitStep = dc_4 * xC * UNIT;
+                    int srcZStep = xC * pack;
+                    int unitStep = dc_4 * xC * pack;
                     int oybBegin = xIndex / wUnit;
                     int oxBegin = xIndex % wUnit;
                     int oybEnd = (xIndex + xC-1) / wUnit;
@@ -547,32 +599,32 @@ ErrorCode ConvInt8Winograd::WinoExecution::onExecute(const std::vector<Tensor *>
                         for (int si=0; si<step;) {
                             int sStep = (si == sBegin ? sEnd - sBegin : 1);
                             auto wIndex = si + oxBegin;
-                            auto srcXi = dstS + UNIT * si;
+                            auto srcXi = dstS + pack * si;
                             int dstX = wIndex * mUnitX;
-                            auto dstStart = dstOrigin + (dstX + dstY * ow + bIndex * ow * oh) * UNIT;
+                            auto dstStart = dstOrigin + (dstX + dstY * ow + bIndex * ow * oh) * pack;
                             int ex = ALIMIN(dstX + mUnitX, ow) - dstX;
-                            int count = ex * UNIT;
+                            int count = ex * pack;
                             
                             auto _dstStart = dstStart;
-                            int dstZStep = oh * ow * batch * UNIT, dstYStep = ow * UNIT;
+                            int dstZStep = oh * ow * batch * pack, dstYStep = ow * pack;
                             if (ex != mUnitX || (alphaX == 1 && ey != mUnitY)) {
-                                dstZStep = mUnitY * mUnitX * UNIT;
-                                dstYStep = mUnitX * UNIT;
+                                dstZStep = mUnitY * mUnitX * pack;
+                                dstYStep = mUnitX * pack;
                                 _dstStart = midBuffer1;
                             }
                             for (int z = 0; z < dc_4; ++z) {
                                 for (int x = 0; x < sStep; ++x) {
-                                    auto srcXiZ = srcXi + z * srcZStep + x * UNIT;
-                                    auto _dstStartZ = _dstStart + z * dstZStep + x * mUnitX * UNIT;
-                                    dstTransYFunc[alphaX](srcXiZ, midBuffer0, nullptr, nullptr, unitStep, UNIT, alphaX * unitStep, alphaX * UNIT);
-                                    dstTransXFunc[ey](midBuffer0, _dstStartZ, nullptr, nullptr, alphaX * UNIT, dstYStep, UNIT, UNIT);
+                                    auto srcXiZ = srcXi + z * srcZStep + x * pack;
+                                    auto _dstStartZ = _dstStart + z * dstZStep + x * mUnitX * pack;
+                                    dstTransYFunc[alphaX](srcXiZ, midBuffer0, nullptr, nullptr, unitStep, pack, alphaX * unitStep, alphaX * pack);
+                                    dstTransXFunc[ey](midBuffer0, _dstStartZ, nullptr, nullptr, alphaX * pack, dstYStep, pack, pack);
                                 }
                             }
                             if (ex != mUnitX || (alphaX == 1 && ey != mUnitY)) {
                                 for (int z = 0; z < dc_4; ++z) {
                                     for (int yy = 0; yy < ey; ++yy) {
-                                        auto srcYAddr = _dstStart + (z * mUnitY + yy) * mUnitX * UNIT;
-                                        auto dstYAddr = dstStart + z * ow * oh * batch * UNIT + yy * ow * UNIT;
+                                        auto srcYAddr = _dstStart + (z * mUnitY + yy) * mUnitX * pack;
+                                        auto dstYAddr = dstStart + z * ow * oh * batch * pack + yy * ow * pack;
                                         ::memcpy(dstYAddr, srcYAddr, count * sizeof(float));
                                     }
                                 }
@@ -581,7 +633,7 @@ ErrorCode ConvInt8Winograd::WinoExecution::onExecute(const std::vector<Tensor *>
                         }
                         oxBegin = 0;
                         remain -= step;
-                        dstS += UNIT * step;
+                        dstS += pack * step;
                     }
                 }
 #endif

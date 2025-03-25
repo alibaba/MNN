@@ -23,7 +23,7 @@ void depthwise_conv2d_c4h1w4(GLOBAL_SIZE_2_DIMS __global const FLOAT *input,
                                   __global const FLOAT *bias,
                                   __global FLOAT *output,
                                   __private const int2 in_hw,
-                                  __private const int channel,
+                                  __private const int batch,
                                   __private const int2 out_hw,
                                   __private const int2 filter_hw,
                                   __private const int2 pad_hw,
@@ -58,7 +58,7 @@ void depthwise_conv2d_c4h1w4(GLOBAL_SIZE_2_DIMS __global const FLOAT *input,
         const int in_h_cur = in_h_start + kh * dilate_hw.x;
         if(in_h_cur < 0 || in_h_cur >= in_hw.x) continue;
         
-        int inp_offset = (((b_idx*c_blocks + c_idx)*in_hw.x + in_h_cur)* in_hw.y + in_w_start_0)*4;
+        int inp_offset = (((b_idx + c_idx*batch)*in_hw.x + in_h_cur)* in_hw.y + in_w_start_0)*4;
         for (int kw = 0; kw < filter_hw.y; kw++) {
             const int filter_idx = mad24(kh, filter_hw.y, kw);
             const int kw_dilate = kw * dilate_hw.y;
@@ -92,7 +92,7 @@ void depthwise_conv2d_c4h1w4(GLOBAL_SIZE_2_DIMS __global const FLOAT *input,
     outValue3 = clamp(outValue3, (COMPUTE_FLOAT4)0, (COMPUTE_FLOAT4)6);
 #endif
 
-    const int out_offset = (((b_idx*c_blocks + c_idx)*out_hw.x + out_h_idx)*out_hw.y + out_w4_idx)*4;
+    const int out_offset = (((b_idx + c_idx*batch)*out_hw.x + out_h_idx)*out_hw.y + out_w4_idx)*4;
 
     const int remain     = out_hw.y - out_w4_idx;
     if (remain >= 4) {
@@ -119,7 +119,7 @@ void depthwise_conv2d_c4h1w2(GLOBAL_SIZE_2_DIMS __global const FLOAT *input,
                                   __global const FLOAT *bias,
                                   __global FLOAT *output,
                                   __private const int2 in_hw,
-                                  __private const int channel,
+                                  __private const int batch,
                                   __private const int2 out_hw,
                                   __private const int2 filter_hw,
                                   __private const int2 pad_hw,
@@ -150,7 +150,7 @@ void depthwise_conv2d_c4h1w2(GLOBAL_SIZE_2_DIMS __global const FLOAT *input,
         const int in_h_cur = in_h_start + kh * dilate_hw.x;
         if(in_h_cur < 0 || in_h_cur >= in_hw.x) continue;
         
-        int inp_offset = (((b_idx*c_blocks + c_idx)*in_hw.x + in_h_cur)* in_hw.y + in_w_start_0)*4;
+        int inp_offset = (((b_idx + c_idx*batch)*in_hw.x + in_h_cur)* in_hw.y + in_w_start_0)*4;
         for (int kw = 0; kw < filter_hw.y; kw++) {
             const int filter_idx = mad24(kh, filter_hw.y, kw);
             const int kw_dilate = kw * dilate_hw.y;
@@ -176,7 +176,7 @@ void depthwise_conv2d_c4h1w2(GLOBAL_SIZE_2_DIMS __global const FLOAT *input,
     outValue1 = clamp(outValue1, (COMPUTE_FLOAT4)0, (COMPUTE_FLOAT4)6);
 #endif
 
-    const int out_offset = (((b_idx*c_blocks + c_idx)*out_hw.x + out_h_idx)*out_hw.y + out_w2_idx)*4;
+    const int out_offset = (((b_idx + c_idx*batch)*out_hw.x + out_h_idx)*out_hw.y + out_w2_idx)*4;
 
     const int remain     = out_hw.y - out_w2_idx;
     if (remain >= 2) {
@@ -194,7 +194,7 @@ void depthwise_conv2d_c4h1w1(GLOBAL_SIZE_2_DIMS __global const FLOAT *input,
                                   __global const FLOAT *bias,
                                   __global FLOAT *output,
                                   __private const int2 in_hw,
-                                  __private const int channel,
+                                  __private const int batch,
                                   __private const int2 out_hw,
                                   __private const int2 filter_hw,
                                   __private const int2 pad_hw,
@@ -222,7 +222,7 @@ void depthwise_conv2d_c4h1w1(GLOBAL_SIZE_2_DIMS __global const FLOAT *input,
         const int in_h_cur = in_h_start + kh * dilate_hw.x;
         if(in_h_cur < 0 || in_h_cur >= in_hw.x) continue;
         
-        int inp_offset = (((b_idx*c_blocks + c_idx)*in_hw.x + in_h_cur)* in_hw.y + in_w_start_0)*4;
+        int inp_offset = (((b_idx + c_idx*batch)*in_hw.x + in_h_cur)* in_hw.y + in_w_start_0)*4;
         for (int kw = 0; kw < filter_hw.y; kw++) {
             const int filter_idx = mad24(kh, filter_hw.y, kw);
             const int kw_dilate = kw * dilate_hw.y;
@@ -244,7 +244,7 @@ void depthwise_conv2d_c4h1w1(GLOBAL_SIZE_2_DIMS __global const FLOAT *input,
     outValue0 = clamp(outValue0, (COMPUTE_FLOAT4)0, (COMPUTE_FLOAT4)6);
 #endif
 
-    const int out_offset = (((b_idx*c_blocks + c_idx)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
+    const int out_offset = (((b_idx + c_idx*batch)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
 
     vstore4(CONVERT_FLOAT4(outValue0), 0, output+out_offset);
 }
@@ -255,7 +255,7 @@ void depthwise_conv2d_s1_c8h1w4(GLOBAL_SIZE_2_DIMS __global const FLOAT *input,
                                   __global const FLOAT *bias,
                                   __global FLOAT *output,
                                   __private const int2 in_hw,
-                                  __private const int channel,
+                                  __private const int batch,
                                   __private const int2 out_hw,
                                   __private const int2 filter_hw,
                                   __private const int2 pad_hw,
@@ -294,8 +294,8 @@ void depthwise_conv2d_s1_c8h1w4(GLOBAL_SIZE_2_DIMS __global const FLOAT *input,
         const int in_h_cur = in_h_start + kh;
         if(in_h_cur < 0 || in_h_cur >= in_hw.x) continue;
         
-        int inp_offset_c0 = (((b_idx*c_blocks + c_idx+0)*in_hw.x + in_h_cur)* in_hw.y + in_w_start_0)*4;
-        int inp_offset_c1 = (((b_idx*c_blocks + c_idx+1)*in_hw.x + in_h_cur)* in_hw.y + in_w_start_0)*4;
+        int inp_offset_c0 = (((b_idx + c_idx*batch)*in_hw.x + in_h_cur)* in_hw.y + in_w_start_0)*4;
+        int inp_offset_c1 = (((b_idx + (c_idx+1)*batch)*in_hw.x + in_h_cur)* in_hw.y + in_w_start_0)*4;
         for (int kw = 0; kw < filter_hw.y; kw++) {
             const int filter_idx = mad24(kh, filter_hw.y, kw);
             COMPUTE_FLOAT4 inValue0 = (in_w_start_0+kw < 0 || in_w_start_0+kw >= in_hw.y) ? (COMPUTE_FLOAT4)0 : CONVERT_COMPUTE_FLOAT4(vload4(kw+0, input+inp_offset_c0));
@@ -303,14 +303,18 @@ void depthwise_conv2d_s1_c8h1w4(GLOBAL_SIZE_2_DIMS __global const FLOAT *input,
             COMPUTE_FLOAT4 inValue2 = (in_w_start_2+kw < 0 || in_w_start_2+kw >= in_hw.y) ? (COMPUTE_FLOAT4)0 : CONVERT_COMPUTE_FLOAT4(vload4(kw+2, input+inp_offset_c0));
             COMPUTE_FLOAT4 inValue3 = (in_w_start_3+kw < 0 || in_w_start_3+kw >= in_hw.y) ? (COMPUTE_FLOAT4)0 : CONVERT_COMPUTE_FLOAT4(vload4(kw+3, input+inp_offset_c0));
 
-            COMPUTE_FLOAT4 inValue4 = (in_w_start_0+kw < 0 || in_w_start_0+kw >= in_hw.y) ? (COMPUTE_FLOAT4)0 : CONVERT_COMPUTE_FLOAT4(vload4(kw+0, input+inp_offset_c1));
-            COMPUTE_FLOAT4 inValue5 = (in_w_start_1+kw < 0 || in_w_start_1+kw >= in_hw.y) ? (COMPUTE_FLOAT4)0 : CONVERT_COMPUTE_FLOAT4(vload4(kw+1, input+inp_offset_c1));
-            COMPUTE_FLOAT4 inValue6 = (in_w_start_2+kw < 0 || in_w_start_2+kw >= in_hw.y) ? (COMPUTE_FLOAT4)0 : CONVERT_COMPUTE_FLOAT4(vload4(kw+2, input+inp_offset_c1));
-            COMPUTE_FLOAT4 inValue7 = (in_w_start_3+kw < 0 || in_w_start_3+kw >= in_hw.y) ? (COMPUTE_FLOAT4)0 : CONVERT_COMPUTE_FLOAT4(vload4(kw+3, input+inp_offset_c1));
+            COMPUTE_FLOAT4 inValue4 = (in_w_start_0+kw < 0 || in_w_start_0+kw >= in_hw.y || c_idx+1 >= c_blocks) ? (COMPUTE_FLOAT4)0 : CONVERT_COMPUTE_FLOAT4(vload4(kw+0, input+inp_offset_c1));
+            COMPUTE_FLOAT4 inValue5 = (in_w_start_1+kw < 0 || in_w_start_1+kw >= in_hw.y || c_idx+1 >= c_blocks) ? (COMPUTE_FLOAT4)0 : CONVERT_COMPUTE_FLOAT4(vload4(kw+1, input+inp_offset_c1));
+            COMPUTE_FLOAT4 inValue6 = (in_w_start_2+kw < 0 || in_w_start_2+kw >= in_hw.y || c_idx+1 >= c_blocks) ? (COMPUTE_FLOAT4)0 : CONVERT_COMPUTE_FLOAT4(vload4(kw+2, input+inp_offset_c1));
+            COMPUTE_FLOAT4 inValue7 = (in_w_start_3+kw < 0 || in_w_start_3+kw >= in_hw.y || c_idx+1 >= c_blocks) ? (COMPUTE_FLOAT4)0 : CONVERT_COMPUTE_FLOAT4(vload4(kw+3, input+inp_offset_c1));
             
             //NC4HW4 [1, filterShape.x*filterShape.y, 1, channelBlocks] x oc4
             //index: [0, filterIdx,                   0, inChannelBlockIdx]
             COMPUTE_FLOAT4 weights_0 = CONVERT_COMPUTE_FLOAT4(vload4(0, filter+(filter_idx*c_blocks+c_idx+0)*4));
+            /*
+              weight:[kh*kw, oc/4, oc_4], memory align to 8
+              no need to boundry protect
+              */
             COMPUTE_FLOAT4 weights_1 = CONVERT_COMPUTE_FLOAT4(vload4(0, filter+(filter_idx*c_blocks+c_idx+1)*4));
 
             outValue0 = mad(inValue0, weights_0, outValue0);
@@ -349,7 +353,7 @@ void depthwise_conv2d_s1_c8h1w4(GLOBAL_SIZE_2_DIMS __global const FLOAT *input,
     outValue7 = clamp(outValue7, (COMPUTE_FLOAT4)0, (COMPUTE_FLOAT4)6);
 #endif
 
-    int out_offset = (((b_idx*c_blocks + c_idx)*out_hw.x + out_h_idx)*out_hw.y + out_w4_idx)*4;
+    int out_offset = (((b_idx + c_idx*batch)*out_hw.x + out_h_idx)*out_hw.y + out_w4_idx)*4;
 
     const int remain     = out_hw.y - out_w4_idx;
     if (remain >= 4) {
@@ -370,7 +374,7 @@ void depthwise_conv2d_s1_c8h1w4(GLOBAL_SIZE_2_DIMS __global const FLOAT *input,
     
     if(c_idx + 1 >= c_blocks) return;
     
-    out_offset += out_hw.x * out_hw.y * 4;
+    out_offset += batch * out_hw.x * out_hw.y * 4;
     if (remain >= 4) {
         vstore4(CONVERT_FLOAT4(outValue4), 0, output+out_offset);
         vstore4(CONVERT_FLOAT4(outValue5), 1, output+out_offset);
@@ -395,7 +399,7 @@ void depthwise_conv2d_s1_c8h1w2(GLOBAL_SIZE_2_DIMS __global const FLOAT *input,
                                   __global const FLOAT *bias,
                                   __global FLOAT *output,
                                   __private const int2 in_hw,
-                                  __private const int channel,
+                                  __private const int batch,
                                   __private const int2 out_hw,
                                   __private const int2 filter_hw,
                                   __private const int2 pad_hw,
@@ -428,19 +432,23 @@ void depthwise_conv2d_s1_c8h1w2(GLOBAL_SIZE_2_DIMS __global const FLOAT *input,
         const int in_h_cur = in_h_start + kh;
         if(in_h_cur < 0 || in_h_cur >= in_hw.x) continue;
         
-        int inp_offset_c0 = (((b_idx*c_blocks + c_idx+0)*in_hw.x + in_h_cur)* in_hw.y + in_w_start_0)*4;
-        int inp_offset_c1 = (((b_idx*c_blocks + c_idx+1)*in_hw.x + in_h_cur)* in_hw.y + in_w_start_0)*4;
+        int inp_offset_c0 = (((b_idx + c_idx*batch)*in_hw.x + in_h_cur)* in_hw.y + in_w_start_0)*4;
+        int inp_offset_c1 = (((b_idx + (c_idx+1)*batch)*in_hw.x + in_h_cur)* in_hw.y + in_w_start_0)*4;
         for (int kw = 0; kw < filter_hw.y; kw++) {
             const int filter_idx = mad24(kh, filter_hw.y, kw);
             COMPUTE_FLOAT4 inValue0 = (in_w_start_0+kw < 0 || in_w_start_0+kw >= in_hw.y) ? (COMPUTE_FLOAT4)0 : CONVERT_COMPUTE_FLOAT4(vload4(kw+0, input+inp_offset_c0));
             COMPUTE_FLOAT4 inValue1 = (in_w_start_1+kw < 0 || in_w_start_1+kw >= in_hw.y) ? (COMPUTE_FLOAT4)0 : CONVERT_COMPUTE_FLOAT4(vload4(kw+1, input+inp_offset_c0));
 
-            COMPUTE_FLOAT4 inValue4 = (in_w_start_0+kw < 0 || in_w_start_0+kw >= in_hw.y) ? (COMPUTE_FLOAT4)0 : CONVERT_COMPUTE_FLOAT4(vload4(kw+0, input+inp_offset_c1));
-            COMPUTE_FLOAT4 inValue5 = (in_w_start_1+kw < 0 || in_w_start_1+kw >= in_hw.y) ? (COMPUTE_FLOAT4)0 : CONVERT_COMPUTE_FLOAT4(vload4(kw+1, input+inp_offset_c1));
+            COMPUTE_FLOAT4 inValue4 = (in_w_start_0+kw < 0 || in_w_start_0+kw >= in_hw.y || c_idx+1 >= c_blocks) ? (COMPUTE_FLOAT4)0 : CONVERT_COMPUTE_FLOAT4(vload4(kw+0, input+inp_offset_c1));
+            COMPUTE_FLOAT4 inValue5 = (in_w_start_1+kw < 0 || in_w_start_1+kw >= in_hw.y || c_idx+1 >= c_blocks) ? (COMPUTE_FLOAT4)0 : CONVERT_COMPUTE_FLOAT4(vload4(kw+1, input+inp_offset_c1));
 
             //NC4HW4 [1, filterShape.x*filterShape.y, 1, channelBlocks] x oc4
             //index: [0, filterIdx,                   0, inChannelBlockIdx]
             COMPUTE_FLOAT4 weights_0 = CONVERT_COMPUTE_FLOAT4(vload4(0, filter+(filter_idx*c_blocks+c_idx+0)*4));
+            /*
+              weight:[kh*kw, oc/4, oc_4], memory align to 8
+              no need to boundry protect
+              */
             COMPUTE_FLOAT4 weights_1 = CONVERT_COMPUTE_FLOAT4(vload4(0, filter+(filter_idx*c_blocks+c_idx+1)*4));
 
             outValue0 = mad(inValue0, weights_0, outValue0);
@@ -467,7 +475,7 @@ void depthwise_conv2d_s1_c8h1w2(GLOBAL_SIZE_2_DIMS __global const FLOAT *input,
     outValue5 = clamp(outValue5, (COMPUTE_FLOAT4)0, (COMPUTE_FLOAT4)6);
 #endif
 
-    int out_offset = (((b_idx*c_blocks + c_idx)*out_hw.x + out_h_idx)*out_hw.y + out_w2_idx)*4;
+    int out_offset = (((b_idx + c_idx*batch)*out_hw.x + out_h_idx)*out_hw.y + out_w2_idx)*4;
 
     const int remain     = out_hw.y - out_w2_idx;
     if (remain >= 2) {
@@ -479,7 +487,7 @@ void depthwise_conv2d_s1_c8h1w2(GLOBAL_SIZE_2_DIMS __global const FLOAT *input,
     
     if(c_idx + 1 >= c_blocks) return;
     
-    out_offset += out_hw.x * out_hw.y * 4;
+    out_offset += batch * out_hw.x * out_hw.y * 4;
     if (remain >= 2) {
         vstore4(CONVERT_FLOAT4(outValue4), 0, output+out_offset);
         vstore4(CONVERT_FLOAT4(outValue5), 1, output+out_offset);
@@ -494,7 +502,7 @@ void depthwise_conv2d_s1_c4h1w4(GLOBAL_SIZE_2_DIMS __global const FLOAT *input,
                                   __global const FLOAT *bias,
                                   __global FLOAT *output,
                                   __private const int2 in_hw,
-                                  __private const int channel,
+                                  __private const int batch,
                                   __private const int2 out_hw,
                                   __private const int2 filter_hw,
                                   __private const int2 pad_hw,
@@ -530,7 +538,7 @@ void depthwise_conv2d_s1_c4h1w4(GLOBAL_SIZE_2_DIMS __global const FLOAT *input,
         const int in_h_cur = in_h_start + kh;
         if(in_h_cur < 0 || in_h_cur >= in_hw.x) continue;
         
-        int inp_offset = (((b_idx*c_blocks + c_idx)*in_hw.x + in_h_cur)* in_hw.y + in_w_start_0)*4;
+        int inp_offset = (((b_idx + c_idx*batch)*in_hw.x + in_h_cur)* in_hw.y + in_w_start_0)*4;
         for (int kw = 0; kw < filter_hw.y; kw++) {
             const int filter_idx = mad24(kh, filter_hw.y, kw);
             inValue0 = (in_w_start_0+kw < 0 || in_w_start_0+kw >= in_hw.y) ? (COMPUTE_FLOAT4)0 : CONVERT_COMPUTE_FLOAT4(vload4(kw+0, input+inp_offset));
@@ -563,7 +571,7 @@ void depthwise_conv2d_s1_c4h1w4(GLOBAL_SIZE_2_DIMS __global const FLOAT *input,
     outValue3 = clamp(outValue3, (COMPUTE_FLOAT4)0, (COMPUTE_FLOAT4)6);
 #endif
 
-    const int out_offset = (((b_idx*c_blocks + c_idx)*out_hw.x + out_h_idx)*out_hw.y + out_w4_idx)*4;
+    const int out_offset = (((b_idx + c_idx*batch)*out_hw.x + out_h_idx)*out_hw.y + out_w4_idx)*4;
 
     const int remain     = out_hw.y - out_w4_idx;
     if (remain >= 4) {
@@ -590,7 +598,7 @@ void depthwise_conv2d_k3s1p1_c4h1w2(GLOBAL_SIZE_2_DIMS __global const FLOAT *inp
                                   __global const FLOAT *bias,
                                   __global FLOAT *output,
                                   __private const int2 in_hw,
-                                  __private const int channel,
+                                  __private const int batch,
                                   __private const int2 out_hw,
                                   __private const int2 filter_hw,
                                   __private const int2 pad_hw,
@@ -617,7 +625,7 @@ void depthwise_conv2d_k3s1p1_c4h1w2(GLOBAL_SIZE_2_DIMS __global const FLOAT *inp
     const int in_h_start = out_h_idx - pad_hw.x;
     COMPUTE_FLOAT4 inValue0, inValue1, inValue2, inValue3;
     //first line
-    const int inp_offset = (((b_idx*c_blocks + c_idx)*in_hw.x + in_h_start)* in_hw.y + in_w_start_0)*4;
+    const int inp_offset = (((b_idx + c_idx*batch)*in_hw.x + in_h_start)* in_hw.y + in_w_start_0)*4;
     inValue0 = (in_h_start < 0 || in_w_start_0 < 0          ) ? (COMPUTE_FLOAT4)0 : CONVERT_COMPUTE_FLOAT4(vload4(0, input+inp_offset));
     inValue1 = (in_h_start < 0 || in_w_start_0+1 >=  in_hw.y) ? (COMPUTE_FLOAT4)0 : CONVERT_COMPUTE_FLOAT4(vload4(1, input+inp_offset));
     inValue2 = (in_h_start < 0 || in_w_start_0+2 >=  in_hw.y) ? (COMPUTE_FLOAT4)0 : CONVERT_COMPUTE_FLOAT4(vload4(2, input+inp_offset));
@@ -690,7 +698,7 @@ void depthwise_conv2d_k3s1p1_c4h1w2(GLOBAL_SIZE_2_DIMS __global const FLOAT *inp
     outValue1 = clamp(outValue1, (COMPUTE_FLOAT4)0, (COMPUTE_FLOAT4)6);
 #endif
 
-    const int out_offset = (((b_idx*c_blocks + c_idx)*out_hw.x + out_h_idx)*out_hw.y + out_w2_idx)*4;
+    const int out_offset = (((b_idx + c_idx*batch)*out_hw.x + out_h_idx)*out_hw.y + out_w2_idx)*4;
 
     const int remain     = out_hw.y - out_w2_idx;
     if (remain >= 2) {
@@ -708,7 +716,7 @@ void depthwise_conv2d_k3s1p1_c4h2w2(GLOBAL_SIZE_2_DIMS __global const FLOAT *inp
                                   __global const FLOAT *bias,
                                   __global FLOAT *output,
                                   __private const int2 in_hw,
-                                  __private const int channel,
+                                  __private const int batch,
                                   __private const int2 out_hw,
                                   __private const int2 filter_hw,
                                   __private const int2 pad_hw,
@@ -739,7 +747,7 @@ void depthwise_conv2d_k3s1p1_c4h2w2(GLOBAL_SIZE_2_DIMS __global const FLOAT *inp
     const int in_h_start = out_h2_idx - pad_hw.x;
     COMPUTE_FLOAT4 inValue0, inValue1, inValue2, inValue3;
     //first line
-    const int inp_offset = (((b_idx*c_blocks + c_idx)*in_hw.x + in_h_start)* in_hw.y + in_w_start)*4;
+    const int inp_offset = (((b_idx + c_idx*batch)*in_hw.x + in_h_start)* in_hw.y + in_w_start)*4;
     inValue0 = (in_h_start < 0 || in_w_start < 0          ) ? (COMPUTE_FLOAT4)0 : CONVERT_COMPUTE_FLOAT4(vload4(0, input+inp_offset));
     inValue1 = (in_h_start < 0 || in_w_start+1 >=  in_hw.y) ? (COMPUTE_FLOAT4)0 : CONVERT_COMPUTE_FLOAT4(vload4(1, input+inp_offset));
     inValue2 = (in_h_start < 0 || in_w_start+2 >=  in_hw.y) ? (COMPUTE_FLOAT4)0 : CONVERT_COMPUTE_FLOAT4(vload4(2, input+inp_offset));
@@ -830,7 +838,7 @@ void depthwise_conv2d_k3s1p1_c4h2w2(GLOBAL_SIZE_2_DIMS __global const FLOAT *inp
     outValue3 = clamp(outValue3, (COMPUTE_FLOAT4)0, (COMPUTE_FLOAT4)6);
 #endif
 
-    const int out_offset = (((b_idx*c_blocks + c_idx)*out_hw.x + out_h2_idx)*out_hw.y + out_w2_idx)*4;
+    const int out_offset = (((b_idx + c_idx*batch)*out_hw.x + out_h2_idx)*out_hw.y + out_w2_idx)*4;
 
     const int remain_w     = out_hw.y - out_w2_idx;
     const int remain_h     = out_hw.x - out_h2_idx;

@@ -274,7 +274,11 @@ std::unique_ptr<MNN::NetT> optimizeNetImpl(std::unique_ptr<MNN::NetT>& originNet
         // Remove Invalid Cast
         "RemoveInvalidCast"
     };
-    auto tensorDescribe = std::move(originNet->extraTensorDescribe);
+    std::vector<std::unique_ptr<TensorDescribeT>> tensorDescribe;
+    if (originNet->extraTensorDescribe.size() > 0) {
+        tensorDescribe = std::move(originNet->extraTensorDescribe);
+    }
+    
     std::unique_ptr<MNN::NetT> newNet;
     newNet = std::move(RunExtraPass(originNet, inputs));
     RunNetPass(midOptPass, newNet);
@@ -330,6 +334,7 @@ std::unique_ptr<MNN::NetT> optimizeNetImpl(std::unique_ptr<MNN::NetT>& originNet
         "TransformGroupConvolution",
         "TransformGroupConvolution3D",
 
+        "FuseDupOp",
         // Remove output tensor convert
         "RemoveOutputTensorConvert",
     };
@@ -344,7 +349,9 @@ std::unique_ptr<MNN::NetT> optimizeNetImpl(std::unique_ptr<MNN::NetT>& originNet
     newNet = std::move(RunMergePass(newNet, inputs, PASS_PRIORITY_LOW));
     newNet = std::move(RunMergePass(newNet, inputs, PASS_PRIORITY_FINAL));
 
-    newNet->extraTensorDescribe = std::move(tensorDescribe);
+    if (tensorDescribe.size() > 0) {
+        newNet->extraTensorDescribe = std::move(tensorDescribe);
+    }
     RunNetPass({"ReIndexTensor"}, newNet);
     RunNetPass({"ReIndexOnnxIfAlias"}, newNet);
 
@@ -583,8 +590,12 @@ bool fuseConstIntoSubgraph(MNN::NetT* net, const std::vector<MNN::SubGraphProtoT
 
 using namespace MNN;
 using namespace MNN::Express;
-std::unique_ptr<MNN::NetT> optimizeNet(std::unique_ptr<MNN::NetT>& originNet, bool forTraining, modelConfig& config) {
+std::unique_ptr<MNN::NetT> optimizeNet(std::unique_ptr<MNN::NetT>& originNet, bool forTraining, modelConfig& config, const std::vector<std::string>& expectPasses) {
     Global<modelConfig>::Reset(&config);
+    if (!expectPasses.empty()) {
+        RunNetPass(expectPasses, originNet);
+        return std::move(originNet);
+    }
     std::unique_ptr<std::ofstream, void(*)(std::ofstream*)> externalFile(
         new std::ofstream(".__convert_external_data.bin", std::ios::binary),
         [](std::ofstream* fs){

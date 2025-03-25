@@ -40,6 +40,9 @@ void Conv2DTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>
     const auto& inputTensor  = tfliteTensors[inputIndex];
     const auto& weightTensor = tfliteTensors[weightIndex];
     const auto& outputTensor = tfliteTensors[outputIndex];
+    
+    auto inputShape = inputTensor->shape;
+    int group = 1;
     // co kh kw ci
     const auto& weightShape = weightTensor->shape;
     DCHECK(weightShape.size() == 4) << "Conv2D weight ERROR!";
@@ -48,6 +51,9 @@ void Conv2DTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>
     const int kw         = weightShape[2];
     const int ci         = weightShape[3];
     const int weightSize = co * kh * kw * ci;
+    if (inputShape.size() == 4 && inputShape[3] > ci) {
+        group = inputShape[3] / ci;
+    }
     if (quantizedModel == 1) { // UINT8_QUANT
         auto conv2dParamQuan         = new MNN::TfQuantizedConv2DT;
         conv2dParamQuan->modelFormat = MNN::ModeFormat_TFLITE;
@@ -99,7 +105,7 @@ void Conv2DTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>
         conv2dParamQuan->common->outputCount = co;
 
         // default
-        conv2dParamQuan->common->group   = 1;
+        conv2dParamQuan->common->group   = group;
         conv2dParamQuan->common->dilateX = tfliteConvOption->dilation_w_factor;
         conv2dParamQuan->common->dilateY = tfliteConvOption->dilation_h_factor;
         conv2dParamQuan->depthMultiplier = 1;
@@ -166,9 +172,9 @@ void Conv2DTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>
             return;
         }
 
-        common->group       = 1;
+        common->group       = group;
         common->outputCount = co;
-        common->inputCount  = ci;
+        common->inputCount  = ci * group;
         common->kernelX     = kw;
         common->kernelY     = kh;
         common->dilateX     = tfliteConvOption->dilation_w_factor;
@@ -242,9 +248,9 @@ void Conv2DTflite::run(MNN::OpT* dstOp, const std::unique_ptr<tflite::OperatorT>
             return;
         }
 
-        common->group       = 1;
+        common->group       = group;
         common->outputCount = co;
-        common->inputCount  = ci;
+        common->inputCount  = ci * group;
         common->kernelX     = kw;
         common->kernelY     = kh;
         common->dilateX     = tfliteConvOption->dilation_w_factor;

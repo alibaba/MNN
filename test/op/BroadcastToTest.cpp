@@ -20,6 +20,14 @@ class BroadcastToTest : public MNNTestCase {
     virtual ~BroadcastToTest() = default;
 
     virtual bool run(int precision) {
+        bool resultNCHW = testDimensionformat(NCHW, precision);
+        bool resultNHWC = testDimensionformat(NHWC, precision);
+
+        return (resultNCHW && resultNHWC);
+    }
+
+private:
+    bool testDimensionformat(Dimensionformat dimensionFormat, int precision) {
         {
             const float tensorData[]   = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
             const int shapeData[]      = {2, 3, 2, 2};
@@ -28,8 +36,8 @@ class BroadcastToTest : public MNNTestCase {
                 1.0, 2.0, 1.0, 2.0, 3.0, 4.0, 3.0, 4.0, 5.0, 6.0, 5.0, 6.0,
             };
 
-            auto tensor = _Const(tensorData, {1, 3, 1, 2}, NHWC, halide_type_of<float>());
-            auto shape  = _Const(shapeData, {4}, NHWC, halide_type_of<int>());
+            auto tensor = _Const(tensorData, {1, 3, 1, 2}, dimensionFormat, halide_type_of<float>());
+            auto shape  = _Const(shapeData, {4}, dimensionFormat, halide_type_of<int>());
             auto result = _BroadcastTo(tensor, shape);
 
             const int size  = result->getInfo()->size;
@@ -51,8 +59,8 @@ class BroadcastToTest : public MNNTestCase {
             const int shapeData[]      = {3, 3};
             const float expectedData[] = {1.0, 2.0, 3.0, 1.0, 2.0, 3.0, 1.0, 2.0, 3.0};
 
-            auto tensor = _Const(tensorData, {1, 3}, NHWC, halide_type_of<float>());
-            auto shape  = _Const(shapeData, {2}, NHWC, halide_type_of<int>());
+            auto tensor = _Const(tensorData, {1, 3}, dimensionFormat, halide_type_of<float>());
+            auto shape  = _Const(shapeData, {2}, dimensionFormat, halide_type_of<int>());
             auto result = _BroadcastTo(tensor, shape);
 
             const int size  = result->getInfo()->size;
@@ -74,8 +82,8 @@ class BroadcastToTest : public MNNTestCase {
             const int shapeData[]      = {3, 3};
             const float expectedData[] = {1.0, 1.0, 1.0, 2.0, 2.0, 2.0, 3.0, 3.0, 3.0};
 
-            auto tensor = _Const(tensorData, {3, 1}, NHWC, halide_type_of<float>());
-            auto shape  = _Const(shapeData, {2}, NHWC, halide_type_of<int>());
+            auto tensor = _Const(tensorData, {3, 1}, dimensionFormat, halide_type_of<float>());
+            auto shape  = _Const(shapeData, {2}, dimensionFormat, halide_type_of<int>());
             auto result = _BroadcastTo(tensor, shape);
 
             const int size  = result->getInfo()->size;
@@ -98,8 +106,8 @@ class BroadcastToTest : public MNNTestCase {
             const float expectedData[] = {1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0,
                                           1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0};
 
-            auto tensor = _Const(tensorData, {1, 1, 1, 2}, NHWC, halide_type_of<float>());
-            auto shape  = _Const(shapeData, {4}, NHWC, halide_type_of<int>());
+            auto tensor = _Const(tensorData, {1, 1, 1, 2}, dimensionFormat, halide_type_of<float>());
+            auto shape  = _Const(shapeData, {4}, dimensionFormat, halide_type_of<int>());
             auto result = _BroadcastTo(tensor, shape);
 
             const int size  = result->getInfo()->size;
@@ -122,8 +130,8 @@ class BroadcastToTest : public MNNTestCase {
             const float expectedData[] = {1.0, 1.0, 1.0, 1.0, 2.0, 2.0, 2.0, 2.0, 3.0, 3.0, 3.0, 3.0,
                                           1.0, 1.0, 1.0, 1.0, 2.0, 2.0, 2.0, 2.0, 3.0, 3.0, 3.0, 3.0};
 
-            auto tensor = _Const(tensorData, {1, 3, 1, 1}, NHWC, halide_type_of<float>());
-            auto shape  = _Const(shapeData, {4}, NHWC, halide_type_of<int>());
+            auto tensor = _Const(tensorData, {1, 3, 1, 1}, dimensionFormat, halide_type_of<float>());
+            auto shape  = _Const(shapeData, {4}, dimensionFormat, halide_type_of<int>());
             auto result = _BroadcastTo(tensor, shape);
 
             const int size  = result->getInfo()->size;
@@ -145,8 +153,8 @@ class BroadcastToTest : public MNNTestCase {
             const int shapeData[]      = {1, 1, 1, 1};
             const float expectedData[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
 
-            auto tensor = _Const(tensorData, {1, 3, 1, 2}, NHWC, halide_type_of<float>());
-            auto shape  = _Const(shapeData, {4}, NHWC, halide_type_of<int>());
+            auto tensor = _Const(tensorData, {1, 3, 1, 2}, dimensionFormat, halide_type_of<float>());
+            auto shape  = _Const(shapeData, {4}, dimensionFormat, halide_type_of<int>());
             auto result = _BroadcastTo(tensor, shape);
 
             const int size  = result->getInfo()->size;
@@ -169,8 +177,8 @@ class BroadcastToTest : public MNNTestCase {
             const float expectedData[] = {1.0, 1.0, 2.0, 2.0, 3.0, 3.0,
                                           1.0, 1.0, 2.0, 2.0, 3.0, 3.0};
 
-            auto tensor = _Const(tensorData, {3, 1}, NHWC, halide_type_of<float>());
-            auto shape  = _Const(shapeData, {3}, NHWC, halide_type_of<int>());
+            auto tensor = _Const(tensorData, {3, 1}, dimensionFormat, halide_type_of<float>());
+            auto shape  = _Const(shapeData, {3}, dimensionFormat, halide_type_of<int>());
             auto result = _BroadcastTo(tensor, shape);
 
             const int size  = result->getInfo()->size;
@@ -194,15 +202,23 @@ class BinaryBroadcastTest : public MNNTestCase {
     virtual ~BinaryBroadcastTest() = default;
 
     virtual bool run(int precision) {
-        auto X = _Input({2, 5, 2}, NHWC, halide_type_of<float>());
+        bool resultNCHW = testDimensionFormat(NCHW, precision);
+        bool resultNHWC = testDimensionFormat(NHWC, precision);
+
+        return (resultNCHW && resultNHWC);
+    }
+
+private:
+    bool testDimensionFormat(Dimensionformat dimensionFormat, int precision) {
+        auto X = _Input({2, 5, 2}, dimensionFormat, halide_type_of<float>());
         X->setName("X");
-        auto y0 = _Input({}, NHWC, halide_type_of<float>());
+        auto y0 = _Input({}, dimensionFormat, halide_type_of<float>());
         y0->writeMap<float>()[0] = 1.0f;
-        auto y1 = _Input({1, 1, 2}, NHWC, halide_type_of<float>());
+        auto y1 = _Input({1, 1, 2}, dimensionFormat, halide_type_of<float>());
         y1->writeMap<float>()[0] = 1.0f;
         y1->writeMap<float>()[1] = 2.0f;
 
-        auto y2 = _Input({2, 1, 2}, NHWC, halide_type_of<float>());
+        auto y2 = _Input({2, 1, 2}, dimensionFormat, halide_type_of<float>());
         y2->writeMap<float>()[0] = 1.0f;
         y2->writeMap<float>()[1] = 2.0f;
         y2->writeMap<float>()[2] = 3.0f;
@@ -232,7 +248,7 @@ class BinaryBroadcastTest : public MNNTestCase {
         std::shared_ptr<MNN::Express::Module> module(Module::load(std::vector<std::string>{"X"}, std::vector<std::string>{"z0", "z1", "z2", "z3"}, bufferOutput, sizeOutput));
         // First
         {
-            auto x0 = _Input({2, 1, 2}, NHWC, halide_type_of<float>());
+            auto x0 = _Input({2, 1, 2}, dimensionFormat, halide_type_of<float>());
             auto size = x0->getInfo()->size;
             auto ptr = x0->writeMap<float>();
             for (int i=0; i<size; ++i) {
@@ -266,7 +282,7 @@ class BinaryBroadcastTest : public MNNTestCase {
             }
         }
         {
-            auto x0 = _Input({2, 5, 2}, NHWC, halide_type_of<float>());
+            auto x0 = _Input({2, 5, 2}, dimensionFormat, halide_type_of<float>());
             auto size = x0->getInfo()->size;
             auto ptr = x0->writeMap<float>();
             for (int i=0; i<size; ++i) {
@@ -305,7 +321,7 @@ class BinaryBroadcastTest : public MNNTestCase {
             }
         }
         {
-            auto x0 = _Input({2, 3, 2}, NHWC, halide_type_of<float>());
+            auto x0 = _Input({2, 3, 2}, dimensionFormat, halide_type_of<float>());
             auto size = x0->getInfo()->size;
             auto ptr = x0->writeMap<float>();
             for (int i=0; i<size; ++i) {
@@ -345,6 +361,7 @@ class BinaryBroadcastTest : public MNNTestCase {
         }
         return true;
     }
+
 };
 
 MNNTestSuiteRegister(BroadcastToTest, "op/BroadcastToTest");

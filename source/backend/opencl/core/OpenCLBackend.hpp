@@ -45,10 +45,11 @@ struct RecordInfo{
 };
 class CLRuntime : public Runtime {
 public:
-    CLRuntime(const Backend::Info& info, int platformSize, int platformId, int deviceId = 0, void *contextPtr = nullptr, void *glshared = nullptr);
+    CLRuntime(const Backend::Info& info);
     virtual ~CLRuntime();
 
-    virtual Backend* onCreate(const BackendConfig* config) const override;
+    virtual Backend* onCreate(const BackendConfig* config, Backend* origin) const override;
+    virtual void onReset(int numberThread, const BackendConfig* config, bool full) override;
     virtual void onGabageCollect(int level) override;
     virtual float onGetMemoryInMB() override;
     virtual std::pair<const void*, size_t> onGetCache() override;
@@ -62,6 +63,8 @@ public:
     void convertToDevice(const Tensor* srcTensor, const Tensor* dstTensor, MNN_DATA_FORMAT data_format, bool svmFlag = false, int memtype = MNN_FORWARD_CPU) const;
     void convertFromDevice(const Tensor* srcTensor, const Tensor* dstTensor, MNN_DATA_FORMAT data_format, bool svmFlag = false, int memtype = MNN_FORWARD_CPU) const;
     void copyBetweenDevice(const Tensor* srcTensor, const Tensor* dstTensor) const;
+    static void setGlobalCLRuntime(std::shared_ptr<OpenCLRuntime> runtime);
+    static std::shared_ptr<OpenCLRuntime> getGlobalCLRuntime();
 
 private:
     Backend::Info mInfo;
@@ -74,12 +77,14 @@ private:
 
     friend class OpenCLBackend;
     TuneInfo* mTunedInfo;
+    static std::weak_ptr<OpenCLRuntime> globalRuntime;
+    static std::mutex globalRuntimeLock;
 };
 
 
 class OpenCLBackend : public Backend {
 public:
-    OpenCLBackend(std::shared_ptr<ImagePool>imgPool, std::shared_ptr<BufferPool> bufPool, const CLRuntime *runtime);
+    OpenCLBackend(BackendConfig::PrecisionMode precision, BackendConfig::MemoryMode memory, std::shared_ptr<ImagePool>imgPool, std::shared_ptr<BufferPool> bufPool, const CLRuntime *runtime);
     ~OpenCLBackend();
 
     OpenCLRuntime *getOpenCLRuntime();
@@ -121,7 +126,7 @@ public:
     }
     
     float getBytes(const Tensor* tensor);
-    DataType getDataType(const Tensor* tensor);
+    DataType getDataType(const Tensor* tensor) const;
 
     cl_channel_type fpType();
     int fpBytes();
@@ -152,7 +157,7 @@ private:
     void copyToDeviceInt8(const Tensor* srcTensor, const Tensor* dstTensor) const;
     void copyBetweenDevice(const Tensor* srcTensor, const Tensor* dstTensor) const;
 
-    void _allocHostBuffer(int length, const Tensor* srcTensor) const;
+    bool _allocHostBuffer(int length, const Tensor* srcTensor) const;
 
     const CLRuntime* mCLRuntime;
 
@@ -161,6 +166,7 @@ private:
 
     ImagePool* mImagePool;
     BufferPool* mBufferPool;
+    std::shared_ptr<BufferExecutionPool> mExecutionBufferPool;
 
     std::shared_ptr<ImagePool> mImagePoolFirst;
     std::shared_ptr<BufferPool> mBufferPoolFirst;
@@ -170,8 +176,6 @@ private:
     std::shared_ptr<OpenCLRuntime> mOpenCLRuntime;
 
     mutable std::pair<int, std::shared_ptr<cl::Buffer>> mHostBuffer;
-    mutable cl::Buffer *mDeviceBuffer = nullptr;
-    mutable std::shared_ptr<cl::Image> mDeviceTexture;
     BackendConfig::PrecisionMode mPrecision;
     BackendConfig::MemoryMode mMemory;
     bool mIsCreateError{false};
@@ -230,6 +234,26 @@ public:
                                 Backend *backend) const override {
         return new T(inputs, op, backend);
     }
+};
+
+class CLSharedMemReleaseBuffer : public Backend::MemObj {
+public:
+    CLSharedMemReleaseBuffer(uint64_t sharedId, cl::Buffer *bId) {
+        mSharedId = sharedId;
+        mBuffer = bId;
+    }
+    virtual ~ CLSharedMemReleaseBuffer() {
+        delete mBuffer;
+    }
+    uint64_t getSharedId(){
+        return mSharedId;
+    }
+    cl::Buffer *getMem(){
+        return mBuffer;
+    }
+private:
+    uint64_t mSharedId;
+    cl::Buffer *mBuffer;
 };
 
 } // namespace OpenCL

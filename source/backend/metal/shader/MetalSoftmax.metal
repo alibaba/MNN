@@ -28,22 +28,23 @@ kernel void softmax_plane(const device ftype *in     [[buffer(0)]],
     auto axis_out = out + axis_off;
     
     // get max
-    auto max1 = axis_in[0];
-    for (int i = 1; i < s.axis_length; i++) {
-        max1 = max(max1, axis_in[i * s.inside_size]);
+    float max1 = -INFINITY;
+    for (int i = 0; i < s.axis_length; i++) {
+        max1 = max(max1, float(axis_in[i * s.inside_size]));
     }
     
     // get sum
     float sum1 = 0;
     for (int i = 0; i < s.axis_length; i++) {
-        sum1 += float(exp(axis_in[i * s.inside_size] - max1));
+        sum1 += float(exp(float(axis_in[i * s.inside_size]) - float(max1)));
     }
     
     // output
     for (int i = 0; i < s.axis_length; i++) {
-        axis_out[i * s.inside_size] = ftype(exp(float(axis_in[i * s.inside_size] - max1)) / sum1);
+        axis_out[i * s.inside_size] = ftype(exp(float(axis_in[i * s.inside_size]) - float(max1)) / sum1);
     }
 }
+
 
 kernel void softmax_on_reorder(const device ftype4 *in      [[buffer(0)]],
                                device ftype4 *out           [[buffer(1)]],

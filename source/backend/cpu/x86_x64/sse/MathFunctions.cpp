@@ -13,23 +13,26 @@
 #include "core/Macro.h"
 #include "FunctionSummary.hpp"
 
-void _SSE_MNNExpC8(float* dest, const float* source, const float* offset, const float* parameters, size_t countC8) {
+void _SSE_MNNExpC8(float* dest, const float* source, float* offset, const float* parameters, size_t countC8) {
     auto count = countC8 * 2;
     auto A     = _mm_set1_ps(offset[0]);
     auto B    = _mm_set1_ps(offset[1]);
+    auto C    = _mm_set1_ps(offset[2]);
     auto p0    = _mm_set1_ps(parameters[0]);
     auto p1    = _mm_set1_ps(parameters[1]);
-    auto p2    = _mm_set1_ps(parameters[2]);
-    auto p3    = _mm_set1_ps(parameters[3]);
+    auto p2    = _mm_set1_ps(0.25f);
+    auto p3    = _mm_set1_ps(1.0f);
     auto p4    = _mm_set1_ps(parameters[4]);
     auto p5    = _mm_set1_ps(parameters[5]);
     auto p6    = _mm_set1_ps(parameters[6]);
     auto p7    = _mm_set1_ps(parameters[7]);
     auto xMax  = _mm_set1_ps(87);
     auto xMin  = _mm_set1_ps(-87);
+    auto summer = _mm_setzero_ps();
     // auto basic = _mm_set1_epi32(1 << 23);
     for (int i = 0; i < count; ++i) {
         auto x            = _mm_mul_ps(_mm_loadu_ps(source + i * 4), A);
+        x = _mm_add_ps(x, C);
         x                 = _mm_max_ps(x, xMin);
         x                 = _mm_min_ps(x, xMax);
         auto div          = _mm_mul_ps(x, p1);
@@ -40,7 +43,7 @@ void _SSE_MNNExpC8(float* dest, const float* source, const float* offset, const 
         div2 = _mm_slli_epi32(div2, 23);
         auto expBasic  = _mm_castsi128_ps(div2);
         auto xReamin   = _mm_sub_ps(x, _mm_mul_ps(div, p0));
-        auto t         = xReamin;
+        auto t         = _mm_mul_ps(xReamin, p2);
         auto c0        = _mm_mul_ps(p7, t);
         auto c1        = _mm_add_ps(c0, p6);
         auto c2        = _mm_mul_ps(c1, t);
@@ -50,10 +53,20 @@ void _SSE_MNNExpC8(float* dest, const float* source, const float* offset, const 
         auto c6        = _mm_mul_ps(c5, t);
         auto c7        = _mm_add_ps(c6, p3);
         auto c8        = _mm_mul_ps(c7, t);
-        auto c9        = _mm_add_ps(c8, p2);
-        auto expRemain = c9;
-        _mm_storeu_ps(dest + 4 * i, _mm_add_ps(_mm_mul_ps(expBasic, expRemain), B));
+        auto c9        = _mm_add_ps(c8, p3);
+        auto expRemain = _mm_mul_ps(c9, c9);
+        expRemain = _mm_mul_ps(expRemain, expRemain);
+        auto res = _mm_add_ps(_mm_mul_ps(expBasic, expRemain), B);
+        _mm_storeu_ps(dest + 4 * i, res);
+        summer = _mm_add_ps(summer, res);
     }
+    float tmp[4];
+    _mm_storeu_ps(tmp, summer);
+    float total = offset[3];
+    for (int i=0; i<4; ++i) {
+        total+=tmp[i];
+    }
+    offset[3] = total;
 }
 
 void _SSE_MNNSoftmax(float* dest, const float* source, size_t size) {
@@ -274,122 +287,6 @@ void _SSE_MNNNorm(float *dst, const float *src, const float *gamma, const float 
         }
         for (int i = remain; i < size; i++) {
             dst[i] = (src[i] - mean) * variable;
-        }
-    }
-}
-void _SSE_MNNNormInt8(int8_t* dst, const int8_t* src, const float* gamma, const float* beta, float epsilon, size_t size, QuanPrePostParameters* params, bool RMSNorm) {
-    float tmpfloat4[4];
-    int count  = static_cast<int32_t>(size / 4);
-    int remain = count * 4;
-    float sum = 0.f;
-    std::vector<float> inpf(size);
-    std::vector<float> outf(size);
-    std::vector<float> inpScale(4, params->inputScale[0]);
-    std::vector<float> outScale(4, params->outputScale[0]);
-    float* srcf = inpf.data();
-    float* dstf = outf.data();
-    // step 0: Int8 -> Float
-    _SSE_MNNInt8ScaleToFloat(inpf.data(), src, inpScale.data(), size / 4, params->inputZeroPoint[0]);
-    float mean = 0;
-    if(!RMSNorm){
-        // step 1: get sum
-        if (count > 0) {
-            auto sumVal = _mm_set1_ps(0.f);
-            for (int i = 0; i < count; i++) {
-                sumVal = _mm_add_ps(sumVal, _mm_loadu_ps(srcf + i * 4));
-            }
-            _mm_storeu_ps(tmpfloat4, sumVal);
-            sum += (tmpfloat4[0] + tmpfloat4[1] + tmpfloat4[2] + tmpfloat4[3]);
-        }
-        for (int i = remain; i < size; i++) {
-            sum += srcf[i];
-        }
-        mean = sum / size;
-    }
-    // step 2: get square_sum
-    float square_sum = 0.f;
-    auto meanVal = _mm_set1_ps(mean);
-    if (count > 0) {
-        auto sumVal = _mm_set1_ps(0.f);
-        for (int i = 0; i < count; i++) {
-            auto x = _mm_sub_ps(_mm_loadu_ps(srcf + i * 4), meanVal);
-            sumVal = _mm_add_ps(sumVal, _mm_mul_ps(x, x));
-        }
-        _mm_storeu_ps(tmpfloat4, sumVal);
-        square_sum += (tmpfloat4[0] + tmpfloat4[1] + tmpfloat4[2] + tmpfloat4[3]);
-    }
-    for (int i = remain; i < size; i++) {
-        float x = (srcf[i] - mean);
-        square_sum += x * x;
-    }
-    // step 3: get result
-    float variable = square_sum / size;
-    variable = 1.f / sqrt(variable + epsilon);
-    auto variableVal = _mm_set1_ps(variable);
-    if (gamma && beta) {
-        for (int i = 0; i < count; i++) {
-            auto x = _mm_sub_ps(_mm_loadu_ps(srcf + i * 4), meanVal);
-            auto g = _mm_loadu_ps(gamma + i * 4);
-            auto b = _mm_loadu_ps(beta + i * 4);
-            auto y = _mm_add_ps(_mm_mul_ps(_mm_mul_ps(x, g), variableVal), b);
-            _mm_storeu_ps(dstf + i * 4, y);
-        }
-        for (int i = remain; i < size; i++) {
-            dstf[i] = (src[i] - mean) * gamma[i] * variable + beta[i] ;
-        }
-    } else {
-        for (int i = 0; i < count; i++) {
-            auto x = _mm_sub_ps(_mm_loadu_ps(srcf + i * 4), meanVal);
-            auto y = _mm_mul_ps(x, variableVal);
-            _mm_storeu_ps(dstf + i * 4, y);
-        }
-        for (int i = remain; i < size; i++) {
-            dstf[i] = (srcf[i] - mean) * variable;
-        }
-    }
-    // step 4: Float -> Int8
-    _SSE_MNNFloat2Int8(dstf, dst, size / 4, outScale.data(), params->minValue, params->maxValue, params->outputZeroPoint[0]);
-}
-
-void _SSE_MNNReluWithSlopeChannelInt8(int8_t* dst, const int8_t* src, const float* slope, size_t planeNumber, size_t depthQuad, QuanPrePostParameters *params) {
-    uint8_t* dstO = (uint8_t*)dst;
-    uint8_t* srcO = (uint8_t*)src;
-    auto outputZero = _mm_set1_ps(static_cast<float>(params->outputZeroPoint[0]));
-    __m128 maxValue = _mm_set1_ps(params->maxValue);
-    __m128 minValue = _mm_set1_ps(params->minValue);
-    auto offset = _mm_set1_epi32(128);
-    auto zero = _mm_set1_epi32(0);
-    __m128 plus = _mm_set1_ps(0.5f);
-    __m128 minus = _mm_set1_ps(-0.5f);
-    __m128i zeroPointValue = _mm_set1_epi32(static_cast<int32_t>(params->inputZeroPoint[0]) + 128);
-    for (int j = 0;j < depthQuad; ++j) {
-        auto slopeZ = _mm_loadu_ps(slope + 4 * j);
-        const uint8_t* srcZ = srcO + 4 * j * planeNumber;
-        uint8_t* dstZ = dstO + 4 * j * planeNumber;
-        int32_t srcZ_ext[4] = {*(int32_t*)srcZ, 0, 0, 0};
-        for (int i = 0; i < planeNumber; ++i) {
-            // auto srcData8 = _mm_loadu_si32(srcZ);
-            auto srcData8 = _mm_castps_si128(_mm_loadu_ps((float*)srcZ_ext));
-            auto srcData16 = _mm_unpacklo_epi8(srcData8, zero);
-            auto srcData32 = _mm_unpacklo_epi16(srcData16, zero);
-            srcData32 = _mm_sub_epi32(srcData32, zeroPointValue);
-            auto srcDataf  = _mm_cvtepi32_ps(srcData32);
-            auto mask1 = _mm_cmplt_ps(srcDataf, _mm_castsi128_ps(zero));
-            auto mask0 = _mm_cmpge_ps(srcDataf, _mm_castsi128_ps(zero));
-            auto f = _mm_mul_ps(srcDataf, slopeZ);
-            f = _mm_add_ps(f, outputZero);
-            f = _mm_min_ps(f, maxValue);
-            f = _mm_max_ps(f, minValue);
-            auto r = _mm_add_ps(_mm_and_ps(srcDataf, mask0), _mm_and_ps(f, mask1));
-            auto m0 = _mm_cmplt_ps(r, _mm_castsi128_ps(zero));
-            m0 = _mm_blendv_ps(plus, minus, m0);
-            r = _mm_add_ps(r, m0);
-            // Round to zero
-            auto d0 = _mm_cvtps_epi32(_mm_round_ps(r, 3));
-            d0 = _mm_add_epi32(d0, offset);
-            d0 = _mm_packs_epi32(d0, d0);
-            d0 = _mm_packus_epi16(d0, d0);
-            *((int*)dst + i) = _mm_cvtsi128_si32(d0);
         }
     }
 }

@@ -24,6 +24,7 @@ out/
 .gradle
 .gradle/
 build/
+buildvisionOs/
 
 # Signing files
 .signing/
@@ -360,3 +361,15 @@ pymnn_build/
 
 # mnncompress generated
 MNN_compression_pb2.py
+project/ios/MNNLLMForiOS/MNN.framework
+project/MNNLLMForiOS/Chat
+project/MNNLLMForiOS/MNN.framework
+MNN-iOS-CPU-GPU/Static/MNN.framework
+apps/iOS/MNNLLMChat/MNN.framework
+
+# model path
+model/
+
+# datasets
+datasets/*
+!datasets/*.sh

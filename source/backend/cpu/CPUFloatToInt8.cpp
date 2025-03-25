@@ -35,8 +35,11 @@ CPUFloatToInt8::CPUFloatToInt8(Backend* backend, const MNN::Op* param) : Executi
         memset(mScales->host<float>(), 0, UP_DIV(scaleLen, pack) * pack * sizeof(float));
         memcpy(mScales->host<float>(), scale->tensorScale()->data(), scaleLen * sizeof(float));
     }
-
-    mZeroPoint = scale->zeroPoint();
+    if (scale->floatzeros()) {
+        mZeroPoint = scale->floatzeros()->data()[0];
+    } else {
+        mZeroPoint = static_cast<float>(scale->zeroPoint());
+    }
     mClampMin = scale->clampMin();
     mClampMax = scale->clampMax();
 }
@@ -78,7 +81,7 @@ ErrorCode CPUFloatToInt8::onExecute(const std::vector<Tensor*>& inputs, const st
         const auto srcChannelPtr   = inputDataPtr + tId * oc4Stride * pack;
         const auto scaleChannelPtr = scaleDataPtr + z * pack;
         auto dstChannlePtr         = outputDataPtr + tId * oc4Stride * pack;
-        int8F->MNNFloat2Int8(srcChannelPtr, dstChannlePtr, oc4Stride, scaleChannelPtr, mClampMin, mClampMax, mZeroPoint);
+        int8F->MNNFloat2Int8(srcChannelPtr, dstChannlePtr, oc4Stride, scaleChannelPtr, mClampMin, mClampMax, &mZeroPoint, 1);
     }
     MNN_CONCURRENCY_END();
     return NO_ERROR;

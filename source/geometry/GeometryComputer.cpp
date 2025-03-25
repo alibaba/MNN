@@ -7,6 +7,7 @@
 //
 
 #include <mutex>
+#include <MNN/Interpreter.hpp>
 #include "geometry/GeometryComputer.hpp"
 #include "core/Backend.hpp"
 #include "core/OpCommonUtils.hpp"
@@ -18,7 +19,7 @@ namespace MNN {
 GeometryComputer::Context::~Context() {
     // Do nothing
 }
-GeometryComputer::Context::Context(std::shared_ptr<Backend> allocBackend, MNNForwardType type, BackendConfig::PrecisionMode precision) {
+GeometryComputer::Context::Context(int mask, std::shared_ptr<Backend> allocBackend, MNNForwardType type, BackendConfig::PrecisionMode precision) : mMask(mask) {
     mBackend       = allocBackend;
     flatbuffers::FlatBufferBuilder builder(32);
     OpBuilder opBuilder(builder);
@@ -287,20 +288,83 @@ void GeometryComputer::Context::getRasterCacheCreateRecursive(Tensor* src, Comma
     if (_hasZeroDim(src)) {
         return;
     }
-    for (auto& input : srcDes->regions) {
-        MNN_ASSERT(input.origin != src);
-        auto inputDes = TensorUtils::getDescribe(input.origin);
-        while (_virtualMemory(inputDes)) {
-            if (1 != inputDes->regions.size()) {
+    bool needDelete = false;
+    bool supportFuse = support(Interpreter::GEOMETRCOMPUTEMASK_FUSEREGION);
+    bool supportFuseMulti = support(Interpreter::GEOMETRCOMPUTEMASK_FUSEREGION_MULTI);
+    for (int regIndex = 0; regIndex < srcDes->regions.size();) {
+        auto input = srcDes->regions.data() + regIndex;
+        MNN_ASSERT(input->origin != src);
+        
+        auto inputDes = TensorUtils::getDescribe(input->origin);
+        while (_virtualMemory(inputDes) && supportFuse) {
+            if (0 == inputDes->regions.size()) {
+                // Empty Input, Remove the region by set size as 0
+                input->size[0] = 0;
+                needDelete = true;
                 break;
             }
-            bool merge = TensorUtils::fuseRegion(inputDes->regions[0], input);
-            if (!merge) {
+            if (1 < inputDes->regions.size()) {
+                if (!supportFuseMulti) {
+                    break;
+                }
+                bool allCanMerge = true;
+                for (auto& reg : inputDes->regions) {
+                    allCanMerge = allCanMerge && mFuseUtils.match(reg, *input);
+                    if (!allCanMerge) {
+                        break;
+                    }
+                }
+                if (!allCanMerge) {
+                    break;
+                }
+                Tensor::InsideDescribe::Region backup = *input;
+                mFuseUtils.match(inputDes->regions[0], *input);
+                mFuseUtils.apply(inputDes->regions[0], *input);
+                for (int i=1; i<inputDes->regions.size(); ++i) {
+                    auto newReg = backup;
+                    mFuseUtils.match(inputDes->regions[i], newReg);
+                    mFuseUtils.apply(inputDes->regions[i], newReg);
+                    if (newReg.size[0] == 0) {
+                        continue;
+                    }
+                    srcDes->regions.emplace_back(newReg);
+                }
+                // After emplace_back, the input will change, reref it
+                input = srcDes->regions.data() + regIndex;
+                if (input->size[0] == 0) {
+                    needDelete = true;
+                    break;
+                }
+                inputDes = TensorUtils::getDescribe(input->origin);
+                continue;
+            }
+            bool merge = mFuseUtils.match(inputDes->regions[0], *input);
+            if (merge) {
+                mFuseUtils.apply(inputDes->regions[0], *input);
+            } else {
                 break;
             }
-            inputDes = TensorUtils::getDescribe(input.origin);
+            if (input->size[0] == 0) {
+                needDelete = true;
+                break;
+            }
+            inputDes = TensorUtils::getDescribe(input->origin);
         }
-        getRasterCacheCreateRecursive(input.origin, cmd);
+        if (input->size[0] > 0) {
+            getRasterCacheCreateRecursive(input->origin, cmd);
+        }
+        ++regIndex;
+    }
+    if (needDelete) {
+        auto regions = std::move(srcDes->regions);
+        srcDes->regions.reserve(regions.size());
+        for (int regIndex = 0; regIndex < regions.size(); ++regIndex) {
+            auto input = std::move(regions[regIndex]);
+            if (input.size[0] == 0 || input.size[1] == 0 || input.size[2] == 0) {
+                continue;
+            }
+            srcDes->regions.emplace_back(std::move(input));
+        }
     }
     getRasterCacheCreate(src, cmd);
 }

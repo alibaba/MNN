@@ -2,6 +2,7 @@
 #ifndef MNN_OPENCL_SEP_BUILD
 namespace MNN {
 namespace OpenCL {
+#ifndef MNN_OPENCL_BUFFER_CLOSED
 extern void ___OpenCLInterp3DBufCreator__OpType_Interp3D__BUFFER__();
 extern void ___OpenCLReductionBufCreator__OpType_Reduction__BUFFER__();
 extern void ___OpenCLArgMaxBufCreator__OpType_ArgMax__BUFFER__();
@@ -29,6 +30,7 @@ extern void ___OpenCLUnaryBufCreator__OpType_Sigmoid__BUFFER__();
 extern void ___OpenCLUnaryBufCreator__OpType_TanH__BUFFER__();
 extern void ___OpenCLGridSampleBufCreator__OpType_GridSample__BUFFER__();
 extern void ___OpenCLScaleBufCreator__OpType_Scale__BUFFER__();
+#endif
 extern void ___OpenCLDepthwiseConvolutionCreator__OpType_ConvolutionDepthwise__IMAGE__();
 extern void ___OpenCLMatMulCreator__OpType_MatMul__IMAGE__();
 extern void ___OpenCLUnaryCreator__OpType_UnaryOp__IMAGE__();
@@ -60,9 +62,13 @@ extern void ___OpenCLInterpCreator__OpType_Interp__IMAGE__();
 extern void ___OpenCLGridSampleCreator__OpType_GridSample__IMAGE__();
 
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
+extern void ___OpenCLSelfAttentionBufCreator__OpType_FmhaV2__BUFFER__();
+extern void ___OpenCLSplitGeluBufCreator__OpType_SplitGeLU__BUFFER__();
+extern void ___OpenCLGroupNormBufCreator__OpType_GroupNorm__BUFFER__();
 extern void ___OpenCLAttentionBufCreator__OpType_Attention__BUFFER__();
 #endif
 void registerOpenCLOps() {
+#ifndef MNN_OPENCL_BUFFER_CLOSED
 ___OpenCLInterp3DBufCreator__OpType_Interp3D__BUFFER__();
 ___OpenCLReductionBufCreator__OpType_Reduction__BUFFER__();
 ___OpenCLArgMaxBufCreator__OpType_ArgMax__BUFFER__();
@@ -90,6 +96,7 @@ ___OpenCLUnaryBufCreator__OpType_Sigmoid__BUFFER__();
 ___OpenCLUnaryBufCreator__OpType_TanH__BUFFER__();
 ___OpenCLGridSampleBufCreator__OpType_GridSample__BUFFER__();
 ___OpenCLScaleBufCreator__OpType_Scale__BUFFER__();
+#endif
 ___OpenCLDepthwiseConvolutionCreator__OpType_ConvolutionDepthwise__IMAGE__();
 ___OpenCLMatMulCreator__OpType_MatMul__IMAGE__();
 ___OpenCLUnaryCreator__OpType_UnaryOp__IMAGE__();
@@ -119,7 +126,11 @@ ___OpenCLInterp3DCreator__OpType_Interp3D__IMAGE__();
 ___OpenCLCastCreator__OpType_Cast__IMAGE__();
 ___OpenCLInterpCreator__OpType_Interp__IMAGE__();
 ___OpenCLGridSampleCreator__OpType_GridSample__IMAGE__();
+
 #ifdef MNN_SUPPORT_TRANSFORMER_FUSE
+___OpenCLSelfAttentionBufCreator__OpType_FmhaV2__BUFFER__();
+___OpenCLSplitGeluBufCreator__OpType_SplitGeLU__BUFFER__();
+___OpenCLGroupNormBufCreator__OpType_GroupNorm__BUFFER__();
 ___OpenCLAttentionBufCreator__OpType_Attention__BUFFER__();
 #endif
 }

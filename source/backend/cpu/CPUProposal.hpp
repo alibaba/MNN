@@ -24,8 +24,15 @@ public:
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
 
+    struct ProposalCache {
+        int32_t featStride;
+        int32_t preNmsTopN;
+        int32_t minSize;
+        int32_t afterNmsTopN;
+        float nmsThreshold;
+    };
 private:
-    const Proposal *mProposal;
+    ProposalCache mCache;
     AutoStorage<float> mAnchors;
     MemChunk mScoreBuffer;
 };

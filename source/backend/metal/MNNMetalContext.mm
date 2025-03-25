@@ -24,8 +24,8 @@ using namespace MNN;
 @property (strong, nonatomic) id<MTLDevice> device;
 @property (assign, nonatomic) BOOL isIphone;
 // private
-@property (strong, nonatomic) NSMutableDictionary<NSString *, id<MTLComputePipelineState>> *cachesFp32;
-@property (strong, nonatomic) NSMutableDictionary<NSString *, id<MTLComputePipelineState>> *cachesFp16;
+@property (strong, nonatomic) NSDictionary<NSString *, id<MTLComputePipelineState>> *cachesFp32;
+@property (strong, nonatomic) NSDictionary<NSString *, id<MTLComputePipelineState>> *cachesFp16;
 @end
 
 @implementation MNNMetalContext
@@ -79,33 +79,6 @@ static void createLibrary(id<MTLDevice> device, NSMutableDictionary<NSString *, 
     }
 }
 
-+ (BOOL)commit_frequent{
-    struct utsname systemInfo;
-    uname(&systemInfo);
-
-    NSString *deviceString = [NSString stringWithCString:systemInfo.machine encoding:NSASCIIStringEncoding];
-
-    if ([deviceString isEqualToString:@"iPhone10,1"]) return YES; //@"iPhone 8 Global";
-    if ([deviceString isEqualToString:@"iPhone10,2"]) return YES; //@"iPhone 8 Plus Global";
-    if ([deviceString isEqualToString:@"iPhone10,4"]) return YES; //@"iPhone 8 GSM";
-    if ([deviceString isEqualToString:@"iPhone10,5"]) return YES; //@"iPhone 8 Plus GSM";
-    if ([deviceString isEqualToString:@"iPhone10,3"]) return YES; //@"A1865/A1902 iPhone X";
-    if ([deviceString isEqualToString:@"iPhone10,6"]) return YES; //@"Global/A1901 iPhone X";
-    if ([deviceString isEqualToString:@"iPhone11,2"]) return YES; //@"iPhone XS";
-    if ([deviceString isEqualToString:@"iPhone11,4"]) return YES; //@"iPhone XS Max";
-    if ([deviceString isEqualToString:@"iPhone11,6"]) return YES; //@"iPhone XS Max";
-    if ([deviceString isEqualToString:@"iPhone11,8"]) return YES; //@"iPhone XR";
-    if ([deviceString isEqualToString:@"iPhone12,1"]) return YES; //@"iPhone 11";
-    if ([deviceString isEqualToString:@"iPhone12,3"]) return YES; //@"iPhone 11 Pro";
-    if ([deviceString isEqualToString:@"iPhone12,5"]) return YES; //@"iPhone 11 Pro Max";
-    if ([deviceString isEqualToString:@"iPhone12,8"]) return YES; //@"iPhone SE 2";
-    if ([deviceString isEqualToString:@"iPhone13,1"]) return YES; //@"iPhone 12 mini";
-    if ([deviceString isEqualToString:@"iPhone13,2"]) return YES; //@"iPhone 12";
-    if ([deviceString isEqualToString:@"iPhone13,3"]) return YES; //@"iPhone 12 Pro";
-    if ([deviceString isEqualToString:@"iPhone13,4"]) return YES; //@"iPhone 12 Pro Max";
-    return NO;
-}
-
 + (BOOL)isIphone{
     struct utsname systemInfo;
     uname(&systemInfo);
@@ -122,12 +95,15 @@ static void createLibrary(id<MTLDevice> device, NSMutableDictionary<NSString *, 
 - (BOOL) initWithSharedContext:(const MNNMetalSharedContext*)context dev:(id<MTLDevice>)device {
     MNN_ASSERT(nullptr != context);
     _device = context->device;
-    _cachesFp16   = [NSMutableDictionary dictionary];
-    _cachesFp32   = [NSMutableDictionary dictionary];
-    _isCommitEachShader = self.class.commit_frequent;
+    NSMutableDictionary* tmp_cachesFp16   = [NSMutableDictionary dictionary];
+    NSMutableDictionary* tmp_cachesFp32   = [NSMutableDictionary dictionary];
     _isIphone = self.class.isIphone;
-    createLibrary(_device, _cachesFp16, true);
-    createLibrary(_device, _cachesFp32, false);
+    createLibrary(_device, tmp_cachesFp16, true);
+    createLibrary(_device, tmp_cachesFp32, false);
+    _cachesFp16 = [NSDictionary dictionaryWithDictionary:tmp_cachesFp16];
+    _cachesFp32 = [NSDictionary dictionaryWithDictionary:tmp_cachesFp32];
+    tmp_cachesFp16 = nil;
+    tmp_cachesFp32 = nil;
     return nil != _device;
 }
 
@@ -169,15 +145,19 @@ static void createLibrary(id<MTLDevice> device, NSMutableDictionary<NSString *, 
 - (id<MTLComputePipelineState>)pipelineWithSourceOption:(NSString *)source name:(NSString *)name options:(MTLCompileOptions *)options {
     NSError *err = nil;
     auto library = [_device newLibraryWithSource:source options:options error:&err];
+    if (err) {
+        NSLog(@"Warning: pipelineWithSource error: %@, source is: %@", err, source);
+    }
     if (nil == library) {
-        if (err) {
-            NSLog(@"Warning: pipelineWithSource error: %@", err);
-        }
         return nil;
     }
     id<MTLFunction> function = [library newFunctionWithName:name];
-    NSError *error = nil;
-    id<MTLComputePipelineState> result = [_device newComputePipelineStateWithFunction:function error:&error];
+    if (nil == function) {
+        NSLog(@"Warning: Create function failed: %@", name);
+        return nil;
+    }
+    err = nil;
+    id<MTLComputePipelineState> result = [_device newComputePipelineStateWithFunction:function error:&err];
     return result;
 }
 
@@ -199,19 +179,58 @@ static void createLibrary(id<MTLDevice> device, NSMutableDictionary<NSString *, 
     return cmdBuffer;
 }
 
+bool getCloseThreadgroup(const std::map<std::string, std::vector<std::pair<std::vector<uint32_t>, std::tuple<std::vector<uint32_t>, std::vector<uint32_t>, uint32_t>>>> &tuneMap, const std::vector<uint32_t> &gws, const std::string &kernelName, std::tuple<std::vector<uint32_t>, std::vector<uint32_t>, uint32_t>& res){
+    float minScale = 0.1;
+    auto iter = tuneMap.find(kernelName);
+    if(iter == tuneMap.end()){
+        return false;
+    }
+    auto gwsAndLws = iter->second;
+    int size = gws.size();
+    uint32_t minPoint = UINT_MAX;
+    int index = -1;
+    for(int i = 0; i < gwsAndLws.size(); ++i){
+        uint32_t point = 0;
+        for(int j = 0; j < size; ++j){
+            point += std::abs(static_cast<int>(gws[j]) - static_cast<int>(gwsAndLws[i].first[j]));
+        }
+        if(point < minPoint){
+            index = i;
+            minPoint = point;
+        }
+    }
+    if(index != -1){
+        res = gwsAndLws[index].second;
+        return true;
+    }
+    return false;
+}
+
 - (std::tuple<MTLSize, MTLSize, NSUInteger>) getGridAndThreadgroup: (id<MTLComputePipelineState>)pipeline gid:(MTLSize)threads loop:(NSUInteger)count buffer:(NSArray *)buffers runtime:(MetalRuntime *) rt shaderName:(std::string) kernelName offsets:(int *) offset_arr queue:(id<MTLCommandQueue>) cmdqueue {
     NSUInteger gid_x = threads.width;
     NSUInteger gid_y = threads.height;
     NSUInteger gid_z = threads.depth;
-
+    
     auto& tunedThreadGroup = rt->getTunedThreadGroup();
     std::vector<uint32_t> gws = {(uint32_t)gid_x, (uint32_t)gid_y, (uint32_t)gid_z};
     std::pair<std::string, std::vector<uint32_t>> info = std::make_pair(kernelName, gws);
-    if (tunedThreadGroup.find(info) != tunedThreadGroup.end()) {
+    bool exactRes = tunedThreadGroup.find(info) != tunedThreadGroup.end();
+    std::tuple<std::vector<uint32_t>, std::vector<uint32_t>, uint32_t> tuneLwsRes;
+
+    bool closeRes = false;
+    if(!exactRes) {
+        auto& tunedThreadGroupVec = rt->getTunedThreadGroupVec();
+        if(getCloseThreadgroup(tunedThreadGroupVec, gws, kernelName, tuneLwsRes)){
+            closeRes = true;
+        }
+    } else {
+        tuneLwsRes = tunedThreadGroup[info];
+    }
+    if (exactRes || closeRes) {
         //printf("conv2d1x1LocalWSOpt Found! gws:%d %d lws:%d %d\n", gws[0], gws[1], tunedLws[info][0], tunedLws[info][1]);
-        auto groupNum = std::get<0>(tunedThreadGroup[info]);
-        auto groupSize = std::get<1>(tunedThreadGroup[info]);
-        auto timeCost = std::get<2>(tunedThreadGroup[info]);
+        auto groupNum  = std::get<0>(tuneLwsRes);
+        auto groupSize = std::get<1>(tuneLwsRes);
+        auto timeCost  = std::get<2>(tuneLwsRes);
 
         MTLSize _groupNum = {(NSUInteger)groupNum[0], (NSUInteger)groupNum[1], (NSUInteger)groupNum[2]};
         MTLSize _groupSize = {(NSUInteger)groupSize[0], (NSUInteger)groupSize[1], (NSUInteger)groupSize[2]};

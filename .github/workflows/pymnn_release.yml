@@ -5,6 +5,8 @@ on:
       - '.github/workflows/pymnn_release.yml'
     tags:
       - '*'
+  workflow_dispatch:
+
 jobs:
   build_wheels:
     name: ${{ matrix.arch }} ${{ matrix.build }} on ${{ matrix.os }}
@@ -14,9 +16,10 @@ jobs:
       matrix:
         include:
           - { os: ubuntu-latest,    arch: x86_64,     build: 'cp*-manylinux*' }
+          - { os: ubuntu-24.04-arm, arch: aarch64,    build: 'cp*-manylinux*' }
           - { os: windows-latest,   arch: AMD64,      build: 'cp*'          }
-          - { os: macos-latest,     arch: x86_64,     build: 'cp*'          }
-          - { os: macos-14,         arch: arm64,     build: 'cp*'          }
+          - { os: macos-13,         arch: x86_64,     build: 'cp*'          }
+          - { os: macos-14,         arch: arm64,      build: 'cp*'          }
 
     steps:
     - uses: actions/checkout@v3
@@ -42,7 +45,6 @@ jobs:
         CIBW_ARCHS_LINUX: ${{ matrix.arch }}
         CIBW_ARCHS_WINDOWS: ${{ matrix.arch }}
         CIBW_BUILD: ${{ matrix.build }}
-        CIBW_SKIP: cp311-*
         CIBW_BUILD_VERBOSITY: 1
         CIBW_ENVIRONMENT: CMAKE_BUILD_PARALLEL_LEVEL=2
       with:
@@ -59,8 +61,9 @@ jobs:
       shell: bash
 
     - name: Upload wheels
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
+        name: artifact-${{ matrix.os }}-${{ matrix.arch }}
         path: wheelhouse/*.whl
 
   publish_wheels:
@@ -75,10 +78,11 @@ jobs:
       with:
         python-version: '3.x'
 
-    - uses: actions/download-artifact@v3
+    - uses: actions/download-artifact@v4
       with:
-        name: artifact
+        pattern: artifact-*
         path: dist
+        merge-multiple: true
 
     - uses: pypa/gh-action-pypi-publish@release/v1
       with:

@@ -17,6 +17,8 @@
 namespace MNN {
 class Arm82Interp : public Execution {
 public:
+    static Execution* create(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
+                             const MNN::Op* op, Backend* backend);
     Arm82Interp(Backend *backend, float widthScale, float heightScale, int resizeType, float widthOffset, float heightOffset);
     virtual ~Arm82Interp();
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;

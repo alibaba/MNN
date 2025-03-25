@@ -23,7 +23,7 @@ public:
     }
     class MNN_PUBLIC Context {
     public:
-        Context(std::shared_ptr<Backend> allocBackend, MNNForwardType type = MNN_FORWARD_CPU, BackendConfig::PrecisionMode precision = BackendConfig::Precision_Normal);
+        Context(int mask, std::shared_ptr<Backend> allocBackend, MNNForwardType type = MNN_FORWARD_CPU, BackendConfig::PrecisionMode precision = BackendConfig::Precision_Normal);
         ~Context();
 
         void clear();
@@ -41,7 +41,11 @@ public:
         inline BackendConfig::PrecisionMode precisionType() const {
             return mPrecision;
         }
+        inline bool support(int option) const {
+            return mMask & option;
+        }
         std::shared_ptr<BufferStorage> mRasterOp;
+        bool mNeedRelease = true;
     private:
         void getRasterCacheCreate(Tensor* src, CommandBuffer& cmd);
         std::map<const Op*, std::vector<std::shared_ptr<Tensor>>> mConstTensors;
@@ -50,6 +54,8 @@ public:
         std::shared_ptr<Backend> mBackend;
         MNNForwardType mForwardType;
         BackendConfig::PrecisionMode mPrecision;
+        TensorUtils::FuseWrap mFuseUtils;
+        const int mMask;
     };
     static void init();
     MNN_PUBLIC static const GeometryComputer* search(int opType, Runtime::CompilerType compType);

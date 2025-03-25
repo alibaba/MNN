@@ -14,19 +14,19 @@
 #include <sstream>
 
 #include "MNN_generated.h"
+#include "core/MNNFileUtils.h"
 #include "logkit.h"
 #include "writeFb.hpp"
 #include "CommonUtils.hpp"
 #include "cpp/ConfigFile.hpp"
 #include <MNN/MNNDefine.h>
 #include "cli.hpp"
-#include "commonKit.hpp"
 #include "MNN_compression.pb.h"
 
 using namespace MNN;
 using namespace std;
 
-static void _postTreatOp(std::unique_ptr<OpT>& op, FileLoader* fl, MNN::Compression::Pipeline proto, const modelConfig& config, std::ofstream& weightPath, int64_t& offset, bool needExternalWeight) {
+static void _postTreatOp(std::unique_ptr<OpT>& op, FileLoader* fl, const PostTreatContext& context, const modelConfig& config, std::ofstream& weightPath, int64_t& offset, bool needExternalWeight) {
     loadExternalParam(op, fl);
     if (config.alignDenormalizedValue) {
         AlignDenormalizedValue(op);
@@ -35,9 +35,9 @@ static void _postTreatOp(std::unique_ptr<OpT>& op, FileLoader* fl, MNN::Compress
         CastParamsToHalf(op);
     }
     if (config.detectSparseSpeedUp) {
-        AddSparseInfo(op, proto);
+        AddSparseInfo(op, context.proto);
     }
-    WeightQuantAndCoding(op, config);
+    WeightQuantAndCoding(op, config, &context);
     if (needExternalWeight) {
         RemoveAndStoreParam(op, &weightPath, offset);
     }
@@ -60,7 +60,7 @@ static float _computeOpExternalSizeInMB(const MNN::OpT* op) {
             }
             return blob->external[1] / 1024.0f / 1024.0f;
         }
-            
+
         default:
             break;
     }
@@ -86,23 +86,12 @@ static bool _largeModel(const MNN::NetT* netT) {
     }
     return false;
 }
-int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, const modelConfig& config) {
+int postTreat(std::unique_ptr<MNN::NetT>& netT, const modelConfig& config) {
     std::string compressFileName = config.compressionParamsFile;
-    Compression::Pipeline proto;
-    if (compressFileName != "") {
-        string jsonSuffix = "json";
-        string suffix = compressFileName.substr(compressFileName.find_last_of('.') + 1);
-        if (jsonSuffix.compare(suffix) != 0) { // protobuf.bin file
-            std::fstream input(compressFileName.c_str(), std::ios::in | std::ios::binary);
-            if (!proto.ParseFromIstream(&input)) {
-                MNN_ERROR("Failed to parse compression pipeline proto.\n");
-            }
-        } else {
-            CommonKit::json2protobuf(compressFileName.c_str(), nullptr, &proto);
-        }
-    }
+    auto& proto = config.compressInfo->proto;
+    auto MNNModelFile = config.MNNModel;
 
-    addUUID(netT, proto);
+    addUUID(netT, config.compressInfo->proto);
 
     // add version info to model
     netT->extraInfo.reset(new ExtraInfoT);
@@ -111,43 +100,87 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, c
         // add auth code to model
         netT->extraInfo->name = config.authCode;
     }
-
-    if (config.compressionParamsFile != "") {
+    bool useOriginQuant = config.compressInfo->proto.algo_size() > 0 && (!config.compressInfo->write);
+    if (config.compressInfo->proto.has_for_guide() && config.compressInfo->proto.for_guide()) {
+        useOriginQuant = false;
+    }
+    if (useOriginQuant) {
         channelPruneConvert(netT, proto);
     }
-    if (config.compressionParamsFile != "") {
+    if (useOriginQuant) {
         fullQuantAndCoding(netT, proto);
     }
     // Check If need external weight
     bool needExternalWeight = config.saveExternalData;
-    if (!needExternalWeight) {
+    if ((!needExternalWeight) && config.model != modelConfig::MNN) {
         needExternalWeight = _largeModel(netT.get());
     }
     std::ofstream externalWeightOs;
     if (needExternalWeight) {
-        auto weightName = MNNModelFile + ".weight";
+        auto weightName = config.MNNModel + ".weight";
         MNN_PRINT("Save Weight to %s\n", weightName.c_str());
-        externalWeightOs.open(weightName.c_str());
+        externalWeightOs.open(weightName.c_str(), ios::binary);
         if (externalWeightOs.fail()) {
             MNN_PRINT("Write %s failed\n", weightName.c_str());
         }
     }
     {
+        bool findQuant = false;
+        auto& context = *config.compressInfo;
+        for (int i=0; i<proto.algo_size(); ++i) {
+            auto& algo = proto.algo(i);
+            if (algo.type() != MNN::Compression::CompressionAlgo_CompressionType_QUANTIZE) {
+                continue;
+            }
+            if (!algo.has_quant_params()) {
+                continue;
+            }
+            findQuant = true;
+            for (int j=0; j<algo.quant_params().layer_size(); ++j) {
+                const auto& quant = algo.quant_params().layer(j);
+                std::string opName;
+                if (!quant.has_op_name()) {
+                    continue;
+                }
+                opName = quant.op_name();
+                std::string graphName;
+                if (quant.has_subgraph_name()) {
+                    graphName = quant.subgraph_name();
+                }
+                context.quantInfo.insert(std::make_pair(std::make_pair(graphName, opName), &quant));
+            }
+            break;
+        }
+        if ((!findQuant) && context.write) {
+            // Add Quant param for write
+            proto.set_version(MNN_VERSION);
+            proto.set_for_guide(true);
+            auto algo = proto.add_algo();
+            algo->set_type( MNN::Compression::CompressionAlgo_CompressionType_QUANTIZE);
+            context.quantMutableInfo = algo->mutable_quant_params();
+        }
         int64_t offset = 0;
         FileLoader fl(".__convert_external_data.bin");
         for (auto& op : netT->oplists) {
-            _postTreatOp(op, &fl, proto, config, externalWeightOs, offset, needExternalWeight);
+            _postTreatOp(op, &fl, context, config, externalWeightOs, offset, needExternalWeight);
         }
         for (auto& subgraph : netT->subgraphs) {
+            context.subgraph = subgraph->name;
             for (auto& op : subgraph->nodes) {
-                _postTreatOp(op, &fl, proto, config, externalWeightOs, offset, needExternalWeight);
+                _postTreatOp(op, &fl, context, config, externalWeightOs, offset, needExternalWeight);
             }
         }
     }
     {
-        std::ofstream erase(".__convert_external_data.bin");
-        erase << "0";
+        MNNRemoveFile(".__convert_external_data.bin");
     }
+    if (config.compressInfo->write) {
+        CommonKit::protobuf2json(compressFileName.c_str(), &proto);
+    }
+    return 0;
+}
+int writeFb(std::unique_ptr<MNN::NetT>& netT, const modelConfig& config) {
+    postTreat(netT, config);
     std::set<std::string> notSupportOps;
     auto CheckIfNotSupported = [&] (const std::unique_ptr<MNN::OpT>& op) {
         if (op->type == MNN::OpType_Extra) {
@@ -166,7 +199,7 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, c
     }
 
     std::ostringstream notSupportInfo;
-    if (!notSupportOps.empty()) {
+    if (!notSupportOps.empty() && !config.allowCustomOp) {
         for (auto name : notSupportOps) {
             notSupportInfo << name << " | ";
         }
@@ -227,9 +260,9 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const std::string& MNNModelFile, c
             }
         }
         const Net* net = flatbuffers::GetRoot<MNN::Net>(bufferOutput);
-        converToStaticModel(net, inputConfig, MNNModelFile);
+        converToStaticModel(net, inputConfig, config.MNNModel);
     } else {
-        std::ofstream output(MNNModelFile, std::ofstream::binary);
+        std::ofstream output(config.MNNModel, std::ofstream::binary);
         output.write((const char*)bufferOutput, sizeOutput);
     }
     if (!netT->subgraphs.empty()) {

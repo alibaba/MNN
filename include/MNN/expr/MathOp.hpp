@@ -13,7 +13,7 @@ namespace MNN {
 namespace Express {
 //BinaryOPs
 MNN_PUBLIC VARP _Add(VARP x, VARP y);
-MNN_PUBLIC VARP _Subtract(VARP x, VARP y);    
+MNN_PUBLIC VARP _Subtract(VARP x, VARP y);
 MNN_PUBLIC VARP _Multiply(VARP x, VARP y);
 MNN_PUBLIC VARP _Divide(VARP x, VARP y);
 MNN_PUBLIC VARP _Pow(VARP x, VARP y);
@@ -68,6 +68,7 @@ MNN_PUBLIC VARP _Erfc(VARP x);
 MNN_PUBLIC VARP _Erfinv(VARP x);
 MNN_PUBLIC VARP _Expm1(VARP x);
 MNN_PUBLIC VARP _Hardswish(VARP x);
+MNN_PUBLIC VARP _Silu(VARP x);
 
 //ReduceOPs
 MNN_PUBLIC VARP _ReduceSum(VARP input_variable, INTS axis = {}, bool keepDims = false);
@@ -91,19 +92,19 @@ MNN_PUBLIC VARP _Prod(VARP a, VARP b, std::vector<float> coeff);
 MNN_PUBLIC VARP _Sum(VARP a, VARP b, std::vector<float> coeff);
 MNN_PUBLIC VARP _Max(VARP a, VARP b, std::vector<float> coeff);
 MNN_PUBLIC VARP _Sub(VARP a, VARP b, std::vector<float> coeff);
-MNN_PUBLIC VARP _EltwiseProdInt8(VARP x, VARP y, 
+MNN_PUBLIC VARP _EltwiseProdInt8(VARP x, VARP y,
                     std::vector<int8_t> x_weight, std::vector<int32_t> x_bias, std::vector<float> x_scale, std::vector<float> x_tensorScale,
                     std::vector<int8_t> y_weight, std::vector<int32_t> y_bias, std::vector<float> y_scale, std::vector<float> y_tensorScale,
                     std::vector<int8_t> output_weight, std::vector<int32_t> output_bias, std::vector<float> output_scale, std::vector<float> output_tensorScale);
-MNN_PUBLIC VARP _EltwiseSumInt8(VARP x, VARP y, 
+MNN_PUBLIC VARP _EltwiseSumInt8(VARP x, VARP y,
                      std::vector<int8_t> x_weight, std::vector<int32_t> x_bias, std::vector<float> x_scale, std::vector<float> x_tensorScale,
                     std::vector<int8_t> y_weight, std::vector<int32_t> y_bias, std::vector<float> y_scale, std::vector<float> y_tensorScale,
                     std::vector<int8_t> output_weight, std::vector<int32_t> output_bias, std::vector<float> output_scale, std::vector<float> output_tensorScale);
-MNN_PUBLIC VARP _EltwiseSubInt8(VARP x, VARP y, 
+MNN_PUBLIC VARP _EltwiseSubInt8(VARP x, VARP y,
                      std::vector<int8_t> x_weight, std::vector<int32_t> x_bias, std::vector<float> x_scale, std::vector<float> x_tensorScale,
                     std::vector<int8_t> y_weight, std::vector<int32_t> y_bias, std::vector<float> y_scale, std::vector<float> y_tensorScale,
                     std::vector<int8_t> output_weight, std::vector<int32_t> output_bias, std::vector<float> output_scale, std::vector<float> output_tensorScale);
-MNN_PUBLIC VARP _EltwiseMaxInt8(VARP x, VARP y, 
+MNN_PUBLIC VARP _EltwiseMaxInt8(VARP x, VARP y,
                       std::vector<int8_t> x_weight, std::vector<int32_t> x_bias, std::vector<float> x_scale, std::vector<float> x_tensorScale,
                     std::vector<int8_t> y_weight, std::vector<int32_t> y_bias, std::vector<float> y_scale, std::vector<float> y_tensorScale,
                     std::vector<int8_t> output_weight, std::vector<int32_t> output_bias, std::vector<float> output_scale, std::vector<float> output_tensorScale);

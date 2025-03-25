@@ -26,12 +26,6 @@
 
 std::set<std::string> Helper::gNotNeedFeatureOp = { "Raster", "Pooling", "ReLU", "ReLU6", "Interp", "CropAndResize", "ROIPooling", "Gather", "GatherV2", "GatherND", "ScatterNd" };
 
-std::set<MNN::OpType> Helper::INT8SUPPORTED_OPS = {
-    MNN::OpType_ConvInt8, MNN::OpType_DepthwiseConvInt8, MNN::OpType_PoolInt8, MNN::OpType_EltwiseInt8
-    // MNN::OpType_Int8ToFloat,
-    // MNN::OpType_FloatToInt8,
-};
-
 std::set<std::string> Helper::featureQuantizeMethod = {"EMA", "KL", "ADMM"};
 std::set<std::string> Helper::weightQuantizeMethod  = {"MAX_ABS", "ADMM"};
 
@@ -59,7 +53,7 @@ void Helper::readClibrationFiles(std::vector<std::string>& images, const std::st
             continue;
         }
         const std::string fileName = filePath + "\\" + ffd.cFileName;
-        if (INVALID_FILE_ATTRIBUTES != GetFileAttributes(fileName.c_str()) && GetLastError() != ERROR_FILE_NOT_FOUND) {
+        if (INVALID_FILE_ATTRIBUTES != GetFileAttributes(fileName.c_str()) && FILE_ATTRIBUTE_DIRECTORY) {
             if (*usedImageNum == 0) {
                 // use all images in the folder
                 images.push_back(fileName);
@@ -73,6 +67,22 @@ void Helper::readClibrationFiles(std::vector<std::string>& images, const std::st
             else {
                 break;
             }
+        } else {
+            if (INVALID_FILE_ATTRIBUTES != GetFileAttributes(fileName.c_str()) && GetLastError() != ERROR_FILE_NOT_FOUND) {
+                if (*usedImageNum == 0) {
+                    // use all images in the folder
+                    images.push_back(fileName);
+                    count++;
+                }
+                else if (count < *usedImageNum) {
+                    // use usedImageNum images
+                    images.push_back(fileName);
+                    count++;
+                }
+                else {
+                    break;
+                }
+            }
         }
     }
 
@@ -83,13 +93,13 @@ void Helper::readClibrationFiles(std::vector<std::string>& images, const std::st
         MNN_ERROR("open %s failed!\n", filePath.c_str());
         return;
     }
+    struct stat s;
     struct dirent* ent = readdir(root);
     while (ent != NULL) {
         if (ent->d_name[0] != '.') {
-            const std::string fileName = filePath + "/" + ent->d_name;
-            if (fileExist(fileName)) {
-                // std::cout << "==> " << fileName << std::endl;
-                // DLOG(INFO) << fileName;
+            const std::string fileName = filePath + ent->d_name;
+            stat(fileName.c_str(), &s);
+            if (s.st_mode & S_IFDIR) {
                 if (*usedImageNum == 0) {
                     // use all images in the folder
                     images.push_back(fileName);
@@ -101,6 +111,22 @@ void Helper::readClibrationFiles(std::vector<std::string>& images, const std::st
                 } else {
                     break;
                 }
+            } else {
+                if (fileExist(fileName)) {
+                    // std::cout << "==> " << fileName << std::endl;
+                    // DLOG(INFO) << fileName;
+                    if (*usedImageNum == 0) {
+                        // use all images in the folder
+                        images.push_back(fileName);
+                        count++;
+                    } else if (count < *usedImageNum) {
+                        // use usedImageNum images
+                        images.push_back(fileName);
+                        count++;
+                    } else {
+                        break;
+                    }
+                }
             }
         }
         ent = readdir(root);
@@ -108,11 +134,10 @@ void Helper::readClibrationFiles(std::vector<std::string>& images, const std::st
 #endif
 
     *usedImageNum = images.size();
-    DLOG(INFO) << "used image num: " << images.size();
+    DLOG(INFO) << "used dataset num: " << images.size();
 }
 
-void Helper::preprocessInput(MNN::CV::ImageProcess* pretreat, PreprocessConfig preprocessConfig, 
-                             const std::string& filename, MNN::Tensor* input, InputType inputType) {
+void Helper::preprocessInput(MNN::CV::ImageProcess* pretreat, PreprocessConfig preprocessConfig, const std::string& filename, MNN::Tensor* input, InputType inputType, MNN::Express::VARP var) {
     if (inputType == InputType::IMAGE) {
         int originalWidth, originalHeight, comp;
         auto bitmap32bits = stbi_load(filename.c_str(), &originalWidth, &originalHeight, &comp, 4);
@@ -192,10 +217,9 @@ void Helper::preprocessInput(MNN::CV::ImageProcess* pretreat, PreprocessConfig p
             }
             data.insert(data.end(), rawData[i].begin(), rawData[i].end());
         }
-
-        std::vector<int> shape = {1, int(rawData.size()), int(rawData[0].size())};
-        std::shared_ptr<MNN::Tensor> tensorWarp(MNN::Tensor::create(shape, input->getType(), data.data(), MNN::Tensor::CAFFE));
-        input->copyFromHostTensor(tensorWarp.get());
+        auto ptr = var->writeMap<float>();
+        ::memcpy(ptr, data.data(), var->getInfo()->size * sizeof(float));
+        var->unMap();
     }
 }
 

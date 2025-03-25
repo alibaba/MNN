@@ -48,6 +48,7 @@ __kernel void conv_2d_buf_subgroup_c16_c4_b2(
     __private const int output_width,
     __private const int output_height,
     __private const int output_channel,
+    __private const int batch,
     __private const int x_blocks,
     __private const int input_pad_left, 
     __private const int input_pad_right,
@@ -82,10 +83,10 @@ __kernel void conv_2d_buf_subgroup_c16_c4_b2(
     const uint output_x_pitch = 4;
     const uint output_y_pitch = output_x_pitch * output_width;
     const uint output_fs_pitch = output_y_pitch * output_height;
-    const uint output_b_pitch = output_fs_pitch *  ((output_channel + 3) / 4);
+    const uint output_b_pitch = output_fs_pitch * batch;
 
-    const uint output_offset = b * output_b_pitch +
-                               (feature_block << 2) * output_fs_pitch +
+    const uint output_offset = b * output_fs_pitch +
+                               (feature_block << 2) * output_b_pitch +
                                y * output_y_pitch +
                                x * output_x_pitch;
 
@@ -242,13 +243,13 @@ __kernel void conv_2d_buf_subgroup_c16_c4_b2(
     if ((feature_block+1)*16 >= output_channel) {
         for (int i = 0; i < 2 && (x + i) < output_width; i++) {
             if ((feature_block*16 + lid_y * 4 + lid_x < output_channel))
-                output[output_offset + lid_y * output_fs_pitch + i * output_x_pitch + lid_x] = (FLOAT)dst[i];
+                output[output_offset + lid_y * output_b_pitch + i * output_x_pitch + lid_x] = (FLOAT)dst[i];
         }
     }
     else
     {
         for (int i = 0; i < 2 && (x + i) < output_width; i++) {
-            output[output_offset + lid_y * output_fs_pitch + i * output_x_pitch + lid_x] = (FLOAT)dst[i];
+            output[output_offset + lid_y * output_b_pitch + i * output_x_pitch + lid_x] = (FLOAT)dst[i];
         }
     }
 #if SLM_DIV_FACTOR > 1
@@ -269,6 +270,7 @@ __kernel void conv_2d_buf_subgroup_c16_c4_b4(
     __private const int output_width,
     __private const int output_height,
     __private const int output_channel,
+    __private const int batch,
     __private const int x_blocks,
     __private const int input_pad_left, 
     __private const int input_pad_right,
@@ -303,10 +305,10 @@ __kernel void conv_2d_buf_subgroup_c16_c4_b4(
     const uint output_x_pitch = 4;
     const uint output_y_pitch = output_x_pitch * output_width;
     const uint output_fs_pitch = output_y_pitch * output_height;
-    const uint output_b_pitch = output_fs_pitch *  ((output_channel + 3) / 4);
+    const uint output_b_pitch = output_fs_pitch * batch;
 
-    const uint output_offset = b * output_b_pitch +
-                               (feature_block << 2) * output_fs_pitch +
+    const uint output_offset = b * output_fs_pitch +
+                               (feature_block << 2) * output_b_pitch +
                                y * output_y_pitch +
                                x * output_x_pitch;
 
@@ -463,13 +465,13 @@ __kernel void conv_2d_buf_subgroup_c16_c4_b4(
     if ((feature_block+1)*16 >= output_channel) {
         for (int i = 0; i < 4 && (x + i) < output_width; i++) {
             if ((feature_block*16 + lid_y * 4 + lid_x < output_channel))
-                output[output_offset + lid_y * output_fs_pitch + i * output_x_pitch + lid_x] = (FLOAT)dst[i];
+                output[output_offset + lid_y * output_b_pitch + i * output_x_pitch + lid_x] = (FLOAT)dst[i];
         }
     }
     else
     {
         for (int i = 0; i < 4 && (x + i) < output_width; i++) {
-            output[output_offset + lid_y * output_fs_pitch + i * output_x_pitch + lid_x] = (FLOAT)dst[i];
+            output[output_offset + lid_y * output_b_pitch + i * output_x_pitch + lid_x] = (FLOAT)dst[i];
         }
     }
 #if SLM_DIV_FACTOR > 1
@@ -490,6 +492,7 @@ __kernel void conv_2d_buf_subgroup_c16_c4_b8(
     __private const int output_width,
     __private const int output_height,
     __private const int output_channel,
+    __private const int batch,
     __private const int x_blocks,
     __private const int input_pad_left, 
     __private const int input_pad_right,
@@ -524,10 +527,10 @@ __kernel void conv_2d_buf_subgroup_c16_c4_b8(
     const uint output_x_pitch = 4;
     const uint output_y_pitch = output_x_pitch * output_width;
     const uint output_fs_pitch = output_y_pitch * output_height;
-    const uint output_b_pitch = output_fs_pitch *  ((output_channel + 3) / 4);
+    const uint output_b_pitch = output_fs_pitch * batch;
 
-    const uint output_offset = b * output_b_pitch +
-                               (feature_block << 2) * output_fs_pitch +
+    const uint output_offset = b * output_fs_pitch +
+                               (feature_block << 2) * output_b_pitch +
                                y * output_y_pitch +
                                x * output_x_pitch;
 
@@ -684,13 +687,13 @@ __kernel void conv_2d_buf_subgroup_c16_c4_b8(
     if ((feature_block+1)*16 >= output_channel) {
         for (int i = 0; i < 8 && (x + i) < output_width; i++) {
             if ((feature_block*16 + lid_y * 4 + lid_x < output_channel))
-                output[output_offset + lid_y * output_fs_pitch + i * output_x_pitch + lid_x] = (FLOAT)dst[i];
+                output[output_offset + lid_y * output_b_pitch + i * output_x_pitch + lid_x] = (FLOAT)dst[i];
         }
     }
     else
     {
         for (int i = 0; i < 8 && (x + i) < output_width; i++) {
-            output[output_offset + lid_y * output_fs_pitch + i * output_x_pitch + lid_x] = (FLOAT)dst[i];
+            output[output_offset + lid_y * output_b_pitch + i * output_x_pitch + lid_x] = (FLOAT)dst[i];
         }
     }
 #if SLM_DIV_FACTOR > 1
@@ -711,6 +714,7 @@ __kernel void conv_2d_buf_subgroup_c16_c16_b2(
     __private const int output_width,
     __private const int output_height,
     __private const int output_channel,
+    __private const int batch,
     __private const int x_blocks,
     __private const int input_pad_left, 
     __private const int input_pad_right,
@@ -944,6 +948,7 @@ __kernel void conv_2d_buf_subgroup_c16_c16_b4(
     __private const int output_width,
     __private const int output_height,
     __private const int output_channel,
+    __private const int batch,
     __private const int x_blocks,
     __private const int input_pad_left, 
     __private const int input_pad_right,
@@ -1177,6 +1182,7 @@ __kernel void conv_2d_buf_subgroup_c16_c16_b8(
     __private const int output_width,
     __private const int output_height,
     __private const int output_channel,
+    __private const int batch,
     __private const int x_blocks,
     __private const int input_pad_left, 
     __private const int input_pad_right,

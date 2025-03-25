@@ -1,6 +1,14 @@
 # 自定义算子
 ## 概述
-在添加自定义算子前，请参阅[算子列表](../en/ops)，避免不必要的重复。
+在添加自定义算子前，请查看算子列表，避免不必要的重复。
+
+```bash
+./MNNConvert -f CAFFE --OP
+./MNNConvert -f TF --OP
+./MNNConvert -f ONNX --OP
+./MNNConvert -f TORCH --OP 
+```
+
 ### MNN 算子转换与实现结构
 MNN 的算子转换与实现如下图，
 - 模型转换包括以下步骤，二选一：
@@ -12,9 +20,10 @@ MNN 的算子转换与实现如下图，
    3. 添加几何计算实现（可选，如果实现几何计算，无须后续在各后端添加算子实现）
    4. 添加各后端算子实现（可选，选择需要部分进行实现）
 
-![image.png](https://cdn.nlark.com/yuque/0/2021/png/405896/1618994794052-575a79b9-d291-4d1b-a630-79dd705bc977.png#clientId=u1c902b2d-d8e6-4&from=paste&height=701&id=ue223d8c2&margin=%5Bobject%20Object%5D&name=image.png&originHeight=1402&originWidth=3394&originalType=binary&ratio=1&size=256977&status=done&style=none&taskId=u4663d0eb-adcf-435b-b540-f61d2617cd4&width=1697)
+![image.png](pic1.png)
 ### 添加算子的流程
-![image.png](https://cdn.nlark.com/yuque/0/2021/png/405896/1618995111237-321c5ca8-ed99-4cfc-9d91-04deaa2e29eb.png#clientId=u1c902b2d-d8e6-4&from=paste&height=597&id=u518a1fda&margin=%5Bobject%20Object%5D&name=image.png&originHeight=1194&originWidth=2714&originalType=binary&ratio=1&size=222438&status=done&style=none&taskId=u9c8f2ef4-7bf3-4b18-9560-794c3344f01&width=1357)
+
+![image.png](pic2.png)
 简单来说，优先转换，然后组合，然后几何计算，最后各后端实现。
 
 ## 添加Schema描述
@@ -61,7 +70,6 @@ table MyCustomOpParam {
 目前，MNN支持TensorFlow、TensorFlow Lite、Caffe、ONNX和TorchScript模型格式的转换。
 
 ### TensorFlow模型转换
-1. 添加转换类
 在`tools/converter/source/tensorflow`下添加`MyCustomOpTf.cpp`。可以直接声明转换类，也可以利用宏定义简化代码。
 
 直接声明示例：
@@ -87,16 +95,6 @@ DECLARE_OP_CONVERTER(MyCustomOpTf);
 ```cpp
 REGISTER_CONVERTER(MyCustomOpTf, MyCustomOp);
 ```
-
-2. 添加映射
-在`OpMapper.hpp`中添加相应的TensorFlow Op名字到MNN Op名字的映射：
-```cpp
-{"OpName1", MNN::OpType_MyCustomOp},
-{"OpName2", MNN::OpType_MyCustomOp},
-```
-
-3. 处理Op附带的Const
-如果Const不作为此Op的参数，而是看成一个单独的Op，可以忽略此步骤；如果Op要把Const当成参数，要在文件`TmpGraph.cpp`里修改函数`_genMinGraph()`，把相应Const节点的`isCovered`属性设置为true。
 
 ### TensorFlow Lite模型转换
 1. 添加转换类
@@ -254,25 +252,31 @@ REGISTER_CPU_OP_CREATOR(CPUMyCustomOpCreator, OpType_MyCustomOp);
 ```
 
 ### 添加Metal实现
-1. 添加Shader
-在`source/backend/Metal`目录下添加`MetalMyCustomOp.metal`，并添加进Xcode工程。metal可以参考目录下已有实现。
 
-2. 实现类声明
-在`source/backend/Metal`目录下添加`MetalMyCustomOp.hpp`和`MetalMyCustomOp.cpp`，并添加进Xcode工程：
+- 实现类声明
+
+在`source/backend/metal`目录下添加`MetalMyCustomOp.hpp`和`MetalMyCustomOp.cpp`
 ```cpp
 class MetalMyCustomOp : public Execution {
 public:
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, 
                                const std::vector<Tensor *> &outputs) override;
-    virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, 
-                                const std::vector<Tensor *> &outputs) override;
+    virtual void onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder) override;
 };
 ```
 
-3. 实现`onResize`和`onExecute`
-不同于CPU Tensor将数据存储在host指针中，Metal数据指针存放在`deviceId`中，deviceId上存储的是`id<MTLBuffer>`：
+- 实现`onResize`和`onEncode`
+
+尽量将申请内存和计算group size 的操作放在 onResize 函数中。
+
+onEncode 时，使用传入的 encoder 编排计算任务，不要自行创建 command buffer 或 encoder
+
+- 内存使用
+
+不同于CPU Tensor将数据存储在host指针中，Metal数据指针存放在`deviceId`中，deviceId上存储的是`id<MTLBuffer>`, ，由于内存复用机制，各Tensor有可能共用同一块内存，以offset进行偏移：
 ```objectivec
 auto buffer = (__bridge id<MTLBuffer>)(void *)tensor->deviceId();
+auto offset = TensorUtils::getDescribe(tensor)->extra.offset;
 ```
 
 Metal Op的特定参数等可以通过`id<MTLBuffer>`存储。buffer数据类型可以与tensor不同，buffer甚至可以混合多种数据类型，只需保证创建时指定了正确的长度即可。例如：
@@ -297,20 +301,11 @@ auto buffer = [context newDeviceBuffer:2 * sizeof(int) + 2 * sizeof(__fp16) acce
 
 一般而言，heap只会与**CPUTransparent**一起使用。_heap实际只在iOS 10+上有效，iOS 9-上会回退到device上。_
 
-使用Metal时，**如非特殊情况，禁止自行创建device和library**。加载library、编译function都是耗时行为，**MNNMetalContext**上做了必要的缓存优化。通过context执行Metal的示例如下：
-```cpp
-auto context   = (__bridge MNNMetalContext *)backend->context();
-auto kernel    = /* metal kernel name NSString */;
-auto encoder   = [context encoder];
-auto bandwidth = [context load:kernel encoder:encoder];
-/* encoder set buffer(s)/sampler(s) */
-[context dispatchEncoder:encoder 
-			     threads:{x, y, z}
-      maxThreadsPerGroup:maxThreadsPerThreadgroup]; // recommended way to dispatch
-[encoder endEncoding];
-```
+Metal 内存布局与CPU-FP32-Neon一致，在 Tensor 的 dimentionFormat 为 NC4HW4 时，使用 C4NHW4的排布。否则按默认线性布局。
 
-4. 注册实现类
+
+- 注册实现类
+
 ```cpp
 class MetalMyCustomOpCreator : public MetalBackend::Creator {
 public:
@@ -322,36 +317,29 @@ public:
 REGISTER_METAL_OP_CREATOR(MetalMyCustomOpCreator, OpType_MyCustomOp);
 ```
 
-添加注册代码后，重新运行一下 CMake ，自动变更注册文件
+- 工程更新
+
+进入 source/backend/metal 目录，执行 [ python3 MetalCodeGen.py . ] ，更新自注册文件
+
+重新运行一下 CMake ，或者手动在Xcode工程中新加文件
 
 ### 添加Vulkan实现
-1. 添加Shader
-在`source/backend/vulkan/execution/glsl`目录下添加具体的shader(*.comp)。若输入内存布局为`NC4HW4`，则按`image`实现，否则采用buffer实现。可以参考目录下已有实现。然后，执行`makeshader.py`脚本编译Shader。
+Vulkan后端当前包含两种张量存储类型：buffer与image。开发者可在编译时通过宏`MNN_VULKAN_IMAGE`自行选择需要的存储类型。当开发者需要为Vulkan后端添加算子时，亦需要考虑选择何种存储类型并在相应目录下进行开发。下以image类型为例，阐述为Vulkan后端添加算子的主要流程。
 
-2. 实现类声明
-在目录`source/backend/vulkan/execution/`下添加`VulkanMyCustomOp.hpp`和`VulkanMyCustomOp.cpp`：
-```cpp
-class VulkanMyCustomOp : public VulkanBasicExecution {
-public:
-    VulkanMyCustomOp(const Op* op, Backend* bn);
-    virtual ~VulkanMyCustomOp();
-    ErrorCode onEncode(const std::vector<Tensor*>& inputs, 
-                       const std::vector<Tensor*>& outputs,
-                       const VulkanCommandPool::Buffer* cmdBuffer) override;
-private:
-    // GPU Shader所需的参数
-    std::shared_ptr<VulkanBuffer> mConstBuffer;
-    // Pipeline
-    const VulkanPipeline* mPipeline;
-    // Layout Descriptor Set
-    std::shared_ptr<VulkanPipeline::DescriptorSet> mDescriptorSet;
-};
-```
-
-3. 实现
-实现函数`onEncode`，首先需要做内存布局检查：若为`NC4HW4`，则Shader用image实现，否则用buffer。执行完毕返回NO_ERROR。
-
-4. 注册实现类
+1. 实现Execution
+- 执行脚本`source/backend/vulkan/image/compiler/VulkanCodeGen.py`，该脚本将向`source/backend/vulkan/image/execution`中添加`VulkanMyOp.hpp`与`VulkanMyOp.cpp`的模版代码
+- 实现构造函数
+  - 从CPU中读取常量参数，并写入GPU中
+  - 创建算子所需的pipeline
+    - 确定要使用的shader以及Macro
+    - set descriptorTypes，即确定shader中用到的显存对象的类型
+    - 调用getPipeline接口
+- 实现onEncode
+  - 显存资源申请并更新descriptorSet，将shader中需要读写的显存对象写入descriptorSet
+  - 添加memoryBarrier
+  - 把pipeline绑到cmdBuffer与descriptorSet
+  - command dispatch
+- 注册算子并添加创建类
 ```cpp
 class VulkanMyCustomOpCreator : public VulkanBackend::Creator {
 public:
@@ -366,6 +354,15 @@ static bool gResistor = []() {
     return true;
 }();
 ```
+
+2. 实现shader及编译
+- 编写Compute Shader文件`myOp.comp`，添加至目录`source/backend/vulkan/image/execution/glsl`
+- 将算子中用到的宏加入`source/backend/vulkan/image/execution/glsl/macro.json`
+- 执行脚本`source/backend/vulkan/image/compiler/makeshader.py`，该脚本将编译`myOp.comp`，并更新`source/backend/vulkan/image/compiler/AllShader.cpp`、`source/backend/vulkan/image/shaders/AllShader.h`以及`source/backend/vulkan/image/compiler/VulkanShaderMap.cpp`
+> MNN Vulkan当前使用glslangValidator（glslang仓库地址：<https://github.com/KhronosGroup/glslang>，版本号：12.2.0，commit id：d1517d64cfca91f573af1bf7341dc3a5113349c0）编译所有的compute shader。开发者如需保持自行编译后得到的二进制编译结果与MNN仓库中现有的编译结果一致，需要确保环境中的glslang的版本与MNN所使用的一致。
+
+
+
 
 ### 添加OpenCL实现
 1. 添加Kernel
@@ -414,7 +411,7 @@ private:
 ```
 
 3. 实现
-实现函数`onResize`(可选)、`onExecute`。执行完毕返回NO_ERROR。
+实现函数`onResize`(可选)、`onExecute`。执行完毕返回`NO_ERROR`。
 
 4. 注册实现类-
 ```cpp

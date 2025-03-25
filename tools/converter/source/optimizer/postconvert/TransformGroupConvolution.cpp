@@ -6,6 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#include <MNN/MNNDefine.h>
 #include "../PostTreatUtils.hpp"
 using namespace MNN;
 class TransformGroupConvolution3D : public PostConverter {
@@ -181,7 +182,7 @@ public:
             auto& common = conv2D->common;
             const int srcCount = common->inputCount;
             const bool depthwiseLike = srcCount % common->group != 0 || common->outputCount % common->group != 0;
-            if (common->group == 1 || op->inputIndexes.size() > 1 || depthwiseLike) {
+            if (common->group == 1 || depthwiseLike) {
                 iter++;
                 continue;
             }
@@ -211,7 +212,7 @@ public:
                 MNN::OpT* sliceOp      = new MNN::OpT;
                 sliceOp->type          = MNN::OpType_Slice;
                 sliceOp->name          = op->name + "_____slice";
-                sliceOp->inputIndexes  = op->inputIndexes;
+                sliceOp->inputIndexes  = {op->inputIndexes[0]};
                 sliceOp->outputIndexes = newConvolutionInputIndex;
                 auto sliceT            = new MNN::SliceT;
                 sliceOp->main.type     = MNN::OpParameter_Slice;
@@ -223,48 +224,121 @@ public:
                 newOp.push_back(sliceOp);
             }
 
-            int partWeightSize = conv2D->weight.size() / common->group;
-            int partBiasSize   = conv2D->bias.size() / common->group;
+            if(op->inputIndexes.size() > 1){
+                std::vector<int> newConvolutionWeightInputIndex;
+                std::vector<int> newConvolutionBiasInputIndex;
+                // splice weight
+                {
+                    for (int i = 0; i < common->group; ++i) {
+                        std::ostringstream newTensorNameOs;
+                        newTensorNameOs << op->name << "___input___weight___" << i;
+                        newConvolutionWeightInputIndex.push_back(mNet->tensorName.size());
+                        mNet->tensorName.push_back(newTensorNameOs.str());
+                    }
 
-            // Create Sub Convolution
-            for (int i = 0; i < common->group; ++i) {
-                std::ostringstream opNameOs;
-                auto newConvOp = new MNN::OpT;
-                opNameOs << op->name << "__group__" << i;
-                newConvOp->type      = op->type;
-                newConvOp->name      = opNameOs.str();
-                newConvOp->main.type = MNN::OpParameter_Convolution2D;
-                newConvOp->inputIndexes.push_back(newConvolutionInputIndex[i]);
-                newConvOp->outputIndexes.push_back(newConvolutionOutputIndex[i]);
-
-                auto newConvolutionT    = new MNN::Convolution2DT;
-                newConvOp->main.value   = newConvolutionT;
-                newConvolutionT->common = std::unique_ptr<MNN::Convolution2DCommonT>(new MNN::Convolution2DCommonT);
-                newConvolutionT->common->kernelX     = common->kernelX;
-                newConvolutionT->common->kernelY     = common->kernelY;
-                newConvolutionT->common->dilateY     = common->dilateY;
-                newConvolutionT->common->dilateX     = common->dilateX;
-                newConvolutionT->common->strideX     = common->strideX;
-                newConvolutionT->common->strideY     = common->strideY;
-                newConvolutionT->common->group       = 1;
-                newConvolutionT->common->padMode     = common->padMode;
-                newConvolutionT->common->outputCount = common->outputCount / common->group;
-                newConvolutionT->common->inputCount  = common->inputCount / common->group;
-                newConvolutionT->common->padX        = common->padX;
-                newConvolutionT->common->padY        = common->padY;
-                newConvolutionT->common->relu        = common->relu;
-                newConvolutionT->common->relu6       = common->relu6;
-                newConvolutionT->common->outPads     = common->outPads;
-
-                int startWeight = partWeightSize * i;
-                int startBias   = partBiasSize * i;
-                for (int v = 0; v < partWeightSize; ++v) {
-                    newConvolutionT->weight.push_back(conv2D->weight[startWeight + v]);
+                    // Create slice op for weight
+                    {
+                        MNN::OpT* sliceOp      = new MNN::OpT;
+                        sliceOp->type          = MNN::OpType_Slice;
+                        sliceOp->name          = op->name + "_____weight_____slice";
+                        sliceOp->inputIndexes  = {op->inputIndexes[1]};
+                        sliceOp->outputIndexes = newConvolutionWeightInputIndex;
+                        auto sliceT            = new MNN::SliceT;
+                        sliceOp->main.type     = MNN::OpParameter_Slice;
+                        sliceOp->main.value    = sliceT;
+                        sliceT->axis           = 0;
+                        for (int i = 0; i < common->group - 1; ++i) {
+                            sliceT->slicePoints.push_back(common->outputCount / (common->group) * (i + 1));
+                        }
+                        newOp.push_back(sliceOp);
+                    }
                 }
-                for (int v = 0; v < partBiasSize; ++v) {
-                    newConvolutionT->bias.push_back(conv2D->bias[startBias + v]);
+                // slice bias
+                if(op->inputIndexes.size() == 3){
+                    for (int i = 0; i < common->group; ++i) {
+                        std::ostringstream newTensorNameOs;
+                        newTensorNameOs << op->name << "___input___bias___" << i;
+                        newConvolutionBiasInputIndex.push_back(mNet->tensorName.size());
+                        mNet->tensorName.push_back(newTensorNameOs.str());
+                    }
+
+                    // Create slice op for bias
+                    {
+                        MNN::OpT* sliceOp      = new MNN::OpT;
+                        sliceOp->type          = MNN::OpType_Slice;
+                        sliceOp->name          = op->name + "_____bias_____slice";
+                        sliceOp->inputIndexes  = {op->inputIndexes[2]};
+                        sliceOp->outputIndexes = newConvolutionBiasInputIndex;
+                        auto sliceT            = new MNN::SliceT;
+                        sliceOp->main.type     = MNN::OpParameter_Slice;
+                        sliceOp->main.value    = sliceT;
+                        sliceT->axis           = 0;
+                        for (int i = 0; i < common->group - 1; ++i) {
+                            sliceT->slicePoints.push_back(common->outputCount / (common->group) * (i + 1));
+                        }
+                        newOp.push_back(sliceOp);
+                    }
                 }
-                newOp.push_back(newConvOp);
+                // Create Sub Convolution
+                flatbuffers::FlatBufferBuilder tmpBuilder;
+                tmpBuilder.Finish(Convolution2DCommon::Pack(tmpBuilder, common.get()));
+                auto originCommon = flatbuffers::GetRoot<Convolution2DCommon>(tmpBuilder.GetBufferPointer());
+                for (int i = 0; i < common->group; ++i) {
+                    std::ostringstream opNameOs;
+                    auto newConvOp = new MNN::OpT;
+                    opNameOs << op->name << "__group__" << i;
+                    newConvOp->type      = op->type;
+                    newConvOp->name      = opNameOs.str();
+                    newConvOp->main.type = MNN::OpParameter_Convolution2D;
+                    newConvOp->inputIndexes.push_back(newConvolutionInputIndex[i]);
+                    newConvOp->inputIndexes.push_back(newConvolutionWeightInputIndex[i]);
+                    if(op->inputIndexes.size() == 3){
+                        newConvOp->inputIndexes.push_back(newConvolutionBiasInputIndex[i]);
+                    }
+                    newConvOp->outputIndexes.push_back(newConvolutionOutputIndex[i]);
+                        
+                    auto newConvolutionT    = new MNN::Convolution2DT;
+                    newConvOp->main.value   = newConvolutionT;
+                    newConvolutionT->common = std::unique_ptr<MNN::Convolution2DCommonT>(originCommon->UnPack());
+                    newConvolutionT->common->group       = 1;
+                    newConvolutionT->common->outputCount = common->outputCount / common->group;
+                    newConvolutionT->common->inputCount  = common->inputCount / common->group;
+                    newOp.push_back(newConvOp);
+                }
+            }else{
+                int partWeightSize = conv2D->weight.size() / common->group;
+                int partBiasSize   = conv2D->bias.size() / common->group;
+                
+                // Create Sub Convolution
+                flatbuffers::FlatBufferBuilder tmpBuilder;
+                tmpBuilder.Finish(Convolution2DCommon::Pack(tmpBuilder, common.get()));
+                auto originCommon = flatbuffers::GetRoot<Convolution2DCommon>(tmpBuilder.GetBufferPointer());
+                for (int i = 0; i < common->group; ++i) {
+                    std::ostringstream opNameOs;
+                    auto newConvOp = new MNN::OpT;
+                    opNameOs << op->name << "__group__" << i;
+                    newConvOp->type      = op->type;
+                    newConvOp->name      = opNameOs.str();
+                    newConvOp->main.type = MNN::OpParameter_Convolution2D;
+                    newConvOp->inputIndexes.push_back(newConvolutionInputIndex[i]);
+                    newConvOp->outputIndexes.push_back(newConvolutionOutputIndex[i]);
+                    
+                    auto newConvolutionT    = new MNN::Convolution2DT;
+                    newConvOp->main.value   = newConvolutionT;
+                    newConvolutionT->common = std::unique_ptr<MNN::Convolution2DCommonT>(originCommon->UnPack());
+                    newConvolutionT->common->group       = 1;
+                    newConvolutionT->common->outputCount = common->outputCount / common->group;
+                    newConvolutionT->common->inputCount  = common->inputCount / common->group;
+                    int startWeight = partWeightSize * i;
+                    int startBias   = partBiasSize * i;
+                    for (int v = 0; v < partWeightSize; ++v) {
+                        newConvolutionT->weight.push_back(conv2D->weight[startWeight + v]);
+                    }
+                    for (int v = 0; v < partBiasSize; ++v) {
+                        newConvolutionT->bias.push_back(conv2D->bias[startBias + v]);
+                    }
+                    newOp.push_back(newConvOp);
+                }
             }
 
             // Set this op be Concat Op

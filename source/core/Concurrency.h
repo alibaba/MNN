@@ -9,6 +9,8 @@
 #ifndef concurrency_h
 #define concurrency_h
 
+#define LAUNCH_MULTI_THREADS_WORKLOAD 1e+5
+
 #ifdef MNN_FORBIT_MULTI_THREADS
 #define MNN_CONCURRENCY_BEGIN(__iter__, __num__) for (int __iter__ = 0; __iter__ < __num__; __iter__++) {
 #define MNN_CONCURRENCY_END() }
@@ -26,7 +28,7 @@
     }                                                              \
     ;                                                              \
     auto cpuBn = (CPUBackend*)backend();                           \
-    MNN::ThreadPool::enqueue(std::move(task), cpuBn->taskIndex()); \
+    MNN::ThreadPool::enqueue(std::move(task), cpuBn->taskIndex(), cpuBn->threadOpen() ? cpuBn->threadNumber() : 1); \
     }
 
 #else

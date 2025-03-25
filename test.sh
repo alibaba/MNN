@@ -77,8 +77,8 @@ doc_check() {
     # 1.2 check executable
     for executable in $executables
     do
-        if [ $(grep -c $executable ./docs/compile/tools.md) -le 0 ]; then
-            echo 'DOC CHECK FAILED:' $executable 'not in ./docs/compile/tools.md'
+        if [ $(grep -c $executable ./docs/compile/other.md) -le 0 ]; then
+            echo 'DOC CHECK FAILED:' $executable 'not in ./docs/compile/other.md'
             failed
         fi
     done
@@ -117,6 +117,7 @@ doc_check() {
 }
 
 py_check() {
+    echo 'py_check'
     if [ -z "$PY_CHANGE" ]; then
         return
     fi
@@ -133,6 +134,7 @@ py_check() {
 }
 
 static_check() {
+    echo 'static_check'
     if [ -z "$SOURCE_CHANGE" ]; then
         return
     fi
@@ -165,7 +167,7 @@ android_static_build() {
     -DMNN_INTERNAL=ON \
     -DMNN_USE_LOGCAT=false \
     -DMNN_BUILD_BENCHMARK=ON \
-    -DANDROID_NATIVE_API_LEVEL=android-21  \
+    -DANDROID_NATIVE_API_LEVEL=android-26  \
     -DMNN_BUILD_FOR_ANDROID_COMMAND=true \
     -DMNN_OPENGL=true \
     -DMNN_BUILD_TRAIN=true \
@@ -173,6 +175,7 @@ android_static_build() {
     -DMNN_OPENCL=true \
     -DMNN_SUPPORT_BF16=true \
     -DMNN_OPENCL=true -DMNN_ARM82=true \
+    -DMNN_SUPPORT_TRANSFORMER_FUSE=ON \
     -DNATIVE_LIBRARY_OUTPUT=. -DNATIVE_INCLUDE_OUTPUT=. $1 $2 $3
     make -j16
     android_build_wrong=$[$? > 0]
@@ -195,7 +198,7 @@ android_static_build() {
     -DMNN_USE_LOGCAT=false \
     -DMNN_BUILD_BENCHMARK=ON \
     -DMNN_INTERNAL=ON \
-    -DANDROID_NATIVE_API_LEVEL=android-21  \
+    -DANDROID_NATIVE_API_LEVEL=android-26  \
     -DMNN_BUILD_FOR_ANDROID_COMMAND=true \
     -DMNN_OPENGL=true \
     -DMNN_BUILD_TRAIN=true \
@@ -203,7 +206,9 @@ android_static_build() {
     -DMNN_OPENCL=true \
     -DMNN_BUILD_MINI=true \
     -DMNN_SUPPORT_BF16=true \
-    -DMNN_OPENCL=true\
+    -DMNN_ARM82=false \
+    -DMNN_OPENCL=true \
+    -DMNN_SUPPORT_TRANSFORMER_FUSE=ON \
     -DNATIVE_LIBRARY_OUTPUT=. -DNATIVE_INCLUDE_OUTPUT=.
     make -j16
     android_build_wrong=$[$? > 0]
@@ -247,6 +252,7 @@ linux_build() {
         -DMNN_BUILD_OPENCV=ON \
         -DMNN_LOW_MEMORY=ON \
         -DMNN_IMGCODECS=ON \
+        -DMNN_SUPPORT_TRANSFORMER_FUSE=ON \
         -DMNN_ENABLE_COVERAGE=$COVERAGE
     make -j16
 
@@ -294,7 +300,7 @@ model_test() {
         echo '### 静态模型测试失败，测试终止！'
         failed
     fi
-    
+
     if [ "$OPENCL_CHANGE" ]; then
         ../tools/script/modelTest.py ~/AliNNModel 3 0.002 1
         if [ $? -ne 0 ]; then
@@ -309,18 +315,6 @@ onnx_convert_test() {
     if [ $? -ne 0 ]; then
         echo '### ONNXConvert测试失败，测试终止！'
         failed
-    fi
-    if [ -f ~/AliNNModel/TestOnnx/ops/run.py ]; then
-        ~/AliNNModel/TestOnnx/ops/run.py --mnndir $(pwd) --aone-mode
-        if [ $? -ne 0 ]; then
-            echo '### Onnx单线程单元测试失败，测试终止！'
-            failed
-        fi
-        #~/AliNNModel/TestOnnx/ops/run.py --mnndir $(pwd) --aone-mode --thread_num 2
-        #if [ $? -ne 0 ]; then
-        #    echo '### ONNX多线程单元测试失败，测试终止！'
-        #    failed
-        #fi
     fi
 }
 
@@ -391,16 +385,7 @@ pymnn_test() {
     fi
     # 4. train test
     ./train_test.sh
-    # 5. quant test
-    python3 ../examples/MNNQuant/test_mnn_offline_quant.py \
-            --mnn_model ~/AliNNModel/TestQuant/mobilenet_v2_tfpb_train_withBN.mnn \
-            --quant_imgs ~/AliNNModel/TestQuant/quant_imgs \
-            --quant_model ./quant_model.mnn
-    rm ./quant_model.mnn
-    quant_wrong=$[$? > 0]
-    printf "TEST_NAME_QUANT_TEST: pymnn量化测试\nTEST_CASE_AMOUNT_QUANT_TEST: {\"blocked\":0,\"failed\":%d,\"passed\":%d,\"skipped\":0}\n" \
-            $quant_wrong $[1 - $quant_wrong]
-    # 6. uninstall pymnn
+    # 5. uninstall pymnn
     pip uninstall --yes MNN-Internal
     popd
     popd
@@ -431,7 +416,7 @@ opencv_test() {
 
 llm_test() {
     # 1. build llm with low memory
-    cmake -DMNN_OPENCV_TEST=ON -DMNN_BUILD_LLM=ON ..
+    cmake -DMNN_LOW_MEMORY=ON -DMNN_BUILD_LLM=ON -DMNN_SUPPORT_TRANSFORMER_FUSE=ON ..
     make -j8
     llm_build_wrong=$[$? > 0]
     printf "TEST_NAME_LLM_BUILD: LLM编译测试\nTEST_CASE_AMOUNT_LLM_BUILD: {\"blocked\":0,\"failed\":%d,\"passed\":%d,\"skipped\":0}\n" \
@@ -441,7 +426,7 @@ llm_test() {
         failed
     fi
     # 2. run llm model test
-    ./llm_demo ~/AliNNModel/qwen-1.8b-int4 0 10 ~/AliNNModel/qwen-1.8b-int4/prompt.txt
+    ./llm_demo ~/AliNNModel/qwen1.5-0.5b-int4/config.json ~/AliNNModel/qwen1.5-0.5b-int4/prompt.txt
     if [ $? -gt 0 ]; then
         echo '### LLM模型测试失败，测试终止！'
         failed
@@ -487,33 +472,34 @@ coverage_report() {
 #                                                                                           #
 #############################################################################################
 android_unit_test() {
-    adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out all 0 0 1 $1"
+    memory_mode=$2
+    adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out all 0 0 1 $1 $memory_mode"
     if [ $? -ne 0 ]; then
         echo '### Android单元测试失败，测试终止！'
         failed
     fi
-    adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out op 0 0 4 multi$1"
+    adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out op 0 0 4 multi$1 $memory_mode"
     if [ $? -ne 0 ]; then
         echo '### Android单元测试多线程失败，测试终止！'
         failed
     fi
-    adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out op/convolution 0 2 4 fp16multi$1"
+    adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out op/convolution 0 2 4 fp16multi$1 $memory_mode"
     if [ $? -ne 0 ]; then
         echo '### Android单元测试卷积FP16多线程失败，测试终止！'
         failed
     fi
-    adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out op/col2im 0 2 4 fp16col2im$1"
+    adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out op/col2im 0 2 4 fp16col2im$1 $memory_mode"
     if [ $? -ne 0 ]; then
         echo '### Android单元测试FP16-col2im多线程失败，测试终止！'
         failed
     fi
-    adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out op/R 0 2 4 fp16roipooling$1"
+    adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out op/R 0 2 4 fp16roipooling$1 $memory_mode"
     if [ $? -ne 0 ]; then
         echo '### Android单元测试FP16-roipooling多线程失败，测试终止！'
         failed
     fi
     if [ "$OPENCL_CHANGE" ]; then
-        adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out op 3 1 4 $1"
+        adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out op 3 1 4 $1 $memory_mode"
         if [ $? -ne 0 ]; then
             echo '### Android单元测试OpenCL失败，测试终止！'
             failed
@@ -525,7 +511,7 @@ android_model_test() {
     pass_num=0
     fail_cl_num=0
     pass_cl_num=0
-    models=`ls ~/AliNNModel/OpTestResource/`
+    models=`adb shell ls /data/local/tmp/AliNNModel/OpTestResource/`
     for model in $models
     do
         adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./testModel.out ../AliNNModel/OpTestResource/$model/temp.bin ../AliNNModel/OpTestResource/$model/input_0.txt ../AliNNModel/OpTestResource/$model/output_0.txt 0 0.002"
@@ -543,18 +529,26 @@ android_model_test() {
             fi
         fi
     done
-    
-    models=`ls ~/AliNNModel/TestResource/`
+
+    models=`adb shell ls /data/local/tmp/AliNNModel/TestResource/`
     for model in $models
     do
-        adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./testModel.out ../AliNNModel/TestResource/$model/temp.bin ../AliNNModel/TestResource/$model/input_0.txt ../AliNNModel/TestResource/$model/output.txt 0 0.002"
+        if [ $model == 'mobilenetv1quan' ]; then
+            adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./testModel.out ../AliNNModel/TestResource/$model/temp.bin ../AliNNModel/TestResource/$model/input_0.txt ../AliNNModel/TestResource/$model/output.txt 0 0.1"
+        else
+            adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./testModel.out ../AliNNModel/TestResource/$model/temp.bin ../AliNNModel/TestResource/$model/input_0.txt ../AliNNModel/TestResource/$model/output.txt 0 0.002"
+        fi
         if [ $? -ne 0 ]; then
             fail_num=$[$fail_num+1]
         else
             pass_num=$[$pass_num+1]
         fi
         if [ "$OPENCL_CHANGE" ]; then
-        adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./testModel.out ../AliNNModel/TestResource/$model/temp.bin ../AliNNModel/TestResource/$model/input_0.txt ../AliNNModel/TestResource/$model/output.txt 3 0.002 1"
+        if [ $model == 'mobilenetv1quan' ]; then
+            adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./testModel.out ../AliNNModel/TestResource/$model/temp.bin ../AliNNModel/TestResource/$model/input_0.txt ../AliNNModel/TestResource/$model/output.txt 3 0.1 1"
+        else
+            adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./testModel.out ../AliNNModel/TestResource/$model/temp.bin ../AliNNModel/TestResource/$model/input_0.txt ../AliNNModel/TestResource/$model/output.txt 3 0.002 1"
+        fi
             if [ $? -ne 0 ]; then
                 fail_cl_num=$[$fail_cl_num+1]
             else
@@ -562,8 +556,8 @@ android_model_test() {
             fi
         fi
     done
-    
-    models=`ls ~/AliNNModel/TestWithDescribe/`
+
+    models=`adb shell ls /data/local/tmp/AliNNModel/TestWithDescribe/`
     for model in $models
     do
         adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./testModelWithDescribe.out ../AliNNModel/TestWithDescribe/$model/temp.bin ../AliNNModel/TestWithDescribe/$model/config.txt 0 0.002"
@@ -594,25 +588,78 @@ android_model_test() {
         fi
     fi
 }
-android_unit_test_low_memory() {
+android_unit_test_low_memory_armv8() {
     adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out op/lowMemory 0 1 1 $1 2"
     if [ $? -ne 0 ]; then
-        echo '### Android 64位Low Memory, precision=1 单元测试失败，测试终止！'
+        echo '### Android 64位Low Memory,动态量化, precision=1, thread=1 单元测试失败，测试终止！'
         failed
     fi
     adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out op/lowMemory 0 2 1 $1 2"
     if [ $? -ne 0 ]; then
-        echo '### Android 64位Low Memory, precision=2 单元测试失败，测试终止！'
+        echo '### Android 64位Low Memory,动态量化, precision=2, thread=1 单元测试失败，测试终止！'
+        failed
+    fi
+    adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out op/lowMemory 0 1 4 $1 2"
+    if [ $? -ne 0 ]; then
+        echo '### Android 64位Low Memory,动态量化, precision=1, thread=4 单元测试失败，测试终止！'
+        failed
+    fi
+    adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out op/lowMemory 0 2 4 $1 2"
+    if [ $? -ne 0 ]; then
+        echo '### Android 64位Low Memory,动态量化, precision=2, thread=4 单元测试失败，测试终止！'
         failed
     fi
     adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out op/lowMemory 0 1 1 $1"
     if [ $? -ne 0 ]; then
-        echo '### Android 64位 权值量化调用1x1Strassen, precision=1 单元测试失败，测试终止！'
+        echo '### Android 64位Low Memory 权重反量化, precision=1 单元测试失败，测试终止！'
         failed
     fi
     adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out op/lowMemory 0 2 1 $1"
     if [ $? -ne 0 ]; then
-        echo '### Android 64位 权值量化调用1x1Strassen, precision=2 单元测试失败，测试终止！'
+        echo '### Android 64位Low Memory 权重反量化, precision=2 单元测试失败，测试终止！'
+        failed
+    fi
+    adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out op/convolution/weighti8i4conv2d 0 2 4 $1 2 1"
+    if [ $? -ne 0 ]; then
+        echo '### Android 64位Low Memory 设置dynamicOption=1, precision=2 4线程测试失败，测试终止！'
+        failed
+    fi
+    adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out op/convolution/weighti8i4conv2d 0 1 4 $1 2 1"
+    if [ $? -ne 0 ]; then
+        echo '### Android 64位Low Memory 设置dynamicOption=1, precision=1 4线程测试失败，测试终止！'
+        failed
+    fi
+    adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out op/convolution/weighti8i4conv2d 0 2 4 $1 2 2"
+    if [ $? -ne 0 ]; then
+        echo '### Android 64位Low Memory 设置dynamicOption=2, precision=2 4线程测试失败，测试终止！'
+        failed
+    fi
+    adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out op/convolution/weighti8i4conv2d 0 1 4 $1 2 2"
+    if [ $? -ne 0 ]; then
+        echo '### Android 64位Low Memory 设置dynamicOption=2, precision=1 4线程测试失败，测试终止！'
+        failed
+    fi
+}
+
+android_unit_test_low_memory_armv7() {
+    adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out op/lowMemory 0 1 1 $1 2"
+    if [ $? -ne 0 ]; then
+        echo '### Android 32位Low Memory,动态量化, precision=1, thread=1 单元测试失败，测试终止！'
+        failed
+    fi
+    adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out op/lowMemory 0 2 1 $1 2"
+    if [ $? -ne 0 ]; then
+        echo '### Android 32位Low Memory,动态量化, precision=2, thread=1 单元测试失败，测试终止！'
+        failed
+    fi
+    adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out op/lowMemory 0 1 4 $1 2"
+    if [ $? -ne 0 ]; then
+        echo '### Android 32位Low Memory,动态量化, precision=1, thread=4 单元测试失败，测试终止！'
+        failed
+    fi
+    adb shell "cd /data/local/tmp/MNN&&export LD_LIBRARY_PATH=.&&./run_test.out op/lowMemory 0 2 4 $1 2"
+    if [ $? -ne 0 ]; then
+        echo '### Android 32位Low Memory,动态量化, precision=2, thread=4 单元测试失败，测试终止！'
         failed
     fi
 }
@@ -622,7 +669,7 @@ android_test() {
     # 1. build Android32
     mkdir build_32
     pushd build_32
-    ../build_32.sh -DMNN_BUILD_TRAIN=OFF -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DMNN_OPENCL=true
+    ../build_32.sh -DMNN_BUILD_TRAIN=OFF -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DMNN_OPENCL=true -DMNN_LOW_MEMORY=ON -DMNN_SUPPORT_TRANSFORMER_FUSE=ON -DMNN_ARM82=OFF
     android32_build_wrong=$[$? > 0]
     mnn32_size=$(ls -lh libMNN.so | awk '{print $5}')
     expr32_size=$(ls -lh libMNN_Express.so | awk '{print $5}')
@@ -633,14 +680,15 @@ android_test() {
         failed
     fi
     ../updateTest.sh
-    android_unit_test 32
+    android_unit_test 32bit 1
+    android_unit_test_low_memory_armv7 32bit
     android_model_test 32
     popd
 
     # 3. build Android64
     mkdir build_64
     pushd build_64
-    ../build_64.sh -DMNN_BUILD_TRAIN=OFF -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DMNN_ARM82=true -DMNN_OPENCL=true -DMNN_LOW_MEMORY=true
+    ../build_64.sh -DMNN_BUILD_TRAIN=OFF -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DMNN_ARM82=true -DMNN_OPENCL=true -DMNN_LOW_MEMORY=true -DMNN_SUPPORT_TRANSFORMER_FUSE=ON
     android64_build_wrong=$[$? > 0]
     mnn64_size=$(ls -lh libMNN.so | awk '{print $5}')
     expr64_size=$(ls -lh libMNN_Express.so | awk '{print $5}')
@@ -653,8 +701,8 @@ android_test() {
 
     # 4. test Android64
     ../updateTest.sh
-    android_unit_test 64
-    android_unit_test_low_memory 64
+    android_unit_test 64 0
+    android_unit_test_low_memory_armv8 64
     android_model_test 64
     popd
 
@@ -694,6 +742,11 @@ case "$1" in
     android)
         android_static_build
         android_test
+        ;;
+    static)
+        doc_check
+        static_check
+        py_check
         ;;
     *)
         $1

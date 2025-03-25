@@ -109,7 +109,7 @@ public:
             mKernelReorder.exe->onEncode({}, {mKernel.get()}, prearrangeCmd.get());
             prearrangeCmd->end();
             vkBn->pushCommand(prearrangeCmd->get());
-            vkBn->onExecuteEnd();
+            vkBn->finish();
             mKernelReorder.exe = nullptr;
         }
     }

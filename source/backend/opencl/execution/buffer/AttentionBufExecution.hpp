@@ -6,7 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#ifndef MNN_OPENCL_BUFFER_CLOSED
+#ifdef MNN_SUPPORT_TRANSFORMER_FUSE
 
 #ifndef AttentionBufExecution_hpp
 #define AttentionBufExecution_hpp
@@ -16,67 +16,140 @@
 namespace MNN {
 namespace OpenCL {
 
-class AttentionBufImpl {
+class KVCacheCLManager {
 public:
-    AttentionBufImpl(const MNN::Op *op, Backend *backend, bool kv_cache);
+    KVCacheCLManager(Backend *backend, bool kv_cache);
 
-    ~AttentionBufImpl() {
-        if(mRecording != NULL){
-#ifdef MNN_USE_LIB_WRAPPER
-            clReleaseRecordingQCOM(mRecording);
-#endif
-        }
+    ~KVCacheCLManager() = default;
+    void allocKVCache();
+    bool reallocKVCache();
+    void setArgs(int pastLength, int numHead, int kvNumHead, int headDim){
+        mPastLength = pastLength;
+        mNumHead = numHead;
+        mKvNumHead = kvNumHead;
+        mHeadDim = headDim;
     }
-    ErrorCode onResize(Backend *backend, const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
-    ErrorCode onExecute(Backend *backend, const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
+    int kvLength() {
+        return mPastLength;
+    }
+    void addKvLength(){
+        mPastLength += 1;
+    }
+    int maxLength() {
+        return mMaxLength;
+    }
+    int numHead() {
+        return mNumHead;
+    }
+    const cl::Buffer * key() {
+        return mPastKey.get();
+    }
+    const cl::Buffer * value() {
+        return mPastValue.get();
+    }
 
 private:
-    int getLocalSize(int size, int maxGroupSize);
-    void allocKVCache();
-    void reallocKVCache();
     bool mKVCache;
-    float mScale;
-    const int mExpandChunk = 64;
-    bool mIsDecode = false;
-    bool mIsFirstDecode = true;
-    int mPastLength = 0, mMaxLength = 0, mKv_seq_len = 0, mSoftMaxRemainChannels = 0;
-    std::shared_ptr<cl::Buffer> mPastKey, mPastValue, mTempQK, mTempSoftMax;
-    int mNumHead = 0, mHeadDim = 0, mValueH = 0;
-    std::shared_ptr<KernelWrap> mKernel_qk;
-    std::shared_ptr<KernelWrap> mKernel_softmax;
-    std::shared_ptr<KernelWrap> mKernel_qkv;
-    std::vector<uint32_t> mGlobalWorkSizeQk{1, 1, 1};
-    std::vector<uint32_t> mLocalWorkSizeQk{1, 1, 1, 1};
-    std::vector<uint32_t> mGlobalWorkSizeSoftMax{1, 1, 1};
-    std::vector<uint32_t> mLocalWorkSizeSoftMax{1, 1, 1, 1};
-    std::vector<uint32_t> mGlobalWorkSizeQkv{1, 1, 1};
-    std::vector<uint32_t> mLocalWorkSizeQkv{1, 1, 1, 1};
-    uint32_t mMaxWorkGroupSize;
+    const int mExpandChunk = 2048;
+    std::shared_ptr<cl::Buffer> mPastKey, mPastValue;
+    int mPastLength = 0, mMaxLength = 0, mNumHead = 0, mKvNumHead = 0, mHeadDim = 0;
     OpenCLBackend *mOpenCLBackend;
-    RecordUpdateInfo mQkUpdateInfo;
-    RecordUpdateInfo mSoftMaxUpdateInfo;
-    RecordUpdateInfo mQkvUpdateInfo;
-    int mGlobalWorkSizeQk2 = 0;
-    size_t mQkGlobal_size[3];
-    int mSoftmaxShape[4];
-    cl_recording_qcom mRecording{NULL};
-    std::vector<RecordUpdateInfo*> mOpRecordUpdateInfo;
+    int mByte = 4;
 };
 
 class AttentionBufExecution : public CommonExecution {
 public:
     AttentionBufExecution(const MNN::Op *op, Backend *backend, bool kv_cache);
-    AttentionBufExecution(std::shared_ptr<AttentionBufImpl> impl, const MNN::Op *op, Backend *backend);
+    AttentionBufExecution(std::shared_ptr<KVCacheCLManager> manager, const MNN::Op *op, Backend *backend);
+    ErrorCode longPrefillResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
+    ErrorCode prefillResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
+    ErrorCode decodeResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
 
+    ErrorCode UpdateArgs(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
+    ErrorCode init();
     virtual ~AttentionBufExecution() = default;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
 
 private:
-    std::shared_ptr<AttentionBufImpl> mImpl;
+    
+    int getLocalSize(int size, int maxGroupSize);
+    bool mIsDecode = false;
+    void handleKVCache(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
+    bool mIsFirstPrefill = true;
+    int mKv_seq_len = 0;
+    int mKeyValueMaxlen = 0;
+    int mDecodeTmpMaxlen = 0;
+
+
+    uint32_t mMaxWorkGroupSize;
+    OpenCLBackend *mOpenCLBackend;
+    RecordUpdateInfo mRgUpdateInfo;
+    RecordUpdateInfo mRgQUpdateInfo;
+    RecordUpdateInfo mQkUpdateInfo;
+    RecordUpdateInfo mSoftMaxUpdateInfo;
+    RecordUpdateInfo mRgVUpdateInfo;
+    RecordUpdateInfo mQkvUpdateInfo;
+    int mGlobalWorkSizeQk0 = 0;
+    size_t mQkGlobal_size[2];
+    std::vector<RecordUpdateInfo*> mOpRecordUpdateInfo;
+    std::shared_ptr<KVCacheCLManager> mKVCacheCLManager;
+    std::shared_ptr<Tensor> mTempQK, mTempSoftMax;
+private:
+    int mAlignQ, mAlignKV, mAlignHDK, mAlignHDN;
+    bool mLongPrefill = false;
+    int mQseqSplitNum = 1;
+    std::shared_ptr<Tensor> mTempQ, mTempK, mTempV, mTempMask, mTempQKV;
+    bool mIsAddMask = false;
+    bool mNeedKvCache = true;
+    bool mHasMask = false;
+private:
+    std::vector<std::shared_ptr<KernelWrap>> mKernel_rearrange_vec;
+    std::vector<std::shared_ptr<KernelWrap>> mKernel_mask_vec;
+    std::vector<std::shared_ptr<KernelWrap>> mKernel_trans_vec;
+    std::vector<std::shared_ptr<KernelWrap>> mKernel_clip_vec;
+    std::vector<std::shared_ptr<KernelWrap>> mKernel_qk_vec;
+    std::vector<std::shared_ptr<KernelWrap>> mKernel_softmax_vec;
+    std::vector<std::shared_ptr<KernelWrap>> mKernel_qkv_vec;
+    
+    std::vector<std::vector<uint32_t>> mGwsQkVec;
+    std::vector<std::vector<uint32_t>> mLwsQkVec;
+    std::vector<std::vector<uint32_t>> mGwsSoftMaxVec;
+    std::vector<std::vector<uint32_t>> mLwsSoftMaxVec;
+    std::vector<std::vector<uint32_t>> mGwsQkvVec;
+    std::vector<std::vector<uint32_t>> mLwsQkvVec;
+    std::vector<std::vector<uint32_t>> mGwsRearrgVec;
+    std::vector<std::vector<uint32_t>> mLwsRearrgVec;
+    std::vector<std::vector<uint32_t>> mGwsMaskVec;
+    std::vector<std::vector<uint32_t>> mLwsMaskVec;
+    std::vector<std::vector<uint32_t>> mGwsTransVec;
+    std::vector<std::vector<uint32_t>> mLwsTransVec;
+    std::vector<std::vector<uint32_t>> mGwsClipVec;
+    std::vector<std::vector<uint32_t>> mLwsClipVec;
+private:
+    std::shared_ptr<KernelWrap> mKernel_rearrangeQ;
+    std::shared_ptr<KernelWrap> mKernel_rearrangeV;
+    std::shared_ptr<KernelWrap> mKernel_rearrange;
+    std::shared_ptr<KernelWrap> mKernel_qk;
+    std::shared_ptr<KernelWrap> mKernel_softmax;
+    std::shared_ptr<KernelWrap> mKernel_qkv;
+    
+    std::vector<uint32_t> mGlobalWorkSizeQk;
+    std::vector<uint32_t> mLocalWorkSizeQk;
+    std::vector<uint32_t> mGlobalWorkSizeSoftMax;
+    std::vector<uint32_t> mLocalWorkSizeSoftMax;
+    std::vector<uint32_t> mGlobalWorkSizeQkv;
+    std::vector<uint32_t> mLocalWorkSizeQkv;
+    std::vector<uint32_t> mGlobalWorkSizeRearrgQ;
+    std::vector<uint32_t> mLocalWorkSizeRearrgQ;
+    std::vector<uint32_t> mGlobalWorkSizeRearrgV;
+    std::vector<uint32_t> mLocalWorkSizeRearrgV;
+    std::vector<uint32_t> mGlobalWorkSizeRearrg;
+    std::vector<uint32_t> mLocalWorkSizeRearrg;
+
 };
 } // namespace OpenCL
 } // namespace MNN
 #endif /* AttentionBufExecution_hpp */
-#endif /* MNN_OPENCL_BUFFER_CLOSED */
+#endif/* MNN_SUPPORT_TRANSFORMER_FUSE */

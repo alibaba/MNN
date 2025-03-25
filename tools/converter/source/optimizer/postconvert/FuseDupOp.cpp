@@ -72,6 +72,16 @@ public:
                 return v0->int8s == v1->int8s;
             }
         }
+        if (op0->main.type == OpParameter_Reshape) {
+            auto v0 = op0->main.AsReshape();
+            auto v1 = op1->main.AsReshape();
+            return v1->dimType == v0->dimType && v1->dims == v0->dims;
+        }
+        if (op0->main.type == OpParameter_TensorConvertInfo) {
+            auto v0 = op0->main.AsTensorConvertInfo();
+            auto v1 = op1->main.AsTensorConvertInfo();
+            return v0->dest == v1->dest;
+        }
         if (op0->main.type == OpParameter_UnaryOp) {
             return op0->main.AsUnaryOp()->opType == op1->main.AsUnaryOp()->opType;
         }
@@ -96,7 +106,8 @@ public:
         std::set<MNN::OpT*> unusefulOps;
         std::map<int, int> replaceIndexes;
         // outputNames can fuse, but need reserve outputName; updateNames can't fuse
-        std::set<std::string> outputNames(net->outputName.begin(), net->outputName.end());
+        std::set<std::string> outputTensorNames(net->outputName.begin(), net->outputName.end());
+        std::set<std::string> outputNames;
         std::set<std::string> updateNames;
         for (const auto& op : net->oplists) {
             if (op->type == OpType_While) {
@@ -104,6 +115,13 @@ public:
                     for (const auto& updateName : update->data) {
                         updateNames.insert(updateName);
                     }
+                }
+                continue;
+            }
+            for (auto output : op->outputIndexes) {
+                if (outputTensorNames.find(net->tensorName[output]) != outputTensorNames.end()) {
+                    outputNames.insert(op->name);
+                    break;
                 }
             }
         }
@@ -139,21 +157,27 @@ public:
                 if (iter == sameOps.end()) {
                     continue;
                 }
+                bool hasMeetOutput = outputNames.find(originOp->name) != outputNames.end();
                 for (auto j : iter->second) {
                     auto judgeOp = net->oplists[j].get();
                     if (nullptr == judgeOp || updateNames.find(judgeOp->name) != updateNames.end()) {
                         continue;
                     }
                     if (isSameIndexes(judgeOp, originOp)) {
-                        auto keepOp = originOp, removeOp = judgeOp;
-                        // outputs must keep
-                        if (outputNames.find(removeOp->name) != outputNames.end()) {
-                            keepOp = removeOp;
-                            removeOp = originOp;
+                        // output name must keep
+                        if (outputNames.find(judgeOp->name) != outputNames.end()) {
+                            if (hasMeetOutput) {
+                                continue;
+                            }
+                            // Use judgeOp's name
+                            for (int v=0; v<judgeOp->outputIndexes.size(); ++v) {
+                                net->tensorName[originOp->outputIndexes[v]] = net->tensorName[judgeOp->outputIndexes[v]];
+                            }
+                            hasMeetOutput = true;
                         }
                         for (int v=0; v<judgeOp->outputIndexes.size(); ++v) {
-                            auto originIndex = removeOp->outputIndexes[v];
-                            auto newIndex = keepOp->outputIndexes[v];
+                            auto originIndex = judgeOp->outputIndexes[v];
+                            auto newIndex = originOp->outputIndexes[v];
                             if (originIndex != newIndex) {
                                 auto replaceIter = replaceIndexes.find(newIndex);
                                 if (replaceIter != replaceIndexes.end()) {

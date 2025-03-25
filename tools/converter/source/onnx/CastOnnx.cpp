@@ -35,6 +35,9 @@ void CastOnnx::run(MNN::OpT *dstOp, const onnx::NodeProto *onnxNode,
     }
 
     castParam->dstT   = onnxOpConverter::convertDataType(castTo);
+    if (castTo == onnx::TensorProto_DataType_FLOAT16) {
+        castParam->dstT = MNN::DataType_DT_FLOAT;
+    }
     dstOp->main.value = castParam.release();
 }
 

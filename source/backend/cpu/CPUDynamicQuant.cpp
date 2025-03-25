@@ -46,7 +46,7 @@ ErrorCode CPUDynamicQuant::onExecute(const std::vector<Tensor*> &inputs,
     int pack = core->pack;
     std::vector<float> qsVec(pack, quantScale);
     int sizeDiv = UP_DIV(size, pack);
-    int8core->MNNFloat2Int8(inputPtr, outputPtr, sizeDiv, qsVec.data(), -128, 127, (ssize_t)zeroPoint);
+    int8core->MNNFloat2Int8(inputPtr, outputPtr, sizeDiv, &quantScale, -128, 127, &zeroPoint, 0);
     float* scale = outputs[1]->host<float>();
     float* zeros = outputs[2]->host<float>();
     *scale = dequantScale;

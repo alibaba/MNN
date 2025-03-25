@@ -107,7 +107,7 @@ enum OpType : int {
     Segment,
     Squeeze,
     StridedSlice,
-    StringJoin,
+    CastLike,
     StringSplit,
     StringToNumber,
     TanH,
@@ -168,6 +168,7 @@ enum OpType : int {
     Svd = 153,
     Histogram = 154,
     DynamicQuant = 155,
+    Stft = 156,
 
     Plugin = 256, //The Type load from plugin
     //Training Op Start from 257
@@ -237,6 +238,12 @@ table FmhaV2Param {
 
 table FmhcaParam {
     heads: int;
+}
+
+table StftParam {
+    n_fft: int;
+    hop_length: int;
+    abs: bool = true;
 }
 
 table WhileParam {
@@ -414,7 +421,8 @@ union OpParameter {
     GroupNorm,
     FmhaV2Param,
     FmhcaParam,
-    AttentionParam
+    AttentionParam,
+    StftParam
 }
 
 table Op {

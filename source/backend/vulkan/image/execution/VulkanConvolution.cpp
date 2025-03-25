@@ -118,16 +118,17 @@ bool VulkanConvolutionDepthwise::_init(const float* weightData, size_t weightSiz
                                             VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                                             VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER};
     MNN_ASSERT(OpType_ConvolutionDepthwise == convOp->type());
-    auto macro = getPostTreatMacro(common);
-    if (extra->gpuType() == VulkanRuntime::ADRENO) {
-        mConvPipeline = extra->getPipeline("glsl_convolutionDepthwise_" + macro + "comp", convTypes);
-        mLocalX       = 16;
-        mLocalY       = 16;
+    auto macroRelu = getPostTreatMacro(common);
+    bool useFP16 = (extra->gpuType() == VulkanRuntime::ADRENO || extra->gpuType() == VulkanRuntime::MALI) && extra->getMemoryPool().permitFp16();
+    std::string macroPrecision = (useFP16) ? "FP16_" : "FP32_";
+    std::string macro = macroRelu + macroPrecision;
+    if (common->strideX() == 1 && common->strideY() == 1 && common->dilateX() == 1 && common->dilateY() == 1 ) {
+        mConvPipeline = extra->getPrivatePipeline("glsl_convolutionDepthwise_s1d1_w2_" + macro + "comp", convTypes);
+        mUseS1D1W2 = true;
     } else {
-        mConvPipeline = extra->getPipeline("glsl_convolutionDepthwiseMali_" + macro + "comp", convTypes);
-        mLocalX       = 8;
-        mLocalY       = 8;
+        mConvPipeline = extra->getPrivatePipeline("glsl_convolutionDepthwise_" + macro + "comp", convTypes);
     }
+
     auto c4 = UP_DIV(common->outputCount(), 4);
     mKernel = std::make_shared<VulkanImage>(extra->getMemoryPool(), false, common->kernelX() * common->kernelY(), c4);
     if (nullptr != weightData){
@@ -215,6 +216,13 @@ ErrorCode VulkanConvolutionDepthwise::onEncodeConvolution(const Convolution2DCom
         extra->copyBufferToImage(biasBuffer.get(), mBias.get());
         bias = mBias.get();
     }
+
+    if (mUseS1D1W2) {
+        mGws = {(uint32_t)UP_DIV(ow, 2), (uint32_t)oh, (uint32_t)ocDiv4 * input->batch()};
+    } else {
+        mGws = {(uint32_t)ow, (uint32_t)oh, (uint32_t)ocDiv4 * input->batch()};
+    }
+
     /*Write Command Buffer*/
     mConvSet.reset(mConvPipeline->createSet());
     mConvSet->writeImage(((VulkanTensor*)output->deviceId())->image()->view(), mSampler->get(), VK_IMAGE_LAYOUT_GENERAL, 0);
@@ -223,12 +231,13 @@ ErrorCode VulkanConvolutionDepthwise::onEncodeConvolution(const Convolution2DCom
     mConvSet->writeImage(mKernel->view(), mSampler->get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 2);
     mConvSet->writeImage(bias->view(), mSampler->get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 3);
     mConvSet->writeBuffer(convCons->buffer(), 4, convCons->size());
+    mLws = extra->autoTunePipeline(mConvPipeline, mConvSet, mGws, 2, {8, 8, 1});
     mConvPipeline->bind(cmdBuffer->get(), mConvSet->get());
     mKernel->barrierRead(cmdBuffer->get());
     mBias->barrierRead(cmdBuffer->get());
     ((VulkanTensor*)input->deviceId())->image()->barrierRead(cmdBuffer->get());
     ((VulkanTensor*)output->deviceId())->image()->barrierWrite(cmdBuffer->get());
-    vkCmdDispatch(cmdBuffer->get(), UP_DIV(ow, mLocalX), UP_DIV(oh, mLocalY), ocDiv4 * input->batch());
+    vkCmdDispatch(cmdBuffer->get(), UP_DIV(mGws[0], mLws[0]), UP_DIV(mGws[1], mLws[1]), UP_DIV(mGws[2], mLws[2]));
     return NO_ERROR;
 }
 
@@ -255,7 +264,7 @@ public:
                     return nullptr;
                 }
             }
-            quanWeight = ConvolutionCommon::load(op->main_as_Convolution2D(), backend, true);
+            quanWeight = ConvolutionCommon::load(op, backend, true);
             srcCount = quanWeight->weightFloat.size() / (outputCount * fh * fw);
             source   = quanWeight->weightFloat.get();
             weightSize = quanWeight->weightFloat.size();

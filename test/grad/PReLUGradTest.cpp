@@ -36,7 +36,8 @@ public:
         auto inputGrad = grad->onGrad(opExpr, {_Convert(outputDiffVar, NC4HW4)});
 
         const std::vector<float> expectedOutput = {0.025, -0.1, 0.09, 0.4, 0.05};
-        auto gotOutput = _Convert(inputGrad[0], NCHW)->readMap<float>();
+        auto gotOutputVar = _Convert(inputGrad[0], NCHW);
+        auto gotOutput = gotOutputVar->readMap<float>();
 
         for (int i = 0; i < len; ++i) {
             auto diff = ::fabsf(gotOutput[i] - expectedOutput[i]);

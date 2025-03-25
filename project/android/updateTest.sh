@@ -4,6 +4,7 @@ DIR=MNN
 make -j16
 adb push ./libllm.so /data/local/tmp/MNN/libllm.so
 adb push ./llm_demo /data/local/tmp/MNN/llm_demo
+adb push ./diffusion_demo /data/local/tmp/MNN/diffusion_demo
 adb push ./libMNN.so /data/local/tmp/$DIR/libMNN.so
 adb push ./libMNN_CL.so /data/local/tmp/$DIR/libMNN_CL.so
 adb push ./libMNN_Vulkan.so /data/local/tmp/$DIR/libMNN_Vulkan.so

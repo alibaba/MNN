@@ -11,6 +11,7 @@
 #include <MNN/expr/Executor.hpp>
 #include <MNN/expr/ExprCreator.hpp>
 #include <MNN/expr/ExecutorScope.hpp>
+#include <MNN/expr/Module.hpp>
 #include "MNNTestSuite.h"
 
 using namespace MNN::Express;
@@ -67,6 +68,23 @@ public:
         x->setName("Prob");
         return x;
     }
+    bool _runmbv1() {
+        auto x = _Input({1, 3, 224, 224}, NC4HW4);
+        auto y = _mobileNetV1Expr(x);
+        auto buffer = Variable::save({y});
+        y = nullptr;x=nullptr;
+        MNN::BackendConfig bnConfig;
+        auto exe = Executor::newExecutor(MNN_FORWARD_CPU, bnConfig, 1);
+        ExecutorScope scope(exe);
+        std::shared_ptr<Module> m(Module::load({"Input"}, {"Prob"}, (const uint8_t*)buffer.data(), buffer.size()));
+        x = _Input({1, 3, 224, 224}, NC4HW4);
+        x->writeMap<float>();
+        m->onForward({x});
+        exe->setGlobalExecutorConfig(MNN_FORWARD_CPU, bnConfig, 4);
+        m->onForward({x});
+
+        return true;
+    }
 
     virtual bool run(int precision) {
         int numberThread = 0;
@@ -104,6 +122,9 @@ public:
             FUNC_PRINT(1);
             return false;
         }
+        if (!_runmbv1()) {
+            return false;
+        }
         return true;
     }
 };
@@ -126,3 +147,57 @@ class ExecutorConfigTest : public MNNTestCase {
         return true;
     }};
 MNNTestSuiteRegister(ExecutorConfigTest, "expr/ExecutorConfigTest");
+
+class ExecutorCallBackTest : public MNNTestCase {
+    virtual bool run(int precision) {
+        int beforeSuccess = 0;
+        int afterSuccess = 0;
+        MNN::TensorCallBackWithInfo beforeCallBack = [&](const std::vector<MNN::Tensor*>& ntensors, const MNN::OperatorInfo* info) {
+            beforeSuccess = 1;
+            return true;
+        };
+        MNN::TensorCallBackWithInfo callBack = [&](const std::vector<MNN::Tensor*>& ntensors,  const MNN::OperatorInfo* info) {
+            afterSuccess = 1;
+            return true;
+        };
+        MNN::BackendConfig config;
+        std::shared_ptr<Executor> exe(Executor::newExecutor(MNN_FORWARD_CPU, config, 1));
+        MNN::Express::ExecutorScope scope(exe);
+        {
+            auto input = _Input({}, NCHW);
+            input->writeMap<float>()[0] = 0.5f;
+            auto output = _Square(input);
+            auto outputPtr = output->readMap<float>();
+            if (beforeSuccess != 0 || afterSuccess != 0) {
+                FUNC_PRINT(1);
+                return false;
+            }
+        }
+        exe->setCallBack(std::move(beforeCallBack), std::move(callBack));
+        {
+            auto input = _Input({}, NCHW);
+            input->writeMap<float>()[0] = 0.5f;
+            auto output = _Square(input);
+            auto outputPtr = output->readMap<float>();
+            if (beforeSuccess == 0 || afterSuccess == 0) {
+                FUNC_PRINT(1);
+                return false;
+            }
+        }
+        afterSuccess = 0;
+        beforeSuccess = 0;
+        exe->setCallBack(nullptr, nullptr);
+        {
+            auto input = _Input({}, NCHW);
+            input->writeMap<float>()[0] = 0.5f;
+            auto output = _Square(input);
+            auto outputPtr = output->readMap<float>();
+            if (beforeSuccess != 0 || afterSuccess != 0) {
+                FUNC_PRINT(1);
+                return false;
+            }
+        }
+        return true;
+    }
+};
+MNNTestSuiteRegister(ExecutorCallBackTest, "expr/ExecutorCallBackTest");

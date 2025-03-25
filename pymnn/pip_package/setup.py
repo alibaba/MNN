@@ -34,10 +34,12 @@ args, unknown = parser.parse_known_args()
 sys.argv = [sys.argv[0]] + unknown
 
 import platform
+has_numpy = True
 try:
    import numpy as np
 except:
    print("import numpy failed")
+   has_numpy = False
 from setuptools import setup, Extension, find_packages
 from distutils import core
 from distutils.core import Distribution
@@ -166,7 +168,9 @@ def configure_extension_build():
         ]
         if check_env_flag('WERROR'):
             extra_compile_args.append('-Werror')
-    extra_compile_args += ['-DPYMNN_EXPR_API', '-DPYMNN_NUMPY_USABLE', '-DPYMNN_OPENCV_API']
+    extra_compile_args += ['-DPYMNN_EXPR_API', '-DPYMNN_OPENCV_API', '-DPYMNN_AUDIO_API']
+    if has_numpy:
+        extra_compile_args += ['-DPYMNN_NUMPY_USABLE']
     if IS_LINUX and USE_INTERNAL:
         extra_compile_args += ['-DPYMNN_INTERNAL_SERVING']
         if args.env == 'daily':
@@ -177,6 +181,7 @@ def configure_extension_build():
     engine_library_dirs = [os.path.join(root_dir, BUILD_DIR)]
     engine_library_dirs += [os.path.join(root_dir, BUILD_DIR, "tools", "train")]
     engine_library_dirs += [os.path.join(root_dir, BUILD_DIR, "tools", "cv")]
+    engine_library_dirs += [os.path.join(root_dir, BUILD_DIR, "tools", "audio")]
     engine_library_dirs += [os.path.join(root_dir, BUILD_DIR, "source", "backend", "tensorrt")]
     engine_library_dirs += [os.path.join(root_dir, BUILD_DIR, "source", "backend", "cuda")]
     if USE_TRT or USE_CUDA:
@@ -214,7 +219,13 @@ def configure_extension_build():
         engine_include_dirs += [os.path.join(root_dir, "3rd_party", "rapidjson")]
     # cv include
     engine_include_dirs += [os.path.join(root_dir, "tools", "cv", "include")]
-    engine_include_dirs += [np.get_include()]
+    # audio include
+    engine_include_dirs += [os.path.join(root_dir, "tools", "audio", "include")]
+    # llm include
+    engine_include_dirs += [os.path.join(root_dir, "transformers", "llm", "engine", "include")]
+    engine_include_dirs += [os.path.join(root_dir, "3rd_party")]
+    if has_numpy:
+        engine_include_dirs += [np.get_include()]
 
     lib_files = []
     trt_depend = ['-lTRT_CUDA_PLUGIN', '-lnvinfer', '-lnvparsers', '-lnvinfer_plugin', '-lcudart']
@@ -247,6 +258,12 @@ def configure_extension_build():
     # add libTorch dependency
     torch_lib = None
     cmakecache = os.path.join(root_dir, BUILD_DIR, 'CMakeCache.txt')
+    # llm
+    for line in open(cmakecache, 'rt').readlines():
+        if 'MNN_BUILD_LLM' in line:
+            if 'ON' in line:
+                extra_compile_args += ['-DPYMNN_LLM_API']
+    # torch lib
     for line in open(cmakecache, 'rt').readlines():
         if 'TORCH_LIBRARY' in line:
             torch_lib = os.path.dirname(line[line.find('=')+1:])
@@ -299,7 +316,8 @@ def configure_extension_build():
     tools_include_dirs += [os.path.join(root_dir, "source", "core")]
     tools_include_dirs += [os.path.join(root_dir, "schema", "current")]
     tools_include_dirs += [os.path.join(root_dir, "source")]
-    tools_include_dirs += [np.get_include()]
+    if has_numpy:
+        tools_include_dirs += [np.get_include()]
 
     # enable logging and model authentication on linux.
     if IS_LINUX and USE_INTERNAL:
@@ -357,7 +375,7 @@ def configure_extension_build():
         if IS_DARWIN:
             # conda: dylibs install at site-packages/MNN_*/lib/
             # not conda: dylibs instal at .../lib/ for .../lib/python*/site-packages/_mnncengine.cpython-*-darwin.so
-            return [f'-Wl,-rpath,@loader_path/../../../{path},-rpath,@loader_path/{path}']
+            return ['-Wl,-rpath,@loader_path/../../../'+path+',-rpath,@loader_path/'+path]
         elif IS_WINDOWS:
             return []
         else:
@@ -430,6 +448,7 @@ if __name__ == '__main__':
     extensions, cmdclass, packages, entry_points, lib_files = configure_extension_build()
 
     setup(
+        zip_safe=False,
         name=package_name,
         version=version,
         description=("C methods for MNN Package"),

@@ -15,6 +15,7 @@ class ReverseSequenceTest : public MNNTestCase {
 public:
     virtual bool run(int precision) {
         // high dimension, batch_dim ahead
+        
         {
             auto y               = _Input({4}, NHWC, halide_type_of<int32_t>());
             std::vector<int> seq = {7, 2, 3, 5};
@@ -59,6 +60,7 @@ public:
                                 }
 
                                 if (!func_equal(need, compute)) {
+                                    MNN_PRINT("case 1 error\n");
                                     return false;
                                 }
                             }
@@ -66,7 +68,28 @@ public:
                     }
                 }
             }
-            return true;
+        }
+        
+        {   // test SizeComputer::needInputContent
+            int dim0 = 1, dim1 = 6, dim2 = 7, dim3 = 10, dim4 = 8;
+            auto x    = _Input({dim0, dim1, dim2, dim3, dim4}, NHWC, halide_type_of<float>());
+            auto x_transpose = _Transpose(x, {1, 0, 2, 3, 4});
+            auto x_shape = _Shape(x_transpose, NHWC);
+            int ii[]= {1};
+            auto x_gather = _Gather(x_shape, _Const(ii, {1}, NCHW, halide_type_of<int>()));
+            auto ry    = _ReverseSequence(x_transpose, x_gather, 1, 3);
+            auto xPtr = x->writeMap<float>();
+            
+            for (int i = 0; i < dim0 * dim1 * dim2 * dim3 * dim4; ++i) {
+                xPtr[i] = 1;
+            }
+
+            auto ryPtr = ry->readMap<float>();
+
+            if (ryPtr == nullptr) {
+                MNN_PRINT("case 2 error\n");
+                return false;
+            }
         }
 
         // high dimension, seq_dim ahead
@@ -113,6 +136,7 @@ public:
                                     need = 10000 * o + 1000 * (req - i - 1) + 100 * m + 10 * j + k;
                                 }
                                 if (!func_equal(need, compute)) {
+                                    MNN_PRINT("case 3 error\n");
                                     return false;
                                 }
                             }
@@ -120,7 +144,6 @@ public:
                     }
                 }
             }
-            return true;
         }
 
         // 3 dimension
@@ -160,13 +183,14 @@ public:
                             need = 100 * (req - i - 1) + 10 * j + k;
                         }
                         if (!func_equal(need, compute)) {
+                            MNN_PRINT("case 4 error\n");
                             return false;
                         }
                     }
                 }
             }
-            return true;
         }
+        return true;
     }
 };
 MNNTestSuiteRegister(ReverseSequenceTest, "expr/ReverseSequence");

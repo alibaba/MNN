@@ -527,6 +527,16 @@ VARP _Sigmoid(VARP x) {
     return _Unary(x, UnaryOpOperation_SIGMOID);
 }
 
+/*Computes sigmoid of x element-wise.
+Args:
+x: A variable. Must be one of the following types: Halide_Type_Float
+Returns:
+A variable. Has the same type as x.
+*/
+VARP _Silu(VARP x) {
+    return _Unary(x, UnaryOpOperation_SILU);
+}
+
 
 /*Computes ((exponential of x) - 1) element-wise.
 Args:
@@ -1198,7 +1208,7 @@ VARP _LinSpace(VARP start, VARP stop, VARP num) {
     return (Variable::create(Expr::create(std::move(op), {start, stop, num})));
 }
 
-VARP _EltwiseProdInt8(VARP x, VARP y, 
+VARP _EltwiseProdInt8(VARP x, VARP y,
                     std::vector<int8_t> x_weight, std::vector<int32_t> x_bias, std::vector<float> x_scale, std::vector<float> x_tensorScale,
                     std::vector<int8_t> y_weight, std::vector<int32_t> y_bias, std::vector<float> y_scale, std::vector<float> y_tensorScale,
                     std::vector<int8_t> output_weight, std::vector<int32_t> output_bias, std::vector<float> output_scale, std::vector<float> output_tensorScale)
@@ -1209,7 +1219,7 @@ VARP _EltwiseProdInt8(VARP x, VARP y,
                         output_weight, output_bias, output_scale, output_tensorScale);
 }
 
-VARP _EltwiseSumInt8(VARP x, VARP y, 
+VARP _EltwiseSumInt8(VARP x, VARP y,
                     std::vector<int8_t> x_weight, std::vector<int32_t> x_bias, std::vector<float> x_scale, std::vector<float> x_tensorScale,
                     std::vector<int8_t> y_weight, std::vector<int32_t> y_bias, std::vector<float> y_scale, std::vector<float> y_tensorScale,
                     std::vector<int8_t> output_weight, std::vector<int32_t> output_bias, std::vector<float> output_scale, std::vector<float> output_tensorScale)
@@ -1220,7 +1230,7 @@ VARP _EltwiseSumInt8(VARP x, VARP y,
                         output_weight, output_bias, output_scale, output_tensorScale);
 }
 
-VARP _EltwiseSubInt8(VARP x, VARP y, 
+VARP _EltwiseSubInt8(VARP x, VARP y,
                     std::vector<int8_t> x_weight, std::vector<int32_t> x_bias, std::vector<float> x_scale, std::vector<float> x_tensorScale,
                     std::vector<int8_t> y_weight, std::vector<int32_t> y_bias, std::vector<float> y_scale, std::vector<float> y_tensorScale,
                     std::vector<int8_t> output_weight, std::vector<int32_t> output_bias, std::vector<float> output_scale, std::vector<float> output_tensorScale)
@@ -1231,7 +1241,7 @@ VARP _EltwiseSubInt8(VARP x, VARP y,
                         output_weight, output_bias, output_scale, output_tensorScale);
 }
 
-VARP _EltwiseMaxInt8(VARP x, VARP y, 
+VARP _EltwiseMaxInt8(VARP x, VARP y,
                     std::vector<int8_t> x_weight, std::vector<int32_t> x_bias, std::vector<float> x_scale, std::vector<float> x_tensorScale,
                     std::vector<int8_t> y_weight, std::vector<int32_t> y_bias, std::vector<float> y_scale, std::vector<float> y_tensorScale,
                     std::vector<int8_t> output_weight, std::vector<int32_t> output_bias, std::vector<float> output_scale, std::vector<float> output_tensorScale)

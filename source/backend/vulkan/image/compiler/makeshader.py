@@ -405,7 +405,8 @@ def genCppFile(objs, inc, dst):
             if len(spirv_save) > 0:
                 out = spirv_save
                 rm = False
-            print(os.popen("glslangValidator -V " + s + " -Os -o " + out).read())
+            cmd = "glslangValidator -V " + s + " -Os -o " + out
+            print(os.popen(cmd).read())
         else:
             out = spirv_cache
             rm = False

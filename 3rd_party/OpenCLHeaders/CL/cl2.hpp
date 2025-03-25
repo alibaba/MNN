@@ -403,10 +403,6 @@
 # pragma message("cl2.hpp: USE_CL_DEVICE_FISSION is deprecated. Define CL_HPP_USE_CL_DEVICE_FISSION instead")
 # define CL_HPP_USE_CL_DEVICE_FISSION
 #endif
-#if !defined(CL_HPP_ENABLE_EXCEPTIONS) && defined(__CL_ENABLE_EXCEPTIONS)
-# pragma message("cl2.hpp: __CL_ENABLE_EXCEPTIONS is deprecated. Define CL_HPP_ENABLE_EXCEPTIONS instead")
-# define CL_HPP_ENABLE_EXCEPTIONS
-#endif
 #if !defined(CL_HPP_NO_STD_VECTOR) && defined(__NO_STD_VECTOR)
 # pragma message("cl2.hpp: __NO_STD_VECTOR is deprecated. Define CL_HPP_NO_STD_VECTOR instead")
 # define CL_HPP_NO_STD_VECTOR
@@ -805,9 +801,9 @@ static inline cl_int errHandler (cl_int err, const char * errStr = NULL)
 #define __GET_GL_OBJECT_INFO_ERR            CL_HPP_ERR_STR_(clGetGLObjectInfo)
 #if CL_HPP_TARGET_OPENCL_VERSION >= 120
 #define __CREATE_IMAGE_ERR                  CL_HPP_ERR_STR_(clCreateImage)
-#define __CREATE_GL_TEXTURE_ERR             CL_HPP_ERR_STR_(clCreateFromGLTexture)
 #define __IMAGE_DIMENSION_ERR               CL_HPP_ERR_STR_(Incorrect image dimensions)
 #endif // CL_HPP_TARGET_OPENCL_VERSION >= 120
+#define __CREATE_GL_TEXTURE_ERR             CL_HPP_ERR_STR_(clCreateFromGLTexture)
 #define __SET_MEM_OBJECT_DESTRUCTOR_CALLBACK_ERR CL_HPP_ERR_STR_(clSetMemObjectDestructorCallback)
 
 #define __CREATE_USER_EVENT_ERR             CL_HPP_ERR_STR_(clCreateUserEvent)
@@ -3814,6 +3810,24 @@ public:
         }
     }
 
+    Buffer(
+        const Context& context,
+        cl_mem_flags flags,
+        const cl_import_properties_arm *properties,
+        void *memory,
+        size_type size,
+        cl_int* err = NULL)
+    {
+        cl_int error;
+        object_ = ::clImportMemoryARM(context(), flags, properties, memory, size, &error);
+
+        detail::errHandler(error, __CREATE_BUFFER_ERR);
+        if (err != NULL) {
+            *err = error;
+        }
+    }
+
+
     /*!
      * \brief Construct a Buffer from a host container via iterators using a specified context.
      * IteratorType must be random access.
@@ -5229,7 +5243,6 @@ public:
 };
 #endif // CL_USE_DEPRECATED_OPENCL_1_1_APIS
 
-#if CL_HPP_TARGET_OPENCL_VERSION >= 120
 /*! \class ImageGL
  * \brief general image interface for GL interop.
  * We abstract the 2D and 3D GL images into a single instance here
@@ -5308,7 +5321,6 @@ public:
         return *this;
     }
 };
-#endif // CL_HPP_TARGET_OPENCL_VERSION >= 120
 
 
 

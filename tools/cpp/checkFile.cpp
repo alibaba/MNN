@@ -11,6 +11,7 @@
 #include <stdlib.h>
 #include <cmath>
 #include <fstream>
+#include <sstream>
 
 using namespace std;
 
@@ -25,7 +26,8 @@ int main(int argc, char* argv[]) {
     const char* file2 = argv[2];
     float tolerance   = 0.001;
     if (argc > 3) {
-        tolerance = atof(argv[3]);
+        std::istringstream ss(argv[3]);
+        ss >> tolerance;
     }
 
     // open file

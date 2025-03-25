@@ -1,5 +1,5 @@
 #version 440
-layout(set=0, binding=0) writeonly restrict uniform image2D uOutput;
+layout(set=0, binding=0) writeonly uniform image2D uOutput;
 layout(set=0, binding=1) uniform sampler2D uInput;
 layout(set=0, binding=2) uniform constBuffer{
     ivec4 size; // x: limit, y: channelC4*b, z:height, w:width
@@ -110,6 +110,9 @@ void main()
         vec4 temp = vec4(0.044715) * value * value * value;
         temp = vec4(0.79788458) * (temp + value);
         value = (vec4(1.0) + tanh(temp)) * value * vec4(0.5);
+#endif
+#ifdef SILU
+        value = value / (1.f + exp(-value));
 #endif
         imageStore(uOutput, pos, value);
     }

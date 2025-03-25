@@ -18,7 +18,7 @@ public:
     virtual ~VulkanDeconvolution() {
     }
 
-    VulkanDeconvolution(Backend* bn, const std::vector<Tensor*>& inputs, const Convolution2D* conv);
+    VulkanDeconvolution(Backend* bn, const std::vector<Tensor*>& inputs, const Op* op);
     virtual ErrorCode onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                const VulkanCommandPool::Buffer* cmdBuffer) override;
 

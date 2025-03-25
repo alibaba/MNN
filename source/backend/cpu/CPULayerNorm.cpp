@@ -9,6 +9,7 @@
 #include <cmath>
 #include "backend/cpu/CPULayerNorm.hpp"
 #include "backend/cpu/CPUBackend.hpp"
+#include "CPUCast.hpp"
 #include "backend/cpu/compute/CommonOptFunction.h"
 #include "core/Execution.hpp"
 #include "core/Concurrency.h"
@@ -31,29 +32,35 @@ std::shared_ptr<CPULayerNorm::Resource> CPULayerNorm::makeResource(const MNN::Op
     res->mGroup = layer_norm_param->group();
     res->mEpsilon = layer_norm_param->epsilon();
     res->mRMSNorm = layer_norm_param->useRMSNorm();
-    if (layer_norm_param->gamma() && layer_norm_param->beta()) {
-        int size = layer_norm_param->gamma()->size();
+    bool hasGammaBeta = (layer_norm_param->gamma() && layer_norm_param->beta());
+    int gammasize = 0;
+    if (hasGammaBeta) {
+        MNN_ASSERT(layer_norm_param->gamma()->size() == layer_norm_param->beta()->size());
+        gammasize = layer_norm_param->gamma()->size();
+    }
+    hasGammaBeta = hasGammaBeta || (layer_norm_param->external() && layer_norm_param->external()->size() > 1 && layer_norm_param->external()->data()[1] > 0);
+    if (hasGammaBeta && gammasize == 0) {
+        gammasize = layer_norm_param->external()->data()[1] / sizeof(float);
+    }
+    if (hasGammaBeta) {
         res->mIniGammaBeta = true;
-        res->mGamma.reset(Tensor::createDevice<float>({size}));
-        auto status = backend->onAcquireBuffer(res->mGamma.get(), Backend::STATIC);
+        // Use uint8_t to avoid lowp reduce float bytes
+        res->mGamma.reset(Tensor::createDevice<uint8_t>({gammasize * 4}));
+        res->mBeta.reset(Tensor::createDevice<uint8_t>({gammasize * 4}));
+        auto status = backend->onAcquireBuffer(res->mGamma.get(), Backend::STATIC) && backend->onAcquireBuffer(res->mBeta.get(), Backend::STATIC);
         if (!status) {
             MNN_ERROR("Out of memory when gamma is acquired in CPULayerNorm.\n");
             return nullptr;
         }
-        res->mBeta.reset(Tensor::createDevice<float>({size}));
-        status = backend->onAcquireBuffer(res->mBeta.get(), Backend::STATIC);
-        if (!status) {
-            MNN_ERROR("Out of memory when beta is acquired in CPULayerNorm.\n");
-            return nullptr;
+        bool useCachedMmap = backend->getRuntime()->hint().useCachedMmap > 1;
+        if (useCachedMmap) {
+            return res;
         }
-
-        if (layer_norm_param->beta()->size() != size) {
-            MNN_ERROR("Size of gamma and beta are not match in CPULayerNorm.\n");
-        }
+        
         const float* gamma_data = layer_norm_param->gamma()->data();
-        memcpy(res->mGamma->host<float>(), gamma_data, size * sizeof(float));
+        memcpy(res->mGamma->host<float>(), gamma_data, gammasize * sizeof(float));
         const float* beta_data = layer_norm_param->beta()->data();
-        memcpy(res->mBeta->host<float>(), beta_data, size * sizeof(float));
+        memcpy(res->mBeta->host<float>(), beta_data, gammasize * sizeof(float));
     }
     return res;
 }
@@ -62,33 +69,43 @@ ErrorCode CPULayerNorm::onExecute(const std::vector<Tensor*> &inputs,
                                   const std::vector<Tensor*> &outputs) {
     const float* gamma = mResource->mIniGammaBeta ? mResource->mGamma->host<float>() : nullptr;
     const float* beta = mResource->mIniGammaBeta ? mResource->mBeta->host<float>() : nullptr;
-    
-    if (mInpZero.data()) {
-        const int8_t* input = inputs[0]->host<int8_t>();
-        int8_t* output = outputs[0]->host<int8_t>();
-        MNN_CONCURRENCY_BEGIN(tId, mOutterSize) {
-            auto core = static_cast<CPUBackend*>(backend())->int8Functions();
-            QuanPrePostParameters params;
-            params.maxValue = mMaxMinValue[0];
-            params.minValue = mMaxMinValue[1];
-            params.inputScale = mInpScale.data();
-            params.outputScale = mOutScale.data();
-            params.inputZeroPoint = mInpZero.data();
-            params.outputZeroPoint = mOutZero.data();
-            const int8_t* inner_input = input + tId * mInnerSize;
-            int8_t* inner_output = output + tId * mInnerSize;
-            core->MNNNormInt8(inner_output, inner_input, gamma, beta, mResource->mEpsilon, mInnerSize, &params, mResource->mRMSNorm);
-        }
-        MNN_CONCURRENCY_END();
-        return NO_ERROR;
+    auto input = inputs[0]->host<uint8_t>();
+    auto output = outputs[0]->host<uint8_t>();
+    auto bn = static_cast<CPUBackend*>(backend());
+    auto core = bn->functions();
+    auto threadNumber = bn->threadNumber();
+    threadNumber = ALIMIN(threadNumber, mOutterSize);
+    auto int8core = bn->int8Functions();
+    int bytes = core->bytes;
+    auto inputQuan = TensorUtils::getDescribe(inputs[0])->quantAttr.get();
+    auto outputQuan = TensorUtils::getDescribe(outputs[0])->quantAttr.get();
+
+    if (CPUBackend::getDataType(inputs[0]) == DataType_DT_INT8 || inputs[0]->getType().bytes() == 1) {
+        bytes = 1;
     }
 
-    const float* input = inputs.at(0)->host<float>();
-    float* output = outputs.at(0)->host<float>();
-    MNN_CONCURRENCY_BEGIN(tId, mOutterSize) {
-        const float* inner_input = input + tId * mInnerSize;
-        float* inner_output = output + tId * mInnerSize;
-        MNNNorm(inner_output, inner_input, gamma, beta, mResource->mEpsilon, mInnerSize, mResource->mRMSNorm);
+    MNN_CONCURRENCY_BEGIN(ttId, threadNumber) {
+        for (int tId=ttId; tId < mOutterSize; tId += threadNumber) {
+            const float* inner_input = (const float*)(input + tId * mInnerSize * bytes);
+            float* inner_output = (float*)(output + tId * mInnerSize * bytes);
+            if (bytes != 4) {
+                auto tmpInput = (float*)(mTmpInputFloat.ptr() + ttId * mInnerSize * sizeof(float));
+                auto tmpOutput = (float*)(mTmpOutputFloat.ptr() + ttId * mInnerSize * sizeof(float));
+                if (bytes == 1) {
+                    CPUCastCreator::cast(inner_input, tmpInput, CPUCastCreator::INT8_TO_FlOAT, mInnerSize, inputQuan->scale, inputQuan->zero, inputQuan->min, inputQuan->max, bn);
+                } else {
+                    core->MNNLowpToFp32((const int16_t*)inner_input, tmpInput, mInnerSize);
+                }
+                MNNNorm(tmpOutput, tmpInput, gamma, beta, mResource->mEpsilon, mInnerSize, mResource->mRMSNorm);
+                if (bytes == 1) {
+                    CPUCastCreator::cast(tmpOutput, inner_output, CPUCastCreator::FlOAT_TO_INT8, mInnerSize, outputQuan->scale, outputQuan->zero, outputQuan->min, outputQuan->max, bn);
+                } else {
+                    core->MNNFp32ToLowp(tmpOutput, (int16_t*)inner_output, mInnerSize);
+                }
+            } else {
+                MNNNorm(inner_output, inner_input, gamma, beta, mResource->mEpsilon, mInnerSize, mResource->mRMSNorm);
+            }
+        }
     }
     MNN_CONCURRENCY_END();
     return NO_ERROR;
@@ -98,42 +115,39 @@ ErrorCode CPULayerNorm::onResize(const std::vector<Tensor*> &inputs,
                                  const std::vector<Tensor*> &outputs) {
     mOutterSize = 1;
     mInnerSize = 1;
-    int rank = inputs.at(0)->dimensions();
-    if (mResource->mGroup > 1) {
-        mOutterSize = inputs.at(0)->length(0) * mResource->mGroup;
-        for (int i = 1; i < rank; i++) {
+    do {
+        // Compute outter and inner
+        int rank = inputs.at(0)->dimensions();
+        if (mResource->mGroup > 1) {
+            mOutterSize = inputs.at(0)->length(0) * mResource->mGroup;
+            for (int i = 1; i < rank; i++) {
+                mInnerSize *= inputs.at(0)->length(i);
+            }
+            mInnerSize /= mResource->mGroup;
+            if (mResource->mIniGammaBeta) {
+                MNN_ASSERT(mResource->mGamma->size() == mInnerSize * sizeof(float));
+            }
+            break;
+        }
+        for (int i = 0; i < rank - mResource->mAxis; ++i) {
+            mOutterSize *= inputs.at(0)->length(i);
+        }
+        for (int i = rank - mResource->mAxis; i < rank; ++i) {
             mInnerSize *= inputs.at(0)->length(i);
         }
-        mInnerSize /= mResource->mGroup;
         if (mResource->mIniGammaBeta) {
             MNN_ASSERT(mResource->mGamma->size() == mInnerSize * sizeof(float));
         }
-    
-        return NO_ERROR;
-    }
-    for (int i = 0; i < rank - mResource->mAxis; ++i) {
-        mOutterSize *= inputs.at(0)->length(i);
-    }
-    for (int i = rank - mResource->mAxis; i < rank; ++i) {
-        mInnerSize *= inputs.at(0)->length(i);
-    }
-    if (mResource->mIniGammaBeta) {
-        MNN_ASSERT(mResource->mGamma->size() == mInnerSize * sizeof(float));
-    }
-    if (CPUBackend::getDataType(inputs[0]) == DataType_DT_INT8 || inputs[0]->getType().bytes() == 1) {
-        mInpZero.resize(1);
-        mOutZero.resize(1);
-        mInpScale.resize(1);
-        mOutScale.resize(1);
-        mMaxMinValue.resize(2);
-        auto inpQuantAttr = TensorUtils::getDescribe(inputs[0])->quantAttr;
-        auto outQuantAttr = TensorUtils::getDescribe(outputs[0])->quantAttr;
-        mInpZero[0] = inpQuantAttr->zero;
-        mOutZero[0] = outQuantAttr->zero;
-        mInpScale[0] = inpQuantAttr->scale;
-        mOutScale[0] = outQuantAttr->scale == 0.f? 0.f : 1.0f / outQuantAttr->scale;
-        mMaxMinValue[0] = outQuantAttr->max;
-        mMaxMinValue[1] = outQuantAttr->min;
+    } while (false);
+    auto bn = static_cast<CPUBackend*>(backend());
+    auto threadNumber = ALIMIN(bn->threadNumber(), mOutterSize);
+    auto buf = bn->getBufferAllocator();
+
+    if (CPUBackend::getDataType(inputs[0]) == DataType_DT_INT8 || inputs[0]->getType().bytes() == 1 || bn->functions()->bytes != 4) {
+        mTmpInputFloat = buf->alloc(threadNumber * mInnerSize * sizeof(float));
+        mTmpOutputFloat = buf->alloc(threadNumber * mInnerSize * sizeof(float));
+        buf->free(mTmpInputFloat);
+        buf->free(mTmpOutputFloat);
     }
     return NO_ERROR;
 }

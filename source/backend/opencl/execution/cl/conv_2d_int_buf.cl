@@ -10,7 +10,15 @@
     }
 
 #define MOD_NUM 15
-
+#ifdef INPUT_CHANNEL_BOUNDARY_PROTECT
+    #define PADZEROSVEC(k, channel, data0, data1, data2, data3) \
+        data0 = (k << 2) < channel ? data0 : 0; \
+        data1 = (k << 2) + 1 < channel ? data1 : 0; \
+        data2 = (k << 2) + 2 < channel ? data2 : 0; \
+        data3 = (k << 2) + 3 < channel ? data3 : 0;
+#else
+    #define PADZEROSVEC(k, channel, data0, data1, data2, data3)
+#endif
 
 __kernel
 void conv_2d_int_c4h1w1(GLOBAL_SIZE_2_DIMS
@@ -20,13 +28,13 @@ void conv_2d_int_c4h1w1(GLOBAL_SIZE_2_DIMS
 #else
                       __global const uchar *weight,
 #endif
-                      __global const float *dequantScale,
-                      __global const float *dequantOffset,
+                      __global const FLOAT *dequantScaleOffset,
                       __global const FLOAT *bias,
                       __global FLOAT *output,
                       __private const int2 in_hw,
                       __private const int inChannel,
                       __private const int in_c_blocks,
+                      __private const int batch,
                       __private const int2 out_hw,
                       __private const int2 filter_hw,
                       __private const int2 stride_hw,
@@ -34,7 +42,9 @@ void conv_2d_int_c4h1w1(GLOBAL_SIZE_2_DIMS
                       __private const int2 dilate_hw,
                       __private const int out_w_blocks,
                       __private const int out_c_blocks,
-                      __private const int out_h_blocks) {
+                      __private const int out_h_blocks,
+                      __private const int blockDim,
+                      __private const float coef) {
     const int out_c_w_idx = get_global_id(0); //c/4 w
     const int out_b_h_idx  = get_global_id(1); //b h
 
@@ -45,12 +55,7 @@ void conv_2d_int_c4h1w1(GLOBAL_SIZE_2_DIMS
     const int out_b_idx = out_b_h_idx / out_hw.x;//equal to in_b_idx
     const int out_h_idx = out_b_h_idx % out_hw.x;
     
-    const float4 dequantScaleC4 = vload4(out_c_idx, dequantScale);
-    const float4 dequantOffsetC4 = vload4(out_c_idx, dequantOffset);
-    
-    COMPUTE_FLOAT4 vbias = CONVERT_COMPUTE_FLOAT4(vload4(out_c_idx, bias));
-    COMPUTE_FLOAT4 out0 = (COMPUTE_FLOAT)0;
-    COMPUTE_FLOAT sum = (COMPUTE_FLOAT)0;
+    COMPUTE_FLOAT4 out0 = CONVERT_COMPUTE_FLOAT4(vload4(out_c_idx, bias));
     const int in_w_idx_base = mad24(out_w_idx, stride_hw.y, -pad_hw.y);
     const int in_h_idx_base = mad24(out_h_idx, stride_hw.x, -pad_hw.x);
     
@@ -65,12 +70,20 @@ void conv_2d_int_c4h1w1(GLOBAL_SIZE_2_DIMS
     
     const int weight_oc_offset = out_c_blocks * filter_hw.x * filter_hw.y * 4;
     for(ushort in_c_idx = 0; in_c_idx < in_c_blocks; in_c_idx++) {
+        #ifdef ASYMMETRIC
+        COMPUTE_FLOAT8 ScaleOffset = CONVERT_COMPUTE_FLOAT8(convert_float8(vload8(out_c_idx, dequantScaleOffset + (in_c_idx * 4) / blockDim * out_c_blocks * 8)) / coef);
+        COMPUTE_FLOAT4 scale = (COMPUTE_FLOAT4)(ScaleOffset.s0, ScaleOffset.s2, ScaleOffset.s4, ScaleOffset.s6);
+        COMPUTE_FLOAT4 offset = (COMPUTE_FLOAT4)(ScaleOffset.s1, ScaleOffset.s3, ScaleOffset.s5, ScaleOffset.s7);
+        #else
+        COMPUTE_FLOAT4 scale = CONVERT_COMPUTE_FLOAT4(convert_float4(vload4(out_c_idx, dequantScaleOffset + (in_c_idx * 4) / blockDim * out_c_blocks * 4)) / coef);
+        COMPUTE_FLOAT4 offset = 0;
+        #endif
         //weights  NC4HW4  [1,  4*icC4,  ocC4*kh*kw,  1] xic4
         //index:   [0, 4*in_c_idx, out_c_idx*kh*kw + kh_start*kw + kw_start, 0]
         int weight_offset = ((((4*in_c_idx+0)* out_c_blocks + out_c_idx) *filter_hw.x + kh_start)*filter_hw.y + kw_start) * 4;
         for(int iy = in_h_idx_start; iy < in_h_idx_end; iy += dilate_hw.x) {
             for(int ix = in_w_idx_start; ix < in_w_idx_end; ix += dilate_hw.y) {
-                int inp_offset = (((out_b_idx * in_c_blocks + in_c_idx) * in_hw.x + iy) * in_hw.y + ix) * 4;
+                int inp_offset = (((out_b_idx + in_c_idx*batch) * in_hw.x + iy) * in_hw.y + ix) * 4;
                 COMPUTE_FLOAT4 in0 = CONVERT_COMPUTE_FLOAT4(vload4(0, input+inp_offset));
                 
                 const int filter_w_inc = (ix-in_w_idx_start)/dilate_hw.y;
@@ -80,10 +93,10 @@ void conv_2d_int_c4h1w1(GLOBAL_SIZE_2_DIMS
                 char4 charWeight1 = vload4(filter_w_inc, weight+weight_offset+weight_oc_offset);
                 char4 charWeight2 = vload4(filter_w_inc, weight+weight_offset+weight_oc_offset*2);
                 char4 charWeight3 = vload4(filter_w_inc, weight+weight_offset+weight_oc_offset*3);
-                COMPUTE_FLOAT4 weight0 = CONVERT_COMPUTE_FLOAT4(charWeight0);
-                COMPUTE_FLOAT4 weight1 = CONVERT_COMPUTE_FLOAT4(charWeight1);
-                COMPUTE_FLOAT4 weight2 = CONVERT_COMPUTE_FLOAT4(charWeight2);
-                COMPUTE_FLOAT4 weight3 = CONVERT_COMPUTE_FLOAT4(charWeight3);
+                COMPUTE_FLOAT4 weight0 = CONVERT_COMPUTE_FLOAT4(charWeight0) * scale + offset;
+                COMPUTE_FLOAT4 weight1 = CONVERT_COMPUTE_FLOAT4(charWeight1) * scale + offset;
+                COMPUTE_FLOAT4 weight2 = CONVERT_COMPUTE_FLOAT4(charWeight2) * scale + offset;
+                COMPUTE_FLOAT4 weight3 = CONVERT_COMPUTE_FLOAT4(charWeight3) * scale + offset;
 #else
                 uchar2 charWeightInt40 = vload2(filter_w_inc, weight+weight_offset/2);
                 uchar2 charWeightInt41 = vload2(filter_w_inc, weight+weight_offset/2+weight_oc_offset/2);
@@ -109,12 +122,13 @@ void conv_2d_int_c4h1w1(GLOBAL_SIZE_2_DIMS
                 charWeight3.y = (charWeightInt43.s0 & MOD_NUM) - 8;
                 charWeight3.z = (charWeightInt43.s1 >> 4) - 8;
                 charWeight3.w = (charWeightInt43.s1 & MOD_NUM) - 8;
-                COMPUTE_FLOAT4 weight0 = CONVERT_COMPUTE_FLOAT4(charWeight0);
-                COMPUTE_FLOAT4 weight1 = CONVERT_COMPUTE_FLOAT4(charWeight1);
-                COMPUTE_FLOAT4 weight2 = CONVERT_COMPUTE_FLOAT4(charWeight2);
-                COMPUTE_FLOAT4 weight3 = CONVERT_COMPUTE_FLOAT4(charWeight3);
+                COMPUTE_FLOAT4 weight0 = CONVERT_COMPUTE_FLOAT4(charWeight0) * scale + offset;
+                COMPUTE_FLOAT4 weight1 = CONVERT_COMPUTE_FLOAT4(charWeight1) * scale + offset;
+                COMPUTE_FLOAT4 weight2 = CONVERT_COMPUTE_FLOAT4(charWeight2) * scale + offset;
+                COMPUTE_FLOAT4 weight3 = CONVERT_COMPUTE_FLOAT4(charWeight3) * scale + offset;
 #endif
-                sum += (in0.x + in0.y + in0.z + in0.w);
+                PADZEROSVEC(in_c_idx, inChannel, weight0, weight1, weight2, weight3);
+                
                 out0 = mad(in0.x, weight0, out0);
                 out0 = mad(in0.y, weight1, out0);
                 out0 = mad(in0.z, weight2, out0);
@@ -125,8 +139,6 @@ void conv_2d_int_c4h1w1(GLOBAL_SIZE_2_DIMS
         }
     }
 
-    out0 =  vbias + CONVERT_COMPUTE_FLOAT4(convert_float4(out0) * dequantScaleC4 + convert_float4((COMPUTE_FLOAT4)sum) * dequantOffsetC4);
-
 #ifdef RELU
     out0 = fmax(out0, (COMPUTE_FLOAT4)0);
 #endif
@@ -135,7 +147,7 @@ void conv_2d_int_c4h1w1(GLOBAL_SIZE_2_DIMS
     out0 = clamp(out0, (COMPUTE_FLOAT4)0, (COMPUTE_FLOAT4)6);
 #endif
 
-    const int out_offset = (((out_b_idx*out_c_blocks + out_c_idx)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
+    const int out_offset = (((out_b_idx + out_c_idx*batch)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
     vstore4(CONVERT_FLOAT4(out0), 0, output+out_offset);
  
 }
@@ -148,13 +160,13 @@ void conv_2d_int_c4h1w2(GLOBAL_SIZE_2_DIMS
 #else
                       __global const uchar *weight,
 #endif
-                      __global const float *dequantScale,
-                      __global const float *dequantOffset,
+                      __global const FLOAT *dequantScaleOffset,
                       __global const FLOAT *bias,
                       __global FLOAT *output,
                       __private const int2 in_hw,
                       __private const int inChannel,
                       __private const int in_c_blocks,
+                      __private const int batch,
                       __private const int2 out_hw,
                       __private const int2 filter_hw,
                       __private const int2 stride_hw,
@@ -162,7 +174,9 @@ void conv_2d_int_c4h1w2(GLOBAL_SIZE_2_DIMS
                       __private const int2 dilate_hw,
                       __private const int out_w_blocks,//generate width's num
                       __private const int out_c_blocks,
-                      __private const int out_h_blocks) {
+                      __private const int out_h_blocks,
+                      __private const int blockDim,
+                      __private const float coef) {
     const int out_c_w_idx = get_global_id(0); //c/4 w
     const int out_b_h_idx  = get_global_id(1); //b h
 
@@ -173,14 +187,9 @@ void conv_2d_int_c4h1w2(GLOBAL_SIZE_2_DIMS
     const int out_b_idx = out_b_h_idx / out_hw.x;//equal to in_b_idx
     const int out_h_idx = out_b_h_idx % out_hw.x;
     
-    const float4 dequantScaleC4 = vload4(out_c_idx, dequantScale);
-    const float4 dequantOffsetC4 = vload4(out_c_idx, dequantOffset);
-    
-    COMPUTE_FLOAT4 vbias = CONVERT_COMPUTE_FLOAT4(vload4(out_c_idx, bias));
-    COMPUTE_FLOAT4 out0 = (COMPUTE_FLOAT4)0;
-    COMPUTE_FLOAT4 out1 = out0;
-    COMPUTE_FLOAT sum0 = 0;
-    COMPUTE_FLOAT sum1 = 0;
+    COMPUTE_FLOAT4 bias0 = CONVERT_COMPUTE_FLOAT4(vload4(out_c_idx, bias));
+    COMPUTE_FLOAT4 out0 = bias0;
+    COMPUTE_FLOAT4 out1 = bias0;
     
     const int in_w0_idx_base = mad24(out_w_idx, stride_hw.y, -pad_hw.y);
     const int in_w1_idx_base = in_w0_idx_base + stride_hw.y;
@@ -193,12 +202,20 @@ void conv_2d_int_c4h1w2(GLOBAL_SIZE_2_DIMS
     
     const int weight_oc_offset = out_c_blocks * filter_hw.x * filter_hw.y * 4;
     for(ushort in_c_idx = 0; in_c_idx < in_c_blocks; in_c_idx++) {
+        #ifdef ASYMMETRIC
+        COMPUTE_FLOAT8 ScaleOffset = CONVERT_COMPUTE_FLOAT8(convert_float8(vload8(out_c_idx, dequantScaleOffset + (in_c_idx * 4) / blockDim * out_c_blocks * 8)) / coef);
+        COMPUTE_FLOAT4 scale = (COMPUTE_FLOAT4)(ScaleOffset.s0, ScaleOffset.s2, ScaleOffset.s4, ScaleOffset.s6);
+        COMPUTE_FLOAT4 offset = (COMPUTE_FLOAT4)(ScaleOffset.s1, ScaleOffset.s3, ScaleOffset.s5, ScaleOffset.s7);
+        #else
+        COMPUTE_FLOAT4 scale = CONVERT_COMPUTE_FLOAT4(convert_float4(vload4(out_c_idx, dequantScaleOffset + (in_c_idx * 4) / blockDim * out_c_blocks * 4)) / coef);
+        COMPUTE_FLOAT4 offset = 0;
+        #endif
         //weights  NC4HW4  [1,  4*icC4,  ocC4*kh*kw,  1] xic4
         //index:   [0, 4*in_c_idx, out_c_idx*kh*kw + kh_start*kw + kw_start, 0]
         int weight_offset = ((((4*in_c_idx+0)* out_c_blocks + out_c_idx) *filter_hw.x + kh_start)*filter_hw.y + 0) * 4;
 
         for(int iy = in_h_idx_start; iy < in_h_idx_end; iy += dilate_hw.x) {
-            const int inp_offset_base = (((out_b_idx * in_c_blocks + in_c_idx) * in_hw.x + iy) * in_hw.y + 0) * 4;
+            const int inp_offset_base = (((out_b_idx + in_c_idx*batch) * in_hw.x + iy) * in_hw.y + 0) * 4;
 
             for(int fw = 0; fw < filter_hw.y; fw++) {
                 const int in_w0_idx = fw * dilate_hw.y + in_w0_idx_base;
@@ -212,10 +229,10 @@ void conv_2d_int_c4h1w2(GLOBAL_SIZE_2_DIMS
                 char4 charWeight1 = vload4(0, weight+weight_offset+weight_oc_offset);
                 char4 charWeight2 = vload4(0, weight+weight_offset+weight_oc_offset*2);
                 char4 charWeight3 = vload4(0, weight+weight_offset+weight_oc_offset*3);
-                COMPUTE_FLOAT4 weight0 = CONVERT_COMPUTE_FLOAT4(charWeight0);
-                COMPUTE_FLOAT4 weight1 = CONVERT_COMPUTE_FLOAT4(charWeight1);
-                COMPUTE_FLOAT4 weight2 = CONVERT_COMPUTE_FLOAT4(charWeight2);
-                COMPUTE_FLOAT4 weight3 = CONVERT_COMPUTE_FLOAT4(charWeight3);
+                COMPUTE_FLOAT4 weight0 = CONVERT_COMPUTE_FLOAT4(charWeight0) * scale + offset;
+                COMPUTE_FLOAT4 weight1 = CONVERT_COMPUTE_FLOAT4(charWeight1) * scale + offset;
+                COMPUTE_FLOAT4 weight2 = CONVERT_COMPUTE_FLOAT4(charWeight2) * scale + offset;
+                COMPUTE_FLOAT4 weight3 = CONVERT_COMPUTE_FLOAT4(charWeight3) * scale + offset;
 #else
                 uchar2 charWeightInt40 = vload2(0, weight+weight_offset/2);
                 uchar2 charWeightInt41 = vload2(0, weight+weight_offset/2+weight_oc_offset/2);
@@ -241,15 +258,13 @@ void conv_2d_int_c4h1w2(GLOBAL_SIZE_2_DIMS
                 charWeight3.y = (charWeightInt43.s0 & MOD_NUM) - 8;
                 charWeight3.z = (charWeightInt43.s1 >> 4) - 8;
                 charWeight3.w = (charWeightInt43.s1 & MOD_NUM) - 8;
-                COMPUTE_FLOAT4 weight0 = CONVERT_COMPUTE_FLOAT4(charWeight0);
-                COMPUTE_FLOAT4 weight1 = CONVERT_COMPUTE_FLOAT4(charWeight1);
-                COMPUTE_FLOAT4 weight2 = CONVERT_COMPUTE_FLOAT4(charWeight2);
-                COMPUTE_FLOAT4 weight3 = CONVERT_COMPUTE_FLOAT4(charWeight3);
+                COMPUTE_FLOAT4 weight0 = CONVERT_COMPUTE_FLOAT4(charWeight0) * scale + offset;
+                COMPUTE_FLOAT4 weight1 = CONVERT_COMPUTE_FLOAT4(charWeight1) * scale + offset;
+                COMPUTE_FLOAT4 weight2 = CONVERT_COMPUTE_FLOAT4(charWeight2) * scale + offset;
+                COMPUTE_FLOAT4 weight3 = CONVERT_COMPUTE_FLOAT4(charWeight3) * scale + offset;
 #endif
-
-                sum0 += (in0.x + in0.y + in0.z + in0.w);
-                sum1 += (in1.x + in1.y + in1.z + in1.w);
-
+                PADZEROSVEC(in_c_idx, inChannel, weight0, weight1, weight2, weight3);
+                
                 out0 = mad(in0.x, weight0, out0);
                 out0 = mad(in0.y, weight1, out0);
                 out0 = mad(in0.z, weight2, out0);
@@ -265,9 +280,6 @@ void conv_2d_int_c4h1w2(GLOBAL_SIZE_2_DIMS
         }
     }
 
-    out0 =  vbias + CONVERT_COMPUTE_FLOAT4(convert_float4(out0) * dequantScaleC4 + convert_float4((COMPUTE_FLOAT4)sum0) * dequantOffsetC4);
-    out1 =  vbias + CONVERT_COMPUTE_FLOAT4(convert_float4(out1) * dequantScaleC4 + convert_float4((COMPUTE_FLOAT4)sum1) * dequantOffsetC4);
-
 #ifdef RELU
     out0 = fmax(out0, (COMPUTE_FLOAT4)0);
     out1 = fmax(out1, (COMPUTE_FLOAT4)0);
@@ -278,7 +290,7 @@ void conv_2d_int_c4h1w2(GLOBAL_SIZE_2_DIMS
     out1 = clamp(out1, (COMPUTE_FLOAT4)0, (COMPUTE_FLOAT4)6);
 #endif
 
-    const int out_offset = (((out_b_idx*out_c_blocks + out_c_idx)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
+    const int out_offset = (((out_b_idx + out_c_idx*batch)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
 #ifdef BLOCK_LEAVE
     vstore4(CONVERT_FLOAT4(out0), 0, output+out_offset);
     if(out_w_idx + 1 >= out_hw.y) return;
@@ -296,13 +308,13 @@ void conv_2d_int_c4h1w4(GLOBAL_SIZE_2_DIMS
 #else
                       __global const uchar *weight,
 #endif
-                      __global const float *dequantScale,
-                      __global const float *dequantOffset,
+                      __global const FLOAT *dequantScaleOffset,
                       __global const FLOAT *bias,
                       __global FLOAT *output,
                       __private const int2 in_hw,
                       __private const int inChannel,
                       __private const int in_c_blocks,
+                      __private const int batch,
                       __private const int2 out_hw,
                       __private const int2 filter_hw,
                       __private const int2 stride_hw,
@@ -310,7 +322,9 @@ void conv_2d_int_c4h1w4(GLOBAL_SIZE_2_DIMS
                       __private const int2 dilate_hw,
                       __private const int out_w_blocks,
                       __private const int out_c_blocks,
-                      __private const int out_h_blocks) {
+                      __private const int out_h_blocks,
+                      __private const int blockDim,
+                      __private const float coef) {
     const int out_c_w_idx = get_global_id(0); //c/4 w
     const int out_b_h_idx  = get_global_id(1); //b h
 
@@ -320,19 +334,12 @@ void conv_2d_int_c4h1w4(GLOBAL_SIZE_2_DIMS
     const int out_w_idx = (out_c_w_idx % out_w_blocks) << 2;
     const int out_b_idx = out_b_h_idx / out_hw.x;//equal to in_b_idx
     const int out_h_idx = out_b_h_idx % out_hw.x;
-    
-    const float4 dequantScaleC4 = vload4(out_c_idx, dequantScale);
-    const float4 dequantOffsetC4 = vload4(out_c_idx, dequantOffset);
 
-    COMPUTE_FLOAT4 vbias = CONVERT_COMPUTE_FLOAT4(vload4(out_c_idx, bias));
-    COMPUTE_FLOAT4 out0 = (COMPUTE_FLOAT4)0;
-    COMPUTE_FLOAT4 out1 = out0;
-    COMPUTE_FLOAT4 out2 = out0;
-    COMPUTE_FLOAT4 out3 = out0;
-    COMPUTE_FLOAT sum0 = 0;
-    COMPUTE_FLOAT sum1 = 0;
-    COMPUTE_FLOAT sum2 = 0;
-    COMPUTE_FLOAT sum3 = 0;
+    COMPUTE_FLOAT4 bias0 = CONVERT_COMPUTE_FLOAT4(vload4(out_c_idx, bias));
+    COMPUTE_FLOAT4 out0 = bias0;
+    COMPUTE_FLOAT4 out1 = bias0;
+    COMPUTE_FLOAT4 out2 = bias0;
+    COMPUTE_FLOAT4 out3 = bias0;
 
     const int in_w0_idx_base = mad24(out_w_idx, stride_hw.y, -pad_hw.y);
     const int in_w1_idx_base = in_w0_idx_base + stride_hw.y;
@@ -347,12 +354,20 @@ void conv_2d_int_c4h1w4(GLOBAL_SIZE_2_DIMS
     
     const int weight_oc_offset = out_c_blocks * filter_hw.x * filter_hw.y * 4;
     for(ushort in_c_idx = 0; in_c_idx < in_c_blocks; in_c_idx++) {
+        #ifdef ASYMMETRIC
+        COMPUTE_FLOAT8 ScaleOffset = CONVERT_COMPUTE_FLOAT8(convert_float8(vload8(out_c_idx, dequantScaleOffset + (in_c_idx * 4) / blockDim * out_c_blocks * 8)) / coef);
+        COMPUTE_FLOAT4 scale = (COMPUTE_FLOAT4)(ScaleOffset.s0, ScaleOffset.s2, ScaleOffset.s4, ScaleOffset.s6);
+        COMPUTE_FLOAT4 offset = (COMPUTE_FLOAT4)(ScaleOffset.s1, ScaleOffset.s3, ScaleOffset.s5, ScaleOffset.s7);
+        #else
+        COMPUTE_FLOAT4 scale = CONVERT_COMPUTE_FLOAT4(convert_float4(vload4(out_c_idx, dequantScaleOffset + (in_c_idx * 4) / blockDim * out_c_blocks * 4)) / coef);
+        COMPUTE_FLOAT4 offset = 0;
+        #endif
         //weights  NC4HW4  [1,  4*icC4,  ocC4*kh*kw,  1] xic4
         //index:   [0, 4*in_c_idx, out_c_idx*kh*kw + kh_start*kw + kw_start, 0]
         int weight_offset = ((((4*in_c_idx+0)* out_c_blocks + out_c_idx) *filter_hw.x + kh_start)*filter_hw.y + 0) * 4;
 
         for(int iy = in_h_idx_start; iy < in_h_idx_end; iy += dilate_hw.x) {
-            const int inp_offset_base = (((out_b_idx * in_c_blocks + in_c_idx) * in_hw.x + iy) * in_hw.y + 0) * 4;
+            const int inp_offset_base = (((out_b_idx + in_c_idx*batch) * in_hw.x + iy) * in_hw.y + 0) * 4;
 
             for(int fw = 0; fw < filter_hw.y; fw++) {
                 const int in_w0_idx = fw * dilate_hw.y + in_w0_idx_base;
@@ -370,10 +385,10 @@ void conv_2d_int_c4h1w4(GLOBAL_SIZE_2_DIMS
                 char4 charWeight1 = vload4(0, weight+weight_offset+weight_oc_offset);
                 char4 charWeight2 = vload4(0, weight+weight_offset+weight_oc_offset*2);
                 char4 charWeight3 = vload4(0, weight+weight_offset+weight_oc_offset*3);
-                COMPUTE_FLOAT4 weight0 = CONVERT_COMPUTE_FLOAT4(charWeight0);
-                COMPUTE_FLOAT4 weight1 = CONVERT_COMPUTE_FLOAT4(charWeight1);
-                COMPUTE_FLOAT4 weight2 = CONVERT_COMPUTE_FLOAT4(charWeight2);
-                COMPUTE_FLOAT4 weight3 = CONVERT_COMPUTE_FLOAT4(charWeight3);
+                COMPUTE_FLOAT4 weight0 = CONVERT_COMPUTE_FLOAT4(charWeight0) * scale + offset;
+                COMPUTE_FLOAT4 weight1 = CONVERT_COMPUTE_FLOAT4(charWeight1) * scale + offset;
+                COMPUTE_FLOAT4 weight2 = CONVERT_COMPUTE_FLOAT4(charWeight2) * scale + offset;
+                COMPUTE_FLOAT4 weight3 = CONVERT_COMPUTE_FLOAT4(charWeight3) * scale + offset;
 #else
                 uchar2 charWeightInt40 = vload2(0, weight+weight_offset/2);
                 uchar2 charWeightInt41 = vload2(0, weight+weight_offset/2+weight_oc_offset/2);
@@ -399,16 +414,12 @@ void conv_2d_int_c4h1w4(GLOBAL_SIZE_2_DIMS
                 charWeight3.y = (charWeightInt43.s0 & MOD_NUM) - 8;
                 charWeight3.z = (charWeightInt43.s1 >> 4) - 8;
                 charWeight3.w = (charWeightInt43.s1 & MOD_NUM) - 8;
-                COMPUTE_FLOAT4 weight0 = CONVERT_COMPUTE_FLOAT4(charWeight0);
-                COMPUTE_FLOAT4 weight1 = CONVERT_COMPUTE_FLOAT4(charWeight1);
-                COMPUTE_FLOAT4 weight2 = CONVERT_COMPUTE_FLOAT4(charWeight2);
-                COMPUTE_FLOAT4 weight3 = CONVERT_COMPUTE_FLOAT4(charWeight3);
+                COMPUTE_FLOAT4 weight0 = CONVERT_COMPUTE_FLOAT4(charWeight0) * scale + offset;
+                COMPUTE_FLOAT4 weight1 = CONVERT_COMPUTE_FLOAT4(charWeight1) * scale + offset;
+                COMPUTE_FLOAT4 weight2 = CONVERT_COMPUTE_FLOAT4(charWeight2) * scale + offset;
+                COMPUTE_FLOAT4 weight3 = CONVERT_COMPUTE_FLOAT4(charWeight3) * scale + offset;
 #endif
-
-                sum0 += (in0.x + in0.y + in0.z + in0.w);
-                sum1 += (in1.x + in1.y + in1.z + in1.w);
-                sum2 += (in2.x + in2.y + in2.z + in2.w);
-                sum3 += (in3.x + in3.y + in3.z + in3.w);
+                PADZEROSVEC(in_c_idx, inChannel, weight0, weight1, weight2, weight3);
 
                 out0 = mad(in0.x, weight0, out0);
                 out0 = mad(in0.y, weight1, out0);
@@ -434,10 +445,7 @@ void conv_2d_int_c4h1w4(GLOBAL_SIZE_2_DIMS
             }
         }
     }
-    out0 =  vbias + CONVERT_COMPUTE_FLOAT4(convert_float4(out0) * dequantScaleC4 + convert_float4((COMPUTE_FLOAT4)sum0) * dequantOffsetC4);
-    out1 =  vbias + CONVERT_COMPUTE_FLOAT4(convert_float4(out1) * dequantScaleC4 + convert_float4((COMPUTE_FLOAT4)sum1) * dequantOffsetC4);
-    out2 =  vbias + CONVERT_COMPUTE_FLOAT4(convert_float4(out2) * dequantScaleC4 + convert_float4((COMPUTE_FLOAT4)sum2) * dequantOffsetC4);
-    out3 =  vbias + CONVERT_COMPUTE_FLOAT4(convert_float4(out3) * dequantScaleC4 + convert_float4((COMPUTE_FLOAT4)sum3) * dequantOffsetC4);
+    
 #ifdef RELU
     out0 = fmax(out0, (COMPUTE_FLOAT4)0);
     out1 = fmax(out1, (COMPUTE_FLOAT4)0);
@@ -452,7 +460,7 @@ void conv_2d_int_c4h1w4(GLOBAL_SIZE_2_DIMS
     out3 = clamp(out3, (COMPUTE_FLOAT4)0, (COMPUTE_FLOAT4)6);
 #endif
 
-    const int out_offset = (((out_b_idx*out_c_blocks + out_c_idx)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
+    const int out_offset = (((out_b_idx + out_c_idx*batch)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
 #ifdef BLOCK_LEAVE
     const int remain = out_hw.y - out_w_idx;
 
@@ -479,13 +487,13 @@ void conv_2d_int_c4h4w1(GLOBAL_SIZE_2_DIMS
 #else
                       __global const uchar *weight,
 #endif
-                      __global const float *dequantScale,
-                      __global const float *dequantOffset,
+                      __global const FLOAT *dequantScaleOffset,
                       __global const FLOAT *bias,
                       __global FLOAT *output,
                       __private const int2 in_hw,
                       __private const int inChannel,
                       __private const int in_c_blocks,
+                      __private const int batch,
                       __private const int2 out_hw,
                       __private const int2 filter_hw,
                       __private const int2 stride_hw,
@@ -493,7 +501,9 @@ void conv_2d_int_c4h4w1(GLOBAL_SIZE_2_DIMS
                       __private const int2 dilate_hw,
                       __private const int out_w_blocks,
                       __private const int out_c_blocks,
-                      __private const int out_h_blocks) {
+                      __private const int out_h_blocks,
+                      __private const int blockDim,
+                      __private const float coef) {
     const int out_c_w_idx = get_global_id(0); //c/4 w
     const int out_b_h_idx  = get_global_id(1); //b h
 
@@ -504,18 +514,11 @@ void conv_2d_int_c4h4w1(GLOBAL_SIZE_2_DIMS
     const int out_b_idx = out_b_h_idx / out_h_blocks;//equal to in_b_idx
     const int out_h_idx = (out_b_h_idx % out_h_blocks) << 2;
     
-    const float4 dequantScaleC4 = vload4(out_c_idx, dequantScale);
-    const float4 dequantOffsetC4 = vload4(out_c_idx, dequantOffset);
-    
-    COMPUTE_FLOAT4 vbias = CONVERT_COMPUTE_FLOAT4(vload4(out_c_idx, bias));
-    COMPUTE_FLOAT4 out0 = (COMPUTE_FLOAT4)0;
-    COMPUTE_FLOAT4 out1 = out0;
-    COMPUTE_FLOAT4 out2 = out0;
-    COMPUTE_FLOAT4 out3 = out0;
-    COMPUTE_FLOAT sum0 = 0;
-    COMPUTE_FLOAT sum1 = 0;
-    COMPUTE_FLOAT sum2 = 0;
-    COMPUTE_FLOAT sum3 = 0;
+    COMPUTE_FLOAT4 bias0 = CONVERT_COMPUTE_FLOAT4(vload4(out_c_idx, bias));
+    COMPUTE_FLOAT4 out0 = bias0;
+    COMPUTE_FLOAT4 out1 = bias0;
+    COMPUTE_FLOAT4 out2 = bias0;
+    COMPUTE_FLOAT4 out3 = bias0;
 
     const int in_w_idx_base = mad24(out_w_idx, stride_hw.y, -pad_hw.y);
 
@@ -531,9 +534,17 @@ void conv_2d_int_c4h4w1(GLOBAL_SIZE_2_DIMS
     const int weight_oc_offset = out_c_blocks * filter_hw.x * filter_hw.y * 4;
     const int in_hw_size = in_hw.x * in_hw.y;
     for(ushort in_c_idx = 0; in_c_idx < in_c_blocks; in_c_idx++) {
+        #ifdef ASYMMETRIC
+        COMPUTE_FLOAT8 ScaleOffset = CONVERT_COMPUTE_FLOAT8(convert_float8(vload8(out_c_idx, dequantScaleOffset + (in_c_idx * 4) / blockDim * out_c_blocks * 8)) / coef);
+        COMPUTE_FLOAT4 scale = (COMPUTE_FLOAT4)(ScaleOffset.s0, ScaleOffset.s2, ScaleOffset.s4, ScaleOffset.s6);
+        COMPUTE_FLOAT4 offset = (COMPUTE_FLOAT4)(ScaleOffset.s1, ScaleOffset.s3, ScaleOffset.s5, ScaleOffset.s7);
+        #else
+        COMPUTE_FLOAT4 scale = CONVERT_COMPUTE_FLOAT4(convert_float4(vload4(out_c_idx, dequantScaleOffset + (in_c_idx * 4) / blockDim * out_c_blocks * 4)) / coef);
+        COMPUTE_FLOAT4 offset = 0;
+        #endif
         //weights  NC4HW4  [1,  4*icC4,  ocC4*kh*kw,  1] xic4
         //index:   [0, 4*in_c_idx, out_c_idx*kh*kw + kh_start*kw + kw_start, 0]
-        const int inp_offset_base = (out_b_idx * in_c_blocks + in_c_idx) * in_hw.x * in_hw.y * 4;
+        const int inp_offset_base = (out_b_idx + in_c_idx*batch) * in_hw.x * in_hw.y * 4;
 
         for(int iy = 0; iy < filter_hw.x; iy++) {
             int weight_offset = ((((4*in_c_idx+0)* out_c_blocks + out_c_idx) *filter_hw.x + iy)*filter_hw.y + kw_start) * 4;
@@ -553,10 +564,10 @@ void conv_2d_int_c4h4w1(GLOBAL_SIZE_2_DIMS
                 char4 charWeight1 = vload4(0, weight+weight_offset+weight_oc_offset);
                 char4 charWeight2 = vload4(0, weight+weight_offset+weight_oc_offset*2);
                 char4 charWeight3 = vload4(0, weight+weight_offset+weight_oc_offset*3);
-                COMPUTE_FLOAT4 weight0 = CONVERT_COMPUTE_FLOAT4(charWeight0);
-                COMPUTE_FLOAT4 weight1 = CONVERT_COMPUTE_FLOAT4(charWeight1);
-                COMPUTE_FLOAT4 weight2 = CONVERT_COMPUTE_FLOAT4(charWeight2);
-                COMPUTE_FLOAT4 weight3 = CONVERT_COMPUTE_FLOAT4(charWeight3);
+                COMPUTE_FLOAT4 weight0 = CONVERT_COMPUTE_FLOAT4(charWeight0) * scale + offset;
+                COMPUTE_FLOAT4 weight1 = CONVERT_COMPUTE_FLOAT4(charWeight1) * scale + offset;
+                COMPUTE_FLOAT4 weight2 = CONVERT_COMPUTE_FLOAT4(charWeight2) * scale + offset;
+                COMPUTE_FLOAT4 weight3 = CONVERT_COMPUTE_FLOAT4(charWeight3) * scale + offset;
 #else
                 uchar2 charWeightInt40 = vload2(0, weight+weight_offset/2);
                 uchar2 charWeightInt41 = vload2(0, weight+weight_offset/2+weight_oc_offset/2);
@@ -582,16 +593,12 @@ void conv_2d_int_c4h4w1(GLOBAL_SIZE_2_DIMS
                 charWeight3.y = (charWeightInt43.s0 & MOD_NUM) - 8;
                 charWeight3.z = (charWeightInt43.s1 >> 4) - 8;
                 charWeight3.w = (charWeightInt43.s1 & MOD_NUM) - 8;
-                COMPUTE_FLOAT4 weight0 = CONVERT_COMPUTE_FLOAT4(charWeight0);
-                COMPUTE_FLOAT4 weight1 = CONVERT_COMPUTE_FLOAT4(charWeight1);
-                COMPUTE_FLOAT4 weight2 = CONVERT_COMPUTE_FLOAT4(charWeight2);
-                COMPUTE_FLOAT4 weight3 = CONVERT_COMPUTE_FLOAT4(charWeight3);
+                COMPUTE_FLOAT4 weight0 = CONVERT_COMPUTE_FLOAT4(charWeight0) * scale + offset;
+                COMPUTE_FLOAT4 weight1 = CONVERT_COMPUTE_FLOAT4(charWeight1) * scale + offset;
+                COMPUTE_FLOAT4 weight2 = CONVERT_COMPUTE_FLOAT4(charWeight2) * scale + offset;
+                COMPUTE_FLOAT4 weight3 = CONVERT_COMPUTE_FLOAT4(charWeight3) * scale + offset;
 #endif
-
-                sum0 += (in0.x + in0.y + in0.z + in0.w);
-                sum1 += (in1.x + in1.y + in1.z + in1.w);
-                sum2 += (in2.x + in2.y + in2.z + in2.w);
-                sum3 += (in3.x + in3.y + in3.z + in3.w);
+                PADZEROSVEC(in_c_idx, inChannel, weight0, weight1, weight2, weight3);
 
                 out0 = mad(in0.x, weight0, out0);
                 out0 = mad(in0.y, weight1, out0);
@@ -617,12 +624,7 @@ void conv_2d_int_c4h4w1(GLOBAL_SIZE_2_DIMS
             }
         }
     }
-
-    out0 =  vbias + CONVERT_COMPUTE_FLOAT4(convert_float4(out0) * dequantScaleC4 + convert_float4((COMPUTE_FLOAT4)sum0) * dequantOffsetC4);
-    out1 =  vbias + CONVERT_COMPUTE_FLOAT4(convert_float4(out1) * dequantScaleC4 + convert_float4((COMPUTE_FLOAT4)sum1) * dequantOffsetC4);
-    out2 =  vbias + CONVERT_COMPUTE_FLOAT4(convert_float4(out2) * dequantScaleC4 + convert_float4((COMPUTE_FLOAT4)sum2) * dequantOffsetC4);
-    out3 =  vbias + CONVERT_COMPUTE_FLOAT4(convert_float4(out3) * dequantScaleC4 + convert_float4((COMPUTE_FLOAT4)sum3) * dequantOffsetC4);
-
+    
 #ifdef RELU
     out0 = fmax(out0, (COMPUTE_FLOAT4)0);
     out1 = fmax(out1, (COMPUTE_FLOAT4)0);
@@ -637,7 +639,7 @@ void conv_2d_int_c4h4w1(GLOBAL_SIZE_2_DIMS
     out3 = clamp(out3, (COMPUTE_FLOAT4)0, (COMPUTE_FLOAT4)6);
 #endif
 
-    const int out_offset = (((out_b_idx*out_c_blocks + out_c_idx)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
+    const int out_offset = (((out_b_idx + out_c_idx*batch)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
 #ifdef BLOCK_LEAVE
     const int remain = out_hw.x - out_h_idx;
     if(remain >= 4){
@@ -671,13 +673,13 @@ void conv_2d_int_c8h4w1(GLOBAL_SIZE_2_DIMS
 #else
                       __global const uchar *weight,
 #endif
-                      __global const float *dequantScale,
-                      __global const float *dequantOffset,
+                      __global const FLOAT *dequantScaleOffset,
                       __global const FLOAT *bias,
                       __global FLOAT *output,
                       __private const int2 in_hw,
                       __private const int inChannel,
                       __private const int in_c_blocks,
+                      __private const int batch,
                       __private const int2 out_hw,
                       __private const int2 filter_hw,
                       __private const int2 stride_hw,
@@ -685,36 +687,31 @@ void conv_2d_int_c8h4w1(GLOBAL_SIZE_2_DIMS
                       __private const int2 dilate_hw,
                       __private const int out_w_blocks,
                       __private const int out_c_blocks,
-                      __private const int out_h_blocks) {
+                      __private const int out_h_blocks,
+                      __private const int blockDim,
+                      __private const float coef) {
     const int out_c_w_idx = get_global_id(0); //c/4 w
     const int out_b_h_idx  = get_global_id(1); //b h
 
     DEAL_NON_UNIFORM_DIM2(out_c_w_idx, out_b_h_idx);
 
-    const int out_c_idx = (out_c_w_idx / out_w_blocks) << 1;
+    const int out_c_idx_0 = (out_c_w_idx / out_w_blocks) << 1;
+    const int out_c_idx_1 = out_c_idx_0 + 1;
     const int out_w_idx = out_c_w_idx % out_w_blocks;
     const int out_b_idx = out_b_h_idx / out_h_blocks;//equal to in_b_idx
     const int out_h_idx = (out_b_h_idx % out_h_blocks) << 2;
     
-    const float4 dequantScaleC03 = vload4(out_c_idx, dequantScale);
-    const float4 dequantOffsetC03 = vload4(out_c_idx, dequantOffset);
-    const float4 dequantScaleC47 = vload4(out_c_idx + 1, dequantScale);
-    const float4 dequantOffsetC47 = vload4(out_c_idx + 1, dequantOffset);
-    
-    COMPUTE_FLOAT4 vbias0 = CONVERT_COMPUTE_FLOAT4(vload4(out_c_idx, bias));
-    COMPUTE_FLOAT4 out0 = (COMPUTE_FLOAT4)0;
-    COMPUTE_FLOAT4 out1 = out0;
-    COMPUTE_FLOAT4 out2 = out0;
-    COMPUTE_FLOAT4 out3 = out0;
-    COMPUTE_FLOAT4 vbias1 = CONVERT_COMPUTE_FLOAT4(vload4(out_c_idx + 1, bias));
-    COMPUTE_FLOAT4 out4 = (COMPUTE_FLOAT4)0;
-    COMPUTE_FLOAT4 out5 = out0;
-    COMPUTE_FLOAT4 out6 = out0;
-    COMPUTE_FLOAT4 out7 = out0;
-    COMPUTE_FLOAT sum0 = 0;
-    COMPUTE_FLOAT sum1 = 0;
-    COMPUTE_FLOAT sum2 = 0;
-    COMPUTE_FLOAT sum3 = 0;
+    COMPUTE_FLOAT4 bias0 = CONVERT_COMPUTE_FLOAT4(vload4(out_c_idx_0, bias));
+    COMPUTE_FLOAT4 out0 = bias0;
+    COMPUTE_FLOAT4 out1 = bias0;
+    COMPUTE_FLOAT4 out2 = bias0;
+    COMPUTE_FLOAT4 out3 = bias0;
+    // bias align to 8, no need boundry protect
+    COMPUTE_FLOAT4 bias1 = CONVERT_COMPUTE_FLOAT4(vload4(out_c_idx_1, bias));
+    COMPUTE_FLOAT4 out4 = bias1;
+    COMPUTE_FLOAT4 out5 = bias1;
+    COMPUTE_FLOAT4 out6 = bias1;
+    COMPUTE_FLOAT4 out7 = bias1;
 
     const int in_w_idx_base = mad24(out_w_idx, stride_hw.y, -pad_hw.y);
 
@@ -731,12 +728,32 @@ void conv_2d_int_c8h4w1(GLOBAL_SIZE_2_DIMS
     const int weight_ic_offset = out_c_blocks * weight_oc_offset;
     const int in_hw_size = in_hw.x * in_hw.y;
     for(ushort in_c_idx = 0; in_c_idx < in_c_blocks; in_c_idx++) {
+        #ifdef ASYMMETRIC
+        COMPUTE_FLOAT8 ScaleOffset0 = CONVERT_COMPUTE_FLOAT8(convert_float8(vload8(out_c_idx_0, dequantScaleOffset + (in_c_idx * 4) / blockDim * out_c_blocks * 8)) / coef);
+        #ifdef CHANNEL_BOUNDARY_PROTECT
+        COMPUTE_FLOAT8 ScaleOffset1 = out_c_idx_1 >= out_c_blocks ? (COMPUTE_FLOAT8)0 : CONVERT_COMPUTE_FLOAT8(convert_float8(vload8(out_c_idx_1, dequantScaleOffset + (in_c_idx * 4) / blockDim * out_c_blocks * 8)) / coef);
+        #else
+        COMPUTE_FLOAT8 ScaleOffset1 = CONVERT_COMPUTE_FLOAT8(convert_float8(vload8(out_c_idx_1, dequantScaleOffset + (in_c_idx * 4) / blockDim * out_c_blocks * 8)) / coef);
+        #endif
+        COMPUTE_FLOAT4 scale0 = (COMPUTE_FLOAT4)(ScaleOffset0.s0, ScaleOffset0.s2, ScaleOffset0.s4, ScaleOffset0.s6);
+        COMPUTE_FLOAT4 offset0 = (COMPUTE_FLOAT4)(ScaleOffset0.s1, ScaleOffset0.s3, ScaleOffset0.s5, ScaleOffset0.s7);
+        COMPUTE_FLOAT4 scale1 = (COMPUTE_FLOAT4)(ScaleOffset1.s0, ScaleOffset1.s2, ScaleOffset1.s4, ScaleOffset1.s6);
+        COMPUTE_FLOAT4 offset1 = (COMPUTE_FLOAT4)(ScaleOffset1.s1, ScaleOffset1.s3, ScaleOffset1.s5, ScaleOffset1.s7);
+        #else
+        COMPUTE_FLOAT4 scale0 = CONVERT_COMPUTE_FLOAT4(convert_float4(vload4(out_c_idx_0, dequantScaleOffset + (in_c_idx * 4) / blockDim * out_c_blocks * 4)) / coef);
+        #ifdef CHANNEL_BOUNDARY_PROTECT
+        COMPUTE_FLOAT4 scale1 = out_c_idx_1 >= out_c_blocks ? (COMPUTE_FLOAT4)0 : CONVERT_COMPUTE_FLOAT4(convert_float4(vload4(out_c_idx_1, dequantScaleOffset + (in_c_idx * 4) / blockDim * out_c_blocks * 4)) / coef);
+        #else
+        COMPUTE_FLOAT4 scale1 = CONVERT_COMPUTE_FLOAT4(convert_float4(vload4(out_c_idx_1, dequantScaleOffset + (in_c_idx * 4) / blockDim * out_c_blocks * 4)) / coef);
+        #endif
+        COMPUTE_FLOAT4 offset0 = 0,  offset1 = 0;
+        #endif
         //weights  NC4HW4  [1,  4*icC4,  ocC4*kh*kw,  1] xic4
-        //index:   [0, 4*in_c_idx, out_c_idx*kh*kw + kh_start*kw + kw_start, 0]
-        const int inp_offset_base = (out_b_idx * in_c_blocks + in_c_idx) * in_hw.x * in_hw.y * 4;
+        //index:   [0, 4*in_c_idx, out_c_idx_0*kh*kw + kh_start*kw + kw_start, 0]
+        const int inp_offset_base = (out_b_idx + in_c_idx*batch) * in_hw.x * in_hw.y * 4;
 
         for(int iy = 0; iy < filter_hw.x; iy++) {
-            int weight_offset = ((((4*in_c_idx+0)* out_c_blocks + out_c_idx) *filter_hw.x + iy)*filter_hw.y + kw_start) * 4;
+            int weight_offset = ((((4*in_c_idx+0)* out_c_blocks + out_c_idx_0) *filter_hw.x + iy)*filter_hw.y + kw_start) * 4;
             const int in_h0_idx = (iy * dilate_hw.x + in_h0_idx_base) * in_hw.y;
             const int in_h1_idx = (iy * dilate_hw.x + in_h1_idx_base) * in_hw.y;
             const int in_h2_idx = (iy * dilate_hw.x + in_h2_idx_base) * in_hw.y;
@@ -753,10 +770,10 @@ void conv_2d_int_c8h4w1(GLOBAL_SIZE_2_DIMS
                 char4 charWeight1 = vload4(0, weight+weight_offset+weight_ic_offset);
                 char4 charWeight2 = vload4(0, weight+weight_offset+weight_ic_offset*2);
                 char4 charWeight3 = vload4(0, weight+weight_offset+weight_ic_offset*3);
-                COMPUTE_FLOAT4 weight0 = CONVERT_COMPUTE_FLOAT4(charWeight0);
-                COMPUTE_FLOAT4 weight1 = CONVERT_COMPUTE_FLOAT4(charWeight1);
-                COMPUTE_FLOAT4 weight2 = CONVERT_COMPUTE_FLOAT4(charWeight2);
-                COMPUTE_FLOAT4 weight3 = CONVERT_COMPUTE_FLOAT4(charWeight3);
+                COMPUTE_FLOAT4 weight0 = CONVERT_COMPUTE_FLOAT4(charWeight0) * scale0 + offset0;
+                COMPUTE_FLOAT4 weight1 = CONVERT_COMPUTE_FLOAT4(charWeight1) * scale0 + offset0;
+                COMPUTE_FLOAT4 weight2 = CONVERT_COMPUTE_FLOAT4(charWeight2) * scale0 + offset0;
+                COMPUTE_FLOAT4 weight3 = CONVERT_COMPUTE_FLOAT4(charWeight3) * scale0 + offset0;
 #else
                 uchar2 charWeightInt40 = vload2(0, weight+weight_offset/2);
                 uchar2 charWeightInt41 = vload2(0, weight+weight_offset/2+weight_ic_offset/2);
@@ -782,16 +799,12 @@ void conv_2d_int_c8h4w1(GLOBAL_SIZE_2_DIMS
                 charWeight3.y = (charWeightInt43.s0 & MOD_NUM) - 8;
                 charWeight3.z = (charWeightInt43.s1 >> 4) - 8;
                 charWeight3.w = (charWeightInt43.s1 & MOD_NUM) - 8;
-                COMPUTE_FLOAT4 weight0 = CONVERT_COMPUTE_FLOAT4(charWeight0);
-                COMPUTE_FLOAT4 weight1 = CONVERT_COMPUTE_FLOAT4(charWeight1);
-                COMPUTE_FLOAT4 weight2 = CONVERT_COMPUTE_FLOAT4(charWeight2);
-                COMPUTE_FLOAT4 weight3 = CONVERT_COMPUTE_FLOAT4(charWeight3);
+                COMPUTE_FLOAT4 weight0 = CONVERT_COMPUTE_FLOAT4(charWeight0) * scale0 + offset0;
+                COMPUTE_FLOAT4 weight1 = CONVERT_COMPUTE_FLOAT4(charWeight1) * scale0 + offset0;
+                COMPUTE_FLOAT4 weight2 = CONVERT_COMPUTE_FLOAT4(charWeight2) * scale0 + offset0;
+                COMPUTE_FLOAT4 weight3 = CONVERT_COMPUTE_FLOAT4(charWeight3) * scale0 + offset0;
 #endif
-                
-                sum0 += (in0.x + in0.y + in0.z + in0.w);
-                sum1 += (in1.x + in1.y + in1.z + in1.w);
-                sum2 += (in2.x + in2.y + in2.z + in2.w);
-                sum3 += (in3.x + in3.y + in3.z + in3.w);
+                PADZEROSVEC(in_c_idx, inChannel, weight0, weight1, weight2, weight3);
 
                 out0 = mad(in0.x, weight0, out0);
                 out0 = mad(in0.y, weight1, out0);
@@ -814,14 +827,21 @@ void conv_2d_int_c8h4w1(GLOBAL_SIZE_2_DIMS
                 out3 = mad(in3.w, weight3, out3);
 
 #if (defined USE_LOW_BIT_WEIGHT_INT8)
+                #ifdef CHANNEL_BOUNDARY_PROTECT
+                charWeight0 = out_c_idx_1 >= out_c_blocks ? (char4)0 : vload4(0, weight+weight_offset+weight_oc_offset);
+                charWeight1 = out_c_idx_1 >= out_c_blocks ? (char4)0 : vload4(0, weight+weight_offset+weight_oc_offset+weight_ic_offset);
+                charWeight2 = out_c_idx_1 >= out_c_blocks ? (char4)0 : vload4(0, weight+weight_offset+weight_oc_offset+weight_ic_offset*2);
+                charWeight3 = out_c_idx_1 >= out_c_blocks ? (char4)0 : vload4(0, weight+weight_offset+weight_oc_offset+weight_ic_offset*3);
+                #else
                 charWeight0 = vload4(0, weight+weight_offset+weight_oc_offset);
                 charWeight1 = vload4(0, weight+weight_offset+weight_oc_offset+weight_ic_offset);
                 charWeight2 = vload4(0, weight+weight_offset+weight_oc_offset+weight_ic_offset*2);
                 charWeight3 = vload4(0, weight+weight_offset+weight_oc_offset+weight_ic_offset*3);
-                weight0 = CONVERT_COMPUTE_FLOAT4(charWeight0);
-                weight1 = CONVERT_COMPUTE_FLOAT4(charWeight1);
-                weight2 = CONVERT_COMPUTE_FLOAT4(charWeight2);
-                weight3 = CONVERT_COMPUTE_FLOAT4(charWeight3);
+                #endif
+                weight0 = CONVERT_COMPUTE_FLOAT4(charWeight0) * scale1 + offset1;
+                weight1 = CONVERT_COMPUTE_FLOAT4(charWeight1) * scale1 + offset1;
+                weight2 = CONVERT_COMPUTE_FLOAT4(charWeight2) * scale1 + offset1;
+                weight3 = CONVERT_COMPUTE_FLOAT4(charWeight3) * scale1 + offset1;
 #else
                 charWeightInt40 = vload2(0, weight+weight_offset/2+weight_oc_offset/2);
                 charWeightInt41 = vload2(0, weight+weight_offset/2+weight_oc_offset/2+weight_ic_offset/2);
@@ -847,11 +867,12 @@ void conv_2d_int_c8h4w1(GLOBAL_SIZE_2_DIMS
                 charWeight3.y = (charWeightInt43.s0 & MOD_NUM) - 8;
                 charWeight3.z = (charWeightInt43.s1 >> 4) - 8;
                 charWeight3.w = (charWeightInt43.s1 & MOD_NUM) - 8;
-                weight0 = CONVERT_COMPUTE_FLOAT4(charWeight0);
-                weight1 = CONVERT_COMPUTE_FLOAT4(charWeight1);
-                weight2 = CONVERT_COMPUTE_FLOAT4(charWeight2);
-                weight3 = CONVERT_COMPUTE_FLOAT4(charWeight3);
+                weight0 = CONVERT_COMPUTE_FLOAT4(charWeight0) * scale1 + offset1;
+                weight1 = CONVERT_COMPUTE_FLOAT4(charWeight1) * scale1 + offset1;
+                weight2 = CONVERT_COMPUTE_FLOAT4(charWeight2) * scale1 + offset1;
+                weight3 = CONVERT_COMPUTE_FLOAT4(charWeight3) * scale1 + offset1;
 #endif
+                PADZEROSVEC(in_c_idx, inChannel, weight0, weight1, weight2, weight3);
 
                 out4 = mad(in0.x, weight0, out4);
                 out4 = mad(in0.y, weight1, out4);
@@ -878,15 +899,6 @@ void conv_2d_int_c8h4w1(GLOBAL_SIZE_2_DIMS
         }
     }
 
-    out0 =  vbias0 + CONVERT_COMPUTE_FLOAT4(convert_float4(out0) * dequantScaleC03 + convert_float4((COMPUTE_FLOAT4)sum0) * dequantOffsetC03);
-    out1 =  vbias0 + CONVERT_COMPUTE_FLOAT4(convert_float4(out1) * dequantScaleC03 + convert_float4((COMPUTE_FLOAT4)sum1) * dequantOffsetC03);
-    out2 =  vbias0 + CONVERT_COMPUTE_FLOAT4(convert_float4(out2) * dequantScaleC03 + convert_float4((COMPUTE_FLOAT4)sum2) * dequantOffsetC03);
-    out3 =  vbias0 + CONVERT_COMPUTE_FLOAT4(convert_float4(out3) * dequantScaleC03 + convert_float4((COMPUTE_FLOAT4)sum3) * dequantOffsetC03);
-    out4 =  vbias1 + CONVERT_COMPUTE_FLOAT4(convert_float4(out4) * dequantScaleC47 + convert_float4((COMPUTE_FLOAT4)sum0) * dequantOffsetC47);
-    out5 =  vbias1 + CONVERT_COMPUTE_FLOAT4(convert_float4(out5) * dequantScaleC47 + convert_float4((COMPUTE_FLOAT4)sum1) * dequantOffsetC47);
-    out6 =  vbias1 + CONVERT_COMPUTE_FLOAT4(convert_float4(out6) * dequantScaleC47 + convert_float4((COMPUTE_FLOAT4)sum2) * dequantOffsetC47);
-    out7 =  vbias1 + CONVERT_COMPUTE_FLOAT4(convert_float4(out7) * dequantScaleC47 + convert_float4((COMPUTE_FLOAT4)sum3) * dequantOffsetC47);
-
 #ifdef RELU
     out0 = fmax(out0, (COMPUTE_FLOAT4)0);
     out1 = fmax(out1, (COMPUTE_FLOAT4)0);
@@ -909,7 +921,7 @@ void conv_2d_int_c8h4w1(GLOBAL_SIZE_2_DIMS
     out7 = clamp(out7, (COMPUTE_FLOAT4)0, (COMPUTE_FLOAT4)6);
 #endif
 
-    int out_offset = (((out_b_idx*out_c_blocks + out_c_idx)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
+    int out_offset = (((out_b_idx + out_c_idx_0*batch)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
 #ifdef BLOCK_LEAVE
     const int remain = out_hw.x - out_h_idx;
     if(remain >= 4){
@@ -927,12 +939,12 @@ void conv_2d_int_c8h4w1(GLOBAL_SIZE_2_DIMS
     }else if(remain == 1){
         vstore4(CONVERT_FLOAT4(out0), 0, output+out_offset);
     }
-#ifdef CHANNEL_LEAVE
-    if(out_c_idx + 1 >= out_c_blocks){
+#ifdef CHANNEL_BOUNDARY_PROTECT
+    if(out_c_idx_1 >= out_c_blocks){
         return;
     }
 #endif
-    out_offset = (((out_b_idx*out_c_blocks + out_c_idx + 1)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
+    out_offset = (((out_b_idx + out_c_idx_1*batch)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
     if(remain >= 4){
         vstore4(CONVERT_FLOAT4(out4), 0, output+out_offset);
         vstore4(CONVERT_FLOAT4(out5), out_hw.y, output+out_offset);
@@ -953,12 +965,12 @@ void conv_2d_int_c8h4w1(GLOBAL_SIZE_2_DIMS
     vstore4(CONVERT_FLOAT4(out1), out_hw.y, output+out_offset);
     vstore4(CONVERT_FLOAT4(out2), 2 * out_hw.y, output+out_offset);
     vstore4(CONVERT_FLOAT4(out3), 3 * out_hw.y, output+out_offset);
-#ifdef CHANNEL_LEAVE
-    if(out_c_idx + 1 >= out_c_blocks){
+#ifdef CHANNEL_BOUNDARY_PROTECT
+    if(out_c_idx_1 >= out_c_blocks){
         return;
     }
 #endif
-    out_offset = (((out_b_idx*out_c_blocks + out_c_idx + 1)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
+    out_offset = (((out_b_idx + out_c_idx_1*batch)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
     vstore4(CONVERT_FLOAT4(out4), 0, output+out_offset);
     vstore4(CONVERT_FLOAT4(out5), out_hw.y, output+out_offset);
     vstore4(CONVERT_FLOAT4(out6), 2 * out_hw.y, output+out_offset);
@@ -974,13 +986,13 @@ void conv_2d_int_c8h2w1(GLOBAL_SIZE_2_DIMS
 #else
                       __global const uchar *weight,
 #endif
-                      __global const float *dequantScale,
-                      __global const float *dequantOffset,
+                      __global const FLOAT *dequantScaleOffset,
                       __global const FLOAT *bias,
                       __global FLOAT *output,
                       __private const int2 in_hw,
                       __private const int inChannel,
                       __private const int in_c_blocks,
+                      __private const int batch,
                       __private const int2 out_hw,
                       __private const int2 filter_hw,
                       __private const int2 stride_hw,
@@ -988,30 +1000,27 @@ void conv_2d_int_c8h2w1(GLOBAL_SIZE_2_DIMS
                       __private const int2 dilate_hw,
                       __private const int out_w_blocks,
                       __private const int out_c_blocks,
-                      __private const int out_h_blocks) {
+                      __private const int out_h_blocks,
+                      __private const int blockDim,
+                      __private const float coef) {
     const int out_c_w_idx = get_global_id(0); //c/4 w
     const int out_b_h_idx  = get_global_id(1); //b h
 
     DEAL_NON_UNIFORM_DIM2(out_c_w_idx, out_b_h_idx);
 
-    const int out_c_idx = (out_c_w_idx / out_w_blocks) << 1;
+    const int out_c_idx_0 = (out_c_w_idx / out_w_blocks) << 1;
+    const int out_c_idx_1 = out_c_idx_0 + 1;
     const int out_w_idx = out_c_w_idx % out_w_blocks;
     const int out_b_idx = out_b_h_idx / out_h_blocks;//equal to in_b_idx
     const int out_h_idx = (out_b_h_idx % out_h_blocks) << 1;
-    
-    const float4 dequantScaleC03 = vload4(out_c_idx, dequantScale);
-    const float4 dequantOffsetC03 = vload4(out_c_idx, dequantOffset);
-    const float4 dequantScaleC47 = vload4(out_c_idx + 1, dequantScale);
-    const float4 dequantOffsetC47 = vload4(out_c_idx + 1, dequantOffset);
 
-    COMPUTE_FLOAT4 vbias0 = CONVERT_COMPUTE_FLOAT4(vload4(out_c_idx, bias));
-    COMPUTE_FLOAT4 out0 = (COMPUTE_FLOAT4)0;
-    COMPUTE_FLOAT4 out1 = out0;
-    COMPUTE_FLOAT4 vbias1 = CONVERT_COMPUTE_FLOAT4(vload4(out_c_idx + 1, bias));
-    COMPUTE_FLOAT4 out2 = (COMPUTE_FLOAT4)0;
-    COMPUTE_FLOAT4 out3 = out0;
-    COMPUTE_FLOAT sum0 = 0;
-    COMPUTE_FLOAT sum1 = 0;
+    COMPUTE_FLOAT4 bias0 = CONVERT_COMPUTE_FLOAT4(vload4(out_c_idx_0, bias));
+    COMPUTE_FLOAT4 out0 = bias0;
+    COMPUTE_FLOAT4 out1 = bias0;
+    // bias align to 8, no need boundry protect
+    COMPUTE_FLOAT4 bias1 = CONVERT_COMPUTE_FLOAT4(vload4(out_c_idx_1, bias));
+    COMPUTE_FLOAT4 out2 = bias1;
+    COMPUTE_FLOAT4 out3 = bias1;
 
     const int in_w_idx_base = mad24(out_w_idx, stride_hw.y, -pad_hw.y);
 
@@ -1027,12 +1036,32 @@ void conv_2d_int_c8h2w1(GLOBAL_SIZE_2_DIMS
     const int in_hw_size = in_hw.x * in_hw.y;
     // weight: [ic/4, oc, 4], loop: ic/4
     for(ushort in_c_idx = 0; in_c_idx < in_c_blocks; in_c_idx++) {
+        #ifdef ASYMMETRIC
+        COMPUTE_FLOAT8 ScaleOffset0 = CONVERT_COMPUTE_FLOAT8(convert_float8(vload8(out_c_idx_0, dequantScaleOffset + (in_c_idx * 4) / blockDim * out_c_blocks * 8)) / coef);
+        #ifdef CHANNEL_BOUNDARY_PROTECT
+        COMPUTE_FLOAT8 ScaleOffset1 = out_c_idx_1 >= out_c_blocks ? (COMPUTE_FLOAT8)0 : CONVERT_COMPUTE_FLOAT8(convert_float8(vload8(out_c_idx_1, dequantScaleOffset + (in_c_idx * 4) / blockDim * out_c_blocks * 8)) / coef);
+        #else
+        COMPUTE_FLOAT8 ScaleOffset1 = CONVERT_COMPUTE_FLOAT8(convert_float8(vload8(out_c_idx_1, dequantScaleOffset + (in_c_idx * 4) / blockDim * out_c_blocks * 8)) / coef);
+        #endif
+        COMPUTE_FLOAT4 scale0 = (COMPUTE_FLOAT4)(ScaleOffset0.s0, ScaleOffset0.s2, ScaleOffset0.s4, ScaleOffset0.s6);
+        COMPUTE_FLOAT4 offset0 = (COMPUTE_FLOAT4)(ScaleOffset0.s1, ScaleOffset0.s3, ScaleOffset0.s5, ScaleOffset0.s7);
+        COMPUTE_FLOAT4 scale1 = (COMPUTE_FLOAT4)(ScaleOffset1.s0, ScaleOffset1.s2, ScaleOffset1.s4, ScaleOffset1.s6);
+        COMPUTE_FLOAT4 offset1 = (COMPUTE_FLOAT4)(ScaleOffset1.s1, ScaleOffset1.s3, ScaleOffset1.s5, ScaleOffset1.s7);
+        #else
+        COMPUTE_FLOAT4 scale0 = CONVERT_COMPUTE_FLOAT4(convert_float4(vload4(out_c_idx_0, dequantScaleOffset + (in_c_idx * 4) / blockDim * out_c_blocks * 4)) / coef);
+        #ifdef CHANNEL_BOUNDARY_PROTECT
+        COMPUTE_FLOAT4 scale1 = out_c_idx_1 >= out_c_blocks ? (COMPUTE_FLOAT4)0 : CONVERT_COMPUTE_FLOAT4(convert_float4(vload4(out_c_idx_1, dequantScaleOffset + (in_c_idx * 4) / blockDim * out_c_blocks * 4)) / coef);
+        #else
+        COMPUTE_FLOAT4 scale1 = CONVERT_COMPUTE_FLOAT4(convert_float4(vload4(out_c_idx_1, dequantScaleOffset + (in_c_idx * 4) / blockDim * out_c_blocks * 4)) / coef);
+        #endif
+        COMPUTE_FLOAT4 offset0 = 0,  offset1 = 0;
+        #endif
         //weights  NC4HW4  [1,  4*icC4,  ocC4*kh*kw,  1] xic4
-        //index:   [0, 4*in_c_idx, out_c_idx*kh*kw + kh_start*kw + kw_start, 0]
-        const int inp_offset_base = (out_b_idx * in_c_blocks + in_c_idx) * in_hw.x * in_hw.y * 4;
+        //index:   [0, 4*in_c_idx, out_c_idx_0*kh*kw + kh_start*kw + kw_start, 0]
+        const int inp_offset_base = (out_b_idx + in_c_idx*batch) * in_hw.x * in_hw.y * 4;
 
         for(int iy = 0; iy < filter_hw.x; iy++) {
-            int weight_offset = ((((4*in_c_idx+0)* out_c_blocks + out_c_idx) *filter_hw.x + iy)*filter_hw.y + kw_start) * 4;
+            int weight_offset = ((((4*in_c_idx+0)* out_c_blocks + out_c_idx_0) *filter_hw.x + iy)*filter_hw.y + kw_start) * 4;
             const int in_h0_idx = (iy * dilate_hw.x + in_h0_idx_base) * in_hw.y;
             const int in_h1_idx = (iy * dilate_hw.x + in_h1_idx_base) * in_hw.y;
 
@@ -1044,10 +1073,10 @@ void conv_2d_int_c8h2w1(GLOBAL_SIZE_2_DIMS
                 char4 charWeight1 = vload4(0, weight+weight_offset+weight_ic_offset);
                 char4 charWeight2 = vload4(0, weight+weight_offset+weight_ic_offset*2);
                 char4 charWeight3 = vload4(0, weight+weight_offset+weight_ic_offset*3);
-                COMPUTE_FLOAT4 weight0 = CONVERT_COMPUTE_FLOAT4(charWeight0);
-                COMPUTE_FLOAT4 weight1 = CONVERT_COMPUTE_FLOAT4(charWeight1);
-                COMPUTE_FLOAT4 weight2 = CONVERT_COMPUTE_FLOAT4(charWeight2);
-                COMPUTE_FLOAT4 weight3 = CONVERT_COMPUTE_FLOAT4(charWeight3);
+                COMPUTE_FLOAT4 weight0 = CONVERT_COMPUTE_FLOAT4(charWeight0) * scale0 + offset0;
+                COMPUTE_FLOAT4 weight1 = CONVERT_COMPUTE_FLOAT4(charWeight1) * scale0 + offset0;
+                COMPUTE_FLOAT4 weight2 = CONVERT_COMPUTE_FLOAT4(charWeight2) * scale0 + offset0;
+                COMPUTE_FLOAT4 weight3 = CONVERT_COMPUTE_FLOAT4(charWeight3) * scale0 + offset0;
 #else
                 uchar2 charWeightInt40 = vload2(0, weight+weight_offset/2);
                 uchar2 charWeightInt41 = vload2(0, weight+weight_offset/2+weight_ic_offset/2);
@@ -1073,15 +1102,12 @@ void conv_2d_int_c8h2w1(GLOBAL_SIZE_2_DIMS
                 charWeight3.y = (charWeightInt43.s0 & MOD_NUM) - 8;
                 charWeight3.z = (charWeightInt43.s1 >> 4) - 8;
                 charWeight3.w = (charWeightInt43.s1 & MOD_NUM) - 8;
-                COMPUTE_FLOAT4 weight0 = CONVERT_COMPUTE_FLOAT4(charWeight0);
-                COMPUTE_FLOAT4 weight1 = CONVERT_COMPUTE_FLOAT4(charWeight1);
-                COMPUTE_FLOAT4 weight2 = CONVERT_COMPUTE_FLOAT4(charWeight2);
-                COMPUTE_FLOAT4 weight3 = CONVERT_COMPUTE_FLOAT4(charWeight3);
+                COMPUTE_FLOAT4 weight0 = CONVERT_COMPUTE_FLOAT4(charWeight0) * scale0 + offset0;
+                COMPUTE_FLOAT4 weight1 = CONVERT_COMPUTE_FLOAT4(charWeight1) * scale0 + offset0;
+                COMPUTE_FLOAT4 weight2 = CONVERT_COMPUTE_FLOAT4(charWeight2) * scale0 + offset0;
+                COMPUTE_FLOAT4 weight3 = CONVERT_COMPUTE_FLOAT4(charWeight3) * scale0 + offset0;
 #endif
-
-                sum0 += (in0.x + in0.y + in0.z + in0.w);
-                sum1 += (in1.x + in1.y + in1.z + in1.w);
-
+                PADZEROSVEC(in_c_idx, inChannel, weight0, weight1, weight2, weight3);
                 out0 = mad(in0.x, weight0, out0);
                 out0 = mad(in0.y, weight1, out0);
                 out0 = mad(in0.z, weight2, out0);
@@ -1093,14 +1119,21 @@ void conv_2d_int_c8h2w1(GLOBAL_SIZE_2_DIMS
                 out1 = mad(in1.w, weight3, out1);
                 
 #if (defined USE_LOW_BIT_WEIGHT_INT8)
+                #ifdef CHANNEL_BOUNDARY_PROTECT
+                charWeight0 = out_c_idx_1 >= out_c_blocks ? (char4)0 : vload4(0, weight+weight_offset+weight_oc_offset);
+                charWeight1 = out_c_idx_1 >= out_c_blocks ? (char4)0 : vload4(0, weight+weight_offset+weight_oc_offset+weight_ic_offset);
+                charWeight2 = out_c_idx_1 >= out_c_blocks ? (char4)0 : vload4(0, weight+weight_offset+weight_oc_offset+weight_ic_offset*2);
+                charWeight3 = out_c_idx_1 >= out_c_blocks ? (char4)0 : vload4(0, weight+weight_offset+weight_oc_offset+weight_ic_offset*3);
+                #else
                 charWeight0 = vload4(0, weight+weight_offset+weight_oc_offset);
                 charWeight1 = vload4(0, weight+weight_offset+weight_oc_offset+weight_ic_offset);
                 charWeight2 = vload4(0, weight+weight_offset+weight_oc_offset+weight_ic_offset*2);
                 charWeight3 = vload4(0, weight+weight_offset+weight_oc_offset+weight_ic_offset*3);
-                weight0 = CONVERT_COMPUTE_FLOAT4(charWeight0);
-                weight1 = CONVERT_COMPUTE_FLOAT4(charWeight1);
-                weight2 = CONVERT_COMPUTE_FLOAT4(charWeight2);
-                weight3 = CONVERT_COMPUTE_FLOAT4(charWeight3);
+                #endif
+                weight0 = CONVERT_COMPUTE_FLOAT4(charWeight0) * scale1 + offset1;
+                weight1 = CONVERT_COMPUTE_FLOAT4(charWeight1) * scale1 + offset1;
+                weight2 = CONVERT_COMPUTE_FLOAT4(charWeight2) * scale1 + offset1;
+                weight3 = CONVERT_COMPUTE_FLOAT4(charWeight3) * scale1 + offset1;
 #else
                 charWeightInt40 = vload2(0, weight+weight_offset/2+weight_oc_offset/2);
                 charWeightInt41 = vload2(0, weight+weight_offset/2+weight_oc_offset/2+weight_ic_offset/2);
@@ -1126,11 +1159,12 @@ void conv_2d_int_c8h2w1(GLOBAL_SIZE_2_DIMS
                 charWeight3.y = (charWeightInt43.s0& MOD_NUM) - 8;
                 charWeight3.z = (charWeightInt43.s1 >> 4) - 8;
                 charWeight3.w = (charWeightInt43.s1& MOD_NUM) - 8;
-                weight0 = CONVERT_COMPUTE_FLOAT4(charWeight0);
-                weight1 = CONVERT_COMPUTE_FLOAT4(charWeight1);
-                weight2 = CONVERT_COMPUTE_FLOAT4(charWeight2);
-                weight3 = CONVERT_COMPUTE_FLOAT4(charWeight3);
-#endif                
+                weight0 = CONVERT_COMPUTE_FLOAT4(charWeight0) * scale1 + offset1;
+                weight1 = CONVERT_COMPUTE_FLOAT4(charWeight1) * scale1 + offset1;
+                weight2 = CONVERT_COMPUTE_FLOAT4(charWeight2) * scale1 + offset1;
+                weight3 = CONVERT_COMPUTE_FLOAT4(charWeight3) * scale1 + offset1;
+#endif
+                PADZEROSVEC(in_c_idx, inChannel, weight0, weight1, weight2, weight3);
                 out2 = mad(in0.x, weight0, out2);
                 out2 = mad(in0.y, weight1, out2);
                 out2 = mad(in0.z, weight2, out2);
@@ -1146,11 +1180,6 @@ void conv_2d_int_c8h2w1(GLOBAL_SIZE_2_DIMS
         }
     }
 
-    out0 =  vbias0 + CONVERT_COMPUTE_FLOAT4(convert_float4(out0) * dequantScaleC03 + convert_float4((COMPUTE_FLOAT4)sum0) * dequantOffsetC03);
-    out1 =  vbias0 + CONVERT_COMPUTE_FLOAT4(convert_float4(out1) * dequantScaleC03 + convert_float4((COMPUTE_FLOAT4)sum1) * dequantOffsetC03);
-    out2 =  vbias1 + CONVERT_COMPUTE_FLOAT4(convert_float4(out2) * dequantScaleC47 + convert_float4((COMPUTE_FLOAT4)sum0) * dequantOffsetC47);
-    out3 =  vbias1 + CONVERT_COMPUTE_FLOAT4(convert_float4(out3) * dequantScaleC47 + convert_float4((COMPUTE_FLOAT4)sum1) * dequantOffsetC47);
-
 #ifdef RELU
     out0 = fmax(out0, (COMPUTE_FLOAT4)0);
     out1 = fmax(out1, (COMPUTE_FLOAT4)0);
@@ -1165,7 +1194,7 @@ void conv_2d_int_c8h2w1(GLOBAL_SIZE_2_DIMS
     out3 = clamp(out3, (COMPUTE_FLOAT4)0, (COMPUTE_FLOAT4)6);
 #endif
 
-    int out_offset = (((out_b_idx*out_c_blocks + out_c_idx)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
+    int out_offset = (((out_b_idx + out_c_idx_0*batch)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
 #ifdef BLOCK_LEAVE
     const int remain = out_hw.x - out_h_idx;
     if(remain >= 2){
@@ -1174,12 +1203,12 @@ void conv_2d_int_c8h2w1(GLOBAL_SIZE_2_DIMS
     }else if(remain == 1){
         vstore4(CONVERT_FLOAT4(out0), 0, output+out_offset);
     }
-#ifdef CHANNEL_LEAVE
-    if(out_c_idx + 1 >= out_c_blocks){
+#ifdef CHANNEL_BOUNDARY_PROTECT
+    if(out_c_idx_1 >= out_c_blocks){
         return;
     }
 #endif
-    out_offset = (((out_b_idx*out_c_blocks + out_c_idx + 1)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
+    out_offset = (((out_b_idx + out_c_idx_1*batch)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
     if(remain >= 2){
         vstore4(CONVERT_FLOAT4(out2), 0, output+out_offset);
         vstore4(CONVERT_FLOAT4(out3), out_hw.y, output+out_offset);
@@ -1189,12 +1218,12 @@ void conv_2d_int_c8h2w1(GLOBAL_SIZE_2_DIMS
 #else
     vstore4(CONVERT_FLOAT4(out0), 0, output+out_offset);
     vstore4(CONVERT_FLOAT4(out1), out_hw.y, output+out_offset);
-#ifdef CHANNEL_LEAVE
-    if(out_c_idx + 1 >= out_c_blocks){
+#ifdef CHANNEL_BOUNDARY_PROTECT
+    if(out_c_idx_1 >= out_c_blocks){
         return;
     }
 #endif
-    out_offset = (((out_b_idx*out_c_blocks + out_c_idx + 1)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
+    out_offset = (((out_b_idx + out_c_idx_1*batch)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
     vstore4(CONVERT_FLOAT4(out2), 0, output+out_offset);
     vstore4(CONVERT_FLOAT4(out3), out_hw.y, output+out_offset);
 #endif
@@ -1208,13 +1237,13 @@ void conv_2d_int_c8h1w4(GLOBAL_SIZE_2_DIMS
 #else
                       __global const uchar *weight,
 #endif
-                      __global const float *dequantScale,
-                      __global const float *dequantOffset,
+                      __global const FLOAT *dequantScaleOffset,
                       __global const FLOAT *bias,
                       __global FLOAT *output,
                       __private const int2 in_hw,
                       __private const int inChannel,
                       __private const int in_c_blocks,
+                      __private const int batch,
                       __private const int2 out_hw,
                       __private const int2 filter_hw,
                       __private const int2 stride_hw,
@@ -1222,36 +1251,31 @@ void conv_2d_int_c8h1w4(GLOBAL_SIZE_2_DIMS
                       __private const int2 dilate_hw,
                       __private const int out_w_blocks,
                       __private const int out_c_blocks,
-                      __private const int out_h_blocks) {
+                      __private const int out_h_blocks,
+                      __private const int blockDim,
+                      __private const float coef) {
     const int out_c_w_idx = get_global_id(0); //c/4 w
     const int out_b_h_idx  = get_global_id(1); //b h
 
     DEAL_NON_UNIFORM_DIM2(out_c_w_idx, out_b_h_idx);
 
-    const int out_c_idx = (out_c_w_idx / out_w_blocks) << 1;
+    const int out_c_idx_0 = (out_c_w_idx / out_w_blocks) << 1;
+    const int out_c_idx_1 = out_c_idx_0 + 1;
     const int out_w_idx = (out_c_w_idx % out_w_blocks) << 2;
     const int out_b_idx = out_b_h_idx / out_hw.x;//equal to in_b_idx
     const int out_h_idx = out_b_h_idx % out_hw.x;
     
-    const float4 dequantScaleC03 = vload4(out_c_idx, dequantScale);
-    const float4 dequantOffsetC03 = vload4(out_c_idx, dequantOffset);
-    const float4 dequantScaleC47 = vload4(out_c_idx + 1, dequantScale);
-    const float4 dequantOffsetC47 = vload4(out_c_idx + 1, dequantOffset);
-    
-    COMPUTE_FLOAT4 vbias0 = CONVERT_COMPUTE_FLOAT4(vload4(out_c_idx, bias));
-    COMPUTE_FLOAT4 out0 = (COMPUTE_FLOAT4)0;
-    COMPUTE_FLOAT4 out1 = out0;
-    COMPUTE_FLOAT4 out2 = out0;
-    COMPUTE_FLOAT4 out3 = out0;
-    COMPUTE_FLOAT4 vbias1 = CONVERT_COMPUTE_FLOAT4(vload4(out_c_idx + 1, bias));
-    COMPUTE_FLOAT4 out4 = (COMPUTE_FLOAT4)0;
-    COMPUTE_FLOAT4 out5 = out0;
-    COMPUTE_FLOAT4 out6 = out0;
-    COMPUTE_FLOAT4 out7 = out0;
-    COMPUTE_FLOAT sum0 = 0;
-    COMPUTE_FLOAT sum1 = 0;
-    COMPUTE_FLOAT sum2 = 0;
-    COMPUTE_FLOAT sum3 = 0;
+    COMPUTE_FLOAT4 bias0 = CONVERT_COMPUTE_FLOAT4(vload4(out_c_idx_0, bias));
+    COMPUTE_FLOAT4 out0 = bias0;
+    COMPUTE_FLOAT4 out1 = bias0;
+    COMPUTE_FLOAT4 out2 = bias0;
+    COMPUTE_FLOAT4 out3 = bias0;
+    // bias align to 8, no need boundry protect
+    COMPUTE_FLOAT4 bias1 = CONVERT_COMPUTE_FLOAT4(vload4(out_c_idx_1, bias));
+    COMPUTE_FLOAT4 out4 = bias1;
+    COMPUTE_FLOAT4 out5 = bias1;
+    COMPUTE_FLOAT4 out6 = bias1;
+    COMPUTE_FLOAT4 out7 = bias1;
 
     const int in_w0_idx_base = mad24(out_w_idx, stride_hw.y, -pad_hw.y);
     const int in_w1_idx_base = in_w0_idx_base + stride_hw.y;
@@ -1267,12 +1291,32 @@ void conv_2d_int_c8h1w4(GLOBAL_SIZE_2_DIMS
     const int weight_oc_offset = filter_hw.x * filter_hw.y * 4;
     const int weight_ic_offset = out_c_blocks * weight_oc_offset;
     for(ushort in_c_idx = 0; in_c_idx < in_c_blocks; in_c_idx++) {
+        #ifdef ASYMMETRIC
+        COMPUTE_FLOAT8 ScaleOffset0 = CONVERT_COMPUTE_FLOAT8(convert_float8(vload8(out_c_idx_0, dequantScaleOffset + (in_c_idx * 4) / blockDim * out_c_blocks * 8)) / coef);
+        #ifdef CHANNEL_BOUNDARY_PROTECT
+        COMPUTE_FLOAT8 ScaleOffset1 = out_c_idx_1 >= out_c_blocks ? (COMPUTE_FLOAT8)0 : CONVERT_COMPUTE_FLOAT8(convert_float8(vload8(out_c_idx_1, dequantScaleOffset + (in_c_idx * 4) / blockDim * out_c_blocks * 8)) / coef);
+        #else
+        COMPUTE_FLOAT8 ScaleOffset1 = CONVERT_COMPUTE_FLOAT8(convert_float8(vload8(out_c_idx_1, dequantScaleOffset + (in_c_idx * 4) / blockDim * out_c_blocks * 8)) / coef);
+        #endif
+        COMPUTE_FLOAT4 scale0 = (COMPUTE_FLOAT4)(ScaleOffset0.s0, ScaleOffset0.s2, ScaleOffset0.s4, ScaleOffset0.s6);
+        COMPUTE_FLOAT4 offset0 = (COMPUTE_FLOAT4)(ScaleOffset0.s1, ScaleOffset0.s3, ScaleOffset0.s5, ScaleOffset0.s7);
+        COMPUTE_FLOAT4 scale1 = (COMPUTE_FLOAT4)(ScaleOffset1.s0, ScaleOffset1.s2, ScaleOffset1.s4, ScaleOffset1.s6);
+        COMPUTE_FLOAT4 offset1 = (COMPUTE_FLOAT4)(ScaleOffset1.s1, ScaleOffset1.s3, ScaleOffset1.s5, ScaleOffset1.s7);
+        #else
+        COMPUTE_FLOAT4 scale0 = CONVERT_COMPUTE_FLOAT4(convert_float4(vload4(out_c_idx_0, dequantScaleOffset + (in_c_idx * 4) / blockDim * out_c_blocks * 4)) / coef);
+        #ifdef CHANNEL_BOUNDARY_PROTECT
+        COMPUTE_FLOAT4 scale1 = out_c_idx_1 >= out_c_blocks ? (COMPUTE_FLOAT4)0 : CONVERT_COMPUTE_FLOAT4(convert_float4(vload4(out_c_idx_1, dequantScaleOffset + (in_c_idx * 4) / blockDim * out_c_blocks * 4)) / coef);
+        #else
+        COMPUTE_FLOAT4 scale1 = CONVERT_COMPUTE_FLOAT4(convert_float4(vload4(out_c_idx_1, dequantScaleOffset + (in_c_idx * 4) / blockDim * out_c_blocks * 4)) / coef);
+        #endif
+        COMPUTE_FLOAT4 offset0 = 0,  offset1 = 0;
+        #endif
         //weights  NC4HW4  [1,  4*icC4,  ocC4*kh*kw,  1] xic4
-        //index:   [0, 4*in_c_idx, out_c_idx*kh*kw + kh_start*kw + kw_start, 0]
-        int weight_offset = ((((4*in_c_idx+0)* out_c_blocks + out_c_idx) *filter_hw.x + kh_start)*filter_hw.y + 0) * 4;
+        //index:   [0, 4*in_c_idx, out_c_idx_0*kh*kw + kh_start*kw + kw_start, 0]
+        int weight_offset = ((((4*in_c_idx+0)* out_c_blocks + out_c_idx_0) *filter_hw.x + kh_start)*filter_hw.y + 0) * 4;
 
         for(int iy = in_h_idx_start; iy < in_h_idx_end; iy += dilate_hw.x) {
-            const int inp_offset_base = (((out_b_idx * in_c_blocks + in_c_idx) * in_hw.x + iy) * in_hw.y + 0) * 4;
+            const int inp_offset_base = (((out_b_idx + in_c_idx*batch) * in_hw.x + iy) * in_hw.y + 0) * 4;
 
             for(int fw = 0; fw < filter_hw.y; fw++) {
                 const int in_w0_idx = fw * dilate_hw.y + in_w0_idx_base;
@@ -1290,10 +1334,10 @@ void conv_2d_int_c8h1w4(GLOBAL_SIZE_2_DIMS
                 char4 charWeight1 = vload4(0, weight+weight_offset+weight_ic_offset);
                 char4 charWeight2 = vload4(0, weight+weight_offset+weight_ic_offset*2);
                 char4 charWeight3 = vload4(0, weight+weight_offset+weight_ic_offset*3);
-                COMPUTE_FLOAT4 weight0 = CONVERT_COMPUTE_FLOAT4(charWeight0);
-                COMPUTE_FLOAT4 weight1 = CONVERT_COMPUTE_FLOAT4(charWeight1);
-                COMPUTE_FLOAT4 weight2 = CONVERT_COMPUTE_FLOAT4(charWeight2);
-                COMPUTE_FLOAT4 weight3 = CONVERT_COMPUTE_FLOAT4(charWeight3);
+                COMPUTE_FLOAT4 weight0 = CONVERT_COMPUTE_FLOAT4(charWeight0) * scale0 + offset0;
+                COMPUTE_FLOAT4 weight1 = CONVERT_COMPUTE_FLOAT4(charWeight1) * scale0 + offset0;
+                COMPUTE_FLOAT4 weight2 = CONVERT_COMPUTE_FLOAT4(charWeight2) * scale0 + offset0;
+                COMPUTE_FLOAT4 weight3 = CONVERT_COMPUTE_FLOAT4(charWeight3) * scale0 + offset0;
 #else
                 uchar2 charWeightInt40 = vload2(0, weight+weight_offset/2);
                 uchar2 charWeightInt41 = vload2(0, weight+weight_offset/2+weight_ic_offset/2);
@@ -1319,16 +1363,12 @@ void conv_2d_int_c8h1w4(GLOBAL_SIZE_2_DIMS
                 charWeight3.y = (charWeightInt43.s0 & MOD_NUM) - 8;
                 charWeight3.z = (charWeightInt43.s1 >> 4) - 8;
                 charWeight3.w = (charWeightInt43.s1 & MOD_NUM) - 8;
-                COMPUTE_FLOAT4 weight0 = CONVERT_COMPUTE_FLOAT4(charWeight0);
-                COMPUTE_FLOAT4 weight1 = CONVERT_COMPUTE_FLOAT4(charWeight1);
-                COMPUTE_FLOAT4 weight2 = CONVERT_COMPUTE_FLOAT4(charWeight2);
-                COMPUTE_FLOAT4 weight3 = CONVERT_COMPUTE_FLOAT4(charWeight3);
+                COMPUTE_FLOAT4 weight0 = CONVERT_COMPUTE_FLOAT4(charWeight0) * scale0 + offset0;
+                COMPUTE_FLOAT4 weight1 = CONVERT_COMPUTE_FLOAT4(charWeight1) * scale0 + offset0;
+                COMPUTE_FLOAT4 weight2 = CONVERT_COMPUTE_FLOAT4(charWeight2) * scale0 + offset0;
+                COMPUTE_FLOAT4 weight3 = CONVERT_COMPUTE_FLOAT4(charWeight3) * scale0 + offset0;
 #endif
-
-                sum0 += (in0.x + in0.y + in0.z + in0.w);
-                sum1 += (in1.x + in1.y + in1.z + in1.w);
-                sum2 += (in2.x + in2.y + in2.z + in2.w);
-                sum3 += (in3.x + in3.y + in3.z + in3.w);
+                PADZEROSVEC(in_c_idx, inChannel, weight0, weight1, weight2, weight3);
 
                 out0 = mad(in0.x, weight0, out0);
                 out0 = mad(in0.y, weight1, out0);
@@ -1351,14 +1391,21 @@ void conv_2d_int_c8h1w4(GLOBAL_SIZE_2_DIMS
                 out3 = mad(in3.w, weight3, out3);
                 
 #if (defined USE_LOW_BIT_WEIGHT_INT8)
+                #ifdef CHANNEL_BOUNDARY_PROTECT
+                charWeight0 = out_c_idx_1 >= out_c_blocks ? (char4)0 : vload4(0, weight+weight_offset+weight_oc_offset);
+                charWeight1 = out_c_idx_1 >= out_c_blocks ? (char4)0 : vload4(0, weight+weight_offset+weight_oc_offset+weight_ic_offset);
+                charWeight2 = out_c_idx_1 >= out_c_blocks ? (char4)0 : vload4(0, weight+weight_offset+weight_oc_offset+weight_ic_offset*2);
+                charWeight3 = out_c_idx_1 >= out_c_blocks ? (char4)0 : vload4(0, weight+weight_offset+weight_oc_offset+weight_ic_offset*3);
+                #else
                 charWeight0 = vload4(0, weight+weight_offset+weight_oc_offset);
                 charWeight1 = vload4(0, weight+weight_offset+weight_oc_offset+weight_ic_offset);
                 charWeight2 = vload4(0, weight+weight_offset+weight_oc_offset+weight_ic_offset*2);
                 charWeight3 = vload4(0, weight+weight_offset+weight_oc_offset+weight_ic_offset*3);
-                weight0 = CONVERT_COMPUTE_FLOAT4(charWeight0);
-                weight1 = CONVERT_COMPUTE_FLOAT4(charWeight1);
-                weight2 = CONVERT_COMPUTE_FLOAT4(charWeight2);
-                weight3 = CONVERT_COMPUTE_FLOAT4(charWeight3);
+                #endif
+                weight0 = CONVERT_COMPUTE_FLOAT4(charWeight0) * scale1 + offset1;
+                weight1 = CONVERT_COMPUTE_FLOAT4(charWeight1) * scale1 + offset1;
+                weight2 = CONVERT_COMPUTE_FLOAT4(charWeight2) * scale1 + offset1;
+                weight3 = CONVERT_COMPUTE_FLOAT4(charWeight3) * scale1 + offset1;
 #else
                 charWeightInt40 = vload2(0, weight+weight_offset/2+weight_oc_offset/2);
                 charWeightInt41 = vload2(0, weight+weight_offset/2+weight_oc_offset/2+weight_ic_offset/2);
@@ -1384,11 +1431,12 @@ void conv_2d_int_c8h1w4(GLOBAL_SIZE_2_DIMS
                 charWeight3.y = (charWeightInt43.s0 & MOD_NUM) - 8;
                 charWeight3.z = (charWeightInt43.s1 >> 4) - 8;
                 charWeight3.w = (charWeightInt43.s1 & MOD_NUM) - 8;
-                weight0 = CONVERT_COMPUTE_FLOAT4(charWeight0);
-                weight1 = CONVERT_COMPUTE_FLOAT4(charWeight1);
-                weight2 = CONVERT_COMPUTE_FLOAT4(charWeight2);
-                weight3 = CONVERT_COMPUTE_FLOAT4(charWeight3);
+                weight0 = CONVERT_COMPUTE_FLOAT4(charWeight0) * scale1 + offset1;
+                weight1 = CONVERT_COMPUTE_FLOAT4(charWeight1) * scale1 + offset1;
+                weight2 = CONVERT_COMPUTE_FLOAT4(charWeight2) * scale1 + offset1;
+                weight3 = CONVERT_COMPUTE_FLOAT4(charWeight3) * scale1 + offset1;
 #endif
+                PADZEROSVEC(in_c_idx, inChannel, weight0, weight1, weight2, weight3);
                 
                 out4 = mad(in0.x, weight0, out4);
                 out4 = mad(in0.y, weight1, out4);
@@ -1415,15 +1463,6 @@ void conv_2d_int_c8h1w4(GLOBAL_SIZE_2_DIMS
         }
     }
 
-    out0 =  vbias0 + CONVERT_COMPUTE_FLOAT4(convert_float4(out0) * dequantScaleC03 + convert_float4((COMPUTE_FLOAT4)sum0) * dequantOffsetC03);
-    out1 =  vbias0 + CONVERT_COMPUTE_FLOAT4(convert_float4(out1) * dequantScaleC03 + convert_float4((COMPUTE_FLOAT4)sum1) * dequantOffsetC03);
-    out2 =  vbias0 + CONVERT_COMPUTE_FLOAT4(convert_float4(out2) * dequantScaleC03 + convert_float4((COMPUTE_FLOAT4)sum2) * dequantOffsetC03);
-    out3 =  vbias0 + CONVERT_COMPUTE_FLOAT4(convert_float4(out3) * dequantScaleC03 + convert_float4((COMPUTE_FLOAT4)sum3) * dequantOffsetC03);
-    out4 =  vbias1 + CONVERT_COMPUTE_FLOAT4(convert_float4(out4) * dequantScaleC47 + convert_float4((COMPUTE_FLOAT4)sum0) * dequantOffsetC47);
-    out5 =  vbias1 + CONVERT_COMPUTE_FLOAT4(convert_float4(out5) * dequantScaleC47 + convert_float4((COMPUTE_FLOAT4)sum1) * dequantOffsetC47);
-    out6 =  vbias1 + CONVERT_COMPUTE_FLOAT4(convert_float4(out6) * dequantScaleC47 + convert_float4((COMPUTE_FLOAT4)sum2) * dequantOffsetC47);
-    out7 =  vbias1 + CONVERT_COMPUTE_FLOAT4(convert_float4(out7) * dequantScaleC47 + convert_float4((COMPUTE_FLOAT4)sum3) * dequantOffsetC47);
-
 #ifdef RELU
     out0 = fmax(out0, (COMPUTE_FLOAT4)0);
     out1 = fmax(out1, (COMPUTE_FLOAT4)0);
@@ -1446,7 +1485,7 @@ void conv_2d_int_c8h1w4(GLOBAL_SIZE_2_DIMS
     out7 = clamp(out7, (COMPUTE_FLOAT4)0, (COMPUTE_FLOAT4)6);
 #endif
 
-    int out_offset = (((out_b_idx*out_c_blocks + out_c_idx)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
+    int out_offset = (((out_b_idx + out_c_idx_0*batch)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
 #ifdef BLOCK_LEAVE
     const int remain = out_hw.y - out_w_idx;
     if(remain >= 4){
@@ -1459,10 +1498,10 @@ void conv_2d_int_c8h1w4(GLOBAL_SIZE_2_DIMS
     }else if(remain == 1){
         vstore4(CONVERT_FLOAT4(out0), 0, output+out_offset);
     }
-#ifdef CHANNEL_LEAVE
-    if(out_c_idx + 1 >= out_c_blocks)return;
+#ifdef CHANNEL_BOUNDARY_PROTECT
+    if(out_c_idx_1 >= out_c_blocks)return;
 #endif
-    out_offset = (((out_b_idx*out_c_blocks + out_c_idx + 1)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
+    out_offset = (((out_b_idx + out_c_idx_1*batch)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
     if(remain >= 4){
         vstore16(CONVERT_FLOAT16((COMPUTE_FLOAT16)(out4, out5, out6, out7)), 0, output+out_offset);
     }else if(remain == 3){
@@ -1475,10 +1514,10 @@ void conv_2d_int_c8h1w4(GLOBAL_SIZE_2_DIMS
     }
 #else
     vstore16(CONVERT_FLOAT16((COMPUTE_FLOAT16)(out0, out1, out2, out3)), 0, output+out_offset);
-#ifdef CHANNEL_LEAVE
-    if(out_c_idx + 1 >= out_c_blocks)return;
+#ifdef CHANNEL_BOUNDARY_PROTECT
+    if(out_c_idx_1 >= out_c_blocks)return;
 #endif
-    out_offset = (((out_b_idx*out_c_blocks + out_c_idx + 1)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
+    out_offset = (((out_b_idx + out_c_idx_1*batch)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
     vstore16(CONVERT_FLOAT16((COMPUTE_FLOAT16)(out4, out5, out6, out7)), 0, output+out_offset);
 #endif
 }

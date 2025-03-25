@@ -22,6 +22,7 @@ CPUEltwise::CPUEltwise(Backend *b, EltwiseType type, std::vector<float> coef) : 
 }
 
 ErrorCode CPUEltwise::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
+    MNN_ASSERT(inputs.size() > 1);
     auto inputTensor = inputs[0];
     const int size   = static_cast<CPUBackend*>(backend())->getTensorSize(inputTensor);
     auto core = static_cast<CPUBackend*>(backend())->functions();

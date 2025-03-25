@@ -18,8 +18,7 @@
 namespace MNN {
 class VulkanDevice : public NonCopyable {
 public:
-    explicit VulkanDevice(std::shared_ptr<VulkanInstance> instance,
-                          const std::vector<const char*>& device_extensions = {});
+    explicit VulkanDevice(std::shared_ptr<VulkanInstance> instance);
     explicit VulkanDevice(std::shared_ptr<VulkanInstance> instance, VkPhysicalDevice physicalDevice, VkDevice device,
                           uint32_t queueFamilyIndex, VkQueue queue);
     virtual ~VulkanDevice();
@@ -172,6 +171,10 @@ public:
         }
     }
 
+    uint32_t getSubgroupSize() const {
+        return mSubgroupSize;
+    }
+
 private:
     const VkResult enumerateDeviceExtensionProperties(const VkPhysicalDevice& dev,
                                                       std::vector<VkExtensionProperties>& exts_props) const;
@@ -185,6 +188,7 @@ private:
     VkPhysicalDeviceProperties mDeviceProty;
     VkQueue mQueue;
     VkPhysicalDeviceMemoryProperties mMemoryProty;
+    uint32_t mSubgroupSize;
 };
 } // namespace MNN
 #endif /* VulkanDevice_hpp */

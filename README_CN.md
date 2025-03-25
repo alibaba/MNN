@@ -2,9 +2,15 @@
 
 [English Version](README.md)
 
+[日本語バージョン](README_JP.md)
+
 [MNN Homepage](http://www.mnn.zone)
 
 [MNN](https://github.com/alibaba/MNN)是一个轻量级的深度神经网络引擎，支持深度学习的推理与训练。适用于服务器/个人电脑/手机/嵌入式各类设备。目前，MNN已经在阿里巴巴的手机淘宝、手机天猫、优酷等30多个App中使用，覆盖直播、短视频、搜索推荐、商品图像搜索、互动营销、权益发放、安全风控等场景。
+
+[MNN-LLM](https://github.com/alibaba/MNN/tree/master/transformers/llm)是基于MNN引擎开发的大语言模型运行方案，解决大语言模型在本地设备的高效部署问题(手机/个人电脑/嵌入式设备)。支持常见的千问/百川/智谱/LLAMA等大语言模型。使用教程：[MNN-LLM使用教程](https://mnn-docs.readthedocs.io/en/latest/transformers/llm.html)
+
+[MNN-Diffusion](https://github.com/alibaba/MNN/tree/master/transformers/diffusion)是基于MNN引擎开发的Stable Diffusion文生图模型运行方案，解决Stable Diffusion模型在本地设备的高效部署问题。使用教程：[MNN-Diffusion使用教程](https://mnn-docs.readthedocs.io/en/latest/transformers/diffusion.html)
 
 ![架构图](doc/architecture.png)
 
@@ -26,7 +32,9 @@
 ## 文档与工作台
 MNN文档：
 - [最新文档(readthedocs)](https://mnn-docs.readthedocs.io/en/latest/index.html)
-- [语雀文档](https://www.yuque.com/mnn/cn)
+
+- 也可阅读 docs/README ，编译本地文档
+
 
 [MNN官网](http://www.mnn.zone)上还可以下载MNN团队全新力作MNN工作台，涵盖开箱即用模型、可视化训练等工具，更可以一键部署到多端设备。
 
@@ -147,4 +155,5 @@ MNN参考、借鉴了下列项目：
 - [libyuv](https://chromium.googlesource.com/libyuv/libyuv)
 - [libjpeg](https://github.com/libjpeg-turbo/libjpeg-turbo)
 - [opencv](https://github.com/opencv/opencv)
+- [onnxruntime](https://github.com/microsoft/onnxruntime)
 

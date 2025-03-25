@@ -16,11 +16,10 @@ MNN使用CMake构建项目，CMake中的宏定义列表如下：
 | MNN_BUILD_QUANTOOLS  | 是否构建MNN的量化工具，默认为`OFF` |
 | MNN_EVALUATION       | 是否构建MNN的评估工具，默认为`OFF` |
 | MNN_BUILD_CONVERTER  | 是否构建MNN的转换工具，默认为`OFF` |
-| MNN_SUPPORT_DEPRECATED_OP | 是否支持Tflite的量化算子，默认为`ON` |
+| MNN_SUPPORT_DEPRECATED_OP | 是否支持Tflite的量化算子等已经废弃的算子，用于兼容历史模型(1.1.0版本之前)，默认为`OFF` |
 | MNN_DEBUG_MEMORY     | 是否开启MNN内存调试，默认为`OFF` |
 | MNN_DEBUG_TENSOR_SIZE | 是否开启MNN tensor size调试，默认为`OFF` |
 | MNN_GPU_TRACE        | 是否开启MNN GPU调试，默认为`OFF` |
-| MNN_PORTABLE_BUILD   | 尽可能链接第三方库的静态版本，以提高构建的可执行文件的可移植性，默认为`OFF` |
 | MNN_SEP_BUILD        | 是否构建MNN的后端和表达式分离版本，只在`MNN_BUILD_SHARED_LIBS=ON`时生效，默认为`ON` |
 | NATIVE_LIBRARY_OUTPUT | 如果构建为动态库，则指定动态库的输出路径，默认为`OFF` |
 | NATIVE_INCLUDE_OUTPUT | 如果构建为动态库，则指定动态库的头文件路径，默认为`OFF` |
@@ -32,15 +31,17 @@ MNN使用CMake构建项目，CMake中的宏定义列表如下：
 | MNN_ENABLE_COVERAGE  | 是否开启MNN的代码覆盖率，默认为`OFF` |
 | MNN_BUILD_PROTOBUFFER | 是否使用MNN中的`protobuffer`，默认为`ON` |
 | MNN_BUILD_OPENCV     | 是否构建MNN的OpenCV功能，默认为`OFF` |
+| MNN_BUILD_AUDIO      | 是否构建MNN的Audio功能，默认为`OFF` |
 | MNN_INTERNAL         | 是否构建MNN的一些内部功能，如：日志；默认为`OFF` |
 | MNN_JNI              | 是否构建MNN的JNI支持，默认为`OFF` |
 | MNN_METAL            | 是否构建`Metal`后端，默认为`OFF` |
 | MNN_OPENCL           | 是否构建`OpenCL`后端，默认为`OFF` |
 | MNN_OPENGL           | 是否构建`OpenGL`后端，默认为`OFF` |
 | MNN_VULKAN           | 是否构建`Vulkan`后端，默认为`OFF` |
-| MNN_ARM82            | 是否构建`Armv8.2`后端，默认为`OFF` |
+| MNN_ARM82            | 编译ARM架构时，是否构建`Armv8.2`后端，以支持FP16计算，默认为`ON` |
 | MNN_ONEDNN           | 是否使用`oneDNN`，默认为`OFF` |
-| MNN_AVX512           | 是否构建`avx512`后端，默认为`OFF` |
+| MNN_AVX2             | 在`MNN_USE_SSE`开启的基础上，是否增加AVX2指令的支持，默认为`ON` |
+| MNN_AVX512           | 在`MNN_USE_SSE`和`MNN_AVX2`开启的基础上，是否增加`avx512`指令集的支持，默认为`OFF` |
 | MNN_CUDA             | 是否构建`Cuda`后端，默认为`OFF` |
 | MNN_CUDA_PROFILE     | 是否打开CUDA profile工具，默认为`OFF` |
 | MNN_CUDA_QUANT       | 是否打开CUDA 量化文件编译，默认为`OFF` |
@@ -58,7 +59,7 @@ MNN使用CMake构建项目，CMake中的宏定义列表如下：
 | MNN_SSE_USE_FP16_INSTEAD | 在X86平台是否使用`FP16`替代`BF16`，默认为`OFF` |
 | MNN_AVX512_VNNI      | 是否使用`avx512_vnni`指令，该宏仅在`MNN_AVX512=ON`时生效，默认为`OFF` |
 | MNN_OPENCL_SIZE_CUT  | 是否为了降低OpenCL大小而关闭OpenCL Buffer实现，该宏仅在`MNN_OPENCL=ON`时生效，默认为`OFF` |
-| MNN_OPENCL_PROFILE   | 是否打开OpenCL Kernel性能Profile，该宏仅在`MNN_OPENCL=ON`时生效，默认为`OFF` |
+| MNN_GPU_TIME_PROFILE | 是否打开OpenCL后端及Vulkan后端的Kernel性能Profile，该宏仅在`MNN_OPENCL=ON`或`MNN_VULKAN=ON`时生效，默认为`OFF` |
 | MNN_METALLIB_SOURCE  | 使用Metal时是否直接使用Metal源码，该宏仅在`MNN_METAL=ON`时生效，默认为`ON` |
 | MNN_VULKAN_DEBUG     | 是否打开Vulkan的DEBUG模式，该宏仅在`MNN_VULKAN=ON`时生效，默认为`OFF` |
 | MNN_OPENGL_REGEN     | 是否重新生成OpenGL Kenel，该宏仅在`MNN_OPENGL=ON`时生效，默认为`OFF` |
@@ -78,9 +79,12 @@ MNN使用CMake构建项目，CMake中的宏定义列表如下：
 | MNN_CVCORE           | 构建MNN的OpenCV功能是否开启`core`功能，默认为`ON` |
 | MNN_OPENCV_TEST      | 构建MNN的OpenCV功能是否开启单元测试，默认为`OFF` |
 | MNN_OPENCV_BENCH     | 构建MNN的OpenCV功能是否开启性能benchmark，默认为`OFF` |
+| MNN_AUDIO_TEST       | 构建MNN的Audio功能是否开启单元测试，默认为`OFF` |
 | MNN_VULKAN_IMAGE     | 构建MNN的Vulkan后端时采用Image内存模式，以便支持FP16和部分移动端上GPU的加速，默认为`ON` |
 | MNN_LOW_MEMORY       | 是否支持低内存模式，支持低内存模式使用权值量化模型并设置`low_memory`则会使用计算时反量化，默认为`OFF` |
+| MNN_CPU_WEIGHT_DEQUANT_GEMM       | 是否编译CPU权重反量化的矩阵乘Kernel， 如果打开该编译宏并且在CPU推理时设置MNN::BackendConfig::MemoryMode=Memory_Normal，就会使用权重反量化算子进行权重量化模型的推理，默认为`OFF` |
 | MNN_SUPPORT_RENDER   | 是否支持图形渲染相关算子实现，默认为 `OFF` |
 | MNN_SUPPORT_TRANSFORMER_FUSE | 是否支持Fuse Transformer相关OP实现，默认为 `OFF` |
 | MNN_BUILD_LLM        | 是否构建基于MNN的llm库和demo，默认为`OFF` |
 | MNN_BUILD_DIFFUSION  | 是否构建基于MNN的diffusion demo，需要打开MNN_BUILD_OPENCV和MNN_IMGCODECS宏使用 默认为`OFF` |
+| MNN_KLEIDIAI         | 是否集成ARM的klediAI加速库【目前处于实验状态，只能跑对称量化的LLM模型】，默认为`OFF` |

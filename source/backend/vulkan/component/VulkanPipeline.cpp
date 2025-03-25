@@ -44,7 +44,14 @@ VulkanPipeline* VulkanPipelineFactory::createGraphicPipeline(SharedPtr<VulkanLay
     return new VulkanPipeline(mDevice, pipeline, layout, VK_PIPELINE_BIND_POINT_GRAPHICS, nullptr, mCache);
 }
 VulkanPipeline* VulkanPipelineFactory::createComputePipeline(const uint8_t* data, size_t dataSize, const std::vector<VkDescriptorType>& types, const std::vector<uint32_t>& localSize) const {
-    SharedPtr<VulkanShaderModule> shader = VulkanShaderModule::create(mDevice, (const uint32_t*)data, dataSize);
+    SharedPtr<VulkanShaderModule> shader;
+    auto iter = mComputeShaderModules.find((const uint32_t*)data);
+    if (iter == mComputeShaderModules.end()) {
+        shader = VulkanShaderModule::create(mDevice, (const uint32_t*)data, dataSize);
+        mComputeShaderModules.insert(std::make_pair((const uint32_t*)data, shader));
+    } else {
+        shader = iter->second;
+    }
     std::vector<VulkanLayout::LayoutType> layoutTypes(types.size());
     for (int i=0; i<types.size(); ++i) {
         layoutTypes[i].binding = i;
@@ -55,8 +62,9 @@ VulkanPipeline* VulkanPipelineFactory::createComputePipeline(const uint8_t* data
     VkPipeline pipeline;
     /*for localSize_x_id = 0,localSize_y_id = 1,localSize_z_id = 2*/
     std::vector<VkSpecializationMapEntry> specializationMapEntry; /*localSize data description*/
-    std::shared_ptr<VkSpecializationInfo> specializationInfo = std::make_shared<VkSpecializationInfo>();
+    std::shared_ptr<VkSpecializationInfo> specializationInfo;
     if (localSize.size() > 0) {
+        specializationInfo = std::make_shared<VkSpecializationInfo>();
         // FUNC_PRINT(localSize.size());
         for (int i = 0; i < localSize.size(); i++) {
             VkSpecializationMapEntry entry = {(uint32_t)(i), (uint32_t)(sizeof(uint32_t) * i),
@@ -102,6 +110,19 @@ const VulkanPipeline* VulkanPipelineFactory::getPipeline(const std::string& key,
     return pipeline;
 }
 
+SharedPtr<VulkanPipeline> VulkanPipelineFactory::getPrivatePipeline(const std::string& key, const std::vector<VkDescriptorType>& types) {
+    std::pair<const unsigned char*, size_t> content = mStorage->search(key);
+    if (nullptr == content.first) {
+        MNN_ERROR("Don't find shader for %s\n", key.c_str());
+        return nullptr;
+    }
+
+    VulkanPipeline * pipeline = createComputePipeline((uint8_t*)content.first, content.second, types, {});
+    pipeline->mTuneName = key;
+    SharedPtr<VulkanPipeline> resPipeline = pipeline;
+    return resPipeline;
+}
+
 VulkanPipeline::VulkanPipeline(const VulkanDevice& dev, VkPipeline p, SharedPtr<VulkanLayout> layout, VkPipelineBindPoint type, SharedPtr<VulkanShaderModule> shader, SharedPtr<VulkanPipelineCache> cache)
     : mDevice(dev) {
     mPipeline    = p;
@@ -127,7 +148,7 @@ VulkanLayout::DescriptorSet* VulkanPipeline::createSet() const {
 }
 
 void VulkanPipeline::changePipeline(const std::vector<uint32_t>& localSize) const{
-    VkPipeline pipeline = VK_NULL_HANDLE;
+    mDevice.destroyPipeline(mPipeline);
     /*for localSize_x_id = 0,localSize_y_id = 1,localSize_z_id = 2*/
     std::vector<VkSpecializationMapEntry> specializationMapEntry; /*localSize data description*/
     std::shared_ptr<VkSpecializationInfo> specializationInfo = std::make_shared<VkSpecializationInfo>();
@@ -144,11 +165,10 @@ void VulkanPipeline::changePipeline(const std::vector<uint32_t>& localSize) cons
         specializationInfo->mapEntryCount = specializationMapEntry.size();
     }
     
-    auto res = mDevice.createComputePipeline(pipeline, mShader->get(), mLayout->get(), mCache->get(), specializationInfo.get());
+    auto res = mDevice.createComputePipeline(mPipeline, mShader->get(), mLayout->get(), mCache->get(), specializationInfo.get());
     if (VK_SUCCESS != res) {
         FUNC_PRINT(1);
     }
-    mPipeline = pipeline;
 }
 
 VulkanLayout::DescriptorSet* VulkanLayout::createSet() const {

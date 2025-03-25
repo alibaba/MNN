@@ -40,10 +40,20 @@ namespace MNN {
 #define CL_KERNEL_WAVE_SIZE_QCOM 0xAA02
 
 enum GpuType { MALI = 0, ADRENO = 1, RADEON = 2, INTEL = 3, OTHER = 4 };
+enum GpuLevel { UNDEFINED = 0, TOP = 1, MEDIUM = 2, LOW = 3 };
 enum MaliAr { MIDGARD = 0, BIFROST = 1, VALHALL = 2 };
 enum GpuMemObject { AUTO = 0, BUFFER = 1, IMAGE = 2};
 enum CLTuneLevel { None = 0, Heavy = 1, Wide = 2, Normal = 3, Fast = 4};
 enum SvmType { FINE_BUFFER = 0, COARSE_BUFFER = 1, SVM_NONE = 2};
+
+struct RuntimeInitInfo {
+    BackendConfig::PrecisionMode precision;
+    int cl_mode;
+    int platformSize;
+    int platformId;
+    int deviceId;
+    void *contextPtr;
+};
 
 struct KernelPool {
     uint64_t maxWorkGroupSize;
@@ -68,7 +78,7 @@ private:
 };
 class OpenCLRuntime {
 public:
-    OpenCLRuntime(const BackendConfig::PrecisionMode precision, const int cl_mode, int platformSize, int platformId, int deviceId, void *contextPtr, void *glShared);
+    OpenCLRuntime(const BackendConfig::PrecisionMode precision, const int cl_mode, int platformSize, int platformId, int deviceId, void *contextPtr, const RuntimeHint& hint);
     ~OpenCLRuntime();
     OpenCLRuntime(const OpenCLRuntime &) = delete;
     OpenCLRuntime &operator=(const OpenCLRuntime &) = delete;
@@ -91,6 +101,7 @@ public:
     uint64_t GetKernelWaveSize(std::shared_ptr<KernelWrap> kernel);
     std::vector<uint32_t> getMaxWorkItemSizes();
     uint64_t getMaxLocalMem() const;
+    void setPrecision(const BackendConfig::PrecisionMode precision);
     uint32_t getUseRecordableQueueSize(){
         return mUseRecordableQueueSize;
     }
@@ -109,6 +120,10 @@ public:
     float getCLVersion() {
         return mCLVersion;
     }
+	uint32_t getPrecisionLevel() const;
+    bool isSupportAHD(){
+        return mIsSupportAHD;
+    }
 #ifdef MNN_OPENCL_SVM_ENABLE
     cl_device_svm_capabilities getSvmCapabilities() {
         return mSvmCapabilities;
@@ -119,6 +134,9 @@ public:
     }
     CLTuneLevel getCLTuneLevel() {
         return mTuneLevel;
+    }
+    GpuLevel getGpuLevel() {
+        return mGpuLevel;
     }
     std::string getDeviceName() {
         return mDeviceName;
@@ -139,6 +157,11 @@ public:
     unsigned int getQueueNum();
     
     unsigned int mKernelTime = 0;
+    
+    
+    std::map<std::string, uint32_t>& preParamsMap();
+    
+    std::map<std::vector<uint32_t>, std::vector<uint32_t>>& tunedGemmParamsMap();
 
     std::map<std::pair<std::string, std::vector<uint32_t>>, std::pair<std::vector<uint32_t>, uint32_t>>& tunedLwsMap();
     
@@ -159,6 +182,15 @@ public:
     float flops() const {
         return mFlops;
     }
+    
+    bool canShareRuntime(const BackendConfig::PrecisionMode precision, const int cl_mode, int platformSize, int platformId, int deviceId, void *contextPtr){
+        bool canShare = (platformSize == mInitInfo.platformSize) && (platformId == mInitInfo.platformId) && (deviceId == mInitInfo.deviceId) && (contextPtr == mInitInfo.contextPtr);
+        if(canShare){
+            setPrecision(precision);
+            setGpuMode(cl_mode);
+        }
+        return canShare;
+    }
 
     double getCostTime(const cl::Event *event);
     double getQueuedTime(const cl::Event *event);
@@ -166,11 +198,11 @@ public:
 
     std::pair<const void*, size_t> makeCache(void* tuneInfo);
     bool setCache(std::pair<const void*, size_t> cache);
+    void setGpuMode(const int cl_mode_num);
 private:
     bool loadProgram(const std::string &programName, cl::Program *program);
     bool buildProgram(const std::string &buildOptionsStr, cl::Program *program);
     bool getDeviceSupportsExtension(const cl::Device &device, const char *extensionName);
-    void setGpuMode(const int cl_mode_num);
 
 private:
     std::vector<size_t> mMaxImageSize;
@@ -182,6 +214,8 @@ private:
     struct ProgramWithKernel {
         cl::Program program;
         std::map<std::string, KernelPool> kernels;
+        std::shared_ptr<char> Buffer;
+        int BufferSize = 0;
     };
     cl::CommandQueue* mCurrentCommandQueue;
     std::map<std::tuple<std::string, std::string>, ProgramWithKernel> mBuildProgramMap;
@@ -204,8 +238,10 @@ private:
     bool mSupportDotInt8 = false;
     bool mSupportDotAccInt8 = false;
     bool mSupportedIntelSubgroup = false;
+    bool mIsSupportAHD = false;
     GpuType mGpuType;
     MaliAr mMaliAr;
+    GpuLevel mGpuLevel = UNDEFINED;
     float mCLVersion = 1.0f;
     std::vector<std::pair<std::string, cl::Event>> mEvents;
 
@@ -223,11 +259,12 @@ private:
     double mStartNanos;
     double mStopNanos;
 
+    std::map<std::string, uint32_t> mPreParams;
+    std::map<std::vector<uint32_t>, std::vector<uint32_t>> mTunedGemmParams;
     std::map<std::pair<std::string, std::vector<uint32_t>>, std::pair<std::vector<uint32_t>,  uint32_t>> mTunedLws;
     std::map<std::string, std::vector<std::pair<std::vector<uint32_t>, std::pair<std::vector<uint32_t>,  uint32_t>>>> mTuneLws;
     std::vector<uint8_t> mBuffer;
-    const void* mCacheOutside = nullptr;
-    size_t mCacheOutsideSize = 0;
+    RuntimeInitInfo mInitInfo;
 };
 
 } // namespace MNN

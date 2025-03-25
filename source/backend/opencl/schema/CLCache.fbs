@@ -24,10 +24,22 @@ table Autotuning {
     timeCost:uint;
 }
 
+table GemmInfo {
+    gemmSize:[uint];
+    paramInfo:[uint];
+}
+
+table PreParamInfo{
+    preParamName:string;
+    preParamData:uint;
+}
+
 table Cache {
     programs:[Shader];
     tunings:[Autotuning];
     tuned:[OpInfo];
+    gemm:[GemmInfo];
+    preParam:[PreParamInfo];
 }
 
 root_type Cache;

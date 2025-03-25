@@ -159,7 +159,7 @@ ErrorCode PoolBufExecution::onEncode(const std::vector<Tensor *> &inputs, const 
     ret |= unit.kernel->get().setArg(idx++, sizeof(kernelShape), kernelShape);
     ret |= unit.kernel->get().setArg(idx++, openCLBuffer(output));
     ret |= unit.kernel->get().setArg(idx++, openCLBuffer(redice));
-    ret |= unit.kernel->get().setArg(idx++, channelBlocks);
+    ret |= unit.kernel->get().setArg(idx++, batch);
     MNN_CHECK_CL_SUCCESS(ret, "setArg PoolBufExecution");
     
     std::string kernelNameTune = "pooling_buf";
@@ -296,6 +296,7 @@ ErrorCode PoolBufExecution::SubgrouponResize(const std::vector<Tensor *> &inputs
     ret |= unit.kernel->get().setArg(idx++, openCLBuffer(output));
     ret |= unit.kernel->get().setArg(idx++, openCLBuffer(redice));
     ret |= unit.kernel->get().setArg(idx++, channels);
+    ret |= unit.kernel->get().setArg(idx++, batch);
     ret |= unit.kernel->get().setArg(idx++, in_channel_block);
     ret |= unit.kernel->get().setArg(idx++, out_channel_block);
     ret |= unit.kernel->get().setArg(idx++, static_cast<uint32_t>(inputpad.left));
@@ -326,13 +327,15 @@ public:
     virtual ~PoolBufCreator() = default;
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                 const MNN::Op *op, Backend *backend) const override {
+#ifdef MNN_SUPPORT_INTEL_SUBGROUP
         for (int i = 0; i < inputs.size(); ++i) {
             int channel = inputs[i]->channel();
             if (channel >= 16 && static_cast<OpenCLBackend *>(backend)->getOpenCLRuntime()->isSupportedIntelSubgroup()) {
                 TensorUtils::setTensorChannelPack(inputs[i], 16);
             }
         }
-        return new PoolBufExecution(inputs, op, backend); 
+#endif /* MNN_SUPPORT_INTEL_SUBGROUP */
+        return new PoolBufExecution(inputs, op, backend);
     }
 };
 

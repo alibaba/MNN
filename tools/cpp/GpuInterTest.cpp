@@ -18,124 +18,218 @@
 #include <sstream>
 #include <numeric>
 #include "ExprDebug.hpp"
-#define MNN_USE_LIB_WRAPPER
-#define MNN_USER_SET_DEVICE
-#define MNN_OPENCL_SVM_ENABLE
 #include "MNN/MNNSharedContext.h"
 using namespace MNN::Express;
 using namespace MNN;
 
 #ifdef __ANDROID__
-#include <GLES2/gl2.h>
-#include <GLES2/gl2ext.h>
-#include <GLES3/gl31.h>
-#include <EGL/egl.h>
-class UserGLDeviceBuffer{
-public:
-    UserGLDeviceBuffer(){
-        EGLDisplay mDisplay = eglGetDisplay(EGL_DEFAULT_DISPLAY);
-        int majorVersion;
-        int minorVersion;
-        eglInitialize(mDisplay, &majorVersion, &minorVersion);
-        EGLint numConfigs;
-        static const EGLint configAttribs[] = {EGL_SURFACE_TYPE, EGL_PBUFFER_BIT, EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
-                                            EGL_RED_SIZE, 8,
-                                            EGL_GREEN_SIZE, 8,
-                                            EGL_BLUE_SIZE, 8,
-                                            EGL_ALPHA_SIZE, 8,
-                                            EGL_NONE};
+#include <dlfcn.h>
+#include <android/hardware_buffer.h>
 
-        EGLConfig surfaceConfig;
-        eglChooseConfig(mDisplay, configAttribs, &surfaceConfig, 1, &numConfigs);
-        static const EGLint contextAttribs[] = {EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE};
-        mContext = eglCreateContext(mDisplay, surfaceConfig, NULL, contextAttribs);
-        static const EGLint surfaceAttribs[] = {EGL_WIDTH, 1, EGL_HEIGHT, 1, EGL_NONE};
-        mSurface = eglCreatePbufferSurface(mDisplay, surfaceConfig, surfaceAttribs);
-        eglMakeCurrent(mDisplay, mSurface, mSurface, mContext);
-        eglBindAPI(EGL_OPENGL_ES_API);
-        int major;
-        glGetIntegerv(GL_MAJOR_VERSION, &major);
-    }
-    ~UserGLDeviceBuffer(){
-        if (mDisplay != EGL_NO_DISPLAY) {
-            if (mContext != EGL_NO_CONTEXT) {
-                    eglDestroyContext(mDisplay, mContext);
-                    mContext = EGL_NO_CONTEXT;
-                }
-                if (mSurface != EGL_NO_SURFACE) {
-                    eglDestroySurface(mDisplay, mSurface);
-                    mSurface = EGL_NO_SURFACE;
-                }
-                eglMakeCurrent(mDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
-                eglTerminate(mDisplay);
-                mDisplay = EGL_NO_DISPLAY;
-            }
-        eglReleaseThread();
-    }
-    GLuint CreateTexture(int width, int height, void* data) {
-        GLuint textureID;
-        glGenTextures(1, &textureID);
+/*
+Ref from
+https://android.googlesource.com/platform/external/libchrome/+/refs/tags/aml_res_331314010/base/android/android_hardware_buffer_compat.h
+*/
+using PFAHardwareBuffer_allocate = int (*)(const AHardwareBuffer_Desc* desc,
+                                            AHardwareBuffer** outBuffer);
+using PFAHardwareBuffer_acquire = void (*)(AHardwareBuffer* buffer);
+using PFAHardwareBuffer_describe = void (*)(const AHardwareBuffer* buffer,
+                                            AHardwareBuffer_Desc* outDesc);
+using PFAHardwareBuffer_lock = int (*)(AHardwareBuffer* buffer,
+                                       uint64_t usage,
+                                       int32_t fence,
+                                       const ARect* rect,
+                                       void** outVirtualAddress);
+using PFAHardwareBuffer_recvHandleFromUnixSocket =
+    int (*)(int socketFd, AHardwareBuffer** outBuffer);
+using PFAHardwareBuffer_release = void (*)(AHardwareBuffer* buffer);
+using PFAHardwareBuffer_sendHandleToUnixSocket =
+    int (*)(const AHardwareBuffer* buffer, int socketFd);
+using PFAHardwareBuffer_unlock = int (*)(AHardwareBuffer* buffer,
+                                         int32_t* fence);
 
-        glBindTexture(GL_TEXTURE_2D, textureID);
-
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_FLOAT, data);
-
-        glBindTexture(GL_TEXTURE_2D, 0);
-
-        return textureID;
-    }
-    void ReleaseTexture(GLuint textureID){
-        glDeleteTextures(1, &textureID);
-    }
-private:
-    EGLContext mContext;
-    EGLDisplay mDisplay;
-    EGLSurface mSurface;
+class AndroidHardwareBufferCompat {
+ public:
+  bool IsSupportAvailable() const {
+    return mIsSupportAvailable;
+  }
+  AndroidHardwareBufferCompat();
+  int Allocate(const AHardwareBuffer_Desc* desc, AHardwareBuffer** outBuffer);
+  void Acquire(AHardwareBuffer* buffer);
+  void Describe(const AHardwareBuffer* buffer, AHardwareBuffer_Desc* outDesc);
+  int Lock(AHardwareBuffer* buffer,
+           uint64_t usage,
+           int32_t fence,
+           const ARect* rect,
+           void** out_virtual_address);
+  int RecvHandleFromUnixSocket(int socketFd, AHardwareBuffer** outBuffer);
+  void Release(AHardwareBuffer* buffer);
+  int SendHandleToUnixSocket(const AHardwareBuffer* buffer, int socketFd);
+  int Unlock(AHardwareBuffer* buffer, int32_t* fence);
+ private:
+  bool mIsSupportAvailable = true;
+  PFAHardwareBuffer_allocate allocate_;
+  PFAHardwareBuffer_acquire acquire_;
+  PFAHardwareBuffer_describe describe_;
+  PFAHardwareBuffer_lock lock_;
+  PFAHardwareBuffer_recvHandleFromUnixSocket recv_handle_;
+  PFAHardwareBuffer_release release_;
+  PFAHardwareBuffer_sendHandleToUnixSocket send_handle_;
+  PFAHardwareBuffer_unlock unlock_;
 };
+#define DCHECK(x) MNN_ASSERT(x)
+AndroidHardwareBufferCompat::AndroidHardwareBufferCompat() {
+  // TODO(klausw): If the Chromium build requires __ANDROID_API__ >= 26 at some
+  // point in the future, we could directly use the global functions instead of
+  // dynamic loading. However, since this would be incompatible with pre-Oreo
+  // devices, this is unlikely to happen in the foreseeable future, so just
+  // unconditionally use dynamic loading.
+  // cf. base/android/linker/modern_linker_jni.cc
+  void* main_dl_handle = dlopen(nullptr, RTLD_NOW);
+  *reinterpret_cast<void**>(&allocate_) =
+      dlsym(main_dl_handle, "AHardwareBuffer_allocate");
+  if(nullptr == allocate_){
+        mIsSupportAvailable = false;
+  }
+  *reinterpret_cast<void**>(&acquire_) =
+      dlsym(main_dl_handle, "AHardwareBuffer_acquire");
+  if(nullptr == acquire_){
+      mIsSupportAvailable = false;
+  }
+  *reinterpret_cast<void**>(&describe_) =
+      dlsym(main_dl_handle, "AHardwareBuffer_describe");
+  if(nullptr == describe_){
+      mIsSupportAvailable = false;
+  }
+  *reinterpret_cast<void**>(&lock_) =
+      dlsym(main_dl_handle, "AHardwareBuffer_lock");
+  if(nullptr == lock_){
+      mIsSupportAvailable = false;
+  }
+  *reinterpret_cast<void**>(&recv_handle_) =
+      dlsym(main_dl_handle, "AHardwareBuffer_recvHandleFromUnixSocket");
+  if(nullptr == recv_handle_){
+      mIsSupportAvailable = false;
+  }
+  *reinterpret_cast<void**>(&release_) =
+      dlsym(main_dl_handle, "AHardwareBuffer_release");
+  if(nullptr == release_){
+      mIsSupportAvailable = false;
+  }
+  *reinterpret_cast<void**>(&send_handle_) =
+      dlsym(main_dl_handle, "AHardwareBuffer_sendHandleToUnixSocket");
+  if(nullptr == send_handle_){
+      mIsSupportAvailable = false;
+  }
+  *reinterpret_cast<void**>(&unlock_) =
+      dlsym(main_dl_handle, "AHardwareBuffer_unlock");
+  if(nullptr == unlock_){
+      mIsSupportAvailable = false;
+  }
+}
+
+int AndroidHardwareBufferCompat::Allocate(const AHardwareBuffer_Desc* desc,
+                                           AHardwareBuffer** out_buffer) {
+  DCHECK(IsSupportAvailable());
+  return allocate_(desc, out_buffer);
+}
+void AndroidHardwareBufferCompat::Acquire(AHardwareBuffer* buffer) {
+  DCHECK(IsSupportAvailable());
+  acquire_(buffer);
+}
+void AndroidHardwareBufferCompat::Describe(const AHardwareBuffer* buffer,
+                                           AHardwareBuffer_Desc* out_desc) {
+  DCHECK(IsSupportAvailable());
+  describe_(buffer, out_desc);
+}
+int AndroidHardwareBufferCompat::Lock(AHardwareBuffer* buffer,
+                                      uint64_t usage,
+                                      int32_t fence,
+                                      const ARect* rect,
+                                      void** out_virtual_address) {
+  DCHECK(IsSupportAvailable());
+  return lock_(buffer, usage, fence, rect, out_virtual_address);
+}
+int AndroidHardwareBufferCompat::RecvHandleFromUnixSocket(
+    int socket_fd,
+    AHardwareBuffer** out_buffer) {
+  DCHECK(IsSupportAvailable());
+  return recv_handle_(socket_fd, out_buffer);
+}
+void AndroidHardwareBufferCompat::Release(AHardwareBuffer* buffer) {
+  DCHECK(IsSupportAvailable());
+  release_(buffer);
+}
+int AndroidHardwareBufferCompat::SendHandleToUnixSocket(
+    const AHardwareBuffer* buffer,
+    int socket_fd) {
+  DCHECK(IsSupportAvailable());
+  return send_handle_(buffer, socket_fd);
+}
+int AndroidHardwareBufferCompat::Unlock(AHardwareBuffer* buffer,
+                                        int32_t* fence) {
+  DCHECK(IsSupportAvailable());
+  return unlock_(buffer, fence);
+}
+
+static std::shared_ptr<AndroidHardwareBufferCompat> gFunction;
+
+static AHardwareBuffer* creatAHardwareBuffer(int width, int height, void *data){
+    // 创建和初始化硬件缓冲区
+    AHardwareBuffer_Desc bufferDesc = {};
+    bufferDesc.width = width;
+    bufferDesc.height = height;
+    bufferDesc.layers = 1;
+    bufferDesc.format = AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM;
+    bufferDesc.usage = AHARDWAREBUFFER_USAGE_CPU_WRITE_OFTEN | AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE;
+
+    AHardwareBuffer* buffer = nullptr;
+    int result = gFunction->Allocate(&bufferDesc, &buffer);
+    if(result != 0) {
+        // Handle allocation error
+        MNN_PRINT("alloc AHardwareBuffer failed   %d\n", result);
+    }
+        
+    if(nullptr != data){
+        void* map = nullptr;
+        ARect rect = { 0, 0, width, height };  // Define the region to lock
+        result = gFunction->Lock(buffer, AHARDWAREBUFFER_USAGE_CPU_WRITE_OFTEN, -1, &rect, &map);
+        if (result != 0) {
+            // Handle lock failure
+            MNN_PRINT("Handle lock failed\n");
+        }
+        if (map) {
+            // Now write your pixel data to 'data'
+            // For example, fill it with a solid color:
+            memcpy(map, data, width * height * 4); // Assuming RGBA8888 format
+        }
+            
+        gFunction->Unlock(buffer, nullptr);
+    }
+    return buffer;
+}
+static void copyDataFromAHardWareBuffer(AHardwareBuffer* buffer, int width, int height, void *data){
+    int result = 0;
+    if(nullptr != data){
+        void* map = nullptr;
+        ARect rect = { 0, 0, width, height };  // Define the region to lock
+        result = gFunction->Lock(buffer, AHARDWAREBUFFER_USAGE_CPU_READ_OFTEN, -1, &rect, &map);
+        if (result != 0) {
+            MNN_PRINT("Handle lock failed\n");
+        }
+        if (map) {
+            memcpy(data, map, width * height * 4);
+        }
+            
+        gFunction->Unlock(buffer, nullptr);
+    }
+}
+static void ReleaseAHardWareBuffer(AHardwareBuffer* buffer){
+    if(buffer != nullptr){
+        gFunction->Release(buffer);
+    }
+}
 #endif
-#include "backend/opencl/core/runtime/OpenCLWrapper.hpp"
-class UserCLDeviceBuffer{
-public:
-    UserCLDeviceBuffer(){
-        OpenCLSymbolsOperator::createOpenCLSymbolsOperatorSingleInstance();
-        std::vector<cl::Platform> platforms;
-        cl_int res = cl::Platform::get(&platforms, 0);
-        cl::Platform::setDefault(platforms[0]);
-        std::vector<cl::Device> gpuDevices;
-        res = platforms[0].getDevices(CL_DEVICE_TYPE_GPU, &gpuDevices);
-        mFirstGPUDevicePtr = std::make_shared<cl::Device>(gpuDevices[0]);
-        mContext = std::shared_ptr<cl::Context>(new cl::Context(std::vector<cl::Device>({*mFirstGPUDevicePtr}), nullptr, nullptr, nullptr, &res));
-        mCommandQueuePtr = std::make_shared<cl::CommandQueue>(*mContext, *mFirstGPUDevicePtr, 0, &res);
-    }
-    std::shared_ptr<cl::Context> getContext(){
-        return mContext;
-    }
-    cl::Buffer *createBuffer(size_t size){
-        cl_int res;
-        return new cl::Buffer(*mContext, CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, size * sizeof(float), NULL, &res);
-    }
-    void copyToBuffer(cl::Buffer *buffer, int size, float* ptr){
-        auto gpuptr = mCommandQueuePtr.get()->enqueueMapBuffer(*buffer, CL_TRUE, CL_MAP_WRITE, 0, size * sizeof(float));
-        memcpy(gpuptr, ptr, size);
-        mCommandQueuePtr.get()->enqueueUnmapMemObject(*buffer, gpuptr);
-    }
-    float *mapDevicePtr(cl::Buffer *buffer, int size){
-        auto gpuptr = mCommandQueuePtr.get()->enqueueMapBuffer(*buffer, CL_TRUE, CL_MAP_WRITE, 0, size * sizeof(float));
-        return (float*) gpuptr;
-    }
-    void *umapDevicePtr(cl::Buffer *buffer, void* ptr){
-        mCommandQueuePtr.get()->enqueueUnmapMemObject(*buffer, ptr);
-    }
-private:
-    std::shared_ptr<::cl::Context> mContext;
-    std::shared_ptr<::cl::Device> mFirstGPUDevicePtr;
-    std::shared_ptr<::cl::CommandQueue> mCommandQueuePtr;
-};
 
 int main(int argc, char *argv[]) {
     if (argc < 3) {
@@ -203,10 +297,10 @@ int main(int argc, char *argv[]) {
         }
     }
     int testMode = 0;
-    //testMode = 0 OpenCL, testMode = 1 OpenGL
+    //testMode = 0 AhardwareBuffer
     if(argc > 3){
         testMode = atoi(argv[3]);
-        MNN_PRINT("Use extra forward type: %d(0:OpenCL 1:OpenGL)\n", testMode);
+        MNN_PRINT("Use extra forward type: %d(0:AhardwareBuffer)\n", testMode);
     }
 
     auto type = MNN_FORWARD_CPU;
@@ -246,27 +340,11 @@ int main(int argc, char *argv[]) {
 
     MNN::Express::Module::Config mConfig;
     mConfig.shapeMutable = shapeMutable;
-    MNNDeviceContext DeviceContext;
-    // set shared context for OpenCL, or context and display for OpenGL
 #ifdef __ANDROID__
-    std::vector<GLuint> GLdeviceInputPtrVec;
-    std::vector<GLuint> GLdeviceOutputPtrVec;
-    std::shared_ptr<UserGLDeviceBuffer> GLDeviceBuffer;
-    if(testMode == 1){
-        GLDeviceBuffer = std::shared_ptr<UserGLDeviceBuffer>(new UserGLDeviceBuffer);
-        DeviceContext.contextPtr = eglGetCurrentContext();
-        DeviceContext.glShared = eglGetCurrentDisplay();
-    }
+    gFunction.reset(new AndroidHardwareBufferCompat);
+    std::vector<AHardwareBuffer*> AHardwarePtrInputVec;
+    std::vector<AHardwareBuffer*> AHardwarePtrOutputVec;
 #endif
-    std::vector<cl::Buffer*> CLdeviceInputPtrVec;
-    std::vector<cl::Buffer*> CLdeviceOutputPtrVec;
-    std::shared_ptr<UserCLDeviceBuffer> CLDeviceBuffer;
-    if(testMode == 0){
-        CLDeviceBuffer = std::shared_ptr<UserCLDeviceBuffer>(new UserCLDeviceBuffer);
-        DeviceContext.contextPtr = CLDeviceBuffer.get()->getContext().get();
-    }
-
-    backendConfig.sharedContext = &DeviceContext;
 
     std::shared_ptr<Executor::RuntimeManager> rtmgr(Executor::RuntimeManager::createRuntimeManager(config));
     rtmgr->setCache(cacheFileName);
@@ -281,11 +359,9 @@ int main(int argc, char *argv[]) {
     }
     auto mInfo = net->getInfo();
 #ifdef __ANDROID__
-    GLdeviceInputPtrVec.resize(mInfo->inputs.size());
-    GLdeviceOutputPtrVec.resize(outputNames.size());
+    AHardwarePtrInputVec.resize(mInfo->inputs.size());
+    AHardwarePtrOutputVec.resize(outputNames.size());
 #endif
-    CLdeviceInputPtrVec.resize(mInfo->inputs.size());
-    CLdeviceOutputPtrVec.resize(outputNames.size());
     if (inputs.empty()) {
         inputs.resize(mInfo->inputs.size());
         for (int i=0; i<inputs.size(); ++i) {
@@ -299,7 +375,7 @@ int main(int argc, char *argv[]) {
             auto shapeIter = inputShape.find(inputName);
             if (shapeIter != inputShape.end()) {
                 auto s = shapeIter->second;
-                inputs[i] = _Input(s, mInfo->defaultFormat, mInfo->inputs[i].type);
+                inputs[i] = _Input(s, mInfo->inputs[i].order, mInfo->inputs[i].type);
                 width = s[3];
                 height = s[2];
                 channel = s[1];
@@ -307,16 +383,13 @@ int main(int argc, char *argv[]) {
             // set input device ptr
 #ifdef __ANDROID__
             // OpenGL Texture defaultFormat NC4HW4
-            if(testMode == 1){
+            if(testMode == 0){
                 width = width * ((channel + 3) / 4);
-                GLdeviceInputPtrVec[i] = (GLDeviceBuffer.get()->CreateTexture(width,height,nullptr));
-                inputs[i]->setDevicePtr((void*)GLdeviceInputPtrVec[i], MNN_FORWARD_OPENGL);
+                AHardwarePtrInputVec[i] = creatAHardwareBuffer(width,height,nullptr);
+                volatile uint64_t value = (uint64_t)AHardwarePtrInputVec[i];
+                inputs[i]->setDevicePtr((void*)value, MNN_MEMORY_AHARDWAREBUFFER);
             }
 #endif
-            if(testMode == 0){
-                CLdeviceInputPtrVec[i] = CLDeviceBuffer.get()->createBuffer(info->size);
-                inputs[i]->setDevicePtr(CLdeviceInputPtrVec[i], MNN_FORWARD_OPENCL);
-            }
         }
     }
 
@@ -329,19 +402,16 @@ int main(int argc, char *argv[]) {
             return 0;
         }
         for (int i=0; i<outputNames.size(); ++i) {
-            auto info = inputs[i]->getInfo();
+            auto info = outputs[i]->getInfo();
             int width = info->dim[3], height = info->dim[2], channel = info->dim[1];
             // copy output to device ptr
 #ifdef __ANDROID__
-            if(testMode == 1){
-                GLdeviceOutputPtrVec[i] = GLDeviceBuffer.get()->CreateTexture(width,height,nullptr);
-                outputs[i]->copyToDevicePtr((void*)GLdeviceOutputPtrVec[i], MNN_FORWARD_OPENGL);
+            if(testMode == 0){
+                AHardwarePtrOutputVec[i] = creatAHardwareBuffer(width,height,nullptr);
+                volatile uint64_t value = (uint64_t)AHardwarePtrOutputVec[i];
+                outputs[i]->copyToDevicePtr((void*)value, MNN_MEMORY_AHARDWAREBUFFER);
             }
 #endif
-            if(testMode == 0){
-                CLdeviceOutputPtrVec[i] = CLDeviceBuffer.get()->createBuffer(info->size);
-                outputs[i]->copyToDevicePtr(CLdeviceOutputPtrVec[i], MNN_FORWARD_OPENCL);
-            }
         }
 
         // Print module's memory
@@ -351,11 +421,11 @@ int main(int argc, char *argv[]) {
     }
 #ifdef __ANDROID__
     if(testMode == 1){
-        for(int i = 0; i < GLdeviceInputPtrVec.size(); ++i){
-            GLDeviceBuffer.get()->ReleaseTexture(GLdeviceInputPtrVec[i]);
+        for(int i = 0; i < AHardwarePtrInputVec.size(); ++i){
+            ReleaseAHardWareBuffer(AHardwarePtrInputVec[i]);
         }
-        for(int i = 0; i < GLdeviceOutputPtrVec.size(); ++i){
-            GLDeviceBuffer.get()->ReleaseTexture(GLdeviceOutputPtrVec[i]);
+        for(int i = 0; i < AHardwarePtrOutputVec.size(); ++i){
+            ReleaseAHardWareBuffer(AHardwarePtrOutputVec[i]);
         }
     }
 #endif

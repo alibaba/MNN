@@ -79,7 +79,7 @@ bool CUDARuntimeWrapper::onSetCache(const void* buffer, size_t size) {//set Cach
     return mCUDARuntime->setCache(std::make_pair(buffer, size));
 }
 
-Backend* CUDARuntimeWrapper::onCreate(const BackendConfig* config) const {
+Backend* CUDARuntimeWrapper::onCreate(const BackendConfig* config, Backend* origin) const {
 #ifdef LOG_VERBOSE
     MNN_PRINT("cudaruntime:%p, create CUDABackend\n", this);
 #endif

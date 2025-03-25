@@ -20,6 +20,7 @@ __kernel void winoTransSrcBuf2_3_1_c16_c16(GLOBAL_SIZE_DIM2
                                       __private const int srcWidth, // 6
                                       __private const int srcHeight, __private const int srcChannelC4, __private const int srcChannelC16, __private const int dstHeight,
                                       __private const int batchOffset,
+                                      __private const int batch,
                                       __private const int input_pad_left, __private const int input_pad_right) {
     int2 pos = (int2)(get_global_id(0), get_global_id(1)); 
     UNIFORM_BOUNDRY_CHECK(pos.x, pos.y);
@@ -101,6 +102,7 @@ __kernel void winoTransDstBuf2_3_1_c16_c16(GLOBAL_SIZE_DIM2
                                     __private const int dstHeight,
                                     __private const int dstChannelC4,__private const int dstChannelC16,__private const int srcWidth,
                                     __private const int batchOffset,
+                                    __private const int batch,
                                     __private const int output_pad_left, __private const int output_pad_right) {
     int2 pos = (int2)(get_global_id(0), get_global_id(1));
     UNIFORM_BOUNDRY_CHECK(pos.x, pos.y);
@@ -225,6 +227,7 @@ __kernel void winoTransSrcBuf2_3_1_c4_c16(GLOBAL_SIZE_DIM2
                                       __private const int srcWidth, // 6
                                       __private const int srcHeight, __private const int srcChannelC4, __private const int srcChannelC16, __private const int dstHeight,
                                       __private const int batchOffset,
+                                      __private const int batch,
                                       __private const int input_pad_left, __private const int input_pad_right) {
     int2 pos = (int2)(get_global_id(0), get_global_id(1)); 
     UNIFORM_BOUNDRY_CHECK(pos.x, pos.y);
@@ -253,7 +256,7 @@ __kernel void winoTransSrcBuf2_3_1_c4_c16(GLOBAL_SIZE_DIM2
         FLOAT4 S23;
         FLOAT4 S33;
         
-        int inp_offset = (((batchOffset * srcChannelC4 + pos.y) * srcHeight + syStart) * srcWidth + sxStart) * 4;
+        int inp_offset = (((batchOffset + pos.y * batch) * srcHeight + syStart) * srcWidth + sxStart) * 4;
         {
             int sx      = 0 + sxStart;
             int sy      = 0 + syStart;
@@ -417,6 +420,7 @@ __kernel void winoTransDstBuf2_3_1_c16_c4(GLOBAL_SIZE_DIM2
                                     __private const int dstHeight,
                                     __private const int dstChannelC4,__private const int dstChannelC16,__private const int srcWidth,
                                     __private const int batchOffset,
+                                    __private const int batch,
                                     __private const int output_pad_left, __private const int output_pad_right) {
     int2 pos = (int2)(get_global_id(0), get_global_id(1));
     UNIFORM_BOUNDRY_CHECK(pos.x, pos.y);
@@ -463,7 +467,7 @@ __kernel void winoTransDstBuf2_3_1_c16_c4(GLOBAL_SIZE_DIM2
         
         //NC4HW4 [batch, dstChannelC4, dstHeight, dstWidth]
         //index: [batchOffset, pos.y,      oyStart,   oxStart]
-        int out_offset = (((batchOffset * dstChannelC4+ pos.y) * dstHeight + oyStart) * dstWidth + oxStart)*4;
+        int out_offset = (((batchOffset+ pos.y * batch) * dstHeight + oyStart) * dstWidth + oxStart)*4;
         {
             int ox = oxStart + 0;
             int oy = oyStart + 0;

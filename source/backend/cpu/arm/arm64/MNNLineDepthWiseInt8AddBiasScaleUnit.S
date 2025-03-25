@@ -38,7 +38,7 @@ asm_function MNNLineDepthWiseInt8AddBiasScaleUnit
 ldr x8, [sp, #0]
 ldr x9, [sp, #8]
 
-str d14, [sp, #(-16 * 9)]!
+str d14, [sp, #(-16 * 10)]!
 stp d12, d13, [sp, #(16 * 1)]
 stp d10, d11, [sp, #(16 * 2)]
 stp d8,  d9,  [sp, #(16 * 3)]
@@ -53,7 +53,7 @@ ldr w11, [x3, #16]
 dup v30.16b, w11 // max
 ldr w11, [x3, #20]
 dup v31.16b, w11 // min
-ldr x3, [x3, #8]
+ldr x3, [x3, #72]
 
 mul x10, x6, x8
 sub x9, x9, x10
@@ -711,7 +711,7 @@ ldp x27, x28, [sp, #(16 * 4)]
 ldp d8,  d9,  [sp, #(16 * 3)]
 ldp d10, d11, [sp, #(16 * 2)]
 ldp d12, d13, [sp, #(16 * 1)]
-ldr d14, [sp], #(16 * 9)
+ldr d14, [sp], #(16 * 10)
 ret
 
 #endif

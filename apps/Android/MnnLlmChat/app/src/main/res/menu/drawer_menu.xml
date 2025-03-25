@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:id="@+id/nav_models"
+        android:title="@string/models"
+        android:enabled="true"/>
+    <item
+        android:id="@+id/nav_history"
+        android:title="@string/history"
+        android:enabled="true"/>
+</menu>

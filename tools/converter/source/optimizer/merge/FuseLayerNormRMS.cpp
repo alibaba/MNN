@@ -79,7 +79,7 @@ FuseLayerNormRMS::FuseLayerNormRMS() {
             return false;
         }
         EXPRP pow = mean->inputs().at(0)->expr().first;
-        if (!helpers::IsBinaryPow(pow)) {
+        if (!helpers::IsUnarySquare(pow)) {
             return false;
         }
         VARP x_var    = pow->inputs().at(0);

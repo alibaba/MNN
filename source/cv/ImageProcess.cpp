@@ -28,7 +28,6 @@
 #include "backend/cpu/x86_x64/cpu_id.h"
 #endif
 
-#define CACHE_SIZE 256
 namespace MNN {
 
 void registerBackend();

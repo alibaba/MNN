@@ -140,6 +140,7 @@ int GeometryComputerUtils::buildConstantTensors(std::vector<Schedule::OpCacheInf
 }
 
 ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
+    const Runtime* cpuRuntime,
     FileLoader* external,
     std::vector<Schedule::OpCacheInfo>& infos,
     GeometryComputer::Context& geoContext,
@@ -147,8 +148,10 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
     Runtime::CompilerType compileType, 
     bool skipShapeCompute,
     bool permitCodegen) {
+    bool openCache = geoContext.support(Interpreter::GeometryComputeMask::GEOMETRCOMPUTEMASK_OPENCACHE);
     /** Size Compute and compute Const Begin */
-    GeometryComputer::Context ctx(backupBackend);
+    GeometryComputer::Context ctx(Interpreter::GeometryComputeMask::GEOMETRCOMPUTEMASK_ALL, backupBackend);
+    bool needRelease = geoContext.mNeedRelease;
     // Size Compute and compute Const
     for (int i=0; i<infos.size(); ++i) {
         auto& info = infos[i];
@@ -238,7 +241,10 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
             ctx.clear();
             auto geo = GeometryComputer::search(info.op->type(), Runtime::Compiler_Loop);
             {
-                auto res = geo->onRecompute(info.op, info.inputs, info.outputs, geoContext, tempBuffer);
+                bool res = false;
+                if (openCache) {
+                    res = geo->onRecompute(info.op, info.inputs, info.outputs, geoContext, tempBuffer);
+                }
                 if (!res) {
                     tempBuffer.command.clear();
                     tempBuffer.extras.clear();
@@ -260,14 +266,20 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
                 auto& c = *cp;
                 std::shared_ptr<BufferStorage> tmpStorge;
                 if (nullptr == c.execution) {
-                    auto exe = OpCommonUtils::createExecutionWithExternal(backupBackend.get(), c.inputs, c.outputs, c.op, external, tmpStorge);
-                    c.execution.reset(exe);
+                    auto opIter = info.executionCache.find(c.op);
+                    if (opIter != info.executionCache.end()) {
+                        c.execution = opIter->second;
+                    } else {
+                        auto exe = OpCommonUtils::createExecutionWithExternal(backupBackend.get(), c.inputs, c.outputs, c.op, external, tmpStorge);
+                        c.execution.reset(exe);
+                    }
                 }
                 auto exe = c.execution;
                 if (nullptr == exe.get()) {
                     MNN_ERROR("Const Folder Error for %s\n", info.op->name()->c_str());
                     return NO_EXECUTION;
                 }
+                backupBackend->onResizeBegin();
                 for (auto t : c.outputs) {
                     auto des = TensorUtils::getDescribeOrigin(t);
                     TensorUtils::setLinearLayout(t);
@@ -277,7 +289,6 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
                     }
                     des->setBackend(backupBackend.get());
                 }
-                backupBackend->onResizeBegin();
                 auto code = exe->onResize(c.inputs, c.outputs);
                 if (NO_ERROR != code) {
                     return NOT_SUPPORT;
@@ -310,10 +321,16 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
             }
             info.computeCache.needExecuteConst = dirty;
             if (dirty) {
+                backupBackend->onExecuteBegin();
+                if (cpuRuntime->pCurrentStatus != NO_ERROR) {
+                    return (ErrorCode)cpuRuntime->pCurrentStatus;
+                }
                 auto code = cp->execution->onExecute(c.inputs, c.outputs);
                 if (NO_ERROR != code) {
                     return NOT_SUPPORT;
                 }
+                backupBackend->onExecuteEnd();
+
                 for (auto t : c.outputs) {
                     TensorUtils::getDescribe(t)->stageMask &= (~Tensor::InsideDescribe::StageInfo::CONTENT_NOT_CHANGE);
                 }
@@ -321,6 +338,15 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
                 for (auto t : c.outputs) {
                     TensorUtils::getDescribe(t)->stageMask |= Tensor::InsideDescribe::StageInfo::CONTENT_NOT_CHANGE;
                 }
+            }
+        }
+        if (needRelease) {
+            cmdBufferVir.command.clear();
+            cmdBufferVir.extras.clear();
+            
+            ctx.clear();
+            for (auto index : info.releaseAbleInputs) {
+                TensorUtils::getDescribeOrigin(info.inputs[index])->mem = nullptr;
             }
         }
     }
@@ -347,7 +373,7 @@ ErrorCode GeometryComputerUtils::shapeComputeAndGeometryTransform(
         auto geo = GeometryComputer::search(info.op->type(), compileType);
         {
             bool res = false;
-            if (!tempBuffer.hasWrap) {
+            if ((!tempBuffer.hasWrap) && openCache) {
                 res = geo->onRecompute(info.op, info.inputs, info.outputs, geoContext, tempBuffer);
             }
             if (!res) {

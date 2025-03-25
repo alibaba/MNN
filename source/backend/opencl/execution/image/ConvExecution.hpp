@@ -27,8 +27,7 @@ struct ConvResource {
     std::shared_ptr<Tensor> mFilter;
     std::shared_ptr<Tensor> mBias;
     std::shared_ptr<cl::Buffer> mKernelBuffer;
-    std::shared_ptr<cl::Buffer> dequantScaleBuffer;
-    std::shared_ptr<cl::Buffer> dequantOffsetBuffer;
+    std::shared_ptr<cl::Buffer> dequantScaleOffset;
     std::vector<int> mStrides{1, 1};
     std::vector<int> mDilations{1, 1};
     std::set<std::string> mBuildOptions;
@@ -36,6 +35,7 @@ struct ConvResource {
     bool mConv1x1Opt = false;
     bool mWeightUseBuffer = false;
     bool gemmOpt = false;
+    int mBlockSize;
     int mKernelWidth;
     int mKernelHeight;
     int mOutputChannel;

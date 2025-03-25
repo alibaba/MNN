@@ -14,7 +14,7 @@
 
 #if MNN_METAL_ENABLED
 namespace MNN {
-static const char* gBinaryTemplate = R"metal(
+static const char* gUnaryTemplate = R"metal(
 #include <metal_stdlib>
 #include <simd/simd.h>
 using namespace metal;
@@ -38,6 +38,7 @@ static inline float4 square(float4 value) { return value * value; }
 static inline float4 expm1(float4 value) {return MNNEXP(value) - 1;}
 static inline float4 reciprocal(float4 value) {return 1.0/(value);}
 static inline float4 sigmoid(float4 value) {return 1.f / (1.f + MNNEXP(-value));}
+static inline float4 silu(float4 value) {return value / (1.f + MNNEXP(-value));}
 static inline float4 log1p(float4 value) {return log(1.f + value);}
 static inline float4 hardswish(float4 value) {
     return (float4)(1.0/6.0) * (value * min(max(value+(float4)3, 0), (float4)6));
@@ -82,6 +83,7 @@ static NSString *kernelForType(UnaryOpOperation type) {
         op_case(TAN, tan);
         op_case(TANH, MNNTANH);
         op_case(SIGMOID, sigmoid);
+        op_case(SILU, silu);
         op_case(ASIN, asin);
         op_case(ACOS, acos);
         op_case(ATAN, atan);
@@ -122,8 +124,8 @@ ErrorCode MetalUnary::onResize(const std::vector<Tensor *> &inputs, const std::v
 void MetalUnary::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, id<MTLComputeCommandEncoder> encoder) {
     auto input = inputs[0], output = outputs[0];
     [encoder setComputePipelineState:mPipeline];
-    [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)input->deviceId())->getBuffer() offset:TensorUtils::getDescribe(input)->extra.offset atIndex:0];
-    [encoder setBuffer:(id<MTLBuffer>)((MetalRuntimeAllocator::MetalBufferAlloc *)output->deviceId())->getBuffer() offset:TensorUtils::getDescribe(output)->extra.offset atIndex:1];
+    MetalBackend::setTensor(input, encoder, 0);
+    MetalBackend::setTensor(output, encoder, 1);
     [encoder setBuffer:mConstBuffer offset:0 atIndex:2];
     [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
 }
@@ -160,7 +162,7 @@ public:
                 @"T" : T,
                 @"FUNC" : kernel,
             };
-            pipeline = mtbn->makeComputePipelineWithSourceOption(gBinaryTemplate, "main0", compileOptions);
+            pipeline = mtbn->makeComputePipelineWithSourceOption(gUnaryTemplate, "main0", compileOptions);
             mtbn->runtime()->insertPipeline(keys, pipeline);
         }
         if (nil == pipeline) {

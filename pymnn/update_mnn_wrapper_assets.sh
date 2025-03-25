@@ -43,7 +43,7 @@ find . -name __pycache__ | xargs rm -rf
 if cmdExist pyenv; then
     pyenv global $py_version
 fi
-python -c "import compileall; compileall.compile_dir('/tmp/mnn_py/MNN', force=True)"
+python2 -c "import compileall; compileall.compile_dir('/tmp/mnn_py/MNN', force=True)"
 find . -name "*.py" | xargs rm -rf
 cd ..
 zip -r MNN.zip MNN

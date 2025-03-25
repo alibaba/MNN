@@ -114,8 +114,10 @@ struct _Exp {
     void operator()(void* outRaw, const void* inpRaw, int realSize) const {
         auto out = (float*)outRaw;
         auto inp = (const float*)inpRaw;
-        float offset[2] = {
+        float offset[4] = {
             1.0f,
+            0.0f,
+            0.0f,
             0.0f
         };
         MNNExp(out, inp, offset, realSize);
@@ -125,9 +127,11 @@ struct _ExpM1 {
     void operator()(void* outRaw, const void* inpRaw, int realSize) const {
         auto out = (float*)outRaw;
         auto inp = (const float*)inpRaw;
-        float offset[2] = {
+        float offset[4] = {
             1.0f,
-            -1.0f
+            -1.0f,
+            0.0f,
+            0.0f
         };
         MNNExp(out, inp, offset, realSize);
     }
@@ -145,6 +149,13 @@ struct _Sigmoid {
         auto out = (float*)outRaw;
         auto inp = (const float*)inpRaw;
         MNNSigmoidLowp(out, inp, realSize);
+    }
+};
+struct _SiLu {
+    void operator()(void* outRaw, const void* inpRaw, int realSize) const {
+        auto out = (float*)outRaw;
+        auto inp = (const float*)inpRaw;
+        MNNSiLuLowp(out, inp, realSize);
     }
 };
 
@@ -241,6 +252,8 @@ MNNUnaryExecute Arm82Unary::select(int type, int precision) {
             return _Wrap<_Unary<UnarySin<float>, float>>;
         case UnaryOpOperation_SIGMOID:
             return _Wrap<_Sigmoid>;
+        case UnaryOpOperation_SILU:
+            return _Wrap<_SiLu>;
         case UnaryOpOperation_TANH:
             return _Wrap<_Tanh>;
         case UnaryOpOperation_TAN:

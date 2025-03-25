@@ -21,7 +21,7 @@ int InitVulkan(void) {
 #include <string>
 #include <vector>
 #include <mutex>
-#ifdef WIN32
+#ifdef _WIN32
 #include <windows.h>
 #include <libloaderapi.h>
 #define MNN_DLSYM(lib, func_name) GetProcAddress(reinterpret_cast<HMODULE>(lib), func_name)
@@ -32,7 +32,7 @@ int InitVulkan(void) {
 
 int InitVulkanOnce(void) {
     const std::vector<std::string> gVulkan_library_paths = {
-#ifdef WIN32
+#ifdef _WIN32
     "vulkan-1.dll",
 #endif
     "libvulkan.so",
@@ -42,7 +42,7 @@ int InitVulkanOnce(void) {
     };
     void* libvulkan = nullptr;
     for (const auto& s : gVulkan_library_paths) {
-#ifdef WIN32
+#ifdef _WIN32
         libvulkan = LoadLibrary(s.c_str());
 #else
         libvulkan = dlopen(s.c_str(), RTLD_NOW | RTLD_LOCAL);
@@ -52,7 +52,7 @@ int InitVulkanOnce(void) {
         }
     }
     if (nullptr == libvulkan) {
-#ifdef WIN32
+#ifdef _WIN32
         MNN_ERROR("Load vulkan library error\n");
 #else
         auto message = dlerror();
@@ -73,6 +73,8 @@ int InitVulkanOnce(void) {
         MNN_DLSYM(libvulkan, "vkGetPhysicalDeviceImageFormatProperties"));
     vkGetPhysicalDeviceProperties =
         reinterpret_cast<PFN_vkGetPhysicalDeviceProperties>(MNN_DLSYM(libvulkan, "vkGetPhysicalDeviceProperties"));
+    vkGetPhysicalDeviceProperties2 =
+        reinterpret_cast<PFN_vkGetPhysicalDeviceProperties2>(MNN_DLSYM(libvulkan, "vkGetPhysicalDeviceProperties2"));
     vkGetPhysicalDeviceQueueFamilyProperties = reinterpret_cast<PFN_vkGetPhysicalDeviceQueueFamilyProperties>(
         MNN_DLSYM(libvulkan, "vkGetPhysicalDeviceQueueFamilyProperties"));
     vkGetPhysicalDeviceMemoryProperties = reinterpret_cast<PFN_vkGetPhysicalDeviceMemoryProperties>(
@@ -331,6 +333,7 @@ PFN_vkGetPhysicalDeviceFeatures vkGetPhysicalDeviceFeatures;
 PFN_vkGetPhysicalDeviceFormatProperties vkGetPhysicalDeviceFormatProperties;
 PFN_vkGetPhysicalDeviceImageFormatProperties vkGetPhysicalDeviceImageFormatProperties;
 PFN_vkGetPhysicalDeviceProperties vkGetPhysicalDeviceProperties;
+PFN_vkGetPhysicalDeviceProperties2 vkGetPhysicalDeviceProperties2;
 PFN_vkGetPhysicalDeviceQueueFamilyProperties vkGetPhysicalDeviceQueueFamilyProperties;
 PFN_vkGetPhysicalDeviceMemoryProperties vkGetPhysicalDeviceMemoryProperties;
 PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr;

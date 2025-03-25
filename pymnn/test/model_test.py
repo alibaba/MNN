@@ -80,20 +80,29 @@ def MNNDataType2NumpyDataType(data_type):
     else:
         return np.float32
 
-def createTensor(tensor, file=''):
+def createTensor(tensor, file='', empty=False):
     shape = tensor.getShape()
     data_type = tensor.getDataType()
     dtype = MNNDataType2NumpyDataType(data_type)
     if file == '':
-        data = np.ones(shape, dtype=dtype)
+        if empty:
+            data = np.zeros(shape, dtype=dtype)
+        else:
+            data = np.ones(shape, dtype=dtype)
     else:
         data = loadtxt(file, shape, dtype)
-    return MNN.Tensor(shape, tensor.getDataType(), data, tensor.getDimensionType())
+    return MNN.Tensor(shape, tensor.getDataType(), data.copy(), tensor.getDimensionType())
 
-def compareTensor(tensor, file, atol=5e-2):
-    outputNumpyData = tensor.getNumpyData()
+def compareTensor(tensor, file, tolerance=5e-2):
+    outputNumpyData = tensor.getNumpyData().copy()
     expectNumpyData = loadtxt(file, tensor.getShape())
-    return np.allclose(outputNumpyData, expectNumpyData, atol=atol)
+    max_abs_dif = np.abs(outputNumpyData - expectNumpyData).max()
+    max_exp_val = np.abs(expectNumpyData).max()
+    diff_rate = max_abs_dif / max_exp_val
+    if diff_rate > tolerance:
+        print(f'# Error: max_abs_dif: {max_abs_dif}, max_exp_val: {max_exp_val}, diff_rate: {diff_rate}')
+        return False
+    return True
 
 def log_result(success, model):
     global total_num
@@ -111,6 +120,11 @@ def modelTest(modelPath, givenName, expectName):
     net = MNN.Interpreter(modelPath)
     session = net.createSession()
     allInput = net.getSessionInputAll(session)
+    # zero for all inputs
+    for name in allInput:
+        inputTensor = allInput[name] 
+        inputHost = createTensor(inputTensor, givenName, True)
+        inputTensor.copyFrom(inputHost)
     # input
     inputTensor = net.getSessionInput(session)
     inputHost = createTensor(inputTensor, givenName)
@@ -240,3 +254,6 @@ if __name__ == '__main__':
         for wrong in wrongs:
             print(wrong)
     print('TEST_NAME_PYMNN_MODEL: Pymnn模型测试\nTEST_CASE_AMOUNT_PYMNN_MODEL: {\"blocked\":0,\"failed\":%d,\"passed\":%d,\"skipped\":0}\n'%(len(wrongs), total_num - len(wrongs)))
+    print('TEST_CASE={\"name\":\"Pymnn模型测试\",\"failed\":%d,\"passed\":%d}\n'%(len(wrongs), total_num - len(wrongs)))
+    if len(wrongs) > 0:
+       exit(1)

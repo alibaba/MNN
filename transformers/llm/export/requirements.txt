@@ -1,0 +1,14 @@
+datasets
+MNN
+onnx
+onnxslim
+onnxruntime
+peft
+Pillow
+Requests
+sentencepiece
+torch
+tqdm
+transformers
+yaspin
+numpy

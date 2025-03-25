@@ -104,6 +104,13 @@ public:
         void setCache(std::string cacheName);
         
         /**
+         * @brief set the path of external files or directory
+         * @param path -- The path of a file or directory on disk
+         * @param type -- Type of the external path (see "enum ExternalPathType" in Interpreter.hpp)
+         */
+        void setExternalPath(std::string path, int type);
+        
+        /**
          * @brief set external file.
          */
         void setExternalFile(std::string fileName);
@@ -118,6 +125,7 @@ public:
         friend class Executor;
         void setMode(Interpreter::SessionMode mode);
         void setHint(Interpreter::HintMode mode, int value);
+        void setHintPtr(Interpreter::HintMode mode, void* value);
         bool getInfo(Interpreter::SessionInfoCode code, void* ptr);
         BackendConfig* getBnConfig();
         const RuntimeAttr* getInside() const {
@@ -131,12 +139,10 @@ public:
     };
     static bool getComputeInfo(EXPRP expr, Interpreter::SessionInfoCode code, void* ptr);
 private:
-    void _refreshRuntime();
+    std::shared_ptr<Runtime> _getOrCreateRuntime(MNNForwardType type, const BackendConfig* config, int numberThread, bool reset = true);
     Executor(std::shared_ptr<Runtime> backend, MNNForwardType type, int numberThread);
     void _makeCache(const std::vector<EXPRP>& outputs, bool forceCPU);
 
-    // TODO: Remove mRuntimes, only use mRuntimeInfo
-    std::map<std::pair<MNNForwardType, int>, std::shared_ptr<Runtime>> mRuntimes;
     RuntimeInfo mRuntimeInfo;
     std::shared_ptr<DebugTools> mDebug;
     std::map<std::string, std::shared_ptr<SubGraph>> mSubGraph;

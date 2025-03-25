@@ -120,7 +120,7 @@ class TensorArrayReadComputer : public SizeComputer {
         } else {
             MNN_ASSERT(false);
         }
-        outputs[0]->setType(op->main_as_TensorArray()->T());
+        outputs[0]->buffer().type = inputs[2]->buffer().type;
         outputs[0]->buffer().dimensions    = readElemShape.size();
         for (int i = 0; i < readElemShape.size(); i++) {
             outputs[0]->setLength(i, readElemShape[i]);
@@ -149,7 +149,7 @@ class TensorArrayWriteComputer : public SizeComputer {
             return false;
         }
         copyTensorArrayAttribute(inputs[3], outputs[0]);
-        outputs[0]->setType(op->main_as_TensorArray()->T());
+        outputs[0]->buffer().type = inputs[2]->buffer().type;
         int writeIndex = inputs[1]->host<uint32_t>()[0];
         // update arraySize
         if (!inDes->tensorArrayAttr->isDynamicSize) {
@@ -254,7 +254,7 @@ class TensorArrayScatterComputer : public SizeComputer {
                 outDes->tensorArrayAttr->elemShape[0] = writeElemShape;
             }
         }
-        outputs[0]->setType(op->main_as_TensorArray()->T());
+        outputs[0]->buffer().type = inputs[3]->buffer().type;
         updateTensorArrayDims(outputs[0]);
         MNN_ASSERT(outDes->tensorArrayAttr != nullptr);
         return true;
@@ -340,8 +340,7 @@ class TensorArrayConcatComputer : public SizeComputer {
         copyTensorArrayAttribute(inputs[1], outputs[0]);
         auto tpParam = op->main_as_TensorArray();
         int concatAxis = tpParam->axis(), newAxis = tpParam->new_axis();
-        outputs[0]->setType(op->main_as_TensorArray()->T());
-
+        outputs[0]->buffer().type = inputs[1]->buffer().type;
         const auto& elemShapes = inDes->tensorArrayAttr->elemShape;
         auto outShape = elemShapes[0];
         bool valid = true; // avoid use MNN_ASSERT because it's no-op in release mode

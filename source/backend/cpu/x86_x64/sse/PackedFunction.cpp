@@ -65,7 +65,7 @@ void _SSE_MNNReluWithSlopeChannel(float* dst, const float* src, const float* slo
 
 void _SSE_MNNConvRunForLineDepthwise(float* dst, const float* src, const float* weight, size_t width, size_t src_w_setup,
                                 size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step, size_t height,
-                                     size_t srcHStep, size_t dstHStep) {
+                                     size_t srcHStep, size_t dstHStep, const float* bias, const float* parameters) {
     int dx, fx, fy;
     const int unit = 8;
     int widthUnit = width / unit;
@@ -75,18 +75,21 @@ void _SSE_MNNConvRunForLineDepthwise(float* dst, const float* src, const float* 
     if (need4) {
         widthRemain-=4;
     }
+    auto minF = _mm_set1_ps(parameters[0]);
+    auto maxF = _mm_set1_ps(parameters[1]);
+    auto bv = _mm_loadu_ps(bias);
     for (int y = 0; y < height; ++y) {
         auto srcY = src + y * srcHStep;
         auto dstY = dst + y * dstHStep;
         for (dx = 0; dx < widthUnit; ++dx) {
-            auto dstValue0 = _mm_set1_ps(0.0f);
-            auto dstValue1 = _mm_set1_ps(0.0f);
-            auto dstValue2 = _mm_set1_ps(0.0f);
-            auto dstValue3 = _mm_set1_ps(0.0f);
-            auto dstValue4 = _mm_set1_ps(0.0f);
-            auto dstValue5 = _mm_set1_ps(0.0f);
-            auto dstValue6 = _mm_set1_ps(0.0f);
-            auto dstValue7 = _mm_set1_ps(0.0f);
+            auto dstValue0 = bv;
+            auto dstValue1 = bv;
+            auto dstValue2 = bv;
+            auto dstValue3 = bv;
+            auto dstValue4 = bv;
+            auto dstValue5 = bv;
+            auto dstValue6 = bv;
+            auto dstValue7 = bv;
             for (fy = 0; fy < fh; ++fy) {
                 const float* src_y    = srcY + fy * dilateY_step;
                 const float* weight_y = weight_z + fy * fw * 4;
@@ -104,6 +107,24 @@ void _SSE_MNNConvRunForLineDepthwise(float* dst, const float* src, const float* 
                     dstValue7 = _mm_add_ps(dstValue7, _mm_mul_ps(_mm_loadu_ps(src_x + 7 * src_w_setup), weightValue));
                 }
             }
+            dstValue0 = _mm_min_ps(dstValue0, maxF);
+            dstValue1 = _mm_min_ps(dstValue1, maxF);
+            dstValue2 = _mm_min_ps(dstValue2, maxF);
+            dstValue3 = _mm_min_ps(dstValue3, maxF);
+            dstValue4 = _mm_min_ps(dstValue4, maxF);
+            dstValue5 = _mm_min_ps(dstValue5, maxF);
+            dstValue6 = _mm_min_ps(dstValue6, maxF);
+            dstValue7 = _mm_min_ps(dstValue7, maxF);
+
+            dstValue0 = _mm_max_ps(dstValue0, minF);
+            dstValue1 = _mm_max_ps(dstValue1, minF);
+            dstValue2 = _mm_max_ps(dstValue2, minF);
+            dstValue3 = _mm_max_ps(dstValue3, minF);
+            dstValue4 = _mm_max_ps(dstValue4, minF);
+            dstValue5 = _mm_max_ps(dstValue5, minF);
+            dstValue6 = _mm_max_ps(dstValue6, minF);
+            dstValue7 = _mm_max_ps(dstValue7, minF);
+
             _mm_storeu_ps(dstY + 4 * 0, dstValue0);
             _mm_storeu_ps(dstY + 4 * 1, dstValue1);
             _mm_storeu_ps(dstY + 4 * 2, dstValue2);
@@ -116,10 +137,10 @@ void _SSE_MNNConvRunForLineDepthwise(float* dst, const float* src, const float* 
             srcY += unit * src_w_setup;
         }
         if (need4) {
-            auto dstValue0 = _mm_set1_ps(0.0f);
-            auto dstValue1 = _mm_set1_ps(0.0f);
-            auto dstValue2 = _mm_set1_ps(0.0f);
-            auto dstValue3 = _mm_set1_ps(0.0f);
+            auto dstValue0 = bv;
+            auto dstValue1 = bv;
+            auto dstValue2 = bv;
+            auto dstValue3 = bv;
             for (fy = 0; fy < fh; ++fy) {
                 const float* src_y    = srcY + fy * dilateY_step;
                 const float* weight_y = weight_z + fy * fw * 4;
@@ -133,6 +154,15 @@ void _SSE_MNNConvRunForLineDepthwise(float* dst, const float* src, const float* 
                     dstValue3 = _mm_add_ps(dstValue3, _mm_mul_ps(_mm_loadu_ps(src_x + 3 * src_w_setup), weightValue));
                 }
             }
+            dstValue0 = _mm_min_ps(dstValue0, maxF);
+            dstValue1 = _mm_min_ps(dstValue1, maxF);
+            dstValue2 = _mm_min_ps(dstValue2, maxF);
+            dstValue3 = _mm_min_ps(dstValue3, maxF);
+
+            dstValue0 = _mm_max_ps(dstValue0, minF);
+            dstValue1 = _mm_max_ps(dstValue1, minF);
+            dstValue2 = _mm_max_ps(dstValue2, minF);
+            dstValue3 = _mm_max_ps(dstValue3, minF);
             _mm_storeu_ps(dstY + 4 * 0, dstValue0);
             _mm_storeu_ps(dstY + 4 * 1, dstValue1);
             _mm_storeu_ps(dstY + 4 * 2, dstValue2);
@@ -142,7 +172,7 @@ void _SSE_MNNConvRunForLineDepthwise(float* dst, const float* src, const float* 
         }
         for (dx = 0; dx < widthRemain; ++dx) {
             float* dst_x          = dstY + dx * 4;
-            auto dstValue = _mm_set1_ps(0.0f);
+            auto dstValue = bv;
             const float* src_z    = srcY + src_w_setup * dx;
             const float* weight_z = weight;
             for (fy = 0; fy < fh; ++fy) {
@@ -154,6 +184,8 @@ void _SSE_MNNConvRunForLineDepthwise(float* dst, const float* src, const float* 
                     dstValue = _mm_add_ps(dstValue, _mm_mul_ps(_mm_loadu_ps(src_x), _mm_loadu_ps(weight_x)));
                 }
             }
+            dstValue = _mm_min_ps(dstValue, maxF);
+            dstValue = _mm_max_ps(dstValue, minF);
             _mm_storeu_ps(dst_x, dstValue);
         }
     }

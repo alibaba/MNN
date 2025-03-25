@@ -33,7 +33,6 @@ typedef enum {
 /** metal device */
 @property (strong, nonatomic, readonly) id<MTLDevice> device;
 /** max memory length cound be used in threadgroup */
-@property (assign, nonatomic, readonly) BOOL isCommitEachShader;
 @property (assign, nonatomic, readonly) BOOL isIphone;
 
 /**

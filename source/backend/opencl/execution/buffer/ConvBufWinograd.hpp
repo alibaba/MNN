@@ -22,6 +22,8 @@ struct ConvBufWinoResource {
     bool mUseSubgroup{false};
     std::shared_ptr<Tensor> mWeight;
     std::shared_ptr<Tensor> mBias;
+    int mAlignN;
+    int mAlignK;
 };
 
 class ConvBufWinograd : public CommonExecution {
@@ -34,9 +36,14 @@ public:
     virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
     static bool valid(const Convolution2DCommon* common, const Tensor* input, const Tensor* output, bool isIntel = false, int limit = 8192);
     std::vector<uint32_t> getLocalWS(std::string kernelName, int index, std::vector<uint32_t> &gws, const uint32_t maxWorkGroupSize, cl::Kernel mKernel);
+    virtual ErrorCode onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) override;
+
 #ifdef MNN_SUPPORT_INTEL_SUBGROUP
     ErrorCode SubgroupOnResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
 #endif /* MNN_SUPPORT_INTEL_SUBGROUP */
+    
+private:
+    void convertWeightFormat(cl::Buffer& buffer, const int alignK, const int alignN);
 private:
     OpenCLBackend* mOpenCLBackend;
     std::shared_ptr<ConvBufWinoResource> mResource;
@@ -44,6 +51,8 @@ private:
     int mKernelY;
     int mStrideX;
     int mStrideY;
+    int mCi;
+    int mCo;
 
     std::shared_ptr<Tensor> mSource;
     std::shared_ptr<Tensor> mDest;
@@ -59,6 +68,8 @@ private:
     std::vector<std::vector<uint32_t> > mLWS_S;
     std::vector<std::vector<uint32_t> > mLWS_D;
     std::vector<std::vector<uint32_t> > mLWS_M;
+private:
+    int mAlignM;
 };
 
 } // namespace OpenCL

@@ -1,0 +1,51 @@
+#version 440 core
+#define FLOAT float
+
+layout(std430) buffer;
+layout(set=0, binding=0) writeonly buffer destBuffer{
+    int data[];
+} uOutput;
+
+layout(set=0, binding=1) readonly buffer sourceBuffer0{
+    FLOAT data[];
+} uInput;
+
+layout(set=0, binding=2) uniform constBuffer {
+    int w; //inside
+    int h; //axis
+    int c; //outside
+    float k; // 0
+}uConst;
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+void main()
+{
+    ivec3 posTmp = ivec3(gl_GlobalInvocationID);
+    ivec2 pos;
+    pos.x = posTmp.x / uConst.w;
+    pos.y = posTmp.x % uConst.w;
+    // x: index in outside, y: index in inside
+    if(pos.y < uConst.w && pos.x < uConst.c)
+    {
+        int basicOffset = pos.x * uConst.w * uConst.h + pos.y;
+        FLOAT value = uInput.data[basicOffset];
+        int index = 0;
+        for(int i = 1; i < uConst.h; ++i)
+        {
+            FLOAT valueCurr = uInput.data[basicOffset + i * uConst.w];
+#ifndef ARGMIN
+            if (valueCurr > value) {
+                value = valueCurr;
+                index = i;
+            }
+#else
+            if (valueCurr < value) {
+                value = valueCurr;
+                index = i;
+            }
+#endif
+        }
+        uOutput.data[posTmp.x] = index;
+    }
+}

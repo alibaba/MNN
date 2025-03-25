@@ -9,19 +9,10 @@
 #ifndef Vec_hpp
 #define Vec_hpp
 #include "core/Macro.h"
+#include "core/SimdHeader.h"
 #include <array>
 #include <algorithm>  // supply std::max and std::min
 #include <math.h>
-#ifdef MNN_USE_NEON
-#include <arm_neon.h>
-#endif
-#ifdef MNN_USE_SSE
-#if defined(_MSC_VER)
-#include <intrin.h>
-#else
-#include <x86intrin.h>
-#endif
-#endif
 namespace MNN {
 namespace Math {
 
@@ -234,11 +225,7 @@ struct Vec<int32_t, 4> {
         value = std::move(lr.value);
     }
     float operator[](size_t i) {
-#if defined(_MSC_VER)
-        return value.n128_i32[i];
-#else
         return value[i];
-#endif
     }
     static VecType load(const float* addr) {
         VecType v = { (int32x4_t)(vld1q_f32(addr)) };
@@ -400,11 +387,7 @@ struct Vec<float, 4> {
         value = std::move(lr.value);
     }
     float operator[](size_t i) {
-#if defined(_MSC_VER)
-        return value.n128_f32[i];
-#else
         return value[i];
-#endif
     }
     static VecType load(const float* addr) {
         VecType v = { vld1q_f32(addr) };

@@ -11,6 +11,8 @@
 
 #include "core/NonCopyable.hpp"
 #include "backend/vulkan/vulkan/vulkan_wrapper.h"
+#include <cstring>
+
 namespace MNN {
 class VulkanInstance : public NonCopyable {
 public:
@@ -28,11 +30,6 @@ public:
     VkInstance get() const {
         return mInstance;
     }
-
-    bool success() const {
-        return (VK_NULL_HANDLE != mInstance);
-    }
-
 private:
     bool mOwner;
     VkInstance mInstance;

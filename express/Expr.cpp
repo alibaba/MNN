@@ -7,6 +7,7 @@
 //
 
 #define FLATBUFFERS_PREFER_PRINTF
+#include <stack>
 #include <MNN/expr/Expr.hpp>
 #include <MNN/expr/Executor.hpp>
 #include <MNN/expr/ExprCreator.hpp>
@@ -91,6 +92,7 @@ bool VARP::fix(VARP::InputType type) const {
         newVARP->expr().first->inside()->mHoldBackend = pipelineInfo.first.cache.second;
     }
     Variable::replace(VARP(mContent), newVARP);
+    inputTensor->wait(MNN::Tensor::MAP_TENSOR_READ, true);
     return true;
 }
 
@@ -206,7 +208,7 @@ EXPRP Expr::create(std::shared_ptr<BufferStorage> extra, std::vector<VARP>&& inp
     expr->mInputs   = std::move(inputs);
     auto exe = ExecutorScope::Current();
     expr->mInside->mReq = exe->getRequirement(expr.get());
-    if (!(exe->getLazyMode() & Executor::LAZY_COMPUTE_ONCE)) {
+    if ((!(exe->getLazyMode() & Executor::LAZY_COMPUTE_ONCE)) && exe->lazyEval) {
         _addLinkForInputs(expr);
     }
     return expr;
@@ -372,7 +374,7 @@ VARP Variable::create(EXPRP expr, int index) {
         res.fix(VARP::CONSTANT);
         return res;
     }
-    // CONTENT Mode
+    // CONTENT Mode, Use Geometry Computer to Decompress Expr
     do {
         if (!(executor->getLazyMode() & Executor::LAZY_CONTENT)) {
             break;
@@ -398,7 +400,8 @@ VARP Variable::create(EXPRP expr, int index) {
             outputTensors[i] = expr->mInside->mOutputTensors[i];
         }
         auto bn = executor->getAttr()->constantBackend;
-        GeometryComputer::Context context(bn);
+        // TODO: Support set mask
+        GeometryComputer::Context context(Interpreter::GeometryComputeMask::GEOMETRCOMPUTEMASK_ALL, bn);
         auto geo = GeometryComputer::search(expr->get()->type(), Runtime::Compiler_Loop);
         CommandBuffer cmd;
         res = geo->onCompute(expr->get(), inputTensors, outputTensors, context, cmd);
@@ -1227,21 +1230,8 @@ void Variable::save(const std::vector<VARP>& vars, NetT* dest) {
                 auto des = TensorUtils::getDescribe(tensor);
                 auto describe = std::unique_ptr<MNN::TensorDescribeT>(new MNN::TensorDescribeT);
                 describe->index = varIndexInfo[expr] + v;
-                describe->blob = std::unique_ptr<MNN::BlobT>(new MNN::BlobT);
                 describe->name = dest->tensorName[subindex];
-                auto& blob = describe->blob;
-                blob->dataFormat = des->dimensionFormat;
-                if (tensor->getType() == halide_type_of<float>()) {
-                    blob->dataType = DataType_DT_FLOAT;
-                } else {
-                    SET_TYPE(INT8, int8)}
-                    SET_TYPE(UINT8, uint8)}
-                    SET_TYPE(INT32, int32)}
-                    SET_TYPE(INT64, int64)}
-                }
-                for (int d = 0; d < tensor->dimensions();d++) {
-                    describe->blob->dims.push_back(tensor->buffer().dim[d].extent);
-                }
+
                 auto tensorDes = TensorUtils::getDescribe(tensor);
                 if (nullptr != tensorDes->quantAttr) {
                     describe->quantInfo.reset(new TensorQuantInfoT);
@@ -1251,6 +1241,20 @@ void Variable::save(const std::vector<VARP>& vars, NetT* dest) {
                     describe->quantInfo->scale = tensorDes->quantAttr->scale;
                 }
                 if (staticModel) {
+                    describe->blob = std::unique_ptr<MNN::BlobT>(new MNN::BlobT);
+                    auto& blob = describe->blob;
+                    blob->dataFormat = des->dimensionFormat;
+                    if (tensor->getType() == halide_type_of<float>()) {
+                    blob->dataType = DataType_DT_FLOAT;
+                    } else {
+                        SET_TYPE(INT8, int8)}
+                        SET_TYPE(UINT8, uint8)}
+                        SET_TYPE(INT32, int32)}
+                        SET_TYPE(INT64, int64)}
+                    }
+                    for (int d = 0; d < tensor->dimensions();d++) {
+                        describe->blob->dims.push_back(tensor->buffer().dim[d].extent);
+                    }
                     for (auto& reg : des->regions) {
                         auto regionT = std::unique_ptr<MNN::RegionT>(new MNN::RegionT);
                         regionT->src = std::unique_ptr<MNN::ViewT>(new MNN::ViewT);
@@ -1331,17 +1335,36 @@ std::pair<std::map<std::string, VARP>, std::map<std::string, VARP>> Variable::ge
 
 std::vector<EXPRP> Variable::getExecuteOrder(const std::vector<VARP>& outputs) {
     std::vector<EXPRP> sequence;
+    std::stack<EXPRP> workStack;
     for (auto output : outputs) {
-        Expr::visit(
-                        output->mFrom, [](EXPRP expr) { return !expr->visited(); },
-                        [&sequence](EXPRP expr) {
-                            //FUNC_PRINT_ALL(var->name().c_str(), s);
-                            if (!expr->visited()) {
-                                sequence.emplace_back(expr);
-                                expr->setVisited(true);
-                            }
-                            return true;
-                        });
+        if (nullptr == output) {
+            continue;
+        }
+        workStack.push(output->expr().first);
+    }
+    while (!workStack.empty()) {
+        auto expr = workStack.top();
+        bool valid = true;
+        if (expr->visited()) {
+            workStack.pop();
+            continue;
+        }
+        for (auto input : expr->inputs()) {
+            if (input == nullptr) {
+                continue;
+            }
+            if (input->expr().first->visited()) {
+                continue;
+            }
+            valid = false;
+            workStack.push(input->expr().first);
+            break;
+        }
+        if (valid) {
+            sequence.emplace_back(expr);
+            expr->setVisited(true);
+            workStack.pop();
+        }
     }
     for (auto expr : sequence) {
         expr->setVisited(false);

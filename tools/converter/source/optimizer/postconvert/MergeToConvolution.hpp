@@ -6,6 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#include <set>
 #include "../PostTreatUtils.hpp"
 using namespace MNN;
 
@@ -18,15 +19,24 @@ public:
     virtual bool onExecute(std::unique_ptr<MNN::NetT>& net) const override {
         // Merge Layer
         std::vector<MNN::OpT*> readyToDelete;
+        std::set<std::string> outputNames;
+        for (auto n : net->outputName) {
+            outputNames.insert(n);
+        }
         for (auto iter = net->oplists.begin(); iter != net->oplists.end(); iter++) {
             MNN::OpT& currentOp = *(iter->get());
             if (currentOp.type != MNN::OpType_Convolution
                 && currentOp.type != MNN::OpType_Deconvolution
                 && currentOp.type != MNN::OpType_ConvolutionDepthwise
-                && currentOp.type != MNN::OpType_Convolution3D) {
+                && currentOp.type != MNN::OpType_Convolution3D
+                && currentOp.type != MNN::OpType_ConvTranspose3D
+                ) {
                 continue;
             }
             DCHECK(currentOp.outputIndexes.size() == 1) << "Conv output ERROR!";
+            if (outputNames.find(net->tensorName[currentOp.outputIndexes[0]]) != outputNames.end()) {
+                continue;
+            }
 
             // merge Batchnorm/Relu/Relu6 to Convolution
             std::vector<MNN::OpT*> nextOp = PostTreatUtils::_findOpByInputIndex(currentOp.outputIndexes[0], net.get());
@@ -36,7 +46,7 @@ public:
                 }
                 const int nextOutputIndex = nextOp[0]->outputIndexes[0];
                 bool succ;
-                if (currentOp.type == MNN::OpType_Convolution3D) {
+                if (currentOp.type == MNN::OpType_Convolution3D || currentOp.type == MNN::OpType_ConvTranspose3D) {
                     succ = merge2Convolution3D(nextOp[0], &currentOp);
                 } else {
                     succ = merge2Convolution(nextOp[0], &currentOp);

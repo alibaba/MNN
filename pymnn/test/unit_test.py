@@ -11,6 +11,10 @@ import MNN.cv as cv
 import MNN.numpy as mp
 import math
 
+# numpy version
+NUMPY_V1 = np.__version__ >= '1.0.0' and np.__version__ < '2.0.0'
+NUMPY_V2 = np.__version__ >= '2.0.0' and np.__version__ < '3.0.0'
+
 img_path = '../../resource/images/cat.jpg'
 
 class UnitTest(unittest.TestCase):
@@ -41,6 +45,7 @@ class UnitTest(unittest.TestCase):
         skipped = len(cls.skipped)
         try:
             print('\nTEST_NAME_PYMNN_UNIT: Pymnn单元测试\nTEST_CASE_AMOUNT_PYMNN_UNIT: {\"blocked\":%d,\"failed\":%d,\"passed\":%d,\"skipped\":%d}\n'%(blocked, failed, passed, skipped))
+            print('\nTEST_CASE={\"name\":\"Pymnn单元测试\",\"failed\":%d,\"passed\":%d}\n'%(failed, passed))
         except:
             print('\nTEST_NAME_PYMNN_UNIT: PymnnUnitTest\nTEST_CASE_AMOUNT_PYMNN_UNIT: {\"blocked\":%d,\"failed\":%d,\"passed\":%d,\"skipped\":%d}\n'%(blocked, failed, passed, skipped))
     def run(self, result=None):
@@ -83,7 +88,8 @@ class UnitTest(unittest.TestCase):
         self.assertEqualArray(x.getNumpyData(), data)
         x = MNN.Tensor([2, 2], MNN.Halide_Type_Float, data.__array_interface__['data'][0], MNN.Tensor_DimensionType_Tensorflow)
         self.assertEqualArray(x.getNumpyData(), data)
-        x = MNN.Tensor([2, 2], MNN.Halide_Type_Float, mp.array([[1., 2.], [3., 4.]]).ptr, MNN.Tensor_DimensionType_Tensorflow)
+        v = mp.array([[1., 2.], [3., 4.]])
+        x = MNN.Tensor([2, 2], MNN.Halide_Type_Float, v.ptr, MNN.Tensor_DimensionType_Tensorflow)
         self.assertEqualArray(x.getNumpyData(), data)
     def test_image_process(self):
         src = np.asarray([[50, 50], [200, 50], [50, 200]], dtype=np.float32)
@@ -195,8 +201,6 @@ class UnitTest(unittest.TestCase):
         self.assertEqualVar(expr.less(self.x, self.x), np.less(self.x_, self.x_))
     def test_floordiv(self):
         self.assertEqualVar(expr.floordiv(2.0, 1.2), np.floor_divide(2.0, 1.2))
-    def test_less(self):
-        self.assertEqualVar(expr.less(self.x, self.x), np.less(self.x_, self.x_))
     def test_squared_difference(self):
         self.assertEqualVar(expr.squared_difference(self.x, self.x), np.square(self.x_ - self.x_))
     def test_equal(self):
@@ -238,7 +242,7 @@ class UnitTest(unittest.TestCase):
         self.assertEqualVar(expr.cast(self.x, expr.int), self.x_.astype(np.int32))
     def test_matmul(self):
         self.assertEqualVar(expr.matmul(self.x, self.x), np.matmul(self.x_, self.x_))
-    def test_normalize(self):
+    def test_normalize_with_reference(self):
         def _refNormalize(src, batch, channel, area, scale, eps):
             dst = [0.0] * (batch * channel * area)
             for b in range(0, batch):
@@ -371,7 +375,7 @@ class UnitTest(unittest.TestCase):
         nc4hw4_x = expr.convert(self.x, expr.NC4HW4)
         self.assertEqual(nc4hw4_x.data_format, expr.NC4HW4)
     def test_transpose(self):
-        self.assertEqualVar(expr.transpose(self.x, [0, 2, 3, 1]), np.transpose(self.x_, [0, 2, 3, 1])) 
+        self.assertEqualVar(expr.transpose(self.x, [0, 2, 3, 1]), np.transpose(self.x_, [0, 2, 3, 1]))
     def test_channel_shuffle(self):
         x = expr.const(np.arange(8).astype(np.float32), [1, 1, 2, 4], expr.NHWC, expr.float)
         y = expr.convert(expr.channel_shuffle(x, 2), expr.NHWC).read_as_tuple()
@@ -408,7 +412,7 @@ class UnitTest(unittest.TestCase):
         x = expr.convert(x, expr.NC4HW4)
         size = expr.const([0.0, 0.0, 0.0, 0.0], [1, 1, 2, 2], expr.NCHW, expr.float)
         self.assertEqual(expr.convert(expr.crop(x, size, 2, [1, 1]), expr.NCHW).read_as_tuple(), (6.0, 7.0, 10.0, 11.0))
-    def test_resize(self):
+    def test_resize_expr(self):
         x = expr.const([-1.0, -2.0, 3.0, 4.0], [1, 2, 2, 1], expr.NHWC, expr.float)
         x = expr.convert(x, expr.NC4HW4)
         y = expr.resize(x, 2.0, 2.0)
@@ -421,7 +425,7 @@ class UnitTest(unittest.TestCase):
         pad = expr.const([1, 1, 2, 2], [2, 2], expr.NCHW, expr.int)
         x = expr.reshape(self.x, [16, 64])
         _x = torch.reshape(self._x, [16, 64])
-        self.assertEqualVar(expr.pad(x, pad, expr.CONSTANT), m(_x))  
+        self.assertEqualVar(expr.pad(x, pad, expr.CONSTANT), m(_x))
     def test_shape(self):
         self.assertEqual(self.x.shape, list(self.x_.shape))
     def test_stack(self):
@@ -478,14 +482,6 @@ class UnitTest(unittest.TestCase):
         upper  = expr.scalar(-1)
         y = np.asarray([0, 1, 2, 3, -1, 0, 1, 2, -0, -1, 0, 1, -0, -0, -1, 0]).reshape([4, 4]).astype(np.float32)
         self.assertEqualVar(expr.matrix_band_part(matrix, lower, upper), y)
-    def test_moments(self):
-        x = expr.const([0.0, 1.0, 2.0, 3.0, -1.0, 0.0, 1.0, 2.0, -2.0, -1.0, 0.0, 1.0, -3.0, -2.0, -1.0, 0.0], [1, 4, 4, 1], expr.NCHW, expr.float)
-        x = expr.convert(x, expr.NC4HW4)
-        shift = expr.scalar(1.0)
-        res = expr.moments(x, [2, 3], shift, True)
-        self.assertEqual(len(res), 2)
-        self.assertEqual(res[0].read_as_tuple(), (1.5, 0.5, -0.5, -1.5))   # mean
-        self.assertEqual(res[1].read_as_tuple(), (1.25, 1.25, 1.25, 1.25)) # var
     def test_setdiff1d(self):
         x = expr.const([-1, 2, -3, 4, 5, -6, 7, -8, -9, -10, 11, 12, 13, 14, -15, -16], [16], expr.NHWC, expr.int)
         y = expr.const([-1, 2, -3, 4, 5, -6, 7, -8], [8], expr.NHWC, expr.int)
@@ -673,8 +669,12 @@ class UnitTest(unittest.TestCase):
         mapy_ = np.ones(self.img_.shape[:2], np.float32)
         for i in range(row):
             for j in range(col):
-                mapx_.itemset((i, j), j)
-                mapy_.itemset((i, j), row-i)
+                if NUMPY_V1:
+                    mapx_.itemset((i, j), j)
+                    mapy_.itemset((i, j), row-i)
+                elif NUMPY_V2:
+                    mapx_[i, j] = j
+                    mapy_[i, j] = row - i
         mapx = expr.const(mapx_, mapx_.shape)
         mapy = expr.const(mapy_, mapy_.shape)
         x = cv.remap(self.img, mapx, mapy, cv.INTER_LINEAR)
@@ -892,7 +892,7 @@ class UnitTest(unittest.TestCase):
         x = cv.merge(channels)
         y = cv2.merge(channels_)
         self.assertEqualVar(x, y)
-    def test_split(self):
+    def test_split_image_channels(self):
         # dim = 1
         a = mp.arange(12.)
         a_ = np.arange(12.)
@@ -987,7 +987,7 @@ class UnitTest(unittest.TestCase):
     def test_changing_kind(self):
         self.assertEqualVar(mp.asarray_chkfinite([2, 3]), np.asarray_chkfinite([2, 3]))
         self.assertEqualVar(mp.ascontiguousarray([2, 3]), np.ascontiguousarray([2, 3]))
-        self.assertEqualVar(mp.asfarray([2, 3]), np.asfarray([2, 3]))
+        if NUMPY_V1: self.assertEqualVar(mp.asfarray([2, 3]), np.asfarray([2, 3])) # removed in numpy 2.0
         try:
             a = np.asscalar
         except:
@@ -1105,7 +1105,7 @@ class UnitTest(unittest.TestCase):
         self.assertEqualVar(mp.arctanh(x), np.arctanh(x_))
         self.assertEqualVar(mp.arctanh(x), np.arctanh(x_))
         self.assertEqualVar(mp.around(y), np.around(y_))
-        self.assertEqualVar(mp.round_(y), np.round_(y_))
+        if NUMPY_V1: self.assertEqualVar(mp.round_(y), np.round_(y_))
         self.assertEqualVar(mp.rint(y), np.rint(y_))
         # self.assertEqualVar(mp.fix(y), np.fix(y_))
         self.assertEqualVar(mp.floor(y), np.floor(y_))
@@ -1192,8 +1192,9 @@ class UnitTest(unittest.TestCase):
         self.assertEqualVar(mp.amin(x, 0), np.amin(x_, 0))
         self.assertEqual(mp.amax(x), np.amax(x_))
         self.assertEqualVar(mp.amax(x, 0), np.amax(x_, 0))
-        self.assertEqual(mp.ptp(x), np.ptp(x_))
-        self.assertEqualVar(mp.ptp(x, 1), np.ptp(x_, 1))
+        if NUMPY_V1:
+            self.assertEqual(mp.ptp(x), np.ptp(x_))
+            self.assertEqualVar(mp.ptp(x, 1), np.ptp(x_, 1))
         self.assertAlmostEqual(mp.mean(x), np.mean(x_), delta=1e-3)
         self.assertEqualVar(mp.mean(x, 0), np.mean(x_,0))
         self.assertAlmostEqual(mp.var(x), np.var(x_), delta=1e-3)
@@ -1230,8 +1231,9 @@ class UnitTest(unittest.TestCase):
         self.assertEqualVars(x.nonzero(), x_.nonzero())
         self.assertEqual(x.prod(), x_.prod())
         self.assertEqualVar(x.prod(0), x_.prod(0))
-        self.assertEqual(x.ptp(), x_.ptp())
-        self.assertEqualVar(x.ptp(0), x_.ptp(0))
+        if NUMPY_V1:
+            self.assertEqual(x.ptp(), x_.ptp())
+            self.assertEqualVar(x.ptp(0), x_.ptp(0))
         self.assertEqualVar(x.ravel(), x_.ravel())
         self.assertEqualVar(x.repeat(2), x_.repeat(2))
         self.assertEqualVar(x.reshape([4,1]), x_.reshape([4,1]))

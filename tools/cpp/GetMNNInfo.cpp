@@ -105,6 +105,9 @@ int main(int argc, char *argv[]) {
     } else {
         MNN_PRINT("Model Version: %s \n", info->version.c_str());
     }
+    if (!info->bizCode.empty()) {
+        MNN_PRINT("Model bizCode: %s\n", info->bizCode.c_str());
+    }
     return 0;
 }
 

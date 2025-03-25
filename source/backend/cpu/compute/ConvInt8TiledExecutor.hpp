@@ -11,29 +11,33 @@
 
 #include "backend/cpu/CPUConvolution.hpp"
 #include "Int8FunctionsOpt.h"
+#include "CommonOptFunction.h"
 
 namespace MNN {
-
+typedef void (*weightSummerFuncion)(float* kernlesum, int8_t* source, size_t outside, size_t reduceAxis, size_t hP, size_t lP);
 class ConvInt8TiledExecutor : public CPUConvolution {
 public:
     // given weight+bias+scale, do post process
-    ConvInt8TiledExecutor(Backend* backend, const Convolution2DCommon* convOp, std::shared_ptr<ResourceInt8> res);
+    ConvInt8TiledExecutor(Backend* backend, const Op* op);
+    ConvInt8TiledExecutor(Backend* backend, const Op* op, std::shared_ptr<ResourceInt8> res);
     virtual ~ConvInt8TiledExecutor();
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
     virtual void getPackParameter(int* Unit, int* SrcUnit, int* DestUnit, const CoreInt8Functions* core) = 0;
-    static void reorderWeight(Tensor* weight, const uint8_t* weightSrc, int SRC_UNIT, int UNIT, int ic, int oc, int kernelCount);
+    static void packWeightAndQuantInfo(int8_t* dstbuffer, const int8_t* weight, const int8_t* quantInfo, int32_t* info, int infoBytes = 4);
+    static void reorderWeight(uint8_t* dst, const uint8_t* src, int32_t* info, int32_t initval = 0, float* kernelsum = nullptr, weightSummerFuncion summerFunc = nullptr);
 
 protected:
     ConvolutionCommon::Im2ColParameter mIm2ColParamter;
     int mTileCount;
     int mThreadNums;
     std::shared_ptr<Tensor> mTempIm2ColBuffer;
-    std::shared_ptr<CPUConvolution::ResourceInt8> mResource;
-    CPUConvolution::MutableResourceInt8 mMutableResource;
+    std::shared_ptr<CPUConvolution::ResourceInt8> mResourceInt8;
+    std::shared_ptr<CPUConvolution::MutableResourceInt8> mMutableResource;
     MemChunk mBlitInfo;
     std::pair<size_t, size_t> mBlitInfoStride;
     int mIm2ColCount;
+    bool mQuantFirst;
 };
 
 //
@@ -48,16 +52,36 @@ protected:
 class DenseConvInt8TiledExecutor : public ConvInt8TiledExecutor {
 public:
     // given weight+bias+scale, do post process
-    DenseConvInt8TiledExecutor(Backend* backend, const Convolution2D* convOp, std::shared_ptr<ResourceInt8> res);
+    DenseConvInt8TiledExecutor(Backend* backend, const Op* op, std::shared_ptr<ResourceInt8> res); // ptq
+    DenseConvInt8TiledExecutor(Backend* backend, const Op* op, std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon); // dynamic quant
     virtual ~DenseConvInt8TiledExecutor();
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
     void getPackParameter(int* Unit, int* SrcUnit, int* DestUnit, const CoreInt8Functions* core) override;
 private:
-    DenseConvInt8TiledExecutor(Backend* backend, const Convolution2DCommon* common, const DenseConvInt8TiledExecutor& exe);
+    DenseConvInt8TiledExecutor(Backend* backend, const Op* op, const DenseConvInt8TiledExecutor& exe);
 
     decltype(CoreInt8Functions::Int8GemmKernel) mGemmKernel;
+    std::function<void(const float*, int8_t*, size_t, const float*, ssize_t, ssize_t, const float*, ssize_t)> mQuantFunc;
+    std::function<void(const float*, int8_t*, size_t, const float*, ssize_t, ssize_t, const float*, size_t, size_t)> mQuantAndReorderFunc = nullptr;
+    std::function<void(float* dest, int8_t* source, const float* scale, ssize_t realDstCount, SumByAxisParams sumParams)> mSumByAxisLFunc;
+    std::shared_ptr<Tensor> mQuantInput;
+    std::shared_ptr<Tensor> mDynamicBias;
+    std::shared_ptr<Tensor> mAccumBuffer;
+    std::shared_ptr<Tensor> mBatchQuantInfo;
+    std::shared_ptr<Tensor> mTempMaxMinValueBuffer;
+    std::vector<uint8_t> mTempSrcSum;
+    std::vector<int32_t> mDivides;
+
+    int mThreadNums;
+    int mBlockNum = 1;
+    int mOcPerThread;
+    bool mSplitByOc;
+    bool mUseBatchQuan;
+#ifdef MNN_KLEIDIAI_ENABLED
+    KleidiAI::AccelType mAccelType = KleidiAI::AccelType::ACC_TYPE_NUMBER;
+#endif
 };
 
 } // namespace MNN

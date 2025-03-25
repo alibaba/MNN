@@ -20,6 +20,32 @@
 
 using Vec4 = MNN::Math::Vec<float, 4>;
 namespace MNN {
+struct ReduceInfo {
+    int reduceMask[3] = {0, 0, 0};
+    int reduceNum = 0;
+    int reduceIndex[3];
+    int normalIndex[3];
+    int normalNum = 0;
+    bool compute(const Tensor::InsideDescribe::Region& slice) {
+        normalNum = 0;
+        reduceNum = 0;
+        for (int i=0; i<3; ++i) {
+            if (slice.size[i] > 1 && slice.dst.stride[i] == 0) {
+                reduceMask[i] = 1;
+                reduceIndex[reduceNum] = i;
+                reduceNum ++;
+            } else {
+                MNN_ASSERT(normalNum < 3);
+                normalIndex[normalNum] = i;
+                normalNum++;
+            }
+        }
+        if (0 == reduceNum) {
+            return false;
+        }
+        return true;
+    }
+};
 
 ErrorCode CPURaster::onResize(const std::vector<Tensor *> &____inputs, const std::vector<Tensor *> &outputs) {
     MNN_ASSERT(outputs.size() == 1);
@@ -29,6 +55,7 @@ ErrorCode CPURaster::onResize(const std::vector<Tensor *> &____inputs, const std
     auto outputDes = TensorUtils::getDescribe(output);
     mNeedZero = !TensorUtils::regionIsFull(output);
     mZeroPoint = 0;
+    mUseThreads = false;
     if (outputDes->quantAttr != nullptr && outputDes->type == DataType_DT_INT8) {
 #ifdef MNN_USE_SSE
         mZeroPoint = (int)outputDes->quantAttr->zero + 128;
@@ -60,6 +87,7 @@ ErrorCode CPURaster::onResize(const std::vector<Tensor *> &____inputs, const std
             }
         }
         if (mFast) {
+            mUseThreads = des->regions.size() > 16 ? true : false;
             for (int i=0; i< des->regions.size(); ++i) {
                 auto& slice = des->regions[i];
                 if (slice.origin == nullptr) {
@@ -76,6 +104,7 @@ ErrorCode CPURaster::onResize(const std::vector<Tensor *> &____inputs, const std
     if (des->regions.size() == 1) {
         OpCommonUtils::turnRegion2Convert(des->regions[0], output, mSingleConvert);
         if (mSingleConvert.type > 0) {
+            mUseThreads = (mSingleConvert.batch * mSingleConvert.channel * mSingleConvert.area > LAUNCH_MULTI_THREADS_WORKLOAD) ? true : false;
             return NO_ERROR;
         }
     }
@@ -93,6 +122,7 @@ ErrorCode CPURaster::onResize(const std::vector<Tensor *> &____inputs, const std
     }
     // input is NC4HW4 add Convert
     std::vector<Tensor*> forRelease;
+    TensorUtils::FuseWrap fuseUtils;
     for (int i=0; i< des->regions.size(); ++i) {
         auto& slice = des->regions[i];
         auto origin = slice.origin;
@@ -101,6 +131,9 @@ ErrorCode CPURaster::onResize(const std::vector<Tensor *> &____inputs, const std
         }
         // if tensor is not NC4HW4 or has been merged, don't need deal
         if (TensorUtils::getDescribe(origin)->dimensionFormat != MNN_DATA_FORMAT_NC4HW4) {
+            if (slice.size[0] * slice.size[1] * slice.size[2] > LAUNCH_MULTI_THREADS_WORKLOAD) {
+                mUseThreads = true;
+            }
             mTempInputCopy.emplace_back(std::make_pair(origin, &slice));
             continue;
         }
@@ -125,18 +158,21 @@ ErrorCode CPURaster::onResize(const std::vector<Tensor *> &____inputs, const std
             regionTmp.size[1] = core->pack;
             regionTmp.size[2] = area;
             regionTmp.origin = slice.origin;
-            std::shared_ptr<Tensor::InsideDescribe::Region> newSlice(new Tensor::InsideDescribe::Region);
-            *newSlice = slice;
-            bool merge = TensorUtils::fuseRegion(regionTmp, *newSlice);
+            bool merge = fuseUtils.match(regionTmp, slice);
             if (merge) {
+                std::shared_ptr<Tensor::InsideDescribe::Region> newSlice(new Tensor::InsideDescribe::Region);
+                *newSlice = slice;
+                fuseUtils.apply(regionTmp, *newSlice);
                 // cache the merged tensor
+                if (newSlice->size[0] * newSlice->size[1] * newSlice->size[2] > LAUNCH_MULTI_THREADS_WORKLOAD) {
+                    mUseThreads = true;
+                }
                 mTempInputCopy.emplace_back(std::make_pair(origin, newSlice.get()));
                 mCacheRegions.emplace_back(newSlice);
                 continue;
             }
         }
         auto cache = static_cast<CPUBackend*>(backend())->getCache();
-#if 1
         auto tempTensor = cache->findCacheTensor(origin, midFormat);
         //MNN_ASSERT(CPUBackend::getBytes(backend(), origin) == 4);
         if (nullptr == tempTensor) {
@@ -158,22 +194,9 @@ ErrorCode CPURaster::onResize(const std::vector<Tensor *> &____inputs, const std
         if (--TensorUtils::getDescribe(tempTensor)->useCount == 0) {
             forRelease.emplace_back(tempTensor);
         }
-#else
-        std::shared_ptr<Tensor> newTensor(new Tensor);
-        TensorUtils::copyShape(origin, newTensor.get());
-        TensorUtils::getDescribe(newTensor.get())->dimensionFormat = midFormat;
-        TensorUtils::getDescribe(newTensor.get())->quantAttr = TensorUtils::getDescribe(origin)->quantAttr;
-        newTensor->buffer().type = origin->getType();
-        TensorUtils::setLinearLayout(newTensor.get());
-        mTempInput.insert(std::make_pair(origin, newTensor.get()));
-        auto res = backend()->onAcquireBuffer(newTensor.get(), Backend::DYNAMIC);
-        if (!res) {
-            return OUT_OF_MEMORY;
+        if (slice.size[0] * slice.size[1] * slice.size[2] > LAUNCH_MULTI_THREADS_WORKLOAD) {
+            mUseThreads = true;
         }
-        auto tempTensor = newTensor.get();
-        backend()->onReleaseBuffer(tempTensor, Backend::DYNAMIC);
-        cache->pushCacheTensor(newTensor, origin, midFormat);
-#endif
         mTempInputCopy.emplace_back(std::make_pair(tempTensor, &slice));
     }
     for (auto t : forRelease) {
@@ -183,12 +206,23 @@ ErrorCode CPURaster::onResize(const std::vector<Tensor *> &____inputs, const std
         backend()->onReleaseBuffer(mTempOutput.get(), Backend::DYNAMIC);
     }
     auto threadNumber = static_cast<CPUBackend*>(backend())->threadNumber();
-    if (mTempInputCopy.size() == 1 && threadNumber > 1) {
+    mHasReduce = false;
+    ReduceInfo reduceInfo;
+    for (auto& iter : mTempInputCopy) {
+        if (reduceInfo.compute(*iter.second)) {
+            mHasReduce = true;
+            break;
+        }
+    }
+    if (mTempInputCopy.size() == 1 && threadNumber > 1 && (!mHasReduce)) {
         // Split to multi region
         auto region = mTempInputCopy[0].second;
-        const int thredHold = 100;//TODO: Find better way to determine it
-        if (region->size[0] * region->size[1] * region->size[2] < thredHold) {
+        if (region->size[0] * region->size[1] * region->size[2] < LAUNCH_MULTI_THREADS_WORKLOAD) {
+            mUseThreads = false;
             return NO_ERROR;
+        }
+        if (region->size[0] * region->size[1] * region->size[2] > LAUNCH_MULTI_THREADS_WORKLOAD) {
+            mUseThreads = true;
         }
         auto tensorPtr = mTempInputCopy[0].first;
         int pos = -1;
@@ -312,6 +346,9 @@ void CPURaster::executeFaster(const std::vector<Tensor *> &inputs, const std::ve
             C4proc = core->MNNSelectBlitFunction(byteC4);
             break;
     }
+    if (!mUseThreads) {
+        threadNum = 1;
+    }
     MNN_CONCURRENCY_BEGIN(tId, threadNum) {
         for (int u=(int)tId; u<mFastBlit.size(); u+=threadNum) {
             auto& iter = mFastBlit[u];
@@ -394,25 +431,11 @@ static void _zero(const Tensor::InsideDescribe::Region& slice, int bytes, uint8_
     }
 }
 static bool _reduceblit(const Tensor::InsideDescribe::Region& slice, int bytes, const uint8_t* srcPtr, uint8_t* dstPtr) {
-    int reduceMask[3] = {0, 0, 0};
-    int reduceNum = 0;
-    int reduceIndex[3];
-    int normalIndex[3];
-    int normalNum = 0;
-    for (int i=0; i<3; ++i) {
-        if (slice.size[i] > 1 && slice.dst.stride[i] == 0) {
-            reduceMask[i] = 1;
-            reduceIndex[reduceNum] = i;
-            reduceNum ++;
-        } else {
-            normalIndex[normalNum] = i;
-            normalNum++;
-        }
-    }
-    if (0 == reduceNum) {
-        return false;
-    }
-    switch (reduceNum) {
+    ReduceInfo reduceInfo;
+    reduceInfo.compute(slice);
+    auto normalIndex = reduceInfo.normalIndex;
+    auto reduceIndex = reduceInfo.reduceIndex;
+    switch (reduceInfo.reduceNum) {
         case 3:
         {
             float summer = 0.0f;
@@ -488,14 +511,13 @@ static bool _reduceblit(const Tensor::InsideDescribe::Region& slice, int bytes, 
     return false;
 }
 
-static void _blit(const Tensor::InsideDescribe::Region& slice, int bytes, const uint8_t* srcPtr, uint8_t* dstPtr) {
+static void _blit(const Tensor::InsideDescribe::Region& slice, int bytes, const uint8_t* srcPtr, uint8_t* dstPtr, bool hasReduce) {
     auto proc = _selectUnitProc(bytes, slice.src.stride[2], slice.dst.stride[2]);
-#define MNN_BLIT_SUPPORT_REDUCE
-#ifdef MNN_BLIT_SUPPORT_REDUCE
-    if (_reduceblit(slice, bytes, srcPtr, dstPtr)) {
-        return;
+    if (hasReduce) {
+        if (_reduceblit(slice, bytes, srcPtr, dstPtr)) {
+            return;
+        }
     }
-#endif
     if (slice.src.stride[1] == slice.size[2] && slice.dst.stride[1] == slice.size[2] && slice.src.stride[2] == 1) {
         for (int z=0; z<slice.size[0]; ++z) {
             auto srcZ = srcPtr + z * slice.src.stride[0] * bytes;
@@ -549,6 +571,9 @@ void CPURaster::tensorConvert(Tensor* input, Tensor* output, int bytes) {
     const int bitLength = bytes;
     auto core = static_cast<CPUBackend*>(backend())->functions();
     auto threadNumber = static_cast<CPUBackend*>(backend())->threadNumber();
+    if (!mUseThreads) {
+        threadNumber = 1;
+    }
     MNN_CONCURRENCY_BEGIN(tId, threadNumber) {
         CPUTensorConverter::convert(subIb.host, subOb.host, source, dest, batch, area, channel, bitLength, core, tId, threadNumber);
     };
@@ -605,6 +630,9 @@ ErrorCode CPURaster::onExecute(const std::vector<Tensor *> &____inputs, const st
                 sourceFormat = MNN_DATA_FORMAT_NCHW;
             }
         }
+        if (!mUseThreads) {
+            threadNum = 1;
+        }
         MNN_CONCURRENCY_BEGIN(tId, threadNum) {
             CPUTensorConverter::convert(realInput->host<uint8_t>(), output->host<uint8_t>(), sourceFormat, destFormat, srcBatch, srcArea, srcChannel, bytes, core, tId, threadNum);
         };
@@ -621,14 +649,20 @@ ErrorCode CPURaster::onExecute(const std::vector<Tensor *> &____inputs, const st
     for (auto& iter : mTempInput) {
         tensorConvert(iter.first, iter.second, bytes);
     }
-    threadNum = ALIMIN(threadNum, (int)mTempInputCopy.size());
+    if (mHasReduce) {
+        // Don't support reduce with multi thread now
+        threadNum = 1;
+    }
+    if (!mUseThreads) {
+        threadNum = 1;
+    }
     MNN_CONCURRENCY_BEGIN(tId, threadNum) {
         for (int u=tId; u<mTempInputCopy.size(); u+=threadNum) {
             auto& iter = mTempInputCopy[u];
             auto& slice = *(iter.second);
             auto srcPtr = iter.first->host<uint8_t>() + slice.src.offset * bytes;
             auto dstPtr = (uint8_t*)mOutputPtr + slice.dst.offset * bytes;
-            _blit(slice, bytes, srcPtr, dstPtr);
+            _blit(slice, bytes, srcPtr, dstPtr, mHasReduce);
         }
     }
     MNN_CONCURRENCY_END();
@@ -805,7 +839,7 @@ public:
                     if (halide_type_float == input->getType().code) {
                         bytes = cpubackend->functions()->bytes;
                     }
-                    _blit(reg, bytes, input->host<uint8_t>(), output->host<uint8_t>());
+                    _blit(reg, bytes, input->host<uint8_t>(), output->host<uint8_t>(), false);
                 }
 
             }
@@ -837,8 +871,9 @@ public:
                 ::memcpy(reg.src.stride, srcView->stride()->data(), 3 * sizeof(int32_t));
                 ::memcpy(reg.dst.stride, dstView->stride()->data(), 3 * sizeof(int32_t));
                 auto input = mStack[cmd->indexes()->data()[1]];
-                auto inputSize = input->elementSize();
+                auto inputSize = input->usize() / input->buffer().type.bytes();
                 auto output = mStack[cmd->indexes()->data()[0]];
+                auto outputSize = output->usize() / output->buffer().type.bytes();
                 auto bytes = input->getType().bytes();
                 if (halide_type_float == input->getType().code) {
                     bytes = static_cast<CPUBackend*>(backend())->functions()->bytes;
@@ -851,9 +886,9 @@ public:
                     auto dstIter = *(iter0 + iter0Stride * iter);
                     auto srcOffset = srcIter * step1 + srcView->offset();
                     auto dstOffset = dstIter * step0 + dstView->offset();
-                    if (dstOffset >= 0) {
+                    if (dstOffset >= 0 && dstOffset < outputSize) {
                         if (srcOffset >= 0 && srcOffset < inputSize) {
-                            _blit(reg, bytes, input->host<uint8_t>() + bytes * srcOffset, output->host<uint8_t>() + bytes * dstOffset);
+                            _blit(reg, bytes, input->host<uint8_t>() + bytes * srcOffset, output->host<uint8_t>() + bytes * dstOffset, false);
                         } else {
                             _zero(reg, bytes, output->host<uint8_t>() + bytes * dstOffset);
                         }
@@ -919,7 +954,7 @@ public:
                             auto step0 = cmd->steps()->data()[0];
                             auto step1 = cmd->steps()->data()[1];
                             auto loopNumber = mLoop->loopNumber();
-                            _blit(reg, bytes, (const uint8_t*)src, (uint8_t*)dst);
+                            _blit(reg, bytes, (const uint8_t*)src, (uint8_t*)dst, false);
                             break;
                         }
                         auto proc = static_cast<CPUBackend*>(backend())->functions()->MNNSelectUnaryFunctionForFloat(op->main_as_UnaryOp()->opType(), static_cast<CPUBackend*>(backend())->precisionMode());

@@ -27,7 +27,7 @@ public:
         bool autoSetOpType;
         int maxTuningNumber;
     };
-    Pipeline(const std::string& externalFile, Schedule::PipelineInfo&& info, bool allocInput, bool outputStatic, const TuningAttr& tune, const Runtime* rt, const Runtime* cpuRt);
+    Pipeline(const std::string& externalFile, Schedule::PipelineInfo&& info, bool allocInput, bool outputStatic, const TuningAttr& tune, const Runtime* rt, const Runtime* cpuRt, int geometryMask);
     ~Pipeline();
     ErrorCode fixResizeCache();
     void openResizeCheck();
@@ -65,6 +65,8 @@ public:
     typedef std::map<std::pair<Tensor::InsideDescribe::NativeInsideDescribe*, Backend*>, std::pair<std::weak_ptr<Tensor::InsideDescribe::NativeInsideDescribe>, std::shared_ptr<Tensor>>> WrapTensorCache;
 private:
     ErrorCode _allocForTensor(int index, bool allocInput);
+    ErrorCode _enterExecute();
+    void _exitExecute();
     void _copyInputs();
     void _pushTuningTask(std::vector<Schedule::OpCacheInfo>&& initInfos);
     void _recycleDynamicMemory(Command* command);
@@ -81,6 +83,7 @@ private:
 #ifndef MNN_BUILD_MINI
     GeometryComputer::Context mContext;
     Runtime::CompilerType mUseGeometry;
+    bool mGeometryNeedRelease = true;
 #endif
     const Runtime* mRuntime;
     const Runtime* mCpuRuntime;

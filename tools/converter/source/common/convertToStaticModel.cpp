@@ -332,11 +332,11 @@ void converToStaticModel(const Net* net, std::map<std::string,std::vector<int>>&
     }
     std::vector<Schedule::OpCacheInfo> infos;
     initPipelineInfosFromNet(infos, net, allTensors);
-    GeometryComputer::Context ctx(defaultBackend);
+    GeometryComputer::Context ctx(Interpreter::GeometryComputeMask::GEOMETRCOMPUTEMASK_ALL, defaultBackend);
     // resize the session's info and store to buffer
     std::vector<Tensor*> constTensors;
     GeometryComputerUtils::buildConstantTensors(infos);
-    GeometryComputerUtils::shapeComputeAndGeometryTransform(nullptr, infos, ctx, defaultBackend, runtime->onGetCompilerType());
+    GeometryComputerUtils::shapeComputeAndGeometryTransform(runtime.get(), nullptr, infos, ctx, defaultBackend, runtime->onGetCompilerType());
     std::map<Tensor*, std::pair<std::string, int>> tensorName;
     for (int i = 0; i < net->tensorName()->size(); i++) {
         tensorName[allTensors[i].get()] = std::make_pair(net->tensorName()->GetAsString(i)->str(), i);

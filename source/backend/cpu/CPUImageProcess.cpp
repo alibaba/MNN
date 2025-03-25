@@ -15,7 +15,6 @@
 #include <utility>
 
 namespace MNN {
-#define CACHE_SIZE 256
 
 ErrorCode CPUImageProcess::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto input = inputs[0];

@@ -16,7 +16,7 @@ __kernel void pooling(GLOBAL_SIZE_3_DIMS __global const FLOAT *input,
                       __private const int2 kernel_shape,
                       __global FLOAT *output,
                       __global FLOAT *rediceOutput,
-                      __private const int channel_block) {
+                      __private const int batch) {
                           
     const int ow_idx   = get_global_id(0);
     const int b_oh_idx = get_global_id(1);
@@ -31,7 +31,7 @@ __kernel void pooling(GLOBAL_SIZE_3_DIMS __global const FLOAT *input,
     
     #ifdef POOL_AVG
     COMPUTE_FLOAT4 result = (COMPUTE_FLOAT4)(0);
-    const int inp_offset = (((b_idx*channel_block+c_idx)*input_shape.x+ih_start)*input_shape.y+iw_start)*4;
+    const int inp_offset = (((b_idx+c_idx*batch)*input_shape.x+ih_start)*input_shape.y+iw_start)*4;
     #ifdef COUNT_INCLUDE_PADDING
     int total_count = (min(ih_start + kernel_shape.x, input_shape.x + pad_shape.x) - ih_start) * (min(iw_start + kernel_shape.y, input_shape.y + pad_shape.y) - iw_start);
     #else
@@ -60,7 +60,7 @@ __kernel void pooling(GLOBAL_SIZE_3_DIMS __global const FLOAT *input,
     #if RETURN_REDICE
     int4 redice = (int4)0;
     #endif
-    const int inp_offset = (((b_idx*channel_block+c_idx)*input_shape.x+ih_start)*input_shape.y+iw_start)*4;
+    const int inp_offset = (((b_idx+c_idx*batch)*input_shape.x+ih_start)*input_shape.y+iw_start)*4;
     for(int kh=0; kh<kernel_shape.x; kh++) {
         int ih_cur = ih_start + kh;
         if(ih_cur < 0 || ih_cur >= input_shape.x) {
@@ -80,7 +80,7 @@ __kernel void pooling(GLOBAL_SIZE_3_DIMS __global const FLOAT *input,
     }
     #endif
     
-    const int out_offset = (((b_idx*channel_block + c_idx)*output_shape.x + oh_idx)* output_shape.y + ow_idx)*4;
+    const int out_offset = (((b_idx + c_idx*batch)*output_shape.x + oh_idx)* output_shape.y + ow_idx)*4;
     vstore4(CONVERT_FLOAT4(result), 0, output+out_offset);
     #if RETURN_REDICE
     vstore4(CONVERT_FLOAT4(redice),  0, rediceOutput+out_offset);
@@ -96,7 +96,7 @@ __kernel void global_pooling_buf(GLOBAL_SIZE_3_DIMS __global const FLOAT *input,
                                 __private const int2 kernel_shape,
                                 __global FLOAT *output,
                                 __global FLOAT *rediceOutput,
-                                __private const int channel_block) {
+                                __private const int batch) {
     const int local_id                = get_local_id(0);
     const int output_channel_idx      = get_global_id(1);
     const int output_batch_idx        = get_global_id(2);
@@ -112,7 +112,7 @@ __kernel void global_pooling_buf(GLOBAL_SIZE_3_DIMS __global const FLOAT *input,
 #endif
 
     COMPUTE_FLOAT4 local sum[LOCAL_SIZE];
-    const int inp_offset = ((output_batch_idx*channel_block+output_channel_idx)*input_shape.x)*input_shape.y*4;
+    const int inp_offset = ((output_batch_idx+output_channel_idx*batch)*input_shape.x)*input_shape.y*4;
     const int size = input_shape.x * input_shape.y;
     for(int i = local_id; i < size; i+=LOCAL_SIZE){
         int w = i % input_shape.y;;
@@ -152,7 +152,7 @@ __kernel void global_pooling_buf(GLOBAL_SIZE_3_DIMS __global const FLOAT *input,
     output_result /= (input_shape.x * input_shape.y);
 #endif
 
-    const int out_offset = (output_batch_idx*channel_block + output_channel_idx)*4;
+    const int out_offset = (output_batch_idx + output_channel_idx*batch)*4;
     vstore4(CONVERT_FLOAT4(output_result), 0, output+out_offset);
 #if RETURN_REDICE
     redice = rediceId[0];

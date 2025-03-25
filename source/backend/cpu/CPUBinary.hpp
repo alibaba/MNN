@@ -30,6 +30,8 @@ private:
     int mNeedBroadcastIndex = -1;
     int mTotalSize;
     int mActivationType = 0;
+    int mThreadNum;
+    int mWorkDiv;
     std::shared_ptr<Execution> mActivationExe;
 };
 } // namespace MNN

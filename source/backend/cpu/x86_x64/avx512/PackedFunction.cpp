@@ -39,11 +39,11 @@ void _AVX512_MNNAddC4WithStride(const float* source, float* dest, size_t srcStri
 
 void _AVX512_MNNComputeScaleZeroScalar(float* source, float* min, float* max, size_t size) {
     int pack = 16;
-    int sizeDiv16 = UP_DIV(size, pack);
-    __m512 minVal = _mm512_loadu_ps(source);
+    int sizeDiv16 = size / pack;
+    __m512 minVal = _mm512_set1_ps(source[0]);
     __m512 maxVal = minVal;
     float maxArr[16], minArr[16];
-    for (int i = 1; i < sizeDiv16; ++i) {
+    for (int i = 0; i < sizeDiv16; ++i) {
         auto src0 = source + pack * i;
         __m512 vecA = _mm512_loadu_ps(src0);
         auto maskMax = _mm512_cmp_ps_mask(vecA, maxVal, 14);
@@ -62,14 +62,190 @@ void _AVX512_MNNComputeScaleZeroScalar(float* source, float* min, float* max, si
             min_ = minArr[k];
         }
     }
+    for (int i = pack * sizeDiv16; i < size; ++i) {
+        min_ = ALIMIN(min_, source[i]);
+        max_ = ALIMAX(max_, source[i]);
+    }
     min[0] = min_;
     max[0] = max_;
-    // float range = max_ - min_;
-    // MNN_ASSERT(range != 0);
-    // *quantScale = 255.0f / range;
-    // *dequantScale = range / 255.0f;
-    // *zeroPoint = std::min(255.f, std::max(roundf(-(min_ * 255.f) / range), 0.f)) - 128.f;
+}
 
+static void _AVX512_MNNAbsMaxFP32(const float* source, float* absmax, size_t src_depth_quad, size_t realSize, int pack) {
+    auto srcStep = realSize * pack;
+    if (pack == 4) {
+        __m128 mask = _mm_set1_ps(-0.0f);
+        float tmp[4];
+        for (int i = 0; i < realSize; ++i) {
+            __m128 absmax_ = _mm_loadu_ps(source + i * pack);
+            absmax_ = _mm_andnot_ps(mask, absmax_);
+            auto src0 = source + i * pack;
+            for (int j = 1; j < src_depth_quad; ++j) {
+                __m128 vec = _mm_loadu_ps(src0 + j * srcStep);
+                vec = _mm_andnot_ps(mask, vec);
+                absmax_ = _mm_max_ps(absmax_, vec);
+            }
+            _mm_storeu_ps(tmp, absmax_);
+            float res = tmp[0];
+            for (int j = 1; j < pack; ++j) {
+                res = ALIMAX(res, tmp[j]);
+            }
+            absmax[i] = res;
+        }
+        return;
+    }
+    if (pack == 16) {
+        float tmp[16];
+        for (int i = 0; i < realSize; ++i) {
+            auto absmax_ = _mm512_loadu_ps(source + i * pack);
+            absmax_ = _mm512_abs_ps(absmax_);
+            auto src0 = source + i * pack;
+            for (int j = 1; j < src_depth_quad; ++j) {
+                auto vec = _mm512_loadu_ps(src0 + j * srcStep);
+                vec = _mm512_abs_ps(vec);
+                absmax_ = _mm512_max_ps(absmax_, vec);
+            }
+            auto maxval = _mm512_reduce_max_ps(absmax_);
+            absmax[i] = maxval;
+        }
+        return;
+    }
+    MNN_ERROR("absMax error: x86_x64 avx512 don't suppport pack=%d yet\n", pack);
+}
+
+static void _AVX512_DynamicQuant(const float* src, int8_t* dst, const float* scale, size_t src_depth_quad, size_t realSize, int pack) {
+    auto srcStep = realSize * pack;
+    if (pack == 16) { // core->pack=16
+        auto offset = _mm512_set1_epi32(128);
+        int32_t tmp[16];
+        int32_t* dstPtr = reinterpret_cast<int32_t*>(dst);
+        for (int i = 0; i < src_depth_quad; ++i) {
+            int xcount = realSize;
+            auto srcPtr = src + i * srcStep;
+            auto scalePtr = scale;
+            while (xcount > 3) {
+                auto scale0 = _mm512_set1_ps(scalePtr[0]);
+                auto scale1 = _mm512_set1_ps(scalePtr[1]);
+                auto scale2 = _mm512_set1_ps(scalePtr[2]);
+                auto scale3 = _mm512_set1_ps(scalePtr[3]);
+                auto data0 = _mm512_loadu_ps(srcPtr);
+                auto data1 = _mm512_loadu_ps(srcPtr + pack);
+                auto data2 = _mm512_loadu_ps(srcPtr + 2 * pack);
+                auto data3 = _mm512_loadu_ps(srcPtr + 3 * pack);
+                data0 = _mm512_mul_ps(data0, scale0);
+                data1 = _mm512_mul_ps(data1, scale1);
+                data2 = _mm512_mul_ps(data2, scale2);
+                data3 = _mm512_mul_ps(data3, scale3);
+                auto r0 = _mm512_cvt_roundps_epi32(data0, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC);
+                auto r1 = _mm512_cvt_roundps_epi32(data1, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC);
+                auto r2 = _mm512_cvt_roundps_epi32(data2, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC);
+                auto r3 = _mm512_cvt_roundps_epi32(data3, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC);
+                r0 = _mm512_add_epi32(r0, offset); // int32x16
+                r1 = _mm512_add_epi32(r1, offset); // int32x16
+                r2 = _mm512_add_epi32(r2, offset);
+                r3 = _mm512_add_epi32(r3, offset);
+                auto r0_16 = _mm512_packs_epi32(r0, r1); // 00001111 00001111 00001111 00001111
+                auto r1_16 = _mm512_packs_epi32(r2, r3); // 22223333 22223333 22223333 22223333
+                auto r0_8  = _mm512_packus_epi16(r0_16, r1_16); // 0000111122223333 0000111122223333 0000111122223333 0000111122223333
+                _mm512_storeu_si512(tmp, r0_8);
+                for (int k = 0; k < 4; ++k) {
+                    dstPtr[k * 4 + 0] = tmp[k + 4 * 0];
+                    dstPtr[k * 4 + 1] = tmp[k + 4 * 1];
+                    dstPtr[k * 4 + 2] = tmp[k + 4 * 2];
+                    dstPtr[k * 4 + 3] = tmp[k + 4 * 3];
+                }
+                // next round
+                xcount -= 4;
+                scalePtr += 4;
+                srcPtr += (4 * pack);
+                dstPtr += 16;
+            }
+            while (xcount) {
+                auto scale0 = _mm512_set1_ps(scalePtr[0]);
+                auto data0 = _mm512_loadu_ps(srcPtr);
+                data0 = _mm512_mul_ps(data0, scale0);
+                auto r0 = _mm512_cvt_roundps_epi32(data0, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC);
+                r0 = _mm512_add_epi32(r0, offset); // int32x16
+                auto r0_16 = _mm512_packs_epi32(r0, r0); // 00001111 00001111 00001111 00001111
+                auto r0_8  = _mm512_packus_epi16(r0_16, r0_16); // 0000111122223333 0000111122223333 0000111122223333 0000111122223333
+                _mm512_storeu_si512(tmp, r0_8);
+                dstPtr[0] = tmp[4 * 0];
+                dstPtr[1] = tmp[4 * 1];
+                dstPtr[2] = tmp[4 * 2];
+                dstPtr[3] = tmp[4 * 3];
+                
+                // next round
+                xcount--;
+                scalePtr += 1;
+                srcPtr += pack;
+                dstPtr += 4;
+            }
+        }
+        return;
+    }
+    if (pack == 4) { // LP=4;
+        auto offset = _mm_set1_epi32(128);
+        int32_t tmp[4];
+        int32_t* dstPtr = reinterpret_cast<int32_t*>(dst);
+        for (int i = 0; i < src_depth_quad; ++i) {
+            int xcount = realSize;
+            auto srcPtr = src + i * srcStep;
+            auto scalePtr = scale;
+            while (xcount > 3) {
+                auto scale0 = _mm_set1_ps(scalePtr[0]);
+                auto scale1 = _mm_set1_ps(scalePtr[1]);
+                auto scale2 = _mm_set1_ps(scalePtr[2]);
+                auto scale3 = _mm_set1_ps(scalePtr[3]);
+                auto data0 = _mm_loadu_ps(srcPtr);
+                auto data1 = _mm_loadu_ps(srcPtr + pack);
+                auto data2 = _mm_loadu_ps(srcPtr + 2 * pack);
+                auto data3 = _mm_loadu_ps(srcPtr + 3 * pack);
+                data0 = _mm_mul_ps(data0, scale0);
+                data1 = _mm_mul_ps(data1, scale1);
+                data2 = _mm_mul_ps(data2, scale2);
+                data3 = _mm_mul_ps(data3, scale3);
+                data0 = _mm_round_ps(data0, 0);
+                data1 = _mm_round_ps(data1, 0);
+                data2 = _mm_round_ps(data2, 0);
+                data3 = _mm_round_ps(data3, 0);
+                auto r0 = _mm_cvtps_epi32(data0);
+                auto r1 = _mm_cvtps_epi32(data1);
+                auto r2 = _mm_cvtps_epi32(data2);
+                auto r3 = _mm_cvtps_epi32(data3);
+                r0 = _mm_add_epi32(r0, offset);
+                r1 = _mm_add_epi32(r1, offset);
+                r2 = _mm_add_epi32(r2, offset);
+                r3 = _mm_add_epi32(r3, offset);
+                auto r0_16 = _mm_packs_epi32(r0, r1); // 00001111
+                auto r1_16 = _mm_packs_epi32(r2, r3); // 22223333
+                auto r0_8  = _mm_packus_epi16(r0_16, r1_16); // 0000111122223333
+                _mm_storeu_si128((__m128i *)dstPtr, r0_8);
+                // next round
+                xcount -= 4;
+                scalePtr += 4;
+                srcPtr += (4 * pack);
+                dstPtr += 4;
+            }
+            while (xcount) {
+                auto scale0 = _mm_set1_ps(scalePtr[0]);
+                auto data0 = _mm_loadu_ps(srcPtr);
+                data0 = _mm_mul_ps(data0, scale0);
+                auto r0 = _mm_cvtps_epi32(_mm_round_ps(data0, 0));
+                r0 = _mm_add_epi32(r0, offset);
+                auto r0_16 = _mm_packs_epi32(r0, r0); // 00001111
+                auto r0_8  = _mm_packus_epi16(r0_16, r0_16); // 0000111122223333
+                _mm_storeu_si128((__m128i *)tmp, r0_8);
+                dstPtr[0] = tmp[0];
+                // next round
+                xcount--;
+                scalePtr += 1;
+                srcPtr += pack;
+                dstPtr += 1;
+            }
+        }
+        return;
+    }
+    MNN_ERROR("dynamic quant error: x86_x64 avx512 don't suppport pack=%d yet\n", pack);
+    return;
 }
 
 void _AVX512_MNNReluWithSlopeChannel(float* dst, const float* src, const float* slope, size_t sizeQuad, size_t depthQuad) {
@@ -111,40 +287,25 @@ void _AVX512_MNNAxByClampBroadcastUnit(float* C, const float* A, const float* B,
     }
 }
 
-void _AVX512_MNNConvRunForUnitDepthWise(float* dst, const float* src, const float* weight, size_t fw, size_t fh,
-                                  size_t weight_y_step, size_t dilateX_step, size_t dilateY_step) {
-    int fx, fy;
-    __m512 dstValue = _mm512_setzero_ps();
-    const float* src_z    = src;
-    const float* weight_z = weight;
-    for (fy = 0; fy < fh; ++fy) {
-        const float* src_y    = src_z + fy * dilateY_step;
-        const float* weight_y = weight_z + fy * weight_y_step;
-        for (fx = 0; fx < fw; ++fx) {
-            const float* weight_x = weight_y + PACK_UNIT * fx;
-            const float* src_x    = src_y + fx * dilateX_step;
-            dstValue = _mm512_fmadd_ps(_mm512_loadu_ps(src_x), _mm512_loadu_ps(weight_x), dstValue);
-        }
-    }
-    _mm512_storeu_ps(dst, dstValue);
-}
-
 void _AVX512_MNNConvRunForLineDepthwise(float* dst, const float* src, const float* weight, size_t width, size_t src_w_setup,
                                 size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step, size_t height,
-                                     size_t srcHStep, size_t dstHStep) {
+                                     size_t srcHStep, size_t dstHStep, const float* bias, const float* parameters) {
     int dx, fx, fy;
     const int unit = 4;
     int widthUnit = width / unit;
     int widthRemain = width - widthUnit * unit;
     const float* weight_z = weight;
+    auto minF = _mm512_broadcastss_ps(_mm_load_ss(parameters + 0));
+    auto maxF = _mm512_broadcastss_ps(_mm_load_ss(parameters + 1));
+    auto bv = _mm512_loadu_ps(bias);
     for (int y = 0; y < height; ++y) {
         auto srcY = src + y * srcHStep;
         auto dstY = dst + y * dstHStep;
         for (dx = 0; dx < widthUnit; ++dx) {
-            auto dstValue0 = _mm512_setzero_ps();
-            auto dstValue1 = _mm512_setzero_ps();
-            auto dstValue2 = _mm512_setzero_ps();
-            auto dstValue3 = _mm512_setzero_ps();
+            auto dstValue0 = bv;
+            auto dstValue1 = bv;
+            auto dstValue2 = bv;
+            auto dstValue3 = bv;
             for (fy = 0; fy < fh; ++fy) {
                 const float* src_y    = srcY + fy * dilateY_step;
                 const float* weight_y = weight_z + fy * fw * PACK_UNIT;
@@ -158,6 +319,14 @@ void _AVX512_MNNConvRunForLineDepthwise(float* dst, const float* src, const floa
                     dstValue3 = _mm512_fmadd_ps(_mm512_loadu_ps(src_x + 3 * src_w_setup), weightValue, dstValue3);
                 }
             }
+            dstValue0 = _mm512_min_ps(dstValue0, maxF);
+            dstValue1 = _mm512_min_ps(dstValue1, maxF);
+            dstValue2 = _mm512_min_ps(dstValue2, maxF);
+            dstValue3 = _mm512_min_ps(dstValue3, maxF);
+            dstValue0 = _mm512_max_ps(dstValue0, minF);
+            dstValue1 = _mm512_max_ps(dstValue1, minF);
+            dstValue2 = _mm512_max_ps(dstValue2, minF);
+            dstValue3 = _mm512_max_ps(dstValue3, minF);
             _mm512_storeu_ps(dstY + PACK_UNIT * 0, dstValue0);
             _mm512_storeu_ps(dstY + PACK_UNIT * 1, dstValue1);
             _mm512_storeu_ps(dstY + PACK_UNIT * 2, dstValue2);
@@ -167,7 +336,7 @@ void _AVX512_MNNConvRunForLineDepthwise(float* dst, const float* src, const floa
         }
         for (dx = 0; dx < widthRemain; ++dx) {
             float* dst_x          = dstY + dx * PACK_UNIT;
-            auto dstValue = _mm512_setzero_ps();
+            auto dstValue = bv;
             const float* src_z    = srcY + src_w_setup * dx;
             const float* weight_z = weight;
             for (fy = 0; fy < fh; ++fy) {
@@ -179,6 +348,8 @@ void _AVX512_MNNConvRunForLineDepthwise(float* dst, const float* src, const floa
                     dstValue = _mm512_fmadd_ps(_mm512_loadu_ps(src_x), _mm512_loadu_ps(weight_x), dstValue);
                 }
             }
+            dstValue = _mm512_min_ps(dstValue, maxF);
+            dstValue = _mm512_max_ps(dstValue, minF);
             _mm512_storeu_ps(dst_x, dstValue);
         }
     }
@@ -233,7 +404,7 @@ void _AVX512_MNNDeconvRunForLineDepthwise(const float* dst, float* src, const fl
     }
 }
 
-void _AVX512_MNNGridSampleComputeCord(float* dst, const float* src, size_t inH, size_t inW, size_t outH, size_t outW, size_t stride, bool alignCorners) {
+void _AVX512_MNNGridSampleComputeCord(float* dst, const float* src, size_t inH, size_t inW, size_t outH, size_t outW, bool alignCorners) {
     __m512 zero = _mm512_setzero_ps();
     __m512 one = _mm512_set1_ps(1);
     __m512 half = _mm512_set1_ps(0.5f);
@@ -290,68 +461,6 @@ void _AVX512_MNNGridSampleComputeCord(float* dst, const float* src, size_t inH, 
             __m512 cord0 = _mm512_unpacklo_ps(cord_x, cord_y);
 
             _mm512_mask_storeu_ps(dst, mask, cord0);
-        }
-    }
-}
-
-static size_t _AVX512_MNNGridSampleComputeOffset(int h, int w, int height, int width, bool padMode) {
-    if (padMode == true) { //padMode == BorderMode_ZEROS
-        if (h < 0 || h >= height || w < 0 || w >= width) {
-            return -1;
-        }
-    } else {
-        // Clearly, CLAMP is the right way to go for GridSamplePaddingMode_BORDER
-        // For GridSamplePaddingMode_REFLECTION, since we have reflected the values into (-1, 1),
-        // the leftover reflections degrade to GridSamplePaddingMode_BORDER
-        h = h < 0 ? 0 : ( h > (height - 1) ? (height - 1) : h);
-        w = w < 0 ? 0 : ( w > (width - 1) ? (width - 1) : w);
-    }
-    return h * width * PACK_UNIT + w * PACK_UNIT;
-}
-
-void _AVX512_MNNGridSampleInterp(float* outputPtr, const float* inputPtr, const float* cordPtr, size_t inH, size_t inW, size_t outW, size_t channelCUnit, size_t inOffset, size_t outOffset, bool sampleMode, bool padMode) {
-    for (auto ow = 0; ow < outW; ++ow) {
-        auto w = cordPtr[2 * ow + 0];
-        auto h = cordPtr[2 * ow + 1];
-        __m512 interp;
-
-        if (sampleMode == true) { //sampleMode == SampleMode_NEAREST
-            int nh = ::floor(h + 0.5f);
-            int nw = ::floor(w + 0.5f);
-            size_t ns = _AVX512_MNNGridSampleComputeOffset(nh, nw, inH, inW, padMode);
-            for (int k = 0; k < channelCUnit; ++k) {
-                interp = ns == -1 ? _mm512_set1_ps(0.f) : _mm512_loadu_ps(inputPtr + k * inOffset + ns);
-                _mm512_storeu_ps(outputPtr + k * outOffset + PACK_UNIT * ow, interp);
-            }
-        } else { //sampleMode == GridSampleMode_BILINEAR
-            int w0_h = ::floor(h);
-            int w0_w = ::floor(w);
-            int w1_h = ::ceil(h);
-            int w1_w = ::ceil(w);
-            auto oneV = _mm512_set1_ps(1.0f);
-
-            auto f0 = _mm512_set1_ps((float)w1_w - w);
-            auto f1 = _mm512_sub_ps(oneV, f0);
-            auto h0 = _mm512_set1_ps((float)w1_h - h);
-            auto h1 = _mm512_sub_ps(oneV, h0);
-
-            size_t s00 = _AVX512_MNNGridSampleComputeOffset(w0_h, w0_w, inH, inW, padMode);
-            size_t s01 = _AVX512_MNNGridSampleComputeOffset(w0_h, w1_w, inH, inW, padMode);
-            size_t s10 = _AVX512_MNNGridSampleComputeOffset(w1_h, w0_w, inH, inW, padMode);
-            size_t s11 = _AVX512_MNNGridSampleComputeOffset(w1_h, w1_w, inH, inW, padMode);
-
-            for (int k = 0; k < channelCUnit; ++k) {
-                __m512 i00 = s00 == -1 ? _mm512_setzero_ps() : _mm512_loadu_ps(inputPtr + k * inOffset + s00);
-                __m512 i01 = s01 == -1 ? _mm512_setzero_ps() : _mm512_loadu_ps(inputPtr + k * inOffset + s01);
-                __m512 i10 = s10 == -1 ? _mm512_setzero_ps() : _mm512_loadu_ps(inputPtr + k * inOffset + s10);
-                __m512 i11 = s11 == -1 ? _mm512_setzero_ps() : _mm512_loadu_ps(inputPtr + k * inOffset + s11);
-
-                __m512 i0 = _mm512_add_ps(_mm512_mul_ps(i00, f0), _mm512_mul_ps(i01, f1));
-                __m512 i1 = _mm512_add_ps(_mm512_mul_ps(i10, f0), _mm512_mul_ps(i11, f1));
-
-                interp = _mm512_add_ps(_mm512_mul_ps(i0, h0), _mm512_mul_ps(i1, h1));
-                _mm512_storeu_ps(outputPtr + k * outOffset + PACK_UNIT * ow, interp);
-            }
         }
     }
 }
@@ -737,14 +846,11 @@ void _AVX512_ExtraInit(void* functions) {
     coreFunction->MNNMatrixAdd          = _AVX512_MNNMatrixAdd;
     coreFunction->MNNMatrixSub          = _AVX512_MNNMatrixSub;
     coreFunction->MNNCountMaxMinValue = _AVX512_MNNComputeScaleZeroScalar;
+    coreFunction->MNNAbsMax = _AVX512_MNNAbsMaxFP32;
 
-    coreFunction->MNNConvRunForUnitDepthWise = _AVX512_MNNConvRunForUnitDepthWise;
     coreFunction->MNNConvRunForLineDepthwise = _AVX512_MNNConvRunForLineDepthwise;
     coreFunction->MNNAxByClampBroadcastUnit = _AVX512_MNNAxByClampBroadcastUnit;
     coreFunction->MNNStrassenMergeCFunction = _AVX512_MNNStrassenMergeCFunction;
-    coreFunction->MNNMultiAndDestTransformCommon23 = _AVX512_MNNMultiAndDestTransformCommon23;
-    coreFunction->MNNSourceTransformCommonF23 = _AVX512_MNNSourceTransformCommonF23;
-    coreFunction->MNNConvDwF23MulTransUnit = _AVX512_MNNConvDwF23MulTransUnit;
     coreFunction->MNNReluWithSlopeChannel = _AVX512_MNNReluWithSlopeChannel;
     coreFunction->MNNDeconvRunForLineDepthwise = _AVX512_MNNDeconvRunForLineDepthwise;
     coreFunction->MNNDeconvRunForUnitDepthWise = _AVX512_MNNDeconvRunForUnitDepthWise;
@@ -753,9 +859,10 @@ void _AVX512_ExtraInit(void* functions) {
     coreFunction->MNNRoiAlignMax = _AVX512_MNNRoiAlignMax;
     coreFunction->MNNRoiAlignAvg = _AVX512_MNNRoiAlignAvg;
     coreFunction->MNNGridSampleInterp = MNNGridSampleInterp;
+    coreFunction->MNNGridSampleInterp3D = MNNGridSampleInterp3D;
     coreFunction->MNNGridSampleInterpGrad = MNNGridSampleInterpGrad;
 
     coreFunction->MNNGetSparseMatMulPackMode = _AVX512_MNNGetSparseMatMulPackMode;
     coreFunction->MNNAdjustOptimalSparseKernel = _AVX512_MNNAdjustOptimalSparseKernel;
-
+    coreFunction->MNNDynamicQuant = _AVX512_DynamicQuant;
 }

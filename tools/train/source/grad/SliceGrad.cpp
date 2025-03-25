@@ -8,7 +8,7 @@
 
 #include "OpGrad.hpp"
 using namespace std;
-using namespace MNN;
+namespace MNN {
 using namespace MNN::Express;
 
 class SliceGrad : public OpGrad {
@@ -39,8 +39,12 @@ public:
     }
 };
 
-static const auto gRegister = []() {
+static void _create() {
     static SliceGrad _c;
     OpGrad::insert((int)OpType_Slice, &_c);
-    return true;
-}();
+
+}
+
+REGISTER_GRAD(SliceGrad_cpp, _create);
+};
+

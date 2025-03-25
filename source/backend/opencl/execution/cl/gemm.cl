@@ -277,16 +277,24 @@ __kernel void gemmWinogradW2(__read_only image2d_t uInput, __read_only image2d_t
     }
 }
 
+#ifdef INPUT_CHANNEL_LEAVE
+    #define PADZEROSVEC(k, channel, data0, data1, data2, data3) \
+        data0 = (k << 2) < channel ? data0 : 0; \
+        data1 = (k << 2) + 1 < channel ? data1 : 0; \
+        data2 = (k << 2) + 2 < channel ? data2 : 0; \
+        data3 = (k << 2) + 3 < channel ? data3 : 0;
+#else
+    #define PADZEROSVEC(k, channel, data0, data1, data2, data3)
+#endif
+
 __kernel void gemm_conv(GLOBAL_SIZE_DIM2
                         __read_only image2d_t input,
 #if (defined USE_LOW_BIT_WEIGHT_INT8)
                         __global const char *weight,
-                        __global const FLOAT *dequantScale,
-                        __global const FLOAT *dequantOffset,
+                        __global const float *dequantScaleOffset,
 #elif (defined USE_LOW_BIT_WEIGHT_INT4)
                         __global const uchar *weight,
-                        __global const FLOAT *dequantScale,
-                        __global const FLOAT *dequantOffset,
+                        __global const float *dequantScaleOffset,
 #else
                         __global const FLOAT *weight,
 #endif
@@ -294,13 +302,16 @@ __kernel void gemm_conv(GLOBAL_SIZE_DIM2
                         __write_only image2d_t output,
                         __private const int dstChannelC4,
                         __private const int srcChannelC4,
-                        __private const int batch) {
+                        __private const int batch
+#if (defined USE_LOW_BIT_WEIGHT_INT8) || (defined USE_LOW_BIT_WEIGHT_INT4)
+                        ,__private const int blockDim
+                        ,__private const int srcChannel
+#endif
+) {
     int2 pos = (int2)(get_global_id(0), get_global_id(1)); //cout/4, b
     UNIFORM_BOUNDRY_CHECK(pos.x, pos.y);
 
-    FLOAT4 bias0 = RI_F(bias, SAMPLER, (int2)(pos.x, 0));
-    FLOAT sum = 0;
-    FLOAT4 out = 0;
+    FLOAT4 out = RI_F(bias, SAMPLER, (int2)(pos.x, 0));
 
 #if (defined USE_LOW_BIT_WEIGHT_INT8)
     int weight_offset = pos.x * 16;
@@ -312,17 +323,23 @@ __kernel void gemm_conv(GLOBAL_SIZE_DIM2
     int weight_offset = pos.x * 16;
     int weight_oc_offset = dstChannelC4 * 16;
 #endif
-    
-#if (defined USE_LOW_BIT_WEIGHT_INT8) || (defined USE_LOW_BIT_WEIGHT_INT4)
-    const FLOAT4 Scale = vload4(pos.x, dequantScale);
-    const FLOAT4 Offset = vload4(pos.x, dequantOffset);
-#endif
 
     for (int k = 0; k < srcChannelC4; ++k) {
+#if (defined USE_LOW_BIT_WEIGHT_INT8) || (defined USE_LOW_BIT_WEIGHT_INT4)
+        int kindex = (k * 4) / blockDim * dstChannelC4 * 8;
+        COMPUTE_FLOAT8 ScaleOffset = CONVERT_COMPUTE_FLOAT8(vload8(pos.x, dequantScaleOffset + kindex));
+        COMPUTE_FLOAT16 scale = (COMPUTE_FLOAT16)(ScaleOffset.s0, ScaleOffset.s2, ScaleOffset.s4, ScaleOffset.s6,
+        ScaleOffset.s0, ScaleOffset.s2, ScaleOffset.s4, ScaleOffset.s6,
+        ScaleOffset.s0, ScaleOffset.s2, ScaleOffset.s4, ScaleOffset.s6,
+        ScaleOffset.s0, ScaleOffset.s2, ScaleOffset.s4, ScaleOffset.s6);
+        COMPUTE_FLOAT16 offset = (COMPUTE_FLOAT16)(ScaleOffset.s1, ScaleOffset.s3, ScaleOffset.s5, ScaleOffset.s7,
+        ScaleOffset.s1, ScaleOffset.s3, ScaleOffset.s5, ScaleOffset.s7,
+        ScaleOffset.s1, ScaleOffset.s3, ScaleOffset.s5, ScaleOffset.s7,
+        ScaleOffset.s1, ScaleOffset.s3, ScaleOffset.s5, ScaleOffset.s7);
+#endif
         FLOAT4 in = RI_F(input, SAMPLER, (int2)(k, pos.y));
 #if (defined USE_LOW_BIT_WEIGHT_INT8)
-        FLOAT16 weights = CONVERT_FLOAT16(vload16(0, weight + weight_offset + k * weight_oc_offset));
-        sum += in.x + in.y + in.z + in.w;
+        FLOAT16 weights = CONVERT_FLOAT16(vload16(0, weight + weight_offset + k * weight_oc_offset)) * scale + offset;
 #elif (defined USE_LOW_BIT_WEIGHT_INT4)
         uchar8 charWeightsInt4 = vload8(0, weight + weight_offset + k * weight_oc_offset);
         char16 charWeights = 0;
@@ -342,12 +359,12 @@ __kernel void gemm_conv(GLOBAL_SIZE_DIM2
         charWeights.sd = (charWeightsInt4.s6 & 15) - 8;
         charWeights.se = (charWeightsInt4.s7 >> 4) - 8;
         charWeights.sf = (charWeightsInt4.s7 & 15) - 8;
-        FLOAT16 weights = CONVERT_FLOAT16(charWeights);
-        sum += in.x + in.y + in.z + in.w;
+        FLOAT16 weights = CONVERT_FLOAT16(charWeights) * scale + offset;
                 
 #else
         FLOAT16 weights = vload16(0, weight + weight_offset + k * weight_oc_offset);
 #endif
+        PADZEROSVEC(k, srcChannel, weights.s0123, weights.s4567, weights.s89ab, weights.scdef);
         
         out = mad((FLOAT4)in.x, (FLOAT4)weights.s0123, out);
         out = mad((FLOAT4)in.y, (FLOAT4)weights.s4567, out);
@@ -355,9 +372,6 @@ __kernel void gemm_conv(GLOBAL_SIZE_DIM2
         out = mad((FLOAT4)in.w, (FLOAT4)weights.scdef, out);
     }
     
-#if (defined USE_LOW_BIT_WEIGHT_INT8) || (defined USE_LOW_BIT_WEIGHT_INT4)
-    out = bias0 + mad(out, Scale, sum * Offset);
-#endif
 #ifdef RELU
     out = fmax(out, (FLOAT4)0);
 #endif
@@ -373,12 +387,10 @@ __kernel void gemm_conv_b2(GLOBAL_SIZE_DIM2
                         __read_only image2d_t input,
 #if (defined USE_LOW_BIT_WEIGHT_INT8)
                         __global const char *weight,
-                        __global const FLOAT *dequantScale,
-                        __global const FLOAT *dequantOffset,
+                        __global const float *dequantScaleOffset,
 #elif (defined USE_LOW_BIT_WEIGHT_INT4)
                         __global const uchar *weight,
-                        __global const FLOAT *dequantScale,
-                        __global const FLOAT *dequantOffset,
+                        __global const float *dequantScaleOffset,
 #else
                         __global const FLOAT *weight,
 #endif
@@ -386,15 +398,19 @@ __kernel void gemm_conv_b2(GLOBAL_SIZE_DIM2
                         __write_only image2d_t output,
                         __private const int dstChannelC4,
                         __private const int srcChannelC4,
-                        __private const int batch) {
+                        __private const int batch
+#if (defined USE_LOW_BIT_WEIGHT_INT8) || (defined USE_LOW_BIT_WEIGHT_INT4)
+                        ,__private const int blockDim
+                        ,__private const int srcChannel
+#endif
+) {
     int2 pos = (int2)(get_global_id(0), get_global_id(1)); //cout/4, b
     UNIFORM_BOUNDRY_CHECK(pos.x, pos.y);
     int pos_x = pos.x << 2;
     int pos_y = pos.y << 1;
 
     FLOAT4 bias0 = RI_F(bias, SAMPLER, (int2)(pos.x, 0));
-    FLOAT sum0 = 0, sum1 = 0;
-    FLOAT4 out0 = (FLOAT4)0, out1 = (FLOAT4)0;
+    FLOAT4 out0 = bias0, out1 = bias0;
     
 #if (defined USE_LOW_BIT_WEIGHT_INT8)
     int weight_offset = pos.x * 16;
@@ -406,19 +422,24 @@ __kernel void gemm_conv_b2(GLOBAL_SIZE_DIM2
     int weight_offset = pos.x * 16;
     int weight_oc_offset = dstChannelC4 * 16;
 #endif
-    
-#if (defined USE_LOW_BIT_WEIGHT_INT8) || (defined USE_LOW_BIT_WEIGHT_INT4)
-    const FLOAT4 Scale = vload4(pos.x, dequantScale);
-    const FLOAT4 Offset = vload4(pos.x, dequantOffset);
-#endif
 
     for (int k = 0; k < srcChannelC4; ++k) {
+#if (defined USE_LOW_BIT_WEIGHT_INT8) || (defined USE_LOW_BIT_WEIGHT_INT4)
+        int kindex = (k * 4) / blockDim * dstChannelC4 * 8;
+        COMPUTE_FLOAT8 ScaleOffset = CONVERT_COMPUTE_FLOAT8(vload8(pos.x, dequantScaleOffset + kindex));
+        COMPUTE_FLOAT16 scale = (COMPUTE_FLOAT16)(ScaleOffset.s0, ScaleOffset.s2, ScaleOffset.s4, ScaleOffset.s6,
+        ScaleOffset.s0, ScaleOffset.s2, ScaleOffset.s4, ScaleOffset.s6,
+        ScaleOffset.s0, ScaleOffset.s2, ScaleOffset.s4, ScaleOffset.s6,
+        ScaleOffset.s0, ScaleOffset.s2, ScaleOffset.s4, ScaleOffset.s6);
+        COMPUTE_FLOAT16 offset = (COMPUTE_FLOAT16)(ScaleOffset.s1, ScaleOffset.s3, ScaleOffset.s5, ScaleOffset.s7,
+        ScaleOffset.s1, ScaleOffset.s3, ScaleOffset.s5, ScaleOffset.s7,
+        ScaleOffset.s1, ScaleOffset.s3, ScaleOffset.s5, ScaleOffset.s7,
+        ScaleOffset.s1, ScaleOffset.s3, ScaleOffset.s5, ScaleOffset.s7);
+#endif
         FLOAT4 in0 = RI_F(input, SAMPLER, (int2)(k, pos_y));
         FLOAT4 in1 = RI_F(input, SAMPLER, (int2)(k, pos_y + 1));
 #if (defined USE_LOW_BIT_WEIGHT_INT8)
-        FLOAT16 weights = CONVERT_FLOAT16(vload16(0, weight + weight_offset + k * weight_oc_offset));
-        sum0 += in0.x + in0.y + in0.z + in0.w;
-        sum1 += in1.x + in1.y + in1.z + in1.w;
+        FLOAT16 weights = CONVERT_FLOAT16(vload16(0, weight + weight_offset + k * weight_oc_offset)) * scale + offset;
 #elif (defined USE_LOW_BIT_WEIGHT_INT4)
         uchar8 charWeightsInt4 = vload8(0, weight + weight_offset + k * weight_oc_offset);
         char16 charWeights = 0;
@@ -438,12 +459,11 @@ __kernel void gemm_conv_b2(GLOBAL_SIZE_DIM2
         charWeights.sd = (charWeightsInt4.s6 & 15) - 8;
         charWeights.se = (charWeightsInt4.s7 >> 4) - 8;
         charWeights.sf = (charWeightsInt4.s7 & 15) - 8;
-        FLOAT16 weights = CONVERT_FLOAT16(charWeights);
-        sum0 += in0.x + in0.y + in0.z + in0.w;
-        sum1 += in1.x + in1.y + in1.z + in1.w;
+        FLOAT16 weights = CONVERT_FLOAT16(charWeights) * scale + offset;
 #else
         FLOAT16 weights = vload16(0, weight + weight_offset + k * weight_oc_offset);
 #endif
+        PADZEROSVEC(k, srcChannel, weights.s0123, weights.s4567, weights.s89ab, weights.scdef);
         
         out0 = mad((FLOAT4)in0.x, (FLOAT4)weights.s0123, out0);
         out0 = mad((FLOAT4)in0.y, (FLOAT4)weights.s4567, out0);
@@ -455,10 +475,6 @@ __kernel void gemm_conv_b2(GLOBAL_SIZE_DIM2
         out1 = mad((FLOAT4)in1.z, (FLOAT4)weights.s89ab, out1);
         out1 = mad((FLOAT4)in1.w, (FLOAT4)weights.scdef, out1);
     }
-#if (defined USE_LOW_BIT_WEIGHT_INT8) || (defined USE_LOW_BIT_WEIGHT_INT4)
-    out0 = bias0 + mad(out0, Scale, sum0 * Offset);
-    out1 = bias0 + mad(out1, Scale, sum1 * Offset);
-#endif
 #ifdef RELU
     out0 = fmax(out0, (FLOAT4)0);
     out1 = fmax(out1, (FLOAT4)0);

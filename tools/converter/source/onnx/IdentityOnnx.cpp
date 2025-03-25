@@ -24,3 +24,21 @@ void IdentityOnnx::run(MNN::OpT *dstOp, const onnx::NodeProto *onnxNode,
 }
 
 REGISTER_CONVERTER(IdentityOnnx, Identity);
+
+
+DECLARE_OP_CONVERTER(DropoutOnnx);
+
+MNN::OpType DropoutOnnx::opType() {
+    return MNN::OpType_Dropout;
+}
+MNN::OpParameter DropoutOnnx::type() {
+    return MNN::OpParameter_NONE;
+}
+
+void DropoutOnnx::run(MNN::OpT *dstOp, const onnx::NodeProto *onnxNode,
+                   OnnxScope* scope) {
+    // Do nothing
+    return;
+}
+
+REGISTER_CONVERTER(DropoutOnnx, Dropout);

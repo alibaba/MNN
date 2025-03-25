@@ -1,0 +1,35 @@
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+    <item
+        android:id="@+id/start_new_chat"
+        android:title="@string/start_new_chat"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/show_performance_metrics"
+        android:title="@string/show_performance_metrics"
+        app:showAsAction="never"
+        android:checkable="true"
+        android:checked="true"/>
+    <item
+        android:id="@+id/menu_item_clear_mmap_cache"
+        android:title="@string/clear_mmap_cache"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/menu_item_use_mmap"
+        android:title="@string/use_mmap"
+        app:showAsAction="never"
+        android:checkable="true"
+        android:checked="true"/>
+    <item
+        android:id="@+id/menu_item_backend"
+        android:title="@string/backend"
+        app:showAsAction="never"
+        android:checkable="true"
+        android:checked="false" />
+    <item
+        android:id="@+id/menu_item_sampler_spinner"
+        android:title="@string/sampler"
+        app:showAsAction="always"
+        android:textColor="#FFFFFF"
+        app:actionLayout="@layout/item_sampler_spinner" />
+</menu>

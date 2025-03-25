@@ -14,6 +14,7 @@
 #include <string.h>
 #include <string>
 #include <vector>
+#include <cstdint>
 
 
 
@@ -28,24 +29,6 @@
 #include <sys/types.h>
 #include <dirent.h>
 #endif
-
-static inline uint64_t getTimeInUs() {
-    uint64_t time;
-#if defined(_MSC_VER)
-    LARGE_INTEGER now, freq;
-    QueryPerformanceCounter(&now);
-    QueryPerformanceFrequency(&freq);
-    uint64_t sec = now.QuadPart / freq.QuadPart;
-    uint64_t usec = (now.QuadPart % freq.QuadPart) * 1000000 / freq.QuadPart;
-    time = sec * 1000000 + usec;
-#else
-    struct timeval tv;
-    gettimeofday(&tv, nullptr);
-    time = static_cast<uint64_t>(tv.tv_sec) * 1000000 + tv.tv_usec;
-#endif
-    return time;
-}
-
 
 /** test case */
 class MNNTestCase {
@@ -80,6 +63,12 @@ public:
      * @return shared instance
      */
     static MNNTestSuite* get();
+    struct Status {
+        int precision = 0;
+        int memory = 0;
+        int power = 0;
+    };
+    Status pStaus;
 
 public:
     /**

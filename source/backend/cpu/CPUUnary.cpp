@@ -325,8 +325,10 @@ static void _Square(void* out, const void* inp, int realSize) {
 static void _EXP(void* outRaw, const void* inpRaw, int realSize) {
     auto out = (float*)outRaw;
     auto inp = (const float*)inpRaw;
-    float offset[2] = {
+    float offset[] = {
         1.0f,
+        0.0f,
+        0.0f,
         0.0f
     };
     MNNExp(out, inp, offset, realSize);
@@ -334,9 +336,11 @@ static void _EXP(void* outRaw, const void* inpRaw, int realSize) {
 static void _EXPM1(void* outRaw, const void* inpRaw, int realSize) {
     auto out = (float*)outRaw;
     auto inp = (const float*)inpRaw;
-    float offset[2] = {
+    float offset[] = {
         1.0f,
-        -1.0f
+        -1.0f,
+        0.0f,
+        0.0f
     };
     MNNExp(out, inp, offset, realSize);
 }
@@ -362,6 +366,13 @@ MNNUnaryExecute CPUUnary::selectForFloat(int type, int precision) {
                 return (MNNUnaryExecute)MNNSigmoidLowp;
             } else {
                 return (MNNUnaryExecute)MNNSigmoid;
+            }
+            break;
+        case UnaryOpOperation_SILU:
+            if (BackendConfig::Precision_Low == precision) {
+                return (MNNUnaryExecute)MNNSiLuLowp;
+            } else {
+                return (MNNUnaryExecute)MNNSiLu;
             }
             break;
         case UnaryOpOperation_TANH:
@@ -545,8 +556,10 @@ public:
             proc = selectForInt(op->main_as_UnaryOp()->opType());
         } else if (type.code == halide_type_float) {
             proc = core->MNNSelectUnaryFunctionForFloat(op->main_as_UnaryOp()->opType(), static_cast<CPUBackend*>(backend)->precisionMode());
+           
         }
         if (nullptr == proc && nullptr == procInt8 && nullptr == op->main_as_UnaryOp()->tableInt8()) {
+            MNN_ERROR("ERROR: Unary Op can not execute\n");
             return nullptr;
         }
         return new CPUUnary(backend, proc, procInt8, op);

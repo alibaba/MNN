@@ -9,7 +9,7 @@
 #include "OpGrad.hpp"
 #include "core/Macro.h"
 using namespace std;
-using namespace MNN;
+namespace MNN {
 using namespace MNN::Express;
 
 class RoiAlignGrad : public OpGrad {
@@ -35,8 +35,12 @@ public:
     }
 };
 
-static const auto gRegister = []() {
+static void _create() {
     static RoiAlignGrad _c;
     OpGrad::insert(OpType_ROIAlign, &_c);
-    return true;
-}();
+
+}
+
+REGISTER_GRAD(RoiAlignGrad_cpp, _create);
+};
+

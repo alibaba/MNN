@@ -21,7 +21,8 @@ CPUInt8ToFloat::CPUInt8ToFloat(Backend* backend, const MNN::Op* param) : Executi
     const int scaleLen = scale->tensorScale()->size();
     auto pack = static_cast<CPUBackend*>(backend)->functions()->pack;
     mScales.reset(Tensor::createDevice<float>({UP_DIV(scaleLen, pack) * pack}));
-    mValid = backend->onAcquireBuffer(mScales.get(), Backend::STATIC);
+    mZeroPoint.reset(Tensor::createDevice<float>({UP_DIV(scaleLen, pack) * pack}));
+    mValid = backend->onAcquireBuffer(mScales.get(), Backend::STATIC) && backend->onAcquireBuffer(mZeroPoint.get(), Backend::STATIC);
     if (!mValid) {
         return;
     }
@@ -29,12 +30,24 @@ CPUInt8ToFloat::CPUInt8ToFloat(Backend* backend, const MNN::Op* param) : Executi
         mSingle = true;
         for (int i = 0; i < pack; ++i) {
             mScales->host<float>()[i] = scale->tensorScale()->data()[0];
+            if (scale->floatzeros()) {
+                mZeroPoint->host<float>()[i] = scale->floatzeros()->data()[0];
+            }
         }
     } else {
         memset(mScales->host<float>(), 0, UP_DIV(scaleLen, pack) * pack * sizeof(float));
         memcpy(mScales->host<float>(), scale->tensorScale()->data(), scaleLen * sizeof(float));
+        memset(mZeroPoint->host<float>(), 0, UP_DIV(scaleLen, pack) * pack * sizeof(float));
+        if (scale->floatzeros()) {
+            memcpy(mZeroPoint->host<float>(), scale->floatzeros()->data(), scale->floatzeros()->size() * sizeof(float));
+        }
     }
-    mZeroPoint = scale->zeroPoint();
+    if (!scale->floatzeros()) {
+        for (int i = 0;i < ROUND_UP(scaleLen, pack); ++i) {
+            mZeroPoint->host<float>()[i] = static_cast<float>(scale->zeroPoint());
+        }
+    }
+    
 }
 CPUInt8ToFloat::~CPUInt8ToFloat() {
     backend()->onReleaseBuffer(mScales.get(), Backend::STATIC);
@@ -48,6 +61,7 @@ ErrorCode CPUInt8ToFloat::onExecute(const std::vector<Tensor*>& inputs, const st
     const auto inputDataPtr = input->host<int8_t>();
     auto outputDataPtr      = output->host<float>();
     const auto scaleDataPtr = mScales->host<float>();
+    const auto zeroDataPtr  = mZeroPoint->host<float>();
     const int channels      = input->channel();
     int icDiv4        = UP_DIV(channels, pack);
     const int batch         = input->batch();
@@ -67,8 +81,9 @@ ErrorCode CPUInt8ToFloat::onExecute(const std::vector<Tensor*>& inputs, const st
         int z = tId % icDiv4;
         const auto srcChannelPtr   = inputDataPtr + tId * oc4Stride * pack;
         const auto scaleChannelPtr = scaleDataPtr + z * pack;
+        const auto zeroChannelPtr  = zeroDataPtr + z * pack;
         auto dstChannlePtr         = outputDataPtr + tId * oc4Stride * pack;
-        int8F->MNNInt8ScaleToFloat(dstChannlePtr, srcChannelPtr, scaleChannelPtr, oc4Stride, mZeroPoint);
+        int8F->MNNInt8ScaleToFloat(dstChannlePtr, srcChannelPtr, scaleChannelPtr, oc4Stride, zeroChannelPtr, 3);
     }
     MNN_CONCURRENCY_END();
 

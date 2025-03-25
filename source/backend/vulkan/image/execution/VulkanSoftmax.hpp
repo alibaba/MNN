@@ -16,23 +16,16 @@
 namespace MNN {
 class VulkanSoftmax : public VulkanBasicExecution {
 public:
-    VulkanSoftmax(const Op* op, Backend* bn);
+    VulkanSoftmax(const Op* op, Backend* bn, const uint32_t axisIndex);
     virtual ~VulkanSoftmax();
     ErrorCode onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                        const VulkanCommandPool::Buffer* cmdBuffer) override;
 
 private:
-    std::shared_ptr<VulkanBuffer> mConstBuffer;
+    std::shared_ptr<VulkanBuffer> mSoftmaxConstBuffer;
     const VulkanPipeline* mSoftmaxPipeline;
     std::shared_ptr<VulkanLayout::DescriptorSet> mDescriptorSet;
-    int mAxis;
-    struct ConvertInfo {
-        const VulkanPipeline* pipeline;
-        std::shared_ptr<VulkanImageConverter> convert;
-        std::shared_ptr<VulkanBuffer> buffer;
-    };
-    ConvertInfo mSource;
-    ConvertInfo mOutput;
+    uint32_t mAxisIndex;
 };
 
 } // namespace MNN

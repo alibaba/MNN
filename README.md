@@ -2,10 +2,35 @@
 bo 
 [中文版本](README_CN.md)
 
+[日本語バージョン](README_JP.md)
+
 [MNN Homepage](http://www.mnn.zone)
+
+## News 🔥
+- [2025/02/18] iOS multimodal LLM App is released [MNN LLM iOS](./apps/iOS/MNNLLMChat/README.md).
+<p align="center">
+  <img width="20%" alt="Icon"  src="./apps/iOS/MNNLLMChat/assets/introduction.gif" style="margin: 0 10px;">
+</p>
+
+- [2025/02/11] android app support for [deepseek r1 1.5b](./project/android/apps/MnnLlmApp/README.md#version-021).
+<p align="center">
+  <img width="20%" alt="Icon"  src="./apps/Android/MnnLlmChat/assets/deepseek_support.gif" style="margin: 0 10px;">
+</p>
+
+- [2025/01/23] We released our full multimodal LLM Android App:[MNN-LLM-Android](./apps/Android/MnnLlmChat/README.md). including text-to-text, image-to-text, audio-to-text, and text-to-image generation.
+<p align="center">
+  <img width="20%" alt="Icon"  src="./apps/Android/MnnLlmChat/assets/image_home.jpg" style="margin: 0 10px;">
+  <img width="20%" alt="Icon" src="./apps/Android/MnnLlmChat/assets/image_diffusion.jpg" style="margin: 0 10px;">
+  <img width="20%" alt="Icon" src="./apps/Android/MnnLlmChat/assets/image_sound.jpg" style="margin: 0 10px;">
+  <img width="20%" alt="Icon" src="./apps/Android/MnnLlmChat/assets/image_image.jpg" style="margin: 0 10px;">
+</p>
 
 ## Intro
 MNN is a highly efficient and lightweight deep learning framework. It supports inference and training of deep learning models and has industry-leading performance for inference and training on-device. At present, MNN has been integrated into more than 30 apps of Alibaba Inc, such as Taobao, Tmall, Youku, DingTalk, Xianyu, etc., covering more than 70 usage scenarios such as live broadcast, short video capture, search recommendation, product searching by image, interactive marketing, equity distribution, security risk control. In addition, MNN is also used on embedded devices, such as IoT.
+
+[MNN-LLM](./transformers/README.md) is a large language model runtime solution developed based on the MNN engine. The mission of this project is to deploy LLM models locally on everyone's platforms(Mobile Phone/PC/IOT). It supports popular large language models such as Qianwen, Baichuan, Zhipu, LLAMA, and others. [MNN-LLM User guide](https://mnn-docs.readthedocs.io/en/latest/transformers/llm.html)
+
+[MNN-Diffusion](https://github.com/alibaba/MNN/tree/master/transformers/diffusion) is a stable diffusion model runtime solution developed based on the MNN engine. The mission of this project is to deploy stable diffusion models locally on everyone's platforms. [MNN-Diffusion User guide](https://mnn-docs.readthedocs.io/en/latest/transformers/diffusion.html)
 
 ![architecture](doc/architecture.png)
 
@@ -26,7 +51,9 @@ Inside Alibaba, [MNN](https://mp.weixin.qq.com/s/5I1ISpx8lQqvCS8tGd6EJw) works a
 
 
 ## Documentation and Workbench
-MNN's docs are in place in [Yuque docs here](https://www.yuque.com/mnn/en) and [Read the docs](https://mnn-docs.readthedocs.io/en/latest).
+MNN's docs are in place in [Read the docs](https://mnn-docs.readthedocs.io/en/latest).
+
+You can also read docs/README to build docs's html.
 
 MNN Workbench could be downloaded from [MNN's homepage](http://www.mnn.zone), which provides pretrained models, visualized training tools, and one-click deployment of models to devices.
 
@@ -148,3 +175,4 @@ MNN refers to the following projects:
 - [libyuv](https://chromium.googlesource.com/libyuv/libyuv)
 - [libjpeg](https://github.com/libjpeg-turbo/libjpeg-turbo)
 - [opencv](https://github.com/opencv/opencv)
+- [onnxruntime](https://github.com/microsoft/onnxruntime)

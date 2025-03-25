@@ -9,7 +9,7 @@
 #include "OpGrad.hpp"
 #include "core/Macro.h"
 using namespace std;
-using namespace MNN;
+namespace MNN {
 using namespace MNN::Express;
 
 class StridedSliceGrad : public OpGrad {
@@ -39,8 +39,12 @@ public:
     }
 };
 
-static const auto gRegister = []() {
+static void _create() {
     static StridedSliceGrad _c;
     OpGrad::insert(OpType_StridedSlice, &_c);
-    return true;
-}();
+
+}
+
+REGISTER_GRAD(StridedSliceGrad_cpp, _create);
+};
+

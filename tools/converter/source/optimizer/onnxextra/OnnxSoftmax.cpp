@@ -42,8 +42,15 @@ public:
             return newExpr;
         }
         auto shape = _Shape(input, true);
-        auto newShape = _Stack({_ReduceProd(_Slice(shape, _ConstInt(0), _ConstInt(axis))), _ReduceProd(_Slice(shape, _ConstInt(axis), _ConstInt(-1)))});
-        input = _Reshape(input, newShape);
+        {
+            std::unique_ptr<MNN::OpT> flat(new OpT);
+            flat->type = OpType_Flatten;
+            flat->main.type = OpParameter_Flatten;
+            flat->main.value = new FlattenT;
+            flat->main.AsFlatten()->endAxis = 0;
+            flat->main.AsFlatten()->axis = axis;
+            input = Variable::create(Expr::create(flat.get(), {input}));
+        }
         auto output = _Softmax(input, -1);
         auto newExpr = _Reshape(output, shape)->expr().first;
         newExpr->setName(expr->name());

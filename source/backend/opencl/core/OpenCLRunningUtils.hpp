@@ -18,6 +18,7 @@
 #include "core/TensorUtils.hpp"
 #include "backend/opencl/core/runtime/OpenCLRuntime.hpp"
 #include "backend/opencl/core/runtime/OpenCLWrapper.hpp"
+#include "backend/opencl/core/BufferPool.hpp"
 
 namespace MNN {
 namespace OpenCL {
@@ -96,6 +97,9 @@ inline void IOHW2OIHW(const T *src, T *dst, Dim O, Dim I, Dim H, Dim W) {
         }
     }
 };
+inline cl::Buffer &openCLDeferBuffer(const Tensor *tensor) {
+    return *(*(OpenCLBufferNode *)(tensor->deviceId())).buffer.get();
+}
 inline cl::Buffer &openCLBuffer(const Tensor *tensor) {
     return (*(cl::Buffer *)(tensor->deviceId()));
 }
@@ -116,14 +120,20 @@ void runKernel2D(const ::std::shared_ptr<KernelWrap> &kernel, const std::vector<
 
 void runTurnKernelLWS2D(const ::std::shared_ptr<KernelWrap> &kernel, const std::vector<uint32_t> &gws, const std::vector<uint32_t> &lws,
                         OpenCLRuntime *runtime);
-
+std::vector<uint32_t> getGemmParams(const std::vector<uint32_t> &gemmSize, const std::vector<cl::Buffer> tensorMemory,
+                                    OpenCLRuntime *runtime);
 std::pair<std::vector<uint32_t>, uint32_t> localWS3DDefault(const std::vector<uint32_t> &gws, const uint32_t maxWorkGroupSize,
                                        OpenCLRuntime *runtime, const std::string &kernelName, const std::shared_ptr<KernelWrap> &mKernel);
 
 bool localWSTune(const std::map<std::string, std::vector<std::pair<std::vector<uint32_t>, std::pair<std::vector<uint32_t>,  uint32_t>>>> &tuneMap, const std::vector<uint32_t> &gws, const std::string &kernelName, std::pair<std::vector<uint32_t>, uint32_t> &res);
 
+uint32_t get2DUseLocalMemTime(const std::vector<uint32_t> &gws, const std::vector<uint32_t> &lws, OpenCLRuntime *runtime, const std::string &kernelName, const std::shared_ptr<KernelWrap> &mKernelW);
 std::pair<std::vector<uint32_t>, uint32_t> localWS2DDefault(const std::vector<uint32_t> &gws, const uint32_t maxWorkGroupSize,
                                        OpenCLRuntime *runtime, const std::string &kernelName, const std::shared_ptr<KernelWrap> &mKernel);
+
+bool getPreParamInfo(const std::string preParamName, uint32_t *preParamData,  OpenCLRuntime *runtime);
+
+void setPreParamInfo(const std::string preParamName, uint32_t preParamData,  OpenCLRuntime *runtime);
 
 void copyBufferToImage(OpenCLRuntime *runtime, const cl::Buffer &buffer, const cl::Image &image, int w, int h);
 

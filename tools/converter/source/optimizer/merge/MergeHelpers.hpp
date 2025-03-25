@@ -30,6 +30,7 @@ bool IsSoftmax(Express::EXPRP expr);
 bool IsSlice(Express::EXPRP expr);
 bool IsSelect(Express::EXPRP expr);
 bool IsGatherV2(Express::EXPRP expr);
+bool IsLayerNorm(Express::EXPRP expr);
 
 bool IsBinaryAdd(Express::EXPRP expr);
 bool IsBinarySub(Express::EXPRP expr);
@@ -48,6 +49,7 @@ bool IsReductionMean(Express::EXPRP expr);
 bool IsConvolution(Express::EXPRP expr);
 
 bool IsExpandDims(Express::EXPRP expr);
+bool IsBroadcastTo(Express::EXPRP expr);
 
 Express::EXPRP InputExpr(Express::EXPRP expr, int input_index);
 Express::EXPRP OutputExpr(Express::EXPRP expr, int output_index);

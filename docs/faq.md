@@ -3,6 +3,8 @@
 - [模型转换后结果与其他框架不一致](faq.html#id8)
 - [compute shape error](faq.html#compute-shape-error-for-xxx)
 - [模型转换时有Error信息](faq.html#reshape-error)
+- [模型转换加上fp16没有性能提升](faq.html#fp16)
+- [如何开启动态量化](faq.html#weightquantbits)
 - [模型量化后为什么比浮点慢](faq.html#id14)
 - [输入输出的elementSize与实际有区别](faq.html#tensor-elementsize)
 - [MNN模型如何加密](faq.html#id18)
@@ -112,12 +114,28 @@ opConverter ==> MNN Converter NOT_SUPPORTED_OP: [ ANY_OP_NAME ]
 ### 模型转换后与原框架结果不一致
 先使用MNN中的模型一致性验证脚本进行测试，确定不是调用方法或其他错误，[使用方法](./tools/convert.html#id3)
 
+### 模型转换加上fp16后没有性能提升
+此功能只支持压缩模型数据，在运行时仍然先解压到float32运算。如果希望使用 fp16 加速，打开 `MNN_ARM82` 并在加载模型时设置 precision = low
+
+### 模型转换加上weightQuantBits后如何进行加速
+可以通过动态量化功能，加载仅权重量化的模型，降低内存占用和提升性能
+1. 打开 `MNN_LOW_MEMORY` 编译宏编译 MNN （支持动态量化功能）
+2. 使用 mnn 模型时 memory 设成 low
+
 ## Pymnn
 ### import MNN 出现 import numpy error
 临时解决方案：升级 numpy 版本到 1.20.0 或以上
 
 ## 运行问题
-### 运行结果出错 / Tensor 的 elementSize 不为各维度乘积
+### 运行结果出错
+- 先使用 testMNNFromOnnx.py 等测试工具进行测试，具体参见模型转换工具的正确性校验部分
+- 测试工具验证正确，但运行代码结果出错，可能是如下原因：
+    1. 使用 Session API 运行不满足运行条件的模型，此时应换用 Module API
+    2. 输入的内存布局不对
+    3. 输入数据格式不对，int64 需要换成 int32_t ，double 需要换成 float
+
+
+### 布局转换问题(Tensor 的 elementSize 不为各维度乘积)
 MNN 内部对 CV 相关算子采用 NC4HW4 布局，计算 elementSize 时，channel 会上对齐到 4 返回，此内存布局允许实现的硬件自行确定内存排列方式，具体方式不对用户可见，但用户可以通过如下代码，输入或获取自己指定的NCHW / NHWC 内存布局的 Tensor / VARP。
 
 #### Interpreter-Session API
@@ -161,10 +179,10 @@ const float* outputPtr = output->readMap<float>();
 
 ### Android 设备无法查看日志
 Android 系统有两类打印日志的方式: printf 和 logcat. 默认 MNN 的编译脚本使用 printf，这样方便在命令行中调试。集成到 App 上时，用 cmake  -DMNN_USE_LOGCAT=ON 将打印日志的方式改成 logcat 即可用 adb logcat 查看
-### 
+
 ### 如何增加 opencl so 地址?
 MNN opencl 后端默认采用 dlopen 的方式动态打开设备的 opencl 驱动，相应位置若找不到您设备上的驱动，请修改 **OpenCLWrapper.cpp**
-### 
+
 ### TensorArray Op 与 Switch / Merge 控制流支持
 TensorArray 和控制流支持需要借助 MNN-Express ，
 请参考 demo/exec/transformerDemo.cpp 的接口使用
@@ -208,7 +226,7 @@ OpenCL / Vulkan 采用静态变量自注册的方式往 MNN 主库注册后端. 
 </>
 ```
 
-### 部分模型用 MNNV2Basic 运行出现段错误
+### 部分模型用 MNNV2Basic 运行出现段错误，或报 Interpreter don't support case for shape compute need input content, please use module api instead
 
 - 模型不满足运行条件
    - MNNV2Basic 使用  Interpreter + Session 方式运行，此类运行方式要求模型满足一定条件，否则无法运行模型或产生特别的 crash ，条件如下：
@@ -225,10 +243,35 @@ OpenCL / Vulkan 采用静态变量自注册的方式往 MNN 主库注册后端. 
    - 一般是直接访问了 tensor 的 host
    - 按 [输入数据](./inference/session.html#id8) 和[获取输出](./inference/session.html#id21) 里面的方式建host tensor 并 copy ，参考相关文档修改使用代码
 - 是否可基于 deviceId 直接传 GPU 地址？
-   - 可以，需要理解 MNN GPU 内存布局并传上下文给 MNN ，但相关实现较复杂
+   - 可以，可以通过setDevicePtr设置输入VARP的GPU地址,通过copyToDevicePtr设置输出VARP拷贝到的GPU地址
+      - 相关使用参考tools/cpp/GpuInterTest.cpp
+      - 目前OPENCL推理支持OPENCL/OPENGL内存做输入输出。CUDA推理支持CUDA内存做输入输出
    - 采用 MNN_Express 系列接口，可以支持模型之间的内存直接传递不做拷贝
+
+### 多卡GPU上，用户指定特定GPU做推理问题
+
+- 通过设置MNNDeviceContext结构体参数来指定特定GPU
+   - 通过设置platformSize、platformId、deviceId参数来进行指定
+   - 目前支持OpenCL和CUDA后端进行设置
+   - 具体可以参考：tools/cpp/testModel.cpp
+
+### Register 相关内存泄露说明
+用 valgrind 工具检查时会报 MNN Register 相关的内存泄露，这个属于一次性的初始化内存，后续也不会增加，可视为误报
+
+### Metal 相关内存增长说明
+
+Metal 后端使用的是OC对象，需要用OC的自动回收机制来清除内存，可在使用代码中把相关mnn的API调用放到autorealse中以自动回收内存
+
+```
+@autoreleasepool {
+    /* MNN 相关调用代码 */
+}
+
+```
+
+
 ## 性能相关
-### 使用 GPU 时，调用 copyToHostTensor / copyFromHostTensor 非常慢
+### 使用 GPU 时，调用 copyToHostTensor / readMap 非常慢
 GPU 后端调用 copy 的时间包含两个部分
 
 - 异构数据拷贝
@@ -236,7 +279,7 @@ GPU 后端调用 copy 的时间包含两个部分
 
 对 GPU 后端而言，在数据被要求对用户可见（比如复制 output tensor 数据出来）之前，是允许异步执行的。
 在数据被用户要求可见之时，会等待相应的异步操作完成。
-因此有可能 复制 output tensor 的过程包括了等待 GPU 算子异步执行完成，导致缓慢。
+因此有可能 复制 output tensor 的过程包括了等待 GPU 算子异步执行完成，导致看上去缓慢。
 ### GPU 为什么比 CPU 跑得慢？
 有如下原因： 
 
@@ -262,12 +305,14 @@ GPU 后端调用 copy 的时间包含两个部分
    - x64 + vnni 指令，量化计算有 sdot 指令，明显快于 FP32 ，编译 MNN 时需要开启 MNN_AVX512 以支持这个指令，一般相比 AVX512 的浮点运算快 30%
    - ARM v7a / ARMv8 ：量化计算采用 int8 乘加到 int16，再双加到 int32 的方式，计算效率略快于浮点（一般 30% 左右提升）。
    - ARMv8.2 架构有 sdot 指令，但同时 FP32 相对之前架构发射数也提升了一倍，也支持了比 FP32 快一倍的 FP16 向量计算指令，MNN 会检查设备架构以开启 sdot / smmla ，理想情况下量化计算性能比 FP32 快1倍以上，比 FP16 快 20%。
+   - ARMv8.6 架构有 smmla 指令，理想情况下量化计算性能比 FP32 快3倍以上，比 FP16 快1倍以上，比 BF16 快 20%。
 
 ## 其他问题
 ### MNN模型如何加密
 加密与破解是攻防的较量，端侧加密很难做到绝对安全。
 可以通过构造独有的模型格式来增加反向的难度，按照以下步骤操作可以得到独特的模型格式：
-1. 针对`schema/default/*.fbs`下的文件，对参数顺序，枚举类顺序进行重新排序；比如：可以重新调整`MNN.fbs`中`OpType`的顺序；重新调整`CaffeOp.fbs`中`Convolution2DCommon`成员变量的顺序；
+1. 复制一份 schema 到 schema/private：`cp -r schema/default schema/private`
+2. 针对`schema/private/*.fbs`下的文件，对参数顺序，枚举类顺序进行重新排序；比如：可以重新调整`MNN.fbs`中`OpType`的顺序；重新调整`CaffeOp.fbs`中`Convolution2DCommon`成员变量的顺序；
 2. 执行`schema/generate.sh`重新生成`flatbuffers`头文件；
 3. 重新编译`MNN`库文件， `Convert`等所有工具；
 4. 使用新的工具重新转换模型；

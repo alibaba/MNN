@@ -3,5 +3,6 @@
     "mode":1,
     "precision":1,
     "memory":1,
-    "power":1
+    "power":1,
+    "hints":[5, 1]
 }

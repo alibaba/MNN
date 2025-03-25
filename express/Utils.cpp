@@ -10,8 +10,10 @@
 #include <map>
 #include <set>
 #include <stack>
+#include <MNN/expr/ExecutorScope.hpp>
 #include "MNN_generated.h"
 #include "core/TensorUtils.hpp"
+#include "core/OpCommonUtils.hpp"
 #include "core/Session.hpp"
 #include "core/MNNMemoryUtils.h"
 #include "core/Backend.hpp"
@@ -60,19 +62,7 @@ int Utils::convertFormat(Dimensionformat format) {
 }
 
 DataType Utils::convertDataType(halide_type_t type) {
-    if (type.code == halide_type_float) {
-        return DataType_DT_FLOAT;
-    }
-    if (type.code == halide_type_uint && type.bits == 8) {
-        return DataType_DT_UINT8;
-    }
-    if (type.code == halide_type_int && type.bits == 8) {
-        return DataType_DT_INT8;
-    }
-    if (type.code == halide_type_int && type.bits == 32) {
-        return DataType_DT_INT32;
-    }
-    return DataType_DT_INVALID;
+    return OpCommonUtils::convertDataType(type);
 }
 halide_type_t Utils::revertDataType(DataType dataType) {
     CONVERT(DataType_DT_FLOAT, halide_type_of<float>(), dataType);
@@ -188,6 +178,9 @@ void* Executor::ComputeCache::mapOutput(int offset, Tensor* dest) {
         //MNN_ASSERT(nullptr != ptr);
         return ptr;
     }
+    if (0 == tensor->usize()) {
+        return nullptr;
+    }
     Utils::allocMemoryForHostTensor(dest);
     tensor->copyToHostTensor(dest);
     MNN_ASSERT(nullptr != dest->host<void>());
@@ -213,6 +206,9 @@ ErrorCode Executor::ComputeCache::compute() {
     std::stack<ComputeCache*> dfsStack;
     std::set<ComputeCache*> visited;
     dfsStack.push(this);
+    ErrorCode code = NO_ERROR;
+    auto globalExecutor = ExecutorScope::Current();
+    auto debug = globalExecutor->getDebugTools();
     while (!dfsStack.empty()) {
         //printf("stcak = %d\n", dfsStack.size());
         auto cache = dfsStack.top();
@@ -248,7 +244,14 @@ ErrorCode Executor::ComputeCache::compute() {
         } else {
             visited.insert(cache);
             dfsStack.pop();
-            cache->mSession->run();
+            if (debug->after != nullptr && debug->before != nullptr) {
+                code = cache->mSession->runWithCallBack(debug->before, debug->after);
+            } else {
+                code = cache->mSession->run();
+            }
+            if (NO_ERROR != code) {
+                return code;
+            }
             cache->mContentDirty = false;
         }
     }

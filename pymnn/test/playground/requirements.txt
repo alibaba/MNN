@@ -3,8 +3,8 @@ watchdog==0.10.6
 numpy==1.16.4
 flatbuffers==1.12
 validators==0.14.2
-opencv-python==4.1.0.25
-streamlit==0.55.2
+opencv-python==4.8.1.78
+streamlit==1.37.0
 pyrsistent==0.14.0
 boto3==1.15.17
 toml==0.10.1

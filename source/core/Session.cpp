@@ -18,10 +18,8 @@
 #include "core/TensorUtils.hpp"
 #include "utils/InitNet.hpp"
 
-using namespace std;
-
 namespace MNN {
-static void _createPipelineBackend(Schedule::PipelineInfo& iter, RuntimeInfo& runtime) {
+void Session::createPipelineBackend(Schedule::PipelineInfo& iter, RuntimeInfo& runtime) {
     if (iter.first.cache.first != nullptr) {
         return;
     }
@@ -41,9 +39,97 @@ static void _createPipelineBackend(Schedule::PipelineInfo& iter, RuntimeInfo& ru
         // We need create a new backend to do size compute / not support op compute
         BackendConfig defaultConfig;
         defaultConfig.flags = 4;
-        iter.first.cache.second.reset(cpuRuntime->onCreate(&defaultConfig));
+        if (iter.first.info.user != nullptr) {
+            // Don't change default Precision
+            defaultConfig.memory = iter.first.info.user->memory;
+            defaultConfig.power = iter.first.info.user->power;
+        }
+        Backend* origin = nullptr;
+        if (cpuRuntime.get() == rt) {
+            origin = iter.first.cache.first.get();
+        }
+        iter.first.cache.second.reset(cpuRuntime->onCreate(&defaultConfig, origin));
     }
 }
+void Session::ModeGroup::setMode(Interpreter::SessionMode mode) {
+    if (mode == Interpreter::Session_Input_Inside || mode == Interpreter::Session_Input_User) {
+        inputMode = mode;
+    } else if (mode == Interpreter::Session_Output_User || mode == Interpreter::Session_Output_Inside) {
+        outputMode = mode;
+    } else if (mode == Interpreter::Session_Backend_Auto || mode == Interpreter::Session_Backend_Fix) {
+        backendMode = mode;
+    } else if (mode == Interpreter::Session_Debug || mode == Interpreter::Session_Release) {
+        callBackMode = mode;
+    } else if (mode == Interpreter::Session_Resize_Direct || mode == Interpreter::Session_Resize_Defer) {
+        resizeMode = mode;
+    } else if(mode == Interpreter::Session_Memory_Collect || mode == Interpreter::Session_Memory_Cache) {
+        memoryUsageMode = mode;
+    } else if(mode == Interpreter::Session_Codegen_Disable || mode == Interpreter::Session_Codegen_Enable) {
+        codegenMode = mode;
+    }
+}
+void Session::ModeGroup::setHint(Interpreter::HintMode mode, int hint) {
+    switch (mode) {
+        case Interpreter::MAX_TUNING_NUMBER:
+            maxTuningNumber = hint;
+            break;
+        case Interpreter::MEM_ALLOCATOR_TYPE:
+            runtimeHint.memoryAllocatorType = hint;
+            break;
+        case Interpreter::WINOGRAD_MEMORY_LEVEL:
+            runtimeHint.winogradMemoryUsed = hint;
+            break;
+        case Interpreter::CPU_LITTLECORE_DECREASE_RATE:
+            runtimeHint.cpuDecreaseRate = hint;
+            break;
+        case Interpreter::GEOMETRY_COMPUTE_MASK:
+            geometryMask = hint;
+            break;
+        case Interpreter::STRICT_CHECK_MODEL:
+            checkNetBuffer = hint > 0;
+            break;
+        case Interpreter::DYNAMIC_QUANT_OPTIONS:
+            runtimeHint.dynamicQuantOption = hint;
+            break;
+        case Interpreter::QKV_QUANT_OPTIONS:
+            runtimeHint.qkvQuantOption = hint;
+            break;
+        case Interpreter::KVCACHE_SIZE_LIMIT:
+            runtimeHint.kvcacheSizeLimit = hint;
+            break;
+        case Interpreter::OP_ENCODER_NUMBER_FOR_COMMIT:
+            runtimeHint.encorderNumForCommit = hint;
+            break;
+        case Interpreter::MMAP_FILE_SIZE:
+            runtimeHint.mmapFileSize = hint;
+            break;
+        case Interpreter::USE_CACHED_MMAP:
+            runtimeHint.useCachedMmap = hint;
+            break;
+        case Interpreter::INIT_THREAD_NUMBER:
+            runtimeHint.initThreadNumber = hint;
+            break;
+        default:
+            break;
+    }
+}
+
+void Session::ModeGroup::setExternalPath(std::string path, int type) {
+    switch (type) {
+        case MNN::Interpreter::EXTERNAL_PATH_KVCACHE_DIR:
+            runtimeHint.kvcacheDirPath = path;
+            break;
+        case MNN::Interpreter::EXTERNAL_FEATUREMAP_DIR:
+            runtimeHint.midMemoryPath = path;
+            break;
+        case MNN::Interpreter::EXTERNAL_WEIGHT_DIR:
+            runtimeHint.weightMemoryPath = path;
+            break;
+        default:
+            break;
+    }
+}
+
 Session::Session(Schedule::ScheduleInfo&& info, const ModeGroup& mode, RuntimeInfo&& runtime) {
     mMode = mode;
     mRuntime = std::move(runtime);
@@ -53,13 +139,17 @@ Session::Session(Schedule::ScheduleInfo&& info, const ModeGroup& mode, RuntimeIn
     }
     mInfo = std::move(info);
     for (auto& iter : mInfo.pipelineInfo) {
-        _createPipelineBackend(iter, mRuntime);
+        createPipelineBackend(iter, mRuntime);
         Pipeline::TuningAttr attr;
         attr.maxTuningNumber = mode.maxTuningNumber;
         attr.autoSetOpType = mode.backendMode == Interpreter::Session_Backend_Auto;
         auto rt    = mRuntime.first.find(iter.first.info.type)->second.get();
         auto cpuRuntime = mRuntime.second;
-        std::shared_ptr<Pipeline> newPipeline(new Pipeline(mInfo.externalWeightPath, std::move(iter), mode.inputMode == Interpreter::Session_Input_Inside, mode.outputMode == Interpreter::Session_Output_User, attr, rt, cpuRuntime.get()));
+        auto geoMask = mMode.geometryMask;
+        if (rt->onGetCompilerType() != Runtime::Compiler_Loop) {
+            geoMask = 0;
+        }
+        std::shared_ptr<Pipeline> newPipeline(new Pipeline( mInfo.externalWeightPath, std::move(iter), mode.inputMode == Interpreter::Session_Input_Inside, mode.outputMode == Interpreter::Session_Output_User, attr, rt, cpuRuntime.get(), geoMask));
         mPipelines.emplace_back(std::move(newPipeline));
     }
     mCallBackMode = mode.callBackMode;
@@ -154,15 +244,6 @@ ErrorCode Session::runWithCallBack(const TensorCallBackWithInfo& before, const T
     return NO_ERROR;
 }
 
-void Session::_clearCache() {
-    for (auto& t : mInfo.allTensors) {
-        auto describe = TensorUtils::getDescribe(t.get());
-        if (describe->usage == Tensor::InsideDescribe::TRAINABLE || describe->usage == Tensor::InsideDescribe::CONSTANT) {
-            continue;
-        }
-        describe->regions.clear();
-    }
-}
 
 ErrorCode Session::resize() {
 #ifdef LOG_VERBOSE
@@ -204,18 +285,10 @@ ErrorCode Session::resize() {
             }
         }
         if(mMemoryUsageMode == Interpreter::Session_Memory_Collect) {
-            #ifdef LOG_VERBOSE
-            float memory = 0.0f;
-            #endif
+            mRuntime.second->onGabageCollect(0);
             for (auto& iter : mRuntime.first) {
                 iter.second->onGabageCollect(0);
-                #ifdef LOG_VERBOSE
-                memory += iter.second->onGetMemoryInMB();
-                #endif
             }
-            #ifdef LOG_VERBOSE
-            FUNC_PRINT_ALL(memory, f);
-            #endif
         }
         mNeedMalloc = false;
         mNeedResize = false;
@@ -381,13 +454,14 @@ ErrorCode Session::updateToModel(Net* net) const {
 
 static void initTensors(std::vector<std::shared_ptr<Tensor>>& tensors, const std::vector<std::shared_ptr<Tensor>>& tensorSrc) {
     for (int i=0; i<tensors.size(); ++i) {
+        if (tensorSrc[i].get() == nullptr) {
+            continue;
+        }
         // Init all tensor except for const
         if (tensors[i].get() == nullptr) {
             tensors[i].reset(new Tensor);
             TensorUtils::getDescribe(tensors[i].get())->index = i;
         }
-    }
-    for (int i = 0; i < tensors.size(); ++i) {
         auto srcDes = TensorUtils::getDescribe(tensorSrc[i].get());
         if (srcDes->quantAttr != nullptr) {
             TensorUtils::getDescribe(tensors[i].get())->quantAttr.reset(new QuantAttr);
@@ -419,7 +493,7 @@ Session* Session::clone(RuntimeInfo&& runtime, std::shared_ptr<Schedule::Schedul
     pipelineInfo.first.info.user = &pipelineInfo.first.config;
     auto& oplists = pipelineInfo.second;
     oplists.resize(opCaches.size());
-    _createPipelineBackend(pipelineInfo, runtime);
+    createPipelineBackend(pipelineInfo, runtime);
     auto first = pipelineInfo.first.cache.first;
     auto second = pipelineInfo.first.cache.second;
     for (int i=0; i<opCaches.size(); ++i) {

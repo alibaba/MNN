@@ -15,19 +15,20 @@
 
 #include "backend/cpu/compute/ConvolutionWinogradBridge.hpp"
 #include "backend/cpu/compute/DenseConvolutionTiledExecutor.hpp"
-#include "backend/cpu/compute/ConvolutionHybrid.hpp"
 #ifdef MNN_USE_SPARSE_COMPUTE
 #include "backend/cpu/compute/SparseConvolutionTiledExecutor.hpp"
 #endif
 #include "core/Macro.h"
 #include "core/OpCommonUtils.hpp"
 #include "backend/cpu/OneDNNConvolution.hpp"
+#include "backend/cpu/compute/ConvInt8TiledExecutor.hpp"
 
 namespace MNN {
 
 static Execution* _createUnit(const Tensor* input, const Tensor* output, Backend* backend,
-                              const Convolution2D* conv2d, const float* originWeight, size_t originWeightSize, const float* bias, size_t biasSize, std::shared_ptr<ConvolutionCommon::Int8Common> weightQuantInfo, bool supportSparse, bool lowMemory) {
+                              const Op* op, const float* originWeight, size_t originWeightSize, const float* bias, size_t biasSize, std::shared_ptr<ConvolutionCommon::Int8Common> weightQuantInfo, bool supportSparse, bool lowMemory) {
     auto cpuBackend = (CPUBackend*)backend;
+    auto conv2d = op->main_as_Convolution2D();
     auto common = conv2d->common();
 #ifdef MNN_USE_ONEDNN
     return OneDNN::createConvolution(common, backend, originWeight, originWeightSize, bias, biasSize);
@@ -35,7 +36,7 @@ static Execution* _createUnit(const Tensor* input, const Tensor* output, Backend
 
 #ifdef MNN_USE_SPARSE_COMPUTE
     if (conv2d->sparseParameter() && nullptr != weightQuantInfo.get()) {
-        if (supportSparse) {
+        if (supportSparse && weightQuantInfo->quan->index() != nullptr) {
             return new SparseConvolutionTiledExecutor(common, backend, weightQuantInfo->quan,
                                                       conv2d->sparseParameter(), bias, biasSize);
         }
@@ -46,19 +47,24 @@ static Execution* _createUnit(const Tensor* input, const Tensor* output, Backend
         && common->strideX() == 1 && common->strideY() == 1;
 
     if (lowMemory && nullptr != weightQuantInfo.get() && originWeightSize == 0) {
-        if (cpuBackend->memoryMode() == BackendConfig::Memory_Low && fastWay) {
-            return new ConvolutionHybrid(common, backend, originWeight, originWeightSize, bias, biasSize, weightQuantInfo);
+        if (cpuBackend->memoryMode() == BackendConfig::Memory_Low) {
+            // auto core = static_cast<CPUBackend*>(backend)->functions();
+            // auto resourceInt8 = CPUConvolution::makeResourceInt8(backend, op, core->pack);
+            // return new DenseConvInt8TiledExecutor(backend, op, resourceInt8, true);
+            return new DenseConvInt8TiledExecutor(backend, op, weightQuantInfo);
         } else {
             return new DenseConvolutionTiledExecutor(common, backend, originWeight, originWeightSize, bias, biasSize, weightQuantInfo);
         }
     }
-    if (fastWay) {
-        return new Convolution1x1Strassen(common, backend, originWeight, originWeightSize, bias, biasSize, weightQuantInfo);
-    }
-    if (originWeightSize == 0) {
+#ifndef MNN_LOW_MEMORY
+    if (cpuBackend->memoryMode() == BackendConfig::Memory_Low) {
         return new DenseConvolutionTiledExecutor(common, backend, originWeight, originWeightSize, bias, biasSize, weightQuantInfo);
     }
-    if (!ConvolutionWinogradBridge::canUseWinograd(common)) {
+#endif
+    if (fastWay && cpuBackend->functions()->matmulBytes == 0) {
+        return new Convolution1x1Strassen(common, backend, originWeight, originWeightSize, bias, biasSize);
+    }
+    if (cpuBackend->getRuntime()->hint().winogradMemoryUsed == 0 || (!ConvolutionWinogradBridge::canUseWinograd(common))) {
         return new DenseConvolutionTiledExecutor(common, backend, originWeight, originWeightSize, bias, biasSize, nullptr);
     }
     PerfConfig convPerfconfig = DenseConvolutionTiledExecutor::bestTileConvolutionConfig(common, input, output, cpuBackend->threadNumber(), backend);
@@ -78,9 +84,17 @@ Execution* ConvolutionFloatFactory::create(const std::vector<Tensor*>& inputs, c
         return new ConvolutionTiledExecutorMultiInput(conv2d->common(), backend);
     }
 #ifdef MNN_LOW_MEMORY
-    bool lowMemory = static_cast<CPUBackend*>(backend)->memoryMode() != BackendConfig::Memory_High;
+    bool lowMemory = static_cast<CPUBackend*>(backend)->memoryMode() == BackendConfig::Memory_Low;
+    if (static_cast<CPUBackend*>(backend)->functions()->bytes == 2 && static_cast<CPUBackend*>(backend)->int8Functions()->MNNGemmInt8AddBiasScale_Unit_FP16 == nullptr) {
+        // Fall back to fp32
+        return nullptr;
+    }
 #else
     bool lowMemory = false;
+#endif
+
+#ifdef MNN_CPU_WEIGHT_DEQUANT_GEMM
+    lowMemory = lowMemory || (static_cast<CPUBackend*>(backend)->memoryMode() != BackendConfig::Memory_High);
 #endif
     const float* originWeight = nullptr;
     const float* originBias   = nullptr;
@@ -105,7 +119,7 @@ Execution* ConvolutionFloatFactory::create(const std::vector<Tensor*>& inputs, c
             // The weight is storage as float sparse, but the backend don't support sparse compute, expand it
             forceFloat = true;
         }
-        quanCommon = ConvolutionCommon::load(conv2d, backend, forceFloat, lowMemory);
+        quanCommon = ConvolutionCommon::load(op, backend, forceFloat, lowMemory);
         if (nullptr == quanCommon) {
             MNN_ERROR("Memory not Enough, can't extract IDST Convolution: %s \n", op->name()->c_str());
             return nullptr;
@@ -130,7 +144,7 @@ Execution* ConvolutionFloatFactory::create(const std::vector<Tensor*>& inputs, c
         originWeight     = op->main_as_Convolution2D()->weight()->data();
         originWeightSize = op->main_as_Convolution2D()->weight()->size();
     }
-    if (nullptr == originBias) {
+    if (nullptr == originBias && op->main_as_Convolution2D()->bias()) {
         originBias     = op->main_as_Convolution2D()->bias()->data();
         originBiasSize = op->main_as_Convolution2D()->bias()->size();
     }
@@ -141,7 +155,7 @@ Execution* ConvolutionFloatFactory::create(const std::vector<Tensor*>& inputs, c
     }
     MNN_ASSERT(group > 0);
     if (1 == group) {
-        return _createUnit(inputs[0], outputs[0], backend, conv2d, originWeight, originWeightSize,
+        return _createUnit(inputs[0], outputs[0], backend, op, originWeight, originWeightSize,
                            originBias, originBiasSize, quanCommon, supportSparse, lowMemory);
     }
     // TODO: Use Geometry to split
@@ -155,7 +169,7 @@ Execution* ConvolutionFloatFactory::create(const std::vector<Tensor*>& inputs, c
     emptyOutput->setLength(1, outputs[0]->channel() / group);
     for (int i = 0; i < group; ++i) {
         auto newConvolution =
-            _createUnit(emptyInput.get(), emptyOutput.get(), backend, conv2d, originWeight + groupWeightSize * i,
+            _createUnit(emptyInput.get(), emptyOutput.get(), backend, op, originWeight + groupWeightSize * i,
                         groupWeightSize, conv2d->bias()->data() + groupOutputCount * i, groupOutputCount, quanCommon, supportSparse, lowMemory);
         subConvolution.push_back(std::shared_ptr<Execution>(newConvolution));
     }

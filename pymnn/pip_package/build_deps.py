@@ -17,6 +17,7 @@ sys.argv = [sys.argv[0]] + unknown
 IS_WINDOWS = (platform.system() == 'Windows')
 IS_DARWIN = (platform.system() == 'Darwin')
 IS_LINUX = (platform.system() == 'Linux')
+IS_ARM = ('arm' in platform.processor())
 BUILD_DIR = 'pymnn_build' # avoid overwrite temporary product when build pymnn
 
 USE_TRT      = False
@@ -29,6 +30,8 @@ USE_INTERNAL = False
 USE_RENDER   = False
 USE_SSE      = True
 USE_OPENMP   = False
+USE_LLM      = False
+USE_ARM82    = False
 
 if len(sys.argv) > 1 and sys.argv[1] != None:
     if "trt" in sys.argv[1]:
@@ -51,6 +54,10 @@ if len(sys.argv) > 1 and sys.argv[1] != None:
         USE_SSE = False
     if "openmp" in sys.argv[1]:
         USE_OPENMP = True
+    if "llm" in sys.argv[1]:
+        USE_LLM = True
+
+if IS_ARM: USE_ARM82 = True
 
 print ("USE_INTERNAL:", USE_INTERNAL)
 print ("USE_TRT:", USE_TRT)
@@ -62,6 +69,7 @@ print ("USE_VULKAN:", USE_VULKAN)
 print ("USE_RENDER:", USE_RENDER)
 print ("USE_SSE:", USE_SSE)
 print ("USE_OPENMP:", USE_OPENMP)
+print ("USE_LLM:", USE_LLM)
 
 def build_deps():
     """ build depency """
@@ -79,12 +87,19 @@ def build_deps():
         extra_opts += ' -DMNN_VULKAN=ON -DMNN_VULKAN_IMAGE=OFF'
     if USE_OPENCL:
         extra_opts += ' -DMNN_OPENCL=ON'
+    if USE_LLM:
+        extra_opts += ' -DMNN_BUILD_LLM=ON -DMNN_LOW_MEMORY=ON -DMNN_SUPPORT_TRANSFORMER_FUSE=ON'
+    if USE_ARM82:
+        extra_opts += ' -DMNN_ARM82=ON'
     extra_opts += ' -DMNN_USE_THREAD_POOL=OFF -DMNN_OPENMP=ON' if USE_OPENMP else ' -DMNN_USE_THREAD_POOL=ON -DMNN_OPENMP=OFF'
+    if IS_DARWIN:
+        # Mac / iOS System use GCD instead of MNN's thread pool
+        extra_opts += ' -DMNN_USE_THREAD_POOL=OFF -DMNN_METAL=ON '
 
     if IS_WINDOWS:
         os.system('cmake -G "Ninja" ' + extra_opts +' -DMNN_BUILD_TRAIN=ON -DMNN_BUILD_CONVERTER=on -DMNN_BUILD_TORCH=OFF\
             -DMNN_BUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE=Release -DMNN_WIN_RUNTIME_MT=ON\
-            -DMNN_BUILD_OPENCV=ON -DMNN_IMGCODECS=ON -DMNN_AAPL_FMWK=OFF -DMNN_SEP_BUILD=OFF .. && ninja MNN MNNConvertDeps')
+            -DMNN_BUILD_OPENCV=ON -DMNN_IMGCODECS=ON -DMNN_BUILD_AUDIO=ON -DMNN_AAPL_FMWK=OFF -DMNN_SEP_BUILD=OFF .. && ninja MNN MNNConvertDeps')
     elif IS_LINUX:
         extra_opts += '-DMNN_TENSORRT=ON \
         -DCMAKE_LIBRARY_PATH=/usr/local/cuda/lib64/stubs/ ' if USE_TRT else ' '
@@ -98,15 +113,15 @@ def build_deps():
         os.system('cmake ' + extra_opts +
             '-DMNN_BUILD_CONVERTER=on -DMNN_BUILD_TRAIN=ON -DCMAKE_BUILD_TYPE=Release \
             -DMNN_BUILD_SHARED_LIBS=OFF -DMNN_AAPL_FMWK=OFF -DMNN_SEP_BUILD=OFF -DMNN_BUILD_OPENCV=ON -DMNN_IMGCODECS=ON \
-             .. && make MNN MNNTrain MNNConvertDeps -j32')
+            -DMNN_BUILD_AUDIO=ON  .. && make MNN MNNTrain MNNConvertDeps -j32')
     else:
         extra_opts += ' -DMNN_INTERNAL=ON ' if USE_INTERNAL else ' '
         extra_opts += ' -DMNN_BUILD_TORCH=ON ' if USE_TORCH else ' '
         print(extra_opts)
         os.system('cmake ' + extra_opts + '-DMNN_BUILD_CONVERTER=on -DMNN_BUILD_TRAIN=ON -DCMAKE_BUILD_TYPE=Release \
             -DMNN_BUILD_SHARED_LIBS=ON -DMNN_AAPL_FMWK=OFF -DMNN_SEP_BUILD=OFF\
-            -DMNN_BUILD_OPENCV=ON -DMNN_IMGCODECS=ON \
-            .. && make MNN MNNConvertDeps -j4')
+            -DMNN_BUILD_OPENCV=ON -DMNN_IMGCODECS=ON -DMNN_BUILD_AUDIO=ON\
+            .. && make MNN MNNConvertDeps -j64')
 ################################################################################
 # Building dependent libraries
 ################################################################################

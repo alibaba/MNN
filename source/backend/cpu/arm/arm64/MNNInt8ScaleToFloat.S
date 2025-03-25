@@ -16,22 +16,35 @@
 asm_function MNNInt8ScaleToFloat
 
 // void MNNInt8ScaleToFloat(float* dst, 
-//    const int8_t* src, const float* scale, size_t size, ssize_t zeroPoint)
+//    const int8_t* src, const float* scale, size_t size, const float* zeroPoint, ssize_t quanParamVec)
 
 // Auto Load:
-// x0: dst*, x1: src*, x2: scale*, x3: size, x4: zeroPoint
+// x0: dst*, x1: src*, x2: scale*, x3: size, x4: zeroPoint, x5: quanParamVec
 
-// copy zero point
-mov v28.s[0], w4
-mov v28.s[1], w4
-mov v28.s[2], w4
-mov v28.s[3], w4
-scvtf v28.4s, v28.4s
+ld1r {v28.4s}, [x4] // zero
+ld1r {v16.4s}, [x2] // scale
+cbz x5, COMPUTE
 
+cmp x5, #3
+bne LOAD_VEC_ZERO
+ld1 {v28.4s}, [x4]
+ld1 {v16.4s}, [x2]
+b COMPUTE
+
+LOAD_VEC_ZERO:
+cmp x5, #2
+bne LOAD_VEC_SCALE
+ld1 {v28.4s}, [x4]
+b COMPUTE
+
+LOAD_VEC_SCALE:
+ld1 {v16.4s}, [x2]
+
+COMPUTE:
 cmp x3, #0
 beq End
 
-ld1 {v16.4s}, [x2]
+
 
 L4:
 cmp x3, #4

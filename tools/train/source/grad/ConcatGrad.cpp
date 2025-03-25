@@ -9,9 +9,8 @@
 #include "OpGrad.hpp"
 #include "core/Macro.h"
 using namespace std;
-using namespace MNN;
 using namespace MNN::Express;
-
+namespace MNN {
 class ConcatGrad : public OpGrad {
 public:
     virtual std::vector<Express::VARP> onGrad(Express::EXPRP expr,
@@ -34,8 +33,12 @@ public:
     }
 };
 
-static const auto gRegister = []() {
+static void _create() {
     static ConcatGrad _c;
     OpGrad::insert((int)OpType_Concat, &_c);
-    return true;
-}();
+
+};
+REGISTER_GRAD(ConcatGrad, _create);
+
+}
+

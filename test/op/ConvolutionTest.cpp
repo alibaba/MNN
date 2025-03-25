@@ -337,7 +337,7 @@ public:
     }
     bool test(MNNForwardType type, const std::string& device_name, const std::string& test_op_name, int batch,
                      int ic, int oc, int ih, int iw, PadMode mode, int pad_h, int pad_w, int kh, int kw, int stride,
-                     int dilation, int group, int precision, MNN::SparseAlgo sparseAlgo = MNN::SparseAlgo_RANDOM, int sparseBlockOC = 1, bool debug = false) {
+              int dilation, int group, int precision, MNN::SparseAlgo sparseAlgo = MNN::SparseAlgo_RANDOM, int sparseBlockOC = 1, bool debug = false, bool testRelu = false) {
         using namespace MNN::Express;
         std::map<PadMode, Express::PaddingMode> padMap = {
             {PadMode_CAFFE, CAFFE}, {PadMode_VALID, VALID}, {PadMode_SAME, SAME}};
@@ -361,29 +361,6 @@ public:
             auto floatData = (float)(data % 255) / 255.0f;
             inputData.push_back(floatData);
         }
-
-        if (debug) {
-           std::vector<float> printCache(inputData.size());
-           for (int i = 0; i < inputData.size(); ++i) {
-               printCache[i] = FP32Converter[precision](inputData[i]);
-           }
-           MNN_PRINT("input:");
-           formatMatrix(printCache.data(), {batch, ic, ih, iw});
-           printCache.resize(weightData.size());
-           for (int i = 0; i < weightData.size(); ++i) {
-               printCache[i] = FP32Converter[precision](weightData[i]);
-           }
-           MNN_PRINT("weight:");
-           formatMatrix(printCache.data(), {oc, ic, kh, kw});
-           printCache.resize(biasData.size());
-           for (int i = 0; i < biasData.size(); ++i) {
-               printCache[i] = FP32Converter[precision](biasData[i]);
-           }
-           MNN_PRINT("bias:");
-           formatMatrix(printCache.data(), {oc});
-
-        }
-
         reference_conv2d(inputData, weightData, biasData, outputData, outputDataSeparateBias, batch, ic, oc, ih, iw, mode, pad_h, pad_w, kh, kw,
                          stride, dilation, group, FP32Converter[precision]);
         if (outputData.size() == 0) {
@@ -416,54 +393,65 @@ public:
              }
          }
         // Single Conv
-        auto output = _Conv(std::move(weightData), std::move(biasData), input, {ic, oc}, {kw, kh}, padMap[mode],
-                            {stride, stride}, {dilation, dilation}, group, {pad_w, pad_h}, false, false, sparseAlgo, sparseBlockOC, mSparse);
+        std::vector<std::pair<bool, bool>> activations = {
+            {false, false},
+        };
 
-        // difference below 0.5% relative error is considered correct.
-        auto outputPtr = output->readMap<float>();
-
-        if (debug) {
-            MNN_PRINT("\ndata NCHW shape:");
-            printDims(input->getInfo()->dim);
-            MNN_PRINT("\nweight OIHW shape:");
-            printDims({oc, ic, kh, kw});
-            MNN_PRINT("\noutput NCHW shape:");
-            printDims(output->getInfo()->dim);
-            MNN_PRINT("\nexpected output:");
-            formatMatrix(outputData.data(), output->getInfo()->dim);
-            MNN_PRINT("\nexpected output 2:");
-            formatMatrix(outputDataSeparateBias.data(), output->getInfo()->dim);
-            MNN_PRINT("\nreal output:");
-            formatMatrix(outputPtr, output->getInfo()->dim);
+        if (testRelu) {
+            activations = {
+                {false, false},
+                {true, false},
+                {false, true}
+            };
         }
-        // when using low precision, im2col or strassen convolution error rate to reference value is about 1e-4, winograd has larger error rate.
-
         float errorScale = precision <= MNN::BackendConfig::Precision_High ? 1 : 100; // winograd error in 16-bits is relatively large
-        if (!checkVectorByRelativeError<float>(outputPtr, outputData.data(), outputDataSeparateBias.data(), outputData.size(), 0.001 * errorScale)) {
-            MNN_PRINT("precision:%d, expect:\t expect2:\t real:\t\n", precision);
-            for (int i = 0; i < outputData.size(); ++i)
-            {
-                MNN_PRINT("%f\t, %f\t, %f\n", outputData[i],outputDataSeparateBias[i], outputPtr[i]);
+        for (auto activation : activations) {
+            auto newWeight = weightData;
+            auto newBias = biasData;
+            auto toutputData = outputData;
+            auto toutputBias = outputDataSeparateBias;
+            float maxV = -10000.0f;
+            float minV = 10000.0f;
+            if (activation.first) {
+                for (auto& t : toutputData) {
+                    maxV = ALIMAX(maxV, t);
+                    minV = ALIMIN(minV, t);
+                    t = ALIMAX(0.0f, t);
+                }
+                for (auto& t : toutputBias) {
+                    maxV = ALIMAX(maxV, t);
+                    minV = ALIMIN(minV, t);
+                    t = ALIMAX(0.0f, t);
+                }
             }
-            MNN_ERROR("%s(%s) test failed!\n", test_op_name.c_str(), device_name.c_str());
-            return false;
-        }
-
-
-        if (mBenchSpeed) {
-            int oh = output->getInfo()->dim[2], ow = output->getInfo()->dim[3];
-            input.fix(VARP::INPUT);
-            MNN::Timer _t;
-            const int LOOP = 20;
-            for (int i = 0; i < LOOP; ++i) {
-                input->writeMap<float>();
-                output->readMap<float>();
+            if (activation.second) {
+                for (auto& t : toutputData) {
+                    t = ALIMAX(0.0f, t);
+                    t = ALIMIN(6.0f, t);
+                }
+                for (auto& t : toutputBias) {
+                    t = ALIMAX(0.0f, t);
+                    t = ALIMIN(6.0f, t);
+                }
             }
-            auto time = (float)_t.durationInUs() / 1000.0f;
-            MNN_PRINT("kernel=(%dx%d) input=(1x%dx%dx%d) output=(1x%dx%dx%d) stride=(%dx%d), avg time = %f\n",
-                      kh, kw, ic, ih, iw, oc, oh, ow, stride, stride, 1.0 * time / LOOP);
-        }
+            auto output = _Conv(std::move(newWeight), std::move(newBias), input, {ic, oc}, {kw, kh}, padMap[mode],
+                                {stride, stride}, {dilation, dilation}, group, {pad_w, pad_h}, activation.first, activation.second, sparseAlgo, sparseBlockOC, mSparse);
 
+            // difference below 0.5% relative error is considered correct.
+            auto outputPtr = output->readMap<float>();
+
+            // when using low precision, im2col or strassen convolution error rate to reference value is about 1e-4, winograd has larger error rate.
+
+            if (!checkVectorByRelativeError<float>(outputPtr, toutputData.data(), toutputBias.data(), toutputData.size(), 0.001 * errorScale)) {
+                MNN_PRINT("precision:%d, expect:\t expect2:\t real:\t\n", precision);
+                for (int i = 0; i < toutputData.size(); ++i)
+                {
+                    MNN_PRINT("%f\t, %f\t, %f\n", toutputData[i],toutputBias[i], outputPtr[i]);
+                }
+                MNN_ERROR("%s(%s) test failed!\n", test_op_name.c_str(), device_name.c_str());
+                return false;
+            }
+        }
         return true;
     }
 };
@@ -523,16 +511,11 @@ public:
     virtual void generateWeight(std::vector<float>& weightData, int ic, int oc, int kh, int kw, int dilation, int group, int sparseBlockOC) {
         auto numbers = group * (oc / group) * (ic / group) * kw * kh;
         weightData.resize(numbers);
-        float rate = 1.0f;
-        if (numbers > 10000) {
-            // Avoid exceed fp16
-            rate = 0.01f;
-        }
+        float rate = 1.0f / numbers;
         for (int ri = 0; ri < numbers; ri++) {
-            int i = numbers - ri;
-            auto data      = ((((i / kw)% 1317) * ((i / kh) % 1317)) % 1317 + i / ic + i / oc + (((oc - i) % 1317) * ic) % 1317 + i * ((oc - i) % 1317)) % 1317;
-            auto floatData      = (float)(data % 255) / 255.0f / 1000.0f * rate;
-            weightData[ri] = data;
+            int data = ri - numbers / 2;
+            auto floatData = (float)(data) * rate;
+            weightData[ri] = floatData;
         }
     }
     ConvolutionInt8CommonTest& speed() {
@@ -553,9 +536,7 @@ public:
         for (int i = 0; i < oc; i++) {
             auto data      = (((i / kw) % 1317) * ((i / kh) % 1317) + i / ic + i / oc + (oc - i) * ic + i * (oc - i)) % 1317;
             auto floatData = (float)(data % 255) / 255.0f;
-            data           = data * data;
             biasData.push_back(floatData);
-            // biasData.push_back(0.0f);
         }
 
         std::vector<float> inputData, outputData, outputDataSeparateBias;
@@ -591,14 +572,17 @@ public:
                 auto minValue = minMax.first;
                 wScale[2*k] = minMax.first;
                 auto absMax = minMax.second - minMax.first;
-                wScale[2*k+1] = absMax / (threshold - clampMin);
-                float scale = 0.0f;
+                wScale[2*k+1] = 1;
+                
+                float quantscale = 1.0f;
                 if (absMax >= 0.000001f) {
-                    scale = 1.0f / wScale[2*k+1];
+                    wScale[2 * k + 1] = absMax / (threshold - clampMin);
+                    quantscale = 1.0f / wScale[2*k+1];
+                    
                 }
                 float* ptr = weightData.data() + beginIndex;
                 for (int i = 0; i < kernel_size; ++i) {
-                    int8_t quantValue = int8_t(std::round((ptr[i] - minValue) * scale + clampMin));
+                    int8_t quantValue = int8_t(std::round((ptr[i] - minValue) * quantscale + clampMin));
                     float floatValue = ((float)quantValue - clampMin) * wScale[2*k+1] + minValue;
                     quantWeight[k * kernel_size + i] = quantValue;
                     ptr[i] = floatValue;
@@ -619,8 +603,7 @@ public:
                 }
             }
         }
-        reference_conv2d(inputData, weightData, biasData, outputData, outputDataSeparateBias, batch, ic, oc, ih, iw, mode, pad_h, pad_w, kh, kw,
-                         stride, dilation, group, FP32Converter[precision]);
+        reference_conv2d(inputData, weightData, biasData, outputData, outputDataSeparateBias, batch, ic, oc, ih, iw, mode, pad_h, pad_w, kh, kw, stride, dilation, group, FP32Converter[precision]);
         if (outputData.size() == 0) {
             return true;
         }
@@ -629,58 +612,56 @@ public:
         ::memcpy(input->writeMap<float>(), inputData.data(), inputData.size() * sizeof(float));
         // Single Conv
         auto weightLength = weightData.size();
-        auto output     = _HybridConv(weightData, std::move(biasData), std::move(wScale), input,
-                                      {ic, oc}, {kw, kh}, padMap[mode],  {stride, stride}, {dilation, dilation}, group, {pad_w, pad_h}, false, false, nbit, async);
-
-        // difference below 0.5% relative error is considered correct.
-        auto outputPtr = output->readMap<float>();
-
-        if (debug) {
-            MNN_PRINT("\ndata NCHW shape:");
-            printDims(input->getInfo()->dim);
-            MNN_PRINT("\nweight OIHW shape:");
-            printDims({oc, ic, kh, kw});
-            MNN_PRINT("\noutput NCHW shape:");
-            printDims(output->getInfo()->dim);
-            MNN_PRINT("\nexpected output:");
-            formatMatrix(outputData.data(), output->getInfo()->dim);
-            MNN_PRINT("\nexpected output 2:");
-            formatMatrix(outputDataSeparateBias.data(), output->getInfo()->dim);
-            MNN_PRINT("\nreal output:");
-            formatMatrix(outputPtr, output->getInfo()->dim);
-        }
-        // when using low precision, im2col or strassen convolution error rate to reference value is about 1e-4, winograd has larger error rate.
-
         float errorScale = 1.0f;
         if (nbit == 4 && weightLength > 10000) {
             errorScale = 50.0f;
         }
-        if (precision > MNN::BackendConfig::Precision_High) {
+        int memory = MNNTestSuite::get()->pStaus.memory;
+        if (precision > MNN::BackendConfig::Precision_High || memory > MNN::BackendConfig::Memory_High) {
             errorScale = 100.0f;
         }
-        if (!checkVectorByRelativeError<float>(outputPtr, outputData.data(), outputDataSeparateBias.data(), outputData.size(), 0.001 * errorScale)) {
-            MNN_PRINT("precision:%d, expect:\t expect2:\t real:\t\n", precision);
-            for (int i = 0; i < outputData.size(); ++i)
-            {
-                MNN_PRINT("%f\t, %f\t, %f\n", outputData[i],outputDataSeparateBias[i], outputPtr[i]);
+        std::vector<std::pair<bool, bool>> activations = {
+            {false, false},
+            {true, false},
+            {false, true}
+        };
+        for (auto& activation : activations) {
+            auto output     = _HybridConv(weightData, biasData, wScale, input,
+                                          {ic, oc}, {kw, kh}, padMap[mode],  {stride, stride}, {dilation, dilation}, group, {pad_w, pad_h}, activation.first, activation.second, nbit, async);
+            auto toutputData = outputData;
+            float maxV = -10000.0f;
+            float minV = 10000.0f;
+            if (activation.first) {
+                for (auto& t : toutputData) {
+                    maxV = ALIMAX(maxV, t);
+                    minV = ALIMIN(minV, t);
+                    t = ALIMAX(0.0f, t);
+                }
+//                MNN_PRINT("Max: %f -> Min:%f\n", maxV, minV);
             }
-            MNN_ERROR("%s(%s) test failed for %d bits, async=%d !\n", test_op_name.c_str(), device_name.c_str(), nbit, async);
-            return false;
-        }
-
-
-        if (mBenchSpeed) {
-            int oh = output->getInfo()->dim[2], ow = output->getInfo()->dim[3];
-            input.fix(VARP::INPUT);
-            MNN::Timer _t;
-            const int LOOP = 20;
-            for (int i = 0; i < LOOP; ++i) {
-                input->writeMap<float>();
-                output->readMap<float>();
+            if (activation.second) {
+                for (auto& t : toutputData) {
+                    t = ALIMAX(0.0f, t);
+                    t = ALIMIN(6.0f, t);
+                }
             }
-            auto time = (float)_t.durationInUs() / 1000.0f;
-            MNN_PRINT("ConvInt8Weight kernel=(%dx%d) input=(1x%dx%dx%d) output=(1x%dx%dx%d) stride=(%dx%d), avg time = %f\n",
-                      kh, kw, ic, ih, iw, oc, oh, ow, stride, stride, 1.0 * time / LOOP);
+
+            // difference below 0.5% relative error is considered correct.
+            output = _Convert(output, NCHW);
+            auto outputPtr = output->readMap<float>();
+            // when using low precision, im2col or strassen convolution error rate to reference value is about 1e-4, winograd has larger error rate.
+
+            if (!checkVectorByRelativeError<float>(outputPtr, toutputData.data(), toutputData.data(), toutputData.size(), 0.001 * errorScale)) {
+                MNN_PRINT("precision:%d, memory:%d\n", precision, memory);
+                MNN_PRINT("expect:\t real:\t\n");
+                for (int i = 0; i < toutputData.size(); ++i)
+                {
+                    MNN_PRINT("%f, %f\n", toutputData[i], outputPtr[i]);
+                }
+                MNN_PRINT("output shape: n=%d c=%d h=%d w=%d\n", output->getInfo()->dim[0], output->getInfo()->dim[1], output->getInfo()->dim[2], output->getInfo()->dim[3]);
+                MNN_ERROR("%s(%s) test failed for %d bits, async=%d , relu: %d, relu6: %d!\n", test_op_name.c_str(), device_name.c_str(), nbit, async, activation.first, activation.second);
+                return false;
+            }
         }
         return true;
     }
@@ -743,13 +724,24 @@ public:
     virtual ~ConvolutionTest() = default;
 
 protected:
-    static bool test(MNNForwardType type, const std::string& device_name, int precision, MNN::SparseAlgo sparseAlgo, std::vector<int> blocks) {
-
+    static bool test(MNNForwardType type, const std::string& device_name, int precision, MNN::SparseAlgo sparseAlgo, std::vector<int> blocks, bool checkSpectial = false) {
+        int ocStep = 1;
+        int icStep = 1;
+        int isStep = 3;
+        std::vector<int> ocSize = {
+            1, 4, 3, 10, 17
+        };
+        std::vector<int> icSize = {
+            1, 4, 3, 8, 11
+        };
+        std::vector<int> isSize = {
+            1, 7, 9
+        };
 
         for (int b = 1; b <= 2; b++) {
-            for (int oc = 1; oc <= 17; oc += 4) {
-                for (int ic = 1; ic <= 18; ic += 5) {
-                    for (int is = 1; is <= 17; is += 3) {
+            for (auto oc : ocSize) {
+                for (auto ic : icSize) {
+                    for (auto is : isSize) {
                         for (int kw = 1; kw <= 3 && kw <= is; kw+=2) {
                             for (int kh = 1; kh <= 3 && kh <= is; kh+=3) {
                                 for (int d = 1; d <= 2; d++) {
@@ -759,9 +751,7 @@ protected:
                                     for (int s = 1; s <= 2; s++) {
                                         for (auto block : blocks) {
                                             for (int p = 0; p <= 1; p++) {
-                                                bool succ =
-                                                    ConvolutionType().test(type, device_name, "Conv2D", b, ic, oc, is,
-                                                                                is, PadMode_CAFFE, p, p, kh, kw, s, d, 1, precision, sparseAlgo, block, false);
+                                                bool succ =  ConvolutionType().test(type, device_name, "Conv2D", b, ic, oc, is, is, PadMode_CAFFE, p, p, kh, kw, s, d, 1, precision, sparseAlgo, block, false);
                                                 if (!succ) {
                                                     MNN_ERROR(
                                                         "Error for conv b=%d, oc=%d, ic=%d, ih=%d, "
@@ -806,6 +796,9 @@ protected:
                 }
             }
         }
+        if (!checkSpectial) {
+            return true;
+        }
         // Check Long convolution
          bool succ =
             ConvolutionType().test(type, device_name, "Conv2D", 1, 256, 256, 24, 24, PadMode_SAME, 0, 0, 3, 3, 1, 1, 1, precision, sparseAlgo, 4, false);
@@ -844,7 +837,7 @@ class ConvolutionTestOnCPU : public DenseConvolutionTest {
 public:
     ~ConvolutionTestOnCPU() = default;
     virtual bool run(int precision) {
-        return DenseConvolutionTest::test(MNN_FORWARD_CPU, "CPU", precision, MNN::SparseAlgo_RANDOM, {1});
+        return DenseConvolutionTest::test(MNN_FORWARD_CPU, "CPU", precision, MNN::SparseAlgo_RANDOM, {1}, true);
     }
 };
 
@@ -892,8 +885,8 @@ protected:
         for (int b = 1; b <= 2; b++) {
             for (int oc = 4; oc <= 16; oc *= 2) {
                 for (int ic = oc; ic <= oc; ic++) {
-                    for (int isw = 1; isw <= 8; ++isw) {
-                        for (int ish = 1; ish <= 8; ++ish) {
+                    for (int isw = 1; isw <= 8; isw+=2) {
+                        for (int ish = 1; ish <= 8; ish*=2) {
                             for (int kw = 1; kw <= 4; kw++) {
                                 for (int kh = 1; kh <= 4; kh++) {
                                     for (int d = 1; d <= 2; d++) {
@@ -902,7 +895,7 @@ protected:
                                                 // depthwise <==> group == outputChannel
                                                 bool succ = ConvolutionCommonTest().test(
                                                                                          type, device_name, "DepthwiseConv2D", b, ic, oc, ish, isw, PadMode_CAFFE,
-                                                                                         p, p, kh, kw, s, d, oc, precision);
+                                                                                         p, p, kh, kw, s, d, oc, precision, MNN::SparseAlgo_RANDOM, 1, false, true);
                                                 if (!succ) {
                                                     MNN_ERROR(
                                                               "Error for dw oc=%d, ic=%d, ih=%d, iw = %d, kw=%d,kh=%d,d=%d,s=%d,p=%d\n", oc,

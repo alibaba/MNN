@@ -2,9 +2,10 @@
 //  WhileModule.hpp
 //  MNN
 //
-//  Created by MNN on b'2020/09/10'.
+//  Created by MNN on 2020/09/10.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
+
 #ifndef WhileModule_hpp
 #define WhileModule_hpp
 #include <MNN/expr/Module.hpp>

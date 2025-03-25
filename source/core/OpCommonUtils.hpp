@@ -15,6 +15,28 @@
 namespace MNN {
 struct Op;
 struct CoreFunctions;
+#ifdef MNN_SUPPORT_TRANSFORMER_FUSE
+struct KVMeta {
+    size_t block = 4096;
+    size_t previous = 0;
+    size_t remove = 0;
+    int* reserve = nullptr;
+    int n_reserve = 0;
+    size_t add = 0;
+    int computeReverseSize() const {
+        int sum = 0;
+        for (int i=0; i<n_reserve; ++i) {
+            int reserveUnit = reserve[2*i+1];
+            if (reserveUnit <= 0) {
+                // Invalid
+                return -1;
+            }
+            sum += reserveUnit;
+        }
+        return sum;
+    }
+};
+#endif
 
 class MNN_PUBLIC OpCommonUtils {
 #define USE_EXTERNAL_DATA(param) (param->external() && param->external()->size() > 1)
@@ -63,6 +85,8 @@ public:
     static bool computeMatMulSize(bool transposeA, bool transposeB, const Tensor* A, const Tensor* B, int& e, int& l, int& h);
     static Execution* createExecutionWithExternal(Backend* backend, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                                   const MNN::Op* op, FileLoader* externalFile, std::shared_ptr<BufferStorage>& tmpstore);
+    static DataType convertDataType(halide_type_t type);
+
 };
 } // namespace MNN
 

@@ -77,7 +77,7 @@ Tensor::Tensor(const Tensor* tensor, DimensionType type, bool allocMemory) {
 
     // format mapping
     auto originType = tensor->getDimensionType();
-    if (originType != type && buffer.dimensions >= 4) {
+    if (originType != type && buffer.dimensions >= 3) {
         std::vector<int> axisMap;
         // NCHW -> NHWC
         if (originType == CAFFE) {
@@ -240,7 +240,7 @@ void Tensor::setType(int type) {
             mBuffer.type = halide_type_of<int16_t>();
             break;
         default:
-            MNN_PRINT("Unsupported data type!");
+            MNN_PRINT("Unsupported data type! %d\n", type);
             MNN_ASSERT(false);
             break;
     }

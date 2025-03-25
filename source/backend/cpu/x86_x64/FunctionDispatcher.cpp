@@ -17,18 +17,13 @@
 #include "cpu_id.h"
 #include "sse/FunctionSummary.hpp"
 // https://stackoverflow.com/a/11230437
-#if defined(_MSC_VER)
-#include <intrin.h>
-#else
-#include <x86intrin.h>
-#endif
 
 struct FunctionGroup {
     int tileNumber                                                                               = 8;
     int eP                                                                                       = 12;
     int lP                                                                                       = 1;
     int hP                                                                                       = 4;
-    void (*MNNExpC8)(float* dest, const float* source, const float* offset, const float* parameters, size_t countC8) = _SSE_MNNExpC8;
+    void (*MNNExpC8)(float* dest, const float* source, float* offset, const float* parameters, size_t countC8) = _SSE_MNNExpC8;
     void (*MNNSoftmax)(float* dest, const float* source, size_t size) = _SSE_MNNSoftmax;
     void (*MNNReluInt8)(int8_t* dst, const int8_t* src, size_t size, ssize_t zeroPoint) = _SSE_MNNReluInt8;
     void (*MNNHardSwish)(float* dst, const float* src, size_t size) = _SSE_MNNHardSwish;
@@ -45,26 +40,31 @@ void _SSEMNNGetMatMulPackMode(int* eP, int *lP, int* hP) {
 }
 void MNNFunctionInit() {
     auto cpuFlags = libyuv::InitCpuFlags();
+#ifdef __EMSCRIPTEN__
+    // TODO: Find better way
+    cpuFlags |= libyuv::kCpuHasSSE41;
+    cpuFlags |= libyuv::kCpuHasSSSE3;
+#endif
     auto coreFunction = MNN::MNNGetCoreFunctions();
     if (cpuFlags & libyuv::kCpuHasSSSE3) {
         coreFunction->MNNGetMatMulPackMode = _SSEMNNGetMatMulPackMode;
         coreFunction->MNNPackedMatMul       = _SSE_MNNPackedMatMul;
         coreFunction->MNNPackedMatMulRemain = _SSE_MNNPackedMatMulRemain;
-#ifdef MNN_LOW_MEMORY
-        coreFunction->MNNPackedMatMul_int4       = _SSE_MNNPackedMatMul_int4;
-        coreFunction->MNNPackedMatMulRemain_int4 = _SSE_MNNPackedMatMulRemain_int4;
+#ifdef MNN_CPU_WEIGHT_DEQUANT_GEMM
         coreFunction->MNNPackedMatMul_int8       = _SSE_MNNPackedMatMul_int8;
         coreFunction->MNNPackedMatMulRemain_int8 = _SSE_MNNPackedMatMulRemain_int8;
-        coreFunction->MNNGemmHybridInt4 = _SSE_MNNGemmHybridInt4;
-        coreFunction->MNNGemmHybridInt8 = _SSE_MNNGemmHybridInt8;
+#endif
+
+#ifdef MNN_LOW_MEMORY
         coreFunction->MNNAbsMax = _SSE_MNNAbsMaxFP32;
-        coreFunction->MNNDynamicQuant = _SSE_MNNDynamicQuantFP32;
+        coreFunction->MNNDynamicQuant = _SSE_MNNDynamicQuant;
 #endif
         coreFunction->MNNPackC4ForMatMul_A  = _SSE_MNNPackC4ForMatMul_A;
         coreFunction->MNNPackForMatMul_B    = _SSE_MNNPackForMatMul_B;
         // Dynamic Quant
         coreFunction->MNNCountMaxMinValue = _SSE_MNNComputeScaleZeroScalar;
     }
+#ifdef MNN_USE_AVX
     if (cpuFlags & libyuv::kCpuHasAVX2) {
         MNN::AVX2Functions::init(cpuFlags);
         gFunc.MNNExpC8 = _AVX_MNNExpC8;
@@ -76,6 +76,7 @@ void MNNFunctionInit() {
         }
         gFunc.MNNNorm = _AVX_MNNNorm;
     }
+#endif
     _SSE_ImageProcessInit(coreFunction, cpuFlags);
 }
 
@@ -130,14 +131,15 @@ void MNNInt8FunctionInit() {
     auto core = MNN::MNNGetInt8CoreFunctions();
     core->MNNAvgPoolInt8 = MNNAvgPoolUint8;
     core->MNNMaxPoolInt8 = MNNMaxPoolInt8_;
-    core->MNNNormInt8    = _SSE_MNNNormInt8;
-    core->MNNReluWithSlopeChannelInt8 = _SSE_MNNReluWithSlopeChannelInt8;
     if (cpuFlags & libyuv::kCpuHasSSE41) {
         core->MNNFloat2Int8 = _SSE_MNNFloat2Int8;
         core->MNNInt8ScaleToFloat = _SSE_MNNInt8ScaleToFloat;
         core->Int8GemmKernel = _SSE_MNNGemmInt8AddBiasScale_16x4_Unit;
         core->Int8GemmKernelFast = _SSE_MNNGemmInt8AddBiasScale_16x4_Unit;
         core->ConvDepthwiseLineInt8 = _SSE_MNNLineDepthWiseInt8AddBiasScaleUnit;
+#ifdef MNN_LOW_MEMORY
+        core->Int8GemmKernel_W4 = _SSE_MNNGemmInt8AddBiasScale_16x4_w4;
+#endif
     }
 }
 
@@ -185,7 +187,7 @@ void MNNGelu(float* dst, const float* src, size_t size, float* parameters) {
     return gFunc.MNNGelu(dst, src, size, parameters);
 }
 
-void MNNExpC8(float* dest, const float* source, const float* offset, const float* parameters, size_t countC8) {
+void MNNExpC8(float* dest, const float* source, float* offset, const float* parameters, size_t countC8) {
     gFunc.MNNExpC8(dest, source, offset, parameters, countC8);
 }
 

@@ -35,7 +35,7 @@ DeconvBufExecution::DeconvBufExecution(const std::vector<Tensor *> &inputs, cons
     const float* filterDataPtr = nullptr;
     int weightSize = 0;
     std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
-    ConvolutionCommon::getConvParameters(&quanCommon, backend, conv2dParams, &filterDataPtr, &weightSize);
+    ConvolutionCommon::getConvParameters(&quanCommon, backend, op, &filterDataPtr, &weightSize);
 
     int inputChannel  = weightSize / (kernelWidth * kernelHeight * outputChannel);
     std::vector<int> filterShape{outputChannel, inputChannel, kernelHeight, kernelWidth};
@@ -153,6 +153,7 @@ ErrorCode DeconvBufExecution::onEncode(const std::vector<Tensor *> &inputs, cons
     unit.kernel->get().setArg(idx++, openCLBuffer(mResource->mFilter.get()));
     unit.kernel->get().setArg(idx++, openCLBuffer(mResource->mBias.get()));
     unit.kernel->get().setArg(idx++, openCLBuffer(output));
+    unit.kernel->get().setArg(idx++, static_cast<int32_t>(outputBatch));
     unit.kernel->get().setArg(idx++, sizeof(inputImageShape), inputImageShape);
     unit.kernel->get().setArg(idx++, sizeof(outputImageShape), outputImageShape);
     unit.kernel->get().setArg(idx++, sizeof(strideShape), strideShape);

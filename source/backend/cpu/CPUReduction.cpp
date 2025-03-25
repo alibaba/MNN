@@ -249,7 +249,7 @@ protected:
                 auto srcInside = srcOutSide + ii;
                 auto dstInside = dstOutSide + ii;
                 float Max      = srcInside[0];
-                if (1 == inside) {
+                if (1 == inside && axisSize > UNIT * 2) {
                     int32_t inputCountUnit = axisSize / (UNIT * 2);
                     int32_t remain         = axisSize - (inputCountUnit * UNIT * 2);
                     float maxArray[UNIT]   = UNIT_DUP(Max);

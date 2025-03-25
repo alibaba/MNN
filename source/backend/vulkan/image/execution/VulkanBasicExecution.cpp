@@ -20,6 +20,10 @@ VulkanBasicExecutionDirect::VulkanBasicExecutionDirect(std::shared_ptr<VulkanBas
 
 ErrorCode VulkanBasicExecutionDirect::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto extra = static_cast<VulkanBackend *>(backend());
+#ifdef ENABLE_VULKAN_TIME_PROFILE
+    extra->pushExecutionName(mEncoder->getName());
+    extra->pushQueryPool(mQueryPool);
+#endif
     extra->pushCommand(mCmdBuffer->get());
     return NO_ERROR;
 }
@@ -58,7 +62,18 @@ ErrorCode VulkanBasicExecutionDirect::onResize(const std::vector<Tensor *> &inpu
     auto initCmdBuffer = static_cast<VulkanBackend*>(backend())->getInitCommandBuffer();
     _initLayout(inputs, outputs, initCmdBuffer);
     mCmdBuffer->begin(0);
+
+#ifdef ENABLE_VULKAN_TIME_PROFILE
+    auto vkBn = static_cast<VulkanBackend*>(backend());
+    mQueryPool.reset(new VulkanQueryPool(vkBn->device()));
+    mQueryPool->VulkanCmdResetQueryPool(mCmdBuffer.get()->get());
+    mQueryPool->VulkanCmdWriteTimestamp(mCmdBuffer.get()->get(), 0);
     auto code = mEncoder->onEncode(inputs, outputs, mCmdBuffer.get());
+    mQueryPool->VulkanCmdWriteTimestamp(mCmdBuffer.get()->get(), 1);
+#else
+    auto code = mEncoder->onEncode(inputs, outputs, mCmdBuffer.get());
+#endif
+
     for (auto output : outputs) {
         auto vkTensor = reinterpret_cast<VulkanTensor*>(output->deviceId());
         for (int i=0; i<vkTensor->imageSize(); ++i) {
@@ -67,6 +82,7 @@ ErrorCode VulkanBasicExecutionDirect::onResize(const std::vector<Tensor *> &inpu
         }
     }
     _postTreat(outputs, mCmdBuffer.get());
+
     mCmdBuffer->end();
 #ifdef MNN_VULKAN_DEBUG
 #ifdef MNN_VULKAN_DEBUG_EAGER

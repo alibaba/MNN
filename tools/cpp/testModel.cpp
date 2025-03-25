@@ -79,10 +79,12 @@ int main(int argc, const char* argv[]) {
     if (argc > 6) {
         precision = (MNN::BackendConfig::PrecisionMode)stringConvert<int>(argv[6]);
     }
+    
     std::shared_ptr<MNN::Interpreter> net =
     std::shared_ptr<MNN::Interpreter>(MNN::Interpreter::createFromFile(modelPath), [](void* net) {
         MNN::Interpreter::destroy((MNN::Interpreter*)net);
     });
+    net->setSessionHint(MNN::Interpreter::INIT_THREAD_NUMBER, 8);
 
     // create session
     MNN::ScheduleConfig config;
@@ -146,7 +148,8 @@ int main(int argc, const char* argv[]) {
         
         void* host = inputTensor->map(MNN::Tensor::MAP_TENSOR_WRITE,  inputTensor->getDimensionType());
         if(host != nullptr) {
-            ::memset(host, 0, inputTensor->size());
+            // TODO: Find better way to memset zero
+            ::memset(host, 0, MNN::TensorUtils::getRawSize(inputTensor) * inputTensor->getType().bytes());
         }
         inputTensor->unmap(MNN::Tensor::MAP_TENSOR_WRITE,  inputTensor->getDimensionType(), host);
     }

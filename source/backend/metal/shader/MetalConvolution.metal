@@ -30,29 +30,6 @@
     k10 = z_wt[3], k11 = z_wt[4], k12 = z_wt[5];\
     k20 = z_wt[6], k21 = z_wt[7], k22 = z_wt[8];
 
-
-#define CONV_MUL_PACK_H2(x,y)  \
-    x += FLOAT4(in10 * k00);\
-    y += FLOAT4(in11 * k00);\
-    x += FLOAT4(in11 * k01);\
-    y += FLOAT4(in12 * k01);\
-    x += FLOAT4(in12 * k02);\
-    y += FLOAT4(in13 * k02);\
-                            \
-    x += FLOAT4(in20 * k10);\
-    y += FLOAT4(in21 * k10);\
-    x += FLOAT4(in21 * k11);\
-    y += FLOAT4(in22 * k11);\
-    x += FLOAT4(in22 * k12);\
-    y += FLOAT4(in23 * k12);\
-                            \
-    x += FLOAT4(in30 * k20);\
-    y += FLOAT4(in31 * k20);\
-    x += FLOAT4(in31 * k21);\
-    y += FLOAT4(in32 * k21);\
-    x += FLOAT4(in32 * k22);\
-    y += FLOAT4(in33 * k22);
-
 struct conv_constants {
     int input_width;
     int input_height;
@@ -245,7 +222,7 @@ kernel void conv_s1d1p0_w2(const device ftype4 *in        [[buffer(0)]],
                 wt4   = z_wt[z * cst.kernel_size + y * cst.kernel_x + x];
                 result0 += FLOAT4(in4_0 * wt4);
             }
-            in4_0 = z_in[z * cst.input_size  + y * cst.input_width + cst.kernel_x];
+            in4_0 = z_in[z * cst.input_size * cst.batch + y * cst.input_width + cst.kernel_x];
             result1 += FLOAT4(in4_0 * wt4);
         }
     }
@@ -359,16 +336,16 @@ kernel void conv_z4(const device ftype4 *in         [[buffer(0)]],
                 auto x_wt = z_wt + y * cst.kernel_x + x;
                 auto in4  = z_in[  y * dilation_h   + x * cst.dilation_x];
                 /* true                   */ result0 += FLOAT4(in4 * *x_wt);
-                if (valids[0]) { x_wt += ws; result1 += FLOAT4(in4 * *x_wt); }
-                if (valids[1]) { x_wt += ws; result2 += FLOAT4(in4 * *x_wt); }
-                if (valids[2]) { x_wt += ws; result3 += FLOAT4(in4 * *x_wt); }
+                if (valids.x) { x_wt += ws; result1 += FLOAT4(in4 * *x_wt); }
+                if (valids.y) { x_wt += ws; result2 += FLOAT4(in4 * *x_wt); }
+                if (valids.z) { x_wt += ws; result3 += FLOAT4(in4 * *x_wt); }
             }
         }
     }
     /* true                                 */ *z_out = activate(ftype4(result0 + FLOAT4(biasTerms[uz[0]])), cst.activation);
-    if (valids[0]) { z_out += cst.output_size; *z_out = activate(ftype4(result1 + FLOAT4(biasTerms[uz[1]])), cst.activation); }
-    if (valids[1]) { z_out += cst.output_size; *z_out = activate(ftype4(result2 + FLOAT4(biasTerms[uz[2]])), cst.activation); }
-    if (valids[2]) { z_out += cst.output_size; *z_out = activate(ftype4(result3 + FLOAT4(biasTerms[uz[3]])), cst.activation); }
+    if (valids.x) { z_out += cst.output_size * cst.batch; *z_out = activate(ftype4(result1 + FLOAT4(biasTerms[uz[1]])), cst.activation); }
+    if (valids.y) { z_out += cst.output_size * cst.batch; *z_out = activate(ftype4(result2 + FLOAT4(biasTerms[uz[2]])), cst.activation); }
+    if (valids.z) { z_out += cst.output_size * cst.batch; *z_out = activate(ftype4(result3 + FLOAT4(biasTerms[uz[3]])), cst.activation); }
 }
 
 

@@ -26,7 +26,7 @@ using namespace metal;
 #endif
 
 struct grid_sample_params {
-    int batches;
+    int batch;
     int channels;
     int inH;
     int inW;
@@ -179,7 +179,7 @@ kernel void main0(const device T *input [[buffer(0)]],
                    device T *output [[buffer(2)]],
                    constant grid_sample_params &p [[buffer(3)]],
                    uint3 gid                        [[thread_position_in_grid]]) {
-    if ((int)gid.x >= p.outW || (int)gid.y >= p.outH * p.outD || (int)gid.z >= p.batches)
+    if ((int)gid.x >= p.outW || (int)gid.y >= p.outH * p.outD || (int)gid.z >= p.batch)
         return;
 
     int gridPos = gid.z*p.outH*p.outW*CON + gid.y*p.outW*CON + gid.x*CON;
@@ -191,8 +191,8 @@ kernel void main0(const device T *input [[buffer(0)]],
     
     const int channelC4 = (p.channels + 3) / 4;
     for (int c = 0; c < channelC4; ++ c) {
-        auto outputPos = gid.z*channelC4*p.outH*p.outW + c*p.outH*p.outW + gid.y*p.outW + gid.x;
-        auto inputPtr = input + gid.z*channelC4*p.inH*p.inW + c*p.inH*p.inW;
+        auto outputPos = gid.z*p.outD*p.outH*p.outW + c*p.outD*p.outH*p.outW*p.batch + gid.y*p.outW + gid.x;
+        auto inputPtr = input + gid.z*p.inD*p.inH*p.inW + c*p.inH*p.inW*p.inD*p.batch;
 #if GRID3D
         output[outputPos] = interpolate(z, y, x, inputPtr, p.inD, p.inH, p.inW, p.mode, p.paddingMode);
 #else

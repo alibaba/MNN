@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <ListPreference
+        android:key="download_provider"
+        android:title="@string/select_download_provider"
+        android:entries="@array/download_provider_entries"
+        android:entryValues="@array/download_provider_values" />
+
+    <SwitchPreferenceCompat
+        android:key="stop_download_on_chat"
+        android:title="@string/stop_download_tasks_when_chat"
+        android:summary="@string/stop_download_reason"
+        android:defaultValue="true" />
+
+    <Preference
+        android:key="check_update"
+        android:title="@string/check_for_update"
+        android:summary="Tap to check for updates" />
+
+
+</PreferenceScreen>

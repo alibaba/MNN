@@ -7,6 +7,24 @@
 //
 //
 
+/*
+struct QuanPostTreatParameters {
+    const float* scale;
+    const float* biasFloat;
+    int32_t maxValue;
+    int32_t minValue;
+    int32_t useInt8 = 1; // Save result as int8_t dataType; otherwise float32.
+    float roundValuePos = 0.5f;
+    float roundValueNeg = -0.5f;
+    float* srcKernelSum;
+    float* weightQuanBias;
+    float* fp32minmax;
+    ssize_t blockNum = 1;
+    const int32_t* bias;
+
+};
+ */
+
 #ifdef __arm__
 #ifndef __aarch64__
 
@@ -58,7 +76,7 @@ loop_e8:
     ldr r5, [sp, #(push_registers_bytes + 4)]
     ldr r6, [sp, #(push_registers_bytes + 8)]
     ldr r7, [r4]
-    ldr r8, [r4, #4]
+    ldr r8, [r4, #44]
     push {r0-r2, r10}
     ldr lr, [r6], #4 // dataOffset
     add r1, r1, lr
@@ -135,7 +153,7 @@ loop_e4:
     ldr r5, [sp, #(push_registers_bytes + 4)]
     ldr r6, [sp, #(push_registers_bytes + 8)]
     ldr r7, [r4]
-    ldr r8, [r4, #4]
+    ldr r8, [r4, #44]
     push {r0-r2, r10}
     ldr lr, [r6], #4 // dataOffset
     add r1, r1, lr
@@ -196,7 +214,7 @@ loop_e2:
     ldr r5, [sp, #(push_registers_bytes + 4)]
     ldr r6, [sp, #(push_registers_bytes + 8)]
     ldr r7, [r4]
-    ldr r8, [r4, #4]
+    ldr r8, [r4, #44]
     push {r0-r2, r10}
     ldr lr, [r6], #4 // dataOffset
     add r1, r1, lr
@@ -255,7 +273,7 @@ loop_e1:
     ldr r5, [sp, #(push_registers_bytes + 4)]
     ldr r6, [sp, #(push_registers_bytes + 8)]
     ldr r7, [r4]
-    ldr r8, [r4, #4]
+    ldr r8, [r4, #44]
 
     push {r0-r2, r10}
     ldr lr, [r6], #4 // dataOffset

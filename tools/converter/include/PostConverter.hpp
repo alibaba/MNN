@@ -24,6 +24,6 @@
 /**
  *@brief optimize MNN net
  */
-MNN_PUBLIC std::unique_ptr<MNN::NetT> optimizeNet(std::unique_ptr<MNN::NetT>& netT, bool forTraining, modelConfig& config);
+MNN_PUBLIC std::unique_ptr<MNN::NetT> optimizeNet(std::unique_ptr<MNN::NetT>& netT, bool forTraining, modelConfig& config, const std::vector<std::string>& expectPasses);
 
 #endif // OPTIMIZER_HPP

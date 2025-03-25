@@ -27,7 +27,31 @@ namespace OpenCL {
 void registerOpenCLOps();
 #endif
 
-CLRuntime::CLRuntime(const Backend::Info& info, int platformSize, int platformId, int deviceId, void *contextPtr, void* glshared){
+std::mutex CLRuntime::globalRuntimeLock;
+std::weak_ptr<OpenCLRuntime> CLRuntime::globalRuntime;
+void CLRuntime::setGlobalCLRuntime(std::shared_ptr<OpenCLRuntime> runtime){
+    std::lock_guard<std::mutex> _l(globalRuntimeLock);
+    globalRuntime = runtime;
+}
+std::shared_ptr<OpenCLRuntime> CLRuntime::getGlobalCLRuntime(){
+    auto sharedPtr = globalRuntime.lock();
+    return sharedPtr;
+}
+
+CLRuntime::CLRuntime(const Backend::Info& info){
+    int platform_id = 0;
+    int device_id = 0;
+    int platform_size = 0;
+    void *context_ptr = nullptr;
+    auto globalRuntimePtr = getGlobalCLRuntime();
+    if (nullptr != info.user) {
+        if (info.user->sharedContext != nullptr) {
+            platform_id   = ((MNNDeviceContext*)info.user->sharedContext)->platformId;
+            device_id     = ((MNNDeviceContext*)info.user->sharedContext)->deviceId;
+            platform_size = ((MNNDeviceContext*)info.user->sharedContext)->platformSize;
+            context_ptr = (((MNNDeviceContext*)info.user->sharedContext)->contextPtr);
+        }
+    }
     mInfo = info;
 
     BackendConfig::PrecisionMode precision = BackendConfig::Precision_Normal;
@@ -39,8 +63,13 @@ CLRuntime::CLRuntime(const Backend::Info& info, int platformSize, int platformId
         memory    = mInfo.user->memory;
     }
 
-    // Shader precision
-    mOpenCLRuntime.reset(new OpenCLRuntime(precision, mInfo.gpuMode, platformSize, platformId, deviceId, contextPtr, glshared));
+    if(globalRuntimePtr && globalRuntimePtr.get()->canShareRuntime(precision, mInfo.gpuMode, platform_size, platform_id, device_id, context_ptr)){
+        mOpenCLRuntime = globalRuntimePtr;
+    }else{
+        mOpenCLRuntime.reset(new OpenCLRuntime(precision, mInfo.gpuMode, platform_size, platform_id, device_id, context_ptr, hint()));
+        setGlobalCLRuntime(mOpenCLRuntime);
+    }
+    
     //Whether runtimeError
     mCLRuntimeError = mOpenCLRuntime->isCreateError();
     mPrecision = precision;
@@ -57,6 +86,7 @@ CLRuntime::~CLRuntime() {
     mOpenCLRuntime = nullptr;
     delete mTunedInfo;
 }
+
 static bool _checkTensorInfo(const CLCache::TensorInfoT* dst, const Tensor* src) {
     if (dst->shape.size() != src->dimensions()) {
         return false;
@@ -163,6 +193,9 @@ void CLRuntime::onMaskOpReady(const std::vector<Tensor*>& inputs, const std::vec
         dstInfo->mInfos.emplace_back(std::move(opInfo));
     }
 }
+void CLRuntime::onReset(int numberThread, const BackendConfig* config, bool full) {
+    mOpenCLRuntime->setGpuMode(numberThread);
+}
 
 bool CLRuntime::onSetCache(const void* buffer, size_t size) {
     if (nullptr == buffer) {
@@ -188,9 +221,14 @@ std::pair<const void*, size_t> CLRuntime::onGetCache() {
     return mOpenCLRuntime->makeCache(mTunedInfo);
 }
 
-Backend* CLRuntime::onCreate(const BackendConfig* config) const {
-    // FIXME: Use config info
-    return new OpenCLBackend(mImagePool, mBufferPool, this);
+Backend* CLRuntime::onCreate(const BackendConfig* config, Backend* origin) const {
+    auto precision = mPrecision;
+    auto memory = mMemory;
+    if (nullptr != config) {
+        precision = config->precision;
+        memory = config->memory;
+    }
+    return new OpenCLBackend(precision, memory, mImagePool, mBufferPool, this);
 }
 
 void CLRuntime::onGabageCollect(int level) {
@@ -214,13 +252,14 @@ std::map<std::pair<OpType, GpuMemObject>, OpenCLBackend::Creator*>* gCreator() {
     return creators;
 };
 
-OpenCLBackend::OpenCLBackend(std::shared_ptr<ImagePool>imgPool, std::shared_ptr<BufferPool> bufPool, const CLRuntime *runtime)
+OpenCLBackend::OpenCLBackend(BackendConfig::PrecisionMode precision, BackendConfig::MemoryMode memory, std::shared_ptr<ImagePool>imgPool, std::shared_ptr<BufferPool> bufPool, const CLRuntime *runtime)
     : Backend(MNN_FORWARD_OPENCL) {
 
     mCLRuntime = runtime;
     mOpenCLRuntime = mCLRuntime->mOpenCLRuntime;
-    mPrecision = mCLRuntime->mPrecision;
-    mMemory = mCLRuntime->mMemory;
+    mPrecision = precision;
+    mMemory = memory;
+    mOpenCLRuntime->setPrecision(precision);
     mStaticImagePool = imgPool;
     mStaticBufferPool = bufPool;
     if(mOpenCLRuntime.get()){
@@ -230,6 +269,7 @@ OpenCLBackend::OpenCLBackend(std::shared_ptr<ImagePool>imgPool, std::shared_ptr<
 
         mImagePoolFirst.reset(new ImagePool(mOpenCLRuntime->context()));
         mBufferPoolFirst.reset(new BufferPool(mOpenCLRuntime->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR));
+        mExecutionBufferPool.reset(new BufferExecutionPool(mOpenCLRuntime->context(), mOpenCLRuntime->commandQueue(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR));
         mImagePool = mImagePoolFirst.get();
         mBufferPool = mBufferPoolFirst.get();
     }
@@ -247,6 +287,7 @@ OpenCLBackend::~OpenCLBackend() {
     mRecordings.clear();
     mImagePool = nullptr;
     mBufferPool = nullptr;
+    mExecutionBufferPool->clear();
     if(mMapMem.second != nullptr) {
     #ifdef MNN_OPENCL_SVM_ENABLE
         if(mUseSvm)
@@ -265,6 +306,20 @@ OpenCLBackend::~OpenCLBackend() {
 OpenCLRuntime* OpenCLBackend::getOpenCLRuntime() {
     return mOpenCLRuntime.get();
 }
+
+class CLReleaseExecutionBuffer : public Backend::MemObj {
+public:
+    CLReleaseExecutionBuffer(std::shared_ptr<OpenCLBufferNode> node, BufferExecutionPool* bufferPool) {
+        mNode = node;
+        mBufferPool = bufferPool;
+    }
+    virtual ~ CLReleaseExecutionBuffer() {
+        mBufferPool->recycle(mNode);
+    }
+private:
+    std::shared_ptr<OpenCLBufferNode> mNode;
+    BufferExecutionPool* mBufferPool;
+};
 
 class CLMemReleaseBuffer : public Backend::MemObj {
 public:
@@ -330,15 +385,15 @@ Backend::MemObj* OpenCLBackend::onAcquire(const Tensor* nativeTensor, StorageTyp
     if(mOpenCLRuntime->getGpuMemType() == BUFFER) {
         size_t size;
         float typeSize = getBytes(nativeTensor);
-        if (nativeTensor->dimensions() >= 2) {
-            auto alignC = ROUND_UP(C, 8);
+        if (MNN_DATA_FORMAT_NC4HW4 == TensorUtils::getDescribe(nativeTensor)->dimensionFormat && nativeTensor->dimensions() >= 2) {
+            auto alignC = ROUND_UP(C, 4);
             // increment of height and width
             auto hR = ROUND_UP(H + 3, 4) - H;
             auto wR = ROUND_UP(W + 3, 4) - W;
             size = N * alignC * W * H;
             size = size + hR * W * 4 + wR * 4;
         } else {
-            size = nativeTensor->elementSize();
+            size = N * H * W * C;
             size = ROUND_UP(size, 4);
         }
         if (mOpenCLRuntime->isSupportedIntelSubgroup()) {
@@ -350,7 +405,6 @@ Backend::MemObj* OpenCLBackend::onAcquire(const Tensor* nativeTensor, StorageTyp
         }
         // Align when int4 memory
         size = ROUND_UP(size, 2);
-        
         if (storageType == DYNAMIC_SEPERATE) {
             auto buffer = mBufferPool->alloc(size*typeSize, true);
             ((Tensor*)nativeTensor)->buffer().device = (uint64_t)buffer;
@@ -360,6 +414,11 @@ Backend::MemObj* OpenCLBackend::onAcquire(const Tensor* nativeTensor, StorageTyp
             auto buffer = mBufferPool->alloc(size*typeSize);
             ((Tensor*)nativeTensor)->buffer().device = (uint64_t)buffer;
             return new CLMemReleaseBuffer(buffer, mBufferPool);
+        }
+        if (storageType == DYNAMIC_IN_EXECUTION){
+            auto node = mExecutionBufferPool->alloc(size*typeSize);
+            ((Tensor*)nativeTensor)->buffer().device = reinterpret_cast<uint64_t>(node.get());
+            return new CLReleaseExecutionBuffer(node, mExecutionBufferPool.get());
         }
         MNN_ASSERT(storageType == STATIC);
 
@@ -410,6 +469,9 @@ Backend::MemObj* OpenCLBackend::onAcquire(const Tensor* nativeTensor, StorageTyp
 }
 
 bool OpenCLBackend::onSelectDynamicAllocator(int index, int maxIndex) {
+    if (mUseRecordQueue && false == mDevideOpRecord){
+        return false;
+    }
     if (maxIndex > 2) {
         return false;
     }
@@ -556,6 +618,9 @@ void OpenCLBackend::onResizeBegin() {
 #ifndef ENABLE_OPENCL_TIME_PROFILER
     mOpenCLRuntime->setCommandQueueProfileEnable();
 #endif
+    // update mUseRecordableQueueSize if hint has changed
+    mUseRecordableQueueSize = mCLRuntime->hint().encorderNumForCommit <= mUseRecordableQueueSize ? mCLRuntime->hint().encorderNumForCommit : mUseRecordableQueueSize;
+    mUseRecordQueue &= mUseRecordableQueueSize > 0 ? true : false;
     releaseRecord();
 }
 
@@ -587,32 +652,53 @@ bool OpenCLBackend::isCreateError() const {
     return mIsCreateError;
 }
 
-void OpenCLBackend::_allocHostBuffer(int length, const Tensor* srcTensor) const {
+bool OpenCLBackend::_allocHostBuffer(int length, const Tensor* srcTensor) const {
     auto memType = srcTensor->buffer().flags;
-    if (nullptr != mHostBuffer.second && length <= mHostBuffer.first && memType != MNN_FORWARD_OPENCL && memType != MNN_FORWARD_OPENGL) {
-        return;
+    if (nullptr != mHostBuffer.second && length <= mHostBuffer.first && memType != MNN_MEMORY_AHARDWAREBUFFER) {
+        return true;
     }
-    if(memType == MNN_FORWARD_OPENCL){
-        mDeviceBuffer = (cl::Buffer*)srcTensor->buffer().device;
-    }
+    cl_int error;
 #ifdef  __ANDROID__
-    else if(memType == MNN_FORWARD_OPENGL){
-        cl_int error;
-        mDeviceTexture.reset(new cl::ImageGL(mOpenCLRuntime->context(), CL_MEM_READ_WRITE, GL_TEXTURE_2D, 0, (cl_GLuint)srcTensor->buffer().device, &error));
-        std::vector<cl::Memory> map = {*mDeviceTexture.get()};
-        mOpenCLRuntime->commandQueue().enqueueAcquireGLObjects(&map, NULL);
-    }
+    if(MNN_MEMORY_AHARDWAREBUFFER == memType){
+        if (mOpenCLRuntime->isSupportAHD()){
+            CLSharedMemReleaseBuffer *sharedMem = (CLSharedMemReleaseBuffer*)TensorUtils::getSharedMem(srcTensor);
+            if(sharedMem == nullptr || (sharedMem != nullptr && srcTensor->buffer().device != sharedMem->getSharedId())){
+                if(mOpenCLRuntime->getGpuType() == MALI){
+                    const cl_import_properties_arm properties[] = {CL_IMPORT_TYPE_ARM, CL_IMPORT_TYPE_ANDROID_HARDWARE_BUFFER_ARM, 0};
+                    Backend::MemObj* SharedTmp = new CLSharedMemReleaseBuffer(srcTensor->buffer().device, new cl::Buffer(mOpenCLRuntime->context(), (cl_mem_flags)CL_MEM_READ_WRITE, properties, (void*)srcTensor->buffer().device, CL_IMPORT_MEMORY_WHOLE_ALLOCATION_ARM, &error));
+                    TensorUtils::setSharedMem(srcTensor, SharedTmp);
+                }else if(mOpenCLRuntime->getGpuType() == ADRENO){
+                    cl_mem_ahardwarebuffer_host_ptr myAHBmem = {0};
+                    myAHBmem.ext_host_ptr.allocation_type = CL_MEM_ANDROID_AHARDWAREBUFFER_HOST_PTR_QCOM;
+                    myAHBmem.ext_host_ptr.host_cache_policy = CL_MEM_HOST_WRITEBACK_QCOM;
+                    myAHBmem.ahb_ptr = (AHardwareBuffer*)srcTensor->buffer().device;
+                    Backend::MemObj* SharedTmp = new CLSharedMemReleaseBuffer(srcTensor->buffer().device, new cl::Buffer(mOpenCLRuntime->context(), (cl_mem_flags)(CL_MEM_USE_HOST_PTR | CL_MEM_EXT_HOST_PTR_QCOM), 0, &myAHBmem, &error));
+                    TensorUtils::setSharedMem(srcTensor, SharedTmp);
+                } else{
+                    MNN_ERROR("This device not support AHardWareBuffer\n");
+                    return false;
+                }
+                if (error != CL_SUCCESS) {
+                    MNN_ERROR("Alloc mAHardWareBuffer error, code:%d \n", error);
+                    return false;
+                }
+            }
+        } else{
+            MNN_ERROR("This device not support AHardWareBuffer\n");
+            return false;
+        }
+    } else
 #endif
-    else{
+    {
         MNN_ASSERT(length > 0);
-        cl_int res;
         mHostBuffer.first = length;
-        mHostBuffer.second.reset(new cl::Buffer(mOpenCLRuntime->context(), (cl_mem_flags)(CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR), (size_t)length, NULL, &res));
-        if (nullptr == mHostBuffer.second.get() || res != CL_SUCCESS) {
-            MNN_ERROR("Alloc mHostBuffer %d error, code:%d \n", length, res);
-            return;
+        mHostBuffer.second.reset(new cl::Buffer(mOpenCLRuntime->context(), (cl_mem_flags)(CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR), (size_t)length, NULL, &error));
+        if (nullptr == mHostBuffer.second.get() || error != CL_SUCCESS) {
+            MNN_ERROR("Alloc mHostBuffer %d error, code:%d \n", length, error);
+            return false;
         }
     }
+    return true;
 }
 
 void OpenCLBackend::copyFromDeviceInt8(const Tensor* srcTensor, const Tensor* dstTensor) const{
@@ -668,18 +754,18 @@ int OpenCLBackend::onSync(Tensor::MapType mtype, bool toCpu, const Tensor* dstTe
 }
 
 void CLRuntime::convertFromDevice(const Tensor* srcTensor, const Tensor* dstTensor, MNN_DATA_FORMAT data_format, bool svmFlag, int memtype) const {
+#ifdef  __ANDROID__
+    if(MNN_MEMORY_AHARDWAREBUFFER == memtype){
+        convertBetweenAHDandCLmem(const_cast<Tensor*>(srcTensor), const_cast<Tensor*>(dstTensor), mOpenCLRuntime.get(), memtype, false, true);
+        return;
+    }
+#endif
 #ifndef MNN_OPENCL_BUFFER_CLOSED
     if(mOpenCLRuntime->getGpuMemType() == BUFFER)
     {
-        if(MNN_FORWARD_OPENGL == memtype){
-            OpenCL::convertNC4HW4BufferToImage(srcTensor, const_cast<Tensor*>(dstTensor), mOpenCLRuntime.get(), false, svmFlag);
-            std::vector<cl::Memory> map = {openCLImage(dstTensor)};
-            mOpenCLRuntime->commandQueue().enqueueReleaseGLObjects(&map, NULL);
-            return;
-        }
 #ifdef MNN_SUPPORT_INTEL_SUBGROUP
         int cPack = TensorUtils::getTensorChannelPack(srcTensor);
-        if (cPack == 16) {
+        if (cPack == 16 && mOpenCLRuntime->isSupportedIntelSubgroup()) {
             switch (data_format) {
                 case MNN_DATA_FORMAT_NHWC:
                     OpenCL::convertNC4HW4OrNC16HW16BufferToNCHWOrNHWCBuffer(srcTensor, const_cast<Tensor*>(dstTensor),
@@ -699,40 +785,11 @@ void CLRuntime::convertFromDevice(const Tensor* srcTensor, const Tensor* dstTens
             }
         } else 
 #endif
-        {
-            switch (data_format) {
-                case MNN_DATA_FORMAT_NHWC:
-                    OpenCL::convertNC4HW4OrNC16HW16BufferToNCHWOrNHWCBuffer(srcTensor, const_cast<Tensor*>(dstTensor),
-                                                      "nc4hw4_buffer_to_nhwc_buffer", mOpenCLRuntime.get(), true, false, svmFlag);
-                    break;
-                case MNN_DATA_FORMAT_NCHW:
-                    OpenCL::convertNC4HW4OrNC16HW16BufferToNCHWOrNHWCBuffer(srcTensor, const_cast<Tensor*>(dstTensor),
-                                                     "nc4hw4_buffer_to_nchw_buffer", mOpenCLRuntime.get(), true, false, svmFlag);
-                    break;
-                case MNN_DATA_FORMAT_NC4HW4:
-                    OpenCL::convertNC4HW4BufferToNC4HW4Buffer(srcTensor, const_cast<Tensor*>(dstTensor),
-                                                    mOpenCLRuntime.get(), OutTrans, false, svmFlag, false, true);
-                    break;
-                default:
-                    MNN_PRINT("output data format not support!\n");
-                    break;
-            }
-        }
+        OpenCL::convertBufferToBuffer(const_cast<Tensor*>(srcTensor), const_cast<Tensor*>(dstTensor), mOpenCLRuntime.get(), false, true, true, svmFlag);
     }
     else
 #endif /* MNN_OPENCL_BUFFER_CLOSED */
     {
-        if(MNN_FORWARD_OPENGL == memtype){
-            std::vector<int> bufferShape = MNN::OpenCL::tensorShapeFormat(srcTensor);
-
-            mOpenCLRuntime.get()->commandQueue().enqueueCopyImage(
-                    openCLImage(srcTensor), openCLImage(dstTensor),
-                    {0, 0, 0}, {0, 0, 0},
-                    {(size_t)bufferShape[2]* UP_DIV(bufferShape[3], 4), (size_t)bufferShape[0]*bufferShape[1], 1});
-            std::vector<cl::Memory> map = {openCLImage(dstTensor)};
-            mOpenCLRuntime->commandQueue().enqueueReleaseGLObjects(&map, NULL);
-            return;
-        }
         switch (data_format) {
             case MNN_DATA_FORMAT_NHWC:
                 OpenCL::convertImageToNHWCBuffer(srcTensor, const_cast<Tensor*>(dstTensor), mOpenCLRuntime.get(), false, svmFlag);
@@ -752,18 +809,40 @@ void CLRuntime::convertFromDevice(const Tensor* srcTensor, const Tensor* dstTens
 
 void OpenCLBackend::copyFromDevice(const Tensor* srcTensor, const Tensor* dstTensor) const{
     auto needSize = dstTensor->size();
-
+    auto shape = tensorShapeFormat(srcTensor);
+    auto srcDimensionFormat = TensorUtils::getDescribe(srcTensor)->dimensionFormat;
+    auto dstDimensionFormat = TensorUtils::getDescribe(dstTensor)->dimensionFormat;
+    auto memType = dstTensor->buffer().flags;
+    bool directCopy =  BUFFER == mOpenCLRuntime->getGpuMemType()
+                       && (srcDimensionFormat == dstDimensionFormat || srcTensor->dimensions() <= 1)
+                       && MNN::MNN_DATA_FORMAT_NC4HW4 != dstDimensionFormat && MNN_DATA_FORMAT_NC4HW4 != srcDimensionFormat
+                       && (getDataType(srcTensor) == getDataType(dstTensor))
+                       && memType != MNN_MEMORY_AHARDWAREBUFFER;
+    if (mOpenCLRuntime->isSupportedFP16()) { // Fp16
+        if (dstTensor->getType().code == halide_type_float) {
+            directCopy = false;
+        }
+    }
+    if(mOpenCLRuntime->isSupportedIntelSubgroup()){
+        int cPack = TensorUtils::getTensorChannelPack(srcTensor);
+        if (cPack == 16){
+            directCopy = false;
+        }
+    }
     void* hostPtr = dstTensor->host<float>();
+    if(directCopy){
+        mOpenCLRuntime->commandQueue().enqueueReadBuffer(openCLBuffer(srcTensor), CL_TRUE, 0, needSize, hostPtr);
+        return;
+    }
 
     _allocHostBuffer(needSize, dstTensor);
 
     MNN::Tensor interTensor(dstTensor, dstTensor->getDimensionType(), false);
     interTensor.buffer().device = (uint64_t)mHostBuffer.second.get();
-
-    MNN_DATA_FORMAT data_format = TensorUtils::getDescribe(dstTensor)->dimensionFormat;
+    TensorUtils::getDescribe(&interTensor)->dimensionFormat = dstDimensionFormat;
     
     //Convert format
-    mCLRuntime->convertFromDevice(srcTensor, (const Tensor*)&interTensor, data_format, false);
+    mCLRuntime->convertFromDevice(srcTensor, (const Tensor*)&interTensor, dstDimensionFormat, false);
     mOpenCLRuntime->printEventTime();
 
     cl_int res;
@@ -781,18 +860,18 @@ void OpenCLBackend::copyFromDevice(const Tensor* srcTensor, const Tensor* dstTen
 
 void CLRuntime::convertToDevice(const Tensor* srcTensor, const Tensor* dstTensor, MNN_DATA_FORMAT data_format, bool svmFlag, int memtype) const {
     // Format: Host -> OpenCL
+#ifdef  __ANDROID__
+    if(MNN_MEMORY_AHARDWAREBUFFER == memtype){
+        convertBetweenAHDandCLmem(const_cast<Tensor*>(srcTensor), const_cast<Tensor*>(dstTensor), mOpenCLRuntime.get(), memtype, true, false);
+        return;
+    }
+#endif
     #ifndef MNN_OPENCL_BUFFER_CLOSED
     if(mOpenCLRuntime->getGpuMemType() == BUFFER)
     {
-        if(MNN_FORWARD_OPENGL == memtype){
-            OpenCL::convertImageToNC4HW4Buffer(srcTensor, const_cast<Tensor*>(dstTensor),mOpenCLRuntime.get(), false, svmFlag);
-            std::vector<cl::Memory> map = {openCLImage(srcTensor)};
-            mOpenCLRuntime->commandQueue().enqueueReleaseGLObjects(&map, NULL);
-            return;
-        }
 #ifdef MNN_SUPPORT_INTEL_SUBGROUP
         int cPack = TensorUtils::getTensorChannelPack(dstTensor);
-        if (cPack == 16) {
+        if (cPack == 16 && mOpenCLRuntime->isSupportedIntelSubgroup()) {
             if (MNN_DATA_FORMAT_NHWC == data_format) {
                 OpenCL::converNCHWOrNHWCBufferToNC4HW4OrNC16HW16Buffer(srcTensor, const_cast<Tensor*>(dstTensor), "nhwc_buffer_to_nc16hw16_buffer", mOpenCLRuntime.get(), true, false, svmFlag);
             } else if (MNN_DATA_FORMAT_NCHW == data_format) {
@@ -805,33 +884,11 @@ void CLRuntime::convertToDevice(const Tensor* srcTensor, const Tensor* dstTensor
             }
         }else
 #endif        
-        {
-            if (MNN_DATA_FORMAT_NHWC == data_format) {
-                OpenCL::converNCHWOrNHWCBufferToNC4HW4OrNC16HW16Buffer(srcTensor, const_cast<Tensor*>(dstTensor), "nhwc_buffer_to_nc4hw4_buffer",mOpenCLRuntime.get(), true, false, svmFlag);
-            } else if (MNN_DATA_FORMAT_NCHW == data_format) {
-                OpenCL::converNCHWOrNHWCBufferToNC4HW4OrNC16HW16Buffer(srcTensor, const_cast<Tensor*>(dstTensor), "nchw_buffer_to_nc4hw4_buffer",mOpenCLRuntime.get(), true, false, svmFlag);
-            } else if (MNN_DATA_FORMAT_NC4HW4 == data_format) {
-                OpenCL::convertNC4HW4BufferToNC4HW4Buffer(srcTensor, const_cast<Tensor*>(dstTensor), mOpenCLRuntime.get(), InpTrans, false, svmFlag, true, false);
-            } else {
-                MNN_PRINT("input data format not support\n");
-                MNN_ASSERT(false);
-            }
-        }
+        OpenCL::convertBufferToBuffer(const_cast<Tensor*>(srcTensor), const_cast<Tensor*>(dstTensor), mOpenCLRuntime.get(), true, false, false, svmFlag);
     }
     else
     #endif /* MNN_OPENCL_BUFFER_CLOSED */
     {
-        if(MNN_FORWARD_OPENGL == memtype){
-            std::vector<int> bufferShape = MNN::OpenCL::tensorShapeFormat(dstTensor);
-
-            mOpenCLRuntime.get()->commandQueue().enqueueCopyImage(
-                    openCLImage(srcTensor), openCLImage(dstTensor),
-                    {0, 0, 0}, {0, 0, 0},
-                    {(size_t)bufferShape[2]* UP_DIV(bufferShape[3], 4), (size_t)bufferShape[0]*bufferShape[1], 1});
-            std::vector<cl::Memory> map = {openCLImage(srcTensor)};
-            mOpenCLRuntime->commandQueue().enqueueReleaseGLObjects(&map, NULL);
-            return;
-        }
         if (MNN_DATA_FORMAT_NHWC == data_format) {
             OpenCL::convertNHWCBufferToImage(srcTensor, const_cast<Tensor*>(dstTensor), mOpenCLRuntime.get(), false, svmFlag);
         } else if (MNN_DATA_FORMAT_NCHW == data_format) {
@@ -850,28 +907,46 @@ void CLRuntime::convertToDevice(const Tensor* srcTensor, const Tensor* dstTensor
 void OpenCLBackend::copyToDevice(const Tensor* srcTensor, const Tensor* dstTensor) const{
     auto needSize = srcTensor->size();
     auto shape = tensorShapeFormat(srcTensor);
+    auto srcDimensionFormat = TensorUtils::getDescribe(srcTensor)->dimensionFormat;
+    auto dstDimensionFormat = TensorUtils::getDescribe(dstTensor)->dimensionFormat;
+    auto memType = srcTensor->buffer().flags;
+    void* hostPtr = srcTensor->host<float>();
     // 1*1*1*1 don't need convert
-    if(BUFFER == mOpenCLRuntime->getGpuMemType() && 1 == shape[0] * shape[1] * shape[2] * shape[3]){
-        void *tmpPtr;
-        void *hostPtr = srcTensor->host<float>();
-        if(srcTensor->getType().code == halide_type_float && mOpenCLRuntime->isSupportedFP16()) {
-            needSize /= 2;
-            void *tmpPtr = malloc(needSize);
-            ((half_float::half*)tmpPtr)[0] = (half_float::half)(((float*)hostPtr)[0]);
-            mOpenCLRuntime->commandQueue().enqueueWriteBuffer(openCLBuffer(dstTensor), CL_TRUE, 0, needSize, tmpPtr);
-            free(tmpPtr);
-        } else {
-            mOpenCLRuntime->commandQueue().enqueueWriteBuffer(openCLBuffer(dstTensor), CL_TRUE, 0, needSize, hostPtr);
-        }
+    if(BUFFER == mOpenCLRuntime->getGpuMemType() && srcTensor->getType().code == halide_type_float && mOpenCLRuntime->isSupportedFP16() && 1 == shape[0] * shape[1] * shape[2] * shape[3]){
+        needSize /= 2;
+        void *tmpPtr = malloc(needSize);
+        ((half_float::half*)tmpPtr)[0] = (half_float::half)(((float*)hostPtr)[0]);
+        mOpenCLRuntime->commandQueue().enqueueWriteBuffer(openCLBuffer(dstTensor), CL_TRUE, 0, needSize, tmpPtr);
+        free(tmpPtr);
         return;
     }
-
-    void* hostPtr = srcTensor->host<float>();
+    
+    bool directCopy =  BUFFER == mOpenCLRuntime->getGpuMemType()
+                       && (srcDimensionFormat == dstDimensionFormat || srcTensor->dimensions() <= 1)
+                       && MNN_DATA_FORMAT_NC4HW4 != dstDimensionFormat && MNN_DATA_FORMAT_NC4HW4 != srcDimensionFormat
+                       && (getDataType(srcTensor) == getDataType(dstTensor))
+                       && memType != MNN_MEMORY_AHARDWAREBUFFER;
+    if (mOpenCLRuntime->isSupportedFP16()) { // Fp16
+        if (dstTensor->getType().code == halide_type_float) {
+            directCopy = false;
+        }
+    }
+    if(mOpenCLRuntime->isSupportedIntelSubgroup()){
+        int cPack = TensorUtils::getTensorChannelPack(dstTensor);
+        if (cPack == 16){
+            directCopy = false;
+        }
+    }
+    if(directCopy){
+        mOpenCLRuntime->commandQueue().enqueueWriteBuffer(openCLBuffer(dstTensor), CL_TRUE, 0, needSize, hostPtr);
+        return;
+    }
 
     _allocHostBuffer(needSize, srcTensor);
 
     MNN::Tensor interTensor(srcTensor, srcTensor->getDimensionType(), false);
     interTensor.buffer().device = (uint64_t)mHostBuffer.second.get();
+    TensorUtils::getDescribe(&interTensor)->dimensionFormat = srcDimensionFormat;
 
     #ifdef ENABLE_OPENCL_TIME_PROFILER
     mOpenCLRuntime->commandQueue().finish();
@@ -880,14 +955,15 @@ void OpenCLBackend::copyToDevice(const Tensor* srcTensor, const Tensor* dstTenso
         mOpenCLRuntime->commandQueue().enqueueWriteBuffer(*mHostBuffer.second, CL_TRUE, 0, needSize, hostPtr);
     }
     #else
-    mOpenCLRuntime->commandQueue().enqueueWriteBuffer(*mHostBuffer.second, CL_TRUE, 0, needSize, hostPtr);
+    auto res = mOpenCLRuntime->commandQueue().enqueueWriteBuffer(*mHostBuffer.second, CL_TRUE, 0, needSize, hostPtr);
+    if(res != CL_SUCCESS) {
+        MNN_ERROR("OpenCL enqueue write error:%d\n", res);
+        return;
+    }
     #endif
 
     //Covert format
-    MNN_DATA_FORMAT data_format = TensorUtils::getDescribe(srcTensor)->dimensionFormat;
-    mCLRuntime->convertToDevice((const Tensor*)&interTensor, dstTensor, data_format, false);
-
-    return;
+    mCLRuntime->convertToDevice((const Tensor*)&interTensor, dstTensor, srcDimensionFormat, false);
 }
 
 void OpenCLBackend::copyBetweenDevice(const Tensor* srcTensor, const Tensor* dstTensor) const{
@@ -896,32 +972,21 @@ void OpenCLBackend::copyBetweenDevice(const Tensor* srcTensor, const Tensor* dst
     if(MNN_FORWARD_CPU == srcMemtype && MNN_FORWARD_CPU == dstMemtype){
         mCLRuntime->copyBetweenDevice(srcTensor, dstTensor);
     } else {
-        const Tensor* copyTensor = MNN_FORWARD_CPU != srcMemtype ? srcTensor : dstTensor;
-        int memType = MNN_FORWARD_CPU != srcMemtype ? srcMemtype : dstMemtype;
-        if(MNN_FORWARD_OPENCL != memType && MNN_FORWARD_OPENGL != memType){
-            MNN_PRINT("Unsupport ForwardType %d for OpenCL backend!\n", memType);
+        const Tensor* hostTensor = MNN_FORWARD_CPU != srcMemtype ? srcTensor : dstTensor;
+        const Tensor* deviceTensor = MNN_FORWARD_CPU == srcMemtype ? srcTensor : dstTensor;
+        MNN_DATA_FORMAT data_format = TensorUtils::getDescribe(deviceTensor)->dimensionFormat;
+        
+        bool alloc_error = _allocHostBuffer(0, hostTensor);
+        if(false == alloc_error){
+            MNN_ERROR("Alloc _allocHostBuffer error\n");
             return;
         }
-        _allocHostBuffer(0, copyTensor);
-
-        MNN::Tensor interTensor(copyTensor, copyTensor->getDimensionType(), false);
-        if(MNN_FORWARD_OPENCL == memType ){
-            interTensor.buffer().device = (uint64_t)mDeviceBuffer;
-        }else if(MNN_FORWARD_OPENGL == memType){
-            interTensor.buffer().device = (uint64_t)mDeviceTexture.get();
-        }else{
-            interTensor.buffer().device = (uint64_t)mHostBuffer.second.get();
-        }
-        if(OpenCLSymbolsOperator::getOpenclSymbolsPtr()->isGlError() && MNN_FORWARD_OPENGL == memType){
-            MNN_PRINT("This Device can not find OpenCL GL_EXTENTION function!\n");
-            return;
-        }
+        
         //Covert format
-        MNN_DATA_FORMAT data_format = TensorUtils::getDescribe(copyTensor)->dimensionFormat;
         if(MNN_FORWARD_CPU != srcMemtype){
-            mCLRuntime->convertToDevice((const Tensor*)&interTensor, dstTensor, data_format, false, srcMemtype);
+            mCLRuntime->convertToDevice(hostTensor, deviceTensor, data_format, false, srcMemtype);
         }else{
-            mCLRuntime->convertFromDevice(srcTensor, (const Tensor*)&interTensor, data_format, false, dstMemtype);
+            mCLRuntime->convertFromDevice(deviceTensor, hostTensor, data_format, false, dstMemtype);
         }
     }
 }
@@ -930,7 +995,7 @@ void CLRuntime::copyBetweenDevice(const Tensor* srcTensor, const Tensor* dstTens
     #ifndef MNN_OPENCL_BUFFER_CLOSED
     if(mOpenCLRuntime->getGpuMemType() == BUFFER)
     {
-        OpenCL::convertNC4HW4BufferToNC4HW4Buffer(srcTensor, const_cast<Tensor*>(dstTensor), mOpenCLRuntime.get(), NoTrans);
+        OpenCL::convertBufferToBuffer(const_cast<Tensor*>(srcTensor), const_cast<Tensor*>(dstTensor), mOpenCLRuntime.get(), true, true);
     }
     else
     #endif /* MNN_OPENCL_BUFFER_CLOSED */
@@ -1133,21 +1198,7 @@ class CLRuntimeCreator : public RuntimeCreator {
             return nullptr;
         }
     #endif
-        int platform_id = 0;
-        int device_id = 0;
-        int platform_size = 0;
-        void *context_ptr = nullptr;
-        void *glShared = nullptr;
-        if (nullptr != info.user) {
-            if (info.user->sharedContext != nullptr) {
-                platform_id   = ((MNNDeviceContext*)info.user->sharedContext)->platformId;
-                device_id     = ((MNNDeviceContext*)info.user->sharedContext)->deviceId;
-                platform_size = ((MNNDeviceContext*)info.user->sharedContext)->platformSize;
-                context_ptr = (((MNNDeviceContext*)info.user->sharedContext)->contextPtr);
-                glShared = (((MNNDeviceContext*)info.user->sharedContext)->glShared);
-            }
-        }
-        auto rt = new CLRuntime(info, platform_size, platform_id, device_id, context_ptr, glShared);
+        auto rt = new CLRuntime(info);
         if(rt->isCLRuntimeError() == true) {
             delete rt;
             return nullptr;
@@ -1159,7 +1210,7 @@ class CLRuntimeCreator : public RuntimeCreator {
     }
 };
 
-DataType OpenCLBackend::getDataType(const Tensor* tensor) {
+DataType OpenCLBackend::getDataType(const Tensor* tensor) const{
     auto des = TensorUtils::getDescribe(tensor);
     if (nullptr == des->quantAttr.get()) {
         return DataType_DT_FLOAT;
@@ -1320,15 +1371,16 @@ void OpenCLBackend::recordKernel2d(const std::shared_ptr<KernelWrap> &kernelW, c
     cl_int res = CL_SUCCESS;
     if(!mDevideOpRecord){
         RecordInfo info;
+        int recordNum = mRecordNums == mUseRecordableQueueSize ? 0 : mRecordNums;
         if(updateInfo != nullptr){
             for(int i = 0; i < updateInfo->update_kernel_args.size(); ++i){
-                updateInfo->update_kernel_args[i].dispatch_index = mRecordNums;
+                updateInfo->update_kernel_args[i].dispatch_index = recordNum;
             }
             for(int i = 0; i < updateInfo->update_global_size.size(); ++i){
-                updateInfo->update_global_size[i].dispatch_index = mRecordNums;
+                updateInfo->update_global_size[i].dispatch_index = recordNum;
             }
             for(int i = 0; i < updateInfo->update_local_size.size(); ++i){
-                updateInfo->update_local_size[i].dispatch_index = mRecordNums;
+                updateInfo->update_local_size[i].dispatch_index = recordNum;
             }
             info.updateInfo.emplace_back(updateInfo);
         }
@@ -1389,15 +1441,16 @@ void OpenCLBackend::recordKernel3d(const std::shared_ptr<KernelWrap> &kernelW, c
     }
     if(!mDevideOpRecord){
         RecordInfo info;
+        int recordNum = mRecordNums == mUseRecordableQueueSize ? 0 : mRecordNums;
         if(updateInfo != nullptr){
             for(int i = 0; i < updateInfo->update_kernel_args.size(); ++i){
-                updateInfo->update_kernel_args[i].dispatch_index = mRecordNums;
+                updateInfo->update_kernel_args[i].dispatch_index = recordNum;
             }
             for(int i = 0; i < updateInfo->update_global_size.size(); ++i){
-                updateInfo->update_global_size[i].dispatch_index = mRecordNums;
+                updateInfo->update_global_size[i].dispatch_index = recordNum;
             }
             for(int i = 0; i < updateInfo->update_local_size.size(); ++i){
-                updateInfo->update_local_size[i].dispatch_index = mRecordNums;
+                updateInfo->update_local_size[i].dispatch_index = recordNum;
             }
             info.updateInfo.emplace_back(updateInfo);
         }

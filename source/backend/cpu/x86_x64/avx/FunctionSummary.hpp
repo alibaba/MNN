@@ -6,11 +6,7 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
-#if defined(_MSC_VER)
-#include <intrin.h>
-#else
-#include <x86intrin.h>
-#endif
+#include "core/SimdHeader.h"
 #include <MNN/MNNDefine.h>
 #include <stdint.h>
 
@@ -37,7 +33,7 @@ void _AVX_MNNPackedMatMul(float* C, const float* A, const float* B, const size_t
                           const float* postParameters, const float* bias, const float* k, const float* b);
 void _AVX_MNNPackedMatMulRemain(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter,
                                 const float* postParameters, const float* bias, const float* k, const float* b);
-#ifdef MNN_LOW_MEMORY
+#ifdef MNN_CPU_WEIGHT_DEQUANT_GEMM
 void _AVX_MNNPackedMatMul_int4(float* C, const float* A, const float* B, const size_t* parameter,
                           const float* postParameters, const float* bias, const float* k, const float* b);
 void _AVX_MNNPackedMatMulRemain_int4(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter,
@@ -46,19 +42,18 @@ void _AVX_MNNPackedMatMul_int8(float* C, const float* A, const float* B, const s
                           const float* postParameters, const float* bias, const float* k, const float* b);
 void _AVX_MNNPackedMatMulRemain_int8(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter,
                                      const float* postParameters, const float* bias, const float* k, const float* b);
-void _AVX_MNNGemmHybridInt4(float* C, const int8_t* A, const int8_t* B, size_t src_depth_quad, size_t dst_step,
-                            size_t dst_depth_quad, size_t realSize, const float** param);
-void _AVX_MNNGemmHybridInt8(float* C, const int8_t* A, const int8_t* B, size_t src_depth_quad, size_t dst_step,
-                            size_t dst_depth_quad, size_t realSize, const float** param);
+#endif
+
+#ifdef MNN_LOW_MEMORY
 void _AVX_MNNAbsMaxFP32(const float* source, float* absmax, size_t src_depth_quad, size_t realSize, int pack);
-void _AVX_MNNDynamicQuantFP32(const float* src, int8_t* dst, const float* scale, float* sum, size_t src_depth_quad, size_t realSize, int pack);
+void _AVX_MNNDynamicQuant(const float* src, int8_t* dst, const float* scale, size_t src_depth_quad, size_t realSize, int pack);
 #endif
 void _AVX_MNNPackC4ForMatMul_A(float* destOrigin, float const** sourceGroup, const int32_t* info, const int32_t* el);
 
-void _AVX_MNNExpC8(float* dest, const float* source, const float* offset, const float* parameters, size_t countC8);
+void _AVX_MNNExpC8(float* dest, const float* source, float* offset, const float* parameters, size_t countC8);
 void _AVX_MNNSoftmax(float* dest, const float* source, size_t size);
-void _AVX_MNNFloat2Int8(const float* src, int8_t* dst, size_t sizeQuad, const float* scalep, ssize_t minV, ssize_t maxV, ssize_t zeroPoint);
-void _AVX_MNNInt8ScaleToFloat(float* dst, const int8_t* src, const float* scale, size_t sizeQuad, ssize_t zeroPoint);
+void _AVX_MNNFloat2Int8(const float* src, int8_t* dst, size_t sizeQuad, const float* scalep, ssize_t minV, ssize_t maxV, const float* zeroPoint, ssize_t quanParamVec);
+void _AVX_MNNInt8ScaleToFloat(float* dst, const int8_t* src, const float* scale, size_t sizeQuad, const float* zeroPoint, ssize_t quanParamVec);
 void _AVX_MNNLineDepthWiseInt8AddBiasScaleUnit(int8_t* dstO, const int8_t* srcO, const int8_t* weightO, const QuanPostTreatParameters* parameters, size_t width, size_t src_w_step, size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step, int8_t* idxOrder);
 void _AVX_MNNComputeMatMulForE_1(const float* A, const float* B, float* C, const float* biasPtr, const MatMulParam* param, size_t tId);
 void _AVX_MNNPackC4ForMatMul_A_BF16(float* destOrigin, float const** sourceGroup, const int32_t* info, const int32_t* el);

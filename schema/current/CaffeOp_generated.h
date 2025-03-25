@@ -938,7 +938,7 @@ struct IDSTQuanT : public flatbuffers::NativeTable {
   float quantScale;
   float scaleIn;
   float scaleOut;
-  int32_t aMax;
+  int32_t aMaxOrBits;
   int32_t aMin;
   int32_t readType;
   bool has_scaleInt;
@@ -951,7 +951,7 @@ struct IDSTQuanT : public flatbuffers::NativeTable {
         quantScale(0.0f),
         scaleIn(0.0f),
         scaleOut(0.0f),
-        aMax(0),
+        aMaxOrBits(0),
         aMin(0),
         readType(0),
         has_scaleInt(false),
@@ -986,7 +986,7 @@ struct IDSTQuan FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   float scaleOut() const {
     return GetField<float>(16, 0.0f);
   }
-  int32_t aMax() const {
+  int32_t aMaxOrBits() const {
     return GetField<int32_t>(18, 0);
   }
   int32_t aMin() const {
@@ -1057,8 +1057,8 @@ struct IDSTQuanBuilder {
   void add_scaleOut(float scaleOut) {
     fbb_.AddElement<float>(16, scaleOut, 0.0f);
   }
-  void add_aMax(int32_t aMax) {
-    fbb_.AddElement<int32_t>(18, aMax, 0);
+  void add_aMaxOrBits(int32_t aMaxOrBits) {
+    fbb_.AddElement<int32_t>(18, aMaxOrBits, 0);
   }
   void add_aMin(int32_t aMin) {
     fbb_.AddElement<int32_t>(20, aMin, 0);
@@ -1099,7 +1099,7 @@ inline flatbuffers::Offset<IDSTQuan> CreateIDSTQuan(
     float quantScale = 0.0f,
     float scaleIn = 0.0f,
     float scaleOut = 0.0f,
-    int32_t aMax = 0,
+    int32_t aMaxOrBits = 0,
     int32_t aMin = 0,
     int32_t readType = 0,
     bool has_scaleInt = false,
@@ -1111,7 +1111,7 @@ inline flatbuffers::Offset<IDSTQuan> CreateIDSTQuan(
   builder_.add_weightSize(weightSize);
   builder_.add_readType(readType);
   builder_.add_aMin(aMin);
-  builder_.add_aMax(aMax);
+  builder_.add_aMaxOrBits(aMaxOrBits);
   builder_.add_scaleOut(scaleOut);
   builder_.add_scaleIn(scaleIn);
   builder_.add_quantScale(quantScale);
@@ -1140,6 +1140,7 @@ struct QuantizedFloatParamT : public flatbuffers::NativeTable {
   int8_t clampMax;
   std::vector<int32_t> winogradAttr;
   DataType outputDataType;
+  std::vector<float> floatzeros;
   QuantizedFloatParamT()
       : method(QuantizeAlgo_DEFAULT),
         nbits(8),
@@ -1192,6 +1193,9 @@ struct QuantizedFloatParam FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table 
   DataType outputDataType() const {
     return static_cast<DataType>(GetField<int32_t>(26, 6));
   }
+  const flatbuffers::Vector<float> *floatzeros() const {
+    return GetPointer<const flatbuffers::Vector<float> *>(28);
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyOffset(verifier, 4) &&
@@ -1211,6 +1215,8 @@ struct QuantizedFloatParam FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table 
            VerifyOffset(verifier, 24) &&
            verifier.VerifyVector(winogradAttr()) &&
            VerifyField<int32_t>(verifier, 26) &&
+           VerifyOffset(verifier, 28) &&
+           verifier.VerifyVector(floatzeros()) &&
            verifier.EndTable();
   }
   QuantizedFloatParamT *UnPack(const flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -1257,6 +1263,9 @@ struct QuantizedFloatParamBuilder {
   void add_outputDataType(DataType outputDataType) {
     fbb_.AddElement<int32_t>(26, static_cast<int32_t>(outputDataType), 6);
   }
+  void add_floatzeros(flatbuffers::Offset<flatbuffers::Vector<float>> floatzeros) {
+    fbb_.AddOffset(28, floatzeros);
+  }
   explicit QuantizedFloatParamBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -1282,8 +1291,10 @@ inline flatbuffers::Offset<QuantizedFloatParam> CreateQuantizedFloatParam(
     int8_t clampMin = -128,
     int8_t clampMax = 127,
     flatbuffers::Offset<flatbuffers::Vector<int32_t>> winogradAttr = 0,
-    DataType outputDataType = DataType_DT_INT8) {
+    DataType outputDataType = DataType_DT_INT8,
+    flatbuffers::Offset<flatbuffers::Vector<float>> floatzeros = 0) {
   QuantizedFloatParamBuilder builder_(_fbb);
+  builder_.add_floatzeros(floatzeros);
   builder_.add_outputDataType(outputDataType);
   builder_.add_winogradAttr(winogradAttr);
   builder_.add_nbits(nbits);
@@ -4430,7 +4441,7 @@ inline void IDSTQuan::UnPackTo(IDSTQuanT *_o, const flatbuffers::resolver_functi
   { auto _e = quantScale(); _o->quantScale = _e; };
   { auto _e = scaleIn(); _o->scaleIn = _e; };
   { auto _e = scaleOut(); _o->scaleOut = _e; };
-  { auto _e = aMax(); _o->aMax = _e; };
+  { auto _e = aMaxOrBits(); _o->aMaxOrBits = _e; };
   { auto _e = aMin(); _o->aMin = _e; };
   { auto _e = readType(); _o->readType = _e; };
   { auto _e = has_scaleInt(); _o->has_scaleInt = _e; };
@@ -4454,7 +4465,7 @@ inline flatbuffers::Offset<IDSTQuan> CreateIDSTQuan(flatbuffers::FlatBufferBuild
   auto _quantScale = _o->quantScale;
   auto _scaleIn = _o->scaleIn;
   auto _scaleOut = _o->scaleOut;
-  auto _aMax = _o->aMax;
+  auto _aMaxOrBits = _o->aMaxOrBits;
   auto _aMin = _o->aMin;
   auto _readType = _o->readType;
   auto _has_scaleInt = _o->has_scaleInt;
@@ -4470,7 +4481,7 @@ inline flatbuffers::Offset<IDSTQuan> CreateIDSTQuan(flatbuffers::FlatBufferBuild
       _quantScale,
       _scaleIn,
       _scaleOut,
-      _aMax,
+      _aMaxOrBits,
       _aMin,
       _readType,
       _has_scaleInt,
@@ -4500,6 +4511,7 @@ inline void QuantizedFloatParam::UnPackTo(QuantizedFloatParamT *_o, const flatbu
   { auto _e = clampMax(); _o->clampMax = _e; };
   { auto _e = winogradAttr(); if (_e) { _o->winogradAttr.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->winogradAttr[_i] = _e->Get(_i); } } };
   { auto _e = outputDataType(); _o->outputDataType = _e; };
+  { auto _e = floatzeros(); if (_e) { _o->floatzeros.resize(_e->size()); for (flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->floatzeros[_i] = _e->Get(_i); } } };
 }
 
 inline flatbuffers::Offset<QuantizedFloatParam> QuantizedFloatParam::Pack(flatbuffers::FlatBufferBuilder &_fbb, const QuantizedFloatParamT* _o, const flatbuffers::rehasher_function_t *_rehasher) {
@@ -4522,6 +4534,7 @@ inline flatbuffers::Offset<QuantizedFloatParam> CreateQuantizedFloatParam(flatbu
   auto _clampMax = _o->clampMax;
   auto _winogradAttr = _o->winogradAttr.size() ? _fbb.CreateVector(_o->winogradAttr) : 0;
   auto _outputDataType = _o->outputDataType;
+  auto _floatzeros = _o->floatzeros.size() ? _fbb.CreateVector(_o->floatzeros) : 0;
   return MNN::CreateQuantizedFloatParam(
       _fbb,
       _weight,
@@ -4535,7 +4548,8 @@ inline flatbuffers::Offset<QuantizedFloatParam> CreateQuantizedFloatParam(flatbu
       _clampMin,
       _clampMax,
       _winogradAttr,
-      _outputDataType);
+      _outputDataType,
+      _floatzeros);
 }
 
 inline Convolution2DT *Convolution2D::UnPack(const flatbuffers::resolver_function_t *_resolver) const {
@@ -5977,7 +5991,7 @@ inline const flatbuffers::TypeTable *IDSTQuanTypeTable() {
     "quantScale",
     "scaleIn",
     "scaleOut",
-    "aMax",
+    "aMaxOrBits",
     "aMin",
     "readType",
     "has_scaleInt",
@@ -6004,7 +6018,8 @@ inline const flatbuffers::TypeTable *QuantizedFloatParamTypeTable() {
     { flatbuffers::ET_CHAR, 0, -1 },
     { flatbuffers::ET_CHAR, 0, -1 },
     { flatbuffers::ET_INT, 1, -1 },
-    { flatbuffers::ET_INT, 0, 1 }
+    { flatbuffers::ET_INT, 0, 1 },
+    { flatbuffers::ET_FLOAT, 1, -1 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
     QuantizeAlgoTypeTable,
@@ -6022,10 +6037,11 @@ inline const flatbuffers::TypeTable *QuantizedFloatParamTypeTable() {
     "clampMin",
     "clampMax",
     "winogradAttr",
-    "outputDataType"
+    "outputDataType",
+    "floatzeros"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_TABLE, 12, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_TABLE, 13, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }

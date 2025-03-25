@@ -13,46 +13,37 @@
 
 #include <functional>
 #include "core/Execution.hpp"
+#include "core/OpCommonUtils.hpp"
+#include "MNN/ErrorCode.hpp"
+#include "KVCacheManager.hpp"
 
 namespace MNN {
-
-class CPUAttentionImpl {
-public:
-    CPUAttentionImpl(Backend *backend, bool kv_cache) : mBackend(backend), mKVCache(kv_cache) {}
-    ~CPUAttentionImpl() = default;
-    ErrorCode onResize(Backend *backend, const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
-    ErrorCode onExecute(Backend *backend, const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
-private:
-    void allocKVCache();
-    void reallocKVCache();
-    Backend* backend() { return mBackend; }
-private:
-    Backend* mBackend;
-    bool mKVCache;
-    float mScale;
-    const int mExpandChunk = 64;
-    int mThreadNum = 1;
-    bool mIsDecode = false;
-    int mPastLength = 0, mMaxLength = 0;
-    std::shared_ptr<Tensor> mPastKey, mPastValue, mTempQK;
-    std::shared_ptr<Tensor> mPackQ, mPackQKV;
-    int mNumHead = 0, mHeadDim = 0, mValueH = 0;
-    int eP, lP, hP, bytes;
-    std::function<void(int)> mFunction, mPrefill, mDecode;
-};
 
 class CPUAttention : public Execution {
 public:
     CPUAttention(Backend *backend, bool kv_cache);
-    CPUAttention(std::shared_ptr<CPUAttentionImpl> impl, Backend *backend);
-    virtual ~CPUAttention() = default;
+    virtual ~CPUAttention();
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
 private:
-    std::shared_ptr<CPUAttentionImpl> mImpl;
+    bool mKVCache        = true;
+    bool mUseGemmInt8    = false;
+    int bytes = 4;
+    int mThreadNum = 1;;
+    int eP, lP, hP, unit; // float matmul packing
+    int eP8, lP8, hP8;    // GemmInt8 packing
+    int mNumHead, mKvNumHead, mHeadDim;
+    std::shared_ptr<Tensor> mPackQ, mPackQKV, mSumQ;
+    std::shared_ptr<KVCacheManager> mKVCacheManager = nullptr;
+    std::vector<float> mMinQ, mMaxQ, mQueryScale, mQueryZeroPoint;
+    template <typename T> void pack_query(Tensor* query, char* pack_q, char* sum_q, int seq_len, int h, float q_scale);
+    template <typename T> void unpack_QK(float * unpack_qk_dst, char * pack_qk_src, int seq_len, int kv_seq_len);
+    KVMeta* mMeta;
 };
+
 } // namespace MNN
 
 #endif // CPUATTENTION_HPP
-#endif
+
+#endif // MNN_SUPPORT_TRANSFORMER_FUSE

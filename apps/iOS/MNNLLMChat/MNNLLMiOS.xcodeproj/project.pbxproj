@@ -1,0 +1,741 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		3E301C692D5C84730045E5E1 /* MNN.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3E301C682D5C84730045E5E1 /* MNN.framework */; };
+		3E3778952D672F730085BF21 /* ExyteChat in Frameworks */ = {isa = PBXBuildFile; productRef = 3E3778942D672F730085BF21 /* ExyteChat */; };
+		3E7915A12D66CC8C00BDF49E /* Transformers in Frameworks */ = {isa = PBXBuildFile; productRef = 3E7915A02D66CC8C00BDF49E /* Transformers */; };
+		3E94DFF12D37DBA900BE39A7 /* SQLite in Frameworks */ = {isa = PBXBuildFile; productRef = 3E94DFF02D37DBA900BE39A7 /* SQLite */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		3E8592102D1D45090067B46F /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 3E8591F62D1D45070067B46F /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 3E8591FD2D1D45070067B46F;
+			remoteInfo = MNNLLMiOS;
+		};
+		3E85921A2D1D45090067B46F /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 3E8591F62D1D45070067B46F /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 3E8591FD2D1D45070067B46F;
+			remoteInfo = MNNLLMiOS;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		3E301C682D5C84730045E5E1 /* MNN.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; path = MNN.framework; sourceTree = "<group>"; };
+		3E8591FE2D1D45070067B46F /* MNNLLMiOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MNNLLMiOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		3E85920F2D1D45080067B46F /* MNNLLMiOSTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MNNLLMiOSTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		3E8592192D1D45090067B46F /* MNNLLMiOSUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MNNLLMiOSUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		3E94DF342D30CCFA00BE39A7 /* Exceptions for "MNNLLMiOS" folder in "MNNLLMiOS" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 3E8591FD2D1D45070067B46F /* MNNLLMiOS */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
+/* Begin PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet section */
+		3E94E00F2D40DED600BE39A7 /* Exceptions for "MNNLLMiOS" folder in "Compile Sources" phase from "MNNLLMiOS" target */ = {
+			isa = PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet;
+			buildPhase = 3E8591FA2D1D45070067B46F /* Sources */;
+			membershipExceptions = (
+				LLMWrapper/DiffusionSession.h,
+			);
+		};
+/* End PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		3E8592122D1D45090067B46F /* MNNLLMiOSTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = MNNLLMiOSTests;
+			sourceTree = "<group>";
+		};
+		3E85921C2D1D45090067B46F /* MNNLLMiOSUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = MNNLLMiOSUITests;
+			sourceTree = "<group>";
+		};
+		3E94DF1F2D30CCF900BE39A7 /* MNNLLMiOS */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				3E94DF342D30CCFA00BE39A7 /* Exceptions for "MNNLLMiOS" folder in "MNNLLMiOS" target */,
+				3E94E00F2D40DED600BE39A7 /* Exceptions for "MNNLLMiOS" folder in "Compile Sources" phase from "MNNLLMiOS" target */,
+			);
+			path = MNNLLMiOS;
+			sourceTree = "<group>";
+		};
+		3EAD33932D2BF38800021CF7 /* LocalModel */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = LocalModel;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		3E8591FB2D1D45070067B46F /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				3E3778952D672F730085BF21 /* ExyteChat in Frameworks */,
+				3E301C692D5C84730045E5E1 /* MNN.framework in Frameworks */,
+				3E94DFF12D37DBA900BE39A7 /* SQLite in Frameworks */,
+				3E7915A12D66CC8C00BDF49E /* Transformers in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		3E85920C2D1D45080067B46F /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		3E8592162D1D45090067B46F /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		3E8591F52D1D45070067B46F = {
+			isa = PBXGroup;
+			children = (
+				3E94DF1F2D30CCF900BE39A7 /* MNNLLMiOS */,
+				3EAD33932D2BF38800021CF7 /* LocalModel */,
+				3E8592122D1D45090067B46F /* MNNLLMiOSTests */,
+				3E85921C2D1D45090067B46F /* MNNLLMiOSUITests */,
+				3EAD33842D2BDDC300021CF7 /* Frameworks */,
+				3E8591FF2D1D45070067B46F /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		3E8591FF2D1D45070067B46F /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				3E8591FE2D1D45070067B46F /* MNNLLMiOS.app */,
+				3E85920F2D1D45080067B46F /* MNNLLMiOSTests.xctest */,
+				3E8592192D1D45090067B46F /* MNNLLMiOSUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		3EAD33842D2BDDC300021CF7 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				3E301C682D5C84730045E5E1 /* MNN.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		3E8591FD2D1D45070067B46F /* MNNLLMiOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 3E8592232D1D45090067B46F /* Build configuration list for PBXNativeTarget "MNNLLMiOS" */;
+			buildPhases = (
+				3E8591FA2D1D45070067B46F /* Sources */,
+				3E8591FB2D1D45070067B46F /* Frameworks */,
+				3E8591FC2D1D45070067B46F /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				3E94DF1F2D30CCF900BE39A7 /* MNNLLMiOS */,
+				3EAD33932D2BF38800021CF7 /* LocalModel */,
+			);
+			name = MNNLLMiOS;
+			packageProductDependencies = (
+				3E94DFF02D37DBA900BE39A7 /* SQLite */,
+				3E7915A02D66CC8C00BDF49E /* Transformers */,
+				3E3778942D672F730085BF21 /* ExyteChat */,
+			);
+			productName = MNNLLMiOS;
+			productReference = 3E8591FE2D1D45070067B46F /* MNNLLMiOS.app */;
+			productType = "com.apple.product-type.application";
+		};
+		3E85920E2D1D45080067B46F /* MNNLLMiOSTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 3E8592262D1D45090067B46F /* Build configuration list for PBXNativeTarget "MNNLLMiOSTests" */;
+			buildPhases = (
+				3E85920B2D1D45080067B46F /* Sources */,
+				3E85920C2D1D45080067B46F /* Frameworks */,
+				3E85920D2D1D45080067B46F /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				3E8592112D1D45090067B46F /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				3E8592122D1D45090067B46F /* MNNLLMiOSTests */,
+			);
+			name = MNNLLMiOSTests;
+			packageProductDependencies = (
+			);
+			productName = MNNLLMiOSTests;
+			productReference = 3E85920F2D1D45080067B46F /* MNNLLMiOSTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		3E8592182D1D45090067B46F /* MNNLLMiOSUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 3E8592292D1D45090067B46F /* Build configuration list for PBXNativeTarget "MNNLLMiOSUITests" */;
+			buildPhases = (
+				3E8592152D1D45090067B46F /* Sources */,
+				3E8592162D1D45090067B46F /* Frameworks */,
+				3E8592172D1D45090067B46F /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				3E85921B2D1D45090067B46F /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				3E85921C2D1D45090067B46F /* MNNLLMiOSUITests */,
+			);
+			name = MNNLLMiOSUITests;
+			packageProductDependencies = (
+			);
+			productName = MNNLLMiOSUITests;
+			productReference = 3E8592192D1D45090067B46F /* MNNLLMiOSUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		3E8591F62D1D45070067B46F /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1620;
+				LastUpgradeCheck = 1620;
+				TargetAttributes = {
+					3E8591FD2D1D45070067B46F = {
+						CreatedOnToolsVersion = 16.2;
+					};
+					3E85920E2D1D45080067B46F = {
+						CreatedOnToolsVersion = 16.2;
+						TestTargetID = 3E8591FD2D1D45070067B46F;
+					};
+					3E8592182D1D45090067B46F = {
+						CreatedOnToolsVersion = 16.2;
+						TestTargetID = 3E8591FD2D1D45070067B46F;
+					};
+				};
+			};
+			buildConfigurationList = 3E8591F92D1D45070067B46F /* Build configuration list for PBXProject "MNNLLMiOS" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+				"zh-Hans",
+			);
+			mainGroup = 3E8591F52D1D45070067B46F;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				3E94DF8A2D37D8FF00BE39A7 /* XCRemoteSwiftPackageReference "SQLite" */,
+				3E79159F2D66C78A00BDF49E /* XCRemoteSwiftPackageReference "swift-transformers" */,
+				3E3778932D672F3C0085BF21 /* XCRemoteSwiftPackageReference "Chat" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 3E8591FF2D1D45070067B46F /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				3E8591FD2D1D45070067B46F /* MNNLLMiOS */,
+				3E85920E2D1D45080067B46F /* MNNLLMiOSTests */,
+				3E8592182D1D45090067B46F /* MNNLLMiOSUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		3E8591FC2D1D45070067B46F /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		3E85920D2D1D45080067B46F /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		3E8592172D1D45090067B46F /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		3E8591FA2D1D45070067B46F /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		3E85920B2D1D45080067B46F /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		3E8592152D1D45090067B46F /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		3E8592112D1D45090067B46F /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 3E8591FD2D1D45070067B46F /* MNNLLMiOS */;
+			targetProxy = 3E8592102D1D45090067B46F /* PBXContainerItemProxy */;
+		};
+		3E85921B2D1D45090067B46F /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 3E8591FD2D1D45070067B46F /* MNNLLMiOS */;
+			targetProxy = 3E85921A2D1D45090067B46F /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		3E8592212D1D45090067B46F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				INFOPLIST_KEY_NSCameraUsageDescription = "";
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SUPPORTED_PLATFORMS = "iphonesimulator iphoneos";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		3E8592222D1D45090067B46F /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				INFOPLIST_KEY_NSCameraUsageDescription = "";
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SUPPORTED_PLATFORMS = "iphonesimulator iphoneos";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+			};
+			name = Release;
+		};
+		3E8592242D1D45090067B46F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = YES;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = MNNLLMiOS/MNNLLMiOS.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_ASSET_PATHS = "\"MNNLLMiOS/Preview Content\"";
+				DEVELOPMENT_TEAM = VJGTV94XY8;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_PREVIEWS = YES;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/MNN/transformers/llm/engine/ios",
+					"$(PROJECT_DIR)",
+				);
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = MNNLLMiOS/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "MNN Chat";
+				INFOPLIST_KEY_LSApplicationCategoryType = "";
+				INFOPLIST_KEY_NSCameraUsageDescription = "We need access your camera to capture image or video";
+				INFOPLIST_KEY_NSDocumentsFolderUsageDescription = "This app needs to access your documents to save downloaded models";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "This app needs to access your local network to download models";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "We need use your mico to input voice";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "We need access your photo library to select image";
+				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
+				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
+				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
+				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphonesimulator*]" = YES;
+				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphoneos*]" = YES;
+				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphonesimulator*]" = YES;
+				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphoneos*]" = UIStatusBarStyleDefault;
+				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphonesimulator*]" = UIStatusBarStyleDefault;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 17;
+				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
+				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
+				MACOSX_DEPLOYMENT_TARGET = 14;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.taobao.mnnchat;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/MNNLLMiOS/MNNLLMiOS-Bridging-Header.h";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2,7";
+				XROS_DEPLOYMENT_TARGET = 2;
+			};
+			name = Debug;
+		};
+		3E8592252D1D45090067B46F /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = YES;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = MNNLLMiOS/MNNLLMiOS.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_ASSET_PATHS = "\"MNNLLMiOS/Preview Content\"";
+				DEVELOPMENT_TEAM = VJGTV94XY8;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_PREVIEWS = YES;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/MNN/transformers/llm/engine/ios",
+					"$(PROJECT_DIR)",
+				);
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = MNNLLMiOS/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "MNN Chat";
+				INFOPLIST_KEY_LSApplicationCategoryType = "";
+				INFOPLIST_KEY_NSCameraUsageDescription = "We need access your camera to capture image or video";
+				INFOPLIST_KEY_NSDocumentsFolderUsageDescription = "This app needs to access your documents to save downloaded models";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "This app needs to access your local network to download models";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "We need use your mico to input voice";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "We need access your photo library to select image";
+				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
+				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
+				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
+				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphonesimulator*]" = YES;
+				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphoneos*]" = YES;
+				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphonesimulator*]" = YES;
+				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphoneos*]" = UIStatusBarStyleDefault;
+				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphonesimulator*]" = UIStatusBarStyleDefault;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 17;
+				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
+				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
+				MACOSX_DEPLOYMENT_TARGET = 14;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.taobao.mnnchat;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/MNNLLMiOS/MNNLLMiOS-Bridging-Header.h";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2,7";
+				XROS_DEPLOYMENT_TARGET = 2;
+			};
+			name = Release;
+		};
+		3E8592272D1D45090067B46F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 6QW92DF7RL;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.2;
+				MACOSX_DEPLOYMENT_TARGET = 15.2;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.taobao.yxy.MNNLLMiOSTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2,7";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/MNNLLMiOS.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/MNNLLMiOS";
+				XROS_DEPLOYMENT_TARGET = 2.2;
+			};
+			name = Debug;
+		};
+		3E8592282D1D45090067B46F /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 6QW92DF7RL;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.2;
+				MACOSX_DEPLOYMENT_TARGET = 15.2;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.taobao.yxy.MNNLLMiOSTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2,7";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/MNNLLMiOS.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/MNNLLMiOS";
+				XROS_DEPLOYMENT_TARGET = 2.2;
+			};
+			name = Release;
+		};
+		3E85922A2D1D45090067B46F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 6QW92DF7RL;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.2;
+				MACOSX_DEPLOYMENT_TARGET = 15.2;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.taobao.yxy.MNNLLMiOSUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2,7";
+				TEST_TARGET_NAME = MNNLLMiOS;
+				XROS_DEPLOYMENT_TARGET = 2.2;
+			};
+			name = Debug;
+		};
+		3E85922B2D1D45090067B46F /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 6QW92DF7RL;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.2;
+				MACOSX_DEPLOYMENT_TARGET = 15.2;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.taobao.yxy.MNNLLMiOSUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2,7";
+				TEST_TARGET_NAME = MNNLLMiOS;
+				XROS_DEPLOYMENT_TARGET = 2.2;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		3E8591F92D1D45070067B46F /* Build configuration list for PBXProject "MNNLLMiOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				3E8592212D1D45090067B46F /* Debug */,
+				3E8592222D1D45090067B46F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		3E8592232D1D45090067B46F /* Build configuration list for PBXNativeTarget "MNNLLMiOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				3E8592242D1D45090067B46F /* Debug */,
+				3E8592252D1D45090067B46F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		3E8592262D1D45090067B46F /* Build configuration list for PBXNativeTarget "MNNLLMiOSTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				3E8592272D1D45090067B46F /* Debug */,
+				3E8592282D1D45090067B46F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		3E8592292D1D45090067B46F /* Build configuration list for PBXNativeTarget "MNNLLMiOSUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				3E85922A2D1D45090067B46F /* Debug */,
+				3E85922B2D1D45090067B46F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		3E3778932D672F3C0085BF21 /* XCRemoteSwiftPackageReference "Chat" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/Yogayu/Chat.git";
+			requirement = {
+				branch = main;
+				kind = branch;
+			};
+		};
+		3E79159F2D66C78A00BDF49E /* XCRemoteSwiftPackageReference "swift-transformers" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/huggingface/swift-transformers/";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.1.17;
+			};
+		};
+		3E94DF8A2D37D8FF00BE39A7 /* XCRemoteSwiftPackageReference "SQLite" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/stephencelis/SQLite.swift";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.15.3;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		3E3778942D672F730085BF21 /* ExyteChat */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 3E3778932D672F3C0085BF21 /* XCRemoteSwiftPackageReference "Chat" */;
+			productName = ExyteChat;
+		};
+		3E7915A02D66CC8C00BDF49E /* Transformers */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 3E79159F2D66C78A00BDF49E /* XCRemoteSwiftPackageReference "swift-transformers" */;
+			productName = Transformers;
+		};
+		3E94DFF02D37DBA900BE39A7 /* SQLite */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 3E94DF8A2D37D8FF00BE39A7 /* XCRemoteSwiftPackageReference "SQLite" */;
+			productName = SQLite;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 3E8591F62D1D45070067B46F /* Project object */;
+}

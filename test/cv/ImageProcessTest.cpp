@@ -11,9 +11,12 @@
 #include <memory>
 #include <map>
 #include "MNNTestSuite.h"
+#include <MNN/expr/ExprCreator.hpp>
+#include <MNN/AutoTime.hpp>
 
 using namespace MNN;
 using namespace MNN::CV;
+using namespace MNN::Express;
 
 static std::vector<uint8_t> genSourceData(int h, int w, int bpp) {
     std::vector<uint8_t> source(h * w * bpp);
@@ -148,7 +151,7 @@ public:
         ImageProcess::Config config;
         config.sourceFormat = GRAY;
         config.destFormat   = GRAY;
-        config.filterType   = BILINEAR;
+        config.filterType   = MNN::CV::Filter::BILINEAR;
         config.wrap         = CLAMP_TO_EDGE;
         std::shared_ptr<ImageProcess> process(ImageProcess::create(config));
 
@@ -189,7 +192,7 @@ public:
         ImageProcess::Config config;
         config.sourceFormat = GRAY;
         config.destFormat   = GRAY;
-        config.filterType   = NEAREST;
+        config.filterType   = MNN::CV::Filter::NEAREST;
         config.wrap         = ZERO;
         std::shared_ptr<ImageProcess> process(ImageProcess::create(config));
 
@@ -444,7 +447,7 @@ public:
         ImageProcess::Config config;
         config.sourceFormat = RGBA;
         config.destFormat   = GRAY;
-        config.filterType   = BILINEAR;
+        config.filterType   = MNN::CV::Filter::BILINEAR;
         config.wrap         = CLAMP_TO_EDGE;
         std::shared_ptr<ImageProcess> process(ImageProcess::create(config));
 
@@ -483,7 +486,7 @@ public:
         ImageProcess::Config config;
         config.sourceFormat = RGBA;
         config.destFormat   = GRAY;
-        config.filterType   = NEAREST;
+        config.filterType   = MNN::CV::Filter::NEAREST;
         config.wrap         = CLAMP_TO_EDGE;
         std::shared_ptr<ImageProcess> process(ImageProcess::create(config));
 
@@ -696,3 +699,576 @@ public:
 };
 // {YUV_NV21, YUV_NV12, YUV_I420} -> {RGBA, RGB, BGRA, BGR, GRAY} unit test
 MNNTestSuiteRegister(ImageProcessYUVBlitterTest, "cv/image_process/yuv_blitter");
+
+static bool funcToColorResize(int iw, int ih, int ic, int ow, int oh, int oc, Filter filtertype, ImageFormat srcFormat, ImageFormat dstFormat) {
+   auto srcImg = genSourceData(ih, iw, ic);
+    auto dstType = halide_type_of<float>();
+    auto int8Type = halide_type_of<uint8_t>();
+
+    float fx = static_cast<float>(iw) / ow;
+    float fy = static_cast<float>(ih) / oh;
+    ImageProcess::Config config0, config1;
+
+    // resize first
+    config0.sourceFormat = srcFormat;
+    config0.destFormat = srcFormat;
+    config0.filterType = filtertype;
+    std::unique_ptr<ImageProcess> process0(ImageProcess::create(config0));
+    auto resizeTensor = Tensor::create({1, oh, ow, ic}, int8Type);
+    Matrix tr;
+    tr.postScale(fx, fy);
+    tr.postTranslate(0.5 * (fx - 1), 0.5 * (fy - 1));
+    process0->setMatrix(tr);
+    process0->convert(srcImg.data(), iw, ih, 0, resizeTensor->host<uint8_t>(), ow, oh, ic, 0, int8Type);
+
+    // then convert color
+    config1.sourceFormat = srcFormat;
+    config1.destFormat = dstFormat;
+    config1.filterType = filtertype;
+    config1.mean[0] = 127;
+    config1.mean[1] = 127;
+    config1.mean[2] = 127;
+    config1.normal[0] = 1.0/128;
+    config1.normal[1] = 1.0/128;
+    config1.normal[2] = 1.0/128;
+    std::unique_ptr<ImageProcess> process1(ImageProcess::create(config1));
+    auto colorTensor = Tensor::create({1, oh, ow, oc}, dstType);
+    Matrix tr1;
+    tr1.postScale(1.f, 1.f);
+    tr1.postTranslate(0, 0);
+    process1->setMatrix(tr1);
+    process1->convert(resizeTensor->host<uint8_t>(), ow, oh, 0, colorTensor->host<uint8_t>(), ow, oh, oc, 0, dstType);
+
+    // convert color first
+    ImageProcess::Config config2, config3;
+    config2.sourceFormat = srcFormat;
+    config2.destFormat = dstFormat;
+    config2.filterType = filtertype;
+    
+    std::unique_ptr<ImageProcess> process2(ImageProcess::create(config2));
+    auto colorTensor2 = Tensor::create({1, ih, iw, oc}, int8Type);
+    Matrix tr2;
+    tr2.postScale(1.f, 1.f);
+    tr2.postTranslate(0.f, 0.f);
+    process2->setMatrix(tr2);
+    process2->convert(srcImg.data(), iw, ih, 0, colorTensor2->host<uint8_t>(), iw, ih, oc, 0, int8Type);
+    
+    // Second: resize
+    config3.sourceFormat = dstFormat;
+    config3.destFormat = dstFormat;
+    config3.filterType = filtertype;
+    config3.mean[0] = 127;
+    config3.mean[1] = 127;
+    config3.mean[2] = 127;
+    config3.normal[0] = 1.0/128;
+    config3.normal[1] = 1.0/128;
+    config3.normal[2] = 1.0/128;
+    
+    std::unique_ptr<ImageProcess> process3(ImageProcess::create(config3));
+    auto resizeTensor3 = Tensor::create({1, oh, ow, oc}, dstType);
+    Matrix tr3;
+    tr3.postScale(fx, fy);
+    tr3.postTranslate(0.5 * (fx - 1), 0.5 * (fy - 1));
+    process3->setMatrix(tr3);
+    process3->convert(colorTensor2->host<uint8_t>(), iw, ih, 0, resizeTensor3->host<uint8_t>(), ow, oh, oc, 0, dstType);
+
+    // compare these two results
+    auto res1Ptr = colorTensor->host<float>();
+    auto res2Ptr = resizeTensor3->host<float>();
+    auto size_ = resizeTensor3->length(0) * resizeTensor3->length(1) * resizeTensor3->length(2) * resizeTensor3->length(3);
+    for (int i = 0; i < (int)size_; ++i) {
+        if (res1Ptr[i] != res2Ptr[i]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+class ImageProcessColorResizeTest: public MNNTestCase {
+    // Test: first color then resize and first resize then color, these two results are same.
+    virtual ~ImageProcessColorResizeTest() = default;
+    virtual bool run(int precison) {
+        std::vector<Filter> filters = {MNN::CV::Filter::NEAREST, MNN::CV::Filter::BILINEAR};
+        std::vector<int> iw{220, 420};
+        std::vector<int> ih{300, 340};
+
+        for (auto &width: iw) {
+            for (auto &height: ih) {
+                bool res = funcToColorResize(width, height, 3, 240, 320, 3, MNN::CV::Filter::BILINEAR, BGR, RGB);
+                if (!res) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+};
+ MNNTestSuiteRegister(ImageProcessColorResizeTest, "cv/image_process/color_resize_test");
+
+static int format2Channel(CV::ImageFormat format) {
+    switch (format) {
+        case CV::RGB:
+        case CV::BGR:
+        case CV::YCrCb:
+        case CV::YUV:
+        case CV::HSV:
+        case CV::XYZ:
+        case CV::YUV_NV21:
+        case CV::YUV_NV12:
+        case CV::YUV_I420:
+            return 3;
+        case CV::BGR555:
+        case CV::BGR565:
+            return 2;
+        case CV::GRAY:
+            return 1;
+        case CV::RGBA:
+        case CV::BGRA:
+            return 4;
+        default:
+            return 3;
+    }
+}
+
+static VARP cvtImpl(VARP src, ImageFormat srcformat, ImageFormat dstformat,int h, int w) {
+    int oc = format2Channel(dstformat);
+    auto type = halide_type_of<uint8_t>();
+    auto dest = Tensor::create({1, h, w, oc}, type);
+    std::unique_ptr<CV::ImageProcess> process(CV::ImageProcess::create(srcformat, dstformat));
+    process->convert(src->readMap<uint8_t>(), w, h, 0, dest);
+    auto res = Express::Variable::create(Express::Expr::create(dest, true), 0);
+    return _Squeeze(res, {0});
+}
+
+static void getVARPSize(VARP var, int* height, int* width, int* channel) {
+    auto info = var->getInfo();
+    auto dims = info->dim;
+    int num = dims.size();
+    if (num < 2) return;
+    if (num == 2) {
+        *height  = dims[0];
+        *width   = dims[1];
+        *channel = 1;
+    } else if (num == 3) {
+        *height  = dims[0];
+        *width   = dims[1];
+        *channel = dims[2];
+    } else if (info->order == NHWC) {
+        *channel = dims[num - 1];
+        *width   = dims[num - 2];
+        *height  = dims[num - 3];
+    } else { // NCHW
+        *width   = dims[num - 1];
+        *height  = dims[num - 2];
+        *channel = dims[num - 3];
+    }
+}
+
+static VARP cvtColor(VARP src, ImageFormat srcformat, ImageFormat dstformat) {
+    int h, w, c;
+    getVARPSize(src, &h, &w, &c);
+    return cvtImpl(src, srcformat, dstformat, h, w);
+}
+
+class ImageProcessSpeed: public MNNTestCase {
+    virtual ~ImageProcessSpeed() = default;
+    virtual bool run(int precison) {
+        int LOOP = 10000;
+        int warmup = 2;
+        int ih = 240, iw = 240;
+        {
+            int ic = 4;
+            auto srcvec = genSourceData(ih, iw, ic);
+            auto srcVar = _Input({ih, iw, ic}, NHWC, halide_type_of<uint8_t>());
+            auto inputPtr = srcVar->writeMap<uint8_t>();
+            memcpy(inputPtr, srcvec.data(), srcVar->getInfo()->size * sizeof(uint8_t));
+
+            for (int i = 0; i < warmup; ++i) {
+                cvtColor(srcVar, RGBA, BGR);
+            }
+            Timer l_;
+            for (int i = 0; i < LOOP; ++i) {
+                cvtColor(srcVar, RGBA, BGR);
+            }
+            auto duration = (float)l_.durationInUs() / 1000.f / LOOP;
+            printf("RGBA->BGR: cost time=%.3f ms\n", duration);
+        }
+        {
+            int ic = 4;
+            auto srcvec = genSourceData(ih, iw, ic);
+            auto srcVar = _Input({ih, iw, ic}, NHWC, halide_type_of<uint8_t>());
+            auto inputPtr = srcVar->writeMap<uint8_t>();
+            memcpy(inputPtr, srcvec.data(), srcVar->getInfo()->size * sizeof(uint8_t));
+
+            for (int i = 0; i < warmup; ++i) {
+                cvtColor(srcVar, RGBA, BGRA);
+            }
+            Timer l_;
+            for (int i = 0; i < LOOP; ++i) {
+                cvtColor(srcVar, RGBA, BGRA);
+            }
+            auto duration = (float)l_.durationInUs() / 1000.f / LOOP;
+            printf("RGBA->BGRA: cost time=%.3f ms\n", duration);
+        }
+
+        {
+            int ic = 3;
+            auto srcvec = genSourceData(ih, iw, ic);
+            auto srcVar = _Input({ih, iw, ic}, NHWC, halide_type_of<uint8_t>());
+            auto inputPtr = srcVar->writeMap<uint8_t>();
+            memcpy(inputPtr, srcvec.data(), srcVar->getInfo()->size * sizeof(uint8_t));
+
+            for (int i = 0; i < warmup; ++i) {
+                cvtColor(srcVar, RGB, BGR);
+            }
+            Timer l_;
+            for (int i = 0; i < LOOP; ++i) {
+                cvtColor(srcVar, RGB, BGR);
+            }
+            auto duration = (float)l_.durationInUs() / 1000.f / LOOP;
+            printf("RGB->BGR: cost time=%.3f ms\n", duration);
+        }
+        
+        {
+            int ic = 3;
+            auto srcvec = genSourceData(ih, iw, ic);
+            auto srcVar = _Input({ih, iw, ic}, NHWC, halide_type_of<uint8_t>());
+            auto inputPtr = srcVar->writeMap<uint8_t>();
+            memcpy(inputPtr, srcvec.data(), srcVar->getInfo()->size * sizeof(uint8_t));
+
+            for (int i = 0; i < warmup; ++i) {
+                cvtColor(srcVar, RGB, RGBA);
+            }
+            Timer l_;
+            for (int i = 0; i < LOOP; ++i) {
+                cvtColor(srcVar, RGB, RGBA);
+            }
+            auto duration = (float)l_.durationInUs() / 1000.f / LOOP;
+            printf("RGB->RGBA: cost time=%.3f ms\n", duration);
+        }
+
+        {
+            int ic = 4;
+            auto srcvec = genSourceData(ih, iw, ic);
+            auto srcVar = _Input({ih, iw, ic}, NHWC, halide_type_of<uint8_t>());
+            auto inputPtr = srcVar->writeMap<uint8_t>();
+            memcpy(inputPtr, srcvec.data(), srcVar->getInfo()->size * sizeof(uint8_t));
+
+            for (int i = 0; i < warmup; ++i) {
+                cvtColor(srcVar, BGRA, BGR);
+            }
+            Timer l_;
+            for (int i = 0; i < LOOP; ++i) {
+                cvtColor(srcVar, BGRA, BGR);
+            }
+            auto duration = (float)l_.durationInUs() / 1000.f / LOOP;
+            printf("BRGA->BGR: cost time=%.3f ms\n", duration);
+        }
+        
+        {
+            int ic = 3;
+            auto srcvec = genSourceData(ih, iw, ic);
+            auto srcVar = _Input({ih, iw, ic}, NHWC, halide_type_of<uint8_t>());
+            auto inputPtr = srcVar->writeMap<uint8_t>();
+            memcpy(inputPtr, srcvec.data(), srcVar->getInfo()->size * sizeof(uint8_t));
+
+            for (int i = 0; i < warmup; ++i) {
+                cvtColor(srcVar, RGB, GRAY);
+            }
+            Timer l_;
+            for (int i = 0; i < LOOP; ++i) {
+                cvtColor(srcVar, RGB, GRAY);
+            }
+            auto duration = (float)l_.durationInUs() / 1000.f / LOOP;
+            printf("RGB->GRAY: cost time=%.3f ms\n", duration);
+        }
+        
+        {
+            int ic = 3;
+            auto srcvec = genSourceData(ih, iw, ic);
+            auto srcVar = _Input({ih, iw, ic}, NHWC, halide_type_of<uint8_t>());
+            auto inputPtr = srcVar->writeMap<uint8_t>();
+            memcpy(inputPtr, srcvec.data(), srcVar->getInfo()->size * sizeof(uint8_t));
+
+            for (int i = 0; i < warmup; ++i) {
+                cvtColor(srcVar, BGR, GRAY);
+            }
+            Timer l_;
+            for (int i = 0; i < LOOP; ++i) {
+                cvtColor(srcVar, BGR, GRAY);
+            }
+            auto duration = (float)l_.durationInUs() / 1000.f / LOOP;
+            printf("BGR->GRAY: cost time=%.3f ms\n", duration);
+        }
+
+        {
+            int ic = 4;
+            auto srcvec = genSourceData(ih, iw, ic);
+            auto srcVar = _Input({ih, iw, ic}, NHWC, halide_type_of<uint8_t>());
+            auto inputPtr = srcVar->writeMap<uint8_t>();
+            memcpy(inputPtr, srcvec.data(), srcVar->getInfo()->size * sizeof(uint8_t));
+
+            for (int i = 0; i < warmup; ++i) {
+                cvtColor(srcVar, BGRA, GRAY);
+            }
+            Timer l_;
+            for (int i = 0; i < LOOP; ++i) {
+                cvtColor(srcVar, BGRA, GRAY);
+            }
+            auto duration = (float)l_.durationInUs() / 1000.f / LOOP;
+            printf("BGRA->GRAY: cost time=%.3f ms\n", duration);
+        }
+        
+        {
+            int ic = 4;
+            auto srcvec = genSourceData(ih, iw, ic);
+            auto srcVar = _Input({ih, iw, ic}, NHWC, halide_type_of<uint8_t>());
+            auto inputPtr = srcVar->writeMap<uint8_t>();
+            memcpy(inputPtr, srcvec.data(), srcVar->getInfo()->size * sizeof(uint8_t));
+
+            for (int i = 0; i < warmup; ++i) {
+                cvtColor(srcVar, RGBA, GRAY);
+            }
+            Timer l_;
+            for (int i = 0; i < LOOP; ++i) {
+                cvtColor(srcVar, RGBA, GRAY);
+            }
+            auto duration = (float)l_.durationInUs() / 1000.f / LOOP;
+            printf("RGBA->GRAY: cost time=%.3f ms\n", duration);
+        }
+        
+        {
+            int ic = 1;
+            auto srcvec = genSourceData(ih, iw, ic);
+            auto srcVar = _Input({ih, iw, ic}, NHWC, halide_type_of<uint8_t>());
+            auto inputPtr = srcVar->writeMap<uint8_t>();
+            memcpy(inputPtr, srcvec.data(), srcVar->getInfo()->size * sizeof(uint8_t));
+
+            for (int i = 0; i < warmup; ++i) {
+                cvtColor(srcVar, GRAY, RGBA);
+            }
+            Timer l_;
+            for (int i = 0; i < LOOP; ++i) {
+                cvtColor(srcVar, GRAY, RGBA);
+            }
+            auto duration = (float)l_.durationInUs() / 1000.f / LOOP;
+            printf("GRAY->RGBA: cost time=%.3f ms\n", duration);
+        }
+
+        {
+            int ic = 1;
+            auto srcvec = genSourceData(ih, iw, ic);
+            auto srcVar = _Input({ih, iw, ic}, NHWC, halide_type_of<uint8_t>());
+            auto inputPtr = srcVar->writeMap<uint8_t>();
+            memcpy(inputPtr, srcvec.data(), srcVar->getInfo()->size * sizeof(uint8_t));
+
+            for (int i = 0; i < warmup; ++i) {
+                cvtColor(srcVar, GRAY, RGB);
+            }
+            Timer l_;
+            for (int i = 0; i < LOOP; ++i) {
+                cvtColor(srcVar, GRAY, RGB);
+            }
+            auto duration = (float)l_.durationInUs() / 1000.f / LOOP;
+            printf("GRAY->RGB: cost time=%.3f ms\n", duration);
+        }
+        
+        {
+            int ic = 3;
+            auto srcvec = genSourceData(ih, iw, ic);
+            auto srcVar = _Input({ih, iw, ic}, NHWC, halide_type_of<uint8_t>());
+            auto inputPtr = srcVar->writeMap<uint8_t>();
+            memcpy(inputPtr, srcvec.data(), srcVar->getInfo()->size * sizeof(uint8_t));
+
+            for (int i = 0; i < warmup; ++i) {
+                cvtColor(srcVar, RGB, YUV);
+            }
+            Timer l_;
+            for (int i = 0; i < LOOP; ++i) {
+                cvtColor(srcVar, RGB, YUV);
+            }
+            auto duration = (float)l_.durationInUs() / 1000.f / LOOP;
+            printf("RGB->YUV: cost time=%.3f ms\n", duration);
+        }
+        {
+            int ic = 3;
+            auto srcvec = genSourceData(ih, iw, ic);
+            auto srcVar = _Input({ih, iw, ic}, NHWC, halide_type_of<uint8_t>());
+            auto inputPtr = srcVar->writeMap<uint8_t>();
+            memcpy(inputPtr, srcvec.data(), srcVar->getInfo()->size * sizeof(uint8_t));
+        
+            for (int i = 0; i < warmup; ++i) {
+                cvtColor(srcVar, RGB, XYZ);
+            }
+            Timer l_;
+            for (int i = 0; i < LOOP; ++i) {
+                cvtColor(srcVar, RGB, XYZ);
+            }
+            auto duration = (float)l_.durationInUs() / 1000.f / LOOP;
+            printf("RGB->XYZ: cost time=%.3f ms\n", duration);
+        }
+        
+        {
+            int ic = 3;
+            auto srcvec = genSourceData(ih, iw, ic);
+            auto srcVar = _Input({ih, iw, ic}, NHWC, halide_type_of<uint8_t>());
+            auto inputPtr = srcVar->writeMap<uint8_t>();
+            memcpy(inputPtr, srcvec.data(), srcVar->getInfo()->size * sizeof(uint8_t));
+
+            for (int i = 0; i < warmup; ++i) {
+                cvtColor(srcVar, RGB, HSV);
+            }
+            Timer l_;
+            for (int i = 0; i < LOOP; ++i) {
+                cvtColor(srcVar, RGB, HSV);
+            }
+            auto duration = (float)l_.durationInUs() / 1000.f / LOOP;
+            printf("RGB->HSV: cost time=%.3f ms\n", duration);
+        }
+        {
+            int ic = 3;
+            auto srcvec = genSourceData(ih, iw, ic);
+            auto srcVar = _Input({ih, iw, ic}, NHWC, halide_type_of<uint8_t>());
+            auto inputPtr = srcVar->writeMap<uint8_t>();
+            memcpy(inputPtr, srcvec.data(), srcVar->getInfo()->size * sizeof(uint8_t));
+
+            for (int i = 0; i < warmup; ++i) {
+                cvtColor(srcVar, RGB, BGR555);
+            }
+            Timer l_;
+            for (int i = 0; i < LOOP; ++i) {
+                cvtColor(srcVar, RGB, BGR555);
+            }
+            auto duration = (float)l_.durationInUs() / 1000.f / LOOP;
+            printf("RGB->BGR555: cost time=%.3f ms\n", duration);
+        }
+        
+        {
+            int ic = 3;
+            auto srcvec = genSourceData(ih, iw, ic);
+            auto srcVar = _Input({ih, iw, ic}, NHWC, halide_type_of<uint8_t>());
+            auto inputPtr = srcVar->writeMap<uint8_t>();
+            memcpy(inputPtr, srcvec.data(), srcVar->getInfo()->size * sizeof(uint8_t));
+
+            for (int i = 0; i < warmup; ++i) {
+                cvtColor(srcVar, BGR, BGR555);
+            }
+            Timer l_;
+            for (int i = 0; i < LOOP; ++i) {
+                cvtColor(srcVar, BGR, BGR555);
+            }
+            auto duration = (float)l_.durationInUs() / 1000.f / LOOP;
+            printf("BGR->BGR555: cost time=%.3f ms\n", duration);
+        }
+
+        {
+            int ic = 3;
+            auto srcvec = genSourceData(ih, iw, ic);
+            auto srcVar = _Input({ih, iw, ic}, NHWC, halide_type_of<uint8_t>());
+            auto inputPtr = srcVar->writeMap<uint8_t>();
+            memcpy(inputPtr, srcvec.data(), srcVar->getInfo()->size * sizeof(uint8_t));
+
+            for (int i = 0; i < warmup; ++i) {
+                cvtColor(srcVar, BGR, BGR565);
+            }
+            Timer l_;
+            for (int i = 0; i < LOOP; ++i) {
+                cvtColor(srcVar, BGR, BGR565);
+            }
+            auto duration = (float)l_.durationInUs() / 1000.f / LOOP;
+            printf("BGR->BGR565: cost time=%.3f ms\n", duration);
+        }
+        
+        {
+            int ic = 3;
+            auto srcvec = genSourceData(ih, iw, ic);
+            auto srcVar = _Input({ih, iw, ic}, NHWC, halide_type_of<uint8_t>());
+            auto inputPtr = srcVar->writeMap<uint8_t>();
+            memcpy(inputPtr, srcvec.data(), srcVar->getInfo()->size * sizeof(uint8_t));
+
+            for (int i = 0; i < warmup; ++i) {
+                cvtColor(srcVar, RGB, BGR565);
+            }
+            Timer l_;
+            for (int i = 0; i < LOOP; ++i) {
+                cvtColor(srcVar, RGB, BGR565);
+            }
+            auto duration = (float)l_.durationInUs() / 1000.f / LOOP;
+            printf("RGB->BGR565: cost time=%.3f ms\n", duration);
+        }
+        
+        {
+            int ic = 3;
+            auto srcvec = genSourceData(ih, iw, ic);
+            auto srcVar = _Input({ih, iw, ic}, NHWC, halide_type_of<uint8_t>());
+            auto inputPtr = srcVar->writeMap<uint8_t>();
+            memcpy(inputPtr, srcvec.data(), srcVar->getInfo()->size * sizeof(uint8_t));
+
+            for (int i = 0; i < warmup; ++i) {
+                cvtColor(srcVar, YUV_NV21, RGB);
+            }
+            Timer l_;
+            for (int i = 0; i < LOOP; ++i) {
+                cvtColor(srcVar, YUV_NV21, RGB);
+            }
+            auto duration = (float)l_.durationInUs() / 1000.f / LOOP;
+            printf("YUV_NV21->RGB: cost time=%.3f ms\n", duration);
+        }
+        
+        {
+            int ic = 3;
+            auto srcvec = genSourceData(ih, iw, ic);
+            auto srcVar = _Input({ih, iw, ic}, NHWC, halide_type_of<uint8_t>());
+            auto inputPtr = srcVar->writeMap<uint8_t>();
+            memcpy(inputPtr, srcvec.data(), srcVar->getInfo()->size * sizeof(uint8_t));
+
+            for (int i = 0; i < warmup; ++i) {
+                cvtColor(srcVar, YUV_NV21, BGR);
+            }
+            Timer l_;
+            for (int i = 0; i < LOOP; ++i) {
+                cvtColor(srcVar, YUV_NV21, BGR);
+            }
+            auto duration = (float)l_.durationInUs() / 1000.f / LOOP;
+            printf("YUV_NV21->BGR: cost time=%.3f ms\n", duration);
+        }
+        
+        {
+            int ic = 3;
+            auto srcvec = genSourceData(ih, iw, ic);
+            auto srcVar = _Input({ih, iw, ic}, NHWC, halide_type_of<uint8_t>());
+            auto inputPtr = srcVar->writeMap<uint8_t>();
+            memcpy(inputPtr, srcvec.data(), srcVar->getInfo()->size * sizeof(uint8_t));
+
+            for (int i = 0; i < warmup; ++i) {
+                cvtColor(srcVar, YUV_NV21, BGRA);
+            }
+            Timer l_;
+            for (int i = 0; i < LOOP; ++i) {
+                cvtColor(srcVar, YUV_NV21, BGRA);
+            }
+            auto duration = (float)l_.durationInUs() / 1000.f / LOOP;
+            printf("YUV_NV21->BGRA: cost time=%.3f ms\n", duration);
+        }
+        
+        {
+            int ic = 3;
+            auto srcvec = genSourceData(ih, iw, ic);
+            auto srcVar = _Input({ih, iw, ic}, NHWC, halide_type_of<uint8_t>());
+            auto inputPtr = srcVar->writeMap<uint8_t>();
+            memcpy(inputPtr, srcvec.data(), srcVar->getInfo()->size * sizeof(uint8_t));
+
+            for (int i = 0; i < warmup; ++i) {
+                cvtColor(srcVar, YUV_NV21, RGBA);
+            }
+            Timer l_;
+            for (int i = 0; i < LOOP; ++i) {
+                cvtColor(srcVar, YUV_NV21, RGBA);
+            }
+            auto duration = (float)l_.durationInUs() / 1000.f / LOOP;
+            printf("YUV_NV21->RGBA: cost time=%.3f ms\n", duration);
+        }
+        return true;
+    }
+};
+// MNNTestSuiteRegister(ImageProcessSpeed, "cv/image_process/speed");

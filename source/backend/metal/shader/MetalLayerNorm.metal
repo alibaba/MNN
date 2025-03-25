@@ -40,7 +40,6 @@ kernel void layernorm_x1(const device ftype *in       [[buffer(0)]],
     }
 }
 
-
 kernel void layernorm_x4(const device ftype4 *in       [[buffer(0)]],
                          device ftype4 *out            [[buffer(1)]],
                          constant layernorm_constants& cst  [[buffer(2)]],
@@ -84,7 +83,6 @@ kernel void layernorm_x4(const device ftype4 *in       [[buffer(0)]],
         out_data[gid.x] = (ftype4)(norm);
     }
 }
-
 
 kernel void layernorm_x1_rms(const device ftype *in       [[buffer(0)]],
                             device ftype *out            [[buffer(1)]],

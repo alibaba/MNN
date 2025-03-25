@@ -6,6 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+//#define MNN_OPEN_TIME_TRACE
+#include <MNN/AutoTime.hpp>
 #include "GeometryConvUtils.hpp"
 #include "ConvertUtils.hpp"
 
@@ -40,6 +42,7 @@ flatbuffers::Offset<Op> GeometryConvUtils::makeRelu6(flatbuffers::FlatBufferBuil
 }
 void GeometryConvUtils::im2Col3d(Tensor* im2Col, Tensor* input, int ic, int kd, int kh, int kw, int batch, int od, int oh, int ow,
     int id, int ih, int iw, int sd, int sh, int sw, int dd, int dh, int dw, int pd, int ph, int pw, int srcKernelOffset) {
+    AUTOTIME;
     im2Col->buffer().type       = halide_type_of<float>();
     im2Col->buffer().dimensions = 2;
     im2Col->setLength(0, ic * kd * kh * kw);
@@ -49,6 +52,24 @@ void GeometryConvUtils::im2Col3d(Tensor* im2Col, Tensor* input, int ic, int kd, 
     des->memoryType      = Tensor::InsideDescribe::MEMORY_VIRTUAL;
     des->dimensionFormat = MNN_DATA_FORMAT_NCHW;
     des->regions.clear();
+    if (id == kd && ih == kh && iw == kw & pd == 0 && ph == 0 && pw == 0 && dd == 1 && dh == 1 && dw == 1) {
+        // fast impl: n, ic, id, ih, iw -> ic*id*ih*iw, n
+        Tensor::InsideDescribe::Region region;
+        region.origin        = input;
+        region.size[0]       = 1;
+        region.size[1]       = ic * id * ih * iw;
+        region.size[2]       = batch;
+        region.src.offset    = 0;
+        region.dst.offset    = 0;
+        region.src.stride[0] = 1;
+        region.dst.stride[0] = 1;
+        region.src.stride[1] = 1;
+        region.dst.stride[1] = batch;
+        region.src.stride[2] = ic * id * ih * iw;
+        region.dst.stride[2] = 1;
+        des->regions.emplace_back(std::move(region));
+        return;
+    }
     des->regions.reserve(batch * ic * kd * kh * kw);
     for (int c = 0; c < ic; ++c) {
         for (int n = 0; n < batch; ++n) {
@@ -247,12 +268,25 @@ std::shared_ptr<Tensor> GeometryConvUtils::im2Col(Tensor* im2Col, Tensor* input,
     return tempTensor;
 }
 bool GeometryConvUtils::computeSingle(const Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, GeometryComputer::Context& context, CommandBuffer& res) {
+#if KAI_CONV_NCHW_IN_OUT
+    KleidiAI& kai = KleidiAI::getInstance();
+    if(kai.canAccelerate()) {
+        kai.setLinear(true);
+        std::shared_ptr<Command> cmd(new Command);
+        cmd->op      = op;
+        cmd->inputs  = std::move(inputs);
+        cmd->outputs = std::move(outputs);
+        res.command.emplace_back(std::move(cmd));
+        return true;
+    }
+#endif
     auto newOutputs   = outputs;
     auto newInputs    = inputs;
     auto originOutput = outputs[0];
     auto output       = originOutput;
     auto inputDes     = TensorUtils::getDescribe(newInputs[0]);
     auto format       = inputDes->dimensionFormat;
+
     if (MNN_DATA_FORMAT_NC4HW4 != format) {
         std::shared_ptr<Tensor> newInput(new Tensor(newInputs[0], Tensor::CAFFE_C4, false));
         ConvertUtils::compute(newInputs[0], newInput.get(), res);

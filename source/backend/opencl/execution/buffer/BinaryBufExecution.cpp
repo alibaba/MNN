@@ -246,31 +246,43 @@ ErrorCode BinaryBufExecution::onEncode(const std::vector<Tensor *> &inputs, cons
     
     auto openCLBackend = static_cast<OpenCLBackend*>(backend());
     auto output = outputs[0];
-    auto inputShape0 = tensorShapeFormat(inputs[0]);
-    auto inputShape1 = tensorShapeFormat(inputs[1]);
     auto outputShape = tensorShapeFormat(output);
     auto runTime     = ((OpenCLBackend *)backend())->getOpenCLRuntime();
 #ifdef MNN_SUPPORT_INTEL_SUBGROUP
-    if (runTime->isSupportedIntelSubgroup()) {
+    if (runTime->isSupportedIntelSubgroup() && MNN::MNN_DATA_FORMAT_NC4HW4 == TensorUtils::getDescribe(output)->dimensionFormat) {
         return SubgroupOnResize(inputs, outputs);
     }
 #endif /* MNN_SUPPORT_INTEL_SUBGROUP */
-    int shape[4] = {outputShape[0], outputShape[1], outputShape[2], UP_DIV(outputShape[3], 4)};
     int fullCount[2] = {1, 1};
+    fullCount[0] = realSize(inputs[0]) == 1 ? 0 : 1;
+    fullCount[1] = realSize(inputs[1]) == 1 ? 0 : 1;
+    int totalSize = 0;
+    if(MNN::MNN_DATA_FORMAT_NC4HW4 == TensorUtils::getDescribe(output)->dimensionFormat){
+        totalSize = outputShape[0] * outputShape[1] * outputShape[2] * ROUND_UP(outputShape[3], 4);
+    }else{
+        totalSize = outputShape[0] * outputShape[1] * outputShape[2] * outputShape[3];
+    }
     
     int activationType = 0;
     if(mOp->type() == OpType_BinaryOp) {
         activationType = mOp->main_as_BinaryOp()->activationType();
     }
     auto &unit = mUnits[0];
-    unit.kernel = runTime->buildKernel("binary_buf", "binary_buf", mBuildOptions, inputs[0], output);
+    
+    std::set<std::string> buildOptions = mBuildOptions;
+    if(totalSize % 4 != 0) {
+        buildOptions.emplace("-DPACK_LEAVE");
+    }
+    if(fullCount[0] == 0) {
+        buildOptions.emplace("-DA_SINGLE");
+    }
+    if(fullCount[1] == 0) {
+        buildOptions.emplace("-DB_SINGLE");
+    }
+    unit.kernel = runTime->buildKernel("binary_buf", "binary_buf", buildOptions, inputs[0], output);
     mMaxWorkGroupSize      = static_cast<uint32_t>(runTime->getMaxWorkGroupSize(unit.kernel));
 
-    mGlobalWorkSize =  {(uint32_t)UP_DIV(outputShape[3], 4) * outputShape[0],
-                                        (uint32_t)outputShape[1]*outputShape[2]};
-    fullCount[0] = realSize(inputs[0]) == 1 ? 0 : 1;
-    fullCount[1] = realSize(inputs[1]) == 1 ? 0 : 1;
-    
+    mGlobalWorkSize =  {(uint32_t)UP_DIV(totalSize, 4), (uint32_t)1};
     uint32_t index = 0;
     cl_int ret = CL_SUCCESS;
     ret |= unit.kernel->get().setArg(index++, mGlobalWorkSize[0]);
@@ -278,13 +290,12 @@ ErrorCode BinaryBufExecution::onEncode(const std::vector<Tensor *> &inputs, cons
     ret |= unit.kernel->get().setArg(index++, openCLBuffer(inputs[0]));
     ret |= unit.kernel->get().setArg(index++, openCLBuffer(inputs[1]));
     ret |= unit.kernel->get().setArg(index++, openCLBuffer(output));
-    ret |= unit.kernel->get().setArg(index++, shape);
-    ret |= unit.kernel->get().setArg(index++, fullCount);
+    ret |= unit.kernel->get().setArg(index++, totalSize);
     ret |= unit.kernel->get().setArg(index++, activationType);
     MNN_CHECK_CL_SUCCESS(ret, "setArg BinaryBufExecution");
 
     std::string name = "binary_buf";
-    mLocalWorkSize = localWS2DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), name, unit.kernel).first;
+    mLocalWorkSize = {(uint32_t)16, (uint32_t)1};
     
     unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1]};
     unit.localWorkSize  = {mLocalWorkSize[0], mLocalWorkSize[1]};
@@ -293,7 +304,8 @@ ErrorCode BinaryBufExecution::onEncode(const std::vector<Tensor *> &inputs, cons
         fullCount[0] = 1;
         fullCount[1] = realSize(inputs[i]) == 1 ? 0 : 1;
         auto &unit = mUnits[i-1];
-        unit.kernel = runTime->buildKernel("binary_buf", "binary_buf", mBuildOptions, inputs[i], output);
+        
+        unit.kernel = runTime->buildKernel("binary_buf", "binary_buf", buildOptions, inputs[i], output);
 
         uint32_t index = 0;
         ret |= unit.kernel->get().setArg(index++, mGlobalWorkSize[0]);
@@ -301,8 +313,7 @@ ErrorCode BinaryBufExecution::onEncode(const std::vector<Tensor *> &inputs, cons
         ret |= unit.kernel->get().setArg(index++, openCLBuffer(output));
         ret |= unit.kernel->get().setArg(index++, openCLBuffer(inputs[i]));
         ret |= unit.kernel->get().setArg(index++, openCLBuffer(output));
-        ret |= unit.kernel->get().setArg(index++, shape);
-        ret |= unit.kernel->get().setArg(index++, fullCount);
+        ret |= unit.kernel->get().setArg(index++, totalSize);
         ret |= unit.kernel->get().setArg(index++, activationType);
         MNN_CHECK_CL_SUCCESS(ret, "setArg BinaryBufExecution MultiInput");
 
@@ -318,12 +329,15 @@ class BinaryBufCreator : public OpenCLBackend::Creator {
 public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                 const MNN::Op *op, Backend *backend) const override {
+#ifdef MNN_SUPPORT_INTEL_SUBGROUP
         for (int i = 0; i < inputs.size(); ++i) {
             int channel = inputs[i]->channel();
-            if (channel >= 16 && static_cast<OpenCLBackend *>(backend)->getOpenCLRuntime()->isSupportedIntelSubgroup()) {
+            if (channel >= 16 && static_cast<OpenCLBackend *>(backend)->getOpenCLRuntime()->isSupportedIntelSubgroup()
+                && MNN::MNN_DATA_FORMAT_NC4HW4 == TensorUtils::getDescribe(inputs[i])->dimensionFormat) {
                 TensorUtils::setTensorChannelPack(inputs[i], 16);
             }
         }
+#endif /* MNN_SUPPORT_INTEL_SUBGROUP */
         if (op->type() == OpType_Eltwise) {
             switch (op->main_as_Eltwise()->type()) {
                 case EltwiseType_SUM:
@@ -379,7 +393,7 @@ public:
                 case BinaryOpOperation_NOTEQUAL:
                     return new BinaryBufExecution(inputs, "convert_float4(-isnotequal(in0,in1))", op, backend);
                 case BinaryOpOperation_MOD:
-                    return new BinaryBufExecution(inputs, "fmod(in0,in1)", op, backend);
+                    return new BinaryBufExecution(inputs, "in0-floor(sign(in1)*in0/(fabs(in1)>(float4)((float)0.0000001)?fabs(in1):(float4)((float)0.0000001)))*in1", op, backend);
                 default:
                     break;
             }

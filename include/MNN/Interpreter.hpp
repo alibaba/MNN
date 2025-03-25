@@ -163,6 +163,15 @@ public:
         /** Dynamic Reisze Optimization */
         Session_Resize_Check = 14, // Open Trace for resize
         Session_Resize_Fix = 15, // Apply Resize Optimization
+        
+        /** Set for Module's traceOrOptimize API. 
+         Module_Forward_Seperate:
+         when inputs is not empty , Module's onForward will only infer shape and alloc memory.
+         when inputs is empty , Module's onForward will only runSession to compute content.
+         Default is Module_Forward_Combine
+         */
+        Module_Forward_Separate = 16,
+        Module_Forward_Combine = 17,
     };
     /**
      * @brief The API shoud be called before create session.
@@ -203,7 +212,72 @@ public:
         MEM_ALLOCATOR_TYPE = 2,
         // Winograd unit candidates count, default 3. if set 0, will use less unit candidates for less memory at the expense of performance.
         WINOGRAD_MEMORY_LEVEL = 3,
+
+        // Geometry Compute option, default is 0xFFFF
+        GEOMETRY_COMPUTE_MASK = 4,
+
+        // 0: Close dynamic quant; 
+        // 1: For general convolution, use one scale&zeropoint to quant.
+        DYNAMIC_QUANT_OPTIONS = 5,
+
+        // For Mobile CPU with big-litter core, set decrease rate to let MNN divide task differential by CPU's performance
+        // 0-100, 50 means litter core has 50% capacity of large core
+        // Default is 50
+        CPU_LITTLECORE_DECREASE_RATE = 6,
+
+        // 0: Do not quantize
+        // 1: Only quantize key, use int8 asymmetric quantization 
+        // 2: Only quantize value, use fp8 quantization
+        // 3: quantize both key and value
+        // 4: quantize query, key and value, and use gemm int8 kernel to compute K*V
+        QKV_QUANT_OPTIONS = 7,
+
+        // size limit of kvcache in memory (for a single layer)
+        // if the size of kvcache exceeds the limit, it will be moved to disk
+        KVCACHE_SIZE_LIMIT = 8,
+        // Op encoder number for commit
+        OP_ENCODER_NUMBER_FOR_COMMIT = 9,
+
+        // KVCache Info
+        KVCACHE_INFO = 10,
+        // mmap allocate file size, KB
+        MMAP_FILE_SIZE = 11,
+        USE_CACHED_MMAP = 12,
+        
+        // Multi-Thread Load module, default is 0 (don't use other Thread)
+        INIT_THREAD_NUMBER = 13
     };
+
+    enum ExternalPathType {
+        // Path of the kvcache directory
+        EXTERNAL_PATH_KVCACHE_DIR = 0,
+        
+        // Mid Buffer Cache File
+        EXTERNAL_FEATUREMAP_DIR = 1,
+
+        // Weight Buffer Cache File
+        EXTERNAL_WEIGHT_DIR = 2,
+
+        // Other types ...
+    };
+
+    enum GeometryComputeMask {
+        // Support Region Fuse
+        GEOMETRCOMPUTEMASK_FUSEREGION = 1 << 0,
+
+        // Support Region Fuse to input with multi-region, eg: pad + concat
+        GEOMETRCOMPUTEMASK_FUSEREGION_MULTI = 1 << 1,
+
+        // Use loop instead of raster + compute if possible
+        GEOMETRCOMPUTEMASK_USELOOP = 1 << 2,
+        
+        // Support Geometry Cache, if shape changed, will try recompute, and then run compute if failed
+        GEOMETRCOMPUTEMASK_OPENCACHE = 1 << 3,
+        
+        // Full option open mask, for example, if want to close useloop, can set mask as (GEOMETRCOMPUTEMASK_ALL - GEOMETRCOMPUTEMASK_USELOOP)
+        GEOMETRCOMPUTEMASK_ALL = 0xFFFF,
+    };
+
     /**
      * @brief The API shoud be called before create session.
      * @param mode      Hint type
@@ -353,7 +427,10 @@ public:
         /** Backends in session in M, int*, length >= 1 + number of configs when create session */
         BACKENDS = 2,
 
-        /** Resize Info, int*, 0: ready to execute, 1: need malloc, 2: need resize */
+        /** Resize Info, int* , the mean different from API
+         Interpreter::getSessionInfo: 0: ready to execute, 1: need malloc, 2: need resize
+         RuntimeManager::getInfo: 0: no resize, 1: re-malloc, 2: resize
+         */
         RESIZE_STATUS = 3,
         
         /** Mode / NumberThread, int* */

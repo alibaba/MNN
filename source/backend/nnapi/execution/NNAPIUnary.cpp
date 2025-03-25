@@ -40,7 +40,7 @@ ErrorCode NNAPIUnary::onResize(const std::vector<Tensor *> &inputs, const std::v
         {UnaryOpOperation_FLOOR, ANEURALNETWORKS_FLOOR},
         {UnaryOpOperation_ROUND, -1},
         {UnaryOpOperation_SIGN, -1},
-        {UnaryOpOperation_SIGMOID, -1},
+        {UnaryOpOperation_SIGMOID, ANEURALNETWORKS_LOGISTIC},
         {UnaryOpOperation_LOG1P, -1},
         {UnaryOpOperation_SQUARE, -1},
         {UnaryOpOperation_NEG, ANEURALNETWORKS_NEG},
@@ -50,7 +50,8 @@ ErrorCode NNAPIUnary::onResize(const std::vector<Tensor *> &inputs, const std::v
         {UnaryOpOperation_EXPM1, -1},
         {UnaryOpOperation_ERFC, -1},
         {UnaryOpOperation_BNLL, -1},
-        {UnaryOpOperation_ERFINV, -1}
+        {UnaryOpOperation_ERFINV, -1},
+        {UnaryOpOperation_SILU, -1}
     };
     auto opType = mOp->main_as_UnaryOp()->opType();
     auto iter = unary_map.find(opType);

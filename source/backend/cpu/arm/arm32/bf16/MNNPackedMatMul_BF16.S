@@ -30,8 +30,9 @@ add r4, r4, #3
 ldr r8, [r3, #12]//cStride
 ldr r3, [r3, #20]//bExtraStride
 lsr r4, r4, #2
+lsr r3, r3, #1 //bExtraStride is compute as fp32, turn to bf16
 
-sub r8, r8, #96 // after segment "Store", total line stride is CStride, all vst. offset is 12 * 4 * size_t(int16_t) = 96byte
+sub r8, r8, #192 // after segment "Store", total line stride is CStride, all vst. offset is 12 * 4 * size_t(float) = 192byte
 
 vpush {q4-q7}
 // q0, q1, q2: src
@@ -95,10 +96,8 @@ LoopH:
     cmp r5, #0
     beq Store
     vld1.32 {q0}, [r5] // parameter remains float
-    cmp r6, #0
-    beq LoadOrigin
-    vld1.16 {d6}, [r6]! // load 4 * sizeof(int16_t)
-    vshll.s16 q3, d6, #16 // shift left long of each int16_t as int32_t
+    vld1.32 {q3}, [r6]! // load 4 * sizeof(float)
+
     vmla.f32 q4,  q3, d0[1]
     vmla.f32 q5,  q3, d0[1]
     vmla.f32 q6,  q3, d0[1]
@@ -113,44 +112,6 @@ LoopH:
     vmla.f32 q15, q3, d0[1]
 
     b PostTreat
-
-    LoadOrigin:
-    mov r11, r0
-    vld1.16 {d2, d3}, [r11]! // load 2 * 4 * sizeof(int16_t)
-    vshll.s16 q2, d3, #16 // shift left long of each int16_t as int32_t
-    vshll.s16 q1, d2, #16
-    vmla.f32 q4, q1, d0[1]
-    vmla.f32 q5, q2, d0[1]
-
-    vld1.16 {d2, d3}, [r11]! // load 2 * 4 * sizeof(int16_t)
-    vshll.s16 q2, d3, #16 // shift left long of each int16_t as int32_t
-    vshll.s16 q1, d2, #16
-    vmla.f32 q6, q1, d0[1]
-    vmla.f32 q7, q2, d0[1]
-
-    vld1.16 {d2, d3}, [r11]! // load 2 * 4 * sizeof(int16_t)
-    vshll.s16 q2, d3, #16 // shift left long of each int16_t as int32_t
-    vshll.s16 q1, d2, #16
-    vmla.f32 q8, q1, d0[1]
-    vmla.f32 q9, q2, d0[1]
-
-    vld1.16 {d2, d3}, [r11]! // load 2 * 4 * sizeof(int16_t)
-    vshll.s16 q2, d3, #16 // shift left long of each int16_t as int32_t
-    vshll.s16 q1, d2, #16
-    vmla.f32 q10, q1, d0[1]
-    vmla.f32 q11, q2, d0[1]
-
-    vld1.16 {d2, d3}, [r11]! // load 2 * 4 * sizeof(int16_t)
-    vshll.s16 q2, d3, #16 // shift left long of each int16_t as int32_t
-    vshll.s16 q1, d2, #16
-    vmla.f32 q12, q1, d0[1]
-    vmla.f32 q13, q2, d0[1]
-
-    vld1.16 {d2, d3}, [r11]! // load 2 * 4 * sizeof(int16_t)
-    vshll.s16 q2, d3, #16 // shift left long of each int16_t as int32_t
-    vshll.s16 q1, d2, #16
-    vmla.f32 q14, q1, d0[1]
-    vmla.f32 q15, q2, d0[1]
 
     PostTreat:
     vdup.f32 q2, d1[0] // min
@@ -183,20 +144,13 @@ LoopH:
     vmin.f32 q15, q15, q1
 
     Store:
-    vshrn.i32 d8, q4, #16 // !!caution: these instructions has relying, eg: d10 must be written after reading q5.  shift right 16bit of each float32 as int16_t
-    vshrn.i32 d9, q5, #16
-    vshrn.i32 d10, q6, #16
-    vshrn.i32 d11, q7, #16
-    vshrn.i32 d12, q8, #16
-    vshrn.i32 d13, q9, #16
-    vshrn.i32 d14, q10, #16
-    vshrn.i32 d15, q11, #16
-    vshrn.i32 d16, q12, #16
-    vshrn.i32 d17, q13, #16
-    vshrn.i32 d18, q14, #16
-    vshrn.i32 d19, q15, #16
 
-    vstm r0!, {d8, d9, d10, d11, d12, d13, d14, d15, d16, d17, d18, d19}
+    vst1.32 {q4, q5}, [r0]!
+    vst1.32 {q6, q7}, [r0]!
+    vst1.32 {q8, q9}, [r0]!
+    vst1.32 {q10, q11}, [r0]!
+    vst1.32 {q12, q13}, [r0]!
+    vst1.32 {q14, q15}, [r0]!
 
     add r0, r0, r8
     add r2, r2, r3

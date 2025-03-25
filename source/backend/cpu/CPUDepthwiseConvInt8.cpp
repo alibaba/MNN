@@ -142,7 +142,7 @@ ErrorCode CPUDepthwiseConvInt8::onResize(const std::vector<Tensor*>& inputs, con
 
     int size_ = mMutableResource.mBiasInt32->length(0);
     if (core->ConvDepthwise3x3LineInt8_ARM82) {
-        if (kernel_width == 3 && kernel_height == 3 && strideX == 1 && strideY == 1 && dilateX == 1 && dilateY == 1 && gcore->MNNMultiAndDestTransformCommon23 != nullptr && dst_width >= 2 && dst_height >= 2) {
+        if (kernel_width == 3 && kernel_height == 3 && strideX == 1 && strideY == 1 && dilateX == 1 && dilateY == 1 && dst_width >= 2 && dst_height >= 2) {
             mUse3x3Kernel   = true;
             mThreadFunction = core->ConvDepthwise3x3LineInt8_ARM82;
             UNIT = 4;
@@ -247,12 +247,12 @@ public:
         
         if (core->ConvDepthwise3x3LineInt8_ARM82) {
            if (common->kernelX() == 3 && common->kernelY() == 3 && common->strideX() == 1 && common->strideY() == 1 && common->dilateX() == 1
-               && common->dilateY() == 1 && gcore->MNNMultiAndDestTransformCommon23 != nullptr && outputs[0]->width() >= 2 && outputs[0]->height() >= 2) {
+               && common->dilateY() == 1 && outputs[0]->width() >= 2 && outputs[0]->height() >= 2) {
                use3x3kernel = true;
                UNIT = 4;
            }
         }
-        auto res = CPUConvolution::makeResourceInt8(backend, convOp, UNIT);
+        auto res = CPUConvolution::makeResourceInt8(backend, op, UNIT);
         const int kernelSize      = common->kernelX() * common->kernelY();
         const int outputCount     = common->outputCount();
         const int ocDivUnit       = UP_DIV(outputCount, UNIT);

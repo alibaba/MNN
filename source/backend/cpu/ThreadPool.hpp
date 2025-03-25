@@ -25,10 +25,10 @@ public:
     int number() const {
         return mNumberThread;
     }
-    static void enqueue(TASK&& task, int index);
+    static void enqueue(TASK&& task, int index, int threadNumber);
 
-    static void active();
-    static void deactive();
+    static void active(int threadNumber);
+    static void deactive(int threadNumber);
 
     static int acquireWorkIndex();
     static void releaseWorkIndex(int index);
@@ -37,7 +37,7 @@ public:
     static void destroy();
 
 private:
-    void enqueueInternal(TASK&& task, int index);
+    void enqueueInternal(TASK&& task, int index, int threadNumber);
 
     static ThreadPool* gInstance;
     ThreadPool(int number = 0);
@@ -52,7 +52,7 @@ private:
     std::mutex mQueueMutex;
 
     int mNumberThread            = 0;
-    std::atomic_int mActiveCount = {0};
+    std::vector<std::atomic_int*> mActiveCount;
 };
 } // namespace MNN
 #endif

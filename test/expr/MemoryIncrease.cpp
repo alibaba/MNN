@@ -8,6 +8,8 @@
 
 #include <MNN/Interpreter.hpp>
 #include <MNN/expr/ExprCreator.hpp>
+#include <MNN/expr/ExecutorScope.hpp>
+#include <MNN/expr/Module.hpp>
 #include <thread>
 #include "MNNTestSuite.h"
 #include "MNN_generated.h"
@@ -205,3 +207,76 @@ public:
     }
 };
 MNNTestSuiteRegister(MidOutputTest, "expr/MidOutputTest");
+
+class ConstFoldMemoryTest : public MNNTestCase {
+public:
+    virtual bool run(int precision) {
+        BackendConfig bnConfig;
+        auto exe = Executor::newExecutor(MNN_FORWARD_CPU, bnConfig, 1);
+        ExecutorScope scope(exe);
+        Module::Config config;
+        config.shapeMutable = true;
+        config.rearrange = true;
+        std::vector<int8_t> buffer;
+        {
+            // Make Buffer
+            auto x0 = _Input({1}, NCHW, halide_type_of<float>());
+            x0->setName("x0");
+            auto x1 = _Const(1.0f, {256, 1024}, NCHW);
+            x1 = x1 * x1 * _Cos(x1) * _Sin(x1);
+            auto y0 = x0 * x1;
+            y0->setName("y0");
+            buffer = Variable::save({y0});
+        }
+        auto rtInfo = Express::ExecutorScope::Current()->getRuntime();
+        auto rt = rtInfo.first.begin()->second;
+        MNN::ScheduleConfig sconfig;
+        std::vector<MNN::ScheduleConfig> sconfigs = {sconfig};
+        std::shared_ptr<Executor::RuntimeManager> rtMgr(Executor::RuntimeManager::createRuntimeManager(sconfigs));
+        rtMgr->setMode(Interpreter::Session_Memory_Collect);
+        std::shared_ptr<MNN::Express::Module> m0(Module::load({"x0"}, {"y0"}, (const unsigned char*)buffer.data(), buffer.size(), rtMgr, &config), Module::destroy);
+        std::shared_ptr<MNN::Express::Module> m1(Module::load({"x0"}, {"y0"}, (const unsigned char*)buffer.data(), buffer.size(), rtMgr, &config), Module::destroy);
+        float memoryInit = 0.0f;
+        rtMgr->getInfo(Interpreter::MEMORY, &memoryInit);
+        FUNC_PRINT_ALL(memoryInit, f);
+        auto x = _Input({1}, NCHW, halide_type_of<float>());
+        x->writeMap<float>();
+        x->unMap();
+        float memoryCurrent = 0.0f;
+        auto compute = [&](){
+            m0->onForward({x});
+            rtMgr->getInfo(Interpreter::MEMORY, &memoryCurrent);
+            auto static0 = memoryCurrent - memoryInit;
+            FUNC_PRINT_ALL(static0, f);
+            if (static0 > 2.1f) {
+                MNN_ERROR("Constant folder Memory too large\n");
+                return false;
+            }
+            memoryInit = memoryCurrent;
+            m1->traceOrOptimize(Interpreter::Session_Resize_Check);
+            m1->onForward({x});
+            rtMgr->getInfo(Interpreter::MEMORY, &memoryCurrent);
+            auto static1 = memoryCurrent - memoryInit;
+            FUNC_PRINT_ALL(static1, f);
+            if (static1 <= static0) {
+                MNN_ERROR("Check mod the memory should be larger than init mode\n");
+                return false;
+            }
+            m1->traceOrOptimize(Interpreter::Session_Resize_Fix);
+            m1->onForward({x});
+            rtMgr->getInfo(Interpreter::MEMORY, &memoryCurrent);
+            auto static2 = memoryCurrent - memoryInit;
+            FUNC_PRINT_ALL(static2, f);
+            if (static2 >= static1) {
+                MNN_ERROR("TODO: Fix mod the memory should be less than check mode\n");
+            }
+            return true;
+        };
+        bool res = compute();
+        if (!res) {
+            return false;
+        }
+        return true;
+    }
+};
+MNNTestSuiteRegister(ConstFoldMemoryTest, "expr/ConstFoldMemoryTest");

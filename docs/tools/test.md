@@ -1,5 +1,5 @@
 # 测试工具
-[从源码编译](../compile/tools.html#id4)使用cmake编译时，build目录下的产物也包含测试使用的工具集，下面逐项说明。
+使用cmake编译时，默认打开 MNN_BUILD_TOOLS 编译宏，对应build目录下的产物也包含测试使用的工具集，下面逐项说明。
 
 ## GetMNNInfo
 ### 功能
@@ -32,7 +32,7 @@ Model Version: < 2.0.0
 - `runMask:int` 是否输出推理中间结果，0为不输出，1为只输出每个算子的输出结果（{op_name}.txt）;2为输出每个算子的输入（Input_{op_name}.txt）和输出（{op_name}.txt）结果； 默认输出当前目录的output目录下（使用工具之前要自己建好output目录）; 16为开启自动选择后端；32为针对Winograd算法开启内存优化模式，开启后会降低模型（如果含有Winograd Convolution算子）运行时的内存但可能会导致算子的性能损失。可选，默认为`0`
 - `forwardType:int` 执行推理的计算设备，有效值为：0（CPU）、1（Metal）、2（CUDA）、3（OpenCL）、6（OpenGL），7(Vulkan) ，9 (TensorRT)，可选，默认为`0`
 - `numberThread:int` 线程数仅对CPU有效，可选，默认为`4`
-- `precision_memory:int` 测试精度与内存模式，precision_memory % 16 为精度，有效输入为：0(Normal), 1(High), 2(Low), 3(Low_BF16)，可选，默认为`2` ; precision_memory / 16 为内存设置，默认为 0 (memory_normal) 。例如测试 memory 为 low (2) ，precision 为 1 (high) 时，设置 precision_memory = 9 (2 * 4 + 1)
+- `precision_memory:int` 测试精度与内存模式，precision_memory % 4 为精度，有效输入为：0(Normal), 1(High), 2(Low), 3(Low_BF16)，可选，默认为`2` ; (precision_memory / 4) % 4 为内存设置，默认为 0 (memory_normal) 。例如测试 memory 为 low (2) ，precision 为 1 (high) 时，设置 precision_memory = 9 (2 * 4 + 1)
 - `inputSize:str` 输入tensor的大小，输入格式为：`1x3x224x224`，可选，默认使用模型默认输入
 
 
@@ -64,7 +64,7 @@ Avg= 5.570600 ms, OpSum = 7.059200 ms min= 3.863000 ms, max= 11.596001 ms
 
 ## ModuleBasic.out
 ### 功能
-类似`MNNV2Basic.out`，对于带控制流模型，或者多输入多输出的模型，建议采用这个工具
+类似`MNNV2Basic.out`，对于带控制流模型，或者多输入多输出的模型，必须采用这个工具
 ### 参数
 `./ModuleBasic.out model dir [runMask forwardType runLoops numberThread precision_memory cacheFile]`
 - `model:str` 模型文件路径
@@ -73,7 +73,7 @@ Avg= 5.570600 ms, OpSum = 7.059200 ms min= 3.863000 ms, max= 11.596001 ms
 - `forwardType:int` 执行推理的计算设备，有效值为：0（CPU）、1（Metal）、2（CUDA）、3（OpenCL）、6（OpenGL），7(Vulkan) ，9 (TensorRT)，可选，默认为`0`
 - `runLoops:int` 性能测试的循环次数，可选，默认为`0`即不做性能测试
 - `numberThread:int` GPU的线程数，可选，默认为`1`
-- `precision_memory:int` 测试精度与内存模式，precision_memory % 16 为精度，有效输入为：0(Normal), 1(High), 2(Low), 3(Low_BF16)，可选，默认为`2` ; precision_memory / 16 为内存设置，默认为 0 (memory_normal) 。例如测试 memory 为 2(low) ，precision 为 1 (high) 时，设置 precision_memory = 9 (2 * 4 + 1)
+- `precision_memory_power:int` 测试精度与内存模式，precision_memory_power % 4 为精度，有效输入为：0(Normal), 1(High), 2(Low), 3(Low_BF16)，可选，默认为`0` ; (precision_memory_power / 4 % 4) 为内存设置，默认为 0 (memory_normal) ; (precision_memory_power / 16 % 4) 为功耗设置，默认为 0 (power_normal)。例如测试 memory 为 2(low) ，precision 为 1 (high) ，power 为 0(normal) 时，设置 precision_memory = 9 (2 * 4 + 1 + 0 * 16)
 
 
 ### 默认输出
@@ -82,6 +82,7 @@ Avg= 5.570600 ms, OpSum = 7.059200 ms min= 3.863000 ms, max= 11.596001 ms
 ### 测试文件夹生成
 - 若有原始的tf模型/Onnx模型，可以使用testMNNFromTf.py / testMNNFromOnnx.py / testMNNFromTflite.py 等脚本生成
 - 若只有mnn模型，可以用 tools/script/make_test_for_mnn.py 脚本生成测试文件夹，使用方式：mkdir testdir && pythhon3 make_test_for_mnn.py XXX.mnn testdir
+- 为了方便模拟应用中的运行性能，可以通过修改测试文件夹下的 input.json ，增加 freq 项，以指定该模型运行的频率（每秒多少次）
 
 ### runMask 参数说明
 - 1 : 输出推理中间结果，每个算子的输入存到（Input_{op_name}.txt），输出存为（{op_name}.txt）， 默认输出当前目录的output目录下（使用工具之前要自己建好output目录），不支持与 2 / 4 叠加
@@ -93,6 +94,8 @@ Avg= 5.570600 ms, OpSum = 7.059200 ms min= 3.863000 ms, max= 11.596001 ms
 - 64 : 创建模型后，clone 出一个新的模型运行，用于测试 clone 功能（主要用于多并发推理）的正确性
 - 128 : 使用文件夹下面的 input.mnn 和 output.mnn 做为输入和对比输出，对于数据量较大的情况宜用此方案
 - 512 : 开启使用Winograd算法计算卷积时的内存优化，开启后模型的运行时内存会降低，但可能导致性能损失。
+- 1024: 使用动态量化推理时，对输入数据分batch量化以提高模型的推理精度
+- 2048: 使用mmap方式，使用文件存储中间内存。存储文件的目录为当前目录/tmp，需要先建tmp文件夹
 
 
 ### 示例
@@ -260,19 +263,10 @@ stopOp.c_str()=s  in main, 278
 Correct ! Run second pass
 Correct !
 ```
-### 在Android中使用
-先编译相关的库和可执行文件，然后push到Android手机上，用adb执行命令，参考`project/android/testCommon.sh`
-```bash
-cd project/android
-mkdir build_64
-cd build_64 && ../build_64.sh
-../updateTest.sh
-../testCommon.sh ./backendTest.out temp.mnn 3 0.15 1
-```
 
 ## getPerformance
 ### 功能
-获取当前设备的CPU性能，打印出每个CPU核心的频率；在Android设备上还会打印该设备CPU的浮点计算能力(GFLOPS)
+获取当前设备的CPU性能和内存访问性能，打印出每个CPU核心的频率；在Android设备上还会打印该设备CPU的浮点计算能力(GFLOPS)
 
 *各核心频率仅在Linux/Android环境中有效，计算能力仅在Android中有效*
 ### 参数
@@ -473,6 +467,7 @@ Matrix:
 ### 示例
 ```bash
 $ ./fuseTest user.spirv user.json
+```
 
 ## GpuInterTest.out
 ### 功能
@@ -485,4 +480,23 @@ GPU 内存输入测试用例
 - `testmode:int` 默认为 0 ，测试输入GPU内存的类型，0 (OpenCL Buffer) 、 1（OpenGL Texture）
 - `forwardType:int` 执行推理的计算设备，有效值为：0（CPU）、1（Metal）、2（CUDA）、3（OpenCL）、6（OpenGL），7(Vulkan) ，9 (TensorRT)，可选，默认为`0`
 - `numberThread:int` GPU的线程数，可选，默认为`1`
-- `precision_memory:int` 测试精度与内存模式，precision_memory % 16 为精度，有效输入为：0(Normal), 1(High), 2(Low), 3(Low_BF16)，可选，默认为`2` ; precision_memory / 16 为内存设置，默认为 0 (memory_normal) 。例如测试 memory 为 2(low) ，precision 为 1 (high) 时，设置 precision_memory = 9 (2 * 4 + 1)
+- `precision_memory:int` 测试精度与内存模式，precision_memory % 4 为精度，有效输入为：0(Normal), 1(High), 2(Low), 3(Low_BF16)，可选，默认为`0` ; (precision_memory / 4) % 4 为内存设置，默认为 0 (memory_normal) 。 (precision_memory / 16） % 4 为功耗设置，默认为0（power_normal）。例如测试 memory 为 2(low) ，precision 为 1 (high) 时，设置 precision_memory = 9 (2 * 4 + 1)
+
+
+## 在Android中使用测试工具
+- project/android/updateTest.sh 可以把编译好的库和可执行文件 push 到Android手机的/data/local/tmp/MNN 目录
+- project/android/testCommon.sh 可以在 /data/local/tmp/MNN 目录下执行可执行程序
+
+其他的资源文件需要自行使用 adb push ，将其放到手机的 /data/local/tmp/MNN 目录下，比如 adb push temp.mnn /data/local/tmp/MNN/temp.mnn
+
+如下例子是在Android设备上使用 backendTest.out ，其中 temp.mnn 路径为 /data/local/tmp/MNN/temp.mnn
+
+```bash
+cd project/android
+mkdir build_64
+cd build_64 && ../build_64.sh
+../updateTest.sh
+../testCommon.sh ./backendTest.out temp.mnn 3 0.15 1
+```
+
+

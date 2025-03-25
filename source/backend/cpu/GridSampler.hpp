@@ -138,7 +138,7 @@ static int MNNGridSampleComputeOffset3D(int d, int h, int w, int depth, int heig
         h = h < 0 ? 0 : ( h > (height - 1) ? (height - 1) : h);
         w = w < 0 ? 0 : ( w > (width - 1) ? (width - 1) : w);
     }
-    return ((d * height + h) * width + w) * 4;
+    return ((d * height + h) * width + w) * PACK;
 }
 
 static void MNNGridSampleInterp3D(FLOAT* outputPtr, const FLOAT* inputPtr, const FLOAT* cordPtr, size_t inD, size_t inH, size_t inW, size_t outW, size_t channelCUnit, size_t inOffset, size_t outOffset, bool sampleMode, bool padMode) {

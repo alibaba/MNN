@@ -271,6 +271,40 @@ static auto gRegister = []() {
     }
     {
         auto input = _Input({}, NCHW);
+        auto sigmoidVar = _Sigmoid(input);
+        auto res0 = input * sigmoidVar;
+        auto res1 = sigmoidVar * input;
+        std::vector<EXPRP> templatesExprs = {
+            res0->expr().first,
+            res1->expr().first
+        };
+        auto transform2 = [templatesExprs, input](EXPRP expr) {
+            for (auto templateExpr : templatesExprs) {
+                std::map<EXPRP, VARP> inputConst;
+                if (isTheSameRec(templateExpr, expr, inputConst)) {
+                    auto inputVarIter = inputConst.find(input->expr().first);
+                    if (inputVarIter == inputConst.end()) {
+                        MNN_ERROR("Invalid Match, may be something is wrong for Fuse\n");
+                        return false;
+                    }
+                    auto inputVar = inputVarIter->second;
+                    std::unique_ptr<MNN::OpT> newOp(new OpT);
+                    newOp->type = OpType_UnaryOp;
+                    newOp->main.value = new UnaryOpT;
+                    newOp->main.type = OpParameter_UnaryOp;
+                    newOp->main.AsUnaryOp()->opType = UnaryOpOperation_SILU;
+                    auto newVar = Variable::create(Expr::create(newOp.get(), {inputVar}, 1));
+                    newVar->setName(expr->outputName(0));
+                    Expr::replace(expr, newVar->expr().first);
+                    return true;
+                }
+            }
+            return false;
+        };
+        TemplateMerge::getInstance("Merge").insertTemplateV2("FuseSilu", transform2);
+    }
+    {
+        auto input = _Input({}, NCHW);
         auto sqr = _Sqrt(input);
         auto sqrdiv = _Reciprocal(sqr);
         auto sqrdiv2 = _Scalar<float>(1.0f) / sqr;
@@ -307,8 +341,10 @@ static auto gRegister = []() {
     {
         auto input = _Input({}, NCHW);
         auto inputSquare = _Pow(input, _Scalar<float>(2.0f));
+        auto inputSquare2 = input * input;
         std::vector<EXPRP> templatesExprs = {
             inputSquare->expr().first,
+            inputSquare2->expr().first
         };
 
         auto transform = [templatesExprs, input](EXPRP expr) {
@@ -384,7 +420,7 @@ static auto gRegister = []() {
         auto transform = [templatesExprs, input](EXPRP expr) {
             auto config = Global<modelConfig>::Get();
             auto unaryType = UnaryOpOperation_GELU_STANDARD;
-            if (config->optimizeLevel == 2) {
+            if (config->useGeluApproximation) {
                 unaryType = UnaryOpOperation_GELU;
             }
             for (auto templateExpr : templatesExprs) {

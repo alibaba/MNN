@@ -1,0 +1,163 @@
+#version 440 core
+
+#if defined(FP16) || defined(RELU_FP16) || defined(RELU6_FP16)
+#extension GL_AMD_gpu_shader_half_float: enable
+#define FLOAT4 f16vec4
+#else
+#define FLOAT4 vec4
+#endif
+
+layout(set=0, binding=0) writeonly uniform image2D uOutput;
+
+layout(set=0, binding=1) uniform sampler2D uInput;
+
+layout(set=0, binding=2) uniform sampler2D uKernel;
+
+layout(set=0, binding=3) uniform sampler2D uBias;
+
+layout(set=0, binding=4) readonly uniform constBuffer {
+    ivec4 inputSize; // w h icDiv4 n
+    ivec4 outputSize; // w h ocDiv4 n
+} uConstant;
+
+#define UP_DIV(x, y) (((x)+(y)-1)/(y))
+
+// ow * oh * ocDiv4 on
+layout (local_size_x_id = 0, local_size_y_id = 1, local_size_z_id = 2) in;
+
+void main() {
+    // -----------------------------
+    int outputIndexNHW4 = int(gl_GlobalInvocationID.x);
+    int outputIndexC8 = int(gl_GlobalInvocationID.y);
+    int outputC8 = UP_DIV(uConstant.outputSize.z, 2);
+    int outputW4 = UP_DIV(uConstant.outputSize.x, 4);
+
+    if (outputIndexNHW4 >= outputW4 * uConstant.outputSize.y * uConstant.outputSize.w || outputIndexC8 >= outputC8) {
+        return;
+    }
+
+    int outputIndexW4 = outputIndexNHW4 % outputW4;
+    int outputIndexNH = outputIndexNHW4 / outputW4;
+    int outputIndexW0 = outputIndexW4 * 4;
+    int outputIndexW1 = outputIndexW0 + 1;
+    int outputIndexW2 = outputIndexW0 + 2;
+    int outputIndexW3 = outputIndexW0 + 3;
+    int outputIndexH = outputIndexNH % uConstant.outputSize.y;
+    int outputIndexN = outputIndexNH / uConstant.outputSize.y;
+    // -----------------------------
+
+    int outputIndexC0 = outputIndexC8 * 2;
+    int outputIndexC1 = outputIndexC0 + 1;
+    FLOAT4 resultW0C0 = FLOAT4(texelFetch(uBias, ivec2(outputIndexC0, 0), 0));
+    FLOAT4 resultW1C0 = resultW0C0;
+    FLOAT4 resultW2C0 = resultW0C0;
+    FLOAT4 resultW3C0 = resultW0C0;
+    FLOAT4 resultW0C1 = FLOAT4(texelFetch(uBias, ivec2(outputIndexC1, 0), 0));
+    FLOAT4 resultW1C1 = resultW0C1;
+    FLOAT4 resultW2C1 = resultW0C1;
+    FLOAT4 resultW3C1 = resultW0C1;
+
+    for (int inputIndexC4 = 0; inputIndexC4 < uConstant.inputSize.z; inputIndexC4 ++) {
+        FLOAT4 inputValueW0 = FLOAT4(texelFetch(uInput, ivec2(outputIndexW0 + inputIndexC4 * uConstant.inputSize.x, outputIndexH + outputIndexN * uConstant.inputSize.y), 0));
+        FLOAT4 inputValueW1 = FLOAT4(texelFetch(uInput, ivec2(outputIndexW1 + inputIndexC4 * uConstant.inputSize.x, outputIndexH + outputIndexN * uConstant.inputSize.y), 0));
+        FLOAT4 inputValueW2 = FLOAT4(texelFetch(uInput, ivec2(outputIndexW2 + inputIndexC4 * uConstant.inputSize.x, outputIndexH + outputIndexN * uConstant.inputSize.y), 0));
+        FLOAT4 inputValueW3 = FLOAT4(texelFetch(uInput, ivec2(outputIndexW3 + inputIndexC4 * uConstant.inputSize.x, outputIndexH + outputIndexN * uConstant.inputSize.y), 0));
+        int kernelIndexXbase = inputIndexC4 * 4;
+        FLOAT4 weightC00 = FLOAT4(texelFetch(uKernel, ivec2(kernelIndexXbase + 0, outputIndexC0), 0));
+        FLOAT4 weightC01 = FLOAT4(texelFetch(uKernel, ivec2(kernelIndexXbase + 1, outputIndexC0), 0));
+        FLOAT4 weightC02 = FLOAT4(texelFetch(uKernel, ivec2(kernelIndexXbase + 2, outputIndexC0), 0));
+        FLOAT4 weightC03 = FLOAT4(texelFetch(uKernel, ivec2(kernelIndexXbase + 3, outputIndexC0), 0));
+        FLOAT4 weightC10 = FLOAT4(texelFetch(uKernel, ivec2(kernelIndexXbase + 0, outputIndexC1), 0));
+        FLOAT4 weightC11 = FLOAT4(texelFetch(uKernel, ivec2(kernelIndexXbase + 1, outputIndexC1), 0));
+        FLOAT4 weightC12 = FLOAT4(texelFetch(uKernel, ivec2(kernelIndexXbase + 2, outputIndexC1), 0));
+        FLOAT4 weightC13 = FLOAT4(texelFetch(uKernel, ivec2(kernelIndexXbase + 3, outputIndexC1), 0));
+
+        resultW0C0 += inputValueW0.x * weightC00;
+        resultW0C0 += inputValueW0.y * weightC01;
+        resultW0C0 += inputValueW0.z * weightC02;
+        resultW0C0 += inputValueW0.w * weightC03;
+
+        resultW0C1 += inputValueW0.x * weightC10;
+        resultW0C1 += inputValueW0.y * weightC11;
+        resultW0C1 += inputValueW0.z * weightC12;
+        resultW0C1 += inputValueW0.w * weightC13;
+
+        resultW1C0 += inputValueW1.x * weightC00;
+        resultW1C0 += inputValueW1.y * weightC01;
+        resultW1C0 += inputValueW1.z * weightC02;
+        resultW1C0 += inputValueW1.w * weightC03;
+
+        resultW1C1 += inputValueW1.x * weightC10;
+        resultW1C1 += inputValueW1.y * weightC11;
+        resultW1C1 += inputValueW1.z * weightC12;
+        resultW1C1 += inputValueW1.w * weightC13;
+
+        resultW2C0 += inputValueW2.x * weightC00;
+        resultW2C0 += inputValueW2.y * weightC01;
+        resultW2C0 += inputValueW2.z * weightC02;
+        resultW2C0 += inputValueW2.w * weightC03;
+
+        resultW2C1 += inputValueW2.x * weightC10;
+        resultW2C1 += inputValueW2.y * weightC11;
+        resultW2C1 += inputValueW2.z * weightC12;
+        resultW2C1 += inputValueW2.w * weightC13;
+
+        resultW3C0 += inputValueW3.x * weightC00;
+        resultW3C0 += inputValueW3.y * weightC01;
+        resultW3C0 += inputValueW3.z * weightC02;
+        resultW3C0 += inputValueW3.w * weightC03;
+
+        resultW3C1 += inputValueW3.x * weightC10;
+        resultW3C1 += inputValueW3.y * weightC11;
+        resultW3C1 += inputValueW3.z * weightC12;
+        resultW3C1 += inputValueW3.w * weightC13;
+    }
+
+#if defined(RELU_FP32) || defined(RELU_FP16)
+    resultW0C0 = FLOAT4(max(resultW0C0, FLOAT4(0)));
+    resultW0C1 = FLOAT4(max(resultW0C1, FLOAT4(0)));
+    resultW1C0 = FLOAT4(max(resultW1C0, FLOAT4(0)));
+    resultW1C1 = FLOAT4(max(resultW1C1, FLOAT4(0)));
+    resultW2C0 = FLOAT4(max(resultW2C0, FLOAT4(0)));
+    resultW2C1 = FLOAT4(max(resultW2C1, FLOAT4(0)));
+    resultW3C0 = FLOAT4(max(resultW3C0, FLOAT4(0)));
+    resultW3C1 = FLOAT4(max(resultW3C1, FLOAT4(0)));
+#endif
+
+#if defined(RELU6_FP32) || defined(RELU6_FP16)
+    resultW0C0 = FLOAT4(clamp(resultW0C0, FLOAT4(0), FLOAT4(6)));
+    resultW0C1 = FLOAT4(clamp(resultW0C1, FLOAT4(0), FLOAT4(6)));
+    resultW1C0 = FLOAT4(clamp(resultW1C0, FLOAT4(0), FLOAT4(6)));
+    resultW1C1 = FLOAT4(clamp(resultW1C1, FLOAT4(0), FLOAT4(6)));
+    resultW2C0 = FLOAT4(clamp(resultW2C0, FLOAT4(0), FLOAT4(6)));
+    resultW2C1 = FLOAT4(clamp(resultW2C1, FLOAT4(0), FLOAT4(6)));
+    resultW3C0 = FLOAT4(clamp(resultW3C0, FLOAT4(0), FLOAT4(6)));
+    resultW3C1 = FLOAT4(clamp(resultW3C1, FLOAT4(0), FLOAT4(6)));
+#endif
+
+    imageStore(uOutput, ivec2(outputIndexW0 + outputIndexC0 * uConstant.outputSize.x, outputIndexH + outputIndexN * uConstant.outputSize.y), resultW0C0);
+    if (outputIndexW1 < uConstant.outputSize.x) {
+        imageStore(uOutput, ivec2(outputIndexW1 + outputIndexC0 * uConstant.outputSize.x, outputIndexH + outputIndexN * uConstant.outputSize.y), resultW1C0);
+    }
+    if (outputIndexW2 < uConstant.outputSize.x) {
+        imageStore(uOutput, ivec2(outputIndexW2 + outputIndexC0 * uConstant.outputSize.x, outputIndexH + outputIndexN * uConstant.outputSize.y), resultW2C0);
+    }
+    if (outputIndexW3 < uConstant.outputSize.x) {
+        imageStore(uOutput, ivec2(outputIndexW3 + outputIndexC0 * uConstant.outputSize.x, outputIndexH + outputIndexN * uConstant.outputSize.y), resultW3C0);
+    }
+
+    if (outputIndexC1 < uConstant.outputSize.z) {
+        imageStore(uOutput, ivec2(outputIndexW0 + outputIndexC1 * uConstant.outputSize.x, outputIndexH + outputIndexN * uConstant.outputSize.y), resultW0C1);
+        if (outputIndexW1 < uConstant.outputSize.x) {
+            imageStore(uOutput, ivec2(outputIndexW1 + outputIndexC1 * uConstant.outputSize.x, outputIndexH + outputIndexN * uConstant.outputSize.y), resultW1C1);
+        }
+        if (outputIndexW2 < uConstant.outputSize.x) {
+            imageStore(uOutput, ivec2(outputIndexW2 + outputIndexC1 * uConstant.outputSize.x, outputIndexH + outputIndexN * uConstant.outputSize.y), resultW2C1);
+        }
+        if (outputIndexW3 < uConstant.outputSize.x) {
+            imageStore(uOutput, ivec2(outputIndexW3 + outputIndexC1 * uConstant.outputSize.x, outputIndexH + outputIndexN * uConstant.outputSize.y), resultW3C1);
+        }
+    }
+
+    return;
+}

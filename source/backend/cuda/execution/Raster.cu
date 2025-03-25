@@ -221,6 +221,7 @@ UNARY_FUNC(ERFC, erfc(x));
 UNARY_FUNC(ERFINV, erfinv(x));
 UNARY_FUNC(GELU, (1.0f + tanh(0.79788458f * (0.044715f * x * x * x + x))) * x * 0.5f);
 UNARY_FUNC(GELU_STANDARD, (erf(x*0.7071067932881648f)+1.f)*x*0.5);
+UNARY_FUNC(SILU, (x > 87.? x : (x < -87. ? 0.0f : x / (1. + exp(-x)))));
 
 void RasterBlit(uint8_t* output, const uint8_t* input, const int32_t* size, const int32_t* srcStride, const int32_t* dstStride, int bytes, CUDARuntime* runtime) {
     int count = size[0] * size[1] * size[2];
@@ -625,6 +626,7 @@ void UnaryBlit(uint8_t* output, const uint8_t* input, const int32_t* size, const
     COMPUTE(ERF);
     COMPUTE(ERFC);
     COMPUTE(ERFINV);
+    COMPUTE(SILU);
 
     #undef COMPUTE
 }

@@ -17,12 +17,12 @@ def get_caffe1(urlmodel, destmodel, urlproto, destproto, name, position):
     download(urlmodel, destmodel)
     download(urlproto, destproto)
     print("Caffe Dest: " + position)
-    print(os.popen(CONVERTER + " -f CAFFE --modelFile " + destmodel + " --prototxt " + destproto + " --MNNModel " + position + " --bizCode 0000").read())
+    print(os.popen(CONVERTER + " -f CAFFE --modelFile " + destmodel + " --prototxt " + destproto + " --MNNModel " + position + " --bizCode 0000 --keepInputFormat=0").read())
 
 def get_tensorflow_lite(urlmodel, destmodel, name, position):
     download(urlmodel, destmodel)
     print("Tflite Dest: " + position)
-    print(os.popen(CONVERTER + " -f TFLITE --modelFile " + destmodel + " --MNNModel " + position + " --bizCode 0000").read())
+    print(os.popen(CONVERTER + " -f TFLITE --modelFile " + destmodel + " --MNNModel " + position + " --bizCode 0000 --keepInputFormat=0").read())
 
 # get models
 

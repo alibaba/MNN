@@ -12,7 +12,7 @@ ENDIF()
 file(GLOB ONNX_SRC ${CMAKE_CURRENT_LIST_DIR}/*.cpp)
 add_library(MNNConverterONNX OBJECT ${ONNX_SRC} ${ONNX_PROTO_SRCS})
 add_dependencies(MNNConverterONNX MNNCompress)
-message(STATUS "Onnx: ${ONNX_PROTO_HDRS}")
+# message(STATUS "Onnx: ${ONNX_PROTO_HDRS}")
 
 add_executable(OnnxClip ${CMAKE_CURRENT_LIST_DIR}/exec/OnnxClip.cpp ${ONNX_PROTO_SRCS} ${ONNX_PROTO_HDRS} ${CMAKE_CURRENT_LIST_DIR}/OnnxUtils.cpp)
 target_link_libraries(OnnxClip ${Protobuf_LIBRARIES})
