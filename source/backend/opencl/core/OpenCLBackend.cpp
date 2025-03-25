@@ -20,7 +20,7 @@
 #ifdef  __ANDROID__
 #include <GLES2/gl2.h>
 #endif
-//#define OPENCL_FALLBACK_LOG
+#define OPENCL_FALLBACK_LOG
 namespace MNN {
 namespace OpenCL {
 #ifndef MNN_OPENCL_SEP_BUILD
