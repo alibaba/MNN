@@ -122,6 +122,22 @@ bool remove_directory(const std::string& path) {
     return YES;
 }
 
+- (void)setConfigWithJSONString:(NSString *)jsonStr {
+    
+    if (!llm) {
+        return;
+    }
+
+    if (jsonStr) {
+        const char *cString = [jsonStr UTF8String];
+        std::string stdString(cString);
+
+        llm->set_config(stdString);
+    } else {
+        NSLog(@"Error: JSON string is nil or invalid.");
+    }
+}
+
 // llm stream buffer with callback
 class LlmStreamBuffer : public std::streambuf {
 public:

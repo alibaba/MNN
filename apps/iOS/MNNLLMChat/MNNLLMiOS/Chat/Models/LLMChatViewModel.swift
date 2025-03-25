@@ -22,6 +22,8 @@ final class LLMChatViewModel: ObservableObject {
     @Published var isModelLoaded = false
     @Published var isProcessing: Bool = false
     
+    @Published var useMmap: Bool = false
+    
     var chatInputUnavilable: Bool {
         if isModelLoaded == false || isProcessing == true {
             return true
@@ -52,29 +54,11 @@ final class LLMChatViewModel: ObservableObject {
     var history: ChatHistory?
     private var historyId: String
     
-    private lazy var configManager = ModelConfigManager(modelPath: modelInfo.localPath)
+    let modelConfigManager: ModelConfigManager
     
     var isDiffusionModel: Bool {
         return modelInfo.name.lowercased().contains("diffusion")
     }
-
-    var iterations: Int {
-        return configManager.readIterations()
-    }
-
-    var seed: Int {
-        return configManager.readSeed()
-    }
-
-    func updateIterations(_ value: Int) {
-        configManager.updateIterations(value)
-    }
-
-    func updateSeed(_ value: Int) {
-        configManager.updateSeed(value)
-    }
-    
-    @Published var useMmap: Bool = false
     
     init(modelInfo: ModelInfo, history: ChatHistory? = nil) {
         self.modelInfo = modelInfo
@@ -83,8 +67,9 @@ final class LLMChatViewModel: ObservableObject {
         let messages = self.history?.messages
         self.interactor = LLMChatInteractor(modelInfo: modelInfo, historyMessages: messages)
         
-        // Initialize useMmap from config
-        self.useMmap = configManager.readUseMmap()
+        self.modelConfigManager = ModelConfigManager(modelPath: modelInfo.localPath)
+        
+        self.useMmap = self.modelConfigManager.readUseMmap()
     }
     
     deinit {
@@ -190,8 +175,8 @@ final class LLMChatViewModel: ObservableObject {
             self.send(draft: DraftMessage(text: "Start Generating Image...", thinkText: "", medias: [], recording: nil, replyMessage: nil, createdAt: Date()), userType: .assistant)
             
             // 获取用户设置的迭代次数和种子值
-            let userIterations = iterations
-            let userSeed = seed
+            let userIterations = self.modelConfigManager.readIterations()
+            let userSeed = self.modelConfigManager.readSeed()
             
             // 使用用户设置的参数调用新方法
             diffusion?.run(withPrompt: draft.text, 
@@ -264,6 +249,12 @@ final class LLMChatViewModel: ObservableObject {
                     }
                 }
             }
+        }
+    }
+    
+    func setModelConfig() {
+        if let configStr = self.modelConfigManager.readConfigAsJSONString(), let llm = self.llm {
+            llm.setConfigWithJSONString(configStr)
         }
     }
     
@@ -370,10 +361,5 @@ final class LLMChatViewModel: ObservableObject {
         } catch {
             print("Error accessing tmp directory: \(error.localizedDescription)")
         }
-    }
-    
-    func updateUseMmap(_ value: Bool) {
-        useMmap = value
-        configManager.updateUseMmap(value)
     }
 }
