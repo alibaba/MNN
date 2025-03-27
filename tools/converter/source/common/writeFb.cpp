@@ -93,13 +93,6 @@ int postTreat(std::unique_ptr<MNN::NetT>& netT, const modelConfig& config) {
 
     addUUID(netT, config.compressInfo->proto);
 
-    // add version info to model
-    netT->extraInfo.reset(new ExtraInfoT);
-    netT->extraInfo->version = MNN_VERSION;
-    if (!config.authCode.empty()) {
-        // add auth code to model
-        netT->extraInfo->name = config.authCode;
-    }
     bool useOriginQuant = config.compressInfo->proto.algo_size() > 0 && (!config.compressInfo->write);
     if (config.compressInfo->proto.has_for_guide() && config.compressInfo->proto.for_guide()) {
         useOriginQuant = false;
@@ -179,9 +172,27 @@ int postTreat(std::unique_ptr<MNN::NetT>& netT, const modelConfig& config) {
     }
     return 0;
 }
-int writeFb(std::unique_ptr<MNN::NetT>& netT, const modelConfig& config) {
+int writeFb(std::unique_ptr<MNN::NetT>& netT, const modelConfig& config, std::unique_ptr<MNN::OpT>&& metaOp) {
     postTreat(netT, config);
+    // Merge Meta to metaOp
+    auto oplist = std::move(netT->oplists);
+    for (auto& op : oplist) {
+        if (op->type == OpType_Extra) {
+            auto dstExtra = metaOp->main.AsExtra();
+            auto extra = op->main.AsExtra();
+            if (extra->type == "Meta" && extra->engine == "MNN") {
+                for (auto& attr : extra->attr) {
+                    dstExtra->attr.emplace_back(std::move(attr));
+                }
+                // Remove meta op
+                continue;
+            }
+        }
+        netT->oplists.emplace_back(std::move(op));
+    }
     std::set<std::string> notSupportOps;
+    
+    // Detect unsupport op
     auto CheckIfNotSupported = [&] (const std::unique_ptr<MNN::OpT>& op) {
         if (op->type == MNN::OpType_Extra) {
             if (op->main.AsExtra()->engine != "MNN") {
@@ -210,7 +221,8 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const modelConfig& config) {
 
     // dump input and output tensor name
     {
-        std::set<int> inputIdx, outputIdx, realInput, realOutput;
+        std::set<int> inputIdx, outputIdx, realOutput;
+        std::vector<int> realInput;
         for (const auto& op : netT->oplists) {
             for (auto i : op->inputIndexes) {
                 inputIdx.insert(i);
@@ -218,7 +230,7 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const modelConfig& config) {
             for (auto o : op->outputIndexes) {
                 outputIdx.insert(o);
                 if (op->type == OpType_Input) {
-                    realInput.insert(o);
+                    realInput.emplace_back(o);
                 }
             }
         }
@@ -239,7 +251,19 @@ int writeFb(std::unique_ptr<MNN::NetT>& netT, const modelConfig& config) {
         }
         std::cout << "]" << std::endl;
     }
-
+    // add version info to model
+    netT->extraInfo.reset(new ExtraInfoT);
+    netT->extraInfo->version = MNN_VERSION;
+    if (!config.authCode.empty()) {
+        // add auth code to model
+        netT->extraInfo->name = config.authCode;
+    }
+    if (metaOp->main.AsExtra()->attr.size() > 0) {
+        flatbuffers::FlatBufferBuilder builder;
+        builder.Finish(MNN::Extra::Pack(builder, metaOp->main.AsExtra()));
+        netT->extraInfo->buffer.resize(builder.GetSize());
+        ::memcpy(netT->extraInfo->buffer.data(), builder.GetBufferPointer(), builder.GetSize());
+    }
     flatbuffers::FlatBufferBuilder builderOutput(1024);
     builderOutput.ForceDefaults(true);
     auto len = MNN::Net::Pack(builderOutput, netT.get());

@@ -78,7 +78,7 @@ MNN适配的硬件架构与精度详见下表：
 - B ：支持，无优化或在实验状态，不推荐使用
 - C ：不支持
 
-| Architecture / Precision |  | Normal | FP16 | BF16 | Int8 |
+| Architecture / Precision |  | Normal | FP16 | BF16 | Int8 / Int4 |
 | --- | --- | --- | --- | --- | --- |
 | CPU | Native | B | C | B | B |
 |  | x86/x64-SSE4.1 | A | B | B | A |
@@ -86,13 +86,13 @@ MNN适配的硬件架构与精度详见下表：
 |  | x86/x64-AVX512 | S | B | B | S |
 |  | ARMv7a | S | S (ARMv8.2) | S | S |
 |  | ARMv8 | S | S (ARMv8.2) | S(ARMv8.6) | S |
-| GPU | OpenCL | A | S | C | C |
-|  | Vulkan | A | A | C | C |
-|  | Metal | A | S | C | C |
-|  | CUDA | A | S | C | C |
-| NPU | CoreML | B | B | C | C |
-|  | HIAI | B | C | C | B |
-|  | NNAPI | B | B | C | C |
+| GPU | OpenCL | A | S | C | S |
+|  | Vulkan | A | A | C | A |
+|  | Metal | A | S | C | S |
+|  | CUDA | A | S | C | A |
+| NPU | CoreML | A | C | C | C |
+|  | HIAI | A | C | C | C |
+|  | NNAPI | B | B | C | B |
 
 
 ## 工具

@@ -441,7 +441,7 @@ static ErrorCode short_time_fourier_transform(Backend* ctx, Tensor* signal, Tens
     auto* signal_data = const_cast<float*>(reinterpret_cast<const float*>(signal->host<void>()));
 
     // Define tensor shapes for each dft run
-    const int64_t output_components = 2;
+    const int output_components = 2;
     auto dft_input_shape = std::vector<int>{1, window_size, signal_components};
     auto dft_output_shape = std::vector<int>{1, dft_output_size, output_components};
 

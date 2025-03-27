@@ -103,6 +103,41 @@ options:
                         local mnnconvert path, if invalid, using pymnn.
 ```
 
+### 权重读取
+llmexport.py 同时支持 LLM 的验证功能，有较多的依赖。在没有相应环境的情况下，MNN-LLM也提供由 safetensors 或 gguf 文件读取权重的工具，可以降低内存需求，提高转换速度。使用方法如下：
+
+#### 权重读取前置工作
+1. 下载模型结构：在如下地址找到对应的MNN模型并下载（建文件夹 model，单独下载4个文件： llm.mnn , llm_config.json, tokenizer.txt , config.json）
+```
+https://modelscope.cn/organization/MNN
+```
+
+2. 安装 pymnn ，并把 llm.mnn 转换成 llm.mnn.json
+```
+pip install MNN
+mnnconvert -f MNN --modelFile model/llm.mnn --JsonFile model/llm.mnn.json
+```
+
+#### safetensors 转 mnn
+
+使用 safetensors2mnn.py 读取权重：
+
+```
+python3 safetensors2mnn.py --path /Users/xtjiang/.cache/modelscope/hub/Qwen/Qwen2___5-0___5B-Instruct --mnn_dir model 
+```
+
+safetensors2mnn.py 支持设定量化参数，和 llmexport.py 一致
+
+#### gguf 转 mnn
+使用 gguf2mnn.py 读取 gguf 文件
+
+```
+python3 gguf2mnn.py --gguf ~/third/llama.cpp/build/ggml-model-Q4_K.gguf --mnn_dir model
+```
+
+目前本方案不支持多模态的模型转换。
+
+
 ## 模型推理
 
 ### 编译
@@ -144,12 +179,12 @@ make -j16
 ```
 cd project/android
 mkdir build_64
-../build_64.sh "-DMNN_LOW_MEMORY=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true -DMNN_ARM82=true -DMNN_OPENCL=true -DMNN_USE_LOGCAT=true"
+../build_64.sh -DMNN_LOW_MEMORY=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true -DMNN_ARM82=true -DMNN_OPENCL=true -DMNN_USE_LOGCAT=true
 ```
 
 #### iOS: 参考 transformers/llm/engine/ios/README.md
 ```
-sh package_scripts/ios/buildiOS.sh "-DMNN_ARM82=true -DMNN_LOW_MEMORY=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true -DMNN_BUILD_LLM=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true"
+sh package_scripts/ios/buildiOS.sh -DMNN_ARM82=true -DMNN_LOW_MEMORY=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true -DMNN_BUILD_LLM=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true
 ```
 
 #### Web
@@ -218,7 +253,7 @@ node llm_demo.js ~/qwen2.0_1.5b/config.json ~/qwen2.0_1.5b/prompt.txt
     - iOS 上可用如下语句创建临时目录并设置：`NSString *tempDirectory = NSTemporaryDirectory();llm->set_config("{\"tmp_path\":\"" + std::string([tempDirectory UTF8String]) + "\"}")`
 - 硬件配置
   - backend_type: 推理使用硬件后端类型，默认为：`"cpu"`
-  - thread_num: CPU推理使用硬件线程数，默认为：`4`; OpenCL推理时使用`68`
+  - thread_num: CPU推理使用硬件线程数，默认为：`4`; OpenCL推理时使用`68`(不是传统意义的线程数，代表的是opencl buffer存储和tuning wide模式)
   - precision: 推理使用精度策略，默认为：`"low"`，尽量使用`fp16`
   - memory: 推理使用内存策略，默认为：`"low"`，开启运行时量化
 - Sampler配置
@@ -300,6 +335,15 @@ node llm_demo.js ~/qwen2.0_1.5b/config.json ~/qwen2.0_1.5b/prompt.txt
 - 对于音频大模型，在prompt中嵌入音频输入
 ```
 <audio>https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen2-Audio/audio/translate_to_chinese.wav</audio>介绍一下音频里的内容
+```
+
+#### 性能测评
+建议使用config.json, 可以自行配置运行后端、线程数、输出token数限制等选项。
+```
+## 注意：当选择opencl后端时，thread_num需设为68。
+## 注意：测评opencl后端性能时，由于第一次运行会tuning生成缓存文件(性能较慢)，因此需要运行第二次(已经有缓存文件)来看性能数据。
+
+./llm_demo model_dir/config.json prompt.txt
 ```
 
 #### GPTQ权重

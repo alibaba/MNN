@@ -176,6 +176,8 @@ MNN_PUBLIC VARPS _Loop(VARPS x, const std::string& submoduleName);
 MNN_PUBLIC VARP _ROIPooling(VARP input, VARP roi, int pooledHeight, int pooledWidth, float spatialScale, bool outputGrad = false, VARP backwardDiff = nullptr);
 MNN_PUBLIC VARP _ROIAlign(VARP input, VARP roi, int pooledHeight, int pooledWidth, float spatialScale, int samplingRatio, bool aligned, PoolingMode poolType, bool outputGrad = false, VARP backwardDiff = nullptr);
 
+MNN_PUBLIC VARPS _JSONOp(VARPS x, const char* opDescribe, int outputNumber);
+
 } // namespace Express
 } // namespace MNN
 

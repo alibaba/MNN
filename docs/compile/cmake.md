@@ -39,6 +39,7 @@ MNN使用CMake构建项目，CMake中的宏定义列表如下：
 | MNN_OPENGL           | 是否构建`OpenGL`后端，默认为`OFF` |
 | MNN_VULKAN           | 是否构建`Vulkan`后端，默认为`OFF` |
 | MNN_ARM82            | 编译ARM架构时，是否构建`Armv8.2`后端，以支持FP16计算，默认为`ON` |
+| MNN_SUPPORT_FP16_ARMV7            | 编译armeabi-v7a架构时，是否构建`Armv8.2`后端，以支持FP16计算，默认为`OFF` |
 | MNN_ONEDNN           | 是否使用`oneDNN`，默认为`OFF` |
 | MNN_AVX2             | 在`MNN_USE_SSE`开启的基础上，是否增加AVX2指令的支持，默认为`ON` |
 | MNN_AVX512           | 在`MNN_USE_SSE`和`MNN_AVX2`开启的基础上，是否增加`avx512`指令集的支持，默认为`OFF` |

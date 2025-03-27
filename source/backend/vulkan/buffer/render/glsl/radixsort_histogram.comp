@@ -1,0 +1,49 @@
+#version 440 core
+layout(std430) buffer;
+
+layout(set=0, binding=0) writeonly buffer pointI{
+    highp uint data[];
+} uHistogram;
+
+layout(set=0, binding=1) readonly buffer pointO{
+    highp uvec4 data[]; // key | index, XXX, XXX
+} uPointKeysInput;
+
+layout(set=0, binding=2) uniform variableBuffer {
+    uvec4 off; // N
+} uOffset;
+
+layout(set=0, binding=3) uniform variablepBuffer {
+    uvec4 off; // pass
+} uPass;
+
+layout(local_size_x_id = 0) in;
+layout(local_size_y_id = 1) in;
+layout(local_size_z_id = 2) in;
+layout (constant_id = 3) const int BIN_NUMBER = 16;
+layout (constant_id = 4) const int LOCAL_SIZE = 256;
+
+void main() {
+    uint groupSize = gl_NumWorkGroups.x;
+    uint threadId = gl_GlobalInvocationID.x;
+    uint binSize[BIN_NUMBER];
+    // Compute Size
+    for (int i=0; i<BIN_NUMBER; ++i) {
+        binSize[i] = 0;
+    }
+    uint totalSize = (uOffset.off.x + 1) / 2;
+    uint threadNumber = groupSize * LOCAL_SIZE;
+    uint size = (totalSize + threadNumber - 1) / threadNumber;
+    uint sta = threadId * size;
+    uint fin = min(sta + size, totalSize);
+    uint div = uPass.off.x;
+    uint modNum = BIN_NUMBER - 1;
+    for (uint i=sta; i<fin; ++i) {
+        uvec2 key = (uPointKeysInput.data[i].xz >> div) & modNum;
+        binSize[key.x]++;
+        binSize[key.y]++;
+    }
+    for (int i=0; i<BIN_NUMBER; ++i) {
+        uHistogram.data[i * threadNumber + threadId] = binSize[i];
+    }
+}

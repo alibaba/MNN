@@ -1,5 +1,3 @@
-cmake_minimum_required(VERSION 3.6)
-project(llm)
 option(LLM_SUPPORT_VISION "Llm model support vision input." OFF)
 option(LLM_SUPPORT_AUDIO "Llm model support audio input." OFF)
 option(BUILD_MLS "Build PC Commandline." OFF)

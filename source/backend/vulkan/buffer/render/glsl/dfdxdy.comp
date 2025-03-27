@@ -1,0 +1,54 @@
+#version 440 core
+layout(std430) buffer;
+
+layout(set=0, binding=0) writeonly buffer destBuffer{
+    float data[];
+} uDx;
+
+layout(set=0, binding=1) writeonly buffer destBuffer1{
+    float data[];
+} uDy;
+
+layout(set=0, binding=2) readonly buffer sourceBuffer0{
+    float data[];
+} uInput;
+
+layout(set=0, binding=3) uniform constBuffer {
+    ivec4 size;
+} uConstant;
+
+layout (local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+void main()
+{
+	int pos = int(gl_GlobalInvocationID.x);
+	// input output grid layout is NC4HW4
+
+	ivec4 size = uConstant.size;
+	int total = size.x * size.y * size.z * size.w;
+
+	if(pos < total)
+	{
+		// get nchw num of output 
+		int x = pos % size.x;
+		int tmp = pos / size.x;
+		int y = tmp % size.y;
+		tmp = tmp / size.y;
+		int z = tmp % size.z;
+		int n = tmp / size.z;
+
+        int outPos = n * size.x * size.y * size.z + x * size.z + y * size.x * size.z + z;
+        int xDPos = n * size.x * size.y * size.z + (x+1) * size.z + y * size.x * size.z + z;
+        int yDPos = n * size.x * size.y * size.z + x * size.z + (y+1) * size.x * size.z + z;
+        if (x < size.x - 1) {
+            uDx.data[outPos] = uInput.data[xDPos] - uInput.data[outPos];
+        } else {
+            uDx.data[outPos] = 0.0;
+        }
+        if (y < size.y - 1) {
+            uDy.data[outPos] = uInput.data[yDPos] - uInput.data[outPos];
+        } else {
+            uDy.data[outPos] = 0.0;
+        }
+    }
+}

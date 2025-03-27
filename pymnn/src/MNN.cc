@@ -20,7 +20,11 @@ static int tls_key_2 = 0;
 #include <MNN/expr/Module.hpp>
 using namespace MNN::Express;
 #ifdef PYMNN_OPENCV_API
+#ifdef BUILD_FOR_IOS
+#include "MNN/cv/cv.hpp"
+#else
 #include "cv/cv.hpp"
+#endif
 #endif
 #ifdef PYMNN_AUDIO_API
 #include "audio/audio.hpp"

@@ -82,7 +82,7 @@ typedef enum halide_type_code_t
  * exactly 32-bits in size. */
 struct halide_type_t {
     /** The basic type code: signed integer, unsigned integer, or floating point. */
-#if __cplusplus >= 201103L
+#ifndef _MSC_VER
     HALIDE_ATTRIBUTE_ALIGN(1) halide_type_code_t code; // halide_type_code_t
 #else
     HALIDE_ATTRIBUTE_ALIGN(1) uint8_t code; // halide_type_code_t
