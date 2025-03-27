@@ -42,7 +42,7 @@ static inline int64_t getTime() {
 
 static std::string toString(float value) {
     char typeString[100] = {};
-    sprintf(typeString, "%f", value);
+    snprintf(typeString, sizeof(typeString),"%f", value);
     return std::string(typeString);
 }
 
@@ -50,7 +50,7 @@ static std::string toString(const std::vector<int>& shape) {
     char content[100] = {};
     auto current      = content;
     for (auto s : shape) {
-        current = current + sprintf(current, "%d,", s);
+        current = current + snprintf(current, sizeof(current), "%d,", s);
     }
     return std::string(current);
 }

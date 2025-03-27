@@ -64,7 +64,7 @@ void getFreqKhz(int cpuid, std::vector<int>& freqVector) {
     char path[256];
     int freqKhz = -1;
     // max
-    sprintf(path, "/sys/devices/system/cpu/cpu%d/cpufreq/cpuinfo_max_freq", cpuid);
+    snprintf(path, sizeof(path), "/sys/devices/system/cpu/cpu%d/cpufreq/cpuinfo_max_freq", cpuid);
     FILE* fp = fopen(path, "rb");
     if (nullptr == fp) {
         MNN_PRINT("cpuinfo_max_freq fopen error ! \n");
@@ -76,7 +76,7 @@ void getFreqKhz(int cpuid, std::vector<int>& freqVector) {
     }
 
     // min
-    sprintf(path, "/sys/devices/system/cpu/cpu%d/cpufreq/cpuinfo_min_freq", cpuid);
+    snprintf(path, sizeof(path),"/sys/devices/system/cpu/cpu%d/cpufreq/cpuinfo_min_freq", cpuid);
     fp = fopen(path, "rb");
     if (nullptr == fp) {
         MNN_PRINT("cpuinfo_min_freq fopen error ! \n");
