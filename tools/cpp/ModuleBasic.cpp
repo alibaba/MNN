@@ -34,7 +34,7 @@ static bool compareOutput(VARP output, const std::string& directName, const std:
     }
 
     if (nullptr == info || nullptr == ptr) {
-        MNN_ERROR("TESTERROR name:%s, info:%p, ptr:%p. size:%d\n", name.c_str(), info, ptr, info->size);
+        MNN_ERROR("TESTERROR name:%s, info:%p, ptr:%p. size:%zu\n", name.c_str(), info, ptr, info->size);
         return false;
     }
 

@@ -964,7 +964,7 @@ ErrorCode Pipeline::fixResizeCache() {
 
     mInfo.first.cache.first->onSelectDynamicAllocator(0, 2);
     res && mInfo.first.cache.second->onSelectDynamicAllocator(0, 2);
-    MNN_PRINT("Fix: %d - Total: %d, rate = %f\n", fixNumber, totalNumber, (float)fixNumber / (float)totalNumber);
+    MNN_PRINT("Fix: %zu - Total: %zu, rate = %f\n", fixNumber, totalNumber, (float)fixNumber / (float)totalNumber);
 #endif
     return NO_ERROR;
 }
