@@ -31,7 +31,7 @@ cd /path/to/MNN
 mkdir build && cd build && cmake .. -DCMAKE_OSX_ARCHITECTURES=arm64 && make -j8
 ```
 
-## Windows(非ARM架构)
+## Windows(Visual-Studio)
 - 编译环境
   建议使用`Windows Terminal`，选择`VS`环境的Tab后进行编译， 如下：
   ![image.png](../_static/images/compile/vs_shell.png)
@@ -56,23 +56,34 @@ mkdir build && cd build && cmake .. -DCMAKE_OSX_ARCHITECTURES=arm64 && make -j8
   - 若需要编译模型转换工具，cmake 命令加上 -DMNN_BUILD_CONVERTER=ON -DMNN_BUILD_SHARED_LIBS=OFF -DMNN_WIN_RUNTIME_MT=ON
   - 若需要编译 MNN CUDA，MNN_WIN_RUNTIME_MT 和 MNN_BUILD_SHARED_LIBS 需要设成 ON ，另外加上 -DMNN_CUDA=ON: cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DMNN_BUILD_SHARED_LIBS=ON -DMNN_WIN_RUNTIME_MT=ON -DMNN_CUDA=ON
   - Windows 上建议使用 Interpreter::destroy , Tensor::destroy , Module::destroy 等方法进行 MNN 相关内存对象的析构，不要直接使用 delete （直接使用 delete 在 -DMNN_WIN_RUNTIME_MT=ON 时会出问题）
+- 使用 Visiual-Studio 默认编译器的情况下，不支持 Arm 架构，也不支持使用汇编或AVX512指令集进一步加速。有需求的情况参考下文使用clang编译
 
-## Windows(ARM架构)
+## Windows(Visual-Studio+Clang)
 - 编译环境
-  同`Windows(非ARM架构)`
-- 环境要求
-  - Microsoft Visual Studio >= 2017
+  - x64编译：在设置中找到vcvars64.bat（适用于 VS 2017 的 x64 本机工具命令提示）并单击，打开VS编译x64架构程序的虚拟环境
+  - x86(32位)编译：在设置中找到vcvarsamd64_x86.bat（VS 2017的 x64_x86 交叉工具命令提示符）并单击，打开VS交叉编译x86架构程序的虚拟环境
+  - arm64编译：在设置中找到（适用于 VS 2019 的 ARM64 本机工具命令提示），打开VS交叉编译x86架构程序的虚拟环境
+- 软件要求
+  - Microsoft Visual Studio >= 2019
   - cmake >= 3.13
   - Ninja
   - Clang
     - Clang 安装参考: https://learn.microsoft.com/en-us/cpp/build/clang-support-msbuild?view=msvc-170#install-1
 - 相关编译选项
   - 同`Linux/MacOS`
-- 具体步骤
+- 编译Arm架构：
   - 打开vs的ARM64命令行工具
   - 进入 MNN 根目录
   - mkdir build && cd build
   - cmake .. -G Ninja -DCMAKE_C_COMPILER="C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\Llvm\ARM64\bin\clang.exe" -DCMAKE_CXX_COMPILER="C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\Llvm\ARM64\bin\clang++.exe"  -DCMAKE_LINKER="C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\Llvm\ARM64\bin\lld.exe" -DCMAKE_BUILD_TYPE=Release
+    - Visual Studio 安装路径不一致的，可自行修改脚本
+  - ninja -j16
+
+- 编译x64架构：
+  - 打开vs的x64命令行工具
+  - 进入 MNN 根目录
+  - mkdir build && cd build
+  - cmake .. -G Ninja -DCMAKE_C_COMPILER="C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\Llvm\x64\bin\clang.exe" -DCMAKE_CXX_COMPILER="C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\Llvm\x64\bin\clang++.exe"  -DCMAKE_LINKER="C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\Llvm\x64\bin\lld.exe" -DCMAKE_BUILD_TYPE=Release
     - Visual Studio 安装路径不一致的，可自行修改脚本
   - ninja -j16
 

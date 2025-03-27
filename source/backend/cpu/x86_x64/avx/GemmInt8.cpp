@@ -1360,13 +1360,8 @@ void _AVX_MNNFloat2Int8(const float* src, int8_t* dst, size_t sizeQuad, const fl
         d0 = _mm256_add_epi32(d0, offset);
         d0 = _mm256_packs_epi32(d0, _mm256_setzero_si256());
         d0 = _mm256_permute4x64_epi64(d0, 0xD8);
-#if defined(_MSC_VER)
-        __m256i x = static_cast<__m256i>(_mm256_packus_epi16(d0, _mm256_setzero_si256()));
-        *((int64_t*)dst + i) = x.m256i_i64[0];
-#else
-         __v4di x = static_cast<__v4di>(_mm256_packus_epi16(d0, _mm256_setzero_si256()));
-         *((int64_t*)dst + i) = x[0];
-#endif
+        auto x = _mm256_packus_epi16(d0, _mm256_setzero_si256());
+        *((int64_t*)dst + i) = _mm256_extract_epi64(x, 0);
     }
 }
 

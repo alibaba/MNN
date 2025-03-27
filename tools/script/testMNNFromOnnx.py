@@ -184,9 +184,16 @@ class TestModel():
     def __test_specify_output(self, specify_output_name):
         while len(self.model.graph.output) > 0:
             self.model.graph.output.pop()
-        new_output = onnx.helper.ValueInfoProto()
-        new_output.name = specify_output_name
-        self.model.graph.output.append(new_output)
+        if isinstance(specify_output_name, list):
+            print(specify_output_name)
+            for specify_output_name_enum in specify_output_name:
+                new_output = onnx.helper.ValueInfoProto()
+                new_output.name = specify_output_name_enum
+                self.model.graph.output.append(new_output)
+        else:
+            new_output = onnx.helper.ValueInfoProto()
+            new_output.name = specify_output_name
+            self.model.graph.output.append(new_output)
         onnx.save(self.model, self.modelName)
         res = self.Test()
         is_right = ('TEST_SUCCESS' in res or 'Can\'t find var' in res)
@@ -283,7 +290,9 @@ if __name__ == '__main__':
                 print('Debug Mode: ', debugMode)
                 t.Debug()
         else:
-            specifyOpName = sys.argv[2]
-            t.TestName(specifyOpName)
+            names = []
+            for i in range(2, len(sys.argv)):
+                names.append(sys.argv[i])
+            t.TestName(names)
     else:
         t.Test()

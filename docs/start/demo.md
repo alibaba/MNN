@@ -115,21 +115,6 @@ $ python mobilenet_demo.py mobilenet_demo/mobilenet_v1.mnn mobilenet_demo/ILSVRC
 expect 983
 output belong to class: 983
 ```
-### 模型量化
-代码位置：`pymnn/examples/MNNQuant`
-
-离线量化工具，[用法参考](https://github.com/alibaba/MNN/tree/master/tools/MNNPythonOfflineQuant)，
-资源文件下载
-示例：
-```bash
-$ python test_mnn_offline_quant.py  --mnn_model quant_demo/mobilenet_v2_tfpb_train_withBN.mnn \
-            --quant_imgs quant_demo/quant_imgs \
-            --quant_model ./quant_model.mnn
-output names:	 MobilenetV2/Predictions/Reshape_1
-100%|██████████████████████████████████████████████████████████████████████████████████████████████████| 2/2 [00:46<00:00, 23.29s/it]
-Epoch cost: 46.618 s.
-quantized model save to ./quant_model.mnn
-```
 
 ### 模型训练
 代码位置：`pymnn/examples/MNNTrain`

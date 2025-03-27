@@ -388,8 +388,23 @@ static Module* loadInternal(const std::vector<std::string>& inputs, const std::v
     }
     Timer _time;
     std::shared_ptr<Module::Info> info(new Module::Info);
-    if (net->extraInfo() && net->extraInfo()->version()) {
-        info->version = net->extraInfo()->version()->str();
+    if (net->extraInfo()) {
+        if (net->extraInfo()->version()) {
+            info->version = net->extraInfo()->version()->str();
+        }
+        // Get Meta
+        if (net->extraInfo()->buffer()) {
+            auto extra = flatbuffers::GetRoot<Extra>(net->extraInfo()->buffer()->data());
+            if (nullptr != extra->attr()) {
+                for (int i=0; i<extra->attr()->size(); ++i) {
+                    auto attr = extra->attr()->GetAs<Attribute>(i);
+                    if (nullptr != attr->key() && nullptr != attr->s()) {
+                        // The model may be incomplete, avoid crash
+                        info->metaData.insert(std::make_pair(attr->key()->str(), attr->s()->str()));
+                    }
+                }
+            }
+        }
     }
     if (net->bizCode()) {
         info->bizCode = net->bizCode()->str();
@@ -407,7 +422,8 @@ static Module* loadInternal(const std::vector<std::string>& inputs, const std::v
         std::shared_ptr<Module> m(PipelineModule::load(inputs, outputs, buffer, length, rtMgr, config));
         return new NetModule(m, info, net, length, (float)_time.durationInUs() / 1000.0f);
     }
-    std::set<int> inputIdx, outputIdx, realInput, realOutput;
+    std::set<int> inputIdx, outputIdx, realOutput;
+    std::vector<int> realInput;
     for (int i=0; i< net->oplists()->size(); ++i) {
         auto op = net->oplists()->GetAs<Op>(i);
         if (nullptr != op->inputIndexes()) {
@@ -423,7 +439,7 @@ static Module* loadInternal(const std::vector<std::string>& inputs, const std::v
             for (int j=0; j<size; ++j) {
                 outputIdx.insert(data[j]);
                 if (op->type() == OpType_Input) {
-                    realInput.insert(data[j]);
+                    realInput.emplace_back(data[j]);
                 }
             }
         }

@@ -1,0 +1,76 @@
+#version 440 core
+layout(std430) buffer;
+
+layout(set=0, binding=0) writeonly buffer pointoffsetSum{
+    highp uvec4 data[];
+} uPointoffsetSum;
+
+
+layout(set=0, binding=1) readonly buffer pointoffset{
+    highp uvec4 data[];
+} uPointoffset;
+
+layout(set=0, binding=2) uniform constBuffer {
+    ivec4 point; // point size
+} uConstant;
+
+layout(local_size_x_id = 0) in;
+layout(local_size_y_id = 1) in;
+layout(local_size_z_id = 2) in;
+layout (constant_id = 3) const int UNIT = 128;
+layout (constant_id = 4) const int LOCAL_SIZE = 256;
+
+shared uint local_sum[LOCAL_SIZE];
+void main()
+{
+    int tId = int(gl_LocalInvocationID.x);
+    int size = (uConstant.point.x + 3) / 4;
+    int curOffset = 0;
+    uvec4 threadBuffer[UNIT];
+    uint sum = 0;
+    while (curOffset < size) {
+        int sta = tId * UNIT + curOffset;
+        int fin = min(sta + UNIT, size);
+        for (int i=sta; i<fin; ++i) {
+            int lpos = i - sta;
+            uvec4 p0 = uPointoffset.data[i];
+            p0.y = p0.y + p0.x;
+            p0.z = p0.z + p0.y;
+            p0.w = p0.w + p0.z;
+            threadBuffer[lpos] = p0;
+        }
+        for (int i=sta+1; i<fin; ++i) {
+            int lpos = i - sta;
+            uvec4 p0 = threadBuffer[lpos];
+            uvec4 p1 = threadBuffer[lpos-1];
+            p0 = p0 + uvec4(p1.w);
+            threadBuffer[lpos] = p0;
+        }
+        local_sum[tId] = threadBuffer[fin-sta-1].w;
+        barrier();
+        if (fin > sta) {
+            for(uint stride = 1; stride <= LOCAL_SIZE / 2; stride *= 2){
+                uint id = (tId + 1) * stride * 2 - 1;
+                if(id < LOCAL_SIZE)
+                    local_sum[id] += local_sum[id - stride];
+                barrier();
+            }
+            for(uint stride = LOCAL_SIZE / 4; stride > 0; stride /= 2){
+                uint id = (tId + 1) * stride * 2 - 1;
+                if(id + stride < LOCAL_SIZE)
+                    local_sum[id + stride] += local_sum[id];
+                barrier();
+            }
+            uint sum0 = tId > 0 ? local_sum[tId - 1] : 0;
+            for (int i=sta; i<fin; ++i) {
+                int lpos = i - sta;
+                uPointoffsetSum.data[i] = threadBuffer[lpos] + uvec4(sum + sum0);
+            }
+            sum += local_sum[LOCAL_SIZE - 1];
+        }
+        curOffset += LOCAL_SIZE * UNIT;
+        if (curOffset < size) {
+            barrier();
+        }
+    }
+}

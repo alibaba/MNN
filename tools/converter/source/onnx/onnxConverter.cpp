@@ -22,7 +22,7 @@
 #include "onnxOpConverter.hpp"
 
 int onnx2MNNNet(const std::string inputModel, const std::string bizCode,
-                std::unique_ptr<MNN::NetT>& netT) {
+                std::unique_ptr<MNN::NetT>& netT, MNN::OpT* meta, std::vector<std::string>& inputNames) {
     std::string modelDir;
     size_t pos = inputModel.find_last_of("\\/");
     if (pos != std::string::npos) {
@@ -52,7 +52,9 @@ int onnx2MNNNet(const std::string inputModel, const std::string bizCode,
         MNN_ERROR("[ERROR] Invalid ONNX Model:%s\n", inputModel.c_str());
         return 1;
     }
-
+    for (int i=0; i<onnxGraph.input_size(); ++i) {
+        inputNames.emplace_back(onnxGraph.input(i).name());
+    }
     std::unique_ptr<OnnxScope> scope(new OnnxScope(&onnxGraph, netT.get(), modelDir));
     scope->mOpsetVersion = opsetVersion;
     // find the inputs which do not have initializer
@@ -159,12 +161,21 @@ int onnx2MNNNet(const std::string inputModel, const std::string bizCode,
     }
     netT->tensorNumber = netT->tensorName.size();
     // set MNN net output name
-    for (const auto& iter : outputs) {
-        netT->outputName.push_back(iter.first);
+    for (int i = 0; i < onnxGraph.output_size(); ++i) {
+        const auto& output = onnxGraph.output(i);
+        netT->outputName.emplace_back(output.name());
     }
 
     netT->sourceType = MNN::NetSource_ONNX;
     netT->bizCode    = bizCode;
+    auto metaSize = onnxModel.metadata_props_size();
+    for (int i=0; i<metaSize; ++i) {
+        std::unique_ptr<MNN::AttributeT> dstMeta(new MNN::AttributeT);
+        auto srcMeta = onnxModel.metadata_props(i);
+        dstMeta->key = srcMeta.key();
+        dstMeta->s = srcMeta.value();
+        meta->main.AsExtra()->attr.emplace_back(std::move(dstMeta));
+    }
 
     return 0;
 }

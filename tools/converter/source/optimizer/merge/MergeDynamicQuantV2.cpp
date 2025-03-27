@@ -22,6 +22,14 @@ static bool IsDynamicQuant(EXPRP expr) {
     return false;
 }
 
+static bool IsMatMulInteger(EXPRP expr) {
+    const Op* op = expr->get();
+    if (op && op->type() && op->type() == OpType_Extra && op->main_as_Extra() && op->main_as_Extra()->type()->str() == "MatMulInteger") {
+        return true;
+    }
+    return false;
+}
+
 static VARPS _DynamicQuant(VARP x) {
     std::unique_ptr<OpT> op(new OpT);
     op->type = OpType_DynamicQuant;
@@ -76,7 +84,7 @@ DynamicQuantMatmulV2::DynamicQuantMatmulV2() {
             scaleVar = matmulVar;
             matmulVar = castVar->expr().first->inputs()[0];
         }
-        if (!helpers::IsMatMul(matmulVar->expr().first) && !helpers::IsMatMul(scaleVar->expr().first)) {
+        if (!IsMatMulInteger(matmulVar->expr().first) && !IsMatMulInteger(scaleVar->expr().first)) {
             return false;
         }
         if (!helpers::IsBinaryOp(matmulVar->expr().first) && !helpers::IsBinaryOp(scaleVar->expr().first)) {
@@ -104,10 +112,6 @@ DynamicQuantMatmulV2::DynamicQuantMatmulV2() {
             inputScale = scaleVar->expr().first->inputs()[1];
         }
 
-        if (matmulVar->expr().first->inputs().size() != 4) {
-            return false;
-        }
-
         mWeight = matmulVar->expr().first->inputs()[1];
         mWeightZero = matmulVar->expr().first->inputs()[3];
         auto input = matmulVar->expr().first->inputs()[0];
@@ -133,8 +137,19 @@ DynamicQuantMatmulV2::DynamicQuantMatmulV2() {
     };
     auto transform = [this](EXPRP expr) -> bool {
         auto y = mWeight;
+        if (mWeight->getInfo() && mWeight->getInfo()->dim.size() != 2) {
+            MNN_ERROR("!!!! Error: Do not support!\n");
+            return false;
+        }
+        if (mWeightScale->getInfo() && mWeightZero->getInfo() && mWeightScale->getInfo()->dim.size() != mWeightZero->getInfo()->dim.size()) {
+            MNN_ERROR("!!!! Error: Do not support!\n");
+            return false;
+        }
         y = _Cast<float>(y);
         auto offset = _Const(128.0f);
+        if (mWeight->getInfo() && mWeight->getInfo()->type.code == halide_type_int && mWeight->getInfo()->type.bits == 8) {
+            offset = _Const(0.f);
+        }
 
         auto x_int8 = mDynamicQuantOutputs[0];
         auto x_fp32 = _Int8ToFloat(x_int8, _Const(1.0));
@@ -144,27 +159,34 @@ DynamicQuantMatmulV2::DynamicQuantMatmulV2() {
 
         auto x_zero_fp32 = mDynamicQuantOutputs[2];
         auto y_shape = y->getInfo()->dim; // y:[K,N]
-        auto y_zero = _Unsqueeze(_Cast<float>(mWeightZero), {0});
+        auto y_zero = _Cast<float>(mWeightZero);
         auto y_zero_fp32 = y_zero - offset;
         auto y_reduce0 = _ReduceSum(y - y_zero, {0}, true); // y_:[1,N]
-        auto x_reduce1 = _ReduceSum(x_fp32, {2}, true);
-//        auto z = _MatMul(x_int8, y_int8) - x_zero_fp32 * y_reduce0 - _MatMul(x_reduce1, y_zero_fp32);
-//
-//        auto newExpr = z->expr().first;
-//        newExpr->setName(expr->name());
-//        return newExpr;
+        auto x_reduce1 = _ReduceSum(x_fp32, {-1}, true);    // x_:[M,1]
+
         // first term
-        auto convInt8 = _MatMul(x_int8, y_int8, mWeightScale, false, false);
+        auto yscale = mWeightScale;
+        if (mWeightScale->getInfo() && mWeightScale->getInfo()->dim.size() == 0) {
+            std::vector<float> _scale(y_reduce0->getInfo()->dim[1], mWeightScale->readMap<float>()[0]);
+            yscale = _Const(_scale.data(), {(int)_scale.size()}, NHWC, halide_type_of<float>() );
+        }
+        auto convInt8 = _MatMul(x_int8, y_int8, yscale, false, false);
         // second term
         auto y_reduce_mul_yscale = y_reduce0 * mWeightScale;
         auto sub1 = x_zero_fp32 * y_reduce_mul_yscale;
         // third term
         auto y_zero_fp32_mul_yscale = y_zero_fp32 * mWeightScale;
-        auto sub2 = _MatMul(x_reduce1, y_zero_fp32_mul_yscale);
-        auto z_sub_bias = convInt8 - sub2;
+
+        VARP z_sub_bias;
+        if (mWeightZero->getInfo() && mWeightZero->getInfo()->dim.size() > 0) {
+            auto sub2 = _MatMul(x_reduce1, _Unsqueeze(y_zero_fp32_mul_yscale, {0}));
+            z_sub_bias = convInt8 - sub2;
+        } else {
+            auto sub2 = x_reduce1 * y_zero_fp32_mul_yscale;
+            z_sub_bias = convInt8 - sub2;
+        }
         auto z_sub_xzero = sub1 * mDynamicQuantOutputs[1];
         auto z = z_sub_bias * mDynamicQuantOutputs[1] - z_sub_xzero;
-//        z = z * mDynamicQuantOutputs[1] + mBias;
         
         auto newExpr = z->expr().first;
         newExpr->setName(expr->name());

@@ -3,6 +3,7 @@
 #include <chrono>
 #include "diffusion/diffusion.hpp"
 #include "tokenizer.hpp"
+#include "scheduler.hpp"
 #define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
 #include <cv/cv.hpp>
@@ -48,12 +49,10 @@ mModelPath(modelPath), mModelType(modelType), mBackendType(backendType), mMemory
     } else if(modelType == STABLE_DIFFUSION_TAIYI_CHINESE) {
         mMaxTextLen = 512;
     }
-    std::ifstream alphaFile(modelPath + "/alphas.txt");
-    int index = 0;
-    float alpha;
-    while (alphaFile >> alpha) {
-        mAlphas.push_back(alpha);
-    }
+    // compute timesteps alphas
+    std::unique_ptr<Scheduler> scheduler;
+    scheduler.reset(new PNDMScheduler);
+    mAlphas = scheduler->get_alphas();
 }
     
 Diffusion::~Diffusion() {
@@ -354,13 +353,14 @@ bool Diffusion::run(const std::string prompt, const std::string imagePath, int i
         iterNum = 10;
         MNN_PRINT("illegal number of iterations, iterations will be set to 10.\n");
     }
-    mTimeSteps.resize(iterNum + 1);
-    int step = 1000 / (iterNum + 1);
-    for(int i = iterNum; i >= 0; i--) {
-        mTimeSteps[i] = 1 + (iterNum - i) * step;
+    mTimeSteps.resize(iterNum);
+    int step = 1000 / iterNum;
+    for(int i = iterNum - 1; i >= 0; i--) {
+        mTimeSteps[i] = 1 + (iterNum - 1 - i) * step;
     }
 
     auto ids = mTokenizer->encode(prompt, mMaxTextLen);
+
     auto text_embeddings = text_encoder(ids);
     
     if (progressCallback) {

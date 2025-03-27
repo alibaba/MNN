@@ -54,11 +54,12 @@ private:
     std::unordered_map<uint8_t, wchar_t> b2u_;
     std::unordered_map<wchar_t, uint8_t> u2b_;
     
-    std::unordered_map<std::string, int> mVocabs;
+    std::unordered_map<std::wstring, int> mVocabs;
     
     int mStartIdx = 49406;
     int mEndIdx = 49407;
 };
+
 }
 } // diffusion
 #endif

@@ -427,10 +427,10 @@ void Llm::tuning(TuneType type, std::vector<int> candidates) {
         MNN_ERROR("tuning type not supported\n");
         return;
     }
-    if (mConfig->backend_type() != "metal") {
+    // FIXME: Currently OpenCL Don't support KVMeta
+    if (mConfig->backend_type() == "opencl") {
         return;
     }
-
     mCurrentModules     = mDecodeModules;
     int64_t min_time     = INT64_MAX;
     int prefer_candidate = 10;
@@ -540,8 +540,6 @@ void Llm::generate_init(std::ostream* os, const char* end_with) {
         mContext->generate_str.clear();
     }
     mContext->gen_seq_len = 0;
-    mContext->vision_us   = 0;
-    mContext->audio_us    = 0;
     mContext->prefill_us  = 0;
     mContext->decode_us   = 0;
     mContext->current_token = 0;
@@ -623,10 +621,12 @@ std::vector<int> Llm::generate(const std::vector<int>& input_ids, int max_tokens
     if (nullptr == logits.get()) {
         return {};
     }
+    mContext->prefill_us = _t.durationInUs();
+    _t.reset();
     mContext->current_token = sample(logits);
+    mContext->sample_us += _t.durationInUs();
     logits = nullptr;
     mCurrentModules = mDecodeModules;
-    mContext->prefill_us = _t.durationInUs();
     generate(max_tokens - 1);
 
     return mContext->output_tokens;

@@ -1,0 +1,111 @@
+#version 450 core
+layout(std430) buffer;
+
+layout(set=0, binding=0) readonly buffer destBuffer{
+    float data[];
+}uOutput;
+
+layout(set=0, binding=1) writeonly buffer sourceBuffer0{
+    int data[];
+} uInput;
+
+layout(set=0, binding=2) readonly buffer sourceBuffer1{
+    float data[];
+} uGrid;
+
+layout(set=0, binding=3) uniform gridSampleBuffer{
+	ivec4 inShape;  // inW, inH
+	ivec4 outShape; // outW, outH
+	bool alignCorners;
+}uGridSampleParam;
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+void WriteSample(int positionX, int positionY, int c, int n, float value_f) {
+	int value = int(value_f * 16777216.0);
+	int width = uGridSampleParam.inShape.x;
+	int height = uGridSampleParam.inShape.y;
+#ifdef PAD_MODE_ZEROS
+	if (positionX < 0 || positionX >= width || positionY < 0 || positionY >= height) {
+		return;
+	} else {
+		atomicAdd(uInput.data[0
+			+ positionX * uGridSampleParam.inShape.z
+			+ positionY * width * uGridSampleParam.inShape.z
+			+ n * width * height * uGridSampleParam.inShape.z
+			+ c
+		], value);
+	}
+#else
+	positionX = clamp(positionX, 0, width - 1);
+	positionY = clamp(positionY, 0, height - 1);
+	atomicAdd(uInput.data[0
+		+ positionX * uGridSampleParam.inShape.z
+		+ positionY * width * uGridSampleParam.inShape.z
+		+ n * width * height * uGridSampleParam.inShape.z
+		+ c
+	], value);
+#endif
+}
+
+void main()
+{
+	int pos = int(gl_GlobalInvocationID.x);
+	// input output grid layout is NC4HW4
+
+	ivec4 inputShape = uGridSampleParam.inShape;
+	ivec4 outputShape = uGridSampleParam.outShape;
+	int total = outputShape.x * outputShape.y * outputShape.z * outputShape.w;
+
+	if(pos < total)
+	{
+		// get nchw num of output 
+		int x = pos % outputShape.x;
+		int tmp = pos / outputShape.x;
+		int y = tmp % outputShape.y;
+		tmp = tmp / outputShape.y;
+		int z = tmp % outputShape.z;
+		int n = tmp / outputShape.z;
+
+		// get position in grid
+		int gridPosition = n * outputShape.x * outputShape.y + y * outputShape.x + x;
+		float gridX = uGrid.data[inputShape.w * gridPosition + 0];
+		float gridY = uGrid.data[inputShape.w * gridPosition + 1];
+		float value = uOutput.data[0
+			+ x * outputShape.z
+			+ y * outputShape.x * outputShape.z
+			+ z
+			+ n * outputShape.x * outputShape.y * outputShape.z
+		];
+		// compute position of input
+#ifdef NEAREST
+		float cordH = (gridY) * (inputShape.y);
+		float cordW = (gridX) * (inputShape.x);
+		int positionX = int(floor(cordW));
+		int positionY = int(floor(cordH));
+
+		WriteSample(positionX, positionY, z, n, value);
+#else
+		float cordH = (gridY) * (inputShape.y) - 0.5;
+		float cordW = (gridX) * (inputShape.x) - 0.5;
+		int w0_h = int(floor(cordH));
+		int w0_w = int(floor(cordW));
+		int w1_h = w0_h + 1;
+		int w1_w = w0_w + 1;
+		float f0 = float(float(w1_w) - cordW);
+		float f1 = 1.0 - f0;
+		float h0 = float(float(w1_h) - cordH);
+		float h1 = 1.0 - h0;
+		float f00 = f0 * h0 * value;
+		float f01 = f1 * h0 * value;
+		float f10 = f0 * h1 * value;
+		float f11 = f1 * h1 * value;
+
+		WriteSample(w0_w, w0_h, z, n, f00);
+		WriteSample(w1_w, w0_h, z, n, f01);
+		WriteSample(w0_w, w1_h, z, n, f10);
+		WriteSample(w1_w, w1_h, z, n, f11);
+#endif
+
+	}
+}

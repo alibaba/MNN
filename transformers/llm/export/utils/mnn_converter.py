@@ -4,6 +4,7 @@ import json
 import torch
 import numpy as np
 
+from .torch_utils import quant as torch_quant
 from tqdm import tqdm
 from .spinner import spinner_run
 from .gptq import GPTQ
@@ -168,60 +169,8 @@ class MNNConveter:
         return self.mnn_weight_path
 
     def quant(self, weight, quant_bit, quant_block, symmetric):
-        try:
-            if torch.cuda.is_available():
-                weight = weight.cuda()
-            if torch.backends.mps.is_available():
-                weight = weight.to('mps')
-        except:
-            print('Failed to move weight to GPU, fallback to CPU')
-        oc, ic = weight.shape
-        if quant_block == 0:
-            block_size = ic
-        else:
-            block_size = quant_block
-        while ic % block_size != 0:
-            block_size /= 2
-        block_size = int(block_size)
-        block_num = ic // block_size
-        weight = weight.reshape(oc, block_num, block_size)
-        offset = 1 << (quant_bit - 1)
-        clip_max = offset - 1
-        if symmetric:
-            clip_min = -clip_max
-            abs_max, _ = torch.max(torch.abs(weight), axis=-1, keepdims=True)
-            scale = abs_max / clip_max
-            q_weight = torch.round(weight / scale)
-            q_weight = (torch.clamp(q_weight.flatten(), clip_min, clip_max) + offset).to(torch.uint8)
-            alpha = scale.flatten()
-        else:
-            clip_min = -offset
-            max_val, _ = torch.max(weight, axis=-1, keepdims=True)
-            min_val, _ = torch.min(weight, axis=-1, keepdims=True)
-            scale = (max_val - min_val) / (clip_max - clip_min)
-
-            if self.config.args.awq:
-                q_weight = torch.round(weight / scale) - torch.round(min_val / scale) + clip_min
-                zeros =  (torch.round(min_val / scale) - clip_min) * scale
-            else:
-                q_weight = torch.round((weight - min_val) / scale) + clip_min
-                zeros =  min_val - scale * clip_min
-            q_weight = (torch.clamp(q_weight.flatten(), clip_min, clip_max) + offset).to(torch.uint8)
-            alpha = torch.stack([zeros.flatten(), scale.flatten()], axis=-1).flatten()
-
-        if quant_bit < 8:
-            group_size = 8 // quant_bit
-            q_weight = q_weight.reshape(-1, group_size)
-            multipliers = [2 ** (quant_bit * (group_size - 1 - i)) for i in range(group_size)]
-            multipliers = torch.tensor(multipliers).to(q_weight.device)
-            q_weight = (q_weight * multipliers).sum(axis=1).to(torch.uint8)
-
-        # support for `MNN >= 2.9.6`
-        clip_min = 1
-
-        if q_weight.device is not torch.device('cpu'):
-            return q_weight.cpu(), alpha.float().cpu(), clip_min
-        return q_weight, alpha.float(), clip_min
+        q_weight, alpha = torch_quant(weight, quant_bit, quant_block, symmetric, self.config.args.awq)
+        return q_weight, alpha
 
     def write_weight(self, data):
         if isinstance(data, torch.Tensor):
@@ -253,8 +202,9 @@ class MNNConveter:
             weight_len = self.write_weight(half_weight)
             alpha_len, q_min, shape_int32, header_len = 0, 0, False, 0
         else:
+            q_min = 1
             assert(quant_bit in (1, 2, 4, 8))
-            q_weight, alpha, q_min = self.quant(linear.weight.data, quant_bit, quant_block, symmetric)
+            q_weight, alpha = self.quant(linear.weight.data, quant_bit, quant_block, symmetric)
             header_len, shape_int32 = self.write_header(ic, oc, quant_bit)
             weight_len = self.write_weight(q_weight) + header_len
             alpha_len = self.write_weight(alpha)

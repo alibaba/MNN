@@ -277,17 +277,8 @@ void _AVX512_MNNFloat2Int8(const float* src, int8_t* dst, size_t sizeQuad, const
         d1 = _mm256_packs_epi32(d1, _mm256_setzero_si256());
         d0 = _mm256_permute4x64_epi64(d0, 0xD8);
         d1 = _mm256_permute4x64_epi64(d1, 0xD8);
-#if defined(_MSC_VER)
-        __m256i x = static_cast<__m256i>(_mm256_packus_epi16(d0, _mm256_setzero_si256()));
-        __m256i y = static_cast<__m256i>(_mm256_packus_epi16(d1, _mm256_setzero_si256()));
-        *((int64_t*)dst + 2 * i + 0) = x.m256i_i64[0];
-        *((int64_t*)dst + 2 * i + 1) = y.m256i_i64[0];
-#else
-        __v4di x = static_cast<__v4di>(_mm256_packus_epi16(d0, _mm256_setzero_si256()));
-        __v4di y = static_cast<__v4di>(_mm256_packus_epi16(d1, _mm256_setzero_si256()));
-        *((int64_t*)dst + 2 * i + 0) = x[0];
-        *((int64_t*)dst + 2 * i + 1) = y[0];
-#endif
+        *((int64_t*)dst + 2 * i + 0) = _mm256_extract_epi64(_mm256_packus_epi16(d0, _mm256_setzero_si256()), 0);
+        *((int64_t*)dst + 2 * i + 1) = _mm256_extract_epi64(_mm256_packus_epi16(d1, _mm256_setzero_si256()), 0);
     }
 }
 

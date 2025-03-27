@@ -1,0 +1,42 @@
+#version 440 core
+layout(std430) buffer;
+layout(set = 0, binding = 0) writeonly buffer scaleBuffer{
+    float data[];
+}uOutput;
+
+layout(set = 0, binding = 1) uniform sampler2D uInput;
+
+layout(set = 0, binding = 2) uniform constBuffer{
+    ivec4 imgSize;
+    ivec4 unit;
+}uConst;
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+void main()
+{
+    ivec3 pos = ivec3(gl_GlobalInvocationID);
+    ivec4 imgSize = uConst.imgSize;
+    int totalUnit = uConst.unit.x;
+    int selectUnit = uConst.unit.y;
+    int offsetUnit = uConst.unit.z;
+
+    if(all(lessThan(pos.xy, imgSize.xy))) {
+        vec4 color = texelFetch(uInput, pos.xy, 0);
+        int offset = (pos.x + pos.y * imgSize.x) * totalUnit + offsetUnit;
+        if (selectUnit == 4) {
+            uOutput.data[offset + 0] = color.x;
+            uOutput.data[offset + 1] = color.y;
+            uOutput.data[offset + 2] = color.z;
+            uOutput.data[offset + 3] = color.w;
+        } else if (selectUnit == 3) {
+            uOutput.data[offset + 0] = color.x;
+            uOutput.data[offset + 1] = color.y;
+            uOutput.data[offset + 2] = color.z;
+        } else if (selectUnit == 2) {
+            uOutput.data[offset + 0] = color.x;
+            uOutput.data[offset + 1] = color.y;
+        } else if (selectUnit == 1) {
+            uOutput.data[offset + 0] = color.x;
+        }
+    }
+}

@@ -474,7 +474,6 @@ int Sampler::sample(Express::VARP logits) {
     subset = subsetSampler(mConfig.type, subset);
     // select token from the subset
     int res = handleSelect(subset);
-    Express::ExecutorScope::Current()->gc(Express::Executor::FULL);
     mContext->sample_us += _t.durationInUs();
     return res;
 }

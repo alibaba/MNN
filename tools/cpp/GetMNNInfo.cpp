@@ -108,6 +108,13 @@ int main(int argc, char *argv[]) {
     if (!info->bizCode.empty()) {
         MNN_PRINT("Model bizCode: %s\n", info->bizCode.c_str());
     }
+    if (!info->metaData.empty()) {
+        MNN_PRINT("MetaData: Begin \n");
+        for (auto& iter : info->metaData) {
+            MNN_PRINT("[Meta] %s : %s\n", iter.first.c_str(), iter.second.c_str());
+        }
+        MNN_PRINT("MetaData: End \n");
+    }
     return 0;
 }
 

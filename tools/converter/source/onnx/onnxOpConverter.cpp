@@ -504,6 +504,14 @@ void OnnxScope::buildAccumulate(const std::string& name, const std::string& uNam
 }
 
 std::vector<std::string> OnnxScope::buildSubGraph(const onnx::GraphProto* graph, std::string& name, bool forLoop) {
+    for (auto& iter : mNet->subgraphs) {
+        if (iter.get() != nullptr && iter->name == name) {
+            // TODO: Avoid rebuild new subgraph
+            MNN_PRINT("Rebuild subgraph for %s (rename to %s_), may increase model size\n", name.c_str(), name.c_str());
+            name = name + "_";
+            break;
+        }
+    }
     std::unique_ptr<MNN::SubGraphProtoT> subgraph(new MNN::SubGraphProtoT);
     subgraph->name = name;
     std::unique_ptr<OnnxScope> scope(new OnnxScope(graph, subgraph.get(), mNet, this));
@@ -588,7 +596,7 @@ std::vector<std::string> OnnxScope::buildSubGraph(const onnx::GraphProto* graph,
         for (int k = 0; k < onnxNode.input_size(); k++) {
             auto inputName = onnxNode.input(k);
             int idx = scope->lookupTensor(inputName);
-            if (idx < 0) {
+            if (idx < 0 && inputName != "") {
                 auto iter = outsideInputs.find(inputName);
                 if (iter == outsideInputs.end()) {
                     idx = scope->declareTensor(inputName);

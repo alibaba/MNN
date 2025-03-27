@@ -12,7 +12,7 @@ cd Static
 rm -rf ios_64
 mkdir ios_64
 cd ios_64
-cmake ../../../ -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=../../../cmake/ios.toolchain.cmake -DMNN_METAL=ON -DARCHS="arm64" -DENABLE_BITCODE=0 -DMNN_AAPL_FMWK=1 -DMNN_SEP_BUILD=0 -DMNN_ARM82=true -DMNN_BUILD_SHARED_LIBS=false -DMNN_USE_THREAD_POOL=OFF $1
+cmake ../../../ -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=../../../cmake/ios.toolchain.cmake -DMNN_METAL=ON -DARCHS="arm64" -DENABLE_BITCODE=0 -DMNN_AAPL_FMWK=1 -DMNN_SEP_BUILD=0 -DMNN_ARM82=true -DMNN_BUILD_SHARED_LIBS=false -DMNN_USE_THREAD_POOL=OFF $*
 echo "Building AArch64"
 make MNN -j16
 echo "End Building AArch64"

@@ -234,7 +234,10 @@ ConvertMatMulToConv2D::ConvertMatMulToConv2D() {
                 dense->symmetricQuan->nbits = 8;
                 std::vector<float> scale_1(num_output, 1.0);
                 if (expr->inputs().size() == 3 && expr->inputs()[2]->getInfo()) {
-                    MNN_ASSERT(expr->inputs()[2]->getInfo()->dim[0] == num_output);
+                    if (expr->inputs()[2]->getInfo() && expr->inputs()[2]->getInfo()->dim.size() > 0 && expr->inputs()[2]->getInfo()->dim[0] != num_output) {
+                        MNN_ERROR("!!! Error: Do not support this!\n");
+                        return false;
+                    }
                     if (!helpers::IsConstant(expr->inputs()[2]->expr().first) || !expr->inputs()[2]->readMap<float>()) {
                         MNN_ERROR("matmul convert to conv2d fail: In dynamic quant for Matmul, weight scale must be constant.");
                         return false;

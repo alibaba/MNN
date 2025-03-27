@@ -1,0 +1,20 @@
+{
+    "texture2d.comp":[
+        "NEAREST"
+    ],
+    "texture2dgrad.comp":[
+        "NEAREST"
+    ],
+    "texturecube.comp":[
+        "NEAREST"
+    ],
+    "texturecubegrad.comp":[
+        "NEAREST"
+    ],
+    "rastersort_collect_key.comp":[
+        "USE_HALF"
+    ],
+    "rastersort_count_valid_number.comp":[
+        "USE_HALF"
+    ]
+}

@@ -5,6 +5,7 @@
 #include "tokenizer.hpp"
 #include "core/Macro.h"
 #include <sstream>
+#include <ctype.h>
 #include <functional>
 #include <codecvt>
 #include <regex>
@@ -93,19 +94,19 @@ std::vector<int> BertTokenizer::encode(const std::string& str, int maxlen) {
             }
         }
         // handle continuous sequence of letters and digits
-        else if (std::isalnum(c)) {
+        else if (::isalnum(c)) {
             while (i < str.size() && std::isalnum(static_cast<unsigned char>(str[i]))) {
                 current_token += std::tolower(str[i]);
                 ++i;
             }
         }
         // handle punctuation and symbols
-        else if (std::ispunct(c)) {
+        else if (::ispunct(c)) {
             current_token = str[i];
             ++i;
         }
         // handle space, tab, enter
-        else if (std::isspace(c)) {
+        else if (::isspace(c)) {
             ++i;
             continue;
         }
@@ -174,7 +175,7 @@ bool CLIPTokenizer::loadVocab(const std::string& vocabFilePath) {
         
         if (itr->value.IsInt()) {
             int intValue = itr->value.GetInt();
-            mVocabs[std::string(key)] = intValue;
+            mVocabs[utf8_to_wstring(key)] = intValue;
             //            std::cout << key << ": " << intValue << std::endl;
         } else {
             MNN_ERROR("Value for key: %s is not an integer.\n", key);
@@ -230,18 +231,19 @@ bool CLIPTokenizer::loadMerges(const std::string& mergesFilePath) {
     return true;
 }
 
-void get_pairs(const std::wstring& word, std::vector<std::pair<std::wstring, std::wstring>>* pairs) {
+void get_pairs(std::vector<std::wstring> word, std::vector<std::pair<std::wstring, std::wstring>>* pairs) {
     pairs->clear();
     
     if (word.size() < 2) return;
     
-    wchar_t previous = word[0];
+    std::wstring previous = word[0];
     for (int i = 1; i < word.size(); i++) {
-        pairs->push_back({std::wstring(1, previous), std::wstring(1, word[i])});
+        pairs->push_back({std::wstring(previous), std::wstring(word[i])});
         previous = word[i];
     }
 }
 
+// https://github.com/openai/CLIP/blob/main/clip/simple_tokenizer.py
 void CLIPTokenizer::bpe(const std::wstring& token, const BPERanks& bpe_ranks, std::vector<std::wstring>* result) {
     std::set<int> merged;  // records indices in pairs that were merged.
     auto _left = [](int i, std::set<int>& merged) {
@@ -257,9 +259,20 @@ void CLIPTokenizer::bpe(const std::wstring& token, const BPERanks& bpe_ranks, st
         return cap;
     };
     
-    std::vector<std::pair<std::wstring, std::wstring>> pairs;
-    get_pairs(token, &pairs);
+    std::vector<std::wstring> word;
+    for (int i = 0; i < token.size() - 1; i++) {
+        word.emplace_back(1, token[i]);
+    }
+    word.push_back(token.substr(token.size() - 1) + utf8_to_wstring("</w>"));
     
+    
+    std::vector<std::pair<std::wstring, std::wstring>> pairs;
+    get_pairs(word, &pairs);
+    
+    if (pairs.size() == 0) {
+        result->push_back(token + utf8_to_wstring("</w>"));
+        return;
+    }
     while (true) {
         int min_score = INT_MAX;
         int to_merge = -1;  // indices into pairs.
@@ -287,7 +300,7 @@ void CLIPTokenizer::bpe(const std::wstring& token, const BPERanks& bpe_ranks, st
     }  // end while (true)
     
     if (merged.size() == pairs.size()) {
-        result->push_back(token);
+        result->push_back(token + utf8_to_wstring("</w>"));
         
     } else {
         for (int i = 0; i < pairs.size(); ++i) {
@@ -300,10 +313,10 @@ void CLIPTokenizer::bpe(const std::wstring& token, const BPERanks& bpe_ranks, st
 }
 
 std::vector<int> CLIPTokenizer::encode(const std::string& text, int maxlen) {
-    
-    std::regex re("('s|'t|'re|'ve|'m|'ll|'d| ?[[:alpha:]]+| ?[[:digit:]]+| ?[^\\s\\w]+|\\s+)");
+    std::regex re(R"(<\|startoftext\|>|<\|endoftext\|>|'s|'t|'re|'ve|'m|'ll|'d|[[:alpha:]]+|[[:digit:]]|[^[:space:][:alpha:][:digit:]]+)",
+                   std::regex::icase);
     std::string input = text;
-    std::vector<std::string> result;
+    std::vector<std::wstring> result;
     std::string token;
     std::smatch match;
     while (std::regex_search(input, match, re)) {
@@ -318,7 +331,7 @@ std::vector<int> CLIPTokenizer::encode(const std::string& text, int maxlen) {
         bpe(wtoken, bpe_ranks_, &bpe_tokens);
         
         for (auto ws : bpe_tokens) {
-            result.push_back(wstring_to_utf8(ws));
+            result.push_back(ws);
         }
     }
     

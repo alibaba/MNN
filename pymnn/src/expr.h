@@ -1588,6 +1588,15 @@ static PyObject* PyMNNExpr_stack(PyObject *self, PyObject *args) {
     }
     PyMNN_ERROR("stack require args: ([Var], int)");
 }
+static PyObject* PyMNNExpr_jsonop(PyObject *self, PyObject *args) {
+    PyObject *values;
+    const char* describe;
+    int outputNumber;
+    if (PyArg_ParseTuple(args, "Osi", &values, &describe, &outputNumber) && isVars(values)) {
+        return toPyObj<VARP, toPyObj>(Express::_JSONOp(toVars(values), describe, outputNumber));
+    }
+    PyMNN_ERROR("JSONOp require args: ([Var], string, int)");
+}
 static PyObject* PyMNNExpr_crop_and_resize(PyObject *self, PyObject *args) {
     PyObject *image, *boxes, *box_ind, *crop_size,
              *method = nullptr /* BILINEAR */;
@@ -1892,6 +1901,7 @@ static PyMethodDef PyMNNExpr_methods[] = {
         size, "build size expr",
         shape, "build shape expr",
         stack, "build stack expr",
+        jsonop, "build json expr",
         fill, "build fill expr",
         tile, "build tile expr",
         gather, "build gather expr",
