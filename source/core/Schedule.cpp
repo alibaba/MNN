@@ -108,8 +108,7 @@ void Schedule::OpResizeCache::insert(const std::vector<Tensor*>& inputs) {
     }
 }
 
-
-MNNForwardType Schedule::getApprociateType(const ScheduleConfig& config) {
+MNNForwardType Schedule::getAppropriateType(const ScheduleConfig& config) {
     MNNForwardType type = config.type;
     // FIXME: Support Auto determine
     if (MNN_FORWARD_AUTO == config.type) {
@@ -313,7 +312,7 @@ bool Schedule::schedule(ScheduleInfo& scheduleInfo, const Net* net, const std::v
 
     for (auto& config : configs) {
         Backend::Info compute;
-        compute.type      = getApprociateType(config);
+        compute.type      = getAppropriateType(config);
         compute.numThread = config.numThread;
         if(config.type == MNN_FORWARD_AUTO) {
             if(compute.type == MNN_FORWARD_OPENCL || compute.type == MNN_FORWARD_METAL) {
