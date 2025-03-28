@@ -181,11 +181,11 @@ void Pipeline::UnitInfo::setUp(const Command& command, int index, const Op* orig
     } else {
         if (nullptr != originOp && nullptr != originOp->name()) {
             char buffer[20];
-            sprintf(buffer, "%d", index);
+            snprintf(buffer, sizeof(buffer), "%d", index);
             mContent->name = originOp->name()->str() + "_raster_" + buffer;
         } else {
             char buffer[20];
-            sprintf(buffer, "_raster_%d", totalIndex);
+            snprintf(buffer, sizeof(buffer), "_raster_%d", totalIndex);
             mContent->name = buffer;
         }
     }
@@ -964,7 +964,7 @@ ErrorCode Pipeline::fixResizeCache() {
 
     mInfo.first.cache.first->onSelectDynamicAllocator(0, 2);
     res && mInfo.first.cache.second->onSelectDynamicAllocator(0, 2);
-    MNN_PRINT("Fix: %d - Total: %d, rate = %f\n", fixNumber, totalNumber, (float)fixNumber / (float)totalNumber);
+    MNN_PRINT("Fix: %zu - Total: %zu, rate = %f\n", fixNumber, totalNumber, (float)fixNumber / (float)totalNumber);
 #endif
     return NO_ERROR;
 }
