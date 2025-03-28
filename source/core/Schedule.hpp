@@ -126,7 +126,7 @@ public:
      * @return schedule info.
      */
     static bool schedule(ScheduleInfo& result, const Net* net, const std::vector<ScheduleConfig>& config, const RuntimeInfo& runtimeInfo);
-    static MNNForwardType getApprociateType(const ScheduleConfig& config);
+    static MNNForwardType getAppropriateType(const ScheduleConfig& config);
 };
 } // namespace MNN
 

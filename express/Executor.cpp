@@ -31,7 +31,7 @@ void Executor::setGlobalExecutorConfig(MNNForwardType type, const BackendConfig&
     if(type == MNN_FORWARD_AUTO) {
         ScheduleConfig sConfig;
         sConfig.type = type;
-        type = Schedule::getApprociateType(sConfig);
+        type = Schedule::getAppropriateType(sConfig);
     }
     auto rt = _getOrCreateRuntime(type, &config, numberThread);
     if (rt == nullptr) {
@@ -289,7 +289,7 @@ Executor::RuntimeManager* Executor::RuntimeManager::createRuntimeManager(const S
     auto glo = ExecutorScope::Current();
     std::lock_guard<std::mutex> _l(glo->mMutex);
     auto& originRt = glo->mRuntimeInfo;
-    auto type      = Schedule::getApprociateType(config);
+    auto type      = Schedule::getAppropriateType(config);
     int numThread = config.numThread;
     if(config.type == MNN_FORWARD_AUTO) {
         if(type == MNN_FORWARD_OPENCL || type == MNN_FORWARD_METAL) {
