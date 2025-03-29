@@ -25,9 +25,9 @@ if (MNN_KLEIDIAI)
     set(KLEIDIAI_BUILD_TESTS  OFF)
     # Fetch KleidiAI sources:
     include(FetchContent)
-    set(KLEIDIAI_COMMIT_SHA "v1.3.0")
+    set(KLEIDIAI_COMMIT_SHA "v1.5.0")
     set(KLEIDIAI_DOWNLOAD_URL "${CMAKE_CURRENT_LIST_DIR}/kleidiai-${KLEIDIAI_COMMIT_SHA}.tar.gz")
-    set(KLEIDIAI_ARCHIVE_MD5  "ad74c8b9c9d42450fe938a5997ea794a")
+    set(KLEIDIAI_ARCHIVE_MD5  "d59bd82f6eb022fa6bfe1788a3268c21")
 
     if (POLICY CMP0135)
         cmake_policy(SET CMP0135 NEW)
