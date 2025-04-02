@@ -622,7 +622,7 @@ RuntimeInfo Interpreter::createRuntime(const std::vector<ScheduleConfig>& config
     auto& mRuntimes = res.first;
     for (auto& config : configs) {
         Backend::Info compute;
-        compute.type      = Schedule::getApprociateType(config);
+        compute.type      = Schedule::getAppropriateType(config);
         compute.numThread = config.numThread;
         if(config.type == MNN_FORWARD_AUTO) {
             if(compute.type == MNN_FORWARD_OPENCL || compute.type == MNN_FORWARD_METAL) {
