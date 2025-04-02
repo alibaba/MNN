@@ -20,7 +20,7 @@ asm_function _AVX512_MNNGemmFloatUnit48x8Fused
 pushq   %rbp
 movq    %rsp, %rbp
 
-#ifdef WIN32
+#ifdef _WIN32
 pushq   %rdi
 pushq   %rsi
 movq    %rcx, %rdi
@@ -435,7 +435,7 @@ LoopDz:
 
 End:
 
-#ifdef WIN32
+#ifdef _WIN32
 vmovdqu (128*0)(%rsp), %xmm6
 vmovdqu (128*1)(%rsp), %xmm7
 vmovdqu (128*2)(%rsp), %xmm8

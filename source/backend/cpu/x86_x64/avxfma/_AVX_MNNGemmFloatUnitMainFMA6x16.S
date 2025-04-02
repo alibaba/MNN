@@ -18,7 +18,7 @@ asm_function _AVX_MNNGemmFloatUnitMainFMA6x16
 pushq   %rbp
 movq    %rsp, %rbp
 
-#ifdef WIN32
+#ifdef _WIN32
 #define push_registers_bytes ((1 + 1) * 8 + 32)
 movq (push_registers_bytes)(%rsp), %r10
 pushq %rdi
@@ -202,7 +202,7 @@ LoopDz:
 
 End:
 
-#ifdef WIN32
+#ifdef _WIN32
 vmovdqu (128*0)(%rsp), %xmm6
 vmovdqu (128*1)(%rsp), %xmm7
 vmovdqu (128*2)(%rsp), %xmm8

@@ -94,6 +94,8 @@ public:
         std::string version;
         // The bizCode of MNN model
         std::string bizCode;
+        // MetaData
+        std::map<std::string, std::string> metaData;
     };
     const Info* getInfo() const;
     class CloneContext;

@@ -34,7 +34,7 @@
 #include <MNN/expr/ExprCreator.hpp>
 #include "CommonUtils.hpp"
 #include "PostConverter.hpp"
-#include "rapidjson/document.h"
+#include "Json2Flatbuffer.hpp"
 #include <fstream>
 #include <sstream>
 #include <cmath>
@@ -656,6 +656,40 @@ static void computeUnaryBuffer(MNN::NetT* net) {
         }
     }
 }
+static void _reorderInputs(const std::vector<std::string>& inputNames, MNN::NetT* netT) {
+    if (!inputNames.empty()) {
+        // Make Input op order the same as origin model
+        auto oplists = std::move(netT->oplists);
+        std::vector<std::unique_ptr<MNN::OpT>> inputOps;
+        for (auto& op : oplists) {
+            if (nullptr == op.get()) {
+                continue;
+            }
+            if (op->type != MNN::OpType_Input || op->outputIndexes.empty()) {
+                continue;
+            }
+            inputOps.emplace_back(std::move(op));
+        }
+
+        for (int i=0; i<inputNames.size(); ++i) {
+            for (auto& op : inputOps) {
+                if (nullptr == op.get()) {
+                    // Has used
+                    continue;
+                }
+                if (netT->tensorName[op->outputIndexes[0]] == inputNames[i]) {
+                    netT->oplists.emplace_back(std::move(op));
+                    break;
+                }
+            }
+        }
+        for (auto& op : oplists) {
+            if (nullptr != op.get()) {
+                netT->oplists.emplace_back(std::move(op));
+            }
+        }
+    }
+}
 
 bool Cli::convertModel(modelConfig& modelPath) {
     if (modelPath.dumpInfo) {
@@ -665,6 +699,13 @@ bool Cli::convertModel(modelConfig& modelPath) {
     std::cout << "Start to Convert Other Model Format To MNN Model..., target version: " << modelPath.targetVersion << std::endl;
     std::unique_ptr<MNN::NetT> netT = std::unique_ptr<MNN::NetT>(new MNN::NetT());
     int parseRes = 1;
+    std::unique_ptr<MNN::OpT> metaOp(new MNN::OpT);
+    metaOp->type = MNN::OpType_Extra;
+    metaOp->main.value = new MNN::ExtraT;
+    metaOp->main.type = MNN::OpParameter_Extra;
+    metaOp->main.AsExtra()->type = "Meta";
+    metaOp->main.AsExtra()->engine = "MNN";
+    std::vector<std::string> inputNames;
     if (modelPath.model == modelConfig::CAFFE) {
         parseRes = caffe2MNNNet(modelPath.prototxtFile, modelPath.modelFile, modelPath.bizCode, netT);
     } else if (modelPath.model == modelConfig::TENSORFLOW) {
@@ -682,7 +723,7 @@ bool Cli::convertModel(modelConfig& modelPath) {
             parseRes = addBizCode(modelPath.modelFile, modelPath.bizCode, netT);
         }
     } else if (modelPath.model == modelConfig::ONNX) {
-        parseRes = onnx2MNNNet(modelPath.modelFile, modelPath.bizCode, netT);
+        parseRes = onnx2MNNNet(modelPath.modelFile, modelPath.bizCode, netT, metaOp.get(), inputNames);
     } else if (modelPath.model == modelConfig::TFLITE) {
         parseRes = tflite2MNNNet(modelPath.modelFile, modelPath.bizCode, netT);
 #ifdef MNN_BUILD_TORCH
@@ -725,6 +766,7 @@ bool Cli::convertModel(modelConfig& modelPath) {
     std::vector<std::string> expectedPass;
     if (1 == modelPath.optimizeLevel && modelPath.model == modelConfig::MNN) {
         expectedPass = {
+            "TranslateJsonOp",
             "FuseDupOp"
         };
     }
@@ -736,10 +778,11 @@ bool Cli::convertModel(modelConfig& modelPath) {
             MNN_PRINT("MNN net has tensor quant info\n");
             computeUnaryBuffer(newNet.get());
         }
-
-        error = writeFb(newNet, modelPath);
+        _reorderInputs(inputNames, newNet.get());
+        error = writeFb(newNet, modelPath, std::move(metaOp));
     } else {
-        error = writeFb(netT, modelPath);
+        _reorderInputs(inputNames, netT.get());
+        error = writeFb(netT, modelPath, std::move(metaOp));
     }
     if (0 == error) {
         std::cout << "Converted Success!" << std::endl;
@@ -1162,214 +1205,6 @@ bool Cli::mnn2json(const char* modelFile, const char* jsonFile, int flag) {
     return true;
 }
 
-#define VECTOR_EXTRACT(FLATBUFFER_TYPE, CPP_TYPE, JSON_TYPE)\
-case flatbuffers::ET_##FLATBUFFER_TYPE:\
-{\
-    std::vector<CPP_TYPE> data(array.Size());\
-    for (int i=0; i<array.Size(); ++i) {\
-        data[i] = array[i].JSON_TYPE();\
-    }\
-    indexes[pos].second = builder.CreateVector(data).Union();\
-    break;\
-}\
-
-#define SCALAR_EXTRACT(FLATBUFFER_TYPE, CPP_TYPE, JSON_TYPE)\
-case flatbuffers::ET_##FLATBUFFER_TYPE:\
-{\
-builder.AddElement(field, (CPP_TYPE)(iter->value.JSON_TYPE()), (CPP_TYPE)0);\
-break;\
-}
-static flatbuffers::Offset<void> _writeJsonToFlatbuffer(const flatbuffers::TypeTable * table, flatbuffers::FlatBufferBuilder& builder, const rapidjson::GenericObject<false, rapidjson::GenericValue<rapidjson::UTF8<>>>& object) {
-    std::vector<std::pair<int, flatbuffers::Offset<void>>> indexes;
-    // Load union type for easy to use
-    std::map<std::string, int> unionNames;
-    for (int i=0; i<table->num_elems; ++i) {
-        if (table->type_codes[i].sequence_ref == -1) {
-            continue;
-        }
-        const flatbuffers::TypeTable *ref = table->type_refs[table->type_codes[i].sequence_ref]();
-        if (ref->st == flatbuffers::ST_UNION) {
-            unionNames.insert(std::make_pair(std::string(table->names[i]) + "_type", i));
-        }
-    }
-    // Find index and cache
-    std::map<int, int> unionTypes;
-    for (auto iter = object.begin(); iter !=object.end(); iter++) {
-        auto name = iter->name.GetString();
-        int index = -1;
-        for (int i=0; i<table->num_elems; ++i) {
-            if (0 == ::strcmp(table->names[i], name)) {
-                index = i;
-                break;
-            }
-        }
-        auto uiter = unionNames.find(name);
-        if (uiter != unionNames.end()) {
-            // Find union type id
-            auto value = iter->value.GetString();
-            int typePos = -1;
-            auto unionIndex = uiter->second;
-            auto ref = table->type_refs[table->type_codes[unionIndex].sequence_ref]();
-            for (int j=0; j<ref->num_elems; ++j) {
-                if (0 == ::strcmp(ref->names[j], value)) {
-                    typePos = j;
-                    break;
-                }
-            }
-            if (-1 == typePos) {
-                MNN_ERROR("Can't find union type\n");
-                continue;
-            }
-            if (typePos > 0) {
-                // First is None
-                unionTypes.insert(std::make_pair(unionIndex, typePos-1));
-            }
-        }
-        if (index == -1) {
-            MNN_PRINT("Invalid: %s, Skip it\n", name);
-        }
-        indexes.emplace_back(std::make_pair(index, 0));
-    }
-
-    // resolve single object
-    int pos = 0;
-    for (auto iter = object.begin(); iter !=object.end(); iter++, pos++) {
-        int index = indexes[pos].first;
-        if (-1 == index) {
-            continue;
-        }
-        auto code = table->type_codes[index];
-        if (code.is_vector) {
-            continue;
-        }
-        if (code.sequence_ref != -1 && code.base_type == flatbuffers::ET_SEQUENCE) {
-            const flatbuffers::TypeTable *ref = table->type_refs[code.sequence_ref]();
-            if (ref->st == flatbuffers::ST_TABLE) {
-                indexes[pos].second = _writeJsonToFlatbuffer(ref, builder, iter->value.GetObject());
-            } else if (ref->st == flatbuffers::ST_UNION) {
-                auto unionInd = unionTypes.find(index)->second;
-                ref = ref->type_refs[unionInd]();
-                indexes[pos].second = _writeJsonToFlatbuffer(ref, builder, iter->value.GetObject());
-            }
-        }
-    }
-
-    // Resolve Vector and String
-    pos = 0;
-    for (auto iter = object.begin(); iter !=object.end(); iter++, pos++) {
-        int index = indexes[pos].first;
-        if (-1 == index) {
-            continue;
-        }
-        auto code = table->type_codes[index];
-        if (!code.is_vector) {
-            if (code.base_type == flatbuffers::ET_STRING) {
-                indexes[pos].second = builder.CreateString(iter->value.GetString()).Union();
-            }
-            continue;
-        }
-        auto array = iter->value.GetArray();
-        if (code.sequence_ref != -1) {
-            const flatbuffers::TypeTable *ref = table->type_refs[code.sequence_ref]();
-            std::vector<flatbuffers::Offset<void>> offsets(array.Size());
-            for (int i=0; i<array.Size(); ++i) {
-                offsets[i] = _writeJsonToFlatbuffer(ref, builder, array[i].GetObject());
-            }
-            indexes[pos].second = builder.CreateVector(offsets.data(), offsets.size()).Union();
-            continue;
-        }
-        switch (code.base_type) {
-                VECTOR_EXTRACT(BOOL, bool, GetBool);
-                VECTOR_EXTRACT(CHAR, char, GetInt);
-                VECTOR_EXTRACT(UCHAR, uint8_t, GetInt);
-                VECTOR_EXTRACT(SHORT, int16_t, GetInt);
-                VECTOR_EXTRACT(USHORT, uint16_t, GetInt);
-                VECTOR_EXTRACT(INT, int, GetInt);
-                VECTOR_EXTRACT(UINT, uint32_t, GetUint);
-                VECTOR_EXTRACT(LONG, int64_t, GetInt64);
-                VECTOR_EXTRACT(ULONG, uint64_t, GetUint64);
-                VECTOR_EXTRACT(FLOAT, float, GetFloat);
-                VECTOR_EXTRACT(DOUBLE, double, GetDouble);
-            case flatbuffers::ET_STRING:
-            {
-                std::vector<std::string> data(array.Size());
-                for (int i=0; i<array.Size(); ++i) {
-                    data[i] = array[i].GetString();
-                }
-                indexes[pos].second = builder.CreateVectorOfStrings(data).Union();
-                break;
-            }
-            default:
-                break;
-        }
-    }
-
-    // Resolve Others
-    pos = 0;
-    auto start = builder.StartTable();
-    for (auto iter = object.begin(); iter !=object.end(); iter++, pos++) {
-        int index = indexes[pos].first;
-        if (-1 == index) {
-            continue;
-        }
-        auto field = 4 + index * 2;
-        if (indexes[pos].second.o != 0) {
-            builder.AddOffset(field, indexes[pos].second);
-            continue;
-        }
-        auto code = table->type_codes[index];
-        if (code.sequence_ref != -1) {
-            const flatbuffers::TypeTable *ref = table->type_refs[code.sequence_ref]();
-            int value = -1;
-            if (ref->st == flatbuffers::ST_UNION || ref->st == flatbuffers::ST_ENUM) {
-                auto type = iter->value.GetString();
-                for (int i=0; i<ref->num_elems; ++i) {
-                    if (0 == ::strcmp(type, ref->names[i])) {
-                        if (nullptr == ref->values) {
-                            value = i;
-                        } else {
-                            value = ref->values[i];
-                        }
-                    }
-                }
-                switch (code.base_type) {
-                    case flatbuffers::ET_UTYPE:
-                    case flatbuffers::ET_UINT:
-                        builder.AddElement(field, (uint32_t)value, (uint32_t)0);
-                        break;
-                    case flatbuffers::ET_INT:
-                        builder.AddElement(field, (int32_t)value, (int32_t)-1);
-                        break;
-                    case flatbuffers::ET_UCHAR:
-                        builder.AddElement(field, (uint8_t)value, (uint8_t)0);
-                        break;
-                    case flatbuffers::ET_CHAR:
-                        builder.AddElement(field, (int8_t)value, (int8_t)0);
-                        break;
-                    default:
-                        break;
-                }
-                continue;
-            }
-        }
-        switch (code.base_type) {
-                SCALAR_EXTRACT(BOOL, bool, GetBool);
-                SCALAR_EXTRACT(CHAR, char, GetInt);
-                SCALAR_EXTRACT(UCHAR, uint8_t, GetInt);
-                SCALAR_EXTRACT(SHORT, int16_t, GetInt);
-                SCALAR_EXTRACT(USHORT, uint16_t, GetInt);
-                SCALAR_EXTRACT(INT, int, GetInt);
-                SCALAR_EXTRACT(UINT, uint32_t, GetUint);
-                SCALAR_EXTRACT(LONG, int64_t, GetInt64);
-                SCALAR_EXTRACT(ULONG, uint64_t, GetUint64);
-                SCALAR_EXTRACT(FLOAT, float, GetFloat);
-                SCALAR_EXTRACT(DOUBLE, double, GetDouble);
-            default:
-                break;
-        }
-    }
-    return builder.EndTable(start);
-}
 bool Cli::json2mnn(const char* jsonFile, const char* modelFile) {
     rapidjson::Document document;
     {
@@ -1387,7 +1222,7 @@ bool Cli::json2mnn(const char* jsonFile, const char* modelFile) {
     flatbuffers::FlatBufferBuilder builder;
     builder.ForceDefaults(true);
     auto table = MNN::NetTypeTable();
-    auto offset = _writeJsonToFlatbuffer(table, builder, object);
+    auto offset = Json2Flatbuffer::writeJsonToFlatbuffer(table, builder, object);
     builder.Finish(offset);
     std::ofstream outputOs(modelFile, std::ios::binary);
     outputOs.write((char*)builder.GetBufferPointer(), builder.GetSize());

@@ -2043,5 +2043,25 @@ VARP _ROIAlign(VARP input, VARP roi, int pooledHeight, int pooledWidth, float sp
     return (Variable::create(Expr::create(op.get(), {input, bI[1], _Cast<int>(bI[0]), backwardDiff})));
 }
 
+VARPS _JSONOp(VARPS x, const char* opDescribe, int outputNumber) {
+    std::unique_ptr<MNN::OpT> op(new MNN::OpT);
+    op->type = OpType_Extra;
+    op->main.type = OpParameter_Extra;
+    op->main.value = new ExtraT;
+    auto extra = op->main.AsExtra();
+    extra->type = "JSON";
+    extra->engine = "MNN";
+    extra->attr.resize(1);
+    extra->attr[0].reset(new AttributeT);
+    extra->attr[0]->s = opDescribe;
+    extra->attr[0]->key = "main";
+    auto expr = Expr::create(op.get(), x, outputNumber);
+    VARPS outputs(outputNumber);
+    for (int i=0; i<outputNumber; ++i) {
+        outputs[i] = Variable::create(expr, i);
+    }
+    return outputs;
+}
+
 } // namespace Express
 } // namespace MNN

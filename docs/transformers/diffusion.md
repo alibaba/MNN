@@ -65,9 +65,8 @@ cd mnn_path/project/android/build
 其中，resource_path 就是mnn模型文件的路径，除了mnn文件，还需要:
 ### 资源拷贝
 ```
-(a) 将MNN目录transformers/diffusion/engine/scheduler/alphas.txt文件拷贝到resource_path文件夹下。
-(b) 针对stable-diffusion-v1-5/chilloutmix模型需要将huggingfacetokenizer目录下merges.txt和vocab.json拷贝到resource_path文件夹中。
-(c) 针对Taiyi-Stable-Diffusion模型需要将huggingfacetokenizer目录下vocab.txt拷贝到resource_path文件夹中。
+(a) 针对stable-diffusion-v1-5/chilloutmix模型需要将huggingfacetokenizer目录下merges.txt和vocab.json拷贝到resource_path文件夹中。
+(b) 针对Taiyi-Stable-Diffusion模型需要将huggingfacetokenizer目录下vocab.txt拷贝到resource_path文件夹中。
 ```
 ### 参数设置
 ```

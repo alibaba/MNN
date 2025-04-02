@@ -9,22 +9,6 @@ This project is an iOS application based on the MNN engine, supporting local lar
 It operates fully offline with high privacy. Once the models are downloaded to the device, all conversations occur locally without any network uploads or processing.
 
 
-[03/13/2025] Update:
-
-- Support for downloading from the Modeler source  
-
-- Support for Stable Diffusion text-to-image generation
-
-| <img width="200" alt="image" src="./assets/diffusion.JPG" /> | <img width="200" alt="image" src="./assets/diffusionSettings.PNG" /> |
-
-[02/20/2025] Update:
-
-- Support for configuring mmap and manual cache clearing
-
-- Support for model downloads using the ModelScope source
-
-| <img width="200" alt="image" src="./assets/usemmap_en.PNG" /> | <img width="200" alt="image" src="./assets/downloadSource_en.PNG" /> |
-
 ## Features
 
 1. **Model List**
@@ -33,12 +17,17 @@ It operates fully offline with high privacy. Once the models are downloaded to t
     - Support for switching between Hugging Face and ModelScope sources
    - Search for models locally.
 
-2. **Multimodal Chat**: Supports full Markdown format output and configuration of mmap
+2. **Multimodal Chat**: Supports full Markdown format output
    - Text-to-text conversation.
    - Audio-to-text conversation.
    - Image-to-text conversation: capture images via camera or select from the gallery.
 
-3. **Chat History**
+3. **Model Configuration**
+    - Support configuring mmap
+    - Support configuring Sampling Strategy
+    - Support configuring diffusion settings
+
+4. **Chat History**
    - View conversation history, with the ability to restore previous chat sessions.
 
 
@@ -176,6 +165,31 @@ If we want to directly download the models to the computer for debugging without
 
 6. Run the project, navigate to the chat page, and perform model interactions and debugging.
 
+## Release Notes  
+
+### Version 0.3.1  
+
+- Add support for model parameter configuration  
+
+| <img width="200" alt="image" src="./assets/SamplingStrategy1.PNG" /> | <img width="200" alt="image" src="./assets/SamplingStrategy2.PNG" /> | <img width="200" alt="image" src="./assets/SamplingStrategy3.PNG" /> |  
+
+### Version 0.3  
+
+New Features:  
+
+- Add support for downloading from the **Modeler** source  
+- Add support for **Stable Diffusion** text-to-image generation  
+
+| <img width="200" alt="image" src="./assets/diffusion.JPG" /> | <img width="200" alt="image" src="./assets/diffusionSettings.PNG" /> |  
+
+### Version 0.2  
+
+New Features:  
+
+- Add support for **mmap configuration** and **manual cache clearing**  
+- Add support for downloading models from the **ModelScope** source  
+
+| <img width="200" alt="image" src="./assets/usemmap.PNG" /> | <img width="200" alt="image" src="./assets/downloadSource.PNG" /> |  
 
 ## References
 

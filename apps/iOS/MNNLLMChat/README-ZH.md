@@ -6,34 +6,25 @@
 
 纯本地运行，隐私性强。当模型下载到本地之后，所有的对话都将在本地进行，不会有任何网络上传处理。
 
-[03/12/2025] 新增：
-
-- 支持 Modeler 源进行下载
-- 支持 Stable Diffusion 文生图
-
-| <img width="200" alt="image" src="./assets/diffusion.JPG" /> | <img width="200" alt="image" src="./assets/diffusionSettings.PNG" /> |
-
-[02/20/2025]新增：
-
-- 支持配置mmap和手动缓存清理
-
-- 支持使用 ModelScope 源进行模型下载
-
-| <img width="200" alt="image" src="./assets/usemmap.PNG" /> | <img width="200" alt="image" src="./assets/downloadSource.PNG" /> |
-
-
 ## 功能：
 
 1. 模型列表
-    - 获取 MNN 支持的模型礼拜；
+    - 获取 MNN 支持的模型列表；
     - 模型管理，支持下载和删除模型；
         - 支持切换 Hugging Face 和 ModelScope 源
     - 模型搜索，支持本地模型搜索；
-2. 多模态聊天对话：支持完整的Markdown格式输出，支持配置mmap
+
+2. 多模态聊天对话：支持完整的Markdown格式输出，
     - 文本到文本
     - 语音到文本
     - 图片到文本，图片可以拍摄输入或从图库中选择
-3. 对话历史
+
+3. 模型配置
+    - 支持配置 mmap
+    - 支持配置 sampling strategy
+    - 支持配置 diffusion 设置
+
+4. 对话历史
     - 包含对话历史列表，可以还原对话场景
 
 ### 视频介绍
@@ -160,6 +151,34 @@ iPhone 因为内存有限，建议使用7B以及以下的模型，避免内存�
     ```
 
 6. 运行项目，点击进入聊天对话页面，进行模型对话和调试。
+
+
+## Release Notes
+
+### Version 0.3.1
+
+- 支持模型参数配置
+
+| <img width="200" alt="image" src="./assets/SamplingStrategy1.PNG" /> | <img width="200" alt="image" src="./assets/SamplingStrategy2.PNG" /> | <img width="200" alt="image" src="./assets/SamplingStrategy3.PNG" /> ｜
+
+### Version 0.3
+
+新增：
+
+- 支持 Modeler 源进行下载
+- 支持 Stable Diffusion 文生图
+
+| <img width="200" alt="image" src="./assets/diffusion.JPG" /> | <img width="200" alt="image" src="./assets/diffusionSettings.PNG" /> |
+
+### Version 0.2 
+
+新增：
+
+- 支持配置mmap和手动缓存清理
+
+- 支持使用 ModelScope 源进行模型下载
+
+| <img width="200" alt="image" src="./assets/usemmap.PNG" /> | <img width="200" alt="image" src="./assets/downloadSource.PNG" /> |
 
 
 

@@ -26,7 +26,7 @@ asm_function _AVX512_MNNPackedSparseMatMulEpx4_ASM
 pushq   %rbp
 movq    %rsp, %rbp
 
-#ifdef WIN32
+#ifdef _WIN32
 pushq   %rdi
 pushq   %rsi
 movq    %rcx, %rdi
@@ -99,7 +99,7 @@ movq (push_registers_bytes + 16)(%rsp), %rsi // int* dataOffsetMap
 // movq %r8, %rdi
 // movq %r9, %rsi
 
-#ifdef WIN32
+#ifdef _WIN32
 leaq (-1280)(%rsp), %rsp
 vmovdqu %xmm6,  (128*0)(%rsp)
 vmovdqu %xmm7,  (128*1)(%rsp)
@@ -467,7 +467,7 @@ loop_e48h1_end:
 
 loop_end:
 
-#ifdef WIN32
+#ifdef _WIN32
 vmovdqu (128*0)(%rsp), %xmm6
 vmovdqu (128*1)(%rsp), %xmm7
 vmovdqu (128*2)(%rsp), %xmm8

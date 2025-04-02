@@ -1,0 +1,59 @@
+#version 440 core
+layout(std430) buffer;
+
+layout(set=0, binding=0) writeonly buffer pointI{
+    highp uvec2 data[]; // key , index, XXX, XXX
+} uPointKeysOutput;
+
+layout(set=0, binding=1) readonly buffer pointO{
+    highp uvec2 data[]; // key , index, XXX, XXX
+} uPointKeysInput;
+
+layout(set=0, binding=2) readonly buffer his{
+    highp uint data[];
+} uHistogram;
+
+layout(set=0, binding=3) uniform variableBuffer {
+    uvec4 off; // N
+} uOffset;
+
+layout(set=0, binding=4) uniform variablepBuffer {
+    uvec4 off; // pass
+} uPass;
+
+layout(local_size_x_id = 0) in;
+layout(local_size_y_id = 1) in;
+layout(local_size_z_id = 2) in;
+layout (constant_id = 3) const int BIN_NUMBER = 16;
+layout (constant_id = 4) const int LOCAL_SIZE = 256;
+
+void main() {
+    uint groupSize = gl_NumWorkGroups.x;
+    uint threadId = gl_GlobalInvocationID.x;
+    uint threadNumber = groupSize * LOCAL_SIZE;
+    uint totalSize = ((uOffset.off.x + 1) / 2);
+
+    uint size = (totalSize + threadNumber - 1) / threadNumber;
+    uint sta = threadId * size;
+    uint fin = min(sta + size, totalSize);
+    uint div = uPass.off.x;
+    sta = sta * 2;
+    fin = fin * 2;
+    uint offsets[BIN_NUMBER];
+    uint modNum = BIN_NUMBER - 1;
+    for (int i=0; i<BIN_NUMBER; ++i) {
+        uint pos = i * threadNumber + threadId;
+        if (pos == 0) {
+            offsets[i] = 0;
+        } else {
+            offsets[i] = uHistogram.data[pos-1];
+        }
+    }
+    for (uint i=sta; i<fin; ++i) {
+        uvec2 value = uPointKeysInput.data[i];
+        uint key = (value.x >> div) & modNum;
+        uint pos = offsets[key];
+        uPointKeysOutput.data[pos] = value;
+        offsets[key]++;
+    }
+}

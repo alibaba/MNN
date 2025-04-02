@@ -106,10 +106,10 @@ __kernel void layernorm_buf(__private int global_dim0, __private int global_dim1
 #else
     if (pos.x < global_dim0 && pos.y < global_dim1) {
         const int offset = pos.y * inside;
+        float in_sum = 0;
         #ifdef RMSNORM
         float mean = 0;
         #else
-        float in_sum = 0;
         for(int index = 0; index < inside; index++){
             in_sum += (float)input[offset + index];
         }

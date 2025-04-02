@@ -1,0 +1,43 @@
+#version 440 core
+layout(std430) buffer;
+layout(set = 0, binding = 0) writeonly buffer scaleBuffer{
+    vec4 data[];
+}uOutput;
+
+layout(set = 0, binding = 1) readonly buffer vec4buffer{
+    float data[];
+}uInput;
+
+layout(set = 0, binding = 2) uniform constBuffer{
+    ivec4 unit;
+}uConst;
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+void main()
+{
+    int pos = int(gl_GlobalInvocationID).x;
+    int totalUnit = uConst.unit.x;
+    int selectUnit = uConst.unit.y;
+    int offsetUnit = uConst.unit.z;
+
+    if(pos < uConst.unit.w) {
+        vec4 color = vec4(0);
+        int offset = pos * totalUnit + offsetUnit;
+        if (selectUnit == 4) {
+            color.x = uInput.data[offset + 0];
+            color.y = uInput.data[offset + 1];
+            color.z = uInput.data[offset + 2];
+            color.w = uInput.data[offset + 3];
+        } else if (selectUnit == 3) {
+            color.x = uInput.data[offset + 0];
+            color.y = uInput.data[offset + 1];
+            color.z = uInput.data[offset + 2];
+        } else if (selectUnit == 2) {
+            color.x = uInput.data[offset + 0];
+            color.y = uInput.data[offset + 1];
+        } else if (selectUnit == 1) {
+            color.x = uInput.data[offset + 0];
+        }
+        uOutput.data[pos] = color;
+    }
+}

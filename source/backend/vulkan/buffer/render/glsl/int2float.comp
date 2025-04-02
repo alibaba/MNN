@@ -1,0 +1,29 @@
+#version 440 core
+layout(std430) buffer;
+
+layout(set=0, binding=0) writeonly buffer destBuffer{
+    highp float data[];
+} uOutput;
+
+layout(set=0, binding=1) readonly buffer sourceBuffer0{
+    highp int data[];
+} uInput;
+
+layout(set=0, binding=2) uniform constBuffer {
+    ivec4 size;
+    vec4 scale;
+} uConstant;
+
+layout (local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+void main()
+{
+	int pos = int(gl_GlobalInvocationID.x);
+	// input output grid layout is NC4HW4
+
+	ivec4 size = uConstant.size;
+    if (pos < size.x) {
+        uOutput.data[pos] = float(uInput.data[pos]) * uConstant.scale.x + uConstant.scale.y;
+    }
+}
+
+
