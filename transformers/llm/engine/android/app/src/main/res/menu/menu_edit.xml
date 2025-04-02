@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:tools="http://schemas.android.com/tools"
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+    <item
+        android:id="@+id/new_chat"
+        android:title="New Conversation"
+        android:orderInCategory="100"
+        android:icon="@drawable/ic_action_edit_icon"
+        app:showAsAction="ifRoom" />
+</menu>
