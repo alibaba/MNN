@@ -23,7 +23,7 @@ import com.alibaba.mls.api.download.ModelDownloadManager;
 import com.alibaba.mnnllm.android.chat.ChatActivity;
 import com.alibaba.mnnllm.android.history.ChatHistoryFragment;
 import com.alibaba.mnnllm.android.modelist.ModelListFragment;
-import com.alibaba.mnnllm.android.settings.MainSettings;
+import com.alibaba.mnnllm.android.mainsettings.MainSettings;
 import com.alibaba.mnnllm.android.update.UpdateChecker;
 import com.alibaba.mnnllm.android.utils.GithubUtils;
 import com.alibaba.mnnllm.android.utils.ModelUtils;
