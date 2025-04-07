@@ -13,10 +13,16 @@
         android:summary="@string/stop_download_reason"
         android:defaultValue="true" />
 
+    <ListPreference
+        android:key="diffusion_memory_mode"
+        android:title="@string/diffusion_memory_mode"
+        android:entries="@array/diffusion_memory_mode_entries"
+        android:entryValues="@array/diffusion_memory_mode_values"
+        android:defaultValue="0"/>
+
     <Preference
         android:key="check_update"
         android:title="@string/check_for_update"
         android:summary="Tap to check for updates" />
-
 
 </PreferenceScreen>

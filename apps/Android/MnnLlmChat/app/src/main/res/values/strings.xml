@@ -78,4 +78,8 @@
     <string name="stop_download_reason">Stop downloads during chat ensures smoother chat experience</string>
     <string name="modelscope">Modelscope</string>
     <string name="modelers">Modelers</string>
+    <string name="diffusion_mode_memory_saving">Memory Saving Mode</string>
+    <string name="diffusion_mode_memory_engough">Memory Engough Mode</string>
+    <string name="diffusion_mode_memory_balance">Memory Balance Mode</string>
+    <string name="diffusion_memory_mode">Diffusion Memory Mode</string>
 </resources>

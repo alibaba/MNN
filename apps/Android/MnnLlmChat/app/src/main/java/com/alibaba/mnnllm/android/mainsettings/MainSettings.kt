@@ -24,4 +24,16 @@ object MainSettings {
         return sharedPreferences.getBoolean("stop_download_on_chat", true)
     }
 
+    fun getDiffusionMemoryMode(context: Context): String {
+        val sharedPreferences = PreferenceManager.getDefaultSharedPreferences(context)
+        return sharedPreferences.getString("diffusion_memory_mode", DiffusionMemoryMode.MEMORY_MODE_SAVING.value)!!
+    }
+
+    fun setDiffusionMemoryMode(context: Context, mode:String) {
+        val sharedPreferences = PreferenceManager.getDefaultSharedPreferences(context)
+        sharedPreferences.edit()
+            .putString("diffusion_memory_mode", mode)
+            .apply()
+    }
+
 }

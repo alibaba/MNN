@@ -7,17 +7,20 @@ import android.util.Log;
 
 import com.alibaba.mls.api.ApplicationProvider;
 import com.alibaba.mnnllm.android.chat.ChatDataItem;
+import com.alibaba.mnnllm.android.mainsettings.MainSettings;
 import com.alibaba.mnnllm.android.utils.FileUtils;
 import com.alibaba.mnnllm.android.utils.ModelPreferences;
 import com.alibaba.mnnllm.android.utils.ModelUtils;
 
+import org.json.JSONException;
+import org.json.JSONObject;
+
 import java.io.File;
-import java.io.Serializable;
 import java.util.HashMap;
 import java.util.List;
 import java.util.stream.Collectors;
 
-public class ChatSession implements Serializable {
+public class ChatSession {
 
     private final String configPath;
     private long nativePtr;
@@ -63,9 +66,21 @@ public class ChatSession implements Serializable {
             rootCacheDir = FileUtils.getMmapDir(modelId, configPath.contains("modelscope"));
             new File(rootCacheDir).mkdirs();
         }
-        boolean use_opencl = ModelPreferences.getBoolean(ApplicationProvider.get(), modelId, ModelPreferences.KEY_BACKEND, false);
+        boolean useOpencl = ModelPreferences.getBoolean(ApplicationProvider.get(), modelId, ModelPreferences.KEY_BACKEND, false);
+        String backend = useOpencl ? "opencl" : "cpu";
         String sampler = ModelPreferences.getString(ApplicationProvider.get(), modelId, ModelPreferences.KEY_SAMPLER, "greedy");
-        nativePtr = initNative(rootCacheDir, modelId, configPath, useTmpPath, historyStringList, isDiffusion, ModelUtils.isR1Model(modelId), use_opencl, sampler);
+        JSONObject configJson = new JSONObject();
+        try {
+            configJson.put("backend", backend);
+            configJson.put("sampler", sampler);
+            configJson.put("is_diffusion", isDiffusion);
+            configJson.put("is_r1", ModelUtils.isR1Model(modelId));
+            configJson.put("diffusion_memory_mode", MainSettings.INSTANCE.getDiffusionMemoryMode(ApplicationProvider.get()));
+        } catch (JSONException e) {
+            throw new RuntimeException(e);
+        }
+        nativePtr = initNative(rootCacheDir, modelId, configPath,
+                useTmpPath, historyStringList, configJson.toString());
         modelLoading = false;
         if (mReleaseRequeted) {
             release();
@@ -155,7 +170,12 @@ public class ChatSession implements Serializable {
         release();
     }
 
-    public native long initNative(String rootCacheDir,String modelId, String configPath, boolean useTmpPath, List<String> history, boolean isDiffusion, boolean isR1, boolean backend, String sampler);
+    public native long initNative(String rootCacheDir,
+                                  String modelId,
+                                  String configPath,
+                                  boolean useTmpPath,
+                                  List<String> history,
+                                  String configJsonStr);
     private native HashMap<String, Object> submitNative(long instanceId, String input, boolean keepHistory, GenerateProgressListener listener);
 
     private native HashMap<String, Object> submitDiffusionNative(long instanceId, String input, String outputPath, int iterNum, int randomSeed, GenerateProgressListener progressListener);
