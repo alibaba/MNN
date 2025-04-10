@@ -275,7 +275,6 @@ void Llm::initRuntime() {
         // opencl need set numThread = 64(buffer mode)
         config.numThread |= 64;
     }
-    ExecutorScope::Current()->setGlobalExecutorConfig(config.type, cpuBackendConfig, config.numThread);
     if (mConfig->power() == "high") {
         cpuBackendConfig.power = BackendConfig::Power_High;
     } else if (mConfig->power() == "low") {
@@ -828,6 +827,9 @@ void Mllm::load() {
         BackendConfig cpuBackendConfig;
         config.type      = backend_type_convert(mConfig->backend_type(true));;
         config.numThread = mConfig->thread_num(true);
+        if(config.type == 3){
+            config.numThread |= 64;
+        }
         if (mConfig->power(true) == "high") {
             cpuBackendConfig.power = BackendConfig::Power_High;
         } else if (mConfig->power(true) == "low") {
