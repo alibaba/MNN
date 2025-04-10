@@ -39,6 +39,8 @@ include_directories("${MNN_ROOT}/transformers/diffusion/engine/include/")
 #llm
 include_directories("${MNN_ROOT}/transformers/llm/engine/include")
 
+include_directories("${CMAKE_SOURCE_DIR}/third_party")
+
 # Add library paths
 set(LIB_PATH "${CMAKE_SOURCE_DIR}/../jniLibs/${ANDROID_ABI}")
 

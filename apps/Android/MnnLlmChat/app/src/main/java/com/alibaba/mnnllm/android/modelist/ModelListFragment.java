@@ -26,7 +26,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.alibaba.mls.api.HfRepoItem;
 import com.alibaba.mnnllm.android.MainActivity;
 import com.alibaba.mnnllm.android.R;
-import com.alibaba.mnnllm.android.settings.MainSettingsActivity;
+import com.alibaba.mnnllm.android.mainsettings.MainSettingsActivity;
 import com.alibaba.mnnllm.android.utils.PreferenceUtils;
 import com.alibaba.mnnllm.android.utils.RouterUtils;
 

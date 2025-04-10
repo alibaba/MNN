@@ -15,6 +15,7 @@ public class PreferenceUtils {
 
     public static final String KEY_LIST_FILTER_ONLY_DOWNLOADED = "LIST_FILTER_ONLY_DOWNLOADED";
 
+    public static final String KEY_DIFFUSION_MEMORY_MODE = "diffusion_memory_mode";
 
     public static void setBoolean(Context context, String key , boolean value) {
         PreferenceManager.getDefaultSharedPreferences(context).edit().putBoolean(key, value).apply();

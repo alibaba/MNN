@@ -78,4 +78,8 @@
     <string name="stop_download_reason">开启后，聊天时下载任务会被暂停，减少聊天卡顿。</string>
     <string name="modelscope">Modelscope(魔搭)</string>
     <string name="modelers">Modelers(魔乐)</string>
+    <string name="diffusion_mode_memory_saving">内存节省模式</string>
+    <string name="diffusion_mode_memory_engough">内存足够模式</string>
+    <string name="diffusion_mode_memory_balance">内存平衡模式</string>
+    <string name="diffusion_memory_mode">Diffusion内存模式</string>
 </resources>

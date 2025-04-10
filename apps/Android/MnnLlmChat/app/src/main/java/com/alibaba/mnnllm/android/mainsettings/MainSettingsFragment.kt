@@ -1,8 +1,9 @@
 // Created by ruoyi.sjd on 2025/2/28.
 // Copyright (c) 2024 Alibaba Group Holding Limited All rights reserved.
 
-package com.alibaba.mnnllm.android.settings
+package com.alibaba.mnnllm.android.mainsettings
 import android.os.Bundle
+import android.util.Log
 import android.widget.Toast
 import androidx.preference.ListPreference
 import androidx.preference.Preference
@@ -13,6 +14,10 @@ import com.alibaba.mnnllm.android.utils.AppUtils
 import com.alibaba.mnnllm.android.utils.PreferenceUtils
 
 class MainSettingsFragment : PreferenceFragmentCompat() {
+
+    companion object {
+        const val TAG = "MainSettingsFragment"
+    }
     override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
         setPreferencesFromResource(R.xml.main_settings_prefs, rootKey)
 
@@ -51,6 +56,27 @@ class MainSettingsFragment : PreferenceFragmentCompat() {
                     Toast.makeText(context, R.string.settings_complete, Toast.LENGTH_LONG).show()
                     true
                 }
+            }
+        }
+
+        // Setup diffusion memory mode preference
+        val diffusionMemoryModePref = findPreference<ListPreference>("diffusion_memory_mode")
+        diffusionMemoryModePref?.apply {
+            fun updateMemorySummary(vale:String) {
+                Log.d(TAG, "diffusionMemoryModePref updateSummary vale: $vale")
+                diffusionMemoryModePref.summary = when (vale) {
+                    "0" -> getString(R.string.diffusion_mode_memory_saving)
+                    "1" -> getString(R.string.diffusion_mode_memory_engough)
+                    else -> getString(R.string.diffusion_mode_memory_balance)
+                }
+            }
+            val defaultMemoryMode = MainSettings.getDiffusionMemoryMode(requireContext())
+            updateMemorySummary(defaultMemoryMode)
+            onPreferenceChangeListener = Preference.OnPreferenceChangeListener { _, newValue ->
+                val memoryMode = (newValue as String)
+                updateMemorySummary(memoryMode)
+                MainSettings.setDiffusionMemoryMode(requireContext(), memoryMode)
+                true
             }
         }
     }

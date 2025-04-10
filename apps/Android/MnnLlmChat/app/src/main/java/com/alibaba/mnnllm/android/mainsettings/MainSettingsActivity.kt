@@ -2,7 +2,7 @@
 // Copyright (c) 2024 Alibaba Group Holding Limited All rights reserved.
 
 
-package com.alibaba.mnnllm.android.settings
+package com.alibaba.mnnllm.android.mainsettings
 
 import android.os.Bundle
 import android.view.MenuItem

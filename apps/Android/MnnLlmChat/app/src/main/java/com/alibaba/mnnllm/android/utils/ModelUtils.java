@@ -95,7 +95,10 @@ public class ModelUtils {
     }
 
     private static boolean isBlackListPattern(String modelName) {
-        return modelName.contains("qwen1.5") || modelName.contains("qwen-1");
+        return modelName.contains("qwen1.5")
+                || modelName.contains("qwen-1")
+                || isDiffusionModel(modelName) && (modelName.contains("metal") || modelName.contains("gpu"))
+                ;
     }
     public static List<HfRepoItem> processList(List<HfRepoItem> hfRepoItems) {
         List<HfRepoItem> goodItems = new ArrayList<>();
