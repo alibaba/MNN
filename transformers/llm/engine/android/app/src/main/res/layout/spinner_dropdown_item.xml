@@ -1,0 +1,9 @@
+<!-- res/layout/custom_spinner_dropdown_item.xml -->
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@android:id/text1"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:textSize="16sp"
+    android:textColor="#FFFFFF"
+    android:background="@drawable/spinner_background"
+    android:padding="8dp"/>
