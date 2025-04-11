@@ -11,6 +11,9 @@
         <item name="colorOnSecondary">@color/black</item>
         <!-- Status bar color. -->
         <item name="android:statusBarColor">@color/purple_500</item>
+
+<!--        <item name="textAppearanceBodyLarge">@style/YourTextAppearance.BodyLarge</item>-->
+
         <!-- Customize your theme here. -->
     </style>
 
