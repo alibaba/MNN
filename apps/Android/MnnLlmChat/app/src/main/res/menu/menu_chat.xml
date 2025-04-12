@@ -26,10 +26,10 @@
         app:showAsAction="never"
         android:checkable="true"
         android:checked="false" />
-    <item
-        android:id="@+id/menu_item_sampler_spinner"
-        android:title="@string/sampler"
-        app:showAsAction="always"
-        android:textColor="#FFFFFF"
-        app:actionLayout="@layout/item_sampler_spinner" />
+<!--    <item-->
+<!--        android:id="@+id/menu_item_sampler_spinner"-->
+<!--        android:title="@string/sampler"-->
+<!--        app:showAsAction="always"-->
+<!--        android:textColor="#FFFFFF"-->
+<!--        app:actionLayout="@layout/item_sampler_spinner" />-->
 </menu>

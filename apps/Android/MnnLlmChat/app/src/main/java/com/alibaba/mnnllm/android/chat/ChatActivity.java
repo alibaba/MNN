@@ -105,10 +105,11 @@ public class ChatActivity extends AppCompatActivity {
         layoutModelLoading = findViewById(R.id.layout_model_loading);
         if (getSupportActionBar() != null) {
             getSupportActionBar().setDisplayHomeAsUpEnabled(true);
-            getSupportActionBar().setDisplayShowTitleEnabled(false);
+            getSupportActionBar().setDisplayShowTitleEnabled(true);
+            getSupportActionBar().setTitle(modelName);
         }
-        toolbarTitle = findViewById(R.id.toolbar_title);
-        toolbarTitle.setText(modelName);
+//        toolbarTitle = findViewById(R.id.toolbar_title);
+//        toolbarTitle.setText(modelName);
         chatExecutor = Executors.newScheduledThreadPool(1);
         chatDataManager = ChatDataManager.getInstance(this);
         this.setupSession();
@@ -174,7 +175,8 @@ public class ChatActivity extends AppCompatActivity {
             layoutModelLoading.setVisibility(loading ? View.VISIBLE : View.GONE);
             if (getSupportActionBar() != null) {
                 getSupportActionBar().setDisplayHomeAsUpEnabled(true);
-                toolbarTitle.setText(loading ? getString(R.string.model_loading) : getString(R.string.app_name));
+                getSupportActionBar().setTitle(loading ? getString(R.string.model_loading) : getString(R.string.app_name));
+//                toolbarTitle.setText(loading ? getString(R.string.model_loading) : getString(R.string.app_name));
             }
         });
     }
@@ -371,25 +373,25 @@ public class ChatActivity extends AppCompatActivity {
                 .setChecked(PreferenceUtils.getBoolean(this, PreferenceUtils.KEY_SHOW_PERFORMACE_METRICS, true));
         menu.findItem(R.id.menu_item_use_mmap).setChecked(ModelPreferences.getBoolean(this, modelId, ModelPreferences.KEY_USE_MMAP, true));
         menu.findItem(R.id.menu_item_backend).setChecked(ModelPreferences.getBoolean(this, modelId, ModelPreferences.KEY_BACKEND, false));        
-        MenuItem samplerSpinnerItem = menu.findItem(R.id.menu_item_sampler_spinner);
-        Spinner samplerSpinner = Objects.requireNonNull(samplerSpinnerItem.getActionView()).findViewById(R.id.sampler_spinner);
-        String[] items = new String[]{"greedy", "temperature", "topK", "topP", "minP", "typical", "tfs", "penalty", "mixed"};
-        ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, items);
-        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-        samplerSpinner.setAdapter(adapter);
-        samplerSpinner.setSelection(
-                getSamplerSelectionId(items,
-                        ModelPreferences.getString(this, modelId, ModelPreferences.KEY_SAMPLER, getString(R.string.sampler))));
-        samplerSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
-            @Override
-            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
-                String selectedItem = parent.getItemAtPosition(position).toString();
-                ((TextView) view).setTextColor(Color.WHITE); // 设置选中项的字体颜色
-                handleSamplerSpinnerSelection(selectedItem);
-            }
-            @Override
-            public void onNothingSelected(AdapterView<?> parent) {}
-        });
+//        MenuItem samplerSpinnerItem = menu.findItem(R.id.menu_item_sampler_spinner);
+//        Spinner samplerSpinner = Objects.requireNonNull(samplerSpinnerItem.getActionView()).findViewById(R.id.sampler_spinner);
+//        String[] items = new String[]{"greedy", "temperature", "topK", "topP", "minP", "typical", "tfs", "penalty", "mixed"};
+//        ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, items);
+//        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+//        samplerSpinner.setAdapter(adapter);
+//        samplerSpinner.setSelection(
+//                getSamplerSelectionId(items,
+//                        ModelPreferences.getString(this, modelId, ModelPreferences.KEY_SAMPLER, getString(R.string.sampler))));
+//        samplerSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+//            @Override
+//            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+//                String selectedItem = parent.getItemAtPosition(position).toString();
+//                ((TextView) view).setTextColor(Color.WHITE); // 设置选中项的字体颜色
+//                handleSamplerSpinnerSelection(selectedItem);
+//            }
+//            @Override
+//            public void onNothingSelected(AdapterView<?> parent) {}
+//        });
         return true;
     }
 

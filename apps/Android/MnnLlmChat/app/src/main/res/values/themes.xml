@@ -1,18 +1,85 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <!-- Base application theme. -->
-    <style name="Theme.MnnLlmChat" parent="Theme.MaterialComponents.Light.NoActionBar">
-        <!-- Primary brand color. -->
-        <item name="colorPrimary">@color/purple_500</item>
-        <item name="colorPrimaryVariant">@color/purple_700</item>
-        <item name="colorOnPrimary">@color/white</item>
-        <!-- Secondary brand color. -->
-        <item name="colorSecondary">@color/color_darker_blue</item>
-        <item name="colorSecondaryVariant">@color/color_darker_blue</item>
-        <item name="colorOnSecondary">@color/black</item>
-        <!-- Status bar color. -->
-        <item name="android:statusBarColor">@color/purple_500</item>
 
-<!--        <item name="textAppearanceBodyLarge">@style/YourTextAppearance.BodyLarge</item>-->
+    <style name="App.NavigationView" parent="Widget.Material3.NavigationView">
+        <!-- Option 1: Use the custom drawable -->
+        <item name="android:background">?android:colorBackground</item>
+
+        <!-- Option 2: Use a simple color resource -->
+        <!-- <item name="android:background">@color/my_custom_nav_color</item> -->
+
+        <!-- You can customize other NavigationView attributes here too -->
+        <!-- <item name="itemTextColor">@color/my_nav_item_text_color</item> -->
+        <!-- <item name="itemIconTint">@color/my_nav_item_icon_tint</item> -->
+        <!-- <item name="itemBackground">@drawable/custom_nav_item_background</item> -->
+    </style>
+
+    <style name="CustomPopupMenu" parent="Widget.Material3.PopupMenu">
+        <item name="android:popupBackground">?android:colorBackground</item>
+    </style>
+<!--    <style name="ThemeOverlay.YourAppName.DynamicColors" parent="">-->
+<!--        <item name="colorPrimaryDynamic">false</item>-->
+<!--        <item name="colorSecondaryDynamic">false</item>-->
+<!--        <item name="colorTertiaryDynamic">false</item>-->
+<!--    </style>-->
+    <style name="Theme.MnnLlmChat" parent="Theme.Material3.DayNight.NoActionBar">
+<!--        <item name="android:dynamicColor">false</item>-->
+        <!-- Primary brand color. -->
+        <item name="colorPrimary">@color/color_foreground</item>
+        <!--        <item name="colorPrimaryVariant">@color/purple_700</item>-->
+<!--        <item name="colorOnPrimary">@color/color_foreground</item>-->
+<!--        <item name="colorPrimaryVariant">@android:color/holo_green_dark</item>-->
+        <!--        &lt;!&ndash; Secondary brand color. &ndash;&gt;-->
+        <!-- fab、listpreference -->
+        <item name="colorSecondary">@color/app_theme_color</item>
+<!--        <item name="colorSecondaryVariant">@color/app_theme_color</item>-->
+        <!--        <item name="colorSecondaryVariant">@color/color_darker_blue</item>-->
+        <!--        <item name="colorOnSecondary">@color/black</item>-->
+        <!--        &lt;!&ndash; Status bar color. &ndash;&gt;-->
+
+        <!--toolbar -->
+        <item name="colorSurface">?android:colorBackground</item>
+        <!-- popup menu-->
+        <item name="colorSurfaceContainer">?android:colorBackground</item>
+
+        <!--        <item name="colorSurfaceVariant">?android:colorBackground</item>-->
+        <item name="android:popupMenuStyle">@style/CustomPopupMenu</item>
+        <item name="popupMenuStyle">@style/CustomPopupMenu</item>
+<!--        <item name="materialThemeOverlay">@style/ThemeOverlay.YourAppName.DynamicColors</item>-->
+
+        <!--        <item name="colorOnSurface">@color/color_background</item>-->
+        <item name="android:colorBackground">@color/color_background</item>
+        <item name="android:windowLightStatusBar">@bool/is_day_mode</item>
+<!--        <item name="android:colorControlActivated">@color/app_theme_color</item>-->
+        <item name="navigationViewStyle">@style/App.NavigationView</item>
+<!--        <item name="android:windowTranslucentStatus">true</item>-->
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+        <!-- menu item color-->
+<!--        <item name="colorControlNormal">@color/app_theme_color</item>-->
+
+        <!-- Customize your theme here. -->
+    </style>
+    <style name="Theme.MnnLlmChatOld" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <!-- Primary brand color. -->
+        <item name="colorPrimary">@color/color_background</item>
+<!--        <item name="colorPrimaryVariant">@color/purple_700</item>-->
+<!--        <item name="colorOnPrimary">@color/color_foreground</item>-->
+<!--        &lt;!&ndash; Secondary brand color. &ndash;&gt;-->
+        <item name="colorSecondary">@color/app_theme_color</item>
+<!--        <item name="colorSecondaryVariant">@color/color_darker_blue</item>-->
+<!--        <item name="colorOnSecondary">@color/black</item>-->
+<!--        &lt;!&ndash; Status bar color. &ndash;&gt;-->
+        <item name="android:statusBarColor">@color/color_background</item>
+
+<!--        &lt;!&ndash; Surface and background colors &ndash;&gt;-->
+<!--        <item name="colorSurface">@color/black</item>-->
+<!--        <item name="colorOnSurface">@color/color_background</item>-->
+        <item name="android:colorBackground">@color/color_background</item>
+        <item name="android:windowLightStatusBar">@bool/is_day_mode</item>
+        <item name="android:colorControlActivated">@color/app_theme_color</item>
+
+<!--        <item name="colorControlNormal">@color/app_theme_color</item>-->
 
         <!-- Customize your theme here. -->
     </style>

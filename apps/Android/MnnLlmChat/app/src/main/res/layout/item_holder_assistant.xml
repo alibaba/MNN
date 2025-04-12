@@ -31,7 +31,6 @@
         android:layout_toEndOf="@id/ic_header"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:background="@drawable/bg_chat_assistant"
         android:padding="@dimen/space10"
         android:textAppearance="@style/Light"
         android:textColor="@color/colorTextBlack"

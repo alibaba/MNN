@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/drawer_layout"
+    android:background="#00F"
+    android:fitsSystemWindows="true"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+    <androidx.coordinatorlayout.widget.CoordinatorLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:fitsSystemWindows="true">
+    <com.google.android.material.appbar.AppBarLayout
+        android:id="@+id/app_bar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        >
+        <androidx.appcompat.widget.Toolbar
+            android:id="@+id/toolbar"
+            android:layout_width="match_parent"
+            android:background="#f00"
+            android:layout_height="?attr/actionBarSize"
+            android:elevation="0dp" />
+    </com.google.android.material.appbar.AppBarLayout>
+    </androidx.coordinatorlayout.widget.CoordinatorLayout>
+    <!--    <LinearLayout-->
+    <!--        android:layout_width="match_parent"-->
+    <!--        android:layout_height="match_parent"-->
+    <!--        android:orientation="vertical"-->
+    <!--        android:fitsSystemWindows="true"-->
+    <!--        >-->
+    <!--        <com.google.android.material.appbar.AppBarLayout-->
+    <!--            android:id="@+id/app_bar"-->
+    <!--            android:layout_width="match_parent"-->
+    <!--            android:layout_height="wrap_content"-->
+    <!--            android:fitsSystemWindows="true"-->
+    <!--            >-->
+    <!--            <androidx.appcompat.widget.Toolbar-->
+    <!--                android:id="@+id/toolbar"-->
+    <!--                android:layout_width="match_parent"-->
+    <!--                android:layout_height="?attr/actionBarSize"-->
+    <!--                android:fitsSystemWindows="true"-->
+    <!--                android:elevation="0dp" />-->
+    <!--        </com.google.android.material.appbar.AppBarLayout>-->
+
+    <!--&lt;!&ndash;        <FrameLayout&ndash;&gt;-->
+    <!--&lt;!&ndash;            android:id="@+id/main_fragment_container"&ndash;&gt;-->
+    <!--&lt;!&ndash;            android:layout_width="match_parent"&ndash;&gt;-->
+    <!--&lt;!&ndash;            android:layout_height="match_parent"&ndash;&gt;-->
+    <!--&lt;!&ndash;            android:fitsSystemWindows="true"&ndash;&gt;-->
+    <!--&lt;!&ndash;            />&ndash;&gt;-->
+    <!--    </LinearLayout>-->
+
+
+    <!--    <com.nambimobile.widgets.efab.ExpandableFabLayout-->
+    <!--        android:layout_width="match_parent"-->
+    <!--        android:layout_height="match_parent"-->
+    <!--        android:visibility="gone"-->
+    <!--        android:fitsSystemWindows="true"-->
+    <!--        >-->
+
+    <!--        &lt;!&ndash; The next 3 Views will only display in portrait orientation &ndash;&gt;-->
+    <!--        <com.nambimobile.widgets.efab.Overlay-->
+    <!--            android:layout_width="match_parent"-->
+    <!--            android:layout_height="match_parent"-->
+    <!--            app:overlay_orientation="portrait"/>-->
+    <!--        <com.nambimobile.widgets.efab.ExpandableFab-->
+    <!--            android:layout_width="wrap_content"-->
+    <!--            android:layout_height="wrap_content"-->
+    <!--            android:layout_gravity="bottom|end"-->
+    <!--            android:layout_marginBottom="@dimen/ui_margin_medium"-->
+    <!--            android:layout_marginEnd="@dimen/ui_margin_medium"-->
+    <!--            android:layout_marginRight="@dimen/ui_margin_medium"-->
+    <!--            app:efab_orientation="portrait"/>-->
+
+    <!--        <com.nambimobile.widgets.efab.FabOption-->
+    <!--            android:layout_width="wrap_content"-->
+    <!--            android:layout_height="wrap_content"-->
+    <!--            app:fab_orientation="portrait"-->
+    <!--            app:label_text="@string/star_project"-->
+    <!--            app:fab_icon="@drawable/ic_github"-->
+    <!--            android:onClick="onStarProject"/>-->
+
+    <!--        <com.nambimobile.widgets.efab.FabOption-->
+    <!--            android:layout_width="wrap_content"-->
+    <!--            android:layout_height="wrap_content"-->
+    <!--            app:fab_orientation="portrait"-->
+    <!--            app:label_text="@string/raise_issue"-->
+    <!--            app:fab_icon="@drawable/ic_issue"-->
+    <!--            android:onClick="onReportIssue"/>-->
+    <!--    </com.nambimobile.widgets.efab.ExpandableFabLayout>-->
+    <!-- Navigation Drawer -->
+    <!--    <com.google.android.material.navigation.NavigationView-->
+    <!--        android:id="@+id/nav_view"-->
+    <!--        android:layout_width="wrap_content"-->
+    <!--        android:layout_height="match_parent"-->
+    <!--        android:layout_gravity="start"-->
+    <!--        android:fitsSystemWindows="true"-->
+    <!--        >-->
+    <!--        <FrameLayout-->
+    <!--            android:id="@+id/history_fragment_container"-->
+    <!--            android:layout_width="match_parent"-->
+    <!--            android:layout_height="match_parent" />-->
+    <!--    </com.google.android.material.navigation.NavigationView>-->
+</FrameLayout>

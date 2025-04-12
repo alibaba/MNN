@@ -14,6 +14,7 @@
 #include "remote_model_downloader.hpp"
 #include "llm_benchmark.hpp"
 #include "mls_server.hpp"
+#include "jsonhpp/json.hpp"
 
 using namespace MNN::Transformer;
 
@@ -68,6 +69,7 @@ int list_local_models(const std::string &directory_path, std::vector<std::string
     return 0;
 }
 
+
 static int eval_prompts(Llm *llm, const std::vector<std::string> &prompts) {
     int prompt_len = 0;
     int decode_len = 0;
@@ -108,25 +110,61 @@ static int eval_prompts(Llm *llm, const std::vector<std::string> &prompts) {
     return 0;
 }
 
+
+static int eval_jsonl(Llm *llm, std::string prompt_file) {
+    std::string output_file = prompt_file.substr(0, prompt_file.size() - 6) + "_response.jsonl";
+    std::ofstream output_fs(output_file);
+    std::string line;
+    std::ifstream prompt_fs(prompt_file);
+    while (std::getline(prompt_fs, line)) {
+        if (line.empty() || line[0] == '#') continue;
+        auto json_data = nlohmann::json::parse(line, nullptr, false);
+        if (json_data.is_discarded()) {
+            std::cerr << "parse json failed" << std::endl;
+            continue;
+        }
+        if (json_data.contains("prompt")) {
+            std::string prompt = json_data["prompt"];
+            
+            llm->response(prompt);
+            auto context = llm->getContext();
+            std::string answer = context->generate_str;
+            
+            nlohmann::json response_json;
+            response_json["prompt"] = prompt;
+            response_json["answer"] = answer;
+            output_fs << response_json.dump() << std::endl;
+        }
+    }
+    output_fs.close();
+    std::cout << "result saved to : " << output_file << std::endl;
+    return 0;
+}
+
+
 static int eval_file(Llm *llm, std::string prompt_file) {
     std::cout << "prompt file is " << prompt_file << std::endl;
-    std::ifstream prompt_fs(prompt_file);
-    std::vector<std::string> prompts;
-    std::string prompt;
-    while (std::getline(prompt_fs, prompt))
-    {
-        if (prompt.back() == '\r')
-        {
-            prompt.pop_back();
+    bool is_jsonl = prompt_file.size() >= 6 && 
+                   prompt_file.substr(prompt_file.size() - 6) == ".jsonl";
+    if (is_jsonl) {
+        return eval_jsonl(llm, prompt_file);
+    } else {
+        std::ifstream prompt_fs(prompt_file);
+        std::vector<std::string> prompts;
+        std::string prompt;
+        while (std::getline(prompt_fs, prompt)) {
+            if (prompt.back() == '\r')
+            {
+                prompt.pop_back();
+            }
+            prompts.push_back(prompt);
         }
-        prompts.push_back(prompt);
+        prompt_fs.close();
+        if (prompts.empty()) {
+            return 1;
+        }
+        return eval_prompts(llm, prompts);
     }
-    prompt_fs.close();
-    if (prompts.empty())
-    {
-        return 1;
-    }
-    return eval_prompts(llm, prompts);
 }
 
 static int print_usage() {
@@ -268,41 +306,32 @@ static int run(int argc, const char *argv[]) {
     std::string prompt;
     std::string prompt_file;
     bool invalid_param = false;
-    if (argc < 3)
-    {
+    if (argc < 3) {
         print_usage();
         return 1;
     }
     arg = argv[2];
-    if (arg.find('-') != 0)
-    {
+    if (arg.find('-') != 0) {
         config_path = mls::FileUtils::GetConfigPath(arg);
     }
-    for (int i = 2; i < argc; i++)
-    {
+    for (int i = 2; i < argc; i++) {
         arg = argv[i];
-        if (arg == "-c")
-        {
+        if (arg == "-c") {
             if (++i >= argc)
             {
                 invalid_param = true;
                 break;
             }
             config_path = mls::FileUtils::ExpandTilde(argv[i]);
-        }
-        else if (arg == "-p")
-        {
+        } else if (arg == "-p") {
             if (++i >= argc)
             {
                 invalid_param = true;
                 break;
             }
             prompt = argv[i];
-        }
-        else if (arg == "-pf")
-        {
-            if (++i >= argc)
-            {
+        } else if (arg == "--pf") {
+            if (++i >= argc) {
                 invalid_param = true;
                 break;
             }
