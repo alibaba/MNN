@@ -1,17 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
-<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent"
+
+<RelativeLayout android:layout_width="match_parent"
     android:layout_height="80dp"
     xmlns:app="http://schemas.android.com/apk/res-auto"
-    xmlns:tools="http://schemas.android.com/tools">
-    <androidx.cardview.widget.CardView
+    xmlns:tools="http://schemas.android.com/tools"
+    xmlns:android="http://schemas.android.com/apk/res/android">
+    <com.google.android.material.card.MaterialCardView
         android:id="@+id/header_section_title"
         android:layout_width="60dp"
         android:layout_height="60dp"
         android:layout_marginStart="12dp"
-        app:cardBackgroundColor="?colorPrimary"
-        android:visibility="visible"
-        android:layout_centerVertical="true">
+        app:cardCornerRadius="8dp"
+        android:layout_centerVertical="true"
+        app:cardBackgroundColor="@android:color/transparent"
+        style="@style/Widget.Material3.CardView.Outlined"
+        app:strokeColor="?colorOutlineVariant"
+        >
         <TextView
             android:id="@+id/tvModelName"
             tools:text="Qwen"
@@ -19,24 +23,24 @@
             android:textSize="@dimen/sp20"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:textColor="@android:color/white"/>
-    </androidx.cardview.widget.CardView>
-    <ImageView
-        android:id="@+id/header_section_icon"
-        android:src="@drawable/qwen_icon"
-        android:layout_width="60dp"
-        android:layout_height="60dp"
-        android:layout_centerVertical="true"
-        android:layout_marginStart="12dp"
-        android:visibility="invisible"
-        tools:ignore="ContentDescription" />
+            android:textColor="?colorOnSurface"/>
+        <ImageView
+            android:id="@+id/header_section_icon"
+            android:src="@drawable/qwen_icon"
+            android:layout_margin="8dp"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:visibility="invisible"
+            tools:ignore="ContentDescription" />
+    </com.google.android.material.card.MaterialCardView>
+
     <TextView
         android:id="@+id/tvModelTitle"
-        android:layout_toEndOf="@id/header_section_icon"
-        android:layout_alignTop="@+id/header_section_icon"
+        android:layout_toEndOf="@id/header_section_title"
+        android:layout_alignTop="@+id/header_section_title"
         android:layout_marginStart="14dp"
         android:maxLines="1"
-        android:textColor="#333333"
+        android:textColor="?colorOnSurface"
         android:textSize="16sp"
         tools:text="Qwen-Chat-7B"
         android:layout_width="wrap_content"
@@ -44,7 +48,7 @@
 
     <com.alibaba.mnnllm.android.widgets.TagsLayout
         android:id="@+id/tagsLayout"
-        android:layout_toEndOf="@id/header_section_icon"
+        android:layout_toEndOf="@id/header_section_title"
         android:layout_below="@id/tvModelTitle"
         android:layout_marginStart="14dp"
         android:layout_marginEnd="60dp"
@@ -54,11 +58,11 @@
     <TextView
         android:id="@+id/tvModelSubtitle"
         android:visibility="visible"
-        android:layout_toEndOf="@id/header_section_icon"
+        android:layout_toEndOf="@id/header_section_title"
         android:layout_below="@id/tvModelTitle"
         android:layout_marginStart="14dp"
         android:layout_marginEnd="20dp"
-        android:textColor="#666666"
+        android:textColor="?colorOnSurfaceVariant"
         android:textSize="14sp"
         tools:text="Visual  Audio"
         android:maxLines="1"
@@ -68,7 +72,7 @@
 
     <TextView
         android:id="@+id/tvStatus"
-        android:layout_toEndOf="@id/header_section_icon"
+        android:layout_toEndOf="@id/header_section_title"
         android:layout_below="@id/tagsLayout"
         android:layout_marginStart="14dp"
         android:textColor="#666666"
@@ -89,11 +93,12 @@
         android:layout_height="20dp"
         android:layout_gravity="center"
         app:SpinKit_Color="@color/colorAccent" />
-    <View
-        android:layout_alignParentBottom="true"
-        android:layout_width="match_parent"
-        android:layout_height="1dp"
-        android:layout_marginStart="14dp"
-        android:layout_marginEnd="14dp"
-        android:background="#E5E5E5" />
-</RelativeLayout>
+
+    <!--    <View-->
+    <!--        android:layout_alignParentBottom="true"-->
+    <!--        android:layout_width="match_parent"-->
+    <!--        android:layout_height="1dp"-->
+    <!--        android:layout_marginStart="14dp"-->
+    <!--        android:layout_marginEnd="14dp"-->
+    <!--        android:background="#E5E5E5" />-->
+    </RelativeLayout>

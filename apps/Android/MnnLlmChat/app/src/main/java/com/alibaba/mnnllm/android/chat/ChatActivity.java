@@ -36,6 +36,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.alibaba.mnnllm.android.ChatService;
 import com.alibaba.mnnllm.android.ChatSession;
 import com.alibaba.mnnllm.android.R;
+import com.alibaba.mnnllm.android.modelsettings.SettingsActivity;
 import com.alibaba.mnnllm.android.utils.FileUtils;
 import com.alibaba.mnnllm.android.utils.ModelPreferences;
 import com.alibaba.mnnllm.android.utils.ModelUtils;
@@ -175,7 +176,7 @@ public class ChatActivity extends AppCompatActivity {
             layoutModelLoading.setVisibility(loading ? View.VISIBLE : View.GONE);
             if (getSupportActionBar() != null) {
                 getSupportActionBar().setDisplayHomeAsUpEnabled(true);
-                getSupportActionBar().setTitle(loading ? getString(R.string.model_loading) : getString(R.string.app_name));
+                getSupportActionBar().setTitle(loading ? getString(R.string.model_loading) : modelName);
 //                toolbarTitle.setText(loading ? getString(R.string.model_loading) : getString(R.string.app_name));
             }
         });
@@ -423,6 +424,9 @@ public class ChatActivity extends AppCompatActivity {
             Toast.makeText(this, R.string.reloading_session, Toast.LENGTH_LONG).show();
             ModelPreferences.setBoolean(this, modelId, ModelPreferences.KEY_BACKEND, item.isChecked());
             recreate();
+        } else if (item.getItemId() == R.id.menu_item_model_settings) {
+            startActivity(new Intent(this, SettingsActivity.class));
+            return true;
         }
         return super.onOptionsItemSelected(item);
     }

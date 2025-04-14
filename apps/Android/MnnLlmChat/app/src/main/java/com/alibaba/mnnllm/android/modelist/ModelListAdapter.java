@@ -21,11 +21,11 @@ import java.util.stream.Collectors;
 
 public class ModelListAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
-    private List<HfRepoItem> items;
+    private final List<HfRepoItem> items;
     private List<HfRepoItem> filteredItems;
     private ModelItemListener modelListListener;
     private Map<String, ModelItemState> modelItemStatesMap;
-    private Set<ModelItemHolder> modelItemHolders = new HashSet<>();
+    private final Set<ModelItemHolder> modelItemHolders = new HashSet<>();
     private String filterQuery;
     private boolean filterDownloaded;
 

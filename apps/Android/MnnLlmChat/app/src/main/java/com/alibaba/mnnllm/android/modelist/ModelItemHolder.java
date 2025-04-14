@@ -27,6 +27,8 @@ public class ModelItemHolder extends RecyclerView.ViewHolder implements View.OnC
     private ModelItemListener modelItemListener;
     public ImageView headerIcon;
 
+    private View headerSection;
+
     public View downloadProgressView;
 
     private ModelItemState modelItemState;
@@ -42,6 +44,7 @@ public class ModelItemHolder extends RecyclerView.ViewHolder implements View.OnC
         tvModelTitle = itemView.findViewById(R.id.tvModelTitle);
         tvModelSubtitle = itemView.findViewById(R.id.tvModelSubtitle);
         tvStatus = itemView.findViewById(R.id.tvStatus);
+        headerSection = itemView.findViewById(R.id.header_section_title);
         headerIcon = itemView.findViewById(R.id.header_section_icon);
         downloadProgressView = itemView.findViewById(R.id.download_progress_view);
         tagsLayout = itemView.findViewById(R.id.tagsLayout);
@@ -59,13 +62,15 @@ public class ModelItemHolder extends RecyclerView.ViewHolder implements View.OnC
         if (drawableId != 0) {
             headerIcon.setVisibility(View.VISIBLE);
             headerIcon.setImageResource(drawableId);
-            ((ViewGroup)tvModelName.getParent()).setVisibility(View.INVISIBLE);
+            this.tvModelName.setVisibility(View.INVISIBLE);
+//            ((ViewGroup)tvModelName.getParent()).setVisibility(View.INVISIBLE);
         } else {
             headerIcon.setVisibility(View.INVISIBLE);
-            ((ViewGroup)tvModelName.getParent()).setVisibility(View.VISIBLE);
+//            ((ViewGroup)tvModelName.getParent()).setVisibility(View.VISIBLE);
             String headerText = modelName == null ? "" : modelName.replace("_", "-");
             this.tvModelName.setText(headerText.contains("-") ?
                     headerText.substring(0, headerText.indexOf("-")) :  headerText);
+            this.tvModelName.setVisibility(View.VISIBLE);
         }
         assert modelItemState != null;
         int downloadState = modelItemState.downloadInfo.downlodaState;

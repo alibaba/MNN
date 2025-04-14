@@ -4,6 +4,7 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:paddingTop="8dp"
     android:orientation="vertical"
     tools:context=".MainActivity">
 
@@ -22,7 +23,7 @@
         android:layout_width="50dp"
         android:layout_height="50dp"
         android:layout_gravity="center"
-        app:SpinKit_Color="@color/colorAccent" />
+        app:SpinKit_Color="?attr/colorPrimary" />
 
     <RelativeLayout
         android:id="@+id/model_list_failed_view"

@@ -65,12 +65,13 @@
             android:textColor="@android:color/white"
             android:textSize="16sp"
             tools:text="7s" />
-
         <SeekBar
             android:id="@+id/audio_seek_bar"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_centerVertical="true"
+            android:progressTint="@color/color_white"
+            android:thumbTint="@color/color_white"
             android:background="@null"
             android:layout_toEndOf="@id/iv_audio_play_pause"
             android:layout_toStartOf="@id/tv_chat_voice_duration"/>

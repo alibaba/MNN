@@ -1,5 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<selector xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:state_enabled="true" android:drawable="@drawable/ic_send"/>
-    <item android:drawable="@drawable/ic_send_disabled"/>
+<selector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+    <item android:state_enabled="true"
+        android:drawable="@drawable/ic_send"
+        app:tint="@color/color_white"
+        />
+    <item
+        android:drawable="@drawable/ic_send_disabled"
+        app:tint="?colorOnSurfaceVariant"
+        />
 </selector>

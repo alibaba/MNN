@@ -82,4 +82,5 @@
     <string name="diffusion_mode_memory_engough">内存足够模式</string>
     <string name="diffusion_mode_memory_balance">内存平衡模式</string>
     <string name="diffusion_memory_mode">Diffusion内存模式</string>
+    <string name="model_settings">设置</string>
 </resources>
