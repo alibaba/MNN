@@ -25,7 +25,6 @@ import java.io.IOException;
 public class AttachmentPickerModule {
 
     private final ChatActivity activity;
-    private final String modelName;
     private View takePhotoView;
     private View chooseImageView;
 
@@ -46,10 +45,10 @@ public class AttachmentPickerModule {
 
     public AttachmentPickerModule(ChatActivity activity) {
         this.activity = activity;
-        this.modelName = activity.getModelName();
+        String modelName = activity.getModelName();
         takePhotoView = this.activity.findViewById(R.id.more_item_camera);
         chooseImageView = this.activity.findViewById(R.id.more_item_photo);
-        if (ModelUtils.isVisualModel(this.modelName)) {
+        if (ModelUtils.isVisualModel(modelName)) {
             takePhotoView.setOnClickListener(v -> takePhoto());
             chooseImageView.setOnClickListener(v -> chooseImageView());
         } else {
@@ -57,7 +56,7 @@ public class AttachmentPickerModule {
             chooseImageView.setVisibility(View.GONE);
         }
         View chooseAudioView = this.activity.findViewById(R.id.more_item_audio);
-        if (ModelUtils.isAudioModel(this.modelName)) {
+        if (ModelUtils.isAudioModel(modelName)) {
             chooseAudioView.setOnClickListener(v -> chooseAudio());
         } else {
             chooseAudioView.setVisibility(View.GONE);

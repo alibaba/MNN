@@ -1,0 +1,743 @@
+// Created by ruoyi.sjd on 2024/12/25.
+// Copyright (c) 2024 Alibaba Group Holding Limited All rights reserved.
+package com.alibaba.mnnllm.android.chat
+
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Bundle
+import android.text.Editable
+import android.text.TextUtils
+import android.text.TextWatcher
+import android.util.Log
+import android.view.KeyEvent
+import android.view.Menu
+import android.view.MenuItem
+import android.view.View
+import android.widget.EditText
+import android.widget.ImageView
+import android.widget.TextView
+import android.widget.Toast
+import androidx.appcompat.app.AppCompatActivity
+import androidx.core.widget.NestedScrollView
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
+import com.alibaba.mnnllm.android.ChatService
+import com.alibaba.mnnllm.android.ChatSession
+import com.alibaba.mnnllm.android.R
+import com.alibaba.mnnllm.android.chat.AttachmentPickerModule.AttachmentType
+import com.alibaba.mnnllm.android.chat.AttachmentPickerModule.ImagePickCallback
+import com.alibaba.mnnllm.android.chat.GenerateResultProcessor.NormalGenerateResultProcessor
+import com.alibaba.mnnllm.android.chat.GenerateResultProcessor.R1GenerateResultProcessor
+import com.alibaba.mnnllm.android.chat.VoiceRecordingModule.VoiceRecordingListener
+import com.alibaba.mnnllm.android.databinding.ActivityChatBinding
+import com.alibaba.mnnllm.android.modelsettings.SettingsActivity
+import com.alibaba.mnnllm.android.utils.AudioPlayService
+import com.alibaba.mnnllm.android.utils.FileUtils
+import com.alibaba.mnnllm.android.utils.KeyboardUtils
+import com.alibaba.mnnllm.android.utils.ModelPreferences
+import com.alibaba.mnnllm.android.utils.ModelUtils
+import com.alibaba.mnnllm.android.utils.PreferenceUtils
+import com.google.android.material.bottomsheet.BottomSheetBehavior
+import java.text.DateFormat
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.Random
+import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledExecutorService
+import kotlin.math.abs
+
+class ChatActivity : AppCompatActivity() {
+    private lateinit var recyclerView: RecyclerView
+    private var adapter: ChatRecyclerViewAdapter? = null
+    private lateinit var editUserMessage: EditText
+    private lateinit var buttonSend: ImageView
+
+    private lateinit var imageMore: ImageView
+    private var layoutModelLoading: View? = null
+
+    private var dateFormat: DateFormat? = null
+    private lateinit var chatSession: ChatSession
+    var sessionId: String? = null
+        private set
+
+    var modelName: String? = null
+        private set
+    private var modelId: String? = null
+
+    private var chatExecutor: ScheduledExecutorService? = null
+
+    private var linearLayoutManager: LinearLayoutManager? = null
+
+    private var chatDataManager: ChatDataManager? = null
+
+    private var isUserScrolling = false
+
+    private var voiceRecordingModule: VoiceRecordingModule? = null
+
+    private var isAudioModel = false
+    private var attachmentPickerModule: AttachmentPickerModule? = null
+    private var buttonSwitchVoice: View? = null
+
+    private var currentUserMessage: ChatDataItem? = null
+
+    private var isGenerating = false
+    private var isLoading = false
+    private var sessionName: String? = null
+    private var stopGenerating = false
+    private lateinit var toolbarTitle: TextView
+    private val CONFIG_SHOW_CUSTOM_TOOLBAR = false
+
+    private lateinit var binding: ActivityChatBinding
+    private lateinit var bottomSheetBehavior: BottomSheetBehavior<NestedScrollView>
+    private lateinit var optionsAdapter: DatasetOptionsAdapter
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        binding = ActivityChatBinding.inflate(layoutInflater)
+        setContentView(binding.root)
+        val toolbar = binding.toolbar
+        setSupportActionBar(toolbar)
+        modelName = intent.getStringExtra("modelName")
+        modelId = intent.getStringExtra("modelId")
+        layoutModelLoading = findViewById(R.id.layout_model_loading)
+        if (supportActionBar != null) {
+            supportActionBar!!.setDisplayHomeAsUpEnabled(true)
+            supportActionBar!!.setDisplayShowTitleEnabled(!CONFIG_SHOW_CUSTOM_TOOLBAR)
+            supportActionBar!!.title = modelName
+        }
+        toolbarTitle = binding.toolbarTitle
+        toolbarTitle.text = getString(R.string.app_name)
+        chatExecutor = Executors.newScheduledThreadPool(1)
+        chatDataManager = ChatDataManager.getInstance(this)
+        this.setupSession()
+        dateFormat = SimpleDateFormat("hh:mm aa", Locale.getDefault())
+        this.setupRecyclerView()
+        setupEditText()
+        buttonSend = binding.btSend
+        buttonSend.setEnabled(false)
+        buttonSend.setOnClickListener { handleSendClick() }
+        isAudioModel = ModelUtils.isAudioModel(modelName)
+        setupVoiceRecordingModule()
+        setupAttachmentPickerModule()
+        smoothScrollToBottom()
+        setupBottomSheetBehavior()
+        setupLoadDataSet()
+    }
+
+    private fun setupLoadDataSet() {
+        val recyclerView = binding.bottomSheet.findViewById<RecyclerView>(R.id.recycler_view_options)
+        optionsAdapter = DatasetOptionsAdapter(emptyList())
+        recyclerView.apply {
+            layoutManager = LinearLayoutManager(this@ChatActivity)
+            adapter = optionsAdapter
+        }
+        loadOptionsData()
+    }
+
+
+
+    private fun loadOptionsData() {
+        // Same data loading logic as before (ensure OptionItem includes 'id')
+        val sampleOptions = listOf(
+            OptionItem(id = "opt_flash", title = "多模态数据集", subtitle = "包含语音、文本、视频数据共 30条", type = ItemType.CHECKMARK),
+            OptionItem(id = "opt_flash_think", title = "MMLU 文本数据集", subtitle = "包含文本数据共 100条", type = ItemType.CHECKMARK),
+            OptionItem(id = "needle bench", title = " NeeldeBench长文本测试数据集", subtitle = " 用于测试长文本能力", type = ItemType.CHECKMARK),
+            )
+        optionsAdapter.updateData(sampleOptions)
+    }
+
+    private fun setupBottomSheetBehavior() {
+        bottomSheetBehavior = BottomSheetBehavior.from(binding.bottomSheet)
+    }
+
+    private fun handleSendClick() {
+        Log.d(
+            TAG,
+            "handleSendClick isGenerating : $isGenerating"
+        )
+        if (isGenerating) {
+            stopGenerating = true
+        } else {
+            sendUserMessage()
+        }
+    }
+
+    private fun setupSession() {
+        val chatService = ChatService.provide()
+        sessionId = intent.getStringExtra("chatSessionId")
+        val chatDataItemList: List<ChatDataItem>?
+        if (!TextUtils.isEmpty(sessionId)) {
+            chatDataItemList = chatDataManager!!.getChatDataBySession(sessionId)
+            if (chatDataItemList != null && !chatDataItemList.isEmpty()) {
+                sessionName = chatDataItemList[0].text
+            }
+        } else {
+            chatDataItemList = null
+        }
+        if (ModelUtils.isDiffusionModel(modelName)) {
+            val diffusionDir = intent.getStringExtra("diffusionDir")
+            chatSession = chatService.createDiffusionSession(
+                modelId, diffusionDir,
+                sessionId, chatDataItemList
+            )
+        } else {
+            val configFilePath = intent.getStringExtra("configFilePath")
+            chatSession = chatService.createSession(
+                modelId, configFilePath, true,
+                sessionId, chatDataItemList
+            )
+        }
+        sessionId = chatSession.getSessionId()
+        chatSession.setKeepHistory(
+            !ModelUtils.isVisualModel(modelName) && !ModelUtils.isAudioModel(
+                modelName
+            )
+        )
+        Log.d(TAG, "current SessionId: " + sessionId)
+        chatExecutor!!.submit {
+            Log.d(TAG, "chatSession loading")
+            setIsLoading(true)
+            chatSession.load()
+            setIsLoading(false)
+            Log.d(TAG, "chatSession loaded")
+        }
+    }
+
+    private fun setIsLoading(loading: Boolean) {
+        isLoading = loading
+        runOnUiThread {
+            if (!loading && voiceRecordingModule != null) {
+                voiceRecordingModule!!.onEnabled()
+            }
+            updateSenderButton()
+            layoutModelLoading!!.visibility =
+                if (loading) View.VISIBLE else View.GONE
+            if (supportActionBar != null) {
+                supportActionBar!!.setDisplayHomeAsUpEnabled(true)
+                if (CONFIG_SHOW_CUSTOM_TOOLBAR) {
+                    toolbarTitle.visibility = View.VISIBLE
+                    toolbarTitle.text =
+                        if (loading) getString(R.string.model_loading) else getString(R.string.app_name)
+                } else {
+                    supportActionBar!!.title =
+                    if (loading) getString(R.string.model_loading) else getString(R.string.app_name)
+                }
+            }
+        }
+    }
+
+    private fun setupRecyclerView() {
+        recyclerView = binding.recyclerView
+        recyclerView.setItemAnimator(null)
+        linearLayoutManager = LinearLayoutManager(this)
+        recyclerView.setLayoutManager(linearLayoutManager)
+        adapter = ChatRecyclerViewAdapter(this, initData(), this.modelName)
+        recyclerView.setAdapter(adapter)
+        recyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
+            override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
+                super.onScrollStateChanged(recyclerView, newState)
+            }
+
+            override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
+                super.onScrolled(recyclerView, dx, dy)
+                if (abs(dy.toDouble()) > 0) {
+                    isUserScrolling = true
+                }
+            }
+
+            var isUserScrolling: Boolean = false
+        })
+    }
+
+    private fun setupEditText() {
+        editUserMessage = binding.etMessage
+        editUserMessage.setOnEditorActionListener { v: TextView?, actionId: Int, event: KeyEvent? ->
+            if ((event != null && event.keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_DOWN)) {
+                Log.d(
+                    TAG,
+                    "onEditorAction" + actionId + "  getAction: " + event.action + "code: " + event.keyCode
+                )
+                sendUserMessage()
+                return@setOnEditorActionListener true
+            }
+            false
+        }
+        editUserMessage.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence, start: Int, count: Int, after: Int) {
+            }
+
+            override fun onTextChanged(s: CharSequence, start: Int, before: Int, count: Int) {
+            }
+
+            override fun afterTextChanged(s: Editable) {
+                updateSenderButton()
+                updateVoiceButtonVisibility()
+            }
+        })
+    }
+
+    private fun initData(): List<ChatDataItem> {
+        val data: MutableList<ChatDataItem> = ArrayList()
+        data.add(ChatDataItem(dateFormat!!.format(Date()), ChatViewHolders.HEADER, ""))
+        data.add(
+            ChatDataItem(
+                dateFormat!!.format(Date()), ChatViewHolders.ASSISTANT,
+                getString(
+                    if (ModelUtils.isDiffusionModel(modelName)) R.string.model_hello_prompt_diffusion else R.string.model_hello_prompt,
+                    modelName
+                )
+            )
+        )
+        val savedHistory = chatSession.savedHistory
+        if (savedHistory != null && savedHistory.isNotEmpty()) {
+            data.addAll(savedHistory)
+        }
+        return data
+    }
+
+    private fun setupAttachmentPickerModule() {
+        imageMore = findViewById(R.id.bt_plus)
+        buttonSwitchVoice = findViewById(R.id.bt_switch_audio)
+        if (!ModelUtils.isVisualModel(this.modelName) && !ModelUtils.isAudioModel(this.modelName)) {
+            imageMore.setVisibility(View.GONE)
+            return
+        }
+        attachmentPickerModule = AttachmentPickerModule(this)
+        attachmentPickerModule!!.setOnImagePickCallback(object : ImagePickCallback {
+            override fun onAttachmentPicked(attachmentUri: Uri, type: AttachmentType) {
+                imageMore.setVisibility(View.GONE)
+                updateVoiceButtonVisibility()
+                currentUserMessage = ChatDataItem(ChatViewHolders.USER)
+                if (type == AttachmentType.Audio) {
+                    currentUserMessage!!.audioUri = attachmentUri
+                } else {
+                    currentUserMessage!!.imageUri = attachmentUri
+                }
+                updateSenderButton()
+            }
+
+            override fun onAttachmentRemoved() {
+                currentUserMessage = null
+                imageMore.setVisibility(View.VISIBLE)
+                updateSenderButton()
+                updateVoiceButtonVisibility()
+            }
+
+            override fun onAttachmentLayoutShow() {
+                imageMore.setImageResource(R.drawable.ic_bottom)
+            }
+
+            override fun onAttachmentLayoutHide() {
+                imageMore.setImageResource(R.drawable.ic_plus)
+            }
+        })
+        imageMore.setOnClickListener {
+            if (voiceRecordingModule != null) {
+                voiceRecordingModule!!.exitRecordingMode()
+            }
+            attachmentPickerModule!!.toggleAttachmentVisibility()
+        }
+    }
+
+    private fun updateVoiceButtonVisibility() {
+        var visible = true
+        if (!ModelUtils.isAudioModel(modelName)) {
+            visible = false
+        } else if (isGenerating) {
+            visible = false
+        } else if (currentUserMessage != null) {
+            visible = false
+        } else if (!TextUtils.isEmpty(editUserMessage.text.toString())) {
+            visible = false
+        }
+        buttonSwitchVoice!!.visibility =
+            if (visible) View.VISIBLE else View.GONE
+    }
+
+    private fun updateSenderButton() {
+        var enabled = true
+        if (isLoading) {
+            enabled = false
+        } else if (currentUserMessage == null && TextUtils.isEmpty(editUserMessage.text.toString())) {
+            enabled = false
+        }
+        if (isGenerating) {
+            enabled = true
+        }
+        buttonSend.isEnabled = enabled
+        buttonSend.setImageResource(if (!isGenerating) R.drawable.button_send else R.drawable.ic_stop)
+    }
+
+    private fun setupVoiceRecordingModule() {
+        voiceRecordingModule = VoiceRecordingModule(this)
+        voiceRecordingModule!!.setOnVoiceRecordingListener(object : VoiceRecordingListener {
+            override fun onEnterRecordingMode() {
+                editUserMessage.visibility = View.GONE
+                KeyboardUtils.hideKeyboard(editUserMessage)
+                if (attachmentPickerModule != null) {
+                    attachmentPickerModule!!.hideAttachmentLayout()
+                }
+            }
+
+            override fun onLeaveRecordingMode() {
+                editUserMessage.visibility = View.VISIBLE
+                editUserMessage.requestFocus()
+                KeyboardUtils.showKeyboard(editUserMessage)
+            }
+
+            override fun onRecordSuccess(duration: Float, recordingFilePath: String) {
+                val chatDataItem = ChatDataItem.createAudioInputData(
+                    dateFormat!!.format(Date()),
+                    "",
+                    recordingFilePath,
+                    duration
+                )
+                handleSendMessage(chatDataItem)
+            }
+
+            override fun onRecordCanceled() {
+            }
+        })
+        voiceRecordingModule!!.setup(isAudioModel)
+    }
+
+    private fun getSamplerSelectionId(items: Array<String>, item: String): Int {
+        Log.d(TAG, "selected item: $item")
+        var id = 0
+        while (id < items.size) {
+            if (items[id] == item) {
+                return id
+            }
+            id++
+        }
+        return 0
+    }
+
+    override fun onCreateOptionsMenu(menu: Menu): Boolean {
+        menuInflater.inflate(R.menu.menu_chat, menu)
+        menu.findItem(R.id.show_performance_metrics)
+            .setChecked(
+                PreferenceUtils.getBoolean(
+                    this,
+                    PreferenceUtils.KEY_SHOW_PERFORMACE_METRICS,
+                    true
+                )
+            )
+        menu.findItem(R.id.menu_item_use_mmap).setChecked(
+            ModelPreferences.getBoolean(
+                this,
+                modelId,
+                ModelPreferences.KEY_USE_MMAP,
+                true
+            )
+        )
+        menu.findItem(R.id.menu_item_backend).setChecked(
+            ModelPreferences.getBoolean(
+                this,
+                modelId,
+                ModelPreferences.KEY_BACKEND,
+                false
+            )
+        )
+
+//        MenuItem samplerSpinnerItem = menu.findItem(R.id.menu_item_sampler_spinner);
+//        Spinner samplerSpinner = Objects.requireNonNull(samplerSpinnerItem.getActionView()).findViewById(R.id.sampler_spinner);
+//        String[] items = new String[]{"greedy", "temperature", "topK", "topP", "minP", "typical", "tfs", "penalty", "mixed"};
+//        ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, items);
+//        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+//        samplerSpinner.setAdapter(adapter);
+//        samplerSpinner.setSelection(
+//                getSamplerSelectionId(items,
+//                        ModelPreferences.getString(this, modelId, ModelPreferences.KEY_SAMPLER, getString(R.string.sampler))));
+//        samplerSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+//            @Override
+//            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+//                String selectedItem = parent.getItemAtPosition(position).toString();
+//                ((TextView) view).setTextColor(Color.WHITE); // 设置选中项的字体颜色
+//                handleSamplerSpinnerSelection(selectedItem);
+//            }
+//            @Override
+//            public void onNothingSelected(AdapterView<?> parent) {}
+//        });
+        return true
+    }
+
+    override fun onOptionsItemSelected(item: MenuItem): Boolean {
+        if (item.itemId == R.id.start_new_chat) {
+            handleNewSession()
+        } else if (item.itemId == R.id.show_performance_metrics) {
+            item.setChecked(!item.isChecked)
+            PreferenceUtils.setBoolean(
+                this,
+                PreferenceUtils.KEY_SHOW_PERFORMACE_METRICS,
+                item.isChecked
+            )
+            adapter!!.notifyItemRangeChanged(0, adapter!!.itemCount)
+        } else if (item.itemId == android.R.id.home) {
+            finish()
+        } else if (item.itemId == R.id.menu_item_clear_mmap_cache) {
+            if (ModelPreferences.useMmap(this, modelId)) {
+                Toast.makeText(this, R.string.mmap_cacche_cleared, Toast.LENGTH_LONG).show()
+                chatSession.clearMmapCache()
+                recreate()
+            } else {
+                Toast.makeText(this, R.string.mmap_not_used, Toast.LENGTH_SHORT).show()
+            }
+        } else if (item.itemId == R.id.menu_item_use_mmap) {
+            item.setChecked(!item.isChecked)
+            Toast.makeText(this, R.string.reloading_session, Toast.LENGTH_LONG).show()
+            ModelPreferences.setBoolean(
+                this,
+                modelId,
+                ModelPreferences.KEY_USE_MMAP,
+                item.isChecked
+            )
+            recreate()
+        } else if (item.itemId == R.id.menu_item_backend) {
+            item.setChecked(!item.isChecked)
+            Toast.makeText(this, R.string.reloading_session, Toast.LENGTH_LONG).show()
+            ModelPreferences.setBoolean(this, modelId, ModelPreferences.KEY_BACKEND, item.isChecked)
+            recreate()
+        } else if (item.itemId == R.id.menu_item_model_settings) {
+            startActivity(Intent(this, SettingsActivity::class.java))
+            return true
+        } else if (item.itemId == R.id.menu_item_benchmark_test) {
+            bottomSheetBehavior.state = BottomSheetBehavior.STATE_EXPANDED
+        }
+        return super.onOptionsItemSelected(item)
+    }
+
+    private fun handleSamplerSpinnerSelection(selectedItem: String) {
+        val currentSampler = ModelPreferences.getString(
+            this,
+            modelId,
+            ModelPreferences.KEY_SAMPLER,
+            getString(R.string.sampler)
+        )
+        if (selectedItem != currentSampler) {
+            Toast.makeText(this, R.string.reloading_session, Toast.LENGTH_LONG).show()
+            ModelPreferences.setString(this, modelId, ModelPreferences.KEY_SAMPLER, selectedItem)
+            recreate()
+        }
+    }
+
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+
+        if (requestCode == VoiceRecordingModule.REQUEST_RECORD_AUDIO_PERMISSION) {
+            if (grantResults.size > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                voiceRecordingModule!!.handlePermissionAllowed()
+            } else {
+                voiceRecordingModule!!.handlePermissionDenied()
+            }
+        }
+    }
+
+    private fun handleNewSession() {
+        if (!isGenerating) {
+            currentUserMessage = null
+            sessionId = chatSession.generateNewSession()
+            this.sessionName = null
+            chatExecutor!!.execute { chatSession.reset() }
+            chatDataManager!!.deleteAllChatData(sessionId)
+            if (adapter!!.reset()) {
+                Toast.makeText(this, R.string.new_conversation_started, Toast.LENGTH_LONG).show()
+            }
+        } else {
+            Toast.makeText(this, "Cannot Reset when generating", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun setIsGenerating(isGenerating: Boolean) {
+        this.isGenerating = isGenerating
+        updateSenderButton()
+        updateVoiceButtonVisibility()
+    }
+
+    @Deprecated("This method has been deprecated in favor of using the Activity Result API\n      which brings increased type safety via an {@link ActivityResultContract} and the prebuilt\n      contracts for common intents available in\n      {@link androidx.activity.result.contract.ActivityResultContracts}, provides hooks for\n      testing, and allow receiving results in separate, testable classes independent from your\n      activity. Use\n      {@link #registerForActivityResult(ActivityResultContract, ActivityResultCallback)}\n      with the appropriate {@link ActivityResultContract} and handling the result in the\n      {@link ActivityResultCallback#onActivityResult(Object) callback}.")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (attachmentPickerModule != null && attachmentPickerModule!!.canHandleResult(requestCode)) {
+            attachmentPickerModule!!.onActivityResult(requestCode, resultCode, data)
+        }
+    }
+
+    private fun smoothScrollToBottom() {
+        Log.d(TAG, "smoothScrollToBottom")
+        recyclerView.post {
+            val position = adapter!!.itemCount - 1
+            recyclerView.scrollToPosition(position)
+            recyclerView.post { recyclerView.scrollToPosition(position) }
+        }
+    }
+
+    private fun scrollToEnd() {
+        recyclerView.postDelayed({
+            val position = adapter!!.itemCount - 1
+            linearLayoutManager!!.scrollToPositionWithOffset(position, -9999)
+        }, 100)
+    }
+
+    private fun sendUserMessage() {
+        if (!buttonSend.isEnabled) {
+            return
+        }
+        val inputString = editUserMessage.text.toString().trim { it <= ' ' }
+        if (currentUserMessage == null) {
+            currentUserMessage = ChatDataItem(ChatViewHolders.USER)
+        }
+        currentUserMessage!!.text = inputString
+        currentUserMessage!!.time = dateFormat!!.format(Date())
+        handleSendMessage(currentUserMessage!!)
+        currentUserMessage = null
+    }
+
+    private fun handleSendMessage(userData: ChatDataItem) {
+        setIsGenerating(true)
+        editUserMessage.setText("")
+        adapter!!.addItem(userData)
+        addResponsePlaceholder()
+        val input: String
+        val hasSessionName = !TextUtils.isEmpty(this.sessionName)
+        var sessionName: String? = null
+        if (userData.audioUri != null) {
+            val audioPath = attachmentPickerModule!!.getPathForUri(userData.audioUri)
+            if (audioPath == null) {
+                Toast.makeText(this, "Audio file not found", Toast.LENGTH_LONG).show()
+                return
+            }
+            if (userData.audioDuration <= 0.1) {
+                userData.audioDuration =
+                    FileUtils.getAudioDuration(audioPath).toFloat()
+            }
+            input = String.format("<audio>%s</audio>%s", audioPath, userData.text)
+            if (!hasSessionName) {
+                sessionName = "[Audio]" + userData.text
+            }
+        } else if (userData.imageUri != null) {
+            val imagePath = attachmentPickerModule!!.getPathForUri(userData.imageUri)
+            if (imagePath == null) {
+                Toast.makeText(this, "image file not found", Toast.LENGTH_LONG).show()
+                return
+            }
+            input = String.format("<img>%s</img>%s", imagePath, userData.text)
+            if (!hasSessionName) {
+                sessionName = "[Image]" + userData.text
+            }
+        } else {
+            input = userData.text
+            if (!hasSessionName) {
+                sessionName = userData.text
+            }
+        }
+        if (!hasSessionName) {
+            chatDataManager!!.addOrUpdateSession(sessionId, modelId)
+            this.sessionName =
+                if (sessionName!!.length > 100) sessionName.substring(0, 100) else sessionName
+            chatDataManager!!.updateSessionName(this.sessionId, this.sessionName)
+        }
+        if (ModelUtils.isDiffusionModel(this.modelName)) {
+            chatExecutor!!.execute { submitRequest(input) }
+        } else {
+            chatExecutor!!.execute { submitRequest(input) }
+        }
+        chatDataManager!!.addChatData(sessionId, userData)
+        if (attachmentPickerModule != null) {
+            attachmentPickerModule!!.clearInput()
+        }
+        smoothScrollToBottom()
+        KeyboardUtils.hideKeyboard(editUserMessage)
+    }
+
+    private fun addResponsePlaceholder() {
+        adapter!!.addItem(ChatDataItem(dateFormat!!.format(Date()), ChatViewHolders.ASSISTANT, ""))
+        smoothScrollToBottom()
+    }
+
+    private fun submitRequest(input: String) {
+        isUserScrolling = false
+        stopGenerating = false
+        val chatDataItem = adapter!!.recentItem
+        val benchMarkResult: HashMap<String, Any>
+        if (ModelUtils.isDiffusionModel(this.modelName)) {
+            val diffusionDestPath = FileUtils.generateDestDiffusionFilePath(
+                this,
+                sessionId
+            )
+            benchMarkResult = chatSession.generateDiffusion(
+                input, diffusionDestPath, 20,
+                Random(System.currentTimeMillis()).nextInt()
+            ) { progress: String ->
+                if ("100" == progress) {
+                    chatDataItem.text = getString(R.string.diffusion_generated_message)
+                    chatDataItem.imageUri = Uri.parse(diffusionDestPath)
+                } else {
+                    chatDataItem.text = getString(R.string.diffusion_generate_progress, progress)
+                }
+                runOnUiThread { updateAssistantResponse(chatDataItem) }
+                false
+            }
+        } else {
+            val generateResultProcessor: GenerateResultProcessor =
+                if (ModelUtils.isR1Model(this.modelName)) R1GenerateResultProcessor(
+                    getString(R.string.r1_thinking_message),
+                    getString(R.string.r1_think_complete_template)
+                ) else NormalGenerateResultProcessor()
+            generateResultProcessor.generateBegin()
+            benchMarkResult = chatSession.generate(input) { progress: String? ->
+                generateResultProcessor.process(progress)
+                chatDataItem.displayText = generateResultProcessor.displayResult
+                chatDataItem.text = generateResultProcessor.rawResult
+                runOnUiThread { updateAssistantResponse(chatDataItem) }
+                if (stopGenerating) {
+                    Log.d(TAG, "stopGenerating requeted")
+                }
+                stopGenerating
+            }
+        }
+        Log.d(TAG, "submitRequest benchMark: $benchMarkResult")
+        runOnUiThread {
+            chatDataItem.benchmarkInfo = ModelUtils.generateBenchMarkString(benchMarkResult)
+            updateAssistantResponse(chatDataItem)
+        }
+        chatDataManager!!.addChatData(sessionId, chatDataItem)
+        this.window.decorView.handler.post { setIsGenerating(false) }
+    }
+
+    private fun updateAssistantResponse(chatDataItem: ChatDataItem) {
+        adapter!!.updateRecentItem(chatDataItem)
+        if (!isUserScrolling) {
+            scrollToEnd()
+        }
+    }
+
+
+    override fun onDestroy() {
+        super.onDestroy()
+        stopGenerating = true
+        chatExecutor!!.submit {
+            chatSession.reset()
+            chatSession.release()
+            chatExecutor!!.shutdownNow()
+        }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        AudioPlayService.getInstance().destroy()
+    }
+
+    val sessionDebugInfo: String
+        get() = chatSession.debugInfo
+
+    companion object {
+        const val TAG: String = "ChatActivity"
+    }
+}

@@ -83,4 +83,6 @@
     <string name="diffusion_mode_memory_balance">内存平衡模式</string>
     <string name="diffusion_memory_mode">Diffusion内存模式</string>
     <string name="model_settings">设置</string>
+    <string name="menu_item_benchmark_test">Benchmark测试</string>
+    <string name="select_dataset">选择数据集</string>
 </resources>

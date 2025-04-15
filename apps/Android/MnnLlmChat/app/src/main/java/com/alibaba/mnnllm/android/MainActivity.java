@@ -154,7 +154,6 @@ public class MainActivity extends AppCompatActivity {
             ModelDownloadManager.getInstance(this).startForegroundService();
         }
     }
-
     public void checkForUpdate() {
         updateChecker.checkForUpdates(this, true);
     }

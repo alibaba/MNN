@@ -83,4 +83,6 @@
     <string name="diffusion_mode_memory_balance">Memory Balance Mode</string>
     <string name="diffusion_memory_mode">Diffusion Memory Mode</string>
     <string name="model_settings">Settings</string>
+    <string name="menu_item_benchmark_test">Benchmark</string>
+    <string name="select_dataset">Select dataset</string>
 </resources>

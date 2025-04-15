@@ -13,15 +13,13 @@ import com.alibaba.mnnllm.android.R;
 
 public class SelectTextActivity extends AppCompatActivity {
 
-    private TextView tvSelectContent;
-
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_select_text);
         Toolbar toolbar = findViewById(R.id.toolbar);
         setSupportActionBar(toolbar);
-        tvSelectContent = findViewById(R.id.tvSelectContent);
+        TextView tvSelectContent = findViewById(R.id.tvSelectContent);
         tvSelectContent.setTextIsSelectable(true);
         String content = getIntent().getStringExtra("content");
         tvSelectContent.setText(content);

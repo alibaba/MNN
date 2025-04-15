@@ -33,4 +33,9 @@
         android:id="@+id/action_settings"
         android:title="@string/settings"
         app:showAsAction="never" />
+
+    <item
+        android:id="@+id/action_demo"
+        android:title="Demo"
+        app:showAsAction="never" />
 </menu>

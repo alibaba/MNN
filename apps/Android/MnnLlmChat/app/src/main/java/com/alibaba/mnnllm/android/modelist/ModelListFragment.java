@@ -125,6 +125,14 @@ public class ModelListFragment extends Fragment implements ModelListContract.Vie
                 }
                 return true;
             });
+
+            MenuItem demoItem = menu.findItem(R.id.action_demo);
+            demoItem.setOnMenuItemClickListener(item -> {
+                if (getActivity() != null) {
+//                    RouterUtils.INSTANCE.startActivity(getActivity(), DemoActivity.class);
+                }
+               return true;
+            });
         }
 
         @Override
