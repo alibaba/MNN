@@ -17,11 +17,13 @@
             android:layout_height="wrap_content"
             android:fitsSystemWindows="true"
             >
-            <androidx.appcompat.widget.Toolbar
+            <com.google.android.material.appbar.MaterialToolbar
                 android:id="@+id/toolbar"
                 android:layout_width="match_parent"
-                android:layout_height="?attr/actionBarSize"
-                android:elevation="0dp" />
+                android:layout_height="48dp"
+                android:elevation="0dp"
+                app:titleCentered="true"
+                app:titleTextAppearance="?textAppearanceTitleMedium"/>
         </com.google.android.material.appbar.AppBarLayout>
 
         <FrameLayout

@@ -14,11 +14,14 @@ import android.view.KeyEvent
 import android.view.Menu
 import android.view.MenuItem
 import android.view.View
+import android.view.ViewGroup.MarginLayoutParams
+import android.view.WindowInsets
 import android.widget.EditText
 import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
 import androidx.core.widget.NestedScrollView
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -39,6 +42,15 @@ import com.alibaba.mnnllm.android.utils.ModelPreferences
 import com.alibaba.mnnllm.android.utils.ModelUtils
 import com.alibaba.mnnllm.android.utils.PreferenceUtils
 import com.google.android.material.bottomsheet.BottomSheetBehavior
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
+import java.io.File
 import java.text.DateFormat
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -49,6 +61,12 @@ import java.util.concurrent.ScheduledExecutorService
 import kotlin.math.abs
 
 class ChatActivity : AppCompatActivity() {
+    private val _isGenerating = MutableStateFlow(false)
+    private var isGenerating: Boolean
+        get() = _isGenerating.value
+        set(value) {
+            _isGenerating.value = value
+        }
     private lateinit var recyclerView: RecyclerView
     private var adapter: ChatRecyclerViewAdapter? = null
     private lateinit var editUserMessage: EditText
@@ -82,7 +100,6 @@ class ChatActivity : AppCompatActivity() {
 
     private var currentUserMessage: ChatDataItem? = null
 
-    private var isGenerating = false
     private var isLoading = false
     private var sessionName: String? = null
     private var stopGenerating = false
@@ -107,8 +124,8 @@ class ChatActivity : AppCompatActivity() {
             supportActionBar!!.setDisplayShowTitleEnabled(!CONFIG_SHOW_CUSTOM_TOOLBAR)
             supportActionBar!!.title = modelName
         }
-        toolbarTitle = binding.toolbarTitle
-        toolbarTitle.text = getString(R.string.app_name)
+//        toolbarTitle = binding.toolbarTitle
+//        toolbarTitle.text = getString(R.string.app_name)
         chatExecutor = Executors.newScheduledThreadPool(1)
         chatDataManager = ChatDataManager.getInstance(this)
         this.setupSession()
@@ -136,20 +153,55 @@ class ChatActivity : AppCompatActivity() {
         loadOptionsData()
     }
 
-
-
     private fun loadOptionsData() {
-        // Same data loading logic as before (ensure OptionItem includes 'id')
         val sampleOptions = listOf(
-            OptionItem(id = "opt_flash", title = "多模态数据集", subtitle = "包含语音、文本、视频数据共 30条", type = ItemType.CHECKMARK),
-            OptionItem(id = "opt_flash_think", title = "MMLU 文本数据集", subtitle = "包含文本数据共 100条", type = ItemType.CHECKMARK),
-            OptionItem(id = "needle bench", title = " NeeldeBench长文本测试数据集", subtitle = " 用于测试长文本能力", type = ItemType.CHECKMARK),
+            OptionItem(id = "multi_modal", title = "多模态数据集", subtitle = "包含语音、文本、视频数据共 30条"),
+            OptionItem(id = "mmlu", title = "MMLU 文本数据集", subtitle = "包含文本数据共 100条"),
+            OptionItem(id = "needle_bench", title = " NeeldeBench长文本测试数据集", subtitle = " 用于测试长文本能力"),
             )
         optionsAdapter.updateData(sampleOptions)
+        optionsAdapter.setOnItemClickListener {
+            handleDatasetOptionClick(it)
+        }
+    }
+
+    private fun handleDatasetOptionClick(optionItem: OptionItem) {
+        bottomSheetBehavior.state = BottomSheetBehavior.STATE_HIDDEN
+        CoroutineScope(Dispatchers.Main).launch {
+            try {
+                val lines = withContext(Dispatchers.IO) {
+                    val file = File("/data/local/tmp/${optionItem.id}.jsonl")
+                    if (!file.exists()) {
+                        throw Exception("File not exits: ${file.path}")
+                    }
+                    val fileLines = file.readLines()
+                    if (fileLines.isEmpty()) {
+                        throw Exception("file empty")
+                    }
+                    fileLines
+                }
+                for (line in lines) {
+                    val jsonObject = try {
+                        JSONObject(line)
+                    } catch (e: Exception) {
+                        throw Exception("Invalid json: $line")
+                    }
+                    waitForGeneratingFinished()
+                    handleSendMessage(createUserMessage(jsonObject.getString("prompt")))
+                }
+                Toast.makeText(this@ChatActivity, "DataSet ${optionItem.title} " +
+                        "Process Complete", Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                e.printStackTrace()
+                Toast.makeText(this@ChatActivity, "Error on process dataset:" +
+                        " ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
     }
 
     private fun setupBottomSheetBehavior() {
         bottomSheetBehavior = BottomSheetBehavior.from(binding.bottomSheet)
+        bottomSheetBehavior.state = BottomSheetBehavior.STATE_HIDDEN
     }
 
     private fun handleSendClick() {
@@ -189,7 +241,7 @@ class ChatActivity : AppCompatActivity() {
                 sessionId, chatDataItemList
             )
         }
-        sessionId = chatSession.getSessionId()
+        sessionId = chatSession.sessionId
         chatSession.setKeepHistory(
             !ModelUtils.isVisualModel(modelName) && !ModelUtils.isAudioModel(
                 modelName
@@ -217,9 +269,9 @@ class ChatActivity : AppCompatActivity() {
             if (supportActionBar != null) {
                 supportActionBar!!.setDisplayHomeAsUpEnabled(true)
                 if (CONFIG_SHOW_CUSTOM_TOOLBAR) {
-                    toolbarTitle.visibility = View.VISIBLE
-                    toolbarTitle.text =
-                        if (loading) getString(R.string.model_loading) else getString(R.string.app_name)
+//                    toolbarTitle.visibility = View.VISIBLE
+//                    toolbarTitle.text =
+//                        if (loading) getString(R.string.model_loading) else getString(R.string.app_name)
                 } else {
                     supportActionBar!!.title =
                     if (loading) getString(R.string.model_loading) else getString(R.string.app_name)
@@ -233,6 +285,18 @@ class ChatActivity : AppCompatActivity() {
         recyclerView.setItemAnimator(null)
         linearLayoutManager = LinearLayoutManager(this)
         recyclerView.setLayoutManager(linearLayoutManager)
+        binding.layoutBottomContainer.addOnLayoutChangeListener { v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
+            val insets: WindowInsets? = v.rootWindowInsets
+            val bottomInset = insets!!.systemWindowInsetBottom
+            recyclerView.setPadding(recyclerView.paddingLeft, recyclerView.paddingTop, recyclerView.paddingRight,
+                bottomInset +  binding.layoutBottomContainer.height)
+            insets.consumeSystemWindowInsets()
+        }
+//        ViewCompat.setOnApplyWindowInsetsListener(recyclerView) { view, insets ->
+//            val bottomInset = insets.systemWindowInsetBottom
+//            view.setPadding(view.paddingLeft, view.paddingTop, view.paddingRight, bottomInset)
+//            insets.consumeSystemWindowInsets()
+//        }
         adapter = ChatRecyclerViewAdapter(this, initData(), this.modelName)
         recyclerView.setAdapter(adapter)
         recyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
@@ -291,7 +355,7 @@ class ChatActivity : AppCompatActivity() {
             )
         )
         val savedHistory = chatSession.savedHistory
-        if (savedHistory != null && savedHistory.isNotEmpty()) {
+        if (!savedHistory.isNullOrEmpty()) {
             data.addAll(savedHistory)
         }
         return data
@@ -403,18 +467,6 @@ class ChatActivity : AppCompatActivity() {
         voiceRecordingModule!!.setup(isAudioModel)
     }
 
-    private fun getSamplerSelectionId(items: Array<String>, item: String): Int {
-        Log.d(TAG, "selected item: $item")
-        var id = 0
-        while (id < items.size) {
-            if (items[id] == item) {
-                return id
-            }
-            id++
-        }
-        return 0
-    }
-
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
         menuInflater.inflate(R.menu.menu_chat, menu)
         menu.findItem(R.id.show_performance_metrics)
@@ -441,26 +493,6 @@ class ChatActivity : AppCompatActivity() {
                 false
             )
         )
-
-//        MenuItem samplerSpinnerItem = menu.findItem(R.id.menu_item_sampler_spinner);
-//        Spinner samplerSpinner = Objects.requireNonNull(samplerSpinnerItem.getActionView()).findViewById(R.id.sampler_spinner);
-//        String[] items = new String[]{"greedy", "temperature", "topK", "topP", "minP", "typical", "tfs", "penalty", "mixed"};
-//        ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, items);
-//        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-//        samplerSpinner.setAdapter(adapter);
-//        samplerSpinner.setSelection(
-//                getSamplerSelectionId(items,
-//                        ModelPreferences.getString(this, modelId, ModelPreferences.KEY_SAMPLER, getString(R.string.sampler))));
-//        samplerSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
-//            @Override
-//            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
-//                String selectedItem = parent.getItemAtPosition(position).toString();
-//                ((TextView) view).setTextColor(Color.WHITE); // 设置选中项的字体颜色
-//                handleSamplerSpinnerSelection(selectedItem);
-//            }
-//            @Override
-//            public void onNothingSelected(AdapterView<?> parent) {}
-//        });
         return true
     }
 
@@ -509,21 +541,6 @@ class ChatActivity : AppCompatActivity() {
         return super.onOptionsItemSelected(item)
     }
 
-    private fun handleSamplerSpinnerSelection(selectedItem: String) {
-        val currentSampler = ModelPreferences.getString(
-            this,
-            modelId,
-            ModelPreferences.KEY_SAMPLER,
-            getString(R.string.sampler)
-        )
-        if (selectedItem != currentSampler) {
-            Toast.makeText(this, R.string.reloading_session, Toast.LENGTH_LONG).show()
-            ModelPreferences.setString(this, modelId, ModelPreferences.KEY_SAMPLER, selectedItem)
-            recreate()
-        }
-    }
-
-
     override fun onRequestPermissionsResult(
         requestCode: Int,
         permissions: Array<String>,
@@ -552,6 +569,14 @@ class ChatActivity : AppCompatActivity() {
             }
         } else {
             Toast.makeText(this, "Cannot Reset when generating", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    suspend fun waitForGeneratingFinished() {
+        if (_isGenerating.value) {
+            _isGenerating
+                .filter { !it }
+                .first()
         }
     }
 
@@ -597,6 +622,13 @@ class ChatActivity : AppCompatActivity() {
         currentUserMessage!!.time = dateFormat!!.format(Date())
         handleSendMessage(currentUserMessage!!)
         currentUserMessage = null
+    }
+
+    private fun createUserMessage(text:String):ChatDataItem {
+        val userMessage = ChatDataItem(ChatViewHolders.USER)
+        userMessage.text = text
+        userMessage.time = dateFormat!!.format(Date())
+        return userMessage
     }
 
     private fun handleSendMessage(userData: ChatDataItem) {
@@ -673,17 +705,19 @@ class ChatActivity : AppCompatActivity() {
             )
             benchMarkResult = chatSession.generateDiffusion(
                 input, diffusionDestPath, 20,
-                Random(System.currentTimeMillis()).nextInt()
-            ) { progress: String ->
-                if ("100" == progress) {
-                    chatDataItem.text = getString(R.string.diffusion_generated_message)
-                    chatDataItem.imageUri = Uri.parse(diffusionDestPath)
-                } else {
-                    chatDataItem.text = getString(R.string.diffusion_generate_progress, progress)
+                Random(System.currentTimeMillis()).nextInt(), object : ChatSession.GenerateProgressListener {
+                    override fun onProgress(progress: String?): Boolean {
+                        if ("100" == progress) {
+                            chatDataItem.text = getString(R.string.diffusion_generated_message)
+                            chatDataItem.imageUri = Uri.parse(diffusionDestPath)
+                        } else {
+                            chatDataItem.text = getString(R.string.diffusion_generate_progress, progress)
+                        }
+                        runOnUiThread { updateAssistantResponse(chatDataItem) }
+                        return false
+                    }
                 }
-                runOnUiThread { updateAssistantResponse(chatDataItem) }
-                false
-            }
+            )
         } else {
             val generateResultProcessor: GenerateResultProcessor =
                 if (ModelUtils.isR1Model(this.modelName)) R1GenerateResultProcessor(
@@ -691,16 +725,18 @@ class ChatActivity : AppCompatActivity() {
                     getString(R.string.r1_think_complete_template)
                 ) else NormalGenerateResultProcessor()
             generateResultProcessor.generateBegin()
-            benchMarkResult = chatSession.generate(input) { progress: String? ->
-                generateResultProcessor.process(progress)
-                chatDataItem.displayText = generateResultProcessor.displayResult
-                chatDataItem.text = generateResultProcessor.rawResult
-                runOnUiThread { updateAssistantResponse(chatDataItem) }
-                if (stopGenerating) {
-                    Log.d(TAG, "stopGenerating requeted")
+            benchMarkResult = chatSession.generate(input, object: ChatSession.GenerateProgressListener {
+                override fun onProgress(progress: String?): Boolean {
+                    generateResultProcessor.process(progress)
+                    chatDataItem.displayText = generateResultProcessor.displayResult
+                    chatDataItem.text = generateResultProcessor.rawResult
+                    runOnUiThread { updateAssistantResponse(chatDataItem) }
+                    if (stopGenerating) {
+                        Log.d(TAG, "stopGenerating requested")
+                    }
+                    return stopGenerating
                 }
-                stopGenerating
-            }
+            })
         }
         Log.d(TAG, "submitRequest benchMark: $benchMarkResult")
         runOnUiThread {
@@ -708,7 +744,9 @@ class ChatActivity : AppCompatActivity() {
             updateAssistantResponse(chatDataItem)
         }
         chatDataManager!!.addChatData(sessionId, chatDataItem)
-        this.window.decorView.handler.post { setIsGenerating(false) }
+        runOnUiThread {
+            setIsGenerating(false)
+        }
     }
 
     private fun updateAssistantResponse(chatDataItem: ChatDataItem) {

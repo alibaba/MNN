@@ -8,6 +8,7 @@ import android.view.MenuInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ImageView;
+import android.widget.ProgressBar;
 import android.widget.TextView;
 
 import androidx.appcompat.widget.PopupMenu;
@@ -30,6 +31,7 @@ public class ModelItemHolder extends RecyclerView.ViewHolder implements View.OnC
     private View headerSection;
 
     public View downloadProgressView;
+    public ProgressBar progressBar;
 
     private ModelItemState modelItemState;
 
@@ -48,6 +50,7 @@ public class ModelItemHolder extends RecyclerView.ViewHolder implements View.OnC
         headerIcon = itemView.findViewById(R.id.header_section_icon);
         downloadProgressView = itemView.findViewById(R.id.download_progress_view);
         tagsLayout = itemView.findViewById(R.id.tagsLayout);
+        progressBar = itemView.findViewById(R.id.download_progress_bar);
     }
 
     void bind(HfRepoItem hfRepoItem, ModelItemState modelItemState) {
@@ -75,6 +78,8 @@ public class ModelItemHolder extends RecyclerView.ViewHolder implements View.OnC
         assert modelItemState != null;
         int downloadState = modelItemState.downloadInfo.downlodaState;
         downloadProgressView.setVisibility(downloadState == DownloadInfo.DownloadSate.DOWNLOADING ? View.VISIBLE : View.GONE);
+        progressBar.setVisibility(downloadState == DownloadInfo.DownloadSate.DOWNLOADING  || downloadState == DownloadInfo.DownloadSate.PAUSED ? View.VISIBLE : View.GONE);
+        progressBar.setProgress(downloadState == DownloadInfo.DownloadSate.DOWNLOADING || downloadState == DownloadInfo.DownloadSate.PAUSED ? (int) (modelItemState.downloadInfo.progress * 100) : 0);
         switch (downloadState) {
             case DownloadInfo.DownloadSate.NOT_START:
                 tvStatus.setText(tvStatus.getResources().getString(R.string.download_not_started));
@@ -102,6 +107,7 @@ public class ModelItemHolder extends RecyclerView.ViewHolder implements View.OnC
 
     @SuppressLint("DefaultLocale")
     public void updateProgress(DownloadInfo downloadInfo) {
+        progressBar.setProgress((int) (downloadInfo.progress * 100));
         tvStatus.setText(itemView.getResources().getString(R.string.downloading_progress, downloadInfo.progress * 100, downloadInfo.speedInfo));
     }
 

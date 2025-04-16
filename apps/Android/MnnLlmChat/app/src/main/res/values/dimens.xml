@@ -17,6 +17,6 @@
     <!--    tags-->
     <dimen name="tag_margin">2dp</dimen>
     <dimen name="tag_padding_horizontal">4dp</dimen>
-    <dimen name="tag_padding_vertical">1dp</dimen>
+    <dimen name="tag_padding_vertical">0dp</dimen>
     <dimen name="tag_corner_radius">16dp</dimen>
 </resources>

@@ -27,7 +27,7 @@
         android:layout_height="wrap_content"
         android:layout_marginBottom="@dimen/space10"
         android:layout_gravity="end"
-        android:textIsSelectable="true"
+        android:textIsSelectable="false"
         android:padding="@dimen/space10"
         android:textColor="@android:color/white"
         android:textSize="@dimen/h3"

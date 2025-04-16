@@ -13,16 +13,13 @@ data class OptionItem(
     val id: String,
     val title: String,
     val subtitle: String,
-    val type: ItemType
 )
-
-enum class ItemType {
-    NONE, CHECKMARK, BADGE
-}
 
 class DatasetOptionsAdapter(
     private var items: List<OptionItem>
 ) : RecyclerView.Adapter<DatasetOptionsAdapter.OptionsViewHolder>() {
+
+    private var listener: ((OptionItem) -> Unit)? = null
 
     inner class OptionsViewHolder(private val binding: ListItemDatasetBinding) :
         RecyclerView.ViewHolder(binding.root) {
@@ -32,32 +29,32 @@ class DatasetOptionsAdapter(
             binding.tvItemSubtitle.text = item.subtitle
             binding.ivItemIcon.visibility = View.GONE
             binding.chipItemBadge.visibility = View.GONE
-            when (item.type) {
-                ItemType.CHECKMARK -> {
-                    binding.ivItemIcon.visibility = View.VISIBLE
-                }
-               ItemType.BADGE -> {
-                    binding.chipItemBadge.visibility = View.VISIBLE
-                }
-                ItemType.NONE -> {
-                }
-            }
+            this.itemView.tag = item
         }
     }
 
-    // --- Adapter Overrides ---
+    fun setOnItemClickListener(listener: (OptionItem) -> Unit) {
+        this.listener = listener
+    }
+
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): OptionsViewHolder {
         val binding = ListItemDatasetBinding.inflate(
             LayoutInflater.from(parent.context),
             parent,
             false
         )
+        binding.root.setOnClickListener { v->
+            (v.tag as? OptionItem)?.let {
+                listener?.invoke(it)
+            }
+        }
         return OptionsViewHolder(binding)
     }
 
     override fun onBindViewHolder(holder: OptionsViewHolder, position: Int) {
         holder.bind(items[position])
     }
+
 
     override fun getItemCount(): Int = items.size
 

@@ -67,5 +67,5 @@
         style="@style/SpinKitView.Small.ThreeBounce"
         android:layout_width="50dp"
         android:layout_height="50dp"
-        app:SpinKit_Color="?colorOnSurface" />
+        app:SpinKit_Color="@color/mainBlue" />
 </RelativeLayout>

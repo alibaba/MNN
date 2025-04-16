@@ -7,7 +7,7 @@ import android.app.Application;
 
 import com.alibaba.mls.api.ApplicationProvider;
 
-public class DemoApplication extends Application {
+public class MnnLlmApplication extends Application {
     @Override
     public void onCreate() {
         super.onCreate();
