@@ -92,7 +92,7 @@ class ModelListFragment : Fragment(), ModelListContract.View {
 
             val filterDownloadedMenu = menu.findItem(R.id.action_filter_downloaded)
             filterDownloadedMenu.setChecked(isFilterDownloaded(context))
-            filterDownloadedMenu.setOnMenuItemClickListener { item: MenuItem? ->
+            filterDownloadedMenu.setOnMenuItemClickListener {
                 filterDownloaded = isFilterDownloaded(
                     context
                 )

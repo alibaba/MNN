@@ -22,7 +22,7 @@ class ChatService {
         } else {
             sessionIdParam!!
         }
-        val session = ChatSession(modelId!!, sessionId, modelDir!!, useTmpPath, chatDataItemList)
+        val session = ChatSession(modelId!!, sessionId, modelDir!!, chatDataItemList)
         transformerSessionMap[sessionId] = session
         return session
     }
@@ -39,7 +39,7 @@ class ChatService {
         } else {
             sessionIdParam!!
         }
-        val session = ChatSession(modelId!!, sessionId, modelDir!!, false, chatDataItemList, true)
+        val session = ChatSession(modelId!!, sessionId, modelDir!!, chatDataItemList, true)
         diffusionSessionMap[sessionId] = session
         return session
     }

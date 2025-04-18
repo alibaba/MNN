@@ -72,6 +72,8 @@ class ModelItemHolder(itemView: View, private val modelItemListener: ModelItemLi
             tvModelName.visibility = View.VISIBLE
         }
         if (modelItemDownloadState == null) {
+            progressBar.visibility = View.GONE
+            tvStatus.text = ""
             return
         }
         val downloadState = modelItemDownloadState.downloadInfo!!.downlodaState

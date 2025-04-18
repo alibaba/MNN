@@ -90,7 +90,7 @@ class ModelListAdapter(private val items: MutableList<ModelItem>) :
             .filter { hfModelItem: ModelItem ->
                 if (showDownloadedOnly) {
                     val modelItemState = modelItemDownloadStatesMap!![hfModelItem.modelId]
-                    if (modelItemState == null || modelItemState.downloadInfo!!.downlodaState != DownloadInfo.DownloadSate.COMPLETED) {
+                    if (modelItemState != null && modelItemState.downloadInfo!!.downlodaState != DownloadInfo.DownloadSate.COMPLETED) {
                         return@filter false
                     }
                 }

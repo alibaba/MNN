@@ -20,7 +20,6 @@ class ChatSession @JvmOverloads constructor (
     private val modelId: String,
     var sessionId: String,
     private val configPath: String,
-    private val useTmpPath: Boolean,
     val savedHistory: List<ChatDataItem>?,
     private val isDiffusion: Boolean = false
 ) {
@@ -30,10 +29,10 @@ class ChatSession @JvmOverloads constructor (
     private var modelLoading = false
 
     @Volatile
-    private var mGenerating = false
+    private var generating = false
 
     @Volatile
-    private var mReleaseRequeted = false
+    private var releaseRequeted = false
 
     private var keepHistory = false
 
@@ -52,7 +51,7 @@ class ChatSession @JvmOverloads constructor (
         var rootCacheDir: String? = ""
         if (ModelPreferences.useMmap(ApplicationProvider.get(), modelId)) {
             rootCacheDir = FileUtils.getMmapDir(modelId, configPath.contains("modelscope"))
-            File(rootCacheDir!!).mkdirs()
+            File(rootCacheDir).mkdirs()
         }
         val useOpencl = ModelPreferences.getBoolean(
             ApplicationProvider.get(),
@@ -69,6 +68,7 @@ class ChatSession @JvmOverloads constructor (
             configJson.put("sampler", sampler)
             configJson.put("is_diffusion", isDiffusion)
             configJson.put("is_r1", ModelUtils.isR1Model(modelId))
+            configJson.put("mmap_dir", rootCacheDir?:"")
             configJson.put(
                 "diffusion_memory_mode",
                 getDiffusionMemoryMode(ApplicationProvider.get())
@@ -77,11 +77,11 @@ class ChatSession @JvmOverloads constructor (
             throw RuntimeException(e)
         }
         nativePtr = initNative(
-            rootCacheDir, modelId, configPath,
-            useTmpPath, historyStringList, configJson.toString()
+            configPath,
+            historyStringList, configJson.toString()
         )
         modelLoading = false
-        if (mReleaseRequeted) {
+        if (releaseRequeted) {
             release()
         }
     }
@@ -97,10 +97,10 @@ class ChatSession @JvmOverloads constructor (
     fun generate(input: String, progressListener: GenerateProgressListener): HashMap<String, Any> {
         synchronized(this) {
             Log.d(TAG, "MNN_DEBUG submit$input")
-            mGenerating = true
+            generating = true
             val result = submitNative(nativePtr, input, keepHistory, progressListener)
-            mGenerating = false
-            if (mReleaseRequeted) {
+            generating = false
+            if (releaseRequeted) {
                 release()
             }
             return result
@@ -116,7 +116,7 @@ class ChatSession @JvmOverloads constructor (
     ): HashMap<String, Any> {
         synchronized(this) {
             Log.d(TAG, "MNN_DEBUG submit$input")
-            mGenerating = true
+            generating = true
             val result = submitDiffusionNative(
                 nativePtr,
                 input,
@@ -125,8 +125,8 @@ class ChatSession @JvmOverloads constructor (
                 randomSeed,
                 progressListener
             )
-            mGenerating = false
-            if (mReleaseRequeted) {
+            generating = false
+            if (releaseRequeted) {
                 releaseInner()
             }
             return result
@@ -135,7 +135,7 @@ class ChatSession @JvmOverloads constructor (
 
     fun reset() {
         synchronized(this) {
-            resetNative(nativePtr)
+            resetNative(nativePtr, isDiffusion)
         }
     }
 
@@ -143,13 +143,13 @@ class ChatSession @JvmOverloads constructor (
         synchronized(this) {
             Log.d(
                 TAG,
-                "MNN_DEBUG release nativePtr: $nativePtr mGenerating: $mGenerating"
+                "MNN_DEBUG release nativePtr: $nativePtr mGenerating: $generating"
             )
-            if (!mGenerating && !modelLoading) {
+            if (!generating && !modelLoading) {
                 releaseInner()
             } else {
-                mReleaseRequeted = true
-                while (mGenerating || modelLoading) {
+                releaseRequeted = true
+                while (generating || modelLoading) {
                     try {
                         (this as Object).wait()
                     } catch (e: InterruptedException) {
@@ -172,10 +172,7 @@ class ChatSession @JvmOverloads constructor (
     }
 
     external fun initNative(
-        rootCacheDir: String?,
-        modelId: String?,
         configPath: String?,
-        useTmpPath: Boolean,
         history: List<String>?,
         configJsonStr: String?
     ): Long
@@ -196,7 +193,7 @@ class ChatSession @JvmOverloads constructor (
         progressListener: GenerateProgressListener
     ): HashMap<String, Any>
 
-    private external fun resetNative(instanceId: Long)
+    private external fun resetNative(instanceId: Long, isDiffusion: Boolean)
 
     private external fun getDebugInfoNative(instanceId: Long): String
 
