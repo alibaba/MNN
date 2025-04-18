@@ -1,40 +1,40 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.coordinatorlayout.widget.CoordinatorLayout
-    xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.coordinatorlayout.widget.CoordinatorLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
-    android:fitsSystemWindows="true"
-    android:layout_height="match_parent">
+    android:layout_height="match_parent"
+    android:fitsSystemWindows="true">
+
     <com.google.android.material.appbar.AppBarLayout
         android:id="@+id/app_bar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:fitsSystemWindows="true"
-        >
+        android:fitsSystemWindows="true">
+
         <com.google.android.material.appbar.MaterialToolbar
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
             android:layout_height="?actionBarSize"
-            app:titleTextAppearance="?textAppearanceTitleMedium"
-            app:titleCentered="true">
-        </com.google.android.material.appbar.MaterialToolbar>
+            app:titleCentered="true"
+            app:titleTextAppearance="?textAppearanceTitleMedium"></com.google.android.material.appbar.MaterialToolbar>
     </com.google.android.material.appbar.AppBarLayout>
+
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/recyclerView"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:layout_weight="1"
         android:overScrollMode="never"
-        app:layout_behavior="@string/appbar_scrolling_view_behavior"
-        />
+        app:layout_behavior="@string/appbar_scrolling_view_behavior" />
+
     <LinearLayout
         android:id="@+id/layout_bottom_container"
         android:layout_width="match_parent"
-        android:orientation="vertical"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
-        >
+        android:orientation="vertical">
+
         <androidx.cardview.widget.CardView
             android:id="@+id/layout_bottom"
             android:layout_width="match_parent"
@@ -193,6 +193,7 @@
                     app:layout_constraintTop_toTopOf="@id/anchor_view" />
             </androidx.constraintlayout.widget.ConstraintLayout>
         </androidx.cardview.widget.CardView>
+
         <LinearLayout
             android:id="@+id/layout_more_menu"
             android:layout_width="match_parent"
@@ -226,30 +227,16 @@
                 app:text="@string/select_audio" />
         </LinearLayout>
     </LinearLayout>
-    <RelativeLayout
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
->
-            <LinearLayout
-                android:id="@+id/layout_content"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:orientation="vertical">
 
-            </LinearLayout>
+    <TextView
+        android:id="@+id/text_voice_hint"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal|bottom"
+        android:layout_marginBottom="75dp"
+        android:visibility="gone"
+        tools:text="@string/release_to_send" />
 
-            <TextView
-                android:id="@+id/text_voice_hint"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_gravity="center_horizontal|bottom"
-                android:layout_marginBottom="75dp"
-                android:visibility="gone"
-                tools:text="@string/release_to_send" />
-        </RelativeLayout>
-<!--    </androidx.core.widget.NestedScrollView>-->
-
-<!--    android:background="@drawable/bg_bottom_sheet"-->
     <RelativeLayout
         android:id="@+id/layout_model_loading"
         android:layout_width="match_parent"
@@ -261,20 +248,20 @@
         <com.github.ybq.android.spinkit.SpinKitView
             android:id="@+id/model_list_loading_view"
             style="@style/SpinKitView.Large.FadingCircle"
-            android:layout_width="100dp"
-            android:layout_height="100dp"
+            android:layout_width="30dp"
+            android:layout_height="30dp"
             android:layout_centerInParent="true"
-            app:SpinKit_Color="@color/colorAccent" />
+            app:SpinKit_Color="?colorPrimary" />
     </RelativeLayout>
 
     <androidx.core.widget.NestedScrollView
         android:id="@+id/bottom_sheet"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        app:behavior_draggable="true"
         android:background="@drawable/bg_bottom_sheet"
-        app:behavior_hideable="true"
         android:visibility="visible"
+        app:behavior_draggable="true"
+        app:behavior_hideable="true"
         app:behavior_peekHeight="0dp"
         app:behavior_skipCollapsed="true"
         app:layout_behavior="com.google.android.material.bottomsheet.BottomSheetBehavior">
@@ -289,6 +276,7 @@
                 android:id="@+id/drag_handle"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content" />
+
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"

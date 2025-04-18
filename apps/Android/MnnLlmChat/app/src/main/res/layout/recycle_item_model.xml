@@ -11,6 +11,7 @@
 
     <com.google.android.material.card.MaterialCardView
         android:id="@+id/header_section_title"
+        android:textColor="?colorOnSurface"
         android:layout_width="48dp"
         android:layout_height="48dp"
         android:layout_marginStart="12dp"
@@ -43,11 +44,11 @@
         android:layout_alignTop="@+id/header_section_title"
         android:layout_marginStart="14dp"
         android:maxLines="1"
-        android:textColor="?colorOnSurface"
         tools:text="Qwen-Chat-7B"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        style="?textAppearanceBodyMedium"
+        style="?textAppearanceTitleSmall"
+        android:textColor="?colorOnSurface"
         />
 
     <com.alibaba.mnnllm.android.widgets.TagsLayout
@@ -103,6 +104,7 @@
     <com.github.ybq.android.spinkit.SpinKitView
         android:id="@+id/download_progress_view"
         android:layout_alignParentEnd="true"
+        android:visibility="gone"
         android:layout_marginEnd="14dp"
         android:layout_marginBottom="20dp"
         android:layout_alignParentBottom="true"
@@ -111,4 +113,25 @@
         android:layout_height="20dp"
         android:layout_gravity="center"
         app:SpinKit_Color="?colorPrimary" />
-    </RelativeLayout>
+
+    <ImageView
+        android:id="@+id/iv_more"
+        android:layout_marginEnd="16dp"
+        android:layout_width="22dp"
+        android:layout_centerVertical="true"
+        android:layout_height="22dp"
+        android:layout_alignParentEnd="true"
+        android:src="@drawable/download"
+        tools:ignore="ContentDescription"
+        app:tint="?colorOnSurface"/>
+<!--    <ImageView-->
+<!--        android:layout_marginEnd="12dp"-->
+<!--        android:layout_width="25dp"-->
+<!--        android:layout_centerVertical="true"-->
+<!--        android:layout_height="25dp"-->
+<!--        android:layout_toStartOf="@id/iv_more"-->
+<!--        android:src="@drawable/download"-->
+<!--        app:tint="?colorOnSurface"-->
+<!--        tools:ignore="ContentDescription" />-->
+
+</RelativeLayout>

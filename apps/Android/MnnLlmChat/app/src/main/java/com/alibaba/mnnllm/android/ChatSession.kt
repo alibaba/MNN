@@ -41,9 +41,12 @@ class ChatSession @JvmOverloads constructor (
         Log.d(TAG, "MNN_DEBUG load begin")
         modelLoading = true
         var historyStringList: List<String>? = null
-        if (this.savedHistory != null && !savedHistory.isEmpty()) {
+        if (!this.savedHistory.isNullOrEmpty()) {
             historyStringList =
-                savedHistory.stream().map { obj: ChatDataItem -> obj.text }
+                savedHistory.stream()
+                    .map { obj: ChatDataItem -> obj.text }
+                    .filter { obj: String? -> obj != null }
+                    .map { obj: String? -> obj!! }
                     .collect(Collectors.toList())
         }
         var rootCacheDir: String? = ""

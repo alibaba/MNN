@@ -14,20 +14,19 @@ import android.view.KeyEvent
 import android.view.Menu
 import android.view.MenuItem
 import android.view.View
-import android.view.ViewGroup.MarginLayoutParams
 import android.view.WindowInsets
 import android.widget.EditText
 import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.view.ViewCompat
 import androidx.core.widget.NestedScrollView
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.alibaba.mnnllm.android.ChatService
 import com.alibaba.mnnllm.android.ChatSession
 import com.alibaba.mnnllm.android.R
+import com.alibaba.mnnllm.android.asr.RecognizeService
 import com.alibaba.mnnllm.android.chat.AttachmentPickerModule.AttachmentType
 import com.alibaba.mnnllm.android.chat.AttachmentPickerModule.ImagePickCallback
 import com.alibaba.mnnllm.android.chat.GenerateResultProcessor.NormalGenerateResultProcessor
@@ -35,15 +34,19 @@ import com.alibaba.mnnllm.android.chat.GenerateResultProcessor.R1GenerateResultP
 import com.alibaba.mnnllm.android.chat.VoiceRecordingModule.VoiceRecordingListener
 import com.alibaba.mnnllm.android.databinding.ActivityChatBinding
 import com.alibaba.mnnllm.android.modelsettings.SettingsActivity
+import com.alibaba.mnnllm.android.modelsettings.SettingsBottomSheetFragment
 import com.alibaba.mnnllm.android.utils.AudioPlayService
 import com.alibaba.mnnllm.android.utils.FileUtils
 import com.alibaba.mnnllm.android.utils.KeyboardUtils
 import com.alibaba.mnnllm.android.utils.ModelPreferences
 import com.alibaba.mnnllm.android.utils.ModelUtils
+import com.alibaba.mnnllm.android.utils.Permissions.REQUEST_RECORD_AUDIO_PERMISSION
 import com.alibaba.mnnllm.android.utils.PreferenceUtils
+import com.alibaba.mnnllm.android.utils.UiUtils
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
@@ -77,6 +80,7 @@ class ChatActivity : AppCompatActivity() {
 
     private var dateFormat: DateFormat? = null
     private lateinit var chatSession: ChatSession
+
     var sessionId: String? = null
         private set
 
@@ -135,7 +139,7 @@ class ChatActivity : AppCompatActivity() {
         buttonSend = binding.btSend
         buttonSend.setEnabled(false)
         buttonSend.setOnClickListener { handleSendClick() }
-        isAudioModel = ModelUtils.isAudioModel(modelName)
+        isAudioModel = ModelUtils.isAudioModel(modelName!!)
         setupVoiceRecordingModule()
         setupAttachmentPickerModule()
         smoothScrollToBottom()
@@ -221,14 +225,14 @@ class ChatActivity : AppCompatActivity() {
         sessionId = intent.getStringExtra("chatSessionId")
         val chatDataItemList: List<ChatDataItem>?
         if (!TextUtils.isEmpty(sessionId)) {
-            chatDataItemList = chatDataManager!!.getChatDataBySession(sessionId)
+            chatDataItemList = chatDataManager!!.getChatDataBySession(sessionId!!)
             if (chatDataItemList != null && !chatDataItemList.isEmpty()) {
                 sessionName = chatDataItemList[0].text
             }
         } else {
             chatDataItemList = null
         }
-        if (ModelUtils.isDiffusionModel(modelName)) {
+        if (ModelUtils.isDiffusionModel(modelName!!)) {
             val diffusionDir = intent.getStringExtra("diffusionDir")
             chatSession = chatService.createDiffusionSession(
                 modelId, diffusionDir,
@@ -243,11 +247,11 @@ class ChatActivity : AppCompatActivity() {
         }
         sessionId = chatSession.sessionId
         chatSession.setKeepHistory(
-            !ModelUtils.isVisualModel(modelName) && !ModelUtils.isAudioModel(
-                modelName
+            !ModelUtils.isVisualModel(modelName!!) && !ModelUtils.isAudioModel(
+                modelName!!
             )
         )
-        Log.d(TAG, "current SessionId: " + sessionId)
+        Log.d(TAG, "current SessionId: $sessionId")
         chatExecutor!!.submit {
             Log.d(TAG, "chatSession loading")
             setIsLoading(true)
@@ -297,7 +301,7 @@ class ChatActivity : AppCompatActivity() {
 //            view.setPadding(view.paddingLeft, view.paddingTop, view.paddingRight, bottomInset)
 //            insets.consumeSystemWindowInsets()
 //        }
-        adapter = ChatRecyclerViewAdapter(this, initData(), this.modelName)
+        adapter = ChatRecyclerViewAdapter(this, initData(), this.modelName!!)
         recyclerView.setAdapter(adapter)
         recyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
             override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
@@ -342,14 +346,16 @@ class ChatActivity : AppCompatActivity() {
         })
     }
 
-    private fun initData(): List<ChatDataItem> {
+    private fun initData(): MutableList<ChatDataItem> {
         val data: MutableList<ChatDataItem> = ArrayList()
         data.add(ChatDataItem(dateFormat!!.format(Date()), ChatViewHolders.HEADER, ""))
         data.add(
             ChatDataItem(
                 dateFormat!!.format(Date()), ChatViewHolders.ASSISTANT,
                 getString(
-                    if (ModelUtils.isDiffusionModel(modelName)) R.string.model_hello_prompt_diffusion else R.string.model_hello_prompt,
+                    if (ModelUtils.isDiffusionModel(modelName!!))
+                        R.string.model_hello_prompt_diffusion else
+                        R.string.model_hello_prompt,
                     modelName
                 )
             )
@@ -364,20 +370,20 @@ class ChatActivity : AppCompatActivity() {
     private fun setupAttachmentPickerModule() {
         imageMore = findViewById(R.id.bt_plus)
         buttonSwitchVoice = findViewById(R.id.bt_switch_audio)
-        if (!ModelUtils.isVisualModel(this.modelName) && !ModelUtils.isAudioModel(this.modelName)) {
+        if (!ModelUtils.isVisualModel(this.modelName!!) && !ModelUtils.isAudioModel(this.modelName!!)) {
             imageMore.setVisibility(View.GONE)
             return
         }
         attachmentPickerModule = AttachmentPickerModule(this)
         attachmentPickerModule!!.setOnImagePickCallback(object : ImagePickCallback {
-            override fun onAttachmentPicked(attachmentUri: Uri, type: AttachmentType) {
+            override fun onAttachmentPicked(imageUri: Uri?, audio: AttachmentType?) {
                 imageMore.setVisibility(View.GONE)
                 updateVoiceButtonVisibility()
                 currentUserMessage = ChatDataItem(ChatViewHolders.USER)
-                if (type == AttachmentType.Audio) {
-                    currentUserMessage!!.audioUri = attachmentUri
+                if (audio == AttachmentType.Audio) {
+                    currentUserMessage!!.audioUri = imageUri
                 } else {
-                    currentUserMessage!!.imageUri = attachmentUri
+                    currentUserMessage!!.imageUri = imageUri
                 }
                 updateSenderButton()
             }
@@ -407,7 +413,7 @@ class ChatActivity : AppCompatActivity() {
 
     private fun updateVoiceButtonVisibility() {
         var visible = true
-        if (!ModelUtils.isAudioModel(modelName)) {
+        if (!ModelUtils.isAudioModel(modelName!!)) {
             visible = false
         } else if (isGenerating) {
             visible = false
@@ -451,11 +457,11 @@ class ChatActivity : AppCompatActivity() {
                 KeyboardUtils.showKeyboard(editUserMessage)
             }
 
-            override fun onRecordSuccess(duration: Float, recordingFilePath: String) {
+            override fun onRecordSuccess(duration: Float, recordingFilePath: String?) {
                 val chatDataItem = ChatDataItem.createAudioInputData(
                     dateFormat!!.format(Date()),
                     "",
-                    recordingFilePath,
+                    recordingFilePath!!,
                     duration
                 )
                 handleSendMessage(chatDataItem)
@@ -480,15 +486,15 @@ class ChatActivity : AppCompatActivity() {
         menu.findItem(R.id.menu_item_use_mmap).setChecked(
             ModelPreferences.getBoolean(
                 this,
-                modelId,
+                modelId!!,
                 ModelPreferences.KEY_USE_MMAP,
-                true
+                false
             )
         )
         menu.findItem(R.id.menu_item_backend).setChecked(
             ModelPreferences.getBoolean(
                 this,
-                modelId,
+                modelId!!,
                 ModelPreferences.KEY_BACKEND,
                 false
             )
@@ -510,7 +516,7 @@ class ChatActivity : AppCompatActivity() {
         } else if (item.itemId == android.R.id.home) {
             finish()
         } else if (item.itemId == R.id.menu_item_clear_mmap_cache) {
-            if (ModelPreferences.useMmap(this, modelId)) {
+            if (ModelPreferences.useMmap(this, modelId!!)) {
                 Toast.makeText(this, R.string.mmap_cacche_cleared, Toast.LENGTH_LONG).show()
                 chatSession.clearMmapCache()
                 recreate()
@@ -522,7 +528,7 @@ class ChatActivity : AppCompatActivity() {
             Toast.makeText(this, R.string.reloading_session, Toast.LENGTH_LONG).show()
             ModelPreferences.setBoolean(
                 this,
-                modelId,
+                modelId!!,
                 ModelPreferences.KEY_USE_MMAP,
                 item.isChecked
             )
@@ -530,16 +536,28 @@ class ChatActivity : AppCompatActivity() {
         } else if (item.itemId == R.id.menu_item_backend) {
             item.setChecked(!item.isChecked)
             Toast.makeText(this, R.string.reloading_session, Toast.LENGTH_LONG).show()
-            ModelPreferences.setBoolean(this, modelId, ModelPreferences.KEY_BACKEND, item.isChecked)
+            ModelPreferences.setBoolean(this, modelId!!, ModelPreferences.KEY_BACKEND, item.isChecked)
             recreate()
         } else if (item.itemId == R.id.menu_item_model_settings) {
-            startActivity(Intent(this, SettingsActivity::class.java))
+//            startActivity(Intent(this, SettingsActivity::class.java))
+            val settingsSheet = SettingsBottomSheetFragment()
+            settingsSheet.show(supportFragmentManager, SettingsBottomSheetFragment.TAG)
             return true
         } else if (item.itemId == R.id.menu_item_benchmark_test) {
             bottomSheetBehavior.state = BottomSheetBehavior.STATE_EXPANDED
+        } else if (item.itemId == R.id.menu_item_voice_chat) {
+            MainScope().launch {
+                recognizeSerivice.initRecognizer()
+                recognizeSerivice.onRecognizeText = { text ->
+                    UiUtils.showToast(this@ChatActivity, text)
+                }
+                recognizeSerivice.stopRecord()
+            }
         }
         return super.onOptionsItemSelected(item)
     }
+
+    var recognizeSerivice: RecognizeService = RecognizeService(this)
 
     override fun onRequestPermissionsResult(
         requestCode: Int,
@@ -548,8 +566,8 @@ class ChatActivity : AppCompatActivity() {
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
 
-        if (requestCode == VoiceRecordingModule.REQUEST_RECORD_AUDIO_PERMISSION) {
-            if (grantResults.size > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+        if (requestCode == REQUEST_RECORD_AUDIO_PERMISSION) {
+            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                 voiceRecordingModule!!.handlePermissionAllowed()
             } else {
                 voiceRecordingModule!!.handlePermissionDenied()
@@ -563,7 +581,7 @@ class ChatActivity : AppCompatActivity() {
             sessionId = chatSession.generateNewSession()
             this.sessionName = null
             chatExecutor!!.execute { chatSession.reset() }
-            chatDataManager!!.deleteAllChatData(sessionId)
+            chatDataManager!!.deleteAllChatData(sessionId!!)
             if (adapter!!.reset()) {
                 Toast.makeText(this, R.string.new_conversation_started, Toast.LENGTH_LONG).show()
             }
@@ -572,7 +590,7 @@ class ChatActivity : AppCompatActivity() {
         }
     }
 
-    suspend fun waitForGeneratingFinished() {
+    private suspend fun waitForGeneratingFinished() {
         if (_isGenerating.value) {
             _isGenerating
                 .filter { !it }
@@ -590,7 +608,7 @@ class ChatActivity : AppCompatActivity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (attachmentPickerModule != null && attachmentPickerModule!!.canHandleResult(requestCode)) {
-            attachmentPickerModule!!.onActivityResult(requestCode, resultCode, data)
+            attachmentPickerModule!!.onActivityResult(requestCode, resultCode, data!!)
         }
     }
 
@@ -640,7 +658,7 @@ class ChatActivity : AppCompatActivity() {
         val hasSessionName = !TextUtils.isEmpty(this.sessionName)
         var sessionName: String? = null
         if (userData.audioUri != null) {
-            val audioPath = attachmentPickerModule!!.getPathForUri(userData.audioUri)
+            val audioPath = attachmentPickerModule!!.getPathForUri(userData.audioUri!!)
             if (audioPath == null) {
                 Toast.makeText(this, "Audio file not found", Toast.LENGTH_LONG).show()
                 return
@@ -654,7 +672,7 @@ class ChatActivity : AppCompatActivity() {
                 sessionName = "[Audio]" + userData.text
             }
         } else if (userData.imageUri != null) {
-            val imagePath = attachmentPickerModule!!.getPathForUri(userData.imageUri)
+            val imagePath = attachmentPickerModule!!.getPathForUri(userData.imageUri!!)
             if (imagePath == null) {
                 Toast.makeText(this, "image file not found", Toast.LENGTH_LONG).show()
                 return
@@ -664,18 +682,18 @@ class ChatActivity : AppCompatActivity() {
                 sessionName = "[Image]" + userData.text
             }
         } else {
-            input = userData.text
+            input = userData.text!!
             if (!hasSessionName) {
                 sessionName = userData.text
             }
         }
         if (!hasSessionName) {
-            chatDataManager!!.addOrUpdateSession(sessionId, modelId)
+            chatDataManager!!.addOrUpdateSession(sessionId!!, modelId)
             this.sessionName =
                 if (sessionName!!.length > 100) sessionName.substring(0, 100) else sessionName
-            chatDataManager!!.updateSessionName(this.sessionId, this.sessionName)
+            chatDataManager!!.updateSessionName(this.sessionId!!, this.sessionName)
         }
-        if (ModelUtils.isDiffusionModel(this.modelName)) {
+        if (ModelUtils.isDiffusionModel(this.modelName!!)) {
             chatExecutor!!.execute { submitRequest(input) }
         } else {
             chatExecutor!!.execute { submitRequest(input) }
@@ -698,20 +716,20 @@ class ChatActivity : AppCompatActivity() {
         stopGenerating = false
         val chatDataItem = adapter!!.recentItem
         val benchMarkResult: HashMap<String, Any>
-        if (ModelUtils.isDiffusionModel(this.modelName)) {
+        if (ModelUtils.isDiffusionModel(this.modelName!!)) {
             val diffusionDestPath = FileUtils.generateDestDiffusionFilePath(
                 this,
-                sessionId
+                sessionId!!
             )
             benchMarkResult = chatSession.generateDiffusion(
                 input, diffusionDestPath, 20,
                 Random(System.currentTimeMillis()).nextInt(), object : ChatSession.GenerateProgressListener {
                     override fun onProgress(progress: String?): Boolean {
                         if ("100" == progress) {
-                            chatDataItem.text = getString(R.string.diffusion_generated_message)
+                            chatDataItem!!.text = getString(R.string.diffusion_generated_message)
                             chatDataItem.imageUri = Uri.parse(diffusionDestPath)
                         } else {
-                            chatDataItem.text = getString(R.string.diffusion_generate_progress, progress)
+                            chatDataItem!!.text = getString(R.string.diffusion_generate_progress, progress)
                         }
                         runOnUiThread { updateAssistantResponse(chatDataItem) }
                         return false
@@ -720,7 +738,7 @@ class ChatActivity : AppCompatActivity() {
             )
         } else {
             val generateResultProcessor: GenerateResultProcessor =
-                if (ModelUtils.isR1Model(this.modelName)) R1GenerateResultProcessor(
+                if (ModelUtils.isR1Model(this.modelName!!)) R1GenerateResultProcessor(
                     getString(R.string.r1_thinking_message),
                     getString(R.string.r1_think_complete_template)
                 ) else NormalGenerateResultProcessor()
@@ -728,7 +746,7 @@ class ChatActivity : AppCompatActivity() {
             benchMarkResult = chatSession.generate(input, object: ChatSession.GenerateProgressListener {
                 override fun onProgress(progress: String?): Boolean {
                     generateResultProcessor.process(progress)
-                    chatDataItem.displayText = generateResultProcessor.displayResult
+                    chatDataItem!!.displayText = generateResultProcessor.displayResult
                     chatDataItem.text = generateResultProcessor.rawResult
                     runOnUiThread { updateAssistantResponse(chatDataItem) }
                     if (stopGenerating) {
@@ -740,10 +758,10 @@ class ChatActivity : AppCompatActivity() {
         }
         Log.d(TAG, "submitRequest benchMark: $benchMarkResult")
         runOnUiThread {
-            chatDataItem.benchmarkInfo = ModelUtils.generateBenchMarkString(benchMarkResult)
+            chatDataItem!!.benchmarkInfo = ModelUtils.generateBenchMarkString(benchMarkResult!!)
             updateAssistantResponse(chatDataItem)
         }
-        chatDataManager!!.addChatData(sessionId, chatDataItem)
+        chatDataManager!!.addChatData(sessionId, chatDataItem!!)
         runOnUiThread {
             setIsGenerating(false)
         }
@@ -769,7 +787,7 @@ class ChatActivity : AppCompatActivity() {
 
     override fun onStop() {
         super.onStop()
-        AudioPlayService.getInstance().destroy()
+        AudioPlayService.instance!!.destroy()
     }
 
     val sessionDebugInfo: String

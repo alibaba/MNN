@@ -6,9 +6,7 @@ package com.alibaba.mnnllm.android.modelsettings
 import android.os.Bundle
 import android.view.Menu
 import android.view.MenuItem
-import android.view.View
 import android.widget.ArrayAdapter
-import android.widget.PopupMenu
 import android.widget.SeekBar
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -20,9 +18,6 @@ import com.alibaba.mnnllm.android.databinding.SettingsRowSliderSwitchBinding
 import java.util.Locale
 
 // --- Data Structures ---
-enum class SamplerType {
-    Mixed, Penalty, TopP
-}
 
 class SettingsActivity : AppCompatActivity() {
 
@@ -69,6 +64,8 @@ class SettingsActivity : AppCompatActivity() {
 
         // Set initial visibility based on loaded sampler type
         updateSamplerSettingsVisibility()
+        val settingsSheet = SettingsBottomSheetFragment()
+        settingsSheet.show(supportFragmentManager, SettingsBottomSheetFragment.TAG)
     }
 
     // --- Options Menu (for Done button) ---

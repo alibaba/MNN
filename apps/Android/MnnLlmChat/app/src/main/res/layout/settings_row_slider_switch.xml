@@ -41,7 +41,7 @@
         app:layout_constraintStart_toEndOf="@id/label_value_container"
         app:layout_constraintTop_toTopOf="parent" />
 
-    <com.google.android.material.switchmaterial.SwitchMaterial
+    <com.google.android.material.materialswitch.MaterialSwitch
         android:id="@+id/switch_slider"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
