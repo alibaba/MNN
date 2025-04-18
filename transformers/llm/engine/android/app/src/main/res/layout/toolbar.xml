@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.appcompat.widget.Toolbar
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:orientation="vertical"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:contentInsetLeft="0dp"
+    android:contentInsetStart="0dp"
+    app:contentInsetLeft="0dp"
+    app:contentInsetStart="0dp"
+    android:contentInsetRight="0dp"
+    android:contentInsetEnd="0dp"
+    app:contentInsetRight="0dp"
+    android:background="@color/armLightGray"
+    app:contentInsetEnd="0dp">
+    <androidx.constraintlayout.widget.ConstraintLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content">
+        <ImageView
+            android:id="@+id/arm_brand"
+            app:layout_constraintWidth_percent="0.7"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginLeft="5dp"
+            android:layout_marginTop="@dimen/space10"
+            android:layout_marginBottom="@dimen/space10"
+            app:layout_constraintLeft_toLeftOf="parent"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintBottom_toBottomOf="parent"
+            android:src="@drawable/arm_black_brand2"/>
+
+        <ImageButton
+            android:layout_width="23dp"
+            android:layout_height="23dp"
+            android:layout_marginRight="7dp"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintRight_toLeftOf="@id/menu"
+            android:id="@+id/close"
+            android:background="@drawable/close_icon" />
+        <ImageButton
+            android:layout_width="23dp"
+            android:layout_height="23dp"
+            android:layout_marginRight="7dp"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintRight_toLeftOf="@id/close"
+            android:id="@+id/clear"
+            android:background="@drawable/delete_icon" />
+        <ImageButton
+            android:layout_width="23dp"
+            android:layout_height="23dp"
+            android:layout_marginRight="7dp"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintRight_toRightOf="parent"
+            android:id="@+id/menu"
+            android:background="@drawable/menu_vertical_svgrepo_com" />
+        <ImageButton
+            android:layout_width="23dp"
+            android:layout_height="23dp"
+            android:layout_marginRight="15dp"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintRight_toRightOf="parent"
+            android:id="@+id/displayBar"
+            android:background="@drawable/menu_alt_2_svgrepo_com"
+            android:visibility="gone"/>
+    </androidx.constraintlayout.widget.ConstraintLayout>
+</androidx.appcompat.widget.Toolbar>
