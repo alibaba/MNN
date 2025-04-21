@@ -133,17 +133,29 @@ object ChatViewHolders {
         }
 
         fun bind(data: ChatDataItem, modelName: String?, payloads: List<Any?>?) {
-            if (payloads != null && !payloads.isEmpty()) {
+            if (!payloads.isNullOrEmpty()) {
                 markdown.setMarkdown(viewText, data.displayText!!)
                 return
             }
             if (TextUtils.isEmpty(data.displayText)) {
-                viewAssistantLoading.visibility = View.VISIBLE
                 viewText.visibility = View.GONE
             } else {
                 markdown.setMarkdown(viewText, data.displayText!!)
                 viewText.visibility = View.VISIBLE
-                viewAssistantLoading.visibility = View.GONE
+            }
+
+            if (data.hasOmniAudio) {
+                viewAssistantLoading.visibility = if (data.loading) {
+                    View.VISIBLE
+                } else {
+                    View.GONE
+                }
+            } else {
+                viewAssistantLoading.visibility = if (!TextUtils.isEmpty(data.displayText)) {
+                  View.GONE
+                } else {
+                    View.VISIBLE
+                }
             }
             val showMetrics = PreferenceUtils.getBoolean(
                 itemView.context,

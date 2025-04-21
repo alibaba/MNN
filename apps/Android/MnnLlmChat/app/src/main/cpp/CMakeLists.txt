@@ -31,6 +31,7 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
         llm_session.cpp
 )
 #mnn
+#set (MNN_ROOT "/Users/songjinde/git/DAI/AliNNPrivate")
 set (MNN_ROOT "${CMAKE_SOURCE_DIR}/../../../../../../../")
 message(ERROR "MNN_ROOT: ${MNN_ROOT}")
 include_directories("${MNN_ROOT}/include/")
@@ -39,7 +40,10 @@ include_directories("${MNN_ROOT}/include/")
 include_directories("${MNN_ROOT}/transformers/diffusion/engine/include/")
 
 #llm
-include_directories("${MNN_ROOT}/transformers/llm/engine/include")
+#include_directories("${MNN_ROOT}/transformers/llm/engine/include")
+include_directories("${CMAKE_SOURCE_DIR}/include")
+
+#audio
 
 include_directories("${CMAKE_SOURCE_DIR}/third_party")
 

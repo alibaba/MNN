@@ -3,13 +3,14 @@
 //
 
 #include "llm_session.h"
-
 #include <utility>
 #include "MNN/MNNForwardType.h"
 #include "MNN/expr/ExecutorScope.hpp"
 #include "mls_log.h"
+#include "mls_config.h"
 #include "utf8_stream_processor.hpp"
 #include "llm_stream_buffer.hpp"
+#include <audio/audio.hpp>
 
 namespace mls {
 
@@ -36,7 +37,7 @@ std::string getR1AssistantString(std::string assistant_content) {
     return trimLeadingWhitespace(assistant_content) + "<|end_of_sentence|>";
 }
 
-void mls::LlmSession::reset() {
+void LlmSession::Reset() {
     history_.resize(1);
 }
 
@@ -81,7 +82,7 @@ void LlmSession::Load() {
     }
     auto extra_config_str = extra_config.dump();
     MNN_DEBUG("extra_config: %s", extra_config_str.c_str());
-    llm_->set_config(extra_config_str);
+//    llm_->set_config(extra_config_str);
     MNN_DEBUG("dumped config: %s", llm_->dump_config().c_str());
     llm_->load();
 }
@@ -132,20 +133,41 @@ const MNN::Transformer::LlmContext * LlmSession::Response(const std::string &pro
         prompt_string_for_debug += it.second;
     }
     MNN_DEBUG("submitNative prompt_string_for_debug count %s", prompt_string_for_debug.c_str());
-    llm_->response(history_, &output_ostream, "<eop>", 1);
-    while (!stop_requested_) {
-        llm_->generate(1);
-    }
+    llm_->response(prompt, &output_ostream, "<eop>", 9999);
+//    llm_->response(history_, &output_ostream, "<eop>", 1);
+//    while (!stop_requested_) {
+//        llm_->generate(1);
+//    }
     auto context = llm_->getContext();
     return context;
 }
 
-const MNN::Transformer::LlmContext *LlmSession::getContext() {
-    return nullptr;
-}
-
 std::string LlmSession::getDebugInfo() {
     return ("last_prompt:\n" + prompt_string_for_debug + "\nlast_response:\n" + response_string_for_debug);
+}
+
+void LlmSession::SetWavformCallback(std::function<bool(const float *, size_t, bool)> callback) {
+    if (llm_ != nullptr && callback != nullptr) {
+        waveform.clear();
+        llm_->setWavformCallback([this, callback = std::move(callback)](const float *ptr, size_t size, bool last_chunk) {
+#if DEBUG_SAVE_WAV
+            waveform.reserve(waveform.size() + size);
+            waveform.insert(waveform.end(), ptr, ptr + size);
+            MNN_DEBUG("waveform size %zu", waveform.size());
+            if (last_chunk) {
+                auto waveform_var = MNN::Express::_Const(waveform.data(), {(int)waveform.size()}, MNN::Express::NCHW, halide_type_of<float>());
+                MNN::AUDIO::save("/data/data/com.alibaba.mnnllm.android/files/output.wav", waveform_var, 24000);
+                waveform.clear();
+            }
+#endif
+            if (callback) {
+                return callback(ptr, size, last_chunk);
+            }
+            return true;
+        });
+    } else {
+        MNN_ERROR("no llm instance");
+    }
 }
 
 }

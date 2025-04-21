@@ -194,4 +194,8 @@ object ModelUtils {
     fun safeModelId(modelId: String): String {
         return modelId.replace("/".toRegex(), "_")
     }
+
+    fun isOmni(modelName: String): Boolean {
+        return modelName.lowercase(Locale.getDefault()).contains("omni")
+    }
 }

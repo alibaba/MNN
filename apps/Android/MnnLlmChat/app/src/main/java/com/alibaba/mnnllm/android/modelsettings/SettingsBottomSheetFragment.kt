@@ -46,7 +46,6 @@ class SettingsBottomSheetFragment : BottomSheetDialogFragment() {
         super.onViewCreated(view, savedInstanceState)
         loadSettings()
         setupModelConfig()
-        setupSamplerTypeDropdown()
         setupMixedSettings()
         setupPenaltySettings()
         setupTopPSettings()
@@ -188,27 +187,7 @@ class SettingsBottomSheetFragment : BottomSheetDialogFragment() {
         binding.switchUseMmap.setOnCheckedChangeListener { _, isChecked ->
             useMmap = isChecked
         }
-        binding.buttonClearCache.setOnClickListener { // Assuming ID button_clear_cache
-            Toast.makeText(requireContext(), "Clear Cache Clicked", Toast.LENGTH_SHORT).show()
-        }
         // Make sure IDs in fragment_settings_sheet.xml match the ones used here
-    }
-
-    private fun setupSamplerTypeDropdown() {
-        val samplerTypeItems = SamplerType.values().map { samplerTypeToString(it) }
-        val adapter = ArrayAdapter(requireContext(), // Use requireContext()
-            android.R.layout.simple_dropdown_item_1line, samplerTypeItems)
-        val autoCompleteTextView = binding.menuSamplerTypeAutocomplete
-        autoCompleteTextView.setAdapter(adapter)
-        autoCompleteTextView.setText(samplerTypeToString(currentSamplerType), false) // Set after loadSettings
-        autoCompleteTextView.setOnItemClickListener { parent, _, position, _ ->
-            val selectedString = parent.getItemAtPosition(position) as String
-            val selectedSamplerType = SamplerType.values().find { samplerTypeToString(it) == selectedString }
-            if (selectedSamplerType != null && currentSamplerType != selectedSamplerType) {
-                currentSamplerType = selectedSamplerType
-                updateSamplerSettingsVisibility()
-            }
-        }
     }
 
     // Adapt setupSliderRow, setupSliderSwitchRow etc. to use 'binding' and 'requireContext()'
@@ -266,11 +245,6 @@ class SettingsBottomSheetFragment : BottomSheetDialogFragment() {
 
     // --- State Persistence (Adapt for Fragment context if needed) ---
     private fun loadSettings() {
-        // TODO: Load settings - Get context via requireContext() if needed for SharedPreferences
-        // Update UI elements using binding.* after loading
-        binding.menuSamplerTypeAutocomplete
-            .setText(samplerTypeToString(currentSamplerType), false) // Example update
-        // ... update all other views based on loaded state ...
     }
 
     private fun saveSettings() {

@@ -10,16 +10,6 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         tools:ignore="MissingConstraints" />
-    <!--    <ImageButton-->
-    <!--        android:id="@+id/button_close_sheet"-->
-    <!--        android:layout_width="48dp"-->
-    <!--        android:layout_height="48dp"-->
-    <!--        android:layout_marginTop="8dp"-->
-    <!--        android:layout_marginEnd="8dp"-->
-    <!--        android:background="?attr/selectableItemBackgroundBorderless"-->
-    <!--        android:contentDescription="Close Settings"-->
-    <!--        android:src="@drawable/ic_close"-->
-    <!--        tools:ignore="MissingConstraints" />-->
 
     <TextView
         android:id="@+id/sheet_title"
@@ -64,9 +54,9 @@
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/button_save"
+            style="@style/Widget.Material3.Button"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            style="@style/Widget.Material3.Button"
             android:text="Done" />
     </LinearLayout>
 
@@ -74,8 +64,7 @@
         android:id="@+id/divider_bottom"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_above="@id/button_bar_layout"
-        />
+        android:layout_above="@id/button_bar_layout" />
 
     <androidx.core.widget.NestedScrollView
         android:id="@+id/settings_scroll_view"
@@ -92,98 +81,116 @@
             android:paddingLeft="8dp"
             android:paddingRight="8dp"
             android:paddingBottom="16dp">
+
             <TextView
-                android:id="@+id/header_model_config"
+                android:id="@+id/tv_section_general"
                 style="@style/SettingsSectionHeader"
-                android:text="MODEL CONFIGURATION"
-                />
+                android:text="GENERAL" />
+
             <com.google.android.material.card.MaterialCardView
+                style="@style/SettingsSectionGroup"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="16dp"
-                android:layout_marginEnd="16dp"
-                android:layout_marginBottom="16dp"
-                style="@style/SettingsSectionGroup"
-                >
+                android:layout_marginStart="8dp"
+                android:layout_marginEnd="8dp"
+                android:layout_marginBottom="16dp">
+
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-
                     android:orientation="vertical">
-                    <androidx.constraintlayout.widget.ConstraintLayout
-                        style="@style/SettingsRowContainer"
-                        android:paddingLeft="8dp"
-                        android:paddingRight="8dp"
-                        android:clickable="true"
-                        android:background="?attr/selectableItemBackground">
-                        <TextView
-                            android:id="@+id/label_use_mmap"
-                            style="@style/SettingsRowLabel"
-                            android:text="Use mmap"
-                            app:layout_constraintBottom_toBottomOf="parent"
-                            app:layout_constraintStart_toStartOf="parent"
-
-                            app:layout_constraintTop_toTopOf="parent" />
-                        <com.google.android.material.materialswitch.MaterialSwitch
-                            android:id="@+id/switch_use_mmap"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            app:layout_constraintBottom_toBottomOf="parent"
-                            app:layout_constraintEnd_toEndOf="parent"
-                            app:layout_constraintTop_toTopOf="parent"
-                            android:focusable="false"
-                            android:clickable="false"
-                            android:background="@null"
-                            app:useMaterialThemeColors="true"/>
-                    </androidx.constraintlayout.widget.ConstraintLayout>
 
                     <TextView
-                        android:paddingLeft="8dp"
-                        android:paddingRight="8dp"
-                        android:id="@+id/button_clear_cache"
-                        style="@style/SettingsRowClickable"
-                        android:text="Clear mmap Cache" />
-                </LinearLayout>
-            </com.google.android.material.card.MaterialCardView>
-            <TextView
-                android:id="@+id/header_sampling_strategy"
-                style="@style/SettingsSectionHeader"
-                android:text="SAMPLING STRATEGY" />
-            <com.google.android.material.card.MaterialCardView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="16dp"
-                android:layout_marginEnd="16dp"
-                android:layout_marginBottom="16dp"
-                style="@style/SettingsSectionGroup">
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:paddingLeft="8dp"
-                    android:paddingRight="8dp"
-                    android:orientation="vertical">
+                        android:id="@+id/id_label_max_tokens"
+                        style="@style/SettingsRowLabel"
+                        android:layout_width="wrap_content"
+                        android:layout_marginStart="16dp"
+                        android:layout_marginTop="16dp"
+                        android:layout_weight="1"
+                        android:text="Max New tokens" />
 
-                <com.google.android.material.textfield.TextInputLayout
-                    android:id="@+id/menu_sampler_type_layout"
-                    style="@style/Widget.MaterialComponents.TextInputLayout.FilledBox.ExposedDropdownMenu"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:layout_marginBottom="8dp"
-                    android:hint="Sampler Type">
-
-                    <com.google.android.material.textfield.MaterialAutoCompleteTextView
-                        android:id="@+id/menu_sampler_type_autocomplete"
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:id="@+id/textField"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:inputType="none" />
-                </com.google.android.material.textfield.TextInputLayout>
+                        android:layout_margin="8dp"
+                        android:hint="max new tokens to generate">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content" />
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                    <TextView
+                        android:id="@+id/tv_prompt"
+                        style="@style/SettingsRowLabel"
+                        android:layout_width="wrap_content"
+                        android:layout_centerVertical="true"
+                        android:layout_marginStart="16dp"
+                        android:layout_marginTop="16dp"
+                        android:layout_weight="1"
+                        android:text="System Prompt" />
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:id="@+id/input_layout_other_info"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_margin="8dp"
+                        android:layout_marginBottom="16dp"
+                        android:hint="Describe other information..."
+                        app:boxCornerRadiusBottomEnd="8dp"
+                        app:boxCornerRadiusBottomStart="8dp"
+                        app:boxCornerRadiusTopEnd="8dp"
+                        app:boxCornerRadiusTopStart="8dp">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/input_edit_text_other_info"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:gravity="top"
+                            android:minLines="3" />
+                    </com.google.android.material.textfield.TextInputLayout>
+                    <RelativeLayout
+                        style="@style/SettingsRowContainer"
+                        android:layout_height="48dp"
+                        android:background="?attr/selectableItemBackground"
+                        android:clickable="true"
+                        android:paddingLeft="8dp"
+                        android:paddingRight="8dp">
+                        <TextView
+                            android:id="@+id/tv_label_sampler_type"
+                            style="@style/SettingsRowLabel"
+                            android:layout_width="wrap_content"
+                            android:layout_centerVertical="true"
+                            android:layout_marginStart="8dp"
+                            android:text="Sampler Type" />
+                        <ImageView
+                            android:id="@+id/iv_sampler_type_icon"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_alignParentEnd="true"
+                            android:layout_centerVertical="true"
+                            app:tint="?colorOnSurface"
+                            android:src="@drawable/baseline_arrow_drop_down_24" />
+                        <TextView
+                            android:id="@+id/tv_sampler_type_value"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_alignParentEnd="false"
+                            android:layout_centerVertical="true"
+                            android:layout_marginEnd="2dp"
+                            android:layout_toStartOf="@id/iv_sampler_type_icon"
+                            android:clickable="true"
+                            android:text="Greedy" />
+                    </RelativeLayout>
 
                     <LinearLayout
                         android:id="@+id/container_mixed_settings"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="vertical"
+                        android:paddingLeft="8dp"
+                        android:paddingRight="8dp"
                         android:visibility="gone"
                         tools:visibility="visible">
 
@@ -218,65 +225,200 @@
                     </LinearLayout>
 
                     <LinearLayout
-                    android:id="@+id/container_penalty_settings"
+                        android:id="@+id/container_penalty_settings"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:visibility="gone">
+
+                        <include
+                            android:id="@+id/row_penalty_penalty"
+                            layout="@layout/settings_row_slider" />
+
+                        <include
+                            android:id="@+id/row_penalty_ngram_size"
+                            layout="@layout/settings_row_slider" />
+
+                        <include
+                            android:id="@+id/row_penalty_ngram_factor"
+                            layout="@layout/settings_row_slider" />
+
+                        <androidx.constraintlayout.widget.ConstraintLayout
+                            android:id="@+id/row_penalty_sampler"
+                            style="@style/SettingsRowContainerClickable">
+
+                            <TextView
+                                style="@style/SettingsRowLabel"
+                                android:text="Penalty Sampler"
+                                app:layout_constraintBottom_toBottomOf="parent"
+                                app:layout_constraintStart_toStartOf="parent"
+                                app:layout_constraintTop_toTopOf="parent" />
+
+                            <ImageView
+                                android:id="@+id/chevron_penalty_sampler"
+                                style="@style/SettingsRowChevron"
+                                app:layout_constraintBottom_toBottomOf="parent"
+                                app:layout_constraintEnd_toEndOf="parent"
+                                app:layout_constraintTop_toTopOf="parent" />
+
+                            <TextView
+                                android:id="@+id/value_penalty_sampler"
+                                style="@style/SettingsRowValue"
+                                app:layout_constraintBottom_toBottomOf="parent"
+                                app:layout_constraintEnd_toStartOf="@id/chevron_penalty_sampler"
+                                app:layout_constraintTop_toTopOf="parent"
+                                tools:text="Greedy" />
+                        </androidx.constraintlayout.widget.ConstraintLayout>
+
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:id="@+id/container_top_p_settings"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:visibility="gone">
+
+                        <include
+                            android:id="@+id/row_top_p_top_p"
+                            layout="@layout/settings_row_slider" />
+
+                    </LinearLayout>
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <TextView
+                style="@style/SettingsSectionHeader"
+                android:text="Advanced" />
+
+            <com.google.android.material.card.MaterialCardView
+                style="@style/SettingsSectionGroup"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:layout_marginEnd="8dp"
+                android:layout_marginBottom="16dp">
+
+                <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:visibility="gone">
-
-                    <include
-                        android:id="@+id/row_penalty_penalty"
-                        layout="@layout/settings_row_slider" />
-
-                    <include
-                        android:id="@+id/row_penalty_ngram_size"
-                        layout="@layout/settings_row_slider" />
-
-                    <include
-                        android:id="@+id/row_penalty_ngram_factor"
-                        layout="@layout/settings_row_slider" />
+                    android:orientation="vertical">
 
                     <androidx.constraintlayout.widget.ConstraintLayout
-                        android:id="@+id/row_penalty_sampler"
-                        style="@style/SettingsRowContainerClickable">
+                        style="@style/SettingsRowContainer"
+                        android:background="?attr/selectableItemBackground"
+                        android:clickable="true"
+                        android:paddingLeft="8dp"
+                        android:paddingRight="8dp">
 
                         <TextView
+                            android:id="@+id/tv_reuse_kv"
                             style="@style/SettingsRowLabel"
-                            android:text="Penalty Sampler"
+                            android:text="Reuse KV"
                             app:layout_constraintBottom_toBottomOf="parent"
                             app:layout_constraintStart_toStartOf="parent"
                             app:layout_constraintTop_toTopOf="parent" />
 
-                        <ImageView
-                            android:id="@+id/chevron_penalty_sampler"
-                            style="@style/SettingsRowChevron"
+                        <com.google.android.material.materialswitch.MaterialSwitch
+                            android:id="@+id/switch_reuse_kv"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:background="@null"
+                            android:clickable="false"
+                            android:focusable="false"
                             app:layout_constraintBottom_toBottomOf="parent"
                             app:layout_constraintEnd_toEndOf="parent"
-                            app:layout_constraintTop_toTopOf="parent" />
-
-                        <TextView
-                            android:id="@+id/value_penalty_sampler"
-                            style="@style/SettingsRowValue"
-                            app:layout_constraintBottom_toBottomOf="parent"
-                            app:layout_constraintEnd_toStartOf="@id/chevron_penalty_sampler"
                             app:layout_constraintTop_toTopOf="parent"
-                            tools:text="Greedy" />
+                            app:useMaterialThemeColors="true" />
                     </androidx.constraintlayout.widget.ConstraintLayout>
 
-                </LinearLayout>
+                    <androidx.constraintlayout.widget.ConstraintLayout
+                        style="@style/SettingsRowContainer"
+                        android:background="?attr/selectableItemBackground"
+                        android:clickable="true"
+                        android:paddingLeft="8dp"
+                        android:paddingRight="8dp">
 
-                <LinearLayout
-                    android:id="@+id/container_top_p_settings"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:visibility="gone">
+                        <TextView
+                            android:id="@+id/label_use_mmap"
+                            style="@style/SettingsRowLabel"
+                            android:text="Use mmap"
+                            app:layout_constraintBottom_toBottomOf="parent"
+                            app:layout_constraintStart_toStartOf="parent"
 
-                    <include
-                        android:id="@+id/row_top_p_top_p"
-                        layout="@layout/settings_row_slider" />
+                            app:layout_constraintTop_toTopOf="parent" />
 
-                </LinearLayout>
+                        <com.google.android.material.materialswitch.MaterialSwitch
+                            android:id="@+id/switch_use_mmap"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:background="@null"
+                            android:clickable="false"
+                            android:focusable="false"
+                            app:layout_constraintBottom_toBottomOf="parent"
+                            app:layout_constraintEnd_toEndOf="parent"
+                            app:layout_constraintTop_toTopOf="parent"
+                            app:useMaterialThemeColors="true" />
+                    </androidx.constraintlayout.widget.ConstraintLayout>
+
+                    <RelativeLayout
+                        style="@style/SettingsRowContainer"
+                        android:layout_height="48dp"
+                        android:background="?attr/selectableItemBackground"
+                        android:clickable="true"
+                        android:paddingLeft="8dp"
+                        android:paddingRight="8dp">
+
+                        <TextView
+                            android:id="@+id/id_backend"
+                            style="@style/SettingsRowLabel"
+                            android:layout_width="wrap_content"
+                            android:layout_centerVertical="true"
+                            android:text="Backend" />
+
+                        <ImageView
+                            android:id="@+id/iv_backend"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_alignParentEnd="true"
+                            android:layout_centerVertical="true"
+                            app:tint="?colorOnSurface"
+                            android:src="@drawable/baseline_arrow_drop_down_24" />
+
+                        <TextView
+                            android:id="@+id/samplerTypeValue"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_alignParentEnd="false"
+                            android:layout_centerVertical="true"
+                            android:layout_marginEnd="2dp"
+                            android:layout_toStartOf="@id/iv_backend"
+                            android:clickable="true"
+                            android:text="CPU" />
+                    </RelativeLayout>
+
+                    <TextView
+                        android:id="@+id/tv_thread_num_label"
+                        style="@style/SettingsRowLabel"
+                        android:layout_width="wrap_content"
+                        android:layout_marginStart="8dp"
+                        android:layout_marginTop="16dp"
+                        android:layout_weight="1"
+                        android:text="Thread Number" />
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_margin="8dp"
+                        android:layout_marginTop="4dp"
+                        android:hint="Thread Number when Inference">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content" />
+                    </com.google.android.material.textfield.TextInputLayout>
+
+
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 

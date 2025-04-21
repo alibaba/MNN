@@ -23,7 +23,7 @@ class AttachmentPickerModule(private val activity: ChatActivity) {
     private val chooseImageView: View
 
     private val attachmentPreview: ImageView
-    private val imagePreivewLayout: View
+    private val imagePreviewLayout: View
     private val imagePreviewDelete: ImageView
     private val selectAttachmentLayoutParent: View
 
@@ -49,7 +49,7 @@ class AttachmentPickerModule(private val activity: ChatActivity) {
             chooseAudioView.visibility = View.GONE
         }
         attachmentPreview = activity.findViewById(R.id.image_preview)
-        imagePreivewLayout = activity.findViewById(R.id.image_preview_layout)
+        imagePreviewLayout = activity.findViewById(R.id.image_preview_layout)
         imagePreviewDelete = activity.findViewById(R.id.image_preview_delete)
         selectAttachmentLayoutParent = activity.findViewById(R.id.layout_more_menu)
         imagePreviewDelete.setOnClickListener { v: View? -> deletePreviewImage() }
@@ -68,7 +68,7 @@ class AttachmentPickerModule(private val activity: ChatActivity) {
     }
 
     private fun hidePreview() {
-        imagePreivewLayout.visibility = View.GONE
+        imagePreviewLayout.visibility = View.GONE
         imagePreviewDelete.visibility = View.GONE
         if (callback != null) {
             callback!!.onAttachmentRemoved()
@@ -175,7 +175,7 @@ class AttachmentPickerModule(private val activity: ChatActivity) {
 
     private fun showAudioPreview(audioUri: Uri) {
         attachmentPreview.setImageResource(R.drawable.ic_audio_attachment)
-        imagePreivewLayout.visibility = View.VISIBLE
+        imagePreviewLayout.visibility = View.VISIBLE
         imagePreviewDelete.visibility = View.VISIBLE
         hideAttachmentLayout()
         if (callback != null) {
@@ -185,7 +185,7 @@ class AttachmentPickerModule(private val activity: ChatActivity) {
 
     private fun showImagePreview() {
         attachmentPreview.setImageURI(imageUri)
-        imagePreivewLayout.visibility = View.VISIBLE
+        imagePreviewLayout.visibility = View.VISIBLE
         imagePreviewDelete.visibility = View.VISIBLE
         hideAttachmentLayout()
         if (callback != null) {

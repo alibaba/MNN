@@ -8617,7 +8617,7 @@ scan_number_done:
     // input management
     /////////////////////
 
-    /// reset token_buffer; current character is beginning of token
+    /// Reset token_buffer; current character is beginning of token
     void reset() noexcept
     {
         token_buffer.clear();

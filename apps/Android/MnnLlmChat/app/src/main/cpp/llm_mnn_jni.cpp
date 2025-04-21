@@ -144,8 +144,33 @@ JNIEXPORT void JNICALL Java_com_alibaba_mnnllm_android_ChatSession_resetNative(J
     auto* llm = reinterpret_cast<mls::LlmSession*>(object_ptr);
     if (llm) {
         MNN_DEBUG("RESET");
-        llm->reset();
+        llm->Reset();
     }
+}
+
+extern "C"
+JNIEXPORT jboolean JNICALL
+Java_com_alibaba_mnnllm_android_ChatSession_setWavformCallbackNative(
+        JNIEnv *env, jobject thiz, jlong instance_id, jobject listener) {
+
+    if (instance_id == 0 || !listener) {
+        return JNI_FALSE;
+    }
+    auto *session = reinterpret_cast<mls::LlmSession *>(instance_id);
+    jobject global_ref = env->NewGlobalRef(listener);
+    session->SetWavformCallback([env, global_ref](const float* data, size_t size, bool is_end) -> bool {
+        jclass listenerClass = env->GetObjectClass(global_ref);
+        jmethodID onAudioDataMethod = env->GetMethodID(listenerClass, "onAudioData", "([FZ)Z");
+        jfloatArray audioDataArray = env->NewFloatArray(size);
+        env->SetFloatArrayRegion(audioDataArray, 0, size, data);
+        jboolean result = env->CallBooleanMethod(global_ref, onAudioDataMethod, audioDataArray, is_end);
+        env->DeleteLocalRef(audioDataArray);
+        env->DeleteLocalRef(listenerClass);
+
+        return result == JNI_TRUE;
+    });
+
+    return JNI_TRUE;
 }
 
 extern "C"

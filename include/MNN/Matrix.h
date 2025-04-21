@@ -529,7 +529,7 @@ public:
             | 0 1 0 |
             | 0 0 1 |
 
-        Also called reset(); use the one that provides better inline
+        Also called Reset(); use the one that provides better inline
         documentation.
     */
     void setIdentity() {

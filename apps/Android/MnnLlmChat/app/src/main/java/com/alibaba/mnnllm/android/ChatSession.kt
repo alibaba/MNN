@@ -23,6 +23,8 @@ class ChatSession @JvmOverloads constructor (
     val savedHistory: List<ChatDataItem>?,
     private val isDiffusion: Boolean = false
 ) {
+    var supportOmni: Boolean = false
+
     private var nativePtr: Long = 0
 
     @Volatile
@@ -171,7 +173,7 @@ class ChatSession @JvmOverloads constructor (
         }
     }
 
-    external fun initNative(
+    private external fun initNative(
         configPath: String?,
         history: List<String>?,
         configJsonStr: String?
@@ -199,6 +201,11 @@ class ChatSession @JvmOverloads constructor (
 
     private external fun releaseNative(instanceId: Long, isDiffusion: Boolean)
 
+    private external fun setWavformCallbackNative(
+        instanceId: Long,
+        listener: AudioDataListener?
+    ): Boolean
+
     fun setKeepHistory(keepHistory: Boolean) {
         this.keepHistory = keepHistory
     }
@@ -209,6 +216,21 @@ class ChatSession @JvmOverloads constructor (
 
     interface GenerateProgressListener {
         fun onProgress(progress: String?): Boolean
+    }
+
+    fun setAudioDataListener(listener: AudioDataListener?) {
+        synchronized(this) {
+            if (nativePtr != 0L) {
+                setWavformCallbackNative(nativePtr, listener)
+            } else {
+                Log.e(TAG, "nativePtr null")
+            }
+        }
+    }
+
+
+    interface AudioDataListener {
+        fun onAudioData(data: FloatArray, isEnd: Boolean): Boolean
     }
 
     companion object {

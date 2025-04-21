@@ -27,13 +27,13 @@ import com.alibaba.mnnllm.android.ChatService
 import com.alibaba.mnnllm.android.ChatSession
 import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.asr.RecognizeService
+import com.alibaba.mnnllm.android.audio.AudioPlayer
 import com.alibaba.mnnllm.android.chat.AttachmentPickerModule.AttachmentType
 import com.alibaba.mnnllm.android.chat.AttachmentPickerModule.ImagePickCallback
 import com.alibaba.mnnllm.android.chat.GenerateResultProcessor.NormalGenerateResultProcessor
 import com.alibaba.mnnllm.android.chat.GenerateResultProcessor.R1GenerateResultProcessor
 import com.alibaba.mnnllm.android.chat.VoiceRecordingModule.VoiceRecordingListener
 import com.alibaba.mnnllm.android.databinding.ActivityChatBinding
-import com.alibaba.mnnllm.android.modelsettings.SettingsActivity
 import com.alibaba.mnnllm.android.modelsettings.SettingsBottomSheetFragment
 import com.alibaba.mnnllm.android.utils.AudioPlayService
 import com.alibaba.mnnllm.android.utils.FileUtils
@@ -113,6 +113,7 @@ class ChatActivity : AppCompatActivity() {
     private lateinit var binding: ActivityChatBinding
     private lateinit var bottomSheetBehavior: BottomSheetBehavior<NestedScrollView>
     private lateinit var optionsAdapter: DatasetOptionsAdapter
+    private var audioPlayer: AudioPlayer? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -242,8 +243,10 @@ class ChatActivity : AppCompatActivity() {
             val configFilePath = intent.getStringExtra("configFilePath")
             chatSession = chatService.createSession(
                 modelId, configFilePath, true,
-                sessionId, chatDataItemList
+                sessionId, chatDataItemList,
+                ModelUtils.isOmni(modelName!!)
             )
+
         }
         sessionId = chatSession.sessionId
         chatSession.setKeepHistory(
@@ -256,6 +259,18 @@ class ChatActivity : AppCompatActivity() {
             Log.d(TAG, "chatSession loading")
             setIsLoading(true)
             chatSession.load()
+            if (chatSession.supportOmni) {
+                audioPlayer = AudioPlayer()
+                audioPlayer!!.start()
+                chatSession.setAudioDataListener(object : ChatSession.AudioDataListener {
+                    override fun onAudioData(data: FloatArray, isEnd: Boolean): Boolean {
+                        MainScope().launch {
+                            audioPlayer?.playChunk(data)
+                        }
+                        return true
+                    }
+                })
+            }
             setIsLoading(false)
             Log.d(TAG, "chatSession loaded")
         }
@@ -707,7 +722,9 @@ class ChatActivity : AppCompatActivity() {
     }
 
     private fun addResponsePlaceholder() {
-        adapter!!.addItem(ChatDataItem(dateFormat!!.format(Date()), ChatViewHolders.ASSISTANT, ""))
+        val holderItem = ChatDataItem(dateFormat!!.format(Date()), ChatViewHolders.ASSISTANT, "")
+        holderItem.hasOmniAudio = chatSession.supportOmni
+        adapter!!.addItem(holderItem)
         smoothScrollToBottom()
     }
 
@@ -721,22 +738,25 @@ class ChatActivity : AppCompatActivity() {
                 this,
                 sessionId!!
             )
+            chatDataItem!!.loading = true
             benchMarkResult = chatSession.generateDiffusion(
                 input, diffusionDestPath, 20,
                 Random(System.currentTimeMillis()).nextInt(), object : ChatSession.GenerateProgressListener {
                     override fun onProgress(progress: String?): Boolean {
                         if ("100" == progress) {
-                            chatDataItem!!.text = getString(R.string.diffusion_generated_message)
+                            chatDataItem.text = getString(R.string.diffusion_generated_message)
                             chatDataItem.imageUri = Uri.parse(diffusionDestPath)
                         } else {
-                            chatDataItem!!.text = getString(R.string.diffusion_generate_progress, progress)
+                            chatDataItem.text = getString(R.string.diffusion_generate_progress, progress)
                         }
                         runOnUiThread { updateAssistantResponse(chatDataItem) }
                         return false
                     }
                 }
             )
+            chatDataItem.loading = false
         } else {
+            chatDataItem!!.loading = true
             val generateResultProcessor: GenerateResultProcessor =
                 if (ModelUtils.isR1Model(this.modelName!!)) R1GenerateResultProcessor(
                     getString(R.string.r1_thinking_message),
@@ -746,7 +766,7 @@ class ChatActivity : AppCompatActivity() {
             benchMarkResult = chatSession.generate(input, object: ChatSession.GenerateProgressListener {
                 override fun onProgress(progress: String?): Boolean {
                     generateResultProcessor.process(progress)
-                    chatDataItem!!.displayText = generateResultProcessor.displayResult
+                    chatDataItem.displayText = generateResultProcessor.displayResult
                     chatDataItem.text = generateResultProcessor.rawResult
                     runOnUiThread { updateAssistantResponse(chatDataItem) }
                     if (stopGenerating) {
@@ -755,13 +775,14 @@ class ChatActivity : AppCompatActivity() {
                     return stopGenerating
                 }
             })
+            chatDataItem.loading = false
         }
         Log.d(TAG, "submitRequest benchMark: $benchMarkResult")
         runOnUiThread {
-            chatDataItem!!.benchmarkInfo = ModelUtils.generateBenchMarkString(benchMarkResult!!)
+            chatDataItem.benchmarkInfo = ModelUtils.generateBenchMarkString(benchMarkResult)
             updateAssistantResponse(chatDataItem)
         }
-        chatDataManager!!.addChatData(sessionId, chatDataItem!!)
+        chatDataManager!!.addChatData(sessionId, chatDataItem)
         runOnUiThread {
             setIsGenerating(false)
         }
@@ -773,7 +794,6 @@ class ChatActivity : AppCompatActivity() {
             scrollToEnd()
         }
     }
-
 
     override fun onDestroy() {
         super.onDestroy()

@@ -15,7 +15,8 @@ class ChatService {
         modelDir: String?,
         useTmpPath: Boolean,
         sessionIdParam: String?,
-        chatDataItemList: List<ChatDataItem>?
+        chatDataItemList: List<ChatDataItem>?,
+        supportOmni:Boolean
     ): ChatSession {
         var sessionId:String = if (TextUtils.isEmpty(sessionIdParam)) {
             System.currentTimeMillis().toString()
@@ -23,6 +24,7 @@ class ChatService {
             sessionIdParam!!
         }
         val session = ChatSession(modelId!!, sessionId, modelDir!!, chatDataItemList)
+        session.supportOmni = supportOmni
         transformerSessionMap[sessionId] = session
         return session
     }

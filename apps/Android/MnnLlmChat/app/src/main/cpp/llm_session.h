@@ -16,11 +16,11 @@ using PromptItem = std::pair<std::string, std::string>;
 class LlmSession {
 public:
     LlmSession(std::string, json config, std::vector<std::string> string_history);
-    void reset();
+    void Reset();
     void Load();
     ~LlmSession();
     std::string getDebugInfo();
-    const MNN::Transformer::LlmContext* getContext();
+    void SetWavformCallback(std::function<bool(const float*, size_t, bool)> callback);
     const MNN::Transformer::LlmContext *
     Response(const std::string &prompt, const std::function<bool(const std::string &, bool is_eop)> &on_progress);
 
@@ -32,6 +32,7 @@ private:
     bool is_r1_{false};
     bool stop_requested_{false};
     bool keep_history_{true};
+    std::vector<float> waveform{};
     Llm* llm_{nullptr};
     std::string prompt_string_for_debug{};
 };

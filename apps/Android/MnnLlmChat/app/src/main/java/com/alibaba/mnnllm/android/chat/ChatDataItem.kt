@@ -7,6 +7,8 @@ import android.text.TextUtils
 import java.io.File
 
 class ChatDataItem {
+    var loading: Boolean = false
+
     @JvmField
     var time: String? = null
     @JvmField
@@ -29,6 +31,8 @@ class ChatDataItem {
 
     var audioDuration = 0f
 
+    private var _hasOmniAudio:Boolean = false
+
     constructor(time: String?, type: Int, text: String?) {
         this.time = time
         this.type = type
@@ -38,6 +42,12 @@ class ChatDataItem {
     constructor(type: Int) {
         this.type = type
     }
+
+    var hasOmniAudio:Boolean
+        get() = _hasOmniAudio
+        set(value) {
+            _hasOmniAudio = value
+        }
 
     val audioPath: String?
         get() {
