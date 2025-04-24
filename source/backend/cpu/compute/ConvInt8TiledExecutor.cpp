@@ -274,13 +274,58 @@ DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const O
     }
 
     bool directReadInt4weight = (kernelCount == 1 && ROUND_UP(oc, UNIT) == oc && ROUND_UP(ic, SRC_UNIT) == ic);
-
+    // Save bias
+    ::memset(mResourceInt8->mOriginBias->host<float>(), 0, ocUp4 * sizeof(float));
+    if (convOp->bias()) {
+        ::memcpy(mResourceInt8->mOriginBias->host<float>(), convOp->bias()->data(), oc * sizeof(float));
+    }
 #ifdef MNN_KLEIDIAI_ENABLED
     if(quanCommon->canUseInt4) {
         bool bFP16 = gcore->bytes == 2 ? true : false;
         bool bAsym = quanCommon->asymmetric;
-        size_t blkSize = mBlockNum == 1 ? 0 : ic / mBlockNum;
+        size_t blkSize = mResourceInt8->mBlockNum == 1 ? 0 : ic / mResourceInt8->mBlockNum;
         KleidiAI::AccelType accelType = KleidiAI::getQIntAccelType(4, bAsym, blkSize);
+
+        AutoStorage<int8_t> reorderedQuantInfo;
+        reorderedQuantInfo.reset(2 * scaleSize * QUANT_INFO_BYTES);
+        if (reorderedQuantInfo.get() == nullptr) {
+            MNN_ERROR("Memory not enough\n");
+            return;
+        }
+
+        //Prepare scale and zero data.
+        {
+            int outputCount = convOp->common()->outputCount();
+            int originOffset = -8;
+            auto quanInfoPtr = quanCommon->alpha.get();
+            auto scalePtr = reinterpret_cast<float*>(reorderedQuantInfo.get());
+            auto zeroPtr = reinterpret_cast<float*>(reinterpret_cast<uint8_t*>(scalePtr) + scaleSize * QUANT_INFO_BYTES);
+            if (quanCommon->asymmetric) {
+                for (int i = 0; i < blockNum; ++i) {
+                    auto dstScale = scalePtr + i * ocUp4;
+                    auto dstZero  = zeroPtr + i * ocUp4;
+                    for (int j = 0; j < outputCount; ++j) {
+                        int scaleIndex = j * blockNum + i;
+                        dstScale[j] = quanInfoPtr[2 * scaleIndex + 1];
+                        dstZero[j] = quanInfoPtr[2 * scaleIndex] + (float)originOffset * dstScale[j];
+                    }
+                }
+            } else {
+                for (int i = 0; i < blockNum; ++i) {
+                    auto dstScale = scalePtr + i * ocUp4;
+                    auto dstZero  = zeroPtr + i * ocUp4;
+                    for (int j = 0; j < outputCount; ++j) {
+                        int scaleIndex = j * blockNum + i;
+                        dstScale[j] = quanInfoPtr[scaleIndex];
+                        dstZero[j] = (float)originOffset * dstScale[j];
+                    }
+                }
+            }
+        }
+
+        if (!KleidiAI::mKaiInitialized) {
+            KleidiAI& kai = KleidiAI::getInstance(*MNNGetCPUInfo(), bFP16, false);
+        }
 
         KleidiAI& kai = KleidiAI::getInstance();
         if(!kai.isLoaded(accelType)) {
@@ -303,9 +348,9 @@ DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const O
                 return;
             }
 
-            size_t paraNum = blockNum * ROUND_UP(oc, pack);
-            float *scalePtr = mResourceInt8->mOriginScale->host<float>();
-            float *zeroPtr = mResourceInt8->mOriginScale->host<float>() + paraNum;
+            size_t paraNum = scaleSize;
+            float *scalePtr = reinterpret_cast<float*>(reorderedQuantInfo.get());
+            float *zeroPtr = reinterpret_cast<float*>(reorderedQuantInfo.get()) + paraNum;
             float *biasPtr = mResourceInt8->mOriginBias->host<float>();
             //Reload some parameters to fit ukernels' layout.
             auto quanInfoPtr = quanCommon->alpha.get();
@@ -331,11 +376,6 @@ DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const O
     }
 #endif
     auto target = mResourceInt8;
-    // Save bias
-    ::memset(mResourceInt8->mOriginBias->host<float>(), 0, ocUp4 * sizeof(float));
-    if (convOp->bias()) {
-        ::memcpy(mResourceInt8->mOriginBias->host<float>(), convOp->bias()->data(), oc * sizeof(float));
-    }
     auto function = [shape, UNIT, SRC_UNIT, quanCommon, weightlen, scaleSize, directReadInt4weight, blockNum, ic, oc, quantlen, kernelCount, backend, convOp, gcore, target]() -> int {
         auto sh = shape;
         AutoStorage<int8_t> weightReordered(weightlen);
@@ -859,7 +899,8 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
             auto threadRhsPacked = rhsPacked + kai.getRhsPackedOffset(mAccelType, tId * vecPerThread, k, blkSize);
             auto threadDst = linearDst + kai.getDstOffset(0, tId * vecPerThread, n, elementSize);
             int vecNum = (tId == threadNeed - 1) ? (n - vecPerThread * tId) : vecPerThread; //Last threadN may less than vecPerThread.
-            kai.runMatmul(mAccelType, m, vecNum, k, blkSize, lhsPacked, threadRhsPacked, threadDst, n * elementSize, elementSize, FLT_MAX, -FLT_MAX);
+            float scalarMax = bHalf ? FLT16_MAX : FLT_MAX;
+            kai.runMatmul(mAccelType, m, vecNum, k, blkSize, lhsPacked, threadRhsPacked, threadDst, n * elementSize, elementSize, scalarMax, -scalarMax);
         };
 
         MNN_CONCURRENCY_BEGIN(tId, threadNeed) {
