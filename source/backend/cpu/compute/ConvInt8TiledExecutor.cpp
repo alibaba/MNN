@@ -887,7 +887,7 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
         }
 
         //Run matmul.
-        if(kai.bSupportSme2()) {
+        if(kai.bSupportSme2() && mAccelType == KleidiAI::AccelType::QI4_SYM_CHNLQT) {
             //SME prefer running on single thread to obtain better performance/power consumption ratio.
             threadNum = 1;
         }
