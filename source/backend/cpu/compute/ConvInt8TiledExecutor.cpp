@@ -286,43 +286,6 @@ DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const O
         size_t blkSize = mResourceInt8->mBlockNum == 1 ? 0 : ic / mResourceInt8->mBlockNum;
         KleidiAI::AccelType accelType = KleidiAI::getQIntAccelType(4, bAsym, blkSize);
 
-        AutoStorage<int8_t> reorderedQuantInfo;
-        reorderedQuantInfo.reset(2 * scaleSize * QUANT_INFO_BYTES);
-        if (reorderedQuantInfo.get() == nullptr) {
-            MNN_ERROR("Memory not enough\n");
-            return;
-        }
-
-        //Prepare scale and zero data.
-        {
-            int outputCount = convOp->common()->outputCount();
-            int originOffset = -8;
-            auto quanInfoPtr = quanCommon->alpha.get();
-            auto scalePtr = reinterpret_cast<float*>(reorderedQuantInfo.get());
-            auto zeroPtr = reinterpret_cast<float*>(reinterpret_cast<uint8_t*>(scalePtr) + scaleSize * QUANT_INFO_BYTES);
-            if (quanCommon->asymmetric) {
-                for (int i = 0; i < blockNum; ++i) {
-                    auto dstScale = scalePtr + i * ocUp4;
-                    auto dstZero  = zeroPtr + i * ocUp4;
-                    for (int j = 0; j < outputCount; ++j) {
-                        int scaleIndex = j * blockNum + i;
-                        dstScale[j] = quanInfoPtr[2 * scaleIndex + 1];
-                        dstZero[j] = quanInfoPtr[2 * scaleIndex] + (float)originOffset * dstScale[j];
-                    }
-                }
-            } else {
-                for (int i = 0; i < blockNum; ++i) {
-                    auto dstScale = scalePtr + i * ocUp4;
-                    auto dstZero  = zeroPtr + i * ocUp4;
-                    for (int j = 0; j < outputCount; ++j) {
-                        int scaleIndex = j * blockNum + i;
-                        dstScale[j] = quanInfoPtr[scaleIndex];
-                        dstZero[j] = (float)originOffset * dstScale[j];
-                    }
-                }
-            }
-        }
-
         if (!KleidiAI::mKaiInitialized) {
             KleidiAI& kai = KleidiAI::getInstance(*MNNGetCPUInfo(), bFP16, false);
         }
@@ -334,6 +297,43 @@ DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const O
         }
 
         if(kai.canAccelerate(accelType)) {
+            AutoStorage<int8_t> reorderedQuantInfo;
+            reorderedQuantInfo.reset(2 * scaleSize * QUANT_INFO_BYTES);
+            if (reorderedQuantInfo.get() == nullptr) {
+                MNN_ERROR("Memory not enough\n");
+                return;
+            }
+
+            //Prepare scale and zero data.
+            {
+                int outputCount = convOp->common()->outputCount();
+                int originOffset = -8;
+                auto quanInfoPtr = quanCommon->alpha.get();
+                auto scalePtr = reinterpret_cast<float*>(reorderedQuantInfo.get());
+                auto zeroPtr = reinterpret_cast<float*>(reinterpret_cast<uint8_t*>(scalePtr) + scaleSize * QUANT_INFO_BYTES);
+                if (quanCommon->asymmetric) {
+                    for (int i = 0; i < blockNum; ++i) {
+                        auto dstScale = scalePtr + i * ocUp4;
+                        auto dstZero  = zeroPtr + i * ocUp4;
+                        for (int j = 0; j < outputCount; ++j) {
+                            int scaleIndex = j * blockNum + i;
+                            dstScale[j] = quanInfoPtr[2 * scaleIndex + 1];
+                            dstZero[j] = quanInfoPtr[2 * scaleIndex] + (float)originOffset * dstScale[j];
+                        }
+                    }
+                } else {
+                    for (int i = 0; i < blockNum; ++i) {
+                        auto dstScale = scalePtr + i * ocUp4;
+                        auto dstZero  = zeroPtr + i * ocUp4;
+                        for (int j = 0; j < outputCount; ++j) {
+                            int scaleIndex = j * blockNum + i;
+                            dstScale[j] = quanInfoPtr[scaleIndex];
+                            dstZero[j] = (float)originOffset * dstScale[j];
+                        }
+                    }
+                }
+            }
+
             mAccelType = accelType;
             int n = oc;
             int k = ic;
