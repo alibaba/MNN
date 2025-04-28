@@ -720,9 +720,7 @@ std::string Llm::tokenizer_decode(int id) {
 
 VARP Llm::gen_attention_mask(int seq_len) {
     int kv_seq_len = mContext->all_seq_len + seq_len;
-    if (seq_len == 1) {
-        kv_seq_len = seq_len;
-    }
+
     if (mConfig->attention_mask() == "float") {
         if (needNewVar(attentionMask, 2, seq_len)) {
             attentionMask = _Input({1, 1, seq_len, kv_seq_len}, NCHW, halide_type_of<float>());
