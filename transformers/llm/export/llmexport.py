@@ -52,7 +52,7 @@ class LlmExporter(torch.nn.Module):
 
     def load_pretrained(self, model_path: str):
         self.tokenizer = AutoTokenizer.from_pretrained(self.args.tokenizer_path, trust_remote_code=True, use_fast=False)
-        if 'Qwen2.5-VL' in model_path:
+        if 'Qwen2.5-VL' in model_path or 'Qwen2___5-VL' in model_path:
             from transformers import Qwen2_5_VLForConditionalGeneration
             self.model = Qwen2_5_VLForConditionalGeneration.from_pretrained(model_path, torch_dtype='auto').eval()
         elif 'Qwen2-VL' in model_path:
@@ -68,6 +68,8 @@ class LlmExporter(torch.nn.Module):
         elif 'Llama' in model_path or 'Yi' in model_path:
             from transformers import LlamaForCausalLM
             self.model = LlamaForCausalLM.from_pretrained(model_path, torch_dtype='auto', trust_remote_code=True).eval()
+        elif 'InternVL' in model_path:
+            self.model = AutoModel.from_pretrained(model_path, torch_dtype=torch.float32, trust_remote_code=True).eval()
         else:
             try:
                 self.model = AutoModelForCausalLM.from_pretrained(model_path, torch_dtype='auto', trust_remote_code=True).eval()
@@ -348,6 +350,13 @@ class LlmExporter(torch.nn.Module):
             template['assistant'] = 'Output:{content}\n'
         if self.model_type == 'openelm':
             template['bos'] = '<s>'
+        if self.model_type == 'internvl_chat':
+            if 'Qwen' in self.config.llm_config._name_or_path:
+                print("[DEBUG] Use qwen prompt template")
+                template['system'] = '<|im_start|>system\n{content}<|im_end|>\n'
+                template['user'] = '<|im_start|>user\n{content}<|im_end|>\n'
+                template['assistant'] = '<|im_start|>assistant\n{content}<|im_end|>\n'
+
         if 'qwen' in self.model_type:
             template['system'] = '<|im_start|>system\n{content}<|im_end|>\n'
             template['user'] = '<|im_start|>user\n{content}<|im_end|>\n'
@@ -493,7 +502,8 @@ class LlmExporter(torch.nn.Module):
                 "backend_type": "cpu",
                 "thread_num": 4,
                 "precision": "low",
-                "memory": "low"
+                "memory": "low",
+                "system_prompt": "You are a helpful assistant."
             }
             if self.visual is not None or self.audio is not None:
                 config['mllm'] = {
@@ -579,7 +589,8 @@ class LlmExporter(torch.nn.Module):
         attention_mask =  self.get_attention_mask()
         position_ids = self.get_position_ids()
         onnx_model = f'{self.onnx_path}/{self.dst_name}.onnx'
-        input_ids = self.embedding(input_ids)
+        # For export onnx, don't need image or audio's embedding
+        input_ids = self.embed(input_ids)
         past_key_values = torch.zeros(self.past_kv_shape)
         logits_index = torch.tensor([-1], dtype=torch.int32)
         # export to onnx

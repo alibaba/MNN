@@ -85,7 +85,7 @@ ErrorCode MultiInputDWDeconvExecution::onEncode(const std::vector<Tensor *> &inp
         auto shape = tensorShapeFormat(inputs[1]);
         std::vector<uint32_t> gws = {static_cast<uint32_t>(shape[2] * UP_DIV(shape[3], 4)), static_cast<uint32_t>(shape[0] * shape[1])};
 
-        auto kernelW = runtime->buildKernel("buffer_to_image", kernelName, {}, inputs[1], inputs[1]);
+        auto kernelW = runtime->buildKernel("buffer_to_image", kernelName, {}, openclBackend->getPrecision(), inputs[1], inputs[1]);
         auto kernel = kernelW->get();
         cl_int ret = CL_SUCCESS;
         ret |= kernel.setArg(0, gws[0]);
@@ -113,7 +113,7 @@ ErrorCode MultiInputDWDeconvExecution::onEncode(const std::vector<Tensor *> &inp
     {
         auto shape = tensorShapeFormat(inputs[1]);
         
-        auto kernelW = runtime->buildKernel("deconv_2d", "iohw2oihw", {});
+        auto kernelW = runtime->buildKernel("deconv_2d", "iohw2oihw", {}, openclBackend->getPrecision());
         auto kernel = kernelW->get();
         cl_int ret = CL_SUCCESS;
         ret |= kernel.setArg(0, *rawBufferPtr);
@@ -152,7 +152,7 @@ ErrorCode MultiInputDWDeconvExecution::onEncode(const std::vector<Tensor *> &inp
         std::string kernelName = "dw_filter_buffer_to_image";
 
         std::set<std::string> buildOptions;
-        auto kernelW = runtime->buildKernel("buffer_to_image", kernelName, buildOptions, buffer, image);
+        auto kernelW = runtime->buildKernel("buffer_to_image", kernelName, buildOptions, openclBackend->getPrecision(), buffer, image);
         auto kernel = kernelW->get();
 
         uint32_t idx = 0;
@@ -231,7 +231,7 @@ ErrorCode MultiInputDWDeconvExecution::onEncode(const std::vector<Tensor *> &inp
             buildOptions.emplace("-DNO_BIAS");
         }
 
-        auto kernelW = runtime->buildKernel("depthwise_deconv2d", kernelName, buildOptions);
+        auto kernelW = runtime->buildKernel("depthwise_deconv2d", kernelName, buildOptions, openclBackend->getPrecision());
         auto kernel = kernelW->get();
         int index = 0;
         
@@ -259,7 +259,7 @@ ErrorCode MultiInputDWDeconvExecution::onEncode(const std::vector<Tensor *> &inp
 
         const uint32_t maxWorkGroupSize = runtime->getMaxWorkGroupSize(kernelW);
         std::string name = "depthwiseDeconv";
-        auto lws = localWS3DDefault(gws, maxWorkGroupSize, runtime, name, kernelW).first;
+        auto lws = localWS3DDefault(gws, maxWorkGroupSize, runtime, name, kernelW, openclBackend->getCLTuneLevel()).first;
         for (size_t i = 0; i < 3; ++i) {
             gws[i] = ROUND_UP(gws[i], std::max((uint32_t)1, lws[i]));
         }

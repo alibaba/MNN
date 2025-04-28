@@ -91,7 +91,17 @@ Backend::MemObj* Arm82Backend::onAcquire(const Tensor* nativeTensor, StorageType
     buffer.device = 1;
     return res;
 }
-void Arm82Backend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) const {
+static MNNForwardType _getBackendType(const Tensor* srcTensor) {
+    auto des = TensorUtils::getDescribeOrigin(srcTensor);
+    auto bn = des->getBackend();
+    MNNForwardType type = MNN_FORWARD_CPU;
+    if (nullptr != bn) {
+        type = bn->type();
+    }
+    return type;
+}
+void Arm82Backend::onCopyBuffer(const Tensor* srcTensorC, const Tensor* dstTensor) const {
+    auto srcTensor = (Tensor*)srcTensorC;
     auto& ib     = srcTensor->buffer();
     auto& ob     = dstTensor->buffer();
     if (ib.type.code != halide_type_float) {
@@ -101,14 +111,8 @@ void Arm82Backend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor
     _resetDynamicMemory();
     auto source = TensorUtils::getDescribe(srcTensor)->dimensionFormat;
     auto dest   = TensorUtils::getDescribe(dstTensor)->dimensionFormat;
-    auto srcType = MNN_FORWARD_CPU;
-    if (ib.device != 0) {
-        srcType = MNN_FORWARD_CPU_EXTENSION;
-    }
-    auto dstType = MNN_FORWARD_CPU;
-    if (ob.device != 0) {
-        dstType = MNN_FORWARD_CPU_EXTENSION;
-    }
+    auto srcType = _getBackendType(srcTensor);
+    auto dstType = _getBackendType(dstTensor);
     if (srcType == dstType) {
         if (srcType == MNN_FORWARD_CPU) {
             MNNCPUCopyBuffer(srcTensor, dstTensor);

@@ -349,7 +349,7 @@ public:
     mutable int pCurrentStatus = 0; // NO_ERROR
 
     // TODO: Move to Backend
-    void* pMeta;
+    void* pMeta = nullptr;
 private:
     std::future<int> mFuture;
     RuntimeHint mHint;

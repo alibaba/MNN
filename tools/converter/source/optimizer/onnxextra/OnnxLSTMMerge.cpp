@@ -141,7 +141,7 @@ public:
         }
         auto inputInfo = inputs[0]->getInfo();
         auto weightInfo = inputs[1]->getInfo();
-        if (nullptr != inputInfo && nullptr != weightInfo) {
+        if (nullptr != inputInfo && nullptr != weightInfo && inputInfo->dim.size() > 0 && weightInfo->dim.size() > 0) {
             if (inputInfo->dim[0] == 1 && lstm->type == OpType_LSTM && weightInfo->dim[0] == 1 && inputs.size() >= 6) {
                 // SeqLength = 1
                 inputs[3].fix(VARP::CONSTANT);

@@ -41,7 +41,7 @@ class RasterAndInterpolateComputer : public SizeComputer {
             outputs[1]->buffer().dimensions = 2;
             outputs[1]->setLength(0, numberPoint);
             outputs[1]->setLength(1, 2);
-            outputs[1]->buffer().type = halide_type_of<float>();
+            outputs[1]->buffer().type = halide_type_of<int>();
             TensorUtils::getDescribe(outputs[1])->dimensionFormat = format;
             return true;
         }

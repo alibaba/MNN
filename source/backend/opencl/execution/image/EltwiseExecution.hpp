@@ -26,6 +26,7 @@ private:
     std::string mCompute;
     std::shared_ptr<Tensor> mTempOutput;
     
+    OpenCLBackend *mOpenCLBackend;
     std::vector<uint32_t> mMaxWorkGroupSize;
 };
 

@@ -43,6 +43,16 @@ public:
             MNN_ERROR("Can't convert Einsum for invalid Equation\n");
             return nullptr;
         }
+        // Turn ... to .
+        bool hasPrefix = false;
+        {
+            auto pos = equation.find("...");
+            while (pos != std::string::npos) {
+                equation = equation.replace(pos, 3, ".");
+                pos = equation.find("...");
+                hasPrefix = true;
+            }
+        }
         // Remove space
         std::vector<char> valid;
         for (int i=0; i<equation.size(); ++i) {
@@ -97,46 +107,10 @@ public:
         auto var0 = expr->inputs()[0];
         auto var1 = expr->inputs()[1];
         // dim = 4
-        if (right.size() == 4) {
+        if (right.size() == 4 && input0.size() == 4 && input1.size() == 4) {
             // batch align:
             // bhwc,bhkc -> bhwk  batch = `bh`, reduce_dim = `c`
-            // bhwc,hkc -> bhwk   batch = `bh`, reduce_dim = `c`, need broadcast
-            // bhwc,wkc -> bhwk   batch = `bhw`, reduce_dim = `c`, need unsqeeze, broadcast, squeeze
-            int sqeeze_axis = -1;
-            if (input0.size() != input1.size()) {
-                int pos0 = 0, pos1 = 0;
-                if (input0.size() > input1.size()) {
-                    for (int i = 0; i < input1.size(); i++) {
-                        auto c = input1[i];
-                        bool right_has = right.find(c) != std::string::npos;
-                        auto upos0 = input0.find(c);
-                        bool input0_has = upos0 != std::string::npos;
-                        if (right_has && input0_has) {
-                            pos0 = static_cast<int>(upos0);
-                            pos1 = i;
-                        }
-                    }
-                } else {
-                    for (int i = 0; i < input0.size(); i++) {
-                        auto c = input0[i];
-                        bool right_has = right.find(c) != std::string::npos;
-                        auto upos1 = input1.find(c);
-                        bool input1_has = upos1 != std::string::npos;
-                        if (right_has && input1_has) {
-                            pos0 = i;
-                            pos1 = static_cast<int>(upos1);
-                        }
-                    }
-                }
-                if (input0.size() - pos0 < 3) {
-                    sqeeze_axis = pos0 + 1;
-                    var0 = _Unsqueeze(var0, {sqeeze_axis});
-                }
-                if (input1.size() - pos1 < 3) {
-                    sqeeze_axis = pos1 + 1;
-                    var1 = _Unsqueeze(var1, {sqeeze_axis});
-                }
-            }
+
             // find reduce dim
             char reduce_dim;
             int reduce_dim_pos = -1;
@@ -155,10 +129,6 @@ public:
             auto need_transpose = input1.find(reduce_dim) == (input1.size() - 1);
             // matmul: matmul auto broadcast such: `bhwc @ hkc` -> `bhwc @ bhkc`
             auto output = _MatMul(var0, var1, needTransposeA, need_transpose);
-            // squeeze
-            if (sqeeze_axis >= 0) {
-                output = _Squeeze(output, {sqeeze_axis});
-            }
             output->setName(expr->name());
             return output->expr().first;
         }
@@ -187,7 +157,43 @@ public:
                 }
             }
         }
-        
+        auto aShape = _Shape(var0, NCHW);
+        auto bShape = _Shape(var1, NCHW);
+        VARP prefixshape;
+        VARP prefixSize;
+        auto preFixPostTreat = [&](VARP output) {
+            if (right[0] != '.') {
+                return output;
+            }
+            auto oShape = _Shape(output, NCHW);
+            auto oRemainShape = _Slice(oShape, _Unsqueeze(_Scalar<int>(1), {0}), _Unsqueeze(_Rank(output) - _Scalar<int>(1), {0}));
+            auto oPostShape = _Concat({prefixshape, oRemainShape}, 0);
+            return _ReshapeF(output, oPostShape, MNN::MNN_DATA_FORMAT_NCHW);
+        };
+        if (hasPrefix) {
+            // Seperate prefix shape
+            if (input0[0] == '.') {
+                auto remainA = _Scalar<int>((int)input0.size()-1);
+                auto rankA = _Rank(var0);
+                prefixSize = rankA - remainA;
+                auto aShapeRemain = _Slice(aShape, _Unsqueeze(prefixSize, {0}), _Unsqueeze(remainA, {0}));
+                prefixshape = _Slice(aShape, _Unsqueeze(_Scalar<int>(0), {0}), _Unsqueeze(rankA - remainA, {0}));
+                auto newAShape = _Concat({_Unsqueeze(_Scalar<int>(-1), {0}), aShapeRemain}, 0);
+                var0 = _ReshapeF(var0, newAShape, MNN::MNN_DATA_FORMAT_NCHW);
+                aShape = _Shape(var0, NCHW);
+            }
+            if (input1[0] == '.') {
+                auto rankB = _Rank(var1);
+                auto remainB = _Scalar<int>((int)input1.size()-1);
+                auto bShapeRemain = _Slice(bShape, _Unsqueeze(prefixSize, {0}), _Unsqueeze(remainB, {0}));
+                if (nullptr == prefixshape) {
+                    prefixshape = _Slice(bShape, _Unsqueeze(_Scalar<int>(0), {0}), _Unsqueeze(rankB - remainB, {0}));
+                }
+                auto newBShape = _Concat({_Unsqueeze(_Scalar<int>(-1), {0}), bShapeRemain}, 0);
+                var1 = _ReshapeF(var1, newBShape, MNN::MNN_DATA_FORMAT_NCHW);
+                bShape = _Shape(var1, NCHW);
+            }
+        }
         std::map<char, int> input0Pos;
         for (int i=0; i<input0.size(); ++i) {
             input0Pos.insert(std::make_pair(input0[i], i));
@@ -268,11 +274,12 @@ public:
                 var1 = _Permute(var1, transpose);
             }
             auto output = var0 * var1;
+            if (hasPrefix) {
+                output = preFixPostTreat(output);
+            }
             output->setName(expr->name());
             return output->expr().first;
         }
-        auto aShape = _Shape(var0, NCHW);
-        auto bShape = _Shape(var1, NCHW);
         auto one = _Unsqueeze(_Scalar<int>(1), {0});
 
         // MatMul
@@ -307,19 +314,10 @@ public:
         bPos = tempB;
         // outside and sum is common for A and B
         VARP outsideLength = _Unsqueeze(_Scalar<int>(1), {0});
-        int needBroadcast0 = 0, needBroadcast1 = 0;
         for (int i=0; i<bothPos.size(); ++i) {
             auto size0 = _Slice(aShape, _Unsqueeze(_Scalar<int>(input0Pos[bothPos[i]]), {0}), one);
             auto size1 = _Slice(bShape, _Unsqueeze(_Scalar<int>(input1Pos[bothPos[i]]), {0}), one);
             auto bothsize = size0;
-            if (size0 < size1) {
-                bothsize = size1;
-                needBroadcast0 = 1;
-            } else if (size0 == size1) {
-                // do nothing.
-            } else {
-                needBroadcast1 = 1;
-            }
             outsideLength = outsideLength * bothsize;
         }
         
@@ -343,11 +341,7 @@ public:
                 transpose.emplace_back(input0Pos[sumPos[i]]);
             }
             var0 = _Permute(var0, transpose);
-            if (needBroadcast0) {
-                var0 = _BroadcastTo(var0, _Concat({outsideLength, ALength, sumLength}, 0));
-            } else {
-                var0 = _ReshapeF(var0, _Concat({outsideLength, ALength, sumLength}, 0), MNN::MNN_DATA_FORMAT_NCHW);
-            }
+            var0 = _ReshapeF(var0, _Concat({outsideLength, _Unsqueeze(_Scalar<int>(-1), {0}), sumLength}, 0), MNN::MNN_DATA_FORMAT_NCHW);
         }
         {
             // Transpose
@@ -365,11 +359,7 @@ public:
                 transpose.emplace_back(input1Pos[sumPos[i]]);
             }
             var1 = _Permute(var1, transpose);
-            if (needBroadcast1) {
-                var1 = _BroadcastTo(var1, _Concat({outsideLength, BLength, sumLength}, 0));
-            } else {
-                var1 = _ReshapeF(var1, _Concat({outsideLength, BLength, sumLength}, 0), MNN::MNN_DATA_FORMAT_NCHW);
-            }
+            var1 = _ReshapeF(var1, _Concat({outsideLength, _Unsqueeze(_Scalar<int>(-1), {0}), sumLength}, 0), MNN::MNN_DATA_FORMAT_NCHW);
         }
         auto output = _MatMul(var0, var1, false, true);
         std::vector<VARP> cShapeGroup;
@@ -400,6 +390,9 @@ public:
         }
         if (needPermute) {
             output = _Permute(output, transpose);
+        }
+        if (hasPrefix) {
+            output = preFixPostTreat(output);
         }
         output->setName(expr->name());
         return output->expr().first;

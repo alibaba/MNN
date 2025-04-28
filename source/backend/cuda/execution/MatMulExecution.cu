@@ -983,8 +983,9 @@ ErrorCode MatMulExecution::onResize(const std::vector<Tensor *> &inputs, const s
     }
     auto e = C->length(dimensions-2);
     auto h = C->length(dimensions-1);
-    auto w0 = inputs[0]->length(dimensions-1);
-    auto h0 = inputs[0]->length(dimensions-2);
+    auto i0Dim = inputs[0]->dimensions();
+    auto w0 = inputs[0]->length(i0Dim-1);
+    auto h0 = inputs[0]->length(i0Dim-2);
 
     auto l = w0;
     if (mTransposeA) {
@@ -994,7 +995,6 @@ ErrorCode MatMulExecution::onResize(const std::vector<Tensor *> &inputs, const s
     mGemmInfo.elh[0] = e;
     mGemmInfo.elh[1] = l;
     mGemmInfo.elh[2] = h;
-
     mLargeBatchSmallGemm = (mBatch > 2048 && l < 8 && e < 8 && h < 8);
     if(mLargeBatchSmallGemm) {
         return NO_ERROR;

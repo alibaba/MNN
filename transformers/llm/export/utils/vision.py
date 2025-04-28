@@ -24,6 +24,7 @@ class Vision(torch.nn.Module):
     @staticmethod
     def get_vision(model_type):
         visual_models = {
+            'internvl_chat': InternVLVision,
             'qwen': QwenVision,
             'qwen2_vl': Qwen2Vision,
             'qwen2_5_vl':Qwen2Vision,
@@ -56,6 +57,82 @@ class Vision(torch.nn.Module):
 
     def embed(self, input_ids, images = None, videos = None):
         raise NotImplementedError
+
+class InternVLVision(Vision):
+    def __init__(self, visual, base):
+        super().__init__(visual, base)
+        self.quant_bit = 8
+        self.vision_model = visual
+        self.mlp1 = base.model.mlp1
+        self.select_layer = base.model.select_layer
+
+    def load(self):
+        self.image_size = self.config.force_image_size
+        self.downsample_ratio = self.config.downsample_ratio
+        self.llm_config['is_visual'] = True
+        self.llm_config['image_size'] = self.image_size
+        # self.llm_config['vision_start'] = self.tokenizer.img_start_id
+        # self.llm_config['vision_end'] = self.tokenizer.img_end_id
+        # self.llm_config['image_pad'] = self.tokenizer.img_pad_id
+    def pixel_shuffle(self, x, scale_factor=0.5):
+        n, w, h, c = x.shape[0], x.shape[1], x.shape[2], x.shape[3]
+        # N, W, H, C --> N, W, H * scale, C // scale
+        x = x.view(n, w, (h * scale_factor).int(), (c / scale_factor).int())
+        # N, W, H * scale, C // scale --> N, H * scale, W, C // scale
+        x = x.permute(0, 2, 1, 3).contiguous()
+        # N, H * scale, W, C // scale --> N, H * scale, W * scale, C // (scale ** 2)
+        x = x.view(n, (h * scale_factor).int(), (w * scale_factor).int(),
+                   (c / (scale_factor * scale_factor)).int())
+        x = x.permute(0, 2, 1, 3).contiguous()
+        return x
+    def extract_feature(self, pixel_values):
+        if self.select_layer == -1:
+            vit_embeds = self.vision_model(
+                pixel_values=pixel_values,
+                output_hidden_states=False,
+                return_dict=True).last_hidden_state
+        else:
+            vit_embeds = self.vision_model(
+                pixel_values=pixel_values,
+                output_hidden_states=True,
+                return_dict=True).hidden_states[self.select_layer]
+        vit_embeds = vit_embeds[:, 1:, :]
+
+        h = w = (vit_embeds.shape[1] ** 0.5).int()
+        vit_embeds = vit_embeds.reshape(vit_embeds.shape[0], h, w, -1)
+        vit_embeds = self.pixel_shuffle(vit_embeds, scale_factor=self.downsample_ratio)
+        vit_embeds = vit_embeds.reshape(vit_embeds.shape[0], -1, vit_embeds.shape[-1])
+        vit_embeds = self.mlp1(vit_embeds)
+
+        # For mnn's embedding, the order is (seq, batch, hidden)
+        vit_embeds = vit_embeds.permute(1, 0, 2)
+        return vit_embeds
+    def init_config(self):
+        self.llm_config['is_visual'] = True
+        IMAGENET_MEAN = [0.485, 0.456, 0.406]
+        IMAGENET_STD = [0.229, 0.224, 0.225]
+        for i in range(3):
+            IMAGENET_MEAN[i] = IMAGENET_MEAN[i] * 255.0
+            IMAGENET_STD[i] = 1.0 / IMAGENET_STD[i] / 255.0
+        self.llm_config['image_mean'] = IMAGENET_MEAN
+        self.llm_config['image_norm'] = IMAGENET_STD
+        self.llm_config['image_size_unit'] = 14
+    def export(self, onnx_path):
+        input_images = torch.randn((1, 3, self.image_size, self.image_size), dtype=torch.float32)
+        onnx_model = f'{onnx_path}/visual.onnx'
+        torch.onnx.export(self, (input_images),
+                        onnx_model,
+                        input_names=['input_images'],
+                        output_names=['image_embeds'],
+                        dynamic_axes={
+                            "input_images": { 0: "size", 2: "height", 3: "width"},
+                        },
+                        do_constant_folding=True,
+                        verbose=False,
+                        opset_version=15)
+        return onnx_model
+    def forward(self, images):
+        return self.extract_feature(images)
 
 class QwenVision(Vision):
     def __init__(self, visual, base):

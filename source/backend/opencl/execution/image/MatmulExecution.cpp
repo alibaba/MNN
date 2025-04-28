@@ -45,7 +45,7 @@ ErrorCode MatMulExecution::onEncode(const std::vector<Tensor *> &inputs, const s
     if(inputs.size() > 2) {
         buildOptions.emplace("-DBIAS");
     }
-    unit.kernel           = runtime->buildKernel("matmul", kernelName, buildOptions);
+    unit.kernel           = runtime->buildKernel("matmul", kernelName, buildOptions, mOpenCLBackend->getPrecision());
     mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
 
     //处理二维矩阵相乘，N C相当于H W

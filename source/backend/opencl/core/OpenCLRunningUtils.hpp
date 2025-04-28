@@ -23,6 +23,8 @@
 namespace MNN {
 namespace OpenCL {
 
+enum CLTuneLevel { None = 0, Heavy = 1, Wide = 2, Normal = 3, Fast = 4};
+enum GpuMemObject { AUTO = 0, BUFFER = 1, IMAGE = 2};
 inline std::vector<int> tensorShapeFormat(const Tensor *input) {
     
     int iN = (0 != input->buffer().dim[0].extent) ? input->buffer().dim[0].extent : 1;
@@ -110,8 +112,6 @@ inline cl::Image &openCLImage(const Tensor *tensor) {
 void getImageShape(const std::vector<int> &shape, /* NHWC */
                    const OpenCLBufferFormat type, std::vector<size_t> *imageShape);
 
-std::vector<uint32_t> turnLocalSize(std::shared_ptr<KernelWrap> *kernel, std::vector<uint32_t> &gws, OpenCLRuntime *runtime);
-
 void run3DKernelDefault(const ::std::shared_ptr<KernelWrap> &kernel, const std::vector<uint32_t> &gws, const std::vector<uint32_t> &lws,
                         OpenCLRuntime *runtime, cl::Event* eventPtr = nullptr);
 
@@ -121,21 +121,22 @@ void runKernel2D(const ::std::shared_ptr<KernelWrap> &kernel, const std::vector<
 void runTurnKernelLWS2D(const ::std::shared_ptr<KernelWrap> &kernel, const std::vector<uint32_t> &gws, const std::vector<uint32_t> &lws,
                         OpenCLRuntime *runtime);
 std::vector<uint32_t> getGemmParams(const std::vector<uint32_t> &gemmSize, const std::vector<cl::Buffer> tensorMemory,
-                                    OpenCLRuntime *runtime);
+                                    OpenCLRuntime *runtime, int precision, int tuneLevel);
 std::pair<std::vector<uint32_t>, uint32_t> localWS3DDefault(const std::vector<uint32_t> &gws, const uint32_t maxWorkGroupSize,
-                                       OpenCLRuntime *runtime, const std::string &kernelName, const std::shared_ptr<KernelWrap> &mKernel);
+                                       OpenCLRuntime *runtime, const std::string &kernelName, const std::shared_ptr<KernelWrap> &mKernel, int tuneLevel);
 
 bool localWSTune(const std::map<std::string, std::vector<std::pair<std::vector<uint32_t>, std::pair<std::vector<uint32_t>,  uint32_t>>>> &tuneMap, const std::vector<uint32_t> &gws, const std::string &kernelName, std::pair<std::vector<uint32_t>, uint32_t> &res);
 
 uint32_t get2DUseLocalMemTime(const std::vector<uint32_t> &gws, const std::vector<uint32_t> &lws, OpenCLRuntime *runtime, const std::string &kernelName, const std::shared_ptr<KernelWrap> &mKernelW);
+
 std::pair<std::vector<uint32_t>, uint32_t> localWS2DDefault(const std::vector<uint32_t> &gws, const uint32_t maxWorkGroupSize,
-                                       OpenCLRuntime *runtime, const std::string &kernelName, const std::shared_ptr<KernelWrap> &mKernel);
+                                       OpenCLRuntime *runtime, const std::string &kernelName, const std::shared_ptr<KernelWrap> &mKernel, int tuneLevel);
 
 bool getPreParamInfo(const std::string preParamName, uint32_t *preParamData,  OpenCLRuntime *runtime);
 
 void setPreParamInfo(const std::string preParamName, uint32_t preParamData,  OpenCLRuntime *runtime);
 
-void copyBufferToImage(OpenCLRuntime *runtime, const cl::Buffer &buffer, const cl::Image &image, int w, int h);
+void copyBufferToImage(OpenCLRuntime *runtime, const cl::Buffer &buffer, const cl::Image &image, int w, int h, int precision);
 
 } // namespace OpenCL
 } // namespace MNN

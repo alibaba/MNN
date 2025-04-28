@@ -14,6 +14,34 @@ __kernel void binary_buf(__private int global_dim0, __private int global_dim1,
 #ifdef PACK_LEAVE
         if(offset + 3 >= size){
             int remain = size - offset;
+            #ifdef INT_COMPUTE_MOD
+            int4 in0, in1;
+            int* in0_ptr = (int*)&in0;
+            int* in1_ptr = (int*)&in1;
+            
+            for(int i = 0; i < remain; ++i){
+                #ifdef A_SINGLE
+                in0_ptr[i] = (int)input0[0];
+                #else
+                in0_ptr[i] = (int)input0[offset + i];
+                #endif
+        
+                #ifdef B_SINGLE
+                in1_ptr[i] = (int)input1[0];
+                #else
+                in1_ptr[i] = (int)input1[offset + i];
+                #endif
+            }
+            int4 out = in0 % in1;
+            out = ((out < (int4)0 && in1 > (int4)0) || (out > (int4)0 && in1 < (int4)0)) ? out + in1 : out;
+            if(activationType == 1) {
+                out = out > 0 ? out : 0;
+            }
+            int* out_ptr = (int*)&out;
+            for(int i = 0; i < remain; ++i){
+                output[offset + i] = (OUTPUT_TYPE)out_ptr[i];
+            }
+            #else
             float4 in0, in1;
             float* in0_ptr = (float*)&in0;
             float* in1_ptr = (float*)&in1;
@@ -39,8 +67,32 @@ __kernel void binary_buf(__private int global_dim0, __private int global_dim1,
             for(int i = 0; i < remain; ++i){
                 output[offset + i] = (OUTPUT_TYPE)out_ptr[i];
             }
+            #endif
         }else {
 #endif
+        #ifdef INT_COMPUTE_MOD
+            #ifdef A_SINGLE
+            int data0 = input0[0];
+            int4 in0 = (int4)(data0, data0, data0, data0);
+            #else
+            int4 in0 = convert_int4(vload4(0, input0 + offset));
+            #endif
+        
+            #ifdef B_SINGLE
+            int data1 = input1[0];
+            int4 in1 = (int4)(data1, data1, data1, data1);
+            #else
+            int4 in1 = convert_int4(vload4(0, input1 + offset));
+            #endif
+            
+            int4 out = in0 % in1;
+            out = ((out < (int4)0 && in1 > (int4)0) || (out > (int4)0 && in1 < (int4)0)) ? out + in1 : out;
+        
+            if(activationType == 1) {
+                out = out > 0 ? out : 1;
+            }
+            vstore4(CONVERT_OUTPUT4(out), 0, output + offset);
+        #else
             #ifdef A_SINGLE
             float data0 = input0[0];
             float4 in0 = (float4)(data0, data0, data0, data0);
@@ -61,6 +113,7 @@ __kernel void binary_buf(__private int global_dim0, __private int global_dim1,
                 out = fmax(out, (float4)0);
             }
             vstore4(CONVERT_OUTPUT4(out), 0, output + offset);
+        #endif
 #ifdef PACK_LEAVE
         }
 #endif

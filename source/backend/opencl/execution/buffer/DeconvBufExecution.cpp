@@ -65,7 +65,7 @@ DeconvBufExecution::DeconvBufExecution(const std::vector<Tensor *> &inputs, cons
     MNN::OpenCL::BufferConvertor bufferConvertor{mOpenCLBackend->getOpenCLRuntime()};
     
     bool needTrans = true;
-    bufferConvertor.convertToNC4HW4Buffer(filterBuffer.get(), MNN::OpenCL::CONV2D_FILTER, mResource->mFilter.get(), needTrans);
+    bufferConvertor.convertToNC4HW4Buffer(filterBuffer.get(), MNN::OpenCL::CONV2D_FILTER, mResource->mFilter.get(), mOpenCLBackend->getPrecision(), needTrans);
     mResource->mBuildOptions.emplace("-DBIAS");
     if (conv2dCommonParams->relu() == true) {
         mResource->mBuildOptions.emplace("-DRELU");
@@ -133,7 +133,7 @@ ErrorCode DeconvBufExecution::onEncode(const std::vector<Tensor *> &inputs, cons
     const int alignHeight = mResource->mStrides[0] - 1 - transPadH;
     const int alignWidth  = mResource->mStrides[1] - 1 - transPadW;
     
-    unit.kernel       = runtime->buildKernel("deconv_2d", "deconv_2d", mResource->mBuildOptions);
+    unit.kernel       = runtime->buildKernel("deconv_2d", "deconv_2d", mResource->mBuildOptions, mOpenCLBackend->getPrecision());
     auto maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
     mGWS              = {static_cast<uint32_t>(outputChannelBlocks), static_cast<uint32_t>(outputWidth),
             static_cast<uint32_t>(outputHeight * outputBatch)};
@@ -165,7 +165,7 @@ ErrorCode DeconvBufExecution::onEncode(const std::vector<Tensor *> &inputs, cons
     unit.kernel->get().setArg(idx++, static_cast<int32_t>(outputChannelBlocks));
     
     std::string name = "deconv2d_buf";
-    mLWS = localWS3DDefault(mGWS, maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, unit.kernel).first;
+    mLWS = localWS3DDefault(mGWS, maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
     mOpenCLBackend->recordKernel3d(unit.kernel, mGWS, mLWS);
     unit.globalWorkSize = {mGWS[0], mGWS[1], mGWS[2]};
     unit.localWorkSize = {mLWS[0], mLWS[1], mLWS[2]};

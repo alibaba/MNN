@@ -45,11 +45,11 @@ ErrorCode GridSampleExecution::onEncode(const std::vector<Tensor *> &inputs, con
         std::set<std::string> buildOptions;
         if (mMode == 0) {
             mKernelName = "bilinear5d";
-            unit.kernel = runtime->buildKernel("grid_sample", mKernelName, buildOptions);
+            unit.kernel = runtime->buildKernel("grid_sample", mKernelName, buildOptions, mOpenCLBackend->getPrecision());
         }
         else {
             mKernelName = "nearest5d";
-            unit.kernel = runtime->buildKernel("grid_sample", mKernelName, buildOptions);
+            unit.kernel = runtime->buildKernel("grid_sample", mKernelName, buildOptions, mOpenCLBackend->getPrecision());
             
         }
         mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
@@ -79,7 +79,7 @@ ErrorCode GridSampleExecution::onEncode(const std::vector<Tensor *> &inputs, con
         ret |= unit.kernel->get().setArg(idx++, mAlignCorners);
         MNN_CHECK_CL_SUCCESS(ret, "setArg GridSampleExecution");
         
-        mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, runtime, mKernelName, unit.kernel).first;
+        mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, runtime, mKernelName, unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
         
         mOpenCLBackend->recordKernel3d(unit.kernel, mGlobalWorkSize, mLocalWorkSize);
         unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1], mGlobalWorkSize[2]};
@@ -99,11 +99,11 @@ ErrorCode GridSampleExecution::onEncode(const std::vector<Tensor *> &inputs, con
         std::set<std::string> buildOptions;
         if (mMode == 0) {
             mKernelName = "bilinear";
-            unit.kernel = runtime->buildKernel("grid_sample", mKernelName, buildOptions);
+            unit.kernel = runtime->buildKernel("grid_sample", mKernelName, buildOptions, mOpenCLBackend->getPrecision());
         }
         else {
             mKernelName = "nearest";
-            unit.kernel = runtime->buildKernel("grid_sample", mKernelName, buildOptions);
+            unit.kernel = runtime->buildKernel("grid_sample", mKernelName, buildOptions, mOpenCLBackend->getPrecision());
             
         }
         
@@ -131,7 +131,7 @@ ErrorCode GridSampleExecution::onEncode(const std::vector<Tensor *> &inputs, con
         ret |= unit.kernel->get().setArg(idx++, mAlignCorners);
         MNN_CHECK_CL_SUCCESS(ret, "setArg GridSampleExecution");
         
-        mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), mKernelName, unit.kernel).first;
+        mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), mKernelName, unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
         mOpenCLBackend->recordKernel3d(unit.kernel, mGlobalWorkSize, mLocalWorkSize);
         unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1], mGlobalWorkSize[2]};
         unit.localWorkSize = {mLocalWorkSize[0], mLocalWorkSize[1], mLocalWorkSize[2]};

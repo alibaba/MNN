@@ -429,10 +429,13 @@ static bool WriteSparseQuanBlobs(std::ostream &out, const float* weightData, con
 
 static std::unique_ptr<IDSTQuanT> encode(const float* weight, const std::vector<float>& scale, int kernelSize, int kernelNum,
                                          bool asymmetricQuantFlag, const int8_t* quantWeightPtr, const int clampMin, const int bits = 8, bool detectSparse = true) {
-        // compute block_size
-
-    int alpha_size = scale.size(), block_size = kernelSize, block_num = 1;
-    if (asymmetricQuantFlag) alpha_size /= 2;
+    // compute block_size
+    auto alpha_size = scale.size();
+    auto block_size = kernelSize;
+    auto block_num = 1;
+    if (asymmetricQuantFlag) {
+        alpha_size /= 2;
+    }
     if (alpha_size > kernelNum) {
         block_num = alpha_size / kernelNum;
         block_size = kernelSize / block_num;

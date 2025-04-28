@@ -32,11 +32,15 @@ EltwiseExecution::EltwiseExecution(const std::vector<Tensor *> &inputs, const st
     MNN_ASSERT(inputs.size() >= 2);
     mUnits.resize(inputs.size() - 1);
     mMaxWorkGroupSize.resize(inputs.size() - 1);
-    auto runTime = static_cast<OpenCLBackend*>(backend)->getOpenCLRuntime();
+    mOpenCLBackend =static_cast<OpenCLBackend*>(backend);
+    auto runTime = mOpenCLBackend->getOpenCLRuntime();
     std::set<std::string> buildOptions;
     buildOptions.emplace("-DOPERATOR=" + compute);
+    if(op->type() == OpType_BinaryOp && op->main_as_BinaryOp()->opType() == BinaryOpOperation_MOD && (outputs[0]->getType().code == halide_type_int || outputs[0]->getType().code == halide_type_uint)){
+        buildOptions.emplace("-DINT_COMPUTE_MOD");
+    }
     for(int i = 0; i < mUnits.size(); ++i){
-        mUnits[i].kernel = runTime->buildKernel("binary", "binary", buildOptions, inputs[i], outputs[0]);
+        mUnits[i].kernel = runTime->buildKernel("binary", "binary", buildOptions, mOpenCLBackend->getPrecision(), inputs[i], outputs[0]);
         mMaxWorkGroupSize[i]  = static_cast<uint32_t>(runTime->getMaxWorkGroupSize(mUnits[i].kernel));
     }
 }
@@ -88,7 +92,7 @@ ErrorCode EltwiseExecution::onEncode(const std::vector<Tensor *> &inputs, const 
         MNN_CHECK_CL_SUCCESS(ret, "setArg eltwiseExecution");
 
         std::string name = "binary";
-        std::vector<uint32_t> localWorkSize = localWS2DDefault(globalWorkSize, mMaxWorkGroupSize[0], openCLBackend->getOpenCLRuntime(), name, unit.kernel).first;
+        std::vector<uint32_t> localWorkSize = localWS2DDefault(globalWorkSize, mMaxWorkGroupSize[0], openCLBackend->getOpenCLRuntime(), name, unit.kernel, openCLBackend->getCLTuneLevel()).first;
         
         unit.globalWorkSize = {globalWorkSize[0], globalWorkSize[1]};
         unit.localWorkSize  = {localWorkSize[0], localWorkSize[1]};
@@ -143,7 +147,7 @@ ErrorCode EltwiseExecution::onEncode(const std::vector<Tensor *> &inputs, const 
 
         if(i == 0) {
             std::string name = "binary";
-            lws = localWS2DDefault(globalWorkSize, mMaxWorkGroupSize[i], openCLBackend->getOpenCLRuntime(), name, unit.kernel).first;
+            lws = localWS2DDefault(globalWorkSize, mMaxWorkGroupSize[i], openCLBackend->getOpenCLRuntime(), name, unit.kernel, openCLBackend->getCLTuneLevel()).first;
         }
         
         unit.globalWorkSize = {globalWorkSize[0], globalWorkSize[1]};

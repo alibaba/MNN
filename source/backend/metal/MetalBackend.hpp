@@ -212,6 +212,7 @@ public:
     EagerBufferAllocator *getStaticBufferPool() const {
         return mStaticBufferPool.get();
     }
+    id<MTLCommandBuffer> getCommandBufferForBufferCopy() const;
 
     bool isCmdBufferCommit();
     bool isIphone(){
@@ -240,7 +241,6 @@ private:
     BackendConfig::MemoryMode mMemoryMode;
 private:
     MetalRuntimeAllocator::MetalBufferAlloc mEmptyMem;
-    id<MTLCommandBuffer> getCommandBufferForBufferCopy() const;
     id<MTLCommandBuffer> getCommandBufferForNet() const;
     id<MTLComputeCommandEncoder> encoder_net() const;
     mutable id<MTLCommandBuffer> _commandBuffer = nil;

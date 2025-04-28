@@ -30,7 +30,7 @@ ErrorCode SelectBufExecution::onEncode(const std::vector<Tensor*>& inputs, const
         buildOptions.emplace("-DINSIZE1_EUQAL_1");
     if(inSize2 == 1)
         buildOptions.emplace("-DINSIZE2_EUQAL_1");
-    unit.kernel = runtime->buildKernel("select_buf", "select_buf", buildOptions);
+    unit.kernel = runtime->buildKernel("select_buf", "select_buf", buildOptions, openCLBackend->getPrecision());
     mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
 
     std::vector<int> outputShape = tensorShapeFormat(outputs[0]);
@@ -57,7 +57,7 @@ ErrorCode SelectBufExecution::onEncode(const std::vector<Tensor*>& inputs, const
     MNN_CHECK_CL_SUCCESS(ret, "setArg SelectBufExecution");
 
     std::string kernelName = "select_buf";
-    mLocalSize = localWS2DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), kernelName, unit.kernel).first;
+    mLocalSize = localWS2DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), kernelName, unit.kernel, openCLBackend->getCLTuneLevel()).first;
     openCLBackend->recordKernel2d(unit.kernel, mGlobalWorkSize, mLocalSize);
     unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1]};
     unit.localWorkSize = {mLocalSize[0], mLocalSize[1]};

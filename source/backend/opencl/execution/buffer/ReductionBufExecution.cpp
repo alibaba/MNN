@@ -47,7 +47,7 @@ ReductionBufExecution::ReductionBufExecution(const std::vector<Tensor *> &inputs
             MNN_ASSERT(false);
             break;
     }
-    auto kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("reduction_buf", "reduct_buf", {"-DOPERATE(a,b)=(a+b)","-DVALUE=0","-DLOCAL_SIZE=512"}, inputs[0], outputs[0]);
+    auto kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("reduction_buf", "reduct_buf", {"-DOPERATE(a,b)=(a+b)","-DVALUE=0","-DLOCAL_SIZE=512"}, mOpenCLBackend->getPrecision(), inputs[0], outputs[0]);
     mMaxWorkGroupSize = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(kernel));
 #ifdef LOG_VERBOSE
     MNN_PRINT("end ReductionBufExecution init !\n");
@@ -92,10 +92,10 @@ ErrorCode ReductionBufExecution::onEncode(const std::vector<Tensor *> &inputs, c
     buildOptions.emplace("-DREDUCT_LOCAL_SIZE=" + std::to_string(localSize));
     std::string kernelName;
     if(inside % 4 == 0){
-        unit.kernel = runtime->buildKernel("reduction_buf", "reduct_v4_buf", buildOptions, input, output);
+        unit.kernel = runtime->buildKernel("reduction_buf", "reduct_v4_buf", buildOptions, mOpenCLBackend->getPrecision(), input, output);
         mGlobalWorkSize = {static_cast<uint32_t>(localSize), static_cast<uint32_t>(UP_DIV(inside, 4)), static_cast<uint32_t>(outside)};
     }else {
-        unit.kernel = runtime->buildKernel("reduction_buf", "reduct_buf", buildOptions, input, output);
+        unit.kernel = runtime->buildKernel("reduction_buf", "reduct_buf", buildOptions, mOpenCLBackend->getPrecision(), input, output);
         mGlobalWorkSize = {static_cast<uint32_t>(localSize), static_cast<uint32_t>(inside), static_cast<uint32_t>(outside)};
     }
     mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
@@ -117,7 +117,7 @@ ErrorCode ReductionBufExecution::onEncode(const std::vector<Tensor *> &inputs, c
     if(localSize == 1){
         mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
         std::string kernelName = "reduct_buf";
-        mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), kernelName, unit.kernel).first;
+        mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), kernelName, unit.kernel, openCLBackend->getCLTuneLevel()).first;
     }
     openCLBackend->recordKernel3d(unit.kernel, mGlobalWorkSize, mLocalWorkSize);
     unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1], mGlobalWorkSize[2]};

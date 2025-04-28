@@ -41,7 +41,7 @@ void ConvBufWinograd::convertWeightFormat(cl::Buffer& buffer, const int alignK, 
     auto icPad  = ROUND_UP(mCi, alignK);
     auto ocPad  = ROUND_UP(mCo, alignN);
     
-    auto kernel = runtime->buildKernel("winogradTransform_buf", "winoTransWeightBuf2_3_1", {});
+    auto kernel = runtime->buildKernel("winogradTransform_buf", "winoTransWeightBuf2_3_1", {}, mOpenCLBackend->getPrecision());
     uint32_t gws[2] = {static_cast<uint32_t>(icPad), static_cast<uint32_t>(ocPad)};
     uint32_t idx = 0;
     cl_int ret = CL_SUCCESS;
@@ -105,7 +105,7 @@ ConvBufWinograd::ConvBufWinograd(const MNN::Op* op, Backend* backend) : CommonEx
         cl_int ret_code;
         size_t bias_element = ALIGN_UP4(mCo);
         size_t buffer_size;
-        if(mOpenCLBackend->getOpenCLRuntime()->isSupportedFP16()) {
+        if(mOpenCLBackend->getPrecision() != BackendConfig::Precision_High) {
             buffer_size = bias_element * sizeof(half_float::half);
         } else {
             buffer_size = bias_element * sizeof(float);
@@ -120,7 +120,7 @@ ConvBufWinograd::ConvBufWinograd(const MNN::Op* op, Backend* backend) : CommonEx
             MNN_ERROR("clBuffer map error!\n");
         }
         ::memset(bias_ptr, 0, buffer_size);
-        if(mOpenCLBackend->getOpenCLRuntime()->isSupportedFP16()) {
+        if(mOpenCLBackend->getPrecision() != BackendConfig::Precision_High) {
             for(int i=0; i<mCo; i++) {
                 ((half_float::half *)bias_ptr)[i] = (half_float::half)conv2D->bias()->data()[i];
             }
@@ -144,7 +144,7 @@ ConvBufWinograd::ConvBufWinograd(const MNN::Op* op, Backend* backend) : CommonEx
         auto weightDestSize = weightDest->size();
 
         buffer_size = weightDest->elementSize();
-        if (mOpenCLBackend->getOpenCLRuntime()->isSupportedFP16()) {
+        if (mOpenCLBackend->getPrecision() != BackendConfig::Precision_High) {
             buffer_size *= sizeof(half_float::half);
         } else {
             buffer_size *= sizeof(float);
@@ -158,7 +158,7 @@ ConvBufWinograd::ConvBufWinograd(const MNN::Op* op, Backend* backend) : CommonEx
         auto weight_ptr =
             queue.enqueueMapBuffer(weightBuffer, CL_TRUE, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &ret_code);
         if (weight_ptr != nullptr && ret_code == CL_SUCCESS) {
-            if (mOpenCLBackend->getOpenCLRuntime()->isSupportedFP16()) {
+            if (mOpenCLBackend->getPrecision() != BackendConfig::Precision_High) {
                 for (int i = 0; i < weightDest->elementSize(); i++) {
                     ((half_float::half*)weight_ptr)[i] = (half_float::half)(weightDest->host<float>()[i]);
                 }
@@ -177,7 +177,7 @@ ConvBufWinograd::ConvBufWinograd(const MNN::Op* op, Backend* backend) : CommonEx
         cl_int ret_code;
         size_t bias_element = ALIGN_UP4(mCo);
         size_t buffer_size;
-        if(mOpenCLBackend->getOpenCLRuntime()->isSupportedFP16()) {
+        if(mOpenCLBackend->getPrecision() != BackendConfig::Precision_High) {
             buffer_size = bias_element * sizeof(half_float::half);
         } else {
             buffer_size = bias_element * sizeof(float);
@@ -192,7 +192,7 @@ ConvBufWinograd::ConvBufWinograd(const MNN::Op* op, Backend* backend) : CommonEx
             MNN_ERROR("clBuffer map error!\n");
         }
         ::memset(bias_ptr, 0, buffer_size);
-        if(mOpenCLBackend->getOpenCLRuntime()->isSupportedFP16()) {
+        if(mOpenCLBackend->getPrecision() != BackendConfig::Precision_High) {
             for(int i=0; i<mCo; i++) {
                 ((half_float::half *)bias_ptr)[i] = (half_float::half)conv2D->bias()->data()[i];
             }
@@ -318,7 +318,7 @@ ErrorCode ConvBufWinograd::SubgroupOnResize(const std::vector<Tensor *> &inputs,
         ::memset(format, 0, sizeof(format));
         sprintf(format, "%d_%d_%d", UNIT, mKernelX, INTERP);
         auto formatStr = std::string(format);
-        mUnits[i * 3].kernel = runTime->buildKernel("winogradTransform_subgroup_buf", "winoTransSrcBuf" + formatStr + srcTranseKernelname, basic);
+        mUnits[i * 3].kernel = runTime->buildKernel("winogradTransform_subgroup_buf", "winoTransSrcBuf" + formatStr + srcTranseKernelname, basic, mOpenCLBackend->getPrecision());
         mMaxWGS_S[i] = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(mUnits[i * 3].kernel));
         {
             std::set<std::string> buildOptions = basic;
@@ -331,7 +331,7 @@ ErrorCode ConvBufWinograd::SubgroupOnResize(const std::vector<Tensor *> &inputs,
             if (output->width() % 2 != 0) {
                 buildOptions.emplace("-DOUTPUT_LEFTOVERS");
             }
-            mUnits[i * 3 + 2].kernel = runTime->buildKernel("winogradTransform_subgroup_buf", "winoTransDstBuf" + formatStr + dstTranseKernelname, buildOptions);
+            mUnits[i * 3 + 2].kernel = runTime->buildKernel("winogradTransform_subgroup_buf", "winoTransDstBuf" + formatStr + dstTranseKernelname, buildOptions, mOpenCLBackend->getPrecision());
             mMaxWGS_D[i] = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(mUnits[i * 3 + 2].kernel));
         }
     }
@@ -368,7 +368,7 @@ ErrorCode ConvBufWinograd::SubgroupOnResize(const std::vector<Tensor *> &inputs,
             if (in_c_pack == 4) {
                 mGWS_S[b] = {static_cast<uint32_t>(wCount * hCount), static_cast<uint32_t>(ROUND_UP(input->channel(), 16) / 4)};
                 std::string kernelName = srcTranseKernelname + "_" + std::to_string(mGWS_S[b][0]) + "_" + std::to_string(mGWS_S[b][1]);
-                mLWS_S[b] = localWS2DDefault(mGWS_S[b], mMaxWGS_S[b], mOpenCLBackend->getOpenCLRuntime(), kernelName + info, mUnits[b * 3].kernel).first;
+                mLWS_S[b] = localWS2DDefault(mGWS_S[b], mMaxWGS_S[b], mOpenCLBackend->getOpenCLRuntime(), kernelName + info, mUnits[b * 3].kernel, mOpenCLBackend->getCLTuneLevel()).first;
             } else {
                 mLWS_S[b] = {1, 16};
             }
@@ -385,7 +385,7 @@ ErrorCode ConvBufWinograd::SubgroupOnResize(const std::vector<Tensor *> &inputs,
             mGWS_M[b] = {static_cast<uint32_t>(UP_DIV(gemmWidth, 8)), static_cast<uint32_t>(ROUND_UP(output->channel(), 16)), static_cast<uint32_t>(alpha * alpha)};
             mLWS_M[b] = {1, 16, 1};
             std::set<std::string> buildOptions = basic;
-            mUnits[b * 3 + 1].kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("winogradTransform_subgroup_buf", "gemm_buf_intel", buildOptions);
+            mUnits[b * 3 + 1].kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("winogradTransform_subgroup_buf", "gemm_buf_intel", buildOptions, mOpenCLBackend->getPrecision());
             
             int index = 0;
             cl_int ret = CL_SUCCESS;
@@ -429,7 +429,7 @@ ErrorCode ConvBufWinograd::SubgroupOnResize(const std::vector<Tensor *> &inputs,
             if (out_c_pack == 4) {
                 mGWS_D[b] = {static_cast<uint32_t>(wCount * hCount), static_cast<uint32_t>(ocC4)};
                 std::string kernelName = dstTranseKernelname + "_" + std::to_string(mGWS_D[b][0]) + "_" + std::to_string(mGWS_D[b][1]);
-                mLWS_D[b] = localWS2DDefault(mGWS_D[b], mMaxWGS_D[b], mOpenCLBackend->getOpenCLRuntime(), kernelName + info, mUnits[b * 3 + 2].kernel).first;
+                mLWS_D[b] = localWS2DDefault(mGWS_D[b], mMaxWGS_D[b], mOpenCLBackend->getOpenCLRuntime(), kernelName + info, mUnits[b * 3 + 2].kernel, mOpenCLBackend->getCLTuneLevel()).first;
             } else {
                 mLWS_D[b] = {1, 16};
             }
@@ -525,7 +525,7 @@ ErrorCode ConvBufWinograd::onEncode(const std::vector<Tensor*>& inputs, const st
             ::memset(format, 0, sizeof(format));
             sprintf(format, "%d_%d_%d", UNIT, mKernelX, INTERP);
             auto formatStr      = std::string(format);
-            mUnits[b * loop_num].kernel = runTime->buildKernel("winogradTransform_buf", "winoTransSrcBuf" + formatStr, basic);
+            mUnits[b * loop_num].kernel = runTime->buildKernel("winogradTransform_buf", "winoTransSrcBuf" + formatStr, basic, mOpenCLBackend->getPrecision());
             {
                 std::set<std::string> buildOptions = basic;
                 if (mResource->mCommon->relu()) {
@@ -534,7 +534,7 @@ ErrorCode ConvBufWinograd::onEncode(const std::vector<Tensor*>& inputs, const st
                 if (mResource->mCommon->relu6()) {
                     buildOptions.emplace("-DRELU6");
                 }
-                mUnits[b * loop_num + loop_num-1].kernel = runTime->buildKernel("winogradTransform_buf", "winoTransDstBuf" + formatStr, buildOptions);
+                mUnits[b * loop_num + loop_num-1].kernel = runTime->buildKernel("winogradTransform_buf", "winoTransDstBuf" + formatStr, buildOptions, mOpenCLBackend->getPrecision());
             }
         }
         auto maxWGS_S = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(mUnits[0].kernel));
@@ -566,7 +566,7 @@ ErrorCode ConvBufWinograd::onEncode(const std::vector<Tensor*>& inputs, const st
                 MNN_CHECK_CL_SUCCESS(ret, "setArg ConvWinogradBuf Source Trans");
 
                 std::string kernelName = "winoTransSrcBuf";
-                auto lws_S = localWS2DDefault(gws_S, maxWGS_S, mOpenCLBackend->getOpenCLRuntime(), kernelName + info, mUnits[kernel_idx].kernel).first;
+                auto lws_S = localWS2DDefault(gws_S, maxWGS_S, mOpenCLBackend->getOpenCLRuntime(), kernelName + info, mUnits[kernel_idx].kernel, mOpenCLBackend->getCLTuneLevel()).first;
                 mOpenCLBackend->recordKernel2d(mUnits[kernel_idx].kernel, gws_S, lws_S);
                 mUnits[kernel_idx].globalWorkSize = {gws_S[0], gws_S[1]};
                 mUnits[kernel_idx].localWorkSize = {lws_S[0], lws_S[1]};
@@ -578,7 +578,7 @@ ErrorCode ConvBufWinograd::onEncode(const std::vector<Tensor*>& inputs, const st
             {
                 std::set<std::string> buildOptions;
                 uint32_t layout = 4;
-                auto param = getGemmParams({(uint32_t)M_pack, (uint32_t)N_pack, (uint32_t)K_pack, layout, (uint32_t)each_loop, (uint32_t)0}, {openCLBuffer(mSource.get()), openCLBuffer(mResource->mWeight.get()), openCLBuffer(mDest.get())}, mOpenCLBackend->getOpenCLRuntime());
+                auto param = getGemmParams({(uint32_t)M_pack, (uint32_t)N_pack, (uint32_t)K_pack, layout, (uint32_t)each_loop, (uint32_t)0}, {openCLBuffer(mSource.get()), openCLBuffer(mResource->mWeight.get()), openCLBuffer(mDest.get())}, mOpenCLBackend->getOpenCLRuntime(), mOpenCLBackend->getPrecision(), mOpenCLBackend->getCLTuneLevel());
 
                 int KWG=param[0], KWI=param[1], MDIMA=param[2], MDIMC=param[3], MWG=param[4], NDIMB=param[5], NDIMC=param[6], NWG=param[7], SA=param[8], SB=param[9], STRM=param[10], STRN=param[11], VWM=param[12], VWN=param[13];
                 buildOptions.emplace("-DKWG=" + std::to_string(KWG));
@@ -610,7 +610,7 @@ ErrorCode ConvBufWinograd::onEncode(const std::vector<Tensor*>& inputs, const st
                 }
 
                 int kernel_idx = b * loop_num + block_idx + 1;
-                mUnits[kernel_idx].kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("matmul_params_buf", "XgemmBatched", buildOptions);
+                mUnits[kernel_idx].kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("matmul_params_buf", "XgemmBatched", buildOptions, mOpenCLBackend->getPrecision());
                 
                 int out_per_thread_m = tileM / localM;
                 int out_per_thread_n = tileN / localN;
@@ -676,7 +676,7 @@ ErrorCode ConvBufWinograd::onEncode(const std::vector<Tensor*>& inputs, const st
                 MNN_CHECK_CL_SUCCESS(ret, "setArg ConvWinogradBuf Dest Trans");
                 
                 std::string kernelName = "winoTransDstBuf";
-                auto lws_D = localWS2DDefault(gws_D, maxWGS_D, mOpenCLBackend->getOpenCLRuntime(), kernelName + info, mUnits[kernel_idx].kernel).first;
+                auto lws_D = localWS2DDefault(gws_D, maxWGS_D, mOpenCLBackend->getOpenCLRuntime(), kernelName + info, mUnits[kernel_idx].kernel, mOpenCLBackend->getCLTuneLevel()).first;
                 mOpenCLBackend->recordKernel2d(mUnits[kernel_idx].kernel, gws_D, lws_D);
                 mUnits[kernel_idx].globalWorkSize = {gws_D[0], gws_D[1]};
                 mUnits[kernel_idx].localWorkSize = {lws_D[0], lws_D[1]};

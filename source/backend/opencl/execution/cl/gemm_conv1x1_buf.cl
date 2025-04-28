@@ -408,20 +408,36 @@ __kernel void gemm_b4_c8_int4_buf(GLOBAL_SIZE_DIM2
     out2 = clamp(out2, (COMPUTE_FLOAT8)0, (COMPUTE_FLOAT8)6);
     out3 = clamp(out3, (COMPUTE_FLOAT8)0, (COMPUTE_FLOAT8)6);
 #endif
-    vstore4(CONVERT_FLOAT4(out0.s0123), 0, output+out_offset);
-    vstore4(CONVERT_FLOAT4(out0.s4567), 0, output+out_offset+bhw4);
-    if(out_b_idx + 1 >= bhw) return;
-    out_offset += 4;
-    vstore4(CONVERT_FLOAT4(out1.s0123), 0, output+out_offset);
-    vstore4(CONVERT_FLOAT4(out1.s4567), 0, output+out_offset+bhw4);
-    if(out_b_idx + 2 >= bhw) return;
-    out_offset += 4;
-    vstore4(CONVERT_FLOAT4(out2.s0123), 0, output+out_offset);
-    vstore4(CONVERT_FLOAT4(out2.s4567), 0, output+out_offset+bhw4);
-    if(out_b_idx + 3 >= bhw) return;
-    out_offset += 4;
-    vstore4(CONVERT_FLOAT4(out3.s0123), 0, output+out_offset);
-    vstore4(CONVERT_FLOAT4(out3.s4567), 0, output+out_offset+bhw4);
+
+#if INPUT_BATCH_LEAVES_NUM != 0
+    if(out_b_idx + 3 >= bhw){
+        #if INPUT_BATCH_LEAVES_NUM == 3
+        vstore8(CONVERT_FLOAT8((COMPUTE_FLOAT8)(out0.s0123, out1.s0123)), 0, output+out_offset);
+        vstore4(CONVERT_FLOAT4(out2.s0123), 0, output+out_offset+8);
+        if((out_c_idx << 2) + 4 < dstChannelAlign){
+            vstore8(CONVERT_FLOAT8((COMPUTE_FLOAT8)(out0.s4567, out1.s4567)), 0, output+out_offset+bhw4);
+            vstore4(CONVERT_FLOAT4(out2.s4567), 0, output+out_offset+bhw4+8);
+        }
+        #elif INPUT_BATCH_LEAVES_NUM == 2
+        vstore8(CONVERT_FLOAT8((COMPUTE_FLOAT8)(out0.s0123, out1.s0123)), 0, output+out_offset);
+        if((out_c_idx << 2) + 4 < dstChannelAlign){
+            vstore8(CONVERT_FLOAT8((COMPUTE_FLOAT8)(out0.s4567, out1.s4567)), 0, output+out_offset+bhw4);
+        }
+        #elif INPUT_BATCH_LEAVES_NUM == 1
+        vstore4(CONVERT_FLOAT4(out0.s0123), 0, output+out_offset);
+        if((out_c_idx << 2) + 4 < dstChannelAlign){
+            vstore4(CONVERT_FLOAT4(out0.s4567), 0, output+out_offset+bhw4);
+        }
+        #endif
+    }else{
+#endif
+        vstore16(CONVERT_FLOAT16((COMPUTE_FLOAT16)(out0.s0123, out1.s0123, out2.s0123, out3.s0123)), 0, output+out_offset);
+        if((out_c_idx << 2) + 4 < dstChannelAlign){
+            vstore16(CONVERT_FLOAT16((COMPUTE_FLOAT16)(out0.s4567, out1.s4567, out2.s4567, out3.s4567)), 0, output+out_offset+bhw4);
+        }
+#if INPUT_BATCH_LEAVES_NUM != 0
+    }
+#endif
 }
 
 
@@ -693,18 +709,34 @@ __kernel void gemm_b4_c8_int8_buf(GLOBAL_SIZE_DIM2
     out2 = clamp(out2, (COMPUTE_FLOAT8)0, (COMPUTE_FLOAT8)6);
     out3 = clamp(out3, (COMPUTE_FLOAT8)0, (COMPUTE_FLOAT8)6);
 #endif
-    vstore4(CONVERT_FLOAT4(out0.s0123), 0, output+out_offset);
-    vstore4(CONVERT_FLOAT4(out0.s4567), 0, output+out_offset+bhw4);
-    if(out_b_idx + 1 >= bhw) return;
-    out_offset += 4;
-    vstore4(CONVERT_FLOAT4(out1.s0123), 0, output+out_offset);
-    vstore4(CONVERT_FLOAT4(out1.s4567), 0, output+out_offset+bhw4);
-    if(out_b_idx + 2 >= bhw) return;
-    out_offset += 4;
-    vstore4(CONVERT_FLOAT4(out2.s0123), 0, output+out_offset);
-    vstore4(CONVERT_FLOAT4(out2.s4567), 0, output+out_offset+bhw4);
-    if(out_b_idx + 3 >= bhw) return;
-    out_offset += 4;
-    vstore4(CONVERT_FLOAT4(out3.s0123), 0, output+out_offset);
-    vstore4(CONVERT_FLOAT4(out3.s4567), 0, output+out_offset+bhw4);
+
+#if INPUT_BATCH_LEAVES_NUM != 0
+    if(out_b_idx + 3 >= bhw){
+        #if INPUT_BATCH_LEAVES_NUM == 3
+        vstore8(CONVERT_FLOAT8((COMPUTE_FLOAT8)(out0.s0123, out1.s0123)), 0, output+out_offset);
+        vstore4(CONVERT_FLOAT4(out2.s0123), 0, output+out_offset+8);
+        if((out_c_idx << 2) + 4 < dstChannelAlign){
+            vstore8(CONVERT_FLOAT8((COMPUTE_FLOAT8)(out0.s4567, out1.s4567)), 0, output+out_offset+bhw4);
+            vstore4(CONVERT_FLOAT4(out2.s4567), 0, output+out_offset+bhw4+8);
+        }
+        #elif INPUT_BATCH_LEAVES_NUM == 2
+        vstore8(CONVERT_FLOAT8((COMPUTE_FLOAT8)(out0.s0123, out1.s0123)), 0, output+out_offset);
+        if((out_c_idx << 2) + 4 < dstChannelAlign){
+            vstore8(CONVERT_FLOAT8((COMPUTE_FLOAT8)(out0.s4567, out1.s4567)), 0, output+out_offset+bhw4);
+        }
+        #elif INPUT_BATCH_LEAVES_NUM == 1
+        vstore4(CONVERT_FLOAT4(out0.s0123), 0, output+out_offset);
+        if((out_c_idx << 2) + 4 < dstChannelAlign){
+            vstore4(CONVERT_FLOAT4(out0.s4567), 0, output+out_offset+bhw4);
+        }
+        #endif
+    }else{
+#endif
+        vstore16(CONVERT_FLOAT16((COMPUTE_FLOAT16)(out0.s0123, out1.s0123, out2.s0123, out3.s0123)), 0, output+out_offset);
+        if((out_c_idx << 2) + 4 < dstChannelAlign){
+            vstore16(CONVERT_FLOAT16((COMPUTE_FLOAT16)(out0.s4567, out1.s4567, out2.s4567, out3.s4567)), 0, output+out_offset+bhw4);
+        }
+#if INPUT_BATCH_LEAVES_NUM != 0
+    }
+#endif
 }

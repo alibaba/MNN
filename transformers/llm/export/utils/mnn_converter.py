@@ -64,7 +64,8 @@ class MNNConveter:
             '--MNNModel',
             str(mnn_path),
             '--transformerFuse',
-            '--allowCustomOp'
+            '--allowCustomOp',
+            '--saveExternalData'
         ]
         convert_args += args
         self.convert(convert_args)
@@ -157,6 +158,16 @@ class MNNConveter:
     def rebuild(self, json_path):
         mnn_graph = json.load(open(json_path, 'rt'))
         new_ops = []
+        # Load layernorm weight from external
+        with open(self.mnn_weight_path, 'rb') as f:
+            for op in tqdm(mnn_graph['oplists'], 'Load LayerNorm data'):
+                if op['type'] == 'LayerNorm' and 'external' in op['main']:
+                    external = op['main']['external']
+                    f.seek(external[0])
+                    op['main']['gamma'] = np.frombuffer(f.read(external[1]), np.float32).tolist()
+                    op['main']['beta'] = np.frombuffer(f.read(external[2]), np.float32).tolist()
+                    del op['main']['external']
+        # Rebuild ops
         with open(self.mnn_weight_path, 'wb') as self.mnn_weight:
             for op in tqdm(mnn_graph['oplists'], 'Quant weights'):
                 if op['type'] == 'Extra' or op['type'] == 'LayerNorm':

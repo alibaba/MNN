@@ -150,6 +150,7 @@ bool TemplateMerge::onExecute(const std::vector<VARP>& outputs, PassPriority pri
                         continue;
                     }
                     hasChange = true;
+// #define MNN_OPTIMIZE_DEBUG
 #ifdef MNN_OPTIMIZE_DEBUG
                     MNN_ERROR("%s changed by %s\n", var->name().c_str(), pass_name.c_str());
 #endif

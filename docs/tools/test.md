@@ -241,7 +241,7 @@ main, 138, cost time: 111.161003 ms
 
 ## backendTest.out
 ### 功能
-对比指定计算设备和CPU执行推理的结果，该工具默认读取当前目录下的`input_0.txt`作为输入
+对比指定计算设备和CPU执行推理的结果，该工具默认使用随机构造的输入数据
 ### 参数
 `./backendTest.out model [forwardType tolerance precision modeNum stopOp]`
 - `model:str` 模型文件路径

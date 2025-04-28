@@ -12,6 +12,32 @@ __kernel void binary(__private int global_dim0, __private int global_dim1,
                          __private const int activationType) {
     int2 pos = (int2)(get_global_id(0), get_global_id(1));//WC4, NH
     
+    #ifdef INT_COMPUTE_MOD
+    int4 in0, in1;
+    if (pos.x < global_dim0 && pos.y < global_dim1) {
+
+        if(isFull.x == 0) {
+            in0 = convert_int4(RI_DATA(input0, SAMPLER, (int2)(0, 0)));
+            in0 = (int4)(in0.x, in0.x, in0.x, in0.x);
+        } else {
+            in0 = convert_int4(RI_DATA(input0, SAMPLER, pos));
+        }
+        if(isFull.y == 0) {
+            in1 = convert_int4(RI_DATA(input1, SAMPLER, (int2)(0, 0)));
+            in1 = (int4)(in1.x, in1.x, in1.x, in1.x);
+        } else {
+            in1 = convert_int4(RI_DATA(input1, SAMPLER, pos));
+        }
+        
+        int4 out = in0 % in1;
+        out = ((out < (int4)0 && in1 > (int4)0) || (out > (int4)0 && in1 < (int4)0)) ? out + in1 : out;
+        
+        if(activationType == 1) {
+            out = out > 0 ? out : 0;
+        }
+        WI_DATA(output, pos, CONVERT_OUTPUT_I4(out));
+    }
+    #else
     float4 in0, in1;
     if (pos.x < global_dim0 && pos.y < global_dim1) {
 
@@ -35,6 +61,7 @@ __kernel void binary(__private int global_dim0, __private int global_dim1,
         }
         WI_DATA(output, pos, CONVERT_OUTPUT_I4(out));
     }
+    #endif
 }
 
 __kernel void binary_prelu(__read_only image2d_t input0, __read_only image2d_t input1, __write_only image2d_t output,

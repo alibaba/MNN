@@ -1,7 +1,6 @@
 #include <map> 
 #include <string> 
 #include <vector> 
-#include <mutex> 
 namespace MNN { 
 extern const char* conv_2d;
 extern const char* deconv_2d;

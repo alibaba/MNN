@@ -44,7 +44,7 @@ void getImageShape(const std::vector<int> &shape, const OpenCLBufferFormat type,
 }
 
 std::pair<std::vector<uint32_t>, uint32_t> localWS3DDefault(const std::vector<uint32_t> &gws, const uint32_t maxWorkGroupSize,
-                                       OpenCLRuntime *runtime, const std::string &kernelName, const std::shared_ptr<KernelWrap> &mKernelW) {
+                                       OpenCLRuntime *runtime, const std::string &kernelName, const std::shared_ptr<KernelWrap> &mKernelW, int tuneLevel) {
     MNN_ASSERT(gws.size() == 3);
     auto mKernel = mKernelW->get();
     auto maxWorkItemSizes = runtime->getMaxWorkItemSizes();
@@ -65,7 +65,7 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS3DDefault(const std::vector<ui
     std::vector<uint32_t> lws_prefer(4, 1);
     uint32_t min_cost = UINT_MAX;
 
-    if(runtime->getCLTuneLevel() == Heavy) {
+    if(tuneLevel == Heavy) {
         while(lws[2] <= gws[2] || lws[2] <= 6) {
             lws[1] = 1;
             while(lws[1] <= gws[1] || lws[1] <= 6) {
@@ -101,7 +101,7 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS3DDefault(const std::vector<ui
             }
             lws[2]<<=1;
         }
-    } else if(runtime->getCLTuneLevel() == Wide) {
+    } else if(tuneLevel == Wide) {
         while(lws[2] <= gws[2] || lws[2] <= 6) {
             lws[1] = 1;
             while(lws[1] <= gws[1] || lws[1] <= 6) {
@@ -146,7 +146,7 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS3DDefault(const std::vector<ui
             }
             while(((2*gws[2])%lws[2] > 1) && (lws[2] & (lws[2] - 1)) != 0 && (lws[2] <= gws[2]) && (lws[2] > 6));//divisible powOfTwo lessThanSix
         }
-    } else if(runtime->getCLTuneLevel() == Normal) {
+    } else if(tuneLevel == Normal) {
         while(lws[2] <= gws[2] && lws[2] <= 8) {
             lws[1] = 1;
             while(lws[1] <= gws[1] || lws[1] <= 6) {
@@ -191,7 +191,7 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS3DDefault(const std::vector<ui
             }
             while(((2*gws[2])%lws[2] > 1) && (lws[2] & (lws[2] - 1)) != 0 && (lws[2] <= gws[2]) && (lws[2] <= 6));//divisible powOfTwo lessThanSix
         }
-    } else if(runtime->getCLTuneLevel() == Fast) {
+    } else if(tuneLevel == Fast) {
         while(lws[2] <= gws[2] && lws[2] <= 8) {
             lws[1] = 1;
             while(lws[1] <= gws[1] && lws[1] <= 16) {
@@ -245,7 +245,7 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS3DDefault(const std::vector<ui
             }
             while(((2*gws[2])%lws[2] > 1) && (lws[2] & (lws[2] - 1)) != 0 && (lws[2] <= gws[2]) && (lws[2] <= 6));//divisible powOfTwo lessThanSix
         }
-    } else if(runtime->getCLTuneLevel() == None) {
+    } else if(tuneLevel == None) {
         // define not tune method to choose lws
         lws_prefer[0] = 0;
         lws_prefer[1] = 0;
@@ -253,7 +253,7 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS3DDefault(const std::vector<ui
         min_cost = 0;
     }
     
-    if(runtime->getCLTuneLevel() != None) {
+    if(tuneLevel != None) {
         cl::Event event;
         cl_int res = runtime->commandQueue().enqueueNDRangeKernel(
                         mKernel, cl::NullRange,
@@ -274,7 +274,7 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS3DDefault(const std::vector<ui
         }
     }
     
-    if (tunedLws.find(info) == tunedLws.end() && runtime->getCLTuneLevel() != None) {
+    if (tunedLws.find(info) == tunedLws.end() && tuneLevel != None) {
 //        printf("3dLocalWS %d Insert! gws:%d %d %d, lws:%d %d %d\n", (int)tunedLws.size(), gws[0], gws[1], gws[2], lws_prefer[0], lws_prefer[1], lws_prefer[2]);
         tunedLws.insert(std::make_pair(info, std::make_pair(lws_prefer, min_cost)));
     }
@@ -283,7 +283,7 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS3DDefault(const std::vector<ui
 }
 
 std::pair<std::vector<uint32_t>, uint32_t> localWS2DDefault(const std::vector<uint32_t> &gws, const uint32_t maxWorkGroupSize,
-                                        OpenCLRuntime *runtime, const std::string &kernelName, const std::shared_ptr<KernelWrap> &mKernelW) {
+                                        OpenCLRuntime *runtime, const std::string &kernelName, const std::shared_ptr<KernelWrap> &mKernelW, int tuneLevel) {
     MNN_ASSERT(gws.size() == 2);
     auto mKernel = mKernelW->get();
     
@@ -305,7 +305,7 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS2DDefault(const std::vector<ui
     std::vector<uint32_t> lws_prefer(2, 1);
     uint32_t min_cost = UINT_MAX;
     
-    if(runtime->getCLTuneLevel() == Heavy) {
+    if(tuneLevel == Heavy) {
         while(lws[1] <= gws[1] || lws[1] <= 6) {
             lws[0] = 1;
             while(lws[0] <= gws[0] || lws[0] <= 6) {
@@ -336,7 +336,7 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS2DDefault(const std::vector<ui
             }
             lws[1]<<=1;
         }
-    } else if(runtime->getCLTuneLevel() == Wide) {
+    } else if(tuneLevel == Wide) {
         while(lws[1] <= gws[1] || lws[1] <= 6) {
             lws[0] = 1;
             while(lws[0] <= gws[0] || lws[0] <= 6) {
@@ -373,7 +373,7 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS2DDefault(const std::vector<ui
             }
             while(((2*gws[1])%lws[1] > 1) && (lws[1] & (lws[1] - 1)) != 0 && (lws[1] <= gws[1]) && (lws[1] > 6));//divisible powOfTwo lessThanSix
         }
-    } else if(runtime->getCLTuneLevel() == Normal) {
+    } else if(tuneLevel == Normal) {
         while(lws[1] <= gws[1] && lws[1] <= 8) {
             lws[0] = 1;
             while(lws[0] <= gws[0] || lws[0] <= 6) {
@@ -410,7 +410,7 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS2DDefault(const std::vector<ui
             }
             while(((2*gws[1])%lws[1] > 1) && (lws[1] & (lws[1] - 1)) != 0 && (lws[1] <= gws[1]) && (lws[1] <= 6));//divisible powOfTwo lessThanSix
         }
-    } else if(runtime->getCLTuneLevel() == Fast) {
+    } else if(tuneLevel == Fast) {
         while(lws[1] <= gws[1] && lws[1] <= 8) {
             lws[0] = 1;
             while(lws[0] <= gws[0] && lws[0] <= 8) {
@@ -457,14 +457,14 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS2DDefault(const std::vector<ui
             }
             while(((2*gws[1])%lws[1] > 1) && (lws[1] & (lws[1] - 1)) != 0 && (lws[1] <= gws[1]) && (lws[1] <= 6));//divisible powOfTwo lessThanSix
         }
-    } else if(runtime->getCLTuneLevel() == None) {
+    } else if(tuneLevel == None) {
         // define not tune method to choose lws
         lws_prefer[0] = 0;
         lws_prefer[1] = 0;
         min_cost = 0;
     }
 
-    if(runtime->getCLTuneLevel() != None) {
+    if(tuneLevel != None) {
         cl::Event event;
         cl_int res = runtime->commandQueue().enqueueNDRangeKernel(
                         mKernel, cl::NullRange,
@@ -484,7 +484,7 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS2DDefault(const std::vector<ui
         }
     }
     
-    if (tunedLws.find(info) == tunedLws.end() && runtime->getCLTuneLevel() != None) {
+    if (tunedLws.find(info) == tunedLws.end() && tuneLevel != None) {
 //        printf("2dLocalWS %d Insert! gws:%d %d, lws:%d %d\n", (int)tunedLws.size(), gws[0], gws[1], lws_prefer[0], lws_prefer[1]);
         tunedLws.insert(std::make_pair(info, std::make_pair(lws_prefer, min_cost)));
     }
@@ -590,10 +590,10 @@ void runKernel2D(const ::std::shared_ptr<KernelWrap> &kernelw, const std::vector
 #endif
 }
 
-void copyBufferToImage(OpenCLRuntime *runtime, const cl::Buffer &buffer, const cl::Image &image, int w, int h) {
+void copyBufferToImage(OpenCLRuntime *runtime, const cl::Buffer &buffer, const cl::Image &image, int w, int h, int precision) {
     std::set<std::string> buildOptions;
     buildOptions.emplace("-DBUFFER_INP_FP32");
-    auto kernelW = runtime->buildKernelWithCache("copy_buffer_to_image2d", "copy_buffer_to_image2d", buildOptions);
+    auto kernelW = runtime->buildKernelWithCache("copy_buffer_to_image2d", "copy_buffer_to_image2d", buildOptions, precision);
     auto kernel = kernelW->get();
     auto status = kernel.setArg(0, buffer);
     MNN_ASSERT(status == CL_SUCCESS);

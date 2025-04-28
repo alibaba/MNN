@@ -58,7 +58,7 @@ DeconvExecution::DeconvExecution(const std::vector<Tensor *> &inputs, const MNN:
     MNN::OpenCL::ImageBufferConvertor imageBufferConvertor{mOpenCLBackend->getOpenCLRuntime()};
     
     std::string buildOption = "-DBUFFER_INP_FP32";
-    imageBufferConvertor.convertBufferToImage(filterBuffer.get(), MNN::OpenCL::CONV2D_FILTER, mResource->mFilter.get(), false, buildOption);
+    imageBufferConvertor.convertBufferToImage(filterBuffer.get(), MNN::OpenCL::CONV2D_FILTER, mResource->mFilter.get(), mOpenCLBackend->getPrecision(), false, buildOption);
         
     mResource->mBuildOptions.emplace("-DBIAS");
     if (conv2dCommonParams->relu() == true) {
@@ -127,7 +127,7 @@ ErrorCode DeconvExecution::onEncode(const std::vector<Tensor *> &inputs, const s
     const int alignWidth  = mResource->mStrides[1] - 1 - transPadW;
     
     auto runtime      = mOpenCLBackend->getOpenCLRuntime();
-    unit.kernel = runtime->buildKernel("deconv_2d", "deconv_2d", mResource->mBuildOptions);
+    unit.kernel = runtime->buildKernel("deconv_2d", "deconv_2d", mResource->mBuildOptions, mOpenCLBackend->getPrecision());
     auto maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
     mGWS              = {static_cast<uint32_t>(outputChannelBlocks), static_cast<uint32_t>(outputWidth),
             static_cast<uint32_t>(outputHeight * outputBatch)};
@@ -159,7 +159,7 @@ ErrorCode DeconvExecution::onEncode(const std::vector<Tensor *> &inputs, const s
     
     std::string name = "deconv2d";
     std::string info = std::to_string(inputChannels) + "_" + std::to_string(outputChannels) + "_" + std::to_string(ky) + "_" + std::to_string(kx) + "_" + std::to_string(strideHeight) + "_" + std::to_string(strideWidth);
-    mLWS = localWS3DDefault(mGWS, maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name + info, unit.kernel).first;
+    mLWS = localWS3DDefault(mGWS, maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name + info, unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
     mOpenCLBackend->recordKernel3d(unit.kernel, mGWS, mLWS);
     unit.globalWorkSize = {mGWS[0], mGWS[1], mGWS[2]};
     unit.localWorkSize = {mLWS[0], mLWS[1], mLWS[2]};

@@ -194,6 +194,7 @@ public:
             mVisionEnd    = config->llm_config_.value("vision_end", mVisionEnd);
             mVisionMean   = config->llm_config_.value("image_mean", mVisionMean);
             mVisionNorm   = config->llm_config_.value("image_norm", mVisionNorm);
+            mVisionSizeUnit = config->llm_config_.value("image_size_unit", mVisionSizeUnit);
         }
         if (config->is_audio()) {
         }
@@ -208,6 +209,7 @@ public:
 private:
     int mVisionHeight = 448, mVisionWidth = 448, mVisionStart = 151857,
         mVisionEnd = 151858, mVisionPad = 151859, mAudioPad = 151646;
+    int mVisionSizeUnit = 1;
     std::vector<float> mVisionMean{122.7709383, 116.7460125, 104.09373615};
     std::vector<float> mVisionNorm{0.01459843, 0.01500777, 0.01422007};
     std::vector<int> multimode_process(const std::string& mode, std::string info);
@@ -253,17 +255,6 @@ std::string Llm::dump_config() {
 
 bool Llm::set_config(const std::string& content) {
     return mConfig->config_.merge(content.c_str());
-}
-
-int file_size_m(const std::string& filename) {
-    std::ifstream file(filename, std::ios::binary | std::ios::ate);
-    if (!file.is_open()) {
-        std::cerr << "Could not open the file!" << std::endl;
-        return -1;
-    }
-    long long fileSize = file.tellg();
-    file.close();
-    return fileSize / (1024 * 1024);
 }
 
 void Llm::initRuntime() {
@@ -323,7 +314,7 @@ void Llm::initRuntime() {
     mRuntimeManager->setMode(MNN::Interpreter::Session_Debug);
     _initDebug();
 #endif
-    {
+    if (config.type != 0) { // not cpu
         std::string cacheFilePath = tmpPath.length() != 0 ? tmpPath : ".";
         mRuntimeManager->setCache(cacheFilePath + "/mnn_cachefile.bin");
     }
@@ -358,17 +349,13 @@ void Llm::load() {
     // load single model
     mModules.resize(1);
     std::string model_path = mConfig->llm_model();
-    MNN_PRINT("load %s ... ", model_path.c_str());
     mRuntimeManager->setExternalFile(mConfig->llm_weight());
     mModules[0].reset(Module::load({"input_ids", "attention_mask", "position_ids", "logits_index"},
                                    {"logits"}, model_path.c_str(), mRuntimeManager, &module_config));
-    MNN_PRINT("Load Module Done!\n");
     mDecodeModules.resize(mModules.size());
     for (int v = 0; v < mModules.size(); ++v) {
         mDecodeModules[v].reset(Module::clone(mModules[v].get()));
     }
-    MNN_PRINT("Clone Decode Module Done!\n");
-
     mPrefillModules = mModules;
 }
 
@@ -620,6 +607,8 @@ std::vector<int> Llm::generate(const std::vector<int>& input_ids, int max_tokens
     if (nullptr == logits.get()) {
         return {};
     }
+    // logits compute sync for correct timer
+    logits->readMap<void>();
     mContext->prefill_us = _t.durationInUs();
     _t.reset();
     mContext->current_token = sample(logits);
@@ -949,6 +938,8 @@ std::vector<int> Mllm::vision_process(const std::string& file) {
         MNN::Express::Variable::save({image_embedding}, "output.mnn");
 #endif
     } else {
+        mVisionHeight = UP_DIV(mVisionHeight, mVisionSizeUnit) * mVisionSizeUnit;
+        mVisionWidth = UP_DIV(mVisionWidth, mVisionSizeUnit) * mVisionSizeUnit;
         image           = MNN::CV::resize(image, {mVisionHeight, mVisionWidth}, 0, 0,
                                           MNN::CV::INTER_LINEAR, MNN::CV::COLOR_BGR2RGB,
                                           mVisionMean, mVisionNorm);

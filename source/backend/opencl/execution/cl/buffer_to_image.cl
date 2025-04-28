@@ -508,3 +508,15 @@ __kernel void arg_image_to_buffer(GLOBAL_SIZE_2_DIMS __global OUTPUT_TYPE *outpu
         output[offset] = (OUTPUT_TYPE)values.x;
     }
 }
+
+__kernel void image_to_image(GLOBAL_SIZE_2_DIMS
+                                    __write_only image2d_t output_ptr,
+                                    __read_only image2d_t input_ptr) {
+    int image_width_idx  = get_global_id(0);
+    int image_height_idx = get_global_id(1);
+    
+    DEAL_NON_UNIFORM_DIM2(image_width_idx, image_height_idx);
+    
+    INPUT_TYPE_I4 values    = RI_DATA(input_ptr, SAMPLER, (int2)(image_width_idx, image_height_idx));
+    WI_DATA(output_ptr, (int2)(image_width_idx, image_height_idx), CONVERT_OUTPUT_I4(values));
+}

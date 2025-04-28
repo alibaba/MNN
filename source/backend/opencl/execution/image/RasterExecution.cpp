@@ -64,7 +64,7 @@ ErrorCode RasterExecution::onEncode(const std::vector<Tensor *> &____inputs, con
             auto outputShape    = tensorShapeFormat(output);
             int region[] = {outputShape[0], UP_DIV(outputShape[3], 4), outputShape[1], outputShape[2]};//nhwc
             Unit &unit          = mUnits[kernel_idx++];
-            unit.kernel         = runtime->buildKernel("raster", "image_set_zero", {}, output, output);
+            unit.kernel         = runtime->buildKernel("raster", "image_set_zero", {}, mOpenCLBackend->getPrecision(), output, output);
             unit.localWorkSize  = {8, 8};
             unit.globalWorkSize = {(uint32_t)UP_DIV((region[1] * region[3]), 16)*16,
                                    (uint32_t)UP_DIV((region[0] * region[2]), 16)*16};
@@ -94,7 +94,7 @@ ErrorCode RasterExecution::onEncode(const std::vector<Tensor *> &____inputs, con
             OpCommonUtils::turnToPackRegion(slice, C4Region, output, 4);
 
             Unit &unit          = mUnits[kernel_idx++];
-            unit.kernel         = runtime->buildKernel("raster", "raster_image", {}, output, output);
+            unit.kernel         = runtime->buildKernel("raster", "raster_image", {}, mOpenCLBackend->getPrecision(), output, output);
 
             const std::vector<uint32_t> gws =  {(uint32_t)C4Region.size[2],
                                                     (uint32_t)C4Region.size[1],
@@ -130,7 +130,7 @@ ErrorCode RasterExecution::onEncode(const std::vector<Tensor *> &____inputs, con
                 MNN_PRINT("setArg err %d\n", (int)ret);
             }
             std::string name = "rasterImage";
-            const std::vector<uint32_t> lws = localWS3DDefault(gws, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, unit.kernel).first;
+            const std::vector<uint32_t> lws = localWS3DDefault(gws, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
             
             unit.localWorkSize = {lws[0], lws[1], lws[2]};
             
@@ -145,7 +145,7 @@ ErrorCode RasterExecution::onEncode(const std::vector<Tensor *> &____inputs, con
     bool cancombine = CanCombine(outputs);
     // Alloc Temp buffer
     auto bufferPool     = ((OpenCLBackend *)backend())->getBufferPool();
-    auto bufferUnitSize = runtime->isSupportedFP16() ? sizeof(half_float::half) : sizeof(float);
+    auto bufferUnitSize = mOpenCLBackend->getPrecision() != BackendConfig::Precision_High ? sizeof(half_float::half) : sizeof(float);
     for(int i=0; i< regionNum; ++i)
     {
         auto origin = des->regions[i].origin;
@@ -178,7 +178,7 @@ ErrorCode RasterExecution::onEncode(const std::vector<Tensor *> &____inputs, con
         auto outputShape    = tensorShapeFormat(output);
         int region[] = {outputShape[0], outputShape[3], outputShape[1], outputShape[2]};//nhwc
         Unit &unit          = mUnits[kernel_idx++];
-        unit.kernel         = runtime->buildKernel("raster", "buffer_set_zero", {}, output, output);
+        unit.kernel         = runtime->buildKernel("raster", "buffer_set_zero", {}, mOpenCLBackend->getPrecision(), output, output);
 
         std::vector<uint32_t> gws = {(uint32_t)(region[2] * region[3]),
                                      (uint32_t)(region[0] * region[1])};
@@ -196,7 +196,7 @@ ErrorCode RasterExecution::onEncode(const std::vector<Tensor *> &____inputs, con
         uint32_t mMaxWorkGroupSize      = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
         
         std::string kernelName = "raster_buffer_set_zero";
-        std::vector<uint32_t> lws = localWS2DDefault(gws, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName, unit.kernel).first;
+        std::vector<uint32_t> lws = localWS2DDefault(gws, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName, unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
 
         unit.localWorkSize = {lws[0], lws[1]};
         unit.globalWorkSize = {ROUND_UP(gws[0], std::max((uint32_t)1, lws[0])),
@@ -216,11 +216,11 @@ ErrorCode RasterExecution::onEncode(const std::vector<Tensor *> &____inputs, con
         Unit &unit          = mUnits[kernel_idx++];
         if(TensorUtils::getDescribe(origin)->dimensionFormat == MNN_DATA_FORMAT_NHWC)// Image to nhwc buffer
         {
-            unit.kernel         = runtime->buildKernel("buffer_to_image", "image_to_nhwc_buffer", {}, origin, origin);
+            unit.kernel         = runtime->buildKernel("buffer_to_image", "image_to_nhwc_buffer", {}, mOpenCLBackend->getPrecision(), origin, origin);
         }
         else //Image to nchw buffer
         {
-            unit.kernel         = runtime->buildKernel("buffer_to_image", "image_to_nchw_buffer", {}, origin, origin);
+            unit.kernel         = runtime->buildKernel("buffer_to_image", "image_to_nchw_buffer", {}, mOpenCLBackend->getPrecision(), origin, origin);
         }
 
         std::vector<uint32_t> gws = {(uint32_t)(region[3] * region[1]),
@@ -243,7 +243,7 @@ ErrorCode RasterExecution::onEncode(const std::vector<Tensor *> &____inputs, con
         uint32_t mMaxWorkGroupSize      = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
         
         std::string kernelName = "raster_image_to_buffer";
-        std::vector<uint32_t> lws = localWS2DDefault(gws, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName, unit.kernel).first;
+        std::vector<uint32_t> lws = localWS2DDefault(gws, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName, unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
 
         unit.localWorkSize = {lws[0], lws[1]};
         unit.globalWorkSize = {ROUND_UP(gws[0], std::max((uint32_t)1, lws[0])),
@@ -260,7 +260,7 @@ ErrorCode RasterExecution::onEncode(const std::vector<Tensor *> &____inputs, con
         int dst_offset = regions[1].dst.offset - slice.dst.offset;
         
         Unit &unit          = mUnits[kernel_idx++];
-        unit.kernel         = runtime->buildKernel("raster", "raster_buffer_combine", {}, output, output);
+        unit.kernel         = runtime->buildKernel("raster", "raster_buffer_combine", {}, mOpenCLBackend->getPrecision(), output, output);
         
         unit.globalWorkSize = {(uint32_t)slice.size[2] * nums,
             (uint32_t)slice.size[1],
@@ -295,7 +295,7 @@ ErrorCode RasterExecution::onEncode(const std::vector<Tensor *> &____inputs, con
         }
         
         std::string name = "rasterBuffer";
-        const std::vector<uint32_t> lws = localWS3DDefault(gws, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, unit.kernel).first;
+        const std::vector<uint32_t> lws = localWS3DDefault(gws, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
         
         unit.localWorkSize = {lws[0], lws[1], lws[2]};
         
@@ -307,7 +307,7 @@ ErrorCode RasterExecution::onEncode(const std::vector<Tensor *> &____inputs, con
         for (auto& slice : des->regions)
         {
             Unit &unit          = mUnits[kernel_idx++];
-            unit.kernel         = runtime->buildKernel("raster", "raster_buffer", {}, output, output);
+            unit.kernel         = runtime->buildKernel("raster", "raster_buffer", {}, mOpenCLBackend->getPrecision(), output, output);
             
             unit.globalWorkSize = {(uint32_t)slice.size[2],
                 (uint32_t)slice.size[1],
@@ -339,7 +339,7 @@ ErrorCode RasterExecution::onEncode(const std::vector<Tensor *> &____inputs, con
             }
             
             std::string name = "rasterBuffer";
-            const std::vector<uint32_t> lws = localWS3DDefault(gws, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, unit.kernel).first;
+            const std::vector<uint32_t> lws = localWS3DDefault(gws, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
             
             unit.localWorkSize = {lws[0], lws[1], lws[2]};
             
@@ -359,11 +359,11 @@ ErrorCode RasterExecution::onEncode(const std::vector<Tensor *> &____inputs, con
         Unit &unit          = mUnits[kernel_idx++];
         if(outputDes->dimensionFormat == MNN_DATA_FORMAT_NHWC)//nhwc buffer to Image
         {
-            unit.kernel         = runtime->buildKernel("buffer_to_image", "nhwc_buffer_to_image", {}, output, output);
+            unit.kernel         = runtime->buildKernel("buffer_to_image", "nhwc_buffer_to_image", {}, mOpenCLBackend->getPrecision(), output, output);
         }
         else //nchw buffer to Image
         {
-            unit.kernel         = runtime->buildKernel("buffer_to_image", "nchw_buffer_to_image", {}, output, output);
+            unit.kernel         = runtime->buildKernel("buffer_to_image", "nchw_buffer_to_image", {}, mOpenCLBackend->getPrecision(), output, output);
         }
         
         std::vector<uint32_t> gws = {(uint32_t)(region[3] * region[1]),
@@ -385,7 +385,7 @@ ErrorCode RasterExecution::onEncode(const std::vector<Tensor *> &____inputs, con
         uint32_t mMaxWorkGroupSize      = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
         
         std::string kernelName = "raster_buffer_to_image";
-        std::vector<uint32_t> lws = localWS2DDefault(gws, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName, unit.kernel).first;
+        std::vector<uint32_t> lws = localWS2DDefault(gws, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName, unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
 
         unit.localWorkSize = {lws[0], lws[1]};
         unit.globalWorkSize = {ROUND_UP(gws[0], std::max((uint32_t)1, lws[0])),

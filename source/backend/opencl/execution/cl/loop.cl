@@ -286,12 +286,16 @@ __kernel void pack(__private int global_dim0, __private int global_dim1, __priva
 
 __kernel void batch_gather(__private int global_dim0, __private int global_dim1, __private int global_dim2,
                          __global OUTPUT_TYPE* output, __global INPUT_TYPE* input,
-                         __global int* offset_dst, __global int* offset_src,
+                         #ifdef OFFSET_DST
+                         __global int* offset_dst_ptr,
+                         #endif
+                         #ifdef OFFSET_SRC
+                         __global int* offset_src_ptr,
+                         #endif
                          __private const int x_size,
                          __private const int4 stride_src,
                          __private const int4 stride_dst,
                          __private const int2 steps,
-                         __private const int2 iters,
                          __private const int inputSize) {
     int3 pos = (int3)(get_global_id(0), get_global_id(1), get_global_id(2));
     
@@ -301,12 +305,13 @@ __kernel void batch_gather(__private int global_dim0, __private int global_dim1,
         int y = pos.x / x_size;
 
         int2 index = (int2)(pos.z, pos.z);
-        if (iters.x >= 0) {
-            index.x = offset_dst[pos.z];
-        }
-        if (iters.y >= 0) {
-            index.y = offset_src[pos.z];
-        }
+#ifdef OFFSET_DST
+        index.x = offset_dst_ptr[pos.z];
+#endif
+                    
+#ifdef OFFSET_SRC
+        index.y = offset_src_ptr[pos.z];
+#endif
         int2 offset = index * steps;
         if(offset.x >= 0){
             if(offset.y >= 0 && offset.y < inputSize){
@@ -345,9 +350,15 @@ __kernel void broadcast_binary(__private int global_dim0, __private int global_d
         int4 h = out_offset % dst_size.s2; out_offset /= dst_size.s2;
         int4 c = out_offset % dst_size.s1; out_offset /= dst_size.s1;
         int4 n = out_offset % dst_size.s0;
+        #ifdef INT_COMPUTE_MOD
+        int4 in0, in1;
+        int* in0_ptr = (int*)&in0;
+        int* in1_ptr = (int*)&in1;
+        #else
         float4 in0, in1;
         float* in0_ptr = (float*)&in0;
         float* in1_ptr = (float*)&in1;
+        #endif
         
         {
             int4 w0 = w % (src0_size.s3 * src0_size.s4);
@@ -366,9 +377,15 @@ __kernel void broadcast_binary(__private int global_dim0, __private int global_d
                 int nc4 = c4offset % src0C4_size.w;
                 int cc4_offset = cc4 / 4;
                 int cc4_remain = cc4 % 4;
+                #ifdef INT_COMPUTE_MOD
+                int4 tmp = convert_int4(RI_DATA(input0, SAMPLER, (int2)(cc4_offset * src0C4_size.x + wc4, nc4 * src0C4_size.y + hc4)));
+                int *tmp_ptr = (int*)&tmp;
+                in0_ptr[i] = tmp_ptr[cc4_remain];
+                #else
                 float4 tmp = convert_float4(RI_DATA(input0, SAMPLER, (int2)(cc4_offset * src0C4_size.x + wc4, nc4 * src0C4_size.y + hc4)));
                 float *tmp_ptr = (float*)&tmp;
                 in0_ptr[i] = tmp_ptr[cc4_remain];
+                #endif
             }
         }
         
@@ -389,15 +406,70 @@ __kernel void broadcast_binary(__private int global_dim0, __private int global_d
                 int nc4 = c4offset % src1C4_size.w;
                 int cc4_offset = cc4 / 4;
                 int cc4_remain = cc4 % 4;
+                #ifdef INT_COMPUTE_MOD
+                int4 tmp = convert_int4(RI_DATA(input1, SAMPLER, (int2)(cc4_offset * src1C4_size.x + wc4, nc4 * src1C4_size.y + hc4)));
+                int *tmp_ptr = (int*)&tmp;
+                in1_ptr[i] = tmp_ptr[cc4_remain];
+                #else
                 float4 tmp = convert_float4(RI_DATA(input1, SAMPLER, (int2)(cc4_offset * src1C4_size.x + wc4, nc4 * src1C4_size.y + hc4)));
                 float *tmp_ptr = (float*)&tmp;
                 in1_ptr[i] = tmp_ptr[cc4_remain];
+                #endif
             }
         }
         
+        #ifdef INT_COMPUTE_MOD
+        int4 out = in0 % in1;
+        out = ((out < (int4)0 && in1 > (int4)0) || (out > (int4)0 && in1 < (int4)0)) ? out + in1 : out;
+        #else
         float4 out = LOOP_BINARY_OPERATOR;
+        #endif
+        
         WI_DATA(output, (int2)(co * dst_width + wo, no * dst_height + ho), CONVERT_OUTPUT_I4(out));
     }
 }
+#ifdef COMPUTE_CUMSUM
+__kernel void loop_cumsum(__private int global_dim0, __private int global_dim1, __private int global_dim2,
+                         __global OUTPUT_TYPE* output, __global INPUT_TYPE* input0, __global INPUT_TYPE* input1,
+                         __private const int input0Stride0,
+                         __private const int input0Stride1,
+                         __private const int input0Stride2,
+                         __private const int input1Stride0,
+                         __private const int input1Stride1,
+                         __private const int input1Stride2,
+                         __private const int outputStride0,
+                         __private const int outputStride1,
+                         __private const int outputStride2,
+                         __private const int loopNumber,
+                         __private const int4 offsets,
+                         __private const int4 steps
+                         ) {
+                             
+    const int x = get_global_id(0);
+    const int y = get_global_id(1);
+    const int z = get_global_id(2);
+    
+    if (x < global_dim0 && y < global_dim1 && z < global_dim2) {
+        
+        int inputIndex0 = z * input0Stride0 + y * input0Stride1 + x * input0Stride2;
+        int inputIndex1 = z * input1Stride0 + y * input1Stride1 + x * input1Stride2;
+        int outputIndex = z * outputStride0 + y * outputStride1 + x * outputStride2;
+        
+        float in0 = 0;
+        if(offsets.z != offsets.y){
+            in0 = (float)input0[inputIndex0];
+        }
+        
+        for(int i = 0; i < loopNumber; ++i){
+            int4 offset = (int4)i * steps + offsets;
+            float in1 = (float)input1[inputIndex1 + offset.z];
+            float out = LOOP_BINARY_OPERATOR;
+        
+            output[outputIndex + offset.x] = (OUTPUT_TYPE)out;
+            in0 = out;
+        }
+    }
+}
+#endif
 #endif
 
