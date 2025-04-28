@@ -10,6 +10,7 @@
 
 #include <math.h>
 #include <stdlib.h>
+#include <cstdlib>
 #include <algorithm>
 #include <cstring>
 #include <fstream>
@@ -123,9 +124,13 @@ static void compareForwadType(OUTPUTCONFIG outputNames, Interpreter* net, MNNFor
         compareConfig.path.mode = MNN::ScheduleConfig::Path::Tensor;
         auto expectSession  = net->createSession(expectConfig);
         auto compareSession = net->createSession(compareConfig);
+        auto realInputs = net->getSessionInputAll(expectSession);
         _zeroInputs(net, expectSession);
         _zeroInputs(net, compareSession);
         for (auto& iter : inputs) {
+            if (realInputs.find(iter.first) == realInputs.end()) {
+                continue;
+            }
             Tensor* expectInput = net->getSessionInput(expectSession, iter.first.empty() ? NULL : iter.first.c_str());
             expectInput->copyFromHostTensor(iter.second.get());
             Tensor* compareInput = net->getSessionInput(compareSession, iter.first.empty() ? NULL : iter.first.c_str());
@@ -170,6 +175,9 @@ static void compareForwadType(OUTPUTCONFIG outputNames, Interpreter* net, MNNFor
             return;
         }
         for (auto& iter : inputs) {
+            if (realInputs.find(iter.first) == realInputs.end()) {
+                continue;
+            }
             Tensor* compareInput = net->getSessionInput(compareSession, iter.first.empty() ? NULL : iter.first.c_str());
             compareInput->copyFromHostTensor(iter.second.get());
         }
@@ -279,27 +287,21 @@ int main(int argc, const char* argv[]) {
 
         }
     } else {
-        auto inputTensor = net->getSessionInput(session, NULL);
-        std::shared_ptr<MNN::Tensor> givenTensor(new Tensor(inputTensor, inputTensor->getDimensionType()));
-        {
-            std::ostringstream fileName;
-            fileName << pwd << "input_0"
-                     << ".txt";
-            std::ifstream input(fileName.str().c_str());
-
-            int size_w = inputTensor->width();
-            int size_h = inputTensor->height();
-            int bpp    = inputTensor->channel();
-            int batch  = inputTensor->batch();
-            // auto backend = net->getBackend(session, inputTensor);
-            // MNN_ASSERT(!input.fail());
-            MNN_PRINT("Input: %d,%d,%d,%d\n", size_w, size_h, bpp, batch);
-            auto inputData = givenTensor->host<float>();
-            auto size      = givenTensor->size() / sizeof(float);
-            for (int i = 0; i < size; ++i) {
-                input >> inputData[i];
+        auto inputTensors = net->getSessionInputAll(session);
+        for (auto& iter : inputTensors) {
+            auto inputTensor = iter.second;
+            std::shared_ptr<MNN::Tensor> givenTensor(new Tensor(inputTensor, inputTensor->getDimensionType()));
+            auto rptr = givenTensor->host<void>();
+            size_t eleSize = TensorUtils::getRawSize(inputTensor);
+            if (inputTensor->getType().code == halide_type_float) {
+                auto ptr = (float*)rptr;
+                for (size_t v=0; v < eleSize; ++v) {
+                    ptr[v] = ((::rand() % 100) - 50) / 1000.0f;
+                }
+            } else {
+                ::memset(rptr, 0, eleSize * inputTensor->getType().bytes());
             }
-            inputs.insert(std::make_pair("", givenTensor));
+            inputs.insert(std::make_pair(iter.first, givenTensor));
         }
     }
     BackendConfig::PrecisionMode precision = BackendConfig::Precision_Normal;

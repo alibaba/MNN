@@ -516,7 +516,7 @@ static void MNNSumByAxisLForMatmul_A(float* dest, int8_t* source, const float* s
         int step = ALIMIN(EP, realDstCount);
 
         for (int k = 0; k < blockNum; ++k) {
-            const auto src_x = srcInt8 + k * (step * LP * blockSizeQuad);
+            const auto src_x = srcInt8 + k * (step * LP * blockSizeQuad * kernelxy);
             for (int w = 0; w < step; ++w) {
                 float dequantScale = singlescale;
                 if (oneScale == 0) {

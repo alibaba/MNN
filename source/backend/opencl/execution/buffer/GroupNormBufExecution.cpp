@@ -21,7 +21,7 @@ GroupNormBufExecution::GroupNormBufExecution(const MNN::Op* op, Backend* backend
     mBSwish = group_norm_param->bSwish();
     mGroup = group_norm_param->group();
     if (group_norm_param->gamma() && group_norm_param->beta()) {
-        auto bufferUnitSize = runtime->isSupportedFP16() ? sizeof(half_float::half) : sizeof(float);
+        auto bufferUnitSize = mOpenCLBackend->getPrecision() != BackendConfig::Precision_High ? sizeof(half_float::half) : sizeof(float);
 
         mHasGammaBeta = true;
         int size = group_norm_param->gamma()->size();
@@ -37,7 +37,7 @@ GroupNormBufExecution::GroupNormBufExecution(const MNN::Op* op, Backend* backend
         auto GammaPtrCL = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(
             gammaBuffer, true, CL_MAP_WRITE, 0, ALIGN_UP4(size) * bufferUnitSize, nullptr, nullptr, &res);
         if(GammaPtrCL != nullptr && res == CL_SUCCESS){
-            if(mOpenCLBackend->getOpenCLRuntime()->isSupportedFP16()){
+            if(mOpenCLBackend->getPrecision() != BackendConfig::Precision_High){
                 for (int i = 0; i < size; i++) {
                     ((half_float::half*)GammaPtrCL)[i] = (half_float::half)(group_norm_param->gamma()->data()[i]);
                 }
@@ -67,7 +67,7 @@ GroupNormBufExecution::GroupNormBufExecution(const MNN::Op* op, Backend* backend
         auto BetaPtrCL = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(
              betaBuffer, true, CL_MAP_WRITE, 0, ALIGN_UP4(size) * bufferUnitSize, nullptr, nullptr, &res);
         if(BetaPtrCL != nullptr && res == CL_SUCCESS){
-            if(mOpenCLBackend->getOpenCLRuntime()->isSupportedFP16()){
+            if(mOpenCLBackend->getPrecision() != BackendConfig::Precision_High){
                 for (int i = 0; i < size; i++) {
                     ((half_float::half*)BetaPtrCL)[i] = (half_float::half)(group_norm_param->beta()->data()[i]);
                 }
@@ -143,7 +143,7 @@ ErrorCode GroupNormBufExecution::onEncode(const std::vector<Tensor*>& inputs, co
         std::string kernelName = "groupnorm_plain_buf";
         int local_size = getLocalSize(UP_DIV(inner_size, 4), MaxLocalSize);
         buildOptions.emplace("-DLOCAL_SIZE=" + std::to_string(local_size));
-        unit.kernel = runtime->buildKernel("groupnorm_buf", kernelName, buildOptions);
+        unit.kernel = runtime->buildKernel("groupnorm_buf", kernelName, buildOptions, mOpenCLBackend->getPrecision());
         
         mGWS = {static_cast<uint32_t>(local_size),
                 static_cast<uint32_t>(1),

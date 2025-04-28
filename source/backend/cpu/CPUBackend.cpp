@@ -601,6 +601,7 @@ void* CPUBackend::onMapTensor(Tensor::MapType mtype, Tensor::DimensionType dtype
     if (OpCommonUtils:: convertDimType(TensorUtils::getDescribe(srcTensor)->dimensionFormat) != dtype) {
         return nullptr;
     }
+    _resetDynamicMemory();
     return srcTensor->host<void>();
 }
 

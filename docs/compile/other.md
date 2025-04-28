@@ -53,6 +53,7 @@
   - `libllm.so` 大语言模型推理库
   - `llm_demo` 大语言模型推理示例程序
   - `diffusion_demo` 扩散模型示例程序
+  - `llm_bench` 大语言模型测评工具
 ## 测试工具
 - 相关编译选项
   - `MNN_BUILD_TOOL` 是否编译测试工具

@@ -10,7 +10,7 @@
 
 namespace MNN {
 namespace OpenCL {
-static void AddBuildOptionOfDataTypeForImage(const Tensor *input, const Tensor *output, std::set<std::string> &buildOptions, bool isfp16, bool toDevice, bool toHost){
+static void AddBuildOptionOfDataTypeForImage(const Tensor *input, const Tensor *output, std::set<std::string> &buildOptions, int input_precision, int output_precision, bool toDevice, bool toHost){
     if(input->getType().code == halide_type_int) {
         buildOptions.emplace("-DINPUT_TYPE_I=int");
         buildOptions.emplace("-DINPUT_TYPE_I4=int4");
@@ -42,7 +42,7 @@ static void AddBuildOptionOfDataTypeForImage(const Tensor *input, const Tensor *
             MNN_ASSERT(false);
         }
     } else {
-        if(isfp16 && toHost){
+        if(input_precision != BackendConfig::Precision_High && toHost){
             buildOptions.emplace("-DINPUT_TYPE_I=half");
             buildOptions.emplace("-DINPUT_TYPE_I4=half4");
             buildOptions.emplace("-DINPUT_TYPE=half");
@@ -94,7 +94,7 @@ static void AddBuildOptionOfDataTypeForImage(const Tensor *input, const Tensor *
             MNN_ASSERT(false);
         }
     } else {
-        if(isfp16 && toDevice){
+        if(output_precision != BackendConfig::Precision_High && toDevice){
             buildOptions.emplace("-DOUTPUT_TYPE_I=half");
             buildOptions.emplace("-DOUTPUT_TYPE_I4=half4");
             buildOptions.emplace("-DCONVERT_OUTPUT_I4=convert_half4");
@@ -115,14 +115,14 @@ static void AddBuildOptionOfDataTypeForImage(const Tensor *input, const Tensor *
 }
 
 bool convertNCHWBufferToImage(const Tensor *input, Tensor *output,
-                              OpenCLRuntime *runtime, bool needWait, bool svmFlag) {
+                              OpenCLRuntime *runtime, int precision, bool needWait, bool svmFlag) {
     std::vector<int> outputShape = tensorShapeFormat(input);
 
     uint32_t outputGlobalWorkSize[2] = {static_cast<uint32_t>(UP_DIV(outputShape[3], 4) * outputShape[2]),
                                         static_cast<uint32_t>(outputShape[0] * outputShape[1])};
     std::set<std::string> buildOptions;
-    AddBuildOptionOfDataTypeForImage(input, output, buildOptions, runtime->isSupportedFP16(), true, false);
-    auto bufferToImageKernelW = runtime->buildKernelWithCache("buffer_to_image", "nchw_buffer_to_image", buildOptions);
+    AddBuildOptionOfDataTypeForImage(input, output, buildOptions, precision, precision, true, false);
+    auto bufferToImageKernelW = runtime->buildKernelWithCache("buffer_to_image", "nchw_buffer_to_image", buildOptions, precision);
     auto bufferToImageKernel = bufferToImageKernelW->get();
     uint32_t idx = 0;
     cl_int ret = CL_SUCCESS;
@@ -168,14 +168,14 @@ bool convertNCHWBufferToImage(const Tensor *input, Tensor *output,
 }
 
 bool convertNHWCBufferToImage(const Tensor *input, Tensor *output,
-                              OpenCLRuntime *runtime, bool needWait, bool svmFlag) {
+                              OpenCLRuntime *runtime, int precision, bool needWait, bool svmFlag) {
     std::vector<int> outputShape = tensorShapeFormat(input);
     uint32_t outputGlobalWorkSize[2] = {static_cast<uint32_t>(UP_DIV(outputShape[3], 4) * outputShape[2]),
                                         static_cast<uint32_t>(outputShape[0] * outputShape[1])};
     
     std::set<std::string> buildOptions;
-    AddBuildOptionOfDataTypeForImage(input, output, buildOptions, runtime->isSupportedFP16(), true, false);
-    auto bufferToImageKernelW = runtime->buildKernelWithCache("buffer_to_image", "nhwc_buffer_to_image", buildOptions);
+    AddBuildOptionOfDataTypeForImage(input, output, buildOptions, precision, precision, true, false);
+    auto bufferToImageKernelW = runtime->buildKernelWithCache("buffer_to_image", "nhwc_buffer_to_image", buildOptions, precision);
     auto bufferToImageKernel = bufferToImageKernelW->get();
     uint32_t idx = 0;
     cl_int ret = CL_SUCCESS;
@@ -219,15 +219,15 @@ bool convertNHWCBufferToImage(const Tensor *input, Tensor *output,
 }
 
 bool convertImageToNCHWBuffer(const Tensor *input, Tensor *output,
-                              OpenCLRuntime *runtime, bool needWait, bool svmFlag) {
+                              OpenCLRuntime *runtime, int precision, bool needWait, bool svmFlag) {
     std::vector<int> inputShape = tensorShapeFormat(input);
     uint32_t in_gws[2]          = {static_cast<uint32_t>(UP_DIV(inputShape[3], 4) * inputShape[2]),
                           static_cast<uint32_t>(inputShape[0] * inputShape[1])};
 
     
     std::set<std::string> buildOptions;
-    AddBuildOptionOfDataTypeForImage(input, output, buildOptions, runtime->isSupportedFP16(), false, true);
-    auto imageToBufferKernelW = runtime->buildKernelWithCache("buffer_to_image", "image_to_nchw_buffer", buildOptions);
+    AddBuildOptionOfDataTypeForImage(input, output, buildOptions, precision, precision, false, true);
+    auto imageToBufferKernelW = runtime->buildKernelWithCache("buffer_to_image", "image_to_nchw_buffer", buildOptions, precision);
     auto imageToBufferKernel = imageToBufferKernelW->get();
 
     uint32_t idx = 0;
@@ -274,13 +274,13 @@ bool convertImageToNCHWBuffer(const Tensor *input, Tensor *output,
 }
 
 bool convertNC4HW4BufferToImage(const Tensor *input, Tensor *output,
-                                OpenCLRuntime *runtime, bool needWait, bool svmFlag) {
+                                OpenCLRuntime *runtime, int precision, bool needWait, bool svmFlag) {
 
     uint32_t outputGlobalWorkSize[2] = {static_cast<uint32_t>(UP_DIV(input->channel(), 4) * input->width()),
                                         static_cast<uint32_t>(input->batch() * input->height())};
     std::set<std::string> buildOptions;
-    AddBuildOptionOfDataTypeForImage(input, output, buildOptions, runtime->isSupportedFP16(), true, false);
-    auto bufferToImageKernelW = runtime->buildKernelWithCache("buffer_to_image", "nc4hw4_buffer_to_image", buildOptions);
+    AddBuildOptionOfDataTypeForImage(input, output, buildOptions, precision, precision, true, false);
+    auto bufferToImageKernelW = runtime->buildKernelWithCache("buffer_to_image", "nc4hw4_buffer_to_image", buildOptions, precision);
     auto bufferToImageKernel = bufferToImageKernelW->get();
     
     uint32_t idx   = 0;
@@ -335,14 +335,14 @@ bool convertNC4HW4BufferToImage(const Tensor *input, Tensor *output,
  * @return true if success, false otherwise.
  */
 bool convertImageToNC4HW4Buffer(const Tensor *input, Tensor *output,
-                                OpenCLRuntime *runtime, bool needWait, bool svmFlag) {
+                                OpenCLRuntime *runtime, int precision, bool needWait, bool svmFlag) {
     auto inputShape = tensorShapeFormat(input);
     uint32_t in_gws[2]          = {static_cast<uint32_t>(UP_DIV(inputShape.at(3), 4) * inputShape.at(2)),
                           static_cast<uint32_t>(inputShape.at(0) * inputShape.at(1))};
 
     std::set<std::string> buildOptions;
-    AddBuildOptionOfDataTypeForImage(input, output, buildOptions, runtime->isSupportedFP16(), false, true);
-    auto imageToBufferKernelW = runtime->buildKernelWithCache("buffer_to_image", "image_to_nc4hw4_buffer", buildOptions);
+    AddBuildOptionOfDataTypeForImage(input, output, buildOptions, precision, precision, false, true);
+    auto imageToBufferKernelW = runtime->buildKernelWithCache("buffer_to_image", "image_to_nc4hw4_buffer", buildOptions, precision);
     auto imageToBufferKernel = imageToBufferKernelW->get();
 
     uint32_t idx   = 0;
@@ -389,15 +389,15 @@ bool convertImageToNC4HW4Buffer(const Tensor *input, Tensor *output,
 }
 
 bool convertImageToNHWCBuffer(const Tensor *input, Tensor *output,
-                              OpenCLRuntime *runtime, bool needWait, bool svmFlag) {
+                              OpenCLRuntime *runtime, int precision, bool needWait, bool svmFlag) {
     std::vector<int> inputShape = tensorShapeFormat(input);
     uint32_t in_gws[2]          = {static_cast<uint32_t>(UP_DIV(inputShape[3], 4) * inputShape[2]),
                           static_cast<uint32_t>(inputShape[0] * inputShape[1])};
 
     
     std::set<std::string> buildOptions;
-    AddBuildOptionOfDataTypeForImage(input, output, buildOptions, runtime->isSupportedFP16(), false, true);
-    auto imageToBufferKernelW = runtime->buildKernelWithCache("buffer_to_image", "image_to_nhwc_buffer", buildOptions);
+    AddBuildOptionOfDataTypeForImage(input, output, buildOptions, precision, precision, false, true);
+    auto imageToBufferKernelW = runtime->buildKernelWithCache("buffer_to_image", "image_to_nhwc_buffer", buildOptions, precision);
     auto imageToBufferKernel = imageToBufferKernelW->get();
 
     uint32_t idx = 0;
@@ -443,7 +443,47 @@ bool convertImageToNHWCBuffer(const Tensor *input, Tensor *output,
 
     return true;
 }
-bool ImageBufferConvertor::convertImageToBuffer(const Tensor *image, const OpenCLBufferFormat type, Tensor *buffer,
+
+bool convertImageToImage(Tensor *input, Tensor *output, OpenCLRuntime *runtime, int input_precision, int output_precision, int backend_precison, bool needWait){
+    std::vector<int> inputShape = tensorShapeFormat(input);
+    uint32_t in_gws[2]          = {static_cast<uint32_t>(UP_DIV(inputShape[3], 4) * inputShape[2]), static_cast<uint32_t>(inputShape[0] * inputShape[1])};
+    std::set<std::string> buildOptions;
+    AddBuildOptionOfDataTypeForImage(input, output, buildOptions, input_precision, output_precision, false, true);
+    auto imageToBufferKernelW = runtime->buildKernelWithCache("buffer_to_image", "image_to_image", buildOptions, backend_precison);
+    auto imageToBufferKernel = imageToBufferKernelW->get();
+        
+    uint32_t idx = 0;
+    cl_int ret = CL_SUCCESS;
+    ret |= imageToBufferKernel.setArg(idx++, in_gws[0]);
+    ret |= imageToBufferKernel.setArg(idx++, in_gws[1]);
+    ret |= imageToBufferKernel.setArg(idx++, openCLImage(output));
+    ret |= imageToBufferKernel.setArg(idx++, openCLImage(input));
+    MNN_CHECK_CL_SUCCESS(ret, "setArg convertImageToImage");
+        
+    const uint32_t maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(imageToBufferKernelW));
+    const std::vector<uint32_t> lws = {16, std::max((uint32_t)1, maxWorkGroupSize / 16)};
+    cl::Event event;
+    cl_int res;
+    std::vector<uint32_t> roundUpGroupWorkSize(lws.size());
+    for (size_t i = 0; i < lws.size(); ++i) {
+        roundUpGroupWorkSize[i] = ROUND_UP(in_gws[i], lws[i]);
+    }
+    res = runtime->commandQueue().enqueueNDRangeKernel(imageToBufferKernel, cl::NullRange,
+                                                           cl::NDRange(roundUpGroupWorkSize[0], roundUpGroupWorkSize[1]),
+                                                           cl::NDRange(lws[0], lws[1]), nullptr, &event);
+    MNN_CHECK_CL_SUCCESS(res, "image_to_image");
+        
+    if (true == needWait) {
+        event.wait();
+    }
+        
+#ifdef ENABLE_OPENCL_TIME_PROFILER
+    runtime->pushEvent({"convertImageToImage", event});
+#endif
+    return true;
+}
+
+bool ImageBufferConvertor::convertImageToBuffer(const Tensor *image, const OpenCLBufferFormat type, Tensor *buffer, int precision,
                                                 bool needWait, bool svmFlag) {
 #ifdef LOG_VERBOSE
     MNN_PRINT("start convertImageToBuffer !\n");
@@ -469,7 +509,7 @@ bool ImageBufferConvertor::convertImageToBuffer(const Tensor *image, const OpenC
         mImageToBufferKernelName = kernelName;
         std::set<std::string> buildOptions;
 
-        mImageToBufferKernel = runtime->buildKernelWithCache("buffer_to_image", kernelName, buildOptions, image, buffer);
+        mImageToBufferKernel = runtime->buildKernelWithCache("buffer_to_image", kernelName, buildOptions, precision, image, buffer);
     }
     auto kernel = mImageToBufferKernel->get();
     std::vector<size_t> gws;
@@ -528,7 +568,7 @@ bool ImageBufferConvertor::convertImageToBuffer(const Tensor *image, const OpenC
     return true;
 }
 
-bool ImageBufferConvertor::convertBufferToImage(const Tensor *buffer, const OpenCLBufferFormat type, Tensor *image, bool needWait, const std::string &buildOption) {
+bool ImageBufferConvertor::convertBufferToImage(const Tensor *buffer, const OpenCLBufferFormat type, Tensor *image, int precision, bool needWait, const std::string &buildOption) {
 #ifdef LOG_VERBOSE
     MNN_PRINT("start convertBufferToImage !\n");
 #endif
@@ -566,7 +606,7 @@ bool ImageBufferConvertor::convertBufferToImage(const Tensor *buffer, const Open
         mBufferToImageKernelName = kernelName;
         std::set<std::string> buildOptions;
         buildOptions.emplace(buildOption);
-        mBufferToImageKernel = runtime->buildKernelWithCache("buffer_to_image", kernelName, buildOptions, buffer, image);
+        mBufferToImageKernel = runtime->buildKernelWithCache("buffer_to_image", kernelName, buildOptions, precision, buffer, image);
     }
     auto kernel = mBufferToImageKernel->get();
 

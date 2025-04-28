@@ -172,13 +172,13 @@ static int _getDataSizeForRead(int32_t itype) {
     static std::map<::onnx::TensorProto_DataType, int> dataTypeMap{
         {onnx::TensorProto_DataType_FLOAT, 4},
         {onnx::TensorProto_DataType_FLOAT16, 2},
-	    {onnx::TensorProto_DataType_BFLOAT16, 2},     
+	    {onnx::TensorProto_DataType_BFLOAT16, 2},
    	    {onnx::TensorProto_DataType_INT8, 1},
         {onnx::TensorProto_DataType_INT32, 4},
-        {onnx::TensorProto_DataType_INT64, 8}, 
+        {onnx::TensorProto_DataType_INT64, 8},
         {onnx::TensorProto_DataType_DOUBLE, 8},
         {onnx::TensorProto_DataType_UINT8, 1},
-        {onnx::TensorProto_DataType_BOOL, 4}, 
+        {onnx::TensorProto_DataType_BOOL, 4},
         {onnx::TensorProto_DataType_INT16, 2},
         {onnx::TensorProto_DataType_UINT16, 2},
         {onnx::TensorProto_DataType_UINT32, 4},
@@ -196,7 +196,7 @@ MNN::DataType onnxOpConverter::convertDataType(int32_t itype) {
     static std::map<::onnx::TensorProto_DataType, MNN::DataType> dataTypeMap{
         {onnx::TensorProto_DataType_FLOAT, MNN::DataType_DT_FLOAT},
         {onnx::TensorProto_DataType_FLOAT16, MNN::DataType_DT_HALF},
-	{onnx::TensorProto_DataType_BFLOAT16, MNN::DataType_DT_BFLOAT16},     
+	{onnx::TensorProto_DataType_BFLOAT16, MNN::DataType_DT_BFLOAT16},
    	{onnx::TensorProto_DataType_INT8, MNN::DataType_DT_INT8},
         {onnx::TensorProto_DataType_INT32, MNN::DataType_DT_INT32},
         {onnx::TensorProto_DataType_INT64, MNN::DataType_DT_INT32},  // For compability, use int32 instead of int64
@@ -224,7 +224,7 @@ static bool _needConvert(int onnxDataType) {
         case onnx::TensorProto_DataType_UINT8:
         case onnx::TensorProto_DataType_INT8:
             return false;
-            
+
         default:
             break;
     }
@@ -262,7 +262,7 @@ MNN::BlobT* onnxOpConverter::convertTensorToBlob(const onnx::TensorProto* consta
         if (!modelDir.empty()) {
             location = modelDir + location;
         }
-        if (0 <= length) {
+        if (length < 0) {
             length = _getDataSizeForRead(constantTp->data_type()) * dataSize;
         }
         if (_needConvert(constantTp->data_type())) {

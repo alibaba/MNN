@@ -27,7 +27,7 @@ PoolBufExecution::PoolBufExecution(const std::vector<Tensor *> &inputs, const MN
     mPaddings[0] = mPoolParams->padY() * 2;
     mPaddings[1] = mPoolParams->padX() * 2;
     mPadType     = mPoolParams->padType();
-    auto kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("pooling_buf", "global_pooling_buf", {"-DLOCAL_SIZE=512"});
+    auto kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("pooling_buf", "global_pooling_buf", {"-DLOCAL_SIZE=512"}, mOpenCLBackend->getPrecision());
     mMaxWorkGroupSize = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(kernel));
 }
 
@@ -118,7 +118,7 @@ ErrorCode PoolBufExecution::onEncode(const std::vector<Tensor *> &inputs, const 
         buildOptions.emplace("-DRETURN_REDICE");
     }
     
-    unit.kernel       = runtime->buildKernel("pooling_buf", kernelName, buildOptions);
+    unit.kernel       = runtime->buildKernel("pooling_buf", kernelName, buildOptions, mOpenCLBackend->getPrecision());
     mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
     
     mGlobalWorkSize = {
@@ -164,7 +164,7 @@ ErrorCode PoolBufExecution::onEncode(const std::vector<Tensor *> &inputs, const 
     
     std::string kernelNameTune = "pooling_buf";
     if (!mPoolParams->isGlobal()){
-        mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelNameTune, unit.kernel).first;
+        mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelNameTune, unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
     }
     
     mOpenCLBackend->recordKernel3d(unit.kernel, mGlobalWorkSize, mLocalWorkSize);
@@ -268,7 +268,7 @@ ErrorCode PoolBufExecution::SubgrouponResize(const std::vector<Tensor *> &inputs
     buildOptions.emplace("-DKERNEL_Y=" + std::to_string(kernelShape[0]));
     buildOptions.emplace("-DKERNEL_X=" + std::to_string(kernelShape[1]));
     
-    unit.kernel       = runtime->buildKernel("pooling_subgroup_buf", KernelName, buildOptions);
+    unit.kernel       = runtime->buildKernel("pooling_subgroup_buf", KernelName, buildOptions, mOpenCLBackend->getPrecision());
     mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
 
     mGlobalWorkSize = {
@@ -309,7 +309,7 @@ ErrorCode PoolBufExecution::SubgrouponResize(const std::vector<Tensor *> &inputs
     if (input_c_pack == 16) {
         mLocalWorkSize = {16, 1, 1};
     } else {
-        mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelNameTune, unit.kernel).first;
+        mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelNameTune, unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
     }
     mOpenCLBackend->recordKernel3d(unit.kernel, mGlobalWorkSize, mLocalWorkSize);
     unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1], mGlobalWorkSize[2]};

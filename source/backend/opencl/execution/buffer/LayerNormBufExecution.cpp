@@ -24,20 +24,30 @@ LayerNormBufExecution::LayerNormBufExecution(const std::vector<Tensor *> &inputs
     mResource->epsilon_ = layer_norm_param->epsilon();
     mResource->group_ = layer_norm_param->group();
     mResource->RMSNorm = layer_norm_param->useRMSNorm();
-    auto bufferUnitSize = runtime->isSupportedFP16() ? sizeof(half_float::half) : sizeof(float);
-    auto kernel = runtime->buildKernel("layernorm_buf", "layernorm_buf", {"-DLOCAL_SIZE=512"});
+    auto bufferUnitSize = mOpenCLBackend->getPrecision() != BackendConfig::Precision_High ? sizeof(half_float::half) : sizeof(float);
+    auto kernel = runtime->buildKernel("layernorm_buf", "layernorm_buf", {"-DLOCAL_SIZE=512"}, mOpenCLBackend->getPrecision());
     mResource->mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(kernel));
 
-    if(layer_norm_param->gamma() && layer_norm_param->beta()){
-        mResource->has_gamma_beta_ = true;
+    mResource->has_gamma_beta_ = (layer_norm_param->gamma() && layer_norm_param->beta());
+    int gammasize = 0;
+    if (mResource->has_gamma_beta_) {
+        MNN_ASSERT(layer_norm_param->gamma()->size() == layer_norm_param->beta()->size());
+        gammasize = layer_norm_param->gamma()->size();
+    }
+    mResource->has_gamma_beta_ = mResource->has_gamma_beta_ || (layer_norm_param->external() && layer_norm_param->external()->size() > 1 && layer_norm_param->external()->data()[1] > 0);
+    if (mResource->has_gamma_beta_ && gammasize == 0) {
+        gammasize = layer_norm_param->external()->data()[1] / sizeof(float);
+    }
+        
+    if(mResource->has_gamma_beta_){
         {
             auto error = CL_SUCCESS;
-            int size = layer_norm_param->gamma()->size();
+            int size = gammasize;
             mResource->mGammaBuffer.reset(new cl::Buffer(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, ALIGN_UP4(size) * bufferUnitSize));
             auto GammaPtrCL = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(*(mResource->mGammaBuffer.get()), true, CL_MAP_WRITE, 0, ALIGN_UP4(size) * bufferUnitSize, nullptr, nullptr, &error);
             const float* gamma_data = layer_norm_param->gamma()->data();
             if(GammaPtrCL != nullptr && error == CL_SUCCESS){
-                if(mOpenCLBackend->getOpenCLRuntime()->isSupportedFP16()){
+                if(mOpenCLBackend->getPrecision() != BackendConfig::Precision_High){
                     for (int i = 0; i < size; i++)
                     {
                         ((half_float::half*)GammaPtrCL)[i] = (half_float::half)(gamma_data[i]);
@@ -56,12 +66,12 @@ LayerNormBufExecution::LayerNormBufExecution(const std::vector<Tensor *> &inputs
         }
         {
             auto error = CL_SUCCESS;
-            int size = layer_norm_param->beta()->size();
+            int size = gammasize;
             mResource->mBetaBuffer.reset(new cl::Buffer(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, ALIGN_UP4(size) * bufferUnitSize));
             auto BetaPtrCL = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(*(mResource->mBetaBuffer.get()), true, CL_MAP_WRITE, 0, ALIGN_UP4(size) * bufferUnitSize, nullptr, nullptr, &error);
             const float* beta_data = layer_norm_param->beta()->data();
             if(BetaPtrCL != nullptr && error == CL_SUCCESS){
-                if(mOpenCLBackend->getOpenCLRuntime()->isSupportedFP16()){
+                if(mOpenCLBackend->getPrecision() != BackendConfig::Precision_High){
                     for (int i = 0; i < size; i++)
                     {
                         ((half_float::half*)BetaPtrCL)[i] = (half_float::half)(beta_data[i]);
@@ -148,7 +158,7 @@ ErrorCode LayerNormBufExecution::onEncode(const std::vector<Tensor *> &inputs, c
         buildOptions.emplace("-DPACK_LEAVE");
     }
     
-    unit.kernel = runtime->buildKernel("layernorm_buf", "layernorm_buf", buildOptions);
+    unit.kernel = runtime->buildKernel("layernorm_buf", "layernorm_buf", buildOptions, mOpenCLBackend->getPrecision());
     mGWS = {static_cast<uint32_t>(local_size), static_cast<uint32_t>(outter_size)};
     mLWS = {static_cast<uint32_t>(local_size), 1};
 

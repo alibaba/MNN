@@ -172,6 +172,13 @@ bool Tensor::copyFromHostTensor(const Tensor* hostTensor) {
     if (nullptr == bn) {
         return false;
     }
+    auto hostbn = hostTensor->mDescribe->getBackend();
+    std::shared_ptr<Tensor> tmpTensor;
+    if (nullptr != hostbn && hostbn->type() != bn->type() && hostbn->type() != MNN_FORWARD_CPU) {
+        tmpTensor.reset(new Tensor(hostTensor, hostTensor->getDimensionType()));
+        hostTensor->copyToHostTensor(tmpTensor.get());
+        hostTensor = tmpTensor.get();
+    }
     bn->onCopyBuffer(hostTensor, this);
     return true;
 }

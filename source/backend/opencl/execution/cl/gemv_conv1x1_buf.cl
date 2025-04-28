@@ -107,7 +107,7 @@ __kernel void gemv_conv_c8_int4_buf(GLOBAL_SIZE_DIM_2
 #endif
         COMPUTE_FLOAT8 wei;
         #ifdef USE_IMAGE
-        uchar16 charWeightsInt40 = as_uchar16(read_imagei(weight, SAMPLER, (int2)(j, oc)));
+        uchar16 charWeightsInt40 = as_uchar16(read_imagei(weight, SAMPLER, (int2)(loop, oc)));
         #else
         uchar16 charWeightsInt40 = vload16(j, weight + weight_offset);
         #endif
@@ -145,7 +145,13 @@ __kernel void gemv_conv_c8_int4_buf(GLOBAL_SIZE_DIM_2
     #ifdef RELU6
         out0 = clamp(out0, (COMPUTE_FLOAT8)0, (COMPUTE_FLOAT8)6);
     #endif
+    #ifdef OUTPUT_CHANNEL_LEAVES
+        vstore4(CONVERT_FLOAT4(out0.s0123), 0, output + oc8);
+        if(oc8 + 4 < dstChannelC4 * 4)
+            vstore4(CONVERT_FLOAT4(out0.s4567), 0, output + oc8 + 4);
+    #else
         vstore8(CONVERT_FLOAT8(out0), 0, output + oc8);
+    #endif
     }
 }
 
@@ -221,7 +227,7 @@ __kernel void gemv_conv_c8_int8_buf(GLOBAL_SIZE_DIM_2
             #endif
         }
         #ifdef USE_IMAGE
-        COMPUTE_FLOAT16 wei = CONVERT_COMPUTE_FLOAT16(as_char16(read_imagei(weight, SAMPLER, (int2)(j, oc)))) * scale + offset;
+        COMPUTE_FLOAT16 wei = CONVERT_COMPUTE_FLOAT16(as_char16(read_imagei(weight, SAMPLER, (int2)(loop, oc)))) * scale + offset;
         #else
         COMPUTE_FLOAT16 wei = CONVERT_COMPUTE_FLOAT16(vload16(j, weight + weight_offset)) * scale + offset;
         #endif
@@ -246,7 +252,13 @@ __kernel void gemv_conv_c8_int8_buf(GLOBAL_SIZE_DIM_2
     #ifdef RELU6
         out0 = clamp(out0, (COMPUTE_FLOAT8)0, (COMPUTE_FLOAT8)6);
     #endif
+    #ifdef OUTPUT_CHANNEL_LEAVES
+        vstore4(CONVERT_FLOAT4(out0.s0123), 0, output + oc8);
+        if(oc8 + 4 < dstChannelC4 * 4)
+            vstore4(CONVERT_FLOAT4(out0.s4567), 0, output + oc8 + 4);
+    #else
         vstore8(CONVERT_FLOAT8(out0), 0, output + oc8);
+    #endif
     }
 }
 #else
@@ -356,7 +368,13 @@ __kernel void gemv_conv_c8_int4_buf(GLOBAL_SIZE_DIM_2
 #ifdef RELU6
     out0 = clamp(out0, (COMPUTE_FLOAT8)0, (COMPUTE_FLOAT8)6);
 #endif
+    #ifdef OUTPUT_CHANNEL_LEAVES
+    vstore4(CONVERT_FLOAT4(out0.s0123), 0, output + oc8);
+    if(oc8 + 4 < dstChannelC4 * 4)
+        vstore4(CONVERT_FLOAT4(out0.s4567), 0, output + oc8 + 4);
+    #else
     vstore8(CONVERT_FLOAT8(out0), 0, output + oc8);
+    #endif
 }
 
 __kernel void gemv_conv_c8_int8_buf(GLOBAL_SIZE_DIM_2
@@ -438,6 +456,13 @@ __kernel void gemv_conv_c8_int8_buf(GLOBAL_SIZE_DIM_2
 #ifdef RELU6
     out0 = clamp(out0, (COMPUTE_FLOAT8)0, (COMPUTE_FLOAT8)6);
 #endif
+
+    #ifdef OUTPUT_CHANNEL_LEAVES
+    vstore4(CONVERT_FLOAT4(out0.s0123), 0, output + oc8);
+    if(oc8 + 4 < dstChannelC4 * 4)
+        vstore4(CONVERT_FLOAT4(out0.s4567), 0, output + oc8 + 4);
+    #else
     vstore8(CONVERT_FLOAT8(out0), 0, output + oc8);
+    #endif
 }
 #endif

@@ -20,7 +20,6 @@
 #include "backend/opencl/core/BufferConvertor.hpp"
 #include "backend/opencl/core/ImagePool.hpp"
 #include "core/Macro.h"
-#include "backend/opencl/core/ImageBufferConvertor.hpp"
 #include "backend/opencl/core/OpenCLRunningUtils.hpp"
 #include "half.hpp"
 #define MNN_USER_SET_DEVICE
@@ -60,9 +59,9 @@ public:
                            const MNN::Op* op, OpInfo& dstInfo) const override;
     virtual void onMaskOpReady(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                const MNN::Op* op) override;
-    void convertToDevice(const Tensor* srcTensor, const Tensor* dstTensor, MNN_DATA_FORMAT data_format, bool svmFlag = false, int memtype = MNN_FORWARD_CPU) const;
-    void convertFromDevice(const Tensor* srcTensor, const Tensor* dstTensor, MNN_DATA_FORMAT data_format, bool svmFlag = false, int memtype = MNN_FORWARD_CPU) const;
-    void copyBetweenDevice(const Tensor* srcTensor, const Tensor* dstTensor) const;
+    void convertToDevice(const Tensor* srcTensor, const Tensor* dstTensor, MNN_DATA_FORMAT data_format, int precision, int backend_memtype, bool svmFlag = false, int memtype = MNN_FORWARD_CPU) const;
+    void convertFromDevice(const Tensor* srcTensor, const Tensor* dstTensor, MNN_DATA_FORMAT data_format, int precision, int backend_memtype, bool svmFlag = false, int memtype = MNN_FORWARD_CPU) const;
+    void copyBetweenDevice(const Tensor* srcTensor, const Tensor* dstTensor, int precision, int backend_memtype) const;
     static void setGlobalCLRuntime(std::shared_ptr<OpenCLRuntime> runtime);
     static std::shared_ptr<OpenCLRuntime> getGlobalCLRuntime();
 
@@ -84,7 +83,7 @@ private:
 
 class OpenCLBackend : public Backend {
 public:
-    OpenCLBackend(BackendConfig::PrecisionMode precision, BackendConfig::MemoryMode memory, std::shared_ptr<ImagePool>imgPool, std::shared_ptr<BufferPool> bufPool, const CLRuntime *runtime);
+    OpenCLBackend(BackendConfig::PrecisionMode precision, BackendConfig::MemoryMode memory, int gpuMode, std::shared_ptr<ImagePool>imgPool, std::shared_ptr<BufferPool> bufPool, const CLRuntime *runtime);
     ~OpenCLBackend();
 
     OpenCLRuntime *getOpenCLRuntime();
@@ -140,6 +139,9 @@ public:
     bool isDevideOpRecord(){
         return mDevideOpRecord;
     }
+    CLTuneLevel getCLTuneLevel() {
+        return mTuneLevel;
+    }
     void addRecord(cl_recording_qcom &record, std::vector<RecordUpdateInfo *>updateInfo);
     void recordKernel2d(const std::shared_ptr<KernelWrap> &kernel, const std::vector<uint32_t> &gws, const std::vector<uint32_t> &lws, RecordUpdateInfo *updateInfo = nullptr);
     void recordKernel3d(const std::shared_ptr<KernelWrap> &kernel, const std::vector<uint32_t> &gws, const std::vector<uint32_t> &lws, RecordUpdateInfo *updateInfo = nullptr);
@@ -158,6 +160,7 @@ private:
     void copyBetweenDevice(const Tensor* srcTensor, const Tensor* dstTensor) const;
 
     bool _allocHostBuffer(int length, const Tensor* srcTensor) const;
+    void setGpuMode(const int cl_mode_num);
 
     const CLRuntime* mCLRuntime;
 
@@ -190,6 +193,9 @@ private:
     std::pair<int, void *> mMapMem;
     bool mUseSvm = false;
     void* allocMapTensorMemory(int length, bool svmFlag = false, cl_device_svm_capabilities svm_cap_ = 0);
+    int mGpuMode;
+    GpuMemObject mMemType = AUTO;
+    CLTuneLevel mTuneLevel = Wide;
 
 };
 

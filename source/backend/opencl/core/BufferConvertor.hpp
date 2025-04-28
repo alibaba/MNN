@@ -20,27 +20,27 @@ namespace MNN {
 namespace OpenCL {
 
 bool converNCHWOrNHWCBufferToNC4HW4OrNC16HW16Buffer(const Tensor *input, Tensor *output, const std::string Name,
-                                                    OpenCLRuntime *runtime, bool needInpTrans = false, bool needWait = false, bool svmFlag = false);
+                                                    OpenCLRuntime *runtime, int precision, bool needInpTrans = false, bool needWait = false, bool svmFlag = false);
 
 bool convertNC4HW4OrNC16HW16BufferToNCHWOrNHWCBuffer(const Tensor *input, Tensor *output, const std::string Name,
-                                                    OpenCLRuntime *runtime, bool needOutTrans = false, bool needWait = false, bool svmFlag = false);
+                                                    OpenCLRuntime *runtime, int precision, bool needOutTrans = false, bool needWait = false, bool svmFlag = false);
 
 enum TransType {InpTrans = 0, OutTrans = 1, NoTrans = 2};
 
 #ifdef MNN_SUPPORT_INTEL_SUBGROUP
 bool convertNC4HW4BufferBetweenNC16HW16Buffer(const Tensor *input, Tensor *output, const std::string Name,
-                                             OpenCLRuntime *runtime, TransType formatTrans = NoTrans, bool needWait = false,
+                                             OpenCLRuntime *runtime, int precision, TransType formatTrans = NoTrans, bool needWait = false,
                                              bool svmFlag = false, bool srcswap = false, bool dstswap = false);
 #endif
 
-bool convertBufferToBuffer(Tensor *input, Tensor *output, OpenCLRuntime *runtime, bool toDevice, bool toHost, bool needWait = false, bool svmFlag = false);
-bool convertBetweenAHDandCLmem(const Tensor *input, const Tensor *output, OpenCLRuntime *runtime, int memType, bool toDevice, bool toHost);
+bool convertBufferToBuffer(Tensor *input, Tensor *output, OpenCLRuntime *runtime, int input_precision, int output_precision, int backend_precison, bool toDevice, bool toHost, bool needWait = false, bool svmFlag = false);
+bool convertBetweenAHDandCLmem(const Tensor *input, const Tensor *output, OpenCLRuntime *runtime, int precision, int memType, bool toDevice, bool toHost);
                                        
 class BufferConvertor {
 public:
     explicit BufferConvertor(OpenCLRuntime *opencl_runtime) : mOpenCLRuntime(opencl_runtime) {
     }
-    bool convertToNC4HW4Buffer(const Tensor *input, const OpenCLBufferFormat type, Tensor *output,
+    bool convertToNC4HW4Buffer(const Tensor *input, const OpenCLBufferFormat type, Tensor *output, int precision,
                                bool needTrans, bool needWait = false, bool lowMemory = false, int quantBit = 0);
 
 private:

@@ -40,7 +40,7 @@ private:
 StrassenMatrixComputor::StrassenMatrixComputor(Backend* bn, int maxDepth) {
     mMaxDepth = maxDepth;
     mOpenCLBackend = static_cast<OpenCLBackend*>(bn);
-    mBytes = (mOpenCLBackend->getOpenCLRuntime()->isSupportedFP16() ? 2 : 4);
+    mBytes = (mOpenCLBackend->getPrecision() != BackendConfig::Precision_High ? 2 : 4);
     onReset();
 };
 StrassenMatrixComputor::~StrassenMatrixComputor() {
@@ -51,7 +51,7 @@ ErrorCode StrassenMatrixComputor::_generateCFunction(cl::Buffer ptrC, int offset
     std::set<std::string> buildOptions;
     int vec_h = 1;
     buildOptions.emplace("-DVEC_H=" + std::to_string(vec_h));
-    unit.kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("strassen_binary_buf", "binary_cfunction_buf", buildOptions);
+    unit.kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("strassen_binary_buf", "binary_cfunction_buf", buildOptions, mOpenCLBackend->getPrecision());
     auto maxWorkGroupSize      = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(unit.kernel));
 
     std::vector<uint32_t> globalWorkSize =  {(uint32_t)UP_DIV(width, 8), (uint32_t)UP_DIV(height, vec_h)};
@@ -71,7 +71,7 @@ ErrorCode StrassenMatrixComputor::_generateCFunction(cl::Buffer ptrC, int offset
     MNN_CHECK_CL_SUCCESS(ret, "Strassen setArg BinaryCFunctionExecution");
 
     std::string name = "binary_cfunction_buf";
-    auto localWorkSize = localWS2DDefault(globalWorkSize, maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, unit.kernel).first;
+    auto localWorkSize = localWS2DDefault(globalWorkSize, maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
     
     globalWorkSize[0] = ROUND_UP(globalWorkSize[0], std::max((uint32_t)1, localWorkSize[0]));
     globalWorkSize[1] = ROUND_UP(globalWorkSize[1], std::max((uint32_t)1, localWorkSize[1]));
@@ -92,7 +92,7 @@ ErrorCode StrassenMatrixComputor::_generateBinary(cl::Buffer ptrC, cl::Buffer pt
     }
     int vec_h = 1;
     buildOptions.emplace("-DVEC_H=" + std::to_string(vec_h));
-    unit.kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("strassen_binary_buf", "binary_function_buf", buildOptions);
+    unit.kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("strassen_binary_buf", "binary_function_buf", buildOptions, mOpenCLBackend->getPrecision());
     auto maxWorkGroupSize      = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(unit.kernel));
 
     std::vector<uint32_t> globalWorkSize =  {(uint32_t)UP_DIV(width, 8), (uint32_t)UP_DIV(height, vec_h)};
@@ -112,7 +112,7 @@ ErrorCode StrassenMatrixComputor::_generateBinary(cl::Buffer ptrC, cl::Buffer pt
     MNN_CHECK_CL_SUCCESS(ret, "Strassen setArg BinaryExecution");
 
     std::string name = "binary_function_buf";
-    auto localWorkSize = localWS2DDefault(globalWorkSize, maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, unit.kernel).first;
+    auto localWorkSize = localWS2DDefault(globalWorkSize, maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
     
     globalWorkSize[0] = ROUND_UP(globalWorkSize[0], std::max((uint32_t)1, localWorkSize[0]));
     globalWorkSize[1] = ROUND_UP(globalWorkSize[1], std::max((uint32_t)1, localWorkSize[1]));
@@ -132,9 +132,9 @@ ErrorCode StrassenMatrixComputor::_generateBasicMatMul(int e, int l, int h, cons
     
     std::vector<uint32_t> param;
     if(COT.stackIndex < 0 || postType == 0) {
-        param = getGemmParams({(uint32_t)e, (uint32_t)h, (uint32_t)l, layout, batch, (uint32_t)0}, {mStack[AT.stackIndex], mStack[BT.stackIndex], mStack[CT.stackIndex]}, mOpenCLBackend->getOpenCLRuntime());
+        param = getGemmParams({(uint32_t)e, (uint32_t)h, (uint32_t)l, layout, batch, (uint32_t)0}, {mStack[AT.stackIndex], mStack[BT.stackIndex], mStack[CT.stackIndex]}, mOpenCLBackend->getOpenCLRuntime(), mOpenCLBackend->getPrecision(), mOpenCLBackend->getCLTuneLevel());
     } else {
-        param = getGemmParams({(uint32_t)e, (uint32_t)h, (uint32_t)l, layout, batch, (uint32_t)postType}, {mStack[AT.stackIndex], mStack[BT.stackIndex], mStack[CT.stackIndex], mStack[COT.stackIndex]}, mOpenCLBackend->getOpenCLRuntime());
+        param = getGemmParams({(uint32_t)e, (uint32_t)h, (uint32_t)l, layout, batch, (uint32_t)postType}, {mStack[AT.stackIndex], mStack[BT.stackIndex], mStack[CT.stackIndex], mStack[COT.stackIndex]}, mOpenCLBackend->getOpenCLRuntime(), mOpenCLBackend->getPrecision(), mOpenCLBackend->getCLTuneLevel());
     }
     int KWG=param[0], KWI=param[1], MDIMA=param[2], MDIMC=param[3], MWG=param[4], NDIMB=param[5], NDIMC=param[6], NWG=param[7], SA=param[8], SB=param[9], STRM=param[10], STRN=param[11], VWM=param[12], VWN=param[13];
     buildOptions.emplace("-DKWG=" + std::to_string(KWG));
@@ -171,7 +171,7 @@ ErrorCode StrassenMatrixComputor::_generateBasicMatMul(int e, int l, int h, cons
         buildOptions.emplace("-DRELAX_WORKGROUP_SIZE=1");
     }
 
-    unit.kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("matmul_params_buf", "Xgemm", buildOptions);
+    unit.kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("matmul_params_buf", "Xgemm", buildOptions, mOpenCLBackend->getPrecision());
     
     int out_per_thread_m = tileM / localM;
     int out_per_thread_n = tileN / localN;

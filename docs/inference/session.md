@@ -246,6 +246,8 @@ net2->runSession(session2);
 net3->runSession(session3);
 ```
 
+*** 使用共享运行时的情况下，输入数据需要采用拷贝填充/映射填充，不能使用直接填充：如果后续的Session所需的中间内存比前面的Session大，则会重新申请中间内存，此时前面的Session所使用的中间内存会被释放，若采用拷贝填充/映射填充，MNN中保证了下一次使用Session时中间内存会重新适配，若是采用直接填充，则可能由于使用非法指针而出现内存异常。 *
+
 ## 输入数据
 ### 获取输入tensor
 ```cpp
@@ -340,7 +342,19 @@ struct Config
 
 - 通过`sourceFormat`和`destFormat`指定输入和输出的格式，当前支持`RGBA`、`RGB`、`BGR`、`GRAY`、`BGRA`、`YUV_NV21、YUV_NV12`
 - 通过`filterType`指定插值的类型，当前支持`NEAREST`、`BILINEAR`和`BICUBIC`三种插值方式
-- 通过`mean`和`normal`指定均值归一化，但数据类型不是浮点类型时，设置会被忽略
+- 通过`mean`和`normal`指定均值归一化，但数据类型不是浮点类型时，设置会被忽略，内部计算过程参考如下伪码
+```cpp
+for (int i=0; i<bpp; ++i) {
+    y[i] = (x[i] - mean[i]) * normal[i];
+}
+```
+
+- `mean`, `normal` 与 torchvision.transforms.Normalize(mean, std) 的对应关系是：
+```
+mnn.cv.mean = torch.mean * 255.0
+mnn.cv.normal = 1.0 / torch.std /255.0
+```
+
 
 #### 图像变换矩阵
 `CV::Matrix`移植自Android 系统使用的Skia引擎，用法可参考Skia的Matrix：[https://skia.org/user/api/SkMatrix_Reference](https://skia.org/user/api/SkMatrix_Reference)。

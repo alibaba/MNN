@@ -5,7 +5,7 @@
 #    "${CMAKE_CURRENT_LIST_DIR}/execution/cl/opencl_program.cc"
 #    COMMENT "OpenCL Code Generation"
 #)
-#add_custom_target (MNN_CLCodeGen DEPENDS "${CMAKE_CURRENT_LIST_DIR}/execution/cl/opencl_program.cc")
+#add_custom_target (MNN_CLCodeGen DEPENDS "${CMAKE_CURRENT_LIST_DIR}/execution/cl/")
 file(GLOB_RECURSE MNN_OpenCL_SRC ${CMAKE_CURRENT_LIST_DIR}/*)
 
 option(MNN_OPENCL_SIZE_CUT "Disable MNN OpenCL Buffer Opt" OFF)
@@ -43,10 +43,10 @@ IF(MNN_SEP_BUILD)
     if (MNN_BUILD_FOR_ANDROID_COMMAND)
         set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "../../../")
     endif()
-    add_library(MNN_CL SHARED ${MNN_OpenCL_SRC} "${CMAKE_CURRENT_LIST_DIR}/execution/cl/opencl_program.cc")
+    add_library(MNN_CL SHARED ${MNN_OpenCL_SRC} "${CMAKE_CURRENT_LIST_DIR}/execution/cl/")
     target_link_libraries(MNN_CL MNN ${OpenCL_LIBRARIES})
 ELSE()
-    add_library(MNN_CL OBJECT ${MNN_OpenCL_SRC} "${CMAKE_CURRENT_LIST_DIR}/execution/cl/opencl_program.cc")
+    add_library(MNN_CL OBJECT ${MNN_OpenCL_SRC} "${CMAKE_CURRENT_LIST_DIR}/execution/cl/")
     set(MNN_OCL_LIBS ${OpenCL_LIBRARIES} PARENT_SCOPE)
 ENDIF()
 

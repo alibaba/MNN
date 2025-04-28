@@ -1171,12 +1171,7 @@ void Pipeline::_copyInputs() {
         if (!std::get<3>(tensorCache)) {
             continue;
         }
-        auto curBackend = TensorUtils::getDescribeOrigin(std::get<0>(tensorCache))->getBackend();
-        if (curBackend->type() == MNN_FORWARD_CPU) {
-            TensorUtils::getDescribeOrigin(iter.first)->getBackend()->onCopyBuffer(iter.first, std::get<0>(tensorCache));
-        } else {
-            curBackend->onCopyBuffer(iter.first, std::get<0>(tensorCache));
-        }
+        std::get<0>(tensorCache)->copyFromHostTensor(iter.first);
         std::get<3>(tensorCache) = false;
     }
 }

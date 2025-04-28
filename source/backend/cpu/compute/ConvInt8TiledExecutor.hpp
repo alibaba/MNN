@@ -38,6 +38,7 @@ protected:
     std::pair<size_t, size_t> mBlitInfoStride;
     int mIm2ColCount;
     bool mQuantFirst;
+    MemChunk mInputReorderBuffer;
 };
 
 //

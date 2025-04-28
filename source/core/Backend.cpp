@@ -127,6 +127,9 @@ bool Backend::onAcquireBuffer(const Tensor* tensor, StorageType storageType) {
         return true;
     }
     TensorUtils::getDescribeOrigin(tensor)->mem = mem;
+    if (nullptr == TensorUtils::getDescribeOrigin(tensor)->getBackend()) {
+        TensorUtils::getDescribeOrigin(tensor)->setBackend(this);
+    }
     return true;
 }
 bool Backend::onReleaseBuffer(const Tensor* tensor, StorageType storageType) {

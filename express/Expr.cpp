@@ -369,6 +369,9 @@ VARP Variable::create(EXPRP expr, int index) {
 #endif
     }
 #endif
+    if (nullptr == expr->get()) {
+        return res;
+    }
     auto executor = ExecutorScope::Current();
     if (!executor->lazyEval) {
         res.fix(VARP::CONSTANT);

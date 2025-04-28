@@ -81,7 +81,7 @@ ErrorCode MultiInputDWConvExecution::onEncode(const std::vector<Tensor *> &input
         auto shape = tensorShapeFormat(inputs[1]);
         std::vector<uint32_t> gws = {static_cast<uint32_t>(shape[2] * UP_DIV(shape[3], 4)), static_cast<uint32_t>(shape[0] * shape[1])};
 
-        auto kernelW = runtime->buildKernel("buffer_to_image", kernelName, {}, inputs[1], inputs[1]);
+        auto kernelW = runtime->buildKernel("buffer_to_image", kernelName, {}, openclBackend->getPrecision(), inputs[1], inputs[1]);
         auto kernel = kernelW->get();
         cl_int ret = CL_SUCCESS;
         ret |= kernel.setArg(0, gws[0]);
@@ -125,7 +125,7 @@ ErrorCode MultiInputDWConvExecution::onEncode(const std::vector<Tensor *> &input
 
 
         std::set<std::string> buildOptions;
-        auto kernelW = runtime->buildKernel("buffer_to_image", kernelName, buildOptions, buffer, image);
+        auto kernelW = runtime->buildKernel("buffer_to_image", kernelName, buildOptions, openclBackend->getPrecision(), buffer, image);
         auto kernel = kernelW->get();
 
        uint32_t idx = 0;
@@ -197,7 +197,7 @@ ErrorCode MultiInputDWConvExecution::onEncode(const std::vector<Tensor *> &input
             buildOptions.emplace("-DNO_BIAS");
         }
 
-        auto kernelW = runtime->buildKernel("depthwise_conv2d", kernelName, buildOptions);
+        auto kernelW = runtime->buildKernel("depthwise_conv2d", kernelName, buildOptions, openclBackend->getPrecision());
         auto kernel = kernelW->get();
         cl_int ret = CL_SUCCESS;
         ret |= kernel.setArg(idx++, gws[0]);

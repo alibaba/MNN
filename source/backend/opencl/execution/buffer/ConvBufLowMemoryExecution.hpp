@@ -25,19 +25,18 @@ public:
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
 private:
-    void getInfoFromOpLowMemory(std::shared_ptr<ConvolutionCommon::Int8Common> & quanCommon);
-    void set1x1WeightLowMemory(int packCout, int packCin, void * filterDataPtr, std::shared_ptr<ConvolutionCommon::Int8Common> & quanCommon);
-    void setGeneralWeightLowMemory(void * filterDataPtr, std::shared_ptr<ConvolutionCommon::Int8Common> & quanCommon);
+    void getInfoFromOpLowMemory(void *weight_ptr);
+    void set1x1WeightLowMemory();
+    void setGeneralWeightLowMemory();
     void tuneGeneralCaseLowMemory(Tensor * input, Tensor * output);
 	void useFPWeightGemmLowMemory(Tensor * input, Tensor * output);
     void tuneGemvLowMemory(Tensor * input, Tensor * output);
     void tuneGemmLowMemory(Tensor * input, Tensor * output);
-    bool convertToQuantWeight1x1Buffer(cl::Buffer input, int packCin, int packCout);
+    bool convertToQuantWeight1x1Buffer(cl::Buffer input);
     std::vector<int> mPaddings{0, 0};
     std::vector<uint32_t> mGlobalWorkSize{1, 1, 1};
     std::vector<uint32_t> mLocalWorkSize{1, 1, 1, 1};
     void *mFilterDataPtr = nullptr;
-    bool mLowMemoryFlag = false;
     bool mUseFPWeight = false;
     std::shared_ptr<Tensor> mConvGemmInpTensor;
     std::shared_ptr<Tensor> mConvGemmOutTensor;

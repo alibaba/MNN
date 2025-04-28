@@ -28,14 +28,14 @@ static VARP convBlock(VARP x, INTS channels, int stride) {
     int inputChannel = channels[0], outputChannel = channels[1];
     int group = inputChannel;
     x         = _Conv(0.01f, 0.0f, x, {inputChannel, inputChannel}, {3, 3}, SAME, {stride, stride}, {1, 1}, group);
-    x         = _Conv(0.03f, -1.0f, x, {inputChannel, outputChannel}, {1, 1}, SAME, {1, 1}, {1, 1}, 1);
+    x         = _Conv(0.03f, 0.0f, x, {inputChannel, outputChannel}, {1, 1}, SAME, {1, 1}, {1, 1}, 1);
     return x;
 }
 static VARP convBlocTemp(VARP x, INTS channels, int stride) {
     int inputChannel = channels[0], outputChannel = channels[1];
     int group = inputChannel;
-    x         = _Conv(0.002f, 1.0f, x, {inputChannel, inputChannel}, {3, 3}, SAME, {stride, stride}, {1, 1}, inputChannel);
-    x         = _Conv(0.05f, -2.0f, x, {inputChannel, outputChannel}, {1, 1}, SAME, {1, 1}, {1, 1}, 1);
+    x         = _Conv(0.002f, 0.0f, x, {inputChannel, inputChannel}, {3, 3}, SAME, {stride, stride}, {1, 1}, inputChannel);
+    x         = _Conv(0.05f, 0.0f, x, {inputChannel, outputChannel}, {1, 1}, SAME, {1, 1}, {1, 1}, 1);
     return x;
 }
 static VARP _mobileNetV1Expr(VARP x = nullptr, bool softmax = true) {
@@ -71,10 +71,11 @@ static VARP _mobileNetV1Expr(VARP x = nullptr, bool softmax = true) {
     x      = convBlock(x, {channels[5], channels[5]}, 1);
     x      = _AvePool(x, {poolSize, poolSize}, {1, 1}, VALID);
     x      = _Conv(0.01f, 0.0f, x, {channels[5], 1001}, {1, 1}, VALID, {1, 1}, {1, 1}, 1); // reshape FC with Conv1x1
-    if (softmax) {
-        x      = _Softmax(x, -1);
-    }
     x      = _Convert(x, NCHW);
+    if (softmax) {
+        x = _Reshape(x, {-1, 1001});
+        x = _Softmax(x, -1);
+    }
     x->setName("Prob");
     return x;
 }
@@ -1528,3 +1529,76 @@ public:
     }
 };
 MNNTestSuiteRegister(SequenceForwardResizeTest, "expr/SequenceForwardResizeTest");
+
+class InputModuleTest : public MNNTestCase {
+public:
+    virtual bool run(int precision) {
+        auto y = _mobileNetV1Expr(nullptr, false);
+        std::unique_ptr<MNN::NetT> net(new NetT);
+        Variable::save({y}, net.get());
+        y = nullptr;
+        flatbuffers::FlatBufferBuilder builderOutput(1024);
+        auto len = MNN::Net::Pack(builderOutput, net.get());
+        builderOutput.Finish(len);
+        int sizeOutput    = builderOutput.GetSize();
+        auto bufferOutput = builderOutput.GetBufferPointer();
+        auto test = [&](bool shapeMutable) {
+            Module::Config config;
+            config.shapeMutable = shapeMutable;
+            config.rearrange = true;
+            std::shared_ptr<Module> m0;
+            std::shared_ptr<Module> m1;
+            std::shared_ptr<Module> m2;
+            {
+                MNN::ScheduleConfig sconfig;
+                sconfig.numThread = 1;
+                MNN::BackendConfig bnconfig;
+                bnconfig.precision = MNN::BackendConfig::Precision_Low;
+                sconfig.backendConfig = &bnconfig;
+                std::vector<MNN::ScheduleConfig> sconfigs = {sconfig};
+                std::shared_ptr<Executor::RuntimeManager> rtMgr(Executor::RuntimeManager::createRuntimeManager(sconfigs));
+                m0.reset(Module::load({"Input"}, {"Prob"}, bufferOutput, sizeOutput, rtMgr, &config), Module::destroy);
+                bnconfig.precision = MNN::BackendConfig::Precision_Normal;
+                std::shared_ptr<Executor::RuntimeManager> rtMgr2(Executor::RuntimeManager::createRuntimeManager(sconfigs));
+                m1.reset(Module::load({"Input"}, {"Prob"}, bufferOutput, sizeOutput, rtMgr2, &config), Module::destroy);
+                m2.reset(Module::load({"Input"}, {"Prob"}, bufferOutput, sizeOutput), Module::destroy);
+            }
+            auto x = _Input({1, 3, 32, 32}, NCHW, halide_type_of<float>());
+            auto ptr = x->writeMap<float>();
+            for (int i=0; i<x->getInfo()->size; ++i) {
+                ptr[i] = 1.0f * i;
+            }
+            x = x + x;
+            auto prob = m0->onForward({x})[0];
+            auto pptr = prob->readMap<float>();
+            
+            float s0 = _ReduceSum(m0->onForward({x})[0])->readMap<float>()[0];
+            float s1 = _ReduceSum(m1->onForward({x})[0])->readMap<float>()[0];
+            float s2 = _ReduceSum(m2->onForward({x})[0])->readMap<float>()[0];
+            // Normally s2 is correct, compare to s2
+            if (fabsf(s0-s2) / s2 > 0.2f) {
+                FUNC_PRINT_ALL(s0, f);
+                FUNC_PRINT_ALL(s2, f);
+                return false;
+            }
+            if (fabsf(s1-s2) / s2 > 0.2f) {
+                FUNC_PRINT_ALL(s1, f);
+                FUNC_PRINT_ALL(s2, f);
+                return false;
+            }
+            return true;
+        };
+        auto res = test(true);
+        if (!res) {
+            FUNC_PRINT(1);
+            return false;
+        }
+        res = test(false);
+        if (!res) {
+            FUNC_PRINT(1);
+            return false;
+        }
+        return true;
+    };
+};
+MNNTestSuiteRegister(InputModuleTest, "expr/InputModuleTest");

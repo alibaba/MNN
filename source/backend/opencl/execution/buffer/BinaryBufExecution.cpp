@@ -15,6 +15,9 @@ namespace OpenCL {
 
 BinaryBufExecution::BinaryBufExecution(const std::vector<Tensor *> &inputs, const std::string &compute, const MNN::Op *op, Backend *backend)
     : CommonExecution(backend, op), mCompute(compute) {
+    if(op->type() == OpType_BinaryOp && op->main_as_BinaryOp()->opType() == BinaryOpOperation_MOD && (inputs[0]->getType().code == halide_type_int || inputs[0]->getType().code == halide_type_uint)){
+        mBuildOptions.emplace("-DINT_COMPUTE_MOD");
+    }
     mBuildOptions.emplace("-DOPERATOR=" + compute);
 }
 
@@ -85,7 +88,7 @@ ErrorCode BinaryBufExecution::SubgroupOnResize(const std::vector<Tensor *> &inpu
             buildOptions.emplace("-DINTEL_SUB_GROUP_WRITE4=intel_sub_group_block_write4");
         }
     } else {
-        if(runTime->isSupportedFP16()){
+        if(openCLBackend->getPrecision() != BackendConfig::Precision_High){
             buildOptions.emplace("-DINTEL_DATA=ushort");
             buildOptions.emplace("-DAS_INPUT_DATA=as_half");
             buildOptions.emplace("-DAS_INPUT_DATA4=as_half4");
@@ -105,7 +108,7 @@ ErrorCode BinaryBufExecution::SubgroupOnResize(const std::vector<Tensor *> &inpu
     }
     std::string kernelName = "binary_buf_c" + std::to_string(input0_c_pack) + "_c" + std::to_string(input1_c_pack) +
                                  "_c" + std::to_string(output_c_pack);
-    unit.kernel = runTime->buildKernel("binary_subgroup_buf", kernelName, buildOptions, inputs[0], output);
+    unit.kernel = runTime->buildKernel("binary_subgroup_buf", kernelName, buildOptions, openCLBackend->getPrecision(), inputs[0], output);
     mMaxWorkGroupSize = static_cast<uint32_t>(runTime->getMaxWorkGroupSize(unit.kernel));
 
     fullCount[0] = realSize(inputs[0]) == 1 ? 0 : 1;
@@ -160,7 +163,7 @@ ErrorCode BinaryBufExecution::SubgroupOnResize(const std::vector<Tensor *> &inpu
         ret |= unit.kernel->get().setArg(index++, static_cast<uint32_t>(outputpad.right));
         MNN_CHECK_CL_SUCCESS(ret, "setArg BinaryBufExecution");
 
-        mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), kernelName, unit.kernel).first;
+        mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), kernelName, unit.kernel, openCLBackend->getCLTuneLevel()).first;
 
         unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1], mGlobalWorkSize[2]};
         unit.localWorkSize  = {mLocalWorkSize[0], mLocalWorkSize[1], mLocalWorkSize[2]};
@@ -177,7 +180,7 @@ ErrorCode BinaryBufExecution::SubgroupOnResize(const std::vector<Tensor *> &inpu
         int output_c_pack_tmp = TensorUtils::getTensorChannelPack(output);
         std::string kernelNameTmp = "binary_buf_c" + std::to_string(input0_c_pack_tmp) + "_c" + std::to_string(input1_c_pack_tmp) +
                                  "_c" + std::to_string(output_c_pack_tmp);
-        unit.kernel = runTime->buildKernel("binary_subgroup_buf", kernelNameTmp, buildOptions, inputs[i], output);
+        unit.kernel = runTime->buildKernel("binary_subgroup_buf", kernelNameTmp, buildOptions, openCLBackend->getPrecision(), inputs[i], output);
         mMaxWorkGroupSize = static_cast<uint32_t>(runTime->getMaxWorkGroupSize(unit.kernel));
 
         auto input0padtmp = TensorUtils::getDescribe(output)->mPads;
@@ -229,7 +232,7 @@ ErrorCode BinaryBufExecution::SubgroupOnResize(const std::vector<Tensor *> &inpu
             ret |= unit.kernel->get().setArg(index++, static_cast<uint32_t>(outputpadtmp.right));
             MNN_CHECK_CL_SUCCESS(ret, "setArg BinaryBufExecution MultiInput");
 
-            mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), kernelNameTmp, unit.kernel).first;
+            mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), kernelNameTmp, unit.kernel, openCLBackend->getCLTuneLevel()).first;
 
             unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1], mGlobalWorkSize[2]};
             unit.localWorkSize  = {mLocalWorkSize[0], mLocalWorkSize[1], mLocalWorkSize[2]};
@@ -279,7 +282,7 @@ ErrorCode BinaryBufExecution::onEncode(const std::vector<Tensor *> &inputs, cons
     if(fullCount[1] == 0) {
         buildOptions.emplace("-DB_SINGLE");
     }
-    unit.kernel = runTime->buildKernel("binary_buf", "binary_buf", buildOptions, inputs[0], output);
+    unit.kernel = runTime->buildKernel("binary_buf", "binary_buf", buildOptions, openCLBackend->getPrecision(), inputs[0], output);
     mMaxWorkGroupSize      = static_cast<uint32_t>(runTime->getMaxWorkGroupSize(unit.kernel));
 
     mGlobalWorkSize =  {(uint32_t)UP_DIV(totalSize, 4), (uint32_t)1};
@@ -305,7 +308,7 @@ ErrorCode BinaryBufExecution::onEncode(const std::vector<Tensor *> &inputs, cons
         fullCount[1] = realSize(inputs[i]) == 1 ? 0 : 1;
         auto &unit = mUnits[i-1];
         
-        unit.kernel = runTime->buildKernel("binary_buf", "binary_buf", buildOptions, inputs[i], output);
+        unit.kernel = runTime->buildKernel("binary_buf", "binary_buf", buildOptions, openCLBackend->getPrecision(), inputs[i], output);
 
         uint32_t index = 0;
         ret |= unit.kernel->get().setArg(index++, mGlobalWorkSize[0]);

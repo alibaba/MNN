@@ -39,7 +39,7 @@ ErrorCode UnaryBufExecution::onEncode(const std::vector<Tensor*>& inputs, const 
     if(totalSize % 4 != 0) {
         buildOptions.emplace("-DPACK_LEAVE");
     }
-    unit.kernel = runtime->buildKernel("unary_buf", "unary_buf", buildOptions, input, output);
+    unit.kernel = runtime->buildKernel("unary_buf", "unary_buf", buildOptions, openCLBackend->getPrecision(), input, output);
     mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
 
     mGlobalWorkSize = {
@@ -57,7 +57,7 @@ ErrorCode UnaryBufExecution::onEncode(const std::vector<Tensor*>& inputs, const 
     MNN_CHECK_CL_SUCCESS(ret, "setArg UnaryBufExecution");
 
     std::string kernelName = "unary_buf";
-    mLocalSize = localWS2DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), kernelName, unit.kernel).first;
+    mLocalSize = localWS2DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), kernelName, unit.kernel, openCLBackend->getCLTuneLevel()).first;
     openCLBackend->recordKernel2d(unit.kernel, mGlobalWorkSize, mLocalSize);
     unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1]};
     unit.localWorkSize = {mLocalSize[0], mLocalSize[1]};
@@ -113,7 +113,7 @@ ErrorCode UnaryBufExecution::SubgrouponResize(const std::vector<Tensor*>& inputs
             buildOptions.emplace("-DINTEL_SUB_GROUP_WRITE4=intel_sub_group_block_write4");
         }
     } else {
-        if(runtime->isSupportedFP16()){
+        if(openCLBackend->getPrecision() != BackendConfig::Precision_High){
             buildOptions.emplace("-DINTEL_DATA=ushort");
             buildOptions.emplace("-DAS_INPUT_DATA4=as_half4");
             buildOptions.emplace("-DAS_OUTPUT_DATA4=as_ushort4");
@@ -128,7 +128,7 @@ ErrorCode UnaryBufExecution::SubgrouponResize(const std::vector<Tensor*>& inputs
         }
     }
     std::string KernelName = "unary_buf_c" + std::to_string(input_c_pack) + "_c" + std::to_string(output_c_pack);
-    unit.kernel       = runtime->buildKernel("unary_subgroup_buf", KernelName, buildOptions, input, output);
+    unit.kernel       = runtime->buildKernel("unary_subgroup_buf", KernelName, buildOptions, openCLBackend->getPrecision(), input, output);
     mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
 
     int channelBlocks = (channels + 3) / 4;
@@ -166,7 +166,7 @@ ErrorCode UnaryBufExecution::SubgrouponResize(const std::vector<Tensor*>& inputs
     if (runtime->isSupportedIntelSubgroup() && input_c_pack == 16) {
         mLocalSize = {16, 1, 1};
     } else {
-        mLocalSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), kernelName, unit.kernel).first;
+        mLocalSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), kernelName, unit.kernel, openCLBackend->getCLTuneLevel()).first;
     }
     openCLBackend->recordKernel3d(unit.kernel, mGlobalWorkSize, mLocalSize);
     unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1], mGlobalWorkSize[2]};

@@ -17,7 +17,7 @@ SoftmaxExecution::SoftmaxExecution(const std::vector<Tensor *> &inputs, int axis
     : CommonExecution(backend, op) {
     mAxis          = axis;
     mOpenCLBackend = static_cast<OpenCLBackend *>(backend);
-    auto kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("softmax", "softmax_channel", {"-DSOFTMAX_LOCAL_SIZE=512"});
+    auto kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("softmax", "softmax_channel", {"-DSOFTMAX_LOCAL_SIZE=512"}, mOpenCLBackend->getPrecision());
     mMaxWorkGroupSize = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(kernel));
 }
 
@@ -27,12 +27,12 @@ bool SoftmaxExecution::buildSoftmaxKernel(int localSize) {
     buildOptions.emplace("-DSOFTMAX_LOCAL_SIZE=" + std::to_string(localSize));
     std::string kernelName;
     if (mAxis == 1) {
-        mUnits[0].kernel           = runtime->buildKernel("softmax", "softmax_channel", buildOptions);
+        mUnits[0].kernel           = runtime->buildKernel("softmax", "softmax_channel", buildOptions, mOpenCLBackend->getPrecision());
     } else if (mAxis == 2) {
-        mUnits[0].kernel           = runtime->buildKernel("softmax", "softmax_height", buildOptions);
+        mUnits[0].kernel           = runtime->buildKernel("softmax", "softmax_height", buildOptions, mOpenCLBackend->getPrecision());
     } else {
         MNN_ASSERT(mAxis == 3);
-        mUnits[0].kernel           = runtime->buildKernel("softmax", "softmax_width", buildOptions);
+        mUnits[0].kernel           = runtime->buildKernel("softmax", "softmax_width", buildOptions, mOpenCLBackend->getPrecision());
     }
     mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(mUnits[0].kernel));
     return true;
@@ -111,7 +111,7 @@ ErrorCode SoftmaxExecution::onEncode(const std::vector<Tensor *> &inputs, const 
     ret |= unit.kernel->get().setArg(idx++, shape);
     MNN_CHECK_CL_SUCCESS(ret, "setArg SoftmaxExecution");
     if(localSize == 1){
-        mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), "softmax", unit.kernel).first;
+        mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), "softmax", unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
     }
     mOpenCLBackend->recordKernel3d(unit.kernel, mGlobalWorkSize, mLocalWorkSize);
     unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1], mGlobalWorkSize[2]};

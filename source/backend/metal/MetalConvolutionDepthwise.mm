@@ -116,7 +116,7 @@ static void weightInBlock(int group, int kh, int kw, const FType *src, uint8_t* 
     }
 }
 
-std::shared_ptr<MNN::Tensor> MetalConvolutionDepthwise::weightTransform(int group, int oc, int ic, int kh, int kw, const float *src, bool int8Weight, bool int4Weight) {
+std::shared_ptr<MNN::Tensor> MetalConvolutionDepthwise::weightTransform(int group, int oc, int ic, int kh, int kw, const float *src, bool int8Weight, bool int4Weight, id<MTLBuffer> srcGpuBuffer) {
     auto backend = static_cast<MetalBackend *>(this->backend());
     auto context = (__bridge MNNMetalContext *)static_cast<MetalBackend *>(backend)->context();
     auto length = UP_DIV(group, 4) * 4 * kw * kh;

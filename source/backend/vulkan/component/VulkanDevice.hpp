@@ -162,6 +162,9 @@ public:
     const int getMaxComputeWorkGroupInvocations() const {
         return mDeviceProty.limits.maxComputeWorkGroupInvocations;
     }
+    const int32_t getLocalMemorySize() const {
+        return mLocalMemorySize;
+    }
     
     const void getMaxComputeWorkGroupSize(std::vector<int> &groups) const{
         if(groups.size() == 3){
@@ -189,6 +192,7 @@ private:
     VkQueue mQueue;
     VkPhysicalDeviceMemoryProperties mMemoryProty;
     uint32_t mSubgroupSize;
+    uint32_t mLocalMemorySize = 0;
 };
 } // namespace MNN
 #endif /* VulkanDevice_hpp */

@@ -118,8 +118,8 @@ void WeightQuantAndCoding(std::unique_ptr<MNN::OpT>& op, const modelConfig& conf
     if (opType == MNN::OpType_ConvInt8 || opType == MNN::OpType_DepthwiseConvInt8) {
         weightSize = param->symmetricQuan->weight.size();
     }
-    int kernelNum = common->outputCount;
-    int kernelSize = weightSize / kernelNum;
+    int oc = common->outputCount;
+    int kernelSize = weightSize / oc;
     int kxky = common->kernelX * common->kernelY;
     int icCount = kernelSize / kxky;
 
@@ -131,11 +131,11 @@ void WeightQuantAndCoding(std::unique_ptr<MNN::OpT>& op, const modelConfig& conf
     std::vector<float> weightData, scales;
     // block-wise quant
     int block_size = kernelSize, block_num = 1;
-    if (weightQuantBlock > 0 && (kernelSize % weightQuantBlock == 0) && kxky == 1 && weightQuantBlock > 16 && (weightQuantBlock % 16 == 0)) {
-        block_size = weightQuantBlock;
-        block_num = kernelSize / block_size;
-    } else if (weightQuantBlock > 0 && (kernelSize % weightQuantBlock == 0) && kxky == 1) {
-        MNN_PRINT("weightQuantBlock=%d, inputChannel=%d, kxky=1, don't use block-quant for the layer: %s.\n", weightQuantBlock, icCount, op->name.c_str());
+    if (weightQuantBlock > 0 && (icCount % weightQuantBlock == 0) && weightQuantBlock >= 16 && (weightQuantBlock % 16 == 0)) {
+        block_num = common->inputCount / weightQuantBlock;
+        block_size = weightQuantBlock * kxky;
+    } else if (weightQuantBlock > 0 && (kernelSize % weightQuantBlock > 0)) {
+        MNN_PRINT("weightQuantBlock=%d, inputChannel=%d: don't use block-quant for the layer: %s.\n", weightQuantBlock, icCount, op->name.c_str());
     } else if (weightQuantBlock > 0 && kxky > 1) {
         MNN_PRINT("The method of block quantization is not adopted to the layer: %s, because (kernel_x*kernel_y>1).\n", op->name.c_str());
     } else {
@@ -149,8 +149,8 @@ void WeightQuantAndCoding(std::unique_ptr<MNN::OpT>& op, const modelConfig& conf
         case MNN::OpType_DeconvolutionDepthwise: {
             weightData = std::move(param->weight);
             if (asymmetricQuantFlag) {
-                scales.resize(kernelNum * block_num * 2);
-                for (int k = 0; k < kernelNum; k++) {
+                scales.resize(oc * block_num * 2);
+                for (int k = 0; k < oc; k++) {
                     for (int b = 0; b < block_num; b++) {
                         int beginIndex = k * kernelSize + b * block_size;
                         auto minAndMax = findMinMax(weightData.data() + beginIndex, block_size);
@@ -164,8 +164,8 @@ void WeightQuantAndCoding(std::unique_ptr<MNN::OpT>& op, const modelConfig& conf
                     }
                 }
             } else {
-                scales.resize(kernelNum * block_num);
-                for (int k = 0; k < kernelNum; k++) {
+                scales.resize(oc * block_num);
+                for (int k = 0; k < oc; k++) {
                     for (int b = 0; b < block_num; b++) {
                         int beginIndex = k * kernelSize + b * block_size;
                         auto absMax = findAbsMax(weightData.data() + beginIndex, block_size);
@@ -182,7 +182,7 @@ void WeightQuantAndCoding(std::unique_ptr<MNN::OpT>& op, const modelConfig& conf
             for (int i = 0; i < int8Params->weight.size(); i++) {
                 weightData.emplace_back(float(int8Params->weight[i]));
             }
-            scales.resize(kernelNum, 1.0f);
+            scales.resize(oc, 1.0f);
 
             break;
         }
@@ -190,14 +190,12 @@ void WeightQuantAndCoding(std::unique_ptr<MNN::OpT>& op, const modelConfig& conf
             break;
     }
 
-    kernelSize = block_size;
-    kernelNum = kernelNum * block_num;
     if (opType == MNN::OpType_ConvInt8 || opType == MNN::OpType_DepthwiseConvInt8) {
-        param->quanParameter = IDSTEncoder::encode(weightData.data(), scales, kernelSize, kernelNum, false, param->symmetricQuan->weight.data(), int(clampMin), bits);
+        param->quanParameter = IDSTEncoder::encode(weightData.data(), scales, block_size, oc * block_num, false, param->symmetricQuan->weight.data(), int(clampMin), bits);
         param->symmetricQuan->weight.clear();
         param->quanParameter->alpha = {1.0f}; // fake scales
     } else {
-        param->quanParameter = IDSTEncoder::encode(weightData.data(), scales, kernelSize, kernelNum, asymmetricQuantFlag, nullptr, int(clampMin), bits, config.detectSparseSpeedUp);
+        param->quanParameter = IDSTEncoder::encode(weightData.data(), scales, block_size, oc * block_num, asymmetricQuantFlag, nullptr, int(clampMin), bits, config.detectSparseSpeedUp);
         param->weight.clear();
         std::vector<float> empty;
         param->weight.swap(empty);

@@ -47,6 +47,7 @@ struct Col2ImParameter {
     int ow;
     int oh;
     int ob;
+    int activationType;
 };
 
 class CutlassDeconvCommonExecution : public Execution {

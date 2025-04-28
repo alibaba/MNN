@@ -42,7 +42,7 @@ ErrorCode UnaryExecution::onEncode(const std::vector<Tensor*>& inputs, const std
     if (dataType.code == halide_type_int){
         buildOptions.emplace("-DOPENCL_INPUT_INT");
     }
-    unit.kernel = runtime->buildKernel("unary", "unary", buildOptions, inputs[0], outputs[0]);
+    unit.kernel = runtime->buildKernel("unary", "unary", buildOptions, openCLBackend->getPrecision(), inputs[0], outputs[0]);
     mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
 
     uint32_t idx = 0;
@@ -55,7 +55,7 @@ ErrorCode UnaryExecution::onEncode(const std::vector<Tensor*>& inputs, const std
     MNN_CHECK_CL_SUCCESS(ret, "setArg UnaryExecution");
 
     std::string name = "unary";
-    mLocalSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, runtime, name, unit.kernel).first;
+    mLocalSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, runtime, name, unit.kernel, openCLBackend->getCLTuneLevel()).first;
     openCLBackend->recordKernel3d(unit.kernel, mGlobalWorkSize, mLocalSize);
     unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1], mGlobalWorkSize[2]};
     unit.localWorkSize = {mLocalSize[0], mLocalSize[1], mLocalSize[2]};

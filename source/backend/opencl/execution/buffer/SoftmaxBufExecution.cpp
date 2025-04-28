@@ -17,7 +17,7 @@ SoftmaxBufExecution::SoftmaxBufExecution(const std::vector<Tensor *> &inputs, in
     : CommonExecution(backend, Op) {
     mAxis          = axis;
     mOpenCLBackend = static_cast<OpenCLBackend *>(backend);
-    auto kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("softmax_buf", "softmax_buf", {"-DSOFTMAX_LOCAL_SIZE=512"});
+    auto kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("softmax_buf", "softmax_buf", {"-DSOFTMAX_LOCAL_SIZE=512"}, mOpenCLBackend->getPrecision());
     mMaxWorkGroupSize = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(kernel));
 }
 
@@ -70,7 +70,7 @@ ErrorCode SoftmaxBufExecution::onEncode(const std::vector<Tensor *> &inputs, con
         std::set<std::string> buildOptions;
         buildOptions.emplace("-DINPUT_FORMAT=MNN_DATA_FORMAT_NC4HW4");
         buildOptions.emplace("-DOUTPUT_FORMAT=MNN_DATA_FORMAT_NCHW");
-        unit.kernel = runtime->buildKernel("buffer_convert_buf", "buffer_convert_to_buffer", buildOptions, input, output);
+        unit.kernel = runtime->buildKernel("buffer_convert_buf", "buffer_convert_to_buffer", buildOptions, mOpenCLBackend->getPrecision(), input, output);
         mGlobalWorkSize = {static_cast<uint32_t>(shape[2] * shape[3]), static_cast<uint32_t>(shape[1]), static_cast<uint32_t>(shape[0])};
         cl_int ret = CL_SUCCESS;
         uint32_t idx = 0;
@@ -103,14 +103,14 @@ ErrorCode SoftmaxBufExecution::onEncode(const std::vector<Tensor *> &inputs, con
         std::string kernelName;
         if(inside == 1){
             buildOptions.emplace("-DSOFTMAX_LOCAL_SIZE=" + std::to_string(localSize));
-            unit.kernel = runtime->buildKernel("self_attention_buf", "softmax_inside", buildOptions, inputs[0], outputs[0]);
+            unit.kernel = runtime->buildKernel("self_attention_buf", "softmax_inside", buildOptions, mOpenCLBackend->getPrecision(), inputs[0], outputs[0]);
             mGlobalWorkSize = {static_cast<uint32_t>(localSize), static_cast<uint32_t>(outside), static_cast<uint32_t>(1)};
         }
         else if(inside % 4 == 0){
-            unit.kernel = runtime->buildKernel("softmax_buf", "softmax_v4_buf", buildOptions);
+            unit.kernel = runtime->buildKernel("softmax_buf", "softmax_v4_buf", buildOptions, mOpenCLBackend->getPrecision());
             mGlobalWorkSize = {static_cast<uint32_t>(localSize), static_cast<uint32_t>(UP_DIV(inside, 4)), static_cast<uint32_t>(outside)};
         }else {
-            unit.kernel = runtime->buildKernel("softmax_buf", "softmax_buf", buildOptions);
+            unit.kernel = runtime->buildKernel("softmax_buf", "softmax_buf", buildOptions, mOpenCLBackend->getPrecision());
             mGlobalWorkSize = {static_cast<uint32_t>(localSize), static_cast<uint32_t>(inside), static_cast<uint32_t>(outside)};
         }
         mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
@@ -140,7 +140,7 @@ ErrorCode SoftmaxBufExecution::onEncode(const std::vector<Tensor *> &inputs, con
         }
         MNN_CHECK_CL_SUCCESS(ret, "setArg SoftmaxBufExecution");
         if(localSize == 1){
-            mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), "softmax_buf", unit.kernel).first;
+            mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), "softmax_buf", unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
         }
         
         mOpenCLBackend->recordKernel3d(unit.kernel, mGlobalWorkSize, mLocalWorkSize);
@@ -157,7 +157,7 @@ ErrorCode SoftmaxBufExecution::onEncode(const std::vector<Tensor *> &inputs, con
         std::set<std::string> buildOptions;
         buildOptions.emplace("-DINPUT_FORMAT=MNN_DATA_FORMAT_NCHW");
         buildOptions.emplace("-DOUTPUT_FORMAT=MNN_DATA_FORMAT_NC4HW4");
-        unit.kernel = runtime->buildKernel("buffer_convert_buf", "buffer_convert_to_buffer", buildOptions, input, output);
+        unit.kernel = runtime->buildKernel("buffer_convert_buf", "buffer_convert_to_buffer", buildOptions, mOpenCLBackend->getPrecision(), input, output);
         mGlobalWorkSize = {static_cast<uint32_t>(shape[2] * shape[3]), static_cast<uint32_t>(shape[1]), static_cast<uint32_t>(shape[0])};
         cl_int ret = CL_SUCCESS;
         uint32_t idx = 0;

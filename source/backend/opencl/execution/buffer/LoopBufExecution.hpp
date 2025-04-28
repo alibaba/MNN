@@ -21,6 +21,7 @@ public:
     LoopGatherBufExecution(const LoopParam *loop, const MNN::Op *op, Backend *bn);
     virtual ~LoopGatherBufExecution() = default;
     virtual ErrorCode onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    ErrorCode InitCommandOnEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
 
 private:
     const LoopParam *mLoop;
@@ -64,6 +65,8 @@ private:
     const LoopParam *mLoop;
     std::vector<Tensor *> mTensors;
     std::set<std::string> mBuildOptions;
+    int mOffset[4];
+    int mStep[4];
     int mStride_src0[3];
     int mStride_src1[3];
     int mStride_dst[3];

@@ -29,10 +29,10 @@ Interp3DExecution::Interp3DExecution(const std::vector<Tensor *> &inputs, const 
     std::set<std::string> buildOptions;
     std::string kernelName = "interp3D";
     if (op->main_as_Interp()->resizeType() == 1) {
-        unit.kernel                = runtime->buildKernel("nearest", kernelName, buildOptions);
+        unit.kernel                = runtime->buildKernel("nearest", kernelName, buildOptions, mOpenCLBackend->getPrecision());
     } else {
         MNN_ERROR("Resize types other than nearest are not supported in Interp3D opencl! Using nearest instead\n");
-        unit.kernel                = runtime->buildKernel("nearest", kernelName, buildOptions);
+        unit.kernel                = runtime->buildKernel("nearest", kernelName, buildOptions, mOpenCLBackend->getPrecision());
     }
 
     mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
@@ -87,7 +87,7 @@ ErrorCode Interp3DExecution::onEncode(const std::vector<Tensor *> &inputs, const
     MNN_CHECK_CL_SUCCESS(ret, "setArg Intep3DExecution");
 
     std::string name = "interp3D";
-    mLWS = localWS3DDefault(mGWS, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, unit.kernel).first;
+    mLWS = localWS3DDefault(mGWS, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
     mOpenCLBackend->recordKernel3d(unit.kernel, mGWS, mLWS);
     unit.globalWorkSize = {mGWS[0], mGWS[1], mGWS[2]};
     unit.localWorkSize = {mLWS[0], mLWS[1], mLWS[2]};

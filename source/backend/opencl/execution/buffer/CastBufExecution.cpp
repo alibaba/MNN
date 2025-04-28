@@ -34,7 +34,7 @@ ErrorCode CastBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
     if(totalSize % 4 != 0) {
         buildOptions.emplace("-DPACK_LEAVE");
     }
-    unit.kernel = runtime->buildKernel("cast_buf", "cast_buf", mBuildOptions, inputs[0], outputs[0]);
+    unit.kernel = runtime->buildKernel("cast_buf", "cast_buf", mBuildOptions, openCLBackend->getPrecision(), inputs[0], outputs[0]);
     mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
     
     mGlobalWorkSize = {
@@ -52,7 +52,7 @@ ErrorCode CastBufExecution::onEncode(const std::vector<Tensor*>& inputs, const s
     MNN_CHECK_CL_SUCCESS(ret, "setArg CastBufExecution");
 
     std::string kernelName = "cast_buf";
-    mLocalSize = localWS2DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), kernelName, unit.kernel).first;
+    mLocalSize = localWS2DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), kernelName, unit.kernel, openCLBackend->getCLTuneLevel()).first;
     openCLBackend->recordKernel2d(unit.kernel, mGlobalWorkSize, mLocalSize);
     unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1]};
     unit.localWorkSize = {mLocalSize[0], mLocalSize[1]};

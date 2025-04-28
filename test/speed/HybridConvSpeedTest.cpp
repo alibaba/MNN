@@ -17,7 +17,7 @@ using namespace MNN;
 
 class HybridConvSpeedTestCommon : public MNNTestCase {
 protected:
-    static bool testKernel(std::string title, INTS inputShape, INTS kernel, INTS channel, INTS pad, INTS strides, INTS dilate, int batch = 1, int nbit = 8, int precision = 1, bool testSpeed = false, int block = 0) {
+    static bool testKernel(std::string title, INTS inputShape, INTS kernel, INTS channel, INTS pad, INTS strides, INTS dilate, int batch = 1, int nbit = 8, int precision = 1, bool testSpeed = false, int blocksize = 0) {
         float fac = 0.23;
         int res = 10;
         float tail = 0.05;
@@ -25,19 +25,23 @@ protected:
         int iw = inputShape[0], ih = inputShape[1];
         std::vector<float> bias(oc), biastest(oc), biasdup(oc);
         int area = kernel[0] * kernel[1];
-        if (0 == block || ic % block != 0 || area > 1) {
-            block = area * ic;
+        int blocknum = 1;
+        if (0 == blocksize || ic % blocksize != 0) {
+            blocksize = ic;
+            blocknum = 1;
+        } else {
+            blocknum = ic / blocksize;
         }
-        int group = (area * ic) / block;
+        
         std::vector<float> weightFp32(oc * ic * area);
-        std::vector<float> wScale(oc * group);
+        std::vector<float> wScale(2 * oc * blocknum);
 
         float threshold = (float)(1 << (nbit - 1)) - 1.0f;
-        float clampMin = -threshold;
+        float clampMin = -threshold - 1;
         VARP x = _Input({batch, ic, ih, iw}, NCHW, halide_type_of<float>());
         auto xInfo = x->getInfo();
         auto xPtr = x->writeMap<float>();
-        int8_t xMin = -(1<<(nbit-1))+1, xMax = (1<<(nbit-1))-1;
+        int8_t xMin = -(1<<(nbit-1)), xMax = (1<<(nbit-1))-1;
         for (int i=0; i<xInfo->size; ++i) {
             xPtr[i] = (i % (xMax - xMin + 1) - (xMax / 2)) * 0.17;
         }
@@ -56,19 +60,22 @@ protected:
         auto newWeightFp32 = weightFp32;
         for (int k = 0; k < oc; ++k) {
             int beginIndex = k * kernel_size;
-            for (int v=0; v<group; ++v) {
-                auto absMax = findAbsMax(weightFp32.data() + beginIndex + v*block, block);
-                float scale = absMax / threshold;
-                wScale[k*group+v] = scale;
-                for (int u=0; u<block; ++u) {
-                    auto index = beginIndex+v*block+u;
-                    auto value = (int)round(weightFp32[index] / scale);
-                    newWeightFp32[index] = value * scale;
+            for (int j = 0; j < blocknum; ++j) {
+                auto index = k * blocknum + j;
+                auto minmax = findMinMax(weightFp32.data() + k * ic * area + j * blocksize * area, blocksize * area);
+                auto scale_ = (minmax.second - minmax.first) / (threshold - clampMin);
+                wScale[2 * index] = minmax.first;
+                wScale[2 * index + 1] = scale_;
+                for (int u = 0; u < blocksize; ++u) {
+                    for (int i = 0; i < area; ++i) {
+                        int idx = k * ic * area + j * blocksize * area + u * area + i;
+                        int q_weight = (weightFp32[idx] - minmax.first) * (threshold - clampMin) / (minmax.second - minmax.first) + clampMin;
+                        newWeightFp32[idx] = (q_weight - xMin) * scale_ + minmax.first;
+                    }
                 }
             }
         }
-        auto y     = _HybridConv(weightFp32, std::move(bias), std::move(wScale), x,
-                           channel, kernel, PaddingMode::CAFFE, strides, dilate, 1, pad, false, false, nbit, false);
+        auto y     = _HybridConv(weightFp32, std::move(bias), std::move(wScale), x, channel, kernel, PaddingMode::CAFFE, strides, dilate, 1, pad, false, false, nbit, true);
         auto yfp32 = _Conv(std::move(newWeightFp32), std::move(biasdup), x, {ic, oc}, kernel, PaddingMode::CAFFE, strides, dilate, 1, pad);
         auto yInfo = y->getInfo();
         auto ow = yInfo->dim[3], oh = yInfo->dim[2];
@@ -122,13 +129,13 @@ protected:
 class HybridConvSpeedInt8Test : public HybridConvSpeedTestCommon {
 public:
     virtual bool run(int precision) {
-        INTS strides = {1, 1}, dilate = {1, 1}, pad = {0, 0}, inputShape = {1, 1}; // {w, h}
-        int batch[] = {1, 256, 512, 1024};
-        std::vector<int> blocks = {32, 128, 0};
-        std::vector<std::vector<int>> channels = {{1536, 2048}, {1536, 8960}};
+        INTS strides = {1, 1}, dilate = {1, 1}, pad = {1, 1}, inputShape = {1, 8}; // {w, h}
+        int batch[] = {1};
+        std::vector<int> blocks = {32};
+        std::vector<std::vector<int>> channels = {{320, 320}};
 
-        std::vector<int> kernels = {1, 1};
-        std::vector<int> weightBits = {4, 8};
+        std::vector<int> kernels = {1, 3};
+        std::vector<int> weightBits = {8};
         bool lowmemory = true;
         int batchNum = sizeof(batch) / sizeof(int);
         bool correct = true;
@@ -140,6 +147,37 @@ public:
                         auto res = testKernel("Low memory HybridConv test:", inputShape, kernels, channel, pad, strides, dilate, batch[n], bits, precision, true, block);
                         if (!res) {
                             MNN_ERROR("Error: low memory hybridConv when bits=%d, n=%d, ic=%d, oc=%d\n", bits, batch[n], channel[0], channel[1]);
+                            correct = false;
+                            return false;
+                        }
+                    }
+                }
+            }
+        }
+        return correct;
+    }
+};
+
+class ConvInt8BlockQuantTest : public HybridConvSpeedTestCommon {
+public:
+    virtual bool run(int precision) {
+        INTS strides = {1, 1}, dilate = {1, 1}, pad = {1, 1}, inputShape = {21, 17}; // {w, h}
+        int batch[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14};
+        std::vector<int> blocks = {0, 64, 32};
+        std::vector<std::vector<int>> channels = {{320, 320}, {1535, 2048}, {64, 79}};
+        std::vector<std::vector<int>> iwh = {{1, 8}, {21, 17}, {64, 64}};
+
+        std::vector<int> kernels = {1, 3};
+        std::vector<int> weightBits = {8};
+        int batchNum = sizeof(batch) / sizeof(int);
+        bool correct = true;
+        for (auto& bits : weightBits) {
+            for (auto &channel: channels) {
+                for (auto block : blocks) {
+                    for (int n = 0; n < batchNum; ++n) {
+                        auto res = testKernel("Low memory HybridConv test:", inputShape, kernels, channel, pad, strides, dilate, batch[n], bits, precision, false, block);
+                        if (!res) {
+                            MNN_ERROR("Error: low memory hybridConv when bits=%d, n=%d, block=%d, ic=%d, oc=%d\n", bits, batch[n], block, channel[0], channel[1]);
                             correct = false;
                             return false;
                         }
@@ -218,3 +256,4 @@ public:
 MNNTestSuiteRegister(DenseConvInt8Test, "op/lowMemory/DenseConv");
 MNNTestSuiteRegister(HybridConvInt8Test, "op/lowMemory/HybridConv");
 MNNTestSuiteRegister(HybridConvSpeedInt8Test, "speed/HybridConv");
+MNNTestSuiteRegister(ConvInt8BlockQuantTest, "op/lowMemory/blockConv");

@@ -38,6 +38,8 @@ extern const unsigned char glsl_rastersort_collect_key_USE_HALF_comp[];
 extern unsigned int glsl_rastersort_collect_key_USE_HALF_comp_len;
 extern const unsigned char glsl_int2float_comp[];
 extern unsigned int glsl_int2float_comp_len;
+extern const unsigned char glsl_cumsum_single_comp[];
+extern unsigned int glsl_cumsum_single_comp_len;
 extern const unsigned char glsl_texture2d_comp[];
 extern unsigned int glsl_texture2d_comp_len;
 extern const unsigned char glsl_texture2d_NEAREST_comp[];

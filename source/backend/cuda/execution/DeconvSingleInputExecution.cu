@@ -139,8 +139,8 @@ ErrorCode DeconvSingleInputExecution::onResize(const std::vector<Tensor*> &input
     mCol2ImParamter.ow = output->width();
     mCol2ImParamter.ob = output->batch();
 
-    mActivationType = convCommon->relu() ? 1 : convCommon->relu6() ? 2 : 0;
-
+    mCol2ImParamter.activationType = convCommon->relu() ? 1 : convCommon->relu6() ? 2 : 0;
+    
     // Matmul Param
     int e = input->height() * input->width() * output->batch();
     int l = UP_DIV(input->channel(), PACK_NUMBER) * PACK_NUMBER;

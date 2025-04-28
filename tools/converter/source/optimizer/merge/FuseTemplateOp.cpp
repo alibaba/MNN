@@ -342,9 +342,11 @@ static auto gRegister = []() {
         auto input = _Input({}, NCHW);
         auto inputSquare = _Pow(input, _Scalar<float>(2.0f));
         auto inputSquare2 = input * input;
+        auto inputSquare3 = _Pow(input, _Scalar<int>(2));
         std::vector<EXPRP> templatesExprs = {
             inputSquare->expr().first,
-            inputSquare2->expr().first
+            inputSquare2->expr().first,
+            inputSquare3->expr().first
         };
 
         auto transform = [templatesExprs, input](EXPRP expr) {

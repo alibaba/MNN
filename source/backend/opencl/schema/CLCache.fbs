@@ -34,12 +34,18 @@ table PreParamInfo{
     preParamData:uint;
 }
 
-table Cache {
+table BackendInfo{
+    mnnVersion:string;
+    deviceName:string;
     programs:[Shader];
     tunings:[Autotuning];
-    tuned:[OpInfo];
     gemm:[GemmInfo];
     preParam:[PreParamInfo];
+} 
+
+table Cache {
+    backends:[BackendInfo];
+    tuned:[OpInfo];
 }
 
 root_type Cache;
