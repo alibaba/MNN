@@ -6,11 +6,9 @@ __kernel void batch_gather_buf(__private int global_dim0, __private int global_d
                             __global OUTPUT_TYPE* output, __global INPUT_TYPE* input,
                             #ifdef OFFSET_DST
                             __global int* offset_dst_ptr,
-                            __private const int4 offset_dst_shape,// w, h, c, n
                             #endif
                             #ifdef OFFSET_SRC
                             __global int* offset_src_ptr,
-                            __private const int4 offset_src_shape,// w, h, c, n
                             #endif
                             __private const int x_size,
                             __private const int4 stride_src,

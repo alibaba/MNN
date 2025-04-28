@@ -48,7 +48,7 @@ ErrorCode SplitGeluBufExecution::onEncode(const std::vector<Tensor*>& inputs, co
     }
     auto &unit = mUnits[0];
     std::string kernelName = "splitgelu_buf";
-    unit.kernel = runtime->buildKernel("splitgelu_buf", kernelName, buildOptions);
+    unit.kernel = runtime->buildKernel("splitgelu_buf", kernelName, buildOptions, mOpenCLBackend->getPrecision());
     
     auto maxWorkGroupSize  = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
 
@@ -68,7 +68,7 @@ ErrorCode SplitGeluBufExecution::onEncode(const std::vector<Tensor*>& inputs, co
 
     MNN_CHECK_CL_SUCCESS(ret, "setArg SplitGeluBufExecution");
     
-    mLWS = localWS2DDefault(mGWS, maxWorkGroupSize, runtime, "splitgelu_buf", unit.kernel).first;
+    mLWS = localWS2DDefault(mGWS, maxWorkGroupSize, runtime, "splitgelu_buf", unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
 
     unit.globalWorkSize  = {mGWS[0], mGWS[1]};
     unit.localWorkSize   = {mLWS[0], mLWS[1]};

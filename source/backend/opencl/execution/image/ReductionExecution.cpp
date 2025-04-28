@@ -41,7 +41,7 @@ ReductionExecution::ReductionExecution(const std::vector<Tensor *> &inputs, cons
             MNN_ASSERT(false);
             break;
     }
-    unit.kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("reduction", "reduct_width", {"-DOPERATE(a,b)=(a+b)","-DVALUE=0","-DLOCAL_SIZE=512"}, inputs[0], outputs[0]);
+    unit.kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("reduction", "reduct_width", {"-DOPERATE(a,b)=(a+b)","-DVALUE=0","-DLOCAL_SIZE=512"}, mOpenCLBackend->getPrecision(), inputs[0], outputs[0]);
     mMaxWorkGroupSize = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(unit.kernel));
 #ifdef LOG_VERBOSE
     MNN_PRINT("end ReductionExecution init !\n");
@@ -134,33 +134,33 @@ ErrorCode ReductionExecution::onEncode(const std::vector<Tensor *> &inputs, cons
         if(batch * inputHeight * inputChannels == outside && 1 == inside && dim == inputWidth){
             local_size = getLocalSize(inputWidth, MaxLocalSize);
             buildOption.emplace("-DLOCAL_SIZE=" + std::to_string(local_size));
-            unit.kernel = runtime->buildKernel("reduction", "reduct_width", buildOption, input, output);
+            unit.kernel = runtime->buildKernel("reduction", "reduct_width", buildOption, mOpenCLBackend->getPrecision(), input, output);
         }else if(batch * inputChannels == outside && inputWidth == inside && dim == inputHeight){
             local_size = getLocalSize(inputHeight, MaxLocalSize);
             buildOption.emplace("-DLOCAL_SIZE=" + std::to_string(local_size));
-            unit.kernel = runtime->buildKernel("reduction", "reduct_height", buildOption, input, output);
+            unit.kernel = runtime->buildKernel("reduction", "reduct_height", buildOption, mOpenCLBackend->getPrecision(), input, output);
         }else if(batch == outside && inputWidth * inputHeight == inside && dim == inputChannels){
             local_size = getLocalSize(inputChannelBlocks - 1, MaxLocalSize);
             buildOption.emplace("-DLOCAL_SIZE=" + std::to_string(local_size));
-            unit.kernel = runtime->buildKernel("reduction", "reduct_channel", buildOption, input, output);
+            unit.kernel = runtime->buildKernel("reduction", "reduct_channel", buildOption, mOpenCLBackend->getPrecision(), input, output);
             mGlobalWorkSize[2] = static_cast<uint32_t>(outputBatch * outputChannels);
         }else if(1 == outside && inputWidth * inputHeight * inputChannels == inside && dim == batch){
             local_size = getLocalSize(batch, MaxLocalSize);
             buildOption.emplace("-DLOCAL_SIZE=" + std::to_string(local_size));
-            unit.kernel = runtime->buildKernel("reduction", "reduct_batch", buildOption, input, output);
+            unit.kernel = runtime->buildKernel("reduction", "reduct_batch", buildOption, mOpenCLBackend->getPrecision(), input, output);
         }
         mGlobalWorkSize[0] *= local_size;
     }else{
         buildOption.emplace("-DLOCAL_SIZE=0");
         if(batch * inputHeight * inputChannels == outside && 1 == inside && dim == inputWidth){
-            unit.kernel = runtime->buildKernel("reduction", "reduct_width", buildOption, input, output);
+            unit.kernel = runtime->buildKernel("reduction", "reduct_width", buildOption, mOpenCLBackend->getPrecision(), input, output);
         }else if(batch * inputChannels == outside && inputWidth == inside && dim == inputHeight){
-            unit.kernel = runtime->buildKernel("reduction", "reduct_height", buildOption, input, output);
+            unit.kernel = runtime->buildKernel("reduction", "reduct_height", buildOption, mOpenCLBackend->getPrecision(), input, output);
         }else if(batch == outside && inputWidth * inputHeight == inside && dim == inputChannels){
-            unit.kernel = runtime->buildKernel("reduction", "reduct_channel", buildOption, input, output);
+            unit.kernel = runtime->buildKernel("reduction", "reduct_channel", buildOption, mOpenCLBackend->getPrecision(), input, output);
             mGlobalWorkSize[2] = static_cast<uint32_t>(outputBatch * outputChannels);
         }else if(1 == outside && inputWidth * inputHeight * inputChannels == inside && dim == batch){
-            unit.kernel = runtime->buildKernel("reduction", "reduct_batch", buildOption, input, output);
+            unit.kernel = runtime->buildKernel("reduction", "reduct_batch", buildOption, mOpenCLBackend->getPrecision(), input, output);
         }
     }
 
@@ -188,7 +188,7 @@ ErrorCode ReductionExecution::onEncode(const std::vector<Tensor *> &inputs, cons
     }else{
         mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
         std::string kernelName = "reduct";
-        mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, runtime, kernelName, unit.kernel).first;
+        mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, runtime, kernelName, unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
     }
     
     mOpenCLBackend->recordKernel3d(unit.kernel, mGlobalWorkSize, mLocalWorkSize);

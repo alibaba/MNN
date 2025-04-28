@@ -39,7 +39,11 @@ VulkanRasterSort::VulkanRasterSort(Backend* bn) : VulkanBasicExecution(bn) {
             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
             VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER
         };
-        mContent->cumsum = extra->getPipelineFactory()->getPipeline("glsl_cumsum_comp", types, spc);
+        if (extra->device().getLocalMemorySize() > 0) {
+            mContent->cumsum = extra->getPipelineFactory()->getPipeline("glsl_cumsum_comp", types, spc);
+        } else {
+            mContent->cumsum = extra->getPipelineFactory()->getPipeline("glsl_cumsum_single_comp", types, spc);
+        }
     }
     mRadixSort.reset(new VulkanRadixSort(bn, 16));
 }
@@ -300,7 +304,11 @@ VulkanRadixSort::VulkanRadixSort(Backend* bn, int needBit) : mBackend(bn), mNeed
             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
             VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER
         };
-        mContent->cumsum = extra->getPipelineFactory()->getPipeline("glsl_cumsum_comp", types, spc, true);
+        if (extra->device().getLocalMemorySize() > 0) {
+            mContent->cumsum = extra->getPipelineFactory()->getPipeline("glsl_cumsum_comp", types, spc, true);
+        } else {
+            mContent->cumsum = extra->getPipelineFactory()->getPipeline("glsl_cumsum_single_comp", types, spc, true);
+        }
     }
     {
         std::vector<uint32_t> spc = {(uint32_t)mLocalSize, 1, 1, (uint32_t)(1<<mPerSortBit), (uint32_t)mLocalSize};
@@ -430,7 +438,7 @@ void VulkanRadixSort::autoTune(std::pair<VulkanBuffer*, VkDeviceSize> srcIndex, 
         return;
     }
     //std::shared_ptr<VulkanBuffer> tmpMem = std::make_shared<VulkanBuffer>(extra->getMemoryPool(), false, sizeof(float) * totalWeightSize, nullptr, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
-    {
+    if (extra->device().getLocalMemorySize() > 0) {
         size_t histogramSize = 256 * 256 * 8 * sizeof(uint32_t);
         std::shared_ptr<VulkanBuffer> historyCumSumSize = extra->allocUniform();
         {

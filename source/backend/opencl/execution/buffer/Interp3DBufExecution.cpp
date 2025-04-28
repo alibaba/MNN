@@ -28,11 +28,11 @@ Interp3DBufExecution::Interp3DBufExecution(const std::vector<Tensor *> &inputs, 
     std::set<std::string> buildOptions;
     if (op->main_as_Interp()->resizeType() == 1) {
         mKernelName = "nearest3D_buf";
-        unit.kernel                = runtime->buildKernel("interp_buf", mKernelName, buildOptions);
+        unit.kernel                = runtime->buildKernel("interp_buf", mKernelName, buildOptions, mOpenCLBackend->getPrecision());
     } else {
         MNN_ERROR("Resize type other than nearest is not supported in Interp3DBuf, change to nearest!");
         mKernelName = "nearest3D_buf";
-        unit.kernel                = runtime->buildKernel("interp_buf", mKernelName, buildOptions);
+        unit.kernel                = runtime->buildKernel("interp_buf", mKernelName, buildOptions, mOpenCLBackend->getPrecision());
     }
 
     mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
@@ -89,7 +89,7 @@ ErrorCode Interp3DBufExecution::onEncode(const std::vector<Tensor *> &inputs, co
     ret |= unit.kernel->get().setArg(idx++, static_cast<int32_t>(inputBatch));
     MNN_CHECK_CL_SUCCESS(ret, "setArg Interp3DBufExecution");
 
-    mLWS = localWS3DDefault(mGWS, mMaxWorkGroupSize, runtime, mKernelName, unit.kernel).first;
+    mLWS = localWS3DDefault(mGWS, mMaxWorkGroupSize, runtime, mKernelName, unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
     mOpenCLBackend->recordKernel3d(unit.kernel, mGWS, mLWS);
     unit.globalWorkSize = {mGWS[0], mGWS[1], mGWS[2]};
     unit.localWorkSize = {mLWS[0], mLWS[1], mLWS[2]};

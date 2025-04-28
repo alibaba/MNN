@@ -1,0 +1,35 @@
+#include "opencl_source_map.hpp" 
+namespace MNN { 
+#ifndef MNN_OPENCL_BUFFER_CLOSED
+const char* select_buf = 
+"#ifdef MNN_SUPPORT_FP16\n"
+"#pragma OPENCL EXTENSION cl_khr_fp16 : enable\n"
+"#endif\n"
+"#define GLOBAL_SIZE_2_DIMS ""__private const int global_size_dim0,__private const int global_size_dim1,\n"
+"#define DEAL_NON_UNIFORM_DIM2(input1, input2) "" if (input1 >= global_size_dim0 || input2 >= global_size_dim1) { "" return; "" }\n"
+"__kernel void select_buf(GLOBAL_SIZE_2_DIMS\n"
+" __global const int* select,\n"
+" __global const FLOAT* input0,\n"
+" __global const FLOAT* input1,\n"
+" __global FLOAT* output\n"
+" ) {\n"
+" const int idx=get_global_id(0);\n"
+" const int idy=get_global_id(1);\n"
+" DEAL_NON_UNIFORM_DIM2(idx,idy);\n"
+" if (select[idx]) {\n"
+"#ifdef INSIZE1_EUQAL_1\n"
+" output[idx]=input0[0];\n"
+"#else\n"
+" output[idx]=input0[idx];\n"
+"#endif\n"
+" } else {\n"
+"#ifdef INSIZE2_EUQAL_1\n"
+" output[idx]=input1[0];\n"
+"#else\n"
+" output[idx]=input1[idx];\n"
+"#endif\n"
+" }\n"
+"}\n"
+;
+#endif
+}

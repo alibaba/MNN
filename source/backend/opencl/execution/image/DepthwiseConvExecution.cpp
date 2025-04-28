@@ -58,7 +58,7 @@ DepthwiseConvExecution::DepthwiseConvExecution(const std::vector<Tensor *> &inpu
 
     MNN::OpenCL::ImageBufferConvertor imageBufferConvertor{mOpenCLBackend->getOpenCLRuntime()};
     std::string buildOption = "-DBUFFER_INP_FP32";
-    imageBufferConvertor.convertBufferToImage(filterBuffer.get(), MNN::OpenCL::DW_CONV2D_FILTER, mResource->mFilter.get(), false, buildOption);
+    imageBufferConvertor.convertBufferToImage(filterBuffer.get(), MNN::OpenCL::DW_CONV2D_FILTER, mResource->mFilter.get(), mOpenCLBackend->getPrecision(), false, buildOption);
 
     if (mResource->mConv2dCommonParams->relu() == true) {
         mResource->mBuildOptions.emplace("-DRELU");
@@ -107,7 +107,7 @@ ErrorCode DepthwiseConvExecution::onEncode(const std::vector<Tensor *> &inputs, 
         kernelName = "depthwise_conv2d_s1";
         S1D1 = true;
     }
-    unit.kernel       = runtime->buildKernel("depthwise_conv2d", kernelName, mResource->mBuildOptions);
+    unit.kernel       = runtime->buildKernel("depthwise_conv2d", kernelName, mResource->mBuildOptions, mOpenCLBackend->getPrecision());
     mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
 
     mGlobalWorkSize = {static_cast<uint32_t>(UP_DIV(outputShape.at(3), 4) * UP_DIV(outputShape.at(2), 4)),
@@ -155,7 +155,7 @@ ErrorCode DepthwiseConvExecution::onEncode(const std::vector<Tensor *> &inputs, 
         unit.kernel->get().setArg(idx++, sizeof(strideShape), strideShape);
     }
     
-    mLocalWorkSize = localWS2DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName + info, unit.kernel).first;
+    mLocalWorkSize = localWS2DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName + info, unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
     mOpenCLBackend->recordKernel2d(unit.kernel, mGlobalWorkSize, mLocalWorkSize);
     unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1]};
     unit.localWorkSize = {mLocalWorkSize[0], mLocalWorkSize[1]};

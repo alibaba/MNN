@@ -27,7 +27,7 @@ ScaleBufExecution::ScaleBufExecution(const std::vector<Tensor *> &inputs, const 
     const float *scaleDataPtr = scaleParams->scaleData()->data();
         
     int buffer_size = ALIGN_UP4(scaleSize);
-    if (mOpenCLBackend->getOpenCLRuntime()->isSupportedFP16()) {
+    if (mOpenCLBackend->getPrecision() != BackendConfig::Precision_High) {
         buffer_size *= sizeof(half_float::half);
     } else {
         buffer_size *= sizeof(float);
@@ -41,7 +41,7 @@ ScaleBufExecution::ScaleBufExecution(const std::vector<Tensor *> &inputs, const 
     auto scalePtrCL = openclBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(
         scaleBuffer, true, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &error);
     if(nullptr != scalePtrCL && error == CL_SUCCESS){
-        if (mOpenCLBackend->getOpenCLRuntime()->isSupportedFP16()) {
+        if (mOpenCLBackend->getPrecision() != BackendConfig::Precision_High) {
             for (int i = 0; i < scaleSize; i++) {
                 ((half_float::half *)scalePtrCL)[i] = (half_float::half)(scaleDataPtr[i]);
             }
@@ -64,7 +64,7 @@ ScaleBufExecution::ScaleBufExecution(const std::vector<Tensor *> &inputs, const 
         const float *biasDataPtr = scaleParams->biasData()->data();
         
         int buffer_size = ALIGN_UP4(biasSize);
-        if (openclBackend->getOpenCLRuntime()->isSupportedFP16()) {
+        if (mOpenCLBackend->getPrecision() != BackendConfig::Precision_High) {
             buffer_size *= sizeof(half_float::half);
         } else {
             buffer_size *= sizeof(float);
@@ -77,7 +77,7 @@ ScaleBufExecution::ScaleBufExecution(const std::vector<Tensor *> &inputs, const 
         auto biasPtrCL = openclBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(
             biasBuffer, true, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &error);
         if(nullptr != biasPtrCL && error == CL_SUCCESS){
-            if (mOpenCLBackend->getOpenCLRuntime()->isSupportedFP16()) {
+            if (mOpenCLBackend->getPrecision() != BackendConfig::Precision_High) {
                 for (int i = 0; i < biasSize; i++) {
                     ((half_float::half *)biasPtrCL)[i] = (half_float::half)(biasDataPtr[i]);
                 }
@@ -122,7 +122,7 @@ ErrorCode ScaleBufExecution::onEncode(const std::vector<Tensor *> &inputs, const
     const int channelBlocks = UP_DIV(channels, 4);
 
     std::set<std::string> buildOptions = mBuildOptions;
-    unit.kernel            = runtime->buildKernel("scale_buf", "scale_buf", buildOptions);
+    unit.kernel            = runtime->buildKernel("scale_buf", "scale_buf", buildOptions, mOpenCLBackend->getPrecision());
     mMaxWorkGroupSize      = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
     
     mGlobalWorkSize = {static_cast<uint32_t>(inside),
@@ -143,7 +143,7 @@ ErrorCode ScaleBufExecution::onEncode(const std::vector<Tensor *> &inputs, const
     MNN_CHECK_CL_SUCCESS(ret, "setArg ScaleBufExecution");
 
     std::string name = "scale_buf";
-    mLocalWorkSize = localWS2DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, unit.kernel).first;
+    mLocalWorkSize = localWS2DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
     
     mOpenCLBackend->recordKernel2d(unit.kernel, mGlobalWorkSize, mLocalWorkSize);
     unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1]};

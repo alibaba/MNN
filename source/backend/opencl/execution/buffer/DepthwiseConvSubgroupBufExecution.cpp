@@ -51,7 +51,7 @@ DepthwiseConvSubgroupBufExecution::DepthwiseConvSubgroupBufExecution(const std::
             auto weightDestSize = destWeight->size();
 
             auto buffer_size = destWeight->elementSize();
-            if (mOpenCLBackend->getOpenCLRuntime()->isSupportedFP16()) {
+            if (mOpenCLBackend->getPrecision() != BackendConfig::Precision_High) {
                 buffer_size *= sizeof(half_float::half);
             } else {
                 buffer_size *= sizeof(float);
@@ -65,7 +65,7 @@ DepthwiseConvSubgroupBufExecution::DepthwiseConvSubgroupBufExecution(const std::
             auto weight_ptr = queue.enqueueMapBuffer(weightBuffer, CL_TRUE, CL_MAP_WRITE, 0, buffer_size, nullptr,
                                                      nullptr, &ret_code);
             if (weight_ptr != nullptr && ret_code == CL_SUCCESS) {
-                if (mOpenCLBackend->getOpenCLRuntime()->isSupportedFP16()) {
+                if (mOpenCLBackend->getPrecision() != BackendConfig::Precision_High) {
                     for (int i = 0; i < destWeight->elementSize(); i++) {
                         ((half_float::half *)weight_ptr)[i] = (half_float::half)(destWeight->host<float>()[i]);
                     }
@@ -82,7 +82,7 @@ DepthwiseConvSubgroupBufExecution::DepthwiseConvSubgroupBufExecution(const std::
     {
         int biasSize    = mResource->mConv2dParams->common()->outputCount();
         int buffer_size = ROUND_UP(biasSize, 16); // pack to 16
-        if (mOpenCLBackend->getOpenCLRuntime()->isSupportedFP16()) {
+        if (mOpenCLBackend->getPrecision() != BackendConfig::Precision_High) {
             buffer_size *= sizeof(half_float::half);
         } else {
             buffer_size *= sizeof(float);
@@ -99,7 +99,7 @@ DepthwiseConvSubgroupBufExecution::DepthwiseConvSubgroupBufExecution(const std::
             ::memset(biasPtrCL, 0, buffer_size);
             if (nullptr != mResource->mConv2dParams->bias()) {
                 const float *biasDataPtr = mResource->mConv2dParams->bias()->data();
-                if (mOpenCLBackend->getOpenCLRuntime()->isSupportedFP16()) {
+                if (mOpenCLBackend->getPrecision() != BackendConfig::Precision_High) {
                     for (int i = 0; i < biasSize; i++) {
                         ((half_float::half *)biasPtrCL)[i] = (half_float::half)(biasDataPtr[i]);
                     }
@@ -118,7 +118,7 @@ DepthwiseConvSubgroupBufExecution::DepthwiseConvSubgroupBufExecution(const std::
     } else if (mResource->mConv2dCommonParams->relu6() == true) {
         mResource->mBuildOptions.emplace("-DRELU6");
     }
-    int type_size = mOpenCLBackend->getOpenCLRuntime()->isSupportedFP16() ? 2 : 4;
+    int type_size = mOpenCLBackend->getPrecision() != BackendConfig::Precision_High ? 2 : 4;
         mResource->mBuildOptions.emplace("-DTYPE_SIZE=" + std::to_string(type_size));
 }
 
@@ -221,7 +221,7 @@ ErrorCode DepthwiseConvSubgroupBufExecution::onEncode(const std::vector<Tensor *
         mOpenCLBackend->onAcquireBuffer(mSource.get(), Backend::DYNAMIC);
         mOpenCLBackend->onReleaseBuffer(mSource.get(), Backend::DYNAMIC);
         unit.kernel =
-            mOpenCLBackend->getOpenCLRuntime()->buildKernel("input_transe_buf", "conv_transe_c4_c16", {});
+            mOpenCLBackend->getOpenCLRuntime()->buildKernel("input_transe_buf", "conv_transe_c4_c16", {}, mOpenCLBackend->getPrecision());
 
         uint32_t mMaxWGS_S =
             static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(unit.kernel));
@@ -243,7 +243,7 @@ ErrorCode DepthwiseConvSubgroupBufExecution::onEncode(const std::vector<Tensor *
         unit.kernel->get().setArg(idx++, static_cast<uint32_t>(trans_pad_x));
         unit.kernel->get().setArg(idx++, static_cast<uint32_t>(trans_pad_y));
 
-        mTranseLocalWorkSize = localWS3DDefault(mTranseGlobalWorkSize, mMaxWGS_S, mOpenCLBackend->getOpenCLRuntime(),"conv_transe_c4_c16", unit.kernel).first;
+        mTranseLocalWorkSize = localWS3DDefault(mTranseGlobalWorkSize, mMaxWGS_S, mOpenCLBackend->getOpenCLRuntime(),"conv_transe_c4_c16", unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
         mOpenCLBackend->recordKernel3d(unit.kernel, mTranseGlobalWorkSize, mTranseLocalWorkSize);
         unit.globalWorkSize = {mTranseGlobalWorkSize[0], mTranseGlobalWorkSize[1], mTranseGlobalWorkSize[2]};
         unit.localWorkSize = {mTranseLocalWorkSize[0], mTranseLocalWorkSize[1], mTranseLocalWorkSize[2]};
@@ -257,7 +257,7 @@ ErrorCode DepthwiseConvSubgroupBufExecution::onEncode(const std::vector<Tensor *
 
 
     std::string kernelname = "depthwise_conv_2d_buf_c16_c" + std::to_string(output_c_pack);
-    unit.kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("depthwise_conv2d_subgroup_buf", kernelname, buildOptions);
+    unit.kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("depthwise_conv2d_subgroup_buf", kernelname, buildOptions, mOpenCLBackend->getPrecision());
     uint32_t idx = 0;
     if (mNeedTranse) {
         unit.kernel->get().setArg(idx++, openCLBuffer(mSource.get()));

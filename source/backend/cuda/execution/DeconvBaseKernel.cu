@@ -45,6 +45,7 @@ __global__ void Col2Im_Vec4(const int n, const Stype* data_col,
     const int pad_h, const int pad_w,
     const int stride_h, const int stride_w,
     const int dilation_h, const int dilation_w,
+    const int activationType,
     const int height_col, const int width_col,
     const Dtype* bias, Dtype* data_im,
     const int precision,
@@ -112,6 +113,22 @@ __global__ void Col2Im_Vec4(const int n, const Stype* data_col,
                 }
             }
         }
+        if(activationType == 1) {
+            val.x = (Dtype)max((float)val.x, 0.0f);
+            val.y = (Dtype)max((float)val.y, 0.0f);
+            val.z = (Dtype)max((float)val.z, 0.0f);
+            val.w = (Dtype)max((float)val.w, 0.0f);
+        }
+        if(activationType == 2) {
+            val.x = (Dtype)max((float)val.x, 0.0f);
+            val.y = (Dtype)max((float)val.y, 0.0f);
+            val.z = (Dtype)max((float)val.z, 0.0f);
+            val.w = (Dtype)max((float)val.w, 0.0f);
+            val.x = (Dtype)min((float)val.x, 6.0f);
+            val.y = (Dtype)min((float)val.y, 6.0f);
+            val.z = (Dtype)min((float)val.z, 6.0f);
+            val.w = (Dtype)min((float)val.w, 6.0f);
+        }
         int dst_offset = index << 2;
         DATA_CONVERT_COPY(precision);
     }
@@ -124,6 +141,7 @@ __global__ void Col2Im(const int n, const Stype* data_col,
     const int pad_h, const int pad_w,
     const int stride_h, const int stride_w,
     const int dilation_h, const int dilation_w,
+    const int activationType,
     const int height_col, const int width_col,
     const Dtype* bias, Dtype* data_im,
     const int precision,
@@ -176,6 +194,13 @@ __global__ void Col2Im(const int n, const Stype* data_col,
                     val += (Dtype)data_col[data_col_index];
                 }
             }
+        }
+        if(activationType == 1) {
+            val = (Dtype)max((float)val, 0.0f);
+        }
+        if(activationType == 2) {
+            val = (Dtype)max((float)val, 0.0f);
+            val = (Dtype)min((float)val, 6.0f);
         }
         data_im[index] = val;
     }
@@ -230,7 +255,7 @@ void callCol2ImFunc(const void* input, const void* bias, void* output, const Col
             Col2Im_Vec4<<<col2im_block_num, col2im_thread_num>>>(
                 num_kernels, (const float*)input, col2im_param->ob, col2im_param->oh, col2im_param->ow, col2im_param->oc, 
                 col2im_param->kernelY, col2im_param->kernelX, col2im_param->padY, col2im_param->padX, 
-                col2im_param->strideY, col2im_param->strideX, col2im_param->dilateY, col2im_param->dilateX,
+                col2im_param->strideY, col2im_param->strideX, col2im_param->dilateY, col2im_param->dilateX, col2im_param->activationType,
                 height_col, width_col, (const float*)bias, (float *)output, precision, ocpD_4, owD, ohD, obD);
             checkKernelErrors;
             return;
@@ -238,7 +263,7 @@ void callCol2ImFunc(const void* input, const void* bias, void* output, const Col
             Col2Im_Vec4<<<col2im_block_num, col2im_thread_num>>>(
                 num_kernels, (const half*)input, col2im_param->ob, col2im_param->oh, col2im_param->ow, col2im_param->oc, 
                 col2im_param->kernelY, col2im_param->kernelX, col2im_param->padY, col2im_param->padX, 
-                col2im_param->strideY, col2im_param->strideX, col2im_param->dilateY, col2im_param->dilateX,
+                col2im_param->strideY, col2im_param->strideX, col2im_param->dilateY, col2im_param->dilateX, col2im_param->activationType,
                 height_col, width_col, (const float*)bias, (float *)output, precision, ocpD_4, owD, ohD, obD);
             checkKernelErrors;
             return;
@@ -246,7 +271,7 @@ void callCol2ImFunc(const void* input, const void* bias, void* output, const Col
             Col2Im_Vec4<<<col2im_block_num, col2im_thread_num>>>(
                 num_kernels, (const half*)input, col2im_param->ob, col2im_param->oh, col2im_param->ow, col2im_param->oc, 
                 col2im_param->kernelY, col2im_param->kernelX, col2im_param->padY, col2im_param->padX, 
-                col2im_param->strideY, col2im_param->strideX, col2im_param->dilateY, col2im_param->dilateX,
+                col2im_param->strideY, col2im_param->strideX, col2im_param->dilateY, col2im_param->dilateX, col2im_param->activationType,
                 height_col, width_col, (const half*)bias, (half *)output, precision, ocpD_4, owD, ohD, obD);
             checkKernelErrors;
             return;
@@ -257,7 +282,7 @@ void callCol2ImFunc(const void* input, const void* bias, void* output, const Col
         Col2Im<<<col2im_block_num, col2im_thread_num>>>(
             num_kernels, (const float*)input, col2im_param->ob, col2im_param->oh, col2im_param->ow, col2im_param->oc, 
             col2im_param->kernelY, col2im_param->kernelX, col2im_param->padY, col2im_param->padX, 
-            col2im_param->strideY, col2im_param->strideX, col2im_param->dilateY, col2im_param->dilateX,
+            col2im_param->strideY, col2im_param->strideX, col2im_param->dilateY, col2im_param->dilateX, col2im_param->activationType,
             height_col, width_col, (const float*)bias, (float *)output, precision, ocpD, owD, ohD, obD);
         checkKernelErrors;
         return;
@@ -265,7 +290,7 @@ void callCol2ImFunc(const void* input, const void* bias, void* output, const Col
         Col2Im<<<col2im_block_num, col2im_thread_num>>>(
             num_kernels, (const half*)input, col2im_param->ob, col2im_param->oh, col2im_param->ow, col2im_param->oc, 
             col2im_param->kernelY, col2im_param->kernelX, col2im_param->padY, col2im_param->padX, 
-            col2im_param->strideY, col2im_param->strideX, col2im_param->dilateY, col2im_param->dilateX,
+            col2im_param->strideY, col2im_param->strideX, col2im_param->dilateY, col2im_param->dilateX, col2im_param->activationType,
             height_col, width_col, (const float*)bias, (float *)output, precision, ocpD, owD, ohD, obD);
         checkKernelErrors;
         return;
@@ -273,7 +298,7 @@ void callCol2ImFunc(const void* input, const void* bias, void* output, const Col
         Col2Im<<<col2im_block_num, col2im_thread_num>>>(
             num_kernels, (const half*)input, col2im_param->ob, col2im_param->oh, col2im_param->ow, col2im_param->oc, 
             col2im_param->kernelY, col2im_param->kernelX, col2im_param->padY, col2im_param->padX, 
-            col2im_param->strideY, col2im_param->strideX, col2im_param->dilateY, col2im_param->dilateX,
+            col2im_param->strideY, col2im_param->strideX, col2im_param->dilateY, col2im_param->dilateX, col2im_param->activationType,
             height_col, width_col, (const half*)bias, (half *)output, precision, ocpD, owD, ohD, obD);
         checkKernelErrors;
         return;

@@ -31,7 +31,7 @@ ErrorCode RangeBufExecution::onEncode(const std::vector<Tensor*>& inputs, const 
     if((totalSize % 4) != 0){
         buildOption.emplace("-DPACK_LEAVE");
     }
-    unit.kernel = runtime->buildKernel("range_buf", "range_buf", buildOption, inputs[0], outputs[0]);
+    unit.kernel = runtime->buildKernel("range_buf", "range_buf", buildOption, openCLBackend->getPrecision(), inputs[0], outputs[0]);
     mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
 
     uint32_t idx = 0;
@@ -45,7 +45,7 @@ ErrorCode RangeBufExecution::onEncode(const std::vector<Tensor*>& inputs, const 
     MNN_CHECK_CL_SUCCESS(ret, "setArg RangeBufExecution");
 
     std::string kernelName = "range_buf";
-    mLocalSize = localWS2DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), kernelName, unit.kernel).first;
+    mLocalSize = localWS2DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), kernelName, unit.kernel, openCLBackend->getCLTuneLevel()).first;
     openCLBackend->recordKernel2d(unit.kernel, mGlobalWorkSize, mLocalSize);
     unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1]};
     unit.localWorkSize = {mLocalSize[0], mLocalSize[1]};

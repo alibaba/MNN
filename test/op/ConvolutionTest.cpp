@@ -572,7 +572,7 @@ public:
                 auto minValue = minMax.first;
                 wScale[2*k] = minMax.first;
                 auto absMax = minMax.second - minMax.first;
-                wScale[2*k+1] = 1;
+                wScale[2*k+1] = 0;
                 
                 float quantscale = 1.0f;
                 if (absMax >= 0.000001f) {

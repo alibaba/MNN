@@ -24,8 +24,10 @@ public:
 protected:
     void loadWeight(const MNN::Op *op, bool loadWeightInt8 = false);
 
-    virtual std::shared_ptr<MNN::Tensor> weightTransform(int group, int oc, int ic, int kh, int kw, const float *src, bool int8Weight = false, bool int4Weight = false);
-
+    virtual std::shared_ptr<MNN::Tensor> weightTransform(int group, int oc, int ic, int kh, int kw, const float *src, bool int8Weight = false, bool int4Weight = false, id<MTLBuffer> srcGpuBuffer = nil);
+private:
+    template <typename FType, typename TType>
+    void convertWeightFormat(int group, int oc, int ic, int kh, int kw, const FType *src, TType* dstOrigion, Tensor* dstTensor, id<MTLBuffer> srcGpuBuffer);
 protected:
     struct Param {
         int input_size;

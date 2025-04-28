@@ -283,7 +283,8 @@ class OnnxLayerNormTransform : public OnnxExtraManager::Transform {
                 }
             }
         }
-        if (expr->outputSize() > 1) {
+        if (expr->outputSize() > 1 || axis > 0) {
+            // If axis > 0, we can't determine how many axis should be norm
             auto axisVar = _Scalar<int>(axis);
             // Add negative protect, may decrease performance
             auto rankVar = _Rank(inputs[0]);
@@ -318,7 +319,10 @@ class OnnxLayerNormTransform : public OnnxExtraManager::Transform {
         layernorm->main.value = new LayerNormT;
         layernorm->main.type = OpParameter_LayerNorm;
         auto param = layernorm->main.AsLayerNorm();
-        param->axis = {axis};
+        param->axis.resize(-axis);
+        for (int i=0; i<param->axis.size(); ++i) {
+            param->axis[i] = i-(int)(param->axis.size());
+        }
         param->epsilon = eps;
         const float* scalePtr = nullptr;
         const float* biasPtr = nullptr;

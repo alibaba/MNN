@@ -43,7 +43,7 @@ ScaleExecution::ScaleExecution(const std::vector<Tensor *> &inputs, const MNN::O
     mScale.reset(Tensor::createDevice<float>({1, 1, 1, scaleSize}));
     backend->onAcquireBuffer(mScale.get(), Backend::STATIC);
     copyBufferToImage(openclBackend->getOpenCLRuntime(), scaleBuffer, openCLImage(mScale.get()), UP_DIV(scaleSize, 4),
-                      1);
+                      1, mOpenCLBackend->getPrecision());
 
     std::set<std::string> buildOptions;
     if (nullptr != scaleParams->biasData() && nullptr != scaleParams->biasData()->data()) {
@@ -67,14 +67,14 @@ ScaleExecution::ScaleExecution(const std::vector<Tensor *> &inputs, const MNN::O
         bias.reset(Tensor::createDevice<float>({1, 1, 1, biasSize}));
         backend->onAcquireBuffer(bias.get(), Backend::STATIC);
         copyBufferToImage(openclBackend->getOpenCLRuntime(), biasBuffer, openCLImage(bias.get()), UP_DIV(biasSize, 4),
-                          1);
+                          1, mOpenCLBackend->getPrecision());
         mBias = bias;
         buildOptions.emplace("-DHAS_BIAS");
         mHasBias = true;
     }
     std::string kernelName = "scale";
     auto runtime           = mOpenCLBackend->getOpenCLRuntime();
-    unit.kernel          = runtime->buildKernel("scale", kernelName, buildOptions);
+    unit.kernel          = runtime->buildKernel("scale", kernelName, buildOptions, mOpenCLBackend->getPrecision());
     mMaxWorkGroupSize      = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
 
 #ifdef LOG_VERBOSE
@@ -125,7 +125,7 @@ ErrorCode ScaleExecution::onEncode(const std::vector<Tensor *> &inputs, const st
     std::string name = "scale";
     std::vector<uint32_t> mGWS{1, 1, 1, 1};
     std::vector<uint32_t> mLWS{1, 1, 1, 1};
-    mLWS = localWS3DDefault(gws, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, unit.kernel).first;
+    mLWS = localWS3DDefault(gws, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
     for (size_t i = 0; i < gws.size(); ++i) {
         mGWS[i] = ROUND_UP(gws[i], std::max((uint32_t)1, mLWS[i]));
     }

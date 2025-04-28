@@ -49,7 +49,7 @@ public:
             // dilation's result value is the max value exclude pad value,
             // set -inf as pad value so it's value wont appear in result
             auto padVal = context.allocConst(op, {1}, halide_type_of<float>());
-            padVal->host<float>()[0] = -std::numeric_limits<float>::infinity();
+            padVal->host<float>()[0] = -65504.0f;//max fp16
             // Im2Col: n, ic, ih, iw -> (ic * kh * kw) * (batch * oh * ow)
             std::shared_ptr<Tensor> im2Col(new Tensor);
             auto tmpT = GeometryConvUtils::im2Col(im2Col.get(), input, inputChannel, kernelHeight, kernelWidth, batch,

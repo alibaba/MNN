@@ -17,7 +17,7 @@ CastExecution::CastExecution(const std::vector<Tensor *> &inputs, const std::vec
     auto runtime       = openCLBackend->getOpenCLRuntime();
     mUnits.resize(1);
     auto &unit = mUnits[0];
-    unit.kernel = openCLBackend->getOpenCLRuntime()->buildKernel("cast", "cast", mBuildOptions, inputs[0], outputs[0]);
+    unit.kernel = openCLBackend->getOpenCLRuntime()->buildKernel("cast", "cast", mBuildOptions, openCLBackend->getPrecision(), inputs[0], outputs[0]);
     mMaxWorkGroupSize  = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
 }
 ErrorCode CastExecution::onEncode(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
@@ -56,7 +56,7 @@ ErrorCode CastExecution::onEncode(const std::vector<Tensor*>& inputs, const std:
     MNN_CHECK_CL_SUCCESS(ret, "setArg CastExecution");
 
     std::string kernelName = "cast";
-    mLocalSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), kernelName, unit.kernel).first;
+    mLocalSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), kernelName, unit.kernel, openCLBackend->getCLTuneLevel()).first;
     openCLBackend->recordKernel3d(unit.kernel, mGlobalWorkSize, mLocalSize);
     unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1], mGlobalWorkSize[2]};
     unit.localWorkSize  = {mLocalSize[0], mLocalSize[1], mLocalSize[2]};

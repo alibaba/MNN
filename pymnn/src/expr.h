@@ -344,6 +344,9 @@ std::pair<VARP, VARP> toVarPair(PyObject* l, PyObject* r, bool fp = false) {
     }
     auto varl = toVar(l);
     auto varr = toVar(r);
+    if (nullptr == varl->getInfo() || nullptr == varr->getInfo()) {
+        return std::make_pair(varl, varr);
+    }
     auto dtypel = varl->getInfo()->type;
     auto dtyper = varr->getInfo()->type;
     if (fp) {
@@ -535,7 +538,8 @@ static PyObject* PyMNNVar_subscript(PyObject* x, PyObject* slice) {
                                       ellipsis_mask, new_axis_mask, shrink_axis_mask);
     auto info = res->getInfo();
     if (!info) {
-        PyMNN_ERROR("subscript: unable to get variable info");
+        MNN_ERROR("subscript: unable to get variable info");
+        Py_RETURN_NONE;
     }
     // to scalar
     if (info->dim.empty()) {
@@ -685,7 +689,7 @@ static PyObject* PyMNNVar_getdtype(PyMNNVar *self, void *closure) {
     if (self->var) {
         auto info = (*(self->var))->getInfo();
         if(nullptr == info) {
-            PyMNN_ERROR("getdtype: unable to get variable info");
+            Py_RETURN_NONE;
         }
         return toPyObj(htype2dtype(info->type));
     }

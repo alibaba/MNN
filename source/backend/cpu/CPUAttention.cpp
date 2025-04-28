@@ -211,13 +211,17 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
         }
         mScale /= q_scale;
     }
-
-    if (mMeta->previous == mMeta->remove) {
+    if (nullptr == mMeta) {
         mKVCacheManager->onClear();
-        mKVCacheManager->onAlloc(mMeta->add);
+        mKVCacheManager->onAlloc(seq_len);
     } else {
-        MNN_ASSERT(mMeta->previous == mKVCacheManager->kvLength());
-        mKVCacheManager->onRealloc(mMeta);
+        if (mMeta->previous == mMeta->remove) {
+            mKVCacheManager->onClear();
+            mKVCacheManager->onAlloc(mMeta->add);
+        } else {
+            MNN_ASSERT(mMeta->previous == mKVCacheManager->kvLength());
+            mKVCacheManager->onRealloc(mMeta);
+        }
     }
     // Add the new kv to the kvcache
     mKVCacheManager->onPushBack(key, value);

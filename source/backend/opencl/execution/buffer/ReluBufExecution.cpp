@@ -21,7 +21,7 @@ ReluBufExecution::ReluBufExecution(const std::vector<Tensor *> &inputs, const MN
     const float *preluDataPtr = mPreluParamPtr->slope()->data();
     
     int buffer_size = ALIGN_UP4(preluSize);
-    if (mOpenCLBackend->getOpenCLRuntime()->isSupportedFP16()) {
+    if (mOpenCLBackend->getPrecision() != BackendConfig::Precision_High) {
         buffer_size *= sizeof(half_float::half);
     } else {
         buffer_size *= sizeof(float);
@@ -34,7 +34,7 @@ ReluBufExecution::ReluBufExecution(const std::vector<Tensor *> &inputs, const MN
     auto preluDataPtrCL = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueMapBuffer(
         preluBuffer, true, CL_MAP_WRITE, 0, buffer_size, nullptr, nullptr, &error);
     if(preluDataPtrCL != nullptr && error == CL_SUCCESS){
-        if (mOpenCLBackend->getOpenCLRuntime()->isSupportedFP16()) {
+        if (mOpenCLBackend->getPrecision() != BackendConfig::Precision_High) {
             for(int i=0; i<preluSize; i++) {
                 ((half_float::half*)preluDataPtrCL)[i] = (half_float::half)(preluDataPtr[i]);
             }
@@ -74,7 +74,7 @@ ErrorCode ReluBufExecution::onEncode(const std::vector<Tensor *> &inputs, const 
     
     std::set<std::string> buildOption;
     buildOption.emplace("-DOPERATOR=select(in0*in1,in0,in0>=(float4)0)");
-    mUnits[0].kernel = runTime->buildKernel("binary_buf", "prelu_buf", buildOption, inputs[0], outputs[0]);
+    mUnits[0].kernel = runTime->buildKernel("binary_buf", "prelu_buf", buildOption, mOpenCLBackend->getPrecision(), inputs[0], outputs[0]);
     mMaxWorkGroupSize      = static_cast<uint32_t>(runTime->getMaxWorkGroupSize(mUnits[0].kernel));
     int fullCount[2] = {1, 1};
     
@@ -89,7 +89,7 @@ ErrorCode ReluBufExecution::onEncode(const std::vector<Tensor *> &inputs, const 
     MNN_CHECK_CL_SUCCESS(ret, "setArg ReluBufExecution");
 
     std::string name = "prelu_buf";
-    localSize = localWS2DDefault(globalSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, mUnits[0].kernel).first;
+    localSize = localWS2DDefault(globalSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, mUnits[0].kernel, mOpenCLBackend->getCLTuneLevel()).first;
     
     mUnits[0].globalWorkSize = {globalSize[0], globalSize[1]};
     mUnits[0].localWorkSize  = {localSize[0], localSize[1]};
@@ -149,7 +149,7 @@ ErrorCode ReluBufExecution::SubgrouponResize(const std::vector<Tensor *> &inputs
             buildOptions.emplace("-DINTEL_SUB_GROUP_WRITE4=intel_sub_group_block_write4");
         }
     } else {
-        if (runTime->isSupportedFP16()) {
+        if (mOpenCLBackend->getPrecision() != BackendConfig::Precision_High) {
             buildOptions.emplace("-DINTEL_DATA=ushort");
             buildOptions.emplace("-DAS_INPUT_DATA=as_half");
             buildOptions.emplace("-DAS_INPUT_DATA4=as_half4");
@@ -168,7 +168,7 @@ ErrorCode ReluBufExecution::SubgrouponResize(const std::vector<Tensor *> &inputs
         }
     }
     buildOptions.emplace("-DOPERATOR=select(in0*in1,in0,in0>=(float4)0)");
-    mUnits[0].kernel  = runTime->buildKernel("binary_subgroup_buf", kernelName, buildOptions, inputs[0], output);
+    mUnits[0].kernel  = runTime->buildKernel("binary_subgroup_buf", kernelName, buildOptions, mOpenCLBackend->getPrecision(), inputs[0], output);
     mMaxWorkGroupSize      = static_cast<uint32_t>(runTime->getMaxWorkGroupSize(mUnits[0].kernel));
     int fullCount[2] = {1, 1};
     
@@ -192,7 +192,7 @@ ErrorCode ReluBufExecution::SubgrouponResize(const std::vector<Tensor *> &inputs
         ret |= mUnits[0].kernel->get().setArg(index++, static_cast<uint32_t>(outputpad.right));
         MNN_CHECK_CL_SUCCESS(ret, "setArg ReluBufExecution SubGroup C4");
 
-        lws = localWS3DDefault(gws, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName, mUnits[0].kernel).first;
+        lws = localWS3DDefault(gws, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName, mUnits[0].kernel, mOpenCLBackend->getCLTuneLevel()).first;
         mUnits[0].localWorkSize = {lws[0], lws[1], lws[2]};
     } else {
         gws = {(uint32_t)UP_DIV(nhwc[2], 4) * nhwc[1], (uint32_t)ROUND_UP(nhwc[3], 16),

@@ -38,7 +38,7 @@ ConvCommonExecution::ConvCommonExecution(const Convolution2D *conv2dParams, Back
     runtime->commandQueue().enqueueUnmapMemObject(biasBuffer, biasPtrCL);
     mResource->mBias.reset(Tensor::createDevice<float>({1, 1, 1, biasSize}));
     backend->onAcquireBuffer(mResource->mBias.get(), Backend::STATIC);
-    copyBufferToImage(runtime, biasBuffer, openCLImage(mResource->mBias.get()), UP_DIV(biasSize, 4), 1);
+    copyBufferToImage(runtime, biasBuffer, openCLImage(mResource->mBias.get()), UP_DIV(biasSize, 4), 1, mOpenCLBackend->getPrecision());
 }
 ConvCommonExecution::~ConvCommonExecution() {
     // Do nothinng
@@ -130,7 +130,7 @@ ConvExecution::ConvExecution(const std::vector<Tensor *> &inputs, const std::vec
         std::shared_ptr<Tensor> filterBuffer(Tensor::createDevice<float>({UP_DIV(outputChannel, 4)*4, UP_DIV(inputChannel, 4)*4, kernelWidth, kernelHeight}));
         
         int buffer_size = filterBuffer->elementSize();
-        if(mOpenCLBackend->getOpenCLRuntime()->isSupportedFP16()) {
+        if(mOpenCLBackend->getPrecision() != BackendConfig::Precision_High) {
             buffer_size *= sizeof(half_float::half);
         } else {
             buffer_size *= sizeof(float);
@@ -144,7 +144,7 @@ ConvExecution::ConvExecution(const std::vector<Tensor *> &inputs, const std::vec
                 for(int i = 0 ; i < inputChannel; i++){
                     int bufferIdx = (o/4) * ROUND_UP(inputChannel, 4)*4 + (i/4)*16 + (o%4)*4 + (i%4);
                     int filterIdx = o*inputChannel + i;
-                    if(mOpenCLBackend->getOpenCLRuntime()->isSupportedFP16()){
+                    if(mOpenCLBackend->getPrecision() != BackendConfig::Precision_High){
                         ((half_float::half*)kernelBufferPtr)[bufferIdx] = (half_float::half)(filterDataPtr[filterIdx]);
                     }else{
                         ((float*)kernelBufferPtr)[bufferIdx] = (float)(filterDataPtr[filterIdx]);
@@ -161,7 +161,7 @@ ConvExecution::ConvExecution(const std::vector<Tensor *> &inputs, const std::vec
         std::shared_ptr<Tensor> filterBuffer(Tensor::createDevice<float>({UP_DIV(outputChannel, 4), ROUND_UP(inputChannel, 4), 4}));
         
         int buffer_size = filterBuffer->elementSize();
-        if(mOpenCLBackend->getOpenCLRuntime()->isSupportedFP16()) {
+        if(mOpenCLBackend->getPrecision() != BackendConfig::Precision_High) {
             buffer_size *= sizeof(half_float::half);
         } else {
             buffer_size *= sizeof(float);
@@ -175,7 +175,7 @@ ConvExecution::ConvExecution(const std::vector<Tensor *> &inputs, const std::vec
                 for(int i = 0 ; i < inputChannel; i++){
                     int bufferIdx = (o/4) * ROUND_UP(inputChannel, 4)*4 + i*4 + (o%4);
                     int filterIdx = o*inputChannel + i;
-                    if(mOpenCLBackend->getOpenCLRuntime()->isSupportedFP16()){
+                    if(mOpenCLBackend->getPrecision() != BackendConfig::Precision_High){
                         ((half_float::half*)kernelBufferPtr)[bufferIdx] = (half_float::half)(filterDataPtr[filterIdx]);
                     }else{
                         ((float*)kernelBufferPtr)[bufferIdx] = (float)(filterDataPtr[filterIdx]);
@@ -214,7 +214,7 @@ ConvExecution::ConvExecution(const std::vector<Tensor *> &inputs, const std::vec
         if(mResource->mWeightUseBuffer){
             mResource->mFilter.reset(Tensor::createDevice<float>({UP_DIV(inputChannel, 4)*4, UP_DIV(outputChannel, 4), kernelWidth * kernelHeight, 4}));
             int kernel_buffer_size = UP_DIV(outputChannel, 4)*4* UP_DIV(inputChannel, 4)*4* kernelWidth* kernelHeight;
-            if(mOpenCLBackend->getOpenCLRuntime()->isSupportedFP16()) {
+            if(mOpenCLBackend->getPrecision() != BackendConfig::Precision_High) {
                 kernel_buffer_size *= sizeof(half_float::half);
             } else {
                 kernel_buffer_size *= sizeof(float);
@@ -224,7 +224,7 @@ ConvExecution::ConvExecution(const std::vector<Tensor *> &inputs, const std::vec
             MNN::OpenCL::BufferConvertor bufferConvertor{mOpenCLBackend->getOpenCLRuntime()};
             
             bool needTrans = true;
-            bufferConvertor.convertToNC4HW4Buffer(filterBuffer.get(), MNN::OpenCL::CONV2D_FILTER, mResource->mFilter.get(), needTrans);
+            bufferConvertor.convertToNC4HW4Buffer(filterBuffer.get(), MNN::OpenCL::CONV2D_FILTER, mResource->mFilter.get(), mOpenCLBackend->getPrecision(), needTrans);
         } else
 #endif
         {
@@ -233,7 +233,7 @@ ConvExecution::ConvExecution(const std::vector<Tensor *> &inputs, const std::vec
             MNN::OpenCL::ImageBufferConvertor imageBufferConvertor{mOpenCLBackend->getOpenCLRuntime()};
             
             std::string buildOption = "-DBUFFER_INP_FP32";
-            imageBufferConvertor.convertBufferToImage(filterBuffer.get(), MNN::OpenCL::CONV2D_FILTER, mResource->mFilter.get(), false, buildOption);
+            imageBufferConvertor.convertBufferToImage(filterBuffer.get(), MNN::OpenCL::CONV2D_FILTER, mResource->mFilter.get(), mOpenCLBackend->getPrecision(), false, buildOption);
         }
     }
     
@@ -292,7 +292,7 @@ ErrorCode ConvExecution::onEncode(const std::vector<Tensor *> &inputs, const std
         if(mResource->mConv1x1Opt){
             
             std::string kernelName = "conv_2d_1x1_mali";
-            unit.kernel             = mOpenCLBackend->getOpenCLRuntime()->buildKernel("conv_2d", kernelName, mResource->mBuildOptions);
+            unit.kernel             = mOpenCLBackend->getOpenCLRuntime()->buildKernel("conv_2d", kernelName, mResource->mBuildOptions, mOpenCLBackend->getPrecision());
             uint32_t idx            = 0;
             
             mGlobalWorkSize = {static_cast<uint32_t>(UP_DIV(outputShape.at(3), 4) * UP_DIV(outputShape.at(2), 4)),
@@ -308,7 +308,7 @@ ErrorCode ConvExecution::onEncode(const std::vector<Tensor *> &inputs, const std
             unit.kernel->get().setArg(idx++, height);
             unit.kernel->get().setArg(idx++, width);
             
-            mLocalWorkSize = localWS2DDefault(mGlobalWorkSize, mResource->mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName, unit.kernel).first;
+            mLocalWorkSize = localWS2DDefault(mGlobalWorkSize, mResource->mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName, unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
             mOpenCLBackend->recordKernel2d(unit.kernel, mGlobalWorkSize, mLocalWorkSize);
         }else{
             int inputImageShape[2]  = {inputHeight, inputWidth};
@@ -332,7 +332,7 @@ ErrorCode ConvExecution::onEncode(const std::vector<Tensor *> &inputs, const std
                 if(itemC[knl_idx] == 8 && outputShape.at(3) % itemC[knl_idx] > 0 && outputShape.at(3) % itemC[knl_idx] <= 4){
                     buildOption.emplace("-DCHANNEL_BOUNDARY_PROTECT");
                 }
-                kernel[knl_idx]        = mOpenCLBackend->getOpenCLRuntime()->buildKernel("conv_2d", kernelName[knl_idx], buildOption);
+                kernel[knl_idx]        = mOpenCLBackend->getOpenCLRuntime()->buildKernel("conv_2d", kernelName[knl_idx], buildOption, mOpenCLBackend->getPrecision());
                 uint32_t maxWorkGroupSize = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(kernel[knl_idx]));
                 
                 globalWorkSize[knl_idx] = {static_cast<uint32_t>(UP_DIV(outputShape.at(3), itemC[knl_idx]) * UP_DIV(outputShape.at(2), itemW[knl_idx])), static_cast<uint32_t>(outputShape.at(0) * UP_DIV(outputShape.at(1), itemH[knl_idx]))};
@@ -355,7 +355,7 @@ ErrorCode ConvExecution::onEncode(const std::vector<Tensor *> &inputs, const std
                 kernel[knl_idx]->get().setArg(idx++, UP_DIV(outputShape.at(3), 4));
                 
                 std::pair<std::vector<uint32_t>, uint32_t> retTune;
-                retTune = localWS2DDefault(globalWorkSize[knl_idx], maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName[knl_idx] + info, kernel[knl_idx]);
+                retTune = localWS2DDefault(globalWorkSize[knl_idx], maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName[knl_idx] + info, kernel[knl_idx], mOpenCLBackend->getCLTuneLevel());
                 
                 //printf("conv1x1 kernel_%d = %d  [%d, %d]\n", knl_idx, retTune.second, retTune.first[0], retTune.first[1]);
                 if(min_cost.first > retTune.second) {
@@ -371,7 +371,7 @@ ErrorCode ConvExecution::onEncode(const std::vector<Tensor *> &inputs, const std
             if(itemC[min_index] == 8 && outputShape.at(3) % itemC[min_index] > 0 && outputShape.at(3) % itemC[min_index] <= 4){
                 buildOption.emplace("-DCHANNEL_BOUNDARY_PROTECT");
             }
-            unit.kernel        = mOpenCLBackend->getOpenCLRuntime()->buildKernel("conv_2d", kernelName[min_index], buildOption);
+            unit.kernel        = mOpenCLBackend->getOpenCLRuntime()->buildKernel("conv_2d", kernelName[min_index], buildOption, mOpenCLBackend->getPrecision());
             
             uint32_t idx = 0;
             unit.kernel->get().setArg(idx++, mGlobalWorkSize[0]);
@@ -419,7 +419,7 @@ ErrorCode ConvExecution::onEncode(const std::vector<Tensor *> &inputs, const std
             if(itemC[knl_idx] == 8 && outputShape.at(3) % itemC[knl_idx] > 0 && outputShape.at(3) % itemC[knl_idx] <= 4){
                 buildOption.emplace("-DCHANNEL_BOUNDARY_PROTECT");
             }
-            kernel[knl_idx]        = mOpenCLBackend->getOpenCLRuntime()->buildKernel("conv_2d", kernelName[knl_idx], buildOption);
+            kernel[knl_idx]        = mOpenCLBackend->getOpenCLRuntime()->buildKernel("conv_2d", kernelName[knl_idx], buildOption, mOpenCLBackend->getPrecision());
             uint32_t maxWorkGroupSize = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(kernel[knl_idx]));
             
             globalWorkSize[knl_idx] = {static_cast<uint32_t>(UP_DIV(outputShape.at(3), itemC[knl_idx]) * UP_DIV(outputShape.at(2), itemW[knl_idx])), static_cast<uint32_t>(outputShape.at(0) * UP_DIV(outputShape.at(1), itemH[knl_idx]))};
@@ -448,7 +448,7 @@ ErrorCode ConvExecution::onEncode(const std::vector<Tensor *> &inputs, const std
             MNN_CHECK_CL_SUCCESS(ret, "setArg ConvExecution Kernel Select");
             
             std::pair<std::vector<uint32_t>, uint32_t> retTune;
-            retTune = localWS2DDefault(globalWorkSize[knl_idx], maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName[knl_idx] + info, kernel[knl_idx]);
+            retTune = localWS2DDefault(globalWorkSize[knl_idx], maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName[knl_idx] + info, kernel[knl_idx], mOpenCLBackend->getCLTuneLevel());
             
             if(min_cost.first > retTune.second) {
                 min_cost.first = retTune.second;
@@ -462,7 +462,7 @@ ErrorCode ConvExecution::onEncode(const std::vector<Tensor *> &inputs, const std
         if(itemC[min_index] == 8 && outputShape.at(3) % itemC[min_index] > 0 && outputShape.at(3) % itemC[min_index] <= 4){
             buildOption.emplace("-DCHANNEL_BOUNDARY_PROTECT");
         }
-        unit.kernel        = mOpenCLBackend->getOpenCLRuntime()->buildKernel("conv_2d", kernelName[min_index], buildOption);
+        unit.kernel        = mOpenCLBackend->getOpenCLRuntime()->buildKernel("conv_2d", kernelName[min_index], buildOption, mOpenCLBackend->getPrecision());
         
         uint32_t idx            = 0;
         cl_int ret = CL_SUCCESS;

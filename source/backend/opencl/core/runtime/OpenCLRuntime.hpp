@@ -42,13 +42,9 @@ namespace MNN {
 enum GpuType { MALI = 0, ADRENO = 1, RADEON = 2, INTEL = 3, OTHER = 4 };
 enum GpuLevel { UNDEFINED = 0, TOP = 1, MEDIUM = 2, LOW = 3 };
 enum MaliAr { MIDGARD = 0, BIFROST = 1, VALHALL = 2 };
-enum GpuMemObject { AUTO = 0, BUFFER = 1, IMAGE = 2};
-enum CLTuneLevel { None = 0, Heavy = 1, Wide = 2, Normal = 3, Fast = 4};
 enum SvmType { FINE_BUFFER = 0, COARSE_BUFFER = 1, SVM_NONE = 2};
 
 struct RuntimeInitInfo {
-    BackendConfig::PrecisionMode precision;
-    int cl_mode;
     int platformSize;
     int platformId;
     int deviceId;
@@ -78,13 +74,12 @@ private:
 };
 class OpenCLRuntime {
 public:
-    OpenCLRuntime(const BackendConfig::PrecisionMode precision, const int cl_mode, int platformSize, int platformId, int deviceId, void *contextPtr, const RuntimeHint& hint);
+    OpenCLRuntime(int platformSize, int platformId, int deviceId, void *contextPtr, const RuntimeHint& hint);
     ~OpenCLRuntime();
     OpenCLRuntime(const OpenCLRuntime &) = delete;
     OpenCLRuntime &operator=(const OpenCLRuntime &) = delete;
 
     bool isSupportedFP16() const;
-    bool isDeviceSupportedFP16() const;
     bool isDeviceSupportedLowPower() const;
     bool isSupportedDotInt8() const;
     bool isSupportedDotAccInt8() const;
@@ -101,15 +96,11 @@ public:
     uint64_t GetKernelWaveSize(std::shared_ptr<KernelWrap> kernel);
     std::vector<uint32_t> getMaxWorkItemSizes();
     uint64_t getMaxLocalMem() const;
-    void setPrecision(const BackendConfig::PrecisionMode precision);
     uint32_t getUseRecordableQueueSize(){
         return mUseRecordableQueueSize;
     }
     bool isSupportRecordQueue(){
-        return mUseRecordQueue;
-    }
-    bool isDevideOpRecord(){
-        return mDevideOpRecord;
+        return mSupportRecordQueue;
     }
     GpuType getGpuType() {
         return mGpuType;
@@ -120,7 +111,6 @@ public:
     float getCLVersion() {
         return mCLVersion;
     }
-	uint32_t getPrecisionLevel() const;
     bool isSupportAHD(){
         return mIsSupportAHD;
     }
@@ -129,12 +119,6 @@ public:
         return mSvmCapabilities;
     }
 #endif
-    GpuMemObject getGpuMemType() {
-        return mMemType;
-    }
-    CLTuneLevel getCLTuneLevel() {
-        return mTuneLevel;
-    }
     GpuLevel getGpuLevel() {
         return mGpuLevel;
     }
@@ -168,11 +152,11 @@ public:
     std::map<std::string, std::vector<std::pair<std::vector<uint32_t>, std::pair<std::vector<uint32_t>, uint32_t>>>>& getTuneLwsMap();
     
     std::shared_ptr<KernelWrap> buildKernel(const std::string &programName, const std::string &kernelName,
-                             const std::set<std::string> &buildOptions, const Tensor *input = nullptr, const Tensor *output = nullptr);
+                             const std::set<std::string> &buildOptions, int precisionLevel, const Tensor *input = nullptr, const Tensor *output = nullptr);
     std::shared_ptr<KernelWrap> buildKernelWithCache(const std::string &programName, const std::string &kernelName,
-                             const std::set<std::string> &buildOptions, const Tensor *input = nullptr, const Tensor *output = nullptr, bool useCache = true);
+                             const std::set<std::string> &buildOptions, int precisionLevel, const Tensor *input = nullptr, const Tensor *output = nullptr, bool useCache = true);
     std::shared_ptr<KernelWrap> buildKernelFromSource(const std::string&, const std::string &kernelName,
-                                       const std::set<std::string> &buildOptions);
+                                       const std::set<std::string> &buildOptions, int precisionLevel);
 
     std::vector<size_t> getMaxImage2DSize();
     bool isCreateError() const {
@@ -183,13 +167,8 @@ public:
         return mFlops;
     }
     
-    bool canShareRuntime(const BackendConfig::PrecisionMode precision, const int cl_mode, int platformSize, int platformId, int deviceId, void *contextPtr){
-        bool canShare = (platformSize == mInitInfo.platformSize) && (platformId == mInitInfo.platformId) && (deviceId == mInitInfo.deviceId) && (contextPtr == mInitInfo.contextPtr);
-        if(canShare){
-            setPrecision(precision);
-            setGpuMode(cl_mode);
-        }
-        return canShare;
+    bool canShareRuntime(int platformSize, int platformId, int deviceId, void *contextPtr){
+        return (platformSize == mInitInfo.platformSize) && (platformId == mInitInfo.platformId) && (deviceId == mInitInfo.deviceId) && (contextPtr == mInitInfo.contextPtr);
     }
 
     double getCostTime(const cl::Event *event);
@@ -198,7 +177,6 @@ public:
 
     std::pair<const void*, size_t> makeCache(void* tuneInfo);
     bool setCache(std::pair<const void*, size_t> cache);
-    void setGpuMode(const int cl_mode_num);
 private:
     bool loadProgram(const std::string &programName, cl::Program *program);
     bool buildProgram(const std::string &buildOptionsStr, cl::Program *program);
@@ -227,13 +205,9 @@ private:
     uint64_t mMaxLocalMemSize;
     uint32_t mMaxThreadsPerDevice;
     uint32_t mMaxWorkGroupSize;
-    uint32_t mUseRecordableQueueSize;
-    bool mUseRecordQueue = false;
-    bool mDevideOpRecord = true;
-    int mPrecisionLevel;
-    
+    uint32_t mUseRecordableQueueSize = 0;
+    bool mSupportRecordQueue = false;
     bool mIsSupportedFP16 = false;
-    bool mIsDeviceSupportedFP16 = false;
     bool mIsDeviceSupportedLowPower = false;
     bool mSupportDotInt8 = false;
     bool mSupportDotAccInt8 = false;
@@ -248,9 +222,8 @@ private:
 #ifdef MNN_OPENCL_SVM_ENABLE
     cl_device_svm_capabilities mSvmCapabilities;
 #endif
-    GpuMemObject mMemType = AUTO;
-    CLTuneLevel mTuneLevel = Wide;
     std::string mDeviceName;
+    std::string mDeviceInfo;
     bool isSetWorkGroupAttribute = false;
     std::string mDefaultBuildParams;
     float mFlops = 4.0f;

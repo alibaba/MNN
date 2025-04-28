@@ -337,7 +337,7 @@ node llm_demo.js ~/qwen2.0_1.5b/config.json ~/qwen2.0_1.5b/prompt.txt
 <audio>https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen2-Audio/audio/translate_to_chinese.wav</audio>介绍一下音频里的内容
 ```
 
-#### 性能测评
+#### 单个模型对话性能测评
 建议使用config.json, 可以自行配置运行后端、线程数、输出token数限制等选项。
 ```
 ## 注意：当选择opencl后端时，thread_num需设为68。
@@ -345,6 +345,47 @@ node llm_demo.js ~/qwen2.0_1.5b/config.json ~/qwen2.0_1.5b/prompt.txt
 
 ./llm_demo model_dir/config.json prompt.txt
 ```
+
+#### LLM Benchmark工具使用
+使用llm_bench可以比较不同模型在不同配置下的性能差异。
+
+##### llm_bench参数列表
+```
+usage: ./llm_bench [options]
+
+options:
+  -h, --help
+  -m, --model <filename>                    (default: ./Qwen2.5-1.5B-Instruct)
+  -a, --backends <cpu,opencl,metal>         (default: cpu)
+  -c, --precision <n>                       (default: 2) | Note: (0:Normal(for cpu bakend, 'Nornal' is 'High'),1:High,2:Low)
+  -t, --threads <n>                         (default: 4)
+  -p, --n-prompt <n>                        (default: 512)
+  -n, --n-gen <n>                           (default: 128)
+  -pg <pp,tg>                               (default: 512,128)
+  -mmp, --mmap <0|1>                        (default: 0)
+  -rep, --n-repeat <n>                      (default: 5)
+  -kv, --kv-cache <true|false>              (default: false) | Note: if true: Every time the LLM model generates a new word, it utilizes the cached KV-cache
+  -fp, --file-print <stdout|filename>       (default: stdout) ｜ If not 'stdout', all test results will be written to the specified file.
+```
+
+##### llm_bench 参数解释
+- '-m | --model': llm.mnn和llm.mnn.weight文件所在的文件夹中config.json文件的路径，而不是文件夹的路径或者mnn/mnn.weight文件的路径。 可以填写多个模型的config.json文件地址，使用英文逗号分隔；
+- '-a | --backends': 指定运行LLM模型的后端，目前MNN仅支持CPU/METAL/OPENCL后端。可以填写多个后端，后端名称均使用英文小写字母，使用英文逗号分隔；
+- '-t | --threads': 指定CPU后端推理时采用的线程数。对于OPENCL后端，该字段表示的不是线程数，而是GPU MODE，当前LLM推理时OpenCL均采取Buffer模式推理，线程数设置为4时性能较优。对于METAL后端对性能的影响较小。可以填写多个线程数，使用英文逗号分隔；
+- '-p | --n-prompt': 指定推理时处理的prompt长度，可填写多个长度，使用英文逗号分隔；测试结果表示LLM模型的首字符响应速度；
+- '-n | --n-gen': 指定推理时生成字符的长度，可填写多个长度，使用英文逗号分隔；测试结果表示LLM模型在不考虑历史KV信息时生成一个字符的速度，即Attention算子中past_kv_length=0;
+- '-pg': 指定prompt长度和生成字符数量，测试中该项的耗时是前两项('-p'和'-n')耗时的总和，处理字符的数量是prompt长度和生成字符数量之和；
+- '-mmp | --mmap': 指定模型加载时是否使用mmap技术，只能填写一个候选项，0或1；该项对模型推理性能无影响；
+- '-rep | --n-repeat': 每一个测试实例重复的次数，最终结果取平均数，并计算性能的标准差；
+- '-kv | --kv-cache': 当设置为true时，测试时在LLM模型decode阶段会考虑历史KV信息，即测试方法和运行'llm_demo'程序一致；
+- '-fp | --file-print': 默认输出到屏幕上；如果指定了输出文件，最终的测试结果会以追加的方式以markdown格式写入到文件中，不会删除文件中已有的内容；文件不存在会自动创建。
+
+##### 命令行运行llm_bench
+在build目录下运行
+```bash
+./llm_bench -m ./Qwen2.5-1.5B-Instruct/config.json,./Qwen2.5-0.5B-Instruct/config.json -a cpu,opencl,metal -c 1,2 -t 8,12 -p 16,32 -n 10,20 -pg 8,16 -mmp 0 -rep 4 -kv true -fp ./test_result
+```
+
 
 #### GPTQ权重
 需要使用GPTQ权重，可以在导出[Qwen2.5-0.5B-Instruct]模型时，使用`--gptq_path PATH`来指定[Qwen2.5-0.5B-Instruct-GPTQ-Int4]()的路径，使用如下：

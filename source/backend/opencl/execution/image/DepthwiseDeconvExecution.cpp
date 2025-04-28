@@ -53,7 +53,7 @@ DepthwiseDeconvExecution::DepthwiseDeconvExecution(const std::vector<Tensor *> &
 
     MNN::OpenCL::ImageBufferConvertor imageBufferConvertor{mOpenCLBackend->getOpenCLRuntime()};
     std::string buildOption = "-DBUFFER_INP_FP32";
-    imageBufferConvertor.convertBufferToImage(filterBuffer.get(), MNN::OpenCL::DW_CONV2D_FILTER, mResource->mFilter.get(), false, buildOption);
+    imageBufferConvertor.convertBufferToImage(filterBuffer.get(), MNN::OpenCL::DW_CONV2D_FILTER, mResource->mFilter.get(), mOpenCLBackend->getPrecision(), false, buildOption);
     if (mResource->mConv2dCommonParams->relu() == true) {
         mResource->mBuildOptions.emplace("-DRELU");
     } else if (mResource->mConv2dCommonParams->relu6() == true) {
@@ -121,7 +121,7 @@ ErrorCode DepthwiseDeconvExecution::onEncode(const std::vector<Tensor *> &inputs
             static_cast<uint32_t>(outputHeight * outputBatch)};
     std::string info = std::to_string(inputChannels) + "_" + std::to_string(outputChannels) + "_" + std::to_string(filterHeight) + "_" + std::to_string(filterWidth) + "_" + std::to_string(strideHeight) + "_" + std::to_string(strideWidth);
     auto runtime      = mOpenCLBackend->getOpenCLRuntime();
-    unit.kernel       = runtime->buildKernel("depthwise_deconv2d", "depthwise_deconv2d", mResource->mBuildOptions);
+    unit.kernel       = runtime->buildKernel("depthwise_deconv2d", "depthwise_deconv2d", mResource->mBuildOptions, mOpenCLBackend->getPrecision());
     mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
 
     int inputImageShape[2]  = {inputHeight, inputWidth};
@@ -150,7 +150,7 @@ ErrorCode DepthwiseDeconvExecution::onEncode(const std::vector<Tensor *> &inputs
     unit.kernel->get().setArg(idx++, static_cast<int32_t>(channelBlocks));
     
     std::string name = "depthwiseDeconv";
-    mLWS = localWS3DDefault(mGWS, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name + info, unit.kernel).first;
+    mLWS = localWS3DDefault(mGWS, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name + info, unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
     mOpenCLBackend->recordKernel3d(unit.kernel, mGWS, mLWS);
     unit.globalWorkSize = {mGWS[0], mGWS[1], mGWS[2]};
     unit.localWorkSize = {mLWS[0], mLWS[1], mLWS[2]};

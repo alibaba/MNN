@@ -35,7 +35,7 @@ ReluExecution::ReluExecution(const std::vector<Tensor *> &inputs, const MNN::Op 
     mPreluParam.reset(Tensor::createDevice<float>({1, 1, 1, preluSize}));
     mOpenCLBackend->onAcquireBuffer(mPreluParam.get(), Backend::STATIC);
     copyBufferToImage(mOpenCLBackend->getOpenCLRuntime(), preluBuffer, openCLImage(mPreluParam.get()),
-                      UP_DIV(preluSize, 4), 1);
+                      UP_DIV(preluSize, 4), 1, mOpenCLBackend->getPrecision());
 }
 ReluExecution::~ReluExecution() {
     backend()->onReleaseBuffer(mPreluParam.get(), Backend::STATIC);
@@ -54,7 +54,7 @@ ErrorCode ReluExecution::onEncode(const std::vector<Tensor *> &inputs, const std
     cl::NDRange globalSize = {(uint32_t)UP_DIV(imageWidth, 4) * 4, (uint32_t)UP_DIV(imageHeight, 4) * 4};
     
     auto mOpenCLBackend  = static_cast<OpenCLBackend *>(backend());
-    mUnits[0].kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("binary", "binary_prelu", {"-DOPERATOR=select(in0*in1,in0,in0>=(float4)0)"}, inputs[0], outputs[0]);
+    mUnits[0].kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("binary", "binary_prelu", {"-DOPERATOR=select(in0*in1,in0,in0>=(float4)0)"}, mOpenCLBackend->getPrecision(), inputs[0], outputs[0]);
     cl_int ret = CL_SUCCESS;
     ret |= mUnits[0].kernel->get().setArg(0, openCLImage(inputs[0]));
     ret |= mUnits[0].kernel->get().setArg(1, openCLImage(mPreluParam.get()));

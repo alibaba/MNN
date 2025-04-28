@@ -38,7 +38,7 @@ public:
      * @brief deinitializer.
      */
     ~AutoStorage() {
-        if (NULL != mData) {
+        if ((NULL != mData) && mRelease) {
             MNNMemoryFreeAlign(mData);
         }
     }
@@ -66,6 +66,16 @@ public:
     }
 
     /**
+     * @brief set data with outter pointer, can decide whether free pointer when destructor
+     * @param data  data pointer, malloc by outside
+     * @param release  whether free pointer when destructor
+     * @warning User should ensure memory length is enough
+     */
+    void set(T* data, bool release) {
+        mData = data;
+        mRelease = release;
+    }
+    /**
      * @brief reset data size.
      * @param size  number of elements.
      * @warning writed data won't be kept.
@@ -82,7 +92,7 @@ public:
      * @brief release allocated data.
      */
     void release() {
-        if (NULL != mData) {
+        if (mRelease && NULL != mData) {
             MNNMemoryFreeAlign(mData);
             mData = NULL;
             mSize = 0;
@@ -107,6 +117,7 @@ public:
 private:
     T* mData  = NULL;
     int mSize = 0;
+    bool mRelease = true;
 };
 
 /** Auto Release Class*/

@@ -100,7 +100,6 @@ Tokenizer* Tokenizer::createTokenizer(const std::string& filename) {
         return tokenizer;
     }
     line_str >> tokenizer_type;
-    printf("tokenizer_type = %d\n", tokenizer_type);
     // create tokenizer
     switch (tokenizer_type)
     {

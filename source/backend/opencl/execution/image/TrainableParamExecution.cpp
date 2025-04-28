@@ -54,11 +54,11 @@ ErrorCode TrainableParamExecution::onResize(const std::vector<Tensor *> &inputs,
     if (format == MNN_DATA_FORMAT_NCHW) {
         bufferTensor.reset(new Tensor(output, Tensor::CAFFE, false));
         bufferTensor->buffer().device = (uint64_t)(&buffer);
-        convertor.convertBufferToImage(bufferTensor.get(), MNN::OpenCL::NCHW_BUFFER, output, true);
+        convertor.convertBufferToImage(bufferTensor.get(), MNN::OpenCL::NCHW_BUFFER, output, openclBackend->getPrecision(), true);
     } else {
         bufferTensor.reset(new Tensor(output, Tensor::TENSORFLOW, false));
         bufferTensor->buffer().device = (uint64_t)(&buffer);
-        convertor.convertBufferToImage(bufferTensor.get(), MNN::OpenCL::NHWC_BUFFER, output, true);
+        convertor.convertBufferToImage(bufferTensor.get(), MNN::OpenCL::NHWC_BUFFER, output, openclBackend->getPrecision(), true);
     }
 
     return NO_ERROR;

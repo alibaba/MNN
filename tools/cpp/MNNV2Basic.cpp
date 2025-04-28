@@ -471,8 +471,9 @@ static int test_main(int argc, const char* argv[]) {
                     outputTensor->unmap(MNN::Tensor::MAP_TENSOR_READ, outputTensor->getDimensionType(), ptr);
                 }
             }
-
-            std::vector<float> times(t, 0.0f);
+            float minTime = 0.0f;
+            float maxTime = 0.0f;
+            float sum = 0.0f;
             for (int i = 0; i < t; ++i) {
                 auto begin = getTimeInUs();
                 {
@@ -485,14 +486,15 @@ static int test_main(int argc, const char* argv[]) {
                     outputTensor->unmap(MNN::Tensor::MAP_TENSOR_READ, outputTensor->getDimensionType(), ptr);
                 }
                 auto end = getTimeInUs();
-                times[i] = (end - begin) / 1000.0f;
-            }
-
-            auto minTime = std::min_element(times.begin(), times.end());
-            auto maxTime = std::max_element(times.begin(), times.end());
-            float sum    = 0.0f;
-            for (auto time : times) {
-                sum += time;
+                auto curtime = (end - begin) / 1000.0f;
+                if (0 == i) {
+                    minTime = curtime;
+                    maxTime = curtime;
+                } else {
+                    minTime = ALIMIN(curtime, minTime);
+                    maxTime = ALIMAX(curtime, maxTime);
+                }
+                sum += curtime;
             }
             std::vector<std::pair<float, std::pair<std::string, float>>> allOpsTimes;
             float sumFlops = 0.0f;
@@ -515,7 +517,7 @@ static int test_main(int argc, const char* argv[]) {
                     iter.second.second / sumFlops * 100.0f);
             }
             opSum = opSum / runTime;
-            MNN_PRINT("Avg= %f ms, OpSum = %f ms min= %f ms, max= %f ms\n", sum / (float)t, opSum, *minTime, *maxTime);
+            MNN_PRINT("Avg= %f ms, OpSum = %f ms min= %f ms, max= %f ms\n", sum / (float)t, opSum, minTime, maxTime);
         }
     }
     net->updateCacheFile(session);

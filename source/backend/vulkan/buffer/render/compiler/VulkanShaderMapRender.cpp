@@ -23,6 +23,7 @@ mMaps.insert(std::make_pair("glsl_cumsum_comp", std::make_pair(glsl_cumsum_comp,
 mMaps.insert(std::make_pair("glsl_rastersort_collect_key_comp", std::make_pair(glsl_rastersort_collect_key_comp,glsl_rastersort_collect_key_comp_len)));
 mMaps.insert(std::make_pair("glsl_rastersort_collect_key_USE_HALF_comp", std::make_pair(glsl_rastersort_collect_key_USE_HALF_comp,glsl_rastersort_collect_key_USE_HALF_comp_len)));
 mMaps.insert(std::make_pair("glsl_int2float_comp", std::make_pair(glsl_int2float_comp,glsl_int2float_comp_len)));
+mMaps.insert(std::make_pair("glsl_cumsum_single_comp", std::make_pair(glsl_cumsum_single_comp,glsl_cumsum_single_comp_len)));
 mMaps.insert(std::make_pair("glsl_texture2d_comp", std::make_pair(glsl_texture2d_comp,glsl_texture2d_comp_len)));
 mMaps.insert(std::make_pair("glsl_texture2d_NEAREST_comp", std::make_pair(glsl_texture2d_NEAREST_comp,glsl_texture2d_NEAREST_comp_len)));
 mMaps.insert(std::make_pair("glsl_render_frag_frag", std::make_pair(glsl_render_frag_frag,glsl_render_frag_frag_len)));

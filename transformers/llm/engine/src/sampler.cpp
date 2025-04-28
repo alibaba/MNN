@@ -159,7 +159,6 @@ Sampler::Sampler(std::shared_ptr<LlmContext> context, std::shared_ptr<LlmConfig>
     mConfig.max_new_tokens = config->max_new_tokens();
     mConfig.type = config->sampler_type();
     mConfig.configSampler(mConfig.type, config);
-    std::cout << "Sampler: " << mConfig.type << std::endl;
 }
 
 /* ----------Sampler's members---------- */

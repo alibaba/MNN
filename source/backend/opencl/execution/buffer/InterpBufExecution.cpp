@@ -27,14 +27,14 @@ InterpBufExecution::InterpBufExecution(const std::vector<Tensor *> &inputs, cons
     std::set<std::string> buildOptions;
     if (op->main_as_Interp()->resizeType() == 1) {
         mKernelName = "nearest_buf";
-        unit.kernel             = runtime->buildKernel("interp_buf", mKernelName, buildOptions);
+        unit.kernel             = runtime->buildKernel("interp_buf", mKernelName, buildOptions, mOpenCLBackend->getPrecision());
     } else if(op->main_as_Interp()->resizeType() == 4) {
         mKernelName = "nearest_buf";
         buildOptions.emplace("-DUSE_ROUND");
-        unit.kernel             = runtime->buildKernel("interp_buf", mKernelName, buildOptions);
+        unit.kernel             = runtime->buildKernel("interp_buf", mKernelName, buildOptions, mOpenCLBackend->getPrecision());
     }else {
         mKernelName = "bilinear_buf";
-        unit.kernel             = runtime->buildKernel("interp_buf", mKernelName, buildOptions);
+        unit.kernel             = runtime->buildKernel("interp_buf", mKernelName, buildOptions, mOpenCLBackend->getPrecision());
     }
 
     mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
@@ -83,7 +83,7 @@ ErrorCode InterpBufExecution::onEncode(const std::vector<Tensor *> &inputs, cons
     ret |= unit.kernel->get().setArg(idx++, static_cast<int32_t>(inputBatch));
     MNN_CHECK_CL_SUCCESS(ret, "setArg InterpBufExecution");
 
-    mLWS = localWS3DDefault(mGWS, mMaxWorkGroupSize, runtime, mKernelName, unit.kernel).first;
+    mLWS = localWS3DDefault(mGWS, mMaxWorkGroupSize, runtime, mKernelName, unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
     mOpenCLBackend->recordKernel3d(unit.kernel, mGWS, mLWS);
     unit.globalWorkSize = {mGWS[0], mGWS[1], mGWS[2]};
     unit.localWorkSize = {mLWS[0], mLWS[1], mLWS[2]};
