@@ -132,7 +132,7 @@ class ChatActivity : AppCompatActivity() {
         dateFormat = SimpleDateFormat("hh:mm aa", Locale.getDefault())
         this.setupRecyclerView()
         setupEditText()
-        buttonSend = binding.btSend
+        buttonSend = binding.btnSend
         buttonSend.setEnabled(false)
         buttonSend.setOnClickListener { handleSendClick() }
         isAudioModel = ModelUtils.isAudioModel(modelName!!)
@@ -217,7 +217,7 @@ class ChatActivity : AppCompatActivity() {
     private fun setIsLoading(loading: Boolean) {
         isLoading = loading
         runOnUiThread {
-            if (!loading && voiceRecordingModule != null) {
+            if (!loading && voiceRecordingModule != null && ModelUtils.isAudioModel(modelName!!)) {
                 voiceRecordingModule!!.onEnabled()
             }
             updateSenderButton()
@@ -321,6 +321,9 @@ class ChatActivity : AppCompatActivity() {
     }
 
     private fun setupAttachmentPickerModule() {
+        if (!ModelUtils.isMultiModalModel(modelName!!)) {
+            return
+        }
         imageMore = findViewById(R.id.bt_plus)
         buttonSwitchVoice = findViewById(R.id.bt_switch_audio)
         if (!ModelUtils.isVisualModel(this.modelName!!) && !ModelUtils.isAudioModel(this.modelName!!)) {
@@ -365,6 +368,9 @@ class ChatActivity : AppCompatActivity() {
     }
 
     private fun updateVoiceButtonVisibility() {
+        if (!ModelUtils.isAudioModel(modelName!!)) {
+            return
+        }
         var visible = true
         if (!ModelUtils.isAudioModel(modelName!!)) {
             visible = false
@@ -394,17 +400,27 @@ class ChatActivity : AppCompatActivity() {
     }
 
     private fun setupVoiceRecordingModule() {
+        if (!ModelUtils.isAudioModel(modelName!!)) {
+            return
+        }
         voiceRecordingModule = VoiceRecordingModule(this)
         voiceRecordingModule!!.setOnVoiceRecordingListener(object : VoiceRecordingListener {
             override fun onEnterRecordingMode() {
+//                binding.bottomButtonLine.visibility = View.GONE
+                binding.btnToggleThinking.visibility = View.GONE
                 editUserMessage.visibility = View.GONE
                 KeyboardUtils.hideKeyboard(editUserMessage)
                 if (attachmentPickerModule != null) {
                     attachmentPickerModule!!.hideAttachmentLayout()
                 }
+                editUserMessage.visibility = View.GONE
             }
 
             override fun onLeaveRecordingMode() {
+                if (ModelUtils.isSupportThinkingSwitch(modelName!!)) {
+                    binding.btnToggleThinking.visibility = View.VISIBLE
+                }
+                binding.btnSend.visibility = View.VISIBLE
                 editUserMessage.visibility = View.VISIBLE
                 editUserMessage.requestFocus()
                 KeyboardUtils.showKeyboard(editUserMessage)

@@ -18,6 +18,7 @@ import androidx.core.content.ContextCompat
 import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.utils.FileUtils
 import com.alibaba.mnnllm.android.utils.Permissions.REQUEST_RECORD_AUDIO_PERMISSION
+import com.alibaba.mnnllm.android.utils.UiUtils.getThemeColor
 import com.github.squti.androidwaverecorder.WaveRecorder
 import java.io.File
 
@@ -103,9 +104,7 @@ class VoiceRecordingModule(private val activity: ChatActivity) {
         textVoiceHint!!.visibility = View.VISIBLE
         textVoiceHint!!.setText(if (isCancelRecord) R.string.release_to_cancel else R.string.release_to_send)
         voceRecordingWave!!.setBackgroundColor(
-            if (isCancelRecord) Color.RED else voceRecordingWave!!.resources.getColor(
-                R.color.colorAccent
-            )
+            if (isCancelRecord) Color.RED else voceRecordingWave!!.context.getThemeColor(androidx.appcompat.R.attr.colorPrimary)
         )
         textVoiceHint!!.setTextColor(if (isCancelRecord) Color.RED else Color.BLACK)
     }
@@ -155,7 +154,7 @@ class VoiceRecordingModule(private val activity: ChatActivity) {
     }
 
     private fun handleSwitch() {
-        if (buttonVoiceRecording!!.visibility == View.VISIBLE) {
+        if (buttonVoiceRecording.visibility == View.VISIBLE) {
             exitRecordingMode()
         } else {
             enterRecordingMode()
@@ -163,14 +162,14 @@ class VoiceRecordingModule(private val activity: ChatActivity) {
     }
 
     fun enterRecordingMode() {
-        if (buttonVoiceRecording!!.visibility == View.VISIBLE) {
+        if (buttonVoiceRecording.visibility == View.VISIBLE) {
             return
         }
-        buttonVoiceRecording!!.visibility = View.VISIBLE
+        buttonVoiceRecording.visibility = View.VISIBLE
         if (listener != null) {
             listener!!.onEnterRecordingMode()
         }
-        buttonSwitchVoice!!.setImageResource(R.drawable.ic_keyboard)
+        buttonSwitchVoice.setImageResource(R.drawable.ic_keyboard)
     }
 
     fun exitRecordingMode() {

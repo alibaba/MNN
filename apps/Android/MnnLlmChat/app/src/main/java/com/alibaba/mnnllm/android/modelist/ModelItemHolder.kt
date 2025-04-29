@@ -34,6 +34,8 @@ class ModelItemHolder(itemView: View, private val modelItemListener: ModelItemLi
 
     private val tagsLayout: TagsLayout
 
+    private val iconDownload:View
+
     init {
         itemView.setOnClickListener(this)
         itemView.setOnLongClickListener(this)
@@ -46,6 +48,7 @@ class ModelItemHolder(itemView: View, private val modelItemListener: ModelItemLi
         downloadProgressView = itemView.findViewById(R.id.download_progress_view)
         tagsLayout = itemView.findViewById(R.id.tagsLayout)
         progressBar = itemView.findViewById(R.id.download_progress_bar)
+        iconDownload = itemView.findViewById(R.id.iv_download)
     }
 
     fun bind(hfModelItem: ModelItem, modelItemDownloadState: ModelItemDownloadState?) {
@@ -77,6 +80,9 @@ class ModelItemHolder(itemView: View, private val modelItemListener: ModelItemLi
             return
         }
         val downloadState = modelItemDownloadState.downloadInfo!!.downlodaState
+        iconDownload.visibility = if (downloadState != DownloadInfo.DownloadSate.PAUSED && downloadState != DownloadInfo.DownloadSate.NOT_START && downloadState != DownloadInfo.DownloadSate.FAILED)
+            View.GONE
+        else View.VISIBLE
         progressBar.visibility =
             if (downloadState == DownloadInfo.DownloadSate.DOWNLOADING || downloadState == DownloadInfo.DownloadSate.PAUSED) View.VISIBLE else View.GONE
         progressBar.progress =

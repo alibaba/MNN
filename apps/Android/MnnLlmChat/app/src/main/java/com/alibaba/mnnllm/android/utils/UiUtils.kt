@@ -8,6 +8,7 @@ import android.content.ContextWrapper
 import android.graphics.Point
 import android.os.Handler
 import android.os.Looper
+import android.util.TypedValue
 import android.widget.Toast
 
 object UiUtils {
@@ -44,4 +45,11 @@ object UiUtils {
             uiHandler.post { Toast.makeText(context, message, duration).show() }
         }
     }
+
+    fun Context.getThemeColor(attrResId: Int): Int {
+        val typedValue = TypedValue()
+        theme.resolveAttribute(attrResId, typedValue, true)
+        return typedValue.data
+    }
+
 }

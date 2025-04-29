@@ -11,6 +11,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.content.ContextCompat
 import com.alibaba.mnnllm.android.R
+import com.alibaba.mnnllm.android.utils.UiUtils.getThemeColor
 import kotlin.math.max
 
 
@@ -44,12 +45,6 @@ class TagsLayout @JvmOverloads constructor(
             addTagView(tagText)
         }
         updateLayout()
-    }
-
-    private fun Context.getThemeColor(attrResId: Int): Int {
-        val typedValue = TypedValue()
-        theme.resolveAttribute(attrResId, typedValue, true)
-        return typedValue.data
     }
 
     private fun addTagView(tagText: String) {

@@ -144,7 +144,11 @@ object ModelUtils {
     }
 
     fun isAudioModel(modelName: String): Boolean {
-        return modelName.lowercase(Locale.getDefault()).contains("audio")
+        return modelName.lowercase(Locale.getDefault()).contains("audio") || true
+    }
+
+    fun isMultiModalModel(modelName: String): Boolean {
+        return isAudioModel(modelName) || isVisualModel(modelName) || isDiffusionModel(modelName)
     }
 
     fun isDiffusionModel(modelName: String): Boolean {
@@ -204,5 +208,9 @@ object ModelUtils {
 
     fun isOmni(modelName: String): Boolean {
         return modelName.lowercase(Locale.getDefault()).contains("omni")
+    }
+
+    fun isSupportThinkingSwitch(modelName: String): Boolean {
+        return isQwen3(modelName)
     }
 }

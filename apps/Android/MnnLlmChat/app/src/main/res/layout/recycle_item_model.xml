@@ -115,7 +115,7 @@
         app:SpinKit_Color="?colorPrimary" />
 
     <ImageView
-        android:id="@+id/iv_more"
+        android:id="@+id/iv_download"
         android:layout_marginEnd="16dp"
         android:layout_width="22dp"
         android:layout_centerVertical="true"

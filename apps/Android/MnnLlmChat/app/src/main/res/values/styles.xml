@@ -8,6 +8,15 @@
 <!--        <item name="colorOnSecondary">@color/black</item>-->
 <!--        <item name="android:statusBarColor" tools:targetApi="l">?attr/colorPrimaryVariant</item>-->
 <!--    </style>-->
+
+    <style name="ShapeAppearance.ChatInput" parent="ShapeAppearance.Material3.SmallComponent">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSizeTopLeft">12dp</item>
+        <item name="cornerSizeTopRight">12dp</item>
+        <item name="cornerSizeBottomLeft">0dp</item>
+        <item name="cornerSizeBottomRight">0dp</item>
+    </style>
+
     <style name="Light" parent="android:TextAppearance">
     </style>
 
