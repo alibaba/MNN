@@ -1,10 +1,6 @@
 <menu xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto">
     <item
-        android:id="@+id/menu_item_voice_chat"
-        android:title="@string/start_voice_chat"
-        app:showAsAction="never" />
-    <item
         android:id="@+id/start_new_chat"
         android:title="@string/start_new_chat"
         app:showAsAction="never" />
@@ -31,15 +27,15 @@
         android:checkable="true"
         android:checked="false" />
 
-    <item
-        android:id="@+id/menu_item_benchmark_test"
-        android:title="@string/menu_item_benchmark_test"
-        app:showAsAction="never" />
+<!--    <item-->
+<!--        android:id="@+id/menu_item_benchmark_test"-->
+<!--        android:title="@string/menu_item_benchmark_test"-->
+<!--        app:showAsAction="never" />-->
 
-    <item
-        android:id="@+id/menu_item_model_settings"
-        android:title="@string/model_settings"
-        app:showAsAction="never" />
+<!--    <item-->
+<!--        android:id="@+id/menu_item_model_settings"-->
+<!--        android:title="@string/model_settings"-->
+<!--        app:showAsAction="never" />-->
 <!--    <item-->
 <!--        android:id="@+id/menu_item_sampler_spinner"-->
 <!--        android:title="@string/sampler"-->

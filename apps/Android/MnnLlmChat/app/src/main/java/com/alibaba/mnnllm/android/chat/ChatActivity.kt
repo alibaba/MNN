@@ -44,16 +44,11 @@ import com.alibaba.mnnllm.android.utils.Permissions.REQUEST_RECORD_AUDIO_PERMISS
 import com.alibaba.mnnllm.android.utils.PreferenceUtils
 import com.alibaba.mnnllm.android.utils.UiUtils
 import com.google.android.material.bottomsheet.BottomSheetBehavior
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import org.json.JSONObject
-import java.io.File
 import java.text.DateFormat
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -145,63 +140,6 @@ class ChatActivity : AppCompatActivity() {
         setupAttachmentPickerModule()
         smoothScrollToBottom()
         setupBottomSheetBehavior()
-        setupLoadDataSet()
-    }
-
-    private fun setupLoadDataSet() {
-        val recyclerView = binding.bottomSheet.findViewById<RecyclerView>(R.id.recycler_view_options)
-        optionsAdapter = DatasetOptionsAdapter(emptyList())
-        recyclerView.apply {
-            layoutManager = LinearLayoutManager(this@ChatActivity)
-            adapter = optionsAdapter
-        }
-        loadOptionsData()
-    }
-
-    private fun loadOptionsData() {
-        val sampleOptions = listOf(
-            OptionItem(id = "multi_modal", title = "多模态数据集", subtitle = "包含语音、文本、视频数据共 30条"),
-            OptionItem(id = "mmlu", title = "MMLU 文本数据集", subtitle = "包含文本数据共 100条"),
-            OptionItem(id = "needle_bench", title = " NeeldeBench长文本测试数据集", subtitle = " 用于测试长文本能力"),
-            )
-        optionsAdapter.updateData(sampleOptions)
-        optionsAdapter.setOnItemClickListener {
-            handleDatasetOptionClick(it)
-        }
-    }
-
-    private fun handleDatasetOptionClick(optionItem: OptionItem) {
-        bottomSheetBehavior.state = BottomSheetBehavior.STATE_HIDDEN
-        CoroutineScope(Dispatchers.Main).launch {
-            try {
-                val lines = withContext(Dispatchers.IO) {
-                    val file = File("/data/local/tmp/${optionItem.id}.jsonl")
-                    if (!file.exists()) {
-                        throw Exception("File not exits: ${file.path}")
-                    }
-                    val fileLines = file.readLines()
-                    if (fileLines.isEmpty()) {
-                        throw Exception("file empty")
-                    }
-                    fileLines
-                }
-                for (line in lines) {
-                    val jsonObject = try {
-                        JSONObject(line)
-                    } catch (e: Exception) {
-                        throw Exception("Invalid json: $line")
-                    }
-                    waitForGeneratingFinished()
-                    handleSendMessage(createUserMessage(jsonObject.getString("prompt")))
-                }
-                Toast.makeText(this@ChatActivity, "DataSet ${optionItem.title} " +
-                        "Process Complete", Toast.LENGTH_SHORT).show()
-            } catch (e: Exception) {
-                e.printStackTrace()
-                Toast.makeText(this@ChatActivity, "Error on process dataset:" +
-                        " ${e.message}", Toast.LENGTH_SHORT).show()
-            }
-        }
     }
 
     private fun setupBottomSheetBehavior() {
@@ -293,7 +231,7 @@ class ChatActivity : AppCompatActivity() {
 //                        if (loading) getString(R.string.model_loading) else getString(R.string.app_name)
                 } else {
                     supportActionBar!!.title =
-                    if (loading) getString(R.string.model_loading) else getString(R.string.app_name)
+                    if (loading) getString(R.string.model_loading) else modelName
                 }
             }
         }
@@ -553,21 +491,6 @@ class ChatActivity : AppCompatActivity() {
             Toast.makeText(this, R.string.reloading_session, Toast.LENGTH_LONG).show()
             ModelPreferences.setBoolean(this, modelId!!, ModelPreferences.KEY_BACKEND, item.isChecked)
             recreate()
-        } else if (item.itemId == R.id.menu_item_model_settings) {
-//            startActivity(Intent(this, SettingsActivity::class.java))
-            val settingsSheet = SettingsBottomSheetFragment()
-            settingsSheet.show(supportFragmentManager, SettingsBottomSheetFragment.TAG)
-            return true
-        } else if (item.itemId == R.id.menu_item_benchmark_test) {
-            bottomSheetBehavior.state = BottomSheetBehavior.STATE_EXPANDED
-        } else if (item.itemId == R.id.menu_item_voice_chat) {
-            MainScope().launch {
-                recognizeSerivice.initRecognizer()
-                recognizeSerivice.onRecognizeText = { text ->
-                    UiUtils.showToast(this@ChatActivity, text)
-                }
-                recognizeSerivice.stopRecord()
-            }
         }
         return super.onOptionsItemSelected(item)
     }
@@ -758,16 +681,15 @@ class ChatActivity : AppCompatActivity() {
         } else {
             chatDataItem!!.loading = true
             val generateResultProcessor: GenerateResultProcessor =
-                if (ModelUtils.isR1Model(this.modelName!!)) R1GenerateResultProcessor(
+                R1GenerateResultProcessor(
                     getString(R.string.r1_thinking_message),
-                    getString(R.string.r1_think_complete_template)
-                ) else NormalGenerateResultProcessor()
+                    getString(R.string.r1_think_complete_template))
             generateResultProcessor.generateBegin()
             benchMarkResult = chatSession.generate(input, object: ChatSession.GenerateProgressListener {
                 override fun onProgress(progress: String?): Boolean {
                     generateResultProcessor.process(progress)
-                    chatDataItem.displayText = generateResultProcessor.displayResult
-                    chatDataItem.text = generateResultProcessor.rawResult
+                    chatDataItem.displayText = generateResultProcessor.getDisplayResult()
+                    chatDataItem.text = generateResultProcessor.getRawResult()
                     runOnUiThread { updateAssistantResponse(chatDataItem) }
                     if (stopGenerating) {
                         Log.d(TAG, "stopGenerating requested")

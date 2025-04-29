@@ -69,9 +69,12 @@ object ModelUtils {
     private val goodList: MutableSet<String> = HashSet()
     private val blackList: MutableSet<String> = HashSet()
 
-    private val localModelList = mutableListOf(
-        ModelItem.fromLocalModel("Qwen-Omni-7B", "/data/local/tmp/omni_test/model")
-    )
+    /**
+     * you can add ModelItem.fromLocalModel("Qwen-Omni-7B", "/data/local/tmp/omni_test/model")
+     * to load local models
+     */
+    private val localModelList = mutableListOf<ModelItem>()
+
 
     init {
         blackList.add("taobao-mnn/bge-large-zh-MNN") //embedding

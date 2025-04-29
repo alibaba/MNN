@@ -192,7 +192,7 @@ JNIEXPORT void JNICALL Java_com_alibaba_mnnllm_android_ChatSession_releaseNative
         auto* diffusion = reinterpret_cast<DiffusionSession*>(objecPtr);
         delete diffusion;
     } else {
-        Llm* llm = reinterpret_cast<Llm*>(objecPtr);
+        auto* llm = reinterpret_cast<mls::LlmSession*>(objecPtr);
         delete llm;
     }
 }

@@ -118,13 +118,6 @@ class ModelListFragment : Fragment(), ModelListContract.View {
                 true
             }
 
-            val demoItem = menu.findItem(R.id.action_demo)
-            demoItem.setOnMenuItemClickListener { item: MenuItem? ->
-                if (activity != null) {
-//                    RouterUtils.INSTANCE.startActivity(getActivity(), DemoActivity.class);
-                }
-                true
-            }
         }
 
         override fun onMenuItemSelected(menuItem: MenuItem): Boolean {

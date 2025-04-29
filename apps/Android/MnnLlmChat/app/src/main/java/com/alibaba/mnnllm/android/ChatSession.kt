@@ -238,8 +238,8 @@ class ChatSession @JvmOverloads constructor (
 
         init {
             System.loadLibrary("mnnllmapp")
-            System.loadLibrary("llm")
-            System.loadLibrary("MNN_CL")
+//            System.loadLibrary("llm")
+//            System.loadLibrary("MNN_CL")
         }
     }
 }
