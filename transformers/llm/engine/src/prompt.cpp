@@ -20,12 +20,11 @@ Prompt* Prompt::createPrompt(std::shared_ptr<LlmContext> context, std::shared_pt
 bool contains(const std::string& str, const std::string& substring) {
     return str.find(substring) != std::string::npos;
 }
-
-Prompt::Prompt(std::shared_ptr<LlmContext> context, std::shared_ptr<LlmConfig> config) {
-    mContext = context;
+    
+void Prompt::setParams(std::shared_ptr<LlmConfig> config) {
     mReuseKV = config->reuse_kv();
     mSystemPrompt = config->system_prompt();
-    if (config->llm_config_.document.HasMember("prompt_template")) {
+    if (config->config_.document.HasMember("prompt_template")) {
         // std::cout << "legacy prompt_template" << std::endl;
         // legacy
         mPromptTemplate = config->prompt_template();
@@ -110,6 +109,11 @@ Prompt::Prompt(std::shared_ptr<LlmContext> context, std::shared_ptr<LlmConfig> c
 
 std::string Prompt::getAssistantSuffix() const {
     return mAssistantSuffix;
+}
+
+Prompt::Prompt(std::shared_ptr<LlmContext> context, std::shared_ptr<LlmConfig> config) {
+    mContext = context;
+    setParams(config);
 }
 
 std::string Prompt::applyTemplate(std::string user_content, bool add_system_prompt, bool add_generation_prompt) {
