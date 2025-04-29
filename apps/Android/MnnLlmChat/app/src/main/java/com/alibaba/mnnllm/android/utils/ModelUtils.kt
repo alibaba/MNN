@@ -109,6 +109,10 @@ object ModelUtils {
     }
 
 
+    private fun isQwen3(modelName: String):Boolean {
+        return modelName.lowercase(Locale.getDefault()).contains("qwen3")
+    }
+
     fun processList(hfModelItems: List<ModelItem>): List<ModelItem> {
 
         val goodItems: MutableList<ModelItem> = ArrayList()
@@ -120,7 +124,7 @@ object ModelUtils {
             if (blackList.contains(item.modelId) || isBlackListPattern(modelIdLowerCase)) {
                 continue
             }
-            if (hotList.contains(item.modelId)) {
+            if (isQwen3(modelIdLowerCase)) {
                 recommendedItems.add(item)
             } else if (goodList.contains(item.modelId)) {
                 goodItems.add(item)
