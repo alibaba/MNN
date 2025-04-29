@@ -27,7 +27,7 @@ class ChatDataItem {
     var benchmarkInfo: String? = null
 
     var displayText: String? = null
-        get() = if (TextUtils.isEmpty(field)) text else field
+        get() = field?:""
 
     var audioDuration = 0f
 
@@ -37,6 +37,7 @@ class ChatDataItem {
         this.time = time
         this.type = type
         this.text = text
+        this.displayText = text
     }
 
     constructor(type: Int) {

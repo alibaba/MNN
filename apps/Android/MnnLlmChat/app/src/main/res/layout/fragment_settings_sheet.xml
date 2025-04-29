@@ -151,6 +151,7 @@
                             android:minLines="3" />
                     </com.google.android.material.textfield.TextInputLayout>
                     <RelativeLayout
+                        android:id="@+id/rl_sampler_type"
                         style="@style/SettingsRowContainer"
                         android:layout_height="48dp"
                         android:background="?attr/selectableItemBackground"
@@ -180,7 +181,7 @@
                             android:layout_centerVertical="true"
                             android:layout_marginEnd="2dp"
                             android:layout_toStartOf="@id/iv_sampler_type_icon"
-                            android:clickable="true"
+                            android:clickable="false"
                             android:text="Greedy" />
                     </RelativeLayout>
 
@@ -193,10 +194,6 @@
                         android:paddingRight="8dp"
                         android:visibility="gone"
                         tools:visibility="visible">
-
-                        <TextView
-                            style="@style/SettingsSubLabel"
-                            android:text="Configure mixed samplers:" />
 
                         <include
                             android:id="@+id/row_mixed_top_k"

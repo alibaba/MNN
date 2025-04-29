@@ -17,7 +17,7 @@
             android:layout_width="match_parent"
             android:layout_height="?actionBarSize"
             app:titleCentered="true"
-            app:titleTextAppearance="?textAppearanceTitleMedium"></com.google.android.material.appbar.MaterialToolbar>
+            app:titleTextAppearance="?textAppearanceTitleMedium" />
     </com.google.android.material.appbar.AppBarLayout>
 
     <androidx.recyclerview.widget.RecyclerView

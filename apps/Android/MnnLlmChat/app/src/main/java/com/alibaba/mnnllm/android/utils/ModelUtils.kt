@@ -144,7 +144,7 @@ object ModelUtils {
     }
 
     fun isAudioModel(modelName: String): Boolean {
-        return modelName.lowercase(Locale.getDefault()).contains("audio") || true
+        return modelName.lowercase(Locale.getDefault()).contains("audio")
     }
 
     fun isMultiModalModel(modelName: String): Boolean {

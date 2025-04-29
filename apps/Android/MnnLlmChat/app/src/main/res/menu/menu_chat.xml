@@ -32,10 +32,10 @@
 <!--        android:title="@string/menu_item_benchmark_test"-->
 <!--        app:showAsAction="never" />-->
 
-<!--    <item-->
-<!--        android:id="@+id/menu_item_model_settings"-->
-<!--        android:title="@string/model_settings"-->
-<!--        app:showAsAction="never" />-->
+    <item
+        android:id="@+id/menu_item_model_settings"
+        android:title="@string/model_settings"
+        app:showAsAction="never" />
 <!--    <item-->
 <!--        android:id="@+id/menu_item_sampler_spinner"-->
 <!--        android:title="@string/sampler"-->

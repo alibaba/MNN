@@ -4,4 +4,16 @@
         <attr name="text" format="string"/>
         <attr name="icon" format="reference"/>
     </declare-styleable>
+
+    <declare-styleable name="SettingsRowSlideSwitch">
+        <attr name="labelText" format="string" />
+        <attr name="seekbarValue" format="integer" />
+        <attr name="switchVisibility" format="enum">
+            <enum name="visible" value="0" />
+            <enum name="invisible" value="1" />
+            <enum name="gone" value="2" />
+        </attr>
+        <attr name="switchEnabled" format="boolean" />
+    </declare-styleable>
+
 </resources>

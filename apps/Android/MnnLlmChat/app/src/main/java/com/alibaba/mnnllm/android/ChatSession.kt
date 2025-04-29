@@ -7,9 +7,11 @@ import com.alibaba.mls.api.ApplicationProvider
 import com.alibaba.mnnllm.android.ChatService.Companion.provide
 import com.alibaba.mnnllm.android.chat.ChatDataItem
 import com.alibaba.mnnllm.android.mainsettings.MainSettings.getDiffusionMemoryMode
+import com.alibaba.mnnllm.android.modelsettings.ModelConfig
 import com.alibaba.mnnllm.android.utils.FileUtils
 import com.alibaba.mnnllm.android.utils.ModelPreferences
 import com.alibaba.mnnllm.android.utils.ModelUtils
+import com.google.gson.Gson
 import org.json.JSONException
 import org.json.JSONObject
 import java.io.File
@@ -164,6 +166,14 @@ class ChatSession @JvmOverloads constructor (
         }
     }
 
+    fun loadConfig(): ModelConfig? {
+        if (!isDiffusion && File(configPath).exists()) {
+            val jsonString = File(configPath).readText()
+            return Gson().fromJson(jsonString, ModelConfig::class.java)
+        }
+        return null
+    }
+
     private fun releaseInner() {
         if (nativePtr != 0L) {
             releaseNative(nativePtr, isDiffusion)
@@ -238,8 +248,6 @@ class ChatSession @JvmOverloads constructor (
 
         init {
             System.loadLibrary("mnnllmapp")
-//            System.loadLibrary("llm")
-//            System.loadLibrary("MNN_CL")
         }
     }
 }

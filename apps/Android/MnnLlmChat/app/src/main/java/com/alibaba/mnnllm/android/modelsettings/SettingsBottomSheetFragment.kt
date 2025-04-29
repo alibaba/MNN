@@ -1,12 +1,16 @@
-package com.alibaba.mnnllm.android.modelsettings // Your package
+// Created by ruoyi.sjd on 2025/4/29.
+// Copyright (c) 2024 Alibaba Group Holding Limited All rights reserved.
+
+package com.alibaba.mnnllm.android.modelsettings
 
 import android.os.Bundle
 import android.view.LayoutInflater
+import android.view.Menu
 import android.view.View
 import android.view.ViewGroup
-import android.widget.ArrayAdapter
 import android.widget.SeekBar
 import android.widget.Toast
+import androidx.appcompat.widget.PopupMenu
 import androidx.core.view.isVisible
 import com.alibaba.mnnllm.android.databinding.FragmentSettingsSheetBinding
 import com.alibaba.mnnllm.android.databinding.SettingsRowSliderBinding
@@ -14,22 +18,34 @@ import com.alibaba.mnnllm.android.databinding.SettingsRowSliderSwitchBinding
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import java.util.*
 
-enum class SamplerType { Mixed, Penalty, TopP }
+enum class SamplerType { Greedy, Temperature, TopK, TopP, MinP, Tfs, Typical, Penalty, Mixed}
 
 class SettingsBottomSheetFragment : BottomSheetDialogFragment() {
 
     private var _binding: FragmentSettingsSheetBinding? = null
     private val binding get() = _binding!!
-
     private var useMmap: Boolean = true
     private var currentSamplerType: SamplerType = SamplerType.Mixed
     private var penaltySamplerValue: String = "Greedy"
-    private var topKValue: Float = 20f
-    private var topKEnabled: Boolean = true
-    private var topPValue: Float = 0.84f // Shared state
-    private var topPEnabled: Boolean = true
+
+    private var topKValue: Float = 40f
+    private var topKEnabled: Boolean = false
+
+    private var topPValue: Float = 0.9f
+    private var topPEnabled: Boolean = false
+
+    private var minPValue: Float = 0.9f
+    private var minPEnabled: Boolean = false
+
+    private var tfsZValue: Float = 1.0f
+    private var tfsZEnabled: Boolean = false
+
+    private var typicalValue: Float = 1.0f
+    private var typicalEnabled: Boolean = false
+
     private var tempValue: Float = 0.82f
     private var tempEnabled: Boolean = true
+
     private var penaltyValue: Float = 0.00f
     private var nGramSizeValue: Int = 8
     private var nGramFactorValue: Float = 1.2f
@@ -55,8 +71,8 @@ class SettingsBottomSheetFragment : BottomSheetDialogFragment() {
 
     private fun setupMixedSettings() {
         setupSliderSwitchRow(
-            rowBinding = SettingsRowSliderSwitchBinding.bind(binding.rowMixedTopK.root), // Bind included layout
-            label = "Top K",
+            rowBinding = SettingsRowSliderSwitchBinding.bind(binding.rowMixedTopK.root),
+            label = samplerTypeToString(SamplerType.TopK), // Use samplerTypeToString
             initialValue = topKValue,
             initialEnabled = topKEnabled,
             valueRange = 1f..100f,
@@ -64,9 +80,32 @@ class SettingsBottomSheetFragment : BottomSheetDialogFragment() {
             onValueChange = { topKValue = it },
             onEnabledChange = { topKEnabled = it }
         )
+
+        setupSliderSwitchRow(
+            rowBinding = SettingsRowSliderSwitchBinding.bind(binding.rowMixedTfsZ.root),
+            label = samplerTypeToString(SamplerType.Tfs), // Use samplerTypeToString
+            initialValue = tfsZValue,
+            initialEnabled = tfsZEnabled,
+            valueRange = 0f..1f,
+            decimalPlaces = 0,
+            onValueChange = { tfsZValue = it },
+            onEnabledChange = { tfsZEnabled = it }
+        )
+
+        setupSliderSwitchRow(
+            rowBinding = SettingsRowSliderSwitchBinding.bind(binding.rowMixedTypical.root),
+            label = samplerTypeToString(SamplerType.Typical), // Use samplerTypeToString
+            initialValue = typicalValue,
+            initialEnabled = typicalEnabled,
+            valueRange = 0f..1f,
+            decimalPlaces = 0,
+            onValueChange = { typicalValue = it },
+            onEnabledChange = { typicalEnabled = it }
+        )
+
         setupSliderSwitchRow(
             rowBinding = SettingsRowSliderSwitchBinding.bind(binding.rowMixedTopP.root),
-            label = "Top P",
+            label = samplerTypeToString(SamplerType.TopP), // Use samplerTypeToString
             initialValue = topPValue, // Use shared state
             initialEnabled = topPEnabled,
             valueRange = 0f..1f,
@@ -74,12 +113,24 @@ class SettingsBottomSheetFragment : BottomSheetDialogFragment() {
             onValueChange = { topPValue = it },
             onEnabledChange = { topPEnabled = it }
         )
+
+        setupSliderSwitchRow(
+            rowBinding = SettingsRowSliderSwitchBinding.bind(binding.rowMixedMinP.root),
+            label = samplerTypeToString(SamplerType.MinP), // Use samplerTypeToString
+            initialValue = minPValue, // Use shared state
+            initialEnabled = minPEnabled,
+            valueRange = 0f..1f,
+            decimalPlaces = 2,
+            onValueChange = { minPValue = it },
+            onEnabledChange = { minPEnabled = it }
+        )
+
         setupSliderSwitchRow(
             rowBinding = SettingsRowSliderSwitchBinding.bind(binding.rowMixedTemp.root),
-            label = "Temperature",
+            label = samplerTypeToString(SamplerType.Temperature), // Use samplerTypeToString
             initialValue = tempValue,
             initialEnabled = tempEnabled,
-            valueRange = 0f..2f, // Example range
+            valueRange = 0f..2f,
             decimalPlaces = 2,
             onValueChange = { tempValue = it },
             onEnabledChange = { tempEnabled = it }
@@ -116,12 +167,9 @@ class SettingsBottomSheetFragment : BottomSheetDialogFragment() {
             onValueChange = { nGramFactorValue = it }
         )
 
-        // Penalty Sampler Clickable Row
         binding.valuePenaltySampler.text = penaltySamplerValue
         binding.rowPenaltySampler.setOnClickListener {
-            // Show Dialog/Bottom Sheet to select Penalty Sampler
             Toast.makeText(requireContext(), "Select Penalty Sampler", Toast.LENGTH_SHORT).show()
-            // Update penaltySamplerValue and binding.valuePenaltySampler.text when selected
         }
     }
 
@@ -151,7 +199,6 @@ class SettingsBottomSheetFragment : BottomSheetDialogFragment() {
         rowBinding.labelSlider.text = label
         rowBinding.valueSlider.text = String.format(Locale.US, valueFormat, initialValue)
 
-        // --- SeekBar Setup (same as setupSliderRow) ---
         val maxProgress = 1000
         val range = valueRange.endInclusive - valueRange.start
         rowBinding.seekbar.max = maxProgress
@@ -169,8 +216,6 @@ class SettingsBottomSheetFragment : BottomSheetDialogFragment() {
             override fun onStartTrackingTouch(seekBar: SeekBar?) {}
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}
         })
-
-        // --- Switch Setup ---
         rowBinding.switchSlider.isChecked = initialEnabled
         rowBinding.seekbar.isEnabled = initialEnabled // Initial state for seekbar
 
@@ -180,14 +225,11 @@ class SettingsBottomSheetFragment : BottomSheetDialogFragment() {
         }
     }
 
-
     private fun setupModelConfig() {
-        // Use binding directly
         binding.switchUseMmap.isChecked = useMmap // Assuming ID is switch_use_mmap
         binding.switchUseMmap.setOnCheckedChangeListener { _, isChecked ->
             useMmap = isChecked
         }
-        // Make sure IDs in fragment_settings_sheet.xml match the ones used here
     }
 
     // Adapt setupSliderRow, setupSliderSwitchRow etc. to use 'binding' and 'requireContext()'
@@ -205,8 +247,6 @@ class SettingsBottomSheetFragment : BottomSheetDialogFragment() {
         // Or access views directly if not using includes: e.g., binding.seekbarPenalty
         // ... implementation using the correct view references ...
     }
-
-    // ... (Implement/Adapt setupMixedSettings, setupPenaltySettings, setupTopPSettings) ...
 
 
     private fun setupActionButtons() {
@@ -232,19 +272,44 @@ class SettingsBottomSheetFragment : BottomSheetDialogFragment() {
         return when (type) {
             SamplerType.Mixed -> "Mixed"
             SamplerType.Penalty -> "Penalty"
-            SamplerType.TopP -> "Top-P"
+            SamplerType.TopP -> "Top P"
+            SamplerType.Greedy -> "Greedy"
+            SamplerType.Temperature -> "Temperature"
+            SamplerType.TopK -> "Top K"
+            SamplerType.MinP -> "Min P"
+            SamplerType.Tfs -> "TFS-Z"
+            SamplerType.Typical -> "Typical"
         }
     }
 
     private fun updateSamplerSettingsVisibility() {
-        // Use binding directly, e.g.:
         binding.containerMixedSettings.isVisible = (currentSamplerType == SamplerType.Mixed)
         binding.containerPenaltySettings.isVisible = (currentSamplerType == SamplerType.Penalty)
         binding.containerTopPSettings.isVisible = (currentSamplerType == SamplerType.TopP)
+        binding.rlSamplerType.setOnClickListener{v->
+            showSamplerTypePopupMenu(binding.tvSamplerTypeValue)
+        }
     }
 
-    // --- State Persistence (Adapt for Fragment context if needed) ---
+    private fun showSamplerTypePopupMenu(anchorView: View) {
+        val popupMenu = PopupMenu(anchorView.context, anchorView)
+        SamplerType.entries.forEachIndexed { index, samplerType ->
+            popupMenu.menu.add(Menu.NONE, index, index, samplerTypeToString(samplerType))
+        }
+        popupMenu.setOnMenuItemClickListener { menuItem ->
+            val selectedSamplerType = SamplerType.entries[menuItem.itemId]
+            if (currentSamplerType != selectedSamplerType) {
+                currentSamplerType = selectedSamplerType
+                binding.tvSamplerTypeValue.text = samplerTypeToString(currentSamplerType)
+                updateSamplerSettingsVisibility()
+            }
+            true
+        }
+        popupMenu.show()
+    }
+
     private fun loadSettings() {
+
     }
 
     private fun saveSettings() {

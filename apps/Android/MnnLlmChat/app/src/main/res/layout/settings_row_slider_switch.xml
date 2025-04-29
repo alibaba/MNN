@@ -13,7 +13,7 @@
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent"
-        app:layout_constraintWidth_percent="0.3">
+        app:layout_constraintWidth_percent="0.2">
 
         <TextView
             android:id="@+id/label_slider"
@@ -32,8 +32,6 @@
         android:id="@+id/seekbar"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_marginStart="8dp"
-        android:layout_marginEnd="8dp"
         android:max="1000"
         tools:progress="850"
         app:layout_constraintBottom_toBottomOf="parent"

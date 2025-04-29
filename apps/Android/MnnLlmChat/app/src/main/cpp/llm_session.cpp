@@ -133,11 +133,10 @@ const MNN::Transformer::LlmContext * LlmSession::Response(const std::string &pro
         prompt_string_for_debug += it.second;
     }
     MNN_DEBUG("submitNative prompt_string_for_debug count %s", prompt_string_for_debug.c_str());
-    llm_->response(prompt, &output_ostream, "<eop>", 9999);
-//    llm_->response(history_, &output_ostream, "<eop>", 1);
-//    while (!stop_requested_) {
-//        llm_->generate(1);
-//    }
+    llm_->response(history_, &output_ostream, "<eop>", 1);
+    while (!stop_requested_) {
+        llm_->generate(1);
+    }
     auto context = llm_->getContext();
     return context;
 }

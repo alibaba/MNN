@@ -42,7 +42,12 @@ class HfApiClient(@JvmField val host: String) {
                 call: Call<List<ModelItem>>,
                 response: Response<List<ModelItem>>
             ) {
-                callback.onSuccess(response.body()!!)
+                val body = response.body()
+                if (body != null) {
+                    callback.onSuccess(body)
+                } else {
+                    callback.onFailure("response null")
+                }
             }
 
             override fun onFailure(call: Call<List<ModelItem>>, t: Throwable) {

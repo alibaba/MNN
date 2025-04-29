@@ -102,13 +102,11 @@ class ChatActivity : AppCompatActivity() {
     private var isLoading = false
     private var sessionName: String? = null
     private var stopGenerating = false
-    private lateinit var toolbarTitle: TextView
     private val CONFIG_SHOW_CUSTOM_TOOLBAR = false
-
     private lateinit var binding: ActivityChatBinding
     private lateinit var bottomSheetBehavior: BottomSheetBehavior<NestedScrollView>
-    private lateinit var optionsAdapter: DatasetOptionsAdapter
     private var audioPlayer: AudioPlayer? = null
+    var recognizeSerivice: RecognizeService = RecognizeService(this)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -124,6 +122,12 @@ class ChatActivity : AppCompatActivity() {
             supportActionBar!!.setDisplayShowTitleEnabled(!CONFIG_SHOW_CUSTOM_TOOLBAR)
             supportActionBar!!.title = modelName
         }
+        binding.btnToggleThinking.visibility = if (ModelUtils.isSupportThinkingSwitch(modelName!!)) {
+                binding.btnToggleThinking.isSelected = true
+                View.VISIBLE
+            } else  {
+                View.GONE
+            }
 //        toolbarTitle = binding.toolbarTitle
 //        toolbarTitle.text = getString(R.string.app_name)
         chatExecutor = Executors.newScheduledThreadPool(1)
@@ -468,6 +472,7 @@ class ChatActivity : AppCompatActivity() {
                 false
             )
         )
+
         return true
     }
 
@@ -507,11 +512,15 @@ class ChatActivity : AppCompatActivity() {
             Toast.makeText(this, R.string.reloading_session, Toast.LENGTH_LONG).show()
             ModelPreferences.setBoolean(this, modelId!!, ModelPreferences.KEY_BACKEND, item.isChecked)
             recreate()
+        } else if (item.itemId == R.id.menu_item_model_settings) {
+            val settingsSheet = SettingsBottomSheetFragment()
+            settingsSheet.show(supportFragmentManager, SettingsBottomSheetFragment.TAG)
+            return true
         }
+
         return super.onOptionsItemSelected(item)
     }
 
-    var recognizeSerivice: RecognizeService = RecognizeService(this)
 
     override fun onRequestPermissionsResult(
         requestCode: Int,
