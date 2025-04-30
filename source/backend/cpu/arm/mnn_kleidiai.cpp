@@ -10,9 +10,6 @@
 
 using namespace MNN;
 
-#define FLT16_MAX 65504.0f
-#define FLT16_MIN -65504.0f
-
 bool KleidiAI::mKaiInitialized = false;
 KleidiAI *KleidiAI::mKaiInstance = NULL;
 KleidiAI::StaticInfo KleidiAI::mStaticInfo;
@@ -81,13 +78,13 @@ void KleidiAI::printInfo(AccelType type) {
 void KleidiAI::initKernelInfo() {
     for(size_t type = 0; type < static_cast<size_t>(AccelType::ACC_TYPE_NUMBER); type++) {
         KernelInfo *pInfo = &mStaticInfo.mKernelInfo[type];
+        KernelParam *pParam = &pInfo->mKernelParam;
         bool bSupport = false;
 
         switch(static_cast<AccelType>(type)) {
         case AccelType::QI4_SYM_CHNLQT:
         {
             if(!mStaticInfo.mFP16 && !mStaticInfo.mBF16) { //Currently only support FP32.
-                KernelParam *pParam = &pInfo->mKernelParam;
                 if(mStaticInfo.mSme2) {
                     bSupport = true;
                     pParam->mKaiMstepGemv = 1;
@@ -116,11 +113,30 @@ void KleidiAI::initKernelInfo() {
         }
         case AccelType::QI4_ASYM_CHNLQT:
         case AccelType::QI4_ASYM_BLKQT:
+        {
+            if(!mStaticInfo.mBF16) { //Currently support FP32 and FP16.
+                if(mStaticInfo.mDot && mStaticInfo.mI8mm) {
+                    bSupport = true;
+                    pParam->mKaiMstepGemv = 1;
+                    pParam->mKaiMstepGemm = 8;
+                    pParam->mKaiNStep = 4;
+                    pParam->mKaiMrGemv = 1;
+                    pParam->mKaiMrGemm = 4;
+                    pParam->mKaiNr = 4;
+                    pParam->mKaiKr = 16;
+                    pParam->mKaiSr = 2;
+                } else {
+                    bSupport = false;
+                }
+            }
+            break;
+        }
         case AccelType::QI4_SYM_BLKQT:
         case AccelType::QI8_ASYM_CHNLQT:
         case AccelType::QI8_ASYM_BLKQT:
         case AccelType::QI8_SYM_CHNLQT:
         case AccelType::QI8_SYM_BLKQT:
+            break;
         case AccelType::FP16:
         case AccelType::FP32:
         case AccelType::BF16:
@@ -157,13 +173,34 @@ KleidiAI::AccelType KleidiAI::getQIntAccelType(size_t bits, bool bAsymmetric, si
 }
 
 //Lhs
+size_t KleidiAI::getLhsPackedSize(AccelType type, size_t m, size_t k) {
+    MNN_ASSERT(type >= AccelType::FLOAT && type <= AccelType::FLOAT_END);
+
+    switch(type) {
+    case AccelType::FP16:
+    case AccelType::FP32:
+    default:
+        MNN_ASSERT(0);
+    }
+    return 0;
+}
+
 size_t KleidiAI::getLhsQuantedPackedSize(AccelType type, size_t m, size_t k, size_t bl) {
     MNN_ASSERT(type >= AccelType::QINT && type <= AccelType::QINT_END);
-    KAI_UNUSED(bl);
 
     switch(type) {
     case AccelType::QI4_SYM_CHNLQT:
         return kai_get_lhs_packed_size_lhs_quant_pack_qai8dxp_f32(m, k, getMr(type, m), getKr(type), getSr(type));
+    case AccelType::QI4_ASYM_CHNLQT:
+        bl = k;
+    case AccelType::QI4_ASYM_BLKQT:
+    {
+        if(mStaticInfo.mFP16) {
+            return kai_get_lhs_packed_size_lhs_quant_pack_qsi8d32pscalef32_f16_neon(m, k, bl, getMr(type, m), getKr(type), getSr(type));
+        } else {
+            return kai_get_lhs_packed_size_lhs_quant_pack_qsi8d32pscalef32_f32_neon(m, k, bl, getMr(type, m), getKr(type), getSr(type));
+        }
+    }
     default:
         MNN_ASSERT(0);
     }
@@ -173,7 +210,6 @@ size_t KleidiAI::getLhsQuantedPackedSize(AccelType type, size_t m, size_t k, siz
 
 size_t KleidiAI::getLhsQuantedPackedOffset(AccelType type, size_t m, size_t mIdx, size_t k, size_t bl) {
     MNN_ASSERT(type >= AccelType::QINT && type <= AccelType::QINT_END);
-    KAI_UNUSED(bl);
 
     if(mIdx == 0) {
         return 0;
@@ -182,6 +218,16 @@ size_t KleidiAI::getLhsQuantedPackedOffset(AccelType type, size_t m, size_t mIdx
     switch(type) {
     case AccelType::QI4_SYM_CHNLQT:
         return kai_get_lhs_packed_offset_lhs_quant_pack_qai8dxp_f32(mIdx, k, getMr(type, m), getKr(type), getSr(type));
+    case AccelType::QI4_ASYM_CHNLQT:
+        bl = k;
+    case AccelType::QI4_ASYM_BLKQT:
+    {
+        if(mStaticInfo.mFP16) {
+            return kai_get_lhs_packed_offset_lhs_quant_pack_qsi8d32pscalef32_f16_neon(mIdx, k, bl, getMr(type, m), getKr(type), getSr(type));
+        } else {
+            return kai_get_lhs_packed_offset_lhs_quant_pack_qsi8d32pscalef32_f32_neon(mIdx, k, bl, getMr(type, m), getKr(type), getSr(type));
+        }
+    }
     default:
         MNN_ASSERT(0);
     }
@@ -192,16 +238,31 @@ size_t KleidiAI::getLhsQuantedPackedOffset(AccelType type, size_t m, size_t mIdx
 void KleidiAI::runLhsPack(AccelType type, size_t m, size_t k, size_t mIdx, const void* lhs, size_t lhsStride, void* lhsPacked)
 {
     MNN_ASSERT(type >= AccelType::FLOAT && type <= AccelType::FLOAT_END);
-    //For float ukernels, Not support yet.
+    KAI_UNUSED(mIdx);
+
+    switch(type) {
+    case AccelType::FP16:
+    case AccelType::FP32:
+    default:
+        MNN_ASSERT(0);
+    }
 }
 
 void KleidiAI::runLhsQuantPack(AccelType type, size_t m, size_t k, size_t bl, size_t mr, const void* lhs, void* lhsQuantedPacked) {
     MNN_ASSERT(type >= AccelType::QINT && type <= AccelType::QINT_END);
-    KAI_UNUSED(bl);
 
     switch(type) {
     case AccelType::QI4_SYM_CHNLQT:
         kai_run_lhs_quant_pack_qai8dxp_f32(m, k, mr, getKr(type), getSr(type), 0, (const float *)lhs, k * sizeof(float), lhsQuantedPacked);
+        break;
+    case AccelType::QI4_ASYM_CHNLQT:
+        bl = k;
+    case AccelType::QI4_ASYM_BLKQT:
+        if(mStaticInfo.mFP16) {
+            kai_run_lhs_quant_pack_qsi8d32pscalef32_f16_neon(m, k, bl, mr, getKr(type), getSr(type), 0, (const __fp16 *)lhs, k * sizeof(__fp16), lhsQuantedPacked);
+        } else {
+            kai_run_lhs_quant_pack_qsi8d32pscalef32_f32_neon(m, k, bl, mr, getKr(type), getSr(type), 0, (const float *)lhs, k * sizeof(float), lhsQuantedPacked);
+        }
         break;
     default:
         MNN_ASSERT(0);
@@ -210,8 +271,6 @@ void KleidiAI::runLhsQuantPack(AccelType type, size_t m, size_t k, size_t bl, si
 
 //Rhs
 size_t KleidiAI::getRhsPackedSize(AccelType type, size_t n, size_t k, size_t bl) {
-    KAI_UNUSED(bl);
-    
     switch(type) {
     case AccelType::QI4_SYM_CHNLQT:
         if(mStaticInfo.mSme2) {
@@ -219,6 +278,12 @@ size_t KleidiAI::getRhsPackedSize(AccelType type, size_t n, size_t k, size_t bl)
         } else {
             return kai_get_rhs_packed_size_rhs_pack_nxk_qsi4cxp_qs4cxs1s0(n, k, getNr(type), getKr(type), getSr(type));
         }
+    case AccelType::QI4_ASYM_CHNLQT:
+        bl = k;
+    case AccelType::QI4_ASYM_BLKQT:
+        return kai_get_rhs_packed_size_rhs_pack_nxk_qai4c32p_qau4c32s0s1_f32_f32_f32_neon(n, k, getNr(type), getKr(type), bl);
+    case AccelType::FP16:
+    case AccelType::FP32:
     default:
         MNN_ASSERT(0);
         return 0;
@@ -226,8 +291,6 @@ size_t KleidiAI::getRhsPackedSize(AccelType type, size_t n, size_t k, size_t bl)
 }
 
 size_t KleidiAI::getRhsPackedOffset(AccelType type, size_t nIdx, size_t k, size_t bl) {
-    KAI_UNUSED(bl);
-
     if(nIdx == 0) {
         return 0;
     }
@@ -239,6 +302,10 @@ size_t KleidiAI::getRhsPackedOffset(AccelType type, size_t nIdx, size_t k, size_
         } else {
             return kai_get_rhs_packed_offset_rhs_pack_nxk_qsi4cxp_qs4cxs1s0(nIdx, k, getNr(type), getKr(type), getSr(type));
         }
+    case AccelType::QI4_ASYM_CHNLQT:
+        bl = k;
+    case AccelType::QI4_ASYM_BLKQT:
+        return kai_get_rhs_packed_offset_rhs_pack_nxk_qai4c32p_qau4c32s0s1_f32_f32_f32_neon(nIdx, k, getNr(type), getKr(type), bl);
     default:
         MNN_ASSERT(0);
         return 0;
@@ -248,8 +315,6 @@ size_t KleidiAI::getRhsPackedOffset(AccelType type, size_t nIdx, size_t k, size_
 void KleidiAI::runRhsPack(AccelType type, size_t numGroups, size_t n, size_t k, size_t bl, size_t rhsStride,
                           const void* rhs, const void* scale, const void* zeroPoint, const void* bias,
                           void* rhsPacked, bool packedQ4) {
-    KAI_UNUSED(bl);
-
     switch(type) {
     case AccelType::QI4_SYM_CHNLQT:
     {
@@ -275,6 +340,22 @@ void KleidiAI::runRhsPack(AccelType type, size_t numGroups, size_t n, size_t k, 
         }
         break;
     }
+    case AccelType::QI4_ASYM_CHNLQT:
+        bl = k;
+    case AccelType::QI4_ASYM_BLKQT:
+        if(packedQ4) {
+            struct kai_rhs_pack_nxk_qai4c32p_params params;
+            params.lhs_zero_point = 1;
+            params.rhs_zero_point = 8;
+            kai_run_rhs_pack_nxk_qai4c32p_qau4c32s0s1_f32_f32_f32_neon(numGroups, n, k, getNr(type), getKr(type), getSr(type), bl,
+                                                          (const uint8_t *)rhs, zeroPoint, bias, scale,
+                                                          rhsPacked, 0, &params);
+        } else {
+            MNN_ASSERT(0);
+        }
+        break;
+    case AccelType::FP16:
+    case AccelType::FP32:
     default:
         MNN_ASSERT(0);
     }
@@ -287,7 +368,7 @@ void KleidiAI::runMatmul(AccelType type, size_t m, size_t n, size_t k, size_t bl
                          const float scalarMax, const float scalarMin) {
     KAI_UNUSED(bl);
 
-    switch(type) {
+    switch (type) {
     case AccelType::QI4_SYM_CHNLQT:
     {
         if(mStaticInfo.mSme2) {
@@ -314,6 +395,33 @@ void KleidiAI::runMatmul(AccelType type, size_t m, size_t n, size_t k, size_t bl
 
         break;
     }
+    case AccelType::QI4_ASYM_CHNLQT:
+        bl = k;
+    case AccelType::QI4_ASYM_BLKQT:
+        if(mStaticInfo.mFP16) {
+            if(m == 1) {
+                kai_run_matmul_clamp_f16_qsi8d32p1x8_qai4c32p4x8_1x4_neon_dotprod(m, n, k, bl,
+                                                                                  (const void *)lhsPacked, (const void *)rhsPacked, (float *)dst,
+                                                                                  dstStrideRow, dstStrideCol, scalarMin, scalarMax);
+            } else {
+                kai_run_matmul_clamp_f16_qsi8d32p4x8_qai4c32p4x8_8x4_neon_i8mm(m, n, k, bl,
+                                                                               (const void *)lhsPacked, (const void *)rhsPacked, (float *)dst,
+                                                                               dstStrideRow, dstStrideCol, scalarMin, scalarMax);
+            }
+        } else {
+            if(m == 1) {
+                kai_run_matmul_clamp_f32_qsi8d32p1x8_qai4c32p4x8_1x4_neon_dotprod(m, n, k, bl,
+                                                                                  (const void *)lhsPacked, (const void *)rhsPacked, (float *)dst,
+                                                                                  dstStrideRow, dstStrideCol, scalarMin, scalarMax);
+            } else {
+                kai_run_matmul_clamp_f32_qsi8d32p4x8_qai4c32p4x8_8x4_neon_i8mm(m, n, k, bl,
+                                                                               (const void *)lhsPacked, (const void *)rhsPacked, (float *)dst,
+                                                                               dstStrideRow, dstStrideCol, scalarMin, scalarMax);
+            }
+        }
+        break;
+    case AccelType::FP16:
+    case AccelType::FP32:
     default:
         MNN_ASSERT(0);
     }

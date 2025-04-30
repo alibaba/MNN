@@ -17,6 +17,9 @@
 
 #include "mnn_kleidiai_util.h"
 
+#define FLT16_MAX 65504.0f
+#define FLT16_MIN -65504.0f
+
 namespace MNN {
     class KleidiAI {
     public:
@@ -144,6 +147,7 @@ namespace MNN {
         bool isHalf() { return mStaticInfo.mFP16 || mStaticInfo.mBF16; }
 
         //Lhs
+        size_t getLhsPackedSize(AccelType type, size_t m, size_t k);
         size_t getLhsQuantedPackedSize(AccelType type, size_t m, size_t k, size_t bl);
         size_t getLhsQuantedPackedOffset(AccelType type, size_t m, size_t mIdx, size_t k, size_t bl);
         void runLhsPack(AccelType type, size_t m, size_t k, size_t mIdx, const void* lhs, size_t lhsStride, void* lhsPacked);
@@ -154,7 +158,7 @@ namespace MNN {
         size_t getRhsPackedOffset(AccelType type, size_t nIdx, size_t k, size_t bl);
         void runRhsPack(AccelType type, size_t numGroups, size_t n, size_t k, size_t bl, size_t rhsStride,
                         const void* rhs, const void* scale, const void* zeroPoint, const void* bias,
-                        void* rhsPacked, bool packedQ4);
+                        void* rhsPacked, bool packedQ4 = false);
 
         //Dst
         size_t getDstOffset(size_t mIdx, size_t nIdx, size_t n, size_t elementSize) { return (nIdx * elementSize) + mIdx * (n * elementSize); }
