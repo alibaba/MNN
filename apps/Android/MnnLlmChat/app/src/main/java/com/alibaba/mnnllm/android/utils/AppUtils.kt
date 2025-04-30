@@ -9,6 +9,6 @@ object AppUtils {
     fun getAppVersionName(context: Context): String {
         val packageManager = context.packageManager
         val packageInfo = packageManager.getPackageInfo(context.packageName, 0)
-        return packageInfo.versionName
+        return packageInfo.versionName!!
     }
 }

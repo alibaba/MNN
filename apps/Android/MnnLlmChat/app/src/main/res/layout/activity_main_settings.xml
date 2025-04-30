@@ -8,15 +8,13 @@
     <com.google.android.material.appbar.AppBarLayout
         android:id="@+id/chat_app_bar"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:theme="@style/ThemeOverlay.AppCompat.Dark.ActionBar">
+        android:layout_height="wrap_content">
 
         <androidx.appcompat.widget.Toolbar
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
-            android:elevation="4dp"
-            app:popupTheme="@style/ThemeOverlay.AppCompat.Light" />
+            android:elevation="4dp" />
     </com.google.android.material.appbar.AppBarLayout>
 
     <FrameLayout

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
     <dimen name="h1">18sp</dimen>
     <dimen name="h2">16sp</dimen>
     <dimen name="h3">14sp</dimen>
@@ -17,6 +17,12 @@
     <!--    tags-->
     <dimen name="tag_margin">2dp</dimen>
     <dimen name="tag_padding_horizontal">4dp</dimen>
-    <dimen name="tag_padding_vertical">1dp</dimen>
+    <dimen name="tag_padding_vertical">0dp</dimen>
     <dimen name="tag_corner_radius">16dp</dimen>
+
+
+    <!-- switch -->
+    <dimen name="mtrl_switch_track_width" tools:override="true">40dp</dimen>
+    <dimen name="mtrl_switch_track_height" tools:override="true">24dp</dimen>
+    <dimen name="mtrl_switch_thumb_size" tools:override="true">24dp</dimen>
 </resources>

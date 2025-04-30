@@ -15,7 +15,7 @@ class ModelSources {
 
     val remoteSourceType: ModelSourceType
         get() {
-            return getDownloadProvider(ApplicationProvider.get())
+            return getDownloadProvider(ApplicationProvider.get()!!)
         }
 
     private object InstanceHolder {

@@ -6,18 +6,29 @@
     <color name="teal_200">#FF03DAC5</color>
     <color name="teal_700">#FF018786</color>
     <color name="color_darker_blue">#1168aa</color>
-<!--    <color name="black">#FF000000</color>-->
     <color name="color_white">#FFFFFFFF</color>
+    <color name="black">#000</color>
+    <color name="white">#FFFFFF</color>
     <color name="colorPurpleLight">#4B5980</color>
     <color name="colorPurpleDark">#3F4A68</color>
     <color name="colorAccent">#3bb5ee</color>
     <color name="colorRed">#FF0000</color>
     <color name="colorTextBlack">#333333</color>
-<!--    <color name="colorTextHint">#cccccc</color>-->
     <color name="colorTextInfo">#9b9b9b</color>
     <color name="colorGreen">#A5DE40</color>
-<!--    <color name="navColor">#80FFFFFF</color>-->
     <color name="mainBlue">#3bb5ee</color>
-    <color name="black">#000</color>
+    <color name="color_background">#FFFFFF</color>
+    <color name="color_foreground">@android:color/black</color>
+    <bool name="is_day_mode">true</bool>
+    <bool name="is_night_mode">false</bool>
+    <color name="app_theme_color">#329BEA</color>
+
+    <color name="my_color_surface">#FFFFFF</color>
+    <color name="my_color_surface_variant">#EEEEEE</color>
+    <color name="color_on_surface_variant">#666666</color>
+
+    <color name="color_disabled">#888888</color>
+
+
 
 </resources>

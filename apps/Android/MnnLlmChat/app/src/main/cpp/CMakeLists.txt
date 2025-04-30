@@ -27,8 +27,11 @@ project("mnnllmapp")
 add_library(${CMAKE_PROJECT_NAME} SHARED
         # List C/C++ source files with relative paths to this CMakeLists.txt.
         llm_mnn_jni.cpp
-        diffusion_session.cpp)
+        diffusion_session.cpp
+        llm_session.cpp
+)
 #mnn
+#set (MNN_ROOT "/Users/songjinde/git/DAI/AliNNPrivate")
 set (MNN_ROOT "${CMAKE_SOURCE_DIR}/../../../../../../../")
 message(ERROR "MNN_ROOT: ${MNN_ROOT}")
 include_directories("${MNN_ROOT}/include/")
@@ -37,7 +40,10 @@ include_directories("${MNN_ROOT}/include/")
 include_directories("${MNN_ROOT}/transformers/diffusion/engine/include/")
 
 #llm
-include_directories("${MNN_ROOT}/transformers/llm/engine/include")
+#include_directories("${MNN_ROOT}/transformers/llm/engine/include")
+include_directories("${CMAKE_SOURCE_DIR}/include")
+
+#audio
 
 include_directories("${CMAKE_SOURCE_DIR}/third_party")
 
@@ -45,26 +51,27 @@ include_directories("${CMAKE_SOURCE_DIR}/third_party")
 set(LIB_PATH "${CMAKE_SOURCE_DIR}/../jniLibs/${ANDROID_ABI}")
 
 # Link the shared library
-add_library(llm SHARED IMPORTED)
-set_target_properties(llm PROPERTIES IMPORTED_LOCATION "${LIB_PATH}/libllm.so")
 
 add_library(MNN SHARED IMPORTED)
 set_target_properties(MNN PROPERTIES IMPORTED_LOCATION "${LIB_PATH}/libMNN.so")
 
-add_library(diffusion SHARED IMPORTED)
-set_target_properties(diffusion PROPERTIES IMPORTED_LOCATION "${LIB_PATH}/libdiffusion.so")
-
-add_library(mnn_cl SHARED IMPORTED)
-set_target_properties(mnn_cl PROPERTIES IMPORTED_LOCATION "${LIB_PATH}/libMNN_CL.so")
-
-add_library(mnn_audio SHARED IMPORTED)
-set_target_properties(mnn_audio PROPERTIES IMPORTED_LOCATION "${LIB_PATH}/libMNNAudio.so")
-
-add_library(mnn_cv SHARED IMPORTED)
-set_target_properties(mnn_cv PROPERTIES IMPORTED_LOCATION "${LIB_PATH}/libMNNOpenCV.so")
-
-add_library(mnn_Express SHARED IMPORTED)
-set_target_properties(mnn_Express PROPERTIES IMPORTED_LOCATION "${LIB_PATH}/libMNN_Express.so")
+#add_library(llm SHARED IMPORTED)
+#set_target_properties(llm PROPERTIES IMPORTED_LOCATION "${LIB_PATH}/libllm.so")
+#
+#add_library(diffusion SHARED IMPORTED)
+#set_target_properties(diffusion PROPERTIES IMPORTED_LOCATION "${LIB_PATH}/libdiffusion.so")
+#
+#add_library(mnn_cl SHARED IMPORTED)
+#set_target_properties(mnn_cl PROPERTIES IMPORTED_LOCATION "${LIB_PATH}/libMNN_CL.so")
+#
+#add_library(mnn_audio SHARED IMPORTED)
+#set_target_properties(mnn_audio PROPERTIES IMPORTED_LOCATION "${LIB_PATH}/libMNNAudio.so")
+#
+#add_library(mnn_cv SHARED IMPORTED)
+#set_target_properties(mnn_cv PROPERTIES IMPORTED_LOCATION "${LIB_PATH}/libMNNOpenCV.so")
+#
+#add_library(mnn_Express SHARED IMPORTED)
+#set_target_properties(mnn_Express PROPERTIES IMPORTED_LOCATION "${LIB_PATH}/libMNN_Express.so")
 
 
 # Link your native library with the `.so` file
@@ -76,11 +83,11 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
         # List libraries link to the target library
         android
         log
-        llm
         MNN
-        mnn_Express
-        mnn_cl
-        mnn_audio
-        mnn_cv
-        diffusion
+#        llm
+        #        mnn_Express
+#        mnn_cl
+#        mnn_audio
+#        mnn_cv
+#        diffusion
         )

@@ -1,7 +1,37 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <attr name="labelText" format="string" />
+    <attr name="icon" format="reference" />
+    <attr name="text" format="string" />
+    <attr name="seekbarValue" format="integer" />
+    <attr name="switchVisibility" format="enum">
+        <enum name="visible" value="0" />
+        <enum name="invisible" value="1" />
+        <enum name="gone" value="2" />
+    </attr>
+    <attr name="switchEnabled" format="boolean" />
+    <attr name="valueText" format="string" />
+
     <declare-styleable name="MoreMenuItemView">
-        <attr name="text" format="string"/>
-        <attr name="icon" format="reference"/>
+        <attr name="text" />
+        <attr name="icon" />
+    </declare-styleable>
+
+    <declare-styleable name="SettingsRowSlideSwitch">
+        <attr name="labelText" />
+        <attr name="seekbarValue" />
+        <attr name="switchVisibility" />
+        <attr name="switchEnabled" />
+    </declare-styleable>
+
+    <declare-styleable name="DropDownLineView">
+        <attr name="labelText" />
+        <attr name="valueText" />
+        <attr name="icon" />
+    </declare-styleable>
+
+    <declare-styleable name="SettingsItemView">
+        <attr name="itemText" format="string" />
+        <attr name="checked" format="boolean" />
     </declare-styleable>
 </resources>

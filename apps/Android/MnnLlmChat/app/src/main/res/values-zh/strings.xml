@@ -82,4 +82,16 @@
     <string name="diffusion_mode_memory_engough">内存足够模式</string>
     <string name="diffusion_mode_memory_balance">内存平衡模式</string>
     <string name="diffusion_memory_mode">Diffusion内存模式</string>
+    <string name="model_settings">设置</string>
+    <string name="model_settings_title">模型设置</string>
+    <string name="menu_item_benchmark_test">Benchmark测试</string>
+    <string name="select_dataset">选择数据集</string>
+    <string name="start_voice_chat">开启语音会话</string>
+    <string name="max_new_tokens">最大输出 token 数量</string>
+    <string name="system_prompt">System Prompt</string>
+    <string name="reset">重置</string>
+    <string name="settings_cancel">取消</string>
+    <string name="settings_done">完成</string>
+    <string name="max_new_tokens_hint">最大输出 token 数量</string>
+    <string name="thread_num">线程数</string>
 </resources>
