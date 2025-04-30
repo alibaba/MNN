@@ -18,7 +18,8 @@
         android:layout_marginStart="16dp"
         android:layout_marginTop="30dp"
         android:layout_marginEnd="16dp"
-        android:text="Model Settings"
+        android:layout_marginBottom="16dp"
+        android:text="@string/model_settings_title"
         android:textAppearance="?attr/textAppearanceTitleMedium" />
 
     <LinearLayout
@@ -85,6 +86,7 @@
             <TextView
                 android:id="@+id/tv_section_general"
                 style="@style/SettingsSectionHeader"
+                android:visibility="gone"
                 android:text="GENERAL" />
 
             <com.google.android.material.card.MaterialCardView
@@ -154,6 +156,8 @@
                     <com.alibaba.mnnllm.android.modelsettings.DropDownLineView
                         android:id="@+id/dropdown_sampler_type"
                         android:layout_width="match_parent"
+                        android:paddingBottom="16dp"
+                        android:paddingTop="16dp"
                         android:clickable="true"
                         android:layout_height="wrap_content"
                         app:labelText="Sampler Type"
@@ -245,7 +249,8 @@
 
             <TextView
                 style="@style/SettingsSectionHeader"
-                android:text="Advanced" />
+                android:text="Advanced"
+                android:visibility="gone"/>
 
             <com.google.android.material.card.MaterialCardView
                 style="@style/SettingsSectionGroup"
@@ -253,7 +258,8 @@
                 android:layout_height="wrap_content"
                 android:layout_marginStart="8dp"
                 android:layout_marginEnd="8dp"
-                android:layout_marginBottom="16dp">
+                android:layout_marginBottom="16dp"
+                android:visibility="gone">
 
                 <LinearLayout
                     android:layout_width="match_parent"

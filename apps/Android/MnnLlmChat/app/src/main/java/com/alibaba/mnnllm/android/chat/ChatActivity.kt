@@ -116,7 +116,7 @@ class ChatActivity : AppCompatActivity() {
         if (supportActionBar != null) {
             supportActionBar!!.setDisplayHomeAsUpEnabled(true)
             supportActionBar!!.setDisplayShowTitleEnabled(!CONFIG_SHOW_CUSTOM_TOOLBAR)
-            supportActionBar!!.title = modelName
+            supportActionBar!!.title = getString(R.string.app_name)
         }
         binding.btnToggleThinking.visibility = if (ModelUtils.isSupportThinkingSwitch(modelName!!)) {
                 binding.btnToggleThinking.isSelected = true
@@ -236,7 +236,7 @@ class ChatActivity : AppCompatActivity() {
 //                    toolbarTitle.text =
 //                        if (loading) getString(R.string.model_loading) else getString(R.string.app_name)
                 } else {
-                    supportActionBar!!.title =
+                    supportActionBar!!.subtitle =
                     if (loading) getString(R.string.model_loading) else modelName
                 }
             }

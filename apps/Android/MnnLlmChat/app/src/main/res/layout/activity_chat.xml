@@ -16,7 +16,9 @@
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
             android:layout_height="?actionBarSize"
+            app:subtitleCentered="true"
             app:titleCentered="true"
+            app:subtitleTextAppearance="?textAppearanceBodyMedium"
             app:titleTextAppearance="?textAppearanceTitleMedium" />
     </com.google.android.material.appbar.AppBarLayout>
 
