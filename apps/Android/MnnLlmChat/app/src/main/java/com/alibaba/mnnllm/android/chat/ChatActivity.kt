@@ -124,6 +124,14 @@ class ChatActivity : AppCompatActivity() {
             } else  {
                 View.GONE
             }
+        binding.btnToggleThinking.setOnClickListener {
+            binding.btnToggleThinking.isSelected = !binding.btnToggleThinking.isSelected
+            chatSession.updateAssistantPrompt(if (binding.btnToggleThinking.isSelected) {
+                "<|im_start|>assistant\n%s<|im_end|>\n"
+            } else {
+                "<|im_start|>assistant\n<think>\n</think>%s<|im_end|>\n"
+            })
+        }
         chatExecutor = Executors.newScheduledThreadPool(1)
         chatDataManager = ChatDataManager.getInstance(this)
         this.setupSession()
@@ -163,7 +171,7 @@ class ChatActivity : AppCompatActivity() {
         val chatDataItemList: List<ChatDataItem>?
         if (!TextUtils.isEmpty(sessionId)) {
             chatDataItemList = chatDataManager!!.getChatDataBySession(sessionId!!)
-            if (chatDataItemList != null && !chatDataItemList.isEmpty()) {
+            if (!chatDataItemList.isNullOrEmpty()) {
                 sessionName = chatDataItemList[0].text
             }
         } else {

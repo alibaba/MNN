@@ -23,6 +23,7 @@ class ChatSession @JvmOverloads constructor (
     val savedHistory: List<ChatDataItem>?,
     private val isDiffusion: Boolean = false
 ) {
+    private var extraAssistantPrompt: String? = null
     var supportOmni: Boolean = false
 
     private var nativePtr: Long = 0
@@ -67,6 +68,7 @@ class ChatSession @JvmOverloads constructor (
             put("diffusion_memory_mode", getDiffusionMemoryMode(ApplicationProvider.get()))
         }
         val extraConfig = ModelConfig.loadConfig(configPath, getModelSettingsFile())!!
+        extraConfig.assistantPromptTemplate = extraAssistantPrompt
         extraConfig.backendType = backend
         nativePtr = initNative(
             configPath,
@@ -240,9 +242,19 @@ class ChatSession @JvmOverloads constructor (
         updateSystemPromptNative(nativePtr, systemPrompt)
     }
 
+    fun updateAssistantPrompt(assistantPrompt: String) {
+        extraAssistantPrompt = assistantPrompt
+        updateAssistantPromptNative(nativePtr, assistantPrompt)
+    }
+
     private external fun updateMaxNewTokensNative(it: Long, maxNewTokens: Int)
 
     private external fun updateSystemPromptNative(llmPtr: Long, systemPrompt: String)
+
+    private external fun updateAssistantPromptNative(llmPtr: Long, assistantPrompt: String)
+
+
+
 
 
     interface AudioDataListener {

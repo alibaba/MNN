@@ -27,6 +27,8 @@ public:
 
     void setSystemPrompt(std::string system_prompt);
 
+    void SetAssistantPrompt(const std::string& assistant_prompt);
+
 private:
     std::string response_string_for_debug{};
     std::string model_path_;
@@ -41,6 +43,7 @@ private:
     std::string prompt_string_for_debug{};
     int max_new_tokens_{2048};
     std::string system_prompt_;
+    json current_config_{};
 };
 }
 

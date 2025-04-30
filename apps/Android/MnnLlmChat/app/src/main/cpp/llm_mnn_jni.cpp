@@ -265,3 +265,15 @@ Java_com_alibaba_mnnllm_android_ChatSession_updateSystemPromptNative(JNIEnv *env
     }
     env->ReleaseStringUTFChars(system_promp_j, system_prompt_cstr);
 }
+extern "C"
+JNIEXPORT void JNICALL
+Java_com_alibaba_mnnllm_android_ChatSession_updateAssistantPromptNative(JNIEnv *env, jobject thiz,
+                                                                        jlong llm_ptr,
+                                                                        jstring assistant_prompt_j) {
+    auto* llm = reinterpret_cast<mls::LlmSession*>(llm_ptr);
+    const char* assistant_prompt_cstr = env->GetStringUTFChars(assistant_prompt_j, nullptr);
+    if (llm) {
+        llm->SetAssistantPrompt(assistant_prompt_cstr);
+    }
+    env->ReleaseStringUTFChars(assistant_prompt_j, assistant_prompt_cstr);
+}

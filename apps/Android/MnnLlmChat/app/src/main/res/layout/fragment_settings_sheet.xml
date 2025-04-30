@@ -305,7 +305,6 @@
                             android:layout_height="wrap_content" />
                     </com.google.android.material.textfield.TextInputLayout>
 
-
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 

@@ -32,6 +32,7 @@ data class ModelConfig(
     @SerializedName("n_gram")var nGram:Int?,
     @SerializedName("ngram_factor")var nGramFactor:Float?,
     @SerializedName("max_new_tokens")var maxNewTokens:Int?,
+    @SerializedName("assistant_prompt_template")var assistantPromptTemplate:String?
     ) {
     fun deepCopy(): ModelConfig {
         return ModelConfig(
@@ -53,7 +54,8 @@ data class ModelConfig(
             penalty = this.penalty,
             nGram = this.nGram,
             nGramFactor = this.nGramFactor,
-            maxNewTokens = this.maxNewTokens
+            maxNewTokens = this.maxNewTokens,
+            assistantPromptTemplate = this.assistantPromptTemplate
         )
     }
 

@@ -104,6 +104,7 @@ void LlmSession::Load() {
         config["use_template"] = false;
         config["precision"] = "high";
     }
+    current_config_ = config;
     auto config_str = config.dump();
     MNN_DEBUG("extra_config: %s", config_str.c_str());
     llm_->set_config(config_str);
@@ -128,7 +129,6 @@ const MNN::Transformer::LlmContext * LlmSession::Response(const std::string &pro
     std::stringstream response_buffer;
     mls::Utf8StreamProcessor processor([&response_buffer, &on_progress, this](const std::string& utf8Char) {
         bool is_eop = utf8Char.find("<eop>") != std::string::npos;
-        MNN_DEBUG("submitNative get str %s", utf8Char.c_str());
         if (!is_eop) {
             response_buffer << utf8Char;
         } else {
@@ -211,4 +211,13 @@ void LlmSession::setSystemPrompt(std::string system_prompt) {
         history_.emplace_back("system", GetSystemPromptString(system_prompt_, is_r1_));
     }
 }
+
+void LlmSession::SetAssistantPrompt(const std::string& assistant_prompt) {
+    current_config_["assistant_prompt_template"] = assistant_prompt;
+    if (llm_) {
+        llm_->set_config(current_config_.dump());
+    }
+    MNN_DEBUG("dumped config: %s", llm_->dump_config().c_str());
+}
+
 }

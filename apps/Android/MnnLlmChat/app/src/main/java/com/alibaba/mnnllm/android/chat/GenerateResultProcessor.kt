@@ -74,7 +74,6 @@ interface GenerateResultProcessor {
             rawStringBuilder.append(currentProgress)
             val currentTokenIndex = nextTokenIndex
             nextTokenIndex++
-            Log.d(TAG, "MNN_DEBUG progress: #$progress# token index: ${nextTokenIndex++}")
             //process first token
             if (currentTokenIndex == 0 && currentProgress == "<think>") {
                 Log.d(TAG, "thinkingStarted")
@@ -88,7 +87,6 @@ interface GenerateResultProcessor {
                 if (isThinking == null) {
                     isThinking = false
                 }
-                Log.d(TAG, "/think think end is Thinking: $isThinking")
                 if (thinkingStarted) {
                     val thinkTime = (System.currentTimeMillis() - this.generateBeginTime) / 1000
                     displayStringBuilder.replace(
@@ -97,7 +95,6 @@ interface GenerateResultProcessor {
                     )
                 }
             } else if (thinkingEnded) {//after thinking
-                Log.d(TAG, "thinkingEnded just append")
                 displayStringBuilder.append(currentProgress)
             } else {//in thinking
                 if (isThinking == null && currentProgress.isNotBlank()) {

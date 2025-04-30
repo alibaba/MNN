@@ -59,7 +59,8 @@ class SettingsBottomSheetFragment : BottomSheetDialogFragment() {
         penalty = 1.02f,
         nGram = 8,
         nGramFactor = 1.02f,
-        maxNewTokens = 2048
+        maxNewTokens = 2048,
+        assistantPromptTemplate = ""
     )
     private lateinit var currentConfig:ModelConfig
     private lateinit var chatSession: ChatSession
