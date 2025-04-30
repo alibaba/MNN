@@ -111,7 +111,7 @@ __kernel void global_pooling(GLOBAL_SIZE_3_DIMS __read_only image2d_t input,
 #endif
 #endif
 
-    FLOAT4 local sum[LOCAL_SIZE];
+    FLOAT4 local sum_mnn[LOCAL_SIZE];
     int wc = output_channel_idx * input_shape.y;
     int bh = output_batch_idx * input_shape.x;
     for(int i = local_id; i < input_shape.x * input_shape.y; i+=LOCAL_SIZE){
@@ -128,7 +128,7 @@ __kernel void global_pooling(GLOBAL_SIZE_3_DIMS __read_only image2d_t input,
 #endif
     }
     
-    sum[local_id] = output_result;
+    sum_mnn[local_id] = output_result;
 #if RETURN_REDICE
     rediceId[local_id] = redice;
 #endif
@@ -136,18 +136,18 @@ __kernel void global_pooling(GLOBAL_SIZE_3_DIMS __read_only image2d_t input,
     for(int i = LOCAL_SIZE/2; i > 0; i /= 2){
         if (local_id < i)
 #ifdef POOL_AVG
-            sum[local_id] = sum[local_id] + sum[local_id + i];
+            sum_mnn[local_id] = sum_mnn[local_id] + sum_mnn[local_id + i];
 #else
         {
-            sum[local_id] = fmax(sum[local_id], sum[local_id + i]);
 #if RETURN_REDICE
-            rediceId[local_id] = sum[local_id] > sum[local_id + i] ? rediceId[local_id] : rediceId[local_id + i];
+            rediceId[local_id] = sum_mnn[local_id] > sum_mnn[local_id + i] ? rediceId[local_id] : rediceId[local_id + i];
 #endif
+            sum_mnn[local_id] = fmax(sum_mnn[local_id], sum_mnn[local_id + i]);
         }
 #endif
         barrier(CLK_LOCAL_MEM_FENCE);
     }
-    output_result = sum[0];
+    output_result = sum_mnn[0];
 #ifdef POOL_AVG
     output_result /= (input_shape.x * input_shape.y);
 #endif

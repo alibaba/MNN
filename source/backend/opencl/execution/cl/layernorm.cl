@@ -16,7 +16,10 @@ __kernel void layernorm_w(__private int global_dim0, __private int global_dim1, 
 #endif
                         __private float epsilon){
     int3 pos = (int3)(get_global_id(0), get_global_id(1), get_global_id(2));
-    float4 local sum[LOCAL_SIZE];
+    float4 local sum_mnn[LOCAL_SIZE];
+    #ifndef RMSNORM
+    float4 local sum_mean_mnn[LOCAL_SIZE];
+    #endif
     if (pos.x < global_dim0 && pos.y < global_dim1 && pos.z < global_dim2) {
         const int h = pos.y % height;
         const int c = pos.y / height;
@@ -32,29 +35,29 @@ __kernel void layernorm_w(__private int global_dim0, __private int global_dim1, 
             float4 in = convert_float4(RI_F(input, SAMPLER, (int2)(c * width + i, bh_offset)));
             in_sum += in;
         }
-        sum[lid] = in_sum;
+        sum_mean_mnn[lid] = in_sum;
         barrier(CLK_LOCAL_MEM_FENCE);
         for(int i = LOCAL_SIZE/2; i > 0; i /= 2){
             if (lid < i)
-                sum[lid] = sum[lid] + sum[lid + i];
+                sum_mean_mnn[lid] = sum_mean_mnn[lid] + sum_mean_mnn[lid + i];
             barrier(CLK_LOCAL_MEM_FENCE);
         }
         
-        float4 mean = sum[0] / (float4)width;
+        float4 mean = sum_mean_mnn[0] / (float4)width;
 #endif
         in_sum = 0;
         for(int i = lid; i < width; i+=LOCAL_SIZE){
             float4 in = convert_float4(RI_F(input, SAMPLER, (int2)(c * width + i, bh_offset)));
             in_sum += (in - mean) * (in - mean);
         }
-        sum[lid] = in_sum;
+        sum_mnn[lid] = in_sum;
         barrier(CLK_LOCAL_MEM_FENCE);
         for(int i = LOCAL_SIZE/2; i > 0; i /= 2){
             if (lid < i)
-                sum[lid] = sum[lid] + sum[lid + i];
+                sum_mnn[lid] = sum_mnn[lid] + sum_mnn[lid + i];
             barrier(CLK_LOCAL_MEM_FENCE);
         }
-        float4 square_sum = sum[0] / (float4)width;
+        float4 square_sum = sum_mnn[0] / (float4)width;
         float4 value = (float4)1.0f / (float4)sqrt(square_sum + (float4)epsilon);
         for(int i = lid; i < width; i+=LOCAL_SIZE){
             float4 in = convert_float4(RI_F(input, SAMPLER, (int2)(c * width + i, bh_offset)));
@@ -81,7 +84,10 @@ __kernel void layernorm_hw(__private int global_dim0, __private int global_dim1,
 #endif
                         __private float epsilon){
     int3 pos = (int3)(get_global_id(0), get_global_id(1), get_global_id(2));
-    float4 local sum[LOCAL_SIZE];
+    float4 local sum_mnn[LOCAL_SIZE];
+    #ifndef RMSNORM
+    float4 local sum_mean_mnn[LOCAL_SIZE];
+    #endif
     if (pos.x < global_dim0 && pos.y < global_dim1 && pos.z < global_dim2) {
         const int c = pos.y;
         const int b = pos.z;
@@ -98,15 +104,15 @@ __kernel void layernorm_hw(__private int global_dim0, __private int global_dim1,
             float4 in = convert_float4(RI_F(input, SAMPLER, (int2)(c * width + w, b * height + h)));
             in_sum += in;
         }
-        sum[lid] = in_sum;
+        sum_mean_mnn[lid] = in_sum;
         barrier(CLK_LOCAL_MEM_FENCE);
         for(int i = LOCAL_SIZE/2; i > 0; i /= 2){
             if (lid < i)
-                sum[lid] = sum[lid] + sum[lid + i];
+                sum_mean_mnn[lid] = sum_mean_mnn[lid] + sum_mean_mnn[lid + i];
             barrier(CLK_LOCAL_MEM_FENCE);
         }
         
-        float4 mean = sum[0] / (float4)height_width;
+        float4 mean = sum_mean_mnn[0] / (float4)height_width;
 #endif
         in_sum = 0;
         for(int i = lid; i < height_width; i+=LOCAL_SIZE){
@@ -115,14 +121,14 @@ __kernel void layernorm_hw(__private int global_dim0, __private int global_dim1,
             float4 in = convert_float4(RI_F(input, SAMPLER, (int2)(c * width + w, b * height + h)));
             in_sum += (in - mean) * (in - mean);
         }
-        sum[lid] = in_sum;
+        sum_mnn[lid] = in_sum;
         barrier(CLK_LOCAL_MEM_FENCE);
         for(int i = LOCAL_SIZE/2; i > 0; i /= 2){
             if (lid < i)
-                sum[lid] = sum[lid] + sum[lid + i];
+                sum_mnn[lid] = sum_mnn[lid] + sum_mnn[lid + i];
             barrier(CLK_LOCAL_MEM_FENCE);
         }
-        float4 square_sum = sum[0] / (float4)height_width;
+        float4 square_sum = sum_mnn[0] / (float4)height_width;
         float4 value = (float4)1.0f / (float4)sqrt(square_sum + (float4)epsilon);
         for(int i = lid; i < height_width; i+=LOCAL_SIZE){
             int w = i % width;
@@ -150,7 +156,10 @@ __kernel void layernorm_chw(__private int global_dim0, __private int global_dim1
 #endif
                         __private float epsilon){
     int3 pos = (int3)(get_global_id(0), get_global_id(1), get_global_id(2));
-    float local sum[LOCAL_SIZE];
+    float local sum_mnn[LOCAL_SIZE];
+    #ifndef RMSNORM
+    float4 local sum_mean_mnn[LOCAL_SIZE];
+    #endif
     if (pos.x < global_dim0 && pos.y < global_dim1 && pos.z < global_dim2) {
         const int b = pos.z;
         const int sum_size = width * height * channel;
@@ -183,15 +192,15 @@ __kernel void layernorm_chw(__private int global_dim0, __private int global_dim1
         for(int i = 1; i < channel_remain; ++i){
             in_sum_left_ptr[0] += in_sum_left_ptr[i];
         }
-        sum[lid] = in_sum.x + in_sum_left.x;
+        sum_mean_mnn[lid] = in_sum.x + in_sum_left.x;
         barrier(CLK_LOCAL_MEM_FENCE);
         for(int i = LOCAL_SIZE/2; i > 0; i /= 2){
             if (lid < i)
-                sum[lid] = sum[lid] + sum[lid + i];
+                sum_mean_mnn[lid] = sum_mean_mnn[lid] + sum_mean_mnn[lid + i];
             barrier(CLK_LOCAL_MEM_FENCE);
         }
         
-        float4 mean = sum[0] / (float4)sum_size;
+        float4 mean = sum_mean_mnn[0] / (float4)sum_size;
 #endif
         in_sum = 0;
         in_sum_left = 0;
@@ -216,14 +225,14 @@ __kernel void layernorm_chw(__private int global_dim0, __private int global_dim1
             in_sum_left_ptr[0] += in_sum_left_ptr[i];
         }
         
-        sum[lid] = in_sum.x + in_sum_left.x;
+        sum_mnn[lid] = in_sum.x + in_sum_left.x;
         barrier(CLK_LOCAL_MEM_FENCE);
         for(int i = LOCAL_SIZE/2; i > 0; i /= 2){
             if (lid < i)
-                sum[lid] = sum[lid] + sum[lid + i];
+                sum_mnn[lid] = sum_mnn[lid] + sum_mnn[lid + i];
             barrier(CLK_LOCAL_MEM_FENCE);
         }
-        float4 square_sum = sum[0] / (float4)sum_size;
+        float4 square_sum = sum_mnn[0] / (float4)sum_size;
         float4 value = (float4)1.0f / (float4)sqrt(square_sum + (float4)epsilon);
         for(int c = 0; c < channel4; ++c){
             for(int i = lid; i < reduce_size; i+=LOCAL_SIZE){

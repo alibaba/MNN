@@ -187,14 +187,14 @@ class Mllm : public Llm {
 public:
     Mllm(std::shared_ptr<LlmConfig> config) : Llm(config) {
         if (config->is_visual()) {
-            mVisionHeight = config->llm_config_.value("image_size", mVisionHeight);
+            mVisionHeight = config->config_.value("image_size", mVisionHeight);
             mVisionWidth  = mVisionHeight;
-            mVisionPad    = config->llm_config_.value("image_pad", mVisionPad);
-            mVisionStart  = config->llm_config_.value("vision_start", mVisionStart);
-            mVisionEnd    = config->llm_config_.value("vision_end", mVisionEnd);
-            mVisionMean   = config->llm_config_.value("image_mean", mVisionMean);
-            mVisionNorm   = config->llm_config_.value("image_norm", mVisionNorm);
-            mVisionSizeUnit = config->llm_config_.value("image_size_unit", mVisionSizeUnit);
+            mVisionPad    = config->config_.value("image_pad", mVisionPad);
+            mVisionStart  = config->config_.value("vision_start", mVisionStart);
+            mVisionEnd    = config->config_.value("vision_end", mVisionEnd);
+            mVisionMean   = config->config_.value("image_mean", mVisionMean);
+            mVisionNorm   = config->config_.value("image_norm", mVisionNorm);
+            mVisionSizeUnit = config->config_.value("image_size_unit", mVisionSizeUnit);
         }
         if (config->is_audio()) {
         }
@@ -254,7 +254,14 @@ std::string Llm::dump_config() {
 }
 
 bool Llm::set_config(const std::string& content) {
-    return mConfig->config_.merge(content.c_str());
+    auto res = mConfig->config_.merge(content.c_str());
+    // update prompt
+    if(mPrompt != nullptr) {
+        mPrompt->setParams(mConfig);
+    } else {
+        mPrompt.reset(Prompt::createPrompt(mContext, mConfig));
+    }
+    return res;
 }
 
 void Llm::initRuntime() {

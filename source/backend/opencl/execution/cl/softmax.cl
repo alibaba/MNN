@@ -24,21 +24,22 @@ __kernel void softmax_channel(GLOBAL_SIZE_3_DIMS __read_only image2d_t input, __
     DEAL_NON_UNIFORM_DIM3(x, w, bh);
 #if SOFTMAX_LOCAL_SIZE >= 4
     int lid = get_local_id(0);
-    FLOAT4 local sum[SOFTMAX_LOCAL_SIZE];
+    FLOAT4 local sum_mnn[SOFTMAX_LOCAL_SIZE];
+    FLOAT4 local max_mnn[SOFTMAX_LOCAL_SIZE];
 
     FLOAT4 maxValue = (FLOAT4)-FLT_MAX;
     for (int i = lid; i < shape.y - 1; i+=SOFTMAX_LOCAL_SIZE) {
         maxValue = fmax(maxValue, RI_F(input, SAMPLER, (int2)(w + i * shape.w, bh)));
     }
 
-    sum[lid] = maxValue;
+    max_mnn[lid] = maxValue;
     barrier(CLK_LOCAL_MEM_FENCE);
     for(int i = SOFTMAX_LOCAL_SIZE/2; i > 0; i /= 2){
         if (lid < i)
-            sum[lid] = fmax(sum[lid], sum[lid + i]);
+            max_mnn[lid] = fmax(max_mnn[lid], max_mnn[lid + i]);
         barrier(CLK_LOCAL_MEM_FENCE);
     }
-    maxValue = sum[0];
+    maxValue = max_mnn[0];
 
     maxValue.x = fmax(maxValue.x, maxValue.y);
     maxValue.x = fmax(maxValue.x, maxValue.z);
@@ -65,14 +66,14 @@ __kernel void softmax_channel(GLOBAL_SIZE_3_DIMS __read_only image2d_t input, __
     for (int i = lid; i < shape.y - 1; i+=SOFTMAX_LOCAL_SIZE) {
         sumValue += exp(RI_F(input, SAMPLER, (int2)(w + i * shape.w, bh)) - (FLOAT4)maxValue.x);
     }
-    sum[lid] = sumValue;
+    sum_mnn[lid] = sumValue;
     barrier(CLK_LOCAL_MEM_FENCE);
     for(int i = SOFTMAX_LOCAL_SIZE/2; i > 0; i /= 2){
         if (lid < i)
-            sum[lid] = sum[lid] + sum[lid + i];
+            sum_mnn[lid] = sum_mnn[lid] + sum_mnn[lid + i];
         barrier(CLK_LOCAL_MEM_FENCE);
     }
-    sumValue = sum[0];
+    sumValue = sum_mnn[0];
     sumValue.x = sumValue.x + sumValue.y + sumValue.z + sumValue.w;
     
     
@@ -160,34 +161,35 @@ __kernel void softmax_height(GLOBAL_SIZE_3_DIMS __read_only image2d_t input, __w
     DEAL_NON_UNIFORM_DIM3(x, wc, b);
 #if SOFTMAX_LOCAL_SIZE >= 4
     int lid = get_local_id(0);
-    FLOAT4 local sum[SOFTMAX_LOCAL_SIZE];
+    FLOAT4 local sum_mnn[SOFTMAX_LOCAL_SIZE];
+    FLOAT4 local max_mnn[SOFTMAX_LOCAL_SIZE];
     /*Compute Max */
     FLOAT4 maxValue = (FLOAT4)(-FLT_MAX);
     for (int i=lid; i<shape.z; i+=SOFTMAX_LOCAL_SIZE) {
         maxValue = fmax(maxValue, RI_F(input, SAMPLER, (int2)(wc, b*shape.z+i)));
     }
-    sum[lid] = maxValue;
+    max_mnn[lid] = maxValue;
     barrier(CLK_LOCAL_MEM_FENCE);
     for(int i = SOFTMAX_LOCAL_SIZE/2; i > 0; i /= 2){
         if (lid < i)
-            sum[lid] = fmax(sum[lid], sum[lid + i]);
+            max_mnn[lid] = fmax(max_mnn[lid], max_mnn[lid + i]);
         barrier(CLK_LOCAL_MEM_FENCE);
     }
-    maxValue = sum[0];
+    maxValue = max_mnn[0];
     
     /*Compute Exp Sum*/
     FLOAT4 sumValue = (FLOAT4)0;
     for (int i=lid; i<shape.z; i+=SOFTMAX_LOCAL_SIZE) {
         sumValue += exp(RI_F(input, SAMPLER, (int2)(wc, b*shape.z+i)) - maxValue);
     }
-    sum[lid] = sumValue;
+    sum_mnn[lid] = sumValue;
     barrier(CLK_LOCAL_MEM_FENCE);
     for(int i = SOFTMAX_LOCAL_SIZE/2; i > 0; i /= 2){
         if (lid < i)
-            sum[lid] = sum[lid] + sum[lid + i];
+            sum_mnn[lid] = sum_mnn[lid] + sum_mnn[lid + i];
         barrier(CLK_LOCAL_MEM_FENCE);
     }
-    sumValue = sum[0];
+    sumValue = sum_mnn[0];
     
     /*Compute Result */
     for (int i=lid; i<shape.z; i+=SOFTMAX_LOCAL_SIZE) {
@@ -225,35 +227,36 @@ __kernel void softmax_width(GLOBAL_SIZE_3_DIMS __read_only image2d_t input, __wr
     DEAL_NON_UNIFORM_DIM3(x, c, bh);
 #if SOFTMAX_LOCAL_SIZE >= 4
     int lid = get_local_id(0);
-    FLOAT4 local sum[SOFTMAX_LOCAL_SIZE];
+    FLOAT4 local sum_mnn[SOFTMAX_LOCAL_SIZE];
+    FLOAT4 local max_mnn[SOFTMAX_LOCAL_SIZE];
     
     /*Compute Max */
     FLOAT4 maxValue = (FLOAT4)(-FLT_MAX);
     for (int i=lid; i<shape.w; i+=SOFTMAX_LOCAL_SIZE) {
         maxValue = fmax(maxValue, RI_F(input, SAMPLER, (int2)(c*shape.w+i, bh)));
     }
-    sum[lid] = maxValue;
+    max_mnn[lid] = maxValue;
     barrier(CLK_LOCAL_MEM_FENCE);
     for(int i = SOFTMAX_LOCAL_SIZE/2; i > 0; i /= 2){
         if (lid < i)
-            sum[lid] = fmax(sum[lid], sum[lid + i]);
+            max_mnn[lid] = fmax(max_mnn[lid], max_mnn[lid + i]);
         barrier(CLK_LOCAL_MEM_FENCE);
     }
-    maxValue = sum[0];
+    maxValue = max_mnn[0];
     
     /*Compute Exp Sum*/
     FLOAT4 sumValue = (FLOAT4)0;
     for (int i=lid; i<shape.w; i+=SOFTMAX_LOCAL_SIZE) {
         sumValue += exp(RI_F(input, SAMPLER, (int2)(c*shape.w+i, bh)) - maxValue);
     }
-    sum[lid] = sumValue;
+    sum_mnn[lid] = sumValue;
     barrier(CLK_LOCAL_MEM_FENCE);
     for(int i = SOFTMAX_LOCAL_SIZE/2; i > 0; i /= 2){
         if (lid < i)
-            sum[lid] = sum[lid] + sum[lid + i];
+            sum_mnn[lid] = sum_mnn[lid] + sum_mnn[lid + i];
         barrier(CLK_LOCAL_MEM_FENCE);
     }
-    sumValue = sum[0];
+    sumValue = sum_mnn[0];
     
     /*Compute Result */
     for (int i=lid; i<shape.w; i+=SOFTMAX_LOCAL_SIZE) {

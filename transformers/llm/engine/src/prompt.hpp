@@ -28,6 +28,7 @@ public:
     static Prompt* createPrompt(std::shared_ptr<LlmContext> context, std::shared_ptr<LlmConfig> config);
     Prompt(std::shared_ptr<LlmContext> context, std::shared_ptr<LlmConfig> config);
     std::string getAssistantSuffix() const;
+    void setParams(std::shared_ptr<LlmConfig> config);
     std::string applyTemplate(std::string user_content, bool add_system_prompt = false, bool add_generation_prompt = true);
     std::string applyTemplate(std::vector<ChatMessage> inputs, bool add_generation_prompt = true);
 };
