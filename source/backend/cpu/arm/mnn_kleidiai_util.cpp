@@ -22,7 +22,23 @@ inline static size_t kai_k_roundedup(size_t k, size_t kr, size_t sr) {
 inline static size_t kai_num_blocks_per_row(size_t k, size_t bl) {
     KAI_ASSUME((k % 2) == 0);
     KAI_ASSUME((k % bl) == 0);
-    return k / bl;
+    KAI_ASSUME((bl % 32) == 0);
+    return kai_roundup(k, bl) / bl;
+}
+
+inline static size_t kai_num_bytes_per_block(size_t bl) {
+    return (bl / 2) + kai_num_bytes_multiplier_rhs + kai_num_bytes_adder_rhs;
+}
+
+inline static size_t kai_rhs_packed_stride(size_t k, size_t nr, size_t kr, size_t bl) {
+    KAI_ASSUME((k % 2) == 0);
+    KAI_ASSUME((k % kr) == 0);
+    KAI_ASSUME((k % bl) == 0);
+    KAI_ASSUME((bl % kr) == 0);
+    KAI_ASSUME((bl % 32) == 0);
+    const size_t num_blocks_per_row = kai_num_blocks_per_row(k, bl);
+    const size_t num_bytes_per_block = kai_num_bytes_per_block(bl);
+    return nr * (num_bytes_per_block * num_blocks_per_row + kai_num_bytes_bias);
 }
 
 void KleidiAIUtil::transferNCHWToNC4HW4(float* src, float* dst, size_t rowNum, size_t rowSize) {
