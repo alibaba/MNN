@@ -29,4 +29,9 @@
         <attr name="valueText" />
         <attr name="icon" />
     </declare-styleable>
+
+    <declare-styleable name="SettingsItemView">
+        <attr name="itemText" format="string" />
+        <attr name="checked" format="boolean" />
+    </declare-styleable>
 </resources>

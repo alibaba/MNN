@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<merge xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/rl_sampler_type"
@@ -36,4 +36,4 @@
         android:layout_toStartOf="@id/iv_sampler_type_icon"
         android:clickable="false"
         tools:text="Greedy" />
-</RelativeLayout>
+</merge>

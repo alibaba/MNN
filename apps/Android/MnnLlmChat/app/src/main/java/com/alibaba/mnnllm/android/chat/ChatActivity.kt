@@ -26,7 +26,6 @@ import androidx.recyclerview.widget.RecyclerView
 import com.alibaba.mnnllm.android.ChatService
 import com.alibaba.mnnllm.android.ChatSession
 import com.alibaba.mnnllm.android.R
-import com.alibaba.mnnllm.android.asr.RecognizeService
 import com.alibaba.mnnllm.android.audio.AudioPlayer
 import com.alibaba.mnnllm.android.chat.AttachmentPickerModule.AttachmentType
 import com.alibaba.mnnllm.android.chat.AttachmentPickerModule.ImagePickCallback
@@ -104,7 +103,6 @@ class ChatActivity : AppCompatActivity() {
     private lateinit var binding: ActivityChatBinding
     private lateinit var bottomSheetBehavior: BottomSheetBehavior<NestedScrollView>
     private var audioPlayer: AudioPlayer? = null
-    var recognizeSerivice: RecognizeService = RecognizeService(this)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -400,7 +398,6 @@ class ChatActivity : AppCompatActivity() {
         voiceRecordingModule = VoiceRecordingModule(this)
         voiceRecordingModule!!.setOnVoiceRecordingListener(object : VoiceRecordingListener {
             override fun onEnterRecordingMode() {
-//                binding.bottomButtonLine.visibility = View.GONE
                 binding.btnToggleThinking.visibility = View.GONE
                 editUserMessage.visibility = View.GONE
                 KeyboardUtils.hideKeyboard(editUserMessage)

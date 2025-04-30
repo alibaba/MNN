@@ -259,99 +259,30 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical">
-
-                    <androidx.constraintlayout.widget.ConstraintLayout
-                        style="@style/SettingsRowContainer"
-                        android:background="?attr/selectableItemBackground"
-                        android:clickable="true"
+                    <com.alibaba.mnnllm.android.modelsettings.SettingsItemView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        app:checked="true"
                         android:paddingLeft="8dp"
-                        android:paddingRight="8dp">
+                        android:paddingRight="8dp"
+                        app:itemText="Reuse KV"/>
 
-                        <TextView
-                            android:id="@+id/tv_reuse_kv"
-                            style="@style/SettingsRowLabel"
-                            android:text="Reuse KV"
-                            app:layout_constraintBottom_toBottomOf="parent"
-                            app:layout_constraintStart_toStartOf="parent"
-                            app:layout_constraintTop_toTopOf="parent" />
-
-                        <com.google.android.material.materialswitch.MaterialSwitch
-                            android:id="@+id/switch_reuse_kv"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:background="@null"
-                            android:clickable="false"
-                            android:focusable="false"
-                            app:layout_constraintBottom_toBottomOf="parent"
-                            app:layout_constraintEnd_toEndOf="parent"
-                            app:layout_constraintTop_toTopOf="parent"
-                            app:useMaterialThemeColors="true" />
-                    </androidx.constraintlayout.widget.ConstraintLayout>
-
-                    <androidx.constraintlayout.widget.ConstraintLayout
-                        style="@style/SettingsRowContainer"
-                        android:background="?attr/selectableItemBackground"
-                        android:clickable="true"
+                    <com.alibaba.mnnllm.android.modelsettings.SettingsItemView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        app:checked="false"
                         android:paddingLeft="8dp"
-                        android:paddingRight="8dp">
+                        android:paddingRight="8dp"
+                        app:itemText="@string/use_mmap"/>
 
-                        <TextView
-                            android:id="@+id/label_use_mmap"
-                            style="@style/SettingsRowLabel"
-                            android:text="Use mmap"
-                            app:layout_constraintBottom_toBottomOf="parent"
-                            app:layout_constraintStart_toStartOf="parent"
-
-                            app:layout_constraintTop_toTopOf="parent" />
-
-                        <com.google.android.material.materialswitch.MaterialSwitch
-                            android:id="@+id/switch_use_mmap"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:background="@null"
-                            android:clickable="false"
-                            android:focusable="false"
-                            app:layout_constraintBottom_toBottomOf="parent"
-                            app:layout_constraintEnd_toEndOf="parent"
-                            app:layout_constraintTop_toTopOf="parent"
-                            app:useMaterialThemeColors="true" />
-                    </androidx.constraintlayout.widget.ConstraintLayout>
-
-                    <RelativeLayout
-                        style="@style/SettingsRowContainer"
-                        android:layout_height="48dp"
-                        android:background="?attr/selectableItemBackground"
+                    <com.alibaba.mnnllm.android.modelsettings.DropDownLineView
+                        android:id="@+id/dropdown_backend"
+                        android:layout_width="match_parent"
                         android:clickable="true"
-                        android:paddingLeft="8dp"
-                        android:paddingRight="8dp">
-
-                        <TextView
-                            android:id="@+id/id_backend"
-                            style="@style/SettingsRowLabel"
-                            android:layout_width="wrap_content"
-                            android:layout_centerVertical="true"
-                            android:text="Backend" />
-
-                        <ImageView
-                            android:id="@+id/iv_backend"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:layout_alignParentEnd="true"
-                            android:layout_centerVertical="true"
-                            app:tint="?colorOnSurface"
-                            android:src="@drawable/baseline_arrow_drop_down_24" />
-
-                        <TextView
-                            android:id="@+id/samplerTypeValue"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:layout_alignParentEnd="false"
-                            android:layout_centerVertical="true"
-                            android:layout_marginEnd="2dp"
-                            android:layout_toStartOf="@id/iv_backend"
-                            android:clickable="true"
-                            android:text="CPU" />
-                    </RelativeLayout>
+                        android:layout_height="wrap_content"
+                        app:labelText="Backend"
+                        app:valueText="cpu"
+                        app:icon="@drawable/baseline_arrow_drop_down_24" />
 
                     <TextView
                         android:id="@+id/tv_thread_num_label"
@@ -360,7 +291,7 @@
                         android:layout_marginStart="8dp"
                         android:layout_marginTop="16dp"
                         android:layout_weight="1"
-                        android:text="Thread Number" />
+                        android:text="@string/thread_num" />
 
                     <com.google.android.material.textfield.TextInputLayout
                         android:layout_width="match_parent"

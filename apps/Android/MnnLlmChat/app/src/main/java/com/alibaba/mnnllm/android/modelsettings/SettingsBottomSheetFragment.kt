@@ -322,10 +322,6 @@ class SettingsBottomSheetFragment : BottomSheetDialogFragment() {
     }
 
     private fun setupModelConfig() {
-        binding.switchUseMmap.isChecked = useMmap
-        binding.switchUseMmap.setOnCheckedChangeListener { _, isChecked ->
-            useMmap = isChecked
-        }
     }
 
     private fun setupActionButtons() {
