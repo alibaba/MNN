@@ -126,8 +126,6 @@ class ChatActivity : AppCompatActivity() {
             } else  {
                 View.GONE
             }
-//        toolbarTitle = binding.toolbarTitle
-//        toolbarTitle.text = getString(R.string.app_name)
         chatExecutor = Executors.newScheduledThreadPool(1)
         chatDataManager = ChatDataManager.getInstance(this)
         this.setupSession()
@@ -323,9 +321,6 @@ class ChatActivity : AppCompatActivity() {
     }
 
     private fun setupAttachmentPickerModule() {
-        if (!ModelUtils.isMultiModalModel(modelName!!)) {
-            return
-        }
         imageMore = findViewById(R.id.bt_plus)
         buttonSwitchVoice = findViewById(R.id.bt_switch_audio)
         if (!ModelUtils.isVisualModel(this.modelName!!) && !ModelUtils.isAudioModel(this.modelName!!)) {
@@ -402,9 +397,6 @@ class ChatActivity : AppCompatActivity() {
     }
 
     private fun setupVoiceRecordingModule() {
-        if (!ModelUtils.isAudioModel(modelName!!)) {
-            return
-        }
         voiceRecordingModule = VoiceRecordingModule(this)
         voiceRecordingModule!!.setOnVoiceRecordingListener(object : VoiceRecordingListener {
             override fun onEnterRecordingMode() {

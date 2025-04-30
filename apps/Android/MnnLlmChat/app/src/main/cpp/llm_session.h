@@ -25,6 +25,8 @@ public:
     Response(const std::string &prompt, const std::function<bool(const std::string &, bool is_eop)> &on_progress);
     void SetMaxNewTokens(int i);
 
+    void setSystemPrompt(std::string system_prompt);
+
 private:
     std::string response_string_for_debug{};
     std::string model_path_;
@@ -38,6 +40,7 @@ private:
     Llm* llm_{nullptr};
     std::string prompt_string_for_debug{};
     int max_new_tokens_{2048};
+    std::string system_prompt_;
 };
 }
 

@@ -245,11 +245,23 @@ Java_com_alibaba_mnnllm_android_ChatSession_submitDiffusionNative(JNIEnv *env, j
 extern "C"
 JNIEXPORT void JNICALL
 Java_com_alibaba_mnnllm_android_ChatSession_updateMaxNewTokensNative(JNIEnv *env, jobject thiz,
-                                                                     jlong llmPtr,
+                                                                     jlong llm_ptr,
                                                                      jint max_new_tokens) {
-    auto* llm = reinterpret_cast<mls::LlmSession*>(llmPtr);
+    auto* llm = reinterpret_cast<mls::LlmSession*>(llm_ptr);
     if (llm) {
         llm->SetMaxNewTokens(max_new_tokens);
     }
 
+}
+extern "C"
+JNIEXPORT void JNICALL
+Java_com_alibaba_mnnllm_android_ChatSession_updateSystemPromptNative(JNIEnv *env, jobject thiz,
+                                                                     jlong llm_ptr,
+                                                                     jstring system_promp_j) {
+    auto* llm = reinterpret_cast<mls::LlmSession*>(llm_ptr);
+    const char* system_prompt_cstr = env->GetStringUTFChars(system_promp_j, nullptr);
+    if (llm) {
+        llm->setSystemPrompt(system_prompt_cstr);
+    }
+    env->ReleaseStringUTFChars(system_promp_j, system_prompt_cstr);
 }

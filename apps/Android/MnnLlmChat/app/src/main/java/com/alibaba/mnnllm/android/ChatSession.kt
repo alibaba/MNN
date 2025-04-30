@@ -236,7 +236,13 @@ class ChatSession @JvmOverloads constructor (
         updateMaxNewTokensNative(nativePtr, maxNewTokens)
     }
 
+    fun updateSystemPrompt(systemPrompt: String) {
+        updateSystemPromptNative(nativePtr, systemPrompt)
+    }
+
     private external fun updateMaxNewTokensNative(it: Long, maxNewTokens: Int)
+
+    private external fun updateSystemPromptNative(llmPtr: Long, systemPrompt: String)
 
 
     interface AudioDataListener {

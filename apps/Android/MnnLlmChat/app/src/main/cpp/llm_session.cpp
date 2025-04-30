@@ -29,6 +29,14 @@ const char* getUserString(const char* user_content, bool for_history, bool is_r1
     }
 }
 
+std::string GetSystemPromptString(std::string system_prompt,  bool is_r1) {
+    if (is_r1) {
+        return std::string("<|begin_of_sentence|>") + system_prompt;
+    } else {
+        return system_prompt;
+    }
+}
+
 std::string deleteThinkPart(std::string assistant_content) {
     std::size_t think_start = assistant_content.find("<think>");
     if (think_start == std::string::npos) {
@@ -60,9 +68,8 @@ LlmSession::LlmSession(std::string model_path, json config, json extra_config, s
     max_new_tokens_ = config_.contains("max_new_tokens") ?  config_["max_new_tokens"].get<int>() : 2048;
     keep_history_ = !extra_config_.contains("keep_history") || extra_config_["keep_history"].get<bool>();
     is_r1_ = extra_config_.contains("is_r1") && extra_config_["is_r1"].get<bool>();
-    history_.emplace_back("system", is_r1_ ?
-    "<|begin_of_sentence|>You are a helpful assistant." :
-    "You are a helpful assistant.");
+    system_prompt_ = config.contains("system_prompt") ? config_["system_prompt"].get<std::string>() : "You are a helpful assistant.";
+    history_.emplace_back("system", GetSystemPromptString(system_prompt_, is_r1_));
     if (!history.empty()) {
         for (int i = 0; i < history.size(); i++) {
             if (is_r1_) {
@@ -196,4 +203,12 @@ void LlmSession::SetMaxNewTokens(int i) {
     max_new_tokens_ = i;
 }
 
+void LlmSession::setSystemPrompt(std::string system_prompt) {
+    system_prompt_= std::move(system_prompt);
+    if (history_.size() > 1) {
+        history_.at(0).second = GetSystemPromptString(system_prompt_, is_r1_);
+    } else {
+        history_.emplace_back("system", GetSystemPromptString(system_prompt_, is_r1_));
+    }
+}
 }

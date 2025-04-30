@@ -3,8 +3,10 @@
 
 package com.alibaba.mnnllm.android.modelsettings
 
+import android.util.Log
 import com.alibaba.mnnllm.android.utils.FileUtils
 import com.google.gson.Gson
+import com.google.gson.GsonBuilder
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import java.io.File
@@ -30,7 +32,7 @@ data class ModelConfig(
     @SerializedName("n_gram")var nGram:Int?,
     @SerializedName("ngram_factor")var nGramFactor:Float?,
     @SerializedName("max_new_tokens")var maxNewTokens:Int?,
-) {
+    ) {
     fun deepCopy(): ModelConfig {
         return ModelConfig(
             llmModel = this.llmModel,
@@ -70,6 +72,9 @@ data class ModelConfig(
     }
 
     companion object {
+
+        const val TAG = "ModelConfig"
+
         fun loadConfig(filePath: String): ModelConfig? {
             return try {
                 val file = File(filePath)
@@ -109,6 +114,21 @@ data class ModelConfig(
         }
 
         fun saveConfig(filePath: String, config: ModelConfig): Boolean {
+            return try {
+                Log.d(TAG, "file is : $filePath")
+                val file = File(filePath)
+                FileUtils.ensureParentDirectoriesExist(file)
+                val gson = GsonBuilder().setPrettyPrinting().create()
+                val jsonString = gson.toJson(config)
+                file.writeText(jsonString)
+                true
+            } catch (e: Exception) {
+                Log.e(TAG, "saveConfig error", e)
+                false
+            }
+        }
+
+        fun saveConfigOld(filePath: String, config: ModelConfig): Boolean {
             return try {
                 val file = File(filePath)
                 FileUtils.ensureParentDirectoriesExist(file)

@@ -3,10 +3,12 @@
 
 package com.alibaba.mnnllm.android.modelsettings
 
+import android.app.Dialog
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.FrameLayout
 import android.widget.SeekBar
 import androidx.core.view.isVisible
 import androidx.core.widget.addTextChangedListener
@@ -14,6 +16,7 @@ import com.alibaba.mnnllm.android.ChatSession
 import com.alibaba.mnnllm.android.databinding.FragmentSettingsSheetBinding
 import com.alibaba.mnnllm.android.databinding.SettingsRowSliderSwitchBinding
 import com.alibaba.mnnllm.android.utils.UiUtils
+import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import java.util.*
 
@@ -44,7 +47,7 @@ class SettingsBottomSheetFragment : BottomSheetDialogFragment() {
         threadNum = 0,
         precision = "",
         memory = "",
-        systemPrompt = "",
+        systemPrompt = "You are a helpful assistant.",
         samplerType = "",
         mixedSamplers = mutableListOf(),
         temperature = 0.0f,
@@ -74,6 +77,21 @@ class SettingsBottomSheetFragment : BottomSheetDialogFragment() {
         return binding.root
     }
 
+    override fun onStart() {
+        super.onStart()
+        val dialog: Dialog? = dialog
+        if (dialog != null) {
+            val bottomSheet: FrameLayout? = dialog.findViewById(com.google.android.material.R.id.design_bottom_sheet)
+            if (bottomSheet != null) {
+                val behavior = BottomSheetBehavior.from(bottomSheet)
+                bottomSheet.post {
+                    behavior.state = BottomSheetBehavior.STATE_EXPANDED
+                }
+                behavior.skipCollapsed = false
+            }
+        }
+    }
+
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         loadSettings()
@@ -81,6 +99,7 @@ class SettingsBottomSheetFragment : BottomSheetDialogFragment() {
         setupSamplerSettings()
         setupActionButtons()
         setupMaxTokenListener()
+        setupSystemPromptListener()
     }
 
     private fun setupMaxTokenListener() {
@@ -89,6 +108,15 @@ class SettingsBottomSheetFragment : BottomSheetDialogFragment() {
                 return@addTextChangedListener
             }
             currentConfig.maxNewTokens = text.toString().toInt()
+        }
+    }
+
+    private fun setupSystemPromptListener() {
+        binding.editTextSystemPrompt.addTextChangedListener { text ->
+            if (text.isNullOrEmpty()) {
+                return@addTextChangedListener
+            }
+            currentConfig.systemPrompt = text.toString()
         }
     }
 
@@ -338,8 +366,13 @@ class SettingsBottomSheetFragment : BottomSheetDialogFragment() {
         loadedConfig = chatSession.loadConfig()!!
         currentConfig = loadedConfig.deepCopy()
         updateSamplerSettings()
+        //max tokens
         currentConfig.maxNewTokens = currentConfig.maxNewTokens?:defaultConfig.maxNewTokens
         binding.editMaxNewTokens.setText(currentConfig.maxNewTokens.toString())
+
+        //system prompt
+        currentConfig.systemPrompt = currentConfig.systemPrompt?:defaultConfig.systemPrompt
+        binding.editTextSystemPrompt.setText(currentConfig.systemPrompt)
     }
 
     private fun saveSettings() {
@@ -353,6 +386,10 @@ class SettingsBottomSheetFragment : BottomSheetDialogFragment() {
         } else if (currentConfig.maxNewTokens != loadedConfig.maxNewTokens) {
             needSaveConfig = true
             chatSession.updateMaxNewTokens(currentConfig.maxNewTokens!!)
+            needRecreate = false
+        } else if (currentConfig.systemPrompt != loadedConfig.systemPrompt) {
+            needSaveConfig = true
+            chatSession.updateSystemPrompt(currentConfig.systemPrompt!!)
             needRecreate = false
         }
         if (needSaveConfig) {
