@@ -15,7 +15,7 @@ using PromptItem = std::pair<std::string, std::string>;
 
 class LlmSession {
 public:
-    LlmSession(std::string, json config, std::vector<std::string> string_history);
+    LlmSession(std::string, json config, json extra_config, std::vector<std::string> string_history);
     void Reset();
     void Load();
     ~LlmSession();
@@ -23,11 +23,13 @@ public:
     void SetWavformCallback(std::function<bool(const float*, size_t, bool)> callback);
     const MNN::Transformer::LlmContext *
     Response(const std::string &prompt, const std::function<bool(const std::string &, bool is_eop)> &on_progress);
+    void SetMaxNewTokens(int i);
 
 private:
     std::string response_string_for_debug{};
     std::string model_path_;
     std::vector<PromptItem> history_{};
+    json extra_config_{};
     json config_{};
     bool is_r1_{false};
     bool stop_requested_{false};
@@ -35,6 +37,7 @@ private:
     std::vector<float> waveform{};
     Llm* llm_{nullptr};
     std::string prompt_string_for_debug{};
+    int max_new_tokens_{2048};
 };
 }
 

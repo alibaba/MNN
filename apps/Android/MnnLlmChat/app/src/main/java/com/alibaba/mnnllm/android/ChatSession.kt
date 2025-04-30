@@ -12,8 +12,6 @@ import com.alibaba.mnnllm.android.utils.FileUtils
 import com.alibaba.mnnllm.android.utils.ModelPreferences
 import com.alibaba.mnnllm.android.utils.ModelUtils
 import com.google.gson.Gson
-import org.json.JSONException
-import org.json.JSONObject
 import java.io.File
 import java.util.stream.Collectors
 import kotlin.concurrent.Volatile
@@ -62,27 +60,19 @@ class ChatSession @JvmOverloads constructor (
             modelId, ModelPreferences.KEY_BACKEND, false
         )
         val backend = if (useOpencl) "opencl" else "cpu"
-        val sampler = ModelPreferences.getString(
-            ApplicationProvider.get(),
-            modelId, ModelPreferences.KEY_SAMPLER, "greedy"
-        )
-        val configJson = JSONObject()
-        try {
-            configJson.put("backend", backend)
-            configJson.put("sampler", sampler)
-            configJson.put("is_diffusion", isDiffusion)
-            configJson.put("is_r1", ModelUtils.isR1Model(modelId))
-            configJson.put("mmap_dir", rootCacheDir?:"")
-            configJson.put(
-                "diffusion_memory_mode",
-                getDiffusionMemoryMode(ApplicationProvider.get())
-            )
-        } catch (e: JSONException) {
-            throw RuntimeException(e)
+        val configMap = HashMap<String, Any>().apply {
+            put("is_diffusion", isDiffusion)
+            put("is_r1", ModelUtils.isR1Model(modelId))
+            put("mmap_dir", rootCacheDir ?: "")
+            put("diffusion_memory_mode", getDiffusionMemoryMode(ApplicationProvider.get()))
         }
+        val extraConfig = ModelConfig.loadConfig(configPath, getModelSettingsFile())!!
+        extraConfig.backendType = backend
         nativePtr = initNative(
             configPath,
-            historyStringList, configJson.toString()
+            historyStringList,
+            Gson().toJson(extraConfig),
+            Gson().toJson(configMap)
         )
         modelLoading = false
         if (releaseRequeted) {
@@ -167,11 +157,14 @@ class ChatSession @JvmOverloads constructor (
     }
 
     fun loadConfig(): ModelConfig? {
-        if (!isDiffusion && File(configPath).exists()) {
-            val jsonString = File(configPath).readText()
-            return Gson().fromJson(jsonString, ModelConfig::class.java)
+        if (isDiffusion) {
+            return null
         }
-        return null
+        return ModelConfig.loadConfig(configPath, getModelSettingsFile())
+    }
+
+    fun getModelSettingsFile():String {
+        return FileUtils.getModelConfigDir(modelId) + "/custom_config.json"
     }
 
     private fun releaseInner() {
@@ -186,6 +179,7 @@ class ChatSession @JvmOverloads constructor (
     private external fun initNative(
         configPath: String?,
         history: List<String>?,
+        mergedConfigStr: String?,
         configJsonStr: String?
     ): Long
 
@@ -237,6 +231,12 @@ class ChatSession @JvmOverloads constructor (
             }
         }
     }
+
+    fun updateMaxNewTokens(maxNewTokens: Int) {
+        updateMaxNewTokensNative(nativePtr, maxNewTokens)
+    }
+
+    private external fun updateMaxNewTokensNative(it: Long, maxNewTokens: Int)
 
 
     interface AudioDataListener {

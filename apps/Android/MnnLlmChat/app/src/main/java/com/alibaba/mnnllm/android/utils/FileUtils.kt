@@ -62,7 +62,7 @@ object FileUtils {
         extension: String
     ): String {
         val path =
-            context.filesDir.absolutePath + "/" + sessionId + "/" + kind + "_" + System.currentTimeMillis() + "." + extension
+            context.filesDir.absolutePath + "/history/" + sessionId + "/" + kind + "_" + System.currentTimeMillis() + "." + extension
         ensureParentDirectoriesExist(File(path))
         return path
     }
@@ -141,6 +141,14 @@ object FileUtils {
         if (isModelScope) {
             rootCacheDir = "$rootCacheDir/modelscope"
         }
+        return rootCacheDir
+    }
+
+    fun getModelConfigDir(modelId: String): String {
+        val rootCacheDir =
+            ApplicationProvider.get().filesDir.toString() + "/configs/" + ModelUtils.safeModelId(
+                modelId
+            )
         return rootCacheDir
     }
 

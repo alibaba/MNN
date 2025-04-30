@@ -16,9 +16,9 @@ namespace mls {
 
 std::string trimLeadingWhitespace(const std::string& str) {
     auto it = std::find_if(str.begin(), str.end(), [](unsigned char ch) {
-        return !std::isspace(ch); // Find the first non-whitespace character
+        return !std::isspace(ch);
     });
-    return {it, str.end()}; // Create a substring from the first non-whitespace character
+    return {it, str.end()};
 }
 
 const char* getUserString(const char* user_content, bool for_history, bool is_r1) {
@@ -27,6 +27,20 @@ const char* getUserString(const char* user_content, bool for_history, bool is_r1
     } else {
         return user_content;
     }
+}
+
+std::string deleteThinkPart(std::string assistant_content) {
+    std::size_t think_start = assistant_content.find("<think>");
+    if (think_start == std::string::npos) {
+        return assistant_content;
+    }
+    std::size_t think_end = assistant_content.find("</think>", think_start);
+    if (think_end == std::string::npos) {
+        return assistant_content;
+    }
+    think_end += std::string("</think>").length();
+    assistant_content.erase(think_start, think_end - think_start);
+    return assistant_content;
 }
 
 std::string getR1AssistantString(std::string assistant_content) {
@@ -41,10 +55,11 @@ void LlmSession::Reset() {
     history_.resize(1);
 }
 
-LlmSession::LlmSession(std::string model_path, json config, std::vector<std::string> history):
-    model_path_(std::move(model_path)), config_(std::move(config)) {
-    keep_history_ = !config_.contains("keep_history") || config_["keep_history"].get<bool>();
-    is_r1_ = config_.contains("is_r1") && config_["is_r1"].get<bool>();
+LlmSession::LlmSession(std::string model_path, json config, json extra_config, std::vector<std::string> history):
+        model_path_(std::move(model_path)), config_(std::move(config)), extra_config_(std::move(extra_config)) {
+    max_new_tokens_ = config_.contains("max_new_tokens") ?  config_["max_new_tokens"].get<int>() : 2048;
+    keep_history_ = !extra_config_.contains("keep_history") || extra_config_["keep_history"].get<bool>();
+    is_r1_ = extra_config_.contains("is_r1") && extra_config_["is_r1"].get<bool>();
     history_.emplace_back("system", is_r1_ ?
     "<|begin_of_sentence|>You are a helpful assistant." :
     "You are a helpful assistant.");
@@ -57,32 +72,34 @@ LlmSession::LlmSession(std::string model_path, json config, std::vector<std::str
                     history_.emplace_back("assistant", getR1AssistantString(history[i]));
                 }
             } else {
-                history_.emplace_back(i % 2 == 0 ? "user" : "assistant", history[i]);
+                history_.emplace_back(i % 2 == 0 ? "user" : "assistant",
+                                      i % 2 == 0 ? history[i] :
+                                      deleteThinkPart(history[i]));
             }
         }
     }
 }
 
 void LlmSession::Load() {
-    std::string root_cache_dir_str = config_["mmap_dir"];
-    bool use_mmap = !config_["mmap_dir"].get<std::string>().empty();
+    std::string root_cache_dir_str = extra_config_["mmap_dir"];
+    bool use_mmap = !extra_config_["mmap_dir"].get<std::string>().empty();
     MNN::BackendConfig backendConfig;
     auto executor = MNN::Express::Executor::newExecutor(MNN_FORWARD_CPU, backendConfig, 1);
     MNN::Express::ExecutorScope s(executor);
     llm_ = Llm::createLLM(model_path_);
-    json extra_config;
-    extra_config["use_mmap"] = use_mmap;
+    json config = config_;
+    config["use_mmap"] = use_mmap;
     if (use_mmap) {
         std::string temp_dir = root_cache_dir_str;
-        extra_config["tmp_path"] = temp_dir;
+        config["tmp_path"] = temp_dir;
     }
     if (is_r1_) {
-        extra_config["use_template"] = false;
-        extra_config["precision"] = "high";
+        config["use_template"] = false;
+        config["precision"] = "high";
     }
-    auto extra_config_str = extra_config.dump();
-    MNN_DEBUG("extra_config: %s", extra_config_str.c_str());
-//    llm_->set_config(extra_config_str);
+    auto config_str = config.dump();
+    MNN_DEBUG("extra_config: %s", config_str.c_str());
+    llm_->set_config(config_str);
     MNN_DEBUG("dumped config: %s", llm_->dump_config().c_str());
     llm_->load();
 }
@@ -99,9 +116,12 @@ const MNN::Transformer::LlmContext * LlmSession::Response(const std::string &pro
     if (!keep_history_) {
         history_.resize(1);
     }
+    int current_size = 0;
+    stop_requested_ = false;
     std::stringstream response_buffer;
     mls::Utf8StreamProcessor processor([&response_buffer, &on_progress, this](const std::string& utf8Char) {
         bool is_eop = utf8Char.find("<eop>") != std::string::npos;
+        MNN_DEBUG("submitNative get str %s", utf8Char.c_str());
         if (!is_eop) {
             response_buffer << utf8Char;
         } else {
@@ -116,6 +136,7 @@ const MNN::Transformer::LlmContext * LlmSession::Response(const std::string &pro
                 }
                 response_result = getR1AssistantString(response_result);
             }
+            response_result = trimLeadingWhitespace(deleteThinkPart(response_result));
             history_.emplace_back("assistant", response_result);
         }
         if (on_progress) {
@@ -132,10 +153,12 @@ const MNN::Transformer::LlmContext * LlmSession::Response(const std::string &pro
     for (auto & it : history_) {
         prompt_string_for_debug += it.second;
     }
-    MNN_DEBUG("submitNative prompt_string_for_debug count %s", prompt_string_for_debug.c_str());
+    MNN_DEBUG("submitNative prompt_string_for_debug count %s max_new_tokens_:%d", prompt_string_for_debug.c_str(), max_new_tokens_);
     llm_->response(history_, &output_ostream, "<eop>", 1);
-    while (!stop_requested_) {
+    current_size++;
+    while (!stop_requested_ && current_size < max_new_tokens_) {
         llm_->generate(1);
+        current_size++;
     }
     auto context = llm_->getContext();
     return context;
@@ -167,6 +190,10 @@ void LlmSession::SetWavformCallback(std::function<bool(const float *, size_t, bo
     } else {
         MNN_ERROR("no llm instance");
     }
+}
+
+void LlmSession::SetMaxNewTokens(int i) {
+    max_new_tokens_ = i;
 }
 
 }

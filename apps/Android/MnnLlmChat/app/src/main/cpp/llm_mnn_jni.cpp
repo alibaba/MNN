@@ -42,17 +42,20 @@ JNIEXPORT jlong JNICALL Java_com_alibaba_mnnllm_android_ChatSession_initNative(J
                                                                                     jobject thiz,
                                                                                     jstring modelDir,
                                                                                     jobject chat_history,
+                                                                                    jstring mergeConfigStr,
                                                                                     jstring configJsonStr) {
     const char* model_dir = env->GetStringUTFChars(modelDir, nullptr);
     auto model_dir_str = std::string(model_dir);
     const char* config_json_cstr = env->GetStringUTFChars(configJsonStr, nullptr);
-    json configJson = json::parse(config_json_cstr);
-    bool is_diffusion = configJson["is_diffusion"];
-
+    const char* merged_config_cstr = env->GetStringUTFChars(mergeConfigStr, nullptr);
+    json merged_config  = json::parse(merged_config_cstr);
+    json extra_json_config = json::parse(config_json_cstr);
+    bool is_diffusion = extra_json_config["is_diffusion"];
     env->ReleaseStringUTFChars(modelDir, model_dir);
     env->ReleaseStringUTFChars(configJsonStr, config_json_cstr);
+    env->ReleaseStringUTFChars(mergeConfigStr, merged_config_cstr);
     if (is_diffusion) {
-        std::string diffusion_memory_mode = configJson["diffusion_memory_mode"];
+        std::string diffusion_memory_mode = extra_json_config["diffusion_memory_mode"];
         int diffusion_memory_mode_int = std::stoi(diffusion_memory_mode);
         auto diffusion = new DiffusionSession(model_dir, diffusion_memory_mode_int);
         return reinterpret_cast<jlong>(diffusion);
@@ -73,7 +76,7 @@ JNIEXPORT jlong JNICALL Java_com_alibaba_mnnllm_android_ChatSession_initNative(J
             env->DeleteLocalRef(element);
         }
     }
-    auto llm_session = new mls::LlmSession(model_dir_str, configJson, history);
+    auto llm_session = new mls::LlmSession(model_dir_str, merged_config, extra_json_config, history);
     llm_session->Load();
     MNN_DEBUG("createLLM EndLoad %ld ", reinterpret_cast<jlong>(llm_session));
     return reinterpret_cast<jlong>(llm_session);
@@ -237,4 +240,16 @@ Java_com_alibaba_mnnllm_android_ChatSession_submitDiffusionNative(JNIEnv *env, j
     env->CallObjectMethod(hashMap, putMethod, env->NewStringUTF("total_timeus"), env->NewObject(env->FindClass("java/lang/Long"), env->GetMethodID(env->FindClass("java/lang/Long"), "<init>", "(J)V"), duration));
     return hashMap;
 }
+}
+
+extern "C"
+JNIEXPORT void JNICALL
+Java_com_alibaba_mnnllm_android_ChatSession_updateMaxNewTokensNative(JNIEnv *env, jobject thiz,
+                                                                     jlong llmPtr,
+                                                                     jint max_new_tokens) {
+    auto* llm = reinterpret_cast<mls::LlmSession*>(llmPtr);
+    if (llm) {
+        llm->SetMaxNewTokens(max_new_tokens);
+    }
+
 }

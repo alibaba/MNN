@@ -30,7 +30,6 @@ import com.alibaba.mnnllm.android.asr.RecognizeService
 import com.alibaba.mnnllm.android.audio.AudioPlayer
 import com.alibaba.mnnllm.android.chat.AttachmentPickerModule.AttachmentType
 import com.alibaba.mnnllm.android.chat.AttachmentPickerModule.ImagePickCallback
-import com.alibaba.mnnllm.android.chat.GenerateResultProcessor.NormalGenerateResultProcessor
 import com.alibaba.mnnllm.android.chat.GenerateResultProcessor.R1GenerateResultProcessor
 import com.alibaba.mnnllm.android.chat.VoiceRecordingModule.VoiceRecordingListener
 import com.alibaba.mnnllm.android.databinding.ActivityChatBinding
@@ -42,7 +41,6 @@ import com.alibaba.mnnllm.android.utils.ModelPreferences
 import com.alibaba.mnnllm.android.utils.ModelUtils
 import com.alibaba.mnnllm.android.utils.Permissions.REQUEST_RECORD_AUDIO_PERMISSION
 import com.alibaba.mnnllm.android.utils.PreferenceUtils
-import com.alibaba.mnnllm.android.utils.UiUtils
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -514,6 +512,7 @@ class ChatActivity : AppCompatActivity() {
             recreate()
         } else if (item.itemId == R.id.menu_item_model_settings) {
             val settingsSheet = SettingsBottomSheetFragment()
+            settingsSheet.setSession(chatSession)
             settingsSheet.show(supportFragmentManager, SettingsBottomSheetFragment.TAG)
             return true
         }

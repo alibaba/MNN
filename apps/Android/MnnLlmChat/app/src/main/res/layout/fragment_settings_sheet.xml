@@ -37,7 +37,7 @@
             style="?attr/materialButtonOutlinedStyle"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Reset" />
+            android:text="@string/reset" />
 
         <Space
             android:layout_width="0dp"
@@ -50,14 +50,14 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginEnd="8dp"
-            android:text="Cancel" />
+            android:text="@string/settings_cancel" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/button_save"
             style="@style/Widget.Material3.Button"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Done" />
+            android:text="@string/settings_done" />
     </LinearLayout>
 
     <com.google.android.material.divider.MaterialDivider
@@ -107,17 +107,19 @@
                         android:layout_marginStart="16dp"
                         android:layout_marginTop="16dp"
                         android:layout_weight="1"
-                        android:text="Max New tokens" />
+                        android:text="@string/max_new_tokens" />
 
                     <com.google.android.material.textfield.TextInputLayout
                         android:id="@+id/textField"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_margin="8dp"
-                        android:hint="max new tokens to generate">
-
+                        android:hint="@string/max_new_tokens_hint"
+                        >
                         <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/editMaxNewTokens"
                             android:layout_width="match_parent"
+                            android:inputType="numberDecimal"
                             android:layout_height="wrap_content" />
                     </com.google.android.material.textfield.TextInputLayout>
 
@@ -129,7 +131,7 @@
                         android:layout_marginStart="16dp"
                         android:layout_marginTop="16dp"
                         android:layout_weight="1"
-                        android:text="System Prompt" />
+                        android:text="@string/system_prompt" />
 
                     <com.google.android.material.textfield.TextInputLayout
                         android:id="@+id/input_layout_other_info"
@@ -137,7 +139,6 @@
                         android:layout_height="wrap_content"
                         android:layout_margin="8dp"
                         android:layout_marginBottom="16dp"
-                        android:hint="Describe other information..."
                         app:boxCornerRadiusBottomEnd="8dp"
                         app:boxCornerRadiusBottomStart="8dp"
                         app:boxCornerRadiusTopEnd="8dp"
@@ -150,40 +151,14 @@
                             android:gravity="top"
                             android:minLines="3" />
                     </com.google.android.material.textfield.TextInputLayout>
-                    <RelativeLayout
-                        android:id="@+id/rl_sampler_type"
-                        style="@style/SettingsRowContainer"
-                        android:layout_height="48dp"
-                        android:background="?attr/selectableItemBackground"
+                    <com.alibaba.mnnllm.android.modelsettings.DropDownLineView
+                        android:id="@+id/dropdown_sampler_type"
+                        android:layout_width="match_parent"
                         android:clickable="true"
-                        android:paddingLeft="8dp"
-                        android:paddingRight="8dp">
-                        <TextView
-                            android:id="@+id/tv_label_sampler_type"
-                            style="@style/SettingsRowLabel"
-                            android:layout_width="wrap_content"
-                            android:layout_centerVertical="true"
-                            android:layout_marginStart="8dp"
-                            android:text="Sampler Type" />
-                        <ImageView
-                            android:id="@+id/iv_sampler_type_icon"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:layout_alignParentEnd="true"
-                            android:layout_centerVertical="true"
-                            app:tint="?colorOnSurface"
-                            android:src="@drawable/baseline_arrow_drop_down_24" />
-                        <TextView
-                            android:id="@+id/tv_sampler_type_value"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:layout_alignParentEnd="false"
-                            android:layout_centerVertical="true"
-                            android:layout_marginEnd="2dp"
-                            android:layout_toStartOf="@id/iv_sampler_type_icon"
-                            android:clickable="false"
-                            android:text="Greedy" />
-                    </RelativeLayout>
+                        android:layout_height="wrap_content"
+                        app:labelText="Sampler Type"
+                        app:valueText="Greedy"
+                        app:icon="@drawable/baseline_arrow_drop_down_24" />
 
                     <LinearLayout
                         android:id="@+id/container_mixed_settings"
@@ -227,45 +202,29 @@
                         android:layout_height="wrap_content"
                         android:orientation="vertical"
                         android:visibility="gone">
-
                         <include
                             android:id="@+id/row_penalty_penalty"
-                            layout="@layout/settings_row_slider" />
+                            layout="@layout/settings_row_slider_switch" />
 
                         <include
                             android:id="@+id/row_penalty_ngram_size"
-                            layout="@layout/settings_row_slider" />
+                            android:paddingLeft="8dp"
+                            android:paddingRight="8dp"
+                            layout="@layout/settings_row_slider_switch" />
 
                         <include
                             android:id="@+id/row_penalty_ngram_factor"
-                            layout="@layout/settings_row_slider" />
-
-                        <androidx.constraintlayout.widget.ConstraintLayout
-                            android:id="@+id/row_penalty_sampler"
-                            style="@style/SettingsRowContainerClickable">
-
-                            <TextView
-                                style="@style/SettingsRowLabel"
-                                android:text="Penalty Sampler"
-                                app:layout_constraintBottom_toBottomOf="parent"
-                                app:layout_constraintStart_toStartOf="parent"
-                                app:layout_constraintTop_toTopOf="parent" />
-
-                            <ImageView
-                                android:id="@+id/chevron_penalty_sampler"
-                                style="@style/SettingsRowChevron"
-                                app:layout_constraintBottom_toBottomOf="parent"
-                                app:layout_constraintEnd_toEndOf="parent"
-                                app:layout_constraintTop_toTopOf="parent" />
-
-                            <TextView
-                                android:id="@+id/value_penalty_sampler"
-                                style="@style/SettingsRowValue"
-                                app:layout_constraintBottom_toBottomOf="parent"
-                                app:layout_constraintEnd_toStartOf="@id/chevron_penalty_sampler"
-                                app:layout_constraintTop_toTopOf="parent"
-                                tools:text="Greedy" />
-                        </androidx.constraintlayout.widget.ConstraintLayout>
+                            android:paddingLeft="8dp"
+                            android:paddingRight="8dp"
+                            layout="@layout/settings_row_slider_switch" />
+                        <com.alibaba.mnnllm.android.modelsettings.DropDownLineView
+                            android:id="@+id/dropdown_penalty_sampler"
+                            android:layout_width="match_parent"
+                            android:clickable="true"
+                            android:layout_height="wrap_content"
+                            app:labelText="Penalty Sampler"
+                            app:valueText="Greedy"
+                            app:icon="@drawable/baseline_arrow_drop_down_24" />
 
                     </LinearLayout>
 
@@ -278,7 +237,7 @@
 
                         <include
                             android:id="@+id/row_top_p_top_p"
-                            layout="@layout/settings_row_slider" />
+                            layout="@layout/settings_row_slider_switch" />
 
                     </LinearLayout>
                 </LinearLayout>

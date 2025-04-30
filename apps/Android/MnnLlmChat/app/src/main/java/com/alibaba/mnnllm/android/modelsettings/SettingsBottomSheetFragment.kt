@@ -5,50 +5,66 @@ package com.alibaba.mnnllm.android.modelsettings
 
 import android.os.Bundle
 import android.view.LayoutInflater
-import android.view.Menu
 import android.view.View
 import android.view.ViewGroup
 import android.widget.SeekBar
-import android.widget.Toast
-import androidx.appcompat.widget.PopupMenu
 import androidx.core.view.isVisible
+import androidx.core.widget.addTextChangedListener
+import com.alibaba.mnnllm.android.ChatSession
 import com.alibaba.mnnllm.android.databinding.FragmentSettingsSheetBinding
-import com.alibaba.mnnllm.android.databinding.SettingsRowSliderBinding
 import com.alibaba.mnnllm.android.databinding.SettingsRowSliderSwitchBinding
+import com.alibaba.mnnllm.android.utils.UiUtils
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import java.util.*
 
-enum class SamplerType { Greedy, Temperature, TopK, TopP, MinP, Tfs, Typical, Penalty, Mixed}
+enum class SamplerType(val value: String) {
+    Greedy("greedy"),
+    Temperature("temperature"),
+    TopK("topK"),
+    TopP("topP"),
+    MinP("minP"),
+    Tfs("tfsZ"),
+    Typical("typical"),
+    Penalty("penalty"),
+    Mixed("mixed")}
+
+val mainSamplerTypes = listOf (
+    SamplerType.Greedy,
+    SamplerType.Penalty,
+    SamplerType.Mixed
+)
 
 class SettingsBottomSheetFragment : BottomSheetDialogFragment() {
 
+    private lateinit var loadedConfig: ModelConfig
+    private val defaultConfig:ModelConfig = ModelConfig (
+        llmModel = "",
+        llmWeight = "",
+        backendType = "",
+        threadNum = 0,
+        precision = "",
+        memory = "",
+        systemPrompt = "",
+        samplerType = "",
+        mixedSamplers = mutableListOf(),
+        temperature = 0.0f,
+        topP = 0.9f,
+        topK = 0,
+        minP = 0.0f,
+        tfsZ = 1.0f,
+        typical = 1.0f,
+        penalty = 1.02f,
+        nGram = 8,
+        nGramFactor = 1.02f,
+        maxNewTokens = 2048
+    )
+    private lateinit var currentConfig:ModelConfig
+    private lateinit var chatSession: ChatSession
     private var _binding: FragmentSettingsSheetBinding? = null
     private val binding get() = _binding!!
     private var useMmap: Boolean = true
     private var currentSamplerType: SamplerType = SamplerType.Mixed
     private var penaltySamplerValue: String = "Greedy"
-
-    private var topKValue: Float = 40f
-    private var topKEnabled: Boolean = false
-
-    private var topPValue: Float = 0.9f
-    private var topPEnabled: Boolean = false
-
-    private var minPValue: Float = 0.9f
-    private var minPEnabled: Boolean = false
-
-    private var tfsZValue: Float = 1.0f
-    private var tfsZEnabled: Boolean = false
-
-    private var typicalValue: Float = 1.0f
-    private var typicalEnabled: Boolean = false
-
-    private var tempValue: Float = 0.82f
-    private var tempEnabled: Boolean = true
-
-    private var penaltyValue: Float = 0.00f
-    private var nGramSizeValue: Int = 8
-    private var nGramFactorValue: Float = 1.2f
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
@@ -62,138 +78,187 @@ class SettingsBottomSheetFragment : BottomSheetDialogFragment() {
         super.onViewCreated(view, savedInstanceState)
         loadSettings()
         setupModelConfig()
-        setupMixedSettings()
-        setupPenaltySettings()
-        setupTopPSettings()
-        updateSamplerSettingsVisibility()
+        setupSamplerSettings()
         setupActionButtons()
+        setupMaxTokenListener()
+    }
+
+    private fun setupMaxTokenListener() {
+        binding.editMaxNewTokens.addTextChangedListener { text ->
+            if (text.isNullOrEmpty()) {
+                return@addTextChangedListener
+            }
+            currentConfig.maxNewTokens = text.toString().toInt()
+        }
+    }
+
+    private fun setupSamplerSettings() {
+        updateSamplerSettings()
+    }
+
+    private fun updateSamplerSettings() {
+        if (currentConfig.samplerType == SamplerType.Mixed.value) {
+            currentSamplerType = SamplerType.Mixed
+        } else if (currentConfig.samplerType == SamplerType.Penalty.value) {
+            currentSamplerType = SamplerType.Penalty
+        } else {
+            currentSamplerType = SamplerType.Greedy
+        }
+        binding.dropdownSamplerType.setDropDownItems(
+            mainSamplerTypes,
+            itemToString = {
+                samplerTypeToString(it as SamplerType)
+            },
+            onDropdownItemSelected = { _, item ->
+                currentSamplerType = item as SamplerType
+                currentConfig.samplerType = item.value
+                updateSamplerSettings()
+            },
+        )
+        binding.dropdownSamplerType.setCurrentItem(currentSamplerType)
+        updateSamplerSettingsVisibility()
+        if (currentSamplerType == SamplerType.Mixed) {
+            setupMixedSettings()
+        } else if (currentSamplerType == SamplerType.Penalty) {
+            setupPenaltySettings()
+        }
+    }
+
+
+    private fun toggleEnable(items: MutableList<String>, item: SamplerType, enabled: Boolean) {
+        if (enabled) {
+            if (!items.contains(item.value)) {
+                items.add(item.value)
+            }
+        } else if (items.contains(item.value)) {
+            items.remove(item.value)
+        }
     }
 
     private fun setupMixedSettings() {
+        if (currentConfig.mixedSamplers == null) {
+            currentConfig.mixedSamplers  = mutableListOf(
+                SamplerType.TopK.value,
+                SamplerType.TopP.value,
+                SamplerType.MinP.value,
+                SamplerType.Temperature.value,
+            )
+        }
         setupSliderSwitchRow(
             rowBinding = SettingsRowSliderSwitchBinding.bind(binding.rowMixedTopK.root),
-            label = samplerTypeToString(SamplerType.TopK), // Use samplerTypeToString
-            initialValue = topKValue,
-            initialEnabled = topKEnabled,
+            label = samplerTypeToString(SamplerType.TopK),
+            initialValue = (currentConfig.topK?:defaultConfig.topK!!).toFloat(),
+            initialEnabled = currentConfig.mixedSamplers!!.contains(SamplerType.TopK.value),
             valueRange = 1f..100f,
-            decimalPlaces = 0, // Integer value
-            onValueChange = { topKValue = it },
-            onEnabledChange = { topKEnabled = it }
+            decimalPlaces = 0,
+            onValueChange = { currentConfig.topK = it.toInt() },
+            onEnabledChange = { toggleEnable(currentConfig.mixedSamplers!!, SamplerType.TopK, it)}
         )
 
         setupSliderSwitchRow(
             rowBinding = SettingsRowSliderSwitchBinding.bind(binding.rowMixedTfsZ.root),
-            label = samplerTypeToString(SamplerType.Tfs), // Use samplerTypeToString
-            initialValue = tfsZValue,
-            initialEnabled = tfsZEnabled,
+            label = samplerTypeToString(SamplerType.Tfs),
+            initialValue = (currentConfig.tfsZ?:defaultConfig.tfsZ!!),
+            initialEnabled = currentConfig.mixedSamplers!!.contains(SamplerType.Tfs.value),
             valueRange = 0f..1f,
             decimalPlaces = 0,
-            onValueChange = { tfsZValue = it },
-            onEnabledChange = { tfsZEnabled = it }
+            onValueChange = { currentConfig.tfsZ = it },
+            onEnabledChange = { toggleEnable(currentConfig.mixedSamplers!!, SamplerType.Tfs, it)}
         )
 
         setupSliderSwitchRow(
             rowBinding = SettingsRowSliderSwitchBinding.bind(binding.rowMixedTypical.root),
-            label = samplerTypeToString(SamplerType.Typical), // Use samplerTypeToString
-            initialValue = typicalValue,
-            initialEnabled = typicalEnabled,
+            label = samplerTypeToString(SamplerType.Typical),
+            initialValue = (currentConfig.typical?:defaultConfig.typical!!).toFloat(),
+            initialEnabled = currentConfig.mixedSamplers!!.contains(SamplerType.Typical.value),
             valueRange = 0f..1f,
             decimalPlaces = 0,
-            onValueChange = { typicalValue = it },
-            onEnabledChange = { typicalEnabled = it }
+            onValueChange = { currentConfig.typical = it },
+            onEnabledChange = { toggleEnable(currentConfig.mixedSamplers!!, SamplerType.Typical, it)}
         )
 
         setupSliderSwitchRow(
             rowBinding = SettingsRowSliderSwitchBinding.bind(binding.rowMixedTopP.root),
-            label = samplerTypeToString(SamplerType.TopP), // Use samplerTypeToString
-            initialValue = topPValue, // Use shared state
-            initialEnabled = topPEnabled,
+            label = samplerTypeToString(SamplerType.TopP),
+            initialValue = (currentConfig.topP?:defaultConfig.topP!!).toFloat(),
+            initialEnabled = currentConfig.mixedSamplers!!.contains(SamplerType.TopP.value),
             valueRange = 0f..1f,
             decimalPlaces = 2,
-            onValueChange = { topPValue = it },
-            onEnabledChange = { topPEnabled = it }
+            onValueChange = { currentConfig.topP = it },
+            onEnabledChange = { toggleEnable(currentConfig.mixedSamplers!!, SamplerType.TopP, it)}
         )
 
         setupSliderSwitchRow(
             rowBinding = SettingsRowSliderSwitchBinding.bind(binding.rowMixedMinP.root),
-            label = samplerTypeToString(SamplerType.MinP), // Use samplerTypeToString
-            initialValue = minPValue, // Use shared state
-            initialEnabled = minPEnabled,
+            label = samplerTypeToString(SamplerType.MinP),
+            initialValue = (currentConfig.minP?:defaultConfig.minP!!).toFloat(),
+            initialEnabled = currentConfig.mixedSamplers!!.contains(SamplerType.MinP.value),
             valueRange = 0f..1f,
             decimalPlaces = 2,
-            onValueChange = { minPValue = it },
-            onEnabledChange = { minPEnabled = it }
+            onValueChange = { currentConfig.minP = it },
+            onEnabledChange = { toggleEnable(currentConfig.mixedSamplers!!, SamplerType.MinP, it)}
         )
 
         setupSliderSwitchRow(
             rowBinding = SettingsRowSliderSwitchBinding.bind(binding.rowMixedTemp.root),
-            label = samplerTypeToString(SamplerType.Temperature), // Use samplerTypeToString
-            initialValue = tempValue,
-            initialEnabled = tempEnabled,
+            label = samplerTypeToString(SamplerType.Temperature),
+            initialValue = (currentConfig.temperature?:defaultConfig.temperature!!).toFloat(),
+            initialEnabled = currentConfig.mixedSamplers!!.contains(SamplerType.Temperature.value),
             valueRange = 0f..2f,
             decimalPlaces = 2,
-            onValueChange = { tempValue = it },
-            onEnabledChange = { tempEnabled = it }
+            onValueChange = { currentConfig.temperature = it },
+            onEnabledChange = { toggleEnable(currentConfig.mixedSamplers!!, SamplerType.Temperature, it)}
         )
     }
 
     private fun setupPenaltySettings() {
-        setupSliderRow(
-            rowBinding = SettingsRowSliderBinding.bind(binding.rowPenaltyPenalty.root),
+        setupSliderSwitchRow(
+            rowBinding = SettingsRowSliderSwitchBinding.bind(binding.rowPenaltyPenalty.root),
             label = "Penalty",
-            initialValue = penaltyValue,
-            valueRange = 0f..5f, // Example range
+            initialValue = currentConfig.penalty?:defaultConfig.penalty!!,
+            initialEnabled = true,
+            valueRange = 0f..5f,
             decimalPlaces = 2,
-            onValueChange = { penaltyValue = it }
+            onValueChange = { currentConfig.penalty = it },
+            switchVisible = false
         )
 
-        // N-gram Size Slider (Integer)
-        setupSliderRow(
-            rowBinding = SettingsRowSliderBinding.bind(binding.rowPenaltyNgramSize.root),
+        setupSliderSwitchRow(
+            rowBinding = SettingsRowSliderSwitchBinding.bind(binding.rowPenaltyNgramSize.root),
             label = "N-gram Size",
-            initialValue = nGramSizeValue.toFloat(), // SeekBar needs float
-            valueRange = 1f..16f, // Example range
+            initialValue = (currentConfig.nGram?:defaultConfig.nGram!!).toFloat(),
+            initialEnabled = true,
+            valueRange = 1f..16f,
             decimalPlaces = 0,
-            onValueChange = { nGramSizeValue = it.toInt() } // Convert back to Int
+            onValueChange = { currentConfig.nGram = it.toInt() },
+            switchVisible = false
         )
 
-        // N-gram Factor Slider
-        setupSliderRow(
-            rowBinding = SettingsRowSliderBinding.bind(binding.rowPenaltyNgramFactor.root),
+        setupSliderSwitchRow(
+            rowBinding = SettingsRowSliderSwitchBinding.bind(binding.rowPenaltyNgramFactor.root),
             label = "N-gram Factor",
-            initialValue = nGramFactorValue,
-            valueRange = 0f..5f, // Example range
-            decimalPlaces = 1, // Example precision
-            onValueChange = { nGramFactorValue = it }
+            initialValue = currentConfig.nGramFactor?:defaultConfig.nGramFactor!!,
+            initialEnabled = true,
+            valueRange = 1f..2f,
+            decimalPlaces = 1,
+            onValueChange = { currentConfig.nGramFactor = it },
+            switchVisible = false
         )
-
-        binding.valuePenaltySampler.text = penaltySamplerValue
-        binding.rowPenaltySampler.setOnClickListener {
-            Toast.makeText(requireContext(), "Select Penalty Sampler", Toast.LENGTH_SHORT).show()
+        binding.dropdownPenaltySampler.setDropDownItems(listOf("greedy", "temperature")) { _, value ->
+            penaltySamplerValue = value.toString()
         }
     }
 
-    private fun setupTopPSettings() {
-        // Top P Slider (reuse shared state)
-        setupSliderRow(
-            rowBinding = SettingsRowSliderBinding.bind(binding.rowTopPTopP.root),
-            label = "Top P",
-            initialValue = topPValue,
-            valueRange = 0f..1f,
-            decimalPlaces = 2,
-            onValueChange = { topPValue = it }
-        )
-    }
-
     private fun setupSliderSwitchRow(
-        rowBinding: SettingsRowSliderSwitchBinding, // Use binding for the included layout
+        rowBinding: SettingsRowSliderSwitchBinding,
         label: String,
         initialValue: Float,
         initialEnabled: Boolean,
         valueRange: ClosedFloatingPointRange<Float>,
         decimalPlaces: Int,
         onValueChange: (Float) -> Unit,
-        onEnabledChange: (Boolean) -> Unit
+        onEnabledChange: (Boolean) -> Unit = {},
+        switchVisible:Boolean = true
     ) {
         val valueFormat = "%.${decimalPlaces}f"
         rowBinding.labelSlider.text = label
@@ -217,53 +282,34 @@ class SettingsBottomSheetFragment : BottomSheetDialogFragment() {
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}
         })
         rowBinding.switchSlider.isChecked = initialEnabled
-        rowBinding.seekbar.isEnabled = initialEnabled // Initial state for seekbar
-
-        rowBinding.switchSlider.setOnCheckedChangeListener { _, isChecked ->
-            rowBinding.seekbar.isEnabled = isChecked
-            onEnabledChange(isChecked)
+        rowBinding.seekbar.isEnabled = initialEnabled
+        if (switchVisible) {
+            rowBinding.switchSlider.setOnCheckedChangeListener { _, isChecked ->
+                rowBinding.seekbar.isEnabled = isChecked
+                onEnabledChange(isChecked)
+            }
+        } else {
+            rowBinding.switchSlider.visibility = View.GONE
         }
     }
 
     private fun setupModelConfig() {
-        binding.switchUseMmap.isChecked = useMmap // Assuming ID is switch_use_mmap
+        binding.switchUseMmap.isChecked = useMmap
         binding.switchUseMmap.setOnCheckedChangeListener { _, isChecked ->
             useMmap = isChecked
         }
     }
 
-    // Adapt setupSliderRow, setupSliderSwitchRow etc. to use 'binding' and 'requireContext()'
-    // Example adaptation:
-    private fun setupSliderRow(
-        rowBinding: SettingsRowSliderBinding, // Or access directly via binding.rowId...
-        label: String,
-        initialValue: Float,
-        valueRange: ClosedFloatingPointRange<Float>,
-        decimalPlaces: Int,
-        onValueChange: (Float) -> Unit
-    ) {
-        // If using included layouts, you might bind them like this:
-        // val sliderBinding = SettingsRowSliderBinding.bind(rowBinding.root) // Pass the root view of the included layout
-        // Or access views directly if not using includes: e.g., binding.seekbarPenalty
-        // ... implementation using the correct view references ...
-    }
-
-
     private fun setupActionButtons() {
         binding.buttonCancel.setOnClickListener {
-            dismiss() // Dismiss the bottom sheet
+            dismiss()
         }
-//        binding.buttonCloseSheet.setOnClickListener { // Handle optional close button
-//            dismiss()
-//        }
         binding.buttonSave.setOnClickListener {
-            saveSettings() // Call your save logic
-            dismiss() // Dismiss after saving
+            saveSettings()
+            dismiss()
         }
         binding.buttonReset.setOnClickListener {
-            // Implement reset logic: reset state variables, update UI
-            resetSettingsToDefaults() // Example function call
-            Toast.makeText(requireContext(), "Settings Reset (Placeholder)", Toast.LENGTH_SHORT).show()
+            resetSettingsToDefaults()
         }
     }
 
@@ -286,58 +332,52 @@ class SettingsBottomSheetFragment : BottomSheetDialogFragment() {
         binding.containerMixedSettings.isVisible = (currentSamplerType == SamplerType.Mixed)
         binding.containerPenaltySettings.isVisible = (currentSamplerType == SamplerType.Penalty)
         binding.containerTopPSettings.isVisible = (currentSamplerType == SamplerType.TopP)
-        binding.rlSamplerType.setOnClickListener{v->
-            showSamplerTypePopupMenu(binding.tvSamplerTypeValue)
-        }
-    }
-
-    private fun showSamplerTypePopupMenu(anchorView: View) {
-        val popupMenu = PopupMenu(anchorView.context, anchorView)
-        SamplerType.entries.forEachIndexed { index, samplerType ->
-            popupMenu.menu.add(Menu.NONE, index, index, samplerTypeToString(samplerType))
-        }
-        popupMenu.setOnMenuItemClickListener { menuItem ->
-            val selectedSamplerType = SamplerType.entries[menuItem.itemId]
-            if (currentSamplerType != selectedSamplerType) {
-                currentSamplerType = selectedSamplerType
-                binding.tvSamplerTypeValue.text = samplerTypeToString(currentSamplerType)
-                updateSamplerSettingsVisibility()
-            }
-            true
-        }
-        popupMenu.show()
     }
 
     private fun loadSettings() {
-
+        loadedConfig = chatSession.loadConfig()!!
+        currentConfig = loadedConfig.deepCopy()
+        updateSamplerSettings()
+        currentConfig.maxNewTokens = currentConfig.maxNewTokens?:defaultConfig.maxNewTokens
+        binding.editMaxNewTokens.setText(currentConfig.maxNewTokens.toString())
     }
 
     private fun saveSettings() {
-        // TODO: Save settings - Get context via requireContext() if needed
-        Toast.makeText(requireContext(), "Settings Saved (Placeholder)", Toast.LENGTH_SHORT).show()
+        var needRecreate = false
+        var needSaveConfig = false
+        if (currentConfig == loadedConfig) {
+            return
+        } else if (!currentConfig.samplerEquals(loadedConfig)) {
+            needSaveConfig = true
+            needRecreate = true
+        } else if (currentConfig.maxNewTokens != loadedConfig.maxNewTokens) {
+            needSaveConfig = true
+            chatSession.updateMaxNewTokens(currentConfig.maxNewTokens!!)
+            needRecreate = false
+        }
+        if (needSaveConfig) {
+            ModelConfig.saveConfig(chatSession.getModelSettingsFile(), currentConfig)
+        }
+        if (needRecreate) {
+            UiUtils.getActivity(context)?.recreate()
+        }
     }
 
     private fun resetSettingsToDefaults() {
-        // TODO: Implement logic to reset all state variables to default values
-        // Example:
-        currentSamplerType = SamplerType.Mixed
-        topKValue = 20f
-        // ... reset all others ...
-
-        // Reload/Update UI after resetting state
-        loadSettings() // Easiest way is often to just reload defaults and update UI
+        loadSettings()
         updateSamplerSettingsVisibility()
     }
 
-
-    // --- Lifecycle ---
     override fun onDestroyView() {
         super.onDestroyView()
-        _binding = null // Important to release binding reference
+        _binding = null
     }
 
-    // --- Companion Object for Tag ---
+    fun setSession(chatSession: ChatSession) {
+        this.chatSession = chatSession
+    }
+
     companion object {
-        const val TAG = "SettingsBottomSheetFragment" // Tag for FragmentManager
+        const val TAG = "SettingsBottomSheetFragment"
     }
 }

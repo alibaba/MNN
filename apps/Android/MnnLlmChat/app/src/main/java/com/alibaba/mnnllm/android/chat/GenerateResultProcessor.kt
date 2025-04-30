@@ -42,7 +42,7 @@ interface GenerateResultProcessor {
         private val pendingBlanks = StringBuilder()
         private var processEnded = false
         private var isThinking:Boolean? = null
-        private var thinkingStarted = true
+        private var thinkingStarted = false
         private var thinkingEnded = false
         private var firstToken:String? = null
         private var nextTokenIndex = 0

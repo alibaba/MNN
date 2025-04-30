@@ -3,28 +3,73 @@
 
 package com.alibaba.mnnllm.android.modelsettings
 
+import com.alibaba.mnnllm.android.utils.FileUtils
 import com.google.gson.Gson
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import java.io.File
+import com.google.gson.annotations.SerializedName
 
 data class ModelConfig(
-    var llmModel: String,
-    var llmWeight: String,
-    var backendType: String,
-    var threadNum: Int,
-    var precision: String,
-    var memory: String,
-    var systemPrompt: String,
-    var samplerType: String,
-    var mixedSamplers: List<String>,
-    var temperature: Double,
-    var topP: Double,
-    var topK: Int,
-    var minP: Double
+    @SerializedName("llm_model") var llmModel: String?,
+    @SerializedName("llm_weight") var llmWeight: String?,
+    @SerializedName("backend_type") var backendType: String?,
+    @SerializedName("thread_num") var threadNum: Int?,
+    @SerializedName("precision") var precision: String?,
+    @SerializedName("memory") var memory: String?,
+    @SerializedName("system_prompt") var systemPrompt: String?,
+    @SerializedName("sampler_type") var samplerType: String?,
+    @SerializedName("mixed_samplers") var mixedSamplers: MutableList<String>?,
+    @SerializedName("temperature") var temperature: Float?,
+    @SerializedName("topP") var topP: Float?,
+    @SerializedName("topK") var topK: Int?,
+    @SerializedName("minP") var minP: Float?,
+    var tfsZ:Float?,
+    var typical:Float?,
+    var penalty:Float?,
+    @SerializedName("n_gram")var nGram:Int?,
+    @SerializedName("ngram_factor")var nGramFactor:Float?,
+    @SerializedName("max_new_tokens")var maxNewTokens:Int?,
 ) {
-    companion object {
+    fun deepCopy(): ModelConfig {
+        return ModelConfig(
+            llmModel = this.llmModel,
+            llmWeight = this.llmWeight,
+            backendType = this.backendType,
+            threadNum = this.threadNum,
+            precision = this.precision,
+            memory = this.memory,
+            systemPrompt = this.systemPrompt,
+            samplerType = this.samplerType,
+            mixedSamplers = this.mixedSamplers?.toMutableList(),
+            temperature = this.temperature,
+            topP = this.topP,
+            topK = this.topK,
+            minP = this.minP,
+            tfsZ = this.tfsZ,
+            typical = this.typical,
+            penalty = this.penalty,
+            nGram = this.nGram,
+            nGramFactor = this.nGramFactor,
+            maxNewTokens = this.maxNewTokens
+        )
+    }
 
+    fun samplerEquals(loadedConfig: ModelConfig): Boolean {
+        return this.samplerType == loadedConfig.samplerType &&
+                this.mixedSamplers == loadedConfig.mixedSamplers &&
+                this.temperature == loadedConfig.temperature &&
+                this.topP == loadedConfig.topP &&
+                this.topK == loadedConfig.topK &&
+                this.minP == loadedConfig.minP &&
+                this.tfsZ == loadedConfig.tfsZ &&
+                this.typical == loadedConfig.typical &&
+                this.penalty == loadedConfig.penalty &&
+                this.nGram == loadedConfig.nGram &&
+                this.nGramFactor == loadedConfig.nGramFactor
+    }
+
+    companion object {
         fun loadConfig(filePath: String): ModelConfig? {
             return try {
                 val file = File(filePath)
@@ -59,49 +104,71 @@ data class ModelConfig(
             }
         }
 
+        fun toJson(): String {
+            return Gson().toJson(this)
+        }
+
         fun saveConfig(filePath: String, config: ModelConfig): Boolean {
             return try {
                 val file = File(filePath)
+                FileUtils.ensureParentDirectoriesExist(file)
                 val jsonObject = JsonObject()
 
-                // Add only non-default values to the JSON object
-                if (config.llmModel.isNotEmpty()) jsonObject.addProperty(
-                    "llmModel",
+                if (config.llmModel != null) jsonObject.addProperty(
+                    "llm_model",
                     config.llmModel
                 )
-                if (config.llmWeight.isNotEmpty()) jsonObject.addProperty(
-                    "llmWeight",
+                if (config.llmWeight != null) jsonObject.addProperty(
+                    "llm_weight",
                     config.llmWeight
                 )
-                if (config.backendType.isNotEmpty()) jsonObject.addProperty(
-                    "backendType",
+                if (config.backendType != null) jsonObject.addProperty(
+                    "backend_type",
                     config.backendType
                 )
-                if (config.threadNum != 0) jsonObject.addProperty("threadNum", config.threadNum)
-                if (config.precision.isNotEmpty()) jsonObject.addProperty(
+                if (config.maxNewTokens != null) jsonObject.addProperty("max_new_tokens", config.maxNewTokens)
+                if (config.threadNum != null) jsonObject.addProperty("threadNum", config.threadNum)
+                if (config.nGram != null) jsonObject.addProperty("n_gram", config.nGram)
+                if (config.precision!= null) jsonObject.addProperty(
                     "precision",
                     config.precision
                 )
-                if (config.memory.isNotEmpty()) jsonObject.addProperty("memory", config.memory)
-                if (config.systemPrompt.isNotEmpty()) jsonObject.addProperty(
-                    "systemPrompt",
+                if (config.memory!= null) jsonObject.addProperty("memory", config.memory)
+                if (config.systemPrompt!= null) jsonObject.addProperty(
+                    "system_prompt",
                     config.systemPrompt
                 )
-                if (config.samplerType.isNotEmpty()) jsonObject.addProperty(
-                    "samplerType",
+                if (config.samplerType != null) jsonObject.addProperty(
+                    "sampler_type",
                     config.samplerType
                 )
-                if (config.mixedSamplers.isNotEmpty()) jsonObject.add(
-                    "mixedSamplers",
+                if (config.mixedSamplers != null && config.mixedSamplers!!.isNotEmpty()) jsonObject.add(
+                    "mixed_samplers",
                     Gson().toJsonTree(config.mixedSamplers)
                 )
-                if (config.temperature != 0.0) jsonObject.addProperty(
+                if (config.temperature != null) jsonObject.addProperty(
                     "temperature",
                     config.temperature
                 )
-                if (config.topP != 0.0) jsonObject.addProperty("topP", config.topP)
-                if (config.topK != 0) jsonObject.addProperty("topK", config.topK)
-                if (config.minP != 0.0) jsonObject.addProperty("minP", config.minP)
+                if (config.tfsZ != null) jsonObject.addProperty(
+                    "tfsZ",
+                    config.tfsZ
+                )
+                if (config.typical != null) jsonObject.addProperty(
+                    "typical",
+                    config.typical
+                )
+                if (config.penalty != null) jsonObject.addProperty(
+                    "penalty",
+                    config.penalty
+                )
+                if (config.nGramFactor != null) jsonObject.addProperty(
+                    "ngram_factor",
+                    config.nGramFactor
+                )
+                if (config.topP != null) jsonObject.addProperty("topP", config.topP)
+                if (config.topK != null) jsonObject.addProperty("topK", config.topK)
+                if (config.minP != null) jsonObject.addProperty("minP", config.minP)
 
                 file.writeText(Gson().toJson(jsonObject))
                 true
