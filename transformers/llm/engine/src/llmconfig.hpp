@@ -96,6 +96,24 @@ public:
         rapidjson::Document::AllocatorType& allocator = document.GetAllocator();
         return merge_json(document, input_doc, allocator);
     }
+    bool merge_and_clear(rapid_json_wrapper& source_) {
+        // rapid_json_wrapper has document object
+        rapidjson::Value& source = source_.document;
+        rapidjson::Value& destination = this->document;
+        rapidjson::Document::AllocatorType& allocator = document.GetAllocator();
+        
+        for (auto it = source.MemberBegin(); it != source.MemberEnd(); ++it) {
+            const char* key = it->name.GetString();
+            rapidjson::Value newKey(key, allocator);
+            rapidjson::Value newValue;
+            newValue.CopyFrom(it->value, allocator);
+            destination.AddMember(newKey, newValue, allocator);
+        }
+        
+        // clear source content
+        source.SetNull();
+        return true;
+    }
     std::string dump() {
         rapidjson::StringBuffer buffer;
         rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
@@ -205,12 +223,11 @@ public:
 class LlmConfig {
 public:
     std::string base_dir_;
-    rapid_json_wrapper config_, llm_config_, mllm_config_, cur_config_;
+    rapid_json_wrapper config_, mllm_config_, cur_config_;
     LlmConfig() {}
     LlmConfig(const LlmConfig& other)
         : base_dir_(other.base_dir_),
           config_(other.config_),
-          llm_config_(other.llm_config_),
           mllm_config_(other.mllm_config_),
           cur_config_(other.cur_config_) {}
     LlmConfig(const std::string& path) {
@@ -245,7 +262,8 @@ public:
         // load llm_config for model info
         std::ifstream llm_config_file(llm_config());
         if (llm_config_file.is_open()) {
-            llm_config_ = rapid_json_wrapper::parse(llm_config_file);
+            auto llm_config_ = rapid_json_wrapper::parse(llm_config_file);
+            config_.merge_and_clear(llm_config_);
         } else {
             std::cerr << "Unable to open llm_config file: " << llm_config() << std::endl;
         }
@@ -348,15 +366,15 @@ public:
 
     // < llm model config start
     bool is_single() const {
-        return llm_config_.value("is_single", true);
+        return config_.value("is_single", true);
     }
 
     bool is_visual() const {
-        return llm_config_.value("is_visual", false);
+        return config_.value("is_visual", false);
     }
 
     bool is_audio() const {
-        return llm_config_.value("is_audio", false);
+        return config_.value("is_audio", false);
     }
 
     bool use_template() const {
@@ -381,48 +399,48 @@ public:
     }
 
     int hidden_size() const {
-        return llm_config_.value("hidden_size", 4096);
+        return config_.value("hidden_size", 4096);
     }
 
     int layer_nums() const {
-        return llm_config_.value("layer_nums", 32);
+        return config_.value("layer_nums", 32);
     }
 
     std::vector<int> key_value_shape() const {
-        return llm_config_.value("key_value_shape", std::vector<int>{});
+        return config_.value("key_value_shape", std::vector<int>{});
     }
 
     std::string attention_mask() const {
-        return llm_config_.value("attention_mask", "int");
+        return config_.value("attention_mask", "int");
     }
     bool attention_fused() const {
-        return llm_config_.value("attention_fused", true);
+        return config_.value("attention_fused", true);
     }
 
     std::string bos() const {
-        return llm_config_.value("bos", "");
+        return config_.value("bos", "");
     }
     std::string system_prompt_template() const {
-        return llm_config_.value("system_prompt_template", "<|im_start|>system\n%s<|im_end|>\n");
+        return config_.value("system_prompt_template", "<|im_start|>system\n%s<|im_end|>\n");
     }
     std::string user_prompt_template() const {
-        return llm_config_.value("user_prompt_template", "<|im_start|>user\n%s<|im_end|>\n");
+        return config_.value("user_prompt_template", "<|im_start|>user\n%s<|im_end|>\n");
     }
     std::string assistant_prompt_template() const {
-        return llm_config_.value("assistant_prompt_template", "<|im_start|>assistant\n%s<|im_end|>\n");
+        return config_.value("assistant_prompt_template", "<|im_start|>assistant\n%s<|im_end|>\n");
     }
 
     // for compatibility with the original usage
     std::string chat_template() const {
-        return llm_config_.value("chat_template", "");
+        return config_.value("chat_template", "");
     }
 
     std::string prompt_template() const {
-        return llm_config_.value("prompt_template", "<|im_start|>user\n%s<|im_end|>\n<|im_start|>assistant\n");
+        return config_.value("prompt_template", "<|im_start|>user\n%s<|im_end|>\n<|im_start|>assistant\n");
     }
 
     std::vector<int64_t> tie_embeddings() const {
-        return llm_config_.value("tie_embeddings", std::vector<int64_t>{});
+        return config_.value("tie_embeddings", std::vector<int64_t>{});
     }
     // llm model config end >
 

@@ -27,7 +27,7 @@ void conv_2d_1x1_local(__private const int out_w_blocks,
     const int out_c_w_idx = get_global_id(1); //c/4 w
     const int out_b_h_idx  = get_global_id(2); //b h
     
-    COMPUTE_FLOAT4 local sum[CONV_LOCAL_SIZE];
+    COMPUTE_FLOAT4 local sum_mnn[CONV_LOCAL_SIZE];
     
     const int out_c_idx = out_c_w_idx / out_w_blocks;
     const int out_w_idx = out_c_w_idx % out_w_blocks;
@@ -57,14 +57,14 @@ void conv_2d_1x1_local(__private const int out_w_blocks,
         out0 = mad(in0.w, weights3, out0);
     }
     
-    sum[lid] = out0;
+    sum_mnn[lid] = out0;
     barrier(CLK_LOCAL_MEM_FENCE);
     for(int i = CONV_LOCAL_SIZE/2; i > 0; i /= 2){
         if (lid < i)
-            sum[lid] = sum[lid] + sum[lid + i];
+            sum_mnn[lid] = sum_mnn[lid] + sum_mnn[lid + i];
         barrier(CLK_LOCAL_MEM_FENCE);
     }
-    out0 = sum[0] + bias0;
+    out0 = sum_mnn[0] + bias0;
     if(lid == 0){
 #ifdef RELU
         out0 = fmax(out0, (COMPUTE_FLOAT4)0);

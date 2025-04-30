@@ -20,7 +20,8 @@ __kernel void groupnorm_plain_buf(__private int global_dim0, __private int globa
 #endif
                         __private float epsilon){
     int3 pos = (int3)(get_global_id(0), get_global_id(1), get_global_id(2));
-    float local sum[LOCAL_SIZE];
+    float local sum_mean_mnn[LOCAL_SIZE];
+    float local sum_mnn[LOCAL_SIZE];
     if (pos.x < global_dim0 && pos.y < global_dim1 && pos.z < global_dim2) {
         const int idx_out = pos.z;
         const int lid = get_local_id(0);
@@ -38,17 +39,17 @@ __kernel void groupnorm_plain_buf(__private int global_dim0, __private int globa
             float in1 = input1[idx_out * (inside/area) + index / (area/4)];
             in_sum += (float4)(in1, in1, in1, in1);
         }
-        sum[lid] = in_sum.x + in_sum.y + in_sum.z+ in_sum.w;
+        sum_mean_mnn[lid] = in_sum.x + in_sum.y + in_sum.z+ in_sum.w;
 
         barrier(CLK_LOCAL_MEM_FENCE);
         for(int i = LOCAL_SIZE/2; i > 0; i /= 2){
             if (lid < i)
-                sum[lid] = sum[lid] + sum[lid + i];
+                sum_mean_mnn[lid] = sum_mean_mnn[lid] + sum_mean_mnn[lid + i];
             barrier(CLK_LOCAL_MEM_FENCE);
         }
 
         
-        float4 mean = sum[0] / (float4)inside;
+        float4 mean = sum_mean_mnn[0] / (float4)inside;
 
         in_sum = 0;
         index = lid;
@@ -57,15 +58,15 @@ __kernel void groupnorm_plain_buf(__private int global_dim0, __private int globa
             float in1 = input1[idx_out * (inside/area) + index / (area/4)];
             in_sum += (in0 + (float4)(in1, in1, in1, in1) - mean) * (in0 + (float4)in1 - mean);
         }
-        sum[lid] = in_sum.x + in_sum.y + in_sum.z + in_sum.w;
+        sum_mnn[lid] = in_sum.x + in_sum.y + in_sum.z + in_sum.w;
         
         barrier(CLK_LOCAL_MEM_FENCE);
         for(int i = LOCAL_SIZE/2; i > 0; i /= 2){
             if (lid < i)
-                sum[lid] = sum[lid] + sum[lid + i];
+                sum_mnn[lid] = sum_mnn[lid] + sum_mnn[lid + i];
             barrier(CLK_LOCAL_MEM_FENCE);
         }
-        float4 square_sum = (float4)(sum[0] / inside);
+        float4 square_sum = (float4)(sum_mnn[0] / inside);
         float4 value = (float4)(1.0f / sqrt(square_sum.x + epsilon));
 
         for(int i = lid; i < inside_v4; i+=LOCAL_SIZE){
@@ -93,16 +94,16 @@ __kernel void groupnorm_plain_buf(__private int global_dim0, __private int globa
             float in1 = input1[idx_out * (inside/area) + index / area];
             in_sum += in1;
         }
-        sum[lid] = in_sum;
+        sum_mean_mnn[lid] = in_sum;
 
         barrier(CLK_LOCAL_MEM_FENCE);
         for(int i = LOCAL_SIZE/2; i > 0; i /= 2){
             if (lid < i)
-                sum[lid] = sum[lid] + sum[lid + i];
+                sum_mean_mnn[lid] = sum_mean_mnn[lid] + sum_mean_mnn[lid + i];
             barrier(CLK_LOCAL_MEM_FENCE);
         }
 
-        float mean = sum[0] / inside;
+        float mean = sum_mean_mnn[0] / inside;
 
         in_sum = 0;
         index = lid;
@@ -111,15 +112,15 @@ __kernel void groupnorm_plain_buf(__private int global_dim0, __private int globa
             float in1 = input1[idx_out * (inside/area) + index / area];
             in_sum += (in0 + in1 - mean) * (in0 + in1 - mean);
         }
-        sum[lid] = in_sum;
+        sum_mnn[lid] = in_sum;
         
         barrier(CLK_LOCAL_MEM_FENCE);
         for(int i = LOCAL_SIZE/2; i > 0; i /= 2){
             if (lid < i)
-                sum[lid] = sum[lid] + sum[lid + i];
+                sum_mnn[lid] = sum_mnn[lid] + sum_mnn[lid + i];
             barrier(CLK_LOCAL_MEM_FENCE);
         }
-        float square_sum = sum[0] / inside;
+        float square_sum = sum_mnn[0] / inside;
         float value = 1.0f / sqrt(square_sum + epsilon);
 
         for(int i = lid; i < inside; i+=LOCAL_SIZE){
@@ -148,60 +149,60 @@ __kernel void groupnorm_plain_buf(__private int global_dim0, __private int globa
             float4 in = convert_float4(vload4(index, input + offset));
             in_sum += in;
         }
-        sum[lid] = in_sum.x + in_sum.y + in_sum.z+ in_sum.w;
+        sum_mean_mnn[lid] = in_sum.x + in_sum.y + in_sum.z+ in_sum.w;
         
         float4 in_left = 0;
         if(index == inside_v4 - 1) {
             in_left = convert_float4(vload4(inside_v4 - 1, input + offset));
-            sum[lid] = sum[lid] + in_left.x;
+            sum_mean_mnn[lid] = sum_mean_mnn[lid] + in_left.x;
             if(inside_remain > 1) {
-                sum[lid] = sum[lid] + in_left.y;
+                sum_mean_mnn[lid] = sum_mean_mnn[lid] + in_left.y;
             }
             if(inside_remain > 2) {
-                sum[lid] = sum[lid] + in_left.z;
+                sum_mean_mnn[lid] = sum_mean_mnn[lid] + in_left.z;
             }
             if(inside_remain > 3) {
-                sum[lid] = sum[lid] + in_left.w;
+                sum_mean_mnn[lid] = sum_mean_mnn[lid] + in_left.w;
             }
         }
         
         barrier(CLK_LOCAL_MEM_FENCE);
         for(int i = LOCAL_SIZE/2; i > 0; i /= 2){
             if (lid < i)
-                sum[lid] = sum[lid] + sum[lid + i];
+                sum_mean_mnn[lid] = sum_mean_mnn[lid] + sum_mean_mnn[lid + i];
             barrier(CLK_LOCAL_MEM_FENCE);
         }
         
-        float4 mean = (float4)(sum[0] / inside);
+        float4 mean = (float4)(sum_mean_mnn[0] / inside);
         in_sum = 0;
         index = lid;
         for(; index < inside_v4 - 1; index+=LOCAL_SIZE){
             float4 in = convert_float4(vload4(index, input + offset));
             in_sum += (in - mean) * (in - mean);
         }
-        sum[lid] = in_sum.x + in_sum.y + in_sum.z + in_sum.w;
+        sum_mnn[lid] = in_sum.x + in_sum.y + in_sum.z + in_sum.w;
         
         if(index == inside_v4 - 1) {
             float4 in_left = convert_float4(vload4(inside_v4 - 1, input + offset));
             in_sum = (in_left - mean) * (in_left - mean);
-            sum[lid] = sum[lid] + in_sum.x;
+            sum_mnn[lid] = sum_mnn[lid] + in_sum.x;
             if(inside_remain > 1) {
-                sum[lid] = sum[lid] + in_sum.y;
+                sum_mnn[lid] = sum_mnn[lid] + in_sum.y;
             }
             if(inside_remain > 2) {
-                sum[lid] = sum[lid] + in_sum.z;
+                sum_mnn[lid] = sum_mnn[lid] + in_sum.z;
             }
             if(inside_remain > 3) {
-                sum[lid] = sum[lid] + in_sum.w;
+                sum_mnn[lid] = sum_mnn[lid] + in_sum.w;
             }
         }
         barrier(CLK_LOCAL_MEM_FENCE);
         for(int i = LOCAL_SIZE/2; i > 0; i /= 2){
             if (lid < i)
-                sum[lid] = sum[lid] + sum[lid + i];
+                sum_mnn[lid] = sum_mnn[lid] + sum_mnn[lid + i];
             barrier(CLK_LOCAL_MEM_FENCE);
         }
-        float4 square_sum = (float4)(sum[0] / inside);
+        float4 square_sum = (float4)(sum_mnn[0] / inside);
         float4 value = (float4)(1.0f / sqrt(square_sum.x + epsilon));
 
         // The product of W and H is a multiple of 4

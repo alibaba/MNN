@@ -49,19 +49,19 @@ __kernel void reduct_width(GLOBAL_SIZE_3_DIMS
     
 #if LOCAL_SIZE > 0
     const int lid = get_local_id(0);
-    INPUT_TYPE_I4 local sum[LOCAL_SIZE];
+    INPUT_TYPE_I4 local sum_mnn[LOCAL_SIZE];
     for(int i = lid; i < inputWidth; i+=LOCAL_SIZE){
         INPUT_TYPE_I4 in = RI_DATA(input, SAMPLER, (int2)(wc+i, bh));
         out = OPERATE(out, in);
     }
-    sum[lid] = out;
+    sum_mnn[lid] = out;
     barrier(CLK_LOCAL_MEM_FENCE);
     for(int i = LOCAL_SIZE/2; i > 0; i /= 2){
         if (lid < i)
-            sum[lid] = OPERATE(sum[lid], sum[lid + i]);
+            sum_mnn[lid] = OPERATE(sum_mnn[lid], sum_mnn[lid + i]);
         barrier(CLK_LOCAL_MEM_FENCE);
     }
-    out = sum[0];
+    out = sum_mnn[0];
 #else
     for(int i = 0; i < inputWidth; ++i){
         INPUT_TYPE_I4 in = RI_DATA(input, SAMPLER, (int2)(wc+i, bh));
@@ -103,20 +103,20 @@ __kernel void reduct_height(GLOBAL_SIZE_3_DIMS
     const int bh = batch_idx*inputHeight;
     const int wc = channel_idx*inputWidth+width_idx;
     const int lid = get_local_id(0);
-    INPUT_TYPE_I4 local sum[LOCAL_SIZE];
+    INPUT_TYPE_I4 local sum_mnn[LOCAL_SIZE];
     INPUT_TYPE_I4 out = (INPUT_TYPE_I4)VALUE;
     for(int i = lid; i < inputHeight; i+=LOCAL_SIZE){
         INPUT_TYPE_I4 in = RI_DATA(input, SAMPLER, (int2)(wc, bh+i));
         out = OPERATE(out, in);
     }
-    sum[lid] = out;
+    sum_mnn[lid] = out;
     barrier(CLK_LOCAL_MEM_FENCE);
     for(int i = LOCAL_SIZE/2; i > 0; i /= 2){
         if (lid < i)
-            sum[lid] = OPERATE(sum[lid], sum[lid + i]);
+            sum_mnn[lid] = OPERATE(sum_mnn[lid], sum_mnn[lid + i]);
         barrier(CLK_LOCAL_MEM_FENCE);
     }
-    out = sum[0];
+    out = sum_mnn[0];
 #else
 
     const int width_idx = get_global_id(0);
@@ -168,7 +168,7 @@ __kernel void reduct_channel(GLOBAL_SIZE_3_DIMS
     const int wc = width_idx;
     int remain = inputChannel - (inputChannelBlock - 1) * 4;
     const int lid = get_local_id(0);
-    INPUT_TYPE_I local sum[LOCAL_SIZE];
+    INPUT_TYPE_I local sum_mnn[LOCAL_SIZE];
     INPUT_TYPE_I4 out = (INPUT_TYPE_I4)VALUE;
     INPUT_TYPE_I4 in;
     INPUT_TYPE_I *inPtr = (INPUT_TYPE_I*)&in;
@@ -179,14 +179,14 @@ __kernel void reduct_channel(GLOBAL_SIZE_3_DIMS
     out.x = OPERATE(out.x, out.y);
     out.x = OPERATE(out.x, out.z);
     out.x = OPERATE(out.x, out.w);
-    sum[lid] = out.x;
+    sum_mnn[lid] = out.x;
     barrier(CLK_LOCAL_MEM_FENCE);
     for(int i = LOCAL_SIZE/2; i > 0; i /= 2){
         if (lid < i)
-            sum[lid] = OPERATE(sum[lid], sum[lid + i]);
+            sum_mnn[lid] = OPERATE(sum_mnn[lid], sum_mnn[lid + i]);
         barrier(CLK_LOCAL_MEM_FENCE);
     }
-    out.x = sum[0];
+    out.x = sum_mnn[0];
     in = RI_DATA(input, SAMPLER, (int2)((inputChannelBlock - 1)*inputWidth+wc, bh));
     for(int j = 0; j < remain; ++j){
         out.x = OPERATE(out.x, inPtr[j]);
@@ -253,20 +253,20 @@ __kernel void reduct_batch(GLOBAL_SIZE_3_DIMS
     const int wc = channel_idx*inputWidth+width_idx;
     int batchOffset = inputChannelBlock * inputHeight * inputWidth;
     const int lid = get_local_id(0);
-    INPUT_TYPE_I4 local sum[LOCAL_SIZE];
+    INPUT_TYPE_I4 local sum_mnn[LOCAL_SIZE];
     INPUT_TYPE_I4 out = (INPUT_TYPE_I4)VALUE;
     for(int i = lid; i < inputBatch; i+=LOCAL_SIZE){
         INPUT_TYPE_I4 in = RI_DATA(input, SAMPLER, (int2)(wc, i*inputHeight+bh));
         out = OPERATE(out, in);
     }
-    sum[lid] = out;
+    sum_mnn[lid] = out;
     barrier(CLK_LOCAL_MEM_FENCE);
     for(int i = LOCAL_SIZE/2; i > 0; i /= 2){
         if (lid < i)
-            sum[lid] = OPERATE(sum[lid], sum[lid + i]);
+            sum_mnn[lid] = OPERATE(sum_mnn[lid], sum_mnn[lid + i]);
         barrier(CLK_LOCAL_MEM_FENCE);
     }
-    out = sum[0];
+    out = sum_mnn[0];
 #ifdef GET_AVG
     out = out / inputBatch;
 #endif

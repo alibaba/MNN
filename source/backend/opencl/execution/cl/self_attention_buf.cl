@@ -203,7 +203,8 @@ __kernel void softmax_inside(GLOBAL_SIZE_3_DIMS
 
 #if SOFTMAX_LOCAL_SIZE >= 4
     int lid = get_local_id(0);
-    float local sum[SOFTMAX_LOCAL_SIZE];
+    float local sum_mnn[SOFTMAX_LOCAL_SIZE];
+    float local max_mnn[SOFTMAX_LOCAL_SIZE];
 
     /*Compute Max */
     float maxValue = (float)(-FLT_MAX);
@@ -211,30 +212,30 @@ __kernel void softmax_inside(GLOBAL_SIZE_3_DIMS
     for (int i=lid; i<inside_len; i+=SOFTMAX_LOCAL_SIZE) {
         maxValue = fmax(maxValue, (float)input[offset+ i]);
     }
-    sum[lid] = maxValue;
+    max_mnn[lid] = maxValue;
     barrier(CLK_LOCAL_MEM_FENCE);
     #pragma unroll
     for(int i = SOFTMAX_LOCAL_SIZE/2; i > 0; i >>= 1){
         if (lid < i)
-            sum[lid] = fmax(sum[lid], sum[lid + i]);
+            max_mnn[lid] = fmax(max_mnn[lid], max_mnn[lid + i]);
         barrier(CLK_LOCAL_MEM_FENCE);
     }
-    maxValue = sum[0];
+    maxValue = max_mnn[0];
 
     /*Compute Exp Sum*/
     float sumValue = 0;
     for (int i=lid; i<inside_len; i+=SOFTMAX_LOCAL_SIZE) {
         sumValue += exp((float)input[offset+ i] - maxValue);
     }
-    sum[lid] = sumValue;
+    sum_mnn[lid] = sumValue;
     barrier(CLK_LOCAL_MEM_FENCE);
     #pragma unroll
     for(int i = SOFTMAX_LOCAL_SIZE/2; i > 0; i >>= 1){
         if (lid < i)
-            sum[lid] = sum[lid] + sum[lid + i];
+            sum_mnn[lid] = sum_mnn[lid] + sum_mnn[lid + i];
         barrier(CLK_LOCAL_MEM_FENCE);
     }
-    sumValue = sum[0];
+    sumValue = sum_mnn[0];
 
     #ifdef OUTPUT_TRANSPOSE
     const int out_offset = (outside * shape.z + 0) * shape.y + axis;
