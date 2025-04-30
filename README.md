@@ -7,9 +7,9 @@
 [MNN Homepage](http://www.mnn.zone)
 
 ## News 🔥
-- [2025/04/30] android app support qwen3 and dark mode [MnnLlmChat](./project/android/apps/MnnLlmApp/README.md#version-040).
+- [2025/04/30] android app support qwen3 and dark mode [MnnLlmChat](./apps/Android/MnnLlmChat/README.md#version-040).
 <p align="center">
-  <img width="20%" alt="Icon"  src="./apps/Android/MnnLlmChat/assets/qwen_3.gif" style="margin: 0 10px;">
+  <img width="20%" alt="Icon"  src="https://meta.alicdn.com/data/mnn/qwen_3.gif" style="margin: 0 10px;">
 </p>
 - [2025/02/18] iOS multimodal LLM App is released [MNN LLM iOS](./apps/iOS/MNNLLMChat/README.md).
 <p align="center">
