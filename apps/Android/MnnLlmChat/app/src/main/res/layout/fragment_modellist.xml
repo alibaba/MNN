@@ -22,7 +22,7 @@
         android:layout_width="50dp"
         android:layout_height="50dp"
         android:layout_gravity="center"
-        app:SpinKit_Color="@color/colorAccent" />
+        app:SpinKit_Color="?attr/colorPrimary" />
 
     <RelativeLayout
         android:id="@+id/model_list_failed_view"

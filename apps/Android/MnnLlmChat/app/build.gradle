@@ -5,14 +5,14 @@ plugins {
 
 android {
     namespace 'com.alibaba.mnnllm.android'
-    compileSdk 34
+    compileSdk 35
 
     defaultConfig {
         applicationId "com.alibaba.mnnllm.android"
         minSdk 26
         targetSdk 34
-        versionCode 5
-        versionName "0.3.0"
+        versionCode 40
+        versionName "0.4.0"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         externalNativeBuild {
@@ -65,14 +65,17 @@ android {
 }
 
 dependencies {
-//    implementation 'uk.co.chrisjenx:calligraphy:2.2.0'
+
+//    https://developer.android.com/jetpack/androidx/releases/compose
+    def jetpack_compose_verion = '1.7.8'
     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8"
     implementation 'androidx.appcompat:appcompat:1.7.0'
     implementation 'com.google.android.material:material:1.12.0'
-    implementation 'androidx.constraintlayout:constraintlayout:2.2.0'
+    implementation 'androidx.constraintlayout:constraintlayout:2.2.1'
     implementation 'com.github.techinessoverloaded:progress-dialog:1.5.1'
     implementation 'com.squareup.okhttp3:okhttp:4.12.0'
     implementation 'com.squareup.retrofit2:converter-gson:2.9.0'
+    implementation 'com.google.code.gson:gson:2.10.1'
     implementation 'com.squareup.retrofit2:retrofit:2.9.0'
     implementation 'com.squareup.okhttp3:logging-interceptor:4.9.3'
     implementation 'com.squareup.retrofit2:converter-scalars:2.9.0'
@@ -88,4 +91,12 @@ dependencies {
     implementation 'ru.noties:jlatexmath-android:0.2.0'
     implementation 'ru.noties:jlatexmath-android-font-cyrillic:0.2.0'
     implementation 'ru.noties:jlatexmath-android-font-greek:0.2.0'
+    implementation "androidx.compose.foundation:foundation:${jetpack_compose_verion}"
+    implementation "androidx.compose.material:material-icons-extended:${jetpack_compose_verion}"
+    implementation "androidx.compose.ui:ui:${jetpack_compose_verion}"
+    implementation "androidx.activity:activity-compose:1.10.1"
+    implementation "androidx.compose.ui:ui-tooling-preview:$jetpack_compose_verion"
+    debugImplementation "androidx.compose.ui:ui-tooling:$jetpack_compose_verion"
+
+    implementation "androidx.compose.material3:material3:1.3.1"
 }

@@ -58,6 +58,13 @@
 
 # Releases
 
+# Version 0.4.0
++ 点击这里 [下载](https://meta.alicdn.com/data/mnn/mnn_chat_d_0_4_0.apk)
++ 兼容 Qwen3 模型，支持开启／关闭“深度思考”模式
++ 新增深色模式，全面适配 Material 3 设计规范
++ 优化聊天界面，支持多行输入
++ 增加「设置」页面，可自定义采样器类型（sampler type）、系统提示（system prompt）、最大生成 Token（max new tokens）等参数
+
 # Version 0.3.0
 + 点击这里 [下载](https://meta.alicdn.com/data/mnn/mnn_chat_d_0_3_0.apk)
 + 将 MNN 引擎升级至 v3.1.0

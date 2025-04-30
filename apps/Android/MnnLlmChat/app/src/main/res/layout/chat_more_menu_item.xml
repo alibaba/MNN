@@ -12,7 +12,7 @@
         android:id="@+id/background"
         android:layout_width="65dp"
         android:layout_height="65dp"
-        app:cardBackgroundColor="#EEEEEE"
+        app:cardBackgroundColor="?colorSurfaceVariant"
         app:cardCornerRadius="10dp">
 
         <ImageView
@@ -21,7 +21,8 @@
             android:layout_height="30dp"
             android:layout_gravity="center"
             tools:srcCompat="@drawable/ic_camera"
-            tools:ignore="ContentDescription" />
+            tools:ignore="ContentDescription"
+            app:tint="?colorOnSurfaceVariant"/>
     </androidx.cardview.widget.CardView>
 
     <TextView
@@ -31,5 +32,6 @@
         android:layout_below="@id/background"
         android:layout_centerHorizontal="true"
         android:layout_marginTop="10dp"
+        android:textColor="?colorOnSurface"
         tools:text="照片" />
 </merge>

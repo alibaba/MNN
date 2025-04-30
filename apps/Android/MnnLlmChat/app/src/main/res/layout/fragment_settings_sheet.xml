@@ -1,0 +1,322 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <com.google.android.material.bottomsheet.BottomSheetDragHandleView
+        android:id="@+id/drag_handle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        tools:ignore="MissingConstraints" />
+
+    <TextView
+        android:id="@+id/sheet_title"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="16dp"
+        android:layout_marginTop="30dp"
+        android:layout_marginEnd="16dp"
+        android:layout_marginBottom="16dp"
+        android:text="@string/model_settings_title"
+        android:textAppearance="?attr/textAppearanceTitleMedium" />
+
+    <LinearLayout
+        android:id="@+id/button_bar_layout"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_alignParentBottom="true"
+        android:orientation="horizontal"
+        android:paddingStart="16dp"
+        android:paddingTop="16dp"
+        android:paddingEnd="16dp"
+        android:paddingBottom="16dp">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/button_reset"
+            style="?attr/materialButtonOutlinedStyle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/reset" />
+
+        <Space
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_weight="1" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/button_cancel"
+            style="?attr/materialButtonOutlinedStyle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="8dp"
+            android:text="@string/settings_cancel" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/button_save"
+            style="@style/Widget.Material3.Button"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/settings_done" />
+    </LinearLayout>
+
+    <com.google.android.material.divider.MaterialDivider
+        android:id="@+id/divider_bottom"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_above="@id/button_bar_layout" />
+
+    <androidx.core.widget.NestedScrollView
+        android:id="@+id/settings_scroll_view"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_above="@id/divider_bottom"
+        android:layout_below="@id/sheet_title"
+        android:layout_marginBottom="16dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingLeft="8dp"
+            android:paddingRight="8dp"
+            android:paddingBottom="16dp">
+
+            <TextView
+                android:id="@+id/tv_section_general"
+                style="@style/SettingsSectionHeader"
+                android:visibility="gone"
+                android:text="GENERAL" />
+
+            <com.google.android.material.card.MaterialCardView
+                style="@style/SettingsSectionGroup"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:layout_marginEnd="8dp"
+                android:layout_marginBottom="16dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/id_label_max_tokens"
+                        style="@style/SettingsRowLabel"
+                        android:layout_width="wrap_content"
+                        android:layout_marginStart="16dp"
+                        android:layout_marginTop="16dp"
+                        android:layout_weight="1"
+                        android:text="@string/max_new_tokens" />
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:id="@+id/textField"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_margin="8dp"
+                        android:hint="@string/max_new_tokens_hint"
+                        >
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/editMaxNewTokens"
+                            android:layout_width="match_parent"
+                            android:inputType="numberDecimal"
+                            android:layout_height="wrap_content" />
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                    <TextView
+                        android:id="@+id/tv_prompt"
+                        style="@style/SettingsRowLabel"
+                        android:layout_width="wrap_content"
+                        android:layout_centerVertical="true"
+                        android:layout_marginStart="16dp"
+                        android:layout_marginTop="16dp"
+                        android:layout_weight="1"
+                        android:text="@string/system_prompt" />
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:id="@+id/input_layout_other_info"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_margin="8dp"
+                        android:layout_marginBottom="16dp"
+                        app:boxCornerRadiusBottomEnd="8dp"
+                        app:boxCornerRadiusBottomStart="8dp"
+                        app:boxCornerRadiusTopEnd="8dp"
+                        app:boxCornerRadiusTopStart="8dp">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/editTextSystemPrompt"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:gravity="top"
+                            android:minLines="3" />
+                    </com.google.android.material.textfield.TextInputLayout>
+                    <com.alibaba.mnnllm.android.modelsettings.DropDownLineView
+                        android:id="@+id/dropdown_sampler_type"
+                        android:layout_width="match_parent"
+                        android:paddingBottom="16dp"
+                        android:paddingTop="16dp"
+                        android:clickable="true"
+                        android:layout_height="wrap_content"
+                        app:labelText="Sampler Type"
+                        app:valueText="Greedy"
+                        app:icon="@drawable/baseline_arrow_drop_down_24" />
+
+                    <LinearLayout
+                        android:id="@+id/container_mixed_settings"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:paddingLeft="8dp"
+                        android:paddingRight="8dp"
+                        android:visibility="gone"
+                        tools:visibility="visible">
+
+                        <include
+                            android:id="@+id/row_mixed_top_k"
+                            layout="@layout/settings_row_slider_switch" />
+
+                        <include
+                            android:id="@+id/row_mixed_tfs_z"
+                            layout="@layout/settings_row_slider_switch" />
+
+                        <include
+                            android:id="@+id/row_mixed_typical"
+                            layout="@layout/settings_row_slider_switch" />
+
+                        <include
+                            android:id="@+id/row_mixed_top_p"
+                            layout="@layout/settings_row_slider_switch" />
+
+                        <include
+                            android:id="@+id/row_mixed_min_p"
+                            layout="@layout/settings_row_slider_switch" />
+
+                        <include
+                            android:id="@+id/row_mixed_temp"
+                            layout="@layout/settings_row_slider_switch" />
+
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:id="@+id/container_penalty_settings"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:visibility="gone">
+                        <include
+                            android:id="@+id/row_penalty_penalty"
+                            layout="@layout/settings_row_slider_switch" />
+
+                        <include
+                            android:id="@+id/row_penalty_ngram_size"
+                            android:paddingLeft="8dp"
+                            android:paddingRight="8dp"
+                            layout="@layout/settings_row_slider_switch" />
+
+                        <include
+                            android:id="@+id/row_penalty_ngram_factor"
+                            android:paddingLeft="8dp"
+                            android:paddingRight="8dp"
+                            layout="@layout/settings_row_slider_switch" />
+                        <com.alibaba.mnnllm.android.modelsettings.DropDownLineView
+                            android:id="@+id/dropdown_penalty_sampler"
+                            android:layout_width="match_parent"
+                            android:clickable="true"
+                            android:layout_height="wrap_content"
+                            app:labelText="Penalty Sampler"
+                            app:valueText="Greedy"
+                            app:icon="@drawable/baseline_arrow_drop_down_24" />
+
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:id="@+id/container_top_p_settings"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:visibility="gone">
+
+                        <include
+                            android:id="@+id/row_top_p_top_p"
+                            layout="@layout/settings_row_slider_switch" />
+
+                    </LinearLayout>
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <TextView
+                style="@style/SettingsSectionHeader"
+                android:text="Advanced"
+                android:visibility="gone"/>
+
+            <com.google.android.material.card.MaterialCardView
+                style="@style/SettingsSectionGroup"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:layout_marginEnd="8dp"
+                android:layout_marginBottom="16dp"
+                android:visibility="gone">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+                    <com.alibaba.mnnllm.android.modelsettings.SettingsItemView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        app:checked="true"
+                        android:paddingLeft="8dp"
+                        android:paddingRight="8dp"
+                        app:itemText="Reuse KV"/>
+
+                    <com.alibaba.mnnllm.android.modelsettings.SettingsItemView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        app:checked="false"
+                        android:paddingLeft="8dp"
+                        android:paddingRight="8dp"
+                        app:itemText="@string/use_mmap"/>
+
+                    <com.alibaba.mnnllm.android.modelsettings.DropDownLineView
+                        android:id="@+id/dropdown_backend"
+                        android:layout_width="match_parent"
+                        android:clickable="true"
+                        android:layout_height="wrap_content"
+                        app:labelText="Backend"
+                        app:valueText="cpu"
+                        app:icon="@drawable/baseline_arrow_drop_down_24" />
+
+                    <TextView
+                        android:id="@+id/tv_thread_num_label"
+                        style="@style/SettingsRowLabel"
+                        android:layout_width="wrap_content"
+                        android:layout_marginStart="8dp"
+                        android:layout_marginTop="16dp"
+                        android:layout_weight="1"
+                        android:text="@string/thread_num" />
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_margin="8dp"
+                        android:layout_marginTop="4dp"
+                        android:hint="Thread Number when Inference">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content" />
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+        </LinearLayout>
+
+    </androidx.core.widget.NestedScrollView>
+
+
+</RelativeLayout>

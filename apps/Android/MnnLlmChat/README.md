@@ -61,6 +61,12 @@ This is our full multimodal language model (LLM) Android app
   ```
 
 # Releases
+## Version 0.4.0
++ Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_d_0_4_0.apk)
++ Now compatible with the Qwen3 model, with a toggle for Deep Thinking mode
++ Added Dark Mode, fully aligned with Material 3 design guidelines
++ Optimized chat interface with support for multi-line input
++ New Settings page: customize sampler type, system prompt, max new tokens, and more
 
 ## Version 0.3.0
 + Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_d_0_3_0.apk)

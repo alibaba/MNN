@@ -54,7 +54,7 @@
                         android:layout_gravity="center"
                         android:layout_centerInParent="true"
                         android:text="@string/press_to_chat"
-                        android:textColor="@android:color/black"/>
+                        android:textColor="?colorOnSurface"/>
                 </RelativeLayout>
                 <Space
                     android:id="@+id/space"
@@ -74,6 +74,7 @@
                     android:layout_marginStart="5dp"
                     app:srcCompat="@drawable/ic_plus"
                     tools:visibility="visible"
+                    app:tint="?colorOnSurface"
                     tools:ignore="ContentDescription" />
 
                 <ImageView
@@ -86,6 +87,7 @@
                     app:layout_constraintBottom_toBottomOf="@id/anchor_view"
                     app:layout_constraintStart_toEndOf="@id/bt_plus"
                     app:srcCompat="@drawable/ic_audio"
+                    app:tint="?colorOnSurface"
                     tools:ignore="ContentDescription" />
                 <ImageView
                     android:id="@+id/bt_send"
@@ -95,6 +97,7 @@
                     app:layout_constraintBottom_toBottomOf="@id/anchor_view"
                     app:layout_constraintEnd_toEndOf="parent"
                     app:srcCompat="@drawable/button_send"
+                    app:tint="@color/ic_send_tint"
                     android:layout_marginEnd="10dp"
                     tools:ignore="ContentDescription" />
                 <EditText
@@ -168,6 +171,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:visibility="gone"
+            tools:visibility="visible"
             android:paddingBottom="20dp"
             >
             <com.alibaba.mnnllm.android.chat.MoreMenuItemView
