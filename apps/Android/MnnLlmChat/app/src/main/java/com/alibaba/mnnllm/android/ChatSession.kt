@@ -67,15 +67,22 @@ class ChatSession @JvmOverloads constructor (
             put("mmap_dir", rootCacheDir ?: "")
             put("diffusion_memory_mode", getDiffusionMemoryMode(ApplicationProvider.get()))
         }
-        val extraConfig = ModelConfig.loadConfig(configPath, getModelSettingsFile())!!
-        extraConfig.assistantPromptTemplate = extraAssistantPrompt
-        extraConfig.backendType = backend
+        val extraConfig = ModelConfig.loadConfig(configPath, getModelSettingsFile())?.apply {
+            this.assistantPromptTemplate = extraAssistantPrompt
+            this.backendType = backend
+        }
+        Log.d(TAG, "MNN_DEBUG load initNative")
         nativePtr = initNative(
             configPath,
             historyStringList,
-            Gson().toJson(extraConfig),
+            if (extraConfig != null) {
+                Gson().toJson(extraConfig)
+            } else {
+                "{}"
+            },
             Gson().toJson(configMap)
         )
+        Log.d(TAG, "MNN_DEBUG load initNative end")
         modelLoading = false
         if (releaseRequeted) {
             release()

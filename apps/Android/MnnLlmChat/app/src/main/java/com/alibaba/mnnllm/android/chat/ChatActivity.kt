@@ -692,6 +692,7 @@ class ChatActivity : AppCompatActivity() {
                             chatDataItem.imageUri = Uri.parse(diffusionDestPath)
                         } else {
                             chatDataItem.text = getString(R.string.diffusion_generate_progress, progress)
+                            chatDataItem.displayText = chatDataItem.text
                         }
                         runOnUiThread { updateAssistantResponse(chatDataItem) }
                         return false
