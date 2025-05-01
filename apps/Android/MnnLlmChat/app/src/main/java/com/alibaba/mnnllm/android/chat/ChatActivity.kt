@@ -364,7 +364,7 @@ class ChatActivity : AppCompatActivity() {
         })
         imageMore.setOnClickListener {
             if (voiceRecordingModule != null) {
-                voiceRecordingModule!!.exitRecordingMode()
+                voiceRecordingModule?.exitRecordingMode()
             }
             attachmentPickerModule!!.toggleAttachmentVisibility()
         }
@@ -567,7 +567,7 @@ class ChatActivity : AppCompatActivity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (attachmentPickerModule != null && attachmentPickerModule!!.canHandleResult(requestCode)) {
-            attachmentPickerModule!!.onActivityResult(requestCode, resultCode, data!!)
+            attachmentPickerModule?.onActivityResult(requestCode, resultCode, data!!)
         }
     }
 

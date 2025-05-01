@@ -47,7 +47,6 @@ class VoiceRecordingModule(private val activity: ChatActivity) {
         buttonSwitchVoice = activity.findViewById(R.id.bt_switch_audio)
         if (!isAudioModel) {
             buttonSwitchVoice.setVisibility(View.GONE)
-            return
         }
         voceRecordingWave = activity.findViewById(R.id.voice_recording_wav)
         buttonVoiceRecording = activity.findViewById(R.id.btn_voice_recording)
@@ -59,7 +58,9 @@ class VoiceRecordingModule(private val activity: ChatActivity) {
                 event
             )
         })
-        handleSwitch()
+        if (isAudioModel) {
+            handleSwitch()
+        }
     }
 
     private fun handleTouchEvent(v: View, event: MotionEvent): Boolean {
