@@ -262,7 +262,7 @@ struct SubsetLogits Sampler::topK(struct SubsetLogits superset) {
     }
     // 2. store top K results
     auto subset = createSubsetLogits(K);
-    float* topKscores = (float*)(subset.logits->writeMap<float>());
+    float* topKscores = (float*)(subset.logits->readMap<float>());
     for (int i = 0; i < K; i++) {
         subset.index[K-i-1] = heap.top().index;
         topKscores[K-i-1]  = heap.top().score;
@@ -431,7 +431,7 @@ struct SubsetLogits Sampler::penalty(struct SubsetLogits subset) {
         }
     }
     // 3. penalize logits according to penalty_map
-    auto scoresMap = (float*)(subset.logits->writeMap<float>());
+    auto scoresMap = (float*)(subset.logits->readMap<float>());
     for (auto it = penalty_map.begin(); it != penalty_map.end(); ++it) {
         scoresMap[it->first] = (scoresMap[it->first] >= 0.0f) ? (scoresMap[it->first]/it->second) : (scoresMap[it->first]*it->second);
     }
