@@ -68,7 +68,7 @@ LlmSession::LlmSession(std::string model_path, json config, json extra_config, s
     max_new_tokens_ = config_.contains("max_new_tokens") ?  config_["max_new_tokens"].get<int>() : 2048;
     keep_history_ = !extra_config_.contains("keep_history") || extra_config_["keep_history"].get<bool>();
     is_r1_ = extra_config_.contains("is_r1") && extra_config_["is_r1"].get<bool>();
-    system_prompt_ = config.contains("system_prompt") ? config_["system_prompt"].get<std::string>() : "You are a helpful assistant.";
+    system_prompt_ = config_.contains("system_prompt") ? config_["system_prompt"].get<std::string>() : "You are a helpful assistant.";
     history_.emplace_back("system", GetSystemPromptString(system_prompt_, is_r1_));
     if (!history.empty()) {
         for (int i = 0; i < history.size(); i++) {
