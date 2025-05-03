@@ -262,7 +262,7 @@ struct SubsetLogits Sampler::topK(struct SubsetLogits superset) {
     }
     // 2. store top K results
     auto subset = createSubsetLogits(K);
-    float* topKscores = (float*)(subset.logits->readMap<float>());
+    float* topKscores = (float*)(subset.logits->writeMap<float>());
     for (int i = 0; i < K; i++) {
         subset.index[K-i-1] = heap.top().index;
         topKscores[K-i-1]  = heap.top().score;
