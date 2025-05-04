@@ -1,10 +1,10 @@
 ![MNN](doc/banner.png)
-
-[中文版本](README_CN.md)
-
-[日本語バージョン](README_JP.md)
-
-[MNN Homepage](http://www.mnn.zone)
+---
+[![License](https://img.shields.io/github/license/alibaba/MNN)](LICENSE.txt)
+[![Documentation](https://img.shields.io/badge/Documentation-Read-green)](https://mnn-docs.readthedocs.io/en/latest/)
+[![中文版本](https://img.shields.io/badge/Language-%E7%AE%80%E4%BD%93%E4%B8%AD%E6%96%87-green)](README_CN.md)
+[![日本語バージョン](https://img.shields.io/badge/Language-%E6%97%A5%E6%9C%AC%E8%AA%9E-green)](README_JP.md)
+[![MNN Homepage](https://img.shields.io/badge/Homepage-Visit-green)](http://www.mnn.zone)
 
 ## News 🔥
 - [2025/04/30] android app support qwen3 and dark mode [MnnLlmChat](./apps/Android/MnnLlmChat/README.md#version-040).
