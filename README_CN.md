@@ -1,10 +1,11 @@
 ![MNN](doc/banner.png)
+---
+[![License](https://img.shields.io/github/license/alibaba/MNN)](LICENSE.txt)
+[![Documentation](https://img.shields.io/badge/Documentation-Read-green)](https://mnn-docs.readthedocs.io/en/latest/)
+[![English Version](https://img.shields.io/badge/Language-English-green)](README.md)
+[![日本語バージョン](https://img.shields.io/badge/Language-%E6%97%A5%E6%9C%AC%E8%AA%9E-green)](README_JP.md)
+[![MNN Homepage](https://img.shields.io/badge/Homepage-Visit-green)](http://www.mnn.zone)
 
-[English Version](README.md)
-
-[日本語バージョン](README_JP.md)
-
-[MNN Homepage](http://www.mnn.zone)
 
 [MNN](https://github.com/alibaba/MNN)是一个轻量级的深度神经网络引擎，支持深度学习的推理与训练。适用于服务器/个人电脑/手机/嵌入式各类设备。目前，MNN已经在阿里巴巴的手机淘宝、手机天猫、优酷等30多个App中使用，覆盖直播、短视频、搜索推荐、商品图像搜索、互动营销、权益发放、安全风控等场景。
 
@@ -40,15 +41,15 @@ MNN文档：
 
 ## 整体特点
 
-### 轻量性 
+### 轻量性
 
-- 主体功能（模型推理CPU+GPU）无任何依赖，代码精简，可以方便地部署到移动设备和各种嵌入式设备中。 
+- 主体功能（模型推理CPU+GPU）无任何依赖，代码精简，可以方便地部署到移动设备和各种嵌入式设备中。
    - iOS平台：功能全开的MNN静态库 armv7+arm64大小12MB左右，链接生成可执行文件增加大小2M左右。可裁剪主体功能后静态库大小6.1M ，链接生成可执行文件增加大小 600 KB。
    - Android平台：主体功能 armv7a - c++_shared 动态库大小800KB左右。
 - 支持采用 Mini 编辑选项进一步降低包大小，大约能在上述库体积基础上进一步降低 25% 左右。
 - 支持模型FP16/Int8压缩与量化，可减少模型50% - 75% 的体积
 
-### 通用性 
+### 通用性
 
 - 支持 Tensorflow、Caffe、ONNX、Torchscripts 等主流模型文件格式，支持CNN / RNN / GAN / Transformer 等主流网络结构。
 - 支持多输入多输出，支持任意维度的输入输出，支持动态输入（输入大小可变），支持带控制流的模型
@@ -109,7 +110,7 @@ MNN适配的硬件架构与精度详见下表：
 ## 社区交流与反馈
 钉钉群组：
 
-- 钉钉群1:23329087 
+- 钉钉群1:23329087
 - 钉钉群2:23350225
 - 钉钉群3:扫描二维码加入
 
