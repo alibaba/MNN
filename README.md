@@ -11,6 +11,8 @@
 <p align="center">
   <img width="20%" alt="Icon"  src="https://meta.alicdn.com/data/mnn/qwen_3.gif" style="margin: 0 10px;">
 </p>
+<details>
+<summary> History News </summary>
 - [2025/02/18] iOS multimodal LLM App is released [MNN LLM iOS](./apps/iOS/MNNLLMChat/README.md).
 <p align="center">
   <img width="20%" alt="Icon"  src="./apps/iOS/MNNLLMChat/assets/introduction.gif" style="margin: 0 10px;">
@@ -28,6 +30,7 @@
   <img width="20%" alt="Icon" src="./apps/Android/MnnLlmChat/assets/image_sound.jpg" style="margin: 0 10px;">
   <img width="20%" alt="Icon" src="./apps/Android/MnnLlmChat/assets/image_image.jpg" style="margin: 0 10px;">
 </p>
+</details>
 
 ## Intro
 MNN is a highly efficient and lightweight deep learning framework. It supports inference and training of deep learning models and has industry-leading performance for inference and training on-device. At present, MNN has been integrated into more than 30 apps of Alibaba Inc, such as Taobao, Tmall, Youku, DingTalk, Xianyu, etc., covering more than 70 usage scenarios such as live broadcast, short video capture, search recommendation, product searching by image, interactive marketing, equity distribution, security risk control. In addition, MNN is also used on embedded devices, such as IoT.
