@@ -490,12 +490,19 @@ Express::VARP Llm::forwardRaw(Express::VARP hiddenState, Express::VARP mask, Exp
     return logits;
 }
 
-VARP Llm::forward(const std::vector<int>& input_ids, bool is_prefill) {
-    int seq_len         = input_ids.size();
+VARP Llm::forward(const std::vector<int>& input_ids, bool is_prefill, Express::VARP input_embeds) {
+    int seq_len         = 0;
+    VARP hidden_states;
+    if (input_embeds == nullptr) {
+        seq_len         = input_ids.size();
+        hidden_states = embedding(input_ids);
+    } else {
+        seq_len         = input_embeds->getInfo()->dim[0]; 
+        hidden_states = input_embeds;
+    }
     mMeta->add          = seq_len;
     auto attention_mask = gen_attention_mask(seq_len);
     auto position_ids = gen_position_ids(seq_len);
-    auto hidden_states = embedding(input_ids);
     auto logits = forwardRaw(hidden_states, attention_mask, position_ids);
     mContext->all_seq_len += seq_len;
     mContext->gen_seq_len++;
@@ -602,15 +609,19 @@ void Llm::generate(int max_token) {
     }
 }
 
-std::vector<int> Llm::generate(const std::vector<int>& input_ids, int max_tokens) {
+std::vector<int> Llm::generate(const std::vector<int>& input_ids, int max_tokens, MNN::Express::VARP input_embeds) {
     if (max_tokens < 0) {
         max_tokens = mConfig->max_new_tokens();
     }
-    mContext->prompt_len = static_cast<int>(input_ids.size());
-    mContext->history_tokens.insert(mContext->history_tokens.end(), input_ids.begin(), input_ids.end()); // push to history_ids_
+    if (input_embeds.get() == nullptr) {
+        mContext->prompt_len = static_cast<int>(input_ids.size());
+        mContext->history_tokens.insert(mContext->history_tokens.end(), input_ids.begin(), input_ids.end()); // push to history_ids_
+    } else {
+        mContext->prompt_len = static_cast<int>(input_embeds->getInfo()->dim[0]);
+    }
     Timer _t;
     mCurrentModules = mPrefillModules;
-    auto logits      = forward(input_ids);
+    auto logits      = forward(input_ids, true, input_embeds);
     if (nullptr == logits.get()) {
         return {};
     }
@@ -631,19 +642,27 @@ std::vector<int> Llm::tokenizer_encode(const std::string& user_content) {
     return mTokenizer->encode(user_content);
 }
 
-void Llm::response(const std::vector<int>& input_ids, std::ostream* os, const char* end_with, int max_new_tokens) {
+void Llm::response(const std::vector<int>& input_ids, 
+                   std::ostream* os, 
+                   const char* end_with, 
+                   int max_new_tokens,
+                   MNN::Express::VARP input_embeds) {
     if (!end_with) { end_with = "\n"; }
     generate_init(os, end_with);
-    generate(input_ids, max_new_tokens);
+    generate(input_ids, max_new_tokens, input_embeds);
 }
 
-void Llm::response(const std::string& user_content, std::ostream* os, const char* end_with, int max_new_tokens) {
+void Llm::response(const std::string& user_content, 
+                   std::ostream* os, 
+                   const char* end_with, 
+                   int max_new_tokens, 
+                   MNN::Express::VARP input_embeds) {
     auto prompt = user_content;
     if (mConfig->use_template()) {
         prompt = mPrompt->applyTemplate(user_content);
     }
     std::vector<int> input_ids = tokenizer_encode(prompt);
-    response(input_ids, os, end_with, max_new_tokens);
+    response(input_ids, os, end_with, max_new_tokens, input_embeds);
 }
 
 void Llm::response(const ChatMessages& chat_prompts, std::ostream* os, const char* end_with, int max_new_tokens) {

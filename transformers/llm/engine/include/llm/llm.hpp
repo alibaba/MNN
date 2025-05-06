@@ -78,7 +78,7 @@ public:
     virtual Express::VARP gen_attention_mask(int seq_len);
     virtual Express::VARP gen_position_ids(int seq_len);
     virtual Express::VARP embedding(const std::vector<int>& input_ids);
-    Express::VARP forward(const std::vector<int>& input_ids, bool is_prefill = true);
+    Express::VARP forward(const std::vector<int>& input_ids, bool is_prefill = true, MNN::Express::VARP input_embeds = nullptr);
     Express::VARP forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos);
     int sample(Express::VARP logits, int offset = 0, int size = 0);
     void reset();
@@ -87,12 +87,12 @@ public:
     void setKVCacheInfo(size_t add, size_t remove, int* reserve = nullptr, int n_reserve = 0);
     size_t getCurrentHistory() const;
     void eraseHistory(size_t begin, size_t end);
-    void response(const std::vector<int>& input_ids, std::ostream* os = &std::cout, const char* end_with = nullptr, int max_new_tokens = -1);
-    void response(const std::string& user_content, std::ostream* os = &std::cout, const char* end_with = nullptr, int max_new_tokens = -1);
+    void response(const std::vector<int>& input_ids, std::ostream* os = &std::cout, const char* end_with = nullptr, int max_new_tokens = -1, MNN::Express::VARP input_embeds = nullptr);
+    void response(const std::string& user_content, std::ostream* os = &std::cout, const char* end_with = nullptr, int max_new_tokens = -1, MNN::Express::VARP input_embeds = nullptr);
     void response(const ChatMessages& chat_prompts, std::ostream* os = &std::cout, const char* end_with = nullptr, int max_new_tokens = -1);
     void generate_init(std::ostream* os = nullptr, const char* end_with = nullptr);
     void generate(int max_token);
-    std::vector<int> generate(const std::vector<int>& input_ids, int max_new_tokens = -1);
+    std::vector<int> generate(const std::vector<int>& input_ids, int max_new_tokens = -1, MNN::Express::VARP input_embeds = nullptr);
     bool stoped();
     bool reuse_kv();
     // config function
