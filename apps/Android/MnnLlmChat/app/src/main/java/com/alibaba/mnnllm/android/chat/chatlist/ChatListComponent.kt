@@ -115,6 +115,7 @@ class ChatListComponent(private val chatActivity: ChatActivity,
     }
 
     fun onStartSendMessage(userData: ChatDataItem) {
+        isUserScrolling = false
         adapter.addItem(userData)
         addResponsePlaceholder()
         smoothScrollToBottom()

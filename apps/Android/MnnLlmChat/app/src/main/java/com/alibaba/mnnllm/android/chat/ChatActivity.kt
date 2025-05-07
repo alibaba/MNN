@@ -5,27 +5,22 @@ package com.alibaba.mnnllm.android.chat
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
-import android.text.TextUtils
 import android.util.Log
 import android.view.Menu
 import android.view.MenuItem
 import android.view.View
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
-import com.alibaba.mnnllm.android.ChatService
 import com.alibaba.mnnllm.android.ChatSession
 import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.audio.AudioPlayer
-import com.alibaba.mnnllm.android.chat.GenerateResultProcessor.R1GenerateResultProcessor
 import com.alibaba.mnnllm.android.chat.chatlist.ChatListComponent
-import com.alibaba.mnnllm.android.chat.input.AttachmentPickerModule
 import com.alibaba.mnnllm.android.chat.input.ChatInputModule
 import com.alibaba.mnnllm.android.chat.model.ChatDataItem
 import com.alibaba.mnnllm.android.chat.model.ChatDataManager
 import com.alibaba.mnnllm.android.databinding.ActivityChatBinding
 import com.alibaba.mnnllm.android.modelsettings.SettingsBottomSheetFragment
 import com.alibaba.mnnllm.android.utils.AudioPlayService
-import com.alibaba.mnnllm.android.utils.FileUtils
 import com.alibaba.mnnllm.android.utils.ModelPreferences
 import com.alibaba.mnnllm.android.utils.ModelUtils
 import com.alibaba.mnnllm.android.utils.PreferenceUtils
@@ -37,11 +32,11 @@ import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.text.SimpleDateFormat
 import java.util.Locale
-import java.util.Random
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 
 class ChatActivity : AppCompatActivity() {
+    private lateinit var onStopGenerating: () -> Unit
     var isGenerating: Boolean
         get() = _isGenerating.value
         set(value) {
@@ -52,7 +47,7 @@ class ChatActivity : AppCompatActivity() {
         private set
     var isLoading = false
     var isAudioModel = false
-    var stopGenerating = false
+    var isDiffusion = false
     lateinit var chatSession: ChatSession
 
     private val _isGenerating = MutableStateFlow(false)
@@ -61,7 +56,6 @@ class ChatActivity : AppCompatActivity() {
     private var modelId: String? = null
     private var chatExecutor: ScheduledExecutorService? = null
     private var chatDataManager: ChatDataManager? = null
-    private var isUserScrolling = false
     private var currentUserMessage: ChatDataItem? = null
     private var sessionName: String? = null
     private val CONFIG_SHOW_CUSTOM_TOOLBAR = false
@@ -83,6 +77,7 @@ class ChatActivity : AppCompatActivity() {
             finish()
         }
         chatPresenter = ChatPresenter(this, modelName, modelId!!)
+        isDiffusion = ModelUtils.isDiffusionModel(modelName)
         isAudioModel = ModelUtils.isAudioModel(modelName)
         inputModule = ChatInputModule(this, binding, modelName,)
         layoutModelLoading = findViewById(R.id.layout_model_loading)
@@ -119,12 +114,13 @@ class ChatActivity : AppCompatActivity() {
             setOnRealSendMessage{
                 this@ChatActivity.handleSendMessage(it)
             }
+            this.setOnStopGenerating{
+                chatPresenter.stopGenerate()
+            }
         }
     }
 
-    fun regenerate() {
-        stopGenerating = true
-    }
+
 
     private fun setupSession() {
         chatSession = chatPresenter.createSession()
@@ -251,12 +247,12 @@ class ChatActivity : AppCompatActivity() {
     private fun handleNewSession() {
         if (!isGenerating) {
             currentUserMessage = null
-            sessionId = chatSession.generateNewSession()
-            this.sessionName = null
-            chatExecutor!!.execute { chatSession.reset() }
-            chatDataManager!!.deleteAllChatData(sessionId!!)
             if (chatListComponent.reset()) {
                 Toast.makeText(this, R.string.new_conversation_started, Toast.LENGTH_LONG).show()
+            }
+            this.sessionName = null
+            chatPresenter.reset{newSessionId ->
+                sessionId = newSessionId
             }
         } else {
             Toast.makeText(this, "Cannot Create New Session when generating", Toast.LENGTH_LONG).show()
@@ -285,127 +281,52 @@ class ChatActivity : AppCompatActivity() {
     private fun handleSendMessage(userData: ChatDataItem) {
         setIsGenerating(true)
         chatListComponent.onStartSendMessage(userData)
-        val input: String
-        val hasSessionName = !TextUtils.isEmpty(this.sessionName)
-        var sessionName: String? = null
-        if (userData.audioUri != null) {
-            val audioPath = FileUtils.getPathForUri(userData.audioUri!!)
-            if (audioPath == null) {
-                Toast.makeText(this, "Audio file not found", Toast.LENGTH_LONG).show()
-                return
-            }
-            if (userData.audioDuration <= 0.1) {
-                userData.audioDuration =
-                    FileUtils.getAudioDuration(audioPath).toFloat()
-            }
-            input = String.format("<audio>%s</audio>%s", audioPath, userData.text)
-            if (!hasSessionName) {
-                sessionName = "[Audio]" + userData.text
-            }
-        } else if (userData.imageUri != null) {
-            val imagePath = FileUtils.getPathForUri(userData.imageUri!!)
-            if (imagePath == null) {
-                Toast.makeText(this, "image file not found", Toast.LENGTH_LONG).show()
-                return
-            }
-            input = String.format("<img>%s</img>%s", imagePath, userData.text)
-            if (!hasSessionName) {
-                sessionName = "[Image]" + userData.text
-            }
-        } else {
-            input = userData.text!!
-            if (!hasSessionName) {
-                sessionName = userData.text
-            }
-        }
-        if (!hasSessionName) {
-            chatDataManager!!.addOrUpdateSession(sessionId!!, modelId)
-            this.sessionName =
-                if (sessionName!!.length > 100) sessionName.substring(0, 100) else sessionName
-            chatDataManager!!.updateSessionName(this.sessionId!!, this.sessionName)
-        }
-        if (ModelUtils.isDiffusionModel(this.modelName)) {
-            chatExecutor!!.execute { submitRequest(input) }
-        } else {
-            chatExecutor!!.execute { submitRequest(input) }
-        }
-        chatDataManager!!.addChatData(sessionId, userData)
-    }
+        chatPresenter.onUserMessage(userData)
 
-    private fun submitRequest(input: String) {
-        isUserScrolling = false
-        stopGenerating = false
-        val chatDataItem = chatListComponent.recentItem
-        val benchMarkResult: HashMap<String, Any>
-        if (ModelUtils.isDiffusionModel(this.modelName)) {
-            val diffusionDestPath = FileUtils.generateDestDiffusionFilePath(
-                this,
-                sessionId!!
-            )
-            chatDataItem!!.loading = true
-            benchMarkResult = chatSession.generateDiffusion(
-                input, diffusionDestPath, 20,
-                Random(System.currentTimeMillis()).nextInt(), object : ChatSession.GenerateProgressListener {
-                    override fun onProgress(progress: String?): Boolean {
-                        if ("100" == progress) {
-                            chatDataItem.text = getString(R.string.diffusion_generated_message)
-                            chatDataItem.imageUri = Uri.parse(diffusionDestPath)
-                        } else {
-                            chatDataItem.text = getString(R.string.diffusion_generate_progress, progress)
-                            chatDataItem.displayText = chatDataItem.text
-                        }
-                        runOnUiThread { chatListComponent.updateAssistantResponse(chatDataItem) }
-                        return false
-                    }
-                }
-            )
-            chatDataItem.loading = false
-        } else {
-            chatDataItem!!.loading = true
-            val generateResultProcessor: GenerateResultProcessor =
-                R1GenerateResultProcessor(
-                    getString(R.string.r1_thinking_message),
-                    getString(R.string.r1_think_complete_template))
-            generateResultProcessor.generateBegin()
-            benchMarkResult = chatSession.generate(input, object: ChatSession.GenerateProgressListener {
-                override fun onProgress(progress: String?): Boolean {
-                    generateResultProcessor.process(progress)
-                    chatDataItem.displayText = generateResultProcessor.getDisplayResult()
-                    chatDataItem.text = generateResultProcessor.getRawResult()
-                    runOnUiThread { chatListComponent.updateAssistantResponse(chatDataItem) }
-                    if (stopGenerating) {
-                        Log.d(TAG, "stopGenerating requested")
-                    }
-                    return stopGenerating
-                }
-            })
-            chatDataItem.loading = false
-        }
-        Log.d(TAG, "submitRequest benchMark: $benchMarkResult")
-        runOnUiThread {
-            chatDataItem.benchmarkInfo = ModelUtils.generateBenchMarkString(benchMarkResult)
-            chatListComponent.updateAssistantResponse(chatDataItem)
-        }
-        chatDataManager!!.addChatData(sessionId, chatDataItem)
-        runOnUiThread {
-            setIsGenerating(false)
-        }
     }
-
 
     override fun onDestroy() {
         super.onDestroy()
-        stopGenerating = true
-        chatExecutor!!.submit {
-            chatSession.reset()
-            chatSession.release()
-            chatExecutor!!.shutdownNow()
-        }
+        chatPresenter.destroy()
     }
 
     override fun onStop() {
         super.onStop()
         AudioPlayService.instance!!.destroy()
+    }
+
+    fun onGenerateStart() {
+        setIsGenerating(true)
+        val recentItem = chatListComponent.recentItem
+        recentItem?.loading = true
+    }
+
+    fun onLlmGenerateProgress(progress: String?, generateResultProcessor:GenerateResultProcessor) {
+        val chatDataItem = chatListComponent.recentItem!!
+        chatDataItem.displayText = generateResultProcessor.getDisplayResult()
+        chatDataItem.text = generateResultProcessor.getRawResult()
+        chatListComponent.updateAssistantResponse(chatDataItem)
+    }
+
+    fun onGenerateProgress(progress: String?, diffusionDestPath: String?) {
+        val chatDataItem = chatListComponent.recentItem!!
+        if ("100" == progress) {
+            chatDataItem.text = getString(R.string.diffusion_generated_message)
+            chatDataItem.displayText = chatDataItem.text
+            chatDataItem.imageUri = Uri.parse(diffusionDestPath)
+        } else {
+            chatDataItem.text = getString(R.string.diffusion_generate_progress, progress)
+            chatDataItem.displayText = chatDataItem.text
+        }
+        chatListComponent.updateAssistantResponse(chatDataItem)
+    }
+
+    fun onGenerateFinished(benchMarkResult: HashMap<String, Any>) {
+        setIsGenerating(false)
+        val recentItem = chatListComponent.recentItem!!
+        recentItem.loading = false
+        recentItem.benchmarkInfo = ModelUtils.generateBenchMarkString(benchMarkResult)
+        chatListComponent.updateAssistantResponse(recentItem)
     }
 
     val sessionDebugInfo: String

@@ -92,7 +92,7 @@ class ChatSession @JvmOverloads constructor (
     val debugInfo: String
         get() = getDebugInfoNative(nativePtr) + "\n"
 
-    fun generateNewSession(): String {
+    fun generateNewSessionId(): String {
         this.sessionId = System.currentTimeMillis().toString()
         return this.sessionId
     }
@@ -136,10 +136,11 @@ class ChatSession @JvmOverloads constructor (
         }
     }
 
-    fun reset() {
+    fun reset(): String {
         synchronized(this) {
             resetNative(nativePtr, isDiffusion)
         }
+        return generateNewSessionId()
     }
 
     fun release() {

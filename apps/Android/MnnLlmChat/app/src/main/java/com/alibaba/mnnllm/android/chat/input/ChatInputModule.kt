@@ -32,6 +32,7 @@ class ChatInputModule(
     private val binding: ActivityChatBinding,
     private val modelName: String,
 ) {
+    private var onStopGenerating: (() -> Unit)? = null
     private var onThinkingModeChanged: ((Boolean) -> Unit)? = null
     private var onRealSendMessage: ((ChatDataItem) -> Unit)? = null
     private lateinit var editUserMessage: EditText
@@ -73,7 +74,7 @@ class ChatInputModule(
             "handleSendClick isGenerating : ${chatActivity.isGenerating}"
         )
         if (chatActivity.isGenerating) {
-            chatActivity.stopGenerating = true
+            this.onStopGenerating?.invoke()
         } else {
             sendUserMessage()
         }
@@ -268,6 +269,10 @@ class ChatInputModule(
                 voiceRecordingModule!!.handlePermissionDenied()
             }
         }
+    }
+
+    fun setOnStopGenerating(onStopGenerating: () -> Unit) {
+        this.onStopGenerating = onStopGenerating
     }
 
 }
