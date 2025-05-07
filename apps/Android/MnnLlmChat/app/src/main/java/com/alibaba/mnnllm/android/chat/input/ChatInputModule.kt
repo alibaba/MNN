@@ -34,7 +34,7 @@ class ChatInputModule(
 ) {
     private var onStopGenerating: (() -> Unit)? = null
     private var onThinkingModeChanged: ((Boolean) -> Unit)? = null
-    private var onRealSendMessage: ((ChatDataItem) -> Unit)? = null
+    private var onSendMessage: ((ChatDataItem) -> Unit)? = null
     private lateinit var editUserMessage: EditText
     private var buttonSend: ImageView = binding.btnSend
     private lateinit var imageMore: ImageView
@@ -121,7 +121,7 @@ class ChatInputModule(
         currentUserMessage!!.text = inputString
         currentUserMessage!!.time = chatActivity.dateFormat!!.format(Date())
         editUserMessage.setText("")
-        this.onRealSendMessage?.let { it(currentUserMessage!!) }
+        this.onSendMessage?.let { it(currentUserMessage!!) }
         if (attachmentPickerModule != null) {
             attachmentPickerModule!!.clearInput()
         }
@@ -206,7 +206,7 @@ class ChatInputModule(
             }
 
             override fun onLeaveRecordingMode() {
-                if (ModelUtils.isSupportThinkingSwitch(modelName!!)) {
+                if (ModelUtils.isSupportThinkingSwitch(modelName)) {
                     binding.btnToggleThinking.visibility = View.VISIBLE
                 }
                 binding.btnSend.visibility = View.VISIBLE
@@ -222,7 +222,7 @@ class ChatInputModule(
                     recordingFilePath!!,
                     duration
                 )
-                this@ChatInputModule.onRealSendMessage?.let { it(chatDataItem) }
+                this@ChatInputModule.onSendMessage?.let { it(chatDataItem) }
             }
 
             override fun onRecordCanceled() {
@@ -231,8 +231,8 @@ class ChatInputModule(
         voiceRecordingModule!!.setup(chatActivity.isAudioModel)
     }
 
-    fun setOnRealSendMessage(onRealSendMessage: (ChatDataItem)->Unit) {
-        this.onRealSendMessage = onRealSendMessage
+    fun setOnSendMessage(onSendMessage: (ChatDataItem)->Unit) {
+        this.onSendMessage = onSendMessage
     }
 
     fun setOnThinkingModeChanged(onThinkingModeChanged: (Boolean)->Unit) {

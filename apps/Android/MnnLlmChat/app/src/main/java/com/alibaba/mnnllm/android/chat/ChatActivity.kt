@@ -11,13 +11,13 @@ import android.view.MenuItem
 import android.view.View
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.lifecycleScope
 import com.alibaba.mnnllm.android.ChatSession
 import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.audio.AudioPlayer
 import com.alibaba.mnnllm.android.chat.chatlist.ChatListComponent
 import com.alibaba.mnnllm.android.chat.input.ChatInputModule
 import com.alibaba.mnnllm.android.chat.model.ChatDataItem
-import com.alibaba.mnnllm.android.chat.model.ChatDataManager
 import com.alibaba.mnnllm.android.databinding.ActivityChatBinding
 import com.alibaba.mnnllm.android.modelsettings.SettingsBottomSheetFragment
 import com.alibaba.mnnllm.android.utils.AudioPlayService
@@ -26,17 +26,12 @@ import com.alibaba.mnnllm.android.utils.ModelUtils
 import com.alibaba.mnnllm.android.utils.PreferenceUtils
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.text.SimpleDateFormat
 import java.util.Locale
-import java.util.concurrent.Executors
-import java.util.concurrent.ScheduledExecutorService
 
 class ChatActivity : AppCompatActivity() {
-    private lateinit var onStopGenerating: () -> Unit
     var isGenerating: Boolean
         get() = _isGenerating.value
         set(value) {
@@ -54,11 +49,9 @@ class ChatActivity : AppCompatActivity() {
     private var layoutModelLoading: View? = null
     lateinit var modelName: String
     private var modelId: String? = null
-    private var chatExecutor: ScheduledExecutorService? = null
-    private var chatDataManager: ChatDataManager? = null
     private var currentUserMessage: ChatDataItem? = null
     private var sessionName: String? = null
-    private val CONFIG_SHOW_CUSTOM_TOOLBAR = false
+    private val configShowCustomToolbar = false
     private lateinit var binding: ActivityChatBinding
     private var audioPlayer: AudioPlayer? = null
     private lateinit var chatPresenter: ChatPresenter
@@ -82,8 +75,6 @@ class ChatActivity : AppCompatActivity() {
         inputModule = ChatInputModule(this, binding, modelName,)
         layoutModelLoading = findViewById(R.id.layout_model_loading)
         updateActionBar()
-        chatExecutor = Executors.newScheduledThreadPool(1)
-        chatDataManager = ChatDataManager.getInstance(this)
         this.setupSession()
         dateFormat = SimpleDateFormat("hh:mm aa", Locale.getDefault())
         this.setupChatListComponent()
@@ -97,7 +88,7 @@ class ChatActivity : AppCompatActivity() {
     private fun updateActionBar() {
         if (supportActionBar != null) {
             supportActionBar!!.setDisplayHomeAsUpEnabled(true)
-            supportActionBar!!.setDisplayShowTitleEnabled(!CONFIG_SHOW_CUSTOM_TOOLBAR)
+            supportActionBar!!.setDisplayShowTitleEnabled(!configShowCustomToolbar)
             supportActionBar!!.title = getString(R.string.app_name)
         }
     }
@@ -111,7 +102,7 @@ class ChatActivity : AppCompatActivity() {
                     "<|im_start|>assistant\n<think>\n</think>%s<|im_end|>\n"
                 })
             }
-            setOnRealSendMessage{
+            setOnSendMessage{
                 this@ChatActivity.handleSendMessage(it)
             }
             this.setOnStopGenerating{
@@ -119,8 +110,6 @@ class ChatActivity : AppCompatActivity() {
             }
         }
     }
-
-
 
     private fun setupSession() {
         chatSession = chatPresenter.createSession()
@@ -134,7 +123,7 @@ class ChatActivity : AppCompatActivity() {
         audioPlayer!!.start()
         chatSession.setAudioDataListener(object : ChatSession.AudioDataListener {
             override fun onAudioData(data: FloatArray, isEnd: Boolean): Boolean {
-                MainScope().launch {
+                this@ChatActivity.lifecycleScope.launch {
                     audioPlayer?.playChunk(data)
                 }
                 return true
@@ -142,24 +131,21 @@ class ChatActivity : AppCompatActivity() {
         })
     }
 
-    fun setIsLoading(loading: Boolean) {
-        isLoading = loading
-        runOnUiThread {
-            this.inputModule.onLoadingStatesChanged(loading)
-            layoutModelLoading!!.visibility =
-                if (loading) View.VISIBLE else View.GONE
-            if (supportActionBar != null) {
-                supportActionBar!!.setDisplayHomeAsUpEnabled(true)
-                if (CONFIG_SHOW_CUSTOM_TOOLBAR) {
-                } else {
-                    supportActionBar!!.subtitle =
+    fun onLoadingChanged(loading: Boolean) {
+        this.inputModule.onLoadingStatesChanged(loading)
+        layoutModelLoading!!.visibility =
+            if (loading) View.VISIBLE else View.GONE
+        if (supportActionBar != null) {
+            supportActionBar!!.setDisplayHomeAsUpEnabled(true)
+            if (configShowCustomToolbar) {
+            } else {
+                supportActionBar!!.subtitle =
                     if (loading) getString(R.string.model_loading) else modelName
-                }
             }
-            if (!loading) {
-                if (chatSession.supportOmni) {
-                    setupOmni()
-                }
+        }
+        if (!loading) {
+            if (chatSession.supportOmni) {
+                setupOmni()
             }
         }
     }
@@ -174,23 +160,30 @@ class ChatActivity : AppCompatActivity() {
                     true
                 )
             )
-        menu.findItem(R.id.menu_item_use_mmap).setChecked(
-            ModelPreferences.getBoolean(
-                this,
-                modelId!!,
-                ModelPreferences.KEY_USE_MMAP,
-                false
-            )
-        )
-        menu.findItem(R.id.menu_item_backend).setChecked(
-            ModelPreferences.getBoolean(
-                this,
-                modelId!!,
-                ModelPreferences.KEY_BACKEND,
-                false
-            )
-        )
-
+        menu.findItem(R.id.menu_item_use_mmap).apply {
+            isVisible = !isDiffusion
+            if (!isDiffusion) {
+                isChecked = ModelPreferences.getBoolean(
+                    this@ChatActivity,
+                    modelId!!,
+                    ModelPreferences.KEY_USE_MMAP,
+                    false
+                )
+            }
+        }
+        menu.findItem(R.id.menu_item_backend).apply {
+            isVisible = !isDiffusion
+            if (!isDiffusion) {
+                isChecked = ModelPreferences.getBoolean(
+                    this@ChatActivity,
+                    modelId!!,
+                    ModelPreferences.KEY_BACKEND,
+                    false
+                )
+            }
+        }
+        menu.findItem(R.id.menu_item_model_settings).isVisible = !isDiffusion
+        menu.findItem(R.id.menu_item_clear_mmap_cache).isVisible = !isDiffusion
         return true
     }
 
@@ -259,14 +252,6 @@ class ChatActivity : AppCompatActivity() {
         }
     }
 
-    private suspend fun waitForGeneratingFinished() {
-        if (_isGenerating.value) {
-            _isGenerating
-                .filter { !it }
-                .first()
-        }
-    }
-
     private fun setIsGenerating(isGenerating: Boolean) {
         this.isGenerating = isGenerating
         this.inputModule.setIsGenerating(isGenerating)
@@ -282,7 +267,6 @@ class ChatActivity : AppCompatActivity() {
         setIsGenerating(true)
         chatListComponent.onStartSendMessage(userData)
         chatPresenter.onUserMessage(userData)
-
     }
 
     override fun onDestroy() {
@@ -308,7 +292,7 @@ class ChatActivity : AppCompatActivity() {
         chatListComponent.updateAssistantResponse(chatDataItem)
     }
 
-    fun onGenerateProgress(progress: String?, diffusionDestPath: String?) {
+    fun onDiffusionGenerateProgress(progress: String?, diffusionDestPath: String?) {
         val chatDataItem = chatListComponent.recentItem!!
         if ("100" == progress) {
             chatDataItem.text = getString(R.string.diffusion_generated_message)

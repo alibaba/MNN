@@ -80,12 +80,12 @@ class ChatPresenter(
         chatExecutor!!.submit {
             Log.d(TAG, "chatSession loading")
             chatActivity.lifecycleScope.launch {
-                chatActivity.setIsLoading(true)
+                chatActivity.onLoadingChanged(true)
             }
             chatSession.load()
 
             chatActivity.lifecycleScope.launch {
-                chatActivity.setIsLoading(false)
+                chatActivity.onLoadingChanged(false)
             }
             Log.d(TAG, "chatSession loaded")
         }
@@ -111,7 +111,7 @@ class ChatPresenter(
             Random(System.currentTimeMillis()).nextInt(), object : ChatSession.GenerateProgressListener {
                 override fun onProgress(progress: String?): Boolean {
                     chatActivity.lifecycleScope.launch {
-                        chatActivity.onGenerateProgress(progress, diffusionDestPath)
+                        chatActivity.onDiffusionGenerateProgress(progress, diffusionDestPath)
                     }
                     return false
                 }
