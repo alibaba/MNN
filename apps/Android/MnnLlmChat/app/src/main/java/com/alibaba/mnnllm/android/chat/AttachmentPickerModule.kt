@@ -126,17 +126,17 @@ class AttachmentPickerModule(private val activity: ChatActivity) {
         return requestCode >= REQUEST_CODE_SELECT_WAV && requestCode <= REQUEST_CODE_CAPTURE_IMAGE
     }
 
-    fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent) {
+    fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         if (requestCode == REQUEST_CODE_CAPTURE_IMAGE) {
             if (resultCode == Activity.RESULT_OK) {
-                val imagePath = imageUri!!.path // This is the path to the saved image
+                val imagePath = imageUri!!.path
                 Log.d("ImagePath", "Image saved to: $imagePath")
                 showImagePreview()
             }
             imageUri = null
         } else if (requestCode == REQUEST_CODE_SELECT_IMAGE) {
             if (resultCode == Activity.RESULT_OK) {
-                val uri = data.data
+                val uri = data!!.data
                 try {
                     val destImageFile = FileUtils.generateDestImageFilePath(
                         this.activity,
@@ -155,7 +155,7 @@ class AttachmentPickerModule(private val activity: ChatActivity) {
             }
         } else if (requestCode == REQUEST_CODE_SELECT_WAV) {
             if (resultCode == Activity.RESULT_OK) {
-                val audioUri = data.data
+                val audioUri = data!!.data
                 try {
                     val destAudioPath = FileUtils.generateDestAudioFilePath(
                         this.activity,
@@ -218,13 +218,6 @@ class AttachmentPickerModule(private val activity: ChatActivity) {
 
     val isShowing: Boolean
         get() = selectAttachmentLayoutParent.visibility == View.VISIBLE
-
-    fun getPathForUri(uri: Uri): String? {
-        if ("file" == uri.scheme) {
-            return uri.path
-        }
-        return null
-    }
 
     fun clearInput() {
         photoFile = null

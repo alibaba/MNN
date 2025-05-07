@@ -8,6 +8,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.text.TextUtils
+import android.view.MenuItem
 import android.view.MotionEvent
 import android.view.View
 import android.view.View.OnLongClickListener
@@ -15,6 +16,7 @@ import android.widget.ImageView
 import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
+import androidx.appcompat.widget.PopupMenu
 import androidx.recyclerview.widget.RecyclerView
 import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.utils.ClipboardUtils
@@ -40,7 +42,8 @@ object ChatViewHolders {
         }
     }
 
-    class UserViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView), View.OnClickListener {
+    class UserViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView), View.OnClickListener,
+        OnLongClickListener {
         val audioLayout: View =
             itemView.findViewById(R.id.layout_audio)
         val viewText: TextView = itemView.findViewById(R.id.tv_chat_text)
@@ -56,6 +59,7 @@ object ChatViewHolders {
 
         init {
             iconPlayPause.setOnClickListener(this)
+            itemView.setOnLongClickListener(this)
         }
 
         @SuppressLint("DefaultLocale")
@@ -64,6 +68,7 @@ object ChatViewHolders {
                 if (data.audioUri != null) View.VISIBLE else View.GONE
             audioLayout.tag = data
             iconPlayPause.tag = data
+            itemView.tag = data
             viewText.text = data.text
             viewText.visibility =
                 if (TextUtils.isEmpty(data.text)) View.GONE else View.VISIBLE
@@ -90,6 +95,23 @@ object ChatViewHolders {
             }
         }
 
+        override fun onLongClick(v: View?): Boolean {
+            val popupMenu = PopupMenu(v!!.context, viewText)
+            val inflater = popupMenu.menuInflater
+            inflater.inflate(R.menu.chat_context_menu_user, popupMenu.menu)
+            popupMenu.setOnMenuItemClickListener { item: MenuItem ->
+                if (item.itemId == R.id.chat_user_copy) {
+                    UiUtils.copyText(itemView.context, viewText)
+                } else if (item.itemId == R.id.chat_user_regenerate) {
+                    // TODO: regenerate
+                    //
+                }
+                true
+            }
+            popupMenu.show()
+            return true
+        }
+
         companion object {
             @SuppressLint("DefaultLocale")
             private fun formatTime(seconds: Int): String {
@@ -98,8 +120,8 @@ object ChatViewHolders {
                 return String.format("%d:%02d", minutes, remainingSeconds)
             }
         }
-    }
 
+    }
 
     class AssistantViewHolder @SuppressLint("ClickableViewAccessibility") constructor(view: View) :
         RecyclerView.ViewHolder(view), View.OnClickListener, OnLongClickListener {
@@ -191,7 +213,7 @@ object ChatViewHolders {
                 v.getContext(), v, this.lastTouchX, this.lastTouchY
             ) { v ->
                 if (v.id == R.id.assistant_text_copy) {
-                    copyText(itemView.context, textView)
+                    UiUtils.copyText(itemView.context, textView)
                 } else if (v.id == R.id.assistant_text_select) {
                     val intent = Intent(v.context, SelectTextActivity::class.java)
                     intent.putExtra("content", chatDataItem.text)
@@ -216,13 +238,13 @@ object ChatViewHolders {
             return true
         }
 
-        private fun copyText(context: Context, textView: TextView) {
-            val content = textView.text.toString()
-            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-            val clip = ClipData.newPlainText("CopiedText", content)
-            clipboard.setPrimaryClip(clip)
-            Toast.makeText(context, R.string.copy_success, Toast.LENGTH_SHORT).show()
-        }
+//        private fun copyText(context: Context, textView: TextView) {
+//            val content = textView.text.toString()
+//            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+//            val clip = ClipData.newPlainText("CopiedText", content)
+//            clipboard.setPrimaryClip(clip)
+//            Toast.makeText(context, R.string.copy_success, Toast.LENGTH_SHORT).show()
+//        }
 
         companion object {
             const val TAG: String = "AssistantViewHolder"

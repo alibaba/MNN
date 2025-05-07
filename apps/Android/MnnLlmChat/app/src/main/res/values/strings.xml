@@ -94,4 +94,5 @@
     <string name="settings_done">Done</string>
     <string name="max_new_tokens_hint">max tokens to generate</string>
     <string name="thread_num">线程数</string>
+    <string name="regenerate">Regenerate</string>
 </resources>

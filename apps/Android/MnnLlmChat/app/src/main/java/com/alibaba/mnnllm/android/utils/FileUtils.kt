@@ -157,5 +157,12 @@ object FileUtils {
         DownloadFileUtils.deleteDirectoryRecursively(File(getMmapDir(modelId, true)))
         DownloadFileUtils.deleteDirectoryRecursively(File(getMmapDir(modelId, false)))
     }
+
+    fun getPathForUri(uri: Uri): String? {
+        if ("file" == uri.scheme) {
+            return uri.path
+        }
+        return null
+    }
 }
 
