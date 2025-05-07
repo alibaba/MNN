@@ -21,10 +21,10 @@ import com.alibaba.mnnllm.android.chat.model.ChatDataItem
 import com.alibaba.mnnllm.android.databinding.ActivityChatBinding
 import com.alibaba.mnnllm.android.modelsettings.SettingsBottomSheetFragment
 import com.alibaba.mnnllm.android.utils.AudioPlayService
+import com.alibaba.mnnllm.android.utils.KeyboardUtils
 import com.alibaba.mnnllm.android.utils.ModelPreferences
 import com.alibaba.mnnllm.android.utils.ModelUtils
 import com.alibaba.mnnllm.android.utils.PreferenceUtils
-import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import java.text.DateFormat

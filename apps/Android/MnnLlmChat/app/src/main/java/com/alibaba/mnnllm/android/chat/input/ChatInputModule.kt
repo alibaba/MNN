@@ -121,6 +121,7 @@ class ChatInputModule(
         currentUserMessage!!.text = inputString
         currentUserMessage!!.time = chatActivity.dateFormat!!.format(Date())
         editUserMessage.setText("")
+        KeyboardUtils.hideKeyboard(editUserMessage)
         this.onSendMessage?.let { it(currentUserMessage!!) }
         if (attachmentPickerModule != null) {
             attachmentPickerModule!!.clearInput()
