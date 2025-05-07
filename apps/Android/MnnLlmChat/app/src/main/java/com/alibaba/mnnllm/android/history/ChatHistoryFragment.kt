@@ -13,9 +13,9 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.alibaba.mnnllm.android.MainActivity
 import com.alibaba.mnnllm.android.R
-import com.alibaba.mnnllm.android.chat.ChatDataManager
-import com.alibaba.mnnllm.android.chat.ChatDataManager.Companion.getInstance
-import com.alibaba.mnnllm.android.chat.SessionItem
+import com.alibaba.mnnllm.android.chat.model.ChatDataManager
+import com.alibaba.mnnllm.android.chat.model.ChatDataManager.Companion.getInstance
+import com.alibaba.mnnllm.android.chat.model.SessionItem
 import com.alibaba.mnnllm.android.history.HistoryListAdapter.OnHistoryCallback
 
 class ChatHistoryFragment : Fragment() {

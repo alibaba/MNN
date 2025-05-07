@@ -10,18 +10,18 @@ import android.util.Log
 import android.view.Menu
 import android.view.MenuItem
 import android.view.View
-import android.view.WindowInsets
-import android.widget.EditText
-import android.widget.ImageView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
-import androidx.recyclerview.widget.LinearLayoutManager
-import androidx.recyclerview.widget.RecyclerView
 import com.alibaba.mnnllm.android.ChatService
 import com.alibaba.mnnllm.android.ChatSession
 import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.audio.AudioPlayer
 import com.alibaba.mnnllm.android.chat.GenerateResultProcessor.R1GenerateResultProcessor
+import com.alibaba.mnnllm.android.chat.chatlist.ChatListComponent
+import com.alibaba.mnnllm.android.chat.input.AttachmentPickerModule
+import com.alibaba.mnnllm.android.chat.input.ChatInputModule
+import com.alibaba.mnnllm.android.chat.model.ChatDataItem
+import com.alibaba.mnnllm.android.chat.model.ChatDataManager
 import com.alibaba.mnnllm.android.databinding.ActivityChatBinding
 import com.alibaba.mnnllm.android.modelsettings.SettingsBottomSheetFragment
 import com.alibaba.mnnllm.android.utils.AudioPlayService
@@ -36,12 +36,10 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.text.SimpleDateFormat
-import java.util.Date
 import java.util.Locale
 import java.util.Random
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
-import kotlin.math.abs
 
 class ChatActivity : AppCompatActivity() {
     var isGenerating: Boolean
@@ -55,27 +53,23 @@ class ChatActivity : AppCompatActivity() {
     var isLoading = false
     var isAudioModel = false
     var stopGenerating = false
+    lateinit var chatSession: ChatSession
 
     private val _isGenerating = MutableStateFlow(false)
-    private lateinit var recyclerView: RecyclerView
-    private var adapter: ChatRecyclerViewAdapter? = null
     private var layoutModelLoading: View? = null
-    private lateinit var chatSession: ChatSession
     lateinit var modelName: String
     private var modelId: String? = null
     private var chatExecutor: ScheduledExecutorService? = null
-    private var linearLayoutManager: LinearLayoutManager? = null
     private var chatDataManager: ChatDataManager? = null
     private var isUserScrolling = false
-    private var attachmentPickerModule: AttachmentPickerModule? = null
     private var currentUserMessage: ChatDataItem? = null
     private var sessionName: String? = null
     private val CONFIG_SHOW_CUSTOM_TOOLBAR = false
     private lateinit var binding: ActivityChatBinding
     private var audioPlayer: AudioPlayer? = null
     private lateinit var chatPresenter: ChatPresenter
-    private lateinit var inputModule: InputModule
-
+    private lateinit var inputModule: ChatInputModule
+    private lateinit var chatListComponent: ChatListComponent
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityChatBinding.inflate(layoutInflater)
@@ -83,28 +77,34 @@ class ChatActivity : AppCompatActivity() {
         val toolbar = binding.toolbar
         setSupportActionBar(toolbar)
 
-        chatPresenter = ChatPresenter(this)
         modelName = intent.getStringExtra("modelName")?:""
-        if (modelName.isEmpty()) {
+        modelId = intent.getStringExtra("modelId")
+        if (modelName.isEmpty() || modelId.isNullOrEmpty()) {
             finish()
         }
-        modelId = intent.getStringExtra("modelId")
+        chatPresenter = ChatPresenter(this, modelName, modelId!!)
         isAudioModel = ModelUtils.isAudioModel(modelName)
-        inputModule = InputModule(this, binding, modelName,)
+        inputModule = ChatInputModule(this, binding, modelName,)
         layoutModelLoading = findViewById(R.id.layout_model_loading)
+        updateActionBar()
+        chatExecutor = Executors.newScheduledThreadPool(1)
+        chatDataManager = ChatDataManager.getInstance(this)
+        this.setupSession()
+        dateFormat = SimpleDateFormat("hh:mm aa", Locale.getDefault())
+        this.setupChatListComponent()
+        setupInputModule()
+    }
+
+    private fun setupChatListComponent() {
+        chatListComponent = ChatListComponent(this, binding)
+    }
+
+    private fun updateActionBar() {
         if (supportActionBar != null) {
             supportActionBar!!.setDisplayHomeAsUpEnabled(true)
             supportActionBar!!.setDisplayShowTitleEnabled(!CONFIG_SHOW_CUSTOM_TOOLBAR)
             supportActionBar!!.title = getString(R.string.app_name)
         }
-
-        chatExecutor = Executors.newScheduledThreadPool(1)
-        chatDataManager = ChatDataManager.getInstance(this)
-        this.setupSession()
-        dateFormat = SimpleDateFormat("hh:mm aa", Locale.getDefault())
-        this.setupRecyclerView()
-        smoothScrollToBottom()
-        setupInputModule()
     }
 
     private fun setupInputModule() {
@@ -127,60 +127,26 @@ class ChatActivity : AppCompatActivity() {
     }
 
     private fun setupSession() {
-        val chatService = ChatService.provide()
-        sessionId = intent.getStringExtra("chatSessionId")
-        val chatDataItemList: List<ChatDataItem>?
-        if (!TextUtils.isEmpty(sessionId)) {
-            chatDataItemList = chatDataManager!!.getChatDataBySession(sessionId!!)
-            if (chatDataItemList.isNotEmpty()) {
-                sessionName = chatDataItemList[0].text
-            }
-        } else {
-            chatDataItemList = null
-        }
-        if (ModelUtils.isDiffusionModel(modelName)) {
-            val diffusionDir = intent.getStringExtra("diffusionDir")
-            chatSession = chatService.createDiffusionSession(
-                modelId, diffusionDir,
-                sessionId, chatDataItemList
-            )
-        } else {
-            val configFilePath = intent.getStringExtra("configFilePath")
-            chatSession = chatService.createSession(
-                modelId, configFilePath, true,
-                sessionId, chatDataItemList,
-                ModelUtils.isOmni(modelName)
-            )
-        }
+        chatSession = chatPresenter.createSession()
         sessionId = chatSession.sessionId
-        chatSession.setKeepHistory(
-            !ModelUtils.isVisualModel(modelName) && !ModelUtils.isAudioModel(
-                modelName
-            )
-        )
         Log.d(TAG, "current SessionId: $sessionId")
-        chatExecutor!!.submit {
-            Log.d(TAG, "chatSession loading")
-            setIsLoading(true)
-            chatSession.load()
-            if (chatSession.supportOmni) {
-                audioPlayer = AudioPlayer()
-                audioPlayer!!.start()
-                chatSession.setAudioDataListener(object : ChatSession.AudioDataListener {
-                    override fun onAudioData(data: FloatArray, isEnd: Boolean): Boolean {
-                        MainScope().launch {
-                            audioPlayer?.playChunk(data)
-                        }
-                        return true
-                    }
-                })
-            }
-            setIsLoading(false)
-            Log.d(TAG, "chatSession loaded")
-        }
+        chatPresenter.load()
     }
 
-    private fun setIsLoading(loading: Boolean) {
+    private fun setupOmni() {
+        audioPlayer = AudioPlayer()
+        audioPlayer!!.start()
+        chatSession.setAudioDataListener(object : ChatSession.AudioDataListener {
+            override fun onAudioData(data: FloatArray, isEnd: Boolean): Boolean {
+                MainScope().launch {
+                    audioPlayer?.playChunk(data)
+                }
+                return true
+            }
+        })
+    }
+
+    fun setIsLoading(loading: Boolean) {
         isLoading = loading
         runOnUiThread {
             this.inputModule.onLoadingStatesChanged(loading)
@@ -194,58 +160,12 @@ class ChatActivity : AppCompatActivity() {
                     if (loading) getString(R.string.model_loading) else modelName
                 }
             }
-        }
-    }
-
-    private fun setupRecyclerView() {
-        recyclerView = binding.recyclerView
-        recyclerView.setItemAnimator(null)
-        linearLayoutManager = LinearLayoutManager(this)
-        recyclerView.setLayoutManager(linearLayoutManager)
-        binding.layoutBottomContainer.addOnLayoutChangeListener { v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
-            val insets: WindowInsets? = v.rootWindowInsets
-            val bottomInset = insets!!.systemWindowInsetBottom
-            recyclerView.setPadding(recyclerView.paddingLeft, recyclerView.paddingTop, recyclerView.paddingRight,
-                bottomInset +  binding.layoutBottomContainer.height)
-            insets.consumeSystemWindowInsets()
-        }
-        adapter = ChatRecyclerViewAdapter(this, initData(), this.modelName)
-        recyclerView.setAdapter(adapter)
-        recyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
-            override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
-                super.onScrollStateChanged(recyclerView, newState)
-            }
-
-            override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
-                super.onScrolled(recyclerView, dx, dy)
-                if (abs(dy.toDouble()) > 0) {
-                    isUserScrolling = true
+            if (!loading) {
+                if (chatSession.supportOmni) {
+                    setupOmni()
                 }
             }
-
-            var isUserScrolling: Boolean = false
-        })
-    }
-
-    private fun initData(): MutableList<ChatDataItem> {
-        val data: MutableList<ChatDataItem> = ArrayList()
-        data.add(ChatDataItem(dateFormat!!.format(Date()), ChatViewHolders.HEADER, ""))
-        data.add(
-            ChatDataItem(
-                dateFormat!!.format(Date()), ChatViewHolders.ASSISTANT,
-                getString(
-                    if (ModelUtils.isDiffusionModel(modelName))
-                        R.string.model_hello_prompt_diffusion else
-                        R.string.model_hello_prompt,
-                    modelName
-                )
-            )
-        )
-        val savedHistory = chatSession.savedHistory
-        if (!savedHistory.isNullOrEmpty()) {
-            data.addAll(savedHistory)
         }
-        return data
     }
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
@@ -283,12 +203,7 @@ class ChatActivity : AppCompatActivity() {
             handleNewSession()
         } else if (item.itemId == R.id.show_performance_metrics) {
             item.setChecked(!item.isChecked)
-            PreferenceUtils.setBoolean(
-                this,
-                PreferenceUtils.KEY_SHOW_PERFORMACE_METRICS,
-                item.isChecked
-            )
-            adapter!!.notifyItemRangeChanged(0, adapter!!.itemCount)
+            chatListComponent.toggleShowPerformanceMetrics(item.isChecked)
         } else if (item.itemId == android.R.id.home) {
             finish()
         } else if (item.itemId == R.id.menu_item_clear_mmap_cache) {
@@ -340,11 +255,11 @@ class ChatActivity : AppCompatActivity() {
             this.sessionName = null
             chatExecutor!!.execute { chatSession.reset() }
             chatDataManager!!.deleteAllChatData(sessionId!!)
-            if (adapter!!.reset()) {
+            if (chatListComponent.reset()) {
                 Toast.makeText(this, R.string.new_conversation_started, Toast.LENGTH_LONG).show()
             }
         } else {
-            Toast.makeText(this, "Cannot Reset when generating", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Cannot Create New Session when generating", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -367,26 +282,9 @@ class ChatActivity : AppCompatActivity() {
         this.inputModule.handleResult(requestCode, resultCode, data)
     }
 
-    private fun smoothScrollToBottom() {
-        Log.d(TAG, "smoothScrollToBottom")
-        recyclerView.post {
-            val position = adapter!!.itemCount - 1
-            recyclerView.scrollToPosition(position)
-            recyclerView.post { recyclerView.scrollToPosition(position) }
-        }
-    }
-
-    private fun scrollToEnd() {
-        recyclerView.postDelayed({
-            val position = adapter!!.itemCount - 1
-            linearLayoutManager!!.scrollToPositionWithOffset(position, -9999)
-        }, 100)
-    }
-
     private fun handleSendMessage(userData: ChatDataItem) {
         setIsGenerating(true)
-        adapter!!.addItem(userData)
-        addResponsePlaceholder()
+        chatListComponent.onStartSendMessage(userData)
         val input: String
         val hasSessionName = !TextUtils.isEmpty(this.sessionName)
         var sessionName: String? = null
@@ -432,23 +330,14 @@ class ChatActivity : AppCompatActivity() {
             chatExecutor!!.execute { submitRequest(input) }
         }
         chatDataManager!!.addChatData(sessionId, userData)
-
-        smoothScrollToBottom()
-    }
-
-    private fun addResponsePlaceholder() {
-        val holderItem = ChatDataItem(dateFormat!!.format(Date()), ChatViewHolders.ASSISTANT, "")
-        holderItem.hasOmniAudio = chatSession.supportOmni
-        adapter!!.addItem(holderItem)
-        smoothScrollToBottom()
     }
 
     private fun submitRequest(input: String) {
         isUserScrolling = false
         stopGenerating = false
-        val chatDataItem = adapter!!.recentItem
+        val chatDataItem = chatListComponent.recentItem
         val benchMarkResult: HashMap<String, Any>
-        if (ModelUtils.isDiffusionModel(this.modelName!!)) {
+        if (ModelUtils.isDiffusionModel(this.modelName)) {
             val diffusionDestPath = FileUtils.generateDestDiffusionFilePath(
                 this,
                 sessionId!!
@@ -465,7 +354,7 @@ class ChatActivity : AppCompatActivity() {
                             chatDataItem.text = getString(R.string.diffusion_generate_progress, progress)
                             chatDataItem.displayText = chatDataItem.text
                         }
-                        runOnUiThread { updateAssistantResponse(chatDataItem) }
+                        runOnUiThread { chatListComponent.updateAssistantResponse(chatDataItem) }
                         return false
                     }
                 }
@@ -483,7 +372,7 @@ class ChatActivity : AppCompatActivity() {
                     generateResultProcessor.process(progress)
                     chatDataItem.displayText = generateResultProcessor.getDisplayResult()
                     chatDataItem.text = generateResultProcessor.getRawResult()
-                    runOnUiThread { updateAssistantResponse(chatDataItem) }
+                    runOnUiThread { chatListComponent.updateAssistantResponse(chatDataItem) }
                     if (stopGenerating) {
                         Log.d(TAG, "stopGenerating requested")
                     }
@@ -495,7 +384,7 @@ class ChatActivity : AppCompatActivity() {
         Log.d(TAG, "submitRequest benchMark: $benchMarkResult")
         runOnUiThread {
             chatDataItem.benchmarkInfo = ModelUtils.generateBenchMarkString(benchMarkResult)
-            updateAssistantResponse(chatDataItem)
+            chatListComponent.updateAssistantResponse(chatDataItem)
         }
         chatDataManager!!.addChatData(sessionId, chatDataItem)
         runOnUiThread {
@@ -503,12 +392,6 @@ class ChatActivity : AppCompatActivity() {
         }
     }
 
-    private fun updateAssistantResponse(chatDataItem: ChatDataItem) {
-        adapter!!.updateRecentItem(chatDataItem)
-        if (!isUserScrolling) {
-            scrollToEnd()
-        }
-    }
 
     override fun onDestroy() {
         super.onDestroy()

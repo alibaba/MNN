@@ -1,11 +1,12 @@
 // Created by ruoyi.sjd on 2025/1/9.
 // Copyright (c) 2024 Alibaba Group Holding Limited All rights reserved.
-package com.alibaba.mnnllm.android.chat
+package com.alibaba.mnnllm.android.chat.chatlist
 
 import android.widget.SeekBar
 import android.widget.SeekBar.OnSeekBarChangeListener
 import com.alibaba.mnnllm.android.R
-import com.alibaba.mnnllm.android.chat.ChatViewHolders.UserViewHolder
+import com.alibaba.mnnllm.android.chat.chatlist.ChatViewHolders.UserViewHolder
+import com.alibaba.mnnllm.android.chat.model.ChatDataItem
 import com.alibaba.mnnllm.android.utils.AudioPlayService
 import com.alibaba.mnnllm.android.utils.AudioPlayService.AudioPlayerCallback
 

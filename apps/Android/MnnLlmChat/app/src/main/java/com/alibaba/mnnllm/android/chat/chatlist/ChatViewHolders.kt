@@ -1,11 +1,8 @@
 // Created by ruoyi.sjd on 2025/01/03.
 // Copyright (c) 2024 Alibaba Group Holding Limited All rights reserved.
-package com.alibaba.mnnllm.android.chat
+package com.alibaba.mnnllm.android.chat.chatlist
 
 import android.annotation.SuppressLint
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
 import android.content.Intent
 import android.text.TextUtils
 import android.view.MenuItem
@@ -19,6 +16,9 @@ import android.widget.Toast
 import androidx.appcompat.widget.PopupMenu
 import androidx.recyclerview.widget.RecyclerView
 import com.alibaba.mnnllm.android.R
+import com.alibaba.mnnllm.android.chat.ChatActivity
+import com.alibaba.mnnllm.android.chat.model.ChatDataItem
+import com.alibaba.mnnllm.android.chat.SelectTextActivity
 import com.alibaba.mnnllm.android.utils.ClipboardUtils
 import com.alibaba.mnnllm.android.utils.DeviceUtils
 import com.alibaba.mnnllm.android.utils.GithubUtils
@@ -59,7 +59,7 @@ object ChatViewHolders {
 
         init {
             iconPlayPause.setOnClickListener(this)
-            itemView.setOnLongClickListener(this)
+            viewText.setOnLongClickListener(this)
         }
 
         @SuppressLint("DefaultLocale")
@@ -237,14 +237,6 @@ object ChatViewHolders {
             }
             return true
         }
-
-//        private fun copyText(context: Context, textView: TextView) {
-//            val content = textView.text.toString()
-//            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-//            val clip = ClipData.newPlainText("CopiedText", content)
-//            clipboard.setPrimaryClip(clip)
-//            Toast.makeText(context, R.string.copy_success, Toast.LENGTH_SHORT).show()
-//        }
 
         companion object {
             const val TAG: String = "AssistantViewHolder"

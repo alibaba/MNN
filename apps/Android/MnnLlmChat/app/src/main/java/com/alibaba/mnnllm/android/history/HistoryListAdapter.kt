@@ -8,7 +8,7 @@ import android.view.ViewGroup
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 import com.alibaba.mnnllm.android.R
-import com.alibaba.mnnllm.android.chat.SessionItem
+import com.alibaba.mnnllm.android.chat.model.SessionItem
 
 class HistoryListAdapter : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
     private var historySessionList: MutableList<SessionItem>? = null

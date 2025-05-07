@@ -1,7 +1,7 @@
 // Created by ruoyi.sjd on 2025/5/6.
 // Copyright (c) 2024 Alibaba Group Holding Limited All rights reserved.
 
-package com.alibaba.mnnllm.android.chat
+package com.alibaba.mnnllm.android.chat.input
 
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -14,17 +14,20 @@ import android.view.View
 import android.widget.EditText
 import android.widget.ImageView
 import com.alibaba.mnnllm.android.R
-import com.alibaba.mnnllm.android.chat.AttachmentPickerModule.AttachmentType
-import com.alibaba.mnnllm.android.chat.AttachmentPickerModule.ImagePickCallback
+import com.alibaba.mnnllm.android.chat.ChatActivity
+import com.alibaba.mnnllm.android.chat.input.AttachmentPickerModule.AttachmentType
+import com.alibaba.mnnllm.android.chat.input.AttachmentPickerModule.ImagePickCallback
 import com.alibaba.mnnllm.android.chat.ChatActivity.Companion.TAG
-import com.alibaba.mnnllm.android.chat.VoiceRecordingModule.VoiceRecordingListener
+import com.alibaba.mnnllm.android.chat.input.VoiceRecordingModule.VoiceRecordingListener
+import com.alibaba.mnnllm.android.chat.chatlist.ChatViewHolders
+import com.alibaba.mnnllm.android.chat.model.ChatDataItem
 import com.alibaba.mnnllm.android.databinding.ActivityChatBinding
 import com.alibaba.mnnllm.android.utils.KeyboardUtils
 import com.alibaba.mnnllm.android.utils.ModelUtils
 import com.alibaba.mnnllm.android.utils.Permissions.REQUEST_RECORD_AUDIO_PERMISSION
 import java.util.Date
 
-class InputModule(
+class ChatInputModule(
     private val chatActivity: ChatActivity,
     private val binding: ActivityChatBinding,
     private val modelName: String,
@@ -218,7 +221,7 @@ class InputModule(
                     recordingFilePath!!,
                     duration
                 )
-                this@InputModule.onRealSendMessage?.let { it(chatDataItem) }
+                this@ChatInputModule.onRealSendMessage?.let { it(chatDataItem) }
             }
 
             override fun onRecordCanceled() {

@@ -1,6 +1,6 @@
 // Created by ruoyi.sjd on 2025/1/9.
 // Copyright (c) 2024 Alibaba Group Holding Limited All rights reserved.
-package com.alibaba.mnnllm.android.chat
+package com.alibaba.mnnllm.android.chat.input
 
 import android.app.Activity
 import android.content.ActivityNotFoundException
@@ -13,6 +13,7 @@ import android.widget.ImageView
 import android.widget.Toast
 import androidx.core.content.FileProvider
 import com.alibaba.mnnllm.android.R
+import com.alibaba.mnnllm.android.chat.ChatActivity
 import com.alibaba.mnnllm.android.utils.FileUtils
 import com.alibaba.mnnllm.android.utils.ModelUtils
 import java.io.File

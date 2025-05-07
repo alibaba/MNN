@@ -1,6 +1,6 @@
 // Created by ruoyi.sjd on 2025/01/08.
 // Copyright (c) 2024 Alibaba Group Holding Limited All rights reserved.
-package com.alibaba.mnnllm.android.chat
+package com.alibaba.mnnllm.android.chat.input
 
 import android.Manifest
 import android.content.pm.PackageManager
@@ -15,6 +15,7 @@ import android.widget.Toast
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.alibaba.mnnllm.android.R
+import com.alibaba.mnnllm.android.chat.ChatActivity
 import com.alibaba.mnnllm.android.utils.FileUtils
 import com.alibaba.mnnllm.android.utils.Permissions.REQUEST_RECORD_AUDIO_PERMISSION
 import com.alibaba.mnnllm.android.utils.UiUtils.getThemeColor

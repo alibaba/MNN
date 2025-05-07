@@ -5,7 +5,7 @@ package com.alibaba.mnnllm.android
 import android.util.Log
 import com.alibaba.mls.api.ApplicationProvider
 import com.alibaba.mnnllm.android.ChatService.Companion.provide
-import com.alibaba.mnnllm.android.chat.ChatDataItem
+import com.alibaba.mnnllm.android.chat.model.ChatDataItem
 import com.alibaba.mnnllm.android.mainsettings.MainSettings.getDiffusionMemoryMode
 import com.alibaba.mnnllm.android.modelsettings.ModelConfig
 import com.alibaba.mnnllm.android.utils.FileUtils
@@ -259,10 +259,6 @@ class ChatSession @JvmOverloads constructor (
     private external fun updateSystemPromptNative(llmPtr: Long, systemPrompt: String)
 
     private external fun updateAssistantPromptNative(llmPtr: Long, assistantPrompt: String)
-
-
-
-
 
     interface AudioDataListener {
         fun onAudioData(data: FloatArray, isEnd: Boolean): Boolean

@@ -3,7 +3,7 @@
 package com.alibaba.mnnllm.android
 
 import android.text.TextUtils
-import com.alibaba.mnnllm.android.chat.ChatDataItem
+import com.alibaba.mnnllm.android.chat.model.ChatDataItem
 
 class ChatService {
     private val transformerSessionMap: MutableMap<String, ChatSession> = HashMap()

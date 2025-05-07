@@ -195,7 +195,7 @@
                     android:visibility="gone"
                     tools:visibility="visible">
 
-                    <com.alibaba.mnnllm.android.chat.MoreMenuItemView
+                    <com.alibaba.mnnllm.android.chat.input.MoreMenuItemView
                         android:id="@+id/more_item_camera"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
@@ -203,7 +203,7 @@
                         app:icon="@drawable/ic_camera"
                         app:text="@string/take_photo" />
 
-                    <com.alibaba.mnnllm.android.chat.MoreMenuItemView
+                    <com.alibaba.mnnllm.android.chat.input.MoreMenuItemView
                         android:id="@+id/more_item_photo"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
@@ -211,7 +211,7 @@
                         app:icon="@drawable/ic_image"
                         app:text="@string/choose_image" />
 
-                    <com.alibaba.mnnllm.android.chat.MoreMenuItemView
+                    <com.alibaba.mnnllm.android.chat.input.MoreMenuItemView
                         android:id="@+id/more_item_audio"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
