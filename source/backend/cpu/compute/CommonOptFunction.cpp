@@ -27,6 +27,11 @@
 #define FLOAT float
 using Vec = MNN::Math::Vec<float, 4>;
 #include "../GridSampler.hpp"
+#ifdef MNN_LOW_MEMORY
+#ifdef __aarch64__
+#include "backend/cpu/arm/arm64/low_memory/MNNDynamicQuantFunctions.hpp"
+#endif
+#endif
 
 #ifndef MNN_USE_SSE
 void MNNInt8ToInt16(int16_t* dest, const int8_t* source, size_t count) {
@@ -210,27 +215,32 @@ void MNNQuantScaleFP32(float* absmax, float* quant_scale, float* dequant_scale, 
         }
     }
 }
-void MNNQuantSumFP32(float* sum, const float* dequant_scale, size_t thread, size_t batch) {
-    for (int i = 0; i < batch; ++i) {
-        auto sumPtr = reinterpret_cast<int*>(sum) + i;
-        int sumVal = 0.f;
-        for (int t = 0; t < thread; ++t) {
-            sumVal += sumPtr[t * batch];
-        }
-        sum[i] = sumVal * dequant_scale[i];
-    }
-}
 
-void MNNDynamicUpdateConvBiasScale(float* newbias, float* oldbias, float* weightKernelSum, float* inputZero, size_t ocQuad) {
+void MNNDynamicUpdateConvBiasScale(float* newbias, float* oldbias, float* weightKernelSum, float* inputBias, size_t ocQuad) {
     int ocUp4 = 4 * ocQuad;
     int pack = 4;
     for (int i = 0; i < ocUp4; ++i) {
-        newbias[i] = oldbias[i] - weightKernelSum[i] * inputZero[0];
+        newbias[i] = oldbias[i] + weightKernelSum[i] * inputBias[0];
     }
 }
 
 #endif // LOW_MEMORY
 #endif // not __aarch64__
+
+static void MNNCountMaxMinValue(const float* source, float* minVal, float* maxVal, size_t size) {
+    int pack = 4;
+    float max_ = source[0], min_ = source[0];
+    for (int i = 1; i < size; ++i) {
+        if (max_ < source[i]) {
+            max_ = source[i];
+        }
+        if (min_ > source[i]) {
+            min_ = source[i];
+        }
+    }
+    *minVal = min_;
+    *maxVal = max_;
+}
 
 #ifdef MNN_LOW_MEMORY
 static void MNNAbsMaxFP32(const float* source, float* absmax, size_t src_depth_quad, size_t realSize, int pack) {
@@ -258,14 +268,14 @@ static void MNNAbsMaxFP32(const float* source, float* absmax, size_t src_depth_q
     }
 }
 
-void MNNDynamicQuantFP32(const float* src, int8_t* dst, const float* scale, size_t src_depth_quad, size_t realSize, int pack) {
+void MNNDynamicQuantFP32(const float* src, int8_t* dst, const float* scale, size_t src_depth_quad, size_t realSize, int pack, const float* bias = nullptr) {
 #ifdef __aarch64__
     if (pack == 4) {
-        MNNDynamicQuantFP32_Pack4(src, dst, scale, src_depth_quad, realSize, pack);
+        MNNDynamicQuantFP32_Pack4(src, dst, scale, src_depth_quad, realSize, nullptr, pack);
         return;
     }
     if (pack == 8) {
-        MNNDynamicQuantFP32_Pack8(src, dst, scale, src_depth_quad, realSize, pack);
+        MNNDynamicQuantFP32_Pack8(src, dst, scale, src_depth_quad, realSize, nullptr, pack);
         return;
     }
 #endif
@@ -288,6 +298,179 @@ void MNNDynamicQuantFP32(const float* src, int8_t* dst, const float* scale, size
         }
     }
 }
+
+static void MNNAsyQuantFunc(int8_t* dst, const float* src, float* qscale, float* qbias, const size_t* info) {
+    // input shape: [kernelsize, blockNum, blockLU, EP, LP]
+    auto blockNum = info[0];
+    auto EP = info[1];        // real area for data
+    auto LP = info[2];        // Innermost data layout, may come from backend's pack or gemmint8 units' SRC_UNIT
+    auto DST_XUNIT = info[3]; // backend gemmint8 units
+    auto SRC_UNIT = info[4];
+    auto kernelsize = info[5];
+    auto blockLU = info[6];
+    auto stride0 = blockNum * blockLU * EP * LP;
+    auto stride1 = blockLU * EP * LP;
+    int int8Max = 127;
+    int int8Min = -128;
+    // qscale&qbias [blockNum, EP]
+#ifdef __aarch64__
+    if (LP == 4 || LP == 8) {
+        for (int k = 0; k < kernelsize; ++k) {
+            for (int i = 0; i < blockNum; ++i) {
+                if (LP == 4) {
+                    MNNDynamicQuantFP32_Pack4(src + k * stride0 + i * stride1, dst + k * stride0 + i * stride1, qscale + i * EP, blockLU, EP, qbias + i * EP, LP);
+                }
+                if (LP == 8) {
+                    MNNDynamicQuantFP32_Pack8(src + k * stride0 + i * stride1, dst + k * stride0 + i * stride1, qscale + i * EP, blockLU, EP, qbias + i * EP, LP);
+                }
+            }
+        }
+        return;
+    }
+#endif
+    for (int i = 0; i < EP; ++i) {
+        for (int bk = 0; bk < blockNum; ++bk) {
+            float quant_scale = qscale[i + bk * EP];
+            float quant_bias  = qbias[i + bk * EP];
+            for (int n = 0; n < kernelsize; ++n) {
+                for (int k = 0; k < blockLU; ++k) {
+                    for (int j = 0; j < LP; ++j) {
+                        int dataIndx = n * stride0 + bk * stride1 + k * EP * LP + i * LP + j;
+                        float data_ = src[dataIndx];
+                        int qval = static_cast<int32_t>(roundf(data_ * quant_scale + quant_bias));
+#ifdef MNN_USE_SSE
+                        ((uint8_t*)dst)[dataIndx] = qval + 128;
+#else
+                        dst[dataIndx] = ALIMIN(int8Max, ALIMAX(int8Min, qval));
+#endif
+                    }
+                }
+            }
+        }
+    }
+}
+
+static void MNNAsyQuantInfo_FP32(float* scale, float* bias, float* qscale, float* qbias, float* dstMin, float* dstMax, const float* src, const size_t* info) {
+    auto blockNum = info[0];
+    auto plane = info[1];        // real area for data
+    auto innerSide = info[2];    // Innermost data layout, may come from backend's pack or gemmint8 units' SRC_UNIT
+    auto DST_XUNIT = info[3];
+    auto kernelsize = info[5];
+    auto blockLU = info[6];
+    auto stride0 = blockNum * blockLU * plane * innerSide;
+    auto stride1 = blockLU * plane * innerSide;
+    
+    if (info[7] == 1) { // scale&bias:[1]
+        float maxval, minval;
+        MNNCountMaxMinValue(src, &minval, &maxval, kernelsize * stride0);
+        if (info[8] == 1 && (maxval -minval) > 1e-7) {
+            if (minval > 0.f) {
+                minval = 0;
+            } else if (maxval < 0.f){
+                maxval = 0;
+            }
+        }
+        auto range = maxval - minval;
+        if (range <= 1e-7) {
+            scale[0] = 0.f;
+            qscale[0] = 0.f;
+            qbias[0] = 0.f;
+            bias[0] = maxval;
+        } else {
+            qscale[0] = 255.f / range;
+            scale[0] = range / 255.f;
+            qbias[0] = roundf(-minval * 255.f / range)- 128.f;
+            bias[0] = -qbias[0] * scale[0];
+        }
+        return;
+    }
+
+    // input              : [kernelsize, blockNum, blockLU, plane, pack]
+    // dequant scale/bias : [EU, blockNum, step], step=ALIMIN(step, EP), EU=UP_DIV(plane, EP)
+    // quant scale/bias   : [blockNum, plane]
+#ifdef __aarch64__
+    if (DST_XUNIT == 12 && innerSide == 4) { // Arm82,fp32: SRC_UNIT=4, core->pack=4
+        // max,min shape: [blockNum, EP]
+        for (int i = 0; i < kernelsize; ++i) {
+            MNNLocalMinMaxFP32_Pack4(dstMin, dstMax, src + i * stride0, blockNum, blockLU, plane, innerSide, i);
+        }
+        // scale, bias
+        bool success = MNNAsyLocalQuantInfo_EP12_FP32(scale, bias, qscale, qbias, dstMin, dstMax, info);
+        if (!success) {
+            MNN_ERROR("Call error for:MNNAsyLocalQuantInfo_EP12\n");
+            return;
+        }
+        return;
+    }
+    if (DST_XUNIT == 10) { // Arm86,fp32: SRC_UNIT=8,core->pack=4
+        // max,min shape: [blockNum, EP]
+        if (innerSide == 4) {
+            for (int i = 0; i < kernelsize; ++i) {
+                MNNLocalMinMaxFP32_Pack4(dstMin, dstMax, src + i * stride0, blockNum, blockLU, plane, innerSide, i);
+            }
+        }
+        if (innerSide == 8) {
+            for (int i = 0; i < kernelsize; ++i) {
+                MNNLocalMinMaxFP32_Pack8(dstMin, dstMax, src + i * stride0, blockNum, blockLU, plane, innerSide, i);
+            }
+        }
+        // scale, bias
+        bool success = MNNAsyLocalQuantInfo_EP10_FP32(scale, bias, qscale, qbias, dstMin, dstMax, info);
+        if (!success) {
+            MNN_ERROR("Call error for:MNNAsyLocalQuantInfo_EP10\n");
+            return;
+        }
+        return;
+    }
+#endif
+    // max,min shape: [blockNum, plane]
+    for (int i = 0; i < plane; ++i) {
+        for (int bk = 0; bk < blockNum; ++bk) {
+            auto idx0 = i *innerSide + bk * stride1;
+            float max_ = src[idx0];
+            float min_ = max_;
+            for (int n = 0; n < kernelsize; ++n) {
+                for (int k = 0; k < blockLU; ++k) {
+                    for (int j = 0; j < innerSide; ++j) {
+                        auto dataIndx = idx0 + n * stride0 + k * (plane * innerSide) + j;
+                        float data_ = src[dataIndx];
+                        max_ = ALIMAX(max_, data_);
+                        min_ = ALIMIN(min_, data_);
+                    }
+                }
+            }
+            auto sindx = i + bk * plane;
+            dstMin[sindx] = min_;
+            dstMax[sindx] = max_;
+        }
+    }
+    // scale, bias
+    for (int i = 0; i < plane; ++i) {
+        auto step = ALIMIN(DST_XUNIT, plane - (i / DST_XUNIT) * DST_XUNIT);
+        auto sind0 = (i / DST_XUNIT) * DST_XUNIT * blockNum + (i % DST_XUNIT);
+        for (int k = 0; k < blockNum; ++k) {
+            auto sind = sind0 + k * step;
+            auto qind = i + k * plane;
+            auto max_ = dstMax[qind];
+            auto min_ = dstMin[qind];
+            if (fabs(max_ - min_) < 1e-7) {
+                qscale[qind] = 0.f;
+                qbias[qind] = 0.f;
+                scale[sind] = 0.f;
+                bias[sind] = max_;
+            } else {
+                qscale[qind] = 255.f / (max_ - min_);
+                qbias[qind] = roundf(-min_ * 255.f / (max_ - min_)) - 128.0f;
+                scale[sind] = (max_ - min_) / 255.f;
+#ifndef MNN_USE_SSE
+                bias[sind] = min_ + (128.f / 255.f) * (max_ - min_);
+#else
+                bias[sind] = min_;
+#endif
+            }
+        }
+    }
+}
 #endif // MNN_LOW_MEMORY
 
 static void MNNReorderWeightInt4(uint8_t* dest, const uint8_t* source, int32_t* shape, size_t size, float* kernelsum) {
@@ -298,22 +481,22 @@ static void MNNReorderWeightInt4(uint8_t* dest, const uint8_t* source, int32_t* 
     auto hp       = shape[3];
     auto lp       = shape[4];
     auto ic       = blocknum * lu * lp;
-    auto stride0  = hu * hp * lu * lp;
+    auto stride0  = blocknum * hp * lu * lp;
     auto stride1  = lu * hp * lp;
     auto stride2  = hp * lp;
-    // [oc,ic]->[blocknum,hu,lu,hp,lp]
+    // [oc,ic]->[hu,blocknum,lu,hp,lp]
     for (int i = 0; i < hu; ++i) {
         for (int k = 0; k < hp; ++k) {
             for (int bl = 0; bl < blocknum; ++bl) {
                 for (int j = 0; j < lu; ++j) {
                     int srcindex = (i * hp + k) * ic + bl * (lu * lp) + j * lp;
-                    int dstindex = bl * stride0 + i * stride1 + j * stride2 + k * lp;
+                    int dstindex = i * stride0 + bl * stride1 + j * stride2 + k * lp;
                     memcpy(dest + dstindex, source + srcindex, lp);
                 }
             }
         }
     }
-    // [blocknum,hu,lu,hp,lp] address [hp,lp] for int4
+    // [hu,blocknum,lu,hp,lp] address [hp,lp] for int4
     auto inside = lp * hp;
     auto outside = blocknum * hu;
     std::vector<uint8_t> buffer(inside);
@@ -345,7 +528,7 @@ static void MNNReorderWeightInt4Arm86(uint8_t* dest, const uint8_t* source, int3
     auto hp       = shape[3];
     auto lp       = shape[4];
     auto ic       = blocknum *lu * lp;
-    auto stride0  = hu * hp * lu * lp;
+    auto stride0  = blocknum * hp * lu * lp;
     auto stride1  = lu * hp * lp;
     auto stride2  = hp * lp;
     auto dstPtr   = (int32_t*)dest;
@@ -359,14 +542,14 @@ static void MNNReorderWeightInt4Arm86(uint8_t* dest, const uint8_t* source, int3
                 while (j + 7 < lu) {
                     auto srcindex0 = ((i * hp + k) * ic + bl * (lu * lp) + j * lp) / unitpacksize;
                     auto srcindex1 = ((i * hp + k) * ic + bl * (lu * lp) + (j + 4) * lp) / unitpacksize;
-                    auto dstindex0 = (bl * stride0 + i * stride1 + j * stride2 + k * lp) / unitpacksize;
-                    auto dstindex1 = (bl * stride0 + i * stride1 + (j + 1) * stride2 + k * lp) / unitpacksize;
-                    auto dstindex2 = (bl * stride0 + i * stride1 + (j + 2) * stride2 + k * lp) / unitpacksize;
-                    auto dstindex3 = (bl * stride0 + i * stride1 + (j + 3) * stride2 + k * lp) / unitpacksize;
-                    auto dstindex4 = (bl * stride0 + i * stride1 + (j + 4) * stride2 + k * lp) / unitpacksize;
-                    auto dstindex5 = (bl * stride0 + i * stride1 + (j + 5) * stride2 + k * lp) / unitpacksize;
-                    auto dstindex6 = (bl * stride0 + i * stride1 + (j + 6) * stride2 + k * lp) / unitpacksize;
-                    auto dstindex7 = (bl * stride0 + i * stride1 + (j + 7) * stride2 + k * lp) / unitpacksize;
+                    auto dstindex0 = (bl * stride1 + i * stride0 + j * stride2 + k * lp) / unitpacksize;
+                    auto dstindex1 = (bl * stride1 + i * stride0 + (j + 1) * stride2 + k * lp) / unitpacksize;
+                    auto dstindex2 = (bl * stride1 + i * stride0 + (j + 2) * stride2 + k * lp) / unitpacksize;
+                    auto dstindex3 = (bl * stride1 + i * stride0 + (j + 3) * stride2 + k * lp) / unitpacksize;
+                    auto dstindex4 = (bl * stride1 + i * stride0 + (j + 4) * stride2 + k * lp) / unitpacksize;
+                    auto dstindex5 = (bl * stride1 + i * stride0 + (j + 5) * stride2 + k * lp) / unitpacksize;
+                    auto dstindex6 = (bl * stride1 + i * stride0 + (j + 6) * stride2 + k * lp) / unitpacksize;
+                    auto dstindex7 = (bl * stride1 + i * stride0 + (j + 7) * stride2 + k * lp) / unitpacksize;
                     j += 8;
                     auto srcdata0 = vld1q_s32(srcPtr + srcindex0);
                     auto srcdata1 = vld1q_s32(srcPtr + srcindex1);
@@ -381,10 +564,10 @@ static void MNNReorderWeightInt4Arm86(uint8_t* dest, const uint8_t* source, int3
                 }
                 while (j + 3 < lu) {
                     auto srcindex = ((i * hp + k) * ic + bl * (lu * lp) + j * lp) / unitpacksize;
-                    auto dstindex0 = (bl * stride0 + i * stride1 + j * stride2 + k * lp) / unitpacksize;
-                    auto dstindex1 = (bl * stride0 + i * stride1 + (j + 1) * stride2 + k * lp) / unitpacksize;
-                    auto dstindex2 = (bl * stride0 + i * stride1 + (j + 2) * stride2 + k * lp) / unitpacksize;
-                    auto dstindex3 = (bl * stride0 + i * stride1 + (j + 3) * stride2 + k * lp) / unitpacksize;
+                    auto dstindex0 = (bl * stride1 + i * stride0 + j * stride2 + k * lp) / unitpacksize;
+                    auto dstindex1 = (bl * stride1 + i * stride0 + (j + 1) * stride2 + k * lp) / unitpacksize;
+                    auto dstindex2 = (bl * stride1 + i * stride0 + (j + 2) * stride2 + k * lp) / unitpacksize;
+                    auto dstindex3 = (bl * stride1 + i * stride0 + (j + 3) * stride2 + k * lp) / unitpacksize;
                     j += 4;
                     auto srcdata = vld1q_s32(srcPtr + srcindex);
                     vst1q_lane_s32(dstPtr + dstindex0, srcdata, 0);
@@ -394,7 +577,7 @@ static void MNNReorderWeightInt4Arm86(uint8_t* dest, const uint8_t* source, int3
                 }
                 while (j < lu) {
                     auto srcindex = ((i * hp + k) * ic + bl * (lu * lp) + j * lp) / unitpacksize;
-                    auto dstindex = (bl * stride0 + i * stride1 + j * stride2 + k * lp) / unitpacksize;
+                    auto dstindex = (bl * stride1+ i * stride0 + j * stride2 + k * lp) / unitpacksize;
                     dstPtr[dstindex] = srcPtr[srcindex];
                     j++;
                 }
@@ -406,13 +589,14 @@ static void MNNReorderWeightInt4Arm86(uint8_t* dest, const uint8_t* source, int3
 
 static void MNNReorderWeightInt4Arm82(uint8_t* dest, const uint8_t* source, int32_t* shape, size_t size, float* kernelsum) {
     MNN_ASSERT(size > 4);
+    // dst shape: [hu, blocknum, kernelCount, lu, hp, lp], kernelCount=1 in this case
     auto blocknum = shape[0];
     auto hu       = shape[1];
     auto lu       = shape[2];
     auto hp       = shape[3];
     auto lp       = shape[4];
     auto ic       = blocknum *lu * lp;
-    auto stride0  = hu * hp * lu * lp;
+    auto stride0  = blocknum * hp * lu * lp;
     auto stride1  = lu * hp * lp;
     auto stride2  = hp * lp;
     auto dstPtr   = (int16_t*)dest;
@@ -424,14 +608,14 @@ static void MNNReorderWeightInt4Arm82(uint8_t* dest, const uint8_t* source, int3
                 int j = 0;
                 while (j + 7 < lu) {
                     auto srcindex = ((i * hp + k) * ic + bl * (lu * lp) + j * lp) / unitpacksize;
-                    auto dstindex0 = (bl * stride0 + i * stride1 + j * stride2 + k * lp) / unitpacksize;
-                    auto dstindex1 = (bl * stride0 + i * stride1 + (j + 1) * stride2 + k * lp) / unitpacksize;
-                    auto dstindex2 = (bl * stride0 + i * stride1 + (j + 2) * stride2 + k * lp) / unitpacksize;
-                    auto dstindex3 = (bl * stride0 + i * stride1 + (j + 3) * stride2 + k * lp) / unitpacksize;
-                    auto dstindex4 = (bl * stride0 + i * stride1 + (j + 4) * stride2 + k * lp) / unitpacksize;
-                    auto dstindex5 = (bl * stride0 + i * stride1 + (j + 5) * stride2 + k * lp) / unitpacksize;
-                    auto dstindex6 = (bl * stride0 + i * stride1 + (j + 6) * stride2 + k * lp) / unitpacksize;
-                    auto dstindex7 = (bl * stride0 + i * stride1 + (j + 7) * stride2 + k * lp) / unitpacksize;
+                    auto dstindex0 = (bl * stride1 + i * stride0 + j * stride2 + k * lp) / unitpacksize;
+                    auto dstindex1 = (bl * stride1 + i * stride0 + (j + 1) * stride2 + k * lp) / unitpacksize;
+                    auto dstindex2 = (bl * stride1 + i * stride0 + (j + 2) * stride2 + k * lp) / unitpacksize;
+                    auto dstindex3 = (bl * stride1 + i * stride0 + (j + 3) * stride2 + k * lp) / unitpacksize;
+                    auto dstindex4 = (bl * stride1 + i * stride0 + (j + 4) * stride2 + k * lp) / unitpacksize;
+                    auto dstindex5 = (bl * stride1 + i * stride0 + (j + 5) * stride2 + k * lp) / unitpacksize;
+                    auto dstindex6 = (bl * stride1 + i * stride0 + (j + 6) * stride2 + k * lp) / unitpacksize;
+                    auto dstindex7 = (bl * stride1 + i * stride0 + (j + 7) * stride2 + k * lp) / unitpacksize;
                     j += 8;
                     auto srcdata = vld1q_s16(srcPtr + srcindex);
                     vst1q_lane_s16(dstPtr + dstindex0, srcdata, 0);
@@ -445,10 +629,10 @@ static void MNNReorderWeightInt4Arm82(uint8_t* dest, const uint8_t* source, int3
                 }
                 while (j + 3 < lu) {
                     auto srcindex = ((i * hp + k) * ic + bl * (lu * lp) + j * lp) / unitpacksize;
-                    auto dstindex0 = (bl * stride0 + i * stride1 + j * stride2 + k * lp) / unitpacksize;
-                    auto dstindex1 = (bl * stride0 + i * stride1 + (j + 1) * stride2 + k * lp) / unitpacksize;
-                    auto dstindex2 = (bl * stride0 + i * stride1 + (j + 2) * stride2 + k * lp) / unitpacksize;
-                    auto dstindex3 = (bl * stride0 + i * stride1 + (j + 3) * stride2 + k * lp) / unitpacksize;
+                    auto dstindex0 = (bl * stride1 + i * stride0 + j * stride2 + k * lp) / unitpacksize;
+                    auto dstindex1 = (bl * stride1 + i * stride0 + (j + 1) * stride2 + k * lp) / unitpacksize;
+                    auto dstindex2 = (bl * stride1 + i * stride0 + (j + 2) * stride2 + k * lp) / unitpacksize;
+                    auto dstindex3 = (bl * stride1 + i * stride0 + (j + 3) * stride2 + k * lp) / unitpacksize;
                     j += 4;
                     auto srcdata = vld1_s16(srcPtr + srcindex);
                     vst1_lane_s16(dstPtr + dstindex0, srcdata, 0);
@@ -460,7 +644,7 @@ static void MNNReorderWeightInt4Arm82(uint8_t* dest, const uint8_t* source, int3
                 while (j < lu)
                 {
                     auto srcindex = ((i * hp + k) * ic + bl * (lu * lp) + j * lp) / 2;
-                    auto dstindex = (bl * stride0 + i * stride1 + j * stride2 + k * lp) / 2;
+                    auto dstindex = (bl * stride1 + i * stride0 + j * stride2 + k * lp) / 2;
                     dstPtr[dstindex] = srcPtr[srcindex];
                     j++;
                 }
@@ -501,12 +685,13 @@ static void MNNSumByAxisLForMatmul_A(float* dest, int8_t* source, const float* s
     auto blockNum = sumParams.blockNum;
     auto EP = sumParams.DST_XUNIT;
     auto LP = sumParams.SRC_UNIT;
-    auto col_buffer_unit_size = sumParams.col_buffer_unit_size;
+    auto col_buffer_unit_size = sumParams.unitColBufferSize;
     auto oneScale = sumParams.oneScale;
     auto LU = sumParams.LU;
     auto valid = sumParams.valid;
     auto kernelxy = sumParams.kernelxy;
     auto blockSizeQuad = LU / blockNum;
+    auto inputBlockQuant = sumParams.inputBlock;
     auto lastL = LP;
     if (valid) {
         lastL = valid;
@@ -514,12 +699,15 @@ static void MNNSumByAxisLForMatmul_A(float* dest, int8_t* source, const float* s
     float singlescale = scale[0];
     do {
         int step = ALIMIN(EP, realDstCount);
+        int scaleOffset = inputBlockQuant ? (step * blockNum) : step;
 
         for (int k = 0; k < blockNum; ++k) {
             const auto src_x = srcInt8 + k * (step * LP * blockSizeQuad * kernelxy);
             for (int w = 0; w < step; ++w) {
                 float dequantScale = singlescale;
-                if (oneScale == 0) {
+                if (oneScale == 0 && inputBlockQuant) {
+                    dequantScale = scalePtr[w + k * step];
+                } else if (oneScale == 0) {
                     dequantScale = scalePtr[w];
                 }
                 int sumint32 = 0;
@@ -536,7 +724,7 @@ static void MNNSumByAxisLForMatmul_A(float* dest, int8_t* source, const float* s
                 dest[w + k * step] = dequantScale * static_cast<float>(sumint32);
             }
         }
-        scalePtr += step;
+        scalePtr += scaleOffset;
 
         dest += (step * blockNum);
         realDstCount -= step;
@@ -942,21 +1130,6 @@ void MNNAccumulateSequenceNumber (float* dst, const float* src, int size) {
         src += 1;
     }
     *dst = sum;
-}
-
-void MNNCountMaxMinValue(float* source, float* minVal, float* maxVal, size_t size) {
-    int pack = 4;
-    float max_ = source[0], min_ = source[0];
-    for (int i = 1; i < size; ++i) {
-        if (max_ < source[i]) {
-            max_ = source[i];
-        }
-        if (min_ > source[i]) {
-            min_ = source[i];
-        }
-    }
-    *minVal = min_;
-    *maxVal = max_;
 }
 
 #ifndef MNN_USE_NEON
@@ -3585,14 +3758,13 @@ void MNNCoreFunctionInit() {
     gCoreFunction->MNNPackedMatMulRemain_int8 = MNNPackedMatMulRemain_int8;
 #endif
 #ifdef MNN_LOW_MEMORY
-    // Dynamic Quant Helper Functions
-    gCoreFunction->MNNAbsMax = MNNAbsMaxFP32;
-    gCoreFunction->MNNDynamicQuant = MNNDynamicQuantFP32;
-    gCoreFunction->MNNQuantScale = MNNQuantScaleFP32;
-    gCoreFunction->MNNQuantSum = MNNQuantSumFP32;
-    // Dynamic Quan Bias
+    gCoreFunction->MNNAbsMax = MNNAbsMaxFP32;                      // abs max value for [icDiv4,plane,4] -> abs max:[plane]
+    gCoreFunction->MNNDynamicQuant = MNNDynamicQuantFP32;          // symmetric 'batch' quant for [icDiv4,plane,4]
+    gCoreFunction->MNNAsyQuantFunc = MNNAsyQuantFunc;              // asymmetric 'batch' quant for [icDiv4,plane,4]
+    gCoreFunction->MNNAsyQuantInfo = MNNAsyQuantInfo_FP32;              // asymmetric quant/dequant scale&bias for [icDiv4,plane,4] -> scale&bias:[blockNum,plane]
+    gCoreFunction->MNNQuantScale = MNNQuantScaleFP32;              // symmetric quant/dequant scale&bias for [icDiv4,plane,4] -> scale&bias:[plane]
+    gCoreFunction->MNNGeneralIm2Col = generalIm2col;               // Im2Col based on float data -> output:[eU,kernelsize,lU,ep,lp]
     gCoreFunction->MNNDynamicUpdateConvBiasScale = MNNDynamicUpdateConvBiasScale;
-    gCoreFunction->MNNGeneralIm2Col = generalIm2col;
 #ifdef __aarch64__
     if (gCoreFunction->supportSDot) {
         gCoreFunction->MNNGeneralIm2Col = MNNGeneralIm2col_Fp32Arm82;

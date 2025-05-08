@@ -34,18 +34,11 @@
     fdiv \s3\().4s, \s3\().4s, \z3\().4s 
 .endm
 
-.macro SUB4 s0, s1, s2, s3, z0, z1, z2, z3
-    fsub \s0\().4s, \s0\().4s, \z0\().4s 
-    fsub \s1\().4s, \s1\().4s, \z1\().4s 
-    fsub \s2\().4s, \s2\().4s, \z2\().4s 
-    fsub \s3\().4s, \s3\().4s, \z3\().4s 
-.endm
-
-.macro Float32ToHalf s0, s1, s2, s3, d0, d1
-    fcvtn \d0\().4h,  \s0\().4s
-    fcvtn2 \d0\().8h, \s1\().4s
-    fcvtn \d1\().4h,  \s2\().4s
-    fcvtn2 \d1\().8h, \s3\().4s
+.macro ADD4 s0, s1, s2, s3, z0, z1, z2, z3
+    fadd \s0\().4s, \s0\().4s, \z0\().4s
+    fadd \s1\().4s, \s1\().4s, \z1\().4s
+    fadd \s2\().4s, \s2\().4s, \z2\().4s
+    fadd \s3\().4s, \s3\().4s, \z3\().4s
 .endm
 
 /*
@@ -80,12 +73,12 @@ MUL_CONSTANT v16, v17, v18, v19, v30 // w_sum * x_zero
 MUL_CONSTANT v20, v21, v22, v23, v30 // w_sum * x_zero
 MUL_CONSTANT v24, v25, v26, v27, v30 // w_sum * x_zero
 
-SUB4 v0, v1, v2, v3, v16, v17, v18, v19
-SUB4 v4, v5, v6, v7, v20, v21, v22, v23
+ADD4 v0, v1, v2, v3, v16, v17, v18, v19
+ADD4 v4, v5, v6, v7, v20, v21, v22, v23
 ld1 {v16.4s, v17.4s, v18.4s, v19.4s}, [x2], #64
-SUB4 v8, v9, v10, v11, v24, v25, v26, v27
+ADD4 v8, v9, v10, v11, v24, v25, v26, v27
 MUL_CONSTANT v16, v17, v18, v19, v30 // w_sum * x_zero
-SUB4 v12, v13, v14, v15, v16, v17, v18, v19
+ADD4 v12, v13, v14, v15, v16, v17, v18, v19
 
 st1 {v0.4s, v1.4s, v2.4s, v3.4s}, [x0], #64 // bias float
 st1 {v4.4s, v5.4s, v6.4s, v7.4s}, [x0], #64
@@ -105,8 +98,8 @@ sub x4, x4, #8
 
 MUL_CONSTANT v16, v17, v18, v19, v30 // w_sum * x_zero
 MUL_CONSTANT v20, v21, v22, v23, v30 // w_sum * x_zero
-SUB4 v0, v1, v2, v3, v16, v17, v18, v19
-SUB4 v4, v5, v6, v7, v20, v21, v22, v23
+ADD4 v0, v1, v2, v3, v16, v17, v18, v19
+ADD4 v4, v5, v6, v7, v20, v21, v22, v23
 st1 {v0.4s, v1.4s, v2.4s, v3.4s}, [x0], #64 // bias float
 st1 {v4.4s, v5.4s, v6.4s, v7.4s}, [x0], #64
 b BIAS_L8
@@ -120,7 +113,7 @@ ld1 {v8.4s, v9.4s, v10.4s, v11.4s}, [x2], #64 // weightKernelSum
 sub x4, x4, #4
 
 MUL_CONSTANT v8, v9, v10, v11, v30 // w_sum * x_zero
-SUB4 v0, v1, v2, v3, v8, v9, v10, v11
+ADD4 v0, v1, v2, v3, v8, v9, v10, v11
 st1 {v0.4s, v1.4s, v2.4s, v3.4s}, [x0], #64
 b BIAS_L4
 
@@ -131,7 +124,7 @@ ld1 {v0.4s}, [x1], #16 // oldbias
 ld1 {v4.4s}, [x2], #16 // weightKernelSum
 sub x4, x4, #1
 fmul v4.4s, v4.4s, v30.4s // w_sum * x_zero
-fsub v0.4s, v0.4s, v4.4s // oldbias - w_sum * x_zero
+fadd v0.4s, v0.4s, v4.4s // oldbias + w_sum * x_zero
 st1 {v0.4s}, [x0], #16
 b BIAS_L1
 

@@ -95,6 +95,9 @@ bool Diffusion::load() {
     } else if(mMemoryMode == 2) {
         runtime_manager_->setHint(Interpreter::WINOGRAD_MEMORY_LEVEL, 1);
     }
+    if(config.type == MNN_FORWARD_CPU) {
+        runtime_manager_->setHint(Interpreter::DYNAMIC_QUANT_OPTIONS, 2);
+    }
     mLatentVar = _Input({1, 4, 64, 64}, NCHW, halide_type_of<float>());
     mPromptVar = _Input({2, mMaxTextLen}, NCHW, halide_type_of<int>());
     mTimestepVar = _Input({1}, NCHW, halide_type_of<int>());

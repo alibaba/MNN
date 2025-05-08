@@ -526,9 +526,9 @@ ErrorCode ConvInt8Winograd::WinoExecution::onExecute(const std::vector<Tensor *>
             QuanPostTreatParameters quanParam;
             quanParam.useInt8 = 0;
             quanParam.srcKernelSum = xkernelSum.data();
-            quanParam.weightQuanBias = wKernelSum.data();
+            quanParam.weightKernelSum = wKernelSum.data();
             quanParam.fp32minmax = reluThred.data();
-            quanParam.extraScale = nullptr;
+            quanParam.inputScale = nullptr;
 
             for (int tIndex = (int)tId; tIndex < tileCount; tIndex += threadNumber) {
                 int xIndex  = (int)tIndex * DST_XUNIT;
@@ -559,7 +559,7 @@ ErrorCode ConvInt8Winograd::WinoExecution::onExecute(const std::vector<Tensor *>
                     
                     quanParam.biasFloat = (mWinoResource->offsets->host<float>() + i * mWinoResource->offsets->stride(0));
                     quanParam.scale = mWinoResource->scales->host<float>() + i * dc_4 * pack;
-                    quanParam.extraScale = nullptr;
+                    quanParam.inputScale = nullptr;
                     quanParam.bias = nullptr;
                     quanParam.blockNum = 1;
                     gemmFunc((int8_t*)_dstFloatPtr, _srcInt8Ptr, _weightInt8Ptr, mTempInputBuffer->length(2), xC * pack * sizeof(float), dc_4, &quanParam, DST_XUNIT);

@@ -197,6 +197,12 @@ ErrorCode IdstConvolutionInt8::onExecute(const std::vector<Tensor*>& inputs, con
     quanParam.fp32minmax = fp32minmax;
     std::vector<float> fakeSrcKernleSum(DST_XUNIT, 0.f);
     quanParam.srcKernelSum = fakeSrcKernleSum.data();
+    std::vector<float> fakeInputScale(DST_XUNIT, 1.f);
+    quanParam.inputScale = fakeInputScale.data();
+    std::vector<float> fakeWeightKernelsSum(ocC4 * PackUnit, 0.f);
+    quanParam.weightKernelSum = fakeWeightKernelsSum.data();
+    quanParam.inputBias = nullptr;
+    quanParam.blockNum = 1;
 
     // MNN_PRINT("%s, %d, %d, %d,%d->%d,%d\n", layer->layer.layerId, layer->kernelSize[0], layer->kernelSize[1],
     // input->d1, input->d2, output->d1, output->d2);

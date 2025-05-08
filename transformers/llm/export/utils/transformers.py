@@ -29,6 +29,8 @@ class Attention(torch.nn.Module):
     def __init__(self, attn, layer_id, config):
         super().__init__()
         self.export_fused_attn = False
+        if config is None: return
+        self.config = config
         self.fused_attn = FusedAttention(config.hidden_size, f'/layers.{layer_id}/self_attn/FusedAttention')
         self.layer_id = layer_id
         self.hidden_size = config.hidden_size
@@ -121,9 +123,10 @@ class Attention(torch.nn.Module):
             kv_seq_len += past_key_value[0].shape[1]
 
         # rope
-        cos, sin = rotary_pos_emb[0], rotary_pos_emb[1]
-        query_states = self.rotary.apply_rotary_pos(query_states, cos, sin)
-        key_states = self.rotary.apply_rotary_pos(key_states, cos, sin)
+        if self.rotary is not None:
+            cos, sin = rotary_pos_emb[0], rotary_pos_emb[1]
+            query_states = self.rotary.apply_rotary_pos(query_states, cos, sin)
+            key_states = self.rotary.apply_rotary_pos(key_states, cos, sin)
 
         if self.export_fused_attn:
             attn_output = self.fused_attn(query_states, key_states, value_states, attention_mask)
@@ -170,6 +173,7 @@ def rotate_half(x):
 class Rotary(torch.nn.Module):
     def __init__(self, config):
         super().__init__()
+        if config is None: return
         self.rope_theta = config.rope_theta
         self.rope_ratio = config.rope_ratio
         self.rope_theta *= self.rope_ratio
@@ -180,13 +184,33 @@ class Rotary(torch.nn.Module):
         if self.model_type == 'chatglm':
             self.rotary_dim = config.head_dim // 2
         self.theta = 1.0 / (self.rope_theta ** (torch.arange(0, self.rotary_dim, 2, dtype=torch.float32) / self.rotary_dim))
+        if hasattr(config, 'rope_scaling') and config.rope_scaling is not None:
+            self.mrope_section = config.rope_scaling['mrope_section']
+            self.theta_sections = self.theta.unsqueeze(0).split(self.mrope_section, dim=-1)
+        else:
+            self.mrope_section = None
+            self.theta_sections = None
 
     def forward(self, position_ids):
+        if self.theta_sections is not None:
+            return self.mrope_forward(position_ids)
         position_ids = position_ids.float().reshape(-1, 1)
         idx_theta = position_ids * self.theta
         rotary_pos_emb = torch.stack([torch.cos(idx_theta), torch.sin(idx_theta)])
         if self.model_type != 'chatglm2':
             rotary_pos_emb = torch.cat((rotary_pos_emb, rotary_pos_emb), dim=-1)
+        rotary_pos_emb = rotary_pos_emb.unsqueeze(2).unsqueeze(1)
+        return rotary_pos_emb
+
+    def mrope_forward(self, position_ids):
+        position_ids = position_ids.float().unsqueeze(-1)
+        idx_theta = torch.concat([
+            position_ids[0] * self.theta_sections[0],
+            position_ids[1] * self.theta_sections[1],
+            position_ids[2] * self.theta_sections[2]
+        ], dim=-1)
+        rotary_pos_emb = torch.stack([torch.cos(idx_theta), torch.sin(idx_theta)])
+        rotary_pos_emb = torch.cat((rotary_pos_emb, rotary_pos_emb), dim=-1)
         rotary_pos_emb = rotary_pos_emb.unsqueeze(2).unsqueeze(1)
         return rotary_pos_emb
 
@@ -325,7 +349,6 @@ class Lm(torch.nn.Module):
         self.final_layernorm = final_layernorm_
         self.lm = lm_
         self.hidden_size = config.hidden_size
-        self.ppl = config.args.ppl
 
     def forward(self, hidden_states, logits_index: int = -1):
         hidden_states = hidden_states[:, logits_index:, :]

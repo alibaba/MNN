@@ -62,7 +62,6 @@ public:
         std::shared_ptr<Tensor> mWeightInt8;       // PTQ's   and  DynamicQ's weight
         std::shared_ptr<Tensor> mOriginBias;       // PTQ's   and  DynamicQ's bias
         std::shared_ptr<Tensor> mOriginScale;      // PTQ's scale + bias, DynamicQ's alpha + zero;
-        std::shared_ptr<Tensor> mWeightQuantZero;  // PTQ's  zero
         std::shared_ptr<Tensor> mWeightKernelSum;  // PTQ's   and  DynamicQ's weight kernel sum;
         std::vector<float> mReluThreshold;
         // relu or relu6
@@ -82,7 +81,7 @@ public:
         int32_t mBlockNum = 1;
     };
     struct MutableResourceInt8 {
-        MutableResourceInt8(std::shared_ptr<ResourceInt8> res, Backend* backend);
+        MutableResourceInt8(std::shared_ptr<ResourceInt8> res, Backend* backend, float* scalePtr = nullptr);
         void updateInputOutputScale(std::vector<float> inputQuantInfo, std::vector<float> outputQuantInfo);
         std::shared_ptr<ResourceInt8> mResource;
         float mInputScale = 0.0f;

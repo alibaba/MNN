@@ -36,12 +36,11 @@ static void _makeResource(Backend* backend, std::shared_ptr<CPUConvolution::Reso
     auto alphaPtr = resource->mDequantize.mScaleBias->host<float>();
     auto biasPtr = reinterpret_cast<float*>(reinterpret_cast<uint8_t*>(alphaPtr) + ocUp4 * core->bytes);
     ::memset(alphaPtr, 0, 2 * ocUp4 * core->bytes);
-    auto wZero = resourceInt8->mWeightQuantZero->host<int32_t>(); // has packed to outputUp4
     auto wScale = resourceInt8->mOriginScale->host<float>();
     int h = ocUp4;
     for (int i=0; i< h; ++i) {
         alphaPtr[i] = wScale[i];
-        biasPtr[i] = (-1.f) * wZero[i] * wScale[i];
+        biasPtr[i] = wScale[i + ocUp4];
     }
 }
 
@@ -185,8 +184,8 @@ ErrorCode GemmInt8Executor::onExecute(const std::vector<Tensor *> &inputs, const
 
     quanParam.useInt8 = 0; // Save result as float data type.
     quanParam.biasFloat = reinterpret_cast<float*>(mQuantBias.data());
-    quanParam.weightQuanBias = mKernelSum.data();
-    quanParam.extraScale = nullptr;
+    quanParam.weightKernelSum = mKernelSum.data();
+    quanParam.inputScale = nullptr;
     float dequantScale = mMutableResource.mResource->mInputScale;
 
     SumByAxisParams sumParams;

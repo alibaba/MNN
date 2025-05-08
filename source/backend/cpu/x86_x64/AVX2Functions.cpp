@@ -53,13 +53,16 @@ bool AVX2Functions::init(int cpuFlags) {
 #ifdef MNN_LOW_MEMORY
     coreFunction->MNNAbsMax = _AVX_MNNAbsMaxFP32;
     coreFunction->MNNDynamicQuant = _AVX_MNNDynamicQuant;
+    coreFunction->MNNAsyQuantFunc = _AVX_MNNAsyQuantFunc;
+    coreFunction->MNNAsyQuantInfo = _AVX_MNNAsyQuantInfo;
 #endif
     coreFunction->MNNPackC4ForMatMul_A  = _AVX_MNNPackC4ForMatMul_A;
     coreFunction->MNNPackForMatMul_B    = _AVX_MNNPackForMatMul_B;
     coreFunction->MNNComputeMatMulForE_1 = _AVX_MNNComputeMatMulForE_1;
     coreFunction->MNNComputeMatMulForH_1 = _AVX_MNNComputeMatMulForH_1;
     // Dynamic Quant
-    coreFunction->MNNCountMaxMinValue = _AVX_MNNComputeScaleZeroScalar;
+    coreFunction->MNNCountMaxMinValue = _AVX_MNNCountMinMaxValue;
+    
 
     // For Packed Functions
     coreFunction->pack = 8;

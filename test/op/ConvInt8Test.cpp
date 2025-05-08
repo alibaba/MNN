@@ -309,7 +309,7 @@ public:
                     for (int i3 = 0; i3 < pxpy.size(); i3++) {
                         for (int i4 = 0; i4 < sxsy.size(); i4++) {
                             for (int i5 = 0; i5 < dxdy.size(); i5++) {
-                                for (int i6 = 3; i6 < iwih.size(); i6++) {
+                                for (int i6 = 0; i6 < iwih.size(); i6++) {
                                     auto res = testKernel(iwih[i6], kxky[i0], icoc[i1], pxpy[i3], sxsy[i4], dxdy[i5], 8, false, 1, batch[i2], MNN::SparseAlgo_RANDOM, 1, false);
                                     if (!res) {
                                         MNN_ERROR("kx=%d, ky=%d, iw=%d, ih=%d, overflow=false, bit=8, batch=%d, Conv info: sx=%d, sy=%d, dx=%d, dy=%d, px=%d, py=%d, ic=%d, oc=%d\n", 

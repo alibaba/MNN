@@ -1206,6 +1206,9 @@ class UnitTest(unittest.TestCase):
         x_ = x.read()
         self.assertEqualVars(mp.histogram(x, 7, (2, 4)), np.histogram(x_, 7, (2, 4)))
     def test_ndarray(self):
+        e = mp.array([])
+        e_ = np.array([])
+        self.assertEqualVar(e, e_)
         x = mp.array([[1,2],[3,4]])
         x_ = np.array([[1,2],[3,4]])
         self.assertEqual(x.all(), x_.all())

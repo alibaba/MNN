@@ -16,6 +16,5 @@ def convert(onnx_path, mnn_path, extra):
 if __name__ == '__main__':
     import sys
     extra = ""
-    if len(sys.argv) > 3:
-        extra = sys.argv[3]
+    extra = " ".join(sys.argv[3:])
     convert(sys.argv[1], sys.argv[2], extra)

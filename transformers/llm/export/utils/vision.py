@@ -1,8 +1,10 @@
 import math
 import torch
+import torch.nn.functional as F
 import numpy as np
 
 from .transformers import VisionRotary, Decoder
+from .spinner import spinner_run
 
 class Vision(torch.nn.Module):
     def __init__(self, visual, base):
@@ -27,7 +29,8 @@ class Vision(torch.nn.Module):
             'internvl_chat': InternVLVision,
             'qwen': QwenVision,
             'qwen2_vl': Qwen2Vision,
-            'qwen2_5_vl':Qwen2Vision,
+            'qwen2_5_vl':Qwen2_5Vision,
+            'qwen2_5_omni': Qwen2_5OmniVision,
             'mllama': MllamaVision
         }
         if model_type in visual_models:
@@ -148,6 +151,7 @@ class QwenVision(Vision):
         self.llm_config['vision_end'] = self.tokenizer.img_end_id
         self.llm_config['image_pad'] = self.tokenizer.img_pad_id
 
+    @spinner_run(f'export visual to ')
     def export(self, onnx_path):
         input_images = torch.randn((1, 3, self.image_size, self.image_size))
         onnx_model = f'{onnx_path}/visual.onnx'
@@ -191,7 +195,8 @@ class Qwen2Vision(Vision):
         self.merge_size = 2
         self.image_height = 420
         self.image_width = 420
-        self.image_embeds = None
+        self.image_embeds = []
+        self.image_grid_thw = []
         super().__init__(visual, base)
 
     def load(self):
@@ -202,6 +207,9 @@ class Qwen2Vision(Vision):
         self.llm_config['vision_start'] = self.vision_start_id
         self.llm_config['vision_end'] = self.vision_end_id
         self.llm_config['image_pad'] = self.image_pad_id
+        self.vision_start_token = '<|vision_start|>'
+        self.vision_end_token = '<|vision_end|>'
+        self.image_pad_token = '<|image_pad|>'
         # load model
         config = self.visual.config
         if hasattr(config, "embed_dim"):
@@ -246,14 +254,17 @@ class Qwen2Vision(Vision):
                     img_content = re.search(r'<img>(.*?)</img>', part).group(1)
                     # find <hw></hw> in image_content
                     match = re.search(r'<hw>(.*?)</hw>', img_content)
-                    img_content = img_content[:match.start()] + img_content[match.end():]
-                    hw = match.group(1).split(',')
-                    self.image_height, self.image_width = int(hw[0]), int(hw[1])
+                    if match:
+                        img_content = img_content[:match.start()] + img_content[match.end():]
+                        hw = match.group(1).split(',')
+                        self.image_height, self.image_width = int(hw[0]), int(hw[1])
                     if img_content.startswith('http://') or img_content.startswith('https://'):
                         image_obj = Image.open(requests.get(img_content, stream=True).raw)
+                    else:
+                        image_obj = Image.open(img_content)
                     img_pad_len = self.img_process(image_obj)
-                    img_pad_str = '<|image_pad|>' * img_pad_len
-                    img_str = f'<|vision_start|>{img_pad_str}<|vision_end|>'
+                    img_pad_str = self.image_pad_token * img_pad_len
+                    img_str = f'{self.vision_start_token}{img_pad_str}{self.vision_end_token}'
                     txt_prompt += img_str
                 else:
                     txt_prompt += part
@@ -262,18 +273,68 @@ class Qwen2Vision(Vision):
         input_ids = self.tokenizer(txt_prompt, return_tensors="pt")['input_ids']
         return input_ids
 
-    def forward(self, flatten_patches, position_ids, attention_mask):
-        rotary_pos_emb = self.rotary(position_ids)
-        hidden_states = self.patch_embed(flatten_patches)
-        if rotary_pos_emb.dtype != hidden_states.dtype:
-            rotary_pos_emb = rotary_pos_emb.to(hidden_states.dtype)
-        for blk in self.blocks:
-            hidden_states, _ = blk(hidden_states, rotary_pos_emb=rotary_pos_emb, attention_mask=attention_mask)
-        image_embeds = self.merger(hidden_states)
-        image_embeds = image_embeds.unsqueeze(1)
-        return image_embeds
+    def get_position_ids(self, input_ids, seq_len, token_len):
+        if token_len:
+            position_ids = torch.tensor([[seq_len - 1]] * 3, dtype=torch.int)
+            return position_ids
+        input_ids = input_ids.flatten()
+        txt_len, vision_idx, cur_idx = 0, 0, 0
+        position_ids_list = []
+        for i, token in enumerate(input_ids):
+            if token != self.image_pad_id:
+                txt_len += 1
+            if token == self.vision_start_id:
+                text_index = torch.arange(cur_idx, cur_idx + txt_len, dtype=torch.int)
+                cur_idx += txt_len
+                txt_len = 0
+                position_ids_list.append(torch.stack([text_index, text_index, text_index]))
+            elif token == self.vision_end_id:
+                t, h, w = self.image_grid_thw[vision_idx]
+                h = h // self.merge_size
+                w = w // self.merge_size
+                t_index = torch.arange(t).view(-1, 1).expand(-1, h * w).flatten()
+                h_index = torch.arange(h).view(1, -1, 1).expand(t, -1, w).flatten()
+                w_index = torch.arange(w).view(1, 1, -1).expand(t, h, -1).flatten()
+                position_ids_list.append(torch.stack([t_index, h_index, w_index]) + cur_idx)
+                cur_idx += w
+                vision_idx += 1
+        if txt_len > 0:
+            text_index = torch.arange(cur_idx, cur_idx + txt_len, dtype=torch.int)
+            position_ids_list.append(torch.stack([text_index, text_index, text_index]))
+        position_ids = torch.cat(position_ids_list, dim=1)
+        return position_ids
 
-    def images_forward(self, images):
+    def vision_position_ids(self, grid_thw):
+        pos_ids = []
+        for t, h, w in grid_thw:
+            llm_h, llm_w = h // self.merge_size, w // self.merge_size
+            # compute pos_ids
+            hpos_ids = torch.arange(h).unsqueeze(1).expand(-1, w)
+            hpos_ids = hpos_ids.reshape(llm_h, self.merge_size, llm_w, self.merge_size)
+            hpos_ids = hpos_ids.permute(0, 2, 1, 3)
+            hpos_ids = hpos_ids.flatten()
+
+            wpos_ids = torch.arange(w).unsqueeze(0).expand(h, -1)
+            wpos_ids = wpos_ids.reshape(llm_h, self.merge_size, llm_w, self.merge_size)
+            wpos_ids = wpos_ids.permute(0, 2, 1, 3)
+            wpos_ids = wpos_ids.flatten()
+            pos_ids.append(torch.stack([hpos_ids, wpos_ids]))
+        position_ids = torch.cat(pos_ids, dim=0)
+        return position_ids
+
+    def vision_attention_mask(self, grid_thw, cu_window_seqlens = None):
+        seq_len = grid_thw[:, 0] * grid_thw[:, 1] * grid_thw[:, 2]
+        if cu_window_seqlens is None:
+            cu_seqlens = torch.repeat_interleave(grid_thw[:, 1] * grid_thw[:, 2], grid_thw[:, 0]).cumsum(dim=0)
+            cu_seqlens = F.pad(cu_seqlens, (1, 0), value=0)
+        else:
+            cu_seqlens = cu_window_seqlens
+        attention_mask = torch.full([1, seq_len, seq_len], torch.finfo(torch.float32).min)
+        for i in range(1, len(cu_seqlens)):
+            attention_mask[..., cu_seqlens[i - 1] : cu_seqlens[i], cu_seqlens[i - 1] : cu_seqlens[i]] = 0
+        return attention_mask
+
+    def vision_reshape(self, images):
         images = [images] * self.temporal_patch_size
         patches = torch.concat(images, axis=0)
         _, channel, height, width = patches.shape
@@ -294,33 +355,26 @@ class Qwen2Vision(Vision):
         flatten_patches = patches.reshape(
             grid_t * grid_h * grid_w, channel * self.temporal_patch_size * self.patch_size * self.patch_size
         )
-        image_grid_thw = torch.tensor([[grid_t, grid_h, grid_w]])
-        pos_ids = []
-        for t, h, w in image_grid_thw:
-            hpos_ids = torch.arange(h).unsqueeze(1).expand(-1, w)
-            hpos_ids = hpos_ids.reshape(
-                h // self.merge_size,
-                self.merge_size,
-                w // self.merge_size,
-                self.merge_size,
-            )
-            hpos_ids = hpos_ids.permute(0, 2, 1, 3)
-            hpos_ids = hpos_ids.flatten()
+        grid_thw = torch.tensor([[grid_t, grid_h, grid_w]])
+        self.image_grid_thw.append([grid_t, grid_h, grid_w])
+        return flatten_patches, grid_thw
 
-            wpos_ids = torch.arange(w).unsqueeze(0).expand(h, -1)
-            wpos_ids = wpos_ids.reshape(
-                h // self.merge_size,
-                self.merge_size,
-                w // self.merge_size,
-                self.merge_size,
-            )
-            wpos_ids = wpos_ids.permute(0, 2, 1, 3)
-            wpos_ids = wpos_ids.flatten()
-            pos_ids.append(torch.stack([hpos_ids, wpos_ids]))
-        position_ids = torch.cat(pos_ids, dim=0)
-        seq_len = grid_t * grid_h * grid_w
-        attention_mask = torch.zeros([1, seq_len, seq_len], dtype=torch.float)
+    def images_forward(self, images):
+        flatten_patches, grid_thw = self.vision_reshape(images)
+        position_ids = self.vision_position_ids(grid_thw)
+        attention_mask = self.vision_attention_mask(grid_thw)
         return self.forward(flatten_patches, position_ids, attention_mask)
+
+    def forward(self, flatten_patches, position_ids, attention_mask):
+        rotary_pos_emb = self.rotary(position_ids)
+        hidden_states = self.patch_embed(flatten_patches)
+        if rotary_pos_emb.dtype != hidden_states.dtype:
+            rotary_pos_emb = rotary_pos_emb.to(hidden_states.dtype)
+        for blk in self.blocks:
+            hidden_states, _ = blk(hidden_states, rotary_pos_emb=rotary_pos_emb, attention_mask=attention_mask)
+        image_embeds = self.merger(hidden_states)
+        image_embeds = image_embeds.unsqueeze(1)
+        return image_embeds
 
     def smart_resize(self, height: int, width: int, factor: int = 28, min_pixels: int = 56 * 56, max_pixels: int = 14 * 14 * 4 * 1280):
         if height < factor or width < factor:
@@ -366,16 +420,18 @@ class Qwen2Vision(Vision):
         image = np.expand_dims(image, [0])
         image = image.transpose(0, 3, 1, 2)
         image = torch.from_numpy(image)
-        self.image_embeds = self.images_forward(image)
-        return self.image_embeds.shape[0]
+        image_embed = self.images_forward(image)
+        self.image_embeds.append(image_embed)
+        return image_embed.shape[0]
 
     def embed(self, input_ids, images = None, videos = None):
         input_embeds = self.embed_(input_ids)
-        if self.image_embeds is not None:
+        if self.image_embeds is not None and len(self.image_embeds) > 0:
             image_mask = (input_ids == self.image_pad_id).squeeze()
-            input_embeds[image_mask] = self.image_embeds
+            input_embeds[image_mask] = torch.concat(self.image_embeds, dim=0).to(input_embeds.dtype)
         return input_embeds
 
+    @spinner_run(f'export visual to ')
     def export(self, onnx_path):
         patch = torch.randn([900, 1176])
         posision_ids = torch.zeros([2, 900], dtype=torch.int32)
@@ -394,6 +450,164 @@ class Qwen2Vision(Vision):
                         verbose=False,
                         opset_version=15)
         return onnx_model
+
+class Qwen2_5Vision(Qwen2Vision):
+    def __init__(self, visual, base):
+        super().__init__(visual, base)
+        self.merge_unit = self.merge_size * self.merge_size
+        self.window_size = visual.window_size
+        self.fullatt_block_indexes = visual.fullatt_block_indexes
+
+    def get_window_index(self, grid_thw):
+        window_index: list = []
+        cu_window_seqlens: list = [0]
+        window_index_id = 0
+        vit_merger_window_size = self.window_size // self.merge_size // self.patch_size
+
+        for grid_t, grid_h, grid_w in grid_thw:
+            llm_grid_h, llm_grid_w = (
+                grid_h // self.merge_size,
+                grid_w // self.merge_size,
+            )
+            index = torch.arange(grid_t * llm_grid_h * llm_grid_w).reshape(grid_t, llm_grid_h, llm_grid_w)
+            pad_h = vit_merger_window_size - llm_grid_h % vit_merger_window_size
+            pad_w = vit_merger_window_size - llm_grid_w % vit_merger_window_size
+            num_windows_h = (llm_grid_h + pad_h) // vit_merger_window_size
+            num_windows_w = (llm_grid_w + pad_w) // vit_merger_window_size
+            index_padded = F.pad(index, (0, pad_w, 0, pad_h), "constant", -100)
+            index_padded = index_padded.reshape(
+                grid_t,
+                num_windows_h,
+                vit_merger_window_size,
+                num_windows_w,
+                vit_merger_window_size,
+            )
+            index_padded = index_padded.permute(0, 1, 3, 2, 4).reshape(
+                grid_t,
+                num_windows_h * num_windows_w,
+                vit_merger_window_size,
+                vit_merger_window_size,
+            )
+            seqlens = (index_padded != -100).sum([2, 3]).reshape(-1)
+            index_padded = index_padded.reshape(-1)
+            index_new = index_padded[index_padded != -100]
+            window_index.append(index_new + window_index_id)
+            cu_seqlens_tmp = seqlens.cumsum(0) * self.merge_unit + cu_window_seqlens[-1]
+            cu_window_seqlens.extend(cu_seqlens_tmp.tolist())
+            window_index_id += (grid_t * llm_grid_h * llm_grid_w).item()
+        window_index = torch.cat(window_index, dim=0)
+        return window_index, cu_window_seqlens
+
+    def images_forward(self, images):
+        flatten_patches, grid_thw = self.vision_reshape(images)
+        position_ids = self.vision_position_ids(grid_thw)
+        window_index, cu_window_seqlens = self.get_window_index(grid_thw)
+        normal_attention_mask = self.vision_attention_mask(grid_thw)
+        fullatt_attention_mask = self.vision_attention_mask(grid_thw, cu_window_seqlens)
+        attention_mask = torch.stack([normal_attention_mask, fullatt_attention_mask], dim=0)
+        return self.forward(flatten_patches, position_ids, attention_mask, window_index)
+
+    def forward(self, flatten_patches, position_ids, attention_mask, window_index):
+        hidden_states = self.patch_embed(flatten_patches)
+        seq_len, _ = hidden_states.size()
+        position_ids = position_ids.reshape(2, seq_len // self.merge_unit, self.merge_unit)
+        position_ids = position_ids[:, window_index, :]
+        position_ids = position_ids.reshape(2, seq_len)
+        rotary_pos_emb = self.rotary(position_ids)
+        if rotary_pos_emb.dtype != hidden_states.dtype:
+            rotary_pos_emb = rotary_pos_emb.to(hidden_states.dtype)
+        hidden_states = hidden_states.reshape(seq_len // self.merge_unit, self.merge_unit, -1)
+        hidden_states = hidden_states[window_index, :, :]
+        hidden_states = hidden_states.reshape(seq_len, -1)
+        for layer_num, blk in enumerate(self.blocks):
+            if layer_num in self.fullatt_block_indexes:
+                attention_mask_now = attention_mask[0]
+            else:
+                attention_mask_now = attention_mask[1]
+            hidden_states, _ = blk(hidden_states, rotary_pos_emb=rotary_pos_emb, attention_mask=attention_mask_now)
+        image_embeds = self.merger(hidden_states)
+        reverse_indices = torch.argsort(window_index)
+        image_embeds = image_embeds[reverse_indices, :]
+        image_embeds = image_embeds.unsqueeze(1)
+        return image_embeds
+
+    @spinner_run(f'export visual to ')
+    def export(self, onnx_path):
+        patch = torch.randn([400, 1176])
+        posision_ids = torch.zeros([2, 400], dtype=torch.int32)
+        attention_mask = torch.zeros([2, 1, 400, 400], dtype=torch.float)
+        window_index = torch.arange(100, dtype=torch.int32)
+        onnx_model = f'{onnx_path}/visual.onnx'
+        torch.onnx.export(self, (patch, posision_ids, attention_mask, window_index),
+                        onnx_model,
+                        input_names=['patches', 'position_ids', 'attention_mask', 'window_index'],
+                        output_names=['image_embeds'],
+                        dynamic_axes={
+                            "patches": { 0: "size" },
+                            "position_ids": { 1: "size" },
+                            "attention_mask": { 2: "size", 3: "size" },
+                            "window_index": { 0: "size" }
+                        },
+                        do_constant_folding=True,
+                        verbose=False,
+                        opset_version=15)
+        return onnx_model
+
+class Qwen2_5OmniVision(Qwen2_5Vision):
+    def __init__(self, visual, base):
+        self.quant_bit = 8
+        self.temporal_patch_size = 2
+        self.patch_size = 14
+        self.merge_size = 2
+        self.image_height = 420
+        self.image_width = 420
+        self.image_embeds = None
+        super().__init__(visual, base)
+
+    def load(self):
+        self.config = self.config.thinker_config
+        self.vision_start_id = self.config.vision_start_token_id
+        self.vision_end_id = self.config.vision_end_token_id
+        self.image_pad_id = self.config.image_token_index
+        self.llm_config['image_size'] = self.image_height
+        self.llm_config['vision_start'] = self.vision_start_id
+        self.llm_config['vision_end'] = self.vision_end_id
+        self.llm_config['image_pad'] = self.image_pad_id
+        self.vision_start_token = '<|vision_bos|>'
+        self.vision_end_token = '<|vision_eos|>'
+        self.image_pad_token = '<|IMAGE|>'
+        # load model
+        config = self.visual.config
+        if hasattr(config, "embed_dim"):
+            self.hidden_size = config.embed_dim
+        else:
+            self.hidden_size = config.hidden_size
+        self.num_attention_heads = config.num_heads
+        self.num_key_value_heads = config.num_heads
+        self.head_dim = self.hidden_size // self.num_attention_heads
+        self.rope_theta = 10000.0
+        self.rotary_dim = self.head_dim // 2
+        self.rotary = VisionRotary(self)
+        self.model_map = {
+            'decoder': {
+                'self_attn': 'attn',
+                'mlp': 'mlp',
+                'input_layernorm': 'norm1',
+                'post_attention_layernorm': 'norm2'
+            },
+            'attention': {
+                'q_proj': 'q',
+                'k_proj': 'k',
+                'v_proj': 'v',
+                'o_proj': 'proj'
+            }
+        }
+        self.patch_embed = self.visual.patch_embed
+        self.blocks = []
+        for block in self.visual.blocks.children():
+            layer_id = len(self.blocks)
+            self.blocks.append(Decoder(block, layer_id, self))
+        self.merger = self.visual.merger
 
 class MllamaVision(Vision):
     def __init__(self, visual, base):
@@ -419,6 +633,8 @@ class MllamaVision(Vision):
                     img_content = re.search(r'<img>(.*?)</img>', part).group(1)
                     if img_content.startswith('http://') or img_content.startswith('https://'):
                         self.image_objs.append(Image.open(requests.get(img_content, stream=True).raw))
+                    else:
+                        self.image_objs.append(Image.open(img_content))
                     txt_prompt += '<|image|>'
                 else:
                     txt_prompt += part

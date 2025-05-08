@@ -81,6 +81,32 @@ class ModelMapper:
         }
         self.regist('mllama', mllama_map)
 
+    def regist_qwen_omni(self):
+        omni_map = {
+            'config': {
+                'hidden_size': 'thinker_config.text_config.hidden_size',
+                'head_dim': 'thinker_config.text_config.head_dim',
+                'num_attention_heads': 'thinker_config.text_config.num_attention_heads',
+                'num_hidden_layers': 'thinker_config.text_config.num_hidden_layers',
+                'num_key_value_heads': 'thinker_config.text_config.num_key_value_heads',
+                'rope_theta': 'thinker_config.text_config.rope_theta',
+                'rope_scaling': 'thinker_config.text_config.rope_scaling'
+            },
+            'model': {
+                'lm_': 'thinker.lm_head',
+                'embed_': 'thinker.model.embed_tokens',
+                'blocks_': 'thinker.model.layers',
+                'final_layernorm_': 'thinker.model.norm',
+                'visual': 'thinker.visual',
+                'audio': 'thinker.audio_tower',
+                'talker': 'talker',
+                'token2wav': 'token2wav'
+            },
+            'decoder': self.default_decoder,
+            'attention': self.default_attention
+        }
+        self.regist('qwen2_5_omni', omni_map)
+
     def regist_qwen(self):
         qwen_map = {
             'config': {
@@ -296,7 +322,8 @@ class ModelMapper:
             'num_attention_heads': 'num_attention_heads',
             'num_hidden_layers': 'num_hidden_layers',
             'num_key_value_heads': 'num_key_value_heads',
-            'rope_theta': 'rope_theta'
+            'rope_theta': 'rope_theta',
+            'rope_scaling': 'rope_scaling'
         }
         self.defualt_model = {
             'lm_': 'lm_head',

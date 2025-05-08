@@ -1418,7 +1418,7 @@ static void MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, co
     float fp32min = 0, fp32max = 0;
     int weight_step_Z = src_depth_quad * (GEMM_INT8_UNIT * GEMM_INT8_SRC_UNIT) + 4 * 2 * GEMM_INT8_UNIT;
     int weight_step_Y = (GEMM_INT8_UNIT * GEMM_INT8_SRC_UNIT);
-    const auto srcSumPtr = post->srcKernelSum;
+    
     if (0 == post->useInt8 && post->fp32minmax) {
         fp32min = (post->fp32minmax)[0];
         fp32max = (post->fp32minmax)[1];
@@ -1426,58 +1426,70 @@ static void MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, co
 
     float* biasPtr = (float*)post->biasFloat;
     auto accumbuff = post->accumBuffer;
+    auto blockNum = post->blockNum;
     
     for (int dz = 0; dz < dst_depth_quad; ++dz) {
-        const auto weight_dz    = weight + weight_step_Z * dz;
-        const auto bias_dz      = biasPtr + dz * GEMM_INT8_UNIT;
-        const float* scale_dz   = reinterpret_cast<const float*>(weight_dz + src_depth_quad * weight_step_Y);
-        const auto weight_zero  = scale_dz + GEMM_INT8_UNIT;
         auto dst_z              = dst + dz * dst_step;
-        auto accum_z            = accumbuff + dz * realCount * GEMM_INT8_UNIT;
-        for (int w = 0; w < realCount; ++w) {
-            const auto src_x   = src + w * GEMM_INT8_SRC_UNIT;
-            auto dst_x         = dst_z + w * GEMM_INT8_UNIT * bytes;
-            auto accum_x       = accum_z + w * GEMM_INT8_UNIT;
-            int32_t dstTemp[4] = {0, 0, 0, 0};
+        auto accum_z            = accumbuff;
+        for (int bk = 0; bk < blockNum; ++bk) {
+            // block's weight&scale&bias
+            const auto weight_dz = weight + dz * blockNum * weight_step_Z + bk *  weight_step_Z;
+            const float* scale_dz = reinterpret_cast<const float*>(weight_dz + src_depth_quad * weight_step_Y);
+            const auto weightBias_dz = scale_dz + GEMM_INT8_UNIT;
+            const auto bias_dz      = biasPtr + dz * GEMM_INT8_UNIT;
 
-            for (int sz = 0; sz < src_depth_quad; ++sz) {
-                const auto weight_sz = weight_dz + weight_step_Y * sz;
-                const auto src_z     = src_x + sz * realCount * GEMM_INT8_SRC_UNIT;
+            const auto srcSumPtr = post->srcKernelSum + bk * realCount;
+            
+            for (int w = 0; w < realCount; ++w) {
+                const auto src_x   = src + bk * src_depth_quad * GEMM_INT8_SRC_UNIT * realCount + w * GEMM_INT8_SRC_UNIT;
+                auto dst_x         = dst_z + w * GEMM_INT8_UNIT * bytes;
+                auto accum_x       = accum_z + w * GEMM_INT8_UNIT;
+                int32_t dstTemp[4] = {0, 0, 0, 0};
+
+                for (int sz = 0; sz < src_depth_quad; ++sz) {
+                    const auto weight_sz = weight_dz + weight_step_Y * sz;
+                    const auto src_z     = src_x + sz * realCount * GEMM_INT8_SRC_UNIT;
+
+                    for (int j = 0; j < GEMM_INT8_UNIT; ++j) {
+                        const auto weight_j = weight_sz + j * GEMM_INT8_SRC_UNIT;
+                        for (int i = 0; i < GEMM_INT8_SRC_UNIT; ++i) {
+                            dstTemp[j] += (int32_t)src_z[i] * (int32_t)weight_j[i];
+                        }
+                    }
+                }
 
                 for (int j = 0; j < GEMM_INT8_UNIT; ++j) {
-                    const auto weight_j = weight_sz + j * GEMM_INT8_SRC_UNIT;
-                    for (int i = 0; i < GEMM_INT8_SRC_UNIT; ++i) {
-                        dstTemp[j] += (int32_t)src_z[i] * (int32_t)weight_j[i];
+                    float value = dstTemp[j] * scale_dz[j] + srcSumPtr[w] * weightBias_dz[j];
+                    if (post->inputScale) {
+                        value = dstTemp[j] * scale_dz[j] * (post->inputScale + bk * realCount)[w] + srcSumPtr[w] * weightBias_dz[j];
                     }
-                }
-            }
-
-            for (int j = 0; j < GEMM_INT8_UNIT; ++j) {
-                float value = dstTemp[j] * scale_dz[j] + srcSumPtr[w] * weight_zero[j];
-                if (post->extraScale) {
-                    value = dstTemp[j] * scale_dz[j] * post->extraScale[w] + srcSumPtr[w] * weight_zero[j];
-                }
-                if (post->useInt8 == 0) {
-                    if (biasPtr) {
-                        value += bias_dz[j];
-                    } else {
-                        float dstv = ((float*)accum_x)[j];
-                        value += dstv;
+                    if (post->inputBias) {
+                        auto weightKernelSum = post->weightKernelSum + dz * (blockNum * GEMM_INT8_UNIT) + bk * GEMM_INT8_UNIT;
+                        value += ((post->inputBias + bk * realCount)[w] * weightKernelSum[j]);
                     }
-                    if (dst) {
-                        if (post->fp32minmax) {
-                            value = std::min(std::max(fp32min, value), fp32max);
+                    if (post->useInt8 == 0) {
+                        if (bk > 0) {
+                            float dstv = ((float*)accum_x)[j];
+                            value += dstv;
                         }
-                        ((float*)dst_x)[j] = value;             
+                        if (bk == blockNum - 1) {
+                            if (biasPtr) {
+                                value += bias_dz[j];
+                            }
+                            if (post->fp32minmax) {
+                                value = std::min(std::max(fp32min, value), fp32max);
+                            }
+                            ((float*)dst_x)[j] = value;             
+                        } else {
+                            ((float*)accum_x)[j] = value;
+                        }
+                        
                     } else {
-                        ((float*)accum_x)[j] = value;
+                        value += bias_dz[j];
+                        value       = ALIMAX(value, post->minValue);
+                        value       = ALIMIN(value, post->maxValue);
+                        dst_x[j] = static_cast<int8_t>(roundf(value));
                     }
-                    
-                } else {
-                    value += bias_dz[j];
-                    value       = ALIMAX(value, post->minValue);
-                    value       = ALIMIN(value, post->maxValue);
-                    dst_x[j] = static_cast<int8_t>(roundf(value));
                 }
             }
         }
@@ -1498,58 +1510,66 @@ static void MNNGemmInt8AddBiasScale_16x4_w4_Unit(int8_t* dst, const int8_t* src,
 
     float* biasPtr = (float*)post->biasFloat;
     auto accumbuff = post->accumBuffer;
+    auto blockNum = post->blockNum;
 
-    const auto srcSumPtr = post->srcKernelSum;
     for (int dz = 0; dz < dst_depth_quad; ++dz) {
-        const auto weight_dz = weight + weight_step_Z * dz;
-        const auto bias_dz   = biasPtr + dz * GEMM_INT8_UNIT;
-        const float* scale_dz = reinterpret_cast<const float*>(weight_dz + src_depth_quad * weight_step_Y);
-        const auto weight_zero = scale_dz + GEMM_INT8_UNIT;
         auto dst_z           = dst + dz * dst_step;
-        auto accum_z         = accumbuff + dz * realCount * GEMM_INT8_UNIT;
-        for (int w = 0; w < realCount; ++w) {
-            const auto src_x   = src + w * GEMM_INT8_SRC_UNIT;
-            auto dst_x         = dst_z + w * GEMM_INT8_UNIT * bytes;
-            auto accum_x       = accum_z + w * GEMM_INT8_UNIT;
-            int32_t dstTemp[4] = {0, 0, 0, 0};
+        auto accum_z         = accumbuff;
+        for (int bk = 0; bk < blockNum; ++bk) {
+            const auto weight_dz = weight + dz * blockNum * weight_step_Z + bk *  weight_step_Z;
+            const float* scale_dz = reinterpret_cast<const float*>(weight_dz + src_depth_quad * weight_step_Y);
+            const auto weightBias_dz = scale_dz + GEMM_INT8_UNIT;
+            const auto bias_dz = biasPtr + dz * GEMM_INT8_UNIT;
+            const auto srcSumPtr = post->srcKernelSum + bk * realCount;
+            for (int w = 0; w < realCount; ++w) {
+                const auto src_x   = src + w * GEMM_INT8_SRC_UNIT;
+                auto dst_x         = dst_z + w * GEMM_INT8_UNIT * bytes;
+                auto accum_x       = accum_z + w * GEMM_INT8_UNIT;
+                int32_t dstTemp[4] = {0, 0, 0, 0};
 
-            for (int sz = 0; sz < src_depth_quad; ++sz) {
-                const auto weight_sz = (uint8_t*)weight_dz + weight_step_Y * sz;
-                const auto src_z     = src_x + sz * realCount * GEMM_INT8_SRC_UNIT;
+                for (int sz = 0; sz < src_depth_quad; ++sz) {
+                    const auto weight_sz = (uint8_t*)weight_dz + weight_step_Y * sz;
+                    const auto src_z     = src_x + sz * realCount * GEMM_INT8_SRC_UNIT;
 
-                int w8[64]; // 64=GEMM_INT8_UNIT * GEMM_INT8_SRC_UNIT
-                for (int k = 0; k < 32; ++k) {
-                    w8[k] = (weight_sz[k]>>4);
-                    w8[k + 32] = (weight_sz[k] & c);
+                    int w8[64]; // 64=GEMM_INT8_UNIT * GEMM_INT8_SRC_UNIT
+                    for (int k = 0; k < 32; ++k) {
+                        w8[k] = (weight_sz[k]>>4);
+                        w8[k + 32] = (weight_sz[k] & c);
+                    }
+
+                    for (int j = 0; j < GEMM_INT8_UNIT; ++j) {
+                        const auto weight_j = w8 + j * GEMM_INT8_SRC_UNIT;
+                        for (int i = 0; i < GEMM_INT8_SRC_UNIT; ++i) {
+                            dstTemp[j] += (int32_t)src_z[i] * (int32_t)weight_j[i];
+                        }
+                    }
                 }
 
                 for (int j = 0; j < GEMM_INT8_UNIT; ++j) {
-                    const auto weight_j = w8 + j * GEMM_INT8_SRC_UNIT;
-                    for (int i = 0; i < GEMM_INT8_SRC_UNIT; ++i) {
-                        dstTemp[j] += (int32_t)src_z[i] * (int32_t)weight_j[i];
+                    float value = dstTemp[j] * scale_dz[j] + srcSumPtr[w] * weightBias_dz[j];
+                    if (post->inputScale) {
+                        value = dstTemp[j] * scale_dz[j] * (post->inputScale + bk * realCount)[w] + srcSumPtr[w] * weightBias_dz[j];
                     }
-                }
-            }
+                    if (post->inputBias) {
+                        auto weightKernelSum = post->weightKernelSum + dz * (blockNum * GEMM_INT8_UNIT) + bk * GEMM_INT8_UNIT;
+                        value += ((post->inputBias + bk * realCount)[w] * weightKernelSum[j]);
+                    }
 
-            for (int j = 0; j < GEMM_INT8_UNIT; ++j) {
-                float value = dstTemp[j] * scale_dz[j] + srcSumPtr[w] * weight_zero[j];
-                if (post->extraScale) {
-                    value = dstTemp[j] * scale_dz[j] * post->extraScale[w] + srcSumPtr[w] * weight_zero[j];
-                }
-
-                if (biasPtr) {
-                    value += bias_dz[j];
-                } else {
-                    float dstv = ((float*)accum_x)[j];
-                    value += dstv;
-                }
-                if (dst) {
-                    if (post->fp32minmax) {
-                        value = std::min(std::max(fp32min, value), fp32max);
-                    }    
-                    ((float*)dst_x)[j] = value;         
-                } else {
-                    ((float*)accum_x)[j] = value;
+                    if (bk > 0) {
+                        float dstv = ((float*)accum_x)[j];
+                        value += dstv;
+                    }
+                    if (bk == blockNum - 1) {
+                        if (biasPtr) {
+                            value += bias_dz[j];
+                        }
+                        if (post->fp32minmax) {
+                            value = std::min(std::max(fp32min, value), fp32max);
+                        }    
+                        ((float*)dst_x)[j] = value;         
+                    } else {
+                        ((float*)accum_x)[j] = value;
+                    }
                 }
             }
         }

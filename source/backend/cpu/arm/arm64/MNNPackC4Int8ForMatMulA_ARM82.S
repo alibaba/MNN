@@ -31,34 +31,38 @@ asm_function MNNSumByAxisLForMatmul_A_ARM82
 // Load from sp: x8: blockNum
 
 ldr x12, [x4, #48] // Valid
-ldr x8, [x4, #32] // blockNum
-ldr x5, [x4, #40] // oneScale
+ldr x8, [x4, #32]  // blockNum
+ldr x5, [x4, #40]  // oneScale
 ldr x14, [x4, #56] // kx*ky
-ldr x4, [x4, #64] // LU
+ldr x15, [x4, #72] // input block quant, 0:no, 1:yes
+ldr x4, [x4, #64]  // LU
 
-stp d14, d15, [sp, #(-16 * 4)]!
+stp d14, d15, [sp, #(-16 * 5)]!
 stp d12, d13, [sp, #(16 * 1)]
 stp d10, d11, [sp, #(16 * 2)]
 stp d8,  d9,  [sp, #(16 * 3)]
+stp x20, x21, [sp, #(16 * 4)]
 
 movi v31.16b, #1
 mov v29.16b, v31.16b
 ld1r {v30.4s}, [x2] // Dequant scale
 sdiv x4, x4, x8     // src_depth_quad per block
-cbz x12, TILE_12
+cbz x12, Start
 mov x13, #0xFFFFFFFF
 lsl x12, x12, #3
 lsl x13, x13, x12
 dup v28.4s, w13
 bic v29.16b, v31.16b, v28.16b
 
+Start:
+mov x13, x15
 
 TILE_12:
 cmp x3, #12
 blt Remain
 
 mov x9, x8 // blockNum
-cbnz x5, TILE12_BLOCK_NUM
+cbnz x13, TILE12_BLOCK_NUM
 ld1 {v13.4s, v14.4s, v15.4s}, [x2], #48 // batch quant scale
 
 TILE12_BLOCK_NUM:
@@ -96,6 +100,9 @@ scvtf v11.4s, v11.4s
 scvtf v12.4s, v12.4s
 
 cbnz x5, TILE12_MUL_ONE_SCALE
+cbz x13, TILE12_MUL_BLOCK_SCALE
+ld1 {v13.4s, v14.4s, v15.4s}, [x2], #48 // batch quant scale, input block quant
+TILE12_MUL_BLOCK_SCALE:
 fmul v10.4s, v10.4s, v13.4s
 fmul v11.4s, v11.4s, v14.4s
 fmul v12.4s, v12.4s, v15.4s
@@ -120,6 +127,7 @@ cbz x3, End
 /* x11: Remain dstCount step for each block */
 lsl x11, x3, #2
 lsl x6, x3, #2 // x6=eDest * LP
+mov x20, x2
 
 TILE_2: // realDstCount >= 1
 cmp x3, #2
@@ -129,7 +137,7 @@ mov x7, x1
 mov x9, x8 // blockNum
 mov x10, x0 // tag dst address
 
-cbnz x5, TILE2_BLOCK_NUM
+cbnz x13, TILE2_BLOCK_NUM
 ld1 {v13.d}[0], [x2], #8 // batch quant scale
 
 TILE2_BLOCK_NUM:
@@ -159,6 +167,9 @@ TILE2_BLOCK_INNER_END:
 scvtf v10.4s, v10.4s
 
 cbnz x5, TILE2_MUL_ONE_SCALE
+cbz x13, TILE2_MUL_BLOCK_SCALE
+ld1 {v13.d}[0], [x2], x6 // batch quant scale
+TILE2_MUL_BLOCK_SCALE:
 fmul v10.4s, v10.4s, v13.4s
 b TILE2_STORE
 
@@ -174,6 +185,8 @@ TILE2_END:
 sub x3, x3, #2 // realDstCount-=2
 add x1, x1, #8 // LP * 2
 add x0, x0, #8 // finish remain 2
+add x2, x20, #8 // x20 + 2 * sizeof(float)
+mov x20, x2
 b TILE_2
 
 
@@ -185,7 +198,7 @@ mov x7, x1
 mov x9, x8  // blockNum
 mov x10, x0
 
-cbnz x5, TILE1_BLOCK_NUM
+cbnz x13, TILE1_BLOCK_NUM
 ld1 {v13.s}[0], [x2], #4 // batch quant scale
 
 TILE1_BLOCK_NUM:
@@ -215,6 +228,9 @@ TILE1_BLOCK_INNER_END:
 scvtf v10.4s, v10.4s
 
 cbnz x5, TILE1_MUL_ONE_SCALE
+cbz x13, TILE1_MUL_BLOCK_SCALE
+ld1 {v13.s}[0], [x2], x6 // batch quant scale
+TILE1_MUL_BLOCK_SCALE:
 fmul v10.4s, v10.4s, v13.4s
 b TILE1_STORE
 
@@ -230,13 +246,16 @@ TILE1_END:
 sub x3, x3, #1 // realDstCount-=1
 add x1, x1, #4 // LP * 1
 add x0, x0, #4 // finish remain 1
+add x2, x20, #4 // x20 + 1 * sizeof(float)
+mov x20, x2
 
 b TILE_1
 
 End:
+ldp x20, x21, [sp, #(16 * 4)]
 ldp d8,  d9,  [sp, #(16 * 3)]
 ldp d10, d11, [sp, #(16 * 2)]
 ldp d12, d13, [sp, #(16 * 1)]
-ldp d14, d15, [sp], #(16 * 4)
+ldp d14, d15, [sp], #(16 * 5)
 ret
 #endif

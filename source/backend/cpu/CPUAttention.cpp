@@ -57,7 +57,7 @@ void CPUAttention::pack_query(Tensor* query, char* pack_q, char* sum_q, int seq_
     }
     else {
         T * query_src = query->host<T>();
-        T * query_dst = reinterpret_cast<T*>(pack_q);    
+        T * query_dst = reinterpret_cast<T*>(pack_q);
         for (int i = 0; i < seq_len; i++) {
             int out_index = i / eP;
             int in_index  = i % eP;
@@ -71,7 +71,7 @@ void CPUAttention::pack_query(Tensor* query, char* pack_q, char* sum_q, int seq_
 template <typename T>
 void CPUAttention::unpack_QK(float * unpack_qk_dst, char * pack_qk_src, int seq_len, int kv_seq_len) {
     float * dst = unpack_qk_dst;
-    T * src = (T *)(pack_qk_src);    
+    T * src = (T *)(pack_qk_src);
     // [kv_seq_len/unit, seq_len, unit] -> [seq_len, kv_seq_len]
     for (int i = 0; i < seq_len; i++) {
         for (int j = 0; j < kv_seq_len; j++) {
@@ -97,19 +97,20 @@ static void pack_QK(char * pack_qk_dst, float * qk_src, int seq_len, int kv_seq_
 }
 
 template <typename T>
-static void mask_QK(float * unpack_qk, int seq_len, int kv_seq_len, float mScale, float min_val, int * mask_ptr, bool float_mask) {
-    if (seq_len == 1) {
-        for (int i = 0; i < kv_seq_len; i++) {
+static void mask_QK(float * unpack_qk, int seq_len, int kv_seq_len, float mScale, float min_val, const Tensor* mask) {
+    if (seq_len == 1 || mask == nullptr) {
+        for (int i = 0; i < seq_len * kv_seq_len; i++) {
             unpack_qk[i] = unpack_qk[i] * mScale;
         }
-    } else if (float_mask) {
+    } else if (mask->getType() == halide_type_of<float>()) {
         // float mask
-        T* fpmask_ptr = reinterpret_cast<T*>(mask_ptr);
+        T* fpmask_ptr = mask->host<T>();
         for (int i = 0; i < seq_len * kv_seq_len; i++) {
             unpack_qk[i] = unpack_qk[i] * mScale + fpmask_ptr[i];
         }
     } else {
         // int mask
+        int* mask_ptr = mask->host<int>();
         for (int i = 0; i < seq_len * kv_seq_len; i++) {
             if (mask_ptr[i]) {
                 unpack_qk[i] = unpack_qk[i] * mScale;
@@ -187,12 +188,12 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
     auto query = inputs[0];
     auto key   = inputs[1];
     auto value = inputs[2];
-    auto mask = inputs[3];
-    bool float_mask = (mask->getType() == halide_type_of<float>());
-    int mask_seqlen = mask->length(2);
-    int mask_kvlen  = mask->length(3);
+    const Tensor* mask = nullptr;
     int seq_len = query->length(1);
-    MNN_ASSERT(seq_len == mask_seqlen);
+    if (inputs.size() > 3) {
+        mask = inputs[3];
+        MNN_ASSERT(seq_len == mask->length(2));
+    }
     int tileCount = UP_DIV(mNumHead, mThreadNum);
     int group_size = mNumHead / mKvNumHead;
     // reduce the value of 'query' to avoid fp16 overflow
@@ -211,10 +212,8 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
         }
         mScale /= q_scale;
     }
-    if (nullptr == mMeta) {
-        mKVCacheManager->onClear();
-        mKVCacheManager->onAlloc(seq_len);
-    } else {
+
+    if (mKVCache && mMeta != nullptr) {
         if (mMeta->previous == mMeta->remove) {
             mKVCacheManager->onClear();
             mKVCacheManager->onAlloc(mMeta->add);
@@ -222,6 +221,9 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
             MNN_ASSERT(mMeta->previous == mKVCacheManager->kvLength());
             mKVCacheManager->onRealloc(mMeta);
         }
+    } else {
+        mKVCacheManager->onClear();
+        mKVCacheManager->onAlloc(seq_len);
     }
     // Add the new kv to the kvcache
     mKVCacheManager->onPushBack(key, value);
@@ -293,12 +295,12 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
                 post.bias = nullptr;
                 post.biasFloat = biasFloat.data();
                 post.blockNum = 1;
-                post.extraBias = nullptr;
-                post.extraScale = nullptr;
+                post.inputBias = nullptr;
+                post.inputScale = nullptr;
                 post.fp32minmax = nullptr;
                 post.scale = postScale.data();
                 post.useInt8 = false;
-                post.weightQuanBias = weightQuantBias.data();
+                post.weightKernelSum = weightQuantBias.data();
                 int N = UP_DIV(seq_len, eP8);
                 for (int i = 0; i < N; i++) {
                     int realcount = ALIMIN(eP8, seq_len - i * eP8);
@@ -327,12 +329,12 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
             // qk: [kv_seq_len/unit, seq_len, unit] -> [seq_len, kv_seq_len] -> [seq_len/eP, kv_seq_len, eP]
             if(bytes == 2) {
                 unpack_QK<FLOAT16_T>(unpack_qk, pack_qk, seq_len, kv_seq_len);
-                mask_QK<FLOAT16_T>(unpack_qk, seq_len, kv_seq_len, mScale, std::numeric_limits<float>::lowest(), mask->host<int>(), float_mask);
+                mask_QK<FLOAT16_T>(unpack_qk, seq_len, kv_seq_len, mScale, std::numeric_limits<float>::lowest(), mask);
                 softmax_QK(softmax_qk, unpack_qk, seq_len, kv_seq_len);
                 pack_QK<FLOAT16_T>(new_pack_qk, softmax_qk, seq_len, kv_seq_len, eP);
             } else {
                 unpack_QK<float>(unpack_qk, pack_qk, seq_len, kv_seq_len);
-                mask_QK<float>(unpack_qk, seq_len, kv_seq_len, mScale, std::numeric_limits<float>::lowest(), mask->host<int>(), float_mask);
+                mask_QK<float>(unpack_qk, seq_len, kv_seq_len, mScale, std::numeric_limits<float>::lowest(), mask);
                 softmax_QK(softmax_qk, unpack_qk, seq_len, kv_seq_len);
                 pack_QK<float>(new_pack_qk, softmax_qk, seq_len, kv_seq_len, eP);
             }
@@ -367,6 +369,9 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
     if (quant_value){
         backend()->onReleaseBuffer(dequantV.get(), Backend::STATIC);
     }
+    if (!mKVCache) {
+        mKVCacheManager->onClear();
+    }
     return NO_ERROR;
 }
 
@@ -382,23 +387,21 @@ bool CPUAttention::onClone(Backend* bn, const Op* op, Execution** dst) {
 
 CPUAttention::CPUAttention(Backend *backend, bool kv_cache) : Execution(backend), mKVCache(kv_cache) {
     mMeta = (KVMeta*)(backend->getRuntime()->pMeta);
-    if (mKVCache) {
-        mPackQ.reset(Tensor::createDevice<float>({1, 1, 1, 1}));
-        mPackQKV.reset(Tensor::createDevice<float>({1, 1, 1, 1}));
-        MNN::KVCacheManager::KVCacheConfig kvconfig;
-        int qkvQuantOptions = static_cast<CPUBackend *>(backend)->getRuntime()->hint().qkvQuantOption;
-        kvconfig.mUseInt8Kernel = (qkvQuantOptions == 4);
-        kvconfig.mQuantKey   = (qkvQuantOptions == 4) || (qkvQuantOptions & 1);
-        kvconfig.mQuantValue = (qkvQuantOptions == 4) || ((qkvQuantOptions >> 1) & 1);
-        kvconfig.mKVCacheDir = static_cast<CPUBackend *>(backend)->getRuntime()->hint().kvcacheDirPath;
-        kvconfig.mKVCacheSizeLimit = static_cast<CPUBackend *>(backend)->getRuntime()->hint().kvcacheSizeLimit;
-        kvconfig.mExpandChunk = 64;
-        mKVCacheManager.reset(new KVCacheManager(backend, kvconfig));
-    }
+    mPackQ.reset(Tensor::createDevice<float>({1, 1, 1, 1}));
+    mPackQKV.reset(Tensor::createDevice<float>({1, 1, 1, 1}));
+    MNN::KVCacheManager::KVCacheConfig kvconfig;
+    int qkvQuantOptions = static_cast<CPUBackend *>(backend)->getRuntime()->hint().qkvQuantOption;
+    kvconfig.mUseInt8Kernel = (qkvQuantOptions == 4);
+    kvconfig.mQuantKey   = (qkvQuantOptions == 4) || (qkvQuantOptions & 1);
+    kvconfig.mQuantValue = (qkvQuantOptions == 4) || ((qkvQuantOptions >> 1) & 1);
+    kvconfig.mKVCacheDir = static_cast<CPUBackend *>(backend)->getRuntime()->hint().kvcacheDirPath;
+    kvconfig.mKVCacheSizeLimit = static_cast<CPUBackend *>(backend)->getRuntime()->hint().kvcacheSizeLimit;
+    kvconfig.mExpandChunk = 64;
+    mKVCacheManager.reset(new KVCacheManager(backend, kvconfig));
 }
 
 CPUAttention::~CPUAttention() {
-    
+
 }
 
 class CPUAttentionCreator : public CPUBackend::Creator {

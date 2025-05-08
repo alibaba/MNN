@@ -822,18 +822,19 @@ void ConvolutionCommon::getConvParameters(std::shared_ptr<Int8Common> *quanCommo
 }
 
 bool ConvolutionCommon::getConvInt8Parameters(const MNN::Op* op, std::shared_ptr<Int8Common>& quanCommon, Backend* backend,
-                                              const int8_t*& weight, int& weightSize, float*& scale, int32_t*& bias, int32_t*& weightQuantZeroPoint) {
+                                              const int8_t*& weight, int& weightSize, float* scale, int32_t* bias, int ocUp4) {
     // Compability for old quant model
     auto conv2d = op->main_as_Convolution2D();
     int outputCount = conv2d->common()->outputCount();
     weightSize = 0;
-    // fix xcode UndefinedBehaviorSanitizer
     if (conv2d->symmetricQuan() && conv2d->symmetricQuan()->weight() != nullptr) {
         weight = conv2d->symmetricQuan()->weight()->data();
         weightSize = conv2d->symmetricQuan()->weight()->size();
     }
     if (conv2d->quanParameter() && (conv2d->quanParameter()->buffer() || conv2d->external())) { // int8 weight
-        quanCommon = ConvolutionCommon::load(op, backend, false, true);
+        if (quanCommon.get() == nullptr) {
+            quanCommon = ConvolutionCommon::load(op, backend, false, true);
+        }
         MNN_ASSERT(quanCommon != nullptr);
         weight = quanCommon->weight.get();
         weightSize = quanCommon->weight.size();
@@ -863,12 +864,11 @@ bool ConvolutionCommon::getConvInt8Parameters(const MNN::Op* op, std::shared_ptr
         if (false == weightAsy) { // symmetric quant
             ::memcpy(scale, conv2d->quanParameter()->alpha()->data(), quantCount * sizeof(float));
         } else if (true == weightAsy) { // asymmetric
-            // int ocx2 = 2 * outputCount;
             int scaleSize = quantCount / 2;
             float clampMin = conv2d->quanParameter()->aMin() == 0 ? -128 : conv2d->quanParameter()->aMin();
             for (int i = 0; i < scaleSize; ++i) {
-                weightQuantZeroPoint[i] = static_cast<int32_t>(roundf((-1) * alphaAndBeta[2 * i] / alphaAndBeta[2 * i + 1])  + clampMin);
-                scale[i] = alphaAndBeta[2 * i + 1];
+                scale[i] = quanCommon->alpha.get()[2 * i + 1];
+                scale[i + ocUp4] = quanCommon->alpha.get()[2 * i];
             }
         }
         return true;

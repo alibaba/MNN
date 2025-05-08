@@ -137,9 +137,13 @@ def modelTest(modelPath, givenName, expectName):
     outputHost = createTensor(outputTensor)
     outputTensor.copyToHostTensor(outputHost)
     # compare
-    success = compareTensor(outputHost, expectName)
-    log_result(success, modelPath)
-
+    if "mobilenetv1quan" in modelPath or "overflowaware" in modelPath: 
+        success = compareTensor(outputHost, expectName, 0.1)
+        log_result(success, modelPath)
+    else:
+        success = compareTensor(outputHost, expectName)
+        log_result(success, modelPath)
+    
 def modelTestWithConfig(config):
     model  = config['model_name']
     inputs = config['input_names']

@@ -58,11 +58,13 @@ void MNNFunctionInit() {
 #ifdef MNN_LOW_MEMORY
         coreFunction->MNNAbsMax = _SSE_MNNAbsMaxFP32;
         coreFunction->MNNDynamicQuant = _SSE_MNNDynamicQuant;
+        coreFunction->MNNAsyQuantInfo = _SSE_MNNAsyQuantInfo;
+        coreFunction->MNNAsyQuantFunc = _SSE_MNNAsyQuantFunc;
 #endif
         coreFunction->MNNPackC4ForMatMul_A  = _SSE_MNNPackC4ForMatMul_A;
         coreFunction->MNNPackForMatMul_B    = _SSE_MNNPackForMatMul_B;
         // Dynamic Quant
-        coreFunction->MNNCountMaxMinValue = _SSE_MNNComputeScaleZeroScalar;
+        coreFunction->MNNCountMaxMinValue = _SSE_MNNCountMinMaxValue;
     }
 #ifdef MNN_USE_AVX
     if (cpuFlags & libyuv::kCpuHasAVX2) {
