@@ -161,14 +161,13 @@ const MNN::Transformer::LlmContext * LlmSession::Response(const std::string &pro
         prompt_string_for_debug += it.second;
     }
     MNN_DEBUG("submitNative prompt_string_for_debug count %s max_new_tokens_:%d", prompt_string_for_debug.c_str(), max_new_tokens_);
-//    llm_->response(history_, &output_ostream, "<eop>", 1);
-//    current_size++;
-//    while (!stop_requested_ && current_size < max_new_tokens_) {
-//        llm_->generate(1);
-//        current_size++;
-//    }
-
-    llm_->response("<audio>/data/user/0/com.alibaba.mnnllm.android/files/history/1746690738111/record_1746690751335.wav</audio>", &output_ostream, "<eop>", 9999);
+    llm_->response(history_, &output_ostream, "<eop>", 1);
+    current_size++;
+    while (!stop_requested_ && current_size < max_new_tokens_) {
+        llm_->generate(1);
+        current_size++;
+    }
+//    llm_->response("<audio>/data/user/0/com.alibaba.mnnllm.android/files/history/1746690738111/record_1746690751335.wav</audio>", &output_ostream, "<eop>", 9999);
     auto context = llm_->getContext();
     return context;
 }
