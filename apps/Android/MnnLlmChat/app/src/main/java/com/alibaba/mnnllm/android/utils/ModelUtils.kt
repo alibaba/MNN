@@ -144,11 +144,11 @@ object ModelUtils {
     }
 
     fun isAudioModel(modelName: String): Boolean {
-        return modelName.lowercase(Locale.getDefault()).contains("audio")
+        return modelName.lowercase(Locale.getDefault()).contains("audio") || isOmni(modelName)
     }
 
     fun isMultiModalModel(modelName: String): Boolean {
-        return isAudioModel(modelName) || isVisualModel(modelName) || isDiffusionModel(modelName)
+        return isAudioModel(modelName) || isVisualModel(modelName) || isDiffusionModel(modelName) || isOmni(modelName)
     }
 
     fun isDiffusionModel(modelName: String): Boolean {
@@ -195,7 +195,7 @@ object ModelUtils {
     }
 
     fun isVisualModel(modelName: String): Boolean {
-        return modelName.lowercase(Locale.getDefault()).contains("vl")
+        return modelName.lowercase(Locale.getDefault()).contains("vl") || isOmni(modelName)
     }
 
     fun isR1Model(modelName: String): Boolean {

@@ -13,7 +13,6 @@ class ChatService {
     fun createLlmSession(
         modelId: String?,
         modelDir: String?,
-        useTmpPath: Boolean,
         sessionIdParam: String?,
         chatDataItemList: List<ChatDataItem>?,
         supportOmni:Boolean

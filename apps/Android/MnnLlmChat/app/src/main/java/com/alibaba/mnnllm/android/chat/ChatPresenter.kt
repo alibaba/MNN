@@ -62,16 +62,14 @@ class ChatPresenter(
         } else {
             val configFilePath = intent.getStringExtra("configFilePath")
             chatSession = chatService.createLlmSession(
-                modelId, configFilePath, true,
+                modelId, configFilePath,
                 sessionId, chatDataItemList,
                 ModelUtils.isOmni(modelName)
             )
         }
         sessionId = chatSession.sessionId
         chatSession.setKeepHistory(
-            !ModelUtils.isVisualModel(modelName) && !ModelUtils.isAudioModel(
-                modelName
-            )
+            !ModelUtils.isMultiModalModel(modelName) || ModelUtils.isOmni(modelName)
         )
         return chatSession
     }

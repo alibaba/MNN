@@ -17,6 +17,7 @@ import androidx.appcompat.widget.PopupMenu
 import androidx.recyclerview.widget.RecyclerView
 import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.chat.ChatActivity
+import com.alibaba.mnnllm.android.chat.PromptUtils
 import com.alibaba.mnnllm.android.chat.model.ChatDataItem
 import com.alibaba.mnnllm.android.chat.SelectTextActivity
 import com.alibaba.mnnllm.android.utils.ClipboardUtils
@@ -60,6 +61,7 @@ object ChatViewHolders {
         init {
             iconPlayPause.setOnClickListener(this)
             viewText.setOnLongClickListener(this)
+            audioLayout.setOnLongClickListener(this)
         }
 
         @SuppressLint("DefaultLocale")
@@ -96,17 +98,26 @@ object ChatViewHolders {
         }
 
         override fun onLongClick(v: View?): Boolean {
+            val isAudio = (v?.id == R.id.layout_audio)
+            val isText = (v?.id == R.id.tv_chat_text)
             val popupMenu = PopupMenu(v!!.context, viewText)
             val inflater = popupMenu.menuInflater
             inflater.inflate(R.menu.chat_context_menu_user, popupMenu.menu)
+            popupMenu.menu.findItem(R.id.chat_user_copy_audio_info).isVisible = isAudio
+            popupMenu.menu.findItem(R.id.chat_user_copy).isVisible = isText
             popupMenu.setOnMenuItemClickListener { item: MenuItem ->
                 if (item.itemId == R.id.chat_user_copy) {
                     UiUtils.copyText(itemView.context, viewText)
+                } else if (item.itemId == R.id.chat_user_copy_audio_info) {
+                    val chatDataItem = v.tag as ChatDataItem
+                    if (chatDataItem.audioUri != null) {
+                        ClipboardUtils.copyToClipboard(
+                            itemView.context,
+                            PromptUtils.generateUserPrompt(chatDataItem)
+                        )
+                        UiUtils.showToast(itemView.context, "Copied to clipboard")
+                    }
                 }
-//                else if (item.itemId == R.id.chat_user_regenerate) {
-//                    // TODO: regenerate
-//                    //
-//                }
                 true
             }
             popupMenu.show()
