@@ -32,7 +32,6 @@ import com.alibaba.mls.api.download.DownloadPersistentData.removeProgress
 import com.alibaba.mls.api.download.DownloadPersistentData.saveDownloadSizeSaved
 import com.alibaba.mls.api.download.DownloadPersistentData.saveDownloadSizeTotal
 import com.alibaba.mls.api.download.DownloadPersistentData.saveMetaData
-import com.alibaba.mls.api.download.DownlodForegroundService
 import com.alibaba.mls.api.download.HfFileMetadataUtils.getFileMetadata
 import com.alibaba.mls.api.download.ModelFileDownloader.FileDownloadListener
 import com.alibaba.mls.api.ms.MsApiClient
@@ -46,7 +45,6 @@ import retrofit2.Callback
 import retrofit2.Response
 import java.io.File
 import java.util.Collections
-import java.util.Objects
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.collections.ArrayList

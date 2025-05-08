@@ -171,8 +171,17 @@ Java_com_alibaba_mnnllm_android_llm_LlmSession_setWavformCallbackNative(
     }
     auto *session = reinterpret_cast<mls::LlmSession *>(instance_id);
     jobject global_ref = env->NewGlobalRef(listener);
+    JavaVM *jvm;
+    env->GetJavaVM(&jvm);
     session->SetWavformCallback(
-            [env, global_ref](const float *data, size_t size, bool is_end) -> bool {
+            [jvm, global_ref](const float *data, size_t size, bool is_end) -> bool {
+                bool needDetach = false;
+                JNIEnv *env;
+                if (jvm->GetEnv(reinterpret_cast<void **>(&env), JNI_VERSION_1_6) != JNI_OK) {
+                    jvm->AttachCurrentThread(&env, NULL);
+                    needDetach = true;
+                }
+                jvm->AttachCurrentThread(&env, NULL);
                 jclass listenerClass = env->GetObjectClass(global_ref);
                 jmethodID onAudioDataMethod = env->GetMethodID(listenerClass, "onAudioData",
                                                                "([FZ)Z");
@@ -182,7 +191,9 @@ Java_com_alibaba_mnnllm_android_llm_LlmSession_setWavformCallbackNative(
                                                          audioDataArray, is_end);
                 env->DeleteLocalRef(audioDataArray);
                 env->DeleteLocalRef(listenerClass);
-
+                if (needDetach) {
+                    jvm->DetachCurrentThread();
+                }
                 return result == JNI_TRUE;
             });
 

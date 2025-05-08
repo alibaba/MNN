@@ -4,8 +4,12 @@
     <item
         android:id="@+id/chat_user_copy"
         android:title="@string/copy_text"
-        android:icon="@drawable/arrow_right"
- />
+        android:icon="@drawable/arrow_right" />
+
+    <item
+        android:id="@+id/chat_user_copy_audio_info"
+        android:title="@string/copy_audio_info"
+        android:icon="@drawable/arrow_right" />
 <!--    <item-->
 <!--        android:id="@+id/chat_user_regenerate"-->
 <!--        android:title="@string/regenerate"-->

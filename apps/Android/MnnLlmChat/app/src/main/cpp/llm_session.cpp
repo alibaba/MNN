@@ -167,6 +167,7 @@ const MNN::Transformer::LlmContext * LlmSession::Response(const std::string &pro
         llm_->generate(1);
         current_size++;
     }
+//    llm_->response("<audio>/data/user/0/com.alibaba.mnnllm.android/files/history/1746690738111/record_1746690751335.wav</audio>", &output_ostream, "<eop>", 9999);
     auto context = llm_->getContext();
     return context;
 }
@@ -176,7 +177,7 @@ std::string LlmSession::getDebugInfo() {
 }
 
 void LlmSession::SetWavformCallback(std::function<bool(const float *, size_t, bool)> callback) {
-    if (llm_ != nullptr && callback != nullptr) {
+    if (llm_ != nullptr && callback != nullptr && false) {
         waveform.clear();
         llm_->setWavformCallback([this, callback = std::move(callback)](const float *ptr, size_t size, bool last_chunk) {
 #if DEBUG_SAVE_WAV
