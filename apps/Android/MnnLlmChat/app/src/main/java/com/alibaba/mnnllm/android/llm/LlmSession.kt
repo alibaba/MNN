@@ -62,6 +62,7 @@ class LlmSession (
         val configMap = HashMap<String, Any>().apply {
             put("is_r1", ModelUtils.isR1Model(modelId))
             put("mmap_dir", rootCacheDir ?: "")
+            put("keep_history", keepHistory)
         }
         val extraConfig = ModelConfig.loadConfig(configPath, getModelSettingsFile())?.apply {
             this.assistantPromptTemplate = extraAssistantPrompt
@@ -168,8 +169,6 @@ class LlmSession (
             keepHistory: Boolean,
             listener: GenerateProgressListener
     ): HashMap<String, Any>
-
-
 
     private external fun resetNative(instanceId: Long)
 
