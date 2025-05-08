@@ -101,7 +101,7 @@ public:
         rapidjson::Value& source = source_.document;
         rapidjson::Value& destination = this->document;
         rapidjson::Document::AllocatorType& allocator = document.GetAllocator();
-        
+
         for (auto it = source.MemberBegin(); it != source.MemberEnd(); ++it) {
             const char* key = it->name.GetString();
             rapidjson::Value newKey(key, allocator);
@@ -109,7 +109,7 @@ public:
             newValue.CopyFrom(it->value, allocator);
             destination.AddMember(newKey, newValue, allocator);
         }
-        
+
         // clear source content
         source.SetNull();
         return true;
@@ -364,6 +364,54 @@ public:
     }
     // backend config end >
 
+    // talker config start
+    std::string talker_model() const {
+        return base_dir_ + config_.value("talker_model", "talker.mnn");
+    }
+
+    std::string talker_weight() const {
+        return base_dir_ + config_.value("talker_weight", "talker.mnn.weight");
+    }
+
+    std::string talker_embedding_file() const {
+        return base_dir_ + config_.value("talker_embedding_file", "talker_embeddings_bf16.bin");
+    }
+
+    std::string predit_model() const {
+        return base_dir_ + config_.value("predit_model", "predit.mnn");
+    }
+
+    std::string dit_model() const {
+        return base_dir_ + config_.value("dit_model", "dit.mnn");
+    }
+
+    std::string bigvgan_model() const {
+        return base_dir_ + config_.value("bigvgan_model", "bigvgan.mnn");
+    }
+
+    std::string spk_dict() const {
+        return base_dir_ + config_.value("spk_dict", "spk_dict.mnn");
+    }
+
+    int talker_max_new_tokens() const {
+        return config_.value("talker_max_new_tokens", 2048);
+    }
+
+    std::string talker_speaker() const {
+        // Chelsie or Ethan
+        return config_.value("talker_speaker", "Chelsie");
+    }
+
+    int dit_steps() const {
+        return config_.value("dit_steps", 5);
+    }
+
+    int dit_solver() const {
+        // 1: OED, 4: RungeKutta4ODE
+        return config_.value("dit_solver", 1);
+    }
+    // talker config end
+
     // < llm model config start
     bool is_single() const {
         return config_.value("is_single", true);
@@ -375,6 +423,10 @@ public:
 
     bool is_audio() const {
         return config_.value("is_audio", false);
+    }
+
+    bool has_talker() const {
+        return config_.value("has_talker", false);
     }
 
     bool use_template() const {

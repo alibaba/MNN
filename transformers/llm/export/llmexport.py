@@ -34,8 +34,9 @@ class LlmExporter(torch.nn.Module):
     def init_from_args(self, args):
         self.visual = None
         self.audio = None
+        self.talker = None
         self.args = args
-        self.max_length = 128
+        self.max_length = 1024
         self.stop_ids = []
         self.dst_name = 'llm'
         # load config from args
@@ -52,7 +53,10 @@ class LlmExporter(torch.nn.Module):
 
     def load_pretrained(self, model_path: str):
         self.tokenizer = AutoTokenizer.from_pretrained(self.args.tokenizer_path, trust_remote_code=True, use_fast=False)
-        if 'Qwen2.5-VL' in model_path or 'Qwen2___5-VL' in model_path:
+        if 'Qwen2.5-Omni' in model_path:
+            from transformers import Qwen2_5OmniForConditionalGeneration
+            self.model = Qwen2_5OmniForConditionalGeneration.from_pretrained(model_path, torch_dtype="auto").eval()
+        elif 'Qwen2.5-VL' in model_path or 'Qwen2___5-VL' in model_path:
             from transformers import Qwen2_5_VLForConditionalGeneration
             self.model = Qwen2_5_VLForConditionalGeneration.from_pretrained(model_path, torch_dtype='auto').eval()
         elif 'Qwen2-VL' in model_path:
@@ -128,6 +132,7 @@ class LlmExporter(torch.nn.Module):
                 for name, child in module.named_children():
                     visit_module(child)
             visit_module(self.model)
+        # print(self.model_type, self.model_map)
         # print(self.config, self.model_type, self.model_map, self.model)
         # print(self.model.model.layers[0].input_layernorm.weight); exit(0)
         # load config info
@@ -194,6 +199,7 @@ class LlmExporter(torch.nn.Module):
         else:
             self.embed = Embedding(self.embed_, self)
         # Rotary
+
         self.rotary = Rotary(self)
         self.blocks = []
         for block in self.blocks_.children():
@@ -211,6 +217,11 @@ class LlmExporter(torch.nn.Module):
             self.audio = Audio.get_audio(self.audio.config.model_type)(self.audio, self)
         else:
             self.audio = None
+        # talker model
+        if hasattr(self, 'talker') and self.talker is not None and \
+           hasattr(self, 'token2wav') and self.token2wav is not None:
+            from utils.talker import Talker
+            self.talker = Talker.get_talker(self.model_type)(self.talker, self.token2wav, self)
         return model_path
 
     def get_attention_mask(self) -> torch.Tensor:
@@ -220,7 +231,9 @@ class LlmExporter(torch.nn.Module):
             return torch.zeros([1, 1, 1, self.seq_len], dtype=torch.float32)
         return (1 - torch.tril(torch.ones([1, 1, self.seq_len, self.seq_len]))) * torch.finfo(torch.float32).min
 
-    def get_position_ids(self) -> torch.Tensor:
+    def get_position_ids(self, input_ids = None) -> torch.Tensor:
+        if self.visual is not None and hasattr(self.visual, 'get_position_ids') and callable(getattr(self.visual, 'get_position_ids')):
+            return self.visual.get_position_ids(input_ids, self.seq_len, self.token_len)
         if self.model_type == 'chatglm':
             return self.chatglm_position_ids()
         if self.token_len:
@@ -283,12 +296,15 @@ class LlmExporter(torch.nn.Module):
                 continue
             hidden_states, kv = self.blocks[i](hidden_states, rotary_pos_emb, attention_mask, past_key_values[i])
             presents[i] = kv
+        talker_embeds = self.final_layernorm_(hidden_states) + input_ids.permute([1, 0, 2])
+        if hasattr(self, 'talker') and self.talker is not None:
+            self.talker.add_talker_embeds(talker_embeds)
         logits = self.lm(hidden_states, logits_index)
         if presents[0].shape == presents[-1].shape and None not in presents:
             presents = torch.stack(presents)
         self.seq_len += 1
         self.token_len += 1
-        return logits, presents
+        return logits, presents, talker_embeds
 
     # some test functions
     def build_prompt_template(self):
@@ -433,14 +449,14 @@ class LlmExporter(torch.nn.Module):
         token_id = input_ids
         while self.token_len < self.max_length:
             attention_mask = self.get_attention_mask()
-            position_ids = self.get_position_ids()
+            position_ids = self.get_position_ids(token_id)
             input_ids = self.embedding(token_id)
-            logits, past_key_values = self.forward(input_ids,
-                                                   attention_mask,
-                                                   position_ids,
-                                                   past_key_values,
-                                                   cross_attention_states,
-                                                   cross_attention_mask)
+            logits, past_key_values, _ = self.forward(input_ids,
+                                                      attention_mask,
+                                                      position_ids,
+                                                      past_key_values,
+                                                      cross_attention_states,
+                                                      cross_attention_mask)
             token_id = torch.argmax(logits[:,-1,:])
             if token_id in self.stop_ids:
                 print("", end='\n')
@@ -448,30 +464,8 @@ class LlmExporter(torch.nn.Module):
             word = self.id_to_str(token_id)
             print(word, end="", flush=True)
 
-    @spinner_run(f'export visual to ')
-    def export_visual(self):
-        if self.visual is None:
-            return
-        return self.visual.export(self.onnx_path)
-
-    @spinner_run(f'export audio to ')
-    def export_audio(self):
-        if self.audio is None:
-            return
-        input_features = torch.randn((1, self.audio.feature_size, self.audio.max_length))
-        model = self.audio.float()
-        onnx_model = f'{self.onnx_path}/audio.onnx'
-        torch.onnx.export(model, (input_features),
-                        onnx_model,
-                        input_names=['input_features'],
-                        output_names=['audio_embeds'],
-                        dynamic_axes={"input_features": {
-                            0: "size"
-                        }},
-                        do_constant_folding=True,
-                        verbose=False,
-                        opset_version=15)
-        return onnx_model
+        if hasattr(self, 'talker') and self.talker is not None:
+            self.talker.generate()
 
     @spinner_run(f'export embedding to ')
     def export_embed(self):
@@ -503,13 +497,19 @@ class LlmExporter(torch.nn.Module):
                 "thread_num": 4,
                 "precision": "low",
                 "memory": "low",
-                "system_prompt": "You are a helpful assistant."
+                "system_prompt": "You are a helpful assistant.",
             }
+            if self.talker is not None:
+                config['system_prompt'] = "You are Qwen, a virtual human developed by the Qwen Team, Alibaba Group, capable of perceiving auditory and visual inputs, as well as generating text and speech."
+                config['talker_max_new_tokens'] = 2048
+                config['talker_speaker'] = "Chelsie"
+                config['dit_steps'] = 5
+                config['dit_solver'] = 1
             if self.visual is not None or self.audio is not None:
                 config['mllm'] = {
                     'backend_type': "cpu",
                     "thread_num": 4,
-                    "precision": "low",
+                    "precision": "normal",
                     "memory": "low"
                 }
             json.dump(config, f, ensure_ascii=False, indent=4)
@@ -587,12 +587,16 @@ class LlmExporter(torch.nn.Module):
         self.token_len = 0
         input_ids = torch.arange(3, dtype=torch.long)
         attention_mask =  self.get_attention_mask()
-        position_ids = self.get_position_ids()
+        position_ids = self.get_position_ids(input_ids)
         onnx_model = f'{self.onnx_path}/{self.dst_name}.onnx'
         # For export onnx, don't need image or audio's embedding
         input_ids = self.embed(input_ids)
         past_key_values = torch.zeros(self.past_kv_shape)
         logits_index = torch.tensor([-1], dtype=torch.int32)
+        if hasattr(self, 'talker') and self.talker is not None:
+            output_names = ['logits', 'presents', 'talker_embeds']
+        else:
+            output_names = ['logits', 'presents']
         # export to onnx
         torch.onnx.export(
             model, (input_ids, attention_mask, position_ids, past_key_values, logits_index),
@@ -600,7 +604,7 @@ class LlmExporter(torch.nn.Module):
             input_names=[
                 'input_ids', 'attention_mask', 'position_ids', 'past_key_values', 'logits_index'
             ],
-            output_names=['logits', 'presents'],
+            output_names=output_names,
             dynamic_axes=self.model_dynamic_axes,
             do_constant_folding=True,
             verbose=False,
@@ -612,45 +616,63 @@ class LlmExporter(torch.nn.Module):
         self.awq_quantizer.quantize()
         self.is_awq_quantized = True
 
-    def export(self, export_type):
-        export_mnn = export_type == 'mnn'
-        if self.visual:
-            visual_onnx = self.export_visual()
-            if export_mnn:
-                MNNConveter(visual_onnx, None, self).export(quant_bit=self.visual.quant_bit)
-        if self.audio:
-            audio_onnx = self.export_audio()
-            if export_mnn:
-                MNNConveter(audio_onnx, None, self).export(quant_bit=self.audio.quant_bit)
-        if self.args.awq:
-            self.awq_quant()
-        # export tokenizer
-        self.export_tokenizer()
-        if export_mnn and self.tie_word_embeddings:
+    def export_vision(self):
+        if self.visual is None:
+            return
+        vision_onnx = self.visual.export(self.onnx_path)
+        if self.mnn_converter: self.mnn_converter.export(vision_onnx, self.visual.quant_bit)
+
+    def export_audio(self):
+        if self.audio is None:
+            return
+        audio_onnx = self.audio.export(self.onnx_path)
+        if self.mnn_converter: self.mnn_converter.export(audio_onnx, self.audio.quant_bit)
+
+    def export_talker(self):
+        if self.talker is None:
+            return
+        talker_onnx = self.talker.export(self.onnx_path)
+        predit_onnx, dit_onnx, bigvgan_onnx = self.talker.token2wav.export(self.onnx_path)
+        if self.mnn_converter:
+            self.mnn_converter.export(talker_onnx, self.talker.quant_bit)
+            self.mnn_converter.export(predit_onnx, self.talker.token2wav.quant_bit)
+            self.mnn_converter.export(dit_onnx, self.talker.token2wav.quant_bit)
+            self.mnn_converter.export(bigvgan_onnx, self.talker.token2wav.quant_bit)
+
+    def export_language(self):
+        # export_embedding
+        if self.mnn_converter and self.tie_word_embeddings:
             pass # mnn tie_word_embeddings need't export embedding
         else:
             self.export_embed()
-        # export graph to llm.onnx
+        # export transformer
         onnx_model = self.export_onnx()
         if self.args.onnx_slim:
             self.slim_onnx(onnx_model)
-        if export_mnn:
-            # convert onnx to mnn and quant weight
-            MNNConveter(onnx_model, self.unloaded_ops, self).export()
-            # delete onnx file
-            if os.path.exists(onnx_model):
-                try:
-                    for file in glob.glob(f'{self.onnx_path}/*'):
-                        os.remove(file)
-                    os.rmdir(self.onnx_path)
-                except Exception as e:
-                    print(f"remove onnx error: {e}")
+        if self.mnn_converter:
+            MNNConveter(self, self.unloaded_ops).export(onnx_model)
         else:
-            # export weight to llm.onnx.data
             self.onnx_load_param(onnx_model)
-        # export llm_config.json and config.json
-        self.export_config(export_mnn)
 
+    def export(self, export_type):
+        if self.args.awq:
+            self.awq_quant()
+        export_mnn = export_type == 'mnn'
+        self.mnn_converter = MNNConveter(self) if export_mnn else None
+        self.export_talker()
+        self.export_vision()
+        self.export_audio()
+        self.export_language()
+        self.export_tokenizer()
+        self.export_config(export_mnn)
+        if export_mnn:
+            # delete onnx file
+            try:
+                for file in glob.glob(f'{self.onnx_path}/*'):
+                    os.remove(file)
+                os.rmdir(self.onnx_path)
+            except Exception as e:
+                print(f"remove onnx error: {e}")
 
     @spinner_run(f'export tokenizer to ')
     def export_tokenizer(self):

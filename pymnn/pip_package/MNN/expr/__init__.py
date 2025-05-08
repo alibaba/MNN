@@ -97,7 +97,7 @@ def _to_var(x, dtype=None):
         except:
             pass
     # 3. Sequence
-    if isinstance(x, _Sequence) and x:
+    if isinstance(x, _Sequence):
         dst_shape, item_type = _list_shape_type(x)
         x = _F.const(x, dst_shape, dtype=item_type)
     # 4. asssert

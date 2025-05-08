@@ -418,7 +418,7 @@ void _AVX_MNNPackedSparseMatMul(float* C, const float* A, const float* B, unsign
     return;
 }
 
-void _AVX_MNNComputeScaleZeroScalar(float* source, float* min, float* max, size_t size) {
+void _AVX_MNNCountMinMaxValue(const float* source, float* min, float* max, size_t size) {
     int pack = 8;
     int sizeDiv8 = size / pack;
     __m256 minVal = _mm256_set1_ps(source[0]);

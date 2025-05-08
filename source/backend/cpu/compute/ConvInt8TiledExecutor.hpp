@@ -26,6 +26,7 @@ public:
     virtual void getPackParameter(int* Unit, int* SrcUnit, int* DestUnit, const CoreInt8Functions* core) = 0;
     static void packWeightAndQuantInfo(int8_t* dstbuffer, const int8_t* weight, const int8_t* quantInfo, int32_t* info, int infoBytes = 4);
     static void reorderWeight(uint8_t* dst, const uint8_t* src, int32_t* info, int32_t initval = 0, float* kernelsum = nullptr, weightSummerFuncion summerFunc = nullptr);
+    static void initializeConvInt8QuantInfo(std::shared_ptr<CPUConvolution::ResourceInt8>& resourceInt8, const Convolution2D* conv2D);
 
 protected:
     ConvolutionCommon::Im2ColParameter mIm2ColParamter;
@@ -37,8 +38,6 @@ protected:
     MemChunk mBlitInfo;
     std::pair<size_t, size_t> mBlitInfoStride;
     int mIm2ColCount;
-    bool mQuantFirst;
-    MemChunk mInputReorderBuffer;
 };
 
 //
@@ -52,9 +51,7 @@ protected:
 
 class DenseConvInt8TiledExecutor : public ConvInt8TiledExecutor {
 public:
-    // given weight+bias+scale, do post process
-    DenseConvInt8TiledExecutor(Backend* backend, const Op* op, std::shared_ptr<ResourceInt8> res); // ptq
-    DenseConvInt8TiledExecutor(Backend* backend, const Op* op, std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon); // dynamic quant
+    DenseConvInt8TiledExecutor(Backend* backend, const Op* op, std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon, bool isDynamicQuant); // dynamic quant
     virtual ~DenseConvInt8TiledExecutor();
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
@@ -71,15 +68,22 @@ private:
     std::shared_ptr<Tensor> mDynamicBias;
     std::shared_ptr<Tensor> mAccumBuffer;
     std::shared_ptr<Tensor> mBatchQuantInfo;
-    std::shared_ptr<Tensor> mTempMaxMinValueBuffer;
-    std::vector<uint8_t> mTempSrcSum;
+    MemChunk mTempMaxMinValueBuffer;
+    MemChunk mTempSrcSum;
+    MemChunk mQScaleZero;
+    MemChunk mReorderBuffer;
+    MemChunk mBiasBufferFusedInputzero;
     std::vector<int32_t> mDivides;
 
     int mThreadNums;
     int mBlockNum = 1;
+    int mInputBlockNum = 1;
     int mOcPerThread;
     bool mSplitByOc;
     bool mUseBatchQuan;
+    bool mIm2ColBasedInt8;
+    int mSizeInputBlockQuant;
+    bool mToFuseInputbias2Bias;
 #ifdef MNN_KLEIDIAI_ENABLED
     KleidiAI::AccelType mAccelType = KleidiAI::AccelType::ACC_TYPE_NUMBER;
 #endif

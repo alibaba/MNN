@@ -37,7 +37,7 @@ void _AVX512_MNNAddC4WithStride(const float* source, float* dest, size_t srcStri
     }
 }
 
-void _AVX512_MNNComputeScaleZeroScalar(float* source, float* min, float* max, size_t size) {
+void _AVX512_MNNCountMinMaxValue(const float* source, float* min, float* max, size_t size) {
     int pack = 16;
     int sizeDiv16 = size / pack;
     __m512 minVal = _mm512_set1_ps(source[0]);
@@ -68,6 +68,179 @@ void _AVX512_MNNComputeScaleZeroScalar(float* source, float* min, float* max, si
     }
     min[0] = min_;
     max[0] = max_;
+}
+
+static void _AVX512_BatchMinMax(float* dstMin, float* dstMax, const float* source, size_t src_depth_quad, size_t realSize, int innerSide, size_t loadDstBuffer) {
+    // input: [src_depth_quad, realSize, pack]
+    // max,min shape: [realSize]
+    // avx512: core->pack = 16, SRC_UNIT=4
+    auto srcStep = realSize * innerSide;
+    if (innerSide == 4) {
+        float tempMax[4];
+        float tempMin[4];
+        for (int i = 0; i < realSize; ++i) {
+            auto min_ = _mm_loadu_ps(source + i * innerSide);
+            auto max_ = min_;
+            for (int c = 1; c < src_depth_quad; ++c) {
+                auto src0 = source + c * srcStep + i * innerSide;
+                auto vecA = _mm_loadu_ps(src0);
+                max_ = _mm_max_ps(max_, vecA);
+                min_ = _mm_min_ps(min_, vecA);
+            }
+            _mm_storeu_ps(tempMax, max_);
+            _mm_storeu_ps(tempMin, min_);
+            float max0 = tempMax[0];
+            float min0 = tempMin[0];
+            for (int k = 1; k < innerSide; ++k) {
+                if (max0 < tempMax[k]) {
+                    max0 = tempMax[k];
+                }
+                if (min0 > tempMin[k]) {
+                    min0 = tempMin[k];
+                }
+            }
+            if (loadDstBuffer) {
+                dstMax[i] = ALIMAX(max0, dstMax[i]);
+                dstMin[i] = ALIMIN(min0, dstMin[i]);
+            } else {
+                dstMax[i] = max0;
+                dstMin[i] = min0;
+            }
+        }
+        return;
+    }
+    if (innerSide == 16) {
+        float tmp[16];
+        for (int i = 0; i < realSize; ++i) {
+            auto min_ = _mm512_loadu_ps(source + i * innerSide);
+            auto max_ = min_;
+            auto src0 = source + i * innerSide;
+            for (int j = 1; j < src_depth_quad; ++j) {
+                auto vec = _mm512_loadu_ps(src0 + j * srcStep);
+                max_ = _mm512_max_ps(max_, vec);
+                min_ = _mm512_min_ps(min_, vec);
+            }
+            auto maxval = _mm512_reduce_max_ps(max_);
+            auto minval = _mm512_reduce_min_ps(min_);
+            dstMax[i] = maxval;
+            dstMin[i] = minval;
+        }
+        return;
+    }
+    MNN_ERROR("batch max/min error: x86_x64 avx512 don't suppport innerSide=%d yet\n", innerSide);
+}
+
+static void _AVX512_MNNAsyQuantInfo(float* scale, float* bias, float* qscale, float* qbias, float* dstMin, float* dstMax, const float* src, const size_t* info) {
+    auto blockNum = info[0];
+    auto plane = info[1];        // real area for data
+    auto innerSide = info[2];    // Innermost data layout, may come from backend's pack or gemmint8 units' SRC_UNIT
+    auto DST_XUNIT = info[3];    // AVX512: DST_XUNIT=4
+    auto kernelsize = info[5];
+    auto blockLU = info[6];
+    auto stride0 = blockNum * blockLU * plane * innerSide;
+    auto stride1 = blockLU * plane * innerSide;
+
+    if (info[7] == 1) { // scale&bias:[1]
+        float maxval, minval;
+        _AVX512_MNNCountMinMaxValue(src, &minval, &maxval, kernelsize * stride0);
+        if (info[8] == 1 && (maxval -minval) > 1e-7) {
+            if (minval > 0.f) {
+                minval = 0;
+            } else if (maxval < 0.f){
+                maxval = 0;
+            }
+        }
+        auto range = maxval - minval;
+        if (range <= 1e-7) {
+            scale[0] = 0.f;
+            qscale[0] = 0.f;
+            qbias[0] = 0.f;
+            bias[0] = maxval;
+        } else {
+            qscale[0] = 255.f / range;
+            scale[0] = range / 255.f;
+            qbias[0] = roundf(-minval * 255.f / range)- 128.f;
+            bias[0] = -qbias[0] * scale[0];
+        }
+        return;
+    }
+
+    // input              : [kernelsize, blockNum, blockLU, plane, pack]
+    // dequant scale/bias : [EU, blockNum, step], step=ALIMIN(step, EP), EU=UP_DIV(plane, EP)
+    // quant scale/bias   : [blockNum, plane]
+    // max,min            : [blockNum, plane]
+
+    for (int i = 0; i < kernelsize; ++i) {
+        for (int j = 0; j < blockNum; ++j) {
+            _AVX512_BatchMinMax(dstMin + j * plane, dstMax + j * plane, src + i * stride0 + j * stride1, blockLU, plane, innerSide, i);
+        }
+    }
+    // scale,bias
+    auto realDstCount = plane;
+    auto thredshold4 = _mm_set1_ps(1e-6);
+    auto _255f = _mm_set1_ps(255.f);
+    auto _128f = _mm_set1_ps(128.f);
+    auto _0f = _mm_set1_ps(0.f);
+    for (int k = 0; k < blockNum; ++k) {
+        auto qind = k * plane;
+        auto realDstCount = plane;
+        auto scalePtr = scale + k * ALIMIN(plane, DST_XUNIT);
+        auto biasPtr = bias + k * ALIMIN(plane, DST_XUNIT);
+        while (realDstCount >= DST_XUNIT) {
+            auto step = DST_XUNIT;           // ALIMIN(realDstCount, DST_XUNIT);
+            auto max4 = _mm_loadu_ps(dstMax + qind);
+            auto min4 = _mm_loadu_ps(dstMin + qind);
+            auto diff4 = _mm_sub_ps(max4, min4);
+            auto mask = _mm_cmplt_ps(diff4, thredshold4);
+
+            // scale,bias
+            auto quantScale4 = _mm_div_ps(_255f, diff4);
+            auto dequantScale4 = _mm_div_ps(diff4, _255f);
+            auto quantBias4 = _mm_sub_ps(_mm_div_ps(_mm_mul_ps(_mm_sub_ps(_0f, min4), _255f), diff4), _128f);
+            auto dequantBias4 = min4;
+
+            quantScale4 = _mm_blendv_ps(quantScale4, _0f, mask);
+            dequantScale4 = _mm_blendv_ps(dequantScale4, _0f, mask);
+            quantBias4 = _mm_round_ps(_mm_blendv_ps(quantBias4, _0f, mask), 0);
+            dequantBias4 = _mm_blendv_ps(dequantBias4, max4, mask);
+
+            _mm_storeu_ps(scalePtr, dequantScale4);
+            _mm_storeu_ps(biasPtr, dequantBias4);
+            _mm_storeu_ps(qscale + qind, quantScale4);
+            _mm_storeu_ps(qbias + qind, quantBias4);
+            
+            realDstCount -= DST_XUNIT;
+            qind += DST_XUNIT;
+            scalePtr += (blockNum * DST_XUNIT);
+            biasPtr += (blockNum * DST_XUNIT);
+        }
+        if (realDstCount == 0) {
+            continue;
+        }
+        auto remainE = realDstCount;
+        auto stride0 = remainE * blockNum;
+        scalePtr = scale + (plane / DST_XUNIT) * blockNum * DST_XUNIT + k * remainE;
+        biasPtr = bias + (plane / DST_XUNIT) * blockNum * DST_XUNIT + k * remainE;
+        while (realDstCount) {
+            auto max_ = dstMax[qind];
+            auto min_ = dstMin[qind];
+            if (fabs(max_ - min_) < 1e-7) {
+                qscale[qind] = 0.f;
+                qbias[qind] = 0.f;
+                scalePtr[0] = 0.f;
+                biasPtr[0] = max_;
+            } else {
+                qscale[qind] = 255.f / (max_ - min_);
+                qbias[qind] = roundf(-min_ * 255.f / (max_ - min_)) - 128.0f;
+                scalePtr[0] = (max_ - min_) / 255.f;
+                biasPtr[0] = min_;
+            }
+            realDstCount -= 1;
+            qind += 1;
+            scalePtr += 1;
+            biasPtr += 1;
+        }
+    }
 }
 
 static void _AVX512_MNNAbsMaxFP32(const float* source, float* absmax, size_t src_depth_quad, size_t realSize, int pack) {
@@ -112,7 +285,7 @@ static void _AVX512_MNNAbsMaxFP32(const float* source, float* absmax, size_t src
     MNN_ERROR("absMax error: x86_x64 avx512 don't suppport pack=%d yet\n", pack);
 }
 
-static void _AVX512_DynamicQuant(const float* src, int8_t* dst, const float* scale, size_t src_depth_quad, size_t realSize, int pack) {
+static void _AVX512_DynamicQuant(const float* src, int8_t* dst, const float* scale, size_t src_depth_quad, size_t realSize, int pack, const float* bias) {
     auto srcStep = realSize * pack;
     if (pack == 16) { // core->pack=16
         auto offset = _mm512_set1_epi32(128);
@@ -122,6 +295,7 @@ static void _AVX512_DynamicQuant(const float* src, int8_t* dst, const float* sca
             int xcount = realSize;
             auto srcPtr = src + i * srcStep;
             auto scalePtr = scale;
+            auto biasPtr = bias;
             while (xcount > 3) {
                 auto scale0 = _mm512_set1_ps(scalePtr[0]);
                 auto scale1 = _mm512_set1_ps(scalePtr[1]);
@@ -135,6 +309,16 @@ static void _AVX512_DynamicQuant(const float* src, int8_t* dst, const float* sca
                 data1 = _mm512_mul_ps(data1, scale1);
                 data2 = _mm512_mul_ps(data2, scale2);
                 data3 = _mm512_mul_ps(data3, scale3);
+                if (bias) {
+                    auto bias0 = _mm512_set1_ps(biasPtr[0]);
+                    auto bias1 = _mm512_set1_ps(biasPtr[1]);
+                    auto bias2 = _mm512_set1_ps(biasPtr[2]);
+                    auto bias3 = _mm512_set1_ps(biasPtr[3]);
+                    data0 = _mm512_add_ps(data0, bias0);
+                    data1 = _mm512_add_ps(data1, bias1);
+                    data2 = _mm512_add_ps(data2, bias2);
+                    data3 = _mm512_add_ps(data3, bias3);
+                }
                 auto r0 = _mm512_cvt_roundps_epi32(data0, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC);
                 auto r1 = _mm512_cvt_roundps_epi32(data1, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC);
                 auto r2 = _mm512_cvt_roundps_epi32(data2, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC);
@@ -156,6 +340,9 @@ static void _AVX512_DynamicQuant(const float* src, int8_t* dst, const float* sca
                 // next round
                 xcount -= 4;
                 scalePtr += 4;
+                if (bias) {
+                    biasPtr += 4;
+                }
                 srcPtr += (4 * pack);
                 dstPtr += 16;
             }
@@ -163,6 +350,10 @@ static void _AVX512_DynamicQuant(const float* src, int8_t* dst, const float* sca
                 auto scale0 = _mm512_set1_ps(scalePtr[0]);
                 auto data0 = _mm512_loadu_ps(srcPtr);
                 data0 = _mm512_mul_ps(data0, scale0);
+                if (bias) {
+                    auto bias0 = _mm512_set1_ps(biasPtr[0]);
+                    data0 = _mm512_add_ps(data0, bias0);
+                }
                 auto r0 = _mm512_cvt_roundps_epi32(data0, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC);
                 r0 = _mm512_add_epi32(r0, offset); // int32x16
                 auto r0_16 = _mm512_packs_epi32(r0, r0); // 00001111 00001111 00001111 00001111
@@ -176,6 +367,9 @@ static void _AVX512_DynamicQuant(const float* src, int8_t* dst, const float* sca
                 // next round
                 xcount--;
                 scalePtr += 1;
+                if (bias) {
+                    biasPtr += 1;
+                }
                 srcPtr += pack;
                 dstPtr += 4;
             }
@@ -190,6 +384,7 @@ static void _AVX512_DynamicQuant(const float* src, int8_t* dst, const float* sca
             int xcount = realSize;
             auto srcPtr = src + i * srcStep;
             auto scalePtr = scale;
+            auto biasPtr = bias;
             while (xcount > 3) {
                 auto scale0 = _mm_set1_ps(scalePtr[0]);
                 auto scale1 = _mm_set1_ps(scalePtr[1]);
@@ -203,6 +398,16 @@ static void _AVX512_DynamicQuant(const float* src, int8_t* dst, const float* sca
                 data1 = _mm_mul_ps(data1, scale1);
                 data2 = _mm_mul_ps(data2, scale2);
                 data3 = _mm_mul_ps(data3, scale3);
+                if (bias) {
+                    auto bias0 = _mm_set1_ps(biasPtr[0]);
+                    auto bias1 = _mm_set1_ps(biasPtr[1]);
+                    auto bias2 = _mm_set1_ps(biasPtr[2]);
+                    auto bias3 = _mm_set1_ps(biasPtr[3]);
+                    data0 = _mm_add_ps(data0, bias0);
+                    data1 = _mm_add_ps(data1, bias1);
+                    data2 = _mm_add_ps(data2, bias2);
+                    data3 = _mm_add_ps(data3, bias3);
+                }
                 data0 = _mm_round_ps(data0, 0);
                 data1 = _mm_round_ps(data1, 0);
                 data2 = _mm_round_ps(data2, 0);
@@ -222,6 +427,9 @@ static void _AVX512_DynamicQuant(const float* src, int8_t* dst, const float* sca
                 // next round
                 xcount -= 4;
                 scalePtr += 4;
+                if (bias) {
+                    biasPtr += 4;
+                }
                 srcPtr += (4 * pack);
                 dstPtr += 4;
             }
@@ -229,6 +437,10 @@ static void _AVX512_DynamicQuant(const float* src, int8_t* dst, const float* sca
                 auto scale0 = _mm_set1_ps(scalePtr[0]);
                 auto data0 = _mm_loadu_ps(srcPtr);
                 data0 = _mm_mul_ps(data0, scale0);
+                if (bias) {
+                    auto bias0 = _mm_set1_ps(biasPtr[0]);
+                    data0 = _mm_add_ps(data0, bias0);
+                }
                 auto r0 = _mm_cvtps_epi32(_mm_round_ps(data0, 0));
                 r0 = _mm_add_epi32(r0, offset);
                 auto r0_16 = _mm_packs_epi32(r0, r0); // 00001111
@@ -238,6 +450,9 @@ static void _AVX512_DynamicQuant(const float* src, int8_t* dst, const float* sca
                 // next round
                 xcount--;
                 scalePtr += 1;
+                if (bias) {
+                    biasPtr += 1;
+                }
                 srcPtr += pack;
                 dstPtr += 1;
             }
@@ -246,6 +461,24 @@ static void _AVX512_DynamicQuant(const float* src, int8_t* dst, const float* sca
     }
     MNN_ERROR("dynamic quant error: x86_x64 avx512 don't suppport pack=%d yet\n", pack);
     return;
+}
+
+static void _AVX512_MNNAsyQuantFunc(int8_t* dst, const float* src, float* qscale, float* qbias, const size_t* info) {
+    // input shape: [kernelsize, blockNum, blockLU, EP, LP]
+    auto blockNum = info[0];
+    auto EP = info[1];        // real area for data
+    auto LP = info[2];        // Innermost data layout, may come from backend's pack or gemmint8 units' SRC_UNIT
+    auto DST_XUNIT = info[3]; // backend gemmint8 units
+    auto SRC_UNIT = info[4];
+    auto kernelsize = info[5];
+    auto blockLU = info[6];
+    auto stride0 = blockNum * blockLU * EP * LP;
+    auto stride1 = blockLU * EP * LP;
+    for (int k = 0; k < kernelsize; ++k) {
+        for (int i = 0; i < blockNum; ++i) {
+            _AVX512_DynamicQuant(src + k * stride0 + i * stride1, dst + k * stride0 + i * stride1, qscale + i * EP, blockLU, EP, LP, qbias + i * EP);
+        }
+    }
 }
 
 void _AVX512_MNNReluWithSlopeChannel(float* dst, const float* src, const float* slope, size_t sizeQuad, size_t depthQuad) {
@@ -845,9 +1078,12 @@ void _AVX512_ExtraInit(void* functions) {
     coreFunction->MNNScaleAndAddBias = _AVX512_MNNScaleAndAddBias;
     coreFunction->MNNMatrixAdd          = _AVX512_MNNMatrixAdd;
     coreFunction->MNNMatrixSub          = _AVX512_MNNMatrixSub;
-    coreFunction->MNNCountMaxMinValue = _AVX512_MNNComputeScaleZeroScalar;
     coreFunction->MNNAbsMax = _AVX512_MNNAbsMaxFP32;
-
+    coreFunction->MNNDynamicQuant = _AVX512_DynamicQuant;
+    coreFunction->MNNAsyQuantInfo = _AVX512_MNNAsyQuantInfo;
+    coreFunction->MNNAsyQuantFunc = _AVX512_MNNAsyQuantFunc;
+    coreFunction->MNNCountMaxMinValue = _AVX512_MNNCountMinMaxValue;
+    
     coreFunction->MNNConvRunForLineDepthwise = _AVX512_MNNConvRunForLineDepthwise;
     coreFunction->MNNAxByClampBroadcastUnit = _AVX512_MNNAxByClampBroadcastUnit;
     coreFunction->MNNStrassenMergeCFunction = _AVX512_MNNStrassenMergeCFunction;
@@ -864,5 +1100,4 @@ void _AVX512_ExtraInit(void* functions) {
 
     coreFunction->MNNGetSparseMatMulPackMode = _AVX512_MNNGetSparseMatMulPackMode;
     coreFunction->MNNAdjustOptimalSparseKernel = _AVX512_MNNAdjustOptimalSparseKernel;
-    coreFunction->MNNDynamicQuant = _AVX512_DynamicQuant;
 }

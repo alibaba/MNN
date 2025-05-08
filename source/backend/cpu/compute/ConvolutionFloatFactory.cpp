@@ -48,10 +48,7 @@ static Execution* _createUnit(const Tensor* input, const Tensor* output, Backend
 
     if (lowMemory && nullptr != weightQuantInfo.get() && originWeightSize == 0) {
         if (cpuBackend->memoryMode() == BackendConfig::Memory_Low) {
-            // auto core = static_cast<CPUBackend*>(backend)->functions();
-            // auto resourceInt8 = CPUConvolution::makeResourceInt8(backend, op, core->pack);
-            // return new DenseConvInt8TiledExecutor(backend, op, resourceInt8, true);
-            return new DenseConvInt8TiledExecutor(backend, op, weightQuantInfo);
+            return new DenseConvInt8TiledExecutor(backend, op, weightQuantInfo, true);
         } else {
             return new DenseConvolutionTiledExecutor(common, backend, originWeight, originWeightSize, bias, biasSize, weightQuantInfo);
         }

@@ -37,10 +37,10 @@
     add \d0\().4s, \d0\().4s, \d2\().4s
 .endm
 
-//void MNNDynamicQuantFP32_Pack4(const float* src, int8_t* dst, const float* scale, size_t src_depth_quad, size_t realSize, int pack)
+//void MNNDynamicQuantFP32_Pack4(const float* src, int8_t* dst, const float* scale, size_t src_depth_quad, size_t realSize, const float* bias, size_t pack)
 asm_function MNNDynamicQuantFP32_Pack4
 
-// x0: src, x1:dst, x2:scale, x3:src_depth_quad, x4:realSize
+// x0: src, x1:dst, x2:scale, x3:src_depth_quad, x4:realSize, x5:bias
 stp d14, d15, [sp, #(-16 * 4)]!
 stp d12, d13, [sp, #(16 * 1)]
 stp d10, d11, [sp, #(16 * 2)]
@@ -56,7 +56,6 @@ blt TILE_4
 sub x8, x7, #64 // src_step - 64
 mov x9, x0   // src
 mov x10, x1  // dst
-//mov x11, x2  // scale
 mov x12, x3  // src_depth_quad
 
 // quant_scale: v8, 8(batch)*sizeof(float32_t)
@@ -76,8 +75,30 @@ fmul v4.4s, v4.4s, v9.s[0]
 fmul v5.4s, v5.4s, v9.s[1]
 fmul v6.4s, v6.4s, v9.s[2]
 fmul v7.4s, v7.4s, v9.s[3]
+cbz x5, L8_ROUND
 
-// int32_t x = round(x)
+ld1r {v10.4s}, [x5], #4
+ld1r {v11.4s}, [x5], #4
+ld1r {v12.4s}, [x5], #4
+ld1r {v13.4s}, [x5], #4
+
+ld1r {v14.4s}, [x5], #4
+ld1r {v15.4s}, [x5], #4
+ld1r {v16.4s}, [x5], #4
+ld1r {v17.4s}, [x5]
+
+fadd v0.4s, v0.4s, v10.4s
+fadd v1.4s, v1.4s, v11.4s
+fadd v2.4s, v2.4s, v12.4s
+fadd v3.4s, v3.4s, v13.4s
+fadd v4.4s, v4.4s, v14.4s
+fadd v5.4s, v5.4s, v15.4s
+fadd v6.4s, v6.4s, v16.4s
+fadd v7.4s, v7.4s, v17.4s
+sub x5, x5, #28
+
+L8_ROUND:
+
 Round v0, v1, v2, v3
 Round v4, v5, v6, v7
 
@@ -101,6 +122,9 @@ st1 {v16.16b, v17.16b}, [x10], x6
 subs x12, x12, #1
 bne LoopSz_8
 
+cbz x5, Tile8End
+add x5, x5, #32
+
 Tile8End:
 sub x4, x4, #8    // batch -= 8
 add x0, x0, #128  // src += 8 * 4 * sizeof(float32_t)
@@ -112,14 +136,10 @@ cmp x4, #4
 blt TILE_1
 mov x9, x0   // src
 mov x10, x1  // dst
-//mov x11, x2  // scale
 mov x12, x3  // src_depth_quad
 
 // quant_scale: v8, 4(batch)*sizeof(float32_t)
 ld1 {v8.4s}, [x2], #16
-
-// int8 sum
-movi v10.4s, #0
 
 LoopSz_4:
 ld1 {v0.4s, v1.4s, v2.4s, v3.4s}, [x9], x7
@@ -130,7 +150,19 @@ fmul v1.4s, v1.4s, v8.s[1]
 fmul v2.4s, v2.4s, v8.s[2]
 fmul v3.4s, v3.4s, v8.s[3]
 
-// int32_t x = round(x)
+cbz x5, L4_ROUND
+ld1r {v10.4s}, [x5], #4
+ld1r {v11.4s}, [x5], #4
+ld1r {v12.4s}, [x5], #4
+ld1r {v13.4s}, [x5]
+
+fadd v0.4s, v0.4s, v10.4s
+fadd v1.4s, v1.4s, v11.4s
+fadd v2.4s, v2.4s, v12.4s
+fadd v3.4s, v3.4s, v13.4s
+sub x5, x5, #12
+
+L4_ROUND:
 Round v0, v1, v2, v3
 
 // y = (int8_t)x
@@ -147,11 +179,12 @@ st1 {v6.16b}, [x10], x6
 subs x12, x12, #1
 bne LoopSz_4
 
+cbz x5, Tile4End
+add x5, x5, #16
 Tile4End:
 sub x4, x4, #4    // batch -= 4
 add x0, x0, #64  // src += 4 * 4 * sizeof(float32_t)
 add x1, x1, #16   // dst += 4 * 4 * sizeof(int8_t)
-//add x2, x2, #16   // scale += 4 * sizeof(float32_t)
 b TILE_4
 
 TILE_1:
@@ -169,7 +202,13 @@ ld1 {v0.4s}, [x9], x7
 
 // float16_t x = x * quant_scale
 fmul v0.4s, v0.4s, v8.s[0]
-// int16_t x = round(x)
+cbz x5, L1_ROUND
+
+ld1r {v10.4s}, [x5]
+
+fadd v0.4s, v0.4s, v10.4s
+
+L1_ROUND:
 fcvtas v0.4s, v0.4s
 
 // y = (int8_t)x
@@ -181,11 +220,12 @@ st1 {v7.s}[0], [x10], x6
 subs x12, x12, #1
 bne LoopSz_1
 
+cbz x5, Tile1End
+add x5, x5, #4
 Tile1End:
 subs x4, x4, #1    // batch -= 1
 add x0, x0, #16    // src += 1 * 4 * sizeof(float32_t)
 add x1, x1, #4    // dst += 1 * 4 * sizeof(int8_t)
-//add x2, x2, #4    // scale += 1 * sizeof(float32_t)
 bne TILE_1
 
 End:

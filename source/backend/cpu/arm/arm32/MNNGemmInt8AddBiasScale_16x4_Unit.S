@@ -15,7 +15,7 @@
 .align 5
 
 asm_function MNNGemmInt8AddBiasScale_16x4_Unit
-/* 
+/*
 struct QuanPostTreatParameters {
     const float* scale;
     const float* biasFloat;
@@ -25,21 +25,21 @@ struct QuanPostTreatParameters {
     float roundValuePos = 0.5f;
     float roundValueNeg = -0.5f;
     float* srcKernelSum;
-    float* weightQuanBias;
+    float* weightKernelSum;
     float* fp32minmax;
     ssize_t blockNum = 1;
-    const int32_t* bias;
-    const float* extraScale = nullptr;
-    const float* extraBias = nullptr;
-};
-*/
+    const int32_t* bias = nullptr;
+    const float* inputScale = nullptr;
+    const float* inputBias = nullptr;
+    float* accumBuffer = nullptr;
+};*/
 
 //void MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step,
 //                                              size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t real) {
 
 //Auto: r0: dst*, r1: src*, r2:weight*, r3: src_depth_quad
 // Load from sp: r4: dst_step, r5: dst_depth_quad, r6: post, r10: real
-// Load from post: lr: bias, r7: maxValue, r6: minValue
+// Load from post: lr: input scale, r7: maxValue, r6: minValue
 
 push {r4-r8, r10, lr} // avoid to touch platform-register r-9
 
@@ -50,22 +50,43 @@ ldr r10, [sp, #40]
 ldr lr, [r6, #4]
 
 vpush {q4-q7}
-sub sp, sp, #40
+sub sp, sp, #52
+/*
+[sp, #8]          : bias
+[sp, #12]         : fp32minmax
+[sp, #16]         : int8 max
+[sp, #20]         : int8 min
+lr, [sp, #24]     : input scale
+[sp, #32]         : accumBuffer
+[sp, #36]         : blockNum
+[sp, #40]         : input dequant bias
+[sp, #28]         : input dequant bias
+[sp, #44]         : block idx
+r8, [sp, #48]     : input kernel sum
+#
 
-ldr r7, [r6, #16]  // r7: useInt8
 
-ldr r8, [r6, #28] // srcKernelSum
-ldr r12, [r6, #36] // f32minmax
-str r12, [sp, #12]
-ldr r12, [r6, #8] // int8 max
-str r12, [sp, #16]
-ldr r12, [r6, #12] // int8 min
-str r12, [sp, #20]
-ldr r12, [r6, #48] // extraScale
-str r12, [sp, #28]
-ldr r12, [r6, #56] // accumBuffer
-str r12, [sp, #32]
-str r12, [sp, #36]
+ */
+str lr, [sp, #8]   // bias
+ldr r7, [r6, #32]  // r7: weightKernelSum, if nullptr, dstBytes=1.
+
+ldr r8, [r6, #28] // input kernel sum
+ldr r12, [r6, #36]
+str r12, [sp, #12] // f32minmax
+ldr r12, [r6, #8]
+str r12, [sp, #16] // int8 max
+ldr r12, [r6, #12]
+str r12, [sp, #20] // int8 min
+ldr lr, [r6, #48]
+str lr, [sp, #24] // input scale
+ldr r12, [r6, #56]
+str r12, [sp, #32] // accumBuffer
+ldr r12, [r6, #40] 
+str r12, [sp, #36] // blockNum
+ldr r12, [r6, #52]
+str r12, [sp, #40] // input dequant bias
+str r12, [sp, #28] // input dequant bias
+str r8, [sp, #48] // input kernel sum
 
 Start:
 cmp r10, #2
@@ -73,6 +94,9 @@ blt L1LoopDz
 
 L2LoopDz:
     mov r10, r1
+    mov r6, #0
+    str r6, [sp, #44] // block idx
+L2BLOCKNUM:
     subs r12, r3, #1
     // first four output
     vld1.8 {q2}, [r1]!
@@ -160,8 +184,6 @@ L2LoopDz:
     vpadd.s32 d28, d28, d29
     vpadd.s32 d26, d26, d27
     vpadd.s32 d30, d30, d31
-
-    // q8,q9
     
     vpadd.s32 d16, d16, d18
     vpadd.s32 d17, d20, d22
@@ -174,53 +196,70 @@ L2LoopDz:
     vmulq.f32 q0, q0, q5 // mul scale
     vmulq.f32 q1, q1, q5
 
-    // extra scale if has
-    ldr r6, [sp, #28]
-    cmp r6, #0
+    // input scale if has
+    cmp lr, #0
     beq L2_MLA
-    vld1.f32 {d10[0]}, [r6]! // tile0
-    vld1.f32 {d10[1]}, [r6]  // tile1
+    vld1.f32 {d10[0]}, [lr]! // tile0
+    vld1.f32 {d10[1]}, [lr]  // tile1
     vmulq.f32 q0, q0, d10[0]
     vmulq.f32 q1, q1, d10[1]
+    sub lr, lr, #4
 
     L2_MLA:
+    // input kernel sum
     vld1.f32 {d12[0]}, [r8]! // tile 0
-    vld1.f32 {d12[1]}, [r8] // tile 1
-    sub r8, r8, #4
-    vld1.f32 {q7}, [r2]!
+    vld1.f32 {d12[1]}, [r8]! // tile 1
+    vld1.f32 {q7}, [r2]! // weight bias
 
     vmla.f32 q0, q7, d12[0]
     vmla.f32 q1, q7, d12[1]
 
     cmp r7, #0
-    bne L2QuanUseInt8
+    beq L2QuanUseInt8
 
-    L2_ADD_BIAS:
-    cmp lr, #0
+    ldr r6, [sp, #40]         // input bias
+    cmp r6, #0
     beq L2_ADD_DSTV
-    vld1.f32 {q4}, [lr]! // bias
-    vadd.f32 q0, q0, q4  // bias
-    vadd.f32 q1, q1, q4
-    cmp r0, #0
-    bne L2_POST
-    b L2_BUFFER
+    // input bias * weight kernel sum
+    vld1.f32 {d12[0]}, [r6]!  // tile 0
+    vld1.f32 {d12[1]}, [r6]!   // tile 1
+    str r6, [sp, #40]
+    vld1.f32 {q7}, [r7]!
+    vmla.f32 q0, q7, d12[0]
+    vmla.f32 q1, q7, d12[1]
+    // update input scale
+    add lr, lr, #8
 
     L2_ADD_DSTV:
+    ldr r6, [sp, #44] // block idx
+    cmp r6, #0
+    beq L2_BUFFER
     ldr r6, [sp, #32] // accumBuffer
-    vld1.f32 {q4, q5}, [r6]!
+    vld1.f32 {q4, q5}, [r6]
     vadd.f32 q0, q0, q4
     vadd.f32 q1, q1, q5
-    str r6, [sp, #32]
-    cmp r0, #0
-    bne L2_POST
 
     L2_BUFFER:
-    ldr r6, [sp, #36] // accumBuffer
+    ldr r6, [sp, #44] // block idx
+    ldr r12, [sp, #36] // block num
+    add r6, r6, #1
+    cmp r6, r12
+    beq L2_POST
+    str r6, [sp, #44] // block idx
+    ldr r6, [sp, #32] // accumBuffer
     vst1.f32 {q0, q1}, [r6]!
-    str r6, [sp, #36]
-    b L2LoopCheck
+    b L2BLOCKNUM
 
     L2_POST:
+    ldr r12, [sp, #8] // load bias
+    cmp r12, #0
+    beq L2_RELU
+    vld1.f32 {q4}, [r12]!
+    vadd.f32 q0, q0, q4
+    vadd.f32 q1, q1, q4
+    str r12, [sp, #8] // save bias
+
+    L2_RELU:
     ldr r6, [sp, #12] // fp32 minmax
     cmp r6, #0
     beq L2_STORE
@@ -238,10 +277,15 @@ L2LoopDz:
     b L2LoopCheck
 
     L2QuanUseInt8:
-    vld1.f32 {q4}, [lr]! // bias
-    vadd.f32 q0, q0, q4  // bias
+    ldr r12, [sp, #8] // load bias
+    cmp r12, #0
+    beq L2_RELU_INT8
+    vld1.f32 {q4}, [r12]!
+    vadd.f32 q0, q0, q4
     vadd.f32 q1, q1, q4
+    str r12, [sp, #8] // save bias
 
+    L2_RELU_INT8:
     vmov.f32 q10, #0.5
     vmov.f32 q11, #-0.5
     ldr r6, [sp, #16]
@@ -271,12 +315,20 @@ L2LoopDz:
 L2LoopCheck:
     subs r5, r5, #1
     mov r1, r10
+    ldr lr, [sp, #24] // revert input scale
+    ldr r8, [sp, #48] // revert input kernel sum
+    ldr r12, [sp, #28] // load input bias
+    str r12, [sp, #40] // revert input bias
+
     bne L2LoopDz
 
 b End
 
 L1LoopDz:
     mov r10, r1
+    mov r6, #0
+    str r6, [sp, #44] // block idx
+L1BLOCKNUM:
     subs r12, r3, #1
     // first four output
     vld1.8 {q2}, [r1]!
@@ -330,55 +382,66 @@ L1LoopDz:
     vpadd.s32 d18, d18, d19
     vpadd.s32 d22, d22, d23
 
-    // q8
     vpadd.s32 d16, d16, d18
     vpadd.s32 d17, d20, d22
 
-    // vaddq.s32 q0, q8, q4
     vcvt.f32.s32 q0, q8
     vmulq.f32 q0, q0, q5
     // extra scale if has
-    ldr r6, [sp, #28]
-    cmp r6, #0
+    cmp lr, #0
     beq L1_MLA
-    vld1.f32 {d10[0]}, [r6] // tile0
+    vld1.f32 {d10[0]}, [lr] // tile0
     vmulq.f32 q0, q0, d10[0]
 
     L1_MLA:
-    vld1.f32 {d12[0]}, [r8] // tile 0
+    // input kernel sum
+    vld1.f32 {d12[0]}, [r8]! // tile 0
     vld1.f32 {q7}, [r2]!
     vmla.f32 q0, q7, d12[0]
 
     cmp r7, #0
-    bne L1QuanUseInt8
+    beq L1QuanUseInt8
 
-    cmp lr, #0
+    ldr r6, [sp, #40]         // input bias
+    cmp r6, #0
     beq L1_ADD_DSTV
-    vld1.f32 {q4}, [lr]! // bias
-    vadd.f32 q0, q0, q4
-    cmp r0, #0
-    bne L1_POST
-    b L1_BUFFER
+    vld1.f32 {d12[0]}, [r6]!  // tile 0
+    str r6, [sp, #40]
+    vld1.f32 {q7}, [r7]!
+    vmla.f32 q0, q7, d12[0]
+    add lr, lr, #4
 
     L1_ADD_DSTV:
+    ldr r6, [sp, #44] // block idx
+    cmp r6, #0
+    beq L1_BUFFER
     ldr r6, [sp, #32] // accumBuffer
-    vld1.f32 {q4}, [r6]!
+    vld1.f32 {q4}, [r6]
     vadd.f32 q0, q0, q4
-    str r6, [sp, #32]
-    cmp r0, #0
-    bne L1_POST
 
     L1_BUFFER:
-    ldr r6, [sp, #36] // accumBuffer
-    vst1.f32 {q0}, [r6]!
-    str r6, [sp, #36]
-    b L1LoopCheck
+    ldr r6, [sp, #44] // block idx
+    ldr r12, [sp, #36] // block num
+    add r6, r6, #1
+    cmp r6, r12
+    beq L1_POST
+    str r6, [sp, #44]
+    ldr r6, [sp, #32] // accumBuffer
+    vst1.f32 {q0}, [r6]
+    b L1BLOCKNUM
 
     L1_POST:
+    ldr r12, [sp, #8] // load bias
+    cmp r12, #0
+    beq L1_RELU
+    vld1.f32 {q4}, [r12]! // bias
+    vadd.f32 q0, q0, q4
+    str r12, [sp, #8] // save bias
+
+    L1_RELU:
     ldr r6, [sp, #12] // fp32 minmax
     cmp r6, #0
     beq L1_STORE
-
     vld1.f32 {d20[0]}, [r6]!
     vld1.f32 {d22[0]}, [r6]
     vdup.f32 q10, d20[0]
@@ -390,8 +453,14 @@ L1LoopDz:
     b L1LoopCheck
 
     L1QuanUseInt8:
-    vld1.f32 {q4}, [lr]! // bias
+    ldr r12, [sp, #8] // load bias
+    cmp r12, #0
+    beq L1_RELU_INT8
+    vld1.f32 {q4}, [r12]! // bias
     vadd.f32 q0, q0, q4
+    str r12, [sp, #8] // save bias
+
+    L1_RELU_INT8:
     vmov.f32 q10, #0.5
     vmov.f32 q11, #-0.5
     ldr r6, [sp, #16]
@@ -415,10 +484,14 @@ L1LoopDz:
 L1LoopCheck:
     subs r5, r5, #1
     mov r1, r10
+    ldr lr, [sp, #24] // revert input scale
+    ldr r8, [sp, #48] // revert input kernel sum
+    ldr r12, [sp, #28] // load input bias
+    str r12, [sp, #40] // revert input bias
     bne L1LoopDz
 
 End:
-add sp, sp, #40
+add sp, sp, #52
 vpop {q4-q7}
 pop {r4-r8, r10, pc}
 

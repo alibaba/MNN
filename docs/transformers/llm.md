@@ -54,7 +54,7 @@ python llmexport.py \
      ├── llm.mnn.weight
      ├── onnx/
           ├──llm.onnx
-           ├──llm.onnx.data
+          ├──llm.onnx.data
      ├── llm_config.json
      └── tokenizer.txt
 ```
@@ -123,7 +123,7 @@ mnnconvert -f MNN --modelFile model/llm.mnn --JsonFile model/llm.mnn.json
 使用 safetensors2mnn.py 读取权重：
 
 ```
-python3 safetensors2mnn.py --path /Users/xtjiang/.cache/modelscope/hub/Qwen/Qwen2___5-0___5B-Instruct --mnn_dir model 
+python3 safetensors2mnn.py --path /Users/xtjiang/.cache/modelscope/hub/Qwen/Qwen2___5-0___5B-Instruct --mnn_dir model
 ```
 
 safetensors2mnn.py 支持设定量化参数，和 llmexport.py 一致
@@ -237,7 +237,16 @@ node llm_demo.js ~/qwen2.0_1.5b/config.json ~/qwen2.0_1.5b/prompt.txt
   - embedding_model: 当embedding使用模型时，embedding的实际路径为`base_dir + embedding_model`，默认为`base_dir + 'embedding.mnn'`
   - embedding_file: 当embedding使用二进制时，embedding的实际路径为`base_dir + embedding_file`，默认为`base_dir + 'embeddings_bf16.bin'`
   - tokenizer_file: `tokenizer.txt`的实际名称路径为`base_dir + tokenizer_file`，默认为`base_dir + 'tokenizer.txt'`
-  - visual_model: 当使用VL模型时，visual_model的实际路径为`base_dir + visual_model`，默认为`base_dir + 'visual.mnn'`
+  - visual_model: 当使用VL模型时，visual_model的实际路径为`base_dir + visual_model`，默认为`base_dir + 'visual.mnn'`、
+  - audio_model: 当使用Audio模型时，audio_model的实际路径为`base_dir + audio_model`，默认为`base_dir + 'audio.mnn'`
+  - Omni模型文件信息
+    - talker_model: 当使用Omni模型时，talker_model的实际路径为`base_dir + talker_model`，默认为`base_dir + 'talker.mnn'`
+    - talker_weight: 当使用Omni模型时，talker_weight的实际路径为`base_dir + talker_weight`，默认为`base_dir + 'talker.mnn.weight'`
+    - talker_embedding_file: 当使用Omni模型时，talker_embedding_file的实际路径为`base_dir + talker_embedding_file`，默认为`base_dir + 'talker_embeddings_bf16.bin'`
+    - predit_model: 当使用Omni模型时，predit_model的实际路径为`base_dir + predit_model`，默认为`base_dir + 'predit.mnn'`
+    - dit_model: 当使用Omni模型时，dit_model的实际路径为`base_dir + dit_model`，默认为`base_dir + 'dit.mnn'`
+    - bigvgan_model: 当使用Omni模型时，bigvgan_model的实际路径为`base_dir + bigvgan_model`，默认为`base_dir + 'bigvgan.mnn'`
+    - spk_dict: 当使用Omni模型时，spk_dict的实际路径为`base_dir + spk_dict`，默认为`base_dir + 'spk_dict.txt'`
 - 推理配置
   - max_new_tokens: 生成时最大token数，默认为`512`
   - reuse_kv: 多轮对话时是否复用之前对话的`kv cache`，默认为`false`.
@@ -265,10 +274,15 @@ node llm_demo.js ~/qwen2.0_1.5b/config.json ~/qwen2.0_1.5b/prompt.txt
   - minP: `minP`中min P的值，默认为0.1
   - tfsZ: `tfs`中Z的值，默认为1.0 (即不使用tfs算法)
   - typical: `typical`中p的值，默认为1.0 (即不使用typical算法)
-  - penalty: `penalty`中对于logits中重复token的惩罚项，默认为0.0 (即不惩罚)
+  - penalty: `penalty`中对于logits中重复token的惩罚项，默认为0.0 (即不惩罚)，推荐值为1.05~1.5。
   - n_gram: 最大存储的ngram大小，超过此大小的重复ngram将被禁止重复输出，仅在`penalty`选中时生效，默认为8
   - ngram_factor: `penalty`中对于重复ngram (n>1) 的额外惩罚，默认为1.0，即没有额外惩罚
   - penalty_sampler: `penalty`中施加完惩罚项后采用的sampling策略，可选"greedy"或"temperature"，默认greedy.
+- Omni语音生成配置
+  - talker_max_new_tokens: 生成时最大语音token数，在Qwen2.5-Omni中50个语音token对应1秒语音，默认为`2048`
+  - talker_speaker: 生成语音的音色，Qwen2.5-Omni中支持的音色为：`["Chelsie", "Ethan"]`
+  - dit_steps: 生成语音时扩散模型迭代次数，默认为`5`, 建议设置为`5~10`, 越大语音质量越高计算耗时越高；
+  - dit_solver: 生成语音时扩散模型求解算法阶数，支持`1, 4`，默认为`1`使用一阶欧拉法；`4`表示四阶龙格库塔法，效果略好但耗时增加4倍；
 
 ##### 配置文件示例
 - `config.json`
@@ -471,3 +485,127 @@ python llmexport.py --path /path/to/Qwen2.5-0.5B-Instruct --lora_path /path/to/l
       thread2.join();
   }
   ```
+
+#### 获取语音输出
+使用Omni模型时，可以使用接口`setWavformCallback`获取语音输出，示例如下：
+1. 保存语音到文件中
+```cpp
+#include <audio/audio.hpp>
+int main() {
+  // save wavform to file for debug
+  std::vector<float> waveform;
+  llm->setWavformCallback([&](const float* ptr, size_t size, bool last_chunk) {
+      waveform.reserve(waveform.size() + size);
+      waveform.insert(waveform.end(), ptr, ptr + size);
+      if (last_chunk) {
+          auto waveform_var = MNN::Express::_Const(waveform.data(), {(int)waveform.size()}, MNN::Express::NCHW, halide_type_of<float>());
+          MNN::AUDIO::save("output.wav", waveform_var, 24000);
+          waveform.clear();
+      }
+      return true;
+  });
+  return 0;
+}
+
+```
+2. 流式播放语音（Mac/iOS为例）
+```cpp
+#include <thread>
+#include <AudioToolbox/AudioToolbox.h>
+
+struct AudioPlayer {
+    AudioStreamBasicDescription format;
+    std::vector<float> audioBuffer;
+    std::mutex bufferMutex;
+    std::condition_variable bufferCondVar;
+    bool doneGenerating = false;
+    std::thread playThread;
+    AudioPlayer() {
+        format.mSampleRate = 24000;
+        format.mFormatID = kAudioFormatLinearPCM;
+        format.mFormatFlags = kLinearPCMFormatFlagIsFloat;
+        format.mBytesPerPacket = sizeof(float);
+        format.mFramesPerPacket = 1;
+        format.mBytesPerFrame = sizeof(float);
+        format.mChannelsPerFrame = 1;
+        format.mBitsPerChannel = sizeof(float) * 8;
+    }
+    bool play(const float* ptr, size_t size, bool last_chunk);
+};
+
+void AudioQueueCallback(void* userData, AudioQueueRef inAQ, AudioQueueBufferRef inBuffer) {
+    AudioPlayer* context = static_cast<AudioPlayer*>(userData);
+    std::unique_lock<std::mutex> lock(context->bufferMutex);
+    int samplesToCopy = inBuffer->mAudioDataBytesCapacity / sizeof(float);
+    while (context->audioBuffer.size() < samplesToCopy) {
+        if (context->doneGenerating) { break; }
+        context->bufferCondVar.wait(lock);
+    }
+    if (context->audioBuffer.size() < samplesToCopy) {
+        samplesToCopy = context->audioBuffer.size();
+    }
+    memcpy(inBuffer->mAudioData, context->audioBuffer.data(), samplesToCopy * sizeof(float));
+    context->audioBuffer.erase(context->audioBuffer.begin(), context->audioBuffer.begin() + samplesToCopy);
+    inBuffer->mAudioDataByteSize = samplesToCopy * sizeof(float);
+    AudioQueueEnqueueBuffer(inAQ, inBuffer, 0, nullptr);
+}
+
+void playAudioData(AudioPlayer* context) {
+    AudioQueueRef queue;
+    AudioQueueNewOutput(&context->format, AudioQueueCallback, context, nullptr, nullptr, 0, &queue);
+    AudioQueueBufferRef buffers[3];
+    UInt32 bufferSize = 1024 * sizeof(float);
+    for (int i = 0; i < 3; ++i) {
+        AudioQueueAllocateBuffer(queue, bufferSize, &buffers[i]);
+        AudioQueueCallback(context, queue, buffers[i]);
+    }
+    AudioQueueStart(queue, nullptr);
+    while (true) {
+        {
+            std::lock_guard<std::mutex> lock(context->bufferMutex);
+            if (context->doneGenerating && context->audioBuffer.empty())
+                break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    AudioQueueStop(queue, true);
+    for (int i = 0; i < 3; ++i) {
+        AudioQueueFreeBuffer(queue, buffers[i]);
+    }
+    AudioQueueDispose(queue, true);
+}
+
+bool AudioPlayer::play(const float* ptr, size_t size, bool last_chunk) {
+    {
+        std::lock_guard<std::mutex> lock(bufferMutex);
+        audioBuffer.reserve(audioBuffer.size() + size);
+        audioBuffer.insert(audioBuffer.end(), ptr, ptr + size);
+    }
+    if (playThread.joinable()) {
+        bufferCondVar.notify_all();
+    } else {
+        playThread = std::thread(playAudioData, this);
+        printf(">>>>>>>> PLAY START\n");
+    }
+    if (last_chunk) {
+        doneGenerating = true;
+        bufferCondVar.notify_all();
+        if (playThread.joinable()) {
+            playThread.join();
+            printf(">>>>>>>> PLAY END\n");
+        }
+        return false;
+    }
+    return true;
+}
+
+int main() {
+  //....
+  AudioPlayer audio_player;
+    llm->setWavformCallback([&](const float* ptr, size_t size, bool last_chunk) {
+        return audio_player.play(ptr, size, last_chunk);
+    });
+  //....
+  return 0;
+}
+```

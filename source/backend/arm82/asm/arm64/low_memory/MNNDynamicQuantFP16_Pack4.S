@@ -19,10 +19,10 @@
     fcvtas \z3\().8h, \z3\().8h
 .endm
 
-//void MNNDynamicQuantFP16(const float* src, int8_t* dst, const float* scale, size_t src_depth_quad, size_t realSize, int pack)
+//void MNNDynamicQuantFP16(const float* src, int8_t* dst, const float* scale, size_t src_depth_quad, size_t realSize, const float* bias, size_t pack)
 asm_function MNNDynamicQuantFP16_Pack4
 
-// x0: src, x1:dst, x2:scale, x3:src_depth_quad, x4:realSize
+// x0: src, x1:dst, x2:scale, x3:src_depth_quad, x4:realSize, x5: bias
 stp d14, d15, [sp, #(-16 * 4)]!
 stp d12, d13, [sp, #(16 * 1)]
 stp d10, d11, [sp, #(16 * 2)]
@@ -50,6 +50,16 @@ fcvtn v13.4h, v14.4s
 fcvtn2 v13.8h, v15.4s
 fcvtn v14.4h, v16.4s
 fcvtn2 v14.8h, v17.4s
+
+cbz x5, LoopSz_24
+ld1 {v0.4s, v1.4s, v2.4s, v3.4s}, [x5], #64
+ld1 {v4.4s, v5.4s}, [x5], #32
+fcvtn v27.4h, v0.4s
+fcvtn2 v27.8h, v1.4s
+fcvtn v28.4h, v2.4s
+fcvtn2 v28.8h, v3.4s
+fcvtn v29.4h, v4.4s
+fcvtn2 v29.8h, v5.4s
 
 LoopSz_24:
 ld1 {v0.4h, v1.4h, v2.4h, v3.4h}, [x9], #32
@@ -86,6 +96,61 @@ fmul v24.4h, v24.4h, v14.h[5]
 fmul v25.4h, v25.4h, v14.h[6]
 fmul v26.4h, v26.4h, v14.h[7]
 
+cbz x5, TILE24_ROUND
+dup v30.8h, v27.h[0]
+dup v31.8h, v27.h[1]
+fadd v0.8h, v0.8h, v30.8h
+fadd v1.8h, v1.8h, v31.8h
+dup v30.8h, v27.h[2]
+dup v31.8h, v27.h[3]
+fadd v2.8h, v2.8h, v30.8h
+fadd v3.8h, v3.8h, v31.8h
+dup v30.8h, v27.h[4]
+dup v31.8h, v27.h[5]
+fadd v4.8h, v4.8h, v30.8h
+fadd v5.8h, v5.8h, v31.8h
+dup v30.8h, v27.h[6]
+dup v31.8h, v27.h[7]
+fadd v6.8h, v6.8h, v30.8h
+fadd v7.8h, v7.8h, v31.8h
+
+dup v30.8h, v28.h[0]
+dup v31.8h, v28.h[1]
+fadd v8.8h, v8.8h, v30.8h
+fadd v9.8h, v9.8h, v31.8h
+dup v30.8h, v28.h[2]
+dup v31.8h, v28.h[3]
+fadd v10.8h, v10.8h, v30.8h
+fadd v11.8h, v11.8h, v31.8h
+dup v30.8h, v28.h[4]
+dup v31.8h, v28.h[5]
+fadd v15.8h, v15.8h, v30.8h
+fadd v16.8h, v16.8h, v31.8h
+dup v30.8h, v28.h[6]
+dup v31.8h, v28.h[7]
+fadd v17.8h, v17.8h, v30.8h
+fadd v18.8h, v18.8h, v31.8h
+
+dup v30.8h, v29.h[0]
+dup v31.8h, v29.h[1]
+fadd v19.8h, v19.8h, v30.8h
+fadd v20.8h, v20.8h, v31.8h
+dup v30.8h, v29.h[2]
+dup v31.8h, v29.h[3]
+fadd v21.8h, v21.8h, v30.8h
+fadd v22.8h, v22.8h, v31.8h
+dup v30.8h, v29.h[4]
+dup v31.8h, v29.h[5]
+fadd v23.8h, v23.8h, v30.8h
+fadd v24.8h, v24.8h, v31.8h
+dup v30.8h, v29.h[6]
+dup v31.8h, v29.h[7]
+fadd v25.8h, v25.8h, v30.8h
+fadd v26.8h, v26.8h, v31.8h
+
+
+TILE24_ROUND:
+
 mov v0.d[1], v1.d[0]
 mov v2.d[1], v3.d[0]
 mov v4.d[1], v5.d[0]
@@ -105,21 +170,21 @@ Round v8, v10, v15, v17
 Round v19, v21, v23, v25
 
 // y = (int8_t)x
-sqxtn v27.8b, v0.8h
-sqxtn2 v27.16b, v2.8h
-sqxtn v28.8b, v4.8h
-sqxtn2 v28.16b, v6.8h
-sqxtn v29.8b, v8.8h
-sqxtn2 v29.16b, v10.8h
-sqxtn v30.8b, v15.8h
-sqxtn2 v30.16b, v17.8h
-sqxtn v0.8b, v19.8h
-sqxtn2 v0.16b, v21.8h
-sqxtn v1.8b, v23.8h
-sqxtn2 v1.16b, v25.8h
+sqxtn v0.8b, v0.8h
+sqxtn2 v0.16b, v2.8h
+sqxtn v1.8b, v4.8h
+sqxtn2 v1.16b, v6.8h
+sqxtn v2.8b, v8.8h
+sqxtn2 v2.16b, v10.8h
+sqxtn v3.8b, v15.8h
+sqxtn2 v3.16b, v17.8h
+sqxtn v4.8b, v19.8h
+sqxtn2 v4.16b, v21.8h
+sqxtn v5.8b, v23.8h
+sqxtn2 v5.16b, v25.8h
 
-st1 {v27.16b, v28.16b, v29.16b, v30.16b}, [x10], #64
-st1 {v0.16b, v1.16b}, [x10], x15
+st1 {v0.16b, v1.16b, v2.16b, v3.16b}, [x10], #64
+st1 {v4.16b, v5.16b}, [x10], x15
 
 subs x12, x12, #1
 bne LoopSz_24
@@ -145,6 +210,13 @@ fcvtn2 v12.8h, v13.4s
 fcvtn v13.4h, v14.4s
 fcvtn2 v13.8h, v15.4s
 
+cbz x5, LoopSz_16
+ld1 {v0.4s, v1.4s, v2.4s, v3.4s}, [x5], #64
+fcvtn v27.4h, v0.4s
+fcvtn2 v27.8h, v1.4s
+fcvtn v28.4h, v2.4s
+fcvtn2 v28.8h, v3.4s
+
 LoopSz_16:
 ld1 {v0.4h, v1.4h, v2.4h, v3.4h}, [x9], #32
 ld1 {v4.4h, v5.4h, v6.4h, v7.4h}, [x9], #32
@@ -169,6 +241,43 @@ fmul v16.4h, v16.4h, v13.h[5]
 fmul v17.4h, v17.4h, v13.h[6]
 fmul v18.4h, v18.4h, v13.h[7]
 
+cbz x5, TILE16_ROUND
+dup v30.8h, v27.h[0]
+dup v31.8h, v27.h[1]
+fadd v0.8h, v0.8h, v30.8h
+fadd v1.8h, v1.8h, v31.8h
+dup v30.8h, v27.h[2]
+dup v31.8h, v27.h[3]
+fadd v2.8h, v2.8h, v30.8h
+fadd v3.8h, v3.8h, v31.8h
+dup v30.8h, v27.h[4]
+dup v31.8h, v27.h[5]
+fadd v4.8h, v4.8h, v30.8h
+fadd v5.8h, v5.8h, v31.8h
+dup v30.8h, v27.h[6]
+dup v31.8h, v27.h[7]
+fadd v6.8h, v6.8h, v30.8h
+fadd v7.8h, v7.8h, v31.8h
+
+dup v30.8h, v28.h[0]
+dup v31.8h, v28.h[1]
+fadd v8.8h, v8.8h, v30.8h
+fadd v9.8h, v9.8h, v31.8h
+dup v30.8h, v28.h[2]
+dup v31.8h, v28.h[3]
+fadd v10.8h, v10.8h, v30.8h
+fadd v11.8h, v11.8h, v31.8h
+dup v30.8h, v28.h[4]
+dup v31.8h, v28.h[5]
+fadd v15.8h, v15.8h, v30.8h
+fadd v16.8h, v16.8h, v31.8h
+dup v30.8h, v28.h[6]
+dup v31.8h, v28.h[7]
+fadd v17.8h, v17.8h, v30.8h
+fadd v18.8h, v18.8h, v31.8h
+
+
+TILE16_ROUND:
 mov v0.d[1], v1.d[0]
 mov v2.d[1], v3.d[0]
 mov v4.d[1], v5.d[0]
@@ -216,6 +325,12 @@ fcvtn v12.4h, v12.4s
 fcvtn2 v12.8h, v13.4s
 fcvtn v13.4h, v14.4s
 
+cbz x5, LoopSz_12
+ld1 {v0.4s, v1.4s, v2.4s}, [x5], #48
+fcvtn v27.4h, v0.4s
+fcvtn2 v27.8h, v1.4s
+fcvtn v28.4h, v2.4s
+
 LoopSz_12:
 ld1 {v0.4h, v1.4h, v2.4h, v3.4h}, [x9], #32
 ld1 {v4.4h, v5.4h, v6.4h, v7.4h}, [x9], #32
@@ -235,6 +350,34 @@ fmul v9.4h, v9.4h, v13.h[1]
 fmul v10.4h, v10.4h, v13.h[2]
 fmul v11.4h, v11.4h, v13.h[3]
 
+cbz x5, TILE12_ROUND
+dup v30.8h, v27.h[0]
+dup v31.8h, v27.h[1]
+fadd v0.8h, v0.8h, v30.8h
+fadd v1.8h, v1.8h, v31.8h
+dup v30.8h, v27.h[2]
+dup v31.8h, v27.h[3]
+fadd v2.8h, v2.8h, v30.8h
+fadd v3.8h, v3.8h, v31.8h
+dup v30.8h, v27.h[4]
+dup v31.8h, v27.h[5]
+fadd v4.8h, v4.8h, v30.8h
+fadd v5.8h, v5.8h, v31.8h
+dup v30.8h, v27.h[6]
+dup v31.8h, v27.h[7]
+fadd v6.8h, v6.8h, v30.8h
+fadd v7.8h, v7.8h, v31.8h
+
+dup v30.8h, v28.h[0]
+dup v31.8h, v28.h[1]
+fadd v8.8h, v8.8h, v30.8h
+fadd v9.8h, v9.8h, v31.8h
+dup v30.8h, v28.h[2]
+dup v31.8h, v28.h[3]
+fadd v10.8h, v10.8h, v30.8h
+fadd v11.8h, v11.8h, v31.8h
+
+TILE12_ROUND:
 mov v0.d[1], v1.d[0]
 mov v2.d[1], v3.d[0]
 mov v4.d[1], v5.d[0]
@@ -281,6 +424,13 @@ fcvtn v10.4h, v12.4s
 fcvtn2 v10.8h, v13.4s
 fcvtn v11.4h, v14.4s
 
+cbz x5, LoopSz_10
+ld1 {v0.4s, v1.4s}, [x5], #32
+ld1 {v2.d}[0], [x5], #8
+fcvtn v27.4h, v0.4s
+fcvtn2 v27.8h, v1.4s
+fcvtn v28.4h, v2.4s
+
 LoopSz_10:
 ld1 {v0.4h, v1.4h, v2.4h, v3.4h}, [x9], #32
 ld1 {v4.4h, v5.4h, v6.4h, v7.4h}, [x9], #32
@@ -298,6 +448,30 @@ fmul v7.4h, v7.4h, v10.h[7]
 fmul v8.4h, v8.4h, v11.h[0]
 fmul v9.4h, v9.4h, v11.h[1]
 
+cbz x5, TILE10_ROUND
+dup v30.8h, v27.h[0]
+dup v31.8h, v27.h[1]
+fadd v0.8h, v0.8h, v30.8h
+fadd v1.8h, v1.8h, v31.8h
+dup v30.8h, v27.h[2]
+dup v31.8h, v27.h[3]
+fadd v2.8h, v2.8h, v30.8h
+fadd v3.8h, v3.8h, v31.8h
+dup v30.8h, v27.h[4]
+dup v31.8h, v27.h[5]
+fadd v4.8h, v4.8h, v30.8h
+fadd v5.8h, v5.8h, v31.8h
+dup v30.8h, v27.h[6]
+dup v31.8h, v27.h[7]
+fadd v6.8h, v6.8h, v30.8h
+fadd v7.8h, v7.8h, v31.8h
+
+dup v30.8h, v28.h[0]
+dup v31.8h, v28.h[1]
+fadd v8.8h, v8.8h, v30.8h
+fadd v9.8h, v9.8h, v31.8h
+
+TILE10_ROUND:
 mov v0.d[1], v1.d[0]
 mov v2.d[1], v3.d[0]
 mov v4.d[1], v5.d[0]
@@ -340,6 +514,11 @@ ld1 {v12.4s, v13.4s}, [x2], #32
 fcvtn v8.4h, v12.4s
 fcvtn2 v8.8h, v13.4s
 
+cbz x5, LoopSz_8
+ld1 {v0.4s, v1.4s}, [x5], #32
+fcvtn v27.4h, v0.4s
+fcvtn2 v27.8h, v1.4s
+
 LoopSz_8:
 ld1 {v0.4h, v1.4h, v2.4h, v3.4h}, [x9], #32
 ld1 {v4.4h, v5.4h, v6.4h, v7.4h}, [x9], x8
@@ -354,6 +533,25 @@ fmul v5.4h, v5.4h, v8.h[5]
 fmul v6.4h, v6.4h, v8.h[6]
 fmul v7.4h, v7.4h, v8.h[7]
 
+cbz x5, TILE8_ROUND
+dup v30.8h, v27.h[0]
+dup v31.8h, v27.h[1]
+fadd v0.8h, v0.8h, v30.8h
+fadd v1.8h, v1.8h, v31.8h
+dup v30.8h, v27.h[2]
+dup v31.8h, v27.h[3]
+fadd v2.8h, v2.8h, v30.8h
+fadd v3.8h, v3.8h, v31.8h
+dup v30.8h, v27.h[4]
+dup v31.8h, v27.h[5]
+fadd v4.8h, v4.8h, v30.8h
+fadd v5.8h, v5.8h, v31.8h
+dup v30.8h, v27.h[6]
+dup v31.8h, v27.h[7]
+fadd v6.8h, v6.8h, v30.8h
+fadd v7.8h, v7.8h, v31.8h
+
+TILE8_ROUND:
 mov v0.d[1], v1.d[0]
 mov v2.d[1], v3.d[0]
 mov v4.d[1], v5.d[0]
@@ -389,6 +587,14 @@ mov x12, x3  // src_depth_quad
 ld1 {v12.4s}, [x2], #16
 fcvtn v8.4h, v12.4s
 
+cbz x5, LoopSz_4
+ld1 {v12.4s}, [x5], #16
+fcvtn v27.4h, v12.4s
+dup v28.8h, v27.h[0]
+dup v29.8h, v27.h[1]
+dup v30.8h, v27.h[2]
+dup v31.8h, v27.h[3]
+
 LoopSz_4:
 ld1 {v0.4h, v1.4h, v2.4h, v3.4h}, [x9], x7
 
@@ -398,6 +604,13 @@ fmul v1.4h, v1.4h, v8.h[1]
 fmul v2.4h, v2.4h, v8.h[2]
 fmul v3.4h, v3.4h, v8.h[3]
 
+cbz x5, TILE4_ROUND
+fadd v0.8h, v0.8h, v28.8h
+fadd v1.8h, v1.8h, v29.8h
+fadd v2.8h, v2.8h, v30.8h
+fadd v3.8h, v3.8h, v31.8h
+
+TILE4_ROUND:
 mov v0.d[1], v1.d[0]
 mov v2.d[1], v3.d[0]
 // int16_t x = round(x)
@@ -430,14 +643,25 @@ mov x12, x3  // src_depth_quad
 ld1 {v12.d}[0], [x2], #8
 fcvtn v8.4h, v12.4s
 
+cbz x5, LoopSz_2
+ld1 {v12.d}[0], [x5], #8
+fcvtn v27.4h, v12.4s
+dup v28.8h, v27.h[0]
+dup v29.8h, v27.h[1]
+
 LoopSz_2:
 ld1 {v0.4h, v1.4h}, [x9], x7
 
 // float16_t x = x * quant_scale
 fmul v0.4h, v0.4h, v8.h[0]
 fmul v1.4h, v1.4h, v8.h[1]
-mov v0.d[1], v1.d[0]
 
+cbz x5, TILE2_ROUND
+fadd v0.8h, v0.8h, v28.8h
+fadd v1.8h, v1.8h, v29.8h
+
+TILE2_ROUND:
+mov v0.d[1], v1.d[0]
 // int16_t x = round(x)
 fcvtas v0.8h, v0.8h
 
@@ -466,12 +690,21 @@ mov x12, x3  // src_depth_quad
 ld1 {v12.s}[0], [x2], #4
 fcvtn v8.4h, v12.4s
 
+cbz x5, LoopSz_1
+ld1 {v12.s}[0], [x5], #4
+fcvtn v27.4h, v12.4s
+dup v27.8h, v27.h[0]
+
 LoopSz_1:
 ld1 {v0.4h}, [x9], x7
 
 // float16_t x = x * quant_scale
 fmul v0.4h, v0.4h, v8.h[0]
 // int16_t x = round(x)
+cbz x5, TILE1_ROUND
+fadd v0.8h, v0.8h, v27.8h
+
+TILE1_ROUND:
 fcvtas v0.8h, v0.8h
 // y = (int8_t)x
 sqxtn v0.8b, v0.8h

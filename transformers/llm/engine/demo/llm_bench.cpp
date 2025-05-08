@@ -22,7 +22,7 @@ struct RuntimeParameters {
     std::vector<std::string>         model;
     std::vector<int>                 backends;
     std::vector<int>                 threads;
-    std::vector<bool>                useMmap;
+    bool                             useMmap;
     std::vector<int>                 power;
     std::vector<int>                 precision;
     std::vector<int>                 memory;
@@ -34,7 +34,8 @@ struct TestParameters {
     std::vector<int>                 nGenerate;
     std::vector<std::pair<int, int>> nPrompGen;
     std::vector<int>                 nRepeat;
-    std::vector<std::string>         kvCache;
+    std::string                      kvCache;
+    std::string                      loadTime;
 };
 
 struct CommandParameters {
@@ -52,6 +53,7 @@ struct CommandParameters {
     std::pair<int, int> nPrompGen;
     int                 nRepeat;
     std::string         kvCache;
+    std::string         loadingTime;
 
 };
 
@@ -60,7 +62,7 @@ static const RuntimeParameters runtimeParamsDefaults = {
     /* model                */ { "./Qwen2.5-1.5B-Instruct" },
     /* backends             */ { 0 },
     /* threads            */ { 4 },
-    /* useMmap             */ { false },
+    /* useMmap             */ false,
     /* power                */ { 0 },
     /* precision            */ { 2 },
     /* memory               */ { 2 },
@@ -70,10 +72,11 @@ static const RuntimeParameters runtimeParamsDefaults = {
 
 static const TestParameters testParamsDefaults = {
     /* nPrompt             */ { 512 },
-    /* nGenerate                */ { 128 },
-    /* nPrompGen                 */ {std::make_pair(512, 128)},
+    /* nGenerate           */ { 128 },
+    /* nPrompGen           */ {std::make_pair(512, 128)},
     /* nRepeat             */ { 5 },
-    /* kvCache             */ { "false" }
+    /* kvCache             */ { "false" },
+    /* loadingTime         */ {"false"}
 };
 
 
@@ -84,18 +87,19 @@ struct commandParametersInstance {
     commandParametersInstance(CommandParameters cmdParam) {
         mCmdParam.model          = cmdParam.model;
         mCmdParam.backend        = cmdParam.backend;
-        mCmdParam.threads      = cmdParam.threads;
-        mCmdParam.useMmap       = cmdParam.useMmap;
+        mCmdParam.threads        = cmdParam.threads;
+        mCmdParam.useMmap        = cmdParam.useMmap;
         mCmdParam.power          = cmdParam.power;
         mCmdParam.precision      = cmdParam.precision;
         mCmdParam.memory         = cmdParam.memory;
-        mCmdParam.dynamicOption = cmdParam.dynamicOption;
+        mCmdParam.dynamicOption  = cmdParam.dynamicOption;
 
-        mCmdParam.nPrompt       = cmdParam.nPrompt;
-        mCmdParam.nGenerate          = cmdParam.nGenerate;
-        mCmdParam.nPrompGen           = cmdParam.nPrompGen;
-        mCmdParam.nRepeat       = cmdParam.nRepeat;
-        mCmdParam.kvCache       = cmdParam.kvCache;
+        mCmdParam.nPrompt        = cmdParam.nPrompt;
+        mCmdParam.nGenerate      = cmdParam.nGenerate;
+        mCmdParam.nPrompGen      = cmdParam.nPrompGen;
+        mCmdParam.nRepeat        = cmdParam.nRepeat;
+        mCmdParam.kvCache        = cmdParam.kvCache;
+        mCmdParam.loadingTime    = cmdParam.loadingTime;
     }
 
     CommandParameters get_cmd_parameters() const {
@@ -153,6 +157,7 @@ struct TestInstance {
     std::vector<int64_t>     prefillUs;
     std::vector<int64_t>     decodeUs;
     std::vector<int64_t>     samplesUs;
+    std::vector<double>      loadingS;
     int                      backend;
     int                      precision;
     int                      power;
@@ -284,16 +289,19 @@ struct markdownPrinter : public Printer {
         if (rp.dynamicOption.size() > 1) {
             fields.emplace_back("dynamicOption");
         }
-        
-        if (rp.useMmap.size() > 1 || rp.useMmap != runtimeParamsDefaults.useMmap) {
+
+        if (rp.useMmap) {
             fields.emplace_back("useMmap");
         }
-        if (tp.kvCache[0] == "false") {
+        if (tp.kvCache == "false") {
             fields.emplace_back("test");
             fields.emplace_back("t/s");
         } else {
             fields.emplace_back("llm_demo");
             fields.emplace_back("speed(tok/s)");
+        }
+        if (tp.loadTime == "true") {
+            fields.emplace_back("loadingTime(s)");
         }
 
         fprintf(fout, "|");
@@ -363,7 +371,11 @@ struct markdownPrinter : public Printer {
             } else if (field == "threads") {
                 snprintf(buf, sizeof(buf), "%d", t.threads);
                 value = buf;
-            } else {
+            } else if (field == "loadingTime(s)") {
+                snprintf(buf, sizeof(buf), "%.2f ± %.2f", t.getAvgUs(t.loadingS), t.getStdevUs(t.loadingS));
+                value = buf;
+            }
+            else {
                 assert(false);
                 MNN_ERROR("llm bench print fields error\n");
                 return;
@@ -429,10 +441,9 @@ static std::vector<commandParametersInstance> get_cmd_params_instances(const Run
     for (const auto & precision : rp.precision)
     for (const auto & memory : rp.memory)
     for (const auto & power : rp.power)
-    for (const auto & mmp : rp.useMmap)
     for (const auto & nt : rp.threads)
     for (const auto & dyop : rp.dynamicOption)
-        if (tp.kvCache[0] == "true") { // MNN llm_demo test standard
+        if (tp.kvCache == "true") { // MNN llm_demo test standard
             for (const auto & nPrompt : tp.nPrompt) {
                 if (nPrompt == 0) {
                     continue;
@@ -450,10 +461,11 @@ static std::vector<commandParametersInstance> get_cmd_params_instances(const Run
                     tmpParam.memory = memory;
                     tmpParam.nPrompt = nPrompt;
                     tmpParam.nGenerate = nGenerate;
-                    tmpParam.useMmap = mmp;
+                    tmpParam.useMmap = rp.useMmap;
                     tmpParam.dynamicOption = dyop;
                     tmpParam.nRepeat = tp.nRepeat[0];
                     tmpParam.kvCache = "true";
+                    tmpParam.loadingTime = tp.loadTime;
                     auto instance = commandParametersInstance(tmpParam);
                     instances.push_back(instance);
                 }
@@ -468,7 +480,7 @@ static std::vector<commandParametersInstance> get_cmd_params_instances(const Run
                 tmpParam.nPrompt = nPrompt;
                 tmpParam.nGenerate = 0;
                 tmpParam.threads = nt;
-                tmpParam.useMmap = mmp;
+                tmpParam.useMmap = rp.useMmap;
                 tmpParam.backend = backend;
                 tmpParam.power = power;
                 tmpParam.precision = precision;
@@ -476,6 +488,7 @@ static std::vector<commandParametersInstance> get_cmd_params_instances(const Run
                 tmpParam.dynamicOption = dyop;
                 tmpParam.nRepeat = tp.nRepeat[0];
                 tmpParam.kvCache = "false";
+                tmpParam.loadingTime = tp.loadTime;
                 auto instance = commandParametersInstance(tmpParam);
                 instances.push_back(instance);
             }
@@ -485,7 +498,7 @@ static std::vector<commandParametersInstance> get_cmd_params_instances(const Run
                 tmpParam.nPrompt = 0;
                 tmpParam.nGenerate = nGenerate;
                 tmpParam.threads = nt;
-                tmpParam.useMmap = mmp;
+                tmpParam.useMmap = rp.useMmap;
                 tmpParam.backend = backend;
                 tmpParam.power = power;
                 tmpParam.precision = precision;
@@ -493,6 +506,7 @@ static std::vector<commandParametersInstance> get_cmd_params_instances(const Run
                 tmpParam.dynamicOption = dyop;
                 tmpParam.nRepeat = tp.nRepeat[0];
                 tmpParam.kvCache = "false";
+                tmpParam.loadingTime = tp.loadTime;
                 auto instance = commandParametersInstance(tmpParam);
                 instances.push_back(instance);
             }
@@ -505,7 +519,7 @@ static std::vector<commandParametersInstance> get_cmd_params_instances(const Run
                 tmpParam.nPrompt = nPrompGen.first;
                 tmpParam.nGenerate = nPrompGen.second;
                 tmpParam.threads = nt;
-                tmpParam.useMmap = mmp;
+                tmpParam.useMmap = rp.useMmap;
                 tmpParam.backend = backend;
                 tmpParam.power = power;
                 tmpParam.precision = precision;
@@ -513,6 +527,7 @@ static std::vector<commandParametersInstance> get_cmd_params_instances(const Run
                 tmpParam.dynamicOption = dyop;
                 tmpParam.nRepeat = tp.nRepeat[0];
                 tmpParam.kvCache = "false";
+                tmpParam.loadingTime = tp.loadTime;
                 auto instance = commandParametersInstance(tmpParam);
                 instances.push_back(instance);
             }
@@ -557,18 +572,23 @@ static void printUsage(int /* argc */, char ** argv) {
     printf("  -p, --n-prompt <n>                        (default: %s)\n", join(testParamsDefaults.nPrompt, ",").c_str());
     printf("  -n, --n-gen <n>                           (default: %s)\n", join(testParamsDefaults.nGenerate, ",").c_str());
     printf("  -pg <pp,tg>                               (default: %s)\n", join(transform2String(testParamsDefaults.nPrompGen, pairString), ",").c_str());
-    printf("  -mmp, --mmap <0|1>                        (default: %s)\n", join(runtimeParamsDefaults.useMmap, ",").c_str());
+    printf("  -mmp, --mmap <0|1>                        (default: %s)\n", "0");
     printf("  -rep, --n-repeat <n>                      (default: %s)\n", join(testParamsDefaults.nRepeat, ",").c_str());
     printf("  -kv, --kv-cache <true|false>              (default: %s) | Note: if true: Every time the LLM model generates a new word, it utilizes the cached KV-cache\n", "false");
     printf("  -fp, --file-print <stdout|filename>       (default: %s)\n", "stdout");
+    printf("  -load, --loading-time <true|false>        (default: %s)\n", "true");
 }
 
 
-static bool parseCmdParams(int argc, char ** argv, RuntimeParameters & runtimeParams, TestParameters & testParams, FILE** outfile) {
+static bool parseCmdParams(int argc, char ** argv, RuntimeParameters & runtimeParams, TestParameters & testParams, FILE** outfile, bool& helpInfo) {
     std::string       arg;
     bool              invalidParam = false;
     const std::string argPrefix    = "--";
     const char        splitDelim   = ',';
+
+    runtimeParams.useMmap = runtimeParamsDefaults.useMmap;
+    testParams.kvCache = testParamsDefaults.kvCache;
+    testParams.loadTime = testParamsDefaults.loadTime;
 
     for (int i = 1; i < argc; i++) {
         arg = argv[i];
@@ -578,6 +598,7 @@ static bool parseCmdParams(int argc, char ** argv, RuntimeParameters & runtimePa
 
         if (arg == "-h" || arg == "--help") {
             printUsage(argc, argv);
+            helpInfo = true;
             return true;
         } else if (arg == "-m" || arg == "--model") {
             if (++i >= argc) {
@@ -641,7 +662,7 @@ static bool parseCmdParams(int argc, char ** argv, RuntimeParameters & runtimePa
                 break;
             }
             auto p = splitString<bool>(argv[i], splitDelim);
-            runtimeParams.useMmap.insert(runtimeParams.useMmap.end(), p.begin(), p.end());
+            runtimeParams.useMmap = p[0];
         } else if (arg == "-c" || arg == "--precision") {
             if (++i >= argc) {
                 invalidParam = true;
@@ -683,7 +704,7 @@ static bool parseCmdParams(int argc, char ** argv, RuntimeParameters & runtimePa
                 break;
             }
             auto p = splitString<std::string>(argv[i], splitDelim);
-            testParams.kvCache.insert(testParams.kvCache.end(), p.begin(), p.end());
+            testParams.kvCache = p[0];
         } else if (arg == "-fp" || arg == "--file-print") {
             if (++i >= argc) {
                 invalidParam = true;
@@ -694,7 +715,14 @@ static bool parseCmdParams(int argc, char ** argv, RuntimeParameters & runtimePa
                 MNNCreateFile(p[0].c_str());
             }
             *outfile = openFile(p[0].c_str(), false);
-        } 
+        } else if (arg == "-load" || arg == "--loading-time") {
+            if (++i >= argc) {
+                invalidParam = true;
+                break;
+            }
+            auto p = splitString<std::string>(argv[i], splitDelim);
+            testParams.loadTime = p[0];
+        }
         else {
             invalidParam = true;
             break;
@@ -721,9 +749,6 @@ static bool parseCmdParams(int argc, char ** argv, RuntimeParameters & runtimePa
     if (testParams.nPrompGen.empty()) {
         testParams.nPrompGen = testParamsDefaults.nPrompGen;
     }
-    if (runtimeParams.useMmap.empty()) {
-        runtimeParams.useMmap = runtimeParamsDefaults.useMmap;
-    }
     if (runtimeParams.backends.empty()) {
         runtimeParams.backends = runtimeParamsDefaults.backends;
     }
@@ -744,9 +769,6 @@ static bool parseCmdParams(int argc, char ** argv, RuntimeParameters & runtimePa
     }
     if (testParams.nRepeat.empty()) {
         testParams.nRepeat = testParamsDefaults.nRepeat;
-    }
-    if (testParams.kvCache.empty()) {
-        testParams.kvCache = testParamsDefaults.kvCache;
     }
 
     return true;
@@ -799,14 +821,22 @@ static Llm* buildLLM(const std::string& config_path, int backend, int memory, in
     return llmPtr;
 }
 
+static void tuning_prepare(Llm* llm) {
+    llm->tuning(OP_ENCODER_NUMBER, {1, 5, 10, 20, 30, 50, 100});
+}
+
 int main(int argc, char ** argv) {
     RuntimeParameters runtimeParams;
     TestParameters testParams;
     FILE* outfile = stdout;
-    bool parseSuccess = parseCmdParams(argc, argv, runtimeParams, testParams, &outfile);
+    bool helpInfo = false;
+    bool parseSuccess = parseCmdParams(argc, argv, runtimeParams, testParams, &outfile, helpInfo);
     if (!parseSuccess) {
         MNN_ERROR("Parse arguments error\n");
         return -1;
+    }
+    if (parseSuccess && helpInfo) {
+        return 0;
     }
     std::vector<commandParametersInstance> paramsInstances = get_cmd_params_instances(runtimeParams, testParams);
     std::unique_ptr<Printer> printer_(new markdownPrinter());
@@ -825,7 +855,16 @@ int main(int argc, char ** argv) {
 
         auto llmPtr = buildLLM(instance.mCmdParam.model, instance.mCmdParam.backend, instance.mCmdParam.memory, instance.mCmdParam.precision, instance.mCmdParam.threads, instance.mCmdParam.power, instance.mCmdParam.dynamicOption, instance.mCmdParam.useMmap);
         std::unique_ptr<Llm> llm(llmPtr);
-        llm->load();
+        if (instance.mCmdParam.loadingTime == "true") {
+            for (int k = 0; k < 3; ++k) {
+                Timer loadingCost;
+                llm->load();
+                t.loadingS.push_back((double)loadingCost.durationInUs() / 1e6);
+            }
+        } else {
+            llm->load();
+        }
+        tuning_prepare(llm.get());
         auto context = llm->getContext();
         if (instance.mCmdParam.nGenerate > 0) {
             llm->set_config("{\"max_new_tokens\":1}");

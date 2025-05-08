@@ -32,6 +32,12 @@ void MNNSlowCopy(T* dst, const U* src, size_t size) {
         dst[i] = (T)src[i];
     }
 }
+#ifdef MNN_LOW_MEMORY
+#ifdef __aarch64__
+bool MNNAsyLocalQuantInfo_EP12_FP16(float* scale, float* bias, float* qscale, float* qbias, const float* srcMin, const float* srcMax, const size_t* info);
+bool MNNAsyLocalQuantInfo_EP10_FP16(float* scale, float* bias, float* qscale, float* qbias, const float* srcMin, const float* srcMax, const size_t* info);
+#endif
+#endif
 
 #endif // Arm82OptFunc_hpp
 #endif

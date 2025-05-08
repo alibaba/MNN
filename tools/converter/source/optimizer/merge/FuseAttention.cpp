@@ -20,6 +20,7 @@ public:
     FuseAttention();
 private:
     VARP query, key, value, mask;
+    bool kvcache;
 };
 
 static EXPRP is_gqa(EXPRP& x) {
@@ -54,7 +55,7 @@ FuseAttention::FuseAttention() {
             return false;
         }
 
-        EXPRP x, y;
+        EXPRP x, y, z;
         // softmax @ v
         auto matmul = expr->inputs().at(0)->expr().first;
         if (!helpers::IsMatMul(matmul)) {
@@ -67,12 +68,14 @@ FuseAttention::FuseAttention() {
             return false;
         }
         // concat
-        y = y->inputs().at(0)->expr().first;
-        if (!helpers::IsConcat(y)) {
-            return false;
+        z = y->inputs().at(0)->expr().first;
+        if (helpers::IsConcat(z)) {
+            kvcache = true;
+            value = z->inputs().at(1);
+        } else {
+            kvcache = false;
+            value = y->inputs().at(0);
         }
-        // value
-        value = y->inputs().at(1);
 
         // softmax
         x = matmul->inputs().at(0)->expr().first;
@@ -107,7 +110,7 @@ FuseAttention::FuseAttention() {
             return false;
         }
         // transpose
-        auto z = x->inputs().at(0)->expr().first;
+        z = x->inputs().at(0)->expr().first;
         if (!helpers::IsTranspose(z)) {
             return false;
         }
@@ -119,6 +122,10 @@ FuseAttention::FuseAttention() {
         y = is_gqa(y);
         if (!helpers::IsTranspose(y)) {
             return false;
+        }
+        if (!kvcache) {
+            key = y->inputs().at(0);
+            return true;
         }
         // concat
         y = y->inputs().at(0)->expr().first;
@@ -145,7 +152,9 @@ FuseAttention::FuseAttention() {
         attention->name       = "Attention" + expr->name();
         attention->type       = OpType_Attention;
         attention->main.type  = OpParameter_AttentionParam;
-        attention->main.value = new AttentionParamT;
+        auto param            = new AttentionParamT;
+        param->kv_cache       = kvcache;
+        attention->main.value = param;
 
         auto attention_expr = Variable::create(Expr::create(attention.get(), {query, key, value, mask}, 1));
 

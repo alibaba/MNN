@@ -183,7 +183,7 @@ void _SSE_MNNPackedSparseMatMul(float* C, const float* A, const float* B, unsign
     return;
 }
 
-void _SSE_MNNComputeScaleZeroScalar(float* source, float* min, float* max, size_t size) {
+void _SSE_MNNCountMinMaxValue(const float* source, float* min, float* max, size_t size) {
     int pack = 4;
     int sizeDiv4 = size / pack;
     __m128 minVal = _mm_set1_ps(source[0]);

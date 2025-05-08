@@ -46,7 +46,9 @@ void _AVX_MNNPackedMatMulRemain_int8(float* C, const float* A, const float* B, s
 
 #ifdef MNN_LOW_MEMORY
 void _AVX_MNNAbsMaxFP32(const float* source, float* absmax, size_t src_depth_quad, size_t realSize, int pack);
-void _AVX_MNNDynamicQuant(const float* src, int8_t* dst, const float* scale, size_t src_depth_quad, size_t realSize, int pack);
+void _AVX_MNNDynamicQuant(const float* src, int8_t* dst, const float* scale, size_t src_depth_quad, size_t realSize, int pack, const float* bias);
+void _AVX_MNNAsyQuantFunc(int8_t* dst, const float* src, float* qscale, float* qbias, const size_t* info);
+void _AVX_MNNAsyQuantInfo(float* scale, float* bias, float* qscale, float* qbias, float* dstMin, float* dstMax, const float* src, const size_t* info);
 #endif
 void _AVX_MNNPackC4ForMatMul_A(float* destOrigin, float const** sourceGroup, const int32_t* info, const int32_t* el);
 
@@ -57,7 +59,7 @@ void _AVX_MNNInt8ScaleToFloat(float* dst, const int8_t* src, const float* scale,
 void _AVX_MNNLineDepthWiseInt8AddBiasScaleUnit(int8_t* dstO, const int8_t* srcO, const int8_t* weightO, const QuanPostTreatParameters* parameters, size_t width, size_t src_w_step, size_t fw, size_t fh, size_t dilateX_step, size_t dilateY_step, int8_t* idxOrder);
 void _AVX_MNNComputeMatMulForE_1(const float* A, const float* B, float* C, const float* biasPtr, const MatMulParam* param, size_t tId);
 void _AVX_MNNPackC4ForMatMul_A_BF16(float* destOrigin, float const** sourceGroup, const int32_t* info, const int32_t* el);
-void _AVX_MNNComputeScaleZeroScalar(float* source, float* minVal, float* maxVal, size_t size);
+void _AVX_MNNCountMinMaxValue(const float* source, float* minVal, float* maxVal, size_t size);
 
 void _AVX_MNNGetMatMulPackMode_BF16(int* eP, int *lP, int* hP);
 void _AVX_MNNPackForMatMul_B_BF16(float* dest, const float* source, size_t h, size_t l, bool transpose);

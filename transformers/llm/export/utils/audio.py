@@ -1,8 +1,11 @@
 import torch
+from .transformers import Decoder
+from .spinner import spinner_run
 
 class Audio(torch.nn.Module):
     def __init__(self, audio, base):
         super().__init__()
+        self.model_type = base.model_type
         self.audio = audio
         self.embed_ = base.embed
         self.tokenizer = base.tokenizer
@@ -18,6 +21,7 @@ class Audio(torch.nn.Module):
     def get_audio(model_type):
         audio_models = {
             'qwen2_audio': Qwen2Audio,
+            'qwen2_5_omni_audio_encoder': Qwen2_5OmniAudio,
         }
         if model_type in audio_models:
             return audio_models[model_type]
@@ -37,6 +41,9 @@ class Audio(torch.nn.Module):
         raise NotImplementedError
 
     def embed(self, input_ids, images = None, videos = None):
+        raise NotImplementedError
+
+    def export(self, onnx_path):
         raise NotImplementedError
 
 class Qwen2Audio(Audio):
@@ -83,6 +90,9 @@ class Qwen2Audio(Audio):
                     audio_content = re.search(r'<audio>(.*?)</audio>', part).group(1)
                     if audio_content.startswith('http://') or audio_content.startswith('https://'):
                         audio_obj = librosa.load(BytesIO(urlopen(audio_content).read()), sr=self.sampling_rate)[0]
+                    else:
+                        # local file
+                        audio_obj = librosa.load(audio_content, sr=self.sampling_rate)[0]
                     audio_embed_len = self.audio_process(audio_obj)
                     audio_pad_str = '<|AUDIO|>' * audio_embed_len
                     txt_prompt += audio_pad_str
@@ -139,3 +149,127 @@ class Qwen2Audio(Audio):
             audio_mask = (input_ids == self.audio_pad_id).squeeze()
             input_embeds[audio_mask] = self.audio_embeds.type(input_embeds.dtype)
         return input_embeds
+
+    @spinner_run(f'export audio to ')
+    def export(self, onnx_path):
+        input_features = torch.randn((1, self.feature_size, self.max_length))
+
+        model = self.float()
+        onnx_model = f'{onnx_path}/audio.onnx'
+        torch.onnx.export(model, (input_features),
+                        onnx_model,
+                        input_names=['input_features'],
+                        output_names=['audio_embeds'],
+                        dynamic_axes={"input_features": {
+                            2: "size"
+                        }},
+                        do_constant_folding=True,
+                        verbose=False,
+                        opset_version=15)
+        return onnx_model
+
+class AudioMlp(torch.nn.Module):
+    def __init__(self, fc1, fc2, act):
+        super().__init__()
+        self.fc1 = fc1
+        self.fc2 = fc2
+        self.act = act
+
+    def forward(self, hidden_states):
+        hidden_states = self.fc1(hidden_states)
+        hidden_states = self.act(hidden_states)
+        hidden_states = self.fc2(hidden_states)
+        return hidden_states
+
+class Qwen2_5OmniAudio(Qwen2Audio):
+    def __init__(self, audio, base):
+        super().__init__(audio, base)
+        self.quant_bit = 4
+
+    def load(self):
+        # config
+        config = self.audio.config
+        self.n_window = config.n_window
+        self.llm_config['is_audio'] = True
+        self.llm_config['n_window'] = self.n_window
+        self.hidden_size = config.d_model
+        self.num_attention_heads = config.encoder_attention_heads
+        self.num_key_value_heads = self.num_attention_heads
+        self.head_dim = self.hidden_size // self.num_attention_heads
+        self.rotary = None
+        self.model_map = {
+            'decoder': {
+                'self_attn': 'self_attn',
+                'input_layernorm': 'self_attn_layer_norm',
+                'post_attention_layernorm': 'final_layer_norm'
+            },
+            'attention': {
+                'q_proj': 'q_proj',
+                'k_proj': 'k_proj',
+                'v_proj': 'v_proj',
+                'o_proj': 'out_proj'
+            }
+        }
+        self.blocks = []
+        for layer in self.audio.layers:
+            layer_id = len(self.blocks)
+            block = Decoder(layer, layer_id, self)
+            block.mlp = AudioMlp(layer.fc1, layer.fc2, layer.activation_fn)
+            self.blocks.append(block)
+
+    def forward(self, input_features, attention_mask = None):
+        input_features = input_features.to(dtype=self.audio.conv1.weight.dtype, device=self.audio.conv1.weight.device)
+        inputs_embeds = torch.nn.functional.gelu(self.audio.conv1(input_features))
+        inputs_embeds = torch.nn.functional.gelu(self.audio.conv2(inputs_embeds))
+        inputs_embeds = inputs_embeds.permute(0, 2, 1)
+        _, seq_len, _ = inputs_embeds.shape
+        embed_pos = self.audio.positional_embedding.positional_embedding[:seq_len, :]
+        hidden_states = inputs_embeds + embed_pos
+        for block in self.blocks:
+            hidden_states = block(hidden_states, attention_mask=attention_mask)[0]
+        hidden_states = hidden_states.permute(0, 2, 1)
+        hidden_states = self.audio.avg_pooler(hidden_states)
+        hidden_states = hidden_states.permute(0, 2, 1)
+        hidden_states = self.audio.ln_post(hidden_states)
+        audio_features = self.audio.proj(hidden_states)
+        return audio_features
+
+    def audio_process(self, audio_obj):
+        # audio_obj = np.pad(audio_obj, (0, self.n_samples - audio_obj.shape[0]))
+        waveform = torch.from_numpy(audio_obj).type(torch.float32)
+        input_features = self._torch_extract_fbank_features(waveform).unsqueeze(0)
+        _, _, seq_len = input_features.shape
+        seq_len = int(seq_len // 2)
+        cu_seqlens = [i for i in range(0, seq_len, self.n_window)]
+        if seq_len % self.n_window != 0:
+            cu_seqlens.append(seq_len)
+        cu_seqlens = torch.tensor(cu_seqlens)
+        attention_mask = torch.full(
+            [1, seq_len, seq_len], torch.finfo(torch.float32).min
+        )
+        for i in range(1, len(cu_seqlens)):
+            attention_mask[..., cu_seqlens[i - 1] : cu_seqlens[i], cu_seqlens[i - 1] : cu_seqlens[i]] = 0
+        audio_embeds = self.forward(input_features, attention_mask)
+        self.audio_embeds = audio_embeds.permute([1, 0, 2])
+        return self.audio_embeds.shape[0]
+
+    @spinner_run(f'export audio to ')
+    def export(self, onnx_path):
+        input_features = torch.randn((1, self.feature_size, self.max_length))
+        seq_len = self.max_length // 2
+        attention_mask = torch.randn([1, seq_len, seq_len])
+        model = self.float()
+        onnx_model = f'{onnx_path}/audio.onnx'
+        torch.onnx.export(model, (input_features, attention_mask),
+                        onnx_model,
+                        input_names=['input_features', 'attention_mask'],
+                        output_names=['audio_embeds'],
+                        dynamic_axes={"input_features": {
+                            0: "size"
+                        }, "attention_mask": {
+                            1: "size", 2: "size"
+                        }},
+                        do_constant_folding=True,
+                        verbose=False,
+                        opset_version=15)
+        return onnx_model

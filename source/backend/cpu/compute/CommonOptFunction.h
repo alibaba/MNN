@@ -23,6 +23,14 @@ extern "C" {
 #ifdef __aarch64__
 void MNNGeneralIm2col_Fp32Arm82(float* destOrigin, float const** sourceGroup, const int32_t* info, const int32_t* el, int32_t LP, int32_t pack);
 void MNNGeneralIm2col_Fp32Arm86(float* destOrigin, float const** sourceGroup, const int32_t* info, const int32_t* el, int32_t LP, int32_t pack);
+void MNNLocalMinMaxFP32_Pack4(float* dstMin, float* dstMax, const float* source, size_t blockNum, size_t blockLU, size_t EP, size_t LP, size_t loadDstBuffer);
+void MNNLocalMinMaxFP32_Pack8(float* dstMin, float* dstMax, const float* source, size_t blockNum, size_t blockLU, size_t EP, size_t LP, size_t loadDstBuffer);
+void MNNDynamicQuantFP32_Pack4(const float* src, int8_t* dst, const float* scale, size_t src_depth_quad, size_t realSize, const float* bias, size_t pack);
+void MNNDynamicQuantFP32_Pack8(const float* src, int8_t* dst, const float* scale, size_t src_depth_quad, size_t realSize, const float* bias, size_t pack);
+void MNNAbsMaxFP32_Pack4(const float* source, float* absmax, size_t src_depth_quad, size_t realSize, int pack);
+void MNNAbsMaxFP32_Pack8(const float* source, float* absmax, size_t src_depth_quad, size_t realSize, int pack);
+void MNNQuantScaleFP32(float* absmax, float* quant_scale, float* dequant_scale, size_t thread, size_t batch);
+void MNNDynamicUpdateConvBiasScale(float* newbias, float* oldbias, float* weightKernelSum, float* inputZero, size_t ocQuad);
 #endif
 #endif
 void MNNFp32ToFp8(uint8_t* dst, const float* src, size_t size);
@@ -136,13 +144,6 @@ void MNNPackedMatMul_int4(float* C, const float* A, const float* B, const size_t
 void MNNPackedMatMulRemain_int4(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, const float* k, const float* b);
 void MNNPackedMatMul_int8(float* C, const float* A, const float* B, const size_t* parameter, const float* postParameters, const float* bias, const float* k, const float* b);
 void MNNPackedMatMulRemain_int8(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, const float* k, const float* b);
-void MNNAbsMaxFP32_Pack4(const float* source, float* absmax, size_t src_depth_quad, size_t realSize, int pack);
-void MNNAbsMaxFP32_Pack8(const float* source, float* absmax, size_t src_depth_quad, size_t realSize, int pack);
-void MNNQuantScaleFP32(float* absmax, float* quant_scale, float* dequant_scale, size_t thread, size_t batch);
-void MNNDynamicQuantFP32_Pack4(const float* src, int8_t* dst, const float* scale, size_t src_depth_quad, size_t realSize, int pack);
-void MNNDynamicQuantFP32_Pack8(const float* src, int8_t* dst, const float* scale, size_t src_depth_quad, size_t realSize, int pack);
-void MNNQuantSumFP32(float* sum, const float* dequant_scale, size_t thread, size_t batch);
-void MNNDynamicUpdateConvBiasScale(float* newbias, float* oldbias, float* weightKernelSum, float* inputZero, size_t ocQuad);
 
 void MNNPackForSparseMatMul_B(float* dest, unsigned int* NNZMap, int* dataOffsetMap, int sparseBlockOC, const float* source, size_t h, size_t l, const int eP, bool transpose);
 struct SparseMatMulParas
@@ -183,7 +184,7 @@ void MNNInt8ToInt16(int16_t* dest, const int8_t* source, size_t count);
 
 struct SumByAxisParams {
     ssize_t kernelCountUnitDouble;
-    ssize_t col_buffer_unit_size;
+    ssize_t unitColBufferSize;
     ssize_t DST_XUNIT;
     ssize_t SRC_UNIT;
     ssize_t blockNum;
@@ -191,6 +192,7 @@ struct SumByAxisParams {
     ssize_t valid;
     ssize_t kernelxy;
     ssize_t LU;
+    ssize_t inputBlock;
 };
 #ifdef __aarch64__
 void MNNPermuteSumWeightInt4Arm86(uint8_t* dest, uint8_t* source, size_t outside, size_t inside, float* kernlesum);
@@ -231,15 +233,15 @@ struct CoreFunctions {
     void(*MNNPackedMatMulRemain)(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, const float* k, const float* b);
     void(*MNNAbsMax)(const float* source, float* absmax, size_t src_depth_quad, size_t realSize, int pack) = nullptr;
     void(*MNNQuantScale)(float* absmax, float* quant_scale, float* dequant_scale, size_t thread, size_t batch) = nullptr;
-    void(*MNNDynamicQuant)(const float* src, int8_t* dst, const float* scale, size_t src_depth_quad, size_t realSize, int pack) = nullptr;
-    void(*MNNQuantSum)(float* sum, const float* dequant_scale, size_t thread, size_t batch) = nullptr;
+    void(*MNNDynamicQuant)(const float* src, int8_t* dst, const float* scale, size_t src_depth_quad, size_t realSize, int pack, const float* bias) = nullptr;
     void(*MNNPackedMatMul_int8)(float* C, const float* A, const float* B, const size_t* parameter, const float* postParameters, const float* bias, const float* k, const float* b) = nullptr;
     void(*MNNPackedMatMulRemain_int8)(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, const float* k, const float* b) = nullptr;
     void(*MNNComputeMatMulForH_1)(const float* A, const float* B, float* C, const float* biasPtr, const MatMulParam* param, size_t tId);
     void(*MNNComputeMatMulForE_1)(const float* A, const float* B, float* C, const float* biasPtr, const MatMulParam* param, size_t tId);
-    void(*MNNCountMaxMinValue)(float* source, float* minVal, float* maxVal, size_t size);
+    void(*MNNCountMaxMinValue)(const float* source, float* minVal, float* maxVal, size_t size);
     void(*MNNDynamicUpdateConvBiasScale)(float* newbias, float* oldbias, float* weightKernelSum, float* inputZero, size_t ocQuad);
-
+    void(*MNNAsyQuantInfo)(float* scale, float* bias, float* qscale, float* qbias, float* dstMin, float* dstMax, const float* src, const size_t* info);
+    void(*MNNAsyQuantFunc)(int8_t* dst, const float* src, float* qscale, float* qbias, const size_t* info);
     typedef void(*MNNPackedMatMulKernel)(float* C, const float* A, const float* B, const size_t* parameter, const float* postParameters, const float* bias);
 
     MNNPackedMatMulKernel MNNPackedMatMulOC16Functions[InputTileMax] = {0};

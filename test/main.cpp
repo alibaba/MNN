@@ -61,6 +61,11 @@ int main(int argc, char* argv[]) {
         config.precision = (MNN::BackendConfig::PrecisionMode)precision;
         config.memory = (MNN::BackendConfig::MemoryMode)memory;
     }
+    int dynamicOption = 0;
+    if (argc > 7) {
+        dynamicOption = atoi(argv[7]);
+        FUNC_PRINT(dynamicOption);
+    }
     auto exe = MNN::Express::Executor::newExecutor(type, config, thread);
     if (exe == nullptr) {
         MNN_ERROR("Can't create executor with type:%d, exit!\n", type);
@@ -69,10 +74,6 @@ int main(int argc, char* argv[]) {
     MNN::Express::ExecutorScope scope(exe);
     exe->setGlobalExecutorConfig(type, config, thread);
     // set hint
-    int dynamicOption = 0;
-    if (argc > 7) {
-        dynamicOption = atoi(argv[7]);
-    }
     MNN::RuntimeHint hint;
     hint.dynamicQuantOption = dynamicOption;
     scope.Current()->getRuntime().second->setRuntimeHint(hint);

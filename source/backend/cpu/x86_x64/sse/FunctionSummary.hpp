@@ -61,7 +61,9 @@ void _SSE_MNNPackedMatMulRemain_int8(float* C, const float* A, const float* B, s
 void _SSE_MNNAbsMaxFP32(const float* source, float* absmax, size_t src_depth_quad, size_t realSize, int pack);
 void _SSE_MNNGemmInt8AddBiasScale_16x4_w4(int8_t* dst, const int8_t* src, const int8_t* weight, size_t src_depth_quad, size_t dst_step,
                                             size_t dst_depth_quad, const QuanPostTreatParameters* post, size_t realDst);
-void _SSE_MNNDynamicQuant(const float* src, int8_t* dst, const float* scale, size_t src_depth_quad, size_t realSize, int pack);
+void _SSE_MNNDynamicQuant(const float* src, int8_t* dst, const float* scale, size_t src_depth_quad, size_t realSize, int pack, const float* bias);
+void _SSE_MNNAsyQuantInfo(float* scale, float* bias, float* qscale, float* qbias, float* dstMin, float* dstMax, const float* src, const size_t* info);
+void _SSE_MNNAsyQuantFunc(int8_t* dst, const float* src, float* qscale, float* qbias, const size_t* info);
 #endif
 void _SSE_MNNPackC4ForMatMul_A(float* destOrigin, float const** sourceGroup, const int32_t* info, const int32_t* el);
 void _SSE_MNNConvRunForLineDepthwise(float* dst, const float* src, const float* weight, size_t width, size_t src_w_setup,
@@ -104,4 +106,4 @@ void _SSE_MNNSampleBilinear(const unsigned char* source, unsigned char* dest, MN
                                   size_t iw, size_t ih, size_t yStride, size_t bpp);
 
 // Dynamic Quant
-void _SSE_MNNComputeScaleZeroScalar(float* source, float* minVal, float* maxVal, size_t size);
+void _SSE_MNNCountMinMaxValue(const float* source, float* minVal, float* maxVal, size_t size);
