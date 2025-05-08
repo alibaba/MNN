@@ -487,7 +487,9 @@ python llmexport.py --path /path/to/Qwen2.5-0.5B-Instruct --lora_path /path/to/l
   ```
 
 #### 获取语音输出
-使用Omni模型时，可以使用接口`setWavformCallback`获取语音输出，示例如下：
+使用Omni模型时，可以使用接口`setWavformCallback`获取语音输出，使用接口`generateWavform`开始输出语音。
+注意`setWavformCallback`需要在文本生成前调用， `generateWavform`在文本生成结束后调用，示例如下：
+
 1. 保存语音到文件中
 ```cpp
 #include <audio/audio.hpp>
@@ -504,6 +506,9 @@ int main() {
       }
       return true;
   });
+  llm->response("Hello");
+  // generate wavform
+  llm->generateWavform();
   return 0;
 }
 
@@ -600,12 +605,15 @@ bool AudioPlayer::play(const float* ptr, size_t size, bool last_chunk) {
 }
 
 int main() {
-  //....
-  AudioPlayer audio_player;
+    //....
+    AudioPlayer audio_player;
     llm->setWavformCallback([&](const float* ptr, size_t size, bool last_chunk) {
         return audio_player.play(ptr, size, last_chunk);
     });
-  //....
-  return 0;
+    //....
+    llm->response("Hello");
+    // generate wavform
+    llm->generateWavform();
+    return 0;
 }
 ```

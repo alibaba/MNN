@@ -112,6 +112,7 @@ public:
         return mContext.get();
     }
     virtual void setWavformCallback(std::function<bool(const float*, size_t, bool)> callback) {}
+    virtual void generateWavform() {}
 protected:
     void initRuntime();
     std::shared_ptr<LlmContext> mContext;
