@@ -94,4 +94,5 @@
     <string name="settings_done">完成</string>
     <string name="max_new_tokens_hint">最大输出 token 数量</string>
     <string name="thread_num">线程数</string>
+    <string name="regenerate">重新生成</string>
 </resources>

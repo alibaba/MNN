@@ -1,6 +1,6 @@
 // Created by ruoyi.sjd on 2025/01/03.
 // Copyright (c) 2024 Alibaba Group Holding Limited All rights reserved.
-package com.alibaba.mnnllm.android.chat
+package com.alibaba.mnnllm.android.chat.chatlist
 
 import android.content.Context
 import android.view.LayoutInflater
@@ -8,8 +8,9 @@ import android.view.View
 import android.view.ViewGroup
 import androidx.recyclerview.widget.RecyclerView
 import com.alibaba.mnnllm.android.R
-import com.alibaba.mnnllm.android.chat.ChatViewHolders.AssistantViewHolder
-import com.alibaba.mnnllm.android.chat.ChatViewHolders.UserViewHolder
+import com.alibaba.mnnllm.android.chat.chatlist.ChatViewHolders.AssistantViewHolder
+import com.alibaba.mnnllm.android.chat.chatlist.ChatViewHolders.UserViewHolder
+import com.alibaba.mnnllm.android.chat.model.ChatDataItem
 
 class ChatRecyclerViewAdapter(
     context: Context?,

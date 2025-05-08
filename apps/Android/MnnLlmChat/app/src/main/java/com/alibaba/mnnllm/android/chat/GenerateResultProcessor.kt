@@ -2,9 +2,6 @@
 // Copyright (c) 2024 Alibaba Group Holding Limited All rights reserved.
 package com.alibaba.mnnllm.android.chat
 
-import android.util.Log
-import okhttp3.RequestBody.Companion.toRequestBody
-
 interface GenerateResultProcessor {
     fun process(progress: String?)
     fun getDisplayResult(): String
@@ -46,6 +43,7 @@ interface GenerateResultProcessor {
         private var thinkingEnded = false
         private var firstToken:String? = null
         private var nextTokenIndex = 0
+        private var tagBuffer = ""
 
         init {
             this.thinkCompletePrefix = thinkCompletePrefix
@@ -66,54 +64,77 @@ interface GenerateResultProcessor {
         }
 
         override fun process(progress: String?) {
-            var currentProgress = progress
-            if (currentProgress == null) {
+            if (progress == null) {
                 processEnded = true
                 return
             }
-            rawStringBuilder.append(currentProgress)
-            val currentTokenIndex = nextTokenIndex
+            var buffer = tagBuffer + progress
+            tagBuffer = ""
+
+            while (buffer.isNotEmpty()) {
+                when {
+                    buffer.startsWith("<think>") -> {
+                        handleThinkStart()
+                        buffer = buffer.removePrefix("<think>")
+                    }
+                    buffer.startsWith("</think>") -> {
+                        if (nextTokenIndex == 0) {
+                        } else {
+                            handleThinkEnd()
+                        }
+                        buffer = buffer.removePrefix("</think>")
+                    }
+                    buffer.startsWith("<") && !buffer.contains(">") -> {
+                        tagBuffer = buffer
+                        break
+                    }
+                    else -> {
+                        val nextTag = buffer.indexOf('<')
+                        val text = if (nextTag == -1) buffer else buffer.substring(0, nextTag)
+                        handleText(text)
+                        buffer = if (nextTag == -1) "" else buffer.substring(nextTag)
+                    }
+                }
+            }
+        }
+
+        private fun handleThinkStart() {
+            if (nextTokenIndex == 0) {
+                thinkingStarted = true
+                isThinking = true
+                displayStringBuilder.append(thinkingPrefix).append("\n> ")
+            }
             nextTokenIndex++
-            //process first token
-            if (currentTokenIndex == 0 && currentProgress == "<think>") {
-                Log.d(TAG, "thinkingStarted")
-                thinkingStarted = true //think mode
-            } else if (!thinkingStarted) {//non thinking mode
-                Log.d(TAG, "!thinkingStarted")
+        }
+
+        private fun handleThinkEnd() {
+            thinkingEnded = true
+            if (isThinking == null) isThinking = false
+            if (thinkingStarted) {
+                val thinkTime = (System.currentTimeMillis() - generateBeginTime) / 1000
+                displayStringBuilder.replace(
+                    0, thinkingPrefix.length,
+                    thinkCompletePrefix.replace("ss", thinkTime.toString())
+                )
+            }
+            nextTokenIndex++
+        }
+
+        private fun handleText(text: String) {
+            if (!thinkingStarted) {
                 isThinking = false
-                displayStringBuilder.append(currentProgress)
-            } else if ("</think>" == currentProgress) {
-                thinkingEnded = true
-                if (isThinking == null) {
-                    isThinking = false
-                }
-                if (thinkingStarted) {
-                    val thinkTime = (System.currentTimeMillis() - this.generateBeginTime) / 1000
-                    displayStringBuilder.replace(
-                        0, thinkingPrefix.length,
-                        thinkCompletePrefix.replace("ss", thinkTime.toString())
-                    )
-                }
-            } else if (thinkingEnded) {//after thinking
-                displayStringBuilder.append(currentProgress)
-            } else {//in thinking
-                if (isThinking == null && currentProgress.isNotBlank()) {
-                    Log.d(TAG, "make sure it is thinking")
-                    //make sure it is thinking, if all blank it is false thinking
+                displayStringBuilder.append(text)
+            } else if (thinkingEnded) {
+                displayStringBuilder.append(text)
+            } else {
+                if (isThinking == null && text.isNotBlank()) {
                     isThinking = true
-                    displayStringBuilder.append(thinkingPrefix).append("\n")
-                    displayStringBuilder.append(pendingBlanks.toString())
-                    displayStringBuilder.append("> ")
+                    displayStringBuilder.append(thinkingPrefix).append("\n> ")
                 }
                 if (isThinking == true) {
-                    Log.d(TAG, "append thinking ")
-                    if (currentProgress.contains("\n")) {
-                        currentProgress = currentProgress.replace("\n", "\n> ")
-                    }
-                    displayStringBuilder.append(currentProgress)
+                    displayStringBuilder.append(text.replace("\n", "\n> "))
                 } else {
-                    Log.d(TAG, "pending thinking spaced ")
-                    pendingBlanks.append(currentProgress)
+                    pendingBlanks.append(text)
                 }
             }
         }

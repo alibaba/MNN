@@ -21,7 +21,6 @@ class PopupWindowHelper {
         y: Int,
         onClickListener: View.OnClickListener
     ) {
-        // Inflate the popup_layout view
         val popupView =
             LayoutInflater.from(context).inflate(R.layout.assistant_text_popup_menu, null)
 

@@ -27,6 +27,7 @@ project("mnnllmapp")
 add_library(${CMAKE_PROJECT_NAME} SHARED
         # List C/C++ source files with relative paths to this CMakeLists.txt.
         llm_mnn_jni.cpp
+        diffusion_jni.cpp
         diffusion_session.cpp
         llm_session.cpp
 )
@@ -84,10 +85,4 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
         android
         log
         MNN
-#        llm
-        #        mnn_Express
-#        mnn_cl
-#        mnn_audio
-#        mnn_cv
-#        diffusion
         )

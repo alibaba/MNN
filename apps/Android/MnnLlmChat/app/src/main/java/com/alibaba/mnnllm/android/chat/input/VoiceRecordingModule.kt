@@ -1,6 +1,6 @@
 // Created by ruoyi.sjd on 2025/01/08.
 // Copyright (c) 2024 Alibaba Group Holding Limited All rights reserved.
-package com.alibaba.mnnllm.android.chat
+package com.alibaba.mnnllm.android.chat.input
 
 import android.Manifest
 import android.content.pm.PackageManager
@@ -9,13 +9,13 @@ import android.graphics.Rect
 import android.util.Log
 import android.view.MotionEvent
 import android.view.View
-import android.view.View.OnTouchListener
 import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.alibaba.mnnllm.android.R
+import com.alibaba.mnnllm.android.chat.ChatActivity
 import com.alibaba.mnnllm.android.utils.FileUtils
 import com.alibaba.mnnllm.android.utils.Permissions.REQUEST_RECORD_AUDIO_PERMISSION
 import com.alibaba.mnnllm.android.utils.UiUtils.getThemeColor
@@ -51,13 +51,13 @@ class VoiceRecordingModule(private val activity: ChatActivity) {
         voceRecordingWave = activity.findViewById(R.id.voice_recording_wav)
         buttonVoiceRecording = activity.findViewById(R.id.btn_voice_recording)
         textVoiceHint = activity.findViewById(R.id.text_voice_hint)
-        buttonSwitchVoice.setOnClickListener(View.OnClickListener { v: View? -> handleSwitch() })
-        buttonVoiceRecording.setOnTouchListener(OnTouchListener { v: View, event: MotionEvent ->
+        buttonSwitchVoice.setOnClickListener { v: View? -> handleSwitch() }
+        buttonVoiceRecording.setOnTouchListener { v: View, event: MotionEvent ->
             this.handleTouchEvent(
                 v,
                 event
             )
-        })
+        }
         if (isAudioModel) {
             handleSwitch()
         }
@@ -130,7 +130,7 @@ class VoiceRecordingModule(private val activity: ChatActivity) {
             if (!cancel && duration > 1) {
                 listener!!.onRecordSuccess(duration, this.recordingFilePath)
             } else {
-                File(this.recordingFilePath).delete()
+                this.recordingFilePath?.let { File(it).delete() }
                 listener!!.onRecordCanceled()
             }
         }
@@ -174,14 +174,14 @@ class VoiceRecordingModule(private val activity: ChatActivity) {
     }
 
     fun exitRecordingMode() {
-        if (buttonVoiceRecording == null || buttonVoiceRecording!!.visibility != View.VISIBLE) {
+        if (buttonVoiceRecording.visibility != View.VISIBLE) {
             return
         }
-        buttonVoiceRecording!!.visibility = View.GONE
+        buttonVoiceRecording.visibility = View.GONE
         if (listener != null) {
             listener!!.onLeaveRecordingMode()
         }
-        buttonSwitchVoice!!.setImageResource(R.drawable.ic_audio)
+        buttonSwitchVoice.setImageResource(R.drawable.ic_audio)
     }
 
     fun handlePermissionAllowed() {

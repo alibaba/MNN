@@ -7,7 +7,7 @@
 #include "mls_log.h"
 #include <memory>
 #include <utility>
-mls::DiffusionSession::DiffusionSession(std::string  resource_path, int memory_mode):
+mls::DiffusionSession::DiffusionSession(std::string resource_path, int memory_mode):
                                         resource_path_(std::move(resource_path)),
                                         memory_mode_(memory_mode){
     this->diffusion_= std::make_unique<Diffusion>(

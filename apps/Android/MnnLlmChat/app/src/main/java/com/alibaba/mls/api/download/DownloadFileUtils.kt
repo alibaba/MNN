@@ -97,16 +97,27 @@ object DownloadFileUtils {
             Log.e(TAG, "createSymlink error", e)
         }
     }
-
-    @JvmStatic
-    @Throws(IOException::class)
     fun createSymlink(target: Path?, linkPath: Path?) {
-        Files.createSymbolicLink(linkPath, target)
+        try {
+            Files.createSymbolicLink(linkPath, target)
+        } catch (e: java.nio.file.FileAlreadyExistsException) {
+            if (Files.isSymbolicLink(linkPath)) {
+                val existingTarget = Files.readSymbolicLink(linkPath)
+                if (existingTarget != target) {
+                    Files.delete(linkPath)
+                    Files.createSymbolicLink(linkPath, target)
+                }
+            } else {
+                Files.delete(linkPath)
+                Files.createSymbolicLink(linkPath, target)
+            }
+        }
     }
 
     @JvmStatic
     fun moveWithPermissions(src: File, dest: File) {
         try {
+            Log.d(TAG, "moveWithPermissions ${src.absolutePath} to ${dest.absolutePath}")
             Files.move(src.toPath(), dest.toPath(), StandardCopyOption.REPLACE_EXISTING)
             dest.setReadable(true, true)
             dest.setWritable(true, true)

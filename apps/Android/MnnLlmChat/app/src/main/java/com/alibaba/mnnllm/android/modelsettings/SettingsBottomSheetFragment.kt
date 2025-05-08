@@ -12,9 +12,10 @@ import android.widget.FrameLayout
 import android.widget.SeekBar
 import androidx.core.view.isVisible
 import androidx.core.widget.addTextChangedListener
-import com.alibaba.mnnllm.android.ChatSession
+import com.alibaba.mnnllm.android.llm.ChatSession
 import com.alibaba.mnnllm.android.databinding.FragmentSettingsSheetBinding
 import com.alibaba.mnnllm.android.databinding.SettingsRowSliderSwitchBinding
+import com.alibaba.mnnllm.android.llm.LlmSession
 import com.alibaba.mnnllm.android.utils.UiUtils
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
@@ -63,7 +64,7 @@ class SettingsBottomSheetFragment : BottomSheetDialogFragment() {
         assistantPromptTemplate = ""
     )
     private lateinit var currentConfig:ModelConfig
-    private lateinit var chatSession: ChatSession
+    private lateinit var chatSession: LlmSession
     private var _binding: FragmentSettingsSheetBinding? = null
     private val binding get() = _binding!!
     private var useMmap: Boolean = true
@@ -407,7 +408,7 @@ class SettingsBottomSheetFragment : BottomSheetDialogFragment() {
         _binding = null
     }
 
-    fun setSession(chatSession: ChatSession) {
+    fun setSession(chatSession: LlmSession) {
         this.chatSession = chatSession
     }
 

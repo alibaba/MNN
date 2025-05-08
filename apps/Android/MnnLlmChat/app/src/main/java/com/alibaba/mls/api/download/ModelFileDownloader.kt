@@ -83,6 +83,7 @@ class ModelFileDownloader {
         }
 
         if (fileDownloadTask.downloadedSize >= expectedSize) {
+            moveWithPermissions(incompletePath, destinationPath)
             return
         }
         val requestBuilder = Request.Builder()

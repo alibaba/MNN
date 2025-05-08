@@ -1,6 +1,6 @@
 // Created by ruoyi.sjd on 2025/1/9.
 // Copyright (c) 2024 Alibaba Group Holding Limited All rights reserved.
-package com.alibaba.mnnllm.android.chat
+package com.alibaba.mnnllm.android.chat.input
 
 import android.content.Context
 import android.util.AttributeSet
