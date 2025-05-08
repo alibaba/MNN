@@ -102,10 +102,11 @@ object ChatViewHolders {
             popupMenu.setOnMenuItemClickListener { item: MenuItem ->
                 if (item.itemId == R.id.chat_user_copy) {
                     UiUtils.copyText(itemView.context, viewText)
-                } else if (item.itemId == R.id.chat_user_regenerate) {
-                    // TODO: regenerate
-                    //
                 }
+//                else if (item.itemId == R.id.chat_user_regenerate) {
+//                    // TODO: regenerate
+//                    //
+//                }
                 true
             }
             popupMenu.show()

@@ -27,7 +27,7 @@ import com.alibaba.mnnllm.android.utils.ModelUtils
 import com.alibaba.mnnllm.android.utils.Permissions.REQUEST_RECORD_AUDIO_PERMISSION
 import java.util.Date
 
-class ChatInputModule(
+class ChatInputComponent(
     private val chatActivity: ChatActivity,
     private val binding: ActivityChatBinding,
     private val modelName: String,
@@ -125,6 +125,7 @@ class ChatInputModule(
         this.onSendMessage?.let { it(currentUserMessage!!) }
         if (attachmentPickerModule != null) {
             attachmentPickerModule!!.clearInput()
+            attachmentPickerModule!!.hideAttachmentLayout()
         }
         currentUserMessage = null
     }
@@ -223,7 +224,7 @@ class ChatInputModule(
                     recordingFilePath!!,
                     duration
                 )
-                this@ChatInputModule.onSendMessage?.let { it(chatDataItem) }
+                this@ChatInputComponent.onSendMessage?.let { it(chatDataItem) }
             }
 
             override fun onRecordCanceled() {

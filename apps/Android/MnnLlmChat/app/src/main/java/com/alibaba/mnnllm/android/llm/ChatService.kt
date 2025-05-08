@@ -1,6 +1,6 @@
 // Created by ruoyi.sjd on 2024/12/25.
 // Copyright (c) 2024 Alibaba Group Holding Limited All rights reserved.
-package com.alibaba.mnnllm.android
+package com.alibaba.mnnllm.android.llm
 
 import android.text.TextUtils
 import com.alibaba.mnnllm.android.chat.model.ChatDataItem
@@ -10,20 +10,20 @@ class ChatService {
     private val diffusionSessionMap: MutableMap<String, ChatSession> = HashMap()
 
     @Synchronized
-    fun createSession(
+    fun createLlmSession(
         modelId: String?,
         modelDir: String?,
         useTmpPath: Boolean,
         sessionIdParam: String?,
         chatDataItemList: List<ChatDataItem>?,
         supportOmni:Boolean
-    ): ChatSession {
+    ): LlmSession {
         var sessionId:String = if (TextUtils.isEmpty(sessionIdParam)) {
             System.currentTimeMillis().toString()
         } else {
             sessionIdParam!!
         }
-        val session = ChatSession(modelId!!, sessionId, modelDir!!, chatDataItemList)
+        val session = LlmSession(modelId!!, sessionId, modelDir!!, chatDataItemList)
         session.supportOmni = supportOmni
         transformerSessionMap[sessionId] = session
         return session
@@ -41,7 +41,7 @@ class ChatService {
         } else {
             sessionIdParam!!
         }
-        val session = ChatSession(modelId!!, sessionId, modelDir!!, chatDataItemList, true)
+        val session = DiffusionSession( sessionId, modelDir!!)
         diffusionSessionMap[sessionId] = session
         return session
     }

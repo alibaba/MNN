@@ -12,16 +12,17 @@ import android.view.View
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
-import com.alibaba.mnnllm.android.ChatSession
+import com.alibaba.mnnllm.android.llm.ChatSession
 import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.audio.AudioPlayer
 import com.alibaba.mnnllm.android.chat.chatlist.ChatListComponent
-import com.alibaba.mnnllm.android.chat.input.ChatInputModule
+import com.alibaba.mnnllm.android.chat.input.ChatInputComponent
 import com.alibaba.mnnllm.android.chat.model.ChatDataItem
 import com.alibaba.mnnllm.android.databinding.ActivityChatBinding
+import com.alibaba.mnnllm.android.llm.AudioDataListener
+import com.alibaba.mnnllm.android.llm.LlmSession
 import com.alibaba.mnnllm.android.modelsettings.SettingsBottomSheetFragment
 import com.alibaba.mnnllm.android.utils.AudioPlayService
-import com.alibaba.mnnllm.android.utils.KeyboardUtils
 import com.alibaba.mnnllm.android.utils.ModelPreferences
 import com.alibaba.mnnllm.android.utils.ModelUtils
 import com.alibaba.mnnllm.android.utils.PreferenceUtils
@@ -55,7 +56,7 @@ class ChatActivity : AppCompatActivity() {
     private lateinit var binding: ActivityChatBinding
     private var audioPlayer: AudioPlayer? = null
     private lateinit var chatPresenter: ChatPresenter
-    private lateinit var inputModule: ChatInputModule
+    private lateinit var inputModule: ChatInputComponent
     private lateinit var chatListComponent: ChatListComponent
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -72,7 +73,7 @@ class ChatActivity : AppCompatActivity() {
         chatPresenter = ChatPresenter(this, modelName, modelId!!)
         isDiffusion = ModelUtils.isDiffusionModel(modelName)
         isAudioModel = ModelUtils.isAudioModel(modelName)
-        inputModule = ChatInputModule(this, binding, modelName,)
+        inputModule = ChatInputComponent(this, binding, modelName,)
         layoutModelLoading = findViewById(R.id.layout_model_loading)
         updateActionBar()
         this.setupSession()
@@ -96,7 +97,7 @@ class ChatActivity : AppCompatActivity() {
     private fun setupInputModule() {
         this.inputModule.apply {
             setOnThinkingModeChanged {isThinking ->
-                chatSession.updateAssistantPrompt(if (isThinking) {
+                (chatSession as LlmSession).updateAssistantPrompt(if (isThinking) {
                     "<|im_start|>assistant\n%s<|im_end|>\n"
                 } else {
                     "<|im_start|>assistant\n<think>\n</think>%s<|im_end|>\n"
@@ -121,7 +122,7 @@ class ChatActivity : AppCompatActivity() {
     private fun setupOmni() {
         audioPlayer = AudioPlayer()
         audioPlayer!!.start()
-        chatSession.setAudioDataListener(object : ChatSession.AudioDataListener {
+        (chatSession as LlmSession).setAudioDataListener(object : AudioDataListener {
             override fun onAudioData(data: FloatArray, isEnd: Boolean): Boolean {
                 this@ChatActivity.lifecycleScope.launch {
                     audioPlayer?.playChunk(data)
@@ -198,7 +199,7 @@ class ChatActivity : AppCompatActivity() {
         } else if (item.itemId == R.id.menu_item_clear_mmap_cache) {
             if (ModelPreferences.useMmap(this, modelId!!)) {
                 Toast.makeText(this, R.string.mmap_cacche_cleared, Toast.LENGTH_LONG).show()
-                chatSession.clearMmapCache()
+                (chatSession as LlmSession).clearMmapCache()
                 recreate()
             } else {
                 Toast.makeText(this, R.string.mmap_not_used, Toast.LENGTH_SHORT).show()
@@ -220,7 +221,7 @@ class ChatActivity : AppCompatActivity() {
             recreate()
         } else if (item.itemId == R.id.menu_item_model_settings) {
             val settingsSheet = SettingsBottomSheetFragment()
-            settingsSheet.setSession(chatSession)
+            settingsSheet.setSession(chatSession as LlmSession)
             settingsSheet.show(supportFragmentManager, SettingsBottomSheetFragment.TAG)
             return true
         }
@@ -266,7 +267,7 @@ class ChatActivity : AppCompatActivity() {
     private fun handleSendMessage(userData: ChatDataItem) {
         setIsGenerating(true)
         chatListComponent.onStartSendMessage(userData)
-        chatPresenter.onUserMessage(userData)
+        chatPresenter.onRequestGenerate(userData)
     }
 
     override fun onDestroy() {
@@ -311,6 +312,7 @@ class ChatActivity : AppCompatActivity() {
         recentItem.loading = false
         recentItem.benchmarkInfo = ModelUtils.generateBenchMarkString(benchMarkResult)
         chatListComponent.updateAssistantResponse(recentItem)
+        chatPresenter.saveResponseToDatabase(recentItem)
     }
 
     val sessionDebugInfo: String

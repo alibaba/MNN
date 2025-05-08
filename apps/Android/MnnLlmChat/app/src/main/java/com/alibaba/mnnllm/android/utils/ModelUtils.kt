@@ -8,7 +8,6 @@ import com.alibaba.mnnllm.android.R
 import java.util.Locale
 
 object ModelUtils {
-    @JvmStatic
     fun getDrawableId(modelName: String?): Int {
         if (modelName == null) {
             return 0
@@ -54,8 +53,9 @@ object ModelUtils {
             if ((prefillTimeUs > 0)) (promptLen / (prefillTimeUs / 1000000.0)) else 0.0
         val decodeSpeed = if ((decodeTimeUs > 0)) (decodeLen / (decodeTimeUs / 1000000.0)) else 0.0
         return String.format(
-            "Prefill: %d tokens, %.2f tokens/s\nDecode: %d tokens, %.2f tokens/s",
-            promptLen, promptSpeed, decodeLen, decodeSpeed
+            "Prefill: %.2fs, %d tokens, %.2f tokens/s \nDecode: %.2fs, %d tokens, %.2f tokens/s",
+            prefillTimeUs.toFloat() / 1000000, promptLen, promptSpeed,
+            decodeTimeUs.toFloat() / 1000000,decodeLen, decodeSpeed,
         )
     }
 

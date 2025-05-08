@@ -1,12 +1,12 @@
-// Created by ruoyi.sjd on 2024/12/25.
+// Created by ruoyi.sjd on 2025/5/7.
 // Copyright (c) 2024 Alibaba Group Holding Limited All rights reserved.
-package com.alibaba.mnnllm.android
+
+package com.alibaba.mnnllm.android.llm;
 
 import android.util.Log
 import com.alibaba.mls.api.ApplicationProvider
-import com.alibaba.mnnllm.android.ChatService.Companion.provide
+import com.alibaba.mnnllm.android.llm.ChatService.Companion.provide
 import com.alibaba.mnnllm.android.chat.model.ChatDataItem
-import com.alibaba.mnnllm.android.mainsettings.MainSettings.getDiffusionMemoryMode
 import com.alibaba.mnnllm.android.modelsettings.ModelConfig
 import com.alibaba.mnnllm.android.utils.FileUtils
 import com.alibaba.mnnllm.android.utils.ModelPreferences
@@ -16,16 +16,14 @@ import java.io.File
 import java.util.stream.Collectors
 import kotlin.concurrent.Volatile
 
-class ChatSession @JvmOverloads constructor (
+class LlmSession (
     private val modelId: String,
-    var sessionId: String,
+    override var sessionId: String,
     private val configPath: String,
     val savedHistory: List<ChatDataItem>?,
-    private val isDiffusion: Boolean = false
-) {
+): ChatSession{
     private var extraAssistantPrompt: String? = null
-    var supportOmni: Boolean = false
-
+    override var supportOmni: Boolean = false
     private var nativePtr: Long = 0
 
     @Volatile
@@ -35,18 +33,18 @@ class ChatSession @JvmOverloads constructor (
     private var generating = false
 
     @Volatile
-    private var releaseRequeted = false
+    private var releaseRequested = false
 
     private var keepHistory = false
 
-    fun load() {
+    override fun load() {
         Log.d(TAG, "MNN_DEBUG load begin")
         modelLoading = true
         var historyStringList: List<String>? = null
         if (!this.savedHistory.isNullOrEmpty()) {
             historyStringList =
-                savedHistory.stream()
-                    .map { obj: ChatDataItem -> obj.text }
+                    savedHistory.stream()
+                            .map { obj: ChatDataItem -> obj.text }
                     .filter { obj: String? -> obj != null }
                     .map { obj: String? -> obj!! }
                     .collect(Collectors.toList())
@@ -57,15 +55,13 @@ class ChatSession @JvmOverloads constructor (
             File(rootCacheDir).mkdirs()
         }
         val useOpencl = ModelPreferences.getBoolean(
-            ApplicationProvider.get(),
-            modelId, ModelPreferences.KEY_BACKEND, false
+                ApplicationProvider.get(),
+                modelId, ModelPreferences.KEY_BACKEND, false
         )
         val backend = if (useOpencl) "opencl" else "cpu"
         val configMap = HashMap<String, Any>().apply {
-            put("is_diffusion", isDiffusion)
             put("is_r1", ModelUtils.isR1Model(modelId))
             put("mmap_dir", rootCacheDir ?: "")
-            put("diffusion_memory_mode", getDiffusionMemoryMode(ApplicationProvider.get()))
         }
         val extraConfig = ModelConfig.loadConfig(configPath, getModelSettingsFile())?.apply {
             this.assistantPromptTemplate = extraAssistantPrompt
@@ -73,86 +69,62 @@ class ChatSession @JvmOverloads constructor (
         }
         Log.d(TAG, "MNN_DEBUG load initNative")
         nativePtr = initNative(
-            configPath,
-            historyStringList,
-            if (extraConfig != null) {
-                Gson().toJson(extraConfig)
-            } else {
-                "{}"
-            },
-            Gson().toJson(configMap)
+                configPath,
+                historyStringList,
+        if (extraConfig != null) {
+            Gson().toJson(extraConfig)
+        } else {
+            "{}"
+        },
+        Gson().toJson(configMap)
         )
         Log.d(TAG, "MNN_DEBUG load initNative end")
         modelLoading = false
-        if (releaseRequeted) {
+        if (releaseRequested) {
             release()
         }
     }
 
-    val debugInfo: String
-        get() = getDebugInfoNative(nativePtr) + "\n"
 
-    fun generateNewSessionId(): String {
+    private fun generateNewSessionId(): String {
         this.sessionId = System.currentTimeMillis().toString()
         return this.sessionId
     }
 
-    fun generate(input: String, progressListener: GenerateProgressListener): HashMap<String, Any> {
+    override fun generate(prompt: String,
+                          params: Map<String, Any>,
+                          progressListener: GenerateProgressListener): HashMap<String, Any> {
         synchronized(this) {
-            Log.d(TAG, "MNN_DEBUG submit$input")
+            Log.d(TAG, "MNN_DEBUG submit$prompt")
             generating = true
-            val result = submitNative(nativePtr, input, keepHistory, progressListener)
+            val result = submitNative(nativePtr, prompt, keepHistory, progressListener)
             generating = false
-            if (releaseRequeted) {
+            if (releaseRequested) {
                 release()
             }
             return result
         }
     }
 
-    fun generateDiffusion(
-        input: String,
-        output: String,
-        iterNum: Int,
-        randomSeed: Int,
-        progressListener: GenerateProgressListener
-    ): HashMap<String, Any> {
-        synchronized(this) {
-            Log.d(TAG, "MNN_DEBUG submit$input")
-            generating = true
-            val result = submitDiffusionNative(
-                nativePtr,
-                input,
-                output,
-                iterNum,
-                randomSeed,
-                progressListener
-            )
-            generating = false
-            if (releaseRequeted) {
-                releaseInner()
-            }
-            return result
-        }
-    }
 
-    fun reset(): String {
+
+    override fun reset(): String {
         synchronized(this) {
-            resetNative(nativePtr, isDiffusion)
+            resetNative(nativePtr)
         }
         return generateNewSessionId()
     }
 
-    fun release() {
+    override fun release() {
         synchronized(this) {
             Log.d(
-                TAG,
-                "MNN_DEBUG release nativePtr: $nativePtr mGenerating: $generating"
+                    TAG,
+                    "MNN_DEBUG release nativePtr: $nativePtr mGenerating: $generating"
             )
             if (!generating && !modelLoading) {
                 releaseInner()
             } else {
-                releaseRequeted = true
+                releaseRequested = true
                 while (generating || modelLoading) {
                     try {
                         (this as Object).wait()
@@ -167,9 +139,6 @@ class ChatSession @JvmOverloads constructor (
     }
 
     fun loadConfig(): ModelConfig? {
-        if (isDiffusion) {
-            return null
-        }
         return ModelConfig.loadConfig(configPath, getModelSettingsFile())
     }
 
@@ -179,7 +148,7 @@ class ChatSession @JvmOverloads constructor (
 
     private fun releaseInner() {
         if (nativePtr != 0L) {
-            releaseNative(nativePtr, isDiffusion)
+            releaseNative(nativePtr)
             nativePtr = 0
             provide().removeSession(sessionId)
             (this as Object).notifyAll()
@@ -187,49 +156,41 @@ class ChatSession @JvmOverloads constructor (
     }
 
     private external fun initNative(
-        configPath: String?,
-        history: List<String>?,
-        mergedConfigStr: String?,
-        configJsonStr: String?
+            configPath: String?,
+            history: List<String>?,
+            mergedConfigStr: String?,
+            configJsonStr: String?
     ): Long
 
     private external fun submitNative(
-        instanceId: Long,
-        input: String,
-        keepHistory: Boolean,
-        listener: GenerateProgressListener
+            instanceId: Long,
+            input: String,
+            keepHistory: Boolean,
+            listener: GenerateProgressListener
     ): HashMap<String, Any>
 
-    private external fun submitDiffusionNative(
-        instanceId: Long,
-        input: String,
-        outputPath: String,
-        iterNum: Int,
-        randomSeed: Int,
-        progressListener: GenerateProgressListener
-    ): HashMap<String, Any>
 
-    private external fun resetNative(instanceId: Long, isDiffusion: Boolean)
+
+    private external fun resetNative(instanceId: Long)
 
     private external fun getDebugInfoNative(instanceId: Long): String
 
-    private external fun releaseNative(instanceId: Long, isDiffusion: Boolean)
+    private external fun releaseNative(instanceId: Long)
 
     private external fun setWavformCallbackNative(
-        instanceId: Long,
-        listener: AudioDataListener?
+            instanceId: Long,
+            listener: AudioDataListener?
     ): Boolean
 
-    fun setKeepHistory(keepHistory: Boolean) {
+    override fun setKeepHistory(keepHistory: Boolean) {
         this.keepHistory = keepHistory
     }
 
+    override val debugInfo
+        get() = getDebugInfoNative(nativePtr) + "\n"
+
     fun clearMmapCache() {
         FileUtils.clearMmapCache(modelId)
-    }
-
-    interface GenerateProgressListener {
-        fun onProgress(progress: String?): Boolean
     }
 
     fun setAudioDataListener(listener: AudioDataListener?) {
@@ -261,12 +222,9 @@ class ChatSession @JvmOverloads constructor (
 
     private external fun updateAssistantPromptNative(llmPtr: Long, assistantPrompt: String)
 
-    interface AudioDataListener {
-        fun onAudioData(data: FloatArray, isEnd: Boolean): Boolean
-    }
 
     companion object {
-        const val TAG: String = "ChatSession"
+        const val TAG: String = "LlmSession"
 
         init {
             System.loadLibrary("mnnllmapp")

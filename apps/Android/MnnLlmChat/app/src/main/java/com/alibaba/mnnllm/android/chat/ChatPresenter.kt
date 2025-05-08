@@ -6,13 +6,14 @@ package com.alibaba.mnnllm.android.chat
 import android.text.TextUtils
 import android.util.Log
 import androidx.lifecycle.lifecycleScope
-import com.alibaba.mnnllm.android.ChatService
-import com.alibaba.mnnllm.android.ChatSession
+import com.alibaba.mnnllm.android.llm.ChatService
+import com.alibaba.mnnllm.android.llm.ChatSession
 import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.chat.ChatActivity.Companion.TAG
 import com.alibaba.mnnllm.android.chat.GenerateResultProcessor.R1GenerateResultProcessor
 import com.alibaba.mnnllm.android.chat.model.ChatDataItem
 import com.alibaba.mnnllm.android.chat.model.ChatDataManager
+import com.alibaba.mnnllm.android.llm.GenerateProgressListener
 import com.alibaba.mnnllm.android.utils.FileUtils
 import com.alibaba.mnnllm.android.utils.ModelUtils
 import kotlinx.coroutines.launch
@@ -39,7 +40,7 @@ class ChatPresenter(
         chatExecutor = Executors.newScheduledThreadPool(1)
     }
 
-    fun createSession():ChatSession {
+    fun createSession(): ChatSession {
         val intent = chatActivity.intent
         val chatService = ChatService.provide()
         sessionId = chatActivity.intent.getStringExtra("chatSessionId")
@@ -60,7 +61,7 @@ class ChatPresenter(
             )
         } else {
             val configFilePath = intent.getStringExtra("configFilePath")
-            chatSession = chatService.createSession(
+            chatSession = chatService.createLlmSession(
                 modelId, configFilePath, true,
                 sessionId, chatDataItemList,
                 ModelUtils.isOmni(modelName)
@@ -106,9 +107,14 @@ class ChatPresenter(
             chatActivity,
             sessionId!!
         )
-        return chatSession.generateDiffusion(
-            prompt, diffusionDestPath, 20,
-            Random(System.currentTimeMillis()).nextInt(), object : ChatSession.GenerateProgressListener {
+        return chatSession.generate(
+            prompt,
+            mapOf(
+                "output" to diffusionDestPath,
+                "iterNum" to 20,
+                "randomSeed" to Random(System.currentTimeMillis()).nextInt()
+            )
+            , object : GenerateProgressListener {
                 override fun onProgress(progress: String?): Boolean {
                     chatActivity.lifecycleScope.launch {
                         chatActivity.onDiffusionGenerateProgress(progress, diffusionDestPath)
@@ -125,7 +131,7 @@ class ChatPresenter(
                 chatActivity.getString(R.string.r1_thinking_message),
                 chatActivity.getString(R.string.r1_think_complete_template))
         generateResultProcessor.generateBegin()
-        return chatSession.generate(prompt, object: ChatSession.GenerateProgressListener {
+        return chatSession.generate(prompt, mapOf(), object: GenerateProgressListener {
             override fun onProgress(progress: String?): Boolean {
                 generateResultProcessor.process(progress)
                 chatActivity.lifecycleScope.launch {
@@ -149,15 +155,14 @@ class ChatPresenter(
         chatActivity.lifecycleScope.launch {
             chatActivity.onGenerateFinished(benchMarkResult)
         }
-        chatDataManager!!.addChatData(sessionId, userData)
     }
 
     private fun updateSession(sessionId: String, modelId: String?, sessionName: String) {
-        chatDataManager!!.addOrUpdateSession(sessionId!!, modelId)
+        chatDataManager!!.addOrUpdateSession(sessionId, modelId)
         chatDataManager!!.updateSessionName(this.sessionId!!, this.sessionName)
     }
 
-    fun onUserMessage(userData: ChatDataItem) {
+    fun onRequestGenerate(userData: ChatDataItem) {
         val prompt =  PromptUtils.generateUserPrompt(userData)
         if (this.sessionName.isNullOrEmpty()) {
             this.sessionName = SessionUtils.generateSessionName(userData)
@@ -165,7 +170,9 @@ class ChatPresenter(
         }
         chatDataManager!!.addChatData(sessionId, userData)
         chatActivity.onGenerateStart()
-        chatExecutor!!.execute { submitRequest(prompt, userData) }
+        chatExecutor!!.execute {
+            submitRequest(prompt, userData)
+        }
     }
 
     fun stopGenerate() {
@@ -179,5 +186,9 @@ class ChatPresenter(
             chatSession.release()
             chatExecutor!!.shutdownNow()
         }
+    }
+
+    fun saveResponseToDatabase(recentItem: ChatDataItem) {
+        this.chatDataManager?.addChatData(sessionId, recentItem)
     }
 }
