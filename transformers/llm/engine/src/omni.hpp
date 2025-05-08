@@ -110,6 +110,7 @@ public:
     virtual Express::VARP gen_position_ids(int seq_len) override;
     virtual void response(const std::vector<int>& input_ids, std::ostream* os = &std::cout, const char* end_with = nullptr, int max_new_tokens = -1) override;
     virtual void setWavformCallback(std::function<bool(const float*, size_t, bool)> callback) override;
+    virtual void generateWavform() override;
 private:
     int mVisionHeight = 448, mVisionWidth = 448, mVisionStart = 151857,
         mVisionEnd = 151858, mVisionPad = 151859, mAudioPad = 151646;
