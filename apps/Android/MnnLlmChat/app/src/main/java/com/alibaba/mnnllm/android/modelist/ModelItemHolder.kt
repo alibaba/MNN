@@ -141,7 +141,7 @@ class ModelItemHolder(itemView: View, private val modelItemListener: ModelItemLi
             val hfModelItem = itemView.tag as ModelItem
             val modelId = hfModelItem.modelId
             if (item.itemId == R.id.menu_delete_model) {
-                ModelDownloadManager.getInstance(v.context).removeDownload(modelId!!)
+                ModelDownloadManager.getInstance(v.context).deleteRepo(modelId!!)
             } else if (item.itemId == R.id.menu_pause_download) {
                 ModelDownloadManager.getInstance(v.context).pauseDownload(modelId!!)
             } else if (item.itemId == R.id.menu_start_download) {

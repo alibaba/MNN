@@ -155,7 +155,12 @@ const MNN::Transformer::LlmContext * LlmSession::Response(const std::string &pro
         processor.processStream(str, len);
     }};
     std::ostream output_ostream(&stream_buffer);
+#ifdef USE_DEBUG_PROMOT
+    std::string debug_prompt = "<audio>/data/user/0/com.alibaba.mnnllm.android/files/history/1746690738111/record_1746690751335.wav</audio>";
+        history_.emplace_back("user", getUserString(debug_prompt.c_str(), false, is_r1_));
+#else
     history_.emplace_back("user", getUserString(prompt.c_str(), false, is_r1_));
+#endif
     MNN_DEBUG("submitNative history count %zu", history_.size());
     for (auto & it : history_) {
         prompt_string_for_debug += it.second;

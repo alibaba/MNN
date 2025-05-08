@@ -3,7 +3,7 @@
 package com.alibaba.mls.api.download
 
 import android.util.Log
-import com.alibaba.mls.api.HfApiException
+import com.alibaba.mls.api.FileDownloadException
 import com.alibaba.mls.api.download.DownloadFileUtils.createSymlink
 import com.alibaba.mls.api.download.DownloadFileUtils.moveWithPermissions
 import okhttp3.OkHttpClient
@@ -20,7 +20,7 @@ class ModelFileDownloader {
         .followSslRedirects(false) //                .addInterceptor(OkHttpUtils.createLoggingInterceptor())
         .build()
 
-    @Throws(HfApiException::class, DownloadPausedException::class, IOException::class)
+    @Throws(FileDownloadException::class, DownloadPausedException::class, IOException::class)
     fun downloadFile(
         fileDownloadTask: FileDownloadTask,
         fileDownloadListener: FileDownloadListener
@@ -63,7 +63,7 @@ class ModelFileDownloader {
         }
     }
 
-    @Throws(HfApiException::class, DownloadPausedException::class)
+    @Throws(FileDownloadException::class, DownloadPausedException::class)
     private fun downloadToTmpAndMove(
         fileDownloadTask: FileDownloadTask,
         incompletePath: File,
@@ -106,7 +106,7 @@ class ModelFileDownloader {
                 }
             }
         } catch (e: IOException) {
-            throw HfApiException("get header error" + e.message)
+            throw FileDownloadException("get header error" + e.message)
         }
         Log.d(
             TAG,
@@ -152,7 +152,7 @@ class ModelFileDownloader {
         moveWithPermissions(incompletePath, destinationPath)
     }
 
-    @Throws(HfApiException::class, DownloadPausedException::class)
+    @Throws(FileDownloadException::class, DownloadPausedException::class)
     private fun downloadChunk(
         fileDownloadTask: FileDownloadTask,
         url: String,
@@ -211,12 +211,12 @@ class ModelFileDownloader {
                         }
                 } else {
                     Log.e(TAG, "downloadChunk error HfApiException " + response.code)
-                    throw HfApiException("HTTP error: ${response.code}")
+                    throw FileDownloadException("HTTP error: ${response.code}")
                 }
             }
         } catch (e: IOException) {
             Log.e(TAG, "downloadChunk error IOException", e)
-            throw HfApiException("Connection error: " + e.message)
+            throw FileDownloadException("Connection error: " + e.message)
         }
     }
 

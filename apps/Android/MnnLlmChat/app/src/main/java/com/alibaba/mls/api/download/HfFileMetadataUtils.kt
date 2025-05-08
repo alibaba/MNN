@@ -2,7 +2,7 @@
 // Copyright (c) 2024 Alibaba Group Holding Limited All rights reserved.
 package com.alibaba.mls.api.download
 
-import com.alibaba.mls.api.HfApiException
+import com.alibaba.mls.api.FileDownloadException
 import com.alibaba.mls.api.HfFileMetadata
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -32,7 +32,7 @@ object HfFileMetadataUtils {
     }
 
     @JvmStatic
-    @Throws(HfApiException::class)
+    @Throws(FileDownloadException::class)
     fun getFileMetadata(client: OkHttpClient, url: String): HfFileMetadata {
         val request: Request = Request.Builder()
             .url(url)
@@ -45,7 +45,7 @@ object HfFileMetadataUtils {
         try {
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful && response.code != 302) {
-                    throw HfApiException("Failed to fetch metadata status " + response.code)
+                    throw FileDownloadException("Failed to fetch metadata status " + response.code)
                 }
                 metadata.location = url
                 if (response.code == 302) {
@@ -67,7 +67,7 @@ object HfFileMetadataUtils {
                 metadata.commitHash = response.header(HUGGINGFACE_HEADER_X_REPO_COMMIT)
             }
         } catch (e: IOException) {
-            throw HfApiException("GetFileMetadata IOException: " + e.message)
+            throw FileDownloadException("GetFileMetadata IOException: " + e.message)
         }
 
         return metadata

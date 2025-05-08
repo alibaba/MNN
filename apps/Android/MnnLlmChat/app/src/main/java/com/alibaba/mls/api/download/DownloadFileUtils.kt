@@ -79,8 +79,8 @@ object DownloadFileUtils {
     }
 
     @JvmStatic
-    fun getLastFileName(path: String?): String? {
-        if (path == null || path.isEmpty()) {
+    fun getLastFileName(path: String): String {
+        if (path.isEmpty()) {
             return path
         }
         val pos = path.lastIndexOf('/')
