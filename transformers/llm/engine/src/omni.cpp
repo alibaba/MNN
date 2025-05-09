@@ -299,7 +299,7 @@ std::vector<int> Omni::audioProcess(const std::string& file) {
     auto input_features  = MNN::AUDIO::whisper_fbank(waveform);
     VARP audio_embedding;
     if (mAudioModule->getInfo()->inputNames.size() > 1) {
-        int seqlen = input_features->getInfo()->dim[2] / 2;
+        int seqlen = UP_DIV(input_features->getInfo()->dim[2], 2);
         constexpr int n_window = 100;
         std::vector<int> cu_seqlens;
         int curseq = 0;
@@ -569,6 +569,15 @@ void Omni::response(const std::vector<int>& input_ids, std::ostream* os, const c
         mTalker->generate_init();
     }
     generate(input_ids, max_new_tokens);
+}
+
+void Omni::setWavformCallback(std::function<bool(const float*, size_t, bool)> callback) {
+    if (mTalker) {
+        mTalker->setWavformCallback(callback);
+    }
+}
+
+void Omni::generateWavform() {
     if (mTalker) {
         mTalker->generate();
 #ifdef DUMP_TALKER_PERFORMANCE
@@ -596,12 +605,6 @@ void Omni::response(const std::vector<int>& input_ids, std::ostream* os, const c
         printf("      tts rtf   = %.2f \n", tts_s / audio_duration);
         printf("##################################\n");
 #endif
-    }
-}
-
-void Omni::setWavformCallback(std::function<bool(const float*, size_t, bool)> callback) {
-    if (mTalker) {
-        mTalker->setWavformCallback(callback);
     }
 }
 

@@ -372,7 +372,7 @@ __kernel void rearrange_k(GLOBAL_SIZE_3_DIMS
     vstore4((FLOAT4)(key_vec0.s3, key_vec1.s3, key_vec2.s3, key_vec3.s3), 0, past_key + output_offset + max_len + max_len + max_len);
 #else
     FLOAT4 key_vec = vload4(0, key + (b * kv_head_num + z) * head_dim + y4);
-    const int output_offset = ((b * kv_head_num + z) * head_dim + y4) * max_len + past_len - 1;
+    const int output_offset = ((b * kv_head_num + z) * head_dim + y4) * max_len + past_len;
     past_key[output_offset] = key_vec.s0;
     past_key[output_offset + max_len] = key_vec.s1;
     past_key[output_offset + max_len + max_len] = key_vec.s2;
@@ -413,7 +413,7 @@ __kernel void rearrange_v(GLOBAL_SIZE_3_DIMS
     vstore4(value_vec3, 0, past_value + output_offset + head_dim + head_dim + head_dim);
 #else
     FLOAT4 value_vec = vload4(0, value + (b * kv_head_num + z) * head_dim + x4);
-    const int output_offset = ((b * kv_head_num + z) * max_len + past_len - 1) * head_dim + x4;
+    const int output_offset = ((b * kv_head_num + z) * max_len + past_len) * head_dim + x4;
     vstore4(value_vec, 0, past_value + output_offset);
 #endif
 }
@@ -424,11 +424,12 @@ __kernel void matmul_qk_div_mask_prefill(GLOBAL_SIZE_3_DIMS
                               #ifdef ADD_MASK
                               __global const FLOAT* mask,
                               #elif defined(SET_MASK)
-                              __global const int* mask, // [1 1 query_seq_len key_seq_len]
+                              __global const int* mask, // [1 1 query_seq_len mask_key_seq_len]
                               #endif
                               __global FLOAT *qk, // [batch head_num kv_seq_length query_seq_len_4]
                               __private const float scale,
                               __private const int query_seq_len,
+                              __private const int mask_key_seq_len,
                               __private const int key_seq_len,
                               __private const int max_len,
                               __private const int head_num,
@@ -485,10 +486,10 @@ __kernel void matmul_qk_div_mask_prefill(GLOBAL_SIZE_3_DIMS
     out3 *= (float4)scale;
     {
         #if defined(ADD_MASK) || defined(SET_MASK)
-        int mask_offset = x4 * key_seq_len + y4;
-        float4 mask_tmp0 = convert_float4(vload4(0, mask + mask_offset)); mask_offset += key_seq_len;
-        float4 mask_tmp1 = (x4 + 1 >= query_seq_len) ? (float4)0 : convert_float4(vload4(0, mask + mask_offset)); mask_offset += key_seq_len;
-        float4 mask_tmp2 = (x4 + 2 >= query_seq_len) ? (float4)0 : convert_float4(vload4(0, mask + mask_offset)); mask_offset += key_seq_len;
+        int mask_offset = x4 * mask_key_seq_len + y4;
+        float4 mask_tmp0 = convert_float4(vload4(0, mask + mask_offset)); mask_offset += mask_key_seq_len;
+        float4 mask_tmp1 = (x4 + 1 >= query_seq_len) ? (float4)0 : convert_float4(vload4(0, mask + mask_offset)); mask_offset += mask_key_seq_len;
+        float4 mask_tmp2 = (x4 + 2 >= query_seq_len) ? (float4)0 : convert_float4(vload4(0, mask + mask_offset)); mask_offset += mask_key_seq_len;
         float4 mask_tmp3 = (x4 + 3 >= query_seq_len) ? (float4)0 : convert_float4(vload4(0, mask + mask_offset));
         float4 mask0 = (float4)(mask_tmp0.s0, mask_tmp1.s0, mask_tmp2.s0, mask_tmp3.s0);
         float4 mask1 = (float4)(mask_tmp0.s1, mask_tmp1.s1, mask_tmp2.s1, mask_tmp3.s1);
