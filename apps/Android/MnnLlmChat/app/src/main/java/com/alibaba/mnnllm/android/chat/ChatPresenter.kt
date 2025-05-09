@@ -69,7 +69,8 @@ class ChatPresenter(
         }
         sessionId = chatSession.sessionId
         chatSession.setKeepHistory(
-            !ModelUtils.isMultiModalModel(modelName) || ModelUtils.isOmni(modelName)
+            true
+//            !ModelUtils.isMultiModalModel(modelName) || ModelUtils.isOmni(modelName)
         )
         return chatSession
     }
