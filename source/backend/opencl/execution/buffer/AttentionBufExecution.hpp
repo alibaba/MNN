@@ -12,6 +12,7 @@
 #define AttentionBufExecution_hpp
 
 #include "backend/opencl/execution/image/CommonExecution.hpp"
+#include "core/OpCommonUtils.hpp"
 
 namespace MNN {
 namespace OpenCL {
@@ -21,19 +22,18 @@ public:
     KVCacheCLManager(Backend *backend, bool kv_cache);
 
     ~KVCacheCLManager() = default;
-    void allocKVCache();
-    bool reallocKVCache();
-    void setArgs(int pastLength, int numHead, int kvNumHead, int headDim){
-        mPastLength = pastLength;
+    void allocKVCache(const KVMeta* meta, bool isDecodeResize = false);
+    bool reallocKVCache(const KVMeta* meta, bool isDecodeResize = false);
+    void setArgs(int numHead, int kvNumHead, int headDim){
         mNumHead = numHead;
         mKvNumHead = kvNumHead;
         mHeadDim = headDim;
     }
-    int kvLength() {
+    int pastKvLength() {
         return mPastLength;
     }
-    void addKvLength(){
-        mPastLength += 1;
+    void addKvLength(int seq_len){
+        mPastLength += seq_len;
     }
     int maxLength() {
         return mMaxLength;
@@ -50,7 +50,7 @@ public:
 
 private:
     bool mKVCache;
-    const int mExpandChunk = 2048;
+    const int mExpandChunk = 64;
     std::shared_ptr<cl::Buffer> mPastKey, mPastValue;
     int mPastLength = 0, mMaxLength = 0, mNumHead = 0, mKvNumHead = 0, mHeadDim = 0;
     OpenCLBackend *mOpenCLBackend;
@@ -74,11 +74,12 @@ public:
 
 private:
     
+    KVMeta* mMeta;
     int getLocalSize(int size, int maxGroupSize);
     bool mIsDecode = false;
     void handleKVCache(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
-    bool mIsFirstPrefill = true;
-    int mKv_seq_len = 0;
+    int mPastKvSeqlen = 0;
+    int mKvSeqlen = 0;
     int mKeyValueMaxlen = 0;
     int mDecodeTmpMaxlen = 0;
 
