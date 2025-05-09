@@ -921,8 +921,8 @@ ErrorCode DenseConvInt8TiledExecutor::onResize(const std::vector<Tensor*>& input
     backend()->onReleaseBuffer(mQuantInput.get(), Backend::DYNAMIC);
     backend()->onReleaseBuffer(mAccumBuffer.get(), Backend::DYNAMIC);
     
-    return NO_ERROR;
 #endif
+    return NO_ERROR;
 }
 
 ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
