@@ -203,7 +203,7 @@ void LlmSession::SetWavformCallback(std::function<bool(const float *, size_t, bo
             if (callback) {
                 return !callback(ptr, size, last_chunk);
             }
-            return true;
+            return false;
         });
     } else {
         MNN_ERROR("no llm instance");
