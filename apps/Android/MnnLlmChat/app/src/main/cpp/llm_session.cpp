@@ -10,7 +10,6 @@
 #include "mls_config.h"
 #include "utf8_stream_processor.hpp"
 #include "llm_stream_buffer.hpp"
-#include <audio/audio.hpp>
 
 namespace mls {
 
@@ -127,6 +126,7 @@ const MNN::Transformer::LlmContext * LlmSession::Response(const std::string &pro
     }
     int current_size = 0;
     stop_requested_ = false;
+    generate_text_end_ = false;
     std::stringstream response_buffer;
     mls::Utf8StreamProcessor processor([&response_buffer, &on_progress, this](const std::string& utf8Char) {
         bool is_eop = utf8Char.find("<eop>") != std::string::npos;
@@ -149,13 +149,15 @@ const MNN::Transformer::LlmContext * LlmSession::Response(const std::string &pro
         }
         if (on_progress) {
             bool user_stop_requested = on_progress(utf8Char, is_eop);
-            stop_requested_ = is_eop || user_stop_requested;
+            generate_text_end_ = is_eop;
+            stop_requested_ = user_stop_requested;
         }
     });
     LlmStreamBuffer stream_buffer{[&processor](const char* str, size_t len){
         processor.processStream(str, len);
     }};
     std::ostream output_ostream(&stream_buffer);
+//#define USE_DEBUG_PROMOT
 #ifdef USE_DEBUG_PROMOT
     std::string debug_prompt = "<audio>/data/user/0/com.alibaba.mnnllm.android/files/history/1746690738111/record_1746690751335.wav</audio>";
         history_.emplace_back("user", getUserString(debug_prompt.c_str(), false, is_r1_));
@@ -169,9 +171,12 @@ const MNN::Transformer::LlmContext * LlmSession::Response(const std::string &pro
     MNN_DEBUG("submitNative prompt_string_for_debug count %s max_new_tokens_:%d", prompt_string_for_debug.c_str(), max_new_tokens_);
     llm_->response(history_, &output_ostream, "<eop>", 1);
     current_size++;
-    while (!stop_requested_ && current_size < max_new_tokens_) {
+    while (!stop_requested_ && !generate_text_end_ && current_size < max_new_tokens_) {
         llm_->generate(1);
         current_size++;
+    }
+    if (!stop_requested_) {
+        llm_->generateWavform();
     }
     auto context = llm_->getContext();
     return context;
@@ -182,9 +187,9 @@ std::string LlmSession::getDebugInfo() {
 }
 
 void LlmSession::SetWavformCallback(std::function<bool(const float *, size_t, bool)> callback) {
-    if (llm_ != nullptr && callback != nullptr && false) {
+    if (llm_ != nullptr && callback != nullptr) {
         waveform.clear();
-        llm_->setWavformCallback([this, callback = std::move(callback)](const float *ptr, size_t size, bool last_chunk) {
+        llm_->setWavformCallback([ callback = std::move(callback)](const float *ptr, size_t size, bool last_chunk) {
 #if DEBUG_SAVE_WAV
             waveform.reserve(waveform.size() + size);
             waveform.insert(waveform.end(), ptr, ptr + size);
@@ -196,7 +201,7 @@ void LlmSession::SetWavformCallback(std::function<bool(const float *, size_t, bo
             }
 #endif
             if (callback) {
-                return callback(ptr, size, last_chunk);
+                return !callback(ptr, size, last_chunk);
             }
             return true;
         });

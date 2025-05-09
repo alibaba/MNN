@@ -65,19 +65,20 @@ object CrashUtil : Thread.UncaughtExceptionHandler {
         }
     }
 
+
     private fun saveJavaCrash(thread: Thread, ex: Throwable) {
         val ts = dateFormat.format(Date())
-        val file = File(crashDir, "crash.log")
+        val file = File(crashDir, "crash_$ts.log")
         FileWriter(file).use { fw ->
             fw.appendLine("===== Java Crash =====")
-            fw.appendLine("Thread: \${thread.name}")
+            fw.appendLine("Thread: ${thread.name}")
             fw.appendLine(Log.getStackTraceString(ex))
             fw.appendLine("\n===== Logcat (main) =====")
             fw.append(getLogcat("-d", "-v", "time"))
             fw.appendLine("\n===== Logcat (crash buffer) =====")
             fw.append(getLogcat("-d", "-b", "crash", "-v", "time"))
         }
-        Log.i(TAG, "Saved crash log to \${file.absolutePath}")
+        Log.i(TAG, "Saved crash log to ${file.absolutePath}")
     }
 
     private fun getLogcat(vararg args: String): String {
@@ -101,6 +102,8 @@ object CrashUtil : Thread.UncaughtExceptionHandler {
             "${ctx.packageName}.fileprovider",
             latest
         )
+        ClipboardUtils.copyToClipboard(ctx, latest.readText())
+        UiUtils.showToast(ctx, "Crash report copied to clipboard")
         val shareIntent = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
             putExtra(Intent.EXTRA_STREAM, uri)

@@ -38,7 +38,7 @@ class ModelDownloadManager private constructor(private val context: Context) {
     private lateinit var msDownloader:ModelRepoDownloader
     private val downloadInfoMap = HashMap<String, DownloadInfo>()
     private val foregroundServiceIntent =
-        Intent(context.applicationContext, DownlodForegroundService::class.java)
+        Intent(context.applicationContext, DownloadForegroundService::class.java)
     private val activeDownloadCount =
         AtomicInteger(0)
 
@@ -195,7 +195,7 @@ class ModelDownloadManager private constructor(private val context: Context) {
 
     private fun onDownloadTaskAdded(count: Int) {
         if (count == 1) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                 if (ContextCompat.checkSelfPermission(
                         context,
                         Manifest.permission.POST_NOTIFICATIONS
@@ -208,10 +208,19 @@ class ModelDownloadManager private constructor(private val context: Context) {
                         REQUEST_CODE_POST_NOTIFICATIONS
                     )
                 } else {
-                    ApplicationProvider.get().startForegroundService(foregroundServiceIntent)
-                    foregroundServiceStarted = true
+                    startForegroundService()
                 }
             }
+        }
+    }
+
+    private fun startForegroundService() {
+        try {
+            ApplicationProvider.get().startForegroundService(foregroundServiceIntent)
+            foregroundServiceStarted = true
+        } catch (e: Exception) {
+            Log.e(TAG, "start foreground service failed", e)
+            foregroundServiceStarted = false
         }
     }
 
@@ -253,7 +262,7 @@ class ModelDownloadManager private constructor(private val context: Context) {
         saveDownloadSizeTotal(ApplicationProvider.get(), modelId, total)
         saveDownloadSizeSaved(ApplicationProvider.get(), modelId, saved)
         if (downloadListener != null) {
-            downloadListener!!.onDownloadProgress(modelId!!, downloadInfo)
+            downloadListener!!.onDownloadProgress(modelId, downloadInfo)
         }
     }
 
@@ -303,9 +312,9 @@ class ModelDownloadManager private constructor(private val context: Context) {
         }
     }
 
-    fun startForegroundService() {
+    fun tryStartForegroundService() {
         if (!foregroundServiceStarted && activeDownloadCount.get() > 0) {
-            ApplicationProvider.get().startForegroundService(foregroundServiceIntent)
+            startForegroundService()
         }
     }
 

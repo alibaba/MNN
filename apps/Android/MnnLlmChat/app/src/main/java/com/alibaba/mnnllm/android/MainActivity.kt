@@ -150,7 +150,7 @@ class MainActivity : AppCompatActivity() {
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == ModelDownloadManager.REQUEST_CODE_POST_NOTIFICATIONS) {
-            ModelDownloadManager.getInstance(this).startForegroundService()
+            ModelDownloadManager.getInstance(this).tryStartForegroundService()
         }
     }
 

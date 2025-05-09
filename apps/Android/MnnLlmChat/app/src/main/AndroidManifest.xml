@@ -48,10 +48,9 @@
             </intent-filter>
         </activity>
 
-        <service android:name="com.alibaba.mls.api.download.DownlodForegroundService"
+        <service android:name="com.alibaba.mls.api.download.DownloadForegroundService"
             android:foregroundServiceType="dataSync"
             />
-
         <activity android:name=".chat.SelectTextActivity"
             android:exported="false">
             <intent-filter>

@@ -6,9 +6,11 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
+import android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+import android.os.Build
 import android.os.IBinder
 
-class DownlodForegroundService : Service() {
+class DownloadForegroundService : Service() {
     override fun onCreate() {
         super.onCreate()
     }
@@ -30,7 +32,16 @@ class DownlodForegroundService : Service() {
             .setContentText("Downloading...")
             .setSmallIcon(R.drawable.stat_sys_download)
             .build()
-        startForeground(1, notification)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                startForeground(SERVICE_ID, notification,
+                    FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+            } else {
+                startForeground(SERVICE_ID, notification)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
         return START_NOT_STICKY
     }
 
@@ -40,5 +51,6 @@ class DownlodForegroundService : Service() {
 
     companion object {
         private const val CHANNEL_ID = "DownloadServiceChannel"
+        private const val SERVICE_ID = 8888
     }
 }

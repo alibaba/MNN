@@ -37,6 +37,7 @@ private:
     json config_{};
     bool is_r1_{false};
     bool stop_requested_{false};
+    bool generate_text_end_{false};
     bool keep_history_{true};
     std::vector<float> waveform{};
     Llm* llm_{nullptr};
