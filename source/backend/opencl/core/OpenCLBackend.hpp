@@ -151,6 +151,7 @@ public:
     bool isCreateError() const;
     virtual void* onMapTensor(Tensor::MapType mtype, Tensor::DimensionType dtype, const Tensor* srcTensor) override;
     virtual bool onUnmapTensor(Tensor::MapType mtype, Tensor::DimensionType dtype, const Tensor* dstTensor, void* mapPtr) override;
+    virtual const Runtime* getRuntime() override;
 
 private:
     void copyFromDevice(const Tensor* srcTensor, const Tensor* dstTensor) const;

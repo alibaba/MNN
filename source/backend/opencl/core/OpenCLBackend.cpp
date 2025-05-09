@@ -1559,6 +1559,10 @@ void OpenCLBackend::setGpuMode(const int cl_mode_num) {
         MNN_PRINT("set multi record kernel mode is not permitted, please check cl_mode:%x！\n", cl_mode_num);
     }
 }
+const Runtime* OpenCLBackend::getRuntime() {
+    return mCLRuntime;
+}
+
 #ifdef MNN_OPENCL_SEP_BUILD
 bool placeholder = []() {
     static std::once_flag createOnce;
