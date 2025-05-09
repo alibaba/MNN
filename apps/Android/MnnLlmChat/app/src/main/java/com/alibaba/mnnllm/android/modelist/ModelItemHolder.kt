@@ -16,6 +16,8 @@ import com.alibaba.mls.api.download.ModelDownloadManager
 import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.utils.ModelUtils.getDrawableId
 import com.alibaba.mnnllm.android.widgets.TagsLayout
+import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.launch
 
 class ModelItemHolder(itemView: View, private val modelItemListener: ModelItemListener) :
     RecyclerView.ViewHolder(itemView), View.OnClickListener, OnLongClickListener {
@@ -141,7 +143,9 @@ class ModelItemHolder(itemView: View, private val modelItemListener: ModelItemLi
             val hfModelItem = itemView.tag as ModelItem
             val modelId = hfModelItem.modelId
             if (item.itemId == R.id.menu_delete_model) {
-                ModelDownloadManager.getInstance(v.context).deleteRepo(modelId!!)
+                MainScope().launch {
+                    ModelDownloadManager.getInstance(v.context).deleteModel(modelId!!)
+                }
             } else if (item.itemId == R.id.menu_pause_download) {
                 ModelDownloadManager.getInstance(v.context).pauseDownload(modelId!!)
             } else if (item.itemId == R.id.menu_start_download) {

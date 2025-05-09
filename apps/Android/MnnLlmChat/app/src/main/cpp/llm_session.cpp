@@ -121,6 +121,7 @@ const MNN::Transformer::LlmContext * LlmSession::Response(const std::string &pro
     if (llm_ == nullptr) {
         return nullptr;
     }
+
     if (!keep_history_) {
         history_.resize(1);
     }
@@ -172,7 +173,6 @@ const MNN::Transformer::LlmContext * LlmSession::Response(const std::string &pro
         llm_->generate(1);
         current_size++;
     }
-//    llm_->response("<audio>/data/user/0/com.alibaba.mnnllm.android/files/history/1746690738111/record_1746690751335.wav</audio>", &output_ostream, "<eop>", 9999);
     auto context = llm_->getContext();
     return context;
 }

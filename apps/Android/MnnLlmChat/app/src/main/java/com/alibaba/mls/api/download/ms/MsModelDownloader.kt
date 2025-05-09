@@ -1,8 +1,7 @@
 // Created by ruoyi.sjd on 2025/5/8.
 // Copyright (c) 2024 Alibaba Group Holding Limited All rights reserved.
 
-package com.alibaba.mls.api.download
-
+package com.alibaba.mls.api.download.ms
 import android.util.Log
 import com.alibaba.mls.api.FileDownloadException
 import com.alibaba.mls.api.HfFileMetadata
@@ -12,8 +11,13 @@ import com.alibaba.mls.api.download.DownloadFileUtils.deleteDirectoryRecursively
 import com.alibaba.mls.api.download.DownloadFileUtils.getLastFileName
 import com.alibaba.mls.api.download.DownloadFileUtils.getPointerPathParent
 import com.alibaba.mls.api.download.DownloadFileUtils.repoFolderName
+import com.alibaba.mls.api.download.DownloadPausedException
+import com.alibaba.mls.api.download.FileDownloadTask
 import com.alibaba.mls.api.download.ModelDownloadManager.Companion.TAG
+import com.alibaba.mls.api.download.ModelFileDownloader
 import com.alibaba.mls.api.download.ModelFileDownloader.FileDownloadListener
+import com.alibaba.mls.api.download.ModelRepoDownloader
+import com.alibaba.mls.api.ms.MsApiClient
 import com.alibaba.mls.api.ms.MsRepoInfo
 import com.alibaba.mls.api.source.ModelSources
 import com.alibaba.mls.api.source.RepoConfig
@@ -22,12 +26,11 @@ import retrofit2.Callback
 import retrofit2.Response
 import java.io.File
 
-class ModelScopeModelDownloader(private val manager: ModelDownloadManager,
-                                override var callback: ModelRepoDownloadCallback?,
-                                override var cacheRootPath: String,
+class MsModelDownloader(override var callback: ModelRepoDownloadCallback?,
+                        cacheRootPath: String
 ) : ModelRepoDownloader() {
-
-    private val msApiClient by lazy { manager.msApiClient!! }
+    override var cacheRootPath: String = getCachePathRoot(cacheRootPath)
+    private var msApiClient: MsApiClient = MsApiClient()
     override fun setListener(callback: ModelRepoDownloadCallback?) {
         this.callback = callback
     }
@@ -36,20 +39,8 @@ class ModelScopeModelDownloader(private val manager: ModelDownloadManager,
         downloadMsRepo(modelId)
     }
 
-    override fun resume(modelId: String) {
-        manager.startDownload(modelId)
-    }
-
-    override fun cancel(modelId: String) {
-        manager.deleteRepo(modelId)
-    }
-
     override fun getDownloadPath(modelId: String): File {
-        return manager.getMsModelPath(modelId)
-    }
-
-    override fun isDownloaded(modelId: String): Boolean {
-        return manager.getMsModelPath(modelId).exists()
+        return getModelPath(cacheRootPath, modelId)
     }
 
     override fun deleteRepo(modelId: String) {
@@ -63,7 +54,7 @@ class ModelScopeModelDownloader(private val manager: ModelDownloadManager,
                 Log.e(TAG, "remove storageFolder" + msStorageFolder.absolutePath + " faield")
             }
         }
-        val msLinkFolder = this.getDownloadedFile(modelId)
+        val msLinkFolder = this.getDownloadPath(modelId)
         Log.d(TAG, "removeMsLinkFolder: " + msLinkFolder.absolutePath)
         msLinkFolder.delete()
     }
@@ -201,6 +192,18 @@ class ModelScopeModelDownloader(private val manager: ModelDownloadManager,
             fileDownloadTasks.add(fileDownloadTask)
         }
         return fileDownloadTasks
+    }
+
+
+    companion object  {
+        fun getCachePathRoot(modelDownloadPathRoot:String): String {
+            return "$modelDownloadPathRoot/modelscope"
+        }
+
+        fun getModelPath(modelsDownloadPathRoot: String, modelId: String): File {
+            val modelScopeId = ModelSources.get().config.getRepoConfig(modelId)!!.modelScopePath
+            return File(modelsDownloadPathRoot, getLastFileName(modelScopeId))
+        }
     }
 
 }

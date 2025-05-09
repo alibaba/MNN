@@ -30,6 +30,7 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
         diffusion_jni.cpp
         diffusion_session.cpp
         llm_session.cpp
+        crash_util.cpp
 )
 #mnn
 #set (MNN_ROOT "/Users/songjinde/git/DAI/AliNNPrivate")

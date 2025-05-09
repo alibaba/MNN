@@ -1,6 +1,6 @@
 // Created by ruoyi.sjd on 2024/12/25.
 // Copyright (c) 2024 Alibaba Group Holding Limited All rights reserved.
-package com.alibaba.mls.api.download
+package com.alibaba.mls.api.download.hf
 
 import com.alibaba.mls.api.FileDownloadException
 import com.alibaba.mls.api.HfFileMetadata
@@ -23,7 +23,6 @@ object HfFileMetadataUtils {
         return 0
     }
 
-    // Helper method to normalize ETag
     private fun normalizeETag(etag: String?): String? {
         if (etag != null && etag.startsWith("\"") && etag.endsWith("\"")) {
             return etag.substring(1, etag.length - 1)

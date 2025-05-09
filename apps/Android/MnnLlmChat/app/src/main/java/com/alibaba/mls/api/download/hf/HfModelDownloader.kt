@@ -1,12 +1,13 @@
 // Created by ruoyi.sjd on 2025/5/8.
 // Copyright (c) 2024 Alibaba Group Holding Limited All rights reserved.
 
-package com.alibaba.mls.api.download
+package com.alibaba.mls.api.download.hf
 
 import android.util.Log
 import com.alibaba.mls.api.ApplicationProvider
 import com.alibaba.mls.api.FileDownloadException
 import com.alibaba.mls.api.HfApiClient
+import com.alibaba.mls.api.HfApiClient.Companion.bestClient
 import com.alibaba.mls.api.HfFileMetadata
 import com.alibaba.mls.api.HfRepoInfo
 import com.alibaba.mls.api.download.DownloadExecutor.Companion.executor
@@ -15,21 +16,34 @@ import com.alibaba.mls.api.download.DownloadFileUtils.deleteDirectoryRecursively
 import com.alibaba.mls.api.download.DownloadFileUtils.getLastFileName
 import com.alibaba.mls.api.download.DownloadFileUtils.getPointerPathParent
 import com.alibaba.mls.api.download.DownloadFileUtils.repoFolderName
+import com.alibaba.mls.api.download.DownloadPausedException
 import com.alibaba.mls.api.download.DownloadPersistentData.getMetaData
 import com.alibaba.mls.api.download.DownloadPersistentData.saveMetaData
-import com.alibaba.mls.api.download.HfFileMetadataUtils.getFileMetadata
+import com.alibaba.mls.api.download.FileDownloadTask
+import com.alibaba.mls.api.download.hf.HfFileMetadataUtils.getFileMetadata
 import com.alibaba.mls.api.download.ModelDownloadManager.Companion.TAG
+import com.alibaba.mls.api.download.ModelFileDownloader
 import com.alibaba.mls.api.download.ModelFileDownloader.FileDownloadListener
+import com.alibaba.mls.api.download.ModelRepoDownloader
+import com.alibaba.mls.api.source.ModelSources
 import okhttp3.OkHttpClient
 import java.io.File
 import java.util.concurrent.TimeUnit
 
-class HuggingFaceModelDownloader(private val manager: ModelDownloadManager,
-                                 override var callback: ModelRepoDownloadCallback?,
-                                 override var cacheRootPath: String
+class HfModelDownloader(override var callback: ModelRepoDownloadCallback?,
+                        override var cacheRootPath: String
 ) : ModelRepoDownloader() {
 
-    private val hfApiClient by lazy { manager.getHfApiClient() }
+    private fun getHfApiClient(): HfApiClient {
+        if (hfApiClient == null) {
+            hfApiClient = bestClient
+        }
+        if (hfApiClient == null) {
+            hfApiClient = HfApiClient(HfApiClient.HOST_DEFAULT)
+        }
+        return hfApiClient!!
+    }
+    private var hfApiClient: HfApiClient? = null
     private var metaInfoClient: OkHttpClient? = null
 
     override fun setListener(callback: ModelRepoDownloadCallback?) {
@@ -37,22 +51,20 @@ class HuggingFaceModelDownloader(private val manager: ModelDownloadManager,
     }
 
     override fun download(modelId: String) {
-        manager.getHfApiClient().getRepoInfo(modelId, "main", object :
+        getHfApiClient().getRepoInfo(modelId, "main", object :
             HfApiClient.RepoInfoCallback {
             override fun onSuccess(hfRepoInfo: HfRepoInfo?) {
                 downloadHfRepo(hfRepoInfo!!)
             }
 
             override fun onFailure(error: String?) {
-                manager.setDownloadFailed(modelId, FileDownloadException("getRepoInfoFailed$error"))
+                callback?.onDownloadFailed(modelId, FileDownloadException("getRepoInfoFailed$error"))
             }
         })
     }
 
-
-
     fun downloadHfRepo(hfRepoInfo: HfRepoInfo) {
-        Log.d(TAG, "DownloadStart " + hfRepoInfo.modelId + " host: " + hfApiClient.host)
+        Log.d(TAG, "DownloadStart " + hfRepoInfo.modelId + " host: " + getHfApiClient().host)
         executor!!.submit {
             callback?.onDownloadTaskAdded()
             downloadHfRepoInner(hfRepoInfo)
@@ -143,7 +155,7 @@ class HuggingFaceModelDownloader(private val manager: ModelDownloadManager,
                 ?: "null")
         )
         val fileDownloadTasks: MutableList<FileDownloadTask> = ArrayList()
-        metaDataList = requestMedataDataList(hfRepoInfo)
+        metaDataList = requestMetaDataList(hfRepoInfo)
         saveMetaData(ApplicationProvider.get(), hfRepoInfo.modelId!!, metaDataList)
         for (i in hfRepoInfo.getSiblings().indices) {
             val subFile = hfRepoInfo.getSiblings()[i]
@@ -151,6 +163,7 @@ class HuggingFaceModelDownloader(private val manager: ModelDownloadManager,
             val fileDownloadTask = FileDownloadTask()
             fileDownloadTask.relativePath = subFile.rfilename
             fileDownloadTask.hfFileMetadata = metaData
+            fileDownloadTask.etag = metaData.etag
             fileDownloadTask.blobPath = File(storageFolder, "blobs/" + metaData.etag)
             fileDownloadTask.blobPathIncomplete =
                 File(storageFolder, "blobs/" + metaData.etag + ".incomplete")
@@ -164,32 +177,20 @@ class HuggingFaceModelDownloader(private val manager: ModelDownloadManager,
         return fileDownloadTasks
     }
 
-    override fun resume(modelId: String) {
-        manager.startDownload(modelId)
-    }
-
-    override fun cancel(modelId: String) {
-        manager.deleteRepo(modelId)
-    }
-
     override fun getDownloadPath(modelId: String): File {
-        return manager.getHfDownloadModelPath(modelId)
+        return getModelPath(cacheRootPath, modelId)
     }
 
     @Throws(FileDownloadException::class)
-    private fun requestMedataDataList(hfRepoInfo: HfRepoInfo): List<HfFileMetadata?> {
+    private fun requestMetaDataList(hfRepoInfo: HfRepoInfo): List<HfFileMetadata?> {
         val list: MutableList<HfFileMetadata?> = ArrayList()
         for (subFile in hfRepoInfo.getSiblings()) {
             val url =
-                "https://" + hfApiClient.host + "/" + hfRepoInfo.modelId + "/resolve/main/" + subFile.rfilename
+                "https://" + getHfApiClient().host + "/" + hfRepoInfo.modelId + "/resolve/main/" + subFile.rfilename
             val metaData = getFileMetadata(metaInfoHttpClient, url)
             list.add(metaData)
         }
         return list
-    }
-
-    override fun isDownloaded(modelId: String): Boolean {
-        return manager.getHfDownloadModelPath(modelId).exists()
     }
 
     override fun deleteRepo(modelId: String) {
@@ -202,7 +203,7 @@ class HuggingFaceModelDownloader(private val manager: ModelDownloadManager,
                 Log.e(TAG, "remove storageFolder" + hfStorageFolder.absolutePath + " faield")
             }
         }
-        val hfLinkFolder = this.getDownloadedFile(modelId)
+        val hfLinkFolder = this.getDownloadPath(modelId)
         Log.d(TAG, "removeHfLinkFolder: " + hfLinkFolder.absolutePath)
         hfLinkFolder.delete()
     }
@@ -218,4 +219,15 @@ class HuggingFaceModelDownloader(private val manager: ModelDownloadManager,
             }
             return metaInfoClient!!
         }
+
+    companion object  {
+        fun getCachePathRoot(modelDownloadPathRoot:String): String {
+            return modelDownloadPathRoot
+        }
+
+        fun getModelPath(cacheRootPath: String, modelId: String): File {
+            val modelScopeId = ModelSources.get().config.getRepoConfig(modelId)!!.modelScopePath
+            return File(cacheRootPath, getLastFileName(modelScopeId))
+        }
+    }
 }

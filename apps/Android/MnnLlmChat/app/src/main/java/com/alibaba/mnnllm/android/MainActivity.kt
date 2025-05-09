@@ -52,8 +52,6 @@ class MainActivity : AppCompatActivity() {
         drawerLayout = findViewById(R.id.drawer_layout)
         updateChecker = UpdateChecker(this)
         updateChecker!!.checkForUpdates(this, false)
-
-        // Set up ActionBar toggle
         toggle = ActionBarDrawerToggle(
             this, drawerLayout,
             toolbar,

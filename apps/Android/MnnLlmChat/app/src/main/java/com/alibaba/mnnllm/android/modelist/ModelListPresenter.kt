@@ -192,7 +192,6 @@ class ModelListPresenter(private val context: Context, private val view: ModelLi
 
 
     override fun onItemClicked(hfModelItem: ModelItem) {
-        //avoid click too fast
         val now = System.currentTimeMillis()
         if (now - this.lastClickTime < 500) {
             return

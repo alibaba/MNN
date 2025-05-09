@@ -6,17 +6,11 @@ import com.alibaba.mls.api.HfFileMetadata
 import java.io.File
 
 class FileDownloadTask {
-    @JvmField
+    var etag: String? = null
     var relativePath: String? = null
-    @JvmField
     var hfFileMetadata: HfFileMetadata? = null
-    @JvmField
     var blobPath: File? = null
-    @JvmField
     var blobPathIncomplete: File? = null
-    @JvmField
     var pointerPath: File? = null
-
-    @JvmField
     var downloadedSize: Long = 0
 }

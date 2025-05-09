@@ -28,10 +28,10 @@ object DownloadPersistentData {
     }
 
     fun getMetaData(context: Context, modelId: String): List<HfFileMetadata>? {
-        var modelId = modelId
-        modelId = getLastFileName(modelId)
+        var _modelId = modelId
+        _modelId = getLastFileName(_modelId)
         val sharedPreferences =
-            context.getSharedPreferences("DOWNLOAD_$modelId", Context.MODE_PRIVATE)
+            context.getSharedPreferences("DOWNLOAD_$_modelId", Context.MODE_PRIVATE)
         val json = sharedPreferences.getString(METADATA_KEY, null)
         if (json != null) {
             val gson = Gson()

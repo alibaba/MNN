@@ -96,4 +96,5 @@
     <string name="thread_num">线程数</string>
     <string name="regenerate">重新生成</string>
     <string name="copy_audio_info">Copy Audio Info</string>
+    <string name="report_crash">Report Crash</string>
 </resources>

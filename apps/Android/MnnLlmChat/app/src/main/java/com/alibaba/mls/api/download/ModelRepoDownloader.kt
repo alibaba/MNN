@@ -3,7 +3,6 @@
 
 package com.alibaba.mls.api.download
 
-import com.alibaba.mls.api.download.DownloadFileUtils.getLastFileName
 import java.io.File
 import java.util.Collections
 
@@ -16,13 +15,12 @@ abstract class ModelRepoDownloader {
     fun pause(modelId: String) {
         pausedSet.add(modelId)
     }
-    fun getDownloadedFile(modelId: String): File {
-        return File(cacheRootPath, getLastFileName(modelId))
+
+    fun isDownloaded(modelId: String): Boolean {
+        return getDownloadPath(modelId).exists()
     }
-    abstract fun resume(modelId: String)
-    abstract fun cancel(modelId: String)
+
     abstract fun getDownloadPath(modelId: String): File
-    abstract fun isDownloaded(modelId: String): Boolean
     abstract fun deleteRepo(modelId: String)
 
     interface ModelRepoDownloadCallback {

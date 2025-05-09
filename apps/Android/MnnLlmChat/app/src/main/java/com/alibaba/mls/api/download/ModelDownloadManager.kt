@@ -13,17 +13,18 @@ import android.util.Log
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.alibaba.mls.api.ApplicationProvider
-import com.alibaba.mls.api.HfApiClient
-import com.alibaba.mls.api.HfApiClient.Companion.bestClient
-import com.alibaba.mls.api.download.DownloadFileUtils.getLastFileName
+
 import com.alibaba.mls.api.download.DownloadPersistentData.getDownloadSizeSaved
 import com.alibaba.mls.api.download.DownloadPersistentData.getDownloadSizeTotal
 import com.alibaba.mls.api.download.DownloadPersistentData.removeProgress
 import com.alibaba.mls.api.download.DownloadPersistentData.saveDownloadSizeSaved
 import com.alibaba.mls.api.download.DownloadPersistentData.saveDownloadSizeTotal
-import com.alibaba.mls.api.ms.MsApiClient
+import com.alibaba.mls.api.download.hf.HfModelDownloader
+import com.alibaba.mls.api.download.ms.MsModelDownloader
 import com.alibaba.mls.api.source.ModelSources
 import com.alibaba.mnnllm.android.utils.FileUtils.clearMmapCache
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.collections.set
@@ -32,38 +33,18 @@ import kotlin.concurrent.Volatile
 class ModelDownloadManager private constructor(private val context: Context) {
     private var downloadListener: DownloadListener? = null
     private val cachePath = context.filesDir.absolutePath + "/.mnnmodels"
-    val modelScopeCachePath = "$cachePath/modelscope"
-    private var downloader: ModelRepoDownloader? = null
-    private var hfApiClient: HfApiClient? = null
-    var msApiClient: MsApiClient? = null
-        get() {
-            if (field == null) {
-                field = MsApiClient()
-            }
-            return field
-        }
+    private lateinit var downloader: ModelRepoDownloader
+    private lateinit var hfDownloader:ModelRepoDownloader
+    private lateinit var msDownloader:ModelRepoDownloader
     private val downloadInfoMap = HashMap<String, DownloadInfo>()
     private val foregroundServiceIntent =
         Intent(context.applicationContext, DownlodForegroundService::class.java)
-
     private val activeDownloadCount =
         AtomicInteger(0)
 
     private var foregroundServiceStarted = false
 
-    fun setListener(downloadListener: DownloadListener?) {
-        this.downloadListener = downloadListener
-    }
-
-    private fun getDownloadPath(modelId: String): File {
-        return if (ModelSources.get().remoteSourceType == ModelSources.ModelSourceType.HUGGING_FACE) {
-            getHfDownloadModelPath(modelId)
-        } else {
-            getMsModelPath(modelId)
-        }
-    }
-
-    private fun setDownloader(sourceType: ModelSources.ModelSourceType) {
+    init {
         val downloadCallback = object : ModelRepoDownloader.ModelRepoDownloadCallback {
             override fun onDownloadFailed(modelId: String, e: Exception) {
                 setDownloadFailed(modelId, e)
@@ -98,59 +79,55 @@ class ModelDownloadManager private constructor(private val context: Context) {
                 )
             }
         }
-        this.downloader = when (sourceType) {
-            ModelSources.ModelSourceType.HUGGING_FACE -> HuggingFaceModelDownloader(this, downloadCallback, cachePath)
-            ModelSources.ModelSourceType.MODELERS -> ModelScopeModelDownloader(this, downloadCallback, this.modelScopeCachePath)
-            ModelSources.ModelSourceType.MODEL_SCOPE -> ModelScopeModelDownloader(this, downloadCallback, this.modelScopeCachePath)
-            ModelSources.ModelSourceType.LOCAL -> null
+        hfDownloader = HfModelDownloader(downloadCallback, cachePath)
+        msDownloader = MsModelDownloader(downloadCallback, cachePath)
+        setDownloader(ModelSources.get().remoteSourceType)
+    }
+
+    fun setListener(downloadListener: DownloadListener?) {
+        this.downloadListener = downloadListener
+    }
+
+    private fun setDownloader(sourceType: ModelSources.ModelSourceType) {
+
+        this.downloader = if (sourceType == ModelSources.ModelSourceType.HUGGING_FACE) {
+            hfDownloader
+        } else {
+            msDownloader
         }
     }
 
     fun getDownloadedFile(modelId: String): File? {
-        val file = getDownloadPath(modelId)
+        val file = downloader.getDownloadPath(modelId)
         if (file.exists()) {
             return file
-        } else if (getHfDownloadModelPath(modelId).exists()) {
-            return getHfDownloadModelPath(modelId)
-        } else if (getMsModelPath(modelId).exists()) {
-            return getMsModelPath(modelId)
+        } else if (HfModelDownloader.getModelPath(cachePath, modelId).exists()) {
+            return HfModelDownloader.getModelPath(cachePath, modelId)
+        } else if (MsModelDownloader.getModelPath(
+                MsModelDownloader.getCachePathRoot(cachePath)
+                , modelId).exists()) {
+            return MsModelDownloader.getModelPath(
+                MsModelDownloader.getCachePathRoot(cachePath)
+                , modelId)
         }
         return null
-    }
-
-    fun getHfDownloadModelPath(modelId: String): File {
-        return File(cachePath, getLastFileName(modelId))
-    }
-
-    fun getMsModelPath(modelId: String): File {
-        val modelScopeId = ModelSources.get().config.getRepoConfig(modelId)!!.modelScopePath
-        return File(this.modelScopeCachePath, getLastFileName(modelScopeId))
     }
 
     fun pauseDownload(modelId: String) {
         if (getDownloadInfo(modelId).downlodaState != DownloadInfo.DownloadSate.DOWNLOADING) {
             return
         }
-        downloader?.pause(modelId)
+        downloader.pause(modelId)
     }
 
-     fun getHfApiClient(): HfApiClient {
-        if (hfApiClient == null) {
-            hfApiClient = bestClient
-        }
-        if (hfApiClient == null) {
-            hfApiClient = HfApiClient(HfApiClient.HOST_DEFAULT)
-        }
-        return hfApiClient!!
-    }
 
     fun startDownload(modelId: String) {
+        setDownloader(ModelSources.get().remoteSourceType)
         if (downloadListener != null) {
             downloadListener!!.onDownloadStart(modelId)
         }
         this.updateDownloadingProgress(modelId, "Preparing", null, 0, 10)
-        setDownloader(ModelSources.get().remoteSourceType)
-        downloader?.download(modelId)
+        downloader.download(modelId)
     }
 
     @SuppressLint("DefaultLocale")
@@ -280,10 +257,13 @@ class ModelDownloadManager private constructor(private val context: Context) {
         }
     }
 
-    fun deleteRepo(modelId: String) {
-        downloader?.deleteRepo(modelId)
-        removeProgress(ApplicationProvider.get(), modelId)
-        clearMmapCache(modelId)
+    suspend fun deleteModel(modelId: String) {
+        withContext(Dispatchers.IO) {
+            msDownloader.deleteRepo(modelId)
+            hfDownloader.deleteRepo(modelId)
+            removeProgress(ApplicationProvider.get(), modelId)
+            clearMmapCache(modelId)
+        }
         if (downloadListener != null) {
             val downloadInfo = getDownloadInfo(modelId)
             downloadInfo.downlodaState = DownloadInfo.DownloadSate.NOT_START
@@ -307,7 +287,8 @@ class ModelDownloadManager private constructor(private val context: Context) {
     fun resumeAllDownloads() {
         for (key in downloadInfoMap.keys) {
             val downloadInfo = downloadInfoMap[key]
-            if (downloadInfo!!.downlodaState == DownloadInfo.DownloadSate.FAILED || downloadInfo.downlodaState == DownloadInfo.DownloadSate.PAUSED) {
+            if (downloadInfo!!.downlodaState == DownloadInfo.DownloadSate.FAILED
+                || downloadInfo.downlodaState == DownloadInfo.DownloadSate.PAUSED) {
                 startDownload(key)
             }
         }

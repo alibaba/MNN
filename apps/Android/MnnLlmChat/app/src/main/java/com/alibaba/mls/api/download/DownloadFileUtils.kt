@@ -16,7 +16,6 @@ import java.nio.file.attribute.BasicFileAttributes
 object DownloadFileUtils {
     const val TAG: String = "FileUtils"
 
-    @JvmStatic
     fun repoFolderName(repoId: String?, repoType: String?): String {
         if (repoId == null || repoType == null) {
             return ""
@@ -33,7 +32,6 @@ object DownloadFileUtils {
         return java.lang.String.join("--", parts)
     }
 
-    @JvmStatic
     fun deleteDirectoryRecursively(dir: File?): Boolean {
         if (dir == null || !dir.exists()) {
             return false
@@ -78,7 +76,6 @@ object DownloadFileUtils {
         return File(storageFolder, "snapshots/$sha")
     }
 
-    @JvmStatic
     fun getLastFileName(path: String): String {
         if (path.isEmpty()) {
             return path
@@ -87,7 +84,6 @@ object DownloadFileUtils {
         return if ((pos == -1)) path else path.substring(pos + 1)
     }
 
-    @JvmStatic
     fun createSymlink(target: String?, linkPath: String?) {
         val targetPath = Paths.get(target)
         val link = Paths.get(linkPath)
@@ -114,16 +110,5 @@ object DownloadFileUtils {
         }
     }
 
-    @JvmStatic
-    fun moveWithPermissions(src: File, dest: File) {
-        try {
-            Log.d(TAG, "moveWithPermissions ${src.absolutePath} to ${dest.absolutePath}")
-            Files.move(src.toPath(), dest.toPath(), StandardCopyOption.REPLACE_EXISTING)
-            dest.setReadable(true, true)
-            dest.setWritable(true, true)
-            dest.setExecutable(false, false)
-        } catch (e: IOException) {
-            Log.e(TAG, "moveWithPermissions Failed", e)
-        }
-    }
+
 }
