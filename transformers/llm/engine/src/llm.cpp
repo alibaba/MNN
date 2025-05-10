@@ -254,7 +254,8 @@ void Llm::tuning(TuneType type, std::vector<int> candidates) {
     for (auto& candidate : candidates) {
         mRuntimeManager->setHint(MNN::Interpreter::OP_ENCODER_NUMBER_FOR_COMMIT, candidate);
         Timer _t;
-        auto logits = forward({0});
+        std::vector<int> input_ids = {0};
+        auto logits = forward(input_ids);
         if (nullptr == logits.get()) {
             return;
         }
@@ -321,6 +322,17 @@ VARP Llm::forward(const std::vector<int>& input_ids, bool is_prefill) {
     auto position_ids = gen_position_ids(seq_len);
     auto hidden_states = embedding(input_ids);
     auto logits = forwardRaw(hidden_states, attention_mask, position_ids);
+    mContext->all_seq_len += seq_len;
+    mContext->gen_seq_len++;
+    return logits;
+}
+
+VARP Llm::forward(MNN::Express::VARP input_embeds, bool is_prefill) {
+    int seq_len         = input_embeds->getInfo()->dim[0]; 
+    mMeta->add          = seq_len;
+    auto attention_mask = gen_attention_mask(seq_len);
+    auto position_ids = gen_position_ids(seq_len);
+    auto logits = forwardRaw(input_embeds, attention_mask, position_ids);
     mContext->all_seq_len += seq_len;
     mContext->gen_seq_len++;
     return logits;
@@ -455,10 +467,40 @@ std::vector<int> Llm::tokenizer_encode(const std::string& user_content) {
     return mTokenizer->encode(user_content);
 }
 
+std::vector<int> Llm::generate(MNN::Express::VARP input_embeds, int max_tokens) {
+    if (max_tokens < 0) {
+        max_tokens = mConfig->max_new_tokens();
+    }
+    mContext->prompt_len = static_cast<int>(input_embeds->getInfo()->dim[0]);
+    Timer _t;
+    mCurrentModules = mPrefillModules;
+    auto logits      = forward(input_embeds);
+    if (nullptr == logits.get()) {
+        return {};
+    }
+    // logits compute sync for correct timer
+    logits->readMap<void>();
+    mContext->prefill_us = _t.durationInUs();
+    _t.reset();
+    mContext->current_token = sample(logits);
+    mContext->sample_us += _t.durationInUs();
+    logits = nullptr;
+    mCurrentModules = mDecodeModules;
+    generate(max_tokens - 1);
+
+    return mContext->output_tokens;
+}
+
 void Llm::response(const std::vector<int>& input_ids, std::ostream* os, const char* end_with, int max_new_tokens) {
     if (!end_with) { end_with = "\n"; }
     generate_init(os, end_with);
     generate(input_ids, max_new_tokens);
+}
+
+void Llm::response(MNN::Express::VARP input_embeds, std::ostream* os, const char* end_with, int max_new_tokens) {
+    if (!end_with) { end_with = "\n"; }
+    generate_init(os, end_with);
+    generate(input_embeds, max_new_tokens);
 }
 
 void Llm::response(const std::string& user_content, std::ostream* os, const char* end_with, int max_new_tokens) {
