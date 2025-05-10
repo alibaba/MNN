@@ -3,7 +3,7 @@
 
 [中文版本](../../../../apps/Android/MnnLlmChat/README_CN.md)
 
-[Download](../../../../apps/Android/MnnLlmChat/README.md#version-040)  [下载](../../../../apps/Android/MnnLlmChat/README_CN.md#version-040)
+[Download](../../../../apps/Android/MnnLlmChat/README.md#releases)  [下载](../../../../apps/Android/MnnLlmChat/README_CN.md#releases)
 ## Introduction
 This is our full multimodal language model (LLM) Android app
 
