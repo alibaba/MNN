@@ -1,5 +1,7 @@
 # MNN Chat Android App
 
+[下载](#releases)
+
 ## 简介
 这是我们的全功能多模态语言模型（LLM）安卓应用。
 
@@ -57,6 +59,20 @@
   ```
 
 # Releases
+# Version 0.4.3
+
++ 点击这里 [下载](https://meta.alicdn.com/data/mnn/mnn_chat_0_4_3.apk)
++ 支持小米 mimo 模型 UI
++ 新增对 Qwen Omni 的支持
++ 聊天页面界面发送后隐藏附件
++ 显示总解码时间和预填充时间
++ 聊天界面支持复制用户消息
++ 解决下载错误
++ 修复在某些设备上下载崩溃的问题
++ 支持上报崩溃日志
++ 支持多模态模型的多轮对话
++ 重构下载模块,Chat模块
+
 
 # Version 0.4.0
 + 点击这里 [下载](https://meta.alicdn.com/data/mnn/mnn_chat_d_0_4_0.apk)

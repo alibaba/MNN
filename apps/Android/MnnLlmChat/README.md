@@ -1,5 +1,8 @@
 # MNN Chat Android App
 [中文版本](./README_CN.md)
+
+[Download](#releases)  [下载](./README_CN.md#releases)
+
 ## Introduction
 This is our full multimodal language model (LLM) Android app
 
@@ -61,6 +64,18 @@ This is our full multimodal language model (LLM) Android app
   ```
 
 # Releases
+## Version 0.4.3
++ Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_4_3.apk)
++ Support Xiaomi Mimo UI
++ Added support for Qwen Omni
++ hide attachments on send
++ Benchmarks: show total decode & prefill time
++ support copying user messages
++ Fixed download crashes on certain devices
++ Added support for reporting crash logs
++ Enabled multi-turn conversation support for multimodal models
++ Refactor Download Module,Chat Activity
+
 ## Version 0.4.0
 + Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_d_0_4_0.apk)
 + Now compatible with the Qwen3 model, with a toggle for Deep Thinking mode

@@ -1,7 +1,9 @@
 # MNN-LLM Android App
 **The App has been renamed "MNN Chat" and the home page has been moved to [Here](../../../../apps/Android/MnnLlmChat/README.md)**
 
-[中文版本](./README_CN.md)
+[中文版本](../../../../apps/Android/MnnLlmChat/README_CN.md)
+
+[Download](../../../../apps/Android/MnnLlmChat/README.md#version-040)  [下载](../../../../apps/Android/MnnLlmChat/README_CN.md#version-040)
 ## Introduction
 This is our full multimodal language model (LLM) Android app
 
@@ -36,6 +38,34 @@ This is our full multimodal language model (LLM) Android app
 
 
 # Releases
+## Version 0.4.3
++ Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_4_3.apk)
++ Support Xiaomi Mimo UI
++ Added support for Qwen Omni
++ hide attachments on send
++ Benchmarks: show total decode & prefill time
++ support copying user messages
++ Fixed download crashes on certain devices
++ Added support for reporting crash logs
++ Enabled multi-turn conversation support for multimodal models
++ Refactor Download Module,Chat Activity
+
+
+## Version 0.4.0
++ Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_d_0_4_0.apk)
++ Now compatible with the Qwen3 model, with a toggle for Deep Thinking mode
++ Added Dark Mode, fully aligned with Material 3 design guidelines
++ Optimized chat interface with support for multi-line input
++ New Settings page: customize sampler type, system prompt, max new tokens, and more
+
+## Version 0.3.0
++ Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_d_0_3_0.apk)
++ upgrade mnn engine to v3.1.0
++ add settings page
++ show download speed info
++ support filter only downloaded models.
++ support download models from modelers.cn
+
 ## Version 0.2.2
 + Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_d_0_2_2.apk)
 + Support mmap for speed up laoding speed.

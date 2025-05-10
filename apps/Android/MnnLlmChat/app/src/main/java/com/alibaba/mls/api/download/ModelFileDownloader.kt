@@ -85,7 +85,7 @@ class ModelFileDownloader {
         }
         if (fileDownloadTask.downloadedSize >= expectedSize) {
             if (validate(fileDownloadTask, incompletePath)) {
-                moveWithPermissions(fileDownloadTask, incompletePath, destinationPath)
+                moveWithPermissions(incompletePath, destinationPath)
                 return
             } else {
                 incompletePath.delete()
@@ -160,7 +160,7 @@ class ModelFileDownloader {
             }
         }
         if (validate(fileDownloadTask, incompletePath)) {
-            moveWithPermissions(fileDownloadTask, incompletePath, destinationPath)
+            moveWithPermissions(incompletePath, destinationPath)
         } else {
             incompletePath.delete()
             fileDownloadTask.downloadedSize = 0
@@ -245,7 +245,7 @@ class ModelFileDownloader {
         return verifyResult
     }
 
-    private fun moveWithPermissions(fileDownloadTask: FileDownloadTask, src: File, dest: File) {
+    private fun moveWithPermissions(src: File, dest: File) {
         Log.d(DownloadFileUtils.TAG, "moveWithPermissions ${src.absolutePath} to ${dest.absolutePath}")
         Files.move(src.toPath(), dest.toPath(), StandardCopyOption.REPLACE_EXISTING)
         dest.setReadable(true, true)
