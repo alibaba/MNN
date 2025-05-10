@@ -29,7 +29,7 @@ class ChatPresenter(
     private val modelName: String,
     private val modelId: String
 ) {
-    private var stopGenerating = false
+    var stopGenerating = false
     private var sessionId: String? = null
     private var sessionName:String? = null
     private var chatDataManager: ChatDataManager? = null
@@ -69,7 +69,8 @@ class ChatPresenter(
         }
         sessionId = chatSession.sessionId
         chatSession.setKeepHistory(
-            !ModelUtils.isMultiModalModel(modelName) || ModelUtils.isOmni(modelName)
+            true
+//            !ModelUtils.isMultiModalModel(modelName) || ModelUtils.isOmni(modelName)
         )
         return chatSession
     }

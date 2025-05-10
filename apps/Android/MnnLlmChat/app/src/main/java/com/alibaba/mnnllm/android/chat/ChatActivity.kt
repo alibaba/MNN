@@ -127,7 +127,7 @@ class ChatActivity : AppCompatActivity() {
                 this@ChatActivity.lifecycleScope.launch {
                     audioPlayer?.playChunk(data)
                 }
-                return true
+                return chatPresenter.stopGenerating
             }
         })
     }

@@ -52,8 +52,6 @@ class MainActivity : AppCompatActivity() {
         drawerLayout = findViewById(R.id.drawer_layout)
         updateChecker = UpdateChecker(this)
         updateChecker!!.checkForUpdates(this, false)
-
-        // Set up ActionBar toggle
         toggle = ActionBarDrawerToggle(
             this, drawerLayout,
             toolbar,
@@ -152,7 +150,7 @@ class MainActivity : AppCompatActivity() {
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == ModelDownloadManager.REQUEST_CODE_POST_NOTIFICATIONS) {
-            ModelDownloadManager.getInstance(this).startForegroundService()
+            ModelDownloadManager.getInstance(this).tryStartForegroundService()
         }
     }
 

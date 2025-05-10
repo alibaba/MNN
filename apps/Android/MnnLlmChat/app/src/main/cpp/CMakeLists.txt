@@ -30,6 +30,7 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
         diffusion_jni.cpp
         diffusion_session.cpp
         llm_session.cpp
+        crash_util.cpp
 )
 #mnn
 #set (MNN_ROOT "/Users/songjinde/git/DAI/AliNNPrivate")
@@ -41,13 +42,12 @@ include_directories("${MNN_ROOT}/include/")
 include_directories("${MNN_ROOT}/transformers/diffusion/engine/include/")
 
 #llm
-#include_directories("${MNN_ROOT}/transformers/llm/engine/include")
-include_directories("${CMAKE_SOURCE_DIR}/include")
+include_directories("${MNN_ROOT}/transformers/llm/engine/include")
+#include_directories("${CMAKE_SOURCE_DIR}/include")
 
 #audio
-
+include_directories("${MNN_ROOT}/tools/audio/include")
 include_directories("${CMAKE_SOURCE_DIR}/third_party")
-
 # Add library paths
 set(LIB_PATH "${CMAKE_SOURCE_DIR}/../jniLibs/${ANDROID_ABI}")
 

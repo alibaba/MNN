@@ -2,4 +2,4 @@
 // Copyright (c) 2024 Alibaba Group Holding Limited All rights reserved.
 package com.alibaba.mls.api
 
-class HfApiException(message: String?) : Exception(message)
+class FileDownloadException(message: String?) : Exception(message)

@@ -22,6 +22,7 @@ import com.alibaba.mls.api.ModelItem
 import com.alibaba.mnnllm.android.MainActivity
 import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.mainsettings.MainSettingsActivity
+import com.alibaba.mnnllm.android.utils.CrashUtil
 import com.alibaba.mnnllm.android.utils.PreferenceUtils.isFilterDownloaded
 import com.alibaba.mnnllm.android.utils.PreferenceUtils.setFilterDownloaded
 import com.alibaba.mnnllm.android.utils.RouterUtils.startActivity
@@ -117,7 +118,13 @@ class ModelListFragment : Fragment(), ModelListContract.View {
                 }
                 true
             }
-
+            val reportCrashMenu = menu.findItem(R.id.action_report_crash)
+            reportCrashMenu.setOnMenuItemClickListener {
+                if (CrashUtil.hasCrash()) {
+                    CrashUtil.shareLatestCrash(context!!)
+                }
+                true
+            }
         }
 
         override fun onMenuItemSelected(menuItem: MenuItem): Boolean {
@@ -132,6 +139,8 @@ class ModelListFragment : Fragment(), ModelListContract.View {
                 modelListPresenter!!.resumeAllDownloads()
                 true
             }
+            val reportCrashMenu = menu.findItem(R.id.action_report_crash)
+            reportCrashMenu.isVisible = CrashUtil.hasCrash()
         }
     }
 

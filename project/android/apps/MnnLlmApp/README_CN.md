@@ -37,6 +37,35 @@
 
 
 # Releases
+# Version 0.4.3
++ 点击这里 [下载](https://meta.alicdn.com/data/mnn/mnn_chat_0_4_3.apk)
++ 支持小米 mimo 模型 UI
++ 新增对 Qwen Omni 的支持
++ 聊天页面界面发送后隐藏附件
++ 显示总解码时间和预填充时间
++ 聊天界面支持复制用户消息
++ 解决下载错误
++ 修复在某些设备上下载崩溃的问题
++ 支持上报崩溃日志
++ 支持多模态模型的多轮对话
++ 重构下载模块,Chat模块
+
+# Version 0.4.0
++ 点击这里 [下载](https://meta.alicdn.com/data/mnn/mnn_chat_d_0_4_0.apk)
++ 兼容 Qwen3 模型，支持开启／关闭“深度思考”模式
++ 新增深色模式，全面适配 Material 3 设计规范
++ 优化聊天界面，支持多行输入
++ 增加「设置」页面，可自定义采样器类型（sampler type）、系统提示（system prompt）、最大生成 Token（max new tokens）等参数
+
+# Version 0.3.0
++ 点击这里 [下载](https://meta.alicdn.com/data/mnn/mnn_chat_d_0_3_0.apk)
++ 将 MNN 引擎升级至 v3.1.0
++ 新增设置页面
++ 显示下载速度
++ 支持筛选已下载的模型
++ 支持从 modelers.cn 下载模型
+
+
 ## Version 0.2.2
 + 点击这里 [下载](https://meta.alicdn.com/data/mnn/mnn_chat_d_0_2_2.apk)
 + 支持 mmap 增加启动速度

@@ -96,7 +96,6 @@ class HfApiClient(@JvmField val host: String) {
 
         private var sBestClient: HfApiClient? = null
 
-        @JvmStatic
         var bestClient: HfApiClient?
             get() {
                 if (sBestClient != null) {

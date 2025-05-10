@@ -15,8 +15,7 @@ object DownloadPersistentData {
 
     const val SIZE_SAVED_KEY: String = "size_saved"
 
-
-    fun saveMetaData(context: Context, modelId: String?, metaDataList: List<HfFileMetadata?>?) {
+    fun saveMetaData(context: Context, modelId: String, metaDataList: List<HfFileMetadata?>?) {
         var modelId = modelId
         modelId = getLastFileName(modelId)
         val sharedPreferences =
@@ -28,12 +27,11 @@ object DownloadPersistentData {
         editor.apply()
     }
 
-    @JvmStatic
-    fun getMetaData(context: Context, modelId: String?): List<HfFileMetadata>? {
-        var modelId = modelId
-        modelId = getLastFileName(modelId)
+    fun getMetaData(context: Context, modelId: String): List<HfFileMetadata>? {
+        var _modelId = modelId
+        _modelId = getLastFileName(_modelId)
         val sharedPreferences =
-            context.getSharedPreferences("DOWNLOAD_$modelId", Context.MODE_PRIVATE)
+            context.getSharedPreferences("DOWNLOAD_$_modelId", Context.MODE_PRIVATE)
         val json = sharedPreferences.getString(METADATA_KEY, null)
         if (json != null) {
             val gson = Gson()
@@ -43,8 +41,7 @@ object DownloadPersistentData {
         return null
     }
 
-    @JvmStatic
-    fun saveDownloadSizeTotal(context: Context, modelId: String?, total: Long) {
+    fun saveDownloadSizeTotal(context: Context, modelId: String, total: Long) {
         var modelId = modelId
         modelId = getLastFileName(modelId)
         val sharedPreferences =
@@ -55,7 +52,7 @@ object DownloadPersistentData {
     }
 
     @JvmStatic
-    fun getDownloadSizeTotal(context: Context, modelId: String?): Long {
+    fun getDownloadSizeTotal(context: Context, modelId: String): Long {
         var modelId = modelId
         modelId = getLastFileName(modelId)
         val sharedPreferences =
@@ -64,7 +61,7 @@ object DownloadPersistentData {
     }
 
     @JvmStatic
-    fun saveDownloadSizeSaved(context: Context, modelId: String?, saved: Long) {
+    fun saveDownloadSizeSaved(context: Context, modelId: String, saved: Long) {
         var modelId = modelId
         modelId = getLastFileName(modelId)
         val sharedPreferences =
@@ -74,8 +71,7 @@ object DownloadPersistentData {
         editor.apply()
     }
 
-    @JvmStatic
-    fun getDownloadSizeSaved(context: Context, modelId: String?): Long {
+    fun getDownloadSizeSaved(context: Context, modelId: String): Long {
         var modelId = modelId
         modelId = getLastFileName(modelId)
         val sharedPreferences =
@@ -83,8 +79,7 @@ object DownloadPersistentData {
         return sharedPreferences.getLong(SIZE_SAVED_KEY, 0)
     }
 
-    @JvmStatic
-    fun removeProgress(context: Context, modelId: String?) {
+    fun removeProgress(context: Context, modelId: String) {
         var modelId = modelId
         modelId = getLastFileName(modelId)
         val sharedPreferences =

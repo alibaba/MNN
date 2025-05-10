@@ -34,4 +34,9 @@
         android:title="@string/settings"
         app:showAsAction="never" />
 
+    <item
+        android:id="@+id/action_report_crash"
+        android:title="@string/report_crash"
+        app:showAsAction="never" />
+
 </menu>
