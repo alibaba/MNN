@@ -162,7 +162,7 @@ class HfModelDownloader(override var callback: ModelRepoDownloadCallback?,
             metaData = metaDataList[i]!!
             val fileDownloadTask = FileDownloadTask()
             fileDownloadTask.relativePath = subFile.rfilename
-            fileDownloadTask.hfFileMetadata = metaData
+            fileDownloadTask.fileMetadata = metaData
             fileDownloadTask.etag = metaData.etag
             fileDownloadTask.blobPath = File(storageFolder, "blobs/" + metaData.etag)
             fileDownloadTask.blobPathIncomplete =

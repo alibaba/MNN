@@ -8,7 +8,7 @@ import java.io.File
 class FileDownloadTask {
     var etag: String? = null
     var relativePath: String? = null
-    var hfFileMetadata: HfFileMetadata? = null
+    var fileMetadata: HfFileMetadata? = null
     var blobPath: File? = null
     var blobPathIncomplete: File? = null
     var pointerPath: File? = null

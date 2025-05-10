@@ -48,7 +48,7 @@ class ModelFileDownloader {
             return
         }
         synchronized(this) {
-            val hfFileMetadata = fileDownloadTask.hfFileMetadata
+            val hfFileMetadata = fileDownloadTask.fileMetadata
             downloadToTmpAndMove(
                 fileDownloadTask,
                 fileDownloadTask.blobPathIncomplete!!,

@@ -165,22 +165,23 @@ class MsModelDownloader(override var callback: ModelRepoDownloadCallback?,
             val subFile = msRepoInfo.Data.Files[i]
             val fileDownloadTask = FileDownloadTask()
             fileDownloadTask.relativePath = subFile.Path
-            fileDownloadTask.hfFileMetadata = HfFileMetadata()
+            fileDownloadTask.fileMetadata = HfFileMetadata()
             if (ModelSources.get().remoteSourceType == ModelSources.ModelSourceType.MODELERS) {
-                fileDownloadTask.hfFileMetadata!!.location = String.format(
+                fileDownloadTask.fileMetadata!!.location = String.format(
                     "https://modelers.cn/coderepo/web/v1/file/%s/main/media/%s",
                     repoConfig.repositoryPath(),
                     subFile.Path
                 )
             } else {
-                fileDownloadTask.hfFileMetadata!!.location = String.format(
+                fileDownloadTask.fileMetadata!!.location = String.format(
                     "https://modelscope.cn/api/v1/models/%s/repo?FilePath=%s",
                     repoConfig.repositoryPath(),
                     subFile.Path
                 )
             }
-            fileDownloadTask.hfFileMetadata!!.size = subFile.Size
-            fileDownloadTask.hfFileMetadata!!.etag = subFile.Sha256
+            fileDownloadTask.fileMetadata!!.size = subFile.Size
+            fileDownloadTask.fileMetadata!!.etag = subFile.Sha256
+            fileDownloadTask.etag = subFile.Sha256
             fileDownloadTask.blobPath = File(storageFolder, "blobs/" + subFile.Sha256)
             fileDownloadTask.blobPathIncomplete =
                 File(storageFolder, "blobs/" + subFile.Sha256 + ".incomplete")
