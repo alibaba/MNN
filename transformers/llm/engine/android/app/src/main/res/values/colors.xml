@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="colorPurpleLight">#4B5980</color>
+    <color name="colorPurpleDark">#3F4A68</color>
+    <color name="colorAccent">#FC3768</color>
+    <color name="colorTextBlack">#333333</color>
+    <color name="colorTextHint">#e1e1e1</color>
+    <color name="colorTextInfo">#9b9b9b</color>
+    <color name="colorGreen">#A5DE40</color>
+    <color name="navColor">#80FFFFFF</color>
+    <color name="armBlack100">#E1E6EA</color>
+    <color name="armBlack200">#C3CDD5</color>
+    <color name="armBlack300">#A5B4C0</color>
+    <color name="armBlack400">#889BAA</color>
+    <color name="armBlack500">#6A8395</color>
+    <color name="armBlack600">#556877</color>
+    <color name="armBlack700">#3F4E5A</color>
+    <color name="armBlack800">#333F48</color>
+    <color name="armBlack900">#1D2932</color>
+    <color name="armLightGray">#E5ECEB</color>
+    <color name="armDarkGray">#7D868C</color>
+    <color name="armBlack">#333F48</color>
+    <color name="armLightBlue">#00C1DE</color>
+    <color name="armBlue">#0091BD</color>
+    <color name="armDarkBlue">#002B49</color>
+    <color name="armAppBanner">#4D3F48</color>
+    <color name="armYellow">#FFC700</color>
+    <color name="armGreen">#95D600</color>
+    <color name="armOrange">#FF6B00</color>
+</resources>

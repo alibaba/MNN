@@ -32,9 +32,10 @@ if (MNN_KLEIDIAI)
     if (POLICY CMP0135)
         cmake_policy(SET CMP0135 NEW)
     endif()
+    message(${KLEIDIAI_DOWNLOAD_URL})
     FetchContent_Declare(KleidiAI_Download
+	DOWNLOAD_EXTRACT_TIMESTAMP NEW
         URL ${KLEIDIAI_DOWNLOAD_URL}
-        DOWNLOAD_EXTRACT_TIMESTAMP NEW
         URL_HASH MD5=${KLEIDIAI_ARCHIVE_MD5})
 
     FetchContent_MakeAvailable(KleidiAI_Download)
