@@ -34,12 +34,13 @@ class ChatInputComponent(
 ) {
     private var onStopGenerating: (() -> Unit)? = null
     private var onThinkingModeChanged: ((Boolean) -> Unit)? = null
+    private var onAudioOutputModeChanged: ((Boolean) -> Unit)? = null
     private var onSendMessage: ((ChatDataItem) -> Unit)? = null
     private lateinit var editUserMessage: EditText
     private var buttonSend: ImageView = binding.btnSend
     private lateinit var imageMore: ImageView
     private var attachmentPickerModule: AttachmentPickerModule? = null
-    private var voiceRecordingModule: VoiceRecordingModule? = null
+    private lateinit var voiceRecordingModule: VoiceRecordingModule
     private var currentUserMessage: ChatDataItem? = null
     private var buttonSwitchVoice: View? = null
 
@@ -50,8 +51,40 @@ class ChatInputComponent(
         setupAttachmentPickerModule()
         setupVoiceRecordingModule()
         setupThinkingMode()
+        setupToggleAudioOutput()
+        updateAudioOutput()
     }
 
+    private fun setupToggleAudioOutput() {
+        binding.btnToggleAudioOutput.setOnClickListener {
+            if (!binding.btnToggleAudioOutput.isSelected) {
+                android.app.AlertDialog.Builder(chatActivity)
+                    .setMessage(R.string.audio_output_confirm)
+                    .setPositiveButton(android.R.string.ok) { _, _ ->
+                        binding.btnToggleAudioOutput.isSelected = true
+                        onAudioOutputModeChanged?.apply {
+                            this(binding.btnToggleAudioOutput.isSelected)
+                        }
+                    }
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .show()
+            } else {
+                binding.btnToggleAudioOutput.isSelected = false
+                onAudioOutputModeChanged?.apply {
+                    this(binding.btnToggleAudioOutput.isSelected)
+                }
+            }
+        }
+        updateAudioOutput()
+    }
+
+    private fun updateAudioOutput() {
+        if (ModelUtils.supportAudioOutput(modelName)) {
+            binding.btnToggleAudioOutput.visibility = View.VISIBLE
+        } else {
+            binding.btnToggleAudioOutput.visibility = View.GONE
+        }
+    }
     private fun setupThinkingMode() {
         binding.btnToggleThinking.visibility = if (ModelUtils.isSupportThinkingSwitch(modelName)) {
             binding.btnToggleThinking.isSelected = true
@@ -64,7 +97,6 @@ class ChatInputComponent(
             onThinkingModeChanged?.apply {
                 this(binding.btnToggleThinking.isSelected)
             }
-
         }
     }
 
@@ -185,19 +217,16 @@ class ChatInputComponent(
             }
         })
         imageMore.setOnClickListener {
-            if (voiceRecordingModule != null) {
-                voiceRecordingModule?.exitRecordingMode()
-            }
+            voiceRecordingModule.exitRecordingMode()
             attachmentPickerModule!!.toggleAttachmentVisibility()
         }
     }
 
-
-
     private fun setupVoiceRecordingModule() {
         voiceRecordingModule = VoiceRecordingModule(chatActivity)
-        voiceRecordingModule!!.setOnVoiceRecordingListener(object : VoiceRecordingListener {
+        voiceRecordingModule.setOnVoiceRecordingListener(object : VoiceRecordingListener {
             override fun onEnterRecordingMode() {
+                updateAudioOutput()
                 binding.btnToggleThinking.visibility = View.GONE
                 editUserMessage.visibility = View.GONE
                 KeyboardUtils.hideKeyboard(editUserMessage)
@@ -211,6 +240,7 @@ class ChatInputComponent(
                 if (ModelUtils.isSupportThinkingSwitch(modelName)) {
                     binding.btnToggleThinking.visibility = View.VISIBLE
                 }
+                updateAudioOutput()
                 binding.btnSend.visibility = View.VISIBLE
                 editUserMessage.visibility = View.VISIBLE
                 editUserMessage.requestFocus()
@@ -241,6 +271,10 @@ class ChatInputComponent(
         this.onThinkingModeChanged = onThinkingModeChanged
     }
 
+    fun setOnAudioOutputModeChanged(onAudioOutputChanged: (Boolean)->Unit) {
+        this.onAudioOutputModeChanged = onAudioOutputChanged
+    }
+
     fun setIsGenerating(generating: Boolean) {
         updateSenderButton()
         updateVoiceButtonVisibility()
@@ -254,8 +288,8 @@ class ChatInputComponent(
 
     fun onLoadingStatesChanged(loading: Boolean) {
         this.updateSenderButton()
-        if (!loading && voiceRecordingModule != null && ModelUtils.isAudioModel(modelName)) {
-            voiceRecordingModule!!.onEnabled()
+        if (!loading && ModelUtils.isAudioModel(modelName)) {
+            voiceRecordingModule.onEnabled()
         }
     }
 
@@ -266,9 +300,9 @@ class ChatInputComponent(
     ) {
         if (requestCode == REQUEST_RECORD_AUDIO_PERMISSION) {
             if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                voiceRecordingModule!!.handlePermissionAllowed()
+                voiceRecordingModule.handlePermissionAllowed()
             } else {
-                voiceRecordingModule!!.handlePermissionDenied()
+                voiceRecordingModule.handlePermissionDenied()
             }
         }
     }

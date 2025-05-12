@@ -86,7 +86,6 @@ class LlmSession (
         }
     }
 
-
     private fun generateNewSessionId(): String {
         this.sessionId = System.currentTimeMillis().toString()
         return this.sessionId
@@ -185,6 +184,10 @@ class LlmSession (
         this.keepHistory = keepHistory
     }
 
+    override fun setEnableAudioOutput(enable: Boolean) {
+        updateEnableAudioOutputNative(nativePtr, enable)
+    }
+
     override val debugInfo
         get() = getDebugInfoNative(nativePtr) + "\n"
 
@@ -215,7 +218,10 @@ class LlmSession (
         updateAssistantPromptNative(nativePtr, assistantPrompt)
     }
 
-    private external fun updateMaxNewTokensNative(it: Long, maxNewTokens: Int)
+    private external fun updateEnableAudioOutputNative(llmPtr: Long, enable: Boolean)
+
+
+    private external fun updateMaxNewTokensNative(llmPtr: Long, maxNewTokens: Int)
 
     private external fun updateSystemPromptNative(llmPtr: Long, systemPrompt: String)
 

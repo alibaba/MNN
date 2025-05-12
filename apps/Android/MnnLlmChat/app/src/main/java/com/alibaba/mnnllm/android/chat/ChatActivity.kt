@@ -56,7 +56,7 @@ class ChatActivity : AppCompatActivity() {
     private lateinit var binding: ActivityChatBinding
     private var audioPlayer: AudioPlayer? = null
     private lateinit var chatPresenter: ChatPresenter
-    private lateinit var inputModule: ChatInputComponent
+    private lateinit var chatInputModule: ChatInputComponent
     private lateinit var chatListComponent: ChatListComponent
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -73,7 +73,7 @@ class ChatActivity : AppCompatActivity() {
         chatPresenter = ChatPresenter(this, modelName, modelId!!)
         isDiffusion = ModelUtils.isDiffusionModel(modelName)
         isAudioModel = ModelUtils.isAudioModel(modelName)
-        inputModule = ChatInputComponent(this, binding, modelName,)
+        chatInputModule = ChatInputComponent(this, binding, modelName,)
         layoutModelLoading = findViewById(R.id.layout_model_loading)
         updateActionBar()
         this.setupSession()
@@ -95,7 +95,7 @@ class ChatActivity : AppCompatActivity() {
     }
 
     private fun setupInputModule() {
-        this.inputModule.apply {
+        this.chatInputModule.apply {
             setOnThinkingModeChanged {isThinking ->
                 (chatSession as LlmSession).updateAssistantPrompt(if (isThinking) {
                     "<|im_start|>assistant\n%s<|im_end|>\n"
@@ -103,10 +103,13 @@ class ChatActivity : AppCompatActivity() {
                     "<|im_start|>assistant\n<think>\n</think>%s<|im_end|>\n"
                 })
             }
+            setOnAudioOutputModeChanged {
+                chatPresenter.setEnableAudioOutput(it)
+            }
             setOnSendMessage{
                 this@ChatActivity.handleSendMessage(it)
             }
-            this.setOnStopGenerating{
+            setOnStopGenerating{
                 chatPresenter.stopGenerate()
             }
         }
@@ -133,7 +136,7 @@ class ChatActivity : AppCompatActivity() {
     }
 
     fun onLoadingChanged(loading: Boolean) {
-        this.inputModule.onLoadingStatesChanged(loading)
+        this.chatInputModule.onLoadingStatesChanged(loading)
         layoutModelLoading!!.visibility =
             if (loading) View.VISIBLE else View.GONE
         if (supportActionBar != null) {
@@ -235,7 +238,7 @@ class ChatActivity : AppCompatActivity() {
         grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        this.inputModule.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        this.chatInputModule.onRequestPermissionsResult(requestCode, permissions, grantResults)
     }
 
     private fun handleNewSession() {
@@ -255,13 +258,13 @@ class ChatActivity : AppCompatActivity() {
 
     private fun setIsGenerating(isGenerating: Boolean) {
         this.isGenerating = isGenerating
-        this.inputModule.setIsGenerating(isGenerating)
+        this.chatInputModule.setIsGenerating(isGenerating)
     }
 
     @Deprecated("This method has been deprecated in favor of using the Activity Result API\n      which brings increased type safety via an {@link ActivityResultContract} and the prebuilt\n      contracts for common intents available in\n      {@link androidx.activity.result.contract.ActivityResultContracts}, provides hooks for\n      testing, and allow receiving results in separate, testable classes independent from your\n      activity. Use\n      {@link #registerForActivityResult(ActivityResultContract, ActivityResultCallback)}\n      with the appropriate {@link ActivityResultContract} and handling the result in the\n      {@link ActivityResultCallback#onActivityResult(Object) callback}.")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        this.inputModule.handleResult(requestCode, resultCode, data)
+        this.chatInputModule.handleResult(requestCode, resultCode, data)
     }
 
     private fun handleSendMessage(userData: ChatDataItem) {

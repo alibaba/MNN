@@ -7,8 +7,8 @@
     <string name="main_describe">mnn-llm</string>
     <string name="spinner_prompt">选择模型</string>
     <string name="model_loading">模型加载中...</string>
-    <string name="download_not_started">未下载, 点击下载</string>
-    <string name="downloaded_click_to_chat">已下载, 点击开始聊天</string>
+    <string name="download_not_started">%1$s 点击下载</string>
+    <string name="downloaded_click_to_chat">%1$S, 已下载</string>
     <string name="download_failed_click_retry">下载失败: %1$s, 点击重试</string>
     <string name="downloading_progress">下载中：%1$.2f%% %2$s</string>"
     <string name="config_file_not_found">模型配置文件不存在：%1$s</string>
@@ -16,7 +16,7 @@
     <string name="model_hello_prompt_diffusion">你好，我是%1$s，请输入提示词生成图片</string>
     <string name="delete_model">删除模型</string>
     <string name="pause_download">暂停下载</string>
-    <string name="downloading_paused">已暂停: %1$.2f%%</string>
+    <string name="downloading_paused">%1$s 已暂停: %2$.2f%%</string>
     <string name="start_download">开始下载</string>
     <string name="download_preparing">下载文件信息准备中。。。</string>
     <string name="downloading_please_wait">文件下载中，请稍等</string>
@@ -98,4 +98,6 @@
     <string name="copy_audio_info">Copy Audio Info</string>
     <string name="report_crash">Report Crash</string>
     <string name="model_not_found">Model not foud %1$s</string>
+    <string name="out_audio">音频输出</string>
+    <string name="audio_output_confirm">当前音频输出可能较慢。您是否仍要打开？</string>
 </resources>

@@ -2,6 +2,7 @@
 // Copyright (c) 2024 Alibaba Group Holding Limited All rights reserved.
 package com.alibaba.mnnllm.android.utils
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.media.MediaMetadataRetriever
 import android.net.Uri
@@ -13,7 +14,13 @@ import java.io.FileOutputStream
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
+import java.nio.file.FileVisitOption
+import java.nio.file.FileVisitResult
 import java.nio.file.Files
+import java.nio.file.Path
+import java.nio.file.SimpleFileVisitor
+import java.nio.file.attribute.BasicFileAttributes
+import java.util.EnumSet
 
 object FileUtils {
     const val TAG: String = "FileUtils"
@@ -163,6 +170,53 @@ object FileUtils {
             return uri.path
         }
         return null
+    }
+
+    @SuppressLint("DefaultLocale")
+    fun formatFileSize(size: Long): String {
+        val kb = 1024L
+        val mb = kb * 1024L
+        val gb = mb * 1024L
+
+        return when {
+            size >= gb -> String.format("%.2f GB", size.toFloat() / gb)
+            size >= mb -> String.format("%.2f MB", size.toFloat() / mb)
+            size >= kb -> String.format("%.2f KB", size.toFloat() / kb)
+            else -> "$size B"
+        }
+    }
+
+    fun getFileSizeString(file: File?): String {
+        val size = getFileSize(file)
+        return formatFileSize(size?:0)
+    }
+
+    fun getFileSize(file: File?): Long {
+        val start = file?.toPath() ?: return 0L
+        val visited = mutableSetOf<Path>()
+        var total = 0L
+
+        Files.walkFileTree(start,
+            EnumSet.of(FileVisitOption.FOLLOW_LINKS),
+            Integer.MAX_VALUE,
+            object : SimpleFileVisitor<Path>() {
+                override fun preVisitDirectory(dir: Path, attrs: BasicFileAttributes): FileVisitResult {
+                    val real = dir.toRealPath()
+                    return if (!visited.add(real)) {
+                        FileVisitResult.SKIP_SUBTREE
+                    } else {
+                        FileVisitResult.CONTINUE
+                    }
+                }
+                override fun visitFile(file: Path, attrs: BasicFileAttributes): FileVisitResult {
+                    if (attrs.isRegularFile) {
+                        total += attrs.size()
+                    }
+                    return FileVisitResult.CONTINUE
+                }
+            }
+        )
+        return total
     }
 }
 

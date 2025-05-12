@@ -14,10 +14,12 @@ import com.alibaba.mls.api.ModelItem
 import com.alibaba.mls.api.download.DownloadInfo
 import com.alibaba.mls.api.download.ModelDownloadManager
 import com.alibaba.mnnllm.android.R
+import com.alibaba.mnnllm.android.utils.FileUtils
 import com.alibaba.mnnllm.android.utils.ModelUtils.getDrawableId
 import com.alibaba.mnnllm.android.widgets.TagsLayout
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
+import java.io.File
 
 class ModelItemHolder(itemView: View, private val modelItemListener: ModelItemListener) :
     RecyclerView.ViewHolder(itemView), View.OnClickListener, OnLongClickListener {
@@ -37,6 +39,7 @@ class ModelItemHolder(itemView: View, private val modelItemListener: ModelItemLi
     private val tagsLayout: TagsLayout
 
     private val iconDownload:View
+    private val modelDownloadManager = ModelDownloadManager.getInstance(itemView.context)
 
     init {
         itemView.setOnClickListener(this)
@@ -91,10 +94,15 @@ class ModelItemHolder(itemView: View, private val modelItemListener: ModelItemLi
             if (downloadState == DownloadInfo.DownloadSate.DOWNLOADING || downloadState == DownloadInfo.DownloadSate.PAUSED) (modelItemDownloadState.downloadInfo!!.progress * 100).toInt() else 0
         when (downloadState) {
             DownloadInfo.DownloadSate.NOT_START -> tvStatus.text =
-                tvStatus.resources.getString(R.string.download_not_started)
+                tvStatus.resources.getString(R.string.download_not_started,
+                    if (modelItemDownloadState.downloadInfo!!.totalSize > 0) {
+                        FileUtils.formatFileSize(modelItemDownloadState.downloadInfo!!.totalSize)
+                    } else {
+                        ""
+                    })
 
             DownloadInfo.DownloadSate.COMPLETED -> tvStatus.text =
-                tvStatus.resources.getString(R.string.downloaded_click_to_chat)
+                tvStatus.resources.getString(R.string.downloaded_click_to_chat, FileUtils.getFileSizeString(modelDownloadManager.getDownloadedFile(hfModelItem.modelId!!)))
 
             DownloadInfo.DownloadSate.DOWNLOADING -> if (TextUtils.equals(
                     "Preparing",
@@ -113,6 +121,11 @@ class ModelItemHolder(itemView: View, private val modelItemListener: ModelItemLi
 
             DownloadInfo.DownloadSate.PAUSED -> tvStatus.text = tvStatus.resources.getString(
                 R.string.downloading_paused,
+                if (modelItemDownloadState.downloadInfo!!.totalSize > 0) {
+                    FileUtils.formatFileSize(modelItemDownloadState.downloadInfo!!.totalSize)
+                } else {
+                    ""
+                },
                 modelItemDownloadState.downloadInfo!!.progress * 100
             )
 

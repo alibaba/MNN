@@ -190,4 +190,8 @@ class ChatPresenter(
     fun saveResponseToDatabase(recentItem: ChatDataItem) {
         this.chatDataManager?.addChatData(sessionId, recentItem)
     }
+
+    fun setEnableAudioOutput(enable: Boolean) {
+        this.chatSession.setEnableAudioOutput(enable)
+    }
 }

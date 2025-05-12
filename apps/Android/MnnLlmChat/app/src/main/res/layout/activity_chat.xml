@@ -36,6 +36,27 @@
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
         android:orientation="vertical">
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_toggle_audio_output"
+            android:layout_width="wrap_content"
+            android:layout_height="35dp"
+            android:layout_marginEnd="16dp"
+            android:paddingTop="0dp"
+            android:paddingBottom="0dp"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:layout_marginBottom="12dp"
+            android:layout_gravity="right"
+            app:backgroundTint="@null"
+            android:background="@drawable/bg_mode_toggle"
+            app:iconPadding="8dp"
+            app:iconGravity="textStart"
+            app:icon="@drawable/ic_audio_output"
+            android:text="@string/out_audio"
+            android:textAllCaps="false"
+            android:textColor="@color/toggle_tint"
+            app:drawableTint="@color/toggle_tint"
+            />
         <com.google.android.material.card.MaterialCardView
             android:id="@+id/input_card_container"
             android:layout_width="match_parent"
@@ -144,6 +165,8 @@
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"/>
+
+
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/btn_toggle_thinking"
                             android:layout_width="wrap_content"
@@ -228,8 +251,10 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="center_horizontal|bottom"
-        android:layout_marginBottom="75dp"
+        android:layout_marginBottom="150dp"
         android:visibility="gone"
+        tools:visibility="visible"
+        android:textColor="?colorOnSurface"
         tools:text="@string/release_to_send" />
 
     <RelativeLayout

@@ -10,6 +10,7 @@ abstract class ModelRepoDownloader {
     abstract var callback: ModelRepoDownloadCallback?
     abstract var cacheRootPath:String
     protected val pausedSet: MutableSet<String?> = Collections.synchronizedSet(HashSet())
+    abstract suspend fun getRepoSize(modelId: String):Long
     abstract fun setListener(callback: ModelRepoDownloadCallback?)
     abstract fun download(modelId: String)
     fun pause(modelId: String) {

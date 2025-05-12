@@ -29,6 +29,8 @@ public:
 
     void SetAssistantPrompt(const std::string& assistant_prompt);
 
+    void enableAudioOutput(bool b);
+
 private:
     std::string response_string_for_debug{};
     std::string model_path_;
@@ -45,6 +47,7 @@ private:
     int max_new_tokens_{2048};
     std::string system_prompt_;
     json current_config_{};
+    bool enable_audio_output_{false};
 };
 }
 

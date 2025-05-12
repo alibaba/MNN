@@ -21,6 +21,8 @@ import com.alibaba.mls.api.ms.MsApiClient
 import com.alibaba.mls.api.ms.MsRepoInfo
 import com.alibaba.mls.api.source.ModelSources
 import com.alibaba.mls.api.source.RepoConfig
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import retrofit2.Call
 import retrofit2.Callback
 import retrofit2.Response
@@ -57,6 +59,27 @@ class MsModelDownloader(override var callback: ModelRepoDownloadCallback?,
         val msLinkFolder = this.getDownloadPath(modelId)
         Log.d(TAG, "removeMsLinkFolder: " + msLinkFolder.absolutePath)
         msLinkFolder.delete()
+    }
+
+    override suspend fun getRepoSize(modelId: String):Long {
+        var result = 0L
+        val repoConfig = ModelSources.get().config.getRepoConfig(modelId)
+        val modelScopeId = repoConfig!!.repositoryPath()
+        val split = modelScopeId.split("/".toRegex()).dropLastWhile { it.isEmpty() }.toTypedArray()
+        if (split.size != 2) {
+            return 0L
+        }
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val msRepoInfo = msApiClient.apiService.getModelFiles(split[0], split[1]).execute().body()
+                msRepoInfo?.Data?.Files?.forEach {
+                    result += it.Size
+                }
+            }.getOrElse {
+                Log.e(TAG, "getRepoSize: ", it)
+            }
+        }
+        return result
     }
 
     private fun downloadMsRepo(modelId: String) {

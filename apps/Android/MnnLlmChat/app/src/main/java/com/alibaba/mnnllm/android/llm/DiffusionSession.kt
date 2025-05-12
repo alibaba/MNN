@@ -97,6 +97,10 @@ class DiffusionSession(
 
     }
 
+    override fun setEnableAudioOutput(enable: Boolean) {
+
+    }
+
 
     private external fun initNative(
         configPath: String,
