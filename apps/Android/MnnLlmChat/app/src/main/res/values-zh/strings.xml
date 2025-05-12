@@ -100,4 +100,6 @@
     <string name="model_not_found">Model not foud %1$s</string>
     <string name="out_audio">音频输出</string>
     <string name="audio_output_confirm">当前音频输出可能较慢。您是否仍要打开？</string>
+    <string name="confirm_delete_model_title">确认删除</string>
+    <string name="confirm_delete_model_message">您确定要删除这个模型吗？此操作无法恢复。</string>
 </resources>
