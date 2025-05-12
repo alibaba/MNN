@@ -215,6 +215,16 @@ class ModelListPresenter(private val context: Context, private val view: ModelLi
         }
     }
 
+    override fun onDownloadTotalSize(modelId: String, totalSize: Long) {
+        if (this.mainHandler != null) {
+            mainHandler!!.post {
+                modelListAdapter!!.updateItem(
+                    modelId
+                )
+            }
+        }
+    }
+
     override fun onDownloadStart(modelId: String) {
         lastDownloadProgressStage.remove(modelId)
         lastUpdateTimeMap.remove(modelId)

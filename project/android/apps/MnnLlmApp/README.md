@@ -20,9 +20,6 @@ This is our full multimodal language model (LLM) Android app
 + **Multimodal Support:** Enables functionality across diverse tasks, including text-to-text, image-to-text, audio-to-text, and text-to-image generation (via diffusion models).
 
 + **CPU Inference Optimization:** MNN-LLM demonstrates exceptional performance in CPU benchmarking in Android, achieving prefill speed improvements of 8.6x over llama.cpp and 20.5x over fastllm, with decoding speeds that are 2.3x and 8.9x faster, respectively. the following is a comparison between llama.cpp and MNN-LLM on Android inferencing qwen-7b.
-<p align="center">
-  <img width="60%"   src="./assets/compare.gif" style="margin: 0 10px;">
-</p>
 
 + **Broad Model Compatibility:** Supports multiple leading model providers, such as Qwen, Gemma, Llama (including TinyLlama and MobileLLM), Baichuan, Yi, DeepSeek, InternLM, Phi, ReaderLM, and Smolm.
 
@@ -38,6 +35,11 @@ This is our full multimodal language model (LLM) Android app
 
 
 # Releases
+## Version 0.4.4
++ Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_4_3.apk)
++ Add support for Qwen Omni, enable audio output switch
++ Show size of models in modellist
+
 ## Version 0.4.3
 + Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_4_3.apk)
 + Support Xiaomi Mimo UI

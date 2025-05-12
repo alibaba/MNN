@@ -3,6 +3,7 @@
 package com.alibaba.mls.api.download
 
 interface DownloadListener {
+    fun onDownloadTotalSize(modelId: String, totalSize:Long)
     fun onDownloadStart(modelId: String)
     fun onDownloadFailed(modelId: String, hfApiException: Exception)
     fun onDownloadProgress(modelId: String, progress: DownloadInfo)

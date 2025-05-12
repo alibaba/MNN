@@ -124,7 +124,7 @@ object ModelUtils {
             if (blackList.contains(item.modelId) || isBlackListPattern(modelIdLowerCase)) {
                 continue
             }
-            if (isQwen3(modelIdLowerCase)) {
+            if (isQwen3(modelIdLowerCase) || isOmni(modelIdLowerCase)) {
                 recommendedItems.add(item)
             } else if (goodList.contains(item.modelId)) {
                 goodItems.add(item)
@@ -212,5 +212,9 @@ object ModelUtils {
 
     fun isSupportThinkingSwitch(modelName: String): Boolean {
         return isQwen3(modelName)
+    }
+
+    fun supportAudioOutput(modelName: String): Boolean {
+        return isOmni(modelName)
     }
 }

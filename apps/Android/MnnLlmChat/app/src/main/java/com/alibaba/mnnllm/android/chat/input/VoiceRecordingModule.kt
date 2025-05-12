@@ -21,11 +21,12 @@ import com.alibaba.mnnllm.android.utils.Permissions.REQUEST_RECORD_AUDIO_PERMISS
 import com.alibaba.mnnllm.android.utils.UiUtils.getThemeColor
 import com.github.squti.androidwaverecorder.WaveRecorder
 import java.io.File
+import com.google.android.material.card.MaterialCardView
 
 class VoiceRecordingModule(private val activity: ChatActivity) {
     private lateinit var buttonVoiceRecording: View
     private lateinit var buttonSwitchVoice: ImageView
-
+    private lateinit var inputCardContainer: MaterialCardView
     private var listener: VoiceRecordingListener? = null
     private var waveRecorder: WaveRecorder? = null
     private var voceRecordingWave: View? = null
@@ -48,6 +49,7 @@ class VoiceRecordingModule(private val activity: ChatActivity) {
         if (!isAudioModel) {
             buttonSwitchVoice.setVisibility(View.GONE)
         }
+        inputCardContainer = activity.findViewById(R.id.input_card_container)
         voceRecordingWave = activity.findViewById(R.id.voice_recording_wav)
         buttonVoiceRecording = activity.findViewById(R.id.btn_voice_recording)
         textVoiceHint = activity.findViewById(R.id.text_voice_hint)
@@ -107,7 +109,11 @@ class VoiceRecordingModule(private val activity: ChatActivity) {
         voceRecordingWave!!.setBackgroundColor(
             if (isCancelRecord) Color.RED else voceRecordingWave!!.context.getThemeColor(androidx.appcompat.R.attr.colorPrimary)
         )
-        textVoiceHint!!.setTextColor(if (isCancelRecord) Color.RED else Color.BLACK)
+        inputCardContainer.setCardBackgroundColor(
+            if (isCancelRecord) Color.RED else inputCardContainer.context.getThemeColor(androidx.appcompat.R.attr.colorPrimary)
+        )
+        textVoiceHint!!.setTextColor(if (isCancelRecord) Color.RED else voceRecordingWave!!.context.getThemeColor(
+            com.google.android.material.R.attr.colorOnSurface))
     }
 
     private fun isPointInsideView(x: Float, y: Float, view: View): Boolean {
@@ -123,6 +129,7 @@ class VoiceRecordingModule(private val activity: ChatActivity) {
     }
 
     private fun endAudioRecording(cancel: Boolean) {
+        inputCardContainer.setCardBackgroundColor(Color.TRANSPARENT)
         waveRecorder!!.stopRecording()
         voceRecordingWave!!.visibility = View.GONE
         if (listener != null) {
@@ -152,6 +159,13 @@ class VoiceRecordingModule(private val activity: ChatActivity) {
         waveRecorder!!.startRecording()
         voceRecordingWave!!.visibility = View.VISIBLE
         updateRecordingUI()
+    }
+
+    fun isRecordingMode():Boolean {
+        if (buttonVoiceRecording.visibility == View.VISIBLE) {
+            return true
+        }
+        return false
     }
 
     private fun handleSwitch() {

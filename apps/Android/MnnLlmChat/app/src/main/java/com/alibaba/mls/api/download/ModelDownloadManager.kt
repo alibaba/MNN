@@ -24,6 +24,8 @@ import com.alibaba.mls.api.download.ms.MsModelDownloader
 import com.alibaba.mls.api.source.ModelSources
 import com.alibaba.mnnllm.android.utils.FileUtils.clearMmapCache
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.concurrent.atomic.AtomicInteger
@@ -34,8 +36,8 @@ class ModelDownloadManager private constructor(private val context: Context) {
     private var downloadListener: DownloadListener? = null
     private val cachePath = context.filesDir.absolutePath + "/.mnnmodels"
     private lateinit var downloader: ModelRepoDownloader
-    private lateinit var hfDownloader:ModelRepoDownloader
-    private lateinit var msDownloader:ModelRepoDownloader
+    private var hfDownloader:HfModelDownloader
+    private var msDownloader:MsModelDownloader
     private val downloadInfoMap = HashMap<String, DownloadInfo>()
     private val foregroundServiceIntent =
         Intent(context.applicationContext, DownloadForegroundService::class.java)
@@ -126,7 +128,9 @@ class ModelDownloadManager private constructor(private val context: Context) {
         if (downloadListener != null) {
             downloadListener!!.onDownloadStart(modelId)
         }
-        this.updateDownloadingProgress(modelId, "Preparing", null, 0, 10)
+        this.updateDownloadingProgress(modelId, "Preparing", null,
+            getDownloadSizeSaved(ApplicationProvider.get(), modelId),
+            getDownloadSizeTotal(ApplicationProvider.get(), modelId))
         downloader.download(modelId)
     }
 
@@ -141,7 +145,10 @@ class ModelDownloadManager private constructor(private val context: Context) {
             downloadInfo.speedInfo = "0.00K/s"
         } else if (currentTime - lastLogTime >= 1000) {
             val timeDiff = currentTime - lastLogTime
-            val speedBytesPerSecond = ((currentDownloadSize - lastDownloadSize) * 1000.0) / timeDiff
+            var speedBytesPerSecond = ((currentDownloadSize - lastDownloadSize) * 1000.0) / timeDiff
+            if (speedBytesPerSecond < 0 ) { //may changed the download provider
+                speedBytesPerSecond = 0.0
+            }
             downloadInfo.lastLogTime = currentTime
             downloadInfo.savedSize = currentDownloadSize
             if (speedBytesPerSecond >= 1024 * 1024) {
@@ -171,10 +178,22 @@ class ModelDownloadManager private constructor(private val context: Context) {
             } else {
                 downloadInfo.downlodaState = DownloadInfo.DownloadSate.NOT_START
                 downloadInfo.progress = 0.0
+                getRepoSize(modelId)
             }
             downloadInfoMap[modelId] = downloadInfo
         }
         return downloadInfoMap[modelId]!!
+    }
+
+    private fun getRepoSize(modelId: String) {
+        MainScope().launch {
+            val repoSize = downloader.getRepoSize(modelId)
+            if (repoSize > 0 && getDownloadSizeTotal(ApplicationProvider.get(), modelId) <= 0L) {
+                saveDownloadSizeTotal(ApplicationProvider.get(), modelId, repoSize)
+                getDownloadInfo(modelId).totalSize = repoSize
+                downloadListener?.onDownloadTotalSize(modelId, repoSize)
+            }
+        }
     }
 
     private fun setDownloadFinished(modelId: String, path: String) {
@@ -253,7 +272,7 @@ class ModelDownloadManager private constructor(private val context: Context) {
             downloadInfoMap[modelId] = downloadInfo
         }
         val downloadInfo = checkNotNull(downloadInfoMap[modelId])
-        downloadInfo.progress = saved.toDouble() / total
+        downloadInfo.progress = if (total > 0) (saved.toDouble() / total) else 0.0
         calculateDownloadSpeed(downloadInfo, saved)
         downloadInfo.totalSize = total
         downloadInfo.progressStage = stage

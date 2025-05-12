@@ -3,12 +3,13 @@
 
 [Download](#releases)  [下载](./README_CN.md#releases)
 
+[iOS App](../../iOS/MNNLLMChat/README.md)
+
 ## Introduction
 This is our full multimodal language model (LLM) Android app
 
 <p align="center">
   <img width="20%" alt="Icon"  src="./assets/image_home.jpg" style="margin: 0 10px;">
-  <img width="20%" alt="Icon" src="./assets/image_diffusion.jpg" style="margin: 0 10px;">
   <img width="20%" alt="Icon" src="./assets/image_sound.jpg" style="margin: 0 10px;">
   <img width="20%" alt="Icon" src="./assets/image_image.jpg" style="margin: 0 10px;">
 </p>
@@ -64,6 +65,11 @@ This is our full multimodal language model (LLM) Android app
   ```
 
 # Releases
+## Version 0.4.4
++ Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_4_4.apk)
++ Add support for Qwen Omni, enable audio output switch
++ Show size of models in modellist
+
 ## Version 0.4.3
 + Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_4_3.apk)
 + Support Xiaomi Mimo UI

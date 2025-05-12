@@ -175,7 +175,7 @@ const MNN::Transformer::LlmContext * LlmSession::Response(const std::string &pro
         llm_->generate(1);
         current_size++;
     }
-    if (!stop_requested_) {
+    if (!stop_requested_ && enable_audio_output_) {
         llm_->generateWavform();
     }
     auto context = llm_->getContext();
@@ -189,7 +189,7 @@ std::string LlmSession::getDebugInfo() {
 void LlmSession::SetWavformCallback(std::function<bool(const float *, size_t, bool)> callback) {
     if (llm_ != nullptr && callback != nullptr) {
         waveform.clear();
-        llm_->setWavformCallback([ callback = std::move(callback)](const float *ptr, size_t size, bool last_chunk) {
+        llm_->setWavformCallback([this, callback = std::move(callback)](const float *ptr, size_t size, bool last_chunk) {
 #if DEBUG_SAVE_WAV
             waveform.reserve(waveform.size() + size);
             waveform.insert(waveform.end(), ptr, ptr + size);
@@ -200,6 +200,9 @@ void LlmSession::SetWavformCallback(std::function<bool(const float *, size_t, bo
                 waveform.clear();
             }
 #endif
+            if (!enable_audio_output_ || stop_requested_) {
+                return false;
+            }
             if (callback) {
                 return !callback(ptr, size, last_chunk);
             }
@@ -229,6 +232,10 @@ void LlmSession::SetAssistantPrompt(const std::string& assistant_prompt) {
         llm_->set_config(current_config_.dump());
     }
     MNN_DEBUG("dumped config: %s", llm_->dump_config().c_str());
+}
+
+void LlmSession::enableAudioOutput(bool enable) {
+    enable_audio_output_ = enable;
 }
 
 }

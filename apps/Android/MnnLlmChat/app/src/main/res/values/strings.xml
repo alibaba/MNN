@@ -7,11 +7,11 @@
     <string name="main_describe">mnn-llm</string>
     <string name="spinner_prompt">Select Model</string>
     <string name="model_loading">Model loading…</string>
-    <string name="download_not_started">Not Downloaded, click to download</string>
-    <string name="downloaded_click_to_chat">Downloaded, click to start chat</string>
+    <string name="download_not_started">%1$s Click to download</string>
+    <string name="downloaded_click_to_chat"> %1$s, Downloaded</string>
     <string name="download_failed_click_retry">Download failed: %1$s, click to retry</string>
     <string name="downloading_progress">Downloading: %1$.2f%% %2$s</string>.
-    <string name="downloading_paused">Download Paused: %1$.2f%%</string>
+    <string name="downloading_paused">%1$s Paused: %2$.2f%%</string>
     <string name="config_file_not_found">Model config file not found: %1$s</string>
     <string name="model_hello_prompt">Hello, I am %1$s, is there anything I can help you with?</string>
     <string name="model_hello_prompt_diffusion">Hello, I am %1$s, Please input prompt to generate an image</string>
@@ -98,4 +98,6 @@
     <string name="copy_audio_info">Copy Audio Info</string>
     <string name="report_crash">Report Crash</string>
     <string name="model_not_found">Model not foud %1$s</string>
+    <string name="out_audio">Output Audio</string>
+    <string name="audio_output_confirm">Audio Output is very slow for now, Would you like to continue anyway?</string>
 </resources>

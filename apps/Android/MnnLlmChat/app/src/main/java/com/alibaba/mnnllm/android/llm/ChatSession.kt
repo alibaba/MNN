@@ -3,7 +3,6 @@
 package com.alibaba.mnnllm.android.llm
 
 interface ChatSession  {
-
     val debugInfo: String
     val sessionId: String?
 
@@ -15,7 +14,6 @@ interface ChatSession  {
     fun reset(): String
 
     fun release()
-
     fun setKeepHistory(keepHistory: Boolean)
-
+    fun setEnableAudioOutput(enable: Boolean)
 }

@@ -2,6 +2,8 @@
 
 [下载](#releases)
 
+[iOS App](../../iOS/MNNLLMChat/README-ZH.md)
+
 ## 简介
 这是我们的全功能多模态语言模型（LLM）安卓应用。
 
@@ -59,6 +61,11 @@
   ```
 
 # Releases
+# Version 0.4.4
++ 点击这里 [下载](https://meta.alicdn.com/data/mnn/mnn_chat_0_4_4.apk)
++ Qwen Omni 的支持语音输出开关
++ 模型列表可显示模型大小
+
 # Version 0.4.3
 
 + 点击这里 [下载](https://meta.alicdn.com/data/mnn/mnn_chat_0_4_3.apk)

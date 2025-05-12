@@ -7,7 +7,14 @@
 [![MNN Homepage](https://img.shields.io/badge/Homepage-Visit-green)](http://www.mnn.zone)
 
 ## News 🔥
-- [2025/04/30] android app support qwen3 and dark mode [MnnLlmChat](./apps/Android/MnnLlmChat/README.md#version-040).
+- [2025/05/12] android app support qwen2.5 3b and 7b [MNN Chat App](./apps/Android/MnnLlmChat/README.md#releases).
+<p align="center">
+  <img width="20%" alt="Icon"  src="./apps/Android/MnnLlmChat/assets/image_home.jpg" style="margin: 0 10px;">
+  <img width="20%" alt="Icon" src="./apps/Android/MnnLlmChat/assets/image_diffusion.jpg" style="margin: 0 10px;">
+  <img width="20%" alt="Icon" src="./apps/Android/MnnLlmChat/assets/image_sound.jpg" style="margin: 0 10px;">
+  <img width="20%" alt="Icon" src="./apps/Android/MnnLlmChat/assets/image_image.jpg" style="margin: 0 10px;">
+</p>
+- [2025/04/30] android app support qwen3 and dark mode [MNN Chat App](./apps/Android/MnnLlmChat/README.md#releases).
 <p align="center">
   <img width="20%" alt="Icon"  src="https://meta.alicdn.com/data/mnn/qwen_3.gif" style="margin: 0 10px;">
 </p>

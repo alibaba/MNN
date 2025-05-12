@@ -26,6 +26,8 @@ import com.alibaba.mls.api.download.ModelFileDownloader
 import com.alibaba.mls.api.download.ModelFileDownloader.FileDownloadListener
 import com.alibaba.mls.api.download.ModelRepoDownloader
 import com.alibaba.mls.api.source.ModelSources
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import java.io.File
 import java.util.concurrent.TimeUnit
@@ -70,6 +72,23 @@ class HfModelDownloader(override var callback: ModelRepoDownloadCallback?,
             downloadHfRepoInner(hfRepoInfo)
             callback?.onDownloadTaskRemoved()
         }
+    }
+
+    override suspend fun getRepoSize(modelId: String):Long {
+        var totalSize = 0L
+        withContext(Dispatchers.IO) {
+            val result = getHfApiClient().apiService.getRepoInfo(modelId, "main")
+            val response = kotlin.runCatching {result?.execute()}.getOrNull()
+            if (response?.isSuccessful != true || response.body() == null) {
+                return@withContext
+            }
+            val hfRepoInfo = response.body()!!
+            val metaList = kotlin.runCatching {requestMetaDataList(hfRepoInfo)}.getOrNull()
+            metaList?.forEach{
+                totalSize += it?.size ?: 0
+            }
+        }
+        return totalSize
     }
 
     private fun downloadHfRepoInner(hfRepoInfo: HfRepoInfo) {
@@ -138,7 +157,6 @@ class HfModelDownloader(override var callback: ModelRepoDownloadCallback?,
             )
         }
     }
-
 
     @Throws(FileDownloadException::class)
     private fun collectTaskList(

@@ -11,12 +11,11 @@ import retrofit2.converter.gson.GsonConverterFactory
 import java.util.concurrent.TimeUnit
 
 class HfApiClient(@JvmField val host: String) {
-    private val apiService: HfApiService
+    val apiService: HfApiService
     var okHttpClient: OkHttpClient? = null
         private set
 
     init {
-        // Initialize Retrofit
         val retrofit = Retrofit.Builder()
             .baseUrl("https://$host")
             .addConverterFactory(GsonConverterFactory.create())
