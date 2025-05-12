@@ -8,6 +8,7 @@ import android.view.View.OnLongClickListener
 import android.widget.ImageView
 import android.widget.ProgressBar
 import android.widget.TextView
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.widget.PopupMenu
 import androidx.recyclerview.widget.RecyclerView
 import com.alibaba.mls.api.ModelItem
@@ -156,9 +157,16 @@ class ModelItemHolder(itemView: View, private val modelItemListener: ModelItemLi
             val hfModelItem = itemView.tag as ModelItem
             val modelId = hfModelItem.modelId
             if (item.itemId == R.id.menu_delete_model) {
-                MainScope().launch {
-                    ModelDownloadManager.getInstance(v.context).deleteModel(modelId!!)
-                }
+                AlertDialog.Builder(v.context)
+                    .setTitle(R.string.confirm_delete_model_title)
+                    .setMessage(R.string.confirm_delete_model_message)
+                    .setPositiveButton("确定") { _, _ ->
+                        MainScope().launch {
+                            ModelDownloadManager.getInstance(v.context).deleteModel(modelId!!)
+                        }
+                    }
+                    .setNegativeButton("取消", null)
+                    .show()
             } else if (item.itemId == R.id.menu_pause_download) {
                 ModelDownloadManager.getInstance(v.context).pauseDownload(modelId!!)
             } else if (item.itemId == R.id.menu_start_download) {

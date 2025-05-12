@@ -100,4 +100,6 @@
     <string name="model_not_found">Model not foud %1$s</string>
     <string name="out_audio">Output Audio</string>
     <string name="audio_output_confirm">Audio Output is very slow for now, Would you like to continue anyway?</string>
+    <string name="confirm_delete_model_title">Confirm Deletion</string>
+    <string name="confirm_delete_model_message">Are you sure you want to delete this model? This action cannot be undone.</string>
 </resources>

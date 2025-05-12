@@ -10,7 +10,6 @@ class DownloadInfo {
     @JvmField
     var progress: Double = 0.0
 
-    //for calculate speed
     @JvmField
     var lastLogTime: Long = 0
 
