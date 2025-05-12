@@ -104,7 +104,16 @@ class MainActivity : AppCompatActivity() {
         progressDialog!!.show()
         if (destPath == null) {
             destPath =
-                ModelDownloadManager.getInstance(this).getDownloadedFile(modelId!!)!!.absolutePath
+                ModelDownloadManager.getInstance(this).getDownloadedFile(modelId!!)?.absolutePath
+            if (destPath == null) {
+                Toast.makeText(
+                    this,
+                    getString(R.string.model_not_found, modelId),
+                    Toast.LENGTH_LONG
+                ).show()
+                progressDialog?.dismiss()
+                return
+            }
         }
         val isDiffusion = ModelUtils.isDiffusionModel(modelId!!)
         var configFilePath: String? = null
