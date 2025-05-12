@@ -160,12 +160,12 @@ class ModelItemHolder(itemView: View, private val modelItemListener: ModelItemLi
                 AlertDialog.Builder(v.context)
                     .setTitle(R.string.confirm_delete_model_title)
                     .setMessage(R.string.confirm_delete_model_message)
-                    .setPositiveButton("确定") { _, _ ->
+                    .setPositiveButton(android.R.string.ok) { _, _ ->
                         MainScope().launch {
                             ModelDownloadManager.getInstance(v.context).deleteModel(modelId!!)
                         }
                     }
-                    .setNegativeButton("取消", null)
+                    .setNegativeButton(android.R.string.cancel, null)
                     .show()
             } else if (item.itemId == R.id.menu_pause_download) {
                 ModelDownloadManager.getInstance(v.context).pauseDownload(modelId!!)
