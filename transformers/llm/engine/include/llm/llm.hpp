@@ -79,7 +79,7 @@ public:
     virtual Express::VARP gen_position_ids(int seq_len);
     virtual Express::VARP embedding(const std::vector<int>& input_ids);
     Express::VARP forward(const std::vector<int>& input_ids, bool is_prefill = true);
-    Express::VARP forward(MNN::Express::VARP input_embeds, bool is_prefill = true);
+    Express::VARP forward(MNN::Express::VARP input_embeds);
     virtual Express::VARP forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos);
     virtual int sample(Express::VARP logits, int offset = 0, int size = 0);
     void reset();

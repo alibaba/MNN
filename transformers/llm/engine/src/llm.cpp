@@ -327,7 +327,7 @@ VARP Llm::forward(const std::vector<int>& input_ids, bool is_prefill) {
     return logits;
 }
 
-VARP Llm::forward(MNN::Express::VARP input_embeds, bool is_prefill) {
+VARP Llm::forward(MNN::Express::VARP input_embeds) {
     int seq_len         = input_embeds->getInfo()->dim[0]; 
     mMeta->add          = seq_len;
     auto attention_mask = gen_attention_mask(seq_len);
