@@ -67,7 +67,7 @@ This is our full multimodal language model (LLM) Android app
 # Releases
 ## Version 0.4.4
 + Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_4_4.apk)
-+ Add support for Qwen Omni, enable audio output switch
++ Add support for Qwen Omni 3B and 7B, enable audio output switch
 + Show size of models in modellist
 
 ## Version 0.4.3
