@@ -6,10 +6,10 @@
 这是我们的全功能多模态语言模型（LLM）安卓应用。
 
 <p align="center">
-  <img width="20%" alt="Icon"  src="../../../../apps/Android/MnnLlmChat/assets/image_home.jpg" style="margin: 0 10px;">
-  <img width="20%" alt="Icon" src="../../../../apps/Android/MnnLlmChat/assets/image_diffusion.jpg" style="margin: 0 10px;">
-  <img width="20%" alt="Icon" src="../../../../apps/Android/MnnLlmChat/assets/image_sound.jpg" style="margin: 0 10px;">
-  <img width="20%" alt="Icon" src="../../../../apps/Android/MnnLlmChat/assets/image_image.jpg" style="margin: 0 10px;">
+  <img width="20%" alt="Icon"  src="../../../../apps/Android/MnnLlmChat/assets/image_home_new.jpg" style="margin: 0 10px;">
+  <img width="20%" alt="Icon" src="../../../../apps/Android/MnnLlmChat/assets/image_diffusion_new.jpg" style="margin: 0 10px;">
+  <img width="20%" alt="Icon" src="../../../../apps/Android/MnnLlmChat/assets/image_sound_new.jpg" style="margin: 0 10px;">
+  <img width="20%" alt="Icon" src="../../../../apps/Android/MnnLlmChat/assets/image_image_new.jpg" style="margin: 0 10px;">
 </p>
 
 
