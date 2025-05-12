@@ -7,9 +7,9 @@
 
 ## Introduction
 This is our full multimodal language model (LLM) Android app
-
 <p align="center">
   <img width="20%" alt="Icon"  src="./assets/image_home_new.jpg" style="margin: 0 10px;">
+  <img width="20%" alt="Icon" src="./assets/image_diffusion_new.jpg" style="margin: 0 10px;">
   <img width="20%" alt="Icon" src="./assets/image_sound_new.jpg" style="margin: 0 10px;">
   <img width="20%" alt="Icon" src="./assets/image_image_new.jpg" style="margin: 0 10px;">
 </p>
