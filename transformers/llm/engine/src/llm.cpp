@@ -316,15 +316,8 @@ Express::VARP Llm::forwardRaw(Express::VARP hiddenState, Express::VARP mask, Exp
 }
 
 VARP Llm::forward(const std::vector<int>& input_ids, bool is_prefill) {
-    int seq_len         = input_ids.size();
-    mMeta->add          = seq_len;
-    auto attention_mask = gen_attention_mask(seq_len);
-    auto position_ids = gen_position_ids(seq_len);
     auto hidden_states = embedding(input_ids);
-    auto logits = forwardRaw(hidden_states, attention_mask, position_ids);
-    mContext->all_seq_len += seq_len;
-    mContext->gen_seq_len++;
-    return logits;
+    return forward(hidden_states);
 }
 
 VARP Llm::forward(MNN::Express::VARP input_embeds) {
