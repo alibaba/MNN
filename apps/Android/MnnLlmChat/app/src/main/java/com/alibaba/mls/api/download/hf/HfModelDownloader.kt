@@ -6,10 +6,10 @@ package com.alibaba.mls.api.download.hf
 import android.util.Log
 import com.alibaba.mls.api.ApplicationProvider
 import com.alibaba.mls.api.FileDownloadException
-import com.alibaba.mls.api.HfApiClient
-import com.alibaba.mls.api.HfApiClient.Companion.bestClient
-import com.alibaba.mls.api.HfFileMetadata
-import com.alibaba.mls.api.HfRepoInfo
+import com.alibaba.mls.api.hf.HfApiClient
+import com.alibaba.mls.api.hf.HfApiClient.Companion.bestClient
+import com.alibaba.mls.api.hf.HfFileMetadata
+import com.alibaba.mls.api.hf.HfRepoInfo
 import com.alibaba.mls.api.download.DownloadExecutor.Companion.executor
 import com.alibaba.mls.api.download.DownloadFileUtils.createSymlink
 import com.alibaba.mls.api.download.DownloadFileUtils.deleteDirectoryRecursively

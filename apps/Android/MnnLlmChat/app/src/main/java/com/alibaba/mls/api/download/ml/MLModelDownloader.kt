@@ -1,11 +1,11 @@
 // Created by ruoyi.sjd on 2025/5/8.
 // Copyright (c) 2024 Alibaba Group Holding Limited All rights reserved.
 
-package com.alibaba.mls.api.download.ms
+package com.alibaba.mls.api.download.ml
 import android.util.Log
 import com.alibaba.mls.api.FileDownloadException
+import com.alibaba.mls.api.download.DownloadExecutor
 import com.alibaba.mls.api.hf.HfFileMetadata
-import com.alibaba.mls.api.download.DownloadExecutor.Companion.executor
 import com.alibaba.mls.api.download.DownloadFileUtils.createSymlink
 import com.alibaba.mls.api.download.DownloadFileUtils.deleteDirectoryRecursively
 import com.alibaba.mls.api.download.DownloadFileUtils.getLastFileName
@@ -17,28 +17,28 @@ import com.alibaba.mls.api.download.ModelDownloadManager.Companion.TAG
 import com.alibaba.mls.api.download.ModelFileDownloader
 import com.alibaba.mls.api.download.ModelFileDownloader.FileDownloadListener
 import com.alibaba.mls.api.download.ModelRepoDownloader
-import com.alibaba.mls.api.ms.MsApiClient
-import com.alibaba.mls.api.ms.MsRepoInfo
+import com.alibaba.mls.api.ml.MlApiClient
+import com.alibaba.mls.api.ml.MlRepoInfo
 import com.alibaba.mls.api.source.ModelSources
 import com.alibaba.mls.api.source.RepoConfig
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import retrofit2.Call
-import retrofit2.Callback
-import retrofit2.Response
 import java.io.File
 
-class MsModelDownloader(override var callback: ModelRepoDownloadCallback?,
+class MLModelDownloader(override var callback: ModelRepoDownloadCallback?,
                         cacheRootPath: String
 ) : ModelRepoDownloader() {
     override var cacheRootPath: String = getCachePathRoot(cacheRootPath)
-    private var msApiClient: MsApiClient = MsApiClient()
+    private var mlApiClient: MlApiClient = MlApiClient()
     override fun setListener(callback: ModelRepoDownloadCallback?) {
         this.callback = callback
     }
 
     override fun download(modelId: String) {
-        downloadMsRepo(modelId)
+        DownloadExecutor.executeScope.launch {
+            downloadRepo(modelId)
+        }
     }
 
     override fun getDownloadPath(modelId: String): File {
@@ -62,60 +62,52 @@ class MsModelDownloader(override var callback: ModelRepoDownloadCallback?,
     }
 
     override suspend fun getRepoSize(modelId: String):Long {
-        var result = 0L
+        var result: Long
         val repoConfig = ModelSources.get().config.getRepoConfig(modelId)
         val modelScopeId = repoConfig!!.repositoryPath()
         val split = modelScopeId.split("/".toRegex()).dropLastWhile { it.isEmpty() }.toTypedArray()
         if (split.size != 2) {
             return 0L
         }
-        withContext(Dispatchers.IO) {
+        result = withContext(Dispatchers.IO) {
             runCatching {
-                val msRepoInfo = msApiClient.apiService.getModelFiles(split[0], split[1]).execute().body()
-                msRepoInfo?.Data?.Files?.forEach {
-                    result += it.Size
-                }
+                val mlRepoInfo = mlApiClient.apiService.getModelFiles(split[0], split[1]).execute().body()
+                mlRepoInfo?.data?.tree?.sumOf { it.size } ?: 0L
             }.getOrElse {
                 Log.e(TAG, "getRepoSize: ", it)
+                return@withContext 0L
             }
         }
         return result
     }
 
-    private fun downloadMsRepo(modelId: String) {
+    private fun downloadRepo(modelId: String): MlRepoInfo? {
         val repoConfig = ModelSources.get().config.getRepoConfig(modelId)
         val modelScopeId = repoConfig!!.repositoryPath()
         val split = modelScopeId.split("/".toRegex()).dropLastWhile { it.isEmpty() }.toTypedArray()
         if (split.size != 2) {
             callback?.onDownloadFailed(modelId, FileDownloadException("getRepoInfoFailed modelId format error: $modelId"))
         }
-        msApiClient.apiService.getModelFiles(split[0], split[1])
-            .enqueue(object : Callback<MsRepoInfo?> {
-                override fun onResponse(call: Call<MsRepoInfo?>, response: Response<MsRepoInfo?>) {
-                    executor!!.submit {
-                        Log.d(
-                            TAG,
-                            "downloadMsRepoInner executor"
-                        )
-                        callback?.onDownloadTaskAdded()
-                        downloadMsRepoInner(repoConfig, response.body()!!)
-                        callback?.onDownloadTaskRemoved()
-                    }
-                }
-
-                override fun onFailure(call: Call<MsRepoInfo?>, t: Throwable) {
-                    callback?.onDownloadFailed(modelId, FileDownloadException("getRepoInfoFailed" + t.message))
-                }
-            })
+        val modelInfo:MlRepoInfo? = kotlin.runCatching {
+            mlApiClient.apiService.getModelFiles(split[0], split[1]).execute().body() }
+            .getOrElse {
+                callback?.onDownloadFailed(modelId, FileDownloadException("getRepoInfoFailed" + it.message))
+                null}
+        if (modelInfo != null) {
+            callback?.onDownloadTaskAdded()
+            downloadMlRepoInner(repoConfig, modelInfo)
+            callback?.onDownloadTaskRemoved()
+        }
+        return modelInfo
     }
 
-    private fun downloadMsRepoInner(repoConfig: RepoConfig, msRepoInfo: MsRepoInfo) {
-        Log.d(TAG, "downloadMsRepoInner")
+    private fun downloadMlRepoInner(repoConfig: RepoConfig, mlRepoInfo: MlRepoInfo) {
+        Log.d(TAG, "downloadMlRepoInner")
         val modelId = repoConfig.modelId
         val folderLinkFile =
             File(cacheRootPath, getLastFileName(repoConfig.repositoryPath()))
         if (folderLinkFile.exists()) {
-            Log.d(TAG, "downloadMsRepoInner already exists")
+            Log.d(TAG, "downloadMlRepoInner already exists")
             callback?.onDownloadFileFinished(modelId, folderLinkFile.absolutePath)
             return
         }
@@ -127,15 +119,15 @@ class MsModelDownloader(override var callback: ModelRepoDownloadCallback?,
         val parentPointerPath = getPointerPathParent(storageFolder, "_no_sha_")
         val downloadTaskList: List<FileDownloadTask>
         val totalAndDownloadSize = LongArray(2)
-        Log.d(TAG, "downloadMsRepoInner collectMsTaskList")
-        downloadTaskList = collectMsTaskList(
+        Log.d(TAG, "downloadMlRepoInner collectMsTaskList")
+        downloadTaskList = collectTaskList(
             repoConfig,
             storageFolder,
             parentPointerPath,
-            msRepoInfo,
+            mlRepoInfo,
             totalAndDownloadSize
         )
-        Log.d(TAG, "downloadMsRepoInner downloadTaskList： " + downloadTaskList.size)
+        Log.d(TAG, "downloadMlRepoInner downloadTaskList： " + downloadTaskList.size)
         val fileDownloadListener =
             object : FileDownloadListener {
                 override fun onDownloadDelta(
@@ -176,42 +168,34 @@ class MsModelDownloader(override var callback: ModelRepoDownloadCallback?,
         }
     }
 
-    private fun collectMsTaskList(
+    private fun collectTaskList(
         repoConfig: RepoConfig,
         storageFolder: File,
         parentPointerPath: File,
-        msRepoInfo: MsRepoInfo,
+        mlRepoInfo: MlRepoInfo,
         totalAndDownloadSize: LongArray
     ): List<FileDownloadTask> {
         val fileDownloadTasks: MutableList<FileDownloadTask> = ArrayList()
-        for (i in msRepoInfo.Data.Files.indices) {
-            val subFile = msRepoInfo.Data.Files[i]
+        for (i in mlRepoInfo.data.tree.indices) {
+            val subFile = mlRepoInfo.data.tree[i]
             val fileDownloadTask = FileDownloadTask()
-            fileDownloadTask.relativePath = subFile.Path
+            fileDownloadTask.relativePath = subFile.path
             fileDownloadTask.fileMetadata = HfFileMetadata()
-            if (ModelSources.get().remoteSourceType == ModelSources.ModelSourceType.MODELERS) {
-                fileDownloadTask.fileMetadata!!.location = String.format(
-                    "https://modelers.cn/coderepo/web/v1/file/%s/main/media/%s",
-                    repoConfig.repositoryPath(),
-                    subFile.Path
-                )
-            } else {
-                fileDownloadTask.fileMetadata!!.location = String.format(
-                    "https://modelscope.cn/api/v1/models/%s/repo?FilePath=%s",
-                    repoConfig.repositoryPath(),
-                    subFile.Path
-                )
-            }
-            fileDownloadTask.fileMetadata!!.size = subFile.Size
-            fileDownloadTask.fileMetadata!!.etag = subFile.Sha256
-            fileDownloadTask.etag = subFile.Sha256
-            fileDownloadTask.blobPath = File(storageFolder, "blobs/" + subFile.Sha256)
+            fileDownloadTask.fileMetadata!!.location = String.format(
+                "https://modelers.cn/coderepo/web/v1/file/%s/main/media/%s",
+                repoConfig.repositoryPath(),
+                subFile.path
+            )
+            fileDownloadTask.fileMetadata!!.size = subFile.size
+            fileDownloadTask.fileMetadata!!.etag = subFile.etag
+            fileDownloadTask.etag = subFile.etag
+            fileDownloadTask.blobPath = File(storageFolder, "blobs/" + subFile.etag)
             fileDownloadTask.blobPathIncomplete =
-                File(storageFolder, "blobs/" + subFile.Sha256 + ".incomplete")
-            fileDownloadTask.pointerPath = File(parentPointerPath, subFile.Path)
+                File(storageFolder, "blobs/" + subFile.etag + ".incomplete")
+            fileDownloadTask.pointerPath = File(parentPointerPath, subFile.path)
             fileDownloadTask.downloadedSize =
                 if (fileDownloadTask.blobPath!!.exists()) fileDownloadTask.blobPath!!.length() else (if (fileDownloadTask.blobPathIncomplete!!.exists()) fileDownloadTask.blobPathIncomplete!!.length() else 0)
-            totalAndDownloadSize[0] += subFile.Size
+            totalAndDownloadSize[0] += subFile.size
             totalAndDownloadSize[1] += fileDownloadTask.downloadedSize
             fileDownloadTasks.add(fileDownloadTask)
         }
@@ -221,7 +205,7 @@ class MsModelDownloader(override var callback: ModelRepoDownloadCallback?,
 
     companion object  {
         fun getCachePathRoot(modelDownloadPathRoot:String): String {
-            return "$modelDownloadPathRoot/modelscope"
+            return "$modelDownloadPathRoot/modelers"
         }
 
         fun getModelPath(modelsDownloadPathRoot: String, modelId: String): File {

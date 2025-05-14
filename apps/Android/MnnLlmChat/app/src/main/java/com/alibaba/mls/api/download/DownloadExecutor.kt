@@ -2,6 +2,9 @@
 // Copyright (c) 2024 Alibaba Group Holding Limited All rights reserved.
 package com.alibaba.mls.api.download
 
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.asCoroutineDispatcher
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.ThreadFactory
@@ -41,6 +44,10 @@ class DownloadExecutor private constructor() {
 
         fun provide(): ExecutorService? {
             return instance()!!.getDownloadExecutor()
+        }
+
+        val executeScope by lazy {
+            CoroutineScope(executor!!.asCoroutineDispatcher() + SupervisorJob())
         }
 
         @JvmStatic

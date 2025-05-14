@@ -74,7 +74,11 @@ object ModelUtils {
      * to load local models
      */
     private val localModelList = mutableListOf<ModelItem>()
-
+//    private val localModelList = mutableListOf(
+//        ModelItem.fromLocalModel("Qwen-Omni-7B", "/data/local/tmp/mnn_bench/Qwen2.5-Omni-7B-MNN"),
+//        ModelItem.fromLocalModel("Qwen-Omni-3B", "/data/local/tmp/mnn_bench/Qwen2.5-Omni-3B-MNN"),
+//        ModelItem.fromLocalModel("Qwen3-30B-A3B-MNN", "/data/local/tmp/mnn_bench/Qwen3-30B-A3B-MNN")
+//    )
 
     init {
         blackList.add("taobao-mnn/bge-large-zh-MNN") //embedding

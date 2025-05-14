@@ -7,8 +7,8 @@ import android.os.Handler
 import android.text.TextUtils
 import android.util.Log
 import android.widget.Toast
-import com.alibaba.mls.api.HfApiClient
-import com.alibaba.mls.api.HfApiClient.RepoSearchCallback
+import com.alibaba.mls.api.hf.HfApiClient
+import com.alibaba.mls.api.hf.HfApiClient.RepoSearchCallback
 import com.alibaba.mls.api.ModelItem
 import com.alibaba.mls.api.download.DownloadInfo
 import com.alibaba.mls.api.download.DownloadListener

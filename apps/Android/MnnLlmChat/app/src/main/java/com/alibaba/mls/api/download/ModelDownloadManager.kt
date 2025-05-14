@@ -20,6 +20,7 @@ import com.alibaba.mls.api.download.DownloadPersistentData.removeProgress
 import com.alibaba.mls.api.download.DownloadPersistentData.saveDownloadSizeSaved
 import com.alibaba.mls.api.download.DownloadPersistentData.saveDownloadSizeTotal
 import com.alibaba.mls.api.download.hf.HfModelDownloader
+import com.alibaba.mls.api.download.ml.MLModelDownloader
 import com.alibaba.mls.api.download.ms.MsModelDownloader
 import com.alibaba.mls.api.source.ModelSources
 import com.alibaba.mnnllm.android.utils.FileUtils.clearMmapCache
@@ -38,6 +39,7 @@ class ModelDownloadManager private constructor(private val context: Context) {
     private lateinit var downloader: ModelRepoDownloader
     private var hfDownloader:HfModelDownloader
     private var msDownloader:MsModelDownloader
+    private val mlDownloader:MLModelDownloader
     private val downloadInfoMap = HashMap<String, DownloadInfo>()
     private val foregroundServiceIntent =
         Intent(context.applicationContext, DownloadForegroundService::class.java)
@@ -81,6 +83,7 @@ class ModelDownloadManager private constructor(private val context: Context) {
                 )
             }
         }
+        mlDownloader = MLModelDownloader(downloadCallback, cachePath)
         hfDownloader = HfModelDownloader(downloadCallback, cachePath)
         msDownloader = MsModelDownloader(downloadCallback, cachePath)
         setDownloader(ModelSources.get().remoteSourceType)
@@ -94,6 +97,8 @@ class ModelDownloadManager private constructor(private val context: Context) {
 
         this.downloader = if (sourceType == ModelSources.ModelSourceType.HUGGING_FACE) {
             hfDownloader
+        } else if (sourceType == ModelSources.ModelSourceType.MODELERS)  {
+            mlDownloader
         } else {
             msDownloader
         }
@@ -289,6 +294,7 @@ class ModelDownloadManager private constructor(private val context: Context) {
         withContext(Dispatchers.IO) {
             msDownloader.deleteRepo(modelId)
             hfDownloader.deleteRepo(modelId)
+            mlDownloader.deleteRepo(modelId)
             removeProgress(ApplicationProvider.get(), modelId)
             clearMmapCache(modelId)
         }

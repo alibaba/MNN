@@ -2,7 +2,7 @@
 // Copyright (c) 2024 Alibaba Group Holding Limited All rights reserved.
 package com.alibaba.mls.api.download
 
-import com.alibaba.mls.api.HfFileMetadata
+import com.alibaba.mls.api.hf.HfFileMetadata
 import java.io.File
 
 class FileDownloadTask {

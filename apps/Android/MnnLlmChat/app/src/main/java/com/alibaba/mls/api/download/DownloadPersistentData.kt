@@ -3,7 +3,7 @@
 package com.alibaba.mls.api.download
 
 import android.content.Context
-import com.alibaba.mls.api.HfFileMetadata
+import com.alibaba.mls.api.hf.HfFileMetadata
 import com.alibaba.mls.api.download.DownloadFileUtils.getLastFileName
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
