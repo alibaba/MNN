@@ -59,6 +59,11 @@ This is our full multimodal language model (LLM) Android app
   ```
 
 # Releases
+## Version 0.4.4.1
++ Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_4_4_1.apk)
++ Fix Modlers download error
++ fix Select Text not work bug
+
 ## Version 0.4.4
 + Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_4_4.apk)
 + Add support for Qwen Omni 3B and 7B, enable audio output switch
