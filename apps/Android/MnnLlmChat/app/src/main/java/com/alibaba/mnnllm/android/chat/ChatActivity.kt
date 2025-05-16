@@ -15,7 +15,9 @@ import androidx.lifecycle.lifecycleScope
 import com.alibaba.mnnllm.android.llm.ChatSession
 import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.audio.AudioPlayer
+import com.alibaba.mnnllm.android.benchmark.BenchmarkModule
 import com.alibaba.mnnllm.android.chat.chatlist.ChatListComponent
+import com.alibaba.mnnllm.android.chat.chatlist.ChatViewHolders
 import com.alibaba.mnnllm.android.chat.input.ChatInputComponent
 import com.alibaba.mnnllm.android.chat.model.ChatDataItem
 import com.alibaba.mnnllm.android.databinding.ActivityChatBinding
@@ -27,9 +29,12 @@ import com.alibaba.mnnllm.android.utils.ModelPreferences
 import com.alibaba.mnnllm.android.utils.ModelUtils
 import com.alibaba.mnnllm.android.utils.PreferenceUtils
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 
 class ChatActivity : AppCompatActivity() {
@@ -58,6 +63,8 @@ class ChatActivity : AppCompatActivity() {
     private lateinit var chatPresenter: ChatPresenter
     private lateinit var chatInputModule: ChatInputComponent
     private lateinit var chatListComponent: ChatListComponent
+
+    private var benchmarkModule: BenchmarkModule = BenchmarkModule(activity = this)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityChatBinding.inflate(layoutInflater)
@@ -107,7 +114,9 @@ class ChatActivity : AppCompatActivity() {
                 chatPresenter.setEnableAudioOutput(it)
             }
             setOnSendMessage{
-                this@ChatActivity.handleSendMessage(it)
+                lifecycleScope.launch {
+                    this@ChatActivity.handleSendMessage(it)
+                }
             }
             setOnStopGenerating{
                 chatPresenter.stopGenerate()
@@ -188,6 +197,7 @@ class ChatActivity : AppCompatActivity() {
         }
         menu.findItem(R.id.menu_item_model_settings).isVisible = !isDiffusion
         menu.findItem(R.id.menu_item_clear_mmap_cache).isVisible = !isDiffusion
+        menu.findItem(R.id.menu_item_benchmark_test).isVisible = benchmarkModule.enabled
         return true
     }
 
@@ -227,10 +237,32 @@ class ChatActivity : AppCompatActivity() {
             settingsSheet.setSession(chatSession as LlmSession)
             settingsSheet.show(supportFragmentManager, SettingsBottomSheetFragment.TAG)
             return true
+        } else if (item.itemId == R.id.menu_item_benchmark_test) {
+            chatSession.setKeepHistory(false)
+            benchmarkModule.start(waitForLastCompleted = {
+                waitForGeneratingFinished()
+            }, handleSendMessage = { message ->
+                chatSession.reset()
+                return@start handleSendMessage(createUserMessage(message))
+            })
         }
         return super.onOptionsItemSelected(item)
     }
 
+    private fun createUserMessage(text:String):ChatDataItem {
+        val userMessage = ChatDataItem(ChatViewHolders.USER)
+        userMessage.text = text
+        userMessage.time = dateFormat!!.format(Date())
+        return userMessage
+    }
+
+    private suspend fun waitForGeneratingFinished() {
+        if (_isGenerating.value) {
+            _isGenerating
+                .filter { !it }
+                .first()
+        }
+    }
 
     override fun onRequestPermissionsResult(
         requestCode: Int,
@@ -267,10 +299,21 @@ class ChatActivity : AppCompatActivity() {
         this.chatInputModule.handleResult(requestCode, resultCode, data)
     }
 
-    private fun handleSendMessage(userData: ChatDataItem) {
-        setIsGenerating(true)
-        chatListComponent.onStartSendMessage(userData)
-        chatPresenter.onRequestGenerate(userData)
+    private suspend fun handleSendMessage(userData: ChatDataItem): HashMap<String, Any> {
+        return chatPresenter.requestGenerate(userData, object : ChatPresenter.GenerateListener {
+            override fun onGenerateStart() {
+                this@ChatActivity.onGenerateStart(userData)
+            }
+            override fun onLlmGenerateProgress(progress: String?, generateResultProcessor:GenerateResultProcessor) {
+                this@ChatActivity.onLlmGenerateProgress(progress, generateResultProcessor)
+            }
+            override fun onDiffusionGenerateProgress(progress: String?, diffusionDestPath: String?) {
+                this@ChatActivity.onDiffusionGenerateProgress(progress, diffusionDestPath)
+            }
+            override fun onGenerateFinished(benchMarkResult: HashMap<String, Any>) {
+                this@ChatActivity.onGenerateFinished(benchMarkResult)
+            }
+        })
     }
 
     override fun onDestroy() {
@@ -282,8 +325,8 @@ class ChatActivity : AppCompatActivity() {
         super.onStop()
         AudioPlayService.instance!!.destroy()
     }
-
-    fun onGenerateStart() {
+    fun onGenerateStart(userData: ChatDataItem) {
+        chatListComponent.onStartSendMessage(userData)
         setIsGenerating(true)
         val recentItem = chatListComponent.recentItem
         recentItem?.loading = true

@@ -5,17 +5,19 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent">
     <com.google.android.material.appbar.AppBarLayout
-        android:id="@+id/chat_app_bar"
+        android:id="@+id/app_bar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:theme="@style/ThemeOverlay.AppCompat.Dark.ActionBar">
+        android:fitsSystemWindows="true">
 
-        <androidx.appcompat.widget.Toolbar
+        <com.google.android.material.appbar.MaterialToolbar
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
-            android:layout_height="?attr/actionBarSize"
-            android:elevation="4dp"
-            app:popupTheme="@style/ThemeOverlay.AppCompat.Light" />
+            android:layout_height="?actionBarSize"
+            app:subtitleCentered="true"
+            app:titleCentered="true"
+            app:subtitleTextAppearance="?textAppearanceBodyMedium"
+            app:titleTextAppearance="?textAppearanceTitleMedium" />
     </com.google.android.material.appbar.AppBarLayout>
     <FrameLayout
         android:layout_width="match_parent"
@@ -24,7 +26,7 @@
         <TextView
             android:id="@+id/tvSelectContent"
             android:layout_width="match_parent"
-            android:textColor="#333333"
+            android:textColor="?colorOnSurface"
             android:layout_height="wrap_content"
             android:textSize="16sp"
             android:textIsSelectable="true"/>

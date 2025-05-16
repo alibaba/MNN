@@ -1,7 +1,8 @@
 // Created by ruoyi.sjd on 2024/12/25.
 // Copyright (c) 2024 Alibaba Group Holding Limited All rights reserved.
-package com.alibaba.mls.api
+package com.alibaba.mls.api.hf
 
+import com.alibaba.mls.api.ModelItem
 import okhttp3.OkHttpClient
 import retrofit2.Call
 import retrofit2.Callback

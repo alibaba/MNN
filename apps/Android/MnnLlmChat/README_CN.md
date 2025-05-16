@@ -57,6 +57,12 @@
   ```
 
 # Releases
+
+## Version 0.4.4.1
++ 点击这里 [下载][download](https://meta.alicdn.com/data/mnn/mnn_chat_0_4_4_1.apk)
++ 解决无法选择 Assistant文本问题。
++ 解决魔乐下载校验失败问题
+
 # Version 0.4.4
 + 点击这里 [下载](https://meta.alicdn.com/data/mnn/mnn_chat_0_4_4.apk)
 + Qwen Omni 的支持语音输出开关

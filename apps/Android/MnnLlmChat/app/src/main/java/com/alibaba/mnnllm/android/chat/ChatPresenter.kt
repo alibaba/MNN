@@ -5,6 +5,7 @@ package com.alibaba.mnnllm.android.chat
 
 import android.text.TextUtils
 import android.util.Log
+import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.lifecycleScope
 import com.alibaba.mnnllm.android.llm.ChatService
 import com.alibaba.mnnllm.android.llm.ChatSession
@@ -16,6 +17,13 @@ import com.alibaba.mnnllm.android.chat.model.ChatDataManager
 import com.alibaba.mnnllm.android.llm.GenerateProgressListener
 import com.alibaba.mnnllm.android.utils.FileUtils
 import com.alibaba.mnnllm.android.utils.ModelUtils
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.DelicateCoroutinesApi
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import java.util.Random
 import java.util.concurrent.Executors
@@ -35,6 +43,9 @@ class ChatPresenter(
     private var chatDataManager: ChatDataManager? = null
     private lateinit var chatSession: ChatSession
     private var chatExecutor: ScheduledExecutorService? = null
+    private val presenterScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var generateListener:GenerateListener? = null
+
     init {
         chatDataManager = ChatDataManager.getInstance(chatActivity)
         chatExecutor = Executors.newScheduledThreadPool(1)
@@ -77,7 +88,7 @@ class ChatPresenter(
 
     fun load() {
         Log.d(TAG, "current SessionId: $sessionId")
-        chatExecutor!!.submit {
+        presenterScope.launch {
             Log.d(TAG, "chatSession loading")
             chatActivity.lifecycleScope.launch {
                 chatActivity.onLoadingChanged(true)
@@ -92,7 +103,7 @@ class ChatPresenter(
     }
 
     fun reset(onResetSuccess: (newSessionId: String) -> Unit) {
-        chatExecutor!!.submit {
+        presenterScope.launch {
             chatDataManager!!.deleteAllChatData(sessionId!!)
             sessionId = chatSession.reset()
             chatActivity.lifecycleScope.launch {
@@ -116,7 +127,7 @@ class ChatPresenter(
             , object : GenerateProgressListener {
                 override fun onProgress(progress: String?): Boolean {
                     chatActivity.lifecycleScope.launch {
-                        chatActivity.onDiffusionGenerateProgress(progress, diffusionDestPath)
+                        this@ChatPresenter.generateListener?.onDiffusionGenerateProgress(progress, diffusionDestPath)
                     }
                     return false
                 }
@@ -130,11 +141,11 @@ class ChatPresenter(
                 chatActivity.getString(R.string.r1_thinking_message),
                 chatActivity.getString(R.string.r1_think_complete_template))
         generateResultProcessor.generateBegin()
-        return chatSession.generate(prompt, mapOf(), object: GenerateProgressListener {
+        val result = chatSession.generate(prompt, mapOf(), object: GenerateProgressListener {
             override fun onProgress(progress: String?): Boolean {
                 generateResultProcessor.process(progress)
                 chatActivity.lifecycleScope.launch {
-                    chatActivity.onLlmGenerateProgress(progress, generateResultProcessor)
+                    this@ChatPresenter.generateListener?.onLlmGenerateProgress(progress, generateResultProcessor)
                 }
                 if (stopGenerating) {
                     Log.d(TAG, "stopGenerating requested")
@@ -142,9 +153,11 @@ class ChatPresenter(
                 return stopGenerating
             }
         })
+        result["response"] = generateResultProcessor.getRawResult()
+        return result
     }
 
-    private fun submitRequest(input: String, userData: ChatDataItem) {
+    private fun submitRequest(input: String, userData: ChatDataItem): HashMap<String, Any> {
         stopGenerating = false
         val benchMarkResult = if (ModelUtils.isDiffusionModel(this.modelName)) {
             submitDiffusionRequest(input)
@@ -152,8 +165,9 @@ class ChatPresenter(
             submitLlmRequest(input)
         }
         chatActivity.lifecycleScope.launch {
-            chatActivity.onGenerateFinished(benchMarkResult)
+            this@ChatPresenter.generateListener?.onGenerateFinished(benchMarkResult)
         }
+        return benchMarkResult
     }
 
     private fun updateSession(sessionId: String, modelId: String?, sessionName: String) {
@@ -161,17 +175,20 @@ class ChatPresenter(
         chatDataManager!!.updateSessionName(this.sessionId!!, this.sessionName)
     }
 
-    fun onRequestGenerate(userData: ChatDataItem) {
+
+    suspend fun requestGenerate(userData: ChatDataItem, generateListener: GenerateListener): HashMap<String, Any> {
+        this.generateListener = generateListener
         val prompt =  PromptUtils.generateUserPrompt(userData)
         if (this.sessionName.isNullOrEmpty()) {
             this.sessionName = SessionUtils.generateSessionName(userData)
             updateSession(sessionId!!, modelId, sessionName!!)
         }
         chatDataManager!!.addChatData(sessionId, userData)
-        chatActivity.onGenerateStart()
-        chatExecutor!!.execute {
-            submitRequest(prompt, userData)
-        }
+        this.generateListener?.onGenerateStart()
+        val result =  presenterScope.async {
+            return@async submitRequest(prompt, userData)
+        }.await()
+        return result
     }
 
     fun stopGenerate() {
@@ -180,10 +197,22 @@ class ChatPresenter(
 
     fun destroy() {
         stopGenerate()
-        chatExecutor!!.submit {
+        presenterScope.cancel("ChatPresenter destroy")
+        presenterScope.launch {
             chatSession.reset()
             chatSession.release()
-            chatExecutor!!.shutdownNow()
+        }
+        CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
+            try {
+                if (::chatSession.isInitialized) {
+                    Log.d(TAG, "Final cleanup: Resetting and releasing chat session.")
+                    chatSession.reset()
+                    chatSession.release()
+                    Log.d(TAG, "Chat session reset and released during destroy.")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error during final chat session cleanup", e)
+            }
         }
     }
 
@@ -193,5 +222,12 @@ class ChatPresenter(
 
     fun setEnableAudioOutput(enable: Boolean) {
         this.chatSession.setEnableAudioOutput(enable)
+    }
+
+    interface GenerateListener {
+        fun onDiffusionGenerateProgress(progress: String?, diffusionDestPath: String?)
+        fun onGenerateStart()
+        fun onGenerateFinished(benchMarkResult: HashMap<String, Any>)
+        fun onLlmGenerateProgress(progress: String?, generateResultProcessor:GenerateResultProcessor)
     }
 }

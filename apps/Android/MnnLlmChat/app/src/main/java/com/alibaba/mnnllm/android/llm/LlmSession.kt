@@ -106,8 +106,6 @@ class LlmSession (
         }
     }
 
-
-
     override fun reset(): String {
         synchronized(this) {
             resetNative(nativePtr)

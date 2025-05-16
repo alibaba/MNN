@@ -3,7 +3,7 @@
 package com.alibaba.mls.api.download.hf
 
 import com.alibaba.mls.api.FileDownloadException
-import com.alibaba.mls.api.HfFileMetadata
+import com.alibaba.mls.api.hf.HfFileMetadata
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.IOException

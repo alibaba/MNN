@@ -11,10 +11,12 @@ import java.security.DigestInputStream
 import java.security.MessageDigest
 import java.security.NoSuchAlgorithmException
 import java.util.Locale
+import kotlin.io.path.exists
 
 object HfShaVerifier {
     private const val TAG = "HfShaVerifier"
     fun verify(etag: String, file: Path): Boolean {
+        Log.d(TAG, "Verifying $file exists: ${file.exists()}")
         val expected = etag.trim('"').lowercase(Locale.ROOT)
         val actual = when (expected.length) {
             40 -> gitSha1Hex(file)

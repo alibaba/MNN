@@ -68,6 +68,7 @@ interface GenerateResultProcessor {
                 processEnded = true
                 return
             }
+            rawStringBuilder.append(progress)
             var buffer = tagBuffer + progress
             tagBuffer = ""
 
