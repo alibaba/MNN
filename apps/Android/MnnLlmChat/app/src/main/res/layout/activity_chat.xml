@@ -118,14 +118,16 @@
                     android:padding="12dp"
                     android:textColor="?attr/colorOnSurface"
                     android:textSize="16sp"/>
-                <RelativeLayout
-                    android:layout_width="wrap_content"
-                    android:layout_height="50dp">
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:orientation="vertical"
+                    android:layout_height="100dp">
                     <RelativeLayout
                         android:id="@+id/btn_voice_recording"
                         android:layout_width="match_parent"
-                        android:layout_height="match_parent"
-                        android:visibility="gone"
+                        android:layout_height="50dp"
+                        android:visibility="visible"
+                        tools:visibility="visible"
                         >
                         <TextView
                             android:layout_width="wrap_content"
@@ -208,7 +210,7 @@
                             android:visibility="gone" />
                     </FrameLayout>
 
-                </RelativeLayout>
+                </LinearLayout>
                 <LinearLayout
                     android:id="@+id/layout_more_menu"
                     android:layout_width="match_parent"
@@ -255,6 +257,7 @@
         android:visibility="gone"
         tools:visibility="visible"
         android:textColor="?colorOnSurface"
+        android:background="@color/semi_transparent_gray"
         tools:text="@string/release_to_send" />
 
     <RelativeLayout

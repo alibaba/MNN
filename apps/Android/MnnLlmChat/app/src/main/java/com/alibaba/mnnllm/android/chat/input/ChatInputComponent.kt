@@ -174,7 +174,7 @@ class ChatInputComponent(
         } else if (currentUserMessage != null) {
             visible = false
         } else if (!TextUtils.isEmpty(editUserMessage.text.toString())) {
-            visible = false
+            //visible = false
         }
         buttonSwitchVoice!!.visibility =
             if (visible) View.VISIBLE else View.GONE
@@ -227,13 +227,13 @@ class ChatInputComponent(
         voiceRecordingModule.setOnVoiceRecordingListener(object : VoiceRecordingListener {
             override fun onEnterRecordingMode() {
                 updateAudioOutput()
-                binding.btnToggleThinking.visibility = View.GONE
-                editUserMessage.visibility = View.GONE
+//                binding.btnToggleThinking.visibility = View.GONE
+//                editUserMessage.visibility = View.GONE
                 KeyboardUtils.hideKeyboard(editUserMessage)
                 if (attachmentPickerModule != null) {
                     attachmentPickerModule!!.hideAttachmentLayout()
                 }
-                editUserMessage.visibility = View.GONE
+//                editUserMessage.visibility = View.GONE
             }
 
             override fun onLeaveRecordingMode() {
@@ -250,10 +250,11 @@ class ChatInputComponent(
             override fun onRecordSuccess(duration: Float, recordingFilePath: String?) {
                 val chatDataItem = ChatDataItem.createAudioInputData(
                     chatActivity.dateFormat!!.format(Date()),
-                    "",
+                    editUserMessage.text.toString().trim { it <= ' ' },
                     recordingFilePath!!,
                     duration
                 )
+                editUserMessage.setText("")
                 this@ChatInputComponent.onSendMessage?.let { it(chatDataItem) }
             }
 
