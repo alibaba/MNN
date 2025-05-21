@@ -23,6 +23,7 @@ import com.alibaba.mls.api.download.hf.HfModelDownloader
 import com.alibaba.mls.api.download.ml.MLModelDownloader
 import com.alibaba.mls.api.download.ms.MsModelDownloader
 import com.alibaba.mls.api.source.ModelSources
+import com.alibaba.mnnllm.android.utils.FileUtils
 import com.alibaba.mnnllm.android.utils.FileUtils.clearMmapCache
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.MainScope
@@ -297,6 +298,9 @@ class ModelDownloadManager private constructor(private val context: Context) {
             mlDownloader.deleteRepo(modelId)
             removeProgress(ApplicationProvider.get(), modelId)
             clearMmapCache(modelId)
+            FileUtils.getModelConfigDir(modelId).let {
+                DownloadFileUtils.deleteDirectoryRecursively(File(it))
+            }
         }
         if (downloadListener != null) {
             val downloadInfo = getDownloadInfo(modelId)

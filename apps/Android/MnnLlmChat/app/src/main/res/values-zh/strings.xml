@@ -8,9 +8,9 @@
     <string name="spinner_prompt">选择模型</string>
     <string name="model_loading">模型加载中...</string>
     <string name="download_not_started">%1$s 点击下载</string>
-    <string name="downloaded_click_to_chat">%1$S, 已下载</string>
+    <string name="downloaded_click_to_chat">%1$S 已下载</string>
     <string name="download_failed_click_retry">下载失败: %1$s, 点击重试</string>
-    <string name="downloading_progress">下载中：%1$.2f%% %2$s</string>"
+    <string name="downloading_progress">%1$s 下载中：%2$.2f%% %3$s</string>"
     <string name="config_file_not_found">模型配置文件不存在：%1$s</string>
     <string name="model_hello_prompt">你好，我是%1$s，有什么需要帮忙的么</string>
     <string name="model_hello_prompt_diffusion">你好，我是%1$s，请输入提示词生成图片</string>

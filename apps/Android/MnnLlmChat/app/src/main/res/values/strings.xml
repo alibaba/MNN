@@ -8,9 +8,9 @@
     <string name="spinner_prompt">Select Model</string>
     <string name="model_loading">Model loading…</string>
     <string name="download_not_started">%1$s Click to download</string>
-    <string name="downloaded_click_to_chat"> %1$s, Downloaded</string>
+    <string name="downloaded_click_to_chat"> %1$s Downloaded</string>
     <string name="download_failed_click_retry">Download failed: %1$s, click to retry</string>
-    <string name="downloading_progress">Downloading: %1$.2f%% %2$s</string>.
+    <string name="downloading_progress">%1$s Downloading: %2$.2f%% %3$s</string>.
     <string name="downloading_paused">%1$s Paused: %2$.2f%%</string>
     <string name="config_file_not_found">Model config file not found: %1$s</string>
     <string name="model_hello_prompt">Hello, I am %1$s, is there anything I can help you with?</string>

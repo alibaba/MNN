@@ -139,6 +139,11 @@ class ModelItemHolder(itemView: View, private val modelItemListener: ModelItemLi
         progressBar.progress = (downloadInfo.progress * 100).toInt()
         tvStatus.text = itemView.resources.getString(
             R.string.downloading_progress,
+            if ((modelItemDownloadState?.downloadInfo?.totalSize ?: 0) > 0) {
+                FileUtils.formatFileSize(modelItemDownloadState!!.downloadInfo!!.totalSize)
+            } else {
+                ""
+            },
             downloadInfo.progress * 100,
             downloadInfo.speedInfo
         )

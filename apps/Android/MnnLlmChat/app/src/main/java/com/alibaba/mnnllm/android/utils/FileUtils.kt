@@ -165,6 +165,10 @@ object FileUtils {
         DownloadFileUtils.deleteDirectoryRecursively(File(getMmapDir(modelId, false)))
     }
 
+    fun getModelSettingsFile(modelId: String):String {
+        return getModelConfigDir(modelId) + "/custom_config.json"
+    }
+
     fun getPathForUri(uri: Uri): String? {
         if ("file" == uri.scheme) {
             return uri.path
