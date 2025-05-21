@@ -1,0 +1,46 @@
+{
+  "buildFiles": [
+    "/home/hzx/Desktop/ANL/MNN/apps/Android/MnnLlmChat/app/src/main/cpp/CMakeLists.txt"
+  ],
+  "cleanCommandsComponents": [
+    [
+      "/home/hzx/Android/Sdk/cmake/3.18.1/bin/ninja",
+      "-C",
+      "/home/hzx/Desktop/ANL/MNN/apps/Android/MnnLlmChat/app/.cxx/Debug/1q5j8632/arm64-v8a",
+      "clean"
+    ]
+  ],
+  "buildTargetsCommandComponents": [
+    "/home/hzx/Android/Sdk/cmake/3.18.1/bin/ninja",
+    "-C",
+    "/home/hzx/Desktop/ANL/MNN/apps/Android/MnnLlmChat/app/.cxx/Debug/1q5j8632/arm64-v8a",
+    "{LIST_OF_TARGETS_TO_BUILD}"
+  ],
+  "libraries": {
+    "mnnllmapp::@6890427a1f51a3e7e1df": {
+      "toolchain": "toolchain",
+      "abi": "arm64-v8a",
+      "artifactName": "mnnllmapp",
+      "output": "/home/hzx/Desktop/ANL/MNN/apps/Android/MnnLlmChat/app/build/intermediates/cxx/Debug/1q5j8632/obj/arm64-v8a/libmnnllmapp.so",
+      "runtimeFiles": [
+        "/home/hzx/Desktop/ANL/MNN/apps/Android/MnnLlmChat/app/src/main/jniLibs/arm64-v8a/libllm.so",
+        "/home/hzx/Desktop/ANL/MNN/apps/Android/MnnLlmChat/app/src/main/jniLibs/arm64-v8a/libMNN.so",
+        "/home/hzx/Desktop/ANL/MNN/apps/Android/MnnLlmChat/app/src/main/jniLibs/arm64-v8a/libMNN_Express.so",
+        "/home/hzx/Desktop/ANL/MNN/apps/Android/MnnLlmChat/app/src/main/jniLibs/arm64-v8a/libMNN_CL.so",
+        "/home/hzx/Desktop/ANL/MNN/apps/Android/MnnLlmChat/app/src/main/jniLibs/arm64-v8a/libMNNAudio.so",
+        "/home/hzx/Desktop/ANL/MNN/apps/Android/MnnLlmChat/app/src/main/jniLibs/arm64-v8a/libMNNOpenCV.so",
+        "/home/hzx/Desktop/ANL/MNN/apps/Android/MnnLlmChat/app/src/main/jniLibs/arm64-v8a/libdiffusion.so"
+      ]
+    }
+  },
+  "toolchains": {
+    "toolchain": {
+      "cCompilerExecutable": "/home/hzx/Android/Sdk/ndk/25.1.8937393/toolchains/llvm/prebuilt/linux-x86_64/bin/clang.lld",
+      "cppCompilerExecutable": "/home/hzx/Android/Sdk/ndk/25.1.8937393/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++.lld"
+    }
+  },
+  "cFileExtensions": [],
+  "cppFileExtensions": [
+    "cpp"
+  ]
+}

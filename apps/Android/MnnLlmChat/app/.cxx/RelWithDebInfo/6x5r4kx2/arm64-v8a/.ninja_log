@@ -1,0 +1,12 @@
+# ninja log v5
+0	2007	1742224437	CMakeFiles/mnnllmapp.dir/llm_mnn_jni.cpp.o	9c5f089af6f9288d
+2	791	1742224989	CMakeFiles/mnnllmapp.dir/diffusion_session.cpp.o	ac2029e76e30adfd
+791	838	1742224989	/home/hzx/Desktop/ANL/MNN/apps/Android/MnnLlmChat/app/build/intermediates/cxx/RelWithDebInfo/6x5r4kx2/obj/arm64-v8a/libmnnllmapp.so	991802dc8b75c59c
+2	4015	1742266983	CMakeFiles/mnnllmapp.dir/llm_mnn_jni.cpp.o	9c5f089af6f9288d
+4016	4104	1742266983	/home/hzx/Desktop/ANL/MNN/apps/Android/MnnLlmChat/app/build/intermediates/cxx/RelWithDebInfo/6x5r4kx2/obj/arm64-v8a/libmnnllmapp.so	991802dc8b75c59c
+0	7	0	clean	a3ab2a8fe0581986
+2	996	1742268372	CMakeFiles/mnnllmapp.dir/diffusion_session.cpp.o	ac2029e76e30adfd
+2	2898	1742268374	CMakeFiles/mnnllmapp.dir/llm_mnn_jni.cpp.o	9c5f089af6f9288d
+2899	2940	1742268374	/home/hzx/Desktop/ANL/MNN/apps/Android/MnnLlmChat/app/build/intermediates/cxx/RelWithDebInfo/6x5r4kx2/obj/arm64-v8a/libmnnllmapp.so	991802dc8b75c59c
+0	339	1745311714	CMakeFiles/mnnllmapp.dir/diffusion_session.cpp.o	ac2029e76e30adfd
+340	408	1745311714	/home/hzx/Desktop/ANL/MNN/apps/Android/MnnLlmChat/app/build/intermediates/cxx/RelWithDebInfo/6x5r4kx2/obj/arm64-v8a/libmnnllmapp.so	991802dc8b75c59c
