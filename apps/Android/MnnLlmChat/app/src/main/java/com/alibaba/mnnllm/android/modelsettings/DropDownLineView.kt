@@ -84,9 +84,31 @@ class DropDownLineView @JvmOverloads constructor (
         if (dropDownItems.isEmpty()) return
 
         val popupMenu = PopupMenu(context, valueTextView)
+        val currentValue = valueTextView.text.toString()
+        
         dropDownItems.forEachIndexed { index, item ->
-            popupMenu.menu.add(Menu.NONE, index, index, itemToString(item))
+            val itemText = itemToString(item)
+            if (itemText == currentValue) {
+                popupMenu.menu.add(Menu.NONE, index, index, "$itemText ✓")
+            } else {
+                popupMenu.menu.add(Menu.NONE, index, index, itemText)
+            }
         }
+        try {
+            val fieldMPopup = PopupMenu::class.java.getDeclaredField("mPopup")
+            fieldMPopup.isAccessible = true
+            val mPopup = fieldMPopup.get(popupMenu)
+            mPopup?.javaClass?.getDeclaredMethod("setForceShowIcon", Boolean::class.java)?.invoke(mPopup, true)
+        } catch (e: Exception) {
+            try {
+                val menuBuilderClass = Class.forName("com.android.internal.view.menu.MenuBuilder")
+                val setOptionalIconsVisibleMethod = menuBuilderClass.getDeclaredMethod("setOptionalIconsVisible", Boolean::class.javaPrimitiveType)
+                setOptionalIconsVisibleMethod.isAccessible = true
+                setOptionalIconsVisibleMethod.invoke(popupMenu.menu, true)
+            } catch (ex: Exception) {
+            }
+        }
+        
         popupMenu.setOnMenuItemClickListener { menuItem ->
             val selectedIndex = menuItem.itemId
             val selectedValue = dropDownItems[selectedIndex]

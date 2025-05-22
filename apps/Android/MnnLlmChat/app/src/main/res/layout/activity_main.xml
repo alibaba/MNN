@@ -23,7 +23,10 @@
                 android:layout_height="48dp"
                 android:elevation="0dp"
                 app:titleCentered="true"
-                app:titleTextAppearance="?textAppearanceTitleMedium"/>
+                app:titleTextAppearance="?textAppearanceTitleMedium">
+            </com.google.android.material.appbar.MaterialToolbar>
+            <include layout="@layout/layout_toolbar_filters_content" />
+
         </com.google.android.material.appbar.AppBarLayout>
 
         <FrameLayout
