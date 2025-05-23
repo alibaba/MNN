@@ -28,7 +28,7 @@
     <color name="color_on_surface_variant">#666666</color>
 
     <color name="color_disabled">#888888</color>
-
+    <color name="semi_transparent_gray">#80888888</color>
 
 
 </resources>
