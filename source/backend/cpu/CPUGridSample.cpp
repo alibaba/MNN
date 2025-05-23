@@ -126,6 +126,7 @@ ErrorCode CPUGridSample::onExecute(const std::vector<Tensor *> &inputs, const st
     }
     return NO_ERROR;
 }
+#ifndef MNN_REDUCE_SIZE
 
 class CPUGridSampleGrad : public CPUGridSample {
 public:
@@ -200,7 +201,7 @@ public:
         return NO_ERROR;
     }
 };
-
+#endif
 class CPUGridSampleCreator : public CPUBackend::Creator {
 public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
@@ -215,7 +216,11 @@ public:
             return nullptr;
         }
         if (gridSampleParam->backward()) {
+#ifndef MNN_REDUCE_SIZE
             return new CPUGridSampleGrad(backend, mode, paddingMode, alignCorners);;
+#else
+            return nullptr;
+#endif
         }
         if (outputs[0]->dimensions() > 4 && core->MNNGridSampleInterp3D == nullptr) {
             MNN_ERROR("Don't support gridsampler grad for pack = %d, float bytes = %d\n", core->pack, core->bytes);

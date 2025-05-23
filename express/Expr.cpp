@@ -8,6 +8,7 @@
 
 #define FLATBUFFERS_PREFER_PRINTF
 #include <stack>
+#include "core/OpCommonUtils.hpp"
 #include <MNN/expr/Expr.hpp>
 #include <MNN/expr/Executor.hpp>
 #include <MNN/expr/ExprCreator.hpp>
@@ -377,6 +378,7 @@ VARP Variable::create(EXPRP expr, int index) {
         res.fix(VARP::CONSTANT);
         return res;
     }
+#ifndef MNN_REDUCE_SIZE
     // CONTENT Mode, Use Geometry Computer to Decompress Expr
     do {
         if (!(executor->getLazyMode() & Executor::LAZY_CONTENT)) {
@@ -485,6 +487,7 @@ VARP Variable::create(EXPRP expr, int index) {
         }
         return varMap.find(expr->inside()->mOutputTensors[index])->second;
     } while (false);
+#endif
     return res;
 }
 void Expr::replace(EXPRP old, EXPRP from) {
@@ -874,6 +877,9 @@ void Variable::prepareCompute(const std::vector<VARP>& vars, bool forceCpu) {
             v->expr().first->setVisited(false);
         }
     }
+    if (exprs.empty()) {
+        return;
+    }
     ExecutorScope::Current()->makeCache(std::move(exprs), forceCpu);
 }
 
@@ -979,17 +985,11 @@ std::vector<VARP> Variable::load(const char* fileName) {
 }
 std::vector<VARP> Variable::load(const uint8_t* buffer, size_t length) {
     AUTOTIME;
-    flatbuffers::Verifier verify((const uint8_t*)(buffer), length);
-    if (false == VerifyNetBuffer(verify)) {
-        MNN_PRINT("Invalidate buffer to create variable\n");
+    if (false == OpCommonUtils::checkNet(buffer, length)) {
         return {};
     }
     std::unique_ptr<NetT> source(UnPackNet(buffer));
     if (nullptr == source) {
-        return {};
-    }
-    if (source->oplists.empty()) {
-        MNN_ERROR("Invalid net\n");
         return {};
     }
     // FUNC_PRINT(source->oplists.size());
@@ -1086,6 +1086,7 @@ void Variable::save(const std::vector<VARP>& vars, NetT* dest) {
     // Search subgraphs
     std::map<std::string, std::shared_ptr<Executor::SubGraph>> subgraphs;
     auto exe = ExecutorScope::Current();
+#ifndef MNN_REDUCE_SIZE
     for (int index = 0; index < executeOrder.size(); ++index) {
         auto expr = executeOrder[index];
         auto op = expr->get();
@@ -1116,7 +1117,7 @@ void Variable::save(const std::vector<VARP>& vars, NetT* dest) {
         std::unique_ptr<MNN::SubGraphProtoT> subgraph(flatbuffers::GetRoot<MNN::SubGraphProto>(builder.GetBufferPointer())->UnPack());
         dest->subgraphs.emplace_back(std::move(subgraph));
     }
-
+#endif
     // Get Expr - TensorOffset Map
     std::map<EXPRP, int> varIndexInfo;
     {
@@ -1243,6 +1244,7 @@ void Variable::save(const std::vector<VARP>& vars, NetT* dest) {
                     describe->quantInfo->zero = tensorDes->quantAttr->zero;
                     describe->quantInfo->scale = tensorDes->quantAttr->scale;
                 }
+#ifndef MNN_REDUCE_SIZE
                 if (staticModel) {
                     describe->blob = std::unique_ptr<MNN::BlobT>(new MNN::BlobT);
                     auto& blob = describe->blob;
@@ -1272,13 +1274,16 @@ void Variable::save(const std::vector<VARP>& vars, NetT* dest) {
                         describe->regions.emplace_back(std::move(regionT));
                     }
                 }
+#endif
                 dest->extraTensorDescribe.emplace_back(std::move(describe));
             }
         }
     }
+#ifndef MNN_REDUCE_SIZE
     if (staticModel) {
         dest->usage = Usage_INFERENCE_STATIC;
     }
+#endif
     // add version number
     dest->extraInfo.reset(new ExtraInfoT);
     dest->extraInfo->version = MNN_VERSION;
@@ -1301,26 +1306,7 @@ void Variable::save(const std::vector<VARP>& vars, const char* fileName) {
     flatbuffers::FlatBufferBuilder builder(1024);
     auto offset = Net::Pack(builder, net.get());
     builder.Finish(offset);
-    // TODO, use FileWriter instead
-    FILE* f = fopen(fileName, "wb");
-    if (nullptr == f) {
-        MNN_ERROR("Open %s error\n", fileName);
-        return;
-    }
-    static const size_t block = 4096;
-    size_t totalSize    = builder.GetSize();
-    size_t blockSize    = UP_DIV(totalSize, block);
-    for (size_t i = 0; i < blockSize; ++i) {
-        size_t sta = block * i;
-        size_t fin = std::min(sta + block, totalSize);
-        if (fin > sta) {
-            auto realSize = fwrite((const char*)builder.GetBufferPointer() + sta, 1, fin - sta, f);
-            if (realSize != fin - sta) {
-                MNN_ERROR("Write %s error\n", fileName);
-            }
-        }
-    }
-    fclose(f);
+    FileLoader::write(fileName, std::make_pair(builder.GetBufferPointer(), builder.GetSize()));
 }
 std::pair<std::map<std::string, VARP>, std::map<std::string, VARP>> Variable::getInputAndOutput(const std::map<std::string, VARP>& allVariable) {
     std::pair<std::map<std::string, VARP>, std::map<std::string, VARP>> res;

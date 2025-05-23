@@ -12,6 +12,7 @@
 #include <functional>
 #include "core/BufferAllocator.hpp"
 #include "core/Backend.hpp"
+#ifndef MNN_REDUCE_SIZE
 namespace MNN {
 /**
  Based on
@@ -86,5 +87,5 @@ private:
     int mWeightBytes = 4;
 };
 } // namespace MNN
-
+#endif
 #endif /* StrassenMatmulComputor_hpp */

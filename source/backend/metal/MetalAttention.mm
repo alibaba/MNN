@@ -183,7 +183,7 @@ void AttentionBufExecution::reallocKVCache() {
             // past_key   : [mCache->mPastLength, mKvNumHead, mHeadDim]
             // past_value : [mKvNumHead, mHeadDim, mCache->mMaxLength]
 
-            auto copy_src_index = mCache->mPastLength - mMeta->remove + begin;
+            auto copy_src_index = start + begin;
             auto copy_dst_index = start;
             for(int i = 0; i < length; i++) {
                 ::memcpy(key_ptr + (copy_dst_index + i) * mKvNumHead * mHeadDim * byte, key_ptr + (copy_src_index + i) * mKvNumHead * mHeadDim * byte, mKvNumHead * mHeadDim * byte);
@@ -203,46 +203,58 @@ void AttentionBufExecution::compilerShader(const std::vector<Tensor *> &inputs) 
     auto mtbn = static_cast<MetalBackend *>(backend());
     auto rt = (MetalRuntime*)mtbn->runtime();
     auto context = (__bridge MNNMetalContext *)mtbn->context();
-
+    
+    auto seq_len = inputs[0]->length(1);
+    int group_size = inputs[0]->length(2) / inputs[1]->length(2);
+    std::string group_str = std::to_string(group_size);
+    
     // Init Kernel
     std::string T = "float";
+    std::string T4 = "float4";
     if (mtbn->useFp16InsteadFp32()) {
         T = "half";
+        T4 = "half4";
     }
     std::vector<std::string> qkKeys = {
-        {"matmul_qk_div_mask", T}
+        {"matmul_qk_div_mask", T, group_str}
     };
-    if(mQkSimdReduce) {
-        qkKeys.emplace_back("SIMD_GROUP_REDUCE");
+    if(mHeadDim % 4 != 0) {
+        qkKeys.emplace_back("HEAD_DIM_UNALIGNED_4");
     }
     
     std::vector<std::string> qkvKeys = {
-        {"matmul_qkv", T}
+        {"matmul_qkv", T, group_str}
     };
     if(mQkvSimdReduce) {
         qkvKeys.emplace_back("SIMD_GROUP_REDUCE");
     }
     std::vector<std::string> qkPrefillKeys = {
-        {"matmul_qk_div_mask", T, "FOR_PREFILL"}
+        {"matmul_qk_div_mask", T, group_str, "FOR_PREFILL"}
     };
     if(mHasMask) {
         if (mIsAddMask) {
             qkPrefillKeys.emplace_back("ADD_MASK");
+            if(seq_len > 1) {
+                qkKeys.emplace_back("ADD_MASK");
+            }
         } else {
             qkPrefillKeys.emplace_back("SET_MASK");
+            if(seq_len > 1) {
+                qkKeys.emplace_back("SET_MASK");
+            }
         }
     }
     if(mQkSimdMatrix) {
         qkPrefillKeys.emplace_back("SIMD_GROUP_MATRIX");
     }
     std::vector<std::string> qkvPrefillKeys = {
-        {"matmul_qkv", T, "FOR_PREFILL"}
+        {"matmul_qkv", T, group_str, "FOR_PREFILL"}
     };
     if(mQkvSimdMatrix) {
         qkvPrefillKeys.emplace_back("SIMD_GROUP_MATRIX");
     }
     std::vector<std::string> copyPastKeys = {
-        {"pastkv_copy", T}
+        {"pastkv_copy", T, group_str}
     };
     std::vector<std::vector<std::string>> keys = {
         qkKeys,
@@ -273,7 +285,9 @@ void AttentionBufExecution::compilerShader(const std::vector<Tensor *> &inputs) 
             MTLCompileOptions *option = [[MTLCompileOptions alloc] init];
             auto dic = [NSMutableDictionary dictionaryWithCapacity:0];
             [dic setValue:@(keys[i][1].c_str()) forKey:@"T"];
-            for (int j=2; j<keys[i].size(); ++j) {
+            [dic setValue:@(T4.c_str()) forKey:@"T4"];
+            [dic setValue:@(keys[i][2].c_str()) forKey:@"GROUP_SIZE"];
+            for (int j=3; j<keys[i].size(); ++j) {
                 [dic setValue:@"1" forKey:@(keys[i][j].c_str())];;
             }
             option.preprocessorMacros = dic;
@@ -375,8 +389,8 @@ ErrorCode AttentionBufExecution::onResize(const std::vector<Tensor *> &inputs, c
     mNumHead = shape[2];
     mHeadDim = shape[3];
     mScale = 1.0 / sqrt(mHeadDim);
-    // currently only mSeqLen=1 means short_seq
-    mShortSeq = mSeqLen == 1;
+    // TODO : define short_seq more accurately
+    mShortSeq = mSeqLen <= 10;
     mKvNumHead = key->shape()[2];
     mKvSeqLen = key->shape()[1];
     mKvMaxLen = ROUND_UP(mKvSeqLen, 4);
@@ -440,12 +454,12 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor *> &inputs, const 
     bool supportSimdMatrix = rt->supportSimdGroupMatrix();
 
     // decode and thread number not too large
-    mQkSimdReduce = supportSimdReduce && mSeqLen == 1;
+    mQkSimdReduce = supportSimdReduce && mShortSeq;
     // loop_k can divide 8, thus avoid branch
     mQkSimdMatrix = supportSimdMatrix && mSeqLen >= 16 && mHeadDim % 8 == 0;
 
     mSftmSimdReduce = supportSimdReduce;
-    mQkvSimdReduce = supportSimdReduce && mSeqLen == 1 && mHeadDim * mNumHead < mKvSeqLen * 32;
+    mQkvSimdReduce = supportSimdReduce && mShortSeq && mHeadDim * mNumHead < mKvSeqLen * 32;
     mQkvSimdMatrix = supportSimdMatrix && mSeqLen >= 16;
     
     // start to compile attention shaders
@@ -521,8 +535,8 @@ void AttentionBufExecution::onEncode(const std::vector<Tensor *> &inputs, const 
             
             int decode_grid_y = mBatch * mNumHead;
             std::pair<MTLSize, MTLSize> gl;
-            if(mQkSimdReduce) {
-                gl = std::make_pair(MTLSizeMake(seqLenPiece, decode_grid_y, mKvSeqLen), MTLSizeMake(32, 1, 1));
+            if(mShortSeq) {
+                gl = [context computeBestGroupAndLocal:pipeline threads:MTLSizeMake(seqLenPiece, decode_grid_y / group_size, mKvSeqLen)];
             } else if(mQkSimdMatrix) {
                 gl = std::make_pair(MTLSizeMake(UP_DIV(seqLenPiece, 16), UP_DIV(mKvSeqLen, 16), decode_grid_y), MTLSizeMake(32, 1, 1));
             } else {

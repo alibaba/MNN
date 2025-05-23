@@ -27,7 +27,6 @@ static bool _supportQuant(const Op* op, const std::vector<Tensor*>& inputs, cons
     switch (otype) {
         case OpType_Convolution:
         case OpType_ConvolutionDepthwise:
-//        case OpType_Deconvolution:
             if (inputs.size() > 1) {
                 return false;
             }
@@ -49,6 +48,19 @@ static bool _supportQuant(const Op* op, const std::vector<Tensor*>& inputs, cons
             }
             return true;
         }
+        case OpType_Pooling:
+            if (op->main_as_Pool() && op->main_as_Pool()->type() == PoolType_MAXPOOL ) {
+                return true;
+            } else if (op->main_as_Pool() && op->main_as_Pool()->type() == PoolType_AVEPOOL) {
+                return true;
+            } else {
+                return false;
+            }
+        case OpType_Softmax:
+            return true;
+        case OpType_LayerNorm:
+            return true;
+#ifdef MNN_SUPPORT_QUANT_EXTEND
         case OpType_ReLU:
             if (TensorUtils::getDescribe(inputs[0])->quantAttr.get() != TensorUtils::getDescribe(outputs[0])->quantAttr.get()) {
                 return false;
@@ -59,23 +71,11 @@ static bool _supportQuant(const Op* op, const std::vector<Tensor*>& inputs, cons
             } else {
                 return false;
             }
-        case OpType_Pooling:
-            if (op->main_as_Pool() && op->main_as_Pool()->type() == PoolType_MAXPOOL ) {
-                return true;
-            } else if (op->main_as_Pool() && op->main_as_Pool()->type() == PoolType_AVEPOOL) {
-                return true;
-            } else {
-                return false;
-            }
         case OpType_BinaryOp:
-            return true;
-        case OpType_Softmax:
             return true;
         case OpType_Scale:
             return true;
         case OpType_Interp:
-            return true;
-        case OpType_LayerNorm:
             return true;
         case OpType_UnaryOp:
             if (op->main_as_UnaryOp()->tableInt8() || op->main_as_UnaryOp()->opType() == UnaryOpOperation_NEG || op->main_as_UnaryOp()->opType() == UnaryOpOperation_ABS || op->main_as_UnaryOp()->opType() == UnaryOpOperation_SIGN) {
@@ -85,6 +85,7 @@ static bool _supportQuant(const Op* op, const std::vector<Tensor*>& inputs, cons
             }
         case OpType_PReLU:
             return true;
+#endif
         default:
             break;
     }
@@ -162,7 +163,6 @@ static void _releaseTensor(Tensor* origin, bool mAllocInput, int group) {
 
 static bool _allocTensor(Tensor* t, Backend* curBackend, bool outputStatic, int group) {
     auto memoryType = _getTensorStorageType(t, outputStatic);
-    auto bn         = TensorUtils::getDescribeOrigin(t)->getBackend();
     auto des = TensorUtils::getDescribe(t);
     if (des->group != group) {
         return true;
@@ -202,13 +202,13 @@ void Pipeline::UnitInfo::setUp(const Command& command, int index, const Op* orig
 #else
     mContent->type = EnumNameOpType(command.op->type());
 #endif
-#ifndef MNN_BUILD_MINI
+#ifndef MNN_SKIPBUILD_GEOMETRY
     mContent->flops = SizeComputer::computeFlops(command.op, command.inputs, command.outputs);
 #endif
 }
 
 Pipeline::Pipeline(const std::string& externalFile, Schedule::PipelineInfo&& info, bool allocInput, bool outputStatic, const TuningAttr& tune, const Runtime* rt, const Runtime* cpuRt, int geometryMask)
-#ifndef MNN_BUILD_MINI
+#ifndef MNN_SKIPBUILD_GEOMETRY
     : mContext(geometryMask, info.first.cache.second, info.first.cache.first->type(), info.first.info.user ? info.first.info.user->precision :  BackendConfig::Precision_Normal), mUseGeometry(rt->onGetCompilerType()) {
 #else
 {
@@ -266,7 +266,7 @@ ErrorCode Pipeline::encode(bool supportDebug, bool permitCodegen) {
             info.executeBuffer.command = {cmd};
         }
     } else {
-#ifndef MNN_BUILD_MINI
+#ifndef MNN_SKIPBUILD_GEOMETRY
         mBackend->onClearBuffer();
         mBackupBackend->onClearBuffer();
         mContext.clear();
@@ -492,7 +492,7 @@ void Pipeline::_pushTuningTask(std::vector<Schedule::OpCacheInfo>&& initInfos) {
             iterP->outputs = iter.outputs;
             iterP->op = iter.op;
             iterP->buffer = iter.buffer;
-#ifndef MNN_BUILD_MINI
+#ifndef MNN_SKIPBUILD_GEOMETRY
             if (iter.op->type() == OpType_Raster) {
                 iterP->buffer = mContext.mRasterOp;
             }
@@ -878,7 +878,7 @@ void Pipeline::_recycleDynamicMemory(Command* command) {
     }
 }
 void Pipeline::openResizeCheck() {
-#ifndef MNN_BUILD_MINI
+#ifndef MNN_SKIPBUILD_GEOMETRY
     mGeometryNeedRelease = false;
     for (auto& info : mInfo.second) {
         info.computeCache.open();
@@ -887,7 +887,7 @@ void Pipeline::openResizeCheck() {
 }
 
 ErrorCode Pipeline::fixResizeCache() {
-#ifndef MNN_BUILD_MINI
+#ifndef MNN_SKIPBUILD_GEOMETRY
     // TODO: Recompute release mask and set mGeometryNeedRelease = true
     for (auto& info : mInfo.second) {
         if (info.type == Schedule::CONSTANT && (!info.computeCache.needExecuteConst)) {

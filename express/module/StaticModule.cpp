@@ -376,10 +376,10 @@ StaticModule::StaticModule(std::vector<int> inputs,
     }
     mResource->mOutputs = std::move(outputs);
 
-    bool needResize = scheduleInfo.validForResize && mResource->mModes.inputMode == Interpreter::Session_Input_Inside;
+    bool canResize = scheduleInfo.validForResize && mResource->mModes.inputMode == Interpreter::Session_Input_Inside;
     mSession.reset(new Session(std::move(scheduleInfo), mResource->mModes, std::move(rt)));
     resetInputOutputs();
-    if (needResize) {
+    if (canResize && (!config.rearrange)) {
         mSession->resize();
     }
 }
@@ -625,7 +625,7 @@ std::vector<Express::VARP> StaticModule::onForward(const std::vector<Express::VA
     mSession->getInfo(Interpreter::FLOPS, &flops);
     glo->getDebugTools()->flops += flops;
 #endif
-    
+
     return outputs;
 }
 

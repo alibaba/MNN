@@ -251,8 +251,9 @@ struct CoreFunctions {
     // For Atomic Op
     MNNBinaryExecute(*MNNSelectBinaryFunctionForFloat)(int opType);
     MNNUnaryExecute(*MNNSelectUnaryFunctionForFloat)(int opType, int precisionMode);
+#ifdef MNN_SUPPORT_QUANT_EXTEND
     MNNUnaryExecuteInt8(*MNNSelectUnaryFunctionForInt8)(int opType);
-
+#endif
     // B matrix is sparsed
     typedef void(*MNNPackedSparseMatMul)(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, unsigned int* NNZMap, int* dataOffsetMap);
     void(*MNNAdjustOptimalSparseKernel)(int& sparseBlockOC, MNNPackedSparseMatMul& packedSparseMatMul);

@@ -14,6 +14,43 @@
 #include "TestUtils.h"
 
 using namespace MNN::Express;
+static MNN::PoolPadType _convertPoollingPadMode(PaddingMode mode) {
+    switch (mode) {
+        case CAFFE:
+            return MNN::PoolPadType_CAFFE;
+        case VALID:
+            return MNN::PoolPadType_VALID;
+        case SAME:
+            return MNN::PoolPadType_SAME;
+        default:
+            break;
+    }
+    return MNN::PoolPadType_CAFFE;
+}
+static VARP _PoolGrad(VARP originInput, VARP originOutput, VARP inputGrad, INTS kernel, INTS stride, PoolingMode type,
+                      PaddingMode pad = VALID, INTS pads= {0, 0}) {
+    std::unique_ptr<MNN::OpT> pool(new MNN::OpT);
+    pool->type       = MNN::OpType_PoolGrad;
+    pool->main.type  = MNN::OpParameter_Pool;
+    pool->main.value = new MNN::PoolT;
+    if (kernel[0] == -1 && kernel[1] == -1) {
+        pool->main.AsPool()->isGlobal = true;
+    }
+    pool->main.AsPool()->padX = 0;
+    pool->main.AsPool()->padY = 0;
+    if (pads.size() >= 2) {
+        pool->main.AsPool()->padX = pads[0];
+        pool->main.AsPool()->padY = pads[1];
+    }
+    pool->main.AsPool()->padType = _convertPoollingPadMode(pad);
+    pool->main.AsPool()->kernelX = kernel[0];
+    pool->main.AsPool()->kernelY = kernel[1];
+    pool->main.AsPool()->strideX = stride[0];
+    pool->main.AsPool()->strideY = stride[1];
+    pool->main.AsPool()->type    = (MNN::PoolType)type;
+    return (Variable::create(Expr::create(std::move(pool), {originInput, originOutput, inputGrad})));
+}
+
 
 class PoolGradTest : public MNNTestCase {
 public:
@@ -91,7 +128,11 @@ class PoolGradTestOnCPU : public PoolGradTest {
 public:
     virtual ~PoolGradTestOnCPU() = default;
     virtual bool run(int precision) {
+#ifndef MNN_REDUCE_SIZE
         return testOnBackend(MNN_FORWARD_CPU, "CPU", precision);
+#else
+        return true;
+#endif
     }
 };
 

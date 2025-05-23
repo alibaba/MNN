@@ -41,8 +41,8 @@ public:
     virtual CompilerType onGetCompilerType() const override {
         return Compiler_Loop;
     }
-    void onConcurrencyBegin() const;
-    void onConcurrencyEnd() const;
+    virtual void onConcurrencyBegin() const override;
+    virtual void onConcurrencyEnd() const override;
     virtual bool onCheckInfo(Backend::Info& info) const override;
 
 #ifdef MNN_USE_THREAD_POOL
@@ -60,7 +60,7 @@ private:
     int mThreadNumber;
 #ifdef MNN_USE_THREAD_POOL
     mutable int mTaskIndex = -1;
-    mutable bool mThreadOpen = false;
+    mutable int mThreadOpen = 0;
 #endif
     BackendConfig::MemoryMode mMemory;
     BackendConfig::PowerMode mPower;
@@ -74,7 +74,8 @@ private:
     mutable std::vector<SingleBufferWithAllocator> mDynamic;
     mutable std::vector<SingleBufferWithAllocator> mDynamicMmap;
     mutable std::shared_ptr<DynamicAllocator> mSharedDmaInfo;
-    mutable std::shared_ptr<EagerBufferAllocator> mStaticAllocatorCache;
+    mutable std::shared_ptr<EagerBufferAllocator> mStaticAllocatorRaw;
+    mutable std::shared_ptr<EagerBufferAllocator> mStaticAllocatorMMap;
 };
 struct CoreFunctions;
 struct CoreInt8Functions;
@@ -150,7 +151,7 @@ public:
     }
 #ifdef MNN_USE_THREAD_POOL
     inline bool threadOpen() const {
-        return mRuntime->mThreadOpen;
+        return mRuntime->mThreadOpen > 0;
     }
 #endif
 
@@ -190,7 +191,6 @@ private:
     float mComputeI = 0.f;
 
     std::shared_ptr<CPURuntime::DynamicAllocator> mDmaInfo;
-    std::shared_ptr<EagerBufferAllocator> mStaticAllocator;
     CPURuntime* mRuntime;
     BackendConfig::PrecisionMode mPrecisionMode;
     BackendConfig::MemoryMode mMemory;

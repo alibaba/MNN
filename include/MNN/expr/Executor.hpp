@@ -146,7 +146,9 @@ private:
 
     RuntimeInfo mRuntimeInfo;
     std::shared_ptr<DebugTools> mDebug;
+#ifndef MNN_REDUCE_SIZE
     std::map<std::string, std::shared_ptr<SubGraph>> mSubGraph;
+#endif
     uint32_t mLazyMode = 0;
     std::shared_ptr<ExecutorAttr> mAttr;
     std::mutex mMutex;

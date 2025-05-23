@@ -278,6 +278,14 @@ node llm_demo.js ~/qwen2.0_1.5b/config.json ~/qwen2.0_1.5b/prompt.txt
   - n_gram: 最大存储的ngram大小，超过此大小的重复ngram将被禁止重复输出，仅在`penalty`选中时生效，默认为8
   - ngram_factor: `penalty`中对于重复ngram (n>1) 的额外惩罚，默认为1.0，即没有额外惩罚
   - penalty_sampler: `penalty`中施加完惩罚项后采用的sampling策略，可选"greedy"或"temperature"，默认greedy.
+- 投机解码配置项
+  - speculative_type: 投机解码算法设置，当前仅支持配置为`lookahead`(使用外接知识库/输入prompt信息去生成草稿做投机验证),通常需要较完备的知识库或者输入prompt与输出重合度较高的场景(例如：代码编辑、文本总结)才有较明显加速。
+  - draft_predict_length: 草稿长度，通常设置2-8之间，默认为4。
+  - draft_match_strictness: 草稿匹配的严格程度，当有草稿时，是否选取该草稿去做并行验证。可以设置`low`、`medium`、`high`。通常严格程度越高，草稿接受率越高，但是启用并行验证概率也越低。默认为`low`，该参数仅`lookahead`模式设置有效。
+  - draft_selection_rule: 草稿选择规则，当有多个草稿时，选取的规则设置。支持`freqxlen`（出现频率与匹配长度最高者）和`fcfs`(最先匹配者)。默认`freqxlen`，该参数仅`lookahead`模式设置有效。
+  - ngram_match_maxlen: ngram匹配历史token最长值，默认为4，该参数仅`lookahead`模式设置有效。
+  - lookup_file: 用户外接知识库文件路径，默认为`lookup_file.txt`，该参数仅`lookahead`模式设置有效。
+  - ngram_update: 是否解码过程实时添加更新ngram信息，默认为`false`，该参数仅`lookahead`模式设置有效。
 - Omni语音生成配置
   - talker_max_new_tokens: 生成时最大语音token数，在Qwen2.5-Omni中50个语音token对应1秒语音，默认为`2048`
   - talker_speaker: 生成语音的音色，Qwen2.5-Omni中支持的音色为：`["Chelsie", "Ethan"]`

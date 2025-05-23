@@ -6,6 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#ifndef MNN_REDUCE_SIZE
+
 #include "StrassenMatmulComputor.hpp"
 #include "DenseConvolutionTiledExecutor.hpp"
 #include "CommonOptFunction.h"
@@ -562,3 +564,4 @@ void StrassenMatrixComputor::onExecute(const uint8_t* AT, const uint8_t* BT, con
     }
 }
 } // namespace MNN
+#endif

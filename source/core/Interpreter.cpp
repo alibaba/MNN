@@ -13,6 +13,7 @@
 #include <mutex>
 #include <vector>
 #include "MNN_generated.h"
+#include "core/OpCommonUtils.hpp"
 #include "core/AutoStorage.h"
 #include "core/FileLoader.hpp"
 #include "core/Pipeline.hpp"
@@ -117,14 +118,10 @@ Interpreter* Interpreter::createFromBufferInternal(Content* net, bool enforceAut
         MNN_PRINT("Buffer is null for create interpreter\n");
         return nullptr;
     }
-#ifndef MNN_BUILD_MINI
-    flatbuffers::Verifier verify((const uint8_t*)(net->buffer.get()), net->buffer.size());
-    if (false == VerifyNetBuffer(verify)) {
-        MNN_PRINT("Invalidate buffer to create interpreter\n");
-        delete net;
+    auto valid = OpCommonUtils::checkNet(net->buffer.get(), net->buffer.size());
+    if (!valid) {
         return nullptr;
     }
-#endif
     net->net = GetNet(net->buffer.get());
     if (nullptr == net->net->oplists()) {
         MNN_ERROR("Model has no oplist\n");
@@ -405,13 +402,27 @@ void Interpreter::logForRunSession(const Session* session, float timeInMs, const
     logAsync(metrics);
 }
 #endif
+static void _runSessionBegin(const Session* session) {
+    auto& rt = session->getRuntime();
+    for (auto& iter : rt.first) {
+        iter.second->onConcurrencyBegin();
+    }
+}
+static void _runSessionEnd(const Session* session) {
+    auto& rt = session->getRuntime();
+    for (auto& iter : rt.first) {
+        iter.second->onConcurrencyEnd();
+    }
+}
 
 ErrorCode Interpreter::runSession(Session* session) const {
     std::unique_lock<std::mutex> _l(mNet->lock);
 #ifdef MNN_INTERNAL_ENABLED
     Timer timer;
 #endif
+    _runSessionBegin(session);
     ErrorCode errorcode = session->run();
+    _runSessionEnd(session);
 
 #ifdef MNN_INTERNAL_ENABLED
     if (shouldLog(FREQ_LOW)) {
@@ -505,8 +516,9 @@ ErrorCode Interpreter::runSessionWithCallBackInfo(const Session* session, const 
 #ifdef MNN_INTERNAL_ENABLED
     Timer timer;
 #endif
+    _runSessionBegin(session);
     ErrorCode errorcode = session->runWithCallBack(before, callBack, sync);
-
+    _runSessionEnd(session);
 #ifdef MNN_INTERNAL_ENABLED
     if (shouldLog(FREQ_LOW)) {
         waitSessionFinish(session);

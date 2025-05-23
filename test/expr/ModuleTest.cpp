@@ -252,6 +252,10 @@ public:
     }
     virtual bool run(int precision) {
         std::vector<int8_t> buffer;
+#ifdef MNN_REDUCE_SIZE
+        return true;
+#endif
+
         // construct
         {
             auto x = _Input({1, 3, 5, 7}, NCHW, halide_type_of<int>());

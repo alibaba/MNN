@@ -11,6 +11,7 @@
 #include "core/Macro.h"
 #include "core/FileLoader.hpp"
 namespace MNN {
+#ifndef MNN_REDUCE_SIZE
 class CPUExternalConst : public Execution {
 public:
     CPUExternalConst(const Op* op, Backend* bn) : Execution(bn) {
@@ -32,15 +33,19 @@ private:
     int64_t mOffset = 0;
     int64_t mSize = 0;
 };
-
+#endif
 class CPUExternalConstCreator : public CPUBackend::Creator {
 public:
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op, Backend* backend) const {
+#ifndef MNN_REDUCE_SIZE
         if (op->externalPath() == nullptr) {
             return nullptr;
         }
         return new CPUExternalConst(op, backend);
+#else
+        return nullptr;
+#endif
     }
 };
 

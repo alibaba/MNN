@@ -5,12 +5,16 @@ option(BUILD_MLS "Build PC Commandline." OFF)
 set(LLM_DEPS ${MNN_DEPS})
 if (LLM_SUPPORT_VISION AND MNN_BUILD_OPENCV)
     add_definitions(-DLLM_SUPPORT_VISION)
-    list(APPEND LLM_DEPS MNNOpenCV)
+    if (MNN_SEP_BUILD)
+        list(APPEND LLM_DEPS MNNOpenCV)
+    endif()
     include_directories(${CMAKE_CURRENT_LIST_DIR}/../../../tools/cv/include/)
 endif()
 
 if (LLM_SUPPORT_AUDIO AND MNN_BUILD_AUDIO)
-    list(APPEND LLM_DEPS MNNAudio)
+    if (MNN_SEP_BUILD)
+        list(APPEND LLM_DEPS MNNAudio)
+    endif()
     include_directories(${CMAKE_CURRENT_LIST_DIR}/../../../tools/audio/include/)
 endif()
 
@@ -18,7 +22,7 @@ endif()
 include_directories(${CMAKE_CURRENT_LIST_DIR}/include/)
 
 # source files
-FILE(GLOB SRCS ${CMAKE_CURRENT_LIST_DIR}/src/*.cpp)
+FILE(GLOB SRCS ${CMAKE_CURRENT_LIST_DIR}/src/*.cpp ${CMAKE_CURRENT_LIST_DIR}/src/speculative_decoding/*.cpp)
 
 if (MNN_SEP_BUILD)
     if (MNN_BUILD_SHARED_LIBS)

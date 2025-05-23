@@ -15,7 +15,7 @@
 #include "backend/cpu/compute/Int8FunctionsOpt.h"
 
 namespace MNN {
-
+#ifdef MNN_SUPPORT_QUANT_EXTEND
 CPUScaleInt8::CPUScaleInt8(const Op* op, Backend* bn) : MNN::Execution(bn) {
     auto scale      = op->main_as_Scale();
     auto core = static_cast<CPUBackend*>(bn)->functions();
@@ -120,5 +120,5 @@ ErrorCode CPUScaleInt8::onExecute(const std::vector<Tensor*>& inputs, const std:
     MNN_CONCURRENCY_END();
     return NO_ERROR;
 }
-
+#endif
 } // namespace MNN
