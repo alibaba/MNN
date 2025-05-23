@@ -208,6 +208,10 @@ ErrorCode Executor::ComputeCache::compute() {
     dfsStack.push(this);
     ErrorCode code = NO_ERROR;
     auto globalExecutor = ExecutorScope::Current();
+    auto& rt = globalExecutor->mRuntimeInfo;
+    for (auto& iter : rt.first) {
+        iter.second->onConcurrencyBegin();
+    }
     auto debug = globalExecutor->getDebugTools();
     while (!dfsStack.empty()) {
         //printf("stcak = %d\n", dfsStack.size());
@@ -254,6 +258,9 @@ ErrorCode Executor::ComputeCache::compute() {
             }
             cache->mContentDirty = false;
         }
+    }
+    for (auto& iter : rt.first) {
+        iter.second->onConcurrencyEnd();
     }
     return NO_ERROR;
 }

@@ -152,7 +152,8 @@ kernel void prefill_qk(const device T* input0 [[buffer(0)]],
         if(slk * 16 + kl * 8 + 0 < k_seq_len) {
             auto out0 =  sdata[(kl * 16 + rcl) * 8 + 0] * Vscale;
             #ifdef ADD_MASK
-                out0 = mask[(ori_q_idx * k_seq_len + (slk * 16 + kl * 8 + 0))] + out0;
+                auto mask_val = (slk * 16 + kl * 8 + 0) >= k_seq_len - q_seq_len ? mask[(ori_q_idx * q_seq_len + (slk * 16 + kl * 8 + 0) - k_seq_len + q_seq_len)] : 0.0;
+                out0 = mask_val + out0;
             #elif defined(SET_MASK)
                 out0 = mask[(ori_q_idx * k_seq_len + (slk * 16 + kl * 8 + 0))] == 0 ? -FLT_MAX : out0;
             #endif
@@ -161,7 +162,8 @@ kernel void prefill_qk(const device T* input0 [[buffer(0)]],
         if(slk * 16 + kl * 8 + 1 < k_seq_len) {
             auto out0 =  sdata[(kl * 16 + rcl) * 8 + 1] * Vscale;
             #ifdef ADD_MASK
-                out0 = mask[(ori_q_idx * k_seq_len + (slk * 16 + kl * 8 + 1))] + out0;
+                auto mask_val = (slk * 16 + kl * 8 + 1) >= k_seq_len - q_seq_len ? mask[(ori_q_idx * q_seq_len + (slk * 16 + kl * 8 + 1) - k_seq_len + q_seq_len)] : 0.0;
+                out0 = mask_val + out0;
             #elif defined(SET_MASK)
                 out0 = mask[(ori_q_idx * k_seq_len + (slk * 16 + kl * 8 + 1))] == 0 ? -FLT_MAX : out0;
             #endif
@@ -170,7 +172,8 @@ kernel void prefill_qk(const device T* input0 [[buffer(0)]],
         if(slk * 16 + kl * 8 + 2 < k_seq_len) {
             auto out0 =  sdata[(kl * 16 + rcl) * 8 + 2] * Vscale;
             #ifdef ADD_MASK
-                out0 = mask[(ori_q_idx * k_seq_len + (slk * 16 + kl * 8 + 2))] + out0;
+                auto mask_val = (slk * 16 + kl * 8 + 2) >= k_seq_len - q_seq_len ? mask[(ori_q_idx * q_seq_len + (slk * 16 + kl * 8 + 2) - k_seq_len + q_seq_len)] : 0.0;
+                out0 = mask_val + out0;
             #elif defined(SET_MASK)
                 out0 = mask[(ori_q_idx * k_seq_len + (slk * 16 + kl * 8 + 2))] == 0 ? -FLT_MAX : out0;
             #endif
@@ -179,7 +182,8 @@ kernel void prefill_qk(const device T* input0 [[buffer(0)]],
         if(slk * 16 + kl * 8 + 3 < k_seq_len) {
             auto out0 =  sdata[(kl * 16 + rcl) * 8 + 3] * Vscale;
             #ifdef ADD_MASK
-                out0 = mask[(ori_q_idx * k_seq_len + (slk * 16 + kl * 8 + 3))] + out0;
+                auto mask_val = (slk * 16 + kl * 8 + 3) >= k_seq_len - q_seq_len ? mask[(ori_q_idx * q_seq_len + (slk * 16 + kl * 8 + 3) - k_seq_len + q_seq_len)] : 0.0;
+                out0 = mask_val + out0;
             #elif defined(SET_MASK)
                 out0 = mask[(ori_q_idx * k_seq_len + (slk * 16 + kl * 8 + 3))] == 0 ? -FLT_MAX : out0;
             #endif
@@ -188,7 +192,8 @@ kernel void prefill_qk(const device T* input0 [[buffer(0)]],
         if(slk * 16 + kl * 8 + 4 < k_seq_len) {
             auto out0 =  sdata[(kl * 16 + rcl) * 8 + 4] * Vscale;
             #ifdef ADD_MASK
-                out0 = mask[(ori_q_idx * k_seq_len + (slk * 16 + kl * 8 + 4))] + out0;
+                auto mask_val = (slk * 16 + kl * 8 + 4) >= k_seq_len - q_seq_len ? mask[(ori_q_idx * q_seq_len + (slk * 16 + kl * 8 + 4) - k_seq_len + q_seq_len)] : 0.0;
+                out0 = mask_val + out0;
             #elif defined(SET_MASK)
                 out0 = mask[(ori_q_idx * k_seq_len + (slk * 16 + kl * 8 + 4))] == 0 ? -FLT_MAX : out0;
             #endif
@@ -197,7 +202,8 @@ kernel void prefill_qk(const device T* input0 [[buffer(0)]],
         if(slk * 16 + kl * 8 + 5 < k_seq_len) {
             auto out0 =  sdata[(kl * 16 + rcl) * 8 + 5] * Vscale;
             #ifdef ADD_MASK
-                out0 = mask[(ori_q_idx * k_seq_len + (slk * 16 + kl * 8 + 5))] + out0;
+                auto mask_val = (slk * 16 + kl * 8 + 5) >= k_seq_len - q_seq_len ? mask[(ori_q_idx * q_seq_len + (slk * 16 + kl * 8 + 5) - k_seq_len + q_seq_len)] : 0.0;
+                out0 = mask_val + out0;
             #elif defined(SET_MASK)
                 out0 = mask[(ori_q_idx * k_seq_len + (slk * 16 + kl * 8 + 5))] == 0 ? -FLT_MAX : out0;
             #endif
@@ -206,7 +212,8 @@ kernel void prefill_qk(const device T* input0 [[buffer(0)]],
         if(slk * 16 + kl * 8 + 6 < k_seq_len) {
             auto out0 =  sdata[(kl * 16 + rcl) * 8 + 6] * Vscale;
             #ifdef ADD_MASK
-                out0 = mask[(ori_q_idx * k_seq_len + (slk * 16 + kl * 8 + 6))] + out0;
+                auto mask_val = (slk * 16 + kl * 8 + 6) >= k_seq_len - q_seq_len ? mask[(ori_q_idx * q_seq_len + (slk * 16 + kl * 8 + 6) - k_seq_len + q_seq_len)] : 0.0;
+                out0 = mask_val + out0;
             #elif defined(SET_MASK)
                 out0 = mask[(ori_q_idx * k_seq_len + (slk * 16 + kl * 8 + 6))] == 0 ? -FLT_MAX : out0;
             #endif
@@ -215,7 +222,8 @@ kernel void prefill_qk(const device T* input0 [[buffer(0)]],
         if(slk * 16 + kl * 8 + 7 < k_seq_len) {
             auto out0 =  sdata[(kl * 16 + rcl) * 8 + 7] * Vscale;
             #ifdef ADD_MASK
-                out0 = mask[(ori_q_idx * k_seq_len + (slk * 16 + kl * 8 + 7))] + out0;
+                auto mask_val = (slk * 16 + kl * 8 + 7) >= k_seq_len - q_seq_len ? mask[(ori_q_idx * q_seq_len + (slk * 16 + kl * 8 + 7) - k_seq_len + q_seq_len)] : 0.0;
+                out0 = mask_val + out0;
             #elif defined(SET_MASK)
                 out0 = mask[(ori_q_idx * k_seq_len + (slk * 16 + kl * 8 + 7))] == 0 ? -FLT_MAX : out0;
             #endif
@@ -261,7 +269,8 @@ kernel void prefill_qk(const device T* input0 [[buffer(0)]],
     out0 *= Vscale;
     
 #ifdef ADD_MASK
-    out0 = mask[((q_idx + 0) * key_seq_len + (z + 0))] + out0;
+    auto mask_val = z >= key_seq_len - query_seq_len ? mask[((q_idx + 0) * query_seq_len + (z - key_seq_len + query_seq_len))] : 0.0;
+    out0 = mask_val + out0;
 #elif defined(SET_MASK)
     out0 = mask[((q_idx + 0) * key_seq_len + (z + 0))] == 0 ? -FLT_MAX : out0;
 #endif
@@ -280,67 +289,71 @@ kernel void decode_qk(const device T* input0 [[buffer(0)]],
 #elif defined(SET_MASK)
     const device int* mask [[buffer(5)]],
 #endif
-#ifdef SIMD_GROUP_REDUCE
-    uint3 gid[[threadgroup_position_in_grid]],
-    uint  tiisg[[thread_index_in_simdgroup]],
-    uint  sgitg[[simdgroup_index_in_threadgroup]]
-#else
     uint3 gid[[thread_position_in_grid]]
-#endif
 ) {
     int x = gid.x; // query_seq_len
     int y = gid.y; // head_num * batch
     int z = gid.z; // key_seq_len
-
-    if (x >= param.query_seq_len || y >= param.head_num * param.batch || z >= param.key_seq_len) {
+    int group = param.group;
+    int kv_head_num = param.head_num / group;
+    if (x >= param.query_seq_len || y >= kv_head_num * param.batch || z >= param.key_seq_len) {
         return;
     }
-    int group = param.group;
 
     int key_seq_len = param.key_seq_len;
     int head_num = param.head_num;
     int head_dim = param.head_dim;
     
-    int b  = y / head_num;
-    int hn = y % head_num;
+    int b  = y / kv_head_num;
+    int kv_hn = y % kv_head_num;
     const int offset = head_num * head_dim;
-    const int offset_head = hn * head_dim;
-    const int offset_head_kv = (hn / param.group) * head_dim;
+    const int offset_head = kv_hn * group * head_dim;
+    const int offset_head_kv = kv_hn * head_dim;
 
     // [mBatch, mSeqLen, mNumHead, mHeadDim]
     const device T* A_offset = input0 + (b * param.query_seq_len + x) * offset + offset_head;
     // [mKvSeqLen, mBatch, mKvNumHead, mHeadDim]
     device T* Pastkey_offset = past_key + (z * param.batch + b) * offset / group + offset_head_kv;
     float Vscale = (float)param.scale;
-    float out = 0.0;
 
-#ifdef SIMD_GROUP_REDUCE
-    for(int i = tiisg; i < head_dim; i+=SIMD_GROUP_WIDTH){
-        float A = A_offset[i];
-        float B = (float)Pastkey_offset[i];
-        
-        out += A * B;
-    }
 
-    out = simd_sum(out);
-    if(tiisg == 0) {
-        out *= Vscale;
-        output[(y * param.query_seq_len + x) * key_seq_len + z] = (T)out;
-    }
 
-#else
+    float out[GROUP_SIZE] = {0.0};
+    #ifdef HEAD_DIM_UNALIGNED_4
     {
         for(int i = 0; i < head_dim; i++){
-            float A = A_offset[i];
             float B = (float)Pastkey_offset[i];
-            
-            out += A * B;
+            for(int j = 0; j < group; j++) {
+                float A = A_offset[i + head_dim * j];
+                out[j] += A * B;
+            }
         }
     }
-    out *= Vscale;
-    output[(y * param.query_seq_len + x) * key_seq_len + z] = (T)out;
-
-#endif
+    #else
+    {
+        for(int i = 0; i < head_dim/4; i++){
+            float4 B = float4(((const device T4*)Pastkey_offset)[i]);
+            for(int j = 0; j < group; j++) {
+                float4 A = float4(((const device T4*)(A_offset + head_dim * j))[i]);
+                out[j] += dot(A, B);
+            }
+        }
+    }
+    #endif
+    #ifdef ADD_MASK
+        float mask_val = z >= key_seq_len - param.query_seq_len ? mask[((x + 0) * param.query_seq_len + (z - key_seq_len + param.query_seq_len))] : 0.0;
+    #elif defined(SET_MASK)
+        int mask_val = mask[((x + 0) * key_seq_len + (z + 0))];
+    #endif
+    for(int j = 0; j < group; j++) {
+        out[j] *= Vscale;
+        #ifdef ADD_MASK
+            out[j] += mask_val;
+        #elif SET_MASK
+            out[j] = mask_val == 0 ? -FLT_MAX : out[j];
+        #endif
+        output[((y * group + j) * param.query_seq_len + x) * key_seq_len + z] = (T)out[j];
+    }
 }
 
 )metal";
@@ -611,7 +624,7 @@ kernel void decode_qkv(const device T* input0 [[buffer(0)]],
 
     const int offset_head = (yin * head_dim + z) * param.max_kv_len;
 
-    device const T *A_offset = input0 + y * value_seq_len;
+    device const T *A_offset = input0 + (y * q_seq_len + x) * value_seq_len;
     device T *Pastvalue_offset = past_value + offset_head;
     float out = 0;
     

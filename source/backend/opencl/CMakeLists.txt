@@ -18,9 +18,6 @@ IF (MNN_OPENCL_SIZE_CUT)
     add_definitions(-DMNN_OPENCL_BUFFER_CLOSED)
 ENDIF()
 
-IF (MNN_LOW_MEMORY)
-    add_definitions(-DMNN_LOW_MEMORY)
-ENDIF()
 
 if (${CMAKE_SYSTEM_NAME} MATCHES "Android")
     add_definitions(-DMNN_USE_LIB_WRAPPER)

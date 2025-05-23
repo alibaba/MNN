@@ -101,6 +101,9 @@ bool Diffusion::load() {
     mLatentVar = _Input({1, 4, 64, 64}, NCHW, halide_type_of<float>());
     mPromptVar = _Input({2, mMaxTextLen}, NCHW, halide_type_of<int>());
     mTimestepVar = _Input({1}, NCHW, halide_type_of<int>());
+    mLatentVar->writeMap<int8_t>();
+    mPromptVar->writeMap<int8_t>();
+    mTimestepVar->writeMap<int8_t>();
     mSampleVar = _Concat({mLatentVar, mLatentVar}, 0);
     
     if(mMemoryMode > 0) {

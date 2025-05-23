@@ -367,7 +367,12 @@ project/MNNLLMForiOS/MNN.framework
 MNN-iOS-CPU-GPU/Static/MNN.framework
 apps/iOS/MNNLLMChat/MNN.framework
 
+# model path
+model/
 
 # datasets
 datasets/*
 !datasets/*.sh
+
+# qnn 3rdParty
+source/backend/qnn/3rdParty/include

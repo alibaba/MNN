@@ -3,16 +3,18 @@ import torch
 from typing import Optional, Tuple
 
 from .model_mapper import ModelMapper
-from .custom_op import FusedAttention
+from .custom_op import FusedAttention, MoE
 
 class Embedding(torch.nn.Module):
     def __init__(self, embed, config):
         super().__init__()
         self.hidden_size = config.hidden_size
         self.embed = embed
+        self.embed_scale = 1.0
         if config.model_type == 'gemma2':
-            normalizer = torch.tensor(self.hidden_size**0.5)
-            self.embed.weight.data *= normalizer
+            self.embed_scale = self.hidden_size**0.5
+        if hasattr(embed, 'embed_scale'):
+            self.embed_scale = embed.embed_scale
 
     def forward(self, input_ids):
         inputs_embeds = self.embed(input_ids).view(-1, 1, self.hidden_size)
@@ -270,11 +272,100 @@ class VisionRotary(Rotary):
         rotary_pos_emb = rotary_pos_emb.unsqueeze(2).unsqueeze(1)
         return rotary_pos_emb
 
+class Mlp(torch.nn.Module):
+    def __init__(self, mlp, config, layer_id):
+        super().__init__()
+        self.layer_id = layer_id
+        ModelMapper.do_map(self, mlp, config.model_map['mlp'])
+        self.is_moe = hasattr(self, 'experts')
+        self.export_moe = False
+        self.custom_moe = MoE(self.num_experts, self.top_k, layer_id)
+
+    def forward(self, hidden_states: torch.Tensor):
+        if not self.is_moe:
+            # general Mlp
+            return self.down_proj(self.act_fn(self.gate_proj(hidden_states)) * self.up_proj(hidden_states))
+
+        # MoE Mlp
+        batch_size, sequence_length, hidden_dim = hidden_states.shape
+        hidden_states = hidden_states.view(-1, hidden_dim)
+        # router_logits: (batch * sequence_length, n_experts)
+        router_logits = self.gate(hidden_states)
+
+        routing_weights = torch.nn.functional.softmax(router_logits, dim=-1, dtype=torch.float)
+        routing_weights, selected_experts = torch.topk(routing_weights, self.top_k, dim=-1)
+        if self.norm_topk_prob:  # only diff with mixtral sparse moe block!
+            routing_weights /= routing_weights.sum(dim=-1, keepdim=True)
+        # we cast back to the input dtype
+        routing_weights = routing_weights.to(hidden_states.dtype)
+        if self.export_moe:
+            return self.custom_moe(hidden_states, routing_weights, selected_experts)
+
+        final_hidden_states = torch.zeros(
+            (batch_size * sequence_length, hidden_dim), dtype=hidden_states.dtype, device=hidden_states.device
+        )
+        if False: # cpp impl
+            seqlen, topk = selected_experts.shape
+            if seqlen == 1:
+                expert_idx = int(selected_experts[0, 0])
+                scale = float(routing_weights[0, 0])
+                output = self.experts[expert_idx](hidden_states) * scale
+                for i in range(1, topk):
+                    expert_idx = int(selected_experts[0, i])
+                    scale = float(routing_weights[0, i])
+                    output += self.experts[expert_idx](hidden_states) * scale
+                return output
+
+            hss = torch.split(hidden_states, 1)
+            expertWorks = [[] for i in range(self.num_experts)]
+            # print(routing_weights, selected_experts)
+            for i in range(seqlen):
+                for j in range(topk):
+                    expert_idx = int(selected_experts[i, j])
+                    scale = float(routing_weights[i, j])
+                    expertWorks[expert_idx].append((i, scale))
+
+            for i in range(self.num_experts):
+                if len(expertWorks[i]) == 0:
+                    continue
+                input_hs = []
+                for token_id, scale in expertWorks[i]:
+                    input_hs.append(hss[token_id])
+                output_hs = self.experts[i](torch.concat(input_hs))
+                output_hss = torch.split(output_hs, 1)
+                for j in range(len(expertWorks[i])):
+                    token_id, scale = expertWorks[i][j]
+                    scale_hs = output_hss[j] * scale
+                    final_hidden_states[token_id] += scale_hs.squeeze(0)
+            return final_hidden_states
+
+        # One hot encode the selected experts to create an expert mask
+        # this will be used to easily index which expert is going to be sollicitated
+        expert_mask = torch.nn.functional.one_hot(selected_experts, num_classes=self.num_experts).permute(2, 1, 0)
+
+        # Loop over all available experts in the model and perform the computation on each expert
+        for expert_idx in range(self.num_experts):
+            expert_layer = self.experts[expert_idx]
+            idx, top_x = torch.where(expert_mask[expert_idx])
+
+            # Index the correct hidden states and compute the expert hidden state for
+            # the current expert. We need to make sure to multiply the output hidden
+            # states by `routing_weights` on the corresponding tokens (top-1 and top-2)
+            current_state = hidden_states[None, top_x].reshape(-1, hidden_dim)
+            current_hidden_states = expert_layer(current_state) * routing_weights[top_x, idx, None]
+            # However `index_add_` only support torch tensors for indexing so we'll use
+            # the `top_x` tensor here.
+            final_hidden_states.index_add_(0, top_x, current_hidden_states.to(hidden_states.dtype))
+        final_hidden_states = final_hidden_states.reshape(batch_size, sequence_length, hidden_dim)
+        return final_hidden_states
+
 class Decoder(torch.nn.Module):
     def __init__(self, decoder, layer_id, config):
         super().__init__()
         self.cross_decoder = False
         ModelMapper.do_map(self, decoder, config.model_map['decoder'])
+        if 'mlp' in config.model_map:
+            self.mlp = Mlp(self.mlp, config, layer_id)
         # mllama has cross_attn
         if hasattr(self, 'cross_attn') and self.cross_attn is not None:
             self.cross_decoder = True

@@ -10,16 +10,16 @@
 #include <core/Macro.h>
 #include <core/TensorUtils.hpp>
 #include <stdlib.h>
-#include <mutex>
 #include <MNN/AutoTime.hpp>
 
 extern bool isAvailable();
 namespace MNN {
     void registerCoreMLOps();
     static inline std::map<OpType, CoreMLBackend::Creator*>* getCreatorMap() {
-        static std::once_flag of;
         static std::map<OpType, CoreMLBackend::Creator*>* ret = nullptr;
-        std::call_once(of, [&]() { ret = new std::map<OpType, CoreMLBackend::Creator*>; });
+        if (nullptr == ret) {
+            ret = new std::map<OpType, CoreMLBackend::Creator*>;
+        }
         return ret;
     }
 
