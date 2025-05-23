@@ -5,8 +5,10 @@ package com.alibaba.mnnllm.android.main
 import android.content.Intent
 import android.os.Bundle
 import android.util.Log
+import android.util.TypedValue
 import android.view.MenuItem
 import android.view.View
+import android.view.ViewTreeObserver
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.ActionBarDrawerToggle
@@ -25,11 +27,17 @@ import com.alibaba.mnnllm.android.utils.GithubUtils
 import com.alibaba.mnnllm.android.model.ModelUtils
 import com.techiness.progressdialoglibrary.ProgressDialog
 import java.io.File
+import com.google.android.material.appbar.AppBarLayout
+import com.google.android.material.appbar.MaterialToolbar
 
 class MainActivity : AppCompatActivity() {
     private var progressDialog: ProgressDialog? = null
     private lateinit var drawerLayout: DrawerLayout
     private var toggle: ActionBarDrawerToggle? = null
+    private lateinit var appBarLayout: AppBarLayout
+    private lateinit var materialToolbar: MaterialToolbar
+    private var toolbarHeightPx: Int = 0
+    private var offsetChangedListener: AppBarLayout.OnOffsetChangedListener? = null
     private var modelListFragment: ModelListFragment? = null
         get() {
             if (field == null) {
@@ -48,10 +56,49 @@ class MainActivity : AppCompatActivity() {
     private var filterComponent: FilterComponent? = null
     private var updateChecker: UpdateChecker? = null
 
+    private fun setupAppBar() {
+        appBarLayout = findViewById(R.id.app_bar)
+        materialToolbar = findViewById(R.id.toolbar)
+
+        toolbarHeightPx = TypedValue.applyDimension(
+            TypedValue.COMPLEX_UNIT_DIP,
+            48f, // Toolbar height in DP from your XML
+            resources.displayMetrics
+        ).toInt()
+
+        materialToolbar.viewTreeObserver.addOnGlobalLayoutListener(object : ViewTreeObserver.OnGlobalLayoutListener {
+            override fun onGlobalLayout() {
+                materialToolbar.viewTreeObserver.removeOnGlobalLayoutListener(this)
+                val measuredHeight = materialToolbar.height
+                if (measuredHeight > 0) {
+                    toolbarHeightPx = measuredHeight
+                }
+            }
+        })
+
+        offsetChangedListener = AppBarLayout.OnOffsetChangedListener { appBarLayout, verticalOffset ->
+            if (toolbarHeightPx <= 0) {
+                val currentToolbarHeight = materialToolbar.height
+                if (currentToolbarHeight > 0) {
+                    toolbarHeightPx = currentToolbarHeight
+                } else {
+                    toolbarHeightPx = TypedValue.applyDimension(
+                        TypedValue.COMPLEX_UNIT_DIP, 48f, resources.displayMetrics).toInt()
+                    if (toolbarHeightPx == 0) return@OnOffsetChangedListener // Still zero, cannot proceed
+                }
+            }
+            val absVerticalOffset = Math.abs(verticalOffset)
+            var alpha = 1.0f - (absVerticalOffset.toFloat() / toolbarHeightPx.toFloat())
+            alpha = alpha.coerceIn(0.0f, 1.0f)
+            materialToolbar.alpha = alpha
+        }
+        appBarLayout.addOnOffsetChangedListener(offsetChangedListener)
+    }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         val toolbar = findViewById<Toolbar>(R.id.toolbar)
+        setupAppBar()
         filterComponent = FilterComponent(this).apply {
             addVendorFilterListener {
                 modelListFragment?.adapter?.filterVendor(it?: "")
@@ -177,6 +224,12 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    override fun onDestroy() {
+        super.onDestroy()
+        offsetChangedListener?.let {
+            appBarLayout.removeOnOffsetChangedListener(it)
+        }
+    }
 
     companion object {
         const val TAG: String = "MainActivity"

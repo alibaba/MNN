@@ -23,19 +23,28 @@
                 android:layout_height="48dp"
                 android:elevation="0dp"
                 app:titleCentered="true"
-                app:titleTextAppearance="?textAppearanceTitleMedium">
+                app:titleTextAppearance="?textAppearanceTitleMedium"
+                app:layout_scrollFlags="scroll|enterAlways" >
             </com.google.android.material.appbar.MaterialToolbar>
-            <include layout="@layout/layout_toolbar_filters_content" />
-
+            <include
+                layout="@layout/layout_toolbar_filters_content"
+                app:layout_scrollFlags="scroll|enterAlways|snap"
+                />
         </com.google.android.material.appbar.AppBarLayout>
-
+        <androidx.core.widget.NestedScrollView
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:fillViewport="true"
+            app:layout_behavior="@string/appbar_scrolling_view_behavior"
+            android:fitsSystemWindows="false"
+            >
         <FrameLayout
             android:id="@+id/main_fragment_container"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            app:layout_behavior="@string/appbar_scrolling_view_behavior"
             android:fitsSystemWindows="false"
             />
+        </androidx.core.widget.NestedScrollView>
     </androidx.coordinatorlayout.widget.CoordinatorLayout>
 
 

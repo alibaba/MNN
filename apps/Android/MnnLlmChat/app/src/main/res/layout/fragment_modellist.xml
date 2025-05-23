@@ -12,7 +12,8 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:visibility="gone"
-        android:overScrollMode="never" />
+        android:overScrollMode="never"
+        android:nestedScrollingEnabled="true" />
 
     <com.github.ybq.android.spinkit.SpinKitView
         android:id="@+id/model_list_loading_view"
