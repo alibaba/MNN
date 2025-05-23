@@ -16,11 +16,10 @@ import com.alibaba.mls.api.download.DownloadInfo
 import com.alibaba.mls.api.download.ModelDownloadManager
 import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.utils.FileUtils
-import com.alibaba.mnnllm.android.utils.ModelUtils.getDrawableId
+import com.alibaba.mnnllm.android.model.ModelUtils.getDrawableId
 import com.alibaba.mnnllm.android.widgets.TagsLayout
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
-import java.io.File
 
 class ModelItemHolder(itemView: View, private val modelItemListener: ModelItemListener) :
     RecyclerView.ViewHolder(itemView), View.OnClickListener, OnLongClickListener {
@@ -57,6 +56,10 @@ class ModelItemHolder(itemView: View, private val modelItemListener: ModelItemLi
         iconDownload = itemView.findViewById(R.id.iv_download)
     }
 
+    private fun getFileSizeString(modelItem: ModelItem):String {
+        return FileUtils.getFileSizeString(modelDownloadManager.getDownloadedFile(modelItem.modelId!!))
+    }
+
     fun bind(hfModelItem: ModelItem, modelItemDownloadState: ModelItemDownloadState?) {
         val modelName = hfModelItem.modelName
         itemView.tag = hfModelItem
@@ -82,7 +85,15 @@ class ModelItemHolder(itemView: View, private val modelItemListener: ModelItemLi
         }
         if (modelItemDownloadState == null) {
             progressBar.visibility = View.GONE
-            tvStatus.text = ""
+            tvStatus.text = if (hfModelItem.isLocal) {
+                tvStatus.resources.getString(R.string.local_click_to_chat,
+                    getFileSizeString(hfModelItem),
+                    hfModelItem.localPath?:""
+                    )
+            } else {
+               ""
+            }
+            iconDownload.visibility = View.GONE
             return
         }
         val downloadState = modelItemDownloadState.downloadInfo!!.downlodaState

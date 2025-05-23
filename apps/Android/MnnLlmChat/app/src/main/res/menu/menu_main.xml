@@ -7,12 +7,12 @@
         android:icon="@drawable/baseline_search_24"
         app:actionViewClass="androidx.appcompat.widget.SearchView"
         app:showAsAction="ifRoom|collapseActionView" />
-    <item
-        android:id="@+id/action_filter_downloaded"
-        android:title="@string/show_only_downloaded"
-        android:checkable="true"
-        android:checked="false"
-        app:showAsAction="never" />
+<!--    <item-->
+<!--        android:id="@+id/action_filter_downloaded"-->
+<!--        android:title="@string/show_only_downloaded"-->
+<!--        android:checkable="true"-->
+<!--        android:checked="false"-->
+<!--        app:showAsAction="never" />-->
 
     <item
         android:id="@+id/action_github_issue"

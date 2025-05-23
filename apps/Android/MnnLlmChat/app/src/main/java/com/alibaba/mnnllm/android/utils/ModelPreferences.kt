@@ -3,6 +3,7 @@
 package com.alibaba.mnnllm.android.utils
 
 import android.content.Context
+import com.alibaba.mnnllm.android.model.ModelUtils
 
 object ModelPreferences {
     const val TAG: String = "ModelPreferences"

@@ -6,11 +6,9 @@ package com.alibaba.mnnllm.android.modelsettings
 import android.content.Context
 import android.util.AttributeSet
 import android.view.LayoutInflater
-import android.view.Menu
 import android.widget.ImageView
 import android.widget.RelativeLayout
 import android.widget.TextView
-import androidx.appcompat.widget.PopupMenu
 import com.alibaba.mnnllm.android.R
 
 class DropDownLineView @JvmOverloads constructor (
@@ -25,6 +23,7 @@ class DropDownLineView @JvmOverloads constructor (
     private var onDropdownItemSelected: ((Int, Any) -> Unit)? = null
     private var dropDownItems: List<Any> = emptyList()
     private var itemToString: (Any) -> String = { it.toString() }
+    private var selectedIndex = 0
 
     init {
         initView(context)
@@ -40,6 +39,8 @@ class DropDownLineView @JvmOverloads constructor (
         valueTextView = findViewById(R.id.tv_sampler_type_value)
         iconImageView = findViewById(R.id.iv_sampler_type_icon)
     }
+
+
 
     private fun initAttributes(context: Context, attrs: AttributeSet?) {
         val typedArray = context.obtainStyledAttributes(attrs, R.styleable.DropDownLineView)
@@ -74,48 +75,35 @@ class DropDownLineView @JvmOverloads constructor (
         this.dropDownItems = items
         this.itemToString = itemToString
         this.onDropdownItemSelected = onDropdownItemSelected
+        updateSelectIndex()
     }
 
     fun setCurrentItem(item: Any) {
         valueTextView.text = itemToString(item)
     }
 
+    private fun updateSelectIndex() {
+        dropDownItems.forEach({ item ->
+            if (itemToString(item) == valueTextView.text.toString()) {
+                selectedIndex = dropDownItems.indexOf(item)
+                return@forEach
+            }
+        })
+    }
+
     private fun showDropDownMenu() {
         if (dropDownItems.isEmpty()) return
 
-        val popupMenu = PopupMenu(context, valueTextView)
-        val currentValue = valueTextView.text.toString()
-        
-        dropDownItems.forEachIndexed { index, item ->
-            val itemText = itemToString(item)
-            if (itemText == currentValue) {
-                popupMenu.menu.add(Menu.NONE, index, index, "$itemText ✓")
-            } else {
-                popupMenu.menu.add(Menu.NONE, index, index, itemText)
+        DropDownMenuHelper.showDropDownMenu(
+            context = context,
+            anchorView = valueTextView,
+            items = dropDownItems,
+            itemToString = itemToString,
+            currentIndex = selectedIndex,
+            onItemSelected = { index, selectedValue ->
+                valueTextView.text = itemToString(selectedValue)
+                onDropdownItemSelected?.invoke(index, selectedValue)
             }
-        }
-        try {
-            val fieldMPopup = PopupMenu::class.java.getDeclaredField("mPopup")
-            fieldMPopup.isAccessible = true
-            val mPopup = fieldMPopup.get(popupMenu)
-            mPopup?.javaClass?.getDeclaredMethod("setForceShowIcon", Boolean::class.java)?.invoke(mPopup, true)
-        } catch (e: Exception) {
-            try {
-                val menuBuilderClass = Class.forName("com.android.internal.view.menu.MenuBuilder")
-                val setOptionalIconsVisibleMethod = menuBuilderClass.getDeclaredMethod("setOptionalIconsVisible", Boolean::class.javaPrimitiveType)
-                setOptionalIconsVisibleMethod.isAccessible = true
-                setOptionalIconsVisibleMethod.invoke(popupMenu.menu, true)
-            } catch (ex: Exception) {
-            }
-        }
-        
-        popupMenu.setOnMenuItemClickListener { menuItem ->
-            val selectedIndex = menuItem.itemId
-            val selectedValue = dropDownItems[selectedIndex]
-            valueTextView.text = itemToString(selectedValue)
-            onDropdownItemSelected?.invoke(selectedIndex, selectedValue)
-            true
-        }
-        popupMenu.show()
+        )
     }
 }

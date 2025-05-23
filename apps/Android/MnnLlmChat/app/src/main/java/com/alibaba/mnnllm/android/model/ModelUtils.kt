@@ -1,13 +1,49 @@
 // Created by ruoyi.sjd on 2024/12/25.
 // Copyright (c) 2024 Alibaba Group Holding Limited All rights reserved.
-package com.alibaba.mnnllm.android.utils
+package com.alibaba.mnnllm.android.model
 
 import android.annotation.SuppressLint
 import com.alibaba.mls.api.ModelItem
 import com.alibaba.mnnllm.android.R
+import java.io.File
 import java.util.Locale
 
 object ModelUtils {
+    fun getVendor(modelName: String):String {
+        val modelLower = modelName.lowercase(Locale.getDefault())
+        if (modelLower.contains("deepseek")) {
+            return ModelVendors.DeepSeek
+        } else if (modelLower.contains("qwen") || modelLower.contains("qwq")) {
+            return ModelVendors.Qwen
+        } else if (modelLower.contains("llama") || modelLower.contains("mobilellm")) {
+            return ModelVendors.Llama
+        } else if (modelLower.contains("smo")) {
+            return ModelVendors.Smo
+        } else if (modelLower.contains("phi")) {
+            return ModelVendors.Phi
+        } else if (modelLower.contains("baichuan")) {
+            return ModelVendors.Baichuan
+        } else if (modelLower.contains("yi")) {
+            return ModelVendors.Yi
+        } else if (modelLower.contains("glm") || modelLower.contains("codegeex")) {
+            return ModelVendors.Glm
+        } else if (modelLower.contains("reader")) {
+            return ModelVendors.Jina
+        } else if (modelLower.contains("internlm")) {
+            return ModelVendors.Internlm
+        } else if (modelLower.contains("gemma")) {
+            return ModelVendors.Gemma
+        }  else if (modelLower.contains("mimo")) {
+            return ModelVendors.Mimo
+        } else if (modelLower.contains("fastvlm")) {
+            return ModelVendors.FastVlm
+        } else if (modelLower.contains("openelm")) {
+            return ModelVendors.OpenElm
+        } else {
+            return ModelVendors.Others
+        }
+    }
+
     fun getDrawableId(modelName: String?): Int {
         if (modelName == null) {
             return 0
@@ -69,17 +105,31 @@ object ModelUtils {
     private val goodList: MutableSet<String> = HashSet()
     private val blackList: MutableSet<String> = HashSet()
 
-
-//    private val localModelList = mutableListOf<ModelItem>()
     /**
      * you can add ModelItem.fromLocalModel("Qwen-Omni-7B", "/data/local/tmp/omni_test/model")
      * to load local models
      */
-    private val localModelList = mutableListOf(
-        ModelItem.fromLocalModel("Qwen-Omni-7B", "/data/local/tmp/mnn_bench/Qwen2.5-Omni-7B-MNN"),
-        ModelItem.fromLocalModel("Qwen-Omni-3B", "/data/local/tmp/mnn_bench/Qwen2.5-Omni-3B-MNN"),
-        ModelItem.fromLocalModel("Qwen3-30B-A3B-MNN", "/data/local/tmp/mnn_bench/Qwen3-30B-A3B-MNN")
-    )
+    private val localModelList: MutableList<ModelItem> by lazy {
+        val result = mutableListOf<ModelItem>()
+//        result.add(ModelItem.fromLocalModel("Qwen-Omni-7B", "/data/local/tmp/mnn_bench/Qwen2.5-Omni-7B-MNN"))
+//        result.add(ModelItem.fromLocalModel("Qwen-Omni-3B", "/data/local/tmp/mnn_bench/Qwen2.5-Omni-3B-MNN"))
+//        result.add(ModelItem.fromLocalModel("Qwen3-30B-A3B-MNN", "/data/local/tmp/mnn_bench/Qwen3-30B-A3B-MNN"))
+        try {
+            val modelsDir = File("/data/local/tmp/mnn_models/")
+            if (modelsDir.exists() && modelsDir.isDirectory) {
+                modelsDir.listFiles()?.forEach { modelDir ->
+                    if (modelDir.isDirectory && File(modelDir, "config.json").exists()) {
+                        val modelPath = modelDir.absolutePath
+                        val modelName = modelDir.name
+                        result.add(ModelItem.fromLocalModel(modelName, modelPath))
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("ModelUtils", "Failed to load models from /data/local/tmp/mnn_models/", e)
+        }
+        result
+    }
 
     init {
         blackList.add("taobao-mnn/bge-large-zh-MNN") //embedding

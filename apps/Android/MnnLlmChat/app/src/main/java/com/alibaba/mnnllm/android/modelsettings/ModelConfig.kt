@@ -32,7 +32,8 @@ data class ModelConfig(
     @SerializedName("n_gram")var nGram:Int?,
     @SerializedName("ngram_factor")var nGramFactor:Float?,
     @SerializedName("max_new_tokens")var maxNewTokens:Int?,
-    @SerializedName("assistant_prompt_template")var assistantPromptTemplate:String?
+    @SerializedName("assistant_prompt_template")var assistantPromptTemplate:String?,
+    @SerializedName("penalty_sampler")var penaltySampler:String?
     ) {
     fun deepCopy(): ModelConfig {
         return ModelConfig(
@@ -55,7 +56,8 @@ data class ModelConfig(
             nGram = this.nGram,
             nGramFactor = this.nGramFactor,
             maxNewTokens = this.maxNewTokens,
-            assistantPromptTemplate = this.assistantPromptTemplate
+            assistantPromptTemplate = this.assistantPromptTemplate,
+            penaltySampler = this.penaltySampler
         )
     }
 
@@ -70,7 +72,8 @@ data class ModelConfig(
                 this.typical == loadedConfig.typical &&
                 this.penalty == loadedConfig.penalty &&
                 this.nGram == loadedConfig.nGram &&
-                this.nGramFactor == loadedConfig.nGramFactor
+                this.nGramFactor == loadedConfig.nGramFactor &&
+                this.penaltySampler == loadedConfig.penaltySampler
     }
 
     companion object {

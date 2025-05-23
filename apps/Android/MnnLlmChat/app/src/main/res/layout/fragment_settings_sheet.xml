@@ -93,6 +93,7 @@
                 style="@style/SettingsSectionGroup"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:paddingBottom="8dp"
                 android:layout_marginStart="8dp"
                 android:layout_marginEnd="8dp"
                 android:layout_marginBottom="16dp">
@@ -228,6 +229,7 @@
                             android:layout_height="wrap_content"
                             app:labelText="Penalty Sampler"
                             app:valueText="Greedy"
+                            android:layout_marginBottom="8dp"
                             app:icon="@drawable/baseline_arrow_drop_down_24" />
 
                     </LinearLayout>

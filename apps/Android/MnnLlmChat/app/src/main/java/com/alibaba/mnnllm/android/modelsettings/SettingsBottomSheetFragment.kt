@@ -61,7 +61,8 @@ class SettingsBottomSheetFragment : BottomSheetDialogFragment() {
         nGram = 8,
         nGramFactor = 1.02f,
         maxNewTokens = 2048,
-        assistantPromptTemplate = ""
+        assistantPromptTemplate = "",
+        penaltySampler = "greedy"
     )
     private lateinit var currentConfig:ModelConfig
     private lateinit var chatSession: LlmSession
@@ -69,7 +70,7 @@ class SettingsBottomSheetFragment : BottomSheetDialogFragment() {
     private val binding get() = _binding!!
     private var useMmap: Boolean = true
     private var currentSamplerType: SamplerType = SamplerType.Mixed
-    private var penaltySamplerValue: String = "Greedy"
+    private var penaltySamplerValue: String = "greedy"
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
@@ -274,9 +275,12 @@ class SettingsBottomSheetFragment : BottomSheetDialogFragment() {
             onValueChange = { currentConfig.nGramFactor = it },
             switchVisible = false
         )
+        penaltySamplerValue = currentConfig.penaltySampler?:defaultConfig.penaltySampler!!
         binding.dropdownPenaltySampler.setDropDownItems(listOf("greedy", "temperature")) { _, value ->
             penaltySamplerValue = value.toString()
+            currentConfig.penaltySampler = penaltySamplerValue
         }
+        binding.dropdownPenaltySampler.setCurrentItem(penaltySamplerValue)
     }
 
     private fun setupSliderSwitchRow(

@@ -1,6 +1,6 @@
 // Created by ruoyi.sjd on 2024/12/25.
 // Copyright (c) 2024 Alibaba Group Holding Limited All rights reserved.
-package com.alibaba.mnnllm.android
+package com.alibaba.mnnllm.android.main
 
 import android.content.Intent
 import android.os.Bundle
@@ -15,13 +15,14 @@ import androidx.appcompat.widget.Toolbar
 import androidx.core.view.GravityCompat
 import androidx.drawerlayout.widget.DrawerLayout
 import com.alibaba.mls.api.download.ModelDownloadManager
+import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.chat.ChatActivity
 import com.alibaba.mnnllm.android.history.ChatHistoryFragment
 import com.alibaba.mnnllm.android.mainsettings.MainSettings.isStopDownloadOnChatEnabled
 import com.alibaba.mnnllm.android.modelist.ModelListFragment
 import com.alibaba.mnnllm.android.update.UpdateChecker
 import com.alibaba.mnnllm.android.utils.GithubUtils
-import com.alibaba.mnnllm.android.utils.ModelUtils
+import com.alibaba.mnnllm.android.model.ModelUtils
 import com.techiness.progressdialoglibrary.ProgressDialog
 import java.io.File
 
@@ -43,12 +44,25 @@ class MainActivity : AppCompatActivity() {
             }
             return field
         }
+
+    private var filterComponent: FilterComponent? = null
     private var updateChecker: UpdateChecker? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         val toolbar = findViewById<Toolbar>(R.id.toolbar)
+        filterComponent = FilterComponent(this).apply {
+            addVendorFilterListener {
+                modelListFragment?.adapter?.filterVendor(it?: "")
+            }
+            addModalityFilterListener {
+                modelListFragment?.adapter?.filterModality(it?: "")
+            }
+            addDownloadFilterListener {
+                modelListFragment?.adapter?.filterDownloadState(it)
+            }
+        }
         drawerLayout = findViewById(R.id.drawer_layout)
         updateChecker = UpdateChecker(this)
         updateChecker!!.checkForUpdates(this, false)
@@ -163,9 +177,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    fun checkForUpdate() {
-        updateChecker!!.checkForUpdates(this, true)
-    }
 
     companion object {
         const val TAG: String = "MainActivity"

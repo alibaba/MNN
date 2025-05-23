@@ -9,6 +9,7 @@
     <string name="model_loading">模型加载中...</string>
     <string name="download_not_started">%1$s 点击下载</string>
     <string name="downloaded_click_to_chat">%1$S 已下载</string>
+    <string name="local_click_to_chat">%1$S %2$S</string>
     <string name="download_failed_click_retry">下载失败: %1$s, 点击重试</string>
     <string name="downloading_progress">%1$s 下载中：%2$.2f%% %3$s</string>"
     <string name="config_file_not_found">模型配置文件不存在：%1$s</string>
@@ -102,4 +103,17 @@
     <string name="audio_output_confirm">当前音频输出可能较慢。您是否仍要打开？</string>
     <string name="confirm_delete_model_title">确认删除</string>
     <string name="confirm_delete_model_message">您确定要删除这个模型吗？此操作无法恢复。</string>
+    <string name="vendor_menu_title">厂商</string>
+    <string name="modality_menu_title">模态</string>
+    <string name="downloaded">已下载</string>
+    <string name="download_state">下载状态</string>
+    <string name="local_available">本地可用</string>
+    <string name="all">所有</string>
+    <string name="others">其他</string>
+    <string name="download_state_not_start">未下载</string>
+    <string name="download_state_completed">已下载</string>
+    <string name="download_state_downloading">下载中</string>
+    <string name="download_state_failed">下载失败</string>
+    <string name="download_state_paused">下载暂停</string>
+    <string name="no_models_found">没有找到模型，改变过滤器试试</string>
 </resources>

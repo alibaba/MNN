@@ -9,6 +9,7 @@
     <string name="model_loading">Model loading…</string>
     <string name="download_not_started">%1$s Click to download</string>
     <string name="downloaded_click_to_chat"> %1$s Downloaded</string>
+    <string name="local_click_to_chat"> %1$s %2$s</string>
     <string name="download_failed_click_retry">Download failed: %1$s, click to retry</string>
     <string name="downloading_progress">%1$s Downloading: %2$.2f%% %3$s</string>.
     <string name="downloading_paused">%1$s Paused: %2$.2f%%</string>
@@ -59,6 +60,7 @@
     <string name="use_mmap">Use mmap</string>
     <string name="sampler">select sampler</string>
     <string name="backend">use opencl</string>
+    <string name="local_available">Local Available</string>
     <string name="mmap_cacche_cleared">mmap cache cleared, you need to restart the session</string>
     <string name="mmap_not_used">mmap not used</string>
     <string name="reloading_session">Reloading chat session</string>
@@ -102,4 +104,16 @@
     <string name="audio_output_confirm">Audio Output is very slow for now, Would you like to continue anyway?</string>
     <string name="confirm_delete_model_title">Confirm Deletion</string>
     <string name="confirm_delete_model_message">Are you sure you want to delete this model? This action cannot be undone.</string>
+    <string name="vendor_menu_title">Vendor</string>
+    <string name="modality_menu_title">Modality</string>
+    <string name="downloaded">Downloaded</string>
+    <string name="download_state">Download Status</string>
+    <string name="all">All</string>
+    <string name="others">Others</string>
+    <string name="download_state_not_start">Download Unstarted</string>
+    <string name="download_state_completed">Downloaded</string>
+    <string name="download_state_downloading">Downloading</string>
+    <string name="download_state_failed">Download Failed</string>
+    <string name="download_state_paused">Download Paused</string>
+    <string name="no_models_found">No models found, Try to change filter please</string>
 </resources>

@@ -59,7 +59,7 @@
             </intent-filter>
         </activity>
 
-        <activity android:name=".MainActivity"
+        <activity android:name=".main.MainActivity"
             android:exported="true"
             android:configChanges="orientation|screenSize">
             <intent-filter>

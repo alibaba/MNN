@@ -1,41 +1,40 @@
 <?xml version="1.0" encoding="utf-8"?>
 <HorizontalScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="match_parent" android:scrollbars="none"
+    android:layout_height="match_parent"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:scrollbars="none"
     android:fillViewport="true">
     <LinearLayout
     android:id="@+id/filter_buttons_layout"
     android:layout_width="wrap_content"
     android:layout_height="match_parent"
     android:orientation="horizontal"
-    android:paddingStart="8dp"
-    android:paddingEnd="8dp"
-    android:paddingBottom="8dp"
+    android:padding="8dp"
     android:gravity="center_vertical">
 
     <TextView
-        android:id="@+id/filter_inbox"
+        android:id="@+id/filter_download_state"
         style="@style/FilterChipStyle"
-        android:text="Inbox"
-        android:drawableEnd="@drawable/ic_arrow_drop_down"
-        android:drawableTint="?android:attr/textColorSecondary"/>
+        android:text="@string/local_available"
+        android:textColor="@color/filter_button_tint"
+        />
 
     <TextView
-        android:id="@+id/filter_focused"
+        android:id="@+id/filter_modality"
         style="@style/FilterChipStyle"
-        android:text="Focused" />
+        app:drawableEndCompat="@drawable/ic_arrow_drop_down"
+        app:drawableTint="@color/filter_button_tint"
+        android:text="@string/modality_menu_title"
+        android:textColor="@color/filter_button_tint"/>
 
     <TextView
-        android:id="@+id/filter_unread"
+        android:id="@+id/filter_vendor"
         style="@style/FilterChipStyle"
-        android:text="Unread" />
-
-    <TextView
-        android:id="@+id/filter_repository"
-        style="@style/FilterChipStyle"
-        android:text="Repository"
-        android:drawableEnd="@drawable/ic_arrow_drop_down"
-        android:drawableTint="?android:attr/textColorSecondary"/>
+        android:text="@string/vendor_menu_title"
+        app:drawableEndCompat="@drawable/ic_arrow_drop_down"
+        app:drawableTint="@color/filter_button_tint"
+        android:textColor="@color/filter_button_tint"/>
 
 </LinearLayout>
 </HorizontalScrollView>
