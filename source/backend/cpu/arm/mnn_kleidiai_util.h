@@ -61,13 +61,6 @@ namespace MNN {
         size_t extra_bytes,
         const struct KleidiAIUtil::rhsPackParamCommon* paramsCommon);
 
-    static void packQsi4cxps16s0Qs4cx(
-        size_t num_groups, size_t n, size_t k, size_t nr, size_t kr, size_t sr,
-        const uint8_t* rhs, const float* bias, const float* scale,
-        void* rhs_packed,
-        size_t extra_bytes,
-        const struct KleidiAIUtil::rhsPackParamCommon* paramsCommon);
-
     static void packQsi4cxps1s0Qsu4cxs0s1(
         size_t num_groups, size_t n, size_t k, size_t nr, size_t kr, size_t sr,
         const uint8_t* rhs, const float* bias, const float* scale,

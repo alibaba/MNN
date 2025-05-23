@@ -427,7 +427,7 @@ DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const O
 
         if(kai.canAccelerate(accelType)) {
             AutoStorage<int8_t> reorderedQuantInfo;
-            reorderedQuantInfo.reset(2 * scaleSize * QUANT_INFO_BYTES);
+            reorderedQuantInfo.reset(2 * scaleSize * QUANT_INFO_BYTES + oc * QUANT_INFO_BYTES);
             if (reorderedQuantInfo.get() == nullptr) {
                 MNN_ERROR("Memory not enough\n");
                 return;
@@ -440,6 +440,7 @@ DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const O
                 auto quanInfoPtr = quanCommon->alpha.get();
                 auto scalePtr = reinterpret_cast<float*>(reorderedQuantInfo.get());
                 auto zeroPtr = reinterpret_cast<float*>(reinterpret_cast<uint8_t*>(scalePtr) + scaleSize * QUANT_INFO_BYTES);
+                auto biasPtr = reinterpret_cast<float*>(reinterpret_cast<uint8_t*>(zeroPtr) + scaleSize * QUANT_INFO_BYTES);
                 if (quanCommon->asymmetric) {
                     for (int i = 0; i < blockNum; ++i) {
                         auto dstScale = scalePtr + i * ocUp4;
@@ -461,6 +462,7 @@ DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const O
                         }
                     }
                 }
+                ::memcpy(biasPtr, convOp->bias()->data(), oc * QUANT_INFO_BYTES);
             }
 
             mAccelType = accelType;
@@ -480,13 +482,20 @@ DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const O
             size_t paraNum = scaleSize;
             float *scalePtr = reinterpret_cast<float*>(reorderedQuantInfo.get());
             float *zeroPtr = reinterpret_cast<float*>(reorderedQuantInfo.get()) + paraNum;
-            float *biasPtr = mResourceInt8->mOriginBias->host<float>();
+            float *biasPtr = reinterpret_cast<float*>(reorderedQuantInfo.get()) + 2 * paraNum;
             //Reload some parameters to fit ukernels' layout.
             auto quanInfoPtr = quanCommon->alpha.get();
+            auto alphaSize = quanCommon->alpha.size();
             if(bAsym) {
                 for(int i = 0; i < paraNum; i++) {
-                    zeroPtr[i] = quanInfoPtr[i * 2];
-                    scalePtr[i] = quanInfoPtr[i * 2 + 1];
+                    if(i*2 >= alphaSize){
+                        zeroPtr[i] = 0;
+                        scalePtr[i] = 0;
+                    }
+                    else{
+                        zeroPtr[i] = quanInfoPtr[i * 2];
+                        scalePtr[i] = quanInfoPtr[i * 2 + 1];
+                    }
                 }
             } else {
                 if(blkSize != 0) {
@@ -499,7 +508,7 @@ DenseConvInt8TiledExecutor::DenseConvInt8TiledExecutor(Backend* backend, const O
             kai.runRhsPack(mAccelType, 1, n, k, blkSize, 0/*unused*/,
                            (uint8_t*)quanCommon->weight.get(),
                            (const void*)scalePtr, (const void*)zeroPtr, (const void*)biasPtr,
-                           weightPackedData, directReadInt4weight);
+                           weightPackedData);
             return;
         }
     }

@@ -314,45 +314,31 @@ size_t KleidiAI::getRhsPackedOffset(AccelType type, size_t nIdx, size_t k, size_
 
 void KleidiAI::runRhsPack(AccelType type, size_t numGroups, size_t n, size_t k, size_t bl, size_t rhsStride,
                           const void* rhs, const void* scale, const void* zeroPoint, const void* bias,
-                          void* rhsPacked, bool packedQ4) {
+                          void* rhsPacked) {
     switch(type) {
     case AccelType::QI4_SYM_CHNLQT:
     {
         KleidiAIUtil::rhsPackParamCommon paramCommon;
         if(mStaticInfo.mSme2) {
-            if(packedQ4) {
-                KleidiAIUtil::packQsi4cxps1s0Qsu4cxs0s1(numGroups, n, k, getNr(type), getKr(type), getSr(type),
+            KleidiAIUtil::packQsi4cxps1s0Qsu4cxs0s1(numGroups, n, k, getNr(type), getKr(type), getSr(type),
                                                         (const uint8_t *)rhs, (const float *)bias, (const float *)scale,
                                                         rhsPacked, 0, &paramCommon);
-            } else {
-                MNN_ASSERT(0);
-            }
         } else {
-            if(packedQ4) {
-                KleidiAIUtil::packQsi4cxps16s0Qs4cxs0s1(numGroups, n, k, getNr(type), getKr(type), getSr(type),
+            KleidiAIUtil::packQsi4cxps16s0Qs4cxs0s1(numGroups, n, k, getNr(type), getKr(type), getSr(type),
                                                         (const uint8_t *)rhs, (const float *)bias, (const float *)scale,
                                                         rhsPacked, 0, &paramCommon);
-            } else {
-                KleidiAIUtil::packQsi4cxps16s0Qs4cx(numGroups, n, k, getNr(type), getKr(type), getSr(type),
-                                                    (const uint8_t *)rhs, (const float *)bias, (const float *)scale,
-                                                    rhsPacked, 0, &paramCommon);
-            }
         }
         break;
     }
     case AccelType::QI4_ASYM_CHNLQT:
         bl = k;
     case AccelType::QI4_ASYM_BLKQT:
-        if(packedQ4) {
-            struct kai_rhs_pack_nxk_qai4c32p_params params;
-            params.lhs_zero_point = 1;
-            params.rhs_zero_point = 8;
-            kai_run_rhs_pack_nxk_qai4c32p_qau4c32s0s1_f32_f32_f32_neon(numGroups, n, k, getNr(type), getKr(type), getSr(type), bl,
-                                                          (const uint8_t *)rhs, zeroPoint, bias, scale,
-                                                          rhsPacked, 0, &params);
-        } else {
-            MNN_ASSERT(0);
-        }
+        struct kai_rhs_pack_nxk_qai4c32p_params params;
+        params.lhs_zero_point = 1;
+        params.rhs_zero_point = 8;
+        kai_run_rhs_pack_nxk_qai4c32p_qau4c32s0s1_f32_f32_f32_neon(numGroups, n, k, getNr(type), getKr(type), getSr(type), bl,
+                                                    (const uint8_t *)rhs, zeroPoint, bias, scale,
+                                                    rhsPacked, 0, &params);
         break;
     case AccelType::FP16:
     case AccelType::FP32:
