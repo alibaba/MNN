@@ -57,3 +57,30 @@ class FusedAttention(torch.nn.Module):
 
     def forward(self, query, key, value, attention_mask):
         return FusedAttentionOp.apply(query, key, value, attention_mask, self.hidden_size, self.name)
+
+class MoEOp(torch.autograd.Function):
+    @staticmethod
+    def symbolic(g, hidden_states, routing_weights, selected_experts, num_experts, top_k, layer_id):
+        kwargs = {
+            "num_experts_i": num_experts,
+            "top_k_i": top_k,
+            "layer_id_i": layer_id
+        }
+        from torch.onnx.symbolic_helper import _get_tensor_sizes
+        out_sizes = _get_tensor_sizes(hidden_states)
+        output_type = hidden_states.type().with_sizes(out_sizes)
+        return g.op("LlmExporter::MoE", hidden_states, routing_weights, selected_experts, **kwargs).setType(output_type)
+
+    @staticmethod
+    def forward(ctx, hidden_states, routing_weights, selected_experts, num_experts, top_k, layer_id):
+        return hidden_states
+
+class MoE(torch.nn.Module):
+    def __init__(self, num_experts, top_k, layer_id):
+        super(MoE, self).__init__()
+        self.num_experts = num_experts
+        self.top_k = top_k
+        self.layer_id = layer_id
+
+    def forward(self, hidden_states, routing_weights, selected_experts):
+        return MoEOp.apply(hidden_states, routing_weights, selected_experts, self.num_experts, self.top_k, self.layer_id)

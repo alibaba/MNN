@@ -418,3 +418,4 @@ REGISTER_CPU_OP_CREATOR_TRANSFORMER(CPUAttentionCreator, OpType_Attention);
 } // namespace MNN
 
 #endif // MNN_SUPPORT_TRANSFORMER_FUSE
+

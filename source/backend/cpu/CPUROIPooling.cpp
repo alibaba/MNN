@@ -94,6 +94,7 @@ ErrorCode CPUROIPooling::onExecute(const std::vector<Tensor *> &inputs, const st
             }
         }
     } else {
+#ifndef MNN_REDUCE_SIZE
         // get params
         auto iw = input->width(), ih = input->height(), is = iw * ih * core->pack;
         // backward mode, output shape is the same with input[0] shape
@@ -175,6 +176,7 @@ ErrorCode CPUROIPooling::onExecute(const std::vector<Tensor *> &inputs, const st
                 }
             }
         }
+#endif
     }
 
     return NO_ERROR;

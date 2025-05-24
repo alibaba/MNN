@@ -13,6 +13,7 @@
 #include "backend/cpu/CPUConvolution.hpp"
 #include "backend/cpu/compute/StrassenMatmulComputor.hpp"
 namespace MNN {
+#ifndef MNN_REDUCE_SIZE
 class Convolution1x1Strassen : public CPUConvolution {
 public:
     Convolution1x1Strassen(const Convolution2DCommon *common, Backend *b, const float *originWeight, size_t originWeightSize, const float *bias, size_t biasSize);
@@ -35,6 +36,7 @@ private:
     std::vector<Unit> mUnits;
     int mWeightBytes = 4;
 };
+#endif
 } // namespace MNN
 
 #endif /* Convolution1x1Strassen_hpp */

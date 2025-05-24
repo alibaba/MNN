@@ -91,10 +91,10 @@ def convert(args):
                         index = int(k.split("layers.")[1].split(".")[0])
                         block = blockes[index]
                         if k.find("input_layernorm") >= 0:
-                            load_layernorm(block.attn_norm, k, f)
+                            load_layernorm(block.layernorm[0], k, f)
                             continue
                         if k.find("post_attention_layernorm") >= 0:
-                            load_layernorm(block.ffn_norm, k, f)
+                            load_layernorm(block.layernorm[1], k, f)
                             continue
                         mlp_index = -1
                         for i in range(len(conv_names)):

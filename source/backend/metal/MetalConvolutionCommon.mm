@@ -350,6 +350,7 @@ std::shared_ptr<MNN::Tensor> MetalConvolutionCommon::weightTransform(int group, 
     auto weight_len = group * ROUND_UP(goc_4, 4) * gic_4 * kw * kh * 16;
     auto ori_len = group * goc * gic * kh * kw;
     bool needMemset = (goc % 4 != 0 || gic % 4 != 0);
+#ifdef MNN_LOW_MEMORY
     if (int4Weight) {
         weight_len = UP_DIV(weight_len, 2);
         std::shared_ptr<MNN::Tensor> weightLow(MNN::Tensor::createDevice<int8_t>({weight_len}));
@@ -443,7 +444,7 @@ std::shared_ptr<MNN::Tensor> MetalConvolutionCommon::weightTransform(int group, 
         }
         return weightLow;
     }
-
+#endif
     std::shared_ptr<MNN::Tensor> t(MNN::Tensor::createDevice<float>({weight_len}));
     if (int8Weight || int4Weight) {
         t.reset(MNN::Tensor::createDevice<int8_t>({weight_len}));

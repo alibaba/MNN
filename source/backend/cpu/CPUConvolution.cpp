@@ -288,10 +288,12 @@ public:
             return new SparseConvInt8TiledExecutor(backend, op, res);
         }
 #endif
+#ifndef MNN_REDUCE_SIZE
         if (ConvInt8Winograd::mustUse(convOp)) {
             auto res = CPUConvolution::makeResourceInt8(backend, op, core->pack);
             return new ConvInt8Winograd(backend, convOp, res);
         }
+#endif
         std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
         if (convOp->quanParameter() && (convOp->quanParameter()->buffer() || convOp->external())) { // int8 weight
             quanCommon = ConvolutionCommon::load(op, backend, false, true);

@@ -40,8 +40,9 @@ enum TuneType {
     // op encoder number for commit
     OP_ENCODER_NUMBER = 0,
 };
+enum class MatchStrictLevel : int;
+enum class NgramSelectRule : int;
 struct KVMeta;
-
 struct LlmContext {
     // forward
     int prompt_len = 0;
@@ -129,7 +130,20 @@ protected:
     std::vector<std::shared_ptr<Express::Module>> mModules, mPrefillModules, mDecodeModules, mCurrentModules;
     const Express::Module* mBaseModule = nullptr;
     Express::VARP inputsEmbeds, attentionMask, positionIds;
-    bool mTracing = false;
+    std::vector<Express::VARP> mInputsEmbedsVarVec, mAttentionMaskVarVec, mPositionIdsVarVec;
+    Express::VARP logitsAllIdx, logitsLastIdx;
+private:
+    // decoding phase will use speculative decoding
+    void speculativeGenerate(int max_token);
+    void setSpeculativeConfig();
+private:
+    bool mLookAhead = false;
+    int mDraftLength = 4;
+    int mNgramKeyMaxLen = 4;
+
+    MatchStrictLevel mStrictLevel;
+    bool mUpdateNgram = false;
+    NgramSelectRule mSelectRule;
 };
 
 // Embedding start

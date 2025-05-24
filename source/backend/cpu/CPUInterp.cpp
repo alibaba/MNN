@@ -42,7 +42,11 @@ ErrorCode CPUInterp::onExecute(const std::vector<Tensor *> &inputs, const std::v
     auto plane_out = outputs[0]->width() * outputs[0]->height() * outputs[0]->batch();
     auto depth = UP_DIV(channel_input, core->pack);
     
+#ifdef MNN_SUPPORT_QUANT_EXTEND
     bool interpInt8 = CPUBackend::getDataType(inputs[0]) == DataType_DT_INT8 || inputs[0]->getType().bytes() == 1;
+#else
+    bool interpInt8 = false;
+#endif
     if (!interpInt8) {
         switch (mResizeType) {
             case 1:
@@ -64,6 +68,7 @@ ErrorCode CPUInterp::onExecute(const std::vector<Tensor *> &inputs, const std::v
         }
         return NO_ERROR;
     }
+#ifdef MNN_SUPPORT_QUANT_EXTEND
 
     // InterpInt8.
     std::vector<Tensor *> int8ExeInputs, int8ExeOutputs;
@@ -113,7 +118,7 @@ ErrorCode CPUInterp::onExecute(const std::vector<Tensor *> &inputs, const std::v
             MNNUnpackC2Origin(outputs[0]->host<double>(), mOutputTemp.get()->host<double>(), plane_out, depth, plane_out);
         }
     }
-
+#endif
     return NO_ERROR;
 }
 
@@ -122,6 +127,7 @@ ErrorCode CPUInterp::onResize(const std::vector<Tensor *> &inputs, const std::ve
     const int inH  = inputs[0]->height();
     const int outW = outputs[0]->width();
     const int outH = outputs[0]->height();
+#ifdef MNN_SUPPORT_QUANT_EXTEND
     int packInt8 = 8;
     if (mResizeType == 3 || mResizeType == 4) {
         packInt8 = 16;
@@ -140,7 +146,7 @@ ErrorCode CPUInterp::onResize(const std::vector<Tensor *> &inputs, const std::ve
         mOutputQuantMIn = TensorUtils::getQuantInfo(outputs[0])[2];
         mOutputQuantMax = TensorUtils::getQuantInfo(outputs[0])[3];
     }
-
+#endif
     if (mResizeType != 2) {
         if (mInputTemp.get()) {
             backend()->onReleaseBuffer(mInputTemp.get(), Backend::DYNAMIC);
@@ -204,12 +210,16 @@ ErrorCode CPUInterp::onResize(const std::vector<Tensor *> &inputs, const std::ve
 
     mLineBuffer.buffer().dim[0].extent = 2 * 4 * outW * threadNumber;
     mLineBuffer.buffer().dimensions    = 1;
+#ifdef MNN_SUPPORT_QUANT_EXTEND
     if (CPUBackend::getDataType(inputs[0]) == DataType_DT_INT8 || inputs[0]->getType().bytes() == 1) {
         mLineBuffer.setType(DataType_DT_INT16);
         mLineBuffer.buffer().dim[0].extent = 2 * packInt8 * outW * threadNumber;
     } else {
+#endif
         mLineBuffer.setType(DataType_DT_FLOAT);
+#ifdef MNN_SUPPORT_QUANT_EXTEND
     }
+#endif
     res = backend()->onAcquireBuffer(&mLineBuffer, Backend::DYNAMIC);
     if (!res) {
         return OUT_OF_MEMORY;

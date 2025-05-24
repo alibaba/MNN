@@ -15,7 +15,7 @@
 
 namespace MNN {
 namespace CV {
-
+#ifdef MNN_IMGPROC_DRAW
 // help functions
 #define MIN(a,b)  ((a) > (b) ? (b) : (a))
 #define MAX(a,b)  ((a) < (b) ? (b) : (a))
@@ -999,6 +999,6 @@ void fillPoly(VARP& img,  std::vector<std::vector<Point>> _pts, const Scalar& co
     FillEdgeCollection(regions, size, edges);
     doDraw(img, regions, color);
 }
-
+#endif
 } // CV
 } // MNN

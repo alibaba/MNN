@@ -96,7 +96,10 @@ int select(struct SubsetLogits& subset, int id) {
 
 int argmaxSelect(struct SubsetLogits superset) {
     auto scores = (float*)(superset.logits->readMap<float>());
-    auto size = superset.logits->getInfo()->size;
+    // get last dimension index
+    int lastIndex = superset.logits->getInfo()->dim.size() - 1;
+    // argmax size is last dimension size
+    auto size = superset.logits->getInfo()->dim[lastIndex];
     float max_score = scores[0];
     int token_id = 0;
     for (int i = 0; i < size; i++) {

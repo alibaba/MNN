@@ -439,6 +439,9 @@ public:
     bool use_cached_mmap() const {
         return config_.value("use_cached_mmap", true);
     }
+    int dynamic_option() const {
+        return config_.value("dynamic_option", 0);
+    }
     bool kvcache_mmap() const {
         return config_.value("kvcache_mmap", false);
     }
@@ -545,6 +548,70 @@ public:
         return config_.value("penalty_sampler", "greedy");
     }
     // sampler config end >
+    
+    // < speculative decoding config start
+    
+    /**
+     speculative decoding algrithm.
+     optional: "lookahead"、 ”mtp“、 "draftmodel"
+     */
+    std::string speculative_type() const {
+        return config_.value("speculative_type", "");
+    }
+    
+    // speculative draft length
+    int draft_predict_length() const {
+        return config_.value("draft_predict_length", 4);
+    }
+    /**
+     if speculative_type is set "lookahead",
+     purpose: :draft filter and adopt strictness,
+     optional: "low" "medium" "high"
+     */
+    // ========= lookahead config start ===============
+    std::string draft_match_strictness() const {
+        return config_.value("draft_match_strictness", "low");
+    }
+    /**
+     if speculative_type is set "lookahead",
+     purpose: deal if have several draft matchs, how to select one?
+     optional 0: "freqxlen" -> draft frequency multiply draft length as metrics, the higher the better
+     optional 1: "fcfs" -> first come fiirst serve,  just select the first match draft
+     */
+    std::string draft_selection_rule() const {
+        return config_.value("draft_selection_rule", "freqxlen");
+    }
+    /**
+     if speculative_type is set "lookahead",
+     purpose:  lookup prompt, how long history token should match
+     */
+    int ngram_match_maxlen() const {
+        return config_.value("ngram_match_maxlen", 4);
+    }
+    /**
+     if speculative_type is set "lookahead",
+     if user have prior knowledge base file, please set path
+     */
+    std::string lookup_file() const {
+        return base_dir_ + config_.value("lookup_file", "lookup_file.txt");
+    }
+    /**
+     if speculative_type is set "lookahead",
+     whether should  add decode token to ngram
+     */
+    bool ngram_update() const {
+        return config_.value("ngram_update", false);
+    }
+    // ========= lookahead config start ===============
+
+    /**
+     if speculative_type is set "draftmodel", please set draft model path
+     */
+    std::string draft_model() const {
+        return base_dir_ + config_.value("draft_model", "");
+    }
+    
+    // speculative decoding config end >
 };
 } // Transformer
 } // MNN
