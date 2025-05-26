@@ -55,7 +55,7 @@ enum OpType : int {
     LRN,
     LSTM,
     MatMul,
-    MVN,
+    MoE,
     NonMaxSuppression,
     NonMaxSuppressionV2,
     Normalize,

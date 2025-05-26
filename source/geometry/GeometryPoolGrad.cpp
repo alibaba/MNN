@@ -14,6 +14,8 @@
 #define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
 namespace MNN {
+#ifndef MNN_REDUCE_SIZE
+
 class GeometryPoolGrad : public GeometryComputer {
 public:
     // PoolGrad PoolType_MAXPOOL
@@ -396,10 +398,12 @@ public:
         return true;
     }
 };
-
+#endif
 static void _create() {
+#ifndef MNN_REDUCE_SIZE
     std::shared_ptr<GeometryComputer> comp(new GeometryPoolGrad);
     GeometryComputer::registerGeometryComputer(comp, {OpType_PoolGrad});
+#endif
 }
 
 REGISTER_GEOMETRY(GeometryPoolGrad, _create);

@@ -186,7 +186,7 @@ public:
         int32_t type = op->main_as_BinaryOp()->opType();
         auto dataType = inputs[0]->getType();
         auto core = static_cast<CPUBackend*>(backend)->functions();
-        auto input0Ptr = inputs[0]->host<uint8_t>();
+#ifdef MNN_SUPPORT_QUANT_EXTEND
         if (CPUBackend::getDataType(inputs[0]) == DataType_DT_INT8 || inputs[0]->getType().bytes() == 1) {
             if (CPUBackend::getDataType(inputs[1]) == DataType_DT_INT8 || inputs[1]->getType().bytes() == 1) {
                 if (CPUBackend::getDataType(outputs[0]) == DataType_DT_INT8 || outputs[0]->getType().bytes() == 1) {
@@ -198,6 +198,7 @@ public:
                 }
             }
         }
+#endif
         if (dataType.bits == 32) {
             if (dataType.code == halide_type_int) {
                 auto func = CPUBinary::selectForInt(type);

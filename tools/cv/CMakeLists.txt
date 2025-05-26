@@ -43,6 +43,7 @@ if(${MNN_IMGPROC_GEOMETRIC})
 endif()
 # imgproc draw functions
 if(${MNN_IMGPROC_DRAW})
+    add_definitions(-DMNN_IMGPROC_DRAW)
     list(APPEND IMGPROC_SRC ${CMAKE_CURRENT_LIST_DIR}/source/imgproc/draw.cpp ${CMAKE_CURRENT_LIST_DIR}/include/cv/imgproc/draw.hpp)
 endif()
 # imgproc filter functions

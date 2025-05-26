@@ -18,6 +18,7 @@
 #ifdef MNN_USE_NEON
 #include <arm_neon.h>
 #endif
+#ifndef MNN_REDUCE_SIZE
 
 namespace MNN {
 
@@ -657,3 +658,4 @@ bool ConvInt8Winograd::mustUse(const Convolution2D *convOp) {
 }
 
 } /* MNN */
+#endif

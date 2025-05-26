@@ -4,6 +4,10 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "^armv7" OR ARCHS MATCHES "^armv7(;armv7s)?")
 elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^aarch64" OR ARCHS STREQUAL "arm64")
     add_definitions(-DMNN_USE_NEON)
 endif()
+add_executable(MNNV2Basic.out ${CMAKE_CURRENT_LIST_DIR}/MNNV2Basic.cpp)
+list(APPEND MNN_CPP_TOOLS MNNV2Basic.out)
+
+if (NOT MNN_SKIPBUILD_GEOMETRY)
 add_executable(GetMNNInfo ${CMAKE_CURRENT_LIST_DIR}/GetMNNInfo.cpp)
 list(APPEND MNN_CPP_TOOLS GetMNNInfo)
 add_executable(ModuleBasic.out ${CMAKE_CURRENT_LIST_DIR}/ModuleBasic.cpp)
@@ -22,8 +26,6 @@ list(APPEND MNN_CPP_TOOLS mergeInplaceForCPU)
 add_executable(modelCompare.out ${CMAKE_CURRENT_LIST_DIR}/modelCompare.cpp)
 list(APPEND MNN_CPP_TOOLS modelCompare.out)
 
-add_executable(MNNV2Basic.out ${CMAKE_CURRENT_LIST_DIR}/MNNV2Basic.cpp)
-list(APPEND MNN_CPP_TOOLS MNNV2Basic.out)
 if (MNN_USE_SSE)
     target_compile_options(MNNV2Basic.out PRIVATE -DMNN_USE_SSE)
 endif()
@@ -57,7 +59,7 @@ list(APPEND MNN_CPP_TOOLS testTrain.out)
 
 add_executable(fuseTest ${CMAKE_CURRENT_LIST_DIR}/fuseTest.cpp)
 list(APPEND MNN_CPP_TOOLS fuseTest)
-
+endif()
 
 foreach(TARGET ${MNN_CPP_TOOLS})
     target_link_libraries(${TARGET} ${MNN_DEPS})

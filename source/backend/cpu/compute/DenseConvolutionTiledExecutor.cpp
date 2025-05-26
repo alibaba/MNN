@@ -190,12 +190,12 @@ DenseConvolutionTiledExecutor::DenseConvolutionTiledExecutor(const Convolution2D
             bytes = core->matmulBytes;
         }
         mResource->mWeight.reset(Tensor::createDevice<uint8_t>(
-            {hU * lU * hP * lP * bytes}));
+            {hU * hP, lU * lP, bytes}));
         mValid = mValid && backend()->onAcquireBuffer(mResource->mWeight.get(), Backend::STATIC);
         if (!mValid) {
             return;
         }
-        std::shared_ptr<Tensor> cache(Tensor::createDevice<uint8_t>({outputCount * srcCount * common->kernelX() * common->kernelY() * (int)sizeof(float)})); // cache must be float
+        std::shared_ptr<Tensor> cache(Tensor::createDevice<uint8_t>({outputCount, srcCount * common->kernelX() * common->kernelY(), (int)sizeof(float)})); // cache must be float
         mValid = mValid && backend()->onAcquireBuffer(cache.get(), Backend::STATIC);
         if (!mValid) {
             return;

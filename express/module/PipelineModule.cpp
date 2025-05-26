@@ -14,6 +14,7 @@
 #include "IfModule.hpp"
 #include "WhileModule.hpp"
 #include "NMSModule.hpp"
+#include "MoEModule.hpp"
 #include "Utils.hpp"
 #include "core/Backend.hpp"
 #include "core/WrapExecution.hpp"
@@ -343,7 +344,8 @@ static bool isBreakOp(const Op* op) {
     if (op->type() == OpType_While && op->main_as_WhileParam() != nullptr) {
         isWhileControlflow = true;
     }
-    if (op->type() == OpType_If || isWhileControlflow || op->type() == OpType_Where || op->type() == OpType_Segment || op->type() == OpType_Unique || op->type() == OpType_NonMaxSuppressionV2) {
+    if (op->type() == OpType_If || isWhileControlflow || op->type() == OpType_Where || op->type() == OpType_Segment ||
+        op->type() == OpType_Unique || op->type() == OpType_NonMaxSuppressionV2 || op->type() == OpType_MoE) {
         return true;
     }
     return false;
@@ -632,6 +634,9 @@ static Module* _createSubModule(std::shared_ptr<BufferStorage> bufferStorage, co
         }
         if (OpType_NonMaxSuppressionV2 == op->type()) {
             return NMSModule::create(op);
+        }
+        if (OpType_MoE == op->type()) {
+            return MoEModule::create(op, subs, runtimeConfig.rt, config);
         }
         // MNN_ASSERT(false);
     }

@@ -418,3 +418,16 @@ private:
 GLCreatorRegister<TypedCreator<GLMyCustomOp>> __my_custom_op(OpType_MyCustomOp);
 ```
 
+### 添加QNN实现
+QNN后端通过调用高通QNN的官方算子库（qti.aisw）实现MNN的计算功能。为QNN添加算子时，开发者需要充分理解MNN的算子格式与QNN的算子格式，读取MNN算子的尺寸与参数，设定QNN算子的尺寸与参数。
+关于QNN的官方算子库，开发者可以参考[官方文档的算子定义](https://docs.qualcomm.com/bundle/publicresource/topics/80-63442-50/MasterOpDef.html?product=1601111740009302)，以及[算子在HTP上的限制](https://docs.qualcomm.com/bundle/publicresource/topics/80-63442-50/HtpOpDefSupplement.html)。
+
+1、添加Executor
+- 在`source/backend/qnn/execution`目录下，添加`QnnCustomOp.cpp`与`QnnCustomOp.hpp`，实现`QnnCustomOp`类以及`QnnCustomOpCreator`类的骨架代码。
+- 实现`QnnCustomOp::onEncode`函数，有两种情况
+  - 使用单个QNN算子就可以实现MNN算子的计算功能。对于单个QNN算子，一般包含添加inputs，添加scalar params（可参考`source/backend/qnn/execution/QNNArgmax.cpp`），添加tensor params（可参考`source/backend/qnn/execution/QNNPool.cpp`），添加outputs，调用QNN的节点入图API等步骤。
+  - 拼接多个QNN算子以MNN算子的计算功能。可参考`source/backend/qnn/execution/QNNScale.cpp`。
+
+2、注册算子
+- 在`QnnCustomOp.cpp`中添加注册代码`REGISTER_QNN_OP_CREATOR(QnnCustomOpCreator, OpType_CustomOp)`。
+- 在`source/backend/qnn/backend/QNNUtils.hpp`中添加函数声明`extern void ___QnnCustomOpCreator__OpType_CustomOp__();`；并在`source/backend/qnn/backend/QNNUtils.cpp`内，在函数`registerQNNOps`中追加`___QnnCustomOpCreator__OpType_CustomOp__();`。

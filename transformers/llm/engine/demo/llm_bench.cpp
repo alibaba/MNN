@@ -162,6 +162,7 @@ struct TestInstance {
     int                      precision;
     int                      power;
     int                      memory;
+    int                      dynamicOption;
 
     TestInstance(const commandParametersInstance & instance) {
 
@@ -174,6 +175,7 @@ struct TestInstance {
         precision         = instance.mCmdParam.precision;
         memory            = instance.mCmdParam.memory;
         power             = instance.mCmdParam.power;
+        dynamicOption     = instance.mCmdParam.dynamicOption;
     }
 
     std::vector<double> getTokensPerSecond(int n_tokens, std::vector<int64_t> cost_us) const {
@@ -374,6 +376,9 @@ struct markdownPrinter : public Printer {
             } else if (field == "loadingTime(s)") {
                 snprintf(buf, sizeof(buf), "%.2f ± %.2f", t.getAvgUs(t.loadingS), t.getStdevUs(t.loadingS));
                 value = buf;
+            } else if (field == "useMmap") {
+                if (t.useMmap) value = "true";
+                else value = "false";
             }
             else {
                 assert(false);
@@ -909,11 +914,8 @@ int main(int argc, char ** argv) {
                     sampler_us += context->prefill_us;
                 }
                 if (decodeTokens) {
-                    auto rep = decodeTokens;
-                    while (rep--) {
-                        llm->response(tokens1, nullptr, nullptr, 1);
-                        sampler_us += context->prefill_us;
-                    }
+                    llm->response(tokens1, nullptr, nullptr, decodeTokens);
+                    sampler_us += context->decode_us;
                 }
                 if (i > 0) {
                     t.samplesUs.push_back(sampler_us);

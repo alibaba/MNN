@@ -12,6 +12,7 @@
 #include "core/Execution.hpp"
 
 namespace MNN {
+#ifdef MNN_SUPPORT_QUANT_EXTEND
 class CPUScaleInt8 : public Execution {
 public:
     CPUScaleInt8(const Op *op, Backend *bn);
@@ -25,6 +26,7 @@ private:
     std::vector<float>      mInputQuantInfo;
     int32_t mShiftBits;
 };
+#endif
 
 } // namespace MNN
 #endif /* CPUScaleInt8_hpp */

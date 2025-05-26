@@ -111,10 +111,15 @@ public:
     virtual void response(const std::vector<int>& input_ids, std::ostream* os = &std::cout, const char* end_with = nullptr, int max_new_tokens = -1) override;
     virtual void setWavformCallback(std::function<bool(const float*, size_t, bool)> callback) override;
     virtual void generateWavform() override;
+    // some models preprocess function
+    std::vector<int> defaultVisionProcess(VARP image);
+    std::vector<int> qwen2VisionProcess(VARP image);
+    std::vector<int> smolvlmVisionProcess(VARP image);
 private:
     int mVisionHeight = 448, mVisionWidth = 448, mVisionStart = 151857,
         mVisionEnd = 151858, mVisionPad = 151859, mAudioPad = 151646;
-    int mVisionSizeUnit = 1;
+    int mVisionGlobal = 49152;
+    int mVisionSizeUnit = 1, mVisionMaxSize = 2048;
     std::vector<float> mVisionMean{122.7709383, 116.7460125, 104.09373615};
     std::vector<float> mVisionNorm{0.01459843, 0.01500777, 0.01422007};
     std::vector<int> multimodeProcess(const std::string& mode, std::string info);

@@ -18,6 +18,7 @@
 #include "core/TensorUtils.hpp"
 
 namespace MNN {
+#ifndef MNN_REDUCE_SIZE
 Convolution1x1Strassen::Convolution1x1Strassen(const Convolution2DCommon *common, Backend *b, const float *originWeight,
                                                size_t originWeightSize, const float *bias, size_t biasSize)
     : CPUConvolution(common, b) {
@@ -170,17 +171,11 @@ ErrorCode Convolution1x1Strassen::onResize(const std::vector<Tensor *> &inputs, 
     const int numberThread = ((CPUBackend *)backend())->threadNumber();
     auto ic = input->channel();
     auto oc = output->channel();
-    auto icC4        = UP_DIV(ic, core->pack);
     auto ocC4        = UP_DIV(oc, core->pack);
     auto batch       = input->batch();
     auto matrixSizeE = output->height() * output->width() * input->batch();
-    auto outputPlane = output->height() * output->width();
     mUnits.clear();
     std::shared_ptr<char> __autoFunction;
-    auto padY     = mPadY;
-    auto padX     = mPadX;
-    auto strideX  = mCommon->strideX();
-    auto strideY  = mCommon->strideY();
     auto postParameters = getPostParameters();
     auto memoryPool = ((CPUBackend *)backend())->getBufferAllocator();
     memoryPool->barrierBegin();
@@ -188,9 +183,6 @@ ErrorCode Convolution1x1Strassen::onResize(const std::vector<Tensor *> &inputs, 
     int maxDepth = 5;
     auto icAlign = UP_DIV(ic, lPack) * lPack;
     auto weightTensor = mResource->mWeight.get();
-    uint8_t* dequantAlpha = nullptr;
-    uint8_t* dequantBias = nullptr;
-    int dequantBits = bytes * 8; // fp16:16, fp32:32
 
 #ifdef MNN_KLEIDIAI_ENABLED
     KleidiAI& kai = KleidiAI::getInstance();
@@ -333,4 +325,5 @@ ErrorCode Convolution1x1Strassen::onExecute(const std::vector<Tensor *> &inputs,
     MNN_CONCURRENCY_END();
     return NO_ERROR;
 }
+#endif
 } // namespace MNN

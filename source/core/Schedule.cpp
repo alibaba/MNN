@@ -16,7 +16,7 @@
 #include "core/RuntimeFactory.hpp"
 #include "core/TensorUtils.hpp"
 #include "core/FileLoader.hpp"
-#ifndef MNN_BUILD_MINI
+#ifndef MNN_SKIPBUILD_GEOMETRY
 #include "shape/SizeComputer.hpp"
 #include "geometry/GeometryComputerUtils.hpp"
 #endif
@@ -401,7 +401,7 @@ bool Schedule::schedule(ScheduleInfo& scheduleInfo, const Net* net, const std::v
         }
     }
 
-#ifndef MNN_BUILD_MINI
+#ifndef MNN_SKIPBUILD_GEOMETRY
     for (auto iter = scheduleInfo.pipelineInfo.begin(); iter != scheduleInfo.pipelineInfo.end();) {
         if (!iter->first.needComputeGeometry) {
             // For static model don't need check const

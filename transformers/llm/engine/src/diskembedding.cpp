@@ -7,6 +7,7 @@
 
 #include <memory>
 #include "diskembedding.hpp"
+#include "half.hpp"
 
 namespace MNN {
 namespace Transformer {
@@ -41,26 +42,28 @@ DiskEmbedding::DiskEmbedding(const std::shared_ptr<LlmConfig>& config, std::stri
         mWeightOffset     = tie_embeddings[0];
         mQuantBit         = tie_embeddings[3];
         mQuantBlock       = tie_embeddings[4];
-        mBlockNum         = mHiddenSize / mQuantBlock;
-        mTokenSize = mHiddenSize * mQuantBit / 8;
         mFile.reset(new FileLoader(config->llm_weight().c_str(), true));
+        mTokenSize = mHiddenSize * mQuantBit / 8;
         // TODO: optimize dequant function
-        mDequantFunc      = mQuantBit == 8 ? q81_dequant_ref : q41_dequant_ref;
-        auto a_offset   = tie_embeddings[1];
-        auto alpha_size = tie_embeddings[2];
-        size_t oc = (a_offset - mWeightOffset) / mHiddenSize * (8 / mQuantBit);
+        if (mQuantBit != 16) {
+            mBlockNum         = mHiddenSize / mQuantBlock;
+            mDequantFunc      = mQuantBit == 8 ? q81_dequant_ref : q41_dequant_ref;
+            auto a_offset   = tie_embeddings[1];
+            auto alpha_size = tie_embeddings[2];
+            size_t oc = (a_offset - mWeightOffset) / mHiddenSize * (8 / mQuantBit);
 
-        mAlpha.reset(new uint8_t[alpha_size]);
-        seek_read(mAlpha.get(), alpha_size, a_offset);
-        mOffset = -(1 << (mQuantBit-1));
-        if (alpha_size == sizeof(float) * mBlockNum * oc) {
-            mAsymc = false;
-        } else {
-            MNN_ASSERT(alpha_size == 2 * sizeof(float) * mBlockNum * oc);
-            mAsymc = true;
-            auto alphaPtr = (float*)mAlpha.get();
-            for (int i=0; i<mBlockNum * oc; ++i) {
-                alphaPtr[2*i] = alphaPtr[2*i] + alphaPtr[2*i+1] * mOffset;
+            mAlpha.reset(new uint8_t[alpha_size]);
+            seek_read(mAlpha.get(), alpha_size, a_offset);
+            mOffset = -(1 << (mQuantBit-1));
+            if (alpha_size == sizeof(float) * mBlockNum * oc) {
+                mAsymc = false;
+            } else {
+                MNN_ASSERT(alpha_size == 2 * sizeof(float) * mBlockNum * oc);
+                mAsymc = true;
+                auto alphaPtr = (float*)mAlpha.get();
+                for (int i=0; i<mBlockNum * oc; ++i) {
+                    alphaPtr[2*i] = alphaPtr[2*i] + alphaPtr[2*i+1] * mOffset;
+                }
             }
         }
     } else {
@@ -108,15 +111,27 @@ void DiskEmbedding::embedding(const std::vector<int>& input_ids, float* dst) {
                 }
             }
         }
-    } else {
-        // bf16
+        return;
+    }
+    if (mQuantBit == 16) {
+        // FP16
         for (size_t i = 0; i < input_ids.size(); i++) {
-            seek_read(mWeight.get(), mTokenSize, input_ids[i] * mTokenSize);
-            int16_t* dst_ptr = reinterpret_cast<int16_t*>(dst + i * mHiddenSize);
+            seek_read(mWeight.get(), mTokenSize, mWeightOffset + input_ids[i] * mTokenSize);
+            auto src = (half_float::half*)mWeight.get();
+            auto dst_ptr = reinterpret_cast<float*>(dst + i * mHiddenSize);
             for (int j = 0; j < mHiddenSize; j++) {
-                dst_ptr[j * 2]     = 0;
-                dst_ptr[j * 2 + 1] = reinterpret_cast<int16_t*>(mWeight.get())[j];
+                dst_ptr[j] = src[j];
             }
+        }
+        return;
+    }
+    // bf16
+    for (size_t i = 0; i < input_ids.size(); i++) {
+        seek_read(mWeight.get(), mTokenSize, input_ids[i] * mTokenSize);
+        int16_t* dst_ptr = reinterpret_cast<int16_t*>(dst + i * mHiddenSize);
+        for (int j = 0; j < mHiddenSize; j++) {
+            dst_ptr[j * 2]     = 0;
+            dst_ptr[j * 2 + 1] = reinterpret_cast<int16_t*>(mWeight.get())[j];
         }
     }
 }
