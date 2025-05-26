@@ -21,12 +21,7 @@ IF(MNN_SEP_BUILD)
     if (MNN_BUILD_FOR_ANDROID_COMMAND)
         set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "../")
     endif()
-    if (MNN_BUILD_MINI)
-        add_library(MNN_Express SHARED ${MNN_EXPR_SRCS} $<TARGET_OBJECTS:MNNTransform>)
-        target_compile_options(MNN_Express PRIVATE -DMNN_BUILD_MINI)
-    else()
-        add_library(MNN_Express SHARED ${MNN_EXPR_SRCS})
-    endif()
+    add_library(MNN_Express SHARED ${MNN_EXPR_SRCS})
     target_link_libraries(MNN_Express MNN ${EXTRA_LIBS})
     install(TARGETS MNN_Express
         LIBRARY DESTINATION lib

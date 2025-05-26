@@ -80,7 +80,7 @@ private:
     // For gpu or other backend
     std::map<Tensor*, std::shared_ptr<Tensor>> mCacheConstTensors;
     WrapTensorCache mWrapTensors;
-#ifndef MNN_BUILD_MINI
+#ifndef MNN_SKIPBUILD_GEOMETRY
     GeometryComputer::Context mContext;
     Runtime::CompilerType mUseGeometry;
     bool mGeometryNeedRelease = true;

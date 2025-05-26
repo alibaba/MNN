@@ -207,7 +207,11 @@ class Convolution3DTestOnCPU : public Convolution3DTest {
 public:
     virtual ~Convolution3DTestOnCPU() = default;
     virtual bool run(int precision) {
+#ifdef MNN_SUPPORT_DEPRECATED_OPV2
         return Convolution3DTest::test(MNN_FORWARD_CPU, "CPU", precision);
+#else
+        return true;
+#endif
     }
 };
 

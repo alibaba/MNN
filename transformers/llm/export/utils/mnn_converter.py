@@ -1,5 +1,6 @@
 import os
 import sys
+import copy
 import json
 import torch
 import numpy as np
@@ -50,7 +51,7 @@ class MNNConveter:
             os.close(log_fd)
 
     @spinner_run(f'convert onnx model to ')
-    def onnx2mnn(self, onnx_path, mnn_path, args = []):
+    def onnx2mnn(self, onnx_path, mnn_path, args = [], transformer_fuse = True, save_external_data = True):
         convert_args = [
             '',
             '-f',
@@ -59,10 +60,12 @@ class MNNConveter:
             str(onnx_path),
             '--MNNModel',
             str(mnn_path),
-            '--transformerFuse',
-            '--allowCustomOp',
-            '--saveExternalData'
+            '--allowCustomOp'
         ]
+        if transformer_fuse:
+            convert_args += ['--transformerFuse']
+        if save_external_data:
+            convert_args += ['--saveExternalData']
         convert_args += args
         self.convert(convert_args)
         return mnn_path
@@ -107,7 +110,7 @@ class MNNConveter:
         self.convert(convert_args)
         return mnn_path
 
-    def export(self, onnx_path, quant_bit = None, quant_block = None):
+    def export(self, onnx_path, quant_bit = None, quant_block = None, transformer_fuse = True):
         self.onnx_model_path = onnx_path
         self.mnn_name = os.path.basename(onnx_path).replace('.onnx', '.mnn')
         self.mnn_model_path = os.path.join(self.config.args.dst_path, self.mnn_name)
@@ -128,18 +131,70 @@ class MNNConveter:
                 ]
             if quant_bit == 32:
                 quant_args = []
-            self.onnx2mnn(self.onnx_model_path, self.mnn_model_path, quant_args)
+            self.onnx2mnn(self.onnx_model_path, self.mnn_model_path, quant_args, transformer_fuse=transformer_fuse)
         else:
             mnn_json = f'{self.mnn_model_path}.json'
-            self.onnx2mnn(self.onnx_model_path, self.mnn_model_path)
+            self.onnx2mnn(self.onnx_model_path, self.mnn_model_path, transformer_fuse=transformer_fuse)
             self.mnn2json(self.mnn_model_path, mnn_json)
             self.rebuild(mnn_json)
             self.json2mnn(mnn_json, self.mnn_model_path)
             self.removeDupOps(self.mnn_model_path)
+            self.mnn2json(self.mnn_model_path, mnn_json)
             if self.config.args.gptq_path is not None:
                 self.apply_gptq(mnn_json)
             if self.config.args.lora_path is not None and self.config.args.lora_split:
                  self.export_lora(mnn_json)
+
+    def get_experts_graphs(self, experts):
+        hidden_states = torch.randn((1, self.config.hidden_size))
+        layers_num = len(experts)
+        expert_num = len(experts[0])
+        dummy_expert = experts[0][0]
+        onnx_model = f'{self.config.onnx_path}/expert.onnx'
+        torch.onnx.export(
+            dummy_expert, (hidden_states),
+            onnx_model,
+            input_names=['hidden_states'],
+            output_names=['hidden_states'],
+            do_constant_folding=True,
+            verbose=False,
+            opset_version=15)
+        mnn_model = f'{onnx_model}.mnn'
+        mnn_json = f'{mnn_model}.json'
+        self.onnx2mnn(onnx_model, mnn_model)
+        self.mnn2json(mnn_model, mnn_json)
+        expert_graph = json.load(open(mnn_json, 'rt'))
+        tensors = expert_graph['tensorName']
+        nodes = expert_graph['oplists']
+        # get input and output
+        inputs = []
+        outputs = []
+        for node in nodes:
+            if node['type'] == 'Input':
+                inputs.append(node['outputIndexes'][0])
+        for output_name in expert_graph['outputName']:
+            outputs.append(tensors.index(output_name))
+        subgraphs = []
+        for i in range(layers_num):
+            for j in range(expert_num):
+                ijnodes = copy.deepcopy(nodes)
+                for op in ijnodes:
+                    if op['type'] == 'Extra':
+                        for attr in op['main']['attr']:
+                            if attr['key'] == 'name':
+                                names = attr['s'].split('/')
+                                names[2] = f'{i}_{j}'
+                                attr['s'] = '/'.join(names)
+                subgraph = {
+                    'name': f'/expert/{i}_{j}',
+                    'inputs': inputs,
+                    'outputs': outputs,
+                    'tensors': copy.deepcopy(tensors),
+                    'nodes': ijnodes
+                }
+                subgraphs.append(subgraph)
+        return subgraphs
+
 
     @spinner_run(f'apply gptq to ')
     def apply_gptq(self, mnn_json):
@@ -159,6 +214,10 @@ class MNNConveter:
     @spinner_run(f'quant model weight to ', True)
     def rebuild(self, json_path):
         mnn_graph = json.load(open(json_path, 'rt'))
+        has_experts = len(self.config.experts) > 0
+        if has_experts:
+            subgraphs = self.get_experts_graphs(self.config.experts)
+            mnn_graph['subgraphs'] = subgraphs
         new_ops = []
         # Load layernorm weight from external
         with open(self.mnn_weight_path, 'rb') as f:
@@ -176,7 +235,16 @@ class MNNConveter:
                     new_ops += self.rebuild_op(op, mnn_graph)
                 else:
                     new_ops.append(op)
-        mnn_graph['oplists'] = new_ops
+            mnn_graph['oplists'] = new_ops
+            if has_experts and 'subgraphs' in mnn_graph:
+                for subgraph in tqdm(mnn_graph['subgraphs'], 'Quant subgraphs weights'):
+                    new_subops = []
+                    for op in subgraph['nodes']:
+                        if op['type'] == 'Extra' or op['type'] == 'LayerNorm':
+                            new_subops += self.rebuild_op(op, subgraph)
+                        else:
+                            new_subops.append(op)
+                    subgraph['nodes'] = new_subops
         with open(json_path, 'w', encoding='utf-8') as file:
             json.dump(mnn_graph, file, ensure_ascii=False, indent=4)
         return self.mnn_weight_path
@@ -233,8 +301,11 @@ class MNNConveter:
         return external, q_min, shape_int32, header_len
 
     def build_tensor(self, graph, tensor_name):
-        tensor_idx = [len(graph['tensorName'])]
-        graph['tensorName'].append(tensor_name)
+        tensor_key = 'tensorName'
+        if tensor_key not in graph and 'tensors' in graph:
+            tensor_key = 'tensors'
+        tensor_idx = [len(graph[tensor_key])]
+        graph[tensor_key].append(tensor_name)
         return tensor_idx
 
     def rebuild_op(self, op, graph):
@@ -248,6 +319,15 @@ class MNNConveter:
             return self.rebuild_attnention(op, graph)
         if op_type == "LayerNorm":
             return self.rebuild_layernorm(op, graph)
+        if op_type == 'MoE':
+            return self.rebuild_moe(op, graph)
+        return None
+
+    def rebuild_moe(self, op, graph):
+        moe = copy.deepcopy(op)
+        moe['main'] = { 'attr': moe['main']['attr'][:3] }
+        moe['type'] = 'MoE'
+        return [moe]
 
     def rebuild_layernorm(self, op, graph):
         if "gamma" not in op['main'] or "beta" not in op['main']:
@@ -419,4 +499,6 @@ class MNNConveter:
             },
             "defaultDimentionFormat": "NHWC"
         }
+        if name.startswith('/expert/'):
+            post_reshape['main']['dims'] = [-1, oc]
         return [pre_reshape, pre_convert, conv_op, post_convert, post_reshape]

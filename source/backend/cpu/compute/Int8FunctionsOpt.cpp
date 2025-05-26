@@ -2368,8 +2368,10 @@ void MNNCoreInt8FunctionInit() {
     gCoreFunc->MNNAvgPoolInt8 = MNNAvgPoolInt8;
     gCoreFunc->MNNMaxPoolInt8 = MNNMaxPoolInt8;
 
+#ifdef MNN_SUPPORT_QUANT_EXTEND
     // ReluWithSlopeChannel
     gCoreFunc->MNNReluWithSlopeChannelInt8 = MNNReluWithSlopeChannelInt8;
+#endif
 
 #if defined(__aarch64__)
     auto core = MNNGetCoreFunctions();

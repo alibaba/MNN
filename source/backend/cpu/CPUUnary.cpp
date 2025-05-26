@@ -29,6 +29,7 @@ CPUUnary::CPUUnary(Backend *b, MNNUnaryExecute proc, MNNUnaryExecuteInt8 procInt
 ErrorCode CPUUnary::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     MNN_ASSERT(1 == outputs.size());
     MNN_ASSERT(inputs[0]->getType() == halide_type_of<float>() || inputs[0]->getType() == halide_type_of<int32_t>());
+#ifdef MNN_SUPPORT_QUANT_EXTEND
     if (mProcInt8) {
         auto quantIn = TensorUtils::getDescribe(inputs[0])->quantAttr;
         auto quantOut = TensorUtils::getDescribe(outputs[0])->quantAttr;
@@ -39,12 +40,16 @@ ErrorCode CPUUnary::onResize(const std::vector<Tensor *> &inputs, const std::vec
         mOupZeroPoint.push_back(quantOut->zero);
         mMaxMinValue = {static_cast<ssize_t>(quantOut->min), static_cast<ssize_t>(quantOut->max)};
     }
+#endif
     return NO_ERROR;
 }
 
 static void _Neg(void* out, const void* inp, int realSize) {
     MNNScaleAndAddBiasScalar((float*)out, (const float*)inp, 0.0f, -1.0f, realSize);
 }
+
+#ifdef MNN_SUPPORT_QUANT_EXTEND
+
 #ifdef MNN_USE_NEON
 static inline void exeNegInt8 (int8_t* out, const int8_t* inp, int sizeQuad, int8x8_t inZeroPoint, int8x8_t outZeroPoint, float32x4_t inpScale, float32x4_t outScale) {
     for (int i = 0;i < sizeQuad; ++i) {
@@ -144,9 +149,6 @@ static void _NegInt8(void* out, const void* inp, int realSize, QuanPrePostParame
 #endif
 }
 
-static void _ABS(void* out, const void* inp, int realSize) {
-    MNNReluWithSlopeCommon((float*)out, (const float*)inp, realSize, -1.0f);
-}
 #ifdef MNN_USE_NEON
 static inline void exeAbsInt8(int8_t* out, const int8_t* inp, int sizeQuad, int8x8_t inZeroPoint, int8x8_t outZeroPoint, float32x4_t inpScale, float32x4_t outScale) {
     for (int i = 0;i < sizeQuad; ++i) {
@@ -317,7 +319,10 @@ static void _SignInt8(void* out, const void* inp, int realSize, QuanPrePostParam
     }
 #endif
 }
-
+#endif
+static void _ABS(void* out, const void* inp, int realSize) {
+    MNNReluWithSlopeCommon((float*)out, (const float*)inp, realSize, -1.0f);
+}
 static void _Square(void* out, const void* inp, int realSize) {
     MNNMatrixProdCommon((float*)out, (const float*)inp, (const float*)inp, realSize, 0, 0, 0, 1);
 }
@@ -450,7 +455,9 @@ static MNNUnaryExecute selectForInt(int type) {
     return nullptr;
 }
 
+
 MNNUnaryExecuteInt8 CPUUnary::selectForInt8(int type) {
+#ifdef MNN_SUPPORT_QUANT_EXTEND
     switch (type) {
         case UnaryOpOperation_ABS:
             return _ABSInt8;
@@ -461,6 +468,7 @@ MNNUnaryExecuteInt8 CPUUnary::selectForInt8(int type) {
         default:
             break;
     }
+#endif
     return nullptr;
 }
 ErrorCode CPUUnary::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
@@ -550,13 +558,18 @@ public:
         auto type = inputs[0]->getType();
         MNNUnaryExecute proc = nullptr;
         MNNUnaryExecuteInt8 procInt8 = nullptr;
+#ifdef MNN_SUPPORT_QUANT_EXTEND
         if (CPUBackend::getDataType(inputs[0]) == DataType_DT_INT8 || inputs[0]->getType().bytes() == 1) {
             procInt8 = core->MNNSelectUnaryFunctionForInt8(op->main_as_UnaryOp()->opType());
-        } else if (type.code == halide_type_int) {
-            proc = selectForInt(op->main_as_UnaryOp()->opType());
-        } else if (type.code == halide_type_float) {
-            proc = core->MNNSelectUnaryFunctionForFloat(op->main_as_UnaryOp()->opType(), static_cast<CPUBackend*>(backend)->precisionMode());
-           
+        }
+#endif
+        if (nullptr == procInt8) {
+            if (type.code == halide_type_int) {
+                proc = selectForInt(op->main_as_UnaryOp()->opType());
+            } else if (type.code == halide_type_float) {
+                proc = core->MNNSelectUnaryFunctionForFloat(op->main_as_UnaryOp()->opType(), static_cast<CPUBackend*>(backend)->precisionMode());
+               
+            }
         }
         if (nullptr == proc && nullptr == procInt8 && nullptr == op->main_as_UnaryOp()->tableInt8()) {
             MNN_ERROR("ERROR: Unary Op can not execute\n");

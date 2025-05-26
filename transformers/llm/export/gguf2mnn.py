@@ -179,6 +179,8 @@ def write_external_weight(weight, mnn_weight_file, mnn_weight_offset):
         external = [mnn_weight_offset, weightlen, 0, bias_length, 0]
         conv['external'] = external
         mnn_weight_offset += weightlen
+        tie_embedding = True
+        quant_bit = 16
     elif weight.tensor_type == constants.GGMLQuantizationType.F32:
         # FP16
         quan = {}
@@ -385,8 +387,25 @@ def convert(args):
             assert(False)
         print('Load Convolution: ', name, ", weight type: ", weight.tensor_type)
         if weight.shape[0] != ichannel or weight.shape[1] != ochannel:
-            print(name, ", weight not match: ", ichannel, ", ", ochannel, " : ", weight.shape)
-            assert(False)
+            print(name, ", weight not match: ", ichannel, ", ", ochannel, " : ", weight.shape, ", reset to ", weight.shape)
+            ichannel = int(weight.shape[0])
+            ochannel = int(weight.shape[1])
+            conv['common']['inputCount'] = ichannel
+            conv['common']['outputCount'] = ochannel
+            # Change post reshape for convolution
+            outputIndex = op['outputIndexes'][0]
+            for subop in mnn["oplists"]:
+                if 'inputIndexes' not in subop:
+                    continue
+                if subop['inputIndexes'][0] == outputIndex and subop['type'] == 'ConvertTensor':
+                    outputIndex = subop['outputIndexes'][0]
+                    break
+            for subop in mnn["oplists"]:
+                if 'inputIndexes' not in subop:
+                    continue
+                if subop['inputIndexes'][0] == outputIndex and subop['type'] == 'Reshape':
+                    subop['main']['dims'][2] = ochannel
+                    break
         mnn_weight_offset, conv_new, can_tie_embedding, block_size, quant_bit, header_len = write_external_weight(weight, mnn_weight_file, mnn_weight_offset)
         if not can_tie_embedding:
             tie_embedding = False

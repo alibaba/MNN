@@ -18,6 +18,46 @@
 #include "TestUtils.h"
 
 using namespace MNN::Express;
+static MNN::PadMode _convertPadMode(PaddingMode mode) {
+    switch (mode) {
+        case CAFFE:
+            return MNN::PadMode_CAFFE;
+        case VALID:
+            return MNN::PadMode_VALID;
+        case SAME:
+            return MNN::PadMode_SAME;
+        default:
+            break;
+    }
+    return MNN::PadMode_CAFFE;
+}
+static VARP _Conv2DBackPropFilter(VARP input, VARP inputGrad, INTS kernelSize, PaddingMode pad = VALID, INTS stride = {1
+    , 1}, INTS dilate = {1, 1}, int group = 1, INTS pads = {0, 0}) {
+    std::unique_ptr<MNN::OpT> convOp(new MNN::OpT);
+    convOp->type       = MNN::OpType_Conv2DBackPropFilter;
+    auto srcShape = input->getInfo();
+    auto dstShape = inputGrad->getInfo();
+    auto channel       = std::vector<int>{srcShape->dim[1], dstShape->dim[1]};
+    convOp->main.type  = MNN::OpParameter_Convolution2D;
+    convOp->main.value = new MNN::Convolution2DT;
+    auto conv2D        = convOp->main.AsConvolution2D();
+    conv2D->common.reset(new MNN::Convolution2DCommonT);
+    conv2D->common->padX        = pads[0];
+    conv2D->common->padY        = pads[1];
+    conv2D->common->padMode     = _convertPadMode(pad);
+    conv2D->common->strideX     = stride[0];
+    conv2D->common->strideY     = stride[1];
+    conv2D->common->group       = group;
+    conv2D->common->outputCount = channel[1];
+    conv2D->common->inputCount  = channel[0];
+    conv2D->common->dilateX     = dilate[0];
+    conv2D->common->dilateY     = dilate[1];
+    conv2D->common->kernelX     = kernelSize[0];
+    conv2D->common->kernelY     = kernelSize[1];
+    INTS weightDims             = {channel[1], channel[0] / group, kernelSize[1], kernelSize[0]};
+
+    return Variable::create(Expr::create(std::move(convOp), {input, inputGrad}));
+}
 
 class Conv2DBackPropFilterTest : public MNNTestCase {
 public:

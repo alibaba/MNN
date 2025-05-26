@@ -89,9 +89,11 @@ class CPUScaleCreator : public CPUBackend::Creator {
 public:
     virtual Execution* onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                 const MNN::Op* op, Backend* backend) const override {
+#ifdef MNN_SUPPORT_QUANT_EXTEND
         if (CPUBackend::getDataType(inputs[0]) == DataType_DT_INT8 || inputs[0]->getType().bytes() == 1) {
             return new CPUScaleInt8(op, backend);
         }
+#endif
         return new CPUScale(op, backend);
     }
 };

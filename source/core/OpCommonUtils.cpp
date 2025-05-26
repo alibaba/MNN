@@ -10,9 +10,26 @@
 #include "core/Execution.hpp"
 #include "MNN_generated.h"
 #include "Macro.h"
-#include <random>
 
 namespace MNN {
+bool OpCommonUtils::checkNet(const void* buffer, size_t length) {
+    // For mnn build mini, skip check buffer, it will reduce 100k size
+#ifndef MNN_SKIPBUILD_GEOMETRY
+    flatbuffers::Verifier verify((const uint8_t*)buffer, length);
+    if (false == VerifyNetBuffer(verify)) {
+        MNN_PRINT("Invalidate buffer to create MNN Module\n");
+        return false;
+    }
+    // Check Auto Inputs and Outputs
+    auto net = GetNet(buffer);
+    if (nullptr == net->oplists() || nullptr == net->tensorName()) {
+        MNN_ERROR("Invalid net, for null oplist or tensorName\n");
+        return false;
+    }
+#endif
+    return true;
+}
+
 Tensor::DimensionType OpCommonUtils::convertDimType(MNN_DATA_FORMAT dimensionFormat) {
     auto dimType = Tensor::CAFFE;
     switch (dimensionFormat) {
@@ -696,7 +713,7 @@ static bool _RebuildExternalOp(FileLoader* external, const MNN::Op* origin, flat
 }
 Execution* OpCommonUtils::createExecutionWithExternal(Backend* backend, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,
                                               const MNN::Op* op, FileLoader* externalFile, std::shared_ptr<BufferStorage>& tmpstore) {
-#ifdef MNN_BUILD_MINI
+#ifdef MNN_SKIPBUILD_GEOMETRY
     return backend->onCreate(inputs, outputs, op);
 #else
     bool hasExternal = false;

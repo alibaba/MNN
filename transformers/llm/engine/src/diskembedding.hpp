@@ -31,7 +31,8 @@ private:
     int mHiddenSize, mTokenSize;
     float mOffset = 0.0f;
     bool mAsymc = true;
-    int64_t mWeightOffset, mBlockNum, mQuantBlock, mQuantBit;
+    int64_t mWeightOffset = 0;
+    int64_t mBlockNum = 0, mQuantBlock = 0, mQuantBit = 0;
 };
 
 }

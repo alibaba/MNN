@@ -27,6 +27,11 @@ public:
 
 protected:
     bool testOnBackend(MNNForwardType type, const std::string& deviceName) {
+#ifdef MNN_REDUCE_SIZE
+        MNN_PRINT("Skip test conv2dBackprop\n");
+        return true;
+#endif
+
         const float inputGradData[] = {1., 1., 1., 1., 1., 1., 1., 1., 1}; // 1x1x3x3
 
         auto inputGrad = _Const(inputGradData, {1, 1, 3, 3}, NCHW);
@@ -89,6 +94,10 @@ public:
 
 protected:
     bool testOnBackend(MNNForwardType type, const std::string& deviceName, int precision) {
+#ifdef MNN_REDUCE_SIZE
+        MNN_PRINT("Skip test conv2dBackprop\n");
+        return true;
+#endif
         const int height = 32, width = 32, channel = 32, batch = 16;
         std::vector<float> gradData(height * width * channel * batch, 0);
         for (unsigned int i = 0; i < gradData.size(); ++i) {
