@@ -33,7 +33,7 @@ class AttachmentPickerModule(private val activity: ChatActivity) {
     private var callback: ImagePickCallback? = null
 
     init {
-        val modelName = activity.modelName!!
+        val modelName = activity.modelName
         takePhotoView = activity.findViewById(R.id.more_item_camera)
         chooseImageView = activity.findViewById(R.id.more_item_photo)
         if (ModelUtils.isVisualModel(modelName)) {
@@ -130,9 +130,12 @@ class AttachmentPickerModule(private val activity: ChatActivity) {
     fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         if (requestCode == REQUEST_CODE_CAPTURE_IMAGE) {
             if (resultCode == Activity.RESULT_OK) {
-                val imagePath = imageUri!!.path
-                Log.d("ImagePath", "Image saved to: $imagePath")
-                showImagePreview()
+                if (imageUri != null) {
+                    showImagePreview()
+                    val imagePath = imageUri?.path
+                    Log.d("ImagePath", "Image saved to: $imagePath")
+                    showImagePreview()
+                }
             }
             imageUri = null
         } else if (requestCode == REQUEST_CODE_SELECT_IMAGE) {

@@ -116,4 +116,8 @@
     <string name="download_state_failed">Download Failed</string>
     <string name="download_state_paused">Download Paused</string>
     <string name="no_models_found">No models found, Try to change filter please</string>
+    <string name="diffusion_model_not_alloed">Sorry, diffusion model settings are not supported config here yet.</string>
+    <string name="settings_section_general">GENERAL</string>
+    <string name="settings_section_advanced">ADVANCED</string>
+    <string name="thread_num_hint">Thread Number when Inference</string>
 </resources>

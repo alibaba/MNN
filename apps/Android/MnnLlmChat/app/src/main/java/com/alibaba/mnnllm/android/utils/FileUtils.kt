@@ -152,13 +152,7 @@ object FileUtils {
         return rootCacheDir
     }
 
-    fun getModelConfigDir(modelId: String): String {
-        val rootCacheDir =
-            ApplicationProvider.get().filesDir.toString() + "/configs/" + ModelUtils.safeModelId(
-                modelId
-            )
-        return rootCacheDir
-    }
+
 
     @JvmStatic
     fun clearMmapCache(modelId: String) {
@@ -166,9 +160,7 @@ object FileUtils {
         DownloadFileUtils.deleteDirectoryRecursively(File(getMmapDir(modelId, false)))
     }
 
-    fun getModelSettingsFile(modelId: String):String {
-        return getModelConfigDir(modelId) + "/custom_config.json"
-    }
+
 
     fun getPathForUri(uri: Uri): String? {
         if ("file" == uri.scheme) {

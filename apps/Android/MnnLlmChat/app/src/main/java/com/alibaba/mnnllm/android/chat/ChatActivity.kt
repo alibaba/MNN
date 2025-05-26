@@ -233,9 +233,15 @@ class ChatActivity : AppCompatActivity() {
             ModelPreferences.setBoolean(this, modelId!!, ModelPreferences.KEY_BACKEND, item.isChecked)
             recreate()
         } else if (item.itemId == R.id.menu_item_model_settings) {
-            val settingsSheet = SettingsBottomSheetFragment()
-            settingsSheet.setSession(chatSession as LlmSession)
-            settingsSheet.show(supportFragmentManager, SettingsBottomSheetFragment.TAG)
+            SettingsBottomSheetFragment().apply {
+                setModelId(modelId!!)
+                setSession(chatSession as LlmSession)
+                addOnSettingsDoneListener{needRecreate->
+                    if (needRecreate) {
+                        recreate()
+                    }
+                }
+            }.show(supportFragmentManager, SettingsBottomSheetFragment.TAG)
             return true
         } else if (item.itemId == R.id.menu_item_benchmark_test) {
             chatSession.setKeepHistory(false)

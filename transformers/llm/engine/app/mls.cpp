@@ -166,28 +166,41 @@ static int serve(int argc, const char *argv[]) {
     bool invalid_param{false};
     std::string config_path{};
     std::string arg{};
+    std::string model_name{};
     if (argc < 3) {
         print_usage();
         return 1;
     }
-    arg = argv[2];
-    if (arg.find('-') != 0) {
-        config_path = (fs::path(mls::FileUtils::GetBaseCacheDir()) / arg / "config.json").string();
-    }
+
     for (int i = 2; i < argc; i++) {
         arg = argv[i];
+        
+        if (arg.find('-') != 0) {
+            model_name = arg;
+            config_path = (fs::path(mls::FileUtils::GetBaseCacheDir()) / arg / "config.json").string();
+            continue;
+        }
         if (arg == "-c") {
             if (++i >= argc) {
                 invalid_param = true;
                 break;
             }
             config_path = mls::FileUtils::ExpandTilde(argv[i]);
+            model_name = mls::FileUtils::GetFileName(fs::path(config_path).parent_path());
+            continue;
         }
     }
+
+    if (invalid_param) {
+        std::cerr << "Error: Missing value after -c option" << std::endl;
+        print_usage();
+        return 1;
+    }
+
     mls::MlsServer server;
     bool is_r1 = IsR1(config_path);
     auto llm = create_and_prepare_llm(config_path.c_str(), !is_r1);
-    server.Start(llm.get(), is_r1);
+    server.Start(model_name, llm.get(), is_r1);
     return 0;
 }
 

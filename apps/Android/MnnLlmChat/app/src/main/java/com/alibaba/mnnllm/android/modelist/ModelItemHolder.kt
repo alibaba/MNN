@@ -8,15 +8,20 @@ import android.view.View.OnLongClickListener
 import android.widget.ImageView
 import android.widget.ProgressBar
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
+import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.PopupMenu
 import androidx.recyclerview.widget.RecyclerView
 import com.alibaba.mls.api.ModelItem
 import com.alibaba.mls.api.download.DownloadInfo
 import com.alibaba.mls.api.download.ModelDownloadManager
 import com.alibaba.mnnllm.android.R
+import com.alibaba.mnnllm.android.model.ModelUtils
 import com.alibaba.mnnllm.android.utils.FileUtils
 import com.alibaba.mnnllm.android.model.ModelUtils.getDrawableId
+import com.alibaba.mnnllm.android.modelsettings.ModelConfig
+import com.alibaba.mnnllm.android.modelsettings.SettingsBottomSheetFragment
 import com.alibaba.mnnllm.android.widgets.TagsLayout
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
@@ -187,6 +192,19 @@ class ModelItemHolder(itemView: View, private val modelItemListener: ModelItemLi
                 ModelDownloadManager.getInstance(v.context).pauseDownload(modelId!!)
             } else if (item.itemId == R.id.menu_start_download) {
                 ModelDownloadManager.getInstance(v.context).startDownload(modelId!!)
+            } else if (item.itemId == R.id.menu_settings) {
+                val context = v.context
+                val modelId = hfModelItem.modelId
+                if (ModelUtils.isDiffusionModel(modelId!!)) {
+                    Toast.makeText(context, R.string.diffusion_model_not_alloed, Toast.LENGTH_SHORT).show()
+                    return@setOnMenuItemClickListener true
+                }
+                val fragmentManager = (context as? AppCompatActivity)?.supportFragmentManager
+                if (fragmentManager != null && modelId != null) {
+                    val settingsSheet = SettingsBottomSheetFragment()
+                    settingsSheet.setModelId(modelId)
+                    settingsSheet.show(fragmentManager, SettingsBottomSheetFragment.TAG)
+                }
             }
             true
         }
@@ -202,6 +220,9 @@ class ModelItemHolder(itemView: View, private val modelItemListener: ModelItemLi
         ) {
             popupMenu.menu.findItem(R.id.menu_start_download).setVisible(false)
         }
+        popupMenu.menu.findItem(R.id.menu_settings).setVisible(
+            downloadState == DownloadInfo.DownloadSate.COMPLETED
+        )
         popupMenu.show()
         return true
     }

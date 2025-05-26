@@ -258,9 +258,11 @@ class MlsServer {
 </body>
 </html>
     )""";
-    void Start(MNN::Transformer::Llm* llm, bool is_r1);
+    void Start(const std::string& modle_name, MNN::Transformer::Llm* llm, bool is_r1);
     bool is_r1_{false};
 private:
+  std::string current_model_name_{};
+  std::vector<std::string> GetLocalModels();
   void Answer(MNN::Transformer::Llm* llm, const json &messages, std::function<void(const std::string&)> on_result);
   void AnswerStreaming(MNN::Transformer::Llm* llm,
                      const json& messages,

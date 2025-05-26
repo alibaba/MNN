@@ -229,7 +229,12 @@ void AllowCors(httplib::Response& res) {
     res.set_header("Access-Control-Allow-Headers",  "Content-Type, Authorization");
 }
 
-void MlsServer::Start(MNN::Transformer::Llm* llm, bool is_r1) {
+std::vector<std::string> MlsServer::GetLocalModels() {
+    return {current_model_name_};
+}
+
+void MlsServer::Start(const std::string& model_name, MNN::Transformer::Llm* llm, bool is_r1) {
+    this->current_model_name_ = model_name;
     this->is_r1_ = is_r1;
     // Create a server instance
     httplib::Server server;
@@ -248,6 +253,19 @@ void MlsServer::Start(MNN::Transformer::Llm* llm, bool is_r1) {
     server.Options("/chat/completions", [](const httplib::Request& /*req*/, httplib::Response& res) {
         AllowCors(res);
         res.status  = 200;
+    });
+    server.Get("/models/list", [this](const httplib::Request& req, httplib::Response& res) {
+        AllowCors(res);
+
+        // Get list of local models
+        std::vector<std::string> model_names = GetLocalModels();
+
+        // Build JSON response
+        json response = json::array();
+        for (const auto& name : model_names) {
+            response.push_back(name);
+        }
+        res.set_content(response.dump(), "application/json");
     });
     server.Post("/chat/completions", [&](const httplib::Request &req, httplib::Response &res) {
         std::cout << "POST /chat/completions, handled by thread: "

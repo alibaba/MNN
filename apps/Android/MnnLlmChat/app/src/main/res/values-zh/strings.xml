@@ -116,4 +116,8 @@
     <string name="download_state_failed">下载失败</string>
     <string name="download_state_paused">下载暂停</string>
     <string name="no_models_found">没有找到模型，改变过滤器试试</string>
+    <string name="diffusion_model_not_alloed">Diffusion模型暂时不支持在此设置</string>
+    <string name="settings_section_general">常用设置</string>
+    <string name="settings_section_advanced">高级设置</string>
+    <string name="thread_num_hint">推理时线程数</string>
 </resources>

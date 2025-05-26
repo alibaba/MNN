@@ -11,6 +11,7 @@ import com.alibaba.mnnllm.android.modelsettings.ModelConfig
 import com.alibaba.mnnllm.android.utils.FileUtils
 import com.alibaba.mnnllm.android.utils.ModelPreferences
 import com.alibaba.mnnllm.android.model.ModelUtils
+import com.alibaba.mnnllm.android.modelsettings.ModelConfig.Companion.getExtraConfigFile
 import com.google.gson.Gson
 import java.io.File
 import java.util.stream.Collectors
@@ -64,7 +65,7 @@ class LlmSession (
             put("mmap_dir", rootCacheDir ?: "")
             put("keep_history", keepHistory)
         }
-        val extraConfig = ModelConfig.loadConfig(configPath, getModelSettingsFile())?.apply {
+        val extraConfig = ModelConfig.loadConfig(configPath, getExtraConfigFile(modelId))?.apply {
             this.assistantPromptTemplate = extraAssistantPrompt
             this.backendType = backend
         }
@@ -137,11 +138,7 @@ class LlmSession (
     }
 
     fun loadConfig(): ModelConfig? {
-        return ModelConfig.loadConfig(configPath, getModelSettingsFile())
-    }
-
-    fun getModelSettingsFile():String {
-        return FileUtils.getModelConfigDir(modelId) + "/custom_config.json"
+        return ModelConfig.loadConfig(configPath, getExtraConfigFile(modelId))
     }
 
     private fun releaseInner() {
