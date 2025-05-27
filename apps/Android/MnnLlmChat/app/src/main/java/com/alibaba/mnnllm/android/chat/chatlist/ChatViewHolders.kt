@@ -115,7 +115,7 @@ object ChatViewHolders {
                             itemView.context,
                             PromptUtils.generateUserPrompt(chatDataItem)
                         )
-                        UiUtils.showToast(itemView.context, "Copied to clipboard")
+                        UiUtils.showToast(itemView.context, itemView.context.getString(R.string.copied_to_clipboard))
                     }
                 }
                 true

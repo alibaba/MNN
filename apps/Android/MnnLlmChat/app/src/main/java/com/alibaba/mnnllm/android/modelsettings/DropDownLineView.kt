@@ -92,6 +92,7 @@ class DropDownLineView @JvmOverloads constructor (
     }
 
     private fun showDropDownMenu() {
+        updateSelectIndex()
         if (dropDownItems.isEmpty()) return
 
         DropDownMenuHelper.showDropDownMenu(

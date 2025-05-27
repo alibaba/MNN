@@ -8,6 +8,7 @@ import com.alibaba.mls.api.ApplicationProvider
 import com.alibaba.mls.api.download.ModelDownloadManager
 import com.alibaba.mnnllm.android.model.ModelUtils
 import com.alibaba.mnnllm.android.utils.FileUtils
+import com.alibaba.mnnllm.android.utils.ModelPreferences
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
 import com.google.gson.JsonObject
@@ -96,7 +97,11 @@ data class ModelConfig(
             }
         }
 
-        fun loadConfig(originalFilePath: String, overrideFilePath: String): ModelConfig? {
+        fun loadConfig(modelId: String): ModelConfig {
+            return loadMergedConfig(getDefaultConfigFile(modelId)!!, getExtraConfigFile(modelId))!!
+        }
+
+        fun loadMergedConfig(originalFilePath: String, overrideFilePath: String): ModelConfig? {
             return try {
                 val originalFile = File(originalFilePath)
                 val originalJson = JsonParser.parseString(originalFile.readText()).asJsonObject
@@ -162,6 +167,32 @@ data class ModelConfig(
                 )
             return rootCacheDir
         }
+
+        val defaultConfig:ModelConfig = ModelConfig (
+            llmModel = "",
+            llmWeight = "",
+            backendType = "",
+            threadNum = 4,
+            precision = "low",
+            memory = "",
+            systemPrompt = "You are a helpful assistant.",
+            samplerType = "",
+            mixedSamplers = mutableListOf(),
+            temperature = 0.0f,
+            topP = 0.9f,
+            topK = 0,
+            minP = 0.0f,
+            tfsZ = 1.0f,
+            typical = 1.0f,
+            penalty = 1.02f,
+            nGram = 8,
+            nGramFactor = 1.02f,
+            maxNewTokens = 2048,
+            assistantPromptTemplate = "",
+            penaltySampler = "greedy",
+            useMmap = false
+        )
+
     }
 }
 

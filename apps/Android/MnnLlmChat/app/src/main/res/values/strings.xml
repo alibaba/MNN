@@ -61,7 +61,7 @@
     <string name="sampler">select sampler</string>
     <string name="backend">use opencl</string>
     <string name="local_available">Local Available</string>
-    <string name="mmap_cacche_cleared">mmap cache cleared, you need to restart the session</string>
+    <string name="mmap_cacche_cleared">mmap cache cleared</string>
     <string name="mmap_not_used">mmap not used</string>
     <string name="reloading_session">Reloading chat session</string>
     <string name="wait_install_apk">please wait for download complete and install</string>
@@ -120,4 +120,10 @@
     <string name="settings_section_general">GENERAL</string>
     <string name="settings_section_advanced">ADVANCED</string>
     <string name="thread_num_hint">Thread Number when Inference</string>
+    <string name="add_local_models">Add Local Model</string>
+    <string name="copy_command">Copy Command</string>
+    <string name="add_local_models_title">Add Local Models</string>
+    <string name="add_local_models_message">To add local models, first download them to your desktop, then run \'%1$s\'. After that, the models will appear in the model list.
+</string>
+    <string name="copied_to_clipboard">Copied to clipboard</string>
 </resources>

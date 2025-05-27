@@ -50,22 +50,19 @@ class LlmSession (
                     .map { obj: String? -> obj!! }
                     .collect(Collectors.toList())
         }
+        val config = ModelConfig.loadConfig(modelId)
         var rootCacheDir: String? = ""
-        if (ModelPreferences.useMmap(ApplicationProvider.get(), modelId)) {
+        if (config.useMmap == true) {
             rootCacheDir = FileUtils.getMmapDir(modelId, configPath.contains("modelscope"))
             File(rootCacheDir).mkdirs()
         }
-        val useOpencl = ModelPreferences.getBoolean(
-                ApplicationProvider.get(),
-                modelId, ModelPreferences.KEY_BACKEND, false
-        )
-        val backend = if (useOpencl) "opencl" else "cpu"
+        val backend = config.backendType
         val configMap = HashMap<String, Any>().apply {
             put("is_r1", ModelUtils.isR1Model(modelId))
             put("mmap_dir", rootCacheDir ?: "")
             put("keep_history", keepHistory)
         }
-        val extraConfig = ModelConfig.loadConfig(configPath, getExtraConfigFile(modelId))?.apply {
+        val extraConfig = ModelConfig.loadMergedConfig(configPath, getExtraConfigFile(modelId))?.apply {
             this.assistantPromptTemplate = extraAssistantPrompt
             this.backendType = backend
         }
@@ -137,10 +134,6 @@ class LlmSession (
         }
     }
 
-    fun loadConfig(): ModelConfig? {
-        return ModelConfig.loadConfig(configPath, getExtraConfigFile(modelId))
-    }
-
     private fun releaseInner() {
         if (nativePtr != 0L) {
             releaseNative(nativePtr)
@@ -186,9 +179,6 @@ class LlmSession (
     override val debugInfo
         get() = getDebugInfoNative(nativePtr) + "\n"
 
-    fun clearMmapCache() {
-        FileUtils.clearMmapCache(modelId)
-    }
 
     fun setAudioDataListener(listener: AudioDataListener?) {
         synchronized(this) {

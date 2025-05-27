@@ -60,7 +60,7 @@
     <string name="use_mmap">使用 mmap</string>
     <string name="sampler">Sampler</string>
     <string name="backend">使用opencl</string>
-    <string name="mmap_cacche_cleared">mmap cache 已经清理，需要重新进入聊天</string>
+    <string name="mmap_cacche_cleared">mmap cache 已经清理</string>
     <string name="mmap_not_used">mmap 没有使用</string>
     <string name="reloading_session">重新加载会话中…</string>
     <string name="wait_install_apk">请等待下载完成后安装</string>
@@ -120,4 +120,9 @@
     <string name="settings_section_general">常用设置</string>
     <string name="settings_section_advanced">高级设置</string>
     <string name="thread_num_hint">推理时线程数</string>
+    <string name="add_local_models">增加本地模型</string>
+    <string name="copy_command">复制命令</string>
+    <string name="add_local_models_title">增加本地模型</string>
+    <string name="add_local_models_message">要添加本地模型，请先将模型下载到桌面，然后运行 “%1$s”。完成后，模型将出现在模型列表中。</string>
+    <string name="copied_to_clipboard">已复制到粘贴板</string>
 </resources>

@@ -11,12 +11,15 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.SeekBar
+import android.widget.Toast
 import androidx.core.view.isVisible
 import androidx.core.widget.addTextChangedListener
+import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.databinding.FragmentSettingsSheetBinding
 import com.alibaba.mnnllm.android.databinding.SettingsRowSliderSwitchBinding
 import com.alibaba.mnnllm.android.llm.LlmSession
-import com.alibaba.mnnllm.android.utils.ModelPreferences
+import com.alibaba.mnnllm.android.modelsettings.ModelConfig.Companion.defaultConfig
+import com.alibaba.mnnllm.android.utils.FileUtils
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import java.util.*
@@ -42,36 +45,13 @@ class SettingsBottomSheetFragment : BottomSheetDialogFragment() {
 
     private lateinit var loadedConfig: ModelConfig
     private lateinit var modelId:String
-    private val defaultConfig:ModelConfig = ModelConfig (
-        llmModel = "",
-        llmWeight = "",
-        backendType = "",
-        threadNum = 4,
-        precision = "low",
-        memory = "",
-        systemPrompt = "You are a helpful assistant.",
-        samplerType = "",
-        mixedSamplers = mutableListOf(),
-        temperature = 0.0f,
-        topP = 0.9f,
-        topK = 0,
-        minP = 0.0f,
-        tfsZ = 1.0f,
-        typical = 1.0f,
-        penalty = 1.02f,
-        nGram = 8,
-        nGramFactor = 1.02f,
-        maxNewTokens = 2048,
-        assistantPromptTemplate = "",
-        penaltySampler = "greedy",
-        useMmap = false
-    )
     private lateinit var currentConfig:ModelConfig
     private var chatSession: LlmSession? = null
     private var _binding: FragmentSettingsSheetBinding? = null
     private val binding get() = _binding!!
     private var currentSamplerType: SamplerType = SamplerType.Mixed
     private var penaltySamplerValue: String = "greedy"
+    private var needRecreateActivity = false
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
@@ -109,16 +89,19 @@ class SettingsBottomSheetFragment : BottomSheetDialogFragment() {
 
     @SuppressLint("SetTextI18n")
     private fun setupAdvancedConfigs() {
-        binding.mmapSettingsItem.isChecked = currentConfig.useMmap?: ModelPreferences.getBoolean(
-            requireActivity(),
-            modelId,
-            ModelPreferences.KEY_USE_MMAP,
-            false
-        )
+        binding.mmapSettingsItem.isChecked = currentConfig.useMmap?: defaultConfig.useMmap!!
         binding.mmapSettingsItem.setOnCheckedChangeListener{isChecked->
             currentConfig.useMmap = isChecked
         }
-
+        binding.buttonClearMmapCache.setOnClickListener {
+            val success = FileUtils.clearMmapCache(modelId)
+            if (success) {
+                needRecreateActivity = true
+                Toast.makeText(requireActivity(), R.string.mmap_cacche_cleared, Toast.LENGTH_LONG).show()
+            } else {
+                Toast.makeText(requireActivity(), R.string.mmap_not_used, Toast.LENGTH_LONG).show()
+            }
+        }
         //precision
         binding.dropdownPrecision.setCurrentItem(currentConfig.precision?: defaultConfig.precision!!)
         binding.dropdownPrecision.setDropDownItems(
@@ -410,7 +393,7 @@ class SettingsBottomSheetFragment : BottomSheetDialogFragment() {
     }
 
     private fun loadSettings() {
-        loadedConfig = ModelConfig.loadConfig(ModelConfig.getDefaultConfigFile(modelId)!!,
+        loadedConfig = ModelConfig.loadMergedConfig(ModelConfig.getDefaultConfigFile(modelId)!!,
             ModelConfig.getExtraConfigFile(modelId)) ?: defaultConfig
         currentConfig = loadedConfig.deepCopy()
         updateSamplerSettings()
@@ -424,7 +407,7 @@ class SettingsBottomSheetFragment : BottomSheetDialogFragment() {
     }
 
     private fun saveSettings() {
-        var needRecreate = false
+        var needRecreate = this.needRecreateActivity
         var needSaveConfig = false
         if (currentConfig == loadedConfig) {
             return

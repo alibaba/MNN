@@ -2,6 +2,9 @@
 // Copyright (c) 2024 Alibaba Group Holding Limited All rights reserved.
 package com.alibaba.mnnllm.android.main
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.util.Log
@@ -211,6 +214,23 @@ class MainActivity : AppCompatActivity() {
 
     fun onReportIssue(view: View?) {
         GithubUtils.reportIssue(this)
+    }
+
+    fun addLocalModels(view: View?) {
+        val adbCommand = "adb shell mkdir -p /data/local/tmp/mnn_models && adb push \${model_path} /data/local/tmp/mnn_models/"
+        val message = getResources().getString(R.string.add_local_models_message, adbCommand)
+        val dialog = androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle(R.string.add_local_models_title)
+            .setMessage(message)
+            .setPositiveButton(android.R.string.ok) { dialog, _ -> dialog.dismiss() }
+            .setNeutralButton(R.string.copy_command) { _, _ ->
+                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                val clip = ClipData.newPlainText("ADB Command", adbCommand)
+                clipboard.setPrimaryClip(clip)
+                Toast.makeText(this, R.string.copied_to_clipboard, Toast.LENGTH_SHORT).show()
+            }
+            .create()
+        dialog.show()
     }
 
     override fun onRequestPermissionsResult(

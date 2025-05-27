@@ -23,10 +23,6 @@ object ModelPreferences {
             .edit().putString(key, value).apply()
     }
 
-    fun useMmap(context: Context, modelId: String): Boolean {
-        return getBoolean(context, modelId, KEY_USE_MMAP, false)
-    }
-
     fun getBoolean(
         context: Context,
         modelId: String,

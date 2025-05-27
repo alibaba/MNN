@@ -130,7 +130,6 @@
                         android:id="@+id/tv_prompt"
                         style="@style/SettingsRowLabel"
                         android:layout_width="wrap_content"
-                        android:layout_centerVertical="true"
                         android:layout_marginStart="16dp"
                         android:layout_marginTop="16dp"
                         android:layout_weight="1"
@@ -277,6 +276,14 @@
                         android:paddingRight="8dp"
                         style="@style/SettingsRowContainer"
                         app:itemText="@string/use_mmap"/>
+
+                    <TextView
+                        android:id="@+id/buttonClearMmapCache"
+                        android:paddingLeft="8dp"
+                        android:paddingRight="8dp"
+                        style="@style/SettingsRowClickable"
+                        android:text="@string/clear_mmap_cache"
+                        android:enabled="true"/>
 
                     <com.alibaba.mnnllm.android.modelsettings.DropDownLineView
                         android:id="@+id/dropdownBackend"

@@ -173,30 +173,7 @@ class ChatActivity : AppCompatActivity() {
                     true
                 )
             )
-        menu.findItem(R.id.menu_item_use_mmap).apply {
-            isVisible = !isDiffusion
-            if (!isDiffusion) {
-                isChecked = ModelPreferences.getBoolean(
-                    this@ChatActivity,
-                    modelId!!,
-                    ModelPreferences.KEY_USE_MMAP,
-                    false
-                )
-            }
-        }
-        menu.findItem(R.id.menu_item_backend).apply {
-            isVisible = !isDiffusion
-            if (!isDiffusion) {
-                isChecked = ModelPreferences.getBoolean(
-                    this@ChatActivity,
-                    modelId!!,
-                    ModelPreferences.KEY_BACKEND,
-                    false
-                )
-            }
-        }
         menu.findItem(R.id.menu_item_model_settings).isVisible = !isDiffusion
-        menu.findItem(R.id.menu_item_clear_mmap_cache).isVisible = !isDiffusion
         menu.findItem(R.id.menu_item_benchmark_test).isVisible = benchmarkModule.enabled
         return true
     }
@@ -209,29 +186,6 @@ class ChatActivity : AppCompatActivity() {
             chatListComponent.toggleShowPerformanceMetrics(item.isChecked)
         } else if (item.itemId == android.R.id.home) {
             finish()
-        } else if (item.itemId == R.id.menu_item_clear_mmap_cache) {
-            if (ModelPreferences.useMmap(this, modelId!!)) {
-                Toast.makeText(this, R.string.mmap_cacche_cleared, Toast.LENGTH_LONG).show()
-                (chatSession as LlmSession).clearMmapCache()
-                recreate()
-            } else {
-                Toast.makeText(this, R.string.mmap_not_used, Toast.LENGTH_SHORT).show()
-            }
-        } else if (item.itemId == R.id.menu_item_use_mmap) {
-            item.setChecked(!item.isChecked)
-            Toast.makeText(this, R.string.reloading_session, Toast.LENGTH_LONG).show()
-            ModelPreferences.setBoolean(
-                this,
-                modelId!!,
-                ModelPreferences.KEY_USE_MMAP,
-                item.isChecked
-            )
-            recreate()
-        } else if (item.itemId == R.id.menu_item_backend) {
-            item.setChecked(!item.isChecked)
-            Toast.makeText(this, R.string.reloading_session, Toast.LENGTH_LONG).show()
-            ModelPreferences.setBoolean(this, modelId!!, ModelPreferences.KEY_BACKEND, item.isChecked)
-            recreate()
         } else if (item.itemId == R.id.menu_item_model_settings) {
             SettingsBottomSheetFragment().apply {
                 setModelId(modelId!!)

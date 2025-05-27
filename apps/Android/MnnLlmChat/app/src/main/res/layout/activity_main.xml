@@ -83,6 +83,14 @@
             app:label_text="@string/raise_issue"
             app:fab_icon="@drawable/ic_issue"
             android:onClick="onReportIssue"/>
+
+        <com.nambimobile.widgets.efab.FabOption
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            app:fab_orientation="portrait"
+            app:label_text="@string/add_local_models"
+            app:fab_icon="@drawable/ic_model"
+            android:onClick="addLocalModels"/>
     </com.nambimobile.widgets.efab.ExpandableFabLayout>
     <!-- Navigation Drawer -->
     <com.google.android.material.navigation.NavigationView

@@ -152,15 +152,10 @@ object FileUtils {
         return rootCacheDir
     }
 
-
-
-    @JvmStatic
-    fun clearMmapCache(modelId: String) {
-        DownloadFileUtils.deleteDirectoryRecursively(File(getMmapDir(modelId, true)))
+    fun clearMmapCache(modelId: String):Boolean {
+        return DownloadFileUtils.deleteDirectoryRecursively(File(getMmapDir(modelId, true))) ||
         DownloadFileUtils.deleteDirectoryRecursively(File(getMmapDir(modelId, false)))
     }
-
-
 
     fun getPathForUri(uri: Uri): String? {
         if ("file" == uri.scheme) {
