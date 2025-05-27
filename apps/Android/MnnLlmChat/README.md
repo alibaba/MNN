@@ -59,6 +59,15 @@ This is our full multimodal language model (LLM) Android app
   ```
 
 # Releases
+## Version 0.5.0
++ Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_5_0.apk)
++ Support Qwen3-30B-A3B
++ Support new vision models SmoVLM and FastVLM
++ Support Local models(by adb push)
++ UI updates:
+  + support filter models by Local, Modality, and Vendors
+  + support hide thinking process
+
 ## Version 0.4.4.1
 + Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_4_4_1.apk)
 + Fix Modlers download error
