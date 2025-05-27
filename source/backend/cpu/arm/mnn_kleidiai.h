@@ -158,7 +158,7 @@ namespace MNN {
         size_t getRhsPackedOffset(AccelType type, size_t nIdx, size_t k, size_t bl);
         void runRhsPack(AccelType type, size_t numGroups, size_t n, size_t k, size_t bl, size_t rhsStride,
                         const void* rhs, const void* scale, const void* zeroPoint, const void* bias,
-                        void* rhsPacked, bool packedQ4 = false);
+                        void* rhsPacked);
 
         //Dst
         size_t getDstOffset(size_t mIdx, size_t nIdx, size_t n, size_t elementSize) { return (nIdx * elementSize) + mIdx * (n * elementSize); }
