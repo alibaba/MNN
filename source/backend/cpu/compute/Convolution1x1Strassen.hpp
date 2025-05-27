@@ -26,7 +26,9 @@ public:
     virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
 private:
     std::shared_ptr<CPUConvolution::Resource> mResource;
+#ifdef MNN_KLEIDIAI_ENABLED
     std::shared_ptr<Tensor> mInputResource;
+#endif
 
     struct Unit {
         bool mValid = true;
