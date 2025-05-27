@@ -76,7 +76,7 @@ void KleidiAI::printInfo(AccelType type) {
 
 //Init
 void KleidiAI::initKernelInfo() {
-    for(size_t type = 0; type < static_cast<size_t>(AccelType::ACC_TYPE_NUMBER); type++) {
+    for (size_t type = 0; type < static_cast<size_t>(AccelType::ACC_TYPE_NUMBER); type++) {
         KernelInfo *pInfo = &mStaticInfo.mKernelInfo[type];
         KernelParam *pParam = &pInfo->mKernelParam;
         bool bSupport = false;
@@ -138,7 +138,39 @@ void KleidiAI::initKernelInfo() {
         case AccelType::QI8_SYM_BLKQT:
             break;
         case AccelType::FP16:
+        {
+            if (mStaticInfo.mFP16 && !mStaticInfo.mBF16) {
+                if (mStaticInfo.mSme2) {
+                    bSupport = true;
+                    pParam->mKaiMstepGemm = kai_get_m_step_matmul_clamp_f16_f16p2vlx2_f16p2vlx2_2vlx2vl_sme2_mopa();
+                    pParam->mKaiMrGemm = kai_get_mr_matmul_clamp_f16_f16p2vlx2_f16p2vlx2_2vlx2vl_sme2_mopa();
+                    pParam->mKaiNStep = kai_get_n_step_matmul_clamp_f16_f16p2vlx2_f16p2vlx2_2vlx2vl_sme2_mopa();
+                    pParam->mKaiNr = kai_get_nr_matmul_clamp_f16_f16p2vlx2_f16p2vlx2_2vlx2vl_sme2_mopa();
+                    pParam->mKaiKr = kai_get_kr_matmul_clamp_f16_f16p2vlx2_f16p2vlx2_2vlx2vl_sme2_mopa();
+                    pParam->mKaiSr = kai_get_sr_matmul_clamp_f16_f16p2vlx2_f16p2vlx2_2vlx2vl_sme2_mopa();
+                } else {
+                    bSupport = false;
+                }
+            }
+            break;
+        }
         case AccelType::FP32:
+        {
+            if (!mStaticInfo.mFP16 && !mStaticInfo.mBF16) {
+                if (mStaticInfo.mSme2) {
+                    bSupport = true;
+                    pParam->mKaiMstepGemm = kai_get_m_step_matmul_clamp_f32_f32p2vlx1_f32p2vlx1biasf32_sme2_mopa();
+                    pParam->mKaiMrGemm = kai_get_mr_matmul_clamp_f32_f32p2vlx1_f32p2vlx1biasf32_sme2_mopa();
+                    pParam->mKaiNStep = kai_get_n_step_matmul_clamp_f32_f32p2vlx1_f32p2vlx1biasf32_sme2_mopa();
+                    pParam->mKaiNr = kai_get_nr_matmul_clamp_f32_f32p2vlx1_f32p2vlx1biasf32_sme2_mopa();
+                    pParam->mKaiKr = kai_get_kr_matmul_clamp_f32_f32p2vlx1_f32p2vlx1biasf32_sme2_mopa();
+                    pParam->mKaiSr = kai_get_sr_matmul_clamp_f32_f32p2vlx1_f32p2vlx1biasf32_sme2_mopa();
+                } else {
+                    bSupport = false;
+                }
+            }
+            break;
+        }
         case AccelType::BF16:
             break;
         default:
@@ -178,7 +210,9 @@ size_t KleidiAI::getLhsPackedSize(AccelType type, size_t m, size_t k) {
 
     switch(type) {
     case AccelType::FP16:
+        return kai_get_lhs_packed_size_lhs_pack_x16p2vlx2_x16_sme(m, k, getMr(type, m), getKr(type), getSr(type));
     case AccelType::FP32:
+        return kai_get_lhs_packed_size_lhs_pack_f32p2vlx1_f32_sme(m, k, getMr(type, m), getKr(type), getSr(type));
     default:
         MNN_ASSERT(0);
     }
@@ -242,7 +276,11 @@ void KleidiAI::runLhsPack(AccelType type, size_t m, size_t k, size_t mIdx, const
 
     switch(type) {
     case AccelType::FP16:
+        kai_run_lhs_pack_x16p2vlx2_x16_sme(m, k, getMr(type, m), getKr(type), getSr(type), 0, lhs, lhsStride, lhsPacked);
+        break;
     case AccelType::FP32:
+        kai_run_lhs_pack_f32p2vlx1_f32_sme(m, k, getMr(type, m), getKr(type), getSr(type), 0, lhs, lhsStride, lhsPacked);
+        break;
     default:
         MNN_ASSERT(0);
     }
@@ -283,7 +321,9 @@ size_t KleidiAI::getRhsPackedSize(AccelType type, size_t n, size_t k, size_t bl)
     case AccelType::QI4_ASYM_BLKQT:
         return kai_get_rhs_packed_size_rhs_pack_nxk_qai4c32p_qau4c32s0s1_f32_f32_f32_neon(n, k, getNr(type), getKr(type), bl);
     case AccelType::FP16:
+        return kai_get_rhs_packed_size_rhs_pack_nxk_x16p2vlx2b_x16_x16_sme(n, k);
     case AccelType::FP32:
+        return kai_get_rhs_packed_size_rhs_pack_nxk_f32p2vlx1biasf32_f32_f32_sme(n, k);
     default:
         MNN_ASSERT(0);
         return 0;
@@ -341,7 +381,13 @@ void KleidiAI::runRhsPack(AccelType type, size_t numGroups, size_t n, size_t k, 
                                                     rhsPacked, 0, &params);
         break;
     case AccelType::FP16:
+        kai_run_rhs_pack_nxk_x16p2vlx2b_x16_x16_sme(numGroups, n, k, getNr(type), getKr(type), getSr(type),
+                                                    rhsStride, rhs, bias, scale, rhsPacked, 0, nullptr);
+        break;
     case AccelType::FP32:
+        kai_run_rhs_pack_nxk_f32p2vlx1biasf32_f32_f32_sme(numGroups, n, k, getNr(type), getKr(type), getSr(type),
+                                                          rhsStride, rhs, bias, scale, rhsPacked, 0, nullptr);
+        break;
     default:
         MNN_ASSERT(0);
     }
@@ -407,7 +453,23 @@ void KleidiAI::runMatmul(AccelType type, size_t m, size_t n, size_t k, size_t bl
         }
         break;
     case AccelType::FP16:
+    {
+        if (m == 1) {
+            kai_run_matmul_clamp_f16_f16_f16p2vlx2b_1x16vl_sme2_dot(m, n, k, lhsPacked, k * sizeof(__fp16), rhsPacked, dst, dstStrideRow, dstStrideCol, scalarMin, scalarMax);
+        } else {
+            kai_run_matmul_clamp_f16_f16p2vlx2_f16p2vlx2_2vlx2vl_sme2_mopa(m, n, k, lhsPacked, rhsPacked, dst, dstStrideRow , dstStrideCol, scalarMin, scalarMax);
+        }
+        break;
+    }
     case AccelType::FP32:
+    {
+        if (m == 1) {
+            kai_run_matmul_clamp_f32_f32_f32p2vlx1b_1x16vl_sme2_mla(m, n, k, lhsPacked, k * sizeof(float), rhsPacked, dst, dstStrideRow, dstStrideCol, scalarMin, scalarMax);
+        } else {
+            kai_run_matmul_clamp_f32_f32p2vlx1_f32p2vlx1biasf32_sme2_mopa(m, n, k, lhsPacked, rhsPacked, dst, dstStrideRow, dstStrideCol, scalarMin, scalarMax);
+        }
+        break;
+    }
     default:
         MNN_ASSERT(0);
     }
