@@ -49,8 +49,8 @@
     <string name="recording_permission_denied">请允许录音权限</string>
     <string name="release_to_send">松开发送，上滑取消</string>
     <string name="release_to_cancel">松开取消</string>
-    <string name="r1_thinking_message">思考中…\n</string>
-    <string name="r1_think_complete_template">已思考ss秒\n</string>
+    <string name="r1_thinking_message">思考中…</string>
+    <string name="r1_think_complete_template">已思考%1$s秒</string>
     <string name="copy_text">复制</string>
     <string name="select_text">选择文本</string>
     <string name="copy_success">复制成功</string>

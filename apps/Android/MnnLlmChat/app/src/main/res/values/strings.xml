@@ -49,8 +49,8 @@
     <string name="recording_permission_denied">Please allow permission to record audio</string>
     <string name="release_to_send">Release to Send, Slide up to cancel</string>
     <string name="release_to_cancel">Release to cancel</string>
-    <string name="r1_thinking_message">Thinking…\n</string>
-    <string name="r1_think_complete_template">Has thought for ss seconds\n</string>
+    <string name="r1_thinking_message">Thinking…</string>
+    <string name="r1_think_complete_template">Has thought for %1$s seconds</string>
     <string name="copy_text">Copy</string>
     <string name="select_text">Select text</string>
     <string name="copy_success">Copy success</string>

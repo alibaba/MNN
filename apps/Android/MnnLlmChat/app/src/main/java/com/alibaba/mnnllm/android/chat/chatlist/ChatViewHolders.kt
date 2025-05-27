@@ -10,6 +10,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.View.OnLongClickListener
 import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
@@ -132,7 +133,6 @@ object ChatViewHolders {
                 return String.format("%d:%02d", minutes, remainingSeconds)
             }
         }
-
     }
 
     class AssistantViewHolder @SuppressLint("ClickableViewAccessibility") constructor(view: View) :
@@ -140,12 +140,15 @@ object ChatViewHolders {
         private val viewText: TextView = view.findViewById(R.id.tv_chat_text)
         private val viewThinking: TextView = view.findViewById(R.id.tv_chat_thinking)
         private val benchmarkInfo: TextView = view.findViewById(R.id.tv_chat_benchmark)
-
+        private val thinkingToggle: LinearLayout = view.findViewById(R.id.ll_thinking_toggle)
+        private val textThinkingHeader:TextView = view.findViewById(R.id.tv_thinking_header)
+        private val ivThinkingHeader: ImageView = view.findViewById(R.id.iv_thinking_header)
         private val headerIcon: ImageView =
             view.findViewById(R.id.ic_header)
 
         private val imageGenerated: ImageView =
             view.findViewById(R.id.image_generated)
+
         private val markdown = Markwon.create(itemView.context)
         var viewAssistantLoading: View =
             view.findViewById(R.id.view_assistant_loading)
@@ -169,6 +172,12 @@ object ChatViewHolders {
                 false
             }
             imageGenerated.setOnClickListener(this)
+            thinkingToggle.setOnClickListener {
+                val chatDataItem = it.tag as ChatDataItem
+                chatDataItem.toggleThinking()
+                updateThinkingView(chatDataItem, itemView.context)
+                markdown.setMarkdown(viewText, chatDataItem.displayText!!)
+            }
         }
 
         private fun  updatePointerDownLocation(v:View, event: MotionEvent) {
@@ -181,7 +190,7 @@ object ChatViewHolders {
         fun bind(data: ChatDataItem, modelName: String?, payloads: List<Any?>?) {
             if (!payloads.isNullOrEmpty()) {
                 if (data.thinkingText != null && !TextUtils.isEmpty(data.thinkingText)) {
-                    updateThinkingView(data.thinkingText!!, itemView.context)
+                    updateThinkingView(data, itemView.context)
                 }
                 if (data.displayText != null) {
                     markdown.setMarkdown(viewText, data.displayText!!)
@@ -189,13 +198,7 @@ object ChatViewHolders {
                 return
             }
 
-            val showThinking = true
-            if (showThinking && !TextUtils.isEmpty(data.thinkingText)) {
-                updateThinkingView(data.thinkingText!!, itemView.context)
-            } else {
-                viewThinking.visibility = View.GONE
-            }
-            
+            updateThinkingView(data, itemView.context)
             if (TextUtils.isEmpty(data.displayText)) {
                 viewText.visibility = View.GONE
             } else {
@@ -210,7 +213,7 @@ object ChatViewHolders {
                     View.GONE
                 }
             } else {
-                viewAssistantLoading.visibility = if (!TextUtils.isEmpty(data.displayText)) {
+                viewAssistantLoading.visibility = if (!TextUtils.isEmpty(data.displayText) || !TextUtils.isEmpty(data.thinkingText)) {
                   View.GONE
                 } else {
                     View.VISIBLE
@@ -237,14 +240,25 @@ object ChatViewHolders {
             imageGenerated.tag = data
             viewText.tag = data
             viewThinking.tag = data
+            thinkingToggle.tag = data
         }
         
-        private fun updateThinkingView(thinkingText: String, context: android.content.Context) {
-            val showThinking = true
-            if (showThinking && !TextUtils.isEmpty(thinkingText)) {
-                viewThinking.visibility = View.VISIBLE
-                markdown.setMarkdown(viewThinking, thinkingText)
+        private fun updateThinkingView(data: ChatDataItem, context: android.content.Context) {
+            val showThinking = data.showThinking
+            thinkingToggle.visibility = if (TextUtils.isEmpty(data.thinkingText)) {
+                View.GONE
             } else {
+                View.VISIBLE
+            }
+            textThinkingHeader.text = if (data.thinkingFinishedTime >= 0)
+                textThinkingHeader.resources.getString(R.string.r1_think_complete_template, (data.thinkingFinishedTime / 1000).toString())
+            else textThinkingHeader.resources.getString(R.string.r1_thinking_message)
+            if (showThinking && !TextUtils.isEmpty(data.thinkingText)) {
+                viewThinking.visibility = View.VISIBLE
+                markdown.setMarkdown(viewThinking, data.thinkingText!!)
+                ivThinkingHeader.setImageResource(R.drawable.baseline_arrow_drop_up_24)
+            } else {
+                ivThinkingHeader.setImageResource(R.drawable.baseline_arrow_drop_down_24)
                 viewThinking.visibility = View.GONE
             }
         }

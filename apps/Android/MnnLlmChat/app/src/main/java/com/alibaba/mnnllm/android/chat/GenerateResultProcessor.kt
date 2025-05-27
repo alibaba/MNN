@@ -1,16 +1,15 @@
 // Created by ruoyi.sjd on 2025/2/6.
 // Copyright (c) 2024 Alibaba Group Holding Limited All rights reserved.
 package com.alibaba.mnnllm.android.chat
+import android.util.Log
 import java.lang.StringBuilder
 
 class GenerateResultProcessor(
-    private val thinkingPrefix: String,
-    private val thinkCompletePrefix: String
 ) {
 
     private var generateBeginTime: Long = 0
     private var isThinking: Boolean = false
-    private var hasThought: Boolean = false // Track if any <think> block has been processed
+    private var hasThought: Boolean = false
 
     // Stores the raw input stream
     private val rawStringBuilder = StringBuilder()
@@ -18,6 +17,7 @@ class GenerateResultProcessor(
     val thinkingStringBuilder = StringBuilder()
     // Stores content outside <think> tags (final output)
     val normalStringBuilder = StringBuilder()
+    var thinkTime = -1L
 
     // Buffer for handling tags potentially split across data chunks
     private var tagBuffer = ""
@@ -31,6 +31,7 @@ class GenerateResultProcessor(
      */
     fun generateBegin() {
         this.generateBeginTime = System.currentTimeMillis()
+        Log.d(TAG, "generateBegin ${this.generateBeginTime }")
     }
 
     /**
@@ -137,7 +138,7 @@ class GenerateResultProcessor(
         isThinking = true
         if (!hasThought) {
             hasThought = true
-            thinkingStringBuilder.append(thinkingPrefix).append("\n> ")
+            thinkingStringBuilder.append("\n> ")
         } else {
             // Handle subsequent <think> blocks if needed, maybe add a separator or newline?
             // For now, just continue adding to the existing builder with the prefix.
@@ -151,9 +152,9 @@ class GenerateResultProcessor(
      */
     private fun handleThinkEnd(force: Boolean = false) {
         isThinking = false
-        val thinkTime = (System.currentTimeMillis() - generateBeginTime) / 1000
-        val thinkCompleteText = thinkCompletePrefix.replace("ss", thinkTime.toString())
-        thinkingStringBuilder.append("\n").append(thinkCompleteText).append("\n")
+        thinkTime = (System.currentTimeMillis() - generateBeginTime)
+        thinkingStringBuilder.append("\n")
+        Log.d(TAG, "handleThinkEnd thinkTime ${this.thinkTime }")
     }
 
     /**

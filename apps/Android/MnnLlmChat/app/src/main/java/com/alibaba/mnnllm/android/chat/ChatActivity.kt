@@ -298,6 +298,7 @@ class ChatActivity : AppCompatActivity() {
         chatDataItem.thinkingText = generateResultProcessor.getThinkingContent()
         chatDataItem.displayText = generateResultProcessor.getNormalOutput()
         chatDataItem.text = generateResultProcessor.getRawResult()
+        chatDataItem.thinkingFinishedTime = if (generateResultProcessor.thinkTime > 0) generateResultProcessor.thinkTime else -1
         chatListComponent.updateAssistantResponse(chatDataItem)
     }
 
