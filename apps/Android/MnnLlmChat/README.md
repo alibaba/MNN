@@ -64,6 +64,7 @@ This is our full multimodal language model (LLM) Android app
 + Support Qwen3-30B-A3B
 + Support new vision models SmoVLM and FastVLM
 + Support Local models(by adb push)
++ add some advanced settings: precision, thread num
 + UI updates:
   + support filter models by Local, Modality, and Vendors
   + support hide thinking process

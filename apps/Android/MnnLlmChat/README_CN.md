@@ -62,10 +62,11 @@
 + 点击这里 [下载](https://meta.alicdn.com/data/mnn/mnn_chat_0_5_0.apk)
 + 支持 Qwen3-30B-A3B
 + 支持 新的视觉模型 SmoVLM 与 FastVLM
++ 支持增加本地模型(adb push)
++ 增加高级配置选项: precision, 线程数
 + UI更新：
   + 支持是否已经下载，模态、供应商过滤模型列表。
   + 支持隐藏思考过程。
-  + 支持增加本地模型(adb push)
 
 ## Version 0.4.4.1
 + 点击这里 [下载](https://meta.alicdn.com/data/mnn/mnn_chat_0_4_4_1.apk)
