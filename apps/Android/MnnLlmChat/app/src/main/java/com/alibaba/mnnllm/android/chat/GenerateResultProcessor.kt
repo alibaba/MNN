@@ -10,6 +10,7 @@ class GenerateResultProcessor(
     private var generateBeginTime: Long = 0
     private var isThinking: Boolean = false
     private var hasThought: Boolean = false
+    private var thinkHasContent = false
 
     // Stores the raw input stream
     private val rawStringBuilder = StringBuilder()
@@ -45,7 +46,7 @@ class GenerateResultProcessor(
      * Gets the content generated within the <think> blocks.
      */
     fun getThinkingContent(): String {
-        return thinkingStringBuilder.toString()
+        return if (thinkHasContent) thinkingStringBuilder.toString() else ""
     }
 
     /**
@@ -61,6 +62,7 @@ class GenerateResultProcessor(
      * @param progress The incoming string chunk, or null if the stream has ended.
      */
     fun process(progress: String?) {
+        Log.d(TAG, "process: #${progress}# thinkingStringBuilder ${this.thinkingStringBuilder}")
         if (progress == null) {
             // Handle end of stream: if anything is left in tagBuffer, treat it as normal text.
             if (tagBuffer.isNotEmpty()) {
@@ -164,8 +166,8 @@ class GenerateResultProcessor(
      */
     private fun handleText(text: String) {
         if (text.isEmpty()) return
-
         if (isThinking) {
+            thinkHasContent = thinkHasContent || text.isNotBlank()
             thinkingStringBuilder.append(text.replace("\n", "\n> "))
         } else {
             normalStringBuilder.append(text)
