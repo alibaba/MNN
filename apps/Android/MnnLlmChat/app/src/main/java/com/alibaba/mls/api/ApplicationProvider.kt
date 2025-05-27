@@ -3,11 +3,14 @@
 package com.alibaba.mls.api
 
 import android.app.Application
+import com.alibaba.mnnllm.android.update.UpdateChecker
 
 object ApplicationProvider {
+
     var application: Application? = null
     fun set(application: Application?) {
         ApplicationProvider.application = application
+        UpdateChecker.registerDownloadReceiver(application!!.applicationContext)
     }
 
     @JvmStatic

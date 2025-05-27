@@ -3,6 +3,7 @@
 
 package com.alibaba.mnnllm.android.modelsettings
 
+import android.annotation.SuppressLint
 import android.app.Dialog
 import android.os.Bundle
 import android.view.LayoutInflater
@@ -10,13 +11,15 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.SeekBar
+import android.widget.Toast
 import androidx.core.view.isVisible
 import androidx.core.widget.addTextChangedListener
-import com.alibaba.mnnllm.android.llm.ChatSession
+import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.databinding.FragmentSettingsSheetBinding
 import com.alibaba.mnnllm.android.databinding.SettingsRowSliderSwitchBinding
 import com.alibaba.mnnllm.android.llm.LlmSession
-import com.alibaba.mnnllm.android.utils.UiUtils
+import com.alibaba.mnnllm.android.modelsettings.ModelConfig.Companion.defaultConfig
+import com.alibaba.mnnllm.android.utils.FileUtils
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import java.util.*
@@ -41,35 +44,14 @@ val mainSamplerTypes = listOf (
 class SettingsBottomSheetFragment : BottomSheetDialogFragment() {
 
     private lateinit var loadedConfig: ModelConfig
-    private val defaultConfig:ModelConfig = ModelConfig (
-        llmModel = "",
-        llmWeight = "",
-        backendType = "",
-        threadNum = 0,
-        precision = "",
-        memory = "",
-        systemPrompt = "You are a helpful assistant.",
-        samplerType = "",
-        mixedSamplers = mutableListOf(),
-        temperature = 0.0f,
-        topP = 0.9f,
-        topK = 0,
-        minP = 0.0f,
-        tfsZ = 1.0f,
-        typical = 1.0f,
-        penalty = 1.02f,
-        nGram = 8,
-        nGramFactor = 1.02f,
-        maxNewTokens = 2048,
-        assistantPromptTemplate = ""
-    )
+    private lateinit var modelId:String
     private lateinit var currentConfig:ModelConfig
-    private lateinit var chatSession: LlmSession
+    private var chatSession: LlmSession? = null
     private var _binding: FragmentSettingsSheetBinding? = null
     private val binding get() = _binding!!
-    private var useMmap: Boolean = true
     private var currentSamplerType: SamplerType = SamplerType.Mixed
-    private var penaltySamplerValue: String = "Greedy"
+    private var penaltySamplerValue: String = "greedy"
+    private var needRecreateActivity = false
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
@@ -99,9 +81,56 @@ class SettingsBottomSheetFragment : BottomSheetDialogFragment() {
         loadSettings()
         setupModelConfig()
         setupSamplerSettings()
+        setupAdvancedConfigs()
         setupActionButtons()
         setupMaxTokenListener()
         setupSystemPromptListener()
+    }
+
+    @SuppressLint("SetTextI18n")
+    private fun setupAdvancedConfigs() {
+        binding.mmapSettingsItem.isChecked = currentConfig.useMmap?: defaultConfig.useMmap!!
+        binding.mmapSettingsItem.setOnCheckedChangeListener{isChecked->
+            currentConfig.useMmap = isChecked
+        }
+        binding.buttonClearMmapCache.setOnClickListener {
+            val success = FileUtils.clearMmapCache(modelId)
+            if (success) {
+                needRecreateActivity = true
+                Toast.makeText(requireActivity(), R.string.mmap_cacche_cleared, Toast.LENGTH_LONG).show()
+            } else {
+                Toast.makeText(requireActivity(), R.string.mmap_not_used, Toast.LENGTH_LONG).show()
+            }
+        }
+        //precision
+        binding.dropdownPrecision.setCurrentItem(currentConfig.precision?: defaultConfig.precision!!)
+        binding.dropdownPrecision.setDropDownItems(
+            listOf("low", "high"),
+            itemToString = { it.toString() },
+            onDropdownItemSelected = { _, item ->
+                currentConfig.precision = item.toString()
+            },
+        )
+
+        //threadNum
+        val threadNum = currentConfig.threadNum ?: defaultConfig.threadNum!!
+        binding.etThreadNum.setText(threadNum.toString())
+        binding.etThreadNum.addTextChangedListener { text ->
+            if (text.isNullOrEmpty()) {
+                return@addTextChangedListener
+            }
+            currentConfig.threadNum = text.toString().toInt()
+        }
+
+        //backend
+        binding.dropdownBackend.setCurrentItem(currentConfig.backendType?: defaultConfig.backendType!!)
+        binding.dropdownBackend.setDropDownItems(
+            listOf("cpu", "opencl"),
+            itemToString = { it.toString() },
+            onDropdownItemSelected = { _, item ->
+                currentConfig.backendType = item.toString()
+            },
+        )
     }
 
     private fun setupMaxTokenListener() {
@@ -274,9 +303,12 @@ class SettingsBottomSheetFragment : BottomSheetDialogFragment() {
             onValueChange = { currentConfig.nGramFactor = it },
             switchVisible = false
         )
+        penaltySamplerValue = currentConfig.penaltySampler?:defaultConfig.penaltySampler!!
         binding.dropdownPenaltySampler.setDropDownItems(listOf("greedy", "temperature")) { _, value ->
             penaltySamplerValue = value.toString()
+            currentConfig.penaltySampler = penaltySamplerValue
         }
+        binding.dropdownPenaltySampler.setCurrentItem(penaltySamplerValue)
     }
 
     private fun setupSliderSwitchRow(
@@ -361,7 +393,8 @@ class SettingsBottomSheetFragment : BottomSheetDialogFragment() {
     }
 
     private fun loadSettings() {
-        loadedConfig = chatSession.loadConfig()!!
+        loadedConfig = ModelConfig.loadMergedConfig(ModelConfig.getDefaultConfigFile(modelId)!!,
+            ModelConfig.getExtraConfigFile(modelId)) ?: defaultConfig
         currentConfig = loadedConfig.deepCopy()
         updateSamplerSettings()
         //max tokens
@@ -374,7 +407,7 @@ class SettingsBottomSheetFragment : BottomSheetDialogFragment() {
     }
 
     private fun saveSettings() {
-        var needRecreate = false
+        var needRecreate = this.needRecreateActivity
         var needSaveConfig = false
         if (currentConfig == loadedConfig) {
             return
@@ -383,20 +416,36 @@ class SettingsBottomSheetFragment : BottomSheetDialogFragment() {
             needRecreate = true
         } else if (currentConfig.maxNewTokens != loadedConfig.maxNewTokens) {
             needSaveConfig = true
-            chatSession.updateMaxNewTokens(currentConfig.maxNewTokens!!)
+            chatSession?.updateMaxNewTokens(currentConfig.maxNewTokens!!)
             needRecreate = false
         } else if (currentConfig.systemPrompt != loadedConfig.systemPrompt) {
             needSaveConfig = true
-            chatSession.updateSystemPrompt(currentConfig.systemPrompt!!)
+            chatSession?.updateSystemPrompt(currentConfig.systemPrompt!!)
             needRecreate = false
+        } else if (currentConfig.useMmap != loadedConfig.useMmap) {
+            needSaveConfig = true
+            needRecreate = true
+        } else if (currentConfig.precision != loadedConfig.precision) {
+            needSaveConfig = true
+            needRecreate = true
+        } else if (currentConfig.threadNum != loadedConfig.threadNum) {
+            needSaveConfig = true
+            needRecreate = true
+        } else if (currentConfig.backendType != loadedConfig.backendType) {
+            needSaveConfig = true
+            needRecreate = true
         }
         if (needSaveConfig) {
-            ModelConfig.saveConfig(chatSession.getModelSettingsFile(), currentConfig)
+            ModelConfig.saveConfig(ModelConfig.getExtraConfigFile(modelId), currentConfig)
         }
-        if (needRecreate) {
-            UiUtils.getActivity(context)?.recreate()
-        }
+        onSettingsDoneListener?.let { it(needRecreate) }
     }
+
+    fun addOnSettingsDoneListener(listener: (Boolean) -> Unit) {
+        onSettingsDoneListener = listener
+    }
+
+    private var onSettingsDoneListener:((Boolean) -> Unit)? = null
 
     private fun resetSettingsToDefaults() {
         loadSettings()
@@ -412,7 +461,12 @@ class SettingsBottomSheetFragment : BottomSheetDialogFragment() {
         this.chatSession = chatSession
     }
 
+    fun setModelId(modelId: String,) {
+        this.modelId = modelId
+    }
+
     companion object {
         const val TAG = "SettingsBottomSheetFragment"
+        //TEST CASES: 1. recreate 2. need not recreate
     }
 }

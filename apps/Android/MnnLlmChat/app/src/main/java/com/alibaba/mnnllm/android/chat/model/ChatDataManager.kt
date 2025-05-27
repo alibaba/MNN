@@ -59,6 +59,8 @@ class ChatDataManager private constructor(context: Context) {
         }
         values.put(ChatDatabaseHelper.COLUMN_AUDIO_DURATION, chatDataItem.audioDuration)
         values.put(ChatDatabaseHelper.COLUMN_DISPLAY_TEXT, chatDataItem.displayText)
+        values.put(ChatDatabaseHelper.COLUMN_THINKING_TEXT, chatDataItem.thinkingText)
+        values.put(ChatDatabaseHelper.COLUMN_THINKING_FINISHED_TIME, chatDataItem.thinkingFinishedTime)
         db.insert(ChatDatabaseHelper.TABLE_CHAT, null, values)
         db.close()
     }
@@ -97,6 +99,12 @@ class ChatDataManager private constructor(context: Context) {
                 chatDataItem.audioUri = Uri.parse(audioUriStr)
                 chatDataItem.audioDuration = audioDuration
             }
+            val thinkingText =
+                cursor.getString(cursor.getColumnIndex(ChatDatabaseHelper.COLUMN_THINKING_TEXT))
+            val thinkingFinishedTime =
+                cursor.getLong(cursor.getColumnIndex(ChatDatabaseHelper.COLUMN_THINKING_FINISHED_TIME))
+            chatDataItem.thinkingText = thinkingText
+            chatDataItem.thinkingFinishedTime = thinkingFinishedTime
             chatDataItemList.add(chatDataItem)
         }
         cursor.close()

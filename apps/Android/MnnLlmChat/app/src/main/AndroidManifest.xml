@@ -9,7 +9,7 @@
         tools:ignore="SelectedPhotoAccess" />
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO"/>
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
-
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <application
         android:allowBackup="true"
         android:icon="@drawable/ic_launcher"
@@ -30,13 +30,6 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
-        <receiver
-            android:name="com.alibaba.mnnllm.android.chat.DownloadReceiver"
-            android:exported="true" >
-            <intent-filter>
-                <action android:name="android.intent.action.DOWNLOAD_COMPLETE" />
-            </intent-filter>
-        </receiver>
         <activity android:name="com.alibaba.mnnllm.android.chat.ChatActivity"
             android:exported="true"
             android:windowSoftInputMode="adjustResize"
@@ -59,7 +52,7 @@
             </intent-filter>
         </activity>
 
-        <activity android:name=".MainActivity"
+        <activity android:name=".main.MainActivity"
             android:exported="true"
             android:configChanges="orientation|screenSize">
             <intent-filter>
