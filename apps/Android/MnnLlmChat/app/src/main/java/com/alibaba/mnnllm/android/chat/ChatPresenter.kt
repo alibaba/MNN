@@ -10,7 +10,6 @@ import com.alibaba.mnnllm.android.llm.ChatService
 import com.alibaba.mnnllm.android.llm.ChatSession
 import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.chat.ChatActivity.Companion.TAG
-import com.alibaba.mnnllm.android.chat.GenerateResultProcessor.R1GenerateResultProcessor
 import com.alibaba.mnnllm.android.chat.model.ChatDataItem
 import com.alibaba.mnnllm.android.chat.model.ChatDataManager
 import com.alibaba.mnnllm.android.llm.GenerateProgressListener
@@ -133,8 +132,8 @@ class ChatPresenter(
     }
 
     private fun submitLlmRequest(prompt:String): HashMap<String, Any> {
-        val generateResultProcessor: GenerateResultProcessor =
-            R1GenerateResultProcessor(
+        val generateResultProcessor =
+            GenerateResultProcessor(
                 chatActivity.getString(R.string.r1_thinking_message),
                 chatActivity.getString(R.string.r1_think_complete_template))
         generateResultProcessor.generateBegin()
@@ -225,6 +224,6 @@ class ChatPresenter(
         fun onDiffusionGenerateProgress(progress: String?, diffusionDestPath: String?)
         fun onGenerateStart()
         fun onGenerateFinished(benchMarkResult: HashMap<String, Any>)
-        fun onLlmGenerateProgress(progress: String?, generateResultProcessor:GenerateResultProcessor)
+        fun onLlmGenerateProgress(progress: String?, generateResultProcessor: GenerateResultProcessor)
     }
 }

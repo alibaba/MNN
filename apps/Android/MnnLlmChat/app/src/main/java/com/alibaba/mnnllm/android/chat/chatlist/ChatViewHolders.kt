@@ -138,6 +138,7 @@ object ChatViewHolders {
     class AssistantViewHolder @SuppressLint("ClickableViewAccessibility") constructor(view: View) :
         RecyclerView.ViewHolder(view), View.OnClickListener, OnLongClickListener {
         private val viewText: TextView = view.findViewById(R.id.tv_chat_text)
+        private val viewThinking: TextView = view.findViewById(R.id.tv_chat_thinking)
         private val benchmarkInfo: TextView = view.findViewById(R.id.tv_chat_benchmark)
 
         private val headerIcon: ImageView =
@@ -154,23 +155,47 @@ object ChatViewHolders {
 
         init {
             viewText.setOnLongClickListener(this)
+            viewThinking.setOnLongClickListener(this)
             viewText.setOnTouchListener { v, event ->
                 if (event.action == MotionEvent.ACTION_DOWN) {
-                    val location = IntArray(2)
-                    v.getLocationOnScreen(location)
-                    lastTouchX = location[0] + event.x.toInt()
-                    lastTouchY = location[1] + event.y.toInt()
+                    updatePointerDownLocation(v, event)
+                }
+                false
+            }
+            viewThinking.setOnTouchListener { v, event ->
+                if (event.action == MotionEvent.ACTION_DOWN) {
+                    updatePointerDownLocation(v, event)
                 }
                 false
             }
             imageGenerated.setOnClickListener(this)
         }
 
+        private fun  updatePointerDownLocation(v:View, event: MotionEvent) {
+            val location = IntArray(2)
+            v.getLocationOnScreen(location)
+            lastTouchX = location[0] + event.x.toInt()
+            lastTouchY = location[1] + event.y.toInt()
+        }
+
         fun bind(data: ChatDataItem, modelName: String?, payloads: List<Any?>?) {
             if (!payloads.isNullOrEmpty()) {
-                markdown.setMarkdown(viewText, data.displayText!!)
+                if (data.thinkingText != null && !TextUtils.isEmpty(data.thinkingText)) {
+                    updateThinkingView(data.thinkingText!!, itemView.context)
+                }
+                if (data.displayText != null) {
+                    markdown.setMarkdown(viewText, data.displayText!!)
+                }
                 return
             }
+
+            val showThinking = true
+            if (showThinking && !TextUtils.isEmpty(data.thinkingText)) {
+                updateThinkingView(data.thinkingText!!, itemView.context)
+            } else {
+                viewThinking.visibility = View.GONE
+            }
+            
             if (TextUtils.isEmpty(data.displayText)) {
                 viewText.visibility = View.GONE
             } else {
@@ -211,6 +236,17 @@ object ChatViewHolders {
             headerIcon.setImageResource(if (drawableId > 0) drawableId else R.drawable.ic_launcher)
             imageGenerated.tag = data
             viewText.tag = data
+            viewThinking.tag = data
+        }
+        
+        private fun updateThinkingView(thinkingText: String, context: android.content.Context) {
+            val showThinking = true
+            if (showThinking && !TextUtils.isEmpty(thinkingText)) {
+                viewThinking.visibility = View.VISIBLE
+                markdown.setMarkdown(viewThinking, thinkingText)
+            } else {
+                viewThinking.visibility = View.GONE
+            }
         }
 
         override fun onClick(v: View) {
@@ -233,7 +269,7 @@ object ChatViewHolders {
                 } else if (v.id == R.id.assistant_text_report) {
                     val chatActivity = UiUtils.getActivity(v.context) as ChatActivity
                     ClipboardUtils.copyToClipboard(
-                        chatActivity,
+                        itemView.context,
                         """
                             ${DeviceUtils.deviceInfo}
                             ${chatActivity.sessionDebugInfo}

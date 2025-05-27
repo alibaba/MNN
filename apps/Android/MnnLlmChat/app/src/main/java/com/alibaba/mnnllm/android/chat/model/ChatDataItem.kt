@@ -30,6 +30,8 @@ class ChatDataItem {
     var displayText: String? = null
         get() = field?:""
 
+    var thinkingText: String? = null
+
     var audioDuration = 0f
 
     private var _hasOmniAudio:Boolean = false

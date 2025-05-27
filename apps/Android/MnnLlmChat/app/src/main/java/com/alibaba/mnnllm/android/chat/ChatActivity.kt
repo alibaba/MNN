@@ -65,6 +65,7 @@ class ChatActivity : AppCompatActivity() {
     private lateinit var chatListComponent: ChatListComponent
 
     private var benchmarkModule: BenchmarkModule = BenchmarkModule(activity = this)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityChatBinding.inflate(layoutInflater)
@@ -80,7 +81,7 @@ class ChatActivity : AppCompatActivity() {
         chatPresenter = ChatPresenter(this, modelName, modelId!!)
         isDiffusion = ModelUtils.isDiffusionModel(modelName)
         isAudioModel = ModelUtils.isAudioModel(modelName)
-        chatInputModule = ChatInputComponent(this, binding, modelName,)
+        chatInputModule = ChatInputComponent(this, binding, modelName)
         layoutModelLoading = findViewById(R.id.layout_model_loading)
         updateActionBar()
         this.setupSession()
@@ -294,7 +295,8 @@ class ChatActivity : AppCompatActivity() {
 
     fun onLlmGenerateProgress(progress: String?, generateResultProcessor:GenerateResultProcessor) {
         val chatDataItem = chatListComponent.recentItem!!
-        chatDataItem.displayText = generateResultProcessor.getDisplayResult()
+        chatDataItem.thinkingText = generateResultProcessor.getThinkingContent()
+        chatDataItem.displayText = generateResultProcessor.getNormalOutput()
         chatDataItem.text = generateResultProcessor.getRawResult()
         chatListComponent.updateAssistantResponse(chatDataItem)
     }
