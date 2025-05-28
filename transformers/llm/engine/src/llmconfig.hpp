@@ -341,6 +341,15 @@ public:
         return config_.value("thread_num", 4);
     }
 
+    int prefill_thread_num(bool mllm = false) const {
+        if (mllm) return mllm_config_.value("prefill_thread_num", -1);
+        return config_.value("prefill_thread_num", -1);
+    }
+    int decode_thread_num(bool mllm = false) const {
+        if (mllm) return mllm_config_.value("decode_thread_num", -1);
+        return config_.value("decode_thread_num", -1);
+    }
+
     std::string precision(bool mllm = false) const {
         if (mllm) return mllm_config_.value("precision", "low");
         return config_.value("precision", "low");
@@ -348,6 +357,14 @@ public:
     std::string power(bool mllm = false) const {
         if (mllm) return mllm_config_.value("power", "normal");
         return config_.value("power", "normal");
+    }
+    std::string prefill_power(bool mllm = false) const {
+        if (mllm) return mllm_config_.value("prefill_power", "");
+        return config_.value("prefill_power", "");
+    }
+    std::string decode_power(bool mllm = false) const {
+        if (mllm) return mllm_config_.value("decode_power", "");
+        return config_.value("decode_power", "");
     }
 
     std::string memory(bool mllm = false) const {

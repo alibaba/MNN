@@ -38,6 +38,9 @@
 
 #include <algorithm>
 #include <string>
+#include <iostream>
+#include <fstream>
+#include <sstream>
 
 #include "core/Macro.h"
 #ifdef __ANDROID__
@@ -117,7 +120,7 @@ int MNNSetSchedAffinity(const int* cpuIDs, int size) {
 
 // cpuinfo
 // Reference from: https://github.com/pytorch/cpuinfo
-#if defined(ENABLE_ARMV82) && defined(__arm__)
+#if defined(__ANDROID__) && (defined(__arm__) || defined(__aarch64__))
 
 /* As per include/sys/system_properties.h in Android NDK */
 #define CPUINFO_HARDWARE_VALUE_MAX 64
@@ -1360,6 +1363,36 @@ const MNNCPUInfo* MNNGetCPUInfo() {
     return gCPUInfo;
 }
 
+#ifdef __linux__
+// Function to trim leading and trailing spaces from a string
+static std::string trim(const std::string& str) {
+    size_t first = str.find_first_not_of(" \t");
+    if (first == std::string::npos)
+        return ""; // Return empty string if all characters are spaces
+    size_t last = str.find_last_not_of(" \t");
+    return str.substr(first, (last - first + 1));
+}
+static std::vector<std::string> _fillCpuPart() {
+    std::vector<std::string> cpu_parts;
+    std::ifstream file("/proc/cpuinfo");
+    std::string line;
+    if (!file.is_open()) { return cpu_parts; } // return empty list if file not exist!
+    while (std::getline(file, line)) {
+        std::istringstream iss(line);
+        std::string key, value;
+        if (std::getline(iss, key, ':') && std::getline(iss, value)) {
+            key = trim(key); // Trim leading and trailing spaces from key
+            value = trim(value); // Trim leading and trailing spaces from value
+            if (key == "CPU part") {
+                cpu_parts.push_back(value);
+            }
+        }
+    }
+    file.close();
+    return cpu_parts;
+}
+#endif
+
 static void _fillInfo(MNNCPUInfo* cpuinfo_isa) {
     cpuinfo_isa->dot = false;
     cpuinfo_isa->fp16arith = false;
@@ -1371,6 +1404,7 @@ static void _fillInfo(MNNCPUInfo* cpuinfo_isa) {
 #ifdef __linux__
     do {
         DIR* root;
+        // deal with the CPU policy info and frequency info (maxFreq, minFreq).
         std::string dir = "/sys/devices/system/cpu/cpufreq";
         if ((root = opendir(dir.c_str())) == NULL) {
             break;
@@ -1418,20 +1452,46 @@ static void _fillInfo(MNNCPUInfo* cpuinfo_isa) {
         std::sort(cpuinfo_isa->groups.begin(), cpuinfo_isa->groups.end(), [](const CPUGroup& left, const CPUGroup& right) {
             return left.maxFreq < right.maxFreq;
         });
-        // Merge group if needed
-        if (cpuinfo_isa->groups.size() >= 2 && cpuinfo_isa->groups[0].maxFreq == cpuinfo_isa->groups[1].maxFreq) {
-            auto backupGroups = std::move(cpuinfo_isa->groups);
-            CPUGroup&& current = std::move(backupGroups[0]);
-            for (int v=1; v<backupGroups.size(); ++v) {
-                if (backupGroups[v].maxFreq != current.maxFreq) {
-                    cpuinfo_isa->groups.emplace_back(current);
-                    current = std::move(backupGroups[v]);
-                } else {
-                    current.ids.insert(current.ids.end(), backupGroups[v].ids.begin(), backupGroups[v].ids.end());
-                }
+        // do not merge group
+        // deal with cpu capacity info
+        do {
+            dir = "/sys/devices/system/cpu/";
+            if (opendir(dir.c_str()) == NULL) {
+                break;
             }
-            cpuinfo_isa->groups.emplace_back(current);
+            for (auto& group: cpuinfo_isa->groups) {
+                std::string cpu_name = "cpu"+std::to_string(group.ids[0]);
+                MNN::AutoStorage<uint8_t> buffer;
+                if (false == _readAll(dir+cpu_name+"/cpu_capacity", buffer)) {
+                    continue;
+                }
+                group.capacity = _readNumber((const char*)buffer.get(), buffer.size())[0];
+            }
+        } while(false);
+        // get CPU part from /proc/cpuinfo
+        std::vector<std::string> cpu_parts = _fillCpuPart();
+        // classify cpuType
+        // 1. get prime maxFreq, minFreq, capacity, /proc/cpuinfo type code
+        // 2. All the cores with 1) same type code; or 2) >=80% freq and capacity, are classified as prime.
+        // 3. All the cores with 1) >=70% freq and >=50% capacity; or 2) not the lowest freq, are classified as performance.
+        // 4. The rest are classfied as efficient.
+        const auto& prime_info = cpuinfo_isa->groups.back();
+        auto lowest_maxFreq = cpuinfo_isa->groups.front().maxFreq;
+        auto lowesr_minFreq = cpuinfo_isa->groups.front().minFreq;
+        for (auto& group: cpuinfo_isa->groups) {
+            if (cpu_parts.empty()) {
+                if (((float)group.maxFreq >= 0.8*(float)prime_info.maxFreq) && ((float)group.capacity >= 0.8*(float)prime_info.capacity))
+                    { group.cpuType=CPUGroup::Prime; continue; }
+            } else {
+                if (cpu_parts[prime_info.ids.front()] == cpu_parts[group.ids.front()])
+                    { group.cpuType=CPUGroup::Prime; continue; }
+            }
+            if ((((float)group.maxFreq >= 0.6*(float)prime_info.maxFreq) && ((float)group.capacity >= 0.4*(float)prime_info.capacity)) \
+                || ((float)group.minFreq > (float)lowesr_minFreq) && ((float)group.maxFreq > (float)lowest_maxFreq)) 
+                { group.cpuType=CPUGroup::Performance; continue; }
+            group.cpuType=CPUGroup::Efficient;
         }
+        // count total cpu number and display info
         cpuinfo_isa->cpuNumber = 0;
         for (auto& group : cpuinfo_isa->groups) {
             cpuinfo_isa->cpuNumber += group.ids.size();
@@ -1440,6 +1500,13 @@ static void _fillInfo(MNNCPUInfo* cpuinfo_isa) {
                 message += " " + std::to_string(group.ids[v]) + " ";
             }
             message += "], " + std::to_string(group.minFreq) + " - " + std::to_string(group.maxFreq);
+            if (group.capacity!=0) { message += ", capacity: " + std::to_string(group.capacity); }
+            message += ", cpu type: ";
+            switch (group.cpuType) {
+                case CPUGroup::Prime: message += "Prime"; break;
+                case CPUGroup::Performance: message += "Performance"; break;
+                case CPUGroup::Efficient: message += "Efficient"; break;
+            }
             MNN_PRINT("%s\n", message.c_str());
         }
     } while (false);

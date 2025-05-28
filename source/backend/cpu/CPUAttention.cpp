@@ -196,6 +196,7 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
     }
     int tileCount = UP_DIV(mNumHead, mThreadNum);
     int group_size = mNumHead / mKvNumHead;
+    mKVCacheManager->setThreadNum(mThreadNum);
     // reduce the value of 'query' to avoid fp16 overflow
     float mScale = 1.0 / sqrt(mHeadDim);
     float q_scale = 1.0;

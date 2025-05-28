@@ -18,6 +18,7 @@ using namespace MNN::Transformer;
 static void tuning_prepare(Llm* llm) {
     MNN_PRINT("Prepare for tuning opt Begin\n");
     llm->tuning(OP_ENCODER_NUMBER, {1, 5, 10, 20, 30, 50, 100});
+    llm->tuning(PREFILL_BIGLITTLE_CORE, {});
     MNN_PRINT("Prepare for tuning opt End\n");
 }
 

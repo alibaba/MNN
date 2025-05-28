@@ -50,6 +50,14 @@ ErrorCode CastWrapExecution::onExecute(const std::vector<Tensor*>& inputs, const
     CPUCastCreator::cast(inputs[0], outputs[0], cpuBackend, convertType);
     return NO_ERROR;
 }
+
+int getMajorCPUNumber(const std::vector<CPUGroup>& groups) {
+    int sum = 0;
+    for (const auto& g: groups) {
+        if (g.cpuType != CPUGroup::Efficient) { sum+=g.ids.size(); }
+    }
+    return sum;
+}
 void CPUBackend::computeDivideSizes(int size, int* dst, float avgDiv) const {
     if (mGroupWithComputeRate.size() <= 1 || (avgDiv > 0 && avgDiv < mComputeI)) {
         // Avg divide
@@ -136,13 +144,14 @@ void CPURuntime::_bindCPUCore() const {
 }
 
 void CPURuntime::_resetThreadPool() {
+    if (mThreadNumber <= 0) { mThreadNumber=getMajorCPUNumber(MNNGetCPUInfo()->groups); }
     mThreadNumber = std::max(1, mThreadNumber);
     mThreadNumber = std::min(mThreadNumber, MAX_THREAD_NUMBER);
 #ifdef MNN_USE_THREAD_POOL
     ThreadPool::releaseWorkIndex(mTaskIndex);
     auto cpuInfo = MNNGetCPUInfo();
+    int systemThreadNumber = (int)cpuInfo->cpuNumber;
     if (mThreadNumber > 1) {
-        int systemThreadNumber = (int)cpuInfo->cpuNumber;
         if (systemThreadNumber == 0) {
             systemThreadNumber = mThreadNumber;
         }
@@ -389,25 +398,18 @@ BufferAllocator* CPURuntime::createDynamicBufferAlloctor(int index) const {
     }
     return new EagerBufferAllocator(BufferAllocator::Allocator::createRecurse(mStaticAllocator.get()));
 }
-CPUBackend::CPUBackend(const CPURuntime* runtime, BackendConfig::PrecisionMode precision, BackendConfig::MemoryMode memory, MNNForwardType type, size_t flags, int initThreadNumber) : Backend(type) {
-#ifdef LOG_VERBOSE
-    MNN_PRINT("cpu backend create\n");
-#endif
-    mMemory = memory;
-    mRuntime = const_cast<CPURuntime*>(runtime);
-    mThreadNumber = mRuntime->mThreadNumber;
-    // Compute Group Rate
-    do {
+void CPUBackend::computeGroupRate() {
+    {
         if (mThreadNumber <= 1 || mRuntime->mPower == BackendConfig::Power_Low) {
-            break;
+            return;
         }
         auto rate = mRuntime->hint().cpuDecreaseRate;
         if (rate >= 100 || rate <= 0) {
-            break;
+            return;
         }
         auto cpuInfo = MNNGetCPUInfo();
         if (cpuInfo->groups.size() < 2) {
-            break;
+            return;
         }
         if (cpuInfo->i8mm) {
             mComputeI = 28.f;
@@ -435,7 +437,18 @@ CPUBackend::CPUBackend(const CPURuntime* runtime, BackendConfig::PrecisionMode p
         for (auto& g : mGroupWithComputeRate) {
             g.first = g.first / totalComputeRate;
         }
-    } while (false);
+    }
+}
+CPUBackend::CPUBackend(const CPURuntime* runtime, BackendConfig::PrecisionMode precision, BackendConfig::MemoryMode memory, MNNForwardType type, size_t flags, int initThreadNumber) : Backend(type) {
+#ifdef LOG_VERBOSE
+    MNN_PRINT("cpu backend create\n");
+#endif
+    mMemory = memory;
+    mRuntime = const_cast<CPURuntime*>(runtime);
+    mThreadNumber = mRuntime->mThreadNumber;
+    // Compute Group Rate
+    computeGroupRate();
+    // initialize Allocator
     auto dynamicAlloc = mRuntime->mSharedDmaInfo;
     if (nullptr == dynamicAlloc.get()) {
         mDmaInfo.reset(new CPURuntime::DynamicAllocator);

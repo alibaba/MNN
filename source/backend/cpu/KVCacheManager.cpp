@@ -326,10 +326,6 @@ void KVCacheManager::onResize(int kv_num_head, int head_dim) {
     auto core  = static_cast<CPUBackend *>(mBackend)->functions();
     core->MNNGetMatMulPackMode(&eP, &lP, &hP);
     mBytes = core->bytes;
-    mThreadNum = static_cast<CPUBackend *>(mBackend)->threadNumber();
-    if (mThreadNum > mKvNumHead) {
-        mThreadNum = mKvNumHead;
-    }
     if (mConfig.mUseInt8Kernel) {
         static_cast<CPUBackend *>(mBackend)->int8Functions()->MNNGetGemmUnit(&hP8, &lP8, &eP8);
     }

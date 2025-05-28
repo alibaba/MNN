@@ -39,6 +39,7 @@ using ChatMessages = std::vector<ChatMessage>;
 enum TuneType {
     // op encoder number for commit
     OP_ENCODER_NUMBER = 0,
+    PREFILL_BIGLITTLE_CORE,
 };
 enum class MatchStrictLevel : int;
 enum class NgramSelectRule : int;
@@ -129,6 +130,7 @@ protected:
     std::shared_ptr<Express::Executor::RuntimeManager> mRuntimeManager, mProcessorRuntimeManager;
     std::vector<std::shared_ptr<Express::Module>> mModules, mPrefillModules, mDecodeModules, mCurrentModules;
     const Express::Module* mBaseModule = nullptr;
+    ScheduleConfig mPrefillConfig, mDecodeConfig;
     Express::VARP inputsEmbeds, attentionMask, positionIds;
     std::vector<Express::VARP> mInputsEmbedsVarVec, mAttentionMaskVarVec, mPositionIdsVarVec;
     Express::VARP logitsAllIdx, logitsLastIdx;
