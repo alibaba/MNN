@@ -861,3 +861,4 @@ bool Llm::is_stop(int token_id) {
 }
 } // namespace Transformer
 } // namespace MNN
+
