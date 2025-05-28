@@ -9,4 +9,8 @@
     <item
         android:id="@+id/menu_start_download"
         android:title="@string/start_download" />
+    <!-- 新增的设置项 -->
+    <item
+        android:id="@+id/menu_settings"
+        android:title="@string/settings" />
 </menu>

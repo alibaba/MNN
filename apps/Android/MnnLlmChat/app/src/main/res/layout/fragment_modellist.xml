@@ -5,14 +5,15 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    tools:context=".MainActivity">
+    tools:context=".main.MainActivity">
 
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/model_list_recycler_view"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:visibility="gone"
-        android:overScrollMode="never" />
+        android:overScrollMode="never"
+        android:nestedScrollingEnabled="true" />
 
     <com.github.ybq.android.spinkit.SpinKitView
         android:id="@+id/model_list_loading_view"
@@ -39,6 +40,19 @@
             android:layout_centerInParent="true"
             android:textSize="16sp"
             android:text="@string/loading_failed_click_tor_retry"/>
+    </RelativeLayout>
+
+    <RelativeLayout
+        android:id="@+id/model_list_empty_view"
+        android:visibility="gone"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_centerInParent="true"
+            android:textSize="16sp"
+            android:text="@string/no_models_found"/>
     </RelativeLayout>
 
 </RelativeLayout>

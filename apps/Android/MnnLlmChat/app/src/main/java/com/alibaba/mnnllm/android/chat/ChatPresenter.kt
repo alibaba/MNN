@@ -5,22 +5,17 @@ package com.alibaba.mnnllm.android.chat
 
 import android.text.TextUtils
 import android.util.Log
-import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.lifecycleScope
 import com.alibaba.mnnllm.android.llm.ChatService
 import com.alibaba.mnnllm.android.llm.ChatSession
-import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.chat.ChatActivity.Companion.TAG
-import com.alibaba.mnnllm.android.chat.GenerateResultProcessor.R1GenerateResultProcessor
 import com.alibaba.mnnllm.android.chat.model.ChatDataItem
 import com.alibaba.mnnllm.android.chat.model.ChatDataManager
 import com.alibaba.mnnllm.android.llm.GenerateProgressListener
 import com.alibaba.mnnllm.android.utils.FileUtils
-import com.alibaba.mnnllm.android.utils.ModelUtils
+import com.alibaba.mnnllm.android.model.ModelUtils
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
@@ -136,10 +131,8 @@ class ChatPresenter(
     }
 
     private fun submitLlmRequest(prompt:String): HashMap<String, Any> {
-        val generateResultProcessor: GenerateResultProcessor =
-            R1GenerateResultProcessor(
-                chatActivity.getString(R.string.r1_thinking_message),
-                chatActivity.getString(R.string.r1_think_complete_template))
+        val generateResultProcessor =
+            GenerateResultProcessor()
         generateResultProcessor.generateBegin()
         val result = chatSession.generate(prompt, mapOf(), object: GenerateProgressListener {
             override fun onProgress(progress: String?): Boolean {
@@ -228,6 +221,6 @@ class ChatPresenter(
         fun onDiffusionGenerateProgress(progress: String?, diffusionDestPath: String?)
         fun onGenerateStart()
         fun onGenerateFinished(benchMarkResult: HashMap<String, Any>)
-        fun onLlmGenerateProgress(progress: String?, generateResultProcessor:GenerateResultProcessor)
+        fun onLlmGenerateProgress(progress: String?, generateResultProcessor: GenerateResultProcessor)
     }
 }

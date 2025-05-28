@@ -20,7 +20,6 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
         crash_util.cpp
 )
 #mnn
-#set (MNN_ROOT "/Users/songjinde/git/DAI/AliNNPrivate")
 set (MNN_SOURCE_ROOT "${CMAKE_SOURCE_DIR}/../../../../../../../")
 #set (MNN_SOURCE_ROOT "/Users/songjinde/git/DAI/AliNNPrivate")
 set (MNN_INSTALL_ROOT "${MNN_SOURCE_ROOT}/project/android/build_64")

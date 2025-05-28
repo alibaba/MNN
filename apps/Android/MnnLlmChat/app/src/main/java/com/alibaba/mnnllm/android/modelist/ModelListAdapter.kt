@@ -4,11 +4,14 @@ package com.alibaba.mnnllm.android.modelist
 
 import android.text.TextUtils
 import android.view.LayoutInflater
+import android.view.View
 import android.view.ViewGroup
 import androidx.recyclerview.widget.RecyclerView
 import com.alibaba.mls.api.ModelItem
 import com.alibaba.mls.api.download.DownloadInfo
 import com.alibaba.mnnllm.android.R
+import com.alibaba.mnnllm.android.model.Modality
+import com.alibaba.mnnllm.android.model.ModelUtils
 import java.util.Locale
 import java.util.stream.Collectors
 
@@ -18,8 +21,10 @@ class ModelListAdapter(private val items: MutableList<ModelItem>) :
     private var modelListListener: ModelItemListener? = null
     private var modelItemDownloadStatesMap: Map<String, ModelItemDownloadState>? = null
     private val modelItemHolders: MutableSet<ModelItemHolder> = HashSet()
-    private var filterQuery: String? = null
+    private var filterQuery: String = ""
+    private var filterQueryMap = mutableMapOf("query" to "", "vendor" to "", "modality" to "", "download" to "-1")
     private var filterDownloaded = false
+    private var emptyView: View? = null
 
     fun setModelListListener(modelListListener: ModelItemListener?) {
         this.modelListListener = modelListListener
@@ -40,7 +45,6 @@ class ModelListAdapter(private val items: MutableList<ModelItem>) :
         )
     }
 
-
     override fun getItemCount(): Int {
         return getItems().size
     }
@@ -52,7 +56,8 @@ class ModelListAdapter(private val items: MutableList<ModelItem>) :
         this.modelItemDownloadStatesMap = modelItemDownloadStatesMap
         items.clear()
         items.addAll(hfModelItems)
-        filter(filterQuery!!, filterDownloaded)
+        filterItems(filterQuery, filterDownloaded)
+        checkIfEmpty()
     }
 
     fun updateItem(modelId: String) {
@@ -85,24 +90,41 @@ class ModelListAdapter(private val items: MutableList<ModelItem>) :
         return if (filteredItems != null) filteredItems!! else items
     }
 
-    private fun filter(query: String, showDownloadedOnly: Boolean) {
+    private fun filterItems(query: String, showDownloadedOnly: Boolean) {
         val filtered = items.stream()
             .filter { hfModelItem: ModelItem ->
+                val modelItemState = modelItemDownloadStatesMap!![hfModelItem.modelId]
                 if (showDownloadedOnly) {
-                    val modelItemState = modelItemDownloadStatesMap!![hfModelItem.modelId]
-                    if (modelItemState != null && modelItemState.downloadInfo!!.downlodaState != DownloadInfo.DownloadSate.COMPLETED) {
+                    if (modelItemState != null
+                        && modelItemState.downloadInfo!!.downlodaState != DownloadInfo.DownloadSate.COMPLETED) {
                         return@filter false
                     }
                 }
-                val modelName = hfModelItem.modelName!!.lowercase(Locale.getDefault())
-                modelName.contains(query.lowercase(Locale.getDefault())) ||
-                        hfModelItem.newTags.stream().anyMatch { tag: String ->
-                            tag.lowercase(Locale.getDefault()).contains(
-                                query.lowercase(
-                                    Locale.getDefault()
-                                )
-                            )
+                val modelNameLowerCase = hfModelItem.modelName!!.lowercase(Locale.getDefault())
+                modelNameLowerCase.contains(query.lowercase(Locale.getDefault()))
+                for ((key, value) in filterQueryMap) {
+                    if (value.isEmpty()) {
+                        continue
+                    }
+                    if (key == "vendor") {
+                        val vendor = ModelUtils.getVendor(modelNameLowerCase)
+                        if (vendor != value) {
+                            return@filter false
                         }
+                    } else if (key == "modality") {
+                        if (!Modality.checkModality(modelNameLowerCase, value)) {
+                            return@filter false
+                        }
+                    }  else if (key == "download") {
+                        if (value == "true" && modelItemState?.downloadInfo?.downlodaState != DownloadInfo.DownloadSate.COMPLETED
+                            && !hfModelItem.isLocal) {
+                            return@filter false
+                        }
+                    } else if (!modelNameLowerCase.contains(value.lowercase(Locale.getDefault()))) {
+                        return@filter false
+                    }
+                }
+                return@filter true
             }
             .collect(Collectors.toList())
         if (filtered.size != items.size) {
@@ -111,16 +133,45 @@ class ModelListAdapter(private val items: MutableList<ModelItem>) :
             this.filteredItems = null
         }
         notifyDataSetChanged()
+        checkIfEmpty()
     }
 
     fun unfilter() {
         this.filteredItems = null
         notifyDataSetChanged()
+        checkIfEmpty()
     }
 
     fun setFilter(filterQuery: String, filterDownloaded: Boolean) {
         this.filterQuery = filterQuery
+        this.filterQueryMap["query"] = filterQuery
         this.filterDownloaded = filterDownloaded
-        filter(filterQuery, filterDownloaded)
+        filterItems(this.filterQuery, this.filterDownloaded)
+    }
+
+    fun filterVendor(vendorFilter: String) {
+        this.filterQueryMap["vendor"] = vendorFilter
+        filterItems(this.filterQuery, this.filterDownloaded)
+    }
+
+    fun filterModality(modality: String) {
+        this.filterQueryMap["modality"] = modality
+        filterItems(this.filterQuery, this.filterDownloaded)
+    }
+
+    fun filterDownloadState(downloadState: String) {
+        this.filterQueryMap["download"] = downloadState
+        filterItems(this.filterQuery, this.filterDownloaded)
+    }
+
+    fun setEmptyView(emptyView: View) {
+        this.emptyView = emptyView
+        checkIfEmpty()
+    }
+
+    private fun checkIfEmpty() {
+        if (emptyView != null) {
+            emptyView?.visibility = if (getItemCount() == 0) View.VISIBLE else View.GONE
+        }
     }
 }

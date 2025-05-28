@@ -18,6 +18,14 @@ class MainSettingsFragment : PreferenceFragmentCompat() {
     companion object {
         const val TAG = "MainSettingsFragment"
     }
+
+    private var updateChecker: UpdateChecker? = null
+
+    override fun onResume() {
+        super.onResume()
+        updateChecker?.checkForUpdates(requireContext(), false)
+    }
+
     override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
         setPreferencesFromResource(R.xml.main_settings_prefs, rootKey)
 
@@ -28,7 +36,8 @@ class MainSettingsFragment : PreferenceFragmentCompat() {
                 AppUtils.getAppVersionName(requireContext())
             )
             setOnPreferenceClickListener {
-                UpdateChecker(requireContext()).checkForUpdates(requireContext(), true)
+                updateChecker = UpdateChecker(requireContext())
+                updateChecker?.checkForUpdates(requireContext(), true)
                 true
             }
         }

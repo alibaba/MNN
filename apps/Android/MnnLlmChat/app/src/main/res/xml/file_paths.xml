@@ -5,4 +5,6 @@
         name="external_files"
         path="." />
     <files-path name="crash" path="crash/"/>
+    <external-files-path name="downloads" path="Download/" />
+    <external-path name="external_downloads" path="Download/" />
 </paths>

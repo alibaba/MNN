@@ -19,7 +19,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.alibaba.mls.api.ModelItem
-import com.alibaba.mnnllm.android.MainActivity
+import com.alibaba.mnnllm.android.main.MainActivity
 import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.mainsettings.MainSettingsActivity
 import com.alibaba.mnnllm.android.utils.CrashUtil
@@ -29,14 +29,14 @@ import com.alibaba.mnnllm.android.utils.RouterUtils.startActivity
 
 class ModelListFragment : Fragment(), ModelListContract.View {
     private lateinit var modelListRecyclerView: RecyclerView
+    private lateinit var modelListLoadingView: View
+    private lateinit var modelListErrorView: View
+    private lateinit var modelListEmptyView: View
 
     override var adapter: ModelListAdapter? = null
         private set
     private var modelListPresenter: ModelListPresenter? = null
     private val hfModelItemList: MutableList<ModelItem> = mutableListOf()
-
-    private lateinit var modelListLoadingView: View
-    private lateinit var modelListErrorView: View
 
     private var modelListErrorText: TextView? = null
 
@@ -91,18 +91,18 @@ class ModelListFragment : Fragment(), ModelListContract.View {
                 true
             }
 
-            val filterDownloadedMenu = menu.findItem(R.id.action_filter_downloaded)
-            filterDownloadedMenu.setChecked(isFilterDownloaded(context))
-            filterDownloadedMenu.setOnMenuItemClickListener {
-                filterDownloaded = isFilterDownloaded(
-                    context
-                )
-                filterDownloaded = !filterDownloaded
-                setFilterDownloaded(context, filterDownloaded)
-                filterDownloadedMenu.setChecked(filterDownloaded)
-                adapter!!.setFilter(filterQuery, filterDownloaded)
-                true
-            }
+//            val filterDownloadedMenu = menu.findItem(R.id.action_filter_downloaded)
+//            filterDownloadedMenu.setChecked(isFilterDownloaded(context))
+//            filterDownloadedMenu.setOnMenuItemClickListener {
+//                filterDownloaded = isFilterDownloaded(
+//                    context
+//                )
+//                filterDownloaded = !filterDownloaded
+//                setFilterDownloaded(context, filterDownloaded)
+//                filterDownloadedMenu.setChecked(filterDownloaded)
+//                adapter!!.setFilter(filterQuery, filterDownloaded)
+//                true
+//            }
             val settingsMenu = menu.findItem(R.id.action_settings)
             settingsMenu.setOnMenuItemClickListener {
                 if (activity != null) {
@@ -153,6 +153,7 @@ class ModelListFragment : Fragment(), ModelListContract.View {
         modelListRecyclerView = view.findViewById(R.id.model_list_recycler_view)
         modelListLoadingView = view.findViewById(R.id.model_list_loading_view)
         modelListErrorView = view.findViewById(R.id.model_list_failed_view)
+        modelListEmptyView = view.findViewById(R.id.model_list_empty_view)
         modelListErrorText = modelListErrorView.findViewById(R.id.tv_error_text)
         modelListErrorView.setOnClickListener {
             modelListPresenter!!.load()
@@ -165,6 +166,7 @@ class ModelListFragment : Fragment(), ModelListContract.View {
             )
         )
         adapter = ModelListAdapter(hfModelItemList)
+        adapter!!.setEmptyView(modelListEmptyView)
 
         modelListRecyclerView.setAdapter(adapter)
         modelListPresenter = ModelListPresenter(requireContext(), this)
@@ -189,7 +191,15 @@ class ModelListFragment : Fragment(), ModelListContract.View {
     override fun onListAvailable() {
         modelListErrorView.visibility = View.GONE
         modelListLoadingView.visibility = View.GONE
-        modelListRecyclerView.visibility = View.VISIBLE
+        
+        // Only show recycler view if adapter has items
+        if (adapter!!.itemCount > 0) {
+            modelListRecyclerView.visibility = View.VISIBLE
+            modelListEmptyView.visibility = View.GONE
+        } else {
+            modelListRecyclerView.visibility = View.GONE
+            modelListEmptyView.visibility = View.VISIBLE
+        }
     }
 
     override fun onLoading() {

@@ -9,6 +9,7 @@ import android.net.Uri
 import android.util.Log
 import com.alibaba.mls.api.ApplicationProvider
 import com.alibaba.mls.api.download.DownloadFileUtils
+import com.alibaba.mnnllm.android.model.ModelUtils
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
@@ -151,17 +152,8 @@ object FileUtils {
         return rootCacheDir
     }
 
-    fun getModelConfigDir(modelId: String): String {
-        val rootCacheDir =
-            ApplicationProvider.get().filesDir.toString() + "/configs/" + ModelUtils.safeModelId(
-                modelId
-            )
-        return rootCacheDir
-    }
-
-    @JvmStatic
-    fun clearMmapCache(modelId: String) {
-        DownloadFileUtils.deleteDirectoryRecursively(File(getMmapDir(modelId, true)))
+    fun clearMmapCache(modelId: String):Boolean {
+        return DownloadFileUtils.deleteDirectoryRecursively(File(getMmapDir(modelId, true))) ||
         DownloadFileUtils.deleteDirectoryRecursively(File(getMmapDir(modelId, false)))
     }
 

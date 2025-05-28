@@ -86,13 +86,14 @@
             <TextView
                 android:id="@+id/tv_section_general"
                 style="@style/SettingsSectionHeader"
-                android:visibility="gone"
-                android:text="GENERAL" />
+                android:visibility="visible"
+                android:text="@string/settings_section_general" />
 
             <com.google.android.material.card.MaterialCardView
                 style="@style/SettingsSectionGroup"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:paddingBottom="8dp"
                 android:layout_marginStart="8dp"
                 android:layout_marginEnd="8dp"
                 android:layout_marginBottom="16dp">
@@ -129,7 +130,6 @@
                         android:id="@+id/tv_prompt"
                         style="@style/SettingsRowLabel"
                         android:layout_width="wrap_content"
-                        android:layout_centerVertical="true"
                         android:layout_marginStart="16dp"
                         android:layout_marginTop="16dp"
                         android:layout_weight="1"
@@ -228,6 +228,7 @@
                             android:layout_height="wrap_content"
                             app:labelText="Penalty Sampler"
                             app:valueText="Greedy"
+                            android:layout_marginBottom="8dp"
                             app:icon="@drawable/baseline_arrow_drop_down_24" />
 
                     </LinearLayout>
@@ -249,8 +250,8 @@
 
             <TextView
                 style="@style/SettingsSectionHeader"
-                android:text="Advanced"
-                android:visibility="gone"/>
+                android:text="@string/settings_section_advanced"
+                android:visibility="visible"/>
 
             <com.google.android.material.card.MaterialCardView
                 style="@style/SettingsSectionGroup"
@@ -259,35 +260,49 @@
                 android:layout_marginStart="8dp"
                 android:layout_marginEnd="8dp"
                 android:layout_marginBottom="16dp"
-                android:visibility="gone">
+                android:visibility="visible">
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical">
-                    <com.alibaba.mnnllm.android.modelsettings.SettingsItemView
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        app:checked="true"
-                        android:paddingLeft="8dp"
-                        android:paddingRight="8dp"
-                        app:itemText="Reuse KV"/>
 
                     <com.alibaba.mnnllm.android.modelsettings.SettingsItemView
+                        android:id="@+id/mmapSettingsItem"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         app:checked="false"
                         android:paddingLeft="8dp"
                         android:paddingRight="8dp"
+                        style="@style/SettingsRowContainer"
                         app:itemText="@string/use_mmap"/>
 
+                    <TextView
+                        android:id="@+id/buttonClearMmapCache"
+                        android:paddingLeft="8dp"
+                        android:paddingRight="8dp"
+                        style="@style/SettingsRowClickable"
+                        android:text="@string/clear_mmap_cache"
+                        android:enabled="true"/>
+
                     <com.alibaba.mnnllm.android.modelsettings.DropDownLineView
-                        android:id="@+id/dropdown_backend"
+                        android:id="@+id/dropdownBackend"
                         android:layout_width="match_parent"
                         android:clickable="true"
                         android:layout_height="wrap_content"
                         app:labelText="Backend"
                         app:valueText="cpu"
+                        style="@style/SettingsRowContainer"
+                        app:icon="@drawable/baseline_arrow_drop_down_24" />
+
+                    <com.alibaba.mnnllm.android.modelsettings.DropDownLineView
+                        android:id="@+id/dropdownPrecision"
+                        android:layout_width="match_parent"
+                        style="@style/SettingsRowContainer"
+                        android:clickable="true"
+                        android:layout_height="wrap_content"
+                        app:labelText="Precision"
+                        app:valueText="low"
                         app:icon="@drawable/baseline_arrow_drop_down_24" />
 
                     <TextView
@@ -304,11 +319,12 @@
                         android:layout_height="wrap_content"
                         android:layout_margin="8dp"
                         android:layout_marginTop="4dp"
-                        android:hint="Thread Number when Inference">
-
+                        android:hint="@string/thread_num_hint">
                         <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/et_thread_num"
                             android:layout_width="match_parent"
-                            android:layout_height="wrap_content" />
+                            android:layout_height="wrap_content"
+                            android:inputType="numberDecimal"/>
                     </com.google.android.material.textfield.TextInputLayout>
 
                 </LinearLayout>

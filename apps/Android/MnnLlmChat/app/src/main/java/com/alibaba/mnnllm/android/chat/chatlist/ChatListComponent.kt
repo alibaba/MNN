@@ -13,7 +13,7 @@ import com.alibaba.mnnllm.android.chat.ChatActivity.Companion.TAG
 import com.alibaba.mnnllm.android.chat.model.ChatDataItem
 import com.alibaba.mnnllm.android.databinding.ActivityChatBinding
 import com.alibaba.mnnllm.android.llm.LlmSession
-import com.alibaba.mnnllm.android.utils.ModelUtils
+import com.alibaba.mnnllm.android.model.ModelUtils
 import com.alibaba.mnnllm.android.utils.PreferenceUtils
 import java.util.Date
 import kotlin.math.abs
