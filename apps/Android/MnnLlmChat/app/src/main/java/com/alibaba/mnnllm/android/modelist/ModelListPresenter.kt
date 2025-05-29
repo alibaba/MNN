@@ -54,7 +54,8 @@ class ModelListPresenter(private val context: Context, private val view: ModelLi
         if (items != null) {
             onListAvailable(items, null)
         }
-        requestRepoList(null)
+        // Remove automatic remote repository check at startup
+        //requestRepoList(null)
     }
 
     fun load() {
