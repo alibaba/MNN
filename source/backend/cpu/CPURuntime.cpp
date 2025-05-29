@@ -1449,6 +1449,9 @@ static void _fillInfo(MNNCPUInfo* cpuinfo_isa) {
             }
         }
         closedir(root);
+        if (cpuinfo_isa->groups.size()==0) {
+            break;
+        }
         std::sort(cpuinfo_isa->groups.begin(), cpuinfo_isa->groups.end(), [](const CPUGroup& left, const CPUGroup& right) {
             return left.maxFreq < right.maxFreq;
         });
