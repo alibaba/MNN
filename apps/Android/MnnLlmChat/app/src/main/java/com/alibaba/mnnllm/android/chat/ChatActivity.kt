@@ -27,6 +27,7 @@ import com.alibaba.mnnllm.android.modelsettings.SettingsBottomSheetFragment
 import com.alibaba.mnnllm.android.utils.AudioPlayService
 import com.alibaba.mnnllm.android.model.ModelUtils
 import com.alibaba.mnnllm.android.utils.PreferenceUtils
+import com.alibaba.mnnllm.api.openai.service.OpenAIService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
@@ -129,6 +130,9 @@ class ChatActivity : AppCompatActivity() {
         sessionId = chatSession.sessionId
         Log.d(TAG, "current SessionId: $sessionId")
         chatPresenter.load()
+
+        setChatPresenter(chatPresenter)
+
     }
 
     private fun setupOmni() {
@@ -160,6 +164,9 @@ class ChatActivity : AppCompatActivity() {
             if (chatSession.supportOmni) {
                 setupOmni()
             }
+
+            OpenAIService.startWithSession(this, chatSession as LlmSession)
+
         }
     }
 
@@ -279,6 +286,7 @@ class ChatActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         chatPresenter.destroy()
+        OpenAIService.releaseService(this)
     }
 
     override fun onStop() {
@@ -328,5 +336,15 @@ class ChatActivity : AppCompatActivity() {
 
     companion object {
         const val TAG: String = "ChatActivity"
+        private var _chatPresenter: ChatPresenter? = null
+        // 获取 ChatPresenter 实例的方法
+        fun getChatPresenter(): ChatPresenter? {
+            return this._chatPresenter
+        }
+        // 获取 ChatPresenter 实例的方法
+        fun setChatPresenter(chatPresenter: ChatPresenter?) {
+            _chatPresenter = chatPresenter
+        }
+
     }
 }
