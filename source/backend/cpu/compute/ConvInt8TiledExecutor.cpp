@@ -1048,7 +1048,7 @@ ErrorCode DenseConvInt8TiledExecutor::onExecute(const std::vector<Tensor*>& inpu
     const auto kernelCountUnit       = mIm2ColParamter.kernelCountUnit;
     const auto unitColBufferSize  = kernelCountUnit * DST_XUNIT * SRC_UNIT * sizeof(int8_t);
     const auto colBufferSize       = unitColBufferSize * mIm2ColCount;
-    const int dstBytes               = static_cast<CPUBackend*>(backend())->getBytes(backend(), output);
+    const auto dstBytes               = static_cast<CPUBackend*>(backend())->getBytes(backend(), output);
     const int blockL                 = kernelCountUnit / mBlockNum; // source depthQuad for each block.
     const int kxky                   = mIm2ColParamter.kernelX * mIm2ColParamter.kernelY;
     const int blocklu                = blockL / kxky;                     // UP_DIV(ic,src_unit) per block

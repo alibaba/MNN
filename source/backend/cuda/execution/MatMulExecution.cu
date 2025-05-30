@@ -224,7 +224,6 @@ MatMulExecution::~ MatMulExecution() {
 
 void MatMulExecution::setArguments(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto runtime = static_cast<CUDABackend*>(backend())->getCUDARuntime();
-    auto bytes = static_cast<CUDABackend*>(backend())->getBytes(inputs[0]);
     auto pool = static_cast<CUDABackend*>(backend())->getBufferPool();
 
     const Tensor* A = inputs[0];
@@ -971,7 +970,6 @@ void MatMulExecution::setArguments(const std::vector<Tensor *> &inputs, const st
 
 ErrorCode MatMulExecution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto runtime = static_cast<CUDABackend*>(backend())->getCUDARuntime();
-    auto bytes = static_cast<CUDABackend*>(backend())->getBytes(inputs[0]);
 
     const Tensor* A = inputs[0];
     const Tensor* B = inputs[1];
@@ -1060,7 +1058,6 @@ ErrorCode MatMulExecution::onResize(const std::vector<Tensor *> &inputs, const s
 }
 
 ErrorCode MatMulExecution::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-    auto bytes = static_cast<CUDABackend*>(backend())->getBytes(inputs[0]);
     auto runtime = static_cast<CUDABackend*>(backend())->getCUDARuntime();
     bool hAlignment = (mGemmInfo.elhPad[2] == mGemmInfo.elh[2]);
 
