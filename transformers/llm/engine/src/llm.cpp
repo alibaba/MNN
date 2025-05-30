@@ -93,17 +93,20 @@ bool Llm::set_config(const std::string& content) {
 }
 
 void Llm::initRuntime() {
-    ScheduleConfig config;
     BackendConfig cpuBackendConfig;
-    config.type      = backend_type_convert(mConfig->backend_type());
-    config.numThread = mConfig->thread_num();
-    if(config.type == 3){
+    // setup mPrefillConfig
+    mPrefillConfig.type      = backend_type_convert(mConfig->backend_type());
+    mPrefillConfig.numThread = (mConfig->prefill_thread_num() < 0) \
+        ? mConfig->thread_num() : mConfig->prefill_thread_num();
+    if(mPrefillConfig.type == 3){
         // opencl need set numThread = 64(buffer mode)
-        config.numThread |= 64;
+        mPrefillConfig.numThread |= 64;
     }
-    if (mConfig->power() == "high") {
+    std::string powerConfig = (mConfig->prefill_power().empty()) \
+        ? mConfig->power() : mConfig->prefill_power();
+    if (powerConfig == "high") {
         cpuBackendConfig.power = BackendConfig::Power_High;
-    } else if (mConfig->power() == "low") {
+    } else if (powerConfig == "low") {
         cpuBackendConfig.power = BackendConfig::Power_Low;
     }
     if (mConfig->memory() == "high") {
@@ -116,9 +119,26 @@ void Llm::initRuntime() {
     } else if (mConfig->precision() == "low") {
         cpuBackendConfig.precision = BackendConfig::Precision_Low;
     }
-    config.backendConfig = &cpuBackendConfig;
+    ExecutorScope::Current()->setGlobalExecutorConfig(mPrefillConfig.type, cpuBackendConfig, mPrefillConfig.numThread);
+    mPrefillConfig.backendConfig = new BackendConfig(cpuBackendConfig);
+    // set up mDecodeConfig
+    mDecodeConfig = mPrefillConfig;
+    mDecodeConfig.backendConfig = new BackendConfig(cpuBackendConfig);
+    mDecodeConfig.numThread = (mConfig->decode_thread_num() < 0) \
+        ? mConfig->thread_num() : mConfig->decode_thread_num();
+    if(mDecodeConfig.type == 3){
+        // opencl need set numThread = 64(buffer mode)
+        mDecodeConfig.numThread |= 64;
+    }
+    powerConfig = (mConfig->decode_power().empty()) \
+        ? mConfig->power() : mConfig->decode_power();
+    if (powerConfig == "high") {
+        mDecodeConfig.backendConfig->power = BackendConfig::Power_High;
+    } else if (powerConfig == "low") {
+        mDecodeConfig.backendConfig->power = BackendConfig::Power_Low;
+    }
 
-    mRuntimeManager.reset(Executor::RuntimeManager::createRuntimeManager(config));
+    mRuntimeManager.reset(Executor::RuntimeManager::createRuntimeManager(mPrefillConfig));
     // Use 4 thread to load llm
     mRuntimeManager->setHint(MNN::Interpreter::INIT_THREAD_NUMBER, 4);
 
@@ -152,7 +172,7 @@ void Llm::initRuntime() {
     mRuntimeManager->setMode(MNN::Interpreter::Session_Debug);
     _initDebug();
 #endif
-    if (config.type != 0) { // not cpu
+    if (mPrefillConfig.type != 0) { // not cpu
         std::string cacheFilePath = tmpPath.length() != 0 ? tmpPath : ".";
         mRuntimeManager->setCache(cacheFilePath + "/mnn_cachefile.bin");
     }
@@ -244,6 +264,7 @@ void Llm::load() {
     mModules[0].reset(Module::load(inputNames, outputNames, model_path.c_str(), mRuntimeManager, &module_config));
     
     // set speculative decoding params
+    ExecutorScope::Current()->setGlobalExecutorConfig(mDecodeConfig.type, *(mDecodeConfig.backendConfig), mDecodeConfig.numThread);
     setSpeculativeConfig();
     int decode_type_num = 1;
     if(mLookAhead) {
@@ -253,7 +274,7 @@ void Llm::load() {
     mDecodeModules.resize(decode_type_num);
 
     for (int v = 0; v < mDecodeModules.size(); ++v) {
-        mDecodeModules[v].reset(Module::clone(mModules[0].get()));
+        mDecodeModules[v].reset(Module::clone(mModules[0].get(), &mDecodeConfig));
     }
     mPrefillModules = mModules;
     
@@ -335,15 +356,55 @@ bool Llm::select_module(size_t index) {
 }
     
 void Llm::tuning(TuneType type, std::vector<int> candidates) {
-    if (type != OP_ENCODER_NUMBER) {
-        MNN_ERROR("tuning type not supported\n");
-        return;
+    if (type == PREFILL_BIGLITTLE_CORE) {
+        // only CPU power high is tuned
+        if (mPrefillConfig.type != MNN_FORWARD_CPU) {
+            return;
+        }
+        if (mPrefillConfig.backendConfig->power != BackendConfig::Power_High) {
+            return;
+        }
+        if (candidates.empty()){
+            candidates = {40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95};
+        }
+        auto itp_type = Interpreter::CPU_LITTLECORE_DECREASE_RATE;
+        int length = 64;
+        int64_t min_time     = INT64_MAX;
+        int prefer_candidate = 0;
+        for (auto& candidate : candidates) {
+            mRuntimeManager->setHint(itp_type, candidate);
+            // load prefill module again to take effect! the following 2 lines can't be deleted!!
+            for (int v = 0; v < mPrefillModules.size(); ++v) {
+                mPrefillModules[v].reset(Module::clone(mPrefillModules[v].get()));
+            }
+            switchMode(Prefill);
+            Timer _t;
+            std::vector<int> input_ids(length, 0);
+            auto logits = forward(input_ids);
+            auto token   = sample(logits);
+            auto time = _t.durationInUs();
+            MNN_PRINT("CPU_LITTLECORE_DECREASE_RATE:%d, prefill time: %lld us\n", candidate, time);
+            if (time < min_time) {
+                prefer_candidate = candidate;
+                min_time         = time;
+            }
+            setKVCacheInfo(0, getCurrentHistory());
+            reset();
+        }
+        mRuntimeManager->setHint(itp_type, prefer_candidate);
+        // load prefill module again to take effect! the following 2 lines can't be deleted!!
+        for (int v = 0; v < mPrefillModules.size(); ++v) {
+            mPrefillModules[v].reset(Module::clone(mPrefillModules[v].get()));
+        }
+        switchMode(Prefill);
     }
+    if (type == OP_ENCODER_NUMBER) {
     // FIXME: Currently OpenCL Don't support KVMeta
     if (mConfig->backend_type() == "opencl") {
         return;
     }
-    mCurrentModules     = mDecodeModules;
+    auto itp_type = MNN::Interpreter::OP_ENCODER_NUMBER_FOR_COMMIT;
+    switchMode(Llm::Decode);
     int decode_seq = 1;
     if(mLookAhead) {
         // start autoregressive decoding
@@ -354,7 +415,7 @@ void Llm::tuning(TuneType type, std::vector<int> candidates) {
     int64_t min_time     = INT64_MAX;
     int prefer_candidate = 10;
     for (auto& candidate : candidates) {
-        mRuntimeManager->setHint(MNN::Interpreter::OP_ENCODER_NUMBER_FOR_COMMIT, candidate);
+        mRuntimeManager->setHint(itp_type, candidate);
         Timer _t;
         std::vector<int> input_ids(decode_seq, 0);
         auto logits = forward(input_ids);
@@ -372,18 +433,21 @@ void Llm::tuning(TuneType type, std::vector<int> candidates) {
             // MNN_PRINT("op encode number:%d, decode time: %lld us\n", candidate, time);
         }
     }
-    mRuntimeManager->setHint(MNN::Interpreter::OP_ENCODER_NUMBER_FOR_COMMIT, prefer_candidate);
+    mRuntimeManager->setHint(itp_type, prefer_candidate);
     // clear dirty tuning kv history
     setKVCacheInfo(0, getCurrentHistory());
     reset();
+    }
 }
 
 void Llm::switchMode(Llm::Stage stage) {
     switch (stage) {
         case Prefill:
+            ExecutorScope::Current()->setGlobalExecutorConfig(mPrefillConfig.type, *(mPrefillConfig.backendConfig), mPrefillConfig.numThread);
             mCurrentModules = mPrefillModules;
             break;
         case Decode:
+            ExecutorScope::Current()->setGlobalExecutorConfig(mDecodeConfig.type, *(mDecodeConfig.backendConfig), mDecodeConfig.numThread);
             mCurrentModules = mDecodeModules;
             break;
         default:
@@ -532,7 +596,7 @@ void Llm::generate_init(std::ostream* os, const char* end_with) {
         mMeta->remove = mMeta->previous;
     }
     mContext->output_tokens.clear();
-    mCurrentModules = mPrefillModules;
+    switchMode(Llm::Prefill);
 }
 
 size_t Llm::getCurrentHistory() const {
@@ -618,7 +682,7 @@ std::vector<int> Llm::generate(MNN::Express::VARP input_embeds, int max_tokens) 
     }
     mContext->prompt_len = static_cast<int>(input_embeds->getInfo()->dim[0]);
     Timer _t;
-    mCurrentModules = mPrefillModules;
+    switchMode(Llm::Prefill);
     auto logits      = forward(input_embeds);
     if (nullptr == logits.get()) {
         return {};
@@ -632,7 +696,7 @@ std::vector<int> Llm::generate(MNN::Express::VARP input_embeds, int max_tokens) 
     mContext->history_tokens.push_back(mContext->current_token);
     mContext->output_tokens.push_back(mContext->current_token);
     logits = nullptr;
-    mCurrentModules = mDecodeModules;
+    switchMode(Llm::Decode);
     generate(max_tokens - 1);
 
     return mContext->output_tokens;
@@ -707,6 +771,8 @@ Llm::~Llm() {
     mModules.clear();
     mRuntimeManager.reset();
     mProcessorRuntimeManager.reset();
+    if (mPrefillConfig.backendConfig != nullptr) delete mPrefillConfig.backendConfig;
+    if (mDecodeConfig.backendConfig != nullptr) delete mDecodeConfig.backendConfig;
 }
 
 bool Llm::reuse_kv() { return mConfig->reuse_kv(); }
