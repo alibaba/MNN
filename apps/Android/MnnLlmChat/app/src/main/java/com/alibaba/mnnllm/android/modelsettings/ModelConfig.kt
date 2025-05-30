@@ -97,8 +97,8 @@ data class ModelConfig(
             }
         }
 
-        fun loadConfig(modelId: String): ModelConfig {
-            return loadMergedConfig(getDefaultConfigFile(modelId)!!, getExtraConfigFile(modelId))!!
+        fun loadConfig(modelId: String): ModelConfig? {
+            return loadMergedConfig(getDefaultConfigFile(modelId)!!, getExtraConfigFile(modelId))
         }
 
         fun loadMergedConfig(originalFilePath: String, overrideFilePath: String): ModelConfig? {

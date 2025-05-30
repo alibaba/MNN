@@ -118,6 +118,12 @@ class ModelDownloadManager private constructor(private val context: Context) {
             return MsModelDownloader.getModelPath(
                 MsModelDownloader.getCachePathRoot(cachePath)
                 , modelId)
+        } else if (MLModelDownloader.getModelPath(
+                MLModelDownloader.getCachePathRoot(cachePath)
+                , modelId).exists()) {
+            return MLModelDownloader.getModelPath(
+                MLModelDownloader.getCachePathRoot(cachePath)
+                , modelId)
         }
         return null
     }
