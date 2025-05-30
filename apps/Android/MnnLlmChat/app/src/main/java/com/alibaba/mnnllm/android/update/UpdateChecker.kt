@@ -64,8 +64,10 @@ class UpdateChecker(private val context: Context) {
                 return
             }
         }
-        progressDialog = ProgressDialog(context)
-        progressDialog?.show()
+        if (forceCheck) {
+            progressDialog = ProgressDialog(context)
+            progressDialog?.show()
+        }
         val client = OkHttpClient()
 
         val request: Request = Builder()

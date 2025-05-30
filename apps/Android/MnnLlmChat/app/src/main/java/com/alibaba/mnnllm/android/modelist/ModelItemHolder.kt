@@ -25,6 +25,7 @@ import com.alibaba.mnnllm.android.modelsettings.SettingsBottomSheetFragment
 import com.alibaba.mnnllm.android.widgets.TagsLayout
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
+import java.io.File
 
 class ModelItemHolder(itemView: View, private val modelItemListener: ModelItemListener) :
     RecyclerView.ViewHolder(itemView), View.OnClickListener, OnLongClickListener {
@@ -62,7 +63,10 @@ class ModelItemHolder(itemView: View, private val modelItemListener: ModelItemLi
     }
 
     private fun getFileSizeString(modelItem: ModelItem):String {
-        return FileUtils.getFileSizeString(modelDownloadManager.getDownloadedFile(modelItem.modelId!!))
+        val file = if (modelItem.localPath.isNullOrEmpty())
+            modelDownloadManager.getDownloadedFile(modelItem.modelId!!)
+         else File(modelItem.localPath!!)
+        return FileUtils.getFileSizeString(file)
     }
 
     fun bind(hfModelItem: ModelItem, modelItemDownloadState: ModelItemDownloadState?) {
@@ -200,9 +204,10 @@ class ModelItemHolder(itemView: View, private val modelItemListener: ModelItemLi
                     return@setOnMenuItemClickListener true
                 }
                 val fragmentManager = (context as? AppCompatActivity)?.supportFragmentManager
-                if (fragmentManager != null && modelId != null) {
+                if (fragmentManager != null) {
                     val settingsSheet = SettingsBottomSheetFragment()
                     settingsSheet.setModelId(modelId)
+                    settingsSheet.setConfigPath(hfModelItem.localPath)
                     settingsSheet.show(fragmentManager, SettingsBottomSheetFragment.TAG)
                 }
             }

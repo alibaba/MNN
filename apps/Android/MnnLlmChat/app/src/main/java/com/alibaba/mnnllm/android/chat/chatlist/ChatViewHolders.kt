@@ -256,9 +256,9 @@ object ChatViewHolders {
             if (showThinking && !TextUtils.isEmpty(data.thinkingText)) {
                 viewThinking.visibility = View.VISIBLE
                 markdown.setMarkdown(viewThinking, data.thinkingText!!)
-                ivThinkingHeader.setImageResource(R.drawable.baseline_arrow_drop_up_24)
+                ivThinkingHeader.setImageResource(R.drawable.ic_arrow_up)
             } else {
-                ivThinkingHeader.setImageResource(R.drawable.baseline_arrow_drop_down_24)
+                ivThinkingHeader.setImageResource(R.drawable.ic_arrow_down)
                 viewThinking.visibility = View.GONE
             }
         }

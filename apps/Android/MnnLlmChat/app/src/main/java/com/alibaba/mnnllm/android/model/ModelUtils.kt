@@ -120,7 +120,7 @@ object ModelUtils {
                 modelsDir.listFiles()?.forEach { modelDir ->
                     if (modelDir.isDirectory && File(modelDir, "config.json").exists()) {
                         val modelPath = modelDir.absolutePath
-                        val modelName = modelDir.name
+                        val modelName = "local/${modelDir.name}"
                         result.add(ModelItem.fromLocalModel(modelName, modelPath))
                     }
                 }

@@ -88,6 +88,9 @@ class ModelListPresenter(private val context: Context, private val view: ModelLi
     }
 
     private fun saveToCache(hfModelItems: List<ModelItem>) {
+        if (hfModelItems.isEmpty()) {
+            return
+        }
         val gson = GsonBuilder().setPrettyPrinting().create()
         val json = gson.toJson(hfModelItems)
 
