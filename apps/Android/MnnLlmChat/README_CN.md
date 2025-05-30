@@ -43,12 +43,8 @@
   ```shell
   cd project/android
   mkdir build_64
-  ../build_64.sh "-DMNN_LOW_MEMORY=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true -DMNN_ARM82=true -DMNN_USE_LOGCAT=true -DMNN_OPENCL=true -DLLM_SUPPORT_VISION=true -DMNN_BUILD_OPENCV=true -DMNN_IMGCODECS=true -DLLM_SUPPORT_AUDIO=true -DMNN_BUILD_AUDIO=true -DMNN_BUILD_DIFFUSION=ON -DMNN_SEP_BUILD=OFF"
-  ```
-+ 复制到 LLM Android 应用项目：
-  ```shell
-  mkdir -p ../../../apps/Android/MnnLlmChat/app/src/main/jniLibs/arm64-v8a
-  find . -name "*.so" -exec cp {} ../../../apps/Android/MnnLlmChat/app/src/main/jniLibs/arm64-v8a \;
+  ../build_64.sh "-DMNN_LOW_MEMORY=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true -DMNN_ARM82=true -DMNN_USE_LOGCAT=true -DMNN_OPENCL=true -DLLM_SUPPORT_VISION=true -DMNN_BUILD_OPENCV=true -DMNN_IMGCODECS=true -DLLM_SUPPORT_AUDIO=true -DMNN_BUILD_AUDIO=true -DMNN_BUILD_DIFFUSION=ON -DMNN_SEP_BUILD=OFF -DCMAKE_INSTALL_PREFIX=."
+  make install
   ```
 + 构建 Android 应用项目并安装：
   ```shell
@@ -57,6 +53,13 @@
   ```
 
 # Releases
+
+## Version 0.5.1
++ 点击这里 [下载](https://meta.alicdn.com/data/mnn/mnn_chat_0_5_1.apk)
++ 修复了一些 bug：
+ + 首次安装时，如果系统语言是中文，则使用 ModelScope
+ + 如果不是强制检查更新（forceCheckUpdate），则不显示对话框
+ + 显示本地模型的模型大小
 
 ## Version 0.5.0
 + 点击这里 [下载](https://meta.alicdn.com/data/mnn/mnn_chat_0_5_0.apk)

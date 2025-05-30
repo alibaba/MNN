@@ -59,6 +59,11 @@ This is our full multimodal language model (LLM) Android app
   ```
 
 # Releases
++ Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_5_1.apk)
++ fix some bugs:
+  + first install use ModelScope if system language chinese
+  + do not show dialog if not forceCheckUpdate
+  + show model size of local model
 ## Version 0.5.0
 + Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_5_0.apk)
 + Support Qwen3-30B-A3B
