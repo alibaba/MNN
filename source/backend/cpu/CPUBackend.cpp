@@ -606,7 +606,7 @@ static OpType _getRealOpType(OpType opType) {
     }
 }
 void* CPUBackend::onMapTensor(Tensor::MapType mtype, Tensor::DimensionType dtype, const Tensor* srcTensor) {
-    if (getBytes(this, srcTensor) != srcTensor->getType().bytes()) {
+    if (static_cast<int>(getBytes(this, srcTensor)) != srcTensor->getType().bytes()) {
         return nullptr;
     }
     if (OpCommonUtils:: convertDimType(TensorUtils::getDescribe(srcTensor)->dimensionFormat) != dtype) {
@@ -617,7 +617,7 @@ void* CPUBackend::onMapTensor(Tensor::MapType mtype, Tensor::DimensionType dtype
 }
 
 bool CPUBackend::onUnmapTensor(Tensor::MapType mtype, Tensor::DimensionType dtype, const Tensor* dstTensor, void* mapPtr) {
-    if (getBytes(this, dstTensor) != dstTensor->getType().bytes()) {
+    if (static_cast<int>(getBytes(this, dstTensor)) != dstTensor->getType().bytes()) {
         return false;
     }
     if (OpCommonUtils:: convertDimType(TensorUtils::getDescribe(dstTensor)->dimensionFormat) != dtype) {
@@ -651,8 +651,8 @@ size_t CPUBackend::getTensorSize(const Tensor* tensor, bool multiBytes) const {
     return dataSize;
 }
 
-int CPUBackend::getBytes(const Backend* backend, const Tensor* output) {
-    auto bytes = output->getType().bytes();
+size_t CPUBackend::getBytes(const Backend* backend, const Tensor* output) {
+    size_t bytes = output->getType().bytes();
     auto core = static_cast<const CPUBackend*>(backend)->functions();
     auto quant = TensorUtils::getDescribe(output)->quantAttr.get();
     if (output->getType().code == halide_type_float) {

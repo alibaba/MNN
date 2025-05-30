@@ -175,7 +175,7 @@ public:
     inline int taskIndex() const {return mRuntime->mTaskIndex;}
 #endif
     static void initCreatorMap();
-    static int getBytes(const Backend* backend, const Tensor* output);
+    static size_t getBytes(const Backend* backend, const Tensor* output);
     static DataType getDataType(const Tensor* tensor);
     friend class CPURuntime;
     void enqueueTask(std::function<int()>&& task);
