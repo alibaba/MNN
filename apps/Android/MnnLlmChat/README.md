@@ -59,6 +59,7 @@ This is our full multimodal language model (LLM) Android app
   ```
 
 # Releases
+## Version 0.5.1
 + Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_5_1.apk)
 + Support DeepSeek-R1-0528-Qwen3
 + fix some bugs:
