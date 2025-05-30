@@ -56,6 +56,7 @@
 
 ## Version 0.5.1
 + 点击这里 [下载](https://meta.alicdn.com/data/mnn/mnn_chat_0_5_1.apk)
++ 支持 DeepSeek-R1-0528-Qwen3
 + 修复了一些 bug：
  + 首次安装时，如果系统语言是中文，则使用 ModelScope
  + 如果不是强制检查更新（forceCheckUpdate），则不显示对话框
