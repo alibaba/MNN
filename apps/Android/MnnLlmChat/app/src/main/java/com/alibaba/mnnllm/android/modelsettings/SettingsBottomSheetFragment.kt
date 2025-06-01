@@ -14,6 +14,7 @@ import android.widget.SeekBar
 import android.widget.Toast
 import androidx.core.view.isVisible
 import androidx.core.widget.addTextChangedListener
+import com.alibaba.mls.api.ModelItem
 import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.databinding.FragmentSettingsSheetBinding
 import com.alibaba.mnnllm.android.databinding.SettingsRowSliderSwitchBinding
@@ -22,6 +23,7 @@ import com.alibaba.mnnllm.android.modelsettings.ModelConfig.Companion.defaultCon
 import com.alibaba.mnnllm.android.utils.FileUtils
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
+import java.io.File
 import java.util.*
 
 enum class SamplerType(val value: String) {
@@ -46,12 +48,14 @@ class SettingsBottomSheetFragment : BottomSheetDialogFragment() {
     private lateinit var loadedConfig: ModelConfig
     private lateinit var modelId:String
     private lateinit var currentConfig:ModelConfig
+    private var modelItem: ModelItem? = null
     private var chatSession: LlmSession? = null
     private var _binding: FragmentSettingsSheetBinding? = null
     private val binding get() = _binding!!
     private var currentSamplerType: SamplerType = SamplerType.Mixed
     private var penaltySamplerValue: String = "greedy"
     private var needRecreateActivity = false
+    private var configPath:String? = null
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
@@ -393,7 +397,12 @@ class SettingsBottomSheetFragment : BottomSheetDialogFragment() {
     }
 
     private fun loadSettings() {
-        loadedConfig = ModelConfig.loadMergedConfig(ModelConfig.getDefaultConfigFile(modelId)!!,
+        val defaultConfigFile = if ((configPath).isNullOrEmpty()) {
+            ModelConfig.getDefaultConfigFile(modelId)
+        } else {
+            configPath
+        }
+        loadedConfig = ModelConfig.loadMergedConfig(defaultConfigFile!!,
             ModelConfig.getExtraConfigFile(modelId)) ?: defaultConfig
         currentConfig = loadedConfig.deepCopy()
         updateSamplerSettings()
@@ -464,6 +473,15 @@ class SettingsBottomSheetFragment : BottomSheetDialogFragment() {
     fun setModelId(modelId: String,) {
         this.modelId = modelId
     }
+
+    fun setModelItem(modelItem: ModelItem) {
+        this.modelItem = modelItem
+    }
+
+    fun setConfigPath(configPath:String?) {
+        this.configPath = configPath
+    }
+
 
     companion object {
         const val TAG = "SettingsBottomSheetFragment"

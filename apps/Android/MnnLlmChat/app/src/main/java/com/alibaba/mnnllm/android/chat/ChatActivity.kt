@@ -189,6 +189,7 @@ class ChatActivity : AppCompatActivity() {
         } else if (item.itemId == R.id.menu_item_model_settings) {
             SettingsBottomSheetFragment().apply {
                 setModelId(modelId!!)
+                setConfigPath(intent.getStringExtra("configFilePath"))
                 setSession(chatSession as LlmSession)
                 addOnSettingsDoneListener{needRecreate->
                     if (needRecreate) {
