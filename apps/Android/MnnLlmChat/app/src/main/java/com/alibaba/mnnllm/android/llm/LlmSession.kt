@@ -54,7 +54,7 @@ class LlmSession (
                     .map { obj: String? -> obj!! }
                     .collect(Collectors.toList())
         }
-        val config = ModelConfig.loadConfig(modelId)
+        val config = ModelConfig.loadMergedConfig(configPath, getExtraConfigFile(modelId))!!
         var rootCacheDir: String? = ""
         if (config.useMmap == true) {
             rootCacheDir = FileUtils.getMmapDir(modelId, configPath.contains("modelscope"))

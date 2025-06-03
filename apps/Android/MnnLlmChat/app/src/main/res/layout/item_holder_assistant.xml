@@ -30,10 +30,11 @@
             android:text="思考中..."/>
         <ImageView
             android:id="@+id/iv_thinking_header"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            android:layout_marginLeft="10dp"
+            android:layout_width="15dp"
+            android:layout_height="15dp"
             android:layout_gravity="center_vertical"
-            app:srcCompat="@drawable/baseline_arrow_drop_up_24"
+            app:srcCompat="@drawable/ic_arrow_up"
             app:tint="?colorOnSurfaceVariant"/>
     </LinearLayout>
 
