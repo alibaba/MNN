@@ -9,6 +9,7 @@ import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.model.Modality
 import com.alibaba.mnnllm.android.modelsettings.DropDownMenuHelper
 import com.alibaba.mnnllm.android.model.ModelVendors
+import com.alibaba.mnnllm.android.utils.PreferenceUtils
 
 class FilterComponent(private val activity: MainActivity) {
     private var vendorFilterListener: ((String?) -> Unit)? = null
@@ -23,6 +24,7 @@ class FilterComponent(private val activity: MainActivity) {
 
     init {
         textFilterDownloadState = activity.findViewById(R.id.filter_download_state)
+        textFilterDownloadState.isSelected = PreferenceUtils.isFilterDownloaded(activity)
         textFilterDownloadState.setOnClickListener{
             onFilterDownloadStateClick()
         }
@@ -74,6 +76,7 @@ class FilterComponent(private val activity: MainActivity) {
 
     private fun onFilterDownloadStateClick() {
         textFilterDownloadState.isSelected = !textFilterDownloadState.isSelected
+        PreferenceUtils.setFilterDownloaded(activity, textFilterDownloadState.isSelected)
         downloadStateFilterListener?.invoke(if (textFilterDownloadState.isSelected) "true" else "false")
     }
 
