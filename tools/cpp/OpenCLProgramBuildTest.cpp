@@ -112,7 +112,7 @@ public:
         if (handle_ == nullptr) {
             return false;
         }
-        #define MNN_LOAD_FUNCTION_PTR(func_name) func_name = reinterpret_cast<func_name##Func>(GetProcAddress(handle_, #func_name));
+        #define MNN_LOAD_FUNCTION_PTR(func_name) func_name = reinterpret_cast<func_name##Func>(GetProcAddress(static_cast<HMODULE>(handle_), #func_name));
         #else
         handle_ = dlopen(library_path.c_str(), RTLD_NOW | RTLD_LOCAL);
         if (handle_ == nullptr) {
@@ -192,7 +192,7 @@ public:
         }
         if (handle_ != nullptr) {
 #if defined(_WIN32)
-            FreeLibrary(handle_);
+            FreeLibrary(static_cast<HMODULE>(handle_));
 #else
             dlclose(handle_);
 #endif
