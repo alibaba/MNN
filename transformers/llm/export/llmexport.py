@@ -101,11 +101,9 @@ class LlmExporter(torch.nn.Module):
         elif 'SmolVLM2' in model_path:
             from transformers import AutoModelForImageTextToText
             self.model = AutoModelForImageTextToText.from_pretrained(model_path, torch_dtype='auto').eval()
-        elif 'SmolVLM' in model_path:
+        elif 'SmolVLM' in model_path or 'SmolDocling' in model_path:
             from transformers import AutoModelForVision2Seq
             self.model = AutoModelForVision2Seq.from_pretrained(model_path, torch_dtype='auto').eval()
-        elif 'FastVLM' in model_path:
-            self.model = AutoModelForCausalLM.from_pretrained(model_path, torch_dtype='auto', trust_remote_code=True).eval()
         else:
             try:
                 self.model = AutoModelForCausalLM.from_pretrained(model_path, torch_dtype='auto', trust_remote_code=True).eval()
@@ -203,12 +201,14 @@ class LlmExporter(torch.nn.Module):
             "system_prompt_template": prompt_template['system'].format(content='%s'),
             'user_prompt_template': prompt_template['user'].format(content='%s'),
             'assistant_prompt_template': prompt_template['assistant'].format(content='%s'),
+            'jinja':prompt_template['jinja'],
             'is_visual': False
         }
         # load modules
         ModelMapper.do_map(self, self.model, self.model_map['model'])
-        self.tie_word_embeddings = self.args.tie_embed and self.lm_.weight.equal(self.embed_.weight)
+        self.tie_word_embeddings = not self.args.seperate_embed and self.lm_.weight.equal(self.embed_.weight)
         if self.tie_word_embeddings:
+            print("Tie word embeddings in lm, set lm quant bit to 8")
             self.args.lm_quant_bit = 8
         # rebuild modules
         if self.lm_ is None:
@@ -349,6 +349,12 @@ class LlmExporter(torch.nn.Module):
             'user': '{content}',
             'assistant': '{content}'
         }
+        template['jinja'] = {}
+        template['jinja']['chat_template'] = self.tokenizer.get_chat_template()
+        if None != self.tokenizer.bos_token:
+            template['jinja']['bos'] = self.tokenizer.bos_token
+        if None != self.tokenizer.eos_token:
+            template['jinja']['eos'] = self.tokenizer.eos_token
         if self.model_type == 'baichuan':
             template['user'] = '<reserved_106>{content}'
             template['assistant'] = '<reserved_107>{content}'
@@ -505,8 +511,8 @@ class LlmExporter(torch.nn.Module):
                                                       attention_mask,
                                                       position_ids,
                                                       past_key_values,
-                                                      cross_attention_states,
-                                                      cross_attention_mask)
+                                                      cross_attention_states = cross_attention_states,
+                                                      cross_attention_mask = cross_attention_mask)
             token_id = torch.argmax(logits[:,-1,:])
             if token_id in self.stop_ids:
                 print("", end='\n')
@@ -548,6 +554,8 @@ class LlmExporter(torch.nn.Module):
                 "precision": "low",
                 "memory": "low",
                 # "system_prompt": "You are a helpful assistant.",
+                "sampler_type":'penalty',
+                "penalty":1.1
             }
             if self.talker is not None:
                 config['system_prompt'] = "You are Qwen, a virtual human developed by the Qwen Team, Alibaba Group, capable of perceiving auditory and visual inputs, as well as generating text and speech."
@@ -1060,13 +1068,13 @@ def export(path,
            export = 'onnx',
            onnx_slim = False,
            quant_bit = 4,
-           quant_block = 128,
+           quant_block = 64,
            lm_quant_bit = None,
            mnnconvert = None,
            ppl = False,
            awq = False,
            sym = False,
-           tie_embed = False,
+           seperate_embed = False,
            lora_split = False):
     args = argparse.Namespace()
     for k, v in {
@@ -1085,7 +1093,7 @@ def export(path,
         'ppl': ppl,
         'awq': awq,
         'sym': sym,
-        'tie_embed': tie_embed,
+        'seperate_embed': seperate_embed,
         'lora_split': lora_split
     }.items():
         setattr(args, k, v)
@@ -1115,13 +1123,13 @@ def main():
     parser.add_argument('--export', type=str, default=None, help='export model to an onnx/mnn model.')
     parser.add_argument('--onnx_slim', action='store_true', help='Whether or not to use onnx-slim.')
     parser.add_argument('--quant_bit', type=int, default=4, help='mnn quant bit, 4 or 8, default is 4.')
-    parser.add_argument('--quant_block', type=int, default=128, help='mnn quant block, 0 mean channle-wise, default is 128.')
+    parser.add_argument('--quant_block', type=int, default=64, help='mnn quant block, 0 mean channle-wise, default is 64.')
     parser.add_argument('--lm_quant_bit', type=int, default=None, help='mnn lm_head quant bit, 4 or 8, default is `quant_bit`.')
     parser.add_argument('--mnnconvert', type=str, default='../../../build/MNNConvert', help='local mnnconvert path, if invalid, using pymnn.')
     parser.add_argument('--ppl', action='store_true', help='Whether or not to get all logits of input tokens.')
     parser.add_argument('--awq', action='store_true', help='Whether or not to use awq quant.')
     parser.add_argument('--sym', action='store_true', help='Whether or not to using symmetric quant (without zeropoint), defualt is False.')
-    parser.add_argument('--tie_embed', action='store_true', help='Whether or not to using tie_embedding, defualt is False, if True, lm_quant_bit will be 8.')
+    parser.add_argument('--seperate_embed', action='store_true', help='For lm and embed shared model, whether or not to sepearte embed to avoid quant, defualt is False, if True, embed weight will be seperate to embeddingbf16.bin.')
     parser.add_argument('--lora_split', action='store_true', help='Whether or not export lora split, defualt is False.')
     args = parser.parse_args()
 

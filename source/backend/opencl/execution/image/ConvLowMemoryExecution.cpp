@@ -40,7 +40,7 @@ void ConvLowMemoryExecution::getInfoFromOpLowMemory(std::shared_ptr<ConvolutionC
     int numAlpha = mResource->mOutputChannel;
     mResource->mBlockSize = totalCount / numAlpha;
     // set mDequantScale mDequantOffset
-    int numAlphaPack = ROUND_UP(numAlpha, 16);
+    int numAlphaPack = ROUND_UP(numAlpha, 4);
     int mapSize = mResource->mBlockSize * numAlphaPack * sizeof(int32_t) * 2;
     mResource->dequantScaleOffset.reset(new cl::Buffer(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, mapSize));
     // transfer data from src in cpu to dst in gpu
@@ -242,7 +242,7 @@ void ConvLowMemoryExecution::tune1x1CaseLowMemory(Tensor * input, Tensor * outpu
         if(itemC[knl_idx] == 8 && outputShape.at(3) % itemC[knl_idx] > 0 && outputShape.at(3) % itemC[knl_idx] <= 4){
             buildOption.emplace("-DCHANNEL_BOUNDARY_PROTECT");
         }
-        kernel[knl_idx]        = mOpenCLBackend->getOpenCLRuntime()->buildKernel("conv_2d", kernelName[knl_idx], buildOption, mOpenCLBackend->getPrecision());
+        kernel[knl_idx]        = mOpenCLBackend->getOpenCLRuntime()->buildKernel("conv_2d_int", kernelName[knl_idx], buildOption, mOpenCLBackend->getPrecision());
         uint32_t maxWorkGroupSize = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(kernel[knl_idx]));
         
         globalWorkSize[knl_idx] = {static_cast<uint32_t>(UP_DIV(outputShape.at(3), itemC[knl_idx]) * UP_DIV(outputShape.at(2), itemW[knl_idx])), static_cast<uint32_t>(outputShape.at(0) * UP_DIV(outputShape.at(1), itemH[knl_idx]))};
@@ -283,7 +283,7 @@ void ConvLowMemoryExecution::tune1x1CaseLowMemory(Tensor * input, Tensor * outpu
     if(itemC[min_index] == 8 && outputShape.at(3) % itemC[min_index] > 0 && outputShape.at(3) % itemC[min_index] <= 4){
         buildOption.emplace("-DCHANNEL_BOUNDARY_PROTECT");
     }
-    unit.kernel        = mOpenCLBackend->getOpenCLRuntime()->buildKernel("conv_2d", kernelName[min_index], buildOption, mOpenCLBackend->getPrecision());
+    unit.kernel        = mOpenCLBackend->getOpenCLRuntime()->buildKernel("conv_2d_int", kernelName[min_index], buildOption, mOpenCLBackend->getPrecision());
     uint32_t idx = 0;
     ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[0]);
     ret |= unit.kernel->get().setArg(idx++, mGlobalWorkSize[1]);
@@ -347,7 +347,7 @@ void ConvLowMemoryExecution::tuneGeneralCaseLowMemory(Tensor * input, Tensor * o
         if(itemC[knl_idx] == 8 && outputShape.at(3) % itemC[knl_idx] > 0 && outputShape.at(3) % itemC[knl_idx] <= 4){
             buildOption.emplace("-DCHANNEL_BOUNDARY_PROTECT");
         }
-        kernel[knl_idx]        = mOpenCLBackend->getOpenCLRuntime()->buildKernel("conv_2d", kernelName[knl_idx], buildOption, mOpenCLBackend->getPrecision());
+        kernel[knl_idx]        = mOpenCLBackend->getOpenCLRuntime()->buildKernel("conv_2d_int", kernelName[knl_idx], buildOption, mOpenCLBackend->getPrecision());
         uint32_t maxWorkGroupSize = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(kernel[knl_idx]));
 
         globalWorkSize[knl_idx] = {static_cast<uint32_t>(UP_DIV(outputShape.at(3), itemC[knl_idx]) * UP_DIV(outputShape.at(2), itemW[knl_idx])), static_cast<uint32_t>(outputShape.at(0) * UP_DIV(outputShape.at(1), itemH[knl_idx]))};
@@ -391,7 +391,7 @@ void ConvLowMemoryExecution::tuneGeneralCaseLowMemory(Tensor * input, Tensor * o
     if(itemC[min_index] == 8 && outputShape.at(3) % itemC[min_index] > 0 && outputShape.at(3) % itemC[min_index] <= 4){
         buildOption.emplace("-DCHANNEL_BOUNDARY_PROTECT");
     }
-    unit.kernel        = mOpenCLBackend->getOpenCLRuntime()->buildKernel("conv_2d", kernelName[min_index], buildOption, mOpenCLBackend->getPrecision());
+    unit.kernel        = mOpenCLBackend->getOpenCLRuntime()->buildKernel("conv_2d_int", kernelName[min_index], buildOption, mOpenCLBackend->getPrecision());
 
     uint32_t idx            = 0;
     cl_int ret = CL_SUCCESS;
@@ -445,7 +445,7 @@ void ConvLowMemoryExecution::tuneGemmLowMemory(Tensor * input, Tensor * output) 
     if(inputChannels % 4 != 0){
         buildOption.emplace("-DINPUT_CHANNEL_LEAVE");
     }
-    unit.kernel        = mOpenCLBackend->getOpenCLRuntime()->buildKernel("gemm", kernelname, buildOption, mOpenCLBackend->getPrecision());
+    unit.kernel        = mOpenCLBackend->getOpenCLRuntime()->buildKernel("gemm_int", kernelname, buildOption, mOpenCLBackend->getPrecision());
     uint32_t maxWorkGroupSize = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(unit.kernel));
     mGlobalWorkSize = {static_cast<uint32_t>(global_x), static_cast<uint32_t>(global_y)};
     // MNN_PRINT("Kernel is %d.\n", min_index);
@@ -516,13 +516,7 @@ ConvLowMemoryExecution::ConvLowMemoryExecution(const std::vector<Tensor *> &inpu
     } else if (conv2dCommonParams->relu6()) {
         mResource->mBuildOptions.emplace("-DRELU6");
     }
-    if (mNumQuantBit == 8) {
-        // int8 case
-        mResource->mBuildOptions.emplace("-DUSE_LOW_BIT_WEIGHT_INT8");
-    } else if (mNumQuantBit == 4){
-        // int4 case
-        mResource->mBuildOptions.emplace("-DUSE_LOW_BIT_WEIGHT_INT4");
-    } else {/* More types to be supported. */}
+    mResource->mBuildOptions.emplace("-DQUANT_BIT=" + std::to_string(mNumQuantBit));
 #ifdef LOG_VERBOSE
     MNN_PRINT("end ConvExecution init !\n");
 #endif

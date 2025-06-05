@@ -687,10 +687,9 @@ INLINE_FUNC void StoreResultsM(__global realM* cgm, COMPUTE_FLOATM c_value, cons
       Multiply(result.sE, alpha, xval.sE);
       Multiply(result.sF, alpha, xval.sF);
     #endif
-  #endif
 
   // The final multiplication with alpha and the addition with beta*C
-  #ifdef HAVE_ALPHA_BETA
+  #elif HAVE_ALPHA_BETA
     COMPUTE_FLOATM xval = c_value;
     COMPUTE_FLOATM yval = CONVERT_COMPUTE_FLOATM(cgm[index]);
     #if VWM == 1
@@ -821,10 +820,9 @@ INLINE_FUNC void StoreResultsN(__global realN* cgn, COMPUTE_FLOATN c_value,
       Multiply(result.sE, alpha, xval.sE);
       Multiply(result.sF, alpha, xval.sF);
     #endif
-  #endif
 
   // The final multiplication with alpha and the addition with beta*C
-  #ifdef HAVE_ALPHA_BETA
+  #elif HAVE_ALPHA_BETA
     COMPUTE_FLOATN xval = c_value;
     COMPUTE_FLOATN yval = CONVERT_COMPUTE_FLOATN(cgn[index]);
     #if VWN == 1

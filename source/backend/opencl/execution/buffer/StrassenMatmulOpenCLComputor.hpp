@@ -29,6 +29,7 @@ public:
     
     ErrorCode onEncode(int e, int l, int h, int as, int bs, int cs, const cl::Buffer AT, const cl::Buffer BT, cl::Buffer CT, bool useBias, const cl::Buffer Bias);
     
+    int getExecuteTime();
     void onExecute();
     
     void onReset();

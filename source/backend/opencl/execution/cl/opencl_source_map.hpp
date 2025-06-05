@@ -16,7 +16,6 @@ extern const char* range_buf;
 #ifndef MNN_OPENCL_BUFFER_CLOSED
 extern const char* self_attention_buf;
 #endif
-extern const char* performance;
 extern const char* winogradTransformSource2_3_1;
 #ifndef MNN_OPENCL_BUFFER_CLOSED
 extern const char* gemv_conv1x1_buf;
@@ -90,6 +89,7 @@ extern const char* buffer_convert_quant;
 #ifndef MNN_OPENCL_BUFFER_CLOSED
 extern const char* gemm_buf;
 #endif
+extern const char* conv_2d_int;
 extern const char* copy_buffer_to_image2d;
 extern const char* loop;
 #ifndef MNN_OPENCL_BUFFER_CLOSED
@@ -124,6 +124,7 @@ extern const char* pooling;
 #ifndef MNN_OPENCL_BUFFER_CLOSED
 extern const char* conv_2d_buf;
 #endif
+extern const char* gemm_int;
 extern const char* buffer_to_image;
 extern const char* winogradTransformDest2_3_1;
 #ifndef MNN_OPENCL_BUFFER_CLOSED
@@ -188,7 +189,6 @@ const std::map<std::string, const char*> OpenCLProgramMap =
 #ifndef MNN_OPENCL_BUFFER_CLOSED
   { "self_attention_buf", self_attention_buf },
 #endif
-  { "performance", performance },
   { "winogradTransformSource2_3_1", winogradTransformSource2_3_1 },
 #ifndef MNN_OPENCL_BUFFER_CLOSED
   { "gemv_conv1x1_buf", gemv_conv1x1_buf },
@@ -262,6 +262,7 @@ const std::map<std::string, const char*> OpenCLProgramMap =
 #ifndef MNN_OPENCL_BUFFER_CLOSED
   { "gemm_buf", gemm_buf },
 #endif
+  { "conv_2d_int", conv_2d_int },
   { "copy_buffer_to_image2d", copy_buffer_to_image2d },
   { "loop", loop },
 #ifndef MNN_OPENCL_BUFFER_CLOSED
@@ -296,6 +297,7 @@ const std::map<std::string, const char*> OpenCLProgramMap =
 #ifndef MNN_OPENCL_BUFFER_CLOSED
   { "conv_2d_buf", conv_2d_buf },
 #endif
+  { "gemm_int", gemm_int },
   { "buffer_to_image", buffer_to_image },
   { "winogradTransformDest2_3_1", winogradTransformDest2_3_1 },
 #ifndef MNN_OPENCL_BUFFER_CLOSED

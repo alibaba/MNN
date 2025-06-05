@@ -387,7 +387,9 @@ __kernel void pack_buf(__private int global_dim0, __private int global_dim1, __p
     }
 }
 
-#ifdef LOOP_BINARY_OPERATOR
+#ifndef OPERATOR
+    #define OPERATOR in0 + in1
+#endif
 __kernel void loop_binary_buf(__private int global_dim0, __private int global_dim1, __private int global_dim2,
                          __global OUTPUT_TYPE* output, __global INPUT_TYPE* input0, __global INPUT_TYPE* input1,
                          __private const int input0Stride0,
@@ -414,11 +416,11 @@ __kernel void loop_binary_buf(__private int global_dim0, __private int global_di
         int in0 = (int)input0[inputIndex0];
         int in1 = (int)input1[inputIndex1];
         int out = in0 % in1;
-        out = ((out < (int4)0 && in1 > (int4)0) || (out > (int4)0 && in1 < (int4)0)) ? out + in1 : out;
+        out = ((out < 0 && in1 > 0) || (out > 0 && in1 < 0)) ? out + in1 : out;
         #else
         float in0 = (float)input0[inputIndex0];
         float in1 = (float)input1[inputIndex1];
-        float out = LOOP_BINARY_OPERATOR;
+        float out = OPERATOR;
         #endif
         output[outputIndex] = (OUTPUT_TYPE)out;
     }
@@ -458,11 +460,10 @@ __kernel void loop_cumsum_buf(__private int global_dim0, __private int global_di
         for(int i = 0; i < loopNumber; ++i){
             int4 offset = (int4)i * steps + offsets;
             float in1 = (float)input1[inputIndex1 + offset.z];
-            float out = LOOP_BINARY_OPERATOR;
+            float out = OPERATOR;
         
             output[outputIndex + offset.x] = (OUTPUT_TYPE)out;
             in0 = out;
         }
     }
 }
-#endif
