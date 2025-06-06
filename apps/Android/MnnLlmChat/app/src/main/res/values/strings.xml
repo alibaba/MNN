@@ -126,4 +126,5 @@
     <string name="add_local_models_message">To add local models, first download them to your desktop, then run \'%1$s\'. After that, the models will appear in the model list.
 </string>
     <string name="copied_to_clipboard">Copied to clipboard</string>
+    <string name="apk_download_started">Apk download started, view progress in the notification</string>
 </resources>

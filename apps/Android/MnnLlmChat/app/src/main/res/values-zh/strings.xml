@@ -125,4 +125,5 @@
     <string name="add_local_models_title">增加本地模型</string>
     <string name="add_local_models_message">要添加本地模型，请先将模型下载到桌面，然后运行 “%1$s”。完成后，模型将出现在模型列表中。</string>
     <string name="copied_to_clipboard">已复制到粘贴板</string>
+    <string name="apk_download_started">Apk下载中，可以在通知栏查看进度</string>
 </resources>
