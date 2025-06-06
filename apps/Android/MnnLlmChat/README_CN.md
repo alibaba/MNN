@@ -54,6 +54,11 @@
 
 # Releases
 
+## Version 0.5.1.1
++ 点击这里  [下载](https://meta.alicdn.com/data/mnn/mnn_chat_0_5_1_1.apk)
++ 升级 MNN 引擎到 v3.2.0
++ 修复一些 bug
+
 ## Version 0.5.1
 + 点击这里 [下载](https://meta.alicdn.com/data/mnn/mnn_chat_0_5_1.apk)
 + 支持 DeepSeek-R1-0528-Qwen3

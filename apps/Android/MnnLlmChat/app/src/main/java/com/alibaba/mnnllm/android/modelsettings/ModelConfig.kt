@@ -8,7 +8,6 @@ import com.alibaba.mls.api.ApplicationProvider
 import com.alibaba.mls.api.download.ModelDownloadManager
 import com.alibaba.mnnllm.android.model.ModelUtils
 import com.alibaba.mnnllm.android.utils.FileUtils
-import com.alibaba.mnnllm.android.utils.ModelPreferences
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
 import com.google.gson.JsonObject
@@ -177,13 +176,13 @@ data class ModelConfig(
             memory = "",
             systemPrompt = "You are a helpful assistant.",
             samplerType = "",
-            mixedSamplers = mutableListOf(),
-            temperature = 0.0f,
-            topP = 0.9f,
-            topK = 0,
-            minP = 0.0f,
+            mixedSamplers = mutableListOf("topK", "topP", "minP", "temperature"),
+            temperature = 0.6f,
+            topP = 0.95f,
+            topK = 20,
+            minP = 0.05f,
             tfsZ = 1.0f,
-            typical = 1.0f,
+            typical = 0.95f,
             penalty = 1.02f,
             nGram = 8,
             nGramFactor = 1.02f,
