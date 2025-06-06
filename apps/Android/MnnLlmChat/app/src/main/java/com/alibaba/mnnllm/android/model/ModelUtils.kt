@@ -84,13 +84,16 @@ object ModelUtils {
         val decodeLen = metrics["decode_len"] as Long
         val prefillTimeUs = metrics["prefill_time"] as Long
         val decodeTimeUs = metrics["decode_time"] as Long
+        var visionTimeUs = if (metrics.containsKey("vision_time")) metrics["vision_time"] as Long else 0L
+        var audioTimeUs = if (metrics.containsKey("audio_time")) metrics["audio_time"] as Long else 0L
         // Calculate speeds in tokens per second
+        var totalPrefillTimeUs = prefillTimeUs + visionTimeUs + audioTimeUs
         val promptSpeed =
-            if ((prefillTimeUs > 0)) (promptLen / (prefillTimeUs / 1000000.0)) else 0.0
+            if ((totalPrefillTimeUs > 0)) (promptLen / (totalPrefillTimeUs / 1000000.0)) else 0.0
         val decodeSpeed = if ((decodeTimeUs > 0)) (decodeLen / (decodeTimeUs / 1000000.0)) else 0.0
         return String.format(
             "Prefill: %.2fs, %d tokens, %.2f tokens/s \nDecode: %.2fs, %d tokens, %.2f tokens/s",
-            prefillTimeUs.toFloat() / 1000000, promptLen, promptSpeed,
+            totalPrefillTimeUs.toFloat() / 1000000, promptLen, promptSpeed,
             decodeTimeUs.toFloat() / 1000000,decodeLen, decodeSpeed,
         )
     }

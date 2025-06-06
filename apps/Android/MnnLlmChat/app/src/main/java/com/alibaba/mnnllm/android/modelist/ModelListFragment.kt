@@ -50,13 +50,13 @@ class ModelListFragment : Fragment(), ModelListContract.View {
             searchView.setOnQueryTextListener(object : SearchView.OnQueryTextListener {
                 override fun onQueryTextSubmit(query: String): Boolean {
                     filterQuery = query
-                    adapter!!.setFilter(query, filterDownloaded)
+                    adapter!!.setFilter(query)
                     return false
                 }
 
                 override fun onQueryTextChange(query: String): Boolean {
                     filterQuery = query
-                    adapter!!.setFilter(query, filterDownloaded)
+                    adapter!!.setFilter(query)
                     return true
                 }
             })
@@ -90,19 +90,6 @@ class ModelListFragment : Fragment(), ModelListContract.View {
                 }
                 true
             }
-
-//            val filterDownloadedMenu = menu.findItem(R.id.action_filter_downloaded)
-//            filterDownloadedMenu.setChecked(isFilterDownloaded(context))
-//            filterDownloadedMenu.setOnMenuItemClickListener {
-//                filterDownloaded = isFilterDownloaded(
-//                    context
-//                )
-//                filterDownloaded = !filterDownloaded
-//                setFilterDownloaded(context, filterDownloaded)
-//                filterDownloadedMenu.setChecked(filterDownloaded)
-//                adapter!!.setFilter(filterQuery, filterDownloaded)
-//                true
-//            }
             val settingsMenu = menu.findItem(R.id.action_settings)
             settingsMenu.setOnMenuItemClickListener {
                 if (activity != null) {
@@ -172,7 +159,8 @@ class ModelListFragment : Fragment(), ModelListContract.View {
         modelListPresenter = ModelListPresenter(requireContext(), this)
         adapter!!.setModelListListener(modelListPresenter)
         filterDownloaded = isFilterDownloaded(context)
-        adapter!!.setFilter(filterQuery, filterDownloaded)
+        adapter!!.setFilter(filterQuery)
+        adapter!!.filterDownloadState(filterDownloaded.toString())
         modelListPresenter!!.onCreate()
         return view
     }

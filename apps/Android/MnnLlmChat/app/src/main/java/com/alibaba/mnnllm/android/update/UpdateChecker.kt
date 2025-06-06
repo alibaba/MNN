@@ -188,6 +188,7 @@ class UpdateChecker(private val context: Context) {
             installApk(context, -9999, downloadFileUri)
             return
         }
+        UiUtils.showToast(context, context.getString(R.string.apk_download_started), Toast.LENGTH_LONG)
         val request = DownloadManager.Request(Uri.parse(downloadUrl))
             .setTitle(apkName)
             .setDescription(context.getString(R.string.wait_install_apk))

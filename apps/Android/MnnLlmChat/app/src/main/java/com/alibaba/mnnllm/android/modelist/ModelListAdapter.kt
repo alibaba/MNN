@@ -56,7 +56,7 @@ class ModelListAdapter(private val items: MutableList<ModelItem>) :
         this.modelItemDownloadStatesMap = modelItemDownloadStatesMap
         items.clear()
         items.addAll(hfModelItems)
-        filterItems(filterQuery, filterDownloaded)
+        filterItems()
         checkIfEmpty()
     }
 
@@ -90,18 +90,11 @@ class ModelListAdapter(private val items: MutableList<ModelItem>) :
         return if (filteredItems != null) filteredItems!! else items
     }
 
-    private fun filterItems(query: String, showDownloadedOnly: Boolean) {
+    private fun filterItems() {
         val filtered = items.stream()
             .filter { hfModelItem: ModelItem ->
                 val modelItemState = modelItemDownloadStatesMap!![hfModelItem.modelId]
-                if (showDownloadedOnly) {
-                    if (modelItemState != null
-                        && modelItemState.downloadInfo!!.downlodaState != DownloadInfo.DownloadSate.COMPLETED) {
-                        return@filter false
-                    }
-                }
                 val modelNameLowerCase = hfModelItem.modelName!!.lowercase(Locale.getDefault())
-                modelNameLowerCase.contains(query.lowercase(Locale.getDefault()))
                 for ((key, value) in filterQueryMap) {
                     if (value.isEmpty()) {
                         continue
@@ -142,26 +135,25 @@ class ModelListAdapter(private val items: MutableList<ModelItem>) :
         checkIfEmpty()
     }
 
-    fun setFilter(filterQuery: String, filterDownloaded: Boolean) {
+    fun setFilter(filterQuery: String) {
         this.filterQuery = filterQuery
         this.filterQueryMap["query"] = filterQuery
-        this.filterDownloaded = filterDownloaded
-        filterItems(this.filterQuery, this.filterDownloaded)
+        filterItems()
     }
 
     fun filterVendor(vendorFilter: String) {
         this.filterQueryMap["vendor"] = vendorFilter
-        filterItems(this.filterQuery, this.filterDownloaded)
+        filterItems()
     }
 
     fun filterModality(modality: String) {
         this.filterQueryMap["modality"] = modality
-        filterItems(this.filterQuery, this.filterDownloaded)
+        filterItems()
     }
 
     fun filterDownloadState(downloadState: String) {
         this.filterQueryMap["download"] = downloadState
-        filterItems(this.filterQuery, this.filterDownloaded)
+        filterItems()
     }
 
     fun setEmptyView(emptyView: View) {

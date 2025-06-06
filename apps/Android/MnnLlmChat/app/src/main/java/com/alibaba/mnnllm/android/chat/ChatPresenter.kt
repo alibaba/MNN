@@ -37,7 +37,6 @@ class ChatPresenter(
     private var sessionName:String? = null
     private var chatDataManager: ChatDataManager? = null
     private lateinit var chatSession: ChatSession
-    private var chatExecutor: ScheduledExecutorService? = null
     private val presenterScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var generateListener:GenerateListener? = null
     
@@ -64,7 +63,6 @@ class ChatPresenter(
 
     init {
         chatDataManager = ChatDataManager.getInstance(chatActivity)
-        chatExecutor = Executors.newScheduledThreadPool(1)
     }
 
     fun createSession(): ChatSession {
@@ -97,7 +95,6 @@ class ChatPresenter(
         sessionId = chatSession.sessionId
         chatSession.setKeepHistory(
             true
-//            !ModelUtils.isMultiModalModel(modelName) || ModelUtils.isOmni(modelName)
         )
         return chatSession
     }
