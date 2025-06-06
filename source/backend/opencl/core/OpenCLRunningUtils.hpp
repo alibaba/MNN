@@ -132,9 +132,9 @@ uint32_t get2DUseLocalMemTime(const std::vector<uint32_t> &gws, const std::vecto
 std::pair<std::vector<uint32_t>, uint32_t> localWS2DDefault(const std::vector<uint32_t> &gws, const uint32_t maxWorkGroupSize,
                                        OpenCLRuntime *runtime, const std::string &kernelName, const std::shared_ptr<KernelWrap> &mKernel, int tuneLevel);
 
-bool getPreParamInfo(const std::string preParamName, uint32_t *preParamData,  OpenCLRuntime *runtime);
+bool getTunedInfo(const std::string kernelName, const std::vector<uint32_t> &gws, std::pair<std::vector<uint32_t>, uint32_t> &tuneInfo, OpenCLRuntime *runtime);
 
-void setPreParamInfo(const std::string preParamName, uint32_t preParamData,  OpenCLRuntime *runtime);
+void setTunedInfo(const std::string kernelName, const std::vector<uint32_t> &gws, std::pair<std::vector<uint32_t>, uint32_t> &tuneInfo, OpenCLRuntime *runtime);
 
 void copyBufferToImage(OpenCLRuntime *runtime, const cl::Buffer &buffer, const cl::Image &image, int w, int h, int precision);
 

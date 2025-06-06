@@ -348,10 +348,6 @@ unsigned int OpenCLRuntime::getQueueNum() {
     return mQueueCount;
 }
 
-std::map<std::string, uint32_t>& OpenCLRuntime::preParamsMap(){
-    return mPreParams;
-}
-
 std::map<std::vector<uint32_t>, std::vector<uint32_t>>& OpenCLRuntime::tunedGemmParamsMap() {
     return mTunedGemmParams;
 }
@@ -804,14 +800,6 @@ std::pair<const void*, size_t> OpenCLRuntime::makeCache(void* tuneInfo) {
         backend->gemm.emplace_back(std::move(tuning));
     }
     
-    // Get All PreParam cache
-    for(auto& iter : mPreParams){
-        std::unique_ptr<PreParamInfoT> info(new PreParamInfoT);
-        info->preParamName = iter.first;
-        info->preParamData = iter.second;
-        backend->preParam.emplace_back(std::move(info));
-    }
-    
     cache->backends.emplace_back(std::move(backend));
     
     flatbuffers::FlatBufferBuilder builder;
@@ -921,21 +909,16 @@ bool OpenCLRuntime::setCache(std::pair<const void*, size_t> cache) {
                 }
             }
         }
-        
-        //Load PreParam Info
-        if(nullptr != backendinfo->preParam()){
-            auto preParamInfo = backendinfo->preParam();
-            for(int i = 0; i < preParamInfo->size(); ++i){
-                auto info = preParamInfo->GetAs<PreParamInfo>(i);
-                if (nullptr == info->preParamName()) {
-                    MNN_ERROR("Error preParam info\n");
-                    return false;
-                }
-                mPreParams.insert(std::make_pair(info->preParamName()->str(), info->preParamData()));
-            }
-        }
     }
     return true;
+}
+
+unsigned int OpenCLRuntime::getEventTime(cl::Event& event){
+    cl_int res = event.wait();
+    MNN_CHECK_CL_SUCCESS(res, "clEvent");
+    auto StartNanos = event.getProfilingInfo<CL_PROFILING_COMMAND_START>();
+    auto StopNanos = event.getProfilingInfo<CL_PROFILING_COMMAND_END>();
+    return (unsigned int)((StopNanos - StartNanos) / 1000.0);
 }
 
 void OpenCLRuntime::printEventTime(){

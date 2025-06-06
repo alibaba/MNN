@@ -21,96 +21,19 @@ std::string GetCurrentTimeAsString() {
   return std::to_string(seconds);
 }
 
-// bool FromJson(const json& j, PromptItem& item) {
-//   if (!j.is_object()) {
-//     return false;
-//   }
-//   if (!j.contains("role") || !j["role"].is_string()) {
-//     return false;
-//   }
-//   if (!j.contains("content") || !j["content"].is_string()) {
-//     return false;
-//   }
-
-//   item.first = j["role"].get<std::string>();   // Role
-//   item.second = j["content"].get<std::string>(); // Content
-//   return true;
-// }
-
-std::string base64_decode(const std::string &ascdata) {
-  static const char b64_table[65] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
-  static const char reverse_table[128] = {
-     64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64,
-     64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64,
-     64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 62, 64, 64, 64, 63,
-     52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 64, 64, 64, 64, 64, 64,
-     64,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14,
-     15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 64, 64, 64, 64, 64,
-     64, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40,
-     41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 64, 64, 64, 64, 64
-  };
-
- std::string retval;
- const std::string::const_iterator last = ascdata.end();
- int bits_collected = 0;
- unsigned int accumulator = 0;
-
- for (std::string::const_iterator i = ascdata.begin(); i != last; ++i) {
-    const int c = *i;
-    if (::std::isspace(c) || c == '=') {
-       // Skip whitespace and padding. Be liberal in what you accept.
-       continue;
-    }
-    if ((c > 127) || (c < 0) || (reverse_table[c] > 63)) {
-        MNN_ERROR("Base64 decode auth code failed.\n");
-        return "";
-    }
-    accumulator = (accumulator << 6) | reverse_table[c];
-    bits_collected += 6;
-    if (bits_collected >= 8) {
-       bits_collected -= 8;
-       retval += static_cast<char>((accumulator >> bits_collected) & 0xffu);
-    }
- }
- return retval;
-}
-
-static std::string SaveImageFromDataUrl(const std::string& data_url) {
-  auto comma = data_url.find(",");
-  std::string b64 = (comma != std::string::npos ? data_url.substr(comma + 1) : data_url);
-  auto bytes = base64_decode(b64);
-  std::string filename = "image_" + GetCurrentTimeAsString() + ".jpg";
-  std::ofstream ofs(filename, std::ios::binary);
-  ofs.write(reinterpret_cast<const char*>(bytes.data()), bytes.size());
-  ofs.close();
-  return filename;
-}
-
 bool FromJson(const json& j, PromptItem& item) {
-  if (!j.is_object() || !j.contains("role")) return false;
-  item.first = j["role"].get<std::string>();
-  if (!j.contains("content")) return false;
-
-  // Handle text or array content
-  if (j["content"].is_string()) {
-      item.second = j["content"].get<std::string>();
-  } else if (j["content"].is_array()) {
-      std::string combined;
-      for (const auto& elem : j["content"]) {
-          if (elem.is_object() && elem.value("type", "") == "image_url"
-              && elem.contains("image_url")
-              && elem["image_url"].contains("url")) {
-              std::string data_url = elem["image_url"]["url"].get<std::string>();
-              std::string path = SaveImageFromDataUrl(data_url);
-              combined += "<img>" + path + "</img>";
-          }
-          // other types can be handled here
-      }
-      item.second = combined;
-  } else {
-      return false;
+  if (!j.is_object()) {
+    return false;
   }
+  if (!j.contains("role") || !j["role"].is_string()) {
+    return false;
+  }
+  if (!j.contains("content") || !j["content"].is_string()) {
+    return false;
+  }
+
+  item.first = j["role"].get<std::string>();   // Role
+  item.second = j["content"].get<std::string>(); // Content
   return true;
 }
 
@@ -229,12 +152,7 @@ void AllowCors(httplib::Response& res) {
     res.set_header("Access-Control-Allow-Headers",  "Content-Type, Authorization");
 }
 
-std::vector<std::string> MlsServer::GetLocalModels() {
-    return {current_model_name_};
-}
-
-void MlsServer::Start(const std::string& model_name, MNN::Transformer::Llm* llm, bool is_r1) {
-    this->current_model_name_ = model_name;
+void MlsServer::Start(MNN::Transformer::Llm* llm, bool is_r1) {
     this->is_r1_ = is_r1;
     // Create a server instance
     httplib::Server server;
@@ -244,146 +162,100 @@ void MlsServer::Start(const std::string& model_name, MNN::Transformer::Llm* llm,
         AllowCors(res);
         res.set_content(html_content, "text/html");
     });
-
-    // Add OpenAI compatible /v1 routes for all APIs
-    auto handleChatCompletions = [&](const httplib::Request &req, httplib::Response &res, bool is_v1) {
-        if (!json::accept(req.body)) {
-            json err;
-            err["error"] = "Invalid JSON in request body.";
-            res.status = 400;
-            res.set_content(err.dump(), "application/json");
-            return;
-        }
-        json request_json = json::parse(req.body, nullptr, false);
-        json messages = request_json["messages"];
-        std::cout<<"received messages:"<<messages.dump(0)<<std::endl;
-        std::string model = request_json.value("model", "undefined-model");
-        bool stream = request_json.value("stream", false);
-        if (!stream) {
-            Answer(llm, messages, [&res, model](const std::string& answer) {
-                json response_json = {
-                {"id", "chatcmpl" + GetCurrentTimeAsString()},
-                {"object", "chat.completion"},
-                {"created",  static_cast<int>(time(nullptr))},
-                {"model", model},
-                {
-                  "choices", json::array({
-                    {
-                      {"index", 0},
-                      {
-                        "message", {
-                          {"role", "assistant"},
-                          {"content", answer}
-                        }
-                      },
-                      {"finish_reason", "stop"}
-                    }
-                  })
-                },
-                {
-                  "usage", {
-                    {"prompt_tokens", 10},
-                    {"completion_tokens", 7},
-                    {"total_tokens", 17}
-                  }
-                }
-              };
-              res.set_content(response_json.dump(), "application/json");
-            });
-            return;
-        }
-        res.set_header("Content-Type", "text/event-stream");
-        res.set_header("Cache-Control", "no-cache");
-        res.set_header("Connection", "keep-alive");
-        res.set_chunked_content_provider(
-              "text/event-stream",
-              [llm, messages, model, this](size_t /*offset*/, httplib::DataSink &sink) {
-                  auto sse_callback = [&, this](const std::string &partial_text, bool end) {
-                      std::string finish_reason = end ? "stop" : "";
-                      json sse_json = {
-                          {"id",       "chatcmpl-" + GetCurrentTimeAsString()},
-                          {"object",   "chat.completion.chunk"},
-                          {"created",  static_cast<int>(std::time(nullptr))},
-                          {"model",    model},
-                          {"choices",  json::array({
-                              {
-                                  {"delta", {{"content", partial_text}}},
-                                  {"index", 0},
-                                  {"finish_reason", finish_reason}
-                              }
-                          })}
-                      };
-                      std::string chunk_str = "data: " + sse_json.dump() + "\n\n";
-                      sink.os.write(chunk_str.c_str(), chunk_str.size());
-                      sink.os.flush();
-                  };
-                  AnswerStreaming(llm, messages, sse_callback);
-                  std::string done_str = "data: [DONE]\n\n";
-                  sink.os.write(done_str.c_str(), done_str.size());
-                  sink.os.flush();
-                  sink.done();
-                  std::this_thread::sleep_for(std::chrono::milliseconds(10));
-                  return false;
-              }
-          );
-    };
-
-    // Route registrations
-    server.Get("/v1/", [this](const httplib::Request& req, httplib::Response& res) {
-        AllowCors(res);
-        res.set_content(html_content, "text/html");
-    });
-
     server.Post("/reset", [&](const httplib::Request &req, httplib::Response &res) {
-        printf("POST /reset\n");
-        llm->reset();
-        res.set_content("{\"status\": \"ok\"}", "application/json");
+      printf("POST /reset\n");
+      AllowCors(res);
+      llm->reset();
+      res.set_content("{\"status\": \"ok\"}", "application/json");
     });
-    server.Post("/v1/reset", [&](const httplib::Request &req, httplib::Response &res) {
-        printf("POST /v1/reset\n");
-        llm->reset();
-        res.set_content("{\"status\": \"ok\"}", "application/json");
-    });
-
     server.Options("/chat/completions", [](const httplib::Request& /*req*/, httplib::Response& res) {
         AllowCors(res);
         res.status  = 200;
     });
-    server.Options("/v1/chat/completions", [](const httplib::Request& /*req*/, httplib::Response& res) {
-        AllowCors(res);
-        res.status  = 200;
-    });
-
-    server.Get("/models/list", [this](const httplib::Request& req, httplib::Response& res) {
-        AllowCors(res);
-        std::vector<std::string> model_names = GetLocalModels();
-        json response = json::array();
-        for (const auto& name : model_names) {
-            response.push_back(name);
-        }
-        res.set_content(response.dump(), "application/json");
-    });
-    server.Get("/v1/models", [this](const httplib::Request& req, httplib::Response& res) {
-        AllowCors(res);
-        std::vector<std::string> model_names = GetLocalModels();
-        json response = json::array();
-        for (const auto& name : model_names) {
-            response.push_back(name);
-        }
-        res.set_content(response.dump(), "application/json");
-    });
-
     server.Post("/chat/completions", [&](const httplib::Request &req, httplib::Response &res) {
         std::cout << "POST /chat/completions, handled by thread: "
                 << std::this_thread::get_id() << std::endl;
-        handleChatCompletions(req, res, false);
+      AllowCors(res);
+      if (!json::accept(req.body)) {
+          json err;
+          err["error"] = "Invalid JSON in request body.";
+          res.status = 400;
+          res.set_content(err.dump(), "application/json");
+          return;
+      }
+      json request_json = json::parse(req.body, nullptr, false);
+      json messages = request_json["messages"];
+      std::cout<<"received messages:"<<messages.dump(0)<<std::endl;
+      std::string model = request_json.value("model", "undefined-model");
+      bool stream = request_json.value("stream", false);
+      if (!stream) {
+          Answer(llm, messages, [&res, model](const std::string& answer) {
+              json response_json = {
+              {"id", "chatcmpl" + GetCurrentTimeAsString()},
+              {"object", "chat.completion"},
+              {"created",  static_cast<int>(time(nullptr))},
+              {"model", model},
+              {
+                "choices", json::array({
+                  {
+                    {"index", 0},
+                    {
+                      "message", {
+                        {"role", "assistant"},
+                        {"content", answer}
+                      }
+                    },
+                    {"finish_reason", "stop"}
+                  }
+                })
+              },
+              {
+                "usage", {
+                  {"prompt_tokens", 10},
+                  {"completion_tokens", 7},
+                  {"total_tokens", 17}
+                }
+              }
+            };
+            res.set_content(response_json.dump(), "application/json");
+          });
+          return;
+      }
+      res.set_header("Content-Type", "text/event-stream");
+      res.set_header("Cache-Control", "no-cache");
+      res.set_header("Connection", "keep-alive");
+      res.set_chunked_content_provider(
+            "text/event-stream",
+            [llm, messages, model, this](size_t /*offset*/, httplib::DataSink &sink) {
+                auto sse_callback = [&, this](const std::string &partial_text, bool end) {
+                    std::string finish_reason = end ? "stop" : "";
+                    json sse_json = {
+                        {"id",       "chatcmpl-" + GetCurrentTimeAsString()},
+                        {"object",   "chat.completion.chunk"},
+                        {"created",  static_cast<int>(std::time(nullptr))},
+                        {"model",    model},
+                        {"choices",  json::array({
+                            {
+                                {"delta", {{"content", partial_text}}},
+                                {"index", 0},
+                                {"finish_reason", finish_reason}
+                            }
+                        })}
+                    };
+                    std::string chunk_str = "data: " + sse_json.dump() + "\n\n";
+                    sink.os.write(chunk_str.c_str(), chunk_str.size());
+                    sink.os.flush();
+                };
+                AnswerStreaming(llm, messages, sse_callback);
+                std::string done_str = "data: [DONE]\n\n";
+                sink.os.write(done_str.c_str(), done_str.size());
+                sink.os.flush();
+                sink.done();
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                return false;
+            }
+        );
     });
-    server.Post("/v1/chat/completions", [&](const httplib::Request &req, httplib::Response &res) {
-        std::cout << "POST /v1/chat/completions, handled by thread: "
-                << std::this_thread::get_id() << std::endl;
-        handleChatCompletions(req, res, true);
-    });
-
     // Start the server on port
     std::cout << "Starting server on http://localhost:9090\n";
     if (!server.listen("0.0.0.0", 9090)) {

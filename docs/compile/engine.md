@@ -126,7 +126,7 @@ mkdir build && cd build && cmake .. -DCMAKE_OSX_ARCHITECTURES=arm64 && make -j8
 
 - 基于脚本编译：运行脚本并开启`MNN_ARM82`选项
 ```
-sh package_scripts/ios/buildiOS.sh "-DMNN_ARM82=true"
+sh package_scripts/ios/buildiOS.sh -DMNN_ARM82=ON
 ```
 
 ## 鸿蒙(Harmony)

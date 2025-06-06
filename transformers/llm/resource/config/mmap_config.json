@@ -1,0 +1,10 @@
+{
+    "backend_type": "cpu",
+    "thread_num": 4,
+    "precision": "low",
+    "memory": "low",
+    "power":"high",
+    "sampler_type":"penalty",
+    "penalty":1.1,
+    "use_mmap":true
+}

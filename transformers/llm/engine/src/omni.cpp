@@ -649,10 +649,13 @@ VARP Omni::gen_position_ids(int seq_len) {
         positionIds = _Input({3, seq_len}, NCHW, halide_type_of<int>());
     }
     auto ptr = positionIds->writeMap<int>();
-    if (seq_len == 1) {
-        ptr[0] = mContext->gen_seq_len + mPositionIds.back();
-        ptr[1] = ptr[0];
-        ptr[2] = ptr[0];
+    if (mContext->gen_seq_len > 0) {
+        for (int i=0; i<seq_len; ++i) {
+            auto pos = mContext->gen_seq_len + mPositionIds.back() + i;
+            ptr[i + 0] = pos;
+            ptr[i + seq_len] = pos;
+            ptr[i + seq_len * 2] = pos;
+        }
     } else {
         for (int i = 0; i < seq_len; i++) {
             ptr[i] = mPositionIds.mT[i];
@@ -666,23 +669,12 @@ VARP Omni::gen_position_ids(int seq_len) {
     return positionIds;
 }
 
-Express::VARP Omni::forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos) {
-    VARP logits;
-    auto logitsIndex = _var<int>({-1}, {1});
-    if (mConfig->all_logits()) {
-        logitsIndex = _var<int>({0}, {1});
-    }
-    std::vector<Express::VARP> outputs;
-    outputs = mCurrentModules.back()->onForward({hiddenState, mask, inputPos, logitsIndex});
-    if (outputs.empty()) {
-        return nullptr;
-    }
+std::vector<Express::VARP> Omni::forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos) {
+    auto outputs = Llm::forwardRaw(hiddenState, mask, inputPos);
     if (mTalker && outputs.size() > 1) {
         mTalker->addTalkerEmbeds(outputs[1]);
     }
-    logits = outputs[0];
-    mMeta->sync();
-    return logits;
+    return outputs;
 }
 
 void Omni::response(const std::vector<int>& input_ids, std::ostream* os, const char* end_with, int max_new_tokens) {
@@ -733,6 +725,7 @@ void Omni::generateWavform() {
 
 void Talker::load() {
     initRuntime();
+    mSeqLenIndex = 1;
     set_config("{\"sampler_type\": \"mixed\", \"temperature\": 0.9, \"topK\": 40, \"topP\": 0.8, \"penalty\": 1.05}");
     mSampler.reset(Sampler::createSampler(mContext, mConfig));
     mDiskEmbedding.reset(new DiskEmbedding(mConfig, mConfig->talker_embedding_file()));
@@ -753,7 +746,9 @@ void Talker::load() {
     module_config.shapeMutable = false;
     module_config.rearrange    = true;
     mModules.resize(1);
-    mModules[0].reset(Module::load({"inputs_embeds", "attention_mask", "position_ids"},
+    std::vector<std::string> inputNames {"inputs_embeds", "attention_mask", "position_ids", "logits_index"};
+
+    mModules[0].reset(Module::load(inputNames,
                                     {"logits"}, mConfig->talker_model().c_str(), mRuntimeManager, &module_config));
     // dit
     mPreDit.reset(Module::load({"cond", "spk", "code"}, {"code_embeds", "rope", "mask"},
@@ -770,24 +765,7 @@ void Talker::load() {
 
 void Talker::generate_init(std::ostream* os, const char* end_with) {
     if (!doGenerate()) { return; }
-    {
-        mContext->os = os;
-        if (nullptr != end_with) {
-            mContext->end_with = end_with;
-        }
-        if (!mContext->generate_str.empty()) {
-            mContext->generate_str.clear();
-        }
-        mContext->gen_seq_len = 0;
-        mContext->prefill_us  = 0;
-        mContext->decode_us   = 0;
-        mContext->current_token = 0;
-        mContext->all_seq_len = 0;
-        mContext->history_tokens.clear();
-        mMeta->remove = mMeta->previous;
-        mContext->output_tokens.clear();
-        mCurrentModules = mPrefillModules;
-    }
+    Llm::generate_init(os, end_with);
     // stream generate init
     mTalkerEmbeds.clear();
     if (mInitialNoise.empty()) {
@@ -947,19 +925,6 @@ int Talker::sample(Express::VARP logits, int offset, int size) {
     return token;
 }
 
-VARP Talker::forward(VARP input_embeds) {
-    auto input_shape = input_embeds->getInfo()->dim;
-    int seq_len = input_shape[1];
-    mMeta->add = seq_len;
-    auto attention_mask = gen_attention_mask(seq_len);
-    auto position_ids = gen_position_ids(seq_len);
-    auto outputs = mCurrentModules.back()->onForward({input_embeds, attention_mask, position_ids});
-    mContext->all_seq_len += seq_len;
-    mContext->gen_seq_len++;
-    mMeta->sync();
-    return outputs[0];
-}
-
 void Talker::generate() {
     if (!doGenerate()) { return; }
     mTalkerEmbeds.push_back(mTextEos);
@@ -970,11 +935,13 @@ void Talker::generate() {
     mContext->prompt_len = input_embeds->getInfo()->dim[1];
     MNN::Timer _t;
     auto logits = forward(input_embeds);
-    int token = sample(logits);
+    mContext->current_token = sample(logits);
+    mContext->history_tokens.push_back(mContext->current_token);
+    mContext->output_tokens.push_back(mContext->current_token);
     mContext->prefill_us += _t.durationInUs();
     _t.reset();
     for (int i = 1; i < mMaxNewTokens; i++) {
-        input_embeds = embedding({token});
+        input_embeds = embedding({mContext->current_token});
         if (i + 1 < mTalkerEmbeds.size()) {
             input_embeds = input_embeds + mTalkerEmbeds[i + 1];
         } else {
@@ -982,8 +949,11 @@ void Talker::generate() {
             input_embeds = input_embeds + mTextPad;
         }
         auto logits = forward(input_embeds);
-        token = sample(logits);
-        if (token == 8292 || token == 8294) {
+        mContext->current_token = sample(logits);
+        mContext->history_tokens.push_back(mContext->current_token);
+        mContext->output_tokens.push_back(mContext->current_token);
+
+        if (mContext->current_token == 8292 || mContext->current_token == 8294) {
             break;
         }
     }

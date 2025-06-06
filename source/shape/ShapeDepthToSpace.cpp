@@ -19,8 +19,6 @@ class DepthToSpaceSizeComputer : public SizeComputer {
         MNN_ASSERT(outputs.size() == 1);
         MNN_ASSERT(inputs[0]->buffer().dimensions == 4);
         
-        // here only implement NHWC
-        // TODO: implement NC4HW4
         const int blockSize = op->main_as_DepthSpaceParam()->blockSize();
         MNN_ASSERT(blockSize >= 1);
         auto format = TensorUtils::getDescribe(inputs[0])->dimensionFormat;

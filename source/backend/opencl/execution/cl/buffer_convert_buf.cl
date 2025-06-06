@@ -30,21 +30,22 @@ __kernel void buffer_convert_to_buffer(GLOBAL_SIZE_3_DIMS
     DEAL_NON_UNIFORM_DIM3(wh, c, n);
     int w = wh % shape.w;
     int h = wh / shape.w;
+    int input_offset, output_offset;
     
 #if INPUT_FORMAT == MNN_DATA_FORMAT_NCHW
-    int input_offset = ((n * shape.y + c) * shape.z + h) * shape.w + w;
+    input_offset = ((n * shape.y + c) * shape.z + h) * shape.w + w;
 #elif INPUT_FORMAT == MNN_DATA_FORMAT_NHWC
-    int input_offset = ((n * shape.z + h) * shape.w + w) * shape.y + c;
+    input_offset = ((n * shape.z + h) * shape.w + w) * shape.y + c;
 #elif INPUT_FORMAT == MNN_DATA_FORMAT_NC4HW4
-    int input_offset = ((((c / 4) * shape.x + n) * shape.z + h) * shape.w + w) * 4 + (c % 4);
+    input_offset = ((((c / 4) * shape.x + n) * shape.z + h) * shape.w + w) * 4 + (c % 4);
 #endif
 
 #if OUTPUT_FORMAT == MNN_DATA_FORMAT_NCHW
-    int output_offset = ((n * shape.y + c) * shape.z + h) * shape.w + w;
+    output_offset = ((n * shape.y + c) * shape.z + h) * shape.w + w;
 #elif OUTPUT_FORMAT == MNN_DATA_FORMAT_NHWC
-    int output_offset = ((n * shape.z + h) * shape.w + w) * shape.y + c;
+    output_offset = ((n * shape.z + h) * shape.w + w) * shape.y + c;
 #elif OUTPUT_FORMAT == MNN_DATA_FORMAT_NC4HW4
-    int output_offset = ((((c / 4) * shape.x + n) * shape.z + h) * shape.w + w) * 4 + (c % 4);
+    output_offset = ((((c / 4) * shape.x + n) * shape.z + h) * shape.w + w) * 4 + (c % 4);
 #endif
 
     output_ptr[output_offset] = input_ptr[input_offset];

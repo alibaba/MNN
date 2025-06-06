@@ -594,7 +594,7 @@ ErrorCode CPURaster::onExecute(const std::vector<Tensor *> &____inputs, const st
     }
     auto core = static_cast<CPUBackend*>(backend())->functions();
     auto output = outputs[0];
-    auto bytes = CPUBackend::getBytes(backend(), output);
+    size_t bytes = (size_t)(CPUBackend::getBytes(backend(), output));
     auto outputEleSize = static_cast<CPUBackend*>(backend())->getTensorSize(output);
     auto threadNum = static_cast<CPUBackend*>(backend())->threadNumber();
     if (mSingleConvert.type > 0) {

@@ -3,7 +3,7 @@
 #endif
 
 __constant sampler_t SAMPLER = CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_CLAMP | CLK_FILTER_NEAREST;
-
+#ifdef LOCAL_SIZE
 __kernel void layernorm_w(__private int global_dim0, __private int global_dim1, __private int global_dim2,
                         __read_only image2d_t input,
                         __write_only image2d_t output,
@@ -249,3 +249,4 @@ __kernel void layernorm_chw(__private int global_dim0, __private int global_dim1
         }
     }
 }
+#endif
