@@ -78,6 +78,7 @@ public:
     static Module* extract(std::vector<Express::VARP> inputs, std::vector<Express::VARP> outputs, bool fortrain, const std::map<std::string, SubGraph>& subGraph = {});
 
     static Module* clone(const Module* module, const bool shareParams = false);
+    static Module* clone(const Module* module, const ScheduleConfig* config, const bool shareParams = false);
 
     struct Info {
         // Input info load from model
@@ -101,6 +102,9 @@ public:
     class CloneContext;
     virtual Module* clone(CloneContext* ctx) const {
         return nullptr;
+    }
+    virtual Module* clone(CloneContext* ctx, const ScheduleConfig* config) const {
+        return clone(ctx);
     }
     void registerModel(const std::vector<std::shared_ptr<Module>>& children);
 

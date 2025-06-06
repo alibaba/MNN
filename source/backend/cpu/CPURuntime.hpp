@@ -12,8 +12,15 @@
 #include <vector>
 #include "core/Macro.h"
 struct CPUGroup {
-    uint32_t minFreq;
-    uint32_t maxFreq;
+    enum CPUCapacityType {
+        Prime = 0,
+        Performance,
+        Efficient
+    };
+    uint32_t minFreq = 0;
+    uint32_t maxFreq = 0;
+    uint32_t capacity = 0;
+    CPUCapacityType cpuType = Prime;
     std::vector<int> ids;
 };
 struct MNNCPUInfo {
