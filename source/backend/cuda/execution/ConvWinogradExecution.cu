@@ -427,7 +427,6 @@ ErrorCode ConvWinogradExecution::onExecute(const std::vector<Tensor*> &inputs, c
     int co_pack = UP_DIV(mResource->mKernelInfo.kernelN, PACK_NUMBER) * PACK_NUMBER;
     int ci_pack = UP_DIV(mResource->mKernelInfo.kernelC, PACK_NUMBER) * PACK_NUMBER;
 
-    auto bytes = static_cast<CUDABackend*>(backend())->getBytes(input);
     const void *input_addr = (const void*)input->deviceId();
     const void *mGgGt_Buffer = mResource->mFilter;
     const void *bias_addr = mResource->mBias;
