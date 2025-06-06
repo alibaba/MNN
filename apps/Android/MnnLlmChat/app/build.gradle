@@ -6,7 +6,7 @@ plugins {
 android {
     namespace 'com.alibaba.mnnllm.android'
     compileSdk 35
-
+    ndkVersion '23.0.7599858'
     defaultConfig {
         applicationId "com.alibaba.mnnllm.android"
         minSdk 26

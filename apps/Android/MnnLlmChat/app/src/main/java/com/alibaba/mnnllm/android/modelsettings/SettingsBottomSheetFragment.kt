@@ -207,65 +207,66 @@ class SettingsBottomSheetFragment : BottomSheetDialogFragment() {
                 SamplerType.Temperature.value,
             )
         }
+        currentConfig.topK = currentConfig.topK?:defaultConfig.topK!!
         setupSliderSwitchRow(
             rowBinding = SettingsRowSliderSwitchBinding.bind(binding.rowMixedTopK.root),
             label = samplerTypeToString(SamplerType.TopK),
-            initialValue = (currentConfig.topK?:defaultConfig.topK!!).toFloat(),
+            initialValue = (currentConfig.topK!!).toFloat(),
             initialEnabled = currentConfig.mixedSamplers!!.contains(SamplerType.TopK.value),
             valueRange = 1f..100f,
             decimalPlaces = 0,
             onValueChange = { currentConfig.topK = it.toInt() },
             onEnabledChange = { toggleEnable(currentConfig.mixedSamplers!!, SamplerType.TopK, it)}
         )
-
+        currentConfig.tfsZ = currentConfig.tfsZ?:defaultConfig.tfsZ!!
         setupSliderSwitchRow(
             rowBinding = SettingsRowSliderSwitchBinding.bind(binding.rowMixedTfsZ.root),
             label = samplerTypeToString(SamplerType.Tfs),
-            initialValue = (currentConfig.tfsZ?:defaultConfig.tfsZ!!),
+            initialValue = (currentConfig.tfsZ!!),
             initialEnabled = currentConfig.mixedSamplers!!.contains(SamplerType.Tfs.value),
             valueRange = 0f..1f,
             decimalPlaces = 0,
             onValueChange = { currentConfig.tfsZ = it },
             onEnabledChange = { toggleEnable(currentConfig.mixedSamplers!!, SamplerType.Tfs, it)}
         )
-
+        currentConfig.typical = currentConfig.typical?:defaultConfig.typical!!
         setupSliderSwitchRow(
             rowBinding = SettingsRowSliderSwitchBinding.bind(binding.rowMixedTypical.root),
             label = samplerTypeToString(SamplerType.Typical),
-            initialValue = (currentConfig.typical?:defaultConfig.typical!!).toFloat(),
+            initialValue = (currentConfig.typical!!).toFloat(),
             initialEnabled = currentConfig.mixedSamplers!!.contains(SamplerType.Typical.value),
             valueRange = 0f..1f,
             decimalPlaces = 0,
             onValueChange = { currentConfig.typical = it },
             onEnabledChange = { toggleEnable(currentConfig.mixedSamplers!!, SamplerType.Typical, it)}
         )
-
+        currentConfig.topP = currentConfig.topP?:defaultConfig.topP!!
         setupSliderSwitchRow(
             rowBinding = SettingsRowSliderSwitchBinding.bind(binding.rowMixedTopP.root),
             label = samplerTypeToString(SamplerType.TopP),
-            initialValue = (currentConfig.topP?:defaultConfig.topP!!).toFloat(),
+            initialValue = (currentConfig.topP!!).toFloat(),
             initialEnabled = currentConfig.mixedSamplers!!.contains(SamplerType.TopP.value),
             valueRange = 0f..1f,
             decimalPlaces = 2,
             onValueChange = { currentConfig.topP = it },
             onEnabledChange = { toggleEnable(currentConfig.mixedSamplers!!, SamplerType.TopP, it)}
         )
-
+        currentConfig.minP = currentConfig.minP?:defaultConfig.minP!!
         setupSliderSwitchRow(
             rowBinding = SettingsRowSliderSwitchBinding.bind(binding.rowMixedMinP.root),
             label = samplerTypeToString(SamplerType.MinP),
-            initialValue = (currentConfig.minP?:defaultConfig.minP!!).toFloat(),
+            initialValue = (currentConfig.minP!!).toFloat(),
             initialEnabled = currentConfig.mixedSamplers!!.contains(SamplerType.MinP.value),
             valueRange = 0f..1f,
             decimalPlaces = 2,
             onValueChange = { currentConfig.minP = it },
             onEnabledChange = { toggleEnable(currentConfig.mixedSamplers!!, SamplerType.MinP, it)}
         )
-
+        currentConfig.temperature = currentConfig.temperature?:defaultConfig.temperature!!
         setupSliderSwitchRow(
             rowBinding = SettingsRowSliderSwitchBinding.bind(binding.rowMixedTemp.root),
             label = samplerTypeToString(SamplerType.Temperature),
-            initialValue = (currentConfig.temperature?:defaultConfig.temperature!!).toFloat(),
+            initialValue = (currentConfig.temperature!!).toFloat(),
             initialEnabled = currentConfig.mixedSamplers!!.contains(SamplerType.Temperature.value),
             valueRange = 0f..2f,
             decimalPlaces = 2,
