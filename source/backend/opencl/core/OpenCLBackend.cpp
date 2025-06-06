@@ -466,7 +466,7 @@ Backend::MemObj* OpenCLBackend::onAcquire(const Tensor* nativeTensor, StorageTyp
 }
 
 bool OpenCLBackend::onSelectDynamicAllocator(int index, int maxIndex) {
-    if (mUseRecordQueue && false == mDevideOpRecord){
+    if (mUseRecordQueue && false == mDeviceOpRecord){
         return false;
     }
     if (maxIndex > 2) {
@@ -525,7 +525,7 @@ Execution* OpenCLBackend::onCreate(const std::vector<Tensor*>& inputs, const std
         return NULL;
     }
     if (iter == creators->end()) {
-        mDevideOpRecord = true;
+        mDeviceOpRecord = true;
         #ifdef OPENCL_FALLBACK_LOG
         if (nullptr != op->name()) {
             MNN_PRINT("Don't support type %s memObject:%d, %s\n", EnumNameOpType(op->type()), mMemType, op->name()->c_str());
@@ -565,7 +565,7 @@ Execution* OpenCLBackend::onCreate(const std::vector<Tensor*>& inputs, const std
         }
 
         if (!valid) {
-            mDevideOpRecord = true;
+            mDeviceOpRecord = true;
             #ifdef OPENCL_FALLBACK_LOG
             for (auto t : inputs) {
                 auto tensorShape = OpenCL::tensorShapeFormat(t);
@@ -589,7 +589,7 @@ Execution* OpenCLBackend::onCreate(const std::vector<Tensor*>& inputs, const std
 
     auto exe = iter->second->onCreate(inputs, outputs, op, this);
     if (NULL == exe) {
-        mDevideOpRecord = true;
+        mDeviceOpRecord = true;
         #ifdef OPENCL_FALLBACK_LOG
         if (nullptr != op->name()) {
             MNN_PRINT("The Creator Don't support type %s, memObject:%d, %s\n", MNN::EnumNameOpType(op->type()), mMemType, op->name()->c_str());
@@ -1232,7 +1232,7 @@ int OpenCLBackend::fpBytes() {
 
 void OpenCLBackend::clearRecord() const{
 #if !defined(ENABLE_OPENCL_TIME_PROFILER) && defined(MNN_USE_LIB_WRAPPER)
-    if(mUseRecordQueue && mDevideOpRecord){
+    if(mUseRecordQueue && mDeviceOpRecord){
         for(int i = 0; i < mRecordings.size(); ++i){
             std::vector<cl_array_arg_qcom> update_kernel_args;
             std::vector<cl_workgroup_qcom> update_global_size;
@@ -1263,7 +1263,7 @@ void OpenCLBackend::clearRecord() const{
 
 void OpenCLBackend::enqeueRecord() const{
 #if !defined(ENABLE_OPENCL_TIME_PROFILER) && defined(MNN_USE_LIB_WRAPPER)
-    if(mUseRecordQueue && !mDevideOpRecord){
+    if(mUseRecordQueue && !mDeviceOpRecord){
         for(int i = 0; i < mRecordings.size(); ++i){
             std::vector<cl_array_arg_qcom> update_kernel_args;
             std::vector<cl_workgroup_qcom> update_global_size;
@@ -1290,7 +1290,7 @@ void OpenCLBackend::enqeueRecord() const{
 
 void OpenCLBackend::releaseRecord(){
 #if !defined(ENABLE_OPENCL_TIME_PROFILER) && defined(MNN_USE_LIB_WRAPPER)
-    if(mUseRecordQueue  && !mDevideOpRecord){
+    if(mUseRecordQueue  && !mDeviceOpRecord){
         for(int i = 0; i < mRecordings.size(); ++i){
             cl_int res = clReleaseRecordingQCOM(mRecordings[i].record);
             MNN_CHECK_CL_SUCCESS(res, "clReleaseRecordingQCOM");
@@ -1309,7 +1309,7 @@ void OpenCLBackend::startRecord(cl_recording_qcom &recording){
     MNN_PRINT("start startRecord !\n");
 #endif
     cl_int res = CL_SUCCESS;
-    if(mDevideOpRecord){
+    if(mDeviceOpRecord){
         if(recording != NULL){
             clReleaseRecordingQCOM(recording);
         }
@@ -1330,7 +1330,7 @@ void OpenCLBackend::endRecord(cl_recording_qcom &recording, bool flag){
 #ifdef LOG_VERBOSE
     MNN_PRINT("start endRecord !\n");
 #endif
-    if(mDevideOpRecord){
+    if(mDeviceOpRecord){
         cl_int res = CL_SUCCESS;
         res = clEndRecordingQCOM(recording);
         MNN_CHECK_CL_SUCCESS(res, "clEndRecordingQCOM");
@@ -1349,7 +1349,7 @@ void OpenCLBackend::endRecord(cl_recording_qcom &recording, bool flag){
 }
 
 void OpenCLBackend::addRecord(cl_recording_qcom &record, std::vector<RecordUpdateInfo *>updateInfo){
-    if(mDevideOpRecord){
+    if(mDeviceOpRecord){
         RecordInfo info;
         info.record = record;
         for(int i = 0; i < updateInfo.size(); ++i) {
@@ -1369,7 +1369,7 @@ void OpenCLBackend::recordKernel2d(const std::shared_ptr<KernelWrap> &kernelW, c
     MNN_PRINT("start record2dKernel !\n");
 #endif
     cl_int res = CL_SUCCESS;
-    if(!mDevideOpRecord){
+    if(!mDeviceOpRecord){
         RecordInfo info;
         int recordNum = mRecordNums == mUseRecordableQueueSize ? 0 : mRecordNums;
         if(updateInfo != nullptr){
@@ -1439,7 +1439,7 @@ void OpenCLBackend::recordKernel3d(const std::shared_ptr<KernelWrap> &kernelW, c
     for (size_t i = 0; i < 3; ++i) {
         internalGlobalWS[i] = ROUND_UP(gws[i], std::max((uint32_t)1, lws[i]));
     }
-    if(!mDevideOpRecord){
+    if(!mDeviceOpRecord){
         RecordInfo info;
         int recordNum = mRecordNums == mUseRecordableQueueSize ? 0 : mRecordNums;
         if(updateInfo != nullptr){
@@ -1547,12 +1547,12 @@ void OpenCLBackend::setGpuMode(const int cl_mode_num) {
     mUseRecordQueue = ((cl_mode_num & MNN_GPU_RECORD_OP) || (cl_mode_num & MNN_GPU_RECORD_BATCH)) && mOpenCLRuntime->isSupportRecordQueue() && (mUseRecordableQueueSize > 0);
     isSet = (cl_mode_num & MNN_GPU_RECORD_OP);
     if(isSet) {
-        mDevideOpRecord = true;
+        mDeviceOpRecord = true;
         totalSet++;
     }
     isSet = (cl_mode_num & MNN_GPU_RECORD_BATCH);
     if(isSet) {
-        mDevideOpRecord = false;
+        mDeviceOpRecord = false;
         totalSet++;
     }
     if(totalSet > 1) {

@@ -1575,6 +1575,7 @@ ErrorCode AttentionBufExecution::onResize(const std::vector<Tensor *> &inputs, c
                     mLongPrefill = tuneInfo.first[0];
                 } else{
                     if (mOpenCLBackend->getCLTuneLevel() == Heavy || mOpenCLBackend->getCLTuneLevel() == Wide){
+                        setRecordClose closeRecord(mOpenCLBackend);
                         // tunning choose use witch preill
                         prefillResize(inputs, outputs);
                         auto shortPrefillTime = getExecuteTime();

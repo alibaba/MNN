@@ -1008,6 +1008,7 @@ ErrorCode ConvBufLowMemoryExecution::onResize(const std::vector<Tensor *> &input
                     mUseFPWeight = tuneInfo.first[0];
                 } else{
                     if((mOpenCLBackend->getCLTuneLevel() == Heavy || mOpenCLBackend->getCLTuneLevel() == Wide)){
+                        setRecordClose closeRecord(mOpenCLBackend);
                         tuneGemmLowMemory(input, output);
                         auto shortBatchTime = getExecuteTime();
                         mUseFPWeight = true;
