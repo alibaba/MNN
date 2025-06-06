@@ -29,18 +29,12 @@ table GemmInfo {
     paramInfo:[uint];
 }
 
-table PreParamInfo{
-    preParamName:string;
-    preParamData:uint;
-}
-
 table BackendInfo{
     mnnVersion:string;
     deviceName:string;
     programs:[Shader];
     tunings:[Autotuning];
     gemm:[GemmInfo];
-    preParam:[PreParamInfo];
 } 
 
 table Cache {

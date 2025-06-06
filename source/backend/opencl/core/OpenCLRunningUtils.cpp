@@ -633,20 +633,21 @@ bool localWSTune(const std::map<std::string, std::vector<std::pair<std::vector<u
     return true;
 }
 
-bool getPreParamInfo(const std::string preParamName, uint32_t *preParamData,  OpenCLRuntime *runtime){
-    auto& preParamInfo = runtime->preParamsMap();
-    if (preParamInfo.find(preParamName) != preParamInfo.end()) {
-        *preParamData = preParamInfo[preParamName];
+bool getTunedInfo(const std::string kernelName, const std::vector<uint32_t> &gws, std::pair<std::vector<uint32_t>, uint32_t> &tuneInfo, OpenCLRuntime *runtime){
+    auto& tunedLws = runtime->tunedLwsMap();
+    auto& tuneLws = runtime->getTuneLwsMap();
+    std::pair<std::string, std::vector<uint32_t>> info = std::make_pair(kernelName, gws);
+    if (tunedLws.find(info) != tunedLws.end()) {
+        tuneInfo = tunedLws[info];
         return true;
     }
-    return false;
+    return localWSTune(tuneLws, gws, kernelName, tuneInfo);
 }
 
-void setPreParamInfo(const std::string preParamName, uint32_t preParamData,  OpenCLRuntime *runtime){
-    auto& preParamInfo = runtime->preParamsMap();
-    if (preParamInfo.find(preParamName) == preParamInfo.end()) {
-        preParamInfo.insert(std::make_pair(preParamName, preParamData));
-    }
+void setTunedInfo(const std::string kernelName, const std::vector<uint32_t> &gws, std::pair<std::vector<uint32_t>, uint32_t> &tuneInfo, OpenCLRuntime *runtime){
+    auto& tunedLws = runtime->tunedLwsMap();
+    std::pair<std::string, std::vector<uint32_t>> info = std::make_pair(kernelName, gws);
+    tunedLws.insert(std::make_pair(info, std::make_pair(tuneInfo.first, tuneInfo.second)));
 }
 
 } // namespace OpenCL

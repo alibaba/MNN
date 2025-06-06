@@ -10,7 +10,6 @@
 #include <iostream>
 #include <sstream>
 #include <unordered_set>
-
 #include <MNN/AutoTime.hpp>
 #include <MNN/expr/ExecutorScope.hpp>
 #include "cpp/ExprDebug.hpp"
@@ -261,7 +260,6 @@ void Llm::load() {
     logitsLastIdx = _var<int>({-1}, {1});
     logitsAllIdx = _var<int>({0}, {1});
     // index match with seq_len
-    mInputsEmbedsVarVec.resize(decode_type_num);
     mAttentionMaskVarVec.resize(decode_type_num);
     mPositionIdsVarVec.resize(decode_type_num);
     for(int i = 0; i < decode_type_num; i++) {
@@ -281,7 +279,6 @@ void Llm::load() {
         }
         
         mPositionIdsVarVec[i] = _Input({index}, NCHW, halide_type_of<int>());
-        mInputsEmbedsVarVec[i] = _Input({index, 1, mConfig->hidden_size()}, NCHW);
     }
 }
 
@@ -345,6 +342,8 @@ void Llm::tuning(TuneType type, std::vector<int> candidates) {
     }
     mCurrentModules     = mDecodeModules;
     int decode_seq = 1;
+    // Set to decode mode
+    mContext->gen_seq_len = 1;
     if(mLookAhead) {
         // start autoregressive decoding
         std::vector<int> input_ids = {0};
@@ -402,9 +401,10 @@ void Llm::setKVCacheInfo(size_t add, size_t remove, int* reserve, int n_reserve)
     mMeta->add = add;
 }
 
-Express::VARP Llm::forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos) {
+std::vector<Express::VARP> Llm::forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos) {
     VARP logits;
     Express::VARP logitsIndex;
+    bool inDecode = mContext->gen_seq_len > 0;
     // TODO : to be improved
     if (mConfig->all_logits() || (mLookAhead && mCurrentModules.size() > 1)) {
         logitsIndex = logitsAllIdx;
@@ -420,7 +420,7 @@ Express::VARP Llm::forwardRaw(Express::VARP hiddenState, Express::VARP mask, Exp
         outputs = mCurrentModules.back()->onForward({hiddenState, mask, inputPos, logitsIndex});
     }
     if (outputs.empty()) {
-        return nullptr;
+        return outputs;
     }
     logits = outputs[0];
 
@@ -477,9 +477,8 @@ Express::VARP Llm::forwardRaw(Express::VARP hiddenState, Express::VARP mask, Exp
         }
     }
 #endif
-    
     mMeta->sync();
-    return logits;
+    return outputs;
 }
 
 VARP Llm::forward(const std::vector<int>& input_ids, bool is_prefill) {
@@ -488,11 +487,15 @@ VARP Llm::forward(const std::vector<int>& input_ids, bool is_prefill) {
 }
 
 VARP Llm::forward(MNN::Express::VARP input_embeds) {
-    int seq_len         = input_embeds->getInfo()->dim[0]; 
+    int seq_len         = input_embeds->getInfo()->dim[mSeqLenIndex];
     mMeta->add          = seq_len;
     auto attention_mask = gen_attention_mask(seq_len);
     auto position_ids = gen_position_ids(seq_len);
-    auto logits = forwardRaw(input_embeds, attention_mask, position_ids);
+    auto out = forwardRaw(input_embeds, attention_mask, position_ids);
+    if (out.empty()) {
+        return nullptr;
+    }
+    auto logits = out[0];
     mContext->all_seq_len += seq_len;
     mContext->gen_seq_len++;
     return logits;
@@ -511,6 +514,7 @@ void Llm::reset() {
     mContext->output_tokens.clear();
     mContext->history_tokens.clear();
     mContext->all_seq_len = 0;
+    mMeta->remove = mMeta->previous;
 }
 
 void Llm::generate_init(std::ostream* os, const char* end_with) {
@@ -728,16 +732,7 @@ VARP Llm::embedding(const std::vector<int>& input_ids) {
     AUTOTIME;
     int hidden_size = mConfig->hidden_size();
     int seq_len = static_cast<int>(input_ids.size());
-    if (mInputsEmbedsVarVec.size() > 0) {
-        if(seq_len == 1) {
-            mDiskEmbedding->embedding(input_ids, mInputsEmbedsVarVec[0]->writeMap<float>());
-            return mInputsEmbedsVarVec[0];
-        }
-        if(mInputsEmbedsVarVec.size() > 1 && seq_len == mDraftLength) {
-            mDiskEmbedding->embedding(input_ids, mInputsEmbedsVarVec[1]->writeMap<float>());
-            return mInputsEmbedsVarVec[1];
-        }
-    }
+
     VARP res = _Input({seq_len, 1, hidden_size}, NCHW);
     // disk embedding to save memory
     mDiskEmbedding->embedding(input_ids, res->writeMap<float>());
@@ -755,27 +750,24 @@ std::string Llm::tokenizer_decode(int id) {
 }
 
 VARP Llm::gen_attention_mask(int seq_len) {
-    bool useSquareMask = false;
     int kv_seq_len = mContext->all_seq_len + seq_len;
     if (mConfig->attention_mask() == "float") {
-        // currently only metal supoort square mask
-        useSquareMask = (mConfig->backend_type() == "metal");
-        if(useSquareMask) {
-            kv_seq_len = seq_len;
-        }
-        if(seq_len == 1) {
-            return mAttentionMaskVarVec[0];
-        }
-        if (useSquareMask && mAttentionMaskVarVec.size() > 1 && seq_len == mDraftLength) {
-            return mAttentionMaskVarVec[1];
+        // Use square mask
+        kv_seq_len = seq_len;
+        if (mAttentionMaskVarVec.size() > 0) {
+            if(seq_len == 1) {
+                return mAttentionMaskVarVec[0];
+            }
+            if (mAttentionMaskVarVec.size() > 1 && seq_len == mDraftLength) {
+                return mAttentionMaskVarVec[1];
+            }
         }
         
         attentionMask = _Input({1, 1, seq_len, kv_seq_len}, NCHW, halide_type_of<float>());
         auto ptr = attentionMask->writeMap<float>();
         for (int i = 0; i < seq_len; i++) {
             for (int j = 0; j < kv_seq_len; j++) {
-                int row = useSquareMask ? i : i + mContext->all_seq_len;
-                ptr[kv_seq_len * i + j] = (j > row) * std::numeric_limits<float>::lowest();
+                ptr[kv_seq_len * i + j] = (j > i) * std::numeric_limits<float>::lowest();
             }
         }
         return attentionMask;

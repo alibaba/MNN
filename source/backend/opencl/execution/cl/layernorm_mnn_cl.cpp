@@ -5,6 +5,7 @@ const char* layernorm =
 "#pragma OPENCL EXTENSION cl_khr_fp16 : enable\n"
 "#endif\n"
 "__constant sampler_t SAMPLER=CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_CLAMP | CLK_FILTER_NEAREST;\n"
+"#ifdef LOCAL_SIZE\n"
 "__kernel void layernorm_w(__private int global_dim0,__private int global_dim1,__private int global_dim2,\n"
 " __read_only image2d_t input,\n"
 " __write_only image2d_t output,\n"
@@ -245,5 +246,6 @@ const char* layernorm =
 " }\n"
 " }\n"
 "}\n"
+"#endif\n"
 ;
 }

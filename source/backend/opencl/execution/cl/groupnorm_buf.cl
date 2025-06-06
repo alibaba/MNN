@@ -2,6 +2,7 @@
 #pragma OPENCL EXTENSION cl_khr_fp16 : enable
 #endif
 
+#if LOCAL_SIZE > 1
 __kernel void groupnorm_plain_buf(__private int global_dim0, __private int global_dim1, __private int global_dim2,
 #ifdef DOUBLE_INPUTS
                         __global const FLOAT * input0,
@@ -242,3 +243,4 @@ __kernel void groupnorm_plain_buf(__private int global_dim0, __private int globa
 #endif
     }
 }
+#endif

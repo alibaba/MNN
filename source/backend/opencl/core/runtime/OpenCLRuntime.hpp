@@ -128,6 +128,7 @@ public:
     void pushEvent(std::pair<std::string, cl::Event> data) {
         return mEvents.push_back(data);
     }
+    unsigned int getEventTime(cl::Event& event);
     void printEventTime();
     void clearEvent(){
         mKernelTime = 0;
@@ -142,8 +143,6 @@ public:
     
     unsigned int mKernelTime = 0;
     
-    
-    std::map<std::string, uint32_t>& preParamsMap();
     
     std::map<std::vector<uint32_t>, std::vector<uint32_t>>& tunedGemmParamsMap();
 
@@ -232,7 +231,6 @@ private:
     double mStartNanos;
     double mStopNanos;
 
-    std::map<std::string, uint32_t> mPreParams;
     std::map<std::vector<uint32_t>, std::vector<uint32_t>> mTunedGemmParams;
     std::map<std::pair<std::string, std::vector<uint32_t>>, std::pair<std::vector<uint32_t>,  uint32_t>> mTunedLws;
     std::map<std::string, std::vector<std::pair<std::vector<uint32_t>, std::pair<std::vector<uint32_t>,  uint32_t>>>> mTuneLws;

@@ -73,14 +73,17 @@ python llmexport.py \
 - 使用`--lm_quant_bit`来制定lm_head层权重的量化bit数，不指定则使用`--quant_bit`的量化bit数
 
 ### 参数
+执行 `python llmexport.py -h` 可查看参数：
 ```
-usage: llmexport.py [-h] --path PATH [--type TYPE] [--lora_path LORA_PATH] [--dst_path DST_PATH] [--test TEST] [--export EXPORT]
-                    [--quant_bit QUANT_BIT] [--quant_block QUANT_BLOCK] [--lm_quant_bit LM_QUANT_BIT]
-                    [--mnnconvert MNNCONVERT]
+usage: llmexport.py [-h] --path PATH [--type TYPE] [--tokenizer_path TOKENIZER_PATH] [--lora_path LORA_PATH]
+                    [--gptq_path GPTQ_PATH] [--dst_path DST_PATH] [--verbose] [--test TEST] [--export EXPORT]
+                    [--onnx_slim] [--quant_bit QUANT_BIT] [--quant_block QUANT_BLOCK]
+                    [--lm_quant_bit LM_QUANT_BIT] [--mnnconvert MNNCONVERT] [--ppl] [--awq] [--sym] [--seperate_embed]
+                    [--lora_split]
 
 llm_exporter
 
-options:
+optional arguments:
   -h, --help            show this help message and exit
   --path PATH           path(`str` or `os.PathLike`):
                         Can be either:
@@ -88,19 +91,30 @@ options:
                         	- A path to a *directory* clone from repo like `../chatglm-6b`.
   --type TYPE           type(`str`, *optional*):
                         	The pretrain llm model type.
+  --tokenizer_path TOKENIZER_PATH
+                        tokenizer path, defaut is `None` mean using `--path` value.
   --lora_path LORA_PATH
                         lora path, defaut is `None` mean not apply lora.
+  --gptq_path GPTQ_PATH
+                        gptq path, defaut is `None` mean not apply gptq.
   --dst_path DST_PATH   export onnx/mnn model to path, defaut is `./model`.
+  --verbose             Whether or not to print verbose.
   --test TEST           test model inference with query `TEST`.
   --export EXPORT       export model to an onnx/mnn model.
+  --onnx_slim           Whether or not to use onnx-slim.
   --quant_bit QUANT_BIT
                         mnn quant bit, 4 or 8, default is 4.
   --quant_block QUANT_BLOCK
-                        mnn quant block, default is 0 mean channle-wise.
+                        mnn quant block, 0 mean channle-wise, default is 128.
   --lm_quant_bit LM_QUANT_BIT
                         mnn lm_head quant bit, 4 or 8, default is `quant_bit`.
   --mnnconvert MNNCONVERT
                         local mnnconvert path, if invalid, using pymnn.
+  --ppl                 Whether or not to get all logits of input tokens.
+  --awq                 Whether or not to use awq quant.
+  --sym                 Whether or not to using symmetric quant (without zeropoint), defualt is False.
+  --seperate_embed      For lm and embed shared model, whether or not to sepearte embed to avoid quant, defualt is False, if True, embed weight will be seperate to embeddingbf16.bin.
+  --lora_split          Whether or not export lora split, defualt is False.
 ```
 
 ### 权重读取

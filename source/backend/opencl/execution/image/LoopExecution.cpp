@@ -519,7 +519,7 @@ LoopBinaryExecution::LoopBinaryExecution(const LoopParam *loop, const std::strin
     : CommonExecution(bn, op) {
     mLoop = loop;
     mTensors.resize(mLoop->tensorNumber());
-    mBuildOptions.emplace("-DLOOP_BINARY_OPERATOR=" + compute);
+    mBuildOptions.emplace("-DOPERATOR=" + compute);
 }
 
 ErrorCode LoopBinaryExecution::cumSumOnEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
@@ -569,7 +569,6 @@ ErrorCode LoopBinaryExecution::cumSumOnEncode(const std::vector<Tensor *> &input
     {
         Unit unit;
         std::set<std::string> buildOptions = mBuildOptions;
-        buildOptions.emplace("-DCOMPUTE_CUMSUM");
         unit.kernel = runTime->buildKernel("loop", "loop_cumsum", buildOptions, mOpenCLBackend->getPrecision(), mTensors[cmd->indexes()->data()[1]], mTensors[cmd->indexes()->data()[0]]);
         uint32_t mMaxWorkGroupSize = static_cast<uint32_t>(runTime->getMaxWorkGroupSize(unit.kernel));
         

@@ -1,0 +1,15 @@
+{
+    "llm_model": "llm.mnn",
+    "llm_weight": "llm.mnn.weight",
+    "backend_type": "metal",
+    "thread_num": 4,
+    "precision": "low",
+    "memory": "low",
+    "system_prompt": "You are a helpful assistant.",
+    "speculative_type": "lookahead",
+    "draft_predict_length": 8,
+    "draft_match_strictness": "low",
+    "ngram_match_maxlen": 8,
+    "draft_selection_rule": "fcfs",
+    "ngram_update": false
+}
