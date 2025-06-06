@@ -39,6 +39,27 @@ class ChatPresenter(
     private lateinit var chatSession: ChatSession
     private val presenterScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var generateListener:GenerateListener? = null
+    
+    /**
+     * 获取LLM会话实例
+     * 为api.openai模块提供安全的访问方式
+     * @return LlmSession实例，如果chatSession未初始化或不是LlmSession类型则返回null
+     */
+    fun getLlmSession(): com.alibaba.mnnllm.android.llm.LlmSession? {
+        return if (::chatSession.isInitialized && chatSession is com.alibaba.mnnllm.android.llm.LlmSession) {
+            chatSession as com.alibaba.mnnllm.android.llm.LlmSession
+        } else {
+            null
+        }
+    }
+    
+    /**
+     * 获取当前会话ID
+     * @return 会话ID，如果未设置则返回null
+     */
+    fun getSessionId(): String? {
+        return sessionId
+    }
 
     init {
         chatDataManager = ChatDataManager.getInstance(chatActivity)

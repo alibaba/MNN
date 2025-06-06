@@ -13,6 +13,17 @@
         android:summary="@string/stop_download_reason"
         android:defaultValue="true" />
 
+    <SwitchPreferenceCompat
+        android:key="enable_api_service"
+        android:title="@string/enable_api_service"
+        android:summary="@string/enable_api_service_summary"
+        android:defaultValue="false" />
+
+    <Preference
+        android:key="reset_api_config"
+        android:title="@string/reset_api_config"
+        android:summary="@string/reset_api_config_summary" />
+
     <ListPreference
         android:key="diffusion_memory_mode"
         android:title="@string/diffusion_memory_mode"

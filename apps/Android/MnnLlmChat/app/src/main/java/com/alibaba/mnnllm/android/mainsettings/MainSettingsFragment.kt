@@ -12,6 +12,8 @@ import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.update.UpdateChecker
 import com.alibaba.mnnllm.android.utils.AppUtils
 import com.alibaba.mnnllm.android.utils.PreferenceUtils
+import com.alibaba.mnnllm.api.openai.service.ApiServerConfig
+import com.alibaba.mnnllm.api.openai.manager.ApiServiceManager
 
 class MainSettingsFragment : PreferenceFragmentCompat() {
 
@@ -40,6 +42,31 @@ class MainSettingsFragment : PreferenceFragmentCompat() {
                 updateChecker?.checkForUpdates(requireContext(), true)
                 true
             }
+        }
+
+        // Setup reset API config preference
+        val resetApiConfigPref = findPreference<Preference>("reset_api_config")
+        resetApiConfigPref?.setOnPreferenceClickListener {
+            // Show confirmation dialog
+            androidx.appcompat.app.AlertDialog.Builder(requireContext())
+                .setTitle(R.string.reset_api_config)
+                .setMessage("确定要重置API配置吗？这将恢复所有API设置为默认值。")
+                .setPositiveButton(android.R.string.ok) { _, _ ->
+                    // Reset API configuration
+                    ApiServerConfig.resetToDefault(requireContext())
+                    
+                    // If API service is running, restart it with new config
+                    if (MainSettings.isApiServiceEnabled(requireContext()) && ApiServiceManager.isApiServiceRunning()) {
+                        ApiServiceManager.stopApiService(requireContext())
+                        ApiServiceManager.startApiService(requireContext())
+                        Toast.makeText(requireContext(), "API配置已重置，服务已重启", Toast.LENGTH_LONG).show()
+                    } else {
+                        Toast.makeText(requireContext(), "API配置已重置为默认值", Toast.LENGTH_LONG).show()
+                    }
+                }
+                .setNegativeButton(android.R.string.cancel, null)
+                .show()
+            true
         }
 
 

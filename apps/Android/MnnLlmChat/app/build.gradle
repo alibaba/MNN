@@ -1,6 +1,8 @@
 plugins {
     id 'com.android.application'
     id 'org.jetbrains.kotlin.android'
+    id 'org.jetbrains.kotlin.plugin.serialization' version '2.1.21'
+
 }
 
 android {
@@ -62,6 +64,16 @@ android {
     buildFeatures {
         viewBinding true
     }
+
+    packagingOptions {
+        resources.excludes.addAll([
+                'META-INF/INDEX.LIST',
+                'META-INF/io.netty.versions.properties',
+                'META-INF/DEPENDENCIES',
+                'META-INF/LICENSE',
+                'META-INF/MANIFEST.MF'
+        ])
+    }
 }
 
 dependencies {
@@ -99,4 +111,36 @@ dependencies {
     debugImplementation "androidx.compose.ui:ui-tooling:$jetpack_compose_verion"
     implementation 'com.journeyapps:zxing-android-embedded:4.3.0'
     implementation "androidx.compose.material3:material3:1.3.1"
+
+    def ktor_version = '3.1.3' // Ktor 版本
+    // Koin 依赖
+    implementation "io.insert-koin:koin-android:3.5.0"
+    implementation "io.insert-koin:koin-core:3.5.0"
+
+    // Ktor 相关依赖
+    implementation "io.ktor:ktor-client-android:${ktor_version}"
+    implementation "io.ktor:ktor-server-auth:${ktor_version}"
+    implementation "io.ktor:ktor-server-call-logging:${ktor_version}"
+    implementation "io.ktor:ktor-server-content-negotiation:${ktor_version}"
+    implementation "io.ktor:ktor-server-cors:${ktor_version}"
+    implementation "io.ktor:ktor-server-double-receive:${ktor_version}"
+    implementation "io.ktor:ktor-server-netty:${ktor_version}"
+    implementation "io.ktor:ktor-server-request-validation:${ktor_version}"
+    implementation "io.ktor:ktor-server-sse:${ktor_version}"
+    implementation "io.ktor:ktor-server-status-pages:${ktor_version}"
+    implementation "io.ktor:ktor-serialization-kotlinx-json:${ktor_version}"
+    implementation "io.ktor:ktor-utils:${ktor_version}"
+
+    // Kotlin 协程相关依赖
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2"
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2"
+
+    // Kotlin 序列化相关依赖
+    implementation "org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1"
+
+    // 日志相关依赖
+    implementation "com.jakewharton.timber:timber:5.0.1"
+
+
+
 }

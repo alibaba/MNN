@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/text_log_item"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:padding="4dp"
+    android:textAppearance="?attr/textAppearanceBodySmall"
+    android:fontFamily="monospace"
+    android:textIsSelectable="true"
+    android:textColor="?attr/colorOnSurface"
+    android:background="?attr/selectableItemBackground"
+    android:foreground="?attr/selectableItemBackground"
+    android:clickable="false"
+    android:focusable="false" />

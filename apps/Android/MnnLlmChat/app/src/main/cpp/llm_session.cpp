@@ -238,4 +238,92 @@ void LlmSession::enableAudioOutput(bool enable) {
     enable_audio_output_ = enable;
 }
 
+
+    const MNN::Transformer::LlmContext * LlmSession::ResponseWithHistory(
+            const std::vector<PromptItem>& full_history,
+            const std::function<bool(const std::string&, bool is_eop)>& on_progress) {
+        if (llm_ == nullptr) {
+            return nullptr;
+        }
+
+
+        // 创建临时历史，不修改成员变量
+        std::vector<PromptItem> temp_history;
+
+        // 直接使用传入的完整历史，不保存到成员变量
+        temp_history.insert(temp_history.end(), full_history.begin(), full_history.end());
+
+        int current_size = 0;
+        stop_requested_ = false;
+        generate_text_end_ = false;
+        std::stringstream response_buffer;
+
+        // 流处理逻辑，但不修改 history_ 成员
+        mls::Utf8StreamProcessor processor([&response_buffer, &on_progress, this](const std::string& utf8Char) {
+            bool is_eop = utf8Char.find("<eop>") != std::string::npos;
+            if (!is_eop) {
+                response_buffer << utf8Char;
+            } else {
+                std::string response_result = response_buffer.str();
+                MNN_DEBUG("ResponseWithHistory Result %s", response_result.c_str());
+                response_string_for_debug = response_result;
+                if (is_r1_) {
+                    response_result = getR1AssistantString(response_result);
+                }
+                response_result = trimLeadingWhitespace(deleteThinkPart(response_result));
+                // 注意：这里不再调用 history_.emplace_back() 保存历史
+            }
+            if (on_progress) {
+                bool user_stop_requested = on_progress(utf8Char, is_eop);
+                generate_text_end_ = is_eop;
+                stop_requested_ = user_stop_requested;
+            }
+        });
+
+        LlmStreamBuffer stream_buffer{[&processor](const char* str, size_t len){
+            processor.processStream(str, len);
+        }};
+        std::ostream output_ostream(&stream_buffer);
+
+
+
+        MNN_DEBUG("submitNative history count %zu", temp_history.size());
+        prompt_string_for_debug.clear(); // 清空旧数据以避免重复追加
+        for (const auto& it : temp_history) {
+            // 添加角色标签和内容，例如 "[user]: Hello"
+            prompt_string_for_debug += "[" + it.first + "]: " + it.second + "\n";
+        }
+        MNN_DEBUG("submitNative prompt_string_for_debug:\n%s\nmax_new_tokens_:%d", prompt_string_for_debug.c_str(), max_new_tokens_);
+        // 使用临时历史进行推理
+        llm_->response(temp_history, &output_ostream, "<eop>", 1);
+        current_size++;
+
+        while (!stop_requested_ && !generate_text_end_ && current_size < max_new_tokens_) {
+            llm_->generate(1);
+            current_size++;
+        }
+
+        if (!stop_requested_ && enable_audio_output_) {
+            llm_->generateWavform();
+        }
+
+        return llm_->getContext();
+    }
+
+    void LlmSession::clearHistory(int numToKeep) {
+        if (numToKeep < 0) {
+            numToKeep = 0;
+        }
+        if (history_.size() > static_cast<size_t>(numToKeep)) {
+            history_.erase(history_.begin() + numToKeep, history_.end());
+        }
+        // 清空相关缓存
+        prompt_string_for_debug.clear();
+        //response_string_for_debug.clear();
+    }
+
+    std::string LlmSession::getSystemPrompt() const {
+        return system_prompt_;
+    }
+
 }

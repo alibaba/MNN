@@ -33,6 +33,11 @@ object MainSettings {
         return sharedPreferences.getBoolean("stop_download_on_chat", true)
     }
 
+    fun isApiServiceEnabled(context: Context): Boolean {
+        val sharedPreferences = PreferenceManager.getDefaultSharedPreferences(context)
+        return sharedPreferences.getBoolean("enable_api_service", false)
+    }
+
     fun getDiffusionMemoryMode(context: Context): String {
         val sharedPreferences = PreferenceManager.getDefaultSharedPreferences(context)
         return sharedPreferences.getString("diffusion_memory_mode", DiffusionMemoryMode.MEMORY_MODE_SAVING.value)!!
