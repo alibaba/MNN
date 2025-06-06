@@ -13,6 +13,9 @@
 #include <sstream>
 #include <stdlib.h>
 #include <initializer_list>
+#ifdef LLM_SUPPORT_AUDIO
+#include "audio/audio.hpp"
+#endif
 using namespace MNN::Transformer;
 
 static void tuning_prepare(Llm* llm) {
@@ -77,6 +80,19 @@ static int benchmark(Llm* llm, const std::vector<std::string>& prompts, int max_
     if (max_token_number > 0) {
         llm->set_config("{\"max_new_tokens\":1}");
     }
+#ifdef LLM_SUPPORT_AUDIO
+    std::vector<float> waveform;
+    llm->setWavformCallback([&](const float* ptr, size_t size, bool last_chunk) {
+        waveform.reserve(waveform.size() + size);
+        waveform.insert(waveform.end(), ptr, ptr + size);
+        if (last_chunk) {
+            auto waveform_var = MNN::Express::_Const(waveform.data(), {(int)waveform.size()}, MNN::Express::NCHW, halide_type_of<float>());
+            MNN::AUDIO::save("output.wav", waveform_var, 24000);
+            waveform.clear();
+        }
+        return true;
+    });
+#endif
     for (int i = 0; i < prompts.size(); i++) {
         const auto& prompt = prompts[i];
 
@@ -96,7 +112,6 @@ static int benchmark(Llm* llm, const std::vector<std::string>& prompts, int max_
         } else {
             llm->response(prompt);
         }
-        llm->reset();
         prompt_len += context->prompt_len;
         decode_len += context->gen_seq_len;
         vision_time += context->vision_us;
@@ -105,6 +120,8 @@ static int benchmark(Llm* llm, const std::vector<std::string>& prompts, int max_
         decode_time += context->decode_us;
         sample_time += context->sample_us;
     }
+    llm->generateWavform();
+
     float vision_s = vision_time / 1e6;
     float audio_s = audio_time / 1e6;
     float prefill_s = prefill_time / 1e6;
@@ -170,12 +187,20 @@ static int eval(Llm* llm, std::string prompt_file, int max_token_number) {
     std::ifstream prompt_fs(prompt_file);
     std::vector<std::string> prompts;
     std::string prompt;
+//#define LLM_DEMO_ONELINE
+#ifdef LLM_DEMO_ONELINE
+    std::ostringstream tempOs;
+    tempOs << prompt_fs.rdbuf();
+    prompt = tempOs.str();
+    prompts = {prompt};
+#else
     while (std::getline(prompt_fs, prompt)) {
         if (prompt.back() == '\r') {
             prompt.pop_back();
         }
         prompts.push_back(prompt);
     }
+#endif
     prompt_fs.close();
     if (prompts.empty()) {
         return 1;
@@ -239,6 +264,16 @@ int main(int argc, const char* argv[]) {
     if (argc >= 4) {
         std::istringstream os(argv[3]);
         os >> max_token_number;
+    }
+    if (argc >= 5) {
+        MNN_PRINT("Set not thinking, only valid for Qwen3\n");
+        llm->set_config(R"({
+            "jinja": {
+                "context": {
+                    "enable_thinking":false
+                }
+            }
+        })");
     }
     std::string prompt_file = argv[2];
     return eval(llm.get(), prompt_file, max_token_number);

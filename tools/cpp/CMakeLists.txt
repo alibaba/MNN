@@ -17,6 +17,10 @@ IF(CMAKE_SYSTEM_NAME MATCHES "^Android")
     target_link_libraries(GpuInterTest.out android)
     list(APPEND MNN_CPP_TOOLS GpuInterTest.out)
 ENDIF()
+
+add_executable(OpenCLProgramBuildTest.out ${CMAKE_CURRENT_LIST_DIR}/OpenCLProgramBuildTest.cpp )
+list(APPEND MNN_CPP_TOOLS OpenCLProgramBuildTest.out)
+
 add_executable(SequenceModuleTest.out ${CMAKE_CURRENT_LIST_DIR}/SequenceModuleTest.cpp)
 list(APPEND MNN_CPP_TOOLS SequenceModuleTest.out)
 

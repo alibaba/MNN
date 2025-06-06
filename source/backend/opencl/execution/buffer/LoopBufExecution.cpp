@@ -283,7 +283,7 @@ LoopBinaryBufExecution::LoopBinaryBufExecution(const LoopParam *loop, const std:
     : CommonExecution(bn, op) {
     mLoop = loop;
     mTensors.resize(mLoop->tensorNumber());
-    mBuildOptions.emplace("-DLOOP_BINARY_OPERATOR=" + compute);
+    mBuildOptions.emplace("-DOPERATOR=" + compute);
 }
 
 ErrorCode LoopBinaryBufExecution::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {

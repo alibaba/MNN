@@ -1,0 +1,26 @@
+{
+    "llm_model": "llm.mnn",
+    "llm_weight": "llm.mnn.weight",
+    "backend_type": "cpu",
+    "thread_num": 4,
+    "precision": "low",
+    "memory": "low",
+    "system_prompt": "You are Qwen, a virtual human developed by the Qwen Team, Alibaba Group, capable of perceiving auditory and visual inputs, as well as generating text and speech.",
+    "talker_max_new_tokens": 2048,
+    "talker_speaker": "Chelsie",
+    "dit_steps": 5,
+    "dit_solver": 1,
+    "mllm": {
+        "backend_type": "cpu",
+        "thread_num": 4,
+        "precision": "normal",
+        "memory": "low"
+    },
+    "reuse_kv":false,
+    "speculative_type": "lookahead",
+    "draft_predict_length": 8,
+    "draft_match_strictness": "low",
+    "ngram_match_maxlen": 8,
+    "draft_selection_rule": "fcfs",
+    "ngram_update": false
+}

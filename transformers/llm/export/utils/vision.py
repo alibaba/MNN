@@ -942,9 +942,8 @@ class Idefics3Vision(Vision):
         image = convert_to_rgb(image)
         image = to_numpy_array(image)
         resized_height, resized_width = self.get_size(self.image_height, self.image_width)
-        resized_height, resized_width = 1, 1
         format = infer_channel_dimension_format(image)
-        resample = PILImageResampling.BICUBIC
+        resample = PILImageResampling.LANCZOS
         global_image = resize(image, size=(self.patch_size, self.patch_size), resample=resample, input_data_format=format)
         def preprocess(image):
             image = rescale(image, scale=1 / 255.0, input_data_format=format)

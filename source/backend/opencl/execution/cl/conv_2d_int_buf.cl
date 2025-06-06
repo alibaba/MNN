@@ -23,7 +23,7 @@
 __kernel
 void conv_2d_int_c4h1w1(GLOBAL_SIZE_2_DIMS
                       __global const FLOAT *input,
-#if (defined USE_LOW_BIT_WEIGHT_INT8)
+#if QUANT_BIT == 8
                       __global const char *weight,
 #else
                       __global const uchar *weight,
@@ -88,7 +88,7 @@ void conv_2d_int_c4h1w1(GLOBAL_SIZE_2_DIMS
                 
                 const int filter_w_inc = (ix-in_w_idx_start)/dilate_hw.y;
 
-#if (defined USE_LOW_BIT_WEIGHT_INT8)
+#if QUANT_BIT == 8
                 char4 charWeight0 = vload4(filter_w_inc, weight+weight_offset);
                 char4 charWeight1 = vload4(filter_w_inc, weight+weight_offset+weight_oc_offset);
                 char4 charWeight2 = vload4(filter_w_inc, weight+weight_offset+weight_oc_offset*2);
@@ -155,7 +155,7 @@ void conv_2d_int_c4h1w1(GLOBAL_SIZE_2_DIMS
 __kernel
 void conv_2d_int_c4h1w2(GLOBAL_SIZE_2_DIMS
                       __global const FLOAT *input,
-#if (defined USE_LOW_BIT_WEIGHT_INT8)
+#if QUANT_BIT == 8
                       __global const char *weight,
 #else
                       __global const uchar *weight,
@@ -224,7 +224,7 @@ void conv_2d_int_c4h1w2(GLOBAL_SIZE_2_DIMS
                 COMPUTE_FLOAT4 in0 = CONVERT_COMPUTE_FLOAT4((in_w0_idx < 0 || in_w0_idx >= in_hw.y) ? (FLOAT4)0 : vload4(in_w0_idx, input+inp_offset_base));
                 COMPUTE_FLOAT4 in1 = CONVERT_COMPUTE_FLOAT4((in_w1_idx < 0 || in_w1_idx >= in_hw.y) ? (FLOAT4)0 : vload4(in_w1_idx, input+inp_offset_base));
                 
-#if (defined USE_LOW_BIT_WEIGHT_INT8)
+#if QUANT_BIT == 8
                 char4 charWeight0 = vload4(0, weight+weight_offset);
                 char4 charWeight1 = vload4(0, weight+weight_offset+weight_oc_offset);
                 char4 charWeight2 = vload4(0, weight+weight_offset+weight_oc_offset*2);
@@ -303,7 +303,7 @@ void conv_2d_int_c4h1w2(GLOBAL_SIZE_2_DIMS
 __kernel
 void conv_2d_int_c4h1w4(GLOBAL_SIZE_2_DIMS
                       __global const FLOAT *input,
-#if (defined USE_LOW_BIT_WEIGHT_INT8)
+#if QUANT_BIT == 8
                       __global const char *weight,
 #else
                       __global const uchar *weight,
@@ -380,7 +380,7 @@ void conv_2d_int_c4h1w4(GLOBAL_SIZE_2_DIMS
                 COMPUTE_FLOAT4 in2 = CONVERT_COMPUTE_FLOAT4((in_w2_idx < 0 || in_w2_idx >= in_hw.y) ? (FLOAT4)0 : vload4(in_w2_idx, input+inp_offset_base));
                 COMPUTE_FLOAT4 in3 = CONVERT_COMPUTE_FLOAT4((in_w3_idx < 0 || in_w3_idx >= in_hw.y) ? (FLOAT4)0 : vload4(in_w3_idx, input+inp_offset_base));
 
-#if (defined USE_LOW_BIT_WEIGHT_INT8)
+#if QUANT_BIT == 8
                 char4 charWeight0 = vload4(0, weight+weight_offset);
                 char4 charWeight1 = vload4(0, weight+weight_offset+weight_oc_offset);
                 char4 charWeight2 = vload4(0, weight+weight_offset+weight_oc_offset*2);
@@ -482,7 +482,7 @@ void conv_2d_int_c4h1w4(GLOBAL_SIZE_2_DIMS
 __kernel
 void conv_2d_int_c8h1w4(GLOBAL_SIZE_2_DIMS
                       __global const FLOAT *input,
-#if (defined USE_LOW_BIT_WEIGHT_INT8)
+#if QUANT_BIT == 8
                       __global const char *weight,
 #else
                       __global const uchar *weight,
@@ -579,7 +579,7 @@ void conv_2d_int_c8h1w4(GLOBAL_SIZE_2_DIMS
                 COMPUTE_FLOAT4 in2 = CONVERT_COMPUTE_FLOAT4((in_w2_idx < 0 || in_w2_idx >= in_hw.y) ? (FLOAT4)0 : vload4(in_w2_idx, input+inp_offset_base));
                 COMPUTE_FLOAT4 in3 = CONVERT_COMPUTE_FLOAT4((in_w3_idx < 0 || in_w3_idx >= in_hw.y) ? (FLOAT4)0 : vload4(in_w3_idx, input+inp_offset_base));
 
-#if (defined USE_LOW_BIT_WEIGHT_INT8)
+#if QUANT_BIT == 8
                 char4 charWeight0 = vload4(0, weight+weight_offset);
                 char4 charWeight1 = vload4(0, weight+weight_offset+weight_ic_offset);
                 char4 charWeight2 = vload4(0, weight+weight_offset+weight_ic_offset*2);
@@ -640,7 +640,7 @@ void conv_2d_int_c8h1w4(GLOBAL_SIZE_2_DIMS
                 out3 = mad(in3.z, weight2, out3);
                 out3 = mad(in3.w, weight3, out3);
                 
-#if (defined USE_LOW_BIT_WEIGHT_INT8)
+#if QUANT_BIT == 8
                 #ifdef CHANNEL_BOUNDARY_PROTECT
                 charWeight0 = out_c_idx_1 >= out_c_blocks ? (char4)0 : vload4(0, weight+weight_offset+weight_oc_offset);
                 charWeight1 = out_c_idx_1 >= out_c_blocks ? (char4)0 : vload4(0, weight+weight_offset+weight_oc_offset+weight_ic_offset);

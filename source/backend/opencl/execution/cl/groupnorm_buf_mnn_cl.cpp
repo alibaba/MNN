@@ -5,6 +5,7 @@ const char* groupnorm_buf =
 "#ifdef MNN_SUPPORT_FP16\n"
 "#pragma OPENCL EXTENSION cl_khr_fp16 : enable\n"
 "#endif\n"
+"#if LOCAL_SIZE>1\n"
 "__kernel void groupnorm_plain_buf(__private int global_dim0,__private int global_dim1,__private int global_dim2,\n"
 "#ifdef DOUBLE_INPUTS\n"
 " __global const FLOAT*input0,\n"
@@ -226,6 +227,7 @@ const char* groupnorm_buf =
 "#endif\n"
 " }\n"
 "}\n"
+"#endif\n"
 ;
 #endif
 }
