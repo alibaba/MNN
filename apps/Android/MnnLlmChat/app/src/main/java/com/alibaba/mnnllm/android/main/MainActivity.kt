@@ -24,6 +24,8 @@ import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.chat.ChatActivity
 import com.alibaba.mnnllm.android.history.ChatHistoryFragment
 import com.alibaba.mnnllm.android.mainsettings.MainSettings.isStopDownloadOnChatEnabled
+import com.alibaba.mnnllm.android.mainsettings.MainSettings.isApiServiceEnabled
+import com.alibaba.mnnllm.api.openai.manager.ApiServiceManager
 import com.alibaba.mnnllm.android.modelist.ModelListFragment
 import com.alibaba.mnnllm.android.update.UpdateChecker
 import com.alibaba.mnnllm.android.utils.GithubUtils
@@ -116,6 +118,8 @@ class MainActivity : AppCompatActivity() {
         drawerLayout = findViewById(R.id.drawer_layout)
         updateChecker = UpdateChecker(this)
         updateChecker!!.checkForUpdates(this, false)
+        
+
         toggle = ActionBarDrawerToggle(
             this, drawerLayout,
             toolbar,
@@ -249,6 +253,7 @@ class MainActivity : AppCompatActivity() {
         offsetChangedListener?.let {
             appBarLayout.removeOnOffsetChangedListener(it)
         }
+        
     }
 
     companion object {

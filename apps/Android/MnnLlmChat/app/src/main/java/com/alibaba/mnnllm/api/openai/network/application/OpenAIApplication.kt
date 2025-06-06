@@ -1,92 +1,106 @@
 package com.alibaba.mnnllm.api.openai.network.application
 
-import com.alibaba.mnnllm.android.llm.LlmSession
-import io.ktor.http.HttpHeaders
-import io.ktor.http.HttpMethod
-import io.ktor.serialization.kotlinx.json.json
+
+import android.content.Context
 import io.ktor.server.application.Application
-import io.ktor.server.application.ApplicationCallPipeline
-import io.ktor.server.application.install
+
 import io.ktor.server.engine.EmbeddedServer
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.netty.Netty
-import io.ktor.server.plugins.calllogging.CallLogging
-import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
-import io.ktor.server.plugins.cors.routing.CORS
-import io.ktor.server.plugins.doublereceive.DoubleReceive
-import io.ktor.server.request.httpMethod
-import io.ktor.server.request.receiveText
-import io.ktor.server.request.uri
-import io.ktor.util.flattenEntries
+
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+
 import timber.log.Timber
 import java.net.InetSocketAddress
 import java.net.Socket
-import kotlin.coroutines.coroutineContext
+import com.alibaba.mnnllm.api.openai.service.ApiServerConfig
+import com.alibaba.mnnllm.api.openai.manager.ServerEventManager
+import com.alibaba.mnnllm.api.openai.manager.ServerEventMonitor
+import com.alibaba.mnnllm.api.openai.network.logging.LogCollector
+import io.ktor.server.application.ApplicationStarted
 
 
-class OpenAIApplication(private val llmSession: LlmSession, private val lifecycleScope: CoroutineScope) {
+class OpenAIApplication(private val lifecycleScope: CoroutineScope, private val context: Context) {
     private val mutex = Mutex()
-    private var _running = false
-    var running: Boolean
-        get() = _running
-        private set(value) { _running = value }
-
-    private val port = 8080
     private var server: EmbeddedServer<*, *>? = null
-    private var serverJob: Job? = null
+    private val serverEventManager = ServerEventManager.getInstance()
+    
+    init {
+        // 初始化配置
+        ApiServerConfig.initializeConfig(context)
+        // 初始化日志收集器
+        LogCollector.getInstance().initialize()
+    }
 
     fun start() {
 
-            if (server != null) {
-                Timber.tag("Network").w("Server is already running")
+        if (server != null) {
+            Timber.tag("Network").w("Server is already running")
+            return
+        }
 
-            }
+        try {
+            // 从配置中获取端口和IP地址
+            val port = ApiServerConfig.getPort(context)
+            val ipAddress = ApiServerConfig.getIpAddress(context)
+            
+            Timber.tag("Network").i("Starting Ktor Server on $ipAddress:$port")
+            checkPortAvailability(port)
 
-            try {
-                Timber.tag("Network").i("Starting Ktor Server on Port: $port")
-                checkPortAvailability(port)
+            server = lifecycleScope.embeddedServer(
+                Netty,
+                port = port,
+                host = ipAddress,
+                module = { module(context, ipAddress, port) }
+            ).start(wait = false) // 不阻塞当前协程
+            
+            Timber.tag("Network").i("Server started successfully on $ipAddress:$port")
 
-                lifecycleScope.embeddedServer(
-                        Netty,
-                        port = 8080,
-                        host = "0.0.0.0",
-                        module = Application::module
-                ).start(wait = false) // 不阻塞当前协程
-
-              //  running = confirmServerStarted(port)
-                Timber.tag("Network").i("Server running: $running")
-
-            } catch (e: Exception) {
-                Timber.e(e, "Failed to start Ktor server")
-                stop()
-            }
-    }
-
-
-
-
-
-    fun stop() {
-        lifecycleScope.launch(Dispatchers.IO) {
-            mutex.withLock { stopInternal() }
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to start Ktor server")
+            stop()
         }
     }
 
 
-
-    fun isRunning(): Boolean = running.also {
-        Timber.tag("Network").i("Server is running: $running")
+    /**
+     * 停止服务器
+     * 
+     * 异步停止服务器并处理可能的取消情况
+     */
+    fun stop() {
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                mutex.withLock { 
+                    Timber.tag("Network").d("Acquired lock for server stop")
+                    stopInternal() 
+                }
+            } catch (e: Exception) {
+                Timber.tag("Network").e(e, "Failed to stop server due to lock acquisition failure")
+            }
+        }.invokeOnCompletion { cause ->
+            cause?.let {
+                Timber.tag("Network").w("Server stop job completed with exception: ${it.message}")
+            }
+        }
     }
 
-    fun getPort(): Int = port
+
+    fun isRunning(): Boolean = serverEventManager.isServerRunning().also {
+        Timber.tag("Network").i("Server is running: $it")
+    }
+    
+    fun isReady(): Boolean = serverEventManager.isServerReady()
+    
+    fun getServerState() = serverEventManager.getCurrentState()
+    
+    fun getServerInfo() = serverEventManager.getCurrentInfo()
+
+    fun getPort(): Int = ApiServerConfig.getPort(context)
 
     private fun checkPortAvailability(port: Int): Boolean {
         return try {
@@ -102,108 +116,39 @@ class OpenAIApplication(private val llmSession: LlmSession, private val lifecycl
         }
     }
 
-    private suspend fun confirmServerStarted(port: Int): Boolean {
-        repeat(5) {
-            try {
-                Socket().use { it.connect(InetSocketAddress("127.0.0.1", port), 1000) }
-                return true
-            } catch (_: Exception) {
-                delay(1000)
-            }
-        }
-        return false
-    }
 
-
-
-
-
-    private suspend fun healthCheckLoop() {
-        // 使用 coroutineContext.isActive 检查当前协程是否活跃
-        while (coroutineContext.isActive) {
-            delay(30_000)
-            if (!confirmServerAlive()) {
-                Timber.tag("ServerHealth").e("Server not responding")
-                stopInternal()
-                break
-            }
-        }
-    }
-
-
-    private fun confirmServerAlive(): Boolean = runCatching {
-        Socket().use { it.connect(InetSocketAddress("127.0.0.1", port), 1000) }
-        true
-    }.getOrElse { false }
-
-     suspend fun stopInternal() {
-
-
+    /**
+     * 内部方法，用于安全停止服务器
+     * 
+     * 处理服务器停止过程中的各种异常情况，包括协程取消
+     */
+    suspend fun stopInternal() {
         try {
-            server?.stopSuspend(gracePeriodMillis = 1000, timeoutMillis = 5000)
+            Timber.tag("Network").d("Attempting to stop server...")
+            server?.stopSuspend(gracePeriodMillis = 1000, timeoutMillis = 5000)?.let {
+                Timber.tag("Network").i("Server stopped gracefully")
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            Timber.tag("Network").w("Server stop was cancelled: ${e.message}")
+            // 即使被取消也尝试强制停止
+            server?.stop(gracePeriodMillis = 0, timeoutMillis = 1000)
         } catch (e: Exception) {
-            Timber.e(e, "Error stopping server")
+            Timber.tag("Network").e(e, "Error stopping server")
         } finally {
-                server = null
-             running = false
+            server = null
             Timber.tag("Network").i("Server stopped completely")
         }
     }
 }
 
 
-private fun Application.module() {
-/***
-    configurePlugins()
-    routing {
-        get("/") {
-            val response = "Hello, World!"
-            call.respondText(response, contentType = ContentType.Text.Plain)
-        }
-        chatRoutes()
-    }
-***/
+private fun Application.module(context: Context, host: String, port: Int) {
+    // 配置服务器事件监听
+    ServerEventMonitor(this).startMonitoring()
+
     //来自com/alibaba/mnnllm/api/openai/network/application/HTTP.kt
-    configureHTTP()
+    configureHTTP(context)
 
     //来自com/alibaba/mnnllm/api/openai/network/application/Routing.kt
     configureRouting()
-
-  }
-
-
-
-
-private fun Application.configurePlugins() {
-    install(DoubleReceive)
-    install(ContentNegotiation) { json() }
-    install(CORS) {
-        allowHost("localhost")
-        allowHost("0.0.0.0:8080")
-        allowMethod(HttpMethod.Post)
-        allowHeader(HttpHeaders.Authorization)
-        allowHeader(HttpHeaders.ContentType)
-        allowCredentials = true
-    }
-    install(CallLogging) {
-        format { call ->
-            "Status: ${call.response.status()}, Method: ${call.request.httpMethod.value}"
-        }
-    }
-    intercept(ApplicationCallPipeline.Call) {
-        Timber.tag("GlobalPreflight").d(
-            """
-                Request: ${context.request.httpMethod.value} ${context.request.uri}
-                Headers: ${context.request.headers.flattenEntries().joinToString("; ")}
-                """.trimIndent()
-        )
-        if (context.request.httpMethod in listOf(HttpMethod.Post, HttpMethod.Put)) {
-            try {
-                val body = context.receiveText()
-                if (body.isNotBlank()) Timber.tag("GlobalPreflight").d("Request Body: $body")
-            } catch (e: Exception) {
-                Timber.tag("GlobalPreflight").w(e, "Failed to read request body.")
-            }
-        }
-    }
 }

@@ -49,14 +49,14 @@ class ChatLogger {
      * 记录推理开始
      */
     fun logInferenceStart(traceId: String, historySize: Int) {
-        Timber.tag(TAG_REQUEST).d("[$traceId] 使用无状态完整历史推理，消息数量: $historySize")
+        Timber.tag(TAG_REQUEST).d("[$traceId] 使用API服务完整历史推理，消息数量: $historySize")
     }
 
     /**
      * 记录推理完成
      */
     fun logInferenceComplete(traceId: String) {
-        Timber.tag(TAG_REQUEST).d("[$traceId] 无状态推理完成")
+        Timber.tag(TAG_REQUEST).d("[$traceId] API服务推理完成")
     }
 
     /**
@@ -102,5 +102,12 @@ class ChatLogger {
      */
     fun logLlmSessionError(traceId: String) {
         Timber.tag(TAG_REQUEST).e("[$traceId] LlmSession为空")
+    }
+    
+    /**
+     * 记录信息日志
+     */
+    fun logInfo(traceId: String, message: String) {
+        Timber.tag(TAG_REQUEST).i("[$traceId] $message")
     }
 }

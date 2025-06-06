@@ -31,7 +31,7 @@ public:
 
     void enableAudioOutput(bool b);
 
-    // 新增：无状态历史消息推理方法
+    // 新增：API服务历史消息推理方法
     const MNN::Transformer::LlmContext *
     ResponseWithHistory(const std::vector<PromptItem>& full_history,
                         const std::function<bool(const std::string &, bool is_eop)> &on_progress);

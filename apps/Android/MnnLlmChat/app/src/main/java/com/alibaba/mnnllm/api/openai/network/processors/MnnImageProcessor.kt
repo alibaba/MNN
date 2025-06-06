@@ -15,9 +15,11 @@ import java.util.Base64
 /**
  * MNN图像处理器，负责处理图像URL（Base64或网络URL），
  * 将其保存到本地缓存并返回文件路径。
+ * 集成双重哈希缓存机制以解决不同客户端Base64编码差异问题。
  */
 class MnnImageProcessor(private val context: Context) {
     private val hashToPathMap: MutableMap<String, String> = HashMap()
+    private val imageCacheManager = ImageCacheManager.getInstance(context)
     private val cacheDir: String by lazy {
         val dir = File(context.externalCacheDir, "mnn_image_cache")
         if (!dir.exists()) {
@@ -28,6 +30,9 @@ class MnnImageProcessor(private val context: Context) {
 
     init {
         ensureCacheDirExists()
+        // 启动时清理无效缓存条目
+        logDebug("初始化图像处理器，清理缓存...")
+        logDebug(imageCacheManager.getCacheStats())
     }
 
     private fun ensureCacheDirExists() {
@@ -45,13 +50,15 @@ class MnnImageProcessor(private val context: Context) {
      * @return 本地文件路径，如果处理失败则返回null
      */
     suspend fun processImageUrl(imageUrl: String): String? {
+        logDebug("Starting to process image URL. Input type detection...")
         return if (imageUrl.startsWith("data:image")) {
-            // 假设是Base64数据URI, e.g., data:image/jpeg;base64,/9j/4AAQSkZJRgABAQA...
+            logDebug("Detected Base64 data URI. Parsing...")
             val parts = imageUrl.split(",")
             if (parts.size == 2) {
+                logDebug("Base64 data parsed successfully. Header: ${parts[0]}, Data length: ${parts[1].length}")
                 processBase64Image(parts[1])
             } else {
-                logError("Invalid Base64 data URI format: $imageUrl")
+                logError("Invalid Base64 data URI format. Expected 2 parts but got ${parts.size}. Full input: $imageUrl")
                 null
             }
         } else if (imageUrl.startsWith("http://") || imageUrl.startsWith("https://")) {
@@ -124,17 +131,38 @@ class MnnImageProcessor(private val context: Context) {
         }
     }
 
-    private suspend fun processBase64Image(base64Data: String): String? =
+    private suspend fun processBase64Image(base64Data: String): String? {
+        logDebug("使用双重哈希缓存机制处理Base64图像")
+        
+        // 使用新的ImageCacheManager处理Base64图像
+        val result = imageCacheManager.processBase64Image(base64Data)
+        
+        if (result != null) {
+            logDebug("Base64图像处理成功: $result")
+            return result
+        } else {
+            logError("Base64图像处理失败，回退到原有方法")
+            // 回退到原有的处理方法
+            return processBase64ImageFallback(base64Data)
+        }
+    }
+    
+    /**
+     * 原有的Base64处理方法，作为回退方案
+     */
+    private suspend fun processBase64ImageFallback(base64Data: String): String? =
         withContext(Dispatchers.IO) {
             try {
-                logDebug("Processing base64 image data, length: ${base64Data.length}")
+                logDebug("Starting Base64 image processing (fallback). Data length: ${base64Data.length}")
                 if (base64Data.isEmpty()) {
-                    logError("Invalid base64 data: empty")
+                    logError("Invalid base64 data: empty input")
                     return@withContext null
                 }
 
+                val startTime = System.currentTimeMillis()
                 val hash = calculateSHA256(base64Data)
-                logDebug("Calculated base64 image hash: $hash")
+                val hashTime = System.currentTimeMillis() - startTime
+                logDebug("Calculated SHA-256 hash: $hash (took ${hashTime}ms). First 16 chars: ${base64Data.take(16)}...")
 
                 if (hashToPathMap.containsKey(hash)) {
                     val cachedPath = hashToPathMap[hash]
@@ -144,12 +172,14 @@ class MnnImageProcessor(private val context: Context) {
                     }
                 }
 
+                val decodeStart = System.currentTimeMillis()
                 val imageData = Base64.getDecoder().decode(base64Data)
-                logDebug("Successfully decoded base64 data, byte length: ${imageData.size}")
+                val decodeTime = System.currentTimeMillis() - decodeStart
+                logDebug("Decoded Base64 data. Raw bytes: ${imageData.size} (took ${decodeTime}ms)")
 
                 val fileName = "img_" + hash.substring(0, 8) + ".jpg" // Assume jpg for base64
                 val filePath = File(cacheDir, fileName).absolutePath
-                logDebug("Creating image file from base64: $filePath")
+                logDebug("Generating cache file path. Directory: $cacheDir, File name: $fileName")
 
                 saveImageDataToFile(imageData, filePath, hash)
 
@@ -169,10 +199,13 @@ class MnnImageProcessor(private val context: Context) {
     ): String? = withContext(Dispatchers.IO) {
         val imageFile = File(filePath)
         try {
+            logDebug("Attempting to save image data to $filePath. Data size: ${imageData.size} bytes")
+            val startTime = System.currentTimeMillis()
             FileOutputStream(imageFile).use { fos ->
                 fos.write(imageData)
             }
-            logDebug("Successfully saved image file: $filePath")
+            val writeTime = System.currentTimeMillis() - startTime
+            logDebug("Successfully saved image file: $filePath (took ${writeTime}ms)")
 
             if (isValidImageFile(filePath)) {
                 hashToPathMap[hash] = filePath
@@ -191,11 +224,16 @@ class MnnImageProcessor(private val context: Context) {
     }
 
     private fun isValidImageFile(filePath: String): Boolean {
+        logDebug("Validating image file: $filePath")
         return try {
             val options = BitmapFactory.Options()
             options.inJustDecodeBounds = true
+            val startTime = System.currentTimeMillis()
             BitmapFactory.decodeFile(filePath, options)
-            options.outWidth > 0 && options.outHeight > 0
+            val decodeTime = System.currentTimeMillis() - startTime
+            val isValid = options.outWidth > 0 && options.outHeight > 0
+            logDebug("Image validation result: $isValid. Dimensions: ${options.outWidth}x${options.outHeight} (took ${decodeTime}ms)")
+            isValid
         } catch (e: Exception) {
             logError("Error validating image '$filePath': ${e.message}", e)
             false
@@ -214,7 +252,14 @@ class MnnImageProcessor(private val context: Context) {
         }
     }
 
+    /**
+     * 清理过期缓存（包括新的双重哈希缓存和旧的缓存）
+     */
     fun cleanupCache(maxAgeMillis: Long = 24 * 60 * 60 * 1000L) { // Default 24 hours
+        // 清理新的双重哈希缓存
+        imageCacheManager.cleanupExpiredCache(maxAgeMillis)
+        
+        // 清理旧的缓存方式（向后兼容）
         val dir = File(cacheDir)
         if (dir.exists() && dir.isDirectory) {
             dir.listFiles()?.forEach { file ->
@@ -226,6 +271,13 @@ class MnnImageProcessor(private val context: Context) {
                 }
             }
         }
+    }
+    
+    /**
+     * 获取缓存统计信息
+     */
+    fun getCacheStats(): String {
+        return imageCacheManager.getCacheStats()
     }
 
     companion object {

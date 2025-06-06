@@ -8,6 +8,7 @@ import com.alibaba.mnnllm.api.openai.network.utils.ChatResponseFormatter
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.response.respond
+import io.ktor.server.response.respondText
 import io.ktor.server.sse.SSEServerContent
 import io.ktor.server.sse.heartbeat
 import io.ktor.sse.ServerSentEvent
@@ -94,7 +95,18 @@ class ResponseHandler {
                                         }
                                     }
                                 } catch (e: Exception) {
-                                    logger.logError(traceId, e, "发送SSE事件时出错")
+                                    // 检查是否为连接关闭异常
+                                    val isConnectionClosed = e is io.ktor.utils.io.ClosedWriteChannelException ||
+                                            e.cause is io.ktor.utils.io.ClosedWriteChannelException ||
+                                            e.cause is io.ktor.util.cio.ChannelWriteException ||
+                                            e.message?.contains("Cannot write to channel") == true ||
+                                            e.message?.contains("ClosedChannelException") == true
+                                    
+                                    if (isConnectionClosed) {
+                                        logger.logWarning(traceId, "客户端连接已断开，停止生成", e)
+                                    } else {
+                                        logger.logError(traceId, e, "发送SSE事件时出错")
+                                    }
                                     true // 取消生成
                                 }
                             }
@@ -102,22 +114,37 @@ class ResponseHandler {
                         
                         // 生成完成后发送最终chunk（包含usage统计信息）
                         if (isFinished) {
-                            val usage = chatResponseFormatter.createUsageFromMetrics(result)
-                            val finalJson = chatResponseFormatter.createDeltaResponse(
-                                responseMetadata.responseId,
-                                responseMetadata.created,
-                                "",
-                                true,
-                                usage = usage
-                            )
-                            send(ServerSentEvent(data = finalJson))
-                            
-                            // 发送[DONE]标记
-                            delay(DONE_DELAY_MS)
                             try {
-                                send(ServerSentEvent(data = "[DONE]"))
+                                val usage = chatResponseFormatter.createUsageFromMetrics(result)
+                                val finalJson = chatResponseFormatter.createDeltaResponse(
+                                    responseMetadata.responseId,
+                                    responseMetadata.created,
+                                    "",
+                                    true,
+                                    usage = usage
+                                )
+                                send(ServerSentEvent(data = finalJson))
+                                
+                                // 发送[DONE]标记
+                                delay(DONE_DELAY_MS)
+                                try {
+                                    send(ServerSentEvent(data = "[DONE]"))
+                                } catch (e: Exception) {
+                                    logger.logWarning(traceId, "连接已关闭，无法发送[DONE]标记", e)
+                                }
                             } catch (e: Exception) {
-                                logger.logWarning(traceId, "连接已关闭，无法发送[DONE]标记", e)
+                                // 检查是否为连接关闭异常
+                                val isConnectionClosed = e is io.ktor.utils.io.ClosedWriteChannelException ||
+                                        e.cause is io.ktor.utils.io.ClosedWriteChannelException ||
+                                        e.cause is io.ktor.util.cio.ChannelWriteException ||
+                                        e.message?.contains("Cannot write to channel") == true ||
+                                        e.message?.contains("ClosedChannelException") == true
+                                
+                                if (isConnectionClosed) {
+                                    logger.logWarning(traceId, "客户端连接已断开，跳过最终响应发送", e)
+                                } else {
+                                    logger.logError(traceId, e, "发送最终响应时出错")
+                                }
                             }
                             close()
                         }
@@ -135,8 +162,18 @@ class ResponseHandler {
                         close()
                     }
                 } catch (e: Exception) {
-                    // 处理流式错误
-                    logger.logError(traceId, e, "生成文本时出错")
+                    // 检查是否为连接关闭异常
+                    val isConnectionClosed = e is io.ktor.utils.io.ClosedWriteChannelException ||
+                            e.cause is io.ktor.utils.io.ClosedWriteChannelException ||
+                            e.cause is io.ktor.util.cio.ChannelWriteException ||
+                            e.message?.contains("Cannot write to channel") == true ||
+                            e.message?.contains("ClosedChannelException") == true
+                    
+                    if (isConnectionClosed) {
+                        logger.logWarning(traceId, "客户端连接已断开，停止处理", e)
+                    } else {
+                        logger.logError(traceId, e, "生成文本时出错")
+                    }
                     
                     if (!isFinished) {
                         try {
@@ -155,7 +192,18 @@ class ResponseHandler {
                                 logger.logWarning(traceId, "连接已关闭，无法发送[DONE]标记", doneException)
                             }
                         } catch (closeException: Exception) {
-                            logger.logError(traceId, closeException, "发送错误结束时出错")
+                            // 检查是否为连接关闭异常
+                            val isCloseConnectionClosed = closeException is io.ktor.utils.io.ClosedWriteChannelException ||
+                                    closeException.cause is io.ktor.utils.io.ClosedWriteChannelException ||
+                                    closeException.cause is io.ktor.util.cio.ChannelWriteException ||
+                                    closeException.message?.contains("Cannot write to channel") == true ||
+                                    closeException.message?.contains("ClosedChannelException") == true
+                            
+                            if (isCloseConnectionClosed) {
+                                logger.logWarning(traceId, "客户端连接已断开，跳过错误结束发送", closeException)
+                            } else {
+                                logger.logError(traceId, closeException, "发送错误结束时出错")
+                            }
                         }
                         close()
                     }
@@ -190,7 +238,9 @@ class ResponseHandler {
         }
 
         val response = createNonStreamResponse(responseMetadata, fullResponse.toString(), result)
-        call.respond(HttpStatusCode.OK, response)
+        // 设置正确的Content-Type为application/json
+        call.response.headers.append("Content-Type", "application/json")
+        call.respondText(response, io.ktor.http.ContentType.Application.Json)
     }
     
     // ========================

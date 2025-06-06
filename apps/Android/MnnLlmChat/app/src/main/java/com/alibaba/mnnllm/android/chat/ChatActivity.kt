@@ -23,11 +23,14 @@ import com.alibaba.mnnllm.android.chat.model.ChatDataItem
 import com.alibaba.mnnllm.android.databinding.ActivityChatBinding
 import com.alibaba.mnnllm.android.llm.AudioDataListener
 import com.alibaba.mnnllm.android.llm.LlmSession
+import com.alibaba.mnnllm.android.mainsettings.MainSettings.isApiServiceEnabled
 import com.alibaba.mnnllm.android.modelsettings.SettingsBottomSheetFragment
+import com.alibaba.mnnllm.api.openai.ui.ApiSettingsBottomSheetFragment
+import com.alibaba.mnnllm.api.openai.ui.ApiConsoleBottomSheetFragment
 import com.alibaba.mnnllm.android.utils.AudioPlayService
 import com.alibaba.mnnllm.android.model.ModelUtils
 import com.alibaba.mnnllm.android.utils.PreferenceUtils
-import com.alibaba.mnnllm.api.openai.service.OpenAIService
+import com.alibaba.mnnllm.api.openai.manager.ApiServiceManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
@@ -165,8 +168,11 @@ class ChatActivity : AppCompatActivity() {
                 setupOmni()
             }
 
-            OpenAIService.startWithSession(this, chatSession as LlmSession)
 
+            // 检查API服务设置并启动
+            if (isApiServiceEnabled(this)) {
+                ApiServiceManager.startApiService(this)
+            }
         }
     }
 
@@ -213,6 +219,12 @@ class ChatActivity : AppCompatActivity() {
                 chatSession.reset()
                 return@start handleSendMessage(createUserMessage(message))
             })
+        } else if (item.itemId == R.id.menu_item_api_settings) {
+            ApiSettingsBottomSheetFragment().show(supportFragmentManager, "ApiSettingsBottomSheetFragment")
+            return true
+        } else if (item.itemId == R.id.menu_item_api_console) {
+            ApiConsoleBottomSheetFragment().show(supportFragmentManager, "ApiConsoleBottomSheetFragment")
+            return true
         }
         return super.onOptionsItemSelected(item)
     }
@@ -287,7 +299,7 @@ class ChatActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         chatPresenter.destroy()
-        OpenAIService.releaseService(this)
+        ApiServiceManager.stopApiService(this)
     }
 
     override fun onStop() {

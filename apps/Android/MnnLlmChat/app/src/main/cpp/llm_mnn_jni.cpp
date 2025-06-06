@@ -235,7 +235,7 @@ JNIEXPORT jobject JNICALL Java_com_alibaba_mnnllm_android_llm_LlmSession_submitF
         MNN_DEBUG("ProgressListener onProgress method not found.");
     }
 
-    // 调用无状态推理方法
+    // 调用API服务推理方法
     auto *context = llm->ResponseWithHistory(history, [&, progressListener, onProgressMethod](
             const std::string &response, bool is_eop) {
         if (progressListener && onProgressMethod) {
