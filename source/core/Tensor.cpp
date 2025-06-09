@@ -350,7 +350,11 @@ void Tensor::print() const {
 
     // convert to host if needed
     auto printee = this;
-    bool device  = this->buffer().host == NULL && this->buffer().device != 0;
+    auto bnType = MNN_FORWARD_CPU;
+    if (nullptr != mDescribe->getBackend()) {
+        bnType = mDescribe->getBackend()->type();
+    }
+    bool device  = bnType != MNN_FORWARD_CPU;
     if (device) {
         printee = this->createHostTensorFromDevice(this, true);
     }

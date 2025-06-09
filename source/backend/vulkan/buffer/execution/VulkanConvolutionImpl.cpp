@@ -93,14 +93,15 @@ public:
                 return;
             }
             std::shared_ptr<Tensor> sourceWeight(Tensor::createDevice<float>({ci * co * kernelSize}));
-            res = vkBn->onAcquireBuffer(sourceWeight.get(), Backend::STATIC);
-            if (!res) {
+            auto sourceBuffer = vkBn->createHostBuffer(ci * co * kernelSize * sizeof(float));
+            if (nullptr == sourceBuffer.get()) {
                 return;
             }
-            {
-                auto vkTensor = extra->getBuffer(sourceWeight.get());
-                extra->copyToGPUBuffer(weightPtr, std::get<0>(vkTensor), sourceWeight->size(), std::get<2>(vkTensor));
-            }
+            ::memcpy(sourceBuffer->map(), weightPtr, ci * co * kernelSize * sizeof(float));
+            sourceBuffer->unmap();
+            sourceWeight->buffer().device = (uint64_t)(sourceBuffer.get());
+            TensorUtils::getDescribe(sourceWeight.get())->extra.offset = 0;
+
             std::shared_ptr<VulkanCommandPool::Buffer> prearrangeCmd( vkBn->getPool().allocBuffer());
             for (auto& reg : des->regions) {
                 reg.origin = sourceWeight.get();

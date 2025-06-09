@@ -70,6 +70,8 @@ public:
             }
         }
         types.resize(maxIndex+1);
+        std::vector<std::tuple<int, void*, size_t>> constStoragePtrs;
+        std::vector<std::tuple<int, void*, size_t>> constUniformPtrs;
         for (int i=0; i<extra->attr()->size(); ++i) {
             auto attr = extra->attr()->GetAs<Attribute>(i);
             if (attr->key()->str() == "input") {
@@ -89,13 +91,6 @@ public:
                 continue;
             }
             if (attr->key()->str() == "const") {
-                auto usageBit = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
-                if (attr->b()) {
-                    types[attr->i()] = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-                } else {
-                    usageBit = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
-                    types[attr->i()] = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-                }
                 auto b = attr->tensor();
                 void* result = nullptr;
                 size_t bufferSize = 0;
@@ -112,14 +107,59 @@ public:
                         MNN_ASSERT(false);
                         break;
                 }
-                std::shared_ptr<VulkanBuffer> vkBuffer(new VulkanBuffer(vkBn->getMemoryPool(), false, bufferSize, nullptr, usageBit, VK_SHARING_MODE_EXCLUSIVE, 0));
-                vkBn->copyToGPUBuffer(result, vkBuffer->buffer(), bufferSize, 0);
-                mConstIndides.emplace_back(std::make_pair(attr->i(), vkBuffer));
+                if (attr->b()) {
+                    types[attr->i()] = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+                    constUniformPtrs.emplace_back(std::make_tuple(attr->i(), result, bufferSize));
+                } else {
+                    types[attr->i()] = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+                    constStoragePtrs.emplace_back(std::make_tuple(attr->i(), result, bufferSize));
+                }
                 continue;
             }
         }
+        auto alignSize = vkBn->device().proty().limits.minMemoryMapAlignment;
+        size_t offset = 0;
+        std::shared_ptr<VulkanCommandPool::Buffer> cmdbuffer( vkBn->getPool().allocBuffer());
+        cmdbuffer->begin(0);
+        auto merge = [&](const std::vector<std::tuple<int, void*, size_t>>& constPtrs, VkDescriptorType type) {
+            if (constPtrs.empty()) {
+                return std::make_tuple(std::vector<std::tuple<int, size_t, size_t>>{}, std::shared_ptr<VulkanBuffer>(nullptr), std::shared_ptr<VulkanBuffer>(nullptr));
+            }
+            std::vector<std::tuple<int, size_t, size_t>> mConstOffset;
+            for (auto& constAttr : constPtrs) {
+                auto size = UP_DIV(std::get<2>(constAttr), alignSize) * alignSize;
+                mConstOffset.emplace_back(std::make_tuple(std::get<0>(constAttr), size, offset));
+                offset += size;
+            }
+            std::shared_ptr<VulkanBuffer> hostBuffer(new VulkanBuffer(vkBn->getMemoryPool(), false, offset, nullptr, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_SHARING_MODE_EXCLUSIVE, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT));
+            auto ptr = (uint8_t*)hostBuffer->map();
+            for (int i=0; i<constPtrs.size(); ++i) {
+                ::memcpy(ptr + std::get<2>(mConstOffset[i]), std::get<1>(constPtrs[i]), std::get<2>(constPtrs[i]));
+            }
+            hostBuffer->unmap();
+            std::shared_ptr<VulkanBuffer> vkBuffer(new VulkanBuffer(vkBn->getMemoryPool(), false, offset, nullptr, type, VK_SHARING_MODE_EXCLUSIVE, 0));
+            VkBufferCopy bufferCopy;
+            bufferCopy.size = offset;
+            bufferCopy.dstOffset = 0;
+            bufferCopy.srcOffset = 0;
+            vkCmdCopyBuffer(cmdbuffer->get(), hostBuffer->buffer(), vkBuffer->buffer(),
+                            1, &bufferCopy);
+            return std::make_tuple(mConstOffset, vkBuffer, hostBuffer);
+        };
+        mConstStorageOffset.clear();
+        mConstUniformOffset.clear();
+        auto uniforms = merge(constUniformPtrs, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+        mConstUniformOffset = std::get<0>(uniforms);
+        mConstUniformBuffer = std::get<1>(uniforms);
+        auto storages = merge(constStoragePtrs, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+        mConstStorageOffset = std::get<0>(storages);
+        mConstStorageBuffer = std::get<1>(storages);
+        cmdbuffer->end();
+        auto fence = vkBn->getPool().submit(cmdbuffer->get());
+
         mPipeline = factory->createComputePipeline(data, dataSize, types, std::vector<uint32_t>{});
         mDescriptorSet = mPipeline->createSet();
+        fence->wait();
     }
     virtual ~VulkanFuse() {
         // Remove set firstly before destroy pipeline
@@ -134,8 +174,11 @@ public:
         for (int i=0; i<outputs.size(); ++i) {
             mDescriptorSet->writeBuffer(vkBn->getBuffer(outputs[i]), mOutputBinding[i]);
         }
-        for (auto& iter : mConstIndides) {
-            mDescriptorSet->writeBuffer(iter.second->buffer(), iter.first, iter.second->size());
+        for (auto& iter : mConstStorageOffset) {
+            mDescriptorSet->writeBuffer(mConstStorageBuffer->buffer(), std::get<0>(iter), std::get<1>(iter), std::get<2>(iter));
+        }
+        for (auto& iter : mConstUniformOffset) {
+            mDescriptorSet->writeBuffer(mConstUniformBuffer->buffer(), std::get<0>(iter), std::get<1>(iter), std::get<2>(iter));
         }
         if (mNeedAutoTuning) {
             auto localSize = vkBn->autoTunePipeline(mPipeline.get(), mDescriptorSet, mGlobalSize);
@@ -153,7 +196,11 @@ private:
     std::vector<int> mGlobalSize;
     std::vector<int> mInputBinding;
     std::vector<int> mOutputBinding;
-    std::vector<std::pair<int, std::shared_ptr<VulkanBuffer>>> mConstIndides;
+    std::shared_ptr<VulkanBuffer> mConstStorageBuffer;
+    std::shared_ptr<VulkanBuffer> mConstUniformBuffer;
+    // Index, offset, size
+    std::vector<std::tuple<int, size_t, size_t>> mConstStorageOffset;
+    std::vector<std::tuple<int, size_t, size_t>> mConstUniformOffset;
     SharedPtr<VulkanPipeline> mPipeline;
     SharedPtr<VulkanLayout::DescriptorSet> mDescriptorSet;
     bool mNeedAutoTuning = false;

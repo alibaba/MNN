@@ -105,6 +105,7 @@ ErrorCode VulkanBackend::onResizeEnd() {
     if (!mDirect) {
         mCmdBuffer->end();
     }
+    mHostBuffer.reset();
     return NO_ERROR;
 }
 class VulkanMemRelease : public Backend::MemObj {
@@ -288,27 +289,36 @@ static Tensor::DimensionType _convert(MNN_DATA_FORMAT format) {
     }
     return Tensor::CAFFE;
 }
-void VulkanBackend::copyToGPUBuffer(const void* src, VkBuffer buffer, VkDeviceSize size, VkDeviceSize offset) const {
-    _requireHostBuffer(size);
-    ::memcpy(mHostBuffer->map(), src, size);
-    mHostBuffer->unmap();
+std::shared_ptr<VulkanBuffer> VulkanBackend::createHostBuffer(size_t size) const {
+    std::shared_ptr<VulkanBuffer> res;
+    res.reset(new VulkanBuffer(*mRuntime->mMemoryPool, false, size, nullptr, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_SHARING_MODE_EXCLUSIVE, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT));
+    return res;
+}
+
+void VulkanBackend::copyGPUToGPUBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size, VkDeviceSize srcOffset, VkDeviceSize dstOffset) const {
     auto cmdbuffer = mCmdBufferForCopy;
     cmdbuffer->begin(0);
     VkBufferCopy bufferCopy;
     bufferCopy.size = size;
-    bufferCopy.dstOffset = offset;
-    bufferCopy.srcOffset = 0;
-    vkCmdCopyBuffer(cmdbuffer->get(), mHostBuffer->buffer(), buffer,
+    bufferCopy.dstOffset = dstOffset;
+    bufferCopy.srcOffset = srcOffset;
+    vkCmdCopyBuffer(cmdbuffer->get(), srcBuffer, dstBuffer,
                     1, &bufferCopy);
     cmdbuffer->end();
     pushCommand(cmdbuffer->get());
     _finish();
-    mHostBuffer.reset();
+}
+
+void VulkanBackend::copyToGPUBuffer(const void* src, VkBuffer buffer, VkDeviceSize size, VkDeviceSize offset) const {
+    _requireHostBuffer(size);
+    ::memcpy(mHostBuffer->map(), src, size);
+    mHostBuffer->unmap();
+    copyGPUToGPUBuffer(mHostBuffer->buffer(), buffer, size, 0, offset);
 }
 void VulkanBackend::_requireHostBuffer(size_t size) const {
     _finish();
     if (nullptr == mHostBuffer || mHostBuffer->size() < size) {
-        mHostBuffer.reset(new VulkanBuffer(*mRuntime->mMemoryPool, false, size, nullptr, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_SHARING_MODE_EXCLUSIVE, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT));
+        mHostBuffer = createHostBuffer(size);
     }
 }
 
