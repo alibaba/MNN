@@ -64,8 +64,10 @@ class UpdateChecker(private val context: Context) {
                 return
             }
         }
-        progressDialog = ProgressDialog(context)
-        progressDialog?.show()
+        if (forceCheck) {
+            progressDialog = ProgressDialog(context)
+            progressDialog?.show()
+        }
         val client = OkHttpClient()
 
         val request: Request = Builder()
@@ -186,6 +188,7 @@ class UpdateChecker(private val context: Context) {
             installApk(context, -9999, downloadFileUri)
             return
         }
+        UiUtils.showToast(context, context.getString(R.string.apk_download_started), Toast.LENGTH_LONG)
         val request = DownloadManager.Request(Uri.parse(downloadUrl))
             .setTitle(apkName)
             .setDescription(context.getString(R.string.wait_install_apk))

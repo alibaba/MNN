@@ -72,7 +72,7 @@ struct d0
     T data[1];
 };
 
-kernel void main0(device d0& uOutput [[buffer(0)]], const device s0& uInputA [[buffer(1)]], const device s1& uInputB [[buffer(2)]],
+kernel void loop_matmul(device d0& uOutput [[buffer(0)]], const device s0& uInputA [[buffer(1)]], const device s1& uInputB [[buffer(2)]],
 #ifdef HAS_BIAS
     const device s2& uInputC [[buffer(3)]],
     const device s3& uOOffset [[buffer(4)]],
@@ -198,7 +198,7 @@ public:
                     @"HAS_BIAS":@"1",
                 };
             }
-            pipeline = mtbn->makeComputePipelineWithSourceOption(gMatMulUnitTemplate, "main0", compileOptions);
+            pipeline = mtbn->makeComputePipelineWithSourceOption(gMatMulUnitTemplate, "loop_matmul", compileOptions);
             mtbn->runtime()->insertPipeline(keys, pipeline);
         }
         if (nil == pipeline) {
@@ -268,6 +268,7 @@ struct constBuffer
     int4 extent;
     int4 _step;
     int4 iter;
+    int4 totalSize;
 };
 
 struct s1
@@ -290,7 +291,7 @@ struct s0
     T data[1];
 };
 
-kernel void main0(device sourceBuffer& uOutput [[buffer(0)]], const device s0& uInput [[buffer(1)]], const device s1& uSrcOffset [[buffer(2)]], const device s2& uDstOffset [[buffer(3)]], constant constBuffer& uConstant [[buffer(4)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
+kernel void gather_blit(device sourceBuffer& uOutput [[buffer(0)]], const device s0& uInput [[buffer(1)]], const device s1& uSrcOffset [[buffer(2)]], const device s2& uDstOffset [[buffer(3)]], constant constBuffer& uConstant [[buffer(4)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
 {
     int3 posTmp = int3(gl_GlobalInvocationID);
     if (posTmp.x < uConstant._step.w)
@@ -322,7 +323,11 @@ kernel void main0(device sourceBuffer& uOutput [[buffer(0)]], const device s0& u
         }
         int srcOffset = (((srcBasicOffset + uConstant.stride.w) + (uConstant.stride.z * pos.z)) + (uConstant.stride.y * pos.y)) + (uConstant.stride.x * pos.x);
         int dstOffset = (((dstBasicOffset + uConstant.extent.w) + (pos.x * uConstant.extent.x)) + (pos.y * uConstant.extent.y)) + (pos.z * uConstant.extent.z);
-        uOutput.data[dstOffset] = uInput.data[srcOffset];
+        if(srcOffset >= 0 && srcOffset < uConstant.totalSize.x) {
+            if(dstOffset >= 0 && dstOffset < uConstant.totalSize.y) {
+                uOutput.data[dstOffset] = uInput.data[srcOffset];
+            }
+        }
     }
 }
 )metal";
@@ -333,49 +338,139 @@ struct GatherInfo {
     int extent[4];
     int step[4];
     int iter[4];
+    int totalSize[4];
+};
+struct InitInfo {
+    int srcStride[4];
+    int dstStride[4];
+    int size[4];
+    int totalSize[4];
+};
+static const char* gInitRegion = R"metal(
+#include <metal_stdlib>
+#include <simd/simd.h>
+using namespace metal;
+
+struct constBuffer
+{
+    int4 srcStride;
+    int4 dstStride;
+    int4 size;
+    int4 totalSize;
 };
 
+kernel void set_zero(device T *out   [[buffer(0)]],
+                     const device T *in   [[buffer(1)]],
+                     constant constBuffer &info  [[buffer(2)]],
+                     uint3 gl_GlobalInvocationID  [[thread_position_in_grid]]) {
+    int3 gid = int3(gl_GlobalInvocationID);
+    if (gid.x >= info.size.x || gid.y >= info.size.y || gid.z >= info.size.z) {
+        return;
+    }
+    int dst_offset = (gid.z * info.size.y + gid.y) * info.size.x + gid.x;
+    if(dst_offset >= 0 && dst_offset < info.totalSize.y) {
+        out[dst_offset] = (T)0;
+    }
+}
+
+kernel void set_copy(device T *out   [[buffer(0)]],
+                     const device T *in   [[buffer(1)]],
+                     constant constBuffer &info  [[buffer(2)]],
+                     uint3 gl_GlobalInvocationID  [[thread_position_in_grid]]) {
+    int3 gid = int3(gl_GlobalInvocationID);
+    if (gid.x >= info.size.x || gid.y >= info.size.y || gid.z >= info.size.z) {
+        return;
+    }
+    int src_offset = gid.x * info.srcStride.x + gid.y * info.srcStride.y + gid.z * info.srcStride.z;
+    int dst_offset = gid.x * info.dstStride.x + gid.y * info.dstStride.y + gid.z * info.dstStride.z;
+    if(src_offset >= 0 && src_offset < info.totalSize.x) {
+        if(dst_offset >= 0 && dst_offset < info.totalSize.y) {
+            out[dst_offset] = in[src_offset];
+        }
+    }
+}
+)metal";
+    
 class MetalGather : public MetalExecution {
 private:
     const LoopParam* mLoop;
+    bool mNeedInit = false;
+    std::pair<MTLSize, MTLSize> mInitThreads;
     id<MTLBuffer> mParam;
     id<MTLComputePipelineState> mPipeline;
+    id<MTLComputePipelineState> mInitPipeline;
+    id<MTLBuffer> mInitParam;
     std::vector<Tensor*> mTensors;
 public:
     MetalGather(const LoopParam* loop, Backend *bn, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) : MetalExecution(bn) {
         mLoop = loop;
         auto mtbn = static_cast<MetalBackend *>(bn);
         auto context = (__bridge MNNMetalContext *)mtbn->context();
+
         mParam = [context newDeviceBuffer:sizeof(GatherInfo) access:CPUWriteOnly];
         bool useFp16 = mtbn->useFp16InsteadFp32();
         mTensors.resize(mLoop->tensorNumber());
         auto cmd = mLoop->commands()->GetAs<RegionCommand>(0);
         _setTensorStack(mTensors, inputs, outputs, mLoop);
         auto dstTensor = mTensors[cmd->indexes()->data()[0]];
-
+        
         NSString* T = MetalCast::getScalarType(dstTensor->getType(), useFp16);
-        std::vector<std::string> keys = {
-            std::string([T UTF8String]),
-            "blitregion"
-        };
-        auto pipeline = mtbn->runtime()->findPipeline(keys);
-        if (nil == pipeline) {
-            MTLCompileOptions *compileOptions = [[MTLCompileOptions alloc] init];
-            compileOptions.preprocessorMacros = @{
-                @"T" : T,
+        // gather blit command pipeline
+        {
+            std::vector<std::string> keys = {
+                std::string([T UTF8String]),
+                "blitregion"
             };
-            pipeline = mtbn->makeComputePipelineWithSourceOption(gBlitRegion, "main0", compileOptions);
-            mtbn->runtime()->insertPipeline(keys, pipeline);
+            auto pipeline = mtbn->runtime()->findPipeline(keys);
+            if (nil == pipeline) {
+                MTLCompileOptions *compileOptions = [[MTLCompileOptions alloc] init];
+                compileOptions.preprocessorMacros = @{
+                    @"T" : T,
+                };
+                pipeline = mtbn->makeComputePipelineWithSourceOption(gBlitRegion, "gather_blit", compileOptions);
+                mtbn->runtime()->insertPipeline(keys, pipeline);
+            }
+            if (nil == pipeline) {
+                MNN_ERROR("Create gather pipeline error\n");
+            }
+            mPipeline = pipeline;
         }
-        if (nil == pipeline) {
-            MNN_ERROR("Create gather pipeline error\n");
+        
+        // scatter need init command pipeline
+        if(mLoop->initCommand() != nullptr){
+            mNeedInit = true;
+            std::string shader = "set_copy";
+            auto cmd = mLoop->initCommand()->GetAs<RegionCommand>(0);
+            if (cmd->op() == nullptr){
+                shader = "set_zero";
+            } else {
+                mInitParam = [context newDeviceBuffer:sizeof(InitInfo) access:CPUWriteOnly];
+            }
+            std::vector<std::string> keys = {
+                std::string([T UTF8String]),
+                "init_region",
+                shader
+            };
+            auto pipeline = mtbn->runtime()->findPipeline(keys);
+            if (nil == pipeline) {
+                MTLCompileOptions *compileOptions = [[MTLCompileOptions alloc] init];
+                compileOptions.preprocessorMacros = @{
+                    @"T" : T,
+                };
+                pipeline = mtbn->makeComputePipelineWithSourceOption(gInitRegion, shader.c_str(), compileOptions);
+                mtbn->runtime()->insertPipeline(keys, pipeline);
+            }
+            if (nil == pipeline) {
+                MNN_ERROR("Create gather init pipeline error\n");
+            }
+            mInitPipeline = pipeline;
         }
-        mPipeline = pipeline;
     }
     virtual ~MetalGather() = default;
     virtual ErrorCode onResize(const std::vector<Tensor *>& inputs, const std::vector<Tensor *>& outputs) override {
         auto cmd = mLoop->commands()->GetAs<RegionCommand>(0);
         _setTensorStack(mTensors, inputs, outputs, mLoop);
+        
         auto srcStride = cmd->view()->GetAs<View>(1)->stride()->data();
         auto dstStride = cmd->view()->GetAs<View>(0)->stride()->data();
         auto size = cmd->size()->data();
@@ -401,22 +496,70 @@ public:
         if (iterIndex[1] >= 0) {
             param->iter[1] = 1;
         }
+        
+        auto dstTensor = mTensors[cmd->indexes()->data()[0]];
+        auto srcTensor = mTensors[cmd->indexes()->data()[1]];
+        auto inputSize = srcTensor->usize() / srcTensor->buffer().type.bytes();
+        auto outputSize = dstTensor->usize() / dstTensor->buffer().type.bytes();
+        param->totalSize[0] = inputSize;
+        param->totalSize[1] = outputSize;
+        
+        if(mNeedInit) {
+            auto initCmd = mLoop->initCommand()->GetAs<RegionCommand>(0);
+            auto data = reinterpret_cast<InitInfo*>([mInitParam contents]);
+
+            auto srcStride = initCmd->view()->GetAs<View>(1)->stride()->data();
+            auto dstStride = initCmd->view()->GetAs<View>(0)->stride()->data();
+            auto dataSize = initCmd->size()->data();
+            for (int i = 0; i < 3; ++i) {
+                data->srcStride[i] = srcStride[i];
+                data->dstStride[i] = dstStride[i];
+                data->size[i] = dataSize[i];
+            }
+            
+            auto initDstTensor = mTensors[initCmd->indexes()->data()[0]];
+            auto initSrcTensor = mTensors[initCmd->indexes()->data()[1]];
+            auto initInputSize = initSrcTensor->usize() / initSrcTensor->buffer().type.bytes();
+            auto initOutputSize = initDstTensor->usize() / initDstTensor->buffer().type.bytes();
+            data->totalSize[0] = initInputSize;
+            data->totalSize[1] = initOutputSize;
+            
+            auto backend = static_cast<MetalBackend *>(this->backend());
+            auto context = (__bridge MNNMetalContext *)backend->context();
+            mInitThreads = [context computeBestGroupAndLocal:mInitPipeline threads:MTLSizeMake(data->size[0], data->size[1], data->size[2])];
+        }
         return NO_ERROR;
     }
     virtual void onEncode(const std::vector<Tensor *>& inputs, const std::vector<Tensor *>& outputs,
                           id<MTLComputeCommandEncoder> encoder) override {
+        if(mNeedInit) {
+            auto initCmd = mLoop->initCommand()->GetAs<RegionCommand>(0);
+            int x = initCmd->size()->data()[0];
+            int y = initCmd->size()->data()[1];
+            int z = initCmd->size()->data()[2];
+            
+            [encoder setComputePipelineState:mInitPipeline];
+            auto dstTensor = mTensors[initCmd->indexes()->data()[0]];
+            auto srcTensor = mTensors[initCmd->indexes()->data()[1]];
+            MetalBackend::setTensor(dstTensor, encoder, 0);
+            MetalBackend::setTensor(srcTensor, encoder, 1);
+            [encoder setBuffer:mInitParam offset:0 atIndex:2];
+            
+            [encoder dispatchThreadgroups:mInitThreads.first threadsPerThreadgroup:mInitThreads.second];
+        }
+        
         auto cmd = mLoop->commands()->GetAs<RegionCommand>(0);
         auto size = cmd->size()->data();
         auto srcStride = cmd->view()->GetAs<View>(1)->stride()->data();
         auto dstStride = cmd->view()->GetAs<View>(0)->stride()->data();
         int totalSize = mLoop->loopNumber() * size[0] * size[1] * size[2];
-        
+
         [encoder setComputePipelineState:mPipeline];
         auto dstTensor = mTensors[cmd->indexes()->data()[0]];
         auto srcTensor = mTensors[cmd->indexes()->data()[1]];
         MetalBackend::setTensor(dstTensor, encoder, 0);
         MetalBackend::setTensor(srcTensor, encoder, 1);
-
+        
         auto iterIndex = cmd->iterIndexes()->data();
         if (iterIndex[0] >= 0) {
             MetalBackend::setTensor(mTensors[iterIndex[0]], encoder, 3);
@@ -452,7 +595,7 @@ int computeVec4dot(thread const int4& a, thread const int4& b)
     return (((a.x * b.x) + (a.y * b.y)) + (a.z * b.z)) + (a.w * b.w);
 }
 
-kernel void main0(device T1* uOutput [[buffer(0)]], const device T0* uInput0 [[buffer(1)]], const device T0* uInput1 [[buffer(2)]], constant constBuffer& uConstant [[buffer(3)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
+kernel void loop_binary(device T1* uOutput [[buffer(0)]], const device T0* uInput0 [[buffer(1)]], const device T0* uInput1 [[buffer(2)]], constant constBuffer& uConstant [[buffer(3)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
 {
     int3 posTmp = int3(gl_GlobalInvocationID);
     if (posTmp.x < uConstant.size.w)
@@ -515,7 +658,7 @@ public:
                 @"T1" : T1,
                 @"CUSTOM" : CUSTOM,
             };
-            pipeline = mtbn->makeComputePipelineWithSourceOption(gBinaryBroadcast, "main0", compileOptions);
+            pipeline = mtbn->makeComputePipelineWithSourceOption(gBinaryBroadcast, "loop_binary", compileOptions);
             mtbn->runtime()->insertPipeline(keys, pipeline);
         }
         if (nil == pipeline) {
@@ -577,9 +720,7 @@ public:
         if (nullptr == loop || loop->commands() == nullptr) {
             return nullptr;
         }
-        if (nullptr != loop->initCommand()) {
-            return nullptr;
-        }
+
         // Make Tensor Stack
         if (1 == loop->commands()->size()) {
             auto cmd = loop->commands()->GetAs<RegionCommand>(0);
@@ -587,10 +728,10 @@ public:
             if (OpType_UnaryOp == subop->type() && nullptr == subop->main() && cmd->fuse() < 0) {
                 return new MetalGather(loop, bn, inputs, outputs);
             }
-            if (OpType_MatMul == subop->type() && loop->parallel()) {
+            if (OpType_MatMul == subop->type() && loop->parallel() && nullptr == loop->initCommand()) {
                 return new MetalBatchMatMul(loop, bn);
             }
-            if (OpType_BinaryOp == subop->type() && cmd->fuse() < 0 && 1 == loop->loopNumber()) {
+            if (OpType_BinaryOp == subop->type() && cmd->fuse() < 0 && 1 == loop->loopNumber() && nullptr == loop->initCommand()) {
                 std::vector<MNN::Tensor*> tensors(loop->tensorNumber());
                 _setTensorStack(tensors, inputs, outputs, loop);
                 auto srcTensor = tensors[cmd->indexes()->data()[1]];

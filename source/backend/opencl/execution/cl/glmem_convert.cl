@@ -139,6 +139,8 @@ __kernel void gl_to_cl(GLOBAL_SIZE_3_DIMS
     vstore4(in2, 0, output_ptr + output_offset + 8);
     if(w + 3 >= shape.w) return;
     vstore4(in3, 0, output_ptr + output_offset + 12);
+    #else
+    //not support
     #endif
 #endif
 }
@@ -167,11 +169,12 @@ __kernel void cl_to_gl(GLOBAL_SIZE_3_DIMS
     
     int idx = c * shape.w + w;    // c/4*w
     int idy = nh;    // n*h
+    INPUT_TYPE4 in0, in1, in2, in3;
 #ifdef USE_IMAGE
-    INPUT_TYPE4 in0 = RI_DATA(input_ptr, SAMPLER, (int2)(idx, idy));
-    INPUT_TYPE4 in1 = RI_DATA(input_ptr, SAMPLER, (int2)(idx+1, idy));
-    INPUT_TYPE4 in2 = RI_DATA(input_ptr, SAMPLER, (int2)(idx+2, idy));
-    INPUT_TYPE4 in3 = RI_DATA(input_ptr, SAMPLER, (int2)(idx+3, idy));
+    in0 = RI_DATA(input_ptr, SAMPLER, (int2)(idx, idy));
+    in1 = RI_DATA(input_ptr, SAMPLER, (int2)(idx+1, idy));
+    in2 = RI_DATA(input_ptr, SAMPLER, (int2)(idx+2, idy));
+    in3 = RI_DATA(input_ptr, SAMPLER, (int2)(idx+3, idy));
 #else
     #if INPUT_FORMAT == MNN_DATA_FORMAT_NCHW
     int input_offset = ((n * shape.y + c) * shape.z + h) * shape.w + w;
@@ -181,22 +184,24 @@ __kernel void cl_to_gl(GLOBAL_SIZE_3_DIMS
     tmp1 = vload4(0, input_ptr + input_offset + stride);
     tmp2 = vload4(0, input_ptr + input_offset + stride + stride);
     tmp3 = vload4(0, input_ptr + input_offset + stride + stride + stride);
-    INPUT_TYPE4 in0 = (INPUT_TYPE4)(tmp0.x, tmp1.x, tmp2.x, tmp3.x);
-    INPUT_TYPE4 in1 = (INPUT_TYPE4)(tmp0.y, tmp1.y, tmp2.y, tmp3.y);
-    INPUT_TYPE4 in2 = (INPUT_TYPE4)(tmp0.z, tmp1.z, tmp2.z, tmp3.z);
-    INPUT_TYPE4 in3 = (INPUT_TYPE4)(tmp0.w, tmp1.w, tmp2.w, tmp3.w);
+    in0 = (INPUT_TYPE4)(tmp0.x, tmp1.x, tmp2.x, tmp3.x);
+    in1 = (INPUT_TYPE4)(tmp0.y, tmp1.y, tmp2.y, tmp3.y);
+    in2 = (INPUT_TYPE4)(tmp0.z, tmp1.z, tmp2.z, tmp3.z);
+    in3 = (INPUT_TYPE4)(tmp0.w, tmp1.w, tmp2.w, tmp3.w);
     #elif INPUT_FORMAT == MNN_DATA_FORMAT_NHWC
     int input_offset = ((n * shape.z + h) * shape.w + w) * shape.y + c;
-    INPUT_TYPE4 in0 = vload4(0, input_ptr + input_offset);
-    INPUT_TYPE4 in1 = vload4(0, input_ptr + input_offset + shape.y);
-    INPUT_TYPE4 in2 = vload4(0, input_ptr + input_offset + shape.y + shape.y);
-    INPUT_TYPE4 in3 = vload4(0, input_ptr + input_offset + shape.y + shape.y + shape.y);
+    in0 = vload4(0, input_ptr + input_offset);
+    in1 = vload4(0, input_ptr + input_offset + shape.y);
+    in2 = vload4(0, input_ptr + input_offset + shape.y + shape.y);
+    in3 = vload4(0, input_ptr + input_offset + shape.y + shape.y + shape.y);
     #elif INPUT_FORMAT == MNN_DATA_FORMAT_NC4HW4
     int input_offset = (((cblock * shape.x + n) * shape.z + h) * shape.w + w) * 4;
-    INPUT_TYPE4 in0 = vload4(0, input_ptr + input_offset);
-    INPUT_TYPE4 in1 = vload4(0, input_ptr + input_offset + 4);
-    INPUT_TYPE4 in2 = vload4(0, input_ptr + input_offset + 8);
-    INPUT_TYPE4 in3 = vload4(0, input_ptr + input_offset + 12);
+    in0 = vload4(0, input_ptr + input_offset);
+    in1 = vload4(0, input_ptr + input_offset + 4);
+    in2 = vload4(0, input_ptr + input_offset + 8);
+    in3 = vload4(0, input_ptr + input_offset + 12);
+    #else
+    // not support
     #endif
 #endif
     const int offset = idy * shape.w * 4;

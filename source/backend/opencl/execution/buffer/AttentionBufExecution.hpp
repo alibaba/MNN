@@ -22,8 +22,8 @@ public:
     KVCacheCLManager(Backend *backend, bool kv_cache);
 
     ~KVCacheCLManager() = default;
-    void allocKVCache(const KVMeta* meta, bool isDecodeResize = false);
-    bool reallocKVCache(const KVMeta* meta, bool isDecodeResize = false);
+    void allocKVCache(const KVMeta* meta);
+    bool reallocKVCache(const KVMeta* meta, bool isExecute = true);
     void setArgs(int numHead, int kvNumHead, int headDim){
         mNumHead = numHead;
         mKvNumHead = kvNumHead;
@@ -67,6 +67,7 @@ public:
 
     ErrorCode UpdateArgs(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
     ErrorCode init();
+    int getExecuteTime();
     virtual ~AttentionBufExecution() = default;
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
@@ -88,12 +89,14 @@ private:
     OpenCLBackend *mOpenCLBackend;
     RecordUpdateInfo mRgUpdateInfo;
     RecordUpdateInfo mRgQUpdateInfo;
+    RecordUpdateInfo mRgMUpdateInfo;
     RecordUpdateInfo mQkUpdateInfo;
     RecordUpdateInfo mSoftMaxUpdateInfo;
     RecordUpdateInfo mRgVUpdateInfo;
     RecordUpdateInfo mQkvUpdateInfo;
     int mGlobalWorkSizeQk0 = 0;
     size_t mQkGlobal_size[2];
+    size_t mQkPrefillGlobal_size[3];
     std::vector<RecordUpdateInfo*> mOpRecordUpdateInfo;
     std::shared_ptr<KVCacheCLManager> mKVCacheCLManager;
     std::shared_ptr<Tensor> mTempQK, mTempSoftMax;
@@ -131,6 +134,7 @@ private:
 private:
     std::shared_ptr<KernelWrap> mKernel_rearrangeQ;
     std::shared_ptr<KernelWrap> mKernel_rearrangeV;
+    std::shared_ptr<KernelWrap> mKernel_rearrangeMask;
     std::shared_ptr<KernelWrap> mKernel_rearrange;
     std::shared_ptr<KernelWrap> mKernel_qk;
     std::shared_ptr<KernelWrap> mKernel_softmax;
@@ -148,6 +152,8 @@ private:
     std::vector<uint32_t> mLocalWorkSizeRearrgV;
     std::vector<uint32_t> mGlobalWorkSizeRearrg;
     std::vector<uint32_t> mLocalWorkSizeRearrg;
+    std::vector<uint32_t> mGlobalWorkSizeRearrgM;
+    std::vector<uint32_t> mLocalWorkSizeRearrgM;
 
 };
 } // namespace OpenCL

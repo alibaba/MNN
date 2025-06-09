@@ -5,18 +5,27 @@ package com.alibaba.mnnllm.android.mainsettings
 import android.content.Context
 import androidx.preference.PreferenceManager
 import com.alibaba.mls.api.source.ModelSources
+import com.alibaba.mnnllm.android.utils.DeviceUtils
 
 
 object MainSettings {
 
     fun getDownloadProvider(context: Context): ModelSources.ModelSourceType {
-        val sharedPreferences = PreferenceManager.getDefaultSharedPreferences(context)
-        val result = sharedPreferences.getString("download_provider", "HuggingFace")
+        val result = getDownloadProviderString(context)
         return when (result) {
             "HuggingFace" -> ModelSources.ModelSourceType.HUGGING_FACE
             "ModelScope" -> ModelSources.ModelSourceType.MODEL_SCOPE
             else -> ModelSources.ModelSourceType.MODELERS
          }
+    }
+
+    fun getDownloadProviderString(context: Context):String {
+        val sharedPreferences = PreferenceManager.getDefaultSharedPreferences(context)
+        return sharedPreferences.getString("download_provider", getDefaultDownloadProvider())!!
+    }
+
+    fun getDefaultDownloadProvider():String {
+        return if (DeviceUtils.isChinese) "ModelScope" else "HuggingFace"
     }
 
     fun isStopDownloadOnChatEnabled(context: Context): Boolean {

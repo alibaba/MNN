@@ -6,13 +6,13 @@ plugins {
 android {
     namespace 'com.alibaba.mnnllm.android'
     compileSdk 35
-
+    ndkVersion '23.0.7599858'
     defaultConfig {
         applicationId "com.alibaba.mnnllm.android"
         minSdk 26
         targetSdk 34
-        versionCode 500
-        versionName "0.5.0"
+        versionCode 501
+        versionName "0.5.1.1"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         externalNativeBuild {

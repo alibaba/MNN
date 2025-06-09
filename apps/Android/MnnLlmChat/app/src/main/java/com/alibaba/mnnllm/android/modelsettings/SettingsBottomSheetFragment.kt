@@ -14,6 +14,7 @@ import android.widget.SeekBar
 import android.widget.Toast
 import androidx.core.view.isVisible
 import androidx.core.widget.addTextChangedListener
+import com.alibaba.mls.api.ModelItem
 import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.databinding.FragmentSettingsSheetBinding
 import com.alibaba.mnnllm.android.databinding.SettingsRowSliderSwitchBinding
@@ -22,6 +23,7 @@ import com.alibaba.mnnllm.android.modelsettings.ModelConfig.Companion.defaultCon
 import com.alibaba.mnnllm.android.utils.FileUtils
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
+import java.io.File
 import java.util.*
 
 enum class SamplerType(val value: String) {
@@ -46,12 +48,14 @@ class SettingsBottomSheetFragment : BottomSheetDialogFragment() {
     private lateinit var loadedConfig: ModelConfig
     private lateinit var modelId:String
     private lateinit var currentConfig:ModelConfig
+    private var modelItem: ModelItem? = null
     private var chatSession: LlmSession? = null
     private var _binding: FragmentSettingsSheetBinding? = null
     private val binding get() = _binding!!
     private var currentSamplerType: SamplerType = SamplerType.Mixed
     private var penaltySamplerValue: String = "greedy"
     private var needRecreateActivity = false
+    private var configPath:String? = null
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
@@ -203,65 +207,66 @@ class SettingsBottomSheetFragment : BottomSheetDialogFragment() {
                 SamplerType.Temperature.value,
             )
         }
+        currentConfig.topK = currentConfig.topK?:defaultConfig.topK!!
         setupSliderSwitchRow(
             rowBinding = SettingsRowSliderSwitchBinding.bind(binding.rowMixedTopK.root),
             label = samplerTypeToString(SamplerType.TopK),
-            initialValue = (currentConfig.topK?:defaultConfig.topK!!).toFloat(),
+            initialValue = (currentConfig.topK!!).toFloat(),
             initialEnabled = currentConfig.mixedSamplers!!.contains(SamplerType.TopK.value),
             valueRange = 1f..100f,
             decimalPlaces = 0,
             onValueChange = { currentConfig.topK = it.toInt() },
             onEnabledChange = { toggleEnable(currentConfig.mixedSamplers!!, SamplerType.TopK, it)}
         )
-
+        currentConfig.tfsZ = currentConfig.tfsZ?:defaultConfig.tfsZ!!
         setupSliderSwitchRow(
             rowBinding = SettingsRowSliderSwitchBinding.bind(binding.rowMixedTfsZ.root),
             label = samplerTypeToString(SamplerType.Tfs),
-            initialValue = (currentConfig.tfsZ?:defaultConfig.tfsZ!!),
+            initialValue = (currentConfig.tfsZ!!),
             initialEnabled = currentConfig.mixedSamplers!!.contains(SamplerType.Tfs.value),
             valueRange = 0f..1f,
             decimalPlaces = 0,
             onValueChange = { currentConfig.tfsZ = it },
             onEnabledChange = { toggleEnable(currentConfig.mixedSamplers!!, SamplerType.Tfs, it)}
         )
-
+        currentConfig.typical = currentConfig.typical?:defaultConfig.typical!!
         setupSliderSwitchRow(
             rowBinding = SettingsRowSliderSwitchBinding.bind(binding.rowMixedTypical.root),
             label = samplerTypeToString(SamplerType.Typical),
-            initialValue = (currentConfig.typical?:defaultConfig.typical!!).toFloat(),
+            initialValue = (currentConfig.typical!!).toFloat(),
             initialEnabled = currentConfig.mixedSamplers!!.contains(SamplerType.Typical.value),
             valueRange = 0f..1f,
             decimalPlaces = 0,
             onValueChange = { currentConfig.typical = it },
             onEnabledChange = { toggleEnable(currentConfig.mixedSamplers!!, SamplerType.Typical, it)}
         )
-
+        currentConfig.topP = currentConfig.topP?:defaultConfig.topP!!
         setupSliderSwitchRow(
             rowBinding = SettingsRowSliderSwitchBinding.bind(binding.rowMixedTopP.root),
             label = samplerTypeToString(SamplerType.TopP),
-            initialValue = (currentConfig.topP?:defaultConfig.topP!!).toFloat(),
+            initialValue = (currentConfig.topP!!).toFloat(),
             initialEnabled = currentConfig.mixedSamplers!!.contains(SamplerType.TopP.value),
             valueRange = 0f..1f,
             decimalPlaces = 2,
             onValueChange = { currentConfig.topP = it },
             onEnabledChange = { toggleEnable(currentConfig.mixedSamplers!!, SamplerType.TopP, it)}
         )
-
+        currentConfig.minP = currentConfig.minP?:defaultConfig.minP!!
         setupSliderSwitchRow(
             rowBinding = SettingsRowSliderSwitchBinding.bind(binding.rowMixedMinP.root),
             label = samplerTypeToString(SamplerType.MinP),
-            initialValue = (currentConfig.minP?:defaultConfig.minP!!).toFloat(),
+            initialValue = (currentConfig.minP!!).toFloat(),
             initialEnabled = currentConfig.mixedSamplers!!.contains(SamplerType.MinP.value),
             valueRange = 0f..1f,
             decimalPlaces = 2,
             onValueChange = { currentConfig.minP = it },
             onEnabledChange = { toggleEnable(currentConfig.mixedSamplers!!, SamplerType.MinP, it)}
         )
-
+        currentConfig.temperature = currentConfig.temperature?:defaultConfig.temperature!!
         setupSliderSwitchRow(
             rowBinding = SettingsRowSliderSwitchBinding.bind(binding.rowMixedTemp.root),
             label = samplerTypeToString(SamplerType.Temperature),
-            initialValue = (currentConfig.temperature?:defaultConfig.temperature!!).toFloat(),
+            initialValue = (currentConfig.temperature!!).toFloat(),
             initialEnabled = currentConfig.mixedSamplers!!.contains(SamplerType.Temperature.value),
             valueRange = 0f..2f,
             decimalPlaces = 2,
@@ -393,7 +398,12 @@ class SettingsBottomSheetFragment : BottomSheetDialogFragment() {
     }
 
     private fun loadSettings() {
-        loadedConfig = ModelConfig.loadMergedConfig(ModelConfig.getDefaultConfigFile(modelId)!!,
+        val defaultConfigFile = if ((configPath).isNullOrEmpty()) {
+            ModelConfig.getDefaultConfigFile(modelId)
+        } else {
+            configPath
+        }
+        loadedConfig = ModelConfig.loadMergedConfig(defaultConfigFile!!,
             ModelConfig.getExtraConfigFile(modelId)) ?: defaultConfig
         currentConfig = loadedConfig.deepCopy()
         updateSamplerSettings()
@@ -464,6 +474,15 @@ class SettingsBottomSheetFragment : BottomSheetDialogFragment() {
     fun setModelId(modelId: String,) {
         this.modelId = modelId
     }
+
+    fun setModelItem(modelItem: ModelItem) {
+        this.modelItem = modelItem
+    }
+
+    fun setConfigPath(configPath:String?) {
+        this.configPath = configPath
+    }
+
 
     companion object {
         const val TAG = "SettingsBottomSheetFragment"

@@ -82,7 +82,7 @@ void VulkanRaster::onEncodeFast(const Tensor* input, const Tensor* output, const
     for (int i=0; i< des->regions.size(); ++i) {
         auto& slice = des->regions[i];
         Tensor::InsideDescribe::Region newRegion;
-        OpCommonUtils::turnToPackRegion(slice, newRegion, output, 4);
+        OpCommonUtils::turnToPackRegion(slice, newRegion, output, 4, true);
         // TODO: Find better way
         newRegion.dst.offset /= 4;
         newRegion.src.offset /= 4;
@@ -92,6 +92,8 @@ void VulkanRaster::onEncodeFast(const Tensor* input, const Tensor* output, const
         auto group = UP_DIV(total, 256);
         std::shared_ptr<VulkanLayout::DescriptorSet> describe(blitPipeline->createSet());
         std::shared_ptr<VulkanBuffer> uniform = vkBn->allocUniform();
+        ::memcpy(uniform->map(), &info, sizeof(SamplerInfo));
+        uniform->unmap();
         auto srcTensor = vkBn->getTensorBuffer(slice.origin);
         auto srcTensorSize = vkBn->getTensorSize(slice.origin);
         describe->writeBuffer(dstTensor.first->buffer(), 0, dstTensorSize, dstTensor.second);
@@ -127,7 +129,7 @@ ErrorCode VulkanRaster::onEncode(const std::vector<Tensor *> &____inputs, const 
                 fast = false;
                 break;
             }
-            if (!OpCommonUtils::canBlitFast(slice, output)) {
+            if (!OpCommonUtils::canBlitFast(slice, output, 4, true)) {
                 fast = false;
                 break;
             }

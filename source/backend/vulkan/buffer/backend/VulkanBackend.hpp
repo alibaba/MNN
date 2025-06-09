@@ -92,7 +92,9 @@ public:
     VULKAN_TENSOR getBuffer(const Tensor* tensor) const;
     std::shared_ptr<VulkanBuffer> allocUniform(const void* src = nullptr, int size = 0);
     void recycleUniform(std::shared_ptr<VulkanBuffer> buffer);
+    void copyGPUToGPUBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size, VkDeviceSize srcOffset, VkDeviceSize dstOffset) const;
     void copyToGPUBuffer(const void* src, VkBuffer buffer, VkDeviceSize size, VkDeviceSize offset) const;
+    std::shared_ptr<VulkanBuffer> createHostBuffer(size_t size) const;
 
     const VulkanDevice& device() const;
 #ifdef ENABLE_VULKAN_TIME_PROFILE

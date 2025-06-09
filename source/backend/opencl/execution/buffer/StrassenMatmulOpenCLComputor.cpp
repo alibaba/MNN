@@ -460,6 +460,26 @@ ErrorCode StrassenMatrixComputor::onEncode(int e, int l, int h, int as, int bs, 
     return _generateMatMul(e, l, h, a, b, c, bias, 0, useBias);
 }
 
+int StrassenMatrixComputor::getExecuteTime() {
+    // All is done in onResize, just execute it
+    auto res = CL_SUCCESS;
+    int executeTime = 0;
+    for (auto &unit : mUnits) {
+        if(unit.localWorkSize[0] == 0 || unit.localWorkSize[1] == 0) {
+            unit.localWorkSize = cl::NullRange;
+        }
+        cl::Event event;
+        res = mOpenCLBackend->getOpenCLRuntime()->commandQueue().enqueueNDRangeKernel(unit.kernel->get(),
+                                                cl::NullRange,
+                                                unit.globalWorkSize,
+                                                unit.localWorkSize,
+                                                nullptr,
+                                                &event);
+        executeTime += mOpenCLBackend->getOpenCLRuntime()->getEventTime(event);
+    }
+    return executeTime;
+}
+
 void StrassenMatrixComputor::onExecute() {
     // All is done in onResize, just execute it
     auto res = CL_SUCCESS;

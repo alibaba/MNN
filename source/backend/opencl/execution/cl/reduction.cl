@@ -18,7 +18,7 @@ __private const int global_size_dim0, __private const int global_size_dim1, __pr
     if (input1 >= global_size_dim0 || input2 >= global_size_dim1 || input3 >= global_size_dim2) { \
         return;                                                                                   \
     }
-
+    
 
 __constant sampler_t SAMPLER = CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_CLAMP | CLK_FILTER_NEAREST;
 

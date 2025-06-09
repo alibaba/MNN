@@ -29,6 +29,9 @@ __kernel void pooling(GLOBAL_SIZE_3_DIMS __global const FLOAT *input,
     const int iw_start = mad24(ow_idx, stride_shape.y, -pad_shape.y);
     const int ih_start = mad24(oh_idx, stride_shape.x, -pad_shape.x);
     
+    #ifdef RETURN_REDICE
+    int4 redice = (int4)0;
+    #endif
     #ifdef POOL_AVG
     COMPUTE_FLOAT4 result = (COMPUTE_FLOAT4)(0);
     const int inp_offset = (((b_idx+c_idx*batch)*input_shape.x+ih_start)*input_shape.y+iw_start)*4;
@@ -57,9 +60,6 @@ __kernel void pooling(GLOBAL_SIZE_3_DIMS __global const FLOAT *input,
     result = result / (COMPUTE_FLOAT4)(1.0*total_count);
     #else
     COMPUTE_FLOAT4 result = (COMPUTE_FLOAT4)(-FLT_MAX);
-    #if RETURN_REDICE
-    int4 redice = (int4)0;
-    #endif
     const int inp_offset = (((b_idx+c_idx*batch)*input_shape.x+ih_start)*input_shape.y+iw_start)*4;
     for(int kh=0; kh<kernel_shape.x; kh++) {
         int ih_cur = ih_start + kh;
@@ -72,7 +72,7 @@ __kernel void pooling(GLOBAL_SIZE_3_DIMS __global const FLOAT *input,
                 continue;
             }
             COMPUTE_FLOAT4 inp_data = CONVERT_COMPUTE_FLOAT4(vload4(0, input+inp_offset+(kh*input_shape.y+kw)*4));
-            #if RETURN_REDICE
+            #ifdef RETURN_REDICE
             redice = inp_data > result ? (int4)((ih_start + kh) * input_shape.y + iw_start + kw) : redice;
             #endif
             result = fmax(result, inp_data);
@@ -82,7 +82,7 @@ __kernel void pooling(GLOBAL_SIZE_3_DIMS __global const FLOAT *input,
     
     const int out_offset = (((b_idx + c_idx*batch)*output_shape.x + oh_idx)* output_shape.y + ow_idx)*4;
     vstore4(CONVERT_FLOAT4(result), 0, output+out_offset);
-    #if RETURN_REDICE
+    #ifdef RETURN_REDICE
     vstore4(CONVERT_FLOAT4(redice),  0, rediceOutput+out_offset);
     #endif
 }
@@ -105,10 +105,10 @@ __kernel void global_pooling_buf(GLOBAL_SIZE_3_DIMS __global const FLOAT *input,
     COMPUTE_FLOAT4 output_result = 0;
 #else
     COMPUTE_FLOAT4 output_result = (COMPUTE_FLOAT4)(-FLT_MAX);
-#if RETURN_REDICE
+#endif
+#ifdef RETURN_REDICE
     int4 redice = (int4)0;
     int4 local rediceId[LOCAL_SIZE];
-#endif
 #endif
 
     COMPUTE_FLOAT4 local sum_mnn[LOCAL_SIZE];
@@ -122,14 +122,14 @@ __kernel void global_pooling_buf(GLOBAL_SIZE_3_DIMS __global const FLOAT *input,
         output_result += in;
 #else
         output_result = fmax(output_result, in);
-#if RETURN_REDICE
+#ifdef RETURN_REDICE
         redice = in > output_result ? (int4)(i) : redice;
 #endif
 #endif
     }
     
     sum_mnn[local_id] = output_result;
-#if RETURN_REDICE
+#ifdef RETURN_REDICE
     rediceId[local_id] = redice;
 #endif
     barrier(CLK_LOCAL_MEM_FENCE);
@@ -139,7 +139,7 @@ __kernel void global_pooling_buf(GLOBAL_SIZE_3_DIMS __global const FLOAT *input,
             sum_mnn[local_id] = sum_mnn[local_id] + sum_mnn[local_id + i];
 #else
         {
-#if RETURN_REDICE
+#ifdef RETURN_REDICE
             rediceId[local_id] = sum_mnn[local_id] > sum_mnn[local_id + i] ? rediceId[local_id] : rediceId[local_id + i];
 #endif
             sum_mnn[local_id] = fmax(sum_mnn[local_id], sum_mnn[local_id + i]);
@@ -154,7 +154,7 @@ __kernel void global_pooling_buf(GLOBAL_SIZE_3_DIMS __global const FLOAT *input,
 
     const int out_offset = (output_batch_idx + output_channel_idx*batch)*4;
     vstore4(CONVERT_FLOAT4(output_result), 0, output+out_offset);
-#if RETURN_REDICE
+#ifdef RETURN_REDICE
     redice = rediceId[0];
     vstore4(CONVERT_FLOAT4(redice),  0, rediceOutput+out_offset);
 #endif

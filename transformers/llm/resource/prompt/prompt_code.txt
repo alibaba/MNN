@@ -1,0 +1,29 @@
+user
+```cpp
+int partition(vector<long>& arr, int low, int high) { 
+   long pivot = arr[high]; 
+    int i = low - 1; 
+
+    for (int j = low; j < high; ++j) { 
+        if (arr[j] < pivot) { 
+            ++i; 
+            swap(arr[i], arr[j]); 
+        } 
+    } 
+
+    swap(arr[i + 1], arr[high]); 
+    return i + 1; 
+} 
+
+void quickSort(vector<long>& arr, int low, int high) { 
+    if (low < high) { 
+        int pi = partition(arr, low, high); 
+
+        quickSort(arr, low, pi - 1); 
+
+        quickSort(arr, pi + 1, high); 
+    } 
+}
+```
+
+将上述快速排序算法中，arr数据类型由long改为int，重新输出代码。要求：缩进空格数与prompt保持一致。只输出代码，不用原理解释。

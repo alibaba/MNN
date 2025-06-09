@@ -82,7 +82,7 @@ public:
     virtual Express::VARP embedding(const std::vector<int>& input_ids);
     Express::VARP forward(const std::vector<int>& input_ids, bool is_prefill = true);
     Express::VARP forward(MNN::Express::VARP input_embeds);
-    virtual Express::VARP forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos);
+    virtual std::vector<Express::VARP> forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos);
     virtual int sample(Express::VARP logits, int offset = 0, int size = 0);
     void reset();
     void tuning(TuneType type, std::vector<int> candidates);
@@ -132,8 +132,9 @@ protected:
     const Express::Module* mBaseModule = nullptr;
     ScheduleConfig mPrefillConfig, mDecodeConfig;
     Express::VARP inputsEmbeds, attentionMask, positionIds;
-    std::vector<Express::VARP> mInputsEmbedsVarVec, mAttentionMaskVarVec, mPositionIdsVarVec;
+    std::vector<Express::VARP> mAttentionMaskVarVec, mPositionIdsVarVec;
     Express::VARP logitsAllIdx, logitsLastIdx;
+    int mSeqLenIndex = 0;
 private:
     // decoding phase will use speculative decoding
     void speculativeGenerate(int max_token);

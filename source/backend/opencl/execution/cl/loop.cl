@@ -40,13 +40,13 @@ __kernel void batch_matmul(__private int global_dim0, __private int global_dim1,
 #endif
         int4 offset = index * steps + offsets;
         
-#if TRANSPOSE_A
+#ifdef TRANSPOSE_A
         __global FLOAT* A_ptr = input_A + offset.y + pos.y;
 #else
         __global FLOAT* A_ptr = input_A + offset.y + pos.y * l;
 #endif
 
-#if TRANSPOSE_B
+#ifdef TRANSPOSE_B
         __global FLOAT* B_ptr = input_B + offset.z + pos.x * l;
 #else
         __global FLOAT* B_ptr = input_B + offset.z + pos.x;
@@ -68,7 +68,7 @@ __kernel void batch_matmul(__private int global_dim0, __private int global_dim1,
         for(int i = 0; i < l_pack - 1; ++i){
             int l_offset = i << 2;
             FLOAT4 value_a0, value_a1, value_a2, value_a3, value_b0, value_b1, value_b2, value_b3;
-#if TRANSPOSE_A
+#ifdef TRANSPOSE_A
             value_a0 = vload4(0, A_ptr + l_offset * e);
             value_a1 = vload4(0, A_ptr + (l_offset + 1) * e);
             value_a2 = vload4(0, A_ptr + (l_offset + 2) * e);
@@ -80,7 +80,7 @@ __kernel void batch_matmul(__private int global_dim0, __private int global_dim1,
             value_a3 = vload4(0, A_ptr + l_offset + 3 * l);
 #endif
 
-#if TRANSPOSE_B
+#ifdef TRANSPOSE_B
             FLOAT4 value_tmp0 = vload4(0, B_ptr + l_offset);
             FLOAT4 value_tmp1 = vload4(0, B_ptr + l_offset + l);
             FLOAT4 value_tmp2 = vload4(0, B_ptr + l_offset + 2 * l);
@@ -140,7 +140,7 @@ __kernel void batch_matmul(__private int global_dim0, __private int global_dim1,
         }
 
         for(int i = ((l_pack - 1) << 2); i < l; ++i){
-#if TRANSPOSE_A
+#ifdef TRANSPOSE_A
             FLOAT4 value_a = vload4(0, A_ptr + i * e);
 #else
             FLOAT4 value_a;
@@ -150,7 +150,7 @@ __kernel void batch_matmul(__private int global_dim0, __private int global_dim1,
             value_a.w = A_ptr[i + 3 * l];
 #endif
 
-#if TRANSPOSE_B
+#ifdef TRANSPOSE_B
             FLOAT4 value_b;
             value_b.x = B_ptr[i];
             value_b.y = B_ptr[i + l];
@@ -323,7 +323,9 @@ __kernel void batch_gather(__private int global_dim0, __private int global_dim1,
     }
 }
 
-#ifdef LOOP_BINARY_OPERATOR
+#ifndef OPERATOR
+    #define OPERATOR in0 + in1
+#endif
 __kernel void broadcast_binary(__private int global_dim0, __private int global_dim1, __private int global_dim2,
                          __write_only image2d_t output, __read_only image2d_t input0, __read_only image2d_t input1,
                          __private const int8 src0_size, //(batch, channel, height, width)
@@ -422,13 +424,13 @@ __kernel void broadcast_binary(__private int global_dim0, __private int global_d
         int4 out = in0 % in1;
         out = ((out < (int4)0 && in1 > (int4)0) || (out > (int4)0 && in1 < (int4)0)) ? out + in1 : out;
         #else
-        float4 out = LOOP_BINARY_OPERATOR;
+        float4 out = OPERATOR;
         #endif
         
         WI_DATA(output, (int2)(co * dst_width + wo, no * dst_height + ho), CONVERT_OUTPUT_I4(out));
     }
 }
-#ifdef COMPUTE_CUMSUM
+
 __kernel void loop_cumsum(__private int global_dim0, __private int global_dim1, __private int global_dim2,
                          __global OUTPUT_TYPE* output, __global INPUT_TYPE* input0, __global INPUT_TYPE* input1,
                          __private const int input0Stride0,
@@ -455,21 +457,20 @@ __kernel void loop_cumsum(__private int global_dim0, __private int global_dim1, 
         int inputIndex1 = z * input1Stride0 + y * input1Stride1 + x * input1Stride2;
         int outputIndex = z * outputStride0 + y * outputStride1 + x * outputStride2;
         
-        float in0 = 0;
+        float4 in0 = 0;
         if(offsets.z != offsets.y){
-            in0 = (float)input0[inputIndex0];
+            in0.x = (float)input0[inputIndex0];
         }
         
         for(int i = 0; i < loopNumber; ++i){
             int4 offset = (int4)i * steps + offsets;
-            float in1 = (float)input1[inputIndex1 + offset.z];
-            float out = LOOP_BINARY_OPERATOR;
+            float4 in1;
+            in1.x = (float)input1[inputIndex1 + offset.z];
+            float4 out = OPERATOR;
         
-            output[outputIndex + offset.x] = (OUTPUT_TYPE)out;
-            in0 = out;
+            output[outputIndex + offset.x] = (OUTPUT_TYPE)out.x;
+            in0.x = out.x;
         }
     }
 }
-#endif
-#endif
 

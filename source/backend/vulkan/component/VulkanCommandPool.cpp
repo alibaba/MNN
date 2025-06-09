@@ -24,8 +24,7 @@ VulkanCommandPool::~VulkanCommandPool() {
     mDevice.destroyCommandPool(mPool);
     // FUNC_PRINT(1);
 }
-
-void VulkanCommandPool::submitAndWait(VkCommandBuffer buffer) const {
+std::shared_ptr<VulkanFence> VulkanCommandPool::submit(VkCommandBuffer buffer) const {
     auto b                   = buffer;
     auto fence               = std::make_shared<VulkanFence>(mDevice);
     VkSubmitInfo submit_info = {/* .sType                = */ VK_STRUCTURE_TYPE_SUBMIT_INFO,
@@ -40,6 +39,11 @@ void VulkanCommandPool::submitAndWait(VkCommandBuffer buffer) const {
     auto fenceReal           = fence->get();
     auto queue               = mDevice.acquireDefaultDevQueue();
     CALL_VK(vkQueueSubmit(queue, 1, &submit_info, fenceReal));
+    return fence;
+}
+
+void VulkanCommandPool::submitAndWait(VkCommandBuffer buffer) const {
+    auto fence = submit(buffer);
     fence->wait();
 }
 

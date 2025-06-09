@@ -53,8 +53,7 @@ class MainSettingsFragment : PreferenceFragmentCompat() {
                 }
             }
             preferenceManager.sharedPreferences?.let { sharedPreferences ->
-                val defaultProvider =
-                    if (!PreferenceUtils.isUseModelsScopeDownload(requireContext())) "HuggingFace" else "ModelScope"
+                val defaultProvider = MainSettings.getDownloadProviderString(requireContext())
                 if (!sharedPreferences.contains("download_provider")) {
                     sharedPreferences.edit().putString("download_provider", defaultProvider).apply()
                     downloadProviderPref.value = defaultProvider

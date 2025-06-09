@@ -69,7 +69,6 @@ public:
     VARP bigvganForward(VARP mel);
     VARP token2wav(const std::vector<int>& codec_tokens);
     void token2wav(bool talker_done = false);
-    VARP forward(VARP input_embeds);
     void generate();
     void setPostionIds(const MropeInfo& positionIds);
     void addTalkerEmbeds(VARP talker_embeds);
@@ -104,7 +103,7 @@ public:
         mAudioModule.reset();
     }
     virtual void load() override;
-    virtual Express::VARP forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos) override;
+    virtual std::vector<Express::VARP> forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos) override;
     virtual std::vector<int> tokenizer_encode(const std::string& query) override;
     virtual Express::VARP embedding(const std::vector<int>& input_ids) override;
     virtual Express::VARP gen_position_ids(int seq_len) override;
