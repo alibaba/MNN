@@ -455,7 +455,7 @@ void Tiktoken::encode(const std::string& str, std::vector<int>& ids) {
         int token_id = encoder_.find(it, str.end());
         if (token_id>=0) { ids.push_back(token_id); }
         else {
-            std::cerr << "Error: No encoding found for the sequence" << std::string(last_it, it) << std::endl;
+            MNN_ERROR("Error: No encoding found for the sequence %s\n", std::string(last_it, it).c_str());
         }
     }
 }
