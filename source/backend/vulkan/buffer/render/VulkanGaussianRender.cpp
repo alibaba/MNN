@@ -148,7 +148,7 @@ ErrorCode VulkanRasterSort::onEncode(const std::vector<Tensor *> &inputs, const 
         region2.dstOffset = std::get<2>(output);
         region2.srcOffset = pointOffsetSum.second + (pointOffsetBytes / sizeof(uint32_t) - 1) * sizeof(uint32_t);
 
-        vkCmdCopyBuffer(cmdBuffer->get(), ((VulkanBuffer*)pointOffsetSum.first)->buffer(), std::get<0>(output), 1, &region);
+        vkCmdCopyBuffer(cmdBuffer->get(), ((VulkanBuffer*)pointOffsetSum.first)->buffer(), std::get<0>(output), 1, &region2);
 
         cmdBuffer->barrierSource(sortNumber->buffer(), 0, sizeof(uint32_t));
     }
