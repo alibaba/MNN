@@ -1,0 +1,102 @@
+// Created by ruoyi.sjd on 2024/12/25.
+// Copyright (c) 2024 Alibaba Group Holding Limited All rights reserved.
+
+package com.alibaba.mnnllm.android.chat;
+
+import android.net.Uri;
+import android.text.TextUtils;
+
+import java.io.File;
+
+public class ChatDataItem {
+    private String time;
+    private String text;
+    private int type;
+    private Uri imageUri;
+
+    private Uri audioUri;
+
+    private String benchmarkInfo;
+
+    private String displayText;
+
+    private float audioDuration;
+
+    public ChatDataItem(String time, int type, String text) {
+        this.time = time;
+        this.type = type;
+        this.text = text;
+    }
+
+    public ChatDataItem(int type) {
+        this.type = type;
+    }
+
+    public String getTime() {
+        return time;
+    }
+
+    public int getType() {
+        return type;
+    }
+
+    public String getText() {
+        return text;
+    }
+
+    public void setText(String text) {
+        this.text = text;
+    }
+
+    public Uri getImageUri() {
+        return imageUri;
+    }
+
+    public void setImageUri(Uri image) {
+        imageUri = image;
+    }
+
+    public void setTime(String time) {
+        this.time = time;
+    }
+
+    public String getBenchmarkInfo() {
+        return benchmarkInfo;
+    }
+
+    public void setBenchmarkInfo(String benchmarkInfo) {
+        this.benchmarkInfo = benchmarkInfo;
+    }
+
+    public Uri getAudioUri() {
+        return audioUri;
+    }
+
+    public void setAudioUri(Uri audioUri) {
+        this.audioUri = audioUri;
+    }
+
+    public float getAudioDuration() {
+        return audioDuration;
+    }
+
+    public void setAudioDuration(float audioDuration) {
+        this.audioDuration = audioDuration;
+    }
+
+    public String getAudioPath() {
+        if (this.audioUri != null && "file".equals(this.audioUri.getScheme())) {
+            return this.audioUri.getPath();
+        }
+        return null;
+    }
+
+    public String getDisplayText() {
+        return TextUtils.isEmpty(this.displayText) ? this.text : this.displayText;
+    }
+
+    public void setDisplayText(String displayText) {
+        this.displayText = displayText;
+    }
+}
+

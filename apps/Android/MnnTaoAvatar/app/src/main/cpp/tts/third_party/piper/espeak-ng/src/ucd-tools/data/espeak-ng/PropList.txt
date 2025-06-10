@@ -1,0 +1,222 @@
+# espeak-ng/PropList-9.0.0.txt
+# Date: 2017-04-17, 20:19:00 GMT
+# Copyright (C) 2005 to 2015 by Jonathan Duddington
+# Copyright (C) 2017 Reece H. Dunn
+#
+# This is an extension to the Unicode Character Database PropList.txt file,
+# providing classification data used by the eSpeak NG Text-to-Speech
+# program. It uses the same format as the PropList.txt file.
+#
+# This data is licensed under the same terms as the Unicode Character
+# Database.
+#
+# Unicode and the Unicode Logo are registered trademarks of Unicode, Inc. in
+# the U.S. and other countries.
+# For terms of use, see http://www.unicode.org/terms_of_use.html
+#
+# Unicode Character Database
+#   For documentation, see http://www.unicode.org/reports/tr44/
+
+# ================================================
+
+002E          ; Full_Stop # Po       FULL STOP
+0589          ; Full_Stop # Po       ARMENIAN FULL STOP
+06D4          ; Full_Stop # Po       ARABIC FULL STOP
+0701          ; Full_Stop # Po       SYRIAC SUPRALINEAR FULL STOP
+0704          ; Full_Stop # Po       SYRIAC SUBLINEAR COLON
+0964          ; Full_Stop # Po       DEVANAGARI DANDA
+0DF4          ; Full_Stop # Po       SINHALA PUNCTUATION KUNDDALIYA
+0F0D          ; Full_Stop # Po       TIBETAN MARK SHAD
+1362          ; Full_Stop # Po       ETHIOPIC FULL STOP
+166E          ; Full_Stop # Po       CANADIAN SYLLABICS FULL STOP
+1803          ; Full_Stop # Po       MONGOLIAN FULL STOP
+1809          ; Full_Stop # Po       MONGOLIAN MANCHU FULL STOP
+2488..249B    ; Full_Stop # No  [20] DIGIT ONE FULL STOP..NUMBER TWENTY FULL STOP
+2CF9          ; Full_Stop # Po       COPTIC OLD NUBIAN FULL STOP
+2CFE          ; Full_Stop # Po       COPTIC FULL STOP
+2E33          ; Full_Stop # Po       RAISED DOT
+2E3C          ; Full_Stop # Po       STENOGRAPHIC FULL STOP
+3002          ; Full_Stop # Po       IDEOGRAPHIC FULL STOP
+A4FF          ; Full_Stop # Po       LISU PUNCTUATION FULL STOP
+A60E          ; Full_Stop # Po       VAI FULL STOP
+A6F3          ; Full_Stop # Po       BAMUM FULL STOP
+FE12          ; Full_Stop # Po       PRESENTATION FORM FOR VERTICAL IDEOGRAPHIC FULL STOP
+FE52          ; Full_Stop # Po       SMALL FULL STOP
+FF0E          ; Full_Stop # Po       FULLWIDTH FULL STOP
+FF61          ; Full_Stop # Po       HALFWIDTH IDEOGRAPHIC FULL STOP
+16AF5         ; Full_Stop # Po       BASSA VAH FULL STOP
+1BC9F         ; Full_Stop # Po       DUPLOYAN PUNCTUATION CHINOOK FULL STOP
+1DA88         ; Full_Stop # Po       SIGNWRITING FULL STOP
+1F100         ; Full_Stop # No       DIGIT ZERO FULL STOP
+E002E         ; Full_Stop # Cf       TAG FULL STOP
+
+# Total code points: 49
+
+# ================================================
+
+003F          ; Question_Mark # Po       QUESTION MARK
+00BF          ; Question_Mark # Po       INVERTED QUESTION MARK
+037E          ; Question_Mark # Po       GREEK QUESTION MARK
+055E          ; Question_Mark # Po       ARMENIAN QUESTION MARK
+061F          ; Question_Mark # Po       ARABIC QUESTION MARK
+0709          ; Question_Mark # Po       SYRIAC SUBLINEAR COLON SKEWED RIGHT
+1367          ; Question_Mark # Po       ETHIOPIC QUESTION MARK
+1945          ; Question_Mark # Po       LIMBU QUESTION MARK
+2047..2049    ; Question_Mark # Po   [3] DOUBLE QUESTION MARK..EXCLAMATION QUESTION MARK
+2753..2754    ; Question_Mark # So   [2] BLACK QUESTION MARK ORNAMENT..WHITE QUESTION MARK ORNAMENT
+2CFA..2CFB    ; Question_Mark # Po   [2] COPTIC OLD NUBIAN DIRECT QUESTION MARK..COPTIC OLD NUBIAN INDIRECT QUESTION MARK
+A60F          ; Question_Mark # Po       VAI QUESTION MARK
+A6F7          ; Question_Mark # Po       BAMUM QUESTION MARK
+FE16          ; Question_Mark # Po       PRESENTATION FORM FOR VERTICAL QUESTION MARK
+FE56          ; Question_Mark # Po       SMALL QUESTION MARK
+FF1F          ; Question_Mark # Po       FULLWIDTH QUESTION MARK
+11143         ; Question_Mark # Po       CHAKMA QUESTION MARK
+1E95F         ; Question_Mark # Po       ADLAM INITIAL QUESTION MARK
+E003F         ; Question_Mark # Cf       TAG QUESTION MARK
+
+# Total code points: 23
+
+# ================================================
+
+0021          ; Exclamation_Mark # Po       EXCLAMATION MARK
+00A1          ; Exclamation_Mark # Po       INVERTED EXCLAMATION MARK
+055B..055C    ; Exclamation_Mark # Po   [2] ARMENIAN EMPHASIS MARK..ARMENIAN EXCLAMATION MARK
+0703          ; Exclamation_Mark # Po       SYRIAC SUPRALINEAR COLON
+07F9          ; Exclamation_Mark # Po       NKO EXCLAMATION MARK
+1944          ; Exclamation_Mark # Po       LIMBU EXCLAMATION MARK
+203C          ; Exclamation_Mark # Po       DOUBLE EXCLAMATION MARK
+2048..2049    ; Exclamation_Mark # Po   [2] QUESTION EXCLAMATION MARK..EXCLAMATION QUESTION MARK
+2755          ; Exclamation_Mark # So       WHITE EXCLAMATION MARK ORNAMENT
+2757          ; Exclamation_Mark # So       HEAVY EXCLAMATION MARK SYMBOL
+2762..2763    ; Exclamation_Mark # So   [2] HEAVY EXCLAMATION MARK ORNAMENT..HEAVY HEART EXCLAMATION MARK ORNAMENT
+FE15          ; Exclamation_Mark # Po       PRESENTATION FORM FOR VERTICAL EXCLAMATION MARK
+FE57          ; Exclamation_Mark # Po       SMALL EXCLAMATION MARK
+FF01          ; Exclamation_Mark # Po       FULLWIDTH EXCLAMATION MARK
+1E95E         ; Exclamation_Mark # Po       ADLAM INITIAL EXCLAMATION MARK
+E0021         ; Exclamation_Mark # Cf       TAG EXCLAMATION MARK
+
+# Total code points: 17
+
+# ================================================
+
+002C          ; Comma # Po       COMMA
+055D          ; Comma # Po       ARMENIAN COMMA
+060C          ; Comma # Po       ARABIC COMMA
+0702          ; Comma # Po       SYRIAC SUBLINEAR FULL STOP
+07F8          ; Comma # Po       NKO COMMA
+0F14          ; Comma # Po       TIBETAN MARK GTER TSHEG
+1363          ; Comma # Po       ETHIOPIC COMMA
+1802          ; Comma # Po       MONGOLIAN COMMA
+1808          ; Comma # Po       MONGOLIAN MANCHU COMMA
+2E32          ; Comma # Po       TURNED COMMA
+2E34          ; Comma # Po       RAISED COMMA
+2E41          ; Comma # Po       REVERSED COMMA
+3001          ; Comma # Po       IDEOGRAPHIC COMMA
+A4FE          ; Comma # Po       LISU PUNCTUATION COMMA
+A60D          ; Comma # Po       VAI COMMA
+A6F5          ; Comma # Po       BAMUM COMMA
+FE10..FE11    ; Comma # Po   [2] PRESENTATION FORM FOR VERTICAL COMMA..PRESENTATION FORM FOR VERTICAL IDEOGRAPHIC COMMA
+FE50..FE51    ; Comma # Po   [2] SMALL COMMA..SMALL IDEOGRAPHIC COMMA
+FF0C          ; Comma # Po       FULLWIDTH COMMA
+FF64          ; Comma # Po       HALFWIDTH IDEOGRAPHIC COMMA
+1144D         ; Comma # Po       NEWA COMMA
+1DA87         ; Comma # Po       SIGNWRITING COMMA
+1F101..1F10A  ; Comma # No  [10] DIGIT ZERO COMMA..DIGIT NINE COMMA
+E002C         ; Comma # Cf       TAG COMMA
+
+# Total code points: 35
+
+# ================================================
+
+003A          ; Colon # Po       COLON
+0706..0707    ; Colon # Po   [2] SYRIAC COLON SKEWED LEFT..SYRIAC COLON SKEWED RIGHT
+1365..1366    ; Colon # Po   [2] ETHIOPIC COLON..ETHIOPIC PREFACE COLON
+1804          ; Colon # Po       MONGOLIAN COLON
+2982          ; Colon # Sm       Z NOTATION TYPE COLON
+A6F4          ; Colon # Po       BAMUM COLON
+FE13          ; Colon # Po       PRESENTATION FORM FOR VERTICAL COLON
+FE55          ; Colon # Po       SMALL COLON
+FF1A          ; Colon # Po       FULLWIDTH COLON
+12471..12472  ; Colon # Po   [2] CUNEIFORM PUNCTUATION SIGN VERTICAL COLON..CUNEIFORM PUNCTUATION SIGN DIAGONAL COLON
+1DA8A         ; Colon # Po       SIGNWRITING COLON
+E003A         ; Colon # Cf       TAG COLON
+
+# Total code points: 15
+
+# ================================================
+
+003B          ; Semi_Colon # Po       SEMICOLON
+0387          ; Semi_Colon # Po       GREEK ANO TELEIA
+061B          ; Semi_Colon # Po       ARABIC SEMICOLON
+0708          ; Semi_Colon # Po       SYRIAC SUPRALINEAR COLON SKEWED LEFT
+1364          ; Semi_Colon # Po       ETHIOPIC SEMICOLON
+204F          ; Semi_Colon # Po       REVERSED SEMICOLON
+2E35          ; Semi_Colon # Po       TURNED SEMICOLON
+A6F6          ; Semi_Colon # Po       BAMUM SEMICOLON
+FE14          ; Semi_Colon # Po       PRESENTATION FORM FOR VERTICAL SEMICOLON
+FE54          ; Semi_Colon # Po       SMALL SEMICOLON
+FF1B          ; Semi_Colon # Po       FULLWIDTH SEMICOLON
+1DA89         ; Semi_Colon # Po       SIGNWRITING SEMICOLON
+E003B         ; Semi_Colon # Cf       TAG SEMICOLON
+
+# Total code points: 13
+
+# ================================================
+
+0EAF          ; Ellipsis # Lo       LAO ELLIPSIS
+1801          ; Ellipsis # Po       MONGOLIAN ELLIPSIS
+2026          ; Ellipsis # Po       HORIZONTAL ELLIPSIS
+22EE..22F1    ; Ellipsis # Sm   [4] VERTICAL ELLIPSIS..DOWN RIGHT DIAGONAL ELLIPSIS
+FE19          ; Ellipsis # Po       PRESENTATION FORM FOR VERTICAL HORIZONTAL ELLIPSIS
+
+# Total code points: 8
+
+# ================================================
+
+0700          ; Paragraph_Separator # Po       SYRIAC END OF PARAGRAPH
+0965          ; Paragraph_Separator # Po       DEVANAGARI DOUBLE DANDA
+0F0E          ; Paragraph_Separator # Po       TIBETAN MARK NYIS SHAD
+10FB          ; Paragraph_Separator # Po       GEORGIAN PARAGRAPH SEPARATOR
+1368          ; Paragraph_Separator # Po       ETHIOPIC PARAGRAPH SEPARATOR
+2029          ; Paragraph_Separator # Zp       PARAGRAPH SEPARATOR
+
+# Total code points: 6
+
+# ================================================
+
+2013..2014    ; Extended_Dash # Pd   [2] EN DASH..EM DASH
+2E3A..2E3B    ; Extended_Dash # Pd   [2] TWO-EM DASH..THREE-EM DASH
+FE31..FE32    ; Extended_Dash # Pd   [2] PRESENTATION FORM FOR VERTICAL EM DASH..PRESENTATION FORM FOR VERTICAL EN DASH
+
+# Total code points: 6
+
+# ================================================
+
+00A1          ; Optional_Space_After # Po       INVERTED EXCLAMATION MARK
+00BF          ; Optional_Space_After # Po       INVERTED QUESTION MARK
+0589          ; Optional_Space_After # Po       ARMENIAN FULL STOP
+0964          ; Optional_Space_After # Po       DEVANAGARI DANDA
+0DF4          ; Optional_Space_After # Po       SINHALA PUNCTUATION KUNDDALIYA
+0F0D          ; Optional_Space_After # Po       TIBETAN MARK SHAD
+3001..3002    ; Optional_Space_After # Po   [2] IDEOGRAPHIC COMMA..IDEOGRAPHIC FULL STOP
+FF01          ; Optional_Space_After # Po       FULLWIDTH EXCLAMATION MARK
+FF0C          ; Optional_Space_After # Po       FULLWIDTH COMMA
+FF0E          ; Optional_Space_After # Po       FULLWIDTH FULL STOP
+FF1A..FF1B    ; Optional_Space_After # Po   [2] FULLWIDTH COLON..FULLWIDTH SEMICOLON
+FF1F          ; Optional_Space_After # Po       FULLWIDTH QUESTION MARK
+
+# Total code points: 14
+
+# ================================================
+
+055B..055C    ; Punctuation_In_Word # Po   [2] ARMENIAN EMPHASIS MARK..ARMENIAN EXCLAMATION MARK
+055E          ; Punctuation_In_Word # Po       ARMENIAN QUESTION MARK
+
+# Total code points: 3
+
+# ================================================
+
+00A1          ; Inverted_Terminal_Punctuation # Po       INVERTED EXCLAMATION MARK
+00BF          ; Inverted_Terminal_Punctuation # Po       INVERTED QUESTION MARK
+
+# Total code points: 2

@@ -1,0 +1,111 @@
+# espeak-ng/emoji-data-4.0.txt
+# Date: 2017-05-18, 07:59:00 GMT
+# Copyright (C) 2017 Reece H. Dunn
+#
+# This is an extension to the Unicode Character Database emoji-data.txt file.
+# It provides additional classification data for interpreting ZWJ emoji
+# sequences.
+#
+# The `Emoji_Role` property is used for object-based roles which have the form:
+#
+#     1F468 200D Emoji_Role                 # man (role name)
+#     1F468 Emoji_Modifier 200D Emoji_Role  # man (modifier name) (role name)
+#     1F469 200D Emoji_Role                 # woman (role name)
+#     1F469 Emoji_Modifier 200D Emoji_Role  # woman (modifier name) (role name)
+#
+# The `Emoji_Gender` property is used on emoji codepoints to signify the gender
+# of the emoji with the form:
+#
+#     Emoji_Gendered_Base 200D Emoji_Gender
+#     Emoji_Gendered_Base Emoji_Modifier 200D Emoji_Gender
+#
+# This file uses the same format as the PropList.txt file.
+#
+# This data is licensed under the same terms as the Unicode Character
+# Database.
+#
+# Unicode and the Unicode Logo are registered trademarks of Unicode, Inc. in
+# the U.S. and other countries.
+# For terms of use, see http://www.unicode.org/terms_of_use.html
+#
+# Unicode Character Database
+#   For documentation, see http://www.unicode.org/reports/tr44/
+
+# ================================================
+
+2695   ; Emoji_Role # (⚕) health worker
+2696   ; Emoji_Role # (⚖) judge
+2708   ; Emoji_Role # (✈) pilot
+1F33E  ; Emoji_Role # (🌾) farmer
+1F373  ; Emoji_Role # (🍳) cook
+1F393  ; Emoji_Role # (🎓) student
+1F3A4  ; Emoji_Role # (🎤) singer
+1F3A8  ; Emoji_Role # (🎨) artist
+1F3EB  ; Emoji_Role # (🏫) teacher
+1F3ED  ; Emoji_Role # (🏭) factory worker
+1F4BB  ; Emoji_Role # (💻) technologist
+1F4BC  ; Emoji_Role # (💼) office worker
+1F527  ; Emoji_Role # (🔧) mechanic
+1F52C  ; Emoji_Role # (🔬) scientist
+1F680  ; Emoji_Role # (🚀) astronaut
+1F692  ; Emoji_Role # (🚒) firefighter
+
+# Total code points: 16
+
+# ================================================
+
+26F9   ; Emoji_Gendered_Base # (⛹) person bouncing ball
+1F3C3  ; Emoji_Gendered_Base # (🏃) person running
+1F3C4  ; Emoji_Gendered_Base # (🏄) person surfacing
+1F3CA  ; Emoji_Gendered_Base # (🏊) person swimming
+1F3CB  ; Emoji_Gendered_Base # (🏋️) person lifting weights
+1F3CC  ; Emoji_Gendered_Base # (🏌️) person golfing
+1F46E  ; Emoji_Gendered_Base # (👮) police officer
+1F46F  ; Emoji_Gendered_Base # (👯) person with bunny ears partying
+1F471  ; Emoji_Gendered_Base # (👱) blond haired person
+1F473  ; Emoji_Gendered_Base # (👳) person wearing turban
+1F477  ; Emoji_Gendered_Base # (👷) construction worker
+1F481  ; Emoji_Gendered_Base # (💁) person tipping hand
+1F482  ; Emoji_Gendered_Base # (💂) guard
+1F486  ; Emoji_Gendered_Base # (💆) person getting massage
+1F487  ; Emoji_Gendered_Base # (💇) person getting haircut
+1F575  ; Emoji_Gendered_Base # (🕵️) detective
+1F645  ; Emoji_Gendered_Base # (🙅) person gesturing NO
+1F646  ; Emoji_Gendered_Base # (🙆) person gesturing OK
+1F647  ; Emoji_Gendered_Base # (🙇) person bowing
+1F64B  ; Emoji_Gendered_Base # (🙋) person raising hand
+1F64D  ; Emoji_Gendered_Base # (🙍) person frowning
+1F64E  ; Emoji_Gendered_Base # (🙎) person pouting
+1F6A3  ; Emoji_Gendered_Base # (🚣) person rowing boat
+1F6B4  ; Emoji_Gendered_Base # (🚴) person biking
+1F6B5  ; Emoji_Gendered_Base # (🚵) person mountain biking
+1F6B6  ; Emoji_Gendered_Base # (🚶) person walking
+1F926  ; Emoji_Gendered_Base # (🤦) person facepalming
+1F937  ; Emoji_Gendered_Base # (🤷) person shrugging
+1F938  ; Emoji_Gendered_Base # (🤸) person cartwheeling
+1F939  ; Emoji_Gendered_Base # (🤹) person juggling
+1F93C  ; Emoji_Gendered_Base # (🤼) person wrestling
+1F93D  ; Emoji_Gendered_Base # (🤽) person playing water polo
+1F93E  ; Emoji_Gendered_Base # (🤾) person playing handball
+1F9D6  ; Emoji_Gendered_Base # (🧖) person in steamy room
+1F9D7  ; Emoji_Gendered_Base # (🧘) person in lotus position
+1F9D9  ; Emoji_Gendered_Base # (🧙) mage
+1F9DA  ; Emoji_Gendered_Base # (🧚) fairy
+1F9DB  ; Emoji_Gendered_Base # (🧛) vampire
+1F9DC  ; Emoji_Gendered_Base # (🧜) merperson
+1F9DD  ; Emoji_Gendered_Base # (🧝) elf
+1F9DE  ; Emoji_Gendered_Base # (🧞) genie
+1F9DF  ; Emoji_Gendered_Base # (🧟) zombie
+
+# Total code points: 42
+
+# ================================================
+
+2640   ; Emoji_Gender # (♀) woman
+2642   ; Emoji_Gender # (♂) man
+
+# Total code points: 2
+
+#EOF
+
+#EOF
