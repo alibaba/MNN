@@ -38,7 +38,7 @@
             style="?attr/materialButtonOutlinedStyle"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="清空日志" />
+            android:text="@string/clear_log" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/button_copy_log"
@@ -46,7 +46,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginStart="8dp"
-            android:text="复制日志" />
+            android:text="@string/copy_log" />
 
         <Space
             android:layout_width="0dp"
@@ -58,7 +58,7 @@
             style="@style/Widget.Material3.Button"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="关闭" />
+            android:text="@string/close" />
     </LinearLayout>
 
     <com.google.android.material.divider.MaterialDivider
@@ -87,7 +87,7 @@
                 android:id="@+id/tv_section_status"
                 style="@style/SettingsSectionHeader"
                 android:visibility="visible"
-                android:text="服务状态" />
+                android:text="@string/service_status" />
 
             <com.google.android.material.card.MaterialCardView
                 style="@style/SettingsSectionGroup"
@@ -114,14 +114,14 @@
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:text="当前状态："
+                            android:text="@string/current_status"
                             android:textAppearance="?attr/textAppearanceBodyMedium" />
 
                         <TextView
                             android:id="@+id/text_service_status"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="已停止"
+                            android:text="@string/stopped"
                             android:textAppearance="?attr/textAppearanceBodyMedium"
                             android:textStyle="bold" />
 
@@ -131,7 +131,7 @@
                         android:id="@+id/label_listen_address"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="监听地址："
+                        android:text="@string/listen_address"
                         android:textAppearance="?attr/textAppearanceBodyMedium"
                         android:visibility="gone" />
 
@@ -151,7 +151,7 @@
                         android:id="@+id/label_api_endpoint"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="API端点："
+                        android:text="@string/api_endpoint"
                         android:textAppearance="?attr/textAppearanceBodyMedium"
                         android:layout_marginTop="8dp"
                         android:visibility="gone" />
@@ -199,7 +199,7 @@
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:text="当前配置摘要"
+                            android:text="@string/current_config_summary"
                             android:textAppearance="?attr/textAppearanceBodyLarge"
                             android:textStyle="bold" />
 
@@ -232,14 +232,14 @@
                                 android:layout_width="0dp"
                                 android:layout_height="wrap_content"
                                 android:layout_weight="1"
-                                android:text="CORS："
+                                android:text="@string/cors_label"
                                 android:textAppearance="?attr/textAppearanceBodyMedium" />
 
                             <TextView
                                 android:id="@+id/text_cors_status"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
-                                android:text="已禁用"
+                                android:text="@string/disabled"
                                 android:textAppearance="?attr/textAppearanceBodyMedium" />
 
                         </LinearLayout>
@@ -253,14 +253,14 @@
                                 android:layout_width="0dp"
                                 android:layout_height="wrap_content"
                                 android:layout_weight="1"
-                                android:text="认证方式："
+                                android:text="@string/auth_method"
                                 android:textAppearance="?attr/textAppearanceBodyMedium" />
 
                             <TextView
                                 android:id="@+id/text_auth_status"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
-                                android:text="无认证"
+                                android:text="@string/no_auth"
                                 android:textAppearance="?attr/textAppearanceBodyMedium" />
 
                         </LinearLayout>
@@ -298,7 +298,7 @@
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:text="日志输出"
+                            android:text="@string/log_output"
                             android:textAppearance="?attr/textAppearanceBodyLarge"
                             android:textStyle="bold" />
 

@@ -97,8 +97,7 @@ class ApiServiceCoordinator(private val context: Context) {
             application?.stop()
             application = null
 
-            // 确保在application为null后重置状态，避免引用已停止的application实例
-           // com.alibaba.mnnllm.api.openai.manager.ServerEventManager.getInstance().resetRuntimeState()
+            com.alibaba.mnnllm.api.openai.manager.ServerEventManager.getInstance().resetRuntimeState()
             Timber.Forest.tag(TAG).d("ServerEventManager state reset after application is nullified.")
 
             // 取消通知
@@ -154,8 +153,29 @@ class ApiServiceCoordinator(private val context: Context) {
      */
     fun cleanup() {
         runCatching {
-            stopServer()
-            networkServiceScope.cancel()
+            val appToStop = application
+            if (appToStop != null) {
+                Timber.Forest.tag(TAG).i("Cleanup: Requesting server stop for application: $appToStop")
+                appToStop.stop() // 发出停止请求
+                
+                Timber.Forest.tag(TAG).i("Cleanup: Waiting 5 seconds for server to stop gracefully...")
+                try {
+                    Thread.sleep(3000) // 增加等待时间到5秒
+                } catch (e: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    Timber.Forest.tag(TAG).w("Cleanup delay interrupted after server stop request.")
+                }
+                Timber.Forest.tag(TAG).i("Cleanup: Finished waiting. Proceeding with coordinator cleanup.")
+                application = null // 在等待之后置空
+            }
+
+            // 确保即使 appToStop 为 null，也尝试重置状态和取消通知
+            com.alibaba.mnnllm.api.openai.manager.ServerEventManager.getInstance().resetRuntimeState()
+            Timber.Forest.tag(TAG).d("ServerEventManager state reset during cleanup.")
+            notificationManager?.cancelNotification()
+            
+            Timber.Forest.tag(TAG).i("Cleanup: Cancelling networkServiceScope.")
+            networkServiceScope.cancel() // 最后取消作用域
             notificationManager = null
             _isInitialized = false
             Timber.Forest.tag(TAG).i("Coordinator cleaned up")

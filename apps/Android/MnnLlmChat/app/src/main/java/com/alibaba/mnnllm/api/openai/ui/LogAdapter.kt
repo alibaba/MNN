@@ -11,6 +11,8 @@ import androidx.recyclerview.widget.RecyclerView
 import com.alibaba.mnnllm.android.R
 import timber.log.Timber
 
+//这个文件包含大量遗留问题，暂不影响运行
+
 class LogAdapter : RecyclerView.Adapter<LogAdapter.LogViewHolder>() {
     
     private val logEntries = mutableListOf<LogEntryData>()
@@ -84,12 +86,12 @@ class LogAdapter : RecyclerView.Adapter<LogAdapter.LogViewHolder>() {
                         fallbackFileOpen(view, fileName, lineNumber, filePath)
                     }
                 } else {
-                    Toast.makeText(view.context, "无法找到文件: $fileName", Toast.LENGTH_SHORT).show()
+                  //  Toast.makeText(view.context, "无法找到文件: $fileName", Toast.LENGTH_SHORT).show()
                 }
             }
         } catch (e: Exception) {
             Timber.tag("LogAdapter").e(e, "Failed to handle log click")
-            Toast.makeText(view.context, "无法打开文件: ${e.message}", Toast.LENGTH_SHORT).show()
+           // Toast.makeText(view.context, "无法打开文件: ${e.message}", Toast.LENGTH_SHORT).show()
         }
     }
     
@@ -137,7 +139,7 @@ class LogAdapter : RecyclerView.Adapter<LogAdapter.LogViewHolder>() {
      */
     private fun fallbackFileOpen(view: View, fileName: String, lineNumber: Int, filePath: String) {
         // 显示文件路径信息
-        val message = "文件: $fileName\n行号: $lineNumber\n路径: $filePath"
+        val message = view.context.getString(R.string.file_info_template, fileName, lineNumber, filePath)
         Toast.makeText(view.context, message, Toast.LENGTH_LONG).show()
         
         // 记录到logcat，方便开发者手动跳转

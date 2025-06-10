@@ -88,7 +88,7 @@
             <TextView
                 android:id="@+id/tv_section_network"
                 style="@style/SettingsSectionHeader"
-                android:text="基础网络设置"
+                android:text="@string/basic_network_settings"
                 android:visibility="visible" />
 
             <com.google.android.material.card.MaterialCardView
@@ -112,14 +112,14 @@
                         android:layout_marginStart="16dp"
                         android:layout_marginTop="16dp"
                         android:layout_weight="1"
-                        android:text="端口号" />
+                        android:text="@string/port_number" />
 
                     <com.google.android.material.textfield.TextInputLayout
                         android:id="@+id/layout_port"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_margin="8dp"
-                        android:hint="默认 8080">
+                        android:hint="@string/default_8080">
 
                         <com.google.android.material.textfield.TextInputEditText
                             android:id="@+id/edit_port"
@@ -135,14 +135,14 @@
                         android:layout_marginStart="16dp"
                         android:layout_marginTop="16dp"
                         android:layout_weight="1"
-                        android:text="服务器访问地址" />
+                        android:text="@string/server_access_address" />
 
                     <com.google.android.material.textfield.TextInputLayout
                         android:id="@+id/layout_ip_address"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_margin="8dp"
-                        android:hint="如 0.0.0.0, 127.0.0.1">
+                        android:hint="@string/ip_hint">
 
                         <com.google.android.material.textfield.TextInputEditText
                             android:id="@+id/edit_ip_address"
@@ -168,7 +168,7 @@
                             android:layout_marginEnd="4dp"
                             android:layout_weight="1"
                             android:padding="4dp"
-                            android:text="本地回环"
+                            android:text="@string/local_loopback"
                             android:textSize="16sp" />
 
                         <com.google.android.material.button.MaterialButton
@@ -180,7 +180,7 @@
                             android:layout_marginEnd="4dp"
                             android:layout_weight="1"
                             android:padding="4dp"
-                            android:text="监听所有"
+                            android:text="@string/listen_all"
                             android:textSize="16sp" />
 
                         <com.google.android.material.button.MaterialButton
@@ -191,7 +191,7 @@
                             android:layout_marginStart="4dp"
                             android:layout_weight="1"
                             android:padding="4dp"
-                            android:text="自动获取"
+                            android:text="@string/auto_detect"
                             android:textSize="16sp" />
 
                     </LinearLayout>
@@ -202,7 +202,7 @@
 
             <TextView
                 style="@style/SettingsSectionHeader"
-                android:text="CORS设置"
+                android:text="@string/cors_settings"
                 android:visibility="visible" />
 
             <com.google.android.material.card.MaterialCardView
@@ -230,7 +230,7 @@
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:text="启用CORS"
+                            android:text="@string/enable_cors"
                             android:textAppearance="?attr/textAppearanceBodyLarge" />
 
                         <com.google.android.material.materialswitch.MaterialSwitch
@@ -246,7 +246,7 @@
                         android:layout_height="wrap_content"
                         android:layout_margin="8dp"
                         android:layout_marginBottom="16dp"
-                        android:hint="默认允许所有来源（逗号分隔）"
+                        android:hint="@string/default_allow_all_origins"
                         android:visibility="gone">
 
                         <com.google.android.material.textfield.TextInputEditText
@@ -260,7 +260,7 @@
 
             <TextView
                 style="@style/SettingsSectionHeader"
-                android:text="认证设置"
+                android:text="@string/auth_settings"
                 android:visibility="visible" />
 
             <com.google.android.material.card.MaterialCardView
@@ -288,7 +288,7 @@
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:text="启用API Key验证"
+                            android:text="@string/enable_api_key_auth"
                             android:textAppearance="?attr/textAppearanceBodyLarge" />
 
                         <com.google.android.material.materialswitch.MaterialSwitch
@@ -305,7 +305,7 @@
                         android:layout_height="wrap_content"
                         android:layout_margin="8dp"
                         android:layout_marginBottom="16dp"
-                        android:hint="API Key"
+                        android:hint="@string/api_key"
                         android:visibility="visible">
 
                         <com.google.android.material.textfield.TextInputEditText

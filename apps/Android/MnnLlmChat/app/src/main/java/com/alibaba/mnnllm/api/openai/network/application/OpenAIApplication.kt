@@ -49,6 +49,9 @@ class OpenAIApplication(private val lifecycleScope: CoroutineScope, private val 
             val ipAddress = ApiServerConfig.getIpAddress(context)
             
             Timber.tag("Network").i("Starting Ktor Server on $ipAddress:$port")
+            Timber.tag("Network").d("Checking port availability...")
+            
+            Timber.tag("Network").i("Starting Ktor Server on $ipAddress:$port")
             checkPortAvailability(port)
 
             server = lifecycleScope.embeddedServer(

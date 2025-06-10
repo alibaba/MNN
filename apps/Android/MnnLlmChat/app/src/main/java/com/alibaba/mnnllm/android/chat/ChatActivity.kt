@@ -223,7 +223,7 @@ class ChatActivity : AppCompatActivity() {
             ApiSettingsBottomSheetFragment().show(supportFragmentManager, "ApiSettingsBottomSheetFragment")
             return true
         } else if (item.itemId == R.id.menu_item_api_console) {
-            ApiConsoleBottomSheetFragment().show(supportFragmentManager, "ApiConsoleBottomSheetFragment")
+            ApiConsoleBottomSheetFragment.newInstance(this).show(supportFragmentManager, "ApiConsoleBottomSheetFragment")
             return true
         }
         return super.onOptionsItemSelected(item)

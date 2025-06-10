@@ -98,18 +98,75 @@
     <string name="api_bind_ip">Bind IP Address</string>
     <string name="api_cors_enabled">Enable CORS</string>
     <string name="api_cors_origins">Allowed Origins</string>
-    <string name="api_auth_enabled">Enable API Key Authentication</string>
+    
+    <!-- API Settings Layout Strings -->
+    <string name="basic_network_settings">Basic Network Settings</string>
+    <string name="port_number">Port Number</string>
+    <string name="default_8080">Default 8080</string>
+    <string name="server_access_address">Server Access Address</string>
+    <string name="ip_hint">e.g. 0.0.0.0, 127.0.0.1</string>
+    <string name="local_loopback">Localhost</string>
+    <string name="listen_all">All IPs</string>
+    <string name="auto_detect">Auto</string>
+    <string name="cors_settings">CORS Settings</string>
+    <string name="enable_cors">Enable CORS</string>
+    <string name="default_allow_all_origins">Allow all origins (comma separated)</string>
+    <string name="auth_settings">Authentication</string>
+    <string name="enable_api_key_auth">Enable API Key Authentication</string>
     <string name="api_key">API Key</string>
+    
+    <!-- API Console Layout Strings -->
+    <string name="clear_log">Clear Log</string>
+    <string name="copy_log">Copy Log</string>
+    <string name="service_status">Service Status</string>
+    <string name="current_status">Current Status:</string>
+    <string name="stopped">Stopped</string>
+    <string name="listen_address">Listen Address:</string>
+    <string name="api_endpoint">API Endpoint:</string>
+    <string name="current_config_summary">Current Configuration Summary</string>
+    <string name="cors_label">CORS:</string>
+    <string name="disabled">Disabled</string>
+    <string name="auth_method">Authentication Method:</string>
+    <string name="no_auth">No Authentication</string>
+    <string name="log_output">Log Output</string>
+    
+    <!-- LogAdapter Strings -->
+    <string name="file_info_template">File: %1$s\nLine: %2$d\nPath: %3$s</string>
+    
+    <!-- ApiConsoleBottomSheetFragment Strings -->
+    <string name="service_disabled">Disabled</string>
+    <string name="service_running">Running</string>
+    <string name="service_starting">Starting</string>
+    <string name="service_stopping">Stopping</string>
+    <string name="service_stopped">Stopped</string>
+    <string name="cors_enabled">Enabled</string>
+    <string name="cors_disabled_status">Disabled</string>
+    <string name="api_key_enabled">API Key Enabled</string>
+    <string name="no_authentication">No Authentication</string>
+    <string name="console_started">API Service Console Started</string>
+    <string name="server_running_message">Server is running</string>
+    <string name="waiting_for_connections">Waiting for client connections...</string>
+    <string name="server_not_started">Server not started</string>
+    <string name="server_status_template">Server status: %1$s</string>
+    <string name="test_log_message1">This is a test log to verify line number display and click navigation</string>
+    <string name="test_log_message2">Debug info: Line number feature test</string>
+    <string name="test_log_message3">Warning: Please ensure Android Studio has the project open</string>
+    <string name="test_log_added_info">Test logs added with line number info</string>
+    <string name="server_starting_message">Server starting...</string>
+    <string name="server_started_message">Server started</string>
+    <string name="server_ready_message">Server ready, accepting connections</string>
+    <string name="server_preparing_stop">Server preparing to stop...</string>
+    <string name="server_stopping_message">Server stopping...</string>
+    <string name="server_stopped_message">Server stopped</string>
+    <string name="server_running_at_template">Server running at %1$s:%2$d</string>
+    <string name="close">Close</string>
+    
+    <string name="api_auth_enabled">Enable API Key Authentication</string>
     <string name="reset">Reset</string>
     <string name="cancel">Cancel</string>
     <string name="save">Save</string>
-    <string name="service_status">Service Status</string>
     <string name="listening_address">Listening Address</string>
     <string name="configuration_summary">Configuration Summary</string>
-    <string name="log_output">Log Output</string>
-    <string name="clear_log">Clear Log</string>
-    <string name="copy_log">Copy Log</string>
-    <string name="close">Close</string>
     <string name="status_running">Running</string>
     <string name="status_stopped">Stopped</string>
     <string name="cors_disabled">CORS: Disabled</string>
@@ -157,4 +214,12 @@
 </string>
     <string name="copied_to_clipboard">Copied to clipboard</string>
     <string name="apk_download_started">Apk download started, view progress in the notification</string>
+    <string name="api_config_reset_service_restarted">API configuration has been reset, service restarted</string>
+    <string name="api_config_reset_to_default">API configuration has been reset to default values</string>
+    <string name="log_cleared">Log cleared</string>
+    <string name="log_copied_to_clipboard">Log copied to clipboard</string>
+    <string name="api_settings_saved">API settings saved</string>
+    <string name="restarting_api_service_new_config">Restarting API service to apply new configuration...</string>
+    <string name="config_restored_default_processing_service">Configuration restored to default, processing service status...</string>
+    <string name="test_log_added_with_code_jump">Test log added\nLong press log entries to try jumping to code</string>
 </resources>

@@ -13,6 +13,7 @@ import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.core.view.isVisible
 import androidx.lifecycle.lifecycleScope
+import com.alibaba.mnnllm.android.R
 import kotlinx.coroutines.Job
 import com.alibaba.mnnllm.android.databinding.FragmentApiConsoleSheetBinding
 import com.alibaba.mnnllm.android.mainsettings.MainSettings
@@ -26,11 +27,22 @@ import kotlinx.coroutines.flow.onEach
 import timber.log.Timber
 import java.text.SimpleDateFormat
 import java.util.*
+import com.alibaba.mnnllm.android.chat.ChatActivity
 
 class ApiConsoleBottomSheetFragment : BottomSheetDialogFragment() {
 
     private var _binding: FragmentApiConsoleSheetBinding? = null
     private val binding get() = _binding!!
+    private var chatActivity: ChatActivity? = null
+
+    companion object {
+        const val TAG = "ApiConsoleBottomSheetFragment"
+        fun newInstance(chatActivity: ChatActivity): ApiConsoleBottomSheetFragment {
+            return ApiConsoleBottomSheetFragment().apply {
+                this.chatActivity = chatActivity
+            }
+        }
+    }
 
     private val dateFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
     private val logAdapter = LogAdapter()
@@ -98,7 +110,7 @@ class ApiConsoleBottomSheetFragment : BottomSheetDialogFragment() {
     }
 
     private fun updateServiceStatus() {
-        val context = requireContext()
+        val context = chatActivity ?: requireContext()
         val isServiceEnabled = MainSettings.isApiServiceEnabled(context)
         val serverState = serverEventManager.getCurrentState()
         val serverInfo = serverEventManager.getCurrentInfo()
@@ -112,7 +124,7 @@ class ApiConsoleBottomSheetFragment : BottomSheetDialogFragment() {
         when {
             !isServiceEnabled -> {
                 Timber.tag("ApiConsoleUI").d("[Service] Service is disabled")
-                binding.textServiceStatus.text = "已禁用"
+                binding.textServiceStatus.text = getString(R.string.service_disabled)
                 binding.textServiceStatus.setTextColor(resources.getColor(android.R.color.darker_gray, null))
                 binding.textListenAddress.visibility = View.GONE
                 binding.labelListenAddress.visibility = View.GONE
@@ -121,7 +133,7 @@ class ApiConsoleBottomSheetFragment : BottomSheetDialogFragment() {
             }
             serverState == ServerEventManager.ServerState.READY -> {
                 Timber.tag("ApiConsoleUI").d("[Service] Server is ready")
-                binding.textServiceStatus.text = "运行中"
+                binding.textServiceStatus.text = getString(R.string.service_running)
                 binding.textServiceStatus.setTextColor(resources.getColor(android.R.color.holo_green_dark, null))
                 binding.textListenAddress.visibility = View.GONE
                 binding.labelListenAddress.visibility = View.GONE
@@ -136,7 +148,7 @@ class ApiConsoleBottomSheetFragment : BottomSheetDialogFragment() {
             }
             serverState in listOf(ServerEventManager.ServerState.STARTING, ServerEventManager.ServerState.STARTED) -> {
                 Timber.tag("ApiConsoleUI").d("[Service] Server is starting")
-                binding.textServiceStatus.text = "启动中"
+                binding.textServiceStatus.text = getString(R.string.service_starting)
                 binding.textServiceStatus.setTextColor(resources.getColor(android.R.color.holo_orange_dark, null))
                 binding.textListenAddress.visibility = View.GONE
                 binding.labelListenAddress.visibility = View.GONE
@@ -145,7 +157,7 @@ class ApiConsoleBottomSheetFragment : BottomSheetDialogFragment() {
             }
             serverState in listOf(ServerEventManager.ServerState.STOP_PREPARING, ServerEventManager.ServerState.STOPPING) -> {
                 Timber.tag("ApiConsoleUI").d("[Service] Server is stopping")
-                binding.textServiceStatus.text = "停止中"
+                binding.textServiceStatus.text = getString(R.string.service_stopping)
                 binding.textServiceStatus.setTextColor(resources.getColor(android.R.color.holo_orange_dark, null))
                 binding.textListenAddress.visibility = View.GONE
                 binding.labelListenAddress.visibility = View.GONE
@@ -154,7 +166,7 @@ class ApiConsoleBottomSheetFragment : BottomSheetDialogFragment() {
             }
             else -> {
                 Timber.tag("ApiConsoleUI").d("[Service] Server is stopped")
-                binding.textServiceStatus.text = "已停止"
+                binding.textServiceStatus.text = getString(R.string.service_stopped)
                 binding.textServiceStatus.setTextColor(resources.getColor(android.R.color.holo_red_dark, null))
                 binding.textListenAddress.visibility = View.GONE
                 binding.labelListenAddress.visibility = View.GONE
@@ -172,8 +184,8 @@ class ApiConsoleBottomSheetFragment : BottomSheetDialogFragment() {
 
         Timber.tag("ApiConsoleUI").d("[Config] CORS enabled: $corsEnabled, Auth enabled: $authEnabled")
         
-        binding.textCorsStatus.text = if (corsEnabled) "已启用" else "已禁用"
-        binding.textAuthStatus.text = if (authEnabled) "API Key已开启" else "无认证"
+        binding.textCorsStatus.text = if (corsEnabled) getString(R.string.cors_enabled) else getString(R.string.cors_disabled_status)
+        binding.textAuthStatus.text = if (authEnabled) getString(R.string.api_key_enabled) else getString(R.string.no_authentication)
 
         // 设置折叠/展开功能
         binding.layoutConfigHeader.setOnClickListener {
@@ -199,19 +211,19 @@ class ApiConsoleBottomSheetFragment : BottomSheetDialogFragment() {
 
         Timber.tag("ApiConsoleUI").d("[Log] Initializing log area")
         // 添加初始日志
-        addLogMessage("API服务控制台已启动")
+        addLogMessage(getString(R.string.console_started))
 
         val serverState = serverEventManager.getCurrentState()
         when (serverState) {
             ServerEventManager.ServerState.READY -> {
-                addLogMessage("服务器正在运行中")
-                addLogMessage("等待客户端连接...")
+                addLogMessage(getString(R.string.server_running_message))
+                addLogMessage(getString(R.string.waiting_for_connections))
             }
             ServerEventManager.ServerState.STOPPED -> {
-                addLogMessage("服务器未启动")
+                addLogMessage(getString(R.string.server_not_started))
             }
             else -> {
-                addLogMessage("服务器状态: ${serverState.name}")
+                addLogMessage(getString(R.string.server_status_template, serverState.name))
             }
         }
 
@@ -292,16 +304,17 @@ class ApiConsoleBottomSheetFragment : BottomSheetDialogFragment() {
      * 添加测试日志，包含代码行号信息
      */
     private fun addTestLogWithCodeLocation() {
-        Timber.tag("TestLog").i("这是一条测试日志，用于验证代码行号显示和点击跳转功能")
-        Timber.tag("TestLog").d("调试信息：代码行号功能测试")
-        Timber.tag("TestLog").w("警告信息：请确保Android Studio已打开项目")
-        addLogMessage("已添加测试日志，包含代码行号信息")
-        Toast.makeText(requireContext(), "已添加测试日志\n长按日志条目可尝试跳转到代码", Toast.LENGTH_LONG).show()
+        Timber.tag("TestLog").i(getString(R.string.test_log_message1))
+        Timber.tag("TestLog").d(getString(R.string.test_log_message2))
+        Timber.tag("TestLog").w(getString(R.string.test_log_message3))
+        addLogMessage(getString(R.string.test_log_added_info))
+        
+        Toast.makeText(requireContext(), getString(R.string.test_log_added_with_code_jump), Toast.LENGTH_LONG).show()
     }
 
     private fun clearLog() {
         logAdapter.clearLogs()
-        Toast.makeText(requireContext(), "日志已清空", Toast.LENGTH_SHORT).show()
+        Toast.makeText(requireContext(), getString(R.string.log_cleared), Toast.LENGTH_SHORT).show()
     }
 
     private fun copyLogToClipboard() {
@@ -309,7 +322,7 @@ class ApiConsoleBottomSheetFragment : BottomSheetDialogFragment() {
         val clipboard = requireContext().getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         val clip = ClipData.newPlainText("API Console Log", logText)
         clipboard.setPrimaryClip(clip)
-        Toast.makeText(requireContext(), "日志已复制到剪贴板", Toast.LENGTH_SHORT).show()
+        Toast.makeText(requireContext(), getString(R.string.log_copied_to_clipboard), Toast.LENGTH_SHORT).show()
     }
 
     private fun observeServerEvents() {
@@ -330,22 +343,22 @@ class ApiConsoleBottomSheetFragment : BottomSheetDialogFragment() {
                     // 根据状态变化添加日志
                     when (state) {
                         ServerEventManager.ServerState.STARTING -> {
-                            addLogMessage("服务器启动中...")
+                            addLogMessage(getString(R.string.server_starting_message))
                         }
                         ServerEventManager.ServerState.STARTED -> {
-                            addLogMessage("服务器已启动")
+                            addLogMessage(getString(R.string.server_started_message))
                         }
                         ServerEventManager.ServerState.READY -> {
-                            addLogMessage("服务器就绪，可接受连接")
+                            addLogMessage(getString(R.string.server_ready_message))
                         }
                         ServerEventManager.ServerState.STOP_PREPARING -> {
-                            addLogMessage("服务器准备停止...")
+                            addLogMessage(getString(R.string.server_preparing_stop))
                         }
                         ServerEventManager.ServerState.STOPPING -> {
-                            addLogMessage("服务器停止中...")
+                            addLogMessage(getString(R.string.server_stopping_message))
                         }
                         ServerEventManager.ServerState.STOPPED -> {
-                            addLogMessage("服务器已停止")
+                            addLogMessage(getString(R.string.server_stopped_message))
                         }
                     }
                 }
@@ -360,7 +373,7 @@ class ApiConsoleBottomSheetFragment : BottomSheetDialogFragment() {
                     updateServiceStatus()
 
                     if (info.isRunning) {
-                        addLogMessage("服务器运行在 ${info.host}:${info.port}")
+                        addLogMessage(getString(R.string.server_running_at_template, info.host, info.port))
                     }
                 }
             }
@@ -383,7 +396,4 @@ class ApiConsoleBottomSheetFragment : BottomSheetDialogFragment() {
         _binding = null
     }
 
-    companion object {
-        const val TAG = "ApiConsoleBottomSheetFragment"
-    }
 }

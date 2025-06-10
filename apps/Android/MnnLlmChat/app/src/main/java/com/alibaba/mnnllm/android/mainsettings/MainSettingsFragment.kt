@@ -59,9 +59,9 @@ class MainSettingsFragment : PreferenceFragmentCompat() {
                     if (MainSettings.isApiServiceEnabled(requireContext()) && ApiServiceManager.isApiServiceRunning()) {
                         ApiServiceManager.stopApiService(requireContext())
                         ApiServiceManager.startApiService(requireContext())
-                        Toast.makeText(requireContext(), "API配置已重置，服务已重启", Toast.LENGTH_LONG).show()
+                        Toast.makeText(requireContext(), getString(R.string.api_config_reset_service_restarted), Toast.LENGTH_LONG).show()
                     } else {
-                        Toast.makeText(requireContext(), "API配置已重置为默认值", Toast.LENGTH_LONG).show()
+                        Toast.makeText(requireContext(), getString(R.string.api_config_reset_to_default), Toast.LENGTH_LONG).show()
                     }
                 }
                 .setNegativeButton(android.R.string.cancel, null)
