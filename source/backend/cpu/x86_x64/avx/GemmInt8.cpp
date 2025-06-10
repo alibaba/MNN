@@ -23,6 +23,20 @@ static inline void MNN__mm_storeu_si64(void* add, __m128i value) {
     _mm_storeu_ps(temp, _mm_castsi128_ps(value));
     ::memcpy(add, temp, sizeof(int64_t));
 }
+#if defined(_MSC_VER) && !defined(_mm256_extract_epi64)
+static inline uint64_t _mm256_extract_epi64(__m256i a, const int index)
+{
+    typedef union {
+        __m256i v;
+        uint64_t i64[4];
+    } extractor;
+
+    extractor u;
+    u.v = a;
+    
+    return u.i64[index];
+}
+#endif
 }  // namespace
 
 #define POSTTREAT(N) \
