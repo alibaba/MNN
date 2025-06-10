@@ -6,7 +6,6 @@ import com.taobao.meta.avatar.MHConfig
 import com.taobao.meta.avatar.a2bs.AudioBlendShape
 import com.taobao.meta.avatar.a2bs.AudioBlendShapePlayer
 import com.taobao.meta.avatar.camera.CameraControlData
-import com.taobao.meta.avatar.debug.DebugModule
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -30,6 +29,7 @@ class NnrAvatarRender(
     //for DEBUG save
     private var audioBsToSave:AudioBlendShape? = null
     private var nextDebugFrameIndex = 0L
+    private var hasDownloadComplete = false
 
     init {
         surfaceCreated = avatarTextureView.hasSurfaceCreated()
@@ -39,6 +39,9 @@ class NnrAvatarRender(
                 Log.d(TAG, "surfaceCreated")
                 surfaceCreated = true
                 activeSurface = surface
+                if (hasDownloadComplete) {
+                    initRender(surface)
+                }
             }
 
             override fun surfaceDestroyed(surface: Surface) {
@@ -87,6 +90,7 @@ class NnrAvatarRender(
     }
 
     suspend fun waitForInitComplete(): Boolean {
+        hasDownloadComplete = true
         if (activeSurface != null && !initStarted) {
             initRender(activeSurface!!)
         }

@@ -142,6 +142,11 @@ class AudioChunksPlayer {
             override fun onPeriodicNotification(track: AudioTrack?) {
             }
             override fun onMarkerReached(track: AudioTrack?) {
+                Log.d(TAG, "track state: ${audioTrack?.state}")
+                if (track?.state == AudioTrack.STATE_UNINITIALIZED) {
+                    Log.d(TAG, "Audio track STATE_UNINITIALIZED stopped")
+                    return
+                }
                 Log.d(TAG, "onMarkerReached ${track?.playbackHeadPosition}")
                 listener(track?.playbackHeadPosition ?: 0)
             }
