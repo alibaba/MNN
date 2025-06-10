@@ -24,8 +24,6 @@ import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.chat.ChatActivity
 import com.alibaba.mnnllm.android.history.ChatHistoryFragment
 import com.alibaba.mnnllm.android.mainsettings.MainSettings.isStopDownloadOnChatEnabled
-import com.alibaba.mnnllm.android.mainsettings.MainSettings.isApiServiceEnabled
-import com.alibaba.mnnllm.api.openai.manager.ApiServiceManager
 import com.alibaba.mnnllm.android.modelist.ModelListFragment
 import com.alibaba.mnnllm.android.update.UpdateChecker
 import com.alibaba.mnnllm.android.utils.GithubUtils

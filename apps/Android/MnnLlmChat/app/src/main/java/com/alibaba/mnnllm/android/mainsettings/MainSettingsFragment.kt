@@ -44,18 +44,18 @@ class MainSettingsFragment : PreferenceFragmentCompat() {
             }
         }
 
-        // Setup reset API config preference
+        // 重置 API配置
         val resetApiConfigPref = findPreference<Preference>("reset_api_config")
         resetApiConfigPref?.setOnPreferenceClickListener {
-            // Show confirmation dialog
+            // 显示 配置确认对话框
             androidx.appcompat.app.AlertDialog.Builder(requireContext())
                 .setTitle(R.string.reset_api_config)
                 .setMessage("确定要重置API配置吗？这将恢复所有API设置为默认值。")
                 .setPositiveButton(android.R.string.ok) { _, _ ->
-                    // Reset API configuration
+                    // 重置 API配置
                     ApiServerConfig.resetToDefault(requireContext())
                     
-                    // If API service is running, restart it with new config
+                    // 如果API服务正在运行，则使用新配置重启服务
                     if (MainSettings.isApiServiceEnabled(requireContext()) && ApiServiceManager.isApiServiceRunning()) {
                         ApiServiceManager.stopApiService(requireContext())
                         ApiServiceManager.startApiService(requireContext())
