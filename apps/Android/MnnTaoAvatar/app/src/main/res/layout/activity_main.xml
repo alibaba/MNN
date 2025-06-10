@@ -303,7 +303,6 @@
         android:id="@+id/button_debug"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        app:srcCompat="@drawable/avatar_icon"
         android:visibility="gone"
         android:layout_marginTop="8dp"
         android:layout_marginEnd="14dp"

@@ -39,9 +39,6 @@ class NnrAvatarRender(
                 Log.d(TAG, "surfaceCreated")
                 surfaceCreated = true
                 activeSurface = surface
-                if (!DebugModule.DEBUG_DISABLE_NNR) {
-                    initRender(surface)
-                }
             }
 
             override fun surfaceDestroyed(surface: Surface) {
@@ -59,6 +56,7 @@ class NnrAvatarRender(
     }
 
     private fun initRender(surface:Surface) {
+        Log.d(TAG, "initRender modelDir: $modelDir")
         if (!File(modelDir).exists()) {
             Log.e(TAG, "modelDir not exists")
             return

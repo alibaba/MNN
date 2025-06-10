@@ -94,9 +94,11 @@ class DownloadModule(private val context: Activity) {
     }
 
     fun isDownloadComplete(): Boolean {
-        return reposToDownload.all {
+        val downloadComplete =  reposToDownload.all {
             modelsDownloadManager.getDownloadInfo(it).downlodaState == RepoDownloadSate.COMPLETED
         }
+        Log.d(TAG, "downloadComplete: $downloadComplete")
+        return downloadComplete
     }
 
     fun download() {
