@@ -8,7 +8,7 @@ import retrofit2.http.GET;
 import retrofit2.http.Path;
 
 public interface MsApiService {
-    @GET("api/v1/models/{modelGroup}/{modelPath}/repo/files")
+    @GET("api/v1/models/{modelGroup}/{modelPath}/repo/files?Recursive=1")
     Call<MsRepoInfo> getModelFiles(
             @Path("modelGroup") String modelGroup,
             @Path("modelPath") String modelPath

@@ -23,7 +23,7 @@ class MsApiClient {
         apiService = retrofit.create(MsApiService::class.java)
     }
 
-    private fun createOkHttpClient(): OkHttpClient? {
+    private fun createOkHttpClient(): OkHttpClient {
         val logging = HttpLoggingInterceptor()
         logging.setLevel(HttpLoggingInterceptor.Level.BODY)
         val builder: OkHttpClient.Builder = OkHttpClient.Builder()
@@ -31,6 +31,6 @@ class MsApiClient {
         builder.addInterceptor(logging) //
         builder.readTimeout(30, TimeUnit.SECONDS)
         okHttpClient = builder.build()
-        return okHttpClient
+        return okHttpClient!!
     }
 }
