@@ -50,7 +50,7 @@ class MainSettingsFragment : PreferenceFragmentCompat() {
             // 显示 配置确认对话框
             androidx.appcompat.app.AlertDialog.Builder(requireContext())
                 .setTitle(R.string.reset_api_config)
-                .setMessage("确定要重置API配置吗？这将恢复所有API设置为默认值。")
+                .setMessage(R.string.reset_api_config_confirm_message)
                 .setPositiveButton(android.R.string.ok) { _, _ ->
                     // 重置 API配置
                     ApiServerConfig.resetToDefault(requireContext())

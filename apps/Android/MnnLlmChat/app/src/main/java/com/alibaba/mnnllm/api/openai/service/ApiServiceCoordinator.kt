@@ -4,6 +4,7 @@ import android.content.Context
 import com.alibaba.mnnllm.api.openai.di.ServiceLocator
 import com.alibaba.mnnllm.api.openai.manager.ApiNotificationManager
 import com.alibaba.mnnllm.api.openai.network.application.OpenAIApplication
+import com.alibaba.mnnllm.android.R
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
@@ -59,7 +60,10 @@ class ApiServiceCoordinator(private val context: Context) {
             val session = ServiceLocator.getChatSessionProvider().getLlmSession()
             if (session == null) {
                 Timber.Forest.tag(TAG).w("No active LlmSession found")
-                notificationManager?.updateNotification("API 服务未启动", "未找到活跃会话")
+                notificationManager?.updateNotification(
+                    context.getString(R.string.api_service_not_started),
+                    context.getString(R.string.no_active_session)
+                )
                 return false
             }
 
@@ -76,14 +80,20 @@ class ApiServiceCoordinator(private val context: Context) {
             application = app
 
             // 更新通知
-            notificationManager?.updateNotification("API 服务运行中", "端口：${app.getPort()}")
+            notificationManager?.updateNotification(
+                context.getString(R.string.api_service_running),
+                context.getString(R.string.api_service_port, app.getPort())
+            )
 
             _isServerRunning = true
             Timber.Forest.tag(TAG).i("Server started successfully on port ${app.getPort()}")
             true
         }.getOrElse { e ->
             Timber.Forest.tag(TAG).e(e, "Failed to start server: ${e.message}")
-            notificationManager?.updateNotification("API 服务启动失败", "错误：${e.message}")
+            notificationManager?.updateNotification(
+                context.getString(R.string.api_service_start_failed),
+                context.getString(R.string.api_service_error, e.message)
+            )
             false
         }
     }
@@ -120,8 +130,10 @@ class ApiServiceCoordinator(private val context: Context) {
     /**
      * 获取通知对象（用于前台服务）
      */
-    fun getNotification(title: String = "API 服务运行中", content: String = "正在监听端口：8080") =
-        notificationManager?.buildNotification(title, content)
+    fun getNotification(
+        title: String = context.getString(R.string.api_service_running),
+        content: String = context.getString(R.string.api_service_port, 8080)
+    ) = notificationManager?.buildNotification(title, content)
 
     /**
      * 获取服务器端口

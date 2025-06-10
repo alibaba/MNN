@@ -81,6 +81,13 @@
     <string name="enable_api_service_summary">启动兼容OpenAI的API服务器，供外部访问</string>
     <string name="reset_api_config">重置API配置</string>
     <string name="reset_api_config_summary">将API服务器设置重置为默认值</string>
+    <string name="reset_api_config_confirm_message">确定要重置API配置吗？这将恢复所有API设置为默认值。</string>
+    <string name="api_service_not_started">API 服务未启动</string>
+    <string name="no_active_session">未找到活跃会话</string>
+    <string name="api_service_running">API 服务运行中</string>
+    <string name="api_service_port">端口：%1$d</string>
+    <string name="api_service_start_failed">API 服务启动失败</string>
+    <string name="api_service_error">错误：%1$s</string>
     <string name="modelscope">Modelscope(魔搭)</string>
     <string name="modelers">Modelers(魔乐)</string>
     <string name="diffusion_mode_memory_saving">内存节省模式</string>

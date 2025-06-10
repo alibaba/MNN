@@ -82,6 +82,13 @@
     <string name="enable_api_service_summary">Start OpenAI-compatible API server for external access</string>
     <string name="reset_api_config">Reset API Configuration</string>
     <string name="reset_api_config_summary">Reset API server settings to default values</string>
+    <string name="reset_api_config_confirm_message">Are you sure you want to reset API configuration? This will restore all API settings to default values.</string>
+    <string name="api_service_not_started">API Service Not Started</string>
+    <string name="no_active_session">No active session found</string>
+    <string name="api_service_running">API Service Running</string>
+    <string name="api_service_port">Port: %1$d</string>
+    <string name="api_service_start_failed">API Service Start Failed</string>
+    <string name="api_service_error">Error: %1$s</string>
     <string name="modelscope">Modelscope</string>
     <string name="modelers">Modelers</string>
     <string name="diffusion_mode_memory_saving">Memory Saving Mode</string>
