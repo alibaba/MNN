@@ -169,8 +169,8 @@ private:
     BufferAllocator* mAllocator;
     MemChunk mPoint;
 };
-int CUDABackend::getBytes(const Tensor* tensor) const {
-    auto bytes = tensor->getType().bytes();
+size_t CUDABackend::getBytes(const Tensor* tensor) const {
+    size_t bytes = tensor->getType().bytes();
     if (mPrecision == 2 || mPrecision == 3) {// Fp16 or Bf16
         if (halide_type_float == tensor->getType().code) {
             bytes = 2;
