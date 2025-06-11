@@ -77,6 +77,17 @@
     <string name="settings_complete">强烈建议删除未完成任务重新下载，否则可能有数据不一致问题。</string>
     <string name="stop_download_tasks_when_chat">聊天时停止下载任务</string>
     <string name="stop_download_reason">开启后，聊天时下载任务会被暂停，减少聊天卡顿。</string>
+    <string name="enable_api_service">开启API网络服务</string>
+    <string name="enable_api_service_summary">启动兼容OpenAI的API服务器，供外部访问</string>
+    <string name="reset_api_config">重置API配置</string>
+    <string name="reset_api_config_summary">将API服务器设置重置为默认值</string>
+    <string name="reset_api_config_confirm_message">确定要重置API配置吗？这将恢复所有API设置为默认值。</string>
+    <string name="api_service_not_started">API 服务未启动</string>
+    <string name="no_active_session">未找到活跃会话</string>
+    <string name="api_service_running">API 服务运行中</string>
+    <string name="api_service_port">端口：%1$d</string>
+    <string name="api_service_start_failed">API 服务启动失败</string>
+    <string name="api_service_error">错误：%1$s</string>
     <string name="modelscope">Modelscope(魔搭)</string>
     <string name="modelers">Modelers(魔乐)</string>
     <string name="diffusion_mode_memory_saving">内存节省模式</string>
@@ -85,12 +96,95 @@
     <string name="diffusion_memory_mode">Diffusion内存模式</string>
     <string name="model_settings">设置</string>
     <string name="model_settings_title">模型设置</string>
+    <string name="api_settings">API设置</string>
+    <string name="api_settings_title">API服务设置</string>
+    <string name="api_console">API控制台</string>
+    <string name="api_console_title">API服务控制台</string>
+    <string name="api_port">端口</string>
+    <string name="api_bind_ip">绑定IP地址</string>
+    <string name="api_cors_enabled">启用CORS</string>
+    <string name="api_cors_origins">允许的来源</string>
+    
+    <!-- API Settings Layout Strings -->
+    <string name="basic_network_settings">基础网络设置</string>
+    <string name="port_number">端口号</string>
+    <string name="default_8080">默认 8080</string>
+    <string name="server_access_address">服务器访问地址</string>
+    <string name="ip_hint">如 0.0.0.0, 127.0.0.1</string>
+    <string name="local_loopback">本地回环</string>
+    <string name="listen_all">监听所有</string>
+    <string name="auto_detect">自动获取</string>
+    <string name="cors_settings">CORS设置</string>
+    <string name="enable_cors">启用CORS</string>
+    <string name="default_allow_all_origins">默认允许所有来源（逗号分隔）</string>
+    <string name="auth_settings">认证设置</string>
+    <string name="enable_api_key_auth">启用API Key验证</string>
+    <string name="api_key">API Key</string>
+    
+    <!-- API Console Layout Strings -->
+    <string name="clear_log">清空日志</string>
+    <string name="copy_log">复制日志</string>
+    <string name="service_status">服务状态</string>
+    <string name="current_status">当前状态：</string>
+    <string name="stopped">已停止</string>
+    <string name="listen_address">监听地址：</string>
+    <string name="api_endpoint">API端点：</string>
+    <string name="current_config_summary">当前配置摘要</string>
+    <string name="cors_label">CORS：</string>
+    <string name="disabled">已禁用</string>
+    <string name="auth_method">认证方式：</string>
+    <string name="no_auth">无认证</string>
+    <string name="log_output">日志输出</string>
+    
+    <!-- LogAdapter Strings -->
+    <string name="file_info_template">文件: %1$s\n行号: %2$d\n路径: %3$s</string>
+    
+    <!-- ApiConsoleBottomSheetFragment Strings -->
+    <string name="service_disabled">已禁用</string>
+    <string name="service_running">运行中</string>
+    <string name="service_starting">启动中</string>
+    <string name="service_stopping">停止中</string>
+    <string name="service_stopped">已停止</string>
+    <string name="cors_enabled">已启用</string>
+    <string name="cors_disabled_status">已禁用</string>
+    <string name="api_key_enabled">API Key已开启</string>
+    <string name="no_authentication">无认证</string>
+    <string name="console_started">API服务控制台已启动</string>
+    <string name="server_running_message">服务器正在运行中</string>
+    <string name="waiting_for_connections">等待客户端连接...</string>
+    <string name="server_not_started">服务器未启动</string>
+    <string name="server_status_template">服务器状态: %1$s</string>
+    <string name="test_log_message1">这是一条测试日志，用于验证代码行号显示和点击跳转功能</string>
+    <string name="test_log_message2">调试信息：代码行号功能测试</string>
+    <string name="test_log_message3">警告信息：请确保Android Studio已打开项目</string>
+    <string name="test_log_added_info">已添加测试日志，包含代码行号信息</string>
+    <string name="server_starting_message">服务器启动中...</string>
+    <string name="server_started_message">服务器已启动</string>
+    <string name="server_ready_message">服务器就绪，可接受连接</string>
+    <string name="server_preparing_stop">服务器准备停止...</string>
+    <string name="server_stopping_message">服务器停止中...</string>
+    <string name="server_stopped_message">服务器已停止</string>
+    <string name="server_running_at_template">服务器运行在 %1$s:%2$d</string>
+    <string name="close">关闭</string>
+    
+    <string name="api_auth_enabled">启用API Key认证</string>
+    <string name="reset">重置</string>
+    <string name="cancel">取消</string>
+    <string name="save">保存</string>
+    <string name="listening_address">监听地址</string>
+    <string name="configuration_summary">配置摘要</string>
+    <string name="status_running">运行中</string>
+    <string name="status_stopped">已停止</string>
+    <string name="cors_disabled">CORS: 已禁用</string>
+    <string name="cors_enabled_all">CORS: 已启用 (所有来源)</string>
+    <string name="cors_enabled_custom">CORS: 已启用 (自定义来源)</string>
+    <string name="auth_disabled">认证: 已禁用</string>
+    <string name="auth_enabled">认证: 已启用</string>
     <string name="menu_item_benchmark_test">Benchmark测试</string>
     <string name="select_dataset">选择数据集</string>
     <string name="start_voice_chat">开启语音会话</string>
     <string name="max_new_tokens">最大输出 token 数量</string>
     <string name="system_prompt">System Prompt</string>
-    <string name="reset">重置</string>
     <string name="settings_cancel">取消</string>
     <string name="settings_done">完成</string>
     <string name="max_new_tokens_hint">最大输出 token 数量</string>
@@ -126,4 +220,12 @@
     <string name="add_local_models_message">要添加本地模型，请先将模型下载到桌面，然后运行 “%1$s”。完成后，模型将出现在模型列表中。</string>
     <string name="copied_to_clipboard">已复制到粘贴板</string>
     <string name="apk_download_started">Apk下载中，可以在通知栏查看进度</string>
+    <string name="api_config_reset_service_restarted">API配置已重置，服务已重启</string>
+    <string name="api_config_reset_to_default">API配置已重置为默认值</string>
+    <string name="log_cleared">日志已清空</string>
+    <string name="log_copied_to_clipboard">日志已复制到剪贴板</string>
+    <string name="api_settings_saved">API设置已保存</string>
+    <string name="restarting_api_service_new_config">正在重启API服务以应用新配置...</string>
+    <string name="config_restored_default_processing_service">配置已恢复默认，正在处理服务状态...</string>
+    <string name="test_log_added_with_code_jump">已添加测试日志\n长按日志条目可尝试跳转到代码</string>
 </resources>

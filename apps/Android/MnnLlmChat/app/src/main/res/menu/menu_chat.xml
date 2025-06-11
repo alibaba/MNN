@@ -19,6 +19,16 @@
         android:id="@+id/menu_item_model_settings"
         android:title="@string/model_settings"
         app:showAsAction="never" />
+    
+    <item
+        android:id="@+id/menu_item_api_settings"
+        android:title="@string/api_settings"
+        app:showAsAction="never" />
+    
+    <item
+        android:id="@+id/menu_item_api_console"
+        android:title="@string/api_console"
+        app:showAsAction="never" />
 <!--    <item-->
 <!--        android:id="@+id/menu_item_sampler_spinner"-->
 <!--        android:title="@string/sampler"-->

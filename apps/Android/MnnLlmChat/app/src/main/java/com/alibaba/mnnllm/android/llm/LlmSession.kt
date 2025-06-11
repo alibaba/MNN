@@ -13,9 +13,11 @@ import com.alibaba.mnnllm.android.utils.ModelPreferences
 import com.alibaba.mnnllm.android.model.ModelUtils
 import com.alibaba.mnnllm.android.modelsettings.ModelConfig.Companion.getExtraConfigFile
 import com.google.gson.Gson
+import timber.log.Timber
 import java.io.File
 import java.util.stream.Collectors
 import kotlin.concurrent.Volatile
+import android.util.Pair
 
 class LlmSession (
     private val modelId: String,
@@ -37,6 +39,8 @@ class LlmSession (
     private var releaseRequested = false
 
     private var keepHistory = false
+
+
 
     override fun load() {
         Log.d(TAG, "MNN_DEBUG load begin")
@@ -220,4 +224,42 @@ class LlmSession (
             System.loadLibrary("mnnllmapp")
         }
     }
+
+
+
+    // 新增：支持完整历史消息的公开方法
+    fun submitFullHistory(
+        history: List<Pair<String, String>>,
+        progressListener: GenerateProgressListener
+    ): HashMap<String, Any> {
+        synchronized(this) {
+            // 使用 Timber 替代 Log
+            Timber.d("MNN_DEBUG submitFullHistory with ${history.size} messages")
+            // 转换类型：kotlin.Pair -> android.util.Pair
+            val androidHistory = history.map { android.util.Pair(it.first, it.second) }
+            // 调用JNI方法，移除不必要的类型转换
+            val result = submitFullHistoryNative(nativePtr, androidHistory, progressListener)
+            generating = false
+            return result
+        }
+    }
+    private external fun submitFullHistoryNative(
+        nativePtr: Long,
+        history: List<android.util.Pair<String, String>>,
+        progressListener: GenerateProgressListener
+    ): HashMap<String, Any>
+
+    fun modelId(): String {
+        //创建一个临时变量，避免修改原始的modelId
+        return modelId
+
+    }
+
+    fun getSystemPrompt(): String? {
+        return getSystemPromptNative(nativePtr)
+    }
+
+    private external fun getSystemPromptNative(llmPtr: Long): String?
+
+
 }

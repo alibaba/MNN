@@ -78,6 +78,17 @@
     <string name="settings_complete">it\'s recommended to remove unfinished tasks and redownload to prevent errors.</string>
     <string name="stop_download_tasks_when_chat">Stop downloads when chat</string>
     <string name="stop_download_reason">Stop downloads during chat ensures smoother chat experience</string>
+    <string name="enable_api_service">Enable API Network Service</string>
+    <string name="enable_api_service_summary">Start OpenAI-compatible API server for external access</string>
+    <string name="reset_api_config">Reset API Configuration</string>
+    <string name="reset_api_config_summary">Reset API server settings to default values</string>
+    <string name="reset_api_config_confirm_message">Are you sure you want to reset API configuration? This will restore all API settings to default values.</string>
+    <string name="api_service_not_started">API Service Not Started</string>
+    <string name="no_active_session">No active session found</string>
+    <string name="api_service_running">API Service Running</string>
+    <string name="api_service_port">Port: %1$d</string>
+    <string name="api_service_start_failed">API Service Start Failed</string>
+    <string name="api_service_error">Error: %1$s</string>
     <string name="modelscope">Modelscope</string>
     <string name="modelers">Modelers</string>
     <string name="diffusion_mode_memory_saving">Memory Saving Mode</string>
@@ -86,12 +97,95 @@
     <string name="diffusion_memory_mode">Diffusion Memory Mode</string>
     <string name="model_settings">Settings</string>
     <string name="model_settings_title">Model Settings</string>
+    <string name="api_settings">API Settings</string>
+    <string name="api_settings_title">API Service Settings</string>
+    <string name="api_console">API Console</string>
+    <string name="api_console_title">API Service Console</string>
+    <string name="api_port">Port</string>
+    <string name="api_bind_ip">Bind IP Address</string>
+    <string name="api_cors_enabled">Enable CORS</string>
+    <string name="api_cors_origins">Allowed Origins</string>
+    
+    <!-- API Settings Layout Strings -->
+    <string name="basic_network_settings">Basic Network Settings</string>
+    <string name="port_number">Port Number</string>
+    <string name="default_8080">Default 8080</string>
+    <string name="server_access_address">Server Access Address</string>
+    <string name="ip_hint">e.g. 0.0.0.0, 127.0.0.1</string>
+    <string name="local_loopback">Localhost</string>
+    <string name="listen_all">All IPs</string>
+    <string name="auto_detect">Auto</string>
+    <string name="cors_settings">CORS Settings</string>
+    <string name="enable_cors">Enable CORS</string>
+    <string name="default_allow_all_origins">Allow all origins (comma separated)</string>
+    <string name="auth_settings">Authentication</string>
+    <string name="enable_api_key_auth">Enable API Key Authentication</string>
+    <string name="api_key">API Key</string>
+    
+    <!-- API Console Layout Strings -->
+    <string name="clear_log">Clear Log</string>
+    <string name="copy_log">Copy Log</string>
+    <string name="service_status">Service Status</string>
+    <string name="current_status">Current Status:</string>
+    <string name="stopped">Stopped</string>
+    <string name="listen_address">Listen Address:</string>
+    <string name="api_endpoint">API Endpoint:</string>
+    <string name="current_config_summary">Current Configuration Summary</string>
+    <string name="cors_label">CORS:</string>
+    <string name="disabled">Disabled</string>
+    <string name="auth_method">Authentication Method:</string>
+    <string name="no_auth">No Authentication</string>
+    <string name="log_output">Log Output</string>
+    
+    <!-- LogAdapter Strings -->
+    <string name="file_info_template">File: %1$s\nLine: %2$d\nPath: %3$s</string>
+    
+    <!-- ApiConsoleBottomSheetFragment Strings -->
+    <string name="service_disabled">Disabled</string>
+    <string name="service_running">Running</string>
+    <string name="service_starting">Starting</string>
+    <string name="service_stopping">Stopping</string>
+    <string name="service_stopped">Stopped</string>
+    <string name="cors_enabled">Enabled</string>
+    <string name="cors_disabled_status">Disabled</string>
+    <string name="api_key_enabled">API Key Enabled</string>
+    <string name="no_authentication">No Authentication</string>
+    <string name="console_started">API Service Console Started</string>
+    <string name="server_running_message">Server is running</string>
+    <string name="waiting_for_connections">Waiting for client connections...</string>
+    <string name="server_not_started">Server not started</string>
+    <string name="server_status_template">Server status: %1$s</string>
+    <string name="test_log_message1">This is a test log to verify line number display and click navigation</string>
+    <string name="test_log_message2">Debug info: Line number feature test</string>
+    <string name="test_log_message3">Warning: Please ensure Android Studio has the project open</string>
+    <string name="test_log_added_info">Test logs added with line number info</string>
+    <string name="server_starting_message">Server starting...</string>
+    <string name="server_started_message">Server started</string>
+    <string name="server_ready_message">Server ready, accepting connections</string>
+    <string name="server_preparing_stop">Server preparing to stop...</string>
+    <string name="server_stopping_message">Server stopping...</string>
+    <string name="server_stopped_message">Server stopped</string>
+    <string name="server_running_at_template">Server running at %1$s:%2$d</string>
+    <string name="close">Close</string>
+    
+    <string name="api_auth_enabled">Enable API Key Authentication</string>
+    <string name="reset">Reset</string>
+    <string name="cancel">Cancel</string>
+    <string name="save">Save</string>
+    <string name="listening_address">Listening Address</string>
+    <string name="configuration_summary">Configuration Summary</string>
+    <string name="status_running">Running</string>
+    <string name="status_stopped">Stopped</string>
+    <string name="cors_disabled">CORS: Disabled</string>
+    <string name="cors_enabled_all">CORS: Enabled (All origins)</string>
+    <string name="cors_enabled_custom">CORS: Enabled (Custom origins)</string>
+    <string name="auth_disabled">Authentication: Disabled</string>
+    <string name="auth_enabled">Authentication: Enabled</string>
     <string name="menu_item_benchmark_test">Benchmark</string>
     <string name="select_dataset">Select dataset</string>
     <string name="start_voice_chat">Start Voice Chat</string>
     <string name="max_new_tokens">Max New Tokens</string>
     <string name="system_prompt">System Prompt</string>
-    <string name="reset">Reset</string>
     <string name="settings_cancel">Cancel</string>
     <string name="settings_done">Done</string>
     <string name="max_new_tokens_hint">max tokens to generate</string>
@@ -127,4 +221,12 @@
 </string>
     <string name="copied_to_clipboard">Copied to clipboard</string>
     <string name="apk_download_started">Apk download started, view progress in the notification</string>
+    <string name="api_config_reset_service_restarted">API configuration has been reset, service restarted</string>
+    <string name="api_config_reset_to_default">API configuration has been reset to default values</string>
+    <string name="log_cleared">Log cleared</string>
+    <string name="log_copied_to_clipboard">Log copied to clipboard</string>
+    <string name="api_settings_saved">API settings saved</string>
+    <string name="restarting_api_service_new_config">Restarting API service to apply new configuration...</string>
+    <string name="config_restored_default_processing_service">Configuration restored to default, processing service status...</string>
+    <string name="test_log_added_with_code_jump">Test log added\nLong press log entries to try jumping to code</string>
 </resources>

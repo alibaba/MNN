@@ -151,6 +151,151 @@ JNIEXPORT jobject JNICALL Java_com_alibaba_mnnllm_android_llm_LlmSession_submitN
     return hashMap;
 }
 
+
+
+// 新增：支持完整历史消息的JNI方法
+JNIEXPORT jobject JNICALL Java_com_alibaba_mnnllm_android_llm_LlmSession_submitFullHistoryNative(
+        JNIEnv *env,
+        jobject thiz,
+        jlong llmPtr,
+        jobject historyList,  // List<Pair<String, String>>
+        jobject progressListener
+) {
+    auto *llm = reinterpret_cast<mls::LlmSession *>(llmPtr);
+    if (!llm) {
+        return env->NewStringUTF("Failed, Chat is not ready!");
+    }
+
+    // 解析 Java List<Pair<String, String>> 到 C++ vector
+    std::vector<mls::PromptItem> history;
+
+    // 获取List类和相关方法
+    jclass listClass = env->GetObjectClass(historyList);
+    jmethodID sizeMethod = env->GetMethodID(listClass, "size", "()I");
+    jmethodID getMethod = env->GetMethodID(listClass, "get", "(I)Ljava/lang/Object;");
+
+    jint listSize = env->CallIntMethod(historyList, sizeMethod);
+
+    // 获取 Pair 类和相关方法，修改为 android.util.Pair
+    jclass pairClass = env->FindClass("android/util/Pair");
+    if (pairClass == nullptr) {
+        MNN_DEBUG("Failed to find android.util.Pair class");
+        return env->NewStringUTF("Failed to find android.util.Pair class");
+    }
+    // 使用 GetFieldID 访问 first 字段
+    jfieldID firstField = env->GetFieldID(pairClass, "first", "Ljava/lang/Object;");
+    // 使用 GetFieldID 访问 second 字段
+    jfieldID secondField = env->GetFieldID(pairClass, "second", "Ljava/lang/Object;");
+
+    // 遍历List，提取每个Pair
+    for (jint i = 0; i < listSize; i++) {
+        jobject pairObj = env->CallObjectMethod(historyList, getMethod, i);
+        if (pairObj == nullptr) {
+            continue;
+        }
+        // 使用 GetObjectField 访问 first 字段
+        jobject roleObj = env->GetObjectField(pairObj, firstField);
+        // 使用 GetObjectField 访问 second 字段
+        jobject contentObj = env->GetObjectField(pairObj, secondField);
+
+        const char *role = nullptr;
+        const char *content = nullptr;
+        if (roleObj != nullptr) {
+            role = env->GetStringUTFChars((jstring) roleObj, nullptr);
+        }
+        if (contentObj != nullptr) {
+            content = env->GetStringUTFChars((jstring) contentObj, nullptr);
+        }
+
+        if (role && content) {
+            history.emplace_back(std::string(role), std::string(content));
+        }
+
+        if (role) {
+            env->ReleaseStringUTFChars((jstring) roleObj, role);
+        }
+        if (content) {
+            env->ReleaseStringUTFChars((jstring) contentObj, content);
+        }
+        env->DeleteLocalRef(pairObj);
+        if (roleObj) {
+            env->DeleteLocalRef(roleObj);
+        }
+        if (contentObj) {
+            env->DeleteLocalRef(contentObj);
+        }
+    }
+
+    // 设置进度回调
+    jclass progressListenerClass = env->GetObjectClass(progressListener);
+    jmethodID onProgressMethod = env->GetMethodID(progressListenerClass, "onProgress",
+                                                  "(Ljava/lang/String;)Z");
+
+    if (!onProgressMethod) {
+        MNN_DEBUG("ProgressListener onProgress method not found.");
+    }
+
+    // 调用API服务推理方法
+    auto *context = llm->ResponseWithHistory(history, [&, progressListener, onProgressMethod](
+            const std::string &response, bool is_eop) {
+        if (progressListener && onProgressMethod) {
+            jstring javaString = is_eop ? nullptr : env->NewStringUTF(response.c_str());
+            jboolean user_stop_requested = env->CallBooleanMethod(progressListener,
+                                                                  onProgressMethod, javaString);
+            if (javaString) {
+                env->DeleteLocalRef(javaString);
+            }
+            return (bool) user_stop_requested;
+        } else {
+            return true;
+        }
+    });
+
+    // 构建返回结果
+    int64_t prompt_len = 0;
+    int64_t decode_len = 0;
+    int64_t vision_time = 0;
+    int64_t audio_time = 0;
+    int64_t prefill_time = 0;
+    int64_t decode_time = 0;
+
+    if (context) {
+        prompt_len += context->prompt_len;
+        decode_len += context->gen_seq_len;
+        vision_time += context->vision_us;
+        audio_time += context->audio_us;
+        prefill_time += context->prefill_us;
+        decode_time += context->decode_us;
+    }
+
+    jclass hashMapClass = env->FindClass("java/util/HashMap");
+    jmethodID hashMapInit = env->GetMethodID(hashMapClass, "<init>", "()V");
+    jmethodID hashMapPut = env->GetMethodID(hashMapClass, "put",
+                                            "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;");
+    jobject hashMap = env->NewObject(hashMapClass, hashMapInit);
+
+    // 添加统计信息
+    jclass longClass = env->FindClass("java/lang/Long");
+    jmethodID longInit = env->GetMethodID(longClass, "<init>", "(J)V");
+
+    env->CallObjectMethod(hashMap, hashMapPut, env->NewStringUTF("prompt_len"),
+                          env->NewObject(longClass, longInit, prompt_len));
+    env->CallObjectMethod(hashMap, hashMapPut, env->NewStringUTF("decode_len"),
+                          env->NewObject(longClass, longInit, decode_len));
+    env->CallObjectMethod(hashMap, hashMapPut, env->NewStringUTF("vision_time"),
+                          env->NewObject(longClass, longInit, vision_time));
+    env->CallObjectMethod(hashMap, hashMapPut, env->NewStringUTF("audio_time"),
+                          env->NewObject(longClass, longInit, audio_time));
+    env->CallObjectMethod(hashMap, hashMapPut, env->NewStringUTF("prefill_time"),
+                          env->NewObject(longClass, longInit, prefill_time));
+    env->CallObjectMethod(hashMap, hashMapPut, env->NewStringUTF("decode_time"),
+                          env->NewObject(longClass, longInit, decode_time));
+
+    return hashMap;
+}
+
+
+
 JNIEXPORT void JNICALL
 Java_com_alibaba_mnnllm_android_llm_LlmSession_resetNative(JNIEnv *env, jobject thiz,
                                                            jlong object_ptr) {
@@ -263,5 +408,29 @@ Java_com_alibaba_mnnllm_android_llm_LlmSession_updateEnableAudioOutputNative(JNI
     auto *llm = reinterpret_cast<mls::LlmSession *>(llm_ptr);
     if (llm) {
         llm->enableAudioOutput((bool)enable);
+    }
+}
+
+
+extern "C"
+JNIEXPORT jstring JNICALL
+Java_com_alibaba_mnnllm_android_llm_LlmSession_getSystemPromptNative(JNIEnv *env, jobject thiz,
+                                                                     jlong llm_ptr) {
+    auto *llm = reinterpret_cast<mls::LlmSession *>(llm_ptr);
+    if (llm) {
+        std::string system_prompt = llm->getSystemPrompt();
+        return env->NewStringUTF(system_prompt.c_str());
+    }
+    return nullptr;
+}
+
+
+extern "C"
+JNIEXPORT void JNICALL
+Java_com_alibaba_mnnllm_android_llm_LlmSession_clearHistoryNative(JNIEnv *env, jobject thiz,
+                                                                  jlong llm_ptr) {
+    auto *llm = reinterpret_cast<mls::LlmSession *>(llm_ptr);
+    if (llm) {
+        llm->clearHistory();
     }
 }
