@@ -1,0 +1,25 @@
+# Note: If you use Python, then the prefix might not be correct.
+#
+# You need to either manually modify this file to change the prefix to the location
+# where this sherpa-onnx.pc file actually resides
+# or
+# you can use
+#
+#   pkg-config --define-variable=prefix=/path/to/the/dir/containing/this/file --cflags sherpa-onnx
+
+prefix="@CMAKE_INSTALL_PREFIX@"
+exec_prefix="${prefix}"
+includedir="${prefix}/include"
+libdir="${exec_prefix}/lib"
+
+Name: sherpa-onnx
+Description: pkg-config for sherpa-onnx
+URL: https://github.com/k2-fsa/sherpa-onnx
+
+Version: @SHERPA_ONNX_VERSION@
+Cflags: -I"${includedir}"
+
+# Note: -lcargs is required only for the following file
+# https://github.com/k2-fsa/sherpa-onnx/blob/master/c-api-examples/decode-file-c-api.c
+# We add it here so that users don't need to specify -lcargs when compiling decode-file-c-api.c
+Libs: -L"${libdir}" -lsherpa-onnx-c-api -lonnxruntime -Wl,-rpath,${libdir} @SHERPA_ONNX_PKG_WITH_CARGS@ @SHERPA_ONNX_PKG_CONFIG_EXTRA_LIBS@
