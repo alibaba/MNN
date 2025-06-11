@@ -29,7 +29,7 @@ Welcome to **MNN TaoAvatar App**, a full-featured mobile app about the [TaoAvata
 - **100% offline** and privacy-focused
 
 ## How it Works
-![alt text](tao_avatar_process.jpg)
+![alt text](./assets/tao_avatar_process.jpg)
 
 ## ⚙️ Requirements
 

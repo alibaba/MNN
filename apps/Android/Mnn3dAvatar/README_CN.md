@@ -22,7 +22,7 @@
 * **100%离线运行**：完全本地运行，守护隐私更放心
 
 ## 工作原理
-![alt text](tao_avatar_process_zh.jpg)
+![alt text](./assets/tao_avatar_process_zh.jpg)
 
 ## 硬件要求
 
