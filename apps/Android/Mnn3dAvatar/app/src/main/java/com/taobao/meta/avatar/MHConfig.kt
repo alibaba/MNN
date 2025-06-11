@@ -18,11 +18,7 @@ object MHConfig {
         get() = "${BASE_DIR}/TaoAvatar-NNR-MNN/"
 
     val TTS_MODEL_DIR
-        get() = if (DeviceUtils.isChinese) {
-            "${BASE_DIR}/bert-vits2-MNN/"
-        } else {
-            "${BASE_DIR}/piper-voices-MNN"
-        }
+        get() = "${BASE_DIR}/bert-vits2-MNN/"
 
     val A2BS_MODEL_DIR
         get() = "${BASE_DIR}/UniTalker-MNN/"

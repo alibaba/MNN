@@ -7,7 +7,7 @@
 
 #include "wavfile.hpp"
 #include "mnn_tts_config.hpp"
-#include "piper/mnn_piper_tts_impl.hpp"
+//#include "piper/mnn_piper_tts_impl.hpp"
 #include "bertvits2/mnn_bertvits2_tts_impl.hpp"
 
 class MNNTTSSDK

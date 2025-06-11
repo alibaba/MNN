@@ -299,7 +299,7 @@ class AudioBlendShapePlayer(nnrAvatarRender: NnrAvatarRender, activity: MainActi
                     audioData =  audioChunksPlayer?.convertToShortArray(generatedAudio.samples)!!
                 }
             } else {
-                audioChunksPlayer?.sampleRate = if (DeviceUtils.isChinese) (44100 ) else (16000)
+                audioChunksPlayer?.sampleRate = 44100
                 audioData = ttsService.process(audioBlendShape.text, audioBlendShape.id)
             }
             if (audioData.isEmpty()) {

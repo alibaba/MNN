@@ -110,5 +110,4 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
     nnrruntime
     mnn_a2bs
     mnn_tts_SDK
-    espeak-ng
     )

@@ -24,8 +24,7 @@ class DownloadModule(private val context: Activity) {
         "taobao-mnn/bert-vits2-MNN",
         "taobao-mnn/TaoAvatar-NNR-MNN",
         "taobao-mnn/sherpa-mnn-streaming-zipformer-bilingual-zh-en-2023-02-20",
-        "taobao-mnn/sherpa-mnn-streaming-zipformer-en-2023-02-21",
-        "taobao-mnn/piper-voices-MNN"
+        "taobao-mnn/sherpa-mnn-streaming-zipformer-en-2023-02-21"
     )
 
     private val finishedSet = mutableSetOf<String>()
