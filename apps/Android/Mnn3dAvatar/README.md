@@ -28,7 +28,8 @@ Welcome to **MNN TaoAvatar App**, a full-featured mobile app about the [TaoAvata
 - **Real-time neural rendering** for expressive avatars
 - **100% offline** and privacy-focused
 
----
+## How it Works
+![alt text](tao_avatar_process.jpg)
 
 ## ⚙️ Requirements
 
