@@ -181,7 +181,7 @@ class ModelDownloadManager private constructor(private val context: Context) {
             if (getDownloadedFile(modelId) != null) {
                 downloadInfo.downlodaState = DownloadInfo.DownloadSate.COMPLETED
                 downloadInfo.progress = 1.0
-            } else if (getDownloadSizeTotal(ApplicationProvider.get(), modelId) > 0) {
+            } else if (getDownloadSizeSaved(ApplicationProvider.get(), modelId) > 0) {
                 val totalSize = getDownloadSizeTotal(ApplicationProvider.get(), modelId)
                 val savedSize = getDownloadSizeSaved(ApplicationProvider.get(), modelId)
                 downloadInfo.totalSize = totalSize
