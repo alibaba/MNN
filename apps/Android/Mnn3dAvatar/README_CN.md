@@ -1,4 +1,4 @@
-# 手机跑大模型，阿里开源的 TaoAvatar 玩起来了！
+# MNN TaoAvatar Android - 本地智能数字人
 
 <p align="center">
   <img width="20%" alt="Icon"  src="https://meta.alicdn.com/data/mnn/avatar/avatar_demo.gif" style="margin: 0 10px;">
@@ -6,9 +6,9 @@
 
 + [下载](#releases) 
 
-一个本地运行、完全离线、支持多模态交互的智能数字人App诞生了！这就是阿里巴巴开源的 **MNN TaoAvatar**，带你在安卓手机上零距离感受AI的魅力。
+这是一个一个本地运行、完全离线、支持多模态交互的智能数字人App！
 
-什么是 TaoAvatar？简单来说，它是阿里最新研究成果的落地应用（详见 [TaoAvatar论文](https://arxiv.org/html/2503.17032v1)），将大语言模型（LLM）、语音识别（ASR）、语音合成（TTS）、声音到动作合成（A2BS）、神经渲染（NNR）统统搬到手机端，全本地运行，无需联网！
+什么是 TaoAvatar？它是阿里最新研究成果的落地应用（详见 [TaoAvatar论文](https://arxiv.org/html/2503.17032v1)），将大语言模型（LLM）、语音识别（ASR）、语音合成（TTS）、声音到动作合成（A2BS）、神经渲染（NNR）统统搬到手机端，全本地运行，无需联网！
 
 > 📢 iOS版稍后上线，敬请期待！
 
@@ -26,7 +26,7 @@
 
 ## 硬件要求
 
-毕竟要把大模型塞进手机，性能可不能太落后。这套App需要：
+由于需要将多个模型同时运行在手机上，需要**性能高的芯片**和**内存足够大**：
 
 * **旗舰芯片级性能**：高通骁龙8 Gen 3或联发科天玑9200以上级别
 * **内存至少8GB**
@@ -52,7 +52,6 @@ cd apps/Android/Mnn3dAvatar
 ./gradlew installDebug
 ```
 
-很快，你的智能数字人就上线了！
 
 ## Releases
 ## Version 0.0.1
@@ -68,5 +67,3 @@ cd apps/Android/Mnn3dAvatar
 * [声音动作模型：UniTalker-MNN](https://modelscope.cn/models/MNN/UniTalker-MNN)
 * [神经渲染模型：TaoAvatar-NNR-MNN](https://modelscope.cn/models/MNN/TaoAvatar-NNR-MNN)
 * [ASR模型：Sherpa 双语流式识别模型](https://modelscope.cn/models/MNN/sherpa-mnn-streaming-zipformer-bilingual-zh-en-2023-02-20)
-
-马上动手体验一下吧，下一代智能交互，就在你掌中！

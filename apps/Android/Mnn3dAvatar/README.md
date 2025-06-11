@@ -19,7 +19,7 @@ Welcome to **MNN TaoAvatar App**, a full-featured mobile app about the [TaoAvata
 
 > The iOS App will be coming later, stay tuned for updates!
 
-## ✨ Features
+## Features
 
 - **Conversational AI** powered by a local LLM
 - **Speech-to-text** with embedded ASR models
@@ -31,7 +31,7 @@ Welcome to **MNN TaoAvatar App**, a full-featured mobile app about the [TaoAvata
 ## How it Works
 ![alt text](./assets/tao_avatar_process.jpg)
 
-## ⚙️ Requirements
+## Requirements
 
 Because **all AI models are executed locally on-device**, this project requires **high-performance hardware** to run smoothly.
 
@@ -46,7 +46,7 @@ Because **all AI models are executed locally on-device**, this project requires 
 > ⚠️ Devices below these specs may experience lag, audio stutter, or limited functionality.
 
 
-## 🚀 Setup and Run
+## Setup and Run
 
 ### 1. Clone the Repository
 
