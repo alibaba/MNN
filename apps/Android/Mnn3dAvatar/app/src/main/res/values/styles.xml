@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- enable record button -->
+    <style name="EnableButtonStatus">
+        <item name="android:background">@drawable/enable_recordbutton</item>
+    </style>
+
+    <!-- disable record button -->
+    <style name="DisableButtonStatus">
+        <item name="android:background">@drawable/disable_recordbutton</item>
+    </style>
+</resources>

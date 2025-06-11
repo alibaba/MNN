@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
+
+
+    <EditTextPreference
+        android:key="llm_prompt"
+        android:title="@string/ll_prompt"
+        android:summary="You are a helpful assistant."
+        android:defaultValue=""/>
+
+    <CheckBoxPreference
+        android:key="show_debug_info"
+        android:title="@string/show_debug_info"
+        android:defaultValue="true"/>
+
+    <Preference
+        android:key="check_update"
+        android:title="@string/version_info"
+        android:summary="@string/check_for_update_summary" />
+
+</PreferenceScreen>
