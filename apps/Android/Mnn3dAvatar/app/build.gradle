@@ -3,24 +3,35 @@ plugins {
     id 'org.jetbrains.kotlin.android'
 }
 
-def nativeLibsUrl = 'https://meta.alicdn.com/data/mnn/avatar/native-libs-arm64-v8a.zip'
-def zipFileName = 'avatar-native-libs-arm64-v8a.zip'
-def outputDir = project.rootDir
-
-task downloadAndUnzipNativeLibs(type: Copy) {
+task downloadAndUnzipNativeLibs {
     group = 'Pre-build'
     description = 'Downloads and unzips native libraries from CDN.'
+    def nativeLibsUrl = 'https://meta.alicdn.com/data/mnn/avatar/native-libs-arm64-v8a.zip'
+    def zipFileName = 'avatar-native-libs-arm64-v8a.zip'
+    def outputDir = project.rootDir
+    def downloadedZip = new File(project.buildDir, zipFileName)
+    def checkFile = new File(outputDir, 'src/main/jniLibs/arm64-v8a/libsherpa-mnn-jni.so')
     inputs.property('url', nativeLibsUrl)
-    outputs.dir(outputDir)
-    def downloadedZip = new File(buildDir, zipFileName)
-    if (!downloadedZip.exists()) {
+    outputs.file(checkFile)
+    doLast {
+        println "-> Executing downloadAndUnzipNativeLibs task..."
+        println "   Downloading from ${nativeLibsUrl}"
         ant.get(src: nativeLibsUrl, dest: downloadedZip)
+
+        if (!downloadedZip.exists()) {
+            throw new GradleException("Download failed: ${downloadedZip} not found.")
+        }
+        println "   Download complete."
+        println "   Unzipping ${downloadedZip.name} to project root..."
+        copy {
+            from(zipTree(downloadedZip))
+            into(outputDir)
+        }
+        println "   Unzip complete."
+        downloadedZip.delete()
     }
-    from(zipTree(downloadedZip))
-    into(outputDir)
     onlyIf {
-        def checkFile = new File(outputDir, 'app/src/main/jniLibs/arm64-v8a/libsherpa-mnn-jni.so')
-        println("checkFile: ${checkFile.exists()}")
+        println "-> Checking if native libs exist... [Exists: ${checkFile.exists()}]"
         return !checkFile.exists()
     }
 }
