@@ -24,5 +24,6 @@ public class MsRepoInfo {
         public long Size;
 
         public String Sha256;
+        public String Type;
     }
 }

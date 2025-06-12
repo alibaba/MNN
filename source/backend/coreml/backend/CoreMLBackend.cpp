@@ -133,11 +133,11 @@ namespace MNN {
     void CoreMLBackend::onResizeBegin() {
         mCoreMLLayerPtrs.clear();
     }
-    int CoreMLBackend::getBytes(const halide_type_t& type) {
+    size_t CoreMLBackend::getBytes(const halide_type_t& type) {
         if (type.code == halide_type_float && mPrecision == BackendConfig::Precision_Low) {
             return 1;
         }
-        return type.bytes();
+        return static_cast<size_t>(type.bytes());
     }
 
     ErrorCode CoreMLBackend::onResizeEnd() {

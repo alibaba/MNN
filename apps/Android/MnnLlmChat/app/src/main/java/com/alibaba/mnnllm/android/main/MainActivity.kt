@@ -116,6 +116,8 @@ class MainActivity : AppCompatActivity() {
         drawerLayout = findViewById(R.id.drawer_layout)
         updateChecker = UpdateChecker(this)
         updateChecker!!.checkForUpdates(this, false)
+        
+
         toggle = ActionBarDrawerToggle(
             this, drawerLayout,
             toolbar,
@@ -249,6 +251,7 @@ class MainActivity : AppCompatActivity() {
         offsetChangedListener?.let {
             appBarLayout.removeOnOffsetChangedListener(it)
         }
+        
     }
 
     companion object {

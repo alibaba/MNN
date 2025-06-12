@@ -1,26 +1,39 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
-    <uses-permission android:name="android.permission.INTERNET"/>
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
-    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission
+        android:name="android.permission.READ_MEDIA_IMAGES"
         tools:ignore="SelectedPhotoAccess" />
-    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO"/>
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>
+
+
+
+
     <application
+        android:name="com.alibaba.mnnllm.android.MnnLlmApplication"
         android:allowBackup="true"
         android:icon="@drawable/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@drawable/ic_launcher"
         android:supportsRtl="true"
-        android:name="com.alibaba.mnnllm.android.MnnLlmApplication"
         android:theme="@style/AppTheme"
         tools:targetApi="31">
-        <uses-native-library android:name="libOpenCL.so"
-            android:required="false"/>
+        <uses-native-library
+            android:name="libOpenCL.so"
+            android:required="false" />
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -30,21 +43,23 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
-        <activity android:name="com.alibaba.mnnllm.android.chat.ChatActivity"
-            android:exported="true"
-            android:windowSoftInputMode="adjustResize"
+        <activity
+            android:name="com.alibaba.mnnllm.android.chat.ChatActivity"
             android:configChanges="orientation|screenSize"
-            >
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
 
-        <service android:name="com.alibaba.mls.api.download.DownloadForegroundService"
-            android:foregroundServiceType="dataSync"
-            />
-        <activity android:name=".chat.SelectTextActivity"
+        <service
+            android:name="com.alibaba.mls.api.download.DownloadForegroundService"
+            android:foregroundServiceType="dataSync" />
+
+        <activity
+            android:name=".chat.SelectTextActivity"
             android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -52,19 +67,21 @@
             </intent-filter>
         </activity>
 
-        <activity android:name=".main.MainActivity"
-            android:exported="true"
-            android:configChanges="orientation|screenSize">
+        <activity
+            android:name=".main.MainActivity"
+            android:configChanges="orientation|screenSize"
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
 
-        <activity android:name=".mainsettings.MainSettingsActivity"
+        <activity
+            android:name=".mainsettings.MainSettingsActivity"
+            android:configChanges="orientation|screenSize"
             android:exported="true"
-            android:label="@string/settings"
-            android:configChanges="orientation|screenSize">
+            android:label="@string/settings">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -72,13 +89,20 @@
         </activity>
 
         <activity
-            android:exported="true"
-            android:name=".modelsettings.SettingsActivity">
+            android:name=".modelsettings.SettingsActivity"
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
+
+        <service
+            android:name="com.alibaba.mnnllm.api.openai.service.OpenAIService"
+            android:enabled="true"
+            android:exported="true"
+            android:foregroundServiceType="dataSync" >
+        </service>
 
     </application>
 

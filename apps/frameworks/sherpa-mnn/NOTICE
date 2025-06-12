@@ -1,0 +1,19 @@
+# NOTICE
+## Project Info
+
+- ** Name **:sherpa-mnn
+- **License**: Apache 2.0
+
+## Dependencies
+
+- [MNN](https://github.com/alibaba/MNN/)
+
+## Modifications
+This project is derived from sherpa-onnx (https://github.com/k2-fsa/sherpa-onnx)
+Key changes include:
+
+- Use MNN instead of onnxruntime to do deeplearning model inference
+- Rename sherpa-onnx to sherpa-mnn
+
+## Copyright
+Copyright (c)  2022-2023  Xiaomi Corporation. All rights reserved. Copyright (c) 2025, MNN Team.

@@ -1,0 +1,1 @@
+../sherpa-mnn/kotlin-api/OfflineRecognizer.kt

@@ -187,21 +187,16 @@ class MsModelDownloader(override var callback: ModelRepoDownloadCallback?,
         for (i in msRepoInfo.Data.Files.indices) {
             val subFile = msRepoInfo.Data.Files[i]
             val fileDownloadTask = FileDownloadTask()
+            if (subFile.Type == "tree") {
+                continue
+            }
             fileDownloadTask.relativePath = subFile.Path
             fileDownloadTask.fileMetadata = HfFileMetadata()
-            if (ModelSources.get().remoteSourceType == ModelSources.ModelSourceType.MODELERS) {
-                fileDownloadTask.fileMetadata!!.location = String.format(
-                    "https://modelers.cn/coderepo/web/v1/file/%s/main/media/%s",
-                    repoConfig.repositoryPath(),
-                    subFile.Path
-                )
-            } else {
-                fileDownloadTask.fileMetadata!!.location = String.format(
-                    "https://modelscope.cn/api/v1/models/%s/repo?FilePath=%s",
-                    repoConfig.repositoryPath(),
-                    subFile.Path
-                )
-            }
+            fileDownloadTask.fileMetadata!!.location = String.format(
+                "https://modelscope.cn/api/v1/models/%s/repo?FilePath=%s",
+                repoConfig.repositoryPath(),
+                subFile.Path
+            )
             fileDownloadTask.fileMetadata!!.size = subFile.Size
             fileDownloadTask.fileMetadata!!.etag = subFile.Sha256
             fileDownloadTask.etag = subFile.Sha256

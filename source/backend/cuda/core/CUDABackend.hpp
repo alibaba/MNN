@@ -89,7 +89,7 @@ public:
         return mStaticBufferPool.get();
     }
     static size_t realSize(const Tensor *tensor);
-    int getBytes(const Tensor* tensor) const;
+    size_t getBytes(const Tensor* tensor) const;
     CPUResizeCache* getCache();
     bool useFp16() const;
     int getPrecision() const;
