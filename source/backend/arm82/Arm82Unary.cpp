@@ -53,6 +53,48 @@ struct VecRecipocal {
     }
 };
 
+struct VecTanhFp16 {
+    float16x8_t operator()(float16x8_t x) const {
+        float16x8_t exp_x_vec;
+        float16x8_t exp_neg_x_vec;
+        float16x8_t neg_x_vec = vnegq_f16(x);
+
+        // Arm82MNNExp processes data in blocks of 16, but can handle smaller last blocks.
+        // We are processing 8 elements here. Arm82MNNExp will handle this by processing one block.
+        FLOAT16 temp_in_x[8];
+        FLOAT16 temp_in_neg_x[8];
+        FLOAT16 temp_out_exp_x[8];
+        FLOAT16 temp_out_exp_neg_x[8];
+
+        vst1q_f16(temp_in_x, x);
+        vst1q_f16(temp_in_neg_x, neg_x_vec);
+
+        // Call Arm82MNNExp for x and -x.
+        // Arm82MNNExp is declared in Arm82OptFunc.hpp and defined in Arm82OptFunc.cpp.
+        // It handles the parameters for the underlying assembly MNNExpFP16.
+        Arm82MNNExp(temp_out_exp_x, temp_in_x, 8);
+        Arm82MNNExp(temp_out_exp_neg_x, temp_in_neg_x, 8);
+
+        exp_x_vec = vld1q_f16(temp_out_exp_x);
+        exp_neg_x_vec = vld1q_f16(temp_out_exp_neg_x);
+
+        float16x8_t numerator = vsubq_f16(exp_x_vec, exp_neg_x_vec);
+        float16x8_t denominator = vaddq_f16(exp_x_vec, exp_neg_x_vec);
+
+        // Perform division: numerator / denominator
+        // Using reciprocal estimate and Newton-Raphson refinement
+        // x_n+1 = x_n * (2 - d * x_n)
+        // vrecpsq_f16(d, x_n) computes (2 - d*x_n)
+        float16x8_t recip_den = vrecpeq_f16(denominator);
+        // First iteration:
+        recip_den = vmulq_f16(recip_den, vrecpsq_f16(denominator, recip_den));
+        // Second iteration (for better precision):
+        recip_den = vmulq_f16(recip_den, vrecpsq_f16(denominator, recip_den));
+
+        return vmulq_f16(numerator, recip_den);
+    }
+};
+
 #if defined(__aarch64__)
 struct VecSqrt {
     float16x8_t operator()(float16x8_t &x) const {
@@ -255,7 +297,7 @@ MNNUnaryExecute Arm82Unary::select(int type, int precision) {
         case UnaryOpOperation_SILU:
             return _Wrap<_SiLu>;
         case UnaryOpOperation_TANH:
-            return _Wrap<_Tanh>;
+            return FP16VecUnary<VecTanhFp16>;
         case UnaryOpOperation_TAN:
             return _Wrap<_Unary<UnaryTan<float>, float>>;
         case UnaryOpOperation_ATAN:

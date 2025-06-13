@@ -894,6 +894,55 @@ public:
                     {10}, {10});
     }
 };
+
+class TanhFP16Arm82Test : public UnaryTestCommon {
+public:
+    virtual ~TanhFP16Arm82Test() = default;
+    virtual bool run(int precision) {
+        // Only run this test if low precision (FP16) is selected
+        if (precision != MNN::BackendConfig::Precision_Low) {
+            MNN_PRINT("Skipping TanhFP16Arm82Test for precision %d, only runs for Precision_Low (FP16).\n", precision);
+            return true; // Or mark as skipped if framework supports
+        }
+
+        const int dataSize = 16; // Test with a few values
+        std::vector<MNN::FLOAT16> data_in_fp16(dataSize);
+        std::vector<MNN::FLOAT16> data_out_fp16_expected(dataSize);
+        std::vector<float> data_in_fp32 = {
+            -100.0f, -5.0f, -2.0f, -1.0f, -0.5f, -0.1f, 0.0f, 0.1f,
+            0.5f, 1.0f, 2.0f, 5.0f, 100.0f, 1.23f, -2.34f, 0.789f
+        };
+
+        // Prepare FP16 input and calculate expected FP16 output (via FP32)
+        for (int i = 0; i < dataSize; ++i) {
+            data_in_fp16[i] = static_cast<MNN::FLOAT16>(data_in_fp32[i]);
+            float tanh_fp32_val = tanhf(data_in_fp32[i]);
+            data_out_fp16_expected[i] = static_cast<MNN::FLOAT16>(tanh_fp32_val);
+        }
+
+        bool res = test<MNN::FLOAT16, MNN::FLOAT16>(MNN::Express::_Tanh, "TanhFP16Arm82Test", 0.02f,
+                          data_in_fp16, data_out_fp16_expected,
+                          {dataSize}, {dataSize});
+        if (!res) {
+            // For debugging if it fails:
+            // auto input = _Input({dataSize}, NCHW, halide_type_of<MNN::FLOAT16>());
+            // auto ptr_in = input->template writeMap<MNN::FLOAT16>();
+            // memcpy(ptr_in, data_in_fp16.data(), dataSize * sizeof(MNN::FLOAT16));
+            // input->unMap();
+            // VARP output = MNN::Express::_Tanh(input);
+            // auto gotOutput = output->template readMap<MNN::FLOAT16>();
+            // MNN_PRINT("Input FP16:\n");
+            // for(int i=0; i<dataSize; ++i) MNN_PRINT("%f, ", static_cast<float>(data_in_fp16[i]));
+            // MNN_PRINT("\nExpected FP16 Output:\n");
+            // for(int i=0; i<dataSize; ++i) MNN_PRINT("%f, ", static_cast<float>(data_out_fp16_expected[i]));
+            // MNN_PRINT("\nActual FP16 Output:\n");
+            // for(int i=0; i<dataSize; ++i) MNN_PRINT("%f, ", static_cast<float>(gotOutput[i]));
+            // MNN_PRINT("\n");
+        }
+       return res;
+    }
+};
+
 /* Unary Int8 test*/
 class AbsTestInt8 : public UnaryTestCommon {
 public:
@@ -1251,3 +1300,4 @@ MNNTestSuiteRegister(ErfinvTestInt8, "op/unary/erfinvInt8");
 MNNTestSuiteRegister(Expm1TestInt8, "op/unary/expm1Int8");
 MNNTestSuiteRegister(SinhTestInt8, "op/unary/sinhInt8");
 MNNTestSuiteRegister(GeluTestInt8, "op/unary/geluInt8");
+MNNTestSuiteRegister(TanhFP16Arm82Test, "op/unary/tanh_fp16_arm82");
