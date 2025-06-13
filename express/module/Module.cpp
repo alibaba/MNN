@@ -271,6 +271,22 @@ public:
 #endif
         return this->cloneBaseTo(ctx, module);
     }
+    virtual Module* clone(CloneContext* ctx, const ScheduleConfig* config) const override {
+        auto mModule = mChildren[0];
+        auto origin = mInfo->runTimeManager->getInside();
+        std::shared_ptr<Executor::RuntimeManager> newRt (Executor::RuntimeManager::createRuntimeManager(*config));
+        const_cast<RuntimeAttr*>(newRt->getInside())->mContent->mExternalFile = origin->mContent->mExternalFile;
+        std::shared_ptr<Module::Info> newInfo(new Module::Info);
+        *newInfo = *mInfo;
+        ctx->pRuntimeManager = newRt;
+        newInfo->runTimeManager = newRt;
+        std::shared_ptr<Module> submodule(mModule->clone(ctx));
+        NetModule* module(new NetModule(submodule, newInfo, nullptr, 0, 0.0f));
+#ifdef MNN_INTERNAL_ENABLED
+        module->mLogInfo = mLogInfo;
+#endif
+        return this->cloneBaseTo(ctx, module);
+    }
     const Module::Info* info() const {
         return mInfo.get();
     }
@@ -504,6 +520,11 @@ VARP Module::CloneContext::getOrClone(VARP var) {
 Module* Module::clone(const Module* module, const bool shareParams) {
     CloneContext context(shareParams);
     return module->clone(&context);
+}
+
+Module* Module::clone(const Module* module, const ScheduleConfig* config, const bool shareParams) {
+    CloneContext context(shareParams);
+    return module->clone(&context, config);
 }
 
 Module* Module::cloneBaseTo(CloneContext* ctx, Module* module) const {
