@@ -174,6 +174,73 @@ public:
 };
 MNNTestSuiteRegister(ModuleTest, "expr/ModuleTest");
 
+class ModuleWrongInputTest : public MNNTestCase {
+public:
+    virtual bool run(int precision) {
+        std::vector<int8_t> buffer;
+        // construct
+        {
+            auto x = _Input({1, 3, 5, 7}, NCHW, halide_type_of<int>());
+            x->setName("data");
+            auto x1 = _Input({1, 3, 5, 7}, NCHW, halide_type_of<int>());
+            x1->setName("data1");
+            auto y = x + x1;
+            y->setName("o0");
+            auto y1 = x - x1;
+            y1->setName("o1");
+            buffer = Variable::save({y, y1});
+        }
+        // Execute
+        std::shared_ptr<Module> refModule(Module::load({"data", "data1"}, {"o0", "o1"}, (const uint8_t*)buffer.data(), buffer.size()), Module::destroy);
+        auto _runModuleTest = [&refModule](int number) {
+            auto x = _Input({1, 3, 5, 7}, NCHW, halide_type_of<int>());
+            auto x1 = _Input({1, 3, 5, 7}, NCHW, halide_type_of<int>());
+            auto xPtr = x->writeMap<int>();
+            auto x1Ptr = x1->writeMap<int>();
+            for (int i=0; i<x->getInfo()->size; ++i) {
+                xPtr[i] = i;
+                x1Ptr[i] = i + 1;
+            }
+            std::vector<VARP> y;
+            if (2 == number) {
+                y = refModule->onForward({x, x1});
+            } else {
+                y = refModule->onForward({x, x1, x1});
+            }
+            auto y0Ptr = y[0]->readMap<int>();
+            auto y1Ptr = y[1]->readMap<int>();
+            for (int i=0; i<x->getInfo()->size; ++i) {
+                if (y0Ptr[i] != i * 2 + 1) {
+                    FUNC_PRINT(1);
+                    return false;
+                }
+                if (y1Ptr[i] != -1) {
+                    FUNC_PRINT(1);
+                    return false;
+                }
+            }
+            return true;
+        };
+        auto res = _runModuleTest(2);
+        if (!res) {
+            FUNC_PRINT(1);
+            return false;
+        }
+        refModule.reset(Module::load({"data", "data1", "data2"}, {"o0", "o1"}, (const uint8_t*)buffer.data(), buffer.size()), Module::destroy);
+        res = _runModuleTest(3);
+        if (!res) {
+            FUNC_PRINT(1);
+            return false;
+        }
+        refModule.reset(Module::load({"data"}, {"o0", "o1"}, (const uint8_t*)buffer.data(), buffer.size()), Module::destroy);
+        if (nullptr != refModule) {
+            return false;
+        }
+        return true;
+    }
+};
+MNNTestSuiteRegister(ModuleWrongInputTest, "expr/ModuleWrongInputTest");
+
 class RefTest : public MNNTestCase {
 public:
     virtual bool run(int precision) {

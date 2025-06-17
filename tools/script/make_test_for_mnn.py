@@ -54,7 +54,11 @@ def run():
         with open(fname, 'w') as f:
             for floatValue in data:
                 f.write('%f\n' %floatValue)
-        var = F.convert(var, dformat)
+        if dformat == F.NC4HW4:
+            var = F.convert(var, dformat)
+        else:
+            var.set_order(dformat)
+
         inputs.append(var)
         config['inputs'].append(input)
     

@@ -87,6 +87,9 @@ public:
         TRAINABLE = 2,
     };
     bool fix(InputType type) const;
+
+    // Only valid for Input / Const / Trainable
+    void setOrder(Dimensionformat format);
 private:
     friend class Variable;
     std::shared_ptr<Variable> mContent;

@@ -7,6 +7,7 @@
 //
 
 #include "backend/opencl/core/OpenCLRunningUtils.hpp"
+#include "backend/opencl/execution/cl/opencl_source_map.hpp"
 #include <algorithm>
 #include <string>
 #include <math.h>
@@ -44,7 +45,7 @@ void getImageShape(const std::vector<int> &shape, const OpenCLBufferFormat type,
 }
 
 std::pair<std::vector<uint32_t>, uint32_t> localWS3DDefault(const std::vector<uint32_t> &gws, const uint32_t maxWorkGroupSize,
-                                       OpenCLRuntime *runtime, const std::string &kernelName, const std::shared_ptr<KernelWrap> &mKernelW, int tuneLevel) {
+                                       OpenCLRuntime *runtime, const std::string &kernelName, const std::shared_ptr<KernelWrap> &mKernelW, int tuneLevel, const std::string programName) {
     MNN_ASSERT(gws.size() == 3);
     auto mKernel = mKernelW->get();
     auto maxWorkItemSizes = runtime->getMaxWorkItemSizes();
@@ -54,7 +55,8 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS3DDefault(const std::vector<ui
     std::pair<std::string, std::vector<uint32_t>> info = std::make_pair(kernelName, gws);
     if (tunedLws.find(info) != tunedLws.end()) {
         //printf("conv2d1x1LocalWSOpt Found! gws:%d %d lws:%d %d\n", gws[0], gws[1], tunedLws[info][0], tunedLws[info][1]);
-        return tunedLws[info];
+        auto tuneinfo = tunedLws[info];
+        return std::make_pair(tuneinfo.localSize, tuneinfo.timeCost);
     }
     std::pair<std::vector<uint32_t>, uint32_t> tuneLwsRes;
     if(localWSTune(tuneLws, gws, kernelName, tuneLwsRes)){
@@ -276,14 +278,23 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS3DDefault(const std::vector<ui
     
     if (tunedLws.find(info) == tunedLws.end() && tuneLevel != None) {
 //        printf("3dLocalWS %d Insert! gws:%d %d %d, lws:%d %d %d\n", (int)tunedLws.size(), gws[0], gws[1], gws[2], lws_prefer[0], lws_prefer[1], lws_prefer[2]);
-        tunedLws.insert(std::make_pair(info, std::make_pair(lws_prefer, min_cost)));
+        TuneInfo tuneInfo;
+        tuneInfo.programName = programName;
+        auto iter = OpenCLProgramMd5Map.find(programName);
+        if(iter != OpenCLProgramMd5Map.end()){
+            tuneInfo.md5 = iter->second;
+        }
+        tuneInfo.globalSize = gws;
+        tuneInfo.localSize = lws_prefer;
+        tuneInfo.timeCost = min_cost;
+        tunedLws[info] = tuneInfo;
     }
 
     return std::make_pair(lws_prefer, min_cost);
 }
 
 std::pair<std::vector<uint32_t>, uint32_t> localWS2DDefault(const std::vector<uint32_t> &gws, const uint32_t maxWorkGroupSize,
-                                        OpenCLRuntime *runtime, const std::string &kernelName, const std::shared_ptr<KernelWrap> &mKernelW, int tuneLevel) {
+                                        OpenCLRuntime *runtime, const std::string &kernelName, const std::shared_ptr<KernelWrap> &mKernelW, int tuneLevel, const std::string programName) {
     MNN_ASSERT(gws.size() == 2);
     auto mKernel = mKernelW->get();
     
@@ -294,7 +305,8 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS2DDefault(const std::vector<ui
     std::pair<std::string, std::vector<uint32_t>> info = std::make_pair(kernelName, gws);
     if (tunedLws.find(info) != tunedLws.end()) {
         //printf("conv2d1x1LocalWSOpt Found! gws:%d %d lws:%d %d\n", gws[0], gws[1], tunedLws[info][0], tunedLws[info][1]);
-        return tunedLws[info];
+        auto tuneinfo = tunedLws[info];
+        return std::make_pair(tuneinfo.localSize, tuneinfo.timeCost);
     }
     std::pair<std::vector<uint32_t>, uint32_t> tuneLwsRes;
     if(localWSTune(tuneLws, gws, kernelName, tuneLwsRes)){
@@ -486,18 +498,27 @@ std::pair<std::vector<uint32_t>, uint32_t> localWS2DDefault(const std::vector<ui
     
     if (tunedLws.find(info) == tunedLws.end() && tuneLevel != None) {
 //        printf("2dLocalWS %d Insert! gws:%d %d, lws:%d %d\n", (int)tunedLws.size(), gws[0], gws[1], lws_prefer[0], lws_prefer[1]);
-        tunedLws.insert(std::make_pair(info, std::make_pair(lws_prefer, min_cost)));
+        TuneInfo tuneInfo;
+        tuneInfo.programName = programName;
+        auto iter = OpenCLProgramMd5Map.find(programName);
+        if(iter != OpenCLProgramMd5Map.end()){
+            tuneInfo.md5 = iter->second;
+        }
+        tuneInfo.globalSize = gws;
+        tuneInfo.localSize = lws_prefer;
+        tuneInfo.timeCost = min_cost;
+        tunedLws[info] = tuneInfo;
     }
 
     return std::make_pair(lws_prefer, min_cost);
 }
 
-uint32_t get2DUseLocalMemTime(const std::vector<uint32_t> &gws, const std::vector<uint32_t> &lws, OpenCLRuntime *runtime, const std::string &kernelName, const std::shared_ptr<KernelWrap> &mKernelW){
+uint32_t get2DUseLocalMemTime(const std::vector<uint32_t> &gws, const std::vector<uint32_t> &lws, OpenCLRuntime *runtime, const std::string &kernelName, const std::shared_ptr<KernelWrap> &mKernelW, const std::string programName){
     auto mKernel = mKernelW->get();
     auto& tunedLws = runtime->tunedLwsMap();
     std::pair<std::string, std::vector<uint32_t>> info = std::make_pair(kernelName, gws);
     if (tunedLws.find(info) != tunedLws.end()) {
-        return tunedLws[info].second;
+        return tunedLws[info].timeCost;
     }
     
     cl::Event event;
@@ -512,7 +533,16 @@ uint32_t get2DUseLocalMemTime(const std::vector<uint32_t> &gws, const std::vecto
     
     int cost_time = (int)runtime->getCostTime(&event);
     if (tunedLws.find(info) == tunedLws.end()) {
-        tunedLws.insert(std::make_pair(info, std::make_pair(lws, cost_time)));
+        TuneInfo tuneInfo;
+        tuneInfo.programName = programName;
+        auto iter = OpenCLProgramMd5Map.find(programName);
+        if(iter != OpenCLProgramMd5Map.end()){
+            tuneInfo.md5 = iter->second;
+        }
+        tuneInfo.globalSize = gws;
+        tuneInfo.localSize = lws;
+        tuneInfo.timeCost = cost_time;
+        tunedLws[info] = tuneInfo;
     }
     return cost_time;
 }
@@ -607,20 +637,23 @@ void copyBufferToImage(OpenCLRuntime *runtime, const cl::Buffer &buffer, const c
     comandQueue.enqueueNDRangeKernel(kernel, cl::NullRange, cl::NDRange(w, h, 1));
 }
 
-bool localWSTune(const std::map<std::string, std::vector<std::pair<std::vector<uint32_t>, std::pair<std::vector<uint32_t>, uint32_t>>>> &tuneMap, const std::vector<uint32_t> &gws, const std::string &kernelName, std::pair<std::vector<uint32_t>, uint32_t>& res){
+bool localWSTune(const std::map<std::string, std::vector<TuneInfo>> &tuneMap, const std::vector<uint32_t> &gws, const std::string &kernelName, std::pair<std::vector<uint32_t>, uint32_t>& res){
     float minScale = 0.1;
     auto iter = tuneMap.find(kernelName);
     if(iter == tuneMap.end()){
         return false;
     }
-    auto gwsAndLws = iter->second;
+    auto tuneInfoVec = iter->second;
     int size = gws.size();
     uint32_t minPoint = UINT_MAX;
     int index = -1;
-    for(int i = 0; i < gwsAndLws.size(); ++i){
+    for(int i = 0; i < tuneInfoVec.size(); ++i){
         uint32_t point = 0;
+        if(tuneInfoVec[i].globalSize.size() != size){
+            continue;
+        }
         for(int j = 0; j < size; ++j){
-            point += std::abs(static_cast<int>(gws[j]) - static_cast<int>(gwsAndLws[i].first[j]));
+            point += std::abs(static_cast<int>(gws[j]) - static_cast<int>(tuneInfoVec[i].globalSize[j]));
         }
         if(point < minPoint){
             index = i;
@@ -628,7 +661,7 @@ bool localWSTune(const std::map<std::string, std::vector<std::pair<std::vector<u
         }
     }
     if(index != -1){
-        res = gwsAndLws[index].second;
+        res = std::make_pair(tuneInfoVec[index].localSize, tuneInfoVec[index].timeCost);
     }
     return true;
 }
@@ -638,16 +671,25 @@ bool getTunedInfo(const std::string kernelName, const std::vector<uint32_t> &gws
     auto& tuneLws = runtime->getTuneLwsMap();
     std::pair<std::string, std::vector<uint32_t>> info = std::make_pair(kernelName, gws);
     if (tunedLws.find(info) != tunedLws.end()) {
-        tuneInfo = tunedLws[info];
+        tuneInfo = std::make_pair(tunedLws[info].localSize, tunedLws[info].timeCost);
         return true;
     }
     return localWSTune(tuneLws, gws, kernelName, tuneInfo);
 }
 
-void setTunedInfo(const std::string kernelName, const std::vector<uint32_t> &gws, std::pair<std::vector<uint32_t>, uint32_t> &tuneInfo, OpenCLRuntime *runtime){
+void setTunedInfo(const std::string kernelName, const std::vector<uint32_t> &gws, std::pair<std::vector<uint32_t>, uint32_t> &tuneInfo, OpenCLRuntime *runtime, const std::string programName){
     auto& tunedLws = runtime->tunedLwsMap();
     std::pair<std::string, std::vector<uint32_t>> info = std::make_pair(kernelName, gws);
-    tunedLws.insert(std::make_pair(info, std::make_pair(tuneInfo.first, tuneInfo.second)));
+    TuneInfo tuneInfoStruct;
+    tuneInfoStruct.programName = programName;
+    auto iter = OpenCLProgramMd5Map.find(programName);
+    if(iter != OpenCLProgramMd5Map.end()){
+        tuneInfoStruct.md5 = iter->second;
+    }
+    tuneInfoStruct.globalSize = gws;
+    tuneInfoStruct.localSize = tuneInfo.first;
+    tuneInfoStruct.timeCost = tuneInfo.second;
+    tunedLws[info] = tuneInfoStruct;
 }
 
 } // namespace OpenCL

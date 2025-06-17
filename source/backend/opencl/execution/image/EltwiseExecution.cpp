@@ -92,7 +92,7 @@ ErrorCode EltwiseExecution::onEncode(const std::vector<Tensor *> &inputs, const 
         MNN_CHECK_CL_SUCCESS(ret, "setArg eltwiseExecution");
 
         std::string name = "binary";
-        std::vector<uint32_t> localWorkSize = localWS2DDefault(globalWorkSize, mMaxWorkGroupSize[0], openCLBackend->getOpenCLRuntime(), name, unit.kernel, openCLBackend->getCLTuneLevel()).first;
+        std::vector<uint32_t> localWorkSize = localWS2DDefault(globalWorkSize, mMaxWorkGroupSize[0], openCLBackend->getOpenCLRuntime(), name, unit.kernel, openCLBackend->getCLTuneLevel(), "binary").first;
         
         unit.globalWorkSize = {globalWorkSize[0], globalWorkSize[1]};
         unit.localWorkSize  = {localWorkSize[0], localWorkSize[1]};
@@ -147,7 +147,7 @@ ErrorCode EltwiseExecution::onEncode(const std::vector<Tensor *> &inputs, const 
 
         if(i == 0) {
             std::string name = "binary";
-            lws = localWS2DDefault(globalWorkSize, mMaxWorkGroupSize[i], openCLBackend->getOpenCLRuntime(), name, unit.kernel, openCLBackend->getCLTuneLevel()).first;
+            lws = localWS2DDefault(globalWorkSize, mMaxWorkGroupSize[i], openCLBackend->getOpenCLRuntime(), name, unit.kernel, openCLBackend->getCLTuneLevel(), "binary").first;
         }
         
         unit.globalWorkSize = {globalWorkSize[0], globalWorkSize[1]};

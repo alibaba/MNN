@@ -106,7 +106,7 @@ ErrorCode LoopGatherBufExecution::InitCommandOnEncode(const std::vector<Tensor *
         ret |= unit.kernel->get().setArg(index++, inputSize);
         MNN_CHECK_CL_SUCCESS(ret, "setArg LoopInitGatherBufExecution");
         
-        std::vector<uint32_t> mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, runTime, "batch_gather_buf", unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
+        std::vector<uint32_t> mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, runTime, "batch_gather_buf", unit.kernel, mOpenCLBackend->getCLTuneLevel(), "gather_buf").first;
         
         unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1], mGlobalWorkSize[2]};
         unit.localWorkSize  = {mLocalWorkSize[0], mLocalWorkSize[1], mLocalWorkSize[2]};
@@ -182,7 +182,7 @@ ErrorCode LoopGatherBufExecution::onEncode(const std::vector<Tensor *> &inputs, 
         ret |= unit.kernel->get().setArg(index++, inputSize);
         MNN_CHECK_CL_SUCCESS(ret, "setArg LoopGatherBufExecution");
         
-        std::vector<uint32_t> mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, runTime, "batch_gather_buf", unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
+        std::vector<uint32_t> mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, runTime, "batch_gather_buf", unit.kernel, mOpenCLBackend->getCLTuneLevel(), "gather_buf").first;
         
         unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1], mGlobalWorkSize[2]};
         unit.localWorkSize  = {mLocalWorkSize[0], mLocalWorkSize[1], mLocalWorkSize[2]};
@@ -268,7 +268,7 @@ ErrorCode LoopBatchMatMulBufExecution::onEncode(const std::vector<Tensor *> &inp
        ret |= unit.kernel->get().setArg(index++, sizeof(mStep), mStep);
        MNN_CHECK_CL_SUCCESS(ret, "setArg LoopBatchMatMulBufExecution");
 
-       std::vector<uint32_t> mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, runTime, KernelName, unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
+       std::vector<uint32_t> mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, runTime, KernelName, unit.kernel, mOpenCLBackend->getCLTuneLevel(), "loop").first;
 
        unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1], mGlobalWorkSize[2]};
        unit.localWorkSize  = {mLocalWorkSize[0], mLocalWorkSize[1], mLocalWorkSize[2]};
@@ -351,7 +351,7 @@ ErrorCode LoopBinaryBufExecution::onEncode(const std::vector<Tensor *> &inputs, 
         ret |= unit.kernel->get().setArg(index++, sizeof(mStep), mStep);
         MNN_CHECK_CL_SUCCESS(ret, "setArg LoopCumsumBufExecution");
 
-        std::vector<uint32_t> mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, runTime, "loop_cumsum_buf", unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
+        std::vector<uint32_t> mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, runTime, "loop_cumsum_buf", unit.kernel, mOpenCLBackend->getCLTuneLevel(), "loop_buf").first;
         
         
         unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1], mGlobalWorkSize[2]};
@@ -385,7 +385,7 @@ ErrorCode LoopBinaryBufExecution::onEncode(const std::vector<Tensor *> &inputs, 
     ret |= unit.kernel->get().setArg(index++, mStride_dst[2]);
     MNN_CHECK_CL_SUCCESS(ret, "setArg LoopBinaryBufExecution");
 
-    std::vector<uint32_t> mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, runTime, "loop_binary_buf", unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
+    std::vector<uint32_t> mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, runTime, "loop_binary_buf", unit.kernel, mOpenCLBackend->getCLTuneLevel(), "loop_buf").first;
 
     unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1], mGlobalWorkSize[2]};
     unit.localWorkSize  = {mLocalWorkSize[0], mLocalWorkSize[1], mLocalWorkSize[2]};

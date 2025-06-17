@@ -38,7 +38,7 @@ python llmexport.py \
 1. `config.json`: 模型运行时的配置，可手动修改；
 2. `embeddings_bf16.bin`: 模型的embedding权重二进制文件，推理时使用；
 3. `llm.mnn`: 模型的mnn文件，推理时使用；
-4. `llm.mnn.json`: mnn模型对应的json文件，apply_lora或者gptq量化权重时使用；
+4. `llm.mnn.json`: mnn模型对应的json文件，`apply_lora`或gptq量化权重时使用；
 5. `llm.mnn.weight`: 模型的mnn权重，推理时使用；
 6. `llm.onnx`: 模型的onnx文件，不包含权重，推理时不使用；
 7. `llm_config.json`: 模型的配置信息，推理时使用；
@@ -464,30 +464,12 @@ python llmexport.py --path /path/to/Qwen2.5-0.5B-Instruct --lora_path /path/to/l
       "llm_weight": "base.mnn.weight",
   }
   ```
-  - 运行时选择并切换lora模型
+  - 运行时创建lora模型
   ```cpp
   // 创建并加载base模型
   std::unique_ptr<Llm> llm(Llm::createLLM(config_path));
   llm->load();
-  // 使用同一个对象，在多个lora模型之间选择性使用，不可以并发使用
-  {
-      // 在基础模型的基础上添加`lora_1`模型，模型的索引为`lora_1_idx`
-      size_t lora_1_idx = llm->apply_lora("lora_1.mnn");
-      llm->response("Hello lora1"); // 使用`lora_1`模型推理
-      // 添加`lora_2`模型，并使用
-      size_t lora_2_idx = llm->apply_lora("lora_2.mnn");
-      llm->response("Hello lora2"); // 使用`lora_2`模型推理
-      // 通过索引选择`lora_1`作为llm对象当前使用的模型
-      llm->select_module(lora_1_idx);
-      llm->response("Hello lora1"); // 使用`lora_1`模型推理
-      // 释放加载的lora模型
-      llm->release_module(lora_1_idx);
-      llm->release_module(lora_2_idx);
-      // 选择使用基础模型
-      llm->select_module(0);
-      llm->response("Hello base"); // 使用`base`模型推理
-  }
-  // 使用多个对象，可以并发的加载使用多个lora模型
+  // 创建lora模型，支持多个lora模型并存，支持并发
   {
       std::mutex creat_mutex;
       auto chat = [&](const std::string& lora_name) {

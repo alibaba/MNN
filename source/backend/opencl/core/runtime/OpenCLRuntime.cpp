@@ -352,11 +352,11 @@ std::map<std::vector<uint32_t>, std::vector<uint32_t>>& OpenCLRuntime::tunedGemm
     return mTunedGemmParams;
 }
 
-std::map<std::pair<std::string, std::vector<uint32_t>>, std::pair<std::vector<uint32_t>, uint32_t>>& OpenCLRuntime::tunedLwsMap() {
+std::map<std::pair<std::string, std::vector<uint32_t>>, TuneInfo>& OpenCLRuntime::tunedLwsMap() {
     return mTunedLws;
 }
     
-std::map<std::string, std::vector<std::pair<std::vector<uint32_t>, std::pair<std::vector<uint32_t>, uint32_t>>>>& OpenCLRuntime::getTuneLwsMap() {
+std::map<std::string, std::vector<TuneInfo>>& OpenCLRuntime::getTuneLwsMap() {
     return mTuneLws;
 }
 
@@ -748,7 +748,6 @@ std::pair<const void*, size_t> OpenCLRuntime::makeCache(void* tuneInfo) {
     tune->mInfos.clear();
     
     std::unique_ptr<BackendInfoT> backend(new BackendInfoT);
-    backend->mnnVersion = MNN_VERSION;
     backend->deviceName = mDeviceInfo;
     
     // Get All program's binary
@@ -759,6 +758,10 @@ std::pair<const void*, size_t> OpenCLRuntime::makeCache(void* tuneInfo) {
         // Only use first one
         pro->program = std::get<0>(iter.first);
         pro->buildInfo = std::get<1>(iter.first);
+        auto it = OpenCLProgramMd5Map.find(std::get<0>(iter.first));
+        if(it != OpenCLProgramMd5Map.end()){
+            pro->md5 = it->second;
+        }
         
         //MNN_PRINT("%s - %s - %s\n", pro->program.c_str(), pro->kernel.c_str(), pro->buildInfo.c_str());
         if(bufferSize != 0){
@@ -785,9 +788,12 @@ std::pair<const void*, size_t> OpenCLRuntime::makeCache(void* tuneInfo) {
     // Get All Autotuning cache
     for (auto& iter : mTunedLws) {
         std::unique_ptr<AutotuningT> tuning(new AutotuningT);
-        tuning->gloablSize = iter.first.second;
-        tuning->localSize = iter.second.first;
-        tuning->timeCost = iter.second.second;
+        TuneInfo info = iter.second;
+        tuning->name = info.programName;
+        tuning->md5 = info.md5;
+        tuning->gloablSize = info.globalSize;
+        tuning->localSize = info.localSize;
+        tuning->timeCost = info.timeCost;
         tuning->key = iter.first.first;
         backend->tunings.emplace_back(std::move(tuning));
     }
@@ -797,6 +803,10 @@ std::pair<const void*, size_t> OpenCLRuntime::makeCache(void* tuneInfo) {
         std::unique_ptr<GemmInfoT> tuning(new GemmInfoT);
         tuning->gemmSize = iter.first;
         tuning->paramInfo = iter.second;
+        auto it = OpenCLProgramMd5Map.find("matmul_params_buf");
+        if(it != OpenCLProgramMd5Map.end()){
+            tuning->md5 = it->second;
+        }
         backend->gemm.emplace_back(std::move(tuning));
     }
     
@@ -821,55 +831,32 @@ bool OpenCLRuntime::setCache(std::pair<const void*, size_t> cache) {
     if(nullptr == cacheBuffer->backends()) {
         return false;
     }
-    
+    bool res = true;
     auto backends = cacheBuffer->backends();
     for(int i = 0; i < backends->size(); ++i){
         auto backendinfo = backends->GetAs<BackendInfo>(i);
-        if(MNN_VERSION == backendinfo->mnnVersion()->str() && mDeviceInfo == backendinfo->deviceName()->str()){
-            // Load Program
-            if (nullptr != backendinfo->programs()) {
-                auto programs = backendinfo->programs();
-                for (int i=0; i<programs->size(); ++i) {
-                    auto shaderInfo = programs->GetAs<Shader>(i);
-                    if (nullptr == shaderInfo->program()|| nullptr == shaderInfo->buildInfo() || nullptr == shaderInfo->buffer()) {
-                        MNN_ERROR("Invalid Cache\n");
-                        return false;
-                    }
-                    auto program = shaderInfo->program()->str();
-                    // Builder Info
-                    std::string buildinfo = shaderInfo->buildInfo()->str();
-                    
-                    auto buffer = shaderInfo->buffer()->data();
-                    size_t bufferSize = shaderInfo->buffer()->size();
-                    auto deviceId = mFirstGPUDevicePtr->get();
-                    auto programRaw = clCreateProgramWithBinary(context().get(), 1, &deviceId, &bufferSize, (const unsigned char**)(&buffer), nullptr, nullptr);
-                    if (!programRaw) {
-                        MNN_ERROR("Can't load %s - %s load program\n", program.c_str(), buildinfo.c_str());
-                        return false;
-                    }
-                    auto pro = cl::Program(programRaw);
-                    auto res = buildProgram(buildinfo, &pro);
-                    if (!res) {
-                        MNN_ERROR("Can't build %s - %s load program\n", program.c_str(), buildinfo.c_str());
-                        return false;
-                    }
-                    ProgramWithKernel pwk;
-                    pwk.program = pro;
-                    pwk.Buffer.reset(new char[bufferSize]);
-                    pwk.BufferSize = bufferSize;
-                    ::memcpy(pwk.Buffer.get(), buffer, bufferSize);
-                    mBuildProgramMap.insert(std::make_pair(std::make_tuple(program, buildinfo), pwk));
-                }
-            }
-            
+        if(mDeviceInfo == backendinfo->deviceName()->str()){
             // Load Auto Tuning Info
             if (nullptr != backendinfo->tunings()) {
                 auto tuningInfo = backendinfo->tunings();
                 for (int i=0; i<tuningInfo->size(); ++i) {
                     auto tun = tuningInfo->GetAs<Autotuning>(i);
-                    if (nullptr == tun->gloablSize() || nullptr == tun->localSize() || nullptr == tun->key()) {
+                    if (nullptr == tun->gloablSize() || nullptr == tun->localSize() || nullptr == tun->key() || nullptr == tun->name() || nullptr == tun->md5()) {
                         MNN_ERROR("Error tunning info\n");
-                        return false;
+                        res = false;
+                        continue;
+                    }
+                    auto program = tun->name()->str();
+                    auto md5 = tun->md5()->str();
+                    auto iter = OpenCLProgramMd5Map.find(program);
+                    if(iter != OpenCLProgramMd5Map.end()){
+                        if(iter->second != md5){
+                            res = false;
+                            continue;
+                        }
+                    }else{
+                        res = false;
+                        continue;
                     }
                     std::vector<uint32_t> glo(tun->gloablSize()->size());
                     for (int v=0; v<glo.size(); ++v) {
@@ -880,8 +867,14 @@ bool OpenCLRuntime::setCache(std::pair<const void*, size_t> cache) {
                         loc[v] = tun->localSize()->data()[v];
                     }
                     uint32_t cost = tun->timeCost();
-                    mTunedLws.insert(std::make_pair(std::make_pair(tun->key()->str(), glo), std::make_pair(loc, cost)));
-                    mTuneLws[tun->key()->str()].push_back(std::make_pair(glo, std::make_pair(loc, cost)));
+                    TuneInfo tuneInfo;
+                    tuneInfo.programName = program;
+                    tuneInfo.md5 = md5;
+                    tuneInfo.globalSize = glo;
+                    tuneInfo.localSize = loc;
+                    tuneInfo.timeCost = cost;
+                    mTunedLws.insert(std::make_pair(std::make_pair(tun->key()->str(), glo), tuneInfo));
+                    mTuneLws[tun->key()->str()].push_back(tuneInfo);
                 }
             }
             
@@ -890,9 +883,21 @@ bool OpenCLRuntime::setCache(std::pair<const void*, size_t> cache) {
                 auto tuningInfo = backendinfo->gemm();
                 for (int i=0; i<tuningInfo->size(); ++i) {
                     auto tun = tuningInfo->GetAs<GemmInfo>(i);
-                    if (nullptr == tun->gemmSize() || nullptr == tun->paramInfo()) {
+                    if (nullptr == tun->gemmSize() || nullptr == tun->paramInfo() || nullptr == tun->md5()) {
                         MNN_ERROR("Error tunning gemm info\n");
-                        return false;
+                        res = false;
+                        continue;
+                    }
+                    auto md5 = tun->md5()->str();
+                    auto iter = OpenCLProgramMd5Map.find("matmul_params_buf");
+                    if(iter != OpenCLProgramMd5Map.end()){
+                        if(iter->second != md5){
+                            res = false;
+                            continue;
+                        }
+                    }else{
+                        res = false;
+                        continue;
                     }
                     MNN_ASSERT(tun->gemmSize()->size() == 7);
                     std::vector<uint32_t> info(tun->gemmSize()->size());
@@ -905,12 +910,68 @@ bool OpenCLRuntime::setCache(std::pair<const void*, size_t> cache) {
                         params[v] = tun->paramInfo()->data()[v];
                     }
                     mTunedGemmParams.insert(std::make_pair(info, params));
-                    mTuneLws["Xgemm_tune"].push_back(std::make_pair(info, std::make_pair(params, 0)));
+                    TuneInfo tuneInfo;
+                    tuneInfo.programName = "matmul_params_buf";
+                    tuneInfo.md5 = md5;
+                    tuneInfo.globalSize = info;
+                    tuneInfo.localSize = params;
+                    tuneInfo.timeCost = 0;
+                    mTuneLws["Xgemm_tune"].push_back(tuneInfo);
+                }
+            }
+            
+            // Load Program
+            if (nullptr != backendinfo->programs()) {
+                auto programs = backendinfo->programs();
+                for (int i=0; i<programs->size(); ++i) {
+                    auto shaderInfo = programs->GetAs<Shader>(i);
+                    if (nullptr == shaderInfo->program()|| nullptr == shaderInfo->buildInfo() || nullptr == shaderInfo->buffer() || nullptr == shaderInfo->md5()) {
+                        MNN_ERROR("Invalid Cache\n");
+                        res = false;
+                        continue;
+                    }
+                    auto program = shaderInfo->program()->str();
+                    auto md5 = shaderInfo->md5()->str();
+                    auto iter = OpenCLProgramMd5Map.find(program);
+                    if(iter != OpenCLProgramMd5Map.end()){
+                        if(iter->second != md5){
+                            res = false;
+                            continue;
+                        }
+                    }else{
+                        res = false;
+                        continue;
+                    }
+                    // Builder Info
+                    std::string buildinfo = shaderInfo->buildInfo()->str();
+                    
+                    auto buffer = shaderInfo->buffer()->data();
+                    size_t bufferSize = shaderInfo->buffer()->size();
+                    auto deviceId = mFirstGPUDevicePtr->get();
+                    auto programRaw = clCreateProgramWithBinary(context().get(), 1, &deviceId, &bufferSize, (const unsigned char**)(&buffer), nullptr, nullptr);
+                    if (!programRaw) {
+                        MNN_ERROR("Can't load %s - %s load program\n", program.c_str(), buildinfo.c_str());
+                        res = false;
+                        continue;
+                    }
+                    auto pro = cl::Program(programRaw);
+                    auto res = buildProgram(buildinfo, &pro);
+                    if (!res) {
+                        MNN_ERROR("Can't build %s - %s load program\n", program.c_str(), buildinfo.c_str());
+                        res = false;
+                        continue;
+                    }
+                    ProgramWithKernel pwk;
+                    pwk.program = pro;
+                    pwk.Buffer.reset(new char[bufferSize]);
+                    pwk.BufferSize = bufferSize;
+                    ::memcpy(pwk.Buffer.get(), buffer, bufferSize);
+                    mBuildProgramMap.insert(std::make_pair(std::make_tuple(program, buildinfo), pwk));
                 }
             }
         }
     }
-    return true;
+    return res;
 }
 
 unsigned int OpenCLRuntime::getEventTime(cl::Event& event){

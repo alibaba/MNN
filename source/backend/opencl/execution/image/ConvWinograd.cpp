@@ -264,7 +264,7 @@ ErrorCode ConvWinograd::onEncode(const std::vector<Tensor*>& inputs, const std::
         {
             mGWS_S[b] = {static_cast<uint32_t>(wUnit * hUnit), static_cast<uint32_t>(icC4)};
             std::string kernelName = "winogradTransformSource";
-            mLWS_S[b] = localWS2DDefault(mGWS_S[b], mMaxWGS_S[b], mOpenCLBackend->getOpenCLRuntime(), kernelName + info, mUnits[b * 3].kernel, mOpenCLBackend->getCLTuneLevel()).first;
+            mLWS_S[b] = localWS2DDefault(mGWS_S[b], mMaxWGS_S[b], mOpenCLBackend->getOpenCLRuntime(), kernelName + info, mUnits[b * 3].kernel, mOpenCLBackend->getCLTuneLevel(), "winogradTransformSource").first;
             mOpenCLBackend->recordKernel2d(mUnits[b * 3].kernel, mGWS_S[b], mLWS_S[b]);
             mUnits[b * 3].globalWorkSize = {mGWS_S[b][0], mGWS_S[b][1]};
             mUnits[b * 3].localWorkSize = {mLWS_S[b][0], mLWS_S[b][1]};
@@ -299,7 +299,7 @@ ErrorCode ConvWinograd::onEncode(const std::vector<Tensor*>& inputs, const std::
                 MNN_CHECK_CL_SUCCESS(ret, "setArg ConvWinogradExecution gemm");
 
                 std::pair<std::vector<uint32_t>, uint32_t> retTune;
-                retTune = localWS2DDefault(globalWorkSize[knl_idx], maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName[knl_idx] + info, kernel[knl_idx], mOpenCLBackend->getCLTuneLevel());
+                retTune = localWS2DDefault(globalWorkSize[knl_idx], maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName[knl_idx] + info, kernel[knl_idx], mOpenCLBackend->getCLTuneLevel(), "gemm");
                 // printf("gemm %d, %d\n", knl_idx, retTune.second);
                 if (min_cost.first > retTune.second) {
                     min_cost.first  = retTune.second;
@@ -331,7 +331,7 @@ ErrorCode ConvWinograd::onEncode(const std::vector<Tensor*>& inputs, const std::
         {
             mGWS_D[b] = {static_cast<uint32_t>(wUnit*hUnit), static_cast<uint32_t>(ocC4)};
             std::string kernelName = "winogradTransformDest";
-            mLWS_D[b] = localWS2DDefault(mGWS_D[b], mMaxWGS_D[b], mOpenCLBackend->getOpenCLRuntime(), kernelName + info, mUnits[b * 3 + 2].kernel, mOpenCLBackend->getCLTuneLevel()).first;
+            mLWS_D[b] = localWS2DDefault(mGWS_D[b], mMaxWGS_D[b], mOpenCLBackend->getOpenCLRuntime(), kernelName + info, mUnits[b * 3 + 2].kernel, mOpenCLBackend->getCLTuneLevel(), "winogradTransformDest").first;
             mOpenCLBackend->recordKernel2d(mUnits[b * 3 + 2].kernel, mGWS_D[b], mLWS_D[b]);
             mUnits[b * 3 + 2].globalWorkSize = {mGWS_D[b][0], mGWS_D[b][1]};
             mUnits[b * 3 + 2].localWorkSize = {mLWS_D[b][0], mLWS_D[b][1]};

@@ -159,7 +159,7 @@ ErrorCode DeconvExecution::onEncode(const std::vector<Tensor *> &inputs, const s
     
     std::string name = "deconv2d";
     std::string info = std::to_string(inputChannels) + "_" + std::to_string(outputChannels) + "_" + std::to_string(ky) + "_" + std::to_string(kx) + "_" + std::to_string(strideHeight) + "_" + std::to_string(strideWidth);
-    mLWS = localWS3DDefault(mGWS, maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name + info, unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
+    mLWS = localWS3DDefault(mGWS, maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name + info, unit.kernel, mOpenCLBackend->getCLTuneLevel(), "deconv_2d").first;
     mOpenCLBackend->recordKernel3d(unit.kernel, mGWS, mLWS);
     unit.globalWorkSize = {mGWS[0], mGWS[1], mGWS[2]};
     unit.localWorkSize = {mLWS[0], mLWS[1], mLWS[2]};

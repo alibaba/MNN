@@ -294,5 +294,5 @@ public:
     }
 };
 
-REGISTER_SHAPE_INPUTS(StridedSliceComputer, OpType_StridedSlice, (std::vector<int>{1,2,3,4}));
+REGISTER_SHAPE(StridedSliceComputer, OpType_StridedSlice);
 } // namespace MNN

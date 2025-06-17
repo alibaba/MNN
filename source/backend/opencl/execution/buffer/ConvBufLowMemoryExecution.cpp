@@ -374,7 +374,7 @@ void ConvBufLowMemoryExecution::tuneGeneralCaseLowMemory(Tensor * input, Tensor 
         ret |= kernel[knl_idx]->get().setArg(idx++, static_cast<float>(mResource->mCoef));
         MNN_CHECK_CL_SUCCESS(ret, "setArg ConvBufLowMemory Kernel Select");
         std::pair<std::vector<uint32_t>, int> retTune;
-        retTune = localWS2DDefault(globalWorkSize[knl_idx], maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName[knl_idx] + info, kernel[knl_idx], mOpenCLBackend->getCLTuneLevel());
+        retTune = localWS2DDefault(globalWorkSize[knl_idx], maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName[knl_idx] + info, kernel[knl_idx], mOpenCLBackend->getCLTuneLevel(), "conv_2d_int_buf");
         if(min_cost.first > retTune.second) {
             min_cost.first = retTune.second;
             min_cost.second = knl_idx;
@@ -507,7 +507,7 @@ void ConvBufLowMemoryExecution::useFPWeightGemmLowMemory(Tensor * input, Tensor 
         ret |= unit.kernel->get().setArg(idx++, static_cast<float>(mResource->mCoef));
         MNN_CHECK_CL_SUCCESS(ret, "setArg inverse_quant_weight");
         
-        mLocalWorkSize = localWS2DDefault(mGlobalWorkSize, maxWorkGroupSize, runtime, "inverse_quant_weight", unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
+        mLocalWorkSize = localWS2DDefault(mGlobalWorkSize, maxWorkGroupSize, runtime, "inverse_quant_weight", unit.kernel, mOpenCLBackend->getCLTuneLevel(), "gemm_conv1x1_buf").first;
         mOpenCLBackend->recordKernel2d(unit.kernel, mGlobalWorkSize, mLocalWorkSize);
         unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1]};
         unit.localWorkSize = {mLocalWorkSize[0], mLocalWorkSize[1]};
@@ -536,7 +536,7 @@ void ConvBufLowMemoryExecution::useFPWeightGemmLowMemory(Tensor * input, Tensor 
         ret |= unit.kernel->get().setArg(idx++, openCLBuffer(input));
         ret |= unit.kernel->get().setArg(idx++, openCLBuffer(mConvGemmInpTensor.get()));
         MNN_CHECK_CL_SUCCESS(ret, "setArg transpose_pad");
-        mLocalWorkSize = localWS2DDefault(mGlobalWorkSize, maxWorkGroupSize, runtime, "transpose_pad", unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
+        mLocalWorkSize = localWS2DDefault(mGlobalWorkSize, maxWorkGroupSize, runtime, "transpose_pad", unit.kernel, mOpenCLBackend->getCLTuneLevel(), "gemm_buf").first;
 
         mOpenCLBackend->recordKernel2d(unit.kernel, mGlobalWorkSize, mLocalWorkSize);
         unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1]};
@@ -587,7 +587,7 @@ void ConvBufLowMemoryExecution::useFPWeightGemmLowMemory(Tensor * input, Tensor 
         ret |= unit.kernel->get().setArg(idx++, openCLBuffer(output));
 
         MNN_CHECK_CL_SUCCESS(ret, "setArg transpose_bias");
-        mLocalWorkSize = localWS2DDefault(mGlobalWorkSize, maxWorkGroupSize, runtime, "transpose_bias", unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
+        mLocalWorkSize = localWS2DDefault(mGlobalWorkSize, maxWorkGroupSize, runtime, "transpose_bias", unit.kernel, mOpenCLBackend->getCLTuneLevel(), "gemm_buf").first;
         mOpenCLBackend->recordKernel2d(unit.kernel, mGlobalWorkSize, mLocalWorkSize);
         unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1]};
         unit.localWorkSize = {mLocalWorkSize[0], mLocalWorkSize[1]};
@@ -663,7 +663,7 @@ void ConvBufLowMemoryExecution::tuneGemvLowMemory(Tensor * input, Tensor * outpu
             ret |= kernel->get().setArg(idx++, static_cast<float>(mResource->mCoef));
             MNN_CHECK_CL_SUCCESS(ret, "setArg gemv_conv_c8_buf Kernel Select");
             std::pair<std::vector<uint32_t>, int> retTune;
-            int cost_time = get2DUseLocalMemTime(gws, lws, mOpenCLBackend->getOpenCLRuntime(), "gemv_conv_c8_buf" + info, kernel);
+            int cost_time = get2DUseLocalMemTime(gws, lws, mOpenCLBackend->getOpenCLRuntime(), "gemv_conv_c8_buf" + info, kernel, "gemv_conv1x1_buf");
             if(min_time > cost_time) {
                 local_size = ksize;
                 min_time = cost_time;
@@ -701,7 +701,7 @@ void ConvBufLowMemoryExecution::tuneGemvLowMemory(Tensor * input, Tensor * outpu
     if(useLocalMem){
         mLocalWorkSize = {static_cast<uint32_t>(local_size), 1};
     }else{
-        mLocalWorkSize = localWS2DDefault(mGlobalWorkSize, maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), "gemv_conv_c8_buf" + info, unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
+        mLocalWorkSize = localWS2DDefault(mGlobalWorkSize, maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), "gemv_conv_c8_buf" + info, unit.kernel, mOpenCLBackend->getCLTuneLevel(), "gemv_conv1x1_buf").first;
     }
     mOpenCLBackend->recordKernel2d(unit.kernel, mGlobalWorkSize, mLocalWorkSize);
     unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1]};
@@ -777,7 +777,7 @@ void ConvBufLowMemoryExecution::tuneGemmLowMemory(Tensor * input, Tensor * outpu
             ret |= unit.kernel->get().setArg(idx++, static_cast<int>(inputChannels));
             ret |= unit.kernel->get().setArg(idx++, static_cast<int>(inputChannelAlign));
             MNN_CHECK_CL_SUCCESS(ret, "setArg gemm_c4nhw4_to_nhwc");
-            mLocalWorkSize = localWS2DDefault(mGlobalWorkSize, maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), "gemm_c4nhw4_to_nhwc", unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
+            mLocalWorkSize = localWS2DDefault(mGlobalWorkSize, maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), "gemm_c4nhw4_to_nhwc", unit.kernel, mOpenCLBackend->getCLTuneLevel(), "gemm_conv1x1_buf").first;
             mOpenCLBackend->recordKernel2d(unit.kernel, mGlobalWorkSize, mLocalWorkSize);
             unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1]};
             unit.localWorkSize = {mLocalWorkSize[0], mLocalWorkSize[1]};
@@ -826,7 +826,7 @@ void ConvBufLowMemoryExecution::tuneGemmLowMemory(Tensor * input, Tensor * outpu
                     ret |= kernel->get().setArg(idx++, static_cast<float>(mResource->mCoef));
                     MNN_CHECK_CL_SUCCESS(ret, "setArg gemv_conv_c8_buf Kernel Select");
                     std::pair<std::vector<uint32_t>, int> retTune;
-                    int cost_time = get2DUseLocalMemTime(gws, lws, mOpenCLBackend->getOpenCLRuntime(), "gemv_conv_c8_buf" + info + "_batch", kernel);
+                    int cost_time = get2DUseLocalMemTime(gws, lws, mOpenCLBackend->getOpenCLRuntime(), "gemv_conv_c8_buf" + info + "_batch", kernel, "gemv_conv1x1_buf");
                     if(min_time > cost_time) {
                         local_size = ksize;
                         min_time = cost_time;
@@ -879,7 +879,7 @@ void ConvBufLowMemoryExecution::tuneGemmLowMemory(Tensor * input, Tensor * outpu
             ret |= unit.kernel->get().setArg(idx++, static_cast<int>(global_y));
             ret |= unit.kernel->get().setArg(idx++, static_cast<int>(outputChannelAlign8));
             MNN_CHECK_CL_SUCCESS(ret, "setArg gemm_nhwc_to_c4nhw4");
-            mLocalWorkSize = localWS2DDefault(mGlobalWorkSize, maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), "gemm_nhwc_to_c4nhw4", unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
+            mLocalWorkSize = localWS2DDefault(mGlobalWorkSize, maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), "gemm_nhwc_to_c4nhw4", unit.kernel, mOpenCLBackend->getCLTuneLevel(), "gemm_conv1x1_buf").first;
             mOpenCLBackend->recordKernel2d(unit.kernel, mGlobalWorkSize, mLocalWorkSize);
             unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1]};
             unit.localWorkSize = {mLocalWorkSize[0], mLocalWorkSize[1]};
@@ -910,7 +910,7 @@ void ConvBufLowMemoryExecution::tuneGemmLowMemory(Tensor * input, Tensor * outpu
     ret |= unit.kernel->get().setArg(idx++, static_cast<int>(blockDim));
     ret |= unit.kernel->get().setArg(idx++, mResource->mCoef);
     MNN_CHECK_CL_SUCCESS(ret, "setArg gemm_conv1x1_buf");
-    mLocalWorkSize = localWS2DDefault(mGlobalWorkSize, maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName + info, unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
+    mLocalWorkSize = localWS2DDefault(mGlobalWorkSize, maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName + info, unit.kernel, mOpenCLBackend->getCLTuneLevel(), "gemm_conv1x1_buf").first;
     mOpenCLBackend->recordKernel2d(unit.kernel, mGlobalWorkSize, mLocalWorkSize);
     unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1]};
     unit.localWorkSize = {mLocalWorkSize[0], mLocalWorkSize[1]};
@@ -1019,7 +1019,7 @@ ErrorCode ConvBufLowMemoryExecution::onResize(const std::vector<Tensor *> &input
                             mUseFPWeight = true;
                         }
                         std::pair<std::vector<uint32_t>, uint32_t> tuneInfoTmp = std::make_pair<std::vector<uint32_t>, uint32_t>({mUseFPWeight}, 0);
-                        setTunedInfo(info, {static_cast<unsigned int>(batch)}, tuneInfoTmp, mOpenCLBackend->getOpenCLRuntime());
+                        setTunedInfo(info, {static_cast<unsigned int>(batch)}, tuneInfoTmp, mOpenCLBackend->getOpenCLRuntime(), "gemm_conv1x1_buf");
                     } else{
                         if(batch > 512){
                             mUseFPWeight = true;

@@ -210,7 +210,7 @@ ErrorCode MatMulBufExecution::onEncode(const std::vector<Tensor *> &inputs, cons
         ret |= unit.kernel->get().setArg(idx++, static_cast<int>(K));
         MNN_CHECK_CL_SUCCESS(ret, "setArg MatMulBufExecution mTransposeA");
             
-        mLocalWorkSize = localWS2DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), mKernelName, unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
+        mLocalWorkSize = localWS2DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), mKernelName, unit.kernel, mOpenCLBackend->getCLTuneLevel(), "matmul_buf").first;
     }
     mOpenCLBackend->recordKernel2d(unit.kernel, mGlobalWorkSize, mLocalWorkSize);
     unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1]};

@@ -214,6 +214,19 @@ std::vector<int> SizeComputer::needInputContent(const MNN::Op* op, int inputSize
         if (op->type() == OpType_CumSum) {
             return std::vector<int>{1};
         }
+        if (op->type() == OpType_StridedSlice && op->main_type() == OpParameter_StridedSliceParam) {
+            auto sliceParam = op->main_as_StridedSliceParam();
+            if (sliceParam->fromType() == 0) {
+                if (5 == inputSize) {
+                    // For stridedslice write
+                    return std::vector<int>{};
+                }
+                return std::vector<int> {1, 2, 3};
+            } else {
+                MNN_ASSERT(sliceParam->fromType() == 1);
+                return std::vector<int> {1, 2, 3, 4};
+            }
+        }
 #ifdef MNN_SUPPORT_RENDER
         if (op->type() == OpType_RasterAndInterpolate) {
             int type = 4;

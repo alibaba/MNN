@@ -435,14 +435,10 @@ class Decoder(torch.nn.Module):
         return hidden_states, present_key_value
 
 class Lm(torch.nn.Module):
-    def __init__(self, lm_, final_layernorm_, config):
+    def __init__(self, lm_):
         super().__init__()
-        self.final_layernorm = final_layernorm_
         self.lm = lm_
-        self.hidden_size = config.hidden_size
 
-    def forward(self, hidden_states, logits_index: int = -1):
-        hidden_states = hidden_states[:, logits_index:, :]
-        hidden_states = self.final_layernorm(hidden_states)
+    def forward(self, hidden_states):
         m_logits = self.lm(hidden_states)
         return m_logits

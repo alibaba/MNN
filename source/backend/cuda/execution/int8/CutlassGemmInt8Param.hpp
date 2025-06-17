@@ -11,8 +11,8 @@
 #define CutlassGemmInt8Param_hpp
 
 #include "../CutlassGemmParam.hpp"
-#include "cutlass/epilogue/thread/linear_combination_bias_scale_clamp.h"
-#include "cutlass/gemm/device/gemm_bias_scale.h"
+#include "../cutlass_lib/linear_combination_bias_scale_clamp.h"
+#include "../cutlass_lib/device_gemm_bias_scale.h"
 
 namespace MNN {
 namespace CUDA {

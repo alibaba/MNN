@@ -324,7 +324,7 @@ ErrorCode ConvSubgroupBuf::onEncode(const std::vector<Tensor *> &inputs, const s
              unit.kernel->get().setArg(idx++, static_cast<uint32_t>(trans_pad_x));
              unit.kernel->get().setArg(idx++, static_cast<uint32_t>(trans_pad_y));
 
-             mTranseLocalWorkSize = localWS3DDefault(mTranseGlobalWorkSize, mMaxWGS_S, mOpenCLBackend->getOpenCLRuntime(), "conv_transe_c4_c1", unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
+             mTranseLocalWorkSize = localWS3DDefault(mTranseGlobalWorkSize, mMaxWGS_S, mOpenCLBackend->getOpenCLRuntime(), "conv_transe_c4_c1", unit.kernel, mOpenCLBackend->getCLTuneLevel(), "input_transe_buf").first;
              mOpenCLBackend->recordKernel3d(unit.kernel, mTranseGlobalWorkSize, mTranseLocalWorkSize);
          } else {
              trans_pad_x = std::max(inputpad.left, mPaddings[1]);
@@ -353,7 +353,7 @@ ErrorCode ConvSubgroupBuf::onEncode(const std::vector<Tensor *> &inputs, const s
              unit.kernel->get().setArg(idx++, static_cast<uint32_t>(trans_pad_x));
              unit.kernel->get().setArg(idx++, static_cast<uint32_t>(trans_pad_y));
 
-             mTranseLocalWorkSize = localWS3DDefault(mTranseGlobalWorkSize, mMaxWGS_S, mOpenCLBackend->getOpenCLRuntime(), "conv_transe_c4_c16", unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
+             mTranseLocalWorkSize = localWS3DDefault(mTranseGlobalWorkSize, mMaxWGS_S, mOpenCLBackend->getOpenCLRuntime(), "conv_transe_c4_c16", unit.kernel, mOpenCLBackend->getCLTuneLevel(), "input_transe_buf").first;
              mOpenCLBackend->recordKernel3d(unit.kernel, mTranseGlobalWorkSize, mTranseLocalWorkSize);
          }
         unit.globalWorkSize = {mTranseGlobalWorkSize[0], mTranseGlobalWorkSize[1], mTranseGlobalWorkSize[2]};

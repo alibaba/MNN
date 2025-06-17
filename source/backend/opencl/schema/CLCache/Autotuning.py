@@ -92,8 +92,22 @@ class Autotuning(object):
             return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
         return 0
 
+    # Autotuning
+    def Name(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
+        if o != 0:
+            return self._tab.String(o + self._tab.Pos)
+        return None
+
+    # Autotuning
+    def Md5(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(14))
+        if o != 0:
+            return self._tab.String(o + self._tab.Pos)
+        return None
+
 def AutotuningStart(builder):
-    builder.StartObject(4)
+    builder.StartObject(6)
 
 def Start(builder):
     AutotuningStart(builder)
@@ -133,6 +147,18 @@ def AutotuningAddTimeCost(builder, timeCost):
 
 def AddTimeCost(builder, timeCost):
     AutotuningAddTimeCost(builder, timeCost)
+
+def AutotuningAddName(builder, name):
+    builder.PrependUOffsetTRelativeSlot(4, flatbuffers.number_types.UOffsetTFlags.py_type(name), 0)
+
+def AddName(builder, name):
+    AutotuningAddName(builder, name)
+
+def AutotuningAddMd5(builder, md5):
+    builder.PrependUOffsetTRelativeSlot(5, flatbuffers.number_types.UOffsetTFlags.py_type(md5), 0)
+
+def AddMd5(builder, md5):
+    AutotuningAddMd5(builder, md5)
 
 def AutotuningEnd(builder):
     return builder.EndObject()

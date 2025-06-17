@@ -23,7 +23,7 @@ public:
         auto getfunc = PyObject_GetAttrString(py_dataset, "__getitem__");
         auto arg = PyTuple_New(1);
         PyTuple_SetItem(arg, 0, PyLong_FromLong(index));
-        auto res = PyEval_CallObject(getfunc, arg);
+        auto res = PyObject_CallObject(getfunc, arg);
         Py_DECREF(arg);
         Py_DECREF(getfunc);
         // res to Example
@@ -38,7 +38,7 @@ public:
     }
     size_t size() override {
         auto sizefunc = PyObject_GetAttrString(py_dataset, "__len__");
-        auto res = PyEval_CallObject(sizefunc, NULL);
+        auto res = PyObject_CallObject(sizefunc, NULL);
         Py_DECREF(sizefunc);
         auto size = toInt(res);
         Py_DECREF(res);

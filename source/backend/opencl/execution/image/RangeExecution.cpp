@@ -57,7 +57,7 @@ ErrorCode RangeExecution::onEncode(const std::vector<Tensor*>& inputs, const std
     MNN_CHECK_CL_SUCCESS(ret, "setArg RangeExecution");
 
     std::string kernelName = "range";
-    mLocalSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), kernelName, unit.kernel, openCLBackend->getCLTuneLevel()).first;
+    mLocalSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), kernelName, unit.kernel, openCLBackend->getCLTuneLevel(), "range").first;
     openCLBackend->recordKernel3d(unit.kernel, mGlobalWorkSize, mLocalSize);
     unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1], mGlobalWorkSize[2]};
     unit.localWorkSize = {mLocalSize[0], mLocalSize[1], mLocalSize[2]};

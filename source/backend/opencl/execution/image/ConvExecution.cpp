@@ -308,7 +308,7 @@ ErrorCode ConvExecution::onEncode(const std::vector<Tensor *> &inputs, const std
             unit.kernel->get().setArg(idx++, height);
             unit.kernel->get().setArg(idx++, width);
             
-            mLocalWorkSize = localWS2DDefault(mGlobalWorkSize, mResource->mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName, unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
+            mLocalWorkSize = localWS2DDefault(mGlobalWorkSize, mResource->mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName, unit.kernel, mOpenCLBackend->getCLTuneLevel(), "conv_2d").first;
             mOpenCLBackend->recordKernel2d(unit.kernel, mGlobalWorkSize, mLocalWorkSize);
         }else{
             int inputImageShape[2]  = {inputHeight, inputWidth};
@@ -355,7 +355,7 @@ ErrorCode ConvExecution::onEncode(const std::vector<Tensor *> &inputs, const std
                 kernel[knl_idx]->get().setArg(idx++, UP_DIV(outputShape.at(3), 4));
                 
                 std::pair<std::vector<uint32_t>, uint32_t> retTune;
-                retTune = localWS2DDefault(globalWorkSize[knl_idx], maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName[knl_idx] + info, kernel[knl_idx], mOpenCLBackend->getCLTuneLevel());
+                retTune = localWS2DDefault(globalWorkSize[knl_idx], maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName[knl_idx] + info, kernel[knl_idx], mOpenCLBackend->getCLTuneLevel(), "conv_2d");
                 
                 //printf("conv1x1 kernel_%d = %d  [%d, %d]\n", knl_idx, retTune.second, retTune.first[0], retTune.first[1]);
                 if(min_cost.first > retTune.second) {
@@ -448,7 +448,7 @@ ErrorCode ConvExecution::onEncode(const std::vector<Tensor *> &inputs, const std
             MNN_CHECK_CL_SUCCESS(ret, "setArg ConvExecution Kernel Select");
             
             std::pair<std::vector<uint32_t>, uint32_t> retTune;
-            retTune = localWS2DDefault(globalWorkSize[knl_idx], maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName[knl_idx] + info, kernel[knl_idx], mOpenCLBackend->getCLTuneLevel());
+            retTune = localWS2DDefault(globalWorkSize[knl_idx], maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName[knl_idx] + info, kernel[knl_idx], mOpenCLBackend->getCLTuneLevel(), "conv_2d");
             
             if(min_cost.first > retTune.second) {
                 min_cost.first = retTune.second;
