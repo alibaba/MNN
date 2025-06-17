@@ -55,7 +55,7 @@ ErrorCode UnaryExecution::onEncode(const std::vector<Tensor*>& inputs, const std
     MNN_CHECK_CL_SUCCESS(ret, "setArg UnaryExecution");
 
     std::string name = "unary";
-    mLocalSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, runtime, name, unit.kernel, openCLBackend->getCLTuneLevel()).first;
+    mLocalSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, runtime, name, unit.kernel, openCLBackend->getCLTuneLevel(), "unary").first;
     openCLBackend->recordKernel3d(unit.kernel, mGlobalWorkSize, mLocalSize);
     unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1], mGlobalWorkSize[2]};
     unit.localWorkSize = {mLocalSize[0], mLocalSize[1], mLocalSize[2]};

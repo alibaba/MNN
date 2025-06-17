@@ -111,7 +111,7 @@ ErrorCode SoftmaxExecution::onEncode(const std::vector<Tensor *> &inputs, const 
     ret |= unit.kernel->get().setArg(idx++, shape);
     MNN_CHECK_CL_SUCCESS(ret, "setArg SoftmaxExecution");
     if(localSize == 1){
-        mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), "softmax", unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
+        mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), "softmax", unit.kernel, mOpenCLBackend->getCLTuneLevel(), "softmax").first;
     }
     mOpenCLBackend->recordKernel3d(unit.kernel, mGlobalWorkSize, mLocalWorkSize);
     unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1], mGlobalWorkSize[2]};

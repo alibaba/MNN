@@ -136,9 +136,6 @@ public:
     bool isUseRecordQueue(){
         return mUseRecordQueue;
     }
-    bool isDevideOpRecord(){
-        return mDeviceOpRecord;
-    }
     CLTuneLevel getCLTuneLevel() {
         return mTuneLevel;
     }
@@ -185,10 +182,10 @@ private:
     bool mIsCreateError{false};
     mutable std::vector<RecordInfo> mRecordings;
     bool mUseRecordQueue = false;
-    bool mDeviceOpRecord = false;
-    friend class setRecordClose;
+    bool mDivideOpRecord = false;
     uint32_t mRecordNums = 0;
     uint32_t mUseRecordableQueueSize;
+    friend class setRecordClose;
 private:
 
     void* svmPtr = nullptr;

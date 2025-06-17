@@ -82,9 +82,9 @@ MNN适配的硬件架构与精度详见下表：
 | Architecture / Precision |  | Normal | FP16 | BF16 | Int8 / Int4 |
 | --- | --- | --- | --- | --- | --- |
 | CPU | Native | B | C | B | B |
-|  | x86/x64-SSE4.1 | A | B | B | A |
-|  | x86/x64-AVX2 | S | B | B | A |
-|  | x86/x64-AVX512 | S | B | B | S |
+|  | x86/x64-SSE4.1 | A | C | C | A |
+|  | x86/x64-AVX2 | S | C | C | A |
+|  | x86/x64-AVX512 | S | C | C | S |
 |  | ARMv7a | S | S (ARMv8.2) | S | S |
 |  | ARMv8 | S | S (ARMv8.2) | S(ARMv8.6) | S |
 | GPU | OpenCL | A | S | C | S |
@@ -94,6 +94,7 @@ MNN适配的硬件架构与精度详见下表：
 | NPU | CoreML | A | C | C | C |
 |  | HIAI | A | C | C | C |
 |  | NNAPI | B | B | C | B |
+|  | QNN | C | B | C | C |
 
 
 ## 工具

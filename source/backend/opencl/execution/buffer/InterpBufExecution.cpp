@@ -83,7 +83,7 @@ ErrorCode InterpBufExecution::onEncode(const std::vector<Tensor *> &inputs, cons
     ret |= unit.kernel->get().setArg(idx++, static_cast<int32_t>(inputBatch));
     MNN_CHECK_CL_SUCCESS(ret, "setArg InterpBufExecution");
 
-    mLWS = localWS3DDefault(mGWS, mMaxWorkGroupSize, runtime, mKernelName, unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
+    mLWS = localWS3DDefault(mGWS, mMaxWorkGroupSize, runtime, mKernelName, unit.kernel, mOpenCLBackend->getCLTuneLevel(), "interp_buf").first;
     mOpenCLBackend->recordKernel3d(unit.kernel, mGWS, mLWS);
     unit.globalWorkSize = {mGWS[0], mGWS[1], mGWS[2]};
     unit.localWorkSize = {mLWS[0], mLWS[1], mLWS[2]};

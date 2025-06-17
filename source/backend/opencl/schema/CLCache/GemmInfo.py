@@ -78,8 +78,15 @@ class GemmInfo(object):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
         return o == 0
 
+    # GemmInfo
+    def Md5(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
+        if o != 0:
+            return self._tab.String(o + self._tab.Pos)
+        return None
+
 def GemmInfoStart(builder):
-    builder.StartObject(2)
+    builder.StartObject(3)
 
 def Start(builder):
     GemmInfoStart(builder)
@@ -107,6 +114,12 @@ def GemmInfoStartParamInfoVector(builder, numElems):
 
 def StartParamInfoVector(builder, numElems):
     return GemmInfoStartParamInfoVector(builder, numElems)
+
+def GemmInfoAddMd5(builder, md5):
+    builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(md5), 0)
+
+def AddMd5(builder, md5):
+    GemmInfoAddMd5(builder, md5)
 
 def GemmInfoEnd(builder):
     return builder.EndObject()

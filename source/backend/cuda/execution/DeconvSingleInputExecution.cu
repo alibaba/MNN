@@ -140,6 +140,7 @@ ErrorCode DeconvSingleInputExecution::onResize(const std::vector<Tensor*> &input
     mCol2ImParamter.ob = output->batch();
 
     mCol2ImParamter.activationType = convCommon->relu() ? 1 : convCommon->relu6() ? 2 : 0;
+    mActivationType = 0;
     
     // Matmul Param
     int e = input->height() * input->width() * output->batch();

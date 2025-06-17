@@ -128,20 +128,20 @@ static bool isCandidateValid(uint32_t kwg, uint32_t kwi, uint32_t mwg, uint32_t 
     return true;
 }
 
-static bool GemmlocalWSTune(const std::map<std::string, std::vector<std::pair<std::vector<uint32_t>, std::pair<std::vector<uint32_t>, uint32_t>>>> &tuneMap, const std::vector<uint32_t> &gemmSize, std::vector<uint32_t>& res, OpenCLRuntime *runtime, int precision){
+static bool GemmlocalWSTune(const std::map<std::string, std::vector<TuneInfo>> &tuneMap, const std::vector<uint32_t> &gemmSize, std::vector<uint32_t>& res, OpenCLRuntime *runtime, int precision){
     auto iter = tuneMap.find("Xgemm_tune");
     if(iter == tuneMap.end()){
         return false;
     }
-    auto gwsAndLws = iter->second;
+    auto TuneInfoVec = iter->second;
     uint32_t minPoint = UINT_MAX;
     int index = -1;
-    for(int i = 0; i < gwsAndLws.size(); ++i){
+    for(int i = 0; i < TuneInfoVec.size(); ++i){
         // Layout+Precision, Batch, Bias+GroupSize must equall
-        if(gemmSize[3] != gwsAndLws[i].first[3] || gemmSize[4] != gwsAndLws[i].first[4] || gemmSize[5] != gwsAndLws[i].first[5]){
+        if(gemmSize[3] != TuneInfoVec[i].globalSize[3] || gemmSize[4] != TuneInfoVec[i].globalSize[4] || gemmSize[5] != TuneInfoVec[i].globalSize[5]){
             continue;
         }
-        auto combinations = gwsAndLws[i].second.first;
+        auto combinations = TuneInfoVec[i].localSize;
         uint32_t kwg   = combinations[0];
         uint32_t kwi   = combinations[1];
         uint32_t mdima = combinations[2];
@@ -162,7 +162,7 @@ static bool GemmlocalWSTune(const std::map<std::string, std::vector<std::pair<st
         }
         uint32_t point = 0;
         for(int j = 0; j < 3; ++j){
-            point += std::abs(static_cast<int>(gemmSize[j]) - static_cast<int>(gwsAndLws[i].first[j]));
+            point += std::abs(static_cast<int>(gemmSize[j]) - static_cast<int>(TuneInfoVec[i].globalSize[j]));
         }
         
         if(point < minPoint){
@@ -171,7 +171,7 @@ static bool GemmlocalWSTune(const std::map<std::string, std::vector<std::pair<st
         }
     }
     if(index != -1){
-        res = gwsAndLws[index].second.first;
+        res = TuneInfoVec[index].localSize;
     } else{
         return false;
     }

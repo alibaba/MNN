@@ -208,6 +208,29 @@ class ModelMapper:
             'mlp': qwen3_mlp,
         }
         self.regist('qwen3_moe', qwen3_moe_map)
+        
+    def regist_mimo(self):
+        mimo_model = copy.deepcopy(self.defualt_model)
+        mimo_model['mtp'] = 'model.mtp_layers'
+        mimo_map = {
+            'config': self.default_config,
+            'model': mimo_model,
+            'decoder': self.default_decoder,
+            'attention': self.default_attention
+        }
+        self.regist('mimo', mimo_map)
+
+    def regist_poi_qwen2_mtp(self):
+        poi_qwen2_mtp_model = copy.deepcopy(self.defualt_model)
+        poi_qwen2_mtp_model['mtp1'] = 'MTP1'
+        poi_qwen2_mtp_model['mtp2'] = 'MTP2'
+        poi_qwen2_mtp_map = {
+            'config': self.default_config,
+            'model': poi_qwen2_mtp_model,
+            'decoder': self.default_decoder,
+            'attention': self.default_attention
+        }
+        self.regist('poi_qwen2_mtp', poi_qwen2_mtp_map)
 
     def regist_glm(self):
         glm_map = {

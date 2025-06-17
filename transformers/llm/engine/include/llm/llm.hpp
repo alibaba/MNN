@@ -73,6 +73,7 @@ public:
         Decode
     };
     static Llm* createLLM(const std::string& config_path);
+    static void destroy(Llm* llm);// For Windows RT mode should use destroy
     Llm(std::shared_ptr<LlmConfig> config);
     virtual ~Llm();
     virtual void load();
@@ -102,11 +103,7 @@ public:
     // config function
     std::string dump_config();
     bool set_config(const std::string& content);
-    // lora function
-    size_t apply_lora(const std::string& lora_path);
     Llm* create_lora(const std::string& lora_path);
-    bool release_module(size_t index);
-    bool select_module(size_t index);
     // tokenier function
     bool is_stop(int token);
     std::string tokenizer_decode(int token);

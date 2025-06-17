@@ -12,7 +12,7 @@ if(CUDA_FOUND)
         set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} --std=c++17") 
     endif()
     if(CMAKE_BUILD_TYPE MATCHES Debug)
-        set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -O0")
+        set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -O0 -g")
     else()
         set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -O3")
     endif()
@@ -113,6 +113,35 @@ IF (MNN_LOW_MEMORY)
     add_definitions(-DMNN_LOW_MEMORY)
 ENDIF()
 
+
+include(FetchContent)
+
+if(MNN_SUPPORT_TRANSFORMER_FUSE)
+    set(CUTLASS_COMMIT_HASH "5c6bca04414e06ce74458ab0a2018e2b8272701c")
+    set(CUTLASS_VERSION_NAME "v4.0.0")
+else()
+    set(CUTLASS_COMMIT_HASH "319a389f42b776fae5701afcb943fc03be5b5c25")
+    set(CUTLASS_VERSION_NAME "v2.9.0")
+endif()
+
+set(CUTLASS_SOURCE_DIR "${CMAKE_SOURCE_DIR}/3rd_party/cutlass/${CUTLASS_VERSION_NAME}")
+
+FetchContent_Declare(
+    cutlass
+    GIT_REPOSITORY    https://github.com/NVIDIA/cutlass.git
+    GIT_TAG           ${CUTLASS_COMMIT_HASH}
+    SOURCE_DIR        ${CUTLASS_SOURCE_DIR}
+)
+
+FetchContent_GetProperties(cutlass)
+if(NOT cutlass_POPULATED)
+    FetchContent_Populate(cutlass)
+    message(STATUS "Cloned cutlass commit ${CUTLASS_COMMIT_HASH} to ${CUTLASS_SOURCE_DIR}")
+endif()
+
+set(CUTLASS_SRC ${CUTLASS_SOURCE_DIR})
+
+
 file(GLOB_RECURSE MNN_CUDA_SRC ${CMAKE_CURRENT_LIST_DIR}/core/* ${CMAKE_CURRENT_SOURCE_DIR}/execution/*)
 if(NOT MNN_SUPPORT_TRANSFORMER_FUSE)
     file(GLOB_RECURSE MNN_CUDA_TRANSFORMER_FUSE_SRC ${CMAKE_CURRENT_SOURCE_DIR}/execution/plugin/*)
@@ -151,20 +180,9 @@ else()
     add_library(MNN_CUDA OBJECT Register.cpp)
 endif()
 
-if(MNN_SUPPORT_TRANSFORMER_FUSE)
 include_directories(
     ${CMAKE_CURRENT_LIST_DIR}/
     ${CUDA_INCLUDE_DIRS}
     ${CMAKE_SOURCE_DIR}/include/
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../../3rd_party/cutlass/v3_4_0/include    
+    ${CUTLASS_SRC}/include
 )
-else()
-include_directories(
-    ${CMAKE_CURRENT_LIST_DIR}/
-    ${CUDA_INCLUDE_DIRS}
-    ${CMAKE_SOURCE_DIR}/include/
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../../3rd_party/cutlass/v2_9_0/include
-)
-endif()
-
-

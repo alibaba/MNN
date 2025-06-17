@@ -105,7 +105,7 @@ __global__ void Col2Im_Vec4(const int n, const Stype* data_col,
                     h_k /= dilation_h;
                     w_k /= dilation_w;
 
-                    const int data_col_index = ((((b_im * height_col + h_col) * width_col + w_col) * kernel_h + h_k) * kernel_w + w_k) * channel_pack + c_im;
+                    const int data_col_index = ((((b_im * height_col + h_col) * width_col + w_col) * kernel_h + h_k) * kernel_w + w_k) * channels + c_im;
                     val.x += (float)data_col[data_col_index];
                     val.y += (float)data_col[data_col_index + 1];
                     val.z += (float)data_col[data_col_index + 2];
@@ -159,7 +159,7 @@ __global__ void Col2Im(const int n, const Stype* data_col,
         const int c_im = idx_ocp;
         if(c_im >= channels) {
             data_im[index] = val;
-            break;
+            continue;
         }
 
         d_ow.divmod(idx_tmp, idx_bh, idx_w);

@@ -16,6 +16,7 @@ void input_layernorm(T* out, const T* input, const float* gamma, const float* be
   float variance = 0.0f;
 
   float local_out = 0.0f;
+  s_mean = 0;
 
   if(!RMSNorm){
     for(int idx=0; idx<sumPerKnl && idx*256 + tid < n; idx++) {
@@ -33,7 +34,7 @@ void input_layernorm(T* out, const T* input, const float* gamma, const float* be
   for(int idx=0; idx<sumPerKnl && idx*256 + tid < n; idx++) {
     var_tmp += (((float)input[blockIdx.x * n + idx*256 + tid] - mean) * ((float)input[blockIdx.x * n + idx*256 + tid] - mean));
   }
-  variance += blockReduceSum<float>(var_tmp);
+  variance = blockReduceSum<float>(var_tmp);
   if(threadIdx.x == 0)
     s_variance = variance / n + epsilon;
   __syncthreads();
@@ -59,6 +60,7 @@ void input_layernorm_320(T* out, const T* input, const float* gamma, const float
   float variance = 0.0f;
 
   float local_out = 0.0f;
+  s_mean = 0;
 
   float value_tmp[5];
   value_tmp[0] = input[blockIdx.x * n + 0*64 + tid];
@@ -83,7 +85,7 @@ void input_layernorm_320(T* out, const T* input, const float* gamma, const float
   for(int idx=0; idx<5; idx++) {
     var_tmp += ((value_tmp[idx] - mean) * (value_tmp[idx] - mean));
   }
-  variance += blockReduceSum<float>(var_tmp);
+  variance = blockReduceSum<float>(var_tmp);
   if(threadIdx.x == 0)
     s_variance = variance / n + epsilon;
   __syncthreads();
@@ -110,6 +112,7 @@ void input_layernorm_2048(T* out, const T* input, const float* gamma, const floa
   float variance = 0.0f;
 
   float local_out = 0.0f;
+  s_mean = 0;
 
   float value_tmp[8];
   value_tmp[0] = input[blockIdx.x * 2048 + 0*256 + tid];
@@ -140,7 +143,7 @@ void input_layernorm_2048(T* out, const T* input, const float* gamma, const floa
   for(int idx=0; idx<8; idx++) {
     var_tmp += ((value_tmp[idx] - mean) * (value_tmp[idx] - mean));
   }
-  variance += blockReduceSum<float>(var_tmp);
+  variance = blockReduceSum<float>(var_tmp);
   if(threadIdx.x == 0)
     s_variance = variance / n + epsilon;
   __syncthreads();
@@ -168,6 +171,7 @@ void input_layernorm_1024(T* out, const T* input, const float* gamma, const floa
   float variance = 0.0f;
 
   float local_out = 0.0f;
+  s_mean = 0;
 
   float value_tmp[4];
   value_tmp[0] = input[blockIdx.x * 1024 + 0*256 + tid];
@@ -194,7 +198,7 @@ void input_layernorm_1024(T* out, const T* input, const float* gamma, const floa
   for(int idx=0; idx<4; idx++) {
     var_tmp += ((value_tmp[idx] - mean) * (value_tmp[idx] - mean));
   }
-  variance += blockReduceSum<float>(var_tmp);
+  variance = blockReduceSum<float>(var_tmp);
   if(threadIdx.x == 0)
     s_variance = variance / n + epsilon;
   __syncthreads();
@@ -222,6 +226,7 @@ void input_layernorm_512(T* out, const T* input, const float* gamma, const float
   float variance = 0.0f;
 
   float local_out = 0.0f;
+  s_mean = 0;
 
   float value_tmp[2];
   value_tmp[0] = input[blockIdx.x * 512 + 0*256 + tid];
@@ -242,7 +247,7 @@ void input_layernorm_512(T* out, const T* input, const float* gamma, const float
   var_tmp += ((value_tmp[0] - mean) * (value_tmp[0] - mean));
   var_tmp += ((value_tmp[1] - mean) * (value_tmp[1] - mean));
 
-  variance += blockReduceSum<float>(var_tmp);
+  variance = blockReduceSum<float>(var_tmp);
   if(threadIdx.x == 0)
     s_variance = variance / n + epsilon;
   __syncthreads();

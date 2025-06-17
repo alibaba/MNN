@@ -368,7 +368,7 @@ ErrorCode ConvBufWinograd::SubgroupOnResize(const std::vector<Tensor *> &inputs,
             if (in_c_pack == 4) {
                 mGWS_S[b] = {static_cast<uint32_t>(wCount * hCount), static_cast<uint32_t>(ROUND_UP(input->channel(), 16) / 4)};
                 std::string kernelName = srcTranseKernelname + "_" + std::to_string(mGWS_S[b][0]) + "_" + std::to_string(mGWS_S[b][1]);
-                mLWS_S[b] = localWS2DDefault(mGWS_S[b], mMaxWGS_S[b], mOpenCLBackend->getOpenCLRuntime(), kernelName + info, mUnits[b * 3].kernel, mOpenCLBackend->getCLTuneLevel()).first;
+                mLWS_S[b] = localWS2DDefault(mGWS_S[b], mMaxWGS_S[b], mOpenCLBackend->getOpenCLRuntime(), kernelName + info, mUnits[b * 3].kernel, mOpenCLBackend->getCLTuneLevel(), "winogradTransform_subgroup_buf").first;
             } else {
                 mLWS_S[b] = {1, 16};
             }
@@ -429,7 +429,7 @@ ErrorCode ConvBufWinograd::SubgroupOnResize(const std::vector<Tensor *> &inputs,
             if (out_c_pack == 4) {
                 mGWS_D[b] = {static_cast<uint32_t>(wCount * hCount), static_cast<uint32_t>(ocC4)};
                 std::string kernelName = dstTranseKernelname + "_" + std::to_string(mGWS_D[b][0]) + "_" + std::to_string(mGWS_D[b][1]);
-                mLWS_D[b] = localWS2DDefault(mGWS_D[b], mMaxWGS_D[b], mOpenCLBackend->getOpenCLRuntime(), kernelName + info, mUnits[b * 3 + 2].kernel, mOpenCLBackend->getCLTuneLevel()).first;
+                mLWS_D[b] = localWS2DDefault(mGWS_D[b], mMaxWGS_D[b], mOpenCLBackend->getOpenCLRuntime(), kernelName + info, mUnits[b * 3 + 2].kernel, mOpenCLBackend->getCLTuneLevel(), "winogradTransform_subgroup_buf").first;
             } else {
                 mLWS_D[b] = {1, 16};
             }
@@ -566,7 +566,7 @@ ErrorCode ConvBufWinograd::onEncode(const std::vector<Tensor*>& inputs, const st
                 MNN_CHECK_CL_SUCCESS(ret, "setArg ConvWinogradBuf Source Trans");
 
                 std::string kernelName = "winoTransSrcBuf";
-                auto lws_S = localWS2DDefault(gws_S, maxWGS_S, mOpenCLBackend->getOpenCLRuntime(), kernelName + info, mUnits[kernel_idx].kernel, mOpenCLBackend->getCLTuneLevel()).first;
+                auto lws_S = localWS2DDefault(gws_S, maxWGS_S, mOpenCLBackend->getOpenCLRuntime(), kernelName + info, mUnits[kernel_idx].kernel, mOpenCLBackend->getCLTuneLevel(), "winogradTransform_buf").first;
                 mOpenCLBackend->recordKernel2d(mUnits[kernel_idx].kernel, gws_S, lws_S);
                 mUnits[kernel_idx].globalWorkSize = {gws_S[0], gws_S[1]};
                 mUnits[kernel_idx].localWorkSize = {lws_S[0], lws_S[1]};
@@ -676,7 +676,7 @@ ErrorCode ConvBufWinograd::onEncode(const std::vector<Tensor*>& inputs, const st
                 MNN_CHECK_CL_SUCCESS(ret, "setArg ConvWinogradBuf Dest Trans");
                 
                 std::string kernelName = "winoTransDstBuf";
-                auto lws_D = localWS2DDefault(gws_D, maxWGS_D, mOpenCLBackend->getOpenCLRuntime(), kernelName + info, mUnits[kernel_idx].kernel, mOpenCLBackend->getCLTuneLevel()).first;
+                auto lws_D = localWS2DDefault(gws_D, maxWGS_D, mOpenCLBackend->getOpenCLRuntime(), kernelName + info, mUnits[kernel_idx].kernel, mOpenCLBackend->getCLTuneLevel(), "winogradTransform_buf").first;
                 mOpenCLBackend->recordKernel2d(mUnits[kernel_idx].kernel, gws_D, lws_D);
                 mUnits[kernel_idx].globalWorkSize = {gws_D[0], gws_D[1]};
                 mUnits[kernel_idx].localWorkSize = {lws_D[0], lws_D[1]};

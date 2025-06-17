@@ -71,7 +71,7 @@ ErrorCode StrassenMatrixComputor::_generateCFunction(cl::Buffer ptrC, int offset
     MNN_CHECK_CL_SUCCESS(ret, "Strassen setArg BinaryCFunctionExecution");
 
     std::string name = "binary_cfunction_buf";
-    auto localWorkSize = localWS2DDefault(globalWorkSize, maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
+    auto localWorkSize = localWS2DDefault(globalWorkSize, maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, unit.kernel, mOpenCLBackend->getCLTuneLevel(), "strassen_binary_buf").first;
     
     globalWorkSize[0] = ROUND_UP(globalWorkSize[0], std::max((uint32_t)1, localWorkSize[0]));
     globalWorkSize[1] = ROUND_UP(globalWorkSize[1], std::max((uint32_t)1, localWorkSize[1]));
@@ -112,7 +112,7 @@ ErrorCode StrassenMatrixComputor::_generateBinary(cl::Buffer ptrC, cl::Buffer pt
     MNN_CHECK_CL_SUCCESS(ret, "Strassen setArg BinaryExecution");
 
     std::string name = "binary_function_buf";
-    auto localWorkSize = localWS2DDefault(globalWorkSize, maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
+    auto localWorkSize = localWS2DDefault(globalWorkSize, maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, unit.kernel, mOpenCLBackend->getCLTuneLevel(), "strassen_binary_buf").first;
     
     globalWorkSize[0] = ROUND_UP(globalWorkSize[0], std::max((uint32_t)1, localWorkSize[0]));
     globalWorkSize[1] = ROUND_UP(globalWorkSize[1], std::max((uint32_t)1, localWorkSize[1]));

@@ -390,6 +390,9 @@ static Module* loadInternal(const std::vector<std::string>& inputs, const std::v
     auto net = GetNet(buffer);
     Timer _time;
     std::shared_ptr<Module::Info> info(new Module::Info);
+    if (net->mnn_uuid()) {
+        info->uuid = net->mnn_uuid()->str();
+    }
     if (net->extraInfo()) {
         if (net->extraInfo()->version()) {
             info->version = net->extraInfo()->version()->str();
@@ -422,6 +425,9 @@ static Module* loadInternal(const std::vector<std::string>& inputs, const std::v
         _loadInputs(info.get(), inputs, net);
         info->runTimeManager = rtMgr;
         std::shared_ptr<Module> m(PipelineModule::load(inputs, outputs, buffer, length, rtMgr, config));
+        if (nullptr == m) {
+            return nullptr;
+        }
         return new NetModule(m, info, net, length, (float)_time.durationInUs() / 1000.0f);
     }
     std::set<int> inputIdx, outputIdx, realOutput;
@@ -466,6 +472,9 @@ static Module* loadInternal(const std::vector<std::string>& inputs, const std::v
     std::shared_ptr<Module> m(PipelineModule::load(info->inputNames, info->outputNames, buffer, length, rtMgr, config));
     _loadInputs(info.get(), info->inputNames, net);
     info->runTimeManager = rtMgr;
+    if (nullptr == m) {
+        return nullptr;
+    }
     return new NetModule(m, info, net, length, (float)_time.durationInUs() / 1000.0f);
 }
 

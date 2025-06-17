@@ -17,11 +17,19 @@ public:
         auto x    = _Input({4}, NHWC, halide_type_of<int32_t>());
         auto newX = _Input({4}, NHWC, halide_type_of<int32_t>());
         Variable::replace(x, newX);
+        x.setOrder(NCHW);
+        newX.setOrder(NCHW);
         std::vector<int> x0 = {0, 1, 2, 3, 4, 5, 6};
         auto y              = _ReduceSum(_Multiply(x, x), {});
         ::memcpy(x->writeMap<int>(), x0.data(), x->getInfo()->size * sizeof(int32_t));
         if (14 != y->readMap<int>()[0]) {
             return false;
+        }
+        {
+            auto info = y->getInfo();
+            if (info->order != NCHW) {
+                return false;
+            }
         }
 
         x->resize({5});

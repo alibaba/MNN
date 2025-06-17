@@ -35,6 +35,7 @@ class LlmExporter(torch.nn.Module):
         self.visual = None
         self.audio = None
         self.talker = None
+        self.mtp = None
         self.args = args
         self.max_length = 1024
         self.stop_ids = []
@@ -201,9 +202,10 @@ class LlmExporter(torch.nn.Module):
             "system_prompt_template": prompt_template['system'].format(content='%s'),
             'user_prompt_template': prompt_template['user'].format(content='%s'),
             'assistant_prompt_template': prompt_template['assistant'].format(content='%s'),
-            'jinja':prompt_template['jinja'],
             'is_visual': False
         }
+        if 'jinja' in prompt_template:
+            self.llm_config['jinja'] = prompt_template['jinja']
         # load modules
         ModelMapper.do_map(self, self.model, self.model_map['model'])
         self.tie_word_embeddings = not self.args.seperate_embed and self.lm_.weight.equal(self.embed_.weight)
@@ -236,7 +238,7 @@ class LlmExporter(torch.nn.Module):
         for block in self.blocks_.children():
             layer_id = len(self.blocks)
             self.blocks.append(Decoder(block, layer_id, self))
-        self.lm = Lm(self.lm_, self.final_layernorm_, self)
+        self.lm = Lm(self.lm_)
 
         # visual model
         if self.visual is not None:
@@ -254,6 +256,15 @@ class LlmExporter(torch.nn.Module):
            hasattr(self, 'token2wav') and self.token2wav is not None:
             from utils.talker import Talker
             self.talker = Talker.get_talker(self.model_type)(self.talker, self.token2wav, self)
+        # MTP model
+        if self.model_type == 'poi_qwen2_mtp':
+            self.mtp = [self.mtp1, self.mtp2]
+        if self.mtp is not None:
+            if self.args.export is not None:
+                for mtp_model in self.mtp:
+                    mtp_model.float()
+            from utils.mtp import Mtp
+            self.mtp = Mtp.get_mtp(self.model_type)(self.mtp, self)
         return model_path
 
     def get_attention_mask(self) -> torch.Tensor:
@@ -334,12 +345,25 @@ class LlmExporter(torch.nn.Module):
         if hasattr(self, 'talker') and self.talker is not None:
             talker_embeds = self.final_layernorm_(hidden_states) + input_ids.permute([1, 0, 2])
             self.talker.add_talker_embeds(talker_embeds)
-        logits = self.lm(hidden_states, logits_index)
+
+        final_layernorm = hidden_states
+        if self.mtp is None:
+            hidden_states = hidden_states[:, logits_index:, :]
+            hidden_states = self.final_layernorm_(hidden_states)
+        else:
+            # final_layernorm need compute all logists
+            if self.model_type == 'mimo':
+                final_layernorm = hidden_states # mimo
+            hidden_states = self.final_layernorm_(hidden_states)
+            if self.model_type == 'poi_qwen2_mtp':
+                final_layernorm = hidden_states # poi
+            hidden_states = hidden_states[:, logits_index:, :]
+        logits = self.lm(hidden_states)
         if presents[0].shape == presents[-1].shape and None not in presents:
             presents = torch.stack(presents)
         self.seq_len += 1
         self.token_len += 1
-        return logits, presents, talker_embeds
+        return logits, final_layernorm, presents, talker_embeds
 
     # some test functions
     def build_prompt_template(self):
@@ -349,12 +373,13 @@ class LlmExporter(torch.nn.Module):
             'user': '{content}',
             'assistant': '{content}'
         }
-        template['jinja'] = {}
-        template['jinja']['chat_template'] = self.tokenizer.get_chat_template()
-        if None != self.tokenizer.bos_token:
-            template['jinja']['bos'] = self.tokenizer.bos_token
-        if None != self.tokenizer.eos_token:
-            template['jinja']['eos'] = self.tokenizer.eos_token
+        if hasattr(self.tokenizer, 'get_chat_template'):
+            template['jinja'] = {}
+            template['jinja']['chat_template'] = self.tokenizer.get_chat_template()
+            if None != self.tokenizer.bos_token:
+                template['jinja']['bos'] = self.tokenizer.bos_token
+            if None != self.tokenizer.eos_token:
+                template['jinja']['eos'] = self.tokenizer.eos_token
         if self.model_type == 'baichuan':
             template['user'] = '<reserved_106>{content}'
             template['assistant'] = '<reserved_107>{content}'
@@ -523,6 +548,14 @@ class LlmExporter(torch.nn.Module):
         if hasattr(self, 'talker') and self.talker is not None:
             self.talker.generate()
 
+    def export_mtp(self):
+        if self.mtp is None:
+            return
+        mtp_onnx = self.mtp.export(self.onnx_path)
+        if self.mnn_converter:
+            self.mtp.unloaded_ops['/lm/lm_head/Linear'] = self.unloaded_ops['/lm/lm_head/Linear']
+            MNNConveter(self, self.mtp.unloaded_ops).export(mtp_onnx)
+
     @spinner_run(f'export embedding to ')
     def export_embed(self):
         import ctypes
@@ -564,7 +597,7 @@ class LlmExporter(torch.nn.Module):
                 config['dit_steps'] = 5
                 config['dit_solver'] = 1
             if self.model_type == "gemma3":
-                    config.update({'precision': "normal"})
+                config.update({'precision': "normal"})
             if self.visual is not None or self.audio is not None:
                 config['mllm'] = {
                     'backend_type': "cpu",
@@ -664,9 +697,9 @@ class LlmExporter(torch.nn.Module):
         past_key_values = torch.zeros(self.past_kv_shape)
         logits_index = torch.tensor([-1], dtype=torch.int32)
         if hasattr(self, 'talker') and self.talker is not None:
-            output_names = ['logits', 'presents', 'talker_embeds']
+            output_names = ['logits', 'hidden_states', 'presents', 'talker_embeds']
         else:
-            output_names = ['logits', 'presents']
+            output_names = ['logits', 'hidden_states', 'presents']
         # export to onnx
         torch.onnx.export(
             model, (input_ids, attention_mask, position_ids, past_key_values, logits_index),
@@ -675,6 +708,7 @@ class LlmExporter(torch.nn.Module):
                 'input_ids', 'attention_mask', 'position_ids', 'past_key_values', 'logits_index'
             ],
             output_names=output_names,
+
             dynamic_axes=self.model_dynamic_axes,
             do_constant_folding=True,
             verbose=False,
@@ -720,10 +754,13 @@ class LlmExporter(torch.nn.Module):
             self.export_embed()
         # export transformer
         onnx_model = self.export_onnx()
+
         if self.args.onnx_slim:
             self.slim_onnx(onnx_model)
         if self.mnn_converter:
             MNNConveter(self, self.unloaded_ops).export(onnx_model)
+
+
         else:
             self.onnx_load_param(onnx_model)
 
@@ -736,6 +773,7 @@ class LlmExporter(torch.nn.Module):
         self.export_vision()
         self.export_audio()
         self.export_language()
+        self.export_mtp()
         self.export_tokenizer()
         self.export_config(export_mnn)
         if export_mnn:

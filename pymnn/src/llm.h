@@ -3,13 +3,20 @@
 
 typedef struct {
     PyObject_HEAD
-    MNN::Transformer::Llm* llm;
+    MNN::Transformer::Llm* llm = nullptr;
     bool is_embedding = false;
 } LLM;
 
 static PyObject* PyMNNLLM_new(struct _typeobject *type, PyObject *args, PyObject *kwds) {
     LLM* self = (LLM *)type->tp_alloc(type, 0);
     return (PyObject*)self;
+}
+static void PyMNNLLM_dealloc(LLM *self) {
+    if (nullptr != self->llm) {
+        MNN::Transformer::Llm::destroy(self->llm);
+        self->llm = nullptr;
+    }
+    Py_TYPE(self)->tp_free((PyObject*)self);
 }
 
 static PyObject* Py_str(PyObject *self) {
@@ -123,42 +130,7 @@ static PyObject* PyMNNLLM_txt_embedding(LLM *self, PyObject *args) {
     *(embeds->var) = ((MNN::Transformer::Embedding*)self->llm)->txt_embedding(query);
     return (PyObject *)embeds;
 }
-
-static PyObject* PyMNNLLM_apply_lora(LLM *self, PyObject *args) {
-    if (self->is_embedding) {
-        Py_RETURN_NONE;
-    }
-    const char* path = NULL;
-    if (!PyArg_ParseTuple(args, "s", &path)) {
-        Py_RETURN_NONE;
-    }
-    int model_index = self->llm->apply_lora(path);
-    return toPyObj(model_index);
-}
-
-static PyObject* PyMNNLLM_select_module(LLM *self, PyObject *args) {
-    if (self->is_embedding) {
-        Py_RETURN_NONE;
-    }
-    PyObject *index = nullptr;
-    if (!PyArg_ParseTuple(args, "O", &index) && isInt(index)) {
-        Py_RETURN_NONE;
-    }
-    bool res = self->llm->select_module(toInt(index));
-    return toPyObj(res);
-}
-
-static PyObject* PyMNNLLM_release_module(LLM *self, PyObject *args) {
-    if (self->is_embedding) {
-        Py_RETURN_NONE;
-    }
-    PyObject *index = nullptr;
-    if (!PyArg_ParseTuple(args, "O", &index) && isInt(index)) {
-        Py_RETURN_NONE;
-    }
-    bool res = self->llm->release_module(toInt(index));
-    return toPyObj(res);
-}
+static PyObject* PyMNNLLM_create_lora(LLM *self, PyObject *args);
 
 static PyObject* PyMNNLLM_set_config(LLM *self, PyObject *args) {
     const char* config = NULL;
@@ -184,9 +156,7 @@ static PyMethodDef PyMNNLLM_methods[] = {
     {"tokenizer_encode", (PyCFunction)PyMNNLLM_tokenizer_encode, METH_VARARGS, "tokenizer encode."},
     {"tokenizer_decode", (PyCFunction)PyMNNLLM_tokenizer_decode, METH_VARARGS, "tokenizer decode."},
     {"txt_embedding", (PyCFunction)PyMNNLLM_txt_embedding, METH_VARARGS, "txt embedding."},
-    {"apply_lora", (PyCFunction)PyMNNLLM_apply_lora, METH_VARARGS, "apply_lora."},
-    {"select_module", (PyCFunction)PyMNNLLM_select_module, METH_VARARGS, "select_module."},
-    {"release_module", (PyCFunction)PyMNNLLM_release_module, METH_VARARGS, "release_module."},
+    {"create_lora", (PyCFunction)PyMNNLLM_create_lora, METH_VARARGS, "create_lora."},
     {"set_config", (PyCFunction)PyMNNLLM_set_config, METH_VARARGS, "set_config."},
     {"reset", (PyCFunction)PyMNNLLM_reset, METH_VARARGS, "reset."},
     {NULL}  /* Sentinel */
@@ -197,7 +167,7 @@ static PyTypeObject PyMNNLLM = {
     "LLM",                                    /*tp_name*/
     sizeof(LLM),                              /*tp_basicsize*/
     0,                                        /*tp_itemsize*/
-    0,                                        /*tp_dealloc*/
+    (destructor)PyMNNLLM_dealloc,             /*tp_dealloc*/
     0,                                        /*tp_print*/
     0,                                        /*tp_getattr*/
     0,                                        /*tp_setattr*/
@@ -232,6 +202,22 @@ static PyTypeObject PyMNNLLM = {
     0,                                        /* tp_alloc */
     PyMNNLLM_new,                                /* tp_new */
 };
+static PyObject* PyMNNLLM_create_lora(LLM *self, PyObject *args) {
+    if (self->is_embedding) {
+        Py_RETURN_NONE;
+    }
+    const char* path = NULL;
+    if (!PyArg_ParseTuple(args, "s", &path)) {
+        Py_RETURN_NONE;
+    }
+    auto lora = self->llm->create_lora(path);
+    LLM *llm = (LLM *)PyObject_Call((PyObject*)&PyMNNLLM, PyTuple_New(0), NULL);
+    if (!llm) {
+        return NULL;
+    }
+    llm->llm = lora;;
+    return (PyObject*)llm;
+}
 
 static PyObject* PyMNNLLM_create(PyObject *self, PyObject *args) {
     if (!PyTuple_Size(args)) {
@@ -252,7 +238,6 @@ static PyObject* PyMNNLLM_create(PyObject *self, PyObject *args) {
     } else {
         llm->llm = MNN::Transformer::Llm::createLLM(path);
     }
-
     return (PyObject*)llm;
 }
 
