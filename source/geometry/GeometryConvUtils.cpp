@@ -52,7 +52,7 @@ void GeometryConvUtils::im2Col3d(Tensor* im2Col, Tensor* input, int ic, int kd, 
     des->memoryType      = Tensor::InsideDescribe::MEMORY_VIRTUAL;
     des->dimensionFormat = MNN_DATA_FORMAT_NCHW;
     des->regions.clear();
-    if (id == kd && ih == kh && iw == kw & pd == 0 && ph == 0 && pw == 0 && dd == 1 && dh == 1 && dw == 1) {
+    if (id == kd && ih == kh && iw == kw && pd == 0 && ph == 0 && pw == 0 && dd == 1 && dh == 1 && dw == 1) {
         // fast impl: n, ic, id, ih, iw -> ic*id*ih*iw, n
         Tensor::InsideDescribe::Region region;
         region.origin        = input;
