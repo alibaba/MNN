@@ -85,6 +85,7 @@ Executor::Executor(std::shared_ptr<Runtime> runtime, MNNForwardType type, int nu
     mRuntimeInfo.first.insert(std::make_pair(type, runtime));
     mAttr.reset(new ExecutorAttr);
     mAttr->firstType = type;
+    mAttr->numThread = numberThread;
     if (type == MNN_FORWARD_CPU) {
         mRuntimeInfo.second = runtime;
     } else {
