@@ -14,7 +14,7 @@ Welcome to **MNN TaoAvatar App**, a full-featured mobile app about the [TaoAvata
 - LLM (Large Language Model)
 - ASR (Automatic Speech Recognition)
 - TTS (Text-to-Speech)
-- A2BS (Audio-to-Behavior Synthesis)
+- A2BS (Audio-to-BlendShape)
 - NNR (Neural Rendering)
 
 > The iOS App will be coming later, stay tuned for updates!
