@@ -19,10 +19,10 @@ class ModelListViewModel: ObservableObject {
     @Published var selectedModel: ModelInfo?
     
     private let modelClient = ModelClient()
-    private let pinnedModelKey = "com.mnnllm.pinnedModelId"
+    private let pinnedModelKey = "com.mnnllm.pinnedModelIds"
     
-    private var pinnedModelId: String? {
-        get { UserDefaults.standard.string(forKey: pinnedModelKey) }
+    public var pinnedModelIds: [String] {
+        get { UserDefaults.standard.stringArray(forKey: pinnedModelKey) ?? [] }
         set { UserDefaults.standard.setValue(newValue, forKey: pinnedModelKey) }
     }
     
@@ -70,12 +70,12 @@ class ModelListViewModel: ObservableObject {
             for i in 0..<fetchedModels.count {
                 fetchedModels[i].isDownloaded = ModelStorageManager.shared.isModelDownloaded(fetchedModels[i].modelId)
             }
-            // 保持置顶顺序
-            if let pinnedId = pinnedModelId, let idx = fetchedModels.firstIndex(where: { $0.modelId == pinnedId }) {
-                let pinned = fetchedModels.remove(at: idx)
-                fetchedModels.insert(pinned, at: 0)
+            // 多模型置顶顺序，最新置顶的在最顶部
+            let pinned = pinnedModelIds.reversed().compactMap { id in
+                fetchedModels.first(where: { $0.modelId == id })
             }
-            models = fetchedModels
+            let rest = fetchedModels.filter { !pinnedModelIds.contains($0.modelId) }
+            models = pinned + rest
         } catch {
             showError = true
             errorMessage = "Error: \(error.localizedDescription)"
@@ -126,15 +126,17 @@ class ModelListViewModel: ObservableObject {
         guard let index = models.firstIndex(where: { $0.modelId == model.modelId }) else { return }
         let pinned = models.remove(at: index)
         models.insert(pinned, at: 0)
-        pinnedModelId = model.modelId
+        var ids = pinnedModelIds.filter { $0 != model.modelId }
+        ids.append(model.modelId)
+        pinnedModelIds = ids
     }
     
     func unpinModel(_ model: ModelInfo) {
         guard let index = models.firstIndex(where: { $0.modelId == model.modelId }) else { return }
         let unpinned = models.remove(at: index)
-        let insertIndex = models.firstIndex(where: { !$0.isDownloaded || $0.modelId != model.modelId }) ?? models.endIndex
+        let insertIndex = models.count // 取消置顶后放到未置顶最后
         models.insert(unpinned, at: insertIndex)
-        pinnedModelId = nil
+        pinnedModelIds = pinnedModelIds.filter { $0 != model.modelId }
     }
     
     func deleteModel(_ model: ModelInfo) async {

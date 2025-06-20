@@ -44,29 +44,7 @@ struct ModelListView: View {
                             }
                         }
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            if let firstModel = viewModel.filteredModels.first, firstModel.modelId == model.modelId {
-                                Button {
-                                    viewModel.unpinModel(model)
-                                } label: {
-                                    Label("取消置顶", systemImage: "pin.slash")
-                                }.tint(.gray)
-                            } else {
-                                Button {
-                                    viewModel.pinModel(model)
-                                } label: {
-                                    Label("置顶", systemImage: "pin")
-                                }.tint(.yellow)
-                            }
-                            
-                            if model.isDownloaded {
-                                Button(role: .destructive) {
-                                    Task {
-                                        await viewModel.deleteModel(model)
-                                    }
-                                } label: {
-                                    Label("Delete", systemImage: "trash")
-                                }
-                            }
+                            SwipeActionsView(model: model, viewModel: viewModel)
                         }
                     }
                 }
