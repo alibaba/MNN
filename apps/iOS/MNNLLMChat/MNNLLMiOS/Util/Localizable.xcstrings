@@ -17,6 +17,12 @@
         }
       }
     },
+    "Benchmark" : {
+
+    },
+    "Benchmark 页面暂未开放" : {
+
+    },
     "Cache Cleared Successfully" : {
       "localizations" : {
         "zh-Hans" : {
@@ -431,6 +437,18 @@
           }
         }
       }
+    },
+    "取消置顶" : {
+
+    },
+    "本地模型" : {
+
+    },
+    "模型市场" : {
+
+    },
+    "置顶" : {
+
     }
   },
   "version" : "1.0"

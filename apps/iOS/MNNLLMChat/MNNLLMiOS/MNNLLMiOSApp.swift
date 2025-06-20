@@ -16,7 +16,7 @@ struct MNNLLMiOSApp: App {
     
     var body: some Scene {
         WindowGroup {
-            ModelListView()
+            MainTabView()
         }
     }
 }
