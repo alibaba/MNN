@@ -51,18 +51,18 @@ struct ModelListView: View {
                 .listStyle(.plain)
                 .navigationTitle("Models")
                 .navigationBarTitleDisplayMode(.large)
-                .navigationBarItems(
-                    leading: Button(action: {
-                        showHistory.toggle()
-                        updateHistory()
-                    }) {
-                        Image(systemName: "clock.arrow.circlepath")
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .frame(width: 22, height: 22)
-                    },
-                    trailing: settingsButton
-                )
+//                .navigationBarItems(
+//                    leading: Button(action: {
+//                        showHistory.toggle()
+//                        updateHistory()
+//                    }) {
+//                        Image(systemName: "clock.arrow.circlepath")
+//                            .resizable()
+//                            .aspectRatio(contentMode: .fit)
+//                            .frame(width: 22, height: 22)
+//                    },
+//                    trailing: settingsButton
+//                )
                 .sheet(isPresented: $showHelp) {
                     HelpView()
                 }
@@ -124,21 +124,21 @@ struct ModelListView: View {
                     )
                 }
             }
-            .disabled(showHistory)
-            
-            
-            if showHistory {
-                Color.black.opacity(0.5)
-                    .edgesIgnoringSafeArea(.all)
-                    .onTapGesture {
-                        withAnimation {
-                            showHistory = false
-                        }
-                    }
-            }
-            
-            SideMenuView(isOpen: $showHistory, selectedHistory: $selectedHistory, histories: $histories)
-                .edgesIgnoringSafeArea(.all)
+//            .disabled(showHistory)
+//            
+//            
+//            if showHistory {
+//                Color.black.opacity(0.5)
+//                    .edgesIgnoringSafeArea(.all)
+//                    .onTapGesture {
+//                        withAnimation {
+//                            showHistory = false
+//                        }
+//                    }
+//            }
+//            
+//            SideMenuView(isOpen: $showHistory, selectedHistory: $selectedHistory, histories: $histories)
+//                .edgesIgnoringSafeArea(.all)
         }
         .onAppear {
             updateHistory()
