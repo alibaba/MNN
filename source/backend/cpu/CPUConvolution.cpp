@@ -278,7 +278,7 @@ public:
                                 const MNN::Op* op, Backend* backend) const override {
         auto convOp = op->main_as_Convolution2D();
 #ifdef MNN_USE_ONEDNN
-        return OneDNNConvInt8::create(backend, convOp, inputs, outputs);
+        return OneDNNConvInt8::create(backend, op, inputs, outputs);
 #endif
         auto core = static_cast<CPUBackend*>(backend)->functions();
         
