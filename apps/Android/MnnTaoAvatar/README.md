@@ -65,7 +65,7 @@ cd apps/Android/MnnTaoAvatar
 
 ## Releases
 ## Version 0.0.1
-+ Click here to [download](https://meta.alicdn.com/data/mnn/avatar/mnn_avatar_0_0_1.apk)
++ Click here to [download](https://meta.alicdn.com/data/mnn/avatar/mnn_taoavatar_0_0_1.apk)
 + this is our first public released version; you can chat with 3d avatar in the app with asr and tts; if you have any questions, please feel free to open an issue for assistance.
 
 

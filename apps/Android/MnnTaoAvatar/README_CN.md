@@ -55,7 +55,7 @@ cd apps/Android/MnnTaoAvatar
 
 ## Releases
 ## Version 0.0.1
-+ 点击这里[下载](https://meta.alicdn.com/data/mnn/avatar/mnn_avatar_0_0_1.apk)
++ 点击这里[下载](https://meta.alicdn.com/data/mnn/avatar/mnn_taoavatar_0_0_1.apk)
 + 这是我们首次公开发布的版本；您可以在应用程序中通过语音识别（ASR）和语音合成（TTS）与3D虚拟形象进行聊天；如果您有任何问题，请随时提交Issue以获得帮助。
 
 ## 更多相关资源
