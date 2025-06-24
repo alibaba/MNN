@@ -12,7 +12,7 @@
 + [中文](../MnnTaoAvatar/README_CN.md)
 + [Download](../MnnTaoAvatar/README.md#releases) 
 
-Welcome to **MNN TaoAvatar App**, a full-featured mobile app about the [TaoAvatar paper (arXiv:2503.17032v1)](https://arxiv.org/html/2503.17032v1). This project brings multimodal AI avatars to life directly on Android devices, running **all models locally**, including:
+Welcome to **MNN-TaoAvatar App**, a full-featured mobile app about the [TaoAvatar paper (arXiv:2503.17032v1)](https://arxiv.org/html/2503.17032v1). This project brings multimodal AI avatars to life directly on Android devices, running **all models locally**, including:
 
 - LLM (Large Language Model)
 - ASR (Automatic Speech Recognition)
