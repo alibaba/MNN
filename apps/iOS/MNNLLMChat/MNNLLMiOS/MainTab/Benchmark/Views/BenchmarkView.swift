@@ -9,12 +9,8 @@ import SwiftUI
 
 struct BenchmarkView: View {
     var body: some View {
-        NavigationView {
-            Text("Benchmark 页面暂未开放")
-                .font(.title2)
-                .foregroundColor(.gray)
-                .navigationTitle("Benchmark")
-                .navigationBarTitleDisplayMode(.large)
-        }
+        Text("Benchmark 页面暂未开放")
+            .font(.title2)
+            .foregroundColor(.gray)
     }
 } 
