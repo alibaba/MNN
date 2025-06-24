@@ -1,5 +1,5 @@
 
-# MNN-TaoAvatar Android - Local 3D Avatar Intelligence
+# MNN TaoAvatar Android - Local 3D Avatar Intelligence
 
 
 <p align="center">
@@ -52,7 +52,7 @@ Because **all AI models are executed locally on-device**, this project requires 
 
 ```bash
 git clone https://github.com/alibaba/MNN.git
-cd apps/Android/MnnTaoAvatar
+cd apps/Android/Mnn3dAvatar
 ```
 
 ### 2. Build and Deploy
