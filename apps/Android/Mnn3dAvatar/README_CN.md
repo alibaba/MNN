@@ -4,7 +4,7 @@
   <img width="20%" alt="Icon"  src="https://meta.alicdn.com/data/mnn/avatar/avatar_demo.gif" style="margin: 0 10px;">
 </p>
 
-+ [下载](#releases) 
++ [下载](../MnnTaoAvatar/README_CN.md#releases) 
 
 这是一个一个本地运行、完全离线、支持多模态交互的智能数字人App！
 
@@ -22,7 +22,7 @@
 * **100%离线运行**：完全本地运行，守护隐私更放心
 
 ## 工作原理
-![alt text](./assets/tao_avatar_process_zh.jpg)
+![alt text](../MnnTaoAvatar/assets/tao_avatar_process_zh.jpg)
 
 ## 硬件要求
 
@@ -52,11 +52,6 @@ cd apps/Android/MnnTaoAvatar
 ./gradlew installDebug
 ```
 
-
-## Releases
-## Version 0.0.1
-+ 点击这里[下载](https://meta.alicdn.com/data/mnn/avatar/mnn_avatar_0_0_1.apk)
-+ 这是我们首次公开发布的版本；您可以在应用程序中通过语音识别（ASR）和语音合成（TTS）与3D虚拟形象进行聊天；如果您有任何问题，请随时提交Issue以获得帮助。
 
 ## 更多相关资源
 
