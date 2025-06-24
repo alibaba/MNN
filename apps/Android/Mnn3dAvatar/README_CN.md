@@ -1,5 +1,9 @@
 # MNN-TaoAvatar Android - 本地智能数字人
 
+<div align="center">
+  <b style="color:red;">⚠️ 注意:此文件夹已经移动到： </b>
+  <a href="../MnnTaoAvatar/README_CN.md">apps/Android/MnnTaoAvatar</a>
+</div>
 <p align="center">
   <img width="20%" alt="Icon"  src="https://meta.alicdn.com/data/mnn/avatar/avatar_demo.gif" style="margin: 0 10px;">
 </p>

@@ -1,7 +1,6 @@
 
 # MNN-TaoAvatar Android - Local 3D Avatar Intelligence
 
-
 <p align="center">
   <img width="20%" alt="Icon"  src="https://meta.alicdn.com/data/mnn/avatar/avatar_demo.gif" style="margin: 0 10px;">
 </p>
