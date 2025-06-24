@@ -51,18 +51,6 @@ struct ModelListView: View {
                 .listStyle(.plain)
                 .navigationTitle("Models")
                 .navigationBarTitleDisplayMode(.large)
-//                .navigationBarItems(
-//                    leading: Button(action: {
-//                        showHistory.toggle()
-//                        updateHistory()
-//                    }) {
-//                        Image(systemName: "clock.arrow.circlepath")
-//                            .resizable()
-//                            .aspectRatio(contentMode: .fit)
-//                            .frame(width: 22, height: 22)
-//                    },
-//                    trailing: settingsButton
-//                )
                 .sheet(isPresented: $showHelp) {
                     HelpView()
                 }
@@ -124,46 +112,9 @@ struct ModelListView: View {
                     )
                 }
             }
-//            .disabled(showHistory)
-//            
-//            
-//            if showHistory {
-//                Color.black.opacity(0.5)
-//                    .edgesIgnoringSafeArea(.all)
-//                    .onTapGesture {
-//                        withAnimation {
-//                            showHistory = false
-//                        }
-//                    }
-//            }
-//            
-//            SideMenuView(isOpen: $showHistory, selectedHistory: $selectedHistory, histories: $histories)
-//                .edgesIgnoringSafeArea(.all)
         }
         .onAppear {
             updateHistory()
-        }
-        .actionSheet(isPresented: $showSettings) {
-            ActionSheet(title: Text("Settings"), buttons: [
-                .default(Text("Report an Issue")) {
-                    webViewURL = URL(string: "https://github.com/alibaba/MNN/issues")
-                    showWebView = true
-                },
-                .default(Text("Go to MNN Homepage")) {
-                    webViewURL = URL(string: "https://github.com/alibaba/MNN")
-                    showWebView = true
-                },
-                .default(Text(ModelSource.modelScope.description)) {
-                    ModelSourceManager.shared.updateSelectedSource(.modelScope)
-                },
-                .default(Text(ModelSource.modeler.description)) {
-                    ModelSourceManager.shared.updateSelectedSource(.modeler)
-                },
-                .default(Text(ModelSource.huggingFace.description)) {
-                    ModelSourceManager.shared.updateSelectedSource(.huggingFace)
-                },
-                .cancel()
-            ])
         }
     }
     
@@ -178,17 +129,6 @@ struct ModelListView: View {
             showUserGuide = true
             // Set the flag to true so it doesn't show again
             UserDefaults.standard.set(true, forKey: "hasLaunchedBefore")
-        }
-    }
-    
-    private var settingsButton: some View {
-        Button(action: {
-            showSettings.toggle()
-        }) {
-            Image(systemName: "gear")
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 22, height: 22)
         }
     }
 }

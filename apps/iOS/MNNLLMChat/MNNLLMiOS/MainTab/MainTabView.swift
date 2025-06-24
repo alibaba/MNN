@@ -12,6 +12,9 @@ struct MainTabView: View {
     @State private var selectedHistory: ChatHistory? = nil
     @State private var histories: [ChatHistory] = ChatHistoryManager.shared.getAllHistory()
     @State private var showHistoryButton = true
+    @State private var showSettings = false
+    @State private var showWebView = false
+    @State private var webViewURL: URL?
     
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -33,20 +36,33 @@ struct MainTabView: View {
                     }
             }
             
-            if showHistoryButton {
+            HStack {
+                if showHistoryButton {
+                    Button(action: {
+                        showHistory = true
+                        showHistoryButton = false
+                        histories = ChatHistoryManager.shared.getAllHistory()
+                    }) {
+                        Image(systemName: "sidebar.left")
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(width: 20, height: 20)
+                            .padding(EdgeInsets(top: 12, leading: 0, bottom: 0, trailing: 0))
+                    }
+                }
+                Spacer()
                 Button(action: {
-                    showHistory = true
-                    showHistoryButton = false
-                    histories = ChatHistoryManager.shared.getAllHistory()
+                    showSettings.toggle()
                 }) {
-                    Image(systemName: "sidebar.left")
+                    Image(systemName: "gear")
                         .resizable()
                         .aspectRatio(contentMode: .fit)
                         .frame(width: 20, height: 20)
-                        .padding(EdgeInsets(top: 12, leading: 18, bottom: 0, trailing: 0))
+                        .padding(EdgeInsets(top: 12, leading: 0, bottom: 0, trailing: 0))
                 }
-                .zIndex(2)
             }
+            .padding(.horizontal, 18)
+            .zIndex(2)
             
             if showHistory {
                 Color.black.opacity(0.5)
@@ -69,6 +85,33 @@ struct MainTabView: View {
                     }
                 }
             }
+        }
+        .sheet(isPresented: $showWebView) {
+            if let url = webViewURL {
+                WebView(url: url)
+            }
+        }
+        .actionSheet(isPresented: $showSettings) {
+            ActionSheet(title: Text("Settings"), buttons: [
+                .default(Text("Report an Issue")) {
+                    webViewURL = URL(string: "https://github.com/alibaba/MNN/issues")
+                    showWebView = true
+                },
+                .default(Text("Go to MNN Homepage")) {
+                    webViewURL = URL(string: "https://github.com/alibaba/MNN")
+                    showWebView = true
+                },
+                .default(Text(ModelSource.modelScope.description)) {
+                    ModelSourceManager.shared.updateSelectedSource(.modelScope)
+                },
+                .default(Text(ModelSource.modeler.description)) {
+                    ModelSourceManager.shared.updateSelectedSource(.modeler)
+                },
+                .default(Text(ModelSource.huggingFace.description)) {
+                    ModelSourceManager.shared.updateSelectedSource(.huggingFace)
+                },
+                .cancel()
+            ])
         }
     }
 } 
