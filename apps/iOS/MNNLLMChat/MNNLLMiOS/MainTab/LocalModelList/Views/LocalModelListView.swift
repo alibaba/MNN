@@ -20,13 +20,7 @@ struct LocalModelListView: View {
                     viewModel.selectModel(model)
                 }
                 .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                    Button(role: .destructive) {
-                        Task {
-                            await viewModel.deleteModel(model)
-                        }
-                    } label: {
-                        Label("Delete", systemImage: "trash")
-                    }
+                    SwipeActionsView(model: model, viewModel: viewModel)
                 }
             }
         }
