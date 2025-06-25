@@ -20,10 +20,8 @@ struct MainTabView: View {
     @State private var titles = ["本地模型", "模型市场", "Benchmark"]
     
     var body: some View {
-        NavigationView {
-            ZStack(alignment: .topLeading) {
-                NavigationLink(destination: chatDestination, isActive: chatIsActiveBinding) { EmptyView() }
-                
+        ZStack {
+            NavigationView {
                 TabView(selection: $selectedTab) {
                     LocalModelListView(viewModel: modelListViewModel)
                         .tabItem {
@@ -44,86 +42,87 @@ struct MainTabView: View {
                         }
                         .tag(2)
                 }
-                
-                if showHistory {
-                    Color.black.opacity(0.5)
-                        .edgesIgnoringSafeArea(.all)
-                        .onTapGesture {
-                            withAnimation {
-                                showHistory = false
+                .background(NavigationLink(destination: chatDestination, isActive: chatIsActiveBinding) { EmptyView() })
+                .navigationTitle(titles[selectedTab])
+                .navigationBarTitleDisplayMode(.inline)
+                .navigationBarHidden(false)
+                .onAppear(perform: setupNavigationBarAppearance)
+                .toolbar {
+                    ToolbarItem(placement: .navigationBarLeading) {
+                        if showHistoryButton {
+                            Button(action: {
+                                showHistory = true
+                                showHistoryButton = false
+                                histories = ChatHistoryManager.shared.getAllHistory()
+                            }) {
+                                Image(systemName: "sidebar.left")
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fit)
+                                    .frame(width: 20, height: 20)
                             }
                         }
-                }
-                
-                SideMenuView(isOpen: $showHistory, selectedHistory: $selectedHistory, histories: $histories)
-                    .edgesIgnoringSafeArea(.all)
-            }
-            .navigationTitle(titles[selectedTab])
-            .navigationBarTitleDisplayMode(.inline)
-            .navigationBarHidden(false)
-            .onAppear(perform: setupNavigationBarAppearance)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    if showHistoryButton {
+                    }
+                    ToolbarItem(placement: .navigationBarTrailing) {
                         Button(action: {
-                            showHistory = true
-                            showHistoryButton = false
-                            histories = ChatHistoryManager.shared.getAllHistory()
+                            showSettings.toggle()
                         }) {
-                            Image(systemName: "sidebar.left")
+                            Image(systemName: "gear")
                                 .resizable()
                                 .aspectRatio(contentMode: .fit)
                                 .frame(width: 20, height: 20)
                         }
                     }
                 }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: {
-                        showSettings.toggle()
-                    }) {
-                        Image(systemName: "gear")
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .frame(width: 20, height: 20)
-                    }
-                }
             }
-            .onChange(of: showHistory) { newValue in
-                if !newValue {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            
+            if showHistory {
+                Color.black.opacity(0.5)
+                    .edgesIgnoringSafeArea(.all)
+                    .onTapGesture {
                         withAnimation {
-                            showHistoryButton = true
+                            showHistory = false
                         }
                     }
+            }
+            
+            SideMenuView(isOpen: $showHistory, selectedHistory: $selectedHistory, histories: $histories)
+                .edgesIgnoringSafeArea(.all)
+        }
+        .onChange(of: showHistory) { newValue in
+            if !newValue {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    withAnimation {
+                        showHistoryButton = true
+                    }
                 }
             }
-            .sheet(isPresented: $showWebView) {
-                if let url = webViewURL {
-                    WebView(url: url)
-                }
+        }
+        .sheet(isPresented: $showWebView) {
+            if let url = webViewURL {
+                WebView(url: url)
             }
-            .actionSheet(isPresented: $showSettings) {
-                ActionSheet(title: Text("Settings"), buttons: [
-                    .default(Text("Report an Issue")) {
-                        webViewURL = URL(string: "https://github.com/alibaba/MNN/issues")
-                        showWebView = true
-                    },
-                    .default(Text("Go to MNN Homepage")) {
-                        webViewURL = URL(string: "https://github.com/alibaba/MNN")
-                        showWebView = true
-                    },
-                    .default(Text(ModelSource.modelScope.description)) {
-                        ModelSourceManager.shared.updateSelectedSource(.modelScope)
-                    },
-                    .default(Text(ModelSource.modeler.description)) {
-                        ModelSourceManager.shared.updateSelectedSource(.modeler)
-                    },
-                    .default(Text(ModelSource.huggingFace.description)) {
-                        ModelSourceManager.shared.updateSelectedSource(.huggingFace)
-                    },
-                    .cancel()
-                ])
-            }
+        }
+        .actionSheet(isPresented: $showSettings) {
+            ActionSheet(title: Text("Settings"), buttons: [
+                .default(Text("Report an Issue")) {
+                    webViewURL = URL(string: "https://github.com/alibaba/MNN/issues")
+                    showWebView = true
+                },
+                .default(Text("Go to MNN Homepage")) {
+                    webViewURL = URL(string: "https://github.com/alibaba/MNN")
+                    showWebView = true
+                },
+                .default(Text(ModelSource.modelScope.description)) {
+                    ModelSourceManager.shared.updateSelectedSource(.modelScope)
+                },
+                .default(Text(ModelSource.modeler.description)) {
+                    ModelSourceManager.shared.updateSelectedSource(.modeler)
+                },
+                .default(Text(ModelSource.huggingFace.description)) {
+                    ModelSourceManager.shared.updateSelectedSource(.huggingFace)
+                },
+                .cancel()
+            ])
         }
     }
 
