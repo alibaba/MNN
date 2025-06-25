@@ -63,13 +63,25 @@ struct MainTabView: View {
                         }
                     }
                     ToolbarItem(placement: .navigationBarTrailing) {
-                        Button(action: {
-                            showSettings.toggle()
-                        }) {
-                            Image(systemName: "gear")
-                                .resizable()
-                                .aspectRatio(contentMode: .fit)
-                                .frame(width: 20, height: 20)
+                        if selectedTab == 1 {
+                            Button(action: {
+                                showSettings.toggle()
+                            }) {
+                                Image(systemName: "gear")
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fit)
+                                    .frame(width: 20, height: 20)
+                            }
+                        } else {
+                            Button(action: {
+                                if let url = URL(string: "https://github.com/alibaba/MNN") {
+                                    UIApplication.shared.open(url)
+                                }
+                            }) {
+                                Image(systemName: "star")
+                                    .aspectRatio(contentMode: .fit)
+                                    .frame(width: 20, height: 20)
+                            }
                         }
                     }
                 }
