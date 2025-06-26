@@ -10,11 +10,7 @@ import SwiftUI
 struct LocalModelRowView: View {
     
     let model: ModelInfo
-    let downloadProgress: Double
-    let isDownloading: Bool
-    let isOtherDownloading: Bool
-    let onDownload: () -> Void
-    
+
     var body: some View {
         HStack(alignment: .center) {
             
@@ -71,7 +67,6 @@ struct LocalModelRowView: View {
                         .foregroundColor(.gray)
                     }
                 }
-                
             }
         }
     }

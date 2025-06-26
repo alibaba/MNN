@@ -13,12 +13,12 @@ struct LocalModelListView: View {
     var body: some View {
         List {
             ForEach(viewModel.filteredModels.filter { $0.isDownloaded }, id: \.modelId) { model in
-                LocalModelRowView(model: model,
-                             downloadProgress: viewModel.downloadProgress[model.modelId] ?? 0,
-                             isDownloading: viewModel.currentlyDownloading == model.modelId,
-                             isOtherDownloading: viewModel.currentlyDownloading != nil) {
+                Button(action: {
                     viewModel.selectModel(model)
+                }) {
+                    LocalModelRowView(model: model)
                 }
+                .listRowBackground(viewModel.pinnedModelIds.contains(model.modelId) ? Color.black.opacity(0.05) : Color.clear)
                 .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                     SwipeActionsView(model: model, viewModel: viewModel)
                 }

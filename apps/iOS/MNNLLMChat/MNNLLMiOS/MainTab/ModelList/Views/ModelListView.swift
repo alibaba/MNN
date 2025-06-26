@@ -34,6 +34,7 @@ struct ModelListView: View {
                         }
                     }
                 }
+               .listRowBackground(viewModel.pinnedModelIds.contains(model.modelId) ? Color.black.opacity(0.05) : Color.clear)
                 .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                     SwipeActionsView(model: model, viewModel: viewModel)
                 }
