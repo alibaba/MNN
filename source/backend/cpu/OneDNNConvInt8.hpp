@@ -20,7 +20,7 @@ public:
         primitive_attr conv_attr;
         engine eng;
     };
-    static Execution* create(Backend *backend, const MNN::Convolution2D *convOp, const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
+    static Execution* create(Backend *backend, const MNN::Op* op, const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
     OneDNNConvInt8(std::shared_ptr<OneDNNConvInt8::Resource> resource, const MNN::Convolution2DCommon* common, Backend* bn);
     virtual ~OneDNNConvInt8();
     virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;

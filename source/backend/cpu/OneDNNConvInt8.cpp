@@ -14,9 +14,10 @@ OneDNNConvInt8::~OneDNNConvInt8() {
     // Do nothing
 }
 
-Execution* OneDNNConvInt8::create(Backend* backend, const MNN::Convolution2D* convParam, const std::vector<Tensor*>& inputs, const std::vector<Tensor *> &outputs) {
+Execution* OneDNNConvInt8::create(Backend* backend, const MNN::Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor *> &outputs) {
     std::shared_ptr<OneDNNConvInt8::Resource> resource(new OneDNNConvInt8::Resource);
     resource->backend = backend;
+    const auto convParam              = op->main_as_Convolution2D();
     const auto convCommon             = convParam->common();
     const auto kw                     = convCommon->kernelX();
     const auto kh                     = convCommon->kernelY();
@@ -68,7 +69,7 @@ Execution* OneDNNConvInt8::create(Backend* backend, const MNN::Convolution2D* co
     }
     std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon;
     if (convParam->quanParameter() != nullptr) {
-        quanCommon = ConvolutionCommon::load(convParam, backend, false);
+        quanCommon = ConvolutionCommon::load(op, backend, false);
         weightSrc = quanCommon->weight.get();
     }
     auto user_weights = memory(user_weights_md, eng, (int8_t*)weightSrc);
