@@ -31,8 +31,8 @@ class OfflineTtsVitsModel::Impl {
       : config_(config),
         sess_opts_(GetSessionOptions(config)),
         allocator_{} {
-    auto buf = ReadFile(config.vits.model);
-    Init(buf.data(), buf.size());
+    auto model_path = config.vits.model.c_str();
+    Init(model_path);
   }
 
   template <typename Manager>
@@ -40,8 +40,8 @@ class OfflineTtsVitsModel::Impl {
       : config_(config),
         sess_opts_(GetSessionOptions(config)),
         allocator_{} {
-    auto buf = ReadFile(mgr, config.vits.model);
-    Init(buf.data(), buf.size());
+    auto model_path = config.vits.model.c_str();
+    Init(model_path);
   }
 
   MNN::Express::VARP Run(MNN::Express::VARP x, int sid, float speed) {
@@ -114,8 +114,8 @@ class OfflineTtsVitsModel::Impl {
   const OfflineTtsVitsModelMetaData &GetMetaData() const { return meta_data_; }
 
  private:
-  void Init(void *model_data, size_t model_data_length) {
-    sess_ = std::unique_ptr<MNN::Express::Module>(MNN::Express::Module::load({}, {}, (const uint8_t*)model_data, model_data_length,
+  void Init(const char *model_path) {
+    sess_ = std::unique_ptr<MNN::Express::Module>(MNN::Express::Module::load({}, {}, model_path,
                                            sess_opts_.pManager, &sess_opts_.pConfig));
 
     GetInputNames(sess_.get(), &input_names_, &input_names_ptr_);
