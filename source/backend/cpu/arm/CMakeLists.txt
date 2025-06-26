@@ -25,9 +25,9 @@ if (MNN_KLEIDIAI)
     set(KLEIDIAI_BUILD_TESTS  OFF)
     # Fetch KleidiAI sources:
     include(FetchContent)
-    set(KLEIDIAI_COMMIT_SHA "v1.7.0")
+    set(KLEIDIAI_COMMIT_SHA "v1.9.0")
     set(KLEIDIAI_DOWNLOAD_URL "https://gitlab.arm.com/kleidi/kleidiai/-/archive/${KLEIDIAI_COMMIT_SHA}/kleidiai-${KLEIDIAI_COMMIT_SHA}.tar.gz")
-    set(KLEIDIAI_ARCHIVE_MD5  "f57f809096e57e93e9df6a2ac5686218")
+    set(KLEIDIAI_ARCHIVE_MD5  "e4c9fcb5de397ba3532d593672d56e95")
 
     if (POLICY CMP0135)
         cmake_policy(SET CMP0135 NEW)
