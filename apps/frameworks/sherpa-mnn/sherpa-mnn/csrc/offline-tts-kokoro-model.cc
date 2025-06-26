@@ -32,9 +32,9 @@ class OfflineTtsKokoroModel::Impl {
       : config_(config),
         sess_opts_(GetSessionOptions(config)),
         allocator_{} {
-    auto model_buf = ReadFile(config.kokoro.model);
+    auto model_path = config.kokoro.model.c_str();
     auto voices_buf = ReadFile(config.kokoro.voices);
-    Init(model_buf.data(), model_buf.size(), voices_buf.data(),
+    Init(model_path, voices_buf.data(),
          voices_buf.size());
   }
 
@@ -43,9 +43,9 @@ class OfflineTtsKokoroModel::Impl {
       : config_(config),
         sess_opts_(GetSessionOptions(config)),
         allocator_{} {
-    auto model_buf = ReadFile(mgr, config.kokoro.model);
+    auto model_path = config.kokoro.model.c_str();
     auto voices_buf = ReadFile(mgr, config.kokoro.voices);
-    Init(model_buf.data(), model_buf.size(), voices_buf.data(),
+    Init(model_path, voices_buf.data(),
          voices_buf.size());
   }
 
@@ -96,9 +96,9 @@ class OfflineTtsKokoroModel::Impl {
   }
 
  private:
-  void Init(void *model_data, size_t model_data_length, const char *voices_data,
+  void Init(const char *model_path, const char *voices_data,
             size_t voices_data_length) {
-    sess_ = std::unique_ptr<MNN::Express::Module>(MNN::Express::Module::load({}, {}, (const uint8_t*)model_data, model_data_length,
+    sess_ = std::unique_ptr<MNN::Express::Module>(MNN::Express::Module::load({}, {}, model_path,
                                            sess_opts_.pManager, &sess_opts_.pConfig));
 
     GetInputNames(sess_.get(), &input_names_, &input_names_ptr_);
