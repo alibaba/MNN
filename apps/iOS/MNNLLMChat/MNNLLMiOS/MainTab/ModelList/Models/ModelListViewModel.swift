@@ -68,18 +68,60 @@ class ModelListViewModel: ObservableObject {
             }
             
             for i in 0..<fetchedModels.count {
-                fetchedModels[i].isDownloaded = ModelStorageManager.shared.isModelDownloaded(fetchedModels[i].modelId)
+                let modelId = fetchedModels[i].modelId
+                fetchedModels[i].isDownloaded = ModelStorageManager.shared.isModelDownloaded(modelId)
+                fetchedModels[i].lastUsedAt = ModelStorageManager.shared.getLastUsed(for: modelId)
             }
-            // 多模型置顶顺序，最新置顶的在最顶部
-            let pinned = pinnedModelIds.reversed().compactMap { id in
-                fetchedModels.first(where: { $0.modelId == id })
-            }
-            let rest = fetchedModels.filter { !pinnedModelIds.contains($0.modelId) }
-            models = pinned + rest
+            
+            // Sort models
+            sortModels(fetchedModels: &fetchedModels)
+            
         } catch {
             showError = true
             errorMessage = "Error: \(error.localizedDescription)"
         }
+    }
+    
+    func recordModelUsage(modelId: String) {
+        ModelStorageManager.shared.updateLastUsed(for: modelId)
+        if let index = models.firstIndex(where: { $0.modelId == modelId }) {
+            models[index].lastUsedAt = Date()
+            sortModels(fetchedModels: &models)
+        }
+    }
+    
+    private func sortModels(fetchedModels: inout [ModelInfo]) {
+        let pinned = pinnedModelIds
+        
+        fetchedModels.sort { (model1, model2) -> Bool in
+            let isPinned1 = pinned.contains(model1.modelId)
+            let isPinned2 = pinned.contains(model2.modelId)
+            
+            if isPinned1 != isPinned2 {
+                return isPinned1
+            }
+            
+            if isPinned1 && isPinned2 {
+                let index1 = pinned.firstIndex(of: model1.modelId)!
+                let index2 = pinned.firstIndex(of: model2.modelId)!
+                return index1 > index2 // Pinned later comes first
+            }
+            
+            // Non-pinned models
+            if model1.isDownloaded != model2.isDownloaded {
+                return model1.isDownloaded
+            }
+            
+            if model1.isDownloaded {
+                let date1 = model1.lastUsedAt ?? .distantPast
+                let date2 = model2.lastUsedAt ?? .distantPast
+                return date1 > date2
+            }
+            
+            return false // Keep original order for not-downloaded
+        }
+        
+        models = fetchedModels
     }
     
     func selectModel(_ model: ModelInfo) {

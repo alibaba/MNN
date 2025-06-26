@@ -1,13 +1,13 @@
 //
-//  ModelRowView.swift
+//  LocalModelRowView.swift
 //  MNNLLMiOS
 //
-//  Created by 游薪渝(揽清) on 2025/1/3.
+//  Created by 游薪渝(揽清) on 2025/6/26.
 //
 
 import SwiftUI
 
-struct ModelRowView: View {
+struct LocalModelRowView: View {
     
     let model: ModelInfo
     let downloadProgress: Double
@@ -16,7 +16,7 @@ struct ModelRowView: View {
     let onDownload: () -> Void
     
     var body: some View {
-        HStack(alignment: .top) {
+        HStack(alignment: .center) {
             
             ModelIconView(modelId: model.modelId)
                 .frame(width: 50, height: 50)
@@ -26,12 +26,6 @@ struct ModelRowView: View {
                     .font(.headline)
                     .fontWeight(.semibold)
                     .lineLimit(1)
-                
-                if let lastUsedAt = model.lastUsedAt {
-                    Text("Last used: \(lastUsedAt.formatAgo())")
-                        .font(.caption2)
-                        .foregroundColor(.gray)
-                }
                 
                 if !model.tags.isEmpty {
                     ScrollView(.horizontal, showsIndicators: false) {
@@ -53,19 +47,31 @@ struct ModelRowView: View {
                     }
                 }
                 
-                if isDownloading {
-                    ProgressView(value: downloadProgress) {
-                        Text(String(format: "%.2f%%", downloadProgress * 100))
-                            .font(.system(size: 14, weight: .regular, design: .default))
+                HStack {
+                    HStack(alignment: .center, spacing: 2) {
+                        Image(systemName: "folder")
+                            .font(.caption)
+                            .fontWeight(.medium)
+                            .foregroundColor(.gray)
+                            .frame(width: 20, height: 20)
+                        
+                        Text("3.4 GB")
+                            .font(.caption)
+                            .fontWeight(.medium)
+                            .foregroundColor(.gray)
                     }
-                } else {
-                    Button(action: onDownload) {
-                        Label(model.isDownloaded ? "Chat" : "Download",
-                              systemImage: model.isDownloaded ? "message" : "arrow.down.circle")
-                        .font(.system(size: 14, weight: .medium, design: .default))
+                    
+
+                    Spacer()
+                    
+                    if let lastUsedAt = model.lastUsedAt {
+                    Text("\(lastUsedAt.formatAgo())")
+                        .font(.caption)
+                        .fontWeight(.medium)
+                        .foregroundColor(.gray)
                     }
-                    .disabled(isOtherDownloading)
                 }
+                
             }
         }
     }

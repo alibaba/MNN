@@ -62,6 +62,7 @@ struct MainTabView: View {
                             }
                         }
                     }
+                    
                     ToolbarItem(placement: .navigationBarTrailing) {
                         if selectedTab == 1 {
                             Button(action: {
@@ -161,6 +162,9 @@ struct MainTabView: View {
             get: { modelListViewModel.selectedModel != nil || selectedHistory != nil },
             set: { isActive in
                 if !isActive {
+                    if let model = modelListViewModel.selectedModel {
+                        modelListViewModel.recordModelUsage(modelId: model.modelId)
+                    }
                     modelListViewModel.selectedModel = nil
                     selectedHistory = nil
                 }

@@ -12,8 +12,28 @@ class ModelStorageManager {
     
     private let userDefaults = UserDefaults.standard
     private let downloadedModelsKey = "com.mnnllm.downloadedModels"
+    private let lastUsedModelKey = "com.mnnllm.lastUsedModels"
     
     private init() {}
+    
+    var lastUsedModels: [String: Date] {
+        get {
+            userDefaults.dictionary(forKey: lastUsedModelKey) as? [String: Date] ?? [:]
+        }
+        set {
+            userDefaults.set(newValue, forKey: lastUsedModelKey)
+        }
+    }
+    
+    func updateLastUsed(for modelId: String) {
+        var models = lastUsedModels
+        models[modelId] = Date()
+        lastUsedModels = models
+    }
+    
+    func getLastUsed(for modelId: String) -> Date? {
+        return lastUsedModels[modelId]
+    }
     
     var downloadedModels: [String] {
         get {

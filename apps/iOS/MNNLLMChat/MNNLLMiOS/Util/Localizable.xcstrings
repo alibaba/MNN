@@ -4,7 +4,13 @@
     "" : {
 
     },
+    "%@" : {
+
+    },
     "%lld" : {
+
+    },
+    "3.4 GB" : {
 
     },
     "Are you sure you want to delete this history?" : {
@@ -198,6 +204,9 @@
         }
       }
     },
+    "Last used: %@" : {
+
+    },
     "Model Configuration" : {
       "localizations" : {
         "zh-Hans" : {
@@ -260,6 +269,7 @@
       }
     },
     "Models" : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {

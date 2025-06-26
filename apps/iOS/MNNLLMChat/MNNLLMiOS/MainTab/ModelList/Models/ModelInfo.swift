@@ -19,6 +19,7 @@ struct ModelInfo: Codable {
     }
     
     var isDownloaded: Bool = false
+    var lastUsedAt: Date?
     
     var localPath: String {
         return HubApi.shared.localRepoLocation(HubApi.Repo.init(id: modelId)).path
