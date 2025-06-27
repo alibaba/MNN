@@ -94,6 +94,12 @@ public:
     const Tensor * keySum() {
         return mKeySum.get();
     }
+    void setThreadNum(int numThread) {
+        mThreadNum = numThread;
+        if (mThreadNum > mKvNumHead) {
+            mThreadNum = mKvNumHead;
+        }
+    }
     bool inDisk() {
         return mKVCacheInDisk;
     }
