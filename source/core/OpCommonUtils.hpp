@@ -41,6 +41,7 @@ struct KVMeta {
 class MNN_PUBLIC OpCommonUtils {
 #define USE_EXTERNAL_DATA(param) (param->external() && param->external()->size() > 1)
 public:
+    static bool checkNet(const void* buffer, size_t length);
     static Tensor::DimensionType convertDimType(MNN_DATA_FORMAT dimensionFormat);
     static bool supportDynamicInputMemory(MNNForwardType type);
     static void broastCastComputeDim(int* dims, int* stride, int* iStride0, int* iStride1, const Tensor* input0,

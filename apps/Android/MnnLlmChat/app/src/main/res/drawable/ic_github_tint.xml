@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<bitmap android:src="@drawable/ic_github"
+    android:tint="?colorPrimary"
+    app:tint="?colorPrimary"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:android="http://schemas.android.com/apk/res/android" />

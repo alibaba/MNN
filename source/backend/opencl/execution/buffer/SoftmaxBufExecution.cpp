@@ -140,7 +140,11 @@ ErrorCode SoftmaxBufExecution::onEncode(const std::vector<Tensor *> &inputs, con
         }
         MNN_CHECK_CL_SUCCESS(ret, "setArg SoftmaxBufExecution");
         if(localSize == 1){
-            mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), "softmax_buf", unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
+            std::string programName = "softmax_buf";
+            if(inside == 1){
+                programName = "self_attention_buf";
+            }
+            mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), "softmax_buf", unit.kernel, mOpenCLBackend->getCLTuneLevel(), programName).first;
         }
         
         mOpenCLBackend->recordKernel3d(unit.kernel, mGlobalWorkSize, mLocalWorkSize);

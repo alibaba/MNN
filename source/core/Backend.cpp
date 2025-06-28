@@ -45,6 +45,9 @@ extern void registerCoreMLRuntimeCreator();
 #if MNN_NNAPI_ENABLED
 extern void registerNNAPIRuntimeCreator();
 #endif
+#if MNN_QNN_ENABLED
+extern void registerQNNRuntimeCreator();
+#endif
 
 static std::once_flag s_flag;
 void registerBackend() {
@@ -53,7 +56,7 @@ void registerBackend() {
         LogInit();
 #endif
         registerCPURuntimeCreator();
-#ifndef MNN_BUILD_MINI
+#ifndef MNN_SKIPBUILD_GEOMETRY
         SizeComputerSuite::init();
         GeometryComputer::init();
 #endif
@@ -62,6 +65,9 @@ void registerBackend() {
 #endif
 #ifdef MNN_NNAPI_ENABLED
         registerNNAPIRuntimeCreator();
+#endif
+#if MNN_QNN_ENABLED
+    registerQNNRuntimeCreator();
 #endif
 #if MNN_OPENCL_ENABLED
         OpenCL::registerOpenCLRuntimeCreator();

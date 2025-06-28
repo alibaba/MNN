@@ -90,6 +90,7 @@ static PyObject* PyMNNVar_fix_as_const(PyMNNVar *self, PyObject *args);
 static PyObject* PyMNNVar_fix_as_trainable(PyMNNVar *self, PyObject *args);
 static PyObject* PyMNNVar_close(PyMNNVar *self, PyObject *args);
 static PyObject* PyMNNVar_copy_from(PyMNNVar *self, PyObject *args);
+static PyObject* PyMNNVar_set_order(PyMNNVar *self, PyObject *args);
 static PyObject* PyMNNVar_set_inputs(PyMNNVar *self, PyObject *args);
 static PyObject* PyMNNVar_replace(PyMNNVar *self, PyObject *args);
 static PyObject* PyMNNVar_reorder(PyMNNVar *self, PyObject *args);
@@ -124,6 +125,7 @@ static PyMethodDef PyMNNVar_methods[] = {
     {"fix_as_trainable", (PyCFunction)PyMNNVar_fix_as_trainable, METH_VARARGS, "fix as trainable"},
     {"close", (PyCFunction)PyMNNVar_close, METH_VARARGS, "close"},
     {"copy_from", (PyCFunction)PyMNNVar_copy_from, METH_VARARGS, "copy from arg"},
+    {"set_order", (PyCFunction)PyMNNVar_set_order, METH_VARARGS, "set set_order"},
     {"set_inputs", (PyCFunction)PyMNNVar_set_inputs, METH_VARARGS, "set inputs"},
     {"replace", (PyCFunction)PyMNNVar_replace, METH_VARARGS, "replace with arg"},
     {"reorder", (PyCFunction)PyMNNVar_reorder, METH_VARARGS, "reorder with arg"},
@@ -325,7 +327,11 @@ static VARP toVar(PyObject* var) {
         auto floats = toFloats(var);
         return _Const(floats.data(), {static_cast<int>(floats.size())}, NCHW, halide_type_of<float>());
     }
-    return *(((PyMNNVar*)var)->var);
+    if (Py_TYPE(var) == PyType_FindTLSType(&PyMNNVarType)) {
+        return *(((PyMNNVar*)var)->var);
+    }
+    MNN_ERROR("Invalid type for Var\n");
+    return nullptr;
 }
 static VARPS toVars(PyObject* vars) {
     VARPS varps;
@@ -340,7 +346,8 @@ static VARPS toVars(PyObject* vars) {
 }
 std::pair<VARP, VARP> toVarPair(PyObject* l, PyObject* r, bool fp = false) {
     if (!isVar(l) || !isVar(r)) {
-        PyMNN_ERROR_LOG("binary lhs and rhs must be Var.");
+        PyMNN_ERROR_LOG("binary lhs and rhs must be Var.\n");
+        return std::make_pair(nullptr, nullptr);
     }
     auto varl = toVar(l);
     auto varr = toVar(r);
@@ -369,8 +376,13 @@ std::pair<VARP, VARP> toVarPair(PyObject* l, PyObject* r, bool fp = false) {
     }
     return std::make_pair(varl, varr);
 }
+
+#define CHECK_VARPAIR \
+if (nullptr == lr.first || nullptr == lr.second) {PyMNN_ERROR("nullptr pair\n");}
+
 PyObject *PyMNNVar_richcompare(PyObject *l, PyObject *r, int op) {
     auto lr = toVarPair(l, r);
+    CHECK_VARPAIR;
     auto vl = lr.first, vr = lr.second;
     VARP res;
     switch (op) {
@@ -399,31 +411,37 @@ PyObject *PyMNNVar_richcompare(PyObject *l, PyObject *r, int op) {
 }
 static PyObject* PyMNNVar_add(PyObject* l, PyObject* r) {
     auto lr = toVarPair(l, r);
+    CHECK_VARPAIR;
     auto vl = lr.first, vr = lr.second;
     return toPyObj(Express::_Add(vl, vr));
 }
 static PyObject* PyMNNVar_subtract(PyObject* l, PyObject* r) {
     auto lr = toVarPair(l, r);
+    CHECK_VARPAIR;
     auto vl = lr.first, vr = lr.second;
     return toPyObj(Express::_Subtract(vl, vr));
 }
 static PyObject* PyMNNVar_multiply(PyObject* l, PyObject* r) {
     auto lr = toVarPair(l, r);
+    CHECK_VARPAIR;
     auto vl = lr.first, vr = lr.second;
     return toPyObj(Express::_Multiply(vl, vr));
 }
 static PyObject* PyMNNVar_true_divide(PyObject* l, PyObject* r) {
     auto lr = toVarPair(l, r);
+    CHECK_VARPAIR;
     auto vl = lr.first, vr = lr.second;
     return toPyObj(Express::_Divide(vl, vr));
 }
 static PyObject* PyMNNVar_floor_divide(PyObject* l, PyObject* r) {
     auto lr = toVarPair(l, r);
+    CHECK_VARPAIR;
     auto vl = lr.first, vr = lr.second;
     return toPyObj(Express::_FloorDiv(vl, vr));
 }
 static PyObject* PyMNNVar_power(PyObject* x, PyObject* y, PyObject* z) {
     auto lr = toVarPair(x, y, true);
+    CHECK_VARPAIR;
     auto vl = lr.first, vr = lr.second;
     return toPyObj(Express::_Pow(vl, vr));
 }
@@ -515,6 +533,10 @@ static PyObject* PyMNNVar_subscript(PyObject* x, PyObject* slice) {
     if (isIdx(slice)) {
         auto val = toVar(x);
         auto idx = toVar(slice);
+        if (nullptr == val->getInfo()) {
+            PyMNN_ERROR("Can't support subscript for tensor without shape\n");
+            Py_RETURN_NONE;
+        }
         if (val->getInfo()->size > 1 && isBoolIdx(idx, val->getInfo()->size)) {
             // 0-1 gather -> idx gather
             idx = Express::_Where(idx);
@@ -562,7 +584,7 @@ static PyObject* PyMNNVar_subscript(PyObject* x, PyObject* slice) {
 
 static int PyMNNVar_ass_subscript(PyObject* x, PyObject* slice, PyObject* y) {
     if (!isVar(x) || !isVar(y)) {
-        PyMNN_ERROR_LOG("ass_subscript require args: (Var, int/Var, int/float/Var)");
+        PyMNN_ERROR_LOG("ass_subscript require args: (Var, int/Var, int/float/Var)\n");
         return -1;
     }
     auto var = toVar(x);
@@ -607,8 +629,10 @@ static int PyMNNVar_ass_subscript(PyObject* x, PyObject* slice, PyObject* y) {
 }
 static PyObject* PyMNNVar_iter(PyObject *self) {
     auto var = toVar(self);
-    if (var->getInfo()->dim.empty()) {
-        PyMNN_ERROR("iteration over a 0-d array");
+    auto info = var->getInfo();
+    if (nullptr == info || info->dim.empty()) {
+        PyMNN_ERROR("iteration over a 0-d array or var can't compute shape\n");
+        Py_RETURN_NONE;
     }
     Py_INCREF(self);
     return self;
@@ -649,7 +673,7 @@ static PyObject* PyMNNVar_repr(PyObject *self) {
     auto content = PyMNNVar_read_as_tuple((PyMNNVar*)self, NULL);
 #endif
     auto reprfunc = PyObject_GetAttrString(content, "__repr__");
-    auto str = PyEval_CallObject(reprfunc, NULL);
+    auto str = PyObject_CallObject(reprfunc, nullptr);
     Py_DECREF(content);
     Py_DECREF(reprfunc);
     return str;
@@ -660,7 +684,8 @@ static PyObject* PyMNNVar_getshape(PyMNNVar *self, void *closure) {
     if (self->var) {
         auto info = (*(self->var))->getInfo();
         if(nullptr == info) {
-            PyMNN_ERROR("getshape: unable to get variable info");
+            MNN_ERROR("getshape: unable to get variable info");
+            Py_RETURN_NONE;
         }
         shape = toPyObj(info->dim);
     }
@@ -804,6 +829,19 @@ static PyObject* PyMNNVar_copy_from(PyMNNVar *self, PyObject *args) {
         PyMNN_ERROR("PyMNNVar_copy_from: source or destination var is NULL!");
     }
     (*(self->var))->input(*(src->var));
+    Py_RETURN_NONE;
+}
+static PyObject* PyMNNVar_set_order(PyMNNVar *self, PyObject *args) {
+    if (!self->var) {
+        PyMNN_ERROR("PyMNNVar_set_order: source or destination var is NULL!");
+        Py_RETURN_NONE;
+    }
+    PyObject* format = 0;
+    if (!PyArg_ParseTuple(args, "O", &format)) {
+        return NULL;
+    }
+    auto data_format = PARSE(format, NCHW, toEnum<Dimensionformat>);
+    (*(self->var)).setOrder((MNN::Express::Dimensionformat)data_format);
     Py_RETURN_NONE;
 }
 static PyObject* PyMNNVar_set_inputs(PyMNNVar *self, PyObject *args) {

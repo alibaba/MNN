@@ -96,7 +96,7 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
     param->block_size = blockSize;
     param->activation = mActivationType;
     param->scale_coef = mScaleCoef;
-
+    int area = ob * ow * oh;
     // basic marco info
     std::string ftype2 = "float2";
     std::string ftype4 = "float4";
@@ -119,10 +119,12 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
     } else if(mDequantBits == 8) {
         [dic setValue:@"1" forKey:@"W_QUANT_8"];
     }
+
     option.preprocessorMacros = dic;
     std::vector<std::string> baseKeys = {ftype4, "MNN_METAL_FLOAT32_COMPUTER"};
 
     MetalRuntime* rt = (MetalRuntime *)backend->runtime();
+#ifdef MNN_LOW_MEMORY
     if (mDequantScaleBias.get()) {
         NSUInteger gid_x = UP_DIV(ow * oh, 4);
         NSUInteger gid_y = oc_4;
@@ -131,16 +133,42 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
         mPipeline = [context pipelineWithName:@"conv1x1_g1z4_w8" fp16:backend->useFp16InsteadFp32()];
         
         if (mDequantBits == 4 || mDequantBits == 8) {
+            // TODO: define short_seq more accurately
+            int short_seq = 10;
             if(mDequantBits == 4) {
                 baseKeys.emplace_back("conv1x1_wquant_4");
             } else if(mDequantBits == 8) {
                 baseKeys.emplace_back("conv1x1_wquant_8");
             }
-            if(rt->supportSimdGroupReduce() && ob * ow * oh == 1) {
+            if(rt->supportSimdGroupReduce() && area <= short_seq) {
                 baseKeys.emplace_back("conv1x1_wquant_sg_reduce");
 
-                // unrool c for avoid memory exceed
-                if(oc > 16384 && oc_4 % 2 == 0) {
+                if(area > 1) {
+                    auto keys = baseKeys;
+                    int piece = 1;
+                    // memory bound not so seriously, can add more thread to reduce computation in each thread
+                    float ratio = 1.0 * ic_4 / 2048.0 * oc / 2048.0;
+                    bool heavyMemory = ratio > 1.0;
+                    if(area > 5 && !heavyMemory) {
+                        if(area % 2 != 0) {
+                            keys.emplace_back("MNN_METAL_SRC_PROTECT");
+                            [dic setValue:@"1" forKey:@"MNN_METAL_SRC_PROTECT"];;
+                            option.preprocessorMacros = dic;
+                        }
+                        area = UP_DIV(area, 2);
+                        piece = 2;
+                    }
+                    std::string kernel_name = "conv1x1_gemv_g4m" + std::to_string(area) + "_wquant_sg";
+                    keys.emplace_back(kernel_name);
+                    auto pipeline = rt->findPipeline(keys);
+                    if (nil == pipeline) {
+                        pipeline = backend->makeComputePipelineWithSourceOption(gConv1x1W4SgReduce, kernel_name.c_str(), option);
+                        rt->insertPipeline(keys, pipeline);
+                    }
+                    mPipeline = pipeline;
+                    mThreads = std::make_pair(MTLSizeMake(UP_DIV(oc, 4), piece, 1), MTLSizeMake(32, 1, 1));
+                } else if(oc > 16384 && oc_4 % 2 == 0) {
+                    // unrool c for avoid memory exceed
                     auto keys = baseKeys;
                     keys.emplace_back("conv1x1_gemv_g16_wquant_sg");
                     auto pipeline = rt->findPipeline(keys);
@@ -149,7 +177,7 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
                         rt->insertPipeline(keys, pipeline);
                     }
                     mPipeline = pipeline;
-                    mThreads = std::make_pair(MTLSizeMake(UP_DIV(oc, 16), 1, 1), MTLSizeMake(64, 1, 1));
+                    mThreads = std::make_pair(MTLSizeMake(UP_DIV(oc, 16), area, 1), MTLSizeMake(64, 1, 1));
                 } else {
                     auto keys = baseKeys;
                     keys.emplace_back("conv1x1_gemv_g8_wquant_sg");
@@ -160,16 +188,16 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
                     }
                     mPipeline = pipeline;
 //                    MNN_PRINT("g8  ic: %d oc: %d\n", input->channel(), oc);
-                    mThreads = std::make_pair(MTLSizeMake(UP_DIV(oc, 8), 1, 1), MTLSizeMake(64, 1, 1));
+                    mThreads = std::make_pair(MTLSizeMake(UP_DIV(oc, 8), area, 1), MTLSizeMake(64, 1, 1));
                 }
                 return NO_ERROR;
-            } else if(rt->supportSimdGroupMatrix()  && ob * ow * oh > 8 && oc > 8 && ic_4 % 8 == 0) {
+            } else if(rt->supportSimdGroupMatrix()  && area > short_seq && oc > 8 && ic_4 % 8 == 0) {
                 baseKeys.emplace_back("conv1x1_wquant_sg_matrix");
 
                 // Generally threadgroup memory >= 16KB
                 auto smem_size = [[context device] maxThreadgroupMemoryLength];
                 // choose different tile for different computation
-                if(ob * ow * oh >= 128 && oc >= 512 && ob * ow * oh * oc > 512 * 2048 && smem_size >= 8192) {
+                if(area >= 128 && oc >= 512 && area * oc > 512 * 2048 && smem_size >= 8192) {
                     auto keys = baseKeys;
                     keys.emplace_back("conv1x1_gemm_32x64_wquant_sg");
                     auto pipeline = rt->findPipeline(keys);
@@ -178,9 +206,9 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
                         rt->insertPipeline(keys, pipeline);
                     }
                     mPipeline = pipeline;
-                    mThreads = std::make_pair(MTLSizeMake(UP_DIV(ob * ow * oh, 32), UP_DIV(oc, 64), 1), MTLSizeMake(128, 1, 1));
+                    mThreads = std::make_pair(MTLSizeMake(UP_DIV(area, 32), UP_DIV(oc, 64), 1), MTLSizeMake(128, 1, 1));
                                         
-                } else if(ob * ow * oh >= 32 && ob * ow * oh * oc > 128 * 2048) {
+                } else if(area >= 32 && area * oc > 128 * 2048) {
                     auto keys = baseKeys;
                     keys.emplace_back("conv1x1_gemm_32x16_wquant_sg");
                     auto pipeline = rt->findPipeline(keys);
@@ -189,8 +217,8 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
                         rt->insertPipeline(keys, pipeline);
                     }
                     mPipeline = pipeline;
-                    mThreads = std::make_pair(MTLSizeMake(UP_DIV(ob * ow * oh, 32), UP_DIV(oc, 16), 1), MTLSizeMake(32, 1, 1));
-                } else if(oc > 512 && ob * ow * oh * oc > 128 * 2048) {
+                    mThreads = std::make_pair(MTLSizeMake(UP_DIV(area, 32), UP_DIV(oc, 16), 1), MTLSizeMake(32, 1, 1));
+                } else if(oc > 512 && area * oc > 128 * 2048) {
                     auto keys = baseKeys;
                     keys.emplace_back("conv1x1_gemm_16x32_wquant_sg");
                     auto pipeline = rt->findPipeline(keys);
@@ -199,7 +227,7 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
                         rt->insertPipeline(keys, pipeline);
                     }
                     mPipeline = pipeline;
-                    mThreads = std::make_pair(MTLSizeMake(UP_DIV(ob * ow * oh, 16), UP_DIV(oc, 32), 1), MTLSizeMake(32, 1, 1));
+                    mThreads = std::make_pair(MTLSizeMake(UP_DIV(area, 16), UP_DIV(oc, 32), 1), MTLSizeMake(32, 1, 1));
                 } else {
                     auto keys = baseKeys;
                     keys.emplace_back("conv1x1_gemm_16x16_wquant_sg");
@@ -209,8 +237,8 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
                         rt->insertPipeline(keys, pipeline);
                     }
                     mPipeline = pipeline;
-//                                    MNN_PRINT("gemm M: %d N: %d\n", ob * ow * oh, oc);
-                    mThreads = std::make_pair(MTLSizeMake(UP_DIV(ob * ow * oh, 16), UP_DIV(oc, 16), 1), MTLSizeMake(32, 1, 1));
+//                                    MNN_PRINT("gemm M: %d N: %d\n", area, oc);
+                    mThreads = std::make_pair(MTLSizeMake(UP_DIV(area, 16), UP_DIV(oc, 16), 1), MTLSizeMake(32, 1, 1));
                 }
                 return NO_ERROR;
             } else if(mDequantBits == 4) {
@@ -246,13 +274,13 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
         mThreads = std::make_pair(std::get<0>(ret), std::get<1>(ret));
         return NO_ERROR;
     }
-    
+#endif
     if(rt->supportSimdGroupMatrix()) {
         baseKeys.emplace_back("conv1x1_float_sg_matrix");
         // total computation not too small
-        if(ob * ow * oh >= 16 && ic_4 >= 4 && ic_4 % 2 == 0 && oc_4 >= 4 && ob * ow * oh * ic_4 * oc_4 >= 64 * 64 * 64) {
+        if(area >= 16 && ic_4 >= 4 && ic_4 % 2 == 0 && oc_4 >= 4 && area * ic_4 * oc_4 >= 64 * 64 * 64) {
             // Enough threads
-            if(ob * ow * oh * oc_4 / ic_4 >= 1024) {
+            if(area * oc_4 / ic_4 >= 1024) {
                 auto keys = baseKeys;
                 keys.emplace_back("conv1x1_gemm_32x16_sg");
                 auto pipeline = rt->findPipeline(keys);
@@ -261,7 +289,7 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
                     rt->insertPipeline(keys, pipeline);
                 }
                 mPipeline = pipeline;
-                mThreads = std::make_pair(MTLSizeMake(UP_DIV(ob * ow * oh, 32), UP_DIV(oc, 16), 1), MTLSizeMake(32, 1, 1));
+                mThreads = std::make_pair(MTLSizeMake(UP_DIV(area, 32), UP_DIV(oc, 16), 1), MTLSizeMake(32, 1, 1));
             } else {
                 auto keys = baseKeys;
                 keys.emplace_back("conv1x1_gemm_16x16_sg");
@@ -271,7 +299,7 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
                     rt->insertPipeline(keys, pipeline);
                 }
                 mPipeline = pipeline;
-                mThreads = std::make_pair(MTLSizeMake(UP_DIV(ob * ow * oh, 16), UP_DIV(oc, 16), 1), MTLSizeMake(32, 1, 1));
+                mThreads = std::make_pair(MTLSizeMake(UP_DIV(area, 16), UP_DIV(oc, 16), 1), MTLSizeMake(32, 1, 1));
             }
             return NO_ERROR;
         }
@@ -280,7 +308,7 @@ ErrorCode MetalConvolution1x1::onResize(const std::vector<Tensor *> &inputs, con
         baseKeys.emplace_back("conv1x1_float_sg_reduce");
         // do input_channel reduce
         auto magic_num = 4.0; // total threads pretty small and loop pretty large
-        if(ic_4 >= 32 && ic_4 % 2 == 0 && 1.0 * ob * ow * oh * oc_4 / ic_4 < magic_num) {
+        if(ic_4 >= 32 && ic_4 % 2 == 0 && 1.0 * area * oc_4 / ic_4 < magic_num) {
             auto keys = baseKeys;
             keys.emplace_back("conv1x1_z4_sg");
             auto pipeline = rt->findPipeline(keys);

@@ -86,7 +86,6 @@ object DownloadPersistentData {
             context.getSharedPreferences("DOWNLOAD_$modelId", Context.MODE_PRIVATE)
         val editor = sharedPreferences.edit()
         editor.remove(SIZE_SAVED_KEY)
-        editor.remove(SIZE_TOTAL_KEY)
         editor.apply()
     }
 }

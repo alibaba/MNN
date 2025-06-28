@@ -29,7 +29,6 @@ void _SSE_MNNGemmInt8AddBiasScale_16x4_Unit(int8_t* dst, const int8_t* src, cons
         fp32min = _mm_set1_ps((post->fp32minmax)[0]);
         fp32max = _mm_set1_ps((post->fp32minmax)[1]);
     }
-    auto oneValue = _mm_set1_epi16(1);
     auto offset = _mm_set1_epi32(128);
     auto srcKernelSumPtr = post->srcKernelSum;
     __m128 kernelSum0 = _mm_setzero_ps();
@@ -367,7 +366,6 @@ void _SSE_MNNGemmInt8AddBiasScale_16x4_w4(int8_t* dst, const int8_t* src, const 
     int weight_step_Z = 0.5 * src_depth_quad * (GEMM_INT8_UNIT * GEMM_INT8_SRC_UNIT) + 4 * 2 * GEMM_INT8_UNIT;
     int weight_step_Y = 0.5 * (GEMM_INT8_UNIT * GEMM_INT8_SRC_UNIT);
 
-    auto oneValue = _mm_set1_epi16(1);
     auto offset = _mm_set1_epi32(128);
     auto neg128f   = _mm_set1_ps(-128.f);
     auto srcKernelSumPtr = post->srcKernelSum;
@@ -394,7 +392,6 @@ void _SSE_MNNGemmInt8AddBiasScale_16x4_w4(int8_t* dst, const int8_t* src, const 
             kernelSum2 = _mm_load_ps1(post->srcKernelSum + 2);
         }
     }
-    auto f128 = _mm_set1_ps(128.f);
     __m128 extrascale0 = _mm_setzero_ps();
     __m128 extrascale1 = _mm_setzero_ps();
     __m128 extrascale2 = _mm_setzero_ps();
@@ -785,10 +782,7 @@ void _SSE_MNNLineDepthWiseInt8AddBiasScaleUnit(int8_t* dstO, const int8_t* srcO,
     auto scaleValue3 = _mm_loadu_ps((const float*)parameters->scale + 12);
     __m128i d0, d1, d2, d3;
     int dx, fx, fy;
-    __m128i srcValue0;
-    auto srcTemp0 = (int64_t*)(&srcValue0);
     __m128i srcValue1;
-    auto srcTemp1 = (int64_t*)(&srcValue1);
     __m128i zero = _mm_xor_si128(srcValue1, srcValue1);
     __m128 zero128 = _mm_set1_ps(0.0f);
     auto minValue = _mm_set1_epi16(parameters->minValue + 128);

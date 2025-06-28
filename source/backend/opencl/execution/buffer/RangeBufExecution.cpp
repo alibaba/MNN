@@ -45,7 +45,7 @@ ErrorCode RangeBufExecution::onEncode(const std::vector<Tensor*>& inputs, const 
     MNN_CHECK_CL_SUCCESS(ret, "setArg RangeBufExecution");
 
     std::string kernelName = "range_buf";
-    mLocalSize = localWS2DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), kernelName, unit.kernel, openCLBackend->getCLTuneLevel()).first;
+    mLocalSize = localWS2DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), kernelName, unit.kernel, openCLBackend->getCLTuneLevel(), "range_buf").first;
     openCLBackend->recordKernel2d(unit.kernel, mGlobalWorkSize, mLocalSize);
     unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1]};
     unit.localWorkSize = {mLocalSize[0], mLocalSize[1]};

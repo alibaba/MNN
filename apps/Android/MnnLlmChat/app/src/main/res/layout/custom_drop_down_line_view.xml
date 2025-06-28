@@ -3,11 +3,10 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/rl_sampler_type"
-    style="@style/SettingsRowContainer"
-    android:layout_height="48dp"
+    android:layout_height="56dp"
     android:background="?attr/selectableItemBackground"
-    android:paddingLeft="8dp"
-    android:paddingRight="8dp">
+    android:padding="20dp"
+>
 
     <TextView
         android:id="@+id/tv_label_sampler_type"

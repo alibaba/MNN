@@ -30,6 +30,8 @@ class ChatDataItem {
     var displayText: String? = null
         get() = field?:""
 
+    var thinkingText: String? = null
+
     var audioDuration = 0f
 
     private var _hasOmniAudio:Boolean = false
@@ -58,6 +60,14 @@ class ChatDataItem {
             }
             return null
         }
+
+    var showThinking: Boolean = true
+
+    var thinkingFinishedTime = -1L
+
+    fun toggleThinking() {
+        showThinking = !showThinking
+    }
 
     companion object {
         fun createImageInputData(timeString: String?, text: String?, imageUri: Uri?): ChatDataItem {

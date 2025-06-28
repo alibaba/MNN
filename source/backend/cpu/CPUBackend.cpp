@@ -245,12 +245,13 @@ Backend* CPURuntime::onCreate(const BackendConfig* config, Backend* origin) cons
             std::string fileName = MNNFilePathConcat(hint().weightMemoryPath, prefix + "sync.static");
             const_cast<RuntimeHint&>(hint()).useCachedMmap += MNNFileExist(fileName.c_str());
         }
-        if (nullptr == mStaticAllocatorCache.get()) {
+        if (nullptr == mStaticAllocatorMMap.get()) {
             // Only support set weightmap dir once
-            mStaticAllocatorCache = mStaticAllocator;
+            mStaticAllocatorRaw = mStaticAllocator;
             auto mmapMem = BufferAllocator::Allocator::createMmap(hint().weightMemoryPath.c_str(), prefix.c_str(), "static", autoRemove);
             size_t mmapSize = static_cast<size_t>(hint().mmapFileSize) * 1024 * 1024;
             mStaticAllocator.reset(new EagerBufferAllocator(mmapMem, 32, mmapSize));
+            mStaticAllocatorMMap = mStaticAllocator;
         }
     }
     auto precision = mPrecision;
@@ -323,6 +324,9 @@ int CPURuntime::onGetRuntimeStatus(RuntimeStatus statusEnum) const {
 
 void CPURuntime::onGabageCollect(int level) {
     mStaticAllocator->release(false);
+    if (nullptr != mStaticAllocatorMMap) {
+        mStaticAllocatorMMap->release(false);
+    }
     if (level >= 100) {
         for (auto& buf : mDynamic) {
             buf.release();
@@ -334,8 +338,11 @@ void CPURuntime::onGabageCollect(int level) {
 void CPURuntime::onConcurrencyBegin() const {
 #ifdef MNN_USE_THREAD_POOL
     if (mTaskIndex >= 0) {
-        ThreadPool::active(mThreadNumber);
-        mThreadOpen = true;
+        if (mThreadOpen == 0) {
+            // mThreadOpen 0 -> 1, open ThreadPool
+            ThreadPool::active(mThreadNumber);
+        }
+        mThreadOpen++;
     }
 #else
 #ifdef _OPENMP
@@ -349,8 +356,12 @@ void CPURuntime::onConcurrencyBegin() const {
 void CPURuntime::onConcurrencyEnd() const {
 #ifdef MNN_USE_THREAD_POOL
     if (mTaskIndex >= 0) {
-        ThreadPool::deactive(mThreadNumber);
-        mThreadOpen = false;
+        MNN_ASSERT(mThreadOpen > 0);
+        mThreadOpen--;
+        mThreadOpen = mThreadOpen < 0 ? 0 : mThreadOpen;
+        if (0 == mThreadOpen) {
+            ThreadPool::deactive(mThreadNumber);
+        }
     }
 #endif
 }
@@ -373,8 +384,8 @@ BufferAllocator* CPURuntime::createDynamicBufferAlloctor(int index) const {
     if (hint().memoryAllocatorType == Runtime::Allocator_Defer) {
         return new DeferBufferAllocator(buffer(index));
     }
-    if (nullptr != mStaticAllocatorCache.get()) {
-        return new EagerBufferAllocator(BufferAllocator::Allocator::createRecurse(mStaticAllocatorCache.get()));
+    if (nullptr != mStaticAllocatorRaw.get()) {
+        return new EagerBufferAllocator(BufferAllocator::Allocator::createRecurse(mStaticAllocatorRaw.get()));
     }
     return new EagerBufferAllocator(BufferAllocator::Allocator::createRecurse(mStaticAllocator.get()));
 }
@@ -433,7 +444,6 @@ CPUBackend::CPUBackend(const CPURuntime* runtime, BackendConfig::PrecisionMode p
     } else {
         mDmaInfo = dynamicAlloc;
     }
-    mStaticAllocator = runtime->mStaticAllocator;
     mPrecisionMode = precision;
     mCoreFunctions = MNNGetCoreFunctions();
     mInt8CoreFunctions = MNNGetInt8CoreFunctions();
@@ -442,10 +452,12 @@ CPUBackend::CPUBackend(const CPURuntime* runtime, BackendConfig::PrecisionMode p
         mCacheGroup[i].reset(new CPUResizeCache);
     }
     mCache = mCacheGroup[0].get();
+#if 0
 #ifndef MNN_FORBIT_MULTI_THREADS
     if (initThreadNumber > 0) {
         mInitWorkQueue.reset(new WorkerThread(initThreadNumber));
     }
+#endif
 #endif
 }
 
@@ -465,11 +477,10 @@ void CPUBackend::_resetDynamicMemory() const {
 void CPUBackend::onExecuteBegin() const {
     mInitWorkQueue.reset();
     _resetDynamicMemory();
-    mRuntime->onConcurrencyBegin();
 }
 
 void CPUBackend::onExecuteEnd() const {
-    mRuntime->onConcurrencyEnd();
+    // Do nothing
 }
 
 void CPUBackend::onResizeBegin() {
@@ -524,7 +535,7 @@ Backend::MemObj* CPUBackend::allocBuffer(size_t size, Tensor* dest, StorageType 
     MemChunk chunk;
     switch (storageType) {
         case STATIC: {
-            chunk = mStaticAllocator->alloc(size, false);
+            chunk = mRuntime->mStaticAllocator->alloc(size, false);
             break;
         }
         case DYNAMIC: {
@@ -548,7 +559,7 @@ Backend::MemObj* CPUBackend::allocBuffer(size_t size, Tensor* dest, StorageType 
     Backend::MemObj* res = nullptr;
 
     if (storageType == STATIC) {
-        res = new CPUMemObj(mStaticAllocator.get(), chunk, size);
+        res = new CPUMemObj(mRuntime->mStaticAllocator.get(), chunk, size);
     } else {
         res = new CPUMemObj(mDmaInfo->mCurrentDynamicAllocator, chunk, size);
         chunk.attach(dest);
@@ -595,7 +606,7 @@ static OpType _getRealOpType(OpType opType) {
     }
 }
 void* CPUBackend::onMapTensor(Tensor::MapType mtype, Tensor::DimensionType dtype, const Tensor* srcTensor) {
-    if (getBytes(this, srcTensor) != srcTensor->getType().bytes()) {
+    if (static_cast<int>(getBytes(this, srcTensor)) != srcTensor->getType().bytes()) {
         return nullptr;
     }
     if (OpCommonUtils:: convertDimType(TensorUtils::getDescribe(srcTensor)->dimensionFormat) != dtype) {
@@ -606,7 +617,7 @@ void* CPUBackend::onMapTensor(Tensor::MapType mtype, Tensor::DimensionType dtype
 }
 
 bool CPUBackend::onUnmapTensor(Tensor::MapType mtype, Tensor::DimensionType dtype, const Tensor* dstTensor, void* mapPtr) {
-    if (getBytes(this, dstTensor) != dstTensor->getType().bytes()) {
+    if (static_cast<int>(getBytes(this, dstTensor)) != dstTensor->getType().bytes()) {
         return false;
     }
     if (OpCommonUtils:: convertDimType(TensorUtils::getDescribe(dstTensor)->dimensionFormat) != dtype) {
@@ -640,8 +651,8 @@ size_t CPUBackend::getTensorSize(const Tensor* tensor, bool multiBytes) const {
     return dataSize;
 }
 
-int CPUBackend::getBytes(const Backend* backend, const Tensor* output) {
-    auto bytes = output->getType().bytes();
+size_t CPUBackend::getBytes(const Backend* backend, const Tensor* output) {
+    size_t bytes = output->getType().bytes();
     auto core = static_cast<const CPUBackend*>(backend)->functions();
     auto quant = TensorUtils::getDescribe(output)->quantAttr.get();
     if (output->getType().code == halide_type_float) {
@@ -697,9 +708,10 @@ const Runtime* CPUBackend::getRuntime() {
 }
 
 bool CPUBackend::onClearBuffer() {
-    if (nullptr != mRuntime->mStaticAllocatorCache.get()) {
-        mStaticAllocator->sync();
-        mStaticAllocator = mRuntime->mStaticAllocatorCache;
+    if (nullptr != mRuntime->mStaticAllocatorRaw.get()) {
+        mRuntime->mStaticAllocator->sync();
+        mRuntime->mStaticAllocator = mRuntime->mStaticAllocatorRaw;
+        mRuntime->mStaticAllocatorRaw = nullptr;
     }
     mCache->reset();
     mDmaInfo->mCurrentDynamicAllocator->release(true);

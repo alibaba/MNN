@@ -11,23 +11,6 @@
         android:checkable="true"
         android:checked="true"/>
     <item
-        android:id="@+id/menu_item_clear_mmap_cache"
-        android:title="@string/clear_mmap_cache"
-        app:showAsAction="never" />
-    <item
-        android:id="@+id/menu_item_use_mmap"
-        android:title="@string/use_mmap"
-        app:showAsAction="never"
-        android:checkable="true"
-        android:checked="true"/>
-    <item
-        android:id="@+id/menu_item_backend"
-        android:title="@string/backend"
-        app:showAsAction="never"
-        android:checkable="true"
-        android:checked="false" />
-
-    <item
         android:id="@+id/menu_item_benchmark_test"
         android:title="@string/menu_item_benchmark_test"
         app:showAsAction="never" />
@@ -35,6 +18,16 @@
     <item
         android:id="@+id/menu_item_model_settings"
         android:title="@string/model_settings"
+        app:showAsAction="never" />
+    
+    <item
+        android:id="@+id/menu_item_api_settings"
+        android:title="@string/api_settings"
+        app:showAsAction="never" />
+    
+    <item
+        android:id="@+id/menu_item_api_console"
+        android:title="@string/api_console"
         app:showAsAction="never" />
 <!--    <item-->
 <!--        android:id="@+id/menu_item_sampler_spinner"-->

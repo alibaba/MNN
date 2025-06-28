@@ -28,14 +28,15 @@
     </style>
 
     <style name="SettingsSectionHeader" parent="Widget.MaterialComponents.TextView">
-        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_width">match_parent</item>
         <item name="android:layout_height">wrap_content</item>
         <item name="android:layout_marginTop">24dp</item>
         <item name="android:layout_marginBottom">8dp</item>
         <item name="android:layout_marginStart">24dp</item>
+        <item name="android:layout_marginEnd">24dp</item>
         <item name="android:textAllCaps">false</item>
         <item name="android:textColor">?attr/colorOnSurfaceVariant</item>
-        <item name="android:textSize">11sp</item>
+        <item name="android:textSize">13sp</item>
         <item name="android:textAppearance">?attr/textAppearanceLabelSmall</item>
         <item name="android:textStyle">bold</item>
     </style>
@@ -46,6 +47,7 @@
         <item name="android:minHeight">48dp</item>
         <item name="android:paddingTop">8dp</item>
         <item name="android:paddingBottom">8dp</item>
+        <item name="android:foreground">?attr/selectableItemBackground</item>
     </style>
 
     <style name="SettingsRowContainerClickable" parent="SettingsRowContainer">
@@ -111,4 +113,14 @@
         <item name="android:layout_marginBottom">8dp</item>
         <item name="android:background">?attr/dividerHorizontal</item> </style>
 
+    <style name="FilterChipStyle" parent="">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:background">@drawable/bg_filter_chip</item>
+        <item name="android:textColor">?android:attr/textColorPrimary</item>
+        <item name="android:textSize">13sp</item>
+        <item name="android:gravity">center_vertical</item>
+        <item name="android:layout_marginEnd">8dp</item>
+        <item name="android:drawablePadding">4dp</item>
+    </style>
 </resources>

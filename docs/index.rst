@@ -22,6 +22,7 @@
    :name: quick-start
 
    start/overall
+   start/python
    start/demo
 
 .. toctree::

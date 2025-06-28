@@ -1,7 +1,14 @@
 import os
 import sys
 import re
+import hashlib
 major_py_ver = sys.version_info.major
+
+def generate_md5(input_str: str) -> str:
+    encoded = input_str.encode('utf-8')
+    md5_hash = hashlib.md5()
+    md5_hash.update(encoded)
+    return md5_hash.hexdigest()
 
 def convert_string_to_hex_list(code_str):
     hex_list = []
@@ -22,6 +29,7 @@ def opencl_codegen():
     opencl_source_hpp += "namespace MNN { \n"
 
     opencl_source_map_hpp = "const std::map<std::string, const char*> OpenCLProgramMap = \n { \n"
+    opencl_md5_map_hpp = "const std::map<std::string, std::string> OpenCLProgramMd5Map = \n { \n"
 
     spaceReg = re.compile(' +')
     for file_name_all in os.listdir(cl_kernel_dir):
@@ -42,6 +50,7 @@ def opencl_codegen():
                 opencl_source_hpp += "extern const char* " + file_name + ";\n"
                 opencl_source_map += "const char* " + file_name + " = \n"
                 opencl_source_map_hpp += "  { \"" + file_name + "\", " + file_name + " },\n"
+                md5_orig_str = str()
                 lines = f.read().split("\n")
                 for l in lines:
                     if (len(l) < 1):
@@ -50,12 +59,13 @@ def opencl_codegen():
                         l = l.replace('\"', '\\\"')
                         l = l.replace('\\n', '\\\\n')
                         opencl_source_map += "\""+l+"\"\n"
+                        md5_orig_str += l
                     elif l.find('\\') >= 0:
                         l = l.replace('\\', '')
                         l = spaceReg.sub(' ', l)
                         opencl_source_map += "\""+l+"\""
+                        md5_orig_str += l
                     else:
-                        l = l + "\\n"
                         l = l.replace('\t', '')
                         l = spaceReg.sub(' ', l)
                         l = l.replace(', ', ',')
@@ -66,6 +76,8 @@ def opencl_codegen():
                         l = l.replace(' / ', '/')
                         l = l.replace(' < ', '<')
                         l = l.replace(' > ', '>')
+                        md5_orig_str += l + "\n"
+                        l = l + "\\n"
                         opencl_source_map += "\""+l+"\"\n"
                 opencl_source_map += ";\n"
                 if file_name[-4:] == "_buf":
@@ -77,6 +89,7 @@ def opencl_codegen():
                     opencl_source_hpp += "#endif\n"
                     opencl_source_map_hpp += "#endif\n"
                 opencl_source_map += "}\n"
+                opencl_md5_map_hpp += "  { \"" + file_name + "\", \"" + generate_md5(md5_orig_str) + "\" },\n"
             #write into cpp
             output_path = file_path[:-3] + "_mnn_cl.cpp"
             with open(output_path, "w") as cpp_file:
@@ -85,9 +98,11 @@ def opencl_codegen():
     #write into hpp
     opencl_source_map_hpp += "};\n"
     opencl_source_map_hpp += "}\n"
+    opencl_md5_map_hpp += "};\n"
     with open("opencl_source_map.hpp", "w") as w_file:
         w_file.write(opencl_source_hpp)
         w_file.write(opencl_source_map_hpp)
+        w_file.write(opencl_md5_map_hpp)
 
     print("Generate OpenCL Source done !!! \n")
 

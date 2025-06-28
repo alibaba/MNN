@@ -1041,6 +1041,99 @@ typedef half4x4 FLOAT4x4;
 #define CONV_UNROLL (4)
 #define CONV_UNROLL_L (8)
 
+template <int AREA_THREAD>
+kernel void conv1x1_gemv_g4mx_wquant_sg(const device ftype4 *in            [[buffer(0)]],
+                            device ftype4 *out                 [[buffer(1)]],
+                            constant conv1x1_constants& cst    [[buffer(2)]],
+                        #ifdef W_QUANT_4
+                            const device MNN::uchar4x2 *wt      [[buffer(3)]],
+                        #elif defined(W_QUANT_8)
+                            const device MNN::char4x4 *wt      [[buffer(3)]],
+                        #endif
+                            const device ftype4 *biasTerms     [[buffer(4)]],
+                            const device ftype4 *dequantScale  [[buffer(5)]],
+                            uint3 gid[[threadgroup_position_in_grid]],
+                            uint  tiisg[[thread_index_in_simdgroup]],
+                            uint  sgitg[[simdgroup_index_in_threadgroup]]) {
+    // each threadgroup contain 1 simdgroup
+    // each simdgroup compute 8 data
+    int uz = gid.x;
+    int rx = gid.y * AREA_THREAD;
+    auto area_size = cst.output_size * cst.batch;
+    if(uz >= cst.output_slice || rx >= area_size) {
+        return;
+    }
+    auto xy_wt = wt + uz * cst.input_slice;
+    auto xy_in0  = in + rx;
+    auto xy_out = out + uz * area_size + rx;
+    auto biasValue = FLOAT4(biasTerms[uz]);
+    FLOAT4 result[AREA_THREAD] = {FLOAT4(0)};
+    int block = (cst.input_slice + cst.block_size - 1) / cst.block_size;
+    
+    int middle_step = min(SIMD_GROUP_WIDTH, block);
+    int outer_step  = SIMD_GROUP_WIDTH / middle_step;
+    int middle_index = (tiisg) % middle_step;
+    int outer_index  = (tiisg) / middle_step;
+    
+    for (int bi= outer_index; bi<cst.block_size; bi += outer_step) {
+        FLOAT4 scale = FLOAT4(dequantScale[2 * (uz * cst.block_size + bi) + 0]) / (FLOAT)cst.scale_coef;
+        FLOAT4 dequant_bias = FLOAT4(dequantScale[2 * (uz * cst.block_size + bi) + 1]) / (FLOAT)cst.scale_coef;
+        int zmin = bi * block;
+        int zmax = min(zmin + block, cst.input_slice);
+        for (int z = zmin + middle_index; z < zmax; z += middle_step) {
+            #ifdef W_QUANT_4
+                MNN::uchar4x2 w_int4 = xy_wt[z];
+
+                FLOAT4x4 w_dequant;
+                for (int i = 0; i < 4; i += 1) {
+                    FLOAT4 w4 = FLOAT4((float)(w_int4[i][0] >> 4) - 8, (float)(w_int4[i][0] & 15) - 8, (float)(w_int4[i][1] >> 4) - 8, (float)(w_int4[i][1] & 15) - 8);
+                    FLOAT4 res = w4 * scale[i] + dequant_bias[i];
+                    w_dequant[i] = res;
+                }
+            #elif defined(W_QUANT_8)
+                auto w = xy_wt[z];
+                FLOAT4x4 w_fp32 = FLOAT4x4(FLOAT4(w[0]), FLOAT4(w[1]), FLOAT4(w[2]), FLOAT4(w[3]));
+                FLOAT4x4 w_dequant;
+                for (int i = 0; i < 4; ++i) {
+                    w_dequant[i] = w_fp32[i] * scale[i] + dequant_bias[i];
+                }
+            #endif
+
+            auto base_xy = xy_in0 + z * area_size;
+
+            for(int i = 0; i < AREA_THREAD; i++) {
+                #ifdef MNN_METAL_SRC_PROTECT
+                FLOAT4 in40 = (rx + (int)i) < area_size ? (FLOAT4)*(base_xy + i) : (FLOAT4)0;
+                #else
+                FLOAT4 in40 = (FLOAT4)*(base_xy + i);
+                #endif
+                result[i] += FLOAT4(in40 * w_dequant);
+            }
+        }
+    }
+
+    for(int i = 0; i < AREA_THREAD; i++) {
+        result[i] = simd_sum(result[i]);
+    }
+
+    // result store
+    for(uint i = 0; i < AREA_THREAD; i++) {
+        if (tiisg == i && (rx + (int)i) < area_size) {
+            xy_out[i] = activate(ftype4(result[i] + biasValue), cst.activation);
+        }
+    }
+}
+
+typedef decltype(conv1x1_gemv_g4mx_wquant_sg<1>) kernel_type_t;
+template [[host_name("conv1x1_gemv_g4m2_wquant_sg")]] kernel kernel_type_t conv1x1_gemv_g4mx_wquant_sg<2>;
+template [[host_name("conv1x1_gemv_g4m3_wquant_sg")]] kernel kernel_type_t conv1x1_gemv_g4mx_wquant_sg<3>;
+template [[host_name("conv1x1_gemv_g4m4_wquant_sg")]] kernel kernel_type_t conv1x1_gemv_g4mx_wquant_sg<4>;
+template [[host_name("conv1x1_gemv_g4m5_wquant_sg")]] kernel kernel_type_t conv1x1_gemv_g4mx_wquant_sg<5>;
+template [[host_name("conv1x1_gemv_g4m6_wquant_sg")]] kernel kernel_type_t conv1x1_gemv_g4mx_wquant_sg<6>;
+template [[host_name("conv1x1_gemv_g4m7_wquant_sg")]] kernel kernel_type_t conv1x1_gemv_g4mx_wquant_sg<7>;
+template [[host_name("conv1x1_gemv_g4m8_wquant_sg")]] kernel kernel_type_t conv1x1_gemv_g4mx_wquant_sg<8>;
+template [[host_name("conv1x1_gemv_g4m9_wquant_sg")]] kernel kernel_type_t conv1x1_gemv_g4mx_wquant_sg<9>;
+template [[host_name("conv1x1_gemv_g4m10_wquant_sg")]] kernel kernel_type_t conv1x1_gemv_g4mx_wquant_sg<10>;
 
 kernel void conv1x1_gemv_g8_wquant_sg(const device ftype4 *in            [[buffer(0)]],
                             device ftype4 *out                 [[buffer(1)]],
@@ -1064,8 +1157,9 @@ kernel void conv1x1_gemv_g8_wquant_sg(const device ftype4 *in            [[buffe
 
     int rx = gid.y;
     auto xy_wt = wt + uz * cst.input_slice;
-    auto xy_in0  = in  + (int)gid.z  * cst.input_size + rx + 0;
-    auto xy_out = out + (int)gid.z * cst.output_size + uz * cst.output_size * cst.batch + rx;
+    auto xy_in0  = in + rx;
+    auto area_size = cst.output_size * cst.batch;
+    auto xy_out = out + uz * area_size + rx;
     auto biasValue = FLOAT4(biasTerms[uz]);
     FLOAT4 result0 = FLOAT4(0);
 
@@ -1082,7 +1176,7 @@ kernel void conv1x1_gemv_g8_wquant_sg(const device ftype4 *in            [[buffe
         int zmin = bi * block;
         int zmax = min(zmin + block, cst.input_slice);
         for (int z = zmin + middle_index; z < zmax; z += middle_step) {
-            FLOAT4 in40 = (FLOAT4)*(xy_in0 + z);
+            FLOAT4 in40 = (FLOAT4)*(xy_in0 + z * area_size);
             
             #ifdef W_QUANT_4
                 MNN::uchar4x2 w_int4 = xy_wt[z];
@@ -1133,10 +1227,11 @@ kernel void conv1x1_gemv_g16_wquant_sg(const device ftype4 *in            [[buff
     if(uz >= cst.output_slice) {
         return;
     }
-    
+    auto area_size = cst.output_size * cst.batch;
+    int rx = gid.y;
     auto xy_wt = wt + uz * cst.input_slice;
-    auto xy_in0  = in;
-    auto xy_out = out + (int)gid.z * cst.output_size + uz;
+    auto xy_in0  = in + rx;
+    auto xy_out = out + uz * area_size + rx;
     auto biasValue0 = FLOAT4(biasTerms[uz]);
     auto biasValue1 = FLOAT4(biasTerms[uz + 1]);
 
@@ -1159,9 +1254,8 @@ kernel void conv1x1_gemv_g16_wquant_sg(const device ftype4 *in            [[buff
         int zmin = bi * block;
         int zmax = min(zmin + block, cst.input_slice);
         for (int z = zmin + middle_index; z < zmax; z += middle_step) {
-            FLOAT4 in40 = (FLOAT4)*(xy_in0 + z);
+            FLOAT4 in40 = (FLOAT4)*(xy_in0 + z * area_size);
             
-
             #ifdef W_QUANT_4
                 MNN::uchar4x2 w_int4 = xy_wt[z];
 
@@ -1208,8 +1302,7 @@ kernel void conv1x1_gemv_g16_wquant_sg(const device ftype4 *in            [[buff
     /* true */
     if (tiisg == 0) {
         xy_out[0] = activate(ftype4(res0 + biasValue0), cst.activation);
-        xy_out[1] = activate(ftype4(res1 + biasValue1), cst.activation);
-
+        xy_out[area_size] = activate(ftype4(res1 + biasValue1), cst.activation);
     }
 }
 )metal";

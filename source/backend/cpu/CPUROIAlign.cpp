@@ -136,6 +136,7 @@ ErrorCode CPUROIAlign::onExecute(const std::vector<Tensor*>& inputs, const std::
             }
         }
     } else {
+#ifndef MNN_REDUCE_SIZE
         // get params
         auto iw = input->width(), ih = input->height(), is = iw * ih * core->pack;   // C4
         // backward mode, output shape is the same with input[0] shape
@@ -257,6 +258,7 @@ ErrorCode CPUROIAlign::onExecute(const std::vector<Tensor*>& inputs, const std::
                 return NOT_SUPPORT;
             }
         }
+#endif
     }
 
     return NO_ERROR;

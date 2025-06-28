@@ -19,9 +19,8 @@ class FuseFmhaV2 {
 public:
     FuseFmhaV2();
 private:
-    EXPRP node_q, node_k, node_v;
+    VARP var_q, var_k, var_v;
     VARP var_q_weight, var_k_weight, var_v_weight;
-    VARP fmha_v2_input_;
     int mNumHeads;
 };
 
@@ -71,7 +70,7 @@ int GetFmhaV2NumHeads(EXPRP expr) {
     auto var_num_head = z->inputs().at(2);
     return var_num_head->readMap<int32_t>()[0];
 }
-    
+
 
 FuseFmhaV2::FuseFmhaV2() {
     auto match = [this](EXPRP expr) -> bool {
@@ -83,35 +82,35 @@ FuseFmhaV2::FuseFmhaV2() {
         if (!expr->get() || !helpers::IsReshape(expr)) {
             return false;
         }
-        
+
         EXPRP x, y, z;
-        
+        EXPRP node_q, node_k, node_v;
         // whether transpose
         x = expr->inputs().at(0)->expr().first;
         if (!expr->get() || !helpers::IsTranspose(x)) {
             return false;
         }
         z = x;
-        
+
         // whether reshape
         x = z->inputs().at(0)->expr().first;
         if (helpers::IsReshape(x)) {
             z = x;
             x = z->inputs().at(0)->expr().first;
         }
-        
+
         // whether cast
         if (helpers::IsCast(x)) {
             z = x->inputs().at(0)->expr().first;
         } else {
             z = x;
         }
-        
+
         // whether scatternd
         while (z->inputs().size() >= 3 && helpers::IsScatterNd(z)) {
             z = z->inputs().at(1)->expr().first;
         }
-        
+
         // whether Einsum/MatMul
         x = z->inputs().at(0)->expr().first;
         if (!x->get()) {
@@ -124,7 +123,7 @@ FuseFmhaV2::FuseFmhaV2() {
         } else {
             return false;
         }
-        
+
         // whether V
         auto qk_pre = z->inputs().at(0)->expr().first;
         auto v_pre = z->inputs().at(1)->expr().first;
@@ -136,6 +135,7 @@ FuseFmhaV2::FuseFmhaV2() {
         if (mNumHeads == 0) {
             return false;
         }
+        var_v = z->inputs().at(0);
         node_v = z->inputs().at(0)->expr().first;
         if (!helpers::IsMatMul(node_v)) {
             return false;
@@ -157,27 +157,29 @@ FuseFmhaV2::FuseFmhaV2() {
         } else {
             return false;
         }
-        
+
         auto q_pre = z->inputs().at(0)->expr().first;
         auto k_pre = z->inputs().at(1)->expr().first;
         z = GetFmhaV2BlockCommonNode(k_pre);
         if (z == nullptr) {
             return false;
         }
-        
+
         if (mNumHeads != GetFmhaV2NumHeads(z)) {
             return false;
         }
+        var_k = z->inputs().at(0);
         node_k = z->inputs().at(0)->expr().first;
         // whether mul(scale)
         if (helpers::IsBinaryMul(node_k)) {
+            var_k = node_k->inputs().at(0);
             node_k = node_k->inputs().at(0)->expr().first;
         }
-        
+
         if (!helpers::IsMatMul(node_k)) {
             return false;
         }
-        
+
         // whether slice
         if (helpers::IsSlice(q_pre)) {
             q_pre = q_pre->inputs().at(0)->expr().first;
@@ -189,20 +191,20 @@ FuseFmhaV2::FuseFmhaV2() {
         if (mNumHeads != GetFmhaV2NumHeads(z)) {
             return false;
         }
+        var_q = z->inputs().at(0);
         node_q = z->inputs().at(0)->expr().first;
         if (!helpers::IsMatMul(node_q)) {
             return false;
         }
-        
+
         // QKV -> one source
         if (node_q->inputs().at(0)->expr().first != node_k->inputs().at(0)->expr().first || node_q->inputs().at(0)->expr().first != node_v->inputs().at(0)->expr().first) {
             return false;
         }
-        fmha_v2_input_ = node_q->inputs().at(0);
         var_q_weight = node_q->inputs().at(1);
         var_k_weight = node_k->inputs().at(1);
         var_v_weight = node_v->inputs().at(1);
-        
+
         if(!helpers::IsConstant(var_q_weight->expr().first) || !helpers::IsConstant(var_k_weight->expr().first) || !helpers::IsConstant(var_v_weight->expr().first)) {
             return false;
         }
@@ -224,29 +226,18 @@ FuseFmhaV2::FuseFmhaV2() {
         auto var_q_weight_info    = var_q_weight->getInfo();
         auto var_k_weight_info    = var_k_weight->getInfo();
         auto var_v_weight_info    = var_v_weight->getInfo();
-
         if (!var_q_weight_info || !var_k_weight_info || !var_v_weight_info || var_q_weight_info->size != var_k_weight_info->size || var_q_weight_info->size != var_v_weight_info->size) {
             return false;
         }
-        
         /*
          query : [Batch, seqLen, headNum, headDim]
          key   : [Batch, seqLen, headNum, headDim]
          value : [Batch, seqLen, headNum, headDim]
          ouput : [Batch, seqLen, headNum * headDim]
          */
-        // [Batch, seqLen, headNum * headDim]
-        auto output_q = _MatMul(fmha_v2_input_, var_q_weight);
-        auto info    = fmha_v2_input_->getInfo();
-        // [Batch, seqLen, headNum, headDim]
-        output_q = _Reshape(output_q, {0, 0, mNumHeads, var_q_weight->getInfo()->dim[1] / mNumHeads});
-        
-        auto output_k = _MatMul(fmha_v2_input_, var_k_weight);
-        output_k = _Reshape(output_k, {0, 0, mNumHeads, var_q_weight->getInfo()->dim[1] / mNumHeads});
-        
-        auto output_v = _MatMul(fmha_v2_input_, var_v_weight);
-        output_v = _Reshape(output_v, {0, 0, mNumHeads, var_q_weight->getInfo()->dim[1] / mNumHeads});
-
+        var_q = _Reshape(var_q, {0, 0, mNumHeads, var_q_weight->getInfo()->dim[1] / mNumHeads});
+        var_k = _Reshape(var_k, {0, 0, mNumHeads, var_q_weight->getInfo()->dim[1] / mNumHeads});
+        var_v = _Reshape(var_v, {0, 0, mNumHeads, var_q_weight->getInfo()->dim[1] / mNumHeads});
         std::unique_ptr<MNN::AttentionParamT> param_attn(new MNN::AttentionParamT);
         param_attn->kv_cache = false;
         std::unique_ptr<OpT> attention(new OpT);
@@ -254,9 +245,7 @@ FuseFmhaV2::FuseFmhaV2() {
         attention->type       = OpType_Attention;
         attention->main.type  = OpParameter_AttentionParam;
         attention->main.value = param_attn.release();
-
-        auto attention_expr = Variable::create(Expr::create(attention.get(), {output_q, output_k, output_v}, 1));
-
+        auto attention_expr = Variable::create(Expr::create(attention.get(), {var_q, var_k, var_v}, 1));
         attention_expr->setName(expr->name());
         Expr::replace(expr, attention_expr->expr().first);
 
@@ -270,12 +259,11 @@ class FuseSelfAttentionV2 {
 public:
     FuseSelfAttentionV2();
 private:
-    EXPRP node_q, node_k, node_v;
+    VARP var_q, var_k, var_v;
     VARP var_q_weight, var_k_weight, var_v_weight;
-    VARP fmha_v2_input_;
     int mNumHeads;
 };
-    
+
 FuseSelfAttentionV2::FuseSelfAttentionV2() {
     auto match = [this](EXPRP expr) -> bool {
         auto config = Global<modelConfig>::Get();
@@ -286,30 +274,30 @@ FuseSelfAttentionV2::FuseSelfAttentionV2() {
         if (!expr->get() || !helpers::IsReshape(expr)) {
             return false;
         }
-        
+
         EXPRP x, y, z;
-        
+        EXPRP node_q, node_k, node_v;
         // whether transpose
         x = expr->inputs().at(0)->expr().first;
         if (!expr->get() || !helpers::IsTranspose(x)) {
             return false;
         }
         z = x;
-        
+
         // whether reshape
         x = z->inputs().at(0)->expr().first;
         if (helpers::IsReshape(x)) {
             z = x;
             x = z->inputs().at(0)->expr().first;
         }
-        
+
         // whether Einsum/MatMul
         if (helpers::IsMatMul(x)) {
             z = x;
         } else {
             return false;
         }
-        
+
         // whether V
         auto qk_pre = z->inputs().at(0)->expr().first;
         auto v_pre = z->inputs().at(1)->expr().first;
@@ -321,6 +309,7 @@ FuseSelfAttentionV2::FuseSelfAttentionV2() {
         if (mNumHeads == 0) {
             return false;
         }
+        var_v = z->inputs().at(0);
         node_v = z->inputs().at(0)->expr().first;
         if (!helpers::IsMatMul(node_v)) {
             return false;
@@ -335,12 +324,12 @@ FuseSelfAttentionV2::FuseSelfAttentionV2() {
         if (!helpers::IsSoftmax(z)) {
             return false;
         }
-        
+
         //whether add zero
         x = z->inputs().at(0)->expr().first;
         if (helpers::IsBinaryAdd(x)) {
             z = x;
-            
+
             //add two inputs
             auto x_0 = z->inputs().at(0)->expr().first;
             bool add_0_zero = false;
@@ -360,7 +349,7 @@ FuseSelfAttentionV2::FuseSelfAttentionV2() {
                     }
                 }
             }
-            
+
             auto x_1 = z->inputs().at(1)->expr().first;
             bool add_1_zero = false;
             if (helpers::IsBinaryMul(x_1)) {
@@ -379,7 +368,7 @@ FuseSelfAttentionV2::FuseSelfAttentionV2() {
                     }
                 }
             }
-            
+
             if(add_0_zero && !add_1_zero) {
                 x = z->inputs().at(1)->expr().first;
                 if(helpers::IsConstant(x->inputs().at(0)->expr().first)) {
@@ -398,14 +387,14 @@ FuseSelfAttentionV2::FuseSelfAttentionV2() {
                 return false;
             }
         }
-        
+
         //whether matmul
         if (helpers::IsMatMul(x)) {
             z = x;
         } else {
             return false;
         }
-        
+
         auto q_pre = z->inputs().at(0)->expr().first;
         auto k_pre = z->inputs().at(1)->expr().first;
         // whether mul(scale)
@@ -420,20 +409,22 @@ FuseSelfAttentionV2::FuseSelfAttentionV2() {
         if (z == nullptr) {
             return false;
         }
-        
+
         if (mNumHeads != GetFmhaV2NumHeads(z)) {
             return false;
         }
+        var_k = z->inputs().at(0);
         node_k = z->inputs().at(0)->expr().first;
         // whether mul(scale)
         if (helpers::IsBinaryMul(node_k)) {
+            var_k = node_k->inputs().at(0);
             node_k = node_k->inputs().at(0)->expr().first;
         }
-        
+
         if (!helpers::IsMatMul(node_k)) {
             return false;
         }
-        
+
         // whether slice
         if (helpers::IsSlice(q_pre)) {
             q_pre = q_pre->inputs().at(0)->expr().first;
@@ -445,20 +436,20 @@ FuseSelfAttentionV2::FuseSelfAttentionV2() {
         if (mNumHeads != GetFmhaV2NumHeads(z)) {
             return false;
         }
+        var_q = z->inputs().at(0);
         node_q = z->inputs().at(0)->expr().first;
         if (!helpers::IsMatMul(node_q)) {
             return false;
         }
-        
+
         // QKV -> one source
         if (node_q->inputs().at(0)->expr().first != node_k->inputs().at(0)->expr().first || node_q->inputs().at(0)->expr().first != node_v->inputs().at(0)->expr().first) {
             return false;
         }
-        fmha_v2_input_ = node_q->inputs().at(0);
         var_q_weight = node_q->inputs().at(1);
         var_k_weight = node_k->inputs().at(1);
         var_v_weight = node_v->inputs().at(1);
-        
+
         if(!helpers::IsConstant(var_q_weight->expr().first) || !helpers::IsConstant(var_k_weight->expr().first) || !helpers::IsConstant(var_v_weight->expr().first)) {
             return false;
         }
@@ -480,28 +471,19 @@ FuseSelfAttentionV2::FuseSelfAttentionV2() {
         auto var_q_weight_info    = var_q_weight->getInfo();
         auto var_k_weight_info    = var_k_weight->getInfo();
         auto var_v_weight_info    = var_v_weight->getInfo();
-
         if (!var_q_weight_info || !var_k_weight_info || !var_v_weight_info || var_q_weight_info->size != var_k_weight_info->size || var_q_weight_info->size != var_v_weight_info->size) {
             return false;
         }
-        
+
         /*
          query : [Batch, seqLen, headNum, headDim]
          key   : [Batch, seqLen, headNum, headDim]
          value : [Batch, seqLen, headNum, headDim]
          ouput : [Batch, seqLen, headNum * headDim]
          */
-        // [Batch, seqLen, headNum * headDim]
-        auto output_q = _MatMul(fmha_v2_input_, var_q_weight);
-        // [Batch, seqLen, headNum, headDim]
-        output_q = _Reshape(output_q, {0, 0, mNumHeads, var_q_weight->getInfo()->dim[1] / mNumHeads});
-        
-        auto output_k = _MatMul(fmha_v2_input_, var_k_weight);
-        output_k = _Reshape(output_k, {0, 0, mNumHeads, var_q_weight->getInfo()->dim[1] / mNumHeads});
-        
-        auto output_v = _MatMul(fmha_v2_input_, var_v_weight);
-        output_v = _Reshape(output_v, {0, 0, mNumHeads, var_q_weight->getInfo()->dim[1] / mNumHeads});
-
+        var_q = _Reshape(var_q, {0, 0, mNumHeads, var_q_weight->getInfo()->dim[1] / mNumHeads});
+        var_k = _Reshape(var_k, {0, 0, mNumHeads, var_q_weight->getInfo()->dim[1] / mNumHeads});
+        var_v = _Reshape(var_v, {0, 0, mNumHeads, var_q_weight->getInfo()->dim[1] / mNumHeads});
         std::unique_ptr<MNN::AttentionParamT> param_attn(new MNN::AttentionParamT);
         param_attn->kv_cache = false;
         std::unique_ptr<OpT> attention(new OpT);
@@ -509,9 +491,7 @@ FuseSelfAttentionV2::FuseSelfAttentionV2() {
         attention->type       = OpType_Attention;
         attention->main.type  = OpParameter_AttentionParam;
         attention->main.value = param_attn.release();
-
-        auto attention_expr = Variable::create(Expr::create(attention.get(), {output_q, output_k, output_v}, 1));
-
+        auto attention_expr = Variable::create(Expr::create(attention.get(), {var_q, var_k, var_v}, 1));
         attention_expr->setName(expr->name());
         Expr::replace(expr, attention_expr->expr().first);
 
@@ -519,7 +499,7 @@ FuseSelfAttentionV2::FuseSelfAttentionV2() {
     };
     TemplateMerge::getInstance("Merge").insertTemplate("FuseSelfAttentionV2", match, fold);
 }
-    
+
 static FuseFmhaV2 g_fuse_fmhaV2;
 static FuseSelfAttentionV2 g_fuse_self_fmhaV2;
 

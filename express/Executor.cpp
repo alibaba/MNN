@@ -85,6 +85,7 @@ Executor::Executor(std::shared_ptr<Runtime> runtime, MNNForwardType type, int nu
     mRuntimeInfo.first.insert(std::make_pair(type, runtime));
     mAttr.reset(new ExecutorAttr);
     mAttr->firstType = type;
+    mAttr->numThread = numberThread;
     if (type == MNN_FORWARD_CPU) {
         mRuntimeInfo.second = runtime;
     } else {
@@ -592,6 +593,7 @@ void Executor::dumpProfile() {
 }
 
 bool Executor::registerSubGraph(const std::string& submoduleName, VARPS outputs, VARPS inputs) {
+#ifndef MNN_REDUCE_SIZE
     if (mSubGraph.find(submoduleName) != mSubGraph.end()) {
         MNN_PRINT("Executor Error: Subgraph has exists: %s\n", submoduleName.c_str());
         return false;
@@ -638,15 +640,20 @@ bool Executor::registerSubGraph(const std::string& submoduleName, VARPS outputs,
     }
     graph->info = std::move(subInfo);
     mSubGraph.insert(std::make_pair(submoduleName, graph));
+#endif
     return true;
 }
 
 std::shared_ptr<Executor::SubGraph> Executor::findSubGraph(const std::string& submoduleName) {
+#ifndef MNN_REDUCE_SIZE
     auto iter = mSubGraph.find(submoduleName);
     if (iter == mSubGraph.end()) {
         return nullptr;
     }
     return iter->second;
+#else
+    return nullptr;
+#endif
 }
 void Executor::setLazyComputeMode(uint32_t mode) {
     mLazyMode = mode;

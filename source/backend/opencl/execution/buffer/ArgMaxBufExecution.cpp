@@ -138,7 +138,7 @@ ErrorCode ArgMaxBufExecution::onEncode(const std::vector<Tensor*>& inputs, const
         MNN_CHECK_CL_SUCCESS(ret, "setArg ArgMaxBufExecution");
         
         if(localSize == 1){
-            mLocalSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName, unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
+            mLocalSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName, unit.kernel, mOpenCLBackend->getCLTuneLevel(), "argmax_buf").first;
         }
         mOpenCLBackend->recordKernel3d(unit.kernel, mGlobalWorkSize, mLocalSize);
         unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1], mGlobalWorkSize[2]};

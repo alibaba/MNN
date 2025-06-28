@@ -41,7 +41,7 @@ __kernel void layernorm_buf(__private int global_dim0, __private int global_dim1
         
         #ifdef PACK_LEAVE
         if(index == inside_v4 - 1) {
-            for(int i = 0; i < inside_remain; ++i)
+            for(int i = 0; i < inside_remain; ++i){
                 float in = input[offset + index * 4 + i];
                 sum_mean_mnn[lid] = sum_mean_mnn[lid] + in;
             }
@@ -67,9 +67,9 @@ __kernel void layernorm_buf(__private int global_dim0, __private int global_dim1
         sum_mnn[lid] = in_sum.x + in_sum.y + in_sum.z + in_sum.w;
         #ifdef PACK_LEAVE
         if(index == inside_v4 - 1) {
-            for(int i = 0; i < inside_remain; ++i)
+            for(int i = 0; i < inside_remain; ++i) {
                 float in = input[offset + index * 4 + i];
-                in = (in - mean) * (in - mean);
+                in = (in - mean.x) * (in - mean.x);
                 sum_mnn[lid] = sum_mnn[lid] + in;
             }
         }

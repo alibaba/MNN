@@ -35,6 +35,7 @@ class LlmExporter(torch.nn.Module):
         self.visual = None
         self.audio = None
         self.talker = None
+        self.mtp = None
         self.args = args
         self.max_length = 1024
         self.stop_ids = []
@@ -52,7 +53,17 @@ class LlmExporter(torch.nn.Module):
             os.makedirs(self.onnx_path)
 
     def load_pretrained(self, model_path: str):
-        self.tokenizer = AutoTokenizer.from_pretrained(self.args.tokenizer_path, trust_remote_code=True, use_fast=False)
+        try:
+            self.tokenizer = AutoTokenizer.from_pretrained(self.args.tokenizer_path, trust_remote_code=True, use_fast=False)
+        except:
+            self.tokenizer = None
+        if None == self.tokenizer:
+            try:
+                self.tokenizer = AutoTokenizer.from_pretrained(self.args.tokenizer_path, trust_remote_code=True)
+            except:
+                self.tokenizer = None
+        if None == self.tokenizer:
+            print("Default load tokenizer failed for ", model_path)
         if 'Qwen2.5-Omni' in model_path:
             from transformers import Qwen2_5OmniForConditionalGeneration
             self.model = Qwen2_5OmniForConditionalGeneration.from_pretrained(model_path, torch_dtype="auto").eval()
@@ -62,6 +73,14 @@ class LlmExporter(torch.nn.Module):
         elif 'Qwen2-VL' in model_path:
             from transformers import Qwen2VLForConditionalGeneration
             self.model = Qwen2VLForConditionalGeneration.from_pretrained(model_path, torch_dtype='auto').eval()
+        elif 'deepseek-vl' in model_path:
+            from deepseek_vl.models import VLChatProcessor, MultiModalityCausalLM
+            vl_chat_processor = VLChatProcessor.from_pretrained(model_path)
+            self.tokenizer = vl_chat_processor.tokenizer
+            self.processor = vl_chat_processor
+            vl_gpt: MultiModalityCausalLM = AutoModelForCausalLM.from_pretrained(model_path, trust_remote_code=True).eval()
+            self.model = vl_gpt
+            self.model.config.model_type = "deepseek-vl"
         elif 'Qwen2-Audio' in model_path:
             from transformers import Qwen2AudioForConditionalGeneration
             self.audio = Qwen2AudioForConditionalGeneration.from_pretrained(model_path, torch_dtype="auto")
@@ -74,6 +93,18 @@ class LlmExporter(torch.nn.Module):
             self.model = LlamaForCausalLM.from_pretrained(model_path, torch_dtype='auto', trust_remote_code=True).eval()
         elif 'InternVL' in model_path:
             self.model = AutoModel.from_pretrained(model_path, torch_dtype=torch.float32, trust_remote_code=True).eval()
+        elif 'gemma-3-4b-it' in model_path:
+            from transformers import Gemma3ForConditionalGeneration
+            self.model = Gemma3ForConditionalGeneration.from_pretrained(model_path, torch_dtype='auto').eval()
+        elif 'gemma-3-1b-it' in model_path:
+            from transformers import Gemma3ForCausalLM
+            self.model = Gemma3ForCausalLM.from_pretrained(model_path, torch_dtype='auto').eval()
+        elif 'SmolVLM2' in model_path:
+            from transformers import AutoModelForImageTextToText
+            self.model = AutoModelForImageTextToText.from_pretrained(model_path, torch_dtype='auto').eval()
+        elif 'SmolVLM' in model_path or 'SmolDocling' in model_path:
+            from transformers import AutoModelForVision2Seq
+            self.model = AutoModelForVision2Seq.from_pretrained(model_path, torch_dtype='auto').eval()
         else:
             try:
                 self.model = AutoModelForCausalLM.from_pretrained(model_path, torch_dtype='auto', trust_remote_code=True).eval()
@@ -118,8 +149,6 @@ class LlmExporter(torch.nn.Module):
         self.stop_ids = [stop_id for stop_id in self.stop_ids if stop_id is not None]
         self.stop_ids = list(set(self.stop_ids))
         model_mapper = ModelMapper()
-
-        self.tie_word_embeddings = self.args.tie_embed and (hasattr(self.config, 'tie_word_embeddings') and self.config.tie_word_embeddings)
         self.model_type, self.model_map = model_mapper.get_map(self.config)
 
         if self.args.awq:
@@ -132,9 +161,7 @@ class LlmExporter(torch.nn.Module):
                 for name, child in module.named_children():
                     visit_module(child)
             visit_module(self.model)
-        # print(self.model_type, self.model_map)
         # print(self.config, self.model_type, self.model_map, self.model)
-        # print(self.model.model.layers[0].input_layernorm.weight); exit(0)
         # load config info
         ModelMapper.do_map(self, self.config, self.model_map['config'])
         if not hasattr(self, 'num_key_value_heads') or self.num_key_value_heads is None:
@@ -177,8 +204,14 @@ class LlmExporter(torch.nn.Module):
             'assistant_prompt_template': prompt_template['assistant'].format(content='%s'),
             'is_visual': False
         }
+        if 'jinja' in prompt_template:
+            self.llm_config['jinja'] = prompt_template['jinja']
         # load modules
         ModelMapper.do_map(self, self.model, self.model_map['model'])
+        self.tie_word_embeddings = not self.args.seperate_embed and self.lm_.weight.equal(self.embed_.weight)
+        if self.tie_word_embeddings:
+            print("Tie word embeddings in lm, set lm quant bit to 8")
+            self.args.lm_quant_bit = 8
         # rebuild modules
         if self.lm_ is None:
             out_features, in_features = self.embed_.weight.shape
@@ -205,7 +238,8 @@ class LlmExporter(torch.nn.Module):
         for block in self.blocks_.children():
             layer_id = len(self.blocks)
             self.blocks.append(Decoder(block, layer_id, self))
-        self.lm = Lm(self.lm_, self.final_layernorm_, self)
+        self.lm = Lm(self.lm_)
+
         # visual model
         if self.visual is not None:
             if self.args.export is not None:
@@ -222,6 +256,15 @@ class LlmExporter(torch.nn.Module):
            hasattr(self, 'token2wav') and self.token2wav is not None:
             from utils.talker import Talker
             self.talker = Talker.get_talker(self.model_type)(self.talker, self.token2wav, self)
+        # MTP model
+        if self.model_type == 'poi_qwen2_mtp':
+            self.mtp = [self.mtp1, self.mtp2]
+        if self.mtp is not None:
+            if self.args.export is not None:
+                for mtp_model in self.mtp:
+                    mtp_model.float()
+            from utils.mtp import Mtp
+            self.mtp = Mtp.get_mtp(self.model_type)(self.mtp, self)
         return model_path
 
     def get_attention_mask(self) -> torch.Tensor:
@@ -287,24 +330,40 @@ class LlmExporter(torch.nn.Module):
         if self.model_type == 'gemma':
             normalizer = torch.tensor(self.hidden_size**0.5, dtype=hidden_states.dtype)
             hidden_states = hidden_states * normalizer
-        presents = [None for i in range(self.num_hidden_layers)]
+        if self.model_type == 'gemma3' or self.model_type == 'gemma3_text': # if --test, comments these
+            hidden_states = hidden_states * self.embed.embed_scale
+        presents = [None for i in range(len(self.blocks))]
         rotary_pos_emb = self.rotary(position_ids)
         if self.args.test and rotary_pos_emb.dtype != hidden_states.dtype:
             rotary_pos_emb = rotary_pos_emb.type(hidden_states.dtype)
-        for i in range(self.num_hidden_layers):
+        for i in range(len(self.blocks)):
             if self.blocks[i].cross_decoder and cross_attention_states is None:
                 continue
             hidden_states, kv = self.blocks[i](hidden_states, rotary_pos_emb, attention_mask, past_key_values[i])
             presents[i] = kv
-        talker_embeds = self.final_layernorm_(hidden_states) + input_ids.permute([1, 0, 2])
+        talker_embeds = None
         if hasattr(self, 'talker') and self.talker is not None:
+            talker_embeds = self.final_layernorm_(hidden_states) + input_ids.permute([1, 0, 2])
             self.talker.add_talker_embeds(talker_embeds)
-        logits = self.lm(hidden_states, logits_index)
+
+        final_layernorm = hidden_states
+        if self.mtp is None:
+            hidden_states = hidden_states[:, logits_index:, :]
+            hidden_states = self.final_layernorm_(hidden_states)
+        else:
+            # final_layernorm need compute all logists
+            if self.model_type == 'mimo':
+                final_layernorm = hidden_states # mimo
+            hidden_states = self.final_layernorm_(hidden_states)
+            if self.model_type == 'poi_qwen2_mtp':
+                final_layernorm = hidden_states # poi
+            hidden_states = hidden_states[:, logits_index:, :]
+        logits = self.lm(hidden_states)
         if presents[0].shape == presents[-1].shape and None not in presents:
             presents = torch.stack(presents)
         self.seq_len += 1
         self.token_len += 1
-        return logits, presents, talker_embeds
+        return logits, final_layernorm, presents, talker_embeds
 
     # some test functions
     def build_prompt_template(self):
@@ -312,8 +371,15 @@ class LlmExporter(torch.nn.Module):
             'bos': '',
             'system': '{content}',
             'user': '{content}',
-            'assistant': '{content}',
+            'assistant': '{content}'
         }
+        if hasattr(self.tokenizer, 'get_chat_template'):
+            template['jinja'] = {}
+            template['jinja']['chat_template'] = self.tokenizer.get_chat_template()
+            if None != self.tokenizer.bos_token:
+                template['jinja']['bos'] = self.tokenizer.bos_token
+            if None != self.tokenizer.eos_token:
+                template['jinja']['eos'] = self.tokenizer.eos_token
         if self.model_type == 'baichuan':
             template['user'] = '<reserved_106>{content}'
             template['assistant'] = '<reserved_107>{content}'
@@ -328,11 +394,6 @@ class LlmExporter(torch.nn.Module):
                 template['user'] = '<|user|>\n{content}\n'
                 template['assistant'] = '<|assistant|>\n{content}\n'
         if self.model_type == 'llama':
-            if 'deepseek' in self.args.path:
-                template['bos'] = '<|begin_of_sentence|>'
-                template['system'] = '{content}\n'
-                template['user'] = '\nUser: {content}\n'
-                template['assistant'] = '\nAssistant: {content}\n<|end_of_sentence|>'
             if 'Llama-2' in self.args.path:
                 template['bos'] = '[INST] '
                 template['system'] =  "<<SYS>>\n{content}\n<</SYS>>\n\n"
@@ -372,15 +433,35 @@ class LlmExporter(torch.nn.Module):
                 template['system'] = '<|im_start|>system\n{content}<|im_end|>\n'
                 template['user'] = '<|im_start|>user\n{content}<|im_end|>\n'
                 template['assistant'] = '<|im_start|>assistant\n{content}<|im_end|>\n'
+        if self.model_type == 'phi3':
+            template['system'] = '<|im_start|>system<|im_sep|>{content}<|im_end|>'
+            template['user'] = '<|im_start|>user<|im_sep|>{content}<|im_end|>'
+            template['assistant'] = '<|im_start|>assistant<|im_sep|>{content}<|im_end|>'
 
-        if 'qwen' in self.model_type:
+        if self.model_type == "gemma3":
+            template['bos'] = '<bos><start_of_turn>user\n'
+            template['system'] = '{content}\n\n'
+            template['user'] = '{content}<end_of_turn>\n'
+            template['assistant'] = '<start_of_turn>model\n{content}<end_of_turn>\n<start_of_turn>user\n'
+        if self.model_type == "gemma3_text":
+            template['bos'] = '<bos><start_of_turn>user\n'
+            template['system'] = '{content}\n\n'
+            template['user'] = '{content}<end_of_turn>\n'
+            template['assistant'] = '<start_of_turn>model\n{content}<end_of_turn>\n<start_of_turn>user\n'
+        if self.model_type in ['idefics3', 'smolvlm']:
+            template['bos'] = '<|im_start|>'
+            template['system'] = 'System: {content}<end_of_utterance>\n'
+            template['user'] = 'User:{content}<end_of_utterance>\n'
+            template['assistant'] = 'Assistant:{content}<end_of_utterance>\n'
+        if 'qwen' in self.model_type or 'mimo' in self.model_type:
             template['system'] = '<|im_start|>system\n{content}<|im_end|>\n'
             template['user'] = '<|im_start|>user\n{content}<|im_end|>\n'
             template['assistant'] = '<|im_start|>assistant\n{content}<|im_end|>\n'
-            if 'DeepSeek' in self.args.path:
-                template['bos'] = '<|begin_of_sentence|>'
-                template['user'] = '<|User|>{content}'
-                template['assistant'] = '<|Assistant|>{content}<|end_of_sentence|>'
+        if 'DeepSeek' in self.args.path or 'deepseek' in self.args.path:
+            template['bos'] = '<|begin_of_sentence|>'
+            template['system'] = '{content}\n'
+            template['user'] = '\nUser: {content}\n'
+            template['assistant'] = '\nAssistant: {content}\n<|end_of_sentence|>'
         return template
 
     def build_prompt(self, messages):
@@ -455,8 +536,8 @@ class LlmExporter(torch.nn.Module):
                                                       attention_mask,
                                                       position_ids,
                                                       past_key_values,
-                                                      cross_attention_states,
-                                                      cross_attention_mask)
+                                                      cross_attention_states = cross_attention_states,
+                                                      cross_attention_mask = cross_attention_mask)
             token_id = torch.argmax(logits[:,-1,:])
             if token_id in self.stop_ids:
                 print("", end='\n')
@@ -466,6 +547,14 @@ class LlmExporter(torch.nn.Module):
 
         if hasattr(self, 'talker') and self.talker is not None:
             self.talker.generate()
+
+    def export_mtp(self):
+        if self.mtp is None:
+            return
+        mtp_onnx = self.mtp.export(self.onnx_path)
+        if self.mnn_converter:
+            self.mtp.unloaded_ops['/lm/lm_head/Linear'] = self.unloaded_ops['/lm/lm_head/Linear']
+            MNNConveter(self, self.mtp.unloaded_ops).export(mtp_onnx)
 
     @spinner_run(f'export embedding to ')
     def export_embed(self):
@@ -497,7 +586,9 @@ class LlmExporter(torch.nn.Module):
                 "thread_num": 4,
                 "precision": "low",
                 "memory": "low",
-                "system_prompt": "You are a helpful assistant.",
+                # "system_prompt": "You are a helpful assistant.",
+                "sampler_type":'penalty',
+                "penalty":1.1
             }
             if self.talker is not None:
                 config['system_prompt'] = "You are Qwen, a virtual human developed by the Qwen Team, Alibaba Group, capable of perceiving auditory and visual inputs, as well as generating text and speech."
@@ -505,6 +596,8 @@ class LlmExporter(torch.nn.Module):
                 config['talker_speaker'] = "Chelsie"
                 config['dit_steps'] = 5
                 config['dit_solver'] = 1
+            if self.model_type == "gemma3":
+                config.update({'precision': "normal"})
             if self.visual is not None or self.audio is not None:
                 config['mllm'] = {
                     'backend_type': "cpu",
@@ -549,22 +642,32 @@ class LlmExporter(torch.nn.Module):
 
     def unload_param(self):
         self.unloaded_ops = {}
+        self.experts = []
         def build_faker(real, name):
             faker = FakeLinear(real.in_features, real.out_features, real.bias is not None, name)
             self.unloaded_ops[name] = real
             return faker
         # replace linear with fakelinear to save export memory and time
         with torch.no_grad():
-            for i in range(self.num_hidden_layers):
+            for i in range(len(self.blocks)):
                 # different kv cache shape in different layers
                 if isinstance(self.num_attention_heads, list):
                     self.blocks[i].self_attn.export_fused_attn = True
+                is_moe = hasattr(self.blocks[i].mlp, 'is_moe') and self.blocks[i].mlp.is_moe
+                if is_moe:
+                    self.blocks[i].mlp.export_moe = True
                 for name, child in self.blocks[i].self_attn.named_children():
                     if isinstance(child, torch.nn.Linear):
                         setattr(self.blocks[i].self_attn, name, build_faker(child, f'/layers.{i}/self_attn/{name}/Linear'))
                 for name, child in self.blocks[i].mlp.named_children():
                     if isinstance(child, torch.nn.Linear):
                         setattr(self.blocks[i].mlp, name, build_faker(child, f'/layers.{i}/mlp/{name}/Linear'))
+                    if is_moe and isinstance(child, torch.nn.ModuleList): # experts
+                        self.experts.append(child)
+                        for j in range(len(child)):
+                            for name, cchild in child[j].named_children():
+                                if isinstance(cchild, torch.nn.Linear):
+                                    setattr(self.blocks[i].mlp.experts[j], name, build_faker(cchild, f'/expert/{i}_{j}/{name}'))
             self.lm.lm = build_faker(self.lm.lm, f'/lm/lm_head/Linear')
 
     @spinner_run(f'export model weight to ')
@@ -594,9 +697,9 @@ class LlmExporter(torch.nn.Module):
         past_key_values = torch.zeros(self.past_kv_shape)
         logits_index = torch.tensor([-1], dtype=torch.int32)
         if hasattr(self, 'talker') and self.talker is not None:
-            output_names = ['logits', 'presents', 'talker_embeds']
+            output_names = ['logits', 'hidden_states', 'presents', 'talker_embeds']
         else:
-            output_names = ['logits', 'presents']
+            output_names = ['logits', 'hidden_states', 'presents']
         # export to onnx
         torch.onnx.export(
             model, (input_ids, attention_mask, position_ids, past_key_values, logits_index),
@@ -605,6 +708,7 @@ class LlmExporter(torch.nn.Module):
                 'input_ids', 'attention_mask', 'position_ids', 'past_key_values', 'logits_index'
             ],
             output_names=output_names,
+
             dynamic_axes=self.model_dynamic_axes,
             do_constant_folding=True,
             verbose=False,
@@ -620,7 +724,10 @@ class LlmExporter(torch.nn.Module):
         if self.visual is None:
             return
         vision_onnx = self.visual.export(self.onnx_path)
-        if self.mnn_converter: self.mnn_converter.export(vision_onnx, self.visual.quant_bit)
+        if self.mnn_converter:
+            self.mnn_converter.export(vision_onnx, self.visual.quant_bit,
+                                      self.visual.quant_block,
+                                      transformer_fuse=self.visual.transformer_fuse)
 
     def export_audio(self):
         if self.audio is None:
@@ -647,10 +754,13 @@ class LlmExporter(torch.nn.Module):
             self.export_embed()
         # export transformer
         onnx_model = self.export_onnx()
+
         if self.args.onnx_slim:
             self.slim_onnx(onnx_model)
         if self.mnn_converter:
             MNNConveter(self, self.unloaded_ops).export(onnx_model)
+
+
         else:
             self.onnx_load_param(onnx_model)
 
@@ -663,6 +773,7 @@ class LlmExporter(torch.nn.Module):
         self.export_vision()
         self.export_audio()
         self.export_language()
+        self.export_mtp()
         self.export_tokenizer()
         self.export_config(export_mnn)
         if export_mnn:
@@ -713,6 +824,8 @@ class LlmExporter(torch.nn.Module):
         if hasattr(self.tokenizer, 'special_tokens'):
             for k, v in self.tokenizer.special_tokens.items():
                 special_list.append(v)
+        if hasattr(self.tokenizer, 'all_special_ids'): #gemma3
+            special_list.extend(self.tokenizer.all_special_ids)
         if hasattr(self.tokenizer, 'gmask_token_id'):
             special_list.append(self.tokenizer.gmask_token_id)
         if hasattr(self.model, 'generation_config') and self.model.generation_config is not None:
@@ -760,7 +873,10 @@ class LlmExporter(torch.nn.Module):
                 vocab_list.append(f'{token_encode} {score} {token_type}\n')
             with open(file_path, "w", encoding="utf8") as fp:
                 write_header(fp, SENTENCEPIECE, special_list, prefix_list)
-                fp.write(f'{len(vocab_list)}\n')
+                if self.model_type == "gemma3" or self.model_type == "gemma3-text":
+                    fp.write(f'{len(vocab_list) + 1}\n') # len(vocab_list)==262144, self.tokenizer([262144])=='image_soft_token' is a special token
+                else:
+                    fp.write(f'{len(vocab_list)}\n')
                 for vocab in vocab_list:
                     fp.write(vocab)
         elif hasattr(self.tokenizer, 'mergeable_ranks'):
@@ -990,13 +1106,13 @@ def export(path,
            export = 'onnx',
            onnx_slim = False,
            quant_bit = 4,
-           quant_block = 128,
+           quant_block = 64,
            lm_quant_bit = None,
            mnnconvert = None,
            ppl = False,
            awq = False,
            sym = False,
-           tie_embed = False,
+           seperate_embed = False,
            lora_split = False):
     args = argparse.Namespace()
     for k, v in {
@@ -1015,7 +1131,7 @@ def export(path,
         'ppl': ppl,
         'awq': awq,
         'sym': sym,
-        'tie_embed': tie_embed,
+        'seperate_embed': seperate_embed,
         'lora_split': lora_split
     }.items():
         setattr(args, k, v)
@@ -1045,18 +1161,17 @@ def main():
     parser.add_argument('--export', type=str, default=None, help='export model to an onnx/mnn model.')
     parser.add_argument('--onnx_slim', action='store_true', help='Whether or not to use onnx-slim.')
     parser.add_argument('--quant_bit', type=int, default=4, help='mnn quant bit, 4 or 8, default is 4.')
-    parser.add_argument('--quant_block', type=int, default=128, help='mnn quant block, default is 0 mean channle-wise.')
+    parser.add_argument('--quant_block', type=int, default=64, help='mnn quant block, 0 mean channle-wise, default is 64.')
     parser.add_argument('--lm_quant_bit', type=int, default=None, help='mnn lm_head quant bit, 4 or 8, default is `quant_bit`.')
     parser.add_argument('--mnnconvert', type=str, default='../../../build/MNNConvert', help='local mnnconvert path, if invalid, using pymnn.')
     parser.add_argument('--ppl', action='store_true', help='Whether or not to get all logits of input tokens.')
     parser.add_argument('--awq', action='store_true', help='Whether or not to use awq quant.')
     parser.add_argument('--sym', action='store_true', help='Whether or not to using symmetric quant (without zeropoint), defualt is False.')
-    parser.add_argument('--tie_embed', action='store_true', help='Whether or not to using tie_embedding, defualt is False.')
+    parser.add_argument('--seperate_embed', action='store_true', help='For lm and embed shared model, whether or not to sepearte embed to avoid quant, defualt is False, if True, embed weight will be seperate to embeddingbf16.bin.')
     parser.add_argument('--lora_split', action='store_true', help='Whether or not export lora split, defualt is False.')
     args = parser.parse_args()
 
     model_path = args.path
-    model_type = args.type
 
     if 'gte' in model_path or 'bge' in model_path:
         llm_exporter = EmbeddingExporter(args)

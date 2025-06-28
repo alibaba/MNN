@@ -12,7 +12,7 @@
 #include "geometry/GeometryComputerUtils.hpp"
 
 namespace MNN {
-
+#ifdef MNN_SUPPORT_DEPRECATED_OPV2
 class GeometryConv3D : public GeometryComputer {
 public:
     virtual bool onCompute(const Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, Context& context, CommandBuffer& res) const override {
@@ -288,14 +288,15 @@ public:
         return true;
     }
 };
-
+#endif
 static void _create() {
+#ifdef MNN_SUPPORT_DEPRECATED_OPV2
     std::shared_ptr<GeometryComputer> comp(new GeometryConv3D);
     GeometryComputer::registerGeometryComputer(comp, {OpType_Convolution3D});
 
     std::shared_ptr<GeometryComputer> comp2(new GeometryConvTranspose3D);
     GeometryComputer::registerGeometryComputer(comp2, {OpType_ConvTranspose3D});
-
+#endif
 }
 
 REGISTER_GEOMETRY(GeometryConv3D, _create);

@@ -14,7 +14,7 @@ import com.alibaba.mls.api.download.DownloadInfo
 import com.alibaba.mls.api.download.DownloadListener
 import com.alibaba.mls.api.download.ModelDownloadManager
 import com.alibaba.mnnllm.android.R
-import com.alibaba.mnnllm.android.utils.ModelUtils.processList
+import com.alibaba.mnnllm.android.model.ModelUtils.processList
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
 import com.google.gson.JsonSyntaxException
@@ -61,12 +61,15 @@ class ModelListPresenter(private val context: Context, private val view: ModelLi
         requestRepoList(null)
     }
 
-    private fun getModelItemState(hfModelItems: List<ModelItem>?): Map<String, ModelItemDownloadState> {
+    private fun getModelItemState(modelItems: List<ModelItem>?): Map<String, ModelItemDownloadState> {
         modelItemDownloadStatesMap.clear()
-        if (hfModelItems == null) {
+        if (modelItems == null) {
             return modelItemDownloadStatesMap
         }
-        for (repoItem in hfModelItems) {
+        for (repoItem in modelItems) {
+            if (repoItem.modelId!!.startsWith("local")) {
+                continue
+            }
             val modelItemDownloadState = ModelItemDownloadState()
             modelItemDownloadState.downloadInfo = modelDownloadManager.getDownloadInfo(repoItem.modelId!!)
             modelItemDownloadStatesMap[repoItem.modelId!!] = modelItemDownloadState
@@ -88,6 +91,9 @@ class ModelListPresenter(private val context: Context, private val view: ModelLi
     }
 
     private fun saveToCache(hfModelItems: List<ModelItem>) {
+        if (hfModelItems.isEmpty()) {
+            return
+        }
         val gson = GsonBuilder().setPrettyPrinting().create()
         val json = gson.toJson(hfModelItems)
 
@@ -143,12 +149,12 @@ class ModelListPresenter(private val context: Context, private val view: ModelLi
     }
 
 
-    private fun onListAvailable(hfModelItems: List<ModelItem>, onSuccess: Runnable?) {
-        val hfRepoItemsProcessed = processList(hfModelItems)
-        for (item in hfModelItems) {
+    private fun onListAvailable(modelItems: List<ModelItem>, onSuccess: Runnable?) {
+        val itemsProcessed = processList(modelItems)
+        for (item in modelItems) {
             modelDownloadManager.getDownloadInfo(item.modelId!!)
         }
-        modelListAdapter!!.updateItems(hfRepoItemsProcessed, getModelItemState(hfModelItems))
+        modelListAdapter!!.updateItems(itemsProcessed, getModelItemState(itemsProcessed))
         onSuccess?.run()
         view.onListAvailable()
     }

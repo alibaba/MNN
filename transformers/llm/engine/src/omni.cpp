@@ -5,6 +5,9 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#ifdef _WIN32
+#define _USE_MATH_DEFINES
+#endif
 #include <regex>
 #include <MNN/AutoTime.hpp>
 #include <MNN/expr/ExecutorScope.hpp>
@@ -59,6 +62,8 @@ Omni::Omni(std::shared_ptr<LlmConfig> config) : Llm(config) {
         mVisionMean   = config->config_.value("image_mean", mVisionMean);
         mVisionNorm   = config->config_.value("image_norm", mVisionNorm);
         mVisionSizeUnit = config->config_.value("image_size_unit", mVisionSizeUnit);
+        mVisionMaxSize = config->config_.value("image_max_size", mVisionMaxSize);
+        mVisionGlobal = config->config_.value("global_image", mVisionGlobal);
     }
     if (config->is_audio()) {}
 }
@@ -119,6 +124,246 @@ void Omni::load() {
     }
 }
 
+#ifdef LLM_SUPPORT_VISION
+std::vector<int> Omni::defaultVisionProcess(VARP image) {
+    mVisionHeight = UP_DIV(mVisionHeight, mVisionSizeUnit) * mVisionSizeUnit;
+    mVisionWidth  = UP_DIV(mVisionWidth, mVisionSizeUnit) * mVisionSizeUnit;
+    image = MNN::CV::resize(image, {mVisionHeight, mVisionWidth}, 0, 0,
+                            MNN::CV::INTER_LINEAR, MNN::CV::COLOR_BGR2RGB,
+                            mVisionMean, mVisionNorm);
+    image = Express::_Unsqueeze(image, {0});
+    image = Express::_Convert(image, NC4HW4);
+    auto imageEmbedding = mVisionModule->forward(image);
+    mVisionEmbeddings.push_back(imageEmbedding);
+    int visionLen = imageEmbedding->getInfo()->dim[0];
+    std::vector<int> imgIds(visionLen, mVisionPad);
+    if (mVisionStart >= 0 && mVisionEnd >= 0) {
+        imgIds.insert(imgIds.begin(), mVisionStart);
+        imgIds.push_back(mVisionEnd);
+    }
+    return imgIds;
+}
+
+std::vector<int> Omni::qwen2VisionProcess(VARP image) {
+    const auto inputNames = mVisionModule->getInfo()->inputNames;
+    bool hasWindowIndex = inputNames.size() == 4 && inputNames[3] == "window_index";
+    // Qwen2-VL / Qwen2.5-VL
+    mVisionHeight = round(mVisionHeight / 28.0) * 28;
+    mVisionWidth = round(mVisionWidth / 28.0) * 28;
+    image = MNN::CV::resize(image, {mVisionHeight, mVisionWidth}, 0, 0,
+                            MNN::CV::INTER_LINEAR, MNN::CV::COLOR_BGR2RGB,
+                            mVisionMean, mVisionNorm);
+    image = Express::_Unsqueeze(image, {0});
+    image = Express::_Convert(image, NCHW);
+    auto patches = Express::_Concat({image, image}, 0);
+    auto patches_dim = patches->getInfo()->dim;
+    int temporal = patches_dim[0];
+    int channel  = patches_dim[1];
+    int height   = patches_dim[2];
+    int width    = patches_dim[3];
+    constexpr int temporal_patch_size = 2;
+    constexpr int patch_size = 14;
+    constexpr int merge_size = 2;
+    int grid_t = temporal / temporal_patch_size;
+    int grid_h = height / patch_size;
+    int grid_w = width / patch_size;
+    addPositionIds(grid_t, grid_h / merge_size, grid_w / merge_size);
+    // build patches
+    patches = Express::_Reshape(patches, {
+        grid_t, temporal_patch_size,
+        channel,
+        grid_h / merge_size, merge_size, patch_size,
+        grid_w / merge_size, merge_size, patch_size,
+    });
+    patches = Express::_Permute(patches, {0, 3, 6, 4, 7, 2, 1, 5, 8});
+    patches = Express::_Reshape(patches, {
+        grid_t * grid_h * grid_w,
+        channel * temporal_patch_size * patch_size * patch_size
+    });
+    const int seq_len = grid_t * grid_h * grid_w;
+    // build position_ids
+    const int wblock_size = merge_size * merge_size;
+    const int hblock_size = wblock_size * grid_w / merge_size;
+    VARP position_ids = Express::_Input({2, seq_len}, NCHW, halide_type_of<int>());
+    auto hpos_ptr = position_ids->writeMap<int>();
+    auto wpos_ptr = hpos_ptr + seq_len;
+    for (int i = 0; i < grid_h; i++) {
+        int h_idx = i / merge_size, h_off = i % merge_size;
+        for (int j = 0; j < grid_w; j++) {
+            int w_idx = j / merge_size, w_off = j % merge_size;
+            int index = h_idx * hblock_size + w_idx * wblock_size + h_off * 2 + w_off;
+            hpos_ptr[index] = i;
+            wpos_ptr[index] = j;
+        }
+    }
+    VARP attention_mask, window_index;
+    VARPS moduleInputs= {patches, position_ids};
+    if (hasWindowIndex) {
+        // build window_index
+        window_index = Express::_Input({seq_len / 4}, NCHW, halide_type_of<int>());
+        auto window_index_ptr = window_index->writeMap<int>();
+        const int merge_unit = merge_size * merge_size;
+        const int vit_merger_window_size = 4;
+        int llm_grid_h = grid_h / merge_size;
+        int llm_grid_w = grid_w / merge_size;
+        int pad_h = vit_merger_window_size - (llm_grid_h % vit_merger_window_size);
+        int pad_w = vit_merger_window_size - (llm_grid_w % vit_merger_window_size);
+        int new_h = llm_grid_h + pad_h;
+        int new_w = llm_grid_w + pad_w;
+        int num_windows_h = new_h / vit_merger_window_size;
+        int num_windows_w = new_w / vit_merger_window_size;
+        std::vector<int> seqlens;
+        int window_index_idx = 0;
+        for (int t = 0; t < grid_t; ++t) {
+            for (int win_h = 0; win_h < num_windows_h; ++win_h) {
+                for (int win_w = 0; win_w < num_windows_w; ++win_w) {
+                    int count = 0;
+                    for (int i = 0; i < vit_merger_window_size; ++i) {
+                        int h_global = win_h * vit_merger_window_size + i;
+                        if (h_global >= llm_grid_h) continue;
+                        for (int j = 0; j < vit_merger_window_size; ++j) {
+                            int w_global = win_w * vit_merger_window_size + j;
+                            if (w_global >= llm_grid_w) continue;
+                            int idx = t * llm_grid_h * llm_grid_w + h_global * llm_grid_w + w_global;
+                            window_index_ptr[window_index_idx++] = idx;
+                            ++count;
+                        }
+                    }
+                    seqlens.push_back(count);
+                }
+            }
+        }
+        std::vector<int> cu_window_seqlens = {0};
+        int prev = cu_window_seqlens.back();
+        for (int s : seqlens) {
+            cu_window_seqlens.push_back(prev + s * merge_unit);
+            prev = cu_window_seqlens.back();
+        }
+        // build attention_mask
+        attention_mask = Express::_Input({2, 1, seq_len, seq_len}, NCHW);
+        auto attention_mask_ptr = attention_mask->writeMap<float>();
+        ::memset(attention_mask_ptr, 0, seq_len * seq_len * sizeof(float));
+        attention_mask_ptr = attention_mask_ptr + seq_len * seq_len;
+        for (int i = 0; i < seq_len * seq_len; i++) {
+            attention_mask_ptr[i] = std::numeric_limits<float>::lowest();
+        }
+        for (size_t i = 1; i < cu_window_seqlens.size(); ++i) {
+            for (int j = cu_window_seqlens[i - 1]; j < cu_window_seqlens[i]; ++j) {
+                for (int k = cu_window_seqlens[i - 1]; k < cu_window_seqlens[i]; ++k) {
+                    attention_mask_ptr[seq_len * j + k] = 0;
+                }
+            }
+        }
+        moduleInputs.push_back(attention_mask);
+        moduleInputs.push_back(window_index);
+    } else {
+        // build attention_mask
+        attention_mask = Express::_Input({1, seq_len, seq_len}, NCHW);
+        ::memset(attention_mask->writeMap<float>(), 0, seq_len * seq_len * sizeof(float));
+        moduleInputs.push_back(attention_mask);
+    }
+#ifdef DEBUG_IMAGE
+    patches.fix(MNN::Express::VARP::CONSTANT);
+    patches->setName("patches");
+    position_ids.fix(MNN::Express::VARP::CONSTANT);
+    position_ids->setName("position_ids");
+    attention_mask.fix(MNN::Express::VARP::CONSTANT);
+    attention_mask->setName("attention_mask");
+    MNN::Express::Variable::save({patches, position_ids, attention_mask}, "input.mnn");
+#endif
+    auto imageEmbedding = mVisionModule->onForward(moduleInputs)[0];
+#ifdef DEBUG_IMAGE
+    imageEmbedding->setName("image_embeds");
+    MNN::Express::Variable::save({imageEmbedding}, "output.mnn");
+#endif
+    mVisionEmbeddings.push_back(imageEmbedding);
+    int visionLen = imageEmbedding->getInfo()->dim[0];
+    std::vector<int> imgIds(visionLen, mVisionPad);
+    imgIds.insert(imgIds.begin(), mVisionStart);
+    imgIds.push_back(mVisionEnd);
+    return imgIds;
+}
+
+std::vector<int> Omni::smolvlmVisionProcess(VARP image) {
+    // SmolVLM
+    constexpr int visionLen = 64;
+    bool splitImage = mVisionHeight > mVisionSizeUnit || mVisionWidth > mVisionSizeUnit;
+    auto globalImage = MNN::CV::resize(image, {mVisionSizeUnit, mVisionSizeUnit}, 0, 0,
+                                       MNN::CV::INTER_LINEAR, MNN::CV::COLOR_BGR2RGB,
+                                       mVisionMean, mVisionNorm);
+    globalImage = Express::_Unsqueeze(globalImage, {0});
+    globalImage = Express::_Convert(globalImage, NCHW);
+    std::vector<int> imgIds;
+    if (splitImage) {
+        mVisionHeight = round(mVisionHeight / (float)mVisionSizeUnit) * mVisionSizeUnit;
+        mVisionWidth = round(mVisionWidth / (float)mVisionSizeUnit) * mVisionSizeUnit;
+        if (mVisionHeight > mVisionMaxSize) {
+            mVisionHeight = mVisionMaxSize;
+        }
+        if (mVisionWidth > mVisionMaxSize) {
+            mVisionWidth = mVisionMaxSize;
+        }
+        auto patches = MNN::CV::resize(image, {mVisionHeight, mVisionWidth}, 0, 0,
+                                       MNN::CV::INTER_LINEAR, MNN::CV::COLOR_BGR2RGB,
+                                       mVisionMean, mVisionNorm);
+        patches = Express::_Unsqueeze(patches, {0});
+        patches = Express::_Convert(patches, NCHW);
+        auto imageDims = patches->getInfo()->dim;
+        int batch    = imageDims[0];
+        int channel  = imageDims[1];
+        int height   = imageDims[2];
+        int width    = imageDims[3];
+        int grid_h = height / mVisionSizeUnit;
+        int grid_w = width / mVisionSizeUnit;
+        patches = Express::_Reshape(patches, {
+            batch,
+            channel,
+            grid_h, mVisionSizeUnit,
+            grid_w, mVisionSizeUnit,
+        });
+        patches = Express::_Permute(patches, {0, 2, 4, 1, 3, 5});
+        patches = Express::_Reshape(patches, {
+            batch * grid_h * grid_w,
+            channel,
+            mVisionSizeUnit,
+            mVisionSizeUnit
+        });
+        patches = _Concat({patches, globalImage}, 0);
+        auto imageEmbedding = mVisionModule->forward(patches);
+        auto embeddingDims = imageEmbedding->getInfo()->dim;
+        for (int i = 0; i < embeddingDims[0]; i++) {
+            auto embedding = _Squeeze(_GatherV2(imageEmbedding, _var<int>({i}, {1}), _var<int>({0}, {1})), {0});
+            mVisionEmbeddings.push_back(embedding);
+        }
+        int endRow = tokenizer_encode("\n")[0];
+        for (int h = 0; h < grid_h; h++) {
+            for (int w = 0; w < grid_w; w++) {
+                imgIds.push_back(mVisionStart);
+                // <row_{h+1}_col{w+1}>
+                std::string image_pos = "<row_" + std::to_string(h + 1) + "_col_" + std::to_string(w + 1) + ">";
+                imgIds.push_back(tokenizer_encode(image_pos)[0]);
+                for (int p = 0; p < visionLen; p++) {
+                    imgIds.push_back(mVisionPad);
+                }
+            }
+            imgIds.push_back(endRow);
+        }
+        imgIds.push_back(endRow);
+    } else {
+        auto imageEmbedding = mVisionModule->forward(globalImage);
+        mVisionEmbeddings.push_back(_Squeeze(imageEmbedding, {0}));
+    }
+    // global image ids
+    imgIds.push_back(mVisionStart);
+    imgIds.push_back(mVisionGlobal);
+    for (int p = 0; p < visionLen; p++) {
+        imgIds.push_back(mVisionPad);
+    }
+    imgIds.push_back(mVisionEnd);
+    return imgIds;
+}
+#endif
+
 std::vector<int> Omni::visionProcess(const std::string& file) {
 #ifdef LLM_SUPPORT_VISION
     VARP image = MNN::CV::imread(file);
@@ -127,157 +372,17 @@ std::vector<int> Omni::visionProcess(const std::string& file) {
         return std::vector<int>(0);
     }
     Timer _t;
-    VARP image_embedding;
-
-    if (mVisionModule->getInfo()->inputNames[0] == "patches") {
-        bool hasWindowIndex = mVisionModule->getInfo()->inputNames.size() == 4 &&
-                              mVisionModule->getInfo()->inputNames[3] == "window_index";
-        // Qwen2-VL / Qwen2.5-VL
-        mVisionHeight = round(mVisionHeight / 28.0) * 28;
-        mVisionWidth = round(mVisionWidth / 28.0) * 28;
-        image        = MNN::CV::resize(image, {mVisionHeight, mVisionWidth}, 0, 0,
-                                     MNN::CV::INTER_LINEAR, MNN::CV::COLOR_BGR2RGB,
-                                     mVisionMean, mVisionNorm);
-        image        = Express::_Unsqueeze(image, {0});
-        image        = Express::_Convert(image, NCHW);
-        auto patches = Express::_Concat({image, image}, 0);
-        auto patches_dim = patches->getInfo()->dim;
-        int temporal = patches_dim[0];
-        int channel  = patches_dim[1];
-        int height   = patches_dim[2];
-        int width    = patches_dim[3];
-        constexpr int temporal_patch_size = 2;
-        constexpr int patch_size = 14;
-        constexpr int merge_size = 2;
-        int grid_t = temporal / temporal_patch_size;
-        int grid_h = height / patch_size;
-        int grid_w = width / patch_size;
-        addPositionIds(grid_t, grid_h / merge_size, grid_w / merge_size);
-        // build patches
-        patches = Express::_Reshape(patches, {
-            grid_t, temporal_patch_size,
-            channel,
-            grid_h / merge_size, merge_size, patch_size,
-            grid_w / merge_size, merge_size, patch_size,
-        });
-        patches = Express::_Permute(patches, {0, 3, 6, 4, 7, 2, 1, 5, 8});
-        patches = Express::_Reshape(patches, {
-            grid_t * grid_h * grid_w,
-            channel * temporal_patch_size * patch_size * patch_size
-        });
-        const int seq_len = grid_t * grid_h * grid_w;
-        // build position_ids
-        const int wblock_size = merge_size * merge_size;
-        const int hblock_size = wblock_size * grid_w / merge_size;
-        VARP position_ids = Express::_Input({2, seq_len}, NCHW, halide_type_of<int>());
-        auto hpos_ptr = position_ids->writeMap<int>();
-        auto wpos_ptr = hpos_ptr + seq_len;
-        for (int i = 0; i < grid_h; i++) {
-            int h_idx = i / merge_size, h_off = i % merge_size;
-            for (int j = 0; j < grid_w; j++) {
-                int w_idx = j / merge_size, w_off = j % merge_size;
-                int index = h_idx * hblock_size + w_idx * wblock_size + h_off * 2 + w_off;
-                hpos_ptr[index] = i;
-                wpos_ptr[index] = j;
-            }
-        }
-        VARP attention_mask, window_index;
-        VARPS moduleInputs= {patches, position_ids};
-        if (hasWindowIndex) {
-            // build window_index
-            window_index = Express::_Input({seq_len / 4}, NCHW, halide_type_of<int>());
-            auto window_index_ptr = window_index->writeMap<int>();
-            const int merge_unit = merge_size * merge_size;
-            const int vit_merger_window_size = 4;
-            int llm_grid_h = grid_h / merge_size;
-            int llm_grid_w = grid_w / merge_size;
-            int pad_h = vit_merger_window_size - (llm_grid_h % vit_merger_window_size);
-            int pad_w = vit_merger_window_size - (llm_grid_w % vit_merger_window_size);
-            int new_h = llm_grid_h + pad_h;
-            int new_w = llm_grid_w + pad_w;
-            int num_windows_h = new_h / vit_merger_window_size;
-            int num_windows_w = new_w / vit_merger_window_size;
-            std::vector<int> seqlens;
-            int window_index_idx = 0;
-            for (int t = 0; t < grid_t; ++t) {
-                for (int win_h = 0; win_h < num_windows_h; ++win_h) {
-                    for (int win_w = 0; win_w < num_windows_w; ++win_w) {
-                        int count = 0;
-                        for (int i = 0; i < vit_merger_window_size; ++i) {
-                            int h_global = win_h * vit_merger_window_size + i;
-                            if (h_global >= llm_grid_h) continue;
-                            for (int j = 0; j < vit_merger_window_size; ++j) {
-                                int w_global = win_w * vit_merger_window_size + j;
-                                if (w_global >= llm_grid_w) continue;
-                                int idx = t * llm_grid_h * llm_grid_w + h_global * llm_grid_w + w_global;
-                                window_index_ptr[window_index_idx++] = idx;
-                                ++count;
-                            }
-                        }
-                        seqlens.push_back(count);
-                    }
-                }
-            }
-            std::vector<int> cu_window_seqlens = {0};
-            int prev = cu_window_seqlens.back();
-            for (int s : seqlens) {
-                cu_window_seqlens.push_back(prev + s * merge_unit);
-                prev = cu_window_seqlens.back();
-            }
-            // build attention_mask
-            attention_mask = Express::_Input({2, 1, seq_len, seq_len}, NCHW);
-            auto attention_mask_ptr = attention_mask->writeMap<float>();
-            ::memset(attention_mask_ptr, 0, seq_len * seq_len * sizeof(float));
-            attention_mask_ptr = attention_mask_ptr + seq_len * seq_len;
-            for (int i = 0; i < seq_len * seq_len; i++) {
-                attention_mask_ptr[i] = std::numeric_limits<float>::lowest();
-            }
-            for (size_t i = 1; i < cu_window_seqlens.size(); ++i) {
-                for (int j = cu_window_seqlens[i - 1]; j < cu_window_seqlens[i]; ++j) {
-                    for (int k = cu_window_seqlens[i - 1]; k < cu_window_seqlens[i]; ++k) {
-                        attention_mask_ptr[seq_len * j + k] = 0;
-                    }
-                }
-            }
-            moduleInputs.push_back(attention_mask);
-            moduleInputs.push_back(window_index);
-        } else {
-            // build attention_mask
-            attention_mask = Express::_Input({1, seq_len, seq_len}, NCHW);
-            ::memset(attention_mask->writeMap<float>(), 0, seq_len * seq_len * sizeof(float));
-            moduleInputs.push_back(attention_mask);
-        }
-#ifdef DEBUG_IMAGE
-        patches.fix(MNN::Express::VARP::CONSTANT);
-        patches->setName("patches");
-        position_ids.fix(MNN::Express::VARP::CONSTANT);
-        position_ids->setName("position_ids");
-        attention_mask.fix(MNN::Express::VARP::CONSTANT);
-        attention_mask->setName("attention_mask");
-        MNN::Express::Variable::save({patches, position_ids, attention_mask}, "input.mnn");
-#endif
-        image_embedding = mVisionModule->onForward(moduleInputs)[0];
-#ifdef DEBUG_IMAGE
-        image_embedding->setName("image_embeds");
-        MNN::Express::Variable::save({image_embedding}, "output.mnn");
-#endif
+    std::vector<int> imgIds;
+    const auto inputNames = mVisionModule->getInfo()->inputNames;
+    if (inputNames.size() >= 3 && inputNames[0] == "patches") {
+        imgIds = qwen2VisionProcess(image);
+    } else if (inputNames[0] == "pixel_values") {
+        imgIds = smolvlmVisionProcess(image);
     } else {
-        mVisionHeight = UP_DIV(mVisionHeight, mVisionSizeUnit) * mVisionSizeUnit;
-        mVisionWidth = UP_DIV(mVisionWidth, mVisionSizeUnit) * mVisionSizeUnit;
-        image           = MNN::CV::resize(image, {mVisionHeight, mVisionWidth}, 0, 0,
-                                          MNN::CV::INTER_LINEAR, MNN::CV::COLOR_BGR2RGB,
-                                          mVisionMean, mVisionNorm);
-        image           = Express::_Unsqueeze(image, {0});
-        image           = Express::_Convert(image, NC4HW4);
-        image_embedding = mVisionModule->forward(image);
+        imgIds = defaultVisionProcess(image);
     }
     mContext->vision_us = _t.durationInUs();
-    mVisionEmbeddings.push_back(image_embedding);
-    int visual_len = image_embedding->getInfo()->dim[0];
-    std::vector<int> img_ids(visual_len, mVisionPad);
-    img_ids.insert(img_ids.begin(), mVisionStart);
-    img_ids.push_back(mVisionEnd);
-    return img_ids;
+    return imgIds;
 #else
     return std::vector<int>(0);
 #endif
@@ -462,25 +567,42 @@ VARP Omni::embedding(const std::vector<int>& input_ids) {
     std::vector<int> position_ids;
     int vision_idx = 0, audio_idx = 0;
     std::vector<int> cur_txt_ids;
-    bool in_audio = false;
+    bool inVision = false, inAudio = false;
     for (int i = 0; i < input_ids.size(); i++) {
         int id = input_ids[i];
         // audio
-        if (in_audio) {
+        if (inAudio) {
             if (id == mAudioPad) {
                 continue;
             } else {
                 cur_txt_ids.clear();
-                in_audio = false;
+                inAudio = false;
             }
         } else if (id == mAudioPad) {
             auto txt_embedding = Llm::embedding(cur_txt_ids);
             auto mul_embedding = mAudioEmbeddings[audio_idx++];
             embeddings.push_back(txt_embedding);
             embeddings.push_back(mul_embedding);
-            in_audio = true;
+            inAudio = true;
         }
         // vision
+#if 1
+        if (inVision) {
+            if (id == mVisionPad) {
+                continue;
+            } else {
+                cur_txt_ids.clear();
+                inVision = false;
+            }
+        } else if (id == mVisionPad) {
+            auto txt_embedding = Llm::embedding(cur_txt_ids);
+            auto mul_embedding = mVisionEmbeddings[vision_idx++];
+            embeddings.push_back(txt_embedding);
+            embeddings.push_back(mul_embedding);
+            inVision = true;
+        }
+        cur_txt_ids.push_back(id);
+#else
         if (id == mVisionPad) {
             continue;
         }
@@ -494,6 +616,7 @@ VARP Omni::embedding(const std::vector<int>& input_ids) {
             cur_txt_ids.clear();
             cur_txt_ids.push_back(id);
         }
+#endif
     }
 
     mVisionEmbeddings.clear();
@@ -526,10 +649,13 @@ VARP Omni::gen_position_ids(int seq_len) {
         positionIds = _Input({3, seq_len}, NCHW, halide_type_of<int>());
     }
     auto ptr = positionIds->writeMap<int>();
-    if (seq_len == 1) {
-        ptr[0] = mContext->gen_seq_len + mPositionIds.back();
-        ptr[1] = ptr[0];
-        ptr[2] = ptr[0];
+    if (mContext->gen_seq_len > 0) {
+        for (int i=0; i<seq_len; ++i) {
+            auto pos = mContext->gen_seq_len + mPositionIds.back() + i;
+            ptr[i + 0] = pos;
+            ptr[i + seq_len] = pos;
+            ptr[i + seq_len * 2] = pos;
+        }
     } else {
         for (int i = 0; i < seq_len; i++) {
             ptr[i] = mPositionIds.mT[i];
@@ -543,23 +669,12 @@ VARP Omni::gen_position_ids(int seq_len) {
     return positionIds;
 }
 
-Express::VARP Omni::forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos) {
-    VARP logits;
-    auto logitsIndex = _var<int>({-1}, {1});
-    if (mConfig->all_logits()) {
-        logitsIndex = _var<int>({0}, {1});
-    }
-    std::vector<Express::VARP> outputs;
-    outputs = mCurrentModules.back()->onForward({hiddenState, mask, inputPos, logitsIndex});
-    if (outputs.empty()) {
-        return nullptr;
-    }
+std::vector<Express::VARP> Omni::forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos) {
+    auto outputs = Llm::forwardRaw(hiddenState, mask, inputPos);
     if (mTalker && outputs.size() > 1) {
         mTalker->addTalkerEmbeds(outputs[1]);
     }
-    logits = outputs[0];
-    mMeta->sync();
-    return logits;
+    return outputs;
 }
 
 void Omni::response(const std::vector<int>& input_ids, std::ostream* os, const char* end_with, int max_new_tokens) {
@@ -609,10 +724,8 @@ void Omni::generateWavform() {
 }
 
 void Talker::load() {
-    MNN::BackendConfig backendConfig;
-    auto executor = MNN::Express::Executor::newExecutor(MNN_FORWARD_CPU, backendConfig, 1);
-    MNN::Express::ExecutorScope s(executor);
     initRuntime();
+    mSeqLenIndex = 1;
     set_config("{\"sampler_type\": \"mixed\", \"temperature\": 0.9, \"topK\": 40, \"topP\": 0.8, \"penalty\": 1.05}");
     mSampler.reset(Sampler::createSampler(mContext, mConfig));
     mDiskEmbedding.reset(new DiskEmbedding(mConfig, mConfig->talker_embedding_file()));
@@ -633,7 +746,9 @@ void Talker::load() {
     module_config.shapeMutable = false;
     module_config.rearrange    = true;
     mModules.resize(1);
-    mModules[0].reset(Module::load({"inputs_embeds", "attention_mask", "position_ids"},
+    std::vector<std::string> inputNames {"inputs_embeds", "attention_mask", "position_ids", "logits_index"};
+
+    mModules[0].reset(Module::load(inputNames,
                                     {"logits"}, mConfig->talker_model().c_str(), mRuntimeManager, &module_config));
     // dit
     mPreDit.reset(Module::load({"cond", "spk", "code"}, {"code_embeds", "rope", "mask"},
@@ -650,24 +765,7 @@ void Talker::load() {
 
 void Talker::generate_init(std::ostream* os, const char* end_with) {
     if (!doGenerate()) { return; }
-    {
-        mContext->os = os;
-        if (nullptr != end_with) {
-            mContext->end_with = end_with;
-        }
-        if (!mContext->generate_str.empty()) {
-            mContext->generate_str.clear();
-        }
-        mContext->gen_seq_len = 0;
-        mContext->prefill_us  = 0;
-        mContext->decode_us   = 0;
-        mContext->current_token = 0;
-        mContext->all_seq_len = 0;
-        mContext->history_tokens.clear();
-        mMeta->remove = mMeta->previous;
-        mContext->output_tokens.clear();
-        mCurrentModules = mPrefillModules;
-    }
+    Llm::generate_init(os, end_with);
     // stream generate init
     mTalkerEmbeds.clear();
     if (mInitialNoise.empty()) {
@@ -827,19 +925,6 @@ int Talker::sample(Express::VARP logits, int offset, int size) {
     return token;
 }
 
-VARP Talker::forward(VARP input_embeds) {
-    auto input_shape = input_embeds->getInfo()->dim;
-    int seq_len = input_shape[1];
-    mMeta->add = seq_len;
-    auto attention_mask = gen_attention_mask(seq_len);
-    auto position_ids = gen_position_ids(seq_len);
-    auto outputs = mCurrentModules.back()->onForward({input_embeds, attention_mask, position_ids});
-    mContext->all_seq_len += seq_len;
-    mContext->gen_seq_len++;
-    mMeta->sync();
-    return outputs[0];
-}
-
 void Talker::generate() {
     if (!doGenerate()) { return; }
     mTalkerEmbeds.push_back(mTextEos);
@@ -850,11 +935,13 @@ void Talker::generate() {
     mContext->prompt_len = input_embeds->getInfo()->dim[1];
     MNN::Timer _t;
     auto logits = forward(input_embeds);
-    int token = sample(logits);
+    mContext->current_token = sample(logits);
+    mContext->history_tokens.push_back(mContext->current_token);
+    mContext->output_tokens.push_back(mContext->current_token);
     mContext->prefill_us += _t.durationInUs();
     _t.reset();
     for (int i = 1; i < mMaxNewTokens; i++) {
-        input_embeds = embedding({token});
+        input_embeds = embedding({mContext->current_token});
         if (i + 1 < mTalkerEmbeds.size()) {
             input_embeds = input_embeds + mTalkerEmbeds[i + 1];
         } else {
@@ -862,8 +949,11 @@ void Talker::generate() {
             input_embeds = input_embeds + mTextPad;
         }
         auto logits = forward(input_embeds);
-        token = sample(logits);
-        if (token == 8292 || token == 8294) {
+        mContext->current_token = sample(logits);
+        mContext->history_tokens.push_back(mContext->current_token);
+        mContext->output_tokens.push_back(mContext->current_token);
+
+        if (mContext->current_token == 8292 || mContext->current_token == 8294) {
             break;
         }
     }

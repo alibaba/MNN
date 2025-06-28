@@ -45,6 +45,7 @@ ErrorCode CPURelu::onExecute(const std::vector<Tensor*>& inputs, const std::vect
     auto& ib = inputs[0]->buffer();
     auto& ob = outputs[0]->buffer();
 
+#ifdef MNN_SUPPORT_QUANT_EXTEND
     if (CPUBackend::getDataType(inputs[0]) == DataType_DT_INT8 || inputs[0]->getType().bytes() == 1) {
         auto core = static_cast<CPUBackend*>(backend())->int8Functions();
         auto gcore = static_cast<CPUBackend*>(backend())->functions();
@@ -111,6 +112,7 @@ ErrorCode CPURelu::onExecute(const std::vector<Tensor*>& inputs, const std::vect
         }
         return NO_ERROR;
     }
+#endif
     auto core = static_cast<CPUBackend*>(backend())->functions();
     const uint8_t* srcO = (const uint8_t*)ib.host;
     uint8_t* dstO       = (uint8_t*)ob.host;
@@ -244,7 +246,7 @@ ErrorCode CPUPRelu::onExecute(const std::vector<Tensor*>& inputs, const std::vec
     auto numberThread = ((CPUBackend*)backend())->threadNumber();
     auto sizeQuad = UP_DIV(depthQuad, numberThread);
     auto sizeCount = sizeQuad * batch * inputs[0]->width() * inputs[0]->height() * core->pack;
-    
+#ifdef MNN_SUPPORT_QUANT_EXTEND
     if (mUseInt8) {
         auto inputInfo = TensorUtils::getDescribe(inputs[0])->quantAttr;
         auto outputInfo = TensorUtils::getDescribe(outputs[0])->quantAttr;
@@ -270,6 +272,7 @@ ErrorCode CPUPRelu::onExecute(const std::vector<Tensor*>& inputs, const std::vec
         MNN_CONCURRENCY_END();
         return NO_ERROR;
     }
+#endif
     int hw = 1;
     for (int i=2; i<ib.dimensions; ++i) {
         hw *= ib.dim[i].extent;

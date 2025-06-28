@@ -11,6 +11,6 @@ import com.alibaba.mnnllm.android.update.UpdateChecker
 class DownloadReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val completedDownloadId = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1)
-        UpdateChecker.installApk(context, completedDownloadId)
+        UpdateChecker.installApk(context, completedDownloadId, null)
     }
 }

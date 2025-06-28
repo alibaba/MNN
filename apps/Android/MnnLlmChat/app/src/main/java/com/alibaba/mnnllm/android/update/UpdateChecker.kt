@@ -2,24 +2,31 @@
 // Copyright (c) 2024 Alibaba Group Holding Limited All rights reserved.
 package com.alibaba.mnnllm.android.update
 
+import android.app.Activity
 import android.app.AlertDialog
 import android.app.DownloadManager
 import android.content.Context
 import android.content.DialogInterface
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Environment
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import android.text.TextUtils
 import android.util.Log
 import android.widget.Toast
+import androidx.core.content.FileProvider
 import com.alibaba.mnnllm.android.R
+import com.alibaba.mnnllm.android.chat.DownloadReceiver
 import com.alibaba.mnnllm.android.utils.AppUtils.getAppVersionName
 import com.alibaba.mnnllm.android.utils.DeviceUtils
 import com.alibaba.mnnllm.android.utils.PreferenceUtils
 import com.alibaba.mnnllm.android.utils.UiUtils
+import com.techiness.progressdialoglibrary.ProgressDialog
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.OkHttpClient
@@ -28,23 +35,43 @@ import okhttp3.Request.Builder
 import okhttp3.Response
 import org.json.JSONException
 import org.json.JSONObject
+import java.io.File
 import java.io.IOException
 import java.net.URL
 import kotlin.math.max
 
 
 class UpdateChecker(private val context: Context) {
+
+    private var manifestUrl = "https://modelscope.cn/datasets/MNN/mnn_llm_app_config/resolve/master/main_config.json"
+    private var progressDialog: ProgressDialog? = null
+
+    init {
+        if (File("/data/local/tmp/mnn_chat_test").exists()) {
+            manifestUrl = manifestUrl.replace("/MNN/", "/JuudeS/")
+        }
+    }
+
     fun checkForUpdates(context: Context, forceCheck: Boolean) {
+        if (waitingForInstallPermission && (waitingDownloadId > 0 || waitingFileUri != null)) {
+            installApk(context, waitingDownloadId, waitingFileUri)
+            waitingForInstallPermission = false
+            return
+        }
         if (!forceCheck) {
             val lastCheckTime = PreferenceUtils.getLong(context, "download_last_show_time", 0)
             if (System.currentTimeMillis() - lastCheckTime < 1000 * 60 * 60) {
                 return
             }
         }
+        if (forceCheck) {
+            progressDialog = ProgressDialog(context)
+            progressDialog?.show()
+        }
         val client = OkHttpClient()
 
         val request: Request = Builder()
-            .url("https://modelscope.cn/datasets/MNN/mnn_llm_app_config/resolve/master/main_config.json")
+            .url(manifestUrl)
             .build()
 
         client.newCall(request).enqueue(object : Callback {
@@ -85,6 +112,7 @@ class UpdateChecker(private val context: Context) {
                         TAG,
                         "currentVersion : $currentVersion"
                     )
+                    progressDialog?.dismiss()
                     if (isNewerVersion(latestVersion, currentVersion)) {
                         Handler(Looper.getMainLooper()).post {
                             showUpdateDialog(
@@ -148,16 +176,25 @@ class UpdateChecker(private val context: Context) {
     }
 
     private fun downloadApk(context: Context, downloadUrl: String) {
-        val apkName = getUrlLastName(downloadUrl)
+        val apkName = getUrlLastName(downloadUrl)?: "update.apk"
+        val downloadPath = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+        val file = File(downloadPath, apkName)
+        var downloadFileUri = Uri.fromFile(file)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            val authority = "${context.packageName}.fileprovider"
+            downloadFileUri = FileProvider.getUriForFile(context, authority, file)
+        }
+        if (file.exists()) {
+            installApk(context, -9999, downloadFileUri)
+            return
+        }
+        UiUtils.showToast(context, context.getString(R.string.apk_download_started), Toast.LENGTH_LONG)
         val request = DownloadManager.Request(Uri.parse(downloadUrl))
             .setTitle(apkName)
             .setDescription(context.getString(R.string.wait_install_apk))
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-        request.setDestinationInExternalPublicDir(
-            Environment.DIRECTORY_DOWNLOADS,
-            getUrlLastName(downloadUrl)
-        )
-
+            .setDestinationUri(Uri.fromFile(file))
+            .setMimeType("application/vnd.android.package-archive")
         val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
         downloadManager.enqueue(request)
     }
@@ -174,7 +211,10 @@ class UpdateChecker(private val context: Context) {
         }
 
     companion object {
+        private var waitingDownloadId: Long = -9999
         private const val TAG = "UpdateChecker"
+        var waitingForInstallPermission = false
+        private var waitingFileUri: Uri? = null
         fun getUrlLastName(urlStr: String?): String? {
             try {
                 val url = URL(urlStr)
@@ -193,11 +233,22 @@ class UpdateChecker(private val context: Context) {
             }
         }
 
-        fun installApk(context: Context, downloadId: Long) {
-            Log.d(TAG, "installAPK:$downloadId")
+        fun installApk(context: Context, downloadId: Long, fileUri: Uri? = null) {
+            if (!context.packageManager.canRequestPackageInstalls()) {
+                waitingForInstallPermission = true
+                waitingDownloadId = downloadId
+                waitingFileUri = fileUri
+                Toast.makeText(context, "Please grant permission to install apps.", Toast.LENGTH_LONG).show()
+                val intent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES)
+                intent.data = Uri.parse("package:${context.packageName}")
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                context.startActivity(intent)
+                return
+            }
+            Log.d(TAG, "installAPK:$fileUri downloadId: $downloadId" )
             val downloadManager =
                 context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-            val uri = downloadManager.getUriForDownloadedFile(downloadId)
+            val uri = fileUri?:downloadManager.getUriForDownloadedFile(downloadId)
             Log.d(TAG, "installAPK:$downloadId uri : $uri")
             if (uri == null) {
                 return
@@ -207,5 +258,16 @@ class UpdateChecker(private val context: Context) {
             installIntent.setFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
             context.startActivity(installIntent)
         }
+
+        fun registerDownloadReceiver(context: Context) {
+            val downloadCompletedReceiver = DownloadReceiver()
+            val filter = IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                context.registerReceiver(downloadCompletedReceiver, filter, Context.RECEIVER_EXPORTED)
+            } else {
+                context.registerReceiver(downloadCompletedReceiver, filter)
+            }
+        }
+
     }
 }

@@ -53,7 +53,7 @@ private:
 
 class CUDABackend : public Backend {
 public:
-    CUDABackend(std::shared_ptr<BufferAllocator> st, std::shared_ptr<CUDARuntime> rt, int precisionLevel, BackendConfig::MemoryMode memoryLevel);
+    CUDABackend(const Runtime* mRuntime, std::shared_ptr<BufferAllocator> st, std::shared_ptr<CUDARuntime> rt, int precisionLevel, BackendConfig::MemoryMode memoryLevel);
     ~CUDABackend();
 
     CUDARuntime *getCUDARuntime();
@@ -89,7 +89,7 @@ public:
         return mStaticBufferPool.get();
     }
     static size_t realSize(const Tensor *tensor);
-    int getBytes(const Tensor* tensor) const;
+    size_t getBytes(const Tensor* tensor) const;
     CPUResizeCache* getCache();
     bool useFp16() const;
     int getPrecision() const;
@@ -102,6 +102,7 @@ private:
     std::shared_ptr<BufferAllocator> mBufferPool;
     std::shared_ptr<BufferAllocator> mStaticBufferPool;
     std::shared_ptr<CUDARuntime> mCUDARuntime;
+    const Runtime* mRuntime;
     CPUResizeCache mCache;
     bool mUseFp16AsFp32 = false;
     int mPrecision = 0;

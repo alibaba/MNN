@@ -10,11 +10,14 @@ import com.alibaba.mnnllm.android.chat.model.ChatDataItem
 import com.alibaba.mnnllm.android.modelsettings.ModelConfig
 import com.alibaba.mnnllm.android.utils.FileUtils
 import com.alibaba.mnnllm.android.utils.ModelPreferences
-import com.alibaba.mnnllm.android.utils.ModelUtils
+import com.alibaba.mnnllm.android.model.ModelUtils
+import com.alibaba.mnnllm.android.modelsettings.ModelConfig.Companion.getExtraConfigFile
 import com.google.gson.Gson
+import timber.log.Timber
 import java.io.File
 import java.util.stream.Collectors
 import kotlin.concurrent.Volatile
+import android.util.Pair
 
 class LlmSession (
     private val modelId: String,
@@ -37,6 +40,8 @@ class LlmSession (
 
     private var keepHistory = false
 
+
+
     override fun load() {
         Log.d(TAG, "MNN_DEBUG load begin")
         modelLoading = true
@@ -49,22 +54,19 @@ class LlmSession (
                     .map { obj: String? -> obj!! }
                     .collect(Collectors.toList())
         }
+        val config = ModelConfig.loadMergedConfig(configPath, getExtraConfigFile(modelId))!!
         var rootCacheDir: String? = ""
-        if (ModelPreferences.useMmap(ApplicationProvider.get(), modelId)) {
+        if (config.useMmap == true) {
             rootCacheDir = FileUtils.getMmapDir(modelId, configPath.contains("modelscope"))
             File(rootCacheDir).mkdirs()
         }
-        val useOpencl = ModelPreferences.getBoolean(
-                ApplicationProvider.get(),
-                modelId, ModelPreferences.KEY_BACKEND, false
-        )
-        val backend = if (useOpencl) "opencl" else "cpu"
+        val backend = config.backendType
         val configMap = HashMap<String, Any>().apply {
             put("is_r1", ModelUtils.isR1Model(modelId))
             put("mmap_dir", rootCacheDir ?: "")
             put("keep_history", keepHistory)
         }
-        val extraConfig = ModelConfig.loadConfig(configPath, getModelSettingsFile())?.apply {
+        val extraConfig = ModelConfig.loadMergedConfig(configPath, getExtraConfigFile(modelId))?.apply {
             this.assistantPromptTemplate = extraAssistantPrompt
             this.backendType = backend
         }
@@ -136,14 +138,6 @@ class LlmSession (
         }
     }
 
-    fun loadConfig(): ModelConfig? {
-        return ModelConfig.loadConfig(configPath, getModelSettingsFile())
-    }
-
-    fun getModelSettingsFile():String {
-        return FileUtils.getModelConfigDir(modelId) + "/custom_config.json"
-    }
-
     private fun releaseInner() {
         if (nativePtr != 0L) {
             releaseNative(nativePtr)
@@ -189,9 +183,6 @@ class LlmSession (
     override val debugInfo
         get() = getDebugInfoNative(nativePtr) + "\n"
 
-    fun clearMmapCache() {
-        FileUtils.clearMmapCache(modelId)
-    }
 
     fun setAudioDataListener(listener: AudioDataListener?) {
         synchronized(this) {
@@ -233,4 +224,42 @@ class LlmSession (
             System.loadLibrary("mnnllmapp")
         }
     }
+
+
+
+    // 新增：支持完整历史消息的公开方法
+    fun submitFullHistory(
+        history: List<Pair<String, String>>,
+        progressListener: GenerateProgressListener
+    ): HashMap<String, Any> {
+        synchronized(this) {
+            // 使用 Timber 替代 Log
+            Timber.d("MNN_DEBUG submitFullHistory with ${history.size} messages")
+            // 转换类型：kotlin.Pair -> android.util.Pair
+            val androidHistory = history.map { android.util.Pair(it.first, it.second) }
+            // 调用JNI方法，移除不必要的类型转换
+            val result = submitFullHistoryNative(nativePtr, androidHistory, progressListener)
+            generating = false
+            return result
+        }
+    }
+    private external fun submitFullHistoryNative(
+        nativePtr: Long,
+        history: List<android.util.Pair<String, String>>,
+        progressListener: GenerateProgressListener
+    ): HashMap<String, Any>
+
+    fun modelId(): String {
+        //创建一个临时变量，避免修改原始的modelId
+        return modelId
+
+    }
+
+    fun getSystemPrompt(): String? {
+        return getSystemPromptNative(nativePtr)
+    }
+
+    private external fun getSystemPromptNative(llmPtr: Long): String?
+
+
 }

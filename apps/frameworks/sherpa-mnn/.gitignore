@@ -1,0 +1,5 @@
+SourcePackages
+build-*
+*.xcworkspace
+!build-*.sh
+*.lock

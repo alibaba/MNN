@@ -90,6 +90,9 @@ public:
     Runtime* getCPURuntime() {
         return mRuntime.second.get();
     }
+    const RuntimeInfo& getRuntime() const {
+        return mRuntime;
+    }
 
 public:
     /**

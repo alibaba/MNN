@@ -43,12 +43,8 @@
   ```shell
   cd project/android
   mkdir build_64
-  ../build_64.sh "-DMNN_LOW_MEMORY=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true -DMNN_ARM82=true -DMNN_USE_LOGCAT=true -DMNN_OPENCL=true -DLLM_SUPPORT_VISION=true -DMNN_BUILD_OPENCV=true -DMNN_IMGCODECS=true -DLLM_SUPPORT_AUDIO=true -DMNN_BUILD_AUDIO=true -DMNN_BUILD_DIFFUSION=ON -DMNN_SEP_BUILD=OFF"
-  ```
-+ 复制到 LLM Android 应用项目：
-  ```shell
-  mkdir -p ../../../apps/Android/MnnLlmChat/app/src/main/jniLibs/arm64-v8a
-  find . -name "*.so" -exec cp {} ../../../apps/Android/MnnLlmChat/app/src/main/jniLibs/arm64-v8a \;
+  ../build_64.sh "-DMNN_LOW_MEMORY=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true -DMNN_ARM82=true -DMNN_USE_LOGCAT=true -DMNN_OPENCL=true -DLLM_SUPPORT_VISION=true -DMNN_BUILD_OPENCV=true -DMNN_IMGCODECS=true -DLLM_SUPPORT_AUDIO=true -DMNN_BUILD_AUDIO=true -DMNN_BUILD_DIFFUSION=ON -DMNN_SEP_BUILD=OFF -DCMAKE_INSTALL_PREFIX=."
+  make install
   ```
 + 构建 Android 应用项目并安装：
   ```shell
@@ -58,8 +54,31 @@
 
 # Releases
 
+## Version 0.5.1.1
++ 点击这里  [下载](https://meta.alicdn.com/data/mnn/mnn_chat_0_5_1_1.apk)
++ 升级 MNN 引擎到 v3.2.0
++ 修复一些 bug
+
+## Version 0.5.1
++ 点击这里 [下载](https://meta.alicdn.com/data/mnn/mnn_chat_0_5_1.apk)
++ 支持 DeepSeek-R1-0528-Qwen3
++ 修复了一些 bug：
+ + 首次安装时，如果系统语言是中文，则使用 ModelScope
+ + 如果不是强制检查更新（forceCheckUpdate），则不显示对话框
+ + 显示本地模型的模型大小
+
+## Version 0.5.0
++ 点击这里 [下载](https://meta.alicdn.com/data/mnn/mnn_chat_0_5_0.apk)
++ 支持 Qwen3-30B-A3B
++ 支持 新的视觉模型 SmoVLM 与 FastVLM
++ 支持增加本地模型(adb push)
++ 增加高级配置选项: precision, 线程数
++ UI更新：
+  + 支持是否已经下载，模态、供应商过滤模型列表。
+  + 支持隐藏思考过程。
+
 ## Version 0.4.4.1
-+ 点击这里 [下载][download](https://meta.alicdn.com/data/mnn/mnn_chat_0_4_4_1.apk)
++ 点击这里 [下载](https://meta.alicdn.com/data/mnn/mnn_chat_0_4_4_1.apk)
 + 解决无法选择 Assistant文本问题。
 + 解决魔乐下载校验失败问题
 

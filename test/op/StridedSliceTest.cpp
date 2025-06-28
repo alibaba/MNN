@@ -123,6 +123,7 @@ public:
             MNN_ERROR("stridedslice dim = 3, stride=-1 test failed!\n");
             return false;
         }
+#define MNN_STRIDESLICE_WRITE
 #ifdef MNN_STRIDESLICE_WRITE
         // 9. write
         const int begin_data9[] = {0, 0, 0, 0};
@@ -141,6 +142,23 @@ public:
             !checkVector<float>(output_9->readMap<float>(), expectedOutput_9.data(), expectedOutput_9.size(), 0.01)) {
             MNN_ERROR("stridedslicewrite test failed!\n");
             return false;
+        }
+        {
+            // For strideslicewrite shape compute
+            auto tinput  = _Input({1, 3, 2, 3}, NCHW);
+            auto tbegin  = _Input({4}, NCHW);
+            auto tend    = _Input({4}, NCHW);
+            auto tstrided = _Input({4}, NCHW);
+            auto twrite = _Input({3}, NCHW);
+            auto toutput= _StridedSliceWrite(tinput, tbegin, tend, tstrided, twrite, 0, 0, 0, 0, 0);
+            auto info = toutput->getInfo();
+            if (nullptr == info) {
+                FUNC_PRINT(1);
+                return false;
+            }
+            if (info->dim != tinput->getInfo()->dim) {
+                return false;
+            }
         }
 #endif
         // 10. dim = 0
@@ -161,6 +179,26 @@ public:
         const std::vector<float> expectedOutput_10 = {4, 4, 4, 5, 5, 5, 6, 6, 6};
         if (!checkVector<int>(output_10->getInfo()->dim.data(), expectedShape_10.data(), expectedShape_10.size(), 0) ||
             !checkVector<float>(output_10->readMap<float>(), expectedOutput_10.data(), expectedOutput_10.size(), 0.01)) {
+            MNN_ERROR("stridedslice dim=0, stride=1 test failed!\n");
+            return false;
+        }
+        // 11. dim = 0, zero shape
+        input = _Input({0, 1}, NCHW);
+        begin  = _Input({2}, NCHW);
+        end    = _Input({2}, NCHW);
+        strided = _Input({2}, NCHW);
+        input->writeMap<int>();
+        const int begin_data11[] = {0, 0};
+        memcpy(begin->writeMap<int>(), begin_data11, 2 * sizeof(int));
+        const int end_data11[] = {1, 1};
+        memcpy(end->writeMap<int>(), end_data11, 2 * sizeof(int));
+        const int stride_data11[] = {1, 1};
+        memcpy(strided->writeMap<int>(), stride_data11, 2 * sizeof(int));
+        auto output_11 = _StridedSlice(input, begin, end, strided, 0, 0, 0, 0, 3);
+        const std::vector<int> expectedShape_11 = {};
+        const std::vector<float> expectedOutput_11 = {0.0f};
+        if ((!output_11->getInfo()->dim.empty()) ||
+            !checkVector<float>(output_11->readMap<float>(), expectedOutput_11.data(), expectedOutput_11.size(), 0.01)) {
             MNN_ERROR("stridedslice dim=0, stride=1 test failed!\n");
             return false;
         }

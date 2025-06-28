@@ -5,13 +5,13 @@ package com.alibaba.mnnllm.android.mainsettings
 import android.content.Context
 import androidx.preference.PreferenceManager
 import com.alibaba.mls.api.source.ModelSources
+import com.alibaba.mnnllm.android.utils.DeviceUtils
 
 
 object MainSettings {
 
     fun getDownloadProvider(context: Context): ModelSources.ModelSourceType {
-        val sharedPreferences = PreferenceManager.getDefaultSharedPreferences(context)
-        val result = sharedPreferences.getString("download_provider", "HuggingFace")
+        val result = getDownloadProviderString(context)
         return when (result) {
             "HuggingFace" -> ModelSources.ModelSourceType.HUGGING_FACE
             "ModelScope" -> ModelSources.ModelSourceType.MODEL_SCOPE
@@ -19,9 +19,23 @@ object MainSettings {
          }
     }
 
+    fun getDownloadProviderString(context: Context):String {
+        val sharedPreferences = PreferenceManager.getDefaultSharedPreferences(context)
+        return sharedPreferences.getString("download_provider", getDefaultDownloadProvider())!!
+    }
+
+    fun getDefaultDownloadProvider():String {
+        return if (DeviceUtils.isChinese) "ModelScope" else "HuggingFace"
+    }
+
     fun isStopDownloadOnChatEnabled(context: Context): Boolean {
         val sharedPreferences = PreferenceManager.getDefaultSharedPreferences(context)
         return sharedPreferences.getBoolean("stop_download_on_chat", true)
+    }
+
+    fun isApiServiceEnabled(context: Context): Boolean {
+        val sharedPreferences = PreferenceManager.getDefaultSharedPreferences(context)
+        return sharedPreferences.getBoolean("enable_api_service", false)
     }
 
     fun getDiffusionMemoryMode(context: Context): String {

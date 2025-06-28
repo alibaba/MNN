@@ -12,12 +12,22 @@ import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.update.UpdateChecker
 import com.alibaba.mnnllm.android.utils.AppUtils
 import com.alibaba.mnnllm.android.utils.PreferenceUtils
+import com.alibaba.mnnllm.api.openai.service.ApiServerConfig
+import com.alibaba.mnnllm.api.openai.manager.ApiServiceManager
 
 class MainSettingsFragment : PreferenceFragmentCompat() {
 
     companion object {
         const val TAG = "MainSettingsFragment"
     }
+
+    private var updateChecker: UpdateChecker? = null
+
+    override fun onResume() {
+        super.onResume()
+        updateChecker?.checkForUpdates(requireContext(), false)
+    }
+
     override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
         setPreferencesFromResource(R.xml.main_settings_prefs, rootKey)
 
@@ -28,9 +38,35 @@ class MainSettingsFragment : PreferenceFragmentCompat() {
                 AppUtils.getAppVersionName(requireContext())
             )
             setOnPreferenceClickListener {
-                UpdateChecker(requireContext()).checkForUpdates(requireContext(), true)
+                updateChecker = UpdateChecker(requireContext())
+                updateChecker?.checkForUpdates(requireContext(), true)
                 true
             }
+        }
+
+        // 重置 API配置
+        val resetApiConfigPref = findPreference<Preference>("reset_api_config")
+        resetApiConfigPref?.setOnPreferenceClickListener {
+            // 显示 配置确认对话框
+            androidx.appcompat.app.AlertDialog.Builder(requireContext())
+                .setTitle(R.string.reset_api_config)
+                .setMessage(R.string.reset_api_config_confirm_message)
+                .setPositiveButton(android.R.string.ok) { _, _ ->
+                    // 重置 API配置
+                    ApiServerConfig.resetToDefault(requireContext())
+                    
+                    // 如果API服务正在运行，则使用新配置重启服务
+                    if (MainSettings.isApiServiceEnabled(requireContext()) && ApiServiceManager.isApiServiceRunning()) {
+                        ApiServiceManager.stopApiService(requireContext())
+                        ApiServiceManager.startApiService(requireContext())
+                        Toast.makeText(requireContext(), getString(R.string.api_config_reset_service_restarted), Toast.LENGTH_LONG).show()
+                    } else {
+                        Toast.makeText(requireContext(), getString(R.string.api_config_reset_to_default), Toast.LENGTH_LONG).show()
+                    }
+                }
+                .setNegativeButton(android.R.string.cancel, null)
+                .show()
+            true
         }
 
 
@@ -44,8 +80,7 @@ class MainSettingsFragment : PreferenceFragmentCompat() {
                 }
             }
             preferenceManager.sharedPreferences?.let { sharedPreferences ->
-                val defaultProvider =
-                    if (!PreferenceUtils.isUseModelsScopeDownload(requireContext())) "HuggingFace" else "ModelScope"
+                val defaultProvider = MainSettings.getDownloadProviderString(requireContext())
                 if (!sharedPreferences.contains("download_provider")) {
                     sharedPreferences.edit().putString("download_provider", defaultProvider).apply()
                     downloadProviderPref.value = defaultProvider

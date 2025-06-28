@@ -1601,7 +1601,7 @@ static PyObject* PyMNNTensor_repr(PyObject *self) {
     auto content = PyMNNTensor_getShape((PyMNNTensor*)self, NULL);
 #endif
     auto reprfunc = PyObject_GetAttrString(content, "__repr__");
-    auto str = PyEval_CallObject(reprfunc, NULL);
+    auto str = PyObject_CallObject(reprfunc, NULL);
     Py_DECREF(content);
     Py_DECREF(reprfunc);
     return str;

@@ -89,7 +89,7 @@ ErrorCode ReluBufExecution::onEncode(const std::vector<Tensor *> &inputs, const 
     MNN_CHECK_CL_SUCCESS(ret, "setArg ReluBufExecution");
 
     std::string name = "prelu_buf";
-    localSize = localWS2DDefault(globalSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, mUnits[0].kernel, mOpenCLBackend->getCLTuneLevel()).first;
+    localSize = localWS2DDefault(globalSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, mUnits[0].kernel, mOpenCLBackend->getCLTuneLevel(), "binary_buf").first;
     
     mUnits[0].globalWorkSize = {globalSize[0], globalSize[1]};
     mUnits[0].localWorkSize  = {localSize[0], localSize[1]};
@@ -192,7 +192,7 @@ ErrorCode ReluBufExecution::SubgrouponResize(const std::vector<Tensor *> &inputs
         ret |= mUnits[0].kernel->get().setArg(index++, static_cast<uint32_t>(outputpad.right));
         MNN_CHECK_CL_SUCCESS(ret, "setArg ReluBufExecution SubGroup C4");
 
-        lws = localWS3DDefault(gws, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName, mUnits[0].kernel, mOpenCLBackend->getCLTuneLevel()).first;
+        lws = localWS3DDefault(gws, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName, mUnits[0].kernel, mOpenCLBackend->getCLTuneLevel(), "binary_subgroup_buf").first;
         mUnits[0].localWorkSize = {lws[0], lws[1], lws[2]};
     } else {
         gws = {(uint32_t)UP_DIV(nhwc[2], 4) * nhwc[1], (uint32_t)ROUND_UP(nhwc[3], 16),

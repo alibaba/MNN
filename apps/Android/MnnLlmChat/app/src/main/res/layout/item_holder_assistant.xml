@@ -13,11 +13,50 @@
         android:layout_width="0dp"
         android:layout_height="10dp"
         android:src="@drawable/logo" />
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="30dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:id="@+id/ll_thinking_toggle">
+        <TextView
+            android:id="@+id/tv_thinking_header"
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
+            android:textSize="14sp"
+            android:textColor="?colorOnSurfaceVariant"
+            android:gravity="center"
+            android:visibility="visible"
+            android:text="思考中..."/>
+        <ImageView
+            android:id="@+id/iv_thinking_header"
+            android:layout_marginLeft="10dp"
+            android:layout_width="15dp"
+            android:layout_height="15dp"
+            android:layout_gravity="center_vertical"
+            app:srcCompat="@drawable/ic_arrow_up"
+            app:tint="?colorOnSurfaceVariant"/>
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/tv_chat_thinking"
+        android:layout_toEndOf="@id/ic_header"
+        android:layout_below="@id/ll_thinking_toggle"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:padding="@dimen/space10"
+        android:textAppearance="@style/Light"
+        android:textColor="?colorOnSurfaceVariant"
+        android:textSize="@dimen/h4"
+        android:visibility="gone"
+        tools:text="This is the thinking process..."
+        tools:visibility="visible" />
 
     <TextView
         android:id="@+id/tv_chat_text"
         tools:text="this is the generated text"
         android:layout_toEndOf="@id/ic_header"
+        android:layout_below="@id/tv_chat_thinking"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:padding="@dimen/space10"
@@ -25,6 +64,7 @@
         android:textColor="?colorOnSurface"
         android:textSize="@dimen/h3"
         android:visibility="visible" />
+        
     <ImageView
         android:id="@+id/image_generated"
         android:layout_width="200dp"
@@ -58,24 +98,5 @@
         android:layout_width="25dp"
         android:layout_height="25dp"
         app:SpinKit_Color="?colorOnSurface" />
-<!--    <LinearLayout-->
-<!--        android:orientation="horizontal"-->
-<!--        android:layout_width="wrap_content"-->
-<!--        android:layout_height="wrap_content"-->
-<!--        android:layout_below="@id/tv_chat_benchmark"-->
-<!--        android:layout_marginTop="8dp">-->
-<!--        <com.google.android.material.card.MaterialCardView-->
-<!--            android:layout_width="30dp"-->
-<!--            android:layout_height="30dp"-->
-<!--            app:cardBackgroundColor="?colorSurfaceVariant">-->
-<!--            <ImageView-->
-<!--                android:layout_width="match_parent"-->
-<!--                android:layout_height="match_parent"-->
-<!--                android:src="@drawable/ic_baseline_copy_24"-->
-<!--                android:scaleType="centerCrop"-->
-<!--                android:padding="5dp"-->
-<!--                android:tint="?colorOnSurfaceVariant"-->
-<!--                android:id="@+id/ic_copy"/>-->
-<!--        </com.google.android.material.card.MaterialCardView>-->
-<!--    </LinearLayout>-->
+
 </RelativeLayout>

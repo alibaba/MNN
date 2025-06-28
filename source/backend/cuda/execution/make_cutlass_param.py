@@ -9,7 +9,7 @@ def generateGemmFile(headfile):
 	hpp = "#ifndef CutlassGemmParam_hpp\n"
 	hpp += "#define CutlassGemmParam_hpp\n\n"
 	hpp += "#include \"cutlass/epilogue/thread/linear_combination_relu.h\"\n"
-	hpp += "#include \"cutlass/epilogue/thread/linear_combination_relu6.h\"\n"
+	hpp += "#include \"cutlass_lib/linear_combination_relu6.h\"\n"
 	hpp += "#include \"cutlass/gemm/device/gemm.h\"\n"
 	hpp += "#include \"cutlass/gemm/device/gemm_array.h\"\n"
 	hpp += "#include \"cutlass/gemm/device/gemm_batched.h\"\n\n"

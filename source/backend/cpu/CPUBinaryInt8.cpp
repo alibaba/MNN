@@ -17,6 +17,7 @@
 #include "math/Vec.hpp"
 
 namespace MNN {
+#ifdef MNN_SUPPORT_QUANT_EXTEND
 
 ErrorCode CPUBinaryInt8::onResize(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs) {
     auto input0DataCount = TensorUtils::getRawSize(inputs[0]);
@@ -113,7 +114,6 @@ ErrorCode CPUBinaryInt8::onExecute(const std::vector<Tensor*>& inputs, const std
         }
     }
     MNN_CONCURRENCY_END();
-
     return NO_ERROR;
 }
 
@@ -149,5 +149,6 @@ MNNBinaryExecInt8 CPUBinaryInt8::selectForInt8(int type) {
     }
     return nullptr;
 }
+#endif
 
 } // namespace MNN

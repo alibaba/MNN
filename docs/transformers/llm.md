@@ -38,7 +38,7 @@ python llmexport.py \
 1. `config.json`: 模型运行时的配置，可手动修改；
 2. `embeddings_bf16.bin`: 模型的embedding权重二进制文件，推理时使用；
 3. `llm.mnn`: 模型的mnn文件，推理时使用；
-4. `llm.mnn.json`: mnn模型对应的json文件，apply_lora或者gptq量化权重时使用；
+4. `llm.mnn.json`: mnn模型对应的json文件，`apply_lora`或gptq量化权重时使用；
 5. `llm.mnn.weight`: 模型的mnn权重，推理时使用；
 6. `llm.onnx`: 模型的onnx文件，不包含权重，推理时不使用；
 7. `llm_config.json`: 模型的配置信息，推理时使用；
@@ -73,14 +73,17 @@ python llmexport.py \
 - 使用`--lm_quant_bit`来制定lm_head层权重的量化bit数，不指定则使用`--quant_bit`的量化bit数
 
 ### 参数
+执行 `python llmexport.py -h` 可查看参数：
 ```
-usage: llmexport.py [-h] --path PATH [--type TYPE] [--lora_path LORA_PATH] [--dst_path DST_PATH] [--test TEST] [--export EXPORT]
-                    [--quant_bit QUANT_BIT] [--quant_block QUANT_BLOCK] [--lm_quant_bit LM_QUANT_BIT]
-                    [--mnnconvert MNNCONVERT]
+usage: llmexport.py [-h] --path PATH [--type TYPE] [--tokenizer_path TOKENIZER_PATH] [--lora_path LORA_PATH]
+                    [--gptq_path GPTQ_PATH] [--dst_path DST_PATH] [--verbose] [--test TEST] [--export EXPORT]
+                    [--onnx_slim] [--quant_bit QUANT_BIT] [--quant_block QUANT_BLOCK]
+                    [--lm_quant_bit LM_QUANT_BIT] [--mnnconvert MNNCONVERT] [--ppl] [--awq] [--sym] [--seperate_embed]
+                    [--lora_split]
 
 llm_exporter
 
-options:
+optional arguments:
   -h, --help            show this help message and exit
   --path PATH           path(`str` or `os.PathLike`):
                         Can be either:
@@ -88,19 +91,30 @@ options:
                         	- A path to a *directory* clone from repo like `../chatglm-6b`.
   --type TYPE           type(`str`, *optional*):
                         	The pretrain llm model type.
+  --tokenizer_path TOKENIZER_PATH
+                        tokenizer path, defaut is `None` mean using `--path` value.
   --lora_path LORA_PATH
                         lora path, defaut is `None` mean not apply lora.
+  --gptq_path GPTQ_PATH
+                        gptq path, defaut is `None` mean not apply gptq.
   --dst_path DST_PATH   export onnx/mnn model to path, defaut is `./model`.
+  --verbose             Whether or not to print verbose.
   --test TEST           test model inference with query `TEST`.
   --export EXPORT       export model to an onnx/mnn model.
+  --onnx_slim           Whether or not to use onnx-slim.
   --quant_bit QUANT_BIT
                         mnn quant bit, 4 or 8, default is 4.
   --quant_block QUANT_BLOCK
-                        mnn quant block, default is 0 mean channle-wise.
+                        mnn quant block, 0 mean channle-wise, default is 128.
   --lm_quant_bit LM_QUANT_BIT
                         mnn lm_head quant bit, 4 or 8, default is `quant_bit`.
   --mnnconvert MNNCONVERT
                         local mnnconvert path, if invalid, using pymnn.
+  --ppl                 Whether or not to get all logits of input tokens.
+  --awq                 Whether or not to use awq quant.
+  --sym                 Whether or not to using symmetric quant (without zeropoint), defualt is False.
+  --seperate_embed      For lm and embed shared model, whether or not to sepearte embed to avoid quant, defualt is False, if True, embed weight will be seperate to embeddingbf16.bin.
+  --lora_split          Whether or not export lora split, defualt is False.
 ```
 
 ### 权重读取
@@ -278,6 +292,14 @@ node llm_demo.js ~/qwen2.0_1.5b/config.json ~/qwen2.0_1.5b/prompt.txt
   - n_gram: 最大存储的ngram大小，超过此大小的重复ngram将被禁止重复输出，仅在`penalty`选中时生效，默认为8
   - ngram_factor: `penalty`中对于重复ngram (n>1) 的额外惩罚，默认为1.0，即没有额外惩罚
   - penalty_sampler: `penalty`中施加完惩罚项后采用的sampling策略，可选"greedy"或"temperature"，默认greedy.
+- 投机解码配置项
+  - speculative_type: 投机解码算法设置，当前仅支持配置为`lookahead`(使用外接知识库/输入prompt信息去生成草稿做投机验证),通常需要较完备的知识库或者输入prompt与输出重合度较高的场景(例如：代码编辑、文本总结)才有较明显加速。
+  - draft_predict_length: 草稿长度，通常设置2-8之间，默认为4。
+  - draft_match_strictness: 草稿匹配的严格程度，当有草稿时，是否选取该草稿去做并行验证。可以设置`low`、`medium`、`high`。通常严格程度越高，草稿接受率越高，但是启用并行验证概率也越低。默认为`low`，该参数仅`lookahead`模式设置有效。
+  - draft_selection_rule: 草稿选择规则，当有多个草稿时，选取的规则设置。支持`freqxlen`（出现频率与匹配长度最高者）和`fcfs`(最先匹配者)。默认`freqxlen`，该参数仅`lookahead`模式设置有效。
+  - ngram_match_maxlen: ngram匹配历史token最长值，默认为4，该参数仅`lookahead`模式设置有效。
+  - lookup_file: 用户外接知识库文件路径，默认为`lookup_file.txt`，该参数仅`lookahead`模式设置有效。
+  - ngram_update: 是否解码过程实时添加更新ngram信息，默认为`false`，该参数仅`lookahead`模式设置有效。
 - Omni语音生成配置
   - talker_max_new_tokens: 生成时最大语音token数，在Qwen2.5-Omni中50个语音token对应1秒语音，默认为`2048`
   - talker_speaker: 生成语音的音色，Qwen2.5-Omni中支持的音色为：`["Chelsie", "Ethan"]`
@@ -442,30 +464,12 @@ python llmexport.py --path /path/to/Qwen2.5-0.5B-Instruct --lora_path /path/to/l
       "llm_weight": "base.mnn.weight",
   }
   ```
-  - 运行时选择并切换lora模型
+  - 运行时创建lora模型
   ```cpp
   // 创建并加载base模型
   std::unique_ptr<Llm> llm(Llm::createLLM(config_path));
   llm->load();
-  // 使用同一个对象，在多个lora模型之间选择性使用，不可以并发使用
-  {
-      // 在基础模型的基础上添加`lora_1`模型，模型的索引为`lora_1_idx`
-      size_t lora_1_idx = llm->apply_lora("lora_1.mnn");
-      llm->response("Hello lora1"); // 使用`lora_1`模型推理
-      // 添加`lora_2`模型，并使用
-      size_t lora_2_idx = llm->apply_lora("lora_2.mnn");
-      llm->response("Hello lora2"); // 使用`lora_2`模型推理
-      // 通过索引选择`lora_1`作为llm对象当前使用的模型
-      llm->select_module(lora_1_idx);
-      llm->response("Hello lora1"); // 使用`lora_1`模型推理
-      // 释放加载的lora模型
-      llm->release_module(lora_1_idx);
-      llm->release_module(lora_2_idx);
-      // 选择使用基础模型
-      llm->select_module(0);
-      llm->response("Hello base"); // 使用`base`模型推理
-  }
-  // 使用多个对象，可以并发的加载使用多个lora模型
+  // 创建lora模型，支持多个lora模型并存，支持并发
   {
       std::mutex creat_mutex;
       auto chat = [&](const std::string& lora_name) {

@@ -20,6 +20,7 @@ public:
         auto output     = outputs[0];
         auto outputDes = TensorUtils::getDescribe(output);
         outputDes->memoryType = Tensor::InsideDescribe::MEMORY_VIRTUAL;
+        outputDes->regions.clear();
         const int inputDim = input->buffer().dimensions;
         auto parameter = op->main_as_StridedSliceParam();
         int32_t beginMask = parameter->beginMask();
@@ -57,6 +58,9 @@ public:
                 inputShape[i]  = input->buffer().dim[i].extent;
                 inputStride[i] = stride;
                 stride *= inputShape[i];
+                if (inputShape[i] == 0) {
+                    return true;
+                }
             }
         }
         

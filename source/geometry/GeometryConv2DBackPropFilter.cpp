@@ -11,6 +11,7 @@
 #define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
 namespace MNN {
+#ifndef MNN_REDUCE_SIZE
 class GeometryConv2DBackPropFilter : public GeometryComputer {
 public:
     bool computeForDepthWise(const Convolution2DCommon* common, Tensor* input, Tensor* outputDiff, Tensor* kernelDiff,
@@ -265,10 +266,12 @@ public:
         return true;
     }
 };
-
+#endif
 static void _create() {
+#ifndef MNN_REDUCE_SIZE
     std::shared_ptr<GeometryComputer> comp(new GeometryConv2DBackPropFilter);
     GeometryComputer::registerGeometryComputer(comp, {OpType_Conv2DBackPropFilter});
+#endif
 }
 
 REGISTER_GEOMETRY(GeometryConv2DBackPropFilter, _create);

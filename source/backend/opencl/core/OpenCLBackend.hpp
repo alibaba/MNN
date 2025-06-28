@@ -136,9 +136,6 @@ public:
     bool isUseRecordQueue(){
         return mUseRecordQueue;
     }
-    bool isDevideOpRecord(){
-        return mDevideOpRecord;
-    }
     CLTuneLevel getCLTuneLevel() {
         return mTuneLevel;
     }
@@ -185,9 +182,10 @@ private:
     bool mIsCreateError{false};
     mutable std::vector<RecordInfo> mRecordings;
     bool mUseRecordQueue = false;
-    bool mDevideOpRecord = false;
+    bool mDivideOpRecord = false;
     uint32_t mRecordNums = 0;
     uint32_t mUseRecordableQueueSize;
+    friend class setRecordClose;
 private:
 
     void* svmPtr = nullptr;
@@ -198,6 +196,25 @@ private:
     GpuMemObject mMemType = AUTO;
     CLTuneLevel mTuneLevel = Wide;
 
+};
+
+class setRecordClose{
+public:
+    setRecordClose(OpenCLBackend *bn){
+        backend = bn;
+        if(backend->mUseRecordQueue){
+            backend->mUseRecordQueue = false;
+            needRecover = true;
+        }
+    }
+    ~setRecordClose(){
+        if(needRecover){
+            backend->mUseRecordQueue = true;
+        }
+    }
+private:
+    bool needRecover = false;
+    OpenCLBackend* backend;
 };
 
 template <class T>

@@ -20,8 +20,10 @@
 ### 图像实例分割
 代码位置：`demo/exec/segment.cpp`
 
-下载 deeplabv3 分割模型并转换到 mnn 模型
+下载 deeplabv3 分割模型
 [https://storage.googleapis.com/download.tensorflow.org/models/tflite/gpu/deeplabv3_257_mv_gpu.tflite](https://storage.googleapis.com/download.tensorflow.org/models/tflite/gpu/deeplabv3_257_mv_gpu.tflite)
+
+使用 [模型转换工具](../tools/convert.md) 转换为 MNN 模型，转换时加上参数 --keepInputFormat=0 【把输入由NHWC转换为NC4HW4布局】
 
 ```bash
 ./segment.out model.mnn input.png result.png
@@ -95,14 +97,14 @@ flops_info: 568.792175M
 backend_info: 13
 expect 983
 output belong to class: 983
-$ python gpu_session_demo.py mobilenet_demo/mobilenet_v1.mnn mobilenet_demo/ILSVRC2012_val_00049999.JPEG
+$ python gpu_session_demo.py mobilenet_demo/mobilenet_v1.mnn mobilenet_demo/ILSVRC2012_val_00049999.JPEG 
 Testing gpu model calling method
 
 Load Cache file error.
 MNN use high precision
 Can't Find type=3 backend, use 0 instead
 Can't Find type=3 backend, use 0 instead
-Run on backendtype: 13
+Run on backendtype: 13 
 
 expect 983
 output belong to class: 983
@@ -127,7 +129,7 @@ output belong to class: 983
 #### mnist
 使用mnist数据训练模型，并测试准确率，无需下载资源，用法如下：
 ```bash
-$ pip install mnist
+$ pip install mnist 
 $ python train_mnist.py
 train loss:  2.3346531
 train loss:  0.28027835
@@ -161,7 +163,7 @@ AttributeError: module 'MNN.nn' has no attribute 'FixModule'
 #### module_save
 演示了模型权值的存储和加载
 ```bash
-$ python test_save.py
+$ python test_save.py 
 0.0004
 10
 ```
@@ -225,4 +227,3 @@ sh ../tools/script/get_model.sh
 - [视频抠图](https://github.com/DefTruth/RobustVideoMatting.lite.ai.toolkit)
 - [SuperGlue关键点匹配](https://github.com/Hanson0910/MNNSuperGlue)
 - [OCR](https://github.com/DayBreak-u/chineseocr_lite/tree/onnx/android_projects/OcrLiteAndroidMNN)
-- [Bert-VITS2-MNN](https://github.com/Voine/Bert-VITS2-MNN)

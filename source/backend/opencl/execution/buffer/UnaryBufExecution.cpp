@@ -57,7 +57,7 @@ ErrorCode UnaryBufExecution::onEncode(const std::vector<Tensor*>& inputs, const 
     MNN_CHECK_CL_SUCCESS(ret, "setArg UnaryBufExecution");
 
     std::string kernelName = "unary_buf";
-    mLocalSize = localWS2DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), kernelName, unit.kernel, openCLBackend->getCLTuneLevel()).first;
+    mLocalSize = localWS2DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), kernelName, unit.kernel, openCLBackend->getCLTuneLevel(), "unary_buf").first;
     openCLBackend->recordKernel2d(unit.kernel, mGlobalWorkSize, mLocalSize);
     unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1]};
     unit.localWorkSize = {mLocalSize[0], mLocalSize[1]};
@@ -166,7 +166,7 @@ ErrorCode UnaryBufExecution::SubgrouponResize(const std::vector<Tensor*>& inputs
     if (runtime->isSupportedIntelSubgroup() && input_c_pack == 16) {
         mLocalSize = {16, 1, 1};
     } else {
-        mLocalSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), kernelName, unit.kernel, openCLBackend->getCLTuneLevel()).first;
+        mLocalSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), kernelName, unit.kernel, openCLBackend->getCLTuneLevel(), "unary_subgroup_buf").first;
     }
     openCLBackend->recordKernel3d(unit.kernel, mGlobalWorkSize, mLocalSize);
     unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1], mGlobalWorkSize[2]};

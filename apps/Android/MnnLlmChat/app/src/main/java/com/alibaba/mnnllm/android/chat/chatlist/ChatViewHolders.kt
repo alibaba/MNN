@@ -10,6 +10,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.View.OnLongClickListener
 import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
@@ -23,7 +24,7 @@ import com.alibaba.mnnllm.android.chat.SelectTextActivity
 import com.alibaba.mnnllm.android.utils.ClipboardUtils
 import com.alibaba.mnnllm.android.utils.DeviceUtils
 import com.alibaba.mnnllm.android.utils.GithubUtils
-import com.alibaba.mnnllm.android.utils.ModelUtils
+import com.alibaba.mnnllm.android.model.ModelUtils
 import com.alibaba.mnnllm.android.utils.PreferenceUtils
 import com.alibaba.mnnllm.android.utils.UiUtils
 import com.alibaba.mnnllm.android.widgets.FullScreenImageViewer
@@ -115,7 +116,7 @@ object ChatViewHolders {
                             itemView.context,
                             PromptUtils.generateUserPrompt(chatDataItem)
                         )
-                        UiUtils.showToast(itemView.context, "Copied to clipboard")
+                        UiUtils.showToast(itemView.context, itemView.context.getString(R.string.copied_to_clipboard))
                     }
                 }
                 true
@@ -132,19 +133,22 @@ object ChatViewHolders {
                 return String.format("%d:%02d", minutes, remainingSeconds)
             }
         }
-
     }
 
     class AssistantViewHolder @SuppressLint("ClickableViewAccessibility") constructor(view: View) :
         RecyclerView.ViewHolder(view), View.OnClickListener, OnLongClickListener {
         private val viewText: TextView = view.findViewById(R.id.tv_chat_text)
+        private val viewThinking: TextView = view.findViewById(R.id.tv_chat_thinking)
         private val benchmarkInfo: TextView = view.findViewById(R.id.tv_chat_benchmark)
-
+        private val thinkingToggle: LinearLayout = view.findViewById(R.id.ll_thinking_toggle)
+        private val textThinkingHeader:TextView = view.findViewById(R.id.tv_thinking_header)
+        private val ivThinkingHeader: ImageView = view.findViewById(R.id.iv_thinking_header)
         private val headerIcon: ImageView =
             view.findViewById(R.id.ic_header)
 
         private val imageGenerated: ImageView =
             view.findViewById(R.id.image_generated)
+
         private val markdown = Markwon.create(itemView.context)
         var viewAssistantLoading: View =
             view.findViewById(R.id.view_assistant_loading)
@@ -154,23 +158,47 @@ object ChatViewHolders {
 
         init {
             viewText.setOnLongClickListener(this)
+            viewThinking.setOnLongClickListener(this)
             viewText.setOnTouchListener { v, event ->
                 if (event.action == MotionEvent.ACTION_DOWN) {
-                    val location = IntArray(2)
-                    v.getLocationOnScreen(location)
-                    lastTouchX = location[0] + event.x.toInt()
-                    lastTouchY = location[1] + event.y.toInt()
+                    updatePointerDownLocation(v, event)
+                }
+                false
+            }
+            viewThinking.setOnTouchListener { v, event ->
+                if (event.action == MotionEvent.ACTION_DOWN) {
+                    updatePointerDownLocation(v, event)
                 }
                 false
             }
             imageGenerated.setOnClickListener(this)
+            thinkingToggle.setOnClickListener {
+                val chatDataItem = it.tag as ChatDataItem
+                chatDataItem.toggleThinking()
+                updateThinkingView(chatDataItem, itemView.context)
+                markdown.setMarkdown(viewText, chatDataItem.displayText!!)
+            }
+        }
+
+        private fun  updatePointerDownLocation(v:View, event: MotionEvent) {
+            val location = IntArray(2)
+            v.getLocationOnScreen(location)
+            lastTouchX = location[0] + event.x.toInt()
+            lastTouchY = location[1] + event.y.toInt()
         }
 
         fun bind(data: ChatDataItem, modelName: String?, payloads: List<Any?>?) {
             if (!payloads.isNullOrEmpty()) {
-                markdown.setMarkdown(viewText, data.displayText!!)
+                if (data.thinkingText != null && !TextUtils.isEmpty(data.thinkingText)) {
+                    updateThinkingView(data, itemView.context)
+                }
+                if (data.displayText != null) {
+                    markdown.setMarkdown(viewText, data.displayText!!)
+                }
                 return
             }
+
+            updateThinkingView(data, itemView.context)
             if (TextUtils.isEmpty(data.displayText)) {
                 viewText.visibility = View.GONE
             } else {
@@ -185,7 +213,7 @@ object ChatViewHolders {
                     View.GONE
                 }
             } else {
-                viewAssistantLoading.visibility = if (!TextUtils.isEmpty(data.displayText)) {
+                viewAssistantLoading.visibility = if (!TextUtils.isEmpty(data.displayText) || !TextUtils.isEmpty(data.thinkingText)) {
                   View.GONE
                 } else {
                     View.VISIBLE
@@ -211,6 +239,28 @@ object ChatViewHolders {
             headerIcon.setImageResource(if (drawableId > 0) drawableId else R.drawable.ic_launcher)
             imageGenerated.tag = data
             viewText.tag = data
+            viewThinking.tag = data
+            thinkingToggle.tag = data
+        }
+        
+        private fun updateThinkingView(data: ChatDataItem, context: android.content.Context) {
+            val showThinking = data.showThinking
+            thinkingToggle.visibility = if (TextUtils.isEmpty(data.thinkingText)) {
+                View.GONE
+            } else {
+                View.VISIBLE
+            }
+            textThinkingHeader.text = if (data.thinkingFinishedTime >= 0)
+                textThinkingHeader.resources.getString(R.string.r1_think_complete_template, (data.thinkingFinishedTime / 1000).toString())
+            else textThinkingHeader.resources.getString(R.string.r1_thinking_message)
+            if (showThinking && !TextUtils.isEmpty(data.thinkingText)) {
+                viewThinking.visibility = View.VISIBLE
+                markdown.setMarkdown(viewThinking, data.thinkingText!!)
+                ivThinkingHeader.setImageResource(R.drawable.ic_arrow_up)
+            } else {
+                ivThinkingHeader.setImageResource(R.drawable.ic_arrow_down)
+                viewThinking.visibility = View.GONE
+            }
         }
 
         override fun onClick(v: View) {
@@ -233,7 +283,7 @@ object ChatViewHolders {
                 } else if (v.id == R.id.assistant_text_report) {
                     val chatActivity = UiUtils.getActivity(v.context) as ChatActivity
                     ClipboardUtils.copyToClipboard(
-                        chatActivity,
+                        itemView.context,
                         """
                             ${DeviceUtils.deviceInfo}
                             ${chatActivity.sessionDebugInfo}

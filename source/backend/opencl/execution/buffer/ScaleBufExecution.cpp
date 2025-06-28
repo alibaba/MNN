@@ -143,7 +143,7 @@ ErrorCode ScaleBufExecution::onEncode(const std::vector<Tensor *> &inputs, const
     MNN_CHECK_CL_SUCCESS(ret, "setArg ScaleBufExecution");
 
     std::string name = "scale_buf";
-    mLocalWorkSize = localWS2DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
+    mLocalWorkSize = localWS2DDefault(mGlobalWorkSize, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, unit.kernel, mOpenCLBackend->getCLTuneLevel(), "scale_buf").first;
     
     mOpenCLBackend->recordKernel2d(unit.kernel, mGlobalWorkSize, mLocalWorkSize);
     unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1]};

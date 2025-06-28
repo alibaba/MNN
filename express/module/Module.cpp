@@ -9,6 +9,7 @@
 #include <MNN/expr/Module.hpp>
 #include <MNN/expr/ExprCreator.hpp>
 #include <MNN/expr/ExecutorScope.hpp>
+#include "core/OpCommonUtils.hpp"
 #include "PipelineModule.hpp"
 #include "core/FileLoader.hpp"
 #include "backend/cpu/CPUBackend.hpp"
@@ -215,7 +216,13 @@ public:
         auto glo = ExecutorScope::Current();
         glo->getDebugTools()->flops = 0.0f;
 #endif
+        for (auto& iter : mInfo->runTimeManager->getInside()->mRuntime.first) {
+            iter.second->onConcurrencyBegin();
+        }
         auto outputs = mModule->onForward(inputs);
+        for (auto& iter : mInfo->runTimeManager->getInside()->mRuntime.first) {
+            iter.second->onConcurrencyEnd();
+        }
 #ifdef MNN_INTERNAL_ENABLED
         do {
             if (outputs.empty()) {
@@ -373,21 +380,19 @@ static Module* loadInternal(const std::vector<std::string>& inputs, const std::v
     if (nullptr != _rtMgr) {
         checkMNNBuffer = _rtMgr->getInside()->mContent->modes.checkNetBuffer;
     }
+    bool valid = true;
     if (checkMNNBuffer) {
-        flatbuffers::Verifier verify(buffer, length);
-        if (false == VerifyNetBuffer(verify)) {
-            MNN_PRINT("Invalidate buffer to create MNN Module\n");
-            return nullptr;
-        }
+        valid = OpCommonUtils::checkNet(buffer, length);
     }
-    // Check Auto Inputs and Outputs
-    auto net = GetNet(buffer);
-    if (nullptr == net->oplists() || nullptr == net->tensorName()) {
-        MNN_ERROR("Invalid net, for null oplist or tensorName\n");
+    if (!valid) {
         return nullptr;
     }
+    auto net = GetNet(buffer);
     Timer _time;
     std::shared_ptr<Module::Info> info(new Module::Info);
+    if (net->mnn_uuid()) {
+        info->uuid = net->mnn_uuid()->str();
+    }
     if (net->extraInfo()) {
         if (net->extraInfo()->version()) {
             info->version = net->extraInfo()->version()->str();
@@ -420,6 +425,9 @@ static Module* loadInternal(const std::vector<std::string>& inputs, const std::v
         _loadInputs(info.get(), inputs, net);
         info->runTimeManager = rtMgr;
         std::shared_ptr<Module> m(PipelineModule::load(inputs, outputs, buffer, length, rtMgr, config));
+        if (nullptr == m) {
+            return nullptr;
+        }
         return new NetModule(m, info, net, length, (float)_time.durationInUs() / 1000.0f);
     }
     std::set<int> inputIdx, outputIdx, realOutput;
@@ -464,6 +472,9 @@ static Module* loadInternal(const std::vector<std::string>& inputs, const std::v
     std::shared_ptr<Module> m(PipelineModule::load(info->inputNames, info->outputNames, buffer, length, rtMgr, config));
     _loadInputs(info.get(), info->inputNames, net);
     info->runTimeManager = rtMgr;
+    if (nullptr == m) {
+        return nullptr;
+    }
     return new NetModule(m, info, net, length, (float)_time.durationInUs() / 1000.0f);
 }
 

@@ -304,6 +304,9 @@ int main(int argc, char *argv[]) {
         if (runMask & 64) {
             net.reset(Module::clone(net.get()));
         }
+        if (net == nullptr) {
+            return 0;
+        }
     }
     auto mInfo = net->getInfo();
 

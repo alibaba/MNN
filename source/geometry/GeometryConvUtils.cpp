@@ -52,7 +52,7 @@ void GeometryConvUtils::im2Col3d(Tensor* im2Col, Tensor* input, int ic, int kd, 
     des->memoryType      = Tensor::InsideDescribe::MEMORY_VIRTUAL;
     des->dimensionFormat = MNN_DATA_FORMAT_NCHW;
     des->regions.clear();
-    if (id == kd && ih == kh && iw == kw & pd == 0 && ph == 0 && pw == 0 && dd == 1 && dh == 1 && dw == 1) {
+    if (id == kd && ih == kh && iw == kw && pd == 0 && ph == 0 && pw == 0 && dd == 1 && dh == 1 && dw == 1) {
         // fast impl: n, ic, id, ih, iw -> ic*id*ih*iw, n
         Tensor::InsideDescribe::Region region;
         region.origin        = input;
@@ -270,7 +270,8 @@ std::shared_ptr<Tensor> GeometryConvUtils::im2Col(Tensor* im2Col, Tensor* input,
 bool GeometryConvUtils::computeSingle(const Op* op, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, GeometryComputer::Context& context, CommandBuffer& res) {
 #if KAI_CONV_NCHW_IN_OUT
     KleidiAI& kai = KleidiAI::getInstance();
-    if(kai.canAccelerate()) {
+    auto common = op->main_as_Convolution2D()->common();
+    if(kai.canAccelerate() && common->kernelX() == 1 && common->kernelY() == 1) {
         kai.setLinear(true);
         std::shared_ptr<Command> cmd(new Command);
         cmd->op      = op;

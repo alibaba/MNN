@@ -59,6 +59,27 @@ This is our full multimodal language model (LLM) Android app
   ```
 
 # Releases
+## Version 0.5.1.1
++ Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_5_1_1.apk)
++ Upgrade MNN engine to v3.2.0
++ fix some bugs
+## Version 0.5.1
++ Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_5_1.apk)
++ Support DeepSeek-R1-0528-Qwen3
++ fix some bugs:
+  + first install use ModelScope if system language chinese
+  + do not show dialog if not forceCheckUpdate
+  + show model size of local model
+## Version 0.5.0
++ Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_5_0.apk)
++ Support Qwen3-30B-A3B
++ Support new vision models SmoVLM and FastVLM
++ Support Local models(by adb push)
++ add some advanced settings: precision, thread num
++ UI updates:
+  + support filter models by Local, Modality, and Vendors
+  + support hide thinking process
+
 ## Version 0.4.4.1
 + Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_4_4_1.apk)
 + Fix Modlers download error

@@ -99,14 +99,22 @@ static void pack_QK(char * pack_qk_dst, float * qk_src, int seq_len, int kv_seq_
 template <typename T>
 static void mask_QK(float * unpack_qk, int seq_len, int kv_seq_len, float mScale, float min_val, const Tensor* mask) {
     if (seq_len == 1 || mask == nullptr) {
-        for (int i = 0; i < seq_len * kv_seq_len; i++) {
+        for (int i = 0; i < kv_seq_len; i++) {
             unpack_qk[i] = unpack_qk[i] * mScale;
         }
     } else if (mask->getType() == halide_type_of<float>()) {
         // float mask
         T* fpmask_ptr = mask->host<T>();
-        for (int i = 0; i < seq_len * kv_seq_len; i++) {
-            unpack_qk[i] = unpack_qk[i] * mScale + fpmask_ptr[i];
+        int offset = kv_seq_len-seq_len;
+        for (int i=0; i<seq_len; ++i) {
+            auto unpack_qki = unpack_qk + i * kv_seq_len;
+            auto fpmask_ptri = fpmask_ptr + i * seq_len;
+            for (int j=0; j<offset; ++j) {
+                unpack_qki[j] = unpack_qki[j] * mScale;
+            }
+            for (int j=0; j<seq_len; ++j) {
+                unpack_qki[offset+j] = unpack_qki[offset+j] * mScale + fpmask_ptri[j];
+            }
         }
     } else {
         // int mask
@@ -192,7 +200,6 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
     int seq_len = query->length(1);
     if (inputs.size() > 3) {
         mask = inputs[3];
-        MNN_ASSERT(seq_len == mask->length(2));
     }
     int tileCount = UP_DIV(mNumHead, mThreadNum);
     int group_size = mNumHead / mKvNumHead;
@@ -418,3 +425,4 @@ REGISTER_CPU_OP_CREATOR_TRANSFORMER(CPUAttentionCreator, OpType_Attention);
 } // namespace MNN
 
 #endif // MNN_SUPPORT_TRANSFORMER_FUSE
+

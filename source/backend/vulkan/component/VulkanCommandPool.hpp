@@ -11,6 +11,7 @@
 
 #include "core/NonCopyable.hpp"
 #include "backend/vulkan/component/VulkanDevice.hpp"
+#include "backend/vulkan/component/VulkanFence.hpp"
 #include "backend/vulkan/vulkan/vulkan_wrapper.h"
 namespace MNN {
 class VulkanImage;
@@ -49,6 +50,7 @@ public:
     }
 
     void submitAndWait(VkCommandBuffer buffer) const;
+    std::shared_ptr<VulkanFence> submit(VkCommandBuffer buffer) const;
 
 private:
     const VulkanDevice& mDevice;

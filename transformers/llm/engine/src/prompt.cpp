@@ -1,8 +1,38 @@
 #include "prompt.hpp"
-
+#ifdef LLM_USE_MINJA
+#include "minja/chat_template.hpp"
+#endif
 namespace MNN {
 namespace Transformer {
-
+#ifdef LLM_USE_MINJA
+class Prompt::JinjaTemplate {
+public:
+    JinjaTemplate(const std::string& chatTemplate, const std::string& bos, const std::string& eos) : mTemplate(chatTemplate, bos, eos) {
+        // Do nothing
+    }
+    ~ JinjaTemplate() {
+        // Do nothing
+    }
+    void setExtraContext(const rapidjson::Value& extra) {
+        mInput.extra_context.CopyFrom(extra, mInput.extra_context.GetAllocator());
+    }
+    std::string apply(const std::vector<ChatMessage>& inputs, bool addGeneration) {
+        mInput.messages.SetArray();
+        for (auto& message : inputs) {
+            rapidjson::Value value;
+            value.SetObject();
+            value.AddMember("role", rapidjson::StringRef(message.first.c_str()), mInput.messages.GetAllocator());
+            value.AddMember("content", rapidjson::StringRef(message.second.c_str()), mInput.messages.GetAllocator());
+            mInput.messages.PushBack(value, mInput.messages.GetAllocator());
+        }
+        mInput.add_generation_prompt = addGeneration;
+        return mTemplate.apply(mInput);
+    }
+private:
+    minja::chat_template mTemplate;
+    minja::chat_template_inputs mInput;
+};
+#endif
 static std::string buildPrompt(ChatMessage item, std::string prompt_template, std::string placeholder) {
     size_t start_pos = prompt_template.find(placeholder);
     if (start_pos == std::string::npos) {
@@ -22,7 +52,28 @@ bool contains(const std::string& str, const std::string& substring) {
 }
     
 void Prompt::setParams(std::shared_ptr<LlmConfig> config) {
-    mReuseKV = config->reuse_kv();
+#ifdef LLM_USE_MINJA
+    if (config->config_.document.HasMember("jinja")) {
+        auto& document = config->config_.document["jinja"];
+        if (nullptr == mCommonTemplate.get()) {
+            // Only create jinja once
+            std::string bosToken, eosToken;
+            if (document.HasMember("bos") && document["bos"].IsString()) {
+                bosToken = document["bos"].GetString();
+            }
+            if (document.HasMember("eos") && document["eos"].IsString()) {
+                eosToken = document["eos"].GetString();
+            }
+            std::string templateChat = document["chat_template"].GetString();
+            mCommonTemplate.reset(new JinjaTemplate(templateChat, bosToken, eosToken));
+        }
+        if (document.HasMember("context")) {
+            mCommonTemplate->setExtraContext(document["context"]);
+        }
+        return;
+    }
+#endif
+    mCommonTemplate.reset();
     mSystemPrompt = config->system_prompt();
     if (config->config_.document.HasMember("prompt_template")) {
         // std::cout << "legacy prompt_template" << std::endl;
@@ -125,7 +176,12 @@ std::string Prompt::applyTemplate(std::string user_content, bool add_system_prom
     return applyTemplate(prompts, add_generation_prompt);
 }
 
-std::string Prompt::applyTemplate(std::vector<ChatMessage> inputs, bool add_generation_prompt) {
+std::string Prompt::applyTemplate(const std::vector<ChatMessage>& inputs, bool add_generation_prompt) {
+#ifdef LLM_USE_MINJA
+    if (nullptr != mCommonTemplate.get()) {
+        return mCommonTemplate->apply(inputs, add_generation_prompt);
+    }
+#endif
     std::string prompt_str = mBos;
     for (auto input : inputs) {
         if (input.first == "") continue;

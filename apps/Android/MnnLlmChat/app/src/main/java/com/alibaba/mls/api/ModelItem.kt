@@ -2,9 +2,8 @@
 // Copyright (c) 2024 Alibaba Group Holding Limited. All rights reserved.
 package com.alibaba.mls.api
 
-import android.graphics.ColorSpace.Model
-import com.alibaba.mnnllm.android.utils.ModelUtils.generateSimpleTags
-import com.alibaba.mnnllm.android.utils.ModelUtils.getModelName
+import com.alibaba.mnnllm.android.model.ModelUtils.generateSimpleTags
+import com.alibaba.mnnllm.android.model.ModelUtils.getModelName
 
 class ModelItem {
     var modelId: String? = null

@@ -2,6 +2,7 @@ import math
 import torch
 import torch.nn.functional as F
 import numpy as np
+from torch import nn
 
 from .transformers import VisionRotary, Decoder
 from .spinner import spinner_run
@@ -9,6 +10,9 @@ from .spinner import spinner_run
 class Vision(torch.nn.Module):
     def __init__(self, visual, base):
         super().__init__()
+        self.quant_bit = 8
+        self.quant_block = 128
+        self.transformer_fuse = True
         self.model_type = base.model_type
         self.visual = visual.eval()
         self.embed_ = base.embed
@@ -26,12 +30,17 @@ class Vision(torch.nn.Module):
     @staticmethod
     def get_vision(model_type):
         visual_models = {
+            'deepseek-vl': DeepSeekVL,
             'internvl_chat': InternVLVision,
             'qwen': QwenVision,
             'qwen2_vl': Qwen2Vision,
             'qwen2_5_vl':Qwen2_5Vision,
             'qwen2_5_omni': Qwen2_5OmniVision,
-            'mllama': MllamaVision
+            'mllama': MllamaVision,
+            'gemma3': Gemma3Vision,
+            'idefics3': Idefics3Vision,
+            'smolvlm': Idefics3Vision,
+            'llava_qwen2': MobileCLIPVision
         }
         if model_type in visual_models:
             return visual_models[model_type]
@@ -60,6 +69,51 @@ class Vision(torch.nn.Module):
 
     def embed(self, input_ids, images = None, videos = None):
         raise NotImplementedError
+
+class DeepSeekVL(Vision):
+    def __init__(self, visual, base):
+        super().__init__(visual, base)
+        self.quant_bit = 8
+        self.aligner = base.model.aligner
+        self.vision_model = visual
+
+    def load(self):
+        self.image_size = 1024
+        self.llm_config['is_visual'] = True
+        self.llm_config['image_size'] = self.image_size
+        # self.llm_config['vision_start'] = self.tokenizer.img_start_id
+        # self.llm_config['vision_end'] = self.tokenizer.img_end_id
+        # self.llm_config['image_pad'] = self.tokenizer.img_pad_id
+    def init_config(self):
+        self.llm_config['is_visual'] = True
+        IMAGENET_MEAN = [0.0, 0.0, 0.0]
+        IMAGENET_STD = [1.0, 1.0, 1.0]
+        for i in range(3):
+            IMAGENET_MEAN[i] = IMAGENET_MEAN[i] * 255.0
+            IMAGENET_STD[i] = 1.0 / IMAGENET_STD[i] / 255.0
+        self.llm_config['image_mean'] = IMAGENET_MEAN
+        self.llm_config['image_norm'] = IMAGENET_STD
+        self.llm_config['image_size_unit'] = 14
+    def export(self, onnx_path):
+        input_images = torch.randn((1, 3, self.image_size, self.image_size), dtype=torch.float32)
+        onnx_model = f'{onnx_path}/visual.onnx'
+        torch.onnx.export(self, (input_images),
+                        onnx_model,
+                        input_names=['input_images'],
+                        output_names=['image_embeds'],
+                        dynamic_axes={
+                            "input_images": { 0: "size", 2: "height", 3: "width"},
+                        },
+                        do_constant_folding=True,
+                        verbose=False,
+                        opset_version=15)
+        return onnx_model
+    def forward(self, images):
+        vit_embeds = self.aligner(self.vision_model(images))
+        # For mnn's embedding, the order is (seq, batch, hidden)
+        vit_embeds = vit_embeds.permute(1, 0, 2)
+        return vit_embeds
+
 
 class InternVLVision(Vision):
     def __init__(self, visual, base):
@@ -139,8 +193,8 @@ class InternVLVision(Vision):
 
 class QwenVision(Vision):
     def __init__(self, visual, base):
-        self.quant_bit = 16
         super().__init__(visual, base)
+        self.quant_bit = 16
 
     def load(self):
         self.image_start_id = self.config.visual['image_start_id']
@@ -189,7 +243,6 @@ class QwenVision(Vision):
 
 class Qwen2Vision(Vision):
     def __init__(self, visual, base):
-        self.quant_bit = 4
         self.temporal_patch_size = 2
         self.patch_size = 14
         self.merge_size = 2
@@ -198,6 +251,7 @@ class Qwen2Vision(Vision):
         self.image_embeds = []
         self.image_grid_thw = []
         super().__init__(visual, base)
+        self.quant_bit = 4
 
     def load(self):
         self.vision_start_id = self.config.vision_start_token_id
@@ -451,6 +505,57 @@ class Qwen2Vision(Vision):
                         opset_version=15)
         return onnx_model
 
+class Gemma3Vision(Vision):
+    def __init__(self, visual, base):
+        # read from gemma3_map
+        self.image_size = base.image_size
+        # embedding functions
+        super().__init__(visual, base)
+        self.quant_bit = 8
+        self.vision_tower = base.vision_tower
+        self.multi_modal_projector = base.multi_modal_projector.float()
+
+    def init_config(self):
+        self.image_mean_from_preprcessor_config = [0.5, 0.5, 0.5]
+        self.image_std_from_preprcessor_config = [0.5, 0.5, 0.5]
+        for i in range(3):
+            self.image_mean_from_preprcessor_config[i] = self.image_mean_from_preprcessor_config[i] * 255.0
+            self.image_std_from_preprcessor_config[i] = 1.0 / self.image_std_from_preprcessor_config[i] / 255.0
+        self.llm_config['is_visual'] = True
+        self.llm_config['image_mean'] = self.image_mean_from_preprcessor_config
+        self.llm_config['image_norm'] = self.image_std_from_preprcessor_config
+        self.llm_config['vision_start'] = self.config.boi_token_index
+        self.llm_config['vision_end'] = self.config.eoi_token_index
+        self.llm_config['image_pad'] = self.config.image_token_index
+
+    def load(self):
+        self.llm_config['image_size'] = self.image_size
+
+    def forward(self, pixel_values):
+        vision_outputs = self.vision_tower(pixel_values=pixel_values).last_hidden_state
+        image_features = self.multi_modal_projector(vision_outputs)
+        image_features_transpose = image_features.permute(1, 0, 2)
+        return image_features_transpose
+
+    def export(self, onnx_path):
+        input_images = torch.randn((1, 3, self.image_size, self.image_size))
+        onnx_model = f'{onnx_path}/visual.onnx'
+        torch.onnx.export(self, (input_images),
+                        onnx_model,
+                        input_names=['input_images'],
+                        output_names=['image_embeds'],
+                        dynamic_axes={
+                            "input_images": { 0: "size", 2: "height", 3: "width"},
+                        },
+                        do_constant_folding=True,
+                        verbose=False,
+                        opset_version=15)
+        return onnx_model
+
+    def embed(self, input_ids):
+        txt_embeds = self.embed_(input_ids)
+        return txt_embeds
+
 class Qwen2_5Vision(Qwen2Vision):
     def __init__(self, visual, base):
         super().__init__(visual, base)
@@ -555,7 +660,6 @@ class Qwen2_5Vision(Qwen2Vision):
 
 class Qwen2_5OmniVision(Qwen2_5Vision):
     def __init__(self, visual, base):
-        self.quant_bit = 8
         self.temporal_patch_size = 2
         self.patch_size = 14
         self.merge_size = 2
@@ -563,6 +667,7 @@ class Qwen2_5OmniVision(Qwen2_5Vision):
         self.image_width = 420
         self.image_embeds = None
         super().__init__(visual, base)
+        self.quant_bit = 8
 
     def load(self):
         self.config = self.config.thinker_config
@@ -690,3 +795,225 @@ class MllamaVision(Vision):
     def embed(self, input_ids, images = None, videos = None):
         txt_embeds = self.embed_(input_ids)
         return txt_embeds
+
+# SmolVLM & SmolVLM2
+class Idefics3Vision(Vision):
+    def __init__(self, visual, base):
+        self.patch_size = visual.config.max_image_size['longest_edge']
+        self.image_max_size = visual.config.size['longest_edge']
+        self.image_height = self.patch_size
+        self.image_width = self.image_height
+        self.image_embeds = []
+        self.image_mean = np.array([0.5, 0.5, 0.5], dtype=np.float32)
+        self.image_norm = np.array([0.5, 0.5, 0.5], dtype=np.float32)
+        super().__init__(visual, base)
+        self.connector = base.model.model.connector.float()
+        self.visual = self.visual.float()
+        self.quant_bit = 8
+        self.transformer_fuse = False
+
+    def load(self):
+        self.vision_start_token = '<fake_token_around_image>'
+        self.vision_end_token = '<fake_token_around_image>'
+        self.image_pad_token = '<image>'
+        self.global_image_token = '<global-img>'
+        self.vision_start_id = self.tokenizer.encode(self.vision_start_token)[0]
+        self.vision_end_id = self.vision_start_id
+        self.image_pad_id = self.tokenizer.encode(self.image_pad_token)[0]
+        self.global_image_id = self.tokenizer.encode(self.global_image_token)[0]
+        self.llm_config['image_size_unit'] = self.patch_size
+        self.llm_config['image_size'] = self.image_height
+        self.llm_config['image_max_size'] = self.image_max_size
+        self.llm_config['vision_start'] = self.vision_start_id
+        self.llm_config['vision_end'] = self.vision_end_id
+        self.llm_config['image_pad'] = self.image_pad_id
+        self.llm_config['global_image'] = self.global_image_id
+        # load model
+        self.patch_embedding = self.visual.embeddings.patch_embedding
+        self.position_embedding = self.visual.embeddings.position_embedding
+        self.encoder = self.visual.encoder
+        self.post_layernorm = self.visual.post_layernorm
+
+    def init_config(self):
+        self.llm_config['is_visual'] = True
+        image_mean = self.image_mean * 255.0
+        image_norm = 1 / (self.image_norm * 255.0)
+        self.llm_config['image_mean'] = image_mean.tolist()
+        self.llm_config['image_norm'] = image_norm.tolist()
+
+    def str_to_ids(self, prompt):
+        if '<img>' in prompt and '</img>' in prompt:
+            import re
+            import requests
+            from PIL import Image
+            pattern = r'(<img>.*?</img>)'
+            parts = re.split(pattern, prompt)
+            txt_prompt = ''
+            for part in parts:
+                if re.match(pattern, part):
+                    img_content = re.search(r'<img>(.*?)</img>', part).group(1)
+                    # find <hw></hw> in image_content
+                    match = re.search(r'<hw>(.*?)</hw>', img_content)
+                    if match:
+                        img_content = img_content[:match.start()] + img_content[match.end():]
+                        hw = match.group(1).split(',')
+                        self.image_height, self.image_width = int(hw[0]), int(hw[1])
+                    if img_content.startswith('http://') or img_content.startswith('https://'):
+                        image_obj = Image.open(requests.get(img_content, stream=True).raw)
+                    else:
+                        image_obj = Image.open(img_content)
+                    img_pad_len, grid_h, grid_w = self.img_process(image_obj)
+                    img_pad_str = self.image_pad_token * img_pad_len
+                    if grid_h > 0 and grid_w > 0:
+                        for n_h in range(grid_h):
+                            for n_w in range(grid_w):
+                                txt_prompt += (
+                                    f"{self.vision_start_token}" + f"<row_{n_h + 1}_col_{n_w + 1}>" + img_pad_str
+                                )
+                            txt_prompt += "\n"
+                        txt_prompt += "\n"
+                    txt_prompt += (f'{self.vision_start_token}{self.global_image_token}{img_pad_str}{self.vision_end_token}')
+                else:
+                    txt_prompt += part
+        else:
+            txt_prompt = prompt
+        input_ids = self.tokenizer(txt_prompt, return_tensors="pt")['input_ids']
+        return input_ids
+
+    def vision_reshape(self, images):
+        batch, channel, height, width = images.shape
+        grid_h, grid_w = height // self.patch_size, width // self.patch_size
+        patches = images.reshape(
+            batch,
+            channel,
+            grid_h,
+            self.patch_size,
+            grid_w,
+            self.patch_size,
+        )
+        patches = patches.permute(0, 2, 4, 1, 3, 5)
+        flatten_patches = patches.reshape(
+            batch * grid_h * grid_w, channel, self.patch_size, self.patch_size
+        )
+        return flatten_patches, grid_h, grid_w
+
+    def images_forward(self, images):
+        return self.forward(images)
+
+    def forward(self, pixel_values):
+        patch_embeds = self.patch_embedding(pixel_values)
+        embeddings = patch_embeds.flatten(2).transpose(1, 2)
+        embeddings = embeddings + self.position_embedding.weight
+        encoder_output = self.encoder(embeddings)[0]
+        last_hidden_state = self.post_layernorm(encoder_output)
+        image_hidden_states = self.connector(last_hidden_state)
+        image_hidden_states = image_hidden_states.unsqueeze(2)
+        return image_hidden_states
+
+    def get_size(self, height: int, width: int):
+        vision_encoder_max_size = self.patch_size
+        aspect_ratio = width / height
+        if width >= height:
+            width = math.ceil(width / vision_encoder_max_size) * vision_encoder_max_size
+            height = int(width / aspect_ratio)
+            height = math.ceil(height / vision_encoder_max_size) * vision_encoder_max_size
+        elif height > width:
+            height = math.ceil(height / vision_encoder_max_size) * vision_encoder_max_size
+            width = int(height * aspect_ratio)
+            width = math.ceil(width / vision_encoder_max_size) * vision_encoder_max_size
+        if height > self.image_max_size:
+            height = self.image_max_size
+        if width > self.image_max_size:
+            width = self.image_max_size
+        return height, width
+
+    def img_process(self, image):
+        from transformers.image_transforms import (
+            convert_to_rgb,
+            resize,
+            rescale,
+            normalize
+        )
+        from transformers.image_utils import (
+            PILImageResampling,
+            infer_channel_dimension_format,
+            to_numpy_array
+        )
+        image = convert_to_rgb(image)
+        image = to_numpy_array(image)
+        resized_height, resized_width = self.get_size(self.image_height, self.image_width)
+        format = infer_channel_dimension_format(image)
+        resample = PILImageResampling.LANCZOS
+        global_image = resize(image, size=(self.patch_size, self.patch_size), resample=resample, input_data_format=format)
+        def preprocess(image):
+            image = rescale(image, scale=1 / 255.0, input_data_format=format)
+            image = normalize(image=image, mean=self.image_mean, std=self.image_norm, input_data_format=format)
+            image = np.expand_dims(image, [0])
+            image = image.transpose(0, 3, 1, 2)
+            image = torch.from_numpy(image)
+            return image
+        global_image = preprocess(global_image)
+        if resized_height > self.patch_size or resized_width > self.patch_size:
+            image = resize(image, size=(resized_height, resized_width), resample=resample, input_data_format=format)
+            image = preprocess(image)
+            image, grid_h, grid_w = self.vision_reshape(image)
+            image = torch.concat([image, global_image], dim=0)
+        else:
+            grid_h, grid_w = 0, 0
+            image = global_image
+        image_embed = self.images_forward(image)
+        num_images, img_pad_len, _, vision_hidden_size = image_embed.shape
+        self.image_embeds.append(image_embed.reshape(-1, 1, vision_hidden_size))
+        return img_pad_len, grid_h, grid_w
+
+    def embed(self, input_ids, images = None, videos = None):
+        input_embeds = self.embed_(input_ids)
+        if self.image_embeds is not None and len(self.image_embeds) > 0:
+            image_mask = (input_ids == self.image_pad_id).squeeze()
+            input_embeds[image_mask] = torch.concat(self.image_embeds, dim=0).to(input_embeds.dtype)
+        return input_embeds
+
+    @spinner_run(f'export visual to ')
+    def export(self, onnx_path):
+        pixel_values = torch.randn([1, 3, self.patch_size, self.patch_size])
+        onnx_model = f'{onnx_path}/visual.onnx'
+        torch.onnx.export(self, (pixel_values),
+                        onnx_model,
+                        input_names=['pixel_values'],
+                        output_names=['image_embeds'],
+                        dynamic_axes={
+                            "pixel_values": { 0: "size" },
+                        },
+                        do_constant_folding=True,
+                        verbose=False,
+                        opset_version=15)
+        return onnx_model
+
+# FastVLM
+class MobileCLIPVision(QwenVision):
+    def __init__(self, visual, base):
+        super().__init__(visual, base)
+        self.visual = visual.float()
+        self.mm_projector = base.model.model.mm_projector.float()
+        self.quant_bit = 8
+
+    def init_config(self):
+        self.llm_config['is_visual'] = True
+        image_mean = np.array([0.0, 0.0, 0.0])
+        image_norm = np.array([1.0, 1.0, 1.0]) / 255.0
+        self.llm_config['image_mean'] = image_mean.tolist()
+        self.llm_config['image_norm'] = image_norm.tolist()
+
+    def load(self):
+        self.image_size = self.visual.config['image_cfg']['image_size']
+        self.image_start_id = -200
+        self.llm_config['image_size'] = self.image_size
+        self.llm_config['vision_start'] = -200
+        self.llm_config['vision_end'] = -200
+        self.llm_config['image_pad'] = -200
+
+    def forward(self, images):
+        image_features = self.visual(images)
+        image_features = self.mm_projector(image_features)
+        image_features = image_features.permute(1, 0, 2)
+        return image_features

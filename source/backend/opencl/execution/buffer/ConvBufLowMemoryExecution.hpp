@@ -25,6 +25,7 @@ public:
     virtual ErrorCode onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
 private:
+    int getExecuteTime();
     void getInfoFromOpLowMemory(void *weight_ptr);
     void set1x1WeightLowMemory();
     void setGeneralWeightLowMemory();

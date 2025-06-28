@@ -259,7 +259,7 @@ ErrorCode MultiInputDWDeconvExecution::onEncode(const std::vector<Tensor *> &inp
 
         const uint32_t maxWorkGroupSize = runtime->getMaxWorkGroupSize(kernelW);
         std::string name = "depthwiseDeconv";
-        auto lws = localWS3DDefault(gws, maxWorkGroupSize, runtime, name, kernelW, openclBackend->getCLTuneLevel()).first;
+        auto lws = localWS3DDefault(gws, maxWorkGroupSize, runtime, name, kernelW, openclBackend->getCLTuneLevel(), "depthwise_deconv2d").first;
         for (size_t i = 0; i < 3; ++i) {
             gws[i] = ROUND_UP(gws[i], std::max((uint32_t)1, lws[i]));
         }

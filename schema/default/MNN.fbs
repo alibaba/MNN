@@ -55,7 +55,7 @@ enum OpType : int {
     LRN,
     LSTM,
     MatMul,
-    MVN,
+    MoE,
     NonMaxSuppression,
     NonMaxSuppressionV2,
     Normalize,
@@ -458,7 +458,10 @@ table TensorDescribe {
 enum ForwardType : byte {
     CPU = 0,
     METAL,
+    CUDA,
     OPENCL,
+    AUTO,
+    NNAPI,
     OPENGLES,
     VULKAN,
 }

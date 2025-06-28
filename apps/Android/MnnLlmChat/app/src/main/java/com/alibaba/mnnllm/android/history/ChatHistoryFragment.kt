@@ -11,7 +11,7 @@ import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import com.alibaba.mnnllm.android.MainActivity
+import com.alibaba.mnnllm.android.main.MainActivity
 import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.chat.model.ChatDataManager
 import com.alibaba.mnnllm.android.chat.model.ChatDataManager.Companion.getInstance

@@ -16,7 +16,10 @@ MNN使用CMake构建项目，CMake中的宏定义列表如下：
 | MNN_BUILD_QUANTOOLS  | 是否构建MNN的量化工具，默认为`OFF` |
 | MNN_EVALUATION       | 是否构建MNN的评估工具，默认为`OFF` |
 | MNN_BUILD_CONVERTER  | 是否构建MNN的转换工具，默认为`OFF` |
+| MNN_SUPPORT_QUNAT_EXTEND  | 是否编译非核心算子的量化版本，默认为`ON` |
 | MNN_SUPPORT_DEPRECATED_OP | 是否支持Tflite的量化算子等已经废弃的算子，用于兼容历史模型(1.1.0版本之前)，默认为`OFF` |
+| MNN_SUPPORT_DEPRECATED_OPV2 | 是否编译MNN更新到3.0之后已经废弃的算子，用于兼容历史模型(3.0.0版本之前)，比如 Convolution3D 和 ConvTranspose3D在3.0.0 版本之后改由模型转换器转化为对应2D算子，不再需要运行时支持，默认为`ON` |
+| MNN_REDUCE_SIZE  | 是否裁剪MNN库大小，去除求导相关算子，减少优化策略，默认为`OFF` ，开启时，MNN_SUPPORT_QUNAT_EXTEND / MNN_SUPPORT_DEPRECATED_OP / MNN_SUPPORT_DEPRECATED_OPV2 都会设成 OFF|
 | MNN_DEBUG_MEMORY     | 是否开启MNN内存调试，默认为`OFF` |
 | MNN_DEBUG_TENSOR_SIZE | 是否开启MNN tensor size调试，默认为`OFF` |
 | MNN_GPU_TRACE        | 是否开启MNN GPU调试，默认为`OFF` |
@@ -25,7 +28,8 @@ MNN使用CMake构建项目，CMake中的宏定义列表如下：
 | NATIVE_INCLUDE_OUTPUT | 如果构建为动态库，则指定动态库的头文件路径，默认为`OFF` |
 | MNN_AAPL_FMWK        | 是否构建`MNN.framework`替代`*.dylib`，默认为`OFF` |
 | MNN_WITH_PLUGIN      | 是否支持`Plugin算子`，默认为`OFF` |
-| MNN_BUILD_MINI       | 是否构建MNN的最小化版本，最小化版本仅支持固定形状，默认为`OFF` |
+| MNN_SKIPBUILD_GEOMETRY   | 是否跳过MNN的几何计算编译，若是，MNN引擎仅支持在模型转换工具时加上 --saveStaticModel 转换出来的固定输入形状的模型，默认为`OFF` |
+| MNN_BUILD_MINI       | 是否构建MNN的最小化版本，若是，开启 MNN_SKIPBUILD_GEOMETRY 和 MNN_REDUCE_SIZE，默认为`OFF` |
 | MNN_USE_SSE          | 在x86上是否使用SSE指令集，默认为`OFF` |
 | MNN_BUILD_CODEGEN    | 是否构建MNN的代码生成部分，该功能提供了算子融合与代码生成能力，为实验性功能，默认为`OFF` |
 | MNN_ENABLE_COVERAGE  | 是否开启MNN的代码覆盖率，默认为`OFF` |

@@ -23,11 +23,14 @@ import com.alibaba.mnnllm.android.chat.model.ChatDataItem
 import com.alibaba.mnnllm.android.databinding.ActivityChatBinding
 import com.alibaba.mnnllm.android.llm.AudioDataListener
 import com.alibaba.mnnllm.android.llm.LlmSession
+import com.alibaba.mnnllm.android.mainsettings.MainSettings.isApiServiceEnabled
 import com.alibaba.mnnllm.android.modelsettings.SettingsBottomSheetFragment
+import com.alibaba.mnnllm.api.openai.ui.ApiSettingsBottomSheetFragment
+import com.alibaba.mnnllm.api.openai.ui.ApiConsoleBottomSheetFragment
 import com.alibaba.mnnllm.android.utils.AudioPlayService
-import com.alibaba.mnnllm.android.utils.ModelPreferences
-import com.alibaba.mnnllm.android.utils.ModelUtils
+import com.alibaba.mnnllm.android.model.ModelUtils
 import com.alibaba.mnnllm.android.utils.PreferenceUtils
+import com.alibaba.mnnllm.api.openai.manager.ApiServiceManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
@@ -65,6 +68,7 @@ class ChatActivity : AppCompatActivity() {
     private lateinit var chatListComponent: ChatListComponent
 
     private var benchmarkModule: BenchmarkModule = BenchmarkModule(activity = this)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityChatBinding.inflate(layoutInflater)
@@ -80,7 +84,7 @@ class ChatActivity : AppCompatActivity() {
         chatPresenter = ChatPresenter(this, modelName, modelId!!)
         isDiffusion = ModelUtils.isDiffusionModel(modelName)
         isAudioModel = ModelUtils.isAudioModel(modelName)
-        chatInputModule = ChatInputComponent(this, binding, modelName,)
+        chatInputModule = ChatInputComponent(this, binding, modelName)
         layoutModelLoading = findViewById(R.id.layout_model_loading)
         updateActionBar()
         this.setupSession()
@@ -129,6 +133,9 @@ class ChatActivity : AppCompatActivity() {
         sessionId = chatSession.sessionId
         Log.d(TAG, "current SessionId: $sessionId")
         chatPresenter.load()
+
+        setChatPresenter(chatPresenter)
+
     }
 
     private fun setupOmni() {
@@ -160,6 +167,12 @@ class ChatActivity : AppCompatActivity() {
             if (chatSession.supportOmni) {
                 setupOmni()
             }
+
+
+            // 检查API服务设置并启动
+            if (isApiServiceEnabled(this)) {
+                ApiServiceManager.startApiService(this)
+            }
         }
     }
 
@@ -173,30 +186,7 @@ class ChatActivity : AppCompatActivity() {
                     true
                 )
             )
-        menu.findItem(R.id.menu_item_use_mmap).apply {
-            isVisible = !isDiffusion
-            if (!isDiffusion) {
-                isChecked = ModelPreferences.getBoolean(
-                    this@ChatActivity,
-                    modelId!!,
-                    ModelPreferences.KEY_USE_MMAP,
-                    false
-                )
-            }
-        }
-        menu.findItem(R.id.menu_item_backend).apply {
-            isVisible = !isDiffusion
-            if (!isDiffusion) {
-                isChecked = ModelPreferences.getBoolean(
-                    this@ChatActivity,
-                    modelId!!,
-                    ModelPreferences.KEY_BACKEND,
-                    false
-                )
-            }
-        }
         menu.findItem(R.id.menu_item_model_settings).isVisible = !isDiffusion
-        menu.findItem(R.id.menu_item_clear_mmap_cache).isVisible = !isDiffusion
         menu.findItem(R.id.menu_item_benchmark_test).isVisible = benchmarkModule.enabled
         return true
     }
@@ -209,33 +199,17 @@ class ChatActivity : AppCompatActivity() {
             chatListComponent.toggleShowPerformanceMetrics(item.isChecked)
         } else if (item.itemId == android.R.id.home) {
             finish()
-        } else if (item.itemId == R.id.menu_item_clear_mmap_cache) {
-            if (ModelPreferences.useMmap(this, modelId!!)) {
-                Toast.makeText(this, R.string.mmap_cacche_cleared, Toast.LENGTH_LONG).show()
-                (chatSession as LlmSession).clearMmapCache()
-                recreate()
-            } else {
-                Toast.makeText(this, R.string.mmap_not_used, Toast.LENGTH_SHORT).show()
-            }
-        } else if (item.itemId == R.id.menu_item_use_mmap) {
-            item.setChecked(!item.isChecked)
-            Toast.makeText(this, R.string.reloading_session, Toast.LENGTH_LONG).show()
-            ModelPreferences.setBoolean(
-                this,
-                modelId!!,
-                ModelPreferences.KEY_USE_MMAP,
-                item.isChecked
-            )
-            recreate()
-        } else if (item.itemId == R.id.menu_item_backend) {
-            item.setChecked(!item.isChecked)
-            Toast.makeText(this, R.string.reloading_session, Toast.LENGTH_LONG).show()
-            ModelPreferences.setBoolean(this, modelId!!, ModelPreferences.KEY_BACKEND, item.isChecked)
-            recreate()
         } else if (item.itemId == R.id.menu_item_model_settings) {
-            val settingsSheet = SettingsBottomSheetFragment()
-            settingsSheet.setSession(chatSession as LlmSession)
-            settingsSheet.show(supportFragmentManager, SettingsBottomSheetFragment.TAG)
+            SettingsBottomSheetFragment().apply {
+                setModelId(modelId!!)
+                setConfigPath(intent.getStringExtra("configFilePath"))
+                setSession(chatSession as LlmSession)
+                addOnSettingsDoneListener{needRecreate->
+                    if (needRecreate) {
+                        recreate()
+                    }
+                }
+            }.show(supportFragmentManager, SettingsBottomSheetFragment.TAG)
             return true
         } else if (item.itemId == R.id.menu_item_benchmark_test) {
             chatSession.setKeepHistory(false)
@@ -245,6 +219,12 @@ class ChatActivity : AppCompatActivity() {
                 chatSession.reset()
                 return@start handleSendMessage(createUserMessage(message))
             })
+        } else if (item.itemId == R.id.menu_item_api_settings) {
+            ApiSettingsBottomSheetFragment().show(supportFragmentManager, "ApiSettingsBottomSheetFragment")
+            return true
+        } else if (item.itemId == R.id.menu_item_api_console) {
+            ApiConsoleBottomSheetFragment.newInstance(this).show(supportFragmentManager, "ApiConsoleBottomSheetFragment")
+            return true
         }
         return super.onOptionsItemSelected(item)
     }
@@ -319,6 +299,7 @@ class ChatActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         chatPresenter.destroy()
+        ApiServiceManager.stopApiService(this)
     }
 
     override fun onStop() {
@@ -334,8 +315,10 @@ class ChatActivity : AppCompatActivity() {
 
     fun onLlmGenerateProgress(progress: String?, generateResultProcessor:GenerateResultProcessor) {
         val chatDataItem = chatListComponent.recentItem!!
-        chatDataItem.displayText = generateResultProcessor.getDisplayResult()
+        chatDataItem.thinkingText = generateResultProcessor.getThinkingContent()
+        chatDataItem.displayText = generateResultProcessor.getNormalOutput()
         chatDataItem.text = generateResultProcessor.getRawResult()
+        chatDataItem.thinkingFinishedTime = if (generateResultProcessor.thinkTime > 0) generateResultProcessor.thinkTime else -1
         chatListComponent.updateAssistantResponse(chatDataItem)
     }
 
@@ -366,5 +349,15 @@ class ChatActivity : AppCompatActivity() {
 
     companion object {
         const val TAG: String = "ChatActivity"
+        private var _chatPresenter: ChatPresenter? = null
+        // 获取 ChatPresenter 实例的方法
+        fun getChatPresenter(): ChatPresenter? {
+            return this._chatPresenter
+        }
+        // 获取 ChatPresenter 实例的方法
+        fun setChatPresenter(chatPresenter: ChatPresenter?) {
+            _chatPresenter = chatPresenter
+        }
+
     }
 }

@@ -55,6 +55,15 @@ struct KernelPool {
     uint64_t maxWorkGroupSize;
     std::queue<std::shared_ptr<cl::Kernel>> recycle;
 };
+
+struct TuneInfo{
+    std::string programName;
+    std::string md5;
+    std::vector<uint32_t>globalSize;
+    std::vector<uint32_t>localSize;
+    uint32_t timeCost;
+};
+
 class KernelWrap {
 public:
     KernelWrap(std::shared_ptr<cl::Kernel> k, KernelPool* recycle) : mKernel(k), mRecycle(recycle) {
@@ -128,6 +137,7 @@ public:
     void pushEvent(std::pair<std::string, cl::Event> data) {
         return mEvents.push_back(data);
     }
+    unsigned int getEventTime(cl::Event& event);
     void printEventTime();
     void clearEvent(){
         mKernelTime = 0;
@@ -143,13 +153,11 @@ public:
     unsigned int mKernelTime = 0;
     
     
-    std::map<std::string, uint32_t>& preParamsMap();
-    
     std::map<std::vector<uint32_t>, std::vector<uint32_t>>& tunedGemmParamsMap();
 
-    std::map<std::pair<std::string, std::vector<uint32_t>>, std::pair<std::vector<uint32_t>, uint32_t>>& tunedLwsMap();
+    std::map<std::pair<std::string, std::vector<uint32_t>>, TuneInfo>& tunedLwsMap();
     
-    std::map<std::string, std::vector<std::pair<std::vector<uint32_t>, std::pair<std::vector<uint32_t>, uint32_t>>>>& getTuneLwsMap();
+    std::map<std::string, std::vector<TuneInfo>>& getTuneLwsMap();
     
     std::shared_ptr<KernelWrap> buildKernel(const std::string &programName, const std::string &kernelName,
                              const std::set<std::string> &buildOptions, int precisionLevel, const Tensor *input = nullptr, const Tensor *output = nullptr);
@@ -232,10 +240,9 @@ private:
     double mStartNanos;
     double mStopNanos;
 
-    std::map<std::string, uint32_t> mPreParams;
     std::map<std::vector<uint32_t>, std::vector<uint32_t>> mTunedGemmParams;
-    std::map<std::pair<std::string, std::vector<uint32_t>>, std::pair<std::vector<uint32_t>,  uint32_t>> mTunedLws;
-    std::map<std::string, std::vector<std::pair<std::vector<uint32_t>, std::pair<std::vector<uint32_t>,  uint32_t>>>> mTuneLws;
+    std::map<std::pair<std::string, std::vector<uint32_t>>, TuneInfo> mTunedLws;
+    std::map<std::string, std::vector<TuneInfo>> mTuneLws;
     std::vector<uint8_t> mBuffer;
     RuntimeInitInfo mInitInfo;
 };
