@@ -62,8 +62,6 @@ public:
     void convertToDevice(const Tensor* srcTensor, const Tensor* dstTensor, MNN_DATA_FORMAT data_format, int precision, int backend_memtype, bool svmFlag = false, int memtype = MNN_FORWARD_CPU) const;
     void convertFromDevice(const Tensor* srcTensor, const Tensor* dstTensor, MNN_DATA_FORMAT data_format, int precision, int backend_memtype, bool svmFlag = false, int memtype = MNN_FORWARD_CPU) const;
     void copyBetweenDevice(const Tensor* srcTensor, const Tensor* dstTensor, int precision, int backend_memtype) const;
-    static void setGlobalCLRuntime(std::shared_ptr<OpenCLRuntime> runtime);
-    static std::shared_ptr<OpenCLRuntime> getGlobalCLRuntime();
 
 private:
     Backend::Info mInfo;
@@ -76,8 +74,6 @@ private:
 
     friend class OpenCLBackend;
     TuneInfo* mTunedInfo;
-    static std::weak_ptr<OpenCLRuntime> globalRuntime;
-    static std::mutex globalRuntimeLock;
 };
 
 

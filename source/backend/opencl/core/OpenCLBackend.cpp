@@ -27,16 +27,6 @@ namespace OpenCL {
 void registerOpenCLOps();
 #endif
 
-std::mutex CLRuntime::globalRuntimeLock;
-std::weak_ptr<OpenCLRuntime> CLRuntime::globalRuntime;
-void CLRuntime::setGlobalCLRuntime(std::shared_ptr<OpenCLRuntime> runtime){
-    std::lock_guard<std::mutex> _l(globalRuntimeLock);
-    globalRuntime = runtime;
-}
-std::shared_ptr<OpenCLRuntime> CLRuntime::getGlobalCLRuntime(){
-    auto sharedPtr = globalRuntime.lock();
-    return sharedPtr;
-}
 
 CLRuntime::CLRuntime(const Backend::Info& info){
     mInfo = info;
@@ -44,7 +34,6 @@ CLRuntime::CLRuntime(const Backend::Info& info){
     int device_id = 0;
     int platform_size = 0;
     void *context_ptr = nullptr;
-    auto globalRuntimePtr = getGlobalCLRuntime();
     if (nullptr != info.user) {
         if (info.user->sharedContext != nullptr) {
             platform_id   = ((MNNDeviceContext*)info.user->sharedContext)->platformId;
@@ -59,12 +48,7 @@ CLRuntime::CLRuntime(const Backend::Info& info){
         mMemory    = mInfo.user->memory;
     }
 
-    if(globalRuntimePtr && globalRuntimePtr.get()->canShareRuntime(platform_size, platform_id, device_id, context_ptr)){
-        mOpenCLRuntime = globalRuntimePtr;
-    }else{
         mOpenCLRuntime.reset(new OpenCLRuntime(platform_size, platform_id, device_id, context_ptr, hint()));
-        setGlobalCLRuntime(mOpenCLRuntime);
-    }
     
     //Whether runtimeError
     mCLRuntimeError = mOpenCLRuntime->isCreateError();
