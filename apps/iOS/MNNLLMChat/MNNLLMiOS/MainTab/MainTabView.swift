@@ -46,7 +46,10 @@ struct MainTabView: View {
                 .navigationTitle(titles[selectedTab])
                 .navigationBarTitleDisplayMode(.inline)
                 .navigationBarHidden(false)
-                .onAppear(perform: setupNavigationBarAppearance)
+                .onAppear {
+                    setupNavigationBarAppearance()
+                    setupTabBarAppearance()
+                }
                 .toolbar {
                     ToolbarItem(placement: .navigationBarLeading) {
                         if showHistoryButton {
@@ -182,4 +185,14 @@ struct MainTabView: View {
         UINavigationBar.appearance().compactAppearance = appearance
         UINavigationBar.appearance().scrollEdgeAppearance = appearance
     }
-} 
+    
+    private func setupTabBarAppearance() {
+        let appearance = UITabBarAppearance()
+        appearance.configureWithOpaqueBackground()
+        appearance.backgroundColor = .systemBackground
+
+        UITabBar.appearance().standardAppearance = appearance
+        UITabBar.appearance().scrollEdgeAppearance = appearance
+    }
+}
+
