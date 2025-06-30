@@ -7,10 +7,12 @@
 
 import Foundation
 
-public enum ModelSource: String, CaseIterable {
+public enum ModelSource: String, CaseIterable, Identifiable {
     case modelScope = "ModelScope"
     case huggingFace = "Hugging Face"
     case modeler = "Modeler"
+    
+    public var id: Self { self }
     
     var description: String {
         switch self {

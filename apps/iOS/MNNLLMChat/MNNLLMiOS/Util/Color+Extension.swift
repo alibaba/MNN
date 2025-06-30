@@ -12,4 +12,8 @@ extension Color {
     static var customBlue = Color(hex: "4859FD")
     static var customPickerBg = Color(hex: "2F2F2F")
     static var customLightPink = Color(hex: "E3E3E3")
+    
+    static var primaryPurple = Color(hex: "4252B6")
+    static var primaryBlue = Color(hex: "2E97F2")
+    static var primaryRed = Color(hex: "D16D6A")
 }
