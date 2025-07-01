@@ -61,7 +61,9 @@ struct ModelListView: View {
                         .padding(.horizontal)
                     
                     ForEach(viewModel.filteredModels, id: \.modelId) { model in
+                        
                         ModelRowView(model: model,
+                                     viewModel: viewModel,
                                      downloadProgress: viewModel.downloadProgress[model.modelId] ?? 0,
                                      isDownloading: viewModel.currentlyDownloading == model.modelId,
                                      isOtherDownloading: viewModel.currentlyDownloading != nil) {
@@ -73,10 +75,10 @@ struct ModelListView: View {
                                 }
                             }
                         }
-                                     .listRowBackground(viewModel.pinnedModelIds.contains(model.modelId) ? Color.black.opacity(0.05) : Color.clear)
-                                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                         SwipeActionsView(model: model, viewModel: viewModel)
-                                     }
+                         .listRowBackground(viewModel.pinnedModelIds.contains(model.modelId) ? Color.black.opacity(0.05) : Color.clear)
+                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                             SwipeActionsView(model: model, viewModel: viewModel)
+                         }
                     }
                 }
                 .listStyle(.plain)

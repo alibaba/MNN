@@ -16,6 +16,7 @@ struct SearchBar: View {
                 .foregroundColor(.gray)
             
             TextField("Search models...", text: $text)
+                .font(.system(size: 12, weight: .regular))
                 .textFieldStyle(RoundedBorderTextFieldStyle())
                 .autocapitalization(.none)
                 .disableAutocorrection(true)

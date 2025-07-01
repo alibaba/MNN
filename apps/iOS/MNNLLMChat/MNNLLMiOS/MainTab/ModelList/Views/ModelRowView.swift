@@ -10,18 +10,22 @@ import SwiftUI
 struct ModelRowView: View {
     
     let model: ModelInfo
+    @ObservedObject var viewModel: ModelListViewModel
+    
     let downloadProgress: Double
     let isDownloading: Bool
     let isOtherDownloading: Bool
     let onDownload: () -> Void
     
+    
+    @State private var showDeleteAlert = false
+    
     var body: some View {
         HStack(alignment: .top) {
-            
             ModelIconView(modelId: model.modelId)
-                .frame(width: 50, height: 50)
+                .frame(width: 40, height: 40)
             
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 5) {
                 Text(model.name)
                     .font(.headline)
                     .fontWeight(.semibold)
@@ -40,33 +44,80 @@ struct ModelRowView: View {
                                 Text(tag)
                                     .fontWeight(.regular)
                                     .font(.caption)
-                                    .foregroundColor(Color(red: 151/255, green: 151/255, blue: 151/255))
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 4)
+                                    .foregroundColor(.gray)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 3)
                                     .background(
-                                        RoundedRectangle(cornerRadius: 10)
-                                            .stroke(Color(red: 151/255, green: 151/255, blue: 151/255), lineWidth: 0.5)
-                                            .padding(1)
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .stroke(Color.gray.opacity(0.5), lineWidth: 0.5)
                                     )
                             }
                         }
                     }
-                }
-                
-                if isDownloading {
-                    ProgressView(value: downloadProgress) {
-                        Text(String(format: "%.2f%%", downloadProgress * 100))
-                            .font(.system(size: 14, weight: .regular, design: .default))
-                    }
-                } else {
-                    Button(action: onDownload) {
-                        Label(model.isDownloaded ? "Chat" : "Download",
-                              systemImage: model.isDownloaded ? "message" : "arrow.down.circle")
-                        .font(.system(size: 14, weight: .medium, design: .default))
-                    }
-                    .disabled(isOtherDownloading)
+                    .frame(height: 25)
                 }
             }
+            
+            Spacer()
+            
+            VStack(alignment: .center, spacing: 4) {
+                if model.isDownloaded {
+                    Button(action: {
+                        showDeleteAlert = true
+                    }) {
+                        Image(systemName: "trash")
+                            .font(.title2)
+                            .foregroundColor(.primaryRed)
+                            .frame(width: 20, height: 20)
+                        
+                        Text("已下载")
+                            .font(.caption2)
+                            .foregroundColor(.gray)
+                            .padding(.top, 4)
+                    }
+                } else {
+                    if isDownloading {
+                        ProgressView(value: downloadProgress)
+                            .progressViewStyle(CircularProgressViewStyle())
+                            .frame(width: 28, height: 28)
+                        Text(String(format: "%.2f%%", downloadProgress * 100))
+                            .font(.caption2)
+                            .foregroundColor(.gray)
+                    } else {
+                        Button(action: onDownload) {
+                            Image(systemName: "arrow.down.circle.fill")
+                                .font(.title2)
+                            }
+                            .foregroundColor(isOtherDownloading ? .gray : .primaryPurple)
+                            .disabled(isOtherDownloading)
+                        
+                        HStack(alignment: .bottom, spacing: 2) {
+                            Image(systemName: "folder")
+                                .font(.caption2)
+//                            Text(model.formattedSize)
+                            Text("3.6 GB")
+                                .font(.caption2)
+                                .padding(.top, 4)
+                        }
+                        .foregroundColor(.gray)
+                    }
+                }
+            }
+            
+            .frame(width: 60)
+        }
+        .padding(.vertical, 8)
+        .alert(isPresented: $showDeleteAlert) {
+            Alert(
+                title: Text("确认删除"),
+                message: Text("是否确认删除该模型？"),
+                primaryButton: .destructive(Text("删除")) {
+                    Task {
+                        await viewModel.deleteModel(model)
+                    }
+                },
+                secondaryButton: .cancel(Text("取消"))
+            )
         }
     }
 }

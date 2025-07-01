@@ -13,6 +13,9 @@
     "3.4 GB" : {
 
     },
+    "3.6 GB" : {
+
+    },
     "Are you sure you want to delete this history?" : {
       "localizations" : {
         "zh-Hans" : {
@@ -50,6 +53,7 @@
       }
     },
     "Chat" : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -451,13 +455,28 @@
     "下载源:" : {
 
     },
+    "删除" : {
+
+    },
+    "取消" : {
+
+    },
     "取消置顶" : {
+
+    },
+    "已下载" : {
+
+    },
+    "是否确认删除该模型？" : {
 
     },
     "本地模型" : {
 
     },
     "模型市场" : {
+
+    },
+    "确认删除" : {
 
     },
     "置顶" : {
