@@ -10,8 +10,9 @@ import SwiftUI
 struct SettingsView: View {
     
     private var sourceManager = ModelSourceManager.shared
-    @State private var selectedLanguage = "简体中文"
+    @State private var selectedLanguage = LanguageManager.shared.currentLanguage
     @State private var selectedSource = ModelSourceManager.shared.selectedSource
+    @State private var showLanguageAlert = false
     
     private let languages = ["简体中文", "English"]
     
@@ -31,6 +32,11 @@ struct SettingsView: View {
                 Picker("语言", selection: $selectedLanguage) {
                     ForEach(languages, id: \.self) { language in
                         Text(language).tag(language)
+                    }
+                }
+                .onChange(of: selectedLanguage) { _, newValue in
+                    if newValue != LanguageManager.shared.currentLanguage {
+                        showLanguageAlert = true
                     }
                 }
             }
@@ -70,6 +76,18 @@ struct SettingsView: View {
         .listStyle(InsetGroupedListStyle())
         .navigationTitle("设置")
         .navigationBarTitleDisplayMode(.inline)
-        
+        .alert("切换语言", isPresented: $showLanguageAlert) {
+            Button("确定") {
+                LanguageManager.shared.applyLanguage(selectedLanguage)
+                // 重启应用以应用语言更改
+                exit(0)
+            }
+            Button("取消", role: .cancel) {
+                // 恢复原来的选择
+                selectedLanguage = LanguageManager.shared.currentLanguage
+            }
+        } message: {
+            Text("切换语言需要重启应用，是否继续？")
+        }
     }
 }
