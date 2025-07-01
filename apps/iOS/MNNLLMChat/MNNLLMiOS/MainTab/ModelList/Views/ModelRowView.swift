@@ -66,8 +66,8 @@ struct ModelRowView: View {
                         showDeleteAlert = true
                     }) {
                         Image(systemName: "trash")
-                            .font(.title2)
-                            .foregroundColor(.primaryRed)
+                            .fontWeight(.regular)
+                            .foregroundColor(.black.opacity(0.8))
                             .frame(width: 20, height: 20)
                         
                         Text("已下载")

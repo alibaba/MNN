@@ -14,6 +14,7 @@ struct SearchBar: View {
         HStack {
             Image(systemName: "magnifyingglass")
                 .foregroundColor(.gray)
+                .padding(.horizontal, 10)
             
             TextField("Search models...", text: $text)
                 .font(.system(size: 12, weight: .regular))
