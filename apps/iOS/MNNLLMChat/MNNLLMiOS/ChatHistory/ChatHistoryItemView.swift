@@ -11,33 +11,35 @@ struct ChatHistoryItemView: View {
     let history: ChatHistory
     
     var body: some View {
-        HStack(spacing: 12) {
+        VStack(alignment: .leading, spacing: 8) {
             
-            ModelIconView(modelId: history.modelId)
-                .frame(width: 36, height: 36)
-                .clipShape(Circle())
+            if let firstMessage = history.messages.last {
+                Text(String(firstMessage.content.prefix(200)))
+                    .lineLimit(1)
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundColor(.primary)
+            }
             
-            VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .bottom) {
                 
-                if let firstMessage = history.messages.last {
-                    Text(String(firstMessage.content.prefix(50)) + "...")
-                        .lineLimit(2)
-                        .font(.system(size: 14))
-                }
+                ModelIconView(modelId: history.modelId)
+                    .frame(width: 20, height: 20)
+                    .clipShape(Circle())
+                    .padding(.trailing, 0)
                 
-                HStack {
-                    VStack(alignment: .leading) {
-                        Text(history.modelName)
-                            .font(.system(size: 12))
-                            .foregroundColor(.gray)
-                        
-                        Text(history.updatedAt.formatAgo())
-                            .font(.system(size: 10))
-                            .foregroundColor(.gray)
-                    }
-                }
+                Text(history.modelName)
+                    .lineLimit(1)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.black.opacity(0.5))
+                
+                Spacer()
+                
+                Text(history.updatedAt.formatAgo())
+                    .font(.system(size: 12, weight: .regular))
+                    .foregroundColor(.black.opacity(0.5))
             }
         }
-        .padding(.vertical, 8)
+        .padding(.vertical, 10)
+        .padding(.horizontal, 0)
     }
 }

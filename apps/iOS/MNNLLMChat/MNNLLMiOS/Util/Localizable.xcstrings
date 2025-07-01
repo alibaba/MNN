@@ -179,6 +179,7 @@
       }
     },
     "Go to MNN Homepage" : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -307,6 +308,7 @@
       }
     },
     "Report an Issue" : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -452,10 +454,22 @@
         }
       }
     },
+    "下载源" : {
+
+    },
     "下载源:" : {
 
     },
+    "关于" : {
+
+    },
+    "关于 MNN" : {
+
+    },
     "删除" : {
+
+    },
+    "反馈问题" : {
 
     },
     "取消" : {
@@ -465,6 +479,9 @@
 
     },
     "已下载" : {
+
+    },
+    "应用" : {
 
     },
     "是否确认删除该模型？" : {
@@ -480,6 +497,12 @@
 
     },
     "置顶" : {
+
+    },
+    "设置" : {
+
+    },
+    "语言" : {
 
     }
   },
