@@ -15,6 +15,7 @@ struct MainTabView: View {
     @State private var showSettings = false
     @State private var showWebView = false
     @State private var webViewURL: URL?
+    @State private var navigateToSettings = false  // 新增状态变量
     @StateObject private var modelListViewModel = ModelListViewModel()
     @State private var selectedTab: Int = 0
     @State private var titles = ["本地模型", "模型市场", "Benchmark"]
@@ -42,7 +43,12 @@ struct MainTabView: View {
                         }
                         .tag(2)
                 }
-                .background(NavigationLink(destination: chatDestination, isActive: chatIsActiveBinding) { EmptyView() })
+                .background(
+                    ZStack {
+                        NavigationLink(destination: chatDestination, isActive: chatIsActiveBinding) { EmptyView() }
+                        NavigationLink(destination: SettingsView(), isActive: $navigateToSettings) { EmptyView() }
+                    }
+                )
                 .navigationTitle(titles[selectedTab])
                 .navigationBarTitleDisplayMode(.inline)
                 .navigationBarHidden(false)
@@ -62,34 +68,26 @@ struct MainTabView: View {
                                     .resizable()
                                     .aspectRatio(contentMode: .fit)
                                     .frame(width: 20, height: 20)
+                                    .foregroundColor(.black)
                             }
                         }
                     }
                     
                     ToolbarItem(placement: .navigationBarTrailing) {
-                        if selectedTab == 1 {
-                            Button(action: {
-                                showSettings.toggle()
-                            }) {
-                                Image(systemName: "gear")
-                                    .resizable()
-                                    .aspectRatio(contentMode: .fit)
-                                    .frame(width: 20, height: 20)
+                        Button(action: {
+                            if let url = URL(string: "https://github.com/alibaba/MNN") {
+                                UIApplication.shared.open(url)
                             }
-                        } else {
-                            Button(action: {
-                                if let url = URL(string: "https://github.com/alibaba/MNN") {
-                                    UIApplication.shared.open(url)
-                                }
-                            }) {
-                                Image(systemName: "star")
-                                    .aspectRatio(contentMode: .fit)
-                                    .frame(width: 20, height: 20)
-                            }
+                        }) {
+                            Image(systemName: "star")
+                                .aspectRatio(contentMode: .fit)
+                                .frame(width: 20, height: 20)
+                                .foregroundColor(.black)
                         }
                     }
                 }
             }
+            .tint(.black)
             
             if showHistory {
                 Color.black.opacity(0.5)
@@ -101,10 +99,13 @@ struct MainTabView: View {
                     }
             }
             
-            SideMenuView(isOpen: $showHistory, selectedHistory: $selectedHistory, histories: $histories)
-                .edgesIgnoringSafeArea(.all)
+            SideMenuView(isOpen: $showHistory, 
+                        selectedHistory: $selectedHistory, 
+                        histories: $histories,
+                        navigateToMainSettings: $navigateToSettings)
+                        .edgesIgnoringSafeArea(.all)
         }
-        .onChange(of: showHistory) { newValue in
+        .onChange(of: showHistory) { oldValue, newValue in
             if !newValue {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                     withAnimation {
@@ -117,28 +118,6 @@ struct MainTabView: View {
             if let url = webViewURL {
                 WebView(url: url)
             }
-        }
-        .actionSheet(isPresented: $showSettings) {
-            ActionSheet(title: Text("Settings"), buttons: [
-                .default(Text("Report an Issue")) {
-                    webViewURL = URL(string: "https://github.com/alibaba/MNN/issues")
-                    showWebView = true
-                },
-                .default(Text("Go to MNN Homepage")) {
-                    webViewURL = URL(string: "https://github.com/alibaba/MNN")
-                    showWebView = true
-                },
-                .default(Text(ModelSource.modelScope.description)) {
-                    ModelSourceManager.shared.updateSelectedSource(.modelScope)
-                },
-                .default(Text(ModelSource.modeler.description)) {
-                    ModelSourceManager.shared.updateSelectedSource(.modeler)
-                },
-                .default(Text(ModelSource.huggingFace.description)) {
-                    ModelSourceManager.shared.updateSelectedSource(.huggingFace)
-                },
-                .cancel()
-            ])
         }
     }
 
@@ -179,7 +158,7 @@ struct MainTabView: View {
         let appearance = UINavigationBarAppearance()
         appearance.configureWithOpaqueBackground()
         appearance.backgroundColor = .white
-        appearance.shadowColor = .clear // Optional: remove the shadow
+        appearance.shadowColor = .clear
         
         UINavigationBar.appearance().standardAppearance = appearance
         UINavigationBar.appearance().compactAppearance = appearance
