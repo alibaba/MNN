@@ -44,8 +44,7 @@ struct ModelListView: View {
                     }
                     Spacer()
                 }
-                .frame(maxWidth: .infinity, maxHeight: 44)
-//                .background(showOptions ? Color.gray.opacity(0.05) : Color.white)
+                .frame(maxWidth: .infinity, maxHeight: 20)
                 .background(
                    GeometryReader { geometry in
                        Color.white.onAppear {
@@ -75,10 +74,11 @@ struct ModelListView: View {
                                 }
                             }
                         }
-                         .listRowBackground(viewModel.pinnedModelIds.contains(model.modelId) ? Color.black.opacity(0.05) : Color.clear)
-                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                             SwipeActionsView(model: model, viewModel: viewModel)
-                         }
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(viewModel.pinnedModelIds.contains(model.modelId) ? Color.black.opacity(0.05) : Color.clear)
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            SwipeActionsView(model: model, viewModel: viewModel)
+                        }
                     }
                 }
                 .listStyle(.plain)
@@ -113,6 +113,8 @@ struct ModelListView: View {
                         dismissButton: .default(Text("OK"))
                     )
                 }
+                
+                Spacer()
             }
             
             if showOptions {

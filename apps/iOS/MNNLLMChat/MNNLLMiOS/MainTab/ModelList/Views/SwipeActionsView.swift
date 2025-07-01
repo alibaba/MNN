@@ -24,7 +24,7 @@ struct SwipeActionsView: View {
                 viewModel.pinModel(model)
             } label: {
                 Label("置顶", systemImage: "pin")
-            }.tint(.yellow)
+            }.tint(.primaryBlue)
         }
         if model.isDownloaded {
             Button(role: .destructive) {
@@ -32,8 +32,9 @@ struct SwipeActionsView: View {
                     await viewModel.deleteModel(model)
                 }
             } label: {
-                Label("Delete", systemImage: "trash")
+                Label("删除", systemImage: "trash")
             }
+            .tint(.primaryRed)
         }
     }
 } 
