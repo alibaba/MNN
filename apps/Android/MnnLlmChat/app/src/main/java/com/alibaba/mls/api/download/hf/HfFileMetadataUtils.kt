@@ -43,14 +43,22 @@ object HfFileMetadataUtils {
 
         try {
             client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful && response.code != 302) {
+                val isRedirect = response.code in 301..308
+                if (!response.isSuccessful && !isRedirect) {
                     throw FileDownloadException("Failed to fetch metadata status " + response.code)
                 }
                 metadata.location = url
-                if (response.code == 302) {
+                if (isRedirect) {
                     val location = response.header("Location")
                     if (location != null) {
-                        metadata.location = location
+                        // Handle relative URLs in redirect Location header
+                        metadata.location = if (location.startsWith("/")) {
+                            // Extract the base URL (scheme + host + port) from the original URL
+                            val originalUrl = response.request.url
+                            "${originalUrl.scheme}://${originalUrl.host}${if (originalUrl.port != 80 && originalUrl.port != 443) ":${originalUrl.port}" else ""}$location"
+                        } else {
+                            location
+                        }
                     }
                 }
 

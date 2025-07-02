@@ -54,6 +54,11 @@
 
 # Releases
 
+## Version 0.5.1.2
++ 点击这里  [下载](https://meta.alicdn.com/data/mnn/mnn_chat_0_5_1_2.apk)
++ 解决 huggingface 下载失败问题。
++ 解决未下载时候状态显示错误。
+
 ## Version 0.5.1.1
 + 点击这里  [下载](https://meta.alicdn.com/data/mnn/mnn_chat_0_5_1_1.apk)
 + 升级 MNN 引擎到 v3.2.0

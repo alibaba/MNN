@@ -187,7 +187,7 @@ class ModelDownloadManager private constructor(private val context: Context) {
                 downloadInfo.totalSize = totalSize
                 downloadInfo.savedSize = savedSize
                 downloadInfo.progress = savedSize.toDouble() / totalSize
-                downloadInfo.downlodaState = DownloadInfo.DownloadSate.PAUSED
+                downloadInfo.downlodaState = if (savedSize > 0) DownloadInfo.DownloadSate.PAUSED else DownloadInfo.DownloadSate.NOT_START
             } else {
                 downloadInfo.downlodaState = DownloadInfo.DownloadSate.NOT_START
                 downloadInfo.progress = 0.0
