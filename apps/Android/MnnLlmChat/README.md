@@ -59,6 +59,11 @@ This is our full multimodal language model (LLM) Android app
   ```
 
 # Releases
+## Version 0.5.1.2
++ Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_5_1_2.apk)
++ fix huggingface download error
++ fix showing wrong download state when not download start.
+
 ## Version 0.5.1.1
 + Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_5_1_1.apk)
 + Upgrade MNN engine to v3.2.0

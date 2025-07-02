@@ -51,7 +51,14 @@ object HfFileMetadataUtils {
                 if (isRedirect) {
                     val location = response.header("Location")
                     if (location != null) {
-                        metadata.location = location
+                        // Handle relative URLs in redirect Location header
+                        metadata.location = if (location.startsWith("/")) {
+                            // Extract the base URL (scheme + host + port) from the original URL
+                            val originalUrl = response.request.url
+                            "${originalUrl.scheme}://${originalUrl.host}${if (originalUrl.port != 80 && originalUrl.port != 443) ":${originalUrl.port}" else ""}$location"
+                        } else {
+                            location
+                        }
                     }
                 }
 
