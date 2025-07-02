@@ -8,13 +8,17 @@
 
 #include <fstream>
 #include <iostream>
+#include <memory>
 #include <sstream>
 #include <unordered_set>
 
 #include <MNN/AutoTime.hpp>
 #include <MNN/expr/ExecutorScope.hpp>
+#include "MNN/Interpreter.hpp"
+#include "MNN/MNNDefine.h"
 #include "cpp/ExprDebug.hpp"
 #include "llm/llm.hpp"
+
 #include "kvmeta.hpp"
 #include "llmconfig.hpp"
 #include "prompt.hpp"
@@ -23,9 +27,11 @@
 #include "sampler.hpp"
 #include "omni.hpp"
 #include "speculative_decoding/lookahead.hpp"
+#include "cpp/getLinearInput.hpp"
+
 // 0: no debug, 1: test op time, 2: print tensor info, 3: print tensor in output
 #define DEBUG_MODE 0
-//#define DEBUG_IMAGE
+
 
 namespace MNN {
 using namespace Express;
@@ -42,6 +48,9 @@ void KVMeta::sync() {
     remove = 0;
     add = 0;
 }
+
+
+
 
 static MNNForwardType backend_type_convert(const std::string& type_str) {
     if (type_str == "cpu")
@@ -152,6 +161,18 @@ void Llm::initRuntime() {
     mRuntimeManager->setMode(MNN::Interpreter::Session_Debug);
     _initDebug();
 #endif
+
+    if (mConfig->enable_threshold_callback()) {
+        mRuntimeManager->setMode(MNN::Interpreter::Session_Debug);
+        MNN::LinearInput::initGetThreshold(mConfig->thresholds_file(), mConfig->target_sparsity());
+    }
+
+    if (mConfig->enable_max_value_callback()) {
+        mRuntimeManager->setMode(MNN::Interpreter::Session_Debug);
+        MNN::LinearInput::initGetMaxValue(mConfig->max_values_file());
+    }
+
+
     if (config.type != 0) { // not cpu
         std::string cacheFilePath = tmpPath.length() != 0 ? tmpPath : ".";
         mRuntimeManager->setCache(cacheFilePath + "/mnn_cachefile.bin");
@@ -492,6 +513,10 @@ VARP Llm::forward(MNN::Express::VARP input_embeds) {
     mMeta->add          = seq_len;
     auto attention_mask = gen_attention_mask(seq_len);
     auto position_ids = gen_position_ids(seq_len);
+    
+    //debug
+    auto data_ptr = input_embeds->readMap<float>();
+
     auto logits = forwardRaw(input_embeds, attention_mask, position_ids);
     mContext->all_seq_len += seq_len;
     mContext->gen_seq_len++;
@@ -701,6 +726,8 @@ Llm::~Llm() {
                   opFlopsSummber / opSummer);
     }
 #endif
+
+
     mCurrentModules.clear();
     mDecodeModules.clear();
     mPrefillModules.clear();

@@ -48,6 +48,10 @@ struct ConvBufResource {
     int mNumQuantBit = 0;
     int mAlignK = 1;
     int mAlignN = 1;
+
+    // sparsity threshold
+    float mThreshold = 0.0f;
+
 };
 
 class ConvBufCommonExecution {

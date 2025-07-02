@@ -24,6 +24,7 @@ table Convolution2DCommon {
     pads:[int];
     outPads:[int];
     hasOutputShape:bool = false;
+    threshold:float = 0.0;
 }
 
 table Convolution3DCommon {

@@ -31,6 +31,7 @@ def main(args):
     for begin_loc in tqdm(range(0, seq_len, stride)):
         end_loc = min(begin_loc + context_length, seq_len)
         chunk_ids = input_ids[begin_loc:end_loc]
+        
         logits = model.forward(chunk_ids)
         npy_logits = copy.deepcopy(logits.read())
         logits = torch.from_numpy(npy_logits).squeeze(0)

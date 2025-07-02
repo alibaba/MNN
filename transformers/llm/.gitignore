@@ -5,3 +5,8 @@ datasets/*
 !datasets/visualization/
 datasets/visualization/data
 datasets/visualization/pic
+
+thresholds*.json
+max_val*.json
+
+Qwen2-0.5B-Instruct/

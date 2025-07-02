@@ -1,8 +1,20 @@
+#include "MNN/Interpreter.hpp"
+#include "MNN/MNNDefine.h"
+#include "MNN/Tensor.hpp"
+#include "MNN/expr/Executor.hpp"
+#include "MNN/expr/Expr.hpp"
+#include "MNN/expr/ExprCreator.hpp"
+#include "MNN/expr/MathOp.hpp"
+#include "MNN/expr/NeuralNetWorkOp.hpp"
+#include "TensorflowOp_generated.h"
 #include <cmath>
 #include <fstream>
+#include <memory>
 #include <sstream>
 #include <MNN/AutoTime.hpp>
 #include <MNN/expr/ExecutorScope.hpp>
+
+
 #define DUMP_NUM_DATA(type)                          \
     auto data = tensor->host<type>();                \
     for (int z = 0; z < outside; ++z) {              \
@@ -20,6 +32,7 @@
         }                                                              \
         outputOs << "\n";                                              \
     }
+
 
 static void dumpTensor2File(const MNN::Tensor* tensor, const char* file, std::ofstream& orderFile) {
     orderFile << file << std::endl;
@@ -129,7 +142,6 @@ static void _initDebug() {
     };
     MNN::Express::ExecutorScope::Current()->setCallBack(std::move(beforeCallBack), std::move(callBack));
 }
-
 
 struct TimeTraceInfo {
     std::map<std::string, std::map<std::string, std::vector<std::pair<float, float>>>> mTypes;

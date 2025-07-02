@@ -11,7 +11,11 @@
 #include <MNN/expr/ExprCreator.hpp>
 #include <MNN/expr/Optimizer.hpp>
 #include <MNN/AutoTime.hpp>
+#include <cstdio>
 #include <vector>
+#include "CaffeOp_generated.h"
+#include "MNN/MNNDefine.h"
+#include "MNN/MNNForwardType.h"
 #include "MNNTestSuite.h"
 #include "MNN_generated.h"
 #include "CommonOpCreator.hpp"
@@ -170,7 +174,7 @@ if (NHWC == shape->order) {
 }
 VARP _Conv(std::vector<float>&& weight, std::vector<float>&& bias, VARP x, INTS channel, INTS kernelSize,
            PaddingMode pad = VALID, INTS stride = {1, 1}, INTS dilate = {1, 1}, int group = 1, INTS pads = {0, 0},
-           bool relu = false, bool relu6 = false, MNN::SparseAlgo sparseAlgo = MNN::SparseAlgo_RANDOM, int sparseBlockOC = 1, bool sparese = false) {
+           bool relu = false, bool relu6 = false, MNN::SparseAlgo sparseAlgo = MNN::SparseAlgo_RANDOM, int sparseBlockOC = 1, bool sparese = false, float threshold = 0.0f) {
     std::unique_ptr<OpT> convOp(new OpT);
     convOp->type = OpType_Convolution;
     if (channel[0] == channel[1] && channel[0] == group) {
@@ -198,6 +202,7 @@ VARP _Conv(std::vector<float>&& weight, std::vector<float>&& bias, VARP x, INTS 
     conv2D->common->kernelY     = kernelSize[1];
     conv2D->common->relu6 = relu6;
     conv2D->common->relu = relu;
+    conv2D->common->threshold = threshold;
     MNN_ASSERT(weight.size() == channel[1] * (channel[0] / group) * kernelSize[0] * kernelSize[1]);
     conv2D->weight = std::move(weight);
     MNN_ASSERT(bias.size() == channel[1]);
@@ -370,28 +375,28 @@ public:
         auto input = _Input({batch, ic, ih, iw}, NCHW, halide_type_of<float>());
         ::memcpy(input->writeMap<float>(), inputData.data(), inputData.size() * sizeof(float));
          // Multi Conv
-         if (group == 1 || (group == ic && ic == oc)) {
-             VARP weightVar;
-             if (group == 1) {
-                 weightVar = _Const(weightData.data(), {oc, ic, kh, kw}, NCHW, halide_type_of<float>());
-             } else {
-                 weightVar = _Const(weightData.data(), {oc, ic / group, kh, kw}, NCHW, halide_type_of<float>());
-             }
-             auto biasVar = _Const(biasData.data(), {oc}, NCHW, halide_type_of<float>());
-             auto out     = _Conv(weightVar, biasVar, _Convert(input, NC4HW4), padMap[mode], {stride, stride}, {dilation, dilation}, group,
-                              {pad_w, pad_h}, sparseAlgo, sparseBlockOC, mSparse);
-             out = _Convert(out, NCHW);
-             auto outputPtr = out->readMap<float>();
-             if (!checkVectorByRelativeError<float>(outputPtr, outputData.data(), outputData.size(), 0.05)) {
-                 MNN_PRINT("multi expect:\t real:\n");
-                 for (int i = 0; i < outputData.size(); ++i)
-                 {
-                     MNN_PRINT("%f\t, %f\n", outputData[i], outputPtr[i]);
-                 }
-                 MNN_ERROR("%s(%s) multi test failed!\n", test_op_name.c_str(), device_name.c_str());
-                 return false;
-             }
-         }
+        // if (group == 1 || (group == ic && ic == oc)) {
+        //     VARP weightVar;
+        //     if (group == 1) {
+        //         weightVar = _Const(weightData.data(), {oc, ic, kh, kw}, NCHW, halide_type_of<float>());
+        //     } else {
+        //         weightVar = _Const(weightData.data(), {oc, ic / group, kh, kw}, NCHW, halide_type_of<float>());
+        //     }
+        //     auto biasVar = _Const(biasData.data(), {oc}, NCHW, halide_type_of<float>());
+        //     auto out     = _Conv(weightVar, biasVar, _Convert(input, NC4HW4), padMap[mode], {stride, stride}, {dilation, dilation}, group,
+        //                      {pad_w, pad_h}, sparseAlgo, sparseBlockOC, mSparse);
+        //     out = _Convert(out, NCHW);
+        //     auto outputPtr = out->readMap<float>();
+        //     if (!checkVectorByRelativeError<float>(outputPtr, outputData.data(), outputData.size(), 0.05)) {
+        //         MNN_PRINT("multi expect:\t real:\n");
+        //         for (int i = 0; i < outputData.size(); ++i)
+        //         {
+        //             MNN_PRINT("%f\t, %f\n", outputData[i], outputPtr[i]);
+        //         }
+        //         MNN_ERROR("%s(%s) multi test failed!\n", test_op_name.c_str(), device_name.c_str());
+        //         return false;
+        //     }
+        // }
         // Single Conv
         std::vector<std::pair<bool, bool>> activations = {
             {false, false},
@@ -442,15 +447,15 @@ public:
 
             // when using low precision, im2col or strassen convolution error rate to reference value is about 1e-4, winograd has larger error rate.
 
-            if (!checkVectorByRelativeError<float>(outputPtr, toutputData.data(), toutputBias.data(), toutputData.size(), 0.001 * errorScale)) {
-                MNN_PRINT("precision:%d, expect:\t expect2:\t real:\t\n", precision);
-                for (int i = 0; i < toutputData.size(); ++i)
-                {
-                    MNN_PRINT("%f\t, %f\t, %f\n", toutputData[i],toutputBias[i], outputPtr[i]);
-                }
-                MNN_ERROR("%s(%s) test failed!\n", test_op_name.c_str(), device_name.c_str());
-                return false;
-            }
+           if (!checkVectorByRelativeError<float>(outputPtr, toutputData.data(), toutputBias.data(), toutputData.size(), 0.001 * errorScale)) {
+               MNN_PRINT("precision:%d, expect:\t expect2:\t real:\t\n", precision);
+               for (int i = 0; i < toutputData.size(); ++i)
+               {
+                   MNN_PRINT("%f\t, %f\t, %f\n", toutputData[i],toutputBias[i], outputPtr[i]);
+               }
+               MNN_ERROR("%s(%s) test failed!\n", test_op_name.c_str(), device_name.c_str());
+               return false;
+           }
         }
         return true;
     }
@@ -525,7 +530,7 @@ public:
 
     bool testUnit(MNNForwardType type, const std::string& device_name, const std::string& test_op_name, int batch,
                      int ic, int oc, int ih, int iw, PadMode mode, int pad_h, int pad_w, int kh, int kw, int stride,
-                  int dilation, int group, int precision, MNN::SparseAlgo sparseAlgo = MNN::SparseAlgo_RANDOM, int sparseBlockOC = 1, bool debug = false, int nbit = 8, bool async = false) {
+                  int dilation, int group, int precision, MNN::SparseAlgo sparseAlgo = MNN::SparseAlgo_RANDOM, int sparseBlockOC = 1, bool debug = false, int nbit = 4, bool async = false) {
         using namespace MNN::Express;
         std::map<PadMode, Express::PaddingMode> padMap = {
             {PadMode_CAFFE, CAFFE}, {PadMode_VALID, VALID}, {PadMode_SAME, SAME}};
@@ -846,7 +851,7 @@ class ConvolutionInt8Test : public DenseConvolutionInt8Test {
 public:
     ~ConvolutionInt8Test() = default;
     virtual bool run(int precision) {
-        return DenseConvolutionInt8Test::test(MNN_FORWARD_CPU, "CPU", precision, MNN::SparseAlgo_RANDOM, {1});
+        return DenseConvolutionInt8Test::test(MNN_FORWARD_OPENCL, "OpenCL", precision, MNN::SparseAlgo_RANDOM, {1});
     }
 };
 
@@ -979,9 +984,827 @@ public:
     }
 };
 
+class Conv1x1OpenCLTest : public ConvolutionCommonTest {
+public:
+    virtual bool run(int precision) {
+        // 专门测试1x1卷积的参数组合
+        return test(MNN_FORWARD_OPENCL, "OpenCL", "Conv1x1", 
+                   1,    // batch = 1
+                   4096,   // ic = 64 (能被4整除)
+                   4096,  // oc = 128 (能被4整除)  
+                   1,   // ih = 56
+                   1,   // iw = 56
+                   PadMode_VALID, // 填充模式
+                   0, 0, // pad_h, pad_w = 0
+                   1, 1, // kh, kw = 1 (关键：1x1卷积)
+                   1,    // stride = 1
+                   1,    // dilation = 1
+                   1,    // group = 1
+                   precision);
+    }
+};
+
+class Conv1x1SparseOpenCLTest : public ConvolutionCommonTest{
+public:
+
+    bool test(MNNForwardType type, const std::string& device_name, const std::string& test_op_name, int batch,
+                        int ic, int oc, int ih, int iw, PadMode mode, int pad_h, int pad_w, int kh, int kw, int stride,
+                        int dilation, int group, int precision, MNN::SparseAlgo sparseAlgo = MNN::SparseAlgo_RANDOM, int sparseBlockOC = 1, bool debug = false, bool testRelu = false){
+        using namespace MNN::Express;
+        std::map<PadMode, Express::PaddingMode> padMap = {
+            {PadMode_CAFFE, CAFFE}, {PadMode_VALID, VALID}, {PadMode_SAME, SAME}};
+        std::vector<float> weightData, biasData;
+
+        generateWeight(weightData, ic, oc, kh, kw, dilation, group, sparseBlockOC);
+
+        for (int i = 0; i < oc; i++) {
+            auto data      = (((i / kw) % 1317) * ((i / kh) % 1317) + i / ic + i / oc + (oc - i) * ic + i * (oc - i)) % 1317;
+            auto floatData = (float)(data % 255) / 255.0f;
+            data           = data * data;
+            biasData.push_back(floatData);
+            //biasData.push_back(0.0f);
+        }
+
+        std::vector<float> referenceData, inputData, outputData, outputDataSeparateBias;
+        for (int i = 0; i < ih * iw * ic * batch; ++i) {
+            float floatData = 0.0f;
+            if (i >= ih * iw * ic * batch / 2)
+            {
+                floatData = (float)i;
+            }
+            referenceData.push_back(floatData);
+            inputData.push_back(float(i));
+        }
+        //打乱数据
+        std::vector<int> indices(referenceData.size());
+        for (int i = 0; i < indices.size(); ++i) indices[i] = i;
+
+        std::random_device rd;
+        std::mt19937 g(rd());
+        std::shuffle(indices.begin(), indices.end(), g);
+        std::vector<float> referenceDataShuffled, inputDataShuffled;
+        for (int i = 0; i < indices.size(); ++i) {
+            referenceDataShuffled.push_back(referenceData[indices[i]]);
+            inputDataShuffled.push_back(inputData[indices[i]]);
+        }
+        referenceData = referenceDataShuffled;
+        inputData = inputDataShuffled;
+        float threshold = ih * iw * ic * batch / 2;
+        reference_conv2d(referenceData, weightData, biasData, outputData, outputDataSeparateBias, batch, ic, oc, ih, iw, mode, pad_h, pad_w, kh, kw,
+                         stride, dilation, group, FP32Converter[precision]);
+        if (outputData.size() == 0) {
+            return true;
+        }
+        auto input = _Input({batch, ic, ih, iw}, NCHW, halide_type_of<float>());
+        ::memcpy(input->writeMap<float>(), inputData.data(), inputData.size() * sizeof(float));
+
+        std::vector<std::pair<bool, bool>> activations = {
+            {false, false},
+        };
+
+        if (testRelu) {
+            activations = {
+                {false, false},
+                {true, false},
+                {false, true}
+            };
+        }
+        float errorScale = precision <= MNN::BackendConfig::Precision_High ? 1 : 100; // winograd error in 16-bits is relatively large
+        for (auto activation : activations) {
+            auto newWeight = weightData;
+            auto newBias = biasData;
+            auto toutputData = outputData;
+            auto toutputBias = outputDataSeparateBias;
+            float maxV = -10000.0f;
+            float minV = 10000.0f;
+            if (activation.first) {
+                for (auto& t : toutputData) {
+                    maxV = ALIMAX(maxV, t);
+                    minV = ALIMIN(minV, t);
+                    t = ALIMAX(0.0f, t);
+                }
+                for (auto& t : toutputBias) {
+                    maxV = ALIMAX(maxV, t);
+                    minV = ALIMIN(minV, t);
+                    t = ALIMAX(0.0f, t);
+                }
+            }
+            if (activation.second) {
+                for (auto& t : toutputData) {
+                    t = ALIMAX(0.0f, t);
+                    t = ALIMIN(6.0f, t);
+                }
+                for (auto& t : toutputBias) {
+                    t = ALIMAX(0.0f, t);
+                    t = ALIMIN(6.0f, t);
+                }
+            }
+            
+            auto output = _Conv(std::move(newWeight), std::move(newBias), input, {ic, oc}, {kw, kh}, padMap[mode],
+                                {stride, stride}, {dilation, dilation}, group, {pad_w, pad_h}, activation.first, activation.second, sparseAlgo, sparseBlockOC, mSparse, threshold);
+
+            // difference below 0.5% relative error is considered correct.
+            auto outputPtr = output->readMap<float>();
+
+            // when using low precision, im2col or strassen convolution error rate to reference value is about 1e-4, winograd has larger error rate.
+
+            if (!checkVectorByRelativeError<float>(outputPtr, toutputData.data(), toutputBias.data(), toutputData.size(), 0.001 * errorScale)) {
+                MNN_PRINT("precision:%d, expect:\t expect2:\t real:\t\n", precision);
+                for (int i = 0; i < toutputData.size(); ++i)
+                {
+                    MNN_PRINT("%f\t, %f\t, %f\n", toutputData[i],toutputBias[i], outputPtr[i]);
+                }
+                MNN_ERROR("%s(%s) test failed!\n", test_op_name.c_str(), device_name.c_str());
+                return false;
+            }
+        }
+        return true;
+    }
+    virtual bool run(int precision) {
+        // 专门测试1x1卷积的参数组合
+        return test(MNN_FORWARD_OPENCL, "OpenCL", "Conv1x1", 
+                   1,    // batch = 1
+                   4096,   // ic = 64 (能被4整除)
+                   4096,  // oc = 128 (能被4整除)  
+                   1,   // ih = 56
+                   1,   // iw = 56
+                   PadMode_VALID, // 填充模式
+                   0, 0, // pad_h, pad_w = 0
+                   1, 1, // kh, kw = 1 (关键：1x1卷积)
+                   1,    // stride = 1
+                   1,    // dilation = 1
+                   1,    // group = 1
+                   precision);
+    }
+};
+
+class ConvolutionInt84GEMVSparseTest : public ConvolutionCommonTest {
+public:
+    virtual ~ConvolutionInt84GEMVSparseTest() = default;
+    virtual bool run(int precision) {
+        return testUnit(MNN_FORWARD_OPENCL, "OpenCL", "ConvInt81x1", 
+                        1, 
+                        4096, 
+                        4096 , 
+                        1, 
+                        1, 
+                        MNN::PadMode_VALID, 
+                        0, 0, 
+                        1, 1, 
+                        1, 
+                        1, 
+                        1,
+                        precision,
+                        MNN::SparseAlgo_RANDOM,
+                        1,
+                        false,
+                        4,
+                        false);
+    }
+private:
+
+std::tuple<std::vector<float>, std::vector<float>, float, float> generateHalfStructuredSparseData(
+    int ih, int iw, int ic, int batch, float rate = 1.0f) {
+    
+    std::vector<float> inputData;
+    int totalElements = ih * iw * ic * batch;
+    int groupSize = 4;
+    int numGroups = (totalElements + groupSize - 1) / groupSize;  // 向上取整
+
+    // 设置阈值范围
+    float sparseThreshold = 0.1f * rate;  // 稀疏值的上限
+    float denseMinValue = 0.2f * rate;    // 密集值的下限
+
+    inputData.reserve(totalElements);
+
+    // 预定义几种稀疏模式：4个位置中选2个为稀疏
+    std::vector<std::vector<int>> sparsePatterns = {
+        {0, 1},  // 前两个为稀疏
+        {0, 2},  // 第1和第3个为稀疏  
+        {0, 3},  // 第1和第4个为稀疏
+        {1, 2},  // 第2和第3个为稀疏
+        {1, 3},  // 第2和第4个为稀疏
+        {2, 3}   // 后两个为稀疏
+    };
+
+    std::random_device rd;
+    std::mt19937 g(rd());
+    std::uniform_int_distribution<int> patternDist(0, sparsePatterns.size() - 1);
+
+    // 为每个组生成数据
+    for (int groupIdx = 0; groupIdx < numGroups; ++groupIdx) {
+        // 随机选择一种稀疏模式
+        auto selectedPattern = sparsePatterns[patternDist(g)];
+        
+        // 标记哪些位置是稀疏的
+        std::vector<bool> isSparse(groupSize, false);
+        for (int sparsePos : selectedPattern) {
+            isSparse[sparsePos] = true;
+        }
+        
+        // 为这个组生成4个值
+        for (int elemInGroup = 0; elemInGroup < groupSize; ++elemInGroup) {
+            int globalIdx = groupIdx * groupSize + elemInGroup;
+            if (globalIdx >= totalElements) break;
+            
+            float value;
+            if (isSparse[elemInGroup]) {
+                // 稀疏位置：生成小于阈值的值
+                auto seed = globalIdx * 97 + elemInGroup * 193;
+                auto data = ((seed * 1103515245) + 12345) & 0x7fffffff;
+                data = data % 1000;
+                value = (float)(data % 500) / 5000.0f * rate;  // 范围：[0, sparseThreshold)
+            } else {
+                // 密集位置：生成大于阈值的值
+                auto seed = globalIdx * 73 + elemInGroup * 149;
+                auto data = ((seed * 1103515245) + 12345) & 0x7fffffff;
+                data = data % 1000;
+                value = denseMinValue + (float)(data % 800) / 1000.0f * rate;  // 范围：[denseMinValue, rate]
+            }
+            
+            inputData.push_back(value);
+        }
+    }
+
+    // 计算实际的稀疏阈值
+    float actualThreshold = (sparseThreshold + denseMinValue) / 2.0f;
+
+    // ====== 调试：打印前几组的inputData ======
+    printf("\n=== DEBUG: Half-Structured Sparse InputData ===\n");
+    printf("Rate: %.6f, SparseThreshold: %.6f, DenseMinValue: %.6f, ActualThreshold: %.6f\n", 
+           rate, sparseThreshold, denseMinValue, actualThreshold);
+    
+    int maxGroupsToPrint = std::min(20, numGroups);
+    for (int groupIdx = 0; groupIdx < maxGroupsToPrint; ++groupIdx) {
+        printf("Group %2d: ", groupIdx);
+        
+        int sparseCount = 0;
+        int denseCount = 0;
+        
+        for (int elemInGroup = 0; elemInGroup < groupSize; ++elemInGroup) {
+            int globalIdx = groupIdx * groupSize + elemInGroup;
+            if (globalIdx < inputData.size()) {
+                printf("%.6f ", inputData[globalIdx]);
+                if (inputData[globalIdx] < actualThreshold) {
+                    sparseCount++;
+                } else {
+                    denseCount++;
+                }
+            }
+        }
+        
+        printf("| Sparse: %d, Dense: %d %s\n", 
+               sparseCount, denseCount, 
+               (sparseCount == 2 && denseCount == 2) ? "✓" : "✗ ERROR!");
+    }
+
+    // 生成参考数据（小于阈值的置零）
+    std::vector<float> referenceData;
+    referenceData.reserve(inputData.size());
+
+    for (int i = 0; i < inputData.size(); ++i) {
+        if (inputData[i] < actualThreshold) {
+            referenceData.push_back(0.0f);
+        } else {
+            referenceData.push_back(inputData[i]);
+        }
+    }
+
+    // ====== 调试：验证参考数据的结构 ======
+    printf("\n=== DEBUG: Half-Structured ReferenceData Verification ===\n");
+    
+    int totalZeros = 0;
+    int totalNonZeros = 0;
+    int correctGroups = 0;
+    int incorrectGroups = 0;
+
+    for (int groupIdx = 0; groupIdx < maxGroupsToPrint; ++groupIdx) {
+        printf("Group %2d: ", groupIdx);
+        
+        int groupZeros = 0;
+        int groupNonZeros = 0;
+        
+        for (int elemInGroup = 0; elemInGroup < groupSize; ++elemInGroup) {
+            int globalIdx = groupIdx * groupSize + elemInGroup;
+            if (globalIdx < referenceData.size()) {
+                printf("%.6f ", referenceData[globalIdx]);
+                if (referenceData[globalIdx] == 0.0f) {
+                    groupZeros++;
+                    totalZeros++;
+                } else {
+                    groupNonZeros++;
+                    totalNonZeros++;
+                }
+            }
+        }
+        
+        bool isCorrect = (groupZeros == 2 && groupNonZeros == 2);
+        if (isCorrect) {
+            correctGroups++;
+        } else {
+            incorrectGroups++;
+        }
+        
+        printf("| Zeros: %d, NonZeros: %d %s\n", 
+               groupZeros, groupNonZeros, isCorrect ? "✓" : "✗ ERROR!");
+    }
+
+    // 验证整体统计
+    for (int i = maxGroupsToPrint * groupSize; i < referenceData.size(); i += groupSize) {
+        int groupZeros = 0;
+        for (int j = 0; j < groupSize && (i + j) < referenceData.size(); ++j) {
+            if (referenceData[i + j] == 0.0f) {
+                groupZeros++;
+                totalZeros++;
+            } else {
+                totalNonZeros++;
+            }
+        }
+        if (groupZeros == 2) {
+            correctGroups++;
+        } else {
+            incorrectGroups++;
+        }
+    }
+
+    float sparsityRatio = (float)totalZeros / referenceData.size();
+
+    printf("\n=== Half-Structured Sparse Summary ===\n");
+    printf("- Total elements: %d\n", (int)inputData.size());
+    printf("- Total groups (4-channel): %d\n", numGroups);
+    printf("- Correct groups (2 zeros + 2 non-zeros): %d\n", correctGroups);
+    printf("- Incorrect groups: %d\n", incorrectGroups);
+    printf("- Total zeros: %d\n", totalZeros);
+    printf("- Total non-zeros: %d\n", totalNonZeros);
+    printf("- Sparsity ratio: %.2f%% (should be ~50%%)\n", sparsityRatio * 100.0f);
+    printf("- Threshold used: %.6f\n", actualThreshold);
+    printf("- Success rate: %.2f%%\n", (float)correctGroups / numGroups * 100.0f);
+    printf("==========================================\n\n");
+    
+    return std::make_tuple(inputData, referenceData, sparsityRatio, actualThreshold);
+}
+    // 生成随机稀疏数据（中位数阈值）
+std::tuple<std::vector<float>, std::vector<float>, float, float> generateRandomSparseData(
+    int ih, int iw, int ic, int batch, float rate = 1.0f) {
+    
+    std::vector<float> inputData;
+    int totalElements = ih * iw * ic * batch;
+    
+    // 生成随机数据
+    for (int i = 0; i < totalElements; ++i) {
+        auto data = (i * 73) ^ ((i * 149) >> 3) ^ ((i * 251) << 2);  
+        data = ((data * 1103515245) + 12345) & 0x7fffffff;  
+        data = data % 1317;
+        data = (data * data) % 1317;
+        auto floatData = (float)(data % 255) / 255.0f * rate;
+        inputData.push_back(floatData);
+    }
+
+    // 计算中位数作为阈值
+    std::vector<float> sortedData = inputData;  
+    std::sort(sortedData.begin(), sortedData.end());  
+
+    float sparseThreshold;
+    int totalSize = sortedData.size();
+    if (totalSize % 2 == 0) {
+        sparseThreshold = (sortedData[totalSize/2 - 1] + sortedData[totalSize/2]) / 2.0f;
+    } else {
+        sparseThreshold = sortedData[totalSize/2];
+    }
+
+    // 生成参考数据（小于阈值的置零）
+    std::vector<float> referenceData;
+    referenceData.reserve(inputData.size());
+    for (int i = 0; i < inputData.size(); ++i) {
+        if (inputData[i] < sparseThreshold) {
+            referenceData.push_back(0.0f);  
+        } else {
+            referenceData.push_back(inputData[i]);  
+        }
+    }
+
+    // 计算稀疏率
+    int zeroCount = 0;
+    for (const auto& val : referenceData) {
+        if (val == 0.0f) zeroCount++;
+    }
+    float sparsityRatio = (float)zeroCount / referenceData.size();
+    
+    printf("Random Sparse Info:\n");
+    printf("- Total elements: %d\n", totalElements);
+    printf("- Sparsity ratio: %.2f%%\n", sparsityRatio * 100.0f);
+    printf("- Threshold used: %.6f\n", sparseThreshold);
+    
+    return std::make_tuple(inputData, referenceData, sparsityRatio, sparseThreshold);
+}
+
+// 生成结构化稀疏数据（4-channel组级稀疏，30%稀疏率）
+std::tuple<std::vector<float>, std::vector<float>, float, float> generateStructuredSparseData(
+    int ih, int iw, int ic, int batch, float rate = 1.0f, float targetSparsityRatio = 0.8f) {
+    
+    std::vector<float> inputData;
+    int totalElements = ih * iw * ic * batch;
+    int groupSize = 4;
+    int numGroups = (totalElements + groupSize - 1) / groupSize;  // 向上取整
+    int sparseGroups = (int)(numGroups * targetSparsityRatio);
+    int denseGroups = numGroups - sparseGroups;
+
+    // 设置阈值范围
+    float sparseThreshold = 0.1f * rate;  // 稀疏组的阈值
+    float denseMinValue = 0.2f * rate;    // 密集组的最小值
+
+    inputData.reserve(totalElements);
+
+    // 生成组的标记：0表示稀疏组，1表示密集组
+    std::vector<int> groupLabels;
+    groupLabels.reserve(numGroups);
+
+    // 先添加稀疏组标记
+    for (int i = 0; i < sparseGroups; ++i) {
+        groupLabels.push_back(0);
+    }
+    // 再添加密集组标记
+    for (int i = 0; i < denseGroups; ++i) {
+        groupLabels.push_back(1);
+    }
+
+    // 随机打乱组的分布
+    std::random_device rd;
+    std::mt19937 g(rd());
+    std::shuffle(groupLabels.begin(), groupLabels.end(), g);
+
+    // 为每个组生成数据
+    for (int groupIdx = 0; groupIdx < numGroups; ++groupIdx) {
+        bool isDenseGroup = (groupLabels[groupIdx] == 1);
+        
+        // 为这个组生成4个值
+        for (int elemInGroup = 0; elemInGroup < groupSize; ++elemInGroup) {
+            int globalIdx = groupIdx * groupSize + elemInGroup;
+            if (globalIdx >= totalElements) break;  // 处理最后一组可能不足4个元素的情况
+            
+            float value;
+            if (isDenseGroup) {
+                // 密集组：生成大于阈值的值
+                auto seed = globalIdx * 73 + elemInGroup * 149;
+                auto data = ((seed * 1103515245) + 12345) & 0x7fffffff;
+                data = data % 1000;
+                value = denseMinValue + (float)(data % 800) / 1000.0f * rate;  // 范围：[denseMinValue, rate]
+            } else {
+                // 稀疏组：生成小于阈值的值
+                auto seed = globalIdx * 97 + elemInGroup * 193;
+                auto data = ((seed * 1103515245) + 12345) & 0x7fffffff;
+                data = data % 1000;
+                value = (float)(data % 500) / 5000.0f * rate;  // 范围：[0, sparseThreshold)
+            }
+            
+            inputData.push_back(value);
+        }
+    }
+
+    // 计算实际的稀疏阈值（应该在稀疏值和密集值之间）
+    float actualThreshold = (sparseThreshold + denseMinValue) / 2.0f;
+
+    // ====== 添加调试代码：打印前几组的inputData ======
+    printf("\n=== DEBUG: InputData Structure Analysis ===\n");
+    printf("Rate: %.6f, SparseThreshold: %.6f, DenseMinValue: %.6f, ActualThreshold: %.6f\n", 
+           rate, sparseThreshold, denseMinValue, actualThreshold);
+    
+    int maxGroupsToPrint = std::min(20, numGroups);  // 打印前20组
+    for (int groupIdx = 0; groupIdx < maxGroupsToPrint; ++groupIdx) {
+        printf("Group %2d [%s]: ", groupIdx, (groupLabels[groupIdx] == 1) ? "Dense" : "Sparse");
+        
+        for (int elemInGroup = 0; elemInGroup < groupSize; ++elemInGroup) {
+            int globalIdx = groupIdx * groupSize + elemInGroup;
+            if (globalIdx < inputData.size()) {
+                printf("%.6f ", inputData[globalIdx]);
+            }
+        }
+        
+        // 检查这个组是否真的符合预期
+        bool shouldBeDense = (groupLabels[groupIdx] == 1);
+        bool actuallyAllAboveThreshold = true;
+        bool actuallyAllBelowThreshold = true;
+        
+        for (int elemInGroup = 0; elemInGroup < groupSize; ++elemInGroup) {
+            int globalIdx = groupIdx * groupSize + elemInGroup;
+            if (globalIdx < inputData.size()) {
+                if (inputData[globalIdx] < actualThreshold) {
+                    actuallyAllAboveThreshold = false;
+                } else {
+                    actuallyAllBelowThreshold = false;
+                }
+            }
+        }
+        
+        printf("| Expected: %s, Actual: %s\n", 
+               shouldBeDense ? "Dense" : "Sparse",
+               actuallyAllAboveThreshold ? "Dense" : (actuallyAllBelowThreshold ? "Sparse" : "MIXED!"));
+    }
+
+    // 生成参考数据（用于验证结构化稀疏性）
+    std::vector<float> referenceData;
+    referenceData.reserve(inputData.size());
+
+    for (int i = 0; i < inputData.size(); i += groupSize) {
+        // 检查这个组的第一个元素来决定整个组的处理方式
+        bool isGroupSparse = (inputData[i] < actualThreshold);
+        
+        // 整个组使用相同的处理方式
+        for (int j = 0; j < groupSize && (i + j) < inputData.size(); ++j) {
+            if (isGroupSparse) {
+                referenceData.push_back(0.0f);  // 稀疏组全部置零
+            } else {
+                referenceData.push_back(inputData[i + j]);  // 密集组保持原值
+            }
+        }
+    }
+
+    // ====== 添加调试代码：打印前几组的referenceData ======
+    printf("\n=== DEBUG: ReferenceData Structure Analysis ===\n");
+    for (int groupIdx = 0; groupIdx < maxGroupsToPrint; ++groupIdx) {
+        printf("Group %2d: ", groupIdx);
+        
+        bool isGroupAllZero = true;
+        bool isGroupAllNonZero = true;
+        
+        for (int elemInGroup = 0; elemInGroup < groupSize; ++elemInGroup) {
+            int globalIdx = groupIdx * groupSize + elemInGroup;
+            if (globalIdx < referenceData.size()) {
+                printf("%.6f ", referenceData[globalIdx]);
+                if (referenceData[globalIdx] == 0.0f) {
+                    isGroupAllNonZero = false;
+                } else {
+                    isGroupAllZero = false;
+                }
+            }
+        }
+        
+        printf("| %s\n", isGroupAllZero ? "SPARSE" : (isGroupAllNonZero ? "DENSE" : "MIXED!"));
+    }
+
+    // 验证结构化稀疏性
+    int zeroCount = 0;
+    int structuredGroups = 0;
+    bool isStructuredSparse = true;
+    int mixedGroups = 0;
+
+    for (int i = 0; i < referenceData.size(); i += groupSize) {
+        bool groupAllZero = true;
+        bool groupAllNonZero = true;
+        
+        for (int j = 0; j < groupSize && (i + j) < referenceData.size(); ++j) {
+            if (referenceData[i + j] == 0.0f) {
+                zeroCount++;
+                groupAllNonZero = false;
+            } else {
+                groupAllZero = false;
+            }
+        }
+        
+        // 检查是否满足结构化稀疏要求（全零或全非零）
+        if (!(groupAllZero || groupAllNonZero)) {
+            isStructuredSparse = false;
+            mixedGroups++;
+            if (mixedGroups <= 5) {  // 只打印前5个混合组
+                printf("WARNING: Group starting at index %d is not structured sparse!\n", i);
+            }
+        }
+        
+        if (groupAllZero) {
+            structuredGroups++;
+        }
+    }
+
+    float sparsityRatio = (float)zeroCount / referenceData.size();
+    float structuredSparsityRatio = (float)structuredGroups / ((referenceData.size() + groupSize - 1) / groupSize);
+
+    printf("\n=== Structured Sparse Summary ===\n");
+    printf("- Total elements: %d\n", (int)inputData.size());
+    printf("- Total groups (4-channel): %d\n", (int)((inputData.size() + 3) / 4));
+    printf("- Sparse groups: %d\n", structuredGroups);
+    printf("- Mixed groups (ERROR): %d\n", mixedGroups);
+    printf("- Element sparsity ratio: %.2f%%\n", sparsityRatio * 100.0f);
+    printf("- Group sparsity ratio: %.2f%%\n", structuredSparsityRatio * 100.0f);
+    printf("- Is structured sparse: %s\n", isStructuredSparse ? "Yes" : "No");
+    printf("- Threshold used: %.6f\n", actualThreshold);
+    printf("=====================================\n\n");
+    
+    return std::make_tuple(inputData, referenceData, sparsityRatio, actualThreshold);
+}
+
+
+public:
+    bool testUnit(MNNForwardType type, const std::string& device_name, const std::string& test_op_name, int batch,
+                     int ic, int oc, int ih, int iw, PadMode mode, int pad_h, int pad_w, int kh, int kw, int stride,
+                  int dilation, int group, int precision, MNN::SparseAlgo sparseAlgo = MNN::SparseAlgo_RANDOM, int sparseBlockOC = 1, bool debug = false, int nbit = 8, bool async = false) {
+        using namespace MNN::Express;
+        std::map<PadMode, Express::PaddingMode> padMap = {
+            {PadMode_CAFFE, CAFFE}, {PadMode_VALID, VALID}, {PadMode_SAME, SAME}};
+        std::vector<float> weightData, biasData;
+
+        generateWeight(weightData, ic, oc, kh, kw, dilation, group, sparseBlockOC);
+
+        for (int i = 0; i < oc; i++) {
+            auto data      = (((i / kw) % 1317) * ((i / kh) % 1317) + i / ic + i / oc + (oc - i) * ic + i * (oc - i)) % 1317;
+            auto floatData = (float)(data % 255) / 255.0f;
+            biasData.push_back(floatData);
+            //biasData.push_back(0.0f);
+        }
+
+        std::vector<float> inputData, outputData, outputDataSeparateBias;
+        float rate = 1.0f;
+        if (ih * iw * ic * batch > 10000) {
+            // Avoid exceed fp16 limit
+            rate = 0.001f;
+        }
+        bool useStructuredSparse = true;  // 设置为true使用结构化稀疏，false使用随机稀疏
+
+        std::vector<float> referenceData;
+        float sparsityRatio, sparseThreshold;
+
+        if (useStructuredSparse) {
+            // 使用结构化稀疏数据（30%稀疏率）
+            std::tie(inputData, referenceData, sparsityRatio, sparseThreshold) = 
+                generateHalfStructuredSparseData(ih, iw, ic, batch, rate);
+        } else {
+            // 使用随机稀疏数据（中位数阈值）
+            std::tie(inputData, referenceData, sparsityRatio, sparseThreshold) = 
+                generateRandomSparseData(ih, iw, ic, batch, rate);
+        }
+
+        // print referenceData
+        
+
+        float fac = 1.23;
+        int res = 10;
+        float tail = 0.2;
+        float threshold = (float)(1 << (nbit - 1)) - 1.0f;
+        float clampMin = -threshold;
+        if (async) {
+            clampMin = -threshold - 1;
+        }
+        int kernel_size = ic * kw * kh;
+        std::vector<int8_t> quantWeight(oc*ic*kw*kh);
+        std::vector<float> wScale;
+        if (nbit == 4) {
+            // 缩小权重范围，提高量化精度
+            for (auto& w : weightData) {
+                w *= 0.5f;  // 将权重范围从[-1,1]缩小到[-0.5,0.5]
+            }
+        }
+        
+        if (async) {
+
+            wScale.resize(2 * oc);
+            for (int k = 0; k < oc; ++k) {
+                int beginIndex = k * kernel_size;
+                auto minMax = findMinMax(weightData.data() + beginIndex, kernel_size);
+                auto minValue = minMax.first;
+                wScale[2*k] = minMax.first;
+                auto absMax = minMax.second - minMax.first;
+                wScale[2*k+1] = 0;
+                
+                float quantscale = 1.0f;
+                if (absMax >= 0.000001f) {
+                    wScale[2 * k + 1] = absMax / (threshold - clampMin);
+                    quantscale = 1.0f / wScale[2*k+1];
+                    
+                }
+                float* ptr = weightData.data() + beginIndex;
+                for (int i = 0; i < kernel_size; ++i) {
+                    int8_t quantValue = int8_t(std::round((ptr[i] - minValue) * quantscale + clampMin));
+                    float floatValue = ((float)quantValue - clampMin) * wScale[2*k+1] + minValue;
+                    quantWeight[k * kernel_size + i] = quantValue;
+                    ptr[i] = floatValue;
+                }
+            }
+        } else {
+            wScale.resize(oc);
+            for (int k = 0; k < oc; ++k) {
+                int beginIndex = k * kernel_size;
+                auto absMax = findAbsMax(weightData.data() + beginIndex, kernel_size);
+                wScale[k] = absMax / threshold;
+
+                float* ptr = weightData.data() + beginIndex;
+                for (int i = 0; i < kernel_size; ++i) {
+                    int8_t quantVal = (int8_t)(fmax(fmin(round(ptr[i] / wScale[k]), threshold), clampMin));
+                    quantWeight[k * kernel_size + i] = quantVal;
+                    ptr[i] = (float)quantVal * wScale[k];
+                }
+            }
+        }
+        reference_conv2d(referenceData, weightData, biasData, outputData, outputDataSeparateBias, batch, ic, oc, ih, iw, mode, pad_h, pad_w, kh, kw, stride, dilation, group, FP32Converter[precision]);
+        if (outputData.size() == 0) {
+            return true;
+        }
+
+        auto input = _Input({batch, ic, ih, iw}, NCHW, halide_type_of<float>());
+        ::memcpy(input->writeMap<float>(), referenceData.data(), inputData.size() * sizeof(float));
+        // Single Conv
+        //for (int i = 0; i < inputData.size(); ++i){
+        //    printf("%f ", input->readMap<float>()[i]);
+        //}
+
+        auto weightLength = weightData.size();
+        float errorScale = 1.0f;
+        if (nbit == 4 && weightLength > 10000) {
+            errorScale = 500.0f;
+        }
+        int memory = MNNTestSuite::get()->pStaus.memory;
+        if (precision > MNN::BackendConfig::Precision_High || memory > MNN::BackendConfig::Memory_High) {
+            errorScale = 100.0f;
+        }
+        std::vector<std::pair<bool, bool>> activations = {
+            {false, false}
+        };
+        for (auto& activation : activations) {
+            auto output     = _HybridConv(weightData, biasData, wScale, input,
+                                            {ic, oc}, {kw, kh}, padMap[mode],  {stride, stride}, {dilation, dilation}, group, {pad_w, pad_h}, activation.first, activation.second, nbit, async, sparseThreshold);
+            auto toutputData = outputData;
+            float maxV = -10000.0f;
+            float minV = 10000.0f;
+            if (activation.first) {
+                for (auto& t : toutputData) {
+                    maxV = ALIMAX(maxV, t);
+                    minV = ALIMIN(minV, t);
+                    t = ALIMAX(0.0f, t);
+                }
+    //                MNN_PRINT("Max: %f -> Min:%f\n", maxV, minV);
+            }
+            if (activation.second) {
+                for (auto& t : toutputData) {
+                    t = ALIMAX(0.0f, t);
+                    t = ALIMIN(6.0f, t);
+                }
+            }
+
+            // difference below 0.5% relative error is considered correct.
+            output = _Convert(output, NCHW);
+            auto outputPtr = output->readMap<float>();
+            // when using low precision, im2col or strassen convolution error rate to reference value is about 1e-4, winograd has larger error rate.
+
+            //if (!checkVectorByRelativeError<float>(outputPtr, toutputData.data(), toutputData.data(), toutputData.size(), 0.001 * errorScale)) {
+            //    MNN_PRINT("precision:%d, memory:%d\n", precision, memory);
+            //    MNN_PRINT("expect:\t real:\t\n");
+            //    for (int i = 0; i < toutputData.size(); ++i)
+            //    {
+            //        MNN_PRINT("%f, %f\n", toutputData[i], outputPtr[i]);
+            //    }
+            //    MNN_PRINT("output shape: n=%d c=%d h=%d w=%d\n", output->getInfo()->dim[0], output->getInfo()->dim[1], output->getInfo()->dim[2], output->getInfo()->dim[3]);
+            //    MNN_ERROR("%s(%s) test failed for %d bits, async=%d , relu: %d, relu6: %d!\n", test_op_name.c_str(), device_name.c_str(), nbit, async, activation.first, activation.second);
+            //    return false;
+            //}
+        }
+        return true;
+    }
+    /*
+    // 批量测试不同配置
+    bool testGEMVBatch(MNNForwardType type, const std::string& device_name) {
+        // 针对GEMV优化的测试用例
+        std::vector<std::tuple<int,int,int,int,int>> test_cases = {
+            // batch, ic, oc, ih, iw
+            {1, 32, 64, 56, 56},     // 小尺寸
+            {1, 64, 128, 28, 28},    // 中等尺寸  
+            {1, 128, 256, 14, 14},   // 大尺寸
+            {1, 256, 512, 7, 7},     // 高通道数
+            {2, 64, 128, 32, 32},    // 多batch
+        };
+        
+        for (auto& test_case : test_cases) {
+            int batch, ic, oc, ih, iw;
+            std::tie(batch, ic, oc, ih, iw) = test_case;
+            
+            // 测试8bit同步和异步
+            if (!testGEMV(type, device_name, batch, ic, oc, ih, iw, 8, false)) {
+                MNN_ERROR("GEMV test failed: 8bit sync, batch=%d, ic=%d, oc=%d\n", batch, ic, oc);
+                return false;
+            }
+            
+            if (!testGEMV(type, device_name, batch, ic, oc, ih, iw, 8, true)) {
+                MNN_ERROR("GEMV test failed: 8bit async, batch=%d, ic=%d, oc=%d\n", batch, ic, oc);
+                return false;
+            }
+            
+            // 可选：测试4bit
+            // if (!testGEMV(type, device_name, batch, ic, oc, ih, iw, 4, false)) {
+            //     MNN_ERROR("GEMV test failed: 4bit sync, batch=%d, ic=%d, oc=%d\n", batch, ic, oc);
+            //     return false;
+            // }
+        }
+        
+        return true;
+    }
+    */
+};
+
+    
+
 MNNTestSuiteRegister(ConvolutionTestOnCPU, "op/convolution/conv2d");
 MNNTestSuiteRegister(ConvolutionInt8Test, "op/convolution/weighti8i4conv2d");
 MNNTestSuiteRegister(ConvolutionSpeedTestOnCPU, "speed/convolution/conv2d");
 MNNTestSuiteRegister(SparseConvolutionTestOnCPU, "op/convolution/sparse_conv2d");
 MNNTestSuiteRegister(DepthwiseConvolutionTest, "op/convolution/depthwise_conv");
 MNNTestSuiteRegister(GroupConvolutionTestOnCPU, "op/convolution/conv_group");
+MNNTestSuiteRegister(Conv1x1OpenCLTest, "op/convolution/conv1x1_opencl");
+MNNTestSuiteRegister(Conv1x1SparseOpenCLTest, "op/convolution/conv1x1_sparse_opencl");
+MNNTestSuiteRegister(ConvolutionInt84GEMVSparseTest, "op/convolution/conv1x1i8i4_sparse_opencl");

@@ -81,6 +81,12 @@ def build_deps():
     os.makedirs(cmake_build_dir)
     os.chdir(cmake_build_dir)
     extra_opts = '-DMNN_LOW_MEMORY=ON'
+
+    cmake_args = os.environ.get('CMAKE_ARGS', '')
+    if cmake_args:
+        extra_opts += ' ' + cmake_args
+        print(f"Adding CMAKE_ARGS: {cmake_args}")
+
     if USE_RENDER:
         extra_opts += ' -DMNN_SUPPORT_RENDER=ON'
     if USE_VULKAN:

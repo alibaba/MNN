@@ -507,7 +507,8 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
         std::vector<int> ocC4ParralSize(threadNumber + 1);
         ocC4ParralSize[0] = 0;
         static_cast<CPUBackend *>(backend())->computeDivideSizes(oC4, ocC4ParralSize.data()+1);
-        mFunction.second = [=](int placeholder) {
+        mFunction.second = [=](int placeholder)
+        {
         const float* biasPtr = bias ? bias->host<float>() : nullptr;
         auto gemmBuffer = mTempBufferTranspose.host<uint8_t>() + mTempBufferTranspose.stride(0) * 0;
         auto srcPtr     = (float const **)(tempPtr.ptr() + 0 * kernelSize * maxLine * (4 * sizeof(int32_t) + sizeof(float *)));
@@ -640,6 +641,10 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
         static_cast<CPUBackend *>(backend())->computeDivideSizes(tileCount, divides.data() + 1);
 
         mFunction.second       = [=](int tId) {
+
+
+            //input->print();
+
             const float* biasPtr = bias ? bias->host<float>() : nullptr;
             auto gemmBuffer = mTempBufferTranspose.host<uint8_t>() + mTempBufferTranspose.stride(0) * tId;
             auto srcPtr     = (float const **)(tempPtr.ptr() + tId * kernelSize * maxLine * (4 * sizeof(int32_t) + sizeof(float *)));

@@ -1190,26 +1190,35 @@ ErrorCode Pipeline::execute() {
         auto& buffer = info.executeBuffer;
         for (int cmdIndex=0; cmdIndex<buffer.command.size(); ++cmdIndex) {
             auto& cmd = *buffer.command[cmdIndex];
-#ifdef MNN_PIPELINE_DEBUG
-            if (info.op->name() != nullptr) {
-                std::string groupOfInput = "input group: [";
-                for (int v=0; v<cmd.workInputs.size(); ++v) {
-                    groupOfInput = groupOfInput + " " + std::to_string(TensorUtils::getDescribe(cmd.workInputs[v])->group) + " ";
-                }
-                groupOfInput += "]";
-                std::string deviceOfInput = "input: [";
-                for (int v=0; v<cmd.workInputs.size(); ++v) {
-                    deviceOfInput = deviceOfInput + " " + std::to_string(cmd.workInputs[v]->deviceId()) + " ";
-                }
-                deviceOfInput += "]";
-                std::string deviceOfOutput = "output: [";
-                for (int v=0; v<cmd.workOutputs.size(); ++v) {
-                    deviceOfOutput = deviceOfOutput + " " + std::to_string(cmd.workOutputs[v]->deviceId()) + " ";
-                }
-                deviceOfOutput += "]";
-                MNN_PRINT("Group: %d, %s - %d, type=%s, inputs: %s, devices: %s - %s\n", info.group, info.op->name()->c_str(), cmdIndex, EnumNameOpType(cmd.op->type()), groupOfInput.c_str(), deviceOfInput.c_str(), deviceOfOutput.c_str());
-            }
-#endif
+//#ifdef MNN_PIPELINE_DEBUG
+            //if (info.op->name() != nullptr) {
+            //    std::string groupOfInput = "input group: [";
+            //    for (int v=0; v<cmd.workInputs.size(); ++v) {
+            //        groupOfInput = groupOfInput + " " + std::to_string(TensorUtils::getDescribe(cmd.workInputs[v])->group) + " ";
+            //    }
+            //    groupOfInput += "]";
+            //    std::string deviceOfInput = "input: [";
+            //    for (int v=0; v<cmd.workInputs.size(); ++v) {
+            //        deviceOfInput = deviceOfInput + " " + std::to_string(cmd.workInputs[v]->deviceId()) + " ";
+            //    }
+            //    deviceOfInput += "]";
+            //    std::string deviceOfOutput = "output: [";
+            //    for (int v=0; v<cmd.workOutputs.size(); ++v) {
+            //        deviceOfOutput = deviceOfOutput + " " + std::to_string(cmd.workOutputs[v]->deviceId()) + " ";
+            //    }
+            //    deviceOfOutput += "]";
+            //    MNN_PRINT("Group: %d, %s - %d, type=%s, inputs: %s, devices: %s - %s\n", cmd.group, info.op->name()->c_str(), cmdIndex, EnumNameOpType(cmd.op->type()), groupOfInput.c_str(), deviceOfInput.c_str(), deviceOfOutput.c_str());
+            //}
+//#endif    // debug tensor
+            //cmd.workInputs[0]->print();
+            
+//            if (cmd.op->type() == OpType_Convolution) {
+//                cmd.workInputs[0]->print();
+//            }
+
+            // test bias
+            
+            //_initTensorStatic();
             auto code = cmd.execution->onExecute(cmd.workInputs, cmd.workOutputs);
             if (NO_ERROR != code) {
                 _exitExecute();

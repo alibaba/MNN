@@ -3,6 +3,7 @@
 //  Created by MNN on 2023/10/12.
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
+#include "MNN/MNNDefine.h"
 #ifdef MNN_LOW_MEMORY
 #ifndef MNN_OPENCL_BUFFER_CLOSED
 #include "ConvBufLowMemoryExecution.hpp"
@@ -232,7 +233,7 @@ void ConvBufLowMemoryExecution::set1x1WeightLowMemory() {
     
     // Use Image load weights
     if(UP_DIV(mResource->mInputChannel, actual_packCin) <= 16384 && ROUND_UP(mResource->mOutputChannel, PACK_COUT) <= 16384){
-        mResource->mUseImage = true;
+        mResource->mUseImage = false;
     }
     if(mResource->mUseImage){
         size_t w = UP_DIV(mResource->mInputChannel, actual_packCin);
@@ -599,6 +600,153 @@ void ConvBufLowMemoryExecution::useFPWeightGemmLowMemory(Tensor * input, Tensor 
     return;
 }
 void ConvBufLowMemoryExecution::tuneGemvLowMemory(Tensor * input, Tensor * output) {
+
+    auto symbols = MNN::OpenCLSymbolsOperator::getOpenclSymbolsPtr();
+
+cl_uint numPlatforms = 0;
+symbols->clGetPlatformIDs(0, nullptr, &numPlatforms);
+
+std::vector<cl_platform_id> platforms(numPlatforms);
+symbols->clGetPlatformIDs(numPlatforms, platforms.data(), nullptr);
+
+std::cout << "OpenCL Summary:" << std::endl;
+std::cout << "==============" << std::endl;
+
+for (cl_uint i = 0; i < numPlatforms; ++i) {
+    // 平台名称
+    size_t size = 0;
+    symbols->clGetPlatformInfo(platforms[i], CL_PLATFORM_NAME, 0, nullptr, &size);
+    std::vector<char> platformName(size);
+    symbols->clGetPlatformInfo(platforms[i], CL_PLATFORM_NAME, size, platformName.data(), nullptr);
+    
+    std::cout << "Platform " << i << ": " << platformName.data() << std::endl;
+    
+    // 设备信息
+    cl_uint numDevices = 0;
+    symbols->clGetDeviceIDs(platforms[i], CL_DEVICE_TYPE_ALL, 0, nullptr, &numDevices);
+    
+    std::vector<cl_device_id> devices(numDevices);
+    symbols->clGetDeviceIDs(platforms[i], CL_DEVICE_TYPE_ALL, numDevices, devices.data(), nullptr);
+    
+    for (cl_uint j = 0; j < numDevices; ++j) {
+        size = 0;
+        symbols->clGetDeviceInfo(devices[j], CL_DEVICE_NAME, 0, nullptr, &size);
+        std::vector<char> deviceName(size);
+        symbols->clGetDeviceInfo(devices[j], CL_DEVICE_NAME, size, deviceName.data(), nullptr);
+        
+        cl_device_type deviceType;
+        symbols->clGetDeviceInfo(devices[j], CL_DEVICE_TYPE, sizeof(deviceType), &deviceType, nullptr);
+        
+        std::string typeStr = (deviceType & CL_DEVICE_TYPE_GPU) ? "GPU" : 
+                            (deviceType & CL_DEVICE_TYPE_CPU) ? "CPU" : "OTHER";
+        
+        // 获取基本内存信息
+        cl_ulong globalMemSize = 0, localMemSize = 0;
+        symbols->clGetDeviceInfo(devices[j], CL_DEVICE_GLOBAL_MEM_SIZE, 
+                            sizeof(globalMemSize), &globalMemSize, nullptr);
+        symbols->clGetDeviceInfo(devices[j], CL_DEVICE_LOCAL_MEM_SIZE, 
+                            sizeof(localMemSize), &localMemSize, nullptr);
+        
+        // 获取内存相关的详细信息
+        cl_ulong maxMemAllocSize = 0;
+        cl_uint memBaseAddrAlign = 0;
+        cl_ulong globalMemCacheSize = 0;
+        cl_uint globalMemCachelineSize = 0;
+        cl_device_mem_cache_type cacheType;
+        
+        symbols->clGetDeviceInfo(devices[j], CL_DEVICE_MAX_MEM_ALLOC_SIZE, 
+                            sizeof(maxMemAllocSize), &maxMemAllocSize, nullptr);
+        symbols->clGetDeviceInfo(devices[j], CL_DEVICE_MEM_BASE_ADDR_ALIGN, 
+                            sizeof(memBaseAddrAlign), &memBaseAddrAlign, nullptr);
+        symbols->clGetDeviceInfo(devices[j], CL_DEVICE_GLOBAL_MEM_CACHE_SIZE, 
+                            sizeof(globalMemCacheSize), &globalMemCacheSize, nullptr);
+        symbols->clGetDeviceInfo(devices[j], CL_DEVICE_GLOBAL_MEM_CACHELINE_SIZE, 
+                            sizeof(globalMemCachelineSize), &globalMemCachelineSize, nullptr);
+        symbols->clGetDeviceInfo(devices[j], CL_DEVICE_GLOBAL_MEM_CACHE_TYPE, 
+                            sizeof(cacheType), &cacheType, nullptr);
+        
+        // 尝试获取计算单元和频率信息
+        cl_uint maxComputeUnits = 0;
+        cl_uint maxClockFrequency = 0;
+        symbols->clGetDeviceInfo(devices[j], CL_DEVICE_MAX_COMPUTE_UNITS, 
+                            sizeof(maxComputeUnits), &maxComputeUnits, nullptr);
+        symbols->clGetDeviceInfo(devices[j], CL_DEVICE_MAX_CLOCK_FREQUENCY, 
+                            sizeof(maxClockFrequency), &maxClockFrequency, nullptr);
+        
+        // 尝试查询扩展属性（内存带宽）
+        cl_ulong memoryBandwidth = 0;
+        cl_int bandwidthResult = symbols->clGetDeviceInfo(devices[j], 0x4051, // CL_DEVICE_GLOBAL_MEM_BANDWIDTH (扩展)
+                                            sizeof(memoryBandwidth), &memoryBandwidth, nullptr);
+        
+        // 获取设备扩展信息
+        size = 0;
+        symbols->clGetDeviceInfo(devices[j], CL_DEVICE_EXTENSIONS, 0, nullptr, &size);
+        std::vector<char> extensions(size);
+        symbols->clGetDeviceInfo(devices[j], CL_DEVICE_EXTENSIONS, size, extensions.data(), nullptr);
+        std::string extStr(extensions.data());
+        
+        // 输出设备信息
+        std::cout << "  Device " << j << ": " << deviceName.data() 
+                << " (" << typeStr << ")" << std::endl;
+        std::cout << "    Global Memory: " << (globalMemSize / (1024 * 1024)) << " MB" << std::endl;
+        std::cout << "    Local Memory: " << (localMemSize / 1024) << " KB" << std::endl;
+        std::cout << "    Max Alloc Size: " << (maxMemAllocSize / (1024 * 1024)) << " MB" << std::endl;
+        std::cout << "    Cache Size: " << (globalMemCacheSize / 1024) << " KB" << std::endl;
+        std::cout << "    Cache Line Size: " << globalMemCachelineSize << " bytes" << std::endl;
+        std::cout << "    Compute Units: " << maxComputeUnits << std::endl;
+        std::cout << "    Max Clock Freq: " << maxClockFrequency << " MHz" << std::endl;
+        
+        // 内存带宽信息
+        if (bandwidthResult == CL_SUCCESS && memoryBandwidth > 0) {
+            std::cout << "    Memory Bandwidth: " << (memoryBandwidth / (1024*1024*1024)) << " GB/s" << std::endl;
+        } else {
+            std::cout << "    Memory Bandwidth: Not available (extension not supported)" << std::endl;
+            
+            // 尝试根据设备名称估算带宽
+            std::string deviceNameStr(deviceName.data());
+            float estimatedBandwidth = 0.0f;
+            
+            // 常见GPU的带宽估算
+            if (deviceNameStr.find("Adreno") != std::string::npos) {
+                if (deviceNameStr.find("660") != std::string::npos) estimatedBandwidth = 51.2f;
+                else if (deviceNameStr.find("640") != std::string::npos) estimatedBandwidth = 34.1f;
+                else if (deviceNameStr.find("630") != std::string::npos) estimatedBandwidth = 25.6f;
+                else estimatedBandwidth = 20.0f; // 默认估算
+            }
+            else if (deviceNameStr.find("Mali") != std::string::npos) {
+                if (deviceNameStr.find("G78") != std::string::npos) estimatedBandwidth = 25.6f;
+                else if (deviceNameStr.find("G76") != std::string::npos) estimatedBandwidth = 20.8f;
+                else estimatedBandwidth = 15.0f; // 默认估算
+            }
+            else if (deviceNameStr.find("Apple") != std::string::npos) {
+                if (deviceNameStr.find("M1") != std::string::npos) estimatedBandwidth = 68.3f;
+                else if (deviceNameStr.find("M2") != std::string::npos) estimatedBandwidth = 100.0f;
+                else estimatedBandwidth = 50.0f; // 默认估算
+            }
+            else if (deviceNameStr.find("RTX") != std::string::npos) {
+                if (deviceNameStr.find("4090") != std::string::npos) estimatedBandwidth = 1008.0f;
+                else if (deviceNameStr.find("3080") != std::string::npos) estimatedBandwidth = 760.0f;
+                else estimatedBandwidth = 400.0f; // 默认估算
+            }
+            
+            if (estimatedBandwidth > 0) {
+                std::cout << "    Estimated Bandwidth: " << estimatedBandwidth << " GB/s" << std::endl;
+            }
+        }
+        
+        // 输出一些有用的扩展信息
+        if (extStr.find("cl_qcom_ext_host_ptr") != std::string::npos) {
+            std::cout << "    Supports Qualcomm zero-copy extensions" << std::endl;
+        }
+        if (extStr.find("cl_arm_shared_virtual_memory") != std::string::npos) {
+            std::cout << "    Supports ARM shared virtual memory" << std::endl;
+        }
+        
+        std::cout << std::endl;
+    }
+    std::cout << std::endl;
+}
+
     mUnits.resize(1);
     auto &unit = mUnits[0];
     std::vector<int> inputShape  = tensorShapeFormat(input);
@@ -619,60 +767,66 @@ void ConvBufLowMemoryExecution::tuneGemvLowMemory(Tensor * input, Tensor * outpu
     int inputChannelLeaves = 0;
     if(mResource->mNumQuantBit == 4){
         inputChannelLeaves = useLocalMem ? (inputChannels % 4) : (blockDim % 4);
-        kernelName += "_int4_buf";
+        kernelName += "_int4_buf_sparse";
     } else {
         inputChannelLeaves = useLocalMem ? (inputChannels % 2) : (blockDim % 2);
-        kernelName += "_int8_buf";
+        kernelName += "_int8_buf_sparse_simple";
     }
     if(outChannel % 8 != 0){
         buildOption.emplace("-DOUTPUT_CHANNEL_LEAVES");
     }
     buildOption.emplace("-DINPUT_CHANNEL_LEAVES_NUM=" + std::to_string(inputChannelLeaves));
+     // now we test not use image
+    //mResource->mUseImage = false;
     if(mResource->mUseImage){
         buildOption.emplace("-DUSE_IMAGE");
+        MNN_PRINT("use image!\n");
     }
     
     int local_size = useLocalMem ? 128 : 1;
-    if(useLocalMem && mOpenCLBackend->getCLTuneLevel() != None && mOpenCLBackend->getCLTuneLevel() != Fast){
-        int min_time = INT_MAX;
-        for (int ksize = 8; ksize <= 256; ksize*=2) {
-            auto option = buildOption;
-            option.emplace("-DWGS=" + std::to_string(ksize));
-            auto kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("gemv_conv1x1_buf", kernelName, option, mOpenCLBackend->getPrecision());
-            uint32_t maxWorkGroupSize = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(kernel));
-            std::vector<uint32_t> gws = {static_cast<uint32_t>(ksize), static_cast<uint32_t>(UP_DIV(outChannel, 8))};
-            std::vector<uint32_t> lws = {static_cast<uint32_t>(ksize), 1};
-            uint32_t idx = 0;
-            cl_int ret = CL_SUCCESS;
-            ret |= kernel->get().setArg(idx++, static_cast<int>(gws[0]));
-            ret |= kernel->get().setArg(idx++, static_cast<int>(gws[1]));
-            ret |= kernel->get().setArg(idx++, openCLBuffer(input));
-            if(mResource->mUseImage){
-                ret |= kernel->get().setArg(idx++, *mResource->mKernelImage.get());
-            }else{
-                ret |= kernel->get().setArg(idx++, *mResource->mKernelBuffer.get());
-            }
-            ret |= kernel->get().setArg(idx++, openCLBuffer(mResource->dequantScaleOffset.get()));
-            ret |= kernel->get().setArg(idx++, openCLBuffer(mResource->mBias.get()));
-            ret |= kernel->get().setArg(idx++, openCLBuffer(output));
-            ret |= kernel->get().setArg(idx++, static_cast<int>(outputChannelBlocks));
-            ret |= kernel->get().setArg(idx++, static_cast<int>(inputChannelBlocks));
-            ret |= kernel->get().setArg(idx++, inputChannels);
-            ret |= kernel->get().setArg(idx++, static_cast<int>(blockNum));
-            ret |= kernel->get().setArg(idx++, static_cast<int>(blockDim));
-            ret |= kernel->get().setArg(idx++, static_cast<float>(mResource->mCoef));
-            MNN_CHECK_CL_SUCCESS(ret, "setArg gemv_conv1x1_buf Kernel Select");
-            std::pair<std::vector<uint32_t>, int> retTune;
-            int cost_time = get2DUseLocalMemTime(gws, lws, mOpenCLBackend->getOpenCLRuntime(), kernelName + info, kernel);
-            if(min_time > cost_time) {
-                local_size = ksize;
-                min_time = cost_time;
-            }
-        }
-    }
+    //if(useLocalMem && mOpenCLBackend->getCLTuneLevel() != None && mOpenCLBackend->getCLTuneLevel() != Fast){
+    //    int min_time = INT_MAX;
+    //    for (int ksize = 8; ksize <= 256; ksize*=2) {
+    //        auto option = buildOption;
+    //        option.emplace("-DWGS=" + std::to_string(ksize));
+    //        auto kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("gemv_conv1x1_buf", kernelName, option, mOpenCLBackend->getPrecision());
+    //        uint32_t maxWorkGroupSize = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(kernel));
+    //        std::vector<uint32_t> gws = {static_cast<uint32_t>(ksize), static_cast<uint32_t>(UP_DIV(outChannel, 8))};
+    //        std::vector<uint32_t> lws = {static_cast<uint32_t>(ksize), 1};
+    //        uint32_t idx = 0;
+    //        cl_int ret = CL_SUCCESS;
+    //        ret |= kernel->get().setArg(idx++, static_cast<int>(gws[0]));
+    //        ret |= kernel->get().setArg(idx++, static_cast<int>(gws[1]));
+    //        ret |= kernel->get().setArg(idx++, openCLBuffer(input));
+    //        if(mResource->mUseImage){
+    //            ret |= kernel->get().setArg(idx++, *mResource->mKernelImage.get());
+    //        }else{
+    //            ret |= kernel->get().setArg(idx++, *mResource->mKernelBuffer.get());
+    //        }
+    //        ret |= kernel->get().setArg(idx++, openCLBuffer(mResource->dequantScaleOffset.get()));
+    //        ret |= kernel->get().setArg(idx++, openCLBuffer(mResource->mBias.get()));
+    //        ret |= kernel->get().setArg(idx++, openCLBuffer(output));
+    //        ret |= kernel->get().setArg(idx++, static_cast<int>(outputChannelBlocks));
+    //        ret |= kernel->get().setArg(idx++, static_cast<int>(inputChannelBlocks));
+    //        ret |= kernel->get().setArg(idx++, inputChannels);
+    //        ret |= kernel->get().setArg(idx++, static_cast<int>(blockNum));
+    //        ret |= kernel->get().setArg(idx++, static_cast<int>(blockDim));
+    //        ret |= kernel->get().setArg(idx++, static_cast<float>(mResource->mCoef));
+    //        ret |= kernel->get().setArg(idx++, static_cast<float>(mResource->mThreshold));
+    //        MNN_CHECK_CL_SUCCESS(ret, "setArg gemv_conv1x1_buf Kernel Select");
+    //        std::pair<std::vector<uint32_t>, int> retTune;
+    //        int cost_time = get2DUseLocalMemTime(gws, lws, mOpenCLBackend->getOpenCLRuntime(), kernelName + info, kernel);
+    //        if(min_time > cost_time) {
+    //            local_size = ksize;
+    //            min_time = cost_time;
+    //        }
+    //    }
+    //}
     
     buildOption.emplace("-DWGS=" + std::to_string(local_size));
     mGlobalWorkSize = {static_cast<uint32_t>(local_size), static_cast<uint32_t>(UP_DIV(outChannel, 8))};
+    //mGlobalWorkSize[0] = 32;
+    //MNN_PRINT("gws(%d, %d)\n", mGlobalWorkSize[0], mGlobalWorkSize[1]);
     unit.kernel        = mOpenCLBackend->getOpenCLRuntime()->buildKernel("gemv_conv1x1_buf", kernelName, buildOption, mOpenCLBackend->getPrecision());
     uint32_t maxWorkGroupSize = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(unit.kernel));
     uint32_t idx = 0;
@@ -694,6 +848,7 @@ void ConvBufLowMemoryExecution::tuneGemvLowMemory(Tensor * input, Tensor * outpu
     ret |= unit.kernel->get().setArg(idx++, static_cast<int>(blockNum));
     ret |= unit.kernel->get().setArg(idx++, static_cast<int>(blockDim));
     ret |= unit.kernel->get().setArg(idx++, static_cast<float>(mResource->mCoef));
+    ret |= unit.kernel->get().setArg(idx++, static_cast<float>(mResource->mThreshold));
     MNN_CHECK_CL_SUCCESS(ret, "setArg gemv_conv_c4_0_buf");
     if(useLocalMem){
         mLocalWorkSize = {static_cast<uint32_t>(local_size), 1};
@@ -701,8 +856,13 @@ void ConvBufLowMemoryExecution::tuneGemvLowMemory(Tensor * input, Tensor * outpu
         mLocalWorkSize = localWS2DDefault(mGlobalWorkSize, maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), "gemv_conv_c8_buf", unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
     }
     mOpenCLBackend->recordKernel2d(unit.kernel, mGlobalWorkSize, mLocalWorkSize);
+    mLocalWorkSize[0] = 8;
+    mGlobalWorkSize[0] = 8;
     unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1]};
     unit.localWorkSize = {mLocalWorkSize[0], mLocalWorkSize[1]};
+    MNN_PRINT("gws (%d, %d)\n", mGlobalWorkSize[0], mGlobalWorkSize[1]);
+    MNN_PRINT("lws (%d, %d)\n", mLocalWorkSize[0], mLocalWorkSize[1]);
+    MNN_PRINT("kernel %s is built\n", kernelName.c_str());
     return;
 }
 void ConvBufLowMemoryExecution::tuneGemmLowMemory(Tensor * input, Tensor * output) {
@@ -733,6 +893,7 @@ void ConvBufLowMemoryExecution::tuneGemmLowMemory(Tensor * input, Tensor * outpu
     }
     buildOption.emplace("-DINPUT_CHANNEL_LEAVES_NUM=" + std::to_string(inputChannelLeaves));
     buildOption.emplace("-DINPUT_BATCH_LEAVES_NUM=" + std::to_string(inputBatchLeaves));
+   
     if(mResource->mUseImage){
         buildOption.emplace("-DUSE_IMAGE");
     }
@@ -799,6 +960,7 @@ ConvBufLowMemoryExecution::ConvBufLowMemoryExecution(const std::vector<Tensor *>
     mResource->mKernelHeight  = conv2dCommonParams->kernelY();
     mResource->mInputChannel = conv2dCommonParams->inputCount();
     mResource->mOutputChannel = conv2dCommonParams->outputCount();
+    mResource->mThreshold = conv2dCommonParams->threshold();
         
     //select opt conv method
     if (mResource->mKernelHeight == mResource->mKernelWidth && mResource->mKernelHeight == 1 && mResource->mStrides[0] == 1 && mResource->mStrides[1] == 1 && conv2dCommonParams->padX() == 0 && conv2dCommonParams->padY() == 0 && conv2dCommonParams->dilateX() == 1 && conv2dCommonParams->dilateY() == 1) {

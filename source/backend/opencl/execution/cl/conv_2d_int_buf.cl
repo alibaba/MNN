@@ -21,6 +21,115 @@
 #endif
 
 __kernel
+void vector_matrix_multiply_int(GLOBAL_SIZE_2_DIMS
+                              __global const FLOAT *input,
+#if (defined USE_LOW_BIT_WEIGHT_INT8)
+                              __global const char *weight,
+#else
+                              __global const uchar *weight,
+#endif
+                              __global const FLOAT *dequantScaleOffset,
+                              __global const FLOAT *bias,
+                              __global FLOAT *output,
+                              __private const int inChannel,
+                              __private const int in_c_blocks,
+                              __private const int batch,
+                              __private const int out_c_blocks,
+                              __private const int blockDim,
+                              __private const float coef) {
+    
+    const int out_c_idx = get_global_id(0); // 输出通道块索引
+    const int out_b_idx = get_global_id(1); // 批次索引
+    
+    DEAL_NON_UNIFORM_DIM2(out_c_idx, out_b_idx);
+    
+    if (out_c_idx >= out_c_blocks || out_b_idx >= batch) return;
+    
+    // 初始化输出为偏置
+    COMPUTE_FLOAT4 out0 = CONVERT_COMPUTE_FLOAT4(vload4(out_c_idx, bias));
+    
+    // 输入通道循环 - 矩阵乘法的核心
+    for(ushort in_c_idx = 0; in_c_idx < in_c_blocks; in_c_idx++) {
+        
+        // 加载反量化参数
+        #ifdef ASYMMETRIC
+        COMPUTE_FLOAT8 ScaleOffset = CONVERT_COMPUTE_FLOAT8(convert_float8(vload8(out_c_idx, dequantScaleOffset + (in_c_idx * 4) / blockDim * out_c_blocks * 8)) / coef);
+        COMPUTE_FLOAT4 scale = (COMPUTE_FLOAT4)(ScaleOffset.s0, ScaleOffset.s2, ScaleOffset.s4, ScaleOffset.s6);
+        COMPUTE_FLOAT4 offset = (COMPUTE_FLOAT4)(ScaleOffset.s1, ScaleOffset.s3, ScaleOffset.s5, ScaleOffset.s7);
+        #else
+        COMPUTE_FLOAT4 scale = CONVERT_COMPUTE_FLOAT4(convert_float4(vload4(out_c_idx, dequantScaleOffset + (in_c_idx * 4) / blockDim * out_c_blocks * 4)) / coef);
+        COMPUTE_FLOAT4 offset = 0;
+        #endif
+        
+        // 加载输入向量 - 简化的地址计算
+        // 输入格式：[batch, in_c_blocks, 4]
+        int inp_offset = (out_b_idx * in_c_blocks + in_c_idx) * 4;
+        COMPUTE_FLOAT4 in0 = CONVERT_COMPUTE_FLOAT4(vload4(0, input + inp_offset));
+        
+        // 加载权重矩阵 - 简化的地址计算
+        // 权重格式：[in_c_blocks, out_c_blocks, 4, 4]
+        int weight_offset = (in_c_idx * out_c_blocks + out_c_idx) * 4 * 4;
+        
+#if (defined USE_LOW_BIT_WEIGHT_INT8)
+        // INT8权重处理
+        char4 charWeight0 = vload4(0, weight + weight_offset);
+        char4 charWeight1 = vload4(1, weight + weight_offset);
+        char4 charWeight2 = vload4(2, weight + weight_offset);
+        char4 charWeight3 = vload4(3, weight + weight_offset);
+        
+        COMPUTE_FLOAT4 weight0 = CONVERT_COMPUTE_FLOAT4(charWeight0) * scale + offset;
+        COMPUTE_FLOAT4 weight1 = CONVERT_COMPUTE_FLOAT4(charWeight1) * scale + offset;
+        COMPUTE_FLOAT4 weight2 = CONVERT_COMPUTE_FLOAT4(charWeight2) * scale + offset;
+        COMPUTE_FLOAT4 weight3 = CONVERT_COMPUTE_FLOAT4(charWeight3) * scale + offset;
+#else
+        // INT4权重处理
+        uchar2 charWeightInt40 = vload2(0, weight + weight_offset/2);
+        uchar2 charWeightInt41 = vload2(1, weight + weight_offset/2);
+        uchar2 charWeightInt42 = vload2(2, weight + weight_offset/2);
+        uchar2 charWeightInt43 = vload2(3, weight + weight_offset/2);
+        
+        // 解包INT4权重
+        char4 charWeight0 = (char4)((charWeightInt40.s0 >> 4) - 8, (charWeightInt40.s0 & MOD_NUM) - 8, 
+                                   (charWeightInt40.s1 >> 4) - 8, (charWeightInt40.s1 & MOD_NUM) - 8);
+        char4 charWeight1 = (char4)((charWeightInt41.s0 >> 4) - 8, (charWeightInt41.s0 & MOD_NUM) - 8,
+                                   (charWeightInt41.s1 >> 4) - 8, (charWeightInt41.s1 & MOD_NUM) - 8);
+        char4 charWeight2 = (char4)((charWeightInt42.s0 >> 4) - 8, (charWeightInt42.s0 & MOD_NUM) - 8,
+                                   (charWeightInt42.s1 >> 4) - 8, (charWeightInt42.s1 & MOD_NUM) - 8);
+        char4 charWeight3 = (char4)((charWeightInt43.s0 >> 4) - 8, (charWeightInt43.s0 & MOD_NUM) - 8,
+                                   (charWeightInt43.s1 >> 4) - 8, (charWeightInt43.s1 & MOD_NUM) - 8);
+        
+        COMPUTE_FLOAT4 weight0 = CONVERT_COMPUTE_FLOAT4(charWeight0) * scale + offset;
+        COMPUTE_FLOAT4 weight1 = CONVERT_COMPUTE_FLOAT4(charWeight1) * scale + offset;
+        COMPUTE_FLOAT4 weight2 = CONVERT_COMPUTE_FLOAT4(charWeight2) * scale + offset;
+        COMPUTE_FLOAT4 weight3 = CONVERT_COMPUTE_FLOAT4(charWeight3) * scale + offset;
+#endif
+        
+        // 处理输入通道边界（如果输入通道不是4的倍数）
+        PADZEROSVEC(in_c_idx, inChannel, weight0, weight1, weight2, weight3);
+        
+        // 矩阵乘法核心计算：out0 += in0 * weight_matrix
+        out0 = mad(in0.x, weight0, out0);
+        out0 = mad(in0.y, weight1, out0);
+        out0 = mad(in0.z, weight2, out0);
+        out0 = mad(in0.w, weight3, out0);
+    }
+    
+    // 激活函数
+#ifdef RELU
+    out0 = fmax(out0, (COMPUTE_FLOAT4)0);
+#endif
+
+#ifdef RELU6
+    out0 = clamp(out0, (COMPUTE_FLOAT4)0, (COMPUTE_FLOAT4)6);
+#endif
+    
+    // 存储结果 - 简化的地址计算
+    // 输出格式：[batch, out_c_blocks, 4]
+    const int out_offset = (out_b_idx * out_c_blocks + out_c_idx) * 4;
+    vstore4(CONVERT_FLOAT4(out0), 0, output + out_offset);
+}
+
+__kernel
 void conv_2d_int_c4h1w1(GLOBAL_SIZE_2_DIMS
                       __global const FLOAT *input,
 #if (defined USE_LOW_BIT_WEIGHT_INT8)

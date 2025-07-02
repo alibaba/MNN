@@ -6,6 +6,7 @@
 //
 
 #include "llm/llm.hpp"
+#include "cpp/ExprDebug.hpp"
 #define MNN_OPEN_TIME_TRACE
 #include <MNN/AutoTime.hpp>
 #include <MNN/expr/ExecutorScope.hpp>
@@ -111,6 +112,7 @@ static int benchmark(Llm* llm, const std::vector<std::string>& prompts, int max_
     float decode_s = decode_time / 1e6;
     float sample_s = sample_time / 1e6;
     printf("\n#################################\n");
+    printf("answer: %s\n", context->generate_str.c_str());
     printf("prompt tokens num = %d\n", prompt_len);
     printf("decode tokens num = %d\n", decode_len);
     printf(" vision time = %.2f s\n", vision_s);

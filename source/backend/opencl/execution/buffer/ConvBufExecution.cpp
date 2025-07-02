@@ -6,6 +6,8 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#include "MNN/MNNDefine.h"
+#include "core/Macro.h"
 #ifndef MNN_OPENCL_BUFFER_CLOSED
 
 #include "ConvBufExecution.hpp"
@@ -99,6 +101,8 @@ ConvBufExecution::ConvBufExecution(const std::vector<Tensor *> &inputs, const st
     mResource->mConv2dCommonParams            = conv2dCommonParams;
     mResource->mStrides                       = {conv2dCommonParams->strideY(), conv2dCommonParams->strideX()};
     mResource->mDilations                     = {conv2dCommonParams->dilateY(), conv2dCommonParams->dilateX()};
+    
+    mResource->mThreshold                     = conv2dCommonParams->threshold();
 
     auto padding = ConvolutionCommon::convolutionPad(inputs[0], outputs[0], mResource->mConv2dCommonParams);
     mPaddings[0] = padding.second;//padY
@@ -252,6 +256,66 @@ ErrorCode ConvBufExecution::onResize(const std::vector<Tensor *> &inputs, const 
 #ifdef LOG_VERBOSE
     MNN_PRINT("Start ConvExecution onResize !\n");
 #endif
+    
+    // test if threshold is read
+    //MNN_PRINT("Threshold: %f", )
+    MNN_PRINT("Start ConvExecution onResize in buffer!\n");
+    
+    auto symbols = MNN::OpenCLSymbolsOperator::getOpenclSymbolsPtr();
+
+    cl_uint numPlatforms = 0;
+    symbols->clGetPlatformIDs(0, nullptr, &numPlatforms);
+
+    std::vector<cl_platform_id> platforms(numPlatforms);
+    symbols->clGetPlatformIDs(numPlatforms, platforms.data(), nullptr);
+
+    std::cout << "OpenCL Summary:" << std::endl;
+    std::cout << "==============" << std::endl;
+
+    for (cl_uint i = 0; i < numPlatforms; ++i) {
+        // 平台名称
+        size_t size = 0;
+        symbols->clGetPlatformInfo(platforms[i], CL_PLATFORM_NAME, 0, nullptr, &size);
+        std::vector<char> platformName(size);
+        symbols->clGetPlatformInfo(platforms[i], CL_PLATFORM_NAME, size, platformName.data(), nullptr);
+        
+        std::cout << "Platform " << i << ": " << platformName.data() << std::endl;
+        
+        // 设备信息
+        cl_uint numDevices = 0;
+        symbols->clGetDeviceIDs(platforms[i], CL_DEVICE_TYPE_ALL, 0, nullptr, &numDevices);
+        
+        std::vector<cl_device_id> devices(numDevices);
+        symbols->clGetDeviceIDs(platforms[i], CL_DEVICE_TYPE_ALL, numDevices, devices.data(), nullptr);
+        
+        for (cl_uint j = 0; j < numDevices; ++j) {
+            size = 0;
+            symbols->clGetDeviceInfo(devices[j], CL_DEVICE_NAME, 0, nullptr, &size);
+            std::vector<char> deviceName(size);
+            symbols->clGetDeviceInfo(devices[j], CL_DEVICE_NAME, size, deviceName.data(), nullptr);
+            
+            cl_device_type deviceType;
+            symbols->clGetDeviceInfo(devices[j], CL_DEVICE_TYPE, sizeof(deviceType), &deviceType, nullptr);
+            
+            std::string typeStr = (deviceType & CL_DEVICE_TYPE_GPU) ? "GPU" : 
+                                (deviceType & CL_DEVICE_TYPE_CPU) ? "CPU" : "OTHER";
+            
+            // 获取内存信息
+            cl_ulong globalMemSize = 0, localMemSize = 0;
+            symbols->clGetDeviceInfo(devices[j], CL_DEVICE_GLOBAL_MEM_SIZE, 
+                                sizeof(globalMemSize), &globalMemSize, nullptr);
+            symbols->clGetDeviceInfo(devices[j], CL_DEVICE_LOCAL_MEM_SIZE, 
+                                sizeof(localMemSize), &localMemSize, nullptr);
+            
+            std::cout << "  Device " << j << ": " << deviceName.data() 
+                    << " (" << typeStr << ") - Global: " 
+                    << (globalMemSize / (1024 * 1024)) << "MB, Local: " 
+                    << (localMemSize / 1024) << "KB" << std::endl;
+        }
+        std::cout << std::endl;
+    }
+    
+
     mKernel.resize(1);
     auto input  = inputs[0];
     auto output = outputs[0];
@@ -298,6 +362,7 @@ ErrorCode ConvBufExecution::onResize(const std::vector<Tensor *> &inputs, const 
     }
     
     if (mResource->mConvGemmOptLevel == 1) {
+        MNN_PRINT("mResource->mConvGemmOptLevel == 1\n");
         int area = height * width;
         int M = outputShape.at(0) * area;
         int N = outputShape.at(3);
@@ -401,7 +466,9 @@ ErrorCode ConvBufExecution::onResize(const std::vector<Tensor *> &inputs, const 
         
         return NO_ERROR;
     } else if (mResource->mConv1x1Opt) {
+        MNN_PRINT("mResource->mConv1x1Opt is true\n");
         if(inputChannels >= 128 && outputShape[0] * outChannel * width * height <= 64){
+        //if (1){
             mResource->mConv1x1Local = true;
             int local_size = 1;
             while(local_size * 2 <= 256 && local_size * 2 <= inputChannelBlocks){
@@ -431,12 +498,17 @@ ErrorCode ConvBufExecution::onResize(const std::vector<Tensor *> &inputs, const 
         } else {
             mResource->mConv1x1Local = false;
             // {"conv_2d_1x1_c4h1w4", "conv_2d_1x1_c4h1w2", "conv_2d_1x1_c4h1w1", "conv_2d_1x1_c8h1w4"};
-            const int total_kernel = 3;
-            std::string kernelName[total_kernel] = {"conv_2d_1x1_c4h1w4", "conv_2d_1x1_c4h1w2", "conv_2d_1x1_c4h1w1"};
-            int itemC[total_kernel] = {4, 4, 4};
-            int itemW[total_kernel] = {4, 2, 1};
+            const int total_kernel = 5;
+            std::string kernelName[total_kernel] = {"conv_2d_1x1_c4h1w4", "conv_2d_1x1_c4h1w2", "conv_2d_1x1_c4h1w1", "conv_2d_1x1_c4h1w1_sparse", "conv_2d_1x1_c4h1w1_sparse_large"};
+
+            //const int total_kernel = 3;
+            //std::string kernelName[total_kernel] = {"conv_2d_1x1_c4h1w4", "conv_2d_1x1_c4h1w2", "conv_2d_1x1_c4h1w1"};
+            
+            int itemC[total_kernel] = {4, 4, 4, 4, 4};
+            int itemW[total_kernel] = {4, 2, 1, 1, 1};
 
             int M = outputShape.at(0) * outputShape.at(1) * outputShape.at(2);
+            
             mResource->mConv1x1C8Opt = (mResource->mOutputChannel >= 16 && M >= 16 && M * mResource->mOutputChannel >= 65536);
             
             int actual_kernel = total_kernel;
@@ -454,6 +526,7 @@ ErrorCode ConvBufExecution::onResize(const std::vector<Tensor *> &inputs, const 
             std::shared_ptr<KernelWrap> kernel[total_kernel];
             std::vector<uint32_t> globalWorkSize[total_kernel];
             std::vector<uint32_t> localWorkSize[total_kernel];
+            
             std::pair<int, int> min_cost(INT_MAX, 0);//(min_time, min_index)
             for(int knl_idx = 0; knl_idx < actual_kernel; knl_idx++) {
                 std::set<std::string> buildOption = mResource->mBuildOptions;
@@ -468,8 +541,15 @@ ErrorCode ConvBufExecution::onResize(const std::vector<Tensor *> &inputs, const 
                 
                 uint32_t idx            = 0;
                 cl_int ret = CL_SUCCESS;
-                globalWorkSize[knl_idx] = {static_cast<uint32_t>(UP_DIV(outputShape.at(3), itemC[knl_idx]) * UP_DIV(outputShape.at(2), itemW[knl_idx])), static_cast<uint32_t>(outputShape.at(0) * outputShape.at(1))};
-
+                if (knl_idx == 3){
+                    globalWorkSize[knl_idx ] = {static_cast<uint32_t>(UP_DIV(outputShape.at(3) * 2, itemC[knl_idx]) * UP_DIV(outputShape.at(2), itemW[knl_idx])), static_cast<uint32_t>(outputShape.at(0) * outputShape.at(1))};
+                }
+                else {
+                    globalWorkSize[knl_idx ] = {static_cast<uint32_t>(UP_DIV(outputShape.at(3), itemC[knl_idx]) * UP_DIV(outputShape.at(2), itemW[knl_idx])), static_cast<uint32_t>(outputShape.at(0) * outputShape.at(1))};
+                }
+                
+            }
+            /*
                 ret |= kernel[knl_idx]->get().setArg(idx++, globalWorkSize[knl_idx][0]);
                 ret |= kernel[knl_idx]->get().setArg(idx++, globalWorkSize[knl_idx][1]);
                 ret |= kernel[knl_idx]->get().setArg(idx++, UP_DIV(width, itemW[knl_idx]));
@@ -494,9 +574,17 @@ ErrorCode ConvBufExecution::onResize(const std::vector<Tensor *> &inputs, const 
                     mLocalWorkSize = {retTune.first[0], retTune.first[1]};
                 }
             }
-
-            int min_index  = min_cost.second;
+            */
+            //int min_index  = min_cost.second;
+            // now we only test conv_2d_1x1_c4h1w1
+            // now we only test conv_2d_1x1_c4h1w1_sparse
+            int min_index = 4;
+            MNN_PRINT("test kernel %s\n", kernelName[min_index].c_str());
             mGlobalWorkSize = {globalWorkSize[min_index][0], globalWorkSize[min_index][1]};
+
+            mGlobalWorkSize = {1024, 256};
+            mLocalWorkSize = {1, 256};
+            MNN_PRINT("0:%d 1:%d\n", mGlobalWorkSize[0], mGlobalWorkSize[1]);
 
             std::set<std::string> buildOption = mResource->mBuildOptions;
             if(itemC[min_index] == 8 && outputShape.at(3) % itemC[min_index] > 0 && outputShape.at(3) % itemC[min_index] <= 4){
@@ -522,9 +610,12 @@ ErrorCode ConvBufExecution::onResize(const std::vector<Tensor *> &inputs, const 
             ret |= mKernel[0]->get().setArg(idx++, batch);
             ret |= mKernel[0]->get().setArg(idx++, UP_DIV(outChannel, 4));
             ret |= mKernel[0]->get().setArg(idx++, ROUND_UP(outChannel, mResource->mAlignN));
+            ret |= mKernel[0]->get().setArg(idx++, mResource->mThreshold);
+            
             MNN_CHECK_CL_SUCCESS(ret, "setArg Conv1x1Buf");
         }
     } else {
+        MNN_PRINT("else\n");
         int inputImageShape[2]  = {inputHeight, inputWidth};
         int outputImageShape[2] = {height, width};
         int kernelShape[2]      = {mResource->mKernelHeight, mResource->mKernelWidth};
@@ -734,6 +825,11 @@ ErrorCode ConvBufExecution::onExecute(const std::vector<Tensor *> &inputs, const
         mOpenCLBackend->getOpenCLRuntime()->pushEvent({"ConvBuf2D-gemm2-2", event2});
     }
 #else
+
+    const int DEBUG_BUFFER_SIZE = 16; // 确保足够大
+    cl::Buffer debugBuffer(mOpenCLBackend->getOpenCLRuntime()->context(), CL_MEM_WRITE_ONLY, sizeof(float) * DEBUG_BUFFER_SIZE);
+    bool debugKernelFound = false;
+
     if(mOpenCLBackend->isUseRecordQueue()){
         mOpenCLBackend->addRecord(mRecording, mOpRecordUpdateInfo);
 #ifdef LOG_VERBOSE
@@ -742,6 +838,7 @@ ErrorCode ConvBufExecution::onExecute(const std::vector<Tensor *> &inputs, const
         return NO_ERROR;
     }
     if (mPreKernel) {
+        
         runKernel2D(mPreKernel, mPreGlobalWorkSize, mPreLocalWorkSize, mOpenCLBackend->getOpenCLRuntime());
     }
     if(mResource->mConvGemmOptLevel == 1) {
@@ -832,6 +929,8 @@ public:
 #endif /* MNN_SUPPORT_INTEL_SUBGROUP */
         
 #ifdef MNN_LOW_MEMORY
+        MNN_PRINT("MNN_LOW_MEMORY is defined\n");
+        MNN_PRINT("memory :%d\n", static_cast<OpenCLBackend *>(backend)->getMemory());
         if (static_cast<OpenCLBackend *>(backend)->getMemory() == BackendConfig::Memory_Low){
             auto conv2dParams = op->main_as_Convolution2D();
             if (conv2dParams->quanParameter() != nullptr) {

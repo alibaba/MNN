@@ -268,3 +268,72 @@ __kernel void conv2d_1x1_ic_oc_weight_quant_buffer(GLOBAL_SIZE_2_DIMS
     }
 #endif
 }
+
+#ifdef USE_LOW_BIT_WEIGHT_INT4
+__kernel void conv2d_1x1_weight_quant_buffer_for_sparse(GLOBAL_SIZE_2_DIMS
+
+                                            __global const uchar *input_ptr,
+                                            __global char *output_ptr,
+                                            __private const int input_channel,
+                                            __private const int output_channel) {
+
+    int x = get_global_id(0); // ic / 4
+    int y = get_global_id(1); // oc / 16
+
+    DEAL_NON_UNIFORM_DIM2(x, y);
+    const int xin = x << 2;
+    const int yin = y << 4;
+    const int outputChannelC16 = (output_channel + 15) >> 4;
+    const int inputChannelC4 = (input_channel + 3) >> 2;
+    uchar16 out1 = 0;
+    uchar16 out2 = 0;
+    uchar *out_ptr1 = (uchar*)&out1;
+    uchar *out_ptr2 = (uchar*)&out2;
+    for (int i = 0; i < 4; ++i){
+        int index0 = yin * input_channel + xin + i;
+        int index1 = (yin + 1) * input_channel + xin + i;
+        int index2 = (yin + 2) * input_channel + xin + i;
+        int index3 = (yin + 3) * input_channel + xin + i;
+        int index4 = (yin + 4) * input_channel + xin + i;
+        int index5 = (yin + 5) * input_channel + xin + i;
+        int index6 = (yin + 6) * input_channel + xin + i;
+        int index7 = (yin + 7) * input_channel + xin + i;
+        int index8 = (yin + 8) * input_channel + xin + i;
+        int index9 = (yin + 9) * input_channel + xin + i;
+        int index10 = (yin + 10) * input_channel + xin + i;
+        int index11 = (yin + 11) * input_channel + xin + i;
+        int index12 = (yin + 12) * input_channel + xin + i;
+        int index13 = (yin + 13) * input_channel + xin + i;
+        int index14 = (yin + 14) * input_channel + xin + i;
+        int index15 = (yin + 15) * input_channel + xin + i;
+        uchar s0 = input_ptr[index0/2];
+        uchar s1 = input_ptr[index1/2];
+        uchar s2 = input_ptr[index2/2];
+        uchar s3 = input_ptr[index3/2];
+        uchar s4 = input_ptr[index4/2];
+        uchar s5 = input_ptr[index5/2];
+        uchar s6 = input_ptr[index6/2];
+        uchar s7 = input_ptr[index7/2];
+        uchar s8 = input_ptr[index8/2];
+        uchar s9 = input_ptr[index9/2];
+        uchar s10 = input_ptr[index10/2];
+        uchar s11 = input_ptr[index11/2];
+        uchar s12 = input_ptr[index12/2];
+        uchar s13 = input_ptr[index13/2];
+        uchar s14 = input_ptr[index14/2];
+        uchar s15 = input_ptr[index15/2];
+        out_ptr1[i * 4] = ((index0 % 2) == 0 ? (s0 & 0xf0) : (s0 << 4)) | ((index1 % 2) == 0 ? (s1 >> 4) : (s1 & 0x0f));
+        out_ptr1[i * 4 + 1] = ((index2 % 2) == 0 ? (s2 & 0xf0) : (s2 << 4)) | ((index3 % 2) == 0 ? (s3 >> 4) : (s3 & 0x0f));
+        out_ptr1[i * 4 + 2] = ((index4 % 2) == 0 ? (s4 & 0xf0) : (s4 << 4)) | ((index5 % 2) == 0 ? (s5 >> 4) : (s5 & 0x0f));
+        out_ptr1[i * 4 + 3] = ((index6 % 2) == 0 ? (s6 & 0xf0) : (s6 << 4)) | ((index7 % 2) == 0 ? (s7 >> 4) : (s7 & 0x0f));
+        out_ptr2[i * 4] = ((index8 % 2) == 0 ? (s8 & 0xf0) : (s8 << 4)) | ((index9 % 2) == 0 ? (s9 >> 4) : (s9 & 0x0f));
+        out_ptr2[i * 4 + 1] = ((index10 % 2) == 0 ? (s10 & 0xf0) : (s10 << 4)) | ((index11 % 2) == 0 ? (s11 >> 4) : (s11 & 0x0f));
+        out_ptr2[i * 4 + 2] = ((index12 % 2) == 0 ? (s12 & 0xf0) : (s12 << 4)) | ((index13 % 2) == 0 ? (s13 >> 4) : (s13 & 0x0f));
+        out_ptr2[i * 4 + 3] = ((index14 % 2) == 0 ? (s14 & 0xf0) : (s14 << 4)) | ((index15 % 2) == 0 ? (s15 >> 4) : (s15 & 0x0f));
+    }
+    const int outputOffset = (y * inputChannelC4 + x) * 32;
+    vstore16(out1, 0, output_ptr + outputOffset);
+    vstore16(out2, 0, output_ptr + outputOffset + 16);
+
+}
+#endif

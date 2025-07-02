@@ -25,7 +25,7 @@ static PadMode _convertPadMode(Express::PaddingMode mode) {
     return PadMode_CAFFE;
 }
 static Express::VARP _HybridConv(const std::vector<float>& weight, const std::vector<float>& bias, const std::vector<float>& alpha, Express::VARP x, std::vector<int> channel, std::vector<int> kernelSize,
-                          Express::PaddingMode pad, std::vector<int> stride, std::vector<int> dilate, int group, std::vector<int> pads, bool relu, bool relu6, int nbits, bool async) {
+                          Express::PaddingMode pad, std::vector<int> stride, std::vector<int> dilate, int group, std::vector<int> pads, bool relu, bool relu6, int nbits, bool async, float threshold = 0.0f) {
     std::unique_ptr<OpT> convOp(new OpT);
     convOp->type = OpType_Convolution;
     convOp->main.type  = OpParameter_Convolution2D;
@@ -60,6 +60,7 @@ static Express::VARP _HybridConv(const std::vector<float>& weight, const std::ve
     conv2D->common->kernelY     = kernelSize[1];
     conv2D->common->relu6 = relu6;
     conv2D->common->relu = relu;
+    conv2D->common->threshold = threshold;
     conv2D->weight.clear();
     MNN_ASSERT(bias.size() == channel[1]);
     conv2D->bias = bias;

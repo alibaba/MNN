@@ -485,6 +485,346 @@ void conv_2d_1x1_c8h1w2(GLOBAL_SIZE_2_DIMS __private const int out_w_blocks,
 #endif
 }
 
+/*
+// input(c/4, 1, 1, 1, 4)  weight(c, c)
+__kernel
+void conv_2d_1x1_c4h1w1_sparse(GLOBAL_SIZE_2_DIMS __private const int out_w_blocks,
+                                  __global const FLOAT *non_zero_values,
+                                  __global const int *non_zero_indices,
+                                  __private const int num_non_zero,
+                                  __global const FLOAT *kernel_ptr,
+                                  __global const FLOAT *bias_ptr,
+                                  __global FLOAT *output,
+                                  __private const int out_c_block,
+                                  __private const int out_c_pack){
+    
+    const int out_c_idx = get_global_id(0);
+    if (out_c_idx >= out_c_block) return;
+
+    COMPUTE_FLOAT4 out0 = CONVERT_COMPUTE_FLOAT4(vload4(out_c_idx, bias_ptr));
+
+    for (int i = 0; i < num_non_zero; ++i){
+        COMPUTE_FLOAT non_zero_val = (COMPUTE_FLOAT)non_zero_values[i];
+        int original_input_channel = non_zero_indices[i];
+        int weight_offset = original_input_channel * out_c_pack + out_c_idx * 4;
+
+        COMPUTE_FLOAT4 weigths = CONVERT_COMPUTE_FLOAT4(vload4(0, kernel_ptr + weight_offset));
+        out0 = mad(non_zero_val, weights, out0);
+    }
+    #ifdef RELU
+        out0 = fmax(out0, (COMPUTE_FLOAT4)0);
+    #endif
+
+    #ifdef RELU6
+        out0 = clamp(out0, (COMPUTE_FLOAT4)0, (COMPUTE_FLOAT4)6);
+    #endif
+
+    const int offset = out_c_idx * 4;
+    vstore4(CONVERT_FLOAT4(out0), 0, output + offset);
+}
+*/
+#define MAX_VALID 2048
+
+typedef struct {
+    int idx;
+    FLOAT val;
+} ValidEntry;
+// input(c/4, 1, 1, 1, 4)  weight(c, c)
+//__kernel
+//void conv_2d_1x1_c4h1w1_sparse(GLOBAL_SIZE_2_DIMS __private const int out_w_blocks,
+//                          __global const FLOAT *input,
+//                          __global const FLOAT *kernel_ptr,
+//                          __global const FLOAT *bias_ptr,
+//                          __global FLOAT *output,
+//                          __private const int in_c_block,
+//                          __private const int out_h,
+//                          __private const int out_w,
+//                          __private const int out_b,
+//                          __private const int out_c_block,
+//                          __private const int out_c_pack,
+//                          __private const float threshold,
+//                          __global FLOAT *non_zero_values,
+//                          __global FLOAT *non_zero_indices,
+//                          __global int num_non_zero){
+//    
+//    const int out_c_idx = get_global_id(0);
+//    if (out_c_idx >= out_c_block) return;
+//    COMPUTE_FLOAT4 out0 = CONVERT_COMPUTE_FLOAT4(vload4(out_c_idx, bias_ptr));
+//
+//    int num_non_zero = 2048;
+//    int non_zero_indices[2048];
+//    int non_zero_values[2048];
+//
+//    int gid = get_global_id(0);
+//    if (gid >= out_c_block) return;
+//    FLOAT v = input[gid];
+//    if (fabs(v) >= threshold) {
+//        non_zero_indices[gid] = gid;
+//        non_zero_values[gid] = v;
+//    }
+//
+//    //for (int in_c_idx = 0; in_c_idx < in_c_block; ++in_c_idx) {
+//    //    int input_offset = in_c_idx * 4;
+//    //    COMPUTE_FLOAT4 input_vals = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset));
+//    //    // 用掩码减少分支
+//    //    FLOAT vals[4] = {input_vals.x, input_vals.y, input_vals.z, input_vals.w};
+//    //    #pragma unroll
+//    //    for (int j = 0; j < 4; ++j) {
+//    //        FLOAT v = vals[j];
+//    //        if (fabs(v) >= threshold) {
+//    //            if (num_valid < MAX_VALID) {
+//    //                valid_entries[num_valid].idx = in_c_idx * 4 + j;
+//    //                valid_entries[num_valid].val = v;
+//    //                num_valid++;
+//    //            }
+//    //        }
+//    //    }
+//    //    // 可选：提前break，防止溢出
+//    //    if (num_valid >= MAX_VALID) break;
+//    //}
+//
+//    // 2. 再遍历有效索引做累加
+//    for (int i = 0; i < num_non_zero; ++i){
+//        COMPUTE_FLOAT non_zero_val = (COMPUTE_FLOAT)non_zero_values[i];
+//        int original_input_channel = non_zero_indices[i];
+//        int weight_offset = original_input_channel * out_c_pack + out_c_idx * 4;
+//
+//        COMPUTE_FLOAT4 weights = CONVERT_COMPUTE_FLOAT4(vload4(0, kernel_ptr + weight_offset));
+//        out0 = mad(non_zero_val, weights, out0);
+//    }
+//
+//    #ifdef RELU
+//        out0 = fmax(out0, (COMPUTE_FLOAT4)0);
+//    #endif
+//
+//    #ifdef RELU6
+//        out0 = clamp(out0, (COMPUTE_FLOAT4)0, (COMPUTE_FLOAT4)6);
+//    #endif
+//
+//    const int offset = out_c_idx * 4;
+//    vstore4(CONVERT_FLOAT4(out0), 0, output + offset);
+//}
+
+#define LOCAL_LENGTH 256
+
+__kernel void conv_2d_1x1_c4h1w1_sparse(GLOBAL_SIZE_2_DIMS 
+                          __private const int out_w_blocks,
+                          __global const FLOAT *input,
+                          __global const FLOAT *kernel_ptr,
+                          __global const FLOAT *bias_ptr,
+                          __global FLOAT *output,
+                          __private const int in_c_block,
+                          __private const int out_h,
+                          __private const int out_w,
+                          __private const int out_b,
+                          __private const int out_c_block,
+                          __private const int out_c_pack,
+                          __private const float threshold) {
+    
+    const int out_c_idx = get_global_id(0);
+    const int in_c_idx = get_global_id(1);
+    
+
+    if (out_c_idx >= out_c_block) return;
+    if (in_c_idx >= in_c_block) return;
+
+    const int l_idx = get_local_id(1);
+    const int group_size = get_local_size(1);
+
+    //int sparse_indices[4];
+    //FLOAT sparse_values[4];
+    //int sparse_count = 0;
+
+    COMPUTE_FLOAT4 private_sum4 = (COMPUTE_FLOAT4)(0.0f, 0.0f, 0.0f, 0.0f);
+    __local COMPUTE_FLOAT4 local_sums4[LOCAL_LENGTH];
+
+    const int input_offset = in_c_idx * 4;
+    const int out_offset = out_c_idx * 4;
+
+    COMPUTE_FLOAT4 input_vals = CONVERT_COMPUTE_FLOAT4(vload4(0, input + in_c_idx * 4));
+
+    
+    /*
+    if (fabs(input_vals.x) >= threshold) {
+        sparse_indices[sparse_count] = input_offset;
+        sparse_values[sparse_count] = input_vals.x;
+        sparse_count++;
+    }
+
+    if (fabs(input_vals.y) >= threshold) {
+        sparse_indices[sparse_count] = input_offset + 1;
+        sparse_values[sparse_count] = input_vals.y;
+        sparse_count++;
+    }
+
+    if (fabs(input_vals.z) >= threshold) {
+        sparse_indices[sparse_count] = input_offset + 2;
+        sparse_values[sparse_count] = input_vals.z;
+        sparse_count++;
+    }
+
+    if (fabs(input_vals.w) >= threshold) {
+        sparse_indices[sparse_count] = input_offset + 3;
+        sparse_values[sparse_count] = input_vals.w;
+        sparse_count++;
+    }
+    
+    #pragma unroll
+    for (int i = 0; i < sparse_count; ++i) {
+        int input_channel = sparse_indices[i];
+        COMPUTE_FLOAT input_val = (COMPUTE_FLOAT)sparse_values[i];
+        
+        int weight_offset = input_channel * out_c_pack + out_offset;
+        COMPUTE_FLOAT4 weights = CONVERT_COMPUTE_FLOAT4(vload4(0, kernel_ptr + weight_offset));
+        
+        //out0 = mad(input_val, weights, out0);
+        private_sum4 = mad(input_val, weights, private_sum4);
+    }
+    */
+    
+    if (fabs(input_vals.x) >= threshold) {
+        int input_channel = input_offset + 0;
+        int weight_offset = input_channel * out_c_pack + out_offset;
+        COMPUTE_FLOAT4 weights = CONVERT_COMPUTE_FLOAT4(vload4(0, kernel_ptr + weight_offset));
+        private_sum4 = mad(input_vals.x, weights, private_sum4);
+    }
+    if (fabs(input_vals.y) >= threshold) {
+        int input_channel = input_offset + 1;
+        int weight_offset = input_channel * out_c_pack + out_offset;
+        COMPUTE_FLOAT4 weights = CONVERT_COMPUTE_FLOAT4(vload4(0, kernel_ptr + weight_offset));
+        private_sum4 = mad(input_vals.y, weights, private_sum4);
+    }
+    if (fabs(input_vals.z) >= threshold) {
+        int input_channel = input_offset + 2;
+        int weight_offset = input_channel * out_c_pack + out_offset;
+        COMPUTE_FLOAT4 weights = CONVERT_COMPUTE_FLOAT4(vload4(0, kernel_ptr + weight_offset));
+        private_sum4 = mad(input_vals.z, weights, private_sum4);
+    }
+    if (fabs(input_vals.w) >= threshold) {
+        int input_channel = input_offset + 3;
+        int weight_offset = input_channel * out_c_pack + out_offset;
+        COMPUTE_FLOAT4 weights = CONVERT_COMPUTE_FLOAT4(vload4(0, kernel_ptr + weight_offset));
+        private_sum4 = mad(input_vals.w, weights, private_sum4);
+    }
+
+    local_sums4[l_idx] = private_sum4;
+    barrier(CLK_LOCAL_MEM_FENCE);
+
+
+    for (int i = group_size / 2; i > 0; i >>= 1){
+        if (l_idx < i){
+            local_sums4[l_idx] += local_sums4[l_idx + i];
+        }
+        barrier(CLK_LOCAL_MEM_FENCE);
+    }
+
+    if (l_idx == 0){
+        
+        COMPUTE_FLOAT4 sum = local_sums4[0];
+        
+        sum += CONVERT_COMPUTE_FLOAT4(vload4(out_c_idx, bias_ptr));
+        
+        #ifdef RELU
+            sum = fmax(sum, (COMPUTE_FLOAT4)0);
+        #endif
+        #ifdef RELU6
+            sum = clamp(sum, (COMPUTE_FLOAT4)0, (COMPUTE_FLOAT4)6);
+        #endif
+        
+        vstore4(CONVERT_FLOAT4(sum), 0, output + out_c_idx * 4);
+        
+    }
+}
+
+__kernel void conv_2d_1x1_c4h1w1_sparse_large(GLOBAL_SIZE_2_DIMS 
+                          __private const int out_w_blocks,
+                          __global const FLOAT *input,
+                          __global const FLOAT *kernel_ptr,
+                          __global const FLOAT *bias_ptr,
+                          __global FLOAT *output,
+                          __private const int in_c_block,
+                          __private const int out_h,
+                          __private const int out_w,
+                          __private const int out_b,
+                          __private const int out_c_block,
+                          __private const int out_c_pack,
+                          __private const float threshold){
+
+    const int out_c_idx = get_global_id(0);
+    const int in_c_idx = get_global_id(1);
+
+    if (out_c_idx >= out_c_block) return;
+    if (in_c_idx >= in_c_block) return;
+
+    const int l_idx = get_local_id(1);
+    const int group_size = get_global_size(1);
+
+    COMPUTE_FLOAT4 private_sum4 = (COMPUTE_FLOAT4)(0.0f, 0.0f, 0.0f, 0.0f);
+    __local COMPUTE_FLOAT4 local_sums4[LOCAL_LENGTH];
+
+    const int out_offset = out_c_idx * 4;
+
+    #pragma unroll
+    for (int v = 0; v < 4; ++v){
+        int input_offset = in_c_idx * 16 + v * 4;
+        COMPUTE_FLOAT4 input_vals = CONVERT_COMPUTE_FLOAT4(vload4(0, input + input_offset));
+
+        if (fabs(input_vals.x) >= threshold) {
+            int input_channel = input_offset + 0;
+            int weight_offset = input_channel * out_c_pack + out_offset;
+            COMPUTE_FLOAT4 weights = CONVERT_COMPUTE_FLOAT4(vload4(0, kernel_ptr + weight_offset));
+            private_sum4 = mad(input_vals.x, weights, private_sum4);
+        }
+        if (fabs(input_vals.y) >= threshold) {
+            int input_channel = input_offset + 1;
+            int weight_offset = input_channel * out_c_pack + out_offset;
+            COMPUTE_FLOAT4 weights = CONVERT_COMPUTE_FLOAT4(vload4(0, kernel_ptr + weight_offset));
+            private_sum4 = mad(input_vals.y, weights, private_sum4);
+        }
+        if (fabs(input_vals.z) >= threshold) {
+            int input_channel = input_offset + 2;
+            int weight_offset = input_channel * out_c_pack + out_offset;
+            COMPUTE_FLOAT4 weights = CONVERT_COMPUTE_FLOAT4(vload4(0, kernel_ptr + weight_offset));
+            private_sum4 = mad(input_vals.z, weights, private_sum4);
+        }
+        if (fabs(input_vals.w) >= threshold) {
+            int input_channel = input_offset + 3;
+            int weight_offset = input_channel * out_c_pack + out_offset;
+            COMPUTE_FLOAT4 weights = CONVERT_COMPUTE_FLOAT4(vload4(0, kernel_ptr + weight_offset));
+            private_sum4 = mad(input_vals.w, weights, private_sum4);
+        }
+    }
+
+    local_sums4[l_idx] = private_sum4;
+    barrier(CLK_LOCAL_MEM_FENCE);
+
+    for (int i = group_size / 2; i > 0; i >>= 1){
+        if (l_idx < i){
+            local_sums4[l_idx] += local_sums4[l_idx + i];
+        }
+        barrier(CLK_LOCAL_MEM_FENCE);
+    }
+
+    if (l_idx == 0){
+        
+        COMPUTE_FLOAT4 sum = local_sums4[0];
+        
+        sum += CONVERT_COMPUTE_FLOAT4(vload4(out_c_idx, bias_ptr));
+        
+        #ifdef RELU
+            sum = fmax(sum, (COMPUTE_FLOAT4)0);
+        #endif
+        #ifdef RELU6
+            sum = clamp(sum, (COMPUTE_FLOAT4)0, (COMPUTE_FLOAT4)6);
+        #endif
+        
+        vstore4(CONVERT_FLOAT4(sum), 0, output + out_c_idx * 4);
+        
+    }
+
+}
+
+
 __kernel
 void conv_2d_1x1_c4h1w1(GLOBAL_SIZE_2_DIMS __private const int out_w_blocks,
                           __global const FLOAT *input,
@@ -497,10 +837,11 @@ void conv_2d_1x1_c4h1w1(GLOBAL_SIZE_2_DIMS __private const int out_w_blocks,
                           __private const int out_b,
                           __private const int out_c_block,
                           __private const int out_c_pack) {
+    
 
     const int out_c_w_idx = get_global_id(0); //c/4 w
     const int out_b_h_idx  = get_global_id(1); //b h
-
+    //printf("%d ", out_c_pack);
     DEAL_NON_UNIFORM_DIM2(out_c_w_idx, out_b_h_idx);
 
     const int out_c_idx = out_c_w_idx / out_w;
@@ -543,8 +884,11 @@ void conv_2d_1x1_c4h1w1(GLOBAL_SIZE_2_DIMS __private const int out_w_blocks,
     const int out_offset = (((out_b_idx + out_c_idx*out_b)*out_h + out_h_idx)* out_w + out_w_idx)*4;
 
     vstore4(CONVERT_FLOAT4(out0), 0, output+out_offset);
-}
 
+    //if (get_global_id(0) == 0 && get_global_id(1) == 0) {
+    //    vstore4(CONVERT_FLOAT4(out0), 0, debug_buffer);
+    //}
+}
 
 __kernel
 void conv_2d_1x1_c4h1w2(GLOBAL_SIZE_2_DIMS __private const int out_w_blocks,

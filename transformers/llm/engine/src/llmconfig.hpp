@@ -612,6 +612,27 @@ public:
     }
     
     // speculative decoding config end >
+
+    float target_sparsity() const {
+        return config_.value("target_sparsity", 0.5f);
+    }
+
+    std::string thresholds_file() const{
+        return config_.value("thresholds_file", "thresholds_file.json");
+    }
+
+    std::string max_values_file() const{
+        return config_.value("max_values_file", "max_values_file.json");
+    }
+
+    bool enable_threshold_callback() const{
+        return config_.value("enable_threshold_callback", false);
+    }
+
+    bool enable_max_value_callback() const{
+        return config_.value("enable_max_value_callback", false);
+    }
+
 };
 } // Transformer
 } // MNN
