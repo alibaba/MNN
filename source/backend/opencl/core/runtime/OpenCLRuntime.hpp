@@ -175,9 +175,6 @@ public:
         return mFlops;
     }
     
-    bool canShareRuntime(int platformSize, int platformId, int deviceId, void *contextPtr){
-        return (platformSize == mInitInfo.platformSize) && (platformId == mInitInfo.platformId) && (deviceId == mInitInfo.deviceId) && (contextPtr == mInitInfo.contextPtr);
-    }
 
     double getCostTime(const cl::Event *event);
     double getQueuedTime(const cl::Event *event);

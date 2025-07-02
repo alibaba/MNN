@@ -1,16 +1,12 @@
-# MNN-TaoAvatar Android - Local 3D Avatar Intelligence
 
-<div align="center">
-  <b style="color:red;">⚠️ Attention: this folder has been moved to: </b>
-  <a href="../MnnTaoAvatar/README.md">apps/Android/MnnTaoAvatar</a>
-</div>
+# MNN-TaoAvatar Android - Local 3D Avatar Intelligence
 
 <p align="center">
   <img width="20%" alt="Icon"  src="https://meta.alicdn.com/data/mnn/avatar/avatar_demo.gif" style="margin: 0 10px;">
 </p>
 
-+ [中文](../MnnTaoAvatar/README_CN.md)
-+ [Download](../MnnTaoAvatar/README.md#releases) 
++ [中文](./README_CN.md)
++ [Download](#releases) 
 
 Welcome to **MNN-TaoAvatar App**, a full-featured mobile app about the [TaoAvatar paper (arXiv:2503.17032v1)](https://arxiv.org/html/2503.17032v1). This project brings multimodal AI avatars to life directly on Android devices, running **all models locally**, including:
 
@@ -32,7 +28,7 @@ Welcome to **MNN-TaoAvatar App**, a full-featured mobile app about the [TaoAvata
 - **100% offline** and privacy-focused
 
 ## How it Works
-![alt text](../MnnTaoAvatar/assets/tao_avatar_process.jpg)
+![alt text](./assets/tao_avatar_process.jpg)
 
 ## Requirements
 
@@ -66,6 +62,12 @@ cd apps/Android/MnnTaoAvatar
 ```bash
 ./gradlew installDebug
 ```
+
+## Releases
+## Version 0.0.1
++ Click here to [download](https://meta.alicdn.com/data/mnn/avatar/mnn_taoavatar_0_0_1.apk)
++ this is our first public released version; you can chat with 3d avatar in the app with asr and tts; if you have any questions, please feel free to open an issue for assistance.
+
 
 ## Links And References
 

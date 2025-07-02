@@ -458,7 +458,10 @@ table TensorDescribe {
 enum ForwardType : byte {
     CPU = 0,
     METAL,
+    CUDA,
     OPENCL,
+    AUTO,
+    NNAPI,
     OPENGLES,
     VULKAN,
 }

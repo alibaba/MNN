@@ -24,6 +24,16 @@ namespace MNN {
 
 extern const std::map<std::string, const char*> OpenCLProgramMap;
 static std::mutex gCLMutex;
+static std::weak_ptr<::cl::Context> globalContext;
+static std::mutex gCLContextMutex;
+static std::shared_ptr<::cl::Context> getGlobalContext(){
+    return globalContext.lock();
+        }
+
+static void setGlobalContext(std::shared_ptr<cl::Context> Context){
+    std::lock_guard<std::mutex> lck(gCLContextMutex);
+    globalContext = Context;
+}
 
 bool OpenCLRuntime::getDeviceSupportsExtension(const cl::Device &device, const char *extensionName) {
     std::string extensions = device.getInfo<CL_DEVICE_EXTENSIONS>();
@@ -98,7 +108,6 @@ OpenCLRuntime::OpenCLRuntime(int platformSize, int platformId, int deviceId, voi
         #ifdef ENABLE_OPENCL_TIME_PROFILER
             properties |= CL_QUEUE_PROFILING_ENABLE;
         #endif
-            cl_int res;
             // if device is QUALCOMM's and version is 2.0 , set spacial optimized param
 
             sscanf(deviceVersion.c_str(), "%*s%f%*s", &mCLVersion);
@@ -200,11 +209,15 @@ OpenCLRuntime::OpenCLRuntime(int platformSize, int platformId, int deviceId, voi
                     // Do nothing
                 });
             }else{
-                if(context_properties.size() > 0){
-                    context_properties.push_back(0);
-                    mContext = std::shared_ptr<cl::Context>(new cl::Context(std::vector<cl::Device>({*mFirstGPUDevicePtr}), context_properties.data(), nullptr, nullptr, &res));
-                }else{
-                    mContext = std::shared_ptr<cl::Context>(new cl::Context(std::vector<cl::Device>({*mFirstGPUDevicePtr}), nullptr, nullptr, nullptr, &res));
+                mContext = getGlobalContext();
+                if(mContext == nullptr){
+                    if(context_properties.size() > 0){
+                        context_properties.push_back(0);
+                        mContext = std::shared_ptr<cl::Context>(new cl::Context(std::vector<cl::Device>({*mFirstGPUDevicePtr}), context_properties.data(), nullptr, nullptr, &res));
+                    }else{
+                        mContext = std::shared_ptr<cl::Context>(new cl::Context(std::vector<cl::Device>({*mFirstGPUDevicePtr}), nullptr, nullptr, nullptr, &res));
+                    }
+                    setGlobalContext(mContext);
                 }
             }
             MNN_CHECK_CL_SUCCESS(res, "context");

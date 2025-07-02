@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">MNN TaoAvatar</string>
+    <string name="app_name">MNN-TaoAvatar</string>
     <string name="start">Start</string>
     <string name="stop">Stop</string>
     <string name="release_to_send">Release to Send, Slide up to cancel</string>
