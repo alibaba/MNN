@@ -36,7 +36,7 @@ struct ModelListView: View {
                                 .font(.system(size: 12, weight: .regular))
                                 .foregroundColor(showOptions ? .primaryBlue : .black )
                             Image(systemName: "chevron.down")
-                                .frame(width: 12, height: 12, alignment: .leading)
+                                .frame(width: 10, height: 10, alignment: .leading)
                                 .scaledToFit()
                                 .foregroundColor(showOptions ? .primaryBlue : .black )
                         }

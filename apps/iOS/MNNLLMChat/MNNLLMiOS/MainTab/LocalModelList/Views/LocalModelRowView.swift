@@ -44,19 +44,18 @@ struct LocalModelRowView: View {
                 }
                 
                 HStack {
-                    HStack(alignment: .center, spacing: 2) {
+                    HStack(alignment: .bottom, spacing: 2) {
                         Image(systemName: "folder")
                             .font(.caption)
                             .fontWeight(.medium)
                             .foregroundColor(.gray)
                             .frame(width: 20, height: 20)
                         
-                        Text("3.4 GB")
+                        Text(model.formattedSize)
                             .font(.caption)
                             .fontWeight(.medium)
                             .foregroundColor(.gray)
                     }
-                    
 
                     Spacer()
                     

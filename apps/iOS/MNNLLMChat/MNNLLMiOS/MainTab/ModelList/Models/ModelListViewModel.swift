@@ -10,7 +10,7 @@ import SwiftUI
 
 @MainActor
 class ModelListViewModel: ObservableObject {
-    @Published private(set) var models: [ModelInfo] = []
+    @Published var models: [ModelInfo] = []
     @Published private(set) var downloadProgress: [String: Double] = [:]
     @Published private(set) var currentlyDownloading: String?
     @Published var showError = false
@@ -77,9 +77,33 @@ class ModelListViewModel: ObservableObject {
             // Sort models
             sortModels(fetchedModels: &fetchedModels)
             
+            // 异步获取未下载模型的大小信息
+            Task {
+                await fetchModelSizes(for: fetchedModels)
+            }
+            
         } catch {
             showError = true
             errorMessage = "Error: \(error.localizedDescription)"
+        }
+    }
+    
+    private func fetchModelSizes(for models: [ModelInfo]) async {
+        await withTaskGroup(of: Void.self) { group in
+            for (_, model) in models.enumerated() {
+                if !model.isDownloaded && model.cachedSize == nil {
+                    group.addTask {
+                        if let size = await model.fetchRemoteSize() {
+                            await MainActor.run {
+                                // 查找当前模型在实际数组中的索引
+                                if let modelIndex = self.models.firstIndex(where: { $0.modelId == model.modelId }) {
+                                    self.models[modelIndex].cachedSize = size
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
     

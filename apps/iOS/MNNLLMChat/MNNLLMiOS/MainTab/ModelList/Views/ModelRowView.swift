@@ -100,10 +100,24 @@ struct ModelRowView: View {
                         HStack(alignment: .bottom, spacing: 2) {
                             Image(systemName: "folder")
                                 .font(.caption2)
-//                            Text(model.formattedSize)
-                            Text("3.6 GB")
+                            Text(model.formattedSize)
                                 .font(.caption2)
-                                .padding(.top, 4)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.8)
+                                .offset(y: 1)
+                                .onAppear {
+                                    if !model.isDownloaded && model.cachedSize == nil {
+                                        Task {
+                                            if let size = await model.fetchRemoteSize() {
+                                                await MainActor.run {
+                                                    if let index = viewModel.models.firstIndex(where: { $0.modelId == model.modelId }) {
+                                                        viewModel.models[index].cachedSize = size
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                         }
                         .foregroundColor(.gray)
                     }
