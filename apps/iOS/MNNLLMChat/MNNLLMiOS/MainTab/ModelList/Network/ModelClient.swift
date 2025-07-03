@@ -13,6 +13,8 @@ class ModelClient {
     private let baseURL = "https://huggingface.co"
     private let maxRetries = 5
     
+    private var currentDownloadManager: ModelScopeDownloadManager?
+    
     private lazy var baseURLString: String = {
         switch ModelSourceManager.shared.selectedSource {
         case .huggingFace:
@@ -44,6 +46,15 @@ class ModelClient {
             try await downloadFromHuggingFace(model, progress: progress)
         }
     }
+    
+    @MainActor
+    func cancelDownload() async {
+        if let manager = currentDownloadManager {
+            await manager.cancelDownload()
+            currentDownloadManager = nil
+            print("Download cancelled")
+        }
+    }
 
     private func downloadFromModelScope(_ model: ModelInfo,
                                         progress: @escaping (Double) -> Void) async throws {
@@ -53,10 +64,13 @@ class ModelClient {
         config.timeoutIntervalForResource = 300
         
         let manager = ModelScopeDownloadManager.init(repoPath: ModelScopeId, config: config, enableLogging: true, source: ModelSourceManager.shared.selectedSource)
+        currentDownloadManager = manager
         
         try await manager.downloadModel(to:"huggingface/models/taobao-mnn", modelId: ModelScopeId, modelName: model.name) { fileProgress in
             progress(fileProgress)
         }
+        
+        currentDownloadManager = nil
     }
 
     private func downloadFromHuggingFace(_ model: ModelInfo,

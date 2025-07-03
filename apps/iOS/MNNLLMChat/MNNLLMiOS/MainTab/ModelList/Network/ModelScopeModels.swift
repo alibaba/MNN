@@ -10,6 +10,7 @@ import Foundation
 public enum ModelScopeError: Error {
     case invalidURL
     case invalidResponse
+    case downloadCancelled
     case downloadFailed(Error)
     case fileSystemError(Error)
     case invalidData

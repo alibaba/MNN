@@ -1,5 +1,5 @@
 //
-//  ModelClient.swift
+//  ModelScopeDownloadManager.swift
 //  MNNLLMiOS
 //
 //  Created by 游薪渝(揽清) on 2025/2/20.
@@ -30,6 +30,11 @@ public actor ModelScopeDownloadManager: Sendable {
     private var totalSize: Int64 = 0
     private var downloadedSize: Int64 = 0
     private var lastUpdatedBytes: Int64 = 0
+    
+    // Download cancellation related properties
+    private var isCancelled: Bool = false
+    private var currentDownloadTask: Task<Void, Error>?
+    private var currentFileHandle: FileHandle?
     
     // MARK: - Initialization
     
@@ -83,6 +88,9 @@ public actor ModelScopeDownloadManager: Sendable {
         modelName: String,
         progress: ((Double) -> Void)? = nil
     ) async throws {
+        
+        isCancelled = false
+        
         ModelScopeLogger.info("Starting download for modelId: \(modelId)")
         
         let destination = try resolveDestinationPath(base: destinationFolder, modelId: modelName)
@@ -98,6 +106,21 @@ public actor ModelScopeDownloadManager: Sendable {
             destinationPath: destination,
             progress: progress ?? { _ in }
         )
+    }
+    
+    /// Cancel download
+    /// Preserve downloaded temporary files to support resume functionality
+    public func cancelDownload() async {
+        isCancelled = true
+        
+        currentDownloadTask?.cancel()
+        currentDownloadTask = nil
+        
+        await closeFileHandle()
+        
+        session.invalidateAndCancel()
+        
+        ModelScopeLogger.info("Download cancelled, temporary files preserved for resume")
     }
     
     // MARK: - Private Methods
@@ -131,6 +154,8 @@ public actor ModelScopeDownloadManager: Sendable {
         var lastError: Error?
         
         for attempt in 1...maxRetries {
+            if isCancelled { break }
+            
             do {
                 print("Attempt \(attempt) of \(maxRetries) for file: \(file.name)")
                 try await downloadFileWithRetry(
@@ -162,6 +187,11 @@ public actor ModelScopeDownloadManager: Sendable {
         destinationPath: String,
         onProgress: @escaping (Int64) -> Void
     ) async throws {
+        
+        if isCancelled {
+            throw ModelScopeError.downloadCancelled
+        }
+        
         let session = self.session
         
         ModelScopeLogger.info("Starting download for file: \(file.name)")
@@ -209,13 +239,15 @@ public actor ModelScopeDownloadManager: Sendable {
         ModelScopeLogger.debug("Requesting URL: \(url)")
         
         return try await withCheckedThrowingContinuation { continuation in
-            Task {
+            currentDownloadTask = Task {
                 do {
                     let (asyncBytes, response) = try await session.bytes(for: request)
                     ModelScopeLogger.debug("Response status code: \((response as? HTTPURLResponse)?.statusCode ?? -1)")
                     try validateResponse(response)
                     
                     let fileHandle = try FileHandle(forWritingTo: tempURL)
+                    self.currentFileHandle = fileHandle
+                    
                     if resumeOffset > 0 {
                         try fileHandle.seek(toOffset: UInt64(resumeOffset))
                     }
@@ -223,6 +255,15 @@ public actor ModelScopeDownloadManager: Sendable {
                     var downloadedBytes: Int64 = resumeOffset
                     
                     for try await byte in asyncBytes {
+                        // Frequently check cancellation status
+                        if isCancelled {
+                            try fileHandle.close()
+                            self.currentFileHandle = nil
+                            // Don't delete temp files when cancelled, preserve resume functionality
+                            continuation.resume(throwing: ModelScopeError.downloadCancelled)
+                            return
+                        }
+                        
                         try fileHandle.write(contentsOf: [byte])
                         downloadedBytes += 1
                         if downloadedBytes % 1024 == 0 {
@@ -231,6 +272,7 @@ public actor ModelScopeDownloadManager: Sendable {
                     }
                     
                     try fileHandle.close()
+                    self.currentFileHandle = nil
                     
                     let finalSize = try FileManager.default.attributesOfItem(atPath: tempURL.path)[.size] as? Int64 ?? 0
                     guard finalSize == file.size else {
@@ -250,8 +292,16 @@ public actor ModelScopeDownloadManager: Sendable {
                     onProgress(downloadedBytes)
                     continuation.resume()
                 } catch {
-                    ModelScopeLogger.error("Download failed: \(error.localizedDescription)")
-                    storage.clearFileStatus(at: destination.path)
+                    // Clean up file handle when handling errors
+                    if let handle = self.currentFileHandle {
+                        try? handle.close()
+                        self.setCurrentFileHandle(nil)
+                    }
+                    
+                    if !isCancelled {
+                        ModelScopeLogger.error("Download failed: \(error.localizedDescription)")
+                        storage.clearFileStatus(at: destination.path)
+                    }
                     continuation.resume(throwing: error)
                 }
             }
@@ -265,6 +315,10 @@ public actor ModelScopeDownloadManager: Sendable {
         progress: @escaping (Double) -> Void
     ) async throws {
         ModelScopeLogger.info("Starting download with \(files.count) files")
+        
+        if isCancelled {
+            throw ModelScopeError.downloadCancelled
+        }
         
         func calculateTotalSize(files: [ModelFile]) async throws -> Int64 {
             var size: Int64 = 0
@@ -288,6 +342,11 @@ public actor ModelScopeDownloadManager: Sendable {
         }
         
         for file in files {
+            
+            if Task.isCancelled || isCancelled {
+                throw ModelScopeError.downloadCancelled
+            }
+            
             ModelScopeLogger.debug("Processing: \(file.name), type: \(file.type)")
             
             if file.type == "tree" {
@@ -342,6 +401,34 @@ public actor ModelScopeDownloadManager: Sendable {
                 
                 progress(Double(downloadedSize) / Double(totalSize))
             }
+        }
+    }
+    
+    
+    private func resetDownloadState() async {
+        totalFiles = 0
+        downloadedFiles = 0
+        totalSize = 0
+        downloadedSize = 0
+        lastUpdatedBytes = 0
+    }
+    
+    private func resetCancelStatus() {
+        isCancelled = false
+        
+        totalFiles = 0
+        downloadedFiles = 0
+        totalSize = 0
+        downloadedSize = 0
+        lastUpdatedBytes = 0
+    }
+    
+    private func closeFileHandle() async {
+        do {
+            try currentFileHandle?.close()
+            currentFileHandle = nil
+        } catch {
+            print("Error closing file handle: \(error)")
         }
     }
     
@@ -409,5 +496,28 @@ public actor ModelScopeDownloadManager: Sendable {
         try fileManager.createDirectoryIfNeeded(at: modelScopePath.path)
         
         return modelScopePath.path
+    }
+    
+    private func setCurrentFileHandle(_ handle: FileHandle?) {
+        currentFileHandle = handle
+    }
+    
+    private func getTempFileSize(for file: ModelFile, destinationPath: String) -> Int64 {
+        let modelHash = repoPath.hash
+        let fileHash = file.path.hash
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("model_\(modelHash)_file_\(fileHash)_\(file.name.sanitizedPath).tmp")
+        
+        guard fileManager.fileExists(atPath: tempURL.path) else {
+            return 0
+        }
+        
+        do {
+            let attributes = try fileManager.attributesOfItem(atPath: tempURL.path)
+            return attributes[.size] as? Int64 ?? 0
+        } catch {
+            ModelScopeLogger.error("Failed to get temp file size for \(file.name): \(error)")
+            return 0
+        }
     }
 }

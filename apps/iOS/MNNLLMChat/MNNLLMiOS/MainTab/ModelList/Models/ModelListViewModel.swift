@@ -140,28 +140,41 @@ class ModelListViewModel: ObservableObject {
         
         currentlyDownloading = model.modelId
         downloadProgress[model.modelId] = 0
-        Task(priority: .background) {
-            do {
-                try await modelClient.downloadModel(model: model) { progress in
-                    Task { @MainActor in
-                        DispatchQueue.main.async {
-                            self.downloadProgress[model.modelId] = progress
-                        }
-                    }
+        
+        do {
+            try await modelClient.downloadModel(model: model) { progress in
+                Task { @MainActor in
+                    self.downloadProgress[model.modelId] = progress
                 }
-                
-                if let index = models.firstIndex(where: { $0.modelId == model.modelId }) {
-                    models[index].isDownloaded = true
-                    DispatchQueue.main.async {
-                        ModelStorageManager.shared.markModelAsDownloaded(model.modelId)
-                    }
-                }
-            } catch {
+            }
+            
+            if let index = models.firstIndex(where: { $0.modelId == model.modelId }) {
+                models[index].isDownloaded = true
+                ModelStorageManager.shared.markModelAsDownloaded(model.modelId)
+            }
+            
+        } catch {
+            
+            if case ModelScopeError.downloadCancelled = error {
+                print("Download was cancelled")
+            } else {
                 showError = true
                 errorMessage = "Failed to download model: \(error.localizedDescription)"
             }
+        }
         
+        currentlyDownloading = nil
+        downloadProgress.removeValue(forKey: model.modelId)
+    }
+    
+    func cancelDownload() async {
+        if let modelId = currentlyDownloading {
+            await modelClient.cancelDownload()
+            
+            downloadProgress.removeValue(forKey: modelId)
             currentlyDownloading = nil
+            
+            print("Download cancelled for model: \(modelId)")
         }
     }
 
@@ -187,20 +200,17 @@ class ModelListViewModel: ObservableObject {
             let fileManager = FileManager.default
             let modelPath = URL.init(filePath: model.localPath)
             
-            // 获取模型目录下的所有文件
             if let files = try? fileManager.contentsOfDirectory(
                 at: modelPath,
                 includingPropertiesForKeys: nil,
                 options: [.skipsHiddenFiles]
             ) {
-                // 清理每个文件的下载状态
                 let storage = ModelDownloadStorage()
                 for file in files {
                     storage.clearFileStatus(at: file.path)
                 }
             }
             
-            // 删除文件
             if fileManager.fileExists(atPath: modelPath.path) {
                 try fileManager.removeItem(at: modelPath)
             }

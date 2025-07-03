@@ -77,12 +77,18 @@ struct ModelRowView: View {
                     }
                 } else {
                     if isDownloading {
-                        ProgressView(value: downloadProgress)
-                            .progressViewStyle(CircularProgressViewStyle())
-                            .frame(width: 28, height: 28)
-                        Text(String(format: "%.2f%%", downloadProgress * 100))
-                            .font(.caption2)
-                            .foregroundColor(.gray)
+                        Button(action: {
+                            Task {
+                                await viewModel.cancelDownload()
+                            }
+                        }) {
+                            ProgressView(value: downloadProgress)
+                                .progressViewStyle(CircularProgressViewStyle())
+                                .frame(width: 28, height: 28)
+                            Text(String(format: "%.2f%%", downloadProgress * 100))
+                                .font(.caption2)
+                                .foregroundColor(.gray)
+                        }
                     } else {
                         Button(action: onDownload) {
                             Image(systemName: "arrow.down.circle.fill")
