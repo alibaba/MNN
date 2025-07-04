@@ -41,12 +41,8 @@ struct SourceSelector: View {
                     .font(.system(size: 10))
                     .foregroundColor(.primary)
             }
-            .padding(.horizontal, 12)
+            .padding(.horizontal, 6)
             .padding(.vertical, 6)
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(Color(.separator), lineWidth: 1)
-            )
         }
     }
 }
