@@ -30,7 +30,7 @@ struct TBModelRowView: View {
     }
     
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .top, spacing: 0) {
             // 模型图标
             ModelIconView(modelId: model.id)
                 .frame(width: 40, height: 40)
@@ -43,13 +43,6 @@ struct TBModelRowView: View {
                     .fontWeight(.semibold)
                     .lineLimit(1)
                 
-                // 最后使用时间
-                if let lastUsedAt = model.lastUsedAt {
-                    Text("Last used: \(lastUsedAt.formatAgo())")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                }
-                
                 // 标签列表
                 if !localizedTags.isEmpty {
                     TagsView(tags: localizedTags)
@@ -58,7 +51,6 @@ struct TBModelRowView: View {
             
             Spacer()
             
-            // 操作按钮区域
             ActionButtonsView(
                 model: model,
                 viewModel: viewModel,
@@ -71,6 +63,10 @@ struct TBModelRowView: View {
             )
         }
         .padding(.vertical, 8)
+        .contentShape(Rectangle()) // 确保整个区域都可以点击
+        .onTapGesture {
+            handleRowTap()
+        }
         .alert("确认删除", isPresented: $showDeleteAlert) {
             Button("删除", role: .destructive) {
                 Task {
@@ -80,6 +76,18 @@ struct TBModelRowView: View {
             Button("取消", role: .cancel) { }
         } message: {
             Text("是否确认删除该模型？")
+        }
+    }
+    
+    private func handleRowTap() {
+        if model.isDownloaded {
+            return
+        } else if isDownloading {
+            Task {
+                await viewModel.cancelDownload()
+            }
+        } else if !isOtherDownloading {
+            onDownload()
         }
     }
 }
