@@ -12,47 +12,42 @@ struct TBModelListView: View {
     @State private var searchText = ""
     
     var body: some View {
-        NavigationView {
-            VStack(spacing: 0) {
-                SearchBar(text: $searchText)
-                    .onChange(of: searchText) { _, newValue in
-                        viewModel.searchText = newValue
-                    }
-                
-                ScrollView {
-                    LazyVStack(spacing: 8) {
-                        ForEach(Array(viewModel.filteredModels.enumerated()), id: \.element.id) { index, model in
-                            TBModelRowView(
-                                model: model,
-                                viewModel: viewModel,
-                                downloadProgress: viewModel.downloadProgress[model.id] ?? 0,
-                                isDownloading: viewModel.currentlyDownloading == model.id,
-                                isOtherDownloading: viewModel.currentlyDownloading != nil && viewModel.currentlyDownloading != model.id
-                            ) {
-                                Task {
-                                    await viewModel.downloadModel(model)
-                                }
-                            }
-                            .padding(.horizontal, 16)
-                            
-                            if index < viewModel.filteredModels.count - 1 {
-                                Divider()
-                                    .padding(.horizontal, 16)
-                            }
+
+        ScrollView {
+            LazyVStack(spacing: 8) {
+                ForEach(Array(viewModel.filteredModels.enumerated()), id: \.element.id) { index, model in
+                    TBModelRowView(
+                        model: model,
+                        viewModel: viewModel,
+                        downloadProgress: viewModel.downloadProgress[model.id] ?? 0,
+                        isDownloading: viewModel.currentlyDownloading == model.id,
+                        isOtherDownloading: viewModel.currentlyDownloading != nil && viewModel.currentlyDownloading != model.id
+                    ) {
+                        Task {
+                            await viewModel.downloadModel(model)
                         }
                     }
-                    .padding(.vertical, 8)
-                }
-                .refreshable {
-                    await viewModel.fetchModels()
+                    .padding(.horizontal, 16)
+                    
+                    if index < viewModel.filteredModels.count - 1 {
+                        Divider()
+                            .padding(.horizontal, 16)
+                    }
                 }
             }
-            .navigationBarTitleDisplayMode(.inline)
-            .alert("错误", isPresented: $viewModel.showError) {
-                Button("确定") { }
-            } message: {
-                Text(viewModel.errorMessage)
-            }
+            .padding(.vertical, 8)
+        }
+        .searchable(text: $searchText, prompt: "Search models...")
+        .onChange(of: searchText) { _, newValue in
+            viewModel.searchText = newValue
+        }
+        .refreshable {
+            await viewModel.fetchModels()
+        }
+        .alert("错误", isPresented: $viewModel.showError) {
+            Button("确定") { }
+        } message: {
+            Text(viewModel.errorMessage)
         }
     }
 }

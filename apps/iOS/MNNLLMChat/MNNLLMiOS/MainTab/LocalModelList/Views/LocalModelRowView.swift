@@ -44,7 +44,7 @@ struct LocalModelRowView: View {
                 }
                 
                 HStack {
-                    HStack(alignment: .bottom, spacing: 2) {
+                    HStack(alignment: .center, spacing: 2) {
                         Image(systemName: "folder")
                             .font(.caption)
                             .fontWeight(.medium)

@@ -48,6 +48,7 @@ struct TBModelRowView: View {
                     TagsView(tags: localizedTags)
                 }
             }
+            .padding(.leading, 8)
             
             Spacer()
             
@@ -210,7 +211,7 @@ private struct PendingDownloadButtonView: View {
         Button(action: onDownload) {
             Image(systemName: "arrow.down.circle.fill")
                 .font(.title2)
-                .foregroundColor(isOtherDownloading ? .secondary : .accentColor)
+                .foregroundColor(isOtherDownloading ? .secondary : .primaryPurple)
         }
         .disabled(isOtherDownloading)
         
