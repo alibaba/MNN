@@ -22,6 +22,9 @@
 #include "core/OpCommonUtils.hpp"
 #include "backend/cpu/OneDNNConvolution.hpp"
 #include "backend/cpu/compute/ConvInt8TiledExecutor.hpp"
+#ifdef MNN_KLEIDIAI_ENABLED
+#include "backend/cpu/compute/KleidiAIConvolution.hpp"
+#endif //MNN_KLEIDIAI_ENABLED
 
 namespace MNN {
 
@@ -60,6 +63,14 @@ static Execution* _createUnit(const Tensor* input, const Tensor* output, Backend
 #endif
 #ifndef MNN_REDUCE_SIZE
     if (fastWay && cpuBackend->functions()->matmulBytes == 0) {
+#ifdef MNN_KLEIDIAI_ENABLED
+        auto bytes = cpuBackend->functions()->bytes; 
+        auto accelType = (bytes==2) ? KleidiAI::AccelType::FP16 : KleidiAI::AccelType::FP32;
+        KleidiAI& kai = KleidiAI::getInstance(*MNNGetCPUInfo(), bytes == 2, false);
+        if (kai.canAccelerate(accelType)){
+            return new KleidiAIConvolution(common, backend, originWeight, originWeightSize, bias, biasSize);
+        }
+#endif //MNN_KLEIDIAI_ENABLED
         return new Convolution1x1Strassen(common, backend, originWeight, originWeightSize, bias, biasSize);
     }
 #endif

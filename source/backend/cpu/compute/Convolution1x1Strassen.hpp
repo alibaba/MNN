@@ -26,9 +26,6 @@ public:
     virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
 private:
     std::shared_ptr<CPUConvolution::Resource> mResource;
-#ifdef MNN_KLEIDIAI_ENABLED
-    std::shared_ptr<Tensor> mInputResource;
-#endif
 
     struct Unit {
         bool mValid = true;
@@ -38,9 +35,6 @@ private:
 
     std::vector<Unit> mUnits;
     int mWeightBytes = 4;
-#ifdef MNN_KLEIDIAI_ENABLED
-    KleidiAI::AccelType mAccelType = KleidiAI::AccelType::ACC_TYPE_NUMBER;
-#endif
 };
 #endif
 } // namespace MNN
