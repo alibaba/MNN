@@ -18,7 +18,7 @@ struct MainTabView: View {
     @State private var navigateToSettings = false  // 新增状态变量
     @StateObject private var modelListViewModel = ModelListViewModel()
     @State private var selectedTab: Int = 0
-    @State private var titles = ["本地模型", "模型市场", "Benchmark"]
+    @State private var titles = ["本地模型", "模型市场", "TB模型", "Benchmark"]
     
     var body: some View {
         ZStack {
@@ -36,12 +36,18 @@ struct MainTabView: View {
                             Text("模型市场")
                         }
                         .tag(1)
+                    TBModelListView()
+                        .tabItem {
+                            Image(systemName: "doc.text.fill")
+                            Text("TB模型")
+                        }
+                        .tag(2)
                     BenchmarkView()
                         .tabItem {
                             Image(systemName: "clock.fill")
                             Text("Benchmark")
                         }
-                        .tag(2)
+                        .tag(3)
                 }
                 .background(
                     ZStack {
@@ -178,4 +184,3 @@ struct MainTabView: View {
         UITabBar.appearance().scrollEdgeAppearance = appearance
     }
 }
-
