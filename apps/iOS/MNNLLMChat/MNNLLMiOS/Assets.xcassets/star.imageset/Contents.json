@@ -1,11 +1,11 @@
 {
   "images" : [
     {
+      "filename" : "star.png",
       "idiom" : "universal",
       "scale" : "1x"
     },
     {
-      "filename" : "home_icon.png",
       "idiom" : "universal",
       "scale" : "2x"
     },
