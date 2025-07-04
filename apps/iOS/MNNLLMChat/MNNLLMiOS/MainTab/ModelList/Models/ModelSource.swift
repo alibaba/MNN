@@ -9,7 +9,7 @@ import Foundation
 
 public enum ModelSource: String, CaseIterable, Identifiable {
     case modelScope = "ModelScope"
-    case huggingFace = "Hugging Face"
+    case huggingFace = "HuggingFace"
     case modeler = "Modeler"
     
     public var id: Self { self }

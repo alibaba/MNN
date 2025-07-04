@@ -16,6 +16,7 @@ class TBModelListViewModel: ObservableObject {
     @Published var showError = false
     @Published var errorMessage = ""
     @Published var searchText = ""
+    @Published var quickFilterTags: [String] = []
     
     @Published var selectedModel: TBModelInfo?
     
@@ -25,6 +26,24 @@ class TBModelListViewModel: ObservableObject {
     public var pinnedModelIds: [String] {
         get { UserDefaults.standard.stringArray(forKey: pinnedModelKey) ?? [] }
         set { UserDefaults.standard.setValue(newValue, forKey: pinnedModelKey) }
+    }
+    
+    // 获取所有可用的标签
+    var allTags: [String] {
+        let allTags = Set(models.flatMap { $0.tags })
+        return Array(allTags)
+    }
+    
+    // 获取所有可用的分类
+    var allCategories: [String] {
+        let allCategories = Set(models.compactMap { $0.categories }.flatMap { $0 })
+        return Array(allCategories)
+    }
+    
+    // 获取所有可用的厂商
+    var allVendors: [String] {
+        let allVendors = Set(models.compactMap { $0.vendor })
+        return Array(allVendors)
     }
     
     var filteredModels: [TBModelInfo] {
@@ -77,6 +96,12 @@ class TBModelListViewModel: ObservableObject {
             // Sort models
             sortModels(fetchedModels: &fetchedModels)
             
+            // 加载 quickFilterTags 和 tagTranslations
+            if let mockResponse = try? await loadMockResponse() {
+                quickFilterTags = mockResponse.quickFilterTags ?? []
+                TagTranslationManager.shared.loadTagTranslations(mockResponse.tagTranslations)
+            }
+            
             // 异步获取未下载模型的大小信息
             Task {
                 await fetchModelSizes(for: fetchedModels)
@@ -86,6 +111,15 @@ class TBModelListViewModel: ObservableObject {
             showError = true
             errorMessage = "Error: \(error.localizedDescription)"
         }
+    }
+    
+    private func loadMockResponse() async throws -> TBMockDataResponse? {
+        guard let url = Bundle.main.url(forResource: "mock", withExtension: "json") else {
+            return nil
+        }
+        
+        let data = try Data(contentsOf: url)
+        return try JSONDecoder().decode(TBMockDataResponse.self, from: data)
     }
     
     private func fetchModelSizes(for models: [TBModelInfo]) async {

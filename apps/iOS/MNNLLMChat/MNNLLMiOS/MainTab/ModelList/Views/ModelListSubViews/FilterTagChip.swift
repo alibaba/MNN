@@ -1,0 +1,29 @@
+//
+//  FilterTagChip.swift
+//  MNNLLMiOS
+//
+//  Created by 游薪渝(揽清) on 2025/1/3.
+//
+
+import SwiftUI
+
+// MARK: - 筛选标签芯片
+struct FilterTagChip: View {
+    let text: String
+    let isSelected: Bool
+    let onTap: () -> Void
+    
+    var body: some View {
+        Button(action: onTap) {
+            Text(text)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(isSelected ? .white : .primary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(isSelected ? Color.accentColor : Color(.systemGray6))
+                )
+        }
+    }
+}

@@ -115,7 +115,7 @@ private struct TagChip: View {
     let text: String
     
     var body: some View {
-        Text(text)
+        Text(TagTranslationManager.shared.getLocalizedTag(text))
             .font(.caption)
             .foregroundColor(.secondary)
             .padding(.horizontal, 8)

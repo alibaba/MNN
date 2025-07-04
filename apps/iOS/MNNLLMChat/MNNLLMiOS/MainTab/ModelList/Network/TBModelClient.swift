@@ -35,7 +35,7 @@ class TBModelClient {
         let mockResponse = try JSONDecoder().decode(TBMockDataResponse.self, from: data)
         
         // 加载全局标签翻译
-//        TagTranslationManager.shared.loadTagTranslations(mockResponse.tagTranslations)
+        TagTranslationManager.shared.loadTagTranslations(mockResponse.tagTranslations)
         
         return mockResponse.models
     }
