@@ -155,22 +155,32 @@ class TBModelListViewModel: ObservableObject {
         fetchedModels.sort { (model1, model2) -> Bool in
             let isPinned1 = pinned.contains(model1.id)
             let isPinned2 = pinned.contains(model2.id)
+            let isDownloading1 = currentlyDownloading == model1.id
+            let isDownloading2 = currentlyDownloading == model2.id
             
+            // 1. 正在下载的模型优先级最高
+            if isDownloading1 != isDownloading2 {
+                return isDownloading1
+            }
+            
+            // 2. 置顶的模型次优先级
             if isPinned1 != isPinned2 {
                 return isPinned1
             }
             
+            // 3. 如果都是置顶的，按置顶时间排序
             if isPinned1 && isPinned2 {
                 let index1 = pinned.firstIndex(of: model1.id)!
                 let index2 = pinned.firstIndex(of: model2.id)!
                 return index1 > index2 // Pinned later comes first
             }
             
-            // Non-pinned models
+            // 4. 非置顶模型按下载状态排序
             if model1.isDownloaded != model2.isDownloaded {
                 return model1.isDownloaded
             }
             
+            // 5. 如果都已下载，按最后使用时间排序
             if model1.isDownloaded {
                 let date1 = model1.lastUsedAt ?? .distantPast
                 let date2 = model2.lastUsedAt ?? .distantPast
