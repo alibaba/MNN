@@ -40,7 +40,6 @@ class TBModelClient {
         return mockResponse.models
     }
     
-    @MainActor
     func downloadModel(model: TBModelInfo,
                        progress: @escaping (Double) -> Void) async throws {
         switch ModelSourceManager.shared.selectedSource {
@@ -51,7 +50,6 @@ class TBModelClient {
         }
     }
     
-    @MainActor
     func cancelDownload() async {
         if let manager = currentDownloadManager {
             await manager.cancelDownload()

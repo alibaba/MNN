@@ -13,30 +13,36 @@ struct TBModelListView: View {
     
     var body: some View {
         NavigationView {
-            VStack {
+            VStack(spacing: 0) {
                 SearchBar(text: $searchText)
                     .onChange(of: searchText) { _, newValue in
                         viewModel.searchText = newValue
                     }
                 
-                List {
-                    ForEach(Array(viewModel.filteredModels.enumerated()), id: \.element.id) { index, model in
-                        TBModelRowView(
-                            model: model,
-                            viewModel: viewModel,
-                            downloadProgress: viewModel.downloadProgress[model.id] ?? 0,
-                            isDownloading: viewModel.currentlyDownloading == model.id,
-                            isOtherDownloading: viewModel.currentlyDownloading != nil && viewModel.currentlyDownloading != model.id
-                        ) {
-                            Task {
-                                await viewModel.downloadModel(model)
+                ScrollView {
+                    LazyVStack(spacing: 8) {
+                        ForEach(Array(viewModel.filteredModels.enumerated()), id: \.element.id) { index, model in
+                            TBModelRowView(
+                                model: model,
+                                viewModel: viewModel,
+                                downloadProgress: viewModel.downloadProgress[model.id] ?? 0,
+                                isDownloading: viewModel.currentlyDownloading == model.id,
+                                isOtherDownloading: viewModel.currentlyDownloading != nil && viewModel.currentlyDownloading != model.id
+                            ) {
+                                Task {
+                                    await viewModel.downloadModel(model)
+                                }
+                            }
+                            .padding(.horizontal, 16)
+                            
+                            if index < viewModel.filteredModels.count - 1 {
+                                Divider()
+                                    .padding(.horizontal, 16)
                             }
                         }
-                        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
-                        .listRowSeparator(.hidden)
                     }
+                    .padding(.vertical, 8)
                 }
-                .listStyle(PlainListStyle())
                 .refreshable {
                     await viewModel.fetchModels()
                 }

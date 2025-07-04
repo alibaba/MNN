@@ -19,124 +19,202 @@ struct TBModelRowView: View {
     
     @State private var showDeleteAlert = false
     
+    // 预计算本地化标签，避免重复计算
+    private var localizedTags: [String] {
+        model.localizedTags
+    }
+    
+    // 预计算格式化大小，避免重复计算
+    private var formattedSize: String {
+        model.formattedSize
+    }
+    
     var body: some View {
-        HStack(alignment: .top) {
+        HStack(alignment: .top, spacing: 12) {
+            // 模型图标
             ModelIconView(modelId: model.id)
                 .frame(width: 40, height: 40)
             
-            VStack(alignment: .leading, spacing: 5) {
+            // 主要信息区域
+            VStack(alignment: .leading, spacing: 6) {
+                // 模型名称
                 Text(model.modelName)
                     .font(.headline)
                     .fontWeight(.semibold)
                     .lineLimit(1)
                 
+                // 最后使用时间
                 if let lastUsedAt = model.lastUsedAt {
                     Text("Last used: \(lastUsedAt.formatAgo())")
                         .font(.caption2)
-                        .foregroundColor(.gray)
+                        .foregroundColor(.secondary)
                 }
                 
-                if !model.localizedTags.isEmpty {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack {
-                            ForEach(model.localizedTags, id: \.self) { tag in
-                                Text(tag)
-                                    .fontWeight(.regular)
-                                    .font(.caption)
-                                    .foregroundColor(.gray)
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 3)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 8)
-                                            .stroke(Color.gray.opacity(0.5), lineWidth: 0.5)
-                                    )
-                            }
-                        }
-                    }
-                    .frame(height: 25)
+                // 标签列表
+                if !localizedTags.isEmpty {
+                    TagsView(tags: localizedTags)
                 }
             }
             
             Spacer()
             
-            VStack(alignment: .center, spacing: 4) {
-                if model.isDownloaded {
-                    Button(action: {
-                        showDeleteAlert = true
-                    }) {
-                        Image(systemName: "trash")
-                            .fontWeight(.regular)
-                            .foregroundColor(.black.opacity(0.8))
-                            .frame(width: 20, height: 20)
-                        
-                        Text("已下载")
-                            .font(.caption2)
-                            .foregroundColor(.gray)
-                            .padding(.top, 4)
-                    }
-                } else {
-                    if isDownloading {
-                        Button(action: {
-                            Task {
-                                await viewModel.cancelDownload()
-                            }
-                        }) {
-                            ProgressView(value: downloadProgress)
-                                .progressViewStyle(CircularProgressViewStyle())
-                                .frame(width: 28, height: 28)
-                            Text(String(format: "%.2f%%", downloadProgress * 100))
-                                .font(.caption2)
-                                .foregroundColor(.gray)
-                        }
-                    } else {
-                        Button(action: onDownload) {
-                            Image(systemName: "arrow.down.circle.fill")
-                                .font(.title2)
-                            }
-                            .foregroundColor(isOtherDownloading ? .gray : .primaryPurple)
-                            .disabled(isOtherDownloading)
-                        
-                        HStack(alignment: .bottom, spacing: 2) {
-                            Image(systemName: "folder")
-                                .font(.caption2)
-                            Text(model.formattedSize)
-                                .font(.caption2)
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.8)
-                                .offset(y: 1)
-                                .onAppear {
-                                    if !model.isDownloaded && model.cachedSize == nil && model.size_gb == nil {
-                                        Task {
-                                            if let size = await model.fetchRemoteSize() {
-                                                await MainActor.run {
-                                                    if let index = viewModel.models.firstIndex(where: { $0.id == model.id }) {
-                                                        viewModel.models[index].cachedSize = size
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                        }
-                        .foregroundColor(.gray)
-                    }
-                }
-            }
-            
-            .frame(width: 60)
-        }
-        .padding(.vertical, 8)
-        .alert(isPresented: $showDeleteAlert) {
-            Alert(
-                title: Text("确认删除"),
-                message: Text("是否确认删除该模型？"),
-                primaryButton: .destructive(Text("删除")) {
-                    Task {
-                        await viewModel.deleteModel(model)
-                    }
-                },
-                secondaryButton: .cancel(Text("取消"))
+            // 操作按钮区域
+            ActionButtonsView(
+                model: model,
+                viewModel: viewModel,
+                downloadProgress: downloadProgress,
+                isDownloading: isDownloading,
+                isOtherDownloading: isOtherDownloading,
+                formattedSize: formattedSize,
+                onDownload: onDownload,
+                showDeleteAlert: $showDeleteAlert
             )
         }
+        .padding(.vertical, 8)
+        .alert("确认删除", isPresented: $showDeleteAlert) {
+            Button("删除", role: .destructive) {
+                Task {
+                    await viewModel.deleteModel(model)
+                }
+            }
+            Button("取消", role: .cancel) { }
+        } message: {
+            Text("是否确认删除该模型？")
+        }
+    }
+}
+
+// MARK: - 子视图组件
+
+private struct TagsView: View {
+    let tags: [String]
+    
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(tags, id: \.self) { tag in
+                    TagChip(text: tag)
+                }
+            }
+            .padding(.horizontal, 1)
+        }
+        .frame(height: 25)
+    }
+}
+
+private struct TagChip: View {
+    let text: String
+    
+    var body: some View {
+        Text(text)
+            .font(.caption)
+            .foregroundColor(.secondary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color.secondary.opacity(0.3), lineWidth: 0.5)
+            )
+    }
+}
+
+private struct ActionButtonsView: View {
+    let model: TBModelInfo
+    @ObservedObject var viewModel: TBModelListViewModel
+    let downloadProgress: Double
+    let isDownloading: Bool
+    let isOtherDownloading: Bool
+    let formattedSize: String
+    let onDownload: () -> Void
+    @Binding var showDeleteAlert: Bool
+    
+    var body: some View {
+        VStack(alignment: .center, spacing: 4) {
+            if model.isDownloaded {
+                // 已下载状态
+                DownloadedButtonView(showDeleteAlert: $showDeleteAlert)
+            } else if isDownloading {
+                // 下载中状态
+                DownloadingButtonView(
+                    viewModel: viewModel,
+                    downloadProgress: downloadProgress
+                )
+            } else {
+                // 待下载状态
+                PendingDownloadButtonView(
+                    isOtherDownloading: isOtherDownloading,
+                    formattedSize: formattedSize,
+                    onDownload: onDownload
+                )
+            }
+        }
+        .frame(width: 60)
+    }
+}
+
+private struct DownloadedButtonView: View {
+    @Binding var showDeleteAlert: Bool
+    
+    var body: some View {
+        Button(action: { showDeleteAlert = true }) {
+            VStack(spacing: 2) {
+                Image(systemName: "trash")
+                    .font(.system(size: 16))
+                    .foregroundColor(.primary.opacity(0.8))
+                
+                Text("已下载")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+        }
+    }
+}
+
+private struct DownloadingButtonView: View {
+    @ObservedObject var viewModel: TBModelListViewModel
+    let downloadProgress: Double
+    
+    var body: some View {
+        Button(action: {
+            Task {
+                await viewModel.cancelDownload()
+            }
+        }) {
+            VStack(spacing: 2) {
+                ProgressView(value: downloadProgress)
+                    .progressViewStyle(CircularProgressViewStyle(tint: .accentColor))
+                    .frame(width: 24, height: 24)
+                
+                Text(String(format: "%.2f%%", downloadProgress * 100))
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+        }
+    }
+}
+
+private struct PendingDownloadButtonView: View {
+    let isOtherDownloading: Bool
+    let formattedSize: String
+    let onDownload: () -> Void
+    
+    var body: some View {
+        Button(action: onDownload) {
+            Image(systemName: "arrow.down.circle.fill")
+                .font(.title2)
+                .foregroundColor(isOtherDownloading ? .secondary : .accentColor)
+        }
+        .disabled(isOtherDownloading)
+        
+        HStack(alignment: .center, spacing: 2) {
+            Image(systemName: "folder")
+                .font(.caption2)
+            
+            Text(formattedSize)
+                .font(.caption2)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        .foregroundColor(.secondary)
     }
 }

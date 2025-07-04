@@ -123,7 +123,13 @@ public actor ModelScopeDownloadManager: Sendable {
         ModelScopeLogger.info("Download cancelled, temporary files preserved for resume")
     }
     
-    // MARK: - Private Methods
+    // MARK: - Private Methods - Progress Management
+    
+    private func updateProgress(_ progress: Double, callback: @escaping (Double) -> Void) {
+        Task { @MainActor in
+            callback(progress)
+        }
+    }
     
     private func fetchFileList(
         root: String,
@@ -253,6 +259,7 @@ public actor ModelScopeDownloadManager: Sendable {
                     }
                     
                     var downloadedBytes: Int64 = resumeOffset
+                    var bytesCount = 0
                     
                     for try await byte in asyncBytes {
                         // Frequently check cancellation status
@@ -266,8 +273,12 @@ public actor ModelScopeDownloadManager: Sendable {
                         
                         try fileHandle.write(contentsOf: [byte])
                         downloadedBytes += 1
-                        if downloadedBytes % 1024 == 0 {
+                        bytesCount += 1
+                        
+                        // 减少进度回调频率：每 64KB * 5 更新一次而不是每1KB
+                        if bytesCount >= 64 * 1024 * 5 {
                             onProgress(downloadedBytes)
+                            bytesCount = 0
                         }
                     }
                     
@@ -376,15 +387,7 @@ public actor ModelScopeDownloadManager: Sendable {
                         destinationPath: destinationPath,
                         onProgress: { downloadedBytes in
                             let currentProgress = Double(self.downloadedSize + downloadedBytes) / Double(self.totalSize)
-                            progress(currentProgress)
-                            // 1MB = 1,024 * 1,024
-                           let bytesDelta = self.downloadedSize - self.lastUpdatedBytes
-                           if bytesDelta >= 1_024 * 1_024 {
-                               self.lastUpdatedBytes = self.downloadedSize
-                               DispatchQueue.main.async {
-                                   progress(currentProgress)
-                               }
-                           }
+                            self.updateProgress(currentProgress, callback: progress)
                         },
                         maxRetries: 500,
                         retryDelay: 1.0
@@ -399,8 +402,14 @@ public actor ModelScopeDownloadManager: Sendable {
                     ModelScopeLogger.debug("File exists: \(file.name)")
                 }
                 
-                progress(Double(downloadedSize) / Double(totalSize))
+                let currentProgress = Double(downloadedSize) / Double(totalSize)
+                updateProgress(currentProgress, callback: progress)
             }
+        }
+        
+        // 确保最终进度为100%
+        Task { @MainActor in
+            progress(1.0)
         }
     }
     

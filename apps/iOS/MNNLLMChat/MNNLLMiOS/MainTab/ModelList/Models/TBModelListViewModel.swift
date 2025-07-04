@@ -167,9 +167,7 @@ class TBModelListViewModel: ObservableObject {
         
         do {
             try await modelClient.downloadModel(model: model) { progress in
-                Task { @MainActor in
-                    self.downloadProgress[model.id] = progress
-                }
+                self.downloadProgress[model.id] = progress
             }
             
             if let index = models.firstIndex(where: { $0.id == model.id }) {
