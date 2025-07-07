@@ -42,6 +42,15 @@ typedef void (^OutputHandler)(NSString * _Nonnull output);
 - (void)processInput:(NSString *)input withOutput:(OutputHandler)output;
 
 /**
+ * Process user input and generate streaming LLM response with optional performance output
+ * 
+ * @param input The user's input text to process
+ * @param output Callback block that receives streaming output chunks
+ * @param showPerformance Whether to output performance statistics after response completion
+ */
+- (void)processInput:(NSString *)input withOutput:(OutputHandler)output showPerformance:(BOOL)showPerformance;
+
+/**
  * Add chat prompts from an array of dictionaries to the conversation history
  * 
  * @param array NSArray containing NSDictionary objects with chat messages

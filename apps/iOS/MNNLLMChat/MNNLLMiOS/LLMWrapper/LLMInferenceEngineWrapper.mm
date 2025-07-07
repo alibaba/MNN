@@ -468,6 +468,17 @@ private:
  * @param output Callback block that receives streaming output chunks
  */
 - (void)processInput:(NSString *)input withOutput:(OutputHandler)output {
+    [self processInput:input withOutput:output showPerformance:NO];
+}
+
+/**
+ * Processes user input and generates streaming LLM response with optional performance output
+ * 
+ * @param input The user's input text to process
+ * @param output Callback block that receives streaming output chunks
+ * @param showPerformance Whether to output performance statistics after response completion
+ */
+- (void)processInput:(NSString *)input withOutput:(OutputHandler)output showPerformance:(BOOL)showPerformance {
     if (!_llm) {
         if (output) {
             output(@"Error: Model not loaded. Please initialize the model first.");
@@ -494,6 +505,8 @@ private:
     // Use high priority queue for better responsiveness
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
         @try {
+            auto inference_start_time = std::chrono::high_resolution_clock::now();
+            
             OptimizedLlmStreamBuffer::CallBack callback = [output, self](const char* str, size_t len) {
                 if (output && str && len > 0) {
                     @autoreleasepool {
@@ -522,7 +535,60 @@ private:
             if (inputStr == "benchmark") {
                 [self performBenchmarkWithOutput:&os];
             } else {
+                // Get initial context state for performance measurement
+                auto context = self->_llm->getContext();
+                int initial_prompt_len = context->prompt_len;
+                int initial_decode_len = context->gen_seq_len;
+                int64_t initial_prefill_time = context->prefill_us;
+                int64_t initial_decode_time = context->decode_us;
+                
+                // Execute inference
                 self->_llm->response(self->_history, &os, "<eop>", 999999);
+                
+                // Calculate performance metrics if requested
+                if (showPerformance) {
+                    auto inference_end_time = std::chrono::high_resolution_clock::now();
+                    auto total_inference_time = std::chrono::duration_cast<std::chrono::milliseconds>(inference_end_time - inference_start_time);
+                    
+                    // Get final context state
+                    int final_prompt_len = context->prompt_len;
+                    int final_decode_len = context->gen_seq_len;
+                    int64_t final_prefill_time = context->prefill_us;
+                    int64_t final_decode_time = context->decode_us;
+                    
+                    // Calculate differences for this inference
+                    int current_prompt_len = final_prompt_len - initial_prompt_len;
+                    int current_decode_len = final_decode_len - initial_decode_len;
+                    int64_t current_prefill_time = final_prefill_time - initial_prefill_time;
+                    int64_t current_decode_time = final_decode_time - initial_decode_time;
+                    
+                    float prefill_s = current_prefill_time / 1e6;
+                    float decode_s = current_decode_time / 1e6;
+                    
+                    // Format performance results
+                    std::ostringstream performance_output;
+                    performance_output << "\n\n> Performance Results:\n"
+                                      << "> Total inference time: " << total_inference_time.count() << " ms\n;"
+                                      << "> Prompt tokens: " << current_prompt_len << "\n;"
+                                      << "> Generated tokens: " << current_decode_len << "\n;"
+                                      << "> Prefill time: " << std::fixed << std::setprecision(2) << prefill_s << " s\n;"
+                                      << "> Decode time: " << std::fixed << std::setprecision(2) << decode_s << " s\n;"
+                                      << "> Prefill speed: " << std::fixed << std::setprecision(2)
+                                      << (prefill_s > 0 ? current_prompt_len / prefill_s : 0) << " tok/s\n;"
+                                      << "> Decode speed: " << std::fixed << std::setprecision(2)
+                                      << (decode_s > 0 ? current_decode_len / decode_s : 0) << " tok/s\n\n.";
+                    
+                    // Output performance results
+                    std::string perf_str = performance_output.str();
+                    if (output) {
+                        dispatch_async(dispatch_get_main_queue(), ^{
+                            NSString *perfOutput = [NSString stringWithUTF8String:perf_str.c_str()];
+                            if (perfOutput) {
+                                output(perfOutput);
+                            }
+                        });
+                    }
+                }
             }
         }
         @catch (NSException *exception) {
