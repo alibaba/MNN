@@ -17,7 +17,9 @@ struct LLMChatView: View {
     private let title: String
     private let modelPath: String
 
-    private let recorderSettings = RecorderSettings(audioFormatID: kAudioFormatLinearPCM, sampleRate: 44100, numberOfChannels: 2, linearPCMBitDepth: 16)
+    private let recorderSettings = RecorderSettings(audioFormatID: kAudioFormatLinearPCM,
+                                                    sampleRate: 44100, numberOfChannels: 2,
+                                                    linearPCMBitDepth: 16)
 
     @State private var showSettings = false
 
@@ -31,6 +33,15 @@ struct LLMChatView: View {
     var body: some View {
         ChatView(messages: viewModel.messages, chatType: .conversation) { draft in
             viewModel.sendToLLM(draft: draft)
+        }
+        messageBuilder: { message, positionInGroup, positionInCommentsGroup, showContextMenuClosure, messageActionClosure, showAttachmentClosure in
+            LLMChatMessageView(
+                message: message,
+                positionInGroup: positionInGroup,
+                showContextMenuClosure: showContextMenuClosure,
+                messageActionClosure: messageActionClosure,
+                showAttachmentClosure: showAttachmentClosure
+            )
         }
         .setAvailableInput(
             self.title.lowercased().contains("vl") ? .textAndMedia :
@@ -108,5 +119,29 @@ struct LLMChatView: View {
             viewModel.onStart()
         }
         .onDisappear(perform: viewModel.onStop)
+    }
+    
+    // MARK: - LLM Chat Message Builder
+    @ViewBuilder
+    private func LLMChatMessageView(
+        message: Message,
+        positionInGroup: PositionInUserGroup,
+        showContextMenuClosure: @escaping () -> Void,
+        messageActionClosure: @escaping (Message, DefaultMessageMenuAction) -> Void,
+        showAttachmentClosure: @escaping (Attachment) -> Void
+    ) -> some View {
+        LLMMessageView(
+            message: message,
+            positionInGroup: positionInGroup,
+            isAssistantMessage: !message.user.isCurrentUser,
+            isStreamingMessage: viewModel.currentStreamingMessageId == message.id,
+            showContextMenuClosure: {
+                if !viewModel.isProcessing {
+                    showContextMenuClosure()
+                }
+            },
+            messageActionClosure: messageActionClosure,
+            showAttachmentClosure: showAttachmentClosure
+        )
     }
 }

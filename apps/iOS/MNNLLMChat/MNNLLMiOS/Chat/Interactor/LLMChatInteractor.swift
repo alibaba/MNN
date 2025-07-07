@@ -80,7 +80,7 @@ final class LLMChatInteractor: ChatInteractorProtocol {
                 status: status)
             
             DispatchQueue.main.async { [weak self] in
-                // 记录UI更新性能
+                
                 PerformanceMonitor.shared.recordUIUpdate()
                 
                 switch userType {
@@ -98,7 +98,7 @@ final class LLMChatInteractor: ChatInteractorProtocol {
                     self?.processor.startNewChat()
                     
                 case .assistant:
-                    // 使用性能监控包装字符串操作
+                    
                     PerformanceMonitor.shared.measureExecutionTime(operation: "String concatenation") {
                         var updateLastMsg = self?.chatState.value[(self?.chatState.value.count ?? 1) - 1]
                         
@@ -106,7 +106,6 @@ final class LLMChatInteractor: ChatInteractorProtocol {
                             let text = self?.processor.process(progress: message.text) {
                             updateLastMsg?.text = text
                         } else {
-                            // 优化字符串拼接：使用更高效的方式
                             if let currentText = updateLastMsg?.text {
                                 updateLastMsg?.text = currentText + message.text
                             } else {
