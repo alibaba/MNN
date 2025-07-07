@@ -11,7 +11,6 @@ import AVFoundation
 import ExyteChat
 import ExyteMediaPicker
 
-
 final class LLMChatViewModel: ObservableObject {
     
     private var llm: LLMInferenceEngineWrapper?
@@ -21,6 +20,7 @@ final class LLMChatViewModel: ObservableObject {
     @Published var messages: [Message] = []
     @Published var isModelLoaded = false
     @Published var isProcessing: Bool = false
+    @Published var currentStreamingMessageId: String? = nil // 添加当前流式输出消息ID标识
     
     @Published var useMmap: Bool = false
     
@@ -198,7 +198,21 @@ final class LLMChatViewModel: ObservableObject {
     func getLLMRespsonse(draft: DraftMessage) {
         Task {
             await llmState.setProcessing(true)
-            await MainActor.run { self.isProcessing = true }
+            await MainActor.run { 
+                self.isProcessing = true
+                let emptyMessage = DraftMessage(
+                    text: "",
+                    thinkText: "",
+                    medias: [],
+                    recording: nil,
+                    replyMessage: nil,
+                    createdAt: Date()
+                )
+                self.send(draft: emptyMessage, userType: .assistant)
+                if let lastMessage = self.messages.last {
+                    self.currentStreamingMessageId = lastMessage.id
+                }
+            }
             
             var content = draft.text
             let medias = draft.medias
@@ -232,13 +246,37 @@ final class LLMChatViewModel: ObservableObject {
             
             let convertedContent = self.convertDeepSeekMutliChat(content: content)
             
-            await llmState.processContent(convertedContent, llm: self.llm) { [weak self] output in
+            await llmState.processContent(convertedContent, llm: self.llm, showPerformance: true) { [weak self] output in
+                guard let self = self else { return }
+                
+                // 检查是否结束
+                if output.contains("<eop>") {
+                    // force flush
+                    Task {
+                        await UIUpdateOptimizer.shared.forceFlush { finalOutput in
+                            if !finalOutput.isEmpty {
+                                self.send(draft: DraftMessage(
+                                    text: finalOutput,
+                                    thinkText: "",
+                                    medias: [],
+                                    recording: nil,
+                                    replyMessage: nil,
+                                    createdAt: Date()
+                                ), userType: .assistant)
+                            }
+                        }
+                        
+                        await MainActor.run {
+                            self.isProcessing = false
+                            self.currentStreamingMessageId = nil
+                        }
+                        await self.llmState.setProcessing(false)
+                    }
+                    return
+                }
                 Task { @MainActor in
-                    if (output.contains("<eop>")) {
-                        self?.isProcessing = false
-                        await self?.llmState.setProcessing(false)
-                    } else {
-                        self?.send(draft: DraftMessage(
+                await UIUpdateOptimizer.shared.addUpdate(output) { output in
+                        self.send(draft: DraftMessage(
                             text: output,
                             thinkText: "",
                             medias: [],
@@ -248,6 +286,7 @@ final class LLMChatViewModel: ObservableObject {
                         ), userType: .assistant)
                     }
                 }
+                
             }
         }
     }
