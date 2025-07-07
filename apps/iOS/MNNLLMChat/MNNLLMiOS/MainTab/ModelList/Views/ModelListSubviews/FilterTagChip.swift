@@ -7,7 +7,6 @@
 
 import SwiftUI
 
-// MARK: - 筛选标签芯片
 struct FilterTagChip: View {
     let text: String
     let isSelected: Bool
@@ -22,7 +21,7 @@ struct FilterTagChip: View {
                 .padding(.vertical, 6)
                 .background(
                     RoundedRectangle(cornerRadius: 16)
-                        .fill(isSelected ? Color.accentColor : Color(.systemGray6))
+                        .fill(isSelected ? Color.primaryPurple : Color(.systemGray6))
                 )
         }
     }
