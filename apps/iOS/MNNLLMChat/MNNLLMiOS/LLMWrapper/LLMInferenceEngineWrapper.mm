@@ -569,14 +569,14 @@ private:
                     std::ostringstream performance_output;
                     performance_output << "\n\n> Performance Results:\n"
                                       << "> Total inference time: " << total_inference_time.count() << " ms\n;"
-                                      << "> Prompt tokens: " << current_prompt_len << "\n;"
-                                      << "> Generated tokens: " << current_decode_len << "\n;"
-                                      << "> Prefill time: " << std::fixed << std::setprecision(2) << prefill_s << " s\n;"
-                                      << "> Decode time: " << std::fixed << std::setprecision(2) << decode_s << " s\n;"
-                                      << "> Prefill speed: " << std::fixed << std::setprecision(2)
+                                      << "Prompt tokens: " << current_prompt_len << "\n;"
+                                      << "Generated tokens: " << current_decode_len << "\n;"
+                                      << "Prefill time: " << std::fixed << std::setprecision(2) << prefill_s << " s\n;"
+                                      << "Decode time: " << std::fixed << std::setprecision(2) << decode_s << " s\n;"
+                                      << "Prefill speed: " << std::fixed << std::setprecision(2)
                                       << (prefill_s > 0 ? current_prompt_len / prefill_s : 0) << " tok/s\n;"
-                                      << "> Decode speed: " << std::fixed << std::setprecision(2)
-                                      << (decode_s > 0 ? current_decode_len / decode_s : 0) << " tok/s\n\n.";
+                                      << "Decode speed: " << std::fixed << std::setprecision(2)
+                                      << (decode_s > 0 ? current_decode_len / decode_s : 0) << " tok/s\n\n";
                     
                     // Output performance results
                     std::string perf_str = performance_output.str();
