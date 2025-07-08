@@ -9,31 +9,30 @@ import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
 import com.alibaba.mnnllm.android.databinding.ListItemDatasetBinding
 
-data class OptionItem(
+data class DatasetOptionItem(
     val id: String,
     val title: String,
     val subtitle: String,
 )
 
 class DatasetOptionsAdapter(
-    private var items: List<OptionItem>
+    private var items: List<DatasetOptionItem>
 ) : RecyclerView.Adapter<DatasetOptionsAdapter.OptionsViewHolder>() {
 
-    private var listener: ((OptionItem) -> Unit)? = null
+    private var listener: ((DatasetOptionItem) -> Unit)? = null
 
     inner class OptionsViewHolder(private val binding: ListItemDatasetBinding) :
         RecyclerView.ViewHolder(binding.root) {
 
-        fun bind(item: OptionItem) {
+        fun bind(item: DatasetOptionItem) {
             binding.tvItemTitle.text = item.title
             binding.tvItemSubtitle.text = item.subtitle
             binding.ivItemIcon.visibility = View.GONE
-            binding.chipItemBadge.visibility = View.GONE
             this.itemView.tag = item
         }
     }
 
-    fun setOnItemClickListener(listener: (OptionItem) -> Unit) {
+    fun setOnItemClickListener(listener: (DatasetOptionItem) -> Unit) {
         this.listener = listener
     }
 
@@ -44,7 +43,7 @@ class DatasetOptionsAdapter(
             false
         )
         binding.root.setOnClickListener { v->
-            (v.tag as? OptionItem)?.let {
+            (v.tag as? DatasetOptionItem)?.let {
                 listener?.invoke(it)
             }
         }
@@ -58,7 +57,7 @@ class DatasetOptionsAdapter(
 
     override fun getItemCount(): Int = items.size
 
-    fun updateData(newItems: List<OptionItem>) {
+    fun updateData(newItems: List<DatasetOptionItem>) {
         val diffCallback = OptionDiffCallback(this.items, newItems)
         val diffResult = DiffUtil.calculateDiff(diffCallback)
         this.items = newItems
@@ -66,8 +65,8 @@ class DatasetOptionsAdapter(
     }
 
     private class OptionDiffCallback(
-        private val oldList: List<OptionItem>,
-        private val newList: List<OptionItem>
+        private val oldList: List<DatasetOptionItem>,
+        private val newList: List<DatasetOptionItem>
     ) : DiffUtil.Callback(){
         override fun getOldListSize(): Int = oldList.size
         override fun getNewListSize(): Int = newList.size

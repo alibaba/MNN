@@ -11,7 +11,6 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.content.ContextCompat
 import com.alibaba.mnnllm.android.R
-import com.alibaba.mnnllm.android.utils.UiUtils.getThemeColor
 import kotlin.math.max
 
 
@@ -44,13 +43,16 @@ class TagsLayout @JvmOverloads constructor(
         for (tagText in tags) {
             addTagView(tagText)
         }
+        for (i in 0 until childCount) {
+            getChildAt(i).visibility = VISIBLE
+        }
         updateLayout()
     }
 
     private fun addTagView(tagText: String) {
         val tagView = TextView(context)
         tagView.text = tagText
-        tagView.setTextColor(context.getThemeColor(com.google.android.material.R.attr.colorPrimary))
+        tagView.setTextColor(context.getColor(R.color.label_color))
         tagView.setPadding(
             tagPaddingHorizontal,
             tagPaddingVertical,
@@ -59,7 +61,10 @@ class TagsLayout @JvmOverloads constructor(
         )
         tagView.gravity = Gravity.CENTER
         tagView.setTextSize(TypedValue.COMPLEX_UNIT_PX, context.resources.getDimension(R.dimen.h4))
-        tagView.background = ContextCompat.getDrawable(context, R.drawable.shape_tag_view)
+        tagView.background = ContextCompat.getDrawable(context, R.drawable.shape_tag_view_white)
+        // 强制单行显示，不截断
+        tagView.maxLines = 1
+        tagView.isSingleLine = true
 
         val layoutParams = LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -88,15 +93,29 @@ class TagsLayout @JvmOverloads constructor(
             val child = getChildAt(i)
             if (child.visibility != GONE) {
                 val lp = child.layoutParams as MarginLayoutParams
-                val childWidth = child.measuredWidth + lp.leftMargin + lp.rightMargin
+                
+                // 手动计算TextView文本的实际宽度
+                val actualChildWidth = if (child is TextView) {
+                    val textPaint = child.paint
+                    val textWidth = textPaint.measureText(child.text.toString())
+                    textWidth.toInt() + child.paddingLeft + child.paddingRight + lp.leftMargin + lp.rightMargin
+                } else {
+                    child.measuredWidth + lp.leftMargin + lp.rightMargin
+                }
+                
                 val childHeight = child.measuredHeight + lp.topMargin + lp.bottomMargin
 
-                if (currentLeft + childWidth > width - paddingRight) {
-                    currentLeft = paddingLeft
-                    currentTop += maxHeight
-                    maxHeight = 0
+                // 如果当前行放不下这个tag的完整文本，就隐藏这个tag及后面所有的tag
+                if (currentLeft + actualChildWidth > width - paddingRight) {
+                    // 隐藏当前及后面所有的tag
+                    for (j in i until childCount) {
+                        getChildAt(j).visibility = GONE
+                    }
+                    break
                 }
 
+                // 显示当前tag（可能之前被隐藏了）
+                child.visibility = VISIBLE
                 child.layout(
                     currentLeft + lp.leftMargin,
                     currentTop + lp.topMargin,
@@ -104,14 +123,18 @@ class TagsLayout @JvmOverloads constructor(
                     currentTop + lp.topMargin + child.measuredHeight
                 )
 
-                currentLeft += childWidth
+                currentLeft += actualChildWidth
                 maxHeight = max(maxHeight.toDouble(), childHeight.toDouble()).toInt()
             }
         }
     }
 
     private fun updateLayout() {
-        measure(MeasureSpec.UNSPECIFIED, MeasureSpec.UNSPECIFIED)
+        // 先让所有子View都能测量其完整大小
+        for (i in 0 until childCount) {
+            val child = getChildAt(i)
+            child.measure(MeasureSpec.UNSPECIFIED, MeasureSpec.UNSPECIFIED)
+        }
         requestLayout()
     }
 

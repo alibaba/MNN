@@ -19,6 +19,12 @@ object MainSettings {
          }
     }
 
+    fun setDownloadProvider(context: Context, source:String) {
+        val sharedPreferences = PreferenceManager.getDefaultSharedPreferences(context)
+        sharedPreferences.edit().putString("download_provider", source)
+        .apply()
+    }
+
     fun getDownloadProviderString(context: Context):String {
         val sharedPreferences = PreferenceManager.getDefaultSharedPreferences(context)
         return sharedPreferences.getString("download_provider", getDefaultDownloadProvider())!!
@@ -48,6 +54,56 @@ object MainSettings {
         sharedPreferences.edit()
             .putString("diffusion_memory_mode", mode)
             .apply()
+    }
+
+    /**
+     * Get the default TTS model ID
+     */
+    fun getDefaultTtsModel(context: Context): String? {
+        val sharedPreferences = PreferenceManager.getDefaultSharedPreferences(context)
+        return sharedPreferences.getString("default_tts_model", null)
+    }
+
+    /**
+     * Set the default TTS model ID
+     */
+    fun setDefaultTtsModel(context: Context, modelId: String) {
+        val sharedPreferences = PreferenceManager.getDefaultSharedPreferences(context)
+        sharedPreferences.edit()
+            .putString("default_tts_model", modelId)
+            .apply()
+    }
+
+    /**
+     * Check if the given model is the current default TTS model
+     */
+    fun isDefaultTtsModel(context: Context, modelId: String): Boolean {
+        return getDefaultTtsModel(context) == modelId
+    }
+
+    /**
+     * Get the default ASR model ID
+     */
+    fun getDefaultAsrModel(context: Context): String? {
+        val sharedPreferences = PreferenceManager.getDefaultSharedPreferences(context)
+        return sharedPreferences.getString("default_asr_model", null)
+    }
+
+    /**
+     * Set the default ASR model ID
+     */
+    fun setDefaultAsrModel(context: Context, modelId: String) {
+        val sharedPreferences = PreferenceManager.getDefaultSharedPreferences(context)
+        sharedPreferences.edit()
+            .putString("default_asr_model", modelId)
+            .apply()
+    }
+
+    /**
+     * Check if the given model is the current default ASR model
+     */
+    fun isDefaultAsrModel(context: Context, modelId: String): Boolean {
+        return getDefaultAsrModel(context) == modelId
     }
 
 }

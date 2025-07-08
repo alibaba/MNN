@@ -118,6 +118,14 @@ data class ModelConfig(
         }
 
         fun getDefaultConfigFile(modelId:String):String? {
+            if (modelId.startsWith("local/")) {
+                val localPath = modelId.removePrefix("local/")
+                val configFilePath = File(localPath, "config.json")
+                if (configFilePath.exists()) {
+                    return configFilePath.absolutePath
+                }
+                return null
+            }
             val configFileName = "config.json"
             val destModelDir = ModelDownloadManager.getInstance(ApplicationProvider.get())
                 .getDownloadedFile(modelId)?.absolutePath

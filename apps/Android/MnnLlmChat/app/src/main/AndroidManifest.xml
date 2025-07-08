@@ -88,9 +88,25 @@
             </intent-filter>
         </activity>
 
+<!--        <activity-->
+<!--            android:name=".modelsettings.SettingsActivity"-->
+<!--            android:exported="true">-->
+<!--            <intent-filter>-->
+<!--                <action android:name="android.intent.action.MAIN" />-->
+<!--                <category android:name="android.intent.category.DEFAULT" />-->
+<!--            </intent-filter>-->
+<!--        </activity>-->
+
         <activity
-            android:name=".modelsettings.SettingsActivity"
-            android:exported="true">
+            android:name=".debug.DebugActivity"
+            android:exported="false"
+            android:label="@string/debug_activity_title"
+            android:theme="@style/AppTheme" />
+
+        <activity
+            android:name=".debug.DebugAnimationActivity"
+            android:exported="true"
+            android:theme="@style/AppTheme">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -103,6 +119,15 @@
             android:exported="true"
             android:foregroundServiceType="dataSync" >
         </service>
+
+        <activity android:name=".debug.WidgetTestActivity"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
 
     </application>
 

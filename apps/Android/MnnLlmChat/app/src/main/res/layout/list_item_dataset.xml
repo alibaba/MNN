@@ -39,29 +39,12 @@
         android:orientation="vertical"
         app:layout_constraintGuide_end="60dp" />
 
-    <com.google.android.material.chip.Chip
-        android:id="@+id/chip_item_badge"
-        style="@style/Widget.Material3.Chip.Suggestion"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        tools:text="Slow"
-        android:textAppearance="?attr/textAppearanceLabelSmall"
-        android:textColor="?attr/colorPrimary"
-        android:visibility="gone"
-        app:chipBackgroundColor="?attr/colorPrimaryContainer"
-        app:chipMinHeight="24dp"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintTop_toTopOf="parent"
-        tools:visibility="visible" />
-
-    <!--    android:src="@drawable/ic_check_placeholder"-->
-
     <ImageView
         android:id="@+id/iv_item_icon"
         android:layout_width="24dp"
         android:layout_height="24dp"
         android:visibility="gone"
+        android:src="@drawable/ic_check_circle"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintTop_toTopOf="parent"

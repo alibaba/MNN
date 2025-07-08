@@ -5,10 +5,11 @@ package com.alibaba.mnnllm.android.main
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.content.Intent
 import android.os.Bundle
 import android.util.Log
 import android.util.TypedValue
+import android.view.Menu
+import android.view.MenuInflater
 import android.view.MenuItem
 import android.view.View
 import android.view.ViewTreeObserver
@@ -16,22 +17,31 @@ import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.ActionBarDrawerToggle
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.widget.SearchView
 import androidx.appcompat.widget.Toolbar
 import androidx.core.view.GravityCompat
+import androidx.core.view.MenuHost
+import androidx.core.view.MenuProvider
 import androidx.drawerlayout.widget.DrawerLayout
+import androidx.fragment.app.Fragment
+import androidx.lifecycle.Lifecycle
 import com.alibaba.mls.api.download.ModelDownloadManager
 import com.alibaba.mnnllm.android.R
-import com.alibaba.mnnllm.android.chat.ChatActivity
+import com.alibaba.mnnllm.android.benchmark.BenchmarkFragment
+import com.alibaba.mnnllm.android.chat.ChatRouter
 import com.alibaba.mnnllm.android.history.ChatHistoryFragment
-import com.alibaba.mnnllm.android.mainsettings.MainSettings.isStopDownloadOnChatEnabled
+import com.alibaba.mnnllm.android.mainsettings.MainSettingsActivity
 import com.alibaba.mnnllm.android.modelist.ModelListFragment
+import com.alibaba.mnnllm.android.modelmarket.ModelMarketFragment
 import com.alibaba.mnnllm.android.update.UpdateChecker
+import com.alibaba.mnnllm.android.utils.CrashUtil
 import com.alibaba.mnnllm.android.utils.GithubUtils
-import com.alibaba.mnnllm.android.model.ModelUtils
-import com.techiness.progressdialoglibrary.ProgressDialog
-import java.io.File
+import com.alibaba.mnnllm.android.utils.RouterUtils.startActivity
+import com.alibaba.mnnllm.android.utils.Searchable
+import com.alibaba.mnnllm.android.widgets.BottomTabBar
 import com.google.android.material.appbar.AppBarLayout
 import com.google.android.material.appbar.MaterialToolbar
+import com.techiness.progressdialoglibrary.ProgressDialog
 
 class MainActivity : AppCompatActivity() {
     private var progressDialog: ProgressDialog? = null
@@ -42,22 +52,152 @@ class MainActivity : AppCompatActivity() {
     private var toolbarHeightPx: Int = 0
     private var offsetChangedListener: AppBarLayout.OnOffsetChangedListener? = null
     private var modelListFragment: ModelListFragment? = null
-        get() {
-            if (field == null) {
-                field = ModelListFragment()
-            }
-            return field
-        }
+    private var modelMarketFragment: ModelMarketFragment? = null
+    private var benchmarkFragment: BenchmarkFragment? = null
     private var chatHistoryFragment: ChatHistoryFragment? = null
-        get() {
-            if (field == null) {
-                field = ChatHistoryFragment()
-            }
-            return field
-        }
+    private var currentFragment: Fragment? = null
 
     private var filterComponent: FilterComponent? = null
     private var updateChecker: UpdateChecker? = null
+    private lateinit var expandableFabLayout: View
+    
+    // Add field to track current search view
+    private var currentSearchView: SearchView? = null
+
+    private val menuProvider: MenuProvider = object : MenuProvider {
+        override fun onCreateMenu(menu: Menu, menuInflater: MenuInflater) {
+            menuInflater.inflate(R.menu.menu_main, menu)
+            setupSearchView(menu)
+            setupOtherMenuItems(menu)
+        }
+
+        override fun onMenuItemSelected(menuItem: MenuItem): Boolean {
+            return true
+        }
+
+        override fun onPrepareMenu(menu: Menu) {
+            super.onPrepareMenu(menu)
+            val searchItem = menu.findItem(R.id.action_search)
+            val reportCrashMenu = menu.findItem(R.id.action_report_crash)
+            reportCrashMenu.isVisible = CrashUtil.hasCrash()
+            
+            // Show/hide search based on current fragment
+            searchItem.isVisible = when (currentFragment) {
+                modelListFragment, modelMarketFragment -> true
+                else -> false
+            }
+        }
+    }
+
+    private fun setupSearchView(menu: Menu) {
+        val searchItem = menu.findItem(R.id.action_search)
+        val searchView = searchItem.actionView as SearchView?
+        if (searchView != null) {
+            currentSearchView = searchView
+            searchView.setOnQueryTextListener(object : SearchView.OnQueryTextListener {
+                override fun onQueryTextSubmit(query: String): Boolean {
+                    handleSearch(query)
+                    return false
+                }
+
+                override fun onQueryTextChange(query: String): Boolean {
+                    handleSearch(query)
+                    return true
+                }
+            })
+            searchItem.setOnActionExpandListener(object : MenuItem.OnActionExpandListener {
+                override fun onMenuItemActionExpand(item: MenuItem): Boolean {
+                    Log.d(TAG, "SearchView expanded")
+                    return true
+                }
+
+                override fun onMenuItemActionCollapse(item: MenuItem): Boolean {
+                    Log.d(TAG, "SearchView collapsed")
+                    handleSearchCleared()
+                    return true
+                }
+            })
+        }
+    }
+
+    private fun setupOtherMenuItems(menu: Menu) {
+        val issueMenu = menu.findItem(R.id.action_github_issue)
+        issueMenu.setOnMenuItemClickListener { 
+            onReportIssue(null)
+            true
+        }
+        
+        val settingsMenu = menu.findItem(R.id.action_settings)
+        settingsMenu.setOnMenuItemClickListener {
+            startActivity(this@MainActivity, MainSettingsActivity::class.java)
+            true
+        }
+
+        val starGithub = menu.findItem(R.id.action_star_project)
+        starGithub.setOnMenuItemClickListener { 
+            onStarProject(null)
+            true
+        }
+        
+        val reportCrashMenu = menu.findItem(R.id.action_report_crash)
+        reportCrashMenu.setOnMenuItemClickListener {
+            if (CrashUtil.hasCrash()) {
+                CrashUtil.shareLatestCrash(this@MainActivity)
+            }
+            true
+        }
+    }
+
+    private fun handleSearch(query: String) {
+        val searchableFragment = currentFragment as? Searchable
+        searchableFragment?.onSearchQuery(query)
+    }
+
+    private fun handleSearchCleared() {
+        val searchableFragment = currentFragment as? Searchable
+        searchableFragment?.onSearchCleared()
+    }
+
+    /**
+     * Set the SearchView query and expand it if needed
+     */
+    fun setSearchQuery(query: String) {
+        if (query.isEmpty()) return
+        
+        val menu = materialToolbar.menu
+        val searchItem = menu?.findItem(R.id.action_search)
+        
+        if (searchItem != null && searchItem.isVisible) {
+            try {
+                // Expand the search view first
+                searchItem.expandActionView()
+                
+                // Set the query after expansion
+                currentSearchView?.let { searchView ->
+                    searchView.setQuery(query, false)
+                    searchView.clearFocus() // Prevent automatic keyboard popup
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to set search query: $query", e)
+            }
+        }
+    }
+    
+    /**
+     * Get the current search query
+     */
+    fun getCurrentSearchQuery(): String {
+        return currentSearchView?.query?.toString() ?: ""
+    }
+    
+    /**
+     * Clear the search query and collapse the SearchView
+     */
+    fun clearSearch() {
+        val menu = materialToolbar.menu
+        val searchItem = menu?.findItem(R.id.action_search)
+        searchItem?.collapseActionView()
+    }
 
     private fun setupAppBar() {
         appBarLayout = findViewById(R.id.app_bar)
@@ -97,26 +237,95 @@ class MainActivity : AppCompatActivity() {
         }
         appBarLayout.addOnOffsetChangedListener(offsetChangedListener)
     }
+    
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         val toolbar = findViewById<Toolbar>(R.id.toolbar)
         setupAppBar()
-        filterComponent = FilterComponent(this).apply {
-            addVendorFilterListener {
-                modelListFragment?.adapter?.filterVendor(it?: "")
-            }
-            addModalityFilterListener {
-                modelListFragment?.adapter?.filterModality(it?: "")
-            }
-            addDownloadFilterListener {
-                modelListFragment?.adapter?.filterDownloadState(it)
-            }
-        }
         drawerLayout = findViewById(R.id.drawer_layout)
+        expandableFabLayout = findViewById(R.id.expandable_fab_layout)
         updateChecker = UpdateChecker(this)
         updateChecker!!.checkForUpdates(this, false)
         
+        val bottomNav = findViewById<BottomTabBar>(R.id.bottom_navigation)
+        if (savedInstanceState == null) {
+            modelListFragment = ModelListFragment()
+            modelMarketFragment = ModelMarketFragment()
+            benchmarkFragment = BenchmarkFragment()
+            supportFragmentManager.beginTransaction()
+                .add(R.id.main_fragment_container, modelMarketFragment!!, "market").hide(modelMarketFragment!!)
+                .add(R.id.main_fragment_container, benchmarkFragment!!, "benchmark").hide(benchmarkFragment!!)
+                .add(R.id.main_fragment_container, modelListFragment!!, "list")
+                .commit()
+            currentFragment = modelListFragment
+        } else {
+            benchmarkFragment = supportFragmentManager.findFragmentByTag("benchmark") as? BenchmarkFragment
+            modelListFragment = supportFragmentManager.findFragmentByTag("list") as? ModelListFragment
+            modelMarketFragment = supportFragmentManager.findFragmentByTag("market") as? ModelMarketFragment
+            currentFragment = supportFragmentManager.fragments.find { it.isVisible && it.id == R.id.main_fragment_container }
+            
+            // Ensure fragments are not null - create new ones if restoration failed
+            if (modelListFragment == null) {
+                modelListFragment = ModelListFragment()
+                supportFragmentManager.beginTransaction()
+                    .add(R.id.main_fragment_container, modelListFragment!!, "list")
+                    .commit()
+            }
+            if (modelMarketFragment == null) {
+                modelMarketFragment = ModelMarketFragment()
+                supportFragmentManager.beginTransaction()
+                    .add(R.id.main_fragment_container, modelMarketFragment!!, "market").hide(modelMarketFragment!!)
+                    .commit()
+            }
+            if (benchmarkFragment == null) {
+                benchmarkFragment = BenchmarkFragment()
+                supportFragmentManager.beginTransaction()
+                    .add(R.id.main_fragment_container, benchmarkFragment!!, "benchmark").hide(benchmarkFragment!!)
+                    .commit()
+            }
+            
+            // Set currentFragment to modelListFragment if it's null
+            if (currentFragment == null) {
+                currentFragment = modelListFragment
+            }
+        }
+
+        bottomNav.setOnTabSelectedListener { tab ->
+            val targetFragment = when (tab) {
+                BottomTabBar.Tab.LOCAL_MODELS -> modelListFragment
+                BottomTabBar.Tab.MODEL_MARKET -> modelMarketFragment
+                BottomTabBar.Tab.BENCHMARK -> benchmarkFragment
+            }
+            
+            // Only proceed if target fragment is not null
+            if (targetFragment != null && currentFragment != targetFragment) {
+                supportFragmentManager.beginTransaction().hide(currentFragment!!).show(targetFragment).commitNow()
+                currentFragment = targetFragment
+                // Invalidate menu to show/hide search based on current fragment
+                invalidateOptionsMenu()
+            }
+            // Set toolbar title to match selected tab
+            val titleRes = when (tab) {
+                BottomTabBar.Tab.LOCAL_MODELS -> R.string.nav_name_chats
+                BottomTabBar.Tab.MODEL_MARKET -> R.string.models_market
+                BottomTabBar.Tab.BENCHMARK -> R.string.benchmark
+            }
+            supportActionBar?.setTitle(titleRes)
+            
+            // Control ExpandableFabLayout visibility based on selected tab
+            expandableFabLayout.visibility = if (tab == BottomTabBar.Tab.LOCAL_MODELS) {
+                View.VISIBLE
+            } else {
+                View.GONE
+            }
+        }
+        
+        bottomNav.select(BottomTabBar.Tab.LOCAL_MODELS)
+        // Set initial toolbar title
+        supportActionBar?.setTitle(R.string.nav_name_chats)
+        // Set initial fab visibility (show for LOCAL_MODELS)
+        expandableFabLayout.visibility = View.VISIBLE
 
         toggle = ActionBarDrawerToggle(
             this, drawerLayout,
@@ -126,12 +335,9 @@ class MainActivity : AppCompatActivity() {
         )
         drawerLayout.addDrawerListener(toggle!!)
         toggle!!.syncState()
-        supportFragmentManager.beginTransaction()
-            .replace(
-                R.id.main_fragment_container,
-                modelListFragment!!
-            )
-            .commit()
+        if (chatHistoryFragment == null) {
+            chatHistoryFragment = ChatHistoryFragment()
+        }
         supportFragmentManager.beginTransaction()
             .replace(
                 R.id.history_fragment_container,
@@ -149,6 +355,10 @@ class MainActivity : AppCompatActivity() {
         })
         setSupportActionBar(toolbar)
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
+        
+        // Add menu provider to activity
+        val menuHost: MenuHost = this
+        menuHost.addMenuProvider(menuProvider, this, Lifecycle.State.RESUMED)
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
@@ -157,61 +367,22 @@ class MainActivity : AppCompatActivity() {
         }
         return super.onOptionsItemSelected(item)
     }
-
-    fun runModel(destModelDir: String?, modelId: String?, sessionId: String?) {
-        var destPath = destModelDir
-        Log.d(TAG, "runModel destModelDir: $destPath")
-        if (isStopDownloadOnChatEnabled(this)) {
-            ModelDownloadManager.getInstance(this).pauseAllDownloads()
-        }
+    
+    fun runModel(destModelDir: String?, modelIdParam: String?, sessionId: String?) {
+        ChatRouter.startRun(this, modelIdParam!!, destModelDir, sessionId)
         drawerLayout.close()
-        progressDialog = ProgressDialog(this)
-        progressDialog!!.setMessage(resources.getString(R.string.model_loading))
-        progressDialog!!.show()
-        if (destPath == null) {
-            destPath =
-                ModelDownloadManager.getInstance(this).getDownloadedFile(modelId!!)?.absolutePath
-            if (destPath == null) {
-                Toast.makeText(
-                    this,
-                    getString(R.string.model_not_found, modelId),
-                    Toast.LENGTH_LONG
-                ).show()
-                progressDialog?.dismiss()
-                return
-            }
-        }
-        val isDiffusion = ModelUtils.isDiffusionModel(modelId!!)
-        var configFilePath: String? = null
-        if (!isDiffusion) {
-            val configFileName = "config.json"
-            configFilePath = "$destPath/$configFileName"
-            val configFileExists = File(configFilePath).exists()
-            if (!configFileExists) {
-                Toast.makeText(
-                    this,
-                    getString(R.string.config_file_not_found, configFilePath),
-                    Toast.LENGTH_LONG
-                ).show()
-                progressDialog!!.dismiss()
-                return
-            }
-        }
-        progressDialog!!.dismiss()
-        val intent = Intent(this, ChatActivity::class.java)
-        intent.putExtra("chatSessionId", sessionId)
-        if (isDiffusion) {
-            intent.putExtra("diffusionDir", destPath)
-        } else {
-            intent.putExtra("configFilePath", configFilePath)
-        }
-        intent.putExtra("modelId", modelId)
-        intent.putExtra("modelName", ModelUtils.getModelName(modelId))
-        startActivity(intent)
     }
 
     fun onStarProject(view: View?) {
-        GithubUtils.starProject(this)
+        com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.star_project_confirm_title)
+            .setMessage(R.string.star_project_confirm_message)
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                GithubUtils.starProject(this)
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .setCancelable(false)
+            .show()
     }
 
     fun onReportIssue(view: View?) {

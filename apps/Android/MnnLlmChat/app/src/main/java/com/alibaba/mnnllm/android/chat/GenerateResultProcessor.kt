@@ -62,7 +62,7 @@ class GenerateResultProcessor(
      * @param progress The incoming string chunk, or null if the stream has ended.
      */
     fun process(progress: String?) {
-        Log.d(TAG, "process: #${progress}# thinkingStringBuilder ${this.thinkingStringBuilder}")
+//        Log.d(TAG, "process: #${progress}# thinkingStringBuilder ${this.thinkingStringBuilder}")
         if (progress == null) {
             // Handle end of stream: if anything is left in tagBuffer, treat it as normal text.
             if (tagBuffer.isNotEmpty()) {

@@ -5,6 +5,8 @@ package com.alibaba.mls.api.download
 import android.content.Context
 import com.alibaba.mls.api.hf.HfFileMetadata
 import com.alibaba.mls.api.download.DownloadFileUtils.getLastFileName
+import com.alibaba.mnnllm.android.model.ModelUtils
+import com.alibaba.mnnllm.android.utils.FileUtils
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 
@@ -60,23 +62,21 @@ object DownloadPersistentData {
         return sharedPreferences.getLong(SIZE_TOTAL_KEY, 0)
     }
 
-    @JvmStatic
     fun saveDownloadSizeSaved(context: Context, modelId: String, saved: Long) {
-        var modelId = modelId
-        modelId = getLastFileName(modelId)
+        val newModelId = ModelUtils.safeModelId(modelId)
         val sharedPreferences =
-            context.getSharedPreferences("DOWNLOAD_$modelId", Context.MODE_PRIVATE)
+            context.getSharedPreferences("DOWNLOAD_$newModelId", Context.MODE_PRIVATE)
         val editor = sharedPreferences.edit()
         editor.putLong(SIZE_SAVED_KEY, saved)
         editor.apply()
     }
 
     fun getDownloadSizeSaved(context: Context, modelId: String): Long {
-        var modelId = modelId
-        modelId = getLastFileName(modelId)
+        val newModelId = ModelUtils.safeModelId(modelId)
         val sharedPreferences =
-            context.getSharedPreferences("DOWNLOAD_$modelId", Context.MODE_PRIVATE)
-        return sharedPreferences.getLong(SIZE_SAVED_KEY, 0)
+            context.getSharedPreferences("DOWNLOAD_$newModelId", Context.MODE_PRIVATE)
+        val result = sharedPreferences.getLong(SIZE_SAVED_KEY, -1)
+        return result
     }
 
     fun removeProgress(context: Context, modelId: String) {

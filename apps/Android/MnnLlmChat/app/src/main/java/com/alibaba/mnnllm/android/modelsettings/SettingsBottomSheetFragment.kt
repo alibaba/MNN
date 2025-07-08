@@ -21,8 +21,9 @@ import com.alibaba.mnnllm.android.databinding.SettingsRowSliderSwitchBinding
 import com.alibaba.mnnllm.android.llm.LlmSession
 import com.alibaba.mnnllm.android.modelsettings.ModelConfig.Companion.defaultConfig
 import com.alibaba.mnnllm.android.utils.FileUtils
+import com.alibaba.mnnllm.android.utils.MmapUtils
 import com.google.android.material.bottomsheet.BottomSheetBehavior
-import com.google.android.material.bottomsheet.BottomSheetDialogFragment
+import com.alibaba.mnnllm.android.utils.BaseBottomSheetDialogFragment
 import java.io.File
 import java.util.*
 
@@ -43,7 +44,7 @@ val mainSamplerTypes = listOf (
     SamplerType.Mixed
 )
 
-class SettingsBottomSheetFragment : BottomSheetDialogFragment() {
+class SettingsBottomSheetFragment : BaseBottomSheetDialogFragment() {
 
     private lateinit var loadedConfig: ModelConfig
     private lateinit var modelId:String
@@ -98,7 +99,7 @@ class SettingsBottomSheetFragment : BottomSheetDialogFragment() {
             currentConfig.useMmap = isChecked
         }
         binding.buttonClearMmapCache.setOnClickListener {
-            val success = FileUtils.clearMmapCache(modelId)
+            val success = MmapUtils.clearMmapCache(modelId)
             if (success) {
                 needRecreateActivity = true
                 Toast.makeText(requireActivity(), R.string.mmap_cacche_cleared, Toast.LENGTH_LONG).show()

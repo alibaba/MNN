@@ -28,7 +28,24 @@
     <color name="color_on_surface_variant">#666666</color>
 
     <color name="color_disabled">#888888</color>
+    <color name="label_color">#666666</color>
+    <color name="foreground_color">#000000</color>
 
-
-
+    <color name="pinned_overlay_color">#F3F3F3</color>
+    
+    <!-- UED颜色 -->
+    <color name="ued_blue">#2E97F2</color>
+    <color name="ued_blue_light">#F4F9FF</color>
+    <color name="label_not_selected">#F1F1F1</color>
+    <color name="accentColor">#4252B6</color>
+    
+    <!-- Segment Control Colors -->
+    <color name="segment_control_background">#F5F5F5</color>
+    <color name="segment_control_border">#E0E0E0</color>
+    <color name="segment_control_selected_background">#329BEA</color>
+    <color name="segment_control_selected_text">#FFFFFF</color>
+    <color name="segment_control_normal_text">#666666</color>
+    
+    <!-- Message background -->
+    <color name="message_background">#FFF3E0</color>
 </resources>

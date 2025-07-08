@@ -9,58 +9,59 @@ import androidx.core.app.NotificationCompat
 import timber.log.Timber
 
 /**
- * 管理API服务相关通知的类
+ * Class for managing API service related notifications
  *
- * 负责创建、更新和取消与API服务相关的系统通知
- * @property context Android上下文对象
+ * Responsible for creating, updating and canceling system notifications related to API service
+ * @property context Android context object
  */
 class ApiNotificationManager(private val context: Context) {
     private val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
     
     companion object {
-        /** 通知ID常量 */
+        /** Notification ID constant */
         const val NOTIFICATION_ID = 1001
         
-        /** 通知通道ID */
+        /** Notification channel ID */
         private const val CHANNEL_ID = "api_service_channel"
-        
-        /** 通知通道名称 */
-        private const val NOTIFICATION_CHANNEL_NAME = "API 服务通道"
     }
 
     init {
-        // 初始化时创建通知通道
+        // Initialize notification channel during initialization
         initializeNotificationChannel()
     }
 
     /**
-     * 初始化通知通道
+     * Initialize notification channel
      * 
-     * 创建高优先级通知通道用于显示API服务状态
+     * Create high priority notification channel for displaying API service status
      */
     private fun initializeNotificationChannel() {
+        val channelName = context.getString(com.alibaba.mnnllm.android.R.string.api_service_channel_name)
         val channel = NotificationChannel(
             CHANNEL_ID, 
-            NOTIFICATION_CHANNEL_NAME, 
+            channelName, 
             NotificationManager.IMPORTANCE_HIGH
         )
         notificationManager.createNotificationChannel(channel)
     }
 
     /**
-     * 构建API服务通知
+     * Build API service notification
      *
-     * @param contentTitle 通知标题，默认为"API 服务运行中"
-     * @param contentText 通知内容，默认为"正在监听端口：8080"
-     * @return 构建好的Notification对象
+     * @param contentTitle Notification title, uses default from string resources if not provided
+     * @param contentText Notification content, uses default from string resources if not provided
+     * @return Built Notification object
      */
     fun buildNotification(
-        contentTitle: String = "API 服务运行中", 
-        contentText: String = "正在监听端口：8080"
+        contentTitle: String? = null, 
+        contentText: String? = null
     ): Notification {
+        val title = contentTitle ?: context.getString(com.alibaba.mnnllm.android.R.string.api_service_running)
+        val text = contentText ?: context.getString(com.alibaba.mnnllm.android.R.string.server_running_message)
+        
         return NotificationCompat.Builder(context, CHANNEL_ID)
-            .setContentTitle(contentTitle)
-            .setContentText(contentText)
+            .setContentTitle(title)
+            .setContentText(text)
             .setSmallIcon(R.drawable.ic_dialog_info)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setOngoing(true)
@@ -70,10 +71,10 @@ class ApiNotificationManager(private val context: Context) {
     }
 
     /**
-     * 更新当前显示的通知
+     * Update current displayed notification
      *
-     * @param contentTitle 新的通知标题
-     * @param contentText 新的通知内容
+     * @param contentTitle New notification title
+     * @param contentText New notification content
      */
     fun updateNotification(contentTitle: String, contentText: String) {
         val notification = buildNotification(contentTitle, contentText)
@@ -82,9 +83,9 @@ class ApiNotificationManager(private val context: Context) {
     }
 
     /**
-     * 取消当前显示的通知
+     * Cancel current displayed notification
      *
-     * 如果取消失败会记录警告日志
+     * If cancellation fails, it will record a warning log
      */
     fun cancelNotification() {
         try {

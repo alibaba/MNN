@@ -1,0 +1,53 @@
+package com.alibaba.mnnllm.android.benchmark
+
+import com.alibaba.mnnllm.android.utils.ModelListManager
+
+/**
+ * Contract between BenchmarkView and BenchmarkPresenter
+ */
+class BenchmarkContract {
+    
+    interface View {
+        fun showLoading()
+        fun hideLoading()
+        fun showError(message: String)
+        fun showToast(message: String)
+        fun showStopConfirmationDialog()
+        
+        // Model selection
+        fun updateModelSelector(models: List<ModelListManager.ModelItemWrapper>)
+        fun setSelectedModel(modelWrapper: ModelListManager.ModelItemWrapper)
+        fun enableStartButton(enabled: Boolean)
+        
+        // Benchmark progress
+        fun updateProgress(progress: BenchmarkProgress)
+        fun showResults(results: BenchmarkResults)
+        fun hideResults()
+        fun updateStatus(message: String)
+        fun hideStatus()
+        
+        // UI state
+        fun setStartButtonText(text: String)
+        fun setStartButtonEnabled(enabled: Boolean)
+        fun showProgressBar()
+        fun hideProgressBar()
+    }
+    
+    interface Presenter {
+        fun onCreate()
+        fun onDestroy()
+        fun onStartBenchmarkClicked()
+        fun onStopBenchmarkClicked()
+        fun onModelSelected(modelWrapper: ModelListManager.ModelItemWrapper)
+        fun onDeleteResultClicked()
+        fun onSubmitResultClicked()
+        fun onViewLeaderboardClicked()
+    }
+    
+    data class BenchmarkResults(
+        val modelDisplayName: String,
+        val maxMemoryKb: Long,
+        val testResults: List<TestInstance>,
+        val timestamp: String
+    )
+} 

@@ -25,4 +25,17 @@
     <color name="color_on_surface_variant">#999999</color>
     <color name="my_color_surface_variant">#222222</color>
     <color name="my_color_surface">#EEEEEE</color>
+    <color name="label_color">#B3B3B3</color>
+    <color name="foreground_color">#FFFFFF</color>
+
+    <!-- 置顶遮罩颜色 (夜间模式) -->
+    <color name="pinned_overlay_color">#1F1F1F</color>
+
+    <!-- UED颜色 (夜间模式) -->
+    <color name="ued_blue">#4FA8FF</color>
+    <color name="label_not_selected">#F1F1F1</color>
+
+    <!-- Message background (夜间模式) -->
+    <color name="message_background">#2D2D2D</color>
+
 </resources>

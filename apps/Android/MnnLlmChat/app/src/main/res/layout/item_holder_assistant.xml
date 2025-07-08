@@ -13,29 +13,32 @@
         android:layout_width="0dp"
         android:layout_height="10dp"
         android:src="@drawable/logo" />
+
     <LinearLayout
+        android:id="@+id/ll_thinking_toggle"
         android:layout_width="wrap_content"
         android:layout_height="30dp"
-        android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:id="@+id/ll_thinking_toggle">
+        android:orientation="horizontal">
+
         <TextView
             android:id="@+id/tv_thinking_header"
             android:layout_width="wrap_content"
             android:layout_height="match_parent"
-            android:textSize="14sp"
-            android:textColor="?colorOnSurfaceVariant"
             android:gravity="center"
-            android:visibility="visible"
-            android:text="思考中..."/>
+            tools:text="思考中..."
+            android:textColor="?colorOnSurfaceVariant"
+            android:textSize="14sp"
+            android:visibility="visible" />
+
         <ImageView
             android:id="@+id/iv_thinking_header"
-            android:layout_marginLeft="10dp"
             android:layout_width="15dp"
-            android:layout_height="15dp"
+            android:layout_height="wrap_content"
             android:layout_gravity="center_vertical"
+            android:layout_marginStart="10dp"
             app:srcCompat="@drawable/ic_arrow_up"
-            app:tint="?colorOnSurfaceVariant"/>
+            app:tint="?colorOnSurfaceVariant" />
     </LinearLayout>
 
     <TextView

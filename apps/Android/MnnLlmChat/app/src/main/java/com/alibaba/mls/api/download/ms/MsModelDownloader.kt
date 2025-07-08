@@ -19,8 +19,7 @@ import com.alibaba.mls.api.download.ModelFileDownloader.FileDownloadListener
 import com.alibaba.mls.api.download.ModelRepoDownloader
 import com.alibaba.mls.api.ms.MsApiClient
 import com.alibaba.mls.api.ms.MsRepoInfo
-import com.alibaba.mls.api.source.ModelSources
-import com.alibaba.mls.api.source.RepoConfig
+import com.alibaba.mnnllm.android.model.ModelUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import retrofit2.Call
@@ -46,7 +45,7 @@ class MsModelDownloader(override var callback: ModelRepoDownloadCallback?,
     }
 
     override fun deleteRepo(modelId: String) {
-        val msModelId = ModelSources.get().config.getRepoConfig(modelId)!!.modelScopePath
+        val msModelId = ModelUtils.getRepositoryPath(modelId)
         val msRepoFolderName = repoFolderName(msModelId, "model")
         val msStorageFolder = File(this.cacheRootPath, msRepoFolderName)
         Log.d(TAG, "removeStorageFolder: " + msStorageFolder.absolutePath)
@@ -63,8 +62,7 @@ class MsModelDownloader(override var callback: ModelRepoDownloadCallback?,
 
     override suspend fun getRepoSize(modelId: String):Long {
         var result = 0L
-        val repoConfig = ModelSources.get().config.getRepoConfig(modelId)
-        val modelScopeId = repoConfig!!.repositoryPath()
+        val modelScopeId = ModelUtils.getRepositoryPath(modelId)
         val split = modelScopeId.split("/".toRegex()).dropLastWhile { it.isEmpty() }.toTypedArray()
         if (split.size != 2) {
             return 0L
@@ -83,8 +81,7 @@ class MsModelDownloader(override var callback: ModelRepoDownloadCallback?,
     }
 
     private fun downloadMsRepo(modelId: String) {
-        val repoConfig = ModelSources.get().config.getRepoConfig(modelId)
-        val modelScopeId = repoConfig!!.repositoryPath()
+        val modelScopeId = ModelUtils.getRepositoryPath(modelId)
         val split = modelScopeId.split("/".toRegex()).dropLastWhile { it.isEmpty() }.toTypedArray()
         if (split.size != 2) {
             callback?.onDownloadFailed(modelId, FileDownloadException("getRepoInfoFailed modelId format error: $modelId"))
@@ -98,7 +95,7 @@ class MsModelDownloader(override var callback: ModelRepoDownloadCallback?,
                             "downloadMsRepoInner executor"
                         )
                         callback?.onDownloadTaskAdded()
-                        downloadMsRepoInner(repoConfig, response.body()!!)
+                        downloadMsRepoInner(modelId, modelScopeId, response.body()!!)
                         callback?.onDownloadTaskRemoved()
                     }
                 }
@@ -109,11 +106,10 @@ class MsModelDownloader(override var callback: ModelRepoDownloadCallback?,
             })
     }
 
-    private fun downloadMsRepoInner(repoConfig: RepoConfig, msRepoInfo: MsRepoInfo) {
+    private fun downloadMsRepoInner(modelId:String, modelScopeId: String, msRepoInfo: MsRepoInfo) {
         Log.d(TAG, "downloadMsRepoInner")
-        val modelId = repoConfig.modelId
         val folderLinkFile =
-            File(cacheRootPath, getLastFileName(repoConfig.repositoryPath()))
+            File(cacheRootPath, getLastFileName(modelScopeId))
         if (folderLinkFile.exists()) {
             Log.d(TAG, "downloadMsRepoInner already exists")
             callback?.onDownloadFileFinished(modelId, folderLinkFile.absolutePath)
@@ -122,14 +118,14 @@ class MsModelDownloader(override var callback: ModelRepoDownloadCallback?,
         val modelDownloader = ModelFileDownloader()
         val hasError = false
         val errorInfo = StringBuilder()
-        val repoFolderName = repoFolderName(repoConfig.repositoryPath(), "model")
+        val repoFolderName = repoFolderName(modelScopeId, "model")
         val storageFolder = File(this.cacheRootPath, repoFolderName)
         val parentPointerPath = getPointerPathParent(storageFolder, "_no_sha_")
         val downloadTaskList: List<FileDownloadTask>
         val totalAndDownloadSize = LongArray(2)
         Log.d(TAG, "downloadMsRepoInner collectMsTaskList")
         downloadTaskList = collectMsTaskList(
-            repoConfig,
+            modelScopeId,
             storageFolder,
             parentPointerPath,
             msRepoInfo,
@@ -177,7 +173,7 @@ class MsModelDownloader(override var callback: ModelRepoDownloadCallback?,
     }
 
     private fun collectMsTaskList(
-        repoConfig: RepoConfig,
+        modelScopeId: String,
         storageFolder: File,
         parentPointerPath: File,
         msRepoInfo: MsRepoInfo,
@@ -194,7 +190,7 @@ class MsModelDownloader(override var callback: ModelRepoDownloadCallback?,
             fileDownloadTask.fileMetadata = HfFileMetadata()
             fileDownloadTask.fileMetadata!!.location = String.format(
                 "https://modelscope.cn/api/v1/models/%s/repo?FilePath=%s",
-                repoConfig.repositoryPath(),
+                modelScopeId,
                 subFile.Path
             )
             fileDownloadTask.fileMetadata!!.size = subFile.Size
@@ -220,8 +216,7 @@ class MsModelDownloader(override var callback: ModelRepoDownloadCallback?,
         }
 
         fun getModelPath(modelsDownloadPathRoot: String, modelId: String): File {
-            val modelScopeId = ModelSources.get().config.getRepoConfig(modelId)!!.modelScopePath
-            return File(modelsDownloadPathRoot, getLastFileName(modelScopeId))
+            return File(modelsDownloadPathRoot, getLastFileName(modelId))
         }
     }
 

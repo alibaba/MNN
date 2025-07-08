@@ -1,0 +1,244 @@
+package com.alibaba.mnnllm.android.utils
+
+import android.content.Context
+import android.util.Log
+import com.alibaba.mls.api.ModelItem
+import com.alibaba.mnnllm.android.chat.model.ChatDataManager
+import com.alibaba.mnnllm.android.model.ModelUtils
+import com.alibaba.mnnllm.android.modelmarket.ModelRepository
+import kotlinx.coroutines.runBlocking
+import java.io.File
+import java.nio.file.Files
+
+object ModelListManager {
+    private const val TAG = "ModelListManager"
+
+    /**
+     * Wrapper class that combines ModelItem with DownloadedModelInfo and download size
+     */
+    data class ModelItemWrapper(
+        val modelItem: ModelItem,
+        val downloadedModelInfo: ChatDataManager.DownloadedModelInfo? = null,
+        val downloadSize: Long = 0,
+        var isPinned: Boolean = false
+    ) {
+        val displayName: String
+            get() = modelItem.modelName ?: ""
+            
+        val isLocal: Boolean
+            get() = modelItem.isLocal
+            
+        val lastChatTime: Long
+            get() = downloadedModelInfo?.lastChatTime ?: 0
+            
+        val downloadTime: Long
+            get() = downloadedModelInfo?.downloadTime ?: 0
+            
+        val formattedSize: String
+            get() = if (downloadSize > 0) FileUtils.formatFileSize(downloadSize) else ""
+    }
+
+    /**
+     * Load all available models (downloaded + local) wrapped with their info
+     */
+    fun loadAvailableModels(context: Context): List<ModelItemWrapper> {
+        val modelWrappers = mutableListOf<ModelItemWrapper>()
+        
+        try {
+            val chatDataManager = ChatDataManager.getInstance(context)
+            val downloadedModels = mutableListOf<ChatDataManager.DownloadedModelInfo>()
+            val pinnedModels = PreferenceUtils.getPinnedModels(context)
+            val modelRepository = ModelRepository(context)
+            
+            // Load downloaded models from .mnnmodels directory
+            val mnnModelsDir = File(context.filesDir, ".mnnmodels")
+            if (mnnModelsDir.exists() && mnnModelsDir.isDirectory) {
+                scanModelsDirectory(mnnModelsDir, context, chatDataManager, downloadedModels, modelRepository)
+            } else {
+                Log.d(TAG, "loadAvailableModels: .mnnmodels directory not found")
+            }
+
+            // Initialize tags cache for proper tag loading
+            com.alibaba.mls.api.ModelTagsCache.initializeCache(context)
+            
+            // Convert downloaded models to wrapper format
+            downloadedModels.forEach { downloadedModel ->
+                Log.d(TAG, "Found downloaded model: ${downloadedModel.modelId} at ${downloadedModel.modelPath}")
+                
+                val modelItem = ModelItem.fromDownloadModel(context, downloadedModel.modelId, downloadedModel.modelPath)
+                // Calculate download size
+                val downloadSize = try {
+                    val file = File(downloadedModel.modelPath)
+                    if (file.exists()) file.length() else 0L
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to get file size for ${downloadedModel.modelPath}", e)
+                    0L
+                }
+                
+                val isPinned = pinnedModels.contains(downloadedModel.modelId)
+                
+                modelWrappers.add(ModelItemWrapper(
+                    modelItem = modelItem,
+                    downloadedModelInfo = downloadedModel,
+                    downloadSize = downloadSize,
+                    isPinned = isPinned
+                ))
+            }
+
+            // Add local models from ModelUtils.localModelList
+            ModelUtils.localModelList.forEach { localModel ->
+                if (localModel.modelId != null && localModel.localPath != null) {
+                    // Check if config path exists for this local model
+                    val configPath = ModelUtils.getConfigPathForModel(localModel)
+                    if (configPath == null || !File(configPath).exists()) {
+                        Log.d(TAG, "Skipping local model ${localModel.modelId}: config path not found or doesn't exist (path: $configPath)")
+                        return@forEach
+                    }
+                    
+                    Log.d(TAG, "Found local model: ${localModel.modelId} at ${localModel.localPath}")
+                    
+                    // Load market tags for local model
+                    localModel.loadMarketTags(context)
+                    
+                    // Calculate local model size
+                    val localSize = try {
+                        val file = File(localModel.localPath!!)
+                        if (file.exists()) FileUtils.getFileSize(file) else 0L
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to get file size for ${localModel.localPath}", e)
+                        0L
+                    }
+                    
+                    val isPinned = pinnedModels.contains(localModel.modelId)
+                    
+                    modelWrappers.add(ModelItemWrapper(
+                        modelItem = localModel,
+                        downloadedModelInfo = null, // Local models don't have download info
+                        downloadSize = localSize,
+                        isPinned = isPinned
+                    ))
+                }
+            }
+
+            // Sort models: pinned as first priority, then recently used first, then by download time
+            val sortedModels = modelWrappers.sortedWith(
+                compareByDescending<ModelItemWrapper> {
+                    if (it.isPinned) 1 else 0
+                }.thenByDescending {
+                    if (it.lastChatTime > 0) 1 else 0
+                }.thenByDescending {
+                    if (it.lastChatTime > 0) it.lastChatTime else 0L
+                }.thenByDescending {
+                    if (it.isLocal) 1 else 0
+                }.thenByDescending {
+                    if (it.lastChatTime <= 0) it.downloadTime else 0L
+                }
+            )
+            
+            Log.d(TAG, "loadAvailableModels: Found ${sortedModels.size} total models")
+            return sortedModels
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error loading available models", e)
+            return emptyList()
+        }
+    }
+
+    /**
+     * Scan models directory recursively (same logic as ModelListPresenter)
+     */
+    private fun scanModelsDirectory(
+        directory: File, 
+        context: Context,
+        chatDataManager: ChatDataManager, 
+        downloadedModels: MutableList<ChatDataManager.DownloadedModelInfo>,
+        modelRepository: ModelRepository
+    ) {
+        directory.listFiles()?.forEach { file ->
+            if (Files.isSymbolicLink(file.toPath())) {
+                val modelPath = file.absolutePath
+                val modelId = createModelIdFromPath(context, modelPath)
+                if (modelId != null) {
+                    // Check if this is an LLM model, skip if it's TTS or ASR
+                    // First try to get model type from database, fallback to repository
+                    val modelType = chatDataManager.getDownloadModelType(modelId) ?: runBlocking {
+                        try {
+                            modelRepository.getModelType(modelId)
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Failed to get model type for $modelId, assuming LLM", e)
+                            "LLM"
+                        }
+                    }
+                    
+                    if (modelType != "LLM") {
+                        Log.d(TAG, "Skipping non-LLM model: $modelId (type: $modelType)")
+                        return@forEach
+                    }
+                    
+                    // Check if config path exists for this model
+                    val modelName = ModelUtils.getModelName(modelId)
+                    val configPath = ModelUtils.getConfigPathForModel(modelId)
+                    if (configPath == null || !File(configPath).exists()) {
+                        Log.d(TAG, "Skipping model $modelId: config path not found or doesn't exist (path: $configPath)")
+                        return@forEach
+                    }
+                    
+                    var downloadTime = chatDataManager.getDownloadTime(modelId)
+                    if (downloadTime <= 0) {
+                        downloadTime = file.lastModified()
+                        try {
+                            chatDataManager.recordDownloadHistory(modelId, modelPath, modelType)
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Failed to record model in database: $modelId", e)
+                        }
+                    }
+                    var lastChatTime = chatDataManager.getLastChatTime(modelId)
+                    Log.d(TAG, "getLastChatTime: $modelId lastChatTime: $lastChatTime")
+                    val fixedModelId = "taobao-mnn/$modelName"
+                    if (lastChatTime < 10000) {
+                        lastChatTime = chatDataManager.getLastChatTime(fixedModelId)
+                        Log.d(TAG, "getLastChatTimeFix: $fixedModelId lastChatTime: $lastChatTime")
+                    }
+                    if (lastChatTime < 10000) {
+                        lastChatTime = chatDataManager.getLastChatTime(modelName!!)
+                        Log.d(TAG, "getLastChatTimeFix: $modelName lastChatTime: $lastChatTime")
+                    }
+                    
+                    downloadedModels.add(ChatDataManager.DownloadedModelInfo(
+                        modelId, downloadTime, modelPath, lastChatTime
+                    ))
+                    
+                    Log.d(TAG, "Found LLM model with valid config: $modelId at $modelPath (config: $configPath)")
+                }
+            } else if (file.isDirectory && (file.name == "modelscope" || file.name == "modelers")) {
+                scanModelsDirectory(file, context, chatDataManager, downloadedModels, modelRepository)
+            }
+        }
+    }
+    
+    /**
+     * Create model ID from path (same logic as ModelListPresenter)
+     */
+    private fun createModelIdFromPath(context: Context, absolutePath: String): String? {
+        // Extract the relative path from .mnnmodels directory
+        val mnnModelsPath = File(context.filesDir, ".mnnmodels").absolutePath
+        if (!absolutePath.startsWith(mnnModelsPath)) {
+            return null
+        }
+        val relativePath = absolutePath.substring(mnnModelsPath.length + 1)
+        return when {
+            relativePath.startsWith("modelers/") -> {
+                val modelName = relativePath.substring("modelers/".length)
+                if (modelName.isNotEmpty()) "Modelers/MNN/$modelName" else null
+            }
+            relativePath.startsWith("modelscope/") -> {
+                val modelName = relativePath.substring("modelscope/".length)
+                if (modelName.isNotEmpty()) "ModelScope/MNN/$modelName" else null
+            }
+            !relativePath.contains("/") -> {
+                if (relativePath.isNotEmpty()) "HuggingFace/taobao-mnn/$relativePath" else null
+            }
+            else -> null
+        }
+    }
+}

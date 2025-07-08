@@ -14,6 +14,13 @@
         <!-- <item name="itemBackground">@drawable/custom_nav_item_background</item> -->
     </style>
 
+    <style name="Widget.App.ProgressPieView" parent="">
+        <item name="pie_fillColor">?attr/pieFillColor</item>
+        <item name="pie_ringColor">?attr/pieRingColor</item>
+        <item name="pie_ringWidth">2dp</item>
+    </style>
+
+
     <style name="CustomPopupMenu" parent="Widget.Material3.PopupMenu">
         <item name="android:popupBackground">?android:colorBackground</item>
     </style>

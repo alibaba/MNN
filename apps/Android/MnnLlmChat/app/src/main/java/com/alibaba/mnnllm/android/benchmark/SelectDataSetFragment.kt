@@ -12,7 +12,7 @@ import com.alibaba.mnnllm.android.databinding.FragmentChooseDatasetBinding
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 
 class SelectDataSetFragment:BottomSheetDialogFragment() {
-    private lateinit var onItemClickListener: (OptionItem) -> Unit
+    private lateinit var onItemClickListener: (DatasetOptionItem) -> Unit
     private lateinit var optionsAdapter: DatasetOptionsAdapter
     private lateinit var binding: FragmentChooseDatasetBinding
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View? {
@@ -32,15 +32,15 @@ class SelectDataSetFragment:BottomSheetDialogFragment() {
         loadOptionsData()
     }
 
-    fun setOnItemClickListener(listener: (OptionItem) -> Unit) {
+    fun setOnItemClickListener(listener: (DatasetOptionItem) -> Unit) {
         onItemClickListener = listener
     }
 
     private fun loadOptionsData() {
         val sampleOptions = listOf(
-            OptionItem(id = "multi_modal", title = "多模态数据集", subtitle = "包含语音、文本、视频数据共 30条"),
-            OptionItem(id = "mmlu", title = "MMLU 文本数据集", subtitle = "包含文本数据共 100条"),
-            OptionItem(id = "needle_bench", title = " NeeldeBench长文本测试数据集", subtitle = " 用于测试长文本能力"),
+            DatasetOptionItem(id = "multi_modal", title = "多模态数据集", subtitle = "包含语音、文本、视频数据共 30条"),
+            DatasetOptionItem(id = "mmlu", title = "MMLU 文本数据集", subtitle = "包含文本数据共 100条"),
+            DatasetOptionItem(id = "needle_bench", title = " NeeldeBench长文本测试数据集", subtitle = " 用于测试长文本能力"),
         )
         optionsAdapter.updateData(sampleOptions)
     }

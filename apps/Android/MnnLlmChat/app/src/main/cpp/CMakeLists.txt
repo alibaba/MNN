@@ -23,6 +23,7 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
 set (MNN_SOURCE_ROOT "${CMAKE_SOURCE_DIR}/../../../../../../../")
 #set (MNN_SOURCE_ROOT "/Users/songjinde/git/DAI/AliNNPrivate")
 set (MNN_INSTALL_ROOT "${MNN_SOURCE_ROOT}/project/android/build_64")
+# set (MNN_INSTALL_ROOT "/Users/songjinde/MNN/project/android/build_64")
 
 #set (MNN_ROOT "${CMAKE_SOURCE_DIR}/../../../../../../../")
 message(INFO "MNN_SOURCE_ROOT: ${MNN_SOURCE_ROOT}")

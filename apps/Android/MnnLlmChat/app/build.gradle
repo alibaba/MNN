@@ -39,6 +39,11 @@ android {
             jvmTarget = "1.8"
         }
 
+        lintOptions {
+            disable 'TimberArgCount', 'TimberArgTypes', 'TimberTagLength', 'BinaryOperationInTimber',
+                    'LogNotTimber', 'StringFormatInTimber', 'ThrowableNotAtBeginning'
+        }
+
         ndk {
             //noinspection ChromeOsAbiSupport
             abiFilters "arm64-v8a" // Include only arm64-v8a
@@ -64,6 +69,11 @@ android {
     buildFeatures {
         viewBinding true
     }
+    sourceSets {
+        main {
+            res.srcDirs = ['src/main/res', 'src/main/res-icons']
+        }
+    }
 
     packagingOptions {
         resources.excludes.addAll([
@@ -73,6 +83,12 @@ android {
                 'META-INF/LICENSE',
                 'META-INF/MANIFEST.MF'
         ])
+    }
+
+    testOptions {
+        unitTests.all {
+            jvmArgs '--add-opens', 'java.base/java.lang=ALL-UNNAMED'
+        }
     }
 }
 
@@ -95,7 +111,10 @@ dependencies {
     implementation 'com.nambimobile.widgets:expandable-fab:1.2.1'
     implementation 'com.github.squti:Android-Wave-Recorder:2.0.1'
     implementation 'androidx.preference:preference-ktx:1.2.1'
-    testImplementation 'junit:junit:4.13.2'
+    
+    // MNN TTS Framework
+    implementation project(':mnn_tts')
+
     androidTestImplementation 'androidx.test.ext:junit:1.2.1'
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.6.1'
     implementation "io.noties.markwon:core:4.6.2"
@@ -140,7 +159,13 @@ dependencies {
 
     // 日志相关依赖
     implementation "com.jakewharton.timber:timber:5.0.1"
+    implementation files('src/main/libs/android_device_names.aar')
 
-
-
+    testImplementation 'androidx.test:core:1.5.0'
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.robolectric:robolectric:4.12.1'
+    testImplementation 'org.mockito:mockito-core:5.11.0'
+    testImplementation 'org.mockito:mockito-inline:5.2.0'
+    testImplementation 'org.mockito.kotlin:mockito-kotlin:5.2.0'
+    testImplementation "io.mockk:mockk:1.13.10"
 }

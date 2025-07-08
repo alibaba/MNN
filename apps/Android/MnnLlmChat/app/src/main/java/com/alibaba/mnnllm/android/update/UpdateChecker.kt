@@ -2,6 +2,7 @@
 // Copyright (c) 2024 Alibaba Group Holding Limited All rights reserved.
 package com.alibaba.mnnllm.android.update
 
+import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.AlertDialog
 import android.app.DownloadManager
@@ -29,6 +30,7 @@ import com.alibaba.mnnllm.android.utils.UiUtils
 import com.techiness.progressdialoglibrary.ProgressDialog
 import okhttp3.Call
 import okhttp3.Callback
+import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Request.Builder
@@ -38,6 +40,7 @@ import org.json.JSONObject
 import java.io.File
 import java.io.IOException
 import java.net.URL
+import java.util.concurrent.TimeUnit
 import kotlin.math.max
 
 
@@ -52,6 +55,7 @@ class UpdateChecker(private val context: Context) {
         }
     }
 
+    @SuppressLint("LogNotTimber")
     fun checkForUpdates(context: Context, forceCheck: Boolean) {
         if (waitingForInstallPermission && (waitingDownloadId > 0 || waitingFileUri != null)) {
             installApk(context, waitingDownloadId, waitingFileUri)
@@ -68,28 +72,53 @@ class UpdateChecker(private val context: Context) {
             progressDialog = ProgressDialog(context)
             progressDialog?.show()
         }
-        val client = OkHttpClient()
-
+        val loggingInterceptor = Interceptor { chain ->
+            val request: Request = chain.request()
+            Log.d(TAG, "Request: ${request.method} ${request.url}")
+            Log.d(TAG, "Request headers: ${request.headers}")
+            val response: Response = chain.proceed(request)
+            Log.d(TAG, "Response: ${response.code} ${response.message}")
+            Log.d(TAG, "Response headers: ${response.headers}")
+            response
+        }
+        val client = OkHttpClient.Builder()
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .writeTimeout(30, TimeUnit.SECONDS)
+            .addInterceptor(loggingInterceptor)
+            .build()
+        Log.d(TAG, "checkForUpdates: $manifestUrl")
         val request: Request = Builder()
             .url(manifestUrl)
             .build()
 
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
+                Log.e(TAG, "Network request failed", e)
+                Log.e(TAG, "Request URL: ${call.request().url}")
+                Log.e(TAG, "Exception type: ${e.javaClass.simpleName}")
+                Log.e(TAG, "Exception message: ${e.message}")
+                
                 if (forceCheck) {
+                    progressDialog?.dismiss()
                     UiUtils.showToast(
                         context,
                         context.getString(R.string.get_update_info_failed),
                         Toast.LENGTH_SHORT
                     )
                 }
-                Log.e(TAG, "get update info failed", e)
             }
 
             @Throws(IOException::class)
             override fun onResponse(call: Call, response: Response) {
+                Log.d(TAG, "Response received - Code: ${response.code}, Message: ${response.message}")
+                Log.d(TAG, "Response URL: ${response.request.url}")
+                
                 if (!response.isSuccessful) {
+                    Log.e(TAG, "HTTP error: ${response.code} - ${response.message}")
+                    Log.e(TAG, "Response body: ${response.body?.string()}")
                     if (forceCheck) {
+                        progressDialog?.dismiss()
                         UiUtils.showToast(
                             context,
                             context.getString(R.string.get_update_info_failed),
@@ -238,7 +267,7 @@ class UpdateChecker(private val context: Context) {
                 waitingForInstallPermission = true
                 waitingDownloadId = downloadId
                 waitingFileUri = fileUri
-                Toast.makeText(context, "Please grant permission to install apps.", Toast.LENGTH_LONG).show()
+                Toast.makeText(context, context.getString(R.string.please_grant_permission_install_apps), Toast.LENGTH_LONG).show()
                 val intent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES)
                 intent.data = Uri.parse("package:${context.packageName}")
                 intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)

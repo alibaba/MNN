@@ -1,0 +1,567 @@
+package com.alibaba.mnnllm.android.modelmarket
+
+import android.os.Bundle
+import android.util.Log
+import android.view.LayoutInflater
+import android.view.View
+import android.view.ViewGroup
+import android.widget.LinearLayout
+import android.widget.TextView
+import androidx.constraintlayout.widget.ConstraintLayout
+import androidx.core.content.ContextCompat
+import androidx.fragment.app.Fragment
+import androidx.lifecycle.ViewModelProvider
+import com.alibaba.mls.api.download.DownloadState
+import com.alibaba.mnnllm.android.R
+import com.alibaba.mnnllm.android.databinding.FragmentModelMarketBinding
+import com.alibaba.mnnllm.android.main.MainActivity
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
+import com.alibaba.mnnllm.android.main.FilterComponent
+import com.alibaba.mnnllm.android.mainsettings.MainSettings
+import com.alibaba.mnnllm.android.model.Modality
+import com.alibaba.mnnllm.android.model.ModelVendors
+import com.alibaba.mnnllm.android.model.ModelUtils
+import com.alibaba.mnnllm.android.modelsettings.DropDownMenuHelper
+import com.alibaba.mnnllm.android.utils.Searchable
+import android.widget.Toast
+
+class ModelMarketFragment : Fragment(), ModelMarketItemListener, Searchable {
+
+    private var _binding: FragmentModelMarketBinding? = null
+    private val binding get() = _binding!!
+
+    private lateinit var viewModel: ModelMarketViewModel
+    private lateinit var adapter: ModelMarketAdapter
+    private lateinit var recyclerView: RecyclerView
+    private var availableSources: List<String> = listOf("HuggingFace", "ModelScope", "Modelers")
+    private var modalityFilterIndex = 0
+    private var vendorFilterIndex = 0
+    private var sourceFilterIndex = 0
+    private var previousSourceSelection: String? = null
+
+    private lateinit var rootLayout: ConstraintLayout
+    private var filterComponent: FilterComponent? = null
+    private var filterContainerView: View? = null
+    private var currentFilterState = FilterState()
+
+    // Track whether quick filter tags have been initialized
+    private var quickFilterTagsInitialized = false
+    
+    // Save current search query state
+    private var currentSearchQuery: String = ""
+
+    // Implement Searchable interface
+    override fun onSearchQuery(query: String) {
+        currentSearchQuery = query
+        adapter.setSearchQuery(query)
+    }
+
+    override fun onSearchCleared() {
+        currentSearchQuery = ""
+        adapter.clearSearch()
+    }
+
+    override fun onCreateView(
+        inflater: LayoutInflater, container: ViewGroup?,
+        savedInstanceState: Bundle?
+    ): View {
+        _binding = FragmentModelMarketBinding.inflate(inflater, container, false)
+        return binding.root
+    }
+
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
+        viewModel = ViewModelProvider(this).get(ModelMarketViewModel::class.java)
+
+        setupCustomToolbar()
+        setupRecyclerView()
+
+        // Observe filtered models
+        viewModel.models.observe(viewLifecycleOwner) { models ->
+            adapter.submitList(models)
+            
+            // Initialize quick filter tags when data is first loaded
+            if (!quickFilterTagsInitialized && models.isNotEmpty()) {
+                setupQuickFilterTagsAfterDataLoad()
+                quickFilterTagsInitialized = true
+            }
+        }
+
+        // Observe progress updates
+        viewModel.progressUpdate.observe(viewLifecycleOwner) { (modelId, downloadInfo) ->
+            adapter.updateProgress(modelId, downloadInfo)
+        }
+
+        // Observe item updates
+        viewModel.itemUpdate.observe(viewLifecycleOwner) { modelId ->
+            adapter.updateItem(modelId)
+        }
+
+        rootLayout = view.findViewById(R.id.model_market_root_layout)
+        recyclerView.layoutManager = LinearLayoutManager(context)
+    }
+
+    private fun setupCustomToolbar() {
+        val appBarContent = requireActivity().findViewById<ViewGroup>(R.id.app_bar_content)
+        
+        // Setup Filter Components only (no more TabLayout)
+        if (filterContainerView == null) {
+            filterContainerView = layoutInflater.inflate(R.layout.layout_toolbar_filters_content, appBarContent, false)
+            setupFilterComponent()
+        }
+        if (filterContainerView?.parent == null) {
+            appBarContent?.addView(filterContainerView)
+        }
+    }
+    
+    private fun setupFilterComponent() {
+        filterContainerView?.let { container ->
+            // Create FilterComponent using the main activity context and container
+            if (filterComponent == null) {
+                // We need to create a temporary MainActivity instance for FilterComponent
+                // Since FilterComponent expects MainActivity, we'll create our own filter logic here
+                setupFilterButtons(container)
+            }
+        }
+    }
+    
+    private fun setupFilterButtons(container: View) {
+        val filterDownloadState = container.findViewById<TextView>(R.id.filter_download_state)
+        val filterModality = container.findViewById<TextView>(R.id.filter_modality)
+        val filterVendor = container.findViewById<TextView>(R.id.filter_vendor)
+        val filterSource = container.findViewById<TextView>(R.id.filter_source)
+        val filterButtonLayout = container.findViewById<ViewGroup>(R.id.filter_button_layout)
+        
+        // Setup download state filter
+        filterDownloadState.setOnClickListener {
+            filterDownloadState.isSelected = !filterDownloadState.isSelected
+            val downloadState = if (filterDownloadState.isSelected) "true" else null
+            updateFilterDownloadState(downloadState)
+        }
+        
+        // Setup modality filter
+        filterModality.setOnClickListener {
+            val modalityList = mutableListOf<String>().apply {
+                add(getString(R.string.all))
+                addAll(Modality.modalitySelectorList)
+            }
+            DropDownMenuHelper.showDropDownMenu(
+                context = requireContext(),
+                anchorView = filterModality,
+                items = modalityList,
+                currentIndex = modalityFilterIndex,
+                onItemSelected = { index, item ->
+                    val hasSelected = index != 0
+                    modalityFilterIndex = index
+                    val modality = if (index == 0) null else item.toString()
+                    filterModality.text = if (modality == null) getString(R.string.modality_menu_title) else item.toString()
+                    filterModality.isSelected = hasSelected
+                    updateFilterModality(modality)
+                }
+            )
+        }
+        
+        // Setup vendor filter
+        filterVendor.setOnClickListener {
+            val vendorList = mutableListOf<String>().apply {
+                add(getString(R.string.all))
+                addAll(ModelVendors.vendorList)
+            }
+            DropDownMenuHelper.showDropDownMenu(
+                context = requireContext(),
+                anchorView = filterVendor,
+                items = vendorList,
+                currentIndex = vendorFilterIndex,
+                onItemSelected = { index, item ->
+                    val hasSelected = index != 0
+                    vendorFilterIndex = index
+                    val vendor = if (index == 0) null else item.toString()
+                    filterVendor.text = if (vendor == null) getString(R.string.vendor_menu_title) else item.toString()
+                    filterVendor.isSelected = hasSelected
+                    updateFilterVendor(vendor)
+                }
+            )
+        }
+        
+        // Setup source filter - initialize with current download provider
+        val currentProvider = MainSettings.getDownloadProviderString(requireContext())
+        Log.d(TAG, "selectedSource  currentProvider: ${currentProvider}")
+        filterSource.text = currentProvider
+        filterSource.isSelected = true
+        previousSourceSelection = currentProvider
+        
+        filterSource.setOnClickListener {
+            val currentProviderInner = MainSettings.getDownloadProviderString(requireContext())
+            val sourceList = mutableListOf<String>().apply {
+                add(getString(R.string.select_download_provider))
+                addAll(availableSources)
+            }
+            val currentIndex = availableSources.indexOf(currentProviderInner) + 1
+            DropDownMenuHelper.showDropDownMenu(
+                context = requireContext(),
+                anchorView = filterSource,
+                items = sourceList,
+                currentIndex = if (currentIndex > 0) currentIndex else 1,
+                onItemSelected = { index, item ->
+                    sourceFilterIndex = index
+                    val selectedSource = item.toString()
+                    
+                    val finalSource = if (index == 0 && previousSourceSelection != null) {
+                        previousSourceSelection!!
+                    } else {
+                        selectedSource
+                    }
+                    
+                    if (index != 0) {
+                        previousSourceSelection = selectedSource
+                    }
+                    
+                    filterSource.text = finalSource
+                    filterSource.isSelected = true
+                    Log.d(TAG, "selectedSource : ${finalSource}")
+                    updateFilterSource(finalSource)
+                }
+            )
+        }
+        
+        // Setup filter dialog button
+        filterButtonLayout.setOnClickListener {
+            showFilterDialog()
+        }
+        
+        // Initialize filter button states
+        updateFilterButtonStates()
+    }
+
+    
+    private fun updateFilterVendor(vendor: String?) {
+        val vendors = if (vendor != null) listOf(vendor) else emptyList()
+        currentFilterState = FilterState(
+            tagKeys = currentFilterState.tagKeys,
+            vendors = vendors,
+            size = currentFilterState.size,
+            modality = currentFilterState.modality,
+            downloadState = currentFilterState.downloadState,
+            source = currentFilterState.source
+        )
+        viewModel.applyFilters(currentFilterState)
+        updateFilterButtonStates()
+        updateQuickFilterButtonStates()
+    }
+    
+    private fun updateFilterModality(modality: String?) {
+        currentFilterState = FilterState(
+            tagKeys = currentFilterState.tagKeys,
+            vendors = currentFilterState.vendors,
+            size = currentFilterState.size,
+            modality = modality,
+            downloadState = currentFilterState.downloadState,
+            source = currentFilterState.source
+        )
+        viewModel.applyFilters(currentFilterState)
+        updateFilterButtonStates()
+        updateQuickFilterButtonStates()
+    }
+    
+    private fun updateFilterDownloadState(downloadState: String?) {
+        currentFilterState = FilterState(
+            tagKeys = currentFilterState.tagKeys,
+            vendors = currentFilterState.vendors,
+            size = currentFilterState.size,
+            modality = currentFilterState.modality,
+            downloadState = downloadState,
+            source = currentFilterState.source
+        )
+        viewModel.applyFilters(currentFilterState)
+        updateFilterButtonStates()
+        updateQuickFilterButtonStates()
+    }
+    
+    private fun updateFilterSource(source: String?) {
+        MainSettings.setDownloadProvider(requireContext(), source!!)
+        Log.d(TAG, "selectedSource: $source got from preference ${MainSettings.getDownloadProviderString(requireContext())}")
+        viewModel.loadModels()
+    }
+
+
+    private fun setupRecyclerView() {
+        recyclerView = binding.modelMarketRecyclerView
+        adapter = ModelMarketAdapter(this)
+        recyclerView.layoutManager = LinearLayoutManager(context)
+        recyclerView.adapter = adapter
+    }
+
+    private fun removeCustomToolbar() {
+        val appBarContent = requireActivity().findViewById<ViewGroup>(R.id.app_bar_content)
+        if (filterContainerView != null) {
+            appBarContent?.removeView(filterContainerView)
+        }
+    }
+
+        override fun onHiddenChanged(hidden: Boolean) {
+        super.onHiddenChanged(hidden)
+        if (hidden) {
+            removeCustomToolbar()
+        } else {
+            setupCustomToolbar()
+            // Restore search state if there was an active search
+            restoreSearchStateIfNeeded()
+        }
+    }
+    
+    override fun onResume() {
+        super.onResume()
+        // Also restore search state on resume (for initial load)
+        restoreSearchStateIfNeeded()
+    }
+    
+    /**
+     * Restore search state if there was an active search query
+     */
+    fun restoreSearchStateIfNeeded() {
+        if (currentSearchQuery.isNotEmpty()) {
+            // Post with delay to ensure menu and SearchView are ready
+            view?.postDelayed({
+                val mainActivity = requireActivity() as? MainActivity
+                mainActivity?.setSearchQuery(currentSearchQuery)
+            }, 100)
+        }
+    }
+
+    private fun showFilterDialog() {
+        val dialog = FilterDialogFragment()
+        val availableVendors = viewModel.getAvailableVendors()
+        val availableTags = viewModel.getAvailableTags()
+        dialog.setAvailableVendors(availableVendors)
+        dialog.setAvailableTags(availableTags)
+        dialog.setCurrentFilterState(currentFilterState)
+        dialog.setOnConfirmListener { filterState ->
+            // Merge the dialog filter state with the current filter state from filter components
+            currentFilterState = FilterState(
+                tagKeys = filterState.tagKeys,
+                vendors = filterState.vendors,
+                size = filterState.size,
+                modality = currentFilterState.modality,
+                downloadState = currentFilterState.downloadState,
+                source = currentFilterState.source
+            )
+            viewModel.applyFilters(currentFilterState)
+            updateFilterButtonStates()
+            updateQuickFilterButtonStates()
+        }
+        dialog.show(childFragmentManager, "FilterDialog")
+    }
+    
+    private fun setupQuickFilterTags(container: View) {
+        val quickFilterLayout = container.findViewById<LinearLayout>(R.id.quick_filter_tags_layout)
+        
+        viewModel.getQuickFilterTags().forEach { tag ->
+            val quickFilterButton = TextView(requireContext()).apply {
+                text = tag.getDisplayText()
+                // Apply FilterChipStyle attributes
+                setPadding(16, 0, 16, 0)
+                setBackgroundResource(R.drawable.bg_filter_chip)
+                // 使用 ColorStateList 来支持选中状态的颜色变化
+                setTextColor(ContextCompat.getColorStateList(requireContext(), R.color.filter_button_tint))
+                textSize = 12f
+                gravity = android.view.Gravity.CENTER_VERTICAL
+                isClickable = true
+                isFocusable = true
+                
+                // Set layout params matching FilterChipStyle
+                val layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    resources.getDimensionPixelSize(R.dimen.filter_chip_height)
+                ).apply {
+                    marginEnd = resources.getDimensionPixelSize(R.dimen.filter_chip_margin_end)
+                }
+                this.layoutParams = layoutParams
+                
+                setOnClickListener {
+                    toggleQuickFilter(tag)
+                }
+            }
+            quickFilterLayout.addView(quickFilterButton)
+        }
+    }
+    
+    private fun toggleQuickFilter(tag: Tag) {
+        val currentTags = currentFilterState.tagKeys.toMutableList()
+        if (currentTags.contains(tag.key)) {
+            currentTags.remove(tag.key)
+        } else {
+            currentTags.add(tag.key)
+        }
+        
+        currentFilterState = FilterState(
+            tagKeys = currentTags,
+            vendors = currentFilterState.vendors,
+            size = currentFilterState.size,
+            modality = currentFilterState.modality,
+            downloadState = currentFilterState.downloadState,
+            source = currentFilterState.source
+        )
+        
+        // Apply filter and update UI in real-time
+        viewModel.applyFilters(currentFilterState)
+        updateFilterButtonStates()
+        updateQuickFilterButtonStates()
+    }
+    
+    private fun updateQuickFilterButtonStates() {
+        filterContainerView?.let { container ->
+            val quickFilterLayout = container.findViewById<LinearLayout>(R.id.quick_filter_tags_layout)
+            val quickFilterTags = viewModel.getQuickFilterTags()
+            
+            for (i in 0 until quickFilterLayout.childCount) {
+                val button = quickFilterLayout.getChildAt(i) as? TextView
+                val tag = quickFilterTags.getOrNull(i)
+                if (button != null && tag != null) {
+                    button.isSelected = currentFilterState.tagKeys.contains(tag.key)
+                }
+            }
+        }
+    }
+
+    private fun updateFilterButtonStates() {
+        filterContainerView?.let { container ->
+            val filterDownloadState = container.findViewById<TextView>(R.id.filter_download_state)
+            val filterModality = container.findViewById<TextView>(R.id.filter_modality)
+            val filterVendor = container.findViewById<TextView>(R.id.filter_vendor)
+            val filterSource = container.findViewById<TextView>(R.id.filter_source)
+            val filterButtonLayout = container.findViewById<ViewGroup>(R.id.filter_button_layout)
+            
+            // Update download state selection
+            filterDownloadState.isSelected = currentFilterState.downloadState != null
+            
+            // Update modality selection and text
+            filterModality.isSelected = currentFilterState.modality != null
+            filterModality.text = currentFilterState.modality ?: getString(R.string.modality_menu_title)
+            
+            // Update vendor selection and text
+            filterVendor.isSelected = currentFilterState.vendors.isNotEmpty()
+            filterVendor.text = when {
+                currentFilterState.vendors.isEmpty() -> getString(R.string.vendor_menu_title)
+                currentFilterState.vendors.size == 1 -> currentFilterState.vendors.first()
+                else -> "${currentFilterState.vendors.size} vendors"
+            }
+            
+            // Update filter button selection based on whether any advanced filters are active
+            val hasAdvancedFilters = currentFilterState.tagKeys.isNotEmpty() || currentFilterState.size != null
+            filterButtonLayout.isSelected = hasAdvancedFilters
+        }
+    }
+
+    override fun onActionClicked(item: ModelMarketItemWrapper) {
+        //add log
+        Log.d(TAG, "onActionClicked: " + item.modelMarketItem.modelId)
+        val downloadInfo = item.downloadInfo
+        when (downloadInfo.downloadState) {
+            DownloadState.COMPLETED -> {
+                // Check if it's a voice model (TTS or ASR)
+                if (ModelUtils.isTtsModelByTags(item.modelMarketItem.tags) || ModelUtils.isAsrModelByTags(item.modelMarketItem.tags)) {
+                    // For voice models, clicking the item sets it as default
+                    handleVoiceModelClick(item.modelMarketItem)
+                } else {
+                    // For other models, run the model
+                    (requireActivity() as MainActivity).runModel(null, item.modelMarketItem.modelId, null)
+                }
+            }
+            DownloadState.NOT_START,
+            DownloadState.FAILED -> {
+                viewModel.startDownload(item.modelMarketItem)
+            }
+            DownloadState.PAUSED -> {
+                viewModel.startDownload(item.modelMarketItem) // resume
+            }
+            DownloadState.DOWNLOADING -> {
+                viewModel.pauseDownload(item.modelMarketItem)
+            }
+        }
+    }
+
+    override fun onDownloadOrResumeClicked(item: ModelMarketItemWrapper) {
+        viewModel.startDownload(item.modelMarketItem)
+    }
+
+    override fun onPauseClicked(item: ModelMarketItemWrapper) {
+        viewModel.pauseDownload(item.modelMarketItem)
+    }
+
+    override fun onDeleteClicked(item: ModelMarketItemWrapper) {
+        viewModel.deleteModel(item.modelMarketItem)
+    }
+
+    override fun onDefaultVoiceModelChanged(item: ModelMarketItemWrapper) {
+        handleVoiceModelClick(item.modelMarketItem)
+    }
+
+    private fun handleVoiceModelClick(modelMarketItem: ModelMarketItem) {
+        if (ModelUtils.isTtsModelByTags(modelMarketItem.tags)) {
+            handleTtsModelClick(modelMarketItem)
+        } else if (ModelUtils.isAsrModelByTags(modelMarketItem.tags)) {
+            handleAsrModelClick(modelMarketItem)
+        }
+    }
+
+    private fun handleTtsModelClick(modelMarketItem: ModelMarketItem) {
+        val context = requireContext()
+        val modelId = modelMarketItem.modelId
+        
+        // 检查是否已经是默认TTS模型
+        val isCurrentDefault = MainSettings.isDefaultTtsModel(context, modelId)
+        
+        if (isCurrentDefault) {
+            // 已经是默认模型，显示提示
+            Toast.makeText(context, getString(R.string.tts_model_set_as_default), Toast.LENGTH_SHORT).show()
+        } else {
+            // 设置为默认TTS模型
+            MainSettings.setDefaultTtsModel(context, modelId)
+            Toast.makeText(context, getString(R.string.tts_model_set_as_default), Toast.LENGTH_SHORT).show()
+            
+            // Reload models to reflect the change in default status
+            viewModel.loadModels()
+        }
+    }
+
+    private fun handleAsrModelClick(modelMarketItem: ModelMarketItem) {
+        val context = requireContext()
+        val modelId = modelMarketItem.modelId
+        
+        // 检查是否已经是默认ASR模型
+        val isCurrentDefault = MainSettings.isDefaultAsrModel(context, modelId)
+        
+        if (isCurrentDefault) {
+            // 已经是默认模型，显示提示
+            Toast.makeText(context, getString(R.string.already_default_asr_model), Toast.LENGTH_SHORT).show()
+        } else {
+            // 设置为默认ASR模型
+            MainSettings.setDefaultAsrModel(context, modelId)
+            Toast.makeText(context, getString(R.string.default_asr_model_set, modelMarketItem.modelName), Toast.LENGTH_SHORT).show()
+            
+            // Reload models to reflect the change in default status
+            viewModel.loadModels()
+        }
+    }
+
+    override fun onDestroyView() {
+        super.onDestroyView()
+        removeCustomToolbar()
+        recyclerView.adapter = null
+        _binding = null
+        filterComponent = null
+        filterContainerView = null
+    }
+
+    private fun setupQuickFilterTagsAfterDataLoad() {
+        filterContainerView?.let { container ->
+            setupQuickFilterTags(container)
+        }
+    }
+
+    companion object {
+        private var lastClickTime: Long = -1
+        private const val TAG = "ModelMarketFragment"
+    }
+}

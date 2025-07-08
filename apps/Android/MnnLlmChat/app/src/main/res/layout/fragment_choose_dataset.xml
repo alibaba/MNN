@@ -9,14 +9,14 @@
     <com.google.android.material.bottomsheet.BottomSheetDragHandleView
         android:id="@+id/drag_handle"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content" />
+        android:layout_height="30dp" />
 
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
+        android:layout_marginBottom="16dp"
         android:layout_marginStart="16dp"
-        android:layout_marginBottom="8dp"
-        android:text="@string/select_dataset"
+        android:text="@string/select_model"
         android:textAppearance="?attr/textAppearanceTitleMedium"
         android:textColor="?attr/colorOnSurface"
         android:textStyle="bold" />
@@ -26,6 +26,5 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:nestedScrollingEnabled="true"
-        android:paddingHorizontal="16dp"
         app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager" />
 </LinearLayout>

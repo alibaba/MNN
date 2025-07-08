@@ -9,7 +9,7 @@
     <TextView
         android:id="@+id/history_title"
         android:text="@string/history"
-        android:textSize="20sp"
+        android:textSize="24sp"
         android:layout_marginStart="20dp"
         android:textColor="?colorOnSurface"
         android:layout_height="wrap_content"

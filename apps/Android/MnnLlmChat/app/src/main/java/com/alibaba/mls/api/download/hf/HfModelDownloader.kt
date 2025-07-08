@@ -25,7 +25,6 @@ import com.alibaba.mls.api.download.ModelDownloadManager.Companion.TAG
 import com.alibaba.mls.api.download.ModelFileDownloader
 import com.alibaba.mls.api.download.ModelFileDownloader.FileDownloadListener
 import com.alibaba.mls.api.download.ModelRepoDownloader
-import com.alibaba.mls.api.source.ModelSources
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -53,7 +52,8 @@ class HfModelDownloader(override var callback: ModelRepoDownloadCallback?,
     }
 
     override fun download(modelId: String) {
-        getHfApiClient().getRepoInfo(modelId, "main", object :
+        val hfModelId = modelId.replace("HuggingFace/", "")
+        getHfApiClient().getRepoInfo(hfModelId, "main", object :
             HfApiClient.RepoInfoCallback {
             override fun onSuccess(hfRepoInfo: HfRepoInfo?) {
                 downloadHfRepo(hfRepoInfo!!)
@@ -94,7 +94,7 @@ class HfModelDownloader(override var callback: ModelRepoDownloadCallback?,
     private fun downloadHfRepoInner(hfRepoInfo: HfRepoInfo) {
         val folderLinkFile = File(cacheRootPath, getLastFileName(hfRepoInfo.modelId!!))
         if (folderLinkFile.exists()) {
-            callback?.onDownloadFileFinished(hfRepoInfo.modelId!!, folderLinkFile.absolutePath)
+            callback?.onDownloadFileFinished(hfRepoInfo.universalModelId(), folderLinkFile.absolutePath)
             return
         }
         val modelDownloader = ModelFileDownloader()
@@ -115,7 +115,7 @@ class HfModelDownloader(override var callback: ModelRepoDownloadCallback?,
             downloadTaskList =
                 collectTaskList(storageFolder, parentPointerPath, hfRepoInfo, totalAndDownloadSize)
         } catch (e: FileDownloadException) {
-            callback?.onDownloadFailed(hfRepoInfo.modelId!!, e)
+            callback?.onDownloadFailed(hfRepoInfo.universalModelId(), e)
             return
         }
         val fileDownloadListener =
@@ -128,10 +128,10 @@ class HfModelDownloader(override var callback: ModelRepoDownloadCallback?,
                 ): Boolean {
                     totalAndDownloadSize[1] += delta
                     callback?.onDownloadingProgress(
-                        hfRepoInfo.modelId!!, "file", fileName,
+                        hfRepoInfo.universalModelId(), "file", fileName,
                         totalAndDownloadSize[1], totalAndDownloadSize[0]
                     )
-                    return pausedSet.contains(hfRepoInfo.modelId)
+                    return pausedSet.contains(hfRepoInfo.universalModelId())
                 }
             }
         try {
@@ -139,17 +139,17 @@ class HfModelDownloader(override var callback: ModelRepoDownloadCallback?,
                 modelDownloader.downloadFile(fileDownloadTask, fileDownloadListener)
             }
         } catch (e: DownloadPausedException) {
-            pausedSet.remove(hfRepoInfo.modelId)
-            callback?.onDownloadPaused(hfRepoInfo.modelId!!)
+            pausedSet.remove(hfRepoInfo.universalModelId())
+            callback?.onDownloadPaused(hfRepoInfo.universalModelId())
             return
         } catch (e: Exception) {
-            callback?.onDownloadFailed(hfRepoInfo.modelId!!, e)
+            callback?.onDownloadFailed(hfRepoInfo.universalModelId(), e)
             return
         }
         if (!hasError) {
             val folderLinkPath = folderLinkFile.absolutePath
             createSymlink(parentPointerPath.toString(), folderLinkPath)
-            callback?.onDownloadFileFinished(hfRepoInfo.modelId!!, folderLinkPath)
+            callback?.onDownloadFileFinished(hfRepoInfo.universalModelId(), folderLinkPath)
         } else {
             Log.e(
                 TAG,
@@ -244,8 +244,7 @@ class HfModelDownloader(override var callback: ModelRepoDownloadCallback?,
         }
 
         fun getModelPath(cacheRootPath: String, modelId: String): File {
-            val modelScopeId = ModelSources.get().config.getRepoConfig(modelId)!!.modelScopePath
-            return File(cacheRootPath, getLastFileName(modelScopeId))
+            return File(cacheRootPath, getLastFileName(modelId))
         }
     }
 }
