@@ -48,11 +48,6 @@ namespace MNN {
         uint8_t mRhsZeroPoint = 8;
     };
 
-    static void transferNCHWToNC4HW4(float* src, float* dst, size_t rowNum, size_t rowSize);
-    static void transferNCHWToNC4HW4(__fp16* src, __fp16* dst, size_t rowNum, size_t rowSize);
-    static void transferNC4HW4ToNCHW(float* src, float* dst, size_t rowNum, size_t rowSize);
-    static void transferNC4HW4ToNCHW(__fp16* src, __fp16* dst, size_t rowNum, size_t rowSize);
-
     /// Rhs pack functions for matmul_clamp_f32_qai8dxp_qsi4cxp.
     static void packQsi4cxps16s0Qs4cxs0s1(
         size_t num_groups, size_t n, size_t k, size_t nr, size_t kr, size_t sr,
