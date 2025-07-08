@@ -23,6 +23,7 @@
 #include "backend/cpu/OneDNNConvolution.hpp"
 #include "backend/cpu/compute/ConvInt8TiledExecutor.hpp"
 #ifdef MNN_KLEIDIAI_ENABLED
+#include "backend/cpu/compute/KleidiAIConvInt8.hpp"
 #include "backend/cpu/compute/KleidiAIConvolution.hpp"
 #endif //MNN_KLEIDIAI_ENABLED
 
@@ -51,6 +52,42 @@ static Execution* _createUnit(const Tensor* input, const Tensor* output, Backend
 #ifdef MNN_LOW_MEMORY
     if (lowMemory && nullptr != weightQuantInfo.get() && originWeightSize == 0) {
         if (cpuBackend->memoryMode() == BackendConfig::Memory_Low) {
+#ifdef MNN_KLEIDIAI_ENABLED
+            do {
+                if (!weightQuantInfo->canUseInt4) {
+                    break;
+                }
+                auto convOp = op->main_as_Convolution2D();
+                auto gcore = static_cast<CPUBackend*>(backend)->functions();
+                int oc = convOp->common()->outputCount();
+                int ic = convOp->common()->inputCount();
+
+                int blockNum = 1;
+                int dequantCnt = weightQuantInfo->alphaSize;
+                if (weightQuantInfo->asymmetric) {
+                    dequantCnt /= 2;
+                }
+                blockNum = dequantCnt / oc;
+
+                bool bFP16 = gcore->bytes == 2 ? true : false;
+                bool bAsym = weightQuantInfo->asymmetric;
+                size_t blkSize = blockNum == 1 ? 0 : ic / blockNum;
+
+                KleidiAI::AccelType accelType = KleidiAI::getQIntAccelType(4, bAsym, blkSize);
+
+                KleidiAI& kai = KleidiAI::getInstance(*MNNGetCPUInfo(), bFP16, false);
+                if(!kai.isLoaded(accelType)) {
+                    kai.setLoaded(accelType);
+                    kai.printInfo(accelType);
+                }
+
+                if(!kai.canAccelerate(accelType)){
+                    break;
+                }
+                return new KleidiAIConvInt8(backend, op, weightQuantInfo, true, kai, accelType, blockNum);
+            } while (0);
+#endif
+
             return new DenseConvInt8TiledExecutor(backend, op, weightQuantInfo, true);
         } else {
             return new DenseConvolutionTiledExecutor(common, backend, originWeight, originWeightSize, bias, biasSize, weightQuantInfo);
