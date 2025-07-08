@@ -58,7 +58,7 @@ static Execution* _createUnit(const Tensor* input, const Tensor* output, Backend
                     break;
                 }
                 auto convOp = op->main_as_Convolution2D();
-                auto gcore = static_cast<CPUBackend*>(backend)->functions();
+                auto core = static_cast<CPUBackend*>(backend)->functions();
                 int oc = convOp->common()->outputCount();
                 int ic = convOp->common()->inputCount();
 
@@ -69,19 +69,18 @@ static Execution* _createUnit(const Tensor* input, const Tensor* output, Backend
                 }
                 blockNum = dequantCnt / oc;
 
-                bool bFP16 = gcore->bytes == 2 ? true : false;
                 bool bAsym = weightQuantInfo->asymmetric;
                 size_t blkSize = blockNum == 1 ? 0 : ic / blockNum;
 
-                KleidiAI::AccelType accelType = KleidiAI::getQIntAccelType(4, bAsym, blkSize);
+                KleidiAI::AccelType accelType = KleidiAI::getQIntAccelType(4, bAsym, blkSize, core->bytes);
 
-                KleidiAI& kai = KleidiAI::getInstance(*MNNGetCPUInfo(), bFP16, false);
+                KleidiAI& kai = KleidiAI::getInstance(*MNNGetCPUInfo());
                 if(!kai.isLoaded(accelType)) {
                     kai.setLoaded(accelType);
                     kai.printInfo(accelType);
                 }
 
-                if(!kai.canAccelerate(accelType)){
+                if(!kai.canAccelerate(accelType, convOp->common())){
                     break;
                 }
                 return new KleidiAIConvInt8(backend, op, weightQuantInfo, true, kai, accelType, blockNum);
@@ -103,11 +102,12 @@ static Execution* _createUnit(const Tensor* input, const Tensor* output, Backend
 #ifdef MNN_KLEIDIAI_ENABLED
         auto bytes = cpuBackend->functions()->bytes; 
         auto accelType = (bytes==2) ? KleidiAI::AccelType::FP16 : KleidiAI::AccelType::FP32;
-        KleidiAI& kai = KleidiAI::getInstance(*MNNGetCPUInfo(), bytes == 2, false);
+        KleidiAI& kai = KleidiAI::getInstance(*MNNGetCPUInfo());
         if (kai.canAccelerate(accelType)){
             return new KleidiAIConvolution(common, backend, originWeight, originWeightSize, bias, biasSize);
         }
 #endif //MNN_KLEIDIAI_ENABLED
+
         return new Convolution1x1Strassen(common, backend, originWeight, originWeightSize, bias, biasSize);
     }
 #endif

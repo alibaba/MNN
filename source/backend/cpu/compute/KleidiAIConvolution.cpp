@@ -17,9 +17,9 @@ namespace MNN {
 #ifndef MNN_REDUCE_SIZE
 
 KleidiAIConvolution::KleidiAIConvolution(const Convolution2DCommon *common, Backend *b, const float *originWeight,
-                                               size_t originWeightSize, const float *bias, size_t biasSize)
+                                        size_t originWeightSize, const float *bias, size_t biasSize)
     : CPUConvolution(common, b) {
-        
+
         auto outputCount = (int)biasSize;
         auto core = static_cast<CPUBackend*>(b)->functions();
         mResource.reset(new CPUConvolution::Resource);
@@ -33,7 +33,7 @@ KleidiAIConvolution::KleidiAIConvolution(const Convolution2DCommon *common, Back
         if (b->getRuntime()->hint().useCachedMmap > 1) {
             return;
         }
-        KleidiAI& kai = KleidiAI::getInstance(*MNNGetCPUInfo(), core->bytes == 2, false);
+        KleidiAI& kai = KleidiAI::getInstance(*MNNGetCPUInfo());
 
         if (core->bytes == 2) {
             AutoRelease<Tensor> tempTensor(Tensor::createDevice<float>({outputCount * mSrcCount}));
@@ -92,14 +92,14 @@ KleidiAIConvolution::KleidiAIConvolution(const Convolution2DCommon *common, Back
                 MNN_ERROR("Out of static memory!\n");
                 return;
             }
-    
+
             //Run rhs pack.
             kai.runRhsPack(mAccelType, 1, outputCount, mSrcCount, 0, mSrcCount * sizeof(float),
                         originWeight, nullptr, nullptr, bias, mResource->mWeight->host<void>());
         }
-        
+
 }
-    
+
 KleidiAIConvolution::KleidiAIConvolution(std::shared_ptr<CPUConvolution::Resource> resource, const Convolution2DCommon *common, Backend* b) : CPUConvolution(common, b) {
     mResource = resource;
 }
@@ -134,7 +134,26 @@ ErrorCode KleidiAIConvolution::onResize(const std::vector<Tensor *> &inputs, con
     auto batch       = input->batch();
     auto b = backend();
 
-    KleidiAI& kai = KleidiAI::getInstance(*MNNGetCPUInfo(), bytes == 2, false);
+    KleidiAI& kai = KleidiAI::getInstance(*MNNGetCPUInfo());
+    auto inputOriginFmt = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
+    auto outputOriginFmt = TensorUtils::getDescribe(outputs[0])->dimensionFormat;
+    halide_type_t dataType = core->bytes == 2 ? halide_type_of<int16_t>() : halide_type_of<float>();
+    if(inputOriginFmt != MNN_DATA_FORMAT_NHWC){
+        mInputConvertBuffer.reset(Tensor::createDevice(std::vector<int>{input->batch(), input->height(), input->width(), input->channel()}, dataType, Tensor::DimensionType::TENSORFLOW));
+        mValid = b->onAcquireBuffer(mInputConvertBuffer.get(), Backend::DYNAMIC);
+        if (!mValid) {
+            MNN_ERROR("Out of dynamic memory!\n");
+            return OUT_OF_MEMORY;
+        }
+    }
+    if (outputOriginFmt != MNN_DATA_FORMAT_NHWC){
+        mOutputConvertBuffer.reset(Tensor::createDevice(std::vector<int>{output->batch(), output->height(), output->width(), output->channel()}, dataType, Tensor::DimensionType::TENSORFLOW));
+        mValid = b->onAcquireBuffer(mOutputConvertBuffer.get(), Backend::DYNAMIC);
+        if (!mValid) {
+            MNN_ERROR("Out of dynamic memory!\n");
+            return OUT_OF_MEMORY;
+        }
+    }
 
     auto m = batch * input->width() * input->height();
     if (m != 1) {
@@ -149,6 +168,13 @@ ErrorCode KleidiAIConvolution::onResize(const std::vector<Tensor *> &inputs, con
 
         b->onReleaseBuffer(mInputResource.get(), Backend::DYNAMIC);
     }
+
+    if(inputOriginFmt != MNN_DATA_FORMAT_NHWC){
+        b->onReleaseBuffer(mInputConvertBuffer.get(), Backend::DYNAMIC);
+    }
+    if (outputOriginFmt != MNN_DATA_FORMAT_NHWC){
+        b->onReleaseBuffer(mOutputConvertBuffer.get(), Backend::DYNAMIC);
+    }
     return NO_ERROR;
 }
 ErrorCode KleidiAIConvolution::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
@@ -157,25 +183,50 @@ ErrorCode KleidiAIConvolution::onExecute(const std::vector<Tensor *> &inputs, co
     auto core = static_cast<CPUBackend*>(backend())->functions();
     auto inputPtr = input->host<uint8_t>();
     auto weightPtr = mResource->mWeight->host<uint8_t>();
+    int threadNum = static_cast<CPUBackend*>(backend())->threadNumber();
 
-    KleidiAI& kai = KleidiAI::getInstance(*MNNGetCPUInfo(), core->bytes == 2, false);
-    auto inputDes = TensorUtils::getDescribe(inputs[0]);
+    KleidiAI& kai = KleidiAI::getInstance(*MNNGetCPUInfo());
     const size_t m = input->batch() * input->width() * input->height(); //lhs vector number.
     const size_t n = output->channel(); //rhs vector number.
     const size_t k = input->channel(); //vector size.
-    auto lhsPacked = inputPtr;
     auto dst = output->host<uint8_t>();
+    halide_type_t dataType = core->bytes == 2 ? halide_type_of<int16_t>() : halide_type_of<float>();
     size_t elementSize = core->bytes;
-    
+    auto b = backend();
+
+    auto inputDes = TensorUtils::getDescribe(inputs[0]);
+    if(inputDes->dimensionFormat != MNN_DATA_FORMAT_NHWC){
+        MNN_CONCURRENCY_BEGIN(tId, threadNum) {
+            CPUTensorConverter::convert(input, mInputConvertBuffer.get(), core, tId, threadNum);
+        };
+        MNN_CONCURRENCY_END();
+        inputPtr = mInputConvertBuffer->host<uint8_t>();
+    }
+    auto lhsPacked = inputPtr;
     if(m != 1) {
         lhsPacked = mInputResource->host<uint8_t>();
         kai.runLhsPack(mAccelType, m, k, 0, inputPtr, k * elementSize, lhsPacked);
     }
+
+    auto outputDes = TensorUtils::getDescribe(outputs[0]);
     auto postPtr = getPostParameters();
-    kai.runMatmul(mAccelType, m, n, k, 0, lhsPacked, weightPtr, dst, n * elementSize, elementSize, postPtr[3], postPtr[2]);
+    auto outputPtr = output->host<uint8_t>();
+    if(outputDes->dimensionFormat != MNN_DATA_FORMAT_NHWC){
+        outputPtr = mOutputConvertBuffer->host<uint8_t>();
+    }
+
+    kai.runMatmul(mAccelType, m, n, k, 0, lhsPacked, weightPtr, outputPtr, n * elementSize, elementSize, postPtr[3], postPtr[2]);
+
+    if(outputDes->dimensionFormat != MNN_DATA_FORMAT_NHWC){
+        MNN_CONCURRENCY_BEGIN(tId, threadNum) {
+            CPUTensorConverter::convert(mOutputConvertBuffer.get(), output, core, tId, threadNum);
+        };
+        MNN_CONCURRENCY_END();
+    }
+
     return NO_ERROR;
 }
 
-} // namespace MNN
 #endif
+} // namespace MNN
 #endif //MNN_KLEIDIAI_ENABLED

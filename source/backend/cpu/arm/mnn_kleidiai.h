@@ -32,9 +32,11 @@ namespace MNN {
             CHNLQT/BLKQT: channel wise/block wise;
             */
             QINT = 0,
-            QI4_ASYM_CHNLQT = QINT,
-            QI4_ASYM_BLKQT,
-            QI4_SYM_CHNLQT,
+            QI4_ASYM_CHNLQT_F32 = QINT,
+            QI4_ASYM_CHNLQT_F16,
+            QI4_ASYM_BLKQT_F32,
+            QI4_ASYM_BLKQT_F16,
+            QI4_SYM_CHNLQT_F32,
             QI4_SYM_BLKQT,
             QI8_ASYM_CHNLQT,
             QI8_ASYM_BLKQT,
@@ -72,9 +74,6 @@ namespace MNN {
         } KernelInfo;
 
         typedef struct StaticInfo {
-            bool mFP16 = false; //fp16 or fp32.
-            bool mBF16 = false; //bf16 or fp32.
-
             bool mDot = false;
             bool mI8mm = false;
             bool mSme2 = false;
@@ -87,11 +86,13 @@ namespace MNN {
             size_t mBits;
             bool mAsymmetric; //Asymmetric quantized model.
             size_t mBlockSize; //0: Per channel quant; others: Per block quant.
+            size_t mBytes; //4: float32; 2: float16.
 
-            QIntInfo(size_t bits = 4, bool asymmetric = false, size_t blockSize = 0) {
+            QIntInfo(size_t bits = 4, bool asymmetric = false, size_t blockSize = 0, size_t bytes = 0) {
                 mBits = bits;
                 mAsymmetric = asymmetric;
                 mBlockSize = blockSize;
+                mBytes = bytes;
             }
 
             bool operator<(const QIntInfo& rhs) const {
@@ -101,6 +102,10 @@ namespace MNN {
 
                 if(mAsymmetric != rhs.mAsymmetric) {
                     return mAsymmetric < rhs.mAsymmetric;
+                }
+
+                if(mBytes != rhs.mBytes) {
+                    return mBytes < rhs.mBytes;
                 }
 
                 bool lhsPerChannel = mBlockSize == 0 ? true : false;
@@ -115,7 +120,7 @@ namespace MNN {
         static bool mKaiInitialized;
 
         //Get instance.
-        static KleidiAI &getInstance(const MNNCPUInfo& gCPUInfo, bool bFP16, bool bBF16);
+        static KleidiAI &getInstance(const MNNCPUInfo& gCPUInfo);
         static KleidiAI &getInstance();
         static void initKernelInfo();
 
@@ -126,13 +131,12 @@ namespace MNN {
         //Check and set
         bool canAccelerate();
         bool canAccelerate(AccelType type);
+        bool canAccelerate(AccelType type, const Convolution2DCommon *common);
         bool isLoaded(AccelType type);
         void setLoaded(AccelType type) { mLoaded[(size_t)type] = true; }
-        bool isLinear() { return mLinear; }
-        void setLinear(bool bLinear) { mLinear = bLinear; }
 
         //Get info
-        static AccelType getQIntAccelType(size_t bits, bool bAsymmetric, size_t blockSize);
+        static AccelType getQIntAccelType(size_t bits, bool bAsymmetric, size_t blockSize, size_t bytes);
         size_t getMr(AccelType type, size_t m = 1);
         size_t getNr(AccelType type);
         size_t getKr(AccelType type);
@@ -142,9 +146,6 @@ namespace MNN {
         size_t getVecNumPerThread(size_t totalVec, size_t totalThread, size_t minStep);
         //Get Static info
         bool bSupportSme2() { return mStaticInfo.mSme2; }
-        bool isFP16() { return mStaticInfo.mFP16; }
-        bool isBF16() { return mStaticInfo.mBF16; }
-        bool isHalf() { return mStaticInfo.mFP16 || mStaticInfo.mBF16; }
 
         //Lhs
         size_t getLhsPackedSize(AccelType type, size_t m, size_t k);
@@ -196,6 +197,27 @@ namespace MNN {
             return false;
         }
         return mStaticInfo.mKernelInfo[(size_t)type].mKernelSupport;
+    }
+
+    inline bool KleidiAI::canAccelerate(AccelType type, const Convolution2DCommon* common) {
+        if(type >= AccelType::ACC_TYPE_ERROR) {
+            return false;
+        }
+        if(common->group() != 1) {
+            return false;
+        }
+        if(type == AccelType::QI4_ASYM_CHNLQT_F32|| type == AccelType::QI4_ASYM_CHNLQT_F16 || type == AccelType::QI8_ASYM_CHNLQT) {
+            if(common->inputCount() % 32 != 0) {
+                return false;
+            }
+        }
+        if(common->kernelX() == 1 && common->kernelY() == 1
+            && common->padX() == 0 && common->padY() == 0
+            && common->strideX() == 1 && common->strideY() == 1
+            && common->dilateX() == 1 && common->dilateY() == 1) {
+            return mStaticInfo.mKernelInfo[(size_t)type].mKernelSupport;
+        }
+        return false;
     }
 
     inline bool KleidiAI::isLoaded(AccelType type) {
