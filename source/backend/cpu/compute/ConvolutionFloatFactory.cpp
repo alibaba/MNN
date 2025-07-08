@@ -97,12 +97,12 @@ static Execution* _createUnit(const Tensor* input, const Tensor* output, Backend
 #else
     if (cpuBackend->memoryMode() == BackendConfig::Memory_Low) {
 #ifdef MNN_KLEIDIAI_ENABLED
-	if (MNNGetCPUInfo()->sme2 && !weigthQauntInfo && cpuBackend->functions()->bytes == 4) {
+	if (MNNGetCPUInfo()->sme2 && !weightQuantInfo) {
 	    return new KleidiAIDenseConvolution(common, backend, originWeight, originWeightSize, bias, biasSize, weightQuantInfo);
 	}
-#else
-        return new DenseConvolutionTiledExecutor(common, backend, originWeight, originWeightSize, bias, biasSize, weightQuantInfo);
 #endif
+
+        return new DenseConvolutionTiledExecutor(common, backend, originWeight, originWeightSize, bias, biasSize, weightQuantInfo);
     }
 #endif
 
@@ -122,7 +122,7 @@ static Execution* _createUnit(const Tensor* input, const Tensor* output, Backend
 #endif
 
 #ifdef MNN_KLEIDIAI_ENABLED
-    if (MNNGetCPUInfo()->sme2 && !weightQuantInfo && cpuBackend->functions()->bytes == 4) {
+    if (MNNGetCPUInfo()->sme2 && !weightQuantInfo) {
 	return new KleidiAIDenseConvolution(common, backend, originWeight, originWeightSize, bias, biasSize, weightQuantInfo);
     }
 #endif
