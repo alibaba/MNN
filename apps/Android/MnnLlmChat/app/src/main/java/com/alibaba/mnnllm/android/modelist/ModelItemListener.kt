@@ -5,4 +5,5 @@ import com.alibaba.mls.api.ModelItem
 interface ModelItemListener {
     fun onItemClicked(modelItem: ModelItem)
     fun onItemLongClicked(modelItem: ModelItem): Boolean
+    fun onItemDeleted(modelItem: ModelItem)
 }

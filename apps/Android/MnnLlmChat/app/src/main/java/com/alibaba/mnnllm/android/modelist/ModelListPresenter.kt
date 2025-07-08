@@ -65,6 +65,11 @@ class ModelListPresenter(private val context: Context, private val view: ModelLi
         return false
     }
 
+    override fun onItemDeleted(modelItem: ModelItem) {
+        // Refresh the list after model deletion
+        refreshList()
+    }
+
     fun refreshList() {
         loadDownloadedModels()
     }

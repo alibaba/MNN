@@ -25,8 +25,11 @@ import com.alibaba.mnnllm.android.widgets.ModelAvatarView
 import com.alibaba.mnnllm.android.widgets.TagsLayout
 
 
-class MarketItemHolder(itemView: View, private val modelMarketItemListener: ModelMarketItemListener) :
-    RecyclerView.ViewHolder(itemView), View.OnClickListener, OnLongClickListener {
+class MarketItemHolder(
+    itemView: View, 
+    private val modelMarketItemListener: ModelMarketItemListener,
+    private val enableLongClick: Boolean = true
+) : RecyclerView.ViewHolder(itemView), View.OnClickListener, OnLongClickListener {
 
     // UI Components
     private val tvModelTitle: TextView = itemView.findViewById(R.id.tvModelTitle)
@@ -45,7 +48,9 @@ class MarketItemHolder(itemView: View, private val modelMarketItemListener: Mode
 
     init {
         itemView.setOnClickListener(this)
-        itemView.setOnLongClickListener(this)
+        if (enableLongClick) {
+            itemView.setOnLongClickListener(this)
+        }
         btnDownloadAction.setOnClickListener {
             modelMarketItemWrapper?.let { wrapper ->
                 modelMarketItemListener.onActionClicked(wrapper)
@@ -261,6 +266,10 @@ class MarketItemHolder(itemView: View, private val modelMarketItemListener: Mode
 
 
     override fun onLongClick(v: View): Boolean {
+        if (!enableLongClick) {
+            return false
+        }
+        
         val modelMarketItemWrapper = itemView.tag as ModelMarketItemWrapper
         val modelMarketItem = modelMarketItemWrapper.modelMarketItem
         
@@ -270,7 +279,7 @@ class MarketItemHolder(itemView: View, private val modelMarketItemListener: Mode
 
     private fun showContextMenu(modelMarketItemWrapper: ModelMarketItemWrapper, modelMarketItem: ModelMarketItem) {
         val popupMenu = PopupMenu(itemView.context, tvStatus)
-        popupMenu.menuInflater.inflate(R.menu.model_item_context_menu, popupMenu.menu)
+        popupMenu.menuInflater.inflate(R.menu.market_item_context_menu, popupMenu.menu)
         
         setupMenuClickListener(popupMenu, modelMarketItemWrapper, modelMarketItem)
         configureMenuVisibility(popupMenu, modelMarketItemWrapper.downloadInfo.downloadState)

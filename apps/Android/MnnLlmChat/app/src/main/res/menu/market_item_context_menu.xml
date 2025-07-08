@@ -16,7 +16,4 @@
     <item
         android:id="@+id/menu_open_model_card"
         android:title="@string/open_model_card" />
-    <item
-        android:id="@+id/menu_show_model_info"
-        android:title="@string/show_model_info" />
-</menu>
+</menu> 

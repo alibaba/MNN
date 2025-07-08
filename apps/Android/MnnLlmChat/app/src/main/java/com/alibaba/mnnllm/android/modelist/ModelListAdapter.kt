@@ -69,6 +69,10 @@ class ModelListAdapter(private val items: MutableList<ModelListManager.ModelItem
                 }
                 return false
             }
+            
+            override fun onItemDeleted(modelItem: ModelItem) {
+                modelListListener?.onItemDeleted(modelItem)
+            }
         }
         
         val holder = ModelItemHolder(view, wrappedListener)

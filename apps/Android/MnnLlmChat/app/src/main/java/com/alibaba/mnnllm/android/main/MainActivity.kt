@@ -235,7 +235,7 @@ class MainActivity : AppCompatActivity() {
             alpha = alpha.coerceIn(0.0f, 1.0f)
             materialToolbar.alpha = alpha
         }
-        appBarLayout.addOnOffsetChangedListener(offsetChangedListener)
+        //appBarLayout.addOnOffsetChangedListener(offsetChangedListener)
     }
     
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -419,9 +419,11 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        /*
         offsetChangedListener?.let {
             appBarLayout.removeOnOffsetChangedListener(it)
         }
+        */
         
     }
 

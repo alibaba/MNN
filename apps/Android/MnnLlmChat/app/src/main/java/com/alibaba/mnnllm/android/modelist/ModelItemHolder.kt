@@ -26,8 +26,11 @@ import java.util.Date
 import java.util.Locale
 import java.io.File
 
-class ModelItemHolder(itemView: View, private val modelItemListener: ModelItemListener) :
-    RecyclerView.ViewHolder(itemView), View.OnClickListener, OnLongClickListener {
+class ModelItemHolder(
+    itemView: View, 
+    private val modelItemListener: ModelItemListener,
+    private val enableLongClick: Boolean = true
+) : RecyclerView.ViewHolder(itemView), View.OnClickListener, OnLongClickListener {
     private var tvModelName: TextView
     private var tvModelTitle: TextView
     private var tvModelSubtitle: TextView
@@ -43,7 +46,9 @@ class ModelItemHolder(itemView: View, private val modelItemListener: ModelItemLi
 
     init {
         itemView.setOnClickListener(this)
-        itemView.setOnLongClickListener(this)
+        if (enableLongClick) {
+            itemView.setOnLongClickListener(this)
+        }
         tvModelName = itemView.findViewById(R.id.tvModelName)
         tvModelTitle = itemView.findViewById(R.id.tvModelTitle)
         tvModelSubtitle = itemView.findViewById(R.id.tvModelSubtitle)
@@ -202,14 +207,18 @@ class ModelItemHolder(itemView: View, private val modelItemListener: ModelItemLi
     }
 
     override fun onLongClick(v: View): Boolean {
+        if (!enableLongClick) {
+            return false
+        }
+        
         val modelWrapper = itemView.tag as ModelListManager.ModelItemWrapper
         val modelItem = modelWrapper.modelItem
         
         val popupMenu = PopupMenu(v.context, tvStatus)
         val inflater = popupMenu.menuInflater
-        inflater.inflate(R.menu.model_item_context_menu, popupMenu.menu)
+        inflater.inflate(R.menu.model_list_item_context_menu, popupMenu.menu)
         
-        val pinMenuItem = popupMenu.menu.add(0, R.id.menu_pin_model, 0,
+        popupMenu.menu.add(0, R.id.menu_pin_model, 0,
             if (modelWrapper.isPinned) R.string.menu_unpin_model else R.string.menu_pin_model)
         
         popupMenu.setOnMenuItemClickListener { item: MenuItem ->
@@ -220,7 +229,14 @@ class ModelItemHolder(itemView: View, private val modelItemListener: ModelItemLi
                     .setMessage(R.string.confirm_delete_model_message)
                     .setPositiveButton(android.R.string.ok) { _, _ ->
                         MainScope().launch {
-                            ModelDownloadManager.getInstance(v.context).deleteModel(modelId!!)
+                            try {
+                                ModelDownloadManager.getInstance(v.context).deleteModel(modelId!!)
+                                // Notify the listener that the model was deleted successfully
+                                modelItemListener.onItemDeleted(modelItem)
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Failed to delete model: $modelId", e)
+                                // You could show an error toast here if needed
+                            }
                         }
                     }
                     .setNegativeButton(android.R.string.cancel, null)
