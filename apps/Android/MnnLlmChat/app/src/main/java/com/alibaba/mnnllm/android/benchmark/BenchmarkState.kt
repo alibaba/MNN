@@ -141,5 +141,7 @@ data class BenchmarkUIState(
     val enableModelSelector: Boolean = true,
     val showBenchmarkIcon: Boolean = true,
     val showBenchmarkProgressBar: Boolean = false,
-    val benchmarkProgress: Int = 0
+    val benchmarkProgress: Int = 0,
+    val showBackButton: Boolean = false,
+    val showModelSelectorCard: Boolean = true
 ) 

@@ -48,4 +48,10 @@
     
     <!-- Message background -->
     <color name="message_background">#FFF3E0</color>
+    
+    <!-- Benchmark Result Card Colors -->
+    <color name="benchmark_result_card_background">#F5F5F5</color>
+    <color name="benchmark_result_sub_card_background">#FFFFFF</color>
+    <color name="benchmark_result_text_primary">#000000</color>
+    <color name="benchmark_result_text_secondary">#666666</color>
 </resources>

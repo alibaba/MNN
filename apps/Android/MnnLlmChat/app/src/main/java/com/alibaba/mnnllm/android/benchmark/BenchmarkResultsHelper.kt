@@ -154,18 +154,11 @@ object BenchmarkResultsHelper {
      */
     fun formatMemoryUsageDetailed(context: Context, maxMemoryKb: Long): Pair<String, String> {
         val totalKb = getTotalMemoryKb()
-        if (totalKb <= 0) {
-            // Fallback – just show raw value
-            return Pair("${maxMemoryKb} KB", context.getString(R.string.benchmark_peak_memory_usage))
-        }
-        val percent = maxMemoryKb.toDouble() * 100.0 / totalKb
-        val valueText = "%.1f%%".format(percent)
         fun kbToGb(kb: Long): String {
             val gb = kb.toDouble() / 1024.0 / 1024.0
             return "%.1f GB".format(gb)
         }
-        val labelText = "${kbToGb(maxMemoryKb)} / ${kbToGb(totalKb)}"
-        return Pair(valueText, labelText)
+        return Pair(kbToGb(maxMemoryKb), kbToGb(totalKb))
     }
     
     /**

@@ -7,4 +7,5 @@
     <files-path name="crash" path="crash/"/>
     <external-files-path name="downloads" path="Download/" />
     <external-path name="external_downloads" path="Download/" />
+    <cache-path name="shared_images" path="shared_images/" />
 </paths>

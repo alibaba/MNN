@@ -186,6 +186,12 @@ struct TestInstance {
 
     double getAvgUs(std::vector<double> v) const { return ::avg(v); }
     double getStdevUs(std::vector<double> v) const { return ::stdev(v); }
+    double getVarUs(std::vector<double> v) const {
+        if (v.size() <= 1) return 0;
+        double mean = avg(v);
+        double sq_sum = std::inner_product(v.begin(), v.end(), v.begin(), 0.0);
+        return sq_sum / (double)v.size() - mean * mean;
+    }
     enum fieldType { STRING, BOOL, INT, FLOAT };
 
     static fieldType getFieldType(const std::string & field) {
@@ -351,12 +357,21 @@ struct markdownPrinter : public Printer {
                 value = buf;
             } else if (field == "t/s") {
                 auto spd = t.getTokensPerSecond(t.nPrompt + t.nGenerate, t.samplesUs);
-                snprintf(buf, sizeof(buf), "%.2f ± %.2f", t.getAvgUs(spd), t.getStdevUs(spd));
+                double avg = t.getAvgUs(spd);
+                double stdev = t.getStdevUs(spd);
+                double var = t.getVarUs(spd);
+                snprintf(buf, sizeof(buf), "%.2f ± %.2f (var=%.2f)", avg, stdev, var);
                 value = buf;
             } else if (field == "speed(tok/s)") {
                 auto decode_speed = t.getTokensPerSecond(t.nGenerate, t.decodeUs);
                 auto prefill_speed = t.getTokensPerSecond(t.nPrompt, t.prefillUs);
-                snprintf(buf, sizeof(buf), "%.2f ± %.2f<br>%.2f ± %.2f", t.getAvgUs(prefill_speed), t.getStdevUs(prefill_speed), t.getAvgUs(decode_speed), t.getStdevUs(decode_speed));
+                double avg_prefill = t.getAvgUs(prefill_speed);
+                double stdev_prefill = t.getStdevUs(prefill_speed);
+                double var_prefill = t.getVarUs(prefill_speed);
+                double avg_decode = t.getAvgUs(decode_speed);
+                double stdev_decode = t.getStdevUs(decode_speed);
+                double var_decode = t.getVarUs(decode_speed);
+                snprintf(buf, sizeof(buf), "%.2f ± %.2f (var=%.2f)<br>%.2f ± %.2f (var=%.2f)", avg_prefill, stdev_prefill, var_prefill, avg_decode, stdev_decode, var_decode);
                 value = buf;
             } else if (field == "precision") {
                 if (t.precision == 2) value = "Low";
@@ -374,7 +389,10 @@ struct markdownPrinter : public Printer {
                 snprintf(buf, sizeof(buf), "%d", t.threads);
                 value = buf;
             } else if (field == "loadingTime(s)") {
-                snprintf(buf, sizeof(buf), "%.2f ± %.2f", t.getAvgUs(t.loadingS), t.getStdevUs(t.loadingS));
+                double avg = t.getAvgUs(t.loadingS);
+                double stdev = t.getStdevUs(t.loadingS);
+                double var = t.getVarUs(t.loadingS);
+                snprintf(buf, sizeof(buf), "%.2f ± %.2f (var=%.2f)", avg, stdev, var);
                 value = buf;
             } else if (field == "useMmap") {
                 if (t.useMmap) value = "true";

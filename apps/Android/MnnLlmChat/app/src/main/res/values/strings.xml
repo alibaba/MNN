@@ -184,6 +184,8 @@
     <string name="server_stopped_message">Server stopped</string>
     <string name="server_running_at_template">Server running at %1$s:%2$d</string>
     <string name="close">Close</string>
+    <string name="back">Back</string>
+    <string name="share_benchmark_result">Share Benchmark Result</string>
     
     <string name="api_auth_enabled">Enable API Key Authentication</string>
     <string name="reset">Reset</string>
@@ -447,4 +449,6 @@
     
     <!-- Voice Chat Setup Message -->
     <string name="voice_chat_setup_message">To use voice chat, please select and download TTS and ASR models first. Switch between the tabs above to set up both types of models.</string>
+    <string name="peak_memory">Peak Memory</string>
+    <string name="max_memory">Max Memory</string>
 </resources>

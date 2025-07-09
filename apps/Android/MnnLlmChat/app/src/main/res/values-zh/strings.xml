@@ -177,6 +177,8 @@
     <string name="server_stopped_message">服务器已停止</string>
     <string name="server_running_at_template">服务器运行在 %1$s:%2$d</string>
     <string name="close">关闭</string>
+    <string name="back">返回</string>
+    <string name="share_benchmark_result">分享基准测试结果</string>
     
     <string name="api_auth_enabled">启用API Key认证</string>
     <string name="reset">重置</string>
@@ -445,4 +447,6 @@
     
     <!-- Voice Chat Setup Message -->
     <string name="voice_chat_setup_message">要使用语音聊天功能，请先选择并下载TTS和ASR模型。请在上方标签页之间切换来设置这两种类型的模型。</string>
+    <string name="peak_memory">峰值内存</string>
+    <string name="max_memory">最大内存</string>
 </resources>

@@ -9,7 +9,7 @@ import com.google.android.material.bottomsheet.BottomSheetDialogFragment
  */
 abstract class BaseBottomSheetDialogFragment : BottomSheetDialogFragment() {
     
-    override fun getTheme(): Int {
-        return R.style.BottomSheetDialogTheme
-    }
+//    override fun getTheme(): Int {
+//        return R.style.BottomSheetDialogTheme
+//    }
 } 

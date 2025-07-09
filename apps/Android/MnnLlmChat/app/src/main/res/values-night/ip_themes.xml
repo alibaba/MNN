@@ -4,7 +4,7 @@
         <item name="android:windowDrawsSystemBarBackgrounds">true</item>
 
         <item name="android:windowLightStatusBar">@bool/is_day_mode</item>
-        <item name="bottomSheetDialogTheme">@style/BottomSheetDialogTheme</item>
+<!--        <item name="bottomSheetDialogTheme">@style/BottomSheetDialogTheme</item>-->
         <item name="colorPrimary">@color/md_theme_primary</item>
         <item name="colorOnPrimary">@color/md_theme_onPrimary</item>
         <item name="colorPrimaryContainer">@color/md_theme_primaryContainer</item>

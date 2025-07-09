@@ -1,14 +1,22 @@
 package com.alibaba.mnnllm.android.benchmark
 
+import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.net.Uri
 import android.os.Bundle
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.LinearLayout
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
+import androidx.core.content.FileProvider
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
+import java.io.FileOutputStream
+import java.io.IOException
 import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.databinding.FragmentBenchmarkBinding
 import com.alibaba.mnnllm.android.utils.ModelListManager
@@ -57,9 +65,15 @@ class BenchmarkFragment : Fragment(), BenchmarkContract.View {
             presenter?.onStartBenchmarkClicked()
         }
 
-        binding.submitButton.setOnClickListener {
-            presenter?.onSubmitResultClicked()
+        // Back button click handler
+        binding.backButton.setOnClickListener {
+            Log.d(TAG, "Back button clicked")
+            presenter?.onBackClicked()
         }
+
+//        binding.submitButton.setOnClickListener {
+//            presenter?.onSubmitResultClicked()
+//        }
 
         // Model selector click handler - now clicking the entire layout
         binding.modelSelectorLayout.setOnClickListener {
@@ -244,6 +258,87 @@ class BenchmarkFragment : Fragment(), BenchmarkContract.View {
         Log.d(TAG, "enableModelSelector: $enabled")
     }
 
+    override fun showBackButton(show: Boolean) {
+        binding.backButton.visibility = if (show) View.VISIBLE else View.GONE
+        Log.d(TAG, "showBackButton: $show")
+    }
+
+    override fun showModelSelectorCard(show: Boolean) {
+        binding.modelSelectorCard.visibility = if (show) View.VISIBLE else View.GONE
+        Log.d(TAG, "showModelSelectorCard: $show")
+    }
+
+    override fun updateButtonLayout(showBackButton: Boolean) {
+        if (showBackButton) {
+            // Show back button and adjust main button layout
+            binding.backButton.visibility = View.VISIBLE
+            binding.startTestButton.layoutParams = LinearLayout.LayoutParams(
+                0, 
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                weight = 1f
+                marginStart = 8
+            }
+        } else {
+            // Hide back button and make main button full width
+            binding.backButton.visibility = View.GONE
+            binding.startTestButton.layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
+        Log.d(TAG, "updateButtonLayout: showBackButton=$showBackButton")
+    }
+
+    override fun shareResultCard() {
+        try {
+            // Create bitmap from result card
+            val bitmap = createBitmapFromView(binding.resultCard)
+            
+            // Save bitmap to cache directory
+            val cachePath = java.io.File(requireContext().cacheDir, "shared_images")
+            cachePath.mkdirs()
+            val file = java.io.File(cachePath, "benchmark_result.png")
+            
+            val stream = FileOutputStream(file)
+            bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
+            stream.close()
+            
+            // Create content URI using FileProvider
+            val contentUri = FileProvider.getUriForFile(
+                requireContext(),
+                "${requireContext().packageName}.fileprovider",
+                file
+            )
+            
+            // Create share intent
+            val shareIntent = Intent().apply {
+                action = Intent.ACTION_SEND
+                type = "image/png"
+                putExtra(Intent.EXTRA_STREAM, contentUri)
+                putExtra(Intent.EXTRA_TEXT, getString(R.string.share_benchmark_result))
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            
+            startActivity(Intent.createChooser(shareIntent, getString(R.string.share)))
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error sharing result card", e)
+            showToast("Failed to share result: ${e.message}")
+        }
+    }
+
+    private fun createBitmapFromView(view: View): Bitmap {
+        val bitmap = Bitmap.createBitmap(
+            view.width, 
+            view.height, 
+            Bitmap.Config.ARGB_8888
+        )
+        val canvas = Canvas(bitmap)
+        view.draw(canvas)
+        return bitmap
+    }
+
     // ===== UI Helpers =====
 
     private fun populateResultsUI(results: BenchmarkContract.BenchmarkResults) {
@@ -259,40 +354,38 @@ class BenchmarkFragment : Fragment(), BenchmarkContract.View {
         val statistics = BenchmarkResultsHelper.processTestResults(requireContext(), results.testResults)
         
         // Display configuration
-        binding.benchmarkConfig.text = statistics.configText
+//        binding.benchmarkConfig.text = statistics.configText
         
         // Show prompt processing results (prefill)
         statistics.prefillStats?.let { stats ->
-            val valueText = BenchmarkResultsHelper.formatSpeedStatisticsLine(stats)
-            val labelText = BenchmarkResultsHelper.formatSpeedLabelOnly(stats)
-            Log.d(TAG, "Setting prefill - Value: '$valueText', Label: '$labelText'")
-            binding.promptProcessingValue.text = valueText
-            binding.promptProcessingLabel.text = ""
+            // Display average value
+            val averageText = "%.2f".format(stats.average)
+            // Display standard deviation in label
+            val labelText = "tokens/s ±%.2f".format(stats.stdev)
+            Log.d(TAG, "Setting prefill - Average: '$averageText', Label: '$labelText'")
+            binding.promptProcessingValue.text = averageText
+            binding.promptProcessingLabel.text = labelText
         } ?: run {
             Log.d(TAG, "No prefill stats available")
         }
         
         // Show token generation results (decode)
         statistics.decodeStats?.let { stats ->
-            val valueText = BenchmarkResultsHelper.formatSpeedStatisticsLine(stats)
-            val labelText = BenchmarkResultsHelper.formatSpeedLabelOnly(stats)
-            Log.d(TAG, "Setting decode - Value: '$valueText', Label: '$labelText'")
-            binding.tokenGenerationValue.text = valueText
-            binding.tokenGenerationLabel.text = ""
+            // Display average value
+            val averageText = "%.2f".format(stats.average)
+            // Display standard deviation in label
+            val labelText = "tokens/s ±%.2f".format(stats.stdev)
+            Log.d(TAG, "Setting decode - Average: '$averageText', Label: '$labelText'")
+            binding.tokenGenerationValue.text = averageText
+            binding.tokenGenerationLabel.text = labelText
         } ?: run {
             Log.d(TAG, "No decode stats available")
         }
         
-        // Model parameters info
-        binding.modelParams.text = BenchmarkResultsHelper.formatModelParams(
-            requireContext(),
-            statistics.totalTokensProcessed, 
-            statistics.totalTests
-        )
-        
         // Display peak memory usage
-        val (memValue, memLabel) = BenchmarkResultsHelper.formatMemoryUsageDetailed(requireContext(), results.maxMemoryKb)
-        binding.peakMemoryLabel.text = memLabel
+        val (peakValue, maxValue) = BenchmarkResultsHelper.formatMemoryUsageDetailed(requireContext(), results.maxMemoryKb)
+        binding.peakMemoryValue.text = peakValue
+        binding.maxMemoryValue.text = maxValue
         // Timestamp
         binding.timestamp.text = results.timestamp
         

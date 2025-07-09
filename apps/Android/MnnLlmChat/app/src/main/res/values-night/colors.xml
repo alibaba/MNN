@@ -37,5 +37,11 @@
 
     <!-- Message background (夜间模式) -->
     <color name="message_background">#2D2D2D</color>
+    
+    <!-- Benchmark Result Card Colors (夜间模式) -->
+    <color name="benchmark_result_card_background">#1C1B1F</color>
+    <color name="benchmark_result_sub_card_background">#2B2930</color>
+    <color name="benchmark_result_text_primary">#FFFFFF</color>
+    <color name="benchmark_result_text_secondary">#B3B3B3</color>
 
 </resources>

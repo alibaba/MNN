@@ -93,14 +93,16 @@ class BenchmarkPresenter(
                 showBenchmarkProgressBar = true
             )
             BenchmarkState.COMPLETED -> BenchmarkUIState(
-                startButtonText = context.getString(R.string.start_test),
+                startButtonText = context.getString(R.string.share),
                 startButtonEnabled = true,
                 showProgressBar = false,
                 showResults = true,
                 showStatus = false,
-                enableModelSelector = true,
+                enableModelSelector = false, // Disable model selector in results view
                 showBenchmarkIcon = false, // Hide icon when showing results
-                showBenchmarkProgressBar = false
+                showBenchmarkProgressBar = false,
+                showBackButton = true, // Show back button in results view
+                showModelSelectorCard = false // Hide model selector card in results view
             )
             BenchmarkState.ERROR -> BenchmarkUIState(
                 startButtonText = context.getString(R.string.start_test),
@@ -121,7 +123,7 @@ class BenchmarkPresenter(
      * Apply UI state to view
      */
     private fun applyUIState(uiState: BenchmarkUIState) {
-        Log.d(TAG, "Applying UI state: buttonText='${uiState.startButtonText}', buttonEnabled=${uiState.startButtonEnabled}, showProgressBar=${uiState.showProgressBar}, showResults=${uiState.showResults}, showStatus=${uiState.showStatus}, showBenchmarkIcon=${uiState.showBenchmarkIcon}, showBenchmarkProgressBar=${uiState.showBenchmarkProgressBar}, benchmarkProgress=${uiState.benchmarkProgress}")
+        Log.d(TAG, "Applying UI state: buttonText='${uiState.startButtonText}', buttonEnabled=${uiState.startButtonEnabled}, showProgressBar=${uiState.showProgressBar}, showResults=${uiState.showResults}, showStatus=${uiState.showStatus}, showBenchmarkIcon=${uiState.showBenchmarkIcon}, showBenchmarkProgressBar=${uiState.showBenchmarkProgressBar}, benchmarkProgress=${uiState.benchmarkProgress}, showBackButton=${uiState.showBackButton}, showModelSelectorCard=${uiState.showModelSelectorCard}")
         
         view.setStartButtonText(uiState.startButtonText)
         view.setStartButtonEnabled(uiState.startButtonEnabled)
@@ -154,6 +156,10 @@ class BenchmarkPresenter(
         
         // Model selector enable/disable logic
         view.enableModelSelector(uiState.enableModelSelector)
+        
+        // Apply new button layout controls
+        view.updateButtonLayout(uiState.showBackButton)
+        view.showModelSelectorCard(uiState.showModelSelectorCard)
     }
     
     override fun onDestroy() {
@@ -167,14 +173,18 @@ class BenchmarkPresenter(
         Log.d(TAG, "canStart: ${stateMachine.canStart()}, canStop: ${stateMachine.canStop()}")
         
         when (currentState) {
-            BenchmarkState.READY, BenchmarkState.COMPLETED -> {
-                Log.d(TAG, "In READY/COMPLETED state, checking if can start")
+            BenchmarkState.READY -> {
+                Log.d(TAG, "In READY state, checking if can start")
                 if (stateMachine.canStart()) {
                     Log.d(TAG, "Starting benchmark...")
                     startBenchmark()
                 } else {
                     Log.w(TAG, "Cannot start benchmark in state: $currentState")
                 }
+            }
+            BenchmarkState.COMPLETED -> {
+                Log.d(TAG, "In COMPLETED state, sharing result card")
+                view.shareResultCard()
             }
             BenchmarkState.RUNNING, BenchmarkState.INITIALIZING -> {
                 Log.d(TAG, "In RUNNING/INITIALIZING state, checking if can stop")
@@ -222,6 +232,19 @@ class BenchmarkPresenter(
             view.showToast("Result deleted")
         } else {
             Log.w(TAG, "Cannot delete results in state: $currentState")
+        }
+    }
+
+    override fun onBackClicked() {
+        val currentState = stateMachine.getCurrentState()
+        Log.d(TAG, "onBackClicked called, state: $currentState")
+        
+        if (currentState == BenchmarkState.COMPLETED) {
+            Log.d(TAG, "Back button clicked from results, transitioning to READY state")
+            stateMachine.transitionTo(BenchmarkState.READY)
+            updateUIForState(BenchmarkState.READY)
+        } else {
+            Log.w(TAG, "Back button clicked in unexpected state: $currentState")
         }
     }
     
