@@ -69,9 +69,9 @@ class ModelListViewModel: ObservableObject {
             }
             
             for i in 0..<fetchedModels.count {
-                let modelId = fetchedModels[i].modelId
-                fetchedModels[i].isDownloaded = ModelStorageManager.shared.isModelDownloaded(modelId)
-                fetchedModels[i].lastUsedAt = ModelStorageManager.shared.getLastUsed(for: modelId)
+                let model = fetchedModels[i]
+                fetchedModels[i].isDownloaded = ModelStorageManager.shared.isModelDownloaded(model.name)
+                fetchedModels[i].lastUsedAt = ModelStorageManager.shared.getLastUsed(for: model.name)
             }
             
             // Sort models
@@ -107,9 +107,9 @@ class ModelListViewModel: ObservableObject {
         }
     }
     
-    func recordModelUsage(modelId: String) {
-        ModelStorageManager.shared.updateLastUsed(for: modelId)
-        if let index = models.firstIndex(where: { $0.modelId == modelId }) {
+    func recordModelUsage(modelName: String) {
+        ModelStorageManager.shared.updateLastUsed(for: modelName)
+        if let index = models.firstIndex(where: { $0.name == modelName }) {
             models[index].lastUsedAt = Date()
             sortModels(fetchedModels: &models)
         }
@@ -174,7 +174,7 @@ class ModelListViewModel: ObservableObject {
             
             if let index = models.firstIndex(where: { $0.modelId == model.modelId }) {
                 models[index].isDownloaded = true
-                ModelStorageManager.shared.markModelAsDownloaded(model.modelId)
+                ModelStorageManager.shared.markModelAsDownloaded(model.name)
             }
             
         } catch {
@@ -242,7 +242,7 @@ class ModelListViewModel: ObservableObject {
             await MainActor.run {
                 if let index = models.firstIndex(where: { $0.modelId == model.modelId }) {
                     models[index].isDownloaded = false
-                    ModelStorageManager.shared.clearDownloadStatus(for: model.modelId)
+                    ModelStorageManager.shared.clearDownloadStatus(for: model.name)
                 }
                 if selectedModel?.modelId == model.modelId {
                     selectedModel = nil

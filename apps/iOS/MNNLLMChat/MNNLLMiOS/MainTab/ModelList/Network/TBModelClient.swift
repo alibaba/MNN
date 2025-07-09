@@ -26,13 +26,13 @@ class TBModelClient {
     
     init() {}
     
-    func getModelInfo() async throws -> TBMockDataResponse {
+    func getModelInfo() async throws -> TBDataResponse {
         guard let url = Bundle.main.url(forResource: "mock", withExtension: "json") else {
             throw NetworkError.invalidData
         }
         
         let data = try Data(contentsOf: url)
-        let mockResponse = try JSONDecoder().decode(TBMockDataResponse.self, from: data)
+        let mockResponse = try JSONDecoder().decode(TBDataResponse.self, from: data)
         return mockResponse
     }
     
@@ -46,7 +46,7 @@ class TBModelClient {
         }
         
         let data = try Data(contentsOf: url)
-        let mockResponse = try JSONDecoder().decode(TBMockDataResponse.self, from: data)
+        let mockResponse = try JSONDecoder().decode(TBDataResponse.self, from: data)
         
         // 加载全局标签翻译
         TagTranslationManager.shared.loadTagTranslations(mockResponse.tagTranslations)
@@ -159,7 +159,7 @@ class TBModelClient {
     }
 }
 
-struct TBMockDataResponse: Codable {
+struct TBDataResponse: Codable {
     let tagTranslations: [String: String]
     let quickFilterTags: [String]?
     let models: [TBModelInfo]

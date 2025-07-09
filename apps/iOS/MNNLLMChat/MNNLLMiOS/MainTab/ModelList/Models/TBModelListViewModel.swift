@@ -109,9 +109,9 @@ class TBModelListViewModel: ObservableObject {
         }
     }
     
-    func recordModelUsage(modelId: String) {
-        ModelStorageManager.shared.updateLastUsed(for: modelId)
-        if let index = models.firstIndex(where: { $0.id == modelId }) {
+    func recordModelUsage(modelName: String) {
+        ModelStorageManager.shared.updateLastUsed(for: modelName)
+        if let index = models.firstIndex(where: { $0.modelName == modelName }) {
             models[index].lastUsedAt = Date()
             sortModels(fetchedModels: &models)
         }
@@ -137,9 +137,9 @@ class TBModelListViewModel: ObservableObject {
         }
         
         for i in 0..<fetchedModels.count {
-            let modelId = fetchedModels[i].id
-            fetchedModels[i].isDownloaded = ModelStorageManager.shared.isModelDownloaded(modelId)
-            fetchedModels[i].lastUsedAt = ModelStorageManager.shared.getLastUsed(for: modelId)
+            let model = fetchedModels[i]
+            fetchedModels[i].isDownloaded = ModelStorageManager.shared.isModelDownloaded(model.modelName)
+            fetchedModels[i].lastUsedAt = ModelStorageManager.shared.getLastUsed(for: model.modelName)
         }
     }
     
@@ -210,7 +210,7 @@ class TBModelListViewModel: ObservableObject {
             
             if let index = models.firstIndex(where: { $0.id == model.id }) {
                 models[index].isDownloaded = true
-                ModelStorageManager.shared.markModelAsDownloaded(model.id)
+                ModelStorageManager.shared.markModelAsDownloaded(model.modelName)
             }
             
         } catch {
@@ -278,7 +278,7 @@ class TBModelListViewModel: ObservableObject {
             await MainActor.run {
                 if let index = models.firstIndex(where: { $0.id == model.id }) {
                     models[index].isDownloaded = false
-                    ModelStorageManager.shared.clearDownloadStatus(for: model.id)
+                    ModelStorageManager.shared.clearDownloadStatus(for: model.modelName)
                 }
                 if selectedModel?.id == model.id {
                     selectedModel = nil
