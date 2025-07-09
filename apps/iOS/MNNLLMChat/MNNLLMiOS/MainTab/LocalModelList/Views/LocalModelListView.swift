@@ -35,4 +35,4 @@ struct LocalModelListView: View {
             Text(viewModel.errorMessage)
         }
     }
-} 
+}

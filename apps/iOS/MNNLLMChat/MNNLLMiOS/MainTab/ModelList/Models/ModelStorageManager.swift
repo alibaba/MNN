@@ -25,14 +25,14 @@ class ModelStorageManager {
         }
     }
     
-    func updateLastUsed(for modelId: String) {
+    func updateLastUsed(for modelName: String) {
         var models = lastUsedModels
-        models[modelId] = Date()
+        models[modelName] = Date()
         lastUsedModels = models
     }
     
-    func getLastUsed(for modelId: String) -> Date? {
-        return lastUsedModels[modelId]
+    func getLastUsed(for modelName: String) -> Date? {
+        return lastUsedModels[modelName]
     }
     
     var downloadedModels: [String] {
@@ -44,20 +44,20 @@ class ModelStorageManager {
         }
     }
     
-    func clearDownloadStatus(for modelId: String) {
+    func clearDownloadStatus(for modelName: String) {
         var models = downloadedModels
-        models.removeAll { $0 == modelId }
+        models.removeAll { $0 == modelName }
         downloadedModels = models
     }
     
-    func isModelDownloaded(_ modelId: String) -> Bool {
-        downloadedModels.contains(modelId)
+    func isModelDownloaded(_ modelName: String) -> Bool {
+        downloadedModels.contains(modelName)
     }
     
-    func markModelAsDownloaded(_ modelId: String) {
+    func markModelAsDownloaded(_ modelName: String) {
         var models = downloadedModels
-        if !models.contains(modelId) {
-            models.append(modelId)
+        if !models.contains(modelName) {
+            models.append(modelName)
             downloadedModels = models
         }
     }

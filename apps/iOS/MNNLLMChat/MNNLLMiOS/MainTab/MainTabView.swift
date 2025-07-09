@@ -15,7 +15,7 @@ struct MainTabView: View {
     @State private var showSettings = false
     @State private var showWebView = false
     @State private var webViewURL: URL?
-    @State private var navigateToSettings = false  // 新增状态变量
+    @State private var navigateToSettings = false
     @StateObject private var modelListViewModel = TBModelListViewModel()
     @StateObject private var localModelListViewModel = ModelListViewModel()
     @State private var selectedTab: Int = 0
@@ -132,6 +132,9 @@ struct MainTabView: View {
     private var chatDestination: some View {
         if let model = localModelListViewModel.selectedModel {
             LLMChatView(modelInfo: model)
+                .navigationBarHidden(false)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar(.hidden, for: .tabBar) // Hide tab bar in chat
         } else if let history = selectedHistory {
             let modelInfo = ModelInfo(
                 modelId: history.modelId,
@@ -141,6 +144,9 @@ struct MainTabView: View {
                 isDownloaded: true
             )
             LLMChatView(modelInfo: modelInfo, history: history)
+                .navigationBarHidden(false)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar(.hidden, for: .tabBar) // Hide tab bar in chat
         } else {
             EmptyView()
         }
@@ -148,13 +154,18 @@ struct MainTabView: View {
     
     private var chatIsActiveBinding: Binding<Bool> {
         Binding<Bool>(
-            get: { modelListViewModel.selectedModel != nil || selectedHistory != nil },
+            get: { 
+                return localModelListViewModel.selectedModel != nil || selectedHistory != nil
+            },
             set: { isActive in
                 if !isActive {
+                    // Record usage when returning from chat
                     if let model = localModelListViewModel.selectedModel {
-                        modelListViewModel.recordModelUsage(modelId: model.modelId)
+                        localModelListViewModel.recordModelUsage(modelName: model.name)
                     }
-                    modelListViewModel.selectedModel = nil
+                    
+                    // Clear selections
+                    localModelListViewModel.selectedModel = nil
                     selectedHistory = nil
                 }
             }
