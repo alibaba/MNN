@@ -28,7 +28,7 @@ class BenchmarkModel {
     interface BenchmarkModelCallback {
         fun onProgress(progress: BenchmarkProgress)
         fun onComplete(results: BenchmarkContract.BenchmarkResults)
-        fun onBenchmarkModelError(message: String)
+        fun onBenchmarkModelError(errorCode: Int, message: String)
     }
 
     /**
@@ -53,7 +53,7 @@ class BenchmarkModel {
     ) {
         val selectedModelId = modelWrapper.modelItem.modelId
         if (selectedModelId.isNullOrEmpty()) {
-            callback.onBenchmarkModelError("Invalid model selection")
+            callback.onBenchmarkModelError(BenchmarkErrorCode.MODEL_ERROR, "Invalid model selection")
             return
         }
         
@@ -111,7 +111,7 @@ class BenchmarkModel {
                     override fun onBenchmarkError(errorCode:Int, message: String) {
                         MemoryMonitor.stop()
                         MemoryMonitor.reset()
-                        callback.onBenchmarkModelError(message)
+                        callback.onBenchmarkModelError(errorCode, message)
                     }
                 },
                 runtimeParams,
@@ -120,7 +120,7 @@ class BenchmarkModel {
         } catch (e: Exception) {
             MemoryMonitor.stop()
             MemoryMonitor.reset()
-            callback.onBenchmarkModelError(e.message ?: "Unknown error")
+            callback.onBenchmarkModelError(BenchmarkErrorCode.BENCHMARK_FAILED_UNKOWN, e.message ?: "Unknown error")
         }
     }
     

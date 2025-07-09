@@ -8,21 +8,99 @@
     android:padding="16dp"
     tools:context=".benchmark.BenchmarkFragment">
 
-    <com.google.android.material.textfield.TextInputLayout
-        android:id="@+id/model_selector_layout"
-        style="@style/Widget.Material3.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
+    <!-- Model Selector with enhanced style -->
+    <com.google.android.material.card.MaterialCardView
         android:layout_width="match_parent"
-        android:layout_height="wrap_content">
-
-        <AutoCompleteTextView
-            android:id="@+id/model_selector_autocomplete"
+        android:layout_height="80dp"
+        android:background="@drawable/list_item_background_combined"
+        android:clickable="true"
+        style="@style/Widget.Material3.CardView.Outlined"
+        android:focusable="true">
+        
+        <RelativeLayout
+            android:id="@+id/model_selector_layout"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:inputType="none"
-            android:text="Qwen2.5-3B-Instruct (Q5_K_M)"
-            tools:ignore="LabelFor" />
+            android:layout_height="70dp"
+            android:layout_gravity="center_vertical">
+            
+            <com.alibaba.mnnllm.android.widgets.ModelAvatarView
+                android:id="@+id/model_avatar"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:layout_centerVertical="true"
+                android:layout_marginStart="12dp"
+                android:layout_marginEnd="10dp"
+                style="@style/Widget.Material3.CardView.Outlined"
+                app:cardBackgroundColor="@android:color/transparent"
+                app:cardCornerRadius="8dp"
+                app:strokeColor="?colorOutlineVariant" />
 
-    </com.google.android.material.textfield.TextInputLayout>
+            <TextView
+                android:id="@+id/model_selector_title"
+                style="?textAppearanceTitleSmall"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_alignTop="@+id/model_avatar"
+                android:layout_toEndOf="@id/model_avatar"
+                android:maxLines="1"
+                android:textColor="?colorOnSurface"
+                android:text="Select Model"
+                tools:text="Qwen2.5-3B-Instruct" />
+
+            <com.alibaba.mnnllm.android.widgets.TagsLayout
+                android:id="@+id/model_tags_layout"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_below="@id/model_selector_title"
+                android:layout_marginEnd="60dp"
+                android:layout_toEndOf="@id/model_avatar" />
+
+            <ImageView
+                android:id="@+id/model_folder_icon"
+                android:layout_width="20dp"
+                android:layout_height="20dp"
+                android:layout_marginEnd="4dp"
+                android:layout_below="@id/model_tags_layout"
+                android:src="@drawable/ic_u_folder"
+                app:tint="?colorOnSurfaceVariant"
+                android:layout_toEndOf="@id/model_avatar" />
+            
+            <TextView
+                android:id="@+id/model_selector_status"
+                style="?textAppearanceBodySmall"
+                android:layout_marginTop="2dp"
+                android:layout_alignBaseline="@id/model_folder_icon"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_below="@id/model_tags_layout"
+                android:layout_toEndOf="@id/model_folder_icon"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="?colorOnSurfaceVariant"
+                android:text="Click to select model"
+                tools:text="4.5GB" />
+
+            <!-- Hidden AutoCompleteTextView for functionality -->
+            <AutoCompleteTextView
+                android:id="@+id/model_selector_autocomplete"
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:inputType="none"
+                android:visibility="gone"
+                tools:ignore="LabelFor" />
+
+            <ImageView
+                android:id="@+id/dropdown_arrow"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:layout_alignParentEnd="true"
+                android:layout_centerVertical="true"
+                android:layout_marginEnd="16dp"
+                android:src="@drawable/baseline_arrow_drop_down_24"
+                app:tint="?colorOnSurfaceVariant" />
+
+        </RelativeLayout>
+    </com.google.android.material.card.MaterialCardView>
     <RelativeLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
@@ -31,6 +109,7 @@
             android:id="@+id/result_layout"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
+            tools:visibility="visible"
             android:orientation="vertical">
 
             <TextView
@@ -42,7 +121,8 @@
                 android:textColor="?colorOnSurface"
                 android:textSize="18sp"
                 android:textStyle="bold"
-                android:visibility="gone"/>
+                android:visibility="gone"
+                tools:visibility="visible"/>
 
             <com.google.android.material.card.MaterialCardView
                 android:id="@+id/result_card"
@@ -218,23 +298,36 @@
                         app:layout_constraintStart_toStartOf="parent"
                         app:layout_constraintTop_toBottomOf="@id/results_detail_layout"
                          />
-
                 </androidx.constraintlayout.widget.ConstraintLayout>
-
             </com.google.android.material.card.MaterialCardView>
         </LinearLayout>
-        <com.google.android.material.textview.MaterialTextView
-            android:id="@+id/textStatus"
-            android:layout_centerVertical="true"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:gravity="center"
+        <FrameLayout
+            android:id="@+id/icon_benchmark_parent"
+            android:layout_width="280dp"
+            android:layout_height="280dp"
             android:layout_centerHorizontal="true"
-            style="?textAppearanceBodyLarge"
-            android:textSize="20sp"
-            android:text="@string/select_a_model_to_start"
-            android:visibility="visible"
-            tools:visibility="visible"/>
+            android:layout_marginTop="100dp"
+            tools:visibility="gone"
+            >
+        <ImageView
+            android:id="@+id/icon_benchmark"
+            android:layout_width="180dp"
+            android:layout_height="180dp"
+            android:layout_gravity="center"
+            app:srcCompat="@drawable/icon_benchmark"
+            tools:visibility="visible"
+            />
+            <ProgressBar
+                android:id="@+id/benchmark_progress_bar"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:max="100"
+                tools:progress="99"
+                tools:visibility="gone"
+                android:progressDrawable="@drawable/custom_circular_progress" />
+        </FrameLayout>
+
         <com.github.ybq.android.spinkit.SpinKitView
             android:id="@+id/progressBar"
             android:visibility="invisible"
@@ -244,12 +337,21 @@
             android:layout_width="60dp"
             android:layout_height="60dp"
             app:SpinKit_Color="?colorOnSurface"
-            android:layout_below="@id/textStatus"
             tools:visibility="visible"/>
 
-
     </RelativeLayout>
-
+    <com.google.android.material.textview.MaterialTextView
+        android:id="@+id/textStatus"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        style="?textAppearanceBodyLarge"
+        android:textSize="20sp"
+        android:text="@string/select_a_model_to_start"
+        android:layout_marginTop="30dp"
+        android:visibility="visible"
+        tools:visibility="visible"
+        android:layout_gravity="center_horizontal"/>
     <com.google.android.material.button.MaterialButton
         android:id="@+id/start_test_button"
         android:layout_width="match_parent"

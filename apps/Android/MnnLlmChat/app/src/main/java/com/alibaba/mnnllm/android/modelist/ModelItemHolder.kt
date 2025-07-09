@@ -286,9 +286,9 @@ class ModelItemHolder(
         
         // Since all models are downloaded, simplify menu visibility
         // Delete, settings, and model info are always available
-        popupMenu.menu.findItem(R.id.menu_delete_model).setVisible(true)
+        popupMenu.menu.findItem(R.id.menu_delete_model).setVisible(!modelItem.isLocal)
         popupMenu.menu.findItem(R.id.menu_settings).setVisible(true)
-        popupMenu.menu.findItem(R.id.menu_show_model_info).setVisible(true)
+        popupMenu.menu.findItem(R.id.menu_show_model_info).setVisible(false)
         
         // Download control items are not needed for downloaded models
         popupMenu.menu.findItem(R.id.menu_pause_download)?.setVisible(false)

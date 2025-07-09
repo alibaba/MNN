@@ -7,6 +7,7 @@
         android:layout_width="match_parent"
         android:layout_height="56dp"
         android:orientation="horizontal"
+        android:background="?colorSurface"
         android:elevation="4dp">
 
         <!-- Local Model Tab -->
@@ -18,7 +19,8 @@
             android:gravity="center"
             android:orientation="vertical"
             android:clickable="true"
-            android:foreground="?attr/selectableItemBackgroundBorderless">
+            android:foreground="?attr/selectableItemBackgroundBorderless"
+            >
 
             <ImageView
                 android:id="@+id/icon_local_models"

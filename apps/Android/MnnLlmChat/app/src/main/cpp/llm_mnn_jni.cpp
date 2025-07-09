@@ -435,7 +435,7 @@ Java_com_alibaba_mnnllm_android_llm_LlmSession_clearHistoryNative(JNIEnv *env, j
 // JNI glue layer - converts Java objects and delegates to pure C++ implementation
 extern "C"
 JNIEXPORT jobject JNICALL
-Java_com_alibaba_mnnllm_android_llm_LlmSession_runOfficialBenchmarkNative(
+Java_com_alibaba_mnnllm_android_llm_LlmSession_runBenchmarkNative(
         JNIEnv *env,
         jobject thiz,
         jlong llmPtr,

@@ -31,6 +31,12 @@ class BenchmarkContract {
         fun setStartButtonEnabled(enabled: Boolean)
         fun showProgressBar()
         fun hideProgressBar()
+        
+        // Benchmark icon and progress
+        fun showBenchmarkIcon(show: Boolean)
+        fun showBenchmarkProgressBar(show: Boolean)
+        fun updateBenchmarkProgress(progress: Int)
+        fun enableModelSelector(enabled: Boolean)
     }
     
     interface Presenter {
@@ -42,6 +48,7 @@ class BenchmarkContract {
         fun onDeleteResultClicked()
         fun onSubmitResultClicked()
         fun onViewLeaderboardClicked()
+        fun getCurrentState(): BenchmarkState
     }
     
     data class BenchmarkResults(

@@ -13,6 +13,7 @@ import kotlinx.coroutines.withContext
 class BenchmarkService {
     private var llmSession: LlmSession? = null
     private var isRunning = false
+    @Volatile
     private var shouldStop = false
 
     companion object {
@@ -169,6 +170,18 @@ class BenchmarkService {
         return instances
     }
 
+    private fun checkStop(callback: BenchmarkCallback):Boolean {
+        if (shouldStop) {
+            Log.d(TAG, "Benchmark stopped by user")
+            isRunning = false
+            CoroutineScope(Dispatchers.Main).launch {
+                callback.onBenchmarkError(BenchmarkErrorCode.BENCHMARK_STOPPED,"Benchmark stopped by user")
+            }
+            false
+        }
+        return false
+    }
+
     fun runBenchmark(
         context: Context,
         modelId: String,
@@ -201,17 +214,12 @@ class BenchmarkService {
                 var completedInstances = 0
                 val totalInstances = instances.size
                 
-                for (instance in instances) {
+                for ((i, instance) in instances.withIndex()) {
                     // Check if benchmark should stop
-                    if (shouldStop) {
-                        Log.d(TAG, "Benchmark stopped by user")
-                        isRunning = false
-                        CoroutineScope(Dispatchers.Main).launch {
-                            callback.onBenchmarkError(BenchmarkErrorCode.BENCHMARK_STOPPED,"Benchmark stopped by user")
-                        }
+                    Log.d(TAG, "running instance $i of $totalInstances")
+                    if (checkStop(callback)) {
                         return@launch
                     }
-                    
                     try {
                         // Create TestInstance following llm_bench.cpp structure
                         val testInstance = TestInstance(
@@ -242,12 +250,15 @@ class BenchmarkService {
                         
                         // Run the actual benchmark following llm_bench.cpp approach
                         val result = withContext(Dispatchers.Default) {
-                            session.runOfficialBenchmark(
+                            session.runBenchmark(
                                 context,
                                 instance,
                                 testInstance,
                                 object : BenchmarkCallback {
                                     override fun onProgress(progress: BenchmarkProgress) {
+                                        if (shouldStop) {
+                                            return
+                                        }
                                         // Some native implementations may send negative or >100 values when finished
                                         val clampedProgress = progress.copy(progress = progress.progress.coerceIn(0, 100))
                                         // Filter extremely long nested logs for readability
@@ -269,7 +280,9 @@ class BenchmarkService {
                                 }
                             )
                         }
-                        
+                        if (checkStop(callback)) {
+                            return@launch
+                        }
                         completedInstances++
                         
                         // Log the raw result received from the native layer before passing it up.
@@ -320,6 +333,7 @@ class BenchmarkService {
     fun getModelInfo(): String? = llmSession?.modelId()
 
     fun stopBenchmark() {
+        Log.d(TAG, "benchmark stop request by the user")
         shouldStop = true
     }
 

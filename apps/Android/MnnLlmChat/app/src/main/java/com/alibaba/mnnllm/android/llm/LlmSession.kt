@@ -289,7 +289,7 @@ class LlmSession (
     }
 
     // Official benchmark functionality following llm_bench.cpp approach
-    fun runOfficialBenchmark(
+    fun runBenchmark(
         context: Context,
         commandParams: com.alibaba.mnnllm.android.benchmark.CommandParameters,
         testInstance: com.alibaba.mnnllm.android.benchmark.TestInstance,
@@ -298,7 +298,7 @@ class LlmSession (
         // Use coroutine instead of Thread for better lifecycle management
         return try {
             // Run the actual benchmark in C++ following llm_bench.cpp structure
-            runOfficialBenchmarkNative(
+            runBenchmarkNative(
                 nativePtr, 
                 commandParams.backend,
                 commandParams.threads,
@@ -318,13 +318,13 @@ class LlmSession (
             com.alibaba.mnnllm.android.benchmark.BenchmarkResult(
                 testInstance = testInstance,
                 success = false,
-                errorMessage = "Official benchmark failed: ${e.message}"
+                errorMessage = "benchmark failed: ${e.message}"
             )
         }
     }
 
     // C++ implementation following llm_bench.cpp approach
-    private external fun runOfficialBenchmarkNative(
+    private external fun runBenchmarkNative(
         nativePtr: Long,
         backend: Int,
         threads: Int,

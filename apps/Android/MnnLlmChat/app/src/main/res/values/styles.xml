@@ -143,6 +143,7 @@
     </style>
 
     <style name="BottomSheetDialogTheme" parent="Theme.Material3.DayNight.BottomSheetDialog">
+        <item name="colorPrimary">@color/md_theme_primary</item>
         <item name="bottomSheetStyle">@style/BottomSheetStyle</item>
     </style>
 

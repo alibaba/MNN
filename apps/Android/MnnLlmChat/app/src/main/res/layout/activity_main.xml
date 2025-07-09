@@ -43,7 +43,8 @@
             android:id="@+id/bottom_navigation"
             android:layout_width="match_parent"
             android:layout_height="56dp"
-            android:layout_gravity="bottom"/>
+            android:layout_gravity="bottom"
+            android:background="@color/color_background"/>
     </androidx.coordinatorlayout.widget.CoordinatorLayout>
 
     <com.nambimobile.widgets.efab.ExpandableFabLayout

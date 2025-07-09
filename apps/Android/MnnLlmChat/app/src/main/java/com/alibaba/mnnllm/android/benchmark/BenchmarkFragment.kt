@@ -14,6 +14,10 @@ import com.alibaba.mnnllm.android.databinding.FragmentBenchmarkBinding
 import com.alibaba.mnnllm.android.utils.ModelListManager
 import com.alibaba.mnnllm.android.chat.SelectModelFragment
 import com.jaredrummler.android.device.DeviceName
+import com.alibaba.mls.api.ModelItem
+import com.alibaba.mls.api.download.ModelDownloadManager
+import com.alibaba.mnnllm.android.utils.FileUtils
+import java.io.File
 
 class BenchmarkFragment : Fragment(), BenchmarkContract.View {
 
@@ -57,9 +61,24 @@ class BenchmarkFragment : Fragment(), BenchmarkContract.View {
             presenter?.onSubmitResultClicked()
         }
 
-        // Model selector click handler
+        // Model selector click handler - now clicking the entire layout
+        binding.modelSelectorLayout.setOnClickListener {
+            // Only allow model selection in Ready and Complete states
+            val currentState = getCurrentState() ?: return@setOnClickListener
+            if (currentState == BenchmarkState.READY || currentState == BenchmarkState.COMPLETED) {
+                showModelSelectionDialog()
+            } else {
+                Log.d(TAG, "Model selection disabled in state: $currentState")
+                showToast("Cannot change model during benchmark")
+            }
+        }
+        
+        // Keep the autocomplete click handler for compatibility
         binding.modelSelectorAutocomplete.setOnClickListener {
-            showModelSelectionDialog()
+            val currentState = getCurrentState() ?: return@setOnClickListener
+            if (currentState == BenchmarkState.READY || currentState == BenchmarkState.COMPLETED) {
+                showModelSelectionDialog()
+            }
         }
     }
 
@@ -103,6 +122,21 @@ class BenchmarkFragment : Fragment(), BenchmarkContract.View {
 
     override fun updateModelSelector(models: List<ModelListManager.ModelItemWrapper>) {
         availableModels = models
+        
+        // Update the new UI elements
+        if (models.isEmpty()) {
+            binding.modelSelectorTitle.text = "No models available"
+            binding.modelSelectorStatus.text = "Please download a model first"
+            binding.modelAvatar.setModelName("")
+            binding.modelTagsLayout.setTags(emptyList())
+        } else {
+            binding.modelSelectorTitle.text = "Select Model"
+            binding.modelSelectorStatus.text = "Click to select model"
+            binding.modelAvatar.setModelName("")
+            binding.modelTagsLayout.setTags(emptyList())
+        }
+        
+        // Keep the autocomplete for compatibility
         binding.modelSelectorAutocomplete.apply {
             setText("Select Model")
             isFocusable = false
@@ -112,6 +146,28 @@ class BenchmarkFragment : Fragment(), BenchmarkContract.View {
 
     override fun setSelectedModel(modelWrapper: ModelListManager.ModelItemWrapper) {
         selectedModelWrapper = modelWrapper
+        
+        // Update the new UI elements with model information
+        val modelItem = modelWrapper.modelItem
+        val modelName = modelItem.modelName ?: modelItem.modelId ?: "Unknown Model"
+        
+        // Set model title and avatar
+        binding.modelSelectorTitle.text = modelName
+        binding.modelAvatar.setModelName(modelName)
+        
+        // Set tags similar to ModelItemHolder
+        val tags = getDisplayTags(modelItem)
+        binding.modelTagsLayout.setTags(tags)
+        
+        // Set status with file size
+        val formattedSize = getFormattedFileSize(modelWrapper)
+        binding.modelSelectorStatus.text = if (formattedSize.isNotEmpty()) {
+            getString(R.string.downloaded_click_to_chat, formattedSize)
+        } else {
+            "Ready for benchmark"
+        }
+        
+        // Keep the autocomplete updated for compatibility
         binding.modelSelectorAutocomplete.setText(modelWrapper.displayName)
         Log.d(TAG, "Selected model: ${modelWrapper.displayName}")
     }
@@ -164,6 +220,28 @@ class BenchmarkFragment : Fragment(), BenchmarkContract.View {
         if (binding.resultCard.visibility == View.VISIBLE) {
             binding.textStatus.visibility = View.GONE
         }
+    }
+
+    override fun showBenchmarkIcon(show: Boolean) {
+        binding.iconBenchmark.visibility = if (show) View.VISIBLE else View.GONE
+        binding.iconBenchmarkParent.visibility = if (show) View.VISIBLE else View.GONE
+        Log.d(TAG, "showBenchmarkIcon: $show")
+    }
+
+    override fun showBenchmarkProgressBar(show: Boolean) {
+        binding.benchmarkProgressBar.visibility = if (show) View.VISIBLE else View.GONE
+        Log.d(TAG, "showBenchmarkProgressBar: $show")
+    }
+
+    override fun updateBenchmarkProgress(progress: Int) {
+        binding.benchmarkProgressBar.progress = progress
+        Log.d(TAG, "updateBenchmarkProgress: $progress%")
+    }
+
+    override fun enableModelSelector(enabled: Boolean) {
+        binding.modelSelectorLayout.isEnabled = enabled
+        binding.modelSelectorLayout.alpha = if (enabled) 1.0f else 0.6f
+        Log.d(TAG, "enableModelSelector: $enabled")
     }
 
     // ===== UI Helpers =====
@@ -219,6 +297,86 @@ class BenchmarkFragment : Fragment(), BenchmarkContract.View {
         binding.timestamp.text = results.timestamp
         
         Log.d(TAG, "Results populated - Memory: ${results.maxMemoryKb} KB, Model: ${results.modelDisplayName}")
+    }
+
+    // ===== Helper Methods =====
+
+    /**
+     * Get current benchmark state from presenter
+     */
+    private fun getCurrentState(): BenchmarkState? {
+        return presenter?.getCurrentState()
+    }
+
+    /**
+     * Get display tags for model, similar to ModelItemHolder
+     */
+    private fun getDisplayTags(modelItem: ModelItem): List<String> {
+        val tags = mutableListOf<String>()
+        
+        // Add source tag first
+        val source = getModelSource(modelItem.modelId)
+        if (source != null) {
+            tags.add(source)
+        }
+        
+        // Use getTags() which now prioritizes market tags from model_market.json
+        val marketTags = modelItem.getTags()
+        
+        // Add local/downloaded status
+        if (modelItem.isLocal) {
+            tags.add(getString(R.string.local))
+        } else if (marketTags.isNotEmpty()) {
+            // If we have market tags, use them directly (they're already user-friendly)
+            tags.addAll(marketTags.take(2)) // Limit to 2 market tags to leave room for source tag
+        }
+        
+        // Limit total tags to 3 for better UI layout
+        return tags.take(3)
+    }
+
+    /**
+     * Extract source information from modelId
+     */
+    private fun getModelSource(modelId: String?): String? {
+        return when {
+            modelId == null -> null
+            modelId.startsWith("HuggingFace/") || modelId.contains("taobao-mnn") -> getString(R.string.huggingface)
+            modelId.startsWith("ModelScope/") -> getString(R.string.modelscope)
+            modelId.startsWith("Modelers/") -> getString(R.string.modelers)
+            else -> null
+        }
+    }
+
+    /**
+     * Get formatted file size for model, similar to ModelItemHolder
+     */
+    private fun getFormattedFileSize(modelWrapper: ModelListManager.ModelItemWrapper): String {
+        val modelItem = modelWrapper.modelItem
+        val modelDownloadManager = ModelDownloadManager.getInstance(requireContext())
+        
+        // Try to get file size using the same method as MarketItemHolder
+        modelItem.modelId?.let { modelId ->
+            val downloadedFile = modelDownloadManager.getDownloadedFile(modelId)
+            if (downloadedFile != null) {
+                return FileUtils.getFileSizeString(downloadedFile)
+            }
+        }
+        
+        // Fallback to direct file size calculation
+        if (modelWrapper.downloadSize > 0) {
+            return FileUtils.formatFileSize(modelWrapper.downloadSize)
+        }
+        
+        // Try to get size from local path
+        modelItem.localPath?.let { localPath ->
+            val file = File(localPath)
+            if (file.exists()) {
+                return FileUtils.getFileSizeString(file)
+            }
+        }
+        
+        return ""
     }
 
     override fun onDestroyView() {
