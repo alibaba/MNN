@@ -16,7 +16,8 @@ struct MainTabView: View {
     @State private var showWebView = false
     @State private var webViewURL: URL?
     @State private var navigateToSettings = false  // 新增状态变量
-    @StateObject private var modelListViewModel = ModelListViewModel()
+    @StateObject private var modelListViewModel = TBModelListViewModel()
+    @StateObject private var localModelListViewModel = ModelListViewModel()
     @State private var selectedTab: Int = 0
     @State private var titles = ["本地模型", "模型市场", "TB模型", "Benchmark"]
     
@@ -24,19 +25,19 @@ struct MainTabView: View {
         ZStack {
             NavigationView {
                 TabView(selection: $selectedTab) {
-                    LocalModelListView(viewModel: modelListViewModel)
+                    LocalModelListView(viewModel: localModelListViewModel)
                         .tabItem {
                             Image(systemName: "house.fill")
                             Text("本地模型")
                         }
                         .tag(0)
-                    ModelListView(viewModel: modelListViewModel)
+                    ModelListView(viewModel: localModelListViewModel)
                         .tabItem {
                             Image(systemName: "cart.fill")
                             Text("模型市场")
                         }
                         .tag(1)
-                    TBModelListView()
+                    TBModelListView(viewModel: modelListViewModel)
                         .tabItem {
                             Image(systemName: "doc.text.fill")
                             Text("TB模型")
@@ -129,7 +130,7 @@ struct MainTabView: View {
 
     @ViewBuilder
     private var chatDestination: some View {
-        if let model = modelListViewModel.selectedModel {
+        if let model = localModelListViewModel.selectedModel {
             LLMChatView(modelInfo: model)
         } else if let history = selectedHistory {
             let modelInfo = ModelInfo(
@@ -150,7 +151,7 @@ struct MainTabView: View {
             get: { modelListViewModel.selectedModel != nil || selectedHistory != nil },
             set: { isActive in
                 if !isActive {
-                    if let model = modelListViewModel.selectedModel {
+                    if let model = localModelListViewModel.selectedModel {
                         modelListViewModel.recordModelUsage(modelId: model.modelId)
                     }
                     modelListViewModel.selectedModel = nil

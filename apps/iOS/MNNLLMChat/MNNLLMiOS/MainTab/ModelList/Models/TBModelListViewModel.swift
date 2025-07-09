@@ -67,40 +67,17 @@ class TBModelListViewModel: ObservableObject {
     
     func fetchModels() async {
         do {
-            var fetchedModels = try await modelClient.getModelList()
+            let info = try await modelClient.getModelInfo()
             
-            let hasDiffusionModels = fetchedModels.contains { 
-                $0.modelName.lowercased().contains("diffusion") 
-            }
+            self.quickFilterTags = info.quickFilterTags ?? []
             
-            if hasDiffusionModels {
-                fetchedModels = fetchedModels.filter { model in
-                    let name = model.modelName.lowercased()
-                    let tags = model.tags.map { $0.lowercased() }
-                    
-                    // only show gpu diffusion
-                    if name.contains("diffusion") {
-                        return name.contains("gpu") || tags.contains { $0.contains("gpu") }
-                    }
-                    
-                    return true
-                }
-            }
+            TagTranslationManager.shared.loadTagTranslations(info.tagTranslations)
+        
+            var fetchedModels = info.models
             
-            for i in 0..<fetchedModels.count {
-                let modelId = fetchedModels[i].id
-                fetchedModels[i].isDownloaded = ModelStorageManager.shared.isModelDownloaded(modelId)
-                fetchedModels[i].lastUsedAt = ModelStorageManager.shared.getLastUsed(for: modelId)
-            }
-            
-            // Sort models
-            sortModels(fetchedModels: &fetchedModels)
-            
-            // 加载 quickFilterTags 和 tagTranslations
-            if let mockResponse = try? await loadMockResponse() {
-                quickFilterTags = mockResponse.quickFilterTags ?? []
-                TagTranslationManager.shared.loadTagTranslations(mockResponse.tagTranslations)
-            }
+            self.filteDiffusionModel(fetchedModels: &fetchedModels)
+            self.sortModels(fetchedModels: &fetchedModels)
+            self.models = fetchedModels
             
             // 异步获取未下载模型的大小信息
             Task {
@@ -111,15 +88,6 @@ class TBModelListViewModel: ObservableObject {
             showError = true
             errorMessage = "Error: \(error.localizedDescription)"
         }
-    }
-    
-    private func loadMockResponse() async throws -> TBMockDataResponse? {
-        guard let url = Bundle.main.url(forResource: "mock", withExtension: "json") else {
-            return nil
-        }
-        
-        let data = try Data(contentsOf: url)
-        return try JSONDecoder().decode(TBMockDataResponse.self, from: data)
     }
     
     private func fetchModelSizes(for models: [TBModelInfo]) async {
@@ -146,6 +114,32 @@ class TBModelListViewModel: ObservableObject {
         if let index = models.firstIndex(where: { $0.id == modelId }) {
             models[index].lastUsedAt = Date()
             sortModels(fetchedModels: &models)
+        }
+    }
+    
+    private func filteDiffusionModel(fetchedModels: inout [TBModelInfo]) {
+        let hasDiffusionModels = fetchedModels.contains {
+            $0.modelName.lowercased().contains("diffusion")
+        }
+        
+        if hasDiffusionModels {
+            fetchedModels = fetchedModels.filter { model in
+                let name = model.modelName.lowercased()
+                let tags = model.tags.map { $0.lowercased() }
+                
+                // only show gpu diffusion
+                if name.contains("diffusion") {
+                    return name.contains("gpu") || tags.contains { $0.contains("gpu") }
+                }
+                
+                return true
+            }
+        }
+        
+        for i in 0..<fetchedModels.count {
+            let modelId = fetchedModels[i].id
+            fetchedModels[i].isDownloaded = ModelStorageManager.shared.isModelDownloaded(modelId)
+            fetchedModels[i].lastUsedAt = ModelStorageManager.shared.getLastUsed(for: modelId)
         }
     }
     
@@ -189,8 +183,6 @@ class TBModelListViewModel: ObservableObject {
             
             return false // Keep original order for not-downloaded
         }
-        
-        models = fetchedModels
     }
     
     func selectModel(_ model: TBModelInfo) {
@@ -211,7 +203,9 @@ class TBModelListViewModel: ObservableObject {
         
         do {
             try await modelClient.downloadModel(model: model) { progress in
-                self.downloadProgress[model.id] = progress
+                Task { @MainActor in
+                    self.downloadProgress[model.id] = progress
+                }
             }
             
             if let index = models.firstIndex(where: { $0.id == model.id }) {

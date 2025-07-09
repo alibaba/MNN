@@ -62,11 +62,12 @@ struct TBModelInfo: Codable {
     }
     
     func fetchRemoteSize() async -> Int64? {
-        let modelScopeId = id.replacingOccurrences(of: "taobao-mnn", with: "MNN")
-        
+        // TODO: now only support modelScope, support huggingFace later
+        let modelScopeId = "taobao-mnn/\(modelName)"
+
         do {
-            let files = try await fetchFileList(repoPath: modelScopeId, root: "", revision: "")
-            let totalSize = try await calculateTotalSize(files: files, repoPath: modelScopeId)
+            let files = try await fetchFileList(repoPath: id, root: "", revision: "")
+            let totalSize = try await calculateTotalSize(files: files, repoPath: id)
             return totalSize
         } catch {
             print("Error fetching remote size for \(id): \(error)")

@@ -8,7 +8,7 @@
 import SwiftUI
 
 struct TBModelListView: View {
-    @StateObject private var viewModel = TBModelListViewModel()
+    @ObservedObject var viewModel: TBModelListViewModel
     @State private var searchText = ""
     @State private var selectedSource = ModelSourceManager.shared.selectedSource
     @State private var showSourceMenu = false
@@ -21,45 +21,9 @@ struct TBModelListView: View {
         ScrollView {
             LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
                 Section {
-                    LazyVStack(spacing: 8) {
-                        ForEach(Array(filteredModels.enumerated()), id: \.element.id) { index, model in
-                            TBModelRowView(
-                                model: model,
-                                viewModel: viewModel,
-                                downloadProgress: viewModel.downloadProgress[model.id] ?? 0,
-                                isDownloading: viewModel.currentlyDownloading == model.id,
-                                isOtherDownloading: viewModel.currentlyDownloading != nil && viewModel.currentlyDownloading != model.id
-                            ) {
-                                Task {
-                                    await viewModel.downloadModel(model)
-                                }
-                            }
-                            .padding(.horizontal, 16)
-                            
-                            if index < filteredModels.count - 1 {
-                                Divider()
-                                    .padding(.horizontal, 16)
-                            }
-                        }
-                    }
-                    .padding(.vertical, 8)
+                    modelListSection
                 } header: {
-                    ToolbarView(
-                        selectedSource: $selectedSource,
-                        showSourceMenu: $showSourceMenu,
-                        selectedTags: $selectedTags,
-                        selectedCategories: $selectedCategories,
-                        selectedVendors: $selectedVendors,
-                        quickFilterTags: viewModel.quickFilterTags,
-                        showFilterMenu: $showFilterMenu,
-                        onSourceChange: { source in
-                            ModelSourceManager.shared.updateSelectedSource(source)
-                            selectedSource = source
-                            Task {
-                                await viewModel.fetchModels()
-                            }
-                        }
-                    )
+                    toolbarSection
                 }
             }
         }
@@ -70,14 +34,76 @@ struct TBModelListView: View {
         .refreshable {
             await viewModel.fetchModels()
         }
-        .alert("错误", isPresented: $viewModel.showError) {
-            Button("确定") { }
+        .alert("Error", isPresented: $viewModel.showError) {
+            Button("OK") { }
         } message: {
             Text(viewModel.errorMessage)
         }
     }
     
-    // 根据选中的标签、分类和厂商筛选模型
+    // Extract model list section as independent view
+    @ViewBuilder
+    private var modelListSection: some View {
+        LazyVStack(spacing: 8) {
+            ForEach(Array(filteredModels.enumerated()), id: \.element.id) { index, model in
+                modelRowView(model: model, index: index)
+                
+                if index < filteredModels.count - 1 {
+                    Divider()
+                        .padding(.horizontal, 16)
+                }
+            }
+        }
+        .padding(.vertical, 8)
+    }
+    
+    // Extract toolbar section as independent view
+    @ViewBuilder
+    private var toolbarSection: some View {
+        ToolbarView(
+            viewModel: viewModel, selectedSource: $selectedSource,
+            showSourceMenu: $showSourceMenu,
+            selectedTags: $selectedTags,
+            selectedCategories: $selectedCategories,
+            selectedVendors: $selectedVendors,
+            quickFilterTags: viewModel.quickFilterTags,
+            showFilterMenu: $showFilterMenu,
+            onSourceChange: handleSourceChange
+        )
+    }
+    
+    // Extract single model row view as independent method
+    @ViewBuilder
+    private func modelRowView(model: TBModelInfo, index: Int) -> some View {
+        TBModelRowView(
+            model: model,
+            viewModel: viewModel,
+            downloadProgress: viewModel.downloadProgress[model.id] ?? 0,
+            isDownloading: viewModel.currentlyDownloading == model.id,
+            isOtherDownloading: isOtherDownloadingCheck(model: model)
+        ) {
+            Task {
+                await viewModel.downloadModel(model)
+            }
+        }
+        .padding(.horizontal, 16)
+    }
+    
+    // Extract complex boolean logic as independent method
+    private func isOtherDownloadingCheck(model: TBModelInfo) -> Bool {
+        return viewModel.currentlyDownloading != nil && viewModel.currentlyDownloading != model.id
+    }
+    
+    // Extract source change handling logic as independent method
+    private func handleSourceChange(_ source: ModelSource) {
+        ModelSourceManager.shared.updateSelectedSource(source)
+        selectedSource = source
+        Task {
+            await viewModel.fetchModels()
+        }
+    }
+    
+    // Filter models based on selected tags, categories and vendors
     private var filteredModels: [TBModelInfo] {
         let baseFiltered = viewModel.filteredModels
         
@@ -86,27 +112,36 @@ struct TBModelListView: View {
         }
         
         return baseFiltered.filter { model in
-            let tagMatch = selectedTags.isEmpty || selectedTags.allSatisfy { selectedTag in
-                model.localizedTags.contains { tag in
-                    tag.localizedCaseInsensitiveContains(selectedTag)
-                }
-            }
-            
-            let categoryMatch = selectedCategories.isEmpty || selectedCategories.allSatisfy { selectedCategory in
-                model.categories?.contains { category in
-                    category.localizedCaseInsensitiveContains(selectedCategory)
-                } ?? false
-            }
-            
-            let vendorMatch = selectedVendors.isEmpty || selectedVendors.contains { selectedVendor in
-                model.vendor?.localizedCaseInsensitiveContains(selectedVendor) ?? false
-            }
+            let tagMatch = checkTagMatch(model: model)
+            let categoryMatch = checkCategoryMatch(model: model)
+            let vendorMatch = checkVendorMatch(model: model)
             
             return tagMatch && categoryMatch && vendorMatch
         }
     }
-}
-
-#Preview {
-    TBModelListView()
+    
+    // Extract tag matching logic as independent method
+    private func checkTagMatch(model: TBModelInfo) -> Bool {
+        return selectedTags.isEmpty || selectedTags.allSatisfy { selectedTag in
+            model.localizedTags.contains { tag in
+                tag.localizedCaseInsensitiveContains(selectedTag)
+            }
+        }
+    }
+    
+    // Extract category matching logic as independent method
+    private func checkCategoryMatch(model: TBModelInfo) -> Bool {
+        return selectedCategories.isEmpty || selectedCategories.allSatisfy { selectedCategory in
+            model.categories?.contains { category in
+                category.localizedCaseInsensitiveContains(selectedCategory)
+            } ?? false
+        }
+    }
+    
+    // Extract vendor matching logic as independent method
+    private func checkVendorMatch(model: TBModelInfo) -> Bool {
+        return selectedVendors.isEmpty || selectedVendors.contains { selectedVendor in
+            model.vendor?.localizedCaseInsensitiveContains(selectedVendor) ?? false
+        }
+    }
 }
