@@ -99,7 +99,7 @@ struct ModelInfo: Codable {
         } else if let sizeGb = size_gb {
             return String(format: "%.1f GB", sizeGb)
         } else {
-            return "Calculating..."
+            return "None"
         }
     }
     
@@ -122,7 +122,7 @@ struct ModelInfo: Codable {
         } else if let sizeGb = size_gb {
             return String(format: "%.1f GB", sizeGb)
         } else {
-            return "Calculating..."
+            return "None"
         }
     }
     

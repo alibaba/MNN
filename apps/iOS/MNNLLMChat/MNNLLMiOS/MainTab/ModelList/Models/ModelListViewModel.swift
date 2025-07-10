@@ -78,6 +78,7 @@ class ModelListViewModel: ObservableObject {
             var fetchedModels = info.models
             
             filterDiffusionModels(fetchedModels: &fetchedModels)
+            loadCachedSizes(for: &fetchedModels)
             sortModels(fetchedModels: &fetchedModels)
             self.models = fetchedModels
             
@@ -92,6 +93,14 @@ class ModelListViewModel: ObservableObject {
         }
     }
     
+    private func loadCachedSizes(for models: inout [ModelInfo]) {
+        for i in 0..<models.count {
+            if let cachedSize = ModelStorageManager.shared.getCachedSize(for: models[i].modelName) {
+                models[i].cachedSize = cachedSize
+            }
+        }
+    }
+    
     private func fetchModelSizes(for models: [ModelInfo]) async {
         await withTaskGroup(of: Void.self) { group in
             for (_, model) in models.enumerated() {
@@ -102,6 +111,7 @@ class ModelListViewModel: ObservableObject {
                             await MainActor.run {
                                 if let modelIndex = self.models.firstIndex(where: { $0.id == model.id }) {
                                     self.models[modelIndex].cachedSize = size
+                                    ModelStorageManager.shared.setCachedSize(size, for: model.modelName)
                                 }
                             }
                         }
@@ -116,6 +126,7 @@ class ModelListViewModel: ObservableObject {
                             await MainActor.run {
                                 if let modelIndex = self.models.firstIndex(where: { $0.id == model.id }) {
                                     self.models[modelIndex].cachedSize = localSize
+                                    ModelStorageManager.shared.setCachedSize(localSize, for: model.modelName)
                                 }
                             }
                         } catch {
@@ -240,6 +251,7 @@ class ModelListViewModel: ObservableObject {
                         let localSize = try FileOperationManager.shared.calculateDirectorySize(at: model.localPath)
                         await MainActor.run {
                             self.models[index].cachedSize = localSize
+                            ModelStorageManager.shared.setCachedSize(localSize, for: model.modelName)
                         }
                     } catch {
                         print("Error calculating size for newly downloaded model \(model.modelName): \(error)")
@@ -315,7 +327,7 @@ class ModelListViewModel: ObservableObject {
             if let index = models.firstIndex(where: { $0.id == model.id }) {
                 models[index].isDownloaded = false
                 models[index].cachedSize = nil // Clear cached size since model is deleted
-                ModelStorageManager.shared.markModelAsDownloaded(model.modelName)
+                ModelStorageManager.shared.markModelAsNotDownloaded(model.modelName)
             }
             
             // Re-sort models after deletion
