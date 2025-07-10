@@ -58,6 +58,7 @@ private:
     void _resetThreadPool();
     mutable std::shared_ptr<EagerBufferAllocator> mStaticAllocator;
     int mThreadNumber;
+    std::vector<int> mCpuIds;
 #ifdef MNN_USE_THREAD_POOL
     mutable int mTaskIndex = -1;
     mutable int mThreadOpen = 0;

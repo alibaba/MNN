@@ -164,6 +164,7 @@ void CPURuntime::_resetThreadPool() {
 void CPURuntime::onReset(int numberThread, const BackendConfig* config, bool full) {
     if (config != nullptr) {
         mPower = config->power;
+        mCpuIds = config->cpuIds;
         if (full) {
             mPrecision = config->precision;
             mMemory = config->memory;
@@ -185,11 +186,13 @@ CPURuntime::CPURuntime(const Backend::Info& info) {
     mPower   = BackendConfig::Power_Normal;
     mMemory  = BackendConfig::Memory_Normal;
     mPrecision = BackendConfig::Precision_Normal;
+    mCpuIds.clear();
     if (info.user != nullptr) {
         mPrecision = info.user->precision;
         mPower = info.user->power;
         mMemory = info.user->memory;
         mFlags = info.user->flags;
+        mCpuIds = info.user->cpuIds;
     }
     _resetThreadPool();
 #ifdef LOG_VERBOSE
