@@ -56,6 +56,7 @@ public:
 private:
     void _bindCPUCore() const;
     void _resetThreadPool();
+    void _validateCpuIds();
     mutable std::shared_ptr<EagerBufferAllocator> mStaticAllocator;
     int mThreadNumber;
     std::vector<int> mCpuIds;

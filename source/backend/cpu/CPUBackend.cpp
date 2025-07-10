@@ -9,6 +9,7 @@
 #include "backend/cpu/CPUBackend.hpp"
 #include <cmath>
 #include <mutex>
+#include <unordered_map>
 #include "CPUResizeCache.hpp"
 #include "core/BufferAllocator.hpp"
 #include "CPUTensorConvert.hpp"
@@ -161,6 +162,61 @@ void CPURuntime::_resetThreadPool() {
     // Reset tid to rebind cpu if necessary
     mCurrentTID = 0;
 }
+void CPURuntime::_validateCpuIds() {
+    bool valid = true;
+
+    do {
+        if (mCpuIds.empty()) {
+            valid = false;
+            break;
+        }
+
+        auto cpuInfo = MNNGetCPUInfo();
+        if (cpuInfo->groups.empty()) {
+            valid = false;
+            break;
+        }
+
+        std::unordered_map<int, bool> cpuLittleMap;
+        for (auto id : cpuInfo->groups[0].ids) {
+            cpuLittleMap[id] = true;
+        }
+        for (size_t i = 1; i < cpuInfo->groups.size(); i++) {
+            for (auto id : cpuInfo->groups[i].ids) {
+                cpuLittleMap[id] = false;
+            }
+        }
+
+        if (cpuLittleMap.find(mCpuIds[0]) == cpuLittleMap.end()) {
+            MNN_ERROR("CPU ID %d is not valid. CpuIds will not be used.\n", mCpuIds[0]);
+            valid = false;
+            break;
+        }
+
+        auto cpuLittle = cpuLittleMap[mCpuIds[0]];
+        for (size_t i = 1; i < mCpuIds.size(); i++) {
+            if (cpuLittleMap.find(mCpuIds[i]) == cpuLittleMap.end()) {
+                MNN_ERROR("CPU ID %d is not valid. CpuIds will not be used.\n", mCpuIds[i]);
+                valid = false;
+                break;
+            }
+            // Using the same group of CPU cores helps maximize multi thread performance.
+            // Mixing little cores with others can lead to significant performance degradation, so it is strictly prohibited.
+            // Even on architectures with more than two clusters, when little cores are not involved,
+            // it's still strongly recommended to avoid cross-cluster usage between different big core groups.
+            if (cpuLittleMap[mCpuIds[i]] != cpuLittle) {
+                MNN_ERROR("CPU ID %d and %d are not from the same group. CpuIds will not be used.\n", mCpuIds[0], mCpuIds[i]);
+                valid = false;
+                break;
+            }
+        }
+
+    } while (false);
+
+    if(!valid) {
+        mCpuIds.clear();
+    }
+}
 void CPURuntime::onReset(int numberThread, const BackendConfig* config, bool full) {
     if (config != nullptr) {
         mPower = config->power;
@@ -173,6 +229,7 @@ void CPURuntime::onReset(int numberThread, const BackendConfig* config, bool ful
     }
     mThreadNumber = numberThread;
     _resetThreadPool();
+    _validateCpuIds();
 }
 
 CPURuntime::CPURuntime(const Backend::Info& info) {
@@ -195,6 +252,7 @@ CPURuntime::CPURuntime(const Backend::Info& info) {
         mCpuIds = info.user->cpuIds;
     }
     _resetThreadPool();
+    _validateCpuIds();
 #ifdef LOG_VERBOSE
     MNN_PRINT("create CPURuntime:%p\n", this);
 #endif
