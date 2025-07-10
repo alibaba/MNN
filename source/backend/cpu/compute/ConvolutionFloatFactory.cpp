@@ -106,12 +106,6 @@ static Execution* _createUnit(const Tensor* input, const Tensor* output, Backend
     }
 #endif
 
-#ifdef MNN_KLEIDIAI_ENABLED
-    if (MNNGetCPUInfo()->sme2 && !weightQuantInfo && cpuBackend->functions()->bytes == 4) {
-	return new KleidiAIDenseConvolution(common, backend, originWeight, originWeightSize, bias, biasSize, weightQuantInfo);
-    }
-#endif
-    
 #ifndef MNN_REDUCE_SIZE
     if (fastWay && cpuBackend->functions()->matmulBytes == 0) {
 #ifdef MNN_KLEIDIAI_ENABLED
@@ -126,6 +120,13 @@ static Execution* _createUnit(const Tensor* input, const Tensor* output, Backend
         return new Convolution1x1Strassen(common, backend, originWeight, originWeightSize, bias, biasSize);
     }
 #endif
+
+#ifdef MNN_KLEIDIAI_ENABLED
+    if (MNNGetCPUInfo()->sme2 && !weightQuantInfo && cpuBackend->functions()->bytes == 4) {
+	return new KleidiAIDenseConvolution(common, backend, originWeight, originWeightSize, bias, biasSize, weightQuantInfo);
+    }
+#endif
+
     if (cpuBackend->getRuntime()->hint().winogradMemoryUsed == 0 || (!ConvolutionWinogradBridge::canUseWinograd(common))) {
         return new DenseConvolutionTiledExecutor(common, backend, originWeight, originWeightSize, bias, biasSize, nullptr);
     }
