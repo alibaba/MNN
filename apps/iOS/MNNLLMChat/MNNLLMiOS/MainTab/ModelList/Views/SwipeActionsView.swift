@@ -13,7 +13,7 @@ struct SwipeActionsView: View {
     @ObservedObject var viewModel: ModelListViewModel
     
     var body: some View {
-        if viewModel.pinnedModelIds.contains(model.modelId) {
+        if viewModel.pinnedModelIds.contains(model.id) {
             Button {
                 viewModel.unpinModel(model)
             } label: {

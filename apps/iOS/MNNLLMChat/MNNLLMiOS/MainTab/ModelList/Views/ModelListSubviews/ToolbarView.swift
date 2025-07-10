@@ -9,7 +9,7 @@ import SwiftUI
 
 // MARK: - 工具栏视图
 struct ToolbarView: View {
-    @ObservedObject var viewModel: TBModelListViewModel
+    @ObservedObject var viewModel: ModelListViewModel
     @Binding var selectedSource: ModelSource
     @Binding var showSourceMenu: Bool
     @Binding var selectedTags: Set<String>

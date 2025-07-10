@@ -102,7 +102,7 @@ final class LLMChatInteractor: ChatInteractorProtocol {
                     PerformanceMonitor.shared.measureExecutionTime(operation: "String concatenation") {
                         var updateLastMsg = self?.chatState.value[(self?.chatState.value.count ?? 1) - 1]
                         
-                        if let isDeepSeek = self?.modelInfo.name.lowercased().contains("deepseek"), isDeepSeek == true,
+                        if let isDeepSeek = self?.modelInfo.modelName.lowercased().contains("deepseek"), isDeepSeek == true,
                             let text = self?.processor.process(progress: message.text) {
                             updateLastMsg?.text = text
                         } else {

@@ -12,14 +12,14 @@ struct LocalModelListView: View {
     
     var body: some View {
         List {
-            ForEach(viewModel.filteredModels.filter { $0.isDownloaded }, id: \.modelId) { model in
+            ForEach(viewModel.filteredModels.filter { $0.isDownloaded }, id: \.id) { model in
                 Button(action: {
                     viewModel.selectModel(model)
                 }) {
                     LocalModelRowView(model: model)
                 }
                 .listRowSeparator(.hidden)
-                .listRowBackground(viewModel.pinnedModelIds.contains(model.modelId) ? Color.black.opacity(0.05) : Color.clear)
+                .listRowBackground(viewModel.pinnedModelIds.contains(model.id) ? Color.black.opacity(0.05) : Color.clear)
                 .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                     SwipeActionsView(model: model, viewModel: viewModel)
                 }

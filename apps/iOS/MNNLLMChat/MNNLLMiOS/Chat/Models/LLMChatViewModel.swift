@@ -57,7 +57,7 @@ final class LLMChatViewModel: ObservableObject {
     let modelConfigManager: ModelConfigManager
     
     var isDiffusionModel: Bool {
-        return modelInfo.name.lowercased().contains("diffusion")
+        return modelInfo.modelName.lowercased().contains("diffusion")
     }
     
     init(modelInfo: ModelInfo, history: ChatHistory? = nil) {
@@ -88,7 +88,7 @@ final class LLMChatViewModel: ObservableObject {
             ), userType: .system)
         }
 
-        if modelInfo.name.lowercased().contains("diffusion") {
+        if modelInfo.modelName.lowercased().contains("diffusion") {
             diffusion = DiffusionSession(modelPath: modelPath, completion: { [weak self] success in
                 Task { @MainActor in
                     print("Diffusion Model \(success)")
@@ -150,7 +150,7 @@ final class LLMChatViewModel: ObservableObject {
     func sendToLLM(draft: DraftMessage) {
         self.send(draft: draft, userType: .user)
         if isModelLoaded {
-            if modelInfo.name.lowercased().contains("diffusion") {
+            if modelInfo.modelName.lowercased().contains("diffusion") {
                 self.getDiffusionResponse(draft: draft)
             } else {
                 self.getLLMRespsonse(draft: draft)
@@ -284,7 +284,7 @@ final class LLMChatViewModel: ObservableObject {
     }
     
     private func convertDeepSeekMutliChat(content: String) -> String {
-        if self.modelInfo.name.lowercased().contains("deepseek") {
+        if self.modelInfo.modelName.lowercased().contains("deepseek") {
             /* formate:: <|begin_of_sentence|><|User|>{text}<|Assistant|>{text}<|end_of_sentence|>
              <|User|>{text}<|Assistant|>{text}<|end_of_sentence|>
              */
@@ -337,7 +337,7 @@ final class LLMChatViewModel: ObservableObject {
         ChatHistoryManager.shared.saveChat(
             historyId: historyId,
             modelId: modelInfo.modelId,
-            modelName: modelInfo.name,
+            modelName: modelInfo.modelName,
             messages: messages
         )
         

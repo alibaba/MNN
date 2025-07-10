@@ -9,8 +9,8 @@ import SwiftUI
 
 // MARK: - 操作按钮视图
 struct ActionButtonsView: View {
-    let model: TBModelInfo
-    @ObservedObject var viewModel: TBModelListViewModel
+    let model: ModelInfo
+    @ObservedObject var viewModel: ModelListViewModel
     let downloadProgress: Double
     let isDownloading: Bool
     let isOtherDownloading: Bool

@@ -11,36 +11,28 @@ struct LocalModelRowView: View {
     
     let model: ModelInfo
 
+    private var localizedTags: [String] {
+        model.localizedTags
+    }
+    
+    private var formattedSize: String {
+        model.formattedSize
+    }
+    
     var body: some View {
         HStack(alignment: .center) {
             
-            ModelIconView(modelId: model.modelId)
+            ModelIconView(modelId: model.id)
                 .frame(width: 50, height: 50)
             
             VStack(alignment: .leading, spacing: 8) {
-                Text(model.name)
+                Text(model.modelName)
                     .font(.headline)
                     .fontWeight(.semibold)
                     .lineLimit(1)
                 
-                if !model.tags.isEmpty {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack {
-                            ForEach(model.tags, id: \.self) { tag in
-                                Text(tag)
-                                    .fontWeight(.regular)
-                                    .font(.caption)
-                                    .foregroundColor(Color(red: 151/255, green: 151/255, blue: 151/255))
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 4)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 10)
-                                            .stroke(Color(red: 151/255, green: 151/255, blue: 151/255), lineWidth: 0.5)
-                                            .padding(1)
-                                    )
-                            }
-                        }
-                    }
+                if !localizedTags.isEmpty {
+                    TagsView(tags: localizedTags)
                 }
                 
                 HStack {
@@ -51,7 +43,7 @@ struct LocalModelRowView: View {
                             .foregroundColor(.gray)
                             .frame(width: 20, height: 20)
                         
-                        Text(model.formattedSize)
+                        Text(formattedSize)
                             .font(.caption)
                             .fontWeight(.medium)
                             .foregroundColor(.gray)

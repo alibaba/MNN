@@ -2,136 +2,146 @@
 //  ModelListView.swift
 //  MNNLLMiOS
 //
-//  Created by 游薪渝(揽清) on 2025/1/3.
+//  Created by 游薪渝(揽清) on 2025/7/4.
 //
 
 import SwiftUI
 
-
 struct ModelListView: View {
     @ObservedObject var viewModel: ModelListViewModel
-    
-    @State private var scrollOffset: CGFloat = 0
-    @State private var showHelp = false
-    @State private var showUserGuide = false
-    
-    @State private var downloadSources: ModelSource?
+    @State private var searchText = ""
     @State private var selectedSource = ModelSourceManager.shared.selectedSource
-    
-    @State private var showOptions = false
-    @State private var buttonFrame: CGRect = .zero
+    @State private var showSourceMenu = false
+    @State private var selectedTags: Set<String> = []
+    @State private var selectedCategories: Set<String> = []
+    @State private var selectedVendors: Set<String> = []
+    @State private var showFilterMenu = false
     
     var body: some View {
-        ZStack {
-            VStack {
-                HStack {
-                    Button {
-                        showOptions.toggle()
-                    } label: {
-                        HStack {
-                            Text("下载源:")
-                                .font(.system(size: 12, weight: .regular))
-                                .foregroundColor(showOptions ? .primaryBlue : .black )
-                            Text(selectedSource.rawValue)
-                                .font(.system(size: 12, weight: .regular))
-                                .foregroundColor(showOptions ? .primaryBlue : .black )
-                            Image(systemName: "chevron.down")
-                                .frame(width: 10, height: 10, alignment: .leading)
-                                .scaledToFit()
-                                .foregroundColor(showOptions ? .primaryBlue : .black )
-                        }
-                        .padding(.leading)
-                    }
-                    Spacer()
+        ScrollView {
+            LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
+                Section {
+                    modelListSection
+                } header: {
+                    toolbarSection
                 }
-                .frame(maxWidth: .infinity, maxHeight: 20)
-                .background(
-                   GeometryReader { geometry in
-                       Color.white.onAppear {
-                           buttonFrame = geometry.frame(in: .global)
-                       }
-                   }
-                )
-                
-                List {
-                    SearchBar(text: $viewModel.searchText)
-                        .listRowInsets(EdgeInsets())
-                        .listRowSeparator(.hidden)
-                        .padding(.horizontal)
-                    
-                    ForEach(viewModel.filteredModels, id: \.modelId) { model in
-                        
-                        ModelRowView(model: model,
-                                     viewModel: viewModel,
-                                     downloadProgress: viewModel.downloadProgress[model.modelId] ?? 0,
-                                     isDownloading: viewModel.currentlyDownloading == model.modelId,
-                                     isOtherDownloading: viewModel.currentlyDownloading != nil) {
-                            if model.isDownloaded {
-                                viewModel.selectModel(model)
-                            } else {
-                                Task {
-                                    await viewModel.downloadModel(model)
-                                }
-                            }
-                        }
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(viewModel.pinnedModelIds.contains(model.modelId) ? Color.black.opacity(0.05) : Color.clear)
-                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            SwipeActionsView(model: model, viewModel: viewModel)
-                        }
-                    }
-                }
-                .listStyle(.plain)
-                .sheet(isPresented: $showHelp) {
-                    HelpView()
-                }
-                .refreshable {
-                    await viewModel.fetchModels()
-                }
-                .alert("Error", isPresented: $viewModel.showError) {
-                    Button("OK", role: .cancel) {}
-                } message: {
-                    Text(viewModel.errorMessage)
-                }
-                .onAppear {
-                    checkFirstLaunch()
-                }
-                .alert(isPresented: $showUserGuide) {
-                    Alert(
-                        title: Text("User Guide"),
-                        message: Text("""
-                This is a local large model application that requires certain performance from your device.
-                It is recommended to choose different model sizes based on your device's memory. 
-                
-                The model recommendations for iPhone are as follows:
-                - For 8GB of RAM, models up to 8B are recommended (e.g., iPhone 16 Pro).
-                - For 6GB of RAM, models up to 3B are recommended (e.g., iPhone 15 Pro).
-                - For 4GB of RAM, models up to 1B or smaller are recommended (e.g., iPhone 13).
-                
-                Choosing a model that is too large may cause insufficient memory and crashes.
-                """),
-                        dismissButton: .default(Text("OK"))
-                    )
-                }
-                
-                Spacer()
             }
+        }
+        .searchable(text: $searchText, prompt: "Search models...")
+        .onChange(of: searchText) { _, newValue in
+            viewModel.searchText = newValue
+        }
+        .refreshable {
+            await viewModel.fetchModels()
+        }
+        .alert("Error", isPresented: $viewModel.showError) {
+            Button("OK") { }
+        } message: {
+            Text(viewModel.errorMessage)
+        }
+    }
+    
+    // Extract model list section as independent view
+    @ViewBuilder
+    private var modelListSection: some View {
+        LazyVStack(spacing: 8) {
+            ForEach(Array(filteredModels.enumerated()), id: \.element.id) { index, model in
+                modelRowView(model: model, index: index)
+                
+                if index < filteredModels.count - 1 {
+                    Divider()
+                        .padding(.horizontal, 16)
+                }
+            }
+        }
+        .padding(.vertical, 8)
+    }
+    
+    // Extract toolbar section as independent view
+    @ViewBuilder
+    private var toolbarSection: some View {
+        ToolbarView(
+            viewModel: viewModel, selectedSource: $selectedSource,
+            showSourceMenu: $showSourceMenu,
+            selectedTags: $selectedTags,
+            selectedCategories: $selectedCategories,
+            selectedVendors: $selectedVendors,
+            quickFilterTags: viewModel.quickFilterTags,
+            showFilterMenu: $showFilterMenu,
+            onSourceChange: handleSourceChange
+        )
+    }
+    
+    // Extract single model row view as independent method
+    @ViewBuilder
+    private func modelRowView(model: ModelInfo, index: Int) -> some View {
+        ModelRowView(
+            model: model,
+            viewModel: viewModel,
+            downloadProgress: viewModel.downloadProgress[model.id] ?? 0,
+            isDownloading: viewModel.currentlyDownloading == model.id,
+            isOtherDownloading: isOtherDownloadingCheck(model: model)
+        ) {
+            Task {
+                await viewModel.downloadModel(model)
+            }
+        }
+        .padding(.horizontal, 16)
+    }
+    
+    // Extract complex boolean logic as independent method
+    private func isOtherDownloadingCheck(model: ModelInfo) -> Bool {
+        return viewModel.currentlyDownloading != nil && viewModel.currentlyDownloading != model.id
+    }
+    
+    // Extract source change handling logic as independent method
+    private func handleSourceChange(_ source: ModelSource) {
+        ModelSourceManager.shared.updateSelectedSource(source)
+        selectedSource = source
+        Task {
+            await viewModel.fetchModels()
+        }
+    }
+    
+    // Filter models based on selected tags, categories and vendors
+    private var filteredModels: [ModelInfo] {
+        let baseFiltered = viewModel.filteredModels
+        
+        if selectedTags.isEmpty && selectedCategories.isEmpty && selectedVendors.isEmpty {
+            return baseFiltered
+        }
+        
+        return baseFiltered.filter { model in
+            let tagMatch = checkTagMatch(model: model)
+            let categoryMatch = checkCategoryMatch(model: model)
+            let vendorMatch = checkVendorMatch(model: model)
             
-            if showOptions {
-                CustomPopupMenu(isPresented: $showOptions,
-                                selectedSource: $selectedSource,
-                                anchorFrame: buttonFrame)
+            return tagMatch && categoryMatch && vendorMatch
+        }
+    }
+    
+    // Extract tag matching logic as independent method
+    private func checkTagMatch(model: ModelInfo) -> Bool {
+        return selectedTags.isEmpty || selectedTags.allSatisfy { selectedTag in
+            model.localizedTags.contains { tag in
+                tag.localizedCaseInsensitiveContains(selectedTag)
             }
         }
     }
     
-    private func checkFirstLaunch() {
-        let hasLaunchedBefore = UserDefaults.standard.bool(forKey: "hasLaunchedBefore")
-        if !hasLaunchedBefore {
-            // Show the user guide alert
-            showUserGuide = true
-            // Set the flag to true so it doesn't show again
-            UserDefaults.standard.set(true, forKey: "hasLaunchedBefore")
+    // Extract category matching logic as independent method
+    private func checkCategoryMatch(model: ModelInfo) -> Bool {
+        return selectedCategories.isEmpty || selectedCategories.allSatisfy { selectedCategory in
+            model.categories?.contains { category in
+                category.localizedCaseInsensitiveContains(selectedCategory)
+            } ?? false
+        }
+    }
+    
+    // Extract vendor matching logic as independent method
+    private func checkVendorMatch(model: ModelInfo) -> Bool {
+        return selectedVendors.isEmpty || selectedVendors.contains { selectedVendor in
+            model.vendor?.localizedCaseInsensitiveContains(selectedVendor) ?? false
         }
     }
 }

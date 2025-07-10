@@ -2,7 +2,7 @@
 //  ModelClient.swift
 //  MNNLLMiOS
 //
-//  Created by 游薪渝(揽清) on 2025/1/3.
+//  Created by 游薪渝(揽清) on 2025/7/4.
 //
 
 import Hub
@@ -26,17 +26,41 @@ class ModelClient {
     
     init() {}
     
-    func getModelList() async throws -> [ModelInfo] {
-        let url = URL(string: "\(baseURLString)/api/models?author=taobao-mnn&limit=100")!
-        return try await performRequest(url: url, retries: maxRetries)
+    func getModelInfo() async throws -> TBDataResponse {
+        guard let url = Bundle.main.url(forResource: "mock", withExtension: "json") else {
+            throw NetworkError.invalidData
+        }
+        
+        let data = try Data(contentsOf: url)
+        let mockResponse = try JSONDecoder().decode(TBDataResponse.self, from: data)
+        return mockResponse
     }
     
-    func getRepoInfo(repoName: String, revision: String) async throws -> RepoInfo {
-        let url = URL(string: "\(baseURLString)/api/models/\(repoName)")!
-        return try await performRequest(url: url, retries: maxRetries)
+    func getModelList() async throws -> [ModelInfo] {
+//        TODO: get json from network
+//        let url = URL(string: "\(baseURLString)/api/models?author=taobao-mnn&limit=100")!
+//        return try await performRequest(url: url, retries: maxRetries)
+        
+        guard let url = Bundle.main.url(forResource: "mock", withExtension: "json") else {
+            throw NetworkError.invalidData
+        }
+        
+        let data = try Data(contentsOf: url)
+        let mockResponse = try JSONDecoder().decode(TBDataResponse.self, from: data)
+        
+        // 加载全局标签翻译
+        TagTranslationManager.shared.loadTagTranslations(mockResponse.tagTranslations)
+        
+        return mockResponse.models
     }
-
-    @MainActor
+    
+    /**
+     * Downloads a model from the selected source with progress tracking
+     *
+     * @param model The ModelInfo object containing model details
+     * @param progress Progress callback that receives download progress (0.0 to 1.0)
+     * @throws Various network or file system errors
+     */
     func downloadModel(model: ModelInfo,
                        progress: @escaping (Double) -> Void) async throws {
         switch ModelSourceManager.shared.selectedSource {
@@ -47,7 +71,9 @@ class ModelClient {
         }
     }
     
-    @MainActor
+    /**
+     * Cancels the current download operation
+     */
     func cancelDownload() async {
         if let manager = currentDownloadManager {
             await manager.cancelDownload()
@@ -55,10 +81,16 @@ class ModelClient {
             print("Download cancelled")
         }
     }
-
+    /**
+     * Downloads model from ModelScope platform
+     *
+     * @param model The ModelInfo object to download
+     * @param progress Progress callback for download updates
+     * @throws Download or network related errors
+     */
     private func downloadFromModelScope(_ model: ModelInfo,
                                         progress: @escaping (Double) -> Void) async throws {
-        let ModelScopeId = model.modelId.replacingOccurrences(of: "taobao-mnn", with: "MNN")
+        let ModelScopeId = model.id
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 30
         config.timeoutIntervalForResource = 300
@@ -66,55 +98,67 @@ class ModelClient {
         let manager = ModelScopeDownloadManager.init(repoPath: ModelScopeId, config: config, enableLogging: true, source: ModelSourceManager.shared.selectedSource)
         currentDownloadManager = manager
         
-        try await manager.downloadModel(to:"huggingface/models/taobao-mnn", modelId: ModelScopeId, modelName: model.name) { fileProgress in
-            progress(fileProgress)
+        try await manager.downloadModel(to:"huggingface/models/taobao-mnn", modelId: ModelScopeId, modelName: model.modelName) { fileProgress in
+            Task { @MainActor in
+                progress(fileProgress)
+            }
         }
         
         currentDownloadManager = nil
     }
 
+    /**
+     * Downloads model from HuggingFace platform with optimized progress updates
+     *
+     * This method implements throttling to prevent UI stuttering by limiting
+     * progress update frequency and filtering out minor progress changes.
+     *
+     * @param model The ModelInfo object to download
+     * @param progress Progress callback for download updates
+     * @throws Download or network related errors
+     */
     private func downloadFromHuggingFace(_ model: ModelInfo,
                                          progress: @escaping (Double) -> Void) async throws {
-        let repo = Hub.Repo(id: model.modelId)
+        let repo = Hub.Repo(id: model.id)
         let modelFiles = ["*.*"]
         let mirrorHubApi = HubApi(endpoint: baseURL)
-        try await mirrorHubApi.snapshot(from: repo, matching: modelFiles) { fileProgress in
-            progress(fileProgress.fractionCompleted)
-        }
-    }
-    
-    private func performRequest<T: Decodable>(url: URL, retries: Int = 3) async throws -> T {
-        var lastError: Error?
         
-        for attempt in 1...retries {
-            do {
-                var request = URLRequest(url: url)
-                request.setValue("application/json", forHTTPHeaderField: "Accept")
+        // Progress throttling mechanism to prevent UI stuttering
+        var lastUpdateTime = Date()
+        var lastProgress: Double = 0.0
+        let progressUpdateInterval: TimeInterval = 0.1 // Limit update frequency to every 100ms
+        let progressThreshold: Double = 0.01 // Progress change threshold of 1%
+        
+        try await mirrorHubApi.snapshot(from: repo, matching: modelFiles) { fileProgress in
+            let currentProgress = fileProgress.fractionCompleted
+            let currentTime = Date()
+            
+            // Check if progress should be updated
+            let timeDiff = currentTime.timeIntervalSince(lastUpdateTime)
+            let progressDiff = abs(currentProgress - lastProgress)
+            
+            // Update progress if any of these conditions are met:
+            // 1. Time interval exceeds threshold
+            // 2. Progress change exceeds threshold
+            // 3. Progress reaches 100% (download complete)
+            // 4. Progress is 0% (download start)
+            if timeDiff >= progressUpdateInterval ||
+               progressDiff >= progressThreshold ||
+               currentProgress >= 1.0 ||
+               currentProgress == 0.0 {
                 
-                let (data, response) = try await URLSession.shared.data(for: request)
+                lastUpdateTime = currentTime
+                lastProgress = currentProgress
                 
-                guard let httpResponse = response as? HTTPURLResponse else {
-                    throw NetworkError.invalidResponse
-                }
-                
-                if httpResponse.statusCode == 200 {
-                    return try JSONDecoder().decode(T.self, from: data)
-                }
-                
-                throw NetworkError.invalidResponse
-                
-            } catch {
-                lastError = error
-                if attempt < retries {
-                    try await Task.sleep(nanoseconds: UInt64(pow(2.0, Double(attempt)) * 1_000_000_000))
-                    continue
+                // Ensure progress updates are executed on the main thread
+                Task { @MainActor in
+                    progress(currentProgress)
                 }
             }
         }
-        
-        throw lastError ?? NetworkError.unknown
     }
 }
+
 
 enum NetworkError: Error {
     case invalidResponse

@@ -10,7 +10,7 @@ import SwiftUI
 // MARK: - 筛选菜单视图
 struct FilterMenuView: View {
     @Environment(\.dismiss) private var dismiss
-    @StateObject private var viewModel = TBModelListViewModel()
+    @StateObject private var viewModel = ModelListViewModel()
     @Binding var selectedTags: Set<String>
     @Binding var selectedCategories: Set<String>
     @Binding var selectedVendors: Set<String>

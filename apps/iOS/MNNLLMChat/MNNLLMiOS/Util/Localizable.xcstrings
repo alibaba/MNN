@@ -20,6 +20,9 @@
         }
       }
     },
+    "Audio Message" : {
+
+    },
     "Benchmark" : {
 
     },
@@ -203,9 +206,6 @@
         }
       }
     },
-    "Last used: %@" : {
-
-    },
     "Model Configuration" : {
       "localizations" : {
         "zh-Hans" : {
@@ -366,10 +366,8 @@
         }
       }
     },
-    "TB模型" : {
-
-    },
     "This is a local large model application that requires certain performance from your device.\nIt is recommended to choose different model sizes based on your device's memory. \n\nThe model recommendations for iPhone are as follows:\n- For 8GB of RAM, models up to 8B are recommended (e.g., iPhone 16 Pro).\n- For 6GB of RAM, models up to 3B are recommended (e.g., iPhone 15 Pro).\n- For 4GB of RAM, models up to 1B or smaller are recommended (e.g., iPhone 13).\n\nChoosing a model that is too large may cause insufficient memory and crashes." : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -426,6 +424,7 @@
       }
     },
     "User Guide" : {
+      "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
@@ -524,9 +523,6 @@
 
     },
     "语言" : {
-
-    },
-    "错误" : {
 
     }
   },

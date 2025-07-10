@@ -24,7 +24,7 @@ struct LLMChatView: View {
     @State private var showSettings = false
 
     init(modelInfo: ModelInfo, history: ChatHistory? = nil) {
-        self.title = modelInfo.name
+        self.title = modelInfo.modelName
         self.modelPath = modelInfo.localPath
         let viewModel = LLMChatViewModel(modelInfo: modelInfo, history: history)
         _viewModel = StateObject(wrappedValue: viewModel)

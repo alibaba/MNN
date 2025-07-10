@@ -9,7 +9,7 @@ import SwiftUI
 
 // MARK: - 下载中按钮视图
 struct DownloadingButtonView: View {
-    @ObservedObject var viewModel: TBModelListViewModel
+    @ObservedObject var viewModel: ModelListViewModel
     let downloadProgress: Double
     
     var body: some View {
