@@ -37,7 +37,7 @@ struct ModelSettingsView: View {
     var body: some View {
         NavigationView {
             Form {
-                Section(header: Text("Model Configuration")) {
+                Section {
                     Toggle("Use mmap", isOn: $viewModel.useMmap)
                         .onChange(of: viewModel.useMmap) { newValue in
                             viewModel.modelConfigManager.updateUseMmap(newValue)
@@ -47,11 +47,13 @@ struct ModelSettingsView: View {
                         viewModel.cleanModelTmpFolder()
                         showAlert = true
                     }
+                } header: {
+                    Text("Model Configuration")
                 }
                 
                 // Diffusion Settings
                 if viewModel.isDiffusionModel {
-                    Section(header: Text("Diffusion Settings")) {
+                    Section {
                         Stepper(value: $iterations, in: 1...100) {
                             HStack {
                                 Text("Iterations")
@@ -84,9 +86,11 @@ struct ModelSettingsView: View {
                                     }
                             }
                         }
+                    } header: {
+                        Text("Diffusion Settings")
                     }
                 } else {
-                    Section(header: Text("Sampling Strategy")) {
+                    Section {
                         Picker("Sampler Type", selection: $selectedSampler) {
                             ForEach(SamplerType.allCases, id: \.self) { sampler in
                                 Text(sampler.displayName)
@@ -218,6 +222,8 @@ struct ModelSettingsView: View {
                         default:
                             EmptyView()
                         }
+                    } header: {
+                        Text("Sampling Strategy")
                     }
                 }
             }
@@ -272,5 +278,3 @@ struct ModelSettingsView: View {
         viewModel.modelConfigManager.updateMixedSamplers(orderedSelection)
     }
 }
-
-

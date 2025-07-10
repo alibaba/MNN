@@ -93,9 +93,9 @@ struct ModelInfo: Codable {
     
     var formattedSize: String {
         if let cached = cachedSize {
-            return formatBytes(cached)
+            return FileOperationManager.shared.formatBytes(cached)
         } else if isDownloaded {
-            return formatLocalSize()
+            return FileOperationManager.shared.formatLocalDirectorySize(at: localPath)
         } else if let sizeGb = size_gb {
             return String(format: "%.1f GB", sizeGb)
         } else {
@@ -103,93 +103,27 @@ struct ModelInfo: Codable {
         }
     }
     
-    private func formatBytes(_ bytes: Int64) -> String {
-        let formatter = ByteCountFormatter()
-        formatter.allowedUnits = [.useGB]
-        formatter.countStyle = .file
-        return formatter.string(fromByteCount: bytes)
-    }
-    
-    // MARK: - Local Size Calculation
-    
-    private func formatLocalSize() -> String {
-        let path = localPath
-        guard FileManager.default.fileExists(atPath: path) else { return "Unknown" }
-        
-        do {
-            let totalSize = try calculateDirectorySize(at: path)
-            return formatBytes(totalSize)
-        } catch {
-            return "Unknown"
-        }
-    }
-    
-    private func calculateDirectorySize(at path: String) throws -> Int64 {
-        let fileManager = FileManager.default
-        var totalSize: Int64 = 0
-        
-        print("Calculating directory size for path: \(path)")
-        
-        let directoryURL = URL(fileURLWithPath: path)
-        
-        guard fileManager.fileExists(atPath: path) else {
-            print("Path does not exist: \(path)")
-            return 0
+    /// Calculates and caches the local directory size
+    /// - Returns: The formatted size string and updates cachedSize property
+    mutating func calculateAndCacheSize() -> String {
+        if let cached = cachedSize {
+            return FileOperationManager.shared.formatBytes(cached)
         }
         
-        let resourceKeys: [URLResourceKey] = [.isRegularFileKey, .totalFileAllocatedSizeKey, .fileSizeKey, .nameKey]
-        let enumerator = fileManager.enumerator(
-            at: directoryURL,
-            includingPropertiesForKeys: resourceKeys,
-            options: [.skipsHiddenFiles, .skipsPackageDescendants],
-            errorHandler: { (url, error) -> Bool in
-                print("Error accessing \(url): \(error)")
-                return true
-            }
-        )
-        
-        guard let fileEnumerator = enumerator else {
-            throw NSError(domain: "FileEnumerationError", code: -1, 
-                         userInfo: [NSLocalizedDescriptionKey: "Failed to create file enumerator"])
-        }
-        
-        var fileCount = 0
-        for case let fileURL as URL in fileEnumerator {
+        if isDownloaded {
             do {
-                let resourceValues = try fileURL.resourceValues(forKeys: Set(resourceKeys))
-                
-                guard let isRegularFile = resourceValues.isRegularFile, isRegularFile else { continue }
-                
-                let fileName = resourceValues.name ?? "Unknown"
-                fileCount += 1
-                
-                // Use actual disk allocated size, fallback to logical size if not available
-                if let actualSize = resourceValues.totalFileAllocatedSize {
-                    totalSize += Int64(actualSize)
-                    
-                    if fileCount <= 10 {
-                        let actualSizeGB = Double(actualSize) / (1024 * 1024 * 1024)
-                        let logicalSizeGB = Double(resourceValues.fileSize ?? 0) / (1024 * 1024 * 1024)
-                        print("File \(fileCount): \(fileName) - Logical: \(String(format: "%.3f", logicalSizeGB)) GB, Actual: \(String(format: "%.3f", actualSizeGB)) GB")
-                    }
-                } else if let logicalSize = resourceValues.fileSize {
-                    totalSize += Int64(logicalSize)
-                    
-                    if fileCount <= 10 {
-                        let logicalSizeGB = Double(logicalSize) / (1024 * 1024 * 1024)
-                        print("File \(fileCount): \(fileName) - Size: \(String(format: "%.3f", logicalSizeGB)) GB (fallback)")
-                    }
-                }
+                let sizeInBytes = try FileOperationManager.shared.calculateDirectorySize(at: localPath)
+                self.cachedSize = sizeInBytes
+                return FileOperationManager.shared.formatBytes(sizeInBytes)
             } catch {
-                print("Error getting resource values for \(fileURL): \(error)")
-                continue
+                print("Error calculating directory size: \(error)")
+                return "Unknown"
             }
+        } else if let sizeGb = size_gb {
+            return String(format: "%.1f GB", sizeGb)
+        } else {
+            return "Calculating..."
         }
-        
-        let totalSizeGB = Double(totalSize) / (1024 * 1024 * 1024)
-        print("Total files: \(fileCount), Total actual disk usage: \(String(format: "%.2f", totalSizeGB)) GB")
-        
-        return totalSize
     }
     
     // MARK: - Remote Size Calculation

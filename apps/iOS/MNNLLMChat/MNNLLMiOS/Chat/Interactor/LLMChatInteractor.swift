@@ -81,7 +81,7 @@ final class LLMChatInteractor: ChatInteractorProtocol {
             
             DispatchQueue.main.async { [weak self] in
                 
-                PerformanceMonitor.shared.recordUIUpdate()
+//                PerformanceMonitor.shared.recordUIUpdate()
                 
                 switch userType {
                 case .user, .system:
@@ -99,7 +99,7 @@ final class LLMChatInteractor: ChatInteractorProtocol {
                     
                 case .assistant:
                     
-                    PerformanceMonitor.shared.measureExecutionTime(operation: "String concatenation") {
+//                    PerformanceMonitor.shared.measureExecutionTime(operation: "String concatenation") {
                         var updateLastMsg = self?.chatState.value[(self?.chatState.value.count ?? 1) - 1]
                         
                         if let isDeepSeek = self?.modelInfo.modelName.lowercased().contains("deepseek"), isDeepSeek == true,
@@ -116,7 +116,7 @@ final class LLMChatInteractor: ChatInteractorProtocol {
                         if let updatedMsg = updateLastMsg {
                             self?.chatState.value[(self?.chatState.value.count ?? 1) - 1] = updatedMsg
                         }
-                    }
+//                    }
                 }
             }
         }

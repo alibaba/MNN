@@ -166,9 +166,7 @@ final class LLMChatViewModel: ObservableObject {
         
         Task {
             
-            let tempDir = FileManager.default.temporaryDirectory
-            let imageName = UUID().uuidString + ".jpg"
-            let tempImagePath = tempDir.appendingPathComponent(imageName).path
+            let tempImagePath = FileOperationManager.shared.generateTempImagePath().path
 
             var lastProcess:Int32 = 0
             
@@ -223,18 +221,10 @@ final class LLMChatViewModel: ObservableObject {
                     continue
                 }
 
-                let isInTempDirectory = url.path.contains("/tmp/")
                 let fileName = url.lastPathComponent
                 
-                if !isInTempDirectory {
-                    guard let fileUrl = AssetExtractor.copyFileToTmpDirectory(from: url, fileName: fileName) else {
-                        continue
-                    }
-                    let processedUrl = convertHEICImage(from: fileUrl)
-                    content = "<img>\(processedUrl?.path ?? "")</img>" + content
-                } else {
-                    let processedUrl = convertHEICImage(from: url)
-                    content = "<img>\(processedUrl?.path ?? "")</img>" + content
+                if let processedUrl = FileOperationManager.shared.processImageFile(from: url, fileName: fileName) {
+                    content = "<img>\(processedUrl.path)</img>" + content
                 }
             }
             
@@ -325,14 +315,11 @@ final class LLMChatViewModel: ObservableObject {
         }
     }
     
-    private func convertHEICImage(from url: URL) -> URL? {
-        var fileUrl = url
-        if fileUrl.isHEICImage() {
-            if let convertedUrl = AssetExtractor.convertHEICToJPG(heicUrl: fileUrl) {
-                fileUrl = convertedUrl
-            }
-        }
-        return fileUrl
+    // MARK: - Public Methods for File Operations
+    
+    /// Cleans the model temporary folder using FileOperationManager
+    func cleanModelTmpFolder() {
+        FileOperationManager.shared.cleanModelTempFolder(modelPath: modelInfo.localPath)
     }
     
     func onStart() {
@@ -357,48 +344,16 @@ final class LLMChatViewModel: ObservableObject {
         
         interactor.disconnect()
         llm = nil
-        self.cleanTmpFolder()
+        
+        FileOperationManager.shared.cleanTempDirectories()
+        if !useMmap {
+            FileOperationManager.shared.cleanModelTempFolder(modelPath: modelInfo.localPath)
+        }
     }
 
     func loadMoreMessage(before message: Message) {
         interactor.loadNextPage()
             .sink { _ in }
             .store(in: &subscriptions)
-    }
-    
-    
-    func cleanModelTmpFolder() {
-        let tmpFolderURL = URL(fileURLWithPath: self.modelInfo.localPath).appendingPathComponent("temp")
-        self.cleanFolder(tmpFolderURL: tmpFolderURL)
-    }
-    
-    private func cleanTmpFolder() {
-        let fileManager = FileManager.default
-        let tmpDirectoryURL = fileManager.temporaryDirectory
-        
-        self.cleanFolder(tmpFolderURL: tmpDirectoryURL)
-        
-        if !useMmap {
-            cleanModelTmpFolder()
-        }
-    }
-    
-    private func cleanFolder(tmpFolderURL: URL) {
-        let fileManager = FileManager.default
-        do {
-            let files = try fileManager.contentsOfDirectory(at: tmpFolderURL, includingPropertiesForKeys: nil)
-            for file in files {
-                if !file.absoluteString.lowercased().contains("networkdownload") {
-                    do {
-                        try fileManager.removeItem(at: file)
-                        print("Deleted file: \(file.path)")
-                    } catch {
-                        print("Error deleting file: \(file.path), \(error.localizedDescription)")
-                    }
-                }
-            }
-        } catch {
-            print("Error accessing tmp directory: \(error.localizedDescription)")
-        }
     }
 }

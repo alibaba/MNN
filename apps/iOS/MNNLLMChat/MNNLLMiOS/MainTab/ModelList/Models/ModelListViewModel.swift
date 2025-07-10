@@ -81,7 +81,7 @@ class ModelListViewModel: ObservableObject {
             sortModels(fetchedModels: &fetchedModels)
             self.models = fetchedModels
             
-            // Asynchronously fetch size info for undownloaded models
+            // Asynchronously fetch size info for both downloaded and undownloaded models
             Task {
                 await fetchModelSizes(for: fetchedModels)
             }
@@ -95,15 +95,31 @@ class ModelListViewModel: ObservableObject {
     private func fetchModelSizes(for models: [ModelInfo]) async {
         await withTaskGroup(of: Void.self) { group in
             for (_, model) in models.enumerated() {
+                // Handle undownloaded models - fetch remote size
                 if !model.isDownloaded && model.cachedSize == nil && model.size_gb == nil {
                     group.addTask {
                         if let size = await model.fetchRemoteSize() {
                             await MainActor.run {
-                                // Find current model index in actual array
                                 if let modelIndex = self.models.firstIndex(where: { $0.id == model.id }) {
                                     self.models[modelIndex].cachedSize = size
                                 }
                             }
+                        }
+                    }
+                }
+                
+                // Handle downloaded models - calculate and cache local directory size
+                if model.isDownloaded && model.cachedSize == nil {
+                    group.addTask {
+                        do {
+                            let localSize = try FileOperationManager.shared.calculateDirectorySize(at: model.localPath)
+                            await MainActor.run {
+                                if let modelIndex = self.models.firstIndex(where: { $0.id == model.id }) {
+                                    self.models[modelIndex].cachedSize = localSize
+                                }
+                            }
+                        } catch {
+                            print("Error calculating local directory size for \(model.modelName): \(error)")
                         }
                     }
                 }
@@ -217,6 +233,18 @@ class ModelListViewModel: ObservableObject {
             if let index = models.firstIndex(where: { $0.id == model.id }) {
                 models[index].isDownloaded = true
                 ModelStorageManager.shared.markModelAsDownloaded(model.modelName)
+                
+                // Calculate and cache size for newly downloaded model
+                Task {
+                    do {
+                        let localSize = try FileOperationManager.shared.calculateDirectorySize(at: model.localPath)
+                        await MainActor.run {
+                            self.models[index].cachedSize = localSize
+                        }
+                    } catch {
+                        print("Error calculating size for newly downloaded model \(model.modelName): \(error)")
+                    }
+                }
             }
             
         } catch {
@@ -249,57 +277,53 @@ class ModelListViewModel: ObservableObject {
         guard let index = models.firstIndex(where: { $0.id == model.id }) else { return }
         let pinned = models.remove(at: index)
         models.insert(pinned, at: 0)
-        var ids = pinnedModelIds.filter { $0 != model.id }
-        ids.append(model.id)
-        pinnedModelIds = ids
+        
+        var pinnedIds = pinnedModelIds
+        if let existingIndex = pinnedIds.firstIndex(of: model.id) {
+            pinnedIds.remove(at: existingIndex)
+        }
+        pinnedIds.insert(model.id, at: 0)
+        pinnedModelIds = pinnedIds
     }
     
     func unpinModel(_ model: ModelInfo) {
-        guard let index = models.firstIndex(where: { $0.id == model.id }) else { return }
-        let unpinned = models.remove(at: index)
-        let insertIndex = models.count // Insert at end after unpinning
-        models.insert(unpinned, at: insertIndex)
-        pinnedModelIds = pinnedModelIds.filter { $0 != model.id }
+        var pinnedIds = pinnedModelIds
+        if let index = pinnedIds.firstIndex(of: model.id) {
+            pinnedIds.remove(at: index)
+            pinnedModelIds = pinnedIds
+            
+            // Re-sort models after unpinning
+            sortModels(fetchedModels: &models)
+        }
     }
     
     // MARK: - Model Deletion
     
     func deleteModel(_ model: ModelInfo) async {
+        guard model.isDownloaded else { return }
+        
         do {
+            // Delete local files
             let fileManager = FileManager.default
-            let modelPath = URL.init(filePath: model.localPath)
+            let modelPath = model.localPath
             
-            if let files = try? fileManager.contentsOfDirectory(
-                at: modelPath,
-                includingPropertiesForKeys: nil,
-                options: [.skipsHiddenFiles]
-            ) {
-                let storage = ModelDownloadStorage()
-                for file in files {
-                    storage.clearFileStatus(at: file.path)
-                }
+            if fileManager.fileExists(atPath: modelPath) {
+                try fileManager.removeItem(atPath: modelPath)
             }
             
-            if fileManager.fileExists(atPath: modelPath.path) {
-                try fileManager.removeItem(at: modelPath)
+            // Update model state
+            if let index = models.firstIndex(where: { $0.id == model.id }) {
+                models[index].isDownloaded = false
+                models[index].cachedSize = nil // Clear cached size since model is deleted
+                ModelStorageManager.shared.markModelAsDownloaded(model.modelName)
             }
             
-            await MainActor.run {
-                if let index = models.firstIndex(where: { $0.id == model.id }) {
-                    models[index].isDownloaded = false
-                    ModelStorageManager.shared.clearDownloadStatus(for: model.modelName)
-                }
-                if selectedModel?.id == model.id {
-                    selectedModel = nil
-                }
-            }
+            // Re-sort models after deletion
+            sortModels(fetchedModels: &models)
             
         } catch {
-            print("Error deleting model: \(error)")
-            await MainActor.run {
-                self.errorMessage = "Failed to delete model: \(error.localizedDescription)"
-                self.showError = true
-            }
+            showError = true
+            errorMessage = "Failed to delete model: \(error.localizedDescription)"
         }
     }
 }
