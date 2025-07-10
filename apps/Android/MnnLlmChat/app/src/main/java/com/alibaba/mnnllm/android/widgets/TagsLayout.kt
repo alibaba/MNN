@@ -94,7 +94,6 @@ class TagsLayout @JvmOverloads constructor(
             if (child.visibility != GONE) {
                 val lp = child.layoutParams as MarginLayoutParams
                 
-                // 手动计算TextView文本的实际宽度
                 val actualChildWidth = if (child is TextView) {
                     val textPaint = child.paint
                     val textWidth = textPaint.measureText(child.text.toString())
@@ -105,9 +104,7 @@ class TagsLayout @JvmOverloads constructor(
                 
                 val childHeight = child.measuredHeight + lp.topMargin + lp.bottomMargin
 
-                // 如果当前行放不下这个tag的完整文本，就隐藏这个tag及后面所有的tag
                 if (currentLeft + actualChildWidth > width - paddingRight) {
-                    // 隐藏当前及后面所有的tag
                     for (j in i until childCount) {
                         getChildAt(j).visibility = GONE
                     }

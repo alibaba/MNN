@@ -65,6 +65,8 @@ class MainActivity : AppCompatActivity() {
     // Add field to track current search view
     private var currentSearchView: SearchView? = null
 
+    private lateinit var bottomNav: BottomTabBar
+
     private val menuProvider: MenuProvider = object : MenuProvider {
         override fun onCreateMenu(menu: Menu, menuInflater: MenuInflater) {
             menuInflater.inflate(R.menu.menu_main, menu)
@@ -249,7 +251,7 @@ class MainActivity : AppCompatActivity() {
         updateChecker = UpdateChecker(this)
         updateChecker!!.checkForUpdates(this, false)
         
-        val bottomNav = findViewById<BottomTabBar>(R.id.bottom_navigation)
+        bottomNav = findViewById(R.id.bottom_navigation)
         if (savedInstanceState == null) {
             modelListFragment = ModelListFragment()
             modelMarketFragment = ModelMarketFragment()
@@ -268,23 +270,18 @@ class MainActivity : AppCompatActivity() {
             
             Log.d(TAG, "onCreate: Found fragments - list: ${modelListFragment != null}, market: ${modelMarketFragment != null}, benchmark: ${benchmarkFragment != null}")
             
-            // 先确定当前应该显示的fragment（在hide之前）
             val allFragments = listOfNotNull(modelListFragment, modelMarketFragment, benchmarkFragment)
             Log.d(TAG, "onCreate: All fragments count: ${allFragments.size}")
             
-            // 检查每个fragment的可见性
             allFragments.forEachIndexed { index, fragment ->
                 Log.d(TAG, "onCreate: Fragment $index (${fragment.javaClass.simpleName}) - isVisible: ${fragment.isVisible}, isAdded: ${fragment.isAdded}, isHidden: ${fragment.isHidden}")
             }
             
-            // 使用!isHidden来判断当前应该显示的fragment，而不是isVisible
             val visibleFragment = allFragments.find { !it.isHidden }
             Log.d(TAG, "onCreate: Found visible fragment (by !isHidden): ${visibleFragment?.javaClass?.simpleName}")
             
-            currentFragment = visibleFragment ?: modelListFragment
             Log.d(TAG, "onCreate: Current fragment set to: ${currentFragment?.javaClass?.simpleName}")
             
-            // 然后统一hide所有fragment，只show当前fragment
             val transaction = supportFragmentManager.beginTransaction()
             allFragments.forEach { 
                 Log.d(TAG, "onCreate: Hiding fragment: ${it.javaClass.simpleName}")
@@ -340,10 +337,8 @@ class MainActivity : AppCompatActivity() {
             if (targetFragment != null && currentFragment != targetFragment) {
                 Log.d(TAG, "bottomNav.setOnTabSelectedListener: Switching from ${currentFragment?.javaClass?.simpleName} to ${targetFragment.javaClass.simpleName}")
                 
-                // 确保在切换前移除当前fragment的toolbar内容
                 if (currentFragment is ModelMarketFragment) {
                     Log.d(TAG, "bottomNav.setOnTabSelectedListener: Current fragment is ModelMarketFragment, ensuring toolbar is cleaned")
-                    // 强制移除ModelMarketFragment的toolbar内容
                     val appBarContent = findViewById<ViewGroup>(R.id.app_bar_content)
                     val filterContainerView = appBarContent?.findViewById<View>(R.id.filter_download_state)?.parent as? ViewGroup
                     if (filterContainerView != null && appBarContent.indexOfChild(filterContainerView) != -1) {
@@ -373,7 +368,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
         
-        // 根据当前fragment设置正确的tab，而不是总是选择LOCAL_MODELS
         Log.d(TAG, "onCreate: Before bottomNav.select, currentFragment: ${currentFragment?.javaClass?.simpleName}")
         val initialTab = when (currentFragment) {
             modelMarketFragment -> BottomTabBar.Tab.MODEL_MARKET
@@ -495,6 +489,10 @@ class MainActivity : AppCompatActivity() {
         }
         */
         
+    }
+
+    fun onAddModelButtonClick(view: View) {
+        bottomNav.select(BottomTabBar.Tab.MODEL_MARKET)
     }
 
     companion object {

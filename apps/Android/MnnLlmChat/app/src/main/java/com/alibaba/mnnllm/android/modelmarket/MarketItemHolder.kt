@@ -75,7 +75,9 @@ class MarketItemHolder(
         
         // Set basic info
         tvModelTitle.text = modelMarketItem.modelName
-        tagsLayout.setTags(modelMarketItem.tags.take(3)) // Limit to 3 tags to prevent overcrowding
+        tagsLayout.setTags(
+            TagMapper.getDisplayTagList(modelMarketItem.tags).take(3)
+        ) // Limit to 3 tags to prevent overcrowding
         headerSection.setModelName(modelMarketItem.modelName)
         
         // Update download state

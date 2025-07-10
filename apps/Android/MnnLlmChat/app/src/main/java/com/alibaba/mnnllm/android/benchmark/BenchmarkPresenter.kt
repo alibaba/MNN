@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import androidx.lifecycle.LifecycleCoroutineScope
 import com.alibaba.mnnllm.android.R
+import com.alibaba.mnnllm.android.model.ModelUtils
 import com.alibaba.mnnllm.android.utils.ModelListManager
 import kotlinx.coroutines.launch
 
@@ -281,7 +282,8 @@ class BenchmarkPresenter(
         lifecycleScope.launch {
             try {
                 Log.d(TAG, "Loading available models...")
-                availableModels = model.loadAvailableModels(context)
+                availableModels = model.loadAvailableModels(context).filterNot { ModelUtils.isDiffusionModel(
+                    it.modelItem.modelName!!) }
                 Log.d(TAG, "Found ${availableModels.size} models")
                 view.updateModelSelector(availableModels)
                 
@@ -566,5 +568,12 @@ class BenchmarkPresenter(
         val scaledFallback = (fallbackProgress / 100.0f * 90).toInt()
         
         return (baseProgress + scaledFallback).coerceIn(10, 100)
+    }
+
+    /**
+     * Public method to reload models, for fragment re-show
+     */
+    fun loadModels() {
+        setupModelSelector()
     }
 } 

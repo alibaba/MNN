@@ -146,27 +146,7 @@ class ModelItemHolder(
     }
 
     private fun getDisplayTags(modelItem: ModelItem): List<String> {
-        val tags = mutableListOf<String>()
-        
-        // Add source tag first
-        val source = getModelSource(modelItem.modelId)
-        if (source != null) {
-            tags.add(source)
-        }
-        
-        // Use getTags() which now prioritizes market tags from model_market.json
-        val marketTags = modelItem.getTags()
-        
-        // Add local/downloaded status
-        if (modelItem.isLocal) {
-            tags.add(itemView.context.getString(R.string.local))
-        } else if (marketTags.isNotEmpty()) {
-            // If we have market tags, use them directly (they're already user-friendly)
-            tags.addAll(marketTags.take(2)) // Limit to 2 market tags to leave room for source tag
-        }
-        
-        // Limit total tags to 3 for better UI layout
-        return tags.take(3)
+        return modelItem.getDisplayTags().take(3)
     }
 
     fun bind(modelWrapper: ModelListManager.ModelItemWrapper) {

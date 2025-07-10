@@ -9,7 +9,7 @@
     >
     <RelativeLayout
         android:layout_width="match_parent"
-        android:layout_height="70dp"
+        android:layout_height="75dp"
         android:layout_gravity="center_vertical"
         android:id="@+id/recycler_item_model_parent"
         >
@@ -41,6 +41,7 @@
             android:id="@+id/tagsLayout"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:minHeight="24dp"
             android:layout_below="@id/tvModelTitle"
             android:layout_marginEnd="60dp"
             android:layout_toEndOf="@id/header_section_title" />

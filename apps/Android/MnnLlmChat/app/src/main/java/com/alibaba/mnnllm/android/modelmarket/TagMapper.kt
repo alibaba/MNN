@@ -26,4 +26,8 @@ object TagMapper {
             tagMap[tagName]
         }
     }
+
+    fun getDisplayTagList(tagKeys: List<String>): List<String> {
+        return tagKeys.map { getTag(it).getDisplayText() }
+    }
 } 

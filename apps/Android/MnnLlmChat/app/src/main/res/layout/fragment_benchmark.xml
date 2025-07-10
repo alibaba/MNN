@@ -52,6 +52,7 @@
                 android:id="@+id/model_tags_layout"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:minHeight="24dp"
                 android:layout_below="@id/model_selector_title"
                 android:layout_marginEnd="60dp"
                 android:layout_toEndOf="@id/model_avatar" />

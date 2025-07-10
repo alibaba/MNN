@@ -6,6 +6,7 @@ import android.content.Context
 import com.alibaba.mnnllm.android.model.ModelUtils
 import com.alibaba.mnnllm.android.model.ModelUtils.getModelName
 import com.alibaba.mnnllm.android.modelmarket.SourceSelectionDialogFragment
+import com.alibaba.mnnllm.android.modelmarket.TagMapper
 
 class ModelItem {
     var modelId: String? = null
@@ -29,6 +30,10 @@ class ModelItem {
 
     fun addTag(tag: String) {
         tags.add(tag)
+    }
+
+    fun getDisplayTags(): List<String> {
+        return TagMapper.getDisplayTagList(getTags())
     }
 
     /**

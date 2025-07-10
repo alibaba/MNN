@@ -252,7 +252,9 @@
     },
     {
       "modelName": "DeepSeek-R1-1.5B-Qwen-MNN",
-      "tags": [],
+      "tags": [
+        "Think"
+      ],
       "categories": [
         "good",
         "deepseek"
@@ -312,7 +314,9 @@
     },
     {
       "modelName": "DeepSeek-R1-7B-Qwen-MNN",
-      "tags": [],
+      "tags": [
+        "Think"
+      ],
       "categories": [
         "chat",
         "deepseek"
@@ -1224,45 +1228,6 @@
         "HuggingFace": "taobao-mnn/stable-diffusion-v1-5-mnn-opencl",
         "ModelScope": "MNN/stable-diffusion-v1-5-mnn-opencl",
         "Modelers": "MNN/stable-diffusion-v1-5-mnn-opencl"
-      },
-      "size_gb": 1.5,
-      "vendor": "stability.ai"
-    },
-    {
-      "modelName": "bert-vits2-MNN",
-      "tags": [],
-      "categories": [
-        "other",
-        "stable-diffusion"
-      ],
-      "sources": {
-        "ModelScope": "MNN/bert-vits2-MNN"
-      },
-      "size_gb": 1.5,
-      "vendor": "stability.ai"
-    },
-    {
-      "modelName": "streaming-zipformer-bilingual-zh-en-2023-02-20",
-      "tags": [],
-      "categories": [
-        "other",
-        "stable-diffusion"
-      ],
-      "sources": {
-        "ModelScope": "MNN/sherpa-mnn-streaming-zipformer-bilingual-zh-en-2023-02-20"
-      },
-      "size_gb": 1.5,
-      "vendor": "stability.ai"
-    },
-    {
-      "modelName": "streaming-zipformer-en-2023-02-21",
-      "tags": [],
-      "categories": [
-        "other",
-        "stable-diffusion"
-      ],
-      "sources": {
-        "ModelScope": "MNN/sherpa-mnn-streaming-zipformer-en-2023-02-21"
       },
       "size_gb": 1.5,
       "vendor": "stability.ai"
