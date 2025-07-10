@@ -8,6 +8,7 @@
 
 #include "backend/cpu/compute/ConvolutionFloatFactory.h"
 #include "backend/cpu/CPUConvolutionDepthwise.hpp"
+#include "backend/cpu/CPURuntime.hpp"
 #include "backend/cpu/compute/ConvOpt.h"
 #include "backend/cpu/compute/Convolution1x1Strassen.hpp"
 #include "backend/cpu/compute/ConvolutionGroup.hpp"
@@ -25,6 +26,7 @@
 #ifdef MNN_KLEIDIAI_ENABLED
 #include "backend/cpu/compute/KleidiAIConvInt8.hpp"
 #include "backend/cpu/compute/KleidiAIConvolution.hpp"
+#include "backend/cpu/compute/KleidiAIDenseConvolution.hpp"
 #endif //MNN_KLEIDIAI_ENABLED
 
 namespace MNN {
@@ -94,9 +96,16 @@ static Execution* _createUnit(const Tensor* input, const Tensor* output, Backend
     }
 #else
     if (cpuBackend->memoryMode() == BackendConfig::Memory_Low) {
+#ifdef MNN_KLEIDIAI_ENABLED
+	if (MNNGetCPUInfo()->sme2 && !weigthQauntInfo && cpuBackend->functions()->bytes == 4) {
+	    return new KleidiAIDenseConvolution(common, backend, originWeight, originWeightSize, bias, biasSize, weightQuantInfo);
+	}
+#else
         return new DenseConvolutionTiledExecutor(common, backend, originWeight, originWeightSize, bias, biasSize, weightQuantInfo);
+#endif
     }
 #endif
+
 #ifndef MNN_REDUCE_SIZE
     if (fastWay && cpuBackend->functions()->matmulBytes == 0) {
 #ifdef MNN_KLEIDIAI_ENABLED
@@ -111,6 +120,13 @@ static Execution* _createUnit(const Tensor* input, const Tensor* output, Backend
         return new Convolution1x1Strassen(common, backend, originWeight, originWeightSize, bias, biasSize);
     }
 #endif
+
+#ifdef MNN_KLEIDIAI_ENABLED
+    if (MNNGetCPUInfo()->sme2 && !weightQuantInfo && cpuBackend->functions()->bytes == 4) {
+	return new KleidiAIDenseConvolution(common, backend, originWeight, originWeightSize, bias, biasSize, weightQuantInfo);
+    }
+#endif
+
     if (cpuBackend->getRuntime()->hint().winogradMemoryUsed == 0 || (!ConvolutionWinogradBridge::canUseWinograd(common))) {
         return new DenseConvolutionTiledExecutor(common, backend, originWeight, originWeightSize, bias, biasSize, nullptr);
     }
