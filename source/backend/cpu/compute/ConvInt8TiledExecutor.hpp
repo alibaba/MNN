@@ -84,9 +84,6 @@ private:
     bool mIm2ColBasedInt8;
     int mSizeInputBlockQuant;
     bool mToFuseInputbias2Bias;
-#ifdef MNN_KLEIDIAI_ENABLED
-    KleidiAI::AccelType mAccelType = KleidiAI::AccelType::ACC_TYPE_NUMBER;
-#endif
 };
 
 } // namespace MNN
