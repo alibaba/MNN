@@ -72,10 +72,6 @@ class BenchmarkFragment : Fragment(), BenchmarkContract.View {
             presenter?.onBackClicked()
         }
 
-//        binding.submitButton.setOnClickListener {
-//            presenter?.onSubmitResultClicked()
-//        }
-
         // Model selector click handler - now clicking the entire layout
         binding.modelSelectorLayout.setOnClickListener {
             // Only allow model selection in Ready and Complete states
@@ -143,8 +139,8 @@ class BenchmarkFragment : Fragment(), BenchmarkContract.View {
         
         // Update the new UI elements
         if (models.isEmpty()) {
-            binding.modelSelectorTitle.text = "No models available"
-            binding.modelSelectorStatus.text = "Please download a model first"
+            binding.modelSelectorTitle.text = requireContext().getString(R.string.no_models_available)
+            binding.modelSelectorStatus.text = requireContext().getString(R.string.please_download_model)
             binding.modelAvatar.setModelName("")
             binding.modelTagsLayout.setTags(emptyList())
         } else {

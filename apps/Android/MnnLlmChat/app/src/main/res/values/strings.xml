@@ -254,7 +254,7 @@
     <string name="download_state_downloading">Downloading</string>
     <string name="download_state_failed">Download Failed</string>
     <string name="download_state_paused">Download Paused</string>
-    <string name="no_models_found">No models found, Try to change filter please</string>
+    <string name="no_models_found">No models available. Please download a model first.</string>
     <string name="diffusion_model_not_alloed">Sorry, diffusion model settings are not supported config here yet.</string>
     <string name="settings_section_general">GENERAL</string>
     <string name="settings_section_advanced">ADVANCED</string>
@@ -451,4 +451,6 @@
     <string name="voice_chat_setup_message">To use voice chat, please select and download TTS and ASR models first. Switch between the tabs above to set up both types of models.</string>
     <string name="peak_memory">Peak Memory</string>
     <string name="max_memory">Max Memory</string>
+    <string name="please_download_model">Please download a model first</string>
+    <string name="go_to_download">Go to download</string>
 </resources>

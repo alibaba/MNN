@@ -114,6 +114,16 @@ class BenchmarkPresenter(
                 showBenchmarkIcon = true,
                 showBenchmarkProgressBar = false
             )
+            BenchmarkState.ERROR_MODEL_NOT_FOUND -> BenchmarkUIState(
+                startButtonText = context.getString(R.string.start_test),
+                startButtonEnabled = false,
+                showProgressBar = false,
+                showResults = false,
+                showStatus = false,
+                enableModelSelector = false,
+                showBenchmarkIcon = true,
+                showBenchmarkProgressBar = false
+            )
         }
         
         applyUIState(uiState)
@@ -277,8 +287,7 @@ class BenchmarkPresenter(
                 
                 if (availableModels.isEmpty()) {
                     Log.e(TAG, "No models available")
-                    stateMachine.transitionTo(BenchmarkState.ERROR, "No models available. Please download a model first.")
-                    view.showError("No models available. Please download a model first.")
+                    stateMachine.transitionTo(BenchmarkState.ERROR, context.getString(R.string.no_models_available))
                     updateUIForState(BenchmarkState.ERROR)
                 } else {
                     // Set first model as default
@@ -295,9 +304,9 @@ class BenchmarkPresenter(
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to load models", e)
-                stateMachine.transitionTo(BenchmarkState.ERROR, "Failed to load models: ${e.message}")
-                view.showError("Failed to load models: ${e.message}")
-                updateUIForState(BenchmarkState.ERROR)
+                stateMachine.transitionTo(BenchmarkState.ERROR_MODEL_NOT_FOUND, "Failed to load models: ${e.message}")
+//                view.showError("Failed to load models: ${e.message}")
+                updateUIForState(BenchmarkState.ERROR_MODEL_NOT_FOUND)
             }
         }
     }

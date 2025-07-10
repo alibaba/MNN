@@ -19,6 +19,7 @@ import com.alibaba.mnnllm.android.utils.ModelListManager
 import com.alibaba.mnnllm.android.utils.FileUtils
 import com.alibaba.mnnllm.android.widgets.ModelAvatarView
 import com.alibaba.mnnllm.android.widgets.TagsLayout
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -62,31 +63,31 @@ class ModelItemHolder(
     private fun displayTimeInfo(modelWrapper: ModelListManager.ModelItemWrapper) {
         val lastChatTime = modelWrapper.lastChatTime
         
-        // 1. 如果没有聊过天，不显示
+        // 1. If there hasn't been any chat, do not display
         if (lastChatTime <= 0) {
             tvTimeInfo.visibility = View.GONE
             return
         }
         
-        // 2. 如果聊过天，判断是否当天
+        // 2. Check if the chat happened on the same day
         val now = System.currentTimeMillis()
         val chatDate = Date(lastChatTime)
         val today = Date(now)
         
-        // 判断是否是同一天
+        // Determine whether it's the same day
         val isSameDay = isSameDay(chatDate, today)
         
         val formattedTime = if (isSameDay) {
-            // 2.1 当天聊过，显示时、分，例如：8:30
+            // 2.1 Chat occurred today, display hours and minutes, e.g., 8:30
             val timeFormat = SimpleDateFormat("H:mm", Locale.getDefault())
             timeFormat.format(chatDate)
         } else {
-            // 2.2 当天没有聊过，显示日期，支持中英文
+            // 2.2 Chat did not occur today, display date, supports both Chinese and English
             val locale = Locale.getDefault()
             val dateFormat = if (locale.language == "zh") {
                 SimpleDateFormat("M月d日", locale)
             } else {
-                SimpleDateFormat("MMM d", locale) // 例如：Jun 20, Dec 15
+                SimpleDateFormat("MMM d", locale) // For example: Jun 20, Dec 15
             }
             dateFormat.format(chatDate)
         }
@@ -224,7 +225,7 @@ class ModelItemHolder(
         popupMenu.setOnMenuItemClickListener { item: MenuItem ->
             val modelId = modelItem.modelId
             if (item.itemId == R.id.menu_delete_model) {
-                AlertDialog.Builder(v.context)
+                MaterialAlertDialogBuilder(v.context)
                     .setTitle(R.string.confirm_delete_model_title)
                     .setMessage(R.string.confirm_delete_model_message)
                     .setPositiveButton(android.R.string.ok) { _, _ ->

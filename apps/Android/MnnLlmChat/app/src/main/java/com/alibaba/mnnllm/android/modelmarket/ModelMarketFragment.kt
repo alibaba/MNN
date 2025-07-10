@@ -299,11 +299,15 @@ class ModelMarketFragment : Fragment(), ModelMarketItemListener, Searchable {
         }
     }
 
-        override fun onHiddenChanged(hidden: Boolean) {
+
+    override fun onHiddenChanged(hidden: Boolean) {
         super.onHiddenChanged(hidden)
+        Log.d(TAG, "onHiddenChanged: hidden = $hidden")
         if (hidden) {
+            Log.d(TAG, "onHiddenChanged: removing custom toolbar")
             removeCustomToolbar()
         } else {
+            Log.d(TAG, "onHiddenChanged: setting up custom toolbar")
             setupCustomToolbar()
             // Restore search state if there was an active search
             restoreSearchStateIfNeeded()
@@ -312,8 +316,24 @@ class ModelMarketFragment : Fragment(), ModelMarketItemListener, Searchable {
     
     override fun onResume() {
         super.onResume()
+        Log.d(TAG, "onResume: isHidden = $isHidden")
         // Also restore search state on resume (for initial load)
+        onHiddenChanged(isHidden)
         restoreSearchStateIfNeeded()
+    }
+    
+    override fun onPause() {
+        super.onPause()
+        Log.d(TAG, "onPause: isHidden = $isHidden")
+    }
+    
+    override fun setUserVisibleHint(isVisibleToUser: Boolean) {
+        super.setUserVisibleHint(isVisibleToUser)
+        Log.d(TAG, "setUserVisibleHint: isVisibleToUser = $isVisibleToUser")
+        if (!isVisibleToUser && isAdded) {
+            Log.d(TAG, "setUserVisibleHint: removing custom toolbar")
+            removeCustomToolbar()
+        }
     }
     
     /**

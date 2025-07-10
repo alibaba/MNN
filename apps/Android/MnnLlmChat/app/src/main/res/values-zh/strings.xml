@@ -245,7 +245,7 @@
     <string name="download_state_downloading">下载中</string>
     <string name="download_state_failed">下载失败</string>
     <string name="download_state_paused">下载暂停</string>
-    <string name="no_models_found">没有找到模型，改变过滤器试试</string>
+    <string name="no_models_found">没有找到模型，请在模型市场下载</string>
     <string name="diffusion_model_not_alloed">Diffusion模型暂时不支持在此设置</string>
     <string name="settings_section_general">常用设置</string>
     <string name="settings_section_advanced">高级设置</string>
@@ -449,4 +449,6 @@
     <string name="voice_chat_setup_message">要使用语音聊天功能，请先选择并下载TTS和ASR模型。请在上方标签页之间切换来设置这两种类型的模型。</string>
     <string name="peak_memory">峰值内存</string>
     <string name="max_memory">最大内存</string>
+    <string name="please_download_model">请先下载模型</string>
+    <string name="go_to_download">去下载</string>
 </resources>

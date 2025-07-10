@@ -22,13 +22,13 @@
                 android:layout_gravity="center_horizontal"
                 android:gravity="center_vertical"
                 android:orientation="vertical">
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/app_name"
-                    android:layout_gravity="center_horizontal"
-                    android:layout_marginBottom="6dp"
-                    style="?textAppearanceTitleMedium"/>
+<!--                <TextView-->
+<!--                    android:layout_width="wrap_content"-->
+<!--                    android:layout_height="wrap_content"-->
+<!--                    android:text="@string/app_name"-->
+<!--                    android:layout_gravity="center_horizontal"-->
+<!--                    android:layout_marginBottom="6dp"-->
+<!--                    style="?textAppearanceTitleMedium"/>-->
                 <com.alibaba.mnnllm.android.widgets.ModelSwitcherView
                     android:id="@+id/model_switcher"
                     android:layout_width="wrap_content"

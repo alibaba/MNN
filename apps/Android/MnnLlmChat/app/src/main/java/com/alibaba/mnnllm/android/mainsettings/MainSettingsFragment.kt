@@ -18,6 +18,7 @@ import com.alibaba.mnnllm.android.utils.AppUtils
 import com.alibaba.mnnllm.android.utils.PreferenceUtils
 import com.alibaba.mnnllm.api.openai.service.ApiServerConfig
 import com.alibaba.mnnllm.api.openai.manager.ApiServiceManager
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 
 class MainSettingsFragment : PreferenceFragmentCompat() {
 
@@ -82,7 +83,7 @@ class MainSettingsFragment : PreferenceFragmentCompat() {
         // 重置 API配置
         val resetApiConfigPref = findPreference<Preference>("reset_api_config")
         resetApiConfigPref?.setOnPreferenceClickListener {
-            androidx.appcompat.app.AlertDialog.Builder(requireContext())
+            MaterialAlertDialogBuilder(requireContext())
                 .setTitle(R.string.reset_api_config)
                 .setMessage(R.string.reset_api_config_confirm_message)
                 .setPositiveButton(android.R.string.ok) { _, _ ->

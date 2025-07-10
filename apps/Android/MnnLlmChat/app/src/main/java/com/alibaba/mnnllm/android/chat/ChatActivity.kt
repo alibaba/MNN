@@ -124,7 +124,7 @@ class ChatActivity : AppCompatActivity() {
         } else {
             binding.modelSwitcher.isClickable = true
             binding.modelSwitcher.isFocusable = true
-            binding.modelSwitcher.setBackgroundResource(R.drawable.bg_rounded_dropdown)
+//            binding.modelSwitcher.setBackgroundResource(R.drawable.bg_rounded_dropdown)
             dropdownArrow?.visibility = View.VISIBLE
         }
         
@@ -599,7 +599,7 @@ class ChatActivity : AppCompatActivity() {
         } else {
             binding.modelSwitcher.isClickable = true
             binding.modelSwitcher.isFocusable = true
-            binding.modelSwitcher.setBackgroundResource(R.drawable.bg_rounded_dropdown)
+//            binding.modelSwitcher.setBackgroundResource(R.drawable.bg_rounded_dropdown)
             dropdownArrow?.visibility = View.VISIBLE
         }
         

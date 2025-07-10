@@ -42,6 +42,7 @@ import com.alibaba.mnnllm.android.widgets.BottomTabBar
 import com.google.android.material.appbar.AppBarLayout
 import com.google.android.material.appbar.MaterialToolbar
 import com.techiness.progressdialoglibrary.ProgressDialog
+import android.view.ViewGroup
 
 class MainActivity : AppCompatActivity() {
     private var progressDialog: ProgressDialog? = null
@@ -260,52 +261,104 @@ class MainActivity : AppCompatActivity() {
                 .commit()
             currentFragment = modelListFragment
         } else {
+            Log.d(TAG, "onCreate: Configuration change detected, restoring fragments")
             benchmarkFragment = supportFragmentManager.findFragmentByTag("benchmark") as? BenchmarkFragment
             modelListFragment = supportFragmentManager.findFragmentByTag("list") as? ModelListFragment
             modelMarketFragment = supportFragmentManager.findFragmentByTag("market") as? ModelMarketFragment
-            currentFragment = supportFragmentManager.fragments.find { it.isVisible && it.id == R.id.main_fragment_container }
             
-            // Ensure fragments are not null - create new ones if restoration failed
+            Log.d(TAG, "onCreate: Found fragments - list: ${modelListFragment != null}, market: ${modelMarketFragment != null}, benchmark: ${benchmarkFragment != null}")
+            
+            // 先确定当前应该显示的fragment（在hide之前）
+            val allFragments = listOfNotNull(modelListFragment, modelMarketFragment, benchmarkFragment)
+            Log.d(TAG, "onCreate: All fragments count: ${allFragments.size}")
+            
+            // 检查每个fragment的可见性
+            allFragments.forEachIndexed { index, fragment ->
+                Log.d(TAG, "onCreate: Fragment $index (${fragment.javaClass.simpleName}) - isVisible: ${fragment.isVisible}, isAdded: ${fragment.isAdded}, isHidden: ${fragment.isHidden}")
+            }
+            
+            // 使用!isHidden来判断当前应该显示的fragment，而不是isVisible
+            val visibleFragment = allFragments.find { !it.isHidden }
+            Log.d(TAG, "onCreate: Found visible fragment (by !isHidden): ${visibleFragment?.javaClass?.simpleName}")
+            
+            currentFragment = visibleFragment ?: modelListFragment
+            Log.d(TAG, "onCreate: Current fragment set to: ${currentFragment?.javaClass?.simpleName}")
+            
+            // 然后统一hide所有fragment，只show当前fragment
+            val transaction = supportFragmentManager.beginTransaction()
+            allFragments.forEach { 
+                Log.d(TAG, "onCreate: Hiding fragment: ${it.javaClass.simpleName}")
+                transaction.hide(it) 
+            }
+            
+            if (currentFragment != null) {
+                Log.d(TAG, "onCreate: Showing current fragment: ${currentFragment!!.javaClass.simpleName}")
+                transaction.show(currentFragment!!)
+            }
+            transaction.commit()
+            
+            // 如果某个fragment为null，说明恢复失败，需要重新创建
             if (modelListFragment == null) {
+                Log.d(TAG, "onCreate: ModelListFragment is null, creating new one")
                 modelListFragment = ModelListFragment()
                 supportFragmentManager.beginTransaction()
                     .add(R.id.main_fragment_container, modelListFragment!!, "list")
                     .commit()
+                if (currentFragment == null) {
+                    currentFragment = modelListFragment
+                    Log.d(TAG, "onCreate: Set currentFragment to newly created ModelListFragment")
+                }
             }
             if (modelMarketFragment == null) {
+                Log.d(TAG, "onCreate: ModelMarketFragment is null, creating new one")
                 modelMarketFragment = ModelMarketFragment()
                 supportFragmentManager.beginTransaction()
-                    .add(R.id.main_fragment_container, modelMarketFragment!!, "market").hide(modelMarketFragment!!)
+                    .add(R.id.main_fragment_container, modelMarketFragment!!, "market")
+                    .hide(modelMarketFragment!!)
                     .commit()
             }
             if (benchmarkFragment == null) {
+                Log.d(TAG, "onCreate: BenchmarkFragment is null, creating new one")
                 benchmarkFragment = BenchmarkFragment()
                 supportFragmentManager.beginTransaction()
-                    .add(R.id.main_fragment_container, benchmarkFragment!!, "benchmark").hide(benchmarkFragment!!)
+                    .add(R.id.main_fragment_container, benchmarkFragment!!, "benchmark")
+                    .hide(benchmarkFragment!!)
                     .commit()
-            }
-            
-            // Set currentFragment to modelListFragment if it's null
-            if (currentFragment == null) {
-                currentFragment = modelListFragment
             }
         }
 
         bottomNav.setOnTabSelectedListener { tab ->
+            Log.d(TAG, "bottomNav.setOnTabSelectedListener: Tab selected: $tab")
             val targetFragment = when (tab) {
                 BottomTabBar.Tab.LOCAL_MODELS -> modelListFragment
                 BottomTabBar.Tab.MODEL_MARKET -> modelMarketFragment
                 BottomTabBar.Tab.BENCHMARK -> benchmarkFragment
             }
             
-            // Only proceed if target fragment is not null
+            Log.d(TAG, "bottomNav.setOnTabSelectedListener: Target fragment: ${targetFragment?.javaClass?.simpleName}, Current fragment: ${currentFragment?.javaClass?.simpleName}")
+            
             if (targetFragment != null && currentFragment != targetFragment) {
-                supportFragmentManager.beginTransaction().hide(currentFragment!!).show(targetFragment).commitNow()
+                Log.d(TAG, "bottomNav.setOnTabSelectedListener: Switching from ${currentFragment?.javaClass?.simpleName} to ${targetFragment.javaClass.simpleName}")
+                
+                // 确保在切换前移除当前fragment的toolbar内容
+                if (currentFragment is ModelMarketFragment) {
+                    Log.d(TAG, "bottomNav.setOnTabSelectedListener: Current fragment is ModelMarketFragment, ensuring toolbar is cleaned")
+                    // 强制移除ModelMarketFragment的toolbar内容
+                    val appBarContent = findViewById<ViewGroup>(R.id.app_bar_content)
+                    val filterContainerView = appBarContent?.findViewById<View>(R.id.filter_download_state)?.parent as? ViewGroup
+                    if (filterContainerView != null && appBarContent.indexOfChild(filterContainerView) != -1) {
+                        Log.d(TAG, "bottomNav.setOnTabSelectedListener: Removing filter container from appBarContent")
+                        appBarContent.removeView(filterContainerView)
+                    }
+                }
+                
+                supportFragmentManager.beginTransaction()
+                    .hide(currentFragment!!)
+                    .show(targetFragment)
+                    .commitNow()
                 currentFragment = targetFragment
-                // Invalidate menu to show/hide search based on current fragment
                 invalidateOptionsMenu()
             }
-            // Set toolbar title to match selected tab
             val titleRes = when (tab) {
                 BottomTabBar.Tab.LOCAL_MODELS -> R.string.nav_name_chats
                 BottomTabBar.Tab.MODEL_MARKET -> R.string.models_market
@@ -313,7 +366,6 @@ class MainActivity : AppCompatActivity() {
             }
             supportActionBar?.setTitle(titleRes)
             
-            // Control ExpandableFabLayout visibility based on selected tab
             expandableFabLayout.visibility = if (tab == BottomTabBar.Tab.LOCAL_MODELS) {
                 View.VISIBLE
             } else {
@@ -321,11 +373,30 @@ class MainActivity : AppCompatActivity() {
             }
         }
         
-        bottomNav.select(BottomTabBar.Tab.LOCAL_MODELS)
-        // Set initial toolbar title
-        supportActionBar?.setTitle(R.string.nav_name_chats)
-        // Set initial fab visibility (show for LOCAL_MODELS)
-        expandableFabLayout.visibility = View.VISIBLE
+        // 根据当前fragment设置正确的tab，而不是总是选择LOCAL_MODELS
+        Log.d(TAG, "onCreate: Before bottomNav.select, currentFragment: ${currentFragment?.javaClass?.simpleName}")
+        val initialTab = when (currentFragment) {
+            modelMarketFragment -> BottomTabBar.Tab.MODEL_MARKET
+            benchmarkFragment -> BottomTabBar.Tab.BENCHMARK
+            else -> BottomTabBar.Tab.LOCAL_MODELS
+        }
+        Log.d(TAG, "onCreate: Setting initial tab to: $initialTab")
+        bottomNav.select(initialTab)
+        
+        // 设置对应的toolbar标题
+        val titleRes = when (initialTab) {
+            BottomTabBar.Tab.LOCAL_MODELS -> R.string.nav_name_chats
+            BottomTabBar.Tab.MODEL_MARKET -> R.string.models_market
+            BottomTabBar.Tab.BENCHMARK -> R.string.benchmark
+        }
+        supportActionBar?.setTitle(titleRes)
+        
+        // 设置对应的fab可见性
+        expandableFabLayout.visibility = if (initialTab == BottomTabBar.Tab.LOCAL_MODELS) {
+            View.VISIBLE
+        } else {
+            View.GONE
+        }
 
         toggle = ActionBarDrawerToggle(
             this, drawerLayout,
@@ -356,7 +427,6 @@ class MainActivity : AppCompatActivity() {
         setSupportActionBar(toolbar)
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
         
-        // Add menu provider to activity
         val menuHost: MenuHost = this
         menuHost.addMenuProvider(menuProvider, this, Lifecycle.State.RESUMED)
     }

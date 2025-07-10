@@ -12,6 +12,7 @@ enum class BenchmarkState {
     RUNNING,               // Benchmark running
     STOPPING,              // User requested stop, stopping in progress
     COMPLETED,             // Benchmark completed, showing results
+    ERROR_MODEL_NOT_FOUND, // Model not found
     ERROR                  // Error occurred
 }
 
@@ -63,13 +64,14 @@ class BenchmarkStateMachine {
      */
     private fun isValidTransition(from: BenchmarkState, to: BenchmarkState): Boolean {
         val validTransitions = when (from) {
-            BenchmarkState.LOADING_MODELS -> listOf(BenchmarkState.READY, BenchmarkState.ERROR)
+            BenchmarkState.LOADING_MODELS -> listOf(BenchmarkState.READY, BenchmarkState.ERROR_MODEL_NOT_FOUND)
             BenchmarkState.READY -> listOf(BenchmarkState.INITIALIZING, BenchmarkState.LOADING_MODELS)
             BenchmarkState.INITIALIZING -> listOf(BenchmarkState.RUNNING, BenchmarkState.ERROR)
             BenchmarkState.RUNNING -> listOf(BenchmarkState.STOPPING, BenchmarkState.COMPLETED, BenchmarkState.ERROR)
             BenchmarkState.STOPPING -> listOf(BenchmarkState.READY, BenchmarkState.ERROR)
             BenchmarkState.COMPLETED -> listOf(BenchmarkState.READY, BenchmarkState.INITIALIZING)
             BenchmarkState.ERROR -> listOf(BenchmarkState.READY, BenchmarkState.LOADING_MODELS)
+            BenchmarkState.ERROR_MODEL_NOT_FOUND -> listOf(BenchmarkState.LOADING_MODELS)
         }
         
         val isValid = to in validTransitions
