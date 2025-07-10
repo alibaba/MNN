@@ -28,10 +28,10 @@
     <color name="color_on_surface_variant">#666666</color>
 
     <color name="color_disabled">#888888</color>
-    <color name="label_color">#666666</color>
+    <color name="label_color">#6699CC</color>
     <color name="foreground_color">#000000</color>
 
-    <color name="pinned_overlay_color">#F3F3F3</color>
+    <color name="pinned_overlay_color">#F0F0F0</color>
     
     <!-- UED颜色 -->
     <color name="ued_blue">#2E97F2</color>

@@ -74,6 +74,7 @@ class VoiceChatPresenter(
     private var isProcessingLlm = false
     private var isStopped = false
     private var isStoppingGeneration = false
+    private var isGenerationFinished = false // 添加标志位防止重复调用
     
     // For handling LLM generation progress with thinking support
     private var generateResultProcessor: GenerateResultProcessor? = null
@@ -221,6 +222,7 @@ class VoiceChatPresenter(
     fun start() {
         Log.d(TAG, "Presenter starting...")
         isStopped = false
+        isGenerationFinished = false
         currentStatus = VoiceChatPresenterState.INITIALIZING
         
         // Register this presenter as an additional listener to ChatPresenter
@@ -307,6 +309,10 @@ class VoiceChatPresenter(
                         }
                     }
                 }
+                
+                // Reset generation state when ASR is ready
+                isGenerationFinished = false
+                
                 startRecord()
                 currentStatus = VoiceChatPresenterState.LISTENING
                 if (!isStopped) withContext(Dispatchers.Main) { 
@@ -332,6 +338,7 @@ class VoiceChatPresenter(
             responseBuilder.clear()
             ttsSegmentBuffer.clear()
             isFirstChunk = true
+            isGenerationFinished = false // 重置标志位
 
             // Send message through ChatPresenter for proper session management
             chatPresenter.sendMessage(text)
@@ -384,7 +391,18 @@ class VoiceChatPresenter(
                     
                     if (audioData != null && audioData.isNotEmpty() && !isStopped) {
                         withContext(Dispatchers.Main) {
-                            // Set up completion listener to resume recording after greeting
+                            // Store the original listener
+                            val originalListener = {
+                                Log.d(TAG, "Audio playback completed - currentStatus: ${currentStatus.name}, isSpeaking: $isSpeaking, isProcessingLlm: $isProcessingLlm")
+                                currentStatus = VoiceChatPresenterState.PLAY_END
+                                lifecycleScope.launch {
+                                    Log.d(TAG, "Sending OnTtsComplete task")
+                                    taskChannel.send(SerialTask.OnTtsComplete)
+                                }
+                                Unit // Explicitly return Unit to fix compilation error
+                            }
+                            
+                            // Set up temporary completion listener for greeting
                             audioPlayer?.setOnCompletionListener {
                                 Log.d(TAG, "Greeting message playback completed")
                                 lifecycleScope.launch {
@@ -398,12 +416,11 @@ class VoiceChatPresenter(
                                     startRecord()
                                     
                                     // Restore the original completion listener for normal TTS
-                                    audioPlayer?.setOnCompletionListener {
-                                        Log.d(TAG, "Audio playback completed")
-                                        currentStatus = VoiceChatPresenterState.PLAY_END
-                                        lifecycleScope.launch {
-                                            taskChannel.send(SerialTask.OnTtsComplete)
-                                        }
+                                    // Do this on the main thread to avoid threading issues
+                                    withContext(Dispatchers.Main) {
+                                        audioPlayer?.reset()
+                                        audioPlayer?.setOnCompletionListener(originalListener)
+                                        Log.d(TAG, "Original completion listener restored")
                                     }
                                 }
                             }
@@ -438,6 +455,9 @@ class VoiceChatPresenter(
     fun stop() {
         Log.d(TAG, "Presenter stopping...")
         isStopped = true
+        
+        // Reset generation state
+        isGenerationFinished = false
         
         // Unregister from ChatPresenter
         chatPresenter.removeGenerateListener(this)
@@ -480,6 +500,7 @@ class VoiceChatPresenter(
         Log.d(TAG, "Stopping generation...")
         if (isProcessingLlm || isSpeaking) {
             isStoppingGeneration = true
+            isGenerationFinished = false // 重置标志位
             chatPresenter.stopGenerate()  // Stop generation in ChatPresenter
             audioPlayer?.stop()
             isProcessingLlm = false
@@ -515,6 +536,9 @@ class VoiceChatPresenter(
             try {
                 // Stop current services
                 stopRecord()
+                
+                // Reset generation state
+                isGenerationFinished = false
                 
                 // Cleanup existing services
                 asrService?.stopRecord()
@@ -571,6 +595,14 @@ class VoiceChatPresenter(
     
     override fun onGenerateFinished(benchMarkResult: HashMap<String, Any>) {
         if (isStopped || isStoppingGeneration) return
+        
+        if (isGenerationFinished) {
+            Log.d(TAG, "onGenerateFinished already processed, ignoring duplicate call")
+            return
+        }
+        
+        isGenerationFinished = true
+        Log.d(TAG, "onGenerateFinished called, sending ProcessFinalChunk task")
         
         lifecycleScope.launch {
             if (!isStoppingGeneration) {

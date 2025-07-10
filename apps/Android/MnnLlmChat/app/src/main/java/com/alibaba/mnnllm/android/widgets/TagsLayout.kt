@@ -11,6 +11,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.content.ContextCompat
 import com.alibaba.mnnllm.android.R
+import com.alibaba.mnnllm.android.utils.UiUtils.getThemeColor
 import kotlin.math.max
 
 
@@ -61,8 +62,7 @@ class TagsLayout @JvmOverloads constructor(
         )
         tagView.gravity = Gravity.CENTER
         tagView.setTextSize(TypedValue.COMPLEX_UNIT_PX, context.resources.getDimension(R.dimen.h4))
-        tagView.background = ContextCompat.getDrawable(context, R.drawable.shape_tag_view_white)
-        // 强制单行显示，不截断
+        tagView.background = ContextCompat.getDrawable(context, R.drawable.shape_tag_view)
         tagView.maxLines = 1
         tagView.isSingleLine = true
 
@@ -114,7 +114,6 @@ class TagsLayout @JvmOverloads constructor(
                     break
                 }
 
-                // 显示当前tag（可能之前被隐藏了）
                 child.visibility = VISIBLE
                 child.layout(
                     currentLeft + lp.leftMargin,
@@ -130,7 +129,6 @@ class TagsLayout @JvmOverloads constructor(
     }
 
     private fun updateLayout() {
-        // 先让所有子View都能测量其完整大小
         for (i in 0 until childCount) {
             val child = getChildAt(i)
             child.measure(MeasureSpec.UNSPECIFIED, MeasureSpec.UNSPECIFIED)

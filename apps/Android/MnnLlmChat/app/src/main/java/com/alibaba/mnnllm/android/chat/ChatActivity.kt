@@ -391,15 +391,10 @@ class ChatActivity : AppCompatActivity() {
         
         // Handle error cases
         if (benchMarkResult.containsKey("error") && benchMarkResult["error"] as Boolean) {
-            val errorMessage = benchMarkResult["message"] as? String ?: "生成失败"
+            val errorMessage = benchMarkResult["message"] as? String ?: "generation_failed"
             recentItem.text = errorMessage
             recentItem.displayText = errorMessage
             Log.e(TAG, "Generation failed: $errorMessage")
-            
-            // For diffusion errors, clear any partial image URI
-            if (isDiffusion) {
-                recentItem.imageUri = null
-            }
         } else {
             // Normal success case - set response if available
             val response = benchMarkResult["response"] as? String
