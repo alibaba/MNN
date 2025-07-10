@@ -1,3 +1,4 @@
+import ast
 import tvm
 from tvm import relay, autotvm
 from tvm import rpc, relay
@@ -60,7 +61,7 @@ def prepare_input():
     img_path = download_testdata(img_url, "cat.png", module="data")
     synset_path = download_testdata(synset_url, synset_name, module="data")
     with open(synset_path) as f:
-        synset = eval(f.read())
+        synset = ast.literal_eval(f.read())
         image = Image.open(img_path).resize((224, 224))
 
     image = np.array(image) - np.array([123.0, 117.0, 104.0])
