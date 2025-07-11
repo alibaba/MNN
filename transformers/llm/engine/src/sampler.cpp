@@ -235,6 +235,17 @@ void Sampler::SamplerConfig::configMixed(std::shared_ptr<LlmConfig> llmConfig) {
         this->configSampler(samplerName, llmConfig);
         // std::cout << samplerName << " " << std::flush;
     }
+    for (int i=1; i<mixedSamplers.size(); ++i) {
+        // "penalty" can only locate at the first position
+        if (mixedSamplers[i]=="penalty") {
+            mixedSamplers.erase(mixedSamplers.begin()+i); 
+            i--;
+            if (mixedSamplers[0]!="penalty") {
+                mixedSamplers.insert(mixedSamplers.begin(), "penalty");
+                i++;
+            }
+        }
+    }
     // std::cout << std::endl;
     // set select type
     // the final sampler select the token
