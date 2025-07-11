@@ -8,7 +8,6 @@
 import Foundation
 import SwiftUI
 
-@MainActor
 class ModelListViewModel: ObservableObject {
     // MARK: - Published Properties
     @Published var models: [ModelInfo] = []
@@ -61,13 +60,14 @@ class ModelListViewModel: ObservableObject {
     // MARK: - Initialization
     
     init() {
-        Task {
+        Task { @MainActor in
             await fetchModels()
         }
     }
     
     // MARK: - Model Data Management
     
+    @MainActor
     func fetchModels() async {
         do {
             let info = try await modelClient.getModelInfo()
@@ -208,6 +208,7 @@ class ModelListViewModel: ObservableObject {
     
     // MARK: - Model Selection & Usage
     
+    @MainActor
     func selectModel(_ model: ModelInfo) {
         if model.isDownloaded {
             selectedModel = model
@@ -220,19 +221,22 @@ class ModelListViewModel: ObservableObject {
     
     func recordModelUsage(modelName: String) {
         ModelStorageManager.shared.updateLastUsed(for: modelName)
-        if let index = models.firstIndex(where: { $0.modelName == modelName }) {
-            models[index].lastUsedAt = Date()
-            sortModels(fetchedModels: &models)
+        Task { @MainActor in
+            if let index = self.models.firstIndex(where: { $0.modelName == modelName }) {
+                self.models[index].lastUsedAt = Date()
+                self.sortModels(fetchedModels: &self.models)
+            }
         }
     }
     
     // MARK: - Download Management
     
     func downloadModel(_ model: ModelInfo) async {
-        guard currentlyDownloading == nil else { return }
-        
-        currentlyDownloading = model.id
-        downloadProgress[model.id] = 0
+        await MainActor.run {
+            guard currentlyDownloading == nil else { return }
+            currentlyDownloading = model.id
+            downloadProgress[model.id] = 0
+        }
         
         do {
             try await modelClient.downloadModel(model: model) { progress in
@@ -241,43 +245,53 @@ class ModelListViewModel: ObservableObject {
                 }
             }
             
-            if let index = models.firstIndex(where: { $0.id == model.id }) {
-                models[index].isDownloaded = true
-                ModelStorageManager.shared.markModelAsDownloaded(model.modelName)
-                
-                // Calculate and cache size for newly downloaded model
-                Task {
-                    do {
-                        let localSize = try FileOperationManager.shared.calculateDirectorySize(at: model.localPath)
-                        await MainActor.run {
-                            self.models[index].cachedSize = localSize
-                            ModelStorageManager.shared.setCachedSize(localSize, for: model.modelName)
-                        }
-                    } catch {
-                        print("Error calculating size for newly downloaded model \(model.modelName): \(error)")
-                    }
+            await MainActor.run {
+                if let index = self.models.firstIndex(where: { $0.id == model.id }) {
+                    self.models[index].isDownloaded = true
+                    ModelStorageManager.shared.markModelAsDownloaded(model.modelName)
                 }
             }
             
+            // Calculate and cache size for newly downloaded model
+            do {
+                let localSize = try FileOperationManager.shared.calculateDirectorySize(at: model.localPath)
+                await MainActor.run {
+                    if let index = self.models.firstIndex(where: { $0.id == model.id }) {
+                        self.models[index].cachedSize = localSize
+                        ModelStorageManager.shared.setCachedSize(localSize, for: model.modelName)
+                    }
+                }
+            } catch {
+                print("Error calculating size for newly downloaded model \(model.modelName): \(error)")
+            }
+            
         } catch {
-            if case ModelScopeError.downloadCancelled = error {
-                print("Download was cancelled")
-            } else {
-                showError = true
-                errorMessage = "Failed to download model: \(error.localizedDescription)"
+            await MainActor.run {
+                if case ModelScopeError.downloadCancelled = error {
+                    print("Download was cancelled")
+                } else {
+                    self.showError = true
+                    self.errorMessage = "Failed to download model: \(error.localizedDescription)"
+                }
             }
         }
         
-        currentlyDownloading = nil
-        downloadProgress.removeValue(forKey: model.id)
+        await MainActor.run {
+            self.currentlyDownloading = nil
+            self.downloadProgress.removeValue(forKey: model.id)
+        }
     }
     
     func cancelDownload() async {
-        if let modelId = currentlyDownloading {
+        let modelId = await MainActor.run { currentlyDownloading }
+        
+        if let modelId = modelId {
             await modelClient.cancelDownload()
             
-            downloadProgress.removeValue(forKey: modelId)
-            currentlyDownloading = nil
+            await MainActor.run {
+                self.downloadProgress.removeValue(forKey: modelId)
+                self.currentlyDownloading = nil
+            }
             
             print("Download cancelled for model: \(modelId)")
         }
@@ -285,6 +299,7 @@ class ModelListViewModel: ObservableObject {
     
     // MARK: - Pin Management
     
+    @MainActor
     func pinModel(_ model: ModelInfo) {
         guard let index = models.firstIndex(where: { $0.id == model.id }) else { return }
         let pinned = models.remove(at: index)
@@ -298,6 +313,7 @@ class ModelListViewModel: ObservableObject {
         pinnedModelIds = pinnedIds
     }
     
+    @MainActor
     func unpinModel(_ model: ModelInfo) {
         var pinnedIds = pinnedModelIds
         if let index = pinnedIds.firstIndex(of: model.id) {
@@ -324,18 +340,22 @@ class ModelListViewModel: ObservableObject {
             }
             
             // Update model state
-            if let index = models.firstIndex(where: { $0.id == model.id }) {
-                models[index].isDownloaded = false
-                models[index].cachedSize = nil // Clear cached size since model is deleted
-                ModelStorageManager.shared.markModelAsNotDownloaded(model.modelName)
+            await MainActor.run {
+                if let index = self.models.firstIndex(where: { $0.id == model.id }) {
+                    self.models[index].isDownloaded = false
+                    self.models[index].cachedSize = nil
+                    ModelStorageManager.shared.markModelAsNotDownloaded(model.modelName)
+                }
+                
+                // Re-sort models after deletion
+                self.sortModels(fetchedModels: &self.models)
             }
             
-            // Re-sort models after deletion
-            sortModels(fetchedModels: &models)
-            
         } catch {
-            showError = true
-            errorMessage = "Failed to delete model: \(error.localizedDescription)"
+            await MainActor.run {
+                self.showError = true
+                self.errorMessage = "Failed to delete model: \(error.localizedDescription)"
+            }
         }
     }
 }

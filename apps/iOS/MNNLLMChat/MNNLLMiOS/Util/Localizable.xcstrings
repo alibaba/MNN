@@ -10,6 +10,12 @@
     "%lld" : {
 
     },
+    "%lld%%" : {
+
+    },
+    "• %@" : {
+
+    },
     "Are you sure you want to delete this history?" : {
       "localizations" : {
         "zh-Hans" : {
@@ -20,13 +26,16 @@
         }
       }
     },
+    "Are you sure you want to stop the benchmark test?" : {
+
+    },
     "Audio Message" : {
 
     },
     "Benchmark" : {
 
     },
-    "Benchmark 页面暂未开放" : {
+    "Benchmark Config" : {
 
     },
     "Cache Cleared Successfully" : {
@@ -87,6 +96,9 @@
         }
       }
     },
+    "Completed: %@" : {
+
+    },
     "Configure mixed samplers:" : {
       "localizations" : {
         "zh-Hans" : {
@@ -96,6 +108,12 @@
           }
         }
       }
+    },
+    "Decode" : {
+
+    },
+    "Decode Speed" : {
+
     },
     "Delete" : {
       "localizations" : {
@@ -116,6 +134,9 @@
           }
         }
       }
+    },
+    "Delete Results" : {
+
     },
     "Diffusion Settings" : {
       "localizations" : {
@@ -206,6 +227,15 @@
         }
       }
     },
+    "Loading models..." : {
+
+    },
+    "Local" : {
+
+    },
+    "Local Available" : {
+
+    },
     "Model Configuration" : {
       "localizations" : {
         "zh-Hans" : {
@@ -278,6 +308,15 @@
         }
       }
     },
+    "No" : {
+
+    },
+    "No local models found. Please download a model first." : {
+
+    },
+    "No models available" : {
+
+    },
     "OK" : {
       "localizations" : {
         "zh-Hans" : {
@@ -289,6 +328,15 @@
       }
     },
     "Penalty Sampler" : {
+
+    },
+    "Prefill" : {
+
+    },
+    "Prefill Speed" : {
+
+    },
+    "Progress" : {
 
     },
     "Random Seed" : {
@@ -311,6 +359,9 @@
           }
         }
       }
+    },
+    "Runtime" : {
+
     },
     "Sampler Type" : {
 
@@ -345,6 +396,9 @@
         }
       }
     },
+    "Select Model" : {
+
+    },
     "Settings" : {
       "localizations" : {
         "zh-Hans" : {
@@ -354,6 +408,18 @@
           }
         }
       }
+    },
+    "Share Results" : {
+
+    },
+    "Start benchmark after selecting your model" : {
+
+    },
+    "Status" : {
+
+    },
+    "Stop Benchmark" : {
+
     },
     "Success" : {
       "comment" : "Alert title for cache cleared",
@@ -365,6 +431,19 @@
           }
         }
       }
+    },
+    "Test %lld/%lld (PP=%lld, TG=%lld)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Test %1$lld/%2$lld (PP=%3$lld, TG=%4$lld)"
+          }
+        }
+      }
+    },
+    "Test Result" : {
+
     },
     "This is a local large model application that requires certain performance from your device.\nIt is recommended to choose different model sizes based on your device's memory. \n\nThe model recommendations for iPhone are as follows:\n- For 8GB of RAM, models up to 8B are recommended (e.g., iPhone 16 Pro).\n- For 6GB of RAM, models up to 3B are recommended (e.g., iPhone 15 Pro).\n- For 4GB of RAM, models up to 1B or smaller are recommended (e.g., iPhone 13).\n\nChoosing a model that is too large may cause insufficient memory and crashes." : {
       "extractionState" : "stale",
@@ -449,6 +528,9 @@
           }
         }
       }
+    },
+    "Yes" : {
+
     },
     "下载源" : {
 
