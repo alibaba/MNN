@@ -28,6 +28,7 @@ struct MNNCPUInfo {
 
 int MNNSetSchedAffinity(const int* cpuIDs, int size);
 int MNNGetCurrentPid();
+unsigned long MNNGetCPUMask(const std::vector<int>& cpuIds);
 const MNNCPUInfo* MNNGetCPUInfo();
 
 #endif /* CPUInfo_hpp */
