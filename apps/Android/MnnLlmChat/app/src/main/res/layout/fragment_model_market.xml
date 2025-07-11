@@ -14,4 +14,56 @@
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintBottom_toBottomOf="parent"/>
 
+    <RelativeLayout
+        android:id="@+id/model_market_empty_view"
+        android:visibility="gone"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        tools:visibility="visible">
+        
+        <ImageView
+            android:id="@+id/iv_no_filtered_models"
+            android:layout_width="200dp"
+            android:layout_height="200dp"
+            app:srcCompat="@drawable/no_models"
+            android:layout_centerHorizontal="true"
+            app:tint="?colorOnSurfaceVariant"/>
+        
+        <TextView
+            android:id="@+id/tv_no_filtered_models_title"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_centerHorizontal="true"
+            android:layout_below="@id/iv_no_filtered_models"
+            android:layout_marginTop="16dp"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:text="@string/no_filtered_models_title"/>
+        
+        <TextView
+            android:id="@+id/tv_no_filtered_models_message"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_centerHorizontal="true"
+            android:layout_below="@id/tv_no_filtered_models_title"
+            android:layout_margin="16dp"
+            android:textSize="14sp"
+            android:gravity="center"
+            android:text="@string/no_filtered_models_message"/>
+        
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_clear_filters"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_centerHorizontal="true"
+            android:text="@string/clear_filters"
+            android:layout_below="@id/tv_no_filtered_models_message"/>
+            
+    </RelativeLayout>
+
 </androidx.constraintlayout.widget.ConstraintLayout>

@@ -24,6 +24,7 @@ import com.alibaba.mnnllm.android.model.ModelVendors
 import com.alibaba.mnnllm.android.model.ModelUtils
 import com.alibaba.mnnllm.android.modelsettings.DropDownMenuHelper
 import com.alibaba.mnnllm.android.utils.Searchable
+import com.alibaba.mnnllm.android.widgets.ModelSwitcherView
 import android.widget.Toast
 
 class ModelMarketFragment : Fragment(), ModelMarketItemListener, Searchable {
@@ -34,11 +35,10 @@ class ModelMarketFragment : Fragment(), ModelMarketItemListener, Searchable {
     private lateinit var viewModel: ModelMarketViewModel
     private lateinit var adapter: ModelMarketAdapter
     private lateinit var recyclerView: RecyclerView
-    private var availableSources: List<String> = listOf("HuggingFace", "ModelScope", "Modelers")
+    private lateinit var emptyView: View
     private var modalityFilterIndex = 0
     private var vendorFilterIndex = 0
-    private var sourceFilterIndex = 0
-    private var previousSourceSelection: String? = null
+    private lateinit var sourceSwitcher: ModelSwitcherView
 
     private lateinit var rootLayout: ConstraintLayout
     private var filterComponent: FilterComponent? = null
@@ -54,12 +54,14 @@ class ModelMarketFragment : Fragment(), ModelMarketItemListener, Searchable {
     // Implement Searchable interface
     override fun onSearchQuery(query: String) {
         currentSearchQuery = query
-        adapter.setSearchQuery(query)
+        currentFilterState = currentFilterState.copy(searchQuery = query)
+        viewModel.applyFilters(currentFilterState)
     }
 
     override fun onSearchCleared() {
         currentSearchQuery = ""
-        adapter.clearSearch()
+        currentFilterState = currentFilterState.copy(searchQuery = "")
+        viewModel.applyFilters(currentFilterState)
     }
 
     override fun onCreateView(
@@ -76,10 +78,12 @@ class ModelMarketFragment : Fragment(), ModelMarketItemListener, Searchable {
 
         setupCustomToolbar()
         setupRecyclerView()
+        setupEmptyView()
 
         // Observe filtered models
         viewModel.models.observe(viewLifecycleOwner) { models ->
             adapter.submitList(models)
+            updateEmptyViewVisibility(models)
             
             // Initialize quick filter tags when data is first loaded
             if (!quickFilterTagsInitialized && models.isNotEmpty()) {
@@ -130,7 +134,7 @@ class ModelMarketFragment : Fragment(), ModelMarketItemListener, Searchable {
         val filterDownloadState = container.findViewById<TextView>(R.id.filter_download_state)
         val filterModality = container.findViewById<TextView>(R.id.filter_modality)
         val filterVendor = container.findViewById<TextView>(R.id.filter_vendor)
-        val filterSource = container.findViewById<TextView>(R.id.filter_source)
+        sourceSwitcher = container.findViewById<ModelSwitcherView>(R.id.source_switcher)
         val filterButtonLayout = container.findViewById<ViewGroup>(R.id.filter_button_layout)
         
         // Setup download state filter
@@ -184,47 +188,6 @@ class ModelMarketFragment : Fragment(), ModelMarketItemListener, Searchable {
             )
         }
         
-        // Setup source filter - initialize with current download provider
-        val currentProvider = MainSettings.getDownloadProviderString(requireContext())
-        Log.d(TAG, "selectedSource  currentProvider: ${currentProvider}")
-        filterSource.text = currentProvider
-        filterSource.isSelected = true
-        previousSourceSelection = currentProvider
-        
-        filterSource.setOnClickListener {
-            val currentProviderInner = MainSettings.getDownloadProviderString(requireContext())
-            val sourceList = mutableListOf<String>().apply {
-                add(getString(R.string.select_download_provider))
-                addAll(availableSources)
-            }
-            val currentIndex = availableSources.indexOf(currentProviderInner) + 1
-            DropDownMenuHelper.showDropDownMenu(
-                context = requireContext(),
-                anchorView = filterSource,
-                items = sourceList,
-                currentIndex = if (currentIndex > 0) currentIndex else 1,
-                onItemSelected = { index, item ->
-                    sourceFilterIndex = index
-                    val selectedSource = item.toString()
-                    
-                    val finalSource = if (index == 0 && previousSourceSelection != null) {
-                        previousSourceSelection!!
-                    } else {
-                        selectedSource
-                    }
-                    
-                    if (index != 0) {
-                        previousSourceSelection = selectedSource
-                    }
-                    
-                    filterSource.text = finalSource
-                    filterSource.isSelected = true
-                    Log.d(TAG, "selectedSource : ${finalSource}")
-                    updateFilterSource(finalSource)
-                }
-            )
-        }
-        
         // Setup filter dialog button
         filterButtonLayout.setOnClickListener {
             showFilterDialog()
@@ -243,7 +206,8 @@ class ModelMarketFragment : Fragment(), ModelMarketItemListener, Searchable {
             size = currentFilterState.size,
             modality = currentFilterState.modality,
             downloadState = currentFilterState.downloadState,
-            source = currentFilterState.source
+            source = currentFilterState.source,
+            searchQuery = currentFilterState.searchQuery
         )
         viewModel.applyFilters(currentFilterState)
         updateFilterButtonStates()
@@ -257,7 +221,8 @@ class ModelMarketFragment : Fragment(), ModelMarketItemListener, Searchable {
             size = currentFilterState.size,
             modality = modality,
             downloadState = currentFilterState.downloadState,
-            source = currentFilterState.source
+            source = currentFilterState.source,
+            searchQuery = currentFilterState.searchQuery
         )
         viewModel.applyFilters(currentFilterState)
         updateFilterButtonStates()
@@ -271,7 +236,8 @@ class ModelMarketFragment : Fragment(), ModelMarketItemListener, Searchable {
             size = currentFilterState.size,
             modality = currentFilterState.modality,
             downloadState = downloadState,
-            source = currentFilterState.source
+            source = currentFilterState.source,
+            searchQuery = currentFilterState.searchQuery
         )
         viewModel.applyFilters(currentFilterState)
         updateFilterButtonStates()
@@ -284,12 +250,82 @@ class ModelMarketFragment : Fragment(), ModelMarketItemListener, Searchable {
         viewModel.loadModels()
     }
 
-
     private fun setupRecyclerView() {
         recyclerView = binding.modelMarketRecyclerView
         adapter = ModelMarketAdapter(this)
         recyclerView.layoutManager = LinearLayoutManager(context)
         recyclerView.adapter = adapter
+    }
+
+    private fun setupEmptyView() {
+        emptyView = binding.modelMarketEmptyView
+        val clearFiltersButton = emptyView.findViewById<View>(R.id.btn_clear_filters)
+        clearFiltersButton.setOnClickListener {
+            clearAllFilters()
+        }
+    }
+
+    private fun updateEmptyViewVisibility(models: List<ModelMarketItemWrapper>) {
+        val hasFilters = hasActiveFilters()
+        
+        if (models.isEmpty() && hasFilters) {
+            emptyView.visibility = View.VISIBLE
+            recyclerView.visibility = View.GONE
+        } else {
+            emptyView.visibility = View.GONE
+            recyclerView.visibility = View.VISIBLE
+        }
+    }
+
+    private fun hasActiveFilters(): Boolean {
+        return currentFilterState.tagKeys.isNotEmpty() ||
+               currentFilterState.vendors.isNotEmpty() ||
+               currentFilterState.size != null ||
+               currentFilterState.modality != null ||
+               currentFilterState.downloadState != null ||
+               currentFilterState.searchQuery.isNotEmpty()
+    }
+
+    private fun clearAllFilters() {
+        // Clear all filter states (including search query)
+        currentFilterState = FilterState()
+        
+        // Clear search query variable
+        currentSearchQuery = ""
+        
+        // Reset filter UI elements
+        resetFilterUIElements()
+        
+        // Apply empty filters to refresh the model list
+        viewModel.applyFilters(currentFilterState)
+        
+        // Clear search view in MainActivity
+        (requireActivity() as? MainActivity)?.clearSearch()
+        
+        // Update UI
+        updateFilterButtonStates()
+        updateQuickFilterButtonStates()
+    }
+
+    private fun resetFilterUIElements() {
+        filterContainerView?.let { container ->
+            // Reset dropdown filter indices
+            modalityFilterIndex = 0
+            vendorFilterIndex = 0
+            
+            // Reset UI text and selection states
+            val filterModality = container.findViewById<TextView>(R.id.filter_modality)
+            val filterVendor = container.findViewById<TextView>(R.id.filter_vendor)
+            val filterDownloadState = container.findViewById<TextView>(R.id.filter_download_state)
+            
+            filterModality.text = getString(R.string.modality_menu_title)
+            filterModality.isSelected = false
+            
+            filterVendor.text = getString(R.string.vendor_menu_title)
+            filterVendor.isSelected = false
+            
+            filterDownloadState.isSelected = false
+        }
     }
 
     private fun removeCustomToolbar() {
@@ -364,7 +400,8 @@ class ModelMarketFragment : Fragment(), ModelMarketItemListener, Searchable {
                 size = filterState.size,
                 modality = currentFilterState.modality,
                 downloadState = currentFilterState.downloadState,
-                source = currentFilterState.source
+                source = currentFilterState.source,
+                searchQuery = currentFilterState.searchQuery
             )
             viewModel.applyFilters(currentFilterState)
             updateFilterButtonStates()
@@ -420,7 +457,8 @@ class ModelMarketFragment : Fragment(), ModelMarketItemListener, Searchable {
             size = currentFilterState.size,
             modality = currentFilterState.modality,
             downloadState = currentFilterState.downloadState,
-            source = currentFilterState.source
+            source = currentFilterState.source,
+            searchQuery = currentFilterState.searchQuery
         )
         
         // Apply filter and update UI in real-time
@@ -449,7 +487,6 @@ class ModelMarketFragment : Fragment(), ModelMarketItemListener, Searchable {
             val filterDownloadState = container.findViewById<TextView>(R.id.filter_download_state)
             val filterModality = container.findViewById<TextView>(R.id.filter_modality)
             val filterVendor = container.findViewById<TextView>(R.id.filter_vendor)
-            val filterSource = container.findViewById<TextView>(R.id.filter_source)
             val filterButtonLayout = container.findViewById<ViewGroup>(R.id.filter_button_layout)
             
             // Update download state selection
@@ -467,8 +504,15 @@ class ModelMarketFragment : Fragment(), ModelMarketItemListener, Searchable {
                 else -> "${currentFilterState.vendors.size} vendors"
             }
             
+            // Update source switcher text
+            if (::sourceSwitcher.isInitialized) {
+                sourceSwitcher.text = MainSettings.getDownloadProviderString(requireContext())
+            }
+            
             // Update filter button selection based on whether any advanced filters are active
-            val hasAdvancedFilters = currentFilterState.tagKeys.isNotEmpty() || currentFilterState.size != null
+            val hasAdvancedFilters = currentFilterState.tagKeys.isNotEmpty()
+                    || currentFilterState.size != null
+                    || currentFilterState.vendors.isNotEmpty()
             filterButtonLayout.isSelected = hasAdvancedFilters
         }
     }
@@ -578,6 +622,13 @@ class ModelMarketFragment : Fragment(), ModelMarketItemListener, Searchable {
         filterContainerView?.let { container ->
             setupQuickFilterTags(container)
         }
+    }
+
+    /**
+     * 当源发生改变时调用，用于更新数据
+     */
+    fun onSourceChanged() {
+        viewModel.loadModels()
     }
 
     companion object {

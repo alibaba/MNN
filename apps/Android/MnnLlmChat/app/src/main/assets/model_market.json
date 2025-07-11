@@ -14,7 +14,9 @@
     "Think",
     "Vision",
     "ImageGen",
-    "Audio"
+    "Audio",
+    "AudioGen",
+    "Code"
   ],
   "vendorOrder": [
     "Qwen",
@@ -35,20 +37,6 @@
   ],
   "models": [
     {
-      "modelName": "gemma-3-1b-it-qat-q4_0-gguf-MNN",
-      "tags": [],
-      "categories": [
-        "recommended",
-        "qwen"
-      ],
-      "sources": {
-        "HuggingFace": "taobao-mnn/gemma-3-1b-it-qat-q4_0-gguf-MNN",
-        "ModelScope": "MNN/gemma-3-1b-it-qat-q4_0-gguf-MNN"
-      },
-      "size_gb": 4.0,
-      "vendor": "Qwen"
-    },
-    {
       "modelName": "Qwen3-4B-MNN",
       "tags": [
         "Think"
@@ -59,7 +47,8 @@
       ],
       "sources": {
         "HuggingFace": "taobao-mnn/Qwen3-4B-MNN",
-        "ModelScope": "MNN/Qwen3-4B-MNN"
+        "ModelScope": "MNN/Qwen3-4B-MNN",
+        "Modelers": "MNN/Qwen3-4B-MNN"
       },
       "size_gb": 4.0,
       "vendor": "Qwen"

@@ -32,6 +32,13 @@ class ModelRepository(private val context: Context) {
     }
 
     suspend fun getModelMarketData(): ModelMarketData? = withContext(Dispatchers.IO) {
+        // Debug: If debug_market_use_local file exists, only use assets
+        if (DebugConfig.isDebugMarketUseLocal()) {
+            Log.d(TAG, "DebugConfig: Using model_market.json from assets")
+            val assetsData = loadFromAssets()
+            cachedModelMarketData = assetsData
+            return@withContext assetsData
+        }
         // If we already have cached data and network request was attempted, return cached data
         if (cachedModelMarketData != null && isNetworkRequestAttempted) {
             Log.d(TAG, "Returning cached model market data")
@@ -80,6 +87,11 @@ class ModelRepository(private val context: Context) {
     }
 
     private suspend fun fetchFromNetwork(): ModelMarketData? = withContext(Dispatchers.IO) {
+        // Debug: If debug_market_use_local file exists, skip network and use assets
+        if (DebugConfig.isDebugMarketUseLocal()) {
+            Log.d(TAG, "DebugConfig: Skip network, use assets")
+            return@withContext null
+        }
         try {
             val request = Request.Builder()
                 .url(NETWORK_URL)
@@ -104,6 +116,11 @@ class ModelRepository(private val context: Context) {
     }
 
     private suspend fun loadFromCache(): ModelMarketData? = withContext(Dispatchers.IO) {
+        // Debug: If debug_market_use_local file exists, skip cache and use assets
+        if (DebugConfig.isDebugMarketUseLocal()) {
+            Log.d(TAG, "DebugConfig: Skip cache, use assets")
+            return@withContext null
+        }
         try {
             val cacheFile = File(context.filesDir, CACHE_FILE_NAME)
             if (!cacheFile.exists()) {
@@ -249,5 +266,19 @@ class ModelRepository(private val context: Context) {
             SourceSelectionDialogFragment.KEY_SOURCE, 
             SourceSelectionDialogFragment.SOURCE_MODELSCOPE
         )!!
+    }
+} 
+
+/**
+ * Debug config: Used to determine if only assets/model_market.json should be used
+ */
+object DebugConfig {
+    private const val DEBUG_MARKET_USE_LOCAL_PATH = "/data/local/tmp/mnnchat/debug_market_use_local"
+    fun isDebugMarketUseLocal(): Boolean {
+        return try {
+            File(DEBUG_MARKET_USE_LOCAL_PATH).exists()
+        } catch (e: Exception) {
+            false
+        }
     }
 } 

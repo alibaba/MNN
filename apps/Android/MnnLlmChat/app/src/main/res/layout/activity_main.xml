@@ -23,9 +23,14 @@
                 android:layout_width="match_parent"
                 android:layout_height="48dp"
                 android:elevation="0dp"
-                app:titleCentered="true"
-                app:titleTextAppearance="?textAppearanceTitleMedium"
                 app:layout_scrollFlags="enterAlways" >
+                
+                <com.alibaba.mnnllm.android.widgets.ModelSwitcherView
+                    android:id="@+id/main_title_switcher"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center"/>
+                    
             </com.google.android.material.appbar.MaterialToolbar>
             <FrameLayout
                 android:id="@+id/app_bar_content"

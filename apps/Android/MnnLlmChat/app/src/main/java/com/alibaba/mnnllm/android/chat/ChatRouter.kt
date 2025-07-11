@@ -38,11 +38,11 @@ object ChatRouter {
         } else {
             configFilePath = ModelUtils.getConfigPathForModel(modelId)
         }
-        val configFileExists = File(configFilePath!!).exists()
+        val configFileExists = configFilePath?.let { File(it).exists() } ?: false
         if (!configFileExists) {
             Toast.makeText(
                 context,
-                context.getString(R.string.config_file_not_found, configFilePath),
+                context.getString(R.string.config_file_not_found, configFilePath?: modelId),
                 Toast.LENGTH_LONG
             ).show()
             return

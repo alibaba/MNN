@@ -4,21 +4,20 @@
 package com.alibaba.mls.api
 
 import android.content.Context
-import android.content.SharedPreferences
 import android.util.Log
 import com.alibaba.mnnllm.android.modelmarket.ModelRepository
+import com.alibaba.mnnllm.android.modelsettings.ModelConfig
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import java.io.File
 
 object ModelTagsCache {
     private const val TAG = "ModelTagsCache"
-    private const val PREFS_NAME = "model_tags_cache"
-    private const val KEY_TAGS_CACHE = "tags_cache"
-    private const val KEY_CACHE_VERSION = "cache_version"
+    private const val CACHE_FILE_NAME = "model_tags_cache.json"
     private const val CURRENT_CACHE_VERSION = 1
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -26,7 +25,15 @@ object ModelTagsCache {
     
     // In-memory cache for quick access
     private var memoryCache: Map<String, List<String>> = emptyMap()
+    private var tagTranslationsCache: Map<String, String> = emptyMap()
     private var cacheInitialized = false
+    
+    // Cache data structure
+    private data class CacheData(
+        val version: Int,
+        val tags: Map<String, List<String>>,
+        val tagTranslations: Map<String, String> = emptyMap()
+    )
 
     /**
      * Initialize the cache by loading model market data
@@ -36,16 +43,17 @@ object ModelTagsCache {
         
         scope.launch {
             try {
-                val prefs = getPrefs(context)
-                val cacheVersion = prefs.getInt(KEY_CACHE_VERSION, 0)
+                val cacheFile = getCacheFile(context)
+                val cacheData = loadCacheFromFile(cacheFile)
                 
                 // Check if we need to refresh cache
-                if (cacheVersion != CURRENT_CACHE_VERSION) {
-                    Log.d(TAG, "Cache version mismatch, refreshing cache")
+                if (cacheData == null || cacheData.version != CURRENT_CACHE_VERSION) {
+                    Log.d(TAG, "Cache version mismatch or not found, refreshing cache")
                     refreshCacheFromAssets(context)
                 } else {
-                    // Load from SharedPreferences
-                    loadCacheFromPrefs(context)
+                    // Load from file
+                    memoryCache = cacheData.tags
+                    tagTranslationsCache = cacheData.tagTranslations
                     
                     // If memory cache is empty, refresh from assets
                     if (memoryCache.isEmpty()) {
@@ -86,65 +94,105 @@ object ModelTagsCache {
     }
 
     /**
+     * Get Chinese translation for a tag
+     */
+    fun getTagTranslation(context: Context, tag: String): String {
+        if (!cacheInitialized) {
+            initializeCache(context)
+        }
+        
+        // Return Chinese translation if available, otherwise return original tag
+        return tagTranslationsCache[tag] ?: tag
+    }
+
+    /**
+     * Get Chinese translations for multiple tags
+     */
+    fun getTagTranslations(context: Context, tags: List<String>): List<String> {
+        if (!cacheInitialized) {
+            initializeCache(context)
+        }
+        
+        return tags.map { tag ->
+            tagTranslationsCache[tag] ?: tag
+        }
+    }
+
+    /**
      * Refresh cache from assets
      */
     private suspend fun refreshCacheFromAssets(context: Context) {
         try {
             val repository = ModelRepository(context)
             val models = repository.getModels()
+            val modelMarketData = repository.getModelMarketData()
             
             val newCache = mutableMapOf<String, List<String>>()
             models.forEach { model ->
                 newCache[model.modelName] = model.tags
             }
             
+            // Get tag translations from model market data
+            val tagTranslations = modelMarketData?.tagTranslations ?: emptyMap()
+            
             // Update memory cache
             memoryCache = newCache
+            tagTranslationsCache = tagTranslations
             
-            // Save to SharedPreferences
-            saveCacheToPrefs(context, newCache)
+            // Save to file
+            saveCacheToFile(context, newCache, tagTranslations)
             
-            Log.d(TAG, "Cache refreshed with ${newCache.size} entries")
+            Log.d(TAG, "Cache refreshed with ${newCache.size} entries and ${tagTranslations.size} translations")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to refresh cache from assets", e)
         }
     }
 
     /**
-     * Load cache from SharedPreferences
+     * Get cache file path using ModelConfig directory
      */
-    private fun loadCacheFromPrefs(context: Context) {
-        try {
-            val prefs = getPrefs(context)
-            val cacheJson = prefs.getString(KEY_TAGS_CACHE, null)
-            
-            if (cacheJson != null) {
-                val type = object : TypeToken<Map<String, List<String>>>() {}.type
-                memoryCache = gson.fromJson(cacheJson, type) ?: emptyMap()
-                Log.d(TAG, "Loaded cache from prefs with ${memoryCache.size} entries")
+    private fun getCacheFile(context: Context): File {
+        val configDir = ModelConfig.getModelConfigDir("global")
+        val dir = File(configDir)
+        if (!dir.exists()) {
+            dir.mkdirs()
+        }
+        return File(dir, CACHE_FILE_NAME)
+    }
+
+    /**
+     * Load cache from file
+     */
+    private fun loadCacheFromFile(cacheFile: File): CacheData? {
+        return try {
+            if (!cacheFile.exists()) {
+                Log.d(TAG, "Cache file does not exist")
+                return null
             }
+            
+            val cacheJson = cacheFile.readText()
+            val cacheData = gson.fromJson(cacheJson, CacheData::class.java)
+            Log.d(TAG, "Loaded cache from file with ${cacheData.tags.size} entries")
+            cacheData
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to load cache from prefs", e)
-            memoryCache = emptyMap()
+            Log.e(TAG, "Failed to load cache from file", e)
+            null
         }
     }
 
     /**
-     * Save cache to SharedPreferences
+     * Save cache to file
      */
-    private fun saveCacheToPrefs(context: Context, cache: Map<String, List<String>>) {
+    private fun saveCacheToFile(context: Context, cache: Map<String, List<String>>, tagTranslations: Map<String, String>) {
         try {
-            val prefs = getPrefs(context)
-            val cacheJson = gson.toJson(cache)
+            val cacheFile = getCacheFile(context)
+            val cacheData = CacheData(CURRENT_CACHE_VERSION, cache, tagTranslations)
+            val cacheJson = gson.toJson(cacheData)
             
-            prefs.edit()
-                .putString(KEY_TAGS_CACHE, cacheJson)
-                .putInt(KEY_CACHE_VERSION, CURRENT_CACHE_VERSION)
-                .apply()
-                
-            Log.d(TAG, "Saved cache to prefs with ${cache.size} entries")
+            cacheFile.writeText(cacheJson)
+            Log.d(TAG, "Saved cache to file with ${cache.size} entries and ${tagTranslations.size} translations")
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to save cache to prefs", e)
+            Log.e(TAG, "Failed to save cache to file", e)
         }
     }
 
@@ -160,18 +208,19 @@ object ModelTagsCache {
     }
 
     /**
-     * Get SharedPreferences instance
-     */
-    private fun getPrefs(context: Context): SharedPreferences {
-        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-    }
-
-    /**
      * Clear cache (for debugging or cache invalidation)
      */
     fun clearCache(context: Context) {
         memoryCache = emptyMap()
-        getPrefs(context).edit().clear().apply()
+        tagTranslationsCache = emptyMap()
+        try {
+            val cacheFile = getCacheFile(context)
+            if (cacheFile.exists()) {
+                cacheFile.delete()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to delete cache file", e)
+        }
         cacheInitialized = false
         Log.d(TAG, "Cache cleared")
     }

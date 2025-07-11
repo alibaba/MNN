@@ -113,6 +113,18 @@ class ModelMarketViewModel(application: Application) : AndroidViewModel(applicat
             }
         }
 
+        // Apply search query filter
+        if (currentFilterState.searchQuery.isNotEmpty()) {
+            val searchLower = currentFilterState.searchQuery.lowercase(Locale.getDefault())
+            filteredList = filteredList.filter { wrapper ->
+                val modelMarketItem = wrapper.modelMarketItem
+                // Search in model name, description, tags, etc.
+                modelMarketItem.modelName.lowercase(Locale.getDefault()).contains(searchLower) ||
+                modelMarketItem.description?.lowercase(Locale.getDefault())?.contains(searchLower) == true ||
+                modelMarketItem.tags.any { it.lowercase(Locale.getDefault()).contains(searchLower) }
+            }
+        }
+
         _models.postValue(filteredList)
     }
 

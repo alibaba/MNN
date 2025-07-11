@@ -5,7 +5,6 @@
     <string name="navigation_drawer_close">Close navigation drawer</string>
     <string name="action_settings">Settings</string>
     <string name="main_describe">mnn-llm</string>
-    <string name="spinner_prompt">选择模型</string>
     <string name="model_loading">模型加载中...</string>
     <string name="download_not_started">%1$s</string>
     <string name="downloaded_click_to_chat">%1$S</string>
@@ -246,6 +245,9 @@
     <string name="download_state_failed">下载失败</string>
     <string name="download_state_paused">下载暂停</string>
     <string name="no_models_found">没有找到模型，请在模型市场下载</string>
+    <string name="no_filtered_models_title">没有符合筛选条件的模型</string>
+    <string name="no_filtered_models_message">请尝试调整筛选条件以查看更多模型，或者清除所有筛选条件以查看所有可用模型。</string>
+    <string name="clear_filters">清除筛选</string>
     <string name="diffusion_model_not_alloed">Diffusion模型暂时不支持在此设置</string>
     <string name="settings_section_general">常用设置</string>
     <string name="settings_section_advanced">高级设置</string>
@@ -451,4 +453,5 @@
     <string name="max_memory">最大内存</string>
     <string name="please_download_model">请先下载模型</string>
     <string name="go_to_download">去下载</string>
+    <string name="all_filter">全部筛选</string>
 </resources>

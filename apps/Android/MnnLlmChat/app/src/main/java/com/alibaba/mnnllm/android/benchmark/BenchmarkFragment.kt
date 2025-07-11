@@ -27,6 +27,7 @@ import com.alibaba.mls.api.download.ModelDownloadManager
 import com.alibaba.mnnllm.android.model.ModelUtils
 import com.alibaba.mnnllm.android.utils.FileUtils
 import java.io.File
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 
 class BenchmarkFragment : Fragment(), BenchmarkContract.View {
 
@@ -124,7 +125,7 @@ class BenchmarkFragment : Fragment(), BenchmarkContract.View {
     }
 
     override fun showStopConfirmationDialog() {
-        AlertDialog.Builder(requireContext())
+        MaterialAlertDialogBuilder(requireContext())
             .setTitle(getString(R.string.benchmark_stop_confirmation_title))
             .setMessage(getString(R.string.benchmark_stop_confirmation_message))
             .setPositiveButton(getString(R.string.yes)) { _, _ ->

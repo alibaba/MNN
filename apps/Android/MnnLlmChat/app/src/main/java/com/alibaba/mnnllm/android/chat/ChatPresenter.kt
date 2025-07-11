@@ -322,10 +322,6 @@ class ChatPresenter(
     fun destroy() {
         stopGenerate()
         presenterScope.cancel("ChatPresenter destroy")
-        presenterScope.launch {
-            chatSession.reset()
-            chatSession.release()
-        }
         CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
             try {
                 if (::chatSession.isInitialized) {

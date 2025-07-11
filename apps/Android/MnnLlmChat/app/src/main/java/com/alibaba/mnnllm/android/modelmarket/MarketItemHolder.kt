@@ -19,6 +19,7 @@ import com.alibaba.mls.api.download.DownloadState
 import com.alibaba.mls.api.download.ModelDownloadManager
 import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.model.ModelUtils
+import com.alibaba.mnnllm.android.utils.DialogUtils
 import com.alibaba.mnnllm.android.utils.FileUtils
 import com.alibaba.mnnllm.android.modelsettings.SettingsBottomSheetFragment
 import com.alibaba.mnnllm.android.widgets.ModelAvatarView
@@ -182,13 +183,11 @@ class MarketItemHolder(
     }
     
     private fun setButtonStyle() {
-        // 所有状态都使用相同的边框样式和主题色
         val context = itemView.context
         val typedValue = android.util.TypedValue()
         context.theme.resolveAttribute(com.google.android.material.R.attr.colorPrimary, typedValue, true)
         val primaryColor = typedValue.data
         
-        // 清除图标（确保非TTS完成状态不显示图标）
         btnDownloadAction.icon = null
         btnDownloadAction.setTextColor(primaryColor)
         btnDownloadAction.strokeColor = android.content.res.ColorStateList.valueOf(primaryColor)
@@ -211,7 +210,7 @@ class MarketItemHolder(
             DownloadState.COMPLETED -> {
                 tvStatus.resources.getString(
                     R.string.downloaded_click_to_chat,
-                    FileUtils.getFileSizeString(modelDownloadManager.getDownloadedFile(modelMarketItem.modelId))
+                    FileUtils.formatFileSize(downloadInfo.totalSize)
                 )
             }
             
@@ -254,14 +253,12 @@ class MarketItemHolder(
         if (modelMarketItemWrapper.downloadInfo.downloadState == DownloadState.COMPLETED) {
             val voiceType = voiceDelegate.getVoiceModelType(modelMarketItem)
             if (voiceType != MarketHolderVoiceDelegate.VoiceModelType.NONE && checkboxVoiceModel.visibility == View.VISIBLE) {
-                // 切换CheckBox状态，让OnCheckedChangeListener处理逻辑
                 val newCheckedState = !checkboxVoiceModel.isChecked
                 checkboxVoiceModel.isChecked = newCheckedState
                 return
             }
         }
         
-        // 对于非语音模型或未下载完成的模型，执行默认逻辑
         modelMarketItemListener.onActionClicked(modelMarketItemWrapper)
     }
 
@@ -297,7 +294,9 @@ class MarketItemHolder(
         popupMenu.setOnMenuItemClickListener { item: MenuItem ->
             when (item.itemId) {
                 R.id.menu_delete_model -> {
-                    modelMarketItemListener.onDeleteClicked(modelMarketItemWrapper)
+                    DialogUtils.showDeleteConfirmationDialog(itemView.context) {
+                        modelMarketItemListener.onDeleteClicked(modelMarketItemWrapper)
+                    }
                 }
                 R.id.menu_pause_download -> {
                     Log.d(TAG, "pauseDownload ${modelMarketItem.modelId}")
@@ -342,7 +341,7 @@ class MarketItemHolder(
 
     private fun handleSettingsMenu(modelMarketItem: ModelMarketItem) {
         val context = itemView.context
-        if (ModelUtils.isDiffusionModel(modelMarketItem.modelName)) {
+        if (ModelUtils.isDiffusionModel(modelMarketItem.modelName ?: "")) {
             Toast.makeText(context, R.string.diffusion_model_not_alloed, Toast.LENGTH_SHORT).show()
             return
         }
@@ -350,7 +349,7 @@ class MarketItemHolder(
         val fragmentManager = (context as? AppCompatActivity)?.supportFragmentManager
         if (fragmentManager != null) {
             val settingsSheet = SettingsBottomSheetFragment()
-            settingsSheet.setModelId(modelMarketItem.modelId)
+            settingsSheet.setModelId(modelMarketItem.modelId ?: "")
             settingsSheet.setConfigPath(null) // ModelMarketItem doesn't have localPath
             settingsSheet.show(fragmentManager, SettingsBottomSheetFragment.TAG)
         }
@@ -358,7 +357,7 @@ class MarketItemHolder(
 
     private fun openModelCard(context: android.content.Context, modelMarketItem: ModelMarketItem) {
         // Create a ModelItem for compatibility with ModelUtils.openModelCard
-        val modelItem = ModelItem.fromDownloadModel(modelMarketItem.modelId, "")
+        val modelItem = ModelItem.fromDownloadModel(modelMarketItem.modelId ?: "", "")
         ModelUtils.openModelCard(context, modelItem)
     }
 

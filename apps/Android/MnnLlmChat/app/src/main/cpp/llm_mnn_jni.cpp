@@ -358,7 +358,7 @@ JNIEXPORT void JNICALL Java_com_alibaba_mnnllm_android_llm_LlmSession_releaseNat
     MNN_DEBUG("LIFECYCLE: About to DESTROY LlmSession at %p", reinterpret_cast<void*>(objecPtr));
     auto *llm = reinterpret_cast<mls::LlmSession *>(objecPtr);
     delete llm;
-    MNN_DEBUG("LIFECYCLE: LlmSession DESTROYED at %p", reinterpret_cast<void*>(objecPtr));
+    MNN_DEBUG("LIFECYCLE: LlmSessionInner DESTROYED at %p", reinterpret_cast<void*>(objecPtr));
 }
 
 extern "C"

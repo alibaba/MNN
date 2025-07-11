@@ -15,11 +15,11 @@ import com.alibaba.mls.api.download.ModelDownloadManager
 import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.model.ModelUtils
 import com.alibaba.mnnllm.android.modelsettings.SettingsBottomSheetFragment
+import com.alibaba.mnnllm.android.utils.DialogUtils
 import com.alibaba.mnnllm.android.utils.ModelListManager
 import com.alibaba.mnnllm.android.utils.FileUtils
 import com.alibaba.mnnllm.android.widgets.ModelAvatarView
 import com.alibaba.mnnllm.android.widgets.TagsLayout
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -203,23 +203,18 @@ class ModelItemHolder(
         popupMenu.setOnMenuItemClickListener { item: MenuItem ->
             val modelId = modelItem.modelId
             if (item.itemId == R.id.menu_delete_model) {
-                MaterialAlertDialogBuilder(v.context)
-                    .setTitle(R.string.confirm_delete_model_title)
-                    .setMessage(R.string.confirm_delete_model_message)
-                    .setPositiveButton(android.R.string.ok) { _, _ ->
-                        MainScope().launch {
-                            try {
-                                ModelDownloadManager.getInstance(v.context).deleteModel(modelId!!)
-                                // Notify the listener that the model was deleted successfully
-                                modelItemListener.onItemDeleted(modelItem)
-                            } catch (e: Exception) {
-                                Log.e(TAG, "Failed to delete model: $modelId", e)
-                                // You could show an error toast here if needed
-                            }
+                DialogUtils.showDeleteConfirmationDialog(v.context) {
+                    MainScope().launch {
+                        try {
+                            ModelDownloadManager.getInstance(v.context).deleteModel(modelId!!)
+                            // Notify the listener that the model was deleted successfully
+                            modelItemListener.onItemDeleted(modelItem)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Failed to delete model: $modelId", e)
+                            // You could show an error toast here if needed
                         }
                     }
-                    .setNegativeButton(android.R.string.cancel, null)
-                    .show()
+                }
             } else if (item.itemId == R.id.menu_settings) {
                 val context = v.context
                 val modelId = modelItem.modelId

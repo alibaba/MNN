@@ -53,9 +53,6 @@ class ModelListFragment : Fragment(), ModelListContract.View, Searchable {
     // Filter indices for dropdown selections
     private var modalityFilterIndex = 0
     private var vendorFilterIndex = 0
-    private var sourceFilterIndex = 0
-    private var previousSourceSelection: String? = null
-    private var availableSources: List<String> = listOf("HuggingFace", "ModelScope", "Modelers")
 
     // Implement Searchable interface
     override fun onSearchQuery(query: String) {
@@ -170,7 +167,6 @@ class ModelListFragment : Fragment(), ModelListContract.View, Searchable {
             val filterDownloadState = container.findViewById<TextView>(R.id.filter_download_state)
             val filterModality = container.findViewById<TextView>(R.id.filter_modality)
             val filterVendor = container.findViewById<TextView>(R.id.filter_vendor)
-            val filterSource = container.findViewById<TextView>(R.id.filter_source)
             
             // Setup download state filter - initialize with current state
             filterDownloadState.isSelected = filterDownloaded
@@ -224,46 +220,7 @@ class ModelListFragment : Fragment(), ModelListContract.View, Searchable {
                 )
             }
             
-            // Setup source filter - initialize with current download provider
-            val currentProvider = MainSettings.getDownloadProviderString(requireContext())
-            Log.d(TAG, "selectedSource currentProvider: ${currentProvider}")
-            filterSource.text = currentProvider
-            filterSource.isSelected = true
-            previousSourceSelection = currentProvider
-            
-            filterSource.setOnClickListener {
-                val currentProviderInner = MainSettings.getDownloadProviderString(requireContext())
-                val sourceList = mutableListOf<String>().apply {
-                    add(getString(R.string.select_download_provider))
-                    addAll(availableSources)
-                }
-                val currentIndex = availableSources.indexOf(currentProviderInner) + 1
-                DropDownMenuHelper.showDropDownMenu(
-                    context = requireContext(),
-                    anchorView = filterSource,
-                    items = sourceList,
-                    currentIndex = if (currentIndex > 0) currentIndex else 1,
-                    onItemSelected = { index, item ->
-                        sourceFilterIndex = index
-                        val selectedSource = item.toString()
-                        
-                        val finalSource = if (index == 0 && previousSourceSelection != null) {
-                            previousSourceSelection!!
-                        } else {
-                            selectedSource
-                        }
-                        
-                        if (index != 0) {
-                            previousSourceSelection = selectedSource
-                        }
-                        
-                        filterSource.text = finalSource
-                        filterSource.isSelected = true
-                        Log.d(TAG, "selectedSource: ${finalSource}")
-                        updateFilterSource(finalSource)
-                    }
-                )
-            }
+            // Source filter removed - not needed for local model list
         }
     }
     
@@ -279,12 +236,7 @@ class ModelListFragment : Fragment(), ModelListContract.View, Searchable {
         adapter?.filterVendor(vendor ?: "")
     }
     
-    private fun updateFilterSource(source: String?) {
-        MainSettings.setDownloadProvider(requireContext(), source!!)
-        Log.d(TAG, "selectedSource: $source got from preference ${MainSettings.getDownloadProviderString(requireContext())}")
-        // Source filter doesn't affect local model list, only used for download preferences
-        // No need to refresh adapter here as it doesn't filter by source
-    }
+    // updateFilterSource method removed - not needed for local model list
 
     private fun removeCustomToolbar() {
         if (toolbarFiltersContent != null) {

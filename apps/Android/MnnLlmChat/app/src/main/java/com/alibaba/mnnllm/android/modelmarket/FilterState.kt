@@ -6,5 +6,6 @@ data class FilterState(
     val size: String? = null,
     val modality: String? = null,
     val downloadState: String? = null,
-    val source: String? = null
+    val source: String? = null,
+    val searchQuery: String = ""
 )

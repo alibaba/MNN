@@ -26,6 +26,7 @@ import androidx.drawerlayout.widget.DrawerLayout
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.Lifecycle
 import com.alibaba.mls.api.download.ModelDownloadManager
+import com.alibaba.mls.api.source.ModelSources
 import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.benchmark.BenchmarkFragment
 import com.alibaba.mnnllm.android.chat.ChatRouter
@@ -39,10 +40,13 @@ import com.alibaba.mnnllm.android.utils.GithubUtils
 import com.alibaba.mnnllm.android.utils.RouterUtils.startActivity
 import com.alibaba.mnnllm.android.utils.Searchable
 import com.alibaba.mnnllm.android.widgets.BottomTabBar
+import com.alibaba.mnnllm.android.widgets.ModelSwitcherView
+import com.alibaba.mnnllm.android.mainsettings.MainSettings
 import com.google.android.material.appbar.AppBarLayout
 import com.google.android.material.appbar.MaterialToolbar
 import com.techiness.progressdialoglibrary.ProgressDialog
 import android.view.ViewGroup
+import com.alibaba.mnnllm.android.chat.SelectSourceFragment
 
 class MainActivity : AppCompatActivity() {
     private var progressDialog: ProgressDialog? = null
@@ -50,6 +54,7 @@ class MainActivity : AppCompatActivity() {
     private var toggle: ActionBarDrawerToggle? = null
     private lateinit var appBarLayout: AppBarLayout
     private lateinit var materialToolbar: MaterialToolbar
+    private lateinit var mainTitleSwitcher: ModelSwitcherView
     private var toolbarHeightPx: Int = 0
     private var offsetChangedListener: AppBarLayout.OnOffsetChangedListener? = null
     private var modelListFragment: ModelListFragment? = null
@@ -205,6 +210,10 @@ class MainActivity : AppCompatActivity() {
     private fun setupAppBar() {
         appBarLayout = findViewById(R.id.app_bar)
         materialToolbar = findViewById(R.id.toolbar)
+        mainTitleSwitcher = findViewById(R.id.main_title_switcher)
+
+        // Initially hide the dropdown arrow and make it non-clickable
+        updateMainTitleSwitcherMode(false)
 
         toolbarHeightPx = TypedValue.applyDimension(
             TypedValue.COMPLEX_UNIT_DIP,
@@ -239,6 +248,54 @@ class MainActivity : AppCompatActivity() {
             materialToolbar.alpha = alpha
         }
         //appBarLayout.addOnOffsetChangedListener(offsetChangedListener)
+    }
+
+    /**
+     * Update the mode of the main title switcher
+     * @param isSourceSwitcherMode Whether it is in source switcher mode (shows dropdown arrow and is clickable)
+     */
+    private fun updateMainTitleSwitcherMode(isSourceSwitcherMode: Boolean) {
+        val dropdownArrow = mainTitleSwitcher.findViewById<View>(R.id.iv_dropdown_arrow)
+        if (isSourceSwitcherMode) {
+            // Source switcher mode: show dropdown arrow, clickable
+            dropdownArrow?.visibility = View.VISIBLE
+            mainTitleSwitcher.isClickable = true
+            mainTitleSwitcher.isFocusable = true
+            mainTitleSwitcher.setOnClickListener {
+                // Show source selection dialog
+                showSourceSelectionDialog()
+            }
+        } else {
+            // Title display mode: hide dropdown arrow, not clickable
+            dropdownArrow?.visibility = View.GONE
+            mainTitleSwitcher.isClickable = false
+            mainTitleSwitcher.isFocusable = false
+            mainTitleSwitcher.setOnClickListener(null)
+        }
+    }
+
+    /**
+     * Show source selection dialog
+     */
+    private fun showSourceSelectionDialog() {
+        val availableSources = ModelSources.sourceList
+        val displayNames = ModelSources.sourceDisPlayList
+        val currentProvider = MainSettings.getDownloadProviderString(this)
+        
+        // Use SelectSourceFragment from ModelMarketFragment
+        val fragment = SelectSourceFragment.newInstance(availableSources, displayNames, currentProvider)
+        fragment.setOnSourceSelectedListener { selectedSource ->
+            MainSettings.setDownloadProvider(this, selectedSource)
+            // Set title to display name
+            val idx = ModelSources.sourceList.indexOf(selectedSource)
+            val displayName = if (idx != -1) getString(ModelSources.sourceDisPlayList[idx]) else selectedSource
+            mainTitleSwitcher.text = displayName
+            // Notify ModelMarketFragment to update
+            if (currentFragment is ModelMarketFragment) {
+                (currentFragment as ModelMarketFragment).onSourceChanged()
+            }
+        }
+        fragment.show(supportFragmentManager, "SourceSelectionDialog")
     }
     
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -354,12 +411,25 @@ class MainActivity : AppCompatActivity() {
                 currentFragment = targetFragment
                 invalidateOptionsMenu()
             }
-            val titleRes = when (tab) {
-                BottomTabBar.Tab.LOCAL_MODELS -> R.string.nav_name_chats
-                BottomTabBar.Tab.MODEL_MARKET -> R.string.models_market
-                BottomTabBar.Tab.BENCHMARK -> R.string.benchmark
+            // 根据tab类型设置标题和模式
+            when (tab) {
+                BottomTabBar.Tab.LOCAL_MODELS -> {
+                    updateMainTitleSwitcherMode(false)
+                    mainTitleSwitcher.text = getString(R.string.nav_name_chats)
+                }
+                BottomTabBar.Tab.MODEL_MARKET -> {
+                    updateMainTitleSwitcherMode(true)
+                    // Show the currently selected source's display name
+                    val currentProvider = MainSettings.getDownloadProviderString(this@MainActivity)
+                    val idx = ModelSources.sourceList.indexOf(currentProvider)
+                    val displayName = if (idx != -1) getString(ModelSources.sourceDisPlayList[idx]) else currentProvider
+                    mainTitleSwitcher.text = displayName
+                }
+                BottomTabBar.Tab.BENCHMARK -> {
+                    updateMainTitleSwitcherMode(false)
+                    mainTitleSwitcher.text = getString(R.string.benchmark)
+                }
             }
-            supportActionBar?.setTitle(titleRes)
             
             expandableFabLayout.visibility = if (tab == BottomTabBar.Tab.LOCAL_MODELS) {
                 View.VISIBLE
@@ -377,13 +447,24 @@ class MainActivity : AppCompatActivity() {
         Log.d(TAG, "onCreate: Setting initial tab to: $initialTab")
         bottomNav.select(initialTab)
         
-        // 设置对应的toolbar标题
-        val titleRes = when (initialTab) {
-            BottomTabBar.Tab.LOCAL_MODELS -> R.string.nav_name_chats
-            BottomTabBar.Tab.MODEL_MARKET -> R.string.models_market
-            BottomTabBar.Tab.BENCHMARK -> R.string.benchmark
+        // 设置对应的toolbar标题和模式
+        when (initialTab) {
+            BottomTabBar.Tab.LOCAL_MODELS -> {
+                updateMainTitleSwitcherMode(false)
+                mainTitleSwitcher.text = getString(R.string.nav_name_chats)
+            }
+            BottomTabBar.Tab.MODEL_MARKET -> {
+                updateMainTitleSwitcherMode(true)
+                val currentProvider = MainSettings.getDownloadProviderString(this)
+                val idx = ModelSources.sourceList.indexOf(currentProvider)
+                val displayName = if (idx != -1) getString(ModelSources.sourceDisPlayList[idx]) else currentProvider
+                mainTitleSwitcher.text = displayName
+            }
+            BottomTabBar.Tab.BENCHMARK -> {
+                updateMainTitleSwitcherMode(false)
+                mainTitleSwitcher.text = getString(R.string.benchmark)
+            }
         }
-        supportActionBar?.setTitle(titleRes)
         
         // 设置对应的fab可见性
         expandableFabLayout.visibility = if (initialTab == BottomTabBar.Tab.LOCAL_MODELS) {
@@ -420,6 +501,7 @@ class MainActivity : AppCompatActivity() {
         })
         setSupportActionBar(toolbar)
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
+        supportActionBar?.setDisplayShowTitleEnabled(false)  // Disable default title display
         
         val menuHost: MenuHost = this
         menuHost.addMenuProvider(menuProvider, this, Lifecycle.State.RESUMED)

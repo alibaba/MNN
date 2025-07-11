@@ -255,6 +255,7 @@ class ModelDownloadManager private constructor(context: Context) {
             if (getDownloadedFile(modelId) != null) {
                 downloadInfo.downloadState = DownloadState.COMPLETED
                 downloadInfo.progress = 1.0
+                downloadInfo.totalSize = getDownloadSizeTotal(ApplicationProvider.get(), modelId)
             } else if (getDownloadSizeTotal(ApplicationProvider.get(), modelId) > 0) {
                 val totalSize = getDownloadSizeTotal(ApplicationProvider.get(), modelId)
                 val savedSize = getRealDownloadSize(modelId)
@@ -403,6 +404,11 @@ class ModelDownloadManager private constructor(context: Context) {
             return
         }
         val downloadInfo = downloadInfoMap.getOrPut(modelId) { DownloadInfo() }
+        val currentTime = System.currentTimeMillis()
+        if (stage == downloadInfo.progressStage && currentTime - downloadInfo.lastProgressUpdateTime < 1000) {
+            return
+        }
+        downloadInfo.lastProgressUpdateTime = currentTime
         downloadInfo.downloadState = DownloadState.DOWNLOADING
         downloadInfo.progressStage = stage
         downloadInfo.currentFile = currentFile
@@ -424,7 +430,7 @@ class ModelDownloadManager private constructor(context: Context) {
 
     suspend fun deleteModel(modelId:String, modelSource:String, modelPath:String) {
         withContext(Dispatchers.IO) {
-            getDownloaderForSource(modelSource).deleteRepo(modelPath)
+            getDownloaderForSource(modelSource).deleteRepo(modelId)
             removeProgress(ApplicationProvider.get(), modelId)
             clearMmapCache(modelId)
             ModelConfig.getModelConfigDir(modelId).let {

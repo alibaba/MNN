@@ -6,7 +6,7 @@ import android.content.Context
 import com.alibaba.mnnllm.android.model.ModelUtils
 import com.alibaba.mnnllm.android.model.ModelUtils.getModelName
 import com.alibaba.mnnllm.android.modelmarket.SourceSelectionDialogFragment
-import com.alibaba.mnnllm.android.modelmarket.TagMapper
+import com.alibaba.mnnllm.android.utils.DeviceUtils
 
 class ModelItem {
     var modelId: String? = null
@@ -48,8 +48,13 @@ class ModelItem {
         if (isLocal) {
             tags.add(context.getString(com.alibaba.mnnllm.android.R.string.local))
         } else if (marketTags.isNotEmpty()) {
-            // If we have market tags, use them directly (they're already user-friendly)
-            tags.addAll(marketTags.take(2)) // Limit to 2 market tags to leave room for source tag
+            // Use ModelTagsCache to translate market tags to Chinese only in Chinese mode
+            val tagsToAdd = if (DeviceUtils.isChinese) {
+                ModelTagsCache.getTagTranslations(context, marketTags.take(2))
+            } else {
+                marketTags.take(2)
+            }
+            tags.addAll(tagsToAdd)
         }
 
         // Limit total tags to 3 for better UI layout

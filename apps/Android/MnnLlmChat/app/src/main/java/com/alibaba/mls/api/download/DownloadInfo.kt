@@ -3,23 +3,15 @@
 package com.alibaba.mls.api.download
 
 data class DownloadInfo(
-    @JvmField
-    var totalSize: Long = 0,
-    @JvmField
-    var savedSize: Long = 0,
-    @JvmField
-    var progress: Double = 0.0,
-    @JvmField
-    var lastLogTime: Long = 0,
-    @JvmField
     var downloadState: Int = DownloadState.NOT_START,
-    @JvmField
-    var currentFile: String? = null,
-    @JvmField
-    var progressStage: String? = null,
-    @JvmField
-    var speedInfo: String? = null,
-    @JvmField
-    var errorMessage: String? = null
+    var progress: Double = 0.0,
+    var savedSize: Long = 0,
+    var totalSize: Long = 0,
+    var speedInfo: String = "",
+    var errorMessage: String? = null,
+    var lastLogTime: Long = 0,
+    var lastProgressUpdateTime: Long = 0,
+    var progressStage: String = "",
+    var currentFile: String? = null
 )
 
