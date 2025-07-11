@@ -79,7 +79,7 @@ void CPUBackend::computeDivideSizes(int size, int* dst, float avgDiv) const {
 }
 
 void CPURuntime::_bindCPUCore() const {
-    if (mPower == BackendConfig::Power_Normal) {
+    if (mPower == BackendConfig::Power_Normal && mCpuIds.empty()) {
         return;
     }
     auto tid = MNNGetCurrentPid();
@@ -93,29 +93,36 @@ void CPURuntime::_bindCPUCore() const {
         return;
     }
     std::vector<std::pair<const int*, int>> lockCPUIndexes(mThreadNumber);
-    switch (mPower) {
-        case BackendConfig::Power_Low:
-            for (int v=0; v<mThreadNumber; ++v) {
-                lockCPUIndexes[v] = std::make_pair(cpuInfo->groups[0].ids.data(), cpuInfo->groups[0].ids.size());
-            }
-            break;
-        case BackendConfig::Power_High:
-        {
-            int selectCPUSize = 0;
-            int groupIndex = cpuInfo->groups.size() - 1;
-            while (selectCPUSize < mThreadNumber && groupIndex >= 0) {
-                auto& group = cpuInfo->groups[groupIndex];
-                int size = ALIMIN(group.ids.size(), mThreadNumber - selectCPUSize);
-                for (int v=0; v<size; ++v) {
-                    lockCPUIndexes[v + selectCPUSize] = std::make_pair(group.ids.data(), group.ids.size());
-                }
-                groupIndex--;
-                selectCPUSize += group.ids.size();
-            }
+    if(!mCpuIds.empty()) {
+        for (int v=0; v<mThreadNumber; ++v) {
+            lockCPUIndexes[v] = std::make_pair(mCpuIds.data(), mCpuIds.size());
         }
-            break;
-        default:
-            break;
+    }
+    else{
+        switch (mPower) {
+            case BackendConfig::Power_Low:
+                for (int v=0; v<mThreadNumber; ++v) {
+                    lockCPUIndexes[v] = std::make_pair(cpuInfo->groups[0].ids.data(), cpuInfo->groups[0].ids.size());
+                }
+                break;
+            case BackendConfig::Power_High:
+            {
+                int selectCPUSize = 0;
+                int groupIndex = cpuInfo->groups.size() - 1;
+                while (selectCPUSize < mThreadNumber && groupIndex >= 0) {
+                    auto& group = cpuInfo->groups[groupIndex];
+                    int size = ALIMIN(group.ids.size(), mThreadNumber - selectCPUSize);
+                    for (int v=0; v<size; ++v) {
+                        lockCPUIndexes[v + selectCPUSize] = std::make_pair(group.ids.data(), group.ids.size());
+                    }
+                    groupIndex--;
+                    selectCPUSize += group.ids.size();
+                }
+            }
+                break;
+            default:
+                break;
+        }
     }
         // Set CPU Affinity
 #ifdef _OPENMP
