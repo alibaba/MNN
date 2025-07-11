@@ -47,19 +47,6 @@ class ModelSelectionViewHolder(
     }
 
     private fun getDisplayTags(modelItem: ModelItem): List<String> {
-        return modelItem.getDisplayTags().take(3)
-    }
-
-    /**
-     * Extract source information from modelId
-     */
-    private fun getModelSource(modelId: String?): String? {
-        return when {
-            modelId == null -> null
-            modelId.startsWith("HuggingFace/") || modelId.contains("taobao-mnn") -> itemView.context.getString(R.string.huggingface)
-            modelId.startsWith("ModelScope/") -> itemView.context.getString(R.string.modelscope)
-            modelId.startsWith("Modelers/") -> itemView.context.getString(R.string.modelers)
-            else -> null
-        }
+        return modelItem.getDisplayTags(itemView.context).take(3)
     }
 } 

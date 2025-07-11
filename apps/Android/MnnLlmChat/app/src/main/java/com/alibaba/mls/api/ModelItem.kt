@@ -32,8 +32,28 @@ class ModelItem {
         tags.add(tag)
     }
 
-    fun getDisplayTags(): List<String> {
-        return TagMapper.getDisplayTagList(getTags())
+    fun getDisplayTags(context: Context): List<String> {
+        val tags = mutableListOf<String>()
+
+        // Add source tag first
+        val source = modelId?.let { ModelUtils.getModelSource(context, modelId) }
+        if (source != null) {
+            tags.add(source)
+        }
+
+        // Use getTags() which now prioritizes market tags from model_market.json
+        val marketTags = getTags()
+
+        // Add local/downloaded status
+        if (isLocal) {
+            tags.add(context.getString(com.alibaba.mnnllm.android.R.string.local))
+        } else if (marketTags.isNotEmpty()) {
+            // If we have market tags, use them directly (they're already user-friendly)
+            tags.addAll(marketTags.take(2)) // Limit to 2 market tags to leave room for source tag
+        }
+
+        // Limit total tags to 3 for better UI layout
+        return tags.take(3)
     }
 
     /**

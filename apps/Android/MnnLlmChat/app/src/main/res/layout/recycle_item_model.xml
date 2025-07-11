@@ -4,26 +4,29 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
-    android:layout_height="80dp"
+    android:layout_height="wrap_content"
     android:background="@drawable/list_item_background_combined"
     >
     <RelativeLayout
         android:layout_width="match_parent"
-        android:layout_height="75dp"
+        android:layout_height="wrap_content"
         android:layout_gravity="center_vertical"
+        android:layout_marginTop="12dp"
+        android:layout_marginBottom="12dp"
         android:id="@+id/recycler_item_model_parent"
         >
         <com.alibaba.mnnllm.android.widgets.ModelAvatarView
             android:id="@+id/header_section_title"
             android:layout_width="48dp"
             android:layout_height="48dp"
-            android:layout_centerVertical="true"
+            android:layout_marginTop="4dp"
             android:layout_marginStart="12dp"
             android:layout_marginEnd="10dp"
             style="@style/Widget.Material3.CardView.Outlined"
             app:cardBackgroundColor="@android:color/transparent"
             app:cardCornerRadius="8dp"
             app:strokeColor="?colorOutlineVariant"
+            tools:cardBackgroundColor="#000"
             />
 
         <TextView
@@ -31,7 +34,6 @@
             style="?textAppearanceTitleSmall"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_alignTop="@+id/header_section_title"
             android:layout_toEndOf="@id/header_section_title"
             android:maxLines="1"
             android:textColor="?colorOnSurface"
@@ -45,20 +47,6 @@
             android:layout_below="@id/tvModelTitle"
             android:layout_marginEnd="60dp"
             android:layout_toEndOf="@id/header_section_title" />
-
-        <TextView
-            android:id="@+id/tvModelSubtitle"
-            android:layout_width="0.1dp"
-            android:layout_height="wrap_content"
-            android:layout_below="@id/tvModelTitle"
-            android:layout_marginEnd="20dp"
-            android:layout_toEndOf="@id/header_section_title"
-            android:ellipsize="end"
-            android:maxLines="1"
-            android:textColor="?colorOnSurfaceVariant"
-            android:textSize="14sp"
-            android:visibility="visible"
-            tools:text="Visual  Audio" />
 
         <ImageView
             android:id="@+id/ivFolder"
@@ -116,17 +104,6 @@
     <!--        android:progress="60"-->
     <!--        android:progressDrawable="@drawable/progress_m2_style" />-->
 
-        <ImageView
-            android:id="@+id/iv_download"
-            android:layout_width="22dp"
-            android:layout_height="22dp"
-            android:visibility="gone"
-            android:layout_alignParentEnd="true"
-            android:layout_centerVertical="true"
-            android:layout_marginEnd="16dp"
-            android:src="@drawable/download"
-            app:tint="?colorOnSurface"
-            tools:ignore="ContentDescription" />
         <View
             android:id="@+id/pinned_overlay"
             android:layout_width="match_parent"

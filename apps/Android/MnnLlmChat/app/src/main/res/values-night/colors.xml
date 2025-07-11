@@ -17,7 +17,7 @@
     <color name="colorTextInfo">#B3FFFFFF</color>
     <color name="colorGreen">#A5DE40</color>
     <color name="mainBlue">#64B5F6</color>
-    <color name="color_background">#000000</color>
+    <color name="color_background">#1c1c1c</color>
     <color name="color_foreground">@android:color/white</color>
     <bool name="is_day_mode">false</bool>
     <bool name="is_night_mode">true</bool>
@@ -29,7 +29,7 @@
     <color name="foreground_color">#FFFFFF</color>
 
     <!-- 置顶遮罩颜色 (夜间模式) -->
-    <color name="pinned_overlay_color">#1F1F1F</color>
+    <color name="pinned_overlay_color">#333333</color>
 
     <!-- UED颜色 (夜间模式) -->
     <color name="ued_blue">#4FA8FF</color>

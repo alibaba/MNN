@@ -6,20 +6,159 @@ import androidx.preference.PreferenceManager
 import com.google.gson.Gson
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import java.io.File
 import java.io.IOException
+import java.util.concurrent.TimeUnit
 
 class ModelRepository(private val context: Context) {
 
+    private val httpClient = OkHttpClient.Builder()
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .build()
+
+    private val gson = Gson()
+    private var cachedModelMarketData: ModelMarketData? = null
+    private var isNetworkRequestAttempted = false
+    
+    companion object {
+        private const val TAG = "ModelRepository"
+        private const val NETWORK_URL = "https://meta.alicdn.com/data/mnn/apis/model_market.json"
+        private const val CACHE_FILE_NAME = "model_market_cache.json"
+        private const val CACHE_TIMESTAMP_KEY = "model_market_cache_timestamp"
+        private const val CACHE_VALID_DURATION = 1 * 60 * 60 * 1000L 
+    }
+
     suspend fun getModelMarketData(): ModelMarketData? = withContext(Dispatchers.IO) {
+        // If we already have cached data and network request was attempted, return cached data
+        if (cachedModelMarketData != null && isNetworkRequestAttempted) {
+            Log.d(TAG, "Returning cached model market data")
+            return@withContext cachedModelMarketData
+        }
+
+        try {
+            // Try to get data from network first (only once per app lifecycle)
+            if (!isNetworkRequestAttempted) {
+                Log.d(TAG, "Attempting to fetch model market data from network")
+                val networkData = fetchFromNetwork()
+                if (networkData != null) {
+                    Log.d(TAG, "Successfully fetched data from network")
+                    cachedModelMarketData = networkData
+                    saveCacheToFile(networkData)
+                    isNetworkRequestAttempted = true
+                    return@withContext networkData
+                }
+                isNetworkRequestAttempted = true
+            }
+
+            // If network failed, try to load from local cache
+            Log.d(TAG, "Network request failed or not attempted, trying local cache")
+            val cacheData = loadFromCache()
+            if (cacheData != null) {
+                Log.d(TAG, "Successfully loaded data from local cache")
+                cachedModelMarketData = cacheData
+                return@withContext cacheData
+            }
+
+            // If cache also failed, fallback to assets
+            Log.d(TAG, "Local cache not available, falling back to assets")
+            val assetsData = loadFromAssets()
+            if (assetsData != null) {
+                Log.d(TAG, "Successfully loaded data from assets")
+                cachedModelMarketData = assetsData
+                return@withContext assetsData
+            }
+
+            Log.e(TAG, "All data sources failed")
+            null
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to get model market data", e)
+            null
+        }
+    }
+
+    private suspend fun fetchFromNetwork(): ModelMarketData? = withContext(Dispatchers.IO) {
+        try {
+            val request = Request.Builder()
+                .url(NETWORK_URL)
+                .build()
+
+            val response = httpClient.newCall(request).execute()
+            
+            if (response.isSuccessful) {
+                val jsonString = response.body?.string()
+                if (!jsonString.isNullOrEmpty()) {
+                    val data = gson.fromJson(jsonString, ModelMarketData::class.java)
+                    Log.d(TAG, "Successfully parsed network data")
+                    return@withContext data
+                }
+            } else {
+                Log.w(TAG, "Network request failed with code: ${response.code}")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Network request failed", e)
+        }
+        return@withContext null
+    }
+
+    private suspend fun loadFromCache(): ModelMarketData? = withContext(Dispatchers.IO) {
+        try {
+            val cacheFile = File(context.filesDir, CACHE_FILE_NAME)
+            if (!cacheFile.exists()) {
+                Log.d(TAG, "Cache file does not exist")
+                return@withContext null
+            }
+
+            // Check if cache is still valid
+            val sharedPrefs = PreferenceManager.getDefaultSharedPreferences(context)
+            val cacheTimestamp = sharedPrefs.getLong(CACHE_TIMESTAMP_KEY, 0)
+            val currentTime = System.currentTimeMillis()
+            
+            if (currentTime - cacheTimestamp > CACHE_VALID_DURATION) {
+                Log.d(TAG, "Cache is expired, ignoring cache file")
+                return@withContext null
+            }
+
+            val jsonString = cacheFile.readText()
+            val data = gson.fromJson(jsonString, ModelMarketData::class.java)
+            Log.d(TAG, "Successfully loaded data from cache")
+            return@withContext data
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to load from cache", e)
+            return@withContext null
+        }
+    }
+
+    private suspend fun loadFromAssets(): ModelMarketData? = withContext(Dispatchers.IO) {
         try {
             val inputStream = context.assets.open("model_market.json")
             val jsonString = inputStream.bufferedReader().use { it.readText() }
-            val gson = Gson()
             val data = gson.fromJson(jsonString, ModelMarketData::class.java)
-            data
+            Log.d(TAG, "Successfully loaded data from assets")
+            return@withContext data
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to parse model_market.json", e)
-            null
+            Log.e(TAG, "Failed to load from assets", e)
+            return@withContext null
+        }
+    }
+
+    private suspend fun saveCacheToFile(data: ModelMarketData) = withContext(Dispatchers.IO) {
+        try {
+            val cacheFile = File(context.filesDir, CACHE_FILE_NAME)
+            val jsonString = gson.toJson(data)
+            cacheFile.writeText(jsonString)
+            
+            // Save timestamp
+            val sharedPrefs = PreferenceManager.getDefaultSharedPreferences(context)
+            sharedPrefs.edit()
+                .putLong(CACHE_TIMESTAMP_KEY, System.currentTimeMillis())
+                .apply()
+            
+            Log.d(TAG, "Successfully saved data to cache")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to save cache", e)
         }
     }
 
@@ -110,9 +249,5 @@ class ModelRepository(private val context: Context) {
             SourceSelectionDialogFragment.KEY_SOURCE, 
             SourceSelectionDialogFragment.SOURCE_MODELSCOPE
         )!!
-    }
-
-    companion object {
-        private const val TAG = "ModelRepository"
     }
 } 

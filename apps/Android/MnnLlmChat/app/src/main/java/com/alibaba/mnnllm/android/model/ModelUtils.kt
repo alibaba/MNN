@@ -350,5 +350,15 @@ object ModelUtils {
         }
     }
 
+    fun getModelSource(context: Context, modelId: String?): String? {
+        return when {
+            modelId == null -> null
+            modelId.startsWith("HuggingFace/") || modelId.contains("taobao-mnn") -> context.getString(R.string.huggingface)
+            modelId.startsWith("ModelScope/") -> context.getString(R.string.modelscope)
+            modelId.startsWith("Modelers/") -> context.getString(R.string.modelers)
+            else -> null
+        }
+    }
+
     private const val TAG = "ModelUtils"
 }

@@ -7,7 +7,8 @@
     "Math": "数学",
     "ImageGen": "文生图",
     "AudioGen": "音频生成",
-    "Think": "深度思考"
+    "Think": "深度思考",
+    "Chat": "对话"
   },
   "quickFilterTags": [
     "Think",

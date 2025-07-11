@@ -48,6 +48,23 @@ android {
             //noinspection ChromeOsAbiSupport
             abiFilters "arm64-v8a" // Include only arm64-v8a
         }
+
+        signingConfigs {
+            release {
+                storeFile file(System.getenv("KEYSTORE_FILE"))
+                storePassword System.getenv("KEYSTORE_PASSWORD")
+                keyAlias System.getenv("KEY_ALIAS")
+                keyPassword System.getenv("KEY_PASSWORD")
+            }
+        }
+        buildTypes {
+            release {
+                signingConfig signingConfigs.release
+                applicationIdSuffix ".release"
+            }
+            debug {
+            }
+        }
     }
 
     buildTypes {

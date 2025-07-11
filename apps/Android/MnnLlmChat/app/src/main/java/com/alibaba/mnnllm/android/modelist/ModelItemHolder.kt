@@ -34,7 +34,6 @@ class ModelItemHolder(
 ) : RecyclerView.ViewHolder(itemView), View.OnClickListener, OnLongClickListener {
     private var tvModelName: TextView
     private var tvModelTitle: TextView
-    private var tvModelSubtitle: TextView
     private var tvStatus: TextView
     private var tvTimeInfo: TextView
 
@@ -52,7 +51,6 @@ class ModelItemHolder(
         }
         tvModelName = itemView.findViewById(R.id.tvModelName)
         tvModelTitle = itemView.findViewById(R.id.tvModelTitle)
-        tvModelSubtitle = itemView.findViewById(R.id.tvModelSubtitle)
         tvStatus = itemView.findViewById(R.id.tvStatus)
         tvTimeInfo = itemView.findViewById(R.id.tvTimeInfo)
         headerSection = itemView.findViewById(R.id.header_section_title)
@@ -146,7 +144,7 @@ class ModelItemHolder(
     }
 
     private fun getDisplayTags(modelItem: ModelItem): List<String> {
-        return modelItem.getDisplayTags().take(3)
+        return modelItem.getDisplayTags(itemView.context).take(3)
     }
 
     fun bind(modelWrapper: ModelListManager.ModelItemWrapper) {

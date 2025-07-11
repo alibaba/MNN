@@ -405,20 +405,7 @@ class BenchmarkFragment : Fragment(), BenchmarkContract.View {
      * Get display tags for model, similar to ModelItemHolder
      */
     private fun getDisplayTags(modelItem: ModelItem): List<String> {
-        return modelItem.getDisplayTags().take(3)
-    }
-
-    /**
-     * Extract source information from modelId
-     */
-    private fun getModelSource(modelId: String?): String? {
-        return when {
-            modelId == null -> null
-            modelId.startsWith("HuggingFace/") || modelId.contains("taobao-mnn") -> getString(R.string.huggingface)
-            modelId.startsWith("ModelScope/") -> getString(R.string.modelscope)
-            modelId.startsWith("Modelers/") -> getString(R.string.modelers)
-            else -> null
-        }
+        return modelItem.getDisplayTags(requireContext()).take(3)
     }
 
     /**
