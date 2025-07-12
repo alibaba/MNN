@@ -6,7 +6,6 @@ import android.util.Log
 import android.view.MenuItem
 import android.view.View
 import android.view.View.OnLongClickListener
-import com.google.android.material.button.MaterialButton
 import android.widget.CheckBox
 import android.widget.TextView
 import android.widget.Toast
@@ -24,6 +23,7 @@ import com.alibaba.mnnllm.android.utils.FileUtils
 import com.alibaba.mnnllm.android.modelsettings.SettingsBottomSheetFragment
 import com.alibaba.mnnllm.android.widgets.ModelAvatarView
 import com.alibaba.mnnllm.android.widgets.TagsLayout
+import com.alibaba.mnnllm.android.modelmarket.ModelCardWebViewBottomSheet
 
 
 class MarketItemHolder(
@@ -37,7 +37,7 @@ class MarketItemHolder(
     private val tvStatus: TextView = itemView.findViewById(R.id.tvStatus)
     private val headerSection: ModelAvatarView = itemView.findViewById(R.id.header_section_title)
     private val tagsLayout: TagsLayout = itemView.findViewById(R.id.tagsLayout)
-    private val btnDownloadAction: MaterialButton = itemView.findViewById(R.id.btn_download_action)
+    private val btnDownloadAction: com.google.android.material.button.MaterialButton = itemView.findViewById(R.id.btn_download_action)
     private val checkboxVoiceModel: CheckBox = itemView.findViewById(R.id.checkbox_voice_model)
 
     // Data
@@ -183,14 +183,14 @@ class MarketItemHolder(
     }
     
     private fun setButtonStyle() {
-        val context = itemView.context
-        val typedValue = android.util.TypedValue()
-        context.theme.resolveAttribute(com.google.android.material.R.attr.colorPrimary, typedValue, true)
-        val primaryColor = typedValue.data
-        
-        btnDownloadAction.icon = null
-        btnDownloadAction.setTextColor(primaryColor)
-        btnDownloadAction.strokeColor = android.content.res.ColorStateList.valueOf(primaryColor)
+//        val context = itemView.context
+//        val typedValue = android.util.TypedValue()
+//        context.theme.resolveAttribute(com.google.android.material.R.attr.colorPrimary, typedValue, true)
+//        val primaryColor = typedValue.data
+//
+//        btnDownloadAction.icon = null
+//        btnDownloadAction.setTextColor(primaryColor)
+//        btnDownloadAction.strokeColor = android.content.res.ColorStateList.valueOf(primaryColor)
     }
 
     @SuppressLint("DefaultLocale")
@@ -249,7 +249,7 @@ class MarketItemHolder(
         val modelMarketItemWrapper = v.tag as ModelMarketItemWrapper
         val modelMarketItem = modelMarketItemWrapper.modelMarketItem
         
-        // 如果是下载完成的语音模型，并且CheckBox可见，则触发CheckBox逻辑
+        // If it's a completed voice model and CheckBox is visible, trigger CheckBox logic
         if (modelMarketItemWrapper.downloadInfo.downloadState == DownloadState.COMPLETED) {
             val voiceType = voiceDelegate.getVoiceModelType(modelMarketItem)
             if (voiceType != MarketHolderVoiceDelegate.VoiceModelType.NONE && checkboxVoiceModel.visibility == View.VISIBLE) {
@@ -258,8 +258,28 @@ class MarketItemHolder(
                 return
             }
         }
-        
-        modelMarketItemListener.onActionClicked(modelMarketItemWrapper)
+
+        // Open model card in a BottomSheetDialog with WebView
+        val context = itemView.context
+        val modelId = modelMarketItem.modelId ?: return
+        val source = com.alibaba.mnnllm.android.model.ModelUtils.getSource(modelId)
+        val repoPath = com.alibaba.mnnllm.android.model.ModelUtils.getRepositoryPath(modelId)
+        val url = when (source) {
+            "HuggingFace" -> "https://huggingface.co/$repoPath"
+            "ModelScope" -> "https://modelscope.cn/models/$repoPath"
+            "Modelers" -> "https://www.modelers.cn/models/$repoPath"
+            else -> null
+        }
+        if (url != null) {
+            val fragmentManager = (context as? AppCompatActivity)?.supportFragmentManager
+            if (fragmentManager != null) {
+                val title = modelMarketItem.modelName ?: context.getString(R.string.model_card)
+                val sheet = ModelCardWebViewBottomSheet.newInstance(url, title)
+                sheet.show(fragmentManager, "ModelCardWebViewBottomSheet")
+            }
+        } else {
+            Toast.makeText(context, context.getString(R.string.unknown_source, source ?: ""), Toast.LENGTH_SHORT).show()
+        }
     }
 
 

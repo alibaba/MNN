@@ -69,7 +69,7 @@ class BenchmarkStateMachine {
             BenchmarkState.INITIALIZING -> listOf(BenchmarkState.RUNNING, BenchmarkState.ERROR)
             BenchmarkState.RUNNING -> listOf(BenchmarkState.STOPPING, BenchmarkState.COMPLETED, BenchmarkState.ERROR)
             BenchmarkState.STOPPING -> listOf(BenchmarkState.READY, BenchmarkState.ERROR)
-            BenchmarkState.COMPLETED -> listOf(BenchmarkState.READY, BenchmarkState.INITIALIZING)
+            BenchmarkState.COMPLETED -> listOf(BenchmarkState.READY, BenchmarkState.INITIALIZING, BenchmarkState.LOADING_MODELS)
             BenchmarkState.ERROR -> listOf(BenchmarkState.READY, BenchmarkState.LOADING_MODELS)
             BenchmarkState.ERROR_MODEL_NOT_FOUND -> listOf(BenchmarkState.LOADING_MODELS)
         }

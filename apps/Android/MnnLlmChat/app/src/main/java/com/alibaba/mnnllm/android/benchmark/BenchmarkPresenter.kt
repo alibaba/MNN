@@ -54,7 +54,8 @@ class BenchmarkPresenter(
                 startButtonEnabled = true,
                 showProgressBar = false,
                 showResults = false,
-                showStatus = false,
+                showStatus = true,
+                statusMessage = context.getString(R.string.select_a_model_to_start),
                 enableModelSelector = true,
                 showBenchmarkIcon = true,
                 showBenchmarkProgressBar = false
@@ -120,11 +121,12 @@ class BenchmarkPresenter(
                 startButtonEnabled = false,
                 showProgressBar = false,
                 showResults = false,
-                showStatus = false,
+                showStatus = true,
                 enableModelSelector = false,
                 showBenchmarkIcon = true,
-                showBenchmarkProgressBar = false
-            )
+                showBenchmarkProgressBar = false,
+                statusMessage = context.getString(R.string.no_models_found),
+                )
         }
         
         applyUIState(uiState)

@@ -109,11 +109,11 @@ class BenchmarkFragment : Fragment(), BenchmarkContract.View {
     // ===== BenchmarkContract.View Implementation =====
 
     override fun showLoading() {
-        binding.progressBar.visibility = View.VISIBLE
+//        binding.progressBar.visibility = View.VISIBLE
     }
 
     override fun hideLoading() {
-        binding.progressBar.visibility = View.GONE
+//        binding.progressBar.visibility = View.GONE
     }
 
     override fun showError(message: String) {
@@ -194,7 +194,7 @@ class BenchmarkFragment : Fragment(), BenchmarkContract.View {
     override fun updateProgress(progress: BenchmarkProgress) {
         binding.textStatus.text = progress.statusMessage
         binding.textStatus.visibility = View.VISIBLE
-        binding.resultCard.visibility = View.GONE
+        binding.resultCard.visibility = View.INVISIBLE
     }
 
     override fun showResults(results: BenchmarkContract.BenchmarkResults) {
@@ -203,8 +203,8 @@ class BenchmarkFragment : Fragment(), BenchmarkContract.View {
     }
 
     override fun hideResults() {
-        binding.testResultsTitle.visibility = View.GONE
-        binding.resultCard.visibility = View.GONE
+        binding.testResultsTitle.visibility = View.INVISIBLE
+        binding.resultCard.visibility = View.INVISIBLE
     }
 
     override fun updateStatus(message: String) {
@@ -230,21 +230,21 @@ class BenchmarkFragment : Fragment(), BenchmarkContract.View {
     }
 
     override fun hideProgressBar() {
-        binding.progressBar.visibility = View.GONE
+//        binding.progressBar.visibility = View.GONE
         // Hide textStatus if results are visible
         if (binding.resultCard.visibility == View.VISIBLE) {
-            binding.textStatus.visibility = View.GONE
+            binding.textStatus.visibility = View.INVISIBLE
         }
     }
 
     override fun showBenchmarkIcon(show: Boolean) {
-        binding.iconBenchmark.visibility = if (show) View.VISIBLE else View.GONE
-        binding.iconBenchmarkParent.visibility = if (show) View.VISIBLE else View.GONE
+        binding.iconBenchmark.visibility = if (show) View.VISIBLE else View.INVISIBLE
+        binding.iconBenchmarkParent.visibility = if (show) View.VISIBLE else View.INVISIBLE
         Log.d(TAG, "showBenchmarkIcon: $show")
     }
 
     override fun showBenchmarkProgressBar(show: Boolean) {
-        binding.benchmarkProgressBar.visibility = if (show) View.VISIBLE else View.GONE
+        binding.benchmarkProgressBar.visibility = if (show) View.VISIBLE else View.INVISIBLE
         Log.d(TAG, "showBenchmarkProgressBar: $show")
     }
 

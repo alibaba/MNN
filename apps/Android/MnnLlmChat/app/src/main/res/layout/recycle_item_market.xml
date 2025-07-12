@@ -86,6 +86,8 @@
         tools:visibility="gone"
         android:layout_alignParentEnd="true"
         android:layout_below="@id/tvModelTitle"
+        app:strokeColor="?colorPrimary"
+        app:strokeWidth="0.5dp"
         />
 
     <com.google.android.material.checkbox.MaterialCheckBox

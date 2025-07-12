@@ -456,4 +456,5 @@
     <string name="please_download_model">Please download a model first</string>
     <string name="go_to_download">Go to download</string>
     <string name="all_filter">All Filters</string>
+    <string name="model_card">Model Card</string>
 </resources>

@@ -39,7 +39,7 @@
             android:layout_height="wrap_content"
             android:layout_centerHorizontal="true"
             android:layout_below="@id/iv_no_filtered_models"
-            android:layout_marginTop="16dp"
+            android:layout_marginTop="-30dp"
             android:textSize="18sp"
             android:textStyle="bold"
             android:text="@string/no_filtered_models_title"/>
@@ -62,7 +62,9 @@
             style="@style/Widget.Material3.Button.OutlinedButton"
             android:layout_centerHorizontal="true"
             android:text="@string/clear_filters"
-            android:layout_below="@id/tv_no_filtered_models_message"/>
+            android:layout_below="@id/tv_no_filtered_models_message"
+            android:minWidth="150dp"
+            />
             
     </RelativeLayout>
 

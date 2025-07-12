@@ -454,4 +454,5 @@
     <string name="please_download_model">请先下载模型</string>
     <string name="go_to_download">去下载</string>
     <string name="all_filter">全部筛选</string>
+    <string name="model_card">模型卡片</string>
 </resources>

@@ -63,6 +63,8 @@
             style="@style/Widget.Material3.Button.OutlinedButton"
             android:layout_centerHorizontal="true"
             android:text="@string/go_to_download"
+            android:layout_marginTop="-30dp"
+            android:minWidth="150dp"
             android:layout_below="@id/iv_no_models"
             android:onClick="onAddModelButtonClick" />
         <TextView
