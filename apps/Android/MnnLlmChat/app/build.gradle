@@ -12,9 +12,9 @@ android {
     defaultConfig {
         applicationId "com.alibaba.mnnllm.android"
         minSdk 26
-        targetSdk 34
-        versionCode 501
-        versionName "0.5.1.2"
+        targetSdk 35
+        versionCode 600
+        versionName "0.6.0"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         externalNativeBuild {

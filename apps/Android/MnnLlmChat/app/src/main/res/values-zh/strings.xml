@@ -398,7 +398,7 @@
     <string name="request_queue_tag">请求队列</string>
     <string name="api_console_ui_tag">API控制台UI</string>
     <string name="ui_initializing_view_components">[UI] 正在初始化视图组件</string>
-    <string name="select_download_provider_title">选择下载提供商</string>
+    <string name="select_download_provider_title">选择下载源</string>
     <string name="switch_download_source">切换下载源</string>
     <string name="filter_action">筛选</string>
     <string name="download_action">下载</string>
@@ -455,4 +455,7 @@
     <string name="go_to_download">去下载</string>
     <string name="all_filter">全部筛选</string>
     <string name="model_card">模型卡片</string>
+    <string name="menu">菜单</string>
+    <string name="open_in_browser">在浏览器中打开</string>
+    <string name="failed_to_open_url">无法打开链接</string>
 </resources>

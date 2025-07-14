@@ -52,9 +52,9 @@ class FilterDialogFragment : BaseBottomSheetDialogFragment() {
         val doneButton = view.findViewById<Button>(R.id.settings_done)
 
         // Setup chip groups
-        setupTagChipGroup(tagsChipGroup, availableTags, false)
+        setupTagChipGroup(tagsChipGroup, availableTags, true) // single selection for tags
         setupStringChipGroup(sizeChipGroup, listOf("<1B", "1B-5B", "5B-15B", ">15B"), true)
-        setupStringChipGroup(vendorChipGroup, availableVendors, true) // Changed to single-selection
+        setupStringChipGroup(vendorChipGroup, availableVendors, true) // single selection
 
         // Setup real-time filtering listeners first (after chips are created)
         setupRealTimeFiltering(tagsChipGroup, sizeChipGroup, vendorChipGroup)
@@ -67,10 +67,10 @@ class FilterDialogFragment : BaseBottomSheetDialogFragment() {
         }
 
         confirmButton.setOnClickListener {
-            val selectedTagKeys = getSelectedTagKeys(tagsChipGroup)
+            val selectedTagKey = getSelectedTagKey(tagsChipGroup)
             val selectedSize = getSelectedChipsText(sizeChipGroup).firstOrNull()
             val selectedVendors = getSelectedChipsText(vendorChipGroup)
-            listener?.invoke(FilterState(selectedTagKeys, selectedVendors, selectedSize))
+            listener?.invoke(FilterState(selectedTagKey?.let { listOf(it) } ?: emptyList(), selectedVendors, selectedSize))
             dismiss()
         }
         doneButton.setOnClickListener {
@@ -86,7 +86,7 @@ class FilterDialogFragment : BaseBottomSheetDialogFragment() {
     }
 
     private fun setupTagChipGroup(chipGroup: ChipGroup, tags: List<Tag>, singleSelection: Boolean) {
-        chipGroup.isSingleSelection = singleSelection
+        chipGroup.isSingleSelection = true // always single selection for tags
         tags.forEach { tag ->
             val chip = LayoutInflater.from(requireContext())
                 .inflate(R.layout.chip_filter_item, chipGroup, false) as Chip
@@ -110,20 +110,17 @@ class FilterDialogFragment : BaseBottomSheetDialogFragment() {
         return chipGroup.checkedChipIds.map { chipGroup.findViewById<Chip>(it).text.toString() }
     }
 
-    private fun getSelectedTagKeys(chipGroup: ChipGroup): List<String> {
-        return chipGroup.checkedChipIds.mapNotNull { 
-            chipGroup.findViewById<Chip>(it).tag as? String 
-        }
+    private fun getSelectedTagKey(chipGroup: ChipGroup): String? {
+        return chipGroup.checkedChipIds.firstOrNull()?.let { chipGroup.findViewById<Chip>(it).tag as? String }
     }
 
     private fun restoreTagSelections(chipGroup: ChipGroup, selectedTagKeys: List<String>) {
+        val selectedKey = selectedTagKeys.firstOrNull()
         for (i in 0 until chipGroup.childCount) {
             val chip = chipGroup.getChildAt(i) as? Chip
             chip?.let {
                 val tagKey = it.tag as? String
-                if (tagKey != null && selectedTagKeys.contains(tagKey)) {
-                    it.isChecked = true
-                }
+                it.isChecked = (tagKey != null && tagKey == selectedKey)
             }
         }
     }
@@ -145,21 +142,21 @@ class FilterDialogFragment : BaseBottomSheetDialogFragment() {
         vendorChipGroup: ChipGroup
     ) {
         val updateFilter: () -> Unit = {
-            val selectedTagKeys = getSelectedTagKeys(tagsChipGroup)
+            val selectedTagKey = getSelectedTagKey(tagsChipGroup)
             val selectedSize = getSelectedChipsText(sizeChipGroup).firstOrNull()
             val selectedVendors = getSelectedChipsText(vendorChipGroup)
-            Log.d("FilterDialogFragment", "Selected tag keys: $selectedTagKeys" + "Selected size: $selectedSize" + "Selected vendors: $selectedVendors")
-            listener?.invoke(FilterState(selectedTagKeys, selectedVendors, selectedSize))
+            Log.d("FilterDialogFragment", "Selected tag key: $selectedTagKey" + "Selected size: $selectedSize" + "Selected vendors: $selectedVendors")
+            listener?.invoke(FilterState(selectedTagKey?.let { listOf(it) } ?: emptyList(), selectedVendors, selectedSize))
         }
 
         // Add listeners to all chip groups - using checkedChipIds change listener
-        tagsChipGroup.setOnCheckedStateChangeListener { _, checkedIds ->
+        tagsChipGroup.setOnCheckedStateChangeListener { _, _ ->
             updateFilter()
         }
-        sizeChipGroup.setOnCheckedStateChangeListener { _, checkedIds ->
+        sizeChipGroup.setOnCheckedStateChangeListener { _, _ ->
             updateFilter()
         }
-        vendorChipGroup.setOnCheckedStateChangeListener { _, checkedIds ->
+        vendorChipGroup.setOnCheckedStateChangeListener { _, _ ->
             updateFilter()
         }
 

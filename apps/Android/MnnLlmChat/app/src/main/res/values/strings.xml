@@ -407,7 +407,7 @@
     <string name="request_queue_tag">RequestQueue</string>
     <string name="api_console_ui_tag">ApiConsoleUI</string>
     <string name="ui_initializing_view_components">[UI] Initializing view components</string>
-    <string name="select_download_provider_title">Select Download Provider</string>
+    <string name="select_download_provider_title">Select Repo Source</string>
     <string name="switch_download_source">Switch Download Source</string>
     <string name="filter_action">Filter</string>
     <string name="download_action">Download</string>
@@ -457,4 +457,7 @@
     <string name="go_to_download">Go to download</string>
     <string name="all_filter">All Filters</string>
     <string name="model_card">Model Card</string>
+    <string name="menu">Menu</string>
+    <string name="open_in_browser">Open in Browser</string>
+    <string name="failed_to_open_url">Failed to open URL</string>
 </resources>

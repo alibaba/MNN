@@ -54,4 +54,7 @@
     <color name="benchmark_result_sub_card_background">#FFFFFF</color>
     <color name="benchmark_result_text_primary">#000000</color>
     <color name="benchmark_result_text_secondary">#666666</color>
+
+    <!-- Chip -->
+    <color name="chip_background">#e8f1ff</color>
 </resources>

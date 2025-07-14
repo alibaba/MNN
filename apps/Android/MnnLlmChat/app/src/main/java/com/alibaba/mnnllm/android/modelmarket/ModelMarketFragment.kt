@@ -412,21 +412,18 @@ class ModelMarketFragment : Fragment(), ModelMarketItemListener, Searchable {
     
     private fun setupQuickFilterTags(container: View) {
         val quickFilterLayout = container.findViewById<LinearLayout>(R.id.quick_filter_tags_layout)
-        
+        quickFilterLayout.removeAllViews()
         viewModel.getQuickFilterTags().forEach { tag ->
             val quickFilterButton = TextView(requireContext()).apply {
                 text = tag.getDisplayText()
-                // Apply FilterChipStyle attributes
                 setPadding(16, 0, 16, 0)
                 setBackgroundResource(R.drawable.bg_filter_chip)
-                // 使用 ColorStateList 来支持选中状态的颜色变化
                 setTextColor(ContextCompat.getColorStateList(requireContext(), R.color.filter_button_tint))
                 textSize = 12f
                 gravity = android.view.Gravity.CENTER_VERTICAL
                 isClickable = true
                 isFocusable = true
-                
-                // Set layout params matching FilterChipStyle
+
                 val layoutParams = LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.WRAP_CONTENT,
                     resources.getDimensionPixelSize(R.dimen.filter_chip_height)
@@ -434,7 +431,7 @@ class ModelMarketFragment : Fragment(), ModelMarketItemListener, Searchable {
                     marginEnd = resources.getDimensionPixelSize(R.dimen.filter_chip_margin_end)
                 }
                 this.layoutParams = layoutParams
-                
+
                 setOnClickListener {
                     toggleQuickFilter(tag)
                 }
@@ -446,11 +443,13 @@ class ModelMarketFragment : Fragment(), ModelMarketItemListener, Searchable {
     private fun toggleQuickFilter(tag: Tag) {
         val currentTags = currentFilterState.tagKeys.toMutableList()
         if (currentTags.contains(tag.key)) {
-            currentTags.remove(tag.key)
+            // Deselect if already selected
+            currentTags.clear()
         } else {
+            // Only select this tag
+            currentTags.clear()
             currentTags.add(tag.key)
         }
-        
         currentFilterState = FilterState(
             tagKeys = currentTags,
             vendors = currentFilterState.vendors,
@@ -460,8 +459,6 @@ class ModelMarketFragment : Fragment(), ModelMarketItemListener, Searchable {
             source = currentFilterState.source,
             searchQuery = currentFilterState.searchQuery
         )
-        
-        // Apply filter and update UI in real-time
         viewModel.applyFilters(currentFilterState)
         updateFilterButtonStates()
         updateQuickFilterButtonStates()
@@ -471,12 +468,12 @@ class ModelMarketFragment : Fragment(), ModelMarketItemListener, Searchable {
         filterContainerView?.let { container ->
             val quickFilterLayout = container.findViewById<LinearLayout>(R.id.quick_filter_tags_layout)
             val quickFilterTags = viewModel.getQuickFilterTags()
-            
+            val selectedKey = currentFilterState.tagKeys.firstOrNull()
             for (i in 0 until quickFilterLayout.childCount) {
                 val button = quickFilterLayout.getChildAt(i) as? TextView
                 val tag = quickFilterTags.getOrNull(i)
                 if (button != null && tag != null) {
-                    button.isSelected = currentFilterState.tagKeys.contains(tag.key)
+                    button.isSelected = (tag.key == selectedKey)
                 }
             }
         }
@@ -573,17 +570,17 @@ class ModelMarketFragment : Fragment(), ModelMarketItemListener, Searchable {
         val context = requireContext()
         val modelId = modelMarketItem.modelId
         
-        // 检查是否已经是默认TTS模型
+        // Check if already default TTS model
         val isCurrentDefault = MainSettings.isDefaultTtsModel(context, modelId)
-        
+
         if (isCurrentDefault) {
-            // 已经是默认模型，显示提示
+            // Already default model, show toast
             Toast.makeText(context, getString(R.string.tts_model_set_as_default), Toast.LENGTH_SHORT).show()
         } else {
-            // 设置为默认TTS模型
+            // Set as default TTS model
             MainSettings.setDefaultTtsModel(context, modelId)
             Toast.makeText(context, getString(R.string.tts_model_set_as_default), Toast.LENGTH_SHORT).show()
-            
+
             // Reload models to reflect the change in default status
             viewModel.loadModels()
         }
@@ -592,18 +589,18 @@ class ModelMarketFragment : Fragment(), ModelMarketItemListener, Searchable {
     private fun handleAsrModelClick(modelMarketItem: ModelMarketItem) {
         val context = requireContext()
         val modelId = modelMarketItem.modelId
-        
-        // 检查是否已经是默认ASR模型
+
+        // Check if already default ASR model
         val isCurrentDefault = MainSettings.isDefaultAsrModel(context, modelId)
-        
+
         if (isCurrentDefault) {
-            // 已经是默认模型，显示提示
+            // Already default model, show toast
             Toast.makeText(context, getString(R.string.already_default_asr_model), Toast.LENGTH_SHORT).show()
         } else {
-            // 设置为默认ASR模型
+            // Set as default ASR model
             MainSettings.setDefaultAsrModel(context, modelId)
             Toast.makeText(context, getString(R.string.default_asr_model_set, modelMarketItem.modelName), Toast.LENGTH_SHORT).show()
-            
+
             // Reload models to reflect the change in default status
             viewModel.loadModels()
         }
@@ -625,7 +622,7 @@ class ModelMarketFragment : Fragment(), ModelMarketItemListener, Searchable {
     }
 
     /**
-     * 当源发生改变时调用，用于更新数据
+     * When source occurs change, used to update data
      */
     fun onSourceChanged() {
         viewModel.loadModels()
