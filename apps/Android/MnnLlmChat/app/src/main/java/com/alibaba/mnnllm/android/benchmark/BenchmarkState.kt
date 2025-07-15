@@ -6,6 +6,7 @@ import android.util.Log
  * Benchmark state enumeration
  */
 enum class BenchmarkState {
+    IDLE,                  // default Model
     LOADING_MODELS,        // Loading model list
     READY,                 // Ready to start benchmark
     INITIALIZING,          // Model initialization in progress
@@ -24,7 +25,7 @@ class BenchmarkStateMachine {
         private const val TAG = "BenchmarkStateMachine"
     }
     
-    private var currentState: BenchmarkState = BenchmarkState.LOADING_MODELS
+    private var currentState: BenchmarkState = BenchmarkState.IDLE
     private var errorMessage: String? = null
     
     init {
@@ -58,12 +59,16 @@ class BenchmarkStateMachine {
             throw IllegalStateException("Invalid state transition from $currentState to $newState")
         }
     }
-    
+
+    fun isValidTransition(to: BenchmarkState): Boolean {
+        return isValidTransition(currentState, to)
+    }
     /**
      * Check if transition is valid
      */
-    private fun isValidTransition(from: BenchmarkState, to: BenchmarkState): Boolean {
+    fun isValidTransition(from: BenchmarkState, to: BenchmarkState): Boolean {
         val validTransitions = when (from) {
+            BenchmarkState.IDLE -> listOf(BenchmarkState.LOADING_MODELS)
             BenchmarkState.LOADING_MODELS -> listOf(BenchmarkState.READY, BenchmarkState.ERROR_MODEL_NOT_FOUND)
             BenchmarkState.READY -> listOf(BenchmarkState.INITIALIZING, BenchmarkState.LOADING_MODELS)
             BenchmarkState.INITIALIZING -> listOf(BenchmarkState.RUNNING, BenchmarkState.ERROR)

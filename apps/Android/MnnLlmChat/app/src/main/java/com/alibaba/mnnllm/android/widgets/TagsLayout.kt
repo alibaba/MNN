@@ -54,7 +54,7 @@ class TagsLayout @JvmOverloads constructor(
         val tagView = TextView(context)
         tagView.text = tagText
         tagView.setTextColor(context.getThemeColor(com.google.android.material.R.attr.colorPrimary))
-        tagView.alpha = 0.7f
+        tagView.alpha = 0.85f
         tagView.setPadding(
             tagPaddingHorizontal,
             tagPaddingVertical,

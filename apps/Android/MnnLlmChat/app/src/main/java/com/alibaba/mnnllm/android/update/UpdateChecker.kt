@@ -21,6 +21,7 @@ import android.text.TextUtils
 import android.util.Log
 import android.widget.Toast
 import androidx.core.content.FileProvider
+import com.alibaba.mnnllm.android.BuildConfig
 import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.chat.DownloadReceiver
 import com.alibaba.mnnllm.android.utils.AppUtils.getAppVersionName
@@ -57,6 +58,11 @@ class UpdateChecker(private val context: Context) {
 
     @SuppressLint("LogNotTimber")
     fun checkForUpdates(context: Context, forceCheck: Boolean) {
+        // Do nothing in Google Play build
+        if (BuildConfig.IS_GOOGLE_PLAY_BUILD) {
+            return
+        }
+        
         if (waitingForInstallPermission && (waitingDownloadId > 0 || waitingFileUri != null)) {
             installApk(context, waitingDownloadId, waitingFileUri)
             waitingForInstallPermission = false
@@ -205,6 +211,11 @@ class UpdateChecker(private val context: Context) {
     }
 
     private fun downloadApk(context: Context, downloadUrl: String) {
+        // Do nothing in Google Play build
+        if (BuildConfig.IS_GOOGLE_PLAY_BUILD) {
+            return
+        }
+        
         val apkName = getUrlLastName(downloadUrl)?: "update.apk"
         val downloadPath = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
         val file = File(downloadPath, apkName)
@@ -263,6 +274,11 @@ class UpdateChecker(private val context: Context) {
         }
 
         fun installApk(context: Context, downloadId: Long, fileUri: Uri? = null) {
+            // Do nothing in Google Play build
+            if (BuildConfig.IS_GOOGLE_PLAY_BUILD) {
+                return
+            }
+            
             if (!context.packageManager.canRequestPackageInstalls()) {
                 waitingForInstallPermission = true
                 waitingDownloadId = downloadId
@@ -289,6 +305,11 @@ class UpdateChecker(private val context: Context) {
         }
 
         fun registerDownloadReceiver(context: Context) {
+            // Do nothing in Google Play build
+            if (BuildConfig.IS_GOOGLE_PLAY_BUILD) {
+                return
+            }
+            
             val downloadCompletedReceiver = DownloadReceiver()
             val filter = IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {

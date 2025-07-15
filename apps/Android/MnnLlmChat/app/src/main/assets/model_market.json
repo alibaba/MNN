@@ -37,6 +37,23 @@
   ],
   "models": [
     {
+      "modelName": "gemma-3-1b-it-qat-q4_0-gguf-MNN",
+      "tags": [
+        "Think"
+      ],
+      "categories": [
+        "recommended",
+        "qwen"
+      ],
+      "sources": {
+        "HuggingFace": "taobao-mnn/gemma-3-1b-it-qat-q4_0-gguf-MNN",
+        "ModelScope": "MNN/gemma-3-1b-it-qat-q4_0-gguf-MNN",
+        "Modelers": "MNN/gemma-3-1b-it-qat-q4_0-gguf-MNN"
+      },
+      "size_gb": 4.0,
+      "vendor": "Gemma"
+    },
+    {
       "modelName": "Qwen3-4B-MNN",
       "tags": [
         "Think"
@@ -1234,7 +1251,9 @@
       ],
       "size_gb": 1.5,
       "sources": {
-         "ModelScope": "MNN/bert-vits2-MNN"
+         "ModelScope": "MNN/bert-vits2-MNN",
+         "Modelers": "MNN/bert-vits2-MNN",
+         "HuggingFace": "taobao-mnn/bert-vits2-MNN"
       }
     }
   ],
@@ -1251,7 +1270,9 @@
       "size_gb": 1.5,
       "vendor": "stability.ai",
       "sources": {
-         "ModelScope": "MNN/sherpa-mnn-streaming-zipformer-bilingual-zh-en-2023-02-20"
+        "HuggingFace": "taobao-mnn/sherpa-mnn-streaming-zipformer-bilingual-zh-en-2023-02-20",
+        "ModelScope": "MNN/sherpa-mnn-streaming-zipformer-bilingual-zh-en-2023-02-20",
+        "Modelers": "MNN/sherpa-mnn-streaming-zipformer-bilingual-zh-en-2023-02-20"
       }
     },
     {
@@ -1266,7 +1287,9 @@
       "size_gb": 1.5,
       "vendor": "stability.ai",
       "sources": {
-         "ModelScope": "MNN/sherpa-mnn-streaming-zipformer-en-2023-02-21"
+         "ModelScope": "MNN/sherpa-mnn-streaming-zipformer-en-2023-02-21",
+         "Modelers": "MNN/sherpa-mnn-streaming-zipformer-en-2023-02-21",
+         "HuggingFace": "taobao-mnn/sherpa-mnn-streaming-zipformer-en-2023-02-21"
       }
     }
   ]

@@ -8,24 +8,16 @@ import android.media.AudioManager
 import android.util.Log
 import com.alibaba.mnnllm.android.asr.AsrService
 import com.alibaba.mnnllm.android.audio.AudioChunksPlayer
-import com.alibaba.mnnllm.android.llm.ChatSession
-import com.alibaba.mnnllm.android.llm.GenerateProgressListener
-import com.alibaba.mnnllm.android.chat.model.ChatDataItem
-import com.alibaba.mnnllm.android.chat.chatlist.ChatViewHolders
 import com.alibaba.mnnllm.android.chat.ChatPresenter
 import com.alibaba.mnnllm.android.chat.GenerateResultProcessor
+import com.alibaba.mnnllm.android.utils.VoiceModelPathUtils
 import com.taobao.meta.avatar.tts.TtsService
-import java.text.DateFormat
-import java.util.Date
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.MainScope
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.consumeEach
-import com.alibaba.mnnllm.android.utils.VoiceModelPathUtils
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 enum class VoiceChatPresenterState {
     INITIALIZING,
@@ -74,7 +66,7 @@ class VoiceChatPresenter(
     private var isProcessingLlm = false
     private var isStopped = false
     private var isStoppingGeneration = false
-    private var isGenerationFinished = false // 添加标志位防止重复调用
+    private var isGenerationFinished = false
     
     // For handling LLM generation progress with thinking support
     private var generateResultProcessor: GenerateResultProcessor? = null
@@ -136,14 +128,16 @@ class VoiceChatPresenter(
                 
                 // Only show normal output in transcripts (not thinking content)
                 if (normalOutput.isNotEmpty()) {
+                    Log.d(TAG, "Normal output is not empty: '$normalOutput' progress: ${task.progress}")
                     task.responseBuilder.clear()
                     task.responseBuilder.append(normalOutput)
                     withContext(Dispatchers.Main) { view.updateLastTranscript(normalOutput) }
                     
                     // Process TTS for normal output only
                     val delimiters = "[.,!。，！？?\n、：；:]".toRegex()
-                    task.ttsSegmentBuffer.append(task.progress)
-                    if (delimiters.containsMatchIn(task.progress) && !isThinking) {
+                    val progressText = GenerateResultProcessor.noSlashThink(task.progress)!!
+                    task.ttsSegmentBuffer.append(progressText)
+                    if (delimiters.containsMatchIn(progressText) && !isThinking) {
                         val textToSpeak = task.ttsSegmentBuffer.toString()
                         task.ttsSegmentBuffer.clear()
                         Log.d(TAG, "Delimiter found. Speaking: '$textToSpeak'")
@@ -176,7 +170,7 @@ class VoiceChatPresenter(
                     Log.d(TAG, "Speaking remaining buffer: '$textToSpeak'")
                     currentStatus = VoiceChatPresenterState.PLAYING
                     withContext(Dispatchers.Main) { view.updateStatus(VoiceChatState.SPEAKING) }
-                    val audioData = ttsService?.process(textToSpeak, 0)
+                    val audioData = withContext(Dispatchers.IO) { ttsService?.process(textToSpeak, 0) }
                     if (audioData != null && audioData.isNotEmpty() && !isStopped && !isStoppingGeneration) {
                         audioPlayer?.playChunk(audioData)
                     }
@@ -338,7 +332,7 @@ class VoiceChatPresenter(
             responseBuilder.clear()
             ttsSegmentBuffer.clear()
             isFirstChunk = true
-            isGenerationFinished = false // 重置标志位
+            isGenerationFinished = false
 
             // Send message through ChatPresenter for proper session management
             chatPresenter.sendMessage(text)
@@ -500,7 +494,7 @@ class VoiceChatPresenter(
         Log.d(TAG, "Stopping generation...")
         if (isProcessingLlm || isSpeaking) {
             isStoppingGeneration = true
-            isGenerationFinished = false // 重置标志位
+            isGenerationFinished = false
             chatPresenter.stopGenerate()  // Stop generation in ChatPresenter
             audioPlayer?.stop()
             isProcessingLlm = false

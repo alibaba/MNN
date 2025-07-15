@@ -51,6 +51,8 @@
             android:layout_marginHorizontal="16dp"
             android:overScrollMode="never"
             android:visibility="gone"
+            android:clipToPadding="false"
+            android:paddingBottom="8dp"
             tools:listitem="@layout/item_voice_transcript"
             tools:visibility="visible" />
 

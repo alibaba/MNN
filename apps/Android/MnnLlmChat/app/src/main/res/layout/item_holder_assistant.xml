@@ -62,7 +62,8 @@
         android:layout_below="@id/tv_chat_thinking"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:padding="@dimen/space10"
+        android:paddingStart="@dimen/space10"
+        android:paddingEnd="@dimen/space10"
         android:textAppearance="@style/Light"
         android:textColor="?colorOnSurface"
         android:textSize="@dimen/h3"
@@ -80,9 +81,56 @@
         tools:visibility="visible"
         android:background="#00f"
         tools:src="@drawable/testtest"/>
+
+    <!-- Button row above benchmark info -->
+    <LinearLayout
+        android:id="@+id/ll_action_buttons"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_below="@id/image_generated"
+        android:layout_alignStart="@id/tv_chat_text"
+        android:orientation="horizontal"
+        android:layout_marginBottom="8dp"
+        android:visibility="gone"
+        tools:visibility="visible">
+
+         <ImageView
+             android:id="@+id/btn_report_issue"
+             android:layout_width="32dp"
+             android:layout_height="32dp"
+             android:padding="4dp"
+             android:background="@drawable/ic_button_ripple"
+             android:clickable="true"
+             android:focusable="true"
+             app:srcCompat="@drawable/ic_issue"
+             app:tint="?colorOnSurfaceVariant"/>
+         <ImageView
+             android:id="@+id/btn_toggle_benchmark"
+             android:layout_width="32dp"
+             android:layout_height="32dp"
+             android:padding="4dp"
+             android:background="@drawable/ic_button_ripple"
+             android:clickable="true"
+             android:focusable="true"
+             app:srcCompat="@drawable/ic_statistics"
+             app:tint="?colorOnSurfaceVariant"/>
+
+         <ImageView
+             android:id="@+id/btn_replay_audio"
+             android:layout_width="32dp"
+             android:layout_height="32dp"
+             android:padding="4dp"
+             android:background="@drawable/ic_button_ripple"
+             android:clickable="true"
+             android:focusable="true"
+             app:srcCompat="@drawable/ic_play"
+             app:tint="?colorOnSurfaceVariant"/>
+
+    </LinearLayout>
+
     <TextView
         android:id="@+id/tv_chat_benchmark"
-        android:layout_below="@id/image_generated"
+        android:layout_below="@id/ll_action_buttons"
         android:layout_alignStart="@id/tv_chat_text"
         android:textColor="?colorOnSurfaceVariant"
         tools:text="prefill: 149 tokens/s decode: 149 tokens/s"

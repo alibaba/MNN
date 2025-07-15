@@ -9,6 +9,7 @@ import android.view.MenuItem
 import android.view.MotionEvent
 import android.view.View
 import android.view.View.OnLongClickListener
+import android.widget.Button
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.SeekBar
@@ -30,6 +31,8 @@ import com.alibaba.mnnllm.android.utils.UiUtils
 import com.alibaba.mnnllm.android.widgets.FullScreenImageViewer
 import com.alibaba.mnnllm.android.widgets.PopupWindowHelper
 import io.noties.markwon.Markwon
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import java.util.Locale
 
 object ChatViewHolders {
     const val HEADER: Int = 0
@@ -149,6 +152,12 @@ object ChatViewHolders {
         private val imageGenerated: ImageView =
             view.findViewById(R.id.image_generated)
 
+        // Action buttons
+        private val actionButtonsLayout: LinearLayout = view.findViewById(R.id.ll_action_buttons)
+        private val reportIssueButton: View = view.findViewById(R.id.btn_report_issue)
+        private val toggleBenchmarkButton: View = view.findViewById(R.id.btn_toggle_benchmark)
+        private val replayAudioButton: View = view.findViewById(R.id.btn_replay_audio)
+
         private val markdown = Markwon.create(itemView.context)
         var viewAssistantLoading: View =
             view.findViewById(R.id.view_assistant_loading)
@@ -177,6 +186,36 @@ object ChatViewHolders {
                 chatDataItem.toggleThinking()
                 updateThinkingView(chatDataItem, itemView.context)
                 markdown.setMarkdown(viewText, chatDataItem.displayText!!)
+            }
+
+            // Setup action buttons
+            reportIssueButton.setOnClickListener {
+                val chatDataItem = it.tag as ChatDataItem
+                MaterialAlertDialogBuilder(itemView.context)
+                    .setTitle(R.string.report_issue_confirm_title)
+                    .setMessage(R.string.report_issue_confirm_message)
+                    .setPositiveButton(R.string.confirm) { dialog, _ ->
+                        GithubUtils.reportIssue(itemView.context)
+                        dialog.dismiss()
+                    }
+                    .setNegativeButton(R.string.cancel) { dialog, _ ->
+                        dialog.dismiss()
+                    }
+                    .show()
+            }
+            
+            toggleBenchmarkButton.setOnClickListener {
+                val chatActivity = itemView.context as? com.alibaba.mnnllm.android.chat.ChatActivity
+                chatActivity?.let { activity ->
+                    // Access the chatListComponent to toggle performance metrics
+                    val currentState = benchmarkInfo.visibility == View.VISIBLE
+                    activity.chatListComponent.toggleShowPerformanceMetrics(!currentState)
+                }
+            }
+            
+            replayAudioButton.setOnClickListener {
+                val chatDataItem = it.tag as ChatDataItem
+                replayAudio(chatDataItem)
             }
         }
 
@@ -241,6 +280,12 @@ object ChatViewHolders {
             viewText.tag = data
             viewThinking.tag = data
             thinkingToggle.tag = data
+            
+            // Setup action buttons
+            setupActionButtons(data, showMetrics)
+            reportIssueButton.tag = data
+            toggleBenchmarkButton.tag = data
+            replayAudioButton.tag = data
         }
         
         private fun updateThinkingView(data: ChatDataItem, context: android.content.Context) {
@@ -298,6 +343,51 @@ object ChatViewHolders {
                 }
             }
             return true
+        }
+        
+        private fun setupActionButtons(data: ChatDataItem, showMetrics: Boolean) {
+            // Show action buttons for completed assistant messages
+            // Show buttons if not loading AND has any content (displayText or text or thinking content)
+            val hasAnyContent = !TextUtils.isEmpty(data.displayText) || 
+                               !TextUtils.isEmpty(data.text) || 
+                               !TextUtils.isEmpty(data.thinkingText)
+            val shouldShowButtons = !data.loading && hasAnyContent
+            actionButtonsLayout.visibility = if (shouldShowButtons) View.VISIBLE else View.GONE
+            
+            if (shouldShowButtons) {
+                // Show/hide replay button based on audio availability
+                replayAudioButton.visibility = if (data.hasOmniAudio && !data.audioPath.isNullOrEmpty()) 
+                    View.VISIBLE 
+                else 
+                    View.GONE
+            }
+        }
+        
+        private fun replayAudio(chatDataItem: ChatDataItem) {
+            if (chatDataItem.hasOmniAudio && !chatDataItem.audioPath.isNullOrEmpty()) {
+                // Play the saved audio file
+                val audioPlayService = com.alibaba.mnnllm.android.utils.AudioPlayService.instance
+                audioPlayService?.playAudio(chatDataItem.audioPath, object : com.alibaba.mnnllm.android.utils.AudioPlayService.AudioPlayerCallback {
+                    override fun onPlayStart() {
+                        android.util.Log.d(TAG, "Started replaying audio")
+                    }
+
+                    override fun onPlayFinish() {
+                        android.util.Log.d(TAG, "Finished replaying audio")
+                    }
+
+                    override fun onPlayError() {
+                        android.util.Log.e(TAG, "Error replaying audio")
+                        android.widget.Toast.makeText(itemView.context, "Error playing audio", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+
+                    override fun onPlayProgress(progress: Float) {
+                        // Not needed for our use case
+                    }
+                })
+            } else {
+                android.widget.Toast.makeText(itemView.context, "No audio available", android.widget.Toast.LENGTH_SHORT).show()
+            }
         }
 
         companion object {

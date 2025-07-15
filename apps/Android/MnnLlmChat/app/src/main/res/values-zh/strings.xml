@@ -36,6 +36,11 @@
     <string name="choose_image">图片</string>
     <string name="select_audio">音频(wav)</string>
     <string name="show_performance_metrics">显示性能指标</string>
+    <string name="realtime_audio_playback">实时音频播放</string>
+    <string name="report_issue">反馈</string>
+    <string name="toggle_benchmark">指标</string>
+    <string name="hide_benchmark">隐藏</string>
+    <string name="replay_audio">重播</string>
 
 <!--    <string name="app_name">DrawerLayoutDemo</string>-->
     <string name="nav_open">Open navigation drawer</string>
@@ -456,6 +461,10 @@
     <string name="all_filter">全部筛选</string>
     <string name="model_card">模型卡片</string>
     <string name="menu">菜单</string>
-    <string name="open_in_browser">在浏览器中打开</string>
     <string name="failed_to_open_url">无法打开链接</string>
+    
+    <!-- Report Issue Dialog Strings -->
+    <string name="report_issue_confirm_title">确认</string>
+    <string name="report_issue_confirm_message">是否确认在 GitHub 上提 Issue？</string>
+    <string name="confirm">确认</string>
 </resources>

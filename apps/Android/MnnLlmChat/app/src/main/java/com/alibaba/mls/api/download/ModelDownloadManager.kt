@@ -18,6 +18,7 @@ import com.alibaba.mls.api.download.DownloadPersistentData.getDownloadSizeTotal
 import com.alibaba.mls.api.download.DownloadPersistentData.removeProgress
 import com.alibaba.mls.api.download.DownloadPersistentData.saveDownloadSizeSaved
 import com.alibaba.mls.api.download.DownloadPersistentData.saveDownloadSizeTotal
+import com.alibaba.mnnllm.android.BuildConfig
 import com.alibaba.mls.api.download.hf.HfModelDownloader
 import com.alibaba.mls.api.download.ml.MLModelDownloader
 import com.alibaba.mls.api.download.ms.MsModelDownloader
@@ -87,6 +88,7 @@ class ModelDownloadManager private constructor(context: Context) {
         AtomicInteger(0)
 
     private var foregroundServiceStarted = false
+    private var disableForegroundService  = false
 
     init {
         val downloadCallback = object : ModelRepoDownloader.ModelRepoDownloadCallback {
@@ -206,6 +208,7 @@ class ModelDownloadManager private constructor(context: Context) {
 
     private fun startDownload(modelId: String, source:String) {
         val downloader = getDownloaderForSource(source)
+        Log.d(TAG, "startDownload: $modelId source: $source downloader: ${downloader.javaClass.name}")
         listeners.forEach { it.onDownloadStart(modelId) }
         this.updateDownloadingProgress(modelId, "Preparing", null,
             getRealDownloadSize(modelId),
@@ -339,6 +342,11 @@ class ModelDownloadManager private constructor(context: Context) {
     }
 
     private fun onDownloadTaskAdded(count: Int) {
+        // Do not start foreground service in Google Play build
+        if (disableForegroundService) {
+            return
+        }
+        
         if (count == 1) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                 if (ContextCompat.checkSelfPermission(
@@ -366,6 +374,11 @@ class ModelDownloadManager private constructor(context: Context) {
     }
 
     private fun startForegroundService() {
+        // Do not start foreground service in Google Play build
+        if (disableForegroundService) {
+            return
+        }
+        
         try {
             ApplicationProvider.get().startForegroundService(foregroundServiceIntent)
             foregroundServiceStarted = true
@@ -376,6 +389,11 @@ class ModelDownloadManager private constructor(context: Context) {
     }
 
     private fun onDownloadTaskRemoved(count: Int) {
+        // Do not manage foreground service in Google Play build
+        if (disableForegroundService) {
+            return
+        }
+        
         if (count == 0) {
             ApplicationProvider.get().stopService(foregroundServiceIntent)
             foregroundServiceStarted = false
@@ -482,6 +500,11 @@ class ModelDownloadManager private constructor(context: Context) {
     }
 
     fun tryStartForegroundService() {
+        // Do not start foreground service in Google Play build
+        if (disableForegroundService) {
+            return
+        }
+        
         if (!foregroundServiceStarted && activeDownloadCount.get() > 0) {
             startForegroundService()
         }

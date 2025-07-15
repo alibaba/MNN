@@ -422,7 +422,7 @@
         android:layout_marginTop="30dp"
         android:gravity="center"
         android:text="@string/select_a_model_to_start"
-        android:textSize="20sp"
+        android:textSize="16sp"
         android:visibility="visible"
         tools:visibility="visible" />
     <!-- Button layout container -->
@@ -432,6 +432,7 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="24dp"
         android:gravity="center"
+        android:layout_marginBottom="20dp"
         android:orientation="horizontal">
 
         <!-- Back button (only visible in result state) -->

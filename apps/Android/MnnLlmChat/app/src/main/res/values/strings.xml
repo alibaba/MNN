@@ -36,6 +36,11 @@
     <string name="choose_image">Image</string>
     <string name="select_audio">Audio(wav)</string>
     <string name="show_performance_metrics">Show Performance Metrics</string>
+    <string name="realtime_audio_playback">Real-time Audio Playback</string>
+    <string name="report_issue">Issue</string>
+    <string name="toggle_benchmark">Metric</string>
+    <string name="hide_benchmark">Hide</string>
+    <string name="replay_audio">Replay</string>
 
 <!--    <string name="app_name">DrawerLayoutDemo</string>-->
     <string name="nav_open">Open navigation drawer</string>
@@ -460,4 +465,9 @@
     <string name="menu">Menu</string>
     <string name="open_in_browser">Open in Browser</string>
     <string name="failed_to_open_url">Failed to open URL</string>
+
+    <!-- Report Issue Dialog Strings -->
+    <string name="report_issue_confirm_title">Confirm</string>
+    <string name="report_issue_confirm_message">Are you sure to report an issue on GitHub?</string>
+    <string name="confirm">Confirm</string>
 </resources>

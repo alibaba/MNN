@@ -31,7 +31,7 @@
     <color name="label_color">#6699CC</color>
     <color name="foreground_color">#000000</color>
 
-    <color name="pinned_overlay_color">#F0F0F0</color>
+    <color name="pinned_overlay_color">#EEEEEE</color>
     
     <!-- UED颜色 -->
     <color name="ued_blue">#2E97F2</color>

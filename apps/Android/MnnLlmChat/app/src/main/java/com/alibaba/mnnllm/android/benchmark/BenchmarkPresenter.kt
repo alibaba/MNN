@@ -38,6 +38,17 @@ class BenchmarkPresenter(
     private fun updateUIForState(state: BenchmarkState) {
         Log.d(TAG, "Updating UI for state: $state")
         val uiState = when (state) {
+            BenchmarkState.IDLE -> BenchmarkUIState(
+                startButtonText = context.getString(R.string.start_test),
+                startButtonEnabled = false,
+                showProgressBar = true,
+                showResults = false,
+                showStatus = true,
+                statusMessage = "Loading models...",
+                enableModelSelector = false,
+                showBenchmarkIcon = true,
+                showBenchmarkProgressBar = false
+            )
             BenchmarkState.LOADING_MODELS -> BenchmarkUIState(
                 startButtonText = context.getString(R.string.start_test),
                 startButtonEnabled = false,
@@ -276,8 +287,10 @@ class BenchmarkPresenter(
      */
     private fun setupModelSelector() {
         Log.d(TAG, "setupModelSelector called")
-        
         // Ensure we're in LOADING_MODELS state
+        if (!stateMachine.isValidTransition(BenchmarkState.LOADING_MODELS)) {
+            return
+        }
         stateMachine.ensureInState(BenchmarkState.LOADING_MODELS)
         updateUIForState(BenchmarkState.LOADING_MODELS)
         

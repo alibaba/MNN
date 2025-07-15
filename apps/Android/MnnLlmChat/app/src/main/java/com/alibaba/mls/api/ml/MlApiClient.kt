@@ -11,6 +11,7 @@ import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.GET
 import retrofit2.http.Path
+import retrofit2.http.Query
 import java.util.concurrent.TimeUnit
 
 class MlApiClient {
@@ -43,7 +44,8 @@ class MlApiClient {
         @GET("api/v1/file/{modelGroup}/{modelPath}")
         fun getModelFiles(
             @Path("modelGroup") modelGroup: String,
-            @Path("modelPath") modelPath: String
+            @Path("modelPath") modelPath: String,
+            @Query("path") path: String,
         ): Call<MlRepoInfo>
     }
 }

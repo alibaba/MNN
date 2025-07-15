@@ -12,14 +12,18 @@ import android.view.View
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.alibaba.mls.api.ApplicationProvider
 import com.alibaba.mls.api.ModelItem
 import com.alibaba.mls.api.download.ModelDownloadManager
 import com.alibaba.mnnllm.android.llm.ChatSession
 import com.alibaba.mnnllm.android.R
-import com.alibaba.mnnllm.android.audio.AudioPlayer
+import com.alibaba.mnnllm.android.audio.AudioChunksPlayer
 import com.alibaba.mnnllm.android.benchmark.BenchmarkModule
 import com.alibaba.mnnllm.android.utils.ModelListManager
+import com.alibaba.mnnllm.android.utils.WavFileWriter
+import com.alibaba.mnnllm.android.utils.FileUtils
 import com.alibaba.mnnllm.android.chat.chatlist.ChatListComponent
 import com.alibaba.mnnllm.android.chat.chatlist.ChatViewHolders
 import com.alibaba.mnnllm.android.chat.input.ChatInputComponent
@@ -76,10 +80,15 @@ class ChatActivity : AppCompatActivity() {
     private var currentUserMessage: ChatDataItem? = null
     private var sessionName: String? = null
     private lateinit var binding: ActivityChatBinding
-    private var audioPlayer: AudioPlayer? = null
+    private var audioPlayer: AudioChunksPlayer? = null
     private lateinit var chatPresenter: ChatPresenter
     private var chatInputModule: ChatInputComponent? = null
-    private lateinit var chatListComponent: ChatListComponent
+    lateinit var chatListComponent: ChatListComponent
+
+    // Real-time audio playback settings
+    private var isRealTimePlayback = true
+    private var wavFileWriter: WavFileWriter? = null
+    private var bufferedAudioFilePath: String? = null
 
     private var benchmarkModule: BenchmarkModule = BenchmarkModule(activity = this)
     private lateinit var voiceModelsChecker: VoiceModelsChecker
@@ -187,16 +196,134 @@ class ChatActivity : AppCompatActivity() {
     }
 
     private fun setupOmni() {
-        audioPlayer = AudioPlayer()
+        audioPlayer = AudioChunksPlayer()
+        audioPlayer!!.sampleRate = 24000  // Use same sample rate as original AudioPlayer
         audioPlayer!!.start()
+        
         (chatSession as LlmSession).setAudioDataListener(object : AudioDataListener {
             override fun onAudioData(data: FloatArray, isEnd: Boolean): Boolean {
                 this@ChatActivity.lifecycleScope.launch {
-                    audioPlayer?.playChunk(data)
+                    if (isRealTimePlayback) {
+                        // Real-time playback mode: play immediately but also save for replay
+                        audioPlayer?.playChunk(data)
+                        
+                        // Also save audio data for potential replay
+                        saveAudioDataForReplay(data, isEnd)
+                        
+                        if (isEnd) {
+                            audioPlayer?.endChunk()
+                        }
+                    } else {
+                        // Buffered playback mode: collect all chunks first
+                        handleBufferedAudioData(data, isEnd)
+                    }
                 }
                 return chatPresenter.stopGenerating
             }
         })
+    }
+
+    private suspend fun handleBufferedAudioData(data: FloatArray, isEnd: Boolean) {
+        // Initialize WAV writer if this is the first chunk
+        if (wavFileWriter == null) {
+            bufferedAudioFilePath = FileUtils.generateDestAudioFilePath(this, sessionId!!)
+            wavFileWriter = WavFileWriter(bufferedAudioFilePath!!, 24000, 1, 16)
+            Log.d(TAG, "Initialized WAV writer for buffered playback: $bufferedAudioFilePath")
+        }
+
+        // Add audio chunk to WAV writer
+        wavFileWriter?.addAudioChunk(data)
+
+        if (isEnd) {
+            // Write all chunks to WAV file and play
+            val success = wavFileWriter?.writeToFile() ?: false
+            if (success && bufferedAudioFilePath != null) {
+                Log.d(TAG, "WAV file written successfully, starting playback")
+                
+                // Update the current chat item with audio info
+                val currentItem = chatListComponent.recentItem
+                currentItem?.let { item ->
+                    item.hasOmniAudio = true
+                    item.audioUri = Uri.fromFile(java.io.File(bufferedAudioFilePath!!))
+                    chatListComponent.updateAssistantResponse(item)
+                }
+                
+                // Auto-play the audio file
+                playWavFile(bufferedAudioFilePath!!)
+            } else {
+                Log.e(TAG, "Failed to write WAV file")
+            }
+            
+            // Clean up
+            wavFileWriter?.clear()
+            wavFileWriter = null
+            bufferedAudioFilePath = null
+        }
+    }
+
+    private suspend fun saveAudioDataForReplay(data: FloatArray, isEnd: Boolean) {
+        // Initialize WAV writer for replay if this is the first chunk
+        if (wavFileWriter == null) {
+            bufferedAudioFilePath = FileUtils.generateDestAudioFilePath(this, sessionId!!)
+            wavFileWriter = WavFileWriter(bufferedAudioFilePath!!, 24000, 1, 16)
+            Log.d(TAG, "Initialized WAV writer for audio replay: $bufferedAudioFilePath")
+        }
+
+        // Add audio chunk to WAV writer
+        wavFileWriter?.addAudioChunk(data)
+
+        if (isEnd) {
+            // Write all chunks to WAV file for later replay
+            val success = wavFileWriter?.writeToFile() ?: false
+            if (success && bufferedAudioFilePath != null) {
+                Log.d(TAG, "Audio saved for replay: $bufferedAudioFilePath")
+                
+                // Update the current chat item with audio info  
+                val currentItem = chatListComponent.recentItem
+                currentItem?.let { item ->
+                    item.hasOmniAudio = true
+                    item.audioUri = Uri.fromFile(java.io.File(bufferedAudioFilePath!!))
+                    chatListComponent.updateAssistantResponse(item)
+                }
+            } else {
+                Log.e(TAG, "Failed to save audio for replay")
+            }
+            
+            // Clean up
+            wavFileWriter?.clear()
+            wavFileWriter = null
+            bufferedAudioFilePath = null
+        }
+    }
+
+    private suspend fun playWavFile(filePath: String) {
+        try {
+            Log.d(TAG, "playWavFile : $filePath")
+            // Reset audio player for file playback
+            audioPlayer?.reset()
+            withContext(Dispatchers.Main) {
+                val audioPlayService = AudioPlayService.instance
+                audioPlayService?.playAudio(filePath, object : AudioPlayService.AudioPlayerCallback {
+                    override fun onPlayStart() {
+                        Log.d(TAG, "Started playing buffered audio file")
+                    }
+
+                    override fun onPlayFinish() {
+                        Log.d(TAG, "Completed playing buffered audio file")
+                    }
+
+                    override fun onPlayError() {
+                        Log.e(TAG, "Error playing buffered audio file")
+                    }
+
+                    override fun onPlayProgress(progress: Float) {
+                        // Not needed for our use case
+                    }
+                })
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error playing WAV file: $filePath", e)
+        }
     }
 
     fun onLoadingChanged(loading: Boolean) {
@@ -232,6 +359,10 @@ class ChatActivity : AppCompatActivity() {
         menu.findItem(R.id.menu_item_benchmark_test).isVisible = benchmarkModule.enabled
         // Voice chat is only available for non-diffusion models
         menu.findItem(R.id.start_voice_chat).isVisible = !isDiffusion
+        // Real-time audio playback is only available for Omni models
+        val isOmniModel = ModelUtils.isOmni(modelName)
+        menu.findItem(R.id.realtime_audio_playback).isVisible = false
+        menu.findItem(R.id.realtime_audio_playback).isChecked = false
         return true
     }
 
@@ -243,6 +374,9 @@ class ChatActivity : AppCompatActivity() {
         } else if (item.itemId == R.id.show_performance_metrics) {
             item.setChecked(!item.isChecked)
             chatListComponent.toggleShowPerformanceMetrics(item.isChecked)
+        } else if (item.itemId == R.id.realtime_audio_playback) {
+            item.setChecked(!item.isChecked)
+            setRealTimeAudioPlayback(item.isChecked)
         } else if (item.itemId == android.R.id.home) {
             finish()
         } else if (item.itemId == R.id.menu_item_model_settings) {
@@ -331,6 +465,14 @@ class ChatActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        audioPlayer?.destroy()
+        audioPlayer = null
+        
+        // Clean up WAV writer resources
+        wavFileWriter?.clear()
+        wavFileWriter = null
+        bufferedAudioFilePath = null
+        
         chatPresenter.destroy()
         MainScope().launch {
             ApiServiceManager.stopApiService(ApplicationProvider.get())
@@ -347,6 +489,27 @@ class ChatActivity : AppCompatActivity() {
         val recentItem = chatListComponent.recentItem
         recentItem?.loading = true
     }
+
+    /**
+     * Set real-time audio playback mode
+     * @param realTime true for real-time playback, false for buffered playback
+     */
+    fun setRealTimeAudioPlayback(realTime: Boolean) {
+        Log.d(TAG, "Setting real-time audio playback: $realTime")
+        isRealTimePlayback = realTime
+        
+        // Clean up existing WAV writer if switching modes
+        if (!realTime) {
+            wavFileWriter?.clear()
+            wavFileWriter = null
+            bufferedAudioFilePath = null
+        }
+    }
+
+    /**
+     * Get current real-time audio playback mode
+     */
+    fun isRealTimeAudioPlayback(): Boolean = isRealTimePlayback
 
     fun onLlmGenerateProgress(progress: String?, generateResultProcessor:GenerateResultProcessor) {
         val chatDataItem = chatListComponent.recentItem!!

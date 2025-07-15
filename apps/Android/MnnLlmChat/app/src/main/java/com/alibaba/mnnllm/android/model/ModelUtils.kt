@@ -90,12 +90,15 @@ object ModelUtils {
         if (metrics.containsKey("total_timeus")) {
             return generateDiffusionBenchMarkString(metrics)
         }
-        val promptLen = metrics["prompt_len"] as Long
-        val decodeLen = metrics["decode_len"] as Long
-        val prefillTimeUs = metrics["prefill_time"] as Long
-        val decodeTimeUs = metrics["decode_time"] as Long
+        val promptLen = metrics.getOrDefault("prompt_len", 0L) as Long
+        val decodeLen = metrics.getOrDefault("decode_len", 0L) as Long
+        val prefillTimeUs = metrics.getOrDefault("prefill_time", 0L) as Long
+        val decodeTimeUs = metrics.getOrDefault("decode_time", 0L) as Long
         var visionTimeUs = if (metrics.containsKey("vision_time")) metrics["vision_time"] as Long else 0L
         var audioTimeUs = if (metrics.containsKey("audio_time")) metrics["audio_time"] as Long else 0L
+        if (promptLen == 0L || decodeLen == 0L) {
+            return "generateBenchMarkString error"
+        }
         // Calculate speeds in tokens per second
         var totalPrefillTimeUs = prefillTimeUs + visionTimeUs + audioTimeUs
         val promptSpeed =

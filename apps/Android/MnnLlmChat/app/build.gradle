@@ -9,12 +9,15 @@ android {
     namespace 'com.alibaba.mnnllm.android'
     compileSdk 35
     ndkVersion '23.0.7599858'
+    
+    flavorDimensions "store"
+    
     defaultConfig {
         applicationId "com.alibaba.mnnllm.android"
         minSdk 26
         targetSdk 35
-        versionCode 600
-        versionName "0.6.0"
+        versionCode 603
+        versionName "0.6.3"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         externalNativeBuild {
@@ -66,13 +69,19 @@ android {
             }
         }
     }
-
-    buildTypes {
-        release {
-            minifyEnabled false
-            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+    
+    productFlavors {
+        standard {
+            dimension "store"
+            buildConfigField "boolean", "IS_GOOGLE_PLAY_BUILD", "false"
+        }
+        googleplay {
+            dimension "store"
+            buildConfigField "boolean", "IS_GOOGLE_PLAY_BUILD", "true"
         }
     }
+
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
@@ -85,6 +94,7 @@ android {
     }
     buildFeatures {
         viewBinding true
+        buildConfig true
     }
     sourceSets {
         main {

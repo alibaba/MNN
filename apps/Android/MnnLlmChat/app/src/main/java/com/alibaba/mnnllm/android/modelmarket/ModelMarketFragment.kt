@@ -582,7 +582,8 @@ class ModelMarketFragment : Fragment(), ModelMarketItemListener, Searchable {
             Toast.makeText(context, getString(R.string.tts_model_set_as_default), Toast.LENGTH_SHORT).show()
 
             // Reload models to reflect the change in default status
-            viewModel.loadModels()
+            // Refresh adapter to update all checkbox states, ensuring only one is selected
+            refreshAdapterForVoiceModelChange()
         }
     }
 
@@ -602,8 +603,17 @@ class ModelMarketFragment : Fragment(), ModelMarketItemListener, Searchable {
             Toast.makeText(context, getString(R.string.default_asr_model_set, modelMarketItem.modelName), Toast.LENGTH_SHORT).show()
 
             // Reload models to reflect the change in default status
-            viewModel.loadModels()
+            // Refresh adapter to update all voice model checkbox states, ensuring only one is selected
+            refreshAdapterForVoiceModelChange()
         }
+    }
+
+    /**
+     * Refresh adapter to update all checkbox states, ensuring only one is selected
+     */
+    private fun refreshAdapterForVoiceModelChange() {
+        // 通知 adapter 刷新所有 item，这样每个 item 都会重新检查是否为默认模型
+        adapter.notifyDataSetChanged()
     }
 
     override fun onDestroyView() {

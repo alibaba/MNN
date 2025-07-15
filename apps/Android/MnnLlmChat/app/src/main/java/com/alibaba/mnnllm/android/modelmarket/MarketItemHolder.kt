@@ -38,7 +38,6 @@ class MarketItemHolder(
     private val headerSection: ModelAvatarView = itemView.findViewById(R.id.header_section_title)
     private val tagsLayout: TagsLayout = itemView.findViewById(R.id.tagsLayout)
     private val btnDownloadAction: com.google.android.material.button.MaterialButton = itemView.findViewById(R.id.btn_download_action)
-    private val checkboxVoiceModel: CheckBox = itemView.findViewById(R.id.checkbox_voice_model)
 
     // Data
     private var modelMarketItemWrapper: ModelMarketItemWrapper? = null
@@ -81,6 +80,9 @@ class MarketItemHolder(
         ) // Limit to 3 tags to prevent overcrowding
         headerSection.setModelName(modelMarketItem.modelName)
         
+        // Attach checkbox to voiceDelegate
+        voiceDelegate.attachCheckbox(itemView.findViewById(R.id.checkbox_voice_model))
+        // Managed by voiceDelegate
         // Update download state
         updateDownloadState(modelMarketItemWrapper.downloadInfo)
     }
@@ -103,7 +105,7 @@ class MarketItemHolder(
         when (downloadState) {
             DownloadState.NOT_START, DownloadState.FAILED -> {
                 btnDownloadAction.visibility = View.VISIBLE
-                checkboxVoiceModel.visibility = View.GONE
+                voiceDelegate.hideCheckbox()
                 btnDownloadAction.text = btnDownloadAction.resources.getString(R.string.download)
                 setButtonStyle()
                 updateStatusText(downloadInfo)
@@ -111,7 +113,7 @@ class MarketItemHolder(
             
             DownloadState.DOWNLOADING -> {
                 btnDownloadAction.visibility = View.VISIBLE
-                checkboxVoiceModel.visibility = View.GONE
+                voiceDelegate.hideCheckbox()
                 if (TextUtils.equals("Preparing", downloadInfo.progressStage)) {
                     btnDownloadAction.text = btnDownloadAction.resources.getString(R.string.download_pending)
                     setButtonStyle()
@@ -126,7 +128,7 @@ class MarketItemHolder(
             
             DownloadState.PAUSED -> {
                 btnDownloadAction.visibility = View.VISIBLE
-                checkboxVoiceModel.visibility = View.GONE
+                voiceDelegate.hideCheckbox()
                 btnDownloadAction.text = btnDownloadAction.resources.getString(R.string.download_resume)
                 setButtonStyle()
                 updateStatusText(downloadInfo)
@@ -140,16 +142,15 @@ class MarketItemHolder(
                         // Handle voice model (TTS/ASR) - show checkbox
                         val isDefault = voiceDelegate.isDefaultModel(modelMarketItem.modelId, voiceType)
                         voiceDelegate.setVoiceModelUI(
-                            btnDownloadAction, 
-                            checkboxVoiceModel, 
-                            true, 
-                            isDefault, 
-                            voiceType, 
+                            btnDownloadAction,
+                            itemView.findViewById(R.id.checkbox_voice_model),
+                            true,
+                            isDefault,
+                            voiceType,
                             modelMarketItem
                         ) {
                             // Update UI when model is changed
                             updateDownloadState(downloadInfo)
-                            
                             // Refresh the entire adapter to update other models' default status
                             modelMarketItemWrapper?.let {
                                 modelMarketItemListener.onDefaultVoiceModelChanged(it)
@@ -159,14 +160,14 @@ class MarketItemHolder(
                     } else {
                         // Handle regular model - show chat button
                         btnDownloadAction.visibility = View.VISIBLE
-                        checkboxVoiceModel.visibility = View.GONE
+                        voiceDelegate.hideCheckbox()
                         btnDownloadAction.text = btnDownloadAction.resources.getString(R.string.chat_action)
                         setButtonStyle()
                         updateStatusText(downloadInfo)
                     }
                 } else {
                     btnDownloadAction.visibility = View.VISIBLE
-                    checkboxVoiceModel.visibility = View.GONE
+                    voiceDelegate.hideCheckbox()
                     btnDownloadAction.text = btnDownloadAction.resources.getString(R.string.chat_action)
                     setButtonStyle()
                     updateStatusText(downloadInfo)
@@ -175,7 +176,7 @@ class MarketItemHolder(
             
             else -> {
                 btnDownloadAction.visibility = View.VISIBLE
-                checkboxVoiceModel.visibility = View.GONE
+                voiceDelegate.hideCheckbox()
                 btnDownloadAction.text = btnDownloadAction.resources.getString(R.string.download)
                 setButtonStyle()
             }
@@ -252,9 +253,10 @@ class MarketItemHolder(
         // If it's a completed voice model and CheckBox is visible, trigger CheckBox logic
         if (modelMarketItemWrapper.downloadInfo.downloadState == DownloadState.COMPLETED) {
             val voiceType = voiceDelegate.getVoiceModelType(modelMarketItem)
-            if (voiceType != MarketHolderVoiceDelegate.VoiceModelType.NONE && checkboxVoiceModel.visibility == View.VISIBLE) {
-                val newCheckedState = !checkboxVoiceModel.isChecked
-                checkboxVoiceModel.isChecked = newCheckedState
+            val checkbox = itemView.findViewById<CheckBox>(R.id.checkbox_voice_model)
+            if (voiceType != MarketHolderVoiceDelegate.VoiceModelType.NONE && checkbox.visibility == View.VISIBLE) {
+                val newCheckedState = !checkbox.isChecked
+                checkbox.isChecked = newCheckedState
                 return
             }
         }
@@ -356,7 +358,7 @@ class MarketItemHolder(
             downloadState == DownloadState.COMPLETED
         
         // Model card: always visible
-        menu.findItem(R.id.menu_open_model_card).isVisible = true
+        menu.findItem(R.id.menu_open_model_card).isVisible = false
     }
 
     private fun handleSettingsMenu(modelMarketItem: ModelMarketItem) {

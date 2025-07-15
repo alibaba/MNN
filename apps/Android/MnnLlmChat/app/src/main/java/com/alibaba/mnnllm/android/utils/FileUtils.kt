@@ -183,6 +183,7 @@ object FileUtils {
                     } else {
                         getFileSize(child)
                     }
+
                 }
                 size
             }
@@ -195,5 +196,6 @@ object FileUtils {
         }
     }
 }
+
 
 

@@ -17,6 +17,7 @@ import com.alibaba.mls.api.download.ModelDownloadManager.Companion.TAG
 import com.alibaba.mls.api.download.ModelFileDownloader
 import com.alibaba.mls.api.download.ModelFileDownloader.FileDownloadListener
 import com.alibaba.mls.api.download.ModelRepoDownloader
+import com.alibaba.mls.api.ml.FileInfo
 import com.alibaba.mls.api.ml.MlApiClient
 import com.alibaba.mls.api.ml.MlRepoInfo
 import com.alibaba.mnnllm.android.model.ModelUtils
@@ -24,6 +25,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import com.alibaba.mls.api.ml.MlRepoData
+
 
 class MLModelDownloader(override var callback: ModelRepoDownloadCallback?,
                         cacheRootPath: String
@@ -35,6 +38,7 @@ class MLModelDownloader(override var callback: ModelRepoDownloadCallback?,
     }
 
     override fun download(modelId: String) {
+        Log.d(TAG, "start download  ${modelId}")
         DownloadExecutor.executeScope.launch {
             downloadRepo(modelId)
         }
@@ -69,7 +73,7 @@ class MLModelDownloader(override var callback: ModelRepoDownloadCallback?,
         }
         result = withContext(Dispatchers.IO) {
             runCatching {
-                val mlRepoInfo = mlApiClient.apiService.getModelFiles(split[0], split[1]).execute().body()
+                val mlRepoInfo = mlApiClient.apiService.getModelFiles(split[0], split[1], "").execute().body()
                 mlRepoInfo?.data?.tree?.sumOf { it.size } ?: 0L
             }.getOrElse {
                 Log.e(TAG, "getRepoSize: ", it)
@@ -81,15 +85,37 @@ class MLModelDownloader(override var callback: ModelRepoDownloadCallback?,
 
     private fun downloadRepo(modelId: String): MlRepoInfo? {
         val modelScopeId = ModelUtils.getRepositoryPath(modelId)
+        Log.d(TAG, "downloadRepo: " + modelScopeId)
         val split = modelScopeId.split("/".toRegex()).dropLastWhile { it.isEmpty() }.toTypedArray()
         if (split.size != 2) {
             callback?.onDownloadFailed(modelId, FileDownloadException("getRepoInfoFailed modelId format error: $modelId"))
         }
-        val modelInfo:MlRepoInfo? = kotlin.runCatching {
-            mlApiClient.apiService.getModelFiles(split[0], split[1]).execute().body() }
-            .getOrElse {
-                callback?.onDownloadFailed(modelId, FileDownloadException("getRepoInfoFailed" + it.message))
-                null}
+        
+        // Get initial repo info
+        val modelInfo = kotlin.runCatching {
+            val initialInfo = mlApiClient.apiService.getModelFiles(split[0], split[1], "").execute().body()
+            if (initialInfo != null) {
+                // Create a mutable list to store all files
+                val allFiles = mutableListOf<FileInfo>()
+                // Get files recursively
+                getAllFiles(split[0], split[1], "", allFiles)
+                // Create a new MlRepoInfo with all files
+                MlRepoInfo(
+                    initialInfo.code,
+                    initialInfo.msg,
+                    MlRepoData(
+                        tree = allFiles,
+                        last_commit = initialInfo.data.last_commit,
+                        commit_count = initialInfo.data.commit_count
+                    )
+                )
+            } else {
+                null
+            }
+        }.getOrElse {
+            callback?.onDownloadFailed(modelId, FileDownloadException("getRepoInfoFailed" + it.message))
+            null
+        }
         if (modelInfo != null) {
             callback?.onDownloadTaskAdded()
             downloadMlRepoInner(modelId, modelScopeId, modelInfo)
@@ -98,6 +124,23 @@ class MLModelDownloader(override var callback: ModelRepoDownloadCallback?,
         return modelInfo
     }
 
+    private fun getAllFiles(owner: String, repo: String, path: String, allFiles: MutableList<FileInfo>) {
+        Log.d(TAG, "getAllFiles: owner: $owner path $path repo:$repo")
+        kotlin.runCatching {
+            val response = mlApiClient.apiService.getModelFiles(owner, repo, path).execute()
+            val repoInfo = response.body()
+            
+            repoInfo?.data?.tree?.forEach { fileInfo ->
+                allFiles.add(fileInfo)
+                // If it's a directory, recursively get its files
+                if (fileInfo.type == "dir") {
+                    getAllFiles(owner, repo, fileInfo.path, allFiles)
+                }
+            }
+        }.getOrElse { error ->
+            Log.e(TAG, "Failed to get files for path $path: ${error.message}")
+        }
+    }
     private fun downloadMlRepoInner(modelId:String, modelScopeId: String, mlRepoInfo: MlRepoInfo) {
         Log.d(TAG, "downloadMlRepoInner")
         val folderLinkFile =
@@ -174,6 +217,9 @@ class MLModelDownloader(override var callback: ModelRepoDownloadCallback?,
         val fileDownloadTasks: MutableList<FileDownloadTask> = ArrayList()
         for (i in mlRepoInfo.data.tree.indices) {
             val subFile = mlRepoInfo.data.tree[i]
+            if (subFile.type == "dir") {
+                continue
+            }
             val fileDownloadTask = FileDownloadTask()
             fileDownloadTask.relativePath = subFile.path
             fileDownloadTask.fileMetadata = HfFileMetadata()

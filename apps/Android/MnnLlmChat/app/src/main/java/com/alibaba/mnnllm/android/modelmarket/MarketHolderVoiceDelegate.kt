@@ -21,6 +21,9 @@ class MarketHolderVoiceDelegate(
     private val modelDownloadManager: ModelDownloadManager
 ) {
     
+    // Holds the CheckBox for voice model
+    private var checkboxVoiceModel: CheckBox? = null
+    
     // Callback to notify when a voice model is set as default
     private var onVoiceModelChangedCallback: ((VoiceModelType, String) -> Unit)? = null
     
@@ -35,6 +38,21 @@ class MarketHolderVoiceDelegate(
      */
     fun setOnVoiceModelChangedCallback(callback: (VoiceModelType, String) -> Unit) {
         onVoiceModelChangedCallback = callback
+    }
+    
+    /**
+     * Attach a CheckBox for voiceDelegate to manage
+     */
+    fun attachCheckbox(checkbox: CheckBox) {
+        this.checkboxVoiceModel = checkbox
+    }
+    
+    /**
+     * Hide the checkbox, used for non-voice models
+     */
+    fun hideCheckbox() {
+        checkboxVoiceModel?.visibility = android.view.View.GONE
+        checkboxVoiceModel?.setOnCheckedChangeListener(null)
     }
     
     /**
@@ -71,6 +89,8 @@ class MarketHolderVoiceDelegate(
         modelMarketItem: ModelMarketItem,
         onModelUpdated: () -> Unit
     ) {
+        // Record the checkbox
+        attachCheckbox(checkbox)
         if (isCompleted) {
             // Hide button and show checkbox for completed voice models
             button.visibility = android.view.View.GONE

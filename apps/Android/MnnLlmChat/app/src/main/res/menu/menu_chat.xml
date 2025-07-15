@@ -17,6 +17,12 @@
         android:checkable="true"
         android:checked="true"/>
     <item
+        android:id="@+id/realtime_audio_playback"
+        android:title="@string/realtime_audio_playback"
+        app:showAsAction="never"
+        android:checkable="true"
+        android:checked="true"/>
+    <item
         android:id="@+id/menu_item_benchmark_test"
         android:title="@string/menu_item_benchmark_test"
         app:showAsAction="never" />

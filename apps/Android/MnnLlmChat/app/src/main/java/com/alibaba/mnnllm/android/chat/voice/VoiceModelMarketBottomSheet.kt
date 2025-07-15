@@ -313,7 +313,8 @@ class VoiceModelMarketBottomSheet : BottomSheetDialogFragment(), ModelMarketItem
     }
 
     override fun onDefaultVoiceModelChanged(item: ModelMarketItemWrapper) {
-        // Not used in this context, but required by the interface
+        // Refresh adapter to update all checkbox states, ensuring only one is selected
+        adapter.notifyDataSetChanged()
     }
     
     /**
