@@ -24,6 +24,8 @@
 #define FLOAT16_T float
 #endif
 
+#define BLOCKATTENTION 1
+
 namespace MNN {
 
 template <typename T>
@@ -97,7 +99,8 @@ static void pack_QK(char * pack_qk_dst, float * qk_src, int seq_len, int kv_seq_
 }
 
 template <typename T>
-static void mask_QK(float * unpack_qk, int seq_len, int kv_seq_len, float mScale, float min_val, const Tensor* mask) {
+static void mask_QK(float * unpack_qk, int seq_len, int kv_seq_len, float mScale, float min_val, const Tensor* mask, int begin=0, int chunk=0) {
+    chunk = (chunk==0) ? seq_len : chunk;
     if (seq_len == 1 || mask == nullptr) {
         for (int i = 0; i < kv_seq_len; i++) {
             unpack_qk[i] = unpack_qk[i] * mScale;
@@ -106,9 +109,9 @@ static void mask_QK(float * unpack_qk, int seq_len, int kv_seq_len, float mScale
         // float mask
         T* fpmask_ptr = mask->host<T>();
         int offset = kv_seq_len-seq_len;
-        for (int i=0; i<seq_len; ++i) {
+        for (int i=0; i<chunk; ++i) {
             auto unpack_qki = unpack_qk + i * kv_seq_len;
-            auto fpmask_ptri = fpmask_ptr + i * seq_len;
+            auto fpmask_ptri = fpmask_ptr + (begin + i) * seq_len;
             for (int j=0; j<offset; ++j) {
                 unpack_qki[j] = unpack_qki[j] * mScale;
             }
@@ -119,8 +122,8 @@ static void mask_QK(float * unpack_qk, int seq_len, int kv_seq_len, float mScale
     } else {
         // int mask
         int* mask_ptr = mask->host<int>();
-        for (int i = 0; i < seq_len * kv_seq_len; i++) {
-            if (mask_ptr[i]) {
+        for (int i = 0; i < chunk * kv_seq_len; i++) {
+            if (mask_ptr[i + begin * kv_seq_len]) {
                 unpack_qk[i] = unpack_qk[i] * mScale;
             } else {
                 unpack_qk[i] = min_val;
@@ -239,10 +242,17 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
     bool quant_key = mKVCacheManager->config()->mQuantKey;
     bool quant_value = mKVCacheManager->config()->mQuantValue;
     // Temporary tensors for intermediate results
+#ifdef BLOCKATTENTION
+    std::shared_ptr<Tensor> packQK(Tensor::createDevice<float>({mThreadNum, UP_DIV(kv_seq_len, unit), eP, unit}));
+    std::shared_ptr<Tensor> unpackQK(Tensor::createDevice<int32_t>({mThreadNum, eP, kv_seq_len}));
+    std::shared_ptr<Tensor> softmMaxQ(Tensor::createDevice<int32_t>({mThreadNum, eP, kv_seq_len}));
+    std::shared_ptr<Tensor> newPackQK(Tensor::createDevice<float>({mThreadNum, 1, kv_seq_len, eP}));
+#else
     std::shared_ptr<Tensor> packQK(Tensor::createDevice<float>({mThreadNum, UP_DIV(kv_seq_len, unit), seq_len, unit}));
     std::shared_ptr<Tensor> unpackQK(Tensor::createDevice<int32_t>({mThreadNum, seq_len, kv_seq_len}));
     std::shared_ptr<Tensor> softmMaxQ(Tensor::createDevice<int32_t>({mThreadNum, seq_len, kv_seq_len}));
     std::shared_ptr<Tensor> newPackQK(Tensor::createDevice<float>({mThreadNum, UP_DIV(seq_len, eP), kv_seq_len, eP}));
+#endif
     std::shared_ptr<Tensor> dequantV(Tensor::createDevice<float>({mKvNumHead, UP_DIV(mHeadDim, hP), kv_seq_len, hP}));
     backend()->onAcquireBuffer(packQK.get(), Backend::STATIC);
     backend()->onAcquireBuffer(unpackQK.get(), Backend::STATIC);
@@ -255,11 +265,18 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
 
     std::function<void(int)> mCompute = [=](int tId) {
         auto pack_q      = mPackQ->host<char>() + tId * UP_DIV(seq_len, eP) * mHeadDim * eP * bytes;
+#ifdef BLOCKATTENTION
+        auto pack_qk     = packQK->host<char>() + tId * UP_DIV(kv_seq_len, unit) * eP * unit * bytes;
+        auto unpack_qk   = unpackQK->host<float>() + tId * eP * kv_seq_len;
+        auto softmax_qk  = softmMaxQ->host<float>() + tId * eP * kv_seq_len;
+        auto new_pack_qk = newPackQK->host<char>() + tId * 1 * kv_seq_len * eP * bytes;
+#else
         auto pack_qk     = packQK->host<char>() + tId * UP_DIV(kv_seq_len, unit) * seq_len * unit * bytes;
-        char * sum_q     = nullptr;
         auto unpack_qk   = unpackQK->host<float>() + tId * seq_len * kv_seq_len;
         auto softmax_qk  = softmMaxQ->host<float>() + tId * seq_len * kv_seq_len;
         auto new_pack_qk = newPackQK->host<char>() + tId * UP_DIV(seq_len, eP) * kv_seq_len * eP * bytes;
+#endif
+        char * sum_q     = nullptr;
         auto pack_qkv    = mPackQKV->host<char>() + tId * UP_DIV(mHeadDim, unit) * seq_len * unit * bytes;
         auto QxK         = quant_key ? core->MNNPackedMatMul_int8 : core->MNNPackedMatMul;
         auto QxK_remain  = quant_key ? core->MNNPackedMatMulRemain_int8 : core->MNNPackedMatMulRemain;
@@ -281,6 +298,63 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
                 pack_query<float>(query, pack_q, sum_q, seq_len, h, q_scale);
             }
             // query @ key
+#ifdef BLOCKATTENTION
+            // QKV quant not supported for now
+            int loop_e = seq_len / eP;
+            int remain = seq_len % eP;
+            for (int i = 0 ; i < loop_e; i++) {
+                {
+                    size_t shapeParameters[7] = {(size_t)eP * bytes, (size_t)mHeadDim, (size_t)kv_seq_len, (size_t)eP * unit * bytes, 0, 0, 0};
+                    QxK((float*)(pack_qk), (float*)(pack_q + (i * mHeadDim * eP) * bytes), (float*)key_addr, shapeParameters, nullptr, nullptr, (float*)scale_addr, (float*)zero_point_addr);
+                }
+                // qk: [kv_seq_len/unit, block_seq_len, unit] -> [block_seq_len, kv_seq_len] -> [block_seq_len/eP, kv_seq_len, eP]
+                int block_seq_len = eP;
+                if(bytes == 2) {
+                    unpack_QK<FLOAT16_T>(unpack_qk, pack_qk, block_seq_len, kv_seq_len);
+                    mask_QK<FLOAT16_T>(unpack_qk, seq_len, kv_seq_len, mScale, std::numeric_limits<float>::lowest(), mask, i*eP, block_seq_len);
+                    softmax_QK(softmax_qk, unpack_qk, block_seq_len, kv_seq_len);
+                    pack_QK<FLOAT16_T>(new_pack_qk, softmax_qk, block_seq_len, kv_seq_len, eP);
+                } else {
+                    unpack_QK<float>(unpack_qk, pack_qk, block_seq_len, kv_seq_len);
+                    mask_QK<float>(unpack_qk, seq_len, kv_seq_len, mScale, std::numeric_limits<float>::lowest(), mask, i*eP, block_seq_len);
+                    softmax_QK(softmax_qk, unpack_qk, block_seq_len, kv_seq_len);
+                    pack_QK<float>(new_pack_qk, softmax_qk, block_seq_len, kv_seq_len, eP);
+                }
+                {
+                    size_t shapeParameters[7] = {(size_t)eP * bytes, (size_t)kv_seq_len, (size_t)mHeadDim, (size_t)seq_len * unit * bytes, 0, 0, 0};
+                    shapeParameters[5] = quant_value ? 0 : (max_len - kv_seq_len) * hP * bytes;
+                    core->MNNPackedMatMul((float*)(pack_qkv + (i * eP * unit) * bytes), (float*)(new_pack_qk), (float*)value_addr, shapeParameters, nullptr, nullptr, nullptr, nullptr);
+                }
+            }
+            {
+                size_t shapeParameters[7] = {(size_t)eP * bytes, (size_t)mHeadDim, (size_t)kv_seq_len, (size_t)remain * unit * bytes, 0, 0, 0};
+                QxK_remain((float*)(pack_qk), (float*)(pack_q + (loop_e * mHeadDim * eP) * bytes), (float*)key_addr, remain, shapeParameters, nullptr, nullptr, (float*)scale_addr, (float*)zero_point_addr);
+            }
+            int block_seq_len = remain;
+            if(bytes == 2) {
+                unpack_QK<FLOAT16_T>(unpack_qk, pack_qk, block_seq_len, kv_seq_len);
+                mask_QK<FLOAT16_T>(unpack_qk, seq_len, kv_seq_len, mScale, std::numeric_limits<float>::lowest(), mask, loop_e*eP, block_seq_len);
+                softmax_QK(softmax_qk, unpack_qk, block_seq_len, kv_seq_len);
+                pack_QK<FLOAT16_T>(new_pack_qk, softmax_qk, block_seq_len, kv_seq_len, eP);
+            } else {
+                unpack_QK<float>(unpack_qk, pack_qk, block_seq_len, kv_seq_len);
+                mask_QK<float>(unpack_qk, seq_len, kv_seq_len, mScale, std::numeric_limits<float>::lowest(), mask, loop_e*eP, block_seq_len);
+                softmax_QK(softmax_qk, unpack_qk, block_seq_len, kv_seq_len);
+                pack_QK<float>(new_pack_qk, softmax_qk, block_seq_len, kv_seq_len, eP);
+            }
+            {
+                size_t shapeParameters[7] = {(size_t)eP * bytes, (size_t)kv_seq_len, (size_t)mHeadDim, (size_t)seq_len * unit * bytes, 0, 0, 0};
+                shapeParameters[5] = quant_value ? 0 : (max_len - kv_seq_len) * hP * bytes;
+                core->MNNPackedMatMulRemain((float*)(pack_qkv + (loop_e * eP * unit) * bytes), (float*)(new_pack_qk), (float*)value_addr, remain, shapeParameters, nullptr, nullptr, nullptr, nullptr);
+            }
+            // unpack: [head_dim/unit, seq_len, unit] -> [seq_len, num_head, head_dim]
+            auto dst_ptr = outputs[0]->host<char>() + h * mHeadDim * bytes;
+            if (bytes == 2) {
+                unpack_QKV<int16_t>(pack_qkv, dst_ptr, mNumHead, mHeadDim, unit, seq_len);
+            } else {
+                unpack_QKV<float>(pack_qkv, dst_ptr, mNumHead, mHeadDim, unit, seq_len);
+            }
+#else
             if (mUseGemmInt8) {
                 auto GemmInt8Kernel = static_cast<CPUBackend*>(backend())->int8Functions()->Int8GemmKernel;
                 if (bytes == 2 && unit == 8) {
@@ -361,6 +435,7 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
             } else {
                 unpack_QKV<float>(pack_qkv, dst_ptr, mNumHead, mHeadDim, unit, seq_len);
             }
+#endif
         }
     };
 
