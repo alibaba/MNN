@@ -195,6 +195,9 @@ static int eval(Llm* llm, std::string prompt_file, int max_token_number) {
     prompts = {prompt};
 #else
     while (std::getline(prompt_fs, prompt)) {
+        if (prompt.empty()) {
+            continue;
+        }
         if (prompt.back() == '\r') {
             prompt.pop_back();
         }

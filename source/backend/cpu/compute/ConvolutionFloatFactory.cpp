@@ -8,6 +8,7 @@
 
 #include "backend/cpu/compute/ConvolutionFloatFactory.h"
 #include "backend/cpu/CPUConvolutionDepthwise.hpp"
+#include "backend/cpu/CPURuntime.hpp"
 #include "backend/cpu/compute/ConvOpt.h"
 #include "backend/cpu/compute/Convolution1x1Strassen.hpp"
 #include "backend/cpu/compute/ConvolutionGroup.hpp"
@@ -22,6 +23,11 @@
 #include "core/OpCommonUtils.hpp"
 #include "backend/cpu/OneDNNConvolution.hpp"
 #include "backend/cpu/compute/ConvInt8TiledExecutor.hpp"
+#ifdef MNN_KLEIDIAI_ENABLED
+#include "backend/cpu/compute/KleidiAIConvInt8.hpp"
+#include "backend/cpu/compute/KleidiAIConvolution.hpp"
+#include "backend/cpu/compute/KleidiAIDenseConvolution.hpp"
+#endif //MNN_KLEIDIAI_ENABLED
 
 namespace MNN {
 
@@ -48,6 +54,41 @@ static Execution* _createUnit(const Tensor* input, const Tensor* output, Backend
 #ifdef MNN_LOW_MEMORY
     if (lowMemory && nullptr != weightQuantInfo.get() && originWeightSize == 0) {
         if (cpuBackend->memoryMode() == BackendConfig::Memory_Low) {
+#ifdef MNN_KLEIDIAI_ENABLED
+            do {
+                if (!weightQuantInfo->canUseInt4) {
+                    break;
+                }
+                auto convOp = op->main_as_Convolution2D();
+                auto core = static_cast<CPUBackend*>(backend)->functions();
+                int oc = convOp->common()->outputCount();
+                int ic = convOp->common()->inputCount();
+
+                int blockNum = 1;
+                int dequantCnt = weightQuantInfo->alphaSize;
+                if (weightQuantInfo->asymmetric) {
+                    dequantCnt /= 2;
+                }
+                blockNum = dequantCnt / oc;
+
+                bool bAsym = weightQuantInfo->asymmetric;
+                size_t blkSize = blockNum == 1 ? 0 : ic / blockNum;
+
+                KleidiAI::AccelType accelType = KleidiAI::getQIntAccelType(4, bAsym, blkSize, core->bytes);
+
+                KleidiAI& kai = KleidiAI::getInstance(*MNNGetCPUInfo());
+                if(!kai.isLoaded(accelType)) {
+                    kai.setLoaded(accelType);
+                    kai.printInfo(accelType);
+                }
+
+                if(!kai.canAccelerate(accelType, convOp->common())){
+                    break;
+                }
+                return new KleidiAIConvInt8(backend, op, weightQuantInfo, true, kai, accelType, blockNum);
+            } while (0);
+#endif
+
             return new DenseConvInt8TiledExecutor(backend, op, weightQuantInfo, true);
         } else {
             return new DenseConvolutionTiledExecutor(common, backend, originWeight, originWeightSize, bias, biasSize, weightQuantInfo);
@@ -55,14 +96,37 @@ static Execution* _createUnit(const Tensor* input, const Tensor* output, Backend
     }
 #else
     if (cpuBackend->memoryMode() == BackendConfig::Memory_Low) {
+#ifdef MNN_KLEIDIAI_ENABLED
+	if (MNNGetCPUInfo()->sme2 && !weigthQauntInfo && cpuBackend->functions()->bytes == 4) {
+	    return new KleidiAIDenseConvolution(common, backend, originWeight, originWeightSize, bias, biasSize, weightQuantInfo);
+	}
+#else
         return new DenseConvolutionTiledExecutor(common, backend, originWeight, originWeightSize, bias, biasSize, weightQuantInfo);
+#endif
     }
 #endif
+
 #ifndef MNN_REDUCE_SIZE
     if (fastWay && cpuBackend->functions()->matmulBytes == 0) {
+#ifdef MNN_KLEIDIAI_ENABLED
+        auto bytes = cpuBackend->functions()->bytes; 
+        auto accelType = (bytes==2) ? KleidiAI::AccelType::FP16 : KleidiAI::AccelType::FP32;
+        KleidiAI& kai = KleidiAI::getInstance(*MNNGetCPUInfo());
+        if (kai.canAccelerate(accelType)){
+            return new KleidiAIConvolution(common, backend, originWeight, originWeightSize, bias, biasSize);
+        }
+#endif //MNN_KLEIDIAI_ENABLED
+
         return new Convolution1x1Strassen(common, backend, originWeight, originWeightSize, bias, biasSize);
     }
 #endif
+
+#ifdef MNN_KLEIDIAI_ENABLED
+    if (MNNGetCPUInfo()->sme2 && !weightQuantInfo && cpuBackend->functions()->bytes == 4) {
+	return new KleidiAIDenseConvolution(common, backend, originWeight, originWeightSize, bias, biasSize, weightQuantInfo);
+    }
+#endif
+
     if (cpuBackend->getRuntime()->hint().winogradMemoryUsed == 0 || (!ConvolutionWinogradBridge::canUseWinograd(common))) {
         return new DenseConvolutionTiledExecutor(common, backend, originWeight, originWeightSize, bias, biasSize, nullptr);
     }

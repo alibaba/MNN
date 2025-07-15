@@ -1266,7 +1266,9 @@ public:
         return true;
     }
 };
+#ifndef MNN_KLEIDIAI_ENABLED
 MNNTestSuiteRegister(WinogradMemoryTest, "expr/WinogradMemoryTest");
+#endif
 
 
 class SequenceMemoryTest : public MNNTestCase {
