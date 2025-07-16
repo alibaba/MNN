@@ -467,4 +467,11 @@
     <string name="report_issue_confirm_title">确认</string>
     <string name="report_issue_confirm_message">是否确认在 GitHub 上提 Issue？</string>
     <string name="confirm">确认</string>
+
+    <!-- Leaderboard Strings -->
+    <string name="upload_to_leaderboard">上传到排行榜</string>
+    <string name="leaderboard_ranking">您的排名</string>
+    <string name="leaderboard_rank_info">您的排名：第 %1$d 名，共 %2$d 位用户</string>
+    <string name="leaderboard_rank_not_found">暂无排名信息</string>
+    <string name="ok">确定</string>
 </resources>

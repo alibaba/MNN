@@ -470,4 +470,11 @@
     <string name="report_issue_confirm_title">Confirm</string>
     <string name="report_issue_confirm_message">Are you sure to report an issue on GitHub?</string>
     <string name="confirm">Confirm</string>
+
+    <!-- Leaderboard Strings -->
+    <string name="upload_to_leaderboard">Upload to Leaderboard</string>
+    <string name="leaderboard_ranking">Your Ranking</string>
+    <string name="leaderboard_rank_info">Your rank: %1$d out of %2$d users</string>
+    <string name="leaderboard_rank_not_found">Ranking information not available</string>
+    <string name="ok">OK</string>
 </resources>

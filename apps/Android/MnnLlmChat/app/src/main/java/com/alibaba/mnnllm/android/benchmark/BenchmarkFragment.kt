@@ -3,7 +3,6 @@ package com.alibaba.mnnllm.android.benchmark
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Canvas
-import android.net.Uri
 import android.os.Bundle
 import android.util.Log
 import android.view.LayoutInflater
@@ -11,12 +10,10 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.Toast
-import androidx.appcompat.app.AlertDialog
 import androidx.core.content.FileProvider
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import java.io.FileOutputStream
-import java.io.IOException
 import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.databinding.FragmentBenchmarkBinding
 import com.alibaba.mnnllm.android.utils.ModelListManager
@@ -327,6 +324,41 @@ class BenchmarkFragment : Fragment(), BenchmarkContract.View {
             Log.e(TAG, "Error sharing result card", e)
             showToast("Failed to share result: ${e.message}")
         }
+    }
+
+    override fun uploadToLeaderboard() {
+        presenter?.onUploadToLeaderboardClicked()
+    }
+    
+    override fun showUploadProgress(message: String) {
+        binding.textStatus.text = message
+        binding.textStatus.visibility = View.VISIBLE
+        // Disable the upload button while uploading
+        binding.startTestButton.isEnabled = false
+        Log.d(TAG, "Showing upload progress: $message")
+    }
+    
+    override fun hideUploadProgress() {
+        binding.textStatus.visibility = View.GONE
+        // Re-enable the upload button
+        binding.startTestButton.isEnabled = true
+        Log.d(TAG, "Hiding upload progress")
+    }
+    
+    override fun showRankInfo(rank: Int, totalUsers: Int) {
+        val rankMessage = if (rank > 0) {
+            getString(R.string.leaderboard_rank_info, rank, totalUsers)
+        } else {
+            getString(R.string.leaderboard_rank_not_found)
+        }
+        
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle(getString(R.string.leaderboard_ranking))
+            .setMessage(rankMessage)
+            .setPositiveButton(getString(R.string.ok), null)
+            .show()
+        
+        Log.d(TAG, "Showing rank info: rank=$rank, totalUsers=$totalUsers")
     }
 
     private fun createBitmapFromView(view: View): Bitmap {

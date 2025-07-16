@@ -43,8 +43,12 @@ class BenchmarkContract {
         fun showModelSelectorCard(show: Boolean)
         fun updateButtonLayout(showBackButton: Boolean)
         
-        // Share functionality
+        // Share and Leaderboard functionality
         fun shareResultCard()
+        fun uploadToLeaderboard()
+        fun showUploadProgress(message: String)
+        fun hideUploadProgress()
+        fun showRankInfo(rank: Int, totalUsers: Int)
     }
     
     interface Presenter {
@@ -57,6 +61,7 @@ class BenchmarkContract {
         fun onSubmitResultClicked()
         fun onViewLeaderboardClicked()
         fun onBackClicked()
+        fun onUploadToLeaderboardClicked()
         fun getCurrentState(): BenchmarkState
     }
     

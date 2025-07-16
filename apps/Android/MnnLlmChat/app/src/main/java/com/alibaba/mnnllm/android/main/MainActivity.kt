@@ -404,14 +404,16 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
                 
-                supportFragmentManager.beginTransaction()
-                    .hide(currentFragment!!)
-                    .show(targetFragment)
+                val transaction = supportFragmentManager.beginTransaction()
+                // Only hide currentFragment if it's not null
+                if (currentFragment != null) {
+                    transaction.hide(currentFragment!!)
+                }
+                transaction.show(targetFragment)
                     .commitNow()
                 currentFragment = targetFragment
                 invalidateOptionsMenu()
             }
-            // 根据tab类型设置标题和模式
             when (tab) {
                 BottomTabBar.Tab.LOCAL_MODELS -> {
                     updateMainTitleSwitcherMode(false)

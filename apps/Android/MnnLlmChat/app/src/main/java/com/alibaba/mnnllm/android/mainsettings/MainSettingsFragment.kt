@@ -11,6 +11,7 @@ import android.widget.Toast
 import androidx.preference.ListPreference
 import androidx.preference.Preference
 import androidx.preference.PreferenceFragmentCompat
+import com.alibaba.mls.api.source.ModelSources
 import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.debug.DebugActivity
 import com.alibaba.mnnllm.android.update.UpdateChecker
@@ -115,8 +116,8 @@ class MainSettingsFragment : PreferenceFragmentCompat() {
         downloadProviderPref?.apply {
             fun updateSummary(vale:String) {
                 summary = when (vale) {
-                    "HuggingFace" -> vale
-                    "ModelScope" -> getString(R.string.modelscope)
+                    ModelSources.sourceHuffingFace -> vale
+                    ModelSources.sourceModelScope -> getString(R.string.modelscope)
                     else -> getString(R.string.modelers)
                 }
             }

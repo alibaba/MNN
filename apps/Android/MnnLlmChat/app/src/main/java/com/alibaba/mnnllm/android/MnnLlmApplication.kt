@@ -8,6 +8,7 @@ import com.alibaba.mnnllm.android.utils.CrashUtil
 import com.alibaba.mnnllm.android.utils.CurrentActivityTracker
 import timber.log.Timber
 import android.content.Context
+import com.alibaba.mls.api.ModelTagsCache
 import com.jaredrummler.android.device.DeviceName
 
 class MnnLlmApplication : Application() {
@@ -21,12 +22,12 @@ class MnnLlmApplication : Application() {
         // Initialize CurrentActivityTracker
         CurrentActivityTracker.initialize(this)
 
-        //Application 初始化时种下日志：
         Timber.plant(Timber.DebugTree())
 
         // Initialize model tags cache for proper tag loading
-        com.alibaba.mls.api.ModelTagsCache.initializeCache(this)
+        ModelTagsCache.initializeCache(this)
     }
+
     companion object {
         private lateinit var instance: MnnLlmApplication
 

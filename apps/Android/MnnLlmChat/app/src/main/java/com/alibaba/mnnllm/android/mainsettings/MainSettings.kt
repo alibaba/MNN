@@ -13,8 +13,8 @@ object MainSettings {
     fun getDownloadProvider(context: Context): ModelSources.ModelSourceType {
         val result = getDownloadProviderString(context)
         return when (result) {
-            "HuggingFace" -> ModelSources.ModelSourceType.HUGGING_FACE
-            "ModelScope" -> ModelSources.ModelSourceType.MODEL_SCOPE
+            ModelSources.sourceHuffingFace -> ModelSources.ModelSourceType.HUGGING_FACE
+            ModelSources.sourceModelScope -> ModelSources.ModelSourceType.MODEL_SCOPE
             else -> ModelSources.ModelSourceType.MODELERS
          }
     }
@@ -30,8 +30,8 @@ object MainSettings {
         return sharedPreferences.getString("download_provider", getDefaultDownloadProvider())!!
     }
 
-    fun getDefaultDownloadProvider():String {
-        return if (DeviceUtils.isChinese) "ModelScope" else "HuggingFace"
+    private fun getDefaultDownloadProvider():String {
+        return if (DeviceUtils.isChinese) ModelSources.sourceModelScope else ModelSources.sourceHuffingFace
     }
 
     fun isStopDownloadOnChatEnabled(context: Context): Boolean {

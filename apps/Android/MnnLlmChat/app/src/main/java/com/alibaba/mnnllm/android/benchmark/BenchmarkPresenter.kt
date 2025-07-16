@@ -26,6 +26,12 @@ class BenchmarkPresenter(
     private var selectedModelWrapper: ModelListManager.ModelItemWrapper? = null
     private var availableModels: List<ModelListManager.ModelItemWrapper> = emptyList()
     private val stateMachine = BenchmarkStateMachine()
+    private val leaderboardService = LeaderboardService()
+    private var currentBenchmarkResults: BenchmarkContract.BenchmarkResults? = null
+    
+    // Feature toggle: true for leaderboard upload, false for share
+    // You can change this to false to test the share functionality
+    private val useLeaderboardUpload = true 
     
     override fun onCreate() {
         Log.d(TAG, "onCreate called, initial state: ${stateMachine.getCurrentState()}")
@@ -106,7 +112,10 @@ class BenchmarkPresenter(
                 showBenchmarkProgressBar = true
             )
             BenchmarkState.COMPLETED -> BenchmarkUIState(
-                startButtonText = context.getString(R.string.share),
+                startButtonText = if (useLeaderboardUpload) 
+                    context.getString(R.string.upload_to_leaderboard) 
+                else 
+                    context.getString(R.string.share),
                 startButtonEnabled = true,
                 showProgressBar = false,
                 showResults = true,
@@ -207,8 +216,13 @@ class BenchmarkPresenter(
                 }
             }
             BenchmarkState.COMPLETED -> {
-                Log.d(TAG, "In COMPLETED state, sharing result card")
-                view.shareResultCard()
+                if (useLeaderboardUpload) {
+                    Log.d(TAG, "In COMPLETED state, uploading to leaderboard")
+                    view.uploadToLeaderboard()
+                } else {
+                    Log.d(TAG, "In COMPLETED state, sharing result card")
+                    view.shareResultCard()
+                }
             }
             BenchmarkState.RUNNING, BenchmarkState.INITIALIZING -> {
                 Log.d(TAG, "In RUNNING/INITIALIZING state, checking if can stop")
@@ -276,6 +290,74 @@ class BenchmarkPresenter(
     }
     
     override fun onViewLeaderboardClicked() {
+    }
+    
+    override fun onUploadToLeaderboardClicked() {
+        val results = currentBenchmarkResults
+        if (results == null) {
+            Log.w(TAG, "No benchmark results available for upload")
+            view.showError("No benchmark results available")
+            return
+        }
+        
+        Log.d(TAG, "Starting leaderboard upload")
+        
+        lifecycleScope.launch {
+            try {
+                view.showUploadProgress("Uploading results to leaderboard...")
+                
+                // Extract speeds from test results
+                val statistics = BenchmarkResultsHelper.processTestResults(context, results.testResults)
+                val prefillSpeed = statistics.prefillStats?.average ?: 0.0
+                val decodeSpeed = statistics.decodeStats?.average ?: 0.0
+                val memoryUsageMb = results.maxMemoryKb / 1024.0
+                
+                // Submit score to leaderboard
+                val submitResult = leaderboardService.submitScore(
+                    context,
+                    results.modelDisplayName,
+                    prefillSpeed,
+                    decodeSpeed,
+                    memoryUsageMb
+                )
+                
+                when (submitResult) {
+                    is LeaderboardService.SubmitResult.Success -> {
+                        Log.d(TAG, "Upload successful, getting rank")
+                        view.showUploadProgress("Getting your ranking...")
+                        
+                        // Get user ranking
+                        val rankResult = leaderboardService.getUserRank(
+                            context,
+                            results.modelDisplayName
+                        )
+                        
+                        view.hideUploadProgress()
+                        
+                        when (rankResult) {
+                            is LeaderboardService.RankResult.Success -> {
+                                val rankData = rankResult.rankData
+                                view.showRankInfo(rankData.rank, rankData.totalUsers)
+                                view.showToast("Successfully uploaded to leaderboard!")
+                            }
+                            is LeaderboardService.RankResult.Error -> {
+                                Log.w(TAG, "Failed to get rank: ${rankResult.message}")
+                                view.showToast("Uploaded successfully, but couldn't get ranking")
+                            }
+                        }
+                    }
+                    is LeaderboardService.SubmitResult.Error -> {
+                        Log.e(TAG, "Upload failed: ${submitResult.message}")
+                        view.hideUploadProgress()
+                        view.showError("Upload failed: ${submitResult.message}")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Upload error", e)
+                view.hideUploadProgress()
+                view.showError("Upload failed: ${e.message}")
+            }
+        }
     }
     
     override fun getCurrentState(): BenchmarkState {
@@ -442,6 +524,9 @@ class BenchmarkPresenter(
                                 Log.d(TAG, "Ignoring completion results in state: $currentState")
                                 return
                             }
+                            
+                            // Save results for leaderboard upload
+                            currentBenchmarkResults = results
                             
                             // Transition to COMPLETED state and show results
                             Log.d(TAG, "Transitioning to COMPLETED state and showing results")
