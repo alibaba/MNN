@@ -341,25 +341,24 @@ Backend* CPURuntime::onCreate(const BackendConfig* config, Backend* origin) cons
     MNN_PRINT("cpu backend was created by runtime:%p\n", this);
 #endif
     CPUBackend* res = nullptr;
-    auto initThreadNumber = hint().initThreadNumber;
     do {
 #ifdef MNN_USE_ARMV82
         auto core = MNNGetCoreFunctions();
         if (core->supportFp16arith && precision == BackendConfig::Precision_Low) {
-            res = new Arm82Backend(this, memory, initThreadNumber);
+            res = new Arm82Backend(this, memory);
             break;
         }
 #endif
 #ifdef MNN_SUPPORT_BF16
         if (precision == BackendConfig::Precision_Low_BF16 && BF16Functions::get()) {
-            res = new CPUBackend(this, precision, memory, MNN_FORWARD_CPU_EXTENSION, 0, initThreadNumber);
+            res = new CPUBackend(this, precision, memory, MNN_FORWARD_CPU_EXTENSION);
             res->mCoreFunctions = BF16Functions::get();
             break;
         }
 #endif
         if (flags == MNN_CPU_USE_DEFAULT_BACKEND) {
             // Default don't use multi-thread init
-            res = new CPUBackend(this, precision, memory, MNN_FORWARD_CPU, 0, 0);
+            res = new CPUBackend(this, precision, memory, MNN_FORWARD_CPU, 0);
             break;
         }
 #ifdef MNN_USE_SSE
@@ -368,7 +367,7 @@ Backend* CPURuntime::onCreate(const BackendConfig* config, Backend* origin) cons
             break;
         }
 #endif
-        res = new CPUBackend(this, precision, memory, MNN_FORWARD_CPU, flags, initThreadNumber);
+        res = new CPUBackend(this, precision, memory, MNN_FORWARD_CPU, flags);
     } while (false);
     mSharedDmaInfo = nullptr;
     return res;
@@ -460,7 +459,7 @@ BufferAllocator* CPURuntime::createDynamicBufferAlloctor(int index) const {
     }
     return new EagerBufferAllocator(BufferAllocator::Allocator::createRecurse(mStaticAllocator.get()));
 }
-CPUBackend::CPUBackend(const CPURuntime* runtime, BackendConfig::PrecisionMode precision, BackendConfig::MemoryMode memory, MNNForwardType type, size_t flags, int initThreadNumber) : Backend(type) {
+CPUBackend::CPUBackend(const CPURuntime* runtime, BackendConfig::PrecisionMode precision, BackendConfig::MemoryMode memory, MNNForwardType type, size_t flags) : Backend(type) {
 #ifdef LOG_VERBOSE
     MNN_PRINT("cpu backend create\n");
 #endif

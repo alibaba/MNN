@@ -105,7 +105,7 @@ private:
 };
 class CPUBackend : public Backend {
 public:
-    CPUBackend(const CPURuntime* runtime, BackendConfig::PrecisionMode precision, BackendConfig::MemoryMode memory, MNNForwardType type = MNN_FORWARD_CPU, size_t flags = 0, int initThreadNumber = 0);
+    CPUBackend(const CPURuntime* runtime, BackendConfig::PrecisionMode precision, BackendConfig::MemoryMode memory, MNNForwardType type = MNN_FORWARD_CPU, size_t flags = 0);
     virtual ~CPUBackend();
 
     // Return sizeDivide, scheduleNumber aligned memory
