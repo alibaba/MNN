@@ -83,6 +83,7 @@ int MNNGetCurrentPid() {
 #endif
 }
 
+#if defined (__linux__)
 // Referenced from: (LINUX) bits/cpu-set.h
 // https://sourceware.org/git/?p=glibc.git;a=blob_plain;f=posix/bits/cpu-set.h;hb=HEAD
 // Copied from: (ANDROID) libc/include/sched.h
@@ -121,7 +122,7 @@ int MNNGetCurrentPid() {
         if (__cpu < 8 * (setsize))                                \
             (set)->__bits[__CPU_ELT(__cpu)] |= __CPU_MASK(__cpu); \
     } while (0)
-
+#endif
 int MNNSetSchedAffinity(const int* cpuIDs, int size) {
 #if defined (__linux__)
     /**
@@ -149,6 +150,7 @@ int MNNSetSchedAffinity(const int* cpuIDs, int size) {
 }
 
 cpu_mask_t MNNGetCPUMask(const std::vector<int>& cpuIds) {
+#if defined (__linux__)
     /**
      * [cpu_set_t](https://man7.org/linux/man-pages/man3/CPU_SET.3.html) is a
      * statically-sized CPU set. See `CPU_ALLOC` for dynamically-sized CPU sets.
@@ -162,6 +164,8 @@ cpu_mask_t MNNGetCPUMask(const std::vector<int>& cpuIds) {
         CPU_SET(i, &cpuMask);
     }
     return cpuMask.__bits[0];
+#endif
+    return 0;
 }
 
 // cpuinfo
