@@ -148,7 +148,7 @@ int MNNSetSchedAffinity(const int* cpuIDs, int size) {
     return 0;
 }
 
-unsigned long MNNGetCPUMask(const std::vector<int>& cpuIds) {
+cpu_mask_t MNNGetCPUMask(const std::vector<int>& cpuIds) {
     /**
      * [cpu_set_t](https://man7.org/linux/man-pages/man3/CPU_SET.3.html) is a
      * statically-sized CPU set. See `CPU_ALLOC` for dynamically-sized CPU sets.

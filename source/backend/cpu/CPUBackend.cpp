@@ -124,7 +124,7 @@ void CPURuntime::_bindCPUCore() const {
                 break;
         }
     }
-        // Set CPU Affinity
+    // Set CPU Affinity
 #ifdef _OPENMP
     auto threadsNumber = mThreadNumber;
     std::vector<int> result(threadsNumber, 0);
@@ -134,12 +134,14 @@ void CPURuntime::_bindCPUCore() const {
     }
 #endif
 #ifdef MNN_USE_THREAD_POOL
-    ThreadPool::active(mThreadNumber);
-    ThreadPool::enqueue(std::make_pair([&](int i) {
-        MNNSetSchedAffinity(lockCPUIndexes[i].first, lockCPUIndexes[i].second);
-        return 0;
-    }, mThreadNumber), mTaskIndex, mThreadNumber);
-    ThreadPool::deactive(mThreadNumber);
+    if(mThreadPool) {
+        mThreadPool->active();
+        mThreadPool->enqueue(std::make_pair([&](int i) {
+            MNNSetSchedAffinity(lockCPUIndexes[i].first, lockCPUIndexes[i].second);
+            return 0;
+        }, mThreadNumber), mTaskIndex);
+        mThreadPool->deactive();
+    }
 #endif
 }
 
@@ -147,17 +149,14 @@ void CPURuntime::_resetThreadPool() {
     mThreadNumber = std::max(1, mThreadNumber);
     mThreadNumber = std::min(mThreadNumber, MAX_THREAD_NUMBER);
 #ifdef MNN_USE_THREAD_POOL
-    ThreadPool::releaseWorkIndex(mTaskIndex);
-    auto cpuInfo = MNNGetCPUInfo();
-    if (mThreadNumber > 1) {
-        int systemThreadNumber = (int)cpuInfo->cpuNumber;
-        if (systemThreadNumber == 0) {
-            systemThreadNumber = mThreadNumber;
-        }
-        mThreadNumber = ALIMIN(ThreadPool::init(systemThreadNumber), mThreadNumber);
+    if (mThreadPool) {
+        mThreadPool->releaseWorkIndex(mTaskIndex);
     }
     if (mThreadNumber > 1) {
-        mTaskIndex = ThreadPool::acquireWorkIndex();
+        mThreadNumber = ALIMIN(ThreadPool::init(mThreadNumber, mCpuMask, mThreadPool), mThreadNumber);
+        if (mThreadPool) {
+            mTaskIndex = mThreadPool->acquireWorkIndex();
+        }
         if (-1 == mTaskIndex) {
             MNN_ERROR("The ThreadPool has been used to MNN_THREAD_POOL_MAX_TASKS, can't use thread pool\n");
             mThreadNumber = 1;
@@ -235,8 +234,9 @@ void CPURuntime::onReset(int numberThread, const BackendConfig* config, bool ful
         }
     }
     mThreadNumber = numberThread;
-    _resetThreadPool();
     _validateCpuIds();
+    mCpuMask = MNNGetCPUMask(mCpuIds);
+    _resetThreadPool();
 }
 
 CPURuntime::CPURuntime(const Backend::Info& info) {
@@ -258,8 +258,9 @@ CPURuntime::CPURuntime(const Backend::Info& info) {
         mFlags = info.user->flags;
         mCpuIds = info.user->cpuIds;
     }
-    _resetThreadPool();
     _validateCpuIds();
+    mCpuMask = MNNGetCPUMask(mCpuIds);
+    _resetThreadPool();
 #ifdef LOG_VERBOSE
     MNN_PRINT("create CPURuntime:%p\n", this);
 #endif
@@ -267,7 +268,9 @@ CPURuntime::CPURuntime(const Backend::Info& info) {
 
 CPURuntime:: ~ CPURuntime() {
 #ifdef MNN_USE_THREAD_POOL
-    ThreadPool::releaseWorkIndex(mTaskIndex);
+    if(mThreadPool) {
+        mThreadPool->releaseWorkIndex(mTaskIndex);
+    }
 #endif
 }
 float CPURuntime::onGetMemoryInMB() {
@@ -406,9 +409,9 @@ void CPURuntime::onGabageCollect(int level) {
 void CPURuntime::onConcurrencyBegin() const {
 #ifdef MNN_USE_THREAD_POOL
     if (mTaskIndex >= 0) {
-        if (mThreadOpen == 0) {
+        if (mThreadOpen == 0 && mThreadPool) {
             // mThreadOpen 0 -> 1, open ThreadPool
-            ThreadPool::active(mThreadNumber);
+            mThreadPool->active();
         }
         mThreadOpen++;
     }
@@ -427,8 +430,8 @@ void CPURuntime::onConcurrencyEnd() const {
         MNN_ASSERT(mThreadOpen > 0);
         mThreadOpen--;
         mThreadOpen = mThreadOpen < 0 ? 0 : mThreadOpen;
-        if (0 == mThreadOpen) {
-            ThreadPool::deactive(mThreadNumber);
+        if (0 == mThreadOpen && mThreadPool) {
+            mThreadPool->deactive();
         }
     }
 #endif
@@ -464,6 +467,9 @@ CPUBackend::CPUBackend(const CPURuntime* runtime, BackendConfig::PrecisionMode p
     mMemory = memory;
     mRuntime = const_cast<CPURuntime*>(runtime);
     mThreadNumber = mRuntime->mThreadNumber;
+#ifdef MNN_USE_THREAD_POOL
+    mThreadPool = mRuntime->mThreadPool;
+#endif
     // Compute Group Rate
     do {
         if (mThreadNumber <= 1 || mRuntime->mPower == BackendConfig::Power_Low) {
@@ -520,13 +526,6 @@ CPUBackend::CPUBackend(const CPURuntime* runtime, BackendConfig::PrecisionMode p
         mCacheGroup[i].reset(new CPUResizeCache);
     }
     mCache = mCacheGroup[0].get();
-#if 0
-#ifndef MNN_FORBIT_MULTI_THREADS
-    if (initThreadNumber > 0) {
-        mInitWorkQueue.reset(new WorkerThread(initThreadNumber));
-    }
-#endif
-#endif
 }
 
 CPUBackend::~CPUBackend() {
