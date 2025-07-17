@@ -25,7 +25,7 @@ class ModelRepository(private val context: Context) {
     
     companion object {
         private const val TAG = "ModelRepository"
-        private const val NETWORK_URL = "https://meta.alicdn.com/data/mnn/apis/model_market_v2.json"
+        private const val NETWORK_URL = "https://meta.alicdn.com/data/mnn/apis/model_market.json"
         private const val CACHE_FILE_NAME = "model_market_cache.json"
         private const val CACHE_TIMESTAMP_KEY = "model_market_cache_timestamp"
         private const val CACHE_VALID_DURATION = 1 * 60 * 60 * 1000L 

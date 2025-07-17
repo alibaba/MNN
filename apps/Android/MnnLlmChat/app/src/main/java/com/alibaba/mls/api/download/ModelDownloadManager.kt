@@ -4,7 +4,6 @@ package com.alibaba.mls.api.download
 
 import android.Manifest
 import android.annotation.SuppressLint
-import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -18,7 +17,6 @@ import com.alibaba.mls.api.download.DownloadPersistentData.getDownloadSizeTotal
 import com.alibaba.mls.api.download.DownloadPersistentData.removeProgress
 import com.alibaba.mls.api.download.DownloadPersistentData.saveDownloadSizeSaved
 import com.alibaba.mls.api.download.DownloadPersistentData.saveDownloadSizeTotal
-import com.alibaba.mnnllm.android.BuildConfig
 import com.alibaba.mls.api.download.hf.HfModelDownloader
 import com.alibaba.mls.api.download.ml.MLModelDownloader
 import com.alibaba.mls.api.download.ms.MsModelDownloader

@@ -4,8 +4,13 @@
 package com.alibaba.mnnllm.android.modelmarket
 
 import android.util.Log
+import com.alibaba.mls.api.ApplicationProvider
 import com.alibaba.mnnllm.android.modelsettings.ModelConfig
+import com.alibaba.mnnllm.android.utils.ModelListManager
+import com.google.gson.Gson
 import com.google.gson.GsonBuilder
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.File
 
 object ModelMarketUtils {
@@ -37,4 +42,47 @@ object ModelMarketUtils {
         }
     }
 
+
+    suspend fun readMarketConfig(modelId:String):ModelMarketItem? {
+        return withContext(Dispatchers.IO) {
+            var marketItem: ModelMarketItem? = readMarketConfigFromLocal(modelId)
+            if (marketItem == null) {
+                //read from ModelRepository
+                try {
+                    val context = ApplicationProvider.get()
+                    val repository = ModelRepository(context)
+                    // Get all models from different categories and find the one with matching modelId
+                    val allModels = mutableListOf<ModelMarketItem>()
+                    allModels.addAll(repository.getModels())
+                    allModels.addAll(repository.getTtsModels()) 
+                    allModels.addAll(repository.getAsrModels())
+                    marketItem = allModels.find { it.modelId == modelId }
+                    if (marketItem != null) {
+                        writeMarketConfig(marketItem)
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to read from ModelRepository for $modelId", e)
+                }
+            }
+            marketItem
+        }
+    }
+
+    suspend fun readMarketConfigFromLocal(modelId:String):ModelMarketItem? {
+        return withContext(Dispatchers.IO) {
+            val marketConfigFile = ModelConfig.getMarketConfigFile(modelId)
+            var marketItem: ModelMarketItem? = null
+            try {
+                val configFile = File(marketConfigFile)
+                if (configFile.exists()) {
+                    val configJson = configFile.readText()
+                    marketItem = Gson().fromJson(configJson, ModelMarketItem::class.java)
+                    Log.d(TAG, "Loaded market config for ${modelId}: ${marketItem.modelName}")
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to load market config for ${modelId}", e)
+            }
+            marketItem
+        }
+    }
 }

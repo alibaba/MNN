@@ -12,6 +12,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.nio.file.Files
+import com.alibaba.mnnllm.android.modelsettings.ModelConfig
+import com.alibaba.mnnllm.android.modelmarket.ModelMarketItem
+import com.alibaba.mnnllm.android.modelmarket.ModelMarketUtils
+import com.google.gson.Gson
 
 object ModelListManager {
     private const val TAG = "ModelListManager"
@@ -68,6 +72,9 @@ object ModelListManager {
                 Log.d(TAG, "Found downloaded model: ${downloadedModel.modelId} at ${downloadedModel.modelPath}")
 
                 val modelItem = ModelItem.fromDownloadModel(context, downloadedModel.modelId, downloadedModel.modelPath)
+                // Set market item data if available
+                modelItem.modelMarketItem = ModelMarketUtils.readMarketConfig(downloadedModel.modelId)
+                
                 // Calculate download size
                 val downloadSize = try {
                     val file = File(downloadedModel.modelPath)

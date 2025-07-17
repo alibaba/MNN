@@ -7,6 +7,7 @@ import com.alibaba.mnnllm.android.model.ModelUtils
 import com.alibaba.mnnllm.android.model.ModelUtils.getModelName
 import com.alibaba.mnnllm.android.modelmarket.SourceSelectionDialogFragment
 import com.alibaba.mnnllm.android.utils.DeviceUtils
+import com.alibaba.mnnllm.android.modelmarket.ModelMarketItem
 
 class ModelItem {
     var modelId: String? = null
@@ -14,15 +15,17 @@ class ModelItem {
     private val tags: MutableList<String> = mutableListOf()
     private var source:String? = null
     private var marketTags: List<String>? = null // Cache for tags from model_market.json
+    var modelMarketItem: ModelMarketItem? = null // Market item data from market_config.json
 
     val modelName: String?
-        get() = getModelName(modelId)
+        get() = modelMarketItem?.modelName ?: getModelName(modelId)
 
     val isLocal: Boolean
         get() = !localPath.isNullOrEmpty()
 
     fun getTags(): List<String> {
         return when {
+            modelMarketItem != null -> modelMarketItem!!.tags
             !marketTags.isNullOrEmpty() -> marketTags!!
             else -> emptyList()
         }
