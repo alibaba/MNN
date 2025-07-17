@@ -14,7 +14,11 @@ import com.alibaba.mls.api.download.DownloadState
 import com.alibaba.mls.api.download.ModelDownloadManager
 import com.alibaba.mnnllm.android.model.Modality
 import com.alibaba.mnnllm.android.model.ModelUtils
+import com.alibaba.mnnllm.android.modelmarket.ModelMarketUtils.writeMarketConfig
+import com.alibaba.mnnllm.android.modelsettings.ModelConfig
+import com.google.gson.GsonBuilder
 import kotlinx.coroutines.launch
+import java.io.File
 import java.util.Locale
 
 class ModelMarketViewModel(application: Application) : AndroidViewModel(application), DownloadListener {
@@ -220,6 +224,8 @@ class ModelMarketViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    // Utility to write market config JSON after download
+
     // DownloadListener implementation - reusing logic from ModelListPresenter
     override fun onDownloadTotalSize(modelId: String, totalSize: Long) {
         mainHandler.post {
@@ -237,8 +243,8 @@ class ModelMarketViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
-    override fun onDownloadFailed(modelId: String, exception: Exception) {
-        Log.d(TAG, "[onDownloadFailed] Received for modelId: $modelId, error: ${exception.message}")
+    override fun onDownloadFailed(modelId: String, e: Exception) {
+        Log.d(TAG, "[onDownloadFailed] Received for modelId: $modelId, error: ${e.message}")
         mainHandler.post {
             val wrapper = allModels.find { it.modelMarketItem.modelId == modelId }
             if (wrapper != null) {
@@ -252,12 +258,12 @@ class ModelMarketViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
-    override fun onDownloadProgress(modelId: String, progress: DownloadInfo) {
-        Log.v(TAG, "[onDownloadProgress] Entry point for $modelId. Stage: ${progress.progressStage}, Progress: ${progress.progress}")
+    override fun onDownloadProgress(modelId: String, downloadInfo: DownloadInfo) {
+        Log.v(TAG, "[onDownloadProgress] Entry point for $modelId. Stage: ${downloadInfo.progressStage}, Progress: ${downloadInfo.progress}")
         val lastUpdateTime = lastUpdateTimeMap[modelId]
         val now = System.currentTimeMillis()
         val progressStateChanged = !TextUtils.equals(
-            progress.progressStage,
+            downloadInfo.progressStage,
             lastDownloadProgressStage[modelId]
         )
         Log.d(TAG, "[onDownloadProgress] Progress state changed: $progressStateChanged lastUpdateTime=$lastUpdateTime, now=$now")
@@ -265,26 +271,30 @@ class ModelMarketViewModel(application: Application) : AndroidViewModel(applicat
 //            return
 //        }
         
-        lastDownloadProgressStage[modelId] = progress.progressStage ?: ""
+        lastDownloadProgressStage[modelId] = downloadInfo.progressStage ?: ""
         lastUpdateTimeMap[modelId] = now
 
         mainHandler.post {
-            Log.d(TAG, "onDownloadProgress: modelId=$modelId, progress=${progress.progress}")
+            Log.d(TAG, "onDownloadProgress: modelId=$modelId, progress=${downloadInfo.progress}")
             // Force a full item update if the progress stage changes (e.g., from nothing to "Preparing")
             // to ensure the UI state (like failed -> downloading) is refreshed correctly.
             if (progressStateChanged) {
-                allModels.find { it.modelMarketItem.modelId == modelId }?.let { updateDownloadInfo(modelId, progress) }
+                allModels.find { it.modelMarketItem.modelId == modelId }?.let { updateDownloadInfo(modelId, downloadInfo) }
                 _itemUpdate.value = modelId
             } else {
                 // Just update progress without full refresh
-                _progressUpdate.value = Pair(modelId, progress)
+                _progressUpdate.value = Pair(modelId, downloadInfo)
             }
         }
     }
 
     override fun onDownloadFinished(modelId: String, path: String) {
         mainHandler.post {
-            allModels.find { it.modelMarketItem.modelId == modelId }?.let { updateDownloadInfo(modelId, downloadManager.getDownloadInfo(it.modelMarketItem)) }
+            allModels.find { it.modelMarketItem.modelId == modelId }?.let {
+                updateDownloadInfo(modelId, downloadManager.getDownloadInfo(it.modelMarketItem))
+                // Write market config after download
+                writeMarketConfig(it.modelMarketItem)
+            }
             _itemUpdate.value = modelId
         }
     }

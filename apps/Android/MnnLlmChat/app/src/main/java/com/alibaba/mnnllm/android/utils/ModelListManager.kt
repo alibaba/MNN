@@ -3,10 +3,13 @@ package com.alibaba.mnnllm.android.utils
 import android.content.Context
 import android.util.Log
 import com.alibaba.mls.api.ModelItem
+import com.alibaba.mls.api.ModelTagsCache
 import com.alibaba.mnnllm.android.chat.model.ChatDataManager
 import com.alibaba.mnnllm.android.model.ModelUtils
 import com.alibaba.mnnllm.android.modelmarket.ModelRepository
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.nio.file.Files
 
@@ -41,15 +44,14 @@ object ModelListManager {
     /**
      * Load all available models (downloaded + local) wrapped with their info
      */
-    fun loadAvailableModels(context: Context): List<ModelItemWrapper> {
+    suspend fun loadAvailableModels(context: Context): List<ModelItemWrapper> = withContext(Dispatchers.IO) {
         val modelWrappers = mutableListOf<ModelItemWrapper>()
-        
         try {
             val chatDataManager = ChatDataManager.getInstance(context)
             val downloadedModels = mutableListOf<ChatDataManager.DownloadedModelInfo>()
             val pinnedModels = PreferenceUtils.getPinnedModels(context)
             val modelRepository = ModelRepository(context)
-            
+
             // Load downloaded models from .mnnmodels directory
             val mnnModelsDir = File(context.filesDir, ".mnnmodels")
             if (mnnModelsDir.exists() && mnnModelsDir.isDirectory) {
@@ -59,12 +61,12 @@ object ModelListManager {
             }
 
             // Initialize tags cache for proper tag loading
-            com.alibaba.mls.api.ModelTagsCache.initializeCache(context)
-            
+            ModelTagsCache.initializeCache(context)
+
             // Convert downloaded models to wrapper format
             downloadedModels.forEach { downloadedModel ->
                 Log.d(TAG, "Found downloaded model: ${downloadedModel.modelId} at ${downloadedModel.modelPath}")
-                
+
                 val modelItem = ModelItem.fromDownloadModel(context, downloadedModel.modelId, downloadedModel.modelPath)
                 // Calculate download size
                 val downloadSize = try {
@@ -74,9 +76,9 @@ object ModelListManager {
                     Log.w(TAG, "Failed to get file size for ${downloadedModel.modelPath}", e)
                     0L
                 }
-                
+
                 val isPinned = pinnedModels.contains(downloadedModel.modelId)
-                
+
                 modelWrappers.add(ModelItemWrapper(
                     modelItem = modelItem,
                     downloadedModelInfo = downloadedModel,
@@ -94,12 +96,12 @@ object ModelListManager {
                         Log.d(TAG, "Skipping local model ${localModel.modelId}: config path not found or doesn't exist (path: $configPath)")
                         return@forEach
                     }
-                    
+
                     Log.d(TAG, "Found local model: ${localModel.modelId} at ${localModel.localPath}")
-                    
+
                     // Load market tags for local model
                     localModel.loadMarketTags(context)
-                    
+
                     // Calculate local model size
                     val localSize = try {
                         val file = File(localModel.localPath!!)
@@ -108,9 +110,9 @@ object ModelListManager {
                         Log.w(TAG, "Failed to get file size for ${localModel.localPath}", e)
                         0L
                     }
-                    
+
                     val isPinned = pinnedModels.contains(localModel.modelId)
-                    
+
                     modelWrappers.add(ModelItemWrapper(
                         modelItem = localModel,
                         downloadedModelInfo = null, // Local models don't have download info
@@ -134,13 +136,13 @@ object ModelListManager {
                     if (it.lastChatTime <= 0) it.downloadTime else 0L
                 }
             )
-            
+
             Log.d(TAG, "loadAvailableModels: Found ${sortedModels.size} total models")
-            return sortedModels
-            
+            return@withContext sortedModels
+
         } catch (e: Exception) {
             Log.e(TAG, "Error loading available models", e)
-            return emptyList()
+            return@withContext emptyList()
         }
     }
 

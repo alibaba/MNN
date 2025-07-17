@@ -2,15 +2,12 @@
 // Copyright (c) 2024 Alibaba Group Holding Limited All rights reserved.
 package com.alibaba.mnnllm.android.modelist
 
-import android.text.TextUtils
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
 import com.alibaba.mls.api.ModelItem
-import com.alibaba.mls.api.download.DownloadInfo
-import com.alibaba.mls.api.download.DownloadState
 import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.model.Modality
 import com.alibaba.mnnllm.android.model.ModelUtils
@@ -20,6 +17,7 @@ import java.util.Locale
 
 class ModelListAdapter(private val items: MutableList<ModelListManager.ModelItemWrapper>) :
     RecyclerView.Adapter<RecyclerView.ViewHolder>() {
+    var initialized = false
     private var filteredItems: List<ModelListManager.ModelItemWrapper> = items.toList()
     private var modelListListener: ModelItemListener? = null
     
@@ -126,7 +124,7 @@ class ModelListAdapter(private val items: MutableList<ModelListManager.ModelItem
         val diffCallback = ModelWrapperDiffCallback(oldFiltered, filteredItems)
         val diffResult = DiffUtil.calculateDiff(diffCallback)
         diffResult.dispatchUpdatesTo(this)
-        
+        initialized = true
         checkIfEmpty()
     }
 
@@ -283,10 +281,12 @@ class ModelListAdapter(private val items: MutableList<ModelListManager.ModelItem
 
     fun setEmptyView(emptyView: View) {
         this.emptyView = emptyView
-        checkIfEmpty()
     }
 
     private fun checkIfEmpty() {
+        if (!initialized) {
+            return
+        }
         if (emptyView != null) {
             emptyView?.visibility = if (getItemCount() == 0) View.VISIBLE else View.GONE
         }

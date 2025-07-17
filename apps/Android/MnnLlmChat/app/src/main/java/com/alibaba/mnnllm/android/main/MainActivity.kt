@@ -483,15 +483,21 @@ class MainActivity : AppCompatActivity() {
         )
         drawerLayout.addDrawerListener(toggle!!)
         toggle!!.syncState()
-        if (chatHistoryFragment == null) {
-            chatHistoryFragment = ChatHistoryFragment()
-        }
-        supportFragmentManager.beginTransaction()
-            .replace(
-                R.id.history_fragment_container,
-                chatHistoryFragment!!
-            )
-            .commit()
+        // Remove eager creation of chatHistoryFragment here
+        // Lazy load chatHistoryFragment when drawer is first opened
+        drawerLayout.addDrawerListener(object : DrawerLayout.DrawerListener {
+            override fun onDrawerSlide(drawerView: View, slideOffset: Float) {}
+            override fun onDrawerOpened(drawerView: View) {
+                if (chatHistoryFragment == null) {
+                    chatHistoryFragment = ChatHistoryFragment()
+                    supportFragmentManager.beginTransaction()
+                        .replace(R.id.history_fragment_container, chatHistoryFragment!!)
+                        .commit()
+                }
+            }
+            override fun onDrawerClosed(drawerView: View) {}
+            override fun onDrawerStateChanged(newState: Int) {}
+        })
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 if (drawerLayout.isDrawerOpen(GravityCompat.START)) {

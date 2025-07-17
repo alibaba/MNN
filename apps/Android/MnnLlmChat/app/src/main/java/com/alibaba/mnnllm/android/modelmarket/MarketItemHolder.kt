@@ -378,9 +378,6 @@ class MarketItemHolder(
     }
 
     private fun openModelCard(context: android.content.Context, modelMarketItem: ModelMarketItem) {
-        // Create a ModelItem for compatibility with ModelUtils.openModelCard
-        val modelItem = ModelItem.fromDownloadModel(modelMarketItem.modelId ?: "", "")
-        ModelUtils.openModelCard(context, modelItem)
     }
 
     companion object {

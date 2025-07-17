@@ -167,6 +167,10 @@ data class ModelConfig(
             return getModelConfigDir(modelId) + "/custom_config.json"
         }
 
+        fun getMarketConfigFile(modelId: String):String {
+            return getModelConfigDir(modelId) + "/market_config.json"
+        }
+
         fun getModelConfigDir(modelId: String): String {
             val rootCacheDir =
                 ApplicationProvider.get().filesDir.toString() + "/configs/" + ModelUtils.safeModelId(

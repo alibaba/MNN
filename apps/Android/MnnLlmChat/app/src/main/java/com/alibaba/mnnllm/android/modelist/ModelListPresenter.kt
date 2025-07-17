@@ -7,12 +7,18 @@ import android.os.Handler
 import android.util.Log
 import com.alibaba.mls.api.ModelItem
 import com.alibaba.mnnllm.android.utils.ModelListManager
+import com.alibaba.mnnllm.android.utils.UiUtils
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 class ModelListPresenter(private val context: Context, private val view: ModelListContract.View) :
     ModelItemListener {
     private val modelListAdapter: ModelListAdapter?
     private var lastClickTime: Long = -1
     private var mainHandler: Handler?
+    private val presenterScope = CoroutineScope(Dispatchers.Main)
 
     init {
         this.modelListAdapter = view.adapter
@@ -29,14 +35,14 @@ class ModelListPresenter(private val context: Context, private val view: ModelLi
 
     private fun loadDownloadedModels() {
         view.onLoading()
-        
-        try {
-            // Use the centralized ModelListManager for consistency
-            val modelWrappers = ModelListManager.loadAvailableModels(context)
-            onListAvailable(modelWrappers, null)
-        } catch (e: Exception) {
-            Log.e(TAG, "Error loading downloaded models", e)
-            view.onListLoadError(e.message)
+        presenterScope.launch {
+            try {
+                val modelWrappers = ModelListManager.loadAvailableModels(context)
+                onListAvailable(modelWrappers, null)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error loading downloaded models", e)
+                view.onListLoadError(e.message)
+            }
         }
     }
 

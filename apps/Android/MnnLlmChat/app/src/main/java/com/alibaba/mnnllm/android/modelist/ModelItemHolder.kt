@@ -269,7 +269,7 @@ class ModelItemHolder(
         popupMenu.menu.findItem(R.id.menu_start_download)?.setVisible(false)
         
         // Model card should be visible for remote models
-        popupMenu.menu.findItem(R.id.menu_open_model_card).setVisible(!modelItem.isLocal)
+        popupMenu.menu.findItem(R.id.menu_open_model_card).setVisible(false)
         
         popupMenu.show()
         return true

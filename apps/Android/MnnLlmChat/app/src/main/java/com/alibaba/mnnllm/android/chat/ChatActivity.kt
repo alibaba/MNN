@@ -690,22 +690,24 @@ class ChatActivity : AppCompatActivity() {
             Toast.makeText(this, "Please wait for current generation to complete before switching models", Toast.LENGTH_SHORT).show()
             return
         }
-        
-        val availableModels = getAvailableModels()
-        
-        // Filter out diffusion models
-        val modelFilter: (ModelListManager.ModelItemWrapper) -> Boolean = { modelWrapper ->
-            !ModelUtils.isDiffusionModel(modelWrapper.displayName)
+        lifecycleScope.launch {
+            val availableModels = getAvailableModels()
+
+            // Filter out diffusion models
+            val modelFilter: (ModelListManager.ModelItemWrapper) -> Boolean = { modelWrapper ->
+                !ModelUtils.isDiffusionModel(modelWrapper.displayName)
+            }
+
+            val selectModelFragment = SelectModelFragment.newInstance(availableModels, modelFilter, modelId)
+            selectModelFragment.setOnModelSelectedListener { selectedModelWrapper ->
+                handleModelSelection(selectedModelWrapper)
+            }
+            selectModelFragment.show(supportFragmentManager, SelectModelFragment.TAG)
         }
         
-        val selectModelFragment = SelectModelFragment.newInstance(availableModels, modelFilter, modelId)
-        selectModelFragment.setOnModelSelectedListener { selectedModelWrapper ->
-            handleModelSelection(selectedModelWrapper)
-        }
-        selectModelFragment.show(supportFragmentManager, SelectModelFragment.TAG)
     }
     
-    private fun getAvailableModels(): List<ModelListManager.ModelItemWrapper> {
+    private suspend fun getAvailableModels(): List<ModelListManager.ModelItemWrapper> {
         return ModelListManager.loadAvailableModels(this)
     }
     
