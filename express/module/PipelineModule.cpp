@@ -496,10 +496,11 @@ static std::vector<SubModuleInfo> _splitSubModuleForShapeConst(const std::vector
     return res;
 }
 
-static std::vector<SubModuleInfo> _createSubModuleInfo(std::shared_ptr<BufferStorage> bufferStorage, const std::set<int>& inputIndexes, const std::set<int>& outputIndexes, const std::set<int>& noComputeIndexes, std::shared_ptr<Schedule::ScheduleInfo> sharedConst) {
+static std::vector<SubModuleInfo> _createSubModuleInfo(std::shared_ptr<BufferStorage> bufferStorage, const std::set<int>& inputIndexes, const std::set<int>& outputIndexes, const std::set<int>& noComputeIndexes, std::shared_ptr<Schedule::ScheduleInfo> sharedConst, bool& success) {
     std::vector<SubModuleInfo> submodule;
     auto net = flatbuffers::GetRoot<Net>(bufferStorage->buffer());
     auto selectOps = _collectNeededOps(net, inputIndexes, outputIndexes);
+    success = true;
 
     // Separate the graph to serveral submodule
     SubModuleInfo current;
@@ -603,8 +604,9 @@ static std::vector<SubModuleInfo> _createSubModuleInfo(std::shared_ptr<BufferSto
                 if (net->tensorName() != nullptr) {
                     MNN_PRINT("%d tensor [ %s ] is input but not found\n", index, net->tensorName()->GetAsString(index)->c_str());
                 }
+                success = false;
+                return std::vector<SubModuleInfo>{};
             }
-            MNN_ASSERT(find);
         }
     }
     for (auto& m : submodule) {
@@ -798,7 +800,12 @@ Module* PipelineModule::load(const std::vector<std::string>& inputs, const std::
         MNN_ERROR("\n");
         return nullptr;
     }
-    auto subModulesInfo = _createSubModuleInfo(bufferStorage, inputIndexes, outputIndexes, noneedComputeIndexes, sharedConst);
+    bool divideSuccess = true;
+    auto subModulesInfo = _createSubModuleInfo(bufferStorage, inputIndexes, outputIndexes, noneedComputeIndexes, sharedConst, divideSuccess);
+    if (!divideSuccess) {
+        MNN_ERROR("Create module error\n");
+        return nullptr;
+    }
     std::vector<std::shared_ptr<Module>> subModules(subModulesInfo.size());
     for (int i=0; i<subModulesInfo.size(); ++i) {
         subModules[i].reset(_createSubModule(bufferStorage, subModulesInfo[i], subGraphMap, sharedConst, *config, modRuntime));

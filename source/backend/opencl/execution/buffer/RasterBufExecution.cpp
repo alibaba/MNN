@@ -137,7 +137,7 @@ ErrorCode RasterBufExecution::onEncode(const std::vector<Tensor *> &____inputs, 
                 MNN_PRINT("setArg err %d\n", (int)ret);
             }
             std::string name = "raster_nc4hw4_buffer";
-            const std::vector<uint32_t> lws = localWS3DDefault(gws, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
+            const std::vector<uint32_t> lws = localWS3DDefault(gws, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, unit.kernel, mOpenCLBackend->getCLTuneLevel(), "raster_buf").first;
             
             unit.localWorkSize = {lws[0], lws[1], lws[2]};
             
@@ -199,7 +199,7 @@ ErrorCode RasterBufExecution::onEncode(const std::vector<Tensor *> &____inputs, 
         }
         
         std::string name = "raster_buffer";
-        const std::vector<uint32_t> lws = localWS3DDefault(gws, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
+        const std::vector<uint32_t> lws = localWS3DDefault(gws, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, unit.kernel, mOpenCLBackend->getCLTuneLevel(), "raster_buf").first;
         
         unit.localWorkSize = {lws[0], lws[1], lws[2]};
         unit.globalWorkSize = {gws[0], gws[1], gws[2]};

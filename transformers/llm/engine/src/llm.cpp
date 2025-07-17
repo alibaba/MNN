@@ -75,6 +75,9 @@ Llm* Llm::createLLM(const std::string& config_path) {
     }
     return llm;
 }
+void Llm::destroy(Llm* llm) {
+    delete llm;
+}
 
 std::string Llm::dump_config() {
     return mConfig->config_.dump();
@@ -303,20 +306,6 @@ void Llm::load() {
     }
 }
 
-size_t Llm::apply_lora(const std::string& lora_path) {
-    std::string model_path = mConfig->base_dir_ + "/" + lora_path;
-    Module::Config module_config;
-    module_config.shapeMutable = true;
-    module_config.rearrange    = true;
-    module_config.base         = mModules.begin()->get();
-    size_t lora_index          = mModules.size();
-    mRuntimeManager->setHint(MNN::Interpreter::USE_CACHED_MMAP, 0);
-    mModules.emplace_back(Module::load({"input_ids", "attention_mask", "position_ids"}, {"logits"},
-                                        model_path.c_str(), mRuntimeManager, &module_config));
-    select_module(lora_index);
-    return lora_index;
-}
-
 Llm* Llm::create_lora(const std::string& lora_path) {
     auto llm = new Llm(std::make_shared<LlmConfig>(*mConfig));
     llm->set_config("{\"llm_model\": \"" + lora_path + "\", \"use_mmap\": false, \"use_cached_mmap\": false}");
@@ -325,33 +314,6 @@ Llm* Llm::create_lora(const std::string& lora_path) {
     return llm;
 }
 
-bool Llm::release_module(size_t index) {
-    if (index >= mModules.size()) {
-        return false;
-    }
-    if (mPrefillModules[0] == mModules[index]) {
-        select_module(0);
-    }
-    mModules[index].reset();
-    return true;
-}
-
-bool Llm::select_module(size_t index) {
-    if (index >= mModules.size()) {
-        return false;
-    }
-    if (mModules[index] == nullptr) {
-        return false;
-    }
-    if (mDecodeModules.empty()) {
-        mDecodeModules.resize(mModules.size());
-        mPrefillModules.resize(mModules.size());
-    }
-    mDecodeModules[0].reset(Module::clone(mModules[index].get()));
-    mPrefillModules[0] = mModules[index];
-    return true;
-}
-    
 void Llm::tuning(TuneType type, std::vector<int> candidates) {
     if (type == PREFILL_BIGLITTLE_CORE) {
         // only CPU power high is tuned

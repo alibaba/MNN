@@ -125,7 +125,7 @@ ErrorCode ScaleExecution::onEncode(const std::vector<Tensor *> &inputs, const st
     std::string name = "scale";
     std::vector<uint32_t> mGWS{1, 1, 1, 1};
     std::vector<uint32_t> mLWS{1, 1, 1, 1};
-    mLWS = localWS3DDefault(gws, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
+    mLWS = localWS3DDefault(gws, mMaxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), name, unit.kernel, mOpenCLBackend->getCLTuneLevel(), "scale").first;
     for (size_t i = 0; i < gws.size(); ++i) {
         mGWS[i] = ROUND_UP(gws[i], std::max((uint32_t)1, mLWS[i]));
     }

@@ -241,6 +241,7 @@ ErrorCode AttentionBufExecution::UpdateArgs(const std::vector<Tensor *> &inputs,
             mGlobalWorkSizeQk0 = UP_DIV(mKvSeqlen, 4);
             mQkPrefillGlobal_size[1] = ROUND_UP(mGlobalWorkSizeQk0, std::max((uint32_t)1, mLocalWorkSizeQk[1]));
             mGlobalWorkSizeQk[1] = mQkPrefillGlobal_size[1];
+            mTempQ.reset(Tensor::createDevice<float>({ROUND_UP(seqlen, 4) * ROUND_UP(headDim, 4) * batch * numHead}));
             mTempQK.reset(Tensor::createDevice<float>({ROUND_UP(seqlen, 4) * mKvSeqlen * numHead * batch}));
             mTempSoftMax.reset(Tensor::createDevice<float>({ROUND_UP(seqlen, 4) * mKvSeqlen * numHead * batch}));
             if(mIsAddMask) {
@@ -248,23 +249,23 @@ ErrorCode AttentionBufExecution::UpdateArgs(const std::vector<Tensor *> &inputs,
             } else {
                 mTempMask.reset(Tensor::createDevice<uint32_t>({ROUND_UP(maskQlen, 4) * ROUND_UP(maskKvlen, 4) * batch}));
             }
+            mOpenCLBackend->onAcquireBuffer(mTempQ.get(), Backend::DYNAMIC_IN_EXECUTION);
             mOpenCLBackend->onAcquireBuffer(mTempMask.get(), Backend::DYNAMIC_IN_EXECUTION);
             mOpenCLBackend->onAcquireBuffer(mTempQK.get(), Backend::DYNAMIC_IN_EXECUTION);
             mOpenCLBackend->onAcquireBuffer(mTempSoftMax.get(), Backend::DYNAMIC_IN_EXECUTION);
+            mOpenCLBackend->onReleaseBuffer(mTempQ.get(), Backend::DYNAMIC_IN_EXECUTION);
             mOpenCLBackend->onReleaseBuffer(mTempMask.get(), Backend::DYNAMIC_IN_EXECUTION);
             mOpenCLBackend->onReleaseBuffer(mTempQK.get(), Backend::DYNAMIC_IN_EXECUTION);
             mOpenCLBackend->onReleaseBuffer(mTempSoftMax.get(), Backend::DYNAMIC_IN_EXECUTION);
         }
-            #ifndef ENABLE_OPENCL_TIME_PROFILER
-            if(mOpenCLBackend->isUseRecordQueue()){
-                if(mLongPrefill){
-                    mRgUpdateInfo.update_kernel_args[0].arg_value = &(*(mKVCacheCLManager->key()))();
-                    mQkUpdateInfo.update_kernel_args[0].arg_value = &(*(mKVCacheCLManager->key()))();
-                    mRgVUpdateInfo.update_kernel_args[0].arg_value = &(*(mKVCacheCLManager->value()))();
-                    mQkvUpdateInfo.update_kernel_args[0].arg_value = &(*(mKVCacheCLManager->value()))();
-                }else{
+        #ifndef ENABLE_OPENCL_TIME_PROFILER
+        if(mOpenCLBackend->isUseRecordQueue()){
+            if(mLongPrefill){
+                mRgUpdateInfo.update_kernel_args[0].arg_value = &(*(mKVCacheCLManager->key()))();
+                mRgUpdateInfo.update_kernel_args[1].arg_value = &(*(mKVCacheCLManager->value()))();
+            }else{
                 mRgQUpdateInfo.update_kernel_args[0].arg_value = &openCLDeferBuffer(mTempQ.get())();
-                    mRgUpdateInfo.update_kernel_args[0].arg_value = &(*(mKVCacheCLManager->key()))();
+                mRgUpdateInfo.update_kernel_args[0].arg_value = &(*(mKVCacheCLManager->key()))();
                 mRgMUpdateInfo.update_kernel_args[0].arg_value = &openCLDeferBuffer(mTempMask.get())();
                 mQkUpdateInfo.update_kernel_args[1].arg_value = &openCLDeferBuffer(mTempQ.get())();
                 mQkUpdateInfo.update_kernel_args[2].arg_value = &(*(mKVCacheCLManager->key()))();
@@ -276,28 +277,34 @@ ErrorCode AttentionBufExecution::UpdateArgs(const std::vector<Tensor *> &inputs,
                 }
                 mSoftMaxUpdateInfo.update_kernel_args[0].arg_value = &openCLDeferBuffer(mTempQK.get())();
                 mSoftMaxUpdateInfo.update_kernel_args[1].arg_value = &openCLDeferBuffer(mTempSoftMax.get())();
-                    mRgVUpdateInfo.update_kernel_args[0].arg_value = &(*(mKVCacheCLManager->value()))();
+                mRgVUpdateInfo.update_kernel_args[0].arg_value = &(*(mKVCacheCLManager->value()))();
                 mQkvUpdateInfo.update_kernel_args[0].arg_value = &openCLDeferBuffer(mTempSoftMax.get())();
                 mQkvUpdateInfo.update_kernel_args[1].arg_value = &(*(mKVCacheCLManager->value()))();
-                }
-            } else {
-            #endif
-                if(mLongPrefill){
-                    // rearrange key value
+            }
+        } else {
+        #endif
+            if(mLongPrefill){
+                // rearrange key value
+                cl_int ret = CL_SUCCESS;
+                ret |= mKernel_rearrange_vec[0]->get().setArg(9, *mKVCacheCLManager->key());
+                ret |= mKernel_rearrange_vec[0]->get().setArg(10, *mKVCacheCLManager->value());
+                ret |= mKernel_rearrange_vec[0]->get().setArg(14, mKeyValueMaxlen);
+                MNN_CHECK_CL_SUCCESS(ret, "reSetArg rearrange_k");
+            }else{
+                {
+                    // rearrange query
                     cl_int ret = CL_SUCCESS;
-                    ret |= mKernel_rearrange_vec[0]->get().setArg(9, *mKVCacheCLManager->key());
-                    ret |= mKernel_rearrange_vec[0]->get().setArg(10, *mKVCacheCLManager->value());
-                    ret |= mKernel_rearrange_vec[0]->get().setArg(14, mKeyValueMaxlen);
+                    ret |= mKernel_rearrangeQ->get().setArg(4, openCLDeferBuffer(mTempQ.get()));
+                    MNN_CHECK_CL_SUCCESS(ret, "reSetArg rearrange_q");
+                }
+                {
+                    // rearrange key
+                    cl_int ret = CL_SUCCESS;
+                    ret |= mKernel_rearrange->get().setArg(4, *mKVCacheCLManager->key());
+                    ret |= mKernel_rearrange->get().setArg(5, mPastKvSeqlen);
+                    ret |= mKernel_rearrange->get().setArg(6, mKeyValueMaxlen);
                     MNN_CHECK_CL_SUCCESS(ret, "reSetArg rearrange_k");
-                }else{
-                    {
-                        // rearrange key
-                        cl_int ret = CL_SUCCESS;
-                        ret |= mKernel_rearrange->get().setArg(4, *mKVCacheCLManager->key());
-                        ret |= mKernel_rearrange->get().setArg(5, mPastKvSeqlen);
-                        ret |= mKernel_rearrange->get().setArg(6, mKeyValueMaxlen);
-                        MNN_CHECK_CL_SUCCESS(ret, "reSetArg rearrange_k");
-                    }
+                }
                 if(mHasMask){
                     // rearrange mask
                     cl_int ret = CL_SUCCESS;
@@ -309,6 +316,7 @@ ErrorCode AttentionBufExecution::UpdateArgs(const std::vector<Tensor *> &inputs,
                     mGlobalWorkSizeQk =  {static_cast<uint32_t>(UP_DIV(seqlen, 4)), static_cast<uint32_t>(UP_DIV(mKvSeqlen, 4)), static_cast<uint32_t>(numHead*batch)};
                     cl_int ret = CL_SUCCESS;
                     ret |= mKernel_qk->get().setArg(1, mGlobalWorkSizeQk0);
+                    ret |= mKernel_qk->get().setArg(3, openCLDeferBuffer(mTempQ.get()));
                     ret |= mKernel_qk->get().setArg(4, *mKVCacheCLManager->key());
                     if(mHasMask) {
                         ret |= mKernel_qk->get().setArg(5, openCLDeferBuffer(mTempMask.get()));
@@ -337,8 +345,8 @@ ErrorCode AttentionBufExecution::UpdateArgs(const std::vector<Tensor *> &inputs,
                     ret |= mKernel_rearrangeV->get().setArg(6, mKeyValueMaxlen);
                     MNN_CHECK_CL_SUCCESS(ret, "reSetArg rearrange_v");
                 }
-                // qk * value
                 {
+                    // qk * value
                     cl_int ret = CL_SUCCESS;
                     ret |= mKernel_qkv->get().setArg(3, openCLDeferBuffer(mTempSoftMax.get()));
                     ret |= mKernel_qkv->get().setArg(4, *mKVCacheCLManager->value());
@@ -586,7 +594,7 @@ ErrorCode AttentionBufExecution::longPrefillResize(const std::vector<Tensor *> &
         ret |= mKernel_rearrange_vec[seq_idx]->get().setArg(index++, mKeyValueMaxlen);
         
         MNN_CHECK_CL_SUCCESS(ret, "setArg rearrange_qkv");
-        mLwsRearrgVec[seq_idx] = localWS3DDefault(mGwsRearrgVec[seq_idx], maxWorkGroupSize, runtime, "rearrange_qkv", mKernel_rearrange_vec[seq_idx], mOpenCLBackend->getCLTuneLevel()).first;
+        mLwsRearrgVec[seq_idx] = localWS3DDefault(mGwsRearrgVec[seq_idx], maxWorkGroupSize, runtime, "rearrange_qkv", mKernel_rearrange_vec[seq_idx], mOpenCLBackend->getCLTuneLevel(), "attention_buf").first;
         mGwsRearrgVec[seq_idx][0] = ROUND_UP(mGwsRearrgVec[seq_idx][0], std::max((uint32_t)1, mLwsRearrgVec[seq_idx][0]));
         mGwsRearrgVec[seq_idx][1] = ROUND_UP(mGwsRearrgVec[seq_idx][1], std::max((uint32_t)1, mLwsRearrgVec[seq_idx][1]));
         mGwsRearrgVec[seq_idx][2] = ROUND_UP(mGwsRearrgVec[seq_idx][2], std::max((uint32_t)1, mLwsRearrgVec[seq_idx][2]));
@@ -625,7 +633,7 @@ ErrorCode AttentionBufExecution::longPrefillResize(const std::vector<Tensor *> &
         ret |= mKernel_mask_vec[seq_idx]->get().setArg(index++, shape);
         
         MNN_CHECK_CL_SUCCESS(ret, "setArg rearrange_mask");
-        mLwsMaskVec[seq_idx] = localWS3DDefault(mGwsMaskVec[seq_idx], maxWorkGroupSize, runtime, "rearrange_mask", mKernel_mask_vec[seq_idx], mOpenCLBackend->getCLTuneLevel()).first;
+        mLwsMaskVec[seq_idx] = localWS3DDefault(mGwsMaskVec[seq_idx], maxWorkGroupSize, runtime, "rearrange_mask", mKernel_mask_vec[seq_idx], mOpenCLBackend->getCLTuneLevel(), "attention_buf").first;
         mGwsMaskVec[seq_idx][0] = ROUND_UP(mGwsMaskVec[seq_idx][0], std::max((uint32_t)1, mLwsMaskVec[seq_idx][0]));
         mGwsMaskVec[seq_idx][1] = ROUND_UP(mGwsMaskVec[seq_idx][1], std::max((uint32_t)1, mLwsMaskVec[seq_idx][1]));
         mGwsMaskVec[seq_idx][2] = ROUND_UP(mGwsMaskVec[seq_idx][2], std::max((uint32_t)1, mLwsMaskVec[seq_idx][2]));
@@ -795,7 +803,7 @@ ErrorCode AttentionBufExecution::longPrefillResize(const std::vector<Tensor *> &
             ret |= mKernel_trans_vec[seq_idx]->get().setArg(index++, transDimW);
             ret |= mKernel_trans_vec[seq_idx]->get().setArg(index++, transDimH);
             MNN_CHECK_CL_SUCCESS(ret, "setArg Attention transpose");
-            mLwsTransVec[seq_idx] = localWS3DDefault(mGwsTransVec[seq_idx], maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), "trans_3d_buf", mKernel_trans_vec[seq_idx], mOpenCLBackend->getCLTuneLevel()).first;
+            mLwsTransVec[seq_idx] = localWS3DDefault(mGwsTransVec[seq_idx], maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), "trans_3d_buf", mKernel_trans_vec[seq_idx], mOpenCLBackend->getCLTuneLevel(), "self_attention_buf").first;
             
             mGwsTransVec[seq_idx][0] = ROUND_UP(mGwsTransVec[seq_idx][0], std::max((uint32_t)1, mLwsTransVec[seq_idx][0]));
             mGwsTransVec[seq_idx][1] = ROUND_UP(mGwsTransVec[seq_idx][1], std::max((uint32_t)1, mLwsTransVec[seq_idx][1]));
@@ -912,7 +920,7 @@ ErrorCode AttentionBufExecution::longPrefillResize(const std::vector<Tensor *> &
         ret |= mKernel_clip_vec[seq_idx]->get().setArg(index++, numHead);
         ret |= mKernel_clip_vec[seq_idx]->get().setArg(index++, headDim);
         
-        mLwsClipVec[seq_idx] = localWS3DDefault(mGwsClipVec[seq_idx], maxWorkGroupSize, runtime, "qkv_transpose_output", mKernel_clip_vec[seq_idx], mOpenCLBackend->getCLTuneLevel()).first;
+        mLwsClipVec[seq_idx] = localWS3DDefault(mGwsClipVec[seq_idx], maxWorkGroupSize, runtime, "qkv_transpose_output", mKernel_clip_vec[seq_idx], mOpenCLBackend->getCLTuneLevel(), "attention_buf").first;
         mGwsClipVec[seq_idx][0] = ROUND_UP(mGwsClipVec[seq_idx][0], std::max((uint32_t)1, mLwsClipVec[seq_idx][0]));
         mGwsClipVec[seq_idx][1] = ROUND_UP(mGwsClipVec[seq_idx][1], std::max((uint32_t)1, mLwsClipVec[seq_idx][1]));
         mGwsClipVec[seq_idx][2] = ROUND_UP(mGwsClipVec[seq_idx][2], std::max((uint32_t)1, mLwsClipVec[seq_idx][2]));
@@ -1011,7 +1019,7 @@ ErrorCode AttentionBufExecution::prefillResize(const std::vector<Tensor *> &inpu
         ret |= mKernel_rearrangeQ->get().setArg(index++, numHead);
         
         MNN_CHECK_CL_SUCCESS(ret, "setArg rearrange_q");
-        mLocalWorkSizeRearrgQ = localWS3DDefault(mGlobalWorkSizeRearrgQ, maxWorkGroupSize, runtime, "rearrange_q", mKernel_rearrangeQ, mOpenCLBackend->getCLTuneLevel()).first;
+        mLocalWorkSizeRearrgQ = localWS3DDefault(mGlobalWorkSizeRearrgQ, maxWorkGroupSize, runtime, "rearrange_q", mKernel_rearrangeQ, mOpenCLBackend->getCLTuneLevel(), "attention_buf").first;
         mGlobalWorkSizeRearrgQ[0] = ROUND_UP(mGlobalWorkSizeRearrgQ[0], std::max((uint32_t)1, mLocalWorkSizeRearrgQ[0]));
         mGlobalWorkSizeRearrgQ[1] = ROUND_UP(mGlobalWorkSizeRearrgQ[1], std::max((uint32_t)1, mLocalWorkSizeRearrgQ[1]));
         mGlobalWorkSizeRearrgQ[2] = ROUND_UP(mGlobalWorkSizeRearrgQ[2], std::max((uint32_t)1, mLocalWorkSizeRearrgQ[2]));
@@ -1046,7 +1054,7 @@ ErrorCode AttentionBufExecution::prefillResize(const std::vector<Tensor *> &inpu
         ret |= mKernel_rearrange->get().setArg(index++, headDim);
         
         MNN_CHECK_CL_SUCCESS(ret, "setArg rearrange_k");
-        mLocalWorkSizeRearrg = localWS3DDefault(mGlobalWorkSizeRearrg, maxWorkGroupSize, runtime, "rearrange_k", mKernel_rearrange, mOpenCLBackend->getCLTuneLevel()).first;
+        mLocalWorkSizeRearrg = localWS3DDefault(mGlobalWorkSizeRearrg, maxWorkGroupSize, runtime, "rearrange_k", mKernel_rearrange, mOpenCLBackend->getCLTuneLevel(), "attention_buf").first;
         mGlobalWorkSizeRearrg[0] = ROUND_UP(mGlobalWorkSizeRearrg[0], std::max((uint32_t)1, mLocalWorkSizeRearrg[0]));
         mGlobalWorkSizeRearrg[1] = ROUND_UP(mGlobalWorkSizeRearrg[1], std::max((uint32_t)1, mLocalWorkSizeRearrg[1]));
         mGlobalWorkSizeRearrg[2] = ROUND_UP(mGlobalWorkSizeRearrg[2], std::max((uint32_t)1, mLocalWorkSizeRearrg[2]));
@@ -1078,7 +1086,7 @@ ErrorCode AttentionBufExecution::prefillResize(const std::vector<Tensor *> &inpu
         ret |= mKernel_rearrangeMask->get().setArg(index++, maskQlen);
         ret |= mKernel_rearrangeMask->get().setArg(index++, maskKvlen);
         MNN_CHECK_CL_SUCCESS(ret, "setArg rearrange_mask_shortprefill");
-        mLocalWorkSizeRearrgM = localWS3DDefault(mGlobalWorkSizeRearrgM, maxWorkGroupSize, runtime, "rearrange_mask_shortprefill", mKernel_rearrangeMask, mOpenCLBackend->getCLTuneLevel()).first;
+        mLocalWorkSizeRearrgM = localWS3DDefault(mGlobalWorkSizeRearrgM, maxWorkGroupSize, runtime, "rearrange_mask_shortprefill", mKernel_rearrangeMask, mOpenCLBackend->getCLTuneLevel(), "attention_buf").first;
         mGlobalWorkSizeRearrgM[0] = ROUND_UP(mGlobalWorkSizeRearrgM[0], std::max((uint32_t)1, mLocalWorkSizeRearrgM[0]));
         mGlobalWorkSizeRearrgM[1] = ROUND_UP(mGlobalWorkSizeRearrgM[1], std::max((uint32_t)1, mLocalWorkSizeRearrgM[1]));
         mGlobalWorkSizeRearrgM[2] = ROUND_UP(mGlobalWorkSizeRearrgM[2], std::max((uint32_t)1, mLocalWorkSizeRearrgM[2]));
@@ -1119,7 +1127,7 @@ ErrorCode AttentionBufExecution::prefillResize(const std::vector<Tensor *> &inpu
         ret |= mKernel_qk->get().setArg(index++, headDim);
         MNN_CHECK_CL_SUCCESS(ret, "setArg matmul_qk_div_mask_prefill");
         
-        mLocalWorkSizeQk = localWS3DDefault(mGlobalWorkSizeQk, maxWorkGroupSize, runtime, "matmul_qk_div_mask_prefill", mKernel_qk, mOpenCLBackend->getCLTuneLevel()).first;
+        mLocalWorkSizeQk = localWS3DDefault(mGlobalWorkSizeQk, maxWorkGroupSize, runtime, "matmul_qk_div_mask_prefill", mKernel_qk, mOpenCLBackend->getCLTuneLevel(), "attention_buf").first;
         mGlobalWorkSizeQk[0] = ROUND_UP(mGlobalWorkSizeQk[0], std::max((uint32_t)1, mLocalWorkSizeQk[0]));
         mGlobalWorkSizeQk[1] = ROUND_UP(mGlobalWorkSizeQk[1], std::max((uint32_t)1, mLocalWorkSizeQk[1]));
         mGlobalWorkSizeQk[2] = ROUND_UP(mGlobalWorkSizeQk[2], std::max((uint32_t)1, mLocalWorkSizeQk[2]));
@@ -1171,7 +1179,7 @@ ErrorCode AttentionBufExecution::prefillResize(const std::vector<Tensor *> &inpu
         
         mLocalWorkSizeSoftMax = {static_cast<uint32_t>(localSize), 1, 1};
         if(localSize == 1){
-            mLocalWorkSizeSoftMax = localWS3DDefault(mGlobalWorkSizeSoftMax, maxWorkGroupSize, runtime, "softmax", mKernel_softmax, mOpenCLBackend->getCLTuneLevel()).first;
+            mLocalWorkSizeSoftMax = localWS3DDefault(mGlobalWorkSizeSoftMax, maxWorkGroupSize, runtime, "softmax", mKernel_softmax, mOpenCLBackend->getCLTuneLevel(), "softmax_buf").first;
         }
         mGlobalWorkSizeSoftMax[0] = ROUND_UP(mGlobalWorkSizeSoftMax[0], std::max((uint32_t)1, mLocalWorkSizeSoftMax[0]));
         mGlobalWorkSizeSoftMax[1] = ROUND_UP(mGlobalWorkSizeSoftMax[1], std::max((uint32_t)1, mLocalWorkSizeSoftMax[1]));
@@ -1208,7 +1216,7 @@ ErrorCode AttentionBufExecution::prefillResize(const std::vector<Tensor *> &inpu
         ret |= mKernel_rearrangeV->get().setArg(index++, headDim);
         
         MNN_CHECK_CL_SUCCESS(ret, "setArg rearrange_v");
-        mLocalWorkSizeRearrgV = localWS3DDefault(mGlobalWorkSizeRearrgV, maxWorkGroupSize, runtime, "rearrange_v", mKernel_rearrangeV, mOpenCLBackend->getCLTuneLevel()).first;
+        mLocalWorkSizeRearrgV = localWS3DDefault(mGlobalWorkSizeRearrgV, maxWorkGroupSize, runtime, "rearrange_v", mKernel_rearrangeV, mOpenCLBackend->getCLTuneLevel(), "attention_buf").first;
         mGlobalWorkSizeRearrgV[0] = ROUND_UP(mGlobalWorkSizeRearrgV[0], std::max((uint32_t)1, mLocalWorkSizeRearrgV[0]));
         mGlobalWorkSizeRearrgV[1] = ROUND_UP(mGlobalWorkSizeRearrgV[1], std::max((uint32_t)1, mLocalWorkSizeRearrgV[1]));
         mGlobalWorkSizeRearrgV[2] = ROUND_UP(mGlobalWorkSizeRearrgV[2], std::max((uint32_t)1, mLocalWorkSizeRearrgV[2]));
@@ -1244,7 +1252,7 @@ ErrorCode AttentionBufExecution::prefillResize(const std::vector<Tensor *> &inpu
         ret |= mKernel_qkv->get().setArg(index++, headDim);
         MNN_CHECK_CL_SUCCESS(ret, "setArg matmul_qkv_prefill");
         
-        mLocalWorkSizeQkv = localWS3DDefault(mGlobalWorkSizeQkv, maxWorkGroupSize, runtime, "matmul_qkv_prefill", mKernel_qkv, mOpenCLBackend->getCLTuneLevel()).first;
+        mLocalWorkSizeQkv = localWS3DDefault(mGlobalWorkSizeQkv, maxWorkGroupSize, runtime, "matmul_qkv_prefill", mKernel_qkv, mOpenCLBackend->getCLTuneLevel(), "attention_buf").first;
         mGlobalWorkSizeQkv[0] = ROUND_UP(mGlobalWorkSizeQkv[0], std::max((uint32_t)1, mLocalWorkSizeQkv[0]));
         mGlobalWorkSizeQkv[1] = ROUND_UP(mGlobalWorkSizeQkv[1], std::max((uint32_t)1, mLocalWorkSizeQkv[1]));
         mGlobalWorkSizeQkv[2] = ROUND_UP(mGlobalWorkSizeQkv[2], std::max((uint32_t)1, mLocalWorkSizeQkv[2]));
@@ -1326,7 +1334,7 @@ ErrorCode AttentionBufExecution::decodeResize(const std::vector<Tensor *> &input
         ret |= mKernel_rearrange->get().setArg(index++, headDim);
         
         MNN_CHECK_CL_SUCCESS(ret, "setArg rearrange_k");
-        mLocalWorkSizeRearrg = localWS3DDefault(mGlobalWorkSizeRearrg, maxWorkGroupSize, runtime, "rearrange_k", mKernel_rearrange, mOpenCLBackend->getCLTuneLevel()).first;
+        mLocalWorkSizeRearrg = localWS3DDefault(mGlobalWorkSizeRearrg, maxWorkGroupSize, runtime, "rearrange_k", mKernel_rearrange, mOpenCLBackend->getCLTuneLevel(), "attention_buf").first;
         mGlobalWorkSizeRearrg[0] = ROUND_UP(mGlobalWorkSizeRearrg[0], std::max((uint32_t)1, mLocalWorkSizeRearrg[0]));
         mGlobalWorkSizeRearrg[1] = ROUND_UP(mGlobalWorkSizeRearrg[1], std::max((uint32_t)1, mLocalWorkSizeRearrg[1]));
         mGlobalWorkSizeRearrg[2] = ROUND_UP(mGlobalWorkSizeRearrg[2], std::max((uint32_t)1, mLocalWorkSizeRearrg[2]));
@@ -1362,7 +1370,7 @@ ErrorCode AttentionBufExecution::decodeResize(const std::vector<Tensor *> &input
         ret |= mKernel_qk->get().setArg(index++, headDim);
         MNN_CHECK_CL_SUCCESS(ret, "setArg matmul_qk_decode");
         
-        mLocalWorkSizeQk = localWS2DDefault(mGlobalWorkSizeQk, maxWorkGroupSize, runtime, "matmul_qk_decode", mKernel_qk, mOpenCLBackend->getCLTuneLevel()).first;
+        mLocalWorkSizeQk = localWS2DDefault(mGlobalWorkSizeQk, maxWorkGroupSize, runtime, "matmul_qk_decode", mKernel_qk, mOpenCLBackend->getCLTuneLevel(), "attention_buf").first;
         mGlobalWorkSizeQk[0] = ROUND_UP(mGlobalWorkSizeQk[0], std::max((uint32_t)1, mLocalWorkSizeQk[0]));
         mGlobalWorkSizeQk[1] = ROUND_UP(mGlobalWorkSizeQk[1], std::max((uint32_t)1, mLocalWorkSizeQk[1]));
         if(mNeedKvCache) {
@@ -1406,7 +1414,7 @@ ErrorCode AttentionBufExecution::decodeResize(const std::vector<Tensor *> &input
         
         mLocalWorkSizeSoftMax = {static_cast<uint32_t>(localSize), 1, 1};
         if(localSize == 1){
-            mLocalWorkSizeSoftMax = localWS3DDefault(mGlobalWorkSizeSoftMax, maxWorkGroupSize, runtime, "softmax", mKernel_softmax, mOpenCLBackend->getCLTuneLevel()).first;
+            mLocalWorkSizeSoftMax = localWS3DDefault(mGlobalWorkSizeSoftMax, maxWorkGroupSize, runtime, "softmax", mKernel_softmax, mOpenCLBackend->getCLTuneLevel(), "softmax_buf").first;
         }
         mGlobalWorkSizeSoftMax[0] = ROUND_UP(mGlobalWorkSizeSoftMax[0], std::max((uint32_t)1, mLocalWorkSizeSoftMax[0]));
         mGlobalWorkSizeSoftMax[1] = ROUND_UP(mGlobalWorkSizeSoftMax[1], std::max((uint32_t)1, mLocalWorkSizeSoftMax[1]));
@@ -1446,7 +1454,7 @@ ErrorCode AttentionBufExecution::decodeResize(const std::vector<Tensor *> &input
         ret |= mKernel_rearrangeV->get().setArg(index++, headDim);
         
         MNN_CHECK_CL_SUCCESS(ret, "setArg rearrange_v");
-        mLocalWorkSizeRearrgV = localWS3DDefault(mGlobalWorkSizeRearrgV, maxWorkGroupSize, runtime, "rearrange_v", mKernel_rearrangeV, mOpenCLBackend->getCLTuneLevel()).first;
+        mLocalWorkSizeRearrgV = localWS3DDefault(mGlobalWorkSizeRearrgV, maxWorkGroupSize, runtime, "rearrange_v", mKernel_rearrangeV, mOpenCLBackend->getCLTuneLevel(), "attention_buf").first;
         mGlobalWorkSizeRearrgV[0] = ROUND_UP(mGlobalWorkSizeRearrgV[0], std::max((uint32_t)1, mLocalWorkSizeRearrgV[0]));
         mGlobalWorkSizeRearrgV[1] = ROUND_UP(mGlobalWorkSizeRearrgV[1], std::max((uint32_t)1, mLocalWorkSizeRearrgV[1]));
         mGlobalWorkSizeRearrgV[2] = ROUND_UP(mGlobalWorkSizeRearrgV[2], std::max((uint32_t)1, mLocalWorkSizeRearrgV[2]));
@@ -1496,7 +1504,7 @@ ErrorCode AttentionBufExecution::decodeResize(const std::vector<Tensor *> &input
                 ret |= kernel[knl_idx]->get().setArg(index++, headDim);
                 MNN_CHECK_CL_SUCCESS(ret, "setArg matmul_qkv_decode");
                 std::pair<std::vector<uint32_t>, int> retTune;
-                retTune = localWS2DDefault(globalWorkSize[knl_idx], maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName[i] + unroll[j], kernel[knl_idx], mOpenCLBackend->getCLTuneLevel());
+                retTune = localWS2DDefault(globalWorkSize[knl_idx], maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName[i] + unroll[j], kernel[knl_idx], mOpenCLBackend->getCLTuneLevel(), "attention_buf");
                 if(min_cost.first > retTune.second) {
                     min_cost.first = retTune.second;
                     min_cost.second = knl_idx;
@@ -1588,7 +1596,7 @@ ErrorCode AttentionBufExecution::onResize(const std::vector<Tensor *> &inputs, c
                             mLongPrefill = true;
                         }
                         std::pair<std::vector<uint32_t>, uint32_t> tuneInfoTmp = std::make_pair<std::vector<uint32_t>, uint32_t>({mLongPrefill}, 0);
-                        setTunedInfo(info, {static_cast<unsigned int>(seqlen)}, tuneInfoTmp, mOpenCLBackend->getOpenCLRuntime());
+                        setTunedInfo(info, {static_cast<unsigned int>(seqlen)}, tuneInfoTmp, mOpenCLBackend->getOpenCLRuntime(), "attention_buf");
                         init();
                     }else{
                         if(seqlen > 512){

@@ -55,7 +55,8 @@ ErrorCode MultiInputDeconvExecution::onResize(const std::vector<Tensor*> &inputs
     mCol2ImParamter.ob = output->batch();
 
 
-    mActivationType = convCommon->relu() ? 1 : convCommon->relu6() ? 2 : 0;
+    mCol2ImParamter.activationType = convCommon->relu() ? 1 : convCommon->relu6() ? 2 : 0;
+    mActivationType = 0;
 
 
     mKernelInfo.kernelX        = convCommon->kernelX();

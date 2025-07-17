@@ -188,7 +188,7 @@ ErrorCode ReductionExecution::onEncode(const std::vector<Tensor *> &inputs, cons
     }else{
         mMaxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(unit.kernel));
         std::string kernelName = "reduct";
-        mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, runtime, kernelName, unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
+        mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, runtime, kernelName, unit.kernel, mOpenCLBackend->getCLTuneLevel(), "reduction").first;
     }
     
     mOpenCLBackend->recordKernel3d(unit.kernel, mGlobalWorkSize, mLocalWorkSize);

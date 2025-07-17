@@ -100,7 +100,7 @@ Backend* CUDARuntimeWrapper::onCreate(const BackendConfig* config, Backend* orig
         precision = 1;
     }
 
-    return new CUDABackend(mBufferPool, mCUDARuntime, precision, memory_mode);
+    return new CUDABackend(this, mBufferPool, mCUDARuntime, precision, memory_mode);
 }
 
 void CUDARuntimeWrapper::onGabageCollect(int level) {
@@ -108,14 +108,16 @@ void CUDARuntimeWrapper::onGabageCollect(int level) {
 }
 
 
-CUDABackend::CUDABackend(std::shared_ptr<BufferAllocator> st,
-                         std::shared_ptr<CUDARuntime> rt,
+CUDABackend::CUDABackend(const Runtime* runtime,
+                        std::shared_ptr<BufferAllocator> st,
+                        std::shared_ptr<CUDARuntime> rt,
                         int precision, BackendConfig::MemoryMode memory)
     : Backend(MNN_FORWARD_CUDA) {
 #ifdef LOG_VERBOSE
         MNN_PRINT("cuda backend create\n");
 #endif
     mBufferPool.reset(new EagerBufferAllocator(BufferAllocator::Allocator::createRecurse(st.get())));
+    mRuntime = runtime;
     mStaticBufferPool = st;
     mCUDARuntime      = rt;
     mUseFp16AsFp32 = (precision == 2);
@@ -134,7 +136,7 @@ CUDARuntime* CUDABackend::getCUDARuntime() {
     return mCUDARuntime.get();
 }
 const Runtime* CUDABackend::getRuntime() {
-    return (const Runtime*)mCUDARuntime.get();
+    return (const Runtime*)mRuntime;
 }
 bool CUDABackend::useFp16() const {
     return mUseFp16AsFp32;

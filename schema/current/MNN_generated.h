@@ -2655,18 +2655,24 @@ bool VerifyOpParameterVector(flatbuffers::Verifier &verifier, const flatbuffers:
 enum ForwardType {
   ForwardType_CPU = 0,
   ForwardType_METAL = 1,
-  ForwardType_OPENCL = 2,
-  ForwardType_OPENGLES = 3,
-  ForwardType_VULKAN = 4,
+  ForwardType_CUDA = 2,
+  ForwardType_OPENCL = 3,
+  ForwardType_AUTO = 4,
+  ForwardType_NNAPI = 5,
+  ForwardType_OPENGLES = 6,
+  ForwardType_VULKAN = 7,
   ForwardType_MIN = ForwardType_CPU,
   ForwardType_MAX = ForwardType_VULKAN
 };
 
-inline const ForwardType (&EnumValuesForwardType())[5] {
+inline const ForwardType (&EnumValuesForwardType())[8] {
   static const ForwardType values[] = {
     ForwardType_CPU,
     ForwardType_METAL,
+    ForwardType_CUDA,
     ForwardType_OPENCL,
+    ForwardType_AUTO,
+    ForwardType_NNAPI,
     ForwardType_OPENGLES,
     ForwardType_VULKAN
   };
@@ -2677,7 +2683,10 @@ inline const char * const *EnumNamesForwardType() {
   static const char * const names[] = {
     "CPU",
     "METAL",
+    "CUDA",
     "OPENCL",
+    "AUTO",
+    "NNAPI",
     "OPENGLES",
     "VULKAN",
     nullptr
@@ -8581,6 +8590,9 @@ inline const flatbuffers::TypeTable *ForwardTypeTypeTable() {
     { flatbuffers::ET_CHAR, 0, 0 },
     { flatbuffers::ET_CHAR, 0, 0 },
     { flatbuffers::ET_CHAR, 0, 0 },
+    { flatbuffers::ET_CHAR, 0, 0 },
+    { flatbuffers::ET_CHAR, 0, 0 },
+    { flatbuffers::ET_CHAR, 0, 0 },
     { flatbuffers::ET_CHAR, 0, 0 }
   };
   static const flatbuffers::TypeFunction type_refs[] = {
@@ -8589,12 +8601,15 @@ inline const flatbuffers::TypeTable *ForwardTypeTypeTable() {
   static const char * const names[] = {
     "CPU",
     "METAL",
+    "CUDA",
     "OPENCL",
+    "AUTO",
+    "NNAPI",
     "OPENGLES",
     "VULKAN"
   };
   static const flatbuffers::TypeTable tt = {
-    flatbuffers::ST_ENUM, 5, type_codes, type_refs, nullptr, names
+    flatbuffers::ST_ENUM, 8, type_codes, type_refs, nullptr, names
   };
   return &tt;
 }

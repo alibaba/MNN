@@ -153,7 +153,7 @@ ErrorCode SelfAttentionBufImpl::onResize(Backend *backend, const std::vector<Ten
             ret |= mKernel_split[seq_idx]->get().setArg(index++, batch);
             ret |= mKernel_split[seq_idx]->get().setArg(index++, seq_idx);
             MNN_CHECK_CL_SUCCESS(ret, "setArg split_transpose_qkv");
-            mLocalWorkSizeSplit[seq_idx] = localWS3DDefault(mGlobalWorkSizeSplit[seq_idx], maxWorkGroupSize, runtime, "split_transpose_qkv", mKernel_split[seq_idx], mOpenCLBackend->getCLTuneLevel()).first;
+            mLocalWorkSizeSplit[seq_idx] = localWS3DDefault(mGlobalWorkSizeSplit[seq_idx], maxWorkGroupSize, runtime, "split_transpose_qkv", mKernel_split[seq_idx], mOpenCLBackend->getCLTuneLevel(), "self_attention_buf").first;
             mGlobalWorkSizeSplit[seq_idx][0] = ROUND_UP(mGlobalWorkSizeSplit[seq_idx][0], std::max((uint32_t)1, mLocalWorkSizeSplit[seq_idx][0]));
             mGlobalWorkSizeSplit[seq_idx][1] = ROUND_UP(mGlobalWorkSizeSplit[seq_idx][1], std::max((uint32_t)1, mLocalWorkSizeSplit[seq_idx][1]));
             mGlobalWorkSizeSplit[seq_idx][2] = ROUND_UP(mGlobalWorkSizeSplit[seq_idx][2], std::max((uint32_t)1, mLocalWorkSizeSplit[seq_idx][2]));
@@ -300,7 +300,7 @@ ErrorCode SelfAttentionBufImpl::onResize(Backend *backend, const std::vector<Ten
             ret |= mKernel_trans[seq_idx]->get().setArg(index++, transDimW);
             ret |= mKernel_trans[seq_idx]->get().setArg(index++, transDimH);
             MNN_CHECK_CL_SUCCESS(ret, "setArg Self-Attention transpose");
-            mLocalWorkSizeTrans[seq_idx] = localWS3DDefault(mGlobalWorkSizeTrans[seq_idx], maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), "trans_3d_buf", mKernel_trans[seq_idx], mOpenCLBackend->getCLTuneLevel()).first;
+            mLocalWorkSizeTrans[seq_idx] = localWS3DDefault(mGlobalWorkSizeTrans[seq_idx], maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), "trans_3d_buf", mKernel_trans[seq_idx], mOpenCLBackend->getCLTuneLevel(), "self_attention_buf").first;
             
             mGlobalWorkSizeTrans[seq_idx][0] = ROUND_UP(mGlobalWorkSizeTrans[seq_idx][0], std::max((uint32_t)1, mLocalWorkSizeTrans[seq_idx][0]));
             mGlobalWorkSizeTrans[seq_idx][1] = ROUND_UP(mGlobalWorkSizeTrans[seq_idx][1], std::max((uint32_t)1, mLocalWorkSizeTrans[seq_idx][1]));
@@ -427,7 +427,7 @@ ErrorCode SelfAttentionBufImpl::onResize(Backend *backend, const std::vector<Ten
             ret |= mKernel_clip[seq_idx]->get().setArg(index++, batch);
             ret |= mKernel_clip[seq_idx]->get().setArg(index++, seq_idx);
 
-            mLocalWorkSizeClip[seq_idx] = localWS3DDefault(mGlobalWorkSizeClip[seq_idx], maxWorkGroupSize, runtime, "clip_transpose_qkv", mKernel_clip[seq_idx], mOpenCLBackend->getCLTuneLevel()).first;
+            mLocalWorkSizeClip[seq_idx] = localWS3DDefault(mGlobalWorkSizeClip[seq_idx], maxWorkGroupSize, runtime, "clip_transpose_qkv", mKernel_clip[seq_idx], mOpenCLBackend->getCLTuneLevel(), "self_attention_buf").first;
             mGlobalWorkSizeClip[seq_idx][0] = ROUND_UP(mGlobalWorkSizeClip[seq_idx][0], std::max((uint32_t)1, mLocalWorkSizeClip[seq_idx][0]));
             mGlobalWorkSizeClip[seq_idx][1] = ROUND_UP(mGlobalWorkSizeClip[seq_idx][1], std::max((uint32_t)1, mLocalWorkSizeClip[seq_idx][1]));
             mGlobalWorkSizeClip[seq_idx][2] = ROUND_UP(mGlobalWorkSizeClip[seq_idx][2], std::max((uint32_t)1, mLocalWorkSizeClip[seq_idx][2]));

@@ -25,9 +25,9 @@ if (MNN_KLEIDIAI)
     set(KLEIDIAI_BUILD_TESTS  OFF)
     # Fetch KleidiAI sources:
     include(FetchContent)
-    set(KLEIDIAI_COMMIT_SHA "v1.7.0")
+    set(KLEIDIAI_COMMIT_SHA "v1.9.0")
     set(KLEIDIAI_DOWNLOAD_URL "https://gitlab.arm.com/kleidi/kleidiai/-/archive/${KLEIDIAI_COMMIT_SHA}/kleidiai-${KLEIDIAI_COMMIT_SHA}.tar.gz")
-    set(KLEIDIAI_ARCHIVE_MD5  "f57f809096e57e93e9df6a2ac5686218")
+    set(KLEIDIAI_ARCHIVE_MD5  "e4c9fcb5de397ba3532d593672d56e95")
 
     if (POLICY CMP0135)
         cmake_policy(SET CMP0135 NEW)
@@ -62,7 +62,9 @@ if (MNN_KLEIDIAI)
         ${KLEIDIAI_SRC}/kai/ukernels/matmul/matmul_clamp_f32_f32p_f32p/
         ${KLEIDIAI_SRC}/kai/ukernels/matmul/matmul_clamp_f32_f32_f32p/
         ${KLEIDIAI_SRC}/kai/ukernels/matmul/matmul_clamp_f16_f16p_f16p/
-        ${KLEIDIAI_SRC}/kai/ukernels/matmul/matmul_clamp_f16_f16_f16p/)
+        ${KLEIDIAI_SRC}/kai/ukernels/matmul/matmul_clamp_f16_f16_f16p/
+	${KLEIDIAI_SRC}/kai/ukernels/matmul/imatmul_clamp_f32_f32p_f32p/
+	${KLEIDIAI_SRC}/kai/ukernels/matmul/imatmul_clamp_f16_f16p_f16p/)
 
     list(APPEND MNN_SOURCES_KLEIDIAI ${KLEIDIAI_SRC}/kai/ukernels/matmul/pack/kai_lhs_quant_pack_qai8dxp_f32.c)
     list(APPEND MNN_SOURCES_KLEIDIAI ${KLEIDIAI_SRC}/kai/ukernels/matmul/pack/kai_rhs_pack_nxk_qsi4cxp_qs4cxs1s0.c)
@@ -93,9 +95,15 @@ if (MNN_KLEIDIAI)
         ${KLEIDIAI_SRC}/kai/ukernels/matmul/matmul_clamp_f16_f16_f16p/kai_matmul_clamp_f16_f16_f16p2vlx2b_1x16vl_sme2_dot.c
         ${KLEIDIAI_SRC}/kai/ukernels/matmul/matmul_clamp_f32_qai8dxp_qsi4cxp/kai_matmul_clamp_f32_qai8dxp1x4_qsi4cxp4vlx4_1x4vl_sme2_sdot.c
         ${KLEIDIAI_SRC}/kai/ukernels/matmul/matmul_clamp_f32_qai8dxp_qsi4cxp/kai_matmul_clamp_f32_qai8dxp1vlx8_qsi4cxp4vlx8_1vlx4vl_sme2_mopa.c
+	${KLEIDIAI_SRC}/kai/ukernels/matmul/imatmul_clamp_f32_f32p_f32p/kai_imatmul_clamp_f32_f32p2vlx1_f32p2vlx1b_2vlx2vl_sme2_mopa.c
+	${KLEIDIAI_SRC}/kai/ukernels/matmul/pack/kai_lhs_imatmul_pack_x32p2vlx1_x32p_sme.c
+	${KLEIDIAI_SRC}/kai/ukernels/matmul/pack/kai_rhs_imatmul_pack_kxn_x32p2vlx1b_x32_x32_sme.c
+	${KLEIDIAI_SRC}/kai/ukernels/matmul/imatmul_clamp_f16_f16p_f16p/kai_imatmul_clamp_f16_f16p2vlx2_f16p2vlx2_2vlx2vl_sme2_mopa.c
+	${KLEIDIAI_SRC}/kai/ukernels/matmul/pack/kai_lhs_imatmul_pack_x16p2vlx2_x16p_sme.c
+	${KLEIDIAI_SRC}/kai/ukernels/matmul/pack/kai_rhs_imatmul_pack_kxn_x16p2vlx2b_x16_x16_sme.c
     )
 
-    set_source_files_properties(${MNN_SOURCES_KLEIDIAI} PROPERTIES COMPILE_OPTIONS -march=armv8.2-a+i8mm+dotprod+sve+sve2+fp16)
+    set_source_files_properties(${MNN_SOURCES_KLEIDIAI} PROPERTIES COMPILE_OPTIONS "-fno-tree-vectorize;-march=armv8.2-a+i8mm+dotprod+sve+sve2+fp16")
     set_source_files_properties(${KLEIDIAI_FILES_SME2}  PROPERTIES COMPILE_OPTIONS "-fno-tree-vectorize;-march=armv8.2-a+sve+sve2")
 
 endif()

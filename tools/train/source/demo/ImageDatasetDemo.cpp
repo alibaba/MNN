@@ -64,7 +64,7 @@ public:
         auto converImagesToFormat  = CV::RGB;
         int resizeHeight           = 224;
         int resizeWidth            = 224;
-        std::vector<float> scales = {1/255.0, 1/255.0, 1/255.0};
+        std::vector<float> scales = {1/255.0f, 1/255.0f, 1/255.0f};
         std::shared_ptr<ImageDataset::ImageConfig> config(ImageDataset::ImageConfig::create(converImagesToFormat, resizeHeight, resizeWidth, scales));
         bool readAllImagesToMemory = false;
         auto dataset = ImageDataset::create(pathToImages, pathToImageTxt, config.get(), readAllImagesToMemory);

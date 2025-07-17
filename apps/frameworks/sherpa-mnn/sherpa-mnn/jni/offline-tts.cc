@@ -16,13 +16,13 @@ static OfflineTtsConfig GetOfflineTtsConfig(JNIEnv *env, jobject config) {
   jfieldID fid;
 
   fid = env->GetFieldID(cls, "model",
-                        "Lcom/k2fsa/sherpa/onnx/OfflineTtsModelConfig;");
+                        "Lcom/k2fsa/sherpa/mnn/OfflineTtsModelConfig;");
   jobject model = env->GetObjectField(config, fid);
   jclass model_config_cls = env->GetObjectClass(model);
 
   // vits
   fid = env->GetFieldID(model_config_cls, "vits",
-                        "Lcom/k2fsa/sherpa/onnx/OfflineTtsVitsModelConfig;");
+                        "Lcom/k2fsa/sherpa/mnn/OfflineTtsVitsModelConfig;");
   jobject vits = env->GetObjectField(model, fid);
   jclass vits_cls = env->GetObjectClass(vits);
 
@@ -67,7 +67,7 @@ static OfflineTtsConfig GetOfflineTtsConfig(JNIEnv *env, jobject config) {
 
   // matcha
   fid = env->GetFieldID(model_config_cls, "matcha",
-                        "Lcom/k2fsa/sherpa/onnx/OfflineTtsMatchaModelConfig;");
+                        "Lcom/k2fsa/sherpa/mnn/OfflineTtsMatchaModelConfig;");
   jobject matcha = env->GetObjectField(model, fid);
   jclass matcha_cls = env->GetObjectClass(matcha);
 
@@ -115,7 +115,7 @@ static OfflineTtsConfig GetOfflineTtsConfig(JNIEnv *env, jobject config) {
 
   // kokoro
   fid = env->GetFieldID(model_config_cls, "kokoro",
-                        "Lcom/k2fsa/sherpa/onnx/OfflineTtsKokoroModelConfig;");
+                        "Lcom/k2fsa/sherpa/mnn/OfflineTtsKokoroModelConfig;");
   jobject kokoro = env->GetObjectField(model, fid);
   jclass kokoro_cls = env->GetObjectClass(kokoro);
 

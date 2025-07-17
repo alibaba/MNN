@@ -35,7 +35,7 @@ static void _TileTensor(Tensor *input, cl::Buffer *output, std::shared_ptr<Kerne
     ret |= kernel.setArg(index++, Channel);
     MNN_CHECK_CL_SUCCESS(ret, "setArg Loop _PackTensor");
 
-    std::vector<uint32_t> mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, bn->getOpenCLRuntime(), "tile", kernelW, bn->getCLTuneLevel()).first;
+    std::vector<uint32_t> mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, bn->getOpenCLRuntime(), "tile", kernelW, bn->getCLTuneLevel(), "loop").first;
 
     globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1], mGlobalWorkSize[2]};
     localWorkSize  = {mLocalWorkSize[0], mLocalWorkSize[1], mLocalWorkSize[2]};
@@ -65,7 +65,7 @@ static void _PackTensor(cl::Buffer *input, Tensor *output, std::shared_ptr<Kerne
     ret |= kernel.setArg(index++, Channel);
     MNN_CHECK_CL_SUCCESS(ret, "setArg Loop _PackTensor");
 
-    std::vector<uint32_t> mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, bn->getOpenCLRuntime(), "pack", kernelW, bn->getCLTuneLevel()).first;
+    std::vector<uint32_t> mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, bn->getOpenCLRuntime(), "pack", kernelW, bn->getCLTuneLevel(), "loop").first;
 
     globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1], mGlobalWorkSize[2]};
     localWorkSize  = {mLocalWorkSize[0], mLocalWorkSize[1], mLocalWorkSize[2]};
@@ -197,7 +197,7 @@ ErrorCode LoopGatherExecution::InitCommandOnEncode(const std::vector<Tensor *> &
        ret |= unit.kernel->get().setArg(index++, inputSize);
        MNN_CHECK_CL_SUCCESS(ret, "setArg LoopGatherExecution");
 
-       std::vector<uint32_t> mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, runTime, KernelName, unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
+       std::vector<uint32_t> mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, runTime, KernelName, unit.kernel, mOpenCLBackend->getCLTuneLevel(), "loop").first;
 
        unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1], mGlobalWorkSize[2]};
        unit.localWorkSize  = {mLocalWorkSize[0], mLocalWorkSize[1], mLocalWorkSize[2]};
@@ -334,7 +334,7 @@ ErrorCode LoopGatherExecution::InitCommandOnEncode(const std::vector<Tensor *> &
         ret |= unit.kernel->get().setArg(index++, inputSize);
         MNN_CHECK_CL_SUCCESS(ret, "setArg LoopGatherExecution");
 
-        std::vector<uint32_t> mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, runTime, KernelName, unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
+        std::vector<uint32_t> mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, runTime, KernelName, unit.kernel, mOpenCLBackend->getCLTuneLevel(), "loop").first;
 
         unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1], mGlobalWorkSize[2]};
         unit.localWorkSize  = {mLocalWorkSize[0], mLocalWorkSize[1], mLocalWorkSize[2]};
@@ -484,7 +484,7 @@ ErrorCode LoopBatchMatMulExecution::onEncode(const std::vector<Tensor *> &inputs
         ret |= unit.kernel->get().setArg(index++, sizeof(mStep), mStep);
         MNN_CHECK_CL_SUCCESS(ret, "setArg LoopBatchMatMulExecution");
 
-        std::vector<uint32_t> mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, runTime, KernelName, unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
+        std::vector<uint32_t> mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, runTime, KernelName, unit.kernel, mOpenCLBackend->getCLTuneLevel(), "loop").first;
 
         unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1], mGlobalWorkSize[2]};
         unit.localWorkSize  = {mLocalWorkSize[0], mLocalWorkSize[1], mLocalWorkSize[2]};
@@ -595,7 +595,7 @@ ErrorCode LoopBinaryExecution::cumSumOnEncode(const std::vector<Tensor *> &input
         ret |= unit.kernel->get().setArg(index++, sizeof(mStep), mStep);
         MNN_CHECK_CL_SUCCESS(ret, "setArg LoopCumsumExecution");
         
-        std::vector<uint32_t> mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, runTime, "loop_cumsum", unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
+        std::vector<uint32_t> mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, runTime, "loop_cumsum", unit.kernel, mOpenCLBackend->getCLTuneLevel(), "loop").first;
         
         unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1], mGlobalWorkSize[2]};
         unit.localWorkSize  = {mLocalWorkSize[0], mLocalWorkSize[1], mLocalWorkSize[2]};
@@ -759,7 +759,7 @@ ErrorCode LoopBinaryExecution::onEncode(const std::vector<Tensor *> &inputs, con
     ret |= unit.kernel->get().setArg(index++, ChannelBlock);
     MNN_CHECK_CL_SUCCESS(ret, "setArg LoopBinaryExecution");
 
-    std::vector<uint32_t> mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, runTime, KernelName, unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
+    std::vector<uint32_t> mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, runTime, KernelName, unit.kernel, mOpenCLBackend->getCLTuneLevel(), "loop").first;
 
     unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1], mGlobalWorkSize[2]};
     unit.localWorkSize  = {mLocalWorkSize[0], mLocalWorkSize[1], mLocalWorkSize[2]};

@@ -25,22 +25,15 @@ class BackendInfo(object):
         self._tab = flatbuffers.table.Table(buf, pos)
 
     # BackendInfo
-    def MnnVersion(self):
+    def DeviceName(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
         if o != 0:
             return self._tab.String(o + self._tab.Pos)
         return None
 
     # BackendInfo
-    def DeviceName(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
-        if o != 0:
-            return self._tab.String(o + self._tab.Pos)
-        return None
-
-    # BackendInfo
     def Programs(self, j):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
         if o != 0:
             x = self._tab.Vector(o)
             x += flatbuffers.number_types.UOffsetTFlags.py_type(j) * 4
@@ -53,19 +46,19 @@ class BackendInfo(object):
 
     # BackendInfo
     def ProgramsLength(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
         if o != 0:
             return self._tab.VectorLen(o)
         return 0
 
     # BackendInfo
     def ProgramsIsNone(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
         return o == 0
 
     # BackendInfo
     def Tunings(self, j):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
         if o != 0:
             x = self._tab.Vector(o)
             x += flatbuffers.number_types.UOffsetTFlags.py_type(j) * 4
@@ -78,19 +71,19 @@ class BackendInfo(object):
 
     # BackendInfo
     def TuningsLength(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
         if o != 0:
             return self._tab.VectorLen(o)
         return 0
 
     # BackendInfo
     def TuningsIsNone(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
         return o == 0
 
     # BackendInfo
     def Gemm(self, j):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
         if o != 0:
             x = self._tab.Vector(o)
             x += flatbuffers.number_types.UOffsetTFlags.py_type(j) * 4
@@ -103,36 +96,30 @@ class BackendInfo(object):
 
     # BackendInfo
     def GemmLength(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
         if o != 0:
             return self._tab.VectorLen(o)
         return 0
 
     # BackendInfo
     def GemmIsNone(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
         return o == 0
 
 def BackendInfoStart(builder):
-    builder.StartObject(5)
+    builder.StartObject(4)
 
 def Start(builder):
     BackendInfoStart(builder)
 
-def BackendInfoAddMnnVersion(builder, mnnVersion):
-    builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(mnnVersion), 0)
-
-def AddMnnVersion(builder, mnnVersion):
-    BackendInfoAddMnnVersion(builder, mnnVersion)
-
 def BackendInfoAddDeviceName(builder, deviceName):
-    builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(deviceName), 0)
+    builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(deviceName), 0)
 
 def AddDeviceName(builder, deviceName):
     BackendInfoAddDeviceName(builder, deviceName)
 
 def BackendInfoAddPrograms(builder, programs):
-    builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(programs), 0)
+    builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(programs), 0)
 
 def AddPrograms(builder, programs):
     BackendInfoAddPrograms(builder, programs)
@@ -144,7 +131,7 @@ def StartProgramsVector(builder, numElems):
     return BackendInfoStartProgramsVector(builder, numElems)
 
 def BackendInfoAddTunings(builder, tunings):
-    builder.PrependUOffsetTRelativeSlot(3, flatbuffers.number_types.UOffsetTFlags.py_type(tunings), 0)
+    builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(tunings), 0)
 
 def AddTunings(builder, tunings):
     BackendInfoAddTunings(builder, tunings)
@@ -156,7 +143,7 @@ def StartTuningsVector(builder, numElems):
     return BackendInfoStartTuningsVector(builder, numElems)
 
 def BackendInfoAddGemm(builder, gemm):
-    builder.PrependUOffsetTRelativeSlot(4, flatbuffers.number_types.UOffsetTFlags.py_type(gemm), 0)
+    builder.PrependUOffsetTRelativeSlot(3, flatbuffers.number_types.UOffsetTFlags.py_type(gemm), 0)
 
 def AddGemm(builder, gemm):
     BackendInfoAddGemm(builder, gemm)

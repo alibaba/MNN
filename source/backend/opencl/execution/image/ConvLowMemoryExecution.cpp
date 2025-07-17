@@ -264,7 +264,7 @@ void ConvLowMemoryExecution::tune1x1CaseLowMemory(Tensor * input, Tensor * outpu
         ret |= kernel[knl_idx]->get().setArg(idx++, inputChannels);
         
         std::pair<std::vector<uint32_t>, uint32_t> retTune;
-        retTune = localWS2DDefault(globalWorkSize[knl_idx], maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName[knl_idx] + info, kernel[knl_idx], mOpenCLBackend->getCLTuneLevel());
+        retTune = localWS2DDefault(globalWorkSize[knl_idx], maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName[knl_idx] + info, kernel[knl_idx], mOpenCLBackend->getCLTuneLevel(), "conv_2d_int");
         
         //printf("conv1x1 kernel_%d = %d  [%d, %d]\n", knl_idx, retTune.second, retTune.first[0], retTune.first[1]);
         if(min_cost.first > retTune.second) {
@@ -374,7 +374,7 @@ void ConvLowMemoryExecution::tuneGeneralCaseLowMemory(Tensor * input, Tensor * o
         ret |= kernel[knl_idx]->get().setArg(idx++, inputChannels);
         MNN_CHECK_CL_SUCCESS(ret, "setArg ConvLowMemory Kernel Select");
         std::pair<std::vector<uint32_t>, int> retTune;
-        retTune = localWS2DDefault(globalWorkSize[knl_idx], maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName[knl_idx] + info, kernel[knl_idx], mOpenCLBackend->getCLTuneLevel());
+        retTune = localWS2DDefault(globalWorkSize[knl_idx], maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelName[knl_idx] + info, kernel[knl_idx], mOpenCLBackend->getCLTuneLevel(), "conv_2d_int");
         if(min_cost.first > retTune.second) {
             min_cost.first = retTune.second;
             min_cost.second = knl_idx;
@@ -465,7 +465,7 @@ void ConvLowMemoryExecution::tuneGemmLowMemory(Tensor * input, Tensor * output) 
     ret |= unit.kernel->get().setArg(idx++, static_cast<int>(inputChannels));
     MNN_CHECK_CL_SUCCESS(ret, "setArg gemm_conv");
     
-    mLocalWorkSize = localWS2DDefault(mGlobalWorkSize, maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelname + info, unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
+    mLocalWorkSize = localWS2DDefault(mGlobalWorkSize, maxWorkGroupSize, mOpenCLBackend->getOpenCLRuntime(), kernelname + info, unit.kernel, mOpenCLBackend->getCLTuneLevel(), "gemm_int").first;
     mOpenCLBackend->recordKernel2d(unit.kernel, mGlobalWorkSize, mLocalWorkSize);
 
     unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1]};

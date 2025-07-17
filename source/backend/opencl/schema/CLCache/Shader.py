@@ -72,8 +72,15 @@ class Shader(object):
             return self._tab.String(o + self._tab.Pos)
         return None
 
+    # Shader
+    def Md5(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
+        if o != 0:
+            return self._tab.String(o + self._tab.Pos)
+        return None
+
 def ShaderStart(builder):
-    builder.StartObject(4)
+    builder.StartObject(5)
 
 def Start(builder):
     ShaderStart(builder)
@@ -107,6 +114,12 @@ def ShaderAddBuildInfo(builder, buildInfo):
 
 def AddBuildInfo(builder, buildInfo):
     ShaderAddBuildInfo(builder, buildInfo)
+
+def ShaderAddMd5(builder, md5):
+    builder.PrependUOffsetTRelativeSlot(4, flatbuffers.number_types.UOffsetTFlags.py_type(md5), 0)
+
+def AddMd5(builder, md5):
+    ShaderAddMd5(builder, md5)
 
 def ShaderEnd(builder):
     return builder.EndObject()

@@ -163,7 +163,7 @@ ErrorCode BinaryBufExecution::SubgroupOnResize(const std::vector<Tensor *> &inpu
         ret |= unit.kernel->get().setArg(index++, static_cast<uint32_t>(outputpad.right));
         MNN_CHECK_CL_SUCCESS(ret, "setArg BinaryBufExecution");
 
-        mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), kernelName, unit.kernel, openCLBackend->getCLTuneLevel()).first;
+        mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), kernelName, unit.kernel, openCLBackend->getCLTuneLevel(), "binary_subgroup_buf").first;
 
         unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1], mGlobalWorkSize[2]};
         unit.localWorkSize  = {mLocalWorkSize[0], mLocalWorkSize[1], mLocalWorkSize[2]};
@@ -232,7 +232,7 @@ ErrorCode BinaryBufExecution::SubgroupOnResize(const std::vector<Tensor *> &inpu
             ret |= unit.kernel->get().setArg(index++, static_cast<uint32_t>(outputpadtmp.right));
             MNN_CHECK_CL_SUCCESS(ret, "setArg BinaryBufExecution MultiInput");
 
-            mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), kernelNameTmp, unit.kernel, openCLBackend->getCLTuneLevel()).first;
+            mLocalWorkSize = localWS3DDefault(mGlobalWorkSize, mMaxWorkGroupSize, openCLBackend->getOpenCLRuntime(), kernelNameTmp, unit.kernel, openCLBackend->getCLTuneLevel(), "binary_subgroup_buf").first;
 
             unit.globalWorkSize = {mGlobalWorkSize[0], mGlobalWorkSize[1], mGlobalWorkSize[2]};
             unit.localWorkSize  = {mLocalWorkSize[0], mLocalWorkSize[1], mLocalWorkSize[2]};

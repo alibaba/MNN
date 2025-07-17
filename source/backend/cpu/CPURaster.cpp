@@ -352,6 +352,10 @@ void CPURaster::executeFaster(const std::vector<Tensor *> &inputs, const std::ve
     MNN_CONCURRENCY_BEGIN(tId, threadNum) {
         for (int u=(int)tId; u<mFastBlit.size(); u+=threadNum) {
             auto& iter = mFastBlit[u];
+            if (iter.first->host<uint8_t>() == nullptr) {
+                // Avoid crash when has zero shape input blit
+                continue;
+            }
             auto& slice = iter.second;
             //Offset use byte
             auto srcPtr = iter.first->host<uint8_t>() + slice.src.offset * bytes;
@@ -660,6 +664,10 @@ ErrorCode CPURaster::onExecute(const std::vector<Tensor *> &____inputs, const st
         for (int u=tId; u<mTempInputCopy.size(); u+=threadNum) {
             auto& iter = mTempInputCopy[u];
             auto& slice = *(iter.second);
+            if (nullptr == iter.first->host<uint8_t>()) {
+                // Avoid crash when has zero shape input blit
+                continue;
+            }
             auto srcPtr = iter.first->host<uint8_t>() + slice.src.offset * bytes;
             auto dstPtr = (uint8_t*)mOutputPtr + slice.dst.offset * bytes;
             _blit(slice, bytes, srcPtr, dstPtr, mHasReduce);

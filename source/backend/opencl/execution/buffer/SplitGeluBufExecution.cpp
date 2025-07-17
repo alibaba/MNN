@@ -68,7 +68,7 @@ ErrorCode SplitGeluBufExecution::onEncode(const std::vector<Tensor*>& inputs, co
 
     MNN_CHECK_CL_SUCCESS(ret, "setArg SplitGeluBufExecution");
     
-    mLWS = localWS2DDefault(mGWS, maxWorkGroupSize, runtime, "splitgelu_buf", unit.kernel, mOpenCLBackend->getCLTuneLevel()).first;
+    mLWS = localWS2DDefault(mGWS, maxWorkGroupSize, runtime, "splitgelu_buf", unit.kernel, mOpenCLBackend->getCLTuneLevel(), "splitgelu_buf").first;
 
     unit.globalWorkSize  = {mGWS[0], mGWS[1]};
     unit.localWorkSize   = {mLWS[0], mLWS[1]};
