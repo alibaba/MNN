@@ -35,28 +35,31 @@ This is our full multimodal language model (LLM) Android app
 
 
 # Development
-+ Prepare
-  + Android Studio
-  + NDK(21 recommended)
-  + `export ANDROID_NDK=${YOUR_NDK_ROOT}`
+## Windows   
+基于`AndroidStuido` IDE进行构建:
++ Clone the repository：
+  ```shell
+  git clone https://github.com/alibaba/MNN.git
+  ```
++ In `Android Studio`, go to the top-left corner and click File → Open, then select the project. After that, click Build and choose either Make Project or Build Bundle(s) / APK(s) to generate the APK. 
+## Linux  
 + Clone the repository:
   ```shell
-    git clone https://github.com/alibaba/MNN.git
+  git clone https://github.com/alibaba/MNN.git
   ```
-+ Build library:
-  ```shell
-  cd project/android
-  mkdir build_64
-  cd build_64
-  ../build_64.sh "-DMNN_LOW_MEMORY=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true -DMNN_ARM82=true -DMNN_USE_LOGCAT=true -DMNN_OPENCL=true -DLLM_SUPPORT_VISION=true -DMNN_BUILD_OPENCV=true -DMNN_IMGCODECS=true -DLLM_SUPPORT_AUDIO=true -DMNN_BUILD_AUDIO=true -DMNN_BUILD_DIFFUSION=ON -DMNN_SEP_BUILD=OFF -DCMAKE_INSTALL_PREFIX=."
-  make install
-  ```
-
-+ build android app project and install
-  ```shell
-  cd ../../../apps/Android/MnnLlmChat
-  ./gradlew installDebug
-  ```
++ Configure Android SDK NDK  
+  ```  
+  #here we use sdkmanager to install SDK/NDK tools
+  sudo sdkmanager "platforms;android-35"  
+  sudo sdkmanager "build-tools;33.0.1"  
+  ```    
++ Compile&Build
+  ```  
+  #build debug version only
+  ./gradlew assembleDebug  
+  #build debug verion and install to android device
+  ./gradlew installDebug  
+  ```  
 
 # Releases
 ## Version 0.5.1.2

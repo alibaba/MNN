@@ -34,23 +34,32 @@
  !!!warning!!!  此版本目前仅在 OnePlus 13 和 小米 14 Ultra 上进行了测试。由于大型语言模型（LLM）对设备性能要求较高，许多低配置设备可能会遇到以下问题：推理速度缓慢、应用不稳定甚至无法运行。对于其他设备的稳定性无法保证。如果您在使用过程中遇到问题，请随时提交问题以获取帮助。
 
 
-# 开发 
+# 开发   
+## Windows   
+基于`AndroidStuido` IDE进行构建:
 + 克隆代码库：
   ```shell
-    git clone https://github.com/alibaba/MNN.git
+  git clone https://github.com/alibaba/MNN.git
   ```
-+ 构建库：
-  ```shell
-  cd project/android
-  mkdir build_64
-  ../build_64.sh "-DMNN_LOW_MEMORY=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true -DMNN_ARM82=true -DMNN_USE_LOGCAT=true -DMNN_OPENCL=true -DLLM_SUPPORT_VISION=true -DMNN_BUILD_OPENCV=true -DMNN_IMGCODECS=true -DLLM_SUPPORT_AUDIO=true -DMNN_BUILD_AUDIO=true -DMNN_BUILD_DIFFUSION=ON -DMNN_SEP_BUILD=OFF -DCMAKE_INSTALL_PREFIX=."
-  make install
-  ```
-+ 构建 Android 应用项目并安装：
-  ```shell
-  cd ../../../apps/Android/MnnLlmChat
-  ./gradlew installDebug
-  ```
++ `AndroidStuido`左上角File->Open,选择该工程，点击`Build`,选择`Make Project`或者`Build App Bundle(s)/APK(s)`,即可生成APK  
+## Linux  
++ 克隆代码库：
+ ```shell
+ git clone https://github.com/alibaba/MNN.git
+ ```
++ 配置Android SDK与NDK  
+ ```  
+ #here we use sdkmanager to install SDK/NDK tools
+ sudo sdkmanager "platforms;android-35"  
+ sudo sdkmanager "build-tools;33.0.1"  
+ ```    
++ 编译构建
+ ```  
+ #仅编译debug版本
+ ./gradlew assembleDebug  
+ #编译且安装,需要确保安卓设备已连接
+./gradlew installDebug  
+ ```   
 
 # Releases
 
