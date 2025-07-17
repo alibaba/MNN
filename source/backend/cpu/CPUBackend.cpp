@@ -79,7 +79,7 @@ void CPUBackend::computeDivideSizes(int size, int* dst, float avgDiv) const {
 }
 
 void CPURuntime::_bindCPUCore() const {
-    if (mPower == BackendConfig::Power_Normal && mCpuIds.empty()) {
+    if (mCpuIds.empty()) {
         return;
     }
     auto tid = MNNGetCurrentPid();
@@ -88,41 +88,9 @@ void CPURuntime::_bindCPUCore() const {
     }
     mCurrentTID = tid;
     // Bind CPU Core
-    auto cpuInfo = MNNGetCPUInfo();
-    if (cpuInfo->groups.size() == 0) {
-        return;
-    }
     std::vector<std::pair<const int*, int>> lockCPUIndexes(mThreadNumber);
-    if(!mCpuIds.empty()) {
-        for (int v=0; v<mThreadNumber; ++v) {
-            lockCPUIndexes[v] = std::make_pair(mCpuIds.data(), mCpuIds.size());
-        }
-    }
-    else{
-        switch (mPower) {
-            case BackendConfig::Power_Low:
-                for (int v=0; v<mThreadNumber; ++v) {
-                    lockCPUIndexes[v] = std::make_pair(cpuInfo->groups[0].ids.data(), cpuInfo->groups[0].ids.size());
-                }
-                break;
-            case BackendConfig::Power_High:
-            {
-                int selectCPUSize = 0;
-                int groupIndex = cpuInfo->groups.size() - 1;
-                while (selectCPUSize < mThreadNumber && groupIndex >= 0) {
-                    auto& group = cpuInfo->groups[groupIndex];
-                    int size = ALIMIN(group.ids.size(), mThreadNumber - selectCPUSize);
-                    for (int v=0; v<size; ++v) {
-                        lockCPUIndexes[v + selectCPUSize] = std::make_pair(group.ids.data(), group.ids.size());
-                    }
-                    groupIndex--;
-                    selectCPUSize += group.ids.size();
-                }
-            }
-                break;
-            default:
-                break;
-        }
+    for (int v=0; v<mThreadNumber; ++v) {
+        lockCPUIndexes[v] = std::make_pair(mCpuIds.data(), mCpuIds.size());
     }
     // Set CPU Affinity
 #ifdef _OPENMP
@@ -221,6 +189,32 @@ void CPURuntime::_validateCpuIds() {
 
     if(!valid) {
         mCpuIds.clear();
+    }
+
+    if(mCpuIds.empty()) {
+        auto cpuInfo = MNNGetCPUInfo();
+        if (cpuInfo->groups.size() == 0) {
+            return;
+        }
+        switch (mPower) {
+            case BackendConfig::Power_Low:
+                    mCpuIds = cpuInfo->groups[0].ids;
+                break;
+            case BackendConfig::Power_High:
+            {
+                int selectCPUSize = 0;
+                int groupIndex = cpuInfo->groups.size() - 1;
+                while (selectCPUSize < mThreadNumber && groupIndex >= 0) {
+                    auto& group = cpuInfo->groups[groupIndex];
+                    mCpuIds.insert(mCpuIds.end(), group.ids.begin(), group.ids.end());
+                    groupIndex--;
+                    selectCPUSize += group.ids.size();
+                }
+            }
+                break;
+            default:
+                break;
+        }
     }
 }
 void CPURuntime::onReset(int numberThread, const BackendConfig* config, bool full) {
