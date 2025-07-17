@@ -477,4 +477,9 @@
     <string name="leaderboard_rank_info">Your rank: %1$d out of %2$d users</string>
     <string name="leaderboard_rank_not_found">Ranking information not available</string>
     <string name="ok">OK</string>
+
+    <!-- Debug Feature Strings -->
+    <string name="debug_show_model_info">Show Model Info Menu</string>
+    <string name="checking_repo_updates">Checking for repository updates...</string>
+    <string name="repo_update_check_result">Repository Update Check</string>
 </resources>

@@ -285,7 +285,7 @@ class ModelListFragment : Fragment(), ModelListContract.View, Searchable {
         modelListPresenter!!.onDestroy()
         adapter?.onDestroy() // Clean up adapter resources
         removeCustomToolbar()
-        toolbarFiltersContent = null
+                toolbarFiltersContent = null
     }
 
     override fun onListAvailable() {

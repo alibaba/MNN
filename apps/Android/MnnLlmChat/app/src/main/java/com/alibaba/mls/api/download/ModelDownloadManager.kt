@@ -145,8 +145,8 @@ class ModelDownloadManager private constructor(context: Context) {
 
     private fun getDownloaderForSource(source: String): ModelRepoDownloader {
         return when (source) {
-            SourceSelectionDialogFragment.SOURCE_HUGGINGFACE -> hfDownloader
-            SourceSelectionDialogFragment.SOURCE_MODELERS -> mlDownloader
+            ModelSources.sourceHuffingFace-> hfDownloader
+            ModelSources.sourceModelers -> mlDownloader
             else -> msDownloader
         }
     }

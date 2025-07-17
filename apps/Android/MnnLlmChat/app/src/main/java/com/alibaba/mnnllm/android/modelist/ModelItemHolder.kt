@@ -230,25 +230,44 @@ class ModelItemHolder(
                     settingsSheet.show(fragmentManager, SettingsBottomSheetFragment.TAG)
                 }
             } else if (item.itemId == R.id.menu_show_model_info) {
-                // Show model info (simplified version)
-                val info = StringBuilder()
-                info.append("Model: ${modelItem.modelName ?: modelItem.modelId}\n")
-                val sizeInfo = currentModelWrapper?.let { getFormattedFileSize(it) } ?: "Unknown"
-                info.append("Size: ${if (sizeInfo.isNotEmpty()) sizeInfo else "Unknown"}\n")
-                if ((currentModelWrapper?.lastChatTime ?: 0) > 0) {
-                    val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
-                    info.append("Last Chat: ${dateFormat.format(Date(currentModelWrapper!!.lastChatTime))}\n")
-                }
-                if ((currentModelWrapper?.downloadTime ?: 0) > 0) {
-                    val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
-                    info.append("Downloaded: ${dateFormat.format(Date(currentModelWrapper!!.downloadTime))}")
-                }
+                // Show model info with repo update check
+                val context = v.context
+                val progressDialog = androidx.appcompat.app.AlertDialog.Builder(context)
+                    .setTitle(R.string.repo_update_check_result)
+                    .setMessage(R.string.checking_repo_updates)
+                    .setCancelable(false)
+                    .create()
                 
-                AlertDialog.Builder(v.context)
-                    .setTitle("Model Information")
-                    .setMessage(info.toString())
-                    .setPositiveButton(android.R.string.ok, null)
-                    .show()
+                progressDialog.show()
+                
+                // Check for repo updates first
+                com.alibaba.mnnllm.android.debug.DebugActivity.checkRepoUpdates(context) { hasUpdates, updateInfo ->
+                    progressDialog.dismiss()
+                    
+                    // Build model info
+                    val info = StringBuilder()
+                    info.append("Model: ${modelItem.modelName ?: modelItem.modelId}\n")
+                    val sizeInfo = currentModelWrapper?.let { getFormattedFileSize(it) } ?: "Unknown"
+                    info.append("Size: ${if (sizeInfo.isNotEmpty()) sizeInfo else "Unknown"}\n")
+                    if ((currentModelWrapper?.lastChatTime ?: 0) > 0) {
+                        val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
+                        info.append("Last Chat: ${dateFormat.format(Date(currentModelWrapper!!.lastChatTime))}\n")
+                    }
+                    if ((currentModelWrapper?.downloadTime ?: 0) > 0) {
+                        val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
+                        info.append("Downloaded: ${dateFormat.format(Date(currentModelWrapper!!.downloadTime))}\n")
+                    }
+                    
+                    // Add repo update info
+                    info.append("\n--- Repository Update Check ---\n")
+                    info.append(updateInfo ?: "No update information available")
+                    
+                    AlertDialog.Builder(context)
+                        .setTitle("Model Information")
+                        .setMessage(info.toString())
+                        .setPositiveButton(android.R.string.ok, null)
+                        .show()
+                }
             } else if (item.itemId == R.id.menu_open_model_card) {
                 ModelUtils.openModelCard(v.context, modelItem)
             } else if (item.itemId == R.id.menu_pin_model) {
@@ -262,7 +281,9 @@ class ModelItemHolder(
         // Delete, settings, and model info are always available
         popupMenu.menu.findItem(R.id.menu_delete_model).setVisible(!modelItem.isLocal)
         popupMenu.menu.findItem(R.id.menu_settings).setVisible(true)
-        popupMenu.menu.findItem(R.id.menu_show_model_info).setVisible(false)
+        // Show model info menu item only if debug feature is enabled
+        val isDebugEnabled = com.alibaba.mnnllm.android.debug.DebugActivity.isShowModelInfoEnabled(v.context)
+        popupMenu.menu.findItem(R.id.menu_show_model_info).setVisible(isDebugEnabled)
         
         // Download control items are not needed for downloaded models
         popupMenu.menu.findItem(R.id.menu_pause_download)?.setVisible(false)

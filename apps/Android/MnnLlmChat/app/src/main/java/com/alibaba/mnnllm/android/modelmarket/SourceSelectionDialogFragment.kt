@@ -23,9 +23,9 @@ class SourceSelectionDialogFragment : BaseBottomSheetDialogFragment() {
 
     companion object {
         const val KEY_SOURCE = "download_provider"
-        const val SOURCE_HUGGINGFACE = ModelSources.sourceHuffingFace
-        const val SOURCE_MODELSCOPE = ModelSources.sourceModelScope
-        const val SOURCE_MODELERS = ModelSources.sourceModelers
+        private const val SOURCE_HUGGINGFACE = ModelSources.sourceHuffingFace
+        private const val SOURCE_MODELSCOPE = ModelSources.sourceModelScope
+        private const val SOURCE_MODELERS = ModelSources.sourceModelers
     }
 
     override fun onCreateView(

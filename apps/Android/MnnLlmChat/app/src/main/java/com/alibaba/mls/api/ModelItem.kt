@@ -3,6 +3,7 @@
 package com.alibaba.mls.api
 
 import android.content.Context
+import com.alibaba.mls.api.source.ModelSources
 import com.alibaba.mnnllm.android.model.ModelUtils
 import com.alibaba.mnnllm.android.model.ModelUtils.getModelName
 import com.alibaba.mnnllm.android.modelmarket.SourceSelectionDialogFragment
@@ -115,8 +116,8 @@ class ModelItem {
 
         fun sourceToTag(source:String):String {
             return when (source) {
-                SourceSelectionDialogFragment.SOURCE_HUGGINGFACE -> "hf"
-                SourceSelectionDialogFragment.SOURCE_MODELERS -> "ml"
+                ModelSources.sourceHuffingFace -> "hf"
+                ModelSources.sourceModelers -> "ml"
                 else -> "ms"
             }
         }

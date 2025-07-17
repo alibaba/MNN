@@ -19,6 +19,7 @@ class ModelListPresenter(private val context: Context, private val view: ModelLi
     private var lastClickTime: Long = -1
     private var mainHandler: Handler?
     private val presenterScope = CoroutineScope(Dispatchers.Main)
+    private var loading = false
 
     init {
         this.modelListAdapter = view.adapter
@@ -34,6 +35,10 @@ class ModelListPresenter(private val context: Context, private val view: ModelLi
     }
 
     private fun loadDownloadedModels() {
+        if (loading) {
+            return
+        }
+        loading = true
         view.onLoading()
         presenterScope.launch {
             try {
@@ -44,11 +49,14 @@ class ModelListPresenter(private val context: Context, private val view: ModelLi
                 view.onListLoadError(e.message)
             }
         }
+        loading = false
     }
 
     private fun onListAvailable(modelWrappers: List<ModelListManager.ModelItemWrapper>, onSuccess: Runnable?) {
+        Log.d(TAG, "onListAvailable: received ${modelWrappers.size} modelWrappers")
         modelListAdapter!!.updateItems(modelWrappers)
         onSuccess?.run()
+        Log.d(TAG, "onListAvailable: calling view.onListAvailable()")
         view.onListAvailable()
     }
 

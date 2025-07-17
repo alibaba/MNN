@@ -474,4 +474,9 @@
     <string name="leaderboard_rank_info">您的排名：第 %1$d 名，共 %2$d 位用户</string>
     <string name="leaderboard_rank_not_found">暂无排名信息</string>
     <string name="ok">确定</string>
+
+    <!-- Debug Feature Strings -->
+    <string name="debug_show_model_info">显示模型信息菜单</string>
+    <string name="checking_repo_updates">检查仓库更新中...</string>
+    <string name="repo_update_check_result">仓库更新检查</string>
 </resources>

@@ -49,6 +49,15 @@ class BottomTabBar @JvmOverloads constructor(
         listener = block
     }
 
+    fun getSelectedTab(): Tab {
+        return when {
+            tabLocalModels.isSelected -> Tab.LOCAL_MODELS
+            tabModelMarket.isSelected -> Tab.MODEL_MARKET
+            tabBenchmark.isSelected -> Tab.BENCHMARK
+            else -> Tab.LOCAL_MODELS
+        }
+    }
+
     fun select(tab: Tab) {
         tabLocalModels.isSelected     = (tab == Tab.LOCAL_MODELS)
         tabModelMarket.isSelected = (tab == Tab.MODEL_MARKET)

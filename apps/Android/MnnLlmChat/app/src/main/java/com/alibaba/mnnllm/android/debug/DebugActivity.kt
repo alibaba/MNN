@@ -13,6 +13,7 @@ import android.widget.EditText
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import android.widget.Switch
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -21,6 +22,7 @@ import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.asr.AsrService
 import com.alibaba.mnnllm.android.audio.AudioChunksPlayer
 import com.alibaba.mnnllm.android.utils.VoiceModelPathUtils
+import com.alibaba.mnnllm.android.utils.PreferenceUtils
 import com.taobao.meta.avatar.tts.TtsService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -32,6 +34,19 @@ class DebugActivity : AppCompatActivity() {
     companion object {
         const val TAG = "DebugActivity"
         private const val REQUEST_RECORD_AUDIO_PERMISSION = 1001
+        private const val KEY_SHOW_MODEL_INFO_ENABLED = "debug_show_model_info_enabled"
+        
+        @JvmStatic
+        fun isShowModelInfoEnabled(context: android.content.Context): Boolean {
+            return PreferenceUtils.getBoolean(context, KEY_SHOW_MODEL_INFO_ENABLED, false)
+        }
+        
+        @JvmStatic
+        fun checkRepoUpdates(context: android.content.Context, callback: (Boolean, String?) -> Unit) {
+            CoroutineScope(Dispatchers.IO).launch {
+                delay(300)
+            }
+        }
     }
 
     private lateinit var scrollView: ScrollView
@@ -42,6 +57,7 @@ class DebugActivity : AppCompatActivity() {
     private lateinit var ttsTestButton: Button
     private lateinit var ttsInputText: EditText
     private lateinit var ttsProcessButton: Button
+    private lateinit var showModelInfoSwitch: Switch
     
     private var recognizeService: AsrService? = null
     private var isRecording = false
@@ -55,6 +71,7 @@ class DebugActivity : AppCompatActivity() {
         
         initViews()
         setupClickListeners()
+        loadDebugSettings()
         log("Debug Activity started")
     }
 
@@ -67,6 +84,7 @@ class DebugActivity : AppCompatActivity() {
         ttsTestButton = findViewById(R.id.ttsTestButton)
         ttsInputText = findViewById(R.id.ttsInputText)
         ttsProcessButton = findViewById(R.id.ttsProcessButton)
+        showModelInfoSwitch = findViewById(R.id.showModelInfoSwitch)
     }
 
     private fun setupClickListeners() {
@@ -97,7 +115,20 @@ class DebugActivity : AppCompatActivity() {
         ttsProcessButton.setOnClickListener {
             processTtsText()
         }
+
+        showModelInfoSwitch.setOnCheckedChangeListener { _, isChecked ->
+            PreferenceUtils.setBoolean(this, KEY_SHOW_MODEL_INFO_ENABLED, isChecked)
+            log("Model info menu visibility: ${if (isChecked) "enabled" else "disabled"}")
+        }
     }
+
+    private fun loadDebugSettings() {
+        val isModelInfoEnabled = PreferenceUtils.getBoolean(this, KEY_SHOW_MODEL_INFO_ENABLED, false)
+        showModelInfoSwitch.isChecked = isModelInfoEnabled
+        log("Loaded debug settings - Model info menu: ${if (isModelInfoEnabled) "enabled" else "disabled"}")
+    }
+
+
 
     private fun startAsrTest() {
         if (checkRecordAudioPermission()) {

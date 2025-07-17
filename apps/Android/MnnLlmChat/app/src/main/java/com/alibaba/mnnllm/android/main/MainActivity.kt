@@ -48,7 +48,7 @@ import com.techiness.progressdialoglibrary.ProgressDialog
 import android.view.ViewGroup
 import com.alibaba.mnnllm.android.chat.SelectSourceFragment
 
-class MainActivity : AppCompatActivity() {
+class MainActivity : AppCompatActivity(), MainFragmentManager.FragmentLifecycleListener {
     private var progressDialog: ProgressDialog? = null
     private lateinit var drawerLayout: DrawerLayout
     private var toggle: ActionBarDrawerToggle? = null
@@ -71,6 +71,7 @@ class MainActivity : AppCompatActivity() {
     private var currentSearchView: SearchView? = null
 
     private lateinit var bottomNav: BottomTabBar
+    private lateinit var mainFragmentManager: MainFragmentManager
 
     private val menuProvider: MenuProvider = object : MenuProvider {
         override fun onCreateMenu(menu: Menu, menuInflater: MenuInflater) {
@@ -297,103 +298,21 @@ class MainActivity : AppCompatActivity() {
         }
         fragment.show(supportFragmentManager, "SourceSelectionDialog")
     }
-    
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
-        val toolbar = findViewById<Toolbar>(R.id.toolbar)
-        setupAppBar()
-        drawerLayout = findViewById(R.id.drawer_layout)
-        expandableFabLayout = findViewById(R.id.expandable_fab_layout)
-        updateChecker = UpdateChecker(this)
-        updateChecker!!.checkForUpdates(this, false)
-        
-        bottomNav = findViewById(R.id.bottom_navigation)
-        if (savedInstanceState == null) {
-            modelListFragment = ModelListFragment()
-            modelMarketFragment = ModelMarketFragment()
-            benchmarkFragment = BenchmarkFragment()
-            supportFragmentManager.beginTransaction()
-                .add(R.id.main_fragment_container, modelMarketFragment!!, "market").hide(modelMarketFragment!!)
-                .add(R.id.main_fragment_container, benchmarkFragment!!, "benchmark").hide(benchmarkFragment!!)
-                .add(R.id.main_fragment_container, modelListFragment!!, "list")
-                .commit()
-            currentFragment = modelListFragment
-        } else {
-            Log.d(TAG, "onCreate: Configuration change detected, restoring fragments")
-            benchmarkFragment = supportFragmentManager.findFragmentByTag("benchmark") as? BenchmarkFragment
-            modelListFragment = supportFragmentManager.findFragmentByTag("list") as? ModelListFragment
-            modelMarketFragment = supportFragmentManager.findFragmentByTag("market") as? ModelMarketFragment
-            
-            Log.d(TAG, "onCreate: Found fragments - list: ${modelListFragment != null}, market: ${modelMarketFragment != null}, benchmark: ${benchmarkFragment != null}")
-            
-            val allFragments = listOfNotNull(modelListFragment, modelMarketFragment, benchmarkFragment)
-            Log.d(TAG, "onCreate: All fragments count: ${allFragments.size}")
-            
-            allFragments.forEachIndexed { index, fragment ->
-                Log.d(TAG, "onCreate: Fragment $index (${fragment.javaClass.simpleName}) - isVisible: ${fragment.isVisible}, isAdded: ${fragment.isAdded}, isHidden: ${fragment.isHidden}")
-            }
-            
-            val visibleFragment = allFragments.find { !it.isHidden }
-            Log.d(TAG, "onCreate: Found visible fragment (by !isHidden): ${visibleFragment?.javaClass?.simpleName}")
-            
-            Log.d(TAG, "onCreate: Current fragment set to: ${currentFragment?.javaClass?.simpleName}")
-            
-            val transaction = supportFragmentManager.beginTransaction()
-            allFragments.forEach { 
-                Log.d(TAG, "onCreate: Hiding fragment: ${it.javaClass.simpleName}")
-                transaction.hide(it) 
-            }
-            
-            if (currentFragment != null) {
-                Log.d(TAG, "onCreate: Showing current fragment: ${currentFragment!!.javaClass.simpleName}")
-                transaction.show(currentFragment!!)
-            }
-            transaction.commit()
-            
-            // 如果某个fragment为null，说明恢复失败，需要重新创建
-            if (modelListFragment == null) {
-                Log.d(TAG, "onCreate: ModelListFragment is null, creating new one")
-                modelListFragment = ModelListFragment()
-                supportFragmentManager.beginTransaction()
-                    .add(R.id.main_fragment_container, modelListFragment!!, "list")
-                    .commit()
-                if (currentFragment == null) {
-                    currentFragment = modelListFragment
-                    Log.d(TAG, "onCreate: Set currentFragment to newly created ModelListFragment")
-                }
-            }
-            if (modelMarketFragment == null) {
-                Log.d(TAG, "onCreate: ModelMarketFragment is null, creating new one")
-                modelMarketFragment = ModelMarketFragment()
-                supportFragmentManager.beginTransaction()
-                    .add(R.id.main_fragment_container, modelMarketFragment!!, "market")
-                    .hide(modelMarketFragment!!)
-                    .commit()
-            }
-            if (benchmarkFragment == null) {
-                Log.d(TAG, "onCreate: BenchmarkFragment is null, creating new one")
-                benchmarkFragment = BenchmarkFragment()
-                supportFragmentManager.beginTransaction()
-                    .add(R.id.main_fragment_container, benchmarkFragment!!, "benchmark")
-                    .hide(benchmarkFragment!!)
-                    .commit()
-            }
-        }
 
-        bottomNav.setOnTabSelectedListener { tab ->
+    private fun setTabListener() {
+        bottomNav?.setOnTabSelectedListener { tab ->
             Log.d(TAG, "bottomNav.setOnTabSelectedListener: Tab selected: $tab")
             val targetFragment = when (tab) {
                 BottomTabBar.Tab.LOCAL_MODELS -> modelListFragment
                 BottomTabBar.Tab.MODEL_MARKET -> modelMarketFragment
                 BottomTabBar.Tab.BENCHMARK -> benchmarkFragment
             }
-            
+
             Log.d(TAG, "bottomNav.setOnTabSelectedListener: Target fragment: ${targetFragment?.javaClass?.simpleName}, Current fragment: ${currentFragment?.javaClass?.simpleName}")
-            
+
             if (targetFragment != null && currentFragment != targetFragment) {
                 Log.d(TAG, "bottomNav.setOnTabSelectedListener: Switching from ${currentFragment?.javaClass?.simpleName} to ${targetFragment.javaClass.simpleName}")
-                
+
                 if (currentFragment is ModelMarketFragment) {
                     Log.d(TAG, "bottomNav.setOnTabSelectedListener: Current fragment is ModelMarketFragment, ensuring toolbar is cleaned")
                     val appBarContent = findViewById<ViewGroup>(R.id.app_bar_content)
@@ -403,7 +322,7 @@ class MainActivity : AppCompatActivity() {
                         appBarContent.removeView(filterContainerView)
                     }
                 }
-                
+
                 val transaction = supportFragmentManager.beginTransaction()
                 // Only hide currentFragment if it's not null
                 if (currentFragment != null) {
@@ -412,6 +331,13 @@ class MainActivity : AppCompatActivity() {
                 transaction.show(targetFragment)
                     .commitNow()
                 currentFragment = targetFragment
+
+                // Force layout refresh after fragment switch, especially important for configuration changes
+                targetFragment.view?.post {
+                    Log.d(TAG, "Fragment switched to ${targetFragment.javaClass.simpleName}, forcing layout refresh")
+                    targetFragment.view?.requestLayout()
+                }
+
                 invalidateOptionsMenu()
             }
             when (tab) {
@@ -432,25 +358,12 @@ class MainActivity : AppCompatActivity() {
                     mainTitleSwitcher.text = getString(R.string.benchmark)
                 }
             }
-            
-            expandableFabLayout.visibility = if (tab == BottomTabBar.Tab.LOCAL_MODELS) {
-                View.VISIBLE
-            } else {
-                View.GONE
-            }
+            updateExpandableFabLayout(bottomNav.getSelectedTab())
         }
-        
-        Log.d(TAG, "onCreate: Before bottomNav.select, currentFragment: ${currentFragment?.javaClass?.simpleName}")
-        val initialTab = when (currentFragment) {
-            modelMarketFragment -> BottomTabBar.Tab.MODEL_MARKET
-            benchmarkFragment -> BottomTabBar.Tab.BENCHMARK
-            else -> BottomTabBar.Tab.LOCAL_MODELS
-        }
-        Log.d(TAG, "onCreate: Setting initial tab to: $initialTab")
-        bottomNav.select(initialTab)
-        
-        // 设置对应的toolbar标题和模式
-        when (initialTab) {
+    }
+
+    private fun updateTitleSwitcher() {
+        when (bottomNav.getSelectedTab()) {
             BottomTabBar.Tab.LOCAL_MODELS -> {
                 updateMainTitleSwitcherMode(false)
                 mainTitleSwitcher.text = getString(R.string.nav_name_chats)
@@ -467,14 +380,58 @@ class MainActivity : AppCompatActivity() {
                 mainTitleSwitcher.text = getString(R.string.benchmark)
             }
         }
-        
-        // 设置对应的fab可见性
-        expandableFabLayout.visibility = if (initialTab == BottomTabBar.Tab.LOCAL_MODELS) {
+    }
+
+    private fun updateExpandableFabLayout(newTab: BottomTabBar.Tab) {
+        expandableFabLayout.visibility = if (newTab == BottomTabBar.Tab.LOCAL_MODELS) {
             View.VISIBLE
         } else {
             View.GONE
         }
+    }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        mainFragmentManager.onSaveInstanceState(outState)
+    }
+
+    override fun onTabChanged(newTab: BottomTabBar.Tab) {
+        Log.d(TAG, "Tab changed to $newTab, updating UI accordingly.")
+
+        when (newTab) {
+            BottomTabBar.Tab.LOCAL_MODELS -> {
+                updateMainTitleSwitcherMode(false)
+                mainTitleSwitcher.text = getString(R.string.nav_name_chats)
+            }
+            BottomTabBar.Tab.MODEL_MARKET -> {
+                updateMainTitleSwitcherMode(true)
+                val currentProvider = MainSettings.getDownloadProviderString(this)
+                val idx = ModelSources.sourceList.indexOf(currentProvider)
+                val displayName = if (idx != -1) getString(ModelSources.sourceDisPlayList[idx]) else currentProvider
+                mainTitleSwitcher.text = displayName
+            }
+            BottomTabBar.Tab.BENCHMARK -> {
+                updateMainTitleSwitcherMode(false)
+                mainTitleSwitcher.text = getString(R.string.benchmark)
+            }
+        }
+        updateExpandableFabLayout(newTab)
+        invalidateOptionsMenu()
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
+        val toolbar = findViewById<Toolbar>(R.id.toolbar)
+        setupAppBar()
+        bottomNav = findViewById(R.id.bottom_navigation)
+        drawerLayout = findViewById(R.id.drawer_layout)
+        expandableFabLayout = findViewById(R.id.expandable_fab_layout)
+        updateChecker = UpdateChecker(this)
+        updateChecker!!.checkForUpdates(this, false)
+        mainFragmentManager = MainFragmentManager(this, R.id.main_fragment_container, bottomNav, this)
+        mainFragmentManager.initialize(savedInstanceState)
+        Log.d(TAG, "onCreate: Before bottomNav.select, currentFragment: ${currentFragment?.javaClass?.simpleName}")
         toggle = ActionBarDrawerToggle(
             this, drawerLayout,
             toolbar,

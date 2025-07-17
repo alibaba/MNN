@@ -2,6 +2,7 @@
 // Copyright (c) 2024 Alibaba Group Holding Limited All rights reserved.
 package com.alibaba.mnnllm.android.modelist
 
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -113,7 +114,7 @@ class ModelListAdapter(private val items: MutableList<ModelListManager.ModelItem
     }
 
     fun updateItems(modelWrappers: List<ModelListManager.ModelItemWrapper>) {
-        val oldItems = items.toList()
+        Log.d(TAG, "updateItems: ${modelWrappers.size}", Exception("updateItems"))
         items.clear()
         items.addAll(modelWrappers)
         
@@ -351,5 +352,8 @@ class ModelListAdapter(private val items: MutableList<ModelListManager.ModelItem
         }
     }
 
+    companion object {
+        const val TAG = "ModelListAdapter"
+    }
 
 }

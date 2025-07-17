@@ -156,7 +156,7 @@ object ModelListManager {
     /**
      * Scan models directory recursively (same logic as ModelListPresenter)
      */
-    private fun scanModelsDirectory(
+    private suspend fun scanModelsDirectory(
         directory: File, 
         context: Context,
         chatDataManager: ChatDataManager, 
@@ -170,7 +170,10 @@ object ModelListManager {
                 if (modelId != null) {
                     // Check if this is an LLM model, skip if it's TTS or ASR
                     // First try to get model type from database, fallback to repository
-                    val modelType = chatDataManager.getDownloadModelType(modelId) ?: runBlocking {
+                    // Database access on Main thread to avoid connection pool issues
+                    val modelType = withContext(Dispatchers.Main) {
+                        chatDataManager.getDownloadModelType(modelId)
+                    } ?: runBlocking {
                         try {
                             modelRepository.getModelType(modelId)
                         } catch (e: Exception) {
@@ -192,24 +195,37 @@ object ModelListManager {
                         return@forEach
                     }
                     
-                    var downloadTime = chatDataManager.getDownloadTime(modelId)
+                    // Database access on Main thread
+                    var downloadTime = withContext(Dispatchers.Main) {
+                        chatDataManager.getDownloadTime(modelId)
+                    }
                     if (downloadTime <= 0) {
                         downloadTime = file.lastModified()
                         try {
-                            chatDataManager.recordDownloadHistory(modelId, modelPath, modelType)
+                            withContext(Dispatchers.Main) {
+                                chatDataManager.recordDownloadHistory(modelId, modelPath, modelType)
+                            }
                         } catch (e: Exception) {
                             Log.w(TAG, "Failed to record model in database: $modelId", e)
                         }
                     }
-                    var lastChatTime = chatDataManager.getLastChatTime(modelId)
+                    
+                    // Database access on Main thread
+                    var lastChatTime = withContext(Dispatchers.Main) {
+                        chatDataManager.getLastChatTime(modelId)
+                    }
                     Log.d(TAG, "getLastChatTime: $modelId lastChatTime: $lastChatTime")
                     val fixedModelId = "taobao-mnn/$modelName"
                     if (lastChatTime < 10000) {
-                        lastChatTime = chatDataManager.getLastChatTime(fixedModelId)
+                        lastChatTime = withContext(Dispatchers.Main) {
+                            chatDataManager.getLastChatTime(fixedModelId)
+                        }
                         Log.d(TAG, "getLastChatTimeFix: $fixedModelId lastChatTime: $lastChatTime")
                     }
                     if (lastChatTime < 10000) {
-                        lastChatTime = chatDataManager.getLastChatTime(modelName!!)
+                        lastChatTime = withContext(Dispatchers.Main) {
+                            chatDataManager.getLastChatTime(modelName!!)
+                        }
                         Log.d(TAG, "getLastChatTimeFix: $modelName lastChatTime: $lastChatTime")
                     }
                     

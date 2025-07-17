@@ -3,6 +3,7 @@ package com.alibaba.mnnllm.android.modelmarket
 import android.content.Context
 import android.util.Log
 import androidx.preference.PreferenceManager
+import com.alibaba.mnnllm.android.mainsettings.MainSettings
 import com.google.gson.Gson
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -210,11 +211,7 @@ class ModelRepository(private val context: Context) {
     }
 
     private suspend fun processModels(models: List<ModelMarketItem>): List<ModelMarketItem> = withContext(Dispatchers.IO) {
-        val sharedPrefs = PreferenceManager.getDefaultSharedPreferences(context)
-        val selectedSource = sharedPrefs.getString(
-            SourceSelectionDialogFragment.KEY_SOURCE, 
-            SourceSelectionDialogFragment.SOURCE_MODELSCOPE
-        )!!
+        val selectedSource = MainSettings.getDownloadProviderString(context)
         
         Log.d(TAG, "Processing models with selected source: $selectedSource")
         
@@ -235,7 +232,7 @@ class ModelRepository(private val context: Context) {
     suspend fun getModelType(modelId: String): String = withContext(Dispatchers.IO) {
         try {
             val data = getModelMarketData()
-            val selectedSource = getSelectedSource()
+            val selectedSource = MainSettings.getDownloadProviderString(context)
             
             data?.let { marketData ->
                 marketData.asrModels?.any { model ->
@@ -260,14 +257,7 @@ class ModelRepository(private val context: Context) {
         return@withContext "LLM"
     }
 
-    private fun getSelectedSource(): String {
-        val sharedPrefs = PreferenceManager.getDefaultSharedPreferences(context)
-        return sharedPrefs.getString(
-            SourceSelectionDialogFragment.KEY_SOURCE, 
-            SourceSelectionDialogFragment.SOURCE_MODELSCOPE
-        )!!
-    }
-} 
+}
 
 /**
  * Debug config: Used to determine if only assets/model_market.json should be used
