@@ -97,6 +97,18 @@
 
     </LinearLayout>
 
+    <Switch
+        android:id="@+id/allowNetworkSwitch"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/allow_network_market_data" />
+
+    <Switch
+        android:id="@+id/networkDelaySwitch"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/enable_network_delay" />
+
     <Button
         android:id="@+id/closeDebugModeButton"
         android:layout_width="match_parent"

@@ -13,8 +13,40 @@
         android:layout_height="match_parent"
         android:clipToPadding="false"
         android:paddingBottom="8dp"
+        android:visibility="gone"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintBottom_toBottomOf="parent"/>
+
+    <com.github.ybq.android.spinkit.SpinKitView
+        android:id="@+id/model_market_loading_view"
+        android:layout_width="50dp"
+        android:layout_height="50dp"
+        style="@style/SpinKitView.Large.FadingCircle"
+        app:SpinKit_Color="?attr/colorPrimary"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <RelativeLayout
+        android:id="@+id/model_market_failed_view"
+        android:visibility="gone"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent">
+        
+        <TextView
+            android:id="@+id/tv_error_text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="30dp"
+            android:layout_marginEnd="30dp"
+            android:layout_centerInParent="true"
+            android:textSize="16sp"
+            android:text="@string/loading_failed_click_tor_retry"/>
+            
+    </RelativeLayout>
 
     <RelativeLayout
         android:id="@+id/model_market_empty_view"

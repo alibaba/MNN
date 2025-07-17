@@ -45,7 +45,6 @@ import com.alibaba.mnnllm.android.mainsettings.MainSettings
 import com.google.android.material.appbar.AppBarLayout
 import com.google.android.material.appbar.MaterialToolbar
 import com.techiness.progressdialoglibrary.ProgressDialog
-import android.view.ViewGroup
 import com.alibaba.mnnllm.android.chat.SelectSourceFragment
 
 class MainActivity : AppCompatActivity(), MainFragmentManager.FragmentLifecycleListener {
@@ -59,11 +58,7 @@ class MainActivity : AppCompatActivity(), MainFragmentManager.FragmentLifecycleL
     private var offsetChangedListener: AppBarLayout.OnOffsetChangedListener? = null
     private var modelListFragment: ModelListFragment? = null
     private var modelMarketFragment: ModelMarketFragment? = null
-    private var benchmarkFragment: BenchmarkFragment? = null
     private var chatHistoryFragment: ChatHistoryFragment? = null
-    private var currentFragment: Fragment? = null
-
-    private var filterComponent: FilterComponent? = null
     private var updateChecker: UpdateChecker? = null
     private lateinit var expandableFabLayout: View
     
@@ -72,6 +67,11 @@ class MainActivity : AppCompatActivity(), MainFragmentManager.FragmentLifecycleL
 
     private lateinit var bottomNav: BottomTabBar
     private lateinit var mainFragmentManager: MainFragmentManager
+
+    private val currentFragment: Fragment?
+        get() {
+            return mainFragmentManager.activeFragment
+        }
 
     private val menuProvider: MenuProvider = object : MenuProvider {
         override fun onCreateMenu(menu: Menu, menuInflater: MenuInflater) {
@@ -83,6 +83,7 @@ class MainActivity : AppCompatActivity(), MainFragmentManager.FragmentLifecycleL
         override fun onMenuItemSelected(menuItem: MenuItem): Boolean {
             return true
         }
+
 
         override fun onPrepareMenu(menu: Menu) {
             super.onPrepareMenu(menu)
@@ -297,89 +298,6 @@ class MainActivity : AppCompatActivity(), MainFragmentManager.FragmentLifecycleL
             }
         }
         fragment.show(supportFragmentManager, "SourceSelectionDialog")
-    }
-
-    private fun setTabListener() {
-        bottomNav?.setOnTabSelectedListener { tab ->
-            Log.d(TAG, "bottomNav.setOnTabSelectedListener: Tab selected: $tab")
-            val targetFragment = when (tab) {
-                BottomTabBar.Tab.LOCAL_MODELS -> modelListFragment
-                BottomTabBar.Tab.MODEL_MARKET -> modelMarketFragment
-                BottomTabBar.Tab.BENCHMARK -> benchmarkFragment
-            }
-
-            Log.d(TAG, "bottomNav.setOnTabSelectedListener: Target fragment: ${targetFragment?.javaClass?.simpleName}, Current fragment: ${currentFragment?.javaClass?.simpleName}")
-
-            if (targetFragment != null && currentFragment != targetFragment) {
-                Log.d(TAG, "bottomNav.setOnTabSelectedListener: Switching from ${currentFragment?.javaClass?.simpleName} to ${targetFragment.javaClass.simpleName}")
-
-                if (currentFragment is ModelMarketFragment) {
-                    Log.d(TAG, "bottomNav.setOnTabSelectedListener: Current fragment is ModelMarketFragment, ensuring toolbar is cleaned")
-                    val appBarContent = findViewById<ViewGroup>(R.id.app_bar_content)
-                    val filterContainerView = appBarContent?.findViewById<View>(R.id.filter_download_state)?.parent as? ViewGroup
-                    if (filterContainerView != null && appBarContent.indexOfChild(filterContainerView) != -1) {
-                        Log.d(TAG, "bottomNav.setOnTabSelectedListener: Removing filter container from appBarContent")
-                        appBarContent.removeView(filterContainerView)
-                    }
-                }
-
-                val transaction = supportFragmentManager.beginTransaction()
-                // Only hide currentFragment if it's not null
-                if (currentFragment != null) {
-                    transaction.hide(currentFragment!!)
-                }
-                transaction.show(targetFragment)
-                    .commitNow()
-                currentFragment = targetFragment
-
-                // Force layout refresh after fragment switch, especially important for configuration changes
-                targetFragment.view?.post {
-                    Log.d(TAG, "Fragment switched to ${targetFragment.javaClass.simpleName}, forcing layout refresh")
-                    targetFragment.view?.requestLayout()
-                }
-
-                invalidateOptionsMenu()
-            }
-            when (tab) {
-                BottomTabBar.Tab.LOCAL_MODELS -> {
-                    updateMainTitleSwitcherMode(false)
-                    mainTitleSwitcher.text = getString(R.string.nav_name_chats)
-                }
-                BottomTabBar.Tab.MODEL_MARKET -> {
-                    updateMainTitleSwitcherMode(true)
-                    // Show the currently selected source's display name
-                    val currentProvider = MainSettings.getDownloadProviderString(this@MainActivity)
-                    val idx = ModelSources.sourceList.indexOf(currentProvider)
-                    val displayName = if (idx != -1) getString(ModelSources.sourceDisPlayList[idx]) else currentProvider
-                    mainTitleSwitcher.text = displayName
-                }
-                BottomTabBar.Tab.BENCHMARK -> {
-                    updateMainTitleSwitcherMode(false)
-                    mainTitleSwitcher.text = getString(R.string.benchmark)
-                }
-            }
-            updateExpandableFabLayout(bottomNav.getSelectedTab())
-        }
-    }
-
-    private fun updateTitleSwitcher() {
-        when (bottomNav.getSelectedTab()) {
-            BottomTabBar.Tab.LOCAL_MODELS -> {
-                updateMainTitleSwitcherMode(false)
-                mainTitleSwitcher.text = getString(R.string.nav_name_chats)
-            }
-            BottomTabBar.Tab.MODEL_MARKET -> {
-                updateMainTitleSwitcherMode(true)
-                val currentProvider = MainSettings.getDownloadProviderString(this)
-                val idx = ModelSources.sourceList.indexOf(currentProvider)
-                val displayName = if (idx != -1) getString(ModelSources.sourceDisPlayList[idx]) else currentProvider
-                mainTitleSwitcher.text = displayName
-            }
-            BottomTabBar.Tab.BENCHMARK -> {
-                updateMainTitleSwitcherMode(false)
-                mainTitleSwitcher.text = getString(R.string.benchmark)
-            }
-        }
     }
 
     private fun updateExpandableFabLayout(newTab: BottomTabBar.Tab) {

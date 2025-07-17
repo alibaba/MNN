@@ -45,6 +45,13 @@ class ModelMarketViewModel(application: Application) : AndroidViewModel(applicat
     private val _itemUpdate = MutableLiveData<String>()
     val itemUpdate: LiveData<String> = _itemUpdate
 
+    // Add loading and error states
+    private val _isLoading = MutableLiveData<Boolean>()
+    val isLoading: LiveData<Boolean> = _isLoading
+
+    private val _loadError = MutableLiveData<String?>()
+    val loadError: LiveData<String?> = _loadError
+
     init {
         loadModels()
         downloadManager.addListener(this)
@@ -134,22 +141,44 @@ class ModelMarketViewModel(application: Application) : AndroidViewModel(applicat
 
     fun loadModels() {
         viewModelScope.launch {
-            // Load full data for TagMapper initialization
-            modelMarketData = repository.getModelMarketData()
-            modelMarketData?.let { data ->
-                // Initialize TagMapper with data from JSON
-                TagMapper.initializeFromData(data)
+            try {
+                // Set loading state
+                _isLoading.postValue(true)
+                _loadError.postValue(null)
+                
+                // Load full data for TagMapper initialization
+                modelMarketData = repository.getModelMarketData()
+                
+                if (modelMarketData == null) {
+                    // Handle case where data couldn't be loaded
+                    _isLoading.postValue(false)
+                    _loadError.postValue("Failed to load model data")
+                    return@launch
+                }
+                
+                modelMarketData?.let { data ->
+                    // Initialize TagMapper with data from JSON
+                    TagMapper.initializeFromData(data)
+                }
+                
+                // Get filtered models with correctly set modelId
+                val marketItems = repository.getModels()
+                allModels = marketItems.map {
+                    val downloadInfo = downloadManager.getDownloadInfo(it)
+                    Log.d(TAG, "Model: ${it.modelName}, modelId: ${it.modelId} initial downloadState: ${downloadInfo.downloadState}")
+                    ModelMarketItemWrapper(it, downloadInfo)
+                }
+                Log.d(TAG, "allModels: ${allModels.size} models loaded")
+                
+                // Clear loading state
+                _isLoading.postValue(false)
+                applyCurrentFilters()
+                
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to load models", e)
+                _isLoading.postValue(false)
+                _loadError.postValue("Loading failed: ${e.message}")
             }
-            
-            // Get filtered models with correctly set modelId
-            val marketItems = repository.getModels()
-            allModels = marketItems.map {
-                val downloadInfo = downloadManager.getDownloadInfo(it)
-                Log.d(TAG, "Model: ${it.modelName}, modelId: ${it.modelId} initial downloadState: ${downloadInfo.downloadState}")
-                ModelMarketItemWrapper(it, downloadInfo)
-            }
-            Log.d(TAG, "allModels: ${allModels.size} models loaded")
-            applyCurrentFilters()
         }
     }
 

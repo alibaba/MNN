@@ -40,6 +40,10 @@ class MsModelDownloader(override var callback: ModelRepoDownloadCallback?,
         downloadMsRepo(modelId)
     }
 
+    override suspend fun checkUpdate(modelId: String): Boolean {
+        return false
+    }
+
     override fun getDownloadPath(modelId: String): File {
         return getModelPath(cacheRootPath, modelId)
     }

@@ -36,6 +36,9 @@ class ModelMarketFragment : Fragment(), ModelMarketItemListener, Searchable {
     private lateinit var adapter: ModelMarketAdapter
     private lateinit var recyclerView: RecyclerView
     private lateinit var emptyView: View
+    private lateinit var loadingView: View
+    private lateinit var errorView: View
+    private lateinit var errorText: TextView
     private var modalityFilterIndex = 0
     private var vendorFilterIndex = 0
     private lateinit var sourceSwitcher: ModelSwitcherView
@@ -79,10 +82,27 @@ class ModelMarketFragment : Fragment(), ModelMarketItemListener, Searchable {
         setupCustomToolbar()
         setupRecyclerView()
         setupEmptyView()
+        setupLoadingView()
+        setupErrorView()
+
+        // Observe loading state
+        viewModel.isLoading.observe(viewLifecycleOwner) { isLoading ->
+            if (isLoading) {
+                onLoading()
+            }
+        }
+
+        // Observe error state
+        viewModel.loadError.observe(viewLifecycleOwner) { errorMessage ->
+            if (errorMessage != null) {
+                onListLoadError(errorMessage)
+            }
+        }
 
         // Observe filtered models
         viewModel.models.observe(viewLifecycleOwner) { models ->
             adapter.submitList(models)
+            onListAvailable(models)
             updateEmptyViewVisibility(models)
             
             // Initialize quick filter tags when data is first loaded
@@ -265,14 +285,60 @@ class ModelMarketFragment : Fragment(), ModelMarketItemListener, Searchable {
         }
     }
 
+    private fun setupLoadingView() {
+        loadingView = binding.modelMarketLoadingView
+    }
+
+    private fun setupErrorView() {
+        errorView = binding.modelMarketFailedView
+        errorText = errorView.findViewById(R.id.tv_error_text)
+        errorView.setOnClickListener {
+            // Retry loading when user clicks error view
+            viewModel.loadModels()
+        }
+    }
+
+    private fun onLoading() {
+        // Don't show loading if we already have data
+        if (adapter.itemCount > 0) {
+            return
+        }
+        errorView.visibility = View.GONE
+        emptyView.visibility = View.GONE
+        recyclerView.visibility = View.GONE
+        loadingView.visibility = View.VISIBLE
+    }
+
+    private fun onListAvailable(models: List<ModelMarketItemWrapper>) {
+        errorView.visibility = View.GONE
+        loadingView.visibility = View.GONE
+        
+        // RecyclerView visibility will be managed by updateEmptyViewVisibility
+    }
+
+    private fun onListLoadError(error: String) {
+        // Don't show error if we already have data
+        if (adapter.itemCount > 0) {
+            return
+        }
+        
+        errorText.text = getString(R.string.loading_failed_click_tor_retry, error)
+        errorView.visibility = View.VISIBLE
+        loadingView.visibility = View.GONE
+        recyclerView.visibility = View.GONE
+        emptyView.visibility = View.GONE
+    }
+
     private fun updateEmptyViewVisibility(models: List<ModelMarketItemWrapper>) {
         val hasFilters = hasActiveFilters()
         
+        // Show empty view only when there are active filters but no results
         if (models.isEmpty() && hasFilters) {
             emptyView.visibility = View.VISIBLE
             recyclerView.visibility = View.GONE
         } else {
             emptyView.visibility = View.GONE
+            // Make sure recyclerView is visible when we have data or no filters
             recyclerView.visibility = View.VISIBLE
         }
     }

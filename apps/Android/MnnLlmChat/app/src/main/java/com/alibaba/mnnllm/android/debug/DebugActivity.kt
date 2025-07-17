@@ -35,6 +35,8 @@ class DebugActivity : AppCompatActivity() {
         const val TAG = "DebugActivity"
         private const val REQUEST_RECORD_AUDIO_PERMISSION = 1001
         private const val KEY_SHOW_MODEL_INFO_ENABLED = "debug_show_model_info_enabled"
+        private const val KEY_ALLOW_NETWORK_MARKET_DATA = "debug_allow_network_market_data"
+        private const val KEY_ENABLE_NETWORK_DELAY = "debug_enable_network_delay"
         
         @JvmStatic
         fun isShowModelInfoEnabled(context: android.content.Context): Boolean {
@@ -42,9 +44,14 @@ class DebugActivity : AppCompatActivity() {
         }
         
         @JvmStatic
+        fun isNetworkDelayEnabled(context: android.content.Context): Boolean {
+            return PreferenceUtils.getBoolean(context, KEY_ENABLE_NETWORK_DELAY, false)
+        }
+        
+        @JvmStatic
         fun checkRepoUpdates(context: android.content.Context, callback: (Boolean, String?) -> Unit) {
             CoroutineScope(Dispatchers.IO).launch {
-                delay(300)
+//                delay(300)
             }
         }
     }
@@ -58,6 +65,8 @@ class DebugActivity : AppCompatActivity() {
     private lateinit var ttsInputText: EditText
     private lateinit var ttsProcessButton: Button
     private lateinit var showModelInfoSwitch: Switch
+    private lateinit var allowNetworkSwitch: Switch
+    private lateinit var networkDelaySwitch: Switch
     
     private var recognizeService: AsrService? = null
     private var isRecording = false
@@ -85,6 +94,8 @@ class DebugActivity : AppCompatActivity() {
         ttsInputText = findViewById(R.id.ttsInputText)
         ttsProcessButton = findViewById(R.id.ttsProcessButton)
         showModelInfoSwitch = findViewById(R.id.showModelInfoSwitch)
+        allowNetworkSwitch = findViewById(R.id.allowNetworkSwitch)
+        networkDelaySwitch = findViewById(R.id.networkDelaySwitch)
     }
 
     private fun setupClickListeners() {
@@ -120,12 +131,30 @@ class DebugActivity : AppCompatActivity() {
             PreferenceUtils.setBoolean(this, KEY_SHOW_MODEL_INFO_ENABLED, isChecked)
             log("Model info menu visibility: ${if (isChecked) "enabled" else "disabled"}")
         }
+
+        allowNetworkSwitch.setOnCheckedChangeListener { _, isChecked ->
+            PreferenceUtils.setBoolean(this, KEY_ALLOW_NETWORK_MARKET_DATA, isChecked)
+            log("Allow network to fetch model market data: ${if (isChecked) "enabled" else "disabled"}")
+        }
+
+        networkDelaySwitch.setOnCheckedChangeListener { _, isChecked ->
+            PreferenceUtils.setBoolean(this, KEY_ENABLE_NETWORK_DELAY, isChecked)
+            log("Network delay simulation: ${if (isChecked) "enabled" else "disabled"}")
+        }
     }
 
     private fun loadDebugSettings() {
         val isModelInfoEnabled = PreferenceUtils.getBoolean(this, KEY_SHOW_MODEL_INFO_ENABLED, false)
         showModelInfoSwitch.isChecked = isModelInfoEnabled
         log("Loaded debug settings - Model info menu: ${if (isModelInfoEnabled) "enabled" else "disabled"}")
+
+        val isAllowNetwork = PreferenceUtils.getBoolean(this, KEY_ALLOW_NETWORK_MARKET_DATA, true)
+        allowNetworkSwitch.isChecked = isAllowNetwork
+        log("Loaded debug settings - Allow network: ${if (isAllowNetwork) "enabled" else "disabled"}")
+
+        val isNetworkDelayEnabled = PreferenceUtils.getBoolean(this, KEY_ENABLE_NETWORK_DELAY, false)
+        networkDelaySwitch.isChecked = isNetworkDelayEnabled
+        log("Loaded debug settings - Network delay: ${if (isNetworkDelayEnabled) "enabled" else "disabled"}")
     }
 
 

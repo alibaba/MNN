@@ -482,4 +482,6 @@
     <string name="debug_show_model_info">Show Model Info Menu</string>
     <string name="checking_repo_updates">Checking for repository updates...</string>
     <string name="repo_update_check_result">Repository Update Check</string>
+    <string name="allow_network_market_data">Allow network to fetch model market data</string>
+    <string name="enable_network_delay">Enable network delay (3 seconds)</string>
 </resources>

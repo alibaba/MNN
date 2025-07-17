@@ -20,6 +20,8 @@ abstract class ModelRepoDownloader {
         return File(cacheRootPath, "${repoFolderName(ModelUtils.getRepositoryPath(modelId), "model")}/blobs")
     }
 
+    abstract suspend fun checkUpdate(modelId: String):Boolean
+
     fun pause(modelId: String) {
         pausedSet.add(modelId)
     }

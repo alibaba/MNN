@@ -30,12 +30,19 @@ class ModelRepository(private val context: Context) {
         private const val CACHE_FILE_NAME = "model_market_cache.json"
         private const val CACHE_TIMESTAMP_KEY = "model_market_cache_timestamp"
         private const val CACHE_VALID_DURATION = 1 * 60 * 60 * 1000L 
+        private const val KEY_ALLOW_NETWORK_MARKET_DATA = "debug_allow_network_market_data"
+        private fun isAllowNetwork(context: Context): Boolean {
+            return com.alibaba.mnnllm.android.utils.PreferenceUtils.getBoolean(context, KEY_ALLOW_NETWORK_MARKET_DATA, true)
+        }
+        private fun isNetworkDelayEnabled(context: Context): Boolean {
+            return com.alibaba.mnnllm.android.utils.PreferenceUtils.getBoolean(context, "debug_enable_network_delay", false)
+        }
     }
 
     suspend fun getModelMarketData(): ModelMarketData? = withContext(Dispatchers.IO) {
-        // Debug: If debug_market_use_local file exists, only use assets
-        if (DebugConfig.isDebugMarketUseLocal()) {
-            Log.d(TAG, "DebugConfig: Using model_market.json from assets")
+        // If not allowed to use network, only use assets
+        if (!isAllowNetwork(context)) {
+            Log.d(TAG, "Debug: Using model_market.json from assets (network disabled by debug switch)")
             val assetsData = loadFromAssets()
             cachedModelMarketData = assetsData
             return@withContext assetsData
@@ -88,10 +95,15 @@ class ModelRepository(private val context: Context) {
     }
 
     private suspend fun fetchFromNetwork(): ModelMarketData? = withContext(Dispatchers.IO) {
-        // Debug: If debug_market_use_local file exists, skip network and use assets
-        if (DebugConfig.isDebugMarketUseLocal()) {
-            Log.d(TAG, "DebugConfig: Skip network, use assets")
+        // If not allowed to use network, skip network and use assets
+        if (!isAllowNetwork(context)) {
+            Log.d(TAG, "Debug: Skip network, use assets (network disabled by debug switch)")
             return@withContext null
+        }
+        // Debug: Check if network delay is enabled
+        if (isNetworkDelayEnabled(context)) {
+            Log.d(TAG, "Debug: Simulating network delay (3 seconds)")
+            kotlinx.coroutines.delay(3000)
         }
         try {
             val request = Request.Builder()
@@ -117,9 +129,9 @@ class ModelRepository(private val context: Context) {
     }
 
     private suspend fun loadFromCache(): ModelMarketData? = withContext(Dispatchers.IO) {
-        // Debug: If debug_market_use_local file exists, skip cache and use assets
-        if (DebugConfig.isDebugMarketUseLocal()) {
-            Log.d(TAG, "DebugConfig: Skip cache, use assets")
+        // If not allowed to use network, skip cache and use assets
+        if (!isAllowNetwork(context)) {
+            Log.d(TAG, "Debug: Skip cache, use assets (network disabled by debug switch)")
             return@withContext null
         }
         try {
@@ -257,18 +269,4 @@ class ModelRepository(private val context: Context) {
         return@withContext "LLM"
     }
 
-}
-
-/**
- * Debug config: Used to determine if only assets/model_market.json should be used
- */
-object DebugConfig {
-    private const val DEBUG_MARKET_USE_LOCAL_PATH = "/data/local/tmp/mnnchat/debug_market_use_local"
-    fun isDebugMarketUseLocal(): Boolean {
-        return try {
-            File(DEBUG_MARKET_USE_LOCAL_PATH).exists()
-        } catch (e: Exception) {
-            false
-        }
-    }
 } 

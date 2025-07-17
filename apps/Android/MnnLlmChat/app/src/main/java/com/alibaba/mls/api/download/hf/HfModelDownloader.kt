@@ -51,8 +51,12 @@ class HfModelDownloader(override var callback: ModelRepoDownloadCallback?,
         this.callback = callback
     }
 
+    private fun hfModelId(modelId: String): String {
+        return modelId.replace("HuggingFace/", "")
+    }
+
     override fun download(modelId: String) {
-        val hfModelId = modelId.replace("HuggingFace/", "")
+        val hfModelId = hfModelId(modelId)
         getHfApiClient().getRepoInfo(hfModelId, "main", object :
             HfApiClient.RepoInfoCallback {
             override fun onSuccess(hfRepoInfo: HfRepoInfo?) {
@@ -63,6 +67,10 @@ class HfModelDownloader(override var callback: ModelRepoDownloadCallback?,
                 callback?.onDownloadFailed(modelId, FileDownloadException("getRepoInfoFailed$error"))
             }
         })
+    }
+
+    override suspend fun checkUpdate(modelId: String): Boolean {
+        return false
     }
 
     fun downloadHfRepo(hfRepoInfo: HfRepoInfo) {

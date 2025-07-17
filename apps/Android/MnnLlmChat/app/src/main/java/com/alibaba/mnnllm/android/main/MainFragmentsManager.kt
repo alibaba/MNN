@@ -28,7 +28,7 @@ class MainFragmentManager(
     private var modelListFragment: ModelListFragment? = null
     private var modelMarketFragment: ModelMarketFragment? = null
     private var benchmarkFragment: BenchmarkFragment? = null
-    private var activeFragment: Fragment? = null
+    var activeFragment: Fragment? = null
 
     /**
      * An interface for the manager to communicate important events back to the hosting Activity.
