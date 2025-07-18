@@ -26,6 +26,6 @@ class ModelListManager {
         await modelListViewModel.fetchModels()
         
         // Return only downloaded models that are available for benchmark
-        return await modelListViewModel.models.filter { $0.isDownloaded }
+        return modelListViewModel.models.filter { $0.isDownloaded }
     }
 }

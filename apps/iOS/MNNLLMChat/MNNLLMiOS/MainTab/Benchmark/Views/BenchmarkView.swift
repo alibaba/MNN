@@ -16,32 +16,29 @@ struct BenchmarkView: View {
     @State private var showStopConfirmation = false
     
     var body: some View {
-        NavigationView {
-            ScrollView {
-                VStack(spacing: 20) {
-                    // Model Selection Section
-                    modelSelectionSection
-                    
-                    // Progress Section
-                    if viewModel.showProgressBar {
-                        progressSection
-                    }
-                    
-                    // Status Section
-                    if !viewModel.statusMessage.isEmpty {
-                        statusSection
-                    }
-                    
-                    // Results Section
-                    if viewModel.showResults, let results = viewModel.benchmarkResults {
-                        resultsSection(results)
-                    }
-                    
-                    Spacer()
+        ScrollView {
+            VStack(spacing: 20) {
+                // Model Selection Section
+                modelSelectionSection
+                
+                // Progress Section
+                if viewModel.showProgressBar {
+                    progressSection
                 }
-                .padding()
+                
+                // Status Section
+                if !viewModel.statusMessage.isEmpty {
+                    statusSection
+                }
+                
+                // Results Section
+                if viewModel.showResults, let results = viewModel.benchmarkResults {
+                    resultsSection(results)
+                }
+                
+                Spacer()
             }
-            .navigationTitle("Benchmark")
+            .padding()
         }
         .alert("Stop Benchmark", isPresented: $showStopConfirmation) {
             Button("Yes", role: .destructive) {
@@ -70,7 +67,7 @@ struct BenchmarkView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Select Model")
                 .font(.headline)
-                .foregroundColor(.primary)
+                .foregroundColor(.primaryPurple)
             
             if viewModel.isLoading {
                 HStack {
@@ -101,10 +98,6 @@ struct BenchmarkView: View {
                                             .font(.caption)
                                             .foregroundColor(.secondary)
                                     }
-                                    Spacer()
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .foregroundColor(.green)
-                                        .font(.caption)
                                 }
                             }
                         }
@@ -167,7 +160,7 @@ struct BenchmarkView: View {
                 .frame(height: 44)
                 .background(
                     viewModel.isStartButtonEnabled ? 
-                    (viewModel.startButtonText.contains("Stop") ? Color.red : Color.blue) : 
+                    (viewModel.startButtonText.contains("Stop") ? Color.primaryRed : Color.primaryPurple) :
                     Color.gray
                 )
                 .foregroundColor(.white)
