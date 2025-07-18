@@ -19,14 +19,16 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
         llm_session.cpp
         crash_util.cpp
 )
+
+#load local mnn,output dir will changed to .cxx
+add_subdirectory(../../../../../../../ build-mnn)
+
 #mnn
 set (MNN_SOURCE_ROOT "${CMAKE_SOURCE_DIR}/../../../../../../../")
 #set (MNN_SOURCE_ROOT "/Users/songjinde/git/DAI/AliNNPrivate")
-set (MNN_INSTALL_ROOT "${MNN_SOURCE_ROOT}/project/android/build_64")
 
 #set (MNN_ROOT "${CMAKE_SOURCE_DIR}/../../../../../../../")
 message(INFO "MNN_SOURCE_ROOT: ${MNN_SOURCE_ROOT}")
-message(INFO "MNN_INSTALL_ROOT: ${MNN_INSTALL_ROOT}")
 
 include_directories("${MNN_SOURCE_ROOT}/include/")
 
@@ -40,31 +42,6 @@ include_directories("${MNN_SOURCE_ROOT}/transformers/llm/engine/include")
 #audio
 include_directories("${MNN_SOURCE_ROOT}/tools/audio/include")
 include_directories("${CMAKE_SOURCE_DIR}/third_party")
-# Add library paths
-set(LIB_PATH "${MNN_INSTALL_ROOT}/lib")
-
-# Link the shared library
-
-add_library(MNN SHARED IMPORTED)
-set_target_properties(MNN PROPERTIES IMPORTED_LOCATION "${LIB_PATH}/libMNN.so")
-
-#add_library(llm SHARED IMPORTED)
-#set_target_properties(llm PROPERTIES IMPORTED_LOCATION "${LIB_PATH}/libllm.so")
-#
-#add_library(diffusion SHARED IMPORTED)
-#set_target_properties(diffusion PROPERTIES IMPORTED_LOCATION "${LIB_PATH}/libdiffusion.so")
-#
-#add_library(mnn_cl SHARED IMPORTED)
-#set_target_properties(mnn_cl PROPERTIES IMPORTED_LOCATION "${LIB_PATH}/libMNN_CL.so")
-#
-#add_library(mnn_audio SHARED IMPORTED)
-#set_target_properties(mnn_audio PROPERTIES IMPORTED_LOCATION "${LIB_PATH}/libMNNAudio.so")
-#
-#add_library(mnn_cv SHARED IMPORTED)
-#set_target_properties(mnn_cv PROPERTIES IMPORTED_LOCATION "${LIB_PATH}/libMNNOpenCV.so")
-#
-#add_library(mnn_Express SHARED IMPORTED)
-#set_target_properties(mnn_Express PROPERTIES IMPORTED_LOCATION "${LIB_PATH}/libMNN_Express.so")
 
 
 # Link your native library with the `.so` file
