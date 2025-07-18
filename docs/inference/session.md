@@ -185,13 +185,10 @@ struct BackendConfig {
         void* sharedContext = nullptr;
         size_t flags; // Valid for CPU Backend
     };
-
-    /** user specified cpu cores */
-    std::vector<int> cpuIds;
 };
 ```
 
-`memory`、`power`、`precision`分别为内存、功耗和精度偏好。支持这些选项的后端会在执行时做出相应调整；若不支持，则忽略选项。`cpuIds`允许用户指定一组CPU核心用于计算，但这些指定会被严格的校验合法性，当线程数量与合法的指定核心数量相同时得到最佳性能。
+`memory`、`power`、`precision`分别为内存、功耗和精度偏好。支持这些选项的后端会在执行时做出相应调整；若不支持，则忽略选项。
 
 示例：
 后端 **OpenCL**

@@ -119,6 +119,7 @@ int main(int argc, const char* argv[]) {
     }
     revertor.reset();
     net->setSessionMode(Interpreter::Session_Debug);
+    net->setSessionHint(Interpreter::HintMode::CPU_CORE_IDS, cpuIds.data(), cpuIds.size());
 
     // create session
     MNN::ScheduleConfig config;
@@ -126,7 +127,6 @@ int main(int argc, const char* argv[]) {
     config.numThread      = threadNumber;
     BackendConfig backendConfig;
     backendConfig.precision = precision;
-    backendConfig.cpuIds = cpuIds;
     config.backendConfig  = &backendConfig;
     MNN::Session* session = NULL;
     session               = net->createSession(config);

@@ -282,6 +282,7 @@ static int test_main(int argc, const char* argv[]) {
     if (runMask & 32) {
         net->setSessionHint(Interpreter::WINOGRAD_MEMORY_LEVEL, 0);
     }
+    net->setSessionHint(Interpreter::HintMode::CPU_CORE_IDS, cpuIds.data(), cpuIds.size());
 
     // create session
     MNN::ScheduleConfig config;
@@ -295,7 +296,6 @@ static int test_main(int argc, const char* argv[]) {
     // backendConfig.power = BackendConfig::Power_High;
     backendConfig.precision = static_cast<MNN::BackendConfig::PrecisionMode>(precision);
     backendConfig.memory = static_cast<MNN::BackendConfig::MemoryMode>(memory);
-    backendConfig.cpuIds = cpuIds;
     config.backendConfig     = &backendConfig;
     MNN::Session* session    = NULL;
     MNN::Tensor* inputTensor = nullptr;

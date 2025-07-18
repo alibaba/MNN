@@ -68,46 +68,55 @@ void Session::ModeGroup::setMode(Interpreter::SessionMode mode) {
         codegenMode = mode;
     }
 }
-void Session::ModeGroup::setHint(Interpreter::HintMode mode, int hint) {
-    switch (mode) {
-        case Interpreter::MAX_TUNING_NUMBER:
-            maxTuningNumber = hint;
+void Session::ModeGroup::setHint(Interpreter::HintMode hint, int value) {
+    switch (hint) {
+        case Interpreter::HintMode::MAX_TUNING_NUMBER:
+            maxTuningNumber = value;
             break;
-        case Interpreter::MEM_ALLOCATOR_TYPE:
-            runtimeHint.memoryAllocatorType = hint;
+        case Interpreter::HintMode::MEM_ALLOCATOR_TYPE:
+            runtimeHint.memoryAllocatorType = value;
             break;
-        case Interpreter::WINOGRAD_MEMORY_LEVEL:
-            runtimeHint.winogradMemoryUsed = hint;
+        case Interpreter::HintMode::WINOGRAD_MEMORY_LEVEL:
+            runtimeHint.winogradMemoryUsed = value;
             break;
-        case Interpreter::CPU_LITTLECORE_DECREASE_RATE:
-            runtimeHint.cpuDecreaseRate = hint;
+        case Interpreter::HintMode::CPU_LITTLECORE_DECREASE_RATE:
+            runtimeHint.cpuDecreaseRate = value;
             break;
-        case Interpreter::GEOMETRY_COMPUTE_MASK:
-            geometryMask = hint;
+        case Interpreter::HintMode::GEOMETRY_COMPUTE_MASK:
+            geometryMask = value;
             break;
-        case Interpreter::STRICT_CHECK_MODEL:
-            checkNetBuffer = hint > 0;
+        case Interpreter::HintMode::STRICT_CHECK_MODEL:
+            checkNetBuffer = value > 0;
             break;
-        case Interpreter::DYNAMIC_QUANT_OPTIONS:
-            runtimeHint.dynamicQuantOption = hint;
+        case Interpreter::HintMode::DYNAMIC_QUANT_OPTIONS:
+            runtimeHint.dynamicQuantOption = value;
             break;
-        case Interpreter::QKV_QUANT_OPTIONS:
-            runtimeHint.qkvQuantOption = hint;
+        case Interpreter::HintMode::QKV_QUANT_OPTIONS:
+            runtimeHint.qkvQuantOption = value;
             break;
-        case Interpreter::KVCACHE_SIZE_LIMIT:
-            runtimeHint.kvcacheSizeLimit = hint;
+        case Interpreter::HintMode::KVCACHE_SIZE_LIMIT:
+            runtimeHint.kvcacheSizeLimit = value;
             break;
-        case Interpreter::OP_ENCODER_NUMBER_FOR_COMMIT:
-            runtimeHint.encorderNumForCommit = hint;
+        case Interpreter::HintMode::OP_ENCODER_NUMBER_FOR_COMMIT:
+            runtimeHint.encorderNumForCommit = value;
             break;
-        case Interpreter::MMAP_FILE_SIZE:
-            runtimeHint.mmapFileSize = hint;
+        case Interpreter::HintMode::MMAP_FILE_SIZE:
+            runtimeHint.mmapFileSize = value;
             break;
-        case Interpreter::USE_CACHED_MMAP:
-            runtimeHint.useCachedMmap = hint;
+        case Interpreter::HintMode::USE_CACHED_MMAP:
+            runtimeHint.useCachedMmap = value;
             break;
-        case Interpreter::INIT_THREAD_NUMBER:
-            runtimeHint.initThreadNumber = hint;
+        case Interpreter::HintMode::INIT_THREAD_NUMBER:
+            runtimeHint.initThreadNumber = value;
+            break;
+        default:
+            break;
+    }
+}
+void Session::ModeGroup::setHint(Interpreter::HintMode hint, int* value, size_t size) {
+    switch (hint) {
+        case Interpreter::HintMode::CPU_CORE_IDS:
+            runtimeHint.cpuIds = std::vector<int>(value, value + size);
             break;
         default:
             break;

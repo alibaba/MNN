@@ -54,16 +54,16 @@ public:
 
 private:
     void _bindCPUCore() const;
-    void _resetThreadPool();
-    void _validateCpuIds();
+    void _resetThreadPool() const;
+    void _validateCpuIds() const;
     mutable std::shared_ptr<EagerBufferAllocator> mStaticAllocator;
-    int mThreadNumber;
-    std::vector<int> mCpuIds;
-    unsigned long mCpuMask;
+    mutable int mThreadNumber;
+    mutable std::vector<int> mCpuIds;
+    mutable unsigned long mCpuMask;
 #ifdef MNN_USE_THREAD_POOL
     mutable int mTaskIndex = -1;
     mutable int mThreadOpen = 0;
-    ThreadPool* mThreadPool = nullptr;
+    mutable ThreadPool* mThreadPool = nullptr;
 #endif
     BackendConfig::MemoryMode mMemory;
     BackendConfig::PowerMode mPower;

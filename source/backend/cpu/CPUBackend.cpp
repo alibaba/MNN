@@ -113,7 +113,7 @@ void CPURuntime::_bindCPUCore() const {
 #endif
 }
 
-void CPURuntime::_resetThreadPool() {
+void CPURuntime::_resetThreadPool() const{
     mThreadNumber = std::max(1, mThreadNumber);
     mThreadNumber = std::min(mThreadNumber, MAX_THREAD_NUMBER);
 #ifdef MNN_USE_THREAD_POOL
@@ -136,7 +136,7 @@ void CPURuntime::_resetThreadPool() {
     // Reset tid to rebind cpu if necessary
     mCurrentTID = 0;
 }
-void CPURuntime::_validateCpuIds() {
+void CPURuntime::_validateCpuIds() const{
     bool valid = true;
 
     do {
@@ -200,8 +200,7 @@ void CPURuntime::_validateCpuIds() {
             case BackendConfig::Power_Low:
                     mCpuIds = cpuInfo->groups[0].ids;
                 break;
-            case BackendConfig::Power_High:
-            {
+            case BackendConfig::Power_High: {
                 int selectCPUSize = 0;
                 int groupIndex = cpuInfo->groups.size() - 1;
                 while (selectCPUSize < mThreadNumber && groupIndex >= 0) {
@@ -220,7 +219,6 @@ void CPURuntime::_validateCpuIds() {
 void CPURuntime::onReset(int numberThread, const BackendConfig* config, bool full) {
     if (config != nullptr) {
         mPower = config->power;
-        mCpuIds = config->cpuIds;
         if (full) {
             mPrecision = config->precision;
             mMemory = config->memory;
@@ -228,6 +226,7 @@ void CPURuntime::onReset(int numberThread, const BackendConfig* config, bool ful
         }
     }
     mThreadNumber = numberThread;
+    mCpuIds = hint().cpuIds;
     _validateCpuIds();
     mCpuMask = MNNGetCPUMask(mCpuIds);
     _resetThreadPool();
@@ -250,11 +249,7 @@ CPURuntime::CPURuntime(const Backend::Info& info) {
         mPower = info.user->power;
         mMemory = info.user->memory;
         mFlags = info.user->flags;
-        mCpuIds = info.user->cpuIds;
     }
-    _validateCpuIds();
-    mCpuMask = MNNGetCPUMask(mCpuIds);
-    _resetThreadPool();
 #ifdef LOG_VERBOSE
     MNN_PRINT("create CPURuntime:%p\n", this);
 #endif
@@ -287,6 +282,12 @@ SingleBufferWithAllocator* CPURuntime::buffer(int index) const {
 }
 
 Backend* CPURuntime::onCreate(const BackendConfig* config, Backend* origin) const {
+    {
+        mCpuIds = hint().cpuIds;
+        _validateCpuIds();
+        mCpuMask = MNNGetCPUMask(mCpuIds);
+        _resetThreadPool();
+    }
     if (hint().midMemoryPath.size() > 0) {
         if (mDynamicMmap.empty()) {
             // Only support set featuremap dir once

@@ -10,7 +10,6 @@
 #define MNNForwardType_h
 #include <stdint.h>
 #include <stddef.h>
-#include <vector>
 
 typedef enum {
     MNN_FORWARD_CPU = 0,
@@ -93,9 +92,6 @@ struct BackendConfig {
         void* sharedContext = nullptr;
         size_t flags; // Valid for CPU Backend
     };
-
-    /** user specified cpu cores */
-    std::vector<int> cpuIds;
 };
 
     /** acquire runtime status by Runtime::getCurrentStatus with following keys,

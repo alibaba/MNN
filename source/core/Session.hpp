@@ -37,7 +37,9 @@ public:
         int geometryMask = 0xFFFF;
         bool checkNetBuffer = true;
         RuntimeHint runtimeHint;
-        void setHint(Interpreter::HintMode hint, int magic);
+        void setHint(Interpreter::HintMode hint, int value);
+        void setHint(Interpreter::HintMode hint, int* value, size_t size);
+        void setHintPtr(Interpreter::HintMode hint, int value);
         void setMode(Interpreter::SessionMode mode);
         void setExternalPath(std::string path, int type);
     };

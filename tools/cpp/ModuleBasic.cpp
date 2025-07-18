@@ -264,7 +264,6 @@ int main(int argc, char *argv[]) {
     backendConfig.power = (BackendConfig::PowerMode)power;
     backendConfig.precision = static_cast<MNN::BackendConfig::PrecisionMode>(precision);
     backendConfig.memory = static_cast<MNN::BackendConfig::MemoryMode>(memory);
-    backendConfig.cpuIds = cpuIds;
     config.backendConfig     = &backendConfig;
 
     MNN::Express::Module::Config mConfig;
@@ -275,6 +274,7 @@ int main(int argc, char *argv[]) {
     std::shared_ptr<Executor::RuntimeManager> rtmgr(Executor::RuntimeManager::createRuntimeManager(config));
     rtmgr->setCache(cacheFileName);
     rtmgr->setHint(MNN::Interpreter::INIT_THREAD_NUMBER, 4);
+    rtmgr->setHint(MNN::Interpreter::HintMode::CPU_CORE_IDS, cpuIds.data(), cpuIds.size());
 
     if (cpuDecreaseRate > 0 && cpuDecreaseRate <= 100) {
         rtmgr->setHint(Interpreter::CPU_LITTLECORE_DECREASE_RATE, cpuDecreaseRate);
