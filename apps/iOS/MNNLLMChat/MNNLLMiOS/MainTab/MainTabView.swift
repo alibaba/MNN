@@ -7,7 +7,10 @@
 
 import SwiftUI
 
+// MainTabView is the primary view of the app, containing the tab bar and navigation for main sections.
 struct MainTabView: View {
+    // MARK: - State Properties
+    
     @State private var showHistory = false
     @State private var selectedHistory: ChatHistory? = nil
     @State private var histories: [ChatHistory] = ChatHistoryManager.shared.getAllHistory()
@@ -20,8 +23,11 @@ struct MainTabView: View {
     @State private var selectedTab: Int = 0
     @State private var titles = ["Local Model", "Model Market", "Benchmark"]
     
+    // MARK: - Body
+    
     var body: some View {
         ZStack {
+            // Main TabView for navigation between Local Model, Model Market, and Benchmark
             TabView(selection: $selectedTab) {
                 NavigationView {
                     LocalModelListView(viewModel: modelListViewModel)
@@ -43,7 +49,8 @@ struct MainTabView: View {
                                 NavigationLink(destination: SettingsView(), isActive: $navigateToSettings) { EmptyView() }
                             }
                         )
-                        .toolbar(chatIsActiveBinding.wrappedValue ? .hidden : .visible, for: .tabBar) // hidden when enter chat view
+                        // Hide TabBar when entering chat or settings view
+                        .toolbar((chatIsActiveBinding.wrappedValue || navigateToSettings) ? .hidden : .visible, for: .tabBar)
                 }
                 .tabItem {
                     Image(systemName: "house.fill")
@@ -109,18 +116,19 @@ struct MainTabView: View {
                 setupTabBarAppearance()
             }
             .tint(.black)
-            .animation(chatIsActiveBinding.wrappedValue ? .none : .easeOut(duration: 0.1), value: chatIsActiveBinding.wrappedValue)
             
+            // Overlay for dimming the background when history is shown
             if showHistory {
                 Color.black.opacity(0.5)
                 .edgesIgnoringSafeArea(.all)
                 .onTapGesture {
-                    withAnimation {
+                    withAnimation(.easeInOut(duration: 0.2)) {
                         showHistory = false
                     }
                 }
             }
             
+            // Side menu for displaying chat history
             SideMenuView(isOpen: $showHistory, 
                         selectedHistory: $selectedHistory, 
                         histories: $histories,
@@ -143,6 +151,9 @@ struct MainTabView: View {
         }
     }
 
+    // MARK: - View Builders
+    
+    /// Destination view for chat, either from a new model or a history item.
     @ViewBuilder
     private var chatDestination: some View {
         if let model = modelListViewModel.selectedModel {
@@ -159,6 +170,9 @@ struct MainTabView: View {
         }
     }
     
+    // MARK: - Bindings
+    
+    /// Binding to control the activation of the chat view.
     private var chatIsActiveBinding: Binding<Bool> {
         Binding<Bool>(
             get: { 
@@ -179,6 +193,9 @@ struct MainTabView: View {
         )
     }
     
+    // MARK: - Private Methods
+    
+    /// Configures the appearance of the navigation bar.
     private func setupNavigationBarAppearance() {
         let appearance = UINavigationBarAppearance()
         appearance.configureWithOpaqueBackground()
@@ -190,6 +207,7 @@ struct MainTabView: View {
         UINavigationBar.appearance().scrollEdgeAppearance = appearance
     }
     
+    /// Configures the appearance of the tab bar.
     private func setupTabBarAppearance() {
         let appearance = UITabBarAppearance()
         appearance.configureWithOpaqueBackground()
