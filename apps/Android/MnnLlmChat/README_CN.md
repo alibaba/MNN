@@ -44,22 +44,22 @@
 + `AndroidStuido`左上角File->Open,选择该工程，点击`Build`,选择`Make Project`或者`Build App Bundle(s)/APK(s)`,即可生成APK  
 ## Linux  
 + 克隆代码库：
- ```shell
- git clone https://github.com/alibaba/MNN.git
- ```
+  ```shell
+  git clone https://github.com/alibaba/MNN.git
+  ```
 + 配置Android SDK与NDK  
- ```  
- #here we use sdkmanager to install SDK/NDK tools
- sudo sdkmanager "platforms;android-35"  
- sudo sdkmanager "build-tools;33.0.1"  
- ```    
+  ```shell    
+  #here we use sdkmanager to install SDK/NDK tools
+  sudo sdkmanager "platforms;android-35"  
+  sudo sdkmanager "build-tools;33.0.1"  
+  ```    
 + 编译构建
- ```  
- #仅编译debug版本
- ./gradlew assembleDebug  
- #编译且安装,需要确保安卓设备已连接
-./gradlew installDebug  
- ```   
+  ```shell    
+  #仅编译debug版本
+  ./gradlew assembleDebug  
+  #编译且安装,需要确保安卓设备已连接
+  ./gradlew installDebug  
+  ```   
 
 # Releases
 

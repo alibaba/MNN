@@ -36,7 +36,7 @@ This is our full multimodal language model (LLM) Android app
 
 # Development
 ## Windows   
-基于`AndroidStuido` IDE进行构建:
+Using `Android Studio` IDE for building:
 + Clone the repository：
   ```shell
   git clone https://github.com/alibaba/MNN.git
