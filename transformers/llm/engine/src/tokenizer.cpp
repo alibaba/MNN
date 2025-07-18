@@ -5,6 +5,7 @@
 //  ZhaodeWang
 //
 
+#include <MNN/MNNDefine.h>
 #include "tokenizer.hpp"
 #include <fstream>
 #include <sstream>
