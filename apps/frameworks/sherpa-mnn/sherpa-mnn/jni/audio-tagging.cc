@@ -15,13 +15,13 @@ static AudioTaggingConfig GetAudioTaggingConfig(JNIEnv *env, jobject config) {
   jclass cls = env->GetObjectClass(config);
 
   jfieldID fid = env->GetFieldID(
-      cls, "model", "Lcom/k2fsa/sherpa/onnx/AudioTaggingModelConfig;");
+      cls, "model", "Lcom/k2fsa/sherpa/mnn/AudioTaggingModelConfig;");
   jobject model = env->GetObjectField(config, fid);
   jclass model_cls = env->GetObjectClass(model);
 
   fid = env->GetFieldID(
       model_cls, "zipformer",
-      "Lcom/k2fsa/sherpa/onnx/OfflineZipformerAudioTaggingModelConfig;");
+      "Lcom/k2fsa/sherpa/mnn/OfflineZipformerAudioTaggingModelConfig;");
   jobject zipformer = env->GetObjectField(model, fid);
   jclass zipformer_cls = env->GetObjectClass(zipformer);
 
