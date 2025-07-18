@@ -26,6 +26,7 @@ object DownloadPersistentData {
     const val METADATA_KEY: String = "meta_data"
     const val SIZE_TOTAL_KEY: String = "size_total"
     const val SIZE_SAVED_KEY: String = "size_saved"
+    const val DOWNLOADED_TIME_KEY: String = "downloaded_time"
 
     // Create preference keys with modelId
     private fun createSizeTotalKey(modelId: String): Preferences.Key<Long> = 
@@ -36,6 +37,9 @@ object DownloadPersistentData {
     
     private fun createMetaDataKey(modelId: String): Preferences.Key<String> = 
         stringPreferencesKey("${METADATA_KEY}_$modelId")
+
+    private fun createDownloadedTimeKey(modelId: String): Preferences.Key<Long> = 
+        longPreferencesKey("${DOWNLOADED_TIME_KEY}_$modelId")
 
     fun saveDownloadSizeTotal(context: Context, modelId: String, total: Long) {
         runBlocking { saveDownloadSizeTotalSuspend(context, modelId, total) }
@@ -114,11 +118,13 @@ object DownloadPersistentData {
     
     suspend fun removeProgressSuspend(context: Context, modelId: String) {
         val normalizedModelId = ModelUtils.safeModelId(modelId)
-        val key = createSizeSavedKey(normalizedModelId)
+        val sizeSavedKey = createSizeSavedKey(normalizedModelId)
+        val downloadedTimeKey = createDownloadedTimeKey(normalizedModelId)
         
         // Remove from DataStore
         context.downloadDataStore.edit { preferences ->
-            preferences.remove(key)
+            preferences.remove(sizeSavedKey)
+            preferences.remove(downloadedTimeKey)
         }
         
         // Also remove from SharedPreferences (cleanup) - removeProgress originally used getLastFileName
@@ -168,6 +174,35 @@ object DownloadPersistentData {
         
         // If DataStore doesn't have data, try to migrate from SharedPreferences
         return migrateMetaDataFromSharedPrefs(context, normalizedModelId, key)
+    }
+    
+    fun saveDownloadedTime(context: Context, modelId: String, downloadedTime: Long) {
+        runBlocking { saveDownloadedTimeSuspend(context, modelId, downloadedTime) }
+    }
+    
+    suspend fun saveDownloadedTimeSuspend(context: Context, modelId: String, downloadedTime: Long) {
+        val normalizedModelId = ModelUtils.safeModelId(modelId)
+        val key = createDownloadedTimeKey(normalizedModelId)
+        
+        context.downloadDataStore.edit { preferences ->
+            preferences[key] = downloadedTime
+        }
+    }
+
+    fun getDownloadedTime(context: Context, modelId: String): Long {
+        return runBlocking { getDownloadedTimeSuspend(context, modelId) }
+    }
+    
+    suspend fun getDownloadedTimeSuspend(context: Context, modelId: String): Long {
+        val normalizedModelId = ModelUtils.safeModelId(modelId)
+        val key = createDownloadedTimeKey(normalizedModelId)
+        
+        // Try to read from DataStore
+        val dataStoreValue = context.downloadDataStore.data
+            .map { preferences -> preferences[key] }
+            .first()
+        
+        return dataStoreValue ?: 0L
     }
     
     // Private migration helpers

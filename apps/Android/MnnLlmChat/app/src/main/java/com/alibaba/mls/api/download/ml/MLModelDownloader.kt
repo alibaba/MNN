@@ -27,7 +27,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import com.alibaba.mls.api.ml.MlRepoData
-import com.alibaba.mnnllm.android.chat.model.ChatDataManager
 import com.alibaba.mnnllm.android.utils.TimeUtils
 
 
@@ -40,6 +39,60 @@ class MLModelDownloader(override var callback: ModelRepoDownloadCallback?,
         this.callback = callback
     }
 
+    /**
+     * Unified method to fetch repo information from Modelers API
+     * @param modelId the model ID to fetch info for
+     * @param calculateSize whether to calculate repo size (requires additional network requests)
+     * @return MlRepoInfo object or null if failed
+     */
+    private suspend fun fetchRepoInfo(modelId: String, calculateSize: Boolean = false): MlRepoInfo? {
+        return withContext(Dispatchers.IO) {
+            runCatching {
+                val modelersId = ModelUtils.getRepositoryPath(modelId)
+                val split = modelersId.split("/".toRegex()).dropLastWhile { it.isEmpty() }.toTypedArray()
+                if (split.size != 2) {
+                    return@runCatching null
+                }
+                
+                val response = mlApiClient.apiService.getModelFiles(split[0], split[1], "").execute()
+                if (response.isSuccessful && response.body() != null) {
+                    val initialInfo = response.body()!!
+                    val repoInfo = if (calculateSize) {
+                        // Get all files recursively for size calculation
+                        val allFiles = mutableListOf<FileInfo>()
+                        getAllFiles(split[0], split[1], "", allFiles)
+                        MlRepoInfo(
+                            initialInfo.code,
+                            initialInfo.msg,
+                            MlRepoData(
+                                tree = allFiles,
+                                last_commit = initialInfo.data.last_commit,
+                                commit_count = initialInfo.data.commit_count
+                            )
+                        )
+                    } else {
+                        initialInfo
+                    }
+                    
+                    // Call onRepoInfo callback with repo metadata
+                    val lastModified = TimeUtils.convertIsoToTimestamp(repoInfo.data.last_commit?.commit?.created) ?: 0L
+                    val repoSize = if (calculateSize && repoInfo.data.tree.isNotEmpty()) {
+                        repoInfo.data.tree.filter { it.type != "dir" }.sumOf { it.size }
+                    } else {
+                        0L
+                    }
+                    callback?.onRepoInfo(modelId, lastModified, repoSize)
+                    repoInfo
+                } else {
+                    null
+                }
+            }.getOrElse { exception ->
+                Log.e(TAG, "Failed to fetch repo info for $modelId", exception)
+                null
+            }
+        }
+    }
+
     override fun download(modelId: String) {
         Log.d(TAG, "start download  ${modelId}")
         DownloadExecutor.executeScope.launch {
@@ -47,33 +100,8 @@ class MLModelDownloader(override var callback: ModelRepoDownloadCallback?,
         }
     }
 
-    override suspend fun checkUpdate(modelId: String): Boolean {
-        var result: Pair<Long, Long>
-        val modelScopeId = ModelUtils.getRepositoryPath(modelId)
-        val split = modelScopeId.split("/".toRegex()).dropLastWhile { it.isEmpty() }.toTypedArray()
-        if (split.size != 2) {
-            return false
-        }
-        result = withContext(Dispatchers.IO) {
-            runCatching {
-                val downloadTime = withContext(Dispatchers.Main) { ChatDataManager.getInstance(ApplicationProvider.get()).getDownloadTime(modelId) / 1000L}
-                val mlRepoInfo = mlApiClient.apiService.getModelFiles(split[0], split[1], "").execute().body()
-                val lastCreated = TimeUtils.convertIsoToTimestamp(mlRepoInfo?.data?.last_commit?.commit?.created)
-                return@withContext if (lastCreated != null) {
-                    Log.d(TAG, "lastCreated: $lastCreated downloadTime: $downloadTime")
-                    Pair(lastCreated, downloadTime)
-                } else {
-                    Pair(downloadTime, downloadTime)
-                }
-            }.getOrElse {
-                Log.e(TAG, "checkUpdate failed: ", it)
-                return@withContext Pair(0, 0)
-            }
-        }
-        if (result.first > result.second) {
-            callback?.onDownloadHasUpdate(modelId, result.second, result.first)
-        }
-        return result.first > result.second
+    override suspend fun checkUpdate(modelId: String) {
+        fetchRepoInfo(modelId, false)
     }
 
     override fun getDownloadPath(modelId: String): File {
@@ -96,62 +124,38 @@ class MLModelDownloader(override var callback: ModelRepoDownloadCallback?,
         msLinkFolder.delete()
     }
 
-    override suspend fun getRepoSize(modelId: String):Long {
-        var result: Long
-        val modelScopeId = ModelUtils.getRepositoryPath(modelId)
-        val split = modelScopeId.split("/".toRegex()).dropLastWhile { it.isEmpty() }.toTypedArray()
-        if (split.size != 2) {
-            return 0L
-        }
-        result = withContext(Dispatchers.IO) {
+    override suspend fun getRepoSize(modelId: String): Long {
+        return withContext(Dispatchers.IO) {
             runCatching {
-                val mlRepoInfo = mlApiClient.apiService.getModelFiles(split[0], split[1], "").execute().body()
-                mlRepoInfo?.data?.tree?.sumOf { it.size } ?: 0L
-            }.getOrElse {
-                Log.e(TAG, "getRepoSize: ", it)
-                return@withContext 0L
+                val repoInfo = fetchRepoInfo(modelId, calculateSize = true)
+                if (repoInfo != null) {
+                    repoInfo.data.tree.filter { it.type != "dir" }.sumOf { it.size }
+                } else {
+                    0L
+                }
+            }.getOrElse { exception ->
+                Log.e(TAG, "Failed to get repo size for $modelId", exception)
+                0L
             }
         }
-        return result
     }
 
-    private fun downloadRepo(modelId: String): MlRepoInfo? {
+    private suspend fun downloadRepo(modelId: String): MlRepoInfo? {
         val modelersId = ModelUtils.getRepositoryPath(modelId)
-        Log.d(TAG, "downloadRepo: " + modelersId)
+        Log.d(TAG, "downloadRepo: $modelersId")
         val split = modelersId.split("/".toRegex()).dropLastWhile { it.isEmpty() }.toTypedArray()
         if (split.size != 2) {
             callback?.onDownloadFailed(modelId, FileDownloadException("getRepoInfoFailed modelId format error: $modelId"))
+            return null
         }
         
-        // Get initial repo info
-        val modelInfo = kotlin.runCatching {
-            val initialInfo = mlApiClient.apiService.getModelFiles(split[0], split[1], "").execute().body()
-            if (initialInfo != null) {
-                // Create a mutable list to store all files
-                val allFiles = mutableListOf<FileInfo>()
-                // Get files recursively
-                getAllFiles(split[0], split[1], "", allFiles)
-                // Create a new MlRepoInfo with all files
-                MlRepoInfo(
-                    initialInfo.code,
-                    initialInfo.msg,
-                    MlRepoData(
-                        tree = allFiles,
-                        last_commit = initialInfo.data.last_commit,
-                        commit_count = initialInfo.data.commit_count
-                    )
-                )
-            } else {
-                null
-            }
-        }.getOrElse {
-            callback?.onDownloadFailed(modelId, FileDownloadException("getRepoInfoFailed" + it.message))
-            null
-        }
+        val modelInfo = fetchRepoInfo(modelId, calculateSize = true)
         if (modelInfo != null) {
             callback?.onDownloadTaskAdded()
             downloadMlRepoInner(modelId, modelersId, modelInfo)
             callback?.onDownloadTaskRemoved()
+        } else {
+            callback?.onDownloadFailed(modelId, FileDownloadException("Failed to get repo info for $modelId"))
         }
         return modelInfo
     }

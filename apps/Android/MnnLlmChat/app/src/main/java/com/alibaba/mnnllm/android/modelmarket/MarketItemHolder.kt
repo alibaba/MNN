@@ -98,6 +98,48 @@ class MarketItemHolder(
         updateDownloadState(downloadInfo)
     }
 
+
+    private fun handleVoiceDelegateUI(modelMarketItem: ModelMarketItem, voiceType: MarketHolderVoiceDelegate.VoiceModelType, downloadInfo: DownloadInfo) {
+        val isDefault = voiceDelegate.isDefaultModel(modelMarketItem.modelId, voiceType)
+        voiceDelegate.setVoiceModelUI(
+            btnDownloadAction,
+            itemView.findViewById(R.id.checkbox_voice_model),
+            true,
+            isDefault,
+            voiceType,
+            modelMarketItem
+        ) {
+            // Update UI when model is changed
+            updateDownloadState(downloadInfo)
+            // Refresh the entire adapter to update other models' default status
+            modelMarketItemWrapper?.let {
+                modelMarketItemListener.onDefaultVoiceModelChanged(it)
+            }
+        }
+        tvStatus.text = voiceDelegate.getVoiceModelStatusText(downloadInfo, modelMarketItem.modelId, isDefault, voiceType)
+    }
+
+    private fun updateDownloadCompleteState(downloadInfo: DownloadInfo) {
+        val modelMarketItem = modelMarketItemWrapper?.modelMarketItem
+        if (modelMarketItem != null) {
+            val voiceType = voiceDelegate.getVoiceModelType(modelMarketItem)
+            if (voiceType != MarketHolderVoiceDelegate.VoiceModelType.NONE) {
+                handleVoiceDelegateUI(modelMarketItem, voiceType, downloadInfo)
+            } else {
+                // Handle regular model - show chat button or update button
+                btnDownloadAction.visibility = View.VISIBLE
+                voiceDelegate.hideCheckbox()
+                if (downloadInfo.hasUpdate) {
+                    btnDownloadAction.text = btnDownloadAction.resources.getString(R.string.update)
+                } else {
+                    btnDownloadAction.text = btnDownloadAction.resources.getString(R.string.chat_action)
+                }
+                setButtonStyle()
+                updateStatusText(downloadInfo)
+            }
+        }
+    }
+
     @SuppressLint("DefaultLocale")
     private fun updateDownloadState(downloadInfo: DownloadInfo) {
         val downloadState = downloadInfo.downloadState
@@ -135,51 +177,7 @@ class MarketItemHolder(
             }
             
             DownloadState.COMPLETED -> {
-                val modelMarketItem = modelMarketItemWrapper?.modelMarketItem
-                if (modelMarketItem != null) {
-                    val voiceType = voiceDelegate.getVoiceModelType(modelMarketItem)
-                    if (voiceType != MarketHolderVoiceDelegate.VoiceModelType.NONE) {
-                        // Handle voice model (TTS/ASR) - show checkbox
-                        val isDefault = voiceDelegate.isDefaultModel(modelMarketItem.modelId, voiceType)
-                        voiceDelegate.setVoiceModelUI(
-                            btnDownloadAction,
-                            itemView.findViewById(R.id.checkbox_voice_model),
-                            true,
-                            isDefault,
-                            voiceType,
-                            modelMarketItem
-                        ) {
-                            // Update UI when model is changed
-                            updateDownloadState(downloadInfo)
-                            // Refresh the entire adapter to update other models' default status
-                            modelMarketItemWrapper?.let {
-                                modelMarketItemListener.onDefaultVoiceModelChanged(it)
-                            }
-                        }
-                        tvStatus.text = voiceDelegate.getVoiceModelStatusText(downloadInfo, modelMarketItem.modelId, isDefault, voiceType)
-                    } else {
-                        // Handle regular model - show chat button or update button
-                        btnDownloadAction.visibility = View.VISIBLE
-                        voiceDelegate.hideCheckbox()
-                        if (downloadInfo.hasUpdate) {
-                            btnDownloadAction.text = btnDownloadAction.resources.getString(R.string.update)
-                        } else {
-                            btnDownloadAction.text = btnDownloadAction.resources.getString(R.string.chat_action)
-                        }
-                        setButtonStyle()
-                        updateStatusText(downloadInfo)
-                    }
-                } else {
-                    btnDownloadAction.visibility = View.VISIBLE
-                    voiceDelegate.hideCheckbox()
-                    if (downloadInfo.hasUpdate) {
-                        btnDownloadAction.text = btnDownloadAction.resources.getString(R.string.update)
-                    } else {
-                        btnDownloadAction.text = btnDownloadAction.resources.getString(R.string.chat_action)
-                    }
-                    setButtonStyle()
-                    updateStatusText(downloadInfo)
-                }
+                updateDownloadCompleteState(downloadInfo)
             }
             
             else -> {
@@ -285,9 +283,9 @@ class MarketItemHolder(
 
         // Open model card in a BottomSheetDialog with WebView
         val context = itemView.context
-        val modelId = modelMarketItem.modelId ?: return
-        val source = com.alibaba.mnnllm.android.model.ModelUtils.getSource(modelId)
-        val repoPath = com.alibaba.mnnllm.android.model.ModelUtils.getRepositoryPath(modelId)
+        val modelId = modelMarketItem.modelId
+        val source = ModelUtils.getSource(modelId)
+        val repoPath = ModelUtils.getRepositoryPath(modelId)
         val url = when (source) {
             "HuggingFace" -> "https://huggingface.co/$repoPath"
             "ModelScope" -> "https://modelscope.cn/models/$repoPath"

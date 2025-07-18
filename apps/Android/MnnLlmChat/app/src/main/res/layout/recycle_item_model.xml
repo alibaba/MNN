@@ -90,19 +90,27 @@
             android:visibility="visible"
             tools:text="Last chat: 2024-01-15 10:30" />
 
-    <!--    <ProgressBar-->
-    <!--        android:id="@+id/download_progress_bar"-->
-    <!--        style="?android:attr/progressBarStyleHorizontal"-->
-    <!--        android:layout_width="match_parent"-->
-    <!--        android:layout_height="6dp"-->
-    <!--        android:layout_below="@id/tvTimeInfo"-->
-    <!--        android:layout_marginStart="14dp"-->
-    <!--        android:layout_marginTop="4dp"-->
-    <!--        android:layout_marginEnd="60dp"-->
-    <!--        android:layout_toEndOf="@id/header_section_title"-->
-    <!--        android:indeterminate="false"-->
-    <!--        android:progress="60"-->
-    <!--        android:progressDrawable="@drawable/progress_m2_style" />-->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_update"
+            android:layout_width="60dp"
+            android:layout_height="32dp"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_marginEnd="16dp"
+            android:layout_gravity="center_vertical"
+            android:text="@string/update"
+            android:textSize="12sp"
+            android:insetLeft="0dp"
+            android:insetRight="0dp"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            tools:text="Update"
+            android:padding="0dp"
+            tools:visibility="visible"
+            android:layout_alignParentEnd="true"
+            android:layout_above="@id/tvTimeInfo"
+            app:strokeColor="?colorPrimary"
+            app:strokeWidth="0.5dp"
+            />
 
         <View
             android:id="@+id/pinned_overlay"

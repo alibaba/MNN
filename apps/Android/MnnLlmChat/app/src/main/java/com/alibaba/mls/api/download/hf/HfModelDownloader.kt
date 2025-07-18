@@ -6,10 +6,6 @@ package com.alibaba.mls.api.download.hf
 import android.util.Log
 import com.alibaba.mls.api.ApplicationProvider
 import com.alibaba.mls.api.FileDownloadException
-import com.alibaba.mls.api.hf.HfApiClient
-import com.alibaba.mls.api.hf.HfApiClient.Companion.bestClient
-import com.alibaba.mls.api.hf.HfFileMetadata
-import com.alibaba.mls.api.hf.HfRepoInfo
 import com.alibaba.mls.api.download.DownloadExecutor.Companion.executor
 import com.alibaba.mls.api.download.DownloadFileUtils.createSymlink
 import com.alibaba.mls.api.download.DownloadFileUtils.deleteDirectoryRecursively
@@ -17,17 +13,20 @@ import com.alibaba.mls.api.download.DownloadFileUtils.getLastFileName
 import com.alibaba.mls.api.download.DownloadFileUtils.getPointerPathParent
 import com.alibaba.mls.api.download.DownloadFileUtils.repoFolderName
 import com.alibaba.mls.api.download.DownloadPausedException
-import com.alibaba.mls.api.download.DownloadPersistentData
 import com.alibaba.mls.api.download.FileDownloadTask
-import com.alibaba.mls.api.download.hf.HfFileMetadataUtils.getFileMetadata
 import com.alibaba.mls.api.download.ModelDownloadManager.Companion.TAG
 import com.alibaba.mls.api.download.ModelFileDownloader
 import com.alibaba.mls.api.download.ModelFileDownloader.FileDownloadListener
 import com.alibaba.mls.api.download.ModelRepoDownloader
+import com.alibaba.mls.api.download.hf.HfFileMetadataUtils.getFileMetadata
+import com.alibaba.mls.api.hf.HfApiClient
+import com.alibaba.mls.api.hf.HfApiClient.Companion.bestClient
+import com.alibaba.mls.api.hf.HfFileMetadata
+import com.alibaba.mls.api.hf.HfRepoInfo
 import com.alibaba.mnnllm.android.chat.model.ChatDataManager
-import com.alibaba.mnnllm.android.model.ModelUtils
 import com.alibaba.mnnllm.android.utils.TimeUtils
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import java.io.File
@@ -57,52 +56,65 @@ class HfModelDownloader(override var callback: ModelRepoDownloadCallback?,
         return modelId.replace("HuggingFace/", "")
     }
 
-    override fun download(modelId: String) {
-        val hfModelId = hfModelId(modelId)
-        getHfApiClient().getRepoInfo(hfModelId, "main", object :
-            HfApiClient.RepoInfoCallback {
-            override fun onSuccess(hfRepoInfo: HfRepoInfo?) {
-                downloadHfRepo(hfRepoInfo!!)
+    /**
+     * Unified method to fetch repo information from HuggingFace API
+     * @param modelId the model ID to fetch info for
+     * @param calculateSize whether to calculate repo size (requires additional network requests)
+     * @return HfRepoInfo object or null if failed
+     */
+    private suspend fun fetchRepoInfo(modelId: String, calculateSize: Boolean = false): HfRepoInfo? {
+        return withContext(Dispatchers.IO) {
+            runCatching {
+                val hfModelId = hfModelId(modelId)
+                val response = getHfApiClient().apiService.getRepoInfo(hfModelId, "main")?.execute()
+                if (response?.isSuccessful == true && response.body() != null) {
+                    val repoInfo = response.body()!!
+                    // Call onRepoInfo callback with repo metadata
+                    val lastModified = TimeUtils.convertIsoToTimestamp(repoInfo.lastModified) ?: 0L
+                    val repoSize = if (calculateSize) {
+                        calculateRepoSize(repoInfo)
+                    } else {
+                        0L // Will be calculated separately when needed
+                    }
+                    callback?.onRepoInfo(modelId, lastModified, repoSize)
+                    repoInfo
+                } else {
+                    null
+                }
+            }.getOrElse { exception ->
+                Log.e(TAG, "Failed to fetch repo info for $modelId", exception)
+                null
             }
-
-            override fun onFailure(error: String?) {
-                callback?.onDownloadFailed(modelId, FileDownloadException("getRepoInfoFailed$error"))
-            }
-        })
+        }
     }
 
-    override suspend fun checkUpdate(modelId: String): Boolean {
-        var result: Pair<Long, Long>
-        val hfModelId = hfModelId(modelId)
-        val split = hfModelId.split("/".toRegex()).dropLastWhile { it.isEmpty() }.toTypedArray()
-        if (split.size != 2) {
-            return false
-        }
-        result = withContext(Dispatchers.IO) {
+    /**
+     * Calculate total size of all files in the repo
+     */
+    private suspend fun calculateRepoSize(hfRepoInfo: HfRepoInfo): Long {
+        return withContext(Dispatchers.IO) {
             runCatching {
-                val downloadTime = withContext(Dispatchers.Main) { ChatDataManager.getInstance(ApplicationProvider.get()).getDownloadTime(modelId) / 1000L}
-                val responseInfo = getHfApiClient().apiService.getRepoInfo(modelId, "main")
-                val response = kotlin.runCatching {responseInfo?.execute()}.getOrNull()
-                if (response?.isSuccessful != true || response.body() == null) {
-                    return@withContext Pair(0, 0)
-                }
-                val hfRepoInfo = response.body()!!
-                val lastCreated = TimeUtils.convertIsoToTimestamp(hfRepoInfo.lastModified)
-                return@withContext if (lastCreated != null) {
-                    Log.d(TAG, "lastCreated: $lastCreated downloadTime: $downloadTime")
-                    Pair(lastCreated, downloadTime)
+                val metaList = requestMetaDataList(hfRepoInfo)
+                metaList.sumOf { it?.size ?: 0L }
+            }.getOrElse { 0L }
+        }
+    }
+
+    override fun download(modelId: String) {
+        executor!!.submit {
+            runBlocking {
+                val repoInfo = fetchRepoInfo(modelId)
+                if (repoInfo != null) {
+                    downloadHfRepo(repoInfo)
                 } else {
-                    Pair(downloadTime, downloadTime)
+                    callback?.onDownloadFailed(modelId, FileDownloadException("Failed to get repo info for $modelId"))
                 }
-            }.getOrElse {
-                Log.e(TAG, "checkUpdate failed: ", it)
-                return@withContext Pair(0, 0)
             }
         }
-        if (result.first > result.second) {
-            callback?.onDownloadHasUpdate(modelId, result.second, result.first)
-        }
-        return result.first > result.second
+    }
+
+    override suspend fun checkUpdate(modelId: String) {
+        fetchRepoInfo(modelId)
     }
 
     fun downloadHfRepo(hfRepoInfo: HfRepoInfo) {
@@ -114,21 +126,21 @@ class HfModelDownloader(override var callback: ModelRepoDownloadCallback?,
         }
     }
 
-    override suspend fun getRepoSize(modelId: String):Long {
-        var totalSize = 0L
-        withContext(Dispatchers.IO) {
-            val result = getHfApiClient().apiService.getRepoInfo(modelId, "main")
-            val response = kotlin.runCatching {result?.execute()}.getOrNull()
-            if (response?.isSuccessful != true || response.body() == null) {
-                return@withContext
-            }
-            val hfRepoInfo = response.body()!!
-            val metaList = kotlin.runCatching {requestMetaDataList(hfRepoInfo)}.getOrNull()
-            metaList?.forEach{
-                totalSize += it?.size ?: 0
+    override suspend fun getRepoSize(modelId: String): Long {
+        return withContext(Dispatchers.IO) {
+            runCatching {
+                val repoInfo = fetchRepoInfo(modelId, calculateSize = true)
+                if (repoInfo != null) {
+                    // Size was already calculated in fetchRepoInfo, but we can also calculate it directly
+                    calculateRepoSize(repoInfo)
+                } else {
+                    0L
+                }
+            }.getOrElse { exception ->
+                Log.e(TAG, "Failed to get repo size for $modelId", exception)
+                0L
             }
         }
-        return totalSize
     }
 
     private fun downloadHfRepoInner(hfRepoInfo: HfRepoInfo) {

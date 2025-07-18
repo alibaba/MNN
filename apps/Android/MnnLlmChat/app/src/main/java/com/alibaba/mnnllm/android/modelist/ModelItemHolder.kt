@@ -12,6 +12,8 @@ import androidx.appcompat.widget.PopupMenu
 import androidx.recyclerview.widget.RecyclerView
 import com.alibaba.mls.api.ModelItem
 import com.alibaba.mls.api.download.ModelDownloadManager
+import com.alibaba.mls.api.download.DownloadInfo
+import com.alibaba.mls.api.download.DownloadState
 import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.model.ModelUtils
 import com.alibaba.mnnllm.android.modelsettings.SettingsBottomSheetFragment
@@ -35,6 +37,7 @@ class ModelItemHolder(
     private var tvModelTitle: TextView
     private var tvStatus: TextView
     private var tvTimeInfo: TextView
+    private val btnUpdate: com.google.android.material.button.MaterialButton
 
     private val headerSection: ModelAvatarView
     private val tagsLayout: TagsLayout
@@ -52,9 +55,17 @@ class ModelItemHolder(
         tvModelTitle = itemView.findViewById(R.id.tvModelTitle)
         tvStatus = itemView.findViewById(R.id.tvStatus)
         tvTimeInfo = itemView.findViewById(R.id.tvTimeInfo)
+        btnUpdate = itemView.findViewById(R.id.btn_update)
         headerSection = itemView.findViewById(R.id.header_section_title)
         tagsLayout = itemView.findViewById(R.id.tagsLayout)
         pinnedOverlay = itemView.findViewById(R.id.pinned_overlay)
+        
+        // Set update button click listener
+        btnUpdate.setOnClickListener {
+            currentModelWrapper?.let { wrapper ->
+                modelItemListener.onItemUpdate(wrapper.modelItem)
+            }
+        }
     }
 
     private fun displayTimeInfo(modelWrapper: ModelItemWrapper) {
@@ -167,22 +178,76 @@ class ModelItemHolder(
         // Show pinned overlay
         pinnedOverlay.visibility = if (modelWrapper.isPinned || true) View.VISIBLE else View.GONE
         
-        // Use consistent file size display logic and show update status
+        // Handle update button visibility and status
+        updateButtonAndStatus(modelWrapper)
+        
+        itemView.isActivated = modelWrapper.isPinned
+    }
+
+    /**
+     * Update the update button visibility and status text based on model state
+     */
+    private fun updateButtonAndStatus(modelWrapper: ModelItemWrapper) {
         val formattedSize = getFormattedFileSize(modelWrapper)
-        tvStatus.text = if (modelWrapper.hasUpdate) {
-            if (formattedSize.isNotEmpty()) {
-                tvStatus.resources.getString(R.string.downloaded_update_available, formattedSize)
+        
+        // Check if model is currently updating (hasUpdate and downloading)
+        val isUpdating = isModelUpdating(modelWrapper)
+        
+        if (modelWrapper.hasUpdate) {
+            btnUpdate.visibility = View.VISIBLE
+            if (isUpdating) {
+                btnUpdate.text = btnUpdate.resources.getString(R.string.download_state_updating)
+                btnUpdate.isEnabled = false
+                tvStatus.text = if (formattedSize.isNotEmpty()) {
+                    "${formattedSize} (${tvStatus.resources.getString(R.string.download_state_updating)})"
+                } else {
+                    tvStatus.resources.getString(R.string.download_state_updating)
+                }
             } else {
-                tvStatus.resources.getString(R.string.downloaded_update_available, "")
+                btnUpdate.text = btnUpdate.resources.getString(R.string.update)
+                btnUpdate.isEnabled = true
+                tvStatus.text = if (formattedSize.isNotEmpty()) {
+                    tvStatus.resources.getString(R.string.downloaded_update_available, formattedSize)
+                } else {
+                    tvStatus.resources.getString(R.string.downloaded_update_available, "")
+                }
             }
         } else {
-            if (formattedSize.isNotEmpty()) {
+            btnUpdate.visibility = View.GONE
+            tvStatus.text = if (formattedSize.isNotEmpty()) {
                 tvStatus.resources.getString(R.string.downloaded_click_to_chat, formattedSize)
             } else {
                 tvStatus.resources.getString(R.string.downloaded_click_to_chat, "")
             }
         }
-        itemView.isActivated = modelWrapper.isPinned
+    }
+
+    /**
+     * Check if the model is currently being updated
+     * @param modelWrapper The model wrapper to check
+     * @return true if model hasUpdate and is currently downloading
+     */
+    private fun isModelUpdating(modelWrapper: ModelItemWrapper): Boolean {
+        if (!modelWrapper.hasUpdate) return false
+        
+        modelWrapper.modelItem.modelId?.let { modelId ->
+            val downloadInfo = modelDownloadManager.getDownloadInfo(modelId)
+            return downloadInfo.downloadState == DownloadState.DOWNLOADING
+        }
+        return false
+    }
+
+    /**
+     * Update progress for the model if it's currently being updated
+     * This method should be called from the adapter when progress updates are received
+     */
+    fun updateProgress(downloadInfo: DownloadInfo) {
+        currentModelWrapper?.let { wrapper ->
+            // If model has update and is downloading, refresh the UI
+            if (wrapper.hasUpdate && downloadInfo.downloadState == DownloadState.DOWNLOADING) {
+                updateButtonAndStatus(wrapper)
+            }
+        }
     }
 
     override fun onClick(v: View) {

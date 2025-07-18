@@ -119,11 +119,17 @@ class ModelListPresenter(private val context: Context, private val view: ModelLi
     }
 
     override fun onDownloadStart(modelId: String) {
-        // Not needed for model list
+        mainHandler?.post {
+            // Update UI when model starts updating
+            modelListAdapter?.updateItem(modelId)
+        }
     }
 
     override fun onDownloadProgress(modelId: String, downloadInfo: DownloadInfo) {
-        // Not needed for model list
+        mainHandler?.post {
+            // Update progress for models that are being updated
+            modelListAdapter?.updateProgress(modelId, downloadInfo)
+        }
     }
 
     override fun onDownloadFailed(modelId: String, exception: Exception) {

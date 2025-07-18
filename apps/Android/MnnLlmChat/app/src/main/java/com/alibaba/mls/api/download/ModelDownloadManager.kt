@@ -12,7 +12,6 @@ import android.util.Log
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.alibaba.mls.api.ApplicationProvider
-import com.alibaba.mls.api.download.DownloadPersistentData
 import com.alibaba.mls.api.download.hf.HfModelDownloader
 import com.alibaba.mls.api.download.ml.MLModelDownloader
 import com.alibaba.mls.api.download.ms.MsModelDownloader
@@ -67,7 +66,7 @@ class LoggingDownloadListener : DownloadListener {
     }
 
     override fun onDownloadHasUpdate(modelId: String, downloadInfo: DownloadInfo) {
-        Log.d(ModelDownloadManager.TAG, "modelId:$modelId onDownloadTotalSize: $modelId, uploadTime: ${downloadInfo.uploadTime} downloadTime: ${downloadInfo.downloadedTime}")
+        Log.d(ModelDownloadManager.TAG, "modelId:$modelId onDownloadTotalSize: $modelId, uploadTime: ${downloadInfo.remoteUpdateTime} downloadTime: ${downloadInfo.downloadedTime}")
     }
 }
 
@@ -110,14 +109,6 @@ class ModelDownloadManager private constructor(context: Context) {
                 setDownloadFinished(modelId, absolutePath)
             }
 
-            override fun onDownloadHasUpdate(
-                modelId: String,
-                lastDownloadTime: Long,
-                lastUpdateTime: Long
-            ) {
-                downloadHasUpdate(modelId, lastDownloadTime, lastUpdateTime)
-            }
-
             override fun onDownloadingProgress(
                 modelId:String,
                 stage: String,
@@ -129,6 +120,10 @@ class ModelDownloadManager private constructor(context: Context) {
                     modelId, stage, currentFile,
                     saved, total
                 )
+            }
+
+            override fun onRepoInfo(modelId: String, lastModified: Long, repoSize: Long) {
+                onRepoInfoReceived(modelId, lastModified, repoSize)
             }
         }
         mlDownloader = MLModelDownloader(downloadCallback, cachePath)
@@ -265,6 +260,10 @@ class ModelDownloadManager private constructor(context: Context) {
                 downloadInfo.downloadState = DownloadState.COMPLETED
                 downloadInfo.progress = 1.0
                 downloadInfo.totalSize = DownloadPersistentData.getDownloadSizeTotal(ApplicationProvider.get(), modelId)
+                downloadInfo.downloadedTime = DownloadPersistentData.getDownloadedTime(ApplicationProvider.get(), modelId)
+                if (downloadInfo.downloadedTime <= 0) {
+                    downloadInfo.downloadedTime = ChatDataManager.getInstance(appContext).getDownloadTime(modelId) / 1000
+                }
             } else if (DownloadPersistentData.getDownloadSizeTotal(ApplicationProvider.get(), modelId) > 0) {
                 val totalSize = DownloadPersistentData.getDownloadSizeTotal(ApplicationProvider.get(), modelId)
                 val savedSize = getRealDownloadSize(modelId)
@@ -329,6 +328,15 @@ class ModelDownloadManager private constructor(context: Context) {
     private fun setDownloadFinished(modelId: String, path: String) {
         val downloadInfo = downloadInfoMap[modelId] ?: return
         downloadInfo.downloadState = DownloadState.COMPLETED
+        downloadInfo.progress = 1.0
+        
+        // Set downloadedTime to remoteUpdateTime and save to DataStore
+        if (downloadInfo.remoteUpdateTime > 0) {
+            downloadInfo.downloadedTime = downloadInfo.remoteUpdateTime
+            DownloadPersistentData.saveDownloadedTime(ApplicationProvider.get(), modelId, downloadInfo.downloadedTime)
+        }
+        downloadInfo.hasUpdate = false
+        
         // Record download history
         try {
             val modelType = runBlocking {
@@ -420,14 +428,37 @@ class ModelDownloadManager private constructor(context: Context) {
         }
     }
 
-    private fun downloadHasUpdate(modelId: String, lastDownloadTime: Long, lastUpdateTime: Long) {
+    /**
+     * Handle repo information received from downloaders
+     * @param modelId the model ID
+     * @param lastModified server last modified timestamp
+     * @param repoSize total repo size in bytes
+     */
+    private fun onRepoInfoReceived(modelId: String, lastModified: Long, repoSize: Long) {
+        Log.d(TAG, "[onRepoInfoReceived] modelId: $modelId, lastModified: $lastModified, repoSize: $repoSize")
+        
+        // Update download info with repo size if not already set
         val downloadInfo = getDownloadInfo(modelId)
-        downloadInfo.downloadedTime = lastDownloadTime
-        downloadInfo.uploadTime = lastUpdateTime
-        downloadInfo.hasUpdate = true
-        listeners.forEach {
-            Log.d(TAG, "[downloadHasUpdate] Notifying listener: ${it.javaClass.simpleName}")
-            it.onDownloadHasUpdate(modelId, downloadInfo)
+        if (downloadInfo.totalSize <= 0 && repoSize > 0) {
+            downloadInfo.totalSize = repoSize
+            DownloadPersistentData.saveDownloadSizeTotal(ApplicationProvider.get(), modelId, repoSize)
+            listeners.forEach { it.onDownloadTotalSize(modelId, repoSize) }
+        }
+        
+        // Update upload time for update checking
+        if (lastModified > 0) {
+            downloadInfo.remoteUpdateTime = lastModified
+            if (downloadInfo.downloadedTime > 0) {
+                Log.d(TAG, "[onRepoInfoReceived] downloadedTime: ${downloadInfo.downloadedTime}, lastModified: $lastModified")
+            }
+
+            if (downloadInfo.downloadedTime in 1..<lastModified) {
+                // Set hasUpdate flag to true when update is available
+                downloadInfo.hasUpdate = true
+                listeners.forEach {
+                    it.onDownloadHasUpdate(modelId, downloadInfo)
+                }
+            }
         }
     }
 

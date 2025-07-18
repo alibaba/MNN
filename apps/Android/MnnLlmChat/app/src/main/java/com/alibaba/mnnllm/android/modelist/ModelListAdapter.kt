@@ -8,6 +8,7 @@ import android.view.ViewGroup
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
 import com.alibaba.mls.api.ModelItem
+import com.alibaba.mls.api.download.DownloadInfo
 import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.model.Modality
 import com.alibaba.mnnllm.android.model.ModelUtils
@@ -93,10 +94,17 @@ class ModelListAdapter(private val items: MutableList<ModelItemWrapper>) :
     
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int, payloads: MutableList<Any>) {
         if (payloads.isNotEmpty()) {
-            // Since all models are downloaded, we can do simpler updates
-            val modelWrapper = getItems()[position]
-            val modelItemHolder = holder as ModelItemHolder
-            modelItemHolder.bind(modelWrapper) // Just rebind with new data
+            val payload = payloads[0]
+            if (payload is DownloadInfo) {
+                // Handle progress update
+                val modelItemHolder = holder as ModelItemHolder
+                modelItemHolder.updateProgress(payload)
+            } else {
+                // Since all models are downloaded, we can do simpler updates
+                val modelWrapper = getItems()[position]
+                val modelItemHolder = holder as ModelItemHolder
+                modelItemHolder.bind(modelWrapper) // Just rebind with new data
+            }
         } else {
             super.onBindViewHolder(holder, position, payloads)
         }
@@ -155,6 +163,23 @@ class ModelListAdapter(private val items: MutableList<ModelItemWrapper>) :
         
         // Update the item in the view
         updateItem(modelId)
+    }
+
+    /**
+     * Update progress for a specific model when it's being updated
+     */
+    fun updateProgress(modelId: String, downloadInfo: DownloadInfo) {
+        val currentItems = getItems()
+        var position = -1
+        for (i in currentItems.indices) {
+            if (currentItems[i].modelItem.modelId == modelId) {
+                position = i
+                break
+            }
+        }
+        if (position >= 0) {
+            notifyItemChanged(position, downloadInfo)
+        }
     }
 
     private fun getItems(): List<ModelItemWrapper> {

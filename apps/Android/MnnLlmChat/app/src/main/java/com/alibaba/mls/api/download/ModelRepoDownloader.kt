@@ -20,7 +20,7 @@ abstract class ModelRepoDownloader {
         return File(cacheRootPath, "${repoFolderName(ModelUtils.getRepositoryPath(modelId), "model")}/blobs")
     }
 
-    abstract suspend fun checkUpdate(modelId: String):Boolean
+    abstract suspend fun checkUpdate(modelId: String)
 
     fun pause(modelId: String) {
         pausedSet.add(modelId)
@@ -39,12 +39,12 @@ abstract class ModelRepoDownloader {
         fun onDownloadTaskRemoved()
         fun onDownloadPaused(modelId: String)
         fun onDownloadFileFinished(modelId: String, absolutePath: String)
-        fun onDownloadHasUpdate(modelId: String, lastDownloadTime:Long, lastUpdateTime:Long)
         fun onDownloadingProgress(
             modelId: String,
             stage: String,
             currentFile: String?,
             saved: Long,
             total: Long)
+        fun onRepoInfo(modelId: String, lastModified: Long, repoSize: Long)
     }
 }
