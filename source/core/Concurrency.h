@@ -28,7 +28,8 @@
     }                                                              \
     ;                                                              \
     auto cpuBn = (CPUBackend*)backend();                           \
-    MNN::ThreadPool::enqueue(std::move(task), cpuBn->taskIndex(), cpuBn->threadOpen() ? cpuBn->threadNumber() : 1); \
+    auto thrPl = cpuBn->threadPool();                              \
+    thrPl->enqueue(std::move(task), cpuBn->taskIndex());           \
     }
 
 #else

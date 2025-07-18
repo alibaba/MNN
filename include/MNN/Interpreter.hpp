@@ -245,7 +245,10 @@ public:
         USE_CACHED_MMAP = 12,
         
         // Multi-Thread Load module, default is 0 (don't use other Thread)
-        INIT_THREAD_NUMBER = 13
+        INIT_THREAD_NUMBER = 13,
+
+        // CPU core ids
+        CPU_CORE_IDS = 14,
     };
 
     enum ExternalPathType {
@@ -280,10 +283,12 @@ public:
 
     /**
      * @brief The API shoud be called before create session.
-     * @param mode      Hint type
+     * @param hint      Hint type
      * @param value     Hint value
+     * @param size      Hint value size(when use a ptr)
      */
-    void setSessionHint(HintMode mode, int value);
+    void setSessionHint(HintMode hint, int value);
+    void setSessionHint(HintMode hint, int* value, size_t size);
 public:
     /**
      * @brief create runtimeInfo separately with schedule config.

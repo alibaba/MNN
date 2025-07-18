@@ -58,6 +58,9 @@ struct RuntimeHint {
     // op encoder number for once commit
     int encorderNumForCommit = 10;
     int initThreadNumber = 0;
+
+    // cpu core ids
+    std::vector<int> cpuIds;
 };
 /** abstract backend */
 class Backend : public NonCopyable {

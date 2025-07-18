@@ -9,6 +9,7 @@
 #include "backend/cpu/CPUBackend.hpp"
 #include <cmath>
 #include <mutex>
+#include <unordered_map>
 #include "CPUResizeCache.hpp"
 #include "core/BufferAllocator.hpp"
 #include "CPUTensorConvert.hpp"
@@ -78,7 +79,7 @@ void CPUBackend::computeDivideSizes(int size, int* dst, float avgDiv) const {
 }
 
 void CPURuntime::_bindCPUCore() const {
-    if (mPower == BackendConfig::Power_Normal) {
+    if (mCpuIds.empty()) {
         return;
     }
     auto tid = MNNGetCurrentPid();
@@ -87,36 +88,11 @@ void CPURuntime::_bindCPUCore() const {
     }
     mCurrentTID = tid;
     // Bind CPU Core
-    auto cpuInfo = MNNGetCPUInfo();
-    if (cpuInfo->groups.size() == 0) {
-        return;
-    }
     std::vector<std::pair<const int*, int>> lockCPUIndexes(mThreadNumber);
-    switch (mPower) {
-        case BackendConfig::Power_Low:
-            for (int v=0; v<mThreadNumber; ++v) {
-                lockCPUIndexes[v] = std::make_pair(cpuInfo->groups[0].ids.data(), cpuInfo->groups[0].ids.size());
-            }
-            break;
-        case BackendConfig::Power_High:
-        {
-            int selectCPUSize = 0;
-            int groupIndex = cpuInfo->groups.size() - 1;
-            while (selectCPUSize < mThreadNumber && groupIndex >= 0) {
-                auto& group = cpuInfo->groups[groupIndex];
-                int size = ALIMIN(group.ids.size(), mThreadNumber - selectCPUSize);
-                for (int v=0; v<size; ++v) {
-                    lockCPUIndexes[v + selectCPUSize] = std::make_pair(group.ids.data(), group.ids.size());
-                }
-                groupIndex--;
-                selectCPUSize += group.ids.size();
-            }
-        }
-            break;
-        default:
-            break;
+    for (int v=0; v<mThreadNumber; ++v) {
+        lockCPUIndexes[v] = std::make_pair(mCpuIds.data(), mCpuIds.size());
     }
-        // Set CPU Affinity
+    // Set CPU Affinity
 #ifdef _OPENMP
     auto threadsNumber = mThreadNumber;
     std::vector<int> result(threadsNumber, 0);
@@ -126,30 +102,29 @@ void CPURuntime::_bindCPUCore() const {
     }
 #endif
 #ifdef MNN_USE_THREAD_POOL
-    ThreadPool::active(mThreadNumber);
-    ThreadPool::enqueue(std::make_pair([&](int i) {
-        MNNSetSchedAffinity(lockCPUIndexes[i].first, lockCPUIndexes[i].second);
-        return 0;
-    }, mThreadNumber), mTaskIndex, mThreadNumber);
-    ThreadPool::deactive(mThreadNumber);
+    if(mThreadPool) {
+        mThreadPool->active();
+        mThreadPool->enqueue(std::make_pair([&](int i) {
+            MNNSetSchedAffinity(lockCPUIndexes[i].first, lockCPUIndexes[i].second);
+            return 0;
+        }, mThreadNumber), mTaskIndex);
+        mThreadPool->deactive();
+    }
 #endif
 }
 
-void CPURuntime::_resetThreadPool() {
+void CPURuntime::_resetThreadPool() const{
     mThreadNumber = std::max(1, mThreadNumber);
     mThreadNumber = std::min(mThreadNumber, MAX_THREAD_NUMBER);
 #ifdef MNN_USE_THREAD_POOL
-    ThreadPool::releaseWorkIndex(mTaskIndex);
-    auto cpuInfo = MNNGetCPUInfo();
-    if (mThreadNumber > 1) {
-        int systemThreadNumber = (int)cpuInfo->cpuNumber;
-        if (systemThreadNumber == 0) {
-            systemThreadNumber = mThreadNumber;
-        }
-        mThreadNumber = ALIMIN(ThreadPool::init(systemThreadNumber), mThreadNumber);
+    if (mThreadPool) {
+        mThreadPool->releaseWorkIndex(mTaskIndex);
     }
     if (mThreadNumber > 1) {
-        mTaskIndex = ThreadPool::acquireWorkIndex();
+        mThreadNumber = ALIMIN(ThreadPool::init(mThreadNumber, mCpuMask, mThreadPool), mThreadNumber);
+        if (mThreadPool) {
+            mTaskIndex = mThreadPool->acquireWorkIndex();
+        }
         if (-1 == mTaskIndex) {
             MNN_ERROR("The ThreadPool has been used to MNN_THREAD_POOL_MAX_TASKS, can't use thread pool\n");
             mThreadNumber = 1;
@@ -161,6 +136,86 @@ void CPURuntime::_resetThreadPool() {
     // Reset tid to rebind cpu if necessary
     mCurrentTID = 0;
 }
+void CPURuntime::_validateCpuIds() const{
+    bool valid = true;
+
+    do {
+        if (mCpuIds.empty()) {
+            valid = false;
+            break;
+        }
+
+        auto cpuInfo = MNNGetCPUInfo();
+        if (cpuInfo->groups.empty()) {
+            valid = false;
+            break;
+        }
+
+        std::unordered_map<int, bool> cpuLittleMap;
+        for (auto id : cpuInfo->groups[0].ids) {
+            cpuLittleMap[id] = true;
+        }
+        for (size_t i = 1; i < cpuInfo->groups.size(); i++) {
+            for (auto id : cpuInfo->groups[i].ids) {
+                cpuLittleMap[id] = false;
+            }
+        }
+
+        if (cpuLittleMap.find(mCpuIds[0]) == cpuLittleMap.end()) {
+            MNN_ERROR("CPU ID %d is not valid. CpuIds will not be used.\n", mCpuIds[0]);
+            valid = false;
+            break;
+        }
+
+        auto cpuLittle = cpuLittleMap[mCpuIds[0]];
+        for (size_t i = 1; i < mCpuIds.size(); i++) {
+            if (cpuLittleMap.find(mCpuIds[i]) == cpuLittleMap.end()) {
+                MNN_ERROR("CPU ID %d is not valid. CpuIds will not be used.\n", mCpuIds[i]);
+                valid = false;
+                break;
+            }
+            // Using the same group of CPU cores helps maximize multi thread performance.
+            // Mixing little cores with others can lead to significant performance degradation, so it is strictly prohibited.
+            // Even on architectures with more than two clusters, when little cores are not involved,
+            // it's still strongly recommended to avoid cross-cluster usage between different big core groups.
+            if (cpuLittleMap[mCpuIds[i]] != cpuLittle) {
+                MNN_ERROR("CPU ID %d and %d are not from the same group. CpuIds will not be used.\n", mCpuIds[0], mCpuIds[i]);
+                valid = false;
+                break;
+            }
+        }
+
+    } while (false);
+
+    if(!valid) {
+        mCpuIds.clear();
+    }
+
+    if(mCpuIds.empty()) {
+        auto cpuInfo = MNNGetCPUInfo();
+        if (cpuInfo->groups.size() == 0) {
+            return;
+        }
+        switch (mPower) {
+            case BackendConfig::Power_Low:
+                    mCpuIds = cpuInfo->groups[0].ids;
+                break;
+            case BackendConfig::Power_High: {
+                int selectCPUSize = 0;
+                int groupIndex = cpuInfo->groups.size() - 1;
+                while (selectCPUSize < mThreadNumber && groupIndex >= 0) {
+                    auto& group = cpuInfo->groups[groupIndex];
+                    mCpuIds.insert(mCpuIds.end(), group.ids.begin(), group.ids.end());
+                    groupIndex--;
+                    selectCPUSize += group.ids.size();
+                }
+            }
+                break;
+            default:
+                break;
+        }
+    }
+}
 void CPURuntime::onReset(int numberThread, const BackendConfig* config, bool full) {
     if (config != nullptr) {
         mPower = config->power;
@@ -171,6 +226,9 @@ void CPURuntime::onReset(int numberThread, const BackendConfig* config, bool ful
         }
     }
     mThreadNumber = numberThread;
+    mCpuIds = hint().cpuIds;
+    _validateCpuIds();
+    mCpuMask = MNNGetCPUMask(mCpuIds);
     _resetThreadPool();
 }
 
@@ -185,13 +243,13 @@ CPURuntime::CPURuntime(const Backend::Info& info) {
     mPower   = BackendConfig::Power_Normal;
     mMemory  = BackendConfig::Memory_Normal;
     mPrecision = BackendConfig::Precision_Normal;
+    mCpuIds.clear();
     if (info.user != nullptr) {
         mPrecision = info.user->precision;
         mPower = info.user->power;
         mMemory = info.user->memory;
         mFlags = info.user->flags;
     }
-    _resetThreadPool();
 #ifdef LOG_VERBOSE
     MNN_PRINT("create CPURuntime:%p\n", this);
 #endif
@@ -199,7 +257,9 @@ CPURuntime::CPURuntime(const Backend::Info& info) {
 
 CPURuntime:: ~ CPURuntime() {
 #ifdef MNN_USE_THREAD_POOL
-    ThreadPool::releaseWorkIndex(mTaskIndex);
+    if(mThreadPool) {
+        mThreadPool->releaseWorkIndex(mTaskIndex);
+    }
 #endif
 }
 float CPURuntime::onGetMemoryInMB() {
@@ -222,6 +282,12 @@ SingleBufferWithAllocator* CPURuntime::buffer(int index) const {
 }
 
 Backend* CPURuntime::onCreate(const BackendConfig* config, Backend* origin) const {
+    {
+        mCpuIds = hint().cpuIds;
+        _validateCpuIds();
+        mCpuMask = MNNGetCPUMask(mCpuIds);
+        _resetThreadPool();
+    }
     if (hint().midMemoryPath.size() > 0) {
         if (mDynamicMmap.empty()) {
             // Only support set featuremap dir once
@@ -270,25 +336,24 @@ Backend* CPURuntime::onCreate(const BackendConfig* config, Backend* origin) cons
     MNN_PRINT("cpu backend was created by runtime:%p\n", this);
 #endif
     CPUBackend* res = nullptr;
-    auto initThreadNumber = hint().initThreadNumber;
     do {
 #ifdef MNN_USE_ARMV82
         auto core = MNNGetCoreFunctions();
         if (core->supportFp16arith && precision == BackendConfig::Precision_Low) {
-            res = new Arm82Backend(this, memory, initThreadNumber);
+            res = new Arm82Backend(this, memory);
             break;
         }
 #endif
 #ifdef MNN_SUPPORT_BF16
         if (precision == BackendConfig::Precision_Low_BF16 && BF16Functions::get()) {
-            res = new CPUBackend(this, precision, memory, MNN_FORWARD_CPU_EXTENSION, 0, initThreadNumber);
+            res = new CPUBackend(this, precision, memory, MNN_FORWARD_CPU_EXTENSION);
             res->mCoreFunctions = BF16Functions::get();
             break;
         }
 #endif
         if (flags == MNN_CPU_USE_DEFAULT_BACKEND) {
             // Default don't use multi-thread init
-            res = new CPUBackend(this, precision, memory, MNN_FORWARD_CPU, 0, 0);
+            res = new CPUBackend(this, precision, memory, MNN_FORWARD_CPU, 0);
             break;
         }
 #ifdef MNN_USE_SSE
@@ -297,7 +362,7 @@ Backend* CPURuntime::onCreate(const BackendConfig* config, Backend* origin) cons
             break;
         }
 #endif
-        res = new CPUBackend(this, precision, memory, MNN_FORWARD_CPU, flags, initThreadNumber);
+        res = new CPUBackend(this, precision, memory, MNN_FORWARD_CPU, flags);
     } while (false);
     mSharedDmaInfo = nullptr;
     return res;
@@ -338,9 +403,9 @@ void CPURuntime::onGabageCollect(int level) {
 void CPURuntime::onConcurrencyBegin() const {
 #ifdef MNN_USE_THREAD_POOL
     if (mTaskIndex >= 0) {
-        if (mThreadOpen == 0) {
+        if (mThreadOpen == 0 && mThreadPool) {
             // mThreadOpen 0 -> 1, open ThreadPool
-            ThreadPool::active(mThreadNumber);
+            mThreadPool->active();
         }
         mThreadOpen++;
     }
@@ -359,8 +424,8 @@ void CPURuntime::onConcurrencyEnd() const {
         MNN_ASSERT(mThreadOpen > 0);
         mThreadOpen--;
         mThreadOpen = mThreadOpen < 0 ? 0 : mThreadOpen;
-        if (0 == mThreadOpen) {
-            ThreadPool::deactive(mThreadNumber);
+        if (0 == mThreadOpen && mThreadPool) {
+            mThreadPool->deactive();
         }
     }
 #endif
@@ -389,13 +454,16 @@ BufferAllocator* CPURuntime::createDynamicBufferAlloctor(int index) const {
     }
     return new EagerBufferAllocator(BufferAllocator::Allocator::createRecurse(mStaticAllocator.get()));
 }
-CPUBackend::CPUBackend(const CPURuntime* runtime, BackendConfig::PrecisionMode precision, BackendConfig::MemoryMode memory, MNNForwardType type, size_t flags, int initThreadNumber) : Backend(type) {
+CPUBackend::CPUBackend(const CPURuntime* runtime, BackendConfig::PrecisionMode precision, BackendConfig::MemoryMode memory, MNNForwardType type, size_t flags) : Backend(type) {
 #ifdef LOG_VERBOSE
     MNN_PRINT("cpu backend create\n");
 #endif
     mMemory = memory;
     mRuntime = const_cast<CPURuntime*>(runtime);
     mThreadNumber = mRuntime->mThreadNumber;
+#ifdef MNN_USE_THREAD_POOL
+    mThreadPool = mRuntime->mThreadPool;
+#endif
     // Compute Group Rate
     do {
         if (mThreadNumber <= 1 || mRuntime->mPower == BackendConfig::Power_Low) {
@@ -452,13 +520,6 @@ CPUBackend::CPUBackend(const CPURuntime* runtime, BackendConfig::PrecisionMode p
         mCacheGroup[i].reset(new CPUResizeCache);
     }
     mCache = mCacheGroup[0].get();
-#if 0
-#ifndef MNN_FORBIT_MULTI_THREADS
-    if (initThreadNumber > 0) {
-        mInitWorkQueue.reset(new WorkerThread(initThreadNumber));
-    }
-#endif
-#endif
 }
 
 CPUBackend::~CPUBackend() {

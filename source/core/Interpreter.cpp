@@ -140,22 +140,26 @@ Interpreter* Interpreter::createFromBufferInternal(Content* net, bool enforceAut
     return new Interpreter(net);
 }
 
-void Interpreter::setSessionHint(HintMode mode, int hint) {
-    mNet->modes.setHint(mode, hint);
+void Interpreter::setSessionHint(HintMode hint, int value) {
+    mNet->modes.setHint(hint, value);
+}
+
+void Interpreter::setSessionHint(HintMode hint, int* value, size_t size) {
+    mNet->modes.setHint(hint, value, size);
 }
 
 void Interpreter::setSessionMode(SessionMode mode) {
-    if (mode == Session_Resize_Check) {
-        for (auto& iter : mNet->sessions) {
-            iter->openResizeCheck();
-        }
-    } else if (mode == Session_Resize_Fix) {
-        for (auto& iter : mNet->sessions) {
-            iter->fixResizeCache();
-        }
-    } else {
-        mNet->modes.setMode(mode);
+  if (mode == Session_Resize_Check) {
+    for (auto& iter : mNet->sessions) {
+      iter->openResizeCheck();
     }
+  } else if (mode == Session_Resize_Fix) {
+    for (auto& iter : mNet->sessions) {
+      iter->fixResizeCache();
+    }
+  } else {
+    mNet->modes.setMode(mode);
+  }
 }
 
 void Interpreter::setCacheFile(const char* cacheFile, size_t keySize) {

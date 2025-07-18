@@ -8,41 +8,43 @@
 #ifdef MNN_USE_THREAD_POOL
 #include "backend/cpu/ThreadPool.hpp"
 #include <string.h>
+#include <unordered_map>
 #include <MNN/MNNDefine.h>
+#include "ThreadPool.hpp"
 
 #define MNN_THREAD_POOL_MAX_TASKS 2
 namespace MNN {
-ThreadPool* ThreadPool::gInstance = nullptr;
+static std::unordered_map<long int, ThreadPool*> gInstances;
 static std::mutex gInitMutex;
-int ThreadPool::init(int number) {
-    if (1 >= number) {
-        return 1;
+int ThreadPool::init(int numberThread, unsigned long cpuMask, ThreadPool*& threadPool) {
+    if (1 >= numberThread) {
+        numberThread = 1;
     }
     std::lock_guard<std::mutex> _l(gInitMutex);
-    if (nullptr != gInstance) {
-        if (gInstance->number() < number) {
-            return gInstance->number();
-        }
+
+    if (gInstances.find(cpuMask) == gInstances.end()){
+        gInstances[cpuMask] = new ThreadPool(numberThread);
     }
-    if (nullptr == gInstance) {
-        gInstance = new ThreadPool(number);
+    threadPool = gInstances[cpuMask];
+    if (gInstances[cpuMask]->numberThread() < numberThread){
+        return gInstances[cpuMask]->numberThread();
     }
-    return number;
+    return numberThread;
 }
+
 void ThreadPool::destroy() {
     std::lock_guard<std::mutex> _l(gInitMutex);
-    if (nullptr != gInstance) {
-        delete gInstance;
-        gInstance = nullptr;
+    for (auto i= gInstances.begin(); i != gInstances.end(); i++){
+        if (i->second){
+            delete i->second;
+        }
     }
+    gInstances.clear();
 }
 
 ThreadPool::ThreadPool(int numberThread) {
     mNumberThread = numberThread;
-    mActiveCount.resize(numberThread);
-    for (int i=0; i<numberThread; ++i) {
-        mActiveCount[i] = new std::atomic_int(0);
-    }
+    mActiveCount  = 0;
     mTaskAvailable.resize(MNN_THREAD_POOL_MAX_TASKS);
     mTasks.resize(MNN_THREAD_POOL_MAX_TASKS);
     for (int t = 0; t < mTasks.size(); ++t) {
@@ -55,7 +57,7 @@ ThreadPool::ThreadPool(int numberThread) {
         int threadIndex = i;
         mWorkers.emplace_back([this, threadIndex]() {
             while (!mStop) {
-                while (*mActiveCount[threadIndex] > 0) {
+                while (mActiveCount > 0) {
                     for (int i = 0; i < MNN_THREAD_POOL_MAX_TASKS; ++i) {
                         if (*mTasks[i].second[threadIndex]) {
                             mTasks[i].first.first(threadIndex);
@@ -65,7 +67,7 @@ ThreadPool::ThreadPool(int numberThread) {
                     std::this_thread::yield();
                 }
                 std::unique_lock<std::mutex> _l(mQueueMutex);
-                mCondition.wait(_l, [this, threadIndex] { return mStop || *mActiveCount[threadIndex] > 0; });
+                mCondition.wait(_l, [this] { return mStop || mActiveCount > 0; });
             }
         });
     }
@@ -85,82 +87,63 @@ ThreadPool::~ThreadPool() {
             delete c;
         }
     }
-    for (int i=0; i<mActiveCount.size(); ++i) {
-        delete mActiveCount[i];
-    }
 }
 
 int ThreadPool::acquireWorkIndex() {
-    if (nullptr == gInstance) {
-        return -1;
-    }
-    std::lock_guard<std::mutex> _l(gInstance->mQueueMutex);
+    std::lock_guard<std::mutex> _l(mQueueMutex);
     for (int i = 0; i < MNN_THREAD_POOL_MAX_TASKS; ++i) {
-        if (gInstance->mTaskAvailable[i]) {
-            gInstance->mTaskAvailable[i] = false;
+        if (mTaskAvailable[i]) {
+            mTaskAvailable[i] = false;
             return i;
         }
     }
     return -1;
 }
 void ThreadPool::releaseWorkIndex(int index) {
-    if (nullptr == gInstance) {
-        return;
-    }
     if (index < 0 || index >= MNN_THREAD_POOL_MAX_TASKS) {
         return;
     }
-    std::lock_guard<std::mutex> _l(gInstance->mQueueMutex);
-    gInstance->mTaskAvailable[index] = true;
+    std::lock_guard<std::mutex> _l(mQueueMutex);
+    mTaskAvailable[index] = true;
 }
 
-void ThreadPool::active(int threadNumber) {
-    if (nullptr == gInstance) {
-        return;
-    }
+void ThreadPool::active() {
     {
-        std::lock_guard<std::mutex> _l(gInstance->mQueueMutex);
-        for (int i=0; i<threadNumber; ++i) {
-            (*gInstance->mActiveCount[i])++;
-        }
+        std::lock_guard<std::mutex> _l(mQueueMutex);
+        mActiveCount++;
     }
-    gInstance->mCondition.notify_all();
+    mCondition.notify_all();
 }
-void ThreadPool::deactive(int threadNumber) {
-    if (nullptr == gInstance) {
-        return;
-    }
-    for (int i=0; i<threadNumber; ++i) {
-        (*gInstance->mActiveCount[i])--;
-    }
+void ThreadPool::deactive() {
+    mActiveCount--;
 }
 
-void ThreadPool::enqueue(TASK&& task, int index, int threadNumber) {
+void ThreadPool::enqueue(TASK&& task, int index) {
     if (1 >= task.second || 0 > index) {
         for (int i = 0; i < task.second; ++i) {
             task.first(i);
         }
         return;
     }
-    MNN_ASSERT(nullptr != gInstance);
-    gInstance->enqueueInternal(std::move(task), index, threadNumber);
+    enqueueInternal(std::move(task), index);
 }
-void ThreadPool::enqueueInternal(TASK&& task, int index, int threadNumber) {
-    if (threadNumber <= 1) {
+void ThreadPool::enqueueInternal(TASK&& task, int index) {
+    if (mActiveCount == 0) {
         for (int i = 0; i < task.second; ++i) {
             task.first(i);
         }
         return;
     }
     int workSize = task.second;
-    if (workSize > threadNumber) {
+    if (workSize > mNumberThread) {
         mTasks[index].first = std::make_pair(
-            [workSize, &task, threadNumber, this](int tId) {
-                for (int v = tId; v < workSize; v += threadNumber) {
+            [workSize, &task, this](int tId) {
+                for (int v = tId; v < workSize; v += mNumberThread) {
                     task.first(v);
                 }
-            },threadNumber);
-        workSize = threadNumber;
+            },
+            mNumberThread);
+        workSize = mNumberThread;
     } else {
         mTasks[index].first = std::move(task);
     }
