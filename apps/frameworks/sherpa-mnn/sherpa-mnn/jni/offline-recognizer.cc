@@ -51,7 +51,7 @@ static OfflineRecognizerConfig GetOfflineConfig(JNIEnv *env, jobject config) {
 
   //---------- feat config ----------
   fid = env->GetFieldID(cls, "featConfig",
-                        "Lcom/k2fsa/sherpa/onnx/FeatureConfig;");
+                        "Lcom/k2fsa/sherpa/mnn/FeatureConfig;");
   jobject feat_config = env->GetObjectField(config, fid);
   jclass feat_config_cls = env->GetObjectClass(feat_config);
 
@@ -63,7 +63,7 @@ static OfflineRecognizerConfig GetOfflineConfig(JNIEnv *env, jobject config) {
 
   //---------- model config ----------
   fid = env->GetFieldID(cls, "modelConfig",
-                        "Lcom/k2fsa/sherpa/onnx/OfflineModelConfig;");
+                        "Lcom/k2fsa/sherpa/mnn/OfflineModelConfig;");
   jobject model_config = env->GetObjectField(config, fid);
   jclass model_config_cls = env->GetObjectClass(model_config);
 
@@ -105,7 +105,7 @@ static OfflineRecognizerConfig GetOfflineConfig(JNIEnv *env, jobject config) {
 
   // transducer
   fid = env->GetFieldID(model_config_cls, "transducer",
-                        "Lcom/k2fsa/sherpa/onnx/OfflineTransducerModelConfig;");
+                        "Lcom/k2fsa/sherpa/mnn/OfflineTransducerModelConfig;");
   jobject transducer_config = env->GetObjectField(model_config, fid);
   jclass transducer_config_cls = env->GetObjectClass(transducer_config);
 
@@ -129,7 +129,7 @@ static OfflineRecognizerConfig GetOfflineConfig(JNIEnv *env, jobject config) {
 
   // paraformer
   fid = env->GetFieldID(model_config_cls, "paraformer",
-                        "Lcom/k2fsa/sherpa/onnx/OfflineParaformerModelConfig;");
+                        "Lcom/k2fsa/sherpa/mnn/OfflineParaformerModelConfig;");
   jobject paraformer_config = env->GetObjectField(model_config, fid);
   jclass paraformer_config_cls = env->GetObjectClass(paraformer_config);
 
@@ -142,7 +142,7 @@ static OfflineRecognizerConfig GetOfflineConfig(JNIEnv *env, jobject config) {
 
   // whisper
   fid = env->GetFieldID(model_config_cls, "whisper",
-                        "Lcom/k2fsa/sherpa/onnx/OfflineWhisperModelConfig;");
+                        "Lcom/k2fsa/sherpa/mnn/OfflineWhisperModelConfig;");
   jobject whisper_config = env->GetObjectField(model_config, fid);
   jclass whisper_config_cls = env->GetObjectClass(whisper_config);
 
@@ -176,7 +176,7 @@ static OfflineRecognizerConfig GetOfflineConfig(JNIEnv *env, jobject config) {
 
   // FireRedAsr
   fid = env->GetFieldID(model_config_cls, "fireRedAsr",
-                        "Lcom/k2fsa/sherpa/onnx/OfflineFireRedAsrModelConfig;");
+                        "Lcom/k2fsa/sherpa/mnn/OfflineFireRedAsrModelConfig;");
   jobject fire_red_asr_config = env->GetObjectField(model_config, fid);
   jclass fire_red_asr_config_cls = env->GetObjectClass(fire_red_asr_config);
 
@@ -196,7 +196,7 @@ static OfflineRecognizerConfig GetOfflineConfig(JNIEnv *env, jobject config) {
 
   // moonshine
   fid = env->GetFieldID(model_config_cls, "moonshine",
-                        "Lcom/k2fsa/sherpa/onnx/OfflineMoonshineModelConfig;");
+                        "Lcom/k2fsa/sherpa/mnn/OfflineMoonshineModelConfig;");
   jobject moonshine_config = env->GetObjectField(model_config, fid);
   jclass moonshine_config_cls = env->GetObjectClass(moonshine_config);
 
@@ -229,7 +229,7 @@ static OfflineRecognizerConfig GetOfflineConfig(JNIEnv *env, jobject config) {
 
   // sense voice
   fid = env->GetFieldID(model_config_cls, "senseVoice",
-                        "Lcom/k2fsa/sherpa/onnx/OfflineSenseVoiceModelConfig;");
+                        "Lcom/k2fsa/sherpa/mnn/OfflineSenseVoiceModelConfig;");
   jobject sense_voice_config = env->GetObjectField(model_config, fid);
   jclass sense_voice_config_cls = env->GetObjectClass(sense_voice_config);
 
@@ -254,7 +254,7 @@ static OfflineRecognizerConfig GetOfflineConfig(JNIEnv *env, jobject config) {
   // nemo
   fid = env->GetFieldID(
       model_config_cls, "nemo",
-      "Lcom/k2fsa/sherpa/onnx/OfflineNemoEncDecCtcModelConfig;");
+      "Lcom/k2fsa/sherpa/mnn/OfflineNemoEncDecCtcModelConfig;");
   jobject nemo_config = env->GetObjectField(model_config, fid);
   jclass nemo_config_cls = env->GetObjectClass(nemo_config);
 

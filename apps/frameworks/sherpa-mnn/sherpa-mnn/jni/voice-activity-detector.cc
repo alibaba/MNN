@@ -16,7 +16,7 @@ static VadModelConfig GetVadModelConfig(JNIEnv *env, jobject config) {
 
   // silero_vad
   fid = env->GetFieldID(cls, "sileroVadModelConfig",
-                        "Lcom/k2fsa/sherpa/onnx/SileroVadModelConfig;");
+                        "Lcom/k2fsa/sherpa/mnn/SileroVadModelConfig;");
   jobject silero_vad_config = env->GetObjectField(config, fid);
   jclass silero_vad_config_cls = env->GetObjectClass(silero_vad_config);
 

@@ -19,13 +19,13 @@ static OfflineSpeakerDiarizationConfig GetOfflineSpeakerDiarizationConfig(
   //---------- segmentation ----------
   fid = env->GetFieldID(
       cls, "segmentation",
-      "Lcom/k2fsa/sherpa/onnx/OfflineSpeakerSegmentationModelConfig;");
+      "Lcom/k2fsa/sherpa/mnn/OfflineSpeakerSegmentationModelConfig;");
   jobject segmentation_config = env->GetObjectField(config, fid);
   jclass segmentation_config_cls = env->GetObjectClass(segmentation_config);
 
   fid = env->GetFieldID(
       segmentation_config_cls, "pyannote",
-      "Lcom/k2fsa/sherpa/onnx/OfflineSpeakerSegmentationPyannoteModelConfig;");
+      "Lcom/k2fsa/sherpa/mnn/OfflineSpeakerSegmentationPyannoteModelConfig;");
   jobject pyannote_config = env->GetObjectField(segmentation_config, fid);
   jclass pyannote_config_cls = env->GetObjectClass(pyannote_config);
 
@@ -51,7 +51,7 @@ static OfflineSpeakerDiarizationConfig GetOfflineSpeakerDiarizationConfig(
   //---------- embedding ----------
   fid = env->GetFieldID(
       cls, "embedding",
-      "Lcom/k2fsa/sherpa/onnx/SpeakerEmbeddingExtractorConfig;");
+      "Lcom/k2fsa/sherpa/mnn/SpeakerEmbeddingExtractorConfig;");
   jobject embedding_config = env->GetObjectField(config, fid);
   jclass embedding_config_cls = env->GetObjectClass(embedding_config);
 
@@ -75,7 +75,7 @@ static OfflineSpeakerDiarizationConfig GetOfflineSpeakerDiarizationConfig(
 
   //---------- clustering ----------
   fid = env->GetFieldID(cls, "clustering",
-                        "Lcom/k2fsa/sherpa/onnx/FastClusteringConfig;");
+                        "Lcom/k2fsa/sherpa/mnn/FastClusteringConfig;");
   jobject clustering_config = env->GetObjectField(config, fid);
   jclass clustering_config_cls = env->GetObjectClass(clustering_config);
 
@@ -162,7 +162,7 @@ static jobjectArray ProcessImpl(
     const std::vector<sherpa_mnn::OfflineSpeakerDiarizationSegment>
         &segments) {
   jclass cls =
-      env->FindClass("com/k2fsa/sherpa/onnx/OfflineSpeakerDiarizationSegment");
+      env->FindClass("com/k2fsa/sherpa/mnn/OfflineSpeakerDiarizationSegment");
 
   jobjectArray obj_arr =
       (jobjectArray)env->NewObjectArray(segments.size(), cls, nullptr);
