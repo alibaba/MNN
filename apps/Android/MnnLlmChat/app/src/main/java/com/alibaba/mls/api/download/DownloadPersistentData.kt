@@ -17,6 +17,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.alibaba.mls.api.hf.HfFileMetadata
+import java.io.File
 
 // Single DataStore instance for all download data
 private val Context.downloadDataStore: DataStore<Preferences> by preferencesDataStore(name = "download_data")
@@ -124,6 +125,9 @@ object DownloadPersistentData {
         val oldModelIdKey = getLastFileName(modelId)
         val sharedPreferences = context.getSharedPreferences("DOWNLOAD_$oldModelIdKey", Context.MODE_PRIVATE)
         sharedPreferences.edit().remove(SIZE_SAVED_KEY).apply()
+        
+        // Check if SharedPreferences file is empty and delete if so
+        deleteSharedPrefsFileIfEmpty(context, "DOWNLOAD_$oldModelIdKey")
     }
     
     fun saveMetaData(context: Context, modelId: String, metaData: Map<String, HfFileMetadata>) {
@@ -167,6 +171,24 @@ object DownloadPersistentData {
     }
     
     // Private migration helpers
+    private fun deleteSharedPrefsFileIfEmpty(context: Context, preferencesName: String) {
+        val sharedPrefs = context.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
+        val allKeys = sharedPrefs.all
+        
+        // If SharedPreferences contains no keys, delete the file
+        if (allKeys.isEmpty()) {
+            try {
+                // Get the SharedPreferences file path and delete it
+                val prefsDir = File(context.applicationInfo.dataDir, "shared_prefs")
+                val prefsFile = File(prefsDir, "$preferencesName.xml")
+                if (prefsFile.exists()) {
+                    prefsFile.delete()
+                }
+            } catch (e: Exception) {
+                // Ignore errors during file deletion
+            }
+        }
+    }
     private suspend fun migrateFromSharedPrefsTotal(
         context: Context, 
         modelId: String, 
@@ -185,6 +207,9 @@ object DownloadPersistentData {
             
             // Remove from SharedPreferences after successful migration
             sharedPreferences.edit().remove(SIZE_TOTAL_KEY).apply()
+            
+            // Check if SharedPreferences file is empty and delete if so
+            deleteSharedPrefsFileIfEmpty(context, "DOWNLOAD_$oldModelIdKey")
             
             return sharedPrefValue
         }
@@ -209,6 +234,9 @@ object DownloadPersistentData {
             
             // Remove from SharedPreferences after successful migration
             sharedPreferences.edit().remove(SIZE_SAVED_KEY).apply()
+            
+            // Check if SharedPreferences file is empty and delete if so
+            deleteSharedPrefsFileIfEmpty(context, "DOWNLOAD_$modelId")
             
             return sharedPrefValue
         }
@@ -235,6 +263,9 @@ object DownloadPersistentData {
                 
                 // Remove from SharedPreferences after successful migration
                 sharedPreferences.edit().remove(METADATA_KEY).apply()
+                
+                // Check if SharedPreferences file is empty and delete if so
+                deleteSharedPrefsFileIfEmpty(context, "DOWNLOAD_$oldModelIdKey")
                 
                 // Parse and return the data
                 val type = object : TypeToken<Map<String, HfFileMetadata>>() {}.type
