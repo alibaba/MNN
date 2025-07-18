@@ -69,6 +69,10 @@ class LoggingDownloadListener : DownloadListener {
     override fun onDownloadTotalSize(modelId: String, totalSize: Long) {
         Log.d(ModelDownloadManager.TAG, "onDownloadTotalSize: $modelId, totalSize: $totalSize")
     }
+
+    override fun onDownloadHasUpdate(modelId: String, downloadInfo: DownloadInfo) {
+        Log.d(ModelDownloadManager.TAG, "modelId:$modelId onDownloadTotalSize: $modelId, uploadTime: ${downloadInfo.uploadTime} downloadTime: ${downloadInfo.downloadTime}")
+    }
 }
 
 class ModelDownloadManager private constructor(context: Context) {
@@ -83,6 +87,7 @@ class ModelDownloadManager private constructor(context: Context) {
         Intent(appContext, DownloadForegroundService::class.java)
     private val activeDownloadCount =
         AtomicInteger(0)
+    private val checkedForUpdateModelIds = ConcurrentHashMap<String, Boolean>()
 
     private var foregroundServiceStarted = false
     private var disableForegroundService  = false
@@ -107,6 +112,14 @@ class ModelDownloadManager private constructor(context: Context) {
 
             override fun onDownloadFileFinished(modelId: String, absolutePath: String) {
                 setDownloadFinished(modelId, absolutePath)
+            }
+
+            override fun onDownloadHasUpdate(
+                modelId: String,
+                lastDownloadTime: Long,
+                lastUpdateTime: Long
+            ) {
+                downloadHasUpdate(modelId, lastDownloadTime, lastUpdateTime)
             }
 
             override fun onDownloadingProgress(
@@ -256,6 +269,10 @@ class ModelDownloadManager private constructor(context: Context) {
                 downloadInfo.downloadState = DownloadState.COMPLETED
                 downloadInfo.progress = 1.0
                 downloadInfo.totalSize = getDownloadSizeTotal(ApplicationProvider.get(), modelId)
+                // Check for updates for completed models
+                MainScope().launch {
+                    getDownloaderForSource(source).checkUpdate(modelId)
+                }
             } else if (getDownloadSizeTotal(ApplicationProvider.get(), modelId) > 0) {
                 val totalSize = getDownloadSizeTotal(ApplicationProvider.get(), modelId)
                 val savedSize = getRealDownloadSize(modelId)
@@ -270,7 +287,19 @@ class ModelDownloadManager private constructor(context: Context) {
             }
             downloadInfoMap[modelId] = downloadInfo
         }
-        return downloadInfoMap[modelId]!!
+        
+        // Check if the model is currently being updated
+        val downloadInfo = downloadInfoMap[modelId]!!
+        if (downloadInfo.downloadState == DownloadState.COMPLETED && downloadInfo.hasUpdate) {
+            // If model is completed but has update available, check if update is in progress
+            val isUpdating = checkedForUpdateModelIds.containsKey(modelId) && 
+                           downloadInfo.uploadTime > downloadInfo.downloadTime
+            if (isUpdating) {
+                downloadInfo.downloadState = DownloadState.UPDATING
+            }
+        }
+        
+        return downloadInfo
     }
 
     /**
@@ -408,6 +437,37 @@ class ModelDownloadManager private constructor(context: Context) {
         }
     }
 
+    private fun downloadHasUpdate(modelId: String, lastDownloadTime: Long, lastUpdateTime: Long) {
+        val downloadInfo = getDownloadInfo(modelId)
+        downloadInfo.downloadTime = lastDownloadTime
+        downloadInfo.uploadTime = lastUpdateTime
+        downloadInfo.hasUpdate = true
+        
+        // Set updating state if update is in progress
+        if (checkedForUpdateModelIds.containsKey(modelId) && lastUpdateTime > lastDownloadTime) {
+            downloadInfo.downloadState = DownloadState.UPDATING
+        }
+        
+        listeners.forEach {
+            Log.d(TAG, "[downloadHasUpdate] Notifying listener: ${it.javaClass.simpleName}")
+            it.onDownloadHasUpdate(modelId, downloadInfo)
+        }
+    }
+
+    /**
+     * Set the updating state for a model
+     */
+    fun setModelUpdating(modelId: String, isUpdating: Boolean) {
+        val downloadInfo = downloadInfoMap[modelId] ?: return
+        if (isUpdating) {
+            downloadInfo.downloadState = DownloadState.UPDATING
+        } else if (downloadInfo.downloadState == DownloadState.UPDATING) {
+            // Reset to completed state if no longer updating
+            downloadInfo.downloadState = DownloadState.COMPLETED
+        }
+        Log.d(TAG, "setModelUpdating: $modelId, isUpdating: $isUpdating")
+    }
+
     private fun updateDownloadingProgress(
         modelId: String,
         stage: String,
@@ -454,6 +514,8 @@ class ModelDownloadManager private constructor(context: Context) {
         }
         val downloadInfo = getDownloadInfo(modelId)
         downloadInfo.downloadState = DownloadState.NOT_START
+        // Reset the checked status when model is deleted
+        checkedForUpdateModelIds.remove(modelId)
         listeners.forEach { it.onDownloadFileRemoved(modelId) }
     }
 
@@ -505,6 +567,29 @@ class ModelDownloadManager private constructor(context: Context) {
         if (!foregroundServiceStarted && activeDownloadCount.get() > 0) {
             startForegroundService()
         }
+    }
+
+    suspend fun checkForUpdate(modelId: String?) {
+        Log.d(TAG, "checkForUpdate: $modelId", Throwable())
+        modelId?.let {
+            if (!checkedForUpdateModelIds.containsKey(it)) {
+                checkedForUpdateModelIds[it] = true
+                // Set updating state when starting update check
+                setModelUpdating(modelId, true)
+                getDownloaderForSource(ModelUtils.getSource(modelId)!!).checkUpdate(modelId)
+            } else {
+                Log.d(TAG, "checkForUpdate: $modelId already checked, skipping")
+            }
+        }
+    }
+
+    /**
+     * Reset the checked status for a modelId to allow checking for updates again.
+     * This is useful for manual refresh scenarios or testing.
+     */
+    fun resetCheckedStatus(modelId: String) {
+        checkedForUpdateModelIds.remove(modelId)
+        Log.d(TAG, "resetCheckedStatus: $modelId")
     }
 
     companion object {

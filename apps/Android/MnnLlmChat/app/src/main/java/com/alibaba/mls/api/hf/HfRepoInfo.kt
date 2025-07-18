@@ -6,16 +6,13 @@ import com.alibaba.mls.api.source.ModelSources
 
 class HfRepoInfo {
     class SiblingItem {
-        @JvmField
         var rfilename: String? = null
     }
 
-    // Getters and Setters
-    @JvmField
     var modelId: String? = null
     var revision: String? = null
-    @JvmField
     var sha: String? = null
+    var lastModified:String?= null
     private val siblings: MutableList<SiblingItem> =
         ArrayList()
 

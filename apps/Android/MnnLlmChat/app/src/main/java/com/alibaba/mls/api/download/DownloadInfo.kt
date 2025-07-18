@@ -12,6 +12,9 @@ data class DownloadInfo(
     var lastLogTime: Long = 0,
     var lastProgressUpdateTime: Long = 0,
     var progressStage: String = "",
-    var currentFile: String? = null
+    var currentFile: String? = null,
+    var downloadTime: Long = 0L,
+    var uploadTime: Long = 0L,
+    var hasUpdate: Boolean = false
 )
 

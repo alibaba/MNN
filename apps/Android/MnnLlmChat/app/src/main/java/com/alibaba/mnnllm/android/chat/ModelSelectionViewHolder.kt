@@ -6,13 +6,14 @@ import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 import com.alibaba.mls.api.ModelItem
 import com.alibaba.mnnllm.android.R
-import com.alibaba.mnnllm.android.utils.ModelListManager
+import com.alibaba.mnnllm.android.modelist.ModelItemWrapper
+import com.alibaba.mnnllm.android.modelist.ModelListManager
 import com.alibaba.mnnllm.android.widgets.ModelAvatarView
 import com.alibaba.mnnllm.android.widgets.TagsLayout
 
 class ModelSelectionViewHolder(
     itemView: View,
-    private val onModelClicked: (ModelListManager.ModelItemWrapper) -> Unit
+    private val onModelClicked: (ModelItemWrapper) -> Unit
 ) : RecyclerView.ViewHolder(itemView) {
 
     private val modelAvatar: ModelAvatarView = itemView.findViewById(R.id.model_avatar)
@@ -20,7 +21,7 @@ class ModelSelectionViewHolder(
     private val tagsLayout: TagsLayout = itemView.findViewById(R.id.tags_layout)
     private val checkImageView: ImageView = itemView.findViewById(R.id.iv_check)
 
-    private var currentModelWrapper: ModelListManager.ModelItemWrapper? = null
+    private var currentModelWrapper: ModelItemWrapper? = null
 
     init {
         itemView.setOnClickListener {
@@ -28,7 +29,7 @@ class ModelSelectionViewHolder(
         }
     }
 
-    fun bind(modelWrapper: ModelListManager.ModelItemWrapper, isSelected: Boolean) {
+    fun bind(modelWrapper: ModelItemWrapper, isSelected: Boolean) {
         currentModelWrapper = modelWrapper
         val modelItem = modelWrapper.modelItem
         

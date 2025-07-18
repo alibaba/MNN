@@ -6,12 +6,16 @@
         android:orderInCategory="1"
         android:title="@string/settings" />
     <item
-        android:id="@+id/menu_delete_model"
+        android:id="@+id/menu_update_model"
         android:orderInCategory="2"
+        android:title="@string/update" />
+    <item
+        android:id="@+id/menu_delete_model"
+        android:orderInCategory="3"
         android:title="@string/delete_model" />
     <item
         android:id="@+id/menu_open_model_card"
-        android:orderInCategory="3"
+        android:orderInCategory="4"
         android:title="@string/open_model_card" />
     <item
         android:id="@+id/menu_show_model_info"

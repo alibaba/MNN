@@ -2,7 +2,6 @@
 // Copyright (c) 2024 Alibaba Group Holding Limited All rights reserved.
 package com.alibaba.mnnllm.android.modelist
 
-import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -12,14 +11,13 @@ import com.alibaba.mls.api.ModelItem
 import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.model.Modality
 import com.alibaba.mnnllm.android.model.ModelUtils
-import com.alibaba.mnnllm.android.utils.ModelListManager
 import kotlinx.coroutines.*
 import java.util.Locale
 
-class ModelListAdapter(private val items: MutableList<ModelListManager.ModelItemWrapper>) :
+class ModelListAdapter(private val items: MutableList<ModelItemWrapper>) :
     RecyclerView.Adapter<RecyclerView.ViewHolder>() {
     var initialized = false
-    private var filteredItems: List<ModelListManager.ModelItemWrapper> = items.toList()
+    private var filteredItems: List<ModelItemWrapper> = items.toList()
     private var modelListListener: ModelItemListener? = null
     
     // Use HashMap for O(1) lookups instead of iterating through all holders
@@ -72,6 +70,10 @@ class ModelListAdapter(private val items: MutableList<ModelListManager.ModelItem
             override fun onItemDeleted(modelItem: ModelItem) {
                 modelListListener?.onItemDeleted(modelItem)
             }
+            
+            override fun onItemUpdate(modelItem: ModelItem) {
+                modelListListener?.onItemUpdate(modelItem)
+            }
         }
         
         val holder = ModelItemHolder(view, wrappedListener)
@@ -103,7 +105,7 @@ class ModelListAdapter(private val items: MutableList<ModelListManager.ModelItem
     override fun onViewRecycled(holder: RecyclerView.ViewHolder) {
         super.onViewRecycled(holder)
         // Remove from map when view is recycled
-        val modelWrapper = holder.itemView.tag as? ModelListManager.ModelItemWrapper
+        val modelWrapper = holder.itemView.tag as? ModelItemWrapper
         modelWrapper?.modelItem?.modelId?.let { modelId ->
             modelItemHoldersMap.remove(modelId)
         }
@@ -113,8 +115,7 @@ class ModelListAdapter(private val items: MutableList<ModelListManager.ModelItem
         return getItems().size
     }
 
-    fun updateItems(modelWrappers: List<ModelListManager.ModelItemWrapper>) {
-        Log.d(TAG, "updateItems: ${modelWrappers.size}", Exception("updateItems"))
+    fun updateItems(modelWrappers: List<ModelItemWrapper>) {
         items.clear()
         items.addAll(modelWrappers)
         
@@ -143,7 +144,20 @@ class ModelListAdapter(private val items: MutableList<ModelListManager.ModelItem
         }
     }
 
-    private fun getItems(): List<ModelListManager.ModelItemWrapper> {
+    fun updateItemHasUpdate(modelId: String, hasUpdate: Boolean) {
+        // Find the item in the original items list and update it
+        for (i in items.indices) {
+            if (items[i].modelItem.modelId == modelId) {
+                items[i].hasUpdate = hasUpdate
+                break
+            }
+        }
+        
+        // Update the item in the view
+        updateItem(modelId)
+    }
+
+    private fun getItems(): List<ModelItemWrapper> {
         return filteredItems
     }
 
@@ -302,8 +316,8 @@ class ModelListAdapter(private val items: MutableList<ModelListManager.ModelItem
     
     // DiffUtil callback for efficient list updates
     private class ModelWrapperDiffCallback(
-        private val oldList: List<ModelListManager.ModelItemWrapper>,
-        private val newList: List<ModelListManager.ModelItemWrapper>
+        private val oldList: List<ModelItemWrapper>,
+        private val newList: List<ModelItemWrapper>
     ) : DiffUtil.Callback() {
         
         override fun getOldListSize(): Int = oldList.size

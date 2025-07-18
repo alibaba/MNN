@@ -1,4 +1,4 @@
-package com.alibaba.mnnllm.android.utils
+package com.alibaba.mnnllm.android.modelist
 
 import android.content.Context
 import android.util.Log
@@ -12,38 +12,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.nio.file.Files
-import com.alibaba.mnnllm.android.modelsettings.ModelConfig
-import com.alibaba.mnnllm.android.modelmarket.ModelMarketItem
 import com.alibaba.mnnllm.android.modelmarket.ModelMarketUtils
-import com.google.gson.Gson
+import com.alibaba.mnnllm.android.utils.FileUtils
+import com.alibaba.mnnllm.android.utils.PreferenceUtils
 
 object ModelListManager {
     private const val TAG = "ModelListManager"
-
-    /**
-     * Wrapper class that combines ModelItem with DownloadedModelInfo and download size
-     */
-    data class ModelItemWrapper(
-        val modelItem: ModelItem,
-        val downloadedModelInfo: ChatDataManager.DownloadedModelInfo? = null,
-        val downloadSize: Long = 0,
-        var isPinned: Boolean = false
-    ) {
-        val displayName: String
-            get() = modelItem.modelName ?: ""
-            
-        val isLocal: Boolean
-            get() = modelItem.isLocal
-            
-        val lastChatTime: Long
-            get() = downloadedModelInfo?.lastChatTime ?: 0
-            
-        val downloadTime: Long
-            get() = downloadedModelInfo?.downloadTime ?: 0
-            
-        val formattedSize: String
-            get() = if (downloadSize > 0) FileUtils.formatFileSize(downloadSize) else ""
-    }
 
     /**
      * Load all available models (downloaded + local) wrapped with their info
@@ -63,7 +37,7 @@ object ModelListManager {
             } else {
                 Log.d(TAG, "loadAvailableModels: .mnnmodels directory not found")
             }
-
+            Log.d(TAG, "loadAvailableModels scanModelsDirectory finished")
             // Initialize tags cache for proper tag loading
             ModelTagsCache.initializeCache(context)
 
@@ -74,7 +48,7 @@ object ModelListManager {
                 val modelItem = ModelItem.fromDownloadModel(context, downloadedModel.modelId, downloadedModel.modelPath)
                 // Set market item data if available
                 modelItem.modelMarketItem = ModelMarketUtils.readMarketConfig(downloadedModel.modelId)
-                
+
                 // Calculate download size
                 val downloadSize = try {
                     val file = File(downloadedModel.modelPath)
@@ -85,14 +59,15 @@ object ModelListManager {
                 }
 
                 val isPinned = pinnedModels.contains(downloadedModel.modelId)
-
-                modelWrappers.add(ModelItemWrapper(
+                val modelItemWrapper = ModelItemWrapper(
                     modelItem = modelItem,
                     downloadedModelInfo = downloadedModel,
                     downloadSize = downloadSize,
                     isPinned = isPinned
-                ))
+                )
+                modelWrappers.add(modelItemWrapper)
             }
+            Log.d(TAG, "loadAvailableModels converted to wrapper format")
 
             // Add local models from ModelUtils.localModelList
             ModelUtils.localModelList.forEach { localModel ->
@@ -120,15 +95,17 @@ object ModelListManager {
 
                     val isPinned = pinnedModels.contains(localModel.modelId)
 
-                    modelWrappers.add(ModelItemWrapper(
+                    modelWrappers.add(
+                        ModelItemWrapper(
                         modelItem = localModel,
                         downloadedModelInfo = null, // Local models don't have download info
                         downloadSize = localSize,
                         isPinned = isPinned
-                    ))
+                    )
+                    )
                 }
             }
-
+            Log.d(TAG, "loadAvailableModels localModelList added")
             // Sort models: pinned as first priority, then recently used first, then by download time
             val sortedModels = modelWrappers.sortedWith(
                 compareByDescending<ModelItemWrapper> {
@@ -143,10 +120,8 @@ object ModelListManager {
                     if (it.lastChatTime <= 0) it.downloadTime else 0L
                 }
             )
-
-            Log.d(TAG, "loadAvailableModels: Found ${sortedModels.size} total models")
+            Log.d(TAG, "loadAvailableModels sort complte: Found ${sortedModels.size} total models")
             return@withContext sortedModels
-
         } catch (e: Exception) {
             Log.e(TAG, "Error loading available models", e)
             return@withContext emptyList()

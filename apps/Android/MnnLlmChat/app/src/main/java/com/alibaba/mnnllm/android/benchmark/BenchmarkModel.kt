@@ -2,7 +2,8 @@ package com.alibaba.mnnllm.android.benchmark
 
 import android.content.Context
 import android.util.Log
-import com.alibaba.mnnllm.android.utils.ModelListManager
+import com.alibaba.mnnllm.android.modelist.ModelItemWrapper
+import com.alibaba.mnnllm.android.modelist.ModelListManager
 import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.math.sqrt
@@ -21,7 +22,7 @@ class BenchmarkModel {
     private val testResults = mutableListOf<TestInstance>()
     
     interface LoadModelsCallback {
-        fun onSuccess(models: List<ModelListManager.ModelItemWrapper>)
+        fun onSuccess(models: List<ModelItemWrapper>)
         fun onError(error: String)
     }
 
@@ -34,7 +35,7 @@ class BenchmarkModel {
     /**
      * Load available models from ModelListManager
      */
-    suspend fun loadAvailableModels(context: Context): List<ModelListManager.ModelItemWrapper> {
+    suspend fun loadAvailableModels(context: Context): List<ModelItemWrapper> {
         return try {
             ModelListManager.loadAvailableModels(context)
         } catch (e: Exception) {
@@ -48,7 +49,7 @@ class BenchmarkModel {
      */
     fun startBenchmark(
         context: Context,
-        modelWrapper: ModelListManager.ModelItemWrapper,
+        modelWrapper: ModelItemWrapper,
         callback: BenchmarkModelCallback
     ) {
         val selectedModelId = modelWrapper.modelItem.modelId

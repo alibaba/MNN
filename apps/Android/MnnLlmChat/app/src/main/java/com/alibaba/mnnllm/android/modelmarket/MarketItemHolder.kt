@@ -158,17 +158,25 @@ class MarketItemHolder(
                         }
                         tvStatus.text = voiceDelegate.getVoiceModelStatusText(downloadInfo, modelMarketItem.modelId, isDefault, voiceType)
                     } else {
-                        // Handle regular model - show chat button
+                        // Handle regular model - show chat button or update button
                         btnDownloadAction.visibility = View.VISIBLE
                         voiceDelegate.hideCheckbox()
-                        btnDownloadAction.text = btnDownloadAction.resources.getString(R.string.chat_action)
+                        if (downloadInfo.hasUpdate) {
+                            btnDownloadAction.text = btnDownloadAction.resources.getString(R.string.update)
+                        } else {
+                            btnDownloadAction.text = btnDownloadAction.resources.getString(R.string.chat_action)
+                        }
                         setButtonStyle()
                         updateStatusText(downloadInfo)
                     }
                 } else {
                     btnDownloadAction.visibility = View.VISIBLE
                     voiceDelegate.hideCheckbox()
-                    btnDownloadAction.text = btnDownloadAction.resources.getString(R.string.chat_action)
+                    if (downloadInfo.hasUpdate) {
+                        btnDownloadAction.text = btnDownloadAction.resources.getString(R.string.update)
+                    } else {
+                        btnDownloadAction.text = btnDownloadAction.resources.getString(R.string.chat_action)
+                    }
                     setButtonStyle()
                     updateStatusText(downloadInfo)
                 }
@@ -209,10 +217,17 @@ class MarketItemHolder(
             }
             
             DownloadState.COMPLETED -> {
-                tvStatus.resources.getString(
-                    R.string.downloaded_click_to_chat,
-                    FileUtils.formatFileSize(downloadInfo.totalSize)
-                )
+                if (downloadInfo.hasUpdate) {
+                    tvStatus.resources.getString(
+                        R.string.downloaded_update_available,
+                        FileUtils.formatFileSize(downloadInfo.totalSize)
+                    )
+                } else {
+                    tvStatus.resources.getString(
+                        R.string.downloaded_click_to_chat,
+                        FileUtils.formatFileSize(downloadInfo.totalSize)
+                    )
+                }
             }
             
             DownloadState.FAILED -> {
@@ -259,6 +274,13 @@ class MarketItemHolder(
                 checkbox.isChecked = newCheckedState
                 return
             }
+        }
+
+        // Handle update action for completed models with updates
+        if (modelMarketItemWrapper.downloadInfo.downloadState == DownloadState.COMPLETED && 
+            modelMarketItemWrapper.downloadInfo.hasUpdate) {
+            modelMarketItemListener.onUpdateClicked(modelMarketItemWrapper)
+            return
         }
 
         // Open model card in a BottomSheetDialog with WebView
@@ -327,6 +349,9 @@ class MarketItemHolder(
                 R.id.menu_start_download -> {
                     modelMarketItemListener.onDownloadOrResumeClicked(modelMarketItemWrapper)
                 }
+                R.id.menu_update_model -> {
+                    modelMarketItemListener.onUpdateClicked(modelMarketItemWrapper)
+                }
                 R.id.menu_settings -> {
                     handleSettingsMenu(modelMarketItem)
                 }
@@ -340,6 +365,7 @@ class MarketItemHolder(
 
     private fun configureMenuVisibility(popupMenu: PopupMenu, downloadState: Int) {
         val menu = popupMenu.menu
+        val downloadInfo = modelMarketItemWrapper?.downloadInfo
         
         // Delete option: visible for completed, paused, or failed downloads
         menu.findItem(R.id.menu_delete_model).isVisible = 
@@ -352,6 +378,11 @@ class MarketItemHolder(
         // Start/Resume option: visible for not started, paused, or failed downloads
         menu.findItem(R.id.menu_start_download).isVisible = 
             downloadState in listOf(DownloadState.PAUSED, DownloadState.NOT_START, DownloadState.FAILED)
+        
+        // Update option: visible for completed downloads with updates
+        menu.findItem(R.id.menu_update_model)?.let { updateItem ->
+            updateItem.isVisible = downloadState == DownloadState.COMPLETED && downloadInfo?.hasUpdate == true
+        }
         
         // Settings option: visible only for completed downloads
         menu.findItem(R.id.menu_settings).isVisible = 

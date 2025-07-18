@@ -44,11 +44,9 @@ import com.alibaba.mnnllm.android.widgets.ModelSwitcherView
 import com.alibaba.mnnllm.android.mainsettings.MainSettings
 import com.google.android.material.appbar.AppBarLayout
 import com.google.android.material.appbar.MaterialToolbar
-import com.techiness.progressdialoglibrary.ProgressDialog
 import com.alibaba.mnnllm.android.chat.SelectSourceFragment
 
 class MainActivity : AppCompatActivity(), MainFragmentManager.FragmentLifecycleListener {
-    private var progressDialog: ProgressDialog? = null
     private lateinit var drawerLayout: DrawerLayout
     private var toggle: ActionBarDrawerToggle? = null
     private lateinit var appBarLayout: AppBarLayout
@@ -56,8 +54,6 @@ class MainActivity : AppCompatActivity(), MainFragmentManager.FragmentLifecycleL
     private lateinit var mainTitleSwitcher: ModelSwitcherView
     private var toolbarHeightPx: Int = 0
     private var offsetChangedListener: AppBarLayout.OnOffsetChangedListener? = null
-    private var modelListFragment: ModelListFragment? = null
-    private var modelMarketFragment: ModelMarketFragment? = null
     private var chatHistoryFragment: ChatHistoryFragment? = null
     private var updateChecker: UpdateChecker? = null
     private lateinit var expandableFabLayout: View
@@ -86,14 +82,15 @@ class MainActivity : AppCompatActivity(), MainFragmentManager.FragmentLifecycleL
 
 
         override fun onPrepareMenu(menu: Menu) {
+            Log.d(TAG, "onPrepareMenu")
             super.onPrepareMenu(menu)
             val searchItem = menu.findItem(R.id.action_search)
             val reportCrashMenu = menu.findItem(R.id.action_report_crash)
             reportCrashMenu.isVisible = CrashUtil.hasCrash()
             
             // Show/hide search based on current fragment
-            searchItem.isVisible = when (currentFragment) {
-                modelListFragment, modelMarketFragment -> true
+            searchItem.isVisible = when (bottomNav.getSelectedTab()) {
+                BottomTabBar.Tab.LOCAL_MODELS, BottomTabBar.Tab.MODEL_MARKET -> true
                 else -> false
             }
         }

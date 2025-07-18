@@ -25,6 +25,9 @@ import com.alibaba.mls.api.download.ModelDownloadManager.Companion.TAG
 import com.alibaba.mls.api.download.ModelFileDownloader
 import com.alibaba.mls.api.download.ModelFileDownloader.FileDownloadListener
 import com.alibaba.mls.api.download.ModelRepoDownloader
+import com.alibaba.mnnllm.android.chat.model.ChatDataManager
+import com.alibaba.mnnllm.android.model.ModelUtils
+import com.alibaba.mnnllm.android.utils.TimeUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -70,7 +73,37 @@ class HfModelDownloader(override var callback: ModelRepoDownloadCallback?,
     }
 
     override suspend fun checkUpdate(modelId: String): Boolean {
-        return false
+        var result: Pair<Long, Long>
+        val hfModelId = hfModelId(modelId)
+        val split = hfModelId.split("/".toRegex()).dropLastWhile { it.isEmpty() }.toTypedArray()
+        if (split.size != 2) {
+            return false
+        }
+        result = withContext(Dispatchers.IO) {
+            runCatching {
+                val downloadTime = withContext(Dispatchers.Main) { ChatDataManager.getInstance(ApplicationProvider.get()).getDownloadTime(modelId) / 1000L}
+                val responseInfo = getHfApiClient().apiService.getRepoInfo(modelId, "main")
+                val response = kotlin.runCatching {responseInfo?.execute()}.getOrNull()
+                if (response?.isSuccessful != true || response.body() == null) {
+                    return@withContext Pair(0, 0)
+                }
+                val hfRepoInfo = response.body()!!
+                val lastCreated = TimeUtils.convertIsoToTimestamp(hfRepoInfo.lastModified)
+                return@withContext if (lastCreated != null) {
+                    Log.d(TAG, "lastCreated: $lastCreated downloadTime: $downloadTime")
+                    Pair(lastCreated, downloadTime)
+                } else {
+                    Pair(downloadTime, downloadTime)
+                }
+            }.getOrElse {
+                Log.e(TAG, "checkUpdate failed: ", it)
+                return@withContext Pair(0, 0)
+            }
+        }
+        if (result.first > result.second) {
+            callback?.onDownloadHasUpdate(modelId, result.second, result.first)
+        }
+        return result.first > result.second
     }
 
     fun downloadHfRepo(hfRepoInfo: HfRepoInfo) {

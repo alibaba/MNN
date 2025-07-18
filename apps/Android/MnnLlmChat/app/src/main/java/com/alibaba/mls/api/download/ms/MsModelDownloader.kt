@@ -3,6 +3,7 @@
 
 package com.alibaba.mls.api.download.ms
 import android.util.Log
+import com.alibaba.mls.api.ApplicationProvider
 import com.alibaba.mls.api.FileDownloadException
 import com.alibaba.mls.api.hf.HfFileMetadata
 import com.alibaba.mls.api.download.DownloadExecutor.Companion.executor
@@ -19,7 +20,9 @@ import com.alibaba.mls.api.download.ModelFileDownloader.FileDownloadListener
 import com.alibaba.mls.api.download.ModelRepoDownloader
 import com.alibaba.mls.api.ms.MsApiClient
 import com.alibaba.mls.api.ms.MsRepoInfo
+import com.alibaba.mnnllm.android.chat.model.ChatDataManager
 import com.alibaba.mnnllm.android.model.ModelUtils
+import com.alibaba.mnnllm.android.utils.TimeUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import retrofit2.Call
@@ -41,7 +44,24 @@ class MsModelDownloader(override var callback: ModelRepoDownloadCallback?,
     }
 
     override suspend fun checkUpdate(modelId: String): Boolean {
-        return false
+        val msModelId = ModelUtils.getRepositoryPath(modelId)
+        val split = msModelId.split("/".toRegex()).dropLastWhile { it.isEmpty() }.toTypedArray()
+        if (split.size != 2) {
+            return false
+        }
+        val createdTime = withContext(Dispatchers.IO) {
+            runCatching {
+                val msRepoInfo = msApiClient.apiService.getModelFiles(split[0], split[1]).execute().body()
+                msRepoInfo?.Data?.LatestCommitter?.CreatedAt
+            }.getOrNull()
+        }
+        val downloadTime = withContext(Dispatchers.Main) { ChatDataManager.getInstance(ApplicationProvider.get()).getDownloadTime(modelId) / 1000L}
+        var hasUpdate = false
+        if ((createdTime ?: 0L) > downloadTime) {
+            callback?.onDownloadHasUpdate(modelId, downloadTime, createdTime!!)
+            hasUpdate = true
+        }
+        return hasUpdate
     }
 
     override fun getDownloadPath(modelId: String): File {
@@ -184,8 +204,8 @@ class MsModelDownloader(override var callback: ModelRepoDownloadCallback?,
         totalAndDownloadSize: LongArray
     ): List<FileDownloadTask> {
         val fileDownloadTasks: MutableList<FileDownloadTask> = ArrayList()
-        for (i in msRepoInfo.Data.Files.indices) {
-            val subFile = msRepoInfo.Data.Files[i]
+        for (i in msRepoInfo.Data?.Files?.indices!!) {
+            val subFile = msRepoInfo.Data!!.Files!![i]
             val fileDownloadTask = FileDownloadTask()
             if (subFile.Type == "tree") {
                 continue

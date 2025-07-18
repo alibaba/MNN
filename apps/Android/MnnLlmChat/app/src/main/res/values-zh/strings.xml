@@ -76,11 +76,13 @@
     <string name="no_update">没有可用更新</string>
     <string name="download">下载</string>
     <string name="download_pending">等待中</string>
+    <string name="update">更新</string>
     <string name="download_progress_format">%.1f%%</string>
     <string name="download_resume">继续</string>
     <string name="download_paused_status">已暂停</string>
     <string name="chat_action">对话</string>
     <string name="download_update_available">有新版本: (%1$s)</string>
+    <string name="downloaded_update_available"> %1$s (有更新可用)</string>
     <string name="show_only_downloaded">只显示已下载模型</string>
     <string name="about">关于</string>
     <string name="settings">设置</string>
@@ -249,6 +251,7 @@
     <string name="download_state_downloading">下载中</string>
     <string name="download_state_failed">下载失败</string>
     <string name="download_state_paused">下载暂停</string>
+    <string name="download_state_updating">更新中</string>
     <string name="no_models_found">没有找到模型，请在模型市场下载</string>
     <string name="no_filtered_models_title">没有符合筛选条件的模型</string>
     <string name="no_filtered_models_message">请尝试调整筛选条件以查看更多模型，或者清除所有筛选条件以查看所有可用模型。</string>
@@ -481,4 +484,5 @@
     <string name="repo_update_check_result">仓库更新检查</string>
     <string name="allow_network_market_data">允许联网获取模型市场数据</string>
     <string name="enable_network_delay">启用网络延时（3秒）</string>
+    <string name="update_available">有新版本</string>
 </resources>

@@ -9,15 +9,16 @@ import android.view.View
 import android.view.ViewGroup
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.alibaba.mnnllm.android.databinding.FragmentChooseModelBinding
-import com.alibaba.mnnllm.android.utils.ModelListManager
+import com.alibaba.mnnllm.android.modelist.ModelItemWrapper
+import com.alibaba.mnnllm.android.modelist.ModelListManager
 import com.alibaba.mnnllm.android.utils.BaseBottomSheetDialogFragment
 
 class SelectModelFragment : BaseBottomSheetDialogFragment() {
-    private lateinit var onModelSelectedListener: (ModelListManager.ModelItemWrapper) -> Unit
+    private lateinit var onModelSelectedListener: (ModelItemWrapper) -> Unit
     private lateinit var modelSelectionAdapter: ModelSelectionAdapter
     private lateinit var binding: FragmentChooseModelBinding
-    private var modelWrappers: List<ModelListManager.ModelItemWrapper> = emptyList()
-    private var modelFilter: ((ModelListManager.ModelItemWrapper) -> Boolean)? = null
+    private var modelWrappers: List<ModelItemWrapper> = emptyList()
+    private var modelFilter: ((ModelItemWrapper) -> Boolean)? = null
     private var currentModelId: String? = null
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
@@ -40,18 +41,18 @@ class SelectModelFragment : BaseBottomSheetDialogFragment() {
         loadModelsData()
     }
 
-    fun setOnModelSelectedListener(listener: (ModelListManager.ModelItemWrapper) -> Unit) {
+    fun setOnModelSelectedListener(listener: (ModelItemWrapper) -> Unit) {
         onModelSelectedListener = listener
     }
 
-    fun setModelWrappers(modelWrappers: List<ModelListManager.ModelItemWrapper>) {
+    fun setModelWrappers(modelWrappers: List<ModelItemWrapper>) {
         this.modelWrappers = modelWrappers
         if (::modelSelectionAdapter.isInitialized) {
             loadModelsData()
         }
     }
 
-    fun setModelFilter(filter: ((ModelListManager.ModelItemWrapper) -> Boolean)?) {
+    fun setModelFilter(filter: ((ModelItemWrapper) -> Boolean)?) {
         this.modelFilter = filter
         if (::modelSelectionAdapter.isInitialized) {
             loadModelsData()
@@ -83,8 +84,8 @@ class SelectModelFragment : BaseBottomSheetDialogFragment() {
         const val TAG = "SelectModelFragment"
         
         fun newInstance(
-            modelWrappers: List<ModelListManager.ModelItemWrapper>,
-            filter: ((ModelListManager.ModelItemWrapper) -> Boolean)? = null,
+            modelWrappers: List<ModelItemWrapper>,
+            filter: ((ModelItemWrapper) -> Boolean)? = null,
             currentModelId: String? = null
         ): SelectModelFragment {
             return SelectModelFragment().apply {

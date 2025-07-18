@@ -6,13 +6,14 @@ import android.view.ViewGroup
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
 import com.alibaba.mnnllm.android.R
-import com.alibaba.mnnllm.android.utils.ModelListManager
+import com.alibaba.mnnllm.android.modelist.ModelItemWrapper
+import com.alibaba.mnnllm.android.modelist.ModelListManager
 
 class ModelSelectionAdapter(
-    private var modelWrappers: List<ModelListManager.ModelItemWrapper> = emptyList()
+    private var modelWrappers: List<ModelItemWrapper> = emptyList()
 ) : RecyclerView.Adapter<ModelSelectionViewHolder>() {
 
-    private var onModelSelectedListener: ((ModelListManager.ModelItemWrapper) -> Unit)? = null
+    private var onModelSelectedListener: ((ModelItemWrapper) -> Unit)? = null
     private var selectedPosition = -1
     private var selectedModelId: String? = null
 
@@ -34,7 +35,7 @@ class ModelSelectionAdapter(
 
     override fun getItemCount(): Int = modelWrappers.size
 
-    private fun handleModelSelection(modelWrapper: ModelListManager.ModelItemWrapper) {
+    private fun handleModelSelection(modelWrapper: ModelItemWrapper) {
         val position = modelWrappers.indexOfFirst { 
             it.modelItem.modelId == modelWrapper.modelItem.modelId 
         }
@@ -55,7 +56,7 @@ class ModelSelectionAdapter(
         }
     }
 
-    fun updateData(newModelWrappers: List<ModelListManager.ModelItemWrapper>) {
+    fun updateData(newModelWrappers: List<ModelItemWrapper>) {
         val diffCallback = ModelWrapperDiffCallback(this.modelWrappers, newModelWrappers)
         val diffResult = DiffUtil.calculateDiff(diffCallback)
         this.modelWrappers = newModelWrappers
@@ -70,7 +71,7 @@ class ModelSelectionAdapter(
         diffResult.dispatchUpdatesTo(this)
     }
 
-    fun setOnModelSelectedListener(listener: (ModelListManager.ModelItemWrapper) -> Unit) {
+    fun setOnModelSelectedListener(listener: (ModelItemWrapper) -> Unit) {
         this.onModelSelectedListener = listener
     }
 
@@ -89,8 +90,8 @@ class ModelSelectionAdapter(
     }
 
     private class ModelWrapperDiffCallback(
-        private val oldList: List<ModelListManager.ModelItemWrapper>,
-        private val newList: List<ModelListManager.ModelItemWrapper>
+        private val oldList: List<ModelItemWrapper>,
+        private val newList: List<ModelItemWrapper>
     ) : DiffUtil.Callback() {
         
         override fun getOldListSize(): Int = oldList.size

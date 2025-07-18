@@ -15,13 +15,11 @@ import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.alibaba.mls.api.ApplicationProvider
-import com.alibaba.mls.api.ModelItem
-import com.alibaba.mls.api.download.ModelDownloadManager
 import com.alibaba.mnnllm.android.llm.ChatSession
 import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.audio.AudioChunksPlayer
 import com.alibaba.mnnllm.android.benchmark.BenchmarkModule
-import com.alibaba.mnnllm.android.utils.ModelListManager
+import com.alibaba.mnnllm.android.modelist.ModelListManager
 import com.alibaba.mnnllm.android.utils.WavFileWriter
 import com.alibaba.mnnllm.android.utils.FileUtils
 import com.alibaba.mnnllm.android.chat.chatlist.ChatListComponent
@@ -42,6 +40,7 @@ import com.alibaba.mnnllm.api.openai.manager.ApiServiceManager
 import com.alibaba.mnnllm.android.chat.voice.VoiceChatFragment
 import com.alibaba.mnnllm.android.chat.voice.VoiceModelsChecker
 import com.alibaba.mnnllm.android.chat.voice.VoiceModelMarketBottomSheet
+import com.alibaba.mnnllm.android.modelist.ModelItemWrapper
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.filter
@@ -694,7 +693,7 @@ class ChatActivity : AppCompatActivity() {
             val availableModels = getAvailableModels()
 
             // Filter out diffusion models
-            val modelFilter: (ModelListManager.ModelItemWrapper) -> Boolean = { modelWrapper ->
+            val modelFilter: (ModelItemWrapper) -> Boolean = { modelWrapper ->
                 !ModelUtils.isDiffusionModel(modelWrapper.displayName)
             }
 
@@ -707,11 +706,11 @@ class ChatActivity : AppCompatActivity() {
         
     }
     
-    private suspend fun getAvailableModels(): List<ModelListManager.ModelItemWrapper> {
+    private suspend fun getAvailableModels(): List<ModelItemWrapper> {
         return ModelListManager.loadAvailableModels(this)
     }
     
-    private fun handleModelSelection(selectedModelWrapper: ModelListManager.ModelItemWrapper) {
+    private fun handleModelSelection(selectedModelWrapper: ModelItemWrapper) {
         val selectedModelItem = selectedModelWrapper.modelItem
         val selectedModelId = selectedModelItem.modelId
         val selectedModelName = selectedModelWrapper.displayName

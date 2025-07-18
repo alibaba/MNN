@@ -39,6 +39,7 @@ abstract class ModelRepoDownloader {
         fun onDownloadTaskRemoved()
         fun onDownloadPaused(modelId: String)
         fun onDownloadFileFinished(modelId: String, absolutePath: String)
+        fun onDownloadHasUpdate(modelId: String, lastDownloadTime:Long, lastUpdateTime:Long)
         fun onDownloadingProgress(
             modelId: String,
             stage: String,

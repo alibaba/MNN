@@ -124,6 +124,11 @@ class VoiceModelMarketViewModel(application: Application) : AndroidViewModel(app
         }
     }
 
+    fun updateModel(item: ModelMarketItem) {
+        Log.d(TAG, "Starting update for: ${item.modelId}")
+        downloadManager.startDownload(item)
+    }
+
     // DownloadListener implementation
     override fun onDownloadTotalSize(modelId: String, totalSize: Long) {
         mainHandler.post {
@@ -131,6 +136,14 @@ class VoiceModelMarketViewModel(application: Application) : AndroidViewModel(app
             _itemUpdate.value = modelId
         }
     }
+
+    override fun onDownloadHasUpdate(modelId: String, downloadInfo: DownloadInfo) {
+        mainHandler.post {
+            updateDownloadInfo(modelId)
+            _itemUpdate.value = modelId
+        }
+    }
+
 
     override fun onDownloadStart(modelId: String) {
         Log.d(TAG, "Download started for: $modelId")

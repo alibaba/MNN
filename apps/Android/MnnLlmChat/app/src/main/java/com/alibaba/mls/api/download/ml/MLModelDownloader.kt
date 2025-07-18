@@ -3,6 +3,7 @@
 
 package com.alibaba.mls.api.download.ml
 import android.util.Log
+import com.alibaba.mls.api.ApplicationProvider
 import com.alibaba.mls.api.FileDownloadException
 import com.alibaba.mls.api.download.DownloadExecutor
 import com.alibaba.mls.api.hf.HfFileMetadata
@@ -26,6 +27,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import com.alibaba.mls.api.ml.MlRepoData
+import com.alibaba.mnnllm.android.chat.model.ChatDataManager
+import com.alibaba.mnnllm.android.utils.TimeUtils
 
 
 class MLModelDownloader(override var callback: ModelRepoDownloadCallback?,
@@ -45,7 +48,32 @@ class MLModelDownloader(override var callback: ModelRepoDownloadCallback?,
     }
 
     override suspend fun checkUpdate(modelId: String): Boolean {
-        return false
+        var result: Pair<Long, Long>
+        val modelScopeId = ModelUtils.getRepositoryPath(modelId)
+        val split = modelScopeId.split("/".toRegex()).dropLastWhile { it.isEmpty() }.toTypedArray()
+        if (split.size != 2) {
+            return false
+        }
+        result = withContext(Dispatchers.IO) {
+            runCatching {
+                val downloadTime = withContext(Dispatchers.Main) { ChatDataManager.getInstance(ApplicationProvider.get()).getDownloadTime(modelId) / 1000L}
+                val mlRepoInfo = mlApiClient.apiService.getModelFiles(split[0], split[1], "").execute().body()
+                val lastCreated = TimeUtils.convertIsoToTimestamp(mlRepoInfo?.data?.last_commit?.commit?.created)
+                return@withContext if (lastCreated != null) {
+                    Log.d(TAG, "lastCreated: $lastCreated downloadTime: $downloadTime")
+                    Pair(lastCreated, downloadTime)
+                } else {
+                    Pair(downloadTime, downloadTime)
+                }
+            }.getOrElse {
+                Log.e(TAG, "checkUpdate failed: ", it)
+                return@withContext Pair(0, 0)
+            }
+        }
+        if (result.first > result.second) {
+            callback?.onDownloadHasUpdate(modelId, result.second, result.first)
+        }
+        return result.first > result.second
     }
 
     override fun getDownloadPath(modelId: String): File {
@@ -88,9 +116,9 @@ class MLModelDownloader(override var callback: ModelRepoDownloadCallback?,
     }
 
     private fun downloadRepo(modelId: String): MlRepoInfo? {
-        val modelScopeId = ModelUtils.getRepositoryPath(modelId)
-        Log.d(TAG, "downloadRepo: " + modelScopeId)
-        val split = modelScopeId.split("/".toRegex()).dropLastWhile { it.isEmpty() }.toTypedArray()
+        val modelersId = ModelUtils.getRepositoryPath(modelId)
+        Log.d(TAG, "downloadRepo: " + modelersId)
+        val split = modelersId.split("/".toRegex()).dropLastWhile { it.isEmpty() }.toTypedArray()
         if (split.size != 2) {
             callback?.onDownloadFailed(modelId, FileDownloadException("getRepoInfoFailed modelId format error: $modelId"))
         }
@@ -122,7 +150,7 @@ class MLModelDownloader(override var callback: ModelRepoDownloadCallback?,
         }
         if (modelInfo != null) {
             callback?.onDownloadTaskAdded()
-            downloadMlRepoInner(modelId, modelScopeId, modelInfo)
+            downloadMlRepoInner(modelId, modelersId, modelInfo)
             callback?.onDownloadTaskRemoved()
         }
         return modelInfo

@@ -3,7 +3,6 @@
 
 package com.alibaba.mls.api.ml
 
-import com.alibaba.mls.api.ms.MsRepoInfo
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Call

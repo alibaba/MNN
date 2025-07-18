@@ -12,7 +12,6 @@ import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import com.alibaba.mls.api.ModelItem
 import com.alibaba.mnnllm.android.main.MainActivity
 import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.chat.ChatRouter
@@ -21,8 +20,6 @@ import com.alibaba.mnnllm.android.utils.PreferenceUtils
 import com.alibaba.mnnllm.android.model.Modality
 import com.alibaba.mnnllm.android.model.ModelVendors
 import com.alibaba.mnnllm.android.modelsettings.DropDownMenuHelper
-import com.alibaba.mnnllm.android.mainsettings.MainSettings
-import com.alibaba.mnnllm.android.utils.ModelListManager
 import com.alibaba.mnnllm.android.utils.Searchable
 
 class ModelListFragment : Fragment(), ModelListContract.View, Searchable {
@@ -40,7 +37,7 @@ class ModelListFragment : Fragment(), ModelListContract.View, Searchable {
         private set
 
     private var modelListPresenter: ModelListPresenter? = null
-    private val modelItemList: MutableList<ModelListManager.ModelItemWrapper> = mutableListOf()
+    private val modelItemList: MutableList<ModelItemWrapper> = mutableListOf()
 
     private var modelListErrorText: TextView? = null
 

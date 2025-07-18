@@ -11,6 +11,9 @@
         android:id="@+id/menu_pause_download"
         android:title="@string/pause_download" />
     <item
+        android:id="@+id/menu_update_model"
+        android:title="@string/update" />
+    <item
         android:id="@+id/menu_delete_model"
         android:title="@string/delete_model" />
     <item

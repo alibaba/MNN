@@ -620,6 +620,10 @@ class ModelMarketFragment : Fragment(), ModelMarketItemListener, Searchable {
         viewModel.deleteModel(item.modelMarketItem)
     }
 
+    override fun onUpdateClicked(item: ModelMarketItemWrapper) {
+        viewModel.updateModel(item.modelMarketItem)
+    }
+
     override fun onDefaultVoiceModelChanged(item: ModelMarketItemWrapper) {
         handleVoiceModelClick(item.modelMarketItem)
     }

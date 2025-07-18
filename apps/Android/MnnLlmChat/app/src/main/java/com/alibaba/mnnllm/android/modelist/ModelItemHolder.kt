@@ -16,7 +16,6 @@ import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.model.ModelUtils
 import com.alibaba.mnnllm.android.modelsettings.SettingsBottomSheetFragment
 import com.alibaba.mnnllm.android.utils.DialogUtils
-import com.alibaba.mnnllm.android.utils.ModelListManager
 import com.alibaba.mnnllm.android.utils.FileUtils
 import com.alibaba.mnnllm.android.widgets.ModelAvatarView
 import com.alibaba.mnnllm.android.widgets.TagsLayout
@@ -41,7 +40,7 @@ class ModelItemHolder(
     private val tagsLayout: TagsLayout
     private val pinnedOverlay: View // Pinned overlay
 
-    private var currentModelWrapper: ModelListManager.ModelItemWrapper? = null
+    private var currentModelWrapper: ModelItemWrapper? = null
     private val modelDownloadManager = ModelDownloadManager.getInstance(itemView.context)
 
     init {
@@ -58,7 +57,7 @@ class ModelItemHolder(
         pinnedOverlay = itemView.findViewById(R.id.pinned_overlay)
     }
 
-    private fun displayTimeInfo(modelWrapper: ModelListManager.ModelItemWrapper) {
+    private fun displayTimeInfo(modelWrapper: ModelItemWrapper) {
         val lastChatTime = modelWrapper.lastChatTime
         
         // 1. If there hasn't been any chat, do not display
@@ -103,7 +102,7 @@ class ModelItemHolder(
                 cal1.get(java.util.Calendar.DAY_OF_YEAR) == cal2.get(java.util.Calendar.DAY_OF_YEAR)
     }
 
-    private fun getFormattedFileSize(modelWrapper: ModelListManager.ModelItemWrapper): String {
+    private fun getFormattedFileSize(modelWrapper: ModelItemWrapper): String {
         val modelItem = modelWrapper.modelItem
         
         // Try to get file size using the same method as MarketItemHolder
@@ -147,7 +146,7 @@ class ModelItemHolder(
         return modelItem.getDisplayTags(itemView.context).take(3)
     }
 
-    fun bind(modelWrapper: ModelListManager.ModelItemWrapper) {
+    fun bind(modelWrapper: ModelItemWrapper) {
         val modelItem = modelWrapper.modelItem
         val modelName = modelItem.modelName
         
@@ -168,20 +167,26 @@ class ModelItemHolder(
         // Show pinned overlay
         pinnedOverlay.visibility = if (modelWrapper.isPinned || true) View.VISIBLE else View.GONE
         
-        // Use consistent file size display logic
+        // Use consistent file size display logic and show update status
         val formattedSize = getFormattedFileSize(modelWrapper)
-        tvStatus.text = if (formattedSize.isNotEmpty()) {
-            tvStatus.resources.getString(R.string.downloaded_click_to_chat, formattedSize)
+        tvStatus.text = if (modelWrapper.hasUpdate) {
+            if (formattedSize.isNotEmpty()) {
+                tvStatus.resources.getString(R.string.downloaded_update_available, formattedSize)
+            } else {
+                tvStatus.resources.getString(R.string.downloaded_update_available, "")
+            }
         } else {
-            tvStatus.resources.getString(R.string.downloaded_click_to_chat, "")
+            if (formattedSize.isNotEmpty()) {
+                tvStatus.resources.getString(R.string.downloaded_click_to_chat, formattedSize)
+            } else {
+                tvStatus.resources.getString(R.string.downloaded_click_to_chat, "")
+            }
         }
-        
-        Log.d(TAG, "itemView id : ${itemView.id == R.id.recycler_item_model_parent}")
         itemView.isActivated = modelWrapper.isPinned
     }
 
     override fun onClick(v: View) {
-        val modelWrapper = v.tag as ModelListManager.ModelItemWrapper
+        val modelWrapper = v.tag as ModelItemWrapper
         modelItemListener.onItemClicked(modelWrapper.modelItem)
     }
 
@@ -190,7 +195,7 @@ class ModelItemHolder(
             return false
         }
         
-        val modelWrapper = itemView.tag as ModelListManager.ModelItemWrapper
+        val modelWrapper = itemView.tag as ModelItemWrapper
         val modelItem = modelWrapper.modelItem
         
         val popupMenu = PopupMenu(v.context, tvStatus)
@@ -268,6 +273,9 @@ class ModelItemHolder(
                         .setPositiveButton(android.R.string.ok, null)
                         .show()
                 }
+            } else if (item.itemId == R.id.menu_update_model) {
+                // Handle update action
+                modelItemListener.onItemUpdate(modelItem)
             } else if (item.itemId == R.id.menu_open_model_card) {
                 ModelUtils.openModelCard(v.context, modelItem)
             } else if (item.itemId == R.id.menu_pin_model) {
@@ -284,6 +292,9 @@ class ModelItemHolder(
         // Show model info menu item only if debug feature is enabled
         val isDebugEnabled = com.alibaba.mnnllm.android.debug.DebugActivity.isShowModelInfoEnabled(v.context)
         popupMenu.menu.findItem(R.id.menu_show_model_info).setVisible(isDebugEnabled)
+        
+        // Show update option only for remote models with updates
+        popupMenu.menu.findItem(R.id.menu_update_model).setVisible(!modelItem.isLocal && modelWrapper.hasUpdate)
         
         // Download control items are not needed for downloaded models
         popupMenu.menu.findItem(R.id.menu_pause_download)?.setVisible(false)

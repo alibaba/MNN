@@ -19,7 +19,7 @@ object DownloadState {
         DOWNLOADING,
         FAILED,
         PAUSED,
-        NOT_START,
+        NOT_START
     )
 
     fun toStringRes(state: Int): Int {

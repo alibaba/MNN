@@ -16,12 +16,13 @@ import androidx.lifecycle.lifecycleScope
 import java.io.FileOutputStream
 import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.databinding.FragmentBenchmarkBinding
-import com.alibaba.mnnllm.android.utils.ModelListManager
+import com.alibaba.mnnllm.android.modelist.ModelListManager
 import com.alibaba.mnnllm.android.chat.SelectModelFragment
 import com.jaredrummler.android.device.DeviceName
 import com.alibaba.mls.api.ModelItem
 import com.alibaba.mls.api.download.ModelDownloadManager
 import com.alibaba.mnnllm.android.model.ModelUtils
+import com.alibaba.mnnllm.android.modelist.ModelItemWrapper
 import com.alibaba.mnnllm.android.utils.FileUtils
 import java.io.File
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
@@ -37,8 +38,8 @@ class BenchmarkFragment : Fragment(), BenchmarkContract.View {
     
     // MVP Components
     private var presenter: BenchmarkPresenter? = null
-    private var selectedModelWrapper: ModelListManager.ModelItemWrapper? = null
-    private var availableModels: List<ModelListManager.ModelItemWrapper> = emptyList()
+    private var selectedModelWrapper: ModelItemWrapper? = null
+    private var availableModels: List<ModelItemWrapper> = emptyList()
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
@@ -93,7 +94,7 @@ class BenchmarkFragment : Fragment(), BenchmarkContract.View {
 
     private fun showModelSelectionDialog() {
         val currentModelId = selectedModelWrapper?.modelItem?.modelId
-        val modelFilter: (ModelListManager.ModelItemWrapper) -> Boolean = { modelWrapper ->
+        val modelFilter: (ModelItemWrapper) -> Boolean = { modelWrapper ->
             !ModelUtils.isDiffusionModel(modelWrapper.displayName)
         }
         val selectModelFragment = SelectModelFragment.newInstance(availableModels, modelFilter, currentModelId)
@@ -132,7 +133,7 @@ class BenchmarkFragment : Fragment(), BenchmarkContract.View {
             .show()
     }
 
-    override fun updateModelSelector(models: List<ModelListManager.ModelItemWrapper>) {
+    override fun updateModelSelector(models: List<ModelItemWrapper>) {
         availableModels = models
         
         // Update the new UI elements
@@ -156,7 +157,7 @@ class BenchmarkFragment : Fragment(), BenchmarkContract.View {
         }
     }
 
-    override fun setSelectedModel(modelWrapper: ModelListManager.ModelItemWrapper) {
+    override fun setSelectedModel(modelWrapper: ModelItemWrapper) {
         selectedModelWrapper = modelWrapper
         
         // Update the new UI elements with model information
@@ -444,7 +445,7 @@ class BenchmarkFragment : Fragment(), BenchmarkContract.View {
     /**
      * Get formatted file size for model, similar to ModelItemHolder
      */
-    private fun getFormattedFileSize(modelWrapper: ModelListManager.ModelItemWrapper): String {
+    private fun getFormattedFileSize(modelWrapper: ModelItemWrapper): String {
         val modelItem = modelWrapper.modelItem
         val modelDownloadManager = ModelDownloadManager.getInstance(requireContext())
         

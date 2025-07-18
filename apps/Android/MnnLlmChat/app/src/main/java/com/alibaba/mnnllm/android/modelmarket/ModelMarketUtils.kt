@@ -6,7 +6,6 @@ package com.alibaba.mnnllm.android.modelmarket
 import android.util.Log
 import com.alibaba.mls.api.ApplicationProvider
 import com.alibaba.mnnllm.android.modelsettings.ModelConfig
-import com.alibaba.mnnllm.android.utils.ModelListManager
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
 import kotlinx.coroutines.Dispatchers

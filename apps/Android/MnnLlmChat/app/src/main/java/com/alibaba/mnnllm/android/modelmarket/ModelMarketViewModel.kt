@@ -13,12 +13,8 @@ import com.alibaba.mls.api.download.DownloadListener
 import com.alibaba.mls.api.download.DownloadState
 import com.alibaba.mls.api.download.ModelDownloadManager
 import com.alibaba.mnnllm.android.model.Modality
-import com.alibaba.mnnllm.android.model.ModelUtils
 import com.alibaba.mnnllm.android.modelmarket.ModelMarketUtils.writeMarketConfig
-import com.alibaba.mnnllm.android.modelsettings.ModelConfig
-import com.google.gson.GsonBuilder
 import kotlinx.coroutines.launch
-import java.io.File
 import java.util.Locale
 
 class ModelMarketViewModel(application: Application) : AndroidViewModel(application), DownloadListener {
@@ -207,6 +203,10 @@ class ModelMarketViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    fun updateModel(item: ModelMarketItem) {
+        downloadManager.startDownload(item)
+    }
+
     fun getAvailableVendors(): List<String> {
         val availableVendors = allModels.map { it.modelMarketItem.vendor }.distinct()
         val vendorOrder = modelMarketData?.vendorOrder ?: emptyList()
@@ -259,6 +259,13 @@ class ModelMarketViewModel(application: Application) : AndroidViewModel(applicat
     override fun onDownloadTotalSize(modelId: String, totalSize: Long) {
         mainHandler.post {
             allModels.find { it.modelMarketItem.modelId == modelId }?.let { updateDownloadInfo(modelId, downloadManager.getDownloadInfo(it.modelMarketItem)) }
+            _itemUpdate.value = modelId
+        }
+    }
+
+    override fun onDownloadHasUpdate(modelId: String, downloadInfo: DownloadInfo) {
+        mainHandler.post {
+            allModels.find { it.modelMarketItem.modelId == modelId }?.let { updateDownloadInfo(modelId, downloadInfo) }
             _itemUpdate.value = modelId
         }
     }

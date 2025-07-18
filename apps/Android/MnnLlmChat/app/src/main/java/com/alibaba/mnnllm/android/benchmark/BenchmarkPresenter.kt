@@ -5,7 +5,8 @@ import android.util.Log
 import androidx.lifecycle.LifecycleCoroutineScope
 import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.model.ModelUtils
-import com.alibaba.mnnllm.android.utils.ModelListManager
+import com.alibaba.mnnllm.android.modelist.ModelItemWrapper
+import com.alibaba.mnnllm.android.modelist.ModelListManager
 import kotlinx.coroutines.launch
 
 /**
@@ -23,8 +24,8 @@ class BenchmarkPresenter(
     }
     
     private val model = BenchmarkModel()
-    private var selectedModelWrapper: ModelListManager.ModelItemWrapper? = null
-    private var availableModels: List<ModelListManager.ModelItemWrapper> = emptyList()
+    private var selectedModelWrapper: ModelItemWrapper? = null
+    private var availableModels: List<ModelItemWrapper> = emptyList()
     private val stateMachine = BenchmarkStateMachine()
     private val leaderboardService = LeaderboardService()
     private var currentBenchmarkResults: BenchmarkContract.BenchmarkResults? = null
@@ -252,7 +253,7 @@ class BenchmarkPresenter(
         }
     }
     
-    override fun onModelSelected(modelWrapper: ModelListManager.ModelItemWrapper) {
+    override fun onModelSelected(modelWrapper: ModelItemWrapper) {
         Log.d(TAG, "onModelSelected called, state: ${stateMachine.getCurrentState()}, model: ${modelWrapper.displayName}")
         selectedModelWrapper = modelWrapper
         view.setSelectedModel(modelWrapper)

@@ -1,6 +1,7 @@
 package com.alibaba.mnnllm.android.benchmark
 
-import com.alibaba.mnnllm.android.utils.ModelListManager
+import com.alibaba.mnnllm.android.modelist.ModelItemWrapper
+import com.alibaba.mnnllm.android.modelist.ModelListManager
 
 /**
  * Contract between BenchmarkView and BenchmarkPresenter
@@ -15,8 +16,8 @@ class BenchmarkContract {
         fun showStopConfirmationDialog()
         
         // Model selection
-        fun updateModelSelector(models: List<ModelListManager.ModelItemWrapper>)
-        fun setSelectedModel(modelWrapper: ModelListManager.ModelItemWrapper)
+        fun updateModelSelector(models: List<ModelItemWrapper>)
+        fun setSelectedModel(modelWrapper: ModelItemWrapper)
         fun enableStartButton(enabled: Boolean)
         
         // Benchmark progress
@@ -56,7 +57,7 @@ class BenchmarkContract {
         fun onDestroy()
         fun onStartBenchmarkClicked()
         fun onStopBenchmarkClicked()
-        fun onModelSelected(modelWrapper: ModelListManager.ModelItemWrapper)
+        fun onModelSelected(modelWrapper: ModelItemWrapper)
         fun onDeleteResultClicked()
         fun onSubmitResultClicked()
         fun onViewLeaderboardClicked()

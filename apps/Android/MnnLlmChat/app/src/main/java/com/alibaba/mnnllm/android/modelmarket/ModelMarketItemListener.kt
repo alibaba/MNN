@@ -7,5 +7,6 @@ interface ModelMarketItemListener {
     fun onPauseClicked(item: ModelMarketItemWrapper)
     fun onActionClicked(item: ModelMarketItemWrapper)
     fun onDeleteClicked(item: ModelMarketItemWrapper)
+    fun onUpdateClicked(item: ModelMarketItemWrapper)
     fun onDefaultVoiceModelChanged(item: ModelMarketItemWrapper)
 } 

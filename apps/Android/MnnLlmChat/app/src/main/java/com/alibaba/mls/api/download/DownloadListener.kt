@@ -10,4 +10,5 @@ interface DownloadListener {
     fun onDownloadPaused(modelId: String)
     fun onDownloadFileRemoved(modelId: String)
     fun onDownloadTotalSize(modelId: String, totalSize: Long)
+    fun onDownloadHasUpdate(modelId: String, downloadInfo: DownloadInfo)
 }

@@ -312,6 +312,10 @@ class VoiceModelMarketBottomSheet : BottomSheetDialogFragment(), ModelMarketItem
         viewModel.deleteModel(item.modelMarketItem)
     }
 
+    override fun onUpdateClicked(item: ModelMarketItemWrapper) {
+        viewModel.updateModel(item.modelMarketItem)
+    }
+
     override fun onDefaultVoiceModelChanged(item: ModelMarketItemWrapper) {
         // Refresh adapter to update all checkbox states, ensuring only one is selected
         adapter.notifyDataSetChanged()

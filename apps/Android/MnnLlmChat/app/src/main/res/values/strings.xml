@@ -8,6 +8,7 @@
     <string name="model_loading">Model loading…</string>
     <string name="download_not_started">%1$s</string>
     <string name="downloaded_click_to_chat"> %1$s</string>
+    <string name="downloaded_update_available"> %1$s (Update Available)</string>
     <string name="local_click_to_chat"> %1$s %2$s</string>
     <string name="download_failed_click_retry">Download failed: %1$s, click to retry</string>
     <string name="downloading_progress">%1$s | %2$s</string>"
@@ -83,6 +84,7 @@
     <string name="no_update">No update available</string>
     <string name="download">Download</string>
     <string name="download_pending">Pending</string>
+    <string name="update">Update</string>
     <string name="download_progress_format">%.1f%%</string>
     <string name="download_resume">Resume</string>
     <string name="download_paused_status">Paused</string>
@@ -258,6 +260,7 @@
     <string name="download_state_downloading">Downloading</string>
     <string name="download_state_failed">Download Failed</string>
     <string name="download_state_paused">Download Paused</string>
+    <string name="download_state_updating">Updating</string>
     <string name="no_models_found">No models available. Please download a model first.</string>
     <string name="no_filtered_models_title">No models match your filters</string>
     <string name="no_filtered_models_message">Try adjusting your filters to see more models, or clear all filters to see all available models.</string>
@@ -484,4 +487,5 @@
     <string name="repo_update_check_result">Repository Update Check</string>
     <string name="allow_network_market_data">Allow network to fetch model market data</string>
     <string name="enable_network_delay">Enable network delay (3 seconds)</string>
+    <string name="update_available">Update Available</string>
 </resources>
