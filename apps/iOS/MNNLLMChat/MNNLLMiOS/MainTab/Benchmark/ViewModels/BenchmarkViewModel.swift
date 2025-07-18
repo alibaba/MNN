@@ -57,6 +57,15 @@ class BenchmarkViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .assign(to: \.isRunning, on: self)
             .store(in: &cancellables)
+        
+        // Update button text based on running state
+        benchmarkService.$isRunning
+            .receive(on: DispatchQueue.main)
+            .map { isRunning in
+                isRunning ? "Stop Test" : "Start Test"
+            }
+            .assign(to: \.startButtonText, on: self)
+            .store(in: &cancellables)
     }
     
     /// Loads available models from ModelListManager, filtering for downloaded models only
@@ -198,7 +207,6 @@ class BenchmarkViewModel: ObservableObject {
     
     /// Updates UI state when benchmark starts
     private func onBenchmarkStarted() {
-        startButtonText = "Stop Test"
         isStartButtonEnabled = true
         showProgressBar = true
         showResults = false
@@ -207,7 +215,6 @@ class BenchmarkViewModel: ObservableObject {
     
     /// Resets UI to initial state
     private func resetUIState() {
-        startButtonText = "Start Test"
         isStartButtonEnabled = true
         showProgressBar = false
         hideStatus()
@@ -301,11 +308,15 @@ extension BenchmarkViewModel: BenchmarkCallback {
         
         benchmarkResults = results
         showResults = true
-        startButtonText = "Start Test"
-        hideStatus()
         
-        // Stop memory monitoring
-        MemoryMonitor.shared.stop()
+        // Only stop memory monitoring if benchmark is no longer running (all tests completed)
+        if !isRunning {
+            // Stop memory monitoring
+            MemoryMonitor.shared.stop()
+        }
+        
+        // Always hide status after processing results
+        hideStatus()
         
         print("BenchmarkViewModel: Benchmark completed successfully for model: \(model.modelName)")
     }

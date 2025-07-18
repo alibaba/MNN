@@ -206,8 +206,12 @@ class BenchmarkService: ObservableObject {
                 
                 if result.success {
                     completedInstances += 1
-                    await MainActor.run {
-                        callback.onComplete(result)
+                    
+                    // Only call onComplete for the last test instance
+                    if completedInstances == totalInstances {
+                        await MainActor.run {
+                            callback.onComplete(result)
+                        }
                     }
                 } else {
                     await MainActor.run {
