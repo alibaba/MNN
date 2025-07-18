@@ -35,7 +35,6 @@ struct MainTabView: View {
                             CommonToolbarView(
                                 showHistory: $showHistory,
                                 showHistoryButton: $showHistoryButton,
-                                histories: $histories
                             )
                         }
                         .background(
@@ -64,7 +63,6 @@ struct MainTabView: View {
                             CommonToolbarView(
                                 showHistory: $showHistory,
                                 showHistoryButton: $showHistoryButton,
-                                histories: $histories
                             )
                         }
                         .background(
@@ -92,7 +90,6 @@ struct MainTabView: View {
                             CommonToolbarView(
                                 showHistory: $showHistory,
                                 showHistoryButton: $showHistoryButton,
-                                histories: $histories
                             )
                         }
                         .background(

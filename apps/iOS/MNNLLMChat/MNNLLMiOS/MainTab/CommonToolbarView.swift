@@ -10,7 +10,6 @@ import SwiftUI
 struct CommonToolbarView: ToolbarContent {
     @Binding var showHistory: Bool
     @Binding var showHistoryButton: Bool
-    @Binding var histories: [ChatHistory]
     
     var body: some ToolbarContent {
         ToolbarItem(placement: .navigationBarLeading) {
@@ -18,7 +17,6 @@ struct CommonToolbarView: ToolbarContent {
                 Button(action: {
                     showHistory = true
                     showHistoryButton = false
-                    histories = ChatHistoryManager.shared.getAllHistory()
                 }) {
                     Image(systemName: "sidebar.left")
                         .resizable()
