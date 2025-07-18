@@ -184,6 +184,9 @@ dependencies {
     // Kotlin 序列化相关依赖
     implementation "org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1"
 
+    // DataStore 相关依赖
+    implementation "androidx.datastore:datastore-preferences:1.0.0"
+
     // 日志相关依赖
     implementation "com.jakewharton.timber:timber:5.0.1"
 //    implementation(name: 'android_device_names', ext: 'aar')

@@ -17,8 +17,7 @@ import com.alibaba.mls.api.download.DownloadFileUtils.getLastFileName
 import com.alibaba.mls.api.download.DownloadFileUtils.getPointerPathParent
 import com.alibaba.mls.api.download.DownloadFileUtils.repoFolderName
 import com.alibaba.mls.api.download.DownloadPausedException
-import com.alibaba.mls.api.download.DownloadPersistentData.getMetaData
-import com.alibaba.mls.api.download.DownloadPersistentData.saveMetaData
+import com.alibaba.mls.api.download.DownloadPersistentData
 import com.alibaba.mls.api.download.FileDownloadTask
 import com.alibaba.mls.api.download.hf.HfFileMetadataUtils.getFileMetadata
 import com.alibaba.mls.api.download.ModelDownloadManager.Companion.TAG
@@ -207,15 +206,8 @@ class HfModelDownloader(override var callback: ModelRepoDownloadCallback?,
         totalAndDownloadSize: LongArray
     ): List<FileDownloadTask> {
         var metaData: HfFileMetadata
-        var metaDataList: List<HfFileMetadata?>? =
-            getMetaData(ApplicationProvider.get(), hfRepoInfo.modelId!!)
-        Log.d(
-            TAG, "collectTaskList savedMetaDataList: " + (metaDataList?.size
-                ?: "null")
-        )
         val fileDownloadTasks: MutableList<FileDownloadTask> = ArrayList()
-        metaDataList = requestMetaDataList(hfRepoInfo)
-        saveMetaData(ApplicationProvider.get(), hfRepoInfo.modelId!!, metaDataList)
+        var metaDataList = requestMetaDataList(hfRepoInfo)
         for (i in hfRepoInfo.getSiblings().indices) {
             val subFile = hfRepoInfo.getSiblings()[i]
             metaData = metaDataList[i]!!

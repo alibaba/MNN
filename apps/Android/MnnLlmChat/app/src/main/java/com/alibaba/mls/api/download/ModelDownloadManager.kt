@@ -12,11 +12,7 @@ import android.util.Log
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.alibaba.mls.api.ApplicationProvider
-import com.alibaba.mls.api.download.DownloadPersistentData.getDownloadSizeSaved
-import com.alibaba.mls.api.download.DownloadPersistentData.getDownloadSizeTotal
-import com.alibaba.mls.api.download.DownloadPersistentData.removeProgress
-import com.alibaba.mls.api.download.DownloadPersistentData.saveDownloadSizeSaved
-import com.alibaba.mls.api.download.DownloadPersistentData.saveDownloadSizeTotal
+import com.alibaba.mls.api.download.DownloadPersistentData
 import com.alibaba.mls.api.download.hf.HfModelDownloader
 import com.alibaba.mls.api.download.ml.MLModelDownloader
 import com.alibaba.mls.api.download.ms.MsModelDownloader
@@ -71,7 +67,7 @@ class LoggingDownloadListener : DownloadListener {
     }
 
     override fun onDownloadHasUpdate(modelId: String, downloadInfo: DownloadInfo) {
-        Log.d(ModelDownloadManager.TAG, "modelId:$modelId onDownloadTotalSize: $modelId, uploadTime: ${downloadInfo.uploadTime} downloadTime: ${downloadInfo.downloadTime}")
+        Log.d(ModelDownloadManager.TAG, "modelId:$modelId onDownloadTotalSize: $modelId, uploadTime: ${downloadInfo.uploadTime} downloadTime: ${downloadInfo.downloadedTime}")
     }
 }
 
@@ -222,7 +218,7 @@ class ModelDownloadManager private constructor(context: Context) {
         listeners.forEach { it.onDownloadStart(modelId) }
         this.updateDownloadingProgress(modelId, "Preparing", null,
             getRealDownloadSize(modelId),
-            getDownloadSizeTotal(ApplicationProvider.get(), modelId))
+            DownloadPersistentData.getDownloadSizeTotal(ApplicationProvider.get(), modelId))
         downloader.download(modelId)
     }
 
@@ -260,7 +256,7 @@ class ModelDownloadManager private constructor(context: Context) {
     }
 
     fun getDownloadInfo(modelId: String): DownloadInfo {
-        Log.d(TAG, "getDownloadInfo: $modelId totalSize: ${getDownloadSizeTotal(ApplicationProvider.get(), modelId)}" +
+        Log.d(TAG, "getDownloadInfo: $modelId totalSize: ${DownloadPersistentData.getDownloadSizeTotal(ApplicationProvider.get(), modelId)}" +
                 " progress: ${getRealDownloadSize(modelId)}")
         val source = ModelUtils.getSource(modelId)!!
         if (!downloadInfoMap.containsKey(modelId)) {
@@ -268,13 +264,9 @@ class ModelDownloadManager private constructor(context: Context) {
             if (getDownloadedFile(modelId) != null) {
                 downloadInfo.downloadState = DownloadState.COMPLETED
                 downloadInfo.progress = 1.0
-                downloadInfo.totalSize = getDownloadSizeTotal(ApplicationProvider.get(), modelId)
-                // Check for updates for completed models
-                MainScope().launch {
-                    getDownloaderForSource(source).checkUpdate(modelId)
-                }
-            } else if (getDownloadSizeTotal(ApplicationProvider.get(), modelId) > 0) {
-                val totalSize = getDownloadSizeTotal(ApplicationProvider.get(), modelId)
+                downloadInfo.totalSize = DownloadPersistentData.getDownloadSizeTotal(ApplicationProvider.get(), modelId)
+            } else if (DownloadPersistentData.getDownloadSizeTotal(ApplicationProvider.get(), modelId) > 0) {
+                val totalSize = DownloadPersistentData.getDownloadSizeTotal(ApplicationProvider.get(), modelId)
                 val savedSize = getRealDownloadSize(modelId)
                 downloadInfo.totalSize = totalSize
                 downloadInfo.savedSize = savedSize
@@ -283,22 +275,13 @@ class ModelDownloadManager private constructor(context: Context) {
             } else {
                 downloadInfo.downloadState = DownloadState.NOT_START
                 downloadInfo.progress = 0.0
-                getRepoSize(modelId, source)
             }
             downloadInfoMap[modelId] = downloadInfo
-        }
-        
-        // Check if the model is currently being updated
-        val downloadInfo = downloadInfoMap[modelId]!!
-        if (downloadInfo.downloadState == DownloadState.COMPLETED && downloadInfo.hasUpdate) {
-            // If model is completed but has update available, check if update is in progress
-            val isUpdating = checkedForUpdateModelIds.containsKey(modelId) && 
-                           downloadInfo.uploadTime > downloadInfo.downloadTime
-            if (isUpdating) {
-                downloadInfo.downloadState = DownloadState.UPDATING
+            if (downloadInfo.totalSize < 100) {
+                getRepoSize(modelId, source)
             }
         }
-        
+        val downloadInfo = downloadInfoMap[modelId]!!
         return downloadInfo
     }
 
@@ -308,7 +291,7 @@ class ModelDownloadManager private constructor(context: Context) {
      * it will get the actual file size using FileUtils.
      */
     fun getRealDownloadSize(modelId: String): Long {
-        val savedSize = getDownloadSizeSaved(ApplicationProvider.get(), modelId)
+        val savedSize = DownloadPersistentData.getDownloadSizeSaved(ApplicationProvider.get(), modelId)
         if (savedSize < 0) {
             val splits = ModelUtils.splitSource(modelId)
             val source = splits[0]
@@ -316,7 +299,7 @@ class ModelDownloadManager private constructor(context: Context) {
             val realFile = downloader.repoModelRealFile(modelId)
             Log.d(TAG, "getRealDownloadSize realFile: ${realFile.absolutePath}")
             val fileSize = FileUtils.getFileSize(realFile)
-            saveDownloadSizeSaved(ApplicationProvider.get(), modelId, fileSize)
+            DownloadPersistentData.saveDownloadSizeSaved(ApplicationProvider.get(), modelId, fileSize)
             return FileUtils.getFileSize(realFile)
             return 0L
         }
@@ -335,8 +318,8 @@ class ModelDownloadManager private constructor(context: Context) {
                 else -> throw IllegalArgumentException("Unsupported source type: ${source::class.java.name}")
             }
             val repoSize = downloader.getRepoSize(modelId)
-            if (repoSize > 0 && getDownloadSizeTotal(ApplicationProvider.get(), modelName) <= 0L) {
-                saveDownloadSizeTotal(ApplicationProvider.get(), modelName, repoSize)
+            if (repoSize > 0 && DownloadPersistentData.getDownloadSizeTotal(ApplicationProvider.get(), modelName) <= 0L) {
+                DownloadPersistentData.saveDownloadSizeTotal(ApplicationProvider.get(), modelName, repoSize)
                 downloadInfoMap[modelName]?.totalSize = repoSize
                 listeners.forEach { it.onDownloadTotalSize(modelName, repoSize) }
             }
@@ -439,34 +422,15 @@ class ModelDownloadManager private constructor(context: Context) {
 
     private fun downloadHasUpdate(modelId: String, lastDownloadTime: Long, lastUpdateTime: Long) {
         val downloadInfo = getDownloadInfo(modelId)
-        downloadInfo.downloadTime = lastDownloadTime
+        downloadInfo.downloadedTime = lastDownloadTime
         downloadInfo.uploadTime = lastUpdateTime
         downloadInfo.hasUpdate = true
-        
-        // Set updating state if update is in progress
-        if (checkedForUpdateModelIds.containsKey(modelId) && lastUpdateTime > lastDownloadTime) {
-            downloadInfo.downloadState = DownloadState.UPDATING
-        }
-        
         listeners.forEach {
             Log.d(TAG, "[downloadHasUpdate] Notifying listener: ${it.javaClass.simpleName}")
             it.onDownloadHasUpdate(modelId, downloadInfo)
         }
     }
 
-    /**
-     * Set the updating state for a model
-     */
-    fun setModelUpdating(modelId: String, isUpdating: Boolean) {
-        val downloadInfo = downloadInfoMap[modelId] ?: return
-        if (isUpdating) {
-            downloadInfo.downloadState = DownloadState.UPDATING
-        } else if (downloadInfo.downloadState == DownloadState.UPDATING) {
-            // Reset to completed state if no longer updating
-            downloadInfo.downloadState = DownloadState.COMPLETED
-        }
-        Log.d(TAG, "setModelUpdating: $modelId, isUpdating: $isUpdating")
-    }
 
     private fun updateDownloadingProgress(
         modelId: String,
@@ -492,8 +456,8 @@ class ModelDownloadManager private constructor(context: Context) {
             downloadInfo.savedSize = savedSize
         }
         downloadInfo.progress = savedSize.toDouble() / totalSize
-        saveDownloadSizeSaved(ApplicationProvider.get(), modelId, savedSize)
-        saveDownloadSizeTotal(ApplicationProvider.get(), modelId, totalSize)
+        DownloadPersistentData.saveDownloadSizeSaved(ApplicationProvider.get(), modelId, savedSize)
+        DownloadPersistentData.saveDownloadSizeTotal(ApplicationProvider.get(), modelId, totalSize)
         calculateDownloadSpeed(downloadInfo, savedSize)
         Log.v(TAG, "[updateDownloadingProgress] Notifying ${listeners.size} listeners for $modelId")
         listeners.forEach { it.onDownloadProgress(modelId, downloadInfo) }
@@ -506,7 +470,7 @@ class ModelDownloadManager private constructor(context: Context) {
     suspend fun deleteModel(modelId:String, modelSource:String, modelPath:String) {
         withContext(Dispatchers.IO) {
             getDownloaderForSource(modelSource).deleteRepo(modelId)
-            removeProgress(ApplicationProvider.get(), modelId)
+            DownloadPersistentData.removeProgressSuspend(ApplicationProvider.get(), modelId)
             clearMmapCache(modelId)
             ModelConfig.getModelConfigDir(modelId).let {
                 DownloadFileUtils.deleteDirectoryRecursively(File(it))
@@ -570,12 +534,10 @@ class ModelDownloadManager private constructor(context: Context) {
     }
 
     suspend fun checkForUpdate(modelId: String?) {
-        Log.d(TAG, "checkForUpdate: $modelId", Throwable())
+        Log.d(TAG, "checkForUpdate: $modelId")
         modelId?.let {
             if (!checkedForUpdateModelIds.containsKey(it)) {
                 checkedForUpdateModelIds[it] = true
-                // Set updating state when starting update check
-                setModelUpdating(modelId, true)
                 getDownloaderForSource(ModelUtils.getSource(modelId)!!).checkUpdate(modelId)
             } else {
                 Log.d(TAG, "checkForUpdate: $modelId already checked, skipping")
