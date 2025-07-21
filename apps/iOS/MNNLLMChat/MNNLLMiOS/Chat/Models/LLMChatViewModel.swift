@@ -57,7 +57,7 @@ final class LLMChatViewModel: ObservableObject {
     let modelConfigManager: ModelConfigManager
     
     var isDiffusionModel: Bool {
-        return modelInfo.name.lowercased().contains("diffusion")
+        return modelInfo.modelName.lowercased().contains("diffusion")
     }
     
     init(modelInfo: ModelInfo, history: ChatHistory? = nil) {
@@ -88,7 +88,7 @@ final class LLMChatViewModel: ObservableObject {
             ), userType: .system)
         }
 
-        if modelInfo.name.lowercased().contains("diffusion") {
+        if modelInfo.modelName.lowercased().contains("diffusion") {
             diffusion = DiffusionSession(modelPath: modelPath, completion: { [weak self] success in
                 Task { @MainActor in
                     print("Diffusion Model \(success)")
@@ -150,7 +150,7 @@ final class LLMChatViewModel: ObservableObject {
     func sendToLLM(draft: DraftMessage) {
         self.send(draft: draft, userType: .user)
         if isModelLoaded {
-            if modelInfo.name.lowercased().contains("diffusion") {
+            if modelInfo.modelName.lowercased().contains("diffusion") {
                 self.getDiffusionResponse(draft: draft)
             } else {
                 self.getLLMRespsonse(draft: draft)
@@ -233,13 +233,38 @@ final class LLMChatViewModel: ObservableObject {
             let convertedContent = self.convertDeepSeekMutliChat(content: content)
             
             await llmState.processContent(convertedContent, llm: self.llm) { [weak self] output in
-                Task { @MainActor in
-                    if (output.contains("<eop>")) {
-                        self?.isProcessing = false
-                        await self?.llmState.setProcessing(false)
-                    } else {
-                        self?.send(draft: DraftMessage(
-                            text: output,
+                guard let self = self else { return }
+                
+                // 检查是否结束
+                if output.contains("<eop>") {
+                    // 强制刷新剩余内容
+                    Task {
+                        await UIUpdateOptimizer.shared.forceFlush { finalOutput in
+                            if !finalOutput.isEmpty {
+                                self.send(draft: DraftMessage(
+                                    text: finalOutput,
+                                    thinkText: "",
+                                    medias: [],
+                                    recording: nil,
+                                    replyMessage: nil,
+                                    createdAt: Date()
+                                ), userType: .assistant)
+                            }
+                        }
+                        
+                        await MainActor.run {
+                            self.isProcessing = false
+                        }
+                        await self.llmState.setProcessing(false)
+                    }
+                    return
+                }
+                
+                // 使用UIUpdateOptimizer进行批量优化更新
+                Task {
+                    await UIUpdateOptimizer.shared.addUpdate(output) { batchedOutput in
+                        self.send(draft: DraftMessage(
+                            text: batchedOutput,
                             thinkText: "",
                             medias: [],
                             recording: nil,
@@ -259,7 +284,7 @@ final class LLMChatViewModel: ObservableObject {
     }
     
     private func convertDeepSeekMutliChat(content: String) -> String {
-        if self.modelInfo.name.lowercased().contains("deepseek") {
+        if self.modelInfo.modelName.lowercased().contains("deepseek") {
             /* formate:: <|begin_of_sentence|><|User|>{text}<|Assistant|>{text}<|end_of_sentence|>
              <|User|>{text}<|Assistant|>{text}<|end_of_sentence|>
              */
@@ -312,7 +337,7 @@ final class LLMChatViewModel: ObservableObject {
         ChatHistoryManager.shared.saveChat(
             historyId: historyId,
             modelId: modelInfo.modelId,
-            modelName: modelInfo.name,
+            modelName: modelInfo.modelName,
             messages: messages
         )
         
