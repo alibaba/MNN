@@ -190,7 +190,7 @@ struct ResultsCard: View {
                         .font(.subheadline)
                         .foregroundColor(.benchmarkSecondary)
                     Spacer()
-                    Text("https://github.com/alibaba/MNN")
+                    Text(verbatim: "https://github.com/alibaba/MNN")
                         .font(.caption)
                         .foregroundColor(.benchmarkSecondary)
                 }
@@ -211,7 +211,7 @@ struct ResultsCard: View {
     
     /// Initiates sharing of benchmark results through system share sheet
     private func shareResults() {
-        let viewToRender = self.body.frame(width: 400) // Adjust width as needed
+        let viewToRender = self.body.frame(width: 390) // Adjust width as needed
         if let image = viewToRender.snapshot() {
             presentShareSheet(activityItems: [image, formatResultsForSharing()])
         } else {

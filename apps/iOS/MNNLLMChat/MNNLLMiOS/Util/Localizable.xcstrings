@@ -99,7 +99,7 @@
     "Complete" : {
 
     },
-    "Completed:" : {
+    "Completed" : {
 
     },
     "Configure mixed samplers:" : {
@@ -322,6 +322,9 @@
 
     },
     "Performance analysis complete" : {
+
+    },
+    "Powered By MNN" : {
 
     },
     "PP: %lld • TG: %lld" : {

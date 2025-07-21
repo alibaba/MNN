@@ -47,14 +47,13 @@ struct PerformanceMetricView: View {
                     .foregroundColor(.benchmarkSecondary)
             }
             
-            HStack {
-                Spacer()
-                Text(value)
-                    .font(.title2)
-                    .fontWeight(.bold)
-                    .foregroundColor(color)
-                Spacer()
-            }
+            Text(value)
+                .font(.title2)
+                .fontWeight(.bold)
+                .foregroundColor(color)
+                .multilineTextAlignment(.center)
+                .lineLimit(nil)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
