@@ -35,6 +35,9 @@
     "Benchmark Config" : {
 
     },
+    "Benchmark Results" : {
+
+    },
     "Cache Cleared Successfully" : {
       "localizations" : {
         "zh-Hans" : {
@@ -93,7 +96,10 @@
         }
       }
     },
-    "Completed: %@" : {
+    "Complete" : {
+
+    },
+    "Completed:" : {
 
     },
     "Configure mixed samplers:" : {
@@ -105,12 +111,6 @@
           }
         }
       }
-    },
-    "Decode" : {
-
-    },
-    "Decode Speed" : {
-
     },
     "Delete" : {
       "localizations" : {
@@ -131,9 +131,6 @@
           }
         }
       }
-    },
-    "Delete Results" : {
-
     },
     "Diffusion Settings" : {
       "localizations" : {
@@ -230,9 +227,6 @@
     "Local" : {
 
     },
-    "Local Available" : {
-
-    },
     "Model Configuration" : {
       "localizations" : {
         "zh-Hans" : {
@@ -327,11 +321,18 @@
     "Penalty Sampler" : {
 
     },
-    "Prefill" : {
+    "Performance analysis complete" : {
 
     },
-    "Prefill Speed" : {
-
+    "PP: %lld • TG: %lld" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "PP: %1$lld • TG: %2$lld"
+          }
+        }
+      }
     },
     "Progress" : {
 
@@ -346,6 +347,9 @@
         }
       }
     },
+    "Ready" : {
+
+    },
     "Report an Issue" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -357,7 +361,7 @@
         }
       }
     },
-    "Runtime" : {
+    "Running performance tests" : {
 
     },
     "Sampler Type" : {
@@ -406,13 +410,13 @@
         }
       }
     },
-    "Share Results" : {
+    "Share" : {
 
     },
     "Start benchmark after selecting your model" : {
 
     },
-    "Status" : {
+    "Status Update" : {
 
     },
     "Stop Benchmark" : {
@@ -429,17 +433,20 @@
         }
       }
     },
-    "Test %lld/%lld (PP=%lld, TG=%lld)" : {
+    "Tap to select a model for testing" : {
+
+    },
+    "Test %lld of %lld" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "new",
-            "value" : "Test %1$lld/%2$lld (PP=%3$lld, TG=%4$lld)"
+            "value" : "Test %1$lld of %2$lld"
           }
         }
       }
     },
-    "Test Result" : {
+    "Test Progress" : {
 
     },
     "This is a local large model application that requires certain performance from your device.\nIt is recommended to choose different model sizes based on your device's memory. \n\nThe model recommendations for iPhone are as follows:\n- For 8GB of RAM, models up to 8B are recommended (e.g., iPhone 16 Pro).\n- For 6GB of RAM, models up to 3B are recommended (e.g., iPhone 15 Pro).\n- For 4GB of RAM, models up to 1B or smaller are recommended (e.g., iPhone 13).\n\nChoosing a model that is too large may cause insufficient memory and crashes." : {

@@ -7,7 +7,6 @@
 
 import Foundation
 
-// MARK: - 标签翻译管理器
 class TagTranslationManager {
     static let shared = TagTranslationManager()
     private var tagTranslations: [String: String] = [:]
