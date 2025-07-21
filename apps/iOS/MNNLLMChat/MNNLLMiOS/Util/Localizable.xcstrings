@@ -935,6 +935,17 @@
         }
       }
     },
+    "Stop Test" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "停止测试"
+          }
+        }
+      }
+    },
     "Status Update" : {
       "localizations" : {
         "zh-Hans" : {

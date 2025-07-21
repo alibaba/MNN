@@ -32,7 +32,7 @@ class BenchmarkViewModel: ObservableObject {
     @Published var errorMessage: String = ""
     @Published var statusMessage: String = ""
     
-    @Published var startButtonText = "Start Test"
+    @Published var startButtonText = String(localized: "Start Test")
     @Published var isStartButtonEnabled = true
     
     // MARK: - Private Properties
@@ -62,7 +62,7 @@ class BenchmarkViewModel: ObservableObject {
         benchmarkService.$isRunning
             .receive(on: DispatchQueue.main)
             .map { isRunning in
-                isRunning ? "Stop Test" : "Start Test"
+                isRunning ? String(localized: "Stop Test") : String(localized: "Start Test")
             }
             .assign(to: \.startButtonText, on: self)
             .store(in: &cancellables)

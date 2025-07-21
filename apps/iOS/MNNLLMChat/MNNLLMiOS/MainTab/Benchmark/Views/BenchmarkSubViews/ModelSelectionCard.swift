@@ -83,7 +83,7 @@ struct ModelSelectionCard: View {
         } label: {
             HStack(spacing: 16) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(viewModel.selectedModel?.modelName ?? "Choose your AI model")
+                    Text(viewModel.selectedModel?.modelName ?? String(localized: "Choose your AI model"))
                         .font(.system(size: 16, weight: .medium))
                         .foregroundColor(viewModel.selectedModel != nil ? .primary : .benchmarkSecondary)
                         .lineLimit(1)
