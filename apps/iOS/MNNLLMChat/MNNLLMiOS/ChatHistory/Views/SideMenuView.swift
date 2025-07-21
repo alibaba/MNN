@@ -93,7 +93,7 @@ struct SideMenuView: View {
                 )
                 .alert("Delete History", isPresented: $showingAlert) {
                     Button("Cancel", role: .cancel) {}
-                    Button("Delete", role: .destructive) {
+                    Button(LocalizedStringKey("button.delete"), role: .destructive) {
                         if let history = historyToDelete {
                             deleteHistory(history)
                         }
@@ -117,7 +117,7 @@ struct SettingsFullScreenView: View {
     var body: some View {
         NavigationView {
             SettingsView()
-                .navigationTitle("设置")
+                .navigationTitle("Settings")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .navigationBarLeading) {
