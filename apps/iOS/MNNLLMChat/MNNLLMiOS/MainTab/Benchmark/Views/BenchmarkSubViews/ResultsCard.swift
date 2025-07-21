@@ -173,17 +173,25 @@ struct ResultsCard: View {
     }
     
     private var detailedStats: some View {
-        let statistics = BenchmarkResultsHelper.shared.processTestResults(results.testResults)
-        
         return VStack(alignment: .leading, spacing: 12) {
             VStack(spacing: 8) {
                 HStack {
-                    Text("Completed:")
+                    Text("Completed")
                         .font(.subheadline)
                         .foregroundColor(.benchmarkSecondary)
                     Spacer()
                     Text(results.timestamp)
                         .font(.subheadline)
+                        .foregroundColor(.benchmarkSecondary)
+                }
+                
+                HStack {
+                    Text("Powered By MNN")
+                        .font(.subheadline)
+                        .foregroundColor(.benchmarkSecondary)
+                    Spacer()
+                    Text("https://github.com/alibaba/MNN")
+                        .font(.caption)
                         .foregroundColor(.benchmarkSecondary)
                 }
             }
@@ -203,23 +211,27 @@ struct ResultsCard: View {
     
     /// Initiates sharing of benchmark results through system share sheet
     private func shareResults() {
-        let shareText = formatResultsForSharing()
-        let activityViewController = UIActivityViewController(
-            activityItems: [shareText],
-            applicationActivities: nil
-        )
-        
+        let viewToRender = self.body.frame(width: 400) // Adjust width as needed
+        if let image = viewToRender.snapshot() {
+            presentShareSheet(activityItems: [image, formatResultsForSharing()])
+        } else {
+            presentShareSheet(activityItems: [formatResultsForSharing()])
+        }
+    }
+
+    private func presentShareSheet(activityItems: [Any]) {
+        let activityViewController = UIActivityViewController(activityItems: activityItems, applicationActivities: nil)
+
         if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
            let window = windowScene.windows.first,
            let rootViewController = window.rootViewController {
-            
-            // Configure popover for iPad presentation
+
             if let popover = activityViewController.popoverPresentationController {
                 popover.sourceView = window
                 popover.sourceRect = CGRect(x: window.bounds.midX, y: window.bounds.midY, width: 0, height: 0)
                 popover.permittedArrowDirections = []
             }
-            
+
             rootViewController.present(activityViewController, animated: true)
         }
     }
@@ -264,6 +276,23 @@ struct ResultsCard: View {
         shareText += "\n\n#MNNLLMBenchmark #AIPerformance #MobileAI"
         
         return shareText
+    }
+}
+
+extension View {
+    func snapshot() -> UIImage? {
+        let controller = UIHostingController(rootView: self)
+        let view = controller.view
+
+        let targetSize = controller.view.intrinsicContentSize
+        view?.bounds = CGRect(origin: .zero, size: targetSize)
+        view?.backgroundColor = .clear
+
+        let renderer = UIGraphicsImageRenderer(size: targetSize)
+
+        return renderer.image { _ in
+            view?.drawHierarchy(in: controller.view.bounds, afterScreenUpdates: true)
+        }
     }
 }
 
