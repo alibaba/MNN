@@ -48,7 +48,7 @@ struct ResultsCard: View {
             Text("Benchmark Config")
                 .font(.headline)
             Text(statistics.configText)
-                .font(.system(.body, design: .monospaced))
+                .font(.subheadline)
                 .foregroundColor(.secondary)
         }
     }
@@ -177,17 +177,17 @@ struct ResultsCard: View {
             VStack(spacing: 8) {
                 HStack {
                     Text("Completed")
-                        .font(.subheadline)
+                        .font(.caption)
                         .foregroundColor(.benchmarkSecondary)
                     Spacer()
                     Text(results.timestamp)
-                        .font(.subheadline)
+                        .font(.caption)
                         .foregroundColor(.benchmarkSecondary)
                 }
                 
                 HStack {
                     Text("Powered By MNN")
-                        .font(.subheadline)
+                        .font(.caption)
                         .foregroundColor(.benchmarkSecondary)
                     Spacer()
                     Text(verbatim: "https://github.com/alibaba/MNN")

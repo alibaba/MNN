@@ -21,7 +21,14 @@ struct MainTabView: View {
     @State private var navigateToSettings = false
     @StateObject private var modelListViewModel = ModelListViewModel()
     @State private var selectedTab: Int = 0
-    @State private var titles = ["Local Model", "Model Market", "Benchmark"]
+    
+    private var titles: [String] {
+        [
+            NSLocalizedString("Local Model", comment: "本地模型标签"),
+            NSLocalizedString("Model Market", comment: "模型市场标签"),
+            NSLocalizedString("Benchmark", comment: "基准测试标签")
+        ]
+    }
     
     // MARK: - Body
     

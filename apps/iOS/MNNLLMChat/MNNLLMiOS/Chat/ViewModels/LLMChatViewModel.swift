@@ -20,7 +20,7 @@ final class LLMChatViewModel: ObservableObject {
     @Published var messages: [Message] = []
     @Published var isModelLoaded = false
     @Published var isProcessing: Bool = false
-    @Published var currentStreamingMessageId: String? = nil // 添加当前流式输出消息ID标识
+    @Published var currentStreamingMessageId: String? = nil
     
     @Published var useMmap: Bool = false
     

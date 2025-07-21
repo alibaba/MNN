@@ -17,13 +17,13 @@ struct SwipeActionsView: View {
             Button {
                 viewModel.unpinModel(model)
             } label: {
-                Label("取消置顶", systemImage: "pin.slash")
+                Label(LocalizedStringKey("button.unpin"), systemImage: "pin.slash")
             }.tint(.gray)
         } else {
             Button {
                 viewModel.pinModel(model)
             } label: {
-                Label("置顶", systemImage: "pin")
+                Label(LocalizedStringKey("button.pin"), systemImage: "pin")
             }.tint(.primaryBlue)
         }
         if model.isDownloaded {
@@ -32,9 +32,9 @@ struct SwipeActionsView: View {
                     await viewModel.deleteModel(model)
                 }
             } label: {
-                Label("删除", systemImage: "trash")
+                Label("Delete", systemImage: "trash")
             }
             .tint(.primaryRed)
         }
     }
-} 
+}

@@ -21,7 +21,7 @@ struct FilterMenuView: View {
                 VStack(alignment: .leading, spacing: 24) {
                     // 标签筛选
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("按标签筛选")
+                        Text("filter.byTag")
                             .font(.headline)
                             .fontWeight(.semibold)
                         
@@ -45,7 +45,7 @@ struct FilterMenuView: View {
                     
                     // 厂商筛选
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("按厂商筛选")
+                        Text("filter.byVendor")
                             .font(.headline)
                             .fontWeight(.semibold)
                         
@@ -69,11 +69,11 @@ struct FilterMenuView: View {
                 }
                 .padding()
             }
-            .navigationTitle("筛选选项")
+            .navigationTitle("filter.title")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Button("清除") {
+                    Button("button.clear") {
                         selectedTags.removeAll()
                         selectedCategories.removeAll()
                         selectedVendors.removeAll()
@@ -81,7 +81,7 @@ struct FilterMenuView: View {
                 }
                 
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("完成") {
+                    Button("button.done") {
                         dismiss()
                     }
                 }

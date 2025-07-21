@@ -63,7 +63,7 @@ final class LLMChatInteractor: ChatInteractorProtocol {
         }
         
         Task {
-            var status: Message.Status = .sending
+            let status: Message.Status = .sending
             
             var sender: LLMChatUser
             switch userType {
@@ -74,7 +74,7 @@ final class LLMChatInteractor: ChatInteractorProtocol {
             case .system:
                 sender = chatData.system
             }
-            var message: LLMChatMessage = await draftMessage.toLLMChatMessage(
+            let message: LLMChatMessage = await draftMessage.toLLMChatMessage(
                 id: UUID().uuidString,
                 user: sender,
                 status: status)

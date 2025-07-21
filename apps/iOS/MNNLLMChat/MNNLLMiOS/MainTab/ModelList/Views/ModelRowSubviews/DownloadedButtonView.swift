@@ -18,7 +18,7 @@ struct DownloadedButtonView: View {
                     .font(.system(size: 16))
                     .foregroundColor(.primary.opacity(0.8))
                 
-                Text("已下载")
+                Text(LocalizedStringKey("button.downloaded"))
                     .font(.caption2)
                     .foregroundColor(.secondary)
             }

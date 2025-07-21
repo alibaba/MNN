@@ -7,7 +7,6 @@
 
 import SwiftUI
 
-// MARK: - 下载源选择器
 struct SourceSelector: View {
     @Binding var selectedSource: ModelSource
     @Binding var showSourceMenu: Bool
@@ -29,7 +28,7 @@ struct SourceSelector: View {
             }
         } label: {
             HStack(spacing: 4) {
-                Text("下载源:")
+                Text("modelSource.title")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundColor(.primary)
                 

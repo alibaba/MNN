@@ -11,6 +11,11 @@ import Foundation
 class LanguageManager {
     static let shared = LanguageManager()
     
+    var languageOptions: [String: String] {
+        ["en": NSLocalizedString("language.english", comment: ""),
+         "zh-Hans": NSLocalizedString("language.simplifiedChinese", comment: "")]
+    }
+    
     private let languageKey = "AppLanguage"
     
     var currentLanguage: String {
@@ -26,16 +31,15 @@ class LanguageManager {
     private func getSystemLanguage() -> String {
         let preferredLanguage = Locale.preferredLanguages.first ?? "en"
         if preferredLanguage.starts(with: "zh") {
-            return "简体中文"
+            return "zh-Hans"
         } else {
-            return "English"
+            return "en"
         }
     }
     
-    func applyLanguage(_ language: String) {
-        currentLanguage = language
+    func applyLanguage(_ code: String) {
+        currentLanguage = code
         
-        let code = language == "简体中文" ? "zh-Hans" : "en"
         UserDefaults.standard.set([code], forKey: "AppleLanguages")
         UserDefaults.standard.synchronize()
         

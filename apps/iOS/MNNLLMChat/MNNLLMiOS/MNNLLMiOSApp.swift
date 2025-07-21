@@ -14,8 +14,7 @@ struct MNNLLMiOSApp: App {
         UIView.appearance().overrideUserInterfaceStyle = .light
         
         let savedLanguage = LanguageManager.shared.currentLanguage
-        let languageCode = savedLanguage == "简体中文" ? "zh-Hans" : "en"
-        UserDefaults.standard.set([languageCode], forKey: "AppleLanguages")
+        UserDefaults.standard.set([savedLanguage], forKey: "AppleLanguages")
         UserDefaults.standard.synchronize()
     }
     

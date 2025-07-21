@@ -19,7 +19,7 @@ class TagTranslationManager {
     
     func getLocalizedTag(_ tag: String) -> String {
         let currentLanguage = LanguageManager.shared.currentLanguage
-        let isChineseLanguage = currentLanguage == "简体中文"
+        let isChineseLanguage = currentLanguage == "zh-Hans"
         
         if isChineseLanguage, let translation = tagTranslations[tag] {
             return translation

@@ -10,17 +10,17 @@ import SwiftUI
 struct SettingsView: View {
     
     private var sourceManager = ModelSourceManager.shared
-    @State private var selectedLanguage = LanguageManager.shared.currentLanguage
+    @State private var selectedLanguage = ""
     @State private var selectedSource = ModelSourceManager.shared.selectedSource
     @State private var showLanguageAlert = false
     
-    private let languages = ["简体中文", "English"]
+    private let languageOptions = LanguageManager.shared.languageOptions
     
     var body: some View {
         List {
-            Section(header: Text("应用")) {
+            Section(header: Text("settings.section.application")) {
                 
-                Picker("下载源", selection: $selectedSource) {
+                Picker("settings.picker.downloadSource", selection: $selectedSource) {
                     ForEach(ModelSource.allCases, id: \.self) { source in
                         Text(source.rawValue).tag(source)
                     }
@@ -29,9 +29,9 @@ struct SettingsView: View {
                     sourceManager.updateSelectedSource(newValue)
                 }
                 
-                Picker("语言", selection: $selectedLanguage) {
-                    ForEach(languages, id: \.self) { language in
-                        Text(language).tag(language)
+                Picker("settings.picker.language", selection: $selectedLanguage) {
+                    ForEach(languageOptions.keys.sorted(), id: \.self) { key in
+                        Text(languageOptions[key] ?? "").tag(key)
                     }
                 }
                 .onChange(of: selectedLanguage) { _, newValue in
@@ -41,14 +41,14 @@ struct SettingsView: View {
                 }
             }
             
-            Section(header: Text("关于")) {
+            Section(header: Text("settings.section.about")) {
                 Button(action: {
                     if let url = URL(string: "https://github.com/alibaba/MNN") {
                         UIApplication.shared.open(url)
                     }
                 }) {
                     HStack {
-                        Text("关于 MNN")
+                        Text("settings.button.aboutMNN")
                         Spacer()
                         Image(systemName: "chevron.right")
                             .foregroundColor(.gray)
@@ -63,7 +63,7 @@ struct SettingsView: View {
                     }
                 }) {
                     HStack {
-                        Text("反馈问题")
+                        Text("settings.button.reportIssue")
                         Spacer()
                         Image(systemName: "chevron.right")
                             .foregroundColor(.gray)
@@ -74,20 +74,23 @@ struct SettingsView: View {
             }
         }
         .listStyle(InsetGroupedListStyle())
-        .navigationTitle("设置")
+        .navigationTitle("settings.navigation.title")
         .navigationBarTitleDisplayMode(.inline)
-        .alert("切换语言", isPresented: $showLanguageAlert) {
-            Button("确定") {
+        .alert("settings.alert.switchLanguage.title", isPresented: $showLanguageAlert) {
+            Button("settings.alert.switchLanguage.confirm") {
                 LanguageManager.shared.applyLanguage(selectedLanguage)
                 // 重启应用以应用语言更改
                 exit(0)
             }
-            Button("取消", role: .cancel) {
+            Button("settings.alert.switchLanguage.cancel", role: .cancel) {
                 // 恢复原来的选择
                 selectedLanguage = LanguageManager.shared.currentLanguage
             }
         } message: {
-            Text("切换语言需要重启应用，是否继续？")
+            Text("settings.alert.switchLanguage.message")
+        }
+        .onAppear {
+            selectedLanguage = LanguageManager.shared.currentLanguage
         }
     }
 }

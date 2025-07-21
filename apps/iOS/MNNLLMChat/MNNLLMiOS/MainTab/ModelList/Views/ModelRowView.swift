@@ -68,15 +68,15 @@ struct ModelRowView: View {
         .onTapGesture {
             handleRowTap()
         }
-        .alert("确认删除", isPresented: $showDeleteAlert) {
-            Button("删除", role: .destructive) {
+        .alert(LocalizedStringKey("alert.deleteModel.title"), isPresented: $showDeleteAlert) {
+            Button("Delete", role: .destructive) {
                 Task {
                     await viewModel.deleteModel(model)
                 }
             }
-            Button("取消", role: .cancel) { }
+            Button("Cancel", role: .cancel) { }
         } message: {
-            Text("是否确认删除该模型？")
+            Text(LocalizedStringKey("alert.deleteModel.message"))
         }
     }
     
