@@ -276,7 +276,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "已完成"
+            "value" : "完成时间"
           }
         }
       }
@@ -935,17 +935,6 @@
         }
       }
     },
-    "Stop Test" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "停止测试"
-          }
-        }
-      }
-    },
     "Status Update" : {
       "localizations" : {
         "zh-Hans" : {
@@ -957,6 +946,17 @@
       }
     },
     "Stop Benchmark" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "停止测试"
+          }
+        }
+      }
+    },
+    "Stop Test" : {
+      "extractionState" : "manual",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
