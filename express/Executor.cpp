@@ -231,6 +231,14 @@ void Executor::RuntimeManager::setHint(Interpreter::HintMode mode, int value) {
         iter.second->setRuntimeHint(mInside->mContent->modes.runtimeHint);
     }
 }
+void Executor::RuntimeManager::setHint(Interpreter::HintMode mode, int* value, size_t size) {
+    mInside->mContent->modes.setHint(mode, value, size);
+    auto current = ExecutorScope::Current();
+    auto rt = current->getRuntime();
+    for (auto& iter : rt.first) {
+        iter.second->setRuntimeHint(mInside->mContent->modes.runtimeHint);
+    }
+}
 void Executor::RuntimeManager::setExternalPath(std::string path, int type) {
     mInside->mContent->modes.setExternalPath(path, type);
 }

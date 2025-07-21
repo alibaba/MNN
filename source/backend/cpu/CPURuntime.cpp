@@ -82,22 +82,56 @@ int MNNGetCurrentPid() {
     return 0;
 #endif
 }
+
+#if defined (__linux__)
+// Referenced from: (LINUX) bits/cpu-set.h
+// https://sourceware.org/git/?p=glibc.git;a=blob_plain;f=posix/bits/cpu-set.h;hb=HEAD
+// Copied from: (ANDROID) libc/include/sched.h
+// https://android.googlesource.com/platform/bionic.git/+/master/libc/include/sched.h
+#ifdef __LP64__
+#define CPU_SETSIZE 1024
+#else
+#define CPU_SETSIZE 32
+#endif
+#define __CPU_BITTYPE  unsigned long int  /* mandated by the kernel  */
+#define __CPU_BITS     (8 * sizeof(__CPU_BITTYPE))
+#define __CPU_ELT(x)   ((x) / __CPU_BITS)
+#define __CPU_MASK(x)  ((__CPU_BITTYPE)1 << ((x) & (__CPU_BITS - 1)))
+/**
+ * [CPU_ZERO](https://man7.org/linux/man-pages/man3/CPU_ZERO.3.html) clears all
+ * bits in a static CPU set.
+ */
+#define CPU_ZERO(set) CPU_ZERO_S(sizeof(cpu_set_t), set)
+/**
+ * [CPU_ZERO_S](https://man7.org/linux/man-pages/man3/CPU_ZERO_S.3.html) clears
+ * all bits in a dynamic CPU set allocated by `CPU_ALLOC`.
+ */
+#define CPU_ZERO_S(setsize, set) __builtin_memset(set, 0, setsize)
+/**
+ * [CPU_SET](https://man7.org/linux/man-pages/man3/CPU_SET.3.html) sets one
+ * bit in a static CPU set.
+ */
+#define CPU_SET(cpu, set) CPU_SET_S(cpu, sizeof(cpu_set_t), set)
+/**
+ * [CPU_SET_S](https://man7.org/linux/man-pages/man3/CPU_SET_S.3.html) sets one
+ * bit in a dynamic CPU set allocated by `CPU_ALLOC`.
+ */
+#define CPU_SET_S(cpu, setsize, set)                              \
+    do {                                                          \
+        size_t __cpu = (cpu);                                     \
+        if (__cpu < 8 * (setsize))                                \
+            (set)->__bits[__CPU_ELT(__cpu)] |= __CPU_MASK(__cpu); \
+    } while (0)
+#endif
 int MNNSetSchedAffinity(const int* cpuIDs, int size) {
 #if defined (__linux__)
-#ifndef CPU_SETSIZE
-#define CPU_SETSIZE 1024
-#endif
-#define __NCPUBITS (8 * sizeof(unsigned long))
+    /**
+     * [cpu_set_t](https://man7.org/linux/man-pages/man3/CPU_SET.3.html) is a
+     * statically-sized CPU set. See `CPU_ALLOC` for dynamically-sized CPU sets.
+     */
     typedef struct {
-        unsigned long __bits[CPU_SETSIZE / __NCPUBITS];
+        __CPU_BITTYPE __bits[CPU_SETSIZE / __CPU_BITS];
     } cpu_set_t;
-
-#ifndef CPU_SET
-#define CPU_SET(cpu, cpusetp) ((cpusetp)->__bits[(cpu) / __NCPUBITS] |= (1UL << ((cpu) % __NCPUBITS)))
-#endif
-#ifndef CPU_ZERO
-#define CPU_ZERO(cpusetp) memset((cpusetp), 0, sizeof(cpu_set_t))
-#endif
     // set affinity for thread
     pid_t pid = MNNGetCurrentPid();
     cpu_set_t mask;
@@ -111,6 +145,25 @@ int MNNSetSchedAffinity(const int* cpuIDs, int size) {
         MNN_PRINT("syscall error %d\n", syscallret);
         return -1;
     }
+#endif
+    return 0;
+}
+
+cpu_mask_t MNNGetCPUMask(const std::vector<int>& cpuIds) {
+#if defined (__linux__)
+    /**
+     * [cpu_set_t](https://man7.org/linux/man-pages/man3/CPU_SET.3.html) is a
+     * statically-sized CPU set. See `CPU_ALLOC` for dynamically-sized CPU sets.
+     */
+    typedef struct {
+        __CPU_BITTYPE __bits[CPU_SETSIZE / __CPU_BITS];
+    } cpu_set_t;
+    cpu_set_t cpuMask;
+    CPU_ZERO(&cpuMask);
+    for (auto i :cpuIds){
+        CPU_SET(i, &cpuMask);
+    }
+    return cpuMask.__bits[0];
 #endif
     return 0;
 }

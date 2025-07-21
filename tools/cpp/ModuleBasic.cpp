@@ -90,9 +90,27 @@ static bool compareOutput(VARP output, const std::string& directName, const std:
     }
     return true;
 }
+
+static inline std::vector<int> parseIntList(const std::string& str, char delim) {
+    std::vector<int> result;
+    std::ptrdiff_t p1 = 0, p2;
+    while (1) {
+        p2 = str.find(delim, p1);
+        if (p2 != std::string::npos) {
+            result.push_back(atoi(str.substr(p1, p2 - p1).c_str()));
+            p1 = p2 + 1;
+        } else {
+            result.push_back(atoi(str.substr(p1).c_str()));
+            break;
+        }
+    }
+    return result;
+}
 int main(int argc, char *argv[]) {
     if (argc < 3) {
-        MNN_ERROR("Usage: ./ModuleBasic.out ${test.mnn} ${Dir} [runMask] [forwardType] [runLoops] [numberThread] [precision | memory] [cacheFile]\n");
+        MNN_PRINT("=======================================================================================================================================\n");
+        MNN_ERROR("Usage: ./ModuleBasic.out ${test.mnn} ${Dir} [runMask] [forwardType] [runLoops] [numberThread] [precision | memory] [cacheFile] [cpuIds]\n");
+        MNN_PRINT("=======================================================================================================================================\n");
         return 0;
     }
     BackendConfig backendConfigTmp;
@@ -220,6 +238,16 @@ int main(int argc, char *argv[]) {
     if (argc > 8) {
         cacheFileName = argv[8];
     }
+    // CPU IDs
+    std::vector<int> cpuIds;
+    if (argc > 9) {
+        cpuIds = parseIntList(argv[9], ',');
+    }
+    MNN_PRINT("cpuIds: ");
+    for (auto id : cpuIds) {
+        MNN_PRINT("%d ", id);
+    }
+    MNN_PRINT("\n");
     FUNC_PRINT(precision);
     FUNC_PRINT(memory);
     FUNC_PRINT(power);
@@ -246,6 +274,7 @@ int main(int argc, char *argv[]) {
     std::shared_ptr<Executor::RuntimeManager> rtmgr(Executor::RuntimeManager::createRuntimeManager(config));
     rtmgr->setCache(cacheFileName);
     rtmgr->setHint(MNN::Interpreter::INIT_THREAD_NUMBER, 4);
+    rtmgr->setHint(MNN::Interpreter::HintMode::CPU_CORE_IDS, cpuIds.data(), cpuIds.size());
 
     if (cpuDecreaseRate > 0 && cpuDecreaseRate <= 100) {
         rtmgr->setHint(Interpreter::CPU_LITTLECORE_DECREASE_RATE, cpuDecreaseRate);
