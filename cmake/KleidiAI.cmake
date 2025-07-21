@@ -22,9 +22,9 @@ function (download_kleidiai_and_collect_sources)
     # Disable the KleidiAI tests
     set(KLEIDIAI_BUILD_TESTS OFF)
 
-    set(KLEIDIAI_COMMIT_SHA "v1.9.0")
+    set(KLEIDIAI_COMMIT_SHA "v1.13.0")
     set(KLEIDIAI_DOWNLOAD_URL "https://gitlab.arm.com/kleidi/kleidiai/-/archive/${KLEIDIAI_COMMIT_SHA}/kleidiai-${KLEIDIAI_COMMIT_SHA}.tar.gz")
-    set(KLEIDIAI_ARCHIVE_MD5 "e4c9fcb5de397ba3532d593672d56e95")
+    set(KLEIDIAI_ARCHIVE_MD5 "7b73541c7ed442541b35e94725b2fd1f")
 
     set(_kleidiai_src_dir "")
     if(DEFINED KLEIDIAI_SRC_DIR AND EXISTS "${KLEIDIAI_SRC_DIR}")
@@ -92,42 +92,109 @@ function (download_kleidiai_and_collect_sources)
         ${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/imatmul_clamp_f32_f32p_f32p/
         ${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/imatmul_clamp_f16_f16p_f16p/)
 
-    list(APPEND MNN_SOURCES_KLEIDIAI ${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/pack/kai_lhs_quant_pack_qai8dxp_f32.c)
-    list(APPEND MNN_SOURCES_KLEIDIAI ${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/pack/kai_rhs_pack_nxk_qsi4cxp_qs4cxs1s0.c)
-    list(APPEND MNN_SOURCES_KLEIDIAI ${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/pack/kai_lhs_quant_pack_qsi8d32pscalef32_f16_neon.c)
-    list(APPEND MNN_SOURCES_KLEIDIAI ${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/pack/kai_lhs_quant_pack_qsi8d32pscalef32_f32_neon.c)
-    list(APPEND MNN_SOURCES_KLEIDIAI ${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/pack/kai_rhs_pack_nxk_qsi4cxps1s0_qsu4cxs1s0_neon.c)
-    list(APPEND MNN_SOURCES_KLEIDIAI ${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/pack/kai_rhs_pack_nxk_qai4c32p_qau4c32s0s1_f32_f32_f32_neon.c)
-    list(APPEND MNN_SOURCES_KLEIDIAI ${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f32_qai8dxp_qsi4cxp/kai_matmul_clamp_f32_qai8dxp1x8_qsi4cxp4x8_1x4x32_neon_dotprod.c)
-    list(APPEND MNN_SOURCES_KLEIDIAI ${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f32_qai8dxp_qsi4cxp/kai_matmul_clamp_f32_qai8dxp4x8_qsi4cxp4x8_8x4x32_neon_i8mm.c)
-    list(APPEND MNN_SOURCES_KLEIDIAI ${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f16_qsi8d32p_qai4c32p/kai_matmul_clamp_f16_qsi8d32p1x8_qai4c32p4x8_1x4_neon_dotprod_asm.S)
-    list(APPEND MNN_SOURCES_KLEIDIAI ${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f16_qsi8d32p_qai4c32p/kai_matmul_clamp_f16_qsi8d32p1x8_qai4c32p4x8_1x4_neon_dotprod.c)
-    list(APPEND MNN_SOURCES_KLEIDIAI ${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f16_qsi8d32p_qai4c32p/kai_matmul_clamp_f16_qsi8d32p4x8_qai4c32p4x8_8x4_neon_i8mm_asm.S)
-    list(APPEND MNN_SOURCES_KLEIDIAI ${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f16_qsi8d32p_qai4c32p/kai_matmul_clamp_f16_qsi8d32p4x8_qai4c32p4x8_8x4_neon_i8mm.c)
-    list(APPEND MNN_SOURCES_KLEIDIAI ${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f32_qsi8d32p_qai4c32p/kai_matmul_clamp_f32_qsi8d32p1x8_qai4c32p4x8_1x4_neon_dotprod_asm.S)
-    list(APPEND MNN_SOURCES_KLEIDIAI ${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f32_qsi8d32p_qai4c32p/kai_matmul_clamp_f32_qsi8d32p1x8_qai4c32p4x8_1x4_neon_dotprod.c)
-    list(APPEND MNN_SOURCES_KLEIDIAI ${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f32_qsi8d32p_qai4c32p/kai_matmul_clamp_f32_qsi8d32p4x8_qai4c32p4x8_8x4_neon_i8mm_asm.S)
-    list(APPEND MNN_SOURCES_KLEIDIAI ${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f32_qsi8d32p_qai4c32p/kai_matmul_clamp_f32_qsi8d32p4x8_qai4c32p4x8_8x4_neon_i8mm.c)
-
-    set(KLEIDIAI_FILES_SME2
-        ${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/pack/kai_lhs_pack_f32p2vlx1_f32_sme.c
-        ${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/pack/kai_rhs_pack_nxk_f32p2vlx1biasf32_f32_f32_sme.c
-        ${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/pack/kai_lhs_pack_x16p2vlx2_x16_sme.c
-        ${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/pack/kai_rhs_pack_nxk_x16p2vlx2b_x16_x16_sme.c
-        ${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f32_f32p_f32p/kai_matmul_clamp_f32_f32p2vlx1_f32p2vlx1biasf32_sme2_mopa.c
-        ${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f32_f32_f32p/kai_matmul_clamp_f32_f32_f32p2vlx1b_1x16vl_sme2_mla.c
-        ${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f32_f32_f32p/kai_matmul_clamp_f32_f32_f32p16vlx1b_1x16vl_sme2_mla.c
-        ${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f16_f16p_f16p/kai_matmul_clamp_f16_f16p2vlx2_f16p2vlx2_2vlx2vl_sme2_mopa.c
-        ${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f16_f16_f16p/kai_matmul_clamp_f16_f16_f16p2vlx2b_1x16vl_sme2_dot.c
-        ${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f32_qai8dxp_qsi4cxp/kai_matmul_clamp_f32_qai8dxp1x4_qsi4cxp4vlx4_1x4vl_sme2_sdot.c
-        ${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f32_qai8dxp_qsi4cxp/kai_matmul_clamp_f32_qai8dxp1vlx8_qsi4cxp4vlx8_1vlx4vl_sme2_mopa.c
-        ${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/imatmul_clamp_f32_f32p_f32p/kai_imatmul_clamp_f32_f32p2vlx1_f32p2vlx1b_2vlx2vl_sme2_mopa.c
-        ${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/pack/kai_lhs_imatmul_pack_x32p2vlx1_x32p_sme.c
-        ${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/pack/kai_rhs_imatmul_pack_kxn_x32p2vlx1b_x32_x32_sme.c
-        ${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/imatmul_clamp_f16_f16p_f16p/kai_imatmul_clamp_f16_f16p2vlx2_f16p2vlx2_2vlx2vl_sme2_mopa.c
-        ${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/pack/kai_lhs_imatmul_pack_x16p2vlx2_x16p_sme.c
-        ${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/pack/kai_rhs_imatmul_pack_kxn_x16p2vlx2b_x16_x16_sme.c
+    file(GLOB kleidiai_pack_sources
+        "${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/pack/kai_lhs_quant_pack_qsi8d32pscalef32_f16_neon.c"
+        "${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/pack/kai_lhs_quant_pack_qsi8d32pscalef32_f32_neon.c"
+        "${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/pack/kai_rhs_pack_nxk_qsi4cxps1s0_qsu4cxs1s0_neon.c"
+        "${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/pack/kai_rhs_pack_nxk_qai4c32p_qau4c32s0s1_f32_f32_f32_neon.c"
+        "${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/pack/kai_lhs_quant_pack_qai8dxp_f32.c"
+        "${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/pack/kai_rhs_pack_nxk_qsi4cxp_qs4cxs1s0.c"
     )
+    list(APPEND MNN_SOURCES_KLEIDIAI ${kleidiai_pack_sources})
+
+    file(GLOB matmul_clamp_f32_qai8dxp_qsi4cxp_sources
+        "${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f32_qai8dxp_qsi4cxp/*dotprod.c"
+        "${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f32_qai8dxp_qsi4cxp/*i8mm.c"
+        "${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f32_qai8dxp_qsi4cxp/*dotprod_asm.S"
+        "${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f32_qai8dxp_qsi4cxp/*i8mm_asm.S"
+    )
+    list(APPEND MNN_SOURCES_KLEIDIAI ${matmul_clamp_f32_qai8dxp_qsi4cxp_sources})
+
+    file(GLOB matmul_clamp_f16_qsi8d32p_qai4c32p_sources
+        "${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f16_qsi8d32p_qai4c32p/*dotprod.c"
+        "${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f16_qsi8d32p_qai4c32p/*i8mm.c"
+        "${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f16_qsi8d32p_qai4c32p/*dotprod_asm.S"
+        "${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f16_qsi8d32p_qai4c32p/*i8mm_asm.S"
+    )
+    list(APPEND MNN_SOURCES_KLEIDIAI ${matmul_clamp_f16_qsi8d32p_qai4c32p_sources})
+
+    file(GLOB matmul_clamp_f32_qsi8d32p_qai4c32p_sources
+        "${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f32_qsi8d32p_qai4c32p/*dotprod.c"
+        "${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f32_qsi8d32p_qai4c32p/*i8mm.c"
+        "${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f32_qsi8d32p_qai4c32p/*dotprod_asm.S"
+        "${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f32_qsi8d32p_qai4c32p/*i8mm_asm.S"
+    )
+    list(APPEND MNN_SOURCES_KLEIDIAI ${matmul_clamp_f32_qsi8d32p_qai4c32p_sources})
+
+    file(GLOB sme_pack_sources
+        ${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/pack/*_sme.c
+        ${KLEIDIAI_SRC_DIR}/kai/*_sme_asm.S
+        ${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/pack/*_sme_asm.S
+        ${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/pack/kai_rhs_pack_nxk_qai4c32ps1s0nrx4_qau4c32s0s1_f32_f32_f32_neon.c
+        ${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/pack/kai_rhs_pack_nxk_qai4c32ps1s0nrx4_qau4c32s1s0_f32_f32_f32_neon.c
+
+    )
+    list(APPEND KLEIDIAI_FILES_SME2 ${sme_pack_sources})
+
+    file(GLOB matmul_clamp_f32_f32p_f32p_sources
+        "${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f32_f32p_f32p/*mopa.c"
+        "${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f32_f32p_f32p/*mopa_asm.S"
+    )
+    list(APPEND KLEIDIAI_FILES_SME2 ${matmul_clamp_f32_f32p_f32p_sources})
+
+    file(GLOB matmul_clamp_f32_f32_f32p_sources
+        "${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f32_f32_f32p/*sme2_mla.c"
+        "${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f32_f32_f32p/*sme2_mla_asm.S"
+    )
+    list(APPEND KLEIDIAI_FILES_SME2 ${matmul_clamp_f32_f32_f32p_sources})
+
+    file(GLOB matmul_clamp_f16_f16p_f16p_sources
+        "${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f16_f16p_f16p/*mopa.c"
+        "${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f16_f16p_f16p/*mopa_asm.S"
+    )
+    list(APPEND KLEIDIAI_FILES_SME2 ${matmul_clamp_f16_f16p_f16p_sources})
+
+    file(GLOB matmul_clamp_f16_f16_f16p_sources
+        "${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f16_f16_f16p/*sme2_dot.c"
+        "${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f16_f16_f16p/*sme2_dot_asm.S"
+    )
+    list(APPEND KLEIDIAI_FILES_SME2 ${matmul_clamp_f16_f16_f16p_sources})
+
+    file(GLOB matmul_clamp_f32_qai8dxp_qsi4cxp_sources
+        "${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f32_qai8dxp_qsi4cxp/*mopa.c"
+        "${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f32_qai8dxp_qsi4cxp/*mopa_asm.S"
+        "${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f32_qai8dxp_qsi4cxp/*sdot.c"
+        "${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f32_qai8dxp_qsi4cxp/*sdot_asm.S"
+    )
+    list(APPEND KLEIDIAI_FILES_SME2 ${matmul_clamp_f32_qai8dxp_qsi4cxp_sources})
+
+    file(GLOB imatmul_clamp_f32_f32p_f32p_sources
+        "${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/imatmul_clamp_f32_f32p_f32p/*mopa.c"
+        "${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/imatmul_clamp_f32_f32p_f32p/*mopa_asm.S"
+    )
+    list(APPEND KLEIDIAI_FILES_SME2 ${imatmul_clamp_f32_f32p_f32p_sources})
+
+    file(GLOB imatmul_clamp_f16_f16p_f16p_sources
+        "${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/imatmul_clamp_f16_f16p_f16p/*mopa.c"
+        "${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/imatmul_clamp_f16_f16p_f16p/*mopa_asm.S"
+    )
+    list(APPEND KLEIDIAI_FILES_SME2 ${imatmul_clamp_f16_f16p_f16p_sources})
+
+    file(GLOB matmul_clamp_f16_qsi8d32p_qai4c32p_sme2_sources
+        "${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f16_qsi8d32p_qai4c32p/*mopa.c"
+        "${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f16_qsi8d32p_qai4c32p/*mopa_asm.S"
+        "${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f16_qsi8d32p_qai4c32p/*dot.c"
+        "${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f16_qsi8d32p_qai4c32p/*dot_asm.S"
+    )
+    list(APPEND KLEIDIAI_FILES_SME2 ${matmul_clamp_f16_qsi8d32p_qai4c32p_sme2_sources})
+
+    file(GLOB matmul_clamp_f32_qsi8d32p_qai4c32p_sme2_sources
+        "${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f32_qsi8d32p_qai4c32p/*mopa.c"
+        "${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f32_qsi8d32p_qai4c32p/*mopa_asm.S"
+        "${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f32_qsi8d32p_qai4c32p/*dot.c"
+        "${KLEIDIAI_SRC_DIR}/kai/ukernels/matmul/matmul_clamp_f32_qsi8d32p_qai4c32p/*dot_asm.S"
+    )
+    list(APPEND KLEIDIAI_FILES_SME2 ${matmul_clamp_f32_qsi8d32p_qai4c32p_sme2_sources})
 
     set_source_files_properties(
         ${MNN_SOURCES_KLEIDIAI}
