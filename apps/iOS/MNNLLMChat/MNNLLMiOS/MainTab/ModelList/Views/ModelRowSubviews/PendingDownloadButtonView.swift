@@ -7,7 +7,6 @@
 
 import SwiftUI
 
-// MARK: - 待下载按钮视图
 struct PendingDownloadButtonView: View {
     let isOtherDownloading: Bool
     let formattedSize: String
@@ -20,16 +19,5 @@ struct PendingDownloadButtonView: View {
                 .foregroundColor(isOtherDownloading ? .secondary : .primaryPurple)
         }
         .disabled(isOtherDownloading)
-        
-        HStack(alignment: .center, spacing: 2) {
-            Image(systemName: "folder")
-                .font(.caption2)
-            
-            Text(formattedSize)
-                .font(.caption2)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-        }
-        .foregroundColor(.secondary)
     }
 }

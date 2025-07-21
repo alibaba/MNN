@@ -23,7 +23,7 @@ struct LocalModelRowView: View {
         HStack(alignment: .center) {
             
             ModelIconView(modelId: model.id)
-                .frame(width: 50, height: 50)
+                .frame(width: 40, height: 40)
             
             VStack(alignment: .leading, spacing: 8) {
                 Text(model.modelName)

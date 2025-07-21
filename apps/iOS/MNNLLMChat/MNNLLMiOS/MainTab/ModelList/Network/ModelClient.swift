@@ -9,9 +9,10 @@ import Hub
 import Foundation
 
 class ModelClient {
+    private let maxRetries = 5
+    
     private let baseMirrorURL = "https://hf-mirror.com"
     private let baseURL = "https://huggingface.co"
-    private let maxRetries = 5
     private let AliCDNURL = "https://meta.alicdn.com/data/mnn/apis/model_market.json"
     
     // Debug flag to use local mock data instead of network API

@@ -50,7 +50,7 @@ struct ModelListView: View {
                 
                 if index < filteredModels.count - 1 {
                     Divider()
-                        .padding(.horizontal, 16)
+                        .padding(.leading, 60)
                 }
             }
         }
@@ -72,7 +72,6 @@ struct ModelListView: View {
         )
     }
     
-    // Extract single model row view as independent method
     @ViewBuilder
     private func modelRowView(model: ModelInfo, index: Int) -> some View {
         ModelRowView(

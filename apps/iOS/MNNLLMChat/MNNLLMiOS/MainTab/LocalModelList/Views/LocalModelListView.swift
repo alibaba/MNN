@@ -18,7 +18,6 @@ struct LocalModelListView: View {
                 }) {
                     LocalModelRowView(model: model)
                 }
-                .listRowSeparator(.hidden)
                 .listRowBackground(viewModel.pinnedModelIds.contains(model.id) ? Color.black.opacity(0.05) : Color.clear)
                 .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                     SwipeActionsView(model: model, viewModel: viewModel)
