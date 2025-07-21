@@ -12,6 +12,10 @@ class ModelClient {
     private let baseMirrorURL = "https://hf-mirror.com"
     private let baseURL = "https://huggingface.co"
     private let maxRetries = 5
+    private let AliCDNURL = "https://meta.alicdn.com/data/mnn/apis/model_market.json"
+    
+    // Debug flag to use local mock data instead of network API
+    private let useLocalMockData = false
     
     private var currentDownloadManager: ModelScopeDownloadManager?
     
@@ -27,31 +31,54 @@ class ModelClient {
     init() {}
     
     func getModelInfo() async throws -> TBDataResponse {
-        guard let url = Bundle.main.url(forResource: "mock", withExtension: "json") else {
-            throw NetworkError.invalidData
+        if useLocalMockData {
+            // Debug mode: use local mock data
+            guard let url = Bundle.main.url(forResource: "mock", withExtension: "json") else {
+                throw NetworkError.invalidData
+            }
+            
+            let data = try Data(contentsOf: url)
+            let mockResponse = try JSONDecoder().decode(TBDataResponse.self, from: data)
+            return mockResponse
+        } else {
+            // Production mode: fetch from network API
+            return try await fetchDataFromAliAPI()
         }
-        
-        let data = try Data(contentsOf: url)
-        let mockResponse = try JSONDecoder().decode(TBDataResponse.self, from: data)
-        return mockResponse
     }
-    
-    func getModelList() async throws -> [ModelInfo] {
-//        TODO: get json from network
-//        let url = URL(string: "\(baseURLString)/api/models?author=taobao-mnn&limit=100")!
-//        return try await performRequest(url: url, retries: maxRetries)
         
-        guard let url = Bundle.main.url(forResource: "mock", withExtension: "json") else {
-            throw NetworkError.invalidData
+    /**
+     * Fetches data from the network API with fallback to local mock data
+     *
+     * @throws NetworkError if both network request and local fallback fail
+     */
+    private func fetchDataFromAliAPI() async throws -> TBDataResponse {
+        do {
+            guard let url = URL(string: AliCDNURL) else {
+                throw NetworkError.invalidData
+            }
+            
+            let (data, response) = try await URLSession.shared.data(from: url)
+            
+            guard let httpResponse = response as? HTTPURLResponse,
+                  httpResponse.statusCode == 200 else {
+                throw NetworkError.invalidResponse
+            }
+            
+            let apiResponse = try JSONDecoder().decode(TBDataResponse.self, from: data)
+            return apiResponse
+            
+        } catch {
+            print("Network request failed: \(error). Falling back to local mock data.")
+            
+            // Fallback to local mock data if network request fails
+            guard let url = Bundle.main.url(forResource: "mock", withExtension: "json") else {
+                throw NetworkError.invalidData
+            }
+            
+            let data = try Data(contentsOf: url)
+            let mockResponse = try JSONDecoder().decode(TBDataResponse.self, from: data)
+            return mockResponse
         }
-        
-        let data = try Data(contentsOf: url)
-        let mockResponse = try JSONDecoder().decode(TBDataResponse.self, from: data)
-        
-        // 加载全局标签翻译
-        TagTranslationManager.shared.loadTagTranslations(mockResponse.tagTranslations)
-        
-        return mockResponse.models
     }
     
     /**

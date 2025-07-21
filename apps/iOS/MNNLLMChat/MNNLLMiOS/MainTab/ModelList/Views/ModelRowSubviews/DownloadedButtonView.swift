@@ -21,6 +21,9 @@ struct DownloadedButtonView: View {
                 Text(LocalizedStringKey("button.downloaded"))
                     .font(.caption2)
                     .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                    .allowsTightening(true)
             }
         }
     }
