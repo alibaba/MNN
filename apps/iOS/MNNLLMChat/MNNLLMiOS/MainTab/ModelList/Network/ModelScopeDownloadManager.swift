@@ -407,7 +407,6 @@ public actor ModelScopeDownloadManager: Sendable {
             }
         }
         
-        // 确保最终进度为100%
         Task { @MainActor in
             progress(1.0)
         }

@@ -34,7 +34,6 @@ struct LLMMessageView: View {
     @State var avatarViewSize: CGSize = .zero
     @State var timeSize: CGSize = .zero
     
-    // 复用 MessageView 的样式常量
     static let widthWithMedia: CGFloat = 204
     static let horizontalNoAvatarPadding: CGFloat = 8
     static let horizontalAvatarPadding: CGFloat = 8

@@ -7,7 +7,6 @@
 
 import SwiftUI
 
-// MARK: - 筛选菜单视图
 struct FilterMenuView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var viewModel = ModelListViewModel()
@@ -19,7 +18,6 @@ struct FilterMenuView: View {
         NavigationView {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
-                    // 标签筛选
                     VStack(alignment: .leading, spacing: 12) {
                         Text("filter.byTag")
                             .font(.headline)
@@ -43,7 +41,6 @@ struct FilterMenuView: View {
                     
                     Divider()
                     
-                    // 厂商筛选
                     VStack(alignment: .leading, spacing: 12) {
                         Text("filter.byVendor")
                             .font(.headline)

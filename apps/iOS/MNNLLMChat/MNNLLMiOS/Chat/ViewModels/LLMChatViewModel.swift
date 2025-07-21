@@ -239,7 +239,6 @@ final class LLMChatViewModel: ObservableObject {
             await llmState.processContent(convertedContent, llm: self.llm, showPerformance: true) { [weak self] output in
                 guard let self = self else { return }
                 
-                // 检查是否结束
                 if output.contains("<eop>") {
                     // force flush
                     Task {

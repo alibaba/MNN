@@ -41,7 +41,6 @@
 		3E94DF342D30CCFA00BE39A7 /* Exceptions for "MNNLLMiOS" folder in "MNNLLMiOS" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
-				Chat/Models/LLMChatViewModel.swift,
 				Info.plist,
 			);
 			target = 3E8591FD2D1D45070067B46F /* MNNLLMiOS */;
