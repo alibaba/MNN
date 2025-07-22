@@ -55,7 +55,7 @@ struct PerformanceMetricView: View {
                 .lineLimit(nil)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .center)
         .padding(16)
         .background(
             RoundedRectangle(cornerRadius: 12)

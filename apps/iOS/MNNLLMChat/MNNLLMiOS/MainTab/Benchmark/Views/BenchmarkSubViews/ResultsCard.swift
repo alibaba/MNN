@@ -49,6 +49,8 @@ struct ResultsCard: View {
                 .font(.headline)
             Text(statistics.configText)
                 .font(.subheadline)
+                .lineLimit(nil)
+                .fixedSize(horizontal: false, vertical: true)
                 .foregroundColor(.secondary)
         }
     }
