@@ -85,7 +85,7 @@ struct ModelSelectionCard: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(viewModel.selectedModel?.modelName ?? String(localized: "Choose your AI model"))
                         .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(viewModel.selectedModel != nil ? .primary : .benchmarkSecondary)
+                        .foregroundColor(viewModel.isRunning ? .secondary : (viewModel.selectedModel != nil ? .primary : .benchmarkSecondary))
                         .lineLimit(1)
                     
                     if let model = viewModel.selectedModel {
@@ -116,7 +116,7 @@ struct ModelSelectionCard: View {
                 
                 Image(systemName: "chevron.down")
                     .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(.benchmarkSecondary)
+                    .foregroundColor(viewModel.isRunning ? .secondary : .benchmarkSecondary)
                     .rotationEffect(.degrees(0))
             }
             .padding(20)
@@ -126,14 +126,16 @@ struct ModelSelectionCard: View {
                     .overlay(
                         RoundedRectangle(cornerRadius: 16)
                             .stroke(
-                                viewModel.selectedModel != nil ? 
+                                viewModel.isRunning ? 
+                                Color.gray.opacity(0.1) :
+                                (viewModel.selectedModel != nil ? 
                                 Color.benchmarkAccent.opacity(0.3) : 
-                                Color.gray.opacity(0.2),
+                                Color.gray.opacity(0.2)),
                                 lineWidth: 1
                             )
-                    )
-            )
+                    ))
         }
+        .disabled(viewModel.isRunning)
     }
     
     private var startStopButton: some View {
