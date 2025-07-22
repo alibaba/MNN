@@ -31,5 +31,5 @@ jobs:
       - name: test
         run: |
             mkdir build && cd build
-            cmake -DMNN_BUILD_TEST=ON ..
+            cmake .. -DMNN_BUILD_TEST=ON -DLLM_SUPPORT_VISION=true -DMNN_BUILD_OPENCV=true -DMNN_IMGCODECS=true -DMNN_LOW_MEMORY=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true -DLLM_SUPPORT_AUDIO=true -DMNN_BUILD_AUDIO=true -DMNN_VULKAN=ON -DMNN_OPENCL=ON
             cmake --build . -j4
