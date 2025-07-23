@@ -21,7 +21,11 @@ void conv_2d_1x1_local(__private const int out_w_blocks,
                           __private const int out_h,
                           __private const int out_w,
                           __private const int out_c_block,
-                          __private const int out_c_pack) {
+                          __private const int out_c_pack
+                          #ifdef PRELU
+                          ,__global const FLOAT *slope_ptr
+                          #endif
+) {
 
     const int lid = get_local_id(0);
     const int out_c_w_idx = get_global_id(1); //c/4 w
@@ -74,6 +78,11 @@ void conv_2d_1x1_local(__private const int out_w_blocks,
         out0 = clamp(out0, (COMPUTE_FLOAT4)0, (COMPUTE_FLOAT4)6);
 #endif
 
+#ifdef PRELU
+        COMPUTE_FLOAT4 slope_in = CONVERT_COMPUTE_FLOAT4(vload4(out_c_idx, slope_ptr));
+        out0 = select(out0 * slope_in, out0, out0 >= 0);
+#endif
+
         const int out_offset = (((out_b_idx + out_c_idx*batch)*out_h + out_h_idx)* out_w + out_w_idx)*4;
         vstore4(CONVERT_FLOAT4(out0), 0, output+out_offset);
     }
@@ -91,7 +100,11 @@ void conv_2d_1x1_c4h1w4(GLOBAL_SIZE_2_DIMS __private const int out_w_blocks,
                           __private const int out_w,
                           __private const int out_b,
                           __private const int out_c_block,
-                          __private const int out_c_pack) {
+                          __private const int out_c_pack
+                          #ifdef PRELU
+                          ,__global const FLOAT *slope_ptr
+                          #endif
+) {
 
     const int out_c_w_idx = get_global_id(0); //c/4 w
     const int out_b_h_idx  = get_global_id(1); //b h
@@ -163,6 +176,14 @@ void conv_2d_1x1_c4h1w4(GLOBAL_SIZE_2_DIMS __private const int out_w_blocks,
     out3 = clamp(out3, (COMPUTE_FLOAT4)0, (COMPUTE_FLOAT4)6);
 #endif
 
+#ifdef PRELU
+    COMPUTE_FLOAT4 slope_in = CONVERT_COMPUTE_FLOAT4(vload4(out_c_idx, slope_ptr));
+    out0 = select(out0 * slope_in, out0, out0 >= 0);
+    out1 = select(out1 * slope_in, out1, out1 >= 0);
+    out2 = select(out2 * slope_in, out2, out2 >= 0);
+    out3 = select(out3 * slope_in, out3, out3 >= 0);
+#endif
+
     const int out_offset = (((out_b_idx + out_c_idx * out_b)*out_h + out_h_idx)* out_w + out_w4_idx)*4;
 #ifdef BLOCK_LEAVE
     const int remain = out_w - out_w4_idx;
@@ -193,7 +214,11 @@ void conv_2d_1x1_c8h1w4(GLOBAL_SIZE_2_DIMS __private const int out_w_blocks,
                           __private const int out_w,
                           __private const int out_b,
                           __private const int out_c_block,
-                          __private const int out_c_pack) {
+                          __private const int out_c_pack
+                          #ifdef PRELU
+                          ,__global const FLOAT *slope_ptr
+                          #endif
+) {
 
     const int out_c_w_idx = get_global_id(0); //c/8 w/4
     const int out_b_h_idx  = get_global_id(1); //b h
@@ -315,6 +340,19 @@ void conv_2d_1x1_c8h1w4(GLOBAL_SIZE_2_DIMS __private const int out_w_blocks,
     out7 = clamp(out7, (COMPUTE_FLOAT4)0, (COMPUTE_FLOAT4)6);
 #endif
 
+#ifdef PRELU
+    COMPUTE_FLOAT4 slope_in0 = CONVERT_COMPUTE_FLOAT4(vload4(out_c_idx_0, slope_ptr));
+    COMPUTE_FLOAT4 slope_in1 = CONVERT_COMPUTE_FLOAT4(vload4(out_c_idx_1, slope_ptr));
+    out0 = select(out0 * slope_in0, out0, out0 >= 0);
+    out1 = select(out1 * slope_in0, out1, out1 >= 0);
+    out2 = select(out2 * slope_in0, out2, out2 >= 0);
+    out3 = select(out3 * slope_in0, out3, out3 >= 0);
+    out4 = select(out4 * slope_in1, out4, out4 >= 0);
+    out5 = select(out5 * slope_in1, out5, out5 >= 0);
+    out6 = select(out6 * slope_in1, out6, out6 >= 0);
+    out7 = select(out7 * slope_in1, out7, out7 >= 0);
+#endif
+
     const int out_offset = (((out_b_idx + out_c_idx_0*out_b)*out_h + out_h_idx)* out_w + out_w4_idx)*4;
 
     __global FLOAT * _tempoutput = output + out_offset;
@@ -370,7 +408,11 @@ void conv_2d_1x1_c8h1w2(GLOBAL_SIZE_2_DIMS __private const int out_w_blocks,
                           __private const int out_w,
                           __private const int out_b,
                           __private const int out_c_block,
-                          __private const int out_c_pack) {
+                          __private const int out_c_pack
+                          #ifdef PRELU
+                          ,__global const FLOAT *slope_ptr
+                          #endif
+) {
 
     const int out_c_w_idx = get_global_id(0); //c/8 w/4
     const int out_b_h_idx  = get_global_id(1); //b h
@@ -451,6 +493,15 @@ void conv_2d_1x1_c8h1w2(GLOBAL_SIZE_2_DIMS __private const int out_w_blocks,
     out5 = clamp(out5, (COMPUTE_FLOAT4)0, (COMPUTE_FLOAT4)6);
 #endif
 
+#ifdef PRELU
+    COMPUTE_FLOAT4 slope_in0 = CONVERT_COMPUTE_FLOAT4(vload4(out_c_idx_0, slope_ptr));
+    COMPUTE_FLOAT4 slope_in1 = CONVERT_COMPUTE_FLOAT4(vload4(out_c_idx_1, slope_ptr));
+    out0 = select(out0 * slope_in0, out0, out0 >= 0);
+    out1 = select(out1 * slope_in0, out1, out1 >= 0);
+    out4 = select(out4 * slope_in1, out4, out4 >= 0);
+    out5 = select(out5 * slope_in1, out5, out5 >= 0);
+#endif
+
     const int out_offset = (((out_b_idx + out_c_idx_0*out_b)*out_h + out_h_idx)* out_w + out_w2_idx)*4;
 
 
@@ -496,7 +547,11 @@ void conv_2d_1x1_c4h1w1(GLOBAL_SIZE_2_DIMS __private const int out_w_blocks,
                           __private const int out_w,
                           __private const int out_b,
                           __private const int out_c_block,
-                          __private const int out_c_pack) {
+                          __private const int out_c_pack
+                          #ifdef PRELU
+                          ,__global const FLOAT *slope_ptr
+                          #endif
+) {
 
     const int out_c_w_idx = get_global_id(0); //c/4 w
     const int out_b_h_idx  = get_global_id(1); //b h
@@ -540,6 +595,11 @@ void conv_2d_1x1_c4h1w1(GLOBAL_SIZE_2_DIMS __private const int out_w_blocks,
     out0 = clamp(out0, (COMPUTE_FLOAT4)0, (COMPUTE_FLOAT4)6);
 #endif
 
+#ifdef PRELU
+    COMPUTE_FLOAT4 slope_in = CONVERT_COMPUTE_FLOAT4(vload4(out_c_idx, slope_ptr));
+    out0 = select(out0 * slope_in, out0, out0 >= 0);
+#endif
+
     const int out_offset = (((out_b_idx + out_c_idx*out_b)*out_h + out_h_idx)* out_w + out_w_idx)*4;
 
     vstore4(CONVERT_FLOAT4(out0), 0, output+out_offset);
@@ -557,7 +617,11 @@ void conv_2d_1x1_c4h1w2(GLOBAL_SIZE_2_DIMS __private const int out_w_blocks,
                           __private const int out_w,
                           __private const int out_b,
                           __private const int out_c_block,
-                          __private const int out_c_pack) {
+                          __private const int out_c_pack
+                          #ifdef PRELU
+                          ,__global const FLOAT *slope_ptr
+                          #endif
+) {
 
     const int out_c_w_idx = get_global_id(0); //c/4 w
     const int out_b_h_idx  = get_global_id(1); //b h
@@ -613,6 +677,12 @@ void conv_2d_1x1_c4h1w2(GLOBAL_SIZE_2_DIMS __private const int out_w_blocks,
     out1 = clamp(out1, (COMPUTE_FLOAT4)0, (COMPUTE_FLOAT4)6);
 #endif
 
+#ifdef PRELU
+    COMPUTE_FLOAT4 slope_in = CONVERT_COMPUTE_FLOAT4(vload4(out_c_idx, slope_ptr));
+    out0 = select(out0 * slope_in, out0, out0 >= 0);
+    out1 = select(out1 * slope_in, out1, out1 >= 0);
+#endif
+
     const int out_offset = (((out_b_idx + out_c_idx*out_b)*out_h + out_h_idx)* out_w + out_w2_idx)*4;
 
 #ifdef BLOCK_LEAVE
@@ -647,6 +717,9 @@ void conv_2d_c4h1w1(GLOBAL_SIZE_2_DIMS
                       __private const int out_c_blocks,
                       __private const int out_h_blocks,
                       __private const int out_c_base_index
+                      #ifdef PRELU
+                      ,__global const FLOAT *slope_ptr
+                      #endif
 ) {
     const int out_c_w_idx = get_global_id(0); //c/4 w
     const int out_b_h_idx  = get_global_id(1); //b h
@@ -706,6 +779,11 @@ void conv_2d_c4h1w1(GLOBAL_SIZE_2_DIMS
 #ifdef RELU6
     out0 = clamp(out0, (COMPUTE_FLOAT4)0, (COMPUTE_FLOAT4)6);
 #endif
+
+#ifdef PRELU
+    COMPUTE_FLOAT4 slope_in = CONVERT_COMPUTE_FLOAT4(vload4(out_c_idx, slope_ptr));
+    out0 = select(out0 * slope_in, out0, out0 >= 0);
+#endif
     const int out_offset = (((out_b_idx + out_c_idx*batch)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
     vstore4(CONVERT_FLOAT4(out0), 0, output+out_offset);
  
@@ -730,6 +808,9 @@ void conv_2d_c4h1w2(GLOBAL_SIZE_2_DIMS
                       __private const int out_c_blocks,
                       __private const int out_h_blocks,
                       __private const int out_c_base_index
+                      #ifdef PRELU
+                      ,__global const FLOAT *slope_ptr
+                      #endif
 ) {
     const int out_c_w_idx = get_global_id(0); //c/4 w
     const int out_b_h_idx  = get_global_id(1); //b h
@@ -799,6 +880,12 @@ void conv_2d_c4h1w2(GLOBAL_SIZE_2_DIMS
     out1 = clamp(out1, (COMPUTE_FLOAT4)0, (COMPUTE_FLOAT4)6);
 #endif
 
+#ifdef PRELU
+    COMPUTE_FLOAT4 slope_in = CONVERT_COMPUTE_FLOAT4(vload4(out_c_idx, slope_ptr));
+    out0 = select(out0 * slope_in, out0, out0 >= 0);
+    out1 = select(out1 * slope_in, out1, out1 >= 0);
+#endif
+
     const int out_offset = (((out_b_idx + out_c_idx*batch)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
 #ifdef BLOCK_LEAVE
     vstore4(CONVERT_FLOAT4(out0), 0, output+out_offset);
@@ -828,6 +915,9 @@ void conv_2d_c4h1w4(GLOBAL_SIZE_2_DIMS
                       __private const int out_c_blocks,
                       __private const int out_h_blocks,
                       __private const int out_c_base_index
+                      #ifdef PRELU
+                      ,__global const FLOAT *slope_ptr
+                      #endif
 ) {
     const int out_c_w_idx = get_global_id(0); //c/4 w
     const int out_b_h_idx  = get_global_id(1); //b h
@@ -919,6 +1009,14 @@ void conv_2d_c4h1w4(GLOBAL_SIZE_2_DIMS
     out3 = clamp(out3, (COMPUTE_FLOAT4)0, (COMPUTE_FLOAT4)6);
 #endif
 
+#ifdef PRELU
+    COMPUTE_FLOAT4 slope_in = CONVERT_COMPUTE_FLOAT4(vload4(out_c_idx, slope_ptr));
+    out0 = select(out0 * slope_in, out0, out0 >= 0);
+    out1 = select(out1 * slope_in, out1, out1 >= 0);
+    out2 = select(out2 * slope_in, out2, out2 >= 0);
+    out3 = select(out3 * slope_in, out3, out3 >= 0);
+#endif
+
     const int out_offset = (((out_b_idx + out_c_idx*batch)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
 #ifdef BLOCK_LEAVE
     const int remain = out_hw.y - out_w_idx;
@@ -957,6 +1055,9 @@ void conv_2d_c4h4w1(GLOBAL_SIZE_2_DIMS
                       __private const int out_c_blocks,
                       __private const int out_h_blocks,
                       __private const int out_c_base_index
+                      #ifdef PRELU
+                      ,__global const FLOAT *slope_ptr
+                      #endif
 ) {
     const int out_c_w_idx = get_global_id(0); //c/4 w
     const int out_b_h_idx  = get_global_id(1); //b h
@@ -1048,6 +1149,14 @@ void conv_2d_c4h4w1(GLOBAL_SIZE_2_DIMS
     out3 = clamp(out3, (COMPUTE_FLOAT4)0, (COMPUTE_FLOAT4)6);
 #endif
 
+#ifdef PRELU
+    COMPUTE_FLOAT4 slope_in = CONVERT_COMPUTE_FLOAT4(vload4(out_c_idx, slope_ptr));
+    out0 = select(out0 * slope_in, out0, out0 >= 0);
+    out1 = select(out1 * slope_in, out1, out1 >= 0);
+    out2 = select(out2 * slope_in, out2, out2 >= 0);
+    out3 = select(out3 * slope_in, out3, out3 >= 0);
+#endif
+
     const int out_offset = (((out_b_idx + out_c_idx*batch)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
 #ifdef BLOCK_LEAVE
     const int remain = out_hw.x - out_h_idx;
@@ -1093,6 +1202,9 @@ void conv_2d_c8h4w1(GLOBAL_SIZE_2_DIMS
                       __private const int out_c_blocks,
                       __private const int out_h_blocks,
                       __private const int out_c_base_index
+                      #ifdef PRELU
+                      ,__global const FLOAT *slope_ptr
+                      #endif
 ) {
     const int out_c_w_idx = get_global_id(0); //c/4 w
     const int out_b_h_idx  = get_global_id(1); //b h
@@ -1234,6 +1346,19 @@ void conv_2d_c8h4w1(GLOBAL_SIZE_2_DIMS
     out7 = clamp(out7, (COMPUTE_FLOAT4)0, (COMPUTE_FLOAT4)6);
 #endif
 
+#ifdef PRELU
+    COMPUTE_FLOAT4 slope_in0 = CONVERT_COMPUTE_FLOAT4(vload4(out_c_idx_0, slope_ptr));
+    COMPUTE_FLOAT4 slope_in1 = CONVERT_COMPUTE_FLOAT4(vload4(out_c_idx_1, slope_ptr));
+    out0 = select(out0 * slope_in0, out0, out0 >= 0);
+    out1 = select(out1 * slope_in0, out1, out1 >= 0);
+    out2 = select(out2 * slope_in0, out2, out2 >= 0);
+    out3 = select(out3 * slope_in0, out3, out3 >= 0);
+    out4 = select(out4 * slope_in1, out4, out4 >= 0);
+    out5 = select(out5 * slope_in1, out5, out5 >= 0);
+    out6 = select(out6 * slope_in1, out6, out6 >= 0);
+    out7 = select(out7 * slope_in1, out7, out7 >= 0);
+#endif
+
     int out_offset = (((out_b_idx + out_c_idx_0*batch)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
 #ifdef BLOCK_LEAVE
     const int remain = out_hw.x - out_h_idx;
@@ -1310,6 +1435,9 @@ void conv_2d_c8h2w1(GLOBAL_SIZE_2_DIMS
                       __private const int out_c_blocks,
                       __private const int out_h_blocks,
                       __private const int out_c_base_index
+                      #ifdef PRELU
+                      ,__global const FLOAT *slope_ptr
+                      #endif
 ) {
     const int out_c_w_idx = get_global_id(0); //c/4 w
     const int out_b_h_idx  = get_global_id(1); //b h
@@ -1412,6 +1540,15 @@ void conv_2d_c8h2w1(GLOBAL_SIZE_2_DIMS
     out3 = clamp(out3, (COMPUTE_FLOAT4)0, (COMPUTE_FLOAT4)6);
 #endif
 
+#ifdef PRELU
+    COMPUTE_FLOAT4 slope_in0 = CONVERT_COMPUTE_FLOAT4(vload4(out_c_idx_0, slope_ptr));
+    COMPUTE_FLOAT4 slope_in1 = CONVERT_COMPUTE_FLOAT4(vload4(out_c_idx_1, slope_ptr));
+    out0 = select(out0 * slope_in0, out0, out0 >= 0);
+    out1 = select(out1 * slope_in0, out1, out1 >= 0);
+    out2 = select(out2 * slope_in1, out2, out2 >= 0);
+    out3 = select(out3 * slope_in1, out3, out3 >= 0);
+#endif
+
     int out_offset = (((out_b_idx + out_c_idx_0*batch)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;
 #ifdef BLOCK_LEAVE
     const int remain = out_hw.x - out_h_idx;
@@ -1466,6 +1603,9 @@ void conv_2d_c8h1w4(GLOBAL_SIZE_2_DIMS
                       __private const int out_c_blocks,
                       __private const int out_h_blocks,
                       __private const int out_c_base_index
+                      #ifdef PRELU
+                      ,__global const FLOAT *slope_ptr
+                      #endif
 ) {
     const int out_c_w_idx = get_global_id(0); //c/4 w
     const int out_b_h_idx  = get_global_id(1); //b h
@@ -1604,6 +1744,19 @@ void conv_2d_c8h1w4(GLOBAL_SIZE_2_DIMS
     out5 = clamp(out5, (COMPUTE_FLOAT4)0, (COMPUTE_FLOAT4)6);
     out6 = clamp(out6, (COMPUTE_FLOAT4)0, (COMPUTE_FLOAT4)6);
     out7 = clamp(out7, (COMPUTE_FLOAT4)0, (COMPUTE_FLOAT4)6);
+#endif
+
+#ifdef PRELU
+    COMPUTE_FLOAT4 slope_in0 = CONVERT_COMPUTE_FLOAT4(vload4(out_c_idx_0, slope_ptr));
+    COMPUTE_FLOAT4 slope_in1 = CONVERT_COMPUTE_FLOAT4(vload4(out_c_idx_1, slope_ptr));
+    out0 = select(out0 * slope_in0, out0, out0 >= 0);
+    out1 = select(out1 * slope_in0, out1, out1 >= 0);
+    out2 = select(out2 * slope_in0, out2, out2 >= 0);
+    out3 = select(out3 * slope_in0, out3, out3 >= 0);
+    out4 = select(out4 * slope_in1, out4, out4 >= 0);
+    out5 = select(out5 * slope_in1, out5, out5 >= 0);
+    out6 = select(out6 * slope_in1, out6, out6 >= 0);
+    out7 = select(out7 * slope_in1, out7, out7 >= 0);
 #endif
 
     int out_offset = (((out_b_idx + out_c_idx_0*batch)*out_hw.x + out_h_idx)*out_hw.y + out_w_idx)*4;

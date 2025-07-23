@@ -82,7 +82,13 @@ public:
     static Tensor* getTensor(VARP var);
     static EXPRP makeRaster(const std::vector<VARP>& vars, const std::vector<int>& regions, const std::vector<int>& shape, halide_type_t dataType, MNN_DATA_FORMAT format);
 };
-
+class Executor::RuntimeExecuteWrap {
+public:
+    RuntimeExecuteWrap(const RuntimeInfo& info);
+    ~ RuntimeExecuteWrap();
+private:
+    const RuntimeInfo& mRt;
+};
 } // namespace Express
 } // namespace MNN
 #endif

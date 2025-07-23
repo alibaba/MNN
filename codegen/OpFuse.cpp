@@ -62,6 +62,84 @@ static void dumpCmd(const Command* cmd) {
     MNN_PRINT("}\n");
 }
 
+void mergeConvolutionAndPrelu(Node* root, MNNForwardType forwardType){
+    if (root->cmd->op != nullptr && root->cmd->op->type() == OpType_Convolution && root->succ.size() == 1) {
+        auto child = root->succ[0];
+        if(child->cmd->op->type() == OpType_PReLU){
+            if(root->cmd->op->externalPath() != nullptr){
+                return;
+            }
+            std::shared_ptr<Command> cmdPlugin;
+            auto inputs = root->cmd->inputs;
+            auto outputs = root->cmd->outputs;
+            auto convOp = root->cmd->op->main_as_Convolution2D();
+            if(convOp->quanParameter() != nullptr || convOp->symmetricQuan() != nullptr || convOp->sparseParameter() != nullptr || convOp->external() != nullptr || convOp->common()->outputCount() != child->cmd->op->main_as_PRelu()->slopeCount()){
+                return;
+            }
+            std::unique_ptr<OpT> fuseOp(new OpT);
+            fuseOp->type = OpType_Extra;
+            fuseOp->name = root->cmd->op->name()->str();
+            ExtraT* extra_param = new ExtraT;
+            extra_param->type = "ExtraConvolution2DPrelu";
+            extra_param->attr.resize(2);
+            // copy convolution2D param
+            AttributeT* convAtr = new AttributeT;
+            BlobT* convParamBlob = new BlobT;
+            {
+                std::unique_ptr<Convolution2DT> convolutionParam(convOp->UnPack());
+                flatbuffers::FlatBufferBuilder builder;
+                auto lastOffset = Convolution2D::Pack(builder, convolutionParam.get());
+                builder.Finish(lastOffset);
+                
+                const uint8_t* buffer_ptr = builder.GetBufferPointer();
+                const size_t size = builder.GetSize();
+                convParamBlob->uint8s.resize(size);
+                ::memcpy(convParamBlob->uint8s.data(), buffer_ptr, size);
+            }
+            convAtr->tensor.reset(convParamBlob);
+            extra_param->attr[0].reset(convAtr);
+            
+            // copy prelu param
+            AttributeT* preluAtr = new AttributeT;
+            BlobT* preluParamBlob = new BlobT;
+            {
+                std::unique_ptr<PReluT> preluParam(child->cmd->op->main_as_PRelu()->UnPack());
+                flatbuffers::FlatBufferBuilder builder;
+                auto lastOffset = PRelu::Pack(builder, preluParam.get());
+                builder.Finish(lastOffset);
+                const uint8_t* buffer_ptr = builder.GetBufferPointer();
+                const size_t size = builder.GetSize();
+                preluParamBlob->uint8s.resize(size);
+                ::memcpy(preluParamBlob->uint8s.data(), buffer_ptr, size);
+            }
+            preluAtr->tensor.reset(preluParamBlob);
+            extra_param->attr[1].reset(preluAtr);
+            
+            fuseOp->main.type  = OpParameter_Extra;
+            fuseOp->main.value = extra_param;
+            flatbuffers::FlatBufferBuilder builder;
+            auto lastOffset = Op::Pack(builder, fuseOp.get());
+            builder.Finish(lastOffset);
+            cmdPlugin = GeometryComputerUtils::makeCommand(builder, inputs, outputs);
+            
+            root->cmd->op = cmdPlugin->op;
+            root->cmd->inputs = cmdPlugin->inputs;
+            root->cmd->outputs = cmdPlugin->outputs;
+            root->cmd->buffer = cmdPlugin->buffer;
+            child->cmd->op = nullptr;
+            child->cmd->buffer.reset();
+            for(auto &childNode : child->succ){
+                for(auto &input : childNode->cmd->inputs){
+                    if(input == child->cmd->outputs[0]){
+                        input = root->cmd->outputs[0];
+                    }
+                }
+            }
+            root->succ = child->succ;
+        }
+    }
+}
+
 // is legal fused type
 bool isLegal(Command* cmd, MNNForwardType forwardType) {
     auto type = cmd->op->type();
@@ -369,6 +447,20 @@ bool opFuse(std::vector<Schedule::OpCacheInfo>& infos, MNNForwardType type, Back
             graph.push_back(std::move(node));
         }
     }
+    
+    if(type == MNN_FORWARD_OPENCL){
+        for(int i = 0; i < graph.size(); ++i){
+            mergeConvolutionAndPrelu(graph[i].get(), type);
+        }
+        for(auto iter = graph.begin(); iter != graph.end();){
+            if(iter->get()->cmd->op == nullptr){
+                iter = graph.erase(iter);
+            }else{
+                ++iter;
+            }
+        }
+    }
+    
     std::queue<Node*> postDominateNodeQueue;
     // build dominate tree
     for (int i = static_cast<int>(graph.size()) - 1; i >= 0; i--) {

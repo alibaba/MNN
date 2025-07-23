@@ -27,6 +27,7 @@ class GatherV2Computer : public SizeComputer {
         if (op->main_type() == OpParameter_Axis) {
             axis = op->main_as_Axis()->axis();
         }
+
         if( axis <= -params->buffer().dimensions || axis >= params->buffer().dimensions) {
             return false;
         }
@@ -60,6 +61,7 @@ class GatherV2Computer : public SizeComputer {
         for (int i = 0; i < result_shape.size(); i++) {
             outputs[0]->buffer().dim[i].extent = result_shape.at(i);
         }
+
         TensorUtils::getDescribe(outputs[0])->dimensionFormat = TensorUtils::getDescribe(inputs[0])->dimensionFormat;
         return true;
     }

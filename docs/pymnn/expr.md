@@ -3132,6 +3132,20 @@ roialign
 ```python
 TODO
 ```
+
+---
+### `jsonop(inputs, describe, output_number)`
+
+jsonop
+
+对于MNN模型支持的算子，但没有相应表达式透出的情况，可以使用jsonop接口，以json描述算子
+
+参数：
+- `inputs` : List[Var] 输入变量数组，任意类型
+- `describe` : str ，算子的json描述
+- `output_number` : int, 算子输出数
+
+
 ---
 **以下函数为框架开发者使用函数，普通用户不建议使用！**
 

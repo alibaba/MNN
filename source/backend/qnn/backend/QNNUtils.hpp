@@ -17,7 +17,6 @@
 #include <MNN/HalideRuntime.h>
 #include <map>
 #include "core/TensorUtils.hpp"
-#include <dlfcn.h>
 
 #ifdef MNN_USE_ARMV82
 // FP32 <--> FP16 Function
@@ -80,20 +79,30 @@ extern void ___QNNPaddingCreator__OpType_Padding__();
 extern void ___QNNPoolCreator__OpType_Pooling__();
 extern void ___QNNPoolCreator__OpType_Pooling3D__();
 extern void ___QNNReduceCreator__OpType_Reduction__();
-extern void ___QNNReshapeCreator__OpType_Reshape__();
-extern void ___QNNReshapeCreator__OpType_Squeeze__();
-extern void ___QNNReshapeCreator__OpType_Unsqueeze__();
+extern void ___QNNFlattenCreator__OpType_Reshape__();
+extern void ___QNNFlattenCreator__OpType_Squeeze__();
+extern void ___QNNFlattenCreator__OpType_Unsqueeze__();
 extern void ___QNNReshapeCreator__OpType_ConvertTensor__();
 extern void ___QNNScaleCreator__OpType_Scale__();
 extern void ___QNNSoftmaxCreator__OpType_Softmax__();
 extern void ___QNNStridedSliceCreator__OpType_StridedSlice__();
+extern void ___QNNStridedSliceCreator__OpType_Slice__();
 extern void ___QNNUnaryCreator__OpType_UnaryOp__();
+extern void ___QNNCastCreator__OpType_Cast__();
+extern void ___QNNPermuteCreator__OpType_Permute__();
+extern void ___QNNGatherCreator__OpType_GatherV2__();
+extern void ___QNNBroadcastToCreator__OpType_BroadcastTo__();
+extern void ___QNNMatMulCreator__OpType_MatMul__();
+#ifdef MNN_SUPPORT_TRANSFORMER_FUSE
+extern void ___QNNAttentionCreator__OpType_Attention__();
+#endif
 void registerQNNOps();
-
 
 extern Tensor::DimensionType gQnnTensorDimType;
 
 extern const std::map<Qnn_DataType_t, uint32_t> gQnnTypeSize;
+
+extern std::string gParamMarker;
 
 int getNHWCAxis(const int axis, const int dim, const Tensor::DimensionType type);
 

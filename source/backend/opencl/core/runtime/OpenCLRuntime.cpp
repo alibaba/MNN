@@ -57,7 +57,7 @@ OpenCLRuntime::OpenCLRuntime(int platformSize, int platformId, int deviceId, voi
     mInitInfo.platformId = platformId;
     mInitInfo.deviceId = deviceId;
     mInitInfo.contextPtr = contextPtr;
-    mDefaultBuildParams = " -cl-mad-enable";
+    mDefaultBuildParams = " -cl-mad-enable -w";
     std::vector<cl::Platform> platforms;
     cl_int res = cl::Platform::get(&platforms, platformSize);
     MNN_CHECK_CL_SUCCESS(res, "getPlatform");

@@ -114,6 +114,13 @@ public:
                 case onnx::AttributeProto_AttributeType_TENSOR:
                     attr->tensor.reset(convertTensorToBlob(&srcAttr.t(), scope->mModelDir, dstOp));
                     break;
+                case onnx::AttributeProto_AttributeType_STRINGS:
+                    attr->list.reset(new ListValueT);
+                    attr->list->s.resize(srcAttr.strings_size());
+                    for (int i = 0; i < srcAttr.strings_size(); ++i) {
+                        attr->list->s[i] = srcAttr.strings(i);
+                    }
+                    break;
                 default:
                     break;
             }

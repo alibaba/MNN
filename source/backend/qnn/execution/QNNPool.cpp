@@ -14,6 +14,10 @@ namespace QNN {
 ErrorCode QNNPool::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     // Params: filter_size([h, w]), stride([h, w]), pad_amount([[height_pad_before, height_pad_after], [width_pad_before, width_pad_after]]), count_pad_for_edges(false), rounding_mode
 
+    mParams.clear();
+    mInputs.clear();
+    mOutputs.clear();
+
     if (mOp->type() == OpType_Pooling3D) {
         return this->onEncode3D(inputs, outputs);
     }
@@ -26,6 +30,13 @@ ErrorCode QNNPool::onEncode(const std::vector<Tensor *> &inputs, const std::vect
 
     setParamPool(mNodeType, filterSizeData, strideData, padAmountData, roundingMode, inputs[0], outputs[0]);
 
+    // shape(out[0])[height_out] = ROUND((pad_amount[0,0] + shape(in[0])[height] + pad_amount[0,1] - filter_size[0]) / stride[0] + 1)
+    if(inputs[0]->height() < filterSizeData[0]) {
+        filterSizeData[0] = inputs[0]->height();
+    }
+    if(inputs[0]->width() < filterSizeData[1]) {
+        filterSizeData[1] = inputs[0]->width();
+    }
     this->createParamTensor("filter_size", QNN_DATATYPE_UINT_32, {2}, (void *)filterSizeData.data());
     this->createParamTensor("stride", QNN_DATATYPE_UINT_32, {2}, (void *)strideData.data());
     this->createParamTensor("pad_amount", QNN_DATATYPE_UINT_32, {2, 2}, (void *)padAmountData.data());
@@ -35,6 +46,23 @@ ErrorCode QNNPool::onEncode(const std::vector<Tensor *> &inputs, const std::vect
         this->createParamScalar("count_pad_for_edges", countType);
     }
     this->createParamScalar("rounding_mode", roundingMode);
+
+    #ifdef QNN_VORBOSE
+    MNN_PRINT("QNN Pool input:");
+    auto shape0 = inputs[0]->shape();
+    for(int i = 0; i < shape0.size(); i++) {
+        MNN_PRINT("%d x ", shape0[i]);
+    }
+
+    MNN_PRINT("\noutput:");
+    auto outShape = outputs[0]->shape();
+    for(int i = 0; i < outShape.size(); i++) {
+        MNN_PRINT("%d x ", outShape[i]);
+    }
+    MNN_PRINT("\n");
+    MNN_PRINT("mNodeType:%s, filterSizeData:%dx%d, strideData:%dx%d, padAmountData:%dx%dx%dx%d, roundingMode:%d\n", mNodeType.c_str(), \
+        filterSizeData[0], filterSizeData[1], strideData[0], strideData[1], padAmountData[0], padAmountData[1], padAmountData[2], padAmountData[3], roundingMode);
+    #endif
 
     this->addNodeCommon(inputs, outputs);
 

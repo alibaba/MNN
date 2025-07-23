@@ -96,7 +96,8 @@ void ConvolutionTiledExecutor:: setIm2ColParameter(ConvolutionCommon::Im2ColPara
     if (pack == 0) {
         pack = floatCore->pack;
     }
-    
+    int EP, LP, HP;
+    floatCore->MNNGetMatMulPackMode(&EP, &LP, &HP);
     const auto kernelCount = convCommon->kernelX() * convCommon->kernelY();
 
     dstIm2ColParamter.dilateX         = convCommon->dilateX();
@@ -116,8 +117,8 @@ void ConvolutionTiledExecutor:: setIm2ColParameter(ConvolutionCommon::Im2ColPara
     dstIm2ColParamter.srcZStep = input->stride(1) * pack * input->batch();
     dstIm2ColParamter.srcYStep = input->stride(2) * pack;
     dstIm2ColParamter.packCUnit = pack;
-    dstIm2ColParamter.ic = input->channel();
-    dstIm2ColParamter.icup4 = input->channel(); // for float im2col.
+    dstIm2ColParamter.ic = ROUND_UP(input->channel(), LP);
+    dstIm2ColParamter.icup4 = ROUND_UP(input->channel(), ALIMIN(LP, pack)); // for float im2col.
     if (nullptr != int8Core) {
         // Compute Int8 Info and align ic
         int UNIT, SRC_UNIT, DynamicDestUnit;

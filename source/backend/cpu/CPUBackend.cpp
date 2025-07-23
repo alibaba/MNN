@@ -102,7 +102,7 @@ void CPURuntime::_bindCPUCore() const {
     }
 #endif
 #ifdef MNN_USE_THREAD_POOL
-    if(mThreadPool) {
+    if (nullptr != mThreadPool) {
         mThreadPool->active();
         mThreadPool->enqueue(std::make_pair([&](int i) {
             MNNSetSchedAffinity(lockCPUIndexes[i].first, lockCPUIndexes[i].second);
@@ -113,24 +113,12 @@ void CPURuntime::_bindCPUCore() const {
 #endif
 }
 
-void CPURuntime::_resetThreadPool() const{
+void CPURuntime::_resetThreadPool() const {
     mThreadNumber = std::max(1, mThreadNumber);
     mThreadNumber = std::min(mThreadNumber, MAX_THREAD_NUMBER);
 #ifdef MNN_USE_THREAD_POOL
-    if (mThreadPool) {
-        mThreadPool->releaseWorkIndex(mTaskIndex);
-    }
     if (mThreadNumber > 1) {
         mThreadNumber = ALIMIN(ThreadPool::init(mThreadNumber, mCpuMask, mThreadPool), mThreadNumber);
-        if (mThreadPool) {
-            mTaskIndex = mThreadPool->acquireWorkIndex();
-        }
-        if (-1 == mTaskIndex) {
-            MNN_ERROR("The ThreadPool has been used to MNN_THREAD_POOL_MAX_TASKS, can't use thread pool\n");
-            mThreadNumber = 1;
-        }
-    } else {
-        mTaskIndex = -1;
     }
 #endif
     // Reset tid to rebind cpu if necessary
@@ -256,11 +244,7 @@ CPURuntime::CPURuntime(const Backend::Info& info) {
 }
 
 CPURuntime:: ~ CPURuntime() {
-#ifdef MNN_USE_THREAD_POOL
-    if(mThreadPool) {
-        mThreadPool->releaseWorkIndex(mTaskIndex);
-    }
-#endif
+    // Do nothing
 }
 float CPURuntime::onGetMemoryInMB() {
     auto staticMemoryInMB = mStaticAllocator->totalSize() / 1024.0f / 1024.0f;
@@ -336,11 +320,17 @@ Backend* CPURuntime::onCreate(const BackendConfig* config, Backend* origin) cons
     MNN_PRINT("cpu backend was created by runtime:%p\n", this);
 #endif
     CPUBackend* res = nullptr;
+    auto initThreadNumber = hint().initThreadNumber;
     do {
 #ifdef MNN_USE_ARMV82
         auto core = MNNGetCoreFunctions();
         if (core->supportFp16arith && precision == BackendConfig::Precision_Low) {
             res = new Arm82Backend(this, memory);
+            if (hint().useArmSme2Cores && res->threadNumber() <= 2 && core->supportSME2 && res->functions()->sme2MatmulRelatedFuncions.Int8GemmKernel) {
+                res->mRelatedFunctions = &(res->functions()->sme2MatmulRelatedFuncions);
+            } else {
+                res->mRelatedFunctions = &(res->functions()->backendMatmulRelatedFunctions);
+            }
             break;
         }
 #endif
@@ -353,7 +343,7 @@ Backend* CPURuntime::onCreate(const BackendConfig* config, Backend* origin) cons
 #endif
         if (flags == MNN_CPU_USE_DEFAULT_BACKEND) {
             // Default don't use multi-thread init
-            res = new CPUBackend(this, precision, memory, MNN_FORWARD_CPU, 0);
+            res = new CPUBackend(this, precision, memory, MNN_FORWARD_CPU);
             break;
         }
 #ifdef MNN_USE_SSE
@@ -365,6 +355,7 @@ Backend* CPURuntime::onCreate(const BackendConfig* config, Backend* origin) cons
         res = new CPUBackend(this, precision, memory, MNN_FORWARD_CPU, flags);
     } while (false);
     mSharedDmaInfo = nullptr;
+    res->setMetaPtr(pMeta);
     return res;
 }
 
@@ -402,9 +393,13 @@ void CPURuntime::onGabageCollect(int level) {
 
 void CPURuntime::onConcurrencyBegin() const {
 #ifdef MNN_USE_THREAD_POOL
+    if (mTaskIndex < 0 && nullptr != mThreadPool) {
+        mTaskIndex = mThreadPool->acquireWorkIndex();
+    }
     if (mTaskIndex >= 0) {
-        if (mThreadOpen == 0 && mThreadPool) {
-            // mThreadOpen 0 -> 1, open ThreadPool
+        // mThreadOpen 0 -> 1, active ThreadPool
+        // For next onConcurrencyBegin, will only add mThreadOpen
+        if (0 == mThreadOpen) {
             mThreadPool->active();
         }
         mThreadOpen++;
@@ -421,11 +416,12 @@ void CPURuntime::onConcurrencyBegin() const {
 void CPURuntime::onConcurrencyEnd() const {
 #ifdef MNN_USE_THREAD_POOL
     if (mTaskIndex >= 0) {
-        MNN_ASSERT(mThreadOpen > 0);
         mThreadOpen--;
         mThreadOpen = mThreadOpen < 0 ? 0 : mThreadOpen;
-        if (0 == mThreadOpen && mThreadPool) {
+        if (0 == mThreadOpen) {
+            mThreadPool->releaseWorkIndex(mTaskIndex);
             mThreadPool->deactive();
+            mTaskIndex = -1;
         }
     }
 #endif
@@ -460,10 +456,14 @@ CPUBackend::CPUBackend(const CPURuntime* runtime, BackendConfig::PrecisionMode p
 #endif
     mMemory = memory;
     mRuntime = const_cast<CPURuntime*>(runtime);
+    auto core = MNNGetCoreFunctions();
     mThreadNumber = mRuntime->mThreadNumber;
-#ifdef MNN_USE_THREAD_POOL
-    mThreadPool = mRuntime->mThreadPool;
-#endif
+    if (mRuntime->hint().useArmSme2Cores && core->supportSME2 && core->sme2MatmulRelatedFuncions.Int8GemmKernel) {
+        mThreadNumber = 2;
+        mRelatedFunctions = &core->sme2MatmulRelatedFuncions;
+    } else {
+        mRelatedFunctions = &core->backendMatmulRelatedFunctions;
+    }
     // Compute Group Rate
     do {
         if (mThreadNumber <= 1 || mRuntime->mPower == BackendConfig::Power_Low) {

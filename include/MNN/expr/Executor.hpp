@@ -27,6 +27,7 @@ struct ExecutorAttr;
 class MNN_PUBLIC Executor {
 public:
     class ComputeCache;
+    class RuntimeExecuteWrap;
     struct DebugTools;
     /**Internal Usage Begin*/
     struct Requirement {

@@ -57,6 +57,7 @@ public:
     bool useGeluApproximation = true;
     bool transformerFuse = false;
     bool allowCustomOp = false;
+    bool groupConvNative = false;
     std::string customOpLibs = "";
     std::string authCode = "";
     std::string testDir = "";
@@ -70,6 +71,7 @@ public:
     int64_t externalTreshold = 1024 * 64;
     std::ofstream* externalFile = nullptr;
     int64_t externalOffset = 0;
+    bool useOriginRNNImpl = false;
     PostTreatContext* compressInfo = nullptr;
 };
 

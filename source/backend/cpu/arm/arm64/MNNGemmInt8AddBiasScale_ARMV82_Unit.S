@@ -90,8 +90,12 @@ sub \rg0, \rg0, \rg1
 .endm
 
 .macro REVERT_WEIGHT_KERNEL_SUM rg0, rg1, rg2, rg3
-mul \rg1, \rg2, \rg3 // blocknum * ocUp4 * sizeof(float)
-sub \rg0, \rg0, \rg1, LSL #4 // revert weight kernel sum
+// y=UP_DIV(ocDiv4,(hp/pack))
+add \rg1, \rg3, #1
+lsr \rg1, \rg1, #1
+// blockNum * y * (hp * sizeof(float))
+mul \rg1, \rg2, \rg1
+sub \rg0, \rg0, \rg1, LSL #5 // revert weight kernel sum
 .endm
 asm_function MNNGemmInt8AddBiasScale_ARMV82_Unit
 /* 
@@ -435,9 +439,11 @@ L4_TILE12_BLOCKNUM:
 
 
     L4_Tile12Quan:
-    ld1 {v0.4s}, [x2], #16 // scale
+    ld1 {v0.4s}, [x2] // scale
+    add x2, x2, #32
     ld1 {v2.4s, v3.4s, v4.4s}, [x8], #48 // x kernel sum
-    ld1 {v5.4s}, [x2], #16 // weight quan zeropoint
+    ld1 {v5.4s}, [x2] // weight quan zeropoint
+    add x2, x2, #32
     Int32ToFloat v8, v9, v10, v11
     Int32ToFloat v12, v13, v14, v15
     Int32ToFloat v16, v17, v18, v19
@@ -470,7 +476,7 @@ L4_TILE12_BLOCKNUM:
 
     cbz x27, L4_TILE12_ADD_DSTV
     ld1 {v0.4s, v1.4s, v2.4s}, [x27], #48 // input dequant bias
-    ld1 {v3.4s}, [x28], #16 // weight kernel sum
+    ld1 {v3.4s}, [x28] // weight kernel sum
     MLA_WEIGHTZERO v8, v0, v3, 0
     MLA_WEIGHTZERO v9, v0, v3, 1
     MLA_WEIGHTZERO v10, v0, v3, 2
@@ -483,6 +489,7 @@ L4_TILE12_BLOCKNUM:
     MLA_WEIGHTZERO v17, v2, v3, 1
     MLA_WEIGHTZERO v18, v2, v3, 2
     MLA_WEIGHTZERO v19, v2, v3, 3
+    add x28, x28, #32
 
     L4_TILE12_ADD_DSTV:
     cbz x19, L4_TILE12_ACCUM_BUFFER // x19=0: first block, do not add previous block result
@@ -782,9 +789,11 @@ L4_TILE8_BLOCKNUM:
         bne L4LoopSz_TILE_8
 
     L4Tile8Quan:
-    ld1 {v0.4s}, [x12], #16 // scale
+    ld1 {v0.4s}, [x12] // scale
+    add x12, x12, #32
     ld1 {v2.4s, v3.4s}, [x8], x22 // x kernel sum
-    ld1 {v24.4s}, [x12], #16 // weight quan zeropoint
+    ld1 {v24.4s}, [x12] // weight quan zeropoint
+    add x12, x12, #32
     Int32ToFloat v8, v9, v10, v11
     Int32ToFloat v12, v13, v14, v15
     MUL_SCALE v0, v8, v9, v10, v11
@@ -808,7 +817,7 @@ L4_TILE8_BLOCKNUM:
 
     cbz x27, L4_TILE8_ADD_DSTV
     ld1 {v2.4s, v3.4s}, [x27], x25
-    ld1 {v24.4s}, [x28], #16
+    ld1 {v24.4s}, [x28]
     MLA_WEIGHTZERO v8,  v2, v24, 0 // tile:0, oc:0-3
     MLA_WEIGHTZERO v9,  v2, v24, 1 // tile:1, oc:0-3
     MLA_WEIGHTZERO v10, v2, v24, 2 // tile:2, oc:0-3
@@ -817,6 +826,7 @@ L4_TILE8_BLOCKNUM:
     MLA_WEIGHTZERO v13, v3, v24, 1 // tile:5, oc:0-3
     MLA_WEIGHTZERO v14, v3, v24, 2 // tile:6, oc:0-3
     MLA_WEIGHTZERO v15, v3, v24, 3 // tile:7, oc:0-3
+    add x28, x28, #32
 
     L4_TILE8_ADD_DSTV:
     cbz x19, TILE8_L4_ACCUM_BUFFER
@@ -1055,9 +1065,11 @@ L4_TILE4_BLOCKNUM:
         bne L4LoopSz_TILE_4
 
     L4Tile4Quan:
-    ld1 {v0.4s}, [x12], #16 // scale
+    ld1 {v0.4s}, [x12]  // scale
+    add x12, x12, #32
     ld1 {v2.4s}, [x8], x22 // x kernel sum
-    ld1 {v24.4s}, [x12], #16 // weight quan zeropoint
+    ld1 {v24.4s}, [x12] // weight quan zeropoint
+    add x12, x12, #32
     Int32ToFloat v8, v9, v10, v11
     MUL_SCALE v0, v8, v9, v10, v11
 
@@ -1074,11 +1086,12 @@ L4_TILE4_BLOCKNUM:
 
     cbz x27, L4_TILE4_ADD_DSTV
     ld1 {v2.4s}, [x27], x25
-    ld1 {v24.4s}, [x28], #16
+    ld1 {v24.4s}, [x28]
     MLA_WEIGHTZERO v8, v2, v24, 0 // tile:0, oc:0-3
     MLA_WEIGHTZERO v9, v2, v24, 1 // tile:1, oc:0-3
     MLA_WEIGHTZERO v10, v2, v24, 2 // tile:2, oc:0-3
     MLA_WEIGHTZERO v11, v2, v24, 3 // tile:3, oc:0-3
+    add x28, x28, #32
 
     L4_TILE4_ADD_DSTV:
     cbz x19, TILE4_L4_ACCUM_BUFFER
@@ -1281,9 +1294,11 @@ L4_TILE1_BLOCKNUM:
         bne L4LoopSz_TILE_1
 
     L4Tile1Quan:
-    ld1 {v0.4s}, [x12], #16 // scale
+    ld1 {v0.4s}, [x12] // scale
+    add x12, x12, #32
     ld1 {v2.s}[0], [x8], x22 // x kernel sum
-    ld1 {v24.4s}, [x12], #16 // weight quan zeropoint
+    ld1 {v24.4s}, [x12] // weight quan zeropoint
+    add x12, x12, #32
     scvtf v8.4s, v8.4s
     fmul v8.4s, v8.4s, v0.4s
 
@@ -1297,8 +1312,9 @@ L4_TILE1_BLOCKNUM:
 
     cbz x27, L4_TILE1_ADD_DSTV
     ld1 {v2.s}[0], [x27], x25
-    ld1 {v24.4s}, [x28], #16
+    ld1 {v24.4s}, [x28]
     MLA_WEIGHTZERO v8, v2, v24, 0 // tile:0, oc:0-3
+    add x28, x28, #32
 
     L4_TILE1_ADD_DSTV:
     cbz x19, L4_TILE1_L8_ACCUM_BUFFER

@@ -28,6 +28,7 @@ extern void ___OpenCLRangeBufCreator__OpType_Range__BUFFER__();
 extern void ___OpenCLUnaryBufCreator__OpType_UnaryOp__BUFFER__();
 extern void ___OpenCLUnaryBufCreator__OpType_Sigmoid__BUFFER__();
 extern void ___OpenCLUnaryBufCreator__OpType_TanH__BUFFER__();
+extern void ___OpenCLFuseBufCreator__OpType_Extra__BUFFER__();
 extern void ___OpenCLGridSampleBufCreator__OpType_GridSample__BUFFER__();
 extern void ___OpenCLScaleBufCreator__OpType_Scale__BUFFER__();
 #endif
@@ -94,6 +95,7 @@ ___OpenCLRangeBufCreator__OpType_Range__BUFFER__();
 ___OpenCLUnaryBufCreator__OpType_UnaryOp__BUFFER__();
 ___OpenCLUnaryBufCreator__OpType_Sigmoid__BUFFER__();
 ___OpenCLUnaryBufCreator__OpType_TanH__BUFFER__();
+___OpenCLFuseBufCreator__OpType_Extra__BUFFER__();
 ___OpenCLGridSampleBufCreator__OpType_GridSample__BUFFER__();
 ___OpenCLScaleBufCreator__OpType_Scale__BUFFER__();
 #endif

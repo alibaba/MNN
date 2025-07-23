@@ -60,11 +60,23 @@ FuseLayerNorm::FuseLayerNorm() {
         }
         EXPRP mul_3 = expr->inputs().at(0)->expr().first;
         EXPRP beta  = expr->inputs().at(1)->expr().first;
+        if(helpers::IsBinaryMul(beta) && helpers::IsConstant(mul_3)) {
+            auto temp = beta;
+            beta = mul_3;
+            mul_3 = temp;
+        }
         if (!helpers::IsBinaryMul(mul_3) || !helpers::IsConstant(beta)) {
             return false;
         }
         EXPRP mul_2 = mul_3->inputs().at(0)->expr().first;
         EXPRP gamma = mul_3->inputs().at(1)->expr().first;
+        int gamma_index = 1;
+        if(helpers::IsBinaryMul(gamma) && helpers::IsConstant(mul_2)) {
+            auto temp = gamma;
+            gamma = mul_2;
+            mul_2 = temp;
+            gamma_index = 0;
+        }
         if (!helpers::IsBinaryMul(mul_2) || !helpers::IsConstant(gamma)) {
             return false;
         }
@@ -139,7 +151,7 @@ FuseLayerNorm::FuseLayerNorm() {
 
         // Cache the variables to build layer normalization.
         x_var_       = x_var;
-        gamma_var_   = mul_3->inputs().at(1);
+        gamma_var_   = mul_3->inputs().at(gamma_index);
         beta_var_    = expr->inputs().at(1);
         epsilon_var_ = add_2->inputs().at(1);
         return true;
@@ -156,6 +168,9 @@ FuseLayerNorm::FuseLayerNorm() {
         const float* beta  = beta_var_->readMap<float>();
         if (!gamma_info || !beta_info || !gamma || !beta || gamma_info->size != beta_info->size) {
             return false;
+        }
+        if (expr->name().size() > 0) {
+            MNN_PRINT("FuseLayerNorm as %s\n", expr->name().c_str());
         }
         int size = gamma_info->size;
         layer_norm->gamma.resize(size);

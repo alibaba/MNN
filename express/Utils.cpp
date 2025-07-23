@@ -202,25 +202,52 @@ Executor::ComputeCache::~ComputeCache() {
     FUNC_PRINT(gInstanceCount);
 #endif
 }
+Executor::RuntimeExecuteWrap::RuntimeExecuteWrap(const RuntimeInfo& info) : mRt(info) {
+    for (auto& iter : mRt.first) {
+        iter.second->onConcurrencyBegin();
+    }
+}
+Executor::RuntimeExecuteWrap::~RuntimeExecuteWrap() {
+    for (auto& iter : mRt.first) {
+        iter.second->onConcurrencyEnd();
+    }
+}
 ErrorCode Executor::ComputeCache::compute() {
     std::stack<ComputeCache*> dfsStack;
     std::set<ComputeCache*> visited;
     dfsStack.push(this);
-    ErrorCode code = NO_ERROR;
-    auto globalExecutor = ExecutorScope::Current();
-    auto& rt = globalExecutor->mRuntimeInfo;
-    for (auto& iter : rt.first) {
-        iter.second->onConcurrencyBegin();
-    }
-    auto debug = globalExecutor->getDebugTools();
+    auto hasUnvisitInput = [&] (ComputeCache* cache) {
+        for (auto c : cache->mInputs) {
+            if (visited.find(c.get()) == visited.end()) {
+                return true;
+            }
+        }
+        return false;
+    };
+    // Check need compute or not
     while (!dfsStack.empty()) {
-        //printf("stcak = %d\n", dfsStack.size());
         auto cache = dfsStack.top();
+        dfsStack.pop();
         for (auto& c : cache->mInputInside) {
             if (c->mContentDirty) {
                 return CALL_BACK_STOP;
             }
         }
+        if (hasUnvisitInput(cache)) {
+            for (auto c : cache->mInputs) {
+                dfsStack.push(c.get());
+            }
+        }
+    }
+    // Compute
+    visited.clear();
+    dfsStack.push(this);
+    ErrorCode code = NO_ERROR;
+    auto glo = ExecutorScope::Current();
+    RuntimeExecuteWrap wrap(glo->mRuntimeInfo);
+    auto debug = glo->getDebugTools();
+    while (!dfsStack.empty()) {
+        auto cache = dfsStack.top();
         if (cache->mShapeDirty) {
             auto code = cache->resize();
             if (NO_ERROR != code) {
@@ -233,15 +260,7 @@ ErrorCode Executor::ComputeCache::compute() {
             dfsStack.pop();
             continue;
         }
-        auto hasUnvisitInput = [&] () {
-            for (auto c : cache->mInputs) {
-                if (visited.find(c.get()) == visited.end()) {
-                    return true;
-                }
-            }
-            return false;
-        };
-        if (hasUnvisitInput()) {
+        if (hasUnvisitInput(cache)) {
             for (auto c : cache->mInputs) {
                 dfsStack.push(c.get());
             }
@@ -258,9 +277,6 @@ ErrorCode Executor::ComputeCache::compute() {
             }
             cache->mContentDirty = false;
         }
-    }
-    for (auto& iter : rt.first) {
-        iter.second->onConcurrencyEnd();
     }
     return NO_ERROR;
 }

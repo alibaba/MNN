@@ -139,7 +139,6 @@ void MATMULCOREFUNC_NAME(int8_t* dst, const int8_t* src, const int8_t* weight, s
     int weight_step_Z = static_cast<int32_t>(src_depth_quad * (GEMMINT8_AVX512_L * GEMMINT8_AVX512_H)) + (2 * sizeof(float) * GEMMINT8_AVX512_H);
     int weight_step_Y = static_cast<int32_t>(GEMMINT8_AVX512_L * GEMMINT8_AVX512_H);
     int weightPackStride = GEMMINT8_AVX512_L * PACK_UNIT;
-    int weight_step_Z_remain = static_cast<int32_t>(src_depth_quad * (GEMMINT8_AVX512_L * GEMMINT8_AVX512_H)) + (2 * sizeof(float) * dzR * PACK_UNIT);
     int source_step = realDst * PACK_UNIT;
 
     if (realDst == GEMMINT8_AVX512_E) {
@@ -504,9 +503,9 @@ void MATMULCOREFUNC_NAME(int8_t* dst, const int8_t* src, const int8_t* weight, s
                 __m512i D1 = _mm512_set1_epi32(0);
                 __m512i D2 = _mm512_set1_epi32(0);
                 __m512i D3 = _mm512_set1_epi32(0);
-                auto weightDzSub = weight_dz + bk * weight_step_Z_remain + i * weightPackStride;
-                auto scaleDz = (float*)(weight_dz + bk * weight_step_Z_remain + src_depth_quad * weight_step_Y);
-                 auto biasDz = scaleDz + dzR * PACK_UNIT;
+                auto weightDzSub = weight_dz + bk * weight_step_Z + i * weightPackStride;
+                auto scaleDz = (float*)(weight_dz + bk * weight_step_Z + src_depth_quad * weight_step_Y);
+                 auto biasDz = scaleDz + GEMMINT8_AVX512_H;
                 const auto src_x = src + bk * src_depth_quad * GEMMINT8_AVX512_L * realDst;
 
                 for (int sz = 0; sz < src_depth_quad; ++sz) {
@@ -555,7 +554,7 @@ void MATMULCOREFUNC_NAME(int8_t* dst, const int8_t* src, const int8_t* weight, s
 
                     if ((post->useInt8 == 0) && post->weightKernelSum && (post->inputBias || (bk == 0))) {
                         if (post->inputBias) {
-                            weightKernelSum_dz = post->weightKernelSum + dzU * blockNum * GEMMINT8_AVX512_H + bk * dzR * PACK_UNIT;
+                            weightKernelSum_dz = post->weightKernelSum + dzU * blockNum * GEMMINT8_AVX512_H + bk * GEMMINT8_AVX512_H;
                             auto wsum0 = _mm512_loadu_ps(weightKernelSum_dz + i * PACK_UNIT);
                             bias00 = _mm512_mul_ps(inputbias0, wsum0);
                             bias01 = _mm512_mul_ps(inputbias1, wsum0);
@@ -927,9 +926,9 @@ void MATMULCOREFUNC_NAME(int8_t* dst, const int8_t* src, const int8_t* weight, s
                 __m512i D0 = _mm512_set1_epi32(0);
                 __m512i D1 = _mm512_set1_epi32(0);
                 __m512i D2 = _mm512_set1_epi32(0);
-                auto weightDzSub = weight_dz + bk * weight_step_Z_remain + i * weightPackStride;
-                auto scaleDz = (float*)(weight_dz + bk * weight_step_Z_remain + src_depth_quad * weight_step_Y);
-                 auto biasDz = scaleDz + dzR * PACK_UNIT;
+                auto weightDzSub = weight_dz + bk * weight_step_Z + i * weightPackStride;
+                auto scaleDz = (float*)(weight_dz + bk * weight_step_Z + src_depth_quad * weight_step_Y);
+                 auto biasDz = scaleDz + GEMMINT8_AVX512_H;
                 const auto src_x = src + bk * src_depth_quad * GEMMINT8_AVX512_L * realDst;
 
                 for (int sz = 0; sz < src_depth_quad; ++sz) {
@@ -970,7 +969,7 @@ void MATMULCOREFUNC_NAME(int8_t* dst, const int8_t* src, const int8_t* weight, s
                     f2 = _mm512_mul_ps(f2, inputscale2);
                     if ((post->useInt8 == 0) && post->weightKernelSum && (post->inputBias || (bk == 0))) {
                         if (post->inputBias) {
-                            weightKernelSum_dz = post->weightKernelSum + dzU * blockNum * GEMMINT8_AVX512_H + bk * dzR * PACK_UNIT;
+                            weightKernelSum_dz = post->weightKernelSum + dzU * blockNum * GEMMINT8_AVX512_H + bk * GEMMINT8_AVX512_H;
                             auto wsum0 = _mm512_loadu_ps(weightKernelSum_dz + i * PACK_UNIT);
                             bias00 = _mm512_mul_ps(inputbias0, wsum0);
                             bias01 = _mm512_mul_ps(inputbias1, wsum0);
@@ -1270,9 +1269,9 @@ void MATMULCOREFUNC_NAME(int8_t* dst, const int8_t* src, const int8_t* weight, s
             for (int bk = 0; bk < blockNum; ++bk) {
                 __m512i D0 = _mm512_set1_epi32(0);
                 __m512i D1 = _mm512_set1_epi32(0);
-                auto weightDzSub = weight_dz + bk * weight_step_Z_remain + i * weightPackStride;
-                auto scaleDz = (float*)(weight_dz + bk * weight_step_Z_remain + src_depth_quad * weight_step_Y);
-                 auto biasDz = scaleDz + dzR * PACK_UNIT;
+                auto weightDzSub = weight_dz + bk * weight_step_Z + i * weightPackStride;
+                auto scaleDz = (float*)(weight_dz + bk * weight_step_Z + src_depth_quad * weight_step_Y);
+                 auto biasDz = scaleDz + GEMMINT8_AVX512_H;
                 const auto src_x = src + bk * src_depth_quad * GEMMINT8_AVX512_L * realDst;
 
                 for (int sz = 0; sz < src_depth_quad; ++sz) {
@@ -1306,7 +1305,7 @@ void MATMULCOREFUNC_NAME(int8_t* dst, const int8_t* src, const int8_t* weight, s
                     f1 = _mm512_mul_ps(f1, inputscale1);
                     if ((post->useInt8 == 0) && post->weightKernelSum && (post->inputBias || (bk == 0))) {
                         if (post->inputBias) {
-                            weightKernelSum_dz = post->weightKernelSum + dzU * blockNum * GEMMINT8_AVX512_H + bk * dzR * PACK_UNIT;
+                            weightKernelSum_dz = post->weightKernelSum + dzU * blockNum * GEMMINT8_AVX512_H + bk * GEMMINT8_AVX512_H;
                             auto wsum0 = _mm512_loadu_ps(weightKernelSum_dz + i * PACK_UNIT);
                             bias00 = _mm512_mul_ps(inputbias0, wsum0);
                             bias01 = _mm512_mul_ps(inputbias1, wsum0);
@@ -1523,9 +1522,9 @@ void MATMULCOREFUNC_NAME(int8_t* dst, const int8_t* src, const int8_t* weight, s
         for (int i=0; i<dzR; ++i) {
             auto accum_x = accumbuff;
             for (int bk = 0; bk < blockNum; ++bk) {
-                auto weightDzSub = weight_dz + bk * weight_step_Z_remain + i * weightPackStride;
-                auto scaleDz = (float*)(weight_dz + bk * weight_step_Z_remain + src_depth_quad * weight_step_Y);
-                 auto biasDz = scaleDz + dzR * PACK_UNIT;
+                auto weightDzSub = weight_dz + bk * weight_step_Z + i * weightPackStride;
+                auto scaleDz = (float*)(weight_dz + bk * weight_step_Z + src_depth_quad * weight_step_Y);
+                 auto biasDz = scaleDz + GEMMINT8_AVX512_H;
                 const auto src_x = src + bk * src_depth_quad * GEMMINT8_AVX512_L * realDst;
 
                 __m512i D0 = _mm512_set1_epi32(0);
@@ -1552,7 +1551,7 @@ void MATMULCOREFUNC_NAME(int8_t* dst, const int8_t* src, const int8_t* weight, s
                     f0 = _mm512_mul_ps(f0, inputscale0);
                     if ((post->useInt8 == 0) && post->weightKernelSum && (post->inputBias || (bk == 0))) {
                         if (post->inputBias) {
-                            weightKernelSum_dz = post->weightKernelSum + dzU * blockNum * GEMMINT8_AVX512_H + bk * dzR * PACK_UNIT;
+                            weightKernelSum_dz = post->weightKernelSum + dzU * blockNum * GEMMINT8_AVX512_H + bk * GEMMINT8_AVX512_H;
                             auto wsum0 = _mm512_loadu_ps(weightKernelSum_dz + i * PACK_UNIT);
                             bias00 = _mm512_mul_ps(inputbias0, wsum0);
                         } else if (bk == 0) { // if input not block quant, only accum once!
@@ -1640,7 +1639,6 @@ void MATMULCOREFUNC_NAME_W4(int8_t* dst, const int8_t* src, const int8_t* weight
     int weight_step_Y = GEMMINT8_AVX512_L * GEMMINT8_AVX512_H / 2;
     int weight_step_Z = src_depth_quad * weight_step_Y + (2 * 4 * GEMMINT8_AVX512_H);
     int weightPackStride = GEMMINT8_AVX512_L / 2 * PACK_UNIT;
-    int weight_step_Z_remain = src_depth_quad * weight_step_Y + (2 * 4 * dzR * PACK_UNIT);
     int source_step = realDst * PACK_UNIT;
     if (realDst == GEMMINT8_AVX512_E) {
         for (int dz = 0; dz < dzU; ++dz) {
@@ -1960,9 +1958,9 @@ void MATMULCOREFUNC_NAME_W4(int8_t* dst, const int8_t* src, const int8_t* weight
                 __m512i D1 = _mm512_set1_epi32(0);
                 __m512i D2 = _mm512_set1_epi32(0);
                 __m512i D3 = _mm512_set1_epi32(0);
-                auto weightDzSub = weight_dz + bk * weight_step_Z_remain + weightPackStride * suborder[i];
-                auto scaleDz = (float*)(weight_dz + bk * weight_step_Z_remain + src_depth_quad * weight_step_Y);
-                 auto biasDz = scaleDz + dzR * PACK_UNIT;
+                auto weightDzSub = weight_dz + bk * weight_step_Z + weightPackStride * suborder[i];
+                auto scaleDz = (float*)(weight_dz + bk * weight_step_Z + src_depth_quad * weight_step_Y);
+                 auto biasDz = scaleDz + GEMMINT8_AVX512_H;
                 const auto src_x = src + bk * src_depth_quad * GEMMINT8_AVX512_L * realDst;
 
                 for (int sz = 0; sz < src_depth_quad; ++sz) {
@@ -2012,7 +2010,7 @@ void MATMULCOREFUNC_NAME_W4(int8_t* dst, const int8_t* src, const int8_t* weight
                     f3 = _mm512_mul_ps(f3, inputscale3);
                     if ((post->useInt8 == 0) && post->weightKernelSum && (post->inputBias || (bk == 0))) {
                         if (post->inputBias) {
-                            weightKernelSum_dz = post->weightKernelSum + dzU * blockNum * GEMMINT8_AVX512_H + bk * dzR * PACK_UNIT;
+                            weightKernelSum_dz = post->weightKernelSum + dzU * blockNum * GEMMINT8_AVX512_H + bk * GEMMINT8_AVX512_H;
                             auto wsum0 = _mm512_loadu_ps(weightKernelSum_dz + i * PACK_UNIT);
                             bias00 = _mm512_mul_ps(inputbias0, wsum0);
                             bias01 = _mm512_mul_ps(inputbias1, wsum0);
@@ -2334,9 +2332,9 @@ void MATMULCOREFUNC_NAME_W4(int8_t* dst, const int8_t* src, const int8_t* weight
                 __m512i D0 = _mm512_set1_epi32(0);
                 __m512i D1 = _mm512_set1_epi32(0);
                 __m512i D2 = _mm512_set1_epi32(0);
-                auto weightDzSub = weight_dz + bk * weight_step_Z_remain + weightPackStride * suborder[i];
-                auto scaleDz = (float*)(weight_dz + bk * weight_step_Z_remain + src_depth_quad * weight_step_Y);
-                 auto biasDz = scaleDz + dzR * PACK_UNIT;
+                auto weightDzSub = weight_dz + bk * weight_step_Z + weightPackStride * suborder[i];
+                auto scaleDz = (float*)(weight_dz + bk * weight_step_Z + src_depth_quad * weight_step_Y);
+                 auto biasDz = scaleDz + GEMMINT8_AVX512_H;
                 const auto src_x = src + bk * src_depth_quad * GEMMINT8_AVX512_L * realDst;
 
                 for (int sz = 0; sz < src_depth_quad; ++sz) {
@@ -2379,7 +2377,7 @@ void MATMULCOREFUNC_NAME_W4(int8_t* dst, const int8_t* src, const int8_t* weight
                     f2 = _mm512_mul_ps(f2, inputscale2);
                     if ((post->useInt8 == 0) && post->weightKernelSum && (post->inputBias || (bk == 0))) {
                         if (post->inputBias) {
-                            weightKernelSum_dz = post->weightKernelSum + dzU * blockNum * GEMMINT8_AVX512_H + bk * dzR * PACK_UNIT;
+                            weightKernelSum_dz = post->weightKernelSum + dzU * blockNum * GEMMINT8_AVX512_H + bk * GEMMINT8_AVX512_H;
                             auto wsum0 = _mm512_loadu_ps(weightKernelSum_dz + i * PACK_UNIT);
                             bias00 = _mm512_mul_ps(inputbias0, wsum0);
                             bias01 = _mm512_mul_ps(inputbias1, wsum0);
@@ -2640,9 +2638,9 @@ void MATMULCOREFUNC_NAME_W4(int8_t* dst, const int8_t* src, const int8_t* weight
             for (int bk = 0; bk < blockNum; ++bk) {
                 __m512i D0 = _mm512_set1_epi32(0);
                 __m512i D1 = _mm512_set1_epi32(0);
-                auto weightDzSub = weight_dz + bk * weight_step_Z_remain + weightPackStride * suborder[i];
-                auto scaleDz = (float*)(weight_dz + bk * weight_step_Z_remain + src_depth_quad * weight_step_Y);
-                 auto biasDz = scaleDz + dzR * PACK_UNIT;
+                auto weightDzSub = weight_dz + bk * weight_step_Z + weightPackStride * suborder[i];
+                auto scaleDz = (float*)(weight_dz + bk * weight_step_Z + src_depth_quad * weight_step_Y);
+                 auto biasDz = scaleDz + GEMMINT8_AVX512_H;
                 const auto src_x = src + bk * src_depth_quad * GEMMINT8_AVX512_L * realDst;
 
                 for (int sz = 0; sz < src_depth_quad; ++sz) {
@@ -2678,7 +2676,7 @@ void MATMULCOREFUNC_NAME_W4(int8_t* dst, const int8_t* src, const int8_t* weight
                     f1 = _mm512_mul_ps(f1, inputscale1);
                     if ((post->useInt8 == 0) && post->weightKernelSum && (post->inputBias || (bk == 0))) {
                         if (post->inputBias) {
-                            weightKernelSum_dz = post->weightKernelSum + dzU * blockNum * GEMMINT8_AVX512_H + bk * dzR * PACK_UNIT;
+                            weightKernelSum_dz = post->weightKernelSum + dzU * blockNum * GEMMINT8_AVX512_H + bk * GEMMINT8_AVX512_H;
                             auto wsum0 = _mm512_loadu_ps(weightKernelSum_dz + i * PACK_UNIT);
                             bias00 = _mm512_mul_ps(inputbias0, wsum0);
                             bias01 = _mm512_mul_ps(inputbias1, wsum0);
@@ -2863,9 +2861,9 @@ void MATMULCOREFUNC_NAME_W4(int8_t* dst, const int8_t* src, const int8_t* weight
         for (int i=0; i<dzR; ++i) {
             auto accum_x = accumbuff;
             for (int bk = 0; bk < blockNum; ++bk) {
-                auto weightDzSub = weight_dz + bk * weight_step_Z_remain + weightPackStride * suborder[i];
-                auto scaleDz = (float*)(weight_dz + bk * weight_step_Z_remain + src_depth_quad * weight_step_Y);
-                 auto biasDz = scaleDz + dzR * PACK_UNIT;
+                auto weightDzSub = weight_dz + bk * weight_step_Z + weightPackStride * suborder[i];
+                auto scaleDz = (float*)(weight_dz + bk * weight_step_Z + src_depth_quad * weight_step_Y);
+                 auto biasDz = scaleDz + GEMMINT8_AVX512_H;
                 const auto src_x = src + bk * src_depth_quad * GEMMINT8_AVX512_L * realDst;
 
                 __m512i D0 = _mm512_set1_epi32(0);
@@ -2893,7 +2891,7 @@ void MATMULCOREFUNC_NAME_W4(int8_t* dst, const int8_t* src, const int8_t* weight
                     f0 = _mm512_mul_ps(f0, inputscale0);
                     if ((post->useInt8 == 0) && post->weightKernelSum && (post->inputBias || (bk == 0))) {
                         if (post->inputBias) {
-                            weightKernelSum_dz = post->weightKernelSum + dzU * blockNum * GEMMINT8_AVX512_H + bk * dzR * PACK_UNIT;
+                            weightKernelSum_dz = post->weightKernelSum + dzU * blockNum * GEMMINT8_AVX512_H + bk * GEMMINT8_AVX512_H;
                             auto wsum0 = _mm512_loadu_ps(weightKernelSum_dz + i * PACK_UNIT);
                             bias00 = _mm512_mul_ps(inputbias0, wsum0);
                         } else if (bk == 0) { // if input not block quant, only accum once!

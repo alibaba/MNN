@@ -39,7 +39,7 @@ public:
 
         #ifdef MNN_LOW_MEMORY
         auto conv2dParams = op->main_as_Convolution2D();
-        bool isMemoryLowWeightOnlyQuant = (conv2dParams->quanParameter() != nullptr && conv2dParams->quanParameter()->buffer() != nullptr);
+        bool isMemoryLowWeightOnlyQuant = conv2dParams->quanParameter() && (conv2dParams->external() || conv2dParams->quanParameter()->buffer());
         isMemoryLowWeightOnlyQuant = isMemoryLowWeightOnlyQuant && (static_cast<CUDABackend*>(backend)->getMemoryMode() == BackendConfig::Memory_Low);
         isMemoryLowWeightOnlyQuant = isMemoryLowWeightOnlyQuant && ConvFpAIntBExecution::isValid(op->main_as_Convolution2D(), backend);
         if (isMemoryLowWeightOnlyQuant) {

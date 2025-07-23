@@ -73,7 +73,7 @@ static const RuntimeParameters runtimeParamsDefaults = {
 static const TestParameters testParamsDefaults = {
     /* nPrompt             */ { 512 },
     /* nGenerate           */ { 128 },
-    /* nPrompGen           */ {std::make_pair(512, 128)},
+    /* nPrompGen           */ {std::make_pair(0, 0)},
     /* nRepeat             */ { 5 },
     /* kvCache             */ { "false" },
     /* loadingTime         */ {"false"}
@@ -282,7 +282,7 @@ struct markdownPrinter : public Printer {
         fields.emplace_back("backend");
         fields.emplace_back("threads");
 
-        if (rp.precision.size() > 1) {
+        if (rp.precision.size() > 0) {
             fields.emplace_back("precision");
         }
         if (rp.memory.size() > 1) {
@@ -395,10 +395,6 @@ struct markdownPrinter : public Printer {
         }
         fprintf(fout, "\n");
     }
-
-//    void print_footer() override {
-//        fprintf(fout, "\nbuild: %s \n", test::build_commit.c_str());
-//    }
 };
 
 static FILE* openFile(const char* file, bool read) {
@@ -660,6 +656,7 @@ static bool parseCmdParams(int argc, char ** argv, RuntimeParameters & runtimePa
                 break;
             }
             auto p = splitString<int>(argv[i], splitDelim);
+            std::sort(p.begin(), p.end(), std::greater<int>());
             runtimeParams.threads.insert(runtimeParams.threads.end(), p.begin(), p.end());
         } else if (arg == "-mmp" || arg == "--mmap") {
             if (++i >= argc) {

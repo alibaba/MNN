@@ -94,10 +94,11 @@ void ARMV86_MNNGetMatMulPackMode_BF16(int* eP, int* lP, int* hP) {
     *hP = HP;
     *lP = LP;
 }
-void ARMV86_MNNPackForMatMul_B_BF16(float* destF, const float* sourceF, size_t h, size_t l, bool transpose) {
+void ARMV86_MNNPackForMatMul_B_BF16(float* destF, const float* sourceF, size_t h, size_t kernelsize, size_t ic, bool transpose) {
     // [l, h] -> [h/hp, l/lp, hp, lp]
     auto dest = (int16_t*)destF;
     auto source = (const int32_t*)sourceF;
+    auto l = kernelsize * ic;
     auto lCP = UP_DIV(l, LP);
     auto hCP = UP_DIV(h, HP);
     int sYstride = 1;
@@ -173,10 +174,11 @@ void ARMV86_MNNPackC4ForMatMul_A_BF16(float* destOrigin, float const** sourceGro
 #undef EP
 #undef HP
 #undef LP
-void NEON_MNNPackForMatMul_B_BF16(float* destFloat, const float* sourceFloat, size_t h, size_t l, bool transpose) {
+void NEON_MNNPackForMatMul_B_BF16(float* destFloat, const float* sourceFloat, size_t h, size_t kernelsize, size_t ic, bool transpose) {
     auto hP         = (int)h / 8;
     auto hR         = (int)hP * 8;
     int16_t* dest   = (int16_t*)destFloat;
+    auto l = kernelsize * ic;
     const float* source = sourceFloat;
     if (!transpose) {
         for (int y = 0; y < hP; ++y) {
@@ -246,9 +248,10 @@ void NEON_MNNPackForMatMul_B_BF16(float* destFloat, const float* sourceFloat, si
 }
 
 #else
-void NEON_MNNPackForMatMul_B_BF16(float* destFloat, const float* sourceFloat, size_t h, size_t l, bool transpose) {
+void NEON_MNNPackForMatMul_B_BF16(float* destFloat, const float* sourceFloat, size_t h, size_t kernelsize, size_t ic, bool transpose) {
     int16_t* dest   = (int16_t*)destFloat;
     const float* source = sourceFloat;
+    auto l = kernelsize * ic;
     if (!transpose) {
         auto hP = h / 4;
         auto hR = hP * 4;

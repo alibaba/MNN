@@ -56,7 +56,11 @@ void conv_2d_1x1_mali(GLOBAL_SIZE_2_DIMS __private const int out_w_blocks, __rea
                           #endif
                           __write_only image2d_t output,
                           __private const int in_c_block, __private const int out_h,
-                          __private const int out_w) {
+                          __private const int out_w
+                          #ifdef PRELU
+                          ,__read_only image2d_t slope
+                          #endif
+) {
 
     const int out_c_w_idx = get_global_id(0); //c/4 w
     const int out_b_h_idx  = get_global_id(1); //b h
@@ -151,6 +155,14 @@ void conv_2d_1x1_mali(GLOBAL_SIZE_2_DIMS __private const int out_w_blocks, __rea
     out3 = clamp(out3, (FLOAT4)0, (FLOAT4)6);
 #endif
 
+#ifdef PRELU
+    FLOAT4 slope_in0 = RI_F(slope, SAMPLER, (int2)(out_c_idx, 0));
+    out0 = select(out0 * slope_in0, out0, out0 >= 0);
+    out1 = select(out1 * slope_in0, out1, out1 >= 0);
+    out2 = select(out2 * slope_in0, out2, out2 >= 0);
+    out3 = select(out3 * slope_in0, out3, out3 >= 0);
+#endif
+
     const int out_x_base = out_c_idx*out_w;
 
     const int remain = out_w - out_w4_idx;
@@ -191,6 +203,9 @@ void conv_2d_1x1(GLOBAL_SIZE_2_DIMS __read_only image2d_t input,
                           __private const int2 stride_shape,
                           __private const int output_width_4,
                           __private const int out_channel_blocks
+                          #ifdef PRELU
+                          ,__read_only image2d_t slope
+                          #endif
 ) {
 
     const int output_channel_width_idx = get_global_id(0);
@@ -277,6 +292,14 @@ void conv_2d_1x1(GLOBAL_SIZE_2_DIMS __read_only image2d_t input,
     out3 = clamp(out3, (FLOAT4)0, (FLOAT4)6);
 #endif
 
+#ifdef PRELU
+    FLOAT4 slope_in = RI_F(slope, SAMPLER, (int2)(output_channel_block_idx, 0));
+    out0 = select(out0 * slope_in, out0, out0 >= 0);
+    out1 = select(out1 * slope_in, out1, out1 >= 0);
+    out2 = select(out2 * slope_in, out2, out2 >= 0);
+    out3 = select(out3 * slope_in, out3, out3 >= 0);
+#endif
+
     const int out_x_base = mul24(output_channel_block_idx, output_shape.y);
     int out_x_idx        = output_width_block_idx << 2;
 
@@ -316,6 +339,9 @@ void conv_2d_1x1_c8h1w4(GLOBAL_SIZE_2_DIMS __read_only image2d_t input,
                           __private const int2 stride_shape,
                           __private const int output_width_4,
                           __private const int out_channel_blocks
+                          #ifdef PRELU
+                          ,__read_only image2d_t slope
+                          #endif
 ) {
 
     const int output_channel_width_idx = get_global_id(0);
@@ -444,6 +470,19 @@ void conv_2d_1x1_c8h1w4(GLOBAL_SIZE_2_DIMS __read_only image2d_t input,
     out7 = clamp(out7, (FLOAT4)0, (FLOAT4)6);
 #endif
 
+#ifdef PRELU
+    FLOAT4 slope_in0 = RI_F(slope, SAMPLER, (int2)(output_channel_idx, 0));
+    FLOAT4 slope_in1 = RI_F(slope, SAMPLER, (int2)(output_channel_idx + 1, 0));
+    out0 = select(out0 * slope_in0, out0, out0 >= 0);
+    out1 = select(out1 * slope_in0, out1, out1 >= 0);
+    out2 = select(out2 * slope_in0, out2, out2 >= 0);
+    out3 = select(out3 * slope_in0, out3, out3 >= 0);
+    out4 = select(out4 * slope_in1, out4, out4 >= 0);
+    out5 = select(out5 * slope_in1, out5, out5 >= 0);
+    out6 = select(out6 * slope_in1, out6, out6 >= 0);
+    out7 = select(out7 * slope_in1, out7, out7 >= 0);
+#endif
+
     const int out_x_base = mul24(output_channel_idx, output_shape.y);
     int out_x_idx        = output_width_block_idx << 2;
 
@@ -509,6 +548,9 @@ void conv_2d_c4h1w4(GLOBAL_SIZE_2_DIMS __read_only image2d_t input,
                       __private const int out_width_blocks,
                       __private const int out_channel_blocks,
                       __private const int out_height_blocks
+                      #ifdef PRELU
+                      ,__read_only image2d_t slope
+                      #endif
 ) {
 
     const int output_channel_width_idx = get_global_id(0);
@@ -654,6 +696,14 @@ void conv_2d_c4h1w4(GLOBAL_SIZE_2_DIMS __read_only image2d_t input,
     out3 = clamp(out3, (FLOAT4)0, (FLOAT4)6);
 #endif
 
+#ifdef PRELU
+    FLOAT4 slope_in = RI_F(slope, SAMPLER, (int2)(out_channel_block_idx, 0));
+    out0 = select(out0 * slope_in, out0, out0 >= 0);
+    out1 = select(out1 * slope_in, out1, out1 >= 0);
+    out2 = select(out2 * slope_in, out2, out2 >= 0);
+    out3 = select(out3 * slope_in, out3, out3 >= 0);
+#endif
+
     const int out_x_base = mul24(out_channel_block_idx, output_shape.y);
     int out_x_idx        = out_height_block_idx << 2;
 
@@ -700,6 +750,9 @@ void conv_2d_c8h4w1(GLOBAL_SIZE_2_DIMS __read_only image2d_t input,
                       __private const int out_width_blocks,
                       __private const int out_channel_blocks,
                       __private const int out_height_blocks
+                      #ifdef PRELU
+                      ,__read_only image2d_t slope
+                      #endif
 ) {
 
     const int output_channel_width_idx = get_global_id(0);
@@ -824,6 +877,19 @@ void conv_2d_c8h4w1(GLOBAL_SIZE_2_DIMS __read_only image2d_t input,
     out7 = clamp(out7, (FLOAT4)0, (FLOAT4)6);
 #endif
 
+#ifdef PRELU
+    FLOAT4 slope_in0 = RI_F(slope, SAMPLER, (int2)(out_channel_block_idx, 0));
+    FLOAT4 slope_in1 = RI_F(slope, SAMPLER, (int2)(out_channel_block_idx + 1, 0));
+    out0 = select(out0 * slope_in0, out0, out0 >= 0);
+    out1 = select(out1 * slope_in0, out1, out1 >= 0);
+    out2 = select(out2 * slope_in0, out2, out2 >= 0);
+    out3 = select(out3 * slope_in0, out3, out3 >= 0);
+    out4 = select(out4 * slope_in1, out4, out4 >= 0);
+    out5 = select(out5 * slope_in1, out5, out5 >= 0);
+    out6 = select(out6 * slope_in1, out6, out6 >= 0);
+    out7 = select(out7 * slope_in1, out7, out7 >= 0);
+#endif
+
     const int out_x_base = mul24(out_channel_block_idx, output_shape.y);
     const int out_y_base = mul24(out_batch_block_idx, output_shape.x);
     int out_x_idx        = out_width_block_idx;
@@ -894,6 +960,9 @@ void conv_2d_c4h4w1(GLOBAL_SIZE_2_DIMS __read_only image2d_t input,
                       __private const int out_width_blocks,
                       __private const int out_channel_blocks,
                       __private const int out_height_blocks
+                      #ifdef PRELU
+                      ,__read_only image2d_t slope
+                      #endif
 ) {
 
     const int output_channel_width_idx = get_global_id(0);
@@ -983,6 +1052,15 @@ void conv_2d_c4h4w1(GLOBAL_SIZE_2_DIMS __read_only image2d_t input,
     out1 = clamp(out1, (FLOAT4)0, (FLOAT4)6);
     out2 = clamp(out2, (FLOAT4)0, (FLOAT4)6);
     out3 = clamp(out3, (FLOAT4)0, (FLOAT4)6);
+#endif
+
+
+#ifdef PRELU
+    FLOAT4 slope_in0 = RI_F(slope, SAMPLER, (int2)(out_channel_block_idx, 0));
+    out0 = select(out0 * slope_in0, out0, out0 >= 0);
+    out1 = select(out1 * slope_in0, out1, out1 >= 0);
+    out2 = select(out2 * slope_in0, out2, out2 >= 0);
+    out3 = select(out3 * slope_in0, out3, out3 >= 0);
 #endif
 
     const int out_x_base = mul24(out_channel_block_idx, output_shape.y);
