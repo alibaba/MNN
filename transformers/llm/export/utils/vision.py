@@ -13,6 +13,7 @@ class Vision(torch.nn.Module):
         self.quant_bit = 8
         self.quant_block = 128
         self.transformer_fuse = True
+        self.group_conv_native = False
         self.model_type = base.model_type
         self.visual = visual.eval()
         self.embed_ = base.embed
@@ -996,6 +997,7 @@ class MobileCLIPVision(QwenVision):
         self.visual = visual.float()
         self.mm_projector = base.model.model.mm_projector.float()
         self.quant_bit = 8
+        self.group_conv_native = False
 
     def init_config(self):
         self.llm_config['is_visual'] = True

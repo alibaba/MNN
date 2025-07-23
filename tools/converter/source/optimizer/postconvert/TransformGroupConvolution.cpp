@@ -8,12 +8,15 @@
 
 #include <MNN/MNNDefine.h>
 #include "../PostTreatUtils.hpp"
+#include "config.hpp"
+#include "../Global.hpp"
+
 using namespace MNN;
 class TransformGroupConvolution3D : public PostConverter {
 public:
     virtual bool onExecute(std::unique_ptr<MNN::NetT>& net) const override {
         auto& mNet = net;
-        // Delete Convolution With Grouop
+        // Delete Convolution With Group
         for (auto iter = mNet->oplists.begin(); iter != mNet->oplists.end();) {
             auto& op = *iter;
             if (op->type != MNN::OpType_Convolution3D) {
@@ -171,6 +174,10 @@ public:
             }
         }
 
+        auto config = Global<modelConfig>::Get();
+        if(config->groupConvNative) {
+            return false;
+        }
         // Delete Convolution With Grouop
         for (auto iter = mNet->oplists.begin(); iter != mNet->oplists.end();) {
             auto& op = *iter;

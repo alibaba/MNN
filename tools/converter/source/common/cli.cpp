@@ -306,11 +306,22 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
      "fuse key transformer op, like attention. default: false",
      cxxopts::value<bool>()
      )
+    (
+     "groupConvNative",
+     "keep native group convolution. default: false",
+     cxxopts::value<bool>()
+     )
      (
      "allowCustomOp",
      "allow custom op when convert. default: false",
      cxxopts::value<bool>()
-     );
+     )
+     (
+      "useOriginRNNImpl",
+      "Don't use While Module to Implement LSTM or GRU, use origin OP, if open it, LSTM and GRU can't be quantized or use other compress method",
+      cxxopts::value<bool>()
+     )
+    ;
 
     auto result = options.parse(argc, argv);
 
@@ -506,79 +517,18 @@ bool Cli::initializeMNNConvertArgs(modelConfig &modelPath, int argc, char **argv
     if (result.count("transformerFuse")) {
         modelPath.transformerFuse = true;
     }
+    if (result.count("groupConvNative")) {
+        modelPath.groupConvNative = true;
+    }
     if (result.count("allowCustomOp")) {
         modelPath.allowCustomOp = true;
+    }
+    if (result.count("useOriginRNNImpl")) {
+        modelPath.useOriginRNNImpl = true;
     }
     return true;
 }
 
-typedef VARP (*unaryProc)(VARP input);
-static unaryProc selectUnaryProc(int type) {
-    switch (type) {
-        case UnaryOpOperation_ABS:
-            return MNN::Express::_Abs;
-        case UnaryOpOperation_SQUARE:
-            return MNN::Express::_Square;
-        case UnaryOpOperation_NEG:
-            return MNN::Express::_Negative;
-        case UnaryOpOperation_RSQRT:
-            return MNN::Express::_Rsqrt;
-        case UnaryOpOperation_EXP:
-            return MNN::Express::_Exp;
-        case UnaryOpOperation_COS:
-            return MNN::Express::_Cos;
-        case UnaryOpOperation_SIN:
-            return MNN::Express::_Sin;
-        case UnaryOpOperation_SIGMOID:
-            return MNN::Express::_Sigmoid;
-        case UnaryOpOperation_TANH:
-            return MNN::Express::_Tanh;
-        case UnaryOpOperation_TAN:
-            return MNN::Express::_Tan;
-        case UnaryOpOperation_ATAN:
-            return MNN::Express::_Atan;
-        case UnaryOpOperation_SQRT:
-            return MNN::Express::_Sqrt;
-        case UnaryOpOperation_RECIPROCAL:
-            return MNN::Express::_Reciprocal;
-        case UnaryOpOperation_LOG1P:
-            return MNN::Express::_Log1p;
-        case UnaryOpOperation_LOG:
-            return MNN::Express::_Log;
-        case UnaryOpOperation_ACOSH:
-            return MNN::Express::_Acosh;
-        case UnaryOpOperation_SINH:
-            return MNN::Express::_Sinh;
-        case UnaryOpOperation_ASINH:
-            return MNN::Express::_Asinh;
-        case UnaryOpOperation_ATANH:
-            return MNN::Express::_Atanh;
-        case UnaryOpOperation_SIGN:
-            return MNN::Express::_Sign;
-        case UnaryOpOperation_COSH:
-            return MNN::Express::_Cosh;
-        case UnaryOpOperation_ERF:
-            return MNN::Express::_Erf;
-        case UnaryOpOperation_ERFC:
-            return MNN::Express::_Erfc;
-        case UnaryOpOperation_ERFINV:
-            return MNN::Express::_Erfinv;
-        case UnaryOpOperation_EXPM1:
-            return MNN::Express::_Expm1;
-        case UnaryOpOperation_ASIN:
-            return MNN::Express::_Asin;
-        case UnaryOpOperation_ACOS:
-            return MNN::Express::_Acos;
-        case UnaryOpOperation_HARDSWISH:
-            return MNN::Express::_Hardswish;
-        case UnaryOpOperation_GELU:
-            return MNN::Express::_Gelu;
-        default:
-            MNN_ASSERT(false);
-            break;
-    }
-    return nullptr;
-}
 static void computeUnaryBuffer(MNN::NetT* net) {
     for (auto iter = net->oplists.begin(); iter != net->oplists.end(); ++iter) {
         auto op = iter->get();
@@ -633,13 +583,7 @@ static void computeUnaryBuffer(MNN::NetT* net) {
                 ptr_in[i + 127] = fx;
             }
             input->unMap();
-            // Compute output data.
-            VARP output;
-            auto func = selectUnaryProc(type);
-            if (nullptr == func) {
-                MNN_ERROR("Don't support quantizing UnaryOP: %s to Int8\n", op->name.c_str());
-            }
-            output = func(input);
+            auto output = Variable::create(Expr::create(op, {input}));
             auto gotOutput = output->template readMap<float>();
             // Write output data.
             int val;

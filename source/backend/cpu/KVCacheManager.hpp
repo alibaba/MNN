@@ -116,17 +116,17 @@ public:
         if (mConfig.mUseInt8Kernel) {
             return baseAddr + kv_h * UP_DIV(mMaxLength, hP8) * UP_DIV(mHeadDim, lP8) * hP8 * lP8;
         } else if (mConfig.mQuantKey) {
-            return baseAddr + kv_h * UP_DIV(mMaxLength, hP) * mHeadDim * hP;
+            return baseAddr + kv_h * UP_DIV(mMaxLength, hP) * ROUND_UP(mHeadDim, lP) * hP;
         } else {
-            return baseAddr + kv_h * UP_DIV(mMaxLength, hP) * mHeadDim * hP * mBytes;
+            return baseAddr + kv_h * UP_DIV(mMaxLength, hP) * ROUND_UP(mHeadDim, lP) * hP * mBytes;
         }
     }
     char * addrOfValue(int kv_h) {
         char * baseAddr = mKVCacheInDisk ? mMapValueAddr : mPastValue->host<char>();
         if (mConfig.mQuantValue) {
-            return baseAddr + kv_h * UP_DIV(mHeadDim, hP) * mMaxLength * hP;
+            return baseAddr + kv_h * UP_DIV(mHeadDim, hP) * ROUND_UP(mMaxLength, lP) * hP;
         } else {
-            return baseAddr + kv_h * UP_DIV(mHeadDim, hP) * mMaxLength * hP * mBytes;
+            return baseAddr + kv_h * UP_DIV(mHeadDim, hP) * ROUND_UP(mMaxLength, lP) * hP * mBytes;
         }
     }
     char * addrOfScale(int kv_h) {

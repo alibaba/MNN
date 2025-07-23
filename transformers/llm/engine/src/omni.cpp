@@ -74,10 +74,10 @@ void Omni::load() {
         mTalker.reset(new Talker(mConfig, this));
         mTalker->load();
     }
+    ScheduleConfig config;
     if (mConfig->mllm_config_.empty()) {
         mProcessorRuntimeManager = mRuntimeManager;
     } else {
-        ScheduleConfig config;
         BackendConfig cpuBackendConfig;
         config.type      = backend_type_convert(mConfig->backend_type(true));
         config.numThread = mConfig->thread_num(true);
@@ -101,21 +101,16 @@ void Omni::load() {
         }
         config.backendConfig = &cpuBackendConfig;
         mProcessorRuntimeManager.reset(Executor::RuntimeManager::createRuntimeManager(config));
-        mProcessorRuntimeManager->setHint(Interpreter::INIT_THREAD_NUMBER, 4);
-        mProcessorRuntimeManager->setHint(MNN::Interpreter::MEM_ALLOCATOR_TYPE, 0);
-        mProcessorRuntimeManager->setHint(MNN::Interpreter::QKV_QUANT_OPTIONS, mConfig->quant_qkv());
-        mProcessorRuntimeManager->setHint(MNN::Interpreter::KVCACHE_SIZE_LIMIT, mConfig->kvcache_limit());
-        std::string tmpPath = mConfig->tmp_path();
-        if (mConfig->kvcache_mmap()) {
-            mProcessorRuntimeManager->setExternalPath(tmpPath, MNN::Interpreter::EXTERNAL_PATH_KVCACHE_DIR);
-        }
-        if (mConfig->use_mmap()) {
-            mProcessorRuntimeManager->setExternalPath(tmpPath, MNN::Interpreter::EXTERNAL_WEIGHT_DIR);
-        }
+        setRuntimeHint(mProcessorRuntimeManager);
     }
     Module::Config module_config;
-    module_config.shapeMutable = true;
-    module_config.rearrange    = true;
+    if(config.type == MNN_FORWARD_NN) {
+        module_config.shapeMutable = false;
+        module_config.rearrange    = false;
+    } else {
+        module_config.shapeMutable = true;
+        module_config.rearrange    = true;
+    }
     if (mConfig->is_visual()) {
         mVisionModule.reset(Module::load({}, {}, mConfig->visual_model().c_str(), mProcessorRuntimeManager, &module_config));
     }
@@ -134,6 +129,7 @@ std::vector<int> Omni::defaultVisionProcess(VARP image) {
     image = Express::_Unsqueeze(image, {0});
     image = Express::_Convert(image, NC4HW4);
     auto imageEmbedding = mVisionModule->forward(image);
+
     mVisionEmbeddings.push_back(imageEmbedding);
     int visionLen = imageEmbedding->getInfo()->dim[0];
     std::vector<int> imgIds(visionLen, mVisionPad);
@@ -758,9 +754,10 @@ void Talker::load() {
     // bigvgan
     mBigvgan.reset(Module::load({"generated_mel"},
                                 {"waveform"}, mConfig->bigvgan_model().c_str(), mRuntimeManager, &module_config));
-    mDecodeModules.resize(mModules.size());
-    mDecodeModules[0].reset(Module::clone(mModules[0].get()));
-    mPrefillModules = mModules;
+    // autoregressive decode module
+    mModulePool[std::make_pair(1, false)].reset(Module::clone(mModules[0].get()));
+    // prefill module
+    mModulePool[std::make_pair(mPrefillKey, mConfig->all_logits())] = mModules[0];
 }
 
 void Talker::generate_init(std::ostream* os, const char* end_with) {

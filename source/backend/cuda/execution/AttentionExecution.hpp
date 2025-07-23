@@ -80,7 +80,7 @@ private:
     KVMeta* mMeta = nullptr;
 
     const int mExpandChunk = 64; // KV Cache重分配时的扩展块大小
-    halide_type_t mPrecision;    // 精度 (float或half)
+    int mPrecision;              // 精度 (float或half)
 };
 #endif // MNN_SUPPORT_TRANSFORMER_FUSE
 

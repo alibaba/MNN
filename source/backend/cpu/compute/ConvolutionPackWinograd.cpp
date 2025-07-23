@@ -281,7 +281,7 @@ ErrorCode ConvolutionPackWinograd::onResize(const std::vector<Tensor *> &inputs,
         }
         int eRemain = (tFin-tSta) % ePack;
         std::vector<size_t> parameters(6);
-        parameters[1] = input->channel();
+        parameters[1] = ROUND_UP(input->channel(), lPack);
         parameters[2] = output->channel();
         parameters[4] = 0;
         parameters[5] = 0;

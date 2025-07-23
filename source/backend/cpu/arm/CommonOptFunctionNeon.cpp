@@ -907,9 +907,10 @@ void MNNGetMatMulPackMode(int* eP, int *lP, int* hP) {
 
 // input shape is (l, h) when transpose=false, else input shape is (h, l)
 // output shape is (UP_DIV(h, 8), l, 8)
-void MNNPackForMatMul_B(float* dest, const float* source, size_t h, size_t l, bool transpose) {
+void MNNPackForMatMul_B(float* dest, const float* source, size_t h, size_t kernelsize, size_t ic, bool transpose) {
     auto hP = (int)h / 8;
     auto hR = (int)hP * 8;
+    auto l = kernelsize * ic;
     if (hR != h) {
         ::memset(dest, 0, UP_DIV(h, 8)*8*l*sizeof(float));
     }
@@ -952,7 +953,8 @@ void MNNPackForMatMul_B(float* dest, const float* source, size_t h, size_t l, bo
     }
 }
 #else
-void MNNPackForMatMul_B(float* dest, const float* source, size_t h, size_t l, bool transpose) {
+void MNNPackForMatMul_B(float* dest, const float* source, size_t h, size_t kernelsize, size_t ic, bool transpose) {
+    auto l = kernelsize * ic;
     if (!transpose) {
         auto hP = h / 4;
         auto hR = hP * 4;

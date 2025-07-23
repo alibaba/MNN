@@ -388,7 +388,7 @@ public:
                  {
                      MNN_PRINT("%f\t, %f\n", outputData[i], outputPtr[i]);
                  }
-                 MNN_ERROR("%s(%s) multi test failed!\n", test_op_name.c_str(), device_name.c_str());
+                 MNN_ERROR("%s(%s) multi test failed, n=%d, oc=%d, oh=%d, ow=%d!\n", test_op_name.c_str(), device_name.c_str(), out->getInfo()->dim[0], out->getInfo()->dim[1], out->getInfo()->dim[2], out->getInfo()->dim[3]);
                  return false;
              }
          }
@@ -448,7 +448,7 @@ public:
                 {
                     MNN_PRINT("%f\t, %f\t, %f\n", toutputData[i],toutputBias[i], outputPtr[i]);
                 }
-                MNN_ERROR("%s(%s) test failed!\n", test_op_name.c_str(), device_name.c_str());
+                MNN_ERROR("%s(%s) test failed, n=%d, oc=%d, oh=%d, ow=%d!\n", test_op_name.c_str(), device_name.c_str(), output->getInfo()->dim[0], output->getInfo()->dim[1],output->getInfo()->dim[2],output->getInfo()->dim[3]);
                 return false;
             }
         }
@@ -725,9 +725,6 @@ public:
 
 protected:
     static bool test(MNNForwardType type, const std::string& device_name, int precision, MNN::SparseAlgo sparseAlgo, std::vector<int> blocks, bool checkSpectial = false) {
-        int ocStep = 1;
-        int icStep = 1;
-        int isStep = 3;
         std::vector<int> ocSize = {
             1, 4, 3, 10, 17
         };

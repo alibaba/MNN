@@ -32,17 +32,20 @@ ErrorCode QNNReduce::onEncode(const std::vector<Tensor *> &inputs, const std::ve
 
     std::vector<uint32_t> axesData;
     int inputDim = inputs[0]->dimensions();
+    int positiveAxis;
     Tensor::DimensionType inputDimType = inputs[0]->getDimensionType();
     if (inputs.size() == 2) {
         int32_t * reduceAxes = inputs[1]->host<int32_t>();
         for (int i = 0; i < inputs[1]->elementSize(); ++i) {
-            axesData.push_back((uint32_t) getNHWCAxis(reduceAxes[i], inputDim, inputDimType));
+            positiveAxis = (reduceAxes[i] < 0) ? (inputDim + reduceAxes[i]) : (reduceAxes[i]);
+            axesData.push_back((uint32_t) getNHWCAxis(positiveAxis, inputDim, inputDimType));
         }
     } else {
         MNN_ASSERT(param->dim() != nullptr);
         const int32_t * reduceAxes = param->dim()->data();
         for (int i = 0; i < param->dim()->size(); i++) {
-            axesData.push_back((uint32_t) getNHWCAxis(reduceAxes[i], inputDim, inputDimType));
+            positiveAxis = (reduceAxes[i] < 0) ? (inputDim + reduceAxes[i]) : (reduceAxes[i]);
+            axesData.push_back((uint32_t) getNHWCAxis(positiveAxis, inputDim, inputDimType));
         }
     }
 

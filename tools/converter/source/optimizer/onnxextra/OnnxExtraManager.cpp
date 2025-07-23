@@ -63,6 +63,11 @@ static auto gRegister = []() {
                       type.c_str());
             return false;
         }
+        if (expr->outputSize() == newExpr->outputSize()) {
+            for (int i=0; i<expr->outputSize(); ++i) {
+                Variable::create(newExpr, i)->setName(expr->outputName(i));
+            }
+        }
         Expr::replace(expr, newExpr);
         return true;
     };

@@ -10,7 +10,8 @@
 #include "FunctionSummary.hpp"
 #include "core/Macro.h"
 
-void _AVX_MNNPackForMatMul_B_BF16(float* destF, const float* sourceF, size_t h, size_t l, bool transpose) {
+void _AVX_MNNPackForMatMul_B_BF16(float* destF, const float* sourceF, size_t h, size_t kernelsize, size_t ic, bool transpose) {
+    auto l = kernelsize * ic;
     auto dest = (int16_t*)destF;
     auto source = (const int16_t*)sourceF;
     auto lC8 = UP_DIV(l, 8);

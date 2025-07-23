@@ -24,7 +24,7 @@ namespace MNN {
 
 void DenseConvolutionTiledExecutor::initWeight(float *dest, const float *source, float* cache, int depth, int outputCount, int kernelSize, const CoreFunctions* function) {
     ConvolutionTiledExecutor::initWeight(source, cache, depth, outputCount, kernelSize, function);
-    function->MNNPackForMatMul_B(dest, cache, outputCount, kernelSize * depth, true);
+    function->MNNPackForMatMul_B(dest, cache, outputCount, kernelSize, depth, true);
 
 }
 bool DenseConvolutionTiledExecutor::initQuantizeResource(std::shared_ptr<ConvolutionCommon::Int8Common> int8Info, std::shared_ptr<CPUConvolution::Resource> resource, int hU, int hP, int lU, int lP, int outputCount, int srcChannel, int kernelSize, int bytes) {
@@ -177,7 +177,7 @@ DenseConvolutionTiledExecutor::DenseConvolutionTiledExecutor(const Convolution2D
     auto srcCount    = (int)originWeightSize / outputCount / common->kernelX() / common->kernelY();
     auto lSize = srcCount * common->kernelX() * common->kernelY();
     auto hU = UP_DIV(outputCount, hP);
-    auto lU = UP_DIV(lSize, lP);
+    auto lU = UP_DIV(srcCount, lP) * common->kernelX() * common->kernelY();
     if (useInt8Weight) {
         // Quantize weight to int8
         auto allocSuccess = DenseConvolutionTiledExecutor::initQuantizeResource(int8Info, mResource, hU, hP, lU, lP, outputCount, srcCount, common->kernelX() * common->kernelY(), bytes);
@@ -280,7 +280,7 @@ ErrorCode ConvolutionTiledExecutorMultiInput::onExecute(const std::vector<Tensor
             MNNTranspose32Bit((int32_t*)dO, (const int32_t*)sO, &dims[0]);
         }
     }
-    function->MNNPackForMatMul_B(mTempWeight->host<float>(), mTempWeightCache->host<float>(), outputCount, kernelSize * depth, true);
+    function->MNNPackForMatMul_B(mTempWeight->host<float>(), mTempWeightCache->host<float>(), outputCount, kernelSize, depth, true);
     return mProxy->onExecute(mInputs, outputs);
 }
 ErrorCode ConvolutionTiledExecutorMultiInput::onResize(const std::vector<Tensor*>& inputs,
@@ -292,7 +292,7 @@ ErrorCode ConvolutionTiledExecutorMultiInput::onResize(const std::vector<Tensor*
     function->MNNGetMatMulPackMode(&eP, &lP, &hP);
     auto kernelSize = depth * inputs[1]->stride(1);
     mTempWeight.reset(Tensor::createDevice<float>(
-        {UP_DIV(outputCount, hP), UP_DIV(kernelSize, lP), lP * hP}));
+        {UP_DIV(outputCount, hP), UP_DIV(depth, lP) * inputs[1]->stride(1), lP * hP}));
     if (function->bytes < 4) {
         mTempWeightCache.reset(Tensor::createDevice<int32_t>({2, outputCount * kernelSize}));
     } else {
@@ -304,10 +304,11 @@ ErrorCode ConvolutionTiledExecutorMultiInput::onResize(const std::vector<Tensor*
     if (!res) {
         return OUT_OF_MEMORY;
     }
-    if (inputs.size() > 2 && inputs[2]->elementSize() % function->pack == 0) {
+    if (inputs.size() > 2 && inputs[2]->elementSize() % hP == 0) {
         mInputs = {inputs[0], mTempWeight.get(), inputs[2]};
     } else {
-        mTempBias.reset(Tensor::createDevice<float>({UP_DIV(outputCount, function->pack) * function->pack}));
+        auto hPackedSize = ALIMAX(hP, function->pack);
+        mTempBias.reset(Tensor::createDevice<float>({UP_DIV(outputCount, hPackedSize) * hPackedSize}));
         backend()->onAcquireBuffer(mTempBias.get(), Backend::DYNAMIC);
         mInputs = {inputs[0], mTempWeight.get(), mTempBias.get()};
     }
@@ -445,7 +446,7 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
     const uint8_t* dequantBias = nullptr;
     auto ic       = input->channel();
     auto icC4     = UP_DIV(ic, unit);
-    auto L        = ic * mCommon->kernelY() * mCommon->kernelX();
+    auto L        = ROUND_UP(ic, lP) * mCommon->kernelY() * mCommon->kernelX();
     auto tileC    = std::max(unit, hP);
     int blockSize = L;
     int blockNum  = 1;
@@ -677,7 +678,14 @@ ErrorCode DenseConvolutionTiledImpl::onResize(const std::vector<Tensor*>& inputs
                 if (number > 0) {
                     packA((float *)gemmBuffer, srcPtr, info, el);
                 }
-
+                /*
+                for (int kk=0; kk < mIm2ColParameters.kernelX *  mIm2ColParameters.kernelY; ++kk) {
+                    for (int xx=0; xx < ROUND_UP(input->channel(), lP) * eP; ++xx) {
+                        printf("%f ", ((__fp16*)gemmBuffer)[kk * ROUND_UP(input->channel(), lP) * eP + xx]);
+                        if (xx % (eP * lP) == (eP * lP -1)) printf("\n");
+                    }
+                }
+*/
                 int finishedL = 0;
                 int wquantStride = 0;
                 int8_t* _weightPtr = reinterpret_cast<int8_t*>(weightPtr);

@@ -6,28 +6,222 @@
 //  Copyright © 2018, Alibaba Group Holding Limited
 //
 
+#include <functional>
 #include "MNN_generated.h"
 #include "OnnxExtraManager.hpp"
-#include <MNN/expr/ExprCreator.hpp>
-
+#include "OnnxRNNHelper.hpp"
 namespace MNN {
 namespace Express {
 
 class OnnxLSTMTransform : public OnnxExtraManager::Transform {
 public:
-    static EXPRP singleLSTMOpt(const OpT* lstmOp, std::vector<VARP> inputs) {
+    enum ActivationType {
+        Tanh = 0,
+        Sigmoid = 1,
+        Relu = 2,
+    };
+    static int _turnStringToAct(std::string actname) {
+        if (actname == "Sigmoid") {
+            return ActivationType::Sigmoid;
+        }
+        if (actname == "Tanh") {
+            return ActivationType::Tanh;
+        }
+        if (actname == "Relu") {
+            return ActivationType::Relu;
+        }
+        MNN_PRINT("MNN LSTM Don't support activation: %s\n", actname.c_str());
+        return -1;
+    }
+    static std::function<VARP(VARP)> _selectAct(int act) {
+        switch (act) {
+            case ActivationType::Tanh:
+                return _Tanh;
+            case ActivationType::Sigmoid:
+                return _Sigmoid;
+            case ActivationType::Relu:
+                return [](VARP x) {
+                    return _Relu(x);
+                };
+            default:
+                break;
+        }
+        return nullptr;
+    }
+    // O, Cell
+    static std::pair<VARP, VARP> _splitAndAct(VARP Gate, VARP Cell_Init, int hiddenSize, int act0, int act1, int act2) {
+        auto splits = _Split(Gate, {4}, 1);
+        std::function<VARP(VARP)> act0Function = _selectAct(act0);
+        std::function<VARP(VARP)> act1Function = _selectAct(act1);
+        std::function<VARP(VARP)> act2Function = _selectAct(act2);
+        auto I = act0Function(splits[0]);
+        auto O = act0Function(splits[1]);
+        auto F = act0Function(splits[2]);
+        auto C = act1Function(splits[3]);
+        
+        auto Cell = I * C + F * _Reshape(Cell_Init, {-1, hiddenSize, 1, 1});
+        I = act2Function(Cell);
+        O = I * O;
+        O = _Reshape(O, {1, -1, hiddenSize});
+        Cell = _Reshape(Cell, {1, -1, hiddenSize});
+        return std::make_pair(O, Cell);
+    }
+    static EXPRP _LSTMToWhile(const OpT* lstmOp, std::vector<VARP> inputs, int act0, int act1, int act2) {
+        /** Use While and insert Convolution to compute LSTM, then we can quant the weight in LSTM*/
         auto X_Input      = inputs[0];
         auto W            = inputs[1];
         auto R            = inputs[2];
         auto B            = inputs[3];
-        VARP O_Init    = nullptr;
-        VARP Cell_Init = nullptr;
-        if (inputs.size() >= 5) {
-            O_Init = inputs[4];
-        }
+        VARP O_InitOrigin    = nullptr;
+        VARP Cell_InitOrigin = nullptr;
         if (inputs.size() >= 6) {
-            Cell_Init = inputs[5];
+            O_InitOrigin = inputs[5];
         }
+        if (inputs.size() >= 7) {
+            Cell_InitOrigin = inputs[6];
+        }
+        auto wInfo = W->getInfo();
+        int direction = wInfo->dim[0];
+        auto bInfo = B->getInfo();
+        auto rInfo = R->getInfo();
+        int hiddenSize = rInfo->dim[2];
+        int inputSize = wInfo->dim[2];
+        std::vector<VARP> O_InitGroup;
+        std::vector<VARP> Cell_InitGroup;
+        VARP zeroInit;
+        if (nullptr == O_InitOrigin) {
+            if (nullptr == zeroInit) {
+                zeroInit = _Const(0.0f, std::vector<int>{1, 1, hiddenSize}, NCHW);
+            }
+            for (int i=0; i<direction; ++i) {
+                O_InitGroup.emplace_back(zeroInit);
+            }
+        } else {
+            if (1 == direction) {
+                O_InitGroup = {O_InitOrigin};
+            } else {
+                O_InitGroup = _Split(O_InitOrigin, {direction}, 0);
+            }
+        }
+        if (nullptr == Cell_InitOrigin) {
+            if (nullptr == zeroInit) {
+                zeroInit = _Const(0.0f, std::vector<int>{1, 1, hiddenSize}, NCHW);
+            }
+            for (int i=0; i<direction; ++i) {
+                Cell_InitGroup.emplace_back(zeroInit);
+            }
+        } else {
+            if (1 == direction) {
+                Cell_InitGroup = {Cell_InitOrigin};
+            } else {
+                Cell_InitGroup = _Split(Cell_InitOrigin, {direction}, 0);
+            }
+        }
+        auto zero = _Unsqueeze(_Scalar<int32_t>(0), {0});
+        auto one = _Unsqueeze(_Scalar<int32_t>(1), {0});
+        auto negone = _Unsqueeze(_Scalar<int32_t>(-1), {0});
+        auto componentVar = _Unsqueeze(_Scalar<int32_t>(4), {0});
+        std::vector<VARP> Output;
+        std::vector<VARP> OLast;
+        std::vector<VARP> CellLast;
+        for (int i=0; i<direction; ++i) {
+            // FirstPart: Gate = MatMul(X, W, B) :  N * hiddenSize, seqLength * batchSize
+            // Gate = Conv(Reshape(X, {seqLength * batch, inputSize, 1, 1}))
+            // Gate: seqLength * batch, N * hiddenSize, 1, 1
+            VARP FullGate = _makeConvForW(W, B, X_Input, inputSize, i);
+            // Make SubGraph
+            auto bodyGraphName = lstmOp->name + "_main" + std::to_string(i);
+            {
+                auto inputShape = _Input({}, NCHW, halide_type_of<int>());
+                inputShape->setName("inputshape");
+                auto batchVar = _Slice(inputShape, _Unsqueeze(_Scalar<int32_t>(1), {0}), one);
+                auto hiddenSizeVar = _Unsqueeze(_Scalar<int32_t>(hiddenSize), {0});
+                
+                auto step = _Input({}, NCHW, halide_type_of<int>());
+                step->setName("i");
+                VARP GateFull = _Input({-1, -1, 1, 1}, NC4HW4);
+                GateFull->setName("Gate");
+                auto size = _Concat({batchVar, hiddenSizeVar * componentVar, one, one}, 0);
+                VARP start;
+                if (0 == i) {
+                    start = _Concat({batchVar * step, zero, zero, zero}, 0);
+                } else {
+                    auto seqLengthVar = _Slice(inputShape, _Unsqueeze(_Scalar<int32_t>(0), {0}), one);
+                    start = _Concat({batchVar * (seqLengthVar - one - step), zero, zero, zero}, 0);
+                }
+                auto Gate = _Slice(GateFull, start, size);
+                VARP I;
+                VARP C;
+                VARP F;
+                VARP O = _Input({1, -1, hiddenSize}, NCHW);
+                O->setName("O");
+                auto OI = O;
+                VARP Cell = _Input({1, -1, hiddenSize}, NCHW);
+                Cell->setName("Cell");
+                auto CellI = Cell;
+                VARP HR = _makeConvForRStep(O, R, hiddenSize, i, nullptr);
+                
+                Gate = Gate + HR;
+                auto ocell = _splitAndAct(Gate, Cell, hiddenSize, act0, act1, act2);
+                O = ocell.first;
+                Cell = ocell.second;
+                O->setName("O_next");
+                Cell->setName("Cell_next");
+                auto cond = _Input({}, NCHW, halide_type_of<int>());
+                cond->setName("cond");
+                std::unique_ptr<OpT> copyOp(new OpT);
+                copyOp->type = OpType_Identity;
+                EXPRP copyExpr = Expr::create(copyOp.get(), {O}, 1);
+                auto OCopy = Variable::create(copyExpr);
+                OCopy->setName("O_next_copy");
+
+                auto outputCond = _Scalar<float>(1.0f);
+                outputCond->setName("output_cond");
+                ExecutorScope::Current()->registerSubGraph(bodyGraphName, {outputCond, inputShape, GateFull, O, Cell, OCopy}, {step, cond, inputShape, GateFull, OI, CellI});
+            }
+            auto inputShape = _Shape(inputs[0], true);
+            auto seqLengthVar = _Slice(inputShape, _Unsqueeze(_Scalar<int32_t>(0), {0}), one);
+
+            // Make Copy Op to fuse three varps
+            std::unique_ptr<OpT> loopOp(new OpT);
+            loopOp->type = OpType_While;
+            loopOp->main.value = new WhileParamT;
+            loopOp->main.type = OpParameter_WhileParam;
+            auto whileP = loopOp->main.AsWhileParam();
+            whileP->body_graph = bodyGraphName;
+            auto cond = _Scalar<int>(1);
+            auto whileInputs = std::vector<VARP>{seqLengthVar, cond, inputShape, FullGate, O_InitGroup[i], Cell_InitGroup[i]};
+            auto whileExpr = Expr::create(loopOp.get(), whileInputs, 5);
+            auto directionO = Variable::create(whileExpr, 4);
+            if (1 == i) {
+                directionO = _Reverse(directionO, _Scalar<int>(0));
+            }
+            Output.emplace_back(directionO);
+            OLast.emplace_back(Variable::create(whileExpr, 2));
+            CellLast.emplace_back(Variable::create(whileExpr, 3));
+        }
+
+        std::unique_ptr<OpT> copyOp(new OpT);
+        copyOp->type = OpType_Identity;
+        EXPRP resultExpr;
+        if (1 == direction) {
+            resultExpr = Expr::create(copyOp.get(), {Output[0], OLast[0], CellLast[0]}, 3);
+        } else {
+            auto o0 = _Concat(Output, 1);
+            auto o1 = _Concat(OLast, 0);
+            auto o2 = _Concat(CellLast, 0);
+            resultExpr = Expr::create(copyOp.get(), {o0, o1, o2}, 3);
+        }
+        resultExpr->setName(lstmOp->name);
+        return resultExpr;
+    }
+    static EXPRP singleLSTMOpt(const OpT* lstmOp, std::vector<VARP> inputs, int act0, int act1, int act2) {
+        auto X_Input      = inputs[0];
+        auto W            = inputs[1];
+        auto R            = inputs[2];
+        auto B            = inputs[3];
+        VARP O_Init    = inputs[5];
+        VARP Cell_Init = inputs[6];
         auto wInfo = W->getInfo();
         auto bInfo = B->getInfo();
         auto rInfo = R->getInfo();
@@ -35,51 +229,12 @@ public:
         int batchSize = XInfo->dim[1];
         int hiddenSize = rInfo->dim[2];
         int inputSize = wInfo->dim[2];
-        VARP Gate;
-        {
-            std::unique_ptr<OpT> matmulOp(new OpT);
-            matmulOp->type = OpType_Convolution;
-            matmulOp->main.value = new Convolution2DT;
-            matmulOp->main.type = OpParameter_Convolution2D;
-            matmulOp->main.AsConvolution2D()->common.reset(new Convolution2DCommonT);
-            matmulOp->main.AsConvolution2D()->common->outputCount = wInfo->dim[1];
-            matmulOp->main.AsConvolution2D()->common->inputCount = wInfo->dim[2];
-            matmulOp->main.AsConvolution2D()->weight.resize(wInfo->dim[1] * wInfo->dim[2]);
-            ::memcpy(matmulOp->main.AsConvolution2D()->weight.data(), W->readMap<float>(), matmulOp->main.AsConvolution2D()->weight.size() * sizeof(float));
-            matmulOp->main.AsConvolution2D()->bias.resize(matmulOp->main.AsConvolution2D()->common->outputCount);
-            ::memcpy(matmulOp->main.AsConvolution2D()->bias.data(), B->readMap<float>(), matmulOp->main.AsConvolution2D()->bias.size() * sizeof(float));
-            auto convX = _Reshape(X_Input, {-1, inputSize, 1, 1});
-            Gate = Variable::create(Expr::create(matmulOp.get(), {convX}));
-        }
-        VARP HR;
-        {
-            std::unique_ptr<OpT> matmulOp(new OpT);
-            matmulOp->type = OpType_Convolution;
-            matmulOp->main.value = new Convolution2DT;
-            matmulOp->main.type = OpParameter_Convolution2D;
-            matmulOp->main.AsConvolution2D()->common.reset(new Convolution2DCommonT);
-            matmulOp->main.AsConvolution2D()->common->outputCount = rInfo->dim[1];
-            matmulOp->main.AsConvolution2D()->common->inputCount = rInfo->dim[2];
-            matmulOp->main.AsConvolution2D()->weight.resize(rInfo->dim[1] * rInfo->dim[2]);
-            ::memcpy(matmulOp->main.AsConvolution2D()->weight.data(), R->readMap<float>(), matmulOp->main.AsConvolution2D()->weight.size() * sizeof(float));
-            matmulOp->main.AsConvolution2D()->bias.resize(matmulOp->main.AsConvolution2D()->common->outputCount);
-            ::memset(matmulOp->main.AsConvolution2D()->bias.data(), 0, matmulOp->main.AsConvolution2D()->bias.size() * sizeof(float));
-            auto convX = _Reshape(O_Init, {-1, hiddenSize, 1, 1});
-            HR = Variable::create(Expr::create(matmulOp.get(), {convX}));
-        }
-        
+        VARP Gate = _makeConvForW(W, B, X_Input, inputSize, 0);
+        VARP HR = _makeConvForRStep(O_Init, R, hiddenSize, 0, nullptr);
         Gate = Gate + HR;
-        auto splits = _Split(Gate, {4}, 1);
-        auto I = _Sigmoid(splits[0]);
-        auto O = _Sigmoid(splits[1]);
-        auto F = _Sigmoid(splits[2]);
-        auto C = _Tanh(splits[3]);
-        
-        auto Cell = I * C + F * _Reshape(Cell_Init, {-1, hiddenSize, 1, 1});
-        I = _Tanh(Cell);
-        O = I * O;
-        O = _Reshape(O, {1, -1, hiddenSize});
-        Cell = _Reshape(Cell, {1, -1, hiddenSize});
+        auto ocell = _splitAndAct(Gate, Cell_Init, hiddenSize, act0, act1, act2);
+        auto O = ocell.first;
+        auto Cell = ocell.second;
         // Make Copy Op to fuse three varps
         std::unique_ptr<OpT> copyOp(new OpT);
         copyOp->type = OpType_Identity;
@@ -95,7 +250,7 @@ public:
             return nullptr;
         }
         if (inputs.size() >= 5 && inputs[4].get() != nullptr) {
-            MNN_ERROR("MNN LSTM not support sequence_lens, all batch must be seq_length\n");
+            MNN_ERROR("MNN LSTM not support sequence_lens, all batch must be seq_length, the result may has error\n");
             // return nullptr;
         }
         std::unique_ptr<OpT> lstm(new OpT);
@@ -107,6 +262,9 @@ public:
         }
         lstm->main.type  = OpParameter_LSTM;
         lstm->main.value = new LSTMT;
+        int act0 = Sigmoid;
+        int act1 = Tanh;
+        int act2 = Tanh;
         {
             auto extra = expr->get()->main_as_Extra();
             auto attr  = extra->attr();
@@ -115,9 +273,24 @@ public:
                     auto attUnit = attr->GetAs<Attribute>(i);
                     if (attUnit->key()->str() == "hidden_size") {
                         lstm->main.AsLSTM()->outputCount = attUnit->i();
+                        continue;
+                    }
+                    if (attUnit->key()->str() == "activations") {
+                        auto s = attUnit->list();
+                        if (nullptr != s && nullptr != s->s() && 3 <= s->s()->size()) {
+                            act0 = _turnStringToAct(s->s()->GetAsString(0)->str());
+                            act1 = _turnStringToAct(s->s()->GetAsString(1)->str());
+                            act2 = _turnStringToAct(s->s()->GetAsString(2)->str());
+                        } else {
+                            MNN_ERROR("Load activations error for %s\n", expr->name().c_str());
+                        }
+                        continue;
                     }
                 }
             }
+        }
+        if (act0 < 0 || act1 < 0 || act2 < 0) {
+            return nullptr;
         }
         if (inputs.size() < 4 || inputs[3].get() == nullptr) {
             // Bias is zero
@@ -136,17 +309,14 @@ public:
             auto biasWR = _Split(inputs[3], {2}, 1);
             inputs[3] = _Add(biasWR[0], biasWR[1]);
         }
-        if (inputs.size() >= 5) {
-            inputs.erase(inputs.begin() + 4); // ignore sequence_lens
-        }
         auto inputInfo = inputs[0]->getInfo();
         auto weightInfo = inputs[1]->getInfo();
         if (nullptr != inputInfo && nullptr != weightInfo && inputInfo->dim.size() > 0 && weightInfo->dim.size() > 0) {
-            if (inputInfo->dim[0] == 1 && lstm->type == OpType_LSTM && weightInfo->dim[0] == 1 && inputs.size() >= 6) {
-                // SeqLength = 1
+            if (inputInfo->dim[0] == 1 && lstm->type == OpType_LSTM && weightInfo->dim[0] == 1 && inputs.size() >= 7) {
+                // SeqLength = 1, use unroll lstm
                 inputs[3].fix(VARP::CONSTANT);
                 if (inputs[2]->readMap<float>() != nullptr && inputs[3]->readMap<float>() != nullptr && inputs[1]->readMap<float>() != nullptr) {
-                    auto lstmExpr = singleLSTMOpt(lstm.get(), inputs);
+                    auto lstmExpr = singleLSTMOpt(lstm.get(), inputs, act0, act1, act2);
                     lstmExpr->setName(expr->name());
                     for (int i = 0; i < lstmExpr->outputSize(); ++i) {
                         Variable::create(lstmExpr, i)->setName(expr->outputName(i));
@@ -154,6 +324,27 @@ public:
                     return lstmExpr;
                 }
             }
+        }
+        auto config = Global<modelConfig>::Get();
+        lstm->name = expr->name();
+        if (!config->useOriginRNNImpl) {
+            if (nullptr != weightInfo && weightInfo->dim.size() > 0) {
+                if (lstm->type == OpType_LSTM) {
+                    inputs[3].fix(VARP::CONSTANT);
+                    if (inputs[2]->readMap<float>() != nullptr && inputs[3]->readMap<float>() != nullptr && inputs[1]->readMap<float>() != nullptr) {
+                        MNN_PRINT("Use While to compute LSTM, if don't want it, add --useOriginRNNImpl \n");
+                        auto lstmExpr = _LSTMToWhile(lstm.get(), inputs, act0, act1, act2);
+                        lstmExpr->setName(expr->name());
+                        for (int i = 0; i < lstmExpr->outputSize(); ++i) {
+                            Variable::create(lstmExpr, i)->setName(expr->outputName(i));
+                        }
+                        return lstmExpr;
+                    }
+                }
+            }
+        }
+        if (inputs.size() >= 5) {
+            inputs.erase(inputs.begin() + 4); // ignore sequence_lens
         }
         // Y, Y_h, Y_c
         auto originLSTM = Expr::create(lstm.get(), inputs, (lstm->type == OpType_RNN ? 2 : 3));

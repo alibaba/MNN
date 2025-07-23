@@ -30,7 +30,7 @@ void Arm82MNNPackForMatMul_A(float* destOrigin, float const** sourceGroup, const
 // C(UP_DIV(h,8), e, h8) = B(UP_DIV(h,hP), l, hP) * A(l, eP), hP = 24
 // parameter: [aStride, l, h, cStride, bExtraStride]
 // aStride in parameter is deprecated (useless), but for code clean, just retain it
-void MNNPackedMatMulFP16(float* C, const float* A, const float* B, const size_t* parameter, const float* postParameters, const float* bias);
+void MNNPackedMatMulFP16(float* C, const float* A, const float* B, const size_t* parameter, const float* postParameters, const float* bias, const float* k, const float* b);
 
 // C(UP_DIV(h,8), e, h8) = B(UP_DIV(h,hP), l, hP) * A(l, e), hP = 24, e >= 1
 // parameter: [aStride, l, h, cStride, bExtraStride]
@@ -52,10 +52,16 @@ void MNNDynamicQuantFP16_Pack8(const float* src, int8_t* dst, const float* scale
 void MNNDynamicQuantFP16_Pack4(const float* src, int8_t* dst, const float* scale, size_t src_depth_quad, size_t realSize, const float* bias, size_t pack);
 void MNNGeneralIm2col_Arm82(float* destOrigin, float const** sourceGroup, const int32_t* info, const int32_t* el, int32_t LP, int32_t pack);
 void MNNGeneralIm2col_Arm86(float* destOrigin, float const** sourceGroup, const int32_t* info, const int32_t* el, int32_t LP, int32_t pack);
+#ifdef MNN_SME2
+void MNNGeneralIm2col_Fp16Sme2(float* destOrigin, float const** sourceGroup, const int32_t* info, const int32_t* el, int32_t LP, int32_t pack);
+#endif
 void MNNLocalMinMaxFP16_Pack4(float* dstMin, float* dstMax, const float* source, size_t blockNum, size_t blockLU, size_t EP, size_t LP, size_t loadDstBuffer);
 void MNNLocalMinMaxFP16_Pack8(float* dstMin, float* dstMax, const float* source, size_t blockNum, size_t blockLU, size_t EP, size_t LP, size_t loadDstBuffer);
 #endif // MNN_LOW_MEMORY
 void CountMinMaxValue_FP16(float* source, float* minVal, float* maxVal, size_t sizeQuad);
+#ifdef MNN_SME2
+void MNNPackedMatMulRemainFP16_SME2(float* C, const float* A, const float* B, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias, const float* k, const float* b);
+#endif
 #endif
 
 #if defined(__aarch64__)
@@ -71,6 +77,12 @@ void MNNConvRunForLineDepthwiseFP16(float* dst, const float* src, const float* w
 
 
 namespace MNN {
+
+static void Sme2MNNGetMatMulPackMode(int* eP, int *lP, int* hP) {
+    *hP = 64;
+    *eP = 16;
+    *lP = 2;
+}
 
 static void MNNMatrixAddFP16(FLOAT16* C, const FLOAT16* A, const FLOAT16* B, size_t widthC8, size_t cStride, size_t aStride, size_t bStride, size_t height) {
     for (int y = 0; y < height; ++y) {
@@ -103,18 +115,23 @@ static void ARM82CountMinMaxValue(float* source, float* minVal, float* maxVal, s
             max_ = ((__fp16*)maxVal)[0];
             min_ = ((__fp16*)minVal)[0];
         }
-        if (remain > 0) {
-            int16_t tmp[8] = {0};
-            auto srcRemain = reinterpret_cast<uint8_t*>(source) + 8 * (size / 8) * 2;
-            ::memcpy(tmp, srcRemain, remain * 2);
-            CountMinMaxValue_FP16((float*)tmp, (float*)tmp, (float*)((uint8_t*)tmp + 2), 1);
-            max_ = ALIMAX(((__fp16*)tmp)[1], max_);
-            min_ = ALIMIN(((__fp16*)tmp)[0], min_);
+        auto srcPtr = reinterpret_cast<__fp16*>(source);
+        while (remain) {
+            max_ = ALIMAX(srcPtr[0], max_);
+            min_ = ALIMIN(srcPtr[0], min_);
+            srcPtr += 1;
+            remain--;
         }
         reinterpret_cast<__fp16*>(minVal)[0] = min_;
         reinterpret_cast<__fp16*>(maxVal)[0] = max_;
     }
 }
+#ifdef MNN_SME2
+//(float* C, const float* A, const float* B, const size_t* parameter, const float* postParameters, const float* bias)
+static void MNNPackedMatMulFP16_SME2(float* C, const float* A, const float* B, const size_t* parameter, const float* postParameters, const float* bias, const float* k, const float* b) {
+    MNNPackedMatMulRemainFP16_SME2(C, A, B, 16, parameter, postParameters, bias, k, b);
+}
+#endif
 #else
 static void ARM82CountMinMaxValue(float* source, float* minVal, float* maxVal, size_t size) {
     auto srcPtr = (FLOAT16*)source;
@@ -134,7 +151,8 @@ static void ARM82CountMinMaxValue(float* source, float* minVal, float* maxVal, s
 }
 #endif
 
-static void Arm82MNNPackForMatMul_B(float* destC, const float* sourceC, size_t h, size_t l, bool transpose) {
+static void Arm82MNNPackForMatMul_B(float* destC, const float* sourceC, size_t h, size_t kernelsize, size_t ic, bool transpose) {
+    auto l = kernelsize * ic;
     auto dest = (int16_t*)destC;
     auto source = (int16_t*)sourceC;
     int ePack, lPack, hPack;
@@ -165,6 +183,36 @@ static void Arm82MNNPackForMatMul_B(float* destC, const float* sourceC, size_t h
     for (int y = 0; y < h; ++y) {
         for (int x = 0; x < l; ++x) {
             dest[(y / hPack * l + x) * hPack + y % hPack] = source[y * l + x];
+        }
+    }
+}
+
+static void Sme2MNNPackForMatMul_B(float* destC, const float* sourceC, size_t h, size_t kernelsize, size_t ic ,bool transpose) {
+    auto dest = (int16_t*)destC;
+    auto source = (int16_t*)sourceC;
+    int LP = 2;
+    int HP = 64;
+    auto l = kernelsize * ic;
+    memset(dest, 0, ROUND_UP(h, HP) * ROUND_UP(ic, LP) * kernelsize * sizeof(FLOAT16));
+    auto stride0 = ROUND_UP(ic, LP) * kernelsize * HP;
+    auto stride1 = HP *  ROUND_UP(ic, LP);
+    auto stride2 = HP * LP;
+
+    size_t srcStride0 = l; // [h,k2,ic]->[hu,k2,ic/lp,hp,lp]
+    size_t srcStride1 = 1;
+    if (!transpose) { // [k2,ic,h]->[hu,k2,ic/lp,hp,lp]
+        srcStride0 = 1;
+        srcStride1 = h;
+    }
+    for (int y = 0; y < h; ++y) {
+        auto yHu = y / HP;
+        auto yHp = y % HP;
+        for (int k = 0; k < kernelsize; ++k) {
+            for (int x = 0; x < ic; ++x) {
+                auto xLu = x / LP;
+                auto xLp = x % LP;
+                dest[yHu * stride0 + k * stride1 + xLu * stride2 + yHp * LP + xLp] = source[y * srcStride0 + (x + k * ic) * srcStride1];
+            }
         }
     }
 }
@@ -221,7 +269,7 @@ static void MNNGridSampleComputeCordFP16(FLOAT16* dst, const FLOAT16* src, size_
     ::memcpy(dst, tempDst, areaRemain * 2 * sizeof(int16_t));
 }
 
-static void MNNGridSampleComputeCord3DFp16(FLOAT* dst, const FLOAT* src, size_t inD, size_t inH, size_t inW, size_t outD, size_t outH, size_t outW, size_t strideD, size_t strideH, bool alignCorners) {
+static void MNNGridSampleComputeCord3DFp16(FLOAT* dst, const FLOAT* src, size_t inD, size_t inH, size_t inW, size_t outD, size_t outH, size_t outW, bool alignCorners) {
     float16x8_t zero = vdupq_n_f16(0);
     float16x8_t one = vdupq_n_f16(1);
     float16x8_t half = vdupq_n_f16(0.5f);
@@ -882,6 +930,499 @@ static void _ArmBasicMNNPackC4ForMatMul_A_L8(int8_t* destOrigin, int8_t const** 
     }
 }
 
+static void Sme2MNNPackForMatMul_A_FP16(float* destOrigin, float const** sourceGroup, const int32_t* info, const int32_t* el) {
+    int LP = 2;
+    int pack = 8;
+    int eDest = 16;
+    // LP >= pack
+    int number = info[0];
+    int eReal = info[1];
+    int offset = info[3];
+    for (int n=0; n<number; ++n) {
+        int eWork = el[4 * n + 0];
+        int lWork = el[4 * n + 1];
+        int eOffset = el[4 * n + 2];
+        int lOffset = el[4 * n + 3];
+        auto sourceN = (FLOAT16*)(sourceGroup[n]);
+        auto destN = (FLOAT16*)destOrigin + lOffset * eDest + eOffset * LP;
+
+        auto srcStride0 = pack * offset;
+        auto dstStride0 = eDest * LP;
+        auto l = lWork;
+        while (l > 7) {
+            auto source = sourceN;
+            auto dest = destN;
+            l -= 8;
+            auto e = eWork;
+            if (e == eDest) {
+                auto s0 = vld1q_f32((float*)(source)); // 00112233
+                auto s1 = vld1q_f32((float*)(source + srcStride0));// 00112233
+                auto s2 = vld1q_f32((float*)(source + 2 * srcStride0));
+                auto s3 = vld1q_f32((float*)(source + 3 * srcStride0));
+
+                auto s4 = vld1q_f32((float*)(source + 4 * srcStride0));
+                auto s5 = vld1q_f32((float*)(source + 5 * srcStride0));
+                auto s6 = vld1q_f32((float*)(source + 6 * srcStride0));
+                auto s7 = vld1q_f32((float*)(source + 7 * srcStride0));
+
+                auto s8 = vld1q_f32((float*)(source + 8 * srcStride0));
+                auto s9 = vld1q_f32((float*)(source + 9 * srcStride0));
+                auto s10 = vld1q_f32((float*)(source + 10 * srcStride0));
+                auto s11 = vld1q_f32((float*)(source + 11 * srcStride0));
+
+                auto s12 = vld1q_f32((float*)(source + 12 * srcStride0));
+                auto s13 = vld1q_f32((float*)(source + 13 * srcStride0));
+                auto s14 = vld1q_f32((float*)(source + 14 * srcStride0));
+                auto s15 = vld1q_f32((float*)(source + 15 * srcStride0));
+
+                auto zip1s01 = vzip1q_f32(s0, s1); // 00001111
+                auto zip1s23 = vzip1q_f32(s2, s3); // 00001111
+                auto zip1s45 = vzip1q_f32(s4, s5); // 00001111
+                auto zip1s67 = vzip1q_f32(s6, s7); // 00001111
+                auto zip1s89 = vzip1q_f32(s8, s9); // 00001111
+                auto zip1s1011 = vzip1q_f32(s10, s11); // 00001111
+                auto zip1s1213 = vzip1q_f32(s12, s13); // 00001111
+                auto zip1s1415 = vzip1q_f32(s14, s15); // 00001111
+
+                auto zip2s01 = vzip2q_f32(s0, s1); // 22223333
+                auto zip2s23 = vzip2q_f32(s2, s3); // 22223333
+                auto zip2s45 = vzip2q_f32(s4, s5); // 22223333
+                auto zip2s67 = vzip2q_f32(s6, s7); // 22223333
+                auto zip2s89 = vzip2q_f32(s8, s9); // 22223333
+                auto zip2s1011 = vzip2q_f32(s10, s11); // 22223333
+                auto zip2s1213 = vzip2q_f32(s12, s13); // 22223333
+                auto zip2s1415 = vzip2q_f32(s14, s15); // 22223333
+
+                auto zip1s0123_01 = vzip1q_f64((float64x2_t)zip1s01, (float64x2_t)zip1s23); // 00000000
+                auto zip1s4567_01 = vzip1q_f64((float64x2_t)zip1s45, (float64x2_t)zip1s67);
+                auto zip1s891011_01 = vzip1q_f64((float64x2_t)zip1s89, (float64x2_t)zip1s1011);
+                auto zip1s12131415_01 = vzip1q_f64((float64x2_t)zip1s1213, (float64x2_t)zip1s1415);
+
+                auto zip2s0123_01 = vzip2q_f64((float64x2_t)zip1s01, (float64x2_t)zip1s23); // 11111111
+                auto zip2s4567_01 = vzip2q_f64((float64x2_t)zip1s45, (float64x2_t)zip1s67);
+                auto zip2s891011_01 = vzip2q_f64((float64x2_t)zip1s89, (float64x2_t)zip1s1011);
+                auto zip2s12131415_01 = vzip2q_f64((float64x2_t)zip1s1213, (float64x2_t)zip1s1415);
+
+                auto zip1s0123_23 = vzip1q_f64((float64x2_t)zip2s01, (float64x2_t)zip2s23); // 22222222
+                auto zip1s4567_23 = vzip1q_f64((float64x2_t)zip2s45, (float64x2_t)zip2s67);
+                auto zip1s891011_23 = vzip1q_f64((float64x2_t)zip2s89, (float64x2_t)zip2s1011);
+                auto zip1s12131415_23 = vzip1q_f64((float64x2_t)zip2s1213, (float64x2_t)zip2s1415);
+
+                auto zip2s0123_23 = vzip2q_f64((float64x2_t)zip2s01, (float64x2_t)zip2s23); // 33333333
+                auto zip2s4567_23 = vzip2q_f64((float64x2_t)zip2s45, (float64x2_t)zip2s67);
+                auto zip2s891011_23 = vzip2q_f64((float64x2_t)zip2s89, (float64x2_t)zip2s1011);
+                auto zip2s12131415_23 = vzip2q_f64((float64x2_t)zip2s1213, (float64x2_t)zip2s1415);
+
+                vst1q_f64((float64_t*)dest, zip1s0123_01);
+                vst1q_f64((float64_t*)(dest + 8), zip1s4567_01);
+                vst1q_f64((float64_t*)(dest + 16), zip1s891011_01);
+                vst1q_f64((float64_t*)(dest + 24), zip1s12131415_01);
+
+                vst1q_f64((float64_t*)(dest + dstStride0), zip2s0123_01);
+                vst1q_f64((float64_t*)(dest + dstStride0 + 8), zip2s4567_01);
+                vst1q_f64((float64_t*)(dest + dstStride0 + 16), zip2s891011_01);
+                vst1q_f64((float64_t*)(dest + dstStride0 + 24), zip2s12131415_01);
+
+                vst1q_f64((float64_t*)(dest + 2 * dstStride0), zip1s0123_23);
+                vst1q_f64((float64_t*)(dest + 2 * dstStride0 + 8), zip1s4567_23);
+                vst1q_f64((float64_t*)(dest + 2 * dstStride0 + 16), zip1s891011_23);
+                vst1q_f64((float64_t*)(dest + 2 * dstStride0 + 24), zip1s12131415_23);
+
+                vst1q_f64((float64_t*)(dest + 3 * dstStride0), zip2s0123_23);
+                vst1q_f64((float64_t*)(dest + 3 * dstStride0 + 8), zip2s4567_23);
+                vst1q_f64((float64_t*)(dest + 3 * dstStride0 + 16), zip2s891011_23);
+                vst1q_f64((float64_t*)(dest + 3 * dstStride0 + 24), zip2s12131415_23);
+
+                // dest += (4 * dstStride0);
+                // e -= eDest;
+                sourceN += (eReal * pack);
+                destN += (4 * dstStride0);
+                continue;
+            }
+
+            if (e > 11) {
+                auto s0 = vld1q_f32((float*)(source)); // 00112233
+                auto s1 = vld1q_f32((float*)(source + srcStride0));// 00112233
+                auto s2 = vld1q_f32((float*)(source + 2 * srcStride0));
+                auto s3 = vld1q_f32((float*)(source + 3 * srcStride0));
+
+                auto s4 = vld1q_f32((float*)(source + 4 * srcStride0));
+                auto s5 = vld1q_f32((float*)(source + 5 * srcStride0));
+                auto s6 = vld1q_f32((float*)(source + 6 * srcStride0));
+                auto s7 = vld1q_f32((float*)(source + 7 * srcStride0));
+
+                auto s8 = vld1q_f32((float*)(source + 8 * srcStride0));
+                auto s9 = vld1q_f32((float*)(source + 9 * srcStride0));
+                auto s10 = vld1q_f32((float*)(source + 10 * srcStride0));
+                auto s11 = vld1q_f32((float*)(source + 11 * srcStride0));
+
+                auto zip1s01 = vzip1q_f32(s0, s1); // 00001111
+                auto zip1s23 = vzip1q_f32(s2, s3); // 00001111
+                auto zip1s45 = vzip1q_f32(s4, s5); // 00001111
+                auto zip1s67 = vzip1q_f32(s6, s7); // 00001111
+                auto zip1s89 = vzip1q_f32(s8, s9); // 00001111
+                auto zip1s1011 = vzip1q_f32(s10, s11); // 00001111
+
+                auto zip2s01 = vzip2q_f32(s0, s1); // 22223333
+                auto zip2s23 = vzip2q_f32(s2, s3); // 22223333
+                auto zip2s45 = vzip2q_f32(s4, s5); // 22223333
+                auto zip2s67 = vzip2q_f32(s6, s7); // 22223333
+                auto zip2s89 = vzip2q_f32(s8, s9); // 22223333
+                auto zip2s1011 = vzip2q_f32(s10, s11); // 22223333
+
+                auto zip1s0123_01 = vzip1q_f64((float64x2_t)zip1s01, (float64x2_t)zip1s23); // 00000000
+                auto zip1s4567_01 = vzip1q_f64((float64x2_t)zip1s45, (float64x2_t)zip1s67);
+                auto zip1s891011_01 = vzip1q_f64((float64x2_t)zip1s89, (float64x2_t)zip1s1011);
+
+                auto zip2s0123_01 = vzip2q_f64((float64x2_t)zip1s01, (float64x2_t)zip1s23); // 11111111
+                auto zip2s4567_01 = vzip2q_f64((float64x2_t)zip1s45, (float64x2_t)zip1s67);
+                auto zip2s891011_01 = vzip2q_f64((float64x2_t)zip1s89, (float64x2_t)zip1s1011);
+
+                auto zip1s0123_23 = vzip1q_f64((float64x2_t)zip2s01, (float64x2_t)zip2s23); // 22222222
+                auto zip1s4567_23 = vzip1q_f64((float64x2_t)zip2s45, (float64x2_t)zip2s67);
+                auto zip1s891011_23 = vzip1q_f64((float64x2_t)zip2s89, (float64x2_t)zip2s1011);
+
+                auto zip2s0123_23 = vzip2q_f64((float64x2_t)zip2s01, (float64x2_t)zip2s23); // 33333333
+                auto zip2s4567_23 = vzip2q_f64((float64x2_t)zip2s45, (float64x2_t)zip2s67);
+                auto zip2s891011_23 = vzip2q_f64((float64x2_t)zip2s89, (float64x2_t)zip2s1011);
+
+                vst1q_f64((float64_t*)dest, zip1s0123_01);
+                vst1q_f64((float64_t*)(dest + 8), zip1s4567_01);
+                vst1q_f64((float64_t*)(dest + 16), zip1s891011_01);
+
+                vst1q_f64((float64_t*)(dest + dstStride0), zip2s0123_01);
+                vst1q_f64((float64_t*)(dest + dstStride0 + 8), zip2s4567_01);
+                vst1q_f64((float64_t*)(dest + dstStride0 + 16), zip2s891011_01);
+
+                vst1q_f64((float64_t*)(dest + 2 * dstStride0), zip1s0123_23);
+                vst1q_f64((float64_t*)(dest + 2 * dstStride0 + 8), zip1s4567_23);
+                vst1q_f64((float64_t*)(dest + 2 * dstStride0 + 16), zip1s891011_23);
+
+                vst1q_f64((float64_t*)(dest + 3 * dstStride0), zip2s0123_23);
+                vst1q_f64((float64_t*)(dest + 3 * dstStride0 + 8), zip2s4567_23);
+                vst1q_f64((float64_t*)(dest + 3 * dstStride0 + 16), zip2s891011_23);
+
+                dest += 24;
+                e -= 12;
+                source += (12 * srcStride0);
+            }
+
+            if (e > 7) {
+                auto s0 = vld1q_f32((float*)(source)); // 00112233
+                auto s1 = vld1q_f32((float*)(source + srcStride0));// 00112233
+                auto s2 = vld1q_f32((float*)(source + 2 * srcStride0));
+                auto s3 = vld1q_f32((float*)(source + 3 * srcStride0));
+
+                auto s4 = vld1q_f32((float*)(source + 4 * srcStride0));
+                auto s5 = vld1q_f32((float*)(source + 5 * srcStride0));
+                auto s6 = vld1q_f32((float*)(source + 6 * srcStride0));
+                auto s7 = vld1q_f32((float*)(source + 7 * srcStride0));
+
+                auto zip1s01 = vzip1q_f32(s0, s1); // 00001111
+                auto zip1s23 = vzip1q_f32(s2, s3); // 00001111
+                auto zip1s45 = vzip1q_f32(s4, s5); // 00001111
+                auto zip1s67 = vzip1q_f32(s6, s7); // 00001111
+
+                auto zip2s01 = vzip2q_f32(s0, s1); // 22223333
+                auto zip2s23 = vzip2q_f32(s2, s3); // 22223333
+                auto zip2s45 = vzip2q_f32(s4, s5); // 22223333
+                auto zip2s67 = vzip2q_f32(s6, s7); // 22223333
+
+                auto zip1s0123_01 = vzip1q_f64((float64x2_t)zip1s01, (float64x2_t)zip1s23); // 00000000
+                auto zip1s4567_01 = vzip1q_f64((float64x2_t)zip1s45, (float64x2_t)zip1s67);
+
+                auto zip2s0123_01 = vzip2q_f64((float64x2_t)zip1s01, (float64x2_t)zip1s23); // 11111111
+                auto zip2s4567_01 = vzip2q_f64((float64x2_t)zip1s45, (float64x2_t)zip1s67);
+
+                auto zip1s0123_23 = vzip1q_f64((float64x2_t)zip2s01, (float64x2_t)zip2s23); // 22222222
+                auto zip1s4567_23 = vzip1q_f64((float64x2_t)zip2s45, (float64x2_t)zip2s67);
+
+                auto zip2s0123_23 = vzip2q_f64((float64x2_t)zip2s01, (float64x2_t)zip2s23); // 33333333
+                auto zip2s4567_23 = vzip2q_f64((float64x2_t)zip2s45, (float64x2_t)zip2s67);
+
+                vst1q_f64((float64_t*)dest, zip1s0123_01);
+                vst1q_f64((float64_t*)(dest + 8), zip1s4567_01);
+
+                vst1q_f64((float64_t*)(dest + dstStride0), zip2s0123_01);
+                vst1q_f64((float64_t*)(dest + dstStride0 + 8), zip2s4567_01);
+
+                vst1q_f64((float64_t*)(dest + 2 * dstStride0), zip1s0123_23);
+                vst1q_f64((float64_t*)(dest + 2 * dstStride0 + 8), zip1s4567_23);
+
+                vst1q_f64((float64_t*)(dest + 3 * dstStride0), zip2s0123_23);
+                vst1q_f64((float64_t*)(dest + 3 * dstStride0 + 8), zip2s4567_23);
+
+                dest += 16;
+                e -= 8;
+                source += (8 * srcStride0);
+            }
+
+            if (e > 3) {
+                auto s0 = vld1q_f32((float*)(source)); // 00112233
+                auto s1 = vld1q_f32((float*)(source + srcStride0));// 00112233
+                auto s2 = vld1q_f32((float*)(source + 2 * srcStride0));
+                auto s3 = vld1q_f32((float*)(source + 3 * srcStride0));
+
+                auto zip1s01 = vzip1q_f32(s0, s1); // 00001111
+                auto zip1s23 = vzip1q_f32(s2, s3); // 00001111
+
+                auto zip2s01 = vzip2q_f32(s0, s1); // 22223333
+                auto zip2s23 = vzip2q_f32(s2, s3); // 22223333
+
+                auto zip1s0123_01 = vzip1q_f64((float64x2_t)zip1s01, (float64x2_t)zip1s23); // 00000000
+
+                auto zip2s0123_01 = vzip2q_f64((float64x2_t)zip1s01, (float64x2_t)zip1s23); // 11111111
+
+                auto zip1s0123_23 = vzip1q_f64((float64x2_t)zip2s01, (float64x2_t)zip2s23); // 22222222
+
+                auto zip2s0123_23 = vzip2q_f64((float64x2_t)zip2s01, (float64x2_t)zip2s23); // 33333333
+
+                vst1q_f64((float64_t*)dest, zip1s0123_01);
+                vst1q_f64((float64_t*)(dest + dstStride0), zip2s0123_01);
+                vst1q_f64((float64_t*)(dest + 2 * dstStride0), zip1s0123_23);
+                vst1q_f64((float64_t*)(dest + 3 * dstStride0), zip2s0123_23);
+
+                dest += 8;
+                e -= 4;
+                source += (4 * srcStride0);
+            }
+            while (e > 0) {
+                auto s0 = vld1q_f32((float*)(source)); // 00112233
+
+                ((float*)dest)[0] = s0[0];
+                ((float*)(dest + dstStride0))[0] = s0[1];
+                ((float*)(dest + 2 * dstStride0))[0] = s0[2];
+                ((float*)(dest + 3 * dstStride0))[0] = s0[3];
+
+                dest += 2;
+                e -= 1;
+                source += srcStride0;
+            }
+            sourceN += (eReal * pack);
+            destN += (4 * dstStride0);
+        } // l>7
+
+        if (l > 3) {
+            auto source = sourceN;
+            auto dest = destN;
+            l -= 4;
+            auto e = eWork;
+            if (e == eDest) {
+                auto s0 = vld1_f32((float*)(source)); // 0011
+                auto s1 = vld1_f32((float*)(source + srcStride0));// 0011
+                auto s2 = vld1_f32((float*)(source + 2 * srcStride0));
+                auto s3 = vld1_f32((float*)(source + 3 * srcStride0));
+
+                auto s4 = vld1_f32((float*)(source + 4 * srcStride0));
+                auto s5 = vld1_f32((float*)(source + 5 * srcStride0));
+                auto s6 = vld1_f32((float*)(source + 6 * srcStride0));
+                auto s7 = vld1_f32((float*)(source + 7 * srcStride0));
+
+                auto s8 = vld1_f32((float*)(source + 8 * srcStride0));
+                auto s9 = vld1_f32((float*)(source + 9 * srcStride0));
+                auto s10 = vld1_f32((float*)(source + 10 * srcStride0));
+                auto s11 = vld1_f32((float*)(source + 11 * srcStride0));
+
+                auto s12 = vld1_f32((float*)(source + 12 * srcStride0));
+                auto s13 = vld1_f32((float*)(source + 13 * srcStride0));
+                auto s14 = vld1_f32((float*)(source + 14 * srcStride0));
+                auto s15 = vld1_f32((float*)(source + 15 * srcStride0));
+
+                auto zip1s01 = vzip1_f32(s0, s1); // 0000
+                auto zip1s23 = vzip1_f32(s2, s3); // 0000
+                auto zip1s45 = vzip1_f32(s4, s5); // 0000
+                auto zip1s67 = vzip1_f32(s6, s7); // 0000
+                auto zip1s89 = vzip1_f32(s8, s9); // 0000
+                auto zip1s1011 = vzip1_f32(s10, s11); // 0000
+                auto zip1s1213 = vzip1_f32(s12, s13); // 0000
+                auto zip1s1415 = vzip1_f32(s14, s15); // 0000
+
+                auto zip2s01 = vzip2_f32(s0, s1); // 1111
+                auto zip2s23 = vzip2_f32(s2, s3); // 1111
+                auto zip2s45 = vzip2_f32(s4, s5); // 1111
+                auto zip2s67 = vzip2_f32(s6, s7); // 1111
+                auto zip2s89 = vzip2_f32(s8, s9); // 1111
+                auto zip2s1011 = vzip2_f32(s10, s11); // 1111
+                auto zip2s1213 = vzip2_f32(s12, s13); // 1111
+                auto zip2s1415 = vzip2_f32(s14, s15); // 1111
+
+                vst1_f32((float32_t*)dest, zip1s01);
+                vst1_f32((float32_t*)(dest + 4), zip1s23);
+                vst1_f32((float32_t*)(dest + 8), zip1s45);
+                vst1_f32((float32_t*)(dest + 12), zip1s67);
+                vst1_f32((float32_t*)(dest + 16), zip1s89);
+                vst1_f32((float32_t*)(dest + 20), zip1s1011);
+                vst1_f32((float32_t*)(dest + 24), zip1s1213);
+                vst1_f32((float32_t*)(dest + 28), zip1s1415);
+
+                vst1_f32((float32_t*)(dest + dstStride0), zip2s01);
+                vst1_f32((float32_t*)(dest + dstStride0 + 4), zip2s23);
+                vst1_f32((float32_t*)(dest + dstStride0 + 8), zip2s45);
+                vst1_f32((float32_t*)(dest + dstStride0 + 12), zip2s67);
+                vst1_f32((float32_t*)(dest + dstStride0 + 16), zip2s89);
+                vst1_f32((float32_t*)(dest + dstStride0 + 20), zip2s1011);
+                vst1_f32((float32_t*)(dest + dstStride0 + 24), zip2s1213);
+                vst1_f32((float32_t*)(dest + dstStride0 + 28), zip2s1415);
+
+
+                dest += 32;
+                e -= eDest;
+            }
+
+            if (e > 11) {
+                auto s0 = vld1_f32((float*)(source)); // 0011
+                auto s1 = vld1_f32((float*)(source + srcStride0));// 0011
+                auto s2 = vld1_f32((float*)(source + 2 * srcStride0));
+                auto s3 = vld1_f32((float*)(source + 3 * srcStride0));
+
+                auto s4 = vld1_f32((float*)(source + 4 * srcStride0));
+                auto s5 = vld1_f32((float*)(source + 5 * srcStride0));
+                auto s6 = vld1_f32((float*)(source + 6 * srcStride0));
+                auto s7 = vld1_f32((float*)(source + 7 * srcStride0));
+
+                auto s8 = vld1_f32((float*)(source + 8 * srcStride0));
+                auto s9 = vld1_f32((float*)(source + 9 * srcStride0));
+                auto s10 = vld1_f32((float*)(source + 10 * srcStride0));
+                auto s11 = vld1_f32((float*)(source + 11 * srcStride0));
+
+                auto zip1s01 = vzip1_f32(s0, s1); // 0000
+                auto zip1s23 = vzip1_f32(s2, s3); // 0000
+                auto zip1s45 = vzip1_f32(s4, s5); // 0000
+                auto zip1s67 = vzip1_f32(s6, s7); // 0000
+                auto zip1s89 = vzip1_f32(s8, s9); // 0000
+                auto zip1s1011 = vzip1_f32(s10, s11); // 0000
+
+                auto zip2s01 = vzip2_f32(s0, s1); // 1111
+                auto zip2s23 = vzip2_f32(s2, s3); // 1111
+                auto zip2s45 = vzip2_f32(s4, s5); // 1111
+                auto zip2s67 = vzip2_f32(s6, s7); // 1111
+                auto zip2s89 = vzip2_f32(s8, s9); // 1111
+                auto zip2s1011 = vzip2_f32(s10, s11); // 1111
+
+                vst1_f32((float32_t*)dest, zip1s01);
+                vst1_f32((float32_t*)(dest + 4), zip1s23);
+                vst1_f32((float32_t*)(dest + 8), zip1s45);
+                vst1_f32((float32_t*)(dest + 12), zip1s67);
+                vst1_f32((float32_t*)(dest + 16), zip1s89);
+                vst1_f32((float32_t*)(dest + 20), zip1s1011);
+
+                vst1_f32((float32_t*)(dest + dstStride0), zip2s01);
+                vst1_f32((float32_t*)(dest + dstStride0 + 4), zip2s23);
+                vst1_f32((float32_t*)(dest + dstStride0 + 8), zip2s45);
+                vst1_f32((float32_t*)(dest + dstStride0 + 12), zip2s67);
+                vst1_f32((float32_t*)(dest + dstStride0 + 16), zip2s89);
+                vst1_f32((float32_t*)(dest + dstStride0 + 20), zip2s1011);
+
+                dest += 24;
+                e -= 12;
+                source += (12 * srcStride0);
+            }
+
+            if (e > 7) {
+                auto s0 = vld1_f32((float*)(source)); // 0011
+                auto s1 = vld1_f32((float*)(source + srcStride0));// 0011
+                auto s2 = vld1_f32((float*)(source + 2 * srcStride0));
+                auto s3 = vld1_f32((float*)(source + 3 * srcStride0));
+
+                auto s4 = vld1_f32((float*)(source + 4 * srcStride0));
+                auto s5 = vld1_f32((float*)(source + 5 * srcStride0));
+                auto s6 = vld1_f32((float*)(source + 6 * srcStride0));
+                auto s7 = vld1_f32((float*)(source + 7 * srcStride0));
+
+                auto zip1s01 = vzip1_f32(s0, s1); // 0000
+                auto zip1s23 = vzip1_f32(s2, s3); // 0000
+                auto zip1s45 = vzip1_f32(s4, s5); // 0000
+                auto zip1s67 = vzip1_f32(s6, s7); // 0000
+
+                auto zip2s01 = vzip2_f32(s0, s1); // 1111
+                auto zip2s23 = vzip2_f32(s2, s3); // 1111
+                auto zip2s45 = vzip2_f32(s4, s5); // 1111
+                auto zip2s67 = vzip2_f32(s6, s7); // 1111
+
+                vst1_f32((float32_t*)dest, zip1s01);
+                vst1_f32((float32_t*)(dest + 4), zip1s23);
+                vst1_f32((float32_t*)(dest + 8), zip1s45);
+                vst1_f32((float32_t*)(dest + 12), zip1s67);
+
+                vst1_f32((float32_t*)(dest + dstStride0), zip2s01);
+                vst1_f32((float32_t*)(dest + dstStride0 + 4), zip2s23);
+                vst1_f32((float32_t*)(dest + dstStride0 + 8), zip2s45);
+                vst1_f32((float32_t*)(dest + dstStride0 + 12), zip2s67);
+
+                dest += 16;
+                e -= 8;
+                source += (8 * srcStride0);
+            }
+
+            if (e > 3) {
+                auto s0 = vld1_f32((float*)(source)); // 0011
+                auto s1 = vld1_f32((float*)(source + srcStride0));// 0011
+                auto s2 = vld1_f32((float*)(source + 2 * srcStride0));
+                auto s3 = vld1_f32((float*)(source + 3 * srcStride0));
+
+                auto zip1s01 = vzip1_f32(s0, s1); // 0000
+                auto zip1s23 = vzip1_f32(s2, s3); // 0000
+
+                auto zip2s01 = vzip2_f32(s0, s1); // 1111
+                auto zip2s23 = vzip2_f32(s2, s3); // 1111
+
+                vst1_f32((float32_t*)dest, zip1s01);
+                vst1_f32((float32_t*)(dest + 4), zip1s23);
+
+                vst1_f32((float32_t*)(dest + dstStride0), zip2s01);
+                vst1_f32((float32_t*)(dest + dstStride0 + 4), zip2s23);
+
+                dest += 8;
+                e -= 4;
+                source += (4 * srcStride0);
+            }
+            if (e > 1) {
+                auto s0 = vld1_f32((float*)(source)); // 0011
+                auto s1 = vld1_f32((float*)(source + srcStride0));// 0011
+
+                auto zip1s01 = vzip1_f32(s0, s1); // 0000
+
+                auto zip2s01 = vzip2_f32(s0, s1); // 1111
+
+                vst1_f32((float32_t*)dest, zip1s01);
+
+                vst1_f32((float32_t*)(dest + dstStride0), zip2s01);
+
+                dest += 4;
+                e -= 2;
+                source += (2 * srcStride0);
+            }
+            if (e > 0) {
+                auto s0 = vld1_f32((float*)(source)); // 0011
+
+                ((float*)dest)[0] = s0[0];
+                ((float*)(dest + dstStride0))[0] = s0[1];
+            }
+            sourceN += 4;
+            destN += (2 * dstStride0);
+        }
+        
+        auto source = (FLOAT16*)(sourceGroup[n]);
+        auto dest = (FLOAT16*)destOrigin + lOffset * eDest + eOffset * LP;
+        if (l > 0) {
+            auto e = eWork;
+            auto lRemain = lWork - l;
+            // if e < eDest, packed A -> [LU, eDest, LP] eDest=eP
+            for (int y=0; y<e; ++y) {
+                auto yR = y % eDest;
+                for (int x=lRemain; x<lWork; ++x) {
+                    auto xR = x % pack;
+                    auto xC = x / pack;
+                    auto xOut = x / LP;
+                    auto xIn = x % LP;
+                    dest[xOut * eDest * LP + yR * LP + xIn] = source[xC * eReal * pack + y * pack * offset + xR];
+                }
+            }
+            l--;
+        }
+    }
+}
+
 #ifdef MNN_LOW_MEMORY
 void MNNAbsMaxFP16(const float* source, float* absmax, size_t src_depth_quad, size_t realSize, int pack) {
     if (pack == 4) {
@@ -1024,7 +1565,7 @@ static void MNNAsyQuantInfo_FP16(float* scale, float* bias, float* qscale, float
     }
 
 #ifdef __aarch64__
-    if (DST_XUNIT == 12) { // Arm82, fp16: core->pack=8, SRC_UNIT=4
+    if (DST_XUNIT == 12 || DST_XUNIT == 16) { // Arm82/SME2, fp16: core->pack=8, SRC_UNIT=4
         // max,min shape: [blockNum, EP]
         if (innerSide == 4) {
             for (int i = 0; i < kernelsize; ++i) {
@@ -1037,12 +1578,22 @@ static void MNNAsyQuantInfo_FP16(float* scale, float* bias, float* qscale, float
             }
         }
         // scale, bias
-        auto success = MNNAsyLocalQuantInfo_EP12_FP16(scale, bias, qscale, qbias, dstMin, dstMax, info);
-        if (!success) {
-            MNN_ERROR("Call error: MNNAsyLocalQuantInfo_EP12_FP16\n");
+        if (DST_XUNIT == 12) {
+            auto success = MNNAsyLocalQuantInfo_EP12_FP16(scale, bias, qscale, qbias, dstMin, dstMax, info);
+            if (!success) {
+                MNN_ERROR("Call error: MNNAsyLocalQuantInfo_EP12_FP16\n");
+                return;
+            }
             return;
         }
-        return;
+        if (DST_XUNIT == 16) {
+            auto success = MNNAsyLocalQuantInfo_EP16_FP16(scale, bias, qscale, qbias, dstMin, dstMax, info);
+            if (!success) {
+                MNN_ERROR("Call error: MNNAsyLocalQuantInfo_EP16_FP16\n");
+                return;
+            }
+            return;
+        }
     }
     if (DST_XUNIT == 10 && innerSide == 8) { // Arm86, fp16: core->pack=8, SRC_UNIT=8
         // max,min shape: [blockNum, plane]
@@ -1120,12 +1671,16 @@ bool Arm82Functions::init() {
     gInstance = new CoreFunctions;
     gArm82CoreInt8Functions = new CoreInt8Functions;
     *gArm82CoreInt8Functions = *MNNGetInt8CoreFunctions();
+    gInstance->backendMatmulRelatedFunctions = origin->backendMatmulRelatedFunctions;
+    gInstance->sme2MatmulRelatedFuncions = origin->sme2MatmulRelatedFuncions;
     {
         if (origin->supportSDot) {
             gArm82CoreInt8Functions->MNNPackC4Int8ForMatMul_A = _Arm82MNNPackC4ForMatMul_A<12, 4>;
+            gInstance->supportSDot = true;
         }
         if (origin->supportI8mm) {
             gArm82CoreInt8Functions->MNNPackC4Int8ForMatMul_A = _ArmBasicMNNPackC4ForMatMul_A_L8<10, 8>;
+            gInstance->supportI8mm = true;
         }
     }
 
@@ -1165,12 +1720,16 @@ bool Arm82Functions::init() {
     FUNC_PTR_ASSIGN(gInstance->MNNAddC4WithStride, MNNAddC8WithStrideFP16);
 
     // MatMul
+    FUNC_PTR_ASSIGN(gInstance->MNNGetMatMulPackMode, Arm82MNNGetMatMulPackMode);
     FUNC_PTR_ASSIGN(gInstance->MNNPackedMatMul, MNNPackedMatMulFP16);
     FUNC_PTR_ASSIGN(gInstance->MNNPackedMatMulRemain, MNNPackedMatMulRemainFP16);
+    FUNC_PTR_ASSIGN(gInstance->MNNPackC4ForMatMul_A, Arm82MNNPackForMatMul_A);
+    FUNC_PTR_ASSIGN(gInstance->MNNPackForMatMul_B, Arm82MNNPackForMatMul_B);
 #if defined(__aarch64__)
     gInstance->supportFp16arith = origin->supportFp16arith;
     gInstance->supportSDot = origin->supportSDot;
     gInstance->supportI8mm = origin->supportI8mm;
+    gInstance->supportSME2 = origin->supportSME2;
 #ifdef MNN_CPU_WEIGHT_DEQUANT_GEMM
     // Weight Dequant Gemm Kernels
     FUNC_PTR_ASSIGN(gInstance->MNNPackedMatMul_int8, MNNPackedMatMulFP16_int8);
@@ -1184,22 +1743,18 @@ bool Arm82Functions::init() {
     FUNC_PTR_ASSIGN(gInstance->MNNAsyQuantFunc, MNNAsyQuantFunc_Arm82);
     FUNC_PTR_ASSIGN(gInstance->MNNAsyQuantInfo, MNNAsyQuantInfo_FP16); // return 'plane' min&max
     FUNC_PTR_ASSIGN(gInstance->MNNDynamicUpdateConvBiasScale, origin->MNNDynamicUpdateConvBiasScale);
-    #ifdef __aarch64__
+
     if (origin->supportSDot) {
         FUNC_PTR_ASSIGN(gInstance->MNNGeneralIm2Col, MNNGeneralIm2col_Arm82);
     }
     if (origin->supportI8mm) {
         FUNC_PTR_ASSIGN(gInstance->MNNGeneralIm2Col, MNNGeneralIm2col_Arm86);
     }
-    #endif
-#endif
+#endif // MNN_LOW_MEMORY
     FUNC_PTR_ASSIGN(gInstance->MNNCountMaxMinValue, ARM82CountMinMaxValue); // return one min&max
     FUNC_PTR_ASSIGN(gInstance->MNNSumByAxisLForMatmul_A, origin->MNNSumByAxisLForMatmul_A);
     FUNC_PTR_ASSIGN(gInstance->MNNDepthwiseConvFastKernel, MNNDepthwiseConvFastKernelFP16);
 #endif
-    FUNC_PTR_ASSIGN(gInstance->MNNPackC4ForMatMul_A, Arm82MNNPackForMatMul_A);
-    FUNC_PTR_ASSIGN(gInstance->MNNGetMatMulPackMode, Arm82MNNGetMatMulPackMode);
-    FUNC_PTR_ASSIGN(gInstance->MNNPackForMatMul_B, Arm82MNNPackForMatMul_B);
     gInstance->MNNComputeMatMulForH_1 = _MNNComputeMatMulForH_1_FP16;
     gInstance->MNNComputeMatMulForE_1 = _MNNComputeMatMulForE_1_FP16;
 
@@ -1219,6 +1774,43 @@ bool Arm82Functions::init() {
 
     gInstance->MNNPoolingMax = (decltype(gInstance->MNNPoolingMax))(poolingMax<float16_t, Vec, 8, -65535>);
     gInstance->MNNPoolingAvg = (decltype(gInstance->MNNPoolingAvg))(poolingAvg<float16_t, Vec, 8>);
+    
+    {
+        gInstance->backendMatmulRelatedFunctions.MNNPackC4Int8ForMatMul_A = gArm82CoreInt8Functions->MNNPackC4Int8ForMatMul_A;
+        gInstance->backendMatmulRelatedFunctions.MNNGeneralIm2Col = gInstance->MNNGeneralIm2Col;
+        
+        gInstance->backendMatmulRelatedFunctions.MNNGetMatMulPackMode = gInstance->MNNGetMatMulPackMode;
+        gInstance->backendMatmulRelatedFunctions.MNNPackedMatMul = gInstance->MNNPackedMatMul;
+        gInstance->backendMatmulRelatedFunctions.MNNPackedMatMulRemain = gInstance->MNNPackedMatMulRemain;
+        gInstance->backendMatmulRelatedFunctions.MNNPackC4ForMatMul_A = gInstance->MNNPackC4ForMatMul_A;
+        gInstance->backendMatmulRelatedFunctions.MNNPackForMatMul_B = gInstance->MNNPackForMatMul_B;
+    }
+#ifdef __aarch64__
+#ifdef MNN_SME2
+        if (origin->supportSME2) {
+            gArm82CoreInt8Functions->MNNPackC4Int8ForMatMul_A = _Arm82MNNPackC4ForMatMul_A<16, 4>;
+            gInstance->sme2MatmulRelatedFuncions.MNNPackC4Int8ForMatMul_A = _Arm82MNNPackC4ForMatMul_A<16, 4>;
+
+            FUNC_PTR_ASSIGN(gInstance->MNNPackedMatMul, MNNPackedMatMulFP16_SME2);
+            FUNC_PTR_ASSIGN(gInstance->MNNPackedMatMulRemain, MNNPackedMatMulRemainFP16_SME2);
+            FUNC_PTR_ASSIGN(gInstance->MNNGetMatMulPackMode, Sme2MNNGetMatMulPackMode);
+            FUNC_PTR_ASSIGN(gInstance->MNNPackC4ForMatMul_A, Sme2MNNPackForMatMul_A_FP16);
+            FUNC_PTR_ASSIGN(gInstance->MNNPackForMatMul_B, Sme2MNNPackForMatMul_B);
+
+            gInstance->sme2MatmulRelatedFuncions.MNNPackedMatMul = MNNPackedMatMulFP16_SME2;
+            gInstance->sme2MatmulRelatedFuncions.MNNPackedMatMulRemain = MNNPackedMatMulRemainFP16_SME2;
+            gInstance->sme2MatmulRelatedFuncions.MNNGetMatMulPackMode = Sme2MNNGetMatMulPackMode;
+            gInstance->sme2MatmulRelatedFuncions.MNNPackC4ForMatMul_A = Sme2MNNPackForMatMul_A_FP16;
+            gInstance->sme2MatmulRelatedFuncions.MNNPackForMatMul_B = Sme2MNNPackForMatMul_B;
+
+#ifdef MNN_LOW_MEMORY
+            FUNC_PTR_ASSIGN(gInstance->MNNGeneralIm2Col, MNNGeneralIm2col_Fp16Sme2);
+            gInstance->sme2MatmulRelatedFuncions.MNNGeneralIm2Col = MNNGeneralIm2col_Fp16Sme2;
+#endif
+        }
+#endif // MNN_SME2
+#endif // __aarch64__
+
     return true;
 }
 

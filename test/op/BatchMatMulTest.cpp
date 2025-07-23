@@ -273,9 +273,15 @@ public:
         }
         // BatchMatMul batch = 1 with large K
         {
+            int optn = precision;
+            int K = 262144;
+            if (precision == 2) {
+                optn = 3;
+                K = 200; // to avoid out of Fp16 range.
+            }
             std::vector<std::vector<int>> values = {
-                {16, 262144, 15},
-                {3, 262144, 16}
+                {16, K, 15},
+                {3, K, 16}
             };
             for(auto value : values) {
                 e = value[0];
@@ -298,15 +304,15 @@ public:
                 auto x0Ptr = x0->writeMap<float>();
                 auto x1Ptr = x1->writeMap<float>();
                 for (int b = 0; b < batch; ++b) {
-                    fillFloat(x0Ptr + b * h * l, h, l, FP32Converter[precision], (float)b * 10);
-                    fillFloat(x1Ptr + b * e * l, l, e, FP32Converter[precision], (float)b * 10);
+                    fillFloat(x0Ptr + b * h * l, h, l, FP32Converter[optn], (float)b * 10);
+                    fillFloat(x1Ptr + b * e * l, l, e, FP32Converter[optn], (float)b * 10);
                 }
                 auto tranposeB = _Transpose(x1, {0, 2, 1});
                 auto y         = Variable::create(Expr::create(op.get(), {x0, tranposeB}));
 
                 auto yPtr = y->readMap<float>();
                 for (int b = 0; b < batch; ++b) {
-                    auto res = checkMatMul(yPtr + b * e * h, x0Ptr + b * h * l, x1Ptr + b * e * l, e, l, h, FP32Converter[precision]);
+                    auto res = checkMatMul(yPtr + b * e * h, x0Ptr + b * h * l, x1Ptr + b * e * l, e, l, h, FP32Converter[optn]);
                     if (!res) {
                         FUNC_PRINT(1);
                         return false;

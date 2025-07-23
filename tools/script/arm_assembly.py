@@ -1,11 +1,12 @@
 import sys
+import re
 
 class Assembly():
     def __init__(self, src_path, dst_path):
         self.src_path = src_path
         self.dst_path = dst_path
         # instructions
-        self.ops = ['sdot', 'udot', 'smmla', 'bfmmla', 'mov']
+        self.ops = ['sdot', 'udot', 'smmla', 'bfmmla', 'mov', 'smopa', 'fmopa', 'luti4', 'ldr']
 
     def assembly(self):
         self.dst_content = []
@@ -17,6 +18,14 @@ class Assembly():
                 if cmd[0] == op:
                     if op == 'mov':
                         code = getattr(self, op)(code, cmd[1], cmd[2])
+                    elif op == 'smopa' or op == 'fmopa' or op == 'luti4':
+                        inst = getattr(self, op)(code)
+                        code = code[:code.find(op)] + inst + ' // ' + code.strip(' ')
+                    elif op == 'ldr':
+                        if cmd[1] != 'zt0,':
+                            continue
+                        inst = getattr(self, op)(code)
+                        code = code[:code.find(op)] + inst + ' // ' + code.strip(' ')
                     else:
                         inst = getattr(self, op)(cmd[1], cmd[2], cmd[3])
                         code = code[:code.find(op)] + inst + ' // ' + code.strip(' ')
@@ -150,6 +159,164 @@ class Assembly():
         new_mov = f'mov {operand1} {operand2}'
         new_code = code[:code.find('mov')] + new_mov + ' // ' + code.strip(' ')
         return new_code
+    
+    def smopa(self, instruction):
+        """
+        SMOPA <ZAda>.S, <Pn>/M, <Pm>/M, <Zn>.B, <Zm>.B 32bit 4-way
+        SMOPA <ZAda>.D, <Pn>/M, <Pm>/M, <Zn>.H, <Zm>.H 64bit 4-way
+        """
+        try:
+            parts = instruction.replace(' ', '').split(',')
+            if len(parts) != 5:
+                raise ValueError("smopa 指令格式错误")
+                
+            zda = int(parts[0].split('za')[1].split('.')[0])
+            pn = int(parts[1].split('p')[1].split('/')[0])
+            pm = int(parts[2].split('p')[1].split('/')[0])
+            zn = int(parts[3].split('z')[1].split('.')[0])
+            zm = int(parts[4].split('z')[1].split('.')[0])
+
+            zmDataType = parts[4].split('z')[1].split('.')[1][0]
+
+            if not (0 <= zda <= 15):
+                raise ValueError("zda必须在0-15范围内")
+            if not (0 <= pn <= 7):
+                raise ValueError("pg必须在0-7范围内")
+            if not (0 <= pn <= 7):
+                raise ValueError("pn必须在0-7范围内")
+            if not (0 <= zm <= 31):
+                raise ValueError("zm必须在0-31范围内")
+            if not (0 <= zn <= 31):
+                raise ValueError("zn必须在0-31范围内")
+            
+            # smopa za0.s, p3/m, p4/m, z0.b, z1.b
+            is32Bit4way = (parts[0].split('za')[1].split('.')[1] == "s") and (parts[3].split('z')[1].split('.')[1] == 'b') and (zmDataType == 'b')
+            # smopa za0.d, p3/m, p4/m, z0.h, z1.h
+            is64Bit4way = (parts[0].split('za')[1].split('.')[1] == "d") and (parts[3].split('z')[1].split('.')[1] == 'h') and (zmDataType == 'h')
+            # smopa za0.s, p3/m, p4/m, z0.h, z1.h
+            is2way = (parts[0].split('za')[1].split('.')[1] == "s") and (parts[3].split('z')[1].split('.')[1] == 'h') and (zmDataType == 'h')
+            if (is32Bit4way == False) and (is64Bit4way == False) and (is2way):
+                raise ValueError("smopa 指令格式错误")
+
+            # is32Bit4way
+            opcode = "10100000100"     #[31, 21]
+            zmCode = format(zm, '05b') # zm register has '5' bit,[20, 16]
+            pmCode = format(pm, '03b') # pm register has '3' bit,[15,13]
+            pnCode = format(pn, '03b') # pn register has '3' bit,[12,10]
+            znCode = format(zn, '05b') # zn register has '5' bit, [9,5]
+            fixCode = "000"            # fixed encode
+            zaCode = format(zda, '02b') # za register has '2' bit, [1,0]
+
+            if is64Bit4way == True:
+                opcode = "10100000110"
+                fixCode = "00"
+                zaCode = format(zda, '03b')
+            elif is2way == True:
+                opcode = "10100000100"
+                fixCode = "010"
+
+            # concact
+            binary = opcode + zmCode + pmCode + pnCode + znCode + fixCode + zaCode
+            inst = '.inst ' + str(hex(int(binary, 2)))
+            return inst
+
+        except Exception as e:
+            raise ValueError(f"smopa 指令解析错误: {str(e)}")
+    
+    def fmopa(self, instruction):
+        '''
+        FMOPA <ZAda>.S, <Pn>/M, <Pm>/M, <Zn>.S, <Zm>.S
+        '''
+        try:
+            parts = instruction.replace(' ', '').split(',')
+            if len(parts) != 5:
+                raise ValueError("fmopa 指令格式错误")
+
+            zda = int(parts[0].split('za')[1].split('.')[0])
+            pn = int(parts[1].split('p')[1].split('/')[0])
+            pm = int(parts[2].split('p')[1].split('/')[0])
+            zn = int(parts[3].split('z')[1].split('.')[0])
+            zm = int(parts[4].split('z')[1].split('.')[0])
+
+            zmDataType = parts[4].split('z')[1].split('.')[1][0]
+
+            # fmopa za0.s, p3/m, p4/m, z0.s, z1.s
+            singlePrecisionNotWidening = (parts[0].split('za')[1].split('.')[1] == "s") and (parts[3].split('z')[1].split('.')[1] == 's') and (zmDataType == 's')
+            # fmopa za0.s, p3/m, p3/m, z0.h, z1.h
+            fp16Tofp32 = (parts[0].split('za')[1].split('.')[1] == "s") and (parts[3].split('z')[1].split('.')[1] == 'h') and (zmDataType == 'h')
+
+            if not singlePrecisionNotWidening and not fp16Tofp32:
+                raise ValueError("Not implement yet\n")
+
+            opcode = "10000000100"
+            zmCode = format(zm, '05b') # zm register has '5' bit,[20, 16]
+            pmCode = format(pm, '03b') # pm register has '3' bit,[15,13]
+            pnCode = format(pn, '03b') # pn register has '3' bit,[12,10]
+            znCode = format(zn, '05b') # zn register has '5' bit, [9,5]
+            fixCode = "000"            # fixed encode
+            zaCode = format(zda, '02b') # za register has '2' bit, [1,0]
+
+            if fp16Tofp32 == True:
+                opcode = "10000001101"
+
+            binary = opcode + zmCode + pmCode + pnCode + znCode + fixCode + zaCode
+            inst = '.inst ' + str(hex(int(binary, 2)))
+            return inst
+                
+        except Exception as e:
+            raise ValueError(f"fmopa 指令解析错误: {str(e)}")
+
+    def luti4(self, instruction):
+        '''
+        luti4 {z2.b-z3.b}, zt0, z1[0]
+        '''
+        try:
+            parts = instruction.replace(' ', '').split(',')
+            if len(parts) != 3:
+                raise ValueError("luti4 指令格式错误")
+            
+            # 解析目标寄存器
+            zd = int(parts[0].split('z')[1].split('.')[0])
+            T = parts[0].split('.')[1].split('.')[0][0]
+            if T != 'b':
+                raise ValueError("Not implement yet\n")
+            
+            # 解析查找表寄存器
+            zt = int(parts[1].split('zt')[1])
+            
+            # 解析源寄存器
+            zn = int(parts[2].split('z')[1].split('[')[0])
+            i2 = int(parts[2].split('z')[1].split('[')[1][0])
+
+            opcode = "110000001000101"
+            i2code = format(i2, '02b')
+            constcode0 = "1"
+            sizecode = "00" # b
+            constcode1 = "00"
+            zncode = format(zn, '05b')
+            zdcode = format(zd, '05b')
+
+            binary = opcode + i2code + constcode0 + sizecode + constcode1 + zncode + zdcode
+            inst = '.inst ' + str(hex(int(binary, 2)))
+            return inst
+
+        except Exception as e:
+            raise ValueError(f"luti4 指令解析错误: {str(e)}")
+
+    def ldr(self, instruction):
+        '''
+        ldr zt0, [x8]
+        '''
+        i0 = instruction.find('[')
+        i1 = instruction.find(']')
+        x = int(instruction[i0 + 2: i1])
+        opcode = "1110000100011111100000"
+        rn = format(x, '05b')
+        fixcode = "00000"
+        binary = opcode + rn + fixcode
+        inst = '.inst ' + str(hex(int(binary, 2)))
+        return inst
+
 
 if __name__ == '__main__':
     if len(sys.argv) < 2:

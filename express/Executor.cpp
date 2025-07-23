@@ -336,6 +336,7 @@ void Executor::RuntimeManager::setCache(std::string cacheName) {
 
     mInside->mCache.reset(new Cache);
     mInside->mCache->cacheFile = cacheName;
+    mInside->mInfo->onSetCachePath(cacheName.c_str(), 0);
     if (nullptr == mInside->mCache->cacheFile.c_str()) {
         MNN_ERROR("Empty cacheFile\n");
         return;

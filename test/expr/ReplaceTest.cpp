@@ -12,163 +12,199 @@
 
 using namespace MNN::Express;
 // Test prepareCompute for dynamic-graph usage
+
+static bool dynamictest4Precision1() {
+    auto x    = _Input({100}, NCHW);
+    auto xPtr = x->writeMap<float>();
+    for (int i = 0; i < 100; ++i) {
+        xPtr[i] = (float)i - 50.0f;
+    }
+    auto y = _Abs(x);
+
+    auto z = _Square(y);
+    auto u = _Sin(z);
+    auto v = _Cos(z);
+    Variable::prepareCompute({y, u, v});
+    auto a = _Add(u, v);
+    a.fix(VARP::CONSTANT);
+    auto b = _Add(y, y);
+    b.fix(VARP::CONSTANT);
+    {
+        auto aPtr = a->readMap<float>();
+        auto bPtr = b->readMap<float>();
+        for (int i = 0; i < 100; ++i) {
+            auto xR   = (float)i - 50.0f;
+            auto yR   = fabs(xR);
+            auto zR   = yR * yR;
+            auto uR   = sinf(zR);
+            auto vR   = cosf(zR);
+            auto aR   = uR + vR;
+            auto bR   = yR + yR;
+            auto diff = fabsf(aPtr[i] - aR);
+            if (diff > 0.00001f) {
+                FUNC_PRINT(1);
+                return false;
+            }
+            diff = fabsf(bPtr[i] - bR);
+            if (diff > 0.00001f) {
+                FUNC_PRINT(1);
+                return false;
+            }
+        }
+    }
+
+    auto c = _Split(_Concat({a, b}, 0), {2})[0] * b - u + v * y;
+    auto d = a - b;
+    Variable::prepareCompute({c, d});
+    {
+        auto cPtr = c->readMap<float>();
+        auto dPtr = d->readMap<float>();
+        for (int i = 0; i < 100; ++i) {
+            auto xR   = (float)i - 50.0f;
+            auto yR   = fabs(xR);
+            auto zR   = yR * yR;
+            auto uR   = sinf(zR);
+            auto vR   = cosf(zR);
+            auto aR   = uR + vR;
+            auto bR   = yR + yR;
+            auto cR   = aR * bR - uR + vR * yR;
+            auto dR   = aR - bR;
+            auto diff = fabsf(cPtr[i] - cR);
+            if (diff > 0.0001f) {
+                // MNN_ERROR("%f - %f\n", cPtr[i], cR);
+                FUNC_PRINT(1);
+                return false;
+            }
+            diff = fabsf(dPtr[i] - dR);
+            if (diff > 0.0001f) {
+                FUNC_PRINT(1);
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+static bool dynamictest4Precision2() {
+    float threshold = 0.02;
+
+    auto x    = _Input({100}, NCHW);
+    auto xPtr = x->writeMap<float>();
+    for (int i = 0; i < 100; ++i) {
+        xPtr[i] = (float)(i % 4)* 0.01;
+    }
+    auto y = _Abs(x);
+
+    auto z = _Square(y);
+    auto u = x - y;
+    auto v = x + y;
+    Variable::prepareCompute({y, u, v});
+    auto a = _Add(u, v);
+    a.fix(VARP::CONSTANT);
+    auto b = _Add(y, y);
+    b.fix(VARP::CONSTANT);
+    {
+        auto aPtr = a->readMap<float>();
+        auto bPtr = b->readMap<float>();
+        for (int i = 0; i < 100; ++i) {
+            auto xR   = (float)(i % 4)* 0.01;
+            auto yR   = fabs(xR);
+            auto zR   = yR * yR;
+            auto uR   = xR - yR;
+            auto vR   = xR + yR;
+            auto aR   = uR + vR;
+            auto bR   = yR + yR;
+            auto diff = fabsf(aPtr[i] - aR);
+            if (diff > threshold) {
+                FUNC_PRINT(1);
+                return false;
+            }
+            diff = fabsf(bPtr[i] - bR);
+            if (diff > threshold) {
+                FUNC_PRINT(1);
+                return false;
+            }
+        }
+    }
+
+    auto c = _Split(_Concat({a, b}, 0), {2})[0] * b - u + v * y;
+    auto d = a - b;
+    Variable::prepareCompute({c, d});
+    {
+        auto cPtr = c->readMap<float>();
+        auto dPtr = d->readMap<float>();
+        for (int i = 0; i < 100; ++i) {
+            auto xR   = (float)(i % 4)* 0.01;
+            auto yR   = fabs(xR);
+            auto zR   = yR * yR;
+            auto uR   = xR - yR;
+            auto vR   = xR + yR;
+            auto aR   = uR + vR;
+            auto bR   = yR + yR;
+            auto cR   = aR * bR - uR + vR * yR;
+            auto dR   = aR - bR;
+            auto diff = fabsf(cPtr[i] - cR);
+            if (diff > threshold) {
+                // MNN_ERROR("%f - %f\n", cPtr[i], cR);
+                FUNC_PRINT(1);
+                return false;
+            }
+            diff = fabsf(dPtr[i] - dR);
+            if (diff > threshold) {
+                FUNC_PRINT(1);
+                return false;
+            }
+        }
+    }
+    return true;
+}
 class PrecomputeDynamicTest : public MNNTestCase {
 public:
     virtual bool run(int precision) {
-        auto x    = _Input({100}, NCHW);
-        auto xPtr = x->writeMap<float>();
-        for (int i = 0; i < 100; ++i) {
-            xPtr[i] = (float)i - 50.0f;
+        if (precision != 2) {
+            return dynamictest4Precision1();
         }
-        auto y = _Abs(x);
-
-        auto z = _Square(y);
-        auto u = _Sin(z);
-        auto v = _Cos(z);
-        Variable::prepareCompute({y, u, v});
-        auto a = _Add(u, v);
-        a.fix(VARP::CONSTANT);
-        auto b = _Add(y, y);
-        b.fix(VARP::CONSTANT);
-        {
-            auto aPtr = a->readMap<float>();
-            auto bPtr = b->readMap<float>();
-            for (int i = 0; i < 100; ++i) {
-                auto xR   = (float)i - 50.0f;
-                auto yR   = fabs(xR);
-                auto zR   = yR * yR;
-                auto uR   = sinf(zR);
-                auto vR   = cosf(zR);
-                auto aR   = uR + vR;
-                auto bR   = yR + yR;
-                auto diff = fabsf(aPtr[i] - aR);
-                if (diff > 0.00001f) {
-                    FUNC_PRINT(1);
-                    return false;
-                }
-                diff = fabsf(bPtr[i] - bR);
-                if (diff > 0.00001f) {
-                    FUNC_PRINT(1);
-                    return false;
-                }
-            }
-        }
-
-        auto c = _Split(_Concat({a, b}, 0), {2})[0] * b - u + v * y;
-        auto d = a - b;
-        Variable::prepareCompute({c, d});
-        {
-            auto cPtr = c->readMap<float>();
-            auto dPtr = d->readMap<float>();
-            for (int i = 0; i < 100; ++i) {
-                auto xR   = (float)i - 50.0f;
-                auto yR   = fabs(xR);
-                auto zR   = yR * yR;
-                auto uR   = sinf(zR);
-                auto vR   = cosf(zR);
-                auto aR   = uR + vR;
-                auto bR   = yR + yR;
-                auto cR   = aR * bR - uR + vR * yR;
-                auto dR   = aR - bR;
-                auto diff = fabsf(cPtr[i] - cR);
-                if (diff > 0.0001f) {
-                    // MNN_ERROR("%f - %f\n", cPtr[i], cR);
-                    FUNC_PRINT(1);
-                    return false;
-                }
-                diff = fabsf(dPtr[i] - dR);
-                if (diff > 0.0001f) {
-                    FUNC_PRINT(1);
-                    return false;
-                }
-            }
+        if (precision == 2) {
+            return dynamictest4Precision2();
         }
         return true;
     }
 };
 
 // Test prepareCompute for static-graph usage
-class PrecomputeTest : public MNNTestCase {
-public:
-    virtual bool run(int precision) {
-        auto x    = _Input({100}, NCHW);
-        auto xPtr = x->writeMap<float>();
-        for (int i = 0; i < 100; ++i) {
-            xPtr[i] = (float)i - 50.0f;
-        }
-        auto y = _Abs(x);
+static bool test4Precision1() {
+    auto x    = _Input({100}, NCHW);
+    auto xPtr = x->writeMap<float>();
+    for (int i = 0; i < 100; ++i) {
+        xPtr[i] = (float)i - 50.0f;
+    }
+    auto y = _Abs(x);
 
-        auto z = _Square(y);
-        auto u = _Sin(z);
-        auto v = _Cos(z);
-        Variable::prepareCompute({y, u, v});
-        auto check = [&](int number) {
-            {
-                auto yPtr = y->readMap<float>();
-                if (nullptr == yPtr) {
-                    return false;
-                }
-                std::vector<float> yData(number);
-                for (int i = 0; i < number; ++i) {
-                    if (yPtr[i] != fabs((float)i - 50.0f)) {
-                        MNN_PRINT("0: PrecomputeTest Error: %f, %f\n", yPtr[i], fabs((float)i - 50.0f));
-                        return false;
-                    }
-                    yData[i] = yPtr[i];
-                }
-                yPtr      = yData.data();
-                auto uPtr = u->readMap<float>();
-                for (int i = 0; i < number; ++i) {
-                    auto target = sinf(yPtr[i] * yPtr[i]);
-                    auto diff   = fabsf(uPtr[i] - target);
-                    if (diff > 0.00001f) {
-                        MNN_PRINT("1: PrecomputeTest Error: %f, %f\n", uPtr[i], target);
-                        return false;
-                    }
-                }
-                auto vPtr = v->readMap<float>();
-                for (int i = 0; i < number; ++i) {
-                    auto target = cosf(yPtr[i] * yPtr[i]);
-                    auto diff   = fabsf(vPtr[i] - target);
-                    if (diff > 0.00001f) {
-                        MNN_PRINT("2: PrecomputeTest Error: %f, %f\n", vPtr[i], target);
-                        return false;
-                    }
-                }
-            }
-            return true;
-        };
-        if (!check(100)) {
-            FUNC_PRINT(1);
-            return false;
-        }
+    auto z = _Square(y);
+    auto u = _Sin(z);
+    auto v = _Cos(z);
+    Variable::prepareCompute({y, u, v});
+    auto check = [&](int number) {
         {
-            x->resize({1, 101});
-            auto xPtr = x->writeMap<float>();
-            for (int i = 0; i < 101; ++i) {
-                xPtr[i] = (float)i - 50.0f;
-            }
-        }
-        if (!check(101)) {
-            FUNC_PRINT(1);
-            return false;
-        }
-        // Delete end var, check if the cache can work
-        u = nullptr;
-        {
-            x->writeMap<float>();
-            auto xPtr   = x->writeMap<float>();
-            auto number = 101;
-            for (int i = 0; i < number; ++i) {
-                xPtr[i] = (float)i - 50.0f;
-            }
             auto yPtr = y->readMap<float>();
             if (nullptr == yPtr) {
                 return false;
             }
+            std::vector<float> yData(number);
             for (int i = 0; i < number; ++i) {
                 if (yPtr[i] != fabs((float)i - 50.0f)) {
-                    MNN_PRINT("4: PrecomputeTest Error: %f, %f\n", yPtr[i], fabs((float)i - 50.0f));
+                    MNN_PRINT("0: PrecomputeTest Error: %f, %f\n", yPtr[i], fabs((float)i - 50.0f));
+                    return false;
+                }
+                yData[i] = yPtr[i];
+            }
+            yPtr      = yData.data();
+            auto uPtr = u->readMap<float>();
+            for (int i = 0; i < number; ++i) {
+                auto target = sinf(yPtr[i] * yPtr[i]);
+                auto diff   = fabsf(uPtr[i] - target);
+                if (diff > 0.00001f) {
+                    MNN_PRINT("1: PrecomputeTest Error: %f, %f\n", uPtr[i], target);
                     return false;
                 }
             }
@@ -177,39 +213,225 @@ public:
                 auto target = cosf(yPtr[i] * yPtr[i]);
                 auto diff   = fabsf(vPtr[i] - target);
                 if (diff > 0.00001f) {
-                    MNN_PRINT("5: PrecomputeTest Error: %f, %f\n", vPtr[i], target);
+                    MNN_PRINT("2: PrecomputeTest Error: %f, %f\n", vPtr[i], target);
                     return false;
                 }
             }
-
-            number = 102;
-            x->resize({number, 1});
-            xPtr = x->writeMap<float>();
-            for (int i = 0; i < number; ++i) {
-                xPtr[i] = (float)i - 50.0f;
+        }
+        return true;
+    };
+    if (!check(100)) {
+        FUNC_PRINT(1);
+        return false;
+    }
+    {
+        x->resize({1, 101});
+        auto xPtr = x->writeMap<float>();
+        for (int i = 0; i < 101; ++i) {
+            xPtr[i] = (float)i - 50.0f;
+        }
+    }
+    if (!check(101)) {
+        FUNC_PRINT(1);
+        return false;
+    }
+    // Delete end var, check if the cache can work
+    u = nullptr;
+    {
+        x->writeMap<float>();
+        auto xPtr   = x->writeMap<float>();
+        auto number = 101;
+        for (int i = 0; i < number; ++i) {
+            xPtr[i] = (float)i - 50.0f;
+        }
+        auto yPtr = y->readMap<float>();
+        if (nullptr == yPtr) {
+            return false;
+        }
+        for (int i = 0; i < number; ++i) {
+            if (yPtr[i] != fabs((float)i - 50.0f)) {
+                MNN_PRINT("4: PrecomputeTest Error: %f, %f\n", yPtr[i], fabs((float)i - 50.0f));
+                return false;
             }
-            yPtr = y->readMap<float>();
+        }
+        auto vPtr = v->readMap<float>();
+        for (int i = 0; i < number; ++i) {
+            auto target = cosf(yPtr[i] * yPtr[i]);
+            auto diff   = fabsf(vPtr[i] - target);
+            if (diff > 0.00001f) {
+                MNN_PRINT("5: PrecomputeTest Error: %f, %f\n", vPtr[i], target);
+                return false;
+            }
+        }
+
+        number = 102;
+        x->resize({number, 1});
+        xPtr = x->writeMap<float>();
+        for (int i = 0; i < number; ++i) {
+            xPtr[i] = (float)i - 50.0f;
+        }
+        yPtr = y->readMap<float>();
+        if (nullptr == yPtr) {
+            return false;
+        }
+        std::vector<float> yData(number);
+        for (int i = 0; i < number; ++i) {
+            if (yPtr[i] != fabs((float)i - 50.0f)) {
+                MNN_PRINT("6: PrecomputeTest Error: %f, %f\n", yPtr[i], fabs((float)i - 50.0f));
+                return false;
+            }
+            yData[i] = yPtr[i];
+        }
+        yPtr = yData.data();
+        vPtr = v->readMap<float>();
+        for (int i = 0; i < number; ++i) {
+            auto target = cosf(yPtr[i] * yPtr[i]);
+            auto diff   = fabsf(vPtr[i] - target);
+            if (diff > 0.00001f) {
+                MNN_PRINT("7: PrecomputeTest Error: %f, %f\n", vPtr[i], target);
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+static bool test4Precision2() {
+    auto x    = _Input({100}, NCHW);
+    auto xPtr = x->writeMap<float>();
+    for (int i = 0; i < 100; ++i) {
+        xPtr[i] = (float)(i % 4)* 0.01 - 5;
+    }
+    auto y = _Abs(x);
+
+    auto z = _Square(y);
+    auto u = z - y;
+    auto v = _Add(z, y);
+    Variable::prepareCompute({y, u, v});
+    float threshold = 0.02;
+
+    auto check = [&](int number) {
+        {
+            auto yPtr = y->readMap<float>();
             if (nullptr == yPtr) {
                 return false;
             }
             std::vector<float> yData(number);
             for (int i = 0; i < number; ++i) {
-                if (yPtr[i] != fabs((float)i - 50.0f)) {
-                    MNN_PRINT("6: PrecomputeTest Error: %f, %f\n", yPtr[i], fabs((float)i - 50.0f));
+                auto x = (float)(i % 4)* 0.01 - 5;
+                if (fabs(yPtr[i] - fabs(x)) > 0.01) {
+                    MNN_PRINT("0: PrecomputeTest Error: %f, %f\n", yPtr[i], fabs((float)i - 50.0f));
                     return false;
                 }
                 yData[i] = yPtr[i];
             }
-            yPtr = yData.data();
-            vPtr = v->readMap<float>();
+            yPtr      = yData.data();
+            auto uPtr = u->readMap<float>();
             for (int i = 0; i < number; ++i) {
-                auto target = cosf(yPtr[i] * yPtr[i]);
-                auto diff   = fabsf(vPtr[i] - target);
-                if (diff > 0.00001f) {
-                    MNN_PRINT("7: PrecomputeTest Error: %f, %f\n", vPtr[i], target);
+                auto target = yPtr[i] * yPtr[i] - yPtr[i];
+                auto diff   = fabsf(uPtr[i] - target);
+                if (diff > threshold) {
+                    MNN_PRINT("1: PrecomputeTest Error: %f, %f\n", uPtr[i], target);
                     return false;
                 }
             }
+            auto vPtr = v->readMap<float>();
+            for (int i = 0; i < number; ++i) {
+                auto target = yPtr[i] * yPtr[i] + yPtr[i];
+                auto diff   = fabsf(vPtr[i] - target);
+                if (diff > threshold) {
+                    MNN_PRINT("2: PrecomputeTest Error: %f, %f\n", vPtr[i], target);
+                    return false;
+                }
+            }
+        }
+        return true;
+    };
+    if (!check(100)) {
+        FUNC_PRINT(1);
+        return false;
+    }
+    {
+        x->resize({1, 101});
+        auto xPtr = x->writeMap<float>();
+        for (int i = 0; i < 101; ++i) {
+            xPtr[i] = (float)(i % 4)* 0.01 - 5;
+        }
+    }
+    if (!check(101)) {
+        FUNC_PRINT(1);
+        return false;
+    }
+    // Delete end var, check if the cache can work
+    u = nullptr;
+    {
+        x->writeMap<float>();
+        auto xPtr   = x->writeMap<float>();
+        auto number = 101;
+        for (int i = 0; i < number; ++i) {
+            xPtr[i] = (float)(i % 4)* 0.01 - 5;
+        }
+        auto yPtr = y->readMap<float>();
+        if (nullptr == yPtr) {
+            return false;
+        }
+        for (int i = 0; i < number; ++i) {
+            float x = (float)(i % 4)* 0.01 - 5;
+            if (fabs(yPtr[i] - fabs(x)) > threshold) {
+                MNN_PRINT("4: PrecomputeTest Error: %f, %f\n", yPtr[i], fabs((float)i - 50.0f));
+                return false;
+            }
+        }
+        auto vPtr = v->readMap<float>();
+        for (int i = 0; i < number; ++i) {
+            auto target = yPtr[i] * yPtr[i] + yPtr[i];
+            auto diff   = fabsf(vPtr[i] - target);
+            if (diff > threshold) {
+                MNN_PRINT("5: PrecomputeTest Error: %f, %f\n", vPtr[i], target);
+                return false;
+            }
+        }
+
+        number = 102;
+        x->resize({number, 1});
+        xPtr = x->writeMap<float>();
+        for (int i = 0; i < number; ++i) {
+            xPtr[i] = (float)(i % 4)* 0.01 - 5;
+        }
+        yPtr = y->readMap<float>();
+        if (nullptr == yPtr) {
+            return false;
+        }
+        std::vector<float> yData(number);
+        for (int i = 0; i < number; ++i) {
+            auto x = (float)(i % 4)* 0.01 - 5;
+            if (fabs(yPtr[i] - fabs(x)) > threshold) {
+                MNN_PRINT("6: PrecomputeTest Error: %f, %f\n", yPtr[i], fabs(x));
+                return false;
+            }
+            yData[i] = yPtr[i];
+        }
+        yPtr = yData.data();
+        vPtr = v->readMap<float>();
+        for (int i = 0; i < number; ++i) {
+            auto target = yPtr[i] * yPtr[i] + yPtr[i];
+            auto diff   = fabsf(vPtr[i] - target);
+            if (diff > threshold) {
+                MNN_PRINT("7: PrecomputeTest Error: %f, %f\n", vPtr[i], target);
+                return false;
+            }
+        }
+    }
+    return true;
+}
+class PrecomputeTest : public MNNTestCase {
+public:
+    virtual bool run(int precision) {
+        if (precision != 2) {
+            return test4Precision1();
+        }
+        if (precision == 2) {
+            return test4Precision2();
         }
         return true;
     }

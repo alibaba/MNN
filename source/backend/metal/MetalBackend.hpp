@@ -269,6 +269,7 @@ private:
     bool mUseFloatAsFp16;
     bool mIsIphone = false;
     BufferAllocator* mCurrentAllocator = nullptr;
+
 };
 
 

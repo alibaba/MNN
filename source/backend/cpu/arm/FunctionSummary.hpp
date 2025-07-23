@@ -28,7 +28,7 @@ void NEON_MNNPackC4ForMatMul_A_BF16(float* destOrigin, float const** sourceGroup
                                     const int32_t* el);
 
 
-void NEON_MNNPackForMatMul_B_BF16(float* dest, const float* source, size_t h, size_t l, bool transpose);
+void NEON_MNNPackForMatMul_B_BF16(float* dest, const float* source, size_t h, size_t kernelsize, size_t ic, bool transpose);
 
 void NEON_MNNPackedMatMul_BF16(float* C, const float* A, const float* B, const size_t* parameter,
                                const float* postParameters, const float* bias, const float* k, const float* b);
@@ -44,7 +44,7 @@ void MNNPackC4_BF16(float* dest, const float* source, size_t area, size_t depth,
 #ifdef __aarch64__
 void MNNPackC8_BF16(float* dest, const float* source, size_t l, size_t h);
 void ARMV86_MNNGetMatMulPackMode_BF16(int* eP, int* lP, int* hP);
-void ARMV86_MNNPackForMatMul_B_BF16(float* dest, const float* source, size_t h, size_t l, bool transpose);
+void ARMV86_MNNPackForMatMul_B_BF16(float* dest, const float* source, size_t h, size_t kernelsize, size_t ic, bool transpose);
 void ARMV86_MNNPackC4ForMatMul_A_BF16(float* destOrigin, float const** sourceGroup, const int32_t* info, const int32_t* el);
 void ARMV86_MNNPackedMatMul_BF16(float* C, const float* A, const float* B, const size_t* parameter,
                                  const float* postParameters, const float* bias, const float* k, const float* b);

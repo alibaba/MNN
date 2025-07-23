@@ -61,9 +61,11 @@ private:
     mutable std::vector<int> mCpuIds;
     mutable unsigned long mCpuMask;
 #ifdef MNN_USE_THREAD_POOL
+    mutable ThreadPool* mThreadPool = nullptr;
+#endif
+#ifdef MNN_USE_THREAD_POOL
     mutable int mTaskIndex = -1;
     mutable int mThreadOpen = 0;
-    mutable ThreadPool* mThreadPool = nullptr;
 #endif
     BackendConfig::MemoryMode mMemory;
     BackendConfig::PowerMode mPower;
@@ -82,6 +84,7 @@ private:
 };
 struct CoreFunctions;
 struct CoreInt8Functions;
+struct MatmulRelatedFunctions;
 
 class CPUResizeCache;
 class CPUMemObj : public Backend::MemObj {
@@ -134,6 +137,10 @@ public:
     const CoreFunctions* functions() const {
         return mCoreFunctions;
     }
+    
+    const MatmulRelatedFunctions* int8GemmFunctions() const {
+        return mRelatedFunctions;
+    }
     // Return element size for Tensor, conside pack
     size_t getTensorSize(const Tensor* tensor, bool multiBytes = false) const;
     const CoreInt8Functions* int8Functions() const {
@@ -183,12 +190,10 @@ protected:
     MemObj* allocBuffer(size_t size, Tensor* dest,  StorageType storageType);
     CoreFunctions* mCoreFunctions;
     CoreInt8Functions* mInt8CoreFunctions;
+    const MatmulRelatedFunctions* mRelatedFunctions;
 private:
     mutable std::shared_ptr<WorkerThread> mInitWorkQueue;
-    int mThreadNumber;
-#ifdef MNN_USE_THREAD_POOL
-    ThreadPool* mThreadPool = nullptr;
-#endif
+    mutable int mThreadNumber = 1;
     std::vector<std::pair<float, int>> mGroupWithComputeRate;
     float mComputeI = 0.f;
 

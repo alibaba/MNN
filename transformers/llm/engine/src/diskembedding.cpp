@@ -46,7 +46,11 @@ DiskEmbedding::DiskEmbedding(const std::shared_ptr<LlmConfig>& config, std::stri
         mTokenSize = mHiddenSize * mQuantBit / 8;
         // TODO: optimize dequant function
         if (mQuantBit != 16) {
-            mBlockNum         = mHiddenSize / mQuantBlock;
+            if (mQuantBlock == 0) {
+                mBlockNum = 1;
+            } else {
+                mBlockNum = mHiddenSize / mQuantBlock;
+            }
             mDequantFunc      = mQuantBit == 8 ? q81_dequant_ref : q41_dequant_ref;
             auto a_offset   = tie_embeddings[1];
             auto alpha_size = tie_embeddings[2];

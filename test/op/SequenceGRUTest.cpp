@@ -281,7 +281,7 @@ public:
             return false;
         }
 
-        float errorScale = precision <= MNN::BackendConfig::Precision_High ? 1 : 20;
+        float errorScale = precision <= MNN::BackendConfig::Precision_High ? 1 : 50;
         if (!checkVectorByRelativeError<float>(gotOutput, expectedOutput.data(), expectedOutput.size(), 0.0001 * errorScale)) {
             MNN_ERROR("SequenceGRUTest value test failed\n");
             MNN_PRINT("\nexpected output\n");

@@ -7,7 +7,6 @@
 //
 
 #include "core/Session.hpp"
-#include "core/WrapExecution.hpp"
 #include <string.h>
 #include <MNN/AutoTime.hpp>
 #include <map>
@@ -16,6 +15,7 @@
 #include "core/AutoStorage.h"
 #include "core/RuntimeFactory.hpp"
 #include "core/TensorUtils.hpp"
+#include "core/WrapExecution.hpp"
 #include "utils/InitNet.hpp"
 
 namespace MNN {
@@ -23,8 +23,8 @@ void Session::createPipelineBackend(Schedule::PipelineInfo& iter, RuntimeInfo& r
     if (iter.first.cache.first != nullptr) {
         return;
     }
-    auto rt    = runtime.first.find(iter.first.info.type)->second.get();
-    auto cpuRuntime = runtime.second;
+    auto rt           = runtime.first.find(iter.first.info.type)->second.get();
+    auto cpuRuntime   = runtime.second;
     bool specialUsage = false;
     if (iter.first.info.user != nullptr) {
         specialUsage = iter.first.info.user->flags > 0;
@@ -42,7 +42,7 @@ void Session::createPipelineBackend(Schedule::PipelineInfo& iter, RuntimeInfo& r
         if (iter.first.info.user != nullptr) {
             // Don't change default Precision
             defaultConfig.memory = iter.first.info.user->memory;
-            defaultConfig.power = iter.first.info.user->power;
+            defaultConfig.power  = iter.first.info.user->power;
         }
         Backend* origin = nullptr;
         if (cpuRuntime.get() == rt) {
@@ -62,9 +62,9 @@ void Session::ModeGroup::setMode(Interpreter::SessionMode mode) {
         callBackMode = mode;
     } else if (mode == Interpreter::Session_Resize_Direct || mode == Interpreter::Session_Resize_Defer) {
         resizeMode = mode;
-    } else if(mode == Interpreter::Session_Memory_Collect || mode == Interpreter::Session_Memory_Cache) {
+    } else if (mode == Interpreter::Session_Memory_Collect || mode == Interpreter::Session_Memory_Cache) {
         memoryUsageMode = mode;
-    } else if(mode == Interpreter::Session_Codegen_Disable || mode == Interpreter::Session_Codegen_Enable) {
+    } else if (mode == Interpreter::Session_Codegen_Disable || mode == Interpreter::Session_Codegen_Enable) {
         codegenMode = mode;
     }
 }
@@ -118,6 +118,9 @@ void Session::ModeGroup::setHint(Interpreter::HintMode hint, int* value, size_t 
         case Interpreter::HintMode::CPU_CORE_IDS:
             runtimeHint.cpuIds = std::vector<int>(value, value + size);
             break;
+        case Interpreter::CPU_SME2_INSTRUCTIONS:
+            runtimeHint.useArmSme2Cores = hint;
+            break;
         default:
             break;
     }
@@ -140,7 +143,7 @@ void Session::ModeGroup::setExternalPath(std::string path, int type) {
 }
 
 Session::Session(Schedule::ScheduleInfo&& info, const ModeGroup& mode, RuntimeInfo&& runtime) {
-    mMode = mode;
+    mMode    = mode;
     mRuntime = std::move(runtime);
     if (info.pipelineInfo.empty()) {
         mValid = false;
@@ -151,19 +154,21 @@ Session::Session(Schedule::ScheduleInfo&& info, const ModeGroup& mode, RuntimeIn
         createPipelineBackend(iter, mRuntime);
         Pipeline::TuningAttr attr;
         attr.maxTuningNumber = mode.maxTuningNumber;
-        attr.autoSetOpType = mode.backendMode == Interpreter::Session_Backend_Auto;
-        auto rt    = mRuntime.first.find(iter.first.info.type)->second.get();
-        auto cpuRuntime = mRuntime.second;
-        auto geoMask = mMode.geometryMask;
+        attr.autoSetOpType   = mode.backendMode == Interpreter::Session_Backend_Auto;
+        auto rt              = mRuntime.first.find(iter.first.info.type)->second.get();
+        auto cpuRuntime      = mRuntime.second;
+        auto geoMask         = mMode.geometryMask;
         if (rt->onGetCompilerType() != Runtime::Compiler_Loop) {
             geoMask = 0;
         }
-        std::shared_ptr<Pipeline> newPipeline(new Pipeline( mInfo.externalWeightPath, std::move(iter), mode.inputMode == Interpreter::Session_Input_Inside, mode.outputMode == Interpreter::Session_Output_User, attr, rt, cpuRuntime.get(), geoMask));
+        std::shared_ptr<Pipeline> newPipeline(
+            new Pipeline(mInfo.externalWeightPath, std::move(iter), mode.inputMode == Interpreter::Session_Input_Inside,
+                         mode.outputMode == Interpreter::Session_Output_User, attr, rt, cpuRuntime.get(), geoMask));
         mPipelines.emplace_back(std::move(newPipeline));
     }
-    mCallBackMode = mode.callBackMode;
+    mCallBackMode    = mode.callBackMode;
     mMemoryUsageMode = mode.memoryUsageMode;
-    mCodegenMode = mode.codegenMode;
+    mCodegenMode     = mode.codegenMode;
 }
 
 Session::~Session() {
@@ -207,14 +212,13 @@ bool Session::hasAsyncWork() {
     return false;
 }
 
-
 std::pair<const void*, size_t> Session::getCache() {
     // Set cancelled for quickly ending
     for (auto& iter : mRuntime.first) {
         iter.second->mCancelled = true;
     }
     waitAsyncResize();
-    
+
     for (auto iter : mRuntime.first) {
         auto res = iter.second->onGetCache();
         if (res.first != nullptr) {
@@ -253,12 +257,12 @@ ErrorCode Session::runWithCallBack(const TensorCallBackWithInfo& before, const T
     return NO_ERROR;
 }
 
-
 ErrorCode Session::resize() {
 #ifdef LOG_VERBOSE
     for (auto& iter : mInfo.inputTensors) {
         auto& inputTensor = iter.second;
-        MNN_PRINT("before resize, input name:%s, ptr:%p, hostPtr:%p,  shape:", iter.first.c_str(), inputTensor, inputTensor->host<void>());
+        MNN_PRINT("before resize, input name:%s, ptr:%p, hostPtr:%p,  shape:", iter.first.c_str(), inputTensor,
+                  inputTensor->host<void>());
         inputTensor->printShape();
         MNN_PRINT("\n");
     }
@@ -293,7 +297,7 @@ ErrorCode Session::resize() {
                 return error;
             }
         }
-        if(mMemoryUsageMode == Interpreter::Session_Memory_Collect) {
+        if (mMemoryUsageMode == Interpreter::Session_Memory_Collect) {
             mRuntime.second->onGabageCollect(0);
             for (auto& iter : mRuntime.first) {
                 iter.second->onGabageCollect(0);
@@ -344,10 +348,10 @@ bool Session::getInfo(Interpreter::SessionInfoCode code, void* ptr) const {
             return true;
         } break;
         case Interpreter::BACKENDS: {
-            int pos = 0;
+            int pos  = 0;
             auto res = (int32_t*)ptr;
             for (auto& r : mPipelines) {
-                auto type = r->getMainForwardType();
+                auto type  = r->getMainForwardType();
                 res[pos++] = type;
             }
             return true;
@@ -357,8 +361,8 @@ bool Session::getInfo(Interpreter::SessionInfoCode code, void* ptr) const {
             for (auto& iter : mPipelines) {
                 flo += iter->flops();
             }
-            auto dst     = (float*)ptr;
-            *dst = flo;
+            auto dst = (float*)ptr;
+            *dst     = flo;
             return true;
         } break;
         case Interpreter::RESIZE_STATUS: {
@@ -392,7 +396,7 @@ const Backend* Session::getBackEnd(const Tensor* tensor) const {
 }
 
 Tensor* Session::getInput(const char* name) const {
-    //MNN_ASSERT(!mInputs.empty());
+    // MNN_ASSERT(!mInputs.empty());
     if (nullptr == name) {
         return mInfo.inputTensors.begin()->second;
     }
@@ -461,8 +465,9 @@ ErrorCode Session::updateToModel(Net* net) const {
     return NO_ERROR;
 }
 
-static void initTensors(std::vector<std::shared_ptr<Tensor>>& tensors, const std::vector<std::shared_ptr<Tensor>>& tensorSrc) {
-    for (int i=0; i<tensors.size(); ++i) {
+static void initTensors(std::vector<std::shared_ptr<Tensor>>& tensors,
+                        const std::vector<std::shared_ptr<Tensor>>& tensorSrc) {
+    for (int i = 0; i < tensors.size(); ++i) {
         if (tensorSrc[i].get() == nullptr) {
             continue;
         }
@@ -489,27 +494,27 @@ Session* Session::clone(RuntimeInfo&& runtime, std::shared_ptr<Schedule::Schedul
     scheduleInfo.pipelineInfo.resize(1);
     scheduleInfo.externalWeightPath = mInfo.externalWeightPath;
     Session::ModeGroup modes;
-    scheduleInfo.defaultBackend = sharedConst->defaultBackend;
+    scheduleInfo.defaultBackend      = sharedConst->defaultBackend;
     scheduleInfo.constReplaceBackend = sharedConst->constReplaceBackend;
-    scheduleInfo.allTensors = sharedConst->allTensors;
+    scheduleInfo.allTensors          = sharedConst->allTensors;
     initTensors(scheduleInfo.allTensors, mInfo.allTensors);
     MNN_ASSERT(1 == mPipelines.size());
-    auto& srcPipelineInfo = mPipelines[0]->getPipelineInfo();
-    auto& opCaches = srcPipelineInfo.second;
-    auto& pipelineInfo = scheduleInfo.pipelineInfo[0];
-    pipelineInfo.first.info = srcPipelineInfo.first.info;
-    pipelineInfo.first.config = srcPipelineInfo.first.config;
+    auto& srcPipelineInfo        = mPipelines[0]->getPipelineInfo();
+    auto& opCaches               = srcPipelineInfo.second;
+    auto& pipelineInfo           = scheduleInfo.pipelineInfo[0];
+    pipelineInfo.first.info      = srcPipelineInfo.first.info;
+    pipelineInfo.first.config    = srcPipelineInfo.first.config;
     pipelineInfo.first.info.user = &pipelineInfo.first.config;
-    auto& oplists = pipelineInfo.second;
+    auto& oplists                = pipelineInfo.second;
     oplists.resize(opCaches.size());
     createPipelineBackend(pipelineInfo, runtime);
-    auto first = pipelineInfo.first.cache.first;
+    auto first  = pipelineInfo.first.cache.first;
     auto second = pipelineInfo.first.cache.second;
-    for (int i=0; i<opCaches.size(); ++i) {
+    for (int i = 0; i < opCaches.size(); ++i) {
         auto& srcOpInfo = opCaches[i];
-        auto& opInfo = oplists[i];
-        opInfo.op = opCaches[i].op;
-        opInfo.type = srcOpInfo.type;
+        auto& opInfo    = oplists[i];
+        opInfo.op       = opCaches[i].op;
+        opInfo.type     = srcOpInfo.type;
         opInfo.computeCache.copyImmutable(srcOpInfo.computeCache);
         auto op = opInfo.op;
         if (nullptr != op->outputIndexes()) {
@@ -524,18 +529,19 @@ Session* Session::clone(RuntimeInfo&& runtime, std::shared_ptr<Schedule::Schedul
                 opInfo.inputs.push_back(scheduleInfo.allTensors[data[j]].get());
             }
         }
-        for (int j=0; j<opInfo.inputs.size(); ++j) {
+        for (int j = 0; j < opInfo.inputs.size(); ++j) {
             if (TensorUtils::getDescribe(opInfo.inputs[j])->usage != Tensor::InsideDescribe::CONSTANT) {
-                TensorUtils::getDescribe(opInfo.inputs[j])->usage = TensorUtils::getDescribe(srcOpInfo.inputs[j])->usage;
+                TensorUtils::getDescribe(opInfo.inputs[j])->usage =
+                    TensorUtils::getDescribe(srcOpInfo.inputs[j])->usage;
             }
         }
-        for (int j=0; j<opInfo.outputs.size(); ++j) {
+        for (int j = 0; j < opInfo.outputs.size(); ++j) {
             TensorUtils::getDescribe(opInfo.outputs[j])->usage = TensorUtils::getDescribe(srcOpInfo.outputs[j])->usage;
         }
         // Clone cache
         for (auto& iter : srcOpInfo.executionCache) {
             Execution* copyExecution = nullptr;
-            bool valid = false;
+            bool valid               = false;
             if (first->type() == iter.second->backend()->type()) {
                 valid = iter.second->onClone(first.get(), iter.first, &copyExecution);
             } else {
@@ -550,6 +556,5 @@ Session* Session::clone(RuntimeInfo&& runtime, std::shared_ptr<Schedule::Schedul
     auto dst = new Session(std::move(scheduleInfo), mMode, std::move(runtime));
     return dst;
 }
-
 
 } // namespace MNN

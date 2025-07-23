@@ -8,18 +8,18 @@
 
 #include <math.h>
 #include <stdio.h>
+#include <MNN/AutoTime.hpp>
 #include <MNN/Interpreter.hpp>
 #include <algorithm>
 #include <mutex>
 #include <vector>
 #include "MNN_generated.h"
-#include "core/OpCommonUtils.hpp"
 #include "core/AutoStorage.h"
 #include "core/FileLoader.hpp"
+#include "core/OpCommonUtils.hpp"
 #include "core/Pipeline.hpp"
 #include "core/RuntimeFactory.hpp"
 #include "core/Session.hpp"
-#include <MNN/AutoTime.hpp>
 
 #ifdef MNN_INTERNAL_ENABLED
 #include "internal/logging/Log.hpp"
@@ -51,7 +51,7 @@ const char* getVersion() {
     return MNN_VERSION;
 }
 
-static void writeCacheFile(const Content *net, std::pair<const void*, size_t> buffer) {
+static void writeCacheFile(const Content* net, std::pair<const void*, size_t> buffer) {
     bool res = FileLoader::write(net->cacheFile.c_str(), buffer);
     if (!res) {
         MNN_ERROR("Write Cache File error!\n");
@@ -149,17 +149,17 @@ void Interpreter::setSessionHint(HintMode hint, int* value, size_t size) {
 }
 
 void Interpreter::setSessionMode(SessionMode mode) {
-  if (mode == Session_Resize_Check) {
-    for (auto& iter : mNet->sessions) {
-      iter->openResizeCheck();
+    if (mode == Session_Resize_Check) {
+        for (auto& iter : mNet->sessions) {
+            iter->openResizeCheck();
+        }
+    } else if (mode == Session_Resize_Fix) {
+        for (auto& iter : mNet->sessions) {
+            iter->fixResizeCache();
+        }
+    } else {
+        mNet->modes.setMode(mode);
     }
-  } else if (mode == Session_Resize_Fix) {
-    for (auto& iter : mNet->sessions) {
-      iter->fixResizeCache();
-    }
-  } else {
-    mNet->modes.setMode(mode);
-  }
 }
 
 void Interpreter::setCacheFile(const char* cacheFile, size_t keySize) {
@@ -167,7 +167,7 @@ void Interpreter::setCacheFile(const char* cacheFile, size_t keySize) {
         MNN_ERROR("Empty cacheFile or the interpreter invalid\n");
         return;
     }
-    mNet->cacheFile   = std::string(cacheFile);
+    mNet->cacheFile = std::string(cacheFile);
     std::unique_ptr<FileLoader> loader(new FileLoader(cacheFile, true));
     if (!loader->valid()) {
         MNN_ERROR("Load Cache file error.\n");
@@ -193,23 +193,24 @@ void Interpreter::setExternalFile(const char* file, size_t flag) {
     mNet->externalFile = file;
 }
 
-ErrorCode Interpreter::updateCacheFile(Session *session, int flag) {
+ErrorCode Interpreter::updateCacheFile(Session* session, int flag) {
     if (mNet->cacheFile.empty()) {
         return NOT_SUPPORT;
     }
     std::lock_guard<std::mutex> _l(mNet->lock);
 
     // Backend_Auto and no Async work, then don't need updateCache
-    if(mNet->modes.backendMode == Session_Backend_Auto && !(session->hasAsyncWork())) {
+    if (mNet->modes.backendMode == Session_Backend_Auto && !(session->hasAsyncWork())) {
         return NO_ERROR;
     }
-    
+
     // Get cache and write to file
     auto buffer = session->getCache();
 
-    //When current cacheSize bigger than previous, update
+    // When current cacheSize bigger than previous, update
     if (buffer.first != nullptr && buffer.second > mNet->lastCacheSize) {
-        MNN_PRINT("Update cache to %s, from size:%zu -> size:%zu\n", mNet->cacheFile.c_str(), mNet->lastCacheSize, buffer.second);
+        MNN_PRINT("Update cache to %s, from size:%zu -> size:%zu\n", mNet->cacheFile.c_str(), mNet->lastCacheSize,
+                  buffer.second);
         writeCacheFile(mNet, buffer);
         mNet->lastCacheSize = buffer.second;
     }
@@ -223,7 +224,7 @@ Interpreter::Interpreter(Content* net) {
     mNet = net;
     // Store bizcode and uuid because we need them even after `releaseModel` is called.
     mNet->bizCode = std::string(mNet->net->bizCode() ? mNet->net->bizCode()->c_str() : "");
-    mNet->uuid = std::string(mNet->net->mnn_uuid() ? mNet->net->mnn_uuid()->c_str() : "");
+    mNet->uuid    = std::string(mNet->net->mnn_uuid() ? mNet->net->mnn_uuid()->c_str() : "");
 #ifdef MNN_INTERNAL_ENABLED
     mNet->version = getModelVersion();
 #endif
@@ -254,6 +255,9 @@ Session* Interpreter::createMultiPathSession(const std::vector<ScheduleConfig>& 
 Session* Interpreter::createMultiPathSession(const std::vector<ScheduleConfig>& configs, const RuntimeInfo& runtime) {
     for (auto& iter : runtime.first) {
         iter.second->setRuntimeHint(mNet->modes.runtimeHint);
+        if (!mNet->cacheFile.empty()) {
+            iter.second->onSetCachePath(mNet->cacheFile.c_str(), 0);
+        }
     }
     runtime.second->setRuntimeHint(mNet->modes.runtimeHint);
 
@@ -272,21 +276,21 @@ Session* Interpreter::createMultiPathSession(const std::vector<ScheduleConfig>& 
     int cacheMode = 0; // No cache
     Schedule::ScheduleInfo info;
     info.externalWeightPath = mNet->externalFile;
-    auto success = Schedule::schedule(info, mNet->net, configs, runtime);
+    auto success            = Schedule::schedule(info, mNet->net, configs, runtime);
     if (!success) {
         return nullptr;
     }
     if (info.needInputContentForShape) {
-        MNN_ERROR("Interpreter don't support case for shape compute need input content, please use module api instead\n");
+        MNN_ERROR(
+            "Interpreter don't support case for shape compute need input content, please use module api instead\n");
         return nullptr;
     }
     RuntimeInfo rt = runtime;
-    bool valid  = false;
+    bool valid     = false;
     if (mNet->cacheBuffer.get() != nullptr) {
         for (auto iter : rt.first) {
-            valid = iter.second->onSetCache(mNet->cacheBuffer.get(),
-                                            mNet->cacheBuffer.size());
-            if(!valid) {
+            valid = iter.second->onSetCache(mNet->cacheBuffer.get(), mNet->cacheBuffer.size());
+            if (!valid) {
                 iter.second->onSetCache(nullptr, 0);
             }
             if (valid) {
@@ -295,19 +299,19 @@ Session* Interpreter::createMultiPathSession(const std::vector<ScheduleConfig>& 
         }
         if (valid) {
             mNet->lastCacheSize = mNet->cacheBuffer.size();
-            cacheMode = cacheMode | 1; // READ cache
+            cacheMode           = cacheMode | 1; // READ cache
         }
     }
 
-    auto newSession =
-        std::unique_ptr<Session>(new Session(std::move(info), mNet->modes, std::move(rt)));
+    auto newSession = std::unique_ptr<Session>(new Session(std::move(info), mNet->modes, std::move(rt)));
     if (!newSession->valid()) {
         MNN_PRINT("Invalide Session!!\n");
         return nullptr;
     }
-    auto result = newSession.get();
+    auto result         = newSession.get();
     auto validForResize = info.validForResize;
-    if (validForResize && mNet->modes.inputMode == Session_Input_Inside && mNet->modes.resizeMode == Session_Resize_Direct) {
+    if (validForResize && mNet->modes.inputMode == Session_Input_Inside &&
+        mNet->modes.resizeMode == Session_Resize_Direct) {
         result->resize();
     }
 
@@ -344,8 +348,8 @@ Session* Interpreter::createMultiPathSession(const std::vector<ScheduleConfig>& 
         metrics.emplace("Mode", std::to_string(mode));
         metrics.emplace("Cache", std::to_string(cacheMode));
         metrics.emplace("CacheSize", std::to_string((float)(mNet->lastCacheSize / 1024.0f)));
-        metrics.emplace("ModelSize", std::to_string ((float)mNet->buffer.size() / 1024.0f / 1024.0f));
-        metrics.emplace("Usage", std::to_string((int) mNet->net->usage()));
+        metrics.emplace("ModelSize", std::to_string((float)mNet->buffer.size() / 1024.0f / 1024.0f));
+        metrics.emplace("Usage", std::to_string((int)mNet->net->usage()));
         metrics.emplace("API", "Interpreter::createMultiPathSession");
         logAsync(metrics);
     }
@@ -384,7 +388,7 @@ bool Interpreter::releaseSession(Session* session) {
 
 #ifdef MNN_INTERNAL_ENABLED
 void Interpreter::logForRunSession(const Session* session, float timeInMs, const char* api) const {
-    int backendType[MNN_FORWARD_ALL] ;
+    int backendType[MNN_FORWARD_ALL];
     session->getInfo(MNN::Interpreter::BACKENDS, backendType);
     float flops = 0.0f;
     session->getInfo(MNN::Interpreter::FLOPS, &flops);
@@ -515,7 +519,6 @@ void Interpreter::waitSessionFinish(const Session* session) const {
 
 ErrorCode Interpreter::runSessionWithCallBackInfo(const Session* session, const TensorCallBackWithInfo& before,
                                                   const TensorCallBackWithInfo& callBack, bool sync) const {
-
     std::unique_lock<std::mutex> _l(mNet->lock);
 #ifdef MNN_INTERNAL_ENABLED
     Timer timer;
@@ -640,13 +643,13 @@ RuntimeInfo Interpreter::createRuntime(const std::vector<ScheduleConfig>& config
         Backend::Info compute;
         compute.type      = Schedule::getAppropriateType(config);
         compute.numThread = config.numThread;
-        if(config.type == MNN_FORWARD_AUTO) {
-            if(compute.type == MNN_FORWARD_OPENCL || compute.type == MNN_FORWARD_METAL) {
+        if (config.type == MNN_FORWARD_AUTO) {
+            if (compute.type == MNN_FORWARD_OPENCL || compute.type == MNN_FORWARD_METAL) {
                 // AUTO set default gpu-mode MNN_GPU_TUNING_FAST
                 compute.numThread = 16;
             }
         }
-        compute.user      = config.backendConfig;
+        compute.user = config.backendConfig;
         if (mRuntimes.find(compute.type) == mRuntimes.end()) {
             auto newBn = RuntimeFactory::create(compute);
             if (nullptr == newBn) {
