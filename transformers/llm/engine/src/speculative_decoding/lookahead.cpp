@@ -176,12 +176,16 @@ void LookaheadGeneration::generate(GenerationParams& param) {
             if(stop) {
                 mContext->history_tokens.push_back(mContext->current_token);
                 mContext->output_tokens.push_back(mContext->current_token);
+                mLlm->updateContext(0, 1);
                 break;
             }
-            if (mLlm->is_stop(mContext->current_token) && nullptr != mContext->os) {
+            if (mLlm->is_stop(mContext->current_token)) {
                 mContext->history_tokens.push_back(mContext->current_token);
                 mContext->output_tokens.push_back(mContext->current_token);
-                *mContext->os << mContext->end_with << std::flush;
+                mLlm->updateContext(0, 1);
+                if (nullptr != mContext->os) {
+                    *mContext->os << mContext->end_with << std::flush;
+                }
                 break;
             }
         }
