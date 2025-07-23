@@ -21,6 +21,10 @@ public:
     ConverterScope(MNN::SubGraphProtoT* subnet, MNN::NetT* parentNet, ConverterScope* parentScope);
     // declare a tensor in this scope, get it's idx
     int declareTensor(std::string name);
+    void insertConstant(std::string name, MNN::OpT* op) {
+        mConstIdx.insert(std::make_pair(name, op));
+    }
+
     // lookup tensor idx by name in this scope
     virtual int lookupTensor(std::string name)  {
         const auto iter = mTensorIdx.find(name);
@@ -57,6 +61,7 @@ public:
     std::vector<std::string>& deps();
 protected:
     std::map<std::string, int> mTensorIdx;
+    std::map<std::string, MNN::OpT*> mConstIdx;
     MNN::NetT* mNet;
     MNN::SubGraphProtoT* mSubNet;
     ConverterScope* mParent;

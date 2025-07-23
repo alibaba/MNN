@@ -141,6 +141,11 @@ public:
         RuntimeManager();
     };
     static bool getComputeInfo(EXPRP expr, Interpreter::SessionInfoCode code, void* ptr);
+#ifndef MNN_REDUCE_SIZE
+    std::map<std::string, std::shared_ptr<SubGraph>>& subgraph() {
+        return mSubGraph;
+    };
+#endif
 private:
     std::shared_ptr<Runtime> _getOrCreateRuntime(MNNForwardType type, const BackendConfig* config, int numberThread, bool reset = true);
     Executor(std::shared_ptr<Runtime> backend, MNNForwardType type, int numberThread);

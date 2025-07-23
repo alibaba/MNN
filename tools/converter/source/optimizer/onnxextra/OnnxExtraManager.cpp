@@ -11,6 +11,15 @@
 #include "MNN_generated.h"
 namespace MNN {
 namespace Express {
+VARP OnnxExtraManager::_ReshapeF(VARP x, VARP shape, int format) {
+    MNN_ASSERT(nullptr != x);
+    std::unique_ptr<OpT> reshape(new OpT);
+    reshape->type                      = OpType_Reshape;
+    reshape->main.type                 = OpParameter_Reshape;
+    reshape->main.value                = new ReshapeT;
+    reshape->main.AsReshape()->dimType = (MNN_DATA_FORMAT)format;
+    return (Variable::create(Expr::create(reshape.get(), {x, shape})));
+}
 std::shared_ptr<OnnxExtraManager> OnnxExtraManager::get() {
     static std::shared_ptr<OnnxExtraManager> gInstance;
     if (nullptr == gInstance) {

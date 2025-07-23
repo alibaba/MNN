@@ -178,8 +178,8 @@ public:
             OLast.emplace_back(Variable::create(whileExpr, 2));
         }
         for (int i=0; i<directionNumer; ++i) {
-            Output[i] = _Reshape(Output[i], _Concat({seqLengthVar, one, batchFullVar, hiddenSizeVar}, 0));
-            OLast[i] = _Reshape(OLast[i], _Concat({one, batchFullVar, hiddenSizeVar}, 0));
+            Output[i] = OnnxExtraManager::_ReshapeF(Output[i], _Concat({seqLengthVar, one, batchFullVar, hiddenSizeVar}, 0));
+            OLast[i] = OnnxExtraManager::_ReshapeF(OLast[i], _Concat({one, batchFullVar, hiddenSizeVar}, 0));
         }
         std::unique_ptr<OpT> copyOp(new OpT);
         copyOp->type = OpType_Identity;
@@ -236,12 +236,16 @@ public:
         auto config = Global<modelConfig>::Get();
         if (!config->useOriginRNNImpl) {
             if (W_zrh->readMap<void>() != nullptr && biasValid && R_zrh->readMap<void>() != nullptr) {
-                MNN_PRINT("Try to use While to compute GRU, if don't want it, add --useOriginRNNImpl \n");
+                MNN_PRINT("Try to use While to compute GRU for %s, if don't want it, add --useOriginRNNImpl \n", expr->name().c_str());
                 return _turnGRU2While(gru.get(), expr);
             }
         }
         auto W_info = W_zrh->getInfo();
         auto R_info = R_zrh->getInfo();
+        if (nullptr == W_info || nullptr == R_info) {
+            MNN_ERROR("Don't GRU for not W / R's shape not valid\n");
+            return nullptr;
+        }
         auto hiddenSize = rnnGRUParam->numUnits;
         auto inputSize = W_info->dim[2];
         if (nullptr == B_2rzh) {
