@@ -33,7 +33,12 @@ WhileModule* WhileModule::create(const Op* op, const std::map<std::string, SubGr
         module->setName(op->name()->str());
     }
     auto whileParam = op->main_as_WhileParam();
-    auto& body = subGraph.find(whileParam->body_graph()->str())->second;
+    auto bodyIter = subGraph.find(whileParam->body_graph()->str());
+    if (bodyIter == subGraph.end()) {
+        MNN_ERROR("Can't find subgraph: %s, maybe the model is breaked\n", whileParam->body_graph()->c_str());
+        return nullptr;
+    }
+    auto& body = bodyIter->second;
     module->mBody = body.m;
     module->registerModel({body.m});
     if (whileParam->cond_graph() == nullptr) {
