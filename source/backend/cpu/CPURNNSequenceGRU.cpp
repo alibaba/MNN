@@ -68,7 +68,7 @@ void CPURNNSequenceGRU::runRNNStep(const uint8_t* input, const int inputLength, 
         mulFunction(resetGatePtr, rtPtr, hiddenStatePtr, numUnits, -1);
         // deal with recurrent bias and linear_before_reset parameter
         auto recurrentBiasAddedPtr = inputAndStatePtr + (inputLength + numUnits) * bytes;
-        auto recurrentHiddenBiasPtr = recurrentBias->host<float>() + 2 * numUnits * bytes;
+        auto recurrentHiddenBiasPtr = (float*)(recurrentBias->host<uint8_t>() + 2 * numUnits * bytes);
         addFunction(recurrentBiasAddedPtr, recurrentHiddenBiasPtr, candidateBias->host<float>(), numUnits, -1);
         mMatMulI2U->execute(inputAndState->host<float>(), candidateWeight->host<float>(),  resetHt->host<float>(), nullptr);
         // reuse r_t memory as h_t'

@@ -11,39 +11,43 @@ It operates fully offline with high privacy. Once the models are downloaded to t
 
 ## Features
 
-1. **Model List**
-   - Browse models supported by MNN.
-   - Manage models: download and delete models.
-    - Support for switching between Hugging Face and ModelScope sources
-   - Search for models locally.
-
-2. **Multimodal Chat**: Supports full Markdown format output
-   - Text-to-text conversation.
-   - Audio-to-text conversation.
-   - Image-to-text conversation: capture images via camera or select from the gallery.
-
-3. **Model Configuration**
+1. **Local Models**
+    - Display locally downloaded models
+    - Support custom pinning
+2. **Model Market**
+    - Get list of models supported by MNN
+    - Model management: download and delete models
+        - Support switching between Hugging Face, ModelScope, and Modeler download sources
+    - Model search: support keyword search and tag search
+3. **Benchmark Testing**
+    - Support automated benchmark testing, outputting Prefill speed, Decode Speed, and Memory Usage information
+4. **Multimodal Chat**: Supports full Markdown format output
+    - Text-to-text
+    - Audio-to-text
+    - Image-to-text: images can be captured or selected from gallery
+5. **Model Configuration**
     - Support configuring mmap
-    - Support configuring Sampling Strategy
+    - Support configuring sampling strategy
     - Support configuring diffusion settings
-
-4. **Chat History**
-   - View conversation history, with the ability to restore previous chat sessions.
+6. **Chat History**
+    - Support model conversation history list, restore historical conversation scenarios
 
 
 ### Video Introduction
 
 <img width="200" alt="image" src="./assets/introduction.gif" />
 
+[Click here to download the original resolution introduction video](https://github.com/Yogayu/MNN/blob/master/project/MNNLLMForiOS/assets/introduction.mov)
+
 
 ### Application Preview:
 
-|  |  |  |
-|--|--|--|
-| **Text To Text**  | **Image To Text**  | **Audio To Text**  |
-| ![Text To Text](./assets/text.PNG) | ![Image To Text](./assets/image.PNG) | ![Audio To Text](./assets/audio.jpg) |
-| **Model List**  | **History**  | **History**  |
-| ![Model List](./assets/list.PNG) | ![History](./assets/history2.PNG) | ![History](./assets/history.PNG) |
+|  |  |  | |
+|--|--|--|--|
+| **Text To Text**  | **Image To Text**  | **Audio To Text**  | **Model Filter** |
+| ![Text To Text](./assets/text.PNG) | ![Image To Text](./assets/image.PNG) | ![Audio To Text](./assets/audio.jpg) | ![Audio To Text](./assets/fliter.PNG) |
+| **Local Model** | **Model Market** | **Benchmark** | **History** |
+| ![Model List](./assets/localModel.PNG) | ![History](./assets/modelMarket.PNG) | ![History](./assets/benchmark.jpeg) | ![History](./assets/history2.PNG) |
 
 <p></p>
 
@@ -165,7 +169,15 @@ If we want to directly download the models to the computer for debugging without
 
 6. Run the project, navigate to the chat page, and perform model interactions and debugging.
 
-## Release Notes  
+## Release Notes
+
+### Version 0.4
+
+- Added three major project modules: Local Models, Model Market, and Benchmark Testing
+- Added benchmark testing to test different model performance
+- Added settings page, accessible from the history sidebar
+- Added Ali CDN for getting model lists
+- Added model market filtering functionality
 
 ### Version 0.3.1  
 

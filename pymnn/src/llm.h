@@ -1,5 +1,6 @@
 #include <sstream>
 #include "llm/llm.hpp"
+#include "cpp/getLinearInput.hpp"
 
 typedef struct {
     PyObject_HEAD
@@ -146,6 +147,61 @@ static PyObject* PyMNNLLM_reset(LLM *self, PyObject *args) {
     Py_RETURN_NONE;
 }
 
+static PyObject* PyMNNLLM_enable_collection_mode(LLM *self, PyObject *args) {
+    if (self->is_embedding) {
+        Py_RETURN_NONE;
+    }
+    
+    int mode = 0;
+    const char* output_file = NULL;
+    float target_sparsity = 0.5;  
+    
+    if (!PyArg_ParseTuple(args, "i|sf", &mode, &output_file, &target_sparsity)) {
+        PyErr_SetString(PyExc_ValueError, "Invalid arguments. Usage: enable_collection_mode(mode, output_file=None, target_sparsity=0.5)");
+        Py_RETURN_NONE;
+    }
+    
+    std::string filename;
+    
+    switch (mode) {
+        case 1: {
+            // Threshold mode 
+            if (output_file == NULL) {
+                filename = "thresholds.json";
+            } else {
+                filename = std::string(output_file);
+            }
+            
+            MNN::LinearInput::initGetThreshold(filename, target_sparsity);
+            MNN_PRINT("Enabled threshold collection mode. Output: %s, Sparsity: %.2f\n", 
+                        filename.c_str(), target_sparsity);
+           
+            break;
+        }
+        
+        case 2: {
+            // MaxValue mode
+            if (output_file == NULL) {
+                filename = "max_values.json";
+            } else {
+                filename = std::string(output_file);
+            }
+            
+            MNN::LinearInput::initGetMaxValue(filename);
+            MNN_PRINT("Enabled max value collection mode. Output: %s\n", filename.c_str());
+           
+            break;
+        }
+        
+        default: {
+            PyErr_SetString(PyExc_ValueError, "Invalid mode. Use 1 for threshold collection, 2 for max value collection");
+            Py_RETURN_NONE;
+        }
+    }
+    
+    return toPyObj(true);  
+}
+
 static PyMethodDef PyMNNLLM_methods[] = {
     {"load", (PyCFunction)PyMNNLLM_load, METH_VARARGS, "load model."},
     {"forward", (PyCFunction)PyMNNLLM_forward, METH_VARARGS, "forward `logits` by `input_ids`."},
@@ -159,6 +215,7 @@ static PyMethodDef PyMNNLLM_methods[] = {
     {"create_lora", (PyCFunction)PyMNNLLM_create_lora, METH_VARARGS, "create_lora."},
     {"set_config", (PyCFunction)PyMNNLLM_set_config, METH_VARARGS, "set_config."},
     {"reset", (PyCFunction)PyMNNLLM_reset, METH_VARARGS, "reset."},
+    {"enable_collection_mode", (PyCFunction)PyMNNLLM_enable_collection_mode, METH_VARARGS, "Enable data collection mode."},
     {NULL}  /* Sentinel */
 };
 

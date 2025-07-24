@@ -519,6 +519,7 @@ ErrorCode ConvInt8Winograd::WinoExecution::onExecute(const std::vector<Tensor *>
         auto weight    = mWinoResource->weight->host<int8_t>();
         std::vector<float> xkernelSum(DST_XUNIT, 0);
         std::vector<float> wKernelSum(dc_4 * pack, 0);
+        std::vector<float> fakeInputScale(DST_XUNIT, 1.f);
         std::vector<float> reluThred = {-std::numeric_limits<float>().max(), std::numeric_limits<float>().max()};
         
         auto tFunction = [&](int tId) {
@@ -560,7 +561,7 @@ ErrorCode ConvInt8Winograd::WinoExecution::onExecute(const std::vector<Tensor *>
                     
                     quanParam.biasFloat = (mWinoResource->offsets->host<float>() + i * mWinoResource->offsets->stride(0));
                     quanParam.scale = mWinoResource->scales->host<float>() + i * dc_4 * pack;
-                    quanParam.inputScale = nullptr;
+                    quanParam.inputScale = fakeInputScale.data();
                     quanParam.bias = nullptr;
                     quanParam.blockNum = 1;
                     gemmFunc((int8_t*)_dstFloatPtr, _srcInt8Ptr, _weightInt8Ptr, mTempInputBuffer->length(2), xC * pack * sizeof(float), dc_4, &quanParam, DST_XUNIT);

@@ -7,6 +7,7 @@
 //
 
 #include "backend/opencl/execution/image/FuseExecution.hpp"
+#include "backend/opencl/execution/image/ConvExecution.hpp"
 #include "core/Macro.h"
 #include "backend/opencl/core/OpenCLRunningUtils.hpp"
 
@@ -73,6 +74,10 @@ class FuseCreator : public OpenCLBackend::Creator {
 public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs,
                                 const MNN::Op *op, Backend *backend) const override {
+        auto param = op->main_as_Extra();
+        if(param->type()->str() == "ExtraConvolution2DPrelu"){
+            return new ConvExecution(inputs, outputs, op, backend, true);
+        }
         return new FuseExecution(inputs, backend, op);
     }
 };

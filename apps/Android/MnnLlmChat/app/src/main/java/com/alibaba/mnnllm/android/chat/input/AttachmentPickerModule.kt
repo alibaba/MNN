@@ -52,11 +52,13 @@ class AttachmentPickerModule(private val activity: ChatActivity) {
 
         // Voice chat menu item - show for all models except diffusion
         val voiceChatView = activity.findViewById<View>(R.id.more_item_voice_chat)
-        if (!ModelUtils.isDiffusionModel(modelName)) {
-            voiceChatView.setOnClickListener { v: View? -> startVoiceChat() }
-        } else {
-            voiceChatView.visibility = View.GONE
-        }
+//        if (!ModelUtils.isDiffusionModel(modelName)) {
+//            voiceChatView.setOnClickListener { v: View? -> startVoiceChat() }
+//        } else {
+//            voiceChatView.visibility = View.GONE
+//        }
+        //disable temporary
+        voiceChatView.visibility = View.GONE
         attachmentPreview = activity.findViewById(R.id.image_preview)
         imagePreviewLayout = activity.findViewById(R.id.image_preview_layout)
         imagePreviewDelete = activity.findViewById(R.id.image_preview_delete)

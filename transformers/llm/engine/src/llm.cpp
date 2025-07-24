@@ -10,6 +10,7 @@
 #include <iostream>
 #include <sstream>
 #include <unordered_set>
+
 #include <MNN/AutoTime.hpp>
 #include <MNN/expr/ExecutorScope.hpp>
 #include "cpp/ExprDebug.hpp"
@@ -21,7 +22,8 @@
 #include "diskembedding.hpp"
 #include "sampler.hpp"
 #include "omni.hpp"
-#include "speculative_decoding/lookahead.hpp"
+#include "speculative_decoding/generate.hpp"
+
 // 0: no debug, 1: test op time, 2: print tensor info, 3: print tensor in output
 #define DEBUG_MODE 0
 //#define DEBUG_IMAGE
@@ -94,6 +96,38 @@ bool Llm::set_config(const std::string& content) {
     return res;
 }
 
+void Llm::setRuntimeHint(std::shared_ptr<Express::Executor::RuntimeManager> &rtg) {
+    rtg->setHint(MNN::Interpreter::INIT_THREAD_NUMBER, 4);
+
+    rtg->setHint(MNN::Interpreter::MEM_ALLOCATOR_TYPE, 0);
+    rtg->setHint(MNN::Interpreter::QKV_QUANT_OPTIONS, mConfig->quant_qkv());
+    rtg->setHint(MNN::Interpreter::KVCACHE_SIZE_LIMIT, mConfig->kvcache_limit());
+    if (mConfig->use_cached_mmap()) {
+        rtg->setHint(MNN::Interpreter::USE_CACHED_MMAP, 1);
+    }
+    std::string tmpPath = mConfig->tmp_path();
+    if (mConfig->kvcache_mmap()) {
+        rtg->setExternalPath(tmpPath, MNN::Interpreter::EXTERNAL_PATH_KVCACHE_DIR);
+    }
+    if (mConfig->use_mmap()) {
+        rtg->setExternalPath(tmpPath, MNN::Interpreter::EXTERNAL_WEIGHT_DIR);
+    }
+    if (mConfig->dynamic_option()) {
+        rtg->setHint(MNN::Interpreter::DYNAMIC_QUANT_OPTIONS, mConfig->dynamic_option());
+    }
+    if (mConfig->thread_num() > 7) { // if thread_num > 7, cpu dynamic quant use Arm86 kernels
+        rtg->setHint(MNN::Interpreter::CPU_SME2_INSTRUCTIONS, 0);
+    } else {
+        rtg->setHint(MNN::Interpreter::CPU_SME2_INSTRUCTIONS, 1);
+
+    }
+    rtg->setHintPtr(Interpreter::KVCACHE_INFO, mMeta.get());
+    if (backend_type_convert(mConfig->backend_type()) != 0) { // not cpu
+        std::string cacheFilePath = tmpPath.length() != 0 ? tmpPath : ".";
+        rtg->setCache(cacheFilePath + "/mnn_cachefile.bin");
+    }
+}
+
 void Llm::initRuntime() {
     ScheduleConfig config;
     BackendConfig cpuBackendConfig;
@@ -121,26 +155,7 @@ void Llm::initRuntime() {
     config.backendConfig = &cpuBackendConfig;
 
     mRuntimeManager.reset(Executor::RuntimeManager::createRuntimeManager(config));
-    // Use 4 thread to load llm
-    mRuntimeManager->setHint(MNN::Interpreter::INIT_THREAD_NUMBER, 4);
-
-    mRuntimeManager->setHint(MNN::Interpreter::MEM_ALLOCATOR_TYPE, 0);
-    mRuntimeManager->setHint(MNN::Interpreter::QKV_QUANT_OPTIONS, mConfig->quant_qkv());
-    mRuntimeManager->setHint(MNN::Interpreter::KVCACHE_SIZE_LIMIT, mConfig->kvcache_limit());
-    if (mConfig->use_cached_mmap()) {
-        mRuntimeManager->setHint(MNN::Interpreter::USE_CACHED_MMAP, 1);
-    }
-    std::string tmpPath = mConfig->tmp_path();
-    if (mConfig->kvcache_mmap()) {
-        mRuntimeManager->setExternalPath(tmpPath, MNN::Interpreter::EXTERNAL_PATH_KVCACHE_DIR);
-    }
-    if (mConfig->use_mmap()) {
-        mRuntimeManager->setExternalPath(tmpPath, MNN::Interpreter::EXTERNAL_WEIGHT_DIR);
-    }
-    if (mConfig->dynamic_option()) {
-        mRuntimeManager->setHint(MNN::Interpreter::DYNAMIC_QUANT_OPTIONS, mConfig->dynamic_option());
-    }
-    mRuntimeManager->setHintPtr(Interpreter::KVCACHE_INFO, mMeta.get());
+    setRuntimeHint(mRuntimeManager);
 
 #if DEBUG_MODE == 1
     mRuntimeManager->setMode(MNN::Interpreter::Session_Debug);
@@ -154,9 +169,9 @@ void Llm::initRuntime() {
     mRuntimeManager->setMode(MNN::Interpreter::Session_Debug);
     _initDebug();
 #endif
-    if (config.type != 0) { // not cpu
-        std::string cacheFilePath = tmpPath.length() != 0 ? tmpPath : ".";
-        mRuntimeManager->setCache(cacheFilePath + "/mnn_cachefile.bin");
+    // get linear input thresholds and max values
+    if (mConfig->config_.value("enable_debug", false)) {
+        mRuntimeManager->setMode(MNN::Interpreter::Session_Debug);
     }
 }
     
@@ -178,38 +193,11 @@ void Llm::setSpeculativeConfig() {
     auto specultive_type = mConfig->speculative_type();
     if(!specultive_type.empty()) {
         if(!canSpecDecode(mModules[0])) {
+            mInSpec = false;
             return;
         }
-        mLookAhead = specultive_type == "lookahead";
         mDraftLength = mConfig->draft_predict_length();
-        if(mLookAhead) {
-            mNgramKeyMaxLen = mConfig->ngram_match_maxlen();
-            if(mNgramKeyMaxLen > 8) {
-                MNN_PRINT("Warning: ngram match key length maybe too large!\n");
-            }
-            auto strictness = mConfig->draft_match_strictness();
-            mStrictLevel = MatchStrictLevel::LOW_LEVEL;
-            if(strictness == "high") {
-                mStrictLevel = MatchStrictLevel::HIGH_LEVEL;
-            } else if(strictness == "medium") {
-                mStrictLevel = MatchStrictLevel::MEDIUM_LEVEL;
-            } else if(strictness == "low"){
-                mStrictLevel = MatchStrictLevel::LOW_LEVEL;
-            } else {
-                MNN_PRINT("Warning: draft_match_strictness value set error!, use default param instead\n");
-            }
-            
-            auto selectRule = mConfig->draft_selection_rule();
-            mSelectRule = NgramSelectRule::FreqxLen_RULE;
-            if(selectRule == "fcfs") {
-                mSelectRule = NgramSelectRule::FCFS_RULE;
-            } else if(selectRule == "freqxlen"){
-                mSelectRule = NgramSelectRule::FreqxLen_RULE;
-            } else {
-                MNN_PRINT("Warning: draft_selection_rule value set error!, use default param instead\n");
-            }
-            mUpdateNgram = mConfig->ngram_update();
-        }
+        mInSpec = true;
     }
 }
 
@@ -242,22 +230,45 @@ void Llm::load() {
     if (mConfig->has_talker()) {
         outputNames.emplace_back("talker_embeds");
     }
-
+    bool needHiddenState = false;
+    if (mConfig->config_.document.HasMember("hidden_states")) {
+        needHiddenState = mConfig->config_.document["hidden_states"].GetBool();
+    }
+    if(mConfig->speculative_type() == "mtp") {
+        needHiddenState = true;
+    }
+    if (needHiddenState) {
+        outputNames.emplace_back("hidden_states");
+    }
+    mRuntimeManager->setExternalFile(mConfig->llm_weight());
     mModules[0].reset(Module::load(inputNames, outputNames, model_path.c_str(), mRuntimeManager, &module_config));
-    
+    mRuntimeManager->setExternalFile("");
+    if(nullptr == mModules[0]) {
+        MNN_ERROR("[Error]: Load module failed, please check model.\n");
+        if(outputNames.size() > 1) {
+            MNN_ERROR("[Warning]: Set module multi outputs, please double check.\n");
+        }
+        return;
+    }
     // set speculative decoding params
     setSpeculativeConfig();
+    // create generation strategy
+    mGenerationStrategy = GenerationStrategyFactory::create(this, mContext, mConfig, mInSpec);
+
     int decode_type_num = 1;
-    if(mLookAhead) {
+    int verify_length = 1;
+    if(mInSpec) {
         // decode one token or mDraftLength token
         decode_type_num = 2;
+        verify_length = mDraftLength + 1;
+        // speculative decode module
+        mModulePool[std::make_pair(verify_length, true)].reset(Module::clone(mModules[0].get()));
     }
-    mDecodeModules.resize(decode_type_num);
 
-    for (int v = 0; v < mDecodeModules.size(); ++v) {
-        mDecodeModules[v].reset(Module::clone(mModules[0].get()));
-    }
-    mPrefillModules = mModules;
+    // autoregressive decode module
+    mModulePool[std::make_pair(1, false)].reset(Module::clone(mModules[0].get()));
+    // prefill module
+    mModulePool[std::make_pair(mPrefillKey, mConfig->all_logits())] = mModules[0];
     
     // module input varp setting
     logitsLastIdx = _var<int>({-1}, {1});
@@ -268,7 +279,7 @@ void Llm::load() {
     for(int i = 0; i < decode_type_num; i++) {
         int index = 1;
         if(i > 0) {
-            index = mDraftLength;
+            index = verify_length;
         }
         // attentiion mask var
         {
@@ -283,6 +294,9 @@ void Llm::load() {
         
         mPositionIdsVarVec[i] = _Input({index}, NCHW, halide_type_of<int>());
     }
+    
+    // MTP model load
+    mGenerationStrategy->load(module_config);
 }
 
 Llm* Llm::create_lora(const std::string& lora_path) {
@@ -302,15 +316,15 @@ void Llm::tuning(TuneType type, std::vector<int> candidates) {
     if (mConfig->backend_type() == "opencl") {
         return;
     }
-    mCurrentModules     = mDecodeModules;
     int decode_seq = 1;
     // Set to decode mode
     mContext->gen_seq_len = 1;
-    if(mLookAhead) {
+    if(mInSpec) {
         // start autoregressive decoding
         std::vector<int> input_ids = {0};
-        auto logits = forward(input_ids);
-        decode_seq = mDraftLength;
+        auto logits = forwardVec(input_ids);
+        int verify_length = mDraftLength + 1;
+        decode_seq = verify_length;
     }
     int64_t min_time     = INT64_MAX;
     int prefer_candidate = 10;
@@ -318,7 +332,11 @@ void Llm::tuning(TuneType type, std::vector<int> candidates) {
         mRuntimeManager->setHint(MNN::Interpreter::OP_ENCODER_NUMBER_FOR_COMMIT, candidate);
         Timer _t;
         std::vector<int> input_ids(decode_seq, 0);
-        auto logits = forward(input_ids);
+        auto outputs = forwardVec(input_ids);
+        if(outputs.empty()) {
+            return;
+        }
+        auto logits = outputs[0];
         if (nullptr == logits.get()) {
             return;
         }
@@ -340,16 +358,8 @@ void Llm::tuning(TuneType type, std::vector<int> candidates) {
 }
 
 void Llm::switchMode(Llm::Stage stage) {
-    switch (stage) {
-        case Prefill:
-            mCurrentModules = mPrefillModules;
-            break;
-        case Decode:
-            mCurrentModules = mDecodeModules;
-            break;
-        default:
-            break;
-    }
+    // do nothing, only reserve api
+    return;
 }
 
 void Llm::setKVCacheInfo(size_t add, size_t remove, int* reserve, int n_reserve) {
@@ -364,30 +374,37 @@ void Llm::setKVCacheInfo(size_t add, size_t remove, int* reserve, int n_reserve)
 }
 
 std::vector<Express::VARP> Llm::forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos) {
-    VARP logits;
     Express::VARP logitsIndex;
     bool inDecode = mContext->gen_seq_len > 0;
-    // TODO : to be improved
-    if (mConfig->all_logits() || (mLookAhead && mCurrentModules.size() > 1)) {
+    
+    bool isAllLogists = mConfig->all_logits() ? true : (inDecode ? mInSpec : false);
+    int seqLenKey = inDecode ? hiddenState->getInfo()->dim[0] : mPrefillKey;
+    isAllLogists = seqLenKey == 1 ? false : isAllLogists;
+    auto moduleKey = std::make_pair(seqLenKey, isAllLogists);
+    if(mModulePool.find(moduleKey) == mModulePool.end()) {
+        MNN_PRINT("Warning: module need new clone, cloning now.\n");
+        mRuntimeManager->setHintPtr(Interpreter::KVCACHE_INFO, mMeta.get());
+        mModulePool[moduleKey].reset(Module::clone(mModules[0].get()));
+    }
+
+    if (isAllLogists) {
         logitsIndex = logitsAllIdx;
     } else {
         logitsIndex = logitsLastIdx;
     }
+    mGenerateParam->input_embeds = nullptr;
+    mGenerateParam->outputs.clear();
     std::vector<Express::VARP> outputs;
-    
-    if(mCurrentModules.size() > 1) {
-        int module_index = hiddenState->getInfo()->dim[0] > 1 ? 1 : 0;
-        outputs = mCurrentModules[module_index]->onForward({hiddenState, mask, inputPos, logitsIndex});
-    } else {
-        outputs = mCurrentModules.back()->onForward({hiddenState, mask, inputPos, logitsIndex});
-    }
+    outputs = mModulePool[moduleKey]->onForward({hiddenState, mask, inputPos, logitsIndex});
+
     if (outputs.empty()) {
         return outputs;
     }
-    logits = outputs[0];
+    mGenerateParam->input_embeds = hiddenState;
+    mGenerateParam->outputs = outputs;
 
-    
 #if DEBUG_MODE == 3
+    VARP logits = outputs[0];
     if(logits->getInfo()->dim[1] < 10 && logits->getInfo()->dim[1] >= 1) {
         for (int j = 0; j < logits->getInfo()->dim[1]; j++) {
             {
@@ -447,20 +464,35 @@ VARP Llm::forward(const std::vector<int>& input_ids, bool is_prefill) {
     auto hidden_states = embedding(input_ids);
     return forward(hidden_states);
 }
-
 VARP Llm::forward(MNN::Express::VARP input_embeds) {
     int seq_len         = input_embeds->getInfo()->dim[mSeqLenIndex];
-    mMeta->add          = seq_len;
-    auto attention_mask = gen_attention_mask(seq_len);
-    auto position_ids = gen_position_ids(seq_len);
-    auto out = forwardRaw(input_embeds, attention_mask, position_ids);
+    auto out = forwardVec(input_embeds);
     if (out.empty()) {
         return nullptr;
     }
     auto logits = out[0];
-    mContext->all_seq_len += seq_len;
-    mContext->gen_seq_len++;
+    updateContext(seq_len, 1);
     return logits;
+}
+
+std::vector<VARP> Llm::forwardVec(const std::vector<int>& input_ids) {
+    auto input_embeds = embedding(input_ids);
+    auto outputs = forwardVec(input_embeds);
+    return outputs;
+}
+
+std::vector<VARP> Llm::forwardVec(MNN::Express::VARP input_embeds) {
+    int seq_len         = input_embeds->getInfo()->dim[mSeqLenIndex];
+    mMeta->add         = seq_len;
+    auto attention_mask = gen_attention_mask(seq_len);
+    auto position_ids = gen_position_ids(seq_len);
+    auto logits = forwardRaw(input_embeds, attention_mask, position_ids);
+    return logits;
+}
+
+void Llm::updateContext(int seq_len, int gen_len) {
+    mContext->all_seq_len += seq_len;
+    mContext->gen_seq_len += gen_len;
 }
 
 int Llm::sample(VARP logits, int offset, int size) {
@@ -498,7 +530,6 @@ void Llm::generate_init(std::ostream* os, const char* end_with) {
         mMeta->remove = mMeta->previous;
     }
     mContext->output_tokens.clear();
-    mCurrentModules = mPrefillModules;
 }
 
 size_t Llm::getCurrentHistory() const {
@@ -530,38 +561,11 @@ bool Llm::stoped() {
 }
 
 void Llm::generate(int max_token) {
-    if(mLookAhead) {
-        speculativeGenerate(max_token);
+    if (is_stop(mContext->current_token)) {
         return;
     }
-    int len = 0;
-    while (len < max_token) {
-        MNN::Timer _t;
-        auto decodeStr = tokenizer_decode(mContext->current_token);
-        mContext->generate_str += decodeStr;
-        if (nullptr != mContext->os) {
-            *mContext->os << decodeStr;
-            *mContext->os << std::flush;
-        }
-        // mContext->history_tokens.push_back(mContext->current_token);
-        mMeta->remove = 0;
-        auto logits = forward({mContext->current_token});
-        len++;
-        if (nullptr == logits.get()) {
-            break;
-        }
-        if (logits->getInfo()->size == 0) {
-            break;
-        }
-        mContext->current_token = sample(logits);
-        mContext->decode_us += _t.durationInUs();
-        mContext->history_tokens.push_back(mContext->current_token);
-        mContext->output_tokens.push_back(mContext->current_token);
-        if (is_stop(mContext->current_token) && nullptr != mContext->os) {
-            *mContext->os << mContext->end_with << std::flush;
-            break;
-        }
-    }
+    mGenerateParam->max_new_tokens = max_token;
+    mGenerationStrategy->generate(*mGenerateParam);
 }
 
 std::vector<int> Llm::generate(const std::vector<int>& input_ids, int max_tokens) {
@@ -582,25 +586,50 @@ std::vector<int> Llm::generate(MNN::Express::VARP input_embeds, int max_tokens) 
     if (max_tokens < 0) {
         max_tokens = mConfig->max_new_tokens();
     }
-    mContext->prompt_len = static_cast<int>(input_embeds->getInfo()->dim[0]);
+    int seqLen = input_embeds->getInfo()->dim[mSeqLenIndex];
+    mContext->prompt_len = seqLen;
     Timer _t;
-    mCurrentModules = mPrefillModules;
-    auto logits      = forward(input_embeds);
+    auto outputs      = forwardVec(input_embeds);
+    if(outputs.size() < 1) {
+        return {};
+    }
+    auto logits = outputs[0];
+    updateContext(seqLen, 0);
+
     if (nullptr == logits.get()) {
         return {};
     }
     // logits compute sync for correct timer
     logits->readMap<void>();
     mContext->prefill_us = _t.durationInUs();
+    
+#if DEBUG_MODE == 3
+    {
+        std::ofstream outFile("input_embeds.txt");
+        auto temp = input_embeds->readMap<float>();
+        for (size_t i = 0; i < input_embeds->getInfo()->size; ++i) {
+            outFile << temp[i] << " "; // 每个数字后加空格
+        }
+        outFile.close();
+    }
+    {
+        std::ofstream outFile("logits.txt");
+        auto temp = outputs[0]->readMap<float>();
+        for (size_t i = 0; i < outputs[0]->getInfo()->size; ++i) {
+            outFile << temp[i] << " "; // 每个数字后加空格
+        }
+        outFile.close();
+    }
+#endif
+    
     _t.reset();
     mContext->current_token = sample(logits);
     mContext->sample_us += _t.durationInUs();
-    mContext->history_tokens.push_back(mContext->current_token);
-    mContext->output_tokens.push_back(mContext->current_token);
     logits = nullptr;
-    mCurrentModules = mDecodeModules;
-    generate(max_tokens - 1);
 
+    // call generation function
+    mGenerateParam->max_new_tokens = max_tokens;
+    mGenerationStrategy->generate(*mGenerateParam);
     return mContext->output_tokens;
 }
 
@@ -622,9 +651,6 @@ void Llm::response(const std::string& user_content, std::ostream* os, const char
         prompt = mPrompt->applyTemplate(user_content, true);
     }
     std::vector<int> input_ids = tokenizer_encode(prompt);
-//    for(auto& ids : input_ids) {
-//        std::cout << tokenizer_decode(ids) << " -> " << ids << std::endl;
-//    }
     response(input_ids, os, end_with, max_new_tokens);
 }
 
@@ -640,6 +666,7 @@ void Llm::response(const ChatMessages& chat_prompts, std::ostream* os, const cha
 Llm::Llm(std::shared_ptr<LlmConfig> config) : mConfig(config) {
     mContext.reset(new LlmContext);
     mMeta.reset(new KVMeta);
+    mGenerateParam.reset(new GenerationParams);
 }
 
 Llm::~Llm() {
@@ -667,12 +694,25 @@ Llm::~Llm() {
                   opFlopsSummber / opSummer);
     }
 #endif
-    mCurrentModules.clear();
-    mDecodeModules.clear();
-    mPrefillModules.clear();
+    mGenerateParam.reset();
     mModules.clear();
     mRuntimeManager.reset();
     mProcessorRuntimeManager.reset();
+}
+int Llm::getOutputIndex(const std::string& name) const {
+    if (mModulePool.empty()) {
+        return -1;
+    }
+    auto info = mModulePool.begin()->second->getInfo();
+    for (int i=0; i<info->outputNames.size(); ++i) {
+        if (info->outputNames[i] == name) {
+            return i;
+        }
+    }
+    return -1;
+}
+std::vector<Express::VARP> Llm::getOutputs() const {
+    return mGenerateParam->outputs;
 }
 
 bool Llm::reuse_kv() { return mConfig->reuse_kv(); }

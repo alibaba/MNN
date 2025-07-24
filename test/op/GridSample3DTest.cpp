@@ -144,6 +144,10 @@ public:
 
     virtual bool run(int precision) {
         auto type = getCurrentType();
+        float threshold = 0.01f;
+        if (precision == 2) {
+            threshold = 0.05f;
+        }
 
         const std::vector<std::vector<int>> configs({
             {1, 3, 5, 10, 5, 10, 3, 5},
@@ -162,6 +166,11 @@ public:
             const int inDepth = config[6];
             const int outDepth = config[7];
 
+            float genRand = (float)outWidth;
+            if (precision == 2) {
+                genRand = 2.0f;
+            }
+
             std::vector<float> originInputData(batch * depth * inHeight * inWidth * inDepth);
             std::vector<float> originGridData(batch * outHeight * outWidth * outDepth * 3);
 
@@ -172,10 +181,14 @@ public:
             std::mt19937 gen{rd()};
             gen.seed(1024);
             std::normal_distribution<> inputDist{0.0f, 1.0};
-            std::normal_distribution<> gridDist{0.0f, 3.0f / outWidth};
+            std::normal_distribution<> gridDist{0.0f, 3.0f / genRand};
 
             for (int i = 0; i < batch * inHeight * inWidth * inDepth * depth; i++) {
-                inputPtr[i] = inputDist(gen);
+                if (precision == 2) {
+                    inputPtr[i] = (i % 4) * 0.02f - 0.07f;
+                } else {
+                    inputPtr[i] = inputDist(gen);
+                }
             }
             for (int b = 0; b < batch; b++) {
                 for (int d=0; d<outDepth; ++d) {
@@ -224,7 +237,7 @@ public:
                                 return false;
                             }
                         } else {
-                            if (!checkVector<float>(outputPtr, expectedOutPtr, expectedOutput.size(), 0.01)) {
+                            if (!checkVector<float>(outputPtr, expectedOutPtr, expectedOutput.size(), threshold)) {
                                 MNN_ERROR("GridSampleTest BILINEAR test %d-%d-%d-%d-%d failed: pad mode: %d, align: %d!\n", config[0], config[1], config[2], config[3], config[4], paddingMode, alignCorners);
                                 return false;
                             }

@@ -23,6 +23,7 @@ class QNNTensorWrapper {
 public:
     static std::shared_ptr<QNNTensorWrapper> create(const std::string & name, Qnn_TensorType_t type, Qnn_DataType_t dataType, const std::vector<uint32_t> & dimensions, Qnn_QuantizeParams_t quantize = DEFAULT_QUANTIZE_PARAMS);
     static std::shared_ptr<QNNTensorWrapper> create(const std::string & name, Qnn_TensorType_t type, Qnn_DataType_t dataType, const std::vector<int> & dimensions, Qnn_QuantizeParams_t quantize = DEFAULT_QUANTIZE_PARAMS);
+    static std::shared_ptr<QNNTensorWrapper> createStaticTensor(const std::string & name, Qnn_DataType_t dataType, const std::vector<uint32_t> & dimensions, const void * buffer, Qnn_QuantizeParams_t quantizeParam = DEFAULT_QUANTIZE_PARAMS);
     static std::shared_ptr<QNNTensorWrapper> createStaticFloatTensor(const std::string & name, Qnn_DataType_t dataType, const std::vector<uint32_t> & dimensions, const float * buffer, Qnn_QuantizeParams_t quantize = DEFAULT_QUANTIZE_PARAMS);
     static std::shared_ptr<QNNTensorWrapper> createStaticFloatTensor(const std::string & name, Qnn_DataType_t dataType, const std::vector<int> & dimensions, const float * buffer, Qnn_QuantizeParams_t quantize = DEFAULT_QUANTIZE_PARAMS);
     QNNTensorWrapper(const std::string & name, Qnn_TensorType_t type, Qnn_DataType_t dataType, const std::vector<uint32_t> & dimensions, Qnn_QuantizeParams_t quantize);
@@ -67,6 +68,7 @@ public:
     static std::shared_ptr<QNNParamScalarWrapper> create(const std::string & name, T value) {return std::make_shared<QNNParamScalarWrapper>(name, value);};
     QNNParamScalarWrapper(const std::string & name, bool value);
     QNNParamScalarWrapper(const std::string & name, uint32_t value);
+    QNNParamScalarWrapper(const std::string & name, int value);
     QNNParamScalarWrapper(const std::string & name, float value);
     Qnn_Param_t * getNativeParam();
 

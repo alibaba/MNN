@@ -216,12 +216,10 @@ public:
         auto glo = ExecutorScope::Current();
         glo->getDebugTools()->flops = 0.0f;
 #endif
-        for (auto& iter : mInfo->runTimeManager->getInside()->mRuntime.first) {
-            iter.second->onConcurrencyBegin();
-        }
-        auto outputs = mModule->onForward(inputs);
-        for (auto& iter : mInfo->runTimeManager->getInside()->mRuntime.first) {
-            iter.second->onConcurrencyEnd();
+        std::vector<VARP> outputs;
+        {
+            Executor::RuntimeExecuteWrap wrap(mInfo->runTimeManager->getInside()->mRuntime);
+            outputs = mModule->onForward(inputs);
         }
 #ifdef MNN_INTERNAL_ENABLED
         do {

@@ -29,9 +29,9 @@ public:
     }
 };
 
-REGISTER_QNN_OP_CREATOR(QNNReshapeCreator, OpType_Reshape)
-REGISTER_QNN_OP_CREATOR(QNNReshapeCreator, OpType_Squeeze)
-REGISTER_QNN_OP_CREATOR(QNNReshapeCreator, OpType_Unsqueeze)
+// REGISTER_QNN_OP_CREATOR(QNNReshapeCreator, OpType_Reshape)
+// REGISTER_QNN_OP_CREATOR(QNNReshapeCreator, OpType_Squeeze)
+// REGISTER_QNN_OP_CREATOR(QNNReshapeCreator, OpType_Unsqueeze)
 REGISTER_QNN_OP_CREATOR(QNNReshapeCreator, OpType_ConvertTensor)
 
 } // end namespace QNN

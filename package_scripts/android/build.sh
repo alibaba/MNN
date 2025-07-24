@@ -20,6 +20,8 @@ PACKAGE_PATH=$(realpath $path)
 pushd $PACKAGE_PATH && mkdir -p arm64-v8a && popd
 pushd $PACKAGE_PATH && mkdir -p armeabi-v7a && popd
 
+CMAKEARGS="-DLLM_SUPPORT_VISION=true -DMNN_BUILD_OPENCV=true -DMNN_IMGCODECS=true -DMNN_LOW_MEMORY=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true -DLLM_SUPPORT_AUDIO=true -DMNN_BUILD_AUDIO=true -DMNN_OPENCL=ON -DMNN_VULKAN=ON"
+
 # build android_32
 rm -rf build_32 && mkdir build_32
 pushd build_32
@@ -39,7 +41,8 @@ cmake .. \
 -DMNN_IMGCODECS=ON \
 -DMNN_JNI=ON \
 -DMNN_BUILD_FOR_ANDROID_COMMAND=true \
--DNATIVE_LIBRARY_OUTPUT=. -DNATIVE_INCLUDE_OUTPUT=.
+-DNATIVE_LIBRARY_OUTPUT=. -DNATIVE_INCLUDE_OUTPUT=.\
+${CMAKEARGS}
 
 make -j8
 libc_32=`find $ANDROID_NDK -name "libc++_shared.so" | grep "arm-linux-androideabi/libc++_shared.so" | head -n 1`
@@ -65,7 +68,8 @@ cmake .. \
 -DMNN_SUPPORT_BF16=ON \
 -DANDROID_NATIVE_API_LEVEL=android-21  \
 -DMNN_BUILD_FOR_ANDROID_COMMAND=true \
--DNATIVE_LIBRARY_OUTPUT=. -DNATIVE_INCLUDE_OUTPUT=.
+-DNATIVE_LIBRARY_OUTPUT=. -DNATIVE_INCLUDE_OUTPUT=.\
+${CMAKEARGS}
 
 make -j8
 libc_64=`find $ANDROID_NDK -name "libc++_shared.so" | grep "aarch64-linux-android/libc++_shared.so" | head -n 1`

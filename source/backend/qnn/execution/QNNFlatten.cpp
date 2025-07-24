@@ -19,7 +19,8 @@ ErrorCode QNNFlatten::onEncode(const std::vector<Tensor *> &inputs, const std::v
 
     if (inputDimType == Tensor::TENSORFLOW) {
         mNodeType = "Reshape";
-        this->addNodeCommon(inputs, outputs);
+        // this->addNodeCommon(inputs, outputs);
+        this->addNodeCommonReshape("Reshape", *(mBackend->getNativeTensor(inputs[0])), *(mBackend->getNativeTensor(outputs[0])));
     } else {
         {
             std::vector<int> inputShape = inputs[0]->shape();
@@ -101,6 +102,9 @@ public:
     }
 };
 
+REGISTER_QNN_OP_CREATOR(QNNFlattenCreator, OpType_Squeeze)
+REGISTER_QNN_OP_CREATOR(QNNFlattenCreator, OpType_Unsqueeze)
+REGISTER_QNN_OP_CREATOR(QNNFlattenCreator, OpType_Reshape)
 REGISTER_QNN_OP_CREATOR(QNNFlattenCreator, OpType_Flatten)
 
 } // end namespace QNN

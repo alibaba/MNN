@@ -19,7 +19,8 @@ MNN使用CMake构建项目，CMake中的宏定义列表如下：
 | MNN_SUPPORT_QUNAT_EXTEND  | 是否编译非核心算子的量化版本，默认为`ON` |
 | MNN_SUPPORT_DEPRECATED_OP | 是否支持Tflite的量化算子等已经废弃的算子，用于兼容历史模型(1.1.0版本之前)，默认为`OFF` |
 | MNN_SUPPORT_DEPRECATED_OPV2 | 是否编译MNN更新到3.0之后已经废弃的算子，用于兼容历史模型(3.0.0版本之前)，比如 Convolution3D 和 ConvTranspose3D在3.0.0 版本之后改由模型转换器转化为对应2D算子，不再需要运行时支持，默认为`ON` |
-| MNN_REDUCE_SIZE  | 是否裁剪MNN库大小，去除求导相关算子，减少优化策略，默认为`OFF` ，开启时，MNN_SUPPORT_QUNAT_EXTEND / MNN_SUPPORT_DEPRECATED_OP / MNN_SUPPORT_DEPRECATED_OPV2 都会设成 OFF|
+| MNN_REDUCE_SIZE  | 是否裁剪MNN库大小，去除求导相关算子，减少优化策略，默认为`OFF` ，开启时，MNN_SUPPORT_QUANT_EXTEND / MNN_SUPPORT_DEPRECATED_OP / MNN_SUPPORT_DEPRECATED_OPV2 都会设成 OFF|
+| MNN_SUPPORT_QUANT_EXTEND     | 是否开启Binary/Unary等算子的量化计算支持，默认为`ON` |
 | MNN_DEBUG_MEMORY     | 是否开启MNN内存调试，默认为`OFF` |
 | MNN_DEBUG_TENSOR_SIZE | 是否开启MNN tensor size调试，默认为`OFF` |
 | MNN_GPU_TRACE        | 是否开启MNN GPU调试，默认为`OFF` |
@@ -43,6 +44,7 @@ MNN使用CMake构建项目，CMake中的宏定义列表如下：
 | MNN_OPENGL           | 是否构建`OpenGL`后端，默认为`OFF` |
 | MNN_VULKAN           | 是否构建`Vulkan`后端，默认为`OFF` |
 | MNN_ARM82            | 编译ARM架构时，是否构建`Armv8.2`后端，以支持FP16计算，默认为`ON` |
+| MNN_SME2             | 编译ARM架构时，是否构建`ArmSme2`后端，以支持使用sme2指令集计算，默认为`ON` |
 | MNN_SUPPORT_FP16_ARMV7            | 编译armeabi-v7a架构时，是否构建`Armv8.2`后端，以支持FP16计算，默认为`OFF` |
 | MNN_ONEDNN           | 是否使用`oneDNN`，默认为`OFF` |
 | MNN_AVX2             | 在`MNN_USE_SSE`开启的基础上，是否增加AVX2指令的支持，默认为`ON` |
@@ -55,6 +57,8 @@ MNN使用CMake构建项目，CMake中的宏定义列表如下：
 | MNN_TENSORRT         | 是否构建`TensorRT`后端，默认为`OFF` |
 | MNN_COREML           | 是否构建`CoreML`后端，默认为`OFF` |
 | MNN_NNAPI            | 是否构建`NNAPI`后端，默认为`OFF`  |
+| MNN_QNN              | 是否构建`QNN`后端，默认为`OFF` |
+| MNN_QNN_CONVERT_MODE | 在`MNN_QNN`开启的基础上,是否构建Convert模式的QNN后端，默认为`OFF` |
 | MNN_BUILD_BENCHMARK  | 是否构建MNN的性能测试，默认为`OFF` |
 | MNN_BUILD_TEST       | 是否构建MNN的单元测试，默认为`OFF` |
 | MNN_BUILD_FOR_ANDROID_COMMAND | 是否使用命令行构建`Android`，默认为`OFF` |

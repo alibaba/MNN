@@ -206,7 +206,9 @@ Backend* CLRuntime::onCreate(const BackendConfig* config, Backend* origin) const
         precision = config->precision;
         memory = config->memory;
     }
-    return new OpenCLBackend(precision, memory, mInfo.gpuMode, mImagePool, mBufferPool, this);
+    auto backend = new OpenCLBackend(precision, memory, mInfo.gpuMode, mImagePool, mBufferPool, this);
+    backend->setMetaPtr(pMeta);
+    return backend;
 }
 
 void CLRuntime::onGabageCollect(int level) {
@@ -238,6 +240,9 @@ OpenCLBackend::OpenCLBackend(BackendConfig::PrecisionMode precision, BackendConf
     mOpenCLRuntime = mCLRuntime->mOpenCLRuntime;
     if(mOpenCLRuntime->isSupportedFP16()){
         mPrecision = precision;
+        if(precision == BackendConfig::Precision_Low_BF16){
+            mPrecision = BackendConfig::Precision_Low;
+        }
     } else{
         mPrecision = BackendConfig::Precision_High;
     }
@@ -377,6 +382,7 @@ Backend::MemObj* OpenCLBackend::onAcquire(const Tensor* nativeTensor, StorageTyp
             size = N * H * W * C;
             size = ROUND_UP(size, 4);
         }
+        #ifdef MNN_SUPPORT_INTEL_SUBGROUP
         if (mOpenCLRuntime->isSupportedIntelSubgroup()) {
             int cPack = TensorUtils::getTensorChannelPack(nativeTensor);
             auto pads  = TensorUtils::getDescribe(nativeTensor)->mPads;
@@ -384,6 +390,7 @@ Backend::MemObj* OpenCLBackend::onAcquire(const Tensor* nativeTensor, StorageTyp
             size_t imageHeight = (size_t)N * H;
             size = imageWidth*imageHeight*cPack;
         }
+        #endif
         // Align when int4 memory
         size = ROUND_UP(size, 2);
         if (storageType == DYNAMIC_SEPERATE) {
@@ -804,12 +811,14 @@ void OpenCLBackend::copyFromDevice(const Tensor* srcTensor, const Tensor* dstTen
             directCopy = false;
         }
     }
+    #ifdef MNN_SUPPORT_INTEL_SUBGROUP
     if(mOpenCLRuntime->isSupportedIntelSubgroup()){
         int cPack = TensorUtils::getTensorChannelPack(srcTensor);
         if (cPack == 16){
             directCopy = false;
         }
     }
+    #endif
     void* hostPtr = dstTensor->host<float>();
     if(directCopy){
         mOpenCLRuntime->commandQueue().enqueueReadBuffer(openCLBuffer(srcTensor), CL_TRUE, 0, needSize, hostPtr);
@@ -912,12 +921,14 @@ void OpenCLBackend::copyToDevice(const Tensor* srcTensor, const Tensor* dstTenso
             directCopy = false;
         }
     }
+    #ifdef MNN_SUPPORT_INTEL_SUBGROUP
     if(mOpenCLRuntime->isSupportedIntelSubgroup()){
         int cPack = TensorUtils::getTensorChannelPack(dstTensor);
         if (cPack == 16){
             directCopy = false;
         }
     }
+    #endif
     if(directCopy){
         mOpenCLRuntime->commandQueue().enqueueWriteBuffer(openCLBuffer(dstTensor), CL_TRUE, 0, needSize, hostPtr);
         return;

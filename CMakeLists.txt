@@ -78,6 +78,7 @@ option(MNN_SUPPORT_BF16 "Enable MNN's bf16 op" OFF)
 option(MNN_LOW_MEMORY "Build MNN support low memory for weight quant model." OFF)
 option(MNN_CPU_WEIGHT_DEQUANT_GEMM "Build MNN CPU weight dequant related gemm kernels." OFF)
 option(MNN_BUILD_AUDIO "Build audio api in MNN." OFF)
+option(MNN_SME2 "Use Arm sme2 instructions" ON)
 
 if (MNN_BUILD_MINI)
     set(MNN_SKIPBUILD_GEOMETRY ON)

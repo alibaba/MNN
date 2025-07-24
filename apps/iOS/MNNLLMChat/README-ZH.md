@@ -8,24 +8,26 @@
 
 ## 功能：
 
-1. 模型列表
-    - 获取 MNN 支持的模型列表；
-    - 模型管理，支持下载和删除模型；
-        - 支持切换 Hugging Face 和 ModelScope 源
-    - 模型搜索，支持本地模型搜索；
-
-2. 多模态聊天对话：支持完整的Markdown格式输出，
+1. 本地模型
+    - 本地已下载模式展示
+    - 支持自定义置顶
+2. 模型市场
+    - 获取 MNN 支持的模型列表
+    - 模型管理，支持下载和删除模型
+        - 支持切换 Hugging Face、 ModelScope 和 Modeler 下载源
+    - 模型搜索，支持关键词搜索、标签搜索
+3. 基准测试
+    - 支持自动化基准测试，输出Prefill speed、 Decode Speed 和 Memory Usage等信息
+4. 多模态聊天对话：支持完整的Markdown格式输出
     - 文本到文本
     - 语音到文本
     - 图片到文本，图片可以拍摄输入或从图库中选择
-
-3. 模型配置
+5. 模型配置
     - 支持配置 mmap
     - 支持配置 sampling strategy
     - 支持配置 diffusion 设置
-
-4. 对话历史
-    - 包含对话历史列表，可以还原对话场景
+6. 对话历史
+    - 支持模型对话历史列表，还原历史对话场景
 
 ### 视频介绍
 
@@ -35,12 +37,12 @@
 
 ### 应用预览图
 
-|  |  |  |
-|--|--|--|
-| **Text To Text**  | **Image To Text**  | **Audio To Text**  |
-| ![Text To Text](./assets/text.PNG) | ![Image To Text](./assets/image.PNG) | ![Audio To Text](./assets/audio.jpg) |
-| **Model List**  | **History**  | **History**  |
-| ![Model List](./assets/list.PNG) | ![History](./assets/history2.PNG) | ![History](./assets/history.PNG) |
+|  |  |  | |
+|--|--|--|--|
+| **Text To Text**  | **Image To Text**  | **Audio To Text**  | **Model Fliter** |
+| ![Text To Text](./assets/text.PNG) | ![Image To Text](./assets/image.PNG) | ![Audio To Text](./assets/audio.jpg) | ![Audio To Text](./assets/fliter.PNG) |
+| **Local Model** | **Model Market** | **Benckmark** | **History** |
+| ![Model List](./assets/localModel.PNG) | ![History](./assets/modelMarket.PNG) | ![History](./assets/benchmark.jpeg) | ![History](./assets/history2.PNG) |
 
 
 <p></p>
@@ -154,6 +156,14 @@ iPhone 因为内存有限，建议使用7B以及以下的模型，避免内存�
 
 
 ## Release Notes
+
+### Version 0.4
+
+- 新增项目三个大模块：本地模型，模型市场和基准测试 
+- 新增基准测试，可以测试不同模型效果 
+- 新增设置页面，可以从历史侧边蓝进入 
+- 新增Ali CDN获取模型列表 
+- 新增模型市场筛选功能
 
 ### Version 0.3.1
 

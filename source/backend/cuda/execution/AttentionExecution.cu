@@ -1,5 +1,6 @@
 #include "AttentionExecution.hpp"
 #include "core/TensorUtils.hpp"
+#include "SoftmaxExecution.hpp"
 
 namespace MNN {
 namespace CUDA {
@@ -43,8 +44,8 @@ __global__ void compact_kv_cache_kernel(
     int copy_len = reserve_info[reserve_pair_idx * 2 + 1];
     int copy_dst_begin_offset = reserve_offsets[reserve_pair_idx]; // 在 reserve 区域内的偏移
 
-    long long src_offset = past_kv_len_after_remove + copy_src_begin;
-    long long dst_offset = past_kv_len_after_remove + copy_dst_begin_offset;
+    int src_offset = past_kv_len_after_remove + copy_src_begin;
+    int dst_offset = past_kv_len_after_remove + copy_dst_begin_offset;
 
     uint8_t* src_k_ptr = (uint8_t*)src_key_cache;
     uint8_t* dst_k_ptr = (uint8_t*)dst_key_cache;
@@ -54,13 +55,13 @@ __global__ void compact_kv_cache_kernel(
     // Key Cache: [L, B, H_kv, D] -> 拷贝整个 (B, H_kv, D) 下的 L 片段
     for (int l = 0; l < copy_len; ++l) {
         // Key: [L, B, H, D]
-        long long k_src_idx = ((src_offset + l) * b + b_idx) * h_kv * d + h_kv_idx * d + d_idx;
-        long long k_dst_idx = ((dst_offset + l) * b + b_idx) * h_kv * d + h_kv_idx * d + d_idx;
+        int k_src_idx = ((src_offset + l) * b + b_idx) * h_kv * d + h_kv_idx * d + d_idx;
+        int k_dst_idx = ((dst_offset + l) * b + b_idx) * h_kv * d + h_kv_idx * d + d_idx;
         memcpy(dst_k_ptr + k_dst_idx * element_size, src_k_ptr + k_src_idx * element_size, element_size);
 
         // Value: [B, H, D, L]
-        long long v_src_idx = (((long long)b_idx * h_kv + h_kv_idx) * d + d_idx) * kv_cache_max_len + (src_offset + l);
-        long long v_dst_idx = (((long long)b_idx * h_kv + h_kv_idx) * d + d_idx) * kv_cache_max_len + (dst_offset + l);
+        int v_src_idx = ((b_idx * h_kv + h_kv_idx) * d + d_idx) * kv_cache_max_len + (src_offset + l);
+        int v_dst_idx = ((b_idx * h_kv + h_kv_idx) * d + d_idx) * kv_cache_max_len + (dst_offset + l);
         memcpy(dst_v_ptr + v_dst_idx * element_size, src_v_ptr + v_src_idx * element_size, element_size);
     }
 }
@@ -92,9 +93,9 @@ __global__ void copy_kv_to_cache_kernel(
     int h_kv_idx = bh_kv_idx % kv_num_head;
 
     // 输入 K 和 V 的源索引 (假设输入布局为 [B, L_k_new, H_kv, D])
-    long long input_offset = (long long)b_idx * new_kv_seq_len * kv_num_head * head_dim +
-                             (long long)l_idx_new * kv_num_head * head_dim +
-                             (long long)h_kv_idx * head_dim;
+    int input_offset = b_idx * new_kv_seq_len * kv_num_head * head_dim +
+                             l_idx_new * kv_num_head * head_dim +
+                             h_kv_idx * head_dim;
     
     T val_to_copy_k = key_input[input_offset + d_idx];
     T val_to_copy_v = value_input[input_offset + d_idx]; // 从相同偏移读取，因为K和V输入形状相同
@@ -104,16 +105,16 @@ __global__ void copy_kv_to_cache_kernel(
     if (dest_seq_idx_cache >= allocated_kv_len) return; // 边界检查
 
     // Key Cache 输出: [L_kv_alloc, B, H_kv, D]
-    long long key_cache_idx = (long long)dest_seq_idx_cache * batch_size * kv_num_head * head_dim +
-                              (long long)b_idx * kv_num_head * head_dim +
-                              (long long)h_kv_idx * head_dim +
+    int key_cache_idx = dest_seq_idx_cache * batch_size * kv_num_head * head_dim +
+                              b_idx * kv_num_head * head_dim +
+                              h_kv_idx * head_dim +
                               d_idx;
     key_cache_output[key_cache_idx] = val_to_copy_k;
 
     // Value Cache 输出: [B, H_kv, D, L_kv_alloc]
-    long long value_cache_idx = (long long)b_idx * kv_num_head * head_dim * allocated_kv_len +
-                                (long long)h_kv_idx * head_dim * allocated_kv_len +
-                                (long long)d_idx * allocated_kv_len +
+    int value_cache_idx = b_idx * kv_num_head * head_dim * allocated_kv_len +
+                                h_kv_idx * head_dim * allocated_kv_len +
+                                d_idx * allocated_kv_len +
                                 dest_seq_idx_cache;
     value_cache_output[value_cache_idx] = val_to_copy_v;
 }
@@ -148,15 +149,15 @@ __global__ void qk_kernel(
     int h_kv_idx = h_q_idx / param->group; // 对应的 KV 头索引
 
     // Query 元素指针基址 Q[b_idx, current_full_q_idx, h_q_idx, :]
-    const T* q_ptr = query_input + (long long)b_idx * param->query_seq_len * param->head_num * param->head_dim +
-                                   (long long)current_full_q_idx * param->head_num * param->head_dim +
-                                   (long long)h_q_idx * param->head_dim;
+    const T* q_ptr = query_input + b_idx * param->query_seq_len * param->head_num * param->head_dim +
+                                   current_full_q_idx * param->head_num * param->head_dim +
+                                   h_q_idx * param->head_dim;
 
     // Key 元素指针基址 K_cache[k_idx, b_idx, h_kv_idx, :]
     // Key Cache: [L_kv_alloc, B, H_kv, D]
-    const T* k_ptr = key_cache + (long long)k_idx * param->batch * param->kv_head_num * param->head_dim +
-                                 (long long)b_idx * param->kv_head_num * param->head_dim +
-                                 (long long)h_kv_idx * param->head_dim;
+    const T* k_ptr = key_cache + k_idx * param->batch * param->kv_head_num * param->head_dim +
+                                 b_idx * param->kv_head_num * param->head_dim +
+                                 h_kv_idx * param->head_dim;
 
     for (int d = 0; d < param->head_dim; ++d) {
         score_sum += static_cast<AccT>(q_ptr[d]) * static_cast<AccT>(k_ptr[d]);
@@ -168,26 +169,38 @@ __global__ void qk_kernel(
         // current_full_q_idx 是在完整查询序列中的索引 (行索引)
         // k_idx 是在当前有效Key序列中的索引 (列索引)
         // 浮点 Mask 布局为 L_q * L_q (param->query_seq_len * param->query_seq_len)，整数 Mask 布局为 L_q * L_k
-        long long mask_idx = (long long)current_full_q_idx * (is_add_mask_flag ? param->query_seq_len : param->key_seq_len) + k_idx - param->key_seq_len + param->query_seq_len;
 
-        if (is_add_mask_flag) {
-            // 加性Mask通常是float类型
-            if (k_idx >= param->key_seq_len - param->query_seq_len)
-                score_sum += k_idx >= param->key_seq_len - param->query_seq_len ?
-                    static_cast<const AccT*>(mask_tensor_data)[mask_idx]
-                    : 0; // 前 L_k - L_q 个 Mask 均视为 0
-        } else {
-            // 设置Mask通常是int类型, 0表示mask掉
+        if (is_add_mask_flag) { // 加性Mask是float类型
+            int mask_idx = current_full_q_idx * param->query_seq_len + k_idx - param->key_seq_len + param->query_seq_len;
+            if (k_idx >= param->key_seq_len - param->query_seq_len) { // 前 L_k - L_q 个 Mask 均视为 0
+                if (sizeof(T) == sizeof(__half)) {
+                    score_sum += __half2float(((const __half*)mask_tensor_data)[mask_idx]);
+                } else {
+                    score_sum += static_cast<const AccT*>(mask_tensor_data)[mask_idx];
+                }
+            }
+        } else { // 设置Mask是int类型, 0表示mask掉
+            int mask_idx = current_full_q_idx * param->key_seq_len + k_idx;
             if (static_cast<const int*>(mask_tensor_data)[mask_idx] == 0) {
-                score_sum = AccT(-1e9f);
+                if (sizeof(T) == sizeof(__half)) {
+                    score_sum = AccT(-65504.0f);
+                } else {
+                    score_sum = AccT(-1e9f);
+                }
             }
         }
     }
 
+    if (sizeof(T) == sizeof(__half)) {
+        const AccT max_half_val = AccT(65504.0f);
+        if (score_sum > max_half_val) score_sum = max_half_val;
+        if (score_sum < -max_half_val) score_sum = -max_half_val;
+    }
+
     // 输出: qk_scores_output[b_idx, h_q_idx, q_idx_in_piece, k_idx]
-    long long out_idx = (long long)b_idx * param->head_num * param->q_seq_piece_len * param->key_seq_len +
-                        (long long)h_q_idx * param->q_seq_piece_len * param->key_seq_len +
-                        (long long)q_idx_in_piece * param->key_seq_len +
+    int out_idx = b_idx * param->head_num * param->q_seq_piece_len * param->key_seq_len +
+                        h_q_idx * param->q_seq_piece_len * param->key_seq_len +
+                        q_idx_in_piece * param->key_seq_len +
                         k_idx;
     qk_scores_output[out_idx] = static_cast<T>(score_sum);
 }
@@ -209,8 +222,8 @@ __global__ void softmax_kernel(
         return;
     }
     
-    const T* current_row_scores = qk_scores + (long long)row_global_idx * param->key_seq_len;
-    T* current_row_result = softmax_result + (long long)row_global_idx * param->key_seq_len;
+    const T* current_row_scores = qk_scores + row_global_idx * param->key_seq_len;
+    T* current_row_result = softmax_result + row_global_idx * param->key_seq_len;
 
     // 1. 找到行中的最大值
     AccT max_val = AccT(-1e9f); // 或者 -FLT_MAX
@@ -229,7 +242,7 @@ __global__ void softmax_kernel(
         sum_exp += expf(static_cast<AccT>(current_row_scores[i]) - max_val);
     }
     // 避免除以零
-    AccT inv_sum_exp = (sum_exp == 0.0f) ? AccT(1e-10f) : (AccT(1.0f) / sum_exp);
+    AccT inv_sum_exp = (sum_exp == 0.0f) ? AccT(1e-6f) : (AccT(1.0f) / sum_exp);
 
     // 3. 计算 Softmax
     for (int i = 0; i < param->key_seq_len; ++i) {
@@ -264,24 +277,24 @@ __global__ void qkv_kernel(
     int h_kv_idx = h_q_idx / param->group; // 对应的 KV 头索引
 
     // Softmax 概率指针 S[b_idx, h_q_idx, q_idx_in_piece, :]
-    const T* prob_ptr = softmax_probs + (long long)b_idx * param->head_num * param->q_seq_piece_len * param->key_seq_len +
-                                      (long long)h_q_idx * param->q_seq_piece_len * param->key_seq_len +
-                                      (long long)q_idx_in_piece * param->key_seq_len;
+    const T* prob_ptr = softmax_probs + b_idx * param->head_num * param->q_seq_piece_len * param->key_seq_len +
+                                      h_q_idx * param->q_seq_piece_len * param->key_seq_len +
+                                      q_idx_in_piece * param->key_seq_len;
 
     // Value Cache 指针基址 V[b_idx, h_kv_idx, d_idx, :]
     // Value Cache 布局: [B, H_kv, D, L_kv_alloc_max]
-    const T* val_ptr_base = value_cache + (long long)b_idx * param->kv_head_num * param->head_dim * param->max_kv_len +
-                                        (long long)h_kv_idx * param->head_dim * param->max_kv_len +
-                                        (long long)d_idx * param->max_kv_len;
+    const T* val_ptr_base = value_cache + b_idx * param->kv_head_num * param->head_dim * param->max_kv_len +
+                                        h_kv_idx * param->head_dim * param->max_kv_len +
+                                        d_idx * param->max_kv_len;
 
     for (int k_s = 0; k_s < param->key_seq_len; ++k_s) { // 沿 L_k_total (param->key_seq_len) 求和
         weighted_sum += static_cast<AccT>(prob_ptr[k_s]) * static_cast<AccT>(val_ptr_base[k_s]);
     }
 
     // 最终输出: O[b_idx, current_full_q_idx, h_q_idx, d_idx]
-    long long out_idx = (long long)b_idx * param->query_seq_len * param->head_num * param->head_dim +
-                        (long long)current_full_q_idx * param->head_num * param->head_dim +
-                        (long long)h_q_idx * param->head_dim +
+    int out_idx = b_idx * param->query_seq_len * param->head_num * param->head_dim +
+                        current_full_q_idx * param->head_num * param->head_dim +
+                        h_q_idx * param->head_dim +
                         d_idx;
     attention_output[out_idx] = static_cast<T>(weighted_sum);
 }
@@ -293,11 +306,10 @@ AttentionExecution::AttentionExecution(Backend* backend, bool kv_cache_op_param)
     : Execution(backend), mIsKVCacheEnabled(kv_cache_op_param), mCudaBackend(static_cast<CUDABackend*>(backend)),
       mBatch(0), mQuerySeqLen(0), mNumHead(0), mHeadDim(0), mKvNumHead(0), mNewKvSeqLen(0),
       mQseqSplitNum(1), mHasMask(false), mIsAddMask(false), mParam_gpu(nullptr), mScale(1.0f) {
-    mPrecision = halide_type_of<float>(); // 默认精度,可在 onResize 中更改
+    mPrecision = 4; // 默认精度,可在 onResize 中更改
     if (mIsKVCacheEnabled) {
         mCache.reset(new SharedCache());
-        mMeta = (KVMeta*)(mCudaBackend->getRuntime()->pMeta);
-        
+        mMeta = (KVMeta*)(mCudaBackend->getMetaPtr());
         // printf("[Attention Constructor] Reading runtime. Address is: %p\n", (void*)(mCudaBackend->getRuntime()));
         // printf("[Attention Constructor] Reading pMeta as address. %p\n", (void*)(mCudaBackend->getRuntime()->pMeta));
     }
@@ -321,8 +333,12 @@ ErrorCode AttentionExecution::init_cache_tensors() {
     mCache->mMaxLength = 0; 
     
     // 创建占位Tensor，实际分配在 reallocKVCache_gpu 中进行
-    mCache->mPastKey.reset(Tensor::createDevice({1, 1, 1, 1}, mPrecision, Tensor::CAFFE)); 
-    mCache->mPastValue.reset(Tensor::createDevice({1, 1, 1, 1}, mPrecision, Tensor::CAFFE));
+    mCache->mPastKey.reset(mPrecision == 4
+        ? Tensor::createDevice<float>({1, 1, 1, 1})
+        : Tensor::createDevice<uint16_t>({1, 1, 1, 1})); 
+    mCache->mPastValue.reset(mPrecision == 4
+        ? Tensor::createDevice<float>({1, 1, 1, 1})
+        : Tensor::createDevice<uint16_t>({1, 1, 1, 1}));
     if (!mCache->mPastKey || !mCache->mPastValue) return MNN::OUT_OF_MEMORY;
     
     bool res = mCudaBackend->onAcquireBuffer(mCache->mPastKey.get(), Backend::STATIC);
@@ -349,9 +365,13 @@ ErrorCode AttentionExecution::reallocKVCache_gpu(int required_total_kv_len, int 
         }
         
         // Key Cache: [L_kv_max, B, H_kv, D]
-        std::shared_ptr<Tensor> new_past_key_tensor(Tensor::createDevice({new_allocated_max_len, batch_size, kv_num_head, head_dim}, mPrecision, Tensor::CAFFE));
+        std::shared_ptr<Tensor> new_past_key_tensor(mPrecision == 4
+            ? Tensor::createDevice<float>({new_allocated_max_len, batch_size, kv_num_head, head_dim})
+            : Tensor::createDevice<uint16_t>({new_allocated_max_len, batch_size, kv_num_head, head_dim}));
         // Value Cache: [B, H_kv, D, L_kv_max]
-        std::shared_ptr<Tensor> new_past_value_tensor(Tensor::createDevice({batch_size, kv_num_head, head_dim, new_allocated_max_len}, mPrecision, Tensor::CAFFE));
+        std::shared_ptr<Tensor> new_past_value_tensor(mPrecision == 4
+            ? Tensor::createDevice<float>({batch_size, kv_num_head, head_dim, new_allocated_max_len})
+            : Tensor::createDevice<uint16_t>({batch_size, kv_num_head, head_dim, new_allocated_max_len}));
 
         if (!new_past_key_tensor || !new_past_value_tensor) return MNN::OUT_OF_MEMORY;
 
@@ -360,7 +380,7 @@ ErrorCode AttentionExecution::reallocKVCache_gpu(int required_total_kv_len, int 
         if(!resK || !resV) return MNN::OUT_OF_MEMORY;
 
         if (needs_copy) {
-            size_t element_size_bytes = mPrecision.bytes();
+            size_t element_size_bytes = mPrecision;
             // 拷贝 Key Cache: 从旧的拷贝 [old_past_len, B, H_kv, D] 片段到新的
             size_t key_bytes_to_copy = (size_t)old_past_len * batch_size * kv_num_head * head_dim * element_size_bytes;
             if (key_bytes_to_copy > 0) {
@@ -376,9 +396,9 @@ ErrorCode AttentionExecution::reallocKVCache_gpu(int required_total_kv_len, int 
                 for (int h_kv = 0; h_kv < kv_num_head; ++h_kv) {
                     for (int d_s = 0; d_s < head_dim; ++d_s) {
                         uint8_t* dst_ptr = getTensorDevicePtr<uint8_t>(new_past_value_tensor.get()) +
-                                           ((((long long)b * kv_num_head + h_kv) * head_dim + d_s) * new_allocated_max_len) * element_size_bytes;
+                                           (((b * kv_num_head + h_kv) * head_dim + d_s) * new_allocated_max_len) * element_size_bytes;
                         uint8_t* src_ptr = getTensorDevicePtr<uint8_t>(mCache->mPastValue.get()) +
-                                           ((((long long)b * kv_num_head + h_kv) * head_dim + d_s) * old_max_len) * element_size_bytes;
+                                           (((b * kv_num_head + h_kv) * head_dim + d_s) * old_max_len) * element_size_bytes;
                         if ((size_t)old_past_len * element_size_bytes > 0) {
                             cudaMemcpyAsync(dst_ptr, src_ptr, (size_t)old_past_len * element_size_bytes, cudaMemcpyDeviceToDevice, stream);
                             checkKernelErrors;
@@ -409,7 +429,7 @@ ErrorCode AttentionExecution::reallocKVCache_gpu(int required_total_kv_len, cons
         return MNN::INVALID_VALUE;
     }
 
-    size_t element_size = mPrecision.bytes();
+    size_t element_size = mPrecision;
     bool needs_realloc = required_total_kv_len > mCache->mMaxLength;
 
     int past_len_after_remove = mCache->mPastLength - meta->remove;
@@ -437,14 +457,12 @@ ErrorCode AttentionExecution::reallocKVCache_gpu(int required_total_kv_len, cons
         if (needs_realloc) {
             // 优化路径：如果需要扩容，则直接将旧Cache的有效数据紧凑化拷贝到新Cache中
             int new_allocated_max_len = ROUND_UP(required_total_kv_len, mExpandChunk);
-            std::shared_ptr<Tensor> new_past_key_tensor(
-                Tensor::createDevice({new_allocated_max_len, mBatch, mKvNumHead, mHeadDim},
-                mPrecision, Tensor::CAFFE
-            ));
-            std::shared_ptr<Tensor> new_past_value_tensor(
-                Tensor::createDevice({mBatch, mKvNumHead, mHeadDim, new_allocated_max_len},
-                mPrecision, Tensor::CAFFE
-            ));
+            std::shared_ptr<Tensor> new_past_key_tensor(mPrecision == 4
+                ? Tensor::createDevice<float>({new_allocated_max_len, mBatch, mKvNumHead, mHeadDim})
+                : Tensor::createDevice<uint16_t>({new_allocated_max_len, mBatch, mKvNumHead, mHeadDim}));
+            std::shared_ptr<Tensor> new_past_value_tensor(mPrecision == 4
+                ? Tensor::createDevice<float>({mBatch, mKvNumHead, mHeadDim, new_allocated_max_len})
+                : Tensor::createDevice<uint16_t>({mBatch, mKvNumHead, mHeadDim, new_allocated_max_len}));
             if(!mCudaBackend->onAcquireBuffer(new_past_key_tensor.get(), Backend::STATIC)
             || !mCudaBackend->onAcquireBuffer(new_past_value_tensor.get(), Backend::STATIC)) {
                 return MNN::OUT_OF_MEMORY;
@@ -466,8 +484,12 @@ ErrorCode AttentionExecution::reallocKVCache_gpu(int required_total_kv_len, cons
             mCache->mMaxLength = new_allocated_max_len;
         } else {
             // 如果不需要扩容，则需要一个临时缓冲区来执行原地紧凑化
-            std::shared_ptr<Tensor> temp_key(Tensor::createDevice(mCache->mPastKey->shape(), mPrecision, Tensor::CAFFE));
-            std::shared_ptr<Tensor> temp_value(Tensor::createDevice(mCache->mPastValue->shape(), mPrecision, Tensor::CAFFE));
+            std::shared_ptr<Tensor> temp_key(mPrecision == 4
+                ? Tensor::createDevice<float>(mCache->mPastKey->shape())
+                : Tensor::createDevice<uint16_t>(mCache->mPastKey->shape()));
+            std::shared_ptr<Tensor> temp_value(mPrecision == 4
+                ? Tensor::createDevice<float>(mCache->mPastValue->shape())
+                : Tensor::createDevice<uint16_t>(mCache->mPastValue->shape()));
             if(!mCudaBackend->onAcquireBuffer(temp_key.get(), Backend::STATIC)
             || !mCudaBackend->onAcquireBuffer(temp_value.get(), Backend::STATIC)) {
                 return MNN::OUT_OF_MEMORY;
@@ -508,14 +530,12 @@ ErrorCode AttentionExecution::reallocKVCache_gpu(int required_total_kv_len, cons
             int old_past_len_to_copy = mCache->mPastLength;
             int new_allocated_max_len = ROUND_UP(required_total_kv_len, mExpandChunk);
 
-            std::shared_ptr<Tensor> new_past_key_tensor(
-                Tensor::createDevice({new_allocated_max_len, mBatch, mKvNumHead, mHeadDim},
-                mPrecision, Tensor::CAFFE
-            ));
-            std::shared_ptr<Tensor> new_past_value_tensor(
-                Tensor::createDevice({mBatch, mKvNumHead, mHeadDim, new_allocated_max_len},
-                mPrecision, Tensor::CAFFE
-            ));
+            std::shared_ptr<Tensor> new_past_key_tensor(mPrecision == 4
+                ? Tensor::createDevice<float>({new_allocated_max_len, mBatch, mKvNumHead, mHeadDim})
+                : Tensor::createDevice<uint16_t>({new_allocated_max_len, mBatch, mKvNumHead, mHeadDim}));
+            std::shared_ptr<Tensor> new_past_value_tensor(mPrecision == 4
+                ? Tensor::createDevice<float>({mBatch, mKvNumHead, mHeadDim, new_allocated_max_len})
+                : Tensor::createDevice<uint16_t>({mBatch, mKvNumHead, mHeadDim, new_allocated_max_len}));
             if(!mCudaBackend->onAcquireBuffer(new_past_key_tensor.get(), Backend::STATIC)
             || !mCudaBackend->onAcquireBuffer(new_past_value_tensor.get(), Backend::STATIC)) {
                 return MNN::OUT_OF_MEMORY;
@@ -554,7 +574,9 @@ ErrorCode AttentionExecution::ensureTempBuffers_gpu(int batch, int num_head, int
     bool qk_realloc = !mTempQK || mTempQK->shape() != qk_shape;
     if (qk_realloc) {
         if(mTempQK && mTempQK->deviceId() != 0) mCudaBackend->onReleaseBuffer(mTempQK.get(), Backend::STATIC);
-        mTempQK.reset(Tensor::createDevice(qk_shape, mPrecision, Tensor::CAFFE));
+        mTempQK.reset(mPrecision == 4
+            ? Tensor::createDevice<float>(qk_shape)
+            : Tensor::createDevice<uint16_t>(qk_shape));
         if(!mTempQK || !mCudaBackend->onAcquireBuffer(mTempQK.get(), Backend::STATIC)) return MNN::OUT_OF_MEMORY;
     }
 
@@ -562,7 +584,9 @@ ErrorCode AttentionExecution::ensureTempBuffers_gpu(int batch, int num_head, int
     bool softmax_realloc = !mTempSoftmax || mTempSoftmax->shape() != qk_shape;
     if (softmax_realloc) {
          if(mTempSoftmax && mTempSoftmax->deviceId() != 0) mCudaBackend->onReleaseBuffer(mTempSoftmax.get(), Backend::STATIC);
-        mTempSoftmax.reset(Tensor::createDevice(qk_shape, mPrecision, Tensor::CAFFE));
+        mTempSoftmax.reset(mPrecision == 4
+            ? Tensor::createDevice<float>(qk_shape)
+            : Tensor::createDevice<uint16_t>(qk_shape));
         if(!mTempSoftmax || !mCudaBackend->onAcquireBuffer(mTempSoftmax.get(), Backend::STATIC)) return MNN::OUT_OF_MEMORY;
     }
 
@@ -573,7 +597,9 @@ ErrorCode AttentionExecution::ensureTempBuffers_gpu(int batch, int num_head, int
         bool temp_k_realloc = !mTempK_current_step || mTempK_current_step->shape() != temp_k_shape;
         if(temp_k_realloc){
             if(mTempK_current_step && mTempK_current_step->deviceId() !=0) mCudaBackend->onReleaseBuffer(mTempK_current_step.get(), Backend::STATIC);
-            mTempK_current_step.reset(Tensor::createDevice(temp_k_shape, mPrecision, Tensor::CAFFE));
+            mTempK_current_step.reset(mPrecision == 4
+                ? Tensor::createDevice<float>(temp_k_shape)
+                : Tensor::createDevice<uint16_t>(temp_k_shape) );
             if(!mTempK_current_step || !mCudaBackend->onAcquireBuffer(mTempK_current_step.get(), Backend::STATIC)) return MNN::OUT_OF_MEMORY;
         }
 
@@ -582,7 +608,9 @@ ErrorCode AttentionExecution::ensureTempBuffers_gpu(int batch, int num_head, int
         bool temp_v_realloc = !mTempV_current_step || mTempV_current_step->shape() != temp_v_shape;
          if(temp_v_realloc){
             if(mTempV_current_step && mTempV_current_step->deviceId() !=0) mCudaBackend->onReleaseBuffer(mTempV_current_step.get(), Backend::STATIC);
-            mTempV_current_step.reset(Tensor::createDevice(temp_v_shape, mPrecision, Tensor::CAFFE));
+            mTempV_current_step.reset(mPrecision == 4
+                ? Tensor::createDevice<float>(temp_v_shape)
+                : Tensor::createDevice<uint16_t>(temp_v_shape));
             if(!mTempV_current_step || !mCudaBackend->onAcquireBuffer(mTempV_current_step.get(), Backend::STATIC)) return MNN::OUT_OF_MEMORY;
         }
     }
@@ -602,11 +630,6 @@ bool AttentionExecution::onClone(Backend* bn, const Op* op, Execution** dst) {
 
 // #define DEBUG_ATTENTION_VERBOSE
 
-static inline float half_to_float_debug(const __half& h_val) {
-    return __half2float(h_val);
-}
-
-// 打印GPU张量指定切片的辅助函数
 void print_gpu_tensor_debug(
     const MNN::Tensor* target_tensor,    // 要打印的张量 (可以是GPU或CPU上的)
     const char* name                     // 张量的名称，用于日志
@@ -620,12 +643,77 @@ void print_gpu_tensor_debug(
     target_tensor->print();
 }
 
+// 打印GPU张量指定切片的辅助函数
+void print_gpu_tensor_debug(
+    int mPrecision,
+    const MNN::Tensor* target_tensor,
+    const char* name
+) {
+    if (!target_tensor) {
+        printf("\n--- Tensor [%s] is null. ---\n", name);
+        return;
+    }
+
+    printf("\n--- Tensor [%s] ---\n", name);
+
+    const MNN::Tensor* tensor_to_print = nullptr;
+    std::unique_ptr<MNN::Tensor, decltype(&MNN::Tensor::destroy)> host_tensor_holder(nullptr, &MNN::Tensor::destroy);
+
+    if (target_tensor->deviceId() != 0) {
+        host_tensor_holder.reset(MNN::Tensor::createHostTensorFromDevice(target_tensor, true));
+        if (!host_tensor_holder) {
+            printf("Error: Failed to copy device tensor to host for printing.\n");
+            return;
+        }
+        tensor_to_print = host_tensor_holder.get();
+    } else {
+        tensor_to_print = target_tensor;
+    }
+
+    printf("Shape: [ ");
+    const auto& shape = tensor_to_print->shape();
+    for (int val : shape) printf("%d ", val);
+    printf("], ");
+
+    const int total_elements = tensor_to_print->elementSize() / mPrecision;
+    if (total_elements == 0) {
+        printf("Data: (empty)\n");
+        return;
+    }
+    printf("Data (all %d elements):\n", total_elements);
+
+    int elements_per_line = total_elements; // 默认情况下，对于一维或零维张量，不换行
+    const int dims = tensor_to_print->dimensions();
+    if (dims > 1) elements_per_line = tensor_to_print->length(dims - 1);
+
+    if (mPrecision == 2) {
+        const __half* data_ptr = tensor_to_print->host<__half>();
+        for (int i = 0; i < total_elements; ++i) {
+            printf("%8.4f ", __half2float(data_ptr[i]));
+            if ((i + 1) % elements_per_line == 0 && (i + 1) < total_elements) printf("\n");
+        }
+    } else if (mPrecision == 4) {
+        const float* data_ptr = tensor_to_print->host<float>();
+        for (int i = 0; i < total_elements; ++i) {
+            printf("%8.4f ", data_ptr[i]);
+            if ((i + 1) % elements_per_line == 0 && (i + 1) < total_elements) printf("\n");
+        }
+    } else {
+        target_tensor->print();
+    }
+    printf("\n--- End of Tensor [%s] ---\n", name);
+}
+
 // 初始化所有参数
 ErrorCode AttentionExecution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     const auto* query_tensor = inputs[0]; // 形状: [B, L_q, H_q, D]
     const auto* key_tensor = inputs[1];   // 形状: [B, L_k_new, H_kv, D]
 
-    mPrecision = query_tensor->getType(); // 获取Tensor的halide_type_t
+    if (mCudaBackend->useFp16()) {
+        mPrecision = 2;
+    } else {
+        mPrecision = 4;
+    }
 
     mBatch = query_tensor->length(0);
     mQuerySeqLen = query_tensor->length(1);
@@ -671,7 +759,7 @@ ErrorCode AttentionExecution::onExecute(const std::vector<Tensor *> &inputs, con
     const Tensor* mask_input_tensor = mHasMask ? inputs[3] : nullptr;
     auto final_output_tensor = outputs[0];
 
-    // qk_kernel 默认 Mask 为 [1, 1, L_q, L_k]，但模型会出现 [1, 1, 1, 1] 值为 -0.00 的 Mask 代表无 Mask
+    // qk_kernel 默认 Mask 为 [L_q, L_k]，但模型会出现 [1, 1, 1, 1] 值为 -0.00 的 Mask 代表无 Mask
     if (mIsKVCacheEnabled && mHasMask && mask_input_tensor && mask_input_tensor->elementSize() == 1) {
         mHasMask = false;
     }
@@ -758,15 +846,15 @@ ErrorCode AttentionExecution::onExecute(const std::vector<Tensor *> &inputs, con
 
         // 拷贝新的 K, V 到 Cache
         dim3 copy_blockDim(32, 8, 1); // 暂定 Block大小: 256 线程
-        dim3 copy_gridDim(UP_DIV(mHeadDim, (int)copy_blockDim.x),
-                            UP_DIV(mNewKvSeqLen, (int)copy_blockDim.y),
-                            UP_DIV(mBatch * mKvNumHead, (int)copy_blockDim.z));
-        if (mPrecision.bytes() == 4) { // float32
+        dim3 copy_gridDim(UP_DIV(mHeadDim, copy_blockDim.x),
+                            UP_DIV(mNewKvSeqLen, copy_blockDim.y),
+                            UP_DIV(mBatch * mKvNumHead, copy_blockDim.z));
+        if (mPrecision == 4) { // float32
              copy_kv_to_cache_kernel<float><<<copy_gridDim, copy_blockDim, 0, stream>>>(
                 getTensorDevicePtr<float>(key_input_tensor), getTensorDevicePtr<float>(value_input_tensor),
                 getTensorDevicePtr<float>(mCache->mPastKey.get()), getTensorDevicePtr<float>(mCache->mPastValue.get()),
                 mBatch, mNewKvSeqLen, mKvNumHead, mHeadDim, param_cpu.past_kv_len, mCache->mMaxLength);
-        } else if (mPrecision.bytes() == 2) { // float16
+        } else if (mPrecision == 2) { // float16
              copy_kv_to_cache_kernel<__half><<<copy_gridDim, copy_blockDim, 0, stream>>>(
                 getTensorDevicePtr<__half>(key_input_tensor), getTensorDevicePtr<__half>(value_input_tensor),
                 getTensorDevicePtr<__half>(mCache->mPastKey.get()), getTensorDevicePtr<__half>(mCache->mPastValue.get()),
@@ -778,10 +866,10 @@ ErrorCode AttentionExecution::onExecute(const std::vector<Tensor *> &inputs, con
         effective_value_cache_ptr = getTensorDevicePtr(mCache->mPastValue.get());
 
         #ifdef DEBUG_ATTENTION_VERBOSE
-            if (current_total_kv_len_for_qk >= 0) {
+            if (current_total_kv_len_for_qk >= 20) {
                 // cudaStreamSynchronize(stream); // 确保 copy_kv_to_cache_kernel 完成
-                // if (mCache && mCache->mPastKey) print_gpu_tensor_debug(mCache->mPastKey.get(), "Key Cache (After copy_kv_to_cache)"); // L_kv_alloc, B, H_kv, D
-                // if (mCache && mCache->mPastValue) print_gpu_tensor_debug(mCache->mPastValue.get(), "Value Cache (After copy_kv_to_cache)"); // B, H_kv, D, L_kv_alloc    
+                // if (mCache && mCache->mPastKey) print_gpu_tensor_debug(mPrecision, mCache->mPastKey.get(), "Key Cache (After copy_kv_to_cache)"); // L_kv_alloc, B, H_kv, D
+                // if (mCache && mCache->mPastValue) print_gpu_tensor_debug(mPrecision, mCache->mPastValue.get(), "Value Cache (After copy_kv_to_cache)"); // B, H_kv, D, L_kv_alloc    
             }
         #endif
     } else { // 没有 KV Cache, 使用当前步骤的临时Tensor存储 K/V
@@ -796,15 +884,15 @@ ErrorCode AttentionExecution::onExecute(const std::vector<Tensor *> &inputs, con
         if(temp_err != MNN::NO_ERROR) return temp_err;
         
         dim3 copy_blockDim(32, 8, 1);
-        dim3 copy_gridDim(UP_DIV(mHeadDim, (int)copy_blockDim.x),
-                            UP_DIV(mNewKvSeqLen, (int)copy_blockDim.y),
-                            UP_DIV(mBatch * mKvNumHead, (int)copy_blockDim.z));
-        if (mPrecision.bytes() == 4) {
+        dim3 copy_gridDim(UP_DIV(mHeadDim, copy_blockDim.x),
+                            UP_DIV(mNewKvSeqLen, copy_blockDim.y),
+                            UP_DIV(mBatch * mKvNumHead, copy_blockDim.z));
+        if (mPrecision == 4) {
             copy_kv_to_cache_kernel<float><<<copy_gridDim, copy_blockDim, 0, stream>>>(
                 getTensorDevicePtr<float>(key_input_tensor), getTensorDevicePtr<float>(value_input_tensor),
                 getTensorDevicePtr<float>(mTempK_current_step.get()), getTensorDevicePtr<float>(mTempV_current_step.get()),
                 mBatch, mNewKvSeqLen, mKvNumHead, mHeadDim, 0, allocated_kv_len_for_value_stride);
-        } else if (mPrecision.bytes() == 2) {
+        } else if (mPrecision == 2) {
              copy_kv_to_cache_kernel<__half><<<copy_gridDim, copy_blockDim, 0, stream>>>(
                 getTensorDevicePtr<__half>(key_input_tensor), getTensorDevicePtr<__half>(value_input_tensor),
                 getTensorDevicePtr<__half>(mTempK_current_step.get()), getTensorDevicePtr<__half>(mTempV_current_step.get()),
@@ -817,8 +905,8 @@ ErrorCode AttentionExecution::onExecute(const std::vector<Tensor *> &inputs, con
 
         #ifdef DEBUG_ATTENTION_VERBOSE
             // cudaStreamSynchronize(stream); // 确保 copy_kv_to_cache_kernel 完成
-            // if (mTempK_current_step) print_gpu_tensor_debug(mTempK_current_step.get(), "Temp K Current Step (Copied from Input K)");
-            // if (mTempV_current_step) print_gpu_tensor_debug(mTempV_current_step.get(), "Temp V Current Step (Copied from Input V)");
+            // if (mTempK_current_step) print_gpu_tensor_debug(mPrecision, mTempK_current_step.get(), "Temp K Current Step (Copied from Input K)");
+            // if (mTempV_current_step) print_gpu_tensor_debug(mPrecision, mTempV_current_step.get(), "Temp V Current Step (Copied from Input V)");
         #endif
     }
 
@@ -844,16 +932,16 @@ ErrorCode AttentionExecution::onExecute(const std::vector<Tensor *> &inputs, con
 
         // QK Kernel
         dim3 qk_blockDim(16, 16, 1); // 暂用 256 线程
-        dim3 qk_gridDim(UP_DIV(current_total_kv_len_for_qk, (int)qk_blockDim.x),
-                          UP_DIV(current_piece_actual_len, (int)qk_blockDim.y), 
-                          UP_DIV(mBatch * mNumHead, (int)qk_blockDim.z));
+        dim3 qk_gridDim(UP_DIV(current_total_kv_len_for_qk, qk_blockDim.x),
+                          UP_DIV(current_piece_actual_len, qk_blockDim.y), 
+                          UP_DIV(mBatch * mNumHead, qk_blockDim.z));
         
-        if (mPrecision.bytes() == 4) {
+        if (mPrecision == 4) {
             qk_kernel<float><<<qk_gridDim, qk_blockDim, 0, stream>>>(
                 getTensorDevicePtr<float>(query_input_tensor), static_cast<const float*>(effective_key_cache_ptr),
                 getTensorDevicePtr<float>(mTempQK.get()), mask_ptr_device,
                 mParam_gpu, q_seq_offset, mHasMask, mIsAddMask);
-        } else if (mPrecision.bytes() == 2) {
+        } else if (mPrecision == 2) {
              qk_kernel<__half><<<qk_gridDim, qk_blockDim, 0, stream>>>(
                 getTensorDevicePtr<__half>(query_input_tensor), static_cast<const __half*>(effective_key_cache_ptr),
                 getTensorDevicePtr<__half>(mTempQK.get()), mask_ptr_device,
@@ -862,28 +950,65 @@ ErrorCode AttentionExecution::onExecute(const std::vector<Tensor *> &inputs, con
         checkKernelErrors;
         
         // Softmax Kernel
-        int softmax_total_rows_for_piece = mBatch * mNumHead * current_piece_actual_len;
-        dim3 softmax_blockDim(256, 1, 1); // 每个线程处理一行
-        dim3 softmax_gridDim(UP_DIV(softmax_total_rows_for_piece, (int)softmax_blockDim.x), 1, 1);
-        if (mPrecision.bytes() == 4) {
-            softmax_kernel<float><<<softmax_gridDim, softmax_blockDim, 0, stream>>>(
-                getTensorDevicePtr<float>(mTempQK.get()), getTensorDevicePtr<float>(mTempSoftmax.get()), mParam_gpu, current_piece_actual_len);
-        } else if (mPrecision.bytes() == 2) {
-            softmax_kernel<__half><<<softmax_gridDim, softmax_blockDim, 0, stream>>>(
-                getTensorDevicePtr<__half>(mTempQK.get()), getTensorDevicePtr<__half>(mTempSoftmax.get()), mParam_gpu, current_piece_actual_len);
-        } else { return MNN::NOT_SUPPORT; }
+        
+        // int softmax_total_rows_for_piece = mBatch * mNumHead * current_piece_actual_len;
+        // dim3 softmax_blockDim(256, 1, 1); // 每个线程处理一行
+        // dim3 softmax_gridDim(UP_DIV(softmax_total_rows_for_piece, (int)softmax_blockDim.x), 1, 1);
+        // if (mPrecision == 4) {
+        //     softmax_kernel<float><<<softmax_gridDim, softmax_blockDim, 0, stream>>>(
+        //         getTensorDevicePtr<float>(mTempQK.get()), getTensorDevicePtr<float>(mTempSoftmax.get()), mParam_gpu, current_piece_actual_len);
+        // } else if (mPrecision == 2) {
+        //     softmax_kernel<__half><<<softmax_gridDim, softmax_blockDim, 0, stream>>>(
+        //         getTensorDevicePtr<__half>(mTempQK.get()), getTensorDevicePtr<__half>(mTempSoftmax.get()), mParam_gpu, current_piece_actual_len);
+        // } else { return MNN::NOT_SUPPORT; }
+        // checkKernelErrors;
+
+        const int axis = current_total_kv_len_for_qk;
+        const int inside = 1;
+        const int outside = mBatch * mNumHead * current_piece_actual_len;
+        const int count = outside * inside;
+
+        const void* qk_scores_ptr = getTensorDevicePtr(mTempQK.get());
+        void* softmax_result_ptr = getTensorDevicePtr(mTempSoftmax.get());
+
+        // 根据 axis 长度和精度选择最优核函数并启动
+        // 启动配置：每个线程块(Block)处理一行(row)Softmax
+        // Grid维度 = 总行数(count)，Block维度 = 用于并行计算一行的线程数
+        if (mPrecision == 4) { // FP32
+            const auto* input_ptr = static_cast<const float*>(qk_scores_ptr);
+            auto* output_ptr = static_cast<float*>(softmax_result_ptr);
+            if (axis <= 32) {
+                // 对于短序列，使用Warp级别原语进行极致优化
+                SOFTMAX_WARP_32<float><<<count, 32, 0, stream>>>(input_ptr, output_ptr, inside, axis, outside, count);
+            } else {
+                // 对于长序列，使用基于共享内存的块内并行归约
+                constexpr int threads_per_block = 256;
+                const int calc_multi_num = UP_DIV(axis, threads_per_block);
+                SOFTMAX_AXIS_REDUCE<float><<<count, threads_per_block, 0, stream>>>(input_ptr, output_ptr, inside, axis, threads_per_block, calc_multi_num, outside, count);
+            }
+        } else { // FP16
+            const auto* input_ptr = static_cast<const __half*>(qk_scores_ptr);
+            auto* output_ptr = static_cast<__half*>(softmax_result_ptr);
+            if (axis <= 32) {
+                SOFTMAX_WARP_32<__half><<<count, 32, 0, stream>>>(input_ptr, output_ptr, inside, axis, outside, count);
+            } else {
+                constexpr int threads_per_block = 256;
+                const int calc_multi_num = UP_DIV(axis, threads_per_block);
+                SOFTMAX_AXIS_REDUCE<__half><<<count, threads_per_block, 0, stream>>>(input_ptr, output_ptr, inside, axis, threads_per_block, calc_multi_num, outside, count);
+            }
+        }
         checkKernelErrors;
         
         // QKV Kernel
         dim3 qkv_blockDim(32, 8, 1); // 暂用 256 线程
-        dim3 qkv_gridDim(UP_DIV(mHeadDim, (int)qkv_blockDim.x),
-                         UP_DIV(current_piece_actual_len, (int)qkv_blockDim.y), 
-                         UP_DIV(mBatch * mNumHead, (int)qkv_blockDim.z));
-        if (mPrecision.bytes() == 4) {
+        dim3 qkv_gridDim(UP_DIV(mHeadDim, qkv_blockDim.x),
+                         UP_DIV(current_piece_actual_len, qkv_blockDim.y), 
+                         UP_DIV(mBatch * mNumHead, qkv_blockDim.z));
+        if (mPrecision == 4) {
             qkv_kernel<float><<<qkv_gridDim, qkv_blockDim, 0, stream>>>(
                 getTensorDevicePtr<float>(mTempSoftmax.get()), static_cast<const float*>(effective_value_cache_ptr),
                 getTensorDevicePtr<float>(final_output_tensor), mParam_gpu, q_seq_offset);
-        } else if (mPrecision.bytes() == 2) {
+        } else if (mPrecision == 2) {
             qkv_kernel<__half><<<qkv_gridDim, qkv_blockDim, 0, stream>>>(
                 getTensorDevicePtr<__half>(mTempSoftmax.get()), static_cast<const __half*>(effective_value_cache_ptr),
                 getTensorDevicePtr<__half>(final_output_tensor), mParam_gpu, q_seq_offset);
@@ -916,23 +1041,22 @@ ErrorCode AttentionExecution::onExecute(const std::vector<Tensor *> &inputs, con
             printf("--------------------------------------------------------------------\n");
 
             if (current_total_kv_len_for_qk >= 20) {
-                // 打印 Mask (如果存在)
-                // Mask 通常是 [1, 1, Lq_full, Lk_total]
+                // 打印 Mask
                 if (mHasMask && mask_input_tensor) {
-                    // print_gpu_tensor_debug(mask_input_tensor, "Mask Input Tensor (Relevant Slice view)");
+                    // print_gpu_tensor_debug(mask_input_tensor, "Mask Input Tensor");
                 }
 
                 // 打印 QK^T Scores, mTempQK shape: [B, H_q, L_q_piece, L_k_total]
-                // print_gpu_tensor_debug(mTempQK.get(), "QK^T Scores (mTempQK for current piece)");
+                // print_gpu_tensor_debug(mPrecision, mTempQK.get(), "QK^T Scores (mTempQK for current piece)");
 
                 // 打印 Softmax Probabilities, mTempSoftmax shape: [B, H_q, L_q_piece, L_k_total]
-                // print_gpu_tensor_debug(mTempSoftmax.get(), "Softmax Probs (mTempSoftmax for current piece)");
+                // print_gpu_tensor_debug(mPrecision, mTempSoftmax.get(), "Softmax Probs (mTempSoftmax for current piece)");
 
                 // 打印 Attention Output, final_output_tensor shape: [B, L_q_full, H_q, D] or [1, 1, N]
                 if (final_output_tensor->dimensions()==3) { // 三维如 [1, 1, N]
-                    // print_gpu_tensor_debug(final_output_tensor, "Attention Output Slice (Final)");
+                    // print_gpu_tensor_debug(mPrecision, final_output_tensor, "Attention Output Slice (Final)");
                 } else { // 假设是 [B, Lq_full, Hq, D]
-                    // print_gpu_tensor_debug(final_output_tensor, "Attention Output Slice (Final)");
+                    // print_gpu_tensor_debug(mPrecision, final_output_tensor, "Attention Output Slice (Final)");
                 }
 
                 printf("========================= END PIECE DEBUG DUMP =======================\n");

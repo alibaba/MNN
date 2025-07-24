@@ -53,7 +53,7 @@ static void _transformWeight(const uint8_t* tempWeight, uint8_t* dest, int outpu
         core->MNNPackCUnit((float*)dst, (const float*)src, fw*fh, outputCount, offset);
     }
     //printf("%d - %d - %d - %d\n", outputCount, srcCount, fh, fw);
-    core->MNNPackForMatMul_B((float*)dest, (const float*)cache, outputC4 * fw * fh * core->pack, srcCount, false);
+    core->MNNPackForMatMul_B((float*)dest, (const float*)cache, outputC4 * fw * fh * core->pack, 1, srcCount, false);
 }
 std::shared_ptr<DeconvolutionResource> CPUDeconvolution::makeResource(int srcCount, const Op *convOp, Backend* backend, bool dynamic) {
     auto core = static_cast<CPUBackend*>(backend)->functions();
@@ -253,7 +253,7 @@ ErrorCode CPUDeconvolutionOrigin::onResize(const std::vector<Tensor*>& inputs, c
         }
         ::memset(tempOutPtr, 0, outputSize);
 
-        int l = mSrcCount;
+        int l = ROUND_UP(mSrcCount, lP);
         int h = kernelCount * core->pack;
         auto weightPtr = weightTensor->host<uint8_t>();
         for (int index=tId; index < tileCount; index+=threadNumber) {

@@ -114,6 +114,13 @@ public:
                 case onnx::AttributeProto_AttributeType_TENSOR:
                     attr->tensor.reset(convertTensorToBlob(&srcAttr.t(), scope->mModelDir, dstOp));
                     break;
+                case onnx::AttributeProto_AttributeType_STRINGS:
+                    attr->list.reset(new ListValueT);
+                    attr->list->s.resize(srcAttr.strings_size());
+                    for (int i = 0; i < srcAttr.strings_size(); ++i) {
+                        attr->list->s[i] = srcAttr.strings(i);
+                    }
+                    break;
                 default:
                     break;
             }
@@ -564,6 +571,18 @@ std::vector<std::string> OnnxScope::buildSubGraph(const onnx::GraphProto* graph,
                 subgraph->nodes.emplace_back(constOp);
                 break;
             }
+            if (scope.get() != curScope) {
+                auto constIt = curScope->mConstIdx.find(name);
+                if (constIt != curScope->mConstIdx.end()) {
+                    // Copy Const Op
+                    flatbuffers::FlatBufferBuilder builder;
+                    builder.Finish(MNN::Op::Pack(builder, constIt->second));
+                    MNN::OpT* constOp = flatbuffers::GetRoot<MNN::Op>(builder.GetBufferPointer())->UnPack();
+                    constOp->outputIndexes = {scope->declareTensor(constIt->first)};
+                    subgraph->nodes.emplace_back(constOp);
+                    break;
+                }
+            }
             curScope = reinterpret_cast<decltype(curScope)>(curScope->mParent);
         }
     };
@@ -607,6 +626,7 @@ std::vector<std::string> OnnxScope::buildSubGraph(const onnx::GraphProto* graph,
                     auto param  = new MNN::InputT;
                     param->dtype = MNN::DataType_DT_INT32;
                     param->dformat = MNN::MNN_DATA_FORMAT_NCHW;
+                    param->dims = {-1};
                     inputOp->main.value = param;
                     inputOp->outputIndexes.push_back(idx);
                     subgraph->nodes.emplace_back(std::move(inputOp));

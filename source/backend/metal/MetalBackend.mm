@@ -1219,7 +1219,9 @@ Backend* MetalRuntime::onCreate(const BackendConfig* config, Backend* origin) co
         memory = config->memory;
     }
     bool useFp16AsFp32 = precision != BackendConfig::Precision_High;
-    return new MetalBackend(mStatic, this, useFp16AsFp32, memory);
+    auto backend = new MetalBackend(mStatic, this, useFp16AsFp32, memory);
+    backend->setMetaPtr(pMeta);
+    return backend;
 }
 
 void MetalRuntime::onGabageCollect(int level) {

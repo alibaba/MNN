@@ -16,8 +16,21 @@ namespace QNN {
 
 class QNNLayerNorm : public QNNCommonExecution {
 public:
-    QNNLayerNorm(Backend *backend, const Op *op) : QNNCommonExecution(backend, op) {}
+    QNNLayerNorm(Backend *backend, const Op *op, Tensor * input);
+    virtual ErrorCode onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
     virtual ErrorCode onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+private:
+    ErrorCode onEncodeNormWithPermute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs);
+private:
+    Qnn_DataType_t mQnnDataType;
+    int mInputDim;
+    Tensor::DimensionType mDimType;
+    float mEpsilon;
+    bool mUseRMSNorm;
+    int mRealAxis;
+    int mGammaBetaSize = 0;
+    std::vector<float> mGammaData;
+    std::vector<float> mBetaData;
 };
 
 } // end namespace MNN

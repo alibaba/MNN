@@ -54,7 +54,7 @@ static OnlineRecognizerConfig GetConfig(JNIEnv *env, jobject config) {
 
   //---------- feat config ----------
   fid = env->GetFieldID(cls, "featConfig",
-                        "Lcom/k2fsa/sherpa/onnx/FeatureConfig;");
+                        "Lcom/k2fsa/sherpa/mnn/FeatureConfig;");
   jobject feat_config = env->GetObjectField(config, fid);
   jclass feat_config_cls = env->GetObjectClass(feat_config);
 
@@ -71,21 +71,21 @@ static OnlineRecognizerConfig GetConfig(JNIEnv *env, jobject config) {
   //---------- endpoint_config ----------
 
   fid = env->GetFieldID(cls, "endpointConfig",
-                        "Lcom/k2fsa/sherpa/onnx/EndpointConfig;");
+                        "Lcom/k2fsa/sherpa/mnn/EndpointConfig;");
   jobject endpoint_config = env->GetObjectField(config, fid);
   jclass endpoint_config_cls = env->GetObjectClass(endpoint_config);
 
   fid = env->GetFieldID(endpoint_config_cls, "rule1",
-                        "Lcom/k2fsa/sherpa/onnx/EndpointRule;");
+                        "Lcom/k2fsa/sherpa/mnn/EndpointRule;");
   jobject rule1 = env->GetObjectField(endpoint_config, fid);
   jclass rule_class = env->GetObjectClass(rule1);
 
   fid = env->GetFieldID(endpoint_config_cls, "rule2",
-                        "Lcom/k2fsa/sherpa/onnx/EndpointRule;");
+                        "Lcom/k2fsa/sherpa/mnn/EndpointRule;");
   jobject rule2 = env->GetObjectField(endpoint_config, fid);
 
   fid = env->GetFieldID(endpoint_config_cls, "rule3",
-                        "Lcom/k2fsa/sherpa/onnx/EndpointRule;");
+                        "Lcom/k2fsa/sherpa/mnn/EndpointRule;");
   jobject rule3 = env->GetObjectField(endpoint_config, fid);
 
   fid = env->GetFieldID(rule_class, "mustContainNonSilence", "Z");
@@ -114,13 +114,13 @@ static OnlineRecognizerConfig GetConfig(JNIEnv *env, jobject config) {
 
   //---------- model config ----------
   fid = env->GetFieldID(cls, "modelConfig",
-                        "Lcom/k2fsa/sherpa/onnx/OnlineModelConfig;");
+                        "Lcom/k2fsa/sherpa/mnn/OnlineModelConfig;");
   jobject model_config = env->GetObjectField(config, fid);
   jclass model_config_cls = env->GetObjectClass(model_config);
 
   // transducer
   fid = env->GetFieldID(model_config_cls, "transducer",
-                        "Lcom/k2fsa/sherpa/onnx/OnlineTransducerModelConfig;");
+                        "Lcom/k2fsa/sherpa/mnn/OnlineTransducerModelConfig;");
   jobject transducer_config = env->GetObjectField(model_config, fid);
   jclass transducer_config_cls = env->GetObjectClass(transducer_config);
 
@@ -144,7 +144,7 @@ static OnlineRecognizerConfig GetConfig(JNIEnv *env, jobject config) {
 
   // paraformer
   fid = env->GetFieldID(model_config_cls, "paraformer",
-                        "Lcom/k2fsa/sherpa/onnx/OnlineParaformerModelConfig;");
+                        "Lcom/k2fsa/sherpa/mnn/OnlineParaformerModelConfig;");
   jobject paraformer_config = env->GetObjectField(model_config, fid);
   jclass paraformer_config_cls = env->GetObjectClass(paraformer_config);
 
@@ -163,7 +163,7 @@ static OnlineRecognizerConfig GetConfig(JNIEnv *env, jobject config) {
   // streaming zipformer2 CTC
   fid =
       env->GetFieldID(model_config_cls, "zipformer2Ctc",
-                      "Lcom/k2fsa/sherpa/onnx/OnlineZipformer2CtcModelConfig;");
+                      "Lcom/k2fsa/sherpa/mnn/OnlineZipformer2CtcModelConfig;");
   jobject zipformer2_ctc_config = env->GetObjectField(model_config, fid);
   jclass zipformer2_ctc_config_cls = env->GetObjectClass(zipformer2_ctc_config);
 
@@ -176,7 +176,7 @@ static OnlineRecognizerConfig GetConfig(JNIEnv *env, jobject config) {
 
   // streaming NeMo CTC
   fid = env->GetFieldID(model_config_cls, "neMoCtc",
-                        "Lcom/k2fsa/sherpa/onnx/OnlineNeMoCtcModelConfig;");
+                        "Lcom/k2fsa/sherpa/mnn/OnlineNeMoCtcModelConfig;");
   jobject nemo_ctc_config = env->GetObjectField(model_config, fid);
   jclass nemo_ctc_config_cls = env->GetObjectClass(nemo_ctc_config);
 
@@ -224,7 +224,7 @@ static OnlineRecognizerConfig GetConfig(JNIEnv *env, jobject config) {
 
   //---------- rnn lm model config ----------
   fid = env->GetFieldID(cls, "lmConfig",
-                        "Lcom/k2fsa/sherpa/onnx/OnlineLMConfig;");
+                        "Lcom/k2fsa/sherpa/mnn/OnlineLMConfig;");
   jobject lm_model_config = env->GetObjectField(config, fid);
   jclass lm_model_config_cls = env->GetObjectClass(lm_model_config);
 
@@ -238,7 +238,7 @@ static OnlineRecognizerConfig GetConfig(JNIEnv *env, jobject config) {
   ans.lm_config.scale = env->GetFloatField(lm_model_config, fid);
 
   fid = env->GetFieldID(cls, "ctcFstDecoderConfig",
-                        "Lcom/k2fsa/sherpa/onnx/OnlineCtcFstDecoderConfig;");
+                        "Lcom/k2fsa/sherpa/mnn/OnlineCtcFstDecoderConfig;");
 
   jobject fst_decoder_config = env->GetObjectField(config, fid);
   jclass fst_decoder_config_cls = env->GetObjectClass(fst_decoder_config);

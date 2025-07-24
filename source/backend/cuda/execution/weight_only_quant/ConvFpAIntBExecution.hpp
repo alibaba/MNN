@@ -10,7 +10,6 @@
 
 #include "backend/cuda/core/CUDABackend.hpp"
 #include "core/Execution.hpp"
-#include "../CutlassGemmParam.hpp"
 #include "../MNNCUDADefine.hpp"
 #include "../MNNCUDAFunction.cuh"
 #include "../cutlass_common/CutlassConvCommonExecution.hpp"
@@ -27,12 +26,16 @@ public:
         void* mScale;
         void* mOffset;
         void* mBias;
+        int mQuanC;
         std::shared_ptr<Tensor> weightTensor;
         std::shared_ptr<Tensor> scaleTensor;
         std::shared_ptr<Tensor> offsetTensor;
         std::shared_ptr<Tensor> biasTensor;
         Backend* mBackend = nullptr;
         bool mIsWeightInt4 = false;
+        
+        std::shared_ptr<Tensor> mSumBQTensor;
+        void* mSumBQ = nullptr;
     };
     static bool isValid(const Convolution2D* conv, Backend* backend);
     ConvFpAIntBExecution(Backend* backend, const MNN::Op* op, std::shared_ptr<Resource> res);
@@ -43,6 +46,9 @@ public:
 
 private:
     std::shared_ptr<Resource> mResource;
+
+    std::shared_ptr<Tensor> mDequantFilterTensor;
+    void* mDequantFilter = nullptr;
 };
 
 } // namespace CUDA

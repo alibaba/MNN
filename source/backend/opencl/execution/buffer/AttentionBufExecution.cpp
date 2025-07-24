@@ -1554,6 +1554,7 @@ ErrorCode AttentionBufExecution::decodeResize(const std::vector<Tensor *> &input
 ErrorCode AttentionBufExecution::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     mOpenCLBackend->startRecord(mRecording);
     auto shape = inputs[0]->shape();
+
     int batch = shape[0];
     int seqlen = shape[1];
     int numHead = shape[2];
@@ -1784,14 +1785,14 @@ AttentionBufExecution::AttentionBufExecution(const MNN::Op *op, Backend* backend
     mKVCacheCLManager.reset(new KVCacheCLManager(backend, kv_cahce));
     mOpenCLBackend = static_cast<OpenCLBackend *>(backend);
     auto kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("softmax_buf", "softmax_buf", {"-DSOFTMAX_LOCAL_SIZE=512"}, mOpenCLBackend->getPrecision());
-    mMeta = (KVMeta*)(mOpenCLBackend->getRuntime()->pMeta);
+    mMeta = (KVMeta*)(mOpenCLBackend->getMetaPtr());
     mMaxWorkGroupSize = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(kernel));
 }
 
 AttentionBufExecution::AttentionBufExecution(std::shared_ptr<KVCacheCLManager> manager, const MNN::Op *op, Backend *backend) : CommonExecution(backend, op), mKVCacheCLManager(manager) {
     mOpenCLBackend = static_cast<OpenCLBackend *>(backend);
     auto kernel = mOpenCLBackend->getOpenCLRuntime()->buildKernel("softmax_buf", "softmax_buf", {"-DSOFTMAX_LOCAL_SIZE=512"}, mOpenCLBackend->getPrecision());
-    mMeta = (KVMeta*)(mOpenCLBackend->getRuntime()->pMeta);
+    mMeta = (KVMeta*)(mOpenCLBackend->getMetaPtr());
     mMaxWorkGroupSize = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(kernel));
 }
 

@@ -23,7 +23,30 @@
 
 using namespace MNN;
 
+static inline std::vector<int> parseIntList(const std::string& str, char delim) {
+    std::vector<int> result;
+    std::ptrdiff_t p1 = 0, p2;
+    while (1) {
+        p2 = str.find(delim, p1);
+        if (p2 != std::string::npos) {
+            result.push_back(atoi(str.substr(p1, p2 - p1).c_str()));
+            p1 = p2 + 1;
+        } else {
+            result.push_back(atoi(str.substr(p1).c_str()));
+            break;
+        }
+    }
+    return result;
+}
 int main(int argc, const char* argv[]) {
+    if (argc < 2) {
+        MNN_PRINT("=========================================================================================\n");
+        MNN_PRINT("Arguments: model.MNN runLoops forwardType inputSize numberThread precision sparsity cpuIds\n");
+        MNN_PRINT("Example: %s model.MNN 100 0 1x3x224x224 4 0 0 0,1,2,3\n", argv[0]);
+        MNN_PRINT("=========================================================================================\n");
+        return -1;
+    }
+
     std::string cmd = argv[0];
     std::string pwd = "./";
     auto rslash     = cmd.rfind("/");
@@ -46,20 +69,9 @@ int main(int argc, const char* argv[]) {
     // input dims
     std::vector<int> inputDims;
     if (argc > 4) {
-        std::string inputShape(argv[4]);
-        const char* delim = "x";
-        std::ptrdiff_t p1 = 0, p2;
-        while (1) {
-            p2 = inputShape.find(delim, p1);
-            if (p2 != std::string::npos) {
-                inputDims.push_back(atoi(inputShape.substr(p1, p2 - p1).c_str()));
-                p1 = p2 + 1;
-            } else {
-                inputDims.push_back(atoi(inputShape.substr(p1).c_str()));
-                break;
-            }
-        }
+        inputDims = parseIntList(argv[4], 'x');
     }
+    MNN_PRINT("inputDims: ");
     for (auto dim : inputDims) {
         MNN_PRINT("%d ", dim);
     }
@@ -77,9 +89,20 @@ int main(int argc, const char* argv[]) {
     }
 
     float sparsity = 0.0f;
-    if(argc >= 8) {
+    if(argc > 7) {
         sparsity = atof(argv[7]);
     }
+    
+    // CPU IDs
+    std::vector<int> cpuIds;
+    if (argc > 8) {
+        cpuIds = parseIntList(argv[8], ',');
+    }
+    MNN_PRINT("cpuIds: ");
+    for (auto id : cpuIds) {
+        MNN_PRINT("%d ", id);
+    }
+    MNN_PRINT("\n");
 
 
     // revert MNN model if necessary
@@ -96,6 +119,7 @@ int main(int argc, const char* argv[]) {
     }
     revertor.reset();
     net->setSessionMode(Interpreter::Session_Debug);
+    net->setSessionHint(Interpreter::HintMode::CPU_CORE_IDS, cpuIds.data(), cpuIds.size());
 
     // create session
     MNN::ScheduleConfig config;

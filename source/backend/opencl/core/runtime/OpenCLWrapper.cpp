@@ -122,6 +122,10 @@ bool OpenCLSymbols::isQcomError() {
     return mQcomError;
 }
     
+bool OpenCLSymbols::isSupportAhardwareBufferFunc(){
+    return mIsSupportAhardwareBuffer;
+}
+    
 bool OpenCLSymbols::getFuncAddress(cl_platform_id platform, const char *func_name){
     if(clGetExtensionFunctionAddressForPlatform != nullptr){
         clImportMemoryARM = reinterpret_cast<clImportMemoryARMFunc>(clGetExtensionFunctionAddressForPlatform(platform, "clImportMemoryARM"));
@@ -216,6 +220,22 @@ bool OpenCLSymbols::LoadLibraryFromPath(const std::string &library_path) {
         mQcomError = true; \
     }
     
+#endif
+    
+#ifdef __ANDROID__
+    // TODO(klausw): If the Chromium build requires __ANDROID_API__ >= 26 at some
+    // point in the future, we could directly use the global functions instead of
+    // dynamic loading. However, since this would be incompatible with pre-Oreo
+    // devices, this is unlikely to happen in the foreseeable future, so just
+    // unconditionally use dynamic loading.
+    // cf. base/android/linker/modern_linker_jni.cc
+    ahardwarebuffer_handle_ = dlopen(nullptr, RTLD_NOW);
+    if(ahardwarebuffer_handle_ != nullptr){
+        AHardwareBuffer_describe = reinterpret_cast<AHardwareBuffer_describeFunc>(dlsym(ahardwarebuffer_handle_, "AHardwareBuffer_describe"));
+        if(nullptr != AHardwareBuffer_describe){
+            mIsSupportAhardwareBuffer = true;
+        }
+    }
 #endif
 
     MNN_LOAD_FUNCTION_PTR(clGetPlatformIDs);
@@ -775,5 +795,13 @@ cl_mem CL_API_CALL clImportMemoryARM(cl_context context, cl_mem_flags flags, con
     MNN_CHECK_NOTNULL(func);
     return func(context, flags, properties, memory, size, errcode_ret);
 }
+
+#ifdef __ANDROID__
+void MNN::MNNAHardwareBuffer_describe(const AHardwareBuffer* buffer, AHardwareBuffer_Desc* outDesc){
+    auto func = MNN::OpenCLSymbolsOperator::getOpenclSymbolsPtr()->AHardwareBuffer_describe;
+    MNN_CHECK_NOTNULL(func);
+    func(buffer, outDesc);
+}
+#endif
 
 #endif //MNN_USE_LIB_WRAPPER

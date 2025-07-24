@@ -52,7 +52,7 @@
 			isa = PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet;
 			buildPhase = 3E8591FA2D1D45070067B46F /* Sources */;
 			membershipExceptions = (
-				LLMWrapper/DiffusionSession.h,
+				InferenceEngine/DiffusionSession.h,
 			);
 		};
 /* End PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet section */

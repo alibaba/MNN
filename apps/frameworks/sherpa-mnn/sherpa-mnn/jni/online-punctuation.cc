@@ -17,7 +17,7 @@ static OnlinePunctuationConfig GetOnlinePunctuationConfig(JNIEnv *env,
   jfieldID fid;
 
   fid = env->GetFieldID(cls, "model",
-                        "Lcom/k2fsa/sherpa/onnx/OnlinePunctuationModelConfig;");
+                        "Lcom/k2fsa/sherpa/mnn/OnlinePunctuationModelConfig;");
   jobject model_config = env->GetObjectField(config, fid);
   jclass model_config_cls = env->GetObjectClass(model_config);
 

@@ -63,11 +63,13 @@ int GetFmhaV2NumHeads(EXPRP expr) {
         return 0;
     }
     z = x;
-    x = z->inputs().at(2)->expr().first;
+    int head_num_idx = z->inputs().size() - 2;
+    MNN_ASSERT(head_num_idx >= 2);
+    x = z->inputs().at(head_num_idx)->expr().first;
     if (!helpers::IsConstant(x)) {
         return 0;
     }
-    auto var_num_head = z->inputs().at(2);
+    auto var_num_head = z->inputs().at(head_num_idx);
     return var_num_head->readMap<int32_t>()[0];
 }
 
@@ -500,8 +502,214 @@ FuseSelfAttentionV2::FuseSelfAttentionV2() {
     TemplateMerge::getInstance("Merge").insertTemplate("FuseSelfAttentionV2", match, fold);
 }
 
+class FuseSelfAttentionV3 {
+public:
+    FuseSelfAttentionV3();
+private:
+    VARP var_qkv;
+    VARP var_qkv_weight, var_qkv_bias;
+    int mNumHeads;
+};
+
+FuseSelfAttentionV3::FuseSelfAttentionV3() {
+    auto match = [this](EXPRP expr) -> bool {
+        auto config = Global<modelConfig>::Get();
+        if(!config->transformerFuse) {
+            return false;
+        }
+        // whether reshape
+        if (!expr->get() || !helpers::IsReshape(expr)) {
+            return false;
+        }
+
+        EXPRP x, y, z;
+        EXPRP node_q, node_k, node_v;
+        // whether transpose
+        x = expr->inputs().at(0)->expr().first;
+        if (!expr->get() || !helpers::IsTranspose(x)) {
+            return false;
+        }
+        z = x;
+
+        // whether Einsum/MatMul
+        x = z->inputs().at(0)->expr().first;
+        if (helpers::IsMatMul(x)) {
+            z = x;
+        } else {
+            return false;
+        }
+
+        // whether V
+        auto qk_pre = z->inputs().at(0)->expr().first;
+        auto v_pre = z->inputs().at(1)->expr().first;
+        
+        if (helpers::IsSqueeze(v_pre)) {
+            z = v_pre;
+        } else {
+            return false;
+        }
+
+        EXPRP node_split = z->inputs().at(0)->expr().first;
+        if (!helpers::IsSlice(node_split)) {
+            return false;
+        }
+
+        // whether cast
+        if (helpers::IsCast(qk_pre)) {
+            qk_pre = qk_pre->inputs().at(0)->expr().first;
+        }
+        z = qk_pre;
+        // whether softmax
+        if (!helpers::IsSoftmax(z)) {
+            return false;
+        }
+
+        //whether matmul
+        x = z->inputs().at(0)->expr().first;
+        if (helpers::IsMatMul(x)) {
+            z = x;
+        } else {
+            return false;
+        }
+
+        auto q_pre = z->inputs().at(0)->expr().first;
+        auto k_pre = z->inputs().at(1)->expr().first;
+        // whether mul(scale)
+        if (helpers::IsBinaryMul(q_pre)) {
+            q_pre = q_pre->inputs().at(0)->expr().first;
+        }
+        if (helpers::IsBinaryMul(k_pre)) {
+            k_pre = k_pre->inputs().at(0)->expr().first;
+        }
+
+        if (helpers::IsSqueeze(q_pre)) {
+            z = q_pre;
+        } else {
+            return false;
+        }
+        
+        if(node_split != z->inputs().at(0)->expr().first) {
+            return false;
+        }
+        
+        if (helpers::IsTranspose(k_pre)) {
+            z = k_pre;
+        } else {
+            return false;
+        }
+        x = z->inputs().at(0)->expr().first;
+        if (helpers::IsSqueeze(x)) {
+            z = x;
+        } else {
+            return false;
+        }
+        if(node_split != z->inputs().at(0)->expr().first) {
+            return false;
+        }
+        
+        // whether transpose
+        x = node_split->inputs().at(0)->expr().first;
+        if (!helpers::IsTranspose(x)) {
+            return false;
+        }
+        z = x;
+        
+        // whether reshape
+        x = z->inputs().at(0)->expr().first;
+        if (!helpers::IsReshape(x)) {
+            return false;
+        }
+        z = x;
+        mNumHeads = GetFmhaV2NumHeads(z);
+
+        // whether matmul
+        x = z->inputs().at(0)->expr().first;
+        if (!helpers::IsMatMul(x)) {
+            return false;
+        }
+        EXPRP node_qkv = x;
+        
+        // whether transpose
+        x = node_qkv->inputs().at(0)->expr().first;
+        if (!helpers::IsTranspose(x)) {
+            return false;
+        }
+        z = x;
+        
+        // whether reshape
+        x = z->inputs().at(0)->expr().first;
+        if (!helpers::IsReshape(x)) {
+            return false;
+        }
+        z = x;
+        var_qkv  = z->inputs().at(0);
+        var_qkv_weight = node_qkv->inputs().at(1);
+        if(node_qkv->inputs().size() > 2) {
+            return false;
+        }
+
+        if(!helpers::IsConstant(var_qkv_weight->expr().first)) {
+            return false;
+        }
+        return true;
+    };
+
+    auto fold = [this](EXPRP expr) -> bool {
+        auto config = Global<modelConfig>::Get();
+        auto version = config->targetVersion;
+        if (version < 2.8f) {
+            // For target version < 2.8 , don't support fmha_v2
+            return false;
+        }
+
+        if (expr->name().size() > 0) {
+            MNN_PRINT("Fuse Original Self-Attention as %s\n", expr->name().c_str());
+        }
+
+        // FuseQKV_Weight -> Split
+        auto var_qkv_weight_reshape = _Reshape(var_qkv_weight, {0, 3, -1});
+        auto splitvar = _Split(var_qkv_weight_reshape, {3}, 1);
+        auto var_q_weight = _Unsqueeze(_Reshape(splitvar[0], {0, -1}), {0});
+        auto var_k_weight = _Unsqueeze(_Reshape(splitvar[1], {0, -1}), {0});
+        auto var_v_weight = _Unsqueeze(_Reshape(splitvar[2], {0, -1}), {0});
+
+        // [batch, inChannel, h, w] -> [batch, inChannel, seqLen]
+        auto var_qkv_reshape = _Reshape(var_qkv, {0, 0, -1});
+
+        // [batch, seqLen, headNum * headDim]
+        auto output_q = _MatMul(var_qkv_reshape, var_q_weight, true, false);
+        auto output_k = _MatMul(var_qkv_reshape, var_k_weight, true, false);
+        auto output_v = _MatMul(var_qkv_reshape, var_v_weight, true, false);
+
+
+        /*
+         query : [Batch, seqLen, headNum, headDim]
+         key   : [Batch, seqLen, headNum, headDim]
+         value : [Batch, seqLen, headNum, headDim]
+         ouput : [Batch, seqLen, headNum * headDim]
+         */
+        output_q = _Reshape(output_q, {0, 0, mNumHeads, var_q_weight->getInfo()->dim[1] / mNumHeads});
+        output_k = _Reshape(output_k, {0, 0, mNumHeads, var_q_weight->getInfo()->dim[1] / mNumHeads});
+        output_v = _Reshape(output_v, {0, 0, mNumHeads, var_q_weight->getInfo()->dim[1] / mNumHeads});
+        std::unique_ptr<MNN::AttentionParamT> param_attn(new MNN::AttentionParamT);
+        param_attn->kv_cache = false;
+        std::unique_ptr<OpT> attention(new OpT);
+        attention->name       = "Attention" + expr->name();
+        attention->type       = OpType_Attention;
+        attention->main.type  = OpParameter_AttentionParam;
+        attention->main.value = param_attn.release();
+        auto attention_expr = Variable::create(Expr::create(attention.get(), {output_q, output_k, output_v}, 1));
+        attention_expr->setName(expr->name());
+        Expr::replace(expr, attention_expr->expr().first);
+
+        return true /*modified*/;
+    };
+    TemplateMerge::getInstance("Merge").insertTemplate("FuseSelfAttentionV3", match, fold);
+}
+
 static FuseFmhaV2 g_fuse_fmhaV2;
 static FuseSelfAttentionV2 g_fuse_self_fmhaV2;
+static FuseSelfAttentionV3 g_fuse_attention_v3;
 
 } // namespace Express
 } // namespace MNN

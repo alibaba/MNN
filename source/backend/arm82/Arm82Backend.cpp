@@ -24,7 +24,7 @@
 
 namespace MNN {
 
-Arm82Backend::Arm82Backend(const CPURuntime* runtime, BackendConfig::MemoryMode memory, int initThreadNumber) : CPUBackend(runtime, BackendConfig::Precision_Low, memory, MNN_FORWARD_CPU_EXTENSION, 0, initThreadNumber) {
+Arm82Backend::Arm82Backend(const CPURuntime* runtime, BackendConfig::MemoryMode memory) : CPUBackend(runtime, BackendConfig::Precision_Low, memory, MNN_FORWARD_CPU_EXTENSION, 0) {
     mCoreFunctions = Arm82Functions::get();
     mInt8CoreFunctions = Arm82Functions::getInt8();
 }

@@ -62,7 +62,7 @@ void _AVX_MNNPackC4ForMatMul_A_BF16(float* destOrigin, float const** sourceGroup
 void _AVX_MNNCountMinMaxValue(const float* source, float* minVal, float* maxVal, size_t size);
 
 void _AVX_MNNGetMatMulPackMode_BF16(int* eP, int *lP, int* hP);
-void _AVX_MNNPackForMatMul_B_BF16(float* dest, const float* source, size_t h, size_t l, bool transpose);
+void _AVX_MNNPackForMatMul_B_BF16(float* dest, const float* source, size_t h, size_t kernelsize, size_t ic, bool transpose);
 void _AVX_MNNPackedSparseMatMul(float* C, const float* A, const float* B, unsigned int* NNZMap, int* dataOffsetMap, size_t eSize, const size_t* parameter, const float* postParameters, const float* bias);
 void _AVX_MNNComputeMatMulForH_1(const float* A, const float* B, float* C, const float* biasPtr, const MatMulParam* param, size_t tId);
 
@@ -72,7 +72,7 @@ void _AVX_MNNPackCUnit(float* dst, const float* src, size_t area, size_t depth, 
 void _AVX_MNNUnpackCUnit(float* dst, const float* src, size_t area, size_t depth, int* areaOffset);
 void _AVX_MNNPackCUnitTranspose(float* dst, const float* src, size_t area, size_t depth, int* areaOffset);
 void _AVX_MNNUnpackCUnitTranspose(float* dst, const float* src, size_t area, size_t depth, int* areaOffset);
-void _AVX_MNNPackForMatMul_B(float* dest, const float* source, size_t h, size_t l, bool transpose);
+void _AVX_MNNPackForMatMul_B(float* dest, const float* source, size_t h, size_t kernelsize, size_t ic, bool transpose);
 
 void _AVX_ExtraInit(void* functions);
 void _AVX_WinogradInit(void* functions);
