@@ -593,8 +593,7 @@ using namespace MNN;
 using namespace MNN::Express;
 std::unique_ptr<MNN::NetT> optimizeNet(std::unique_ptr<MNN::NetT>& originNet, bool forTraining, modelConfig& config, const std::vector<std::string>& expectPasses) {
     BackendConfig bnConfig;
-    auto exe = Executor::newExecutor(MNN_FORWARD_CPU, bnConfig, 1);
-    ExecutorScope _s(exe);
+    auto exe = ExecutorScope::Current();
     Global<modelConfig>::Reset(&config);
     if (!expectPasses.empty()) {
         RunNetPass(expectPasses, originNet);

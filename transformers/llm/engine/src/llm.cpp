@@ -523,7 +523,8 @@ void Llm::generate_init(std::ostream* os, const char* end_with) {
     mContext->gen_seq_len = 0;
     mContext->prefill_us  = 0;
     mContext->decode_us   = 0;
-    mContext->current_token = 0;
+    mContext->current_token = -1;
+    mContext->sample_us = 0;
     if (!mConfig->reuse_kv()) {
         mContext->all_seq_len = 0;
         mContext->history_tokens.clear();
@@ -589,18 +590,14 @@ std::vector<int> Llm::generate(MNN::Express::VARP input_embeds, int max_tokens) 
     int seqLen = input_embeds->getInfo()->dim[mSeqLenIndex];
     mContext->prompt_len = seqLen;
     Timer _t;
-    auto outputs      = forwardVec(input_embeds);
-    if(outputs.size() < 1) {
+    forwardVec(input_embeds);
+    if(mGenerateParam->outputs.size() < 1) {
         return {};
     }
-    auto logits = outputs[0];
     updateContext(seqLen, 0);
 
-    if (nullptr == logits.get()) {
-        return {};
-    }
     // logits compute sync for correct timer
-    logits->readMap<void>();
+    mGenerateParam->outputs[0]->readMap<void>();
     mContext->prefill_us = _t.durationInUs();
     
 #if DEBUG_MODE == 3
@@ -623,10 +620,6 @@ std::vector<int> Llm::generate(MNN::Express::VARP input_embeds, int max_tokens) 
 #endif
     
     _t.reset();
-    mContext->current_token = sample(logits);
-    mContext->sample_us += _t.durationInUs();
-    logits = nullptr;
-
     // call generation function
     mGenerateParam->max_new_tokens = max_tokens;
     mGenerationStrategy->generate(*mGenerateParam);
