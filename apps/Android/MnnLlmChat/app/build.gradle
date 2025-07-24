@@ -8,7 +8,7 @@ plugins {
 android {
     namespace 'com.alibaba.mnnllm.android'
     compileSdk 35
-    ndkVersion '23.0.7599858'
+    ndkVersion "27.2.12479018"
     
     flavorDimensions "store"
     
@@ -23,6 +23,8 @@ android {
         externalNativeBuild {
             cmake {
                 cppFlags '-std=c++17'
+                // Enable 16KB page size support for NDK r27
+                arguments "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON"
             }
         }
 

@@ -121,6 +121,11 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".benchmark.CustomQRScannerActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.NoTitleBar.Fullscreen" />
+
     </application>
 
 </manifest>

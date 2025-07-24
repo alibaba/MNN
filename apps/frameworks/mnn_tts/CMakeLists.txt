@@ -86,4 +86,10 @@ if(BUILD_PIPER)
 endif()
 
 add_library(${PROJECT_NAME} SHARED ${PIPER_SOURCE_FILES} ${BERTVITS2_SOURCE_FILES} ${SHARED_SOURCE_FILES} ${ANDROID_SOURCE_FILES})
+
+# Add 16KB page size support for Android
+if(BUILD_ANDROID)
+    target_link_options(${PROJECT_NAME} PRIVATE "-Wl,-z,max-page-size=16384")
+endif()
+
 target_link_libraries(${PROJECT_NAME} log MNN ) 
