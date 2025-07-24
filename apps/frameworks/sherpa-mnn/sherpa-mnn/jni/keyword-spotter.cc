@@ -39,7 +39,7 @@ static KeywordSpotterConfig GetKwsConfig(JNIEnv *env, jobject config) {
 
   //---------- feat config ----------
   fid = env->GetFieldID(cls, "featConfig",
-                        "Lcom/k2fsa/sherpa/onnx/FeatureConfig;");
+                        "Lcom/k2fsa/sherpa/mnn/FeatureConfig;");
   jobject feat_config = env->GetObjectField(config, fid);
   jclass feat_config_cls = env->GetObjectClass(feat_config);
 
@@ -51,13 +51,13 @@ static KeywordSpotterConfig GetKwsConfig(JNIEnv *env, jobject config) {
 
   //---------- model config ----------
   fid = env->GetFieldID(cls, "modelConfig",
-                        "Lcom/k2fsa/sherpa/onnx/OnlineModelConfig;");
+                        "Lcom/k2fsa/sherpa/mnn/OnlineModelConfig;");
   jobject model_config = env->GetObjectField(config, fid);
   jclass model_config_cls = env->GetObjectClass(model_config);
 
   // transducer
   fid = env->GetFieldID(model_config_cls, "transducer",
-                        "Lcom/k2fsa/sherpa/onnx/OnlineTransducerModelConfig;");
+                        "Lcom/k2fsa/sherpa/mnn/OnlineTransducerModelConfig;");
   jobject transducer_config = env->GetObjectField(model_config, fid);
   jclass transducer_config_cls = env->GetObjectClass(transducer_config);
 

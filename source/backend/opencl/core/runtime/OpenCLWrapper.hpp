@@ -57,6 +57,7 @@ public:
     bool isSvmError();
     bool isPropError();
     bool isQcomError();
+    bool isSupportAhardwareBufferFunc();
     bool getFuncAddress(cl_platform_id platform, const char *func_name);
     
     using clGetPlatformIDsFunc        = cl_int (CL_API_CALL *)(cl_uint, cl_platform_id *, cl_uint *);
@@ -180,6 +181,12 @@ public:
     using clGetExtensionFunctionAddressForPlatformFunc = void *(CL_API_CALL *)(cl_platform_id, const char *);
     using clImportMemoryARMFunc = cl_mem (CL_API_CALL *)(cl_context, cl_mem_flags, const cl_import_properties_arm*, void*, size_t, cl_int*);
     
+#ifdef __ANDROID__
+    // use android ahardwarebuffer
+    using AHardwareBuffer_describeFunc = void (*)(const AHardwareBuffer* buffer, AHardwareBuffer_Desc* outDesc);
+#endif
+    
+    
 #define MNN_CL_DEFINE_FUNC_PTR(func) func##Func func = nullptr
 
     MNN_CL_DEFINE_FUNC_PTR(clGetPlatformIDs);
@@ -246,6 +253,10 @@ public:
     MNN_CL_DEFINE_FUNC_PTR(clGetExtensionFunctionAddress);
     MNN_CL_DEFINE_FUNC_PTR(clGetExtensionFunctionAddressForPlatform);
     MNN_CL_DEFINE_FUNC_PTR(clImportMemoryARM);
+    
+#ifdef __ANDROID__
+    MNN_CL_DEFINE_FUNC_PTR(AHardwareBuffer_describe);
+#endif
 
 #undef MNN_CL_DEFINE_FUNC_PTR
 
@@ -256,11 +267,13 @@ private:
 #else
     void *handle_ = nullptr;
 #endif
+    void *ahardwarebuffer_handle_ = nullptr;
     bool mIsError{false};
     bool mSvmError{false};
     bool mPropError{false};
     bool mQcomError{false};
     bool mCL_12Error{false};
+    bool mIsSupportAhardwareBuffer{false};
 };
 
 class OpenCLSymbolsOperator {
@@ -277,7 +290,9 @@ private:
 
     static std::shared_ptr<OpenCLSymbols> gOpenclSymbols;
 };
-
+#ifdef __ANDROID__
+void MNNAHardwareBuffer_describe(const AHardwareBuffer* buffer, AHardwareBuffer_Desc* outDesc);
+#endif
 } // namespace MNN
 #endif
 #endif  /* OpenCLWrapper_hpp */

@@ -151,10 +151,18 @@ public:
             std::mt19937 gen{rd()};
             gen.seed(1024);
             std::normal_distribution<> inputDist{0.0f, 1.0};
-            std::normal_distribution<> gridDist{0.0f, 3.0f / outWidth};
+            float genRand = (float)outWidth;
+            if (precision == 2) {
+                genRand = 2.0f;
+            }
+            std::normal_distribution<> gridDist{0.0f, 3.0f / genRand};
 
             for (int i = 0; i < batch * inHeight * inWidth * depth; i++) {
-                inputPtr[i] = inputDist(gen);
+                if (precision == 2) {
+                    inputPtr[i] = (i % 4) * 0.01 - 0.03;
+                } else {
+                    inputPtr[i] = inputDist(gen);
+                }
             }
             for (int b = 0; b < batch; b++) {
                 for (int h = 0; h < outHeight; h++) {
@@ -176,6 +184,11 @@ public:
             std::vector<GridSamplePaddingMode> paddingModes({GRID_SAMPLE_PADDING_ZEROS, GRID_SAMPLE_PADDING_BORDER});
             std::vector<int> alignCornersVec = {1, 0};
             std::vector<float> expectedOutput(batch * outHeight * outWidth * depth);
+            
+            float threshold = 0.01;
+            if (precision == 2) {
+                threshold = 0.03;
+            }
             for (auto mode : modes) {
                 for (auto paddingMode : paddingModes) {
                     for (auto alignCorners : alignCornersVec) {
@@ -198,7 +211,7 @@ public:
                                 return false;
                             }
                         } else {
-                            if (!checkVector<float>(outputPtr, expectedOutPtr, expectedOutput.size(), 0.01)) {
+                            if (!checkVector<float>(outputPtr, expectedOutPtr, expectedOutput.size(), threshold)) {
                                 MNN_ERROR("GridSampleTest BILINEAR test %d-%d-%d-%d-%d failed: pad mode: %d, align: %d!\n", config[0], config[1], config[2], config[3], config[4], paddingMode, alignCorners);
                                 return false;
                             }

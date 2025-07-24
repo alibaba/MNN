@@ -14,12 +14,19 @@ namespace QNN {
 ErrorCode QNNConcat::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     mNodeType = "Concat";
     Tensor * output = outputs[0];
-    if (output->dimensions() > 5) {
-        MNN_QNN_NOT_SUPPORT_NATIVE_CONSTRAINT;
+
+    if (inputs.size() == 2 && inputs[0]->elementSize() == 0) {
+        this->addNodeCommonReshape("Reshape", *(mBackend->getNativeTensor(inputs[1])), *(mBackend->getNativeTensor(outputs[0])));
+        return NO_ERROR;
     }
 
+    int dim = outputs[0]->dimensions();
     int axis = mOp->main_as_Axis()->axis();
-    axis = getNHWCAxis(axis, outputs[0]->dimensions(), TensorUtils::getDimType(outputs[0]));
+    if (axis < 0) {
+        axis = dim + axis;
+    }
+    MNN_ASSERT(axis >= 0 && axis < dim);
+    axis = getNHWCAxis(axis, dim, TensorUtils::getDimType(outputs[0]));
     this->createParamScalar("axis", (uint32_t)axis);
 
     this->addNodeCommon(inputs, outputs);
@@ -32,6 +39,13 @@ class QNNConcatCreator : public QnnBackend::Creator {
 public:
     virtual QNNCommonExecution * onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op,
                                 Backend* backend) const override {
+        // MNN_PRINT("MNN_QNN: Checking Concat. Name %s. Input Num is %d.\n", op->name()->c_str(), (int) inputs.size());
+        // for (int i = 0; i < inputs.size(); i++) {
+        //     MNN_PRINT("Input%d elementSize is %d.\n", i, inputs[i]->elementSize());
+        // }
+        if (outputs[0]->dimensions() > 5) {
+            return nullptr;
+        }
         return new QNNConcat(backend, op);
     }
 };

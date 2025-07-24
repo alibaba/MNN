@@ -124,20 +124,19 @@ ErrorCode RasterExecution::onResize(const std::vector<Tensor *> &____inputs, con
                 mFast = false;
                 break;
             }
-	    if(!_directBlitC4(slice0, slice, output)) {
-		mFast = false;
+	        if(!_directBlitC4(slice0, slice, output)) {
+		        mFast = false;
                 break;
             }
             if (!OpCommonUtils::canBlitFast(slice, output, pack, false, true)) {
-		mFast = false;
+		        mFast = false;
                 break;
             }
 	    }
         //MNN_PRINT("raster fast:%d regionNum:%d\n\n\n", mFast, des->regions.size());
         if (mFast) {
+            int dstStep = 1;
             for (int i=0; i< des->regions.size(); ++i) {
-                int srcStep = 1;
-                int dstStep = 1;
 	            auto& slice = des->regions[i];
                 if(slice.dst.offset / (slice.size[2] * slice.size[1]) >= 1) {
                     int batchChannel = slice.dst.offset / (slice.size[1] * slice.size[2]) + 1;
@@ -147,6 +146,11 @@ ErrorCode RasterExecution::onResize(const std::vector<Tensor *> &____inputs, con
                     int tmp = slice.dst.stride[0] / slice.src.stride[0];
                     dstStep = dstStep > tmp ? dstStep : tmp;
                 }
+            }
+
+            for (int i=0; i< des->regions.size(); ++i) {
+                int srcStep = 1;
+	            auto& slice = des->regions[i];
                 if(slice.src.offset / (slice.size[2] * slice.size[1]) >= 1) {
                     int batchChannel = slice.src.offset / (slice.size[1] * slice.size[2]) + 1;
                     srcStep = srcStep > batchChannel ? srcStep : batchChannel;

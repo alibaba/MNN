@@ -30,7 +30,7 @@ jobs:
       - name: build
         run: |
             cd pymnn/pip_package
-            python3 build_deps.py
+            python3 build_deps.py llm
             sudo python3 setup.py install --version 1.0
       - name: test
         run: |

@@ -5,6 +5,7 @@ package com.alibaba.mnnllm.android.llm
 
 import android.util.Log
 import com.alibaba.mls.api.ApplicationProvider
+import com.alibaba.mnnllm.android.chat.model.ChatDataItem
 import com.alibaba.mnnllm.android.llm.ChatService.Companion.provide
 import com.alibaba.mnnllm.android.llm.LlmSession.Companion.TAG
 import com.alibaba.mnnllm.android.mainsettings.MainSettings.getDiffusionMemoryMode
@@ -12,7 +13,8 @@ import com.google.gson.Gson
 
 class DiffusionSession(
     override var sessionId: String,
-    private val configPath: String
+    private val configPath: String,
+    private var savedHistory: List<ChatDataItem>? = null
 ): ChatSession{
     override var supportOmni: Boolean = false
     private var nativePtr: Long = 0
@@ -21,6 +23,7 @@ class DiffusionSession(
     private var releaseRequested = false
     @Volatile
     private var generating = false
+    
     override fun load() {
         val configMap = HashMap<String, Any>().apply {
             put("diffusion_memory_mode", getDiffusionMemoryMode(ApplicationProvider.get()))
@@ -90,15 +93,33 @@ class DiffusionSession(
     }
 
     override fun release() {
-
+        synchronized(this) {
+            Log.d(TAG, "MNN_DEBUG release nativePtr: $nativePtr generating: $generating")
+            if (!generating) {
+                releaseInner()
+            } else {
+                releaseRequested = true
+            }
+        }
     }
 
     override fun setKeepHistory(keepHistory: Boolean) {
-
+        // Diffusion models don't use keepHistory for generation, but we still store it for UI
+        // The history is managed by the UI layer, not the native layer
     }
 
     override fun setEnableAudioOutput(enable: Boolean) {
+        // Diffusion models don't support audio output
+    }
 
+    override fun getHistory(): List<ChatDataItem>? {
+        Log.d(TAG, "getHistory: returning ${savedHistory?.size ?: 0} items")
+        return savedHistory
+    }
+
+    override fun setHistory(history: List<ChatDataItem>?) {
+        Log.d(TAG, "setHistory: setting ${history?.size ?: 0} items")
+        savedHistory = history
     }
 
 

@@ -15,11 +15,28 @@
         <com.google.android.material.appbar.MaterialToolbar
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
-            android:layout_height="?actionBarSize"
-            app:subtitleCentered="true"
-            app:titleCentered="true"
-            app:subtitleTextAppearance="?textAppearanceBodyMedium"
-            app:titleTextAppearance="?textAppearanceTitleMedium" />
+            android:layout_height="?actionBarSize">
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="match_parent"
+                android:layout_gravity="center_horizontal"
+                android:gravity="center_vertical"
+                android:orientation="vertical">
+<!--                <TextView-->
+<!--                    android:layout_width="wrap_content"-->
+<!--                    android:layout_height="wrap_content"-->
+<!--                    android:text="@string/app_name"-->
+<!--                    android:layout_gravity="center_horizontal"-->
+<!--                    android:layout_marginBottom="6dp"-->
+<!--                    style="?textAppearanceTitleMedium"/>-->
+                <com.alibaba.mnnllm.android.widgets.ModelSwitcherView
+                    android:id="@+id/model_switcher"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center_horizontal"
+                    />
+            </LinearLayout>
+        </com.google.android.material.appbar.MaterialToolbar>
     </com.google.android.material.appbar.AppBarLayout>
 
     <androidx.recyclerview.widget.RecyclerView
@@ -30,12 +47,21 @@
         android:overScrollMode="never"
         app:layout_behavior="@string/appbar_scrolling_view_behavior" />
 
+    <include
+        android:id="@+id/empty_view"
+        layout="@layout/chat_layout_empty_view"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone"
+        app:layout_behavior="@string/appbar_scrolling_view_behavior" />
+
     <LinearLayout
         android:id="@+id/layout_bottom_container"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
         android:orientation="vertical">
+
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_toggle_audio_output"
             android:layout_width="wrap_content"
@@ -241,11 +267,42 @@
                         android:layout_marginStart="20dp"
                         app:icon="@drawable/ic_audio_file"
                         app:text="@string/select_audio" />
+
+                    <com.alibaba.mnnllm.android.chat.input.MoreMenuItemView
+                        android:id="@+id/more_item_voice_chat"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="20dp"
+                        app:icon="@drawable/ic_voice_chat"
+                        app:text="@string/voice_chat" />
                 </LinearLayout>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
     </LinearLayout>
-
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/btn_scroll_to_bottom"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginBottom="8dp"
+        app:layout_anchor="@id/layout_bottom_container"
+        app:layout_anchorGravity="top|center_horizontal"
+        app:cardCornerRadius="20dp"
+        app:cardElevation="4dp"
+        style="@style/Widget.Material3.CardView.Filled"
+        android:visibility="gone"
+        tools:visibility="visible">
+        <ImageView
+            android:layout_width="30dp"
+            android:layout_height="30dp"
+            android:layout_gravity="center"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:foreground="?attr/selectableItemBackgroundBorderless"
+            android:padding="8dp"
+            app:srcCompat="@drawable/ic_arrow_down"
+            app:tint="?colorOnSurface"
+            android:contentDescription="@string/scroll_to_bottom"/>
+    </com.google.android.material.card.MaterialCardView>
     <TextView
         android:id="@+id/text_voice_hint"
         android:layout_width="wrap_content"
@@ -256,6 +313,7 @@
         tools:visibility="visible"
         android:textColor="?colorOnSurface"
         tools:text="@string/release_to_send" />
+
 
     <RelativeLayout
         android:id="@+id/layout_model_loading"

@@ -34,19 +34,21 @@ public:
         int sizeOutput    = builderOutput.GetSize();
         auto bufferOutput = builderOutput.GetBufferPointer();
 
-        std::vector<std::thread> threads;
         auto forwardType = getCurrentType();
-        for (int i = 0; i < 100; ++i) {
-            threads.emplace_back([&]() {
-                std::shared_ptr<Interpreter> interp(Interpreter::createFromBuffer(bufferOutput, sizeOutput));
-                ScheduleConfig config;
-                config.type = forwardType;
-                auto session = interp->createSession(config);
-                interp->runSession(session);
-            });
-        }
-        for (auto& t : threads) {
-            t.join();
+        for(int n = 0; n < 100; ++n){
+            std::vector<std::thread> threads;
+            for (int i = 0; i < 4; ++i) {
+                threads.emplace_back([&]() {
+                    std::shared_ptr<Interpreter> interp(Interpreter::createFromBuffer(bufferOutput, sizeOutput));
+                    ScheduleConfig config;
+                    config.type = forwardType;
+                    auto session = interp->createSession(config);
+                    interp->runSession(session);
+                });
+            }
+            for (auto& t : threads) {
+                t.join();
+            }
         }
         return true;
     }

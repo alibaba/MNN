@@ -610,7 +610,9 @@ public:
     std::string draft_model() const {
         return base_dir_ + config_.value("draft_model", "");
     }
-    
+    std::string mtp_model() const {
+        return base_dir_ + config_.value("mtp_model", "mtp.mnn");
+    }
     // speculative decoding config end >
 };
 } // Transformer

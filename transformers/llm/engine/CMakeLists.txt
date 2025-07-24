@@ -53,10 +53,12 @@ endif()
 
 add_executable(llm_demo ${CMAKE_CURRENT_LIST_DIR}/demo/llm_demo.cpp)
 add_executable(embedding_demo ${CMAKE_CURRENT_LIST_DIR}/demo/embedding_demo.cpp)
+add_executable(reranker_demo ${CMAKE_CURRENT_LIST_DIR}/demo/reranker_demo.cpp)
 add_executable(rollback_demo ${CMAKE_CURRENT_LIST_DIR}/demo/rollback_demo.cpp)
 add_executable(llm_bench ${CMAKE_CURRENT_LIST_DIR}/demo/llm_bench.cpp)
 target_link_libraries(llm_demo ${LLM_DEPS})
 target_link_libraries(embedding_demo ${LLM_DEPS})
+target_link_libraries(reranker_demo ${LLM_DEPS})
 target_link_libraries(rollback_demo ${LLM_DEPS})
 target_link_libraries(llm_bench ${LLM_DEPS})
 

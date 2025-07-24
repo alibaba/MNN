@@ -1,138 +1,125 @@
 <?xml version="1.0" encoding="utf-8"?>
-
-<RelativeLayout android:layout_width="match_parent"
-    android:layout_height="wrap_content"
+<FrameLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
-    xmlns:android="http://schemas.android.com/apk/res/android"
-    android:background="?attr/selectableItemBackground"
-    android:paddingBottom="16dp"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="@drawable/list_item_background_combined"
     >
-
-    <com.google.android.material.card.MaterialCardView
-        android:id="@+id/header_section_title"
-        android:textColor="?colorOnSurface"
-        android:layout_width="48dp"
-        android:layout_height="48dp"
-        android:layout_marginStart="12dp"
-        app:cardCornerRadius="8dp"
-        app:cardBackgroundColor="@android:color/transparent"
-        style="@style/Widget.Material3.CardView.Outlined"
-        app:strokeColor="?colorOutlineVariant"
+    <RelativeLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_vertical"
+        android:layout_marginTop="12dp"
+        android:layout_marginBottom="12dp"
+        android:id="@+id/recycler_item_model_parent"
         >
+        <com.alibaba.mnnllm.android.widgets.ModelAvatarView
+            android:id="@+id/header_section_title"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_marginTop="4dp"
+            android:layout_marginStart="12dp"
+            android:layout_marginEnd="10dp"
+            style="@style/Widget.Material3.CardView.Outlined"
+            app:cardBackgroundColor="@android:color/transparent"
+            app:cardCornerRadius="8dp"
+            app:strokeColor="?colorOutlineVariant"
+            tools:cardBackgroundColor="#000"
+            />
+
         <TextView
-            android:id="@+id/tvModelName"
-            tools:text="Qwen"
-            android:layout_gravity="center"
-            android:textSize="16sp"
+            android:id="@+id/tvModelTitle"
+            style="?textAppearanceTitleSmall"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:textColor="?colorOnSurface" />
+            android:layout_toEndOf="@id/header_section_title"
+            android:maxLines="1"
+            android:textColor="?colorOnSurface"
+            tools:text="Qwen-Chat-7B" />
+
+        <com.alibaba.mnnllm.android.widgets.TagsLayout
+            android:id="@+id/tagsLayout"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:minHeight="24dp"
+            android:layout_below="@id/tvModelTitle"
+            android:layout_marginEnd="60dp"
+            android:layout_toEndOf="@id/header_section_title" />
+
         <ImageView
-            android:id="@+id/header_section_icon"
-            android:src="@drawable/qwen_icon"
-            android:layout_margin="8dp"
+            android:id="@+id/ivFolder"
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:layout_marginEnd="4dp"
+            android:layout_below="@id/tagsLayout"
+            android:src="@drawable/ic_u_folder"
+            app:tint="?colorOnSurfaceVariant"
+            android:layout_toEndOf="@id/header_section_title"
+            />
+        <TextView
+            android:id="@+id/tvStatus"
+            style="?textAppearanceBodySmall"
+            android:layout_marginTop="2dp"
+            android:layout_alignBaseline="@id/ivFolder"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_below="@id/tagsLayout"
+            android:layout_toEndOf="@id/ivFolder"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:textColor="?colorOnSurfaceVariant"
+            android:visibility="visible"
+            tools:text="4.5GB" />
+
+        <TextView
+            android:id="@+id/tvTimeInfo"
+            style="?textAppearanceBodySmall"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_alignBottom="@id/tvStatus"
+            android:layout_alignParentEnd="true"
+            android:layout_marginStart="14dp"
+            android:layout_marginTop="2dp"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:textColor="?colorOnSurfaceVariant"
+            android:layout_marginEnd="16dp"
+            android:textSize="12sp"
+            android:visibility="visible"
+            tools:text="Last chat: 2024-01-15 10:30" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_update"
+            android:layout_width="60dp"
+            android:layout_height="32dp"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_marginEnd="16dp"
+            android:layout_gravity="center_vertical"
+            android:text="@string/update"
+            android:textSize="12sp"
+            android:insetLeft="0dp"
+            android:insetRight="0dp"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            tools:text="Update"
+            android:padding="0dp"
+            tools:visibility="visible"
+            android:layout_alignParentEnd="true"
+            android:layout_above="@id/tvTimeInfo"
+            app:strokeColor="?colorPrimary"
+            app:strokeWidth="1dp"
+            />
+
+        <View
+            android:id="@+id/pinned_overlay"
             android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:visibility="invisible"
-            tools:ignore="ContentDescription" />
-    </com.google.android.material.card.MaterialCardView>
-
-    <TextView
-        android:id="@+id/tvModelTitle"
-        android:layout_toEndOf="@id/header_section_title"
-        android:layout_alignTop="@+id/header_section_title"
-        android:layout_marginStart="14dp"
-        android:maxLines="1"
-        tools:text="Qwen-Chat-7B"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        style="?textAppearanceTitleSmall"
-        android:textColor="?colorOnSurface"
-        />
-
-    <com.alibaba.mnnllm.android.widgets.TagsLayout
-        android:id="@+id/tagsLayout"
-        android:layout_toEndOf="@id/header_section_title"
-        android:layout_below="@id/tvModelTitle"
-        android:layout_marginStart="14dp"
-        android:layout_marginEnd="60dp"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"/>
-
-    <TextView
-        android:id="@+id/tvModelSubtitle"
-        android:visibility="visible"
-        android:layout_toEndOf="@id/header_section_title"
-        android:layout_below="@id/tvModelTitle"
-        android:layout_marginStart="14dp"
-        android:layout_marginEnd="20dp"
-        android:textColor="?colorOnSurfaceVariant"
-        android:textSize="14sp"
-        tools:text="Visual  Audio"
-        android:maxLines="1"
-        android:ellipsize="end"
-        android:layout_width="0.1dp"
-        android:layout_height="wrap_content"/>
-
-    <TextView
-        android:id="@+id/tvStatus"
-        android:layout_toEndOf="@id/header_section_title"
-        android:layout_below="@id/tagsLayout"
-        android:layout_marginStart="14dp"
-        android:textColor="?colorOnSurfaceVariant"
-        tools:text="DownloadComplete"
-        android:maxLines="1"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:visibility="visible"
-        android:ellipsize="end"
-        style="?textAppearanceBodySmall"/>
-
-    <ProgressBar
-        android:id="@+id/download_progress_bar"
-        style="?android:attr/progressBarStyleHorizontal"
-        android:layout_width="match_parent"
-        android:layout_height="6dp"
-        android:layout_toEndOf="@id/header_section_title"
-        android:layout_below="@id/tvStatus"
-        android:layout_marginStart="14dp"
-        android:layout_marginEnd="60dp"
-        android:layout_marginTop="4dp"
-        android:progress="60"
-        android:indeterminate="false"
-        android:progressDrawable="@drawable/progress_m2_style" />
-    <com.github.ybq.android.spinkit.SpinKitView
-        android:id="@+id/download_progress_view"
-        android:layout_alignParentEnd="true"
-        android:visibility="gone"
-        android:layout_marginEnd="14dp"
-        android:layout_marginBottom="20dp"
-        android:layout_alignParentBottom="true"
-        style="@style/SpinKitView.FadingCircle"
-        android:layout_width="20dp"
-        android:layout_height="20dp"
-        android:layout_gravity="center"
-        app:SpinKit_Color="?colorPrimary" />
-
-    <ImageView
-        android:id="@+id/iv_download"
-        android:layout_marginEnd="16dp"
-        android:layout_width="22dp"
-        android:layout_centerVertical="true"
-        android:layout_height="22dp"
-        android:layout_alignParentEnd="true"
-        android:src="@drawable/download"
-        tools:ignore="ContentDescription"
-        app:tint="?colorOnSurface"/>
-<!--    <ImageView-->
-<!--        android:layout_marginEnd="12dp"-->
-<!--        android:layout_width="25dp"-->
-<!--        android:layout_centerVertical="true"-->
-<!--        android:layout_height="25dp"-->
-<!--        android:layout_toStartOf="@id/iv_more"-->
-<!--        android:src="@drawable/download"-->
-<!--        app:tint="?colorOnSurface"-->
-<!--        tools:ignore="ContentDescription" />-->
-
-</RelativeLayout>
+            android:layout_height="0dp"
+            android:layout_alignParentTop="true"
+            android:layout_alignParentBottom="true"
+            android:background="#0000"
+            android:visibility="visible"
+            />
+    </RelativeLayout>
+</FrameLayout>

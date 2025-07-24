@@ -100,7 +100,7 @@ void AttentionBufExecution::_init() {
     mCache.reset(new SharedCache);
     auto mtbn = static_cast<MetalBackend *>(backend());
     auto context = (__bridge MNNMetalContext *)mtbn->context();
-    mMeta = (KVMeta*)(mtbn->getRuntime()->pMeta);
+    mMeta = (KVMeta*)(mtbn->getMetaPtr());
 
     mParamQKV = [context newDeviceBuffer:sizeof(Param) access:CPUWriteOnly];
     mParamSoftmax = [context newDeviceBuffer:4 * sizeof(int) access:CPUWriteOnly];

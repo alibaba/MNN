@@ -20,11 +20,10 @@ import com.alibaba.mnnllm.android.databinding.FragmentSettingsSheetBinding
 import com.alibaba.mnnllm.android.databinding.SettingsRowSliderSwitchBinding
 import com.alibaba.mnnllm.android.llm.LlmSession
 import com.alibaba.mnnllm.android.modelsettings.ModelConfig.Companion.defaultConfig
-import com.alibaba.mnnllm.android.utils.FileUtils
+import com.alibaba.mnnllm.android.utils.BaseBottomSheetDialogFragment
+import com.alibaba.mnnllm.android.utils.MmapUtils
 import com.google.android.material.bottomsheet.BottomSheetBehavior
-import com.google.android.material.bottomsheet.BottomSheetDialogFragment
-import java.io.File
-import java.util.*
+import java.util.Locale
 
 enum class SamplerType(val value: String) {
     Greedy("greedy"),
@@ -43,7 +42,7 @@ val mainSamplerTypes = listOf (
     SamplerType.Mixed
 )
 
-class SettingsBottomSheetFragment : BottomSheetDialogFragment() {
+class SettingsBottomSheetFragment : BaseBottomSheetDialogFragment() {
 
     private lateinit var loadedConfig: ModelConfig
     private lateinit var modelId:String
@@ -98,7 +97,7 @@ class SettingsBottomSheetFragment : BottomSheetDialogFragment() {
             currentConfig.useMmap = isChecked
         }
         binding.buttonClearMmapCache.setOnClickListener {
-            val success = FileUtils.clearMmapCache(modelId)
+            val success = MmapUtils.clearMmapCache(modelId)
             if (success) {
                 needRecreateActivity = true
                 Toast.makeText(requireActivity(), R.string.mmap_cacche_cleared, Toast.LENGTH_LONG).show()
@@ -205,6 +204,7 @@ class SettingsBottomSheetFragment : BottomSheetDialogFragment() {
                 SamplerType.TopP.value,
                 SamplerType.MinP.value,
                 SamplerType.Temperature.value,
+                SamplerType.Penalty.value
             )
         }
         currentConfig.topK = currentConfig.topK?:defaultConfig.topK!!
@@ -273,6 +273,80 @@ class SettingsBottomSheetFragment : BottomSheetDialogFragment() {
             onValueChange = { currentConfig.temperature = it },
             onEnabledChange = { toggleEnable(currentConfig.mixedSamplers!!, SamplerType.Temperature, it)}
         )
+
+        // Add penalty settings to mixed sampler
+        setupMixedPenaltySettings()
+    }
+
+    private fun setupMixedPenaltySettings() {
+        val isPenaltyEnabled = currentConfig.mixedSamplers!!.contains(SamplerType.Penalty.value)
+        
+        currentConfig.penalty = currentConfig.penalty?:defaultConfig.penalty!!
+        setupSliderSwitchRow(
+            rowBinding = SettingsRowSliderSwitchBinding.bind(binding.rowMixedPenalty.root),
+            label = "Penalty",
+            initialValue = currentConfig.penalty!!,
+            initialEnabled = isPenaltyEnabled,
+            valueRange = 0f..5f,
+            decimalPlaces = 2,
+            onValueChange = { currentConfig.penalty = it },
+            onEnabledChange = { enabled ->
+                toggleEnable(currentConfig.mixedSamplers!!, SamplerType.Penalty, enabled)
+                updateMixedPenaltyControlsState(enabled)
+            }
+        )
+
+        currentConfig.nGram = currentConfig.nGram?:defaultConfig.nGram!!
+        setupSliderSwitchRow(
+            rowBinding = SettingsRowSliderSwitchBinding.bind(binding.rowMixedNgramSize.root),
+            label = "N-gram Size",
+            initialValue = (currentConfig.nGram!!).toFloat(),
+            initialEnabled = isPenaltyEnabled,
+            valueRange = 1f..16f,
+            decimalPlaces = 0,
+            onValueChange = { currentConfig.nGram = it.toInt() },
+            switchVisible = false
+        )
+
+        currentConfig.nGramFactor = currentConfig.nGramFactor?:defaultConfig.nGramFactor!!
+        setupSliderSwitchRow(
+            rowBinding = SettingsRowSliderSwitchBinding.bind(binding.rowMixedNgramFactor.root),
+            label = "N-gram Factor",
+            initialValue = currentConfig.nGramFactor!!,
+            initialEnabled = isPenaltyEnabled,
+            valueRange = 1f..2f,
+            decimalPlaces = 1,
+            onValueChange = { currentConfig.nGramFactor = it },
+            switchVisible = false
+        )
+
+        penaltySamplerValue = currentConfig.penaltySampler?:defaultConfig.penaltySampler!!
+        binding.dropdownMixedPenaltySampler.setDropDownItems(listOf("greedy", "temperature")) { _, value ->
+            penaltySamplerValue = value.toString()
+            currentConfig.penaltySampler = penaltySamplerValue
+        }
+        binding.dropdownMixedPenaltySampler.setCurrentItem(penaltySamplerValue)
+        
+        // Initialize the controls state based on penalty switch
+        updateMixedPenaltyControlsState(isPenaltyEnabled)
+    }
+
+    private fun updateMixedPenaltyControlsState(enabled: Boolean) {
+        // Update N-gram Size control
+        val ngramSizeBinding = SettingsRowSliderSwitchBinding.bind(binding.rowMixedNgramSize.root)
+        ngramSizeBinding.seekbar.isEnabled = enabled
+        ngramSizeBinding.labelSlider.alpha = if (enabled) 1.0f else 0.5f
+        ngramSizeBinding.valueSlider.alpha = if (enabled) 1.0f else 0.5f
+        
+        // Update N-gram Factor control
+        val ngramFactorBinding = SettingsRowSliderSwitchBinding.bind(binding.rowMixedNgramFactor.root)
+        ngramFactorBinding.seekbar.isEnabled = enabled
+        ngramFactorBinding.labelSlider.alpha = if (enabled) 1.0f else 0.5f
+        ngramFactorBinding.valueSlider.alpha = if (enabled) 1.0f else 0.5f
+        
+        // Update dropdown control
+        binding.dropdownMixedPenaltySampler.isEnabled = enabled
+        binding.dropdownMixedPenaltySampler.alpha = if (enabled) 1.0f else 0.5f
     }
 
     private fun setupPenaltySettings() {

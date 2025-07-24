@@ -115,12 +115,40 @@
 
     <style name="FilterChipStyle" parent="">
         <item name="android:layout_width">wrap_content</item>
-        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_height">30dp</item>
         <item name="android:background">@drawable/bg_filter_chip</item>
-        <item name="android:textColor">?android:attr/textColorPrimary</item>
-        <item name="android:textSize">13sp</item>
+        <item name="android:textColor">@color/filter_button_tint</item>
+        <item name="android:textSize">12sp</item>
         <item name="android:gravity">center_vertical</item>
         <item name="android:layout_marginEnd">8dp</item>
         <item name="android:drawablePadding">4dp</item>
+    </style>
+
+    <style name="TextFilterGroup">
+        <item name="android:textSize">14sp</item>
+        <item name="android:textColor">@color/color_foreground</item>
+        <item name="android:layout_marginBottom">8dp</item>
+    </style>
+
+    <style name="CustomChipChoice" parent="Widget.MaterialComponents.Chip.Filter">
+        <item name="chipCornerRadius">8dp</item>
+        <item name="chipBackgroundColor">@color/chip_background_color_selector</item>
+        <item name="chipStrokeColor">@color/chip_stroke_color_selector</item>
+        <item name="chipStrokeWidth">1dp</item>
+        <item name="android:textColor">@color/chip_text_color_selector</item>
+        <item name="chipMinHeight">30dp</item>
+        <item name="checkedIconVisible">false</item>
+        <item name="checkedIcon">@null</item>
+        <item name="chipMinTouchTargetSize">0dp</item>
+    </style>
+
+    <style name="BottomSheetDialogTheme" parent="Theme.Material3.DayNight.BottomSheetDialog">
+        <item name="colorPrimary">@color/md_theme_primary</item>
+        <item name="colorSecondary">@color/md_theme_secondary</item>
+        <item name="bottomSheetStyle">@style/BottomSheetStyle</item>
+    </style>
+
+    <style name="BottomSheetStyle" parent="Widget.Material3.BottomSheet">
+        <item name="android:background">@drawable/bottom_sheet_background</item>
     </style>
 </resources>

@@ -3,6 +3,8 @@
 
 package com.alibaba.mls.api.download
 
+import com.alibaba.mls.api.download.DownloadFileUtils.repoFolderName
+import com.alibaba.mnnllm.android.model.ModelUtils
 import java.io.File
 import java.util.Collections
 
@@ -13,6 +15,13 @@ abstract class ModelRepoDownloader {
     abstract suspend fun getRepoSize(modelId: String):Long
     abstract fun setListener(callback: ModelRepoDownloadCallback?)
     abstract fun download(modelId: String)
+
+    fun repoModelRealFile(modelId: String):File {
+        return File(cacheRootPath, "${repoFolderName(ModelUtils.getRepositoryPath(modelId), "model")}/blobs")
+    }
+
+    abstract suspend fun checkUpdate(modelId: String)
+
     fun pause(modelId: String) {
         pausedSet.add(modelId)
     }
@@ -36,5 +45,6 @@ abstract class ModelRepoDownloader {
             currentFile: String?,
             saved: Long,
             total: Long)
+        fun onRepoInfo(modelId: String, lastModified: Long, repoSize: Long)
     }
 }

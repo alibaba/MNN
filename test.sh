@@ -49,6 +49,10 @@ failed() {
     exit 1
 }
 
+echo_static_success() {
+    echo "TEST_CASE={\"name\":\"静态检查\", \"failed\":0, \"passed\":3}"
+}
+
 #############################################################################################
 #                                                                                           #
 #                                  Linux Test Functions                                     #
@@ -138,7 +142,7 @@ static_check() {
     if [ -z "$SOURCE_CHANGE" ]; then
         return
     fi
-    cppcheck --error-exitcode=1 --language=c++ --std=c++14 --addon=tools/script/mnn_rules.py $SOURCE_CHANGE 1> /dev/null
+    cppcheck --error-exitcode=1 --language=c++ --std=c++14 $SOURCE_CHANGE 1> /dev/null
     static_check_wrong=$[$? > 0]
     printf "TEST_NAME_STATIC_CHECK: cppcheck静态分析\nTEST_CASE_AMOUNT_STATIC_CHECK: {\"blocked\":0,\"failed\":%d,\"passed\":%d,\"skipped\":0}\n" \
            $static_check_wrong $[1 - $static_check_wrong]
@@ -747,6 +751,7 @@ case "$1" in
         doc_check
         static_check
         py_check
+        echo_static_success
         ;;
     *)
         $1

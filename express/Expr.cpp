@@ -1339,6 +1339,18 @@ std::vector<EXPRP> Variable::getExecuteOrder(const std::vector<VARP>& outputs) {
         if (nullptr == output) {
             continue;
         }
+        if (nullptr == output->expr().first) {
+            continue;
+        }
+        auto op = output->expr().first->get();
+        bool isConst = ((op && op->type() == OpType_Const) || (!op && output->expr().first->inputType() == VARP::CONSTANT));
+        if (isConst) {
+            if (!output->expr().first->visited()){
+                output->expr().first->setVisited(true);
+                sequence.emplace_back(output->expr().first);
+                continue;
+            }
+        }
         workStack.push(output->expr().first);
     }
     while (!workStack.empty()) {

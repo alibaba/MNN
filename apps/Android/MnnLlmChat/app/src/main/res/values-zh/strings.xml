@@ -5,19 +5,18 @@
     <string name="navigation_drawer_close">Close navigation drawer</string>
     <string name="action_settings">Settings</string>
     <string name="main_describe">mnn-llm</string>
-    <string name="spinner_prompt">选择模型</string>
     <string name="model_loading">模型加载中...</string>
-    <string name="download_not_started">%1$s 点击下载</string>
-    <string name="downloaded_click_to_chat">%1$S 已下载</string>
+    <string name="download_not_started">%1$s</string>
+    <string name="downloaded_click_to_chat">%1$S</string>
     <string name="local_click_to_chat">%1$S %2$S</string>
     <string name="download_failed_click_retry">下载失败: %1$s, 点击重试</string>
-    <string name="downloading_progress">%1$s 下载中：%2$.2f%% %3$s</string>"
+    <string name="downloading_progress">%1$s | %2$s</string>"
     <string name="config_file_not_found">模型配置文件不存在：%1$s</string>
-    <string name="model_hello_prompt">你好，我是%1$s，有什么需要帮忙的么</string>
-    <string name="model_hello_prompt_diffusion">你好，我是%1$s，请输入提示词生成图片</string>
+    <string name="model_hello_prompt">有什么需要帮忙的么？</string>
+    <string name="model_hello_prompt_diffusion">请输入提示词\n我可以生成图片哦</string>
     <string name="delete_model">删除模型</string>
     <string name="pause_download">暂停下载</string>
-    <string name="downloading_paused">%1$s 已暂停: %2$.2f%%</string>
+    <string name="downloading_paused">已暂停: %1$.2f%%</string>
     <string name="start_download">开始下载</string>
     <string name="download_preparing">下载文件信息准备中。。。</string>
     <string name="downloading_please_wait">文件下载中，请稍等</string>
@@ -26,6 +25,8 @@
     <string name="send">发送</string>
     <string name="raise_issue">反馈 issue </string>
     <string name="star_project">在 Github 上 Star</string>
+    <string name="star_project_confirm_title">为 MNN 项目 Star</string>
+    <string name="star_project_confirm_message">在 Github 上 Star 以支持我们！</string>
     <string name="resume_all_downloads">开始所有未完成下载</string>
     <string name="history_cleard">历史记录已清理</string>
     <string name="press_to_chat">按住说话</string>
@@ -35,11 +36,17 @@
     <string name="choose_image">图片</string>
     <string name="select_audio">音频(wav)</string>
     <string name="show_performance_metrics">显示性能指标</string>
+    <string name="realtime_audio_playback">实时音频播放</string>
+    <string name="report_issue">反馈</string>
+    <string name="toggle_benchmark">指标</string>
+    <string name="hide_benchmark">隐藏</string>
+    <string name="replay_audio">重播</string>
 
 <!--    <string name="app_name">DrawerLayoutDemo</string>-->
     <string name="nav_open">Open navigation drawer</string>
     <string name="nav_close">Close navigation drawer</string>
     <string name="models">模型列表</string>
+    <string name="models_market">模型市场</string>
     <string name="history">历史会话</string>
     <string name="history_title">Chat History</string>
     <string name="history_delete_success">历史被删除</string>
@@ -68,7 +75,14 @@
     <string name="get_update_info_failed">获取更新信息失败</string>
     <string name="no_update">没有可用更新</string>
     <string name="download">下载</string>
+    <string name="download_pending">等待中</string>
+    <string name="update">更新</string>
+    <string name="download_progress_format">%.1f%%</string>
+    <string name="download_resume">继续</string>
+    <string name="download_paused_status">已暂停</string>
+    <string name="chat_action">对话</string>
     <string name="download_update_available">有新版本: (%1$s)</string>
+    <string name="downloaded_update_available"> %1$s (有更新可用)</string>
     <string name="show_only_downloaded">只显示已下载模型</string>
     <string name="about">关于</string>
     <string name="settings">设置</string>
@@ -88,12 +102,15 @@
     <string name="api_service_port">端口：%1$d</string>
     <string name="api_service_start_failed">API 服务启动失败</string>
     <string name="api_service_error">错误：%1$s</string>
-    <string name="modelscope">Modelscope(魔搭)</string>
-    <string name="modelers">Modelers(魔乐)</string>
+    <string name="modelscope">魔搭</string>
+    <string name="modelers">魔乐</string>
+    <string name="huggingface">HuggingFace</string>
     <string name="diffusion_mode_memory_saving">内存节省模式</string>
     <string name="diffusion_mode_memory_engough">内存足够模式</string>
     <string name="diffusion_mode_memory_balance">内存平衡模式</string>
     <string name="diffusion_memory_mode">Diffusion内存模式</string>
+    <string name="voice_model_management">语音模型管理</string>
+    <string name="voice_model_management_summary">管理TTS和ASR模型</string>
     <string name="model_settings">设置</string>
     <string name="model_settings_title">模型设置</string>
     <string name="api_settings">API设置</string>
@@ -166,6 +183,8 @@
     <string name="server_stopped_message">服务器已停止</string>
     <string name="server_running_at_template">服务器运行在 %1$s:%2$d</string>
     <string name="close">关闭</string>
+    <string name="back">返回</string>
+    <string name="share_benchmark_result">分享基准测试结果</string>
     
     <string name="api_auth_enabled">启用API Key认证</string>
     <string name="reset">重置</string>
@@ -182,9 +201,22 @@
     <string name="auth_enabled">认证: 已启用</string>
     <string name="menu_item_benchmark_test">Benchmark测试</string>
     <string name="select_dataset">选择数据集</string>
+    <string name="select_model">选择模型</string>
     <string name="start_voice_chat">开启语音会话</string>
     <string name="max_new_tokens">最大输出 token 数量</string>
     <string name="system_prompt">System Prompt</string>
+    
+    <!-- Voice Model Management Strings -->
+    <string name="voice_model_settings">设置</string>
+    <string name="default_asr_model">默认ASR</string>
+    <string name="default_model">默认</string>
+    <string name="set_as_default_tts">设为默认TTS</string>
+    <string name="set_as_default_asr">设为默认ASR</string>
+    <string name="set_as_default">设为默认</string>
+    <string name="already_default_tts_model">该模型已设为默认TTS</string>
+    <string name="already_default_model">该模型已设为默认</string>
+    <string name="default_tts_model_set">%1$s 已设为默认TTS模型</string>
+    <string name="model_not_downloaded_cannot_set_default">模型未下载，无法设为默认</string>
     <string name="settings_cancel">取消</string>
     <string name="settings_done">完成</string>
     <string name="max_new_tokens_hint">最大输出 token 数量</string>
@@ -200,6 +232,16 @@
     <string name="vendor_menu_title">厂商</string>
     <string name="modality_menu_title">模态</string>
     <string name="downloaded">已下载</string>
+    <string name="last_chat">最后聊天</string>
+    <string name="show_model_info">显示模型信息</string>
+    <string name="model_info_title">模型信息</string>
+    <string name="model_download_time">下载时间</string>
+    <string name="model_last_chat_time">最后聊天时间</string>
+    <string name="model_chat_history">聊天历史</string>
+    <string name="no_chat_history">无聊天历史</string>
+    <string name="never_chatted">从未聊天</string>
+    <string name="unnamed_session">未命名会话</string>
+    <string name="unknown">未知</string>
     <string name="download_state">下载状态</string>
     <string name="local_available">本地可用</string>
     <string name="all">所有</string>
@@ -209,7 +251,11 @@
     <string name="download_state_downloading">下载中</string>
     <string name="download_state_failed">下载失败</string>
     <string name="download_state_paused">下载暂停</string>
-    <string name="no_models_found">没有找到模型，改变过滤器试试</string>
+    <string name="download_state_updating">更新中</string>
+    <string name="no_models_found">没有找到模型，请在模型市场下载</string>
+    <string name="no_filtered_models_title">没有符合筛选条件的模型</string>
+    <string name="no_filtered_models_message">请尝试调整筛选条件以查看更多模型，或者清除所有筛选条件以查看所有可用模型。</string>
+    <string name="clear_filters">清除筛选</string>
     <string name="diffusion_model_not_alloed">Diffusion模型暂时不支持在此设置</string>
     <string name="settings_section_general">常用设置</string>
     <string name="settings_section_advanced">高级设置</string>
@@ -217,7 +263,7 @@
     <string name="add_local_models">增加本地模型</string>
     <string name="copy_command">复制命令</string>
     <string name="add_local_models_title">增加本地模型</string>
-    <string name="add_local_models_message">要添加本地模型，请先将模型下载到桌面，然后运行 “%1$s”。完成后，模型将出现在模型列表中。</string>
+    <string name="add_local_models_message">要添加本地模型，请先将模型下载到桌面，然后运行 "%1$s"。完成后，模型将出现在模型列表中。</string>
     <string name="copied_to_clipboard">已复制到粘贴板</string>
     <string name="apk_download_started">Apk下载中，可以在通知栏查看进度</string>
     <string name="api_config_reset_service_restarted">API配置已重置，服务已重启</string>
@@ -228,4 +274,215 @@
     <string name="restarting_api_service_new_config">正在重启API服务以应用新配置...</string>
     <string name="config_restored_default_processing_service">配置已恢复默认，正在处理服务状态...</string>
     <string name="test_log_added_with_code_jump">已添加测试日志\n长按日志条目可尝试跳转到代码</string>
+    
+    <!-- Debug Activity Strings -->
+    <string name="debug_activity_title">调试</string>
+    <string name="debug_activity_description">开发者测试界面，用于测试各种组件</string>
+    <string name="debug_mode">调试模式</string>
+    <string name="close_debug_mode">关闭调试模式</string>
+    <string name="debug_mode_control">调试模式控制</string>
+    <string name="close_debug_mode_title">关闭调试模式</string>
+    <string name="close_debug_mode_message">确定要关闭调试模式吗？这将隐藏设置中的调试模式选项，直到您再次点击版本信息5次来激活它。</string>
+    <string name="test_items">测试项目</string>
+    <string name="start_asr_test">开始ASR测试</string>
+    <string name="stop_asr_test">停止ASR测试</string>
+    <string name="start_tts_test">开始TTS测试</string>
+    <string name="stop_tts_test">停止TTS测试</string>
+    <string name="tts_test_input_hint">输入要转换为语音的文本</string>
+    <string name="tts_test_button">测试TTS</string>
+    <string name="tts_initializing">TTS服务初始化中...</string>
+    <string name="tts_ready">TTS服务就绪</string>
+    <string name="tts_processing">处理中：%1$s</string>
+    <string name="tts_generated_samples">生成了%1$d个音频样本。正在播放...</string>
+    <string name="tts_playback_completed">播放完成。生成了%1$d个样本。</string>
+    <string name="tts_error">TTS错误：%1$s</string>
+    <string name="tts_not_ready">TTS服务未就绪</string>
+    <string name="placeholder_test_1">测试项目1（即将推出）</string>
+    <string name="placeholder_test_2">测试项目2（即将推出）</string>
+    <string name="debug_log">调试日志</string>
+    
+    <!-- Voice Chat Strings -->
+    <string name="voice_chat">语音聊天</string>
+    <string name="voice_chat_title">语音聊天 - %1$s</string>
+    <string name="end_voice_chat">结束通话</string>
+    <string name="voice_chat_listening">正在聆听...</string>
+    <string name="voice_chat_speaking">正在说话...</string>
+    <string name="voice_chat_processing">处理中...</string>
+    <string name="voice_chat_thinking">思考中...</string>
+    <string name="voice_chat_greeting">初始化中...</string>
+    <string name="voice_chat_idle">点击说话</string>
+    <string name="voice_chat_error">语音聊天错误：%1$s</string>
+    <string name="voice_chat_permission_required">语音聊天需要麦克风权限</string>
+    <string name="voice_chat_session_ended">语音聊天会话已结束</string>
+    <string name="voice_chat_connecting">正在连接...</string>
+    <string name="initializing">正在初始化</string>
+    <string name="voice_chat_stop">停止</string>
+    <string name="voice_chat_stopping">正在停止...</string>
+    <string name="voice_chat_ready_greeting">有什么可以帮助您的？</string>
+    <string name="voice_chat_usage_notice">使用语音聊天需要下载TTS和ASR模型，请注意多语言支持。</string>
+    <string name="nav_name_chats">会话</string>
+    <string name="benchmark">性能评测</string>
+    <string name="download_source">选择下载源</string>
+    <string name="filter">筛选</string>
+    <string name="filter_section_model_tags">模型标签</string>
+    <string name="filter_all">全部筛选</string>
+    <string name="local">本地</string>
+    
+    <!-- Voice Chat Download Strings -->
+    <string name="voice_models_downloading_progress">正在下载语音模型 %1$d%% (%2$s)</string>
+    <string name="voice_models_download_complete">语音模型下载完成！正在启动语音聊天...</string>
+    <string name="voice_models_download_failed">语音模型下载失败：%1$s</string>
+    
+    <!-- TTS model settings -->
+    <string name="default_tts_model">默认TTS</string>
+    <string name="tts_model_set_as_default">已设为默认TTS模型</string>
+    <string name="set_default_tts_model">设为默认TTS模型</string>
+    <string name="voice_models_not_downloaded">语音聊天需要 %1$d 个模型。开始下载...</string>
+    <string name="voice_models_partially_downloaded">语音模型：%1$d/%2$d 已就绪。正在下载剩余模型...</string>
+    
+    <!-- Voice Model Market Strings -->
+    <string name="voice_models_title">语音模型</string>
+    <string name="tts_models">TTS模型</string>
+    <string name="asr_models">ASR模型</string>
+    <string name="no_tts_models_available">没有可用的TTS模型</string>
+    <string name="no_asr_models_available">没有可用的ASR模型</string>
+    <string name="no_models_available">没有可用的模型</string>
+    <string name="model_already_downloaded">模型已下载</string>
+    
+    <!-- Benchmark Status Strings -->
+    <string name="benchmark_initializing">正在初始化基准测试...</string>
+    <string name="benchmark_loading_model">正在加载模型...</string>
+    <string name="benchmark_warming_up">正在预热...</string>
+    <string name="benchmark_running_test">正在运行测试 %1$d/%2$d</string>
+    <string name="benchmark_test_config">PP: %1$d • TG: %2$d</string>
+    <string name="benchmark_test_completed">测试 %1$d 已完成</string>
+    <string name="benchmark_all_tests_completed">所有测试已完成</string>
+    <string name="benchmark_processing_results">正在处理结果...</string>
+    <string name="benchmark_failed">基准测试失败: %1$s</string>
+    <string name="benchmark_stop_confirmation_title">停止基准测试</string>
+    <string name="benchmark_stop_confirmation_message">您确定要停止基准测试吗？</string>
+    <string name="benchmark_stopped">基准测试已停止</string>
+    <string name="benchmark_stopping">正在停止基准测试...</string>
+    <string name="stop_test">停止测试</string>
+    <string name="yes">是</string>
+    <string name="no">否</string>
+    <string name="select_a_model_to_start">选择好模型后，就可以开始评测了</string>
+    <string name="start_test">开始测试</string>
+    <string name="prefill_speed">"预填充速度: "</string>
+    <string name="memory_title">峰值内存：</string>
+    <string name="decode_speed">解码速度：</string>
+    <string name="test_result">评测结果</string>
+    <string name="share">分享</string>
+
+    <!-- Benchmark Strings -->
+    <string name="benchmark_config">评测配置</string>
+    <string name="benchmark_prompt_processing">提示词处理</string>
+    <string name="benchmark_token_generation">生成</string>
+    <string name="benchmark_peak_memory_usage">峰值内存占用</string>
+    <string name="benchmark_model_params">总处理Token数: %1$d\n测试次数: %2$d</string>
+    <string name="benchmark_device_info">设备: %1$s</string>
+    
+    <!-- Structured Progress Strings -->
+    <string name="benchmark_progress_detailed">测试 %1$d/%2$d (PP=%3$d, TG=%4$d)\n运行时间: %5$.3fs, 预填充: %6$.3fs, 解码: %7$.3fs\n预填充速度: %8$.2f t/s, 解码速度: %9$.2f t/s</string>
+    <string name="benchmark_progress_simple">测试 %1$d/%2$d (PP=%3$d, TG=%4$d)</string>
+    
+    <string name="api_service_channel_name">API服务通道</string>
+    <string name="request_added_to_queue">请求已加入队列: requestId=%1$s, traceId=%2$s, 队列长度=%3$d, 优先级=%4$s</string>
+    <string name="handle_log_click_comment">处理日志点击事件</string>
+    <string name="chat_tag">对话</string>
+    <string name="unknown_tag">未知标签</string>
+    <string name="test_tag_creation">测试标签创建</string>
+    <string name="test_tag_mapper">测试标签映射器</string>
+    <string name="test_get_all_tags">测试获取所有标签</string>
+    <string name="mnn_local_model">mnn-本地</string>
+    <string name="assistant_role">助手</string>
+    <string name="stop_finish_reason">停止</string>
+    <string name="project_path">c:/Project/github/AIddlx/0528/MNN/apps/Android/MnnLlmChat</string>
+    <string name="default_localhost_ip">127.0.0.1</string>
+    <string name="listen_all_ip">0.0.0.0</string>
+    <string name="tts_service_tag">TTS服务</string>
+    <string name="mnn_tts_library_loaded">mnn_tts 原生库加载成功</string>
+    <string name="default_language_en">zh</string>
+    <string name="request_queue_tag">请求队列</string>
+    <string name="api_console_ui_tag">API控制台UI</string>
+    <string name="ui_initializing_view_components">[UI] 正在初始化视图组件</string>
+    <string name="select_download_provider_title">选择下载源</string>
+    <string name="switch_download_source">切换下载源</string>
+    <string name="filter_action">筛选</string>
+    <string name="download_action">下载</string>
+    <string name="clear_selection">清空选择</string>
+    <string name="confirm_action">确认</string>
+    <string name="option_title_hint">选项标题</string>
+    <string name="option_description_hint">选项描述文本</string>
+    <string name="photo_hint">照片</string>
+    
+    <!-- Missing pin-related translations -->
+    <string name="model_pinned">模型已置顶</string>
+    <string name="model_unpinned">模型已取消置顶</string>
+    <string name="pin_toggle_failed">切换置顶状态失败</string>
+    <string name="menu_pin_model">置顶</string>
+    <string name="menu_unpin_model">取消置顶</string>
+    
+    <!-- Toast messages for multi-language support -->
+    <string name="cannot_create_new_session_when_generating">生成时无法创建新会话</string>
+    <string name="cannot_start_voice_chat_when_generating">生成时无法启动语音聊天</string>
+    <string name="please_install_file_manager">请安装文件管理器。</string>
+    <string name="get_audio_file_failed">获取音频文件失败</string>
+    <string name="dataset_process_complete">数据集 %1$s 处理完成</string>
+    <string name="error_on_process_dataset">处理数据集时出错：%1$s</string>
+    <string name="starting_download_from">开始从 %1$s 下载...</string>
+    <string name="unable_to_determine_model_source">无法确定模型源</string>
+    <string name="unknown_source">未知源：%1$s</string>
+    <string name="please_grant_permission_install_apps">请授予安装应用程序的权限。</string>
+    <string name="debug_mode_closed_message">调试模式已关闭。它将从设置中隐藏。</string>
+    <string name="failed_to_open_model_card">打开模型卡片失败：%1$s</string>
+    <string name="error_generic">错误：%1$s</string>
+    <string name="failed_to_show_voice_model_market">显示语音模型市场失败：%1$s</string>
+    <string name="please_wait_generation_complete">请等待当前生成完成后再切换模型</string>
+    <string name="model_switched_to">模型已切换到 %1$s</string>
+    <string name="failed_to_switch_model">切换模型失败：%1$s</string>
+    <string name="no_models_available_switch">没有可用的模型</string>
+    <string name="already_using_this_model">已经在使用这个模型</string>
+    <string name="open_model_card">打开模型卡</string>
+    <string name="model_size">模型大小</string>
+    <string name="model_vendor">厂商</string>
+    
+    <!-- Voice Model Change Strings -->
+    <string name="tts_model_name">TTS模型</string>
+    <string name="asr_model_name">ASR模型</string>
+    <string name="voice_model_changed_recreating_services">%1$s已更改，正在重新创建语音服务...</string>
+    <string name="cannot_uncheck_default_model">无法取消默认模型。请先选择另一个模型。</string>
+    <string name="default_asr_model_set">默认ASR模型已设置：%1$s</string>
+    <string name="already_default_asr_model">已设置为默认ASR模型</string>
+    
+    <!-- Voice Chat Setup Message -->
+    <string name="voice_chat_setup_message">要使用语音聊天功能，请先选择并下载TTS和ASR模型。请在上方标签页之间切换来设置这两种类型的模型。</string>
+    <string name="peak_memory">峰值内存</string>
+    <string name="max_memory">最大内存</string>
+    <string name="please_download_model">请先下载模型</string>
+    <string name="go_to_download">去下载</string>
+    <string name="all_filter">全部筛选</string>
+    <string name="model_card">模型卡片</string>
+    <string name="menu">菜单</string>
+    <string name="failed_to_open_url">无法打开链接</string>
+    
+    <!-- Report Issue Dialog Strings -->
+    <string name="report_issue_confirm_title">确认</string>
+    <string name="report_issue_confirm_message">是否确认在 GitHub 上提 Issue？</string>
+    <string name="confirm">确认</string>
+
+    <!-- Leaderboard Strings -->
+    <string name="upload_to_leaderboard">上传到排行榜</string>
+    <string name="leaderboard_ranking">您的排名</string>
+    <string name="leaderboard_rank_info">您的排名：第 %1$d 名，共 %2$d 位用户</string>
+    <string name="leaderboard_rank_not_found">暂无排名信息</string>
+    <string name="ok">确定</string>
+
+    <!-- Debug Feature Strings -->
+    <string name="debug_show_model_info">显示模型信息菜单</string>
+    <string name="checking_repo_updates">检查仓库更新中...</string>
+    <string name="repo_update_check_result">仓库更新检查</string>
+    <string name="allow_network_market_data">允许联网获取模型市场数据</string>
+    <string name="enable_network_delay">启用网络延时（3秒）</string>
+    <string name="update_available">有新版本</string>
 </resources>

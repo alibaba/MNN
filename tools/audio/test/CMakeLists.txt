@@ -13,8 +13,10 @@ include_directories(${CMAKE_CURRENT_LIST_DIR}/)
 
 enable_testing()
 
+if (PYMNN_AUDIO_API)
 add_executable(audio_test audio_test.cpp)
 target_link_libraries(audio_test MNNAudio gtest_main)
+endif()
 
 include(GoogleTest)
 gtest_discover_tests(audio_test)

@@ -13,13 +13,20 @@ import com.alibaba.mnnllm.android.chat.chatlist.ChatViewHolders.UserViewHolder
 import com.alibaba.mnnllm.android.chat.model.ChatDataItem
 
 class ChatRecyclerViewAdapter(
-    context: Context?,
-    private val items: MutableList<ChatDataItem>,
-    private val modelName: String
+    context: Context?
 ) :
     RecyclerView.Adapter<RecyclerView.ViewHolder>() {
+
+    private var items: MutableList<ChatDataItem> = ArrayList()
     override fun getItemCount(): Int {
         return items.size
+    }
+    var modelName: String? = null
+
+    fun updateModelNameAndItems(modelName: String, items: MutableList<ChatDataItem>) {
+        this.modelName = modelName
+        this.items = items
+        notifyDataSetChanged()
     }
 
     override fun getItemViewType(position: Int): Int {
@@ -92,12 +99,16 @@ class ChatRecyclerViewAdapter(
     }
 
     fun reset(): Boolean {
-        if (items.size > 2) {
+        if (items.size > 0) {
             val size = items.size
-            items.subList(2, size).clear()
-            notifyItemRangeRemoved(2, size - 2)
+            items.clear()
+            notifyItemRangeRemoved(0, size)
             return true
         }
         return false
+    }
+
+    fun getCurrentChatHistory(): List<ChatDataItem> {
+        return ArrayList(items)
     }
 }

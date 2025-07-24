@@ -71,7 +71,7 @@ static void _winograd(const DeconvolutionWithStride::ComputeUnit& unit, int thre
     el[3] = 0;
     size_t parameters[6];
     parameters[0] = eP * sizeof(float);
-    parameters[1] = ic;
+    parameters[1] = ROUND_UP(ic, lP);
     parameters[2] = oc;
     parameters[3] = eP * 4 * sizeof(float);
     parameters[4] = 0;
@@ -130,7 +130,7 @@ static void _gemmAndIm2col(const DeconvolutionWithStride::ComputeUnit& unit, int
     el[3] = 0;
     size_t parameters[6];
     parameters[0] = eP * sizeof(float);
-    parameters[1] = ic;
+    parameters[1] = ROUND_UP(ic, lP);
     parameters[2] = oc;
     parameters[3] = eP * 4 * sizeof(float);
     parameters[4] = 0;

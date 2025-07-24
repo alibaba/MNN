@@ -25,11 +25,15 @@ struct ConvBufResource {
     std::shared_ptr<Tensor> dequantScaleOffset;
     std::shared_ptr<Tensor> mFilter;
     std::shared_ptr<Tensor> mBias;
+    std::shared_ptr<Tensor> mSlope;
     int mKernelWidth;
     int mKernelHeight;
     int mOutputChannel;
     int mInputChannel;
     int mBlockSize;
+    bool mRelu = false;
+    bool mRelu6 = false;
+    bool mPrelu = false;
     std::vector<int> mStrides{1, 1};
     std::vector<int> mDilations{1, 1};
     std::set<std::string> mBuildOptions;
@@ -54,6 +58,7 @@ class ConvBufCommonExecution {
 public:
     ConvBufCommonExecution(Backend *backend);
     ConvBufCommonExecution(const Convolution2D *op, Backend *backend);
+    ConvBufCommonExecution(const Op *op, Backend *backend, bool isExtra);
     virtual ~ConvBufCommonExecution();
 
 protected:
@@ -63,7 +68,7 @@ protected:
 
 class ConvBufExecution : public ConvBufCommonExecution, public CommonExecution {
 public:
-    ConvBufExecution(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, const MNN::Op *op, Backend *backend);
+    ConvBufExecution(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, const MNN::Op *op, Backend *backend, bool isExtra = false);
     ConvBufExecution(std::shared_ptr<ConvBufResource> resource, const MNN::Op* op, Backend* backend);
     virtual ~ConvBufExecution();
 

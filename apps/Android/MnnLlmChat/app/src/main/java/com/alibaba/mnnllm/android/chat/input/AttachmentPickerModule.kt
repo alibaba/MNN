@@ -49,6 +49,16 @@ class AttachmentPickerModule(private val activity: ChatActivity) {
         } else {
             chooseAudioView.visibility = View.GONE
         }
+
+        // Voice chat menu item - show for all models except diffusion
+        val voiceChatView = activity.findViewById<View>(R.id.more_item_voice_chat)
+//        if (!ModelUtils.isDiffusionModel(modelName)) {
+//            voiceChatView.setOnClickListener { v: View? -> startVoiceChat() }
+//        } else {
+//            voiceChatView.visibility = View.GONE
+//        }
+        //disable temporary
+        voiceChatView.visibility = View.GONE
         attachmentPreview = activity.findViewById(R.id.image_preview)
         imagePreviewLayout = activity.findViewById(R.id.image_preview_layout)
         imagePreviewDelete = activity.findViewById(R.id.image_preview_delete)
@@ -89,6 +99,14 @@ class AttachmentPickerModule(private val activity: ChatActivity) {
             Toast.makeText(this.activity, "Please install a File Manager.", Toast.LENGTH_SHORT)
                 .show()
         }
+    }
+
+    private fun startVoiceChat() {
+        // Hide the attachment menu
+        hideAttachmentLayout()
+        
+        // Start the voice chat fragment
+        activity.startVoiceChat()
     }
 
     private fun chooseImageView() {

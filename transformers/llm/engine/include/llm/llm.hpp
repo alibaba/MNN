@@ -31,6 +31,7 @@ class LlmConfig;
 class DiskEmbedding;
 class Sampler;
 class Prompt;
+class Generation;
 struct TimePerformance;
 
 using ChatMessage = std::pair<std::string, std::string>; // <role, content>
@@ -42,6 +43,7 @@ enum TuneType {
 };
 enum class MatchStrictLevel : int;
 enum class NgramSelectRule : int;
+    
 struct KVMeta;
 struct LlmContext {
     // forward
@@ -65,7 +67,7 @@ struct LlmContext {
     std::vector<int> output_tokens;
     std::string generate_str;
 };
-
+struct GenerationParams;
 class MNN_PUBLIC Llm {
 public:
     enum Stage {
@@ -80,12 +82,13 @@ public:
     virtual Express::VARP gen_attention_mask(int seq_len);
     virtual Express::VARP gen_position_ids(int seq_len);
     virtual Express::VARP embedding(const std::vector<int>& input_ids);
-    Express::VARP forward(const std::vector<int>& input_ids, bool is_prefill = true);
-    Express::VARP forward(MNN::Express::VARP input_embeds);
-    virtual std::vector<Express::VARP> forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos);
     virtual int sample(Express::VARP logits, int offset = 0, int size = 0);
+    std::vector<Express::VARP> getOutputs() const;
+    int getOutputIndex(const std::string& name) const;
     void reset();
     void tuning(TuneType type, std::vector<int> candidates);
+    Express::VARP forward(const std::vector<int>& input_ids, bool is_prefill = true);
+    Express::VARP forward(MNN::Express::VARP input_embeds);
     void switchMode(Stage stage);
     void setKVCacheInfo(size_t add, size_t remove, int* reserve = nullptr, int n_reserve = 0);
     size_t getCurrentHistory() const;
@@ -116,6 +119,7 @@ public:
     virtual void generateWavform() {}
 protected:
     void initRuntime();
+    void setRuntimeHint(std::shared_ptr<Express::Executor::RuntimeManager> &rtg);
     std::shared_ptr<LlmContext> mContext;
     std::shared_ptr<KVMeta> mMeta;
     std::shared_ptr<LlmConfig> mConfig;
@@ -124,24 +128,35 @@ protected:
     std::shared_ptr<DiskEmbedding> mDiskEmbedding;
     std::shared_ptr<Sampler> mSampler;
     std::shared_ptr<Express::Executor::RuntimeManager> mRuntimeManager, mProcessorRuntimeManager;
-    std::vector<std::shared_ptr<Express::Module>> mModules, mPrefillModules, mDecodeModules, mCurrentModules;
+    std::vector<std::shared_ptr<Express::Module>> mModules;
+    /**
+     key: <seq_len, all_logists>
+     value : module
+     note: prefill share one module, seq_len = 100 for example
+     */
+    const int mPrefillKey = 100;
+    std::map<std::pair<int, bool>, std::shared_ptr<Express::Module>> mModulePool;
     const Express::Module* mBaseModule = nullptr;
     Express::VARP inputsEmbeds, attentionMask, positionIds;
     std::vector<Express::VARP> mAttentionMaskVarVec, mPositionIdsVarVec;
     Express::VARP logitsAllIdx, logitsLastIdx;
     int mSeqLenIndex = 0;
+protected:
+    friend class ArGeneration;
+    friend class LookaheadGeneration;
+    friend class MtpGeneration;
+    std::vector<Express::VARP> forwardVec(const std::vector<int>& input_ids);
+    std::vector<Express::VARP> forwardVec(MNN::Express::VARP input_embeds);
+    virtual std::vector<Express::VARP> forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos);
 private:
-    // decoding phase will use speculative decoding
-    void speculativeGenerate(int max_token);
+    std::shared_ptr<Generation> mGenerationStrategy;
     void setSpeculativeConfig();
-private:
-    bool mLookAhead = false;
-    int mDraftLength = 4;
-    int mNgramKeyMaxLen = 4;
+    void updateContext(int seq_len, int gen_len);
 
-    MatchStrictLevel mStrictLevel;
-    bool mUpdateNgram = false;
-    NgramSelectRule mSelectRule;
+private:
+    bool mInSpec = false;
+    int mDraftLength = 4;
+    std::shared_ptr<GenerationParams> mGenerateParam;
 };
 
 // Embedding start

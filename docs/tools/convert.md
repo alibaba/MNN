@@ -85,6 +85,8 @@ Usage:
 
       --useGeluApproximation    在进行Gelu算子合并时，使用Gelu的近似算法，默认为1 ，也就是`true`
 
+      --useOriginRNNImpl    LSTM和GRU算子是否使用原始算子实现，默认关闭。若开启，性能可能提升，但无法进行LSTM/GRU的量化
+
 ```
 
 **说明1: 选项weightQuantBits，使用方式为 --weightQuantBits numBits，numBits可选2~8，此功能仅对conv/matmul/LSTM的float32权值进行量化，仅优化模型大小，加载模型后会解码为float32，量化位宽可选2~8，运行速度和float32模型一致。经内部测试8bit时精度基本无损，模型大小减小4倍。default: 0，即不进行权值量化。**

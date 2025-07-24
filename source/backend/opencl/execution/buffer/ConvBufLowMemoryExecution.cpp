@@ -343,7 +343,7 @@ void ConvBufLowMemoryExecution::tuneGeneralCaseLowMemory(Tensor * input, Tensor 
             buildOption.emplace("-DBLOCK_LEAVE");
         }
         if(inputChannels % 4 != 0){
-            buildOption.emplace("-DINPUT_CHANNEL_LEAVE");
+            buildOption.emplace("-DINPUT_CHANNEL_BOUNDARY_PROTECT");
         }
         kernel[knl_idx]        = mOpenCLBackend->getOpenCLRuntime()->buildKernel("conv_2d_int_buf", kernelName[knl_idx], buildOption, mOpenCLBackend->getPrecision());
         uint32_t maxWorkGroupSize = static_cast<uint32_t>(mOpenCLBackend->getOpenCLRuntime()->getMaxWorkGroupSize(kernel[knl_idx]));
@@ -392,7 +392,7 @@ void ConvBufLowMemoryExecution::tuneGeneralCaseLowMemory(Tensor * input, Tensor 
         buildOption.emplace("-DBLOCK_LEAVE");
     }
     if(inputChannels % 4 != 0){
-        buildOption.emplace("-DINPUT_CHANNEL_LEAVE");
+        buildOption.emplace("-DINPUT_CHANNEL_BOUNDARY_PROTECT");
     }
     unit.kernel        = mOpenCLBackend->getOpenCLRuntime()->buildKernel("conv_2d_int_buf", kernelName[min_index], buildOption, mOpenCLBackend->getPrecision());
 

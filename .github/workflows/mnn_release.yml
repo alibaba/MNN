@@ -82,7 +82,7 @@ jobs:
         submodules: true
 
     - name: build
-      run: ./package_scripts/mac/buildFrameWork.sh
+      run: ./package_scripts/mac/buildFrameWork.sh -DLLM_SUPPORT_VISION=true -DMNN_BUILD_OPENCV=true -DMNN_IMGCODECS=true -DMNN_LOW_MEMORY=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true -DLLM_SUPPORT_AUDIO=true -DMNN_BUILD_AUDIO=true
     - name: package
       run: |
         rm -rf ${{ env.PACKAGENAME }}
@@ -129,12 +129,12 @@ jobs:
     - name: build
       run: |
         brew install coreutils
-        ./package_scripts/ios/xcodebuildiOS.sh -o ios_build
+        ./package_scripts/ios/buildiOS.sh -DLLM_SUPPORT_VISION=true -DMNN_BUILD_OPENCV=true -DMNN_IMGCODECS=true -DMNN_LOW_MEMORY=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true -DLLM_SUPPORT_AUDIO=true -DMNN_BUILD_AUDIO=true
 
     - name: package
       run: |
         rm -f ${{ env.PACKAGENAME }}.zip
-        zip -9 -y -r ${{ env.PACKAGENAME }}.zip ios_build/Release-iphoneos/MNN.framework
+        zip -9 -y -r ${{ env.PACKAGENAME }}.zip MNN-iOS-CPU-GPU/Static/MNN.framework
     - name: upload-zip
       uses: actions/upload-artifact@v4
       with:

@@ -13,6 +13,7 @@
 #include <sstream>
 #include <stdlib.h>
 #include <initializer_list>
+//#define LLM_SUPPORT_AUDIO
 #ifdef LLM_SUPPORT_AUDIO
 #include "audio/audio.hpp"
 #endif
@@ -94,17 +95,19 @@ static int benchmark(Llm* llm, const std::vector<std::string>& prompts, int max_
     });
 #endif
     for (int i = 0; i < prompts.size(); i++) {
-        const auto& prompt = prompts[i];
+        auto prompt = prompts[i];
+     // #define MIMO_NO_THINKING
+     #ifdef MIMO_NO_THINKING
+        // update config.json and llm_config.json if need. example:
+        llm->set_config("{\"assistant_prompt_template\":\"<|im_start|>assistant\\n<think>\\n</think>\%s<|im_end|>\\n\"}");
+        prompt = prompt + "<think>\n</think>";
+     #endif
 
-        /**
-         update config.json and llm_config.json if need. example:
-         llm->set_config("{\"assistant_prompt_template\":\"<|im_start|>assistant\\n<think>\\n</think>\%s<|im_end|>\\n\"}");
-         */
         // prompt start with '#' will be ignored
         if (prompt.substr(0, 1) == "#") {
             continue;
         }
-        if (max_token_number > 0) {
+        if (max_token_number >= 0) {
             llm->response(prompt, &std::cout, nullptr, 0);
             while (!llm->stoped() && context->gen_seq_len < max_token_number) {
                 llm->generate(1);

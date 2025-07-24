@@ -12,16 +12,6 @@
 namespace MNN {
 namespace Express {
 
-static VARP _ReshapeF(VARP x, VARP shape, MNN::MNN_DATA_FORMAT format) {
-    MNN_ASSERT(nullptr != x);
-    std::unique_ptr<OpT> reshape(new OpT);
-    reshape->type                      = OpType_Reshape;
-    reshape->main.type                 = OpParameter_Reshape;
-    reshape->main.value                = new ReshapeT;
-    reshape->main.AsReshape()->dimType = format;
-    return (Variable::create(Expr::create(reshape.get(), {x, shape})));
-}
-
 class OnnxEinsumTransform : public OnnxExtraManager::Transform {
 public:
     virtual EXPRP onExecute(EXPRP expr) const override {
@@ -168,7 +158,7 @@ public:
             auto oShape = _Shape(output, NCHW);
             auto oRemainShape = _Slice(oShape, _Unsqueeze(_Scalar<int>(1), {0}), _Unsqueeze(_Rank(output) - _Scalar<int>(1), {0}));
             auto oPostShape = _Concat({prefixshape, oRemainShape}, 0);
-            return _ReshapeF(output, oPostShape, MNN::MNN_DATA_FORMAT_NCHW);
+            return OnnxExtraManager::_ReshapeF(output, oPostShape, MNN::MNN_DATA_FORMAT_NCHW);
         };
         if (hasPrefix) {
             // Seperate prefix shape
@@ -179,7 +169,7 @@ public:
                 auto aShapeRemain = _Slice(aShape, _Unsqueeze(prefixSize, {0}), _Unsqueeze(remainA, {0}));
                 prefixshape = _Slice(aShape, _Unsqueeze(_Scalar<int>(0), {0}), _Unsqueeze(rankA - remainA, {0}));
                 auto newAShape = _Concat({_Unsqueeze(_Scalar<int>(-1), {0}), aShapeRemain}, 0);
-                var0 = _ReshapeF(var0, newAShape, MNN::MNN_DATA_FORMAT_NCHW);
+                var0 = OnnxExtraManager::_ReshapeF(var0, newAShape, MNN::MNN_DATA_FORMAT_NCHW);
                 aShape = _Shape(var0, NCHW);
             }
             if (input1[0] == '.') {
@@ -190,7 +180,7 @@ public:
                     prefixshape = _Slice(bShape, _Unsqueeze(_Scalar<int>(0), {0}), _Unsqueeze(rankB - remainB, {0}));
                 }
                 auto newBShape = _Concat({_Unsqueeze(_Scalar<int>(-1), {0}), bShapeRemain}, 0);
-                var1 = _ReshapeF(var1, newBShape, MNN::MNN_DATA_FORMAT_NCHW);
+                var1 = OnnxExtraManager::_ReshapeF(var1, newBShape, MNN::MNN_DATA_FORMAT_NCHW);
                 bShape = _Shape(var1, NCHW);
             }
         }
@@ -251,7 +241,7 @@ public:
                     }
                 }
                 auto _shape  = _Const(reshapeDims.data(), {static_cast<int32_t>(right.size())}, NHWC, halide_type_of<int>());
-                var0 = _ReshapeF(var0, _shape, MNN::MNN_DATA_FORMAT_NCHW);
+                var0 = OnnxExtraManager::_ReshapeF(var0, _shape, MNN::MNN_DATA_FORMAT_NCHW);
                 var0 = _Permute(var0, transpose);
             }
             {
@@ -270,7 +260,7 @@ public:
                     }
                 }
                 auto _shape  = _Const(reshapeDims.data(), {static_cast<int>(right.size())}, NHWC, halide_type_of<int>());
-                var1 = _ReshapeF(var1, _shape, MNN::MNN_DATA_FORMAT_NCHW);
+                var1 = OnnxExtraManager::_ReshapeF(var1, _shape, MNN::MNN_DATA_FORMAT_NCHW);
                 var1 = _Permute(var1, transpose);
             }
             auto output = var0 * var1;
@@ -341,7 +331,7 @@ public:
                 transpose.emplace_back(input0Pos[sumPos[i]]);
             }
             var0 = _Permute(var0, transpose);
-            var0 = _ReshapeF(var0, _Concat({outsideLength, _Unsqueeze(_Scalar<int>(-1), {0}), sumLength}, 0), MNN::MNN_DATA_FORMAT_NCHW);
+            var0 = OnnxExtraManager::_ReshapeF(var0, _Concat({outsideLength, _Unsqueeze(_Scalar<int>(-1), {0}), sumLength}, 0), MNN::MNN_DATA_FORMAT_NCHW);
         }
         {
             // Transpose
@@ -359,7 +349,7 @@ public:
                 transpose.emplace_back(input1Pos[sumPos[i]]);
             }
             var1 = _Permute(var1, transpose);
-            var1 = _ReshapeF(var1, _Concat({outsideLength, _Unsqueeze(_Scalar<int>(-1), {0}), sumLength}, 0), MNN::MNN_DATA_FORMAT_NCHW);
+            var1 = OnnxExtraManager::_ReshapeF(var1, _Concat({outsideLength, _Unsqueeze(_Scalar<int>(-1), {0}), sumLength}, 0), MNN::MNN_DATA_FORMAT_NCHW);
         }
         auto output = _MatMul(var0, var1, false, true);
         std::vector<VARP> cShapeGroup;
@@ -379,7 +369,7 @@ public:
             cShapeGroup.emplace_back(_Slice(bShape, _Unsqueeze(_Scalar<int>(input1Pos[bPos[i]]), {0}), one));
         }
         auto cShape = _Concat(cShapeGroup, 0);
-        output = _ReshapeF(output, cShape, MNN::MNN_DATA_FORMAT_NCHW);
+        output = OnnxExtraManager::_ReshapeF(output, cShape, MNN::MNN_DATA_FORMAT_NCHW);
         bool needPermute = false;
         std::vector<int> transpose(right.size());
         for (int i=0; i<right.size(); ++i) {
