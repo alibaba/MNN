@@ -53,7 +53,6 @@ void ArGeneration::generate(GenerationParams& param) {
             *mContext->os << decodeStr;
             *mContext->os << std::flush;
         }
-        // mContext->history_tokens.push_back(mContext->current_token);
         mLlm->mMeta->remove = 0;
         auto outputs = mLlm->forwardVec({mContext->current_token});
         if(outputs.empty()) {
@@ -72,6 +71,9 @@ void ArGeneration::generate(GenerationParams& param) {
         mContext->current_token = mLlm->sample(logits);
         mContext->decode_us += _t.durationInUs();
         if (mLlm->is_stop(mContext->current_token)) {
+            mContext->history_tokens.push_back(mContext->current_token);
+            mContext->output_tokens.push_back(mContext->current_token);
+            mLlm->updateContext(0, 1);
             if (nullptr != mContext->os) {
                 *mContext->os << mContext->end_with << std::flush;
             }
@@ -92,9 +94,11 @@ int Generation::draftVerify(VARP logits, const std::vector<int> &drafts, bool& s
             auto predict = mLlm->sample(logits, sample_offset, sample_size);
             
             // stop token just break the process
-            if (mLlm->is_stop(predict) && nullptr != mContext->os) {
+            if (mLlm->is_stop(predict)) {
                 mContext->current_token = predict;
-                *mContext->os << mContext->end_with << std::flush;
+                if (nullptr != mContext->os) {
+                    *mContext->os << mContext->end_with << std::flush;
+                }
                 stop = true;
                 break;
             }
