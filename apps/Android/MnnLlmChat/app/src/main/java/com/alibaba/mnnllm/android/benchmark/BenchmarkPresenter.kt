@@ -32,7 +32,7 @@ class BenchmarkPresenter(
     
     // Feature toggle: true for leaderboard upload, false for share
     // You can change this to false to test the share functionality
-    private val useLeaderboardUpload = true 
+    private val useLeaderboardUpload = false
     
     override fun onCreate() {
         Log.d(TAG, "onCreate called, initial state: ${stateMachine.getCurrentState()}")
@@ -571,6 +571,10 @@ class BenchmarkPresenter(
         
         // Transition to STOPPING state
         Log.d(TAG, "Transitioning to STOPPING state")
+        if (!stateMachine.isValidTransition(BenchmarkState.STOPPING)) {
+            Log.e(TAG, "cannot stop in current  state: ${stateMachine.getCurrentState()}")
+            return
+        }
         stateMachine.transitionTo(BenchmarkState.STOPPING)
         updateUIForState(BenchmarkState.STOPPING)
         

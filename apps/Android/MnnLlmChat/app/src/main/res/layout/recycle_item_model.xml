@@ -109,7 +109,7 @@
             android:layout_alignParentEnd="true"
             android:layout_above="@id/tvTimeInfo"
             app:strokeColor="?colorPrimary"
-            app:strokeWidth="0.5dp"
+            app:strokeWidth="1dp"
             />
 
         <View

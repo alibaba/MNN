@@ -377,3 +377,4 @@ datasets/*
 source/backend/qnn/3rdParty/include
 apps/Android/MnnLlmChat/docs
 .cursorrules
+apps/iOS/MNNLLMChat/LocalModel

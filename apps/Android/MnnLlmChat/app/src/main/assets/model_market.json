@@ -27,6 +27,7 @@
     "Llama",
     "FastVLM",
     "MiMo",
+    "ERNIE",
     "Baichuan",
     "Phi",
     "MobileLLM",
@@ -36,6 +37,38 @@
     "01.AI"
   ],
   "models": [
+    {
+      "modelName": "SmolLM3-3B-MNN",
+      "tags": [
+      ],
+      "categories": [
+        "recommended",
+        "qwen"
+      ],
+      "sources": {
+        "HuggingFace": "taobao-mnn/SmolLM3-3B-MNN",
+        "ModelScope": "MNN/SmolLM3-3B-MNN",
+        "Modelers": "MNN/SmolLM3-3B-MNN"
+      },
+      "size_gb": 3.0,
+      "vendor": "Smol"
+    },
+    {
+      "modelName": "ERNIE-4.5-0.3B-PT-MNN",
+      "tags": [
+      ],
+      "categories": [
+        "recommended",
+        "qwen"
+      ],
+      "sources": {
+        "HuggingFace": "taobao-mnn/ERNIE-4.5-0.3B-PT-MNN",
+        "ModelScope": "MNN/ERNIE-4.5-0.3B-PT-MNN",
+        "Modelers": "MNN/ERNIE-4.5-0.3B-PT-MNN"
+      },
+      "size_gb": 0.3,
+      "vendor": "ERNIE"
+    },
     {
       "modelName": "gemma-3-1b-it-qat-q4_0-gguf-MNN",
       "tags": [
@@ -47,10 +80,9 @@
       ],
       "sources": {
         "HuggingFace": "taobao-mnn/gemma-3-1b-it-qat-q4_0-gguf-MNN",
-        "ModelScope": "MNN/gemma-3-1b-it-qat-q4_0-gguf-MNN",
-        "Modelers": "MNN/gemma-3-1b-it-qat-q4_0-gguf-MNN"
+        "ModelScope": "MNN/gemma-3-1b-it-qat-q4_0-gguf-MNN"
       },
-      "size_gb": 4.0,
+      "size_gb": 1.0,
       "vendor": "Gemma"
     },
     {

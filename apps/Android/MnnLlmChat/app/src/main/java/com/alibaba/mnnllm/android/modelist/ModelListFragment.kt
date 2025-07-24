@@ -295,7 +295,7 @@ class ModelListFragment : Fragment(), ModelListContract.View, Searchable {
             modelListEmptyView.visibility = View.GONE
         } else {
             modelListRecyclerView.visibility = View.GONE
-            modelListEmptyView.visibility = View.GONE
+            modelListEmptyView.visibility = View.VISIBLE
         }
     }
 

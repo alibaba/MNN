@@ -586,6 +586,13 @@ class ModelMarketFragment : Fragment(), ModelMarketItemListener, Searchable {
         val downloadInfo = item.downloadInfo
         when (downloadInfo.downloadState) {
             DownloadState.COMPLETED -> {
+                // Check if model has update first
+                if (downloadInfo.hasUpdate) {
+                    // Start update download
+                    viewModel.updateModel(item.modelMarketItem)
+                    return
+                }
+                
                 // Check if it's a voice model (TTS or ASR)
                 if (ModelUtils.isTtsModelByTags(item.modelMarketItem.tags) || ModelUtils.isAsrModelByTags(item.modelMarketItem.tags)) {
                     // For voice models, clicking the item sets it as default
