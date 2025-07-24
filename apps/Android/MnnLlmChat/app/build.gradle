@@ -6,7 +6,7 @@ plugins {
 }
 
 // if BUILT_FROM_PREBUILT passed, use its value,or will use  default value "OFF"
-def builtFromPrebuilt = project.hasProperty('MNN_BUILT_LLM_FROM_PREBUILT') ? project.MNN_BUILT_LLM_FROM_PREBUILT : "OFF"
+def builtFromPrebuilt = project.hasProperty('MNN_BUILD_LLM_FROM_PREBUILT') ? project.MNN_BUILD_LLM_FROM_PREBUILT : "OFF"
 
 android {
     namespace 'com.alibaba.mnnllm.android'
@@ -44,9 +44,9 @@ android {
                             "-DMNN_BUILD_AUDIO=true",
                             "-DMNN_BUILD_DIFFUSION=ON",
                             "-DMNN_SEP_BUILD=OFF",
-                            "-DMNN_BUILT_LLM_FROM_PREBUILT=OFF"
+                            "-DMNN_BUILD_LLM_FROM_PREBUILT=OFF"
                 } else {
-                    arguments "-DMNN_BUILT_LLM_FROM_PREBUILT=ON"
+                    arguments "-DMNN_BUILD_LLM_FROM_PREBUILT=ON"
                 }
             }
         }

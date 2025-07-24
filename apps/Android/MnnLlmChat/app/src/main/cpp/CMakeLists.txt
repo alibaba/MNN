@@ -12,9 +12,9 @@ cmake_minimum_required(VERSION 3.22.1)
 project("mnnllmapp")
 
 # 设置是否使用预编译MNN库
-option(MNN_BUILT_LLM_FROM_PREBUILT "use prebuilt MNN library" OFF)
+option(MNN_BUILD_LLM_FROM_PREBUILT "use prebuilt MNN library" OFF)
 
-message(INFO "MNN_BUILT_LLM_FROM_PREBUILT: ${MNN_BUILT_LLM_FROM_PREBUILT}")
+message(INFO "MNN_BUILD_LLM_FROM_PREBUILT: ${MNN_BUILD_LLM_FROM_PREBUILT}")
 
 add_library(${CMAKE_PROJECT_NAME} SHARED
         # List C/C++ source files with relative paths to this CMakeLists.txt.
@@ -45,7 +45,7 @@ include_directories("${MNN_SOURCE_ROOT}/transformers/llm/engine/include")
 include_directories("${MNN_SOURCE_ROOT}/tools/audio/include")
 include_directories("${CMAKE_SOURCE_DIR}/third_party")
 
-if (MNN_BUILT_LLM_FROM_PREBUILT)
+if (MNN_BUILD_LLM_FROM_PREBUILT)
     #use prebuilt mnn library,use build_64.sh to build
     set(MNN_INSTALL_ROOT "${MNN_SOURCE_ROOT}/project/android/build_64")
     # Add library paths
