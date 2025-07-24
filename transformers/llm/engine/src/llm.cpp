@@ -625,10 +625,12 @@ std::vector<int> Llm::generate(MNN::Express::VARP input_embeds, int max_tokens) 
     _t.reset();
     mContext->current_token = sample(logits);
     mContext->sample_us += _t.durationInUs();
+    mContext->history_tokens.push_back(mContext->current_token);
+    mContext->output_tokens.push_back(mContext->current_token);
     logits = nullptr;
 
     // call generation function
-    mGenerateParam->max_new_tokens = max_tokens;
+    mGenerateParam->max_new_tokens = max_tokens - 1;
     mGenerationStrategy->generate(*mGenerateParam);
     return mContext->output_tokens;
 }
