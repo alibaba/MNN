@@ -42,6 +42,7 @@
   git clone https://github.com/alibaba/MNN.git
   ```
 + `AndroidStuido`左上角File->Open,选择该工程，点击`Build`,选择`Make Project`或者`Build App Bundle(s)/APK(s)`,即可生成APK  
++ 如果需要以预编译`libMNN.so`库的形式集成,请将预编译好的`libMNN.so`放置于`project\android\build_64\lib`,并修改`MnnLlmChat`工程内的`gradle.properties`文件，配置`MNN_BUILT_LLM_FROM_PREBUILT=ON`  
 ## Linux  
 + 克隆代码库：
   ```shell
@@ -53,12 +54,19 @@
   sudo sdkmanager "platforms;android-35"  
   sudo sdkmanager "build-tools;33.0.1"  
   ```    
-+ 编译构建
++ 编译构建  
+
   ```shell    
-  #仅编译debug版本
-  ./gradlew assembleDebug  
-  #编译且安装,需要确保安卓设备已连接
-  ./gradlew installDebug  
+  #集成预编译好的libMNN.so,打包debug版本的APK
+  cd project/android
+  mkdir build_64
+  cd build_64
+  ../build_64.sh "-DMNN_LOW_MEMORY=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true -DMNN_ARM82=true -DMNN_USE_LOGCAT=true -DMNN_OPENCL=true -DLLM_SUPPORT_VISION=true -DMNN_BUILD_OPENCV=true -DMNN_IMGCODECS=true -DLLM_SUPPORT_AUDIO=true -DMNN_BUILD_AUDIO=true -DMNN_BUILD_DIFFUSION=ON -DMNN_SEP_BUILD=OFF -DCMAKE_INSTALL_PREFIX=."
+  make install
+  cd ../../../apps/Android/MnnLlmChat
+  ./gradlew assembleDebug -PMNN_BUILT_LLM_FROM_PREBUILT=ON
+  #以当前仓库内的源码进行编译生成libMNN.so,打包debug版本的APK
+  ./gradlew assembleDebug 
   ```   
 
 # Releases

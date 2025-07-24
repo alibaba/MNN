@@ -11,6 +11,11 @@ cmake_minimum_required(VERSION 3.22.1)
 # build script scope).
 project("mnnllmapp")
 
+# 设置是否使用预编译MNN库
+option(MNN_BUILT_LLM_FROM_PREBUILT "use prebuilt MNN library" OFF)
+
+message(INFO "MNN_BUILT_LLM_FROM_PREBUILT: ${MNN_BUILT_LLM_FROM_PREBUILT}")
+
 add_library(${CMAKE_PROJECT_NAME} SHARED
         # List C/C++ source files with relative paths to this CMakeLists.txt.
         llm_mnn_jni.cpp
@@ -20,18 +25,15 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
         crash_util.cpp
 )
 
-#load local mnn,output dir will changed to .cxx
-add_subdirectory(../../../../../../../ build-mnn)
 
 #mnn
-set (MNN_SOURCE_ROOT "${CMAKE_SOURCE_DIR}/../../../../../../../")
+set(MNN_SOURCE_ROOT "${CMAKE_SOURCE_DIR}/../../../../../../../")
 #set (MNN_SOURCE_ROOT "/Users/songjinde/git/DAI/AliNNPrivate")
 
 #set (MNN_ROOT "${CMAKE_SOURCE_DIR}/../../../../../../../")
 message(INFO "MNN_SOURCE_ROOT: ${MNN_SOURCE_ROOT}")
 
 include_directories("${MNN_SOURCE_ROOT}/include/")
-
 #diffusion
 include_directories("${MNN_SOURCE_ROOT}/transformers/diffusion/engine/include/")
 
@@ -42,6 +44,37 @@ include_directories("${MNN_SOURCE_ROOT}/transformers/llm/engine/include")
 #audio
 include_directories("${MNN_SOURCE_ROOT}/tools/audio/include")
 include_directories("${CMAKE_SOURCE_DIR}/third_party")
+
+if (MNN_BUILT_LLM_FROM_PREBUILT)
+    #use prebuilt mnn library,use build_64.sh to build
+    set(MNN_INSTALL_ROOT "${MNN_SOURCE_ROOT}/project/android/build_64")
+    # Add library paths
+    set(LIB_PATH "${MNN_INSTALL_ROOT}/lib")
+    # Link the shared library
+    add_library(MNN SHARED IMPORTED)
+    set_target_properties(MNN PROPERTIES IMPORTED_LOCATION "${LIB_PATH}/libMNN.so")
+
+    #add_library(llm SHARED IMPORTED)
+    #set_target_properties(llm PROPERTIES IMPORTED_LOCATION "${LIB_PATH}/libllm.so")
+
+    #add_library(diffusion SHARED IMPORTED)
+    #set_target_properties(diffusion PROPERTIES IMPORTED_LOCATION "${LIB_PATH}/libdiffusion.so")
+
+    #add_library(mnn_cl SHARED IMPORTED)
+    #set_target_properties(mnn_cl PROPERTIES IMPORTED_LOCATION "${LIB_PATH}/libMNN_CL.so")
+
+    #add_library(mnn_audio SHARED IMPORTED)
+    #set_target_properties(mnn_audio PROPERTIES IMPORTED_LOCATION "${LIB_PATH}/libMNNAudio.so")
+
+    #add_library(mnn_cv SHARED IMPORTED)
+    #set_target_properties(mnn_cv PROPERTIES IMPORTED_LOCATION "${LIB_PATH}/libMNNOpenCV.so")
+
+    #add_library(mnn_Express SHARED IMPORTED)
+    #set_target_properties(mnn_Express PROPERTIES IMPORTED_LOCATION "${LIB_PATH}/libMNN_Express.so")
+else ()
+    #load local mnn,output dir will changed to .cxx
+    add_subdirectory(../../../../../../../ build-mnn)
+endif ()
 
 
 # Link your native library with the `.so` file
@@ -54,4 +87,4 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
         android
         log
         MNN
-        )
+)

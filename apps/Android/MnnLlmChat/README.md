@@ -42,6 +42,7 @@ Using `Android Studio` IDE for building:
   git clone https://github.com/alibaba/MNN.git
   ```
 + In `Android Studio`, go to the top-left corner and click File → Open, then select the project. After that, click Build and choose either Make Project or Build Bundle(s) / APK(s) to generate the APK. 
++ If you need to integrate a prebuilt `libMNN.so` library, please place the prebuilt `libMNN.so` in `project\android\build_64\lib`, and modify the `gradle.properties` file in the `MnnLlmChat` project to configure `MNN_BUILT_LLM_FROM_PREBUILT=ON`.  
 ## Linux  
 + Clone the repository:
   ```shell
@@ -55,10 +56,16 @@ Using `Android Studio` IDE for building:
   ```    
 + Compile&Build
   ```  
-  #build debug version only
+  #build debug version with preebuilt libMNN
+  cd project/android
+  mkdir build_64
+  cd build_64
+  ../build_64.sh "-DMNN_LOW_MEMORY=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true -DMNN_BUILD_LLM=true -DMNN_SUPPORT_TRANSFORMER_FUSE=true -DMNN_ARM82=true -DMNN_USE_LOGCAT=true -DMNN_OPENCL=true -DLLM_SUPPORT_VISION=true -DMNN_BUILD_OPENCV=true -DMNN_IMGCODECS=true -DLLM_SUPPORT_AUDIO=true -DMNN_BUILD_AUDIO=true -DMNN_BUILD_DIFFUSION=ON -DMNN_SEP_BUILD=OFF -DCMAKE_INSTALL_PREFIX=."
+  make install
+  cd ../../../apps/Android/MnnLlmChat
+  ./gradlew assembleDebug -PMNN_BUILT_LLM_FROM_PREBUILT=ON
+  #build debug verion from current MNN source
   ./gradlew assembleDebug  
-  #build debug verion and install to android device
-  ./gradlew installDebug  
   ```  
 
 # Releases
