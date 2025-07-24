@@ -8,18 +8,23 @@ plugins {
 android {
     namespace 'com.alibaba.mnnllm.android'
     compileSdk 35
-    ndkVersion '23.0.7599858'
+    ndkVersion "27.2.12479018"
+    
+    flavorDimensions "store"
+    
     defaultConfig {
         applicationId "com.alibaba.mnnllm.android"
         minSdk 26
-        targetSdk 34
-        versionCode 501
-        versionName "0.5.1.2"
+        targetSdk 35
+        versionCode 606
+        versionName "0.6.6"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         externalNativeBuild {
             cmake {
                 cppFlags '-std=c++17'
+                // Enable 16KB page size support for NDK r27
+                arguments "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON"
             }
         }
 
@@ -39,18 +44,46 @@ android {
             jvmTarget = "1.8"
         }
 
+        lintOptions {
+            disable 'TimberArgCount', 'TimberArgTypes', 'TimberTagLength', 'BinaryOperationInTimber',
+                    'LogNotTimber', 'StringFormatInTimber', 'ThrowableNotAtBeginning'
+        }
+
         ndk {
             //noinspection ChromeOsAbiSupport
             abiFilters "arm64-v8a" // Include only arm64-v8a
         }
-    }
 
-    buildTypes {
-        release {
-            minifyEnabled false
-            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        signingConfigs {
+            release {
+                storeFile file(System.getenv("KEYSTORE_FILE"))
+                storePassword System.getenv("KEYSTORE_PASSWORD")
+                keyAlias System.getenv("KEY_ALIAS")
+                keyPassword System.getenv("KEY_PASSWORD")
+            }
+        }
+        buildTypes {
+            release {
+                signingConfig signingConfigs.release
+                applicationIdSuffix ".release"
+            }
+            debug {
+            }
         }
     }
+    
+    productFlavors {
+        standard {
+            dimension "store"
+            buildConfigField "boolean", "IS_GOOGLE_PLAY_BUILD", "false"
+        }
+        googleplay {
+            dimension "store"
+            buildConfigField "boolean", "IS_GOOGLE_PLAY_BUILD", "true"
+        }
+    }
+
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
@@ -63,6 +96,12 @@ android {
     }
     buildFeatures {
         viewBinding true
+        buildConfig true
+    }
+    sourceSets {
+        main {
+            res.srcDirs = ['src/main/res', 'src/main/res-icons']
+        }
     }
 
     packagingOptions {
@@ -73,6 +112,12 @@ android {
                 'META-INF/LICENSE',
                 'META-INF/MANIFEST.MF'
         ])
+    }
+
+    testOptions {
+        unitTests.all {
+            jvmArgs '--add-opens', 'java.base/java.lang=ALL-UNNAMED'
+        }
     }
 }
 
@@ -95,7 +140,10 @@ dependencies {
     implementation 'com.nambimobile.widgets:expandable-fab:1.2.1'
     implementation 'com.github.squti:Android-Wave-Recorder:2.0.1'
     implementation 'androidx.preference:preference-ktx:1.2.1'
-    testImplementation 'junit:junit:4.13.2'
+    
+    // MNN TTS Framework
+    implementation project(':mnn_tts')
+
     androidTestImplementation 'androidx.test.ext:junit:1.2.1'
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.6.1'
     implementation "io.noties.markwon:core:4.6.2"
@@ -138,9 +186,18 @@ dependencies {
     // Kotlin 序列化相关依赖
     implementation "org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1"
 
+    // DataStore 相关依赖
+    implementation "androidx.datastore:datastore-preferences:1.0.0"
+
     // 日志相关依赖
     implementation "com.jakewharton.timber:timber:5.0.1"
-
-
-
+//    implementation(name: 'android_device_names', ext: 'aar')
+    implementation 'com.github.Juude:AndroidDeviceNames:0.0.1'
+    testImplementation 'androidx.test:core:1.5.0'
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.robolectric:robolectric:4.12.1'
+    testImplementation 'org.mockito:mockito-core:5.11.0'
+    testImplementation 'org.mockito:mockito-inline:5.2.0'
+    testImplementation 'org.mockito.kotlin:mockito-kotlin:5.2.0'
+    testImplementation "io.mockk:mockk:1.13.10"
 }

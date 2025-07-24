@@ -13,7 +13,9 @@
         android:layout_height="match_parent"
         android:visibility="gone"
         android:overScrollMode="never"
-        android:nestedScrollingEnabled="true" />
+        android:nestedScrollingEnabled="true"
+        android:clipToPadding="false"
+        android:paddingBottom="8dp" />
 
     <com.github.ybq.android.spinkit.SpinKitView
         android:id="@+id/model_list_loading_view"
@@ -45,14 +47,37 @@
     <RelativeLayout
         android:id="@+id/model_list_empty_view"
         android:visibility="gone"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent">
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_centerInParent="true"
+        tools:visibility="visible">
+        <ImageView
+            android:id="@+id/iv_no_models"
+            android:layout_width="200dp"
+            android:layout_height="200dp"
+            app:srcCompat="@drawable/no_models"
+            android:layout_centerHorizontal="true"
+            app:tint="?colorOnSurfaceVariant"/>
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_add_model"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_centerHorizontal="true"
+            android:text="@string/go_to_download"
+            android:layout_marginTop="-30dp"
+            android:minWidth="150dp"
+            android:layout_below="@id/iv_no_models"
+            android:onClick="onAddModelButtonClick" />
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_centerInParent="true"
+            android:layout_margin="16dp"
             android:textSize="16sp"
-            android:text="@string/no_models_found"/>
+            android:gravity="center"
+            android:text="@string/no_models_found"
+            android:layout_below="@id/btn_add_model"/>
     </RelativeLayout>
 
 </RelativeLayout>

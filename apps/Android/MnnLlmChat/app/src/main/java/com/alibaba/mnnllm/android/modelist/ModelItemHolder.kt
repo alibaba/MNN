@@ -1,12 +1,9 @@
 package com.alibaba.mnnllm.android.modelist
 
-import android.annotation.SuppressLint
-import android.text.TextUtils
+import android.util.Log
 import android.view.MenuItem
 import android.view.View
 import android.view.View.OnLongClickListener
-import android.widget.ImageView
-import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
@@ -14,191 +11,283 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.PopupMenu
 import androidx.recyclerview.widget.RecyclerView
 import com.alibaba.mls.api.ModelItem
-import com.alibaba.mls.api.download.DownloadInfo
 import com.alibaba.mls.api.download.ModelDownloadManager
+import com.alibaba.mls.api.download.DownloadInfo
+import com.alibaba.mls.api.download.DownloadState
 import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.model.ModelUtils
-import com.alibaba.mnnllm.android.utils.FileUtils
-import com.alibaba.mnnllm.android.model.ModelUtils.getDrawableId
-import com.alibaba.mnnllm.android.modelsettings.ModelConfig
 import com.alibaba.mnnllm.android.modelsettings.SettingsBottomSheetFragment
+import com.alibaba.mnnllm.android.utils.DialogUtils
+import com.alibaba.mnnllm.android.utils.FileUtils
+import com.alibaba.mnnllm.android.widgets.ModelAvatarView
 import com.alibaba.mnnllm.android.widgets.TagsLayout
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.io.File
 
-class ModelItemHolder(itemView: View, private val modelItemListener: ModelItemListener) :
-    RecyclerView.ViewHolder(itemView), View.OnClickListener, OnLongClickListener {
+class ModelItemHolder(
+    itemView: View, 
+    private val modelItemListener: ModelItemListener,
+    private val enableLongClick: Boolean = true
+) : RecyclerView.ViewHolder(itemView), View.OnClickListener, OnLongClickListener {
     private var tvModelName: TextView
     private var tvModelTitle: TextView
-    private var tvModelSubtitle: TextView
     private var tvStatus: TextView
-    private var headerIcon: ImageView
+    private var tvTimeInfo: TextView
+    private val btnUpdate: com.google.android.material.button.MaterialButton
 
-    private val headerSection: View
-
-    private var downloadProgressView: View
-    private var progressBar: ProgressBar
-
-    private var modelItemDownloadState: ModelItemDownloadState? = null
-
+    private val headerSection: ModelAvatarView
     private val tagsLayout: TagsLayout
+    private val pinnedOverlay: View // Pinned overlay
 
-    private val iconDownload:View
+    private var currentModelWrapper: ModelItemWrapper? = null
     private val modelDownloadManager = ModelDownloadManager.getInstance(itemView.context)
 
     init {
         itemView.setOnClickListener(this)
-        itemView.setOnLongClickListener(this)
+        if (enableLongClick) {
+            itemView.setOnLongClickListener(this)
+        }
         tvModelName = itemView.findViewById(R.id.tvModelName)
         tvModelTitle = itemView.findViewById(R.id.tvModelTitle)
-        tvModelSubtitle = itemView.findViewById(R.id.tvModelSubtitle)
         tvStatus = itemView.findViewById(R.id.tvStatus)
+        tvTimeInfo = itemView.findViewById(R.id.tvTimeInfo)
+        btnUpdate = itemView.findViewById(R.id.btn_update)
         headerSection = itemView.findViewById(R.id.header_section_title)
-        headerIcon = itemView.findViewById(R.id.header_section_icon)
-        downloadProgressView = itemView.findViewById(R.id.download_progress_view)
         tagsLayout = itemView.findViewById(R.id.tagsLayout)
-        progressBar = itemView.findViewById(R.id.download_progress_bar)
-        iconDownload = itemView.findViewById(R.id.iv_download)
-    }
-
-    private fun getFileSizeString(modelItem: ModelItem):String {
-        val file = if (modelItem.localPath.isNullOrEmpty())
-            modelDownloadManager.getDownloadedFile(modelItem.modelId!!)
-         else File(modelItem.localPath!!)
-        return FileUtils.getFileSizeString(file)
-    }
-
-    fun bind(hfModelItem: ModelItem, modelItemDownloadState: ModelItemDownloadState?) {
-        val modelName = hfModelItem.modelName
-        itemView.tag = hfModelItem
-        this.modelItemDownloadState = modelItemDownloadState
-        tvModelTitle.text = modelName
-        tagsLayout.setTags(
-            hfModelItem.newTags
-        )
-        val drawableId = getDrawableId(modelName)
-        if (drawableId != 0) {
-            headerIcon.visibility = View.VISIBLE
-            headerIcon.setImageResource(drawableId)
-            tvModelName.visibility = View.INVISIBLE
-        } else {
-            headerIcon.visibility = View.INVISIBLE
-            val headerText = modelName?.replace("_", "-") ?: ""
-            tvModelName.text =
-                if (headerText.contains("-")) headerText.substring(
-                    0,
-                    headerText.indexOf("-")
-                ) else headerText
-            tvModelName.visibility = View.VISIBLE
-        }
-        if (modelItemDownloadState == null) {
-            progressBar.visibility = View.GONE
-            tvStatus.text = if (hfModelItem.isLocal) {
-                tvStatus.resources.getString(R.string.local_click_to_chat,
-                    getFileSizeString(hfModelItem),
-                    hfModelItem.localPath?:""
-                    )
-            } else {
-               ""
+        pinnedOverlay = itemView.findViewById(R.id.pinned_overlay)
+        
+        // Set update button click listener
+        btnUpdate.setOnClickListener {
+            currentModelWrapper?.let { wrapper ->
+                modelItemListener.onItemUpdate(wrapper.modelItem)
             }
-            iconDownload.visibility = View.GONE
+        }
+    }
+
+    private fun displayTimeInfo(modelWrapper: ModelItemWrapper) {
+        val lastChatTime = modelWrapper.lastChatTime
+        
+        // 1. If there hasn't been any chat, do not display
+        if (lastChatTime <= 0) {
+            tvTimeInfo.visibility = View.GONE
             return
         }
-        val downloadState = modelItemDownloadState.downloadInfo!!.downlodaState
-        iconDownload.visibility = if (downloadState != DownloadInfo.DownloadSate.PAUSED && downloadState != DownloadInfo.DownloadSate.NOT_START && downloadState != DownloadInfo.DownloadSate.FAILED)
-            View.GONE
-        else View.VISIBLE
-        progressBar.visibility =
-            if (downloadState == DownloadInfo.DownloadSate.DOWNLOADING || downloadState == DownloadInfo.DownloadSate.PAUSED) View.VISIBLE else View.GONE
-        progressBar.progress =
-            if (downloadState == DownloadInfo.DownloadSate.DOWNLOADING || downloadState == DownloadInfo.DownloadSate.PAUSED) (modelItemDownloadState.downloadInfo!!.progress * 100).toInt() else 0
-        when (downloadState) {
-            DownloadInfo.DownloadSate.NOT_START -> tvStatus.text =
-                tvStatus.resources.getString(R.string.download_not_started,
-                    if (modelItemDownloadState.downloadInfo!!.totalSize > 0) {
-                        FileUtils.formatFileSize(modelItemDownloadState.downloadInfo!!.totalSize)
-                    } else {
-                        ""
-                    })
-
-            DownloadInfo.DownloadSate.COMPLETED -> tvStatus.text =
-                tvStatus.resources.getString(R.string.downloaded_click_to_chat, FileUtils.getFileSizeString(modelDownloadManager.getDownloadedFile(hfModelItem.modelId!!)))
-
-            DownloadInfo.DownloadSate.DOWNLOADING -> if (TextUtils.equals(
-                    "Preparing",
-                    modelItemDownloadState.downloadInfo?.progressStage
-                )
-            ) {
-                tvStatus.text = tvStatus.resources.getString(R.string.download_preparing)
+        
+        // 2. Check if the chat happened on the same day
+        val now = System.currentTimeMillis()
+        val chatDate = Date(lastChatTime)
+        val today = Date(now)
+        
+        // Determine whether it's the same day
+        val isSameDay = isSameDay(chatDate, today)
+        
+        val formattedTime = if (isSameDay) {
+            // 2.1 Chat occurred today, display hours and minutes, e.g., 8:30
+            val timeFormat = SimpleDateFormat("H:mm", Locale.getDefault())
+            timeFormat.format(chatDate)
+        } else {
+            // 2.2 Chat did not occur today, display date, supports both Chinese and English
+            val locale = Locale.getDefault()
+            val dateFormat = if (locale.language == "zh") {
+                SimpleDateFormat("M月d日", locale)
             } else {
-                updateProgress(modelItemDownloadState.downloadInfo!!)
+                SimpleDateFormat("MMM d", locale) // For example: Jun 20, Dec 15
             }
+            dateFormat.format(chatDate)
+        }
+        
+        tvTimeInfo.text = formattedTime
+        tvTimeInfo.visibility = View.VISIBLE
+    }
+    
+    private fun isSameDay(date1: Date, date2: Date): Boolean {
+        val cal1 = java.util.Calendar.getInstance()
+        val cal2 = java.util.Calendar.getInstance()
+        cal1.time = date1
+        cal2.time = date2
+        return cal1.get(java.util.Calendar.YEAR) == cal2.get(java.util.Calendar.YEAR) &&
+                cal1.get(java.util.Calendar.DAY_OF_YEAR) == cal2.get(java.util.Calendar.DAY_OF_YEAR)
+    }
 
-            DownloadInfo.DownloadSate.FAILED -> tvStatus.text = tvStatus.resources.getString(
-                R.string.download_failed_click_retry,
-                modelItemDownloadState.downloadInfo!!.errorMessage
-            )
+    private fun getFormattedFileSize(modelWrapper: ModelItemWrapper): String {
+        val modelItem = modelWrapper.modelItem
+        
+        // Try to get file size using the same method as MarketItemHolder
+        modelItem.modelId?.let { modelId ->
+            val downloadedFile = modelDownloadManager.getDownloadedFile(modelId)
+            if (downloadedFile != null) {
+                return FileUtils.getFileSizeString(downloadedFile)
+            }
+        }
+        
+        // Fallback to direct file size calculation
+        if (modelWrapper.downloadSize > 0) {
+            return FileUtils.formatFileSize(modelWrapper.downloadSize)
+        }
+        
+        // Try to get size from local path
+        modelItem.localPath?.let { localPath ->
+            val file = File(localPath)
+            if (file.exists()) {
+                return FileUtils.getFileSizeString(file)
+            }
+        }
+        
+        return ""
+    }
 
-            DownloadInfo.DownloadSate.PAUSED -> tvStatus.text = tvStatus.resources.getString(
-                R.string.downloading_paused,
-                if (modelItemDownloadState.downloadInfo!!.totalSize > 0) {
-                    FileUtils.formatFileSize(modelItemDownloadState.downloadInfo!!.totalSize)
-                } else {
-                    ""
-                },
-                modelItemDownloadState.downloadInfo!!.progress * 100
-            )
-
-            else -> {}
+    /**
+     * Extract source information from modelId
+     */
+    private fun getModelSource(modelId: String?): String? {
+        return when {
+            modelId == null -> null
+            modelId.startsWith("HuggingFace/") || modelId.contains("taobao-mnn") -> itemView.context.getString(R.string.huggingface)
+            modelId.startsWith("ModelScope/") -> itemView.context.getString(R.string.modelscope)
+            modelId.startsWith("Modelers/") -> itemView.context.getString(R.string.modelers)
+            else -> null
         }
     }
 
-    @SuppressLint("DefaultLocale")
-    fun updateProgress(downloadInfo: DownloadInfo) {
-        progressBar.progress = (downloadInfo.progress * 100).toInt()
-        tvStatus.text = itemView.resources.getString(
-            R.string.downloading_progress,
-            if ((modelItemDownloadState?.downloadInfo?.totalSize ?: 0) > 0) {
-                FileUtils.formatFileSize(modelItemDownloadState!!.downloadInfo!!.totalSize)
+    private fun getDisplayTags(modelItem: ModelItem): List<String> {
+        return modelItem.getDisplayTags(itemView.context).take(3)
+    }
+
+    fun bind(modelWrapper: ModelItemWrapper) {
+        val modelItem = modelWrapper.modelItem
+        val modelName = modelItem.modelName
+        
+        // Store current wrapper and set item tag
+        this.currentModelWrapper = modelWrapper
+        itemView.tag = modelWrapper
+        
+        // Set basic model info
+        tvModelTitle.text = modelName
+        headerSection.setModelName(modelName)
+        
+        // Use consistent tag display logic
+        tagsLayout.setTags(getDisplayTags(modelItem))
+        
+        // Display time information from wrapper
+        displayTimeInfo(modelWrapper)
+        
+        // Show pinned overlay
+        pinnedOverlay.visibility = if (modelWrapper.isPinned || true) View.VISIBLE else View.GONE
+        
+        // Handle update button visibility and status
+        updateButtonAndStatus(modelWrapper)
+        
+        itemView.isActivated = modelWrapper.isPinned
+    }
+
+    /**
+     * Update the update button visibility and status text based on model state
+     */
+    private fun updateButtonAndStatus(modelWrapper: ModelItemWrapper) {
+        val formattedSize = getFormattedFileSize(modelWrapper)
+        
+        // Check if model is currently updating (hasUpdate and downloading)
+        val isUpdating = isModelUpdating(modelWrapper)
+        
+        if (modelWrapper.hasUpdate) {
+            btnUpdate.visibility = View.VISIBLE
+            if (isUpdating) {
+                btnUpdate.text = btnUpdate.resources.getString(R.string.download_state_updating)
+                btnUpdate.isEnabled = false
+                tvStatus.text = if (formattedSize.isNotEmpty()) {
+                    "${formattedSize} (${tvStatus.resources.getString(R.string.download_state_updating)})"
+                } else {
+                    tvStatus.resources.getString(R.string.download_state_updating)
+                }
             } else {
-                ""
-            },
-            downloadInfo.progress * 100,
-            downloadInfo.speedInfo
-        )
+                btnUpdate.text = btnUpdate.resources.getString(R.string.update)
+                btnUpdate.isEnabled = true
+                tvStatus.text = if (formattedSize.isNotEmpty()) {
+                    tvStatus.resources.getString(R.string.downloaded_update_available, formattedSize)
+                } else {
+                    tvStatus.resources.getString(R.string.downloaded_update_available, "")
+                }
+            }
+        } else {
+            btnUpdate.visibility = View.GONE
+            tvStatus.text = if (formattedSize.isNotEmpty()) {
+                tvStatus.resources.getString(R.string.downloaded_click_to_chat, formattedSize)
+            } else {
+                tvStatus.resources.getString(R.string.downloaded_click_to_chat, "")
+            }
+        }
+    }
+
+    /**
+     * Check if the model is currently being updated
+     * @param modelWrapper The model wrapper to check
+     * @return true if model hasUpdate and is currently downloading
+     */
+    private fun isModelUpdating(modelWrapper: ModelItemWrapper): Boolean {
+        if (!modelWrapper.hasUpdate) return false
+        
+        modelWrapper.modelItem.modelId?.let { modelId ->
+            val downloadInfo = modelDownloadManager.getDownloadInfo(modelId)
+            return downloadInfo.downloadState == DownloadState.DOWNLOADING
+        }
+        return false
+    }
+
+    /**
+     * Update progress for the model if it's currently being updated
+     * This method should be called from the adapter when progress updates are received
+     */
+    fun updateProgress(downloadInfo: DownloadInfo) {
+        currentModelWrapper?.let { wrapper ->
+            // If model has update and is downloading, refresh the UI
+            if (wrapper.hasUpdate && downloadInfo.downloadState == DownloadState.DOWNLOADING) {
+                updateButtonAndStatus(wrapper)
+            }
+        }
     }
 
     override fun onClick(v: View) {
-        val hfModelItem = v.tag as ModelItem
-        modelItemListener.onItemClicked(hfModelItem)
+        val modelWrapper = v.tag as ModelItemWrapper
+        modelItemListener.onItemClicked(modelWrapper.modelItem)
     }
 
     override fun onLongClick(v: View): Boolean {
+        if (!enableLongClick) {
+            return false
+        }
+        
+        val modelWrapper = itemView.tag as ModelItemWrapper
+        val modelItem = modelWrapper.modelItem
+        
         val popupMenu = PopupMenu(v.context, tvStatus)
         val inflater = popupMenu.menuInflater
-        inflater.inflate(R.menu.model_item_context_menu, popupMenu.menu)
+        inflater.inflate(R.menu.model_list_item_context_menu, popupMenu.menu)
+        
+        popupMenu.menu.add(0, R.id.menu_pin_model, 0,
+            if (modelWrapper.isPinned) R.string.menu_unpin_model else R.string.menu_pin_model)
+        
         popupMenu.setOnMenuItemClickListener { item: MenuItem ->
-            val hfModelItem = itemView.tag as ModelItem
-            val modelId = hfModelItem.modelId
+            val modelId = modelItem.modelId
             if (item.itemId == R.id.menu_delete_model) {
-                AlertDialog.Builder(v.context)
-                    .setTitle(R.string.confirm_delete_model_title)
-                    .setMessage(R.string.confirm_delete_model_message)
-                    .setPositiveButton(android.R.string.ok) { _, _ ->
-                        MainScope().launch {
+                DialogUtils.showDeleteConfirmationDialog(v.context) {
+                    MainScope().launch {
+                        try {
                             ModelDownloadManager.getInstance(v.context).deleteModel(modelId!!)
+                            // Notify the listener that the model was deleted successfully
+                            modelItemListener.onItemDeleted(modelItem)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Failed to delete model: $modelId", e)
+                            // You could show an error toast here if needed
                         }
                     }
-                    .setNegativeButton(android.R.string.cancel, null)
-                    .show()
-            } else if (item.itemId == R.id.menu_pause_download) {
-                ModelDownloadManager.getInstance(v.context).pauseDownload(modelId!!)
-            } else if (item.itemId == R.id.menu_start_download) {
-                ModelDownloadManager.getInstance(v.context).startDownload(modelId!!)
+                }
             } else if (item.itemId == R.id.menu_settings) {
                 val context = v.context
-                val modelId = hfModelItem.modelId
+                val modelId = modelItem.modelId
                 if (ModelUtils.isDiffusionModel(modelId!!)) {
                     Toast.makeText(context, R.string.diffusion_model_not_alloed, Toast.LENGTH_SHORT).show()
                     return@setOnMenuItemClickListener true
@@ -207,28 +296,83 @@ class ModelItemHolder(itemView: View, private val modelItemListener: ModelItemLi
                 if (fragmentManager != null) {
                     val settingsSheet = SettingsBottomSheetFragment()
                     settingsSheet.setModelId(modelId)
-                    settingsSheet.setConfigPath(hfModelItem.localPath)
+                    settingsSheet.setConfigPath(modelItem.localPath)
                     settingsSheet.show(fragmentManager, SettingsBottomSheetFragment.TAG)
                 }
+            } else if (item.itemId == R.id.menu_show_model_info) {
+                // Show model info with repo update check
+                val context = v.context
+                val progressDialog = androidx.appcompat.app.AlertDialog.Builder(context)
+                    .setTitle(R.string.repo_update_check_result)
+                    .setMessage(R.string.checking_repo_updates)
+                    .setCancelable(false)
+                    .create()
+                
+                progressDialog.show()
+                
+                // Check for repo updates first
+                com.alibaba.mnnllm.android.debug.DebugActivity.checkRepoUpdates(context) { hasUpdates, updateInfo ->
+                    progressDialog.dismiss()
+                    
+                    // Build model info
+                    val info = StringBuilder()
+                    info.append("Model: ${modelItem.modelName ?: modelItem.modelId}\n")
+                    val sizeInfo = currentModelWrapper?.let { getFormattedFileSize(it) } ?: "Unknown"
+                    info.append("Size: ${if (sizeInfo.isNotEmpty()) sizeInfo else "Unknown"}\n")
+                    if ((currentModelWrapper?.lastChatTime ?: 0) > 0) {
+                        val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
+                        info.append("Last Chat: ${dateFormat.format(Date(currentModelWrapper!!.lastChatTime))}\n")
+                    }
+                    if ((currentModelWrapper?.downloadTime ?: 0) > 0) {
+                        val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
+                        info.append("Downloaded: ${dateFormat.format(Date(currentModelWrapper!!.downloadTime))}\n")
+                    }
+                    
+                    // Add repo update info
+                    info.append("\n--- Repository Update Check ---\n")
+                    info.append(updateInfo ?: "No update information available")
+                    
+                    AlertDialog.Builder(context)
+                        .setTitle("Model Information")
+                        .setMessage(info.toString())
+                        .setPositiveButton(android.R.string.ok, null)
+                        .show()
+                }
+            } else if (item.itemId == R.id.menu_update_model) {
+                // Handle update action
+                modelItemListener.onItemUpdate(modelItem)
+            } else if (item.itemId == R.id.menu_open_model_card) {
+                ModelUtils.openModelCard(v.context, modelItem)
+            } else if (item.itemId == R.id.menu_pin_model) {
+                // Handle pin/unpin action
+                return@setOnMenuItemClickListener modelItemListener.onItemLongClicked(modelItem)
             }
             true
         }
-        val modelItemState = this.modelItemDownloadState ?: return true
-        val downloadState = modelItemState.downloadInfo!!.downlodaState
-        if (downloadState != DownloadInfo.DownloadSate.COMPLETED && downloadState != DownloadInfo.DownloadSate.PAUSED && downloadState != DownloadInfo.DownloadSate.FAILED) {
-            popupMenu.menu.findItem(R.id.menu_delete_model).setVisible(false)
-        }
-        if (downloadState != DownloadInfo.DownloadSate.DOWNLOADING) {
-            popupMenu.menu.findItem(R.id.menu_pause_download).setVisible(false)
-        }
-        if (downloadState != DownloadInfo.DownloadSate.PAUSED && downloadState != DownloadInfo.DownloadSate.NOT_START && downloadState != DownloadInfo.DownloadSate.FAILED
-        ) {
-            popupMenu.menu.findItem(R.id.menu_start_download).setVisible(false)
-        }
-        popupMenu.menu.findItem(R.id.menu_settings).setVisible(
-            downloadState == DownloadInfo.DownloadSate.COMPLETED
-        )
+        
+        // Since all models are downloaded, simplify menu visibility
+        // Delete, settings, and model info are always available
+        popupMenu.menu.findItem(R.id.menu_delete_model).setVisible(!modelItem.isLocal)
+        popupMenu.menu.findItem(R.id.menu_settings).setVisible(true)
+        // Show model info menu item only if debug feature is enabled
+        val isDebugEnabled = com.alibaba.mnnllm.android.debug.DebugActivity.isShowModelInfoEnabled(v.context)
+        popupMenu.menu.findItem(R.id.menu_show_model_info).setVisible(isDebugEnabled)
+        
+        // Show update option only for remote models with updates
+        popupMenu.menu.findItem(R.id.menu_update_model).setVisible(!modelItem.isLocal && modelWrapper.hasUpdate)
+        
+        // Download control items are not needed for downloaded models
+        popupMenu.menu.findItem(R.id.menu_pause_download)?.setVisible(false)
+        popupMenu.menu.findItem(R.id.menu_start_download)?.setVisible(false)
+        
+        // Model card should be visible for remote models
+        popupMenu.menu.findItem(R.id.menu_open_model_card).setVisible(false)
+        
         popupMenu.show()
         return true
+    }
+
+    companion object {
+        const val TAG = "ModelItemHolder"
     }
 }

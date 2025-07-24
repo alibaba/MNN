@@ -1,7 +1,7 @@
 pluginManagement {
     repositories {
-        google()
         mavenCentral()
+        google()
         gradlePluginPortal()
         maven { url 'https://jitpack.io' }
     }
@@ -9,11 +9,13 @@ pluginManagement {
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
-        google()
         mavenCentral()
+        google()
         maven { url 'https://jitpack.io' }
     }
 }
 
 rootProject.name = "MnnLlmChat"
 include ':app'
+include ':mnn_tts'
+project(':mnn_tts').projectDir = new File('../../frameworks/mnn_tts/android')

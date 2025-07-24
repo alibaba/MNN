@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_activated="true">
+        <layer-list>
+            <item android:drawable="@color/pinned_overlay_color" />
+            <item android:drawable="?attr/selectableItemBackground" />
+        </layer-list>
+    </item>
+
+    <item>
+        <layer-list>
+            <item android:drawable="?attr/selectableItemBackground" />
+        </layer-list>
+    </item>
+
+</selector>

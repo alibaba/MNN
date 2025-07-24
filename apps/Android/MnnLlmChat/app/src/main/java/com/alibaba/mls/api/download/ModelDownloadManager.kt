@@ -4,7 +4,6 @@ package com.alibaba.mls.api.download
 
 import android.Manifest
 import android.annotation.SuppressLint
-import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -13,42 +12,80 @@ import android.util.Log
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.alibaba.mls.api.ApplicationProvider
-
-import com.alibaba.mls.api.download.DownloadPersistentData.getDownloadSizeSaved
-import com.alibaba.mls.api.download.DownloadPersistentData.getDownloadSizeTotal
-import com.alibaba.mls.api.download.DownloadPersistentData.removeProgress
-import com.alibaba.mls.api.download.DownloadPersistentData.saveDownloadSizeSaved
-import com.alibaba.mls.api.download.DownloadPersistentData.saveDownloadSizeTotal
 import com.alibaba.mls.api.download.hf.HfModelDownloader
 import com.alibaba.mls.api.download.ml.MLModelDownloader
 import com.alibaba.mls.api.download.ms.MsModelDownloader
 import com.alibaba.mls.api.source.ModelSources
+import com.alibaba.mnnllm.android.chat.model.ChatDataManager
+import com.alibaba.mnnllm.android.model.ModelUtils
+import com.alibaba.mnnllm.android.modelmarket.ModelMarketItem
 import com.alibaba.mnnllm.android.modelsettings.ModelConfig
+import com.alibaba.mnnllm.android.utils.CurrentActivityTracker
 import com.alibaba.mnnllm.android.utils.FileUtils
-import com.alibaba.mnnllm.android.utils.FileUtils.clearMmapCache
+import com.alibaba.mnnllm.android.utils.MmapUtils.clearMmapCache
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.collections.set
 import kotlin.concurrent.Volatile
+import com.alibaba.mnnllm.android.modelmarket.ModelRepository
+import kotlinx.coroutines.runBlocking
 
-class ModelDownloadManager private constructor(private val context: Context) {
-    private var downloadListener: DownloadListener? = null
-    private val cachePath = context.filesDir.absolutePath + "/.mnnmodels"
-    private lateinit var downloader: ModelRepoDownloader
-    private var hfDownloader:HfModelDownloader
-    private var msDownloader:MsModelDownloader
-    private val mlDownloader:MLModelDownloader
-    private val downloadInfoMap = HashMap<String, DownloadInfo>()
+class LoggingDownloadListener : DownloadListener {
+    override fun onDownloadStart(modelId: String) {
+        Log.d(ModelDownloadManager.TAG, "onDownloadStart: $modelId")
+    }
+
+    override fun onDownloadProgress(modelId: String, downloadInfo: DownloadInfo) {
+        Log.v(ModelDownloadManager.TAG, "onDownloadProgress: $modelId, progress: ${downloadInfo.progress}, state: ${downloadInfo.downloadState}, speed: ${downloadInfo.speedInfo}")
+    }
+
+    override fun onDownloadFinished(modelId: String, path: String) {
+        Log.d(ModelDownloadManager.TAG, "onDownloadFinished: $modelId, path: $path")
+    }
+
+    override fun onDownloadFailed(modelId: String, e: Exception) {
+        Log.e(ModelDownloadManager.TAG, "onDownloadFailed: $modelId", e)
+    }
+
+    override fun onDownloadPaused(modelId: String) {
+        Log.d(ModelDownloadManager.TAG, "onDownloadPaused: $modelId")
+    }
+
+    override fun onDownloadFileRemoved(modelId: String) {
+        Log.d(ModelDownloadManager.TAG, "onDownloadFileRemoved: $modelId")
+    }
+
+    override fun onDownloadTotalSize(modelId: String, totalSize: Long) {
+        Log.d(ModelDownloadManager.TAG, "onDownloadTotalSize: $modelId, totalSize: $totalSize")
+    }
+
+    override fun onDownloadHasUpdate(modelId: String, downloadInfo: DownloadInfo) {
+        Log.d(ModelDownloadManager.TAG, "modelId:$modelId onDownloadTotalSize: $modelId, uploadTime: ${downloadInfo.remoteUpdateTime} downloadTime: ${downloadInfo.downloadedTime}")
+    }
+}
+
+class ModelDownloadManager private constructor(context: Context) {
+    private val listeners = CopyOnWriteArrayList<DownloadListener>()
+    private val appContext = context.applicationContext
+    private val cachePath = appContext.filesDir.absolutePath + "/.mnnmodels"
+    private var hfDownloader: HfModelDownloader
+    private var msDownloader: MsModelDownloader
+    private val mlDownloader: MLModelDownloader
+    private val downloadInfoMap = ConcurrentHashMap<String, DownloadInfo>()
     private val foregroundServiceIntent =
-        Intent(context.applicationContext, DownloadForegroundService::class.java)
+        Intent(appContext, DownloadForegroundService::class.java)
     private val activeDownloadCount =
         AtomicInteger(0)
+    private val checkedForUpdateModelIds = ConcurrentHashMap<String, Boolean>()
 
     private var foregroundServiceStarted = false
+    private var disableForegroundService  = false
 
     init {
         val downloadCallback = object : ModelRepoDownloader.ModelRepoDownloadCallback {
@@ -73,79 +110,113 @@ class ModelDownloadManager private constructor(private val context: Context) {
             }
 
             override fun onDownloadingProgress(
-                modelId: String,
+                modelId:String,
                 stage: String,
                 currentFile: String?,
                 saved: Long,
                 total: Long
             ) {
                 updateDownloadingProgress(
-                    modelId, "file", currentFile,
+                    modelId, stage, currentFile,
                     saved, total
                 )
+            }
+
+            override fun onRepoInfo(modelId: String, lastModified: Long, repoSize: Long) {
+                onRepoInfoReceived(modelId, lastModified, repoSize)
             }
         }
         mlDownloader = MLModelDownloader(downloadCallback, cachePath)
         hfDownloader = HfModelDownloader(downloadCallback, cachePath)
         msDownloader = MsModelDownloader(downloadCallback, cachePath)
-        setDownloader(ModelSources.get().remoteSourceType)
+        addListener(LoggingDownloadListener())
     }
 
-    fun setListener(downloadListener: DownloadListener?) {
-        this.downloadListener = downloadListener
-    }
-
-    private fun setDownloader(sourceType: ModelSources.ModelSourceType) {
-
-        this.downloader = if (sourceType == ModelSources.ModelSourceType.HUGGING_FACE) {
-            hfDownloader
-        } else if (sourceType == ModelSources.ModelSourceType.MODELERS)  {
-            mlDownloader
+    fun addListener(listener: DownloadListener) {
+        if (!listeners.contains(listener)) {
+            Log.d(TAG, "[addListener] Adding listener: ${listener.javaClass.name}")
+            listeners.add(listener)
         } else {
-            msDownloader
+            Log.w(TAG, "[addListener] Listener already exists: ${listener.javaClass.name}")
         }
+    }
+
+    fun removeListener(listener: DownloadListener) {
+        Log.d(TAG, "[removeListener] Removing listener: ${listener.javaClass.name}")
+        listeners.remove(listener)
+    }
+
+    private fun getDownloaderForSource(source: String): ModelRepoDownloader {
+        return when (source) {
+            ModelSources.sourceHuffingFace-> hfDownloader
+            ModelSources.sourceModelers -> mlDownloader
+            else -> msDownloader
+        }
+    }
+
+    private fun getDownloaderForSource(source: ModelSources.ModelSourceType): ModelRepoDownloader {
+        return when (source) {
+            ModelSources.ModelSourceType.HUGGING_FACE -> hfDownloader
+            ModelSources.ModelSourceType.MODELERS -> mlDownloader
+            else -> msDownloader
+        }
+    }
+
+    fun getDownloadedFile(item: ModelMarketItem): File? {
+        return getDownloadedFile(item.modelId)
     }
 
     fun getDownloadedFile(modelId: String): File? {
-        val file = downloader.getDownloadPath(modelId)
+        val file = getDownloaderForSource(ModelUtils.getSource(modelId)!!).getDownloadPath(modelId)
+        Log.d(TAG, "getDownloadedFile: $modelId file: $file")
         if (file.exists()) {
             return file
-        } else if (HfModelDownloader.getModelPath(cachePath, modelId).exists()) {
-            return HfModelDownloader.getModelPath(cachePath, modelId)
-        } else if (MsModelDownloader.getModelPath(
-                MsModelDownloader.getCachePathRoot(cachePath)
-                , modelId).exists()) {
-            return MsModelDownloader.getModelPath(
-                MsModelDownloader.getCachePathRoot(cachePath)
-                , modelId)
-        } else if (MLModelDownloader.getModelPath(
-                MLModelDownloader.getCachePathRoot(cachePath)
-                , modelId).exists()) {
-            return MLModelDownloader.getModelPath(
-                MLModelDownloader.getCachePathRoot(cachePath)
-                , modelId)
+        } else {
+            return  null
         }
-        return null
     }
 
     fun pauseDownload(modelId: String) {
-        if (getDownloadInfo(modelId).downlodaState != DownloadInfo.DownloadSate.DOWNLOADING) {
+        Log.d(TAG, "pauseDownload: $modelId downloadInfo : ${getDownloadInfo(modelId)}")
+        if (getDownloadInfo(modelId).downloadState != DownloadState.DOWNLOADING) {
+            Log.w(TAG, "not downloading")
             return
         }
-        downloader.pause(modelId)
+        val source = ModelUtils.getSource(modelId)!!
+        getDownloaderForSource(source).pause(modelId)
     }
 
+    fun startDownload(item: ModelMarketItem) {
+        Log.d(TAG, "startDownload: $item currentSource: ${item.currentSource} currentRepoPath: ${item.currentRepoPath}")
+        val modelName = item.modelName
+        val repoPath = item.currentRepoPath
+        val source = item.currentSource
+        if (repoPath.isEmpty() || source.isEmpty()) {
+            setDownloadFailed(item.modelId, Exception("currentRepoPath or currentSource is empty for $modelName"))
+            return
+        }
+        startDownload(item.modelId, source)
+    }
 
     fun startDownload(modelId: String) {
-        setDownloader(ModelSources.get().remoteSourceType)
-        if (downloadListener != null) {
-            downloadListener!!.onDownloadStart(modelId)
+        val splits = ModelUtils.splitSource(modelId)
+        if (splits.size != 2) {
+            setDownloadFailed(modelId, Exception("modelId is not in format of source:repoPath"))
+            return
         }
+        startDownload(modelId, splits[0])
+    }
+
+    private fun startDownload(modelId: String, source:String) {
+        val downloader = getDownloaderForSource(source)
+        Log.d(TAG, "startDownload: $modelId source: $source downloader: ${downloader.javaClass.name}")
+        listeners.forEach { it.onDownloadStart(modelId) }
         this.updateDownloadingProgress(modelId, "Preparing", null,
-            getDownloadSizeSaved(ApplicationProvider.get(), modelId),
-            getDownloadSizeTotal(ApplicationProvider.get(), modelId))
+            getRealDownloadSize(modelId),
+            DownloadPersistentData.getDownloadSizeTotal(ApplicationProvider.get(), modelId))
         downloader.download(modelId)
     }
+
 
     @SuppressLint("DefaultLocale")
     private fun calculateDownloadSpeed(downloadInfo: DownloadInfo, currentDownloadSize: Long) {
@@ -159,7 +230,7 @@ class ModelDownloadManager private constructor(private val context: Context) {
         } else if (currentTime - lastLogTime >= 1000) {
             val timeDiff = currentTime - lastLogTime
             var speedBytesPerSecond = ((currentDownloadSize - lastDownloadSize) * 1000.0) / timeDiff
-            if (speedBytesPerSecond < 0 ) { //may changed the download provider
+            if (speedBytesPerSecond < 0) { //may changed the download provider
                 speedBytesPerSecond = 0.0
             }
             downloadInfo.lastLogTime = currentTime
@@ -175,70 +246,143 @@ class ModelDownloadManager private constructor(private val context: Context) {
         }
     }
 
+    fun getDownloadInfo(item: ModelMarketItem): DownloadInfo {
+        return getDownloadInfo(item.modelId)
+    }
+
     fun getDownloadInfo(modelId: String): DownloadInfo {
+        Log.d(TAG, "getDownloadInfo: $modelId totalSize: ${DownloadPersistentData.getDownloadSizeTotal(ApplicationProvider.get(), modelId)}" +
+                " progress: ${getRealDownloadSize(modelId)}")
+        val source = ModelUtils.getSource(modelId)!!
         if (!downloadInfoMap.containsKey(modelId)) {
             val downloadInfo = DownloadInfo()
             if (getDownloadedFile(modelId) != null) {
-                downloadInfo.downlodaState = DownloadInfo.DownloadSate.COMPLETED
+                downloadInfo.downloadState = DownloadState.COMPLETED
                 downloadInfo.progress = 1.0
-            } else if (getDownloadSizeTotal(ApplicationProvider.get(), modelId) > 0) {
-                val totalSize = getDownloadSizeTotal(ApplicationProvider.get(), modelId)
-                val savedSize = getDownloadSizeSaved(ApplicationProvider.get(), modelId)
+                downloadInfo.totalSize = DownloadPersistentData.getDownloadSizeTotal(ApplicationProvider.get(), modelId)
+                downloadInfo.downloadedTime = DownloadPersistentData.getDownloadedTime(ApplicationProvider.get(), modelId)
+                if (downloadInfo.downloadedTime <= 0) {
+                    downloadInfo.downloadedTime = ChatDataManager.getInstance(appContext).getDownloadTime(modelId) / 1000
+                }
+            } else if (DownloadPersistentData.getDownloadSizeTotal(ApplicationProvider.get(), modelId) > 0) {
+                val totalSize = DownloadPersistentData.getDownloadSizeTotal(ApplicationProvider.get(), modelId)
+                val savedSize = getRealDownloadSize(modelId)
                 downloadInfo.totalSize = totalSize
                 downloadInfo.savedSize = savedSize
                 downloadInfo.progress = savedSize.toDouble() / totalSize
-                downloadInfo.downlodaState = if (savedSize > 0) DownloadInfo.DownloadSate.PAUSED else DownloadInfo.DownloadSate.NOT_START
+                downloadInfo.downloadState = if (savedSize > 0) DownloadState.PAUSED else DownloadState.NOT_START
             } else {
-                downloadInfo.downlodaState = DownloadInfo.DownloadSate.NOT_START
+                downloadInfo.downloadState = DownloadState.NOT_START
                 downloadInfo.progress = 0.0
-                getRepoSize(modelId)
             }
             downloadInfoMap[modelId] = downloadInfo
+            if (downloadInfo.totalSize < 100) {
+                getRepoSize(modelId, source)
+            }
         }
-        return downloadInfoMap[modelId]!!
+        val downloadInfo = downloadInfoMap[modelId]!!
+        return downloadInfo
     }
 
-    private fun getRepoSize(modelId: String) {
+    /**
+     * Get the real download size for a model.
+     * If getDownloadSizeSaved returns a value less than 0, 
+     * it will get the actual file size using FileUtils.
+     */
+    fun getRealDownloadSize(modelId: String): Long {
+        val savedSize = DownloadPersistentData.getDownloadSizeSaved(ApplicationProvider.get(), modelId)
+        if (savedSize < 0) {
+            val splits = ModelUtils.splitSource(modelId)
+            val source = splits[0]
+            val downloader = getDownloaderForSource(source)
+            val realFile = downloader.repoModelRealFile(modelId)
+            Log.d(TAG, "getRealDownloadSize realFile: ${realFile.absolutePath}")
+            val fileSize = FileUtils.getFileSize(realFile)
+            DownloadPersistentData.saveDownloadSizeSaved(ApplicationProvider.get(), modelId, fileSize)
+            return FileUtils.getFileSize(realFile)
+            return 0L
+        }
+        return savedSize
+    }
+
+    private fun getRepoSize(
+        modelId: String,
+        source: Any,
+        modelName: String = modelId
+    ) {
         MainScope().launch {
+            val downloader = when (source) {
+                is String -> getDownloaderForSource(source)
+                is ModelSources.ModelSourceType -> getDownloaderForSource(source)
+                else -> throw IllegalArgumentException("Unsupported source type: ${source::class.java.name}")
+            }
             val repoSize = downloader.getRepoSize(modelId)
-            if (repoSize > 0 && getDownloadSizeTotal(ApplicationProvider.get(), modelId) <= 0L) {
-                saveDownloadSizeTotal(ApplicationProvider.get(), modelId, repoSize)
-                getDownloadInfo(modelId).totalSize = repoSize
-                downloadListener?.onDownloadTotalSize(modelId, repoSize)
+            if (repoSize > 0 && DownloadPersistentData.getDownloadSizeTotal(ApplicationProvider.get(), modelName) <= 0L) {
+                DownloadPersistentData.saveDownloadSizeTotal(ApplicationProvider.get(), modelName, repoSize)
+                downloadInfoMap[modelName]?.totalSize = repoSize
+                listeners.forEach { it.onDownloadTotalSize(modelName, repoSize) }
             }
         }
     }
 
     private fun setDownloadFinished(modelId: String, path: String) {
-        val downloadInfo = getDownloadInfo(modelId)
-        downloadInfo.downlodaState = DownloadInfo.DownloadSate.COMPLETED
-        if (downloadListener != null) {
-            downloadListener!!.onDownloadFinished(modelId, path)
+        val downloadInfo = downloadInfoMap[modelId] ?: return
+        downloadInfo.downloadState = DownloadState.COMPLETED
+        downloadInfo.progress = 1.0
+        
+        // Set downloadedTime to remoteUpdateTime and save to DataStore
+        if (downloadInfo.remoteUpdateTime > 0) {
+            downloadInfo.downloadedTime = downloadInfo.remoteUpdateTime
+            DownloadPersistentData.saveDownloadedTime(ApplicationProvider.get(), modelId, downloadInfo.downloadedTime)
         }
+        downloadInfo.hasUpdate = false
+        
+        // Record download history
+        try {
+            val modelType = runBlocking {
+                val modelRepository = ModelRepository(appContext)
+                modelRepository.getModelType(modelId)
+            }
+            ChatDataManager.getInstance(appContext)
+                .recordDownloadHistory(modelId, path, modelType)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to record download history for $modelId", e)
+        }
+        
+        listeners.forEach { it.onDownloadFinished(modelId, path) }
     }
 
     private fun setDownloadPaused(modelId: String) {
-        val downloadInfo = getDownloadInfo(modelId)
-        downloadInfo.downlodaState = DownloadInfo.DownloadSate.PAUSED
-        if (downloadListener != null) {
-            downloadListener!!.onDownloadPaused(modelId)
-        }
+        val info = downloadInfoMap.getOrPut(modelId) { DownloadInfo() }
+        info.downloadState = DownloadState.PAUSED
+        listeners.forEach { it.onDownloadPaused(modelId) }
     }
 
     private fun onDownloadTaskAdded(count: Int) {
+        // Do not start foreground service in Google Play build
+        if (disableForegroundService) {
+            return
+        }
+        
         if (count == 1) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                 if (ContextCompat.checkSelfPermission(
-                        context,
+                        appContext,
                         Manifest.permission.POST_NOTIFICATIONS
                     )
                     != PackageManager.PERMISSION_GRANTED
                 ) {
-                    ActivityCompat.requestPermissions(
-                        context as Activity,
-                        arrayOf(Manifest.permission.POST_NOTIFICATIONS),
-                        REQUEST_CODE_POST_NOTIFICATIONS
-                    )
+                    val currentActivity = CurrentActivityTracker.currentActivity
+                    if (currentActivity != null) {
+                        ActivityCompat.requestPermissions(
+                            currentActivity,
+                            arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+                            REQUEST_CODE_POST_NOTIFICATIONS
+                        )
+                    } else {
+                        Log.w(TAG, "No current activity available to request permissions")
+                        startForegroundService()
+                    }
                 } else {
                     startForegroundService()
                 }
@@ -247,6 +391,11 @@ class ModelDownloadManager private constructor(private val context: Context) {
     }
 
     private fun startForegroundService() {
+        // Do not start foreground service in Google Play build
+        if (disableForegroundService) {
+            return
+        }
+        
         try {
             ApplicationProvider.get().startForegroundService(foregroundServiceIntent)
             foregroundServiceStarted = true
@@ -257,62 +406,118 @@ class ModelDownloadManager private constructor(private val context: Context) {
     }
 
     private fun onDownloadTaskRemoved(count: Int) {
+        // Do not manage foreground service in Google Play build
+        if (disableForegroundService) {
+            return
+        }
+        
         if (count == 0) {
             ApplicationProvider.get().stopService(foregroundServiceIntent)
             foregroundServiceStarted = false
         }
     }
 
-    fun setDownloadFailed(modelId: String, e: Exception) {
-        Log.e(TAG, "onDownloadFailed: $modelId", e)
-        val downloadInfo = getDownloadInfo(modelId)
-        downloadInfo.downlodaState = DownloadInfo.DownloadSate.FAILED
-        downloadInfo.errorMessage = e.message
-        if (downloadListener != null) {
-            downloadListener!!.onDownloadFailed(modelId, e)
+    private fun setDownloadFailed(modelId: String, e: Exception) {
+        Log.e(TAG, "[setDownloadFailed] Setting failure for $modelId. Notifying ${listeners.size} listeners.", e)
+        val info = downloadInfoMap.getOrPut(modelId) { DownloadInfo() }
+        info.downloadState = DownloadState.FAILED
+        info.errorMessage = e.message
+        listeners.forEach {
+            Log.d(TAG, "[setDownloadFailed] Notifying listener: ${it.javaClass.simpleName}")
+            it.onDownloadFailed(modelId, e)
         }
     }
+
+    /**
+     * Handle repo information received from downloaders
+     * @param modelId the model ID
+     * @param lastModified server last modified timestamp
+     * @param repoSize total repo size in bytes
+     */
+    private fun onRepoInfoReceived(modelId: String, lastModified: Long, repoSize: Long) {
+        Log.d(TAG, "[onRepoInfoReceived] modelId: $modelId, lastModified: $lastModified, repoSize: $repoSize")
+        
+        // Update download info with repo size if not already set
+        val downloadInfo = getDownloadInfo(modelId)
+        if (downloadInfo.totalSize <= 0 && repoSize > 0) {
+            downloadInfo.totalSize = repoSize
+            DownloadPersistentData.saveDownloadSizeTotal(ApplicationProvider.get(), modelId, repoSize)
+            listeners.forEach { it.onDownloadTotalSize(modelId, repoSize) }
+        }
+        
+        // Update upload time for update checking
+        if (lastModified > 0) {
+            downloadInfo.remoteUpdateTime = lastModified
+            if (downloadInfo.downloadedTime > 0) {
+                Log.d(TAG, "[onRepoInfoReceived] downloadedTime: ${downloadInfo.downloadedTime}, lastModified: $lastModified")
+            }
+
+            if (downloadInfo.downloadedTime in 1..<lastModified) {
+                // Set hasUpdate flag to true when update is available
+                downloadInfo.hasUpdate = true
+                listeners.forEach {
+                    it.onDownloadHasUpdate(modelId, downloadInfo)
+                }
+            }
+        }
+    }
+
 
     private fun updateDownloadingProgress(
         modelId: String,
         stage: String,
         currentFile: String?,
-        saved: Long,
-        total: Long
+        savedSize: Long,
+        totalSize: Long
     ) {
-        if (!downloadInfoMap.containsKey(modelId)) {
-            val downloadInfo = DownloadInfo()
-            downloadInfoMap[modelId] = downloadInfo
+        if (totalSize <= 0) {
+            return
         }
-        val downloadInfo = checkNotNull(downloadInfoMap[modelId])
-        downloadInfo.progress = if (total > 0) (saved.toDouble() / total) else 0.0
-        calculateDownloadSpeed(downloadInfo, saved)
-        downloadInfo.totalSize = total
+        val downloadInfo = downloadInfoMap.getOrPut(modelId) { DownloadInfo() }
+        val currentTime = System.currentTimeMillis()
+        if (stage == downloadInfo.progressStage && currentTime - downloadInfo.lastProgressUpdateTime < 1000) {
+            return
+        }
+        downloadInfo.lastProgressUpdateTime = currentTime
+        downloadInfo.downloadState = DownloadState.DOWNLOADING
         downloadInfo.progressStage = stage
         downloadInfo.currentFile = currentFile
-        downloadInfo.downlodaState = DownloadInfo.DownloadSate.DOWNLOADING
-        saveDownloadSizeTotal(ApplicationProvider.get(), modelId, total)
-        saveDownloadSizeSaved(ApplicationProvider.get(), modelId, saved)
-        if (downloadListener != null) {
-            downloadListener!!.onDownloadProgress(modelId, downloadInfo)
+        downloadInfo.totalSize = totalSize
+        if (downloadInfo.savedSize <= 0) {
+            downloadInfo.savedSize = savedSize
         }
+        downloadInfo.progress = savedSize.toDouble() / totalSize
+        DownloadPersistentData.saveDownloadSizeSaved(ApplicationProvider.get(), modelId, savedSize)
+        DownloadPersistentData.saveDownloadSizeTotal(ApplicationProvider.get(), modelId, totalSize)
+        calculateDownloadSpeed(downloadInfo, savedSize)
+        Log.v(TAG, "[updateDownloadingProgress] Notifying ${listeners.size} listeners for $modelId")
+        listeners.forEach { it.onDownloadProgress(modelId, downloadInfo) }
     }
 
-    suspend fun deleteModel(modelId: String) {
+    suspend fun deleteModel(item: ModelMarketItem) {
+        deleteModel(item.modelId, item.currentSource, item.currentRepoPath)
+    }
+
+    suspend fun deleteModel(modelId:String, modelSource:String, modelPath:String) {
         withContext(Dispatchers.IO) {
-            msDownloader.deleteRepo(modelId)
-            hfDownloader.deleteRepo(modelId)
-            mlDownloader.deleteRepo(modelId)
-            removeProgress(ApplicationProvider.get(), modelId)
+            getDownloaderForSource(modelSource).deleteRepo(modelId)
+            DownloadPersistentData.removeProgressSuspend(ApplicationProvider.get(), modelId)
             clearMmapCache(modelId)
             ModelConfig.getModelConfigDir(modelId).let {
                 DownloadFileUtils.deleteDirectoryRecursively(File(it))
             }
         }
-        if (downloadListener != null) {
-            val downloadInfo = getDownloadInfo(modelId)
-            downloadInfo.downlodaState = DownloadInfo.DownloadSate.NOT_START
-            downloadListener!!.onDownloadFileRemoved(modelId)
+        val downloadInfo = getDownloadInfo(modelId)
+        downloadInfo.downloadState = DownloadState.NOT_START
+        // Reset the checked status when model is deleted
+        checkedForUpdateModelIds.remove(modelId)
+        listeners.forEach { it.onDownloadFileRemoved(modelId) }
+    }
+
+    suspend fun deleteModel(modelId: String) {
+        val splits = ModelUtils.splitSource(modelId)
+        if (splits.size == 2 ) {
+            deleteModel(modelId, splits[0], splits[1])
         }
     }
 
@@ -322,7 +527,7 @@ class ModelDownloadManager private constructor(private val context: Context) {
             for (key in downloadInfoMap.keys) {
                 val downloadInfo =
                     checkNotNull(downloadInfoMap[key])
-                if (downloadInfo.downlodaState == DownloadInfo.DownloadSate.FAILED || downloadInfo.downlodaState == DownloadInfo.DownloadSate.PAUSED) {
+                if (downloadInfo.downloadState == DownloadState.FAILED || downloadInfo.downloadState == DownloadState.PAUSED) {
                     count++
                 }
             }
@@ -332,8 +537,8 @@ class ModelDownloadManager private constructor(private val context: Context) {
     fun resumeAllDownloads() {
         for (key in downloadInfoMap.keys) {
             val downloadInfo = downloadInfoMap[key]
-            if (downloadInfo!!.downlodaState == DownloadInfo.DownloadSate.FAILED
-                || downloadInfo.downlodaState == DownloadInfo.DownloadSate.PAUSED) {
+            if (downloadInfo!!.downloadState == DownloadState.FAILED
+                || downloadInfo.downloadState == DownloadState.PAUSED) {
                 startDownload(key)
             }
         }
@@ -341,17 +546,43 @@ class ModelDownloadManager private constructor(private val context: Context) {
 
     fun pauseAllDownloads() {
         for (key in downloadInfoMap.keys) {
-            val downloadInfo = downloadInfoMap[key]
-            if (downloadInfo!!.downlodaState == DownloadInfo.DownloadSate.DOWNLOADING) {
+             val downloadInfo = downloadInfoMap[key]
+            if (downloadInfo!!.downloadState == DownloadState.DOWNLOADING) {
                 pauseDownload(key)
             }
         }
     }
 
     fun tryStartForegroundService() {
+        // Do not start foreground service in Google Play build
+        if (disableForegroundService) {
+            return
+        }
+        
         if (!foregroundServiceStarted && activeDownloadCount.get() > 0) {
             startForegroundService()
         }
+    }
+
+    suspend fun checkForUpdate(modelId: String?) {
+        Log.d(TAG, "checkForUpdate: $modelId")
+        modelId?.let {
+            if (!checkedForUpdateModelIds.containsKey(it)) {
+                checkedForUpdateModelIds[it] = true
+                getDownloaderForSource(ModelUtils.getSource(modelId)!!).checkUpdate(modelId)
+            } else {
+                Log.d(TAG, "checkForUpdate: $modelId already checked, skipping")
+            }
+        }
+    }
+
+    /**
+     * Reset the checked status for a modelId to allow checking for updates again.
+     * This is useful for manual refresh scenarios or testing.
+     */
+    fun resetCheckedStatus(modelId: String) {
+        checkedForUpdateModelIds.remove(modelId)
+        Log.d(TAG, "resetCheckedStatus: $modelId")
     }
 
     companion object {
@@ -365,7 +596,7 @@ class ModelDownloadManager private constructor(private val context: Context) {
             if (instance == null) {
                 synchronized(ModelDownloadManager::class.java) {
                     if (instance == null) {
-                        instance = ModelDownloadManager(context)
+                        instance = ModelDownloadManager(context.applicationContext)
                     }
                 }
             }

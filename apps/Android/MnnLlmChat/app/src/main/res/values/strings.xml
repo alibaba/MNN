@@ -5,17 +5,17 @@
     <string name="navigation_drawer_close">Close navigation drawer</string>
     <string name="action_settings">Settings</string>
     <string name="main_describe">mnn-llm</string>
-    <string name="spinner_prompt">Select Model</string>
     <string name="model_loading">Model loading…</string>
-    <string name="download_not_started">%1$s Click to download</string>
-    <string name="downloaded_click_to_chat"> %1$s Downloaded</string>
+    <string name="download_not_started">%1$s</string>
+    <string name="downloaded_click_to_chat"> %1$s</string>
+    <string name="downloaded_update_available"> %1$s (Update Available)</string>
     <string name="local_click_to_chat"> %1$s %2$s</string>
     <string name="download_failed_click_retry">Download failed: %1$s, click to retry</string>
-    <string name="downloading_progress">%1$s Downloading: %2$.2f%% %3$s</string>.
-    <string name="downloading_paused">%1$s Paused: %2$.2f%%</string>
+    <string name="downloading_progress">%1$s | %2$s</string>"
+    <string name="downloading_paused">Paused: %1$.2f%%</string>
     <string name="config_file_not_found">Model config file not found: %1$s</string>
-    <string name="model_hello_prompt">Hello, I am %1$s, is there anything I can help you with?</string>
-    <string name="model_hello_prompt_diffusion">Hello, I am %1$s, Please input prompt to generate an image</string>
+    <string name="model_hello_prompt">Is there anything I can help you with?</string>
+    <string name="model_hello_prompt_diffusion">Please input prompt\nI can generate an image for you</string>
     <string name="delete_model">Delete Model</string>
     <string name="pause_download">Pause Download</string>
     <string name="start_download">Start Download</string>
@@ -26,6 +26,8 @@
     <string name="send">send</string>
     <string name="raise_issue">Report an issue</string>
     <string name="star_project">Star in Github </string>
+    <string name="star_project_confirm_title">Star  MNN project</string>
+    <string name="star_project_confirm_message">Star us on Github to show your support!</string>
     <string name="resume_all_downloads">Resume all unfnished downloads</string>
     <string name="history_cleard">history cleared</string>
     <string name="press_to_chat">Press To Talk</string>
@@ -35,11 +37,17 @@
     <string name="choose_image">Image</string>
     <string name="select_audio">Audio(wav)</string>
     <string name="show_performance_metrics">Show Performance Metrics</string>
+    <string name="realtime_audio_playback">Real-time Audio Playback</string>
+    <string name="report_issue">Issue</string>
+    <string name="toggle_benchmark">Metric</string>
+    <string name="hide_benchmark">Hide</string>
+    <string name="replay_audio">Replay</string>
 
 <!--    <string name="app_name">DrawerLayoutDemo</string>-->
     <string name="nav_open">Open navigation drawer</string>
     <string name="nav_close">Close navigation drawer</string>
     <string name="models">Models</string>
+    <string name="models_market">Models Market</string>
     <string name="history">History</string>
     <string name="history_title">Chat History</string>
     <string name="history_delete_success">History Delete Success</string>
@@ -49,12 +57,18 @@
     <string name="recording_permission_denied">Please allow permission to record audio</string>
     <string name="release_to_send">Release to Send, Slide up to cancel</string>
     <string name="release_to_cancel">Release to cancel</string>
+    <string name="scroll_to_bottom">Scroll to bottom</string>
     <string name="r1_thinking_message">Thinking…</string>
     <string name="r1_think_complete_template">Has thought for %1$s seconds</string>
     <string name="copy_text">Copy</string>
     <string name="select_text">Select text</string>
     <string name="copy_success">Copy success</string>
     <string name="debug_message_copied">debug message copied, please report issue in github</string>
+    <string name="debug_mode">Debug Mode</string>
+    <string name="close_debug_mode">Close Debug Mode</string>
+    <string name="debug_mode_control">Debug Mode Control</string>
+    <string name="close_debug_mode_title">Close Debug Mode</string>
+    <string name="close_debug_mode_message">Are you sure you want to close debug mode? This will hide the debug mode option from settings until you activate it again by clicking the version info 5 times.</string>
     <string name="use_model_scope_download">Use modelscope to download</string>
     <string name="clear_mmap_cache">Clear mmap cache</string>
     <string name="use_mmap">Use mmap</string>
@@ -69,6 +83,12 @@
     <string name="get_update_info_failed">get update info failed</string>
     <string name="no_update">No update available</string>
     <string name="download">Download</string>
+    <string name="download_pending">Pending</string>
+    <string name="update">Update</string>
+    <string name="download_progress_format">%.1f%%</string>
+    <string name="download_resume">Resume</string>
+    <string name="download_paused_status">Paused</string>
+    <string name="chat_action">Chat</string>
     <string name="download_update_available">Update Available: (%1$s)</string>
     <string name="show_only_downloaded">Show downloaded only</string>
     <string name="about">About</string>
@@ -91,10 +111,13 @@
     <string name="api_service_error">Error: %1$s</string>
     <string name="modelscope">Modelscope</string>
     <string name="modelers">Modelers</string>
+    <string name="huggingface">HuggingFace</string>
     <string name="diffusion_mode_memory_saving">Memory Saving Mode</string>
     <string name="diffusion_mode_memory_engough">Memory Engough Mode</string>
     <string name="diffusion_mode_memory_balance">Memory Balance Mode</string>
     <string name="diffusion_memory_mode">Diffusion Memory Mode</string>
+    <string name="voice_model_management">Voice Model Management</string>
+    <string name="voice_model_management_summary">Manage TTS and ASR models, set default models</string>
     <string name="model_settings">Settings</string>
     <string name="model_settings_title">Model Settings</string>
     <string name="api_settings">API Settings</string>
@@ -167,6 +190,8 @@
     <string name="server_stopped_message">Server stopped</string>
     <string name="server_running_at_template">Server running at %1$s:%2$d</string>
     <string name="close">Close</string>
+    <string name="back">Back</string>
+    <string name="share_benchmark_result">Share Benchmark Result</string>
     
     <string name="api_auth_enabled">Enable API Key Authentication</string>
     <string name="reset">Reset</string>
@@ -183,13 +208,29 @@
     <string name="auth_enabled">Authentication: Enabled</string>
     <string name="menu_item_benchmark_test">Benchmark</string>
     <string name="select_dataset">Select dataset</string>
+    <string name="select_model">Select Model</string>
     <string name="start_voice_chat">Start Voice Chat</string>
     <string name="max_new_tokens">Max New Tokens</string>
     <string name="system_prompt">System Prompt</string>
+    
+    <!-- Voice Model Management Strings -->
+    <string name="voice_model_settings">Settings</string>
+    <string name="default_asr_model">Default ASR</string>
+    <string name="default_model">Default</string>
+    <string name="set_as_default_tts">Set as Default TTS</string>
+    <string name="set_as_default_asr">Set as Default ASR</string>
+    <string name="set_as_default">Set as Default</string>
+    <string name="already_default_tts_model">This model is already set as default TTS</string>
+    <string name="already_default_model">This model is already set as default</string>
+    <string name="default_tts_model_set">%1$s set as default TTS model</string>
+    <string name="model_not_downloaded_cannot_set_default">Model not downloaded, cannot set as default</string>
+    <string name="no_tts_models_available">No TTS models available</string>
+    <string name="tts_models">TTS Models</string>
+    <string name="asr_models">ASR Models</string>
     <string name="settings_cancel">Cancel</string>
     <string name="settings_done">Done</string>
-    <string name="max_new_tokens_hint">max tokens to generate</string>
-    <string name="thread_num">Thread Number</string>
+    <string name="max_new_tokens_hint">Max new tokens</string>
+    <string name="thread_num">Thread number</string>
     <string name="regenerate">Regenerate</string>
     <string name="copy_audio_info">Copy Audio Info</string>
     <string name="report_crash">Report Crash</string>
@@ -201,6 +242,16 @@
     <string name="vendor_menu_title">Vendor</string>
     <string name="modality_menu_title">Modality</string>
     <string name="downloaded">Downloaded</string>
+    <string name="last_chat">Last chat</string>
+    <string name="show_model_info">Show model info</string>
+    <string name="model_info_title">Model Information</string>
+    <string name="model_download_time">Download Time</string>
+    <string name="model_last_chat_time">Last Chat Time</string>
+    <string name="model_chat_history">Chat History</string>
+    <string name="no_chat_history">No chat history</string>
+    <string name="never_chatted">Never chatted</string>
+    <string name="unnamed_session">Unnamed Session</string>
+    <string name="unknown">Unknown</string>
     <string name="download_state">Download Status</string>
     <string name="all">All</string>
     <string name="others">Others</string>
@@ -209,7 +260,11 @@
     <string name="download_state_downloading">Downloading</string>
     <string name="download_state_failed">Download Failed</string>
     <string name="download_state_paused">Download Paused</string>
-    <string name="no_models_found">No models found, Try to change filter please</string>
+    <string name="download_state_updating">Updating</string>
+    <string name="no_models_found">No models available. Please download a model first.</string>
+    <string name="no_filtered_models_title">No models match your filters</string>
+    <string name="no_filtered_models_message">Try adjusting your filters to see more models, or clear all filters to see all available models.</string>
+    <string name="clear_filters">Clear Filters</string>
     <string name="diffusion_model_not_alloed">Sorry, diffusion model settings are not supported config here yet.</string>
     <string name="settings_section_general">GENERAL</string>
     <string name="settings_section_advanced">ADVANCED</string>
@@ -229,4 +284,208 @@
     <string name="restarting_api_service_new_config">Restarting API service to apply new configuration...</string>
     <string name="config_restored_default_processing_service">Configuration restored to default, processing service status...</string>
     <string name="test_log_added_with_code_jump">Test log added\nLong press log entries to try jumping to code</string>
+    
+    <!-- Debug Activity Strings -->
+    <string name="debug_activity_title">Debug Mode</string>
+    <string name="debug_activity_description">Developer testing interface for various components</string>
+    <string name="test_items">Test Items</string>
+    <string name="start_asr_test">Start ASR Test</string>
+    <string name="stop_asr_test">Stop ASR Test</string>
+    <string name="start_tts_test">Start TTS Test</string>
+    <string name="stop_tts_test">Stop TTS Test</string>
+    <string name="tts_test_input_hint">Enter text to convert to speech</string>
+    <string name="tts_test_button">Test TTS</string>
+    <string name="tts_initializing">TTS Service initializing...</string>
+    <string name="tts_ready">TTS Service ready</string>
+    <string name="tts_processing">Processing: %1$s</string>
+    <string name="tts_generated_samples">Generated %1$d audio samples. Playing...</string>
+    <string name="tts_playback_completed">Playback completed. Generated %1$d samples.</string>
+    <string name="tts_error">TTS Error: %1$s</string>
+    <string name="tts_not_ready">TTS Service not ready</string>
+    <string name="placeholder_test_1">Test Item 1 (Coming Soon)</string>
+    <string name="placeholder_test_2">Test Item 2 (Coming Soon)</string>
+    <string name="debug_log">Debug Log</string>
+    
+    <!-- Voice Chat Strings -->
+    <string name="voice_chat">Voice Chat</string>
+    <string name="voice_chat_title">Voice Chat - %1$s</string>
+    <string name="end_voice_chat">End Call</string>
+    <string name="voice_chat_listening">Listening...</string>
+    <string name="voice_chat_speaking">Speaking...</string>
+    <string name="voice_chat_processing">Processing...</string>
+    <string name="voice_chat_thinking">Thinking...</string>
+    <string name="voice_chat_greeting">Initializing...</string>
+    <string name="voice_chat_idle">Tap to speak</string>
+    <string name="voice_chat_error">Voice chat error: %1$s</string>
+    <string name="voice_chat_permission_required">Voice chat requires microphone permission</string>
+    <string name="voice_chat_session_ended">Voice chat session ended</string>
+    <string name="voice_chat_connecting">Connecting...</string>
+    <string name="initializing">Initializing</string>
+    <string name="voice_chat_stop">Stop</string>
+    <string name="voice_chat_stopping">Stopping...</string>
+    <string name="voice_chat_ready_greeting">What can I help you with?</string>
+    <string name="voice_chat_usage_notice">To use voice chat, TTS and ASR models need to be downloaded. Please note multi-language support.</string>
+    <string name="nav_name_chats">Chats</string>
+    <string name="benchmark">Benchmark</string>
+    <string name="download_source">Select Download Source</string>
+    <string name="filter">Filter</string>
+    
+    <!-- 置顶相关字符串 -->
+    <string name="model_pinned">Model pinned to top</string>
+    <string name="model_unpinned">Model unpinned</string>
+    <string name="pin_toggle_failed">Failed to toggle pin state</string>
+    <string name="menu_pin_model">Pin to Top</string>
+    <string name="menu_unpin_model">Unpin from Top</string>
+    <string name="filter_section_model_tags">Model Tags</string>
+    <string name="filter_all">全部筛选</string>
+    <string name="local">Local</string>
+    
+    <!-- Voice Chat Download Strings -->
+    <string name="voice_models_downloading_progress">Downloading voice models %1$d%% (%2$s)</string>
+    <string name="voice_models_download_complete">Voice models download complete! Starting voice chat...</string>
+    <string name="voice_models_download_failed">Voice models download failed: %1$s</string>
+    
+    <!-- TTS model settings -->
+    <string name="default_tts_model">Default TTS</string>
+    <string name="tts_model_set_as_default">TTS model set as default</string>
+    <string name="set_default_tts_model">Set as Default TTS Model</string>
+    <string name="voice_models_not_downloaded">Voice chat requires %1$d additional models. Starting download...</string>
+    <string name="voice_models_partially_downloaded">Voice models: %1$d/%2$d ready. Downloading remaining models...</string>
+    
+    <!-- Voice Model Market Strings -->
+    <string name="voice_models_title">Voice Models</string>
+    <string name="no_asr_models_available">No ASR models available</string>
+    <string name="no_models_available">No models available</string>
+    <string name="model_already_downloaded">Model already downloaded</string>
+    
+    <!-- Benchmark Status Strings -->
+    <string name="benchmark_initializing">Initializing benchmark...</string>
+    <string name="benchmark_loading_model">Loading model...</string>
+    <string name="benchmark_warming_up">Warming up...</string>
+    <string name="benchmark_running_test">Running test %1$d/%2$d</string>
+    <string name="benchmark_test_config">PP: %1$d • TG: %2$d</string>
+    <string name="benchmark_test_completed">Test %1$d completed</string>
+    <string name="benchmark_all_tests_completed">All tests completed</string>
+    <string name="benchmark_processing_results">Processing results...</string>
+    <string name="benchmark_failed">Benchmark failed: %1$s</string>
+    <string name="benchmark_stop_confirmation_title">Stop Benchmark</string>
+    <string name="benchmark_stop_confirmation_message">Are you sure you want to stop the benchmark test?</string>
+    <string name="benchmark_stopped">Benchmark stopped</string>
+    <string name="benchmark_stopping">Stopping benchmark...</string>
+    <string name="stop_test">Stop Test</string>
+    <string name="yes">Yes</string>
+    <string name="no">No</string>
+    <string name="select_a_model_to_start">Start benchmark after selected your model</string>
+    <string name="start_test">Start Test</string>
+    <string name="prefill_speed">"Prefill Speed: "</string>
+    <string name="memory_title">Peak Memory: </string>
+    <string name="decode_speed">Decode Speed: </string>
+    <string name="test_result">Test Result</string>
+    <string name="share">Share</string>
+
+    <!-- Benchmark Strings -->
+    <string name="benchmark_config">Benchmark Config</string>
+    <string name="benchmark_prompt_processing">Prompt Processing</string>
+    <string name="benchmark_token_generation">Token Generation</string>
+    <string name="benchmark_peak_memory_usage">Peak Memory Usage</string>
+    <string name="benchmark_model_params">Total Tokens Processed: %1$d\nTests: %2$d</string>
+    <string name="benchmark_device_info">Device: %1$s</string>
+    
+    <!-- Structured Progress Strings -->
+    <string name="benchmark_progress_detailed">Test %1$d/%2$d (PP=%3$d, TG=%4$d)\nRuntime: %5$.3fs, Prefill: %6$.3fs, Decode: %7$.3fs\nPrefill Speed: %8$.2f t/s, Decode Speed: %9$.2f t/s</string>
+    <string name="benchmark_progress_simple">Test %1$d/%2$d (PP=%3$d, TG=%4$d)</string>
+    
+    <string name="api_service_channel_name">API Service Channel</string>
+    <string name="request_added_to_queue">Request added to queue: requestId=%1$s, traceId=%2$s, queue size=%3$d, priority=%4$s</string>
+    <string name="handle_log_click_comment">Handle log click event</string>
+    <string name="chat_tag">Chat</string>
+    <string name="unknown_tag">Unknown Tag</string>
+    <string name="test_tag_creation">Test tag creation</string>
+    <string name="test_tag_mapper">Test tag mapper</string>
+    <string name="test_get_all_tags">Test get all tags</string>
+    <string name="mnn_local_model">mnn-local</string>
+    <string name="assistant_role">assistant</string>
+    <string name="stop_finish_reason">stop</string>
+    <string name="project_path">c:/Project/github/AIddlx/0528/MNN/apps/Android/MnnLlmChat</string>
+    <string name="default_localhost_ip">127.0.0.1</string>
+    <string name="listen_all_ip">0.0.0.0</string>
+    <string name="tts_service_tag">TtsService</string>
+    <string name="mnn_tts_library_loaded">mnn_tts native library loaded successfully</string>
+    <string name="default_language_en">en</string>
+    <string name="request_queue_tag">RequestQueue</string>
+    <string name="api_console_ui_tag">ApiConsoleUI</string>
+    <string name="ui_initializing_view_components">[UI] Initializing view components</string>
+    <string name="select_download_provider_title">Select Repo Source</string>
+    <string name="switch_download_source">Switch Download Source</string>
+    <string name="filter_action">Filter</string>
+    <string name="download_action">Download</string>
+    <string name="clear_selection">Clear Selection</string>
+    <string name="confirm_action">Confirm</string>
+    <string name="option_title_hint">Option Title</string>
+    <string name="option_description_hint">Option Description</string>
+    <string name="photo_hint">Photo</string>
+    
+    <!-- Toast messages for multi-language support -->
+    <string name="cannot_create_new_session_when_generating">Cannot Create New Session when generating</string>
+    <string name="cannot_start_voice_chat_when_generating">Cannot start voice chat when generating</string>
+    <string name="please_install_file_manager">Please install a File Manager.</string>
+    <string name="get_audio_file_failed">get audio file failed</string>
+    <string name="dataset_process_complete">DataSet %1$s Process Complete</string>
+    <string name="error_on_process_dataset">Error on process dataset: %1$s</string>
+    <string name="starting_download_from">Starting download from %1$s...</string>
+    <string name="unable_to_determine_model_source">Unable to determine model source</string>
+    <string name="unknown_source">Unknown source: %1$s</string>
+    <string name="please_grant_permission_install_apps">Please grant permission to install apps.</string>
+    <string name="debug_mode_closed_message">Debug mode has been closed. It will be hidden from settings.</string>
+    <string name="failed_to_open_model_card">Failed to open model card: %1$s</string>
+    <string name="error_generic">Error: %1$s</string>
+    <string name="failed_to_show_voice_model_market">Failed to show voice model market: %1$s</string>
+    <string name="please_wait_generation_complete">Please wait for current generation to complete before switching models</string>
+    <string name="model_switched_to">Model switched to %1$s</string>
+    <string name="failed_to_switch_model">Failed to switch model: %1$s</string>
+    <string name="no_models_available_switch">No models available</string>
+    <string name="already_using_this_model">Already using this model</string>
+    <string name="open_model_card">Open Model Card</string>
+    <string name="model_size">Model Size</string>
+    <string name="model_vendor">Vendor</string>
+    
+    <!-- Voice Model Change Strings -->
+    <string name="tts_model_name">TTS Model</string>
+    <string name="asr_model_name">ASR Model</string>
+    <string name="voice_model_changed_recreating_services">%1$s changed, recreating voice services...</string>
+    <string name="cannot_uncheck_default_model">Cannot uncheck default model. Please select another model first.</string>
+    <string name="default_asr_model_set">Default ASR model set: %1$s</string>
+    <string name="already_default_asr_model">Already set as default ASR model</string>
+    
+    <!-- Voice Chat Setup Message -->
+    <string name="voice_chat_setup_message">To use voice chat, please select and download TTS and ASR models first. Switch between the tabs above to set up both types of models.</string>
+    <string name="peak_memory">Peak Memory</string>
+    <string name="max_memory">Max Memory</string>
+    <string name="please_download_model">Please download a model first</string>
+    <string name="go_to_download">Go to download</string>
+    <string name="all_filter">All Filters</string>
+    <string name="model_card">Model Card</string>
+    <string name="menu">Menu</string>
+    <string name="open_in_browser">Open in Browser</string>
+    <string name="failed_to_open_url">Failed to open URL</string>
+
+    <!-- Report Issue Dialog Strings -->
+    <string name="report_issue_confirm_title">Confirm</string>
+    <string name="report_issue_confirm_message">Are you sure to report an issue on GitHub?</string>
+    <string name="confirm">Confirm</string>
+
+    <!-- Leaderboard Strings -->
+    <string name="upload_to_leaderboard">Upload to Leaderboard</string>
+    <string name="leaderboard_ranking">Your Ranking</string>
+    <string name="leaderboard_rank_info">Your rank: %1$d out of %2$d users</string>
+    <string name="leaderboard_rank_not_found">Ranking information not available</string>
+    <string name="ok">OK</string>
+
+    <!-- Debug Feature Strings -->
+    <string name="debug_show_model_info">Show Model Info Menu</string>
+    <string name="checking_repo_updates">Checking for repository updates...</string>
+    <string name="repo_update_check_result">Repository Update Check</string>
+    <string name="allow_network_market_data">Allow network to fetch model market data</string>
+    <string name="enable_network_delay">Enable network delay (3 seconds)</string>
+    <string name="update_available">Update Available</string>
 </resources>

@@ -43,6 +43,7 @@ object HfFileMetadataUtils {
 
         try {
             client.newCall(request).execute().use { response ->
+                // Check for success or any redirect status code (301, 302, 303, 307, 308)
                 val isRedirect = response.code in 301..308
                 if (!response.isSuccessful && !isRedirect) {
                     throw FileDownloadException("Failed to fetch metadata status " + response.code)

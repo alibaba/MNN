@@ -19,10 +19,15 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
         llm_session.cpp
         crash_util.cpp
 )
+
+# Add 16KB page size support (required for Android 15+ devices)
+target_link_options(${CMAKE_PROJECT_NAME} PRIVATE "-Wl,-z,max-page-size=16384")
+
 #mnn
 set (MNN_SOURCE_ROOT "${CMAKE_SOURCE_DIR}/../../../../../../../")
 #set (MNN_SOURCE_ROOT "/Users/songjinde/git/DAI/AliNNPrivate")
 set (MNN_INSTALL_ROOT "${MNN_SOURCE_ROOT}/project/android/build_64")
+# set (MNN_INSTALL_ROOT "/Users/songjinde/MNN/project/android/build_64")
 
 #set (MNN_ROOT "${CMAKE_SOURCE_DIR}/../../../../../../../")
 message(INFO "MNN_SOURCE_ROOT: ${MNN_SOURCE_ROOT}")

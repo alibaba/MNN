@@ -39,6 +39,7 @@ class VoiceRecordingModule(private val activity: ChatActivity) {
 
     private var isCancelRecord = false
     private var enabled = false
+    private var currentModelName: String = ""
 
     fun setOnVoiceRecordingListener(listener: VoiceRecordingListener?) {
         this.listener = listener
@@ -46,9 +47,7 @@ class VoiceRecordingModule(private val activity: ChatActivity) {
 
     fun setup(isAudioModel: Boolean) {
         buttonSwitchVoice = activity.findViewById(R.id.bt_switch_audio)
-        if (!isAudioModel) {
-            buttonSwitchVoice.setVisibility(View.GONE)
-        }
+        updateVoiceButtonVisibility(isAudioModel)
         inputCardContainer = activity.findViewById(R.id.input_card_container)
         voceRecordingWave = activity.findViewById(R.id.voice_recording_wav)
         buttonVoiceRecording = activity.findViewById(R.id.btn_voice_recording)
@@ -60,8 +59,31 @@ class VoiceRecordingModule(private val activity: ChatActivity) {
                 event
             )
         }
-        if (isAudioModel) {
-            handleSwitch()
+        // Remove automatic switch to audio mode - let user choose
+        // if (isAudioModel) {
+        //     handleSwitch()
+        // }
+    }
+
+    /**
+     * Update the model name and refresh voice button visibility
+     */
+    fun updateModel(modelName: String) {
+        currentModelName = modelName
+        val isAudioModel = com.alibaba.mnnllm.android.model.ModelUtils.isAudioModel(modelName)
+        updateVoiceButtonVisibility(isAudioModel)
+        
+        // If switching away from audio model and currently in recording mode, exit
+        if (!isAudioModel && isRecordingMode()) {
+            exitRecordingMode()
+        }
+    }
+
+    private fun updateVoiceButtonVisibility(isAudioModel: Boolean) {
+        if (!isAudioModel) {
+            buttonSwitchVoice.visibility = View.GONE
+        } else {
+            buttonSwitchVoice.visibility = View.VISIBLE
         }
     }
 

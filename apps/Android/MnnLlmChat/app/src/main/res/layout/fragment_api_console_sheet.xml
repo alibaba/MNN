@@ -325,7 +325,6 @@
                             android:id="@+id/recycler_log_content"
                             android:layout_width="match_parent"
                             android:layout_height="200dp"
-                            android:background="@color/material_dynamic_neutral95"
                             android:padding="8dp"
                             android:scrollbars="vertical"
                             android:scrollbarAlwaysDrawVerticalTrack="true"

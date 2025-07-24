@@ -11,27 +11,58 @@ class ChatDatabaseHelper(context: Context?) :
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(CREATE_TABLE_SESSION)
         db.execSQL(CREATE_TABLE_CHAT)
+        db.execSQL(CREATE_TABLE_DOWNLOAD_HISTORY)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         if (oldVersion < 2) {
-            db.execSQL("ALTER TABLE $TABLE_CHAT ADD COLUMN $COLUMN_RESERVE1 TEXT")
-            db.execSQL("ALTER TABLE $TABLE_CHAT ADD COLUMN $COLUMN_RESERVE2 TEXT")
-            db.execSQL("ALTER TABLE $TABLE_CHAT ADD COLUMN $COLUMN_DISPLAY_TEXT TEXT")
+            try {
+                db.execSQL("ALTER TABLE $TABLE_CHAT ADD COLUMN $COLUMN_RESERVE1 TEXT")
+                db.execSQL("ALTER TABLE $TABLE_CHAT ADD COLUMN $COLUMN_RESERVE2 TEXT")
+                db.execSQL("ALTER TABLE $TABLE_CHAT ADD COLUMN $COLUMN_DISPLAY_TEXT TEXT")
+            } catch (e: Exception) {
+                // Column might already exist
+            }
         }
         if (oldVersion < 4) {
-            db.execSQL("ALTER TABLE $TABLE_CHAT ADD COLUMN $COLUMN_THINKING_TEXT TEXT")
-            db.execSQL("ALTER TABLE $TABLE_CHAT ADD COLUMN $COLUMN_THINKING_FINISHED_TIME INTEGER DEFAULT 0")
+            try {
+                db.execSQL("ALTER TABLE $TABLE_CHAT ADD COLUMN $COLUMN_THINKING_TEXT TEXT")
+                db.execSQL("ALTER TABLE $TABLE_CHAT ADD COLUMN $COLUMN_THINKING_FINISHED_TIME INTEGER DEFAULT 0")
+            } catch (e: Exception) {
+                // Column might already exist
+            }
+        }
+        if (oldVersion < 5) {
+            try {
+                db.execSQL(CREATE_TABLE_DOWNLOAD_HISTORY)
+            } catch (e: Exception) {
+                // Table might already exist
+            }
+        }
+        if (oldVersion < 6) {
+            try {
+                db.execSQL("ALTER TABLE $TABLE_SESSION ADD COLUMN $COLUMN_LAST_CHAT_TIME INTEGER DEFAULT 0")
+            } catch (e: Exception) {
+                // Column might already exist, ignore
+            }
+        }
+        if (oldVersion < 7) {
+            try {
+                db.execSQL("ALTER TABLE $TABLE_DOWNLOAD_HISTORY ADD COLUMN $COLUMN_MODEL_TYPE TEXT DEFAULT 'LLM'")
+            } catch (e: Exception) {
+                // Column might already exist, ignore
+            }
         }
     }
 
     companion object {
         private const val DB_NAME = "chat.db"
-        private const val DB_VERSION = 4
+        private const val DB_VERSION = 7
         const val TABLE_SESSION: String = "Session"
         const val COLUMN_SESSION_ID: String = "sessionId"
         const val COLUMN_MODEL_ID: String = "modelId"
         const val COLUMN_SESSION_NAME: String = "name"
+        const val COLUMN_LAST_CHAT_TIME: String = "lastChatTime"
 
         const val TABLE_CHAT: String = "ChatData"
         const val COLUMN_ID: String = "_id"
@@ -49,11 +80,19 @@ class ChatDatabaseHelper(context: Context?) :
         const val COLUMN_THINKING_TEXT: String = "thinkingText"
         const val COLUMN_THINKING_FINISHED_TIME: String = "thinkingFinishedTime"
 
+        // Download history table
+        const val TABLE_DOWNLOAD_HISTORY: String = "DownloadHistory"
+        const val COLUMN_DOWNLOAD_MODEL_ID: String = "modelId"
+        const val COLUMN_DOWNLOAD_TIME: String = "downloadTime"
+        const val COLUMN_MODEL_PATH: String = "modelPath"
+        const val COLUMN_MODEL_TYPE: String = "modelType"
+
         private const val CREATE_TABLE_SESSION = "CREATE TABLE IF NOT EXISTS " +
                 TABLE_SESSION + " (" +
                 COLUMN_SESSION_ID + " TEXT PRIMARY KEY, " +
                 COLUMN_MODEL_ID + " TEXT," +
-                COLUMN_SESSION_NAME + " TEXT)"
+                COLUMN_SESSION_NAME + " TEXT," +
+                COLUMN_LAST_CHAT_TIME + " INTEGER DEFAULT 0)"
 
         private const val CREATE_TABLE_CHAT = "CREATE TABLE IF NOT EXISTS " +
                 TABLE_CHAT + " (" +
@@ -70,5 +109,12 @@ class ChatDatabaseHelper(context: Context?) :
                 COLUMN_RESERVE2 + " TEXT," +
                 COLUMN_THINKING_TEXT + " TEXT, " +
                 COLUMN_THINKING_FINISHED_TIME + " INTEGER)"
+
+        private const val CREATE_TABLE_DOWNLOAD_HISTORY = "CREATE TABLE IF NOT EXISTS " +
+                TABLE_DOWNLOAD_HISTORY + " (" +
+                COLUMN_DOWNLOAD_MODEL_ID + " TEXT PRIMARY KEY, " +
+                COLUMN_DOWNLOAD_TIME + " INTEGER, " +
+                COLUMN_MODEL_PATH + " TEXT, " +
+                COLUMN_MODEL_TYPE + " TEXT DEFAULT 'LLM')"
     }
 }

@@ -87,6 +87,14 @@ if [ -z $SHERPA_MNN_ENABLE_JNI ]; then
   SHERPA_MNN_ENABLE_JNI=ON
 fi
 
+if [ -z $MNN_LIB_DIR ]; then
+  MNN_LIB_DIR=/Users/xtjiang/alicnn/AliNNPrivate/project/android/build_64
+fi
+
+if [ -z $SHERPA_MNN_ENABLE_16K_PAGE_SIZE ]; then
+  SHERPA_MNN_ENABLE_16K_PAGE_SIZE=OFF
+fi
+
 cmake -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK/build/cmake/android.toolchain.cmake" \
     -DSHERPA_MNN_ENABLE_TTS=$SHERPA_MNN_ENABLE_TTS \
     -DSHERPA_MNN_ENABLE_SPEAKER_DIARIZATION=$SHERPA_MNN_ENABLE_SPEAKER_DIARIZATION \
@@ -95,8 +103,9 @@ cmake -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK/build/cmake/android.toolchain.cmake" 
     -DBUILD_PIPER_PHONMIZE_TESTS=OFF \
     -DBUILD_ESPEAK_NG_EXE=OFF \
     -DBUILD_ESPEAK_NG_TESTS=OFF \
+    $([ "$SHERPA_MNN_ENABLE_16K_PAGE_SIZE" = "ON" ] && echo "-DCMAKE_SHARED_LINKER_FLAGS=\"-Wl,-z,max-page-size=16384\"") \
     -DCMAKE_BUILD_TYPE=Release \
-    -DMNN_LIB_DIR=/Users/xtjiang/alicnn/AliNNPrivate/project/android/build_64 \
+    -DMNN_LIB_DIR=$MNN_LIB_DIR \
     -DBUILD_SHARED_LIBS=$BUILD_SHARED_LIBS \
     -DSHERPA_MNN_ENABLE_PYTHON=OFF \
     -DSHERPA_MNN_ENABLE_TESTS=OFF \

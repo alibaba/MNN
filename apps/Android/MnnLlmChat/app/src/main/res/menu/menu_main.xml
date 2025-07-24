@@ -22,12 +22,9 @@
     <item
         android:id="@+id/action_star_project"
         android:title="@string/star_project"
-        app:showAsAction="never" />
-
-    <item
-        android:id="@+id/action_resume_all_downloads"
-        android:title="@string/resume_all_downloads"
-        app:showAsAction="never" />
+        android:icon="@drawable/ic_u_star"
+        android:iconTint="@color/color_foreground"
+        app:showAsAction="always" />
 
     <item
         android:id="@+id/action_settings"
