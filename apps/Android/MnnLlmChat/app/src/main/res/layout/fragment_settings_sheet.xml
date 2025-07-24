@@ -198,6 +198,48 @@
                             android:id="@+id/row_mixed_temp"
                             layout="@layout/settings_row_slider_switch" />
 
+                        <com.google.android.material.card.MaterialCardView
+                            android:id="@+id/card_mixed_penalty_settings"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="8dp"
+                            android:layout_marginBottom="8dp"
+                            app:cardCornerRadius="8dp"
+                            app:cardBackgroundColor="@android:color/transparent"
+                            app:strokeColor="?attr/colorOutline"
+                            app:strokeWidth="1dp">
+
+                            <LinearLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:orientation="vertical"
+                                android:padding="8dp">
+
+                                <include
+                                    android:id="@+id/row_mixed_penalty"
+                                    layout="@layout/settings_row_slider_switch" />
+
+                                <include
+                                    android:id="@+id/row_mixed_ngram_size"
+                                    layout="@layout/settings_row_slider_switch" />
+
+                                <include
+                                    android:id="@+id/row_mixed_ngram_factor"
+                                    layout="@layout/settings_row_slider_switch" />
+
+                                <com.alibaba.mnnllm.android.modelsettings.DropDownLineView
+                                    android:id="@+id/dropdown_mixed_penalty_sampler"
+                                    android:layout_width="match_parent"
+                                    android:clickable="true"
+                                    android:layout_height="wrap_content"
+                                    app:labelText="Penalty Sampler"
+                                    app:valueText="Greedy"
+                                    android:layout_marginBottom="8dp"
+                                    app:icon="@drawable/baseline_arrow_drop_down_24" />
+
+                            </LinearLayout>
+                        </com.google.android.material.card.MaterialCardView>
+
                     </LinearLayout>
 
                     <LinearLayout

@@ -5,6 +5,7 @@ package com.alibaba.mnnllm.android.benchmark
 
 import android.widget.Toast
 import androidx.fragment.app.FragmentActivity
+import com.alibaba.mnnllm.android.R
 import com.google.zxing.integration.android.IntentIntegrator
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -13,16 +14,16 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
 
-class BenchmarkModule(private val activity:FragmentActivity) {
+class BenchmarkModule(private val activity: FragmentActivity) {
 
     private val testUpload = false
     private val benchmarkDatasetRoot = "/data/local/tmp/mnn_bench/datasets"
     private val maxDataItemCount = 3
     private var currentDataItemCount = 0
 
-    fun start(waitForLastCompleted: suspend()->Unit, handleSendMessage: suspend (String) -> HashMap<String, Any>) {
+    fun start(waitForLastCompleted: suspend () -> Unit, handleSendMessage: suspend (String) -> HashMap<String, Any>) {
         val selectDataSetFragment = SelectDataSetFragment()
-        selectDataSetFragment.setOnItemClickListener {optionItem->
+        selectDataSetFragment.setOnItemClickListener { optionItem ->
             handleDatasetOptionClick(optionItem, waitForLastCompleted, handleSendMessage)
             selectDataSetFragment.dismiss()
         }
@@ -39,9 +40,9 @@ class BenchmarkModule(private val activity:FragmentActivity) {
         }.initiateScan()
     }
 
-    private fun handleDatasetOptionClick(optionItem: OptionItem,
-                                         waitForLastCompleted: suspend()->Unit,
-                                         handleSendMessage: suspend(String)->HashMap<String, Any>) {
+    private fun handleDatasetOptionClick(optionItem: DatasetOptionItem,
+                                         waitForLastCompleted: suspend () -> Unit,
+                                         handleSendMessage: suspend (String) -> HashMap<String, Any>) {
         if (testUpload) {
             startQRScanner()
             return
@@ -73,12 +74,10 @@ class BenchmarkModule(private val activity:FragmentActivity) {
                     val result = handleSendMessage(jsonObject.getString("prompt"))
                     currentDataItemCount++
                 }
-                Toast.makeText(activity, "DataSet ${optionItem.title} " +
-                        "Process Complete", Toast.LENGTH_SHORT).show()
+                Toast.makeText(activity, activity.getString(R.string.dataset_process_complete, optionItem.title), Toast.LENGTH_SHORT).show()
             } catch (e: Exception) {
                 e.printStackTrace()
-                Toast.makeText(activity, "Error on process dataset:" +
-                        " ${e.message}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(activity, activity.getString(R.string.error_on_process_dataset, e.message), Toast.LENGTH_SHORT).show()
             }
         }
     }

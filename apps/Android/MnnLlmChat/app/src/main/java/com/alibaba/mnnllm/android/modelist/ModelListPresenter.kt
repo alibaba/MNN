@@ -4,316 +4,158 @@ package com.alibaba.mnnllm.android.modelist
 
 import android.content.Context
 import android.os.Handler
-import android.text.TextUtils
 import android.util.Log
-import android.widget.Toast
-import com.alibaba.mls.api.hf.HfApiClient
-import com.alibaba.mls.api.hf.HfApiClient.RepoSearchCallback
 import com.alibaba.mls.api.ModelItem
-import com.alibaba.mls.api.download.DownloadInfo
-import com.alibaba.mls.api.download.DownloadListener
 import com.alibaba.mls.api.download.ModelDownloadManager
-import com.alibaba.mnnllm.android.R
-import com.alibaba.mnnllm.android.model.ModelUtils.processList
-import com.google.gson.Gson
-import com.google.gson.GsonBuilder
-import com.google.gson.JsonSyntaxException
-import com.google.gson.reflect.TypeToken
-import java.io.BufferedReader
-import java.io.File
-import java.io.FileNotFoundException
-import java.io.FileReader
-import java.io.FileWriter
-import java.io.IOException
-import java.io.InputStreamReader
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import com.alibaba.mls.api.download.DownloadListener
+import com.alibaba.mls.api.download.DownloadInfo
 
 class ModelListPresenter(private val context: Context, private val view: ModelListContract.View) :
     ModelItemListener, DownloadListener {
-    private var bestApiClient: HfApiClient? = null
     private val modelListAdapter: ModelListAdapter?
     private var lastClickTime: Long = -1
-
-    private val modelItemDownloadStatesMap: MutableMap<String, ModelItemDownloadState> = HashMap()
-    private val lastUpdateTimeMap: MutableMap<String, Long> = HashMap()
-    private val lastDownloadProgressStage: MutableMap<String, String> = HashMap()
-
-    private var networkErrorCount = 0
-    private val modelDownloadManager: ModelDownloadManager =
-        ModelDownloadManager.getInstance(this.context)
     private var mainHandler: Handler?
+    private val presenterScope = CoroutineScope(Dispatchers.Main)
+    private var loading = false
 
     init {
-        modelDownloadManager.setListener(this)
         this.modelListAdapter = view.adapter
         this.mainHandler = Handler(context.mainLooper)
+        ModelDownloadManager.getInstance(context).addListener(this)
+        Log.d(TAG, "onCreate: ModelListPresenter created", Throwable())
     }
 
     fun onCreate() {
-        modelDownloadManager.setListener(this)
-        val items = loadFromCache()
-        if (items != null) {
-            onListAvailable(items, null)
-        }
-        requestRepoList(null)
+        loadDownloadedModels()
     }
 
     fun load() {
-        requestRepoList(null)
+        loadDownloadedModels()
     }
 
-    private fun getModelItemState(modelItems: List<ModelItem>?): Map<String, ModelItemDownloadState> {
-        modelItemDownloadStatesMap.clear()
-        if (modelItems == null) {
-            return modelItemDownloadStatesMap
-        }
-        for (repoItem in modelItems) {
-            if (repoItem.modelId!!.startsWith("local")) {
-                continue
-            }
-            val modelItemDownloadState = ModelItemDownloadState()
-            modelItemDownloadState.downloadInfo = modelDownloadManager.getDownloadInfo(repoItem.modelId!!)
-            modelItemDownloadStatesMap[repoItem.modelId!!] = modelItemDownloadState
-        }
-        return modelItemDownloadStatesMap
-    }
-
-    private fun requestRepoList(onSuccess: Runnable?) {
-        view.onLoading()
-        networkErrorCount = 0
-        if (bestApiClient != null) {
-            requestRepoListWithClient(bestApiClient!!, bestApiClient!!.host, 1, onSuccess)
-        } else {
-            val defaultApiClient = HfApiClient(HfApiClient.HOST_DEFAULT)
-            val mirrorApiClient = HfApiClient(HfApiClient.HOST_MIRROR)
-            requestRepoListWithClient(defaultApiClient, HfApiClient.HOST_DEFAULT, 2, onSuccess)
-            requestRepoListWithClient(mirrorApiClient, HfApiClient.HOST_MIRROR, 2, onSuccess)
-        }
-    }
-
-    private fun saveToCache(hfModelItems: List<ModelItem>) {
-        if (hfModelItems.isEmpty()) {
+    private fun loadDownloadedModels() {
+        if (loading) {
             return
         }
-        val gson = GsonBuilder().setPrettyPrinting().create()
-        val json = gson.toJson(hfModelItems)
-
-        try {
-            FileWriter(context.filesDir.toString() + "/model_list.json").use { writer ->
-                writer.write(json)
+        loading = true
+        view.onLoading()
+        presenterScope.launch {
+            try {
+                val modelWrappers = ModelListManager.loadAvailableModels(context).toMutableList()
+                val sortedWrappers = modelWrappers.sortedBy { it.hasUpdate }
+                launch {
+                    for (modelWrapper in sortedWrappers) {
+                        if (!modelWrapper.modelItem.isLocal) {
+                            ModelDownloadManager.getInstance(context).checkForUpdate(modelWrapper.modelItem.modelId)
+                        }
+                    }
+                }
+                onListAvailable(sortedWrappers, null)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error loading downloaded models", e)
+                view.onListLoadError(e.message)
             }
-        } catch (e: IOException) {
-            Log.e(TAG, "saveToCacheError")
         }
+        loading = false
     }
 
-    private fun loadFromAssets(context: Context, fileName: String): List<ModelItem>? {
-        val assetManager = context.assets
-        try {
-            val inputStream = assetManager.open(fileName)
-            val inputStreamReader = InputStreamReader(inputStream)
-            val bufferedReader = BufferedReader(inputStreamReader)
-            val gson = Gson()
-            val listType = object : TypeToken<List<ModelItem?>?>() {}.type
-            return gson.fromJson(bufferedReader, listType)
-        } catch (e: IOException) {
-            Log.e(TAG, "loadFromAssets: Error reading from assets", e)
-            return null
-        } catch (e: JsonSyntaxException) {
-            Log.e(TAG, "loadFromAssets: Invalid JSON in assets", e)
-            return null
-        }
-    }
-
-    private fun loadFromCache(): List<ModelItem>? {
-        val cacheFileName = "model_list.json"
-        val cacheFile = File(context.filesDir, "model_list.json")
-        if (!cacheFile.exists()) {
-            return loadFromAssets(this.context, cacheFileName)
-        }
-        try {
-            FileReader(cacheFile.absolutePath).use { reader ->
-                val gson = Gson()
-                val listType = object : TypeToken<List<ModelItem?>?>() {}.type
-                return gson.fromJson(reader, listType)
-            }
-        } catch (e: FileNotFoundException) {
-            Log.d(TAG, "Cache file not found.")
-            return null
-        } catch (e: IOException) {
-            Log.e(TAG, "loadFromCacheError", e) // Log the full exception for debugging
-            return null
-        } catch (e: JsonSyntaxException) {
-            Log.e(TAG, "loadFromCacheError: Invalid JSON", e)
-            return null
-        }
-    }
-
-
-    private fun onListAvailable(modelItems: List<ModelItem>, onSuccess: Runnable?) {
-        val itemsProcessed = processList(modelItems)
-        for (item in modelItems) {
-            modelDownloadManager.getDownloadInfo(item.modelId!!)
-        }
-        modelListAdapter!!.updateItems(itemsProcessed, getModelItemState(itemsProcessed))
+    private fun onListAvailable(modelWrappers: List<ModelItemWrapper>, onSuccess: Runnable?) {
+        Log.d(TAG, "onListAvailable: received ${modelWrappers.size} modelWrappers")
+        modelListAdapter!!.updateItems(modelWrappers)
         onSuccess?.run()
+        Log.d(TAG, "onListAvailable: calling view.onListAvailable()")
         view.onListAvailable()
     }
 
-    private fun requestRepoListWithClient(
-        hfApiClient: HfApiClient,
-        tag: String,
-        loadCount: Int,
-        onSuccess: Runnable?
-    ) {
-        hfApiClient.searchRepos("", object : RepoSearchCallback {
-            override fun onSuccess(hfModelItems: List<ModelItem>) {
-                if (bestApiClient == null) {
-                    bestApiClient = hfApiClient
-                    saveToCache(hfModelItems)
-                    onListAvailable(hfModelItems, onSuccess)
-                    HfApiClient.bestClient = bestApiClient
-                }
-                Log.d(
-                    TAG,
-                    "requestRepoListWithClient success : $tag"
-                )
-            }
 
-            override fun onFailure(error: String?) {
-                networkErrorCount++
-                Log.d(
-                    TAG,
-                    "on requestRepoListWithClient Failure $error tag:$tag"
-                )
-                if (networkErrorCount == loadCount) {
-                    Log.e(
-                        TAG,
-                        "on requestRepoListWithClient Failure With Retry $error"
-                    )
-                    view.onListLoadError(error)
-                }
-            }
-        })
-    }
-
-
-    override fun onItemClicked(hfModelItem: ModelItem) {
+    override fun onItemClicked(modelItem: ModelItem) {
         val now = System.currentTimeMillis()
         if (now - this.lastClickTime < 500) {
             return
         }
         this.lastClickTime = now
-        if (hfModelItem.isLocal) {
-            view.runModel(hfModelItem.localPath!!, hfModelItem.modelId)
+        if (modelItem.isLocal) {
+            view.runModel(null, modelItem.modelId)
             return
         }
-        val downloadInfo = modelDownloadManager.getDownloadInfo(hfModelItem.modelId!!)
-        if (downloadInfo.downlodaState == DownloadInfo.DownloadSate.COMPLETED) {
-            val localDownloadPath = modelDownloadManager.getDownloadedFile(hfModelItem.modelId!!)
-            view.runModel(localDownloadPath!!.absolutePath, hfModelItem.modelId)
-        } else if (downloadInfo.downlodaState == DownloadInfo.DownloadSate.NOT_START || downloadInfo.downlodaState == DownloadInfo.DownloadSate.FAILED || downloadInfo.downlodaState == DownloadInfo.DownloadSate.PAUSED) {
-            modelDownloadManager.startDownload(hfModelItem.modelId!!)
-        } else if (downloadInfo.downlodaState == DownloadInfo.DownloadSate.DOWNLOADING) {
-            Toast.makeText(
-                this.context,
-                context.resources.getString(R.string.downloading_please_wait), Toast.LENGTH_SHORT
-            ).show()
+        view.runModel(null, modelItem.modelId)
+    }
+
+    override fun onItemLongClicked(modelItem: ModelItem): Boolean {
+        // This is handled by the adapter's wrapper listener, not here
+        return false
+    }
+
+    override fun onItemDeleted(modelItem: ModelItem) {
+        // Refresh the list after model deletion
+        refreshList()
+    }
+
+    override fun onItemUpdate(modelItem: ModelItem) {
+        // Start update download for the model
+        modelItem.modelId?.let { modelId ->
+            ModelDownloadManager.getInstance(context).startDownload(modelId)
         }
     }
 
+    fun refreshList() {
+        loadDownloadedModels()
+    }
+
+    // DownloadListener implementation
     override fun onDownloadTotalSize(modelId: String, totalSize: Long) {
-        if (this.mainHandler != null) {
-            mainHandler!!.post {
-                modelListAdapter!!.updateItem(
-                    modelId
-                )
-            }
+        // Not needed for model list
+    }
+
+    override fun onDownloadHasUpdate(modelId: String, downloadInfo: DownloadInfo) {
+        Log.d(TAG, "onDownloadHasUpdate: $modelId")
+        mainHandler?.post {
+            // Update the hasUpdate flag and refresh the specific item
+            modelListAdapter?.updateItemHasUpdate(modelId, true)
         }
     }
 
     override fun onDownloadStart(modelId: String) {
-        lastDownloadProgressStage.remove(modelId)
-        lastUpdateTimeMap.remove(modelId)
-    }
-
-    override fun onDownloadFailed(modelId: String, hfApiException: Exception) {
-        if (this.mainHandler != null) {
-            mainHandler!!.post {
-                modelListAdapter!!.updateItem(
-                    modelId
-                )
-            }
+        mainHandler?.post {
+            // Update UI when model starts updating
+            modelListAdapter?.updateItem(modelId)
         }
     }
 
-    override fun onDownloadProgress(modelId: String, progress: DownloadInfo) {
-        val lastUpdateTime = lastUpdateTimeMap[modelId]
-        val now = System.currentTimeMillis()
-        val progressStateChanged = !TextUtils.equals(
-            progress.progressStage,
-            lastDownloadProgressStage[modelId]
-        )
-        if (!progressStateChanged && lastUpdateTime != null && now - lastUpdateTime < 500) {
-            return
+    override fun onDownloadProgress(modelId: String, downloadInfo: DownloadInfo) {
+        mainHandler?.post {
+            // Update progress for models that are being updated
+            modelListAdapter?.updateProgress(modelId, downloadInfo)
         }
-        lastDownloadProgressStage[modelId] = progress.progressStage!!
-        lastUpdateTimeMap[modelId] = now
-        if (lastUpdateTime != null && lastUpdateTime > 0 && !progressStateChanged) {
-            if (this.mainHandler != null) {
-                mainHandler!!.post {
-                    modelListAdapter!!.updateProgress(
-                        modelId,
-                        progress
-                    )
-                }
-            }
-        } else {
-            if (this.mainHandler != null) {
-                mainHandler!!.post {
-                    modelListAdapter!!.updateItem(
-                        modelId
-                    )
-                }
-            }
-        }
+    }
+
+    override fun onDownloadFailed(modelId: String, exception: Exception) {
+        // Not needed for model list
     }
 
     override fun onDownloadFinished(modelId: String, path: String) {
-        if (this.mainHandler != null) {
-            mainHandler!!.post {
-                modelListAdapter!!.updateItem(
-                    modelId
-                )
-            }
+        mainHandler?.post {
+            // Refresh the list after download completion
+            refreshList()
         }
     }
 
     override fun onDownloadPaused(modelId: String) {
-        if (this.mainHandler != null) {
-            mainHandler!!.post {
-                modelListAdapter!!.updateItem(
-                    modelId
-                )
-            }
-        }
+        // Not needed for model list
     }
 
     override fun onDownloadFileRemoved(modelId: String) {
-        mainHandler!!.post {
-            modelListAdapter!!.updateItem(
-                modelId
-            )
+        mainHandler?.post {
+            // Refresh the list after model removal
+            refreshList()
         }
     }
 
-    val unfinishedDownloadCount: Int
-        get() = modelDownloadManager.unfinishedDownloadsSize
-
-    fun resumeAllDownloads() {
-        modelDownloadManager.resumeAllDownloads()
-    }
-
     fun onDestroy() {
+        ModelDownloadManager.getInstance(context).removeListener(this)
         mainHandler!!.removeCallbacksAndMessages(null)
         this.mainHandler = null
     }

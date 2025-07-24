@@ -17,7 +17,7 @@
     <color name="colorTextInfo">#B3FFFFFF</color>
     <color name="colorGreen">#A5DE40</color>
     <color name="mainBlue">#64B5F6</color>
-    <color name="color_background">#111111</color>
+    <color name="color_background">#1c1c1c</color>
     <color name="color_foreground">@android:color/white</color>
     <bool name="is_day_mode">false</bool>
     <bool name="is_night_mode">true</bool>
@@ -25,4 +25,25 @@
     <color name="color_on_surface_variant">#999999</color>
     <color name="my_color_surface_variant">#222222</color>
     <color name="my_color_surface">#EEEEEE</color>
+    <color name="label_color">#B3B3B3</color>
+    <color name="foreground_color">#FFFFFF</color>
+
+    <!-- 置顶遮罩颜色 (夜间模式) -->
+    <color name="pinned_overlay_color">#333333</color>
+
+    <!-- UED颜色 (夜间模式) -->
+    <color name="ued_blue">#4FA8FF</color>
+    <color name="label_not_selected">#F1F1F1</color>
+
+    <!-- Message background (夜间模式) -->
+    <color name="message_background">#2D2D2D</color>
+    
+    <!-- Benchmark Result Card Colors (夜间模式) -->
+    <color name="benchmark_result_card_background">#1C1B1F</color>
+    <color name="benchmark_result_sub_card_background">#2B2930</color>
+    <color name="benchmark_result_text_primary">#FFFFFF</color>
+    <color name="benchmark_result_text_secondary">#B3B3B3</color>
+
+    <color name="chip_background">#2c2c2e</color>
+
 </resources>

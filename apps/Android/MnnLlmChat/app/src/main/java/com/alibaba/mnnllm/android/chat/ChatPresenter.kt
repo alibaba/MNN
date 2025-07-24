@@ -6,11 +6,12 @@ package com.alibaba.mnnllm.android.chat
 import android.text.TextUtils
 import android.util.Log
 import androidx.lifecycle.lifecycleScope
+import com.alibaba.mls.api.ModelItem
 import com.alibaba.mnnllm.android.llm.ChatService
 import com.alibaba.mnnllm.android.llm.ChatSession
-import com.alibaba.mnnllm.android.chat.ChatActivity.Companion.TAG
 import com.alibaba.mnnllm.android.chat.model.ChatDataItem
 import com.alibaba.mnnllm.android.chat.model.ChatDataManager
+import com.alibaba.mnnllm.android.chat.chatlist.ChatViewHolders
 import com.alibaba.mnnllm.android.llm.GenerateProgressListener
 import com.alibaba.mnnllm.android.utils.FileUtils
 import com.alibaba.mnnllm.android.model.ModelUtils
@@ -20,9 +21,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import java.text.DateFormat
 import java.util.Random
-import java.util.concurrent.Executors
-import java.util.concurrent.ScheduledExecutorService
 
 /**
  * ChatPresenter
@@ -32,6 +32,7 @@ class ChatPresenter(
     private val modelName: String,
     private val modelId: String
 ) {
+    val dateFormat: DateFormat get() = chatActivity.dateFormat!!
     var stopGenerating = false
     private var sessionId: String? = null
     private var sessionName:String? = null
@@ -39,11 +40,12 @@ class ChatPresenter(
     private lateinit var chatSession: ChatSession
     private val presenterScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var generateListener:GenerateListener? = null
+    private val additionalListeners = mutableListOf<GenerateListener>()
     
     /**
-     * 获取LLM会话实例
-     * 为api.openai模块提供安全的访问方式
-     * @return LlmSession实例，如果chatSession未初始化或不是LlmSession类型则返回null
+     * Get LLM session instance
+     * Provides safe access to the api.openai module
+     * @return LlmSession instance, returns null if chatSession is not initialized or not of LlmSession type
      */
     fun getLlmSession(): com.alibaba.mnnllm.android.llm.LlmSession? {
         return if (::chatSession.isInitialized && chatSession is com.alibaba.mnnllm.android.llm.LlmSession) {
@@ -54,11 +56,25 @@ class ChatPresenter(
     }
     
     /**
-     * 获取当前会话ID
-     * @return 会话ID，如果未设置则返回null
+     * Get current session ID
+     * @return Session ID, returns null if not set
      */
     fun getSessionId(): String? {
         return sessionId
+    }
+    
+    /**
+     * Add an additional generate listener for multi-UI updates
+     */
+    fun addGenerateListener(listener: GenerateListener) {
+        additionalListeners.add(listener)
+    }
+    
+    /**
+     * Remove an additional generate listener
+     */
+    fun removeGenerateListener(listener: GenerateListener) {
+        additionalListeners.remove(listener)
     }
 
     init {
@@ -75,27 +91,27 @@ class ChatPresenter(
             if (chatDataItemList.isNotEmpty()) {
                 sessionName = chatDataItemList[0].text
             }
+            Log.d(TAG, "createSession: loaded ${chatDataItemList.size} history items for sessionId=$sessionId")
         } else {
             chatDataItemList = null
+            Log.d(TAG, "createSession: no sessionId provided, starting new session")
         }
-        if (ModelUtils.isDiffusionModel(modelName)) {
-            val diffusionDir = intent.getStringExtra("diffusionDir")
-            chatSession = chatService.createDiffusionSession(
-                modelId, diffusionDir,
-                sessionId, chatDataItemList
-            )
+        
+        val configPath = if (ModelUtils.isDiffusionModel(modelName)) {
+            intent.getStringExtra("diffusionDir")
         } else {
-            val configFilePath = intent.getStringExtra("configFilePath")
-            chatSession = chatService.createLlmSession(
-                modelId, configFilePath,
-                sessionId, chatDataItemList,
-                ModelUtils.isOmni(modelName)
-            )
+            intent.getStringExtra("configFilePath")
         }
-        sessionId = chatSession.sessionId
-        chatSession.setKeepHistory(
-            true
+        
+        Log.d(TAG, "createSession: isDiffusion=${ModelUtils.isDiffusionModel(modelName)}, modelName=$modelName, configPath=$configPath")
+        
+        chatSession = chatService.createSession(
+            modelId, modelName, sessionId, chatDataItemList, configPath, false
         )
+        sessionId = chatSession.sessionId
+        chatSession.setKeepHistory(true)
+        
+        Log.d(TAG, "createSession: created session with sessionId=$sessionId, historySize=${chatSession.getHistory()?.size ?: 0}")
         return chatSession
     }
 
@@ -141,6 +157,7 @@ class ChatPresenter(
                 override fun onProgress(progress: String?): Boolean {
                     chatActivity.lifecycleScope.launch {
                         this@ChatPresenter.generateListener?.onDiffusionGenerateProgress(progress, diffusionDestPath)
+                        additionalListeners.forEach { it.onDiffusionGenerateProgress(progress, diffusionDestPath) }
                     }
                     return false
                 }
@@ -157,6 +174,7 @@ class ChatPresenter(
                 generateResultProcessor.process(progress)
                 chatActivity.lifecycleScope.launch {
                     this@ChatPresenter.generateListener?.onLlmGenerateProgress(progress, generateResultProcessor)
+                    additionalListeners.forEach { it.onLlmGenerateProgress(progress, generateResultProcessor) }
                 }
                 if (stopGenerating) {
                     Log.d(TAG, "stopGenerating requested")
@@ -170,13 +188,25 @@ class ChatPresenter(
 
     private fun submitRequest(input: String, userData: ChatDataItem): HashMap<String, Any> {
         stopGenerating = false
-        val benchMarkResult = if (ModelUtils.isDiffusionModel(this.modelName)) {
-            submitDiffusionRequest(input)
-        } else {
-            submitLlmRequest(input)
+        val benchMarkResult = try {
+            if (ModelUtils.isDiffusionModel(this.modelName)) {
+                submitDiffusionRequest(input)
+            } else {
+                submitLlmRequest(input)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error during generation request", e)
+            // Create a basic error result to ensure onGenerateFinished is called
+            HashMap<String, Any>().apply {
+                put("error", true)
+                put("message", e.message ?: "Generation failed")
+                put("response", "生成失败，请重试")
+            }
         }
+        
         chatActivity.lifecycleScope.launch {
             this@ChatPresenter.generateListener?.onGenerateFinished(benchMarkResult)
+            additionalListeners.forEach { it.onGenerateFinished(benchMarkResult) }
         }
         return benchMarkResult
     }
@@ -189,30 +219,109 @@ class ChatPresenter(
 
     suspend fun requestGenerate(userData: ChatDataItem, generateListener: GenerateListener): HashMap<String, Any> {
         this.generateListener = generateListener
-        val prompt =  PromptUtils.generateUserPrompt(userData)
-        if (this.sessionName.isNullOrEmpty()) {
-            this.sessionName = SessionUtils.generateSessionName(userData)
-            updateSession(sessionId!!, modelId, sessionName!!)
+        val prompt = PromptUtils.generateUserPrompt(userData)
+        
+        // Ensure user input is saved first
+        try {
+            if (this.sessionName.isNullOrEmpty()) {
+                this.sessionName = SessionUtils.generateSessionName(userData)
+                updateSession(sessionId!!, modelId, sessionName!!)
+            }
+            
+            // Always save user input to database first
+            Log.d(TAG, "requestGenerate: saving user input for sessionId=$sessionId")
+            chatDataManager!!.addChatData(sessionId, userData)
+            
+            this.generateListener?.onGenerateStart()
+            additionalListeners.forEach { it.onGenerateStart() }
+            
+            val result = presenterScope.async {
+                return@async submitRequest(prompt, userData)
+            }.await()
+            
+            return result
+        } catch (e: Exception) {
+            Log.e(TAG, "requestGenerate: Error during request generation", e)
+            
+            // Still try to save user input even if generation fails
+            try {
+                if (sessionId != null) {
+                    chatDataManager!!.addChatData(sessionId, userData)
+                }
+            } catch (saveException: Exception) {
+                Log.e(TAG, "requestGenerate: Failed to save user input", saveException)
+            }
+            
+            // Return error result
+            val errorResult = HashMap<String, Any>().apply {
+                put("error", true)
+                put("message", e.message ?: "Request generation failed")
+                put("response", "生成失败，请重试")
+            }
+            
+            // Still call onGenerateFinished to ensure UI is updated
+            this.generateListener?.onGenerateFinished(errorResult)
+            additionalListeners.forEach { it.onGenerateFinished(errorResult) }
+            
+            return errorResult
         }
-        chatDataManager!!.addChatData(sessionId, userData)
-        this.generateListener?.onGenerateStart()
-        val result =  presenterScope.async {
-            return@async submitRequest(prompt, userData)
-        }.await()
-        return result
     }
 
     fun stopGenerate() {
         stopGenerating = true
     }
+    
+    /**
+     * Default GenerateListener that handles ChatActivity UI updates
+     * This ensures all UI callbacks are executed on the main thread
+     */
+    private inner class DefaultChatActivityListener(private val userData: ChatDataItem) : GenerateListener {
+        override fun onGenerateStart() {
+            chatActivity.lifecycleScope.launch {
+                chatActivity.onGenerateStart(userData)
+            }
+        }
+        
+        override fun onLlmGenerateProgress(progress: String?, generateResultProcessor: GenerateResultProcessor) {
+            chatActivity.lifecycleScope.launch {
+                chatActivity.onLlmGenerateProgress(progress, generateResultProcessor)
+            }
+        }
+        
+        override fun onDiffusionGenerateProgress(progress: String?, diffusionDestPath: String?) {
+            chatActivity.lifecycleScope.launch {
+                chatActivity.onDiffusionGenerateProgress(progress, diffusionDestPath)
+            }
+        }
+        
+        override fun onGenerateFinished(benchMarkResult: HashMap<String, Any>) {
+            chatActivity.lifecycleScope.launch {
+                chatActivity.onGenerateFinished(benchMarkResult)
+            }
+        }
+    }
+    
+    /**
+     * Send a text message - unified method for both regular and voice messages
+     * This ensures proper session management and database storage
+     */
+    suspend fun sendMessage(text: String): HashMap<String, Any> {
+        val userData = ChatDataItem(ChatViewHolders.USER)
+        userData.text = text
+        userData.time = dateFormat.format(java.util.Date())
+        return requestGenerate(userData, DefaultChatActivityListener(userData))
+    }
+    
+    /**
+     * Send a pre-created ChatDataItem - for more complex message types
+     */
+    suspend fun sendMessage(userData: ChatDataItem): HashMap<String, Any> {
+        return requestGenerate(userData, DefaultChatActivityListener(userData))
+    }
 
     fun destroy() {
         stopGenerate()
         presenterScope.cancel("ChatPresenter destroy")
-        presenterScope.launch {
-            chatSession.reset()
-            chatSession.release()
-        }
         CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
             try {
                 if (::chatSession.isInitialized) {
@@ -228,11 +337,93 @@ class ChatPresenter(
     }
 
     fun saveResponseToDatabase(recentItem: ChatDataItem) {
-        this.chatDataManager?.addChatData(sessionId, recentItem)
+        try {
+            Log.d(TAG, "saveResponseToDatabase: saving response for sessionId=$sessionId")
+            this.chatDataManager?.addChatData(sessionId, recentItem)
+        } catch (e: Exception) {
+            Log.e(TAG, "saveResponseToDatabase: Failed to save response to database for sessionId=$sessionId", e)
+        }
     }
 
     fun setEnableAudioOutput(enable: Boolean) {
         this.chatSession.setEnableAudioOutput(enable)
+    }
+
+    /**
+     * Switch to a new model while preserving chat history
+     */
+    fun switchModel(
+        newModelItem: ModelItem,
+        currentChatHistory: List<ChatDataItem>,
+        onSwitchComplete: (ChatSession) -> Unit,
+        onSwitchError: (Exception) -> Unit,
+        onSessionCreated: (ChatSession) -> Unit
+    ) {
+        presenterScope.launch {
+            try {
+                chatActivity.lifecycleScope.launch {
+                    chatActivity.onLoadingChanged(true)
+                }
+                val oldSessionId = sessionId
+                destroyCurrentSession()
+                val newSession = createNewModelSession(newModelItem)
+                applyChatHistoryToNewSession(newSession, currentChatHistory)
+                updateDatabaseForModelSwitch(oldSessionId, newModelItem.modelId!!)
+                chatActivity.lifecycleScope.launch {
+                    onSessionCreated(newSession)
+                }
+                newSession.load()
+                chatActivity.lifecycleScope.launch {
+                    onSwitchComplete(newSession)
+                    chatActivity.onLoadingChanged(false)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error switching model", e)
+                chatActivity.lifecycleScope.launch {
+                    onSwitchError(e)
+                    chatActivity.onLoadingChanged(false)
+                }
+            }
+        }
+    }
+    
+    private fun destroyCurrentSession() {
+        if (::chatSession.isInitialized) {
+            chatSession.reset()
+            chatSession.release()
+        }
+    }
+    
+    private fun createNewModelSession(newModelItem: ModelItem): ChatSession {
+        val chatService = ChatService.provide()
+        val newModelId = newModelItem.modelId!!
+        val newModelName = newModelItem.modelName!!
+        val newConfigPath = ModelUtils.getConfigPathForModel(newModelItem)
+        val newSession = chatService.createSession(
+            newModelId, newModelName,
+            null, null, // No previous session data
+            newConfigPath, true // Use new config
+        )
+        chatSession = newSession
+        sessionId = newSession.sessionId
+        chatSession.setKeepHistory(true)
+        return newSession
+    }
+    
+    private fun updateDatabaseForModelSwitch(oldSessionId: String?, newModelId: String) {
+        if (oldSessionId != null) {
+            chatDataManager?.updateSessionModelId(oldSessionId, newModelId)
+        }
+    }
+    
+    private fun applyChatHistoryToNewSession(newSession: ChatSession, currentChatHistory: List<ChatDataItem>) {
+        if (newSession is com.alibaba.mnnllm.android.llm.LlmSession && currentChatHistory.isNotEmpty()) {
+            newSession.savedHistory = currentChatHistory
+        }
+    }
+
+    companion object {
+        private const val TAG: String = "ChatPresenter"
     }
 
     interface GenerateListener {

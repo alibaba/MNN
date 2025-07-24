@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools">
+    <com.alibaba.mnnllm.android.widgets.ModelAvatarView
+        android:id="@+id/model_avatar_view"
+        android:layout_width="65dp"
+        android:layout_height="65dp"
+        android:layout_centerHorizontal="true"
+        android:layout_alignParentTop="true"
+        app:strokeWidth="0.5dp"
+        style="@style/Widget.Material3.CardView.Outlined"
+        android:layout_marginTop="@dimen/chat_avatar_top_margin"
+        tools:modelName="Qwen"/>
+    <TextView
+        android:id="@+id/tv_empty_message"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textSize="18sp"
+        android:layout_below="@+id/model_avatar_view"
+        android:layout_marginTop="16dp"
+        android:layout_marginStart="20dp"
+        android:layout_marginEnd="20dp"
+        android:gravity="center"
+        android:layout_centerHorizontal="true"
+        android:text="@string/model_hello_prompt"
+        android:textColor="?colorOnSurface"
+        tools:text="@string/model_hello_prompt"
+        />
+</RelativeLayout>

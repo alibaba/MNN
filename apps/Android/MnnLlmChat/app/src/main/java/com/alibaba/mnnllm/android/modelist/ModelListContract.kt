@@ -8,6 +8,6 @@ class ModelListContract {
         fun onLoading()
         fun onListLoadError(error: String?)
         val adapter: ModelListAdapter?
-        fun runModel(absolutePath: String?, modelId: String?)
+        fun runModel(destPath:String?, modelId: String?)
     }
 }

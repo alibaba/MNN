@@ -1,0 +1,36 @@
+cmake_minimum_required(VERSION 3.4.1)
+
+# Set include directories
+include_directories(${CMAKE_CURRENT_LIST_DIR}/includes)
+include_directories(${CMAKE_CURRENT_LIST_DIR}/../include)
+
+# Import MNN library
+add_library(MNN SHARED IMPORTED GLOBAL)
+set_target_properties(MNN PROPERTIES 
+    IMPORTED_LOCATION ${CMAKE_CURRENT_LIST_DIR}/libs/${ANDROID_ABI}/libMNN.so
+    INTERFACE_INCLUDE_DIRECTORIES ${CMAKE_CURRENT_LIST_DIR}/../include
+)
+
+# Import mnn_tts library
+add_library(mnn_tts SHARED IMPORTED GLOBAL)
+set_target_properties(mnn_tts PROPERTIES 
+    IMPORTED_LOCATION ${CMAKE_CURRENT_LIST_DIR}/libs/${ANDROID_ABI}/libmnn_tts.so
+    INTERFACE_INCLUDE_DIRECTORIES ${CMAKE_CURRENT_LIST_DIR}/../include
+)
+
+# Set link libraries
+target_link_libraries(mnn_tts INTERFACE MNN log)
+
+# Test code example
+if(BUILD_TESTING)
+    # Create test executable
+    add_executable(mnn_tts_test
+        ${CMAKE_CURRENT_LIST_DIR}/test/test_mnn_tts.cpp
+    )
+    
+    # Link libraries
+    target_link_libraries(mnn_tts_test mnn_tts)
+    
+    # Add test
+    add_test(NAME MNNTTSTest COMMAND mnn_tts_test)
+endif()

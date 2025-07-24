@@ -5,8 +5,20 @@
         android:title="@string/start_new_chat"
         app:showAsAction="never" />
     <item
+        android:id="@+id/start_voice_chat"
+        android:title="@string/start_voice_chat"
+        android:icon="@drawable/ic_voice_chat"
+        android:iconTint="@color/color_foreground"
+        app:showAsAction="ifRoom" />
+    <item
         android:id="@+id/show_performance_metrics"
         android:title="@string/show_performance_metrics"
+        app:showAsAction="never"
+        android:checkable="true"
+        android:checked="true"/>
+    <item
+        android:id="@+id/realtime_audio_playback"
+        android:title="@string/realtime_audio_playback"
         app:showAsAction="never"
         android:checkable="true"
         android:checked="true"/>

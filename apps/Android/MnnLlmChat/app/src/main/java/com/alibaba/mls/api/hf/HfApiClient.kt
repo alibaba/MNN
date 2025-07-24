@@ -2,8 +2,10 @@
 // Copyright (c) 2024 Alibaba Group Holding Limited All rights reserved.
 package com.alibaba.mls.api.hf
 
+import android.util.Log
 import com.alibaba.mls.api.ModelItem
 import okhttp3.OkHttpClient
+import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Call
 import retrofit2.Callback
 import retrofit2.Response
@@ -26,34 +28,17 @@ class HfApiClient(@JvmField val host: String) {
     }
 
     private fun createOkHttpClient(): OkHttpClient? {
+        val loggingInterceptor = HttpLoggingInterceptor { message ->
+            Log.d(TAG, message)
+        }
+        loggingInterceptor.level = HttpLoggingInterceptor.Level.BODY
         val builder: OkHttpClient.Builder = OkHttpClient.Builder()
         builder.connectTimeout(30, TimeUnit.SECONDS)
         builder.readTimeout(30, TimeUnit.SECONDS)
+        builder.addInterceptor(loggingInterceptor)
 //        val okHttpClient:OkHttpClient = builder.build()
         okHttpClient = builder.build()
         return okHttpClient
-    }
-
-    // Searches repositories based on a keyword
-    fun searchRepos(keyword: String?, callback: RepoSearchCallback) {
-        val call = apiService.searchRepos(keyword, "taobao-mnn", 500, "downloads")
-        call.enqueue(object : Callback<List<ModelItem>> {
-            override fun onResponse(
-                call: Call<List<ModelItem>>,
-                response: Response<List<ModelItem>>
-            ) {
-                val body = response.body()
-                if (body != null) {
-                    callback.onSuccess(body)
-                } else {
-                    callback.onFailure("response null")
-                }
-            }
-
-            override fun onFailure(call: Call<List<ModelItem>>, t: Throwable) {
-                callback.onFailure(t.message)
-            }
-        })
     }
 
     // Retrieves repository information
@@ -73,7 +58,7 @@ class HfApiClient(@JvmField val host: String) {
     // Callback interfaces
     interface RepoSearchCallback :
         CallbackWrapper<List<ModelItem>> {
-        override fun onSuccess(hfModelItems: List<ModelItem>)
+        override fun onSuccess(modelItems: List<ModelItem>)
         override fun onFailure(error: String?)
     }
 

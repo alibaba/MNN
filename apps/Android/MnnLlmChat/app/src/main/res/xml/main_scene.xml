@@ -1,0 +1,171 @@
+<MotionScene xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <Transition
+        app:constraintSetStart="@+id/collapsed"
+        app:constraintSetEnd="@+id/expanded_download"
+        app:duration="300">
+        <OnClick app:targetId="@id/click_area_download" />
+    </Transition>
+    <Transition
+        app:constraintSetStart="@+id/expanded_download"
+        app:constraintSetEnd="@+id/collapsed"
+        app:duration="300">
+        <OnClick app:targetId="@id/click_area_download" />
+    </Transition>
+
+
+    <Transition
+        app:constraintSetStart="@+id/collapsed"
+        app:constraintSetEnd="@+id/expanded_filter"
+        app:duration="300">
+        <OnClick app:targetId="@id/click_area_filter" />
+    </Transition>
+    <Transition
+        app:constraintSetStart="@+id/expanded_filter"
+        app:constraintSetEnd="@+id/collapsed"
+        app:duration="300">
+        <OnClick app:targetId="@id/click_area_filter" />
+    </Transition>
+
+
+    <ConstraintSet android:id="@+id/collapsed">
+        <Constraint
+            android:id="@+id/card_bottom_bar_container"
+            android:layout_width="wrap_content"
+            android:layout_height="56dp"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            android:layout_marginBottom="40dp"
+            >
+        </Constraint>
+        <Constraint
+            android:id="@+id/download_container"
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            app:layout_constraintBottom_toBottomOf="@id/card_bottom_bar_container"
+            app:layout_constraintStart_toStartOf="@id/card_bottom_bar_container"
+            android:layout_marginStart="30dp"
+            >
+            <CustomAttribute
+                app:attributeName="cardBackgroundColor"
+                app:customColorValue="@android:color/white" />
+        </Constraint>
+
+        <Constraint android:id="@+id/filter_container"
+            android:layout_width="30dp"
+            android:layout_height="30dp"
+            android:layout_marginBottom="20dp"
+            android:layout_marginStart="180dp"
+            android:alpha="1.0"
+            app:layout_constraintBottom_toBottomOf="@id/card_bottom_bar_container"
+            app:layout_constraintStart_toStartOf="@id/card_bottom_bar_container" />
+    </ConstraintSet>
+
+
+    <ConstraintSet android:id="@+id/expanded_download">
+        <Constraint
+            android:id="@+id/card_bottom_bar_container"
+            android:layout_width="wrap_content"
+            android:layout_height="56dp"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            android:layout_marginBottom="40dp"
+            >
+        </Constraint>
+        <Constraint android:id="@+id/filter_container"
+            android:layout_width="30dp"
+            android:layout_height="30dp"
+            android:layout_marginBottom="20dp"
+            android:layout_marginStart="180dp"
+            android:alpha="1.0"
+            app:layout_constraintBottom_toBottomOf="@id/card_bottom_bar_container"
+            app:layout_constraintStart_toStartOf="@id/card_bottom_bar_container" />
+        <Constraint
+            android:id="@+id/download_container"
+            android:layout_width="320dp"
+            android:layout_height="wrap_content"
+            android:alpha="1.0"
+            app:layout_constraintBottom_toBottomOf="@id/card_bottom_bar_container"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            android:layout_marginBottom="-20dp"
+            >
+            <CustomAttribute
+                app:attributeName="cardBackgroundColor"
+                app:customColorValue="@android:color/white" />
+        </Constraint>
+
+<!--        <Constraint-->
+<!--            android:id="@+id/title_select_provider"-->
+<!--            android:layout_width="match_parent"-->
+<!--            android:layout_height="wrap_content"-->
+<!--            android:alpha="1.0"-->
+<!--            app:layout_constraintTop_toTopOf="@id/download_container" />-->
+<!--        <Constraint-->
+<!--            android:id="@+id/recycler_view_providers"-->
+<!--            android:layout_width="match_parent"-->
+<!--            android:layout_height="wrap_content"-->
+<!--            android:alpha="1.0"-->
+<!--            app:layout_constraintEnd_toEndOf="@id/download_container"-->
+<!--            app:layout_constraintStart_toStartOf="@id/download_container"-->
+<!--            app:layout_constraintTop_toBottomOf="@id/title_select_provider" />-->
+        
+<!--        <Constraint-->
+<!--            android:id="@+id/bottom_bar_container"-->
+<!--            android:layout_width="0dp"-->
+<!--            android:layout_height="56dp"-->
+<!--            app:layout_constraintBottom_toBottomOf="@id/download_container"-->
+<!--            app:layout_constraintEnd_toEndOf="@id/download_container"-->
+<!--            app:layout_constraintStart_toStartOf="@id/download_container"-->
+<!--            app:layout_constraintTop_toBottomOf="@id/recycler_view_providers" />-->
+
+<!--        <Constraint-->
+<!--            android:id="@+id/text_switch"-->
+<!--            android:layout_width="wrap_content"-->
+<!--            android:layout_height="wrap_content" >-->
+<!--            <CustomAttribute-->
+<!--                app:attributeName="textColor"-->
+<!--                app:customColorValue="#4A55E7" />-->
+<!--        </Constraint>-->
+<!--        <Constraint-->
+<!--            android:id="@+id/text_filter"-->
+<!--            android:layout_width="wrap_content"-->
+<!--            android:layout_height="wrap_content">-->
+<!--            <CustomAttribute-->
+<!--                app:attributeName="textColor"-->
+<!--                app:customColorValue="#FFA726" />-->
+<!--        </Constraint>-->
+    </ConstraintSet>
+
+    <ConstraintSet android:id="@+id/expanded_filter">
+        <Constraint android:id="@+id/card_bottom_bar_container"
+            android:layout_width="wrap_content"
+            android:layout_height="56dp"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            android:layout_marginBottom="40dp" />
+
+        <Constraint android:id="@+id/download_container"
+            android:layout_width="320dp"
+            android:layout_height="wrap_content"
+            app:layout_constraintBottom_toTopOf="@id/card_bottom_bar_container"
+            app:layout_constraintEnd_toEndOf="@id/card_bottom_bar_container"
+            app:layout_constraintStart_toStartOf="@id/card_bottom_bar_container" />
+
+        <Constraint
+            android:id="@+id/filter_container"
+            android:layout_width="320dp"
+            android:layout_height="wrap_content"
+            android:alpha="1.0"
+            app:layout_constraintBottom_toBottomOf="@id/card_bottom_bar_container"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            android:layout_marginBottom="-20dp"
+            />
+    </ConstraintSet>
+
+</MotionScene> 
