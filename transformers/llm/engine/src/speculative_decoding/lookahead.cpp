@@ -44,7 +44,9 @@ LookaheadGeneration::LookaheadGeneration(Llm* llm, std::shared_ptr<LlmContext> c
 }
     
 void LookaheadGeneration::generate(GenerationParams& param) {
-    
+    if (-1 == mContext->current_token) {
+        mContext->current_token = mLlm->sample(param.outputs[0]);
+    }
     int max_token = param.max_new_tokens;
     int len = 0;
     ngram_cache<ngram_value> prompt_ngram_cache;
