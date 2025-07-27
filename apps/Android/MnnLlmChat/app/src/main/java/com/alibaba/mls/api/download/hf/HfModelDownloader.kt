@@ -141,6 +141,16 @@ class HfModelDownloader(override var callback: ModelRepoDownloadCallback?,
                 calculateRepoSize(repoInfo)
             }.getOrElse { exception ->
                 Log.e(TAG, "Failed to get repo size for $modelId", exception)
+                // Try to get file_size from saved market data as fallback
+                try {
+                    val marketSize = com.alibaba.mls.api.download.DownloadPersistentData.getMarketSizeTotal(ApplicationProvider.get(), modelId)
+                    if (marketSize > 0) {
+                        Log.d(TAG, "Using saved market size as fallback for $modelId: $marketSize")
+                        return@withContext marketSize
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to get saved market size for $modelId", e)
+                }
                 0L
             }
         }

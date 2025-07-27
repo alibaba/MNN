@@ -21,6 +21,8 @@ import com.alibaba.mls.api.ms.MsApiClient
 import com.alibaba.mls.api.ms.MsRepoInfo
 import com.alibaba.mnnllm.android.chat.model.ChatDataManager
 import com.alibaba.mnnllm.android.model.ModelUtils
+import com.alibaba.mnnllm.android.modelmarket.ModelMarketItem
+import com.alibaba.mnnllm.android.modelmarket.ModelRepository
 import com.alibaba.mnnllm.android.utils.TimeUtils
 import com.alibaba.mls.api.download.DownloadCoroutineManager
 import kotlinx.coroutines.withContext
@@ -123,6 +125,16 @@ class MsModelDownloader(override var callback: ModelRepoDownloadCallback?,
                 repoInfo.Data?.Files?.filter { it.Type != "tree" }?.sumOf { it.Size } ?: 0L
             }.getOrElse { exception ->
                 Log.e(TAG, "Failed to get repo size for $modelId", exception)
+                // Try to get file_size from saved market data as fallback
+                try {
+                    val marketSize = com.alibaba.mls.api.download.DownloadPersistentData.getMarketSizeTotal(ApplicationProvider.get(), modelId)
+                    if (marketSize > 0) {
+                        Log.d(TAG, "Using saved market size as fallback for $modelId: $marketSize")
+                        return@withContext marketSize
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to get saved market size for $modelId", e)
+                }
                 0L
             }
         }
