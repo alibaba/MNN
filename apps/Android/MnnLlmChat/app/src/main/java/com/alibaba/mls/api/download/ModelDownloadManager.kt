@@ -42,7 +42,7 @@ class LoggingDownloadListener : DownloadListener {
     }
 
     override fun onDownloadProgress(modelId: String, downloadInfo: DownloadInfo) {
-        Log.v(ModelDownloadManager.TAG, "onDownloadProgress: $modelId, progress: ${downloadInfo.progress}, state: ${downloadInfo.downloadState}, speed: ${downloadInfo.speedInfo}")
+        Log.v(ModelDownloadManager.TAG, "onDownloadProgress: $modelId, progress: ${downloadInfo.progress}, state: ${downloadInfo.downloadState}, speed: ${downloadInfo.speedInfo} stage: ${downloadInfo.progressStage}")
     }
 
     override fun onDownloadFinished(modelId: String, path: String) {
@@ -422,6 +422,7 @@ class ModelDownloadManager private constructor(context: Context) {
         val info = downloadInfoMap.getOrPut(modelId) { DownloadInfo() }
         info.downloadState = DownloadState.FAILED
         info.errorMessage = e.message
+        info.errorException = e
         listeners.forEach {
             Log.d(TAG, "[setDownloadFailed] Notifying listener: ${it.javaClass.simpleName}")
             it.onDownloadFailed(modelId, e)
@@ -470,9 +471,6 @@ class ModelDownloadManager private constructor(context: Context) {
         savedSize: Long,
         totalSize: Long
     ) {
-        if (totalSize <= 0) {
-            return
-        }
         val downloadInfo = downloadInfoMap.getOrPut(modelId) { DownloadInfo() }
         val currentTime = System.currentTimeMillis()
         if (stage == downloadInfo.progressStage && currentTime - downloadInfo.lastProgressUpdateTime < 1000) {
@@ -486,11 +484,13 @@ class ModelDownloadManager private constructor(context: Context) {
         if (downloadInfo.savedSize <= 0) {
             downloadInfo.savedSize = savedSize
         }
-        downloadInfo.progress = savedSize.toDouble() / totalSize
-        DownloadPersistentData.saveDownloadSizeSaved(ApplicationProvider.get(), modelId, savedSize)
-        DownloadPersistentData.saveDownloadSizeTotal(ApplicationProvider.get(), modelId, totalSize)
-        calculateDownloadSpeed(downloadInfo, savedSize)
-        Log.v(TAG, "[updateDownloadingProgress] Notifying ${listeners.size} listeners for $modelId")
+        if (totalSize > 0) {
+            downloadInfo.progress = savedSize.toDouble() / totalSize
+            DownloadPersistentData.saveDownloadSizeSaved(ApplicationProvider.get(), modelId, savedSize)
+            DownloadPersistentData.saveDownloadSizeTotal(ApplicationProvider.get(), modelId, totalSize)
+            calculateDownloadSpeed(downloadInfo, savedSize)
+        }
+        Log.v(TAG, "[updateDownloadingProgress] Notifying ${listeners.size} listeners for $modelId stage: $stage")
         listeners.forEach { it.onDownloadProgress(modelId, downloadInfo) }
     }
 

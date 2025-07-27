@@ -9,6 +9,7 @@ data class DownloadInfo(
     var totalSize: Long = 0,
     var speedInfo: String = "",
     var errorMessage: String? = null,
+    var errorException: Exception? = null,
     var lastLogTime: Long = 0,
     var lastProgressUpdateTime: Long = 0,
     var progressStage: String = "",

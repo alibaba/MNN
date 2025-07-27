@@ -488,4 +488,6 @@
     <string name="allow_network_market_data">Allow network to fetch model market data</string>
     <string name="enable_network_delay">Enable network delay (3 seconds)</string>
     <string name="update_available">Update Available</string>
+    <string name="menu_copy_error_info">Copy Error Info</string>
+    <string name="error_info_copied">Error information copied to clipboard</string>
 </resources>
