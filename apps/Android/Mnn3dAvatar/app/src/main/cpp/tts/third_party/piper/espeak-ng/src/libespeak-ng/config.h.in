@@ -1,0 +1,10 @@
+#cmakedefine01 HAVE_MKSTEMP
+
+#cmakedefine01 USE_ASYNC
+#cmakedefine01 USE_KLATT
+#cmakedefine01 USE_LIBPCAUDIO
+#cmakedefine01 USE_LIBSONIC
+#cmakedefine01 USE_MBROLA
+#cmakedefine01 USE_SPEECHPLAYER
+
+#define PACKAGE_VERSION "${PROJECT_VERSION}"

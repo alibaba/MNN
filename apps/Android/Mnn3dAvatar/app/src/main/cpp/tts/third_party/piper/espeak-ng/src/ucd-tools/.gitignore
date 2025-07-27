@@ -1,0 +1,67 @@
+.*.swp
+*~
+
+# intermediate files:
+
+.deps/
+.libs/
+.dirstamp
+
+*.pyc
+*.o
+*.lo
+
+# build output:
+
+data/emoji
+data/ucd
+
+src/libucd.la
+tests/printcdata
+tests/printucddata
+tests/printucddata_cpp
+
+# test output:
+
+tests/*.expected
+tests/*.actual
+tests/*.diff
+
+# documentation output:
+
+docs/html/
+
+ChangeLog.html
+README.html
+
+# autotools output:
+
+INSTALL
+NEWS
+README
+aclocal.m4
+autom4te.cache/
+compile
+config.guess
+config.h.in
+config.h
+config.log
+config.status
+config.sub
+configure
+depcomp
+install-sh
+libtool
+ltmain.sh
+missing
+Makefile
+Makefile.in
+stamp-h1
+
+m4/*
+!m4/ax_check_compile_flag.m4
+
+# emscripten:
+
+a.out.js
+a.out.js.mem
