@@ -2,6 +2,8 @@
 // Copyright (c) 2024 Alibaba Group Holding Limited All rights reserved.
 package com.alibaba.mnnllm.android.llm
 
+import com.alibaba.mnnllm.android.chat.model.ChatDataItem
+
 interface ChatSession  {
     val debugInfo: String
     val sessionId: String?
@@ -16,4 +18,6 @@ interface ChatSession  {
     fun release()
     fun setKeepHistory(keepHistory: Boolean)
     fun setEnableAudioOutput(enable: Boolean)
+    fun getHistory(): List<ChatDataItem>?
+    fun setHistory(history:List<ChatDataItem>?)
 }

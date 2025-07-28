@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:paddingLeft="16dp"
+    android:paddingTop="16dp"
+    android:background="@drawable/bottom_sheet_background">
+    <RelativeLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+        <TextView
+            android:text="@string/filter_all"
+            android:layout_width="wrap_content"
+            android:layout_centerHorizontal="true"
+            android:layout_height="wrap_content"
+            style="?textAppearanceTitleMedium"
+            android:layout_marginBottom="16dp"/>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/settings_done"
+            android:visibility="gone"
+            style="@style/Widget.MaterialComponents.Button.TextButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/settings_done"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:textSize="14sp"
+            android:minHeight="0dp"
+            android:layout_alignParentEnd="true"
+            android:layout_alignParentTop="true"
+            />
+    </RelativeLayout>
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/filter_section_model_tags"
+        style="@style/TextFilterGroup" />
+
+    <com.google.android.material.chip.ChipGroup
+        android:id="@+id/tags_chip_group"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+         />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:text="@string/model_size"
+        style="@style/TextFilterGroup"
+        />
+
+    <com.google.android.material.chip.ChipGroup
+        android:id="@+id/size_chip_group"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        app:chipSpacing="0dp"
+        app:singleSelection="true" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:text="@string/model_vendor"
+        style="@style/TextFilterGroup"
+        />
+
+    <com.google.android.material.chip.ChipGroup
+        android:id="@+id/vendor_chip_group"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        app:chipSpacing="8dp" />
+
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="24dp"
+        android:layout_gravity="center_horizontal"
+        android:orientation="horizontal">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/clear_button"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:minWidth="120dp"
+            android:text="@string/clear_selection"
+            android:textSize="16sp"
+            android:layout_marginEnd="16dp"
+            app:strokeColor="?colorPrimary"
+            android:textColor="?colorPrimary"
+            app:cornerRadius="25dp" />
+
+        <Button
+            android:id="@+id/confirm_button"
+            style="@style/Widget.MaterialComponents.Button"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:minWidth="120dp"
+            android:text="@string/confirm_action"
+            app:backgroundTint="?colorPrimary"
+            android:textSize="16sp"
+            app:cornerRadius="25dp" />
+    </LinearLayout>
+
+</LinearLayout>

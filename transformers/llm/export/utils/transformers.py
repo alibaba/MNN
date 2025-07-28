@@ -199,7 +199,10 @@ class Rotary(torch.nn.Module):
         position_ids = position_ids.float().reshape(-1, 1)
         idx_theta = position_ids * self.theta
         rotary_pos_emb = torch.stack([torch.cos(idx_theta), torch.sin(idx_theta)])
-        if self.model_type != 'chatglm2':
+        if self.model_type == 'ernie4_5':
+            rotary_pos_emb = torch.stack((rotary_pos_emb, rotary_pos_emb), dim=-1)
+            rotary_pos_emb = rotary_pos_emb.reshape(*rotary_pos_emb.shape[:-2], -1)
+        elif self.model_type != 'chatglm2':
             rotary_pos_emb = torch.cat((rotary_pos_emb, rotary_pos_emb), dim=-1)
         rotary_pos_emb = rotary_pos_emb.unsqueeze(2).unsqueeze(1)
         return rotary_pos_emb
@@ -223,10 +226,19 @@ class Rotary(torch.nn.Module):
             return self.chatglm2_rotary_pos(x, cos, sin)
         if self.model_type == 'phi-msft':
             return self.phi_rotary_pos(x, cos, sin)
+        if self.model_type == 'ernie4_5':
+            return self.ernie_rotary_pos(x, cos, sin)
         return self.llama_rotary_pos(x, cos, sin)
 
     def llama_rotary_pos(self, x, cos, sin):
         x = (x * cos) + (rotate_half(x) * sin)
+        return x
+
+    def ernie_rotary_pos(self, x, cos, sin):
+        rotate_half_x = torch.stack(
+            [-x[:, :, :, 1::2], x[:, :, :, 0::2]], dim=-1
+        ).reshape(x.shape)
+        x = (x * cos) + (rotate_half_x * sin)
         return x
 
     def phi_rotary_pos(self, x, cos, sin):

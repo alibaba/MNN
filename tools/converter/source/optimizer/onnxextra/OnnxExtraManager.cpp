@@ -11,6 +11,15 @@
 #include "MNN_generated.h"
 namespace MNN {
 namespace Express {
+VARP OnnxExtraManager::_ReshapeF(VARP x, VARP shape, int format) {
+    MNN_ASSERT(nullptr != x);
+    std::unique_ptr<OpT> reshape(new OpT);
+    reshape->type                      = OpType_Reshape;
+    reshape->main.type                 = OpParameter_Reshape;
+    reshape->main.value                = new ReshapeT;
+    reshape->main.AsReshape()->dimType = (MNN_DATA_FORMAT)format;
+    return (Variable::create(Expr::create(reshape.get(), {x, shape})));
+}
 std::shared_ptr<OnnxExtraManager> OnnxExtraManager::get() {
     static std::shared_ptr<OnnxExtraManager> gInstance;
     if (nullptr == gInstance) {
@@ -62,6 +71,11 @@ static auto gRegister = []() {
             MNN_ERROR("Convert Onnx's Op %s , type = %s, failed, may be some node is not const\n", expr->name().c_str(),
                       type.c_str());
             return false;
+        }
+        if (expr->outputSize() == newExpr->outputSize()) {
+            for (int i=0; i<expr->outputSize(); ++i) {
+                Variable::create(newExpr, i)->setName(expr->outputName(i));
+            }
         }
         Expr::replace(expr, newExpr);
         return true;

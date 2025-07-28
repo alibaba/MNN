@@ -13,6 +13,7 @@
 #include "TestUtils.h"
 #include <stdlib.h>
 #include <vector>
+#include <MNN/AutoTime.hpp>
 
 using namespace MNN::Express;
 
@@ -22,7 +23,9 @@ int HeadDim   = 128;
 const float diff_threshold = 0.001;
 const float diff_percent_threshold = 0.1;
 
-static std::vector< std::vector< std::vector<float> > > generateRandTensor(int C, int H, int W) {
+#define LOOP 30
+
+static std::vector< std::vector< std::vector<float> > > generateRandTensor(int C, int H, int W, int precision) {
     std::vector< std::vector< std::vector<float> > > a;
     a.resize(C);
     for (int i = 0; i < C; i++) {
@@ -30,7 +33,11 @@ static std::vector< std::vector< std::vector<float> > > generateRandTensor(int C
         for (int j = 0; j < H; j++) {
             a[i][j].resize(W);
             for (int k = 0; k < W; k++) {
-                a[i][j][k] = (float)rand() / (float)RAND_MAX * 10.0 * (rand() % 2 ? 1 : -1);
+                if (precision == 2) {
+                    a[i][j][k] = ((i + j + k) % 10) * 0.002;
+                } else {
+                    a[i][j][k] = (float)rand() / (float)RAND_MAX * 10.0 * (rand() % 2 ? 1 : -1);
+                }
             }
         }
     }
@@ -181,10 +188,10 @@ public:
     AttentionTest() = default;
     virtual ~AttentionTest() = default;
 
-    void generateInput(int seq_len) {
-        query = generateRandTensor(seq_len, NumHead, HeadDim);
-        key   = generateRandTensor(seq_len, KvNumHead, HeadDim);
-        value = generateRandTensor(seq_len, KvNumHead, HeadDim);
+    void generateInput(int seq_len, int precision) {
+        query = generateRandTensor(seq_len, NumHead, HeadDim, precision);
+        key   = generateRandTensor(seq_len, KvNumHead, HeadDim, precision);
+        value = generateRandTensor(seq_len, KvNumHead, HeadDim, precision);
         Query = vector_to_var(query);
         Key   = vector_to_var(key);
         Value = vector_to_var(value);
@@ -241,7 +248,7 @@ public:
             attention->main.AsAttentionParam()->kv_cache = true;
             int seq_len = 10;
             meta.add = seq_len;
-            generateInput(seq_len);
+            generateInput(seq_len, precision);
             generateMask(seq_len, seq_len);
             expected_result = naiveAttention->onExecute(query, key, value, mask, seq_len);
             Output = Variable::create(Expr::create(attention.get(), {Query, Key, Value, Mask}));
@@ -272,7 +279,7 @@ public:
             attention->main.value = new MNN::AttentionParamT;
             attention->main.AsAttentionParam()->kv_cache = false;
             int seq_len = 128;
-            generateInput(seq_len);
+            generateInput(seq_len, precision);
             mask.clear();
             expected_result = naiveAttention->onExecute(query, key, value, mask, seq_len);
             Output = Variable::create(Expr::create(attention.get(), {Query, Key, Value}));
@@ -286,5 +293,68 @@ public:
     }
 };
 
+class SpeedAttentionTest : public MNNTestCase {
+    protected:
+        std::vector< std::vector< std::vector<float> > > query;
+        std::vector< std::vector< std::vector<float> > > key;
+        std::vector< std::vector< std::vector<float> > > value;
+        std::vector< std::vector<int> > mask;
+        std::vector< std::vector< std::vector<float> > > expected_result;
+
+public:
+SpeedAttentionTest() = default;
+    virtual ~SpeedAttentionTest() = default;
+    
+    virtual bool run(int precision) {
+        srand(2024);
+        int seq_len[] = {200, 400, 800, 1000, 2000};
+        // unit test 1
+        for (int n = 0; n < 5; ++n) {
+            auto rt = ExecutorScope::Current()->getRuntime();
+            MNN::KVMeta meta;
+            for (auto& iter : rt.first) {
+                iter.second->pMeta = &meta;
+            }
+            std::shared_ptr<NaiveAttention> naiveAttention(new NaiveAttention);
+            std::shared_ptr<MNN::OpT> attention(new MNN::OpT);
+            attention->type = MNN::OpType_Attention;
+            attention->main.type = MNN::OpParameter_AttentionParam;
+            attention->main.value = new MNN::AttentionParamT;
+            attention->main.AsAttentionParam()->kv_cache = true;
+            meta.add = seq_len[n];
+            VARP Query = _Input({1, seq_len[n], NumHead, HeadDim}, NCHW, halide_type_of<float>());
+            VARP Key = _Input({1, seq_len[n], KvNumHead, HeadDim}, NCHW, halide_type_of<float>());
+            VARP Value = _Input({1, seq_len[n], KvNumHead, HeadDim}, NCHW, halide_type_of<float>());
+            VARP Mask = _Input({1, 1, seq_len[n], seq_len[n]}, NCHW, halide_type_of<float>());
+            auto Output = Variable::create(Expr::create(attention.get(), {Query, Key, Value, Mask}));
+            {
+                Query.fix(VARP::INPUT);
+                Key.fix(VARP::INPUT);
+                Value.fix(VARP::INPUT);
+                Mask.fix(VARP::INPUT);
+                {
+                    Query->writeMap<float>();
+                    Key->writeMap<float>();
+                    Value->writeMap<float>();
+                    Mask->writeMap<float>();
+                    Output->readMap<float>();
+                }
+                MNN::Timer _t;
+                for (int i = 0; i < LOOP; ++i) {
+                    Query->writeMap<float>();
+                    Key->writeMap<float>();
+                    Value->writeMap<float>();
+                    Mask->writeMap<float>();
+                    Output->readMap<float>();
+                }
+                auto time = (float)_t.durationInUs() / 1000.0f;
+                MNN_PRINT("seq_len = %d, avg time = %f\n", seq_len[n], time / LOOP);
+            }
+        }
+        return true;
+    }
+};
+
 MNNTestSuiteRegister(AttentionTest, "op/attention");
+MNNTestSuiteRegister(SpeedAttentionTest, "speed/attention");
 #endif

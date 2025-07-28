@@ -62,7 +62,7 @@ class GenerateResultProcessor(
      * @param progress The incoming string chunk, or null if the stream has ended.
      */
     fun process(progress: String?) {
-        Log.d(TAG, "process: #${progress}# thinkingStringBuilder ${this.thinkingStringBuilder}")
+//        Log.d(TAG, "process: #${progress}# thinkingStringBuilder ${this.thinkingStringBuilder}")
         if (progress == null) {
             // Handle end of stream: if anything is left in tagBuffer, treat it as normal text.
             if (tagBuffer.isNotEmpty()) {
@@ -170,7 +170,7 @@ class GenerateResultProcessor(
             thinkHasContent = thinkHasContent || text.isNotBlank()
             thinkingStringBuilder.append(text.replace("\n", "\n> "))
         } else {
-            normalStringBuilder.append(text)
+            normalStringBuilder.append(noSlashThink(text))
         }
     }
 
@@ -180,5 +180,14 @@ class GenerateResultProcessor(
 
     companion object {
         const val TAG: String = "GenerateResultProcessor"
+        fun noSlashThink(text:String?):String? {
+            if (text?.contains("</think>") == true) {
+                val startIndex = text.indexOf("</think>")
+                val remainingText = text.substring(startIndex + "</think>".length)
+                return remainingText
+            } else {
+                return text
+            }
+        }
     }
 }

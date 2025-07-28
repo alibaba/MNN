@@ -100,7 +100,9 @@ Backend* CUDARuntimeWrapper::onCreate(const BackendConfig* config, Backend* orig
         precision = 1;
     }
 
-    return new CUDABackend(this, mBufferPool, mCUDARuntime, precision, memory_mode);
+    auto backend = new CUDABackend(this, mBufferPool, mCUDARuntime, precision, memory_mode);
+    backend->setMetaPtr(pMeta);
+    return backend;
 }
 
 void CUDARuntimeWrapper::onGabageCollect(int level) {

@@ -3,6 +3,7 @@
 
 package com.alibaba.mls.api.download.ms
 import android.util.Log
+import com.alibaba.mls.api.ApplicationProvider
 import com.alibaba.mls.api.FileDownloadException
 import com.alibaba.mls.api.hf.HfFileMetadata
 import com.alibaba.mls.api.download.DownloadExecutor.Companion.executor
@@ -19,9 +20,11 @@ import com.alibaba.mls.api.download.ModelFileDownloader.FileDownloadListener
 import com.alibaba.mls.api.download.ModelRepoDownloader
 import com.alibaba.mls.api.ms.MsApiClient
 import com.alibaba.mls.api.ms.MsRepoInfo
-import com.alibaba.mls.api.source.ModelSources
-import com.alibaba.mls.api.source.RepoConfig
+import com.alibaba.mnnllm.android.chat.model.ChatDataManager
+import com.alibaba.mnnllm.android.model.ModelUtils
+import com.alibaba.mnnllm.android.utils.TimeUtils
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import retrofit2.Call
 import retrofit2.Callback
@@ -37,8 +40,50 @@ class MsModelDownloader(override var callback: ModelRepoDownloadCallback?,
         this.callback = callback
     }
 
+    /**
+     * Unified method to fetch repo information from ModelScope API
+     * @param modelId the model ID to fetch info for
+     * @param calculateSize whether to calculate repo size (not needed for ModelScope as size is included)
+     * @return MsRepoInfo object or null if failed
+     */
+    private suspend fun fetchRepoInfo(modelId: String, calculateSize: Boolean = false): MsRepoInfo? {
+        return withContext(Dispatchers.IO) {
+            runCatching {
+                val msModelId = ModelUtils.getRepositoryPath(modelId)
+                val split = msModelId.split("/".toRegex()).dropLastWhile { it.isEmpty() }.toTypedArray()
+                if (split.size != 2) {
+                    return@runCatching null
+                }
+                
+                val response = msApiClient.apiService.getModelFiles(split[0], split[1]).execute()
+                if (response.isSuccessful && response.body() != null) {
+                    val repoInfo = response.body()!!
+                    
+                    // Call onRepoInfo callback with repo metadata
+                    val lastModified = repoInfo.Data?.LatestCommitter?.CreatedAt ?: 0L
+                    val repoSize = repoInfo.Data?.Files?.filter { it.Type != "tree" }?.sumOf { it.Size } ?: 0L
+                    callback?.onRepoInfo(modelId, lastModified, repoSize)
+                    repoInfo
+                } else {
+                    null
+                }
+            }.getOrElse { exception ->
+                Log.e(TAG, "Failed to fetch repo info for $modelId", exception)
+                null
+            }
+        }
+    }
+
     override fun download(modelId: String) {
-        downloadMsRepo(modelId)
+        executor!!.submit {
+            kotlinx.coroutines.runBlocking {
+                downloadMsRepo(modelId)
+            }
+        }
+    }
+
+    override suspend fun checkUpdate(modelId: String) {
+        fetchRepoInfo(modelId)
     }
 
     override fun getDownloadPath(modelId: String): File {
@@ -46,7 +91,7 @@ class MsModelDownloader(override var callback: ModelRepoDownloadCallback?,
     }
 
     override fun deleteRepo(modelId: String) {
-        val msModelId = ModelSources.get().config.getRepoConfig(modelId)!!.modelScopePath
+        val msModelId = ModelUtils.getRepositoryPath(modelId)
         val msRepoFolderName = repoFolderName(msModelId, "model")
         val msStorageFolder = File(this.cacheRootPath, msRepoFolderName)
         Log.d(TAG, "removeStorageFolder: " + msStorageFolder.absolutePath)
@@ -61,59 +106,45 @@ class MsModelDownloader(override var callback: ModelRepoDownloadCallback?,
         msLinkFolder.delete()
     }
 
-    override suspend fun getRepoSize(modelId: String):Long {
-        var result = 0L
-        val repoConfig = ModelSources.get().config.getRepoConfig(modelId)
-        val modelScopeId = repoConfig!!.repositoryPath()
-        val split = modelScopeId.split("/".toRegex()).dropLastWhile { it.isEmpty() }.toTypedArray()
-        if (split.size != 2) {
-            return 0L
-        }
-        withContext(Dispatchers.IO) {
+    override suspend fun getRepoSize(modelId: String): Long {
+        return withContext(Dispatchers.IO) {
             runCatching {
-                val msRepoInfo = msApiClient.apiService.getModelFiles(split[0], split[1]).execute().body()
-                msRepoInfo?.Data?.Files?.forEach {
-                    result += it.Size
+                val repoInfo = fetchRepoInfo(modelId, calculateSize = true)
+                if (repoInfo != null) {
+                    repoInfo.Data?.Files?.filter { it.Type != "tree" }?.sumOf { it.Size } ?: 0L
+                } else {
+                    0L
                 }
-            }.getOrElse {
-                Log.e(TAG, "getRepoSize: ", it)
+            }.getOrElse { exception ->
+                Log.e(TAG, "Failed to get repo size for $modelId", exception)
+                0L
             }
         }
-        return result
     }
 
-    private fun downloadMsRepo(modelId: String) {
-        val repoConfig = ModelSources.get().config.getRepoConfig(modelId)
-        val modelScopeId = repoConfig!!.repositoryPath()
+    private suspend fun downloadMsRepo(modelId: String) {
+        val modelScopeId = ModelUtils.getRepositoryPath(modelId)
         val split = modelScopeId.split("/".toRegex()).dropLastWhile { it.isEmpty() }.toTypedArray()
         if (split.size != 2) {
             callback?.onDownloadFailed(modelId, FileDownloadException("getRepoInfoFailed modelId format error: $modelId"))
+            return
         }
-        msApiClient.apiService.getModelFiles(split[0], split[1])
-            .enqueue(object : Callback<MsRepoInfo?> {
-                override fun onResponse(call: Call<MsRepoInfo?>, response: Response<MsRepoInfo?>) {
-                    executor!!.submit {
-                        Log.d(
-                            TAG,
-                            "downloadMsRepoInner executor"
-                        )
-                        callback?.onDownloadTaskAdded()
-                        downloadMsRepoInner(repoConfig, response.body()!!)
-                        callback?.onDownloadTaskRemoved()
-                    }
-                }
-
-                override fun onFailure(call: Call<MsRepoInfo?>, t: Throwable) {
-                    callback?.onDownloadFailed(modelId, FileDownloadException("getRepoInfoFailed" + t.message))
-                }
-            })
+        
+        val repoInfo = fetchRepoInfo(modelId, calculateSize = true)
+        if (repoInfo != null) {
+            Log.d(TAG, "downloadMsRepoInner executor")
+            callback?.onDownloadTaskAdded()
+            downloadMsRepoInner(modelId, modelScopeId, repoInfo)
+            callback?.onDownloadTaskRemoved()
+        } else {
+            callback?.onDownloadFailed(modelId, FileDownloadException("Failed to get repo info for $modelId"))
+        }
     }
 
-    private fun downloadMsRepoInner(repoConfig: RepoConfig, msRepoInfo: MsRepoInfo) {
+    private fun downloadMsRepoInner(modelId:String, modelScopeId: String, msRepoInfo: MsRepoInfo) {
         Log.d(TAG, "downloadMsRepoInner")
-        val modelId = repoConfig.modelId
         val folderLinkFile =
-            File(cacheRootPath, getLastFileName(repoConfig.repositoryPath()))
+            File(cacheRootPath, getLastFileName(modelScopeId))
         if (folderLinkFile.exists()) {
             Log.d(TAG, "downloadMsRepoInner already exists")
             callback?.onDownloadFileFinished(modelId, folderLinkFile.absolutePath)
@@ -122,14 +153,14 @@ class MsModelDownloader(override var callback: ModelRepoDownloadCallback?,
         val modelDownloader = ModelFileDownloader()
         val hasError = false
         val errorInfo = StringBuilder()
-        val repoFolderName = repoFolderName(repoConfig.repositoryPath(), "model")
+        val repoFolderName = repoFolderName(modelScopeId, "model")
         val storageFolder = File(this.cacheRootPath, repoFolderName)
         val parentPointerPath = getPointerPathParent(storageFolder, "_no_sha_")
         val downloadTaskList: List<FileDownloadTask>
         val totalAndDownloadSize = LongArray(2)
         Log.d(TAG, "downloadMsRepoInner collectMsTaskList")
         downloadTaskList = collectMsTaskList(
-            repoConfig,
+            modelScopeId,
             storageFolder,
             parentPointerPath,
             msRepoInfo,
@@ -177,15 +208,15 @@ class MsModelDownloader(override var callback: ModelRepoDownloadCallback?,
     }
 
     private fun collectMsTaskList(
-        repoConfig: RepoConfig,
+        modelScopeId: String,
         storageFolder: File,
         parentPointerPath: File,
         msRepoInfo: MsRepoInfo,
         totalAndDownloadSize: LongArray
     ): List<FileDownloadTask> {
         val fileDownloadTasks: MutableList<FileDownloadTask> = ArrayList()
-        for (i in msRepoInfo.Data.Files.indices) {
-            val subFile = msRepoInfo.Data.Files[i]
+        for (i in msRepoInfo.Data?.Files?.indices!!) {
+            val subFile = msRepoInfo.Data!!.Files!![i]
             val fileDownloadTask = FileDownloadTask()
             if (subFile.Type == "tree") {
                 continue
@@ -194,7 +225,7 @@ class MsModelDownloader(override var callback: ModelRepoDownloadCallback?,
             fileDownloadTask.fileMetadata = HfFileMetadata()
             fileDownloadTask.fileMetadata!!.location = String.format(
                 "https://modelscope.cn/api/v1/models/%s/repo?FilePath=%s",
-                repoConfig.repositoryPath(),
+                modelScopeId,
                 subFile.Path
             )
             fileDownloadTask.fileMetadata!!.size = subFile.Size
@@ -220,8 +251,7 @@ class MsModelDownloader(override var callback: ModelRepoDownloadCallback?,
         }
 
         fun getModelPath(modelsDownloadPathRoot: String, modelId: String): File {
-            val modelScopeId = ModelSources.get().config.getRepoConfig(modelId)!!.modelScopePath
-            return File(modelsDownloadPathRoot, getLastFileName(modelScopeId))
+            return File(modelsDownloadPathRoot, getLastFileName(modelId))
         }
     }
 

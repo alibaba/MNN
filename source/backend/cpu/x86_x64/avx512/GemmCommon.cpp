@@ -327,7 +327,8 @@ void _AVX_MNNPackCUnitTranspose(float* dst, const float* src, size_t area, size_
 void _AVX_MNNUnpackCUnitTranspose(float* dst, const float* src, size_t area, size_t depth, int* areaOffset);
 }
 
-void _AVX512_MNNPackForMatMul_B(float* dest, const float* source, size_t h, size_t l, bool transpose) {
+void _AVX512_MNNPackForMatMul_B(float* dest, const float* source, size_t h, size_t kernelsize, size_t ic, bool transpose) {
+    auto l = kernelsize * ic;
     int offset[2] = {
         (int)l,
         (int)l

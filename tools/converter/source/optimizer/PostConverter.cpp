@@ -21,6 +21,7 @@
 #include "RuntimeAttr.hpp"
 
 #include <MNN/expr/ExecutorScope.hpp>
+#include "Utils.hpp"
 //#define MNN_POST_CONVERTER_DEBUG
 
 namespace MNN {
@@ -591,6 +592,8 @@ bool fuseConstIntoSubgraph(MNN::NetT* net, const std::vector<MNN::SubGraphProtoT
 using namespace MNN;
 using namespace MNN::Express;
 std::unique_ptr<MNN::NetT> optimizeNet(std::unique_ptr<MNN::NetT>& originNet, bool forTraining, modelConfig& config, const std::vector<std::string>& expectPasses) {
+    BackendConfig bnConfig;
+    auto exe = ExecutorScope::Current();
     Global<modelConfig>::Reset(&config);
     if (!expectPasses.empty()) {
         RunNetPass(expectPasses, originNet);
@@ -664,6 +667,23 @@ std::unique_ptr<MNN::NetT> optimizeNet(std::unique_ptr<MNN::NetT>& originNet, bo
     fuseConstIntoSubgraph(net.get(), ctx.completed_subgraphs);
     for (auto* subgraph : ctx.completed_subgraphs) {
         net->subgraphs.emplace_back(subgraph);
+    }
+    // Insert Extra graph for exe
+    std::set<std::string> existsSubGraphs;
+    for (auto& iter : net->subgraphs) {
+        existsSubGraphs.insert(iter->name);
+    }
+    auto originsubgraphs = std::move(net->subgraphs);
+    // TODO: Treat Depends
+    for (auto&& iter : exe->subgraph()) {
+        if (existsSubGraphs.find(iter.first) == existsSubGraphs.end()) {
+            MNN_PRINT("Insert Extra graph: %s\n", iter.first.c_str());
+            net->subgraphs.emplace_back(std::move(iter.second->info));
+        }
+    }
+    exe->subgraph().clear();
+    for (auto& iter : originsubgraphs) {
+        net->subgraphs.emplace_back(std::move(iter));
     }
     return std::move(net);
 }

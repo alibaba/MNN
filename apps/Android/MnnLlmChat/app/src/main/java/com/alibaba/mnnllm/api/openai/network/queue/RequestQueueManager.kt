@@ -9,8 +9,8 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 
 /**
- * 请求队列管理器
- * 确保LLM生成任务按顺序执行，同一时刻只能有一个任务运行
+ * Request queue manager
+ * Ensures LLM generation tasks execute in order, only one task can run at the same time
  */
 class RequestQueueManager private constructor() {
     
@@ -25,21 +25,21 @@ class RequestQueueManager private constructor() {
         }
     }
     
-    // 请求队列
+    // Request queue
     private val requestQueue = Channel<QueuedRequest>(Channel.UNLIMITED)
     
-    // 队列处理协程作用域
+    // Queue processing coroutine scope
     private val queueScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     
-    // 当前是否正在处理请求
+    // Whether currently processing requests
     private val isProcessing = AtomicInteger(0)
     
-    // 队列统计
+    // Queue statistics
     private val totalRequests = AtomicLong(0)
     private val completedRequests = AtomicLong(0)
     private val failedRequests = AtomicLong(0)
     
-    // 互斥锁用于保护队列状态
+    // Mutex for protecting queue state
     private val queueMutex = Mutex()
     
     init {
@@ -47,7 +47,7 @@ class RequestQueueManager private constructor() {
     }
     
     /**
-     * 排队请求数据类
+     * Queued request data class
      */
     private data class QueuedRequest(
         val requestId: String,
@@ -55,17 +55,17 @@ class RequestQueueManager private constructor() {
         val task: suspend () -> Unit,
         val onComplete: () -> Unit = {},
         val onError: (Exception) -> Unit = {},
-        val priority: Int = 0 // 优先级，数字越小优先级越高
+        val priority: Int = 0 // Priority, smaller number means higher priority
     )
     
     /**
-     * 提交请求到队列
-     * @param requestId 请求ID
-     * @param traceId 追踪ID
-     * @param task 要执行的任务
-     * @param onComplete 完成回调
-     * @param onError 错误回调
-     * @param priority 优先级（可选，默认为0）
+     * Submit request to queue
+     * @param requestId Request ID
+     * @param traceId Trace ID
+     * @param task Task to execute
+     * @param onComplete Completion callback
+     * @param onError Error callback
+     * @param priority Priority (optional, default is 0)
      */
     suspend fun submitRequest(
         requestId: String,
@@ -75,7 +75,7 @@ class RequestQueueManager private constructor() {
         onError: (Exception) -> Unit = {},
         priority: Int = 0
     ) {
-        // 使用CompletableDeferred来等待任务完成
+        // Use CompletableDeferred to wait for task completion
         val taskCompletion = CompletableDeferred<Unit>()
         
         queueMutex.withLock {
@@ -97,36 +97,36 @@ class RequestQueueManager private constructor() {
             totalRequests.incrementAndGet()
             
             Timber.tag("RequestQueue").d(
-                "请求已加入队列: requestId=$requestId, traceId=$traceId, " +
-                "队列长度=${getQueueSize()}, 优先级=$priority"
+                "Request added to queue: requestId=$requestId, traceId=$traceId, " +
+                "queue size=${getQueueSize()}, priority=$priority"
             )
             
             requestQueue.send(queuedRequest)
         }
         
-        // 等待任务完成
+        // Wait for task completion
         taskCompletion.await()
     }
     
     /**
-     * 启动队列处理器
+     * Start queue processor
      */
     private fun startQueueProcessor() {
         queueScope.launch {
-            Timber.tag("RequestQueue").i("请求队列处理器已启动")
+            Timber.tag("RequestQueue").i("Request queue processor started")
             
             for (request in requestQueue) {
                 try {
-                    // 串行处理请求，无需compareAndSet检查
-                    // 因为这个协程本身就是单线程的
+                    // Process requests serially, no need for compareAndSet check
+                    // Because this coroutine itself is single-threaded
                     processRequest(request)
                 } catch (e: Exception) {
-                    Timber.tag("RequestQueue").e(e, "队列处理器发生错误")
-                    // 处理失败的请求
+                    Timber.tag("RequestQueue").e(e, "Queue processor error occurred")
+                    // Handle failed request
                     try {
                         request.onError(e)
                     } catch (callbackError: Exception) {
-                        Timber.tag("RequestQueue").e(callbackError, "请求错误回调失败")
+                        Timber.tag("RequestQueue").e(callbackError, "Request error callback failed")
                     }
                 }
             }
@@ -134,59 +134,59 @@ class RequestQueueManager private constructor() {
     }
     
     /**
-     * 处理单个请求
+     * Process single request
      */
     private suspend fun processRequest(request: QueuedRequest) {
         val startTime = System.currentTimeMillis()
         
         try {
             Timber.tag("RequestQueue").d(
-                "开始处理请求: requestId=${request.requestId}, traceId=${request.traceId}"
+                "Start processing request: requestId=${request.requestId}, traceId=${request.traceId}"
             )
             
-            // 执行实际任务
+            // Execute actual task
             request.task()
             
-            // 任务完成
+            // Task completed
             completedRequests.incrementAndGet()
             request.onComplete()
             
             val duration = System.currentTimeMillis() - startTime
             Timber.tag("RequestQueue").d(
-                "请求处理完成: requestId=${request.requestId}, " +
-                "耗时=${duration}ms, 队列剩余=${getQueueSize()}"
+                "Request processing completed: requestId=${request.requestId}, " +
+                "duration=${duration}ms, remaining queue=${getQueueSize()}"
             )
             
         } catch (e: Exception) {
-            // 任务失败
+            // Task failed
             failedRequests.incrementAndGet()
             request.onError(e)
             
             val duration = System.currentTimeMillis() - startTime
             Timber.tag("RequestQueue").e(
-                e, "请求处理失败: requestId=${request.requestId}, " +
-                "耗时=${duration}ms, 错误: ${e.message}"
+                e, "Request processing failed: requestId=${request.requestId}, " +
+                "duration=${duration}ms, error: ${e.message}"
             )
         }
     }
     
     /**
-     * 获取队列大小（近似值）
+     * Get queue size (approximate value)
      */
     fun getQueueSize(): Int {
         return requestQueue.tryReceive().let {
             if (it.isSuccess) {
-                // 如果能接收到，说明队列不为空，需要放回去
+                // If can receive, queue is not empty, need to put it back
                 runBlocking { requestQueue.send(it.getOrThrow()) }
-                1 // 至少有一个
+                1 // At least one
             } else {
-                0 // 队列为空
+                0 // Queue is empty
             }
         }
     }
     
     /**
-     * 获取队列统计信息
+     * Get queue statistics
      */
     fun getQueueStats(): QueueStats {
         return QueueStats(
@@ -199,7 +199,7 @@ class RequestQueueManager private constructor() {
     }
     
     /**
-     * 队列统计信息
+     * Queue statistics
      */
     data class QueueStats(
         val totalRequests: Long,
@@ -215,22 +215,22 @@ class RequestQueueManager private constructor() {
     }
     
     /**
-     * 清理队列（仅用于测试或紧急情况）
+     * Clear queue (for testing or emergency use only)
      */
     suspend fun clearQueue() {
         queueMutex.withLock {
             while (!requestQueue.isEmpty) {
                 requestQueue.tryReceive()
             }
-            Timber.tag("RequestQueue").w("队列已清空")
+            Timber.tag("RequestQueue").w("Queue cleared")
         }
     }
     
     /**
-     * 关闭队列管理器
+     * Shutdown queue manager
      */
     fun shutdown() {
         queueScope.cancel()
-        Timber.tag("RequestQueue").i("请求队列管理器已关闭")
+        Timber.tag("RequestQueue").i("Request queue manager shutdown")
     }
 }

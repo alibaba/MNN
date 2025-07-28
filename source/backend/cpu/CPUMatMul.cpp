@@ -101,7 +101,7 @@ ErrorCode CPUMatMul::onResize(const std::vector<Tensor*>& inputs, const std::vec
     }
 
     mPreFunctions.emplace_back(std::make_pair([BTPtrAlloc, l, h, this, core] (int tId, const float* APtr, const float* BPtr, const float* Bias, float* C) {
-        core->MNNPackForMatMul_B((float*)BTPtrAlloc.ptr(), BPtr, h, l, mTransposeB);
+        core->MNNPackForMatMul_B((float*)BTPtrAlloc.ptr(), BPtr, h, 1, l, mTransposeB);
     } , 1));
     bool useBias = false;
     MemChunk bdestAlloc;
@@ -194,7 +194,7 @@ void CPUMatMul::execute(const float* APtr, const float* BPtr, float* CPtr, const
             auto TC = mTempC.ptr() + tId * eP * hC4 * core->pack * core->bytes;
             size_t parameters[6];
             parameters[0] = eP * core->bytes;
-            parameters[1] = mL;
+            parameters[1] = lAlign;
             parameters[2] = mH;
             parameters[3] = eP * core->pack * core->bytes;
             parameters[4] = 0;
@@ -251,7 +251,7 @@ void CPUMatMul::execute(const float* APtr, const float* BPtr, float* CPtr, const
                             int yy = lC;
                             for (int x=0; x<xC; ++x) {
                                 ::memset(TA + (yy * eP * lP + x * lP) * core->bytes, 0, lP * core->bytes);
-                                ::memcpy(TA + (yy * eP * lP + x * lP) * core->bytes, (uint8_t*)APtr + ((x+xStart)*mL+yy*lP)*core->bytes, xC * core->bytes);
+                                ::memcpy(TA + (yy * eP * lP + x * lP) * core->bytes, (uint8_t*)APtr + ((x+xStart)*mL+yy*lP)*core->bytes, lR * core->bytes);
                             }
                         }
                     } else {

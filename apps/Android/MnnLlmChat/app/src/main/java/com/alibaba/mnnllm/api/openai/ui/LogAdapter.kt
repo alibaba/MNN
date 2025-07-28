@@ -11,14 +11,14 @@ import androidx.recyclerview.widget.RecyclerView
 import com.alibaba.mnnllm.android.R
 import timber.log.Timber
 
-//这个文件包含大量遗留问题，暂不影响运行
+// This file contains many legacy issues, but doesn't affect runtime
 
 class LogAdapter : RecyclerView.Adapter<LogAdapter.LogViewHolder>() {
     
     private val logEntries = mutableListOf<LogEntryData>()
     
     /**
-     * 日志条目数据
+     * Log entry data
      */
     data class LogEntryData(
         val message: String,
@@ -28,7 +28,7 @@ class LogAdapter : RecyclerView.Adapter<LogAdapter.LogViewHolder>() {
     class LogViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         val textView: TextView = itemView.findViewById(R.id.text_log_item)
     }
-    
+
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): LogViewHolder {
         val view = LayoutInflater.from(parent.context)
             .inflate(R.layout.item_log_entry, parent, false)
@@ -39,12 +39,12 @@ class LogAdapter : RecyclerView.Adapter<LogAdapter.LogViewHolder>() {
         val entry = logEntries[position]
         holder.textView.text = entry.message
         
-        // 设置点击事件
+        // Set click event
         if (entry.clickableInfo != null) {
             holder.itemView.setOnClickListener {
                 handleLogClick(holder.itemView, entry.clickableInfo)
             }
-            // 设置可点击样式
+            // Set clickable style
             holder.itemView.isClickable = true
             holder.itemView.isFocusable = true
         } else {
@@ -57,22 +57,22 @@ class LogAdapter : RecyclerView.Adapter<LogAdapter.LogViewHolder>() {
     override fun getItemCount(): Int = logEntries.size
     
     /**
-     * 处理日志点击事件
+     * Handle log click event
      */
     private fun handleLogClick(view: View, clickableInfo: String) {
         try {
-            // 尝试在Android Studio中打开文件
+            // Try to open file in Android Studio
             val parts = clickableInfo.split(":")
             if (parts.size >= 2) {
                 val fileName = parts[0]
                 val lineNumber = parts[1].toIntOrNull() ?: 1
                 
-                // 构建Android Studio的深度链接
-                val projectPath = "c:/Project/github/AIddlx/0528/MNN/apps/Android/MnnLlmChat"
+                // Build Android Studio deep link
+                val projectPath = view.context.getString(R.string.project_path)
                 val filePath = findFileInProject(fileName)
                 
                 if (filePath != null) {
-                    // 尝试使用Android Studio协议打开文件
+                    // Try to open file using Android Studio protocol
                     val intent = Intent(Intent.ACTION_VIEW).apply {
                         data = Uri.parse("androidstudio://open?file=$filePath&line=$lineNumber")
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -82,31 +82,31 @@ class LogAdapter : RecyclerView.Adapter<LogAdapter.LogViewHolder>() {
                         view.context.startActivity(intent)
                         Timber.tag("LogAdapter").d("Attempting to open $fileName:$lineNumber in Android Studio")
                     } catch (e: Exception) {
-                        // 如果Android Studio协议失败，尝试其他方式
+                        // If Android Studio protocol fails, try other methods
                         fallbackFileOpen(view, fileName, lineNumber, filePath)
                     }
                 } else {
-                  //  Toast.makeText(view.context, "无法找到文件: $fileName", Toast.LENGTH_SHORT).show()
+                    // File not found, but don't show toast to avoid disruption
                 }
             }
         } catch (e: Exception) {
             Timber.tag("LogAdapter").e(e, "Failed to handle log click")
-           // Toast.makeText(view.context, "无法打开文件: ${e.message}", Toast.LENGTH_SHORT).show()
+            // Don't show error toast to avoid disruption
         }
     }
     
     /**
-     * 在项目中查找文件
+     * Find file in project
      */
     private fun findFileInProject(fileName: String): String? {
         val projectRoot = "c:/Project/github/AIddlx/0528/MNN/apps/Android/MnnLlmChat"
         
-        // 递归搜索文件
+        // Recursively search for file
         return searchFileRecursively(java.io.File("$projectRoot/app/src/main"), fileName)
     }
     
     /**
-     * 递归搜索文件
+     * Recursively search for file
      */
     private fun searchFileRecursively(directory: java.io.File, fileName: String): String? {
         if (!directory.exists() || !directory.isDirectory) {
@@ -135,14 +135,14 @@ class LogAdapter : RecyclerView.Adapter<LogAdapter.LogViewHolder>() {
     }
     
     /**
-     * 备用文件打开方式
+     * Fallback file opening method
      */
     private fun fallbackFileOpen(view: View, fileName: String, lineNumber: Int, filePath: String) {
-        // 显示文件路径信息
+        // Show file path information
         val message = view.context.getString(R.string.file_info_template, fileName, lineNumber, filePath)
         Toast.makeText(view.context, message, Toast.LENGTH_LONG).show()
         
-        // 记录到logcat，方便开发者手动跳转
+        // Log to logcat for manual navigation by developers
         Timber.tag("CodeLocation").i("Click to navigate: $fileName:$lineNumber at $filePath")
     }
     
@@ -154,7 +154,7 @@ class LogAdapter : RecyclerView.Adapter<LogAdapter.LogViewHolder>() {
         logEntries.add(entry)
         notifyItemInserted(logEntries.size - 1)
         
-        // 限制日志条数，避免内存溢出
+        // Limit log entries to prevent memory overflow
         if (logEntries.size > 200) {
             logEntries.removeAt(0)
             notifyItemRemoved(0)

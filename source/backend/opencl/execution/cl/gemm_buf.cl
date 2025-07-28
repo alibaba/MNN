@@ -55,6 +55,9 @@ __kernel void transpose_bias(GLOBAL_SIZE_DIM2
                         __global const FLOAT* input0,
                         __global const FLOAT* input1,
                         __global FLOAT* output
+                        #ifdef PRELU
+                        ,__global const FLOAT *slope_ptr
+                        #endif
                         ) {
     int idx_m = get_global_id(0); // idx M
     int idx_n4 = get_global_id(1); // idx N
@@ -64,6 +67,9 @@ __kernel void transpose_bias(GLOBAL_SIZE_DIM2
 
     idx_m = idx_m * M_VEC;
     FLOAT4 res1 = vload4(0, input1 + idx_n);
+    #ifdef PRELU
+    FLOAT4 slope_in = vload4(0, slope_ptr + idx_n);
+    #endif
     #pragma unroll
     for(int i = 0; i < M_VEC; i++) {
         FLOAT4 res0 = vload4(0, input0 + (idx_m + i) * alignN + idx_n);
@@ -73,6 +79,9 @@ __kernel void transpose_bias(GLOBAL_SIZE_DIM2
         #endif
         #ifdef RELU6
         res = clamp(res, (FLOAT4)0, (FLOAT4)6);
+        #endif
+        #ifdef PRELU
+        res = select(res * slope_in, res, res >= 0);
         #endif
         vstore4(res, 0, output + ((idx_n4 * M + idx_m + i) << 2));
     }

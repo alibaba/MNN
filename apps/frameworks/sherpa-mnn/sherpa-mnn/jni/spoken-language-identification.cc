@@ -16,7 +16,7 @@ static SpokenLanguageIdentificationConfig GetSpokenLanguageIdentificationConfig(
   jclass cls = env->GetObjectClass(config);
   jfieldID fid = env->GetFieldID(
       cls, "whisper",
-      "Lcom/k2fsa/sherpa/onnx/SpokenLanguageIdentificationWhisperConfig;");
+      "Lcom/k2fsa/sherpa/mnn/SpokenLanguageIdentificationWhisperConfig;");
 
   jobject whisper = env->GetObjectField(config, fid);
   jclass whisper_cls = env->GetObjectClass(whisper);

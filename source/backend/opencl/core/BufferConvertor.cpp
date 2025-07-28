@@ -574,6 +574,7 @@ bool convertBufferToBuffer(Tensor *input, Tensor *output, OpenCLRuntime *runtime
     return true;
 }
 
+#ifdef  __ANDROID__
 bool convertBetweenAHDandCLmem(const Tensor *input, const Tensor *output, OpenCLRuntime *runtime, int precision, int memType, bool toDevice, bool toHost) {
     std::set<std::string> buildOptions;
     auto srcDimensionFormat = TensorUtils::getDescribe(input)->dimensionFormat;
@@ -584,25 +585,46 @@ bool convertBetweenAHDandCLmem(const Tensor *input, const Tensor *output, OpenCL
     
     buildOptions.emplace("-DINPUT_FORMAT=" + std::to_string(srcDimensionFormat));
     buildOptions.emplace("-DOUTPUT_FORMAT=" + std::to_string(dstDimensionFormat));
-    std::vector<int> outputShape;
-    std::shared_ptr<KernelWrap> kernelW;
-    if(toDevice){
-        buildOptions.emplace("-DSHARED_TO_CL");
-        kernelW = runtime->buildKernelWithCache("glmem_convert", "gl_to_cl", buildOptions, precision, nullptr, output);
-        outputShape = tensorShapeFormat(output);
-    } else if(toHost){
-        buildOptions.emplace("-DCL_TO_SHARED");
-        kernelW = runtime->buildKernelWithCache("glmem_convert", "cl_to_gl", buildOptions, precision, input, nullptr);
-        outputShape = tensorShapeFormat(input);
-    }else{
-        MNN_PRINT("convertGLMemBetweenCLmem only support toDevice or toHost!\n");
-        return false;
-    }
+    std::vector<int> outputShape = toDevice ? tensorShapeFormat(output): tensorShapeFormat(input);
     
     int shape[4] = {outputShape[0], outputShape[3], outputShape[1], outputShape[2]};//N C H W
     uint32_t gws[3] = {static_cast<uint32_t>(UP_DIV(shape[3], 4)),
                                   static_cast<uint32_t>(UP_DIV(shape[1], 4)),
                                   static_cast<uint32_t>(shape[0] * shape[2])};
+    std::shared_ptr<KernelWrap> kernelW;
+    int format = AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM;
+    int stride = shape[3];
+    AHardwareBuffer_Desc Desc = {};
+    if(OpenCLSymbolsOperator::getOpenclSymbolsPtr()->isSupportAhardwareBufferFunc()){
+        if(toDevice){
+            MNNAHardwareBuffer_describe((AHardwareBuffer*)(((CLSharedMemReleaseBuffer*)TensorUtils::getSharedMem(input))->getSharedId()), &Desc);
+        }else{
+            MNNAHardwareBuffer_describe((AHardwareBuffer*)(((CLSharedMemReleaseBuffer*)TensorUtils::getSharedMem(output))->getSharedId()), &Desc);
+        }
+        format = Desc.format;
+        stride = Desc.stride;
+    }
+    if(format == AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM){
+        if(toDevice){
+            buildOptions.emplace("-DSHARED_TO_CL");
+            kernelW = runtime->buildKernelWithCache("glmem_convert", "gl_to_cl", buildOptions, precision, nullptr, output);
+        } else if(toHost){
+            buildOptions.emplace("-DCL_TO_SHARED");
+            kernelW = runtime->buildKernelWithCache("glmem_convert", "cl_to_gl", buildOptions, precision, input, nullptr);
+        }
+    }else if(format == AHARDWAREBUFFER_FORMAT_Y8Cb8Cr8_420){
+        if(toDevice){
+            buildOptions.emplace("-DSHARED_TO_CL");
+            kernelW = runtime->buildKernelWithCache("glmem_convert", "yuv_to_cl", buildOptions, precision, nullptr, output);
+        } else if(toHost){
+            buildOptions.emplace("-DCL_TO_SHARED");
+            kernelW = runtime->buildKernelWithCache("glmem_convert", "cl_to_yuv", buildOptions, precision, input, nullptr);
+        }
+    }else{
+        MNN_PRINT("convertGLMemBetweenCLmem only support AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM or AHARDWAREBUFFER_FORMAT_Y8Cb8Cr8_420!\n");
+        return false;
+    }
+    
     auto Kernel = kernelW->get();
     uint32_t idx = 0;
     cl_int ret = CL_SUCCESS;
@@ -629,6 +651,7 @@ bool convertBetweenAHDandCLmem(const Tensor *input, const Tensor *output, OpenCL
         }
     }
     ret |= Kernel.setArg(idx++, sizeof(shape), shape);
+    ret |= Kernel.setArg(idx++, stride);
     MNN_CHECK_CL_SUCCESS(ret, "setArg glmem_convert");
     
     const uint32_t maxWorkGroupSize = static_cast<uint32_t>(runtime->getMaxWorkGroupSize(kernelW));
@@ -647,6 +670,7 @@ bool convertBetweenAHDandCLmem(const Tensor *input, const Tensor *output, OpenCL
     MNN_CHECK_CL_SUCCESS(res, "glmem_convert");
     return true;
 }
+#endif
 
 } // namespace OpenCL
 } // namespace MNN

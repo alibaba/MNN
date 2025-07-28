@@ -9,11 +9,6 @@
 #include <mutex>
 #include <ostream>
 #include <sstream>
-#include <mutex>
-#include <ostream>
-#include <sstream>
-#include <mutex>
-#include <string>
 #include <chrono>
 #include "mls_log.h"
 #include "MNN/expr/ExecutorScope.hpp"
@@ -70,6 +65,7 @@ JNIEXPORT jlong JNICALL Java_com_alibaba_mnnllm_android_llm_LlmSession_initNativ
     auto llm_session = new mls::LlmSession(model_dir_str, merged_config, extra_json_config,
                                            history);
     llm_session->Load();
+    MNN_DEBUG("LIFECYCLE: LlmSession CREATED at %p", llm_session);
     MNN_DEBUG("createLLM EndLoad %ld ", reinterpret_cast<jlong>(llm_session));
     return reinterpret_cast<jlong>(llm_session);
 }
@@ -359,9 +355,10 @@ Java_com_alibaba_mnnllm_android_llm_LlmSession_getDebugInfoNative(JNIEnv *env, j
 JNIEXPORT void JNICALL Java_com_alibaba_mnnllm_android_llm_LlmSession_releaseNative(JNIEnv *env,
                                                                                     jobject thiz,
                                                                                     jlong objecPtr) {
-    MNN_DEBUG("Java_com_alibaba_mnnllm_android_llm_LlmSession_releaseNative\n");
+    MNN_DEBUG("LIFECYCLE: About to DESTROY LlmSession at %p", reinterpret_cast<void*>(objecPtr));
     auto *llm = reinterpret_cast<mls::LlmSession *>(objecPtr);
     delete llm;
+    MNN_DEBUG("LIFECYCLE: LlmSessionInner DESTROYED at %p", reinterpret_cast<void*>(objecPtr));
 }
 
 extern "C"
@@ -434,3 +431,201 @@ Java_com_alibaba_mnnllm_android_llm_LlmSession_clearHistoryNative(JNIEnv *env, j
         llm->clearHistory();
     }
 }
+
+// JNI glue layer - converts Java objects and delegates to pure C++ implementation
+extern "C"
+JNIEXPORT jobject JNICALL
+Java_com_alibaba_mnnllm_android_llm_LlmSession_runBenchmarkNative(
+        JNIEnv *env,
+        jobject thiz,
+        jlong llmPtr,
+        jint backend,
+        jint threads,
+        jboolean useMmap,
+        jint power,
+        jint precision,
+        jint memory,
+        jint dynamicOption,
+        jint nPrompt,
+        jint nGenerate,
+        jint nRepeat,
+        jboolean kvCache,
+        jobject testInstance,
+        jobject callback
+) {
+    auto *llm_session = reinterpret_cast<mls::LlmSession *>(llmPtr);
+    if (!llm_session) {
+        // Return failure result
+        jclass resultClass = env->FindClass("com/alibaba/mnnllm/android/benchmark/BenchmarkResult");
+        jmethodID resultCtor = env->GetMethodID(resultClass, "<init>", 
+            "(Lcom/alibaba/mnnllm/android/benchmark/TestInstance;ZLjava/lang/String;)V");
+        return env->NewObject(resultClass, resultCtor, testInstance, JNI_FALSE, 
+            env->NewStringUTF("LLM session is not initialized"));
+    }
+
+    // Debug: Print pointer values for analysis
+    MNN_DEBUG("BENCHMARK: Attempting to use LlmSession at %p", llm_session);
+    
+    // CRITICAL: The real issue might be that llm_session object has been destroyed
+    // but the pointer still points to the freed memory. Let's add extensive logging
+    // to track the object lifecycle and try to detect use-after-free conditions.
+    
+    // Try to safely access the object - if this crashes, we know it's use-after-free
+    MNN_DEBUG("BENCHMARK: About to call getLlm() on %p", llm_session);
+    
+    auto *underlying_llm = llm_session->getLlm();
+    MNN_DEBUG("BENCHMARK: getLlm() returned %p", underlying_llm);
+    
+    // Now try to call the actual benchmark - this is where the crash likely occurs
+    MNN_DEBUG("BENCHMARK: About to call runBenchmark() - this may crash");
+    MNN_DEBUG("BENCHMARK: Parameters - nPrompt=%d, nGenerate=%d, nRepeat=%d, kvCache=%s", 
+              (int)nPrompt, (int)nGenerate, (int)nRepeat, kvCache ? "true" : "false");
+
+    // Create global references for callback usage in pure C++ code
+    jobject globalCallback = env->NewGlobalRef(callback);
+    jobject globalTestInstance = env->NewGlobalRef(testInstance);
+    
+    // Get callback method IDs
+    jclass callbackClass = env->GetObjectClass(callback);
+    jmethodID onProgressMethod = env->GetMethodID(callbackClass, "onProgress", 
+        "(Lcom/alibaba/mnnllm/android/benchmark/BenchmarkProgress;)V");
+    jmethodID onErrorMethod = env->GetMethodID(callbackClass, "onBenchmarkError", "(ILjava/lang/String;)V");
+    
+    // Get BenchmarkProgress class and constructor - updated for structured data
+    jclass progressClass = env->FindClass("com/alibaba/mnnllm/android/benchmark/BenchmarkProgress");
+    jmethodID progressCtor = env->GetMethodID(progressClass, "<init>", 
+        "(ILjava/lang/String;IIIIIFFFFF)V");
+    
+    // Get TestInstance field accessor methods for updating results
+    jclass testInstanceClass = env->GetObjectClass(testInstance);
+    jmethodID getPrefillUsMethod = env->GetMethodID(testInstanceClass, "getPrefillUs", "()Ljava/util/List;");
+    if (env->ExceptionCheck()) { MNN_ERROR("JNI Exception: GetMethodID for getPrefillUs failed."); env->ExceptionDescribe(); env->ExceptionClear(); }
+    jmethodID getDecodeUsMethod = env->GetMethodID(testInstanceClass, "getDecodeUs", "()Ljava/util/List;");
+    if (env->ExceptionCheck()) { MNN_ERROR("JNI Exception: GetMethodID for getDecodeUs failed."); env->ExceptionDescribe(); env->ExceptionClear(); }
+    jmethodID getSamplesUsMethod = env->GetMethodID(testInstanceClass, "getSamplesUs", "()Ljava/util/List;");
+    if (env->ExceptionCheck()) { MNN_ERROR("JNI Exception: GetMethodID for getSamplesUs failed."); env->ExceptionDescribe(); env->ExceptionClear(); }
+
+    // Get List.add method for updating results
+    jclass listClass = env->FindClass("java/util/List");
+    if (env->ExceptionCheck()) { MNN_ERROR("JNI Exception: FindClass for java/util/List failed."); env->ExceptionDescribe(); env->ExceptionClear(); }
+    jmethodID addMethod = env->GetMethodID(listClass, "add", "(Ljava/lang/Object;)Z");
+    if (env->ExceptionCheck()) { MNN_ERROR("JNI Exception: GetMethodID for List.add failed."); env->ExceptionDescribe(); env->ExceptionClear(); }
+    
+    // Get the mutable lists from TestInstance
+    jobject prefillUsList = env->CallObjectMethod(testInstance, getPrefillUsMethod);
+    if (env->ExceptionCheck()) { MNN_ERROR("JNI Exception: CallObjectMethod for getPrefillUs failed."); env->ExceptionDescribe(); env->ExceptionClear(); }
+    jobject decodeUsList = env->CallObjectMethod(testInstance, getDecodeUsMethod);
+    if (env->ExceptionCheck()) { MNN_ERROR("JNI Exception: CallObjectMethod for getDecodeUs failed."); env->ExceptionDescribe(); env->ExceptionClear(); }
+    jobject samplesUsList = env->CallObjectMethod(testInstance, getSamplesUsMethod);
+    if (env->ExceptionCheck()) { MNN_ERROR("JNI Exception: CallObjectMethod for getSamplesUs failed."); env->ExceptionDescribe(); env->ExceptionClear(); }
+
+    // Long class for boxing
+    jclass longClass = env->FindClass("java/lang/Long");
+    if (env->ExceptionCheck()) { MNN_ERROR("JNI Exception: FindClass for java/lang/Long failed."); env->ExceptionDescribe(); env->ExceptionClear(); }
+    jmethodID longCtor = env->GetMethodID(longClass, "<init>", "(J)V");
+    if (env->ExceptionCheck()) { MNN_ERROR("JNI Exception: GetMethodID for Long constructor failed."); env->ExceptionDescribe(); env->ExceptionClear(); }
+
+    // Create callback adapter for pure C++ code
+    mls::LlmSession::BenchmarkCallback cppCallback;
+    
+    cppCallback.onProgress = [env, globalCallback, onProgressMethod, progressClass, progressCtor](
+        const mls::LlmSession::BenchmarkProgressInfo& progressInfo) {
+        if (onProgressMethod && progressClass && progressCtor) {
+            jobject progressObj = env->NewObject(progressClass, progressCtor, 
+                (jint)progressInfo.progress, 
+                env->NewStringUTF(progressInfo.statusMessage.c_str()),
+                (jint)progressInfo.progressType,
+                (jint)progressInfo.currentIteration,
+                (jint)progressInfo.totalIterations,
+                (jint)progressInfo.nPrompt,
+                (jint)progressInfo.nGenerate,
+                (jfloat)progressInfo.runTimeSeconds,
+                (jfloat)progressInfo.prefillTimeSeconds,
+                (jfloat)progressInfo.decodeTimeSeconds,
+                (jfloat)progressInfo.prefillSpeed,
+                (jfloat)progressInfo.decodeSpeed);
+            env->CallVoidMethod(globalCallback, onProgressMethod, progressObj);
+            env->DeleteLocalRef(progressObj);
+        }
+    };
+    
+    cppCallback.onError = [env, globalCallback, onErrorMethod](const std::string& error) {
+        if (onErrorMethod) {
+            env->CallVoidMethod(globalCallback, onErrorMethod, 0, env->NewStringUTF(error.c_str()));
+        }
+    };
+    
+    cppCallback.onIterationComplete = [env, globalCallback, onProgressMethod, progressClass, progressCtor](
+        const std::string& detailed_stats) {
+        if (onProgressMethod && progressClass && progressCtor) {
+            // Report detailed stats as progress update with minimal structured data
+            jobject progressObj = env->NewObject(progressClass, progressCtor, 
+                (jint)-1, env->NewStringUTF(detailed_stats.c_str()), // -1 indicates detailed stats
+                (jint)0, (jint)0, (jint)0, (jint)0, (jint)0, // default values for structured fields
+                (jfloat)0.0f, (jfloat)0.0f, (jfloat)0.0f, (jfloat)0.0f, (jfloat)0.0f);
+            env->CallVoidMethod(globalCallback, onProgressMethod, progressObj);
+            env->DeleteLocalRef(progressObj);
+        }
+    };
+
+    // Call pure C++ benchmark implementation
+    auto result = llm_session->runBenchmark(
+        (int)backend, (int)threads, (bool)useMmap, (int)power, (int)precision, 
+        (int)memory, (int)dynamicOption, (int)nPrompt, (int)nGenerate, 
+        (int)nRepeat, (bool)kvCache, cppCallback
+    );
+    
+    // If we reach here, runBenchmark completed without crashing
+    MNN_DEBUG("BENCHMARK: runBenchmark() completed successfully! Result success=%s", 
+              result.success ? "true" : "false");
+    
+    // Add detailed logging before returning to Kotlin
+    MNN_DEBUG("BENCHMARK_JNI: Handing off to Kotlin. Prefill times count: %d, Decode times count: %d",
+              (int)result.prefill_times_us.size(),
+              (int)result.decode_times_us.size());
+
+    // Convert C++ result to Java objects and update TestInstance
+    if (result.success) {
+        if (!prefillUsList || !decodeUsList || !samplesUsList) {
+            MNN_ERROR("JNI Error: One or more list objects are null!");
+        } else {
+            // Update TestInstance lists with timing data
+            for (long prefill_time : result.prefill_times_us) {
+                jobject prefillLong = env->NewObject(longClass, longCtor, prefill_time);
+                if (env->ExceptionCheck()) { MNN_ERROR("JNI Exception after NewObject for prefill."); break; }
+                env->CallBooleanMethod(prefillUsList, addMethod, prefillLong);
+                if (env->ExceptionCheck()) { MNN_ERROR("JNI Exception after add for prefill."); break; }
+                env->DeleteLocalRef(prefillLong);
+            }
+            
+            for (long decode_time : result.decode_times_us) {
+                jobject decodeLong = env->NewObject(longClass, longCtor, decode_time);
+                if (env->ExceptionCheck()) { MNN_ERROR("JNI Exception after NewObject for decode."); break; }
+                env->CallBooleanMethod(decodeUsList, addMethod, decodeLong);
+                if (env->ExceptionCheck()) { MNN_ERROR("JNI Exception after add for decode."); break; }
+                env->DeleteLocalRef(decodeLong);
+            }
+            
+            for (long sample_time : result.sample_times_us) {
+                jobject sampleLong = env->NewObject(longClass, longCtor, sample_time);
+                if (env->ExceptionCheck()) { MNN_ERROR("JNI Exception after NewObject for sample."); break; }
+                env->CallBooleanMethod(samplesUsList, addMethod, sampleLong);
+                if (env->ExceptionCheck()) { MNN_ERROR("JNI Exception after add for sample."); break; }
+                env->DeleteLocalRef(sampleLong);
+            }
+        }
+    }
+    
+    // Cleanup global references
+    env->DeleteGlobalRef(globalCallback);
+    env->DeleteGlobalRef(globalTestInstance);
+    
+    // Create and return BenchmarkResult
+    jclass resultClass = env->FindClass("com/alibaba/mnnllm/android/benchmark/BenchmarkResult");
+    jmethodID resultCtor = env->GetMethodID(resultClass, "<init>", 
+        "(Lcom/alibaba/mnnllm/android/benchmark/TestInstance;ZLjava/lang/String;)V");
+    
+    jstring errorMessage = result.success ? nullptr : env->NewStringUTF(result.error_message.c_str());
+    return env->NewObject(resultClass, resultCtor, testInstance, (jboolean)result.success, errorMessage);
+}
+

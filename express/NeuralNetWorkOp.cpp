@@ -128,6 +128,10 @@ VARP _Conv(VARP weight, VARP bias, VARP x, PaddingMode pad, INTS stride, INTS di
     std::unique_ptr<OpT> convOp(new OpT);
     convOp->type = OpType_Convolution;
     auto shape   = weight->getInfo();
+    if (shape == nullptr) {
+        MNN_ERROR("Weight for convolution should have shape information.\n");
+        return nullptr;
+    }
     if (NHWC == shape->order) {
         weight = _Transpose(weight, {0, 3, 1, 2});
         shape  = weight->getInfo();
@@ -268,6 +272,10 @@ VARP _Deconv(VARP weight, VARP bias, VARP x, PaddingMode pad, INTS stride, INTS 
     std::unique_ptr<OpT> convOp(new OpT);
     convOp->type    = OpType_Deconvolution;
     auto shape      = weight->getInfo();
+    if (shape == nullptr) {
+        MNN_ERROR("weight's info is null\n");
+        return nullptr;
+    }
     auto channel    = std::vector<int>{shape->dim[1], shape->dim[0]};
     auto kernelSize = std::vector<int>{shape->dim[3], shape->dim[2]};
     if (channel[1] * channel[0] == group) {
@@ -1048,6 +1056,10 @@ VARP _BatchToSpaceND(VARP input, VARP block_shape, VARP crops) {
 
     auto info_block_shape = block_shape->getInfo();
     auto info_crops = crops->getInfo();
+    if (info_block_shape == nullptr || info_crops == nullptr) {
+        MNN_ERROR("BatchToSpaceND: block_shape or crops info is null.\n");
+        return nullptr;
+    }
     MNN_ASSERT(info_block_shape != nullptr);
     MNN_ASSERT(info_crops != nullptr);
     MNN_ASSERT(halide_type_int == info_block_shape->type.code);
@@ -1057,6 +1069,10 @@ VARP _BatchToSpaceND(VARP input, VARP block_shape, VARP crops) {
     blob_blockShape->dataFormat = (MNN_DATA_FORMAT)Utils::convertFormat(info_block_shape->order);
     blob_blockShape->dataType = (MNN::DataType)Utils::convertDataType(info_block_shape->type);
     auto data_block_shape = block_shape->readMap<int>();
+    if (data_block_shape == nullptr) {
+        MNN_ERROR("BatchToSpaceND: block_shape data is null.\n");
+        return nullptr;
+    }
     for (int i=0; i<info_block_shape->size; i++)
     {
         blob_blockShape->int32s.emplace_back(data_block_shape[i]);
@@ -1065,6 +1081,10 @@ VARP _BatchToSpaceND(VARP input, VARP block_shape, VARP crops) {
     blob_paddings->dataFormat = (MNN_DATA_FORMAT)Utils::convertFormat(info_crops->order);
     blob_paddings->dataType = (MNN::DataType)Utils::convertDataType(info_crops->type);
     auto data_crop = crops->readMap<int>();
+    if (data_crop == nullptr) {
+        MNN_ERROR("BatchToSpaceND: crops data is null.\n");
+        return nullptr;
+    }
     for (int i=0; i<info_crops->size; i++)
     {
         blob_paddings->int32s.emplace_back(data_crop[i]);
@@ -1178,6 +1198,10 @@ VARP _SpaceToBatchND(VARP input, VARP block_shape, VARP paddings) {
     auto param =  new SpaceBatchT;
     auto info_block_shape = block_shape->getInfo();
     auto info_paddings = paddings->getInfo();
+    if (info_block_shape == nullptr || info_paddings == nullptr) {
+        MNN_ERROR("SpaceToBatchND: block_shape or paddings info is null.\n");
+        return nullptr;
+    }
     MNN_ASSERT(info_block_shape != nullptr);
     MNN_ASSERT(info_paddings != nullptr);
     MNN_ASSERT(halide_type_int == info_block_shape->type.code);
@@ -1187,6 +1211,10 @@ VARP _SpaceToBatchND(VARP input, VARP block_shape, VARP paddings) {
     blob_blockShape->dataFormat = (MNN::MNN_DATA_FORMAT)Utils::convertFormat(info_block_shape->order);
     blob_blockShape->dataType = (MNN::DataType)Utils::convertDataType(info_block_shape->type);
     auto data_block_shape = block_shape->readMap<int>();
+    if (data_block_shape == nullptr) {
+        MNN_ERROR("SpaceToBatchND: block_shape data is null.\n");
+        return nullptr;
+    }
     for (int i=0; i<info_block_shape->size; i++)
     {
         blob_blockShape->int32s.emplace_back(data_block_shape[i]);
@@ -1195,6 +1223,10 @@ VARP _SpaceToBatchND(VARP input, VARP block_shape, VARP paddings) {
     blob_paddings->dataFormat = (MNN::MNN_DATA_FORMAT)Utils::convertFormat(info_paddings->order);
     blob_paddings->dataType = (MNN::DataType)Utils::convertDataType(info_paddings->type);
     auto data_paddings = paddings->readMap<int>();
+    if (data_paddings == nullptr) {
+        MNN_ERROR("SpaceToBatchND: paddings data is null.\n");
+        return nullptr;
+    }
     for (int i=0; i<info_paddings->size; i++)
     {
         blob_paddings->int32s.emplace_back(data_paddings[i]);
@@ -1235,7 +1267,10 @@ std::vector <VARP> _Unstack(VARP value, int axis) {
     std::unique_ptr<OpT> op(new OpT);
     op->type       = OpType_Unpack;
     auto info_value = value->getInfo();
-    MNN_ASSERT(info_value != nullptr);
+    if (info_value == nullptr) {
+        MNN_ERROR("Unstack: value info is null.\n");
+        return {};
+    }
     auto dims = info_value->dim;
     auto dimsize = dims.size();
     MNN_ASSERT(dimsize >= 1);
@@ -1703,9 +1738,12 @@ VARP _FloatToInt8(VARP x, VARP scale, int8_t minValue, int8_t maxValue, int8_t z
 }
 
 VARP _Int8ToFloat(VARP x, VARP scale) {
-    auto xInfo = x->getInfo();
     auto scaleInfo = scale->getInfo();
     auto scalePtr = scale->readMap<float>();
+    if (nullptr == scaleInfo) {
+        MNN_ERROR("Error for Int8ToFloat because var not ready\n");
+        return nullptr;
+    }
     std::unique_ptr<OpT> op(new OpT);
     op->type = OpType_Int8ToFloat;
     op->main.type = OpParameter_QuantizedFloatParam;
@@ -1716,9 +1754,21 @@ VARP _Int8ToFloat(VARP x, VARP scale) {
 }
 
 VARP _Int8ToFloat(VARP x, VARP scale, int8_t zeroPoint) {
-    auto xInfo = x->getInfo();
     auto scaleInfo = scale->getInfo();
+    if (nullptr == scaleInfo) {
+        MNN_ERROR("Error for Int8ToFloat because var not ready\n");
+        return nullptr;
+    }
+    if (scaleInfo->size <= 0) {
+        MNN_ERROR("Error for Int8ToFloat because scale size is zero\n");
+        return nullptr;
+    }
+    
     auto scalePtr = scale->readMap<float>();
+    if (nullptr == scalePtr) {
+        MNN_ERROR("Error for Int8ToFloat because scale data is null\n");
+        return nullptr;
+    }
     std::unique_ptr<OpT> op(new OpT);
     op->type = OpType_Int8ToFloat;
     op->main.type = OpParameter_QuantizedFloatParam;
@@ -1786,13 +1836,10 @@ VARP _Sort(VARP x, int axis, bool arg, bool descend) {
     auto topk = new TopKV2T;
     topk->largest = descend;
     op->main.value = topk;
-    auto shape = x->getInfo()->dim;
-    axis = axis < 0 ? shape.size() + axis : axis;
-    int k = x->getInfo()->dim[axis];
-    std::vector<VARP> inputs {x, _Scalar(k)};
-    if (axis + 1 != shape.size()) {
-        inputs.push_back(_Scalar(axis));
-    }
+    auto posAxis = _Mod(_Scalar(axis), _Rank(x));
+    auto K = _Slice(_Shape(x), _Unsqueeze(posAxis, {0}), _Unsqueeze(_Scalar<int32_t>(1), {0}));
+
+    std::vector<VARP> inputs {x, K, _Scalar(axis)};
     auto expr = Expr::create(op.get(), inputs, 2);
     return Variable::create(expr, arg);
 }

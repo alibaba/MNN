@@ -23,6 +23,21 @@ std::shared_ptr<QNNTensorWrapper> QNNTensorWrapper::create(const std::string & n
     return std::make_shared<QNNTensorWrapper>(name, type, dataType, vec, quantize);
 }
 
+std::shared_ptr<QNNTensorWrapper> QNNTensorWrapper::createStaticTensor(const std::string & name, Qnn_DataType_t dataType, const std::vector<uint32_t> & dimensions, const void * buffer, Qnn_QuantizeParams_t quantizeParam) {
+    MNN_ASSERT(!name.empty() && !dimensions.empty() && buffer);
+    MNN_ASSERT(dataType == QNN_DATATYPE_SFIXED_POINT_8 || dataType == QNN_DATATYPE_INT_32);
+
+    std::shared_ptr<QNNTensorWrapper> tensorWrapper = QNNTensorWrapper::create(name, QNN_TENSOR_TYPE_STATIC, dataType, dimensions, quantizeParam);
+    uint32_t numElement = 1;
+    for (int i = 0; i < dimensions.size(); i++) {
+        numElement *= dimensions[i];
+    }
+    void * dst = tensorWrapper->alloc();
+    uint32_t dataSize = gQnnTypeSize.find(dataType)->second;
+    ::memcpy(dst, buffer, dataSize * numElement);
+    return tensorWrapper;
+}
+
 std::shared_ptr<QNNTensorWrapper> QNNTensorWrapper::createStaticFloatTensor(const std::string & name, Qnn_DataType_t dataType, const std::vector<uint32_t> & dimensions, const float * buffer, Qnn_QuantizeParams_t quantize) {
     MNN_ASSERT(!name.empty() && !dimensions.empty() && buffer != nullptr);
     MNN_ASSERT(dataType == QNN_DATATYPE_FLOAT_16 || dataType == QNN_DATATYPE_FLOAT_32);
@@ -99,7 +114,7 @@ void * QNNTensorWrapper::alloc() {
         dims[i] = (int)mDimensions[i];
     }
 
-    MNN_ASSERT(mQnnTensor.v1.dataType == QNN_DATATYPE_FLOAT_32 || mQnnTensor.v1.dataType == QNN_DATATYPE_FLOAT_16 || mQnnTensor.v1.dataType == QNN_DATATYPE_INT_32);
+    MNN_ASSERT(mQnnTensor.v1.dataType == QNN_DATATYPE_FLOAT_32 || mQnnTensor.v1.dataType == QNN_DATATYPE_FLOAT_16 || mQnnTensor.v1.dataType == QNN_DATATYPE_INT_32 ||  mQnnTensor.v1.dataType == QNN_DATATYPE_SFIXED_POINT_8);
     halide_type_t halideType;
 
     halideType.lanes = 1;
@@ -116,6 +131,9 @@ void * QNNTensorWrapper::alloc() {
             halideType.code = halide_type_int;
             halideType.bits = 32;
             break;
+        case QNN_DATATYPE_SFIXED_POINT_8:
+            halideType.code = halide_type_int;
+            halideType.bits = 8;
         default:
             break;
     }
@@ -146,6 +164,7 @@ std::shared_ptr<QNNParamTensorWrapper> QNNParamTensorWrapper::create(const std::
 }
 
 QNNParamTensorWrapper::QNNParamTensorWrapper(const std::string & paramName, const std::string & tensorName, Qnn_DataType_t dataType, const std::vector<uint32_t> & dimensions) {
+    MNN_ASSERT(dataType == QNN_DATATYPE_INT_32 || dataType == QNN_DATATYPE_UINT_32);
     mParamName = paramName;
     mTensorName = tensorName;
     mDimensions = dimensions;
@@ -177,6 +196,9 @@ void * QNNParamTensorWrapper::alloc() {
     for (int i = 0; i < mQnnParam.tensorParam.v1.rank; i++) {
         dataSize *= mQnnParam.tensorParam.v1.dimensions[i];
     }
+    #ifdef QNN_VORBOSE
+    MNN_PRINT("QNNParamTensorWrapper size: %d\n", dataSize);
+    #endif
     mQnnParam.tensorParam.v1.clientBuf.data = malloc(dataSize);
     MNN_ASSERT(mQnnParam.tensorParam.v1.clientBuf.data != nullptr);
     mQnnParam.tensorParam.v1.clientBuf.dataSize = dataSize;
@@ -206,6 +228,14 @@ QNNParamScalarWrapper::QNNParamScalarWrapper(const std::string & name, uint32_t 
     mQnnParam.paramType = QNN_PARAMTYPE_SCALAR;
     mQnnParam.name        = mName.c_str();
     mQnnParam.scalarParam.dataType = QNN_DATATYPE_UINT_32;
+    mQnnParam.scalarParam.uint32Value = value;
+}
+
+QNNParamScalarWrapper::QNNParamScalarWrapper(const std::string & name, int value) {
+    mName = name;
+    mQnnParam.paramType = QNN_PARAMTYPE_SCALAR;
+    mQnnParam.name        = mName.c_str();
+    mQnnParam.scalarParam.dataType = QNN_DATATYPE_INT_32;
     mQnnParam.scalarParam.uint32Value = value;
 }
 

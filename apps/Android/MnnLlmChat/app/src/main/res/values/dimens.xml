@@ -5,6 +5,7 @@
     <dimen name="h3">14sp</dimen>
     <dimen name="h4">12sp</dimen>
     <dimen name="h5">10sp</dimen>
+    <dimen name="sp8">8sp</dimen>
     <dimen name="sp20">20sp</dimen>
     <dimen name="spaceLR">40dp</dimen>
     <dimen name="space5">5dp</dimen>
@@ -14,6 +15,7 @@
     <dimen name="maxwidth">170dp</dimen>
     <dimen name="search_view_inset">20dp</dimen>
     <dimen name="ui_margin_medium">16dp</dimen>
+    <dimen name="chat_avatar_top_margin">150dp</dimen>
     <!--    tags-->
     <dimen name="tag_margin">2dp</dimen>
     <dimen name="tag_padding_horizontal">4dp</dimen>
@@ -25,4 +27,14 @@
     <dimen name="mtrl_switch_track_width" tools:override="true">40dp</dimen>
     <dimen name="mtrl_switch_track_height" tools:override="true">24dp</dimen>
     <dimen name="mtrl_switch_thumb_size" tools:override="true">24dp</dimen>
+
+    <!-- chip -->
+    <dimen name="chip_corner_radius">8dp</dimen>
+    <dimen name="chip_stroke_width">1dp</dimen>
+    <dimen name="chip_min_height">40dp</dimen>
+
+    <!-- filter chip -->
+    <dimen name="filter_chip_height">30dp</dimen>
+    <dimen name="filter_chip_margin_end">8dp</dimen>
+    <dimen name="bottom_tab_icon_size">30dp</dimen>
 </resources>

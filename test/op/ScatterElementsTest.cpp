@@ -17,6 +17,10 @@ class ScatterElementsTest : public MNNTestCase {
     virtual ~ScatterElementsTest() = default;
 
     virtual bool run(int precision) {
+        float threshold = 0.001;
+        if (precision == 2) {
+            threshold = 0.01;
+        }
         {
             const float dataData[]    = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
             const int indicesData[]      = {1, 0, 2, 0, 2, 1};
@@ -30,7 +34,7 @@ class ScatterElementsTest : public MNNTestCase {
 
                 auto outputData = output->readMap<float>();
                 const int size  = output->getInfo()->size;
-                if (!checkVector<float>(outputData, expectedData, size, 0.001)) {
+                if (!checkVector<float>(outputData, expectedData, size, threshold)) {
                     FUNC_PRINT(1);
                     return false;
                 }
@@ -43,7 +47,7 @@ class ScatterElementsTest : public MNNTestCase {
 
                 auto outputData = output->readMap<float>();
                 const int size  = output->getInfo()->size;
-                if (!checkVector<float>(outputData, dataData, size, 0.001)) {
+                if (!checkVector<float>(outputData, dataData, size, threshold)) {
                     FUNC_PRINT(1);
                     return false;
                 }
@@ -62,7 +66,7 @@ class ScatterElementsTest : public MNNTestCase {
 
             auto outputData = output->readMap<float>();
             const int size  = output->getInfo()->size;
-            if (!checkVector<float>(outputData, expectedData, size, 0.001)) {
+            if (!checkVector<float>(outputData, expectedData, size, threshold)) {
                 return false;
             }
         }
@@ -79,7 +83,7 @@ class ScatterElementsTest : public MNNTestCase {
 
             auto outputData = output->readMap<float>();
             const int size  = output->getInfo()->size;
-            if (!checkVector<float>(outputData, expectedData, size, 0.001)) {
+            if (!checkVector<float>(outputData, expectedData, size, threshold)) {
                 return false;
             }
         }
@@ -96,7 +100,7 @@ class ScatterElementsTest : public MNNTestCase {
 
             auto outputData = output->readMap<float>();
             const int size  = output->getInfo()->size;
-            if (!checkVector<float>(outputData, expectedData, size, 0.001)) {
+            if (!checkVector<float>(outputData, expectedData, size, threshold)) {
                 return false;
             }
         }
@@ -113,7 +117,7 @@ class ScatterElementsTest : public MNNTestCase {
 
             auto outputData = output->readMap<float>();
             const int size  = output->getInfo()->size;
-            if (!checkVector<float>(outputData, expectedData, size, 0.001)) {
+            if (!checkVector<float>(outputData, expectedData, size, threshold)) {
                 return false;
             }
         }

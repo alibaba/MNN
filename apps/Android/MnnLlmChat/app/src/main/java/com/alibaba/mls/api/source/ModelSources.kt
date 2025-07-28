@@ -3,39 +3,37 @@
 package com.alibaba.mls.api.source
 
 import com.alibaba.mls.api.ApplicationProvider
+import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.mainsettings.MainSettings.getDownloadProvider
 
 class ModelSources {
+
     enum class ModelSourceType {
         MODEL_SCOPE,
         HUGGING_FACE,
         MODELERS,
-        LOCAL
     }
 
     val remoteSourceType: ModelSourceType
         get() {
-            return getDownloadProvider(ApplicationProvider.get()!!)
+            return getDownloadProvider(ApplicationProvider.get())
         }
 
     private object InstanceHolder {
         val instance: ModelSources = ModelSources()
     }
 
-    val config: ModelSourceConfig
-        get() {
-            if (mockConfig == null) {
-                mockConfig = ModelSourceConfig.createMockSourceConfig()
-            }
-            return mockConfig!!
-        }
-
     companion object {
-        private var mockConfig: ModelSourceConfig? = null
 
         @JvmStatic
         fun get(): ModelSources {
             return InstanceHolder.instance
         }
+
+        const val sourceHuffingFace = "HuggingFace"
+        const val sourceModelScope = "ModelScope"
+        const val sourceModelers = "Modelers"
+        val sourceList = listOf(sourceHuffingFace, sourceModelScope, sourceModelers)
+        val sourceDisPlayList = listOf(R.string.huggingface, R.string.modelscope, R.string.modelers)
     }
 }

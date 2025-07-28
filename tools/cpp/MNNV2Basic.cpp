@@ -167,11 +167,28 @@ static inline int64_t getTimeInUs() {
     return time;
 }
 
+static inline std::vector<int> parseIntList(const std::string& str, char delim) {
+    std::vector<int> result;
+    std::ptrdiff_t p1 = 0, p2;
+    while (1) {
+        p2 = str.find(delim, p1);
+        if (p2 != std::string::npos) {
+            result.push_back(atoi(str.substr(p1, p2 - p1).c_str()));
+            p1 = p2 + 1;
+        } else {
+            result.push_back(atoi(str.substr(p1).c_str()));
+            break;
+        }
+    }
+    return result;
+}
+
 static int test_main(int argc, const char* argv[]) {
     if (argc < 2) {
-        MNN_PRINT("========================================================================\n");
-        MNN_PRINT("Arguments: model.MNN runLoops runMask forwardType numberThread precision inputSize \n");
-        MNN_PRINT("========================================================================\n");
+        MNN_PRINT("=========================================================================================\n");
+        MNN_PRINT("Arguments: model.MNN runLoops runMask forwardType numberThread precision inputSize cpuIds\n");
+        MNN_PRINT("Example: %s model.MNN 100 0 0 4 0 1x3x224x224 0,1,2,3\n", argv[0]);
+        MNN_PRINT("=========================================================================================\n");
         return -1;
     }
 
@@ -227,22 +244,22 @@ static int test_main(int argc, const char* argv[]) {
     // input dims
     std::vector<int> inputDims;
     if (argc > 7) {
-        std::string inputShape(argv[7]);
-        const char* delim = "x";
-        std::ptrdiff_t p1 = 0, p2;
-        while (1) {
-            p2 = inputShape.find(delim, p1);
-            if (p2 != std::string::npos) {
-                inputDims.push_back(atoi(inputShape.substr(p1, p2 - p1).c_str()));
-                p1 = p2 + 1;
-            } else {
-                inputDims.push_back(atoi(inputShape.substr(p1).c_str()));
-                break;
-            }
-        }
+        inputDims = parseIntList(argv[7], 'x');
     }
+    MNN_PRINT("inputDims: ");
     for (auto dim : inputDims) {
         MNN_PRINT("%d ", dim);
+    }
+    MNN_PRINT("\n");
+
+    // CPU IDs
+    std::vector<int> cpuIds;
+    if (argc > 8) {
+        cpuIds = parseIntList(argv[8], ',');
+    }
+    MNN_PRINT("cpuIds: ");
+    for (auto id : cpuIds) {
+        MNN_PRINT("%d ", id);
     }
     MNN_PRINT("\n");
 
@@ -265,6 +282,7 @@ static int test_main(int argc, const char* argv[]) {
     if (runMask & 32) {
         net->setSessionHint(Interpreter::WINOGRAD_MEMORY_LEVEL, 0);
     }
+    net->setSessionHint(Interpreter::HintMode::CPU_CORE_IDS, cpuIds.data(), cpuIds.size());
 
     // create session
     MNN::ScheduleConfig config;

@@ -58,6 +58,12 @@ struct RuntimeHint {
     // op encoder number for once commit
     int encorderNumForCommit = 10;
     int initThreadNumber = 0;
+    
+    // whether to use Arm sme2 cores when threads>1
+    bool useArmSme2Cores = true;
+
+    // Use CPU Ids
+    std::vector<int> cpuIds;
 };
 /** abstract backend */
 class Backend : public NonCopyable {
@@ -241,8 +247,16 @@ public:
         return 0;
     }
 
+public:
+    void* getMetaPtr() {
+        return mMetaPtr;
+    }
+    void setMetaPtr(void* ptr) {
+        mMetaPtr = ptr;
+    }
 private:
     const MNNForwardType mType;
+    void* mMetaPtr;
 };
 
 /** Each backend belong to a runtime*/
@@ -299,6 +313,10 @@ public:
      */
     virtual float onGetMemoryInMB() {
         return 0.0f;
+    }
+    // For NPU backend don't support load from buffer , use onSetCachePath
+    virtual bool onSetCachePath(const char* path, int mode) {
+        return false;
     }
 
     // If buffer is not nullptr, try copy cache, else delete cache

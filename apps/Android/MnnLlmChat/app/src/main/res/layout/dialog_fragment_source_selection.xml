@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/select_download_provider_title"
+        android:textAppearance="?attr/textAppearanceTitleLarge"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginBottom="16dp"/>
+
+    <RadioGroup
+        android:id="@+id/source_radio_group"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content">
+
+        <RadioButton
+            android:id="@+id/source_huggingface"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="HuggingFace"/>
+
+        <RadioButton
+            android:id="@+id/source_modelscope"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Modelscope (魔搭)"/>
+
+        <RadioButton
+            android:id="@+id/source_modelers"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Modelers (魔乐)"/>
+    </RadioGroup>
+
+    <Button
+        android:id="@+id/confirm_source_button"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:text="确定"/>
+
+</LinearLayout>

@@ -40,6 +40,7 @@ IdstConvolutionInt8::IdstConvolutionInt8(const Convolution2DCommon* convOp, Back
     core->MNNGetGemmUnit(&UNIT, &SRC_UNIT, &DST_XUNIT);
     int PackUnit = static_cast<CPUBackend*>(b)->functions()->pack;
     int ocUp4 = ROUND_UP(biasSize, PackUnit);
+    int ocUpHp = ROUND_UP(biasSize, UNIT);
     mBias.reset(ocUp4);
     mBias.clear();
     auto biasDest = mBias.get();
@@ -66,9 +67,9 @@ IdstConvolutionInt8::IdstConvolutionInt8(const Convolution2DCommon* convOp, Back
     auto srcCount           = mSrcCount;
     std::vector<int> shape;
     shape = {1, UP_DIV(outputCount, UNIT), UP_DIV(srcCount, SRC_UNIT) * kernelCount, UNIT, SRC_UNIT};
-    mFakeBias.reset(Tensor::createDevice<float>({ocUp4}));
+    mFakeBias.reset(Tensor::createDevice<float>({ocUpHp}));
     int weightlen = shape[0] * shape[1] * shape[2] * shape[3] * shape[4];
-    int quantlen = 2 * ocUp4 * QUANT_INFO_BYTES;
+    int quantlen = 2 * ocUpHp * QUANT_INFO_BYTES;
     mWeight.reset(Tensor::createDevice<int8_t>({weightlen + quantlen}));
     mValid = b->onAcquireBuffer(mWeight.get(), Backend::STATIC);
     mValid &= b->onAcquireBuffer(mFakeBias.get(), Backend::STATIC);
@@ -199,7 +200,7 @@ ErrorCode IdstConvolutionInt8::onExecute(const std::vector<Tensor*>& inputs, con
     quanParam.srcKernelSum = fakeSrcKernleSum.data();
     std::vector<float> fakeInputScale(DST_XUNIT, 1.f);
     quanParam.inputScale = fakeInputScale.data();
-    std::vector<float> fakeWeightKernelsSum(ocC4 * PackUnit, 0.f);
+    std::vector<float> fakeWeightKernelsSum(ROUND_UP(output->channel(), UNIT__), 0.f);
     quanParam.weightKernelSum = fakeWeightKernelsSum.data();
     quanParam.inputBias = nullptr;
     quanParam.blockNum = 1;

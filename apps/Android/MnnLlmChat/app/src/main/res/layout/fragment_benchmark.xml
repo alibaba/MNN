@@ -1,0 +1,475 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="16dp"
+    tools:context=".benchmark.BenchmarkFragment">
+
+    <!-- Model Selector with enhanced style -->
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/model_selector_card"
+        style="@style/Widget.Material3.CardView.Outlined"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@drawable/list_item_background_combined"
+
+        android:clickable="true"
+        android:focusable="true">
+
+        <RelativeLayout
+            android:id="@+id/model_selector_layout"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_vertical"
+            android:paddingTop="12dp"
+            android:paddingBottom="12dp">
+
+            <com.alibaba.mnnllm.android.widgets.ModelAvatarView
+                android:id="@+id/model_avatar"
+                style="@style/Widget.Material3.CardView.Outlined"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:layout_centerVertical="true"
+                android:layout_marginStart="12dp"
+                android:layout_marginEnd="10dp"
+                app:cardBackgroundColor="@android:color/transparent"
+                app:cardCornerRadius="8dp"
+                app:strokeColor="?colorOutlineVariant" />
+
+            <TextView
+                android:id="@+id/model_selector_title"
+                style="?textAppearanceTitleSmall"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_alignTop="@+id/model_avatar"
+                android:layout_toEndOf="@id/model_avatar"
+                android:maxLines="1"
+                android:text="Select Model"
+                android:textColor="?colorOnSurface"
+                tools:text="Qwen2.5-3B-Instruct" />
+
+            <com.alibaba.mnnllm.android.widgets.TagsLayout
+                android:id="@+id/model_tags_layout"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_below="@id/model_selector_title"
+                android:layout_marginEnd="60dp"
+                android:layout_toEndOf="@id/model_avatar"
+                android:minHeight="24dp" />
+
+            <ImageView
+                android:id="@+id/model_folder_icon"
+                android:layout_width="20dp"
+                android:layout_height="20dp"
+                android:layout_below="@id/model_tags_layout"
+                android:layout_marginEnd="4dp"
+                android:layout_toEndOf="@id/model_avatar"
+                android:src="@drawable/ic_u_folder"
+                app:tint="?colorOnSurfaceVariant" />
+
+            <TextView
+                android:id="@+id/model_selector_status"
+                style="?textAppearanceBodySmall"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_below="@id/model_tags_layout"
+                android:layout_alignBaseline="@id/model_folder_icon"
+                android:layout_marginTop="2dp"
+                android:layout_toEndOf="@id/model_folder_icon"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:text="Click to select model"
+                android:textColor="?colorOnSurfaceVariant"
+                tools:text="4.5GB" />
+
+            <TextView
+                android:id="@+id/model_time_info"
+                style="?textAppearanceBodySmall"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_alignBottom="@id/model_selector_status"
+                android:layout_alignParentEnd="true"
+                android:layout_marginStart="14dp"
+                android:layout_marginTop="2dp"
+                android:layout_marginEnd="16dp"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="?colorOnSurfaceVariant"
+                android:textSize="12sp"
+                android:visibility="visible"
+                tools:text="Last chat: 2024-01-15 10:30" />
+
+            <AutoCompleteTextView
+                android:id="@+id/model_selector_autocomplete"
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:inputType="none"
+                android:visibility="gone"
+                tools:ignore="LabelFor" />
+
+            <ImageView
+                android:id="@+id/dropdown_arrow"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:layout_alignParentEnd="true"
+                android:layout_centerVertical="true"
+                android:layout_marginEnd="16dp"
+                android:src="@drawable/baseline_arrow_drop_down_24"
+                app:tint="?colorOnSurfaceVariant" />
+        </RelativeLayout>
+    </com.google.android.material.card.MaterialCardView>
+
+    <RelativeLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+        <LinearLayout
+            android:id="@+id/result_layout"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            tools:visibility="visible">
+
+            <TextView
+                android:id="@+id/testResultsTitle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="32dp"
+                android:text="@string/test_result"
+                android:textColor="?colorOnSurface"
+                android:textSize="18sp"
+                android:textStyle="bold"
+                android:visibility="invisible"
+                tools:visibility="visible" />
+
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/result_card"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:visibility="gone"
+                app:cardCornerRadius="16dp"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toBottomOf="@id/testResultsTitle"
+                tools:visibility="invisible">
+
+                <androidx.constraintlayout.widget.ConstraintLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:padding="16dp"
+                    tools:visibility="visible">
+
+                    <!-- Model and Device Info -->
+                    <TextView
+                        android:id="@+id/model_name"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="32dp"
+                        android:textColor="@color/benchmark_result_text_primary"
+                        android:textSize="24sp"
+                        android:textStyle="bold"
+                        app:layout_constraintEnd_toEndOf="parent"
+                        app:layout_constraintStart_toStartOf="parent"
+                        app:layout_constraintTop_toTopOf="parent"
+                        tools:text="InternVL2_5-1B-SFT-FULL-MNN" />
+
+                    <TextView
+                        android:id="@+id/deviceInfo"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:textColor="@color/benchmark_result_text_secondary"
+                        android:textSize="16sp"
+                        app:layout_constraintEnd_toEndOf="parent"
+                        app:layout_constraintStart_toStartOf="parent"
+                        app:layout_constraintTop_toBottomOf="@id/model_name"
+                        tools:text="Pixel 7 Pro" />
+
+                    <!-- Guideline to center the cards -->
+                    <androidx.constraintlayout.widget.Guideline
+                        android:id="@+id/guideline_center"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        app:layout_constraintGuide_percent="0.5" />
+
+                    <!-- Decode Speed Card -->
+                    <com.google.android.material.card.MaterialCardView
+                        android:id="@+id/decode_speed_card"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="32dp"
+                        android:layout_marginEnd="8dp"
+                        app:cardBackgroundColor="@color/benchmark_result_sub_card_background"
+                        app:cardCornerRadius="16dp"
+                        app:cardElevation="0dp"
+                        app:layout_constraintEnd_toStartOf="@id/guideline_center"
+                        app:layout_constraintStart_toStartOf="parent"
+                        app:layout_constraintTop_toBottomOf="@id/deviceInfo">
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:gravity="center_horizontal"
+                            android:orientation="vertical"
+                            android:padding="16dp">
+
+                            <TextView
+                                android:id="@+id/decode_processing_title"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="@string/decode_speed"
+                                android:textColor="@color/benchmark_result_text_secondary"
+                                android:textSize="14sp" />
+
+                            <TextView
+                                android:id="@+id/token_generation_value"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="8dp"
+                                android:textColor="@color/benchmark_result_text_primary"
+                                android:textSize="28sp"
+                                android:textStyle="bold"
+                                tools:text="23.4" />
+
+                            <TextView
+                                android:id="@+id/token_generation_label"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="4dp"
+                                android:textColor="@color/benchmark_result_text_secondary"
+                                android:textSize="12sp"
+                                tools:text="tokens/s ±0,5" />
+                        </LinearLayout>
+                    </com.google.android.material.card.MaterialCardView>
+
+                    <!-- Prefill Speed Card -->
+                    <com.google.android.material.card.MaterialCardView
+                        android:id="@+id/prefill_speed_card"
+                        android:layout_width="0dp"
+                        android:layout_height="0dp"
+                        android:layout_marginStart="8dp"
+                        app:cardBackgroundColor="@color/benchmark_result_sub_card_background"
+                        app:cardCornerRadius="16dp"
+                        app:cardElevation="0dp"
+                        app:layout_constraintBottom_toBottomOf="@id/decode_speed_card"
+                        app:layout_constraintEnd_toEndOf="parent"
+                        app:layout_constraintStart_toEndOf="@id/guideline_center"
+                        app:layout_constraintTop_toTopOf="@id/decode_speed_card">
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:gravity="center_horizontal"
+                            android:orientation="vertical"
+                            android:padding="16dp">
+
+                            <TextView
+                                android:id="@+id/prompt_processing_title"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="@string/prefill_speed"
+                                android:textColor="@color/benchmark_result_text_secondary"
+                                android:textSize="14sp" />
+
+                            <TextView
+                                android:id="@+id/prompt_processing_value"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="8dp"
+                                android:textColor="@color/benchmark_result_text_primary"
+                                android:textSize="28sp"
+                                android:textStyle="bold"
+                                tools:text="1.87" />
+
+                            <TextView
+                                android:id="@+id/prompt_processing_label"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="4dp"
+                                android:textColor="@color/benchmark_result_text_secondary"
+                                android:textSize="12sp"
+                                tools:text="tokens/s ±0,02" />
+                        </LinearLayout>
+                    </com.google.android.material.card.MaterialCardView>
+
+                    <!-- Memory Usage Card -->
+                    <com.google.android.material.card.MaterialCardView
+                        android:id="@+id/memory_card"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="16dp"
+                        app:cardBackgroundColor="@color/benchmark_result_sub_card_background"
+                        app:cardCornerRadius="16dp"
+                        app:cardElevation="0dp"
+                        app:layout_constraintEnd_toEndOf="parent"
+                        app:layout_constraintStart_toStartOf="parent"
+                        app:layout_constraintTop_toBottomOf="@id/decode_speed_card">
+
+                        <androidx.constraintlayout.widget.ConstraintLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:padding="16dp">
+
+                            <TextView
+                                android:id="@+id/peak_memory_label"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="@string/peak_memory"
+                                android:textColor="@color/benchmark_result_text_secondary"
+                                app:layout_constraintStart_toStartOf="parent"
+                                app:layout_constraintTop_toTopOf="parent" />
+
+                            <TextView
+                                android:id="@+id/peak_memory_value"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:textColor="@color/benchmark_result_text_primary"
+                                android:textStyle="bold"
+                                app:layout_constraintEnd_toEndOf="parent"
+                                app:layout_constraintTop_toTopOf="parent"
+                                tools:text="10.35 GB" />
+
+                            <TextView
+                                android:id="@+id/max_memory_label"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="8dp"
+                                android:text="@string/max_memory"
+                                android:textColor="@color/benchmark_result_text_secondary"
+                                app:layout_constraintStart_toStartOf="parent"
+                                app:layout_constraintTop_toBottomOf="@id/peak_memory_label" />
+
+                            <TextView
+                                android:id="@+id/max_memory_value"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:textColor="@color/benchmark_result_text_primary"
+                                android:textStyle="bold"
+                                app:layout_constraintEnd_toEndOf="parent"
+                                app:layout_constraintTop_toTopOf="@id/max_memory_label"
+                                tools:text="9,62 GB" />
+
+                            <!--                            <ProgressBar-->
+                            <!--                                android:id="@+id/memory_progress"-->
+                            <!--                                style="?android:attr/progressBarStyleHorizontal"-->
+                            <!--                                android:layout_width="0dp"-->
+                            <!--                                android:layout_height="8dp"-->
+                            <!--                                android:layout_marginTop="16dp"-->
+                            <!--                                android:progress="80"-->
+                            <!--                                android:progressDrawable="@drawable/progress_m2_style"-->
+                            <!--                                app:layout_constraintEnd_toEndOf="parent"-->
+                            <!--                                app:layout_constraintStart_toStartOf="parent"-->
+                            <!--                                app:layout_constraintTop_toBottomOf="@id/peak_memory_label" />-->
+
+                        </androidx.constraintlayout.widget.ConstraintLayout>
+                    </com.google.android.material.card.MaterialCardView>
+
+                    <TextView
+                        android:id="@+id/timestamp"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="16dp"
+                        android:gravity="end"
+                        android:text="2025/6/24 14:52:10"
+                        android:textColor="@color/benchmark_result_text_secondary"
+                        android:textSize="12sp"
+                        app:layout_constraintTop_toBottomOf="@id/memory_card" />
+                </androidx.constraintlayout.widget.ConstraintLayout>
+
+            </com.google.android.material.card.MaterialCardView>
+        </LinearLayout>
+
+        <FrameLayout
+            android:id="@+id/icon_benchmark_parent"
+            android:layout_width="280dp"
+            android:layout_height="280dp"
+            android:layout_centerHorizontal="true"
+            android:layout_marginTop="100dp"
+            tools:visibility="gone">
+
+            <ImageView
+                android:id="@+id/icon_benchmark"
+                android:layout_width="180dp"
+                android:layout_height="180dp"
+                android:layout_gravity="center"
+                app:srcCompat="@drawable/icon_benchmark"
+                tools:visibility="visible" />
+
+            <ProgressBar
+                android:id="@+id/benchmark_progress_bar"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:max="100"
+                android:progressDrawable="@drawable/custom_circular_progress"
+                tools:progress="99"
+                tools:visibility="invisible" />
+        </FrameLayout>
+
+    </RelativeLayout>
+
+    <com.google.android.material.textview.MaterialTextView
+        android:id="@+id/textStatus"
+        style="?textAppearanceBodyLarge"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="30dp"
+        android:gravity="center"
+        android:text="@string/select_a_model_to_start"
+        android:textSize="16sp"
+        android:visibility="visible"
+        tools:visibility="visible" />
+    <!-- Button layout container -->
+    <LinearLayout
+        android:id="@+id/button_container"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="24dp"
+        android:gravity="center"
+        android:layout_marginBottom="20dp"
+        android:orientation="horizontal">
+
+        <!-- Back button (only visible in result state) -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/back_button"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="8dp"
+            android:layout_weight="1"
+            android:paddingTop="12dp"
+            android:paddingBottom="12dp"
+            android:text="@string/back"
+            android:textAllCaps="false"
+            android:textColor="?colorOnSurface"
+            android:textSize="16sp"
+            android:visibility="gone"
+            app:cornerRadius="24dp"
+            tools:visibility="gone" />
+
+        <!-- Main test button -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/start_test_button"
+            style="@style/Widget.Material3.Button"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:paddingTop="12dp"
+            android:paddingBottom="12dp"
+            android:text="@string/start_test"
+            android:textAllCaps="false"
+            android:textSize="16sp"
+            app:cornerRadius="24dp"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent" />
+
+    </LinearLayout>
+
+</LinearLayout>

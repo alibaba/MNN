@@ -216,8 +216,9 @@ public:
         // Geometry Compute option, default is 0xFFFF
         GEOMETRY_COMPUTE_MASK = 4,
 
-        // 0: Close dynamic quant; 
+        // default 0
         // 1: For general convolution, use one scale&zeropoint to quant.
+        // 2: use block-quant for input data.
         DYNAMIC_QUANT_OPTIONS = 5,
 
         // For Mobile CPU with big-litter core, set decrease rate to let MNN divide task differential by CPU's performance
@@ -245,7 +246,13 @@ public:
         USE_CACHED_MMAP = 12,
         
         // Multi-Thread Load module, default is 0 (don't use other Thread)
-        INIT_THREAD_NUMBER = 13
+        INIT_THREAD_NUMBER = 13,
+
+        // Used CPU ids
+        CPU_CORE_IDS = 14,
+
+        // set CPU threads to use when supports Arm sme2
+        CPU_SME2_INSTRUCTIONS = 15
     };
 
     enum ExternalPathType {
@@ -280,10 +287,12 @@ public:
 
     /**
      * @brief The API shoud be called before create session.
-     * @param mode      Hint type
+     * @param hint      Hint type
      * @param value     Hint value
+     * @param size      Hint value size(when use a ptr)
      */
-    void setSessionHint(HintMode mode, int value);
+    void setSessionHint(HintMode hint, int value);
+    void setSessionHint(HintMode hint, int* value, size_t size);
 public:
     /**
      * @brief create runtimeInfo separately with schedule config.

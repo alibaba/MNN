@@ -33,5 +33,5 @@
         android:layout_centerHorizontal="true"
         android:layout_marginTop="10dp"
         android:textColor="?colorOnSurface"
-        tools:text="照片" />
+        tools:text="@string/photo_hint" />
 </merge>

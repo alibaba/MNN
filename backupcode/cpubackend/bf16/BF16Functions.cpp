@@ -159,7 +159,8 @@ void MNNPackC4ForMatMul_A_BF16(float* destOrigin, float const** sourceGroup, con
     return;
 }
 
-void MNNPackForMatMul_B_BF16(float* dest, const float* source, size_t h, size_t l, bool transpose) {
+void MNNPackForMatMul_B_BF16(float* dest, const float* source, size_t h, size_t kernelsize, size_t ic, bool transpose) {
+    auto l = kernelsize * ic;
     auto hP = h / 4;
     auto hR = hP * 4;
     if (hR != h) {

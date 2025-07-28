@@ -673,14 +673,12 @@ struct LoopControlTemplateToken : public TemplateToken {
                         } else {
                             index = std::move(start);
                         }
-                        if (!index) {
-                            MNN_ERROR("Empty index in subscript");
-                        }
                         if (consumeToken("]").empty()) {
                             MNN_ERROR("Expected closing bracket in subscript");
                         }
-
-                        value = std::make_shared<SubscriptExpr>(value->location, std::move(value), std::move(index));
+                        if (index != nullptr) {
+                            value = std::make_shared<SubscriptExpr>(value->location, std::move(value), std::move(index));
+                        }
                     } else if (!consumeToken(".").empty()) {
                         auto identifier = parseIdentifier();
                         if (!identifier) _printlog("Expected identifier in subscript");

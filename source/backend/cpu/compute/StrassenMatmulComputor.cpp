@@ -78,11 +78,11 @@ ErrorCode StrassenMatrixComputor::_generateTrivalMatMul(int e, int l, int h, con
     auto matmulUnit = core->MNNPackedMatMul;
     auto matmulRemain = core->MNNPackedMatMulRemain;
     mFunctions.emplace_back(
-        std::make_pair([cStride, l, h, xCount, AT, BT, CT, COT, tileBufferBasic, unitNumber, bExtraStride, numberThread, eReal, eP, active, matmulUnit, matmulRemain, this](int tId) {
+        std::make_pair([cStride, l, h, xCount, AT, BT, CT, COT, tileBufferBasic, unitNumber, bExtraStride, numberThread, eReal, eP, lP, active, matmulUnit, matmulRemain, this](int tId) {
             auto core = static_cast<CPUBackend*>(backend())->functions();
             size_t parameters[7];
             parameters[0] = xCount * core->bytes;
-            parameters[1] = l;
+            parameters[1] = ROUND_UP(l, lP);
             parameters[2] = h;
             parameters[3] = cStride;
             parameters[4] = 0;

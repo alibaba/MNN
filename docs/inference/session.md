@@ -181,7 +181,10 @@ struct BackendConfig {
     PrecisionMode precision = Precision_Normal;
     
     /** user defined context */
-    void* sharedContext = nullptr;
+    union {
+        void* sharedContext = nullptr;
+        size_t flags; // Valid for CPU Backend
+    };
 };
 ```
 
