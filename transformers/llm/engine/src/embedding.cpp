@@ -21,6 +21,14 @@ float Embedding::dist(VARP var0, VARP var1) {
     return dist;
 }
 
+float Embedding::cos_sim(VARP var0, VARP var1) {
+    auto innerProd = _ReduceSum(_Multiply(var0, var1))->readMap<float>()[0];
+    auto len0 = _Sqrt(_ReduceSum(_Square(var0)))->readMap<float>()[0];
+    auto len1 = _Sqrt(_ReduceSum(_Square(var1)))->readMap<float>()[0];
+    auto sim  = innerProd / (len0 * len1);
+    return sim;
+}
+
 Embedding* Embedding::createEmbedding(const std::string& config_path, bool load) {
     std::shared_ptr<LlmConfig> config(new LlmConfig(config_path));
     Embedding* embedding = new Embedding(config);

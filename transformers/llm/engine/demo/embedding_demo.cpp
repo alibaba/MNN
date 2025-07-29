@@ -96,5 +96,8 @@ int main(int argc, const char* argv[]) {
     printf("dist_0_1: %f\n", Embedding::dist(vec_0, vec_1));
     printf("dist_0_2: %f\n", Embedding::dist(vec_0, vec_2));
     printf("dist_1_2: %f\n", Embedding::dist(vec_1, vec_2));
+    printf("cos_sim_0_1: %f\n", Embedding::cos_sim(vec_0, vec_1));
+    printf("cos_sim_0_2: %f\n", Embedding::cos_sim(vec_0, vec_2));
+    printf("cos_sim_1_2: %f\n", Embedding::cos_sim(vec_1, vec_2));
     return 0;
 }

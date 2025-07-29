@@ -165,6 +165,7 @@ public:
     Embedding(std::shared_ptr<LlmConfig> config);
     static Embedding* createEmbedding(const std::string& config_path, bool load = true);
     static float dist(Express::VARP var0, Express::VARP var1);
+    static float cos_sim(Express::VARP var0, Express::VARP var1);
     virtual void load() override;
     Express::VARP ids_embedding(const std::vector<int>& ids);
     Express::VARP txt_embedding(const std::string& txt);
