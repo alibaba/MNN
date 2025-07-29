@@ -63,19 +63,33 @@ class ChatHistoryDatabase {
                 for msg in message.attachments {
                     if msg.type == .image {
                         var imageUrl = msg.full
+                        
+                        print("Processing image attachment: \(imageUrl.path)")
 
                         guard let copiedImage = ChatHistoryFileManager.shared.copyFile(from: imageUrl, for: historyId) else {
+                            print("Failed to copy image file: \(imageUrl.path)")
                             continue
                         }
                         
                         imageUrl = copiedImage
+                        print("Image copied to: \(imageUrl.path)")
                         
                         if imageUrl.isHEICImage() {
-                            guard let jpgUrl = AssetExtractor.convertHEICToJPG(heicUrl: imageUrl) else { continue }
+                            guard let jpgUrl = AssetExtractor.convertHEICToJPG(heicUrl: imageUrl) else { 
+                                print("Failed to convert HEIC to JPG: \(imageUrl.path)")
+                                continue 
+                            }
                             imageUrl = jpgUrl
+                            print("HEIC converted to JPG: \(imageUrl.path)")
                         }
                         
-                        copiedImages.append(LLMChatImage.init(id: msg.id, thumbnail: imageUrl, full: imageUrl))
+                        // 验证最终文件是否存在
+                        if ChatHistoryFileManager.shared.validateFileExists(at: imageUrl) {
+                            copiedImages.append(LLMChatImage.init(id: msg.id, thumbnail: imageUrl, full: imageUrl))
+                            print("Image successfully saved for history: \(imageUrl.path)")
+                        } else {
+                            print("Final image file validation failed: \(imageUrl.path)")
+                        }
                     }
                 }
                 
@@ -124,7 +138,10 @@ class ChatHistoryDatabase {
         do {
             for history in try db.prepare(chatHistories) {
                 let messagesData = history[messages].data(using: .utf8)!
-                let historyMessages = try JSONDecoder().decode([HistoryMessage].self, from: messagesData)
+                var historyMessages = try JSONDecoder().decode([HistoryMessage].self, from: messagesData)
+                
+                // 验证并修复图片路径
+                historyMessages = validateAndFixImagePaths(historyMessages, historyId: history[id])
                 
                 let chatHistory = ChatHistory(
                     id: history[id],
@@ -144,6 +161,41 @@ class ChatHistoryDatabase {
         return histories
     }
     
+    // 验证并修复历史消息中的图片路径
+    private func validateAndFixImagePaths(_ messages: [HistoryMessage], historyId: String) -> [HistoryMessage] {
+        return messages.map { message in
+            var updatedMessage = message
+            
+            if let images = message.images {
+                let validImages = images.compactMap { image -> LLMChatImage? in
+                    // 检查图片文件是否存在
+                    if ChatHistoryFileManager.shared.validateFileExists(at: image.full) {
+                        return image
+                    } else {
+                        // 尝试通过文件名重新构建路径
+                        let fileName = image.full.lastPathComponent
+                        if let validURL = ChatHistoryFileManager.shared.getValidFileURL(for: fileName, historyId: historyId) {
+                            return LLMChatImage(id: image.id, thumbnail: validURL, full: validURL)
+                        } else {
+                            print("Image file not found and cannot be recovered: \(image.full.path)")
+                            return nil
+                        }
+                    }
+                }
+                updatedMessage = HistoryMessage(
+                    id: message.id,
+                    content: message.content,
+                    images: validImages.isEmpty ? nil : validImages,
+                    audio: message.audio,
+                    isUser: message.isUser,
+                    createdAt: message.createdAt
+                )
+            }
+            
+            return updatedMessage
+        }
+    }
+    
     func deleteHistory(_ history: ChatHistory) {
         do {
             try db.run(chatHistories.filter(id == history.id).delete())
@@ -152,4 +204,4 @@ class ChatHistoryDatabase {
             print("Failed to delete history: \(error)")
         }
     }
-} 
+}
