@@ -1292,6 +1292,16 @@
     },
     "Yes" : {
 
+    },
+    "搜索本地模型..." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Search local models …"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

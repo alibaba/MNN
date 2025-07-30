@@ -9,10 +9,25 @@ import SwiftUI
 
 struct LocalModelListView: View {
     @ObservedObject var viewModel: ModelListViewModel
+    @State private var localSearchText = ""
+    
+    private var filteredLocalModels: [ModelInfo] {
+        let downloadedModels = viewModel.models.filter { $0.isDownloaded }
+        
+        if localSearchText.isEmpty {
+            return downloadedModels
+        } else {
+            return downloadedModels.filter { model in
+                model.id.localizedCaseInsensitiveContains(localSearchText) ||
+                model.modelName.localizedCaseInsensitiveContains(localSearchText) ||
+                model.localizedTags.contains { $0.localizedCaseInsensitiveContains(localSearchText) }
+            }
+        }
+    }
     
     var body: some View {
         List {
-            ForEach(viewModel.filteredModels.filter { $0.isDownloaded }, id: \.id) { model in
+            ForEach(filteredLocalModels, id: \.id) { model in
                 Button(action: {
                     viewModel.selectModel(model)
                 }) {
@@ -25,6 +40,7 @@ struct LocalModelListView: View {
             }
         }
         .listStyle(.plain)
+        .searchable(text: $localSearchText, prompt: "搜索本地模型...")
         .refreshable {
             await viewModel.fetchModels()
         }

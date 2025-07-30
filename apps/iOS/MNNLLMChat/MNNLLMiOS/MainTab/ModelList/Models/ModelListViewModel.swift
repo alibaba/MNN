@@ -11,7 +11,6 @@ import SwiftUI
 class ModelListViewModel: ObservableObject {
     // MARK: - Published Properties
     @Published var models: [ModelInfo] = []
-    @Published var searchText = ""
     @Published var quickFilterTags: [String] = []
     @Published var selectedModel: ModelInfo?
     @Published var showError = false
@@ -42,19 +41,6 @@ class ModelListViewModel: ObservableObject {
     
     var allVendors: [String] {
         Array(Set(models.compactMap { $0.vendor }))
-    }
-    
-    var filteredModels: [ModelInfo] {
-        let filtered = searchText.isEmpty ? models : models.filter { model in
-            model.id.localizedCaseInsensitiveContains(searchText) ||
-            model.modelName.localizedCaseInsensitiveContains(searchText) ||
-            model.localizedTags.contains { $0.localizedCaseInsensitiveContains(searchText) }
-        }
-        
-        let downloaded = filtered.filter { $0.isDownloaded }
-        let notDownloaded = filtered.filter { !$0.isDownloaded }
-        
-        return downloaded + notDownloaded
     }
     
     // MARK: - Initialization
