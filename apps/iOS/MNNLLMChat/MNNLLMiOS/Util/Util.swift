@@ -155,7 +155,7 @@ extension Date {
             return "Just now"
         }
         
-        if result.contains("秒钟前") {
+        if result.contains("秒钟") {
             return "刚刚"
         }
         
