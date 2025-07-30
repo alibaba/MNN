@@ -74,6 +74,11 @@ final class LLMChatViewModel: ObservableObject {
     
     deinit {
         print("yxy:: LLMChat View Model deinit")
+        
+        llm?.cancelInference()
+        llm = nil
+        diffusion = nil
+        print("yxy:: LLMChat View Model cleanup complete")
     }
     
     func setupLLM(modelPath: String) {
@@ -342,6 +347,9 @@ final class LLMChatViewModel: ObservableObject {
         )
         
         interactor.disconnect()
+        
+        llm?.cancelInference()
+        
         llm = nil
         
         FileOperationManager.shared.cleanTempDirectories()
