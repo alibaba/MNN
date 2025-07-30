@@ -13,8 +13,8 @@ struct ChatHistoryItemView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             
-            if let firstMessage = history.messages.last {
-                Text(String(firstMessage.content.prefix(200)))
+            if let lastMessage = getLastNonEmptyMessage() {
+                Text(String(lastMessage.content.prefix(200)))
                     .lineLimit(1)
                     .font(.system(size: 15, weight: .medium))
                     .foregroundColor(.primary)
@@ -41,5 +41,14 @@ struct ChatHistoryItemView: View {
         }
         .padding(.vertical, 10)
         .padding(.horizontal, 0)
+    }
+    
+    private func getLastNonEmptyMessage() -> HistoryMessage? {
+        for message in history.messages.reversed() {
+            if !message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return message
+            }
+        }
+        return nil
     }
 }
