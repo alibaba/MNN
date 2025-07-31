@@ -153,6 +153,9 @@ final class LLMChatViewModel: ObservableObject {
     }
     
     func sendToLLM(draft: DraftMessage) {
+        // 立即隐藏键盘，避免键盘闪现
+        NotificationCenter.default.post(name: .dismissKeyboard, object: nil)
+        
         self.send(draft: draft, userType: .user)
         if isModelLoaded {
             if modelInfo.modelName.lowercased().contains("diffusion") {
@@ -263,6 +266,10 @@ final class LLMChatViewModel: ObservableObject {
                         await MainActor.run {
                             self.isProcessing = false
                             self.currentStreamingMessageId = nil
+                            
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                NotificationCenter.default.post(name: .dismissKeyboard, object: nil)
+                            }
                         }
                         await self.llmState.setProcessing(false)
                     }
