@@ -83,7 +83,9 @@ struct LLMChatView: View {
         .disabled(viewModel.chatInputUnavilable)
         .toolbar {
             ToolbarItem(placement: .navigationBarLeading) {
-                Button { presentationMode.wrappedValue.dismiss() } label: {
+                Button { 
+                    presentationMode.wrappedValue.dismiss() 
+                } label: {
                     Image("backArrow", bundle: .current)
                 }
             }

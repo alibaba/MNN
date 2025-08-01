@@ -670,12 +670,21 @@ bool remove_directory_safely(const std::string& path) {
     
     _isProcessing = true;
     
+    // Store reference for block execution
+    LLMInferenceEngineWrapper *blockSelf = self;
+    
     // Use high priority queue for better responsiveness
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
+        // Check if object is still valid before proceeding
+        if (!blockSelf || !blockSelf->_llm) {
+            NSLog(@"LLMInferenceEngineWrapper was deallocated or model unloaded during inference");
+            return;
+        }
+        
         @try {
             auto inference_start_time = std::chrono::high_resolution_clock::now();
             
-            OptimizedLlmStreamBuffer::CallBack callback = [output, self](const char* str, size_t len) {
+            OptimizedLlmStreamBuffer::CallBack callback = [output](const char* str, size_t len) {
                 if (output && str && len > 0) {
                     @autoreleasepool {
                         NSString *nsOutput = [[NSString alloc] initWithBytes:str
@@ -695,45 +704,45 @@ bool remove_directory_safely(const std::string& path) {
             
             // Thread-safe history management
             {
-                std::lock_guard<std::mutex> lock(self->_historyMutex);
-                self->_history.emplace_back(ChatMessage("user", [input UTF8String]));
+                std::lock_guard<std::mutex> lock(blockSelf->_historyMutex);
+                blockSelf->_history.emplace_back(ChatMessage("user", [input UTF8String]));
             }
             
             std::string inputStr = [input UTF8String];
             if (inputStr == "benchmark") {
-                [self performBenchmarkWithOutput:&os];
+                [blockSelf performBenchmarkWithOutput:&os];
             } else {
                 // Get initial context state for performance measurement
-                auto context = self->_llm->getContext();
+                auto context = blockSelf->_llm->getContext();
                 int initial_prompt_len = context->prompt_len;
                 int initial_decode_len = context->gen_seq_len;
                 int64_t initial_prefill_time = context->prefill_us;
                 int64_t initial_decode_time = context->decode_us;
                 
                 // Reset stop flag before starting inference
-                self->_shouldStopInference = false;
+                blockSelf->_shouldStopInference = false;
                 
                 // Execute inference with enhanced stopped status checking
                 @try {
                     // Debug information for prompt
                     std::string prompt_debug = "";
-                    for (const auto& msg : self->_history) {
+                    for (const auto& msg : blockSelf->_history) {
                         prompt_debug += msg.first + ": " + msg.second + "\n";
                     }
                     NSLog(@"submitNative prompt_string_for_debug:\n%s\nmax_new_tokens_: %d", prompt_debug.c_str(), 999999);
                     
                     // Start inference with initial response processing
-                    self->_llm->response(self->_history, &os, "<eop>", 1);
+                    blockSelf->_llm->response(blockSelf->_history, &os, "<eop>", 1);
                     int current_size = 1;
                     int max_new_tokens = 999999;
                     
                     // Continue generation with precise token-by-token control
-                    while (!self->_shouldStopInference.load() && 
-                           !self->_llm->stoped() && 
+                    while (!blockSelf->_shouldStopInference.load() && 
+                           !blockSelf->_llm->stoped() &&
                            current_size < max_new_tokens) {
                         
                         // Generate single token for maximum control
-                        self->_llm->generate(1);
+                        blockSelf->_llm->generate(1);
                         current_size++;
                         
                         // Small delay to allow UI updates and stop signal processing
@@ -743,7 +752,7 @@ bool remove_directory_safely(const std::string& path) {
                     // Send appropriate end signal based on stop reason
                     if (output) {
                         dispatch_async(dispatch_get_main_queue(), ^{
-                            if (self->_shouldStopInference.load()) {
+                            if (blockSelf->_shouldStopInference.load()) {
                                 output(@"<stopped>");
                             } else {
                                 output(@"<eop>");
@@ -753,8 +762,8 @@ bool remove_directory_safely(const std::string& path) {
                     
                     NSLog(@"Inference completed. Generated tokens: %d, Stopped by user: %s, Model stopped: %s", 
                           current_size, 
-                          self->_shouldStopInference.load() ? "YES" : "NO",
-                          self->_llm->stoped() ? "YES" : "NO");
+                          blockSelf->_shouldStopInference.load() ? "YES" : "NO",
+                          blockSelf->_llm->stoped() ? "YES" : "NO");
                     
                 } @catch (NSException *exception) {
                     NSLog(@"Exception during response generation: %@", exception.reason);
@@ -822,7 +831,7 @@ bool remove_directory_safely(const std::string& path) {
             }
         }
         @finally {
-            self->_isProcessing = false;
+            blockSelf->_isProcessing = false;
         }
     });
 }
