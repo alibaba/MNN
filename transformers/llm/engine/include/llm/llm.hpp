@@ -168,7 +168,7 @@ public:
     static float cos_sim(Express::VARP var0, Express::VARP var1);
     virtual void load() override;
     Express::VARP ids_embedding(const std::vector<int>& ids);
-    Express::VARP txt_embedding(const std::string& txt);
+    Express::VARP txt_embedding(const std::string& txt, int embed_dim=-1);
     int dim() const;
     virtual Express::VARP gen_attention_mask(int seq_len) override;
     virtual Express::VARP gen_position_ids(int seq_len) override;
