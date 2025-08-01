@@ -153,7 +153,8 @@ void _SSE_GemmPostTreat(float* C, size_t eSize, const size_t* parameter, const f
     }
 }
 
-void _SSE_MNNPackForMatMul_B(float* dest, const float* source, size_t h, size_t l, bool transpose) {
+void _SSE_MNNPackForMatMul_B(float* dest, const float* source, size_t h, size_t kernelsize, size_t ic, bool transpose) {
+    auto l = kernelsize * ic;
     int offset[2] = {
         (int)l,
         (int)l
@@ -165,7 +166,8 @@ void _SSE_MNNPackForMatMul_B(float* dest, const float* source, size_t h, size_t 
     MNNPackC4(dest, source, l, h, offset);
 }
 
-void _SSE_MNNPackForMatMul_B_BF16(float* dest, const float* source, size_t h, size_t l, bool transpose) {
+void _SSE_MNNPackForMatMul_B_BF16(float* dest, const float* source, size_t h, size_t kernelsize, size_t ic, bool transpose) {
+    auto l = kernelsize * ic;
     int offset[] = {
         (int)l,
         (int)l

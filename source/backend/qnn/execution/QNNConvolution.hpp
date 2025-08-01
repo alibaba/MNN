@@ -19,9 +19,10 @@ class QNNConvolution : public QNNCommonExecution {
 public:
     QNNConvolution(Backend *backend, const Op *op) : QNNCommonExecution(backend, op) {}
     virtual ErrorCode onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+    ErrorCode onEncodeQuant(Tensor * input, Tensor * output, int n, int h, int w, int ic, int oc, std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon);
 
 private:
-    void createWeight(Qnn_DataType_t dataType, int oc, int ic, int kernelH, int kernelW, int group);
+    void createWeight(Qnn_DataType_t dataType, int oc, int ic, int kernelH, int kernelW, int group, const float * source);
     void createBias(Qnn_DataType_t dataType, int oc);
     void convertWeight(const float * src, float * dst, int oc, int ic, int kernelH, int kernelW);
 };

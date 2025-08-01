@@ -81,8 +81,12 @@ sub \rg0, \rg0, \rg1
 .endm
 
 .macro REVERT_WEIGHT_KERNEL_SUM rg0, rg1, rg2, rg3
-mul \rg1, \rg2, \rg3 // blocknum * ocUp4 * sizeof(float)
-sub \rg0, \rg0, \rg1, LSL #4 // revert weight kernel sum
+// y=UP_DIV(ocDiv4,(hp/pack))
+add \rg1, \rg3, #1
+lsr \rg1, \rg1, #1
+// blockNum * y * (hp * sizeof(float))
+mul \rg1, \rg2, \rg1
+sub \rg0, \rg0, \rg1, LSL #5 // revert weight kernel sum
 .endm
 
 asm_function MNNGemmInt8AddBiasScale_ARMV86_w4_Unit
@@ -424,14 +428,16 @@ L4_LoopSz_TILE_10:
     scvtf v9.4s, v9.4s
 
 L4_Tile10Quan:
-    ld1 {v20.4s}, [x2], #16  // weight scale
+    ld1 {v20.4s}, [x2]  // weight scale
+    add x2, x2, #32
     ld1 {v22.4s, v23.4s}, [x8], #32 // x kernel sum
     ld1 {v24.d}[0], [x8], #8
-    ld1 {v25.4s}, [x2], #16 // weight quan zeropoint
+    ld1 {v25.4s}, [x2] // weight quan zeropoint
     MUL_SCALE v20, v0, v1, v2, v3
     MUL_SCALE v20, v4, v5, v6, v7
     fmul v8.4s, v8.4s, v20.4s
     fmul v9.4s, v9.4s, v20.4s
+    add x2, x2, #32
 
     ld1 {v27.4s, v28.4s}, [x23], #32 // input dequant scale
     ld1 {v29.d}[0], [x23], x24
@@ -455,7 +461,7 @@ L4_Tile10Quan:
     cbz x27, L4_TILE10_ADD_DSTV
     ld1 {v22.4s, v23.4s}, [x27], #32 // input dequant bias
     ld1 {v24.2s}, [x27], #8
-    ld1 {v25.4s}, [x28], #16 // weight kernel sum
+    ld1 {v25.4s}, [x28] // weight kernel sum
     MLA_WEIGHTZERO v0, v22, v25, 0 // tile:0, oc:0-3
     MLA_WEIGHTZERO v1, v22, v25, 1 // tile:1, oc:0-3
     MLA_WEIGHTZERO v2, v22, v25, 2 // tile:2, oc:0-3
@@ -466,6 +472,7 @@ L4_Tile10Quan:
     MLA_WEIGHTZERO v7, v23, v25, 3 // tile:7, oc:0-3
     MLA_WEIGHTZERO v8, v24, v25, 0 // tile:8, oc:0-3
     MLA_WEIGHTZERO v9, v24, v25, 1 // tile:9, oc:0-3
+    add x28, x28, #32
 
     L4_TILE10_ADD_DSTV:
     cbz x19, L4_TILE10_TEMP_BUFFER
@@ -756,9 +763,11 @@ L4_LoopSz_TILE_8:
     Int32ToFloat v4, v5, v6, v7
 
 L4_Tile8Quan:
-    ld1 {v20.4s}, [x12], #16 // scale
+    ld1 {v20.4s}, [x12] // scale
+    add x12, x12, #32
     ld1 {v22.4s, v23.4s}, [x8] // x kernel sum
-    ld1 {v25.4s}, [x12], #16 // weight quan zeropoint
+    ld1 {v25.4s}, [x12] // weight quan zeropoint
+    add x12, x12, #32
     add x8, x8, x22, LSR #1
     MUL_SCALE v20, v0, v1, v2, v3
     MUL_SCALE v20, v4, v5, v6, v7
@@ -779,7 +788,7 @@ L4_Tile8Quan:
 
     cbz x27, L4_TILE8_ADD_DSTV
     ld1 {v22.4s, v23.4s}, [x27], x25 // input dequant bias
-    ld1 {v25.4s}, [x28], #16 // weight kernel sum
+    ld1 {v25.4s}, [x28] // weight kernel sum
     MLA_WEIGHTZERO v0, v22, v25, 0
     MLA_WEIGHTZERO v1, v22, v25, 1
     MLA_WEIGHTZERO v2, v22, v25, 2
@@ -788,6 +797,7 @@ L4_Tile8Quan:
     MLA_WEIGHTZERO v5, v23, v25, 1
     MLA_WEIGHTZERO v6, v23, v25, 2
     MLA_WEIGHTZERO v7, v23, v25, 3
+    add x28, x28, #32
 
     L4_TILE8_ADD_DSTV:
     cbz x19, L4_TILE8_TEMP_BUFFER
@@ -991,9 +1001,11 @@ L4_LoopSz_TILE_4:
     Int32ToFloat v0, v1, v2, v3
 
 L4_Tile4Quan:
-    ld1 {v20.4s}, [x12], #16  // scale
+    ld1 {v20.4s}, [x12]  // scale
+    add x12, x12, #32
     ld1 {v22.4s}, [x8] // x kernel sum
-    ld1 {v25.4s}, [x12], #16 // weight quan zeropoint
+    ld1 {v25.4s}, [x12] // weight quan zeropoint
+    add x12, x12, #32
     MUL_SCALE v20, v0, v1, v2, v3
     add x8, x8, x22, LSR #1
 
@@ -1008,11 +1020,12 @@ L4_Tile4Quan:
 
     cbz x27, L4_TILE4_ADD_DSTV
     ld1 {v22.4s}, [x27], x25 // input dequant bias
-    ld1 {v25.4s}, [x28], #16 // weight kernel sum
+    ld1 {v25.4s}, [x28] // weight kernel sum
     MLA_WEIGHTZERO v0, v22, v25, 0 // tile:0, oc:0-3
     MLA_WEIGHTZERO v1, v22, v25, 1 // tile:1, oc:0-3
     MLA_WEIGHTZERO v2, v22, v25, 2 // tile:2, oc:0-3
     MLA_WEIGHTZERO v3, v22, v25, 3 // tile:3, oc:0-3
+    add x28, x28, #32
 
     L4_TILE4_ADD_DSTV:
     cbz x19, L4_TILE4_ACCUM_BUFFER
@@ -1180,15 +1193,17 @@ L4_LoopSz_TILE_2:
     scvtf v1.4s, v1.4s
 
 L4_Tile2Quan:
-    ld1 {v20.4s}, [x12], #16  // scale
+    ld1 {v20.4s}, [x12]  // scale
     ld1 {v22.d}[0], [x8] // x kernel sum
-    ld1 {v25.4s}, [x12], #16 // weight quan zeropoint
+    add x12, x12, #32
+    ld1 {v25.4s}, [x12] // weight quan zeropoint
     fmul v0.4s, v0.4s, v20.4s
     fmul v1.4s, v1.4s, v20.4s
     add x8, x8, x22, LSR #1
     ld1 {v27.d}[0], [x23], x25
     fmul v0.4s, v0.4s, v27.s[0]
     fmul v1.4s, v1.4s, v27.s[1]
+    add x12, x12, #32
 
     L4_TILE2_MLA:
     MLA_WEIGHTZERO v0, v22, v25, 0 // tile:0, oc:0-3
@@ -1196,9 +1211,10 @@ L4_Tile2Quan:
 
     cbz x27, L4_TILE2_ADD_DSTV
     ld1 {v22.2s}, [x27], x25 // input dequant bias
-    ld1 {v25.4s}, [x28], #16 // weight kernel sum
+    ld1 {v25.4s}, [x28] // weight kernel sum
     MLA_WEIGHTZERO v0, v22, v25, 0 // tile:0, oc:0-3
     MLA_WEIGHTZERO v1, v22, v25, 1 // tile:1, oc:0-3
+    add x28, x28, #32
 
     L4_TILE2_ADD_DSTV:
     cbz x19, L4_TILE2_ACCUM_BUFFER
@@ -1460,11 +1476,13 @@ L4_LoopSzEnd_TILE_1:
     scvtf v25.4s, v25.4s
 
 L4_Tile1Quan:
-    ld1 {v0.4s}, [x12], #16  // scale
+    ld1 {v0.4s}, [x12]  // scale
+    add x12, x12, #32   // hp*sizeof(float)
     ld1 {v6.s}[0], [x8] // x kernel sum
-    ld1 {v8.4s}, [x12], #16 // weight quan zeropoint
+    ld1 {v8.4s}, [x12] // weight quan zeropoint
     fmul v25.4s, v25.4s, v0.4s
     add x8, x8, x22, LSR #1
+    add x12, x12, #32
 
     ld1 {v10.s}[0], [x23], x25
     fmul v25.4s, v25.4s, v10.s[0]
@@ -1474,8 +1492,9 @@ L4_Tile1Quan:
 
     cbz x27, L4_TILE1_ADD_DSTV
     ld1 {v6.s}[0], [x27], x25 // input dequant bias
-    ld1 {v8.4s}, [x28], #16 // weight kernel sum
+    ld1 {v8.4s}, [x28] // weight kernel sum
     MLA_WEIGHTZERO v25, v6, v8, 0 // tile:0, oc:0-3
+    add x28, x28, #32
 
     L4_TILE1_ADD_DSTV:
     cbz x19, L4_TILE1_ACCUM_BUFFER

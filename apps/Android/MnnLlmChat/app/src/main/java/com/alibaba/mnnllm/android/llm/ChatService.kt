@@ -4,10 +4,53 @@ package com.alibaba.mnnllm.android.llm
 
 import android.text.TextUtils
 import com.alibaba.mnnllm.android.chat.model.ChatDataItem
+import com.alibaba.mnnllm.android.model.ModelUtils
 
 class ChatService {
     private val transformerSessionMap: MutableMap<String, ChatSession> = HashMap()
     private val diffusionSessionMap: MutableMap<String, ChatSession> = HashMap()
+
+    /**
+     * Unified method to create a session for any model type
+     * @param modelId The model ID
+     * @param modelName The model name (used for type detection)
+     * @param sessionIdParam Optional session ID, will generate new one if null/empty
+     * @param chatDataItemList Optional chat history data
+     * @param configPath Configuration file path for LLM models, or diffusion directory for diffusion models
+     * @param useNewConfig If true, ignore existing config and use provided configPath. If false, may reuse existing session config
+     */
+    @Synchronized
+    fun createSession(
+        modelId: String,
+        modelName: String,
+        sessionIdParam: String?,
+        historyList: List<ChatDataItem>?,
+        configPath: String?,
+        useNewConfig: Boolean = false
+    ): ChatSession {
+        val sessionId = if (TextUtils.isEmpty(sessionIdParam)) {
+            System.currentTimeMillis().toString()
+        } else {
+            sessionIdParam!!
+        }
+        
+        val session = if (ModelUtils.isDiffusionModel(modelName)) {
+            DiffusionSession(sessionId, configPath!!, historyList)
+        } else {
+            val llmSession = LlmSession(modelId, sessionId, configPath!!, historyList)
+            llmSession.supportOmni = ModelUtils.isOmni(modelName)
+            llmSession
+        }
+        
+        // Store in appropriate map
+        if (session is LlmSession) {
+            transformerSessionMap[sessionId] = session
+        } else {
+            diffusionSessionMap[sessionId] = session
+        }
+        
+        return session
+    }
 
     @Synchronized
     fun createLlmSession(
@@ -40,7 +83,7 @@ class ChatService {
         } else {
             sessionIdParam!!
         }
-        val session = DiffusionSession( sessionId, modelDir!!)
+        val session = DiffusionSession(sessionId, modelDir!!, chatDataItemList)
         diffusionSessionMap[sessionId] = session
         return session
     }

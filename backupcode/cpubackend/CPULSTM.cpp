@@ -100,7 +100,7 @@ ErrorCode CPULSTM::onResize(const std::vector<Tensor *> &inputs, const std::vect
             auto temp = tempBuffer->host<float>();
             auto dest = dst + n * UP_DIV(timeSteps, hP) * numFeatures * hP;
             MNNUnpackC4(temp, source, numFeatures, timeSteps);
-            MNNPackForMatMul_B(dest, temp, timeSteps, numFeatures, true);
+            MNNPackForMatMul_B(dest, temp, timeSteps, 1, numFeatures, true);
         }
     };
 

@@ -124,8 +124,16 @@ std::shared_ptr<Program> Program::create(const std::vector<std::unique_ptr<OpT>>
         createUnit(varMap, inputIndexes, oplists, oplists[index].get(), tensorName, invalidSet, extraInputIndexes, net, TensorDescribeName);
     }
     std::map<std::string, VARP> outputs;
+    if (outputName.empty()) {
+        for (auto& iter : varMap) {
+            if (iter.second->linkNumber() == 0) {
+                outputs.insert(std::make_pair(iter.second->name(), iter.second));
+            }
+        }
+    }
+    // Keep Inputs
     for (auto& iter : varMap) {
-        if (iter.second->linkNumber() == 0) {
+        if (iter.second->expr().first->get() == nullptr && iter.second->expr().first->inputType() == VARP::INPUT) {
             outputs.insert(std::make_pair(iter.second->name(), iter.second));
         }
     }

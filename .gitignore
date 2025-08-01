@@ -368,7 +368,6 @@ MNN-iOS-CPU-GPU/Static/MNN.framework
 apps/iOS/MNNLLMChat/MNN.framework
 
 # model path
-model/
 
 # datasets
 datasets/*
@@ -378,3 +377,5 @@ datasets/*
 source/backend/qnn/3rdParty/include
 apps/iOS/MNNLLMChat/Chat
 apps/iOS/MNNLLMChat/swift-transformers
+apps/Android/MnnLlmChat/docs
+.cursorrules

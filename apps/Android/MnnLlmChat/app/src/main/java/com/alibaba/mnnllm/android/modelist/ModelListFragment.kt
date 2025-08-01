@@ -5,130 +5,62 @@ package com.alibaba.mnnllm.android.modelist
 import android.os.Bundle
 import android.util.Log
 import android.view.LayoutInflater
-import android.view.Menu
-import android.view.MenuInflater
-import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
-import androidx.appcompat.widget.SearchView
-import androidx.core.view.MenuHost
-import androidx.core.view.MenuProvider
+import android.widget.Toast
 import androidx.fragment.app.Fragment
-import androidx.lifecycle.Lifecycle
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import com.alibaba.mls.api.ModelItem
 import com.alibaba.mnnllm.android.main.MainActivity
 import com.alibaba.mnnllm.android.R
-import com.alibaba.mnnllm.android.mainsettings.MainSettingsActivity
-import com.alibaba.mnnllm.android.utils.CrashUtil
+import com.alibaba.mnnllm.android.chat.ChatRouter
 import com.alibaba.mnnllm.android.utils.PreferenceUtils.isFilterDownloaded
-import com.alibaba.mnnllm.android.utils.PreferenceUtils.setFilterDownloaded
-import com.alibaba.mnnllm.android.utils.RouterUtils.startActivity
+import com.alibaba.mnnllm.android.utils.PreferenceUtils
+import com.alibaba.mnnllm.android.model.Modality
+import com.alibaba.mnnllm.android.model.ModelVendors
+import com.alibaba.mnnllm.android.modelsettings.DropDownMenuHelper
+import com.alibaba.mnnllm.android.utils.Searchable
 
-class ModelListFragment : Fragment(), ModelListContract.View {
+class ModelListFragment : Fragment(), ModelListContract.View, Searchable {
+    
+    companion object {
+        private const val TAG = "ModelListFragment"
+    }
     private lateinit var modelListRecyclerView: RecyclerView
     private lateinit var modelListLoadingView: View
     private lateinit var modelListErrorView: View
     private lateinit var modelListEmptyView: View
+    private var toolbarFiltersContent: View? = null
 
     override var adapter: ModelListAdapter? = null
         private set
+
     private var modelListPresenter: ModelListPresenter? = null
-    private val hfModelItemList: MutableList<ModelItem> = mutableListOf()
+    private val modelItemList: MutableList<ModelItemWrapper> = mutableListOf()
 
     private var modelListErrorText: TextView? = null
 
     private var filterDownloaded = false
     private var filterQuery = ""
+    
+    // Save current search query state  
+    private var currentSearchQuery: String = ""
+    
+    // Filter indices for dropdown selections
+    private var modalityFilterIndex = 0
+    private var vendorFilterIndex = 0
 
-    private fun setupSearchView(menu: Menu) {
-        val searchItem = menu.findItem(R.id.action_search)
-        val searchView = searchItem.actionView as SearchView?
-        if (searchView != null) {
-            searchView.setOnQueryTextListener(object : SearchView.OnQueryTextListener {
-                override fun onQueryTextSubmit(query: String): Boolean {
-                    filterQuery = query
-                    adapter!!.setFilter(query)
-                    return false
-                }
-
-                override fun onQueryTextChange(query: String): Boolean {
-                    filterQuery = query
-                    adapter!!.setFilter(query)
-                    return true
-                }
-            })
-            searchItem.setOnActionExpandListener(object : MenuItem.OnActionExpandListener {
-                override fun onMenuItemActionExpand(item: MenuItem): Boolean {
-                    // SearchView is expanded
-                    Log.d("SearchView", "SearchView expanded")
-                    return true
-                }
-
-                override fun onMenuItemActionCollapse(item: MenuItem): Boolean {
-                    // SearchView is collapsed
-                    Log.d("SearchView", "SearchView collapsed")
-                    adapter!!.unfilter()
-
-                    return true
-                }
-            })
-        }
+    // Implement Searchable interface
+    override fun onSearchQuery(query: String) {
+        currentSearchQuery = query
+        filterQuery = query
+        adapter?.setFilter(query)
     }
 
-    private val menuProvider: MenuProvider = object : MenuProvider {
-        override fun onCreateMenu(menu: Menu, menuInflater: MenuInflater) {
-            // Inflate your menu resource here
-            menuInflater.inflate(R.menu.menu_main, menu)
-            setupSearchView(menu)
-            val issueMenu = menu.findItem(R.id.action_github_issue)
-            issueMenu.setOnMenuItemClickListener { item: MenuItem? ->
-                if (activity != null) {
-                    (activity as MainActivity).onReportIssue(null)
-                }
-                true
-            }
-            val settingsMenu = menu.findItem(R.id.action_settings)
-            settingsMenu.setOnMenuItemClickListener {
-                if (activity != null) {
-                    startActivity(activity!!, MainSettingsActivity::class.java)
-                }
-                true
-            }
-
-            val starGithub = menu.findItem(R.id.action_star_project)
-            starGithub.setOnMenuItemClickListener { item: MenuItem? ->
-                if (activity != null) {
-                    (activity as MainActivity).onStarProject(null)
-                }
-                true
-            }
-            val reportCrashMenu = menu.findItem(R.id.action_report_crash)
-            reportCrashMenu.setOnMenuItemClickListener {
-                if (CrashUtil.hasCrash()) {
-                    CrashUtil.shareLatestCrash(context!!)
-                }
-                true
-            }
-        }
-
-        override fun onMenuItemSelected(menuItem: MenuItem): Boolean {
-            return true
-        }
-
-        override fun onPrepareMenu(menu: Menu) {
-            super<MenuProvider>.onPrepareMenu(menu)
-            val menuResumeAllDownlods = menu.findItem(R.id.action_resume_all_downloads)
-            menuResumeAllDownlods.setVisible(modelListPresenter!!.unfinishedDownloadCount > 0)
-            menuResumeAllDownlods.setOnMenuItemClickListener { item: MenuItem? ->
-                modelListPresenter!!.resumeAllDownloads()
-                true
-            }
-            val reportCrashMenu = menu.findItem(R.id.action_report_crash)
-            reportCrashMenu.isVisible = CrashUtil.hasCrash()
-        }
+    override fun onSearchCleared() {
+        currentSearchQuery = ""
+        adapter?.unfilter()
     }
 
     override fun onCreateView(
@@ -152,12 +84,21 @@ class ModelListFragment : Fragment(), ModelListContract.View {
                 false
             )
         )
-        adapter = ModelListAdapter(hfModelItemList)
+        adapter = ModelListAdapter(modelItemList)
+        adapter!!.initialized = false
         adapter!!.setEmptyView(modelListEmptyView)
 
         modelListRecyclerView.setAdapter(adapter)
         modelListPresenter = ModelListPresenter(requireContext(), this)
         adapter!!.setModelListListener(modelListPresenter)
+        
+        // Set pin event listener
+        adapter!!.setOnPinToggleListener(object : ModelListAdapter.OnPinToggleListener {
+            override fun onPinToggle(modelId: String, isPinned: Boolean) {
+                handlePinToggle(modelId, isPinned)
+            }
+        })
+        
         filterDownloaded = isFilterDownloaded(context)
         adapter!!.setFilter(filterQuery)
         adapter!!.filterDownloadState(filterDownloaded.toString())
@@ -165,15 +106,183 @@ class ModelListFragment : Fragment(), ModelListContract.View {
         return view
     }
 
+    /**
+     * Handle pin toggle action
+     */
+    private fun handlePinToggle(modelId: String, isPinned: Boolean) {
+        try {
+            // Check if we're at the top of the list before making changes
+            val layoutManager = modelListRecyclerView.layoutManager as? LinearLayoutManager
+            val shouldScrollToTop = layoutManager?.let { 
+                val firstVisiblePosition = it.findFirstVisibleItemPosition()
+                val firstCompletelyVisiblePosition = it.findFirstCompletelyVisibleItemPosition()
+                // Consider "at top" if first item is visible and we're unpinning (item will move down)
+                (firstVisiblePosition <= 2 || firstCompletelyVisiblePosition <= 1) && !isPinned
+            } ?: false
+            
+            if (isPinned) {
+                PreferenceUtils.pinModel(requireContext(), modelId)
+                Toast.makeText(requireContext(), getString(R.string.model_pinned), Toast.LENGTH_SHORT).show()
+            } else {
+                PreferenceUtils.unpinModel(requireContext(), modelId)
+                Toast.makeText(requireContext(), getString(R.string.model_unpinned), Toast.LENGTH_SHORT).show()
+            }
+            
+            // Refresh the list with smart scroll handling
+            modelListPresenter?.refreshList()
+            
+            // If we were at the top and unpinned an item, scroll back to top after update
+            if (shouldScrollToTop) {
+                modelListRecyclerView.post {
+                    modelListRecyclerView.scrollToPosition(0)
+                }
+            }
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to toggle pin state for model: $modelId", e)
+            Toast.makeText(requireContext(), getString(R.string.pin_toggle_failed), Toast.LENGTH_SHORT).show()
+        }
+    }
+
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        val menuHost: MenuHost = requireActivity()
-        menuHost.addMenuProvider(menuProvider, viewLifecycleOwner, Lifecycle.State.RESUMED)
+        setupCustomToolbar()
+    }
+
+    private fun setupCustomToolbar() {
+        val appBarContent = requireActivity().findViewById<ViewGroup>(R.id.app_bar_content)
+//        if (toolbarFiltersContent == null) {
+//            toolbarFiltersContent = layoutInflater.inflate(R.layout.layout_toolbar_filters_content, appBarContent, false)
+//            setupFilterButtons()
+//        }
+//        if (toolbarFiltersContent?.parent == null) {
+//            appBarContent?.addView(toolbarFiltersContent)
+//        }
+    }
+    
+    private fun setupFilterButtons() {
+        toolbarFiltersContent?.let { container ->
+            val filterDownloadState = container.findViewById<TextView>(R.id.filter_download_state)
+            val filterModality = container.findViewById<TextView>(R.id.filter_modality)
+            val filterVendor = container.findViewById<TextView>(R.id.filter_vendor)
+            
+            // Setup download state filter - initialize with current state
+            filterDownloadState.isSelected = filterDownloaded
+            filterDownloadState.setOnClickListener {
+                filterDownloaded = !filterDownloaded
+                filterDownloadState.isSelected = filterDownloaded
+                updateFilterDownloadState()
+            }
+            
+            // Setup modality filter
+            filterModality.setOnClickListener {
+                val modalityList = mutableListOf<String>().apply {
+                    add(getString(R.string.all))
+                    addAll(Modality.modalitySelectorList)
+                }
+                DropDownMenuHelper.showDropDownMenu(
+                    context = requireContext(),
+                    anchorView = filterModality,
+                    items = modalityList,
+                    currentIndex = modalityFilterIndex,
+                    onItemSelected = { index, item ->
+                        val hasSelected = index != 0
+                        modalityFilterIndex = index
+                        val modality = if (index == 0) null else item.toString()
+                        filterModality.text = if (modality == null) getString(R.string.modality_menu_title) else item.toString()
+                        filterModality.isSelected = hasSelected
+                        updateFilterModality(modality)
+                    }
+                )
+            }
+            
+            // Setup vendor filter
+            filterVendor.setOnClickListener {
+                val vendorList = mutableListOf<String>().apply {
+                    add(getString(R.string.all))
+                    addAll(ModelVendors.vendorList)
+                }
+                DropDownMenuHelper.showDropDownMenu(
+                    context = requireContext(),
+                    anchorView = filterVendor,
+                    items = vendorList,
+                    currentIndex = vendorFilterIndex,
+                    onItemSelected = { index, item ->
+                        val hasSelected = index != 0
+                        vendorFilterIndex = index
+                        val vendor = if (index == 0) null else item.toString()
+                        filterVendor.text = if (vendor == null) getString(R.string.vendor_menu_title) else item.toString()
+                        filterVendor.isSelected = hasSelected
+                        updateFilterVendor(vendor)
+                    }
+                )
+            }
+            
+            // Source filter removed - not needed for local model list
+        }
+    }
+    
+    private fun updateFilterDownloadState() {
+        adapter?.filterDownloadState(filterDownloaded.toString())
+    }
+    
+    private fun updateFilterModality(modality: String?) {
+        adapter?.filterModality(modality ?: "")
+    }
+    
+    private fun updateFilterVendor(vendor: String?) {
+        adapter?.filterVendor(vendor ?: "")
+    }
+    
+    // updateFilterSource method removed - not needed for local model list
+
+    private fun removeCustomToolbar() {
+        if (toolbarFiltersContent != null) {
+            val appBarContent = requireActivity().findViewById<ViewGroup>(R.id.app_bar_content)
+            appBarContent?.removeView(toolbarFiltersContent)
+        }
+    }
+
+    override fun onHiddenChanged(hidden: Boolean) {
+        super.onHiddenChanged(hidden)
+        if (hidden) {
+            removeCustomToolbar()
+        } else {
+            setupCustomToolbar()
+            // Refresh the list to update sorting based on recent chats
+            modelListPresenter?.refreshList()
+            // Restore search state if there was an active search
+            restoreSearchStateIfNeeded()
+        }
+    }
+    
+    override fun onResume() {
+        super.onResume()
+        // Refresh the list when fragment resumes to update sorting
+        modelListPresenter?.refreshList()
+        // Also restore search state on resume (for initial load)
+        restoreSearchStateIfNeeded()
+    }
+    
+    /**
+     * Restore search state if there was an active search query
+     */
+    fun restoreSearchStateIfNeeded() {
+        if (currentSearchQuery.isNotEmpty()) {
+            // Post with delay to ensure menu and SearchView are ready
+            view?.postDelayed({
+                val mainActivity = requireActivity() as? MainActivity
+                mainActivity?.setSearchQuery(currentSearchQuery)
+            }, 100)
+        }
     }
 
     override fun onDestroyView() {
         super.onDestroyView()
         modelListPresenter!!.onDestroy()
+        adapter?.onDestroy() // Clean up adapter resources
+        removeCustomToolbar()
+                toolbarFiltersContent = null
     }
 
     override fun onListAvailable() {
@@ -209,7 +318,7 @@ class ModelListFragment : Fragment(), ModelListContract.View {
         modelListRecyclerView.visibility = View.GONE
     }
 
-    override fun runModel(absolutePath: String?, modelId: String?) {
-        (activity as MainActivity).runModel(absolutePath, modelId, null)
+    override fun runModel(destPath:String?, modelId: String?) {
+        ChatRouter.startRun(requireContext(), modelId!!, destPath, null)
     }
 }

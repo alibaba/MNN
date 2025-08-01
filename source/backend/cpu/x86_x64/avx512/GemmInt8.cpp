@@ -286,6 +286,7 @@ void _AVX512_MNNInt8ScaleToFloat(float* dst, const int8_t* src, const float* sca
     auto sizeC4 = sizeQuad / 2;
     auto sizeRemain = sizeQuad % 2;
     auto zero = _mm256_set1_epi32(0);
+    auto offset = _mm256_set1_ps(128.f);
     
     auto scaleValue0 = _mm256_set1_ps(scale[0]);
     auto scaleValue1 = scaleValue0;
@@ -293,11 +294,11 @@ void _AVX512_MNNInt8ScaleToFloat(float* dst, const int8_t* src, const float* sca
         scaleValue0 = _mm256_loadu_ps(scale);
         scaleValue1 = _mm256_loadu_ps(scale + 8);
     }
-    auto zeroPointValue0 = _mm256_set1_ps(zeroPoint[0]) + _mm256_set1_ps(128.f);
+    auto zeroPointValue0 = _mm256_add_ps(_mm256_set1_ps(zeroPoint[0]), offset);
     auto zeroPointValue1 = zeroPointValue0;
     if (quanParamVec >> 1) {
-        zeroPointValue0 = _mm256_loadu_ps(zeroPoint) + _mm256_set1_ps(128.f);
-        zeroPointValue1 = _mm256_loadu_ps(zeroPoint + 8) + _mm256_set1_ps(128.f);
+        zeroPointValue0 = _mm256_add_ps(_mm256_loadu_ps(zeroPoint), offset);
+        zeroPointValue1 = _mm256_add_ps(_mm256_loadu_ps(zeroPoint + 8), offset);
     }
 
     for (int i = 0; i < sizeC4; ++i) {

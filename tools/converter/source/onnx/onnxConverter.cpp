@@ -106,6 +106,7 @@ int onnx2MNNNet(const std::string inputModel, const std::string bizCode,
             constOp->name    = it->first;
             constOp->outputIndexes.push_back(scope->declareTensor(it->first));
             netT->oplists.emplace_back(constOp);
+            scope->insertConstant(inputName, constOp);
         }
     };
     for (int i=0; i<onnxGraph.output_size(); ++i) {
@@ -157,6 +158,9 @@ int onnx2MNNNet(const std::string inputModel, const std::string bizCode,
         }
         // build op
         opConverter->run(MNNOp, &onnxNode, scope.get());
+        if (MNNOp->type == MNN::OpType_Const) {
+            scope->insertConstant(name, MNNOp);
+        }
         netT->oplists.emplace_back(MNNOp);
     }
     netT->tensorNumber = netT->tensorName.size();

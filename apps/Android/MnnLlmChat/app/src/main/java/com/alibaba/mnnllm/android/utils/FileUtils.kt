@@ -141,22 +141,6 @@ object FileUtils {
         }
     }
 
-    fun getMmapDir(modelId: String, isModelScope: Boolean): String {
-        var rootCacheDir =
-            ApplicationProvider.get().filesDir.toString() + "/tmps/" + ModelUtils.safeModelId(
-                modelId
-            )
-        if (isModelScope) {
-            rootCacheDir = "$rootCacheDir/modelscope"
-        }
-        return rootCacheDir
-    }
-
-    fun clearMmapCache(modelId: String):Boolean {
-        return DownloadFileUtils.deleteDirectoryRecursively(File(getMmapDir(modelId, true))) ||
-        DownloadFileUtils.deleteDirectoryRecursively(File(getMmapDir(modelId, false)))
-    }
-
     fun getPathForUri(uri: Uri): String? {
         if ("file" == uri.scheme) {
             return uri.path
@@ -180,35 +164,38 @@ object FileUtils {
 
     fun getFileSizeString(file: File?): String {
         val size = getFileSize(file)
-        return formatFileSize(size?:0)
+        return formatFileSize(size)
     }
 
     fun getFileSize(file: File?): Long {
-        val start = file?.toPath() ?: return 0L
-        val visited = mutableSetOf<Path>()
-        var total = 0L
+        if (file == null || !file.exists()) {
+            return 0L
+        }
 
-        Files.walkFileTree(start,
-            EnumSet.of(FileVisitOption.FOLLOW_LINKS),
-            Integer.MAX_VALUE,
-            object : SimpleFileVisitor<Path>() {
-                override fun preVisitDirectory(dir: Path, attrs: BasicFileAttributes): FileVisitResult {
-                    val real = dir.toRealPath()
-                    return if (!visited.add(real)) {
-                        FileVisitResult.SKIP_SUBTREE
+        return try {
+            if (file.isFile) {
+                file.length()
+            } else {
+                var size = 0L
+                file.listFiles()?.forEach { child ->
+                    size += if (child.isFile) {
+                        child.length()
                     } else {
-                        FileVisitResult.CONTINUE
+                        getFileSize(child)
                     }
+
                 }
-                override fun visitFile(file: Path, attrs: BasicFileAttributes): FileVisitResult {
-                    if (attrs.isRegularFile) {
-                        total += attrs.size()
-                    }
-                    return FileVisitResult.CONTINUE
-                }
+                size
             }
-        )
-        return total
+        } catch (e: SecurityException) {
+            Log.w(TAG, "Failed to get size for ${file.path}: ${e.message}")
+            0L
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to get size for ${file.path}", e)
+            0L
+        }
     }
 }
+
+
 

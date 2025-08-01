@@ -631,36 +631,69 @@ static bool _RebuildExternalOp(FileLoader* external, const MNN::Op* origin, flat
         external = new FileLoader(origin->externalPath()->c_str());
         externalTmp = true;
     }
-    std::shared_ptr<MNN::OpT> op(origin->UnPack());
-    switch (op->main.type) {
+    flatbuffers::Offset<flatbuffers::String> externalPathFbb = 0;
+    flatbuffers::Offset<flatbuffers::String> opNameFbb = 0;
+    if (nullptr != origin->name()) {
+        opNameFbb = builder.CreateString(origin->name()->str());
+    }
+    flatbuffers::Offset<void> parameterMain;
+    switch (origin->main_type()) {
         case OpParameter_Scale:
         {
-            auto scale = op->main.AsScale();
-            int outputCount = static_cast<int>(scale->external[1] / sizeof(float));
-            scale->scaleData.resize(outputCount);
-            external->offset(scale->external[0]);
-            external->read((char*)scale->scaleData.data(), scale->external[1]);
-            if (scale->external.size() > 2) {
-                scale->biasData.resize(outputCount);
-                external->read((char*)scale->biasData.data(), scale->external[2]);
+            auto scale = origin->main_as_Scale();
+            auto externalInfo = scale->external()->data();
+            auto externalSize = scale->external()->size();
+            int outputCount = static_cast<int>(externalInfo[1] / sizeof(float));
+            std::vector<float> scaleData(outputCount);
+            external->offset(externalInfo[0]);
+            external->read((char*)scaleData.data(), externalInfo[1]);
+            auto scaleFbb = builder.CreateVector(scaleData);
+            flatbuffers::Offset<flatbuffers::Vector<float>> biasFbb = 0;
+            if (externalSize > 2) {
+                std::vector<float> biasData(outputCount);
+                external->read((char*)biasData.data(), externalInfo[2]);
+                biasFbb = builder.CreateVector(biasData);
             }
+            ScaleBuilder builder_(builder);
+            builder_.add_biasData(biasFbb);
+            builder_.add_scaleData(scaleFbb);
+            builder_.add_channels(scale->channels());
+            parameterMain = builder_.Finish().Union();
             break;
         }
         case OpParameter_LayerNorm:
         {
-            auto layer_norm_param = op->main.AsLayerNorm();
-            int32_t size = static_cast<int32_t>(layer_norm_param->external[1]);
-            layer_norm_param->gamma.resize(size / sizeof(float));
-            layer_norm_param->beta.resize(size / sizeof(float));
-            external->offset(layer_norm_param->external[0]);
-            external->read((char*)layer_norm_param->gamma.data(), layer_norm_param->external[1]);
-            external->read((char*)layer_norm_param->beta.data(), layer_norm_param->external[2]);
+            auto layer_norm_param = origin->main_as_LayerNorm();
+            auto externalInfo = layer_norm_param->external()->data();
+            auto externalSize = layer_norm_param->external()->size();
+            int32_t size = static_cast<int32_t>(externalInfo[1]);
+            std::vector<float> gamma(size / sizeof(float));
+            std::vector<float> beta(size / sizeof(float));
+            external->offset(externalInfo[0]);
+            external->read((char*)gamma.data(), externalInfo[1]);
+            external->read((char*)beta.data(), externalInfo[2]);
+            flatbuffers::Offset<flatbuffers::Vector<int>> axisFbb = 0;
+            if (nullptr != layer_norm_param->axis()) {
+                std::vector<int> axis(layer_norm_param->axis()->size());
+                ::memcpy(axis.data(), layer_norm_param->axis()->data(), layer_norm_param->axis()->size() * sizeof(int));
+                axisFbb = builder.CreateVector(axis);
+            }
+            auto gemmaFbb = builder.CreateVector(gamma);
+            auto betaFbb = builder.CreateVector(beta);
+            LayerNormBuilder builder_(builder);
+            builder_.add_group(layer_norm_param->group());
+            builder_.add_beta(betaFbb);
+            builder_.add_gamma(gemmaFbb);
+            builder_.add_epsilon(layer_norm_param->epsilon());
+            builder_.add_axis(axisFbb);
+            builder_.add_useRMSNorm(layer_norm_param->useRMSNorm());
+            parameterMain = builder_.Finish().Union();
             break;
         }
 
         case OpParameter_Convolution2D:
         {
-            auto param = op->main.AsConvolution2D();
+            std::unique_ptr<Convolution2DT> param( origin->main_as_Convolution2D()->UnPack());
             if (param->quanParameter) {
                 bool isSparse = param->sparseParameter.get() != nullptr;
                 bool isPTQ = param->quanParameter->scaleIn != 0;
@@ -674,7 +707,7 @@ static bool _RebuildExternalOp(FileLoader* external, const MNN::Op* origin, flat
                     external->read((char*)param->quanParameter->alpha.data(), param->external[2]);
                 } else {
                     // skip weight and dequant alpha for load speed
-                    op->externalPath = external->path();
+                    externalPathFbb = builder.CreateString(external->path());
                     external->offset(param->external[0] + param->external[1] + param->external[2]);
                 }
                 if (param->bias.empty() && param->external.size() > 3) {
@@ -695,11 +728,12 @@ static bool _RebuildExternalOp(FileLoader* external, const MNN::Op* origin, flat
                 // Create quanParameter, will load external weight in ConvolutionCommon::load
                 param->quanParameter.reset(new IDSTQuanT);
                 param->quanParameter->type = 8;
-                op->externalPath = external->path();
+                externalPathFbb = builder.CreateString(external->path());
                 param->bias.resize(param->external[2] / sizeof(float));
                 external->offset(param->external[0] + param->external[1]);
                 external->read((char*)param->bias.data(), param->external[2]);
             }
+            parameterMain = Convolution2D::Pack(builder, param.get()).Union();
             break;
         }
         default:
@@ -708,7 +742,13 @@ static bool _RebuildExternalOp(FileLoader* external, const MNN::Op* origin, flat
     if (externalTmp) {
         delete external;
     }
-    builder.Finish(Op::Pack(builder, op.get()));
+    OpBuilder builder_(builder);
+    builder_.add_name(opNameFbb);
+    builder_.add_externalPath(externalPathFbb);
+    builder_.add_main(parameterMain);
+    builder_.add_type(origin->type());
+    builder_.add_main_type(origin->main_type());
+    builder.Finish(builder_.Finish());
     return true;
 }
 Execution* OpCommonUtils::createExecutionWithExternal(Backend* backend, const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs,

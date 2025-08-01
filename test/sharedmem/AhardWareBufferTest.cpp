@@ -168,7 +168,7 @@ int AndroidHardwareBufferCompat::Unlock(AHardwareBuffer* buffer,
 
 static std::shared_ptr<AndroidHardwareBufferCompat> gFunction;
 
-static AHardwareBuffer* creatAHardwareBuffer(int width, int height, void *data){
+static AHardwareBuffer* creatAHardwareBufferRGBA(int width, int height, void *data){
     // 创建和初始化硬件缓冲区
     AHardwareBuffer_Desc bufferDesc = {};
     bufferDesc.width = width;
@@ -190,8 +190,53 @@ static AHardwareBuffer* creatAHardwareBuffer(int width, int height, void *data){
         if (result != 0) {
             MNN_ERROR("Handle lock failed\n");
         }
+        AHardwareBuffer_Desc Desc = {};
+        gFunction->Describe(buffer, &Desc);
+        int stride = Desc.stride;
         if (map) {
-            memcpy(map, data, width * height * 4);
+            for(int i = 0; i < height; ++i){
+                unsigned char* src = (unsigned char*)data + i * width * 4;
+                unsigned char* dst = (unsigned char*)map + i * stride * 4;
+                memcpy(dst, src, width * 4);
+            }
+        }
+        
+        gFunction->Unlock(buffer, nullptr);
+    }
+    return buffer;
+}
+
+static AHardwareBuffer* creatAHardwareBufferYUV420(int width, int height, void *data){
+    // 创建和初始化硬件缓冲区
+    AHardwareBuffer_Desc bufferDesc = {};
+    bufferDesc.width = width;
+    bufferDesc.height = height;
+    bufferDesc.layers = 1;
+    bufferDesc.format = AHARDWAREBUFFER_FORMAT_Y8Cb8Cr8_420;
+    bufferDesc.usage = AHARDWAREBUFFER_USAGE_CPU_WRITE_OFTEN | AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE;
+
+    AHardwareBuffer* buffer = nullptr;
+    int result = gFunction->Allocate(&bufferDesc, &buffer);
+    if(result != 0) {
+        MNN_ERROR("alloc AHardwareBuffer failed   %d\n", result);
+    }
+    
+    if(nullptr != data){
+        void* map = nullptr;
+        ARect rect = { 0, 0, width, height };  // Define the region to lock
+        result = gFunction->Lock(buffer, AHARDWAREBUFFER_USAGE_CPU_WRITE_OFTEN, -1, &rect, &map);
+        if (result != 0) {
+            MNN_ERROR("Handle lock failed\n");
+        }
+        AHardwareBuffer_Desc Desc = {};
+        gFunction->Describe(buffer, &Desc);
+        int stride = Desc.stride;
+        if (map) {
+            for(int i = 0; i < height; ++i){
+                unsigned char* src = (unsigned char*)data + i * width;
+                unsigned char* dst = (unsigned char*)map + i * stride;
+                memcpy(dst, src, width);
+            }
         }
         
         gFunction->Unlock(buffer, nullptr);
@@ -203,17 +248,48 @@ static void ReleaseAHardWareBuffer(AHardwareBuffer* buffer){
     gFunction->Release(buffer);
 }
 
-static void copyDataFromAHardWareBuffer(AHardwareBuffer* buffer, int width, int height, void *data){
+static void copyDataFromAHardWareBufferRGBA(AHardwareBuffer* buffer, int width, int height, void *data){
     int result = 0;
     if(nullptr != data){
         void* map = nullptr;
         ARect rect = { 0, 0, width, height };  // Define the region to lock
         result = gFunction->Lock(buffer, AHARDWAREBUFFER_USAGE_CPU_READ_OFTEN, -1, &rect, &map);
+        AHardwareBuffer_Desc bufferDesc = {};
+        gFunction->Describe(buffer, &bufferDesc);
+        int stride = bufferDesc.stride;
         if (result != 0) {
             MNN_ERROR("Handle lock failed\n");
         }
         if (map) {
-            memcpy(data, map, width * height * 4);
+            for(int i = 0; i < height; ++i){
+                unsigned char* dst = (unsigned char*)data + i * width * 4;
+                unsigned char* src = (unsigned char*)map + i * stride * 4;
+                memcpy(dst, src, width * 4);
+            }
+        }
+        
+        gFunction->Unlock(buffer, nullptr);
+    }
+}
+
+static void copyDataFromAHardWareBufferYUV420(AHardwareBuffer* buffer, int width, int height, void *data){
+    int result = 0;
+    if(nullptr != data){
+        void* map = nullptr;
+        ARect rect = { 0, 0, width, height };  // Define the region to lock
+        result = gFunction->Lock(buffer, AHARDWAREBUFFER_USAGE_CPU_READ_OFTEN, -1, &rect, &map);
+        AHardwareBuffer_Desc bufferDesc = {};
+        gFunction->Describe(buffer, &bufferDesc);
+        int stride = bufferDesc.stride;
+        if (result != 0) {
+            MNN_ERROR("Handle lock failed\n");
+        }
+        if (map) {
+            for(int i = 0; i < height; ++i){
+                unsigned char* dst = (unsigned char*)data + i * width;
+                unsigned char* src = (unsigned char*)map + i * stride;
+                memcpy(dst, src, width);
+            }
         }
         
         gFunction->Unlock(buffer, nullptr);
@@ -232,8 +308,7 @@ static bool checkvalue(const float* ref, const unsigned char* out, int size){
 
 const int width = 1280;
 const int height = 720;
-const int channel = 3;
-static std::shared_ptr<Module> _createModel() {
+static std::shared_ptr<Module> _createModel(int channel) {
     auto x = _Input({1, channel, height, width}, NCHW, halide_type_of<float>());
     x->setName("Input");
     auto y = _Transpose(x, {0, 1, 3, 2});
@@ -256,70 +331,142 @@ public:
             MNN_ERROR("Currently forwardtype[%d] run sharedmem/AhardWareBuffer has error, skip it\n", getCurrentType());
             return true;
         }
-        auto net = _createModel();
-        auto x = _Input({1, channel, height, width}, NCHW, halide_type_of<float>());
-        unsigned char inputData[4 * height * width];
-        unsigned char outputData[4 * height * width];
-        for(int i = 0; i < 4 * height * width; ++i){
-            inputData[i] = i;
-        }
-        // ahardwarebuffer default format is nc4hw4
+        // test rgbainput
         {
-            auto xPtr = x->writeMap<float>();
-            for (int i = 0; i < channel; ++i){
-                for (int j = 0; j < height * width; ++j) {
-                    xPtr[i * height * width + j] = (float)inputData[j * 4 + i];
+            int channel = 3;
+            auto net = _createModel(channel);
+            auto x = _Input({1, channel, height, width}, NCHW, halide_type_of<float>());
+            unsigned char inputData[4 * height * width];
+            unsigned char outputData[4 * height * width];
+            for(int i = 0; i < 4 * height * width; ++i){
+                inputData[i] = rand() % 255;
+            }
+            // ahardwarebuffer format is rgba
+            {
+                auto xPtr = x->writeMap<float>();
+                for (int i = 0; i < channel; ++i){
+                    for (int j = 0; j < height * width; ++j) {
+                        xPtr[i * height * width + j] = (float)inputData[j * 4 + i];
+                    }
+                }
+                x->unMap();
+            }
+            
+            auto outputs = net->onForward({x});
+            outputs[0] = _Convert(outputs[0], NC4HW4);
+            auto refPtr = outputs[0]->readMap<float>();
+            auto size = outputs[0]->getInfo()->size;
+            
+            auto xShared = _Input({1, channel, height, width}, NCHW, halide_type_of<float>());
+            auto inputAhardwareBuffer = creatAHardwareBufferRGBA(width, height, inputData);
+            volatile uint64_t inputValue = (uint64_t)inputAhardwareBuffer;
+            xShared->setDevicePtr((void*)inputValue, MNN_MEMORY_AHARDWAREBUFFER);
+            auto outputsShared = net->onForward({xShared});
+            auto outputAhardwareBuffer = creatAHardwareBufferRGBA(height, width, nullptr);
+            volatile uint64_t outputValue = (uint64_t)outputAhardwareBuffer;
+            {
+                outputsShared[0]->copyToDevicePtr((void*)outputValue, MNN_MEMORY_AHARDWAREBUFFER);
+                copyDataFromAHardWareBufferRGBA(outputAhardwareBuffer, height, width, outputData);
+                if(checkvalue(refPtr, outputData, size) == false){
+                    MNN_ERROR("sharedmem/AhardWareBuffer RGBA format test failed!\n");
+                    return false;
                 }
             }
-            x->unMap();
-        }
-        
-        auto outputs = net->onForward({x});
-        outputs[0] = _Convert(outputs[0], NC4HW4);
-        auto refPtr = outputs[0]->readMap<float>();
-        auto size = outputs[0]->getInfo()->size;
-        
-        auto xShared = _Input({1, channel, height, width}, NCHW, halide_type_of<float>());
-        auto inputAhardwareBuffer = creatAHardwareBuffer(width, height, inputData);
-        volatile uint64_t inputValue = (uint64_t)inputAhardwareBuffer;
-        xShared->setDevicePtr((void*)inputValue, MNN_MEMORY_AHARDWAREBUFFER);
-        auto outputsShared = net->onForward({xShared});
-        auto outputAhardwareBuffer = creatAHardwareBuffer(width, height, nullptr);
-        volatile uint64_t outputValue = (uint64_t)inputAhardwareBuffer;
-        {
-            outputsShared[0]->copyToDevicePtr((void*)outputValue, MNN_MEMORY_AHARDWAREBUFFER);
-            copyDataFromAHardWareBuffer(inputAhardwareBuffer, width, height, outputData);
-            if(checkvalue(refPtr, outputData, size) == false){
-                MNN_ERROR("sharedmem/AhardWareBuffer test failed!\n");
-                return false;
+            
+            // speed
+            const auto time = 100;
+            {
+                MNN::Timer _t;
+                for (int t = 0; t < time; ++t) {
+                    x->writeMap<float>();
+                    auto outputs = net->onForward({x});
+                    outputs[0]->readMap<float>();
+                }
+                float timeCost = _t.durationInUs() / 1000.0f / (float)time;
+                MNN_PRINT("cpu copy [%d, %d, %d], Avg time: %f ms\n", channel, height, width, timeCost);
             }
+            {
+                MNN::Timer _t;
+                for (int t = 0; t < time; ++t) {
+                    xShared->setDevicePtr((void*)inputValue, MNN_MEMORY_AHARDWAREBUFFER);
+                    auto outputs = net->onForward({xShared});
+                    outputs[0]->copyToDevicePtr((void*)outputValue, MNN_MEMORY_AHARDWAREBUFFER);
+                }
+                float timeCost = _t.durationInUs() / 1000.0f / (float)time;
+                MNN_PRINT("shared memory copy [%d, %d, %d], Avg time: %f ms\n", channel, height, width, timeCost);
+            }
+            
+            ReleaseAHardWareBuffer(inputAhardwareBuffer);
+            ReleaseAHardWareBuffer(outputAhardwareBuffer);
         }
         
-        // speed
-        const auto time = 100;
+        // test yuvinput
         {
-            MNN::Timer _t;
-            for (int t = 0; t < time; ++t) {
-                x->writeMap<float>();
-                auto outputs = net->onForward({x});
-                outputs[0]->readMap<float>();
+            int channel = 1;
+            auto net = _createModel(channel);
+            auto x = _Input({1, channel, height, width}, NCHW, halide_type_of<float>());
+            //yuv420
+            unsigned char inputData[height * width + height * width / 2];
+            unsigned char outputData[height * width + height * width / 2];
+            ::memcpy(outputData, inputData, height * width + height * width / 2);
+            for(int i = 0; i < height * width + height * width / 2; ++i){
+                inputData[i] = rand() % 255;
             }
-            float timeCost = _t.durationInUs() / 1000.0f / (float)time;
-            MNN_PRINT("cpu copy [%d, %d, %d], Avg time: %f ms\n", channel, height, width, timeCost);
-        }
-        {
-            MNN::Timer _t;
-            for (int t = 0; t < time; ++t) {
-                xShared->setDevicePtr((void*)inputValue, MNN_MEMORY_AHARDWAREBUFFER);
-                auto outputs = net->onForward({xShared});
-                outputs[0]->copyToDevicePtr((void*)outputValue, MNN_MEMORY_AHARDWAREBUFFER);
+            // ahardwarebuffer format is yuv420
+            {
+                auto xPtr = x->writeMap<float>();
+                for (int i = 0; i < height * width; ++i) {
+                    xPtr[i] = (float)inputData[i];
+                }
+                x->unMap();
             }
-            float timeCost = _t.durationInUs() / 1000.0f / (float)time;
-            MNN_PRINT("shared memory copy [%d, %d, %d], Avg time: %f ms\n", channel, height, width, timeCost);
+            
+            auto outputs = net->onForward({x});
+            auto refPtr = outputs[0]->readMap<float>();
+            auto size = outputs[0]->getInfo()->size;
+            
+            auto xShared = _Input({1, channel, height, width}, NCHW, halide_type_of<float>());
+            auto inputAhardwareBuffer = creatAHardwareBufferYUV420(width, height, inputData);
+            volatile uint64_t inputValue = (uint64_t)inputAhardwareBuffer;
+            xShared->setDevicePtr((void*)inputValue, MNN_MEMORY_AHARDWAREBUFFER);
+            auto outputsShared = net->onForward({xShared});
+            auto outputAhardwareBuffer = creatAHardwareBufferYUV420(height, width, nullptr);
+            volatile uint64_t outputValue = (uint64_t)outputAhardwareBuffer;
+            {
+                outputsShared[0]->copyToDevicePtr((void*)outputValue, MNN_MEMORY_AHARDWAREBUFFER);
+                copyDataFromAHardWareBufferYUV420(outputAhardwareBuffer, height, width, outputData);
+                if(checkvalue(refPtr, outputData, size) == false){
+                    MNN_ERROR("sharedmem/AhardWareBuffer YUV420 format test failed!\n");
+                    return false;
+                }
+            }
+            
+            // speed
+            const auto time = 100;
+            {
+                MNN::Timer _t;
+                for (int t = 0; t < time; ++t) {
+                    x->writeMap<float>();
+                    auto outputs = net->onForward({x});
+                    outputs[0]->readMap<float>();
+                }
+                float timeCost = _t.durationInUs() / 1000.0f / (float)time;
+                MNN_PRINT("cpu copy [%d, %d, %d], Avg time: %f ms\n", channel, height, width, timeCost);
+            }
+            {
+                MNN::Timer _t;
+                for (int t = 0; t < time; ++t) {
+                    xShared->setDevicePtr((void*)inputValue, MNN_MEMORY_AHARDWAREBUFFER);
+                    auto outputs = net->onForward({xShared});
+                    outputs[0]->copyToDevicePtr((void*)outputValue, MNN_MEMORY_AHARDWAREBUFFER);
+                }
+                float timeCost = _t.durationInUs() / 1000.0f / (float)time;
+                MNN_PRINT("shared memory copy [%d, %d, %d], Avg time: %f ms\n", channel, height, width, timeCost);
+            }
+            
+            ReleaseAHardWareBuffer(inputAhardwareBuffer);
+            ReleaseAHardWareBuffer(outputAhardwareBuffer);
         }
-        
-        ReleaseAHardWareBuffer(inputAhardwareBuffer);
-        ReleaseAHardWareBuffer(outputAhardwareBuffer);
         return true;
     }
 };

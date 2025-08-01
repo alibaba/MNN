@@ -72,10 +72,20 @@ VARP Embedding::txt_embedding(const std::string& txt) {
 }
 
 VARP Embedding::gen_attention_mask(int seq_len) {
-    auto attention_mask = _Input({1, 1, 1, seq_len}, NCHW, halide_type_of<int>());
-    auto ptr            = attention_mask->writeMap<int>();
-    for (int i = 0; i < seq_len; i++) {
-        ptr[i] = 1;
+    auto attention_mask = _Input({1, 1, seq_len, seq_len}, NCHW, halide_type_of<float>());
+    auto ptr = attention_mask->writeMap<float>();
+    if (mConfig->attention_mask() == "float") {
+        for (int i = 0; i < seq_len; i++) {
+            for (int j = 0; j < seq_len; j++) {
+                ptr[seq_len * i + j] = (j > i) * std::numeric_limits<float>::lowest();
+            }
+        }
+    } else {
+        for (int i = 0; i < seq_len; i++) {
+            for (int j = 0; j < seq_len; j++) {
+                ptr[seq_len * i + j] = 1.0;
+            }
+        }
     }
     return attention_mask;
 }

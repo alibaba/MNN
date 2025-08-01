@@ -319,6 +319,9 @@ int main(int argc, char *argv[]) {
         */
         rtmgr->setHint(Interpreter::DYNAMIC_QUANT_OPTIONS, 2);
     }
+
+    // rtmgr->setHint(Interpreter::CPU_SME2_INSTRUCTIONS, false);
+
     if (runMask & 2048) {
         rtmgr->setExternalPath("tmp", Interpreter::EXTERNAL_FEATUREMAP_DIR);
     }

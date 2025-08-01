@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="utf-8"?>
+<merge xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <LinearLayout
+        android:id="@+id/bottom_navigation"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:orientation="horizontal"
+        android:background="?colorSurface"
+        android:elevation="4dp">
+
+        <!-- Local Model Tab -->
+        <LinearLayout
+            android:id="@+id/tab_local_models"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:orientation="vertical"
+            android:clickable="true"
+            android:foreground="?attr/selectableItemBackgroundBorderless"
+            >
+
+            <ImageView
+                android:id="@+id/icon_local_models"
+                android:layout_width="@dimen/bottom_tab_icon_size"
+                android:layout_height="@dimen/bottom_tab_icon_size"
+                android:layout_marginBottom="4dp"
+                app:tint="@color/tab_text_selector"
+                app:srcCompat="@drawable/ic_u_home" />
+
+            <TextView
+                android:id="@+id/text_local_models"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/nav_name_chats"
+                android:textSize="12sp"
+                android:textColor="@color/tab_text_selector"/>
+        </LinearLayout>
+
+        <!-- Model Market Tab -->
+        <LinearLayout
+            android:id="@+id/tab_model_market"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:orientation="vertical"
+            android:clickable="true"
+            android:foreground="?attr/selectableItemBackgroundBorderless">
+
+            <ImageView
+                android:id="@+id/icon_model_market"
+                android:layout_width="@dimen/bottom_tab_icon_size"
+                android:layout_height="@dimen/bottom_tab_icon_size"
+                app:tint="@color/tab_text_selector"
+                android:layout_marginBottom="4dp"
+                android:src="@drawable/ic_u_market" />
+
+            <TextView
+                android:id="@+id/text_model_market"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/models_market"
+                android:textSize="12sp"
+                android:textColor="@color/tab_text_selector"/>
+        </LinearLayout>
+
+
+        <LinearLayout
+            android:id="@+id/tab_benchmark"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:orientation="vertical"
+            android:clickable="true"
+            android:foreground="?attr/selectableItemBackgroundBorderless">
+
+            <ImageView
+                android:id="@+id/icon_benchmark"
+                android:layout_width="@dimen/bottom_tab_icon_size"
+                android:layout_height="@dimen/bottom_tab_icon_size"
+                android:layout_marginBottom="4dp"
+                app:tint="@color/tab_text_selector"
+                android:src="@drawable/ic_u_benchmark" />
+
+            <TextView
+                android:id="@+id/text_benchmark"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/benchmark"
+                android:textSize="12sp"
+                android:textColor="@color/tab_text_selector"/>
+        </LinearLayout>
+    </LinearLayout>
+</merge>

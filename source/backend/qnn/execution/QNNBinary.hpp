@@ -19,6 +19,8 @@ class QNNBinary : public QNNCommonExecution {
 public:
     QNNBinary(Backend *backend, const Op *op) : QNNCommonExecution(backend, op) {}
     virtual ErrorCode onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) override;
+private:
+    ErrorCode onEncodeBroadcast(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs, const std::string & binaryTypeName);
 };
 
 } // end namespace QNN

@@ -9,7 +9,7 @@
     <TextView
         android:id="@+id/history_title"
         android:text="@string/history"
-        android:textSize="20sp"
+        android:textSize="24sp"
         android:layout_marginStart="20dp"
         android:textColor="?colorOnSurface"
         android:layout_height="wrap_content"
@@ -24,7 +24,9 @@
         android:layout_height="match_parent"
         android:layout_below="@id/history_title"
         android:visibility="visible"
-        android:overScrollMode="never" />
+        android:overScrollMode="never"
+        android:clipToPadding="false"
+        android:paddingBottom="8dp" />
     <TextView
         android:id="@+id/text_no_history"
         android:layout_width="wrap_content"

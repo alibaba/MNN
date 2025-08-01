@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <ListPreference
-        android:key="download_provider"
-        android:title="@string/select_download_provider"
-        android:entries="@array/download_provider_entries"
-        android:entryValues="@array/download_provider_values" />
+<!--    <ListPreference-->
+<!--        android:key="download_provider"-->
+<!--        android:title="@string/select_download_provider"-->
+<!--        android:entries="@array/download_provider_entries"-->
+<!--        android:entryValues="@array/download_provider_values" />-->
 
     <SwitchPreferenceCompat
         android:key="stop_download_on_chat"
@@ -24,6 +24,11 @@
         android:title="@string/reset_api_config"
         android:summary="@string/reset_api_config_summary" />
 
+    <Preference
+        android:key="voice_model_management"
+        android:title="@string/voice_model_management"
+        android:summary="@string/voice_model_management_summary" />
+
     <ListPreference
         android:key="diffusion_memory_mode"
         android:title="@string/diffusion_memory_mode"
@@ -35,5 +40,10 @@
         android:key="check_update"
         android:title="@string/check_for_update"
         android:summary="Tap to check for updates" />
+
+    <Preference
+        android:key="debug_mode"
+        android:title="@string/debug_mode"
+        android:visible="false" />
 
 </PreferenceScreen>

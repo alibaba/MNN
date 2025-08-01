@@ -61,7 +61,12 @@ bool IsUnsqueeze(EXPRP expr) {
     const Op* op = expr->get();
     return op && op->type() == OpType_Unsqueeze;
 }
-
+    
+bool IsSqueeze(EXPRP expr) {
+    const Op* op = expr->get();
+    return op && op->type() == OpType_Squeeze;
+}
+    
 bool IsTranspose(EXPRP expr) {
     const Op* op = expr->get();
     return op && (op->type() == OpType_Transpose || op->type() == OpType_Permute);

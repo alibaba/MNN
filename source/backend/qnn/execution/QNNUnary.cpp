@@ -39,6 +39,26 @@ ErrorCode QNNUnary::onEncode(const std::vector<Tensor *> &inputs, const std::vec
 
         return NO_ERROR;
     }
+
+    // UnaryOpOperation_SQUARE.
+    if(UnaryOpOperation_SQUARE == mOp->main_as_UnaryOp()->opType())
+    {
+        mParams.clear();
+        mInputs.clear();
+        mOutputs.clear();
+        mNodeType = "ElementWiseMultiply";
+        for (int i = 0; i < mParamTensorWrappers.size(); i++) {
+            mParams.push_back(*(mParamTensorWrappers[i]->getNativeParam()));
+        }
+
+        mInputs.push_back(*(mBackend->getNativeTensor(inputs[0]))); // input0
+        mInputs.push_back(*(mBackend->getNativeTensor(inputs[0]))); // input0
+        mOutputs.push_back(*(mBackend->getNativeTensor(outputs[0])));
+
+        mBackend->addNodeToGraph(mOpConfigVersion, mNodeName.c_str(), mPackageName.c_str(), mNodeType.c_str(), mParams, mInputs, mOutputs);
+        return NO_ERROR;
+    }
+
     std::map<UnaryOpOperation, std::string> unaryMap {
         {UnaryOpOperation_ABS, "ElementWiseAbs"},
         {UnaryOpOperation_EXP, "ElementWiseExp"},
@@ -74,9 +94,9 @@ ErrorCode QNNUnary::onEncode(const std::vector<Tensor *> &inputs, const std::vec
         {UnaryOpOperation_ERFC, ""},
         {UnaryOpOperation_BNLL, ""},
         {UnaryOpOperation_ERFINV, ""},
-        {UnaryOpOperation_SILU, ""}
     };
     auto opType = mOp->main_as_UnaryOp()->opType();
+
     auto iter = unaryMap.find(opType);
     if (iter == unaryMap.end() || iter->second.empty()) {
         MNN_ERROR("Don't support %d opType in QNNUnary\n", opType);
@@ -94,6 +114,31 @@ class QNNUnaryCreator : public QnnBackend::Creator {
 public:
     virtual QNNCommonExecution * onCreate(const std::vector<Tensor*>& inputs, const std::vector<Tensor*>& outputs, const MNN::Op* op,
                                 Backend* backend) const override {
+                                    std::set<UnaryOpOperation> supportedUnaryTypes = {
+                                        UnaryOpOperation_ABS,
+                                        UnaryOpOperation_EXP,
+                                        UnaryOpOperation_SQRT,
+                                        UnaryOpOperation_RSQRT,
+                                        UnaryOpOperation_LOG,
+                                        UnaryOpOperation_SIN,
+                                        UnaryOpOperation_ASIN,
+                                        UnaryOpOperation_COS,
+                                        UnaryOpOperation_TANH,
+                                        UnaryOpOperation_FLOOR,
+                                        UnaryOpOperation_SIGN,
+                                        UnaryOpOperation_SIGMOID,
+                                        UnaryOpOperation_SQUARE,
+                                        UnaryOpOperation_NEG,
+                                        UnaryOpOperation_HARDSWISH,
+                                        UnaryOpOperation_GELU,
+                                        UnaryOpOperation_GELU_STANDARD,
+                                        UnaryOpOperation_SILU
+                                    };
+        auto opType = op->main_as_UnaryOp()->opType();
+        if (supportedUnaryTypes.find(opType) == supportedUnaryTypes.end()) {
+            MNN_ERROR("Don't support %d opType in QNNUnary\n", opType);
+            return nullptr;
+        }
         return new QNNUnary(backend, op);
     }
 };

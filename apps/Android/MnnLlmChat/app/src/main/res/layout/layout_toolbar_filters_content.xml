@@ -1,40 +1,99 @@
 <?xml version="1.0" encoding="utf-8"?>
-<HorizontalScrollView xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent"
-    android:layout_height="match_parent"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
-    android:scrollbars="none"
-    android:fillViewport="true">
-    <LinearLayout
-    android:id="@+id/filter_buttons_layout"
-    android:layout_width="wrap_content"
-    android:layout_height="match_parent"
     android:orientation="horizontal"
-    android:padding="8dp"
-    android:gravity="center_vertical">
+    android:layout_width="match_parent"
+    android:layout_height="40dp">
+    <HorizontalScrollView
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:scrollbars="none"
+        android:fillViewport="true"
+        android:layout_weight="1"
+        android:paddingEnd="16dp"
+        android:clipToPadding="false" >
+        <LinearLayout
+        android:id="@+id/filter_buttons_layout"
+        android:layout_width="wrap_content"
+        android:layout_height="match_parent"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="16dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
 
-    <TextView
-        android:id="@+id/filter_download_state"
-        style="@style/FilterChipStyle"
-        android:text="@string/local_available"
-        android:textColor="@color/filter_button_tint"
-        />
+        <com.alibaba.mnnllm.android.widgets.ModelSwitcherView
+            android:id="@+id/source_switcher"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="8dp"
+            android:visibility="gone"/>
+        <!-- Quick filter tags will be added dynamically here -->
+        <LinearLayout
+            android:id="@+id/quick_filter_tags_layout"
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"/>
+            
+        <TextView
+            android:id="@+id/filter_download_state"
+            style="@style/FilterChipStyle"
+            android:text="@string/local_available"
+            android:visibility="gone"
+            android:textColor="@color/filter_button_tint"
+            />
 
-    <TextView
-        android:id="@+id/filter_modality"
-        style="@style/FilterChipStyle"
-        app:drawableEndCompat="@drawable/ic_arrow_drop_down"
-        app:drawableTint="@color/filter_button_tint"
-        android:text="@string/modality_menu_title"
-        android:textColor="@color/filter_button_tint"/>
+        <TextView
+            android:id="@+id/filter_modality"
+            style="@style/FilterChipStyle"
+            app:drawableEndCompat="@drawable/ic_arrow_drop_down"
+            app:drawableTint="@color/filter_button_tint"
+            android:text="@string/modality_menu_title"
+            android:visibility="gone"
+            android:textColor="@color/filter_button_tint"/>
 
-    <TextView
-        android:id="@+id/filter_vendor"
-        style="@style/FilterChipStyle"
-        android:text="@string/vendor_menu_title"
-        app:drawableEndCompat="@drawable/ic_arrow_drop_down"
-        app:drawableTint="@color/filter_button_tint"
-        android:textColor="@color/filter_button_tint"/>
+            <TextView
+                android:id="@+id/filter_vendor"
+                style="@style/FilterChipStyle"
+                android:text="@string/vendor_menu_title"
+                android:textColor="@color/filter_button_tint"
+                android:visibility="gone"
+                app:drawableEndCompat="@drawable/ic_arrow_drop_down"
+                app:drawableTint="@color/filter_button_tint" />
 
+
+        </LinearLayout>
+    </HorizontalScrollView>
+    <View
+        android:layout_width="0.5dp"
+        android:layout_height="match_parent"
+        android:layout_marginTop="8dp"
+        android:layout_marginBottom="8dp"
+        android:background="?colorSurfaceVariant"
+        android:alpha="1"/>
+    <LinearLayout
+        android:id="@+id/filter_button_layout"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_vertical"
+        android:orientation="horizontal"
+        android:background="?android:attr/selectableItemBackground"
+        android:clickable="true"
+        android:focusable="true"
+        android:padding="8dp"
+        android:gravity="center_vertical">
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/all_filter"
+            android:textColor="@color/filter_button_tint"
+            />
+        <ImageView
+            android:layout_width="15dp"
+            android:layout_height="15dp"
+            android:src="@drawable/ic_filter"
+            android:layout_marginStart="4dp"
+            android:contentDescription="@string/filter"
+            app:tint="@color/filter_button_tint"/>
+    </LinearLayout>
 </LinearLayout>
-</HorizontalScrollView>

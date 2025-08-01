@@ -4,7 +4,6 @@
 package com.alibaba.mnnllm.android.main
 
 import android.widget.TextView
-import com.alibaba.mls.api.download.DownloadInfo
 import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.model.Modality
 import com.alibaba.mnnllm.android.modelsettings.DropDownMenuHelper

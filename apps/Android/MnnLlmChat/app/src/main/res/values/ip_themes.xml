@@ -6,6 +6,8 @@
 
         <item name="android:windowLightStatusBar">@bool/is_day_mode</item>
 
+        <!-- 全局默认 BottomSheetDialog 主题 -->
+<!--        <item name="bottomSheetDialogTheme">@style/BottomSheetDialogTheme</item>-->
 
         <item name="colorPrimary">@color/md_theme_primary</item>
         <item name="colorOnPrimary">@color/md_theme_onPrimary</item>
@@ -23,7 +25,7 @@
         <item name="colorOnError">@color/md_theme_onError</item>
         <item name="colorErrorContainer">@color/md_theme_errorContainer</item>
         <item name="colorOnErrorContainer">@color/md_theme_onErrorContainer</item>
-        <item name="android:colorBackground">@color/md_theme_background</item>
+        <item name="android:colorBackground">@color/md_theme_surface</item>
         <item name="colorOnBackground">@color/md_theme_onBackground</item>
         <item name="colorSurface">@color/md_theme_surface</item>
         <item name="colorOnSurface">@color/md_theme_onSurface</item>
@@ -57,5 +59,9 @@
         <item name="colorOnCustomColor1">@color/colorOnCustomColor1</item>
         <item name="colorCustomColor1Container">@color/colorCustomColor1Container</item>
         <item name="colorOnCustomColor1Container">@color/colorOnCustomColor1Container</item>
+        <item name="pieFillColor">@color/accentColor</item>
+        <item name="pieRingColor">@color/accentColor</item>
+        <item name="progressPieViewStyle">@style/Widget.App.ProgressPieView</item>
     </style>
+
 </resources>
