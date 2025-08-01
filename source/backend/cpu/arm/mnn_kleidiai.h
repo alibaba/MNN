@@ -211,6 +211,11 @@ namespace MNN {
                 return false;
             }
         }
+        if(type == AccelType::QI4_SYM_CHNLQT_F32){
+            if(common->inputCount() % 2 != 0) {
+                return false;
+            }
+        }
         if(common->kernelX() == 1 && common->kernelY() == 1
             && common->padX() == 0 && common->padY() == 0
             && common->strideX() == 1 && common->strideY() == 1
