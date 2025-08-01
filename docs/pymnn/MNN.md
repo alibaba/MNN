@@ -11,9 +11,11 @@ MNN是Pymnn中最基础的Module，其中包含了V2 API所需要数据结构与
 - [expr](expr.md)
 - [numpy](numpy.md)
 - [cv](cv.md)
-- [nn](nn.md)
+- [nn](nn.md): 包含 `loss` 和 `compress` 子模块
 - [optim](optim.md)
 - [data](data.md)
+- [audio](audio.md)
+- [llm](llm.md)
 
 ---
 ### `MNN Types`

@@ -47,7 +47,7 @@ import MNN.cv as cv
 import MNN.numpy as np
 import MNN.expr as expr
 
-# 配置执行后端，线程数，精度等信息；key-vlaue请查看API介绍
+# 配置执行后端，线程数，精度等信息；key-value请查看API介绍
 config = {}
 config['precision'] = 'low' # 当硬件支持（armv8.2）时使用fp16推理
 config['backend'] = 0       # CPU
