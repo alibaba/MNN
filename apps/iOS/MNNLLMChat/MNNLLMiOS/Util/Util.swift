@@ -154,6 +154,11 @@ extension Date {
         if result.contains("second") {
             return "Just now"
         }
+        
+        if result.contains("秒钟") {
+            return "刚刚"
+        }
+        
         return result
     }
 }

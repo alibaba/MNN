@@ -70,14 +70,79 @@
 #include <mutex>
 #include <thread>
 #include <chrono>
-#include <MNN/llm/llm.hpp>
+#include <fstream>
+#include <iomanip>
 #include <vector>
 #include <utility>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <errno.h>
+#include "MNN/expr/ExecutorScope.hpp"
 
 #import <Foundation/Foundation.h>
 #import "LLMInferenceEngineWrapper.h"
 
-using namespace MNN::Transformer;
+// Conditional include for MNN headers
+#ifdef __has_include
+  #if __has_include(<MNN/llm/llm.hpp>)
+    #include <MNN/llm/llm.hpp>
+    using namespace MNN::Transformer;
+  #else
+    // Fallback declarations when MNN headers are not available
+    namespace MNN {
+        namespace Transformer {
+            class Llm {
+             public:
+                 static Llm* createLLM(const std::string& config_path);
+                 virtual void set_config(const std::string& config) = 0;
+                 virtual void load() = 0;
+                 virtual void response(const std::string& input_str, std::ostream* os = nullptr, const char* end_with = nullptr) = 0;
+                 virtual void response(const std::vector<std::pair<std::string, std::string>>& history, std::ostream* os = nullptr, const char* end_with = nullptr, int max_new_tokens = 999999) = 0;
+                 virtual void response(const std::vector<int>& tokens, std::ostream* os = nullptr, const char* end_with = nullptr, int max_new_tokens = 999999) = 0;
+                 virtual void reset() = 0;
+                 virtual bool stopped() = 0;
+                 virtual int generate(int max_token_number = 0) = 0;
+                 struct LlmContext {
+                     int prompt_len;
+                     int gen_seq_len;
+                     int64_t prefill_us;
+                     int64_t decode_us;
+                 };
+                 virtual LlmContext* getContext() = 0;
+                 virtual ~Llm() = default;
+             };
+        }
+    }
+    using namespace MNN::Transformer;
+  #endif
+#else
+  // Fallback for older compilers
+  namespace MNN {
+      namespace Transformer {
+          class Llm {
+           public:
+               static Llm* createLLM(const std::string& config_path);
+               virtual void set_config(const std::string& config) = 0;
+               virtual void load() = 0;
+               virtual void response(const std::string& input_str, std::ostream* os = nullptr, const char* end_with = nullptr) = 0;
+               virtual void response(const std::vector<std::pair<std::string, std::string>>& history, std::ostream* os = nullptr, const char* end_with = nullptr, int max_new_tokens = 512) = 0;
+               virtual void response(const std::vector<int>& tokens, std::ostream* os = nullptr, const char* end_with = nullptr, int max_new_tokens = 512) = 0;
+               virtual void reset() = 0;
+               virtual bool stopped() = 0;
+               virtual int generate(int max_token_number = 0) = 0;
+               struct LlmContext {
+                   int prompt_len;
+                   int gen_seq_len;
+                   int64_t prefill_us;
+                   int64_t decode_us;
+               };
+               virtual LlmContext* getContext() = 0;
+               virtual ~Llm() = default;
+           };
+      }
+  }
+  using namespace MNN::Transformer;
+#endif
 
 using ChatMessage = std::pair<std::string, std::string>;
 
@@ -288,12 +353,13 @@ private:
 };
 
 @implementation LLMInferenceEngineWrapper {
-    std::shared_ptr<Llm> _llm;
+    std::shared_ptr<MNN::Transformer::Llm> _llm;
     std::vector<ChatMessage> _history;
     std::mutex _historyMutex;
     std::atomic<bool> _isProcessing;
     std::atomic<bool> _isBenchmarkRunning;
     std::atomic<bool> _shouldStopBenchmark;
+    std::atomic<bool> _shouldStopInference;
     NSString *_modelPath;
 }
 
@@ -314,6 +380,7 @@ private:
         _isProcessing = false;
         _isBenchmarkRunning = false;
         _shouldStopBenchmark = false;
+        _shouldStopInference = false;
         
         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
             BOOL success = [self loadModelFromPath:modelPath];
@@ -335,13 +402,22 @@ private:
  * @return true if successful, false otherwise
  */
 bool remove_directory_safely(const std::string& path) {
-    try {
-        if (std::filesystem::exists(path)) {
-            std::filesystem::remove_all(path);
+    @try {
+        NSString *pathStr = [NSString stringWithUTF8String:path.c_str()];
+        NSFileManager *fileManager = [NSFileManager defaultManager];
+        
+        if ([fileManager fileExistsAtPath:pathStr]) {
+            NSError *error = nil;
+            BOOL success = [fileManager removeItemAtPath:pathStr error:&error];
+            if (!success && error) {
+                NSLog(@"Error removing directory %s: %@", path.c_str(), error.localizedDescription);
+                return false;
+            }
+            return success;
         }
         return true;
-    } catch (const std::filesystem::filesystem_error& e) {
-        NSLog(@"Error removing directory %s: %s", path.c_str(), e.what());
+    } @catch (NSException *exception) {
+        NSLog(@"Exception removing directory %s: %@", path.c_str(), exception.reason);
         return false;
     }
 }
@@ -394,7 +470,7 @@ bool remove_directory_safely(const std::string& path) {
         std::string model_dir = [bundleDirectory UTF8String];
         std::string config_path = model_dir + "/config.json";
         
-        _llm.reset(Llm::createLLM(config_path));
+        _llm.reset(MNN::Transformer::Llm::createLLM(config_path));
         if (!_llm) {
             NSLog(@"Error: Failed to create LLM from bundle");
             return NO;
@@ -454,30 +530,39 @@ bool remove_directory_safely(const std::string& path) {
             return NO;
         }
         
+        MNN::BackendConfig backendConfig;
+        auto executor = MNN::Express::Executor::newExecutor(MNN_FORWARD_CPU, backendConfig, 1);
+        MNN::Express::ExecutorScope s(executor);
+        
         // Get memory mapping setting with default fallback
         BOOL useMmap = configDict[@"use_mmap"] == nil ? YES : [configDict[@"use_mmap"] boolValue];
         
         // Create LLM instance with error checking
-        _llm.reset(Llm::createLLM(config_path));
+        _llm.reset(MNN::Transformer::Llm::createLLM(config_path));
         if (!_llm) {
             NSLog(@"Error: Failed to create LLM instance from config: %s", config_path.c_str());
             return NO;
         }
         
         // Setup temporary directory with improved error handling
-        std::string model_path_str([modelPath UTF8String]);
-        std::string temp_directory_path = model_path_str + "/temp";
+        // Use iOS system temporary directory instead of model path (which is read-only in Bundle)
+        NSString *tempDir = NSTemporaryDirectory();
+        NSString *modelName = [[modelPath lastPathComponent] stringByDeletingPathExtension];
+        NSString *tempDirPath = [tempDir stringByAppendingPathComponent:[NSString stringWithFormat:@"MNN_%@_temp", modelName]];
+        std::string temp_directory_path = [tempDirPath UTF8String];
         
         // Clean up existing temp directory
         if (!remove_directory_safely(temp_directory_path)) {
             NSLog(@"Warning: Failed to remove existing temp directory, continuing...");
         }
         
-        // Create new temp directory
+        // Create new temp directory in system temp location
         if (mkdir(temp_directory_path.c_str(), 0755) != 0 && errno != EEXIST) {
             NSLog(@"Error: Failed to create temp directory: %s, errno: %d", temp_directory_path.c_str(), errno);
             return NO;
         }
+        
+        NSLog(@"Created temp directory at: %s", temp_directory_path.c_str());
         
         // Configure LLM with proper error handling
         bool useMmapCpp = (useMmap == YES);
@@ -585,12 +670,21 @@ bool remove_directory_safely(const std::string& path) {
     
     _isProcessing = true;
     
+    // Store reference for block execution
+    LLMInferenceEngineWrapper *blockSelf = self;
+    
     // Use high priority queue for better responsiveness
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
+        // Check if object is still valid before proceeding
+        if (!blockSelf || !blockSelf->_llm) {
+            NSLog(@"LLMInferenceEngineWrapper was deallocated or model unloaded during inference");
+            return;
+        }
+        
         @try {
             auto inference_start_time = std::chrono::high_resolution_clock::now();
             
-            OptimizedLlmStreamBuffer::CallBack callback = [output, self](const char* str, size_t len) {
+            OptimizedLlmStreamBuffer::CallBack callback = [output](const char* str, size_t len) {
                 if (output && str && len > 0) {
                     @autoreleasepool {
                         NSString *nsOutput = [[NSString alloc] initWithBytes:str
@@ -610,23 +704,77 @@ bool remove_directory_safely(const std::string& path) {
             
             // Thread-safe history management
             {
-                std::lock_guard<std::mutex> lock(self->_historyMutex);
-                self->_history.emplace_back(ChatMessage("user", [input UTF8String]));
+                std::lock_guard<std::mutex> lock(blockSelf->_historyMutex);
+                blockSelf->_history.emplace_back(ChatMessage("user", [input UTF8String]));
             }
             
             std::string inputStr = [input UTF8String];
             if (inputStr == "benchmark") {
-                [self performBenchmarkWithOutput:&os];
+                [blockSelf performBenchmarkWithOutput:&os];
             } else {
                 // Get initial context state for performance measurement
-                auto context = self->_llm->getContext();
+                auto context = blockSelf->_llm->getContext();
                 int initial_prompt_len = context->prompt_len;
                 int initial_decode_len = context->gen_seq_len;
                 int64_t initial_prefill_time = context->prefill_us;
                 int64_t initial_decode_time = context->decode_us;
                 
-                // Execute inference
-                self->_llm->response(self->_history, &os, "<eop>", 999999);
+                // Reset stop flag before starting inference
+                blockSelf->_shouldStopInference = false;
+                
+                // Execute inference with enhanced stopped status checking
+                @try {
+                    // Debug information for prompt
+                    std::string prompt_debug = "";
+                    for (const auto& msg : blockSelf->_history) {
+                        prompt_debug += msg.first + ": " + msg.second + "\n";
+                    }
+                    NSLog(@"submitNative prompt_string_for_debug:\n%s\nmax_new_tokens_: %d", prompt_debug.c_str(), 999999);
+                    
+                    // Start inference with initial response processing
+                    blockSelf->_llm->response(blockSelf->_history, &os, "<eop>", 1);
+                    int current_size = 1;
+                    int max_new_tokens = 999999;
+                    
+                    // Continue generation with precise token-by-token control
+                    while (!blockSelf->_shouldStopInference.load() && 
+                           !blockSelf->_llm->stoped() &&
+                           current_size < max_new_tokens) {
+                        
+                        // Generate single token for maximum control
+                        blockSelf->_llm->generate(1);
+                        current_size++;
+                        
+                        // Small delay to allow UI updates and stop signal processing
+                        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                    }
+                    
+                    // Send appropriate end signal based on stop reason
+                    if (output) {
+                        dispatch_async(dispatch_get_main_queue(), ^{
+                            if (blockSelf->_shouldStopInference.load()) {
+                                output(@"<stopped>");
+                            } else {
+                                output(@"<eop>");
+                            }
+                        });
+                    }
+                    
+                    NSLog(@"Inference completed. Generated tokens: %d, Stopped by user: %s, Model stopped: %s", 
+                          current_size, 
+                          blockSelf->_shouldStopInference.load() ? "YES" : "NO",
+                          blockSelf->_llm->stoped() ? "YES" : "NO");
+                    
+                } @catch (NSException *exception) {
+                    NSLog(@"Exception during response generation: %@", exception.reason);
+                    
+                    // Send end signal even on error to unlock UI
+                    if (output) {
+                        dispatch_async(dispatch_get_main_queue(), ^{
+                            output(@"<eop>");
+                        });
+                    }
+                }
                 
                 // Calculate performance metrics if requested
                 if (showPerformance) {
@@ -683,7 +831,7 @@ bool remove_directory_safely(const std::string& path) {
             }
         }
         @finally {
-            self->_isProcessing = false;
+            blockSelf->_isProcessing = false;
         }
     });
 }
@@ -770,17 +918,25 @@ bool remove_directory_safely(const std::string& path) {
 }
 
 /**
- * Enhanced deallocation with proper cleanup
+ * Enhanced deallocation with proper cleanup and timeout
  */
 - (void)dealloc {
     NSLog(@"LLMInferenceEngineWrapper deallocating...");
     
-    // Stop any running benchmark
-    _shouldStopBenchmark = true;
+    // Actively cancel all operations first
+    [self cancelInference];
     
-    // Wait for any ongoing processing to complete
-    while (_isProcessing.load() || _isBenchmarkRunning.load()) {
+    // Wait for any ongoing processing to complete with timeout
+    int timeout = 100; // 1 second timeout (100 * 10ms)
+    while ((_isProcessing.load() || _isBenchmarkRunning.load()) && timeout > 0) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        timeout--;
+    }
+    
+    if (timeout <= 0) {
+        NSLog(@"Warning: Dealloc timeout, forcing cleanup");
+        _isProcessing = false;
+        _isBenchmarkRunning = false;
     }
     
     {
@@ -879,11 +1035,17 @@ bool remove_directory_safely(const std::string& path) {
  * Cancel ongoing inference (if supported)
  */
 - (void)cancelInference {
-    if (_isProcessing.load()) {
-        NSLog(@"Inference cancellation requested");
-        // Note: Actual cancellation depends on MNN LLM implementation
-        // This is a placeholder for future enhancement
-    }
+    NSLog(@"Cancelling inference...");
+    
+    // Set all stop flags to true
+    _shouldStopInference = true;
+    _shouldStopBenchmark = true;
+    
+    // Force set processing states to false for immediate cleanup
+    _isProcessing = false;
+    _isBenchmarkRunning = false;
+    
+    NSLog(@"Inference cancellation completed - all flags set");
 }
 
 /**
