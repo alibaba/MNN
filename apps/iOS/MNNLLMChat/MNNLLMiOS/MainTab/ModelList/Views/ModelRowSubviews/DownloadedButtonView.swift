@@ -7,7 +7,6 @@
 
 import SwiftUI
 
-// MARK: - 已下载按钮视图
 struct DownloadedButtonView: View {
     @Binding var showDeleteAlert: Bool
     

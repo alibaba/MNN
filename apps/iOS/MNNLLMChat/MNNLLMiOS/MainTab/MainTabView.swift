@@ -7,7 +7,6 @@
 
 import SwiftUI
 
-// MainTabView is the primary view of the app, containing the tab bar and navigation for main sections.
 struct MainTabView: View {
     // MARK: - State Properties
     
