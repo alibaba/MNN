@@ -153,7 +153,7 @@ final class LLMChatViewModel: ObservableObject {
     }
     
     func sendToLLM(draft: DraftMessage) {
-        // 立即隐藏键盘，避免键盘闪现
+        
         NotificationCenter.default.post(name: .dismissKeyboard, object: nil)
         
         self.send(draft: draft, userType: .user)

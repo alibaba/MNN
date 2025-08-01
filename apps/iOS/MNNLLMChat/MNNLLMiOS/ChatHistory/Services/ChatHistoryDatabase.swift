@@ -161,18 +161,15 @@ class ChatHistoryDatabase {
         return histories
     }
     
-    // 验证并修复历史消息中的图片路径
     private func validateAndFixImagePaths(_ messages: [HistoryMessage], historyId: String) -> [HistoryMessage] {
         return messages.map { message in
             var updatedMessage = message
             
             if let images = message.images {
                 let validImages = images.compactMap { image -> LLMChatImage? in
-                    // 检查图片文件是否存在
                     if ChatHistoryFileManager.shared.validateFileExists(at: image.full) {
                         return image
                     } else {
-                        // 尝试通过文件名重新构建路径
                         let fileName = image.full.lastPathComponent
                         if let validURL = ChatHistoryFileManager.shared.getValidFileURL(for: fileName, historyId: historyId) {
                             return LLMChatImage(id: image.id, thumbnail: validURL, full: validURL)
