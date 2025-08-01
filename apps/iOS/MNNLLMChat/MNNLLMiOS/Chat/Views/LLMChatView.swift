@@ -119,6 +119,10 @@ struct LLMChatView: View {
             viewModel.onStart()
         }
         .onDisappear(perform: viewModel.onStop)
+        .onReceive(NotificationCenter.default.publisher(for: .dismissKeyboard)) { _ in
+            // 隐藏键盘
+            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        }
     }
     
     // MARK: - LLM Chat Message Builder
