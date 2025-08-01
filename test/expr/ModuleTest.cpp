@@ -177,6 +177,8 @@ MNNTestSuiteRegister(ModuleTest, "expr/ModuleTest");
 class ModuleWrongInputTest : public MNNTestCase {
 public:
     virtual bool run(int precision) {
+        auto executor = cloneCurrentExecutor();
+        ExecutorScope scope(executor);
         std::vector<int8_t> buffer;
         // construct
         {
@@ -244,6 +246,8 @@ MNNTestSuiteRegister(ModuleWrongInputTest, "expr/ModuleWrongInputTest");
 class RefTest : public MNNTestCase {
 public:
     virtual bool run(int precision) {
+        auto executor = cloneCurrentExecutor();
+        ExecutorScope scope(executor);
         std::vector<int8_t> buffer;
         // construct
         {
@@ -318,6 +322,8 @@ public:
         }
     }
     virtual bool run(int precision) {
+        auto executor = cloneCurrentExecutor();
+        ExecutorScope scope(executor);
         std::vector<int8_t> buffer;
 #ifdef MNN_REDUCE_SIZE
         return true;
@@ -1039,6 +1045,8 @@ MNNTestSuiteRegister(ConstMemoryReplaceTest, "expr/ConstMemoryReplaceTest");
 class MutlThreadConstReplaceTest : public MNNTestCase {
 public:
     virtual bool run(int precision) {
+        auto executor = cloneCurrentExecutor();
+        ExecutorScope scope(executor);
         auto func = [precision](VARP y, int thread) {
             flatbuffers::FlatBufferBuilder builderOutput(1024);
             {
@@ -1499,6 +1507,8 @@ MNNTestSuiteRegister(ExecutorResetLoadModuleTest, "expr/ExecutorResetLoadModuleT
 class SequenceForwardResizeTest : public MNNTestCase {
 public:
     virtual bool run(int precision) {
+        auto executor = cloneCurrentExecutor();
+        ExecutorScope scope(executor);
         // Make Model include convolution in shape compute and content compute
         auto x = _Input({1, 3, 24, 24}, NCHW, halide_type_of<float>());
         x->setName("x");
@@ -1606,6 +1616,8 @@ MNNTestSuiteRegister(SequenceForwardResizeTest, "expr/SequenceForwardResizeTest"
 class InputModuleTest : public MNNTestCase {
 public:
     virtual bool run(int precision) {
+        auto executor = cloneCurrentExecutor();
+        ExecutorScope scope(executor);
         auto y = _mobileNetV1Expr(nullptr, false);
         std::unique_ptr<MNN::NetT> net(new NetT);
         Variable::save({y}, net.get());

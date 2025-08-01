@@ -4,7 +4,6 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#ifdef MNN_KLEIDIAI_ENABLED
 #include "KleidiAIConvInt8.hpp"
 #include "core/Macro.h"
 #include "core/BufferAllocator.hpp"
@@ -303,4 +302,3 @@ ErrorCode KleidiAIConvInt8::onExecute(const std::vector<Tensor*>& inputs, const 
 }
 
 } // namespace MNN
-#endif //MNN_KLEIDIAI_ENABLED

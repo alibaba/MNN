@@ -19,10 +19,6 @@
 #undef CONSTANT
 #endif // CONSTANT
 
-#ifdef MNN_KLEIDIAI_ENABLED
-#include "../backend/cpu/arm/mnn_kleidiai.h"
-#endif
-
 namespace MNN {
 struct TensorArrayAttr {
     // array size is dynamic or not

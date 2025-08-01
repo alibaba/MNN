@@ -4,18 +4,14 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#ifdef MNN_KLEIDIAI_ENABLED
 #include "KleidiAIConvolution.hpp"
 #include <string.h>
-#include "core/BufferAllocator.hpp"
 #include "backend/cpu/CPUBackend.hpp"
 #include "core/Concurrency.h"
 #include "core/TensorUtils.hpp"
 #include "backend/cpu/CPUTensorConvert.hpp"
 
 namespace MNN {
-#ifndef MNN_REDUCE_SIZE
-
 KleidiAIConvolution::KleidiAIConvolution(const Convolution2DCommon *common, Backend *b, const float *originWeight,
                                         size_t originWeightSize, const float *bias, size_t biasSize)
     : CPUConvolution(common, b) {
@@ -228,7 +224,4 @@ ErrorCode KleidiAIConvolution::onExecute(const std::vector<Tensor *> &inputs, co
 
     return NO_ERROR;
 }
-
-#endif
 } // namespace MNN
-#endif //MNN_KLEIDIAI_ENABLED

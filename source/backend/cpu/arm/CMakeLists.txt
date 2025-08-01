@@ -20,7 +20,6 @@ if (MNN_CPU_WEIGHT_DEQUANT_GEMM)
 endif()
 
 if (MNN_KLEIDIAI)
-    add_definitions(-DMNN_KLEIDIAI_ENABLED=1)
     # Disable the KleidiAI tests
     set(KLEIDIAI_BUILD_TESTS  OFF)
     # Fetch KleidiAI sources:

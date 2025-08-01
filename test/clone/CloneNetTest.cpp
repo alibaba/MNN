@@ -49,6 +49,12 @@ public:
         for (int i = 0; i < channel * height * width; ++i){
             inputData[i] = (rand() % 10) * 0.1;
         }
+
+        MNN::BackendConfig config;
+        config.precision = (MNN::BackendConfig::PrecisionMode)MNN::BackendConfig::Precision_Normal;
+        config.memory = (MNN::BackendConfig::MemoryMode)MNN::BackendConfig::Memory_Normal;
+        std::shared_ptr<Executor> executor(Executor::newExecutor(getCurrentType(), config, 4));
+        ExecutorScope scope(executor);
         
         auto net = _createModel();
         auto x = _Input({1, channel, height, width}, NCHW, halide_type_of<float>());
@@ -65,11 +71,7 @@ public:
         
         
         // clone model
-        MNN::BackendConfig config;
-        config.precision = (MNN::BackendConfig::PrecisionMode)MNN::BackendConfig::Precision_Normal;
-        config.memory = (MNN::BackendConfig::MemoryMode)MNN::BackendConfig::Memory_Normal;
-        std::shared_ptr<Executor> executor(Executor::newExecutor(getCurrentType(), config, 4));
-        ExecutorScope scope(executor);
+
         std::unique_ptr<Module> tempModule(Module::clone(net.get()));
         
         auto xClone = _Input({1, channel, height, width}, NCHW, halide_type_of<float>());
