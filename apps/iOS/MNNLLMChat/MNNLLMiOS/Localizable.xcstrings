@@ -1091,6 +1091,23 @@
         }
       }
     },
+    "tag.localModel" : {
+      "comment" : "Local model inside the app",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Built-in Model"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "内置模型"
+          }
+        }
+      }
+    },
     "tag.math" : {
       "extractionState" : "stale",
       "localizations" : {
