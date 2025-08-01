@@ -111,48 +111,23 @@ iPhone 因为内存有限，建议使用7B以及以下的模型，避免内存�
 
 ## 本地调试
 
-如果我们希望直接电脑下载模型，不通过App内下载模型，进行调试，可以通过一下的方式。
+本地调试模型非常简单，只需要将模型文件拖动到LocalModel文件夹下，然后运行项目即可：
 
 1. 首先在 [huggingface](https://huggingface.co/taobao-mnn) 或者 [modelscope](https://modelscope.cn/organization/MNN) 下载 MNN 相关的模型
 
     <img width="400" alt="image" src="./assets/copyLocalModel.png" />
 
-
 2. 将下载之后的模型文件夹内的所有文件，拖动到项目中 LocalModel 文件夹下：
 
     <img width="200" alt="image" src="./assets/copyLocalModel2.png" />
 
-
 3. 确保以上文件都已经在 copy bundle resources 中
-
 
     <img width="400" alt="image" src="./assets/copyLocalMode3.png" />
 
+4. 运行项目，点击进入聊天对话页面，进行模型对话和调试。
 
-4. 注释下载相关代码
-
-    ```Swift
-    /*
-    try await modelClient.downloadModel(model: model) { progress in
-        Task { @MainActor in
-            DispatchQueue.main.async {
-                self.downloadProgress[model.modelId] = progress
-            }
-        }
-    }
-    */
-    ```
-5. 修改模型加载方式
-
-    在 LLMInferenceEngineWrapper 类中修改：
-
-    ```Swift
-    // BOOL success = [self loadModelFromPath:modelPath];
-    // MARK: Test Local Model
-    BOOL success = [self loadModel];
-    ```
-
-6. 运行项目，点击进入聊天对话页面，进行模型对话和调试。
+应用会自动检测并加载LocalModel文件夹中的模型，无需额外配置。
 
 
 ## Release Notes
