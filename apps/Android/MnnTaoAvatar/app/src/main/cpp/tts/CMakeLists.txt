@@ -7,7 +7,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 option(BUILD_BERTVITS2 "Build BertVit2 TTS " ON)
-option(BUILD_PIPER "Build PIPER TTS " ON)
+option(BUILD_PIPER "Build PIPER TTS " OFF)
 
 include_directories(
 	${CMAKE_CURRENT_LIST_DIR}/include
@@ -47,16 +47,17 @@ set(BERTVITS2_SOURCE_FILES
   ${CMAKE_CURRENT_LIST_DIR}/src/bertvits2/tts_generator.cpp
   ${CMAKE_CURRENT_LIST_DIR}/src/bertvits2/word_spliter.cpp
 )
-
+if(BUILD_PIPER)
 set(PIPER_SOURCE_FILES
   ${CMAKE_CURRENT_LIST_DIR}/src/piper/audio_generator.cpp 
   ${CMAKE_CURRENT_LIST_DIR}/src/piper/mnn_piper_tts_impl.cpp
   ${CMAKE_CURRENT_LIST_DIR}/src/piper/phoneme_ids.cpp
 )
+endif()
 
 if(BUILD_PIPER)
   add_subdirectory(third_party/piper/espeak-ng)
 endif()
 
 add_library(${PROJECT_NAME} SHARED ${PIPER_SOURCE_FILES} ${BERTVITS2_SOURCE_FILES} ${SHARED_SOURCE_FILES})
-target_link_libraries(${PROJECT_NAME} log MNN  espeak-ng)
+target_link_libraries(${PROJECT_NAME} log MNN )

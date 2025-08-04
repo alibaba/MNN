@@ -17,7 +17,8 @@ MNNTTSSDK::MNNTTSSDK(const std::string &config_folder)
 
   if (model_type == "piper")
   {
-    impl_ = std::make_shared<MNNPiperTTSImpl>(assset_folder, model_path, cache_folder);
+    impl_ = nullptr;
+//            std::make_shared<MNNPiperTTSImpl>(assset_folder, model_path, cache_folder);
   }
   else if (model_type == "bertvits")
   {
