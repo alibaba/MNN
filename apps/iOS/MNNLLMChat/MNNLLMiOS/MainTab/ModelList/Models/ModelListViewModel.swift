@@ -11,7 +11,6 @@ import SwiftUI
 class ModelListViewModel: ObservableObject {
     // MARK: - Published Properties
     @Published var models: [ModelInfo] = []
-    @Published var searchText = ""
     @Published var quickFilterTags: [String] = []
     @Published var selectedModel: ModelInfo?
     @Published var showError = false
@@ -44,19 +43,6 @@ class ModelListViewModel: ObservableObject {
         Array(Set(models.compactMap { $0.vendor }))
     }
     
-    var filteredModels: [ModelInfo] {
-        let filtered = searchText.isEmpty ? models : models.filter { model in
-            model.id.localizedCaseInsensitiveContains(searchText) ||
-            model.modelName.localizedCaseInsensitiveContains(searchText) ||
-            model.localizedTags.contains { $0.localizedCaseInsensitiveContains(searchText) }
-        }
-        
-        let downloaded = filtered.filter { $0.isDownloaded }
-        let notDownloaded = filtered.filter { !$0.isDownloaded }
-        
-        return downloaded + notDownloaded
-    }
-    
     // MARK: - Initialization
     
     init() {
@@ -67,6 +53,118 @@ class ModelListViewModel: ObservableObject {
     
     // MARK: - Model Data Management
     
+    /// Load models from Bundle root directory (LocalModel folder structure flattened)
+    private func loadLocalModels() async -> [ModelInfo] {
+        let fileManager = FileManager.default
+        var localModels: [ModelInfo] = []
+        
+        guard let resourcePath = Bundle.main.resourcePath else {
+            return localModels
+        }
+        
+        do {
+            let contents = try fileManager.contentsOfDirectory(atPath: resourcePath)
+            
+            // Check if we have model files directly in Bundle root
+            let modelFiles = ["config.json", "llm_config.json", "llm.mnn", "tokenizer.txt"]
+            let foundModelFiles = contents.filter { modelFiles.contains($0) }
+            
+            if !foundModelFiles.isEmpty {
+                // Check if we have a complete model (at least config.json)
+                if foundModelFiles.contains("config.json") {
+                    let modelName = "Qwen3-0.6B-MNN"
+                    let localModel = ModelInfo(
+                        modelName: modelName,
+                        tags: [NSLocalizedString("tag.deepThinking", comment: "Deep thinking tag for local model"),
+                               NSLocalizedString("tag.localModel", comment: "Local model inside the app")],
+                        categories: ["Local Models"],
+                        vendor: "Local",
+                        sources: ["local": "bundle_root/\(modelName)"],
+                        isDownloaded: true
+                    )
+                    localModels.append(localModel)
+                    
+                    ModelStorageManager.shared.markModelAsDownloaded(modelName)
+                }
+            } else {
+                // Fallback: try to find LocalModel folder
+                let localModelPath = (resourcePath as NSString).appendingPathComponent("LocalModel")
+                var isDirectory: ObjCBool = false
+                
+                if fileManager.fileExists(atPath: localModelPath, isDirectory: &isDirectory), isDirectory.boolValue {
+                    localModels.append(contentsOf: await processLocalModelFolder(at: localModelPath))
+                }
+            }
+            
+        } catch {
+            // Silently handle error
+        }
+        
+        return localModels
+    }
+    
+    /// Process LocalModel folder (fallback for non-flattened structure)
+    private func processLocalModelFolder(at validPath: String) async -> [ModelInfo] {
+        let fileManager = FileManager.default
+        var localModels: [ModelInfo] = []
+        
+        // Check if this is a valid model directory (contains config.json)
+        let configPath = (validPath as NSString).appendingPathComponent("config.json")
+        if fileManager.fileExists(atPath: configPath) {
+            let modelName = "LocalModel"
+            let localModel = ModelInfo(
+                modelName: modelName,
+                tags: ["local", "bundled"],
+                categories: ["Local Models"],
+                vendor: "Local",
+                sources: ["local": "local/\(modelName)"],
+                isDownloaded: true
+            )
+            localModels.append(localModel)
+            
+            ModelStorageManager.shared.markModelAsDownloaded(modelName)
+        } else {
+            // Check for subdirectories that might contain models
+            do {
+                let contents = try fileManager.contentsOfDirectory(atPath: validPath)
+                
+                for item in contents {
+                    // Skip hidden files and common non-model files
+                    if item.hasPrefix(".") || item == "bench.txt" {
+                        continue
+                    }
+                    
+                    let itemPath = (validPath as NSString).appendingPathComponent(item)
+                    var isItemDirectory: ObjCBool = false
+                    
+                    if fileManager.fileExists(atPath: itemPath, isDirectory: &isItemDirectory),
+                       isItemDirectory.boolValue {
+                        
+                        let itemConfigPath = (itemPath as NSString).appendingPathComponent("config.json")
+                        
+                        if fileManager.fileExists(atPath: itemConfigPath) {
+                            let localModel = ModelInfo(
+                                modelName: item,
+                                tags: ["local", "bundled"],
+                                categories: ["Local Models"],
+                                vendor: "Local",
+                                sources: ["local": "local/\(item)"],
+                                isDownloaded: true
+                            )
+                            localModels.append(localModel)
+                            
+                            ModelStorageManager.shared.markModelAsDownloaded(item)
+                        }
+                    }
+                }
+            } catch {
+                // Silently handle error
+            }
+        }
+        
+        return localModels
+    }
+    
     @MainActor
     func fetchModels() async {
         do {
@@ -76,6 +174,10 @@ class ModelListViewModel: ObservableObject {
             TagTranslationManager.shared.loadTagTranslations(info.tagTranslations)
             
             var fetchedModels = info.models
+            
+            // Add LocalModel folder models
+            let localModels = await loadLocalModels()
+            fetchedModels.append(contentsOf: localModels)
             
             filterDiffusionModels(fetchedModels: &fetchedModels)
             loadCachedSizes(for: &fetchedModels)
