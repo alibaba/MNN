@@ -1,0 +1,11 @@
+[
+    {
+        "Name"                  : "openEuler:libboundscheck",
+        "License"               : "Mulan Permissive Software License，Version 2",
+        "License File"          : "LICENSE",
+        "Version Number"        : "v1.1.16",
+        "Owner"                 : "jianghan2@huawei.com",
+        "Upstream URL"          : "https://gitee.com/openeuler/libboundscheck",
+        "Description"           : "following the standard of C11 Annex K (bound-checking interfaces), functions of the common memory/string operation classes, such as memcpy_s, strcpy_s, are selected and implemented."
+    }
+]

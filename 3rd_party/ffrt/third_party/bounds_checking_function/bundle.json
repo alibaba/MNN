@@ -1,0 +1,57 @@
+{
+    "name": "@ohos/bounds_checking_function",
+    "description": "following the standard of C11 Annex K (bound-checking interfaces), functions of the common memory/string operation classes, such as memcpy_s, strcpy_s, are selected and implemented.",
+    "version": "3.1",
+    "license": "MulanPSL-2.0",
+    "publishAs": "code-segment",
+    "segment": {
+        "destPath": "third_party/bounds_checking_function"
+    },
+    "dirs": {},
+    "scripts": {},
+    "component": {
+        "name": "bounds_checking_function",
+        "subsystem": "thirdparty",
+        "syscap": [],
+        "features": [],
+        "adapted_system_type": [
+            "mini",
+            "small",
+            "standard"
+        ],
+        "rom": "",
+        "ram": "",
+        "deps": {
+            "components": [],
+            "third_party": []
+        },
+        "build": {
+            "sub_component": [
+                "//third_party/bounds_checking_function:libsec_shared"
+            ],
+            "inner_kits": [
+                {
+                    "name": "//third_party/bounds_checking_function:libsec_shared",
+                    "header": {
+                        "header_files": [
+                            "securec.h",
+                            "securectype.h"
+                        ],
+                        "header_base": "//third_party/bounds_checking_function/include"
+                    }
+                },
+                {
+                    "name": "//third_party/bounds_checking_function:libsec_static",
+                    "header": {
+                        "header_files": [
+                            "securec.h",
+                            "securectype.h"
+                        ],
+                        "header_base": "//third_party/bounds_checking_function/include"
+                    }
+                }
+            ],
+            "test": []
+        }
+    }
+}

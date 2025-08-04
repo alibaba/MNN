@@ -1,0 +1,92 @@
+#
+# Copyright (c) 2020 Huawei Device Co., Ltd.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+if (defined(ohos_lite)) {
+  import("//build/lite/config/component/lite_component.gni")
+} else {
+  import("//build/ohos.gni")
+}
+import("libsec_src.gni")
+
+config("libsec_public_config") {
+  include_dirs = [ "include" ]
+}
+
+if (defined(ohos_lite)) {
+  # When the kernel is liteos_m, use //kernel/liteos_m/kal/libsec/BUILD.gn to compile.
+  if (current_toolchain == "//build/toolchain/linux:clang_x64" ||
+      ohos_kernel_type != "liteos_m") {
+    lite_library("libsec_static") {
+      target_type = "static_library"
+      sources = libsec_sources
+      public_configs = [ ":libsec_public_config" ]
+    }
+  } else if (ohos_kernel_type == "liteos_m") {
+    group("libsec_static") {
+    }
+  }
+  lite_library("libsec_shared") {
+    target_type = "shared_library"
+    sources = libsec_sources
+    public_configs = [ ":libsec_public_config" ]
+  }
+  group("sec_shared") {
+    deps = [ ":libsec_shared" ]
+  }
+} else {
+  ohos_static_library("libsec_static") {
+    sources = libsec_sources
+    public_configs = [ ":libsec_public_config" ]
+
+    cflags = [
+      "-D_INC_STRING_S",
+      "-D_INC_WCHAR_S",
+      "-D_SECIMP=//",
+      "-D_STDIO_S_DEFINED",
+      "-D_INC_STDIO_S",
+      "-D_INC_STDLIB_S",
+      "-D_INC_MEMORY_S",
+    ]
+    part_name = "bounds_checking_function"
+    subsystem_name = "thirdparty"
+  }
+  ohos_shared_library("libsec_shared") {
+    sources = libsec_sources
+    public_configs = [ ":libsec_public_config" ]
+
+    branch_protector_ret = "pac_ret"
+
+    cflags = [
+      "-D_INC_STRING_S",
+      "-D_INC_WCHAR_S",
+      "-D_SECIMP=//",
+      "-D_STDIO_S_DEFINED",
+      "-D_INC_STDIO_S",
+      "-D_INC_STDLIB_S",
+      "-D_INC_MEMORY_S",
+    ]
+    innerapi_tags = [
+      "chipsetsdk_sp",
+      "platformsdk",
+      "sasdk",
+    ]
+    part_name = "bounds_checking_function"
+    subsystem_name = "thirdparty"
+    install_images = [
+      "system",
+      "updater",
+      "ramdisk",
+    ]
+  }
+}

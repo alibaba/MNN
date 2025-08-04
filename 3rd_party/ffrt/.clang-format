@@ -1,0 +1,15 @@
+---
+BasedOnStyle: Google
+IndentWidth: 4
+ColumnLimit: 120
+---
+Language: Cpp
+AccessModifierOffset: -4
+AllowShortIfStatementsOnASingleLine: Never
+AlwaysBreakBeforeMultilineStrings: false
+DerivePointerAlignment: false
+IncludeBlocks: Preserve
+IndentCaseBlocks: true
+PackConstructorInitializers: CurrentLine
+SpacesBeforeTrailingComments: 1
+---

@@ -1,0 +1,266 @@
+# Copyright (c) 2023 Huawei Device Co., Ltd.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+import("//build/ohos.gni")
+import("ffrt.gni")
+
+defines = []
+
+config("ffrt_config") {
+  visibility = [ ":*" ]
+  include_dirs = [
+    "include",
+    "interfaces/kits",
+    "interfaces/inner_api"
+  ]
+
+  ffrt_defaults_cflags = [
+    "-fstack-protector-all",
+    "-Wno-unused-variable",
+    "-Wno-unused-function",
+    "-Wno-unused-value",
+    "-Wno-unused-private-field",
+    "-Wno-tautological-constant-out-of-range-compare",
+    "-Wno-shadow",
+    "-Wno-float-equal",
+    "-Wno-unused-parameter",
+    "-fno-common",
+  ]
+
+  cflags = ffrt_defaults_cflags
+  cflags_c = [
+    "-fstack-protector-all",
+    "-fno-common",
+  ]
+  cflags_cc = ffrt_defaults_cflags
+
+  ffrt_debug_defines = [
+    "FFRT_LOG_LEVEL=3",
+    "FFRT_BBOX_ENABLE",
+    "FFRT_OH_EVENT_RECORD",
+    "FFRT_CO_BACKTRACE_OH_ENABLE",
+    "FFRT_OH_TRACE_ENABLE",
+    "FFRT_TRACE_LEVEL=1",
+    "FFRT_TRACE_RECORD_LEVEL=1",
+    "FFRT_SEND_EVENT",
+    "FFRT_ALLOCATOR_MMAP_SIZE=${ffrt_allocator_mmap_size}",
+    "FFRT_STACK_SIZE=${ffrt_stack_size}",
+  ]
+
+  #ffrt_release_defines = [
+  #  "FFRT_LOG_LEVEL=0",
+  #  "FFRT_RELEASE",
+  #]
+
+  defines += ffrt_debug_defines
+
+  if (is_asan && !use_hwasan) {
+    defines += [ "ASAN_MODE" ]
+  }
+
+  if (use_hwasan || is_tsan) {
+    defines += [ "CLOSE_COROUTINE_MODE" ]
+  }
+
+  if (target_cpu == "arm") {
+    defines += [ "APP_USE_ARM" ]
+  }
+
+  if (is_ohos && !ffrt_task_local_enable) {
+    defines += [ "FFRT_TASK_LOCAL_ENABLE" ]
+  }
+
+  #build_variant is root/user, default user
+  if (build_variant == "root") {
+    defines += [ "FFRT_ENG_DEBUG" ]
+  }
+
+  #defines += ffrt_release_defines
+}
+
+config("ffrt_inner_config") {
+  include_dirs = [
+    "include",
+    "src",
+    "src/dfx/log",
+    "src_ext",
+    "src/sched",
+  ]
+
+  if (is_ohos && is_clang && (target_cpu == "arm" || target_cpu == "arm64")) {
+    cflags = [
+      "-flto=thin",
+      "-fsplit-lto-unit",
+    ]
+  }
+
+  ffrt_inner_cflags = [
+    "-std=c++17",
+    "-g",
+    "-D_FORTIFY_SOURCE=2",
+    "-O2",
+    "-fPIC",
+    "-DFFRT_PTHREAD_ENABLE",
+    "-DFFRT_OH_WATCHDOG_ENABLE",
+    "-DQOS_WORKER_FRAME_RTG",
+    "-DUSE_OHOS_QOS",
+    "-DOHOS_STANDARD_SYSTEM",
+    "-DTASKSTAT_LOG_ENABLE=0",
+  ]
+
+  cflags_cc = ffrt_inner_cflags
+}
+
+ohos_shared_library("libffrt") {
+  if (ffrt_support_enable) {
+    branch_protector_ret = "pac_ret"
+    public_configs = [ ":ffrt_config" ]
+    configs = [ ":ffrt_inner_config" ]
+    ldflags = [ "-Wl,-z,nodelete" ]
+
+    sources = [
+      "src/core/entity.cpp",
+      "src/core/task.cpp",
+      "src/core/task_io.cpp",
+      "src/core/version_ctx.cpp",
+      "src/dfx/bbox/bbox.cpp",
+      "src/dfx/bbox/fault_logger_fd_manager.cpp",
+      "src/dfx/dump/dump.cpp",
+      "src/dfx/log/ffrt_log.cpp",
+      "src/dfx/sysevent/sysevent.cpp",
+      "src/dfx/trace/ffrt_trace.cpp",
+      "src/dfx/trace/ffrt_trace_chain.cpp",
+      "src/dfx/trace_record/ffrt_trace_record.cpp",
+      "src/dfx/watchdog/watchdog_util.cpp",
+      "src/dm/dependence_manager.cpp",
+      "src/dm/sdependence_manager.cpp",
+      "src/eu/co2_context.c",
+      "src/eu/co_routine.cpp",
+      "src/eu/co_routine_factory.cpp",
+      "src/eu/cpu_worker.cpp",
+      "src/eu/execute_unit.cpp",
+      "src/eu/io_poller.cpp",
+      "src/eu/loop.cpp",
+      "src/eu/loop_api.cpp",
+      "src/eu/osattr_manager.cpp",
+      "src/eu/qos_convert.cpp",
+      "src/eu/qos_interface.cpp",
+      "src/eu/rtg_ioctl.cpp",
+      "src/eu/rtg_perf_ctrl.cpp",
+      "src/eu/sexecute_unit.cpp",
+      "src/eu/worker_thread.cpp",
+      "src/ipc/ipc.cpp",
+      "src/queue/base_queue.cpp",
+      "src/queue/concurrent_queue.cpp",
+      "src/queue/eventhandler_adapter_queue.cpp",
+      "src/queue/eventhandler_interactive_queue.cpp",
+      "src/queue/queue_api.cpp",
+      "src/queue/queue_handler.cpp",
+      "src/queue/queue_monitor.cpp",
+      "src/queue/serial_queue.cpp",
+      "src/queue/traffic_record.cpp",
+      "src/sched/deadline.cpp",
+      "src/sched/execute_ctx.cpp",
+      "src/sched/frame_interval.cpp",
+      "src/sched/interval.cpp",
+      "src/sched/load_tracking.cpp",
+      "src/sched/multi_workgroup.cpp",
+      "src/sched/qos.cpp",
+      "src/sched/sched_deadline.cpp",
+      "src/sched/scheduler.cpp",
+      "src/sched/stask_scheduler.cpp",
+      "src/sched/task_scheduler.cpp",
+      "src/sync/condition_variable.cpp",
+      "src/sync/delayed_worker.cpp",
+      "src/sync/timer_manager.cpp",
+      "src/sync/mutex.cpp",
+      "src/sync/perf_counter.cpp",
+      "src/sync/poller.cpp",
+      "src/sync/poller_api.cpp",
+      "src/sync/record_mutex.cpp",
+      "src/sync/shared_mutex.cpp",
+      "src/sync/sleep.cpp",
+      "src/sync/sync.cpp",
+      "src/sync/thread.cpp",
+      "src/sync/timer_api.cpp",
+      "src/sync/wait_queue.cpp",
+      "src/tm/cpu_task.cpp",
+      "src/tm/io_task.cpp",
+      "src/tm/queue_task.cpp",
+      "src/tm/scpu_task.cpp",
+      "src/tm/task_base.cpp",
+      "src/tm/task_factory.cpp",
+      "src/tm/uv_task.cpp",
+      "src/util/cpu_boost_wrapper.cpp",
+      "src/util/ffrt_cpu_boost.cpp",
+      "src/util/ffrt_facade.cpp",
+      "src/util/graph_check.cpp",
+      "src/util/init.cpp",
+      "src/util/spmc_queue.cpp",
+      "src/util/time_format.cpp",
+      "src/util/worker_monitor.cpp",
+    ]
+
+    external_deps = [
+      "bounds_checking_function:libsec_shared",
+      "c_utils:utils",
+      "faultloggerd:libbacktrace_local",
+      "faultloggerd:libdfx_dumpcatcher",
+      "faultloggerd:libfaultloggerd",
+      "faultloggerd:libunwinder",
+      "hilog:libhilog",
+      "hisysevent:libhisysevent",
+    ]
+
+    defines = []
+
+    if (ffrt_async_stack_enable) {
+      defines += [ "FFRT_ASYNC_STACKTRACE" ]
+      sources += [ "src/dfx/async_stack/ffrt_async_stack.cpp" ]
+    }
+
+    defines += [ "FFRT_ENABLE_HITRACE_CHAIN" ]
+
+    output_extension = "so"
+    symlink_target_name = [ "libffrt.z.so" ]
+    part_name = "ffrt"
+    subsystem_name = "resourceschedule"
+    install_images = [
+      "system",
+      "updater",
+    ]
+    innerapi_tags = [
+      "chipsetsdk_sp",
+      "ndk",
+      "sasdk",
+    ]
+  }
+}
+
+ohos_prebuilt_etc("whitelist_cfg") {
+  relative_install_dir = "ffrt"
+  source = "ffrt_whitelist.conf"
+  part_name = "ffrt"
+  subsystem_name = "resourceschedule"
+  install_enable = true
+  install_images = [
+    "system",
+    "updater",
+  ]
+}
+
+group("ffrt_ndk") {
+  deps = [
+    ":libffrt",
+    ":whitelist_cfg",
+  ]
+}

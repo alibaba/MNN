@@ -33,6 +33,30 @@
     }
 
 #else
+#ifdef MNN_FFRT
+#include "ffrt.h"
+#define MNN_CONCURRENCY_BEGIN(__iter__, __num__)       \
+    {                                                  \
+        std::pair<std::function<void(int)>, int> task; \
+        task.second = __num__;                         \
+        task.first  = [&](int __iter__) {
+#define MNN_CONCURRENCY_END()                                      \
+    }                                                              \
+    ; if (1 == task.second) {task.first(0);} else {\
+    auto cpuBn = (CPUBackend*)backend();                           \
+    auto thrPl = static_cast<const CPURuntime*>(cpuBn->getRuntime())->pQueue.get(); \
+    std::vector<ffrt::task_handle> handles;\
+    for (int ffrtIndex=0; ffrtIndex<task.second; ++ffrtIndex) {\
+        auto handle = thrPl->submit_h([&task, ffrtIndex]() {\
+            task.first(ffrtIndex);\
+        }, ffrt::task_attr());\
+        handles.emplace_back(std::move(handle));\
+    }\
+    for (int ffrtIndex=0; ffrtIndex<task.second; ++ffrtIndex) {\
+        thrPl->wait(handles[ffrtIndex]);\
+    }\
+    }}
+#else
 // iOS / OSX
 #if defined(__APPLE__)
 #include <dispatch/dispatch.h>
@@ -64,6 +88,7 @@ dispatch_apply(__num__, dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 
     _Pragma("omp parallel for") for (int __iter__ = 0; __iter__ < __num__; __iter__++) {
 #define MNN_CONCURRENCY_END() }
 
+#endif
 #endif
 #endif
 #endif /* concurrency_h */

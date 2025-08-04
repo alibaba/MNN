@@ -22,6 +22,9 @@
 #include "core/WrapExecution.hpp"
 #include "core/MNNFileUtils.h"
 #include "core/WorkerThread.hpp"
+#ifdef MNN_FFRT
+#include "ffrt.h"
+#endif
 #ifdef _OPENMP
 #include <omp.h>
 #endif // _OPENMP
@@ -121,6 +124,12 @@ void CPURuntime::_resetThreadPool() const {
         mThreadNumber = ALIMIN(ThreadPool::init(mThreadNumber, mCpuMask, mThreadPool), mThreadNumber);
     }
 #endif
+#ifdef MNN_FFRT
+    pQueue.reset();
+    pQueue = std::make_unique<ffrt::queue>(
+            ffrt::queue_concurrent, "MNN", ffrt::queue_attr().max_concurrency(mThreadNumber));
+#endif
+
     // Reset tid to rebind cpu if necessary
     mCurrentTID = 0;
 }

@@ -20,6 +20,9 @@
 #ifdef MNN_USE_THREAD_POOL
 #include "ThreadPool.hpp"
 #endif
+#ifdef MNN_FFRT
+#include "ffrt.h"
+#endif
 
 namespace MNN {
 class WorkerThread;
@@ -50,6 +53,9 @@ public:
     SingleBufferWithAllocator* buffer(int index) const;
     BufferAllocator* createDynamicBufferAlloctor(int index) const;
 
+#ifdef MNN_FFRT
+    mutable std::unique_ptr<ffrt::queue> pQueue;
+#endif
 private:
     void _bindCPUCore() const;
     void _resetThreadPool() const;
