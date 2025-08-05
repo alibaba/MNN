@@ -19,7 +19,7 @@ if (MNN_CPU_WEIGHT_DEQUANT_GEMM)
     FILE(GLOB MNN_AArch64_SRC ${MNN_AArch64_SRC} ${CMAKE_CURRENT_LIST_DIR}/arm64/normal_memory/*.[sS])
 endif()
 
-if (MNN_KLEIDIAI)
+if (MNN_KLEIDIAI AND CMAKE_SYSTEM_PROCESSOR MATCHES "^aarch64" OR ARCHS STREQUAL "arm64" OR ARCHS STREQUAL "ARM64")
     # Disable the KleidiAI tests
     set(KLEIDIAI_BUILD_TESTS  OFF)
     # Fetch KleidiAI sources:
