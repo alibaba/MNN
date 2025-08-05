@@ -21,6 +21,14 @@ float Embedding::dist(VARP var0, VARP var1) {
     return dist;
 }
 
+float Embedding::cos_sim(VARP var0, VARP var1) {
+    auto innerProd = _ReduceSum(_Multiply(var0, var1))->readMap<float>()[0];
+    auto len0 = _Sqrt(_ReduceSum(_Square(var0)))->readMap<float>()[0];
+    auto len1 = _Sqrt(_ReduceSum(_Square(var1)))->readMap<float>()[0];
+    auto sim  = innerProd / (len0 * len1);
+    return sim;
+}
+
 Embedding* Embedding::createEmbedding(const std::string& config_path, bool load) {
     std::shared_ptr<LlmConfig> config(new LlmConfig(config_path));
     Embedding* embedding = new Embedding(config);
@@ -67,8 +75,16 @@ VARP Embedding::ids_embedding(const std::vector<int>& ids) {
     return sentence_embeddings;
 }
 
-VARP Embedding::txt_embedding(const std::string& txt) {
-    return ids_embedding(tokenizer_encode(txt));
+VARP Embedding::txt_embedding(const std::string& txt, int embed_dim) {
+    auto var = ids_embedding(tokenizer_encode(txt));
+    if (embed_dim==-1) {
+        return var;
+    }
+    int32_t start_ptr[3]={0,0,0};
+    int32_t size_ptr[3]={1,1,embed_dim};
+    auto start = _Const((int32_t*)start_ptr, {3}, NHWC, halide_type_of<int32_t>());
+    auto size = _Const((int32_t*)size_ptr, {3}, NHWC, halide_type_of<int32_t>());
+    return _Slice(var, start, size);
 }
 
 VARP Embedding::gen_attention_mask(int seq_len) {
