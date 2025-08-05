@@ -56,11 +56,11 @@
   - `llm_bench` 大语言模型测评工具
 ## 测试工具
 - 相关编译选项
-  - `MNN_BUILD_TOOL` 是否编译测试工具
+  - `MNN_BUILD_TOOLS` 是否编译测试工具
 - 编译命令
     ```bash
     mkdir build && cd build
-    cmake .. -DMNN_BUILD_TOOL=ON
+    cmake .. -DMNN_BUILD_TOOLS=ON
     make -j4
     ```
 - 编译产物
