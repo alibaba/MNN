@@ -2,7 +2,9 @@
 [中文版本](./README_CN.md)
 
 [Download](#releases)  [下载](./README_CN.md#releases)
+
 [GooglePlay](https://play.google.com/store/apps/details?id=com.alibaba.mnnllm.android.release)
+
 [iOS App](../../iOS/MNNLLMChat/README.md)
 
 ## Introduction
