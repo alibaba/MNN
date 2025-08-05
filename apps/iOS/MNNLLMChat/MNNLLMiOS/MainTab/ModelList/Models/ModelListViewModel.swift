@@ -185,6 +185,7 @@ class ModelListViewModel: ObservableObject {
             
             filterDiffusionModels(fetchedModels: &fetchedModels)
             loadCachedSizes(for: &fetchedModels)
+            syncDownloadStatus(for: &fetchedModels)
             sortModels(fetchedModels: &fetchedModels)
             self.models = fetchedModels
             
@@ -203,6 +204,18 @@ class ModelListViewModel: ObservableObject {
         for i in 0..<models.count {
             if let cachedSize = ModelStorageManager.shared.getCachedSize(for: models[i].modelName) {
                 models[i].cachedSize = cachedSize
+            }
+        }
+    }
+    
+    private func syncDownloadStatus(for models: inout [ModelInfo]) {
+        for i in 0..<models.count {
+            let isDownloaded = ModelStorageManager.shared.isModelDownloaded(models[i].modelName)
+            models[i].isDownloaded = isDownloaded
+            
+            // Also sync last used date
+            if let lastUsed = ModelStorageManager.shared.getLastUsed(for: models[i].modelName) {
+                models[i].lastUsedAt = lastUsed
             }
         }
     }
