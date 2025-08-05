@@ -485,4 +485,6 @@
     <string name="allow_network_market_data">允许联网获取模型市场数据</string>
     <string name="enable_network_delay">启用网络延时（3秒）</string>
     <string name="update_available">有新版本</string>
+    <string name="menu_copy_error_info">复制错误信息</string>
+    <string name="error_info_copied">错误信息已复制到剪贴板</string>
 </resources>

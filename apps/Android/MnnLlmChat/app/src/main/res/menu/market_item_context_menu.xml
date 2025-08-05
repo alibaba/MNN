@@ -19,4 +19,7 @@
     <item
         android:id="@+id/menu_open_model_card"
         android:title="@string/open_model_card" />
+    <item
+        android:id="@+id/menu_copy_error_info"
+        android:title="@string/menu_copy_error_info" />
 </menu> 

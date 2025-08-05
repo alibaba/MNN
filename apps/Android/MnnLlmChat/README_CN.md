@@ -53,6 +53,13 @@
   ```
 
 # Releases
++ 点击这里  [下载](https://meta.alicdn.com/data/mnn/mnn_chat_0_6_8.apk)
++ 新增模型支持 ：现已支持 SmolLM3-3B 和 gemma-3-1b 模型。
++ 采样器功能增强 ：在混合采样器模式中新增对 penalty sampler 的支持，提升生成质量与多样性。
++ 模型切换优化 ：在聊天界面中支持 实时切换模型 ，提升使用灵活性。
++ 模型热更新支持 ：当远程模型发生变化时，无需删除原有模型即可完成更新，避免重复下载。
++ 下载源优化 ：优化了 HuggingFace 模型的下载源，提升下载速度与稳定性。
++ 新增语音通话功能 ：支持 实时语音对话 ，集成语音识别（ASR）与语音合成（TTS）功能，带来更丰富的交互体验。
 
 ## Version 0.5.1.2
 + 点击这里  [下载](https://meta.alicdn.com/data/mnn/mnn_chat_0_5_1_2.apk)

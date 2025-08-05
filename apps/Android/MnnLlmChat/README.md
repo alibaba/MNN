@@ -3,6 +3,8 @@
 
 [Download](#releases)  [下载](./README_CN.md#releases)
 
+[GooglePlay](https://play.google.com/store/apps/details?id=com.alibaba.mnnllm.android.release)
+
 [iOS App](../../iOS/MNNLLMChat/README.md)
 
 ## Introduction
@@ -59,6 +61,14 @@ This is our full multimodal language model (LLM) Android app
   ```
 
 # Releases
+## Version 0.6.8
++ Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_6_8.apk)
++ add new models:  SmolLM3-3B、gemma-3-1b 
++ support penalty sampler in mixed sampler mode.
++ can switch models in chat screen.
++ can update models when the remote models changed.
++ fix download source for huggingface.
++ Support  Realtime voice call with ASR and TTS
 ## Version 0.5.1.2
 + Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_5_1_2.apk)
 + fix huggingface download error

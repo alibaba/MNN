@@ -24,8 +24,6 @@ import com.alibaba.mnnllm.android.utils.CurrentActivityTracker
 import com.alibaba.mnnllm.android.utils.FileUtils
 import com.alibaba.mnnllm.android.utils.MmapUtils.clearMmapCache
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.MainScope
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
@@ -42,7 +40,7 @@ class LoggingDownloadListener : DownloadListener {
     }
 
     override fun onDownloadProgress(modelId: String, downloadInfo: DownloadInfo) {
-        Log.v(ModelDownloadManager.TAG, "onDownloadProgress: $modelId, progress: ${downloadInfo.progress}, state: ${downloadInfo.downloadState}, speed: ${downloadInfo.speedInfo}")
+        Log.v(ModelDownloadManager.TAG, "onDownloadProgress: $modelId, progress: ${downloadInfo.progress}, state: ${downloadInfo.downloadState}, speed: ${downloadInfo.speedInfo} stage: ${downloadInfo.progressStage}")
     }
 
     override fun onDownloadFinished(modelId: String, path: String) {
@@ -253,7 +251,6 @@ class ModelDownloadManager private constructor(context: Context) {
     fun getDownloadInfo(modelId: String): DownloadInfo {
         Log.d(TAG, "getDownloadInfo: $modelId totalSize: ${DownloadPersistentData.getDownloadSizeTotal(ApplicationProvider.get(), modelId)}" +
                 " progress: ${getRealDownloadSize(modelId)}")
-        val source = ModelUtils.getSource(modelId)!!
         if (!downloadInfoMap.containsKey(modelId)) {
             val downloadInfo = DownloadInfo()
             if (getDownloadedFile(modelId) != null) {
@@ -277,7 +274,11 @@ class ModelDownloadManager private constructor(context: Context) {
             }
             downloadInfoMap[modelId] = downloadInfo
             if (downloadInfo.totalSize < 100) {
-                getRepoSize(modelId, source)
+                val marketSize = DownloadPersistentData.getMarketSizeTotal(ApplicationProvider.get(), modelId)
+                Log.d(TAG, "getMarketSize for ${modelId} size: $marketSize")
+                if (marketSize > 0) {
+                    downloadInfo.totalSize = marketSize
+                }
             }
         }
         val downloadInfo = downloadInfoMap[modelId]!!
@@ -303,26 +304,6 @@ class ModelDownloadManager private constructor(context: Context) {
             return 0L
         }
         return savedSize
-    }
-
-    private fun getRepoSize(
-        modelId: String,
-        source: Any,
-        modelName: String = modelId
-    ) {
-        MainScope().launch {
-            val downloader = when (source) {
-                is String -> getDownloaderForSource(source)
-                is ModelSources.ModelSourceType -> getDownloaderForSource(source)
-                else -> throw IllegalArgumentException("Unsupported source type: ${source::class.java.name}")
-            }
-            val repoSize = downloader.getRepoSize(modelId)
-            if (repoSize > 0 && DownloadPersistentData.getDownloadSizeTotal(ApplicationProvider.get(), modelName) <= 0L) {
-                DownloadPersistentData.saveDownloadSizeTotal(ApplicationProvider.get(), modelName, repoSize)
-                downloadInfoMap[modelName]?.totalSize = repoSize
-                listeners.forEach { it.onDownloadTotalSize(modelName, repoSize) }
-            }
-        }
     }
 
     private fun setDownloadFinished(modelId: String, path: String) {
@@ -422,6 +403,7 @@ class ModelDownloadManager private constructor(context: Context) {
         val info = downloadInfoMap.getOrPut(modelId) { DownloadInfo() }
         info.downloadState = DownloadState.FAILED
         info.errorMessage = e.message
+        info.errorException = e
         listeners.forEach {
             Log.d(TAG, "[setDownloadFailed] Notifying listener: ${it.javaClass.simpleName}")
             it.onDownloadFailed(modelId, e)
@@ -470,9 +452,6 @@ class ModelDownloadManager private constructor(context: Context) {
         savedSize: Long,
         totalSize: Long
     ) {
-        if (totalSize <= 0) {
-            return
-        }
         val downloadInfo = downloadInfoMap.getOrPut(modelId) { DownloadInfo() }
         val currentTime = System.currentTimeMillis()
         if (stage == downloadInfo.progressStage && currentTime - downloadInfo.lastProgressUpdateTime < 1000) {
@@ -486,11 +465,13 @@ class ModelDownloadManager private constructor(context: Context) {
         if (downloadInfo.savedSize <= 0) {
             downloadInfo.savedSize = savedSize
         }
-        downloadInfo.progress = savedSize.toDouble() / totalSize
-        DownloadPersistentData.saveDownloadSizeSaved(ApplicationProvider.get(), modelId, savedSize)
-        DownloadPersistentData.saveDownloadSizeTotal(ApplicationProvider.get(), modelId, totalSize)
-        calculateDownloadSpeed(downloadInfo, savedSize)
-        Log.v(TAG, "[updateDownloadingProgress] Notifying ${listeners.size} listeners for $modelId")
+        if (totalSize > 0) {
+            downloadInfo.progress = savedSize.toDouble() / totalSize
+            DownloadPersistentData.saveDownloadSizeSaved(ApplicationProvider.get(), modelId, savedSize)
+            DownloadPersistentData.saveDownloadSizeTotal(ApplicationProvider.get(), modelId, totalSize)
+            calculateDownloadSpeed(downloadInfo, savedSize)
+        }
+        Log.v(TAG, "[updateDownloadingProgress] Notifying ${listeners.size} listeners for $modelId stage: $stage")
         listeners.forEach { it.onDownloadProgress(modelId, downloadInfo) }
     }
 

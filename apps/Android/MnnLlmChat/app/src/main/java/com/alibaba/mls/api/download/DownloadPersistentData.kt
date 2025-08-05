@@ -26,6 +26,7 @@ object DownloadPersistentData {
     const val METADATA_KEY: String = "meta_data"
     const val SIZE_TOTAL_KEY: String = "size_total"
     const val SIZE_SAVED_KEY: String = "size_saved"
+    const val SIZE_MARKET_TOTAL_KEY: String = "size_market_total"
     const val DOWNLOADED_TIME_KEY: String = "downloaded_time"
 
     // Create preference keys with modelId
@@ -37,6 +38,9 @@ object DownloadPersistentData {
     
     private fun createMetaDataKey(modelId: String): Preferences.Key<String> = 
         stringPreferencesKey("${METADATA_KEY}_$modelId")
+
+    private fun createSizeMarketTotalKey(modelId: String): Preferences.Key<Long> = 
+        longPreferencesKey("${SIZE_MARKET_TOTAL_KEY}_$modelId")
 
     private fun createDownloadedTimeKey(modelId: String): Preferences.Key<Long> = 
         longPreferencesKey("${DOWNLOADED_TIME_KEY}_$modelId")
@@ -196,6 +200,35 @@ object DownloadPersistentData {
     suspend fun getDownloadedTimeSuspend(context: Context, modelId: String): Long {
         val normalizedModelId = ModelUtils.safeModelId(modelId)
         val key = createDownloadedTimeKey(normalizedModelId)
+        
+        // Try to read from DataStore
+        val dataStoreValue = context.downloadDataStore.data
+            .map { preferences -> preferences[key] }
+            .first()
+        
+        return dataStoreValue ?: 0L
+    }
+
+    fun saveMarketSizeTotal(context: Context, modelId: String, total: Long) {
+        runBlocking { saveMarketSizeTotalSuspend(context, modelId, total) }
+    }
+    
+    suspend fun saveMarketSizeTotalSuspend(context: Context, modelId: String, total: Long) {
+        val normalizedModelId = ModelUtils.safeModelId(modelId)
+        val key = createSizeMarketTotalKey(normalizedModelId)
+        
+        context.downloadDataStore.edit { preferences ->
+            preferences[key] = total
+        }
+    }
+
+    fun getMarketSizeTotal(context: Context, modelId: String): Long {
+        return runBlocking { getMarketSizeTotalSuspend(context, modelId) }
+    }
+    
+    suspend fun getMarketSizeTotalSuspend(context: Context, modelId: String): Long {
+        val normalizedModelId = ModelUtils.safeModelId(modelId)
+        val key = createSizeMarketTotalKey(normalizedModelId)
         
         // Try to read from DataStore
         val dataStoreValue = context.downloadDataStore.data
