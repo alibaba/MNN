@@ -96,4 +96,4 @@ MNN使用CMake构建项目，CMake中的宏定义列表如下：
 | MNN_SUPPORT_TRANSFORMER_FUSE | 是否支持Fuse Transformer相关OP实现，默认为 `OFF` |
 | MNN_BUILD_LLM        | 是否构建基于MNN的llm库和demo，默认为`OFF` |
 | MNN_BUILD_DIFFUSION  | 是否构建基于MNN的diffusion demo，需要打开MNN_BUILD_OPENCV和MNN_IMGCODECS宏使用 默认为`OFF` |
-| MNN_KLEIDIAI         | 是否集成ARM的klediAI加速库【目前处于实验状态，只能跑对称量化的LLM模型】，默认为`OFF` |
+| MNN_KLEIDIAI         | 是否集成ARM的klediAI加速库，默认为`ON` |
