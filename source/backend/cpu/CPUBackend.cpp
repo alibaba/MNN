@@ -352,6 +352,10 @@ Backend* CPURuntime::onCreate(const BackendConfig* config, Backend* origin) cons
             break;
         }
 #endif
+#ifdef MNN_USE_RVV
+	res = new CPUBackend(this, precision, memory, MNN_FORWARD_CPU, flags);
+	break;
+#endif
         res = new CPUBackend(this, precision, memory, MNN_FORWARD_CPU, flags);
     } while (false);
     mSharedDmaInfo = nullptr;
