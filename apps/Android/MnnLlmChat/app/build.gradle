@@ -114,8 +114,7 @@ android {
                     signingConfig signingConfigs.release
                 }
                 applicationIdSuffix ".release"
-            }
-            debug {
+                versionNameSuffix ".gp"
             }
         }
     }
