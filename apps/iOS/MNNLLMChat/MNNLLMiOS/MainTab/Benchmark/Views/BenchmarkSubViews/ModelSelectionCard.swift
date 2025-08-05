@@ -177,7 +177,7 @@ struct ModelSelectionCard: View {
                 RoundedRectangle(cornerRadius: 16)
                     .fill(
                         viewModel.isStartButtonEnabled ? 
-                        (viewModel.isRunning ? 
+                        (viewModel.startButtonText.contains("Stop") ? 
                          LinearGradient(
                              colors: [Color.benchmarkError, Color.benchmarkError.opacity(0.8)],
                              startPoint: .leading,

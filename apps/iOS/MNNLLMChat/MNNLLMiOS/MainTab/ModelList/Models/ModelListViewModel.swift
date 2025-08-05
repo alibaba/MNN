@@ -72,7 +72,7 @@ class ModelListViewModel: ObservableObject {
             if !foundModelFiles.isEmpty {
                 // Check if we have a complete model (at least config.json)
                 if foundModelFiles.contains("config.json") {
-                    let modelName = "Qwen3-0.6B-MNN"
+                    let modelName = "Qwen3-0.6B-MNN-Inside"
                     let localModel = ModelInfo(
                         modelName: modelName,
                         tags: [NSLocalizedString("tag.deepThinking", comment: "Deep thinking tag for local model"),
@@ -143,8 +143,10 @@ class ModelListViewModel: ObservableObject {
                         let itemConfigPath = (itemPath as NSString).appendingPathComponent("config.json")
                         
                         if fileManager.fileExists(atPath: itemConfigPath) {
+                            // Use custom name for Qwen3-0.6B-MNN to avoid conflicts
+                            let modelName = item == "Qwen3-0.6B-MNN" ? "Qwen3-0.6B-MNN-Inside" : item
                             let localModel = ModelInfo(
-                                modelName: item,
+                                modelName: modelName,
                                 tags: ["local", "bundled"],
                                 categories: ["Local Models"],
                                 vendor: "Local",
@@ -153,7 +155,7 @@ class ModelListViewModel: ObservableObject {
                             )
                             localModels.append(localModel)
                             
-                            ModelStorageManager.shared.markModelAsDownloaded(item)
+                            ModelStorageManager.shared.markModelAsDownloaded(modelName)
                         }
                     }
                 }
@@ -175,9 +177,11 @@ class ModelListViewModel: ObservableObject {
             
             var fetchedModels = info.models
             
-            // Add LocalModel folder models
+            // Add LocalModel folder models, avoiding duplicates
             let localModels = await loadLocalModels()
-            fetchedModels.append(contentsOf: localModels)
+            let existingModelNames = Set(fetchedModels.map { $0.modelName })
+            let uniqueLocalModels = localModels.filter { !existingModelNames.contains($0.modelName) }
+            fetchedModels.append(contentsOf: uniqueLocalModels)
             
             filterDiffusionModels(fetchedModels: &fetchedModels)
             loadCachedSizes(for: &fetchedModels)

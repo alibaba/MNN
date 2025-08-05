@@ -67,7 +67,14 @@ struct ModelInfo: Codable {
         }
         
         let sourceKey = ModelSourceManager.shared.selectedSource.rawValue
-        return sources[sourceKey] ?? "taobao-mnn/\(modelName)"
+        let baseId = sources[sourceKey] ?? "taobao-mnn/\(modelName)"
+        
+        // Add vendor prefix to ensure uniqueness for local models
+        if vendor == "Local" {
+            return "local/\(modelName)"
+        }
+        
+        return baseId
     }
     
     var localizedTags: [String] {
