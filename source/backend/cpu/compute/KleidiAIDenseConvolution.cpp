@@ -1,3 +1,4 @@
+#ifdef MNN_KLEIDIAI_ENABLED
 #include "KleidiAIDenseConvolution.hpp"
 
 #include <numeric>
@@ -368,4 +369,4 @@ ErrorCode KleidiAIDenseConvolutionImpl::onExecute(const std::vector<Tensor*>& in
     return NO_ERROR;
 }
 } // namespace MNN
-
+#endif //MNN_KLEIDIAI_ENABLED

@@ -3,7 +3,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-
+#ifdef MNN_KLEIDIAI_ENABLED
 #include "KleidiAIConvolution.hpp"
 #include <string.h>
 #include "backend/cpu/CPUBackend.hpp"
@@ -225,3 +225,4 @@ ErrorCode KleidiAIConvolution::onExecute(const std::vector<Tensor *> &inputs, co
     return NO_ERROR;
 }
 } // namespace MNN
+#endif //MNN_KLEIDIAI_ENABLED

@@ -24,13 +24,15 @@
 #include "backend/cpu/OneDNNConvolution.hpp"
 #include "backend/cpu/compute/ConvInt8TiledExecutor.hpp"
 
-// For KleidiAI relevant
+#ifdef MNN_KLEIDIAI_ENABLED
 #include "backend/cpu/compute/KleidiAIConvInt8.hpp"
 #include "backend/cpu/compute/KleidiAIConvolution.hpp"
 #include "backend/cpu/compute/KleidiAIDenseConvolution.hpp"
+#endif //MNN_KLEIDIAI_ENABLED
 
 namespace MNN {
 
+#ifdef MNN_KLEIDIAI_ENABLED
 static Execution* _createKleidiAIUnit(const Tensor* input, const Tensor* output, Backend* backend, const Op* op,
                                       const float* originWeight, size_t originWeightSize, const float* bias,
                                       size_t biasSize, std::shared_ptr<ConvolutionCommon::Int8Common> weightQuantInfo,
@@ -114,6 +116,7 @@ static Execution* _createKleidiAIUnit(const Tensor* input, const Tensor* output,
 
     return nullptr;
 }
+#endif //MNN_KLEIDIAI_ENABLED
 
 static Execution* _createUnit(const Tensor* input, const Tensor* output, Backend* backend,
                               const Op* op, const float* originWeight, size_t originWeightSize, const float* bias, size_t biasSize, std::shared_ptr<ConvolutionCommon::Int8Common> weightQuantInfo, bool supportSparse, bool lowMemory) {
@@ -133,6 +136,7 @@ static Execution* _createUnit(const Tensor* input, const Tensor* output, Backend
     }
 #endif
 
+#ifdef MNN_KLEIDIAI_ENABLED
     if (cpuBackend->getRuntime()->hint().enableKleidiAI) {
         auto execution = _createKleidiAIUnit(input, output, backend, op, originWeight, originWeightSize, bias, biasSize,
                                              weightQuantInfo, supportSparse, lowMemory);
@@ -141,6 +145,7 @@ static Execution* _createUnit(const Tensor* input, const Tensor* output, Backend
             return execution;
         }
     }
+#endif //MNN_KLEIDIAI_ENABLED
 
     bool fastWay = common->kernelY() == 1 && common->kernelX() == 1
         && output->width() == input->width() && output->height() == input->height()
