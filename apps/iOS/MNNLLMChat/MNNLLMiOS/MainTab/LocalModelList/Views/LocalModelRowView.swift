@@ -59,6 +59,10 @@ struct LocalModelRowView: View {
                     }
                 }
             }
+            
+            Spacer()
         }
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
