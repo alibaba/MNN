@@ -15,7 +15,7 @@ struct ChatHistoryItemView: View {
             
             if let lastMessage = getLastNonEmptyMessage() {
                 Text(String(lastMessage.content.prefix(200)))
-                    .lineLimit(1)
+                    .lineLimit(3)
                     .font(.system(size: 15, weight: .medium))
                     .foregroundColor(.primary)
             }

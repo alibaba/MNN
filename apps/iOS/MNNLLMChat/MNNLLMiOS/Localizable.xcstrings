@@ -1308,7 +1308,14 @@
       }
     },
     "Yes" : {
-
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "是"
+          }
+        }
+      }
     },
     "搜索本地模型..." : {
       "localizations" : {

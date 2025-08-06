@@ -709,9 +709,13 @@ bool remove_directory_safely(const std::string& path) {
             }
             
             std::string inputStr = [input UTF8String];
+            #ifdef DEBUG
             if (inputStr == "benchmark") {
                 [blockSelf performBenchmarkWithOutput:&os];
             } else {
+            #else
+            {
+            #endif
                 // Get initial context state for performance measurement
                 auto context = blockSelf->_llm->getContext();
                 int initial_prompt_len = context->prompt_len;
