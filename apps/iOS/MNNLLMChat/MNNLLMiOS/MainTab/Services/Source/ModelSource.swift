@@ -10,7 +10,7 @@ import Foundation
 public enum ModelSource: String, CaseIterable, Identifiable {
     case modelScope = "ModelScope"
     case huggingFace = "HuggingFace"
-    case modeler = "Modeler"
+    case modeler = "Modelers"
     
     public var id: Self { self }
     
@@ -19,7 +19,7 @@ public enum ModelSource: String, CaseIterable, Identifiable {
         case .modelScope:
             return NSLocalizedString("Use ModelScope to download", comment: "")
         case .modeler:
-            return NSLocalizedString("Use modeler to download", comment: "")
+            return NSLocalizedString("Use Modelers to download", comment: "")
         case .huggingFace:
             return NSLocalizedString("Use HuggingFace to download", comment: "")
         }
