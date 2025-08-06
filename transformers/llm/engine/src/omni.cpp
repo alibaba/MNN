@@ -645,18 +645,21 @@ VARP Omni::gen_position_ids(int seq_len) {
         positionIds = _Input({3, seq_len}, NCHW, halide_type_of<int>());
     }
     auto ptr = positionIds->writeMap<int>();
-    if (mContext->gen_seq_len > 0) {
-        for (int i=0; i<seq_len; ++i) {
-            auto pos = mContext->gen_seq_len + mPositionIds.back() + i;
-            ptr[i + 0] = pos;
-            ptr[i + seq_len] = pos;
-            ptr[i + seq_len * 2] = pos;
-        }
+    if (seq_len == 1) {
+        ptr[0] = mContext->gen_seq_len + mPositionIds.back();
+        ptr[1] = ptr[0];
+        ptr[2] = ptr[0];
     } else {
         for (int i = 0; i < seq_len; i++) {
-            ptr[i] = mPositionIds.mT[i];
-            ptr[i + seq_len] = mPositionIds.mH[i];
-            ptr[i + seq_len * 2] = mPositionIds.mW[i];
+            if (mPositionIds.mT.size() != seq_len) {
+                ptr[i] = i;
+                ptr[i + seq_len] = i;
+                ptr[i + seq_len * 2] = i;
+            } else {
+                ptr[i] = mPositionIds.mT[i];
+                ptr[i + seq_len] = mPositionIds.mH[i];
+                ptr[i + seq_len * 2] = mPositionIds.mW[i];
+            }
         }
         if (mTalker) {
             mTalker->setPostionIds(mPositionIds);

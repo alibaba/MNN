@@ -17,6 +17,8 @@ class ReverseTest : public MNNTestCase {
 public:
     virtual ~ReverseTest() = default;
     virtual bool run(int precision) {
+        auto executor = cloneCurrentExecutor();
+        ExecutorScope scope(executor);
         std::shared_ptr<MNN::Express::Module> net;
         {
             auto input = _Input({3, 2, 3}, NCHW);

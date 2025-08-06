@@ -32,7 +32,9 @@ struct LocalModelListView: View {
                     viewModel.selectModel(model)
                 }) {
                     LocalModelRowView(model: model)
+                        .contentShape(Rectangle())
                 }
+                .buttonStyle(PlainButtonStyle())
                 .listRowBackground(viewModel.pinnedModelIds.contains(model.id) ? Color.black.opacity(0.05) : Color.clear)
                 .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                     SwipeActionsView(model: model, viewModel: viewModel)

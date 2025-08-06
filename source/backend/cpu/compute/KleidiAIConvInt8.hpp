@@ -6,10 +6,8 @@
 
 #ifndef KleidiAIConvInt8_hpp
 #define KleidiAIConvInt8_hpp
-#ifdef MNN_KLEIDIAI_ENABLED
 #include "backend/cpu/CPUConvolution.hpp"
-#include "Int8FunctionsOpt.h"
-#include "CommonOptFunction.h"
+#include "backend/cpu/arm/mnn_kleidiai.h"
 
 namespace MNN {
 class KleidiAIConvInt8 : public CPUConvolution {
@@ -31,5 +29,4 @@ private:
 };
 
 } // namespace MNN
-#endif // MNN_KLEIDIAI_ENABLED
 #endif /* KleidiAIConvInt8_hpp */

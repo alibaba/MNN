@@ -21,10 +21,6 @@
 #include "ThreadPool.hpp"
 #endif
 
-#ifdef MNN_KLEIDIAI_ENABLED
-#include "arm/mnn_kleidiai.h"
-#endif
-
 namespace MNN {
 class WorkerThread;
 class CPURuntime : public Runtime {

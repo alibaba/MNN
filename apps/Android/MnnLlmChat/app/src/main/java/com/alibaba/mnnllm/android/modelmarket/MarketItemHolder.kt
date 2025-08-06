@@ -356,6 +356,9 @@ class MarketItemHolder(
                 R.id.menu_open_model_card -> {
                     openModelCard(itemView.context, modelMarketItem)
                 }
+                R.id.menu_copy_error_info -> {
+                    copyErrorInfoToClipboard(modelMarketItemWrapper)
+                }
             }
             true
         }
@@ -388,6 +391,10 @@ class MarketItemHolder(
         
         // Model card: always visible
         menu.findItem(R.id.menu_open_model_card).isVisible = false
+        
+        // Copy error info: visible only for failed downloads
+        menu.findItem(R.id.menu_copy_error_info).isVisible = 
+            downloadState == DownloadState.FAILED
     }
 
     private fun handleSettingsMenu(modelMarketItem: ModelMarketItem) {
@@ -407,6 +414,41 @@ class MarketItemHolder(
     }
 
     private fun openModelCard(context: android.content.Context, modelMarketItem: ModelMarketItem) {
+    }
+
+    private fun copyErrorInfoToClipboard(modelMarketItemWrapper: ModelMarketItemWrapper) {
+        val context = itemView.context
+        val downloadInfo = modelMarketItemWrapper.downloadInfo
+        val modelMarketItem = modelMarketItemWrapper.modelMarketItem
+        
+        if (downloadInfo.downloadState != DownloadState.FAILED) {
+            return
+        }
+        
+        val errorMessage = downloadInfo.errorMessage ?: "Unknown error"
+        val modelInfo = "Model: ${modelMarketItem.modelName} (${modelMarketItem.modelId})"
+        
+        // Build error info with stack trace if available
+        val errorInfoBuilder = StringBuilder().apply {
+            appendLine(modelInfo)
+            appendLine("Error: $errorMessage")
+            appendLine("Time: ${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())}")
+            
+            // Add stack trace if exception is available
+            downloadInfo.errorException?.let { exception ->
+                appendLine()
+                appendLine("Stack Trace:")
+                appendLine(android.util.Log.getStackTraceString(exception))
+            }
+        }
+        
+        val errorInfo = errorInfoBuilder.toString()
+        
+        val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        val clip = android.content.ClipData.newPlainText("Error Info", errorInfo)
+        clipboard.setPrimaryClip(clip)
+        
+        Toast.makeText(context, context.getString(R.string.error_info_copied), Toast.LENGTH_SHORT).show()
     }
 
     companion object {

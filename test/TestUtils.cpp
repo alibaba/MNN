@@ -92,3 +92,7 @@ MNNForwardType getCurrentType() {
     return attr->firstType;
 }
 
+std::shared_ptr<MNN::Express::Executor> cloneCurrentExecutor() {
+    auto attr = MNN::Express::ExecutorScope::Current()->getAttr();
+    return MNN::Express::Executor::newExecutor(getCurrentType(), attr->config, attr->numThread);
+}

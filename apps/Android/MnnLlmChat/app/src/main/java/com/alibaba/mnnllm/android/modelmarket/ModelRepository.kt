@@ -3,6 +3,7 @@ package com.alibaba.mnnllm.android.modelmarket
 import android.content.Context
 import android.util.Log
 import androidx.preference.PreferenceManager
+import com.alibaba.mls.api.download.DownloadPersistentData
 import com.alibaba.mnnllm.android.mainsettings.MainSettings
 import com.google.gson.Gson
 import kotlinx.coroutines.Dispatchers
@@ -233,6 +234,16 @@ class ModelRepository(private val context: Context) {
             item.currentSource = selectedSource
             item.currentRepoPath = item.sources[selectedSource]!!
             item.modelId = "$selectedSource/${item.sources[selectedSource]!!}"
+            
+            // Save file_size to DownloadPersistentData if available
+            if (item.fileSize > 0) {
+                try {
+                    DownloadPersistentData.saveMarketSizeTotalSuspend(context, item.modelId, item.fileSize)
+                    Log.d(TAG, "Saved market size for ${item.modelId}: ${item.fileSize}")
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to save market size for ${item.modelId}", e)
+                }
+            }
         }
     }
 

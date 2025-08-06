@@ -252,7 +252,10 @@ public:
         CPU_CORE_IDS = 14,
 
         // set CPU threads to use when supports Arm sme2
-        CPU_SME2_INSTRUCTIONS = 15
+        CPU_SME2_INSTRUCTIONS = 15,
+
+        // Enable KleidiAI
+        CPU_ENABLE_KLEIDIAI = 16
     };
 
     enum ExternalPathType {

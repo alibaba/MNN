@@ -69,7 +69,7 @@ class BenchmarkStateMachine {
     fun isValidTransition(from: BenchmarkState, to: BenchmarkState): Boolean {
         val validTransitions = when (from) {
             BenchmarkState.IDLE -> listOf(BenchmarkState.LOADING_MODELS)
-            BenchmarkState.LOADING_MODELS -> listOf(BenchmarkState.READY, BenchmarkState.ERROR_MODEL_NOT_FOUND)
+            BenchmarkState.LOADING_MODELS -> listOf(BenchmarkState.READY, BenchmarkState.ERROR_MODEL_NOT_FOUND, BenchmarkState.ERROR)
             BenchmarkState.READY -> listOf(BenchmarkState.INITIALIZING, BenchmarkState.LOADING_MODELS)
             BenchmarkState.INITIALIZING -> listOf(BenchmarkState.RUNNING, BenchmarkState.ERROR)
             BenchmarkState.RUNNING -> listOf(BenchmarkState.STOPPING, BenchmarkState.COMPLETED, BenchmarkState.ERROR)

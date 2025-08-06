@@ -66,6 +66,11 @@ int main(int argc, char* argv[]) {
         dynamicOption = atoi(argv[7]);
         FUNC_PRINT(dynamicOption);
     }
+    bool enableKleidiAI = false;
+    if (argc > 8) {
+        enableKleidiAI = atoi(argv[8]) > 0 ? true : false;
+        FUNC_PRINT(enableKleidiAI);
+    }
     auto exe = MNN::Express::Executor::newExecutor(type, config, thread);
     if (exe == nullptr) {
         MNN_ERROR("Can't create executor with type:%d, exit!\n", type);
@@ -76,6 +81,7 @@ int main(int argc, char* argv[]) {
     // set hint
     MNN::RuntimeHint hint;
     hint.dynamicQuantOption = dynamicOption;
+    hint.enableKleidiAI = enableKleidiAI;
     scope.Current()->getRuntime().second->setRuntimeHint(hint);
     MNNTestSuite::get()->pStaus.memory = memory;
     MNNTestSuite::get()->pStaus.precision = precision;

@@ -1,5 +1,3 @@
-#if MNN_KLEIDIAI_ENABLED
-
 #ifndef KleidiAIDenseConvolution_hpp
 #define KleidiAIDenseConvolution_hpp
 
@@ -242,4 +240,3 @@ private:
 } // namespace MNN
 
 #endif /* KleidiAIDenseConvolution_hpp */
-#endif

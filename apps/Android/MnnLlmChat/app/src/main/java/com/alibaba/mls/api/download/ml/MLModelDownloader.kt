@@ -22,8 +22,7 @@ import com.alibaba.mls.api.ml.FileInfo
 import com.alibaba.mls.api.ml.MlApiClient
 import com.alibaba.mls.api.ml.MlRepoInfo
 import com.alibaba.mnnllm.android.model.ModelUtils
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
+import com.alibaba.mls.api.download.DownloadCoroutineManager
 import kotlinx.coroutines.withContext
 import java.io.File
 import com.alibaba.mls.api.ml.MlRepoData
@@ -43,15 +42,16 @@ class MLModelDownloader(override var callback: ModelRepoDownloadCallback?,
      * Unified method to fetch repo information from Modelers API
      * @param modelId the model ID to fetch info for
      * @param calculateSize whether to calculate repo size (requires additional network requests)
-     * @return MlRepoInfo object or null if failed
+     * @return MlRepoInfo object
+     * @throws FileDownloadException if failed to fetch repo info
      */
-    private suspend fun fetchRepoInfo(modelId: String, calculateSize: Boolean = false): MlRepoInfo? {
-        return withContext(Dispatchers.IO) {
+    private suspend fun fetchRepoInfo(modelId: String, calculateSize: Boolean = false): MlRepoInfo {
+        return withContext(DownloadCoroutineManager.downloadDispatcher) {
             runCatching {
                 val modelersId = ModelUtils.getRepositoryPath(modelId)
                 val split = modelersId.split("/".toRegex()).dropLastWhile { it.isEmpty() }.toTypedArray()
                 if (split.size != 2) {
-                    return@runCatching null
+                    throw FileDownloadException("Invalid model ID format for $modelId, expected format: owner/repo")
                 }
                 
                 val response = mlApiClient.apiService.getModelFiles(split[0], split[1], "").execute()
@@ -84,24 +84,33 @@ class MLModelDownloader(override var callback: ModelRepoDownloadCallback?,
                     callback?.onRepoInfo(modelId, lastModified, repoSize)
                     repoInfo
                 } else {
-                    null
+                    val errorMsg = if (!response.isSuccessful) {
+                        "API request failed with code ${response.code()}: ${response.message()}"
+                    } else {
+                        "API response was null or empty"
+                    }
+                    throw FileDownloadException("Failed to fetch repo info for $modelId: $errorMsg")
                 }
             }.getOrElse { exception ->
                 Log.e(TAG, "Failed to fetch repo info for $modelId", exception)
-                null
+                throw FileDownloadException("Failed to fetch repo info for $modelId: ${exception.message}")
             }
         }
     }
 
     override fun download(modelId: String) {
         Log.d(TAG, "start download  ${modelId}")
-        DownloadExecutor.executeScope.launch {
+        DownloadCoroutineManager.launchDownload {
             downloadRepo(modelId)
         }
     }
 
     override suspend fun checkUpdate(modelId: String) {
-        fetchRepoInfo(modelId, false)
+        try {
+            fetchRepoInfo(modelId, false)
+        } catch (e: FileDownloadException) {
+            Log.e(TAG, "Failed to check update for $modelId", e)
+        }
     }
 
     override fun getDownloadPath(modelId: String): File {
@@ -125,16 +134,22 @@ class MLModelDownloader(override var callback: ModelRepoDownloadCallback?,
     }
 
     override suspend fun getRepoSize(modelId: String): Long {
-        return withContext(Dispatchers.IO) {
+        return withContext(DownloadCoroutineManager.downloadDispatcher) {
             runCatching {
                 val repoInfo = fetchRepoInfo(modelId, calculateSize = true)
-                if (repoInfo != null) {
-                    repoInfo.data.tree.filter { it.type != "dir" }.sumOf { it.size }
-                } else {
-                    0L
-                }
+                repoInfo.data.tree.filter { it.type != "dir" }.sumOf { it.size }
             }.getOrElse { exception ->
                 Log.e(TAG, "Failed to get repo size for $modelId", exception)
+                // Try to get file_size from saved market data as fallback
+                try {
+                    val marketSize = com.alibaba.mls.api.download.DownloadPersistentData.getMarketSizeTotal(ApplicationProvider.get(), modelId)
+                    if (marketSize > 0) {
+                        Log.d(TAG, "Using saved market size as fallback for $modelId: $marketSize")
+                        return@withContext marketSize
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to get saved market size for $modelId", e)
+                }
                 0L
             }
         }
@@ -149,15 +164,16 @@ class MLModelDownloader(override var callback: ModelRepoDownloadCallback?,
             return null
         }
         
-        val modelInfo = fetchRepoInfo(modelId, calculateSize = true)
-        if (modelInfo != null) {
+        try {
+            val modelInfo = fetchRepoInfo(modelId, calculateSize = true)
             callback?.onDownloadTaskAdded()
             downloadMlRepoInner(modelId, modelersId, modelInfo)
             callback?.onDownloadTaskRemoved()
-        } else {
-            callback?.onDownloadFailed(modelId, FileDownloadException("Failed to get repo info for $modelId"))
+            return modelInfo
+        } catch (e: FileDownloadException) {
+            callback?.onDownloadFailed(modelId, e)
+            return null
         }
-        return modelInfo
     }
 
     private fun getAllFiles(owner: String, repo: String, path: String, allFiles: MutableList<FileInfo>) {
