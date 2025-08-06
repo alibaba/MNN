@@ -22,6 +22,8 @@ public:
             MNN_ERROR("Currently don't test not cpu mmap\n");
             return true;
         }
+        auto executor = cloneCurrentExecutor();
+        ExecutorScope scope(executor);
         auto x = _Input({1, 3, 224, 224}, NC4HW4, halide_type_of<float>());
         x->setName("x");
         auto y = _Conv(1.0f, 0.01f, x, {3, 16}, {5, 5});

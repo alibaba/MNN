@@ -62,6 +62,8 @@ struct RuntimeHint {
     // whether to use Arm sme2 cores when threads>1
     bool useArmSme2Cores = true;
 
+    bool enableKleidiAI = false;
+
     // Use CPU Ids
     std::vector<int> cpuIds;
 };

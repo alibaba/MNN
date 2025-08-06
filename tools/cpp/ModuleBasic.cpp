@@ -109,7 +109,7 @@ static inline std::vector<int> parseIntList(const std::string& str, char delim) 
 int main(int argc, char *argv[]) {
     if (argc < 3) {
         MNN_PRINT("=======================================================================================================================================\n");
-        MNN_ERROR("Usage: ./ModuleBasic.out ${test.mnn} ${Dir} [runMask] [forwardType] [runLoops] [numberThread] [precision | memory] [cacheFile] [cpuIds]\n");
+        MNN_ERROR("Usage: ./ModuleBasic.out ${test.mnn} ${Dir} [runMask] [forwardType] [runLoops] [numberThread] [precision | memory] [cacheFile] [cpuIds] [enableKleidiAI]\n");
         MNN_PRINT("=======================================================================================================================================\n");
         return 0;
     }
@@ -247,11 +247,16 @@ int main(int argc, char *argv[]) {
     for (auto id : cpuIds) {
         MNN_PRINT("%d ", id);
     }
+    bool enableKleidiAI = false;
+    if (argc > 10) {
+        enableKleidiAI = atoi(argv[10]) > 0 ? true : false;
+    }
     MNN_PRINT("\n");
     FUNC_PRINT(precision);
     FUNC_PRINT(memory);
     FUNC_PRINT(power);
     FUNC_PRINT_ALL(cacheFileName, s);
+    FUNC_PRINT(enableKleidiAI);
     // create session
     MNN::ScheduleConfig config;
     config.type      = type;
@@ -318,6 +323,10 @@ int main(int argc, char *argv[]) {
         0: INPUT_CHANNEL_QUANT
         */
         rtmgr->setHint(Interpreter::DYNAMIC_QUANT_OPTIONS, 2);
+    }
+
+    if (enableKleidiAI) {
+        rtmgr->setHint(Interpreter::CPU_ENABLE_KLEIDIAI, true);
     }
 
     // rtmgr->setHint(Interpreter::CPU_SME2_INSTRUCTIONS, false);
