@@ -53,7 +53,7 @@ def process_model_list(models: list):
 
     for model in models:
         # Check if the model has a HuggingFace source
-        if 'sources' in model and 'HuggingFace' in model['sources']:
+        if 'sources' in model and 'HuggingFace' in model['sources'] and 'file_size' not in model:
             repo_id = model['sources']['HuggingFace']
             if repo_id:
                 # Get the repository size and add it to the model object
