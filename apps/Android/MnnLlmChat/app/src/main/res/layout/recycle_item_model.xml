@@ -25,6 +25,7 @@
             style="@style/Widget.Material3.CardView.Outlined"
             app:cardBackgroundColor="@android:color/transparent"
             app:cardCornerRadius="8dp"
+            app:strokeWidth="0.5dp"
             app:strokeColor="?colorOutlineVariant"
             tools:cardBackgroundColor="#000"
             />

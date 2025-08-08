@@ -45,6 +45,7 @@ import com.alibaba.mnnllm.android.mainsettings.MainSettings
 import com.google.android.material.appbar.AppBarLayout
 import com.google.android.material.appbar.MaterialToolbar
 import com.alibaba.mnnllm.android.chat.SelectSourceFragment
+import android.content.Intent
 
 class MainActivity : AppCompatActivity(), MainFragmentManager.FragmentLifecycleListener {
     private lateinit var drawerLayout: DrawerLayout
@@ -385,6 +386,21 @@ class MainActivity : AppCompatActivity(), MainFragmentManager.FragmentLifecycleL
         
         val menuHost: MenuHost = this
         menuHost.addMenuProvider(menuProvider, this, Lifecycle.State.RESUMED)
+        
+        // Handle intent extras for navigation from notification
+        handleIntentExtras(intent)
+    }
+    
+    private fun handleIntentExtras(intent: Intent?) {
+        intent?.let {
+            val selectTab = it.getStringExtra(EXTRA_SELECT_TAB)
+            if (selectTab == TAB_MODEL_MARKET) {
+                // Post to ensure the UI is ready
+                bottomNav.post {
+                    bottomNav.select(BottomTabBar.Tab.MODEL_MARKET)
+                }
+            }
+        }
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
@@ -459,5 +475,7 @@ class MainActivity : AppCompatActivity(), MainFragmentManager.FragmentLifecycleL
 
     companion object {
         const val TAG: String = "MainActivity"
+        const val EXTRA_SELECT_TAB = "com.alibaba.mnnllm.android.select_tab"
+        const val TAB_MODEL_MARKET = "model_market"
     }
 }

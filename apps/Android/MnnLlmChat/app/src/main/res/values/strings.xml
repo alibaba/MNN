@@ -490,4 +490,7 @@
     <string name="update_available">Update Available</string>
     <string name="menu_copy_error_info">Copy Error Info</string>
     <string name="error_info_copied">Error information copied to clipboard</string>
+    <string name="download_service_title">MNN Chat Download Service</string>
+    <string name="downloading_single_model">Downloading %1$s</string>
+    <string name="downloading_multiple_models">Downloading %1$d models</string>
 </resources>

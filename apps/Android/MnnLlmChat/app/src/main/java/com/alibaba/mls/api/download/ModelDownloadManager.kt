@@ -81,6 +81,7 @@ class ModelDownloadManager private constructor(context: Context) {
     private val activeDownloadCount =
         AtomicInteger(0)
     private val checkedForUpdateModelIds = ConcurrentHashMap<String, Boolean>()
+    private val activeDownloadModelNames = ConcurrentHashMap<String, String>()
 
     private var foregroundServiceStarted = false
     private var disableForegroundService  = false
@@ -193,7 +194,7 @@ class ModelDownloadManager private constructor(context: Context) {
             setDownloadFailed(item.modelId, Exception("currentRepoPath or currentSource is empty for $modelName"))
             return
         }
-        startDownload(item.modelId, source)
+        startDownload(item.modelId, source, modelName)
     }
 
     fun startDownload(modelId: String) {
@@ -205,13 +206,18 @@ class ModelDownloadManager private constructor(context: Context) {
         startDownload(modelId, splits[0])
     }
 
-    private fun startDownload(modelId: String, source:String) {
+    private fun startDownload(modelId: String, source:String, modelName: String? = null) {
         val downloader = getDownloaderForSource(source)
         Log.d(TAG, "startDownload: $modelId source: $source downloader: ${downloader.javaClass.name}")
         listeners.forEach { it.onDownloadStart(modelId) }
         this.updateDownloadingProgress(modelId, "Preparing", null,
             getRealDownloadSize(modelId),
             DownloadPersistentData.getDownloadSizeTotal(ApplicationProvider.get(), modelId))
+        
+        // Track the model name for notification
+        val displayName = modelName ?: ModelUtils.getModelName(modelId) ?: modelId
+        addActiveDownload(modelId, displayName)
+        
         downloader.download(modelId)
     }
 
@@ -331,11 +337,13 @@ class ModelDownloadManager private constructor(context: Context) {
         }
         
         listeners.forEach { it.onDownloadFinished(modelId, path) }
+        removeActiveDownload(modelId)
     }
 
     private fun setDownloadPaused(modelId: String) {
         val info = downloadInfoMap.getOrPut(modelId) { DownloadInfo() }
         info.downloadState = DownloadState.PAUSED
+        removeActiveDownload(modelId)
         listeners.forEach { it.onDownloadPaused(modelId) }
     }
 
@@ -369,6 +377,7 @@ class ModelDownloadManager private constructor(context: Context) {
                 }
             }
         }
+        updateNotification()
     }
 
     private fun startForegroundService() {
@@ -378,6 +387,12 @@ class ModelDownloadManager private constructor(context: Context) {
         }
         
         try {
+            // Add download count and model name to intent
+            val count = activeDownloadCount.get()
+            val modelName = getActiveDownloadModelName()
+            foregroundServiceIntent.putExtra(DownloadForegroundService.EXTRA_DOWNLOAD_COUNT, count)
+            foregroundServiceIntent.putExtra(DownloadForegroundService.EXTRA_MODEL_NAME, modelName)
+            
             ApplicationProvider.get().startForegroundService(foregroundServiceIntent)
             foregroundServiceStarted = true
         } catch (e: Exception) {
@@ -395,7 +410,43 @@ class ModelDownloadManager private constructor(context: Context) {
         if (count == 0) {
             ApplicationProvider.get().stopService(foregroundServiceIntent)
             foregroundServiceStarted = false
+        } else {
+            updateNotification()
         }
+    }
+    
+    private fun updateNotification() {
+        if (!foregroundServiceStarted || disableForegroundService) {
+            return
+        }
+        
+        try {
+            val count = activeDownloadCount.get()
+            val modelName = getActiveDownloadModelName()
+            
+            // Use the static method to update notification
+            DownloadForegroundService.updateNotification(count, modelName)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to update notification", e)
+        }
+    }
+    
+    private fun getActiveDownloadModelName(): String? {
+        return when {
+            activeDownloadModelNames.size == 1 -> activeDownloadModelNames.values.firstOrNull()
+            activeDownloadModelNames.size > 1 -> null
+            else -> null
+        }
+    }
+    
+    private fun addActiveDownload(modelId: String, modelName: String) {
+        activeDownloadModelNames[modelId] = modelName
+        updateNotification()
+    }
+    
+    private fun removeActiveDownload(modelId: String) {
+        activeDownloadModelNames.remove(modelId)
+        updateNotification()
     }
 
     private fun setDownloadFailed(modelId: String, e: Exception) {
@@ -404,6 +455,7 @@ class ModelDownloadManager private constructor(context: Context) {
         info.downloadState = DownloadState.FAILED
         info.errorMessage = e.message
         info.errorException = e
+        removeActiveDownload(modelId)
         listeners.forEach {
             Log.d(TAG, "[setDownloadFailed] Notifying listener: ${it.javaClass.simpleName}")
             it.onDownloadFailed(modelId, e)
