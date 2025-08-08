@@ -28,9 +28,6 @@ struct ModelListView: View {
             }
         }
         .searchable(text: $searchText, prompt: "Search models...")
-        .onChange(of: searchText) { _, newValue in
-            viewModel.searchText = newValue
-        }
         .refreshable {
             await viewModel.fetchModels()
         }
@@ -102,21 +99,31 @@ struct ModelListView: View {
         }
     }
     
-    // Filter models based on selected tags, categories and vendors
     private var filteredModels: [ModelInfo] {
-        let baseFiltered = viewModel.filteredModels
         
+        let searchFiltered = searchText.isEmpty ? viewModel.models : viewModel.models.filter { model in
+            model.id.localizedCaseInsensitiveContains(searchText) ||
+            model.modelName.localizedCaseInsensitiveContains(searchText) ||
+            model.localizedTags.contains { $0.localizedCaseInsensitiveContains(searchText) }
+        }
+        
+        let tagFiltered: [ModelInfo]
         if selectedTags.isEmpty && selectedCategories.isEmpty && selectedVendors.isEmpty {
-            return baseFiltered
+            tagFiltered = searchFiltered
+        } else {
+            tagFiltered = searchFiltered.filter { model in
+                let tagMatch = checkTagMatch(model: model)
+                let categoryMatch = checkCategoryMatch(model: model)
+                let vendorMatch = checkVendorMatch(model: model)
+                
+                return tagMatch && categoryMatch && vendorMatch
+            }
         }
         
-        return baseFiltered.filter { model in
-            let tagMatch = checkTagMatch(model: model)
-            let categoryMatch = checkCategoryMatch(model: model)
-            let vendorMatch = checkVendorMatch(model: model)
-            
-            return tagMatch && categoryMatch && vendorMatch
-        }
+        let downloaded = tagFiltered.filter { $0.isDownloaded }
+        let notDownloaded = tagFiltered.filter { !$0.isDownloaded }
+        
+        return downloaded + notDownloaded
     }
     
     // Extract tag matching logic as independent method

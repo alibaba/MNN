@@ -13,7 +13,6 @@ import SwiftUI
  */
 struct BenchmarkView: View {
     @StateObject private var viewModel = BenchmarkViewModel()
-    @State private var showStopConfirmation = false
     
     var body: some View {
         ZStack {
@@ -21,8 +20,7 @@ struct BenchmarkView: View {
                 VStack(spacing: 24) {
                     // Model Selection Section
                     ModelSelectionCard(
-                        viewModel: viewModel,
-                        showStopConfirmation: $showStopConfirmation
+                        viewModel: viewModel
                     )
                     
                     // Progress Section
@@ -55,7 +53,7 @@ struct BenchmarkView: View {
                 .padding(.vertical, 16)
             }
         }
-        .alert("Stop Benchmark", isPresented: $showStopConfirmation) {
+        .alert("Stop Benchmark", isPresented: $viewModel.showStopConfirmation) {
             Button("Yes", role: .destructive) {
                 viewModel.onStopBenchmarkTapped()
             }
@@ -68,11 +66,7 @@ struct BenchmarkView: View {
         } message: {
             Text(viewModel.errorMessage)
         }
-        .onReceive(viewModel.$isRunning) { isRunning in
-            if isRunning && viewModel.startButtonText.contains("Stop") {
-                showStopConfirmation = false
-            }
-        }
+
     }
 }
 

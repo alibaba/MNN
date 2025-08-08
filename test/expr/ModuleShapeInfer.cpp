@@ -2,6 +2,7 @@
 #include <MNN/expr/ExprCreator.hpp>
 #include <MNN/expr/Module.hpp>
 #include "MNNTestSuite.h"
+#include "TestUtils.h"
 using namespace MNN;
 using namespace MNN::Express;
 
@@ -15,6 +16,8 @@ public:
         return summer;
     }
     virtual bool run(int precision) {
+        auto executor = cloneCurrentExecutor();
+        ExecutorScope scope(executor);
         std::vector<VARP> empty;
         // Make Net
         auto x = _Input({1, 3, 2, 2}, NCHW, halide_type_of<float>());

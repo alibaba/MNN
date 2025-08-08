@@ -19,8 +19,7 @@ if (MNN_CPU_WEIGHT_DEQUANT_GEMM)
     FILE(GLOB MNN_AArch64_SRC ${MNN_AArch64_SRC} ${CMAKE_CURRENT_LIST_DIR}/arm64/normal_memory/*.[sS])
 endif()
 
-if (MNN_KLEIDIAI)
-    add_definitions(-DMNN_KLEIDIAI_ENABLED=1)
+if (MNN_KLEIDIAI AND CMAKE_SYSTEM_PROCESSOR MATCHES "^aarch64" OR ARCHS STREQUAL "arm64" OR ARCHS STREQUAL "ARM64")
     # Disable the KleidiAI tests
     set(KLEIDIAI_BUILD_TESTS  OFF)
     # Fetch KleidiAI sources:
@@ -103,7 +102,7 @@ if (MNN_KLEIDIAI)
 	${KLEIDIAI_SRC}/kai/ukernels/matmul/pack/kai_rhs_imatmul_pack_kxn_x16p2vlx2b_x16_x16_sme.c
     )
 
-    set_source_files_properties(${MNN_SOURCES_KLEIDIAI} PROPERTIES COMPILE_OPTIONS -march=armv8.2-a+i8mm+dotprod+sve+sve2+fp16)
+    set_source_files_properties(${MNN_SOURCES_KLEIDIAI} PROPERTIES COMPILE_OPTIONS "-fno-tree-vectorize;-march=armv8.2-a+i8mm+dotprod+sve+sve2+fp16")
     set_source_files_properties(${KLEIDIAI_FILES_SME2}  PROPERTIES COMPILE_OPTIONS "-fno-tree-vectorize;-march=armv8.2-a+sve+sve2")
 
 endif()
@@ -121,6 +120,9 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "^armv7" OR ARCHS MATCHES "^armv7(;armv7s)?")
     endif()
 elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^aarch64" OR ARCHS STREQUAL "arm64" OR ARCHS STREQUAL "ARM64")
     message(STATUS "Enabling AArch64 Assemblies")
+    if (MNN_KLEIDIAI)
+       add_definitions(-DMNN_KLEIDIAI_ENABLED=1)
+    endif()
     if (MNN_SME2)
         add_definitions(-DMNN_SME2)
         FILE(GLOB MNN_SME2_AArch64_SRC ${MNN_SME2_AArch64_SRC} ${CMAKE_CURRENT_LIST_DIR}/arm64/sme2_asm/*.[sS])

@@ -125,6 +125,7 @@ class BenchmarkService: ObservableObject {
     
     /// Releases the current model and frees associated resources
     func releaseModel() {
+        llmEngine?.cancelInference()
         llmEngine = nil
         currentModelId = nil
     }

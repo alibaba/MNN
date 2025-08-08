@@ -125,13 +125,11 @@ Here is the professional technical translation of the provided text:
 
 ## Local Debugging
 
-If we want to directly download the models to the computer for debugging without downloading them through the app, we can follow these steps:
+For local debugging, simply drag the model files to the LocalModel folder and run the project:
 
 1. First, download the MNN-related models from [Hugging Face](https://huggingface.co/taobao-mnn) or [Modelscope](https://modelscope.cn/organization/MNN):
 
-
     <img width="400" alt="image" src="./assets/copyLocalModel.png" />
-
 
 2. After downloading, drag all the files from the model folder into the project's LocalModel folder:
 
@@ -141,33 +139,9 @@ If we want to directly download the models to the computer for debugging without
 
     <img width="400" alt="image" src="./assets/copyLocalMode3.png" />
 
-4. Comment out the model download code:
+4. Run the project, navigate to the chat page, and perform model interactions and debugging.
 
-    ```Swift
-    /*
-    try await modelClient.downloadModel(model: model) { progress in
-        Task { @MainActor in
-            DispatchQueue.main.async {
-                self.downloadProgress[model.modelId] = progress
-            }
-        }
-    }
-    */
-    ```
-
-
-5. Modify the Model Loading Method
-
-    Modify the `LLMInferenceEngineWrapper` class:
-
-    ```Swift
-    // BOOL success = [self loadModelFromPath:modelPath];
-    // MARK: Test Local Model
-    BOOL success = [self loadModel];
-    ```
-
-
-6. Run the project, navigate to the chat page, and perform model interactions and debugging.
+The app will automatically detect and load models from the LocalModel folder without requiring additional configuration.
 
 ## Release Notes
 

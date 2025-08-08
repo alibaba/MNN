@@ -6,12 +6,9 @@
 
 #ifndef KleidiAIConvolution_hpp
 #define KleidiAIConvolution_hpp
-#ifdef MNN_KLEIDIAI_ENABLED
-#include <functional>
 #include "backend/cpu/CPUConvolution.hpp"
+#include "backend/cpu/arm/mnn_kleidiai.h"
 namespace MNN {
-#ifndef MNN_REDUCE_SIZE
-
 class KleidiAIConvolution : public CPUConvolution{
     public:
         KleidiAIConvolution(const Convolution2DCommon *common, Backend *b, const float *originWeight, size_t originWeightSize, const float *bias, size_t biasSize);
@@ -28,10 +25,7 @@ class KleidiAIConvolution : public CPUConvolution{
         std::shared_ptr<Tensor> mOutputConvertBuffer;
         std::shared_ptr<CPUConvolution::Resource> mResource;
         KleidiAI::AccelType mAccelType = KleidiAI::AccelType::ACC_TYPE_NUMBER;
-
+        std::vector<float> mPostParameters;
 };
-#endif //MNN_KLEIDIAI_ENABLED
-
 } // namespace MNN
 #endif
-#endif /* KleidiAIConvolution_hpp */

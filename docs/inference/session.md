@@ -200,6 +200,39 @@ struct BackendConfig {
 
 `sharedContext`用于自定义后端，用户可以根据自身需要赋值。
 
+#### CPU 核心绑定
+MNN 支持将计算任务绑定到指定的 CPU 核心上执行。这对于需要精细控制 CPU 资源，避免线程在不同核心之间切换，或者希望将 MNN 的计算任务限制在特定核心上，以减少对其他应用干扰的场景非常有用。
+
+通过 `Interpreter::setSessionHint` 方法，并使用 `HintMode::CPU_CORE_IDS`，可以指定一个或多个 CPU 核心的 ID。
+
+```cpp
+#include <MNN/Interpreter.hpp>
+
+// ...
+
+// 创建 Interpreter
+auto interpreter = std::shared_ptr<MNN::Interpreter>(MNN::Interpreter::createFromFile("your_model.mnn"));
+
+// 设置 CPU 核心绑定
+// 假设我们希望将计算任务绑定到 0 号和 1 号 CPU 核心
+std::vector<int> cpu_ids = {0, 1};
+interpreter->setSessionHint(MNN::Interpreter::HintMode::CPU_CORE_IDS, cpu_ids.data(), cpu_ids.size());
+
+// 创建 Session
+MNN::ScheduleConfig config;
+config.type = MNN_FORWARD_CPU;
+config.numThread = 2; // 线程数最好和绑定的核心数一致
+auto session = interpreter->createSession(config);
+
+// ... 运行推理
+```
+
+**注意事项:**
+
+*   `CPU_CORE_IDS` 的设置必须在 `createSession` 之前完成。
+*   `numThread` 的数量最好设置为与绑定的 CPU 核心数量一致，以达到最佳的性能。
+*   如果指定的 CPU 核心 ID 不存在或无效，MNN 将会忽略该配置，并使用默认的线程调度策略。
+
 ### 创建多段路径Session
 需要对推理路径做出更为复杂的配置时，可以通过调度配置组来实现：
 ```cpp

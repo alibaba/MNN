@@ -176,7 +176,7 @@ public:
         region.dst.stride[0] = reverseSize*insideSize;
         region.dst.stride[1] = insideSize;
         region.dst.stride[2] = 1;
-        outputDes->regions.emplace_back(std::move(region));
+        outputDes->regions = {std::move(region)};
 
         return true;
     }

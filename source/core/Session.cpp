@@ -109,6 +109,9 @@ void Session::ModeGroup::setHint(Interpreter::HintMode hint, int value) {
         case Interpreter::HintMode::INIT_THREAD_NUMBER:
             runtimeHint.initThreadNumber = value;
             break;
+        case Interpreter::HintMode::CPU_ENABLE_KLEIDIAI:
+            runtimeHint.enableKleidiAI = value > 0 ? true : false;
+            break;
         default:
             break;
     }

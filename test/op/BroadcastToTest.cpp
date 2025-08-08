@@ -202,6 +202,8 @@ class BinaryBroadcastTest : public MNNTestCase {
     virtual ~BinaryBroadcastTest() = default;
 
     virtual bool run(int precision) {
+        auto executor = cloneCurrentExecutor();
+        ExecutorScope scope(executor);
         bool resultNCHW = testDimensionFormat(NCHW, precision);
         bool resultNHWC = testDimensionFormat(NHWC, precision);
 

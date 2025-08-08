@@ -77,11 +77,6 @@
 			path = MNNLLMiOS;
 			sourceTree = "<group>";
 		};
-		3EAD33932D2BF38800021CF7 /* LocalModel */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = LocalModel;
-			sourceTree = "<group>";
-		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -117,7 +112,6 @@
 			isa = PBXGroup;
 			children = (
 				3E94DF1F2D30CCF900BE39A7 /* MNNLLMiOS */,
-				3EAD33932D2BF38800021CF7 /* LocalModel */,
 				3E8592122D1D45090067B46F /* MNNLLMiOSTests */,
 				3E85921C2D1D45090067B46F /* MNNLLMiOSUITests */,
 				3EAD33842D2BDDC300021CF7 /* Frameworks */,
@@ -160,7 +154,6 @@
 			);
 			fileSystemSynchronizedGroups = (
 				3E94DF1F2D30CCF900BE39A7 /* MNNLLMiOS */,
-				3EAD33932D2BF38800021CF7 /* LocalModel */,
 			);
 			name = MNNLLMiOS;
 			packageProductDependencies = (

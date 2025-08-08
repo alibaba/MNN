@@ -576,6 +576,9 @@ static void _blit(const Tensor::InsideDescribe::Region& slice, int bytes, const 
             for (int y=0; y<slice.size[1]; ++y) {
                 auto srcY = srcZ + y * slice.src.stride[1] * bytes;
                 auto dstY = dstZ + y * slice.dst.stride[1] * bytes;
+#ifdef DEBUG
+                ::memset(dstY, 0, slice.size[2] * bytes);
+#endif
                 ::memcpy(dstY, srcY, slice.size[2] * bytes);
             }
         }
