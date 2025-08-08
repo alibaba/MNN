@@ -2,6 +2,7 @@
 #-- coding:utf8 --
 import sys
 import os
+import re
 
 model_root_dir = sys.argv[1]
 
@@ -69,6 +70,34 @@ for name in os.listdir(root_dir):
         if name == 'mobilenetv1quan' or name == 'overflowaware':
             parameters_specific = forwardType + ' 0.1 ' + precision + input_dims
             message = run_cmd([command, tmpModel, inputName, outputName, parameters_specific])
+
+            if name == 'mobilenetv1quan' and os.path.exists(os.path.join(root_dir, name, 'testdir')):
+                print("Test mobilenetv1quan using Module's prearrange\n")
+                commandP = 'ModuleBasic.out.exe' if os.name == 'nt' else './ModuleBasic.out'
+                messagePClone = run_cmd([commandP, modelName, os.path.join(root_dir, name, 'testdir'), '96'])
+                messagePOrigin = run_cmd([commandP, modelName, os.path.join(root_dir, name, 'testdir')])
+
+                matchClone = re.search(r"diff rate = (\d+\.\d+)", messagePClone)
+                matchOrigin = re.search(r"diff rate = (\d+\.\d+)", messagePOrigin)
+                if matchOrigin:
+                    diff_rate_str_origin = matchOrigin.group(1)
+                    diff_rate_val_origin = float(diff_rate_str_origin)
+
+                    if matchClone:
+                        diff_rate_str = matchClone.group(1)
+                        diff_rate_val = float(diff_rate_str)
+
+                        if diff_rate_val > diff_rate_val_origin: # Ensure the diff rate is the same
+                            print("mobilenetv1quan use Module's prearrange is error: diff rate is: ", diff_rate_val)
+                            gWrong.append(modelName)
+                        else:
+                            print("mobilenetv1quan use Module's prearrange is right\n")
+                    else:
+                        gWrong.append(modelName)
+
+                else:
+                    gWrong.append(modelName)
+
         else:
             message = run_cmd([command, tmpModel, inputName, outputName, parameters])
     else:
@@ -77,6 +106,35 @@ for name in os.listdir(root_dir):
             message = run_cmd([command, modelName, inputName, outputName, parameters_specific])
         else:
             message = run_cmd([command, modelName, inputName, outputName, parameters])
+
+        if name == 'mobilenetv1quan' and os.path.exists(os.path.join(root_dir, name, 'testdir')):
+            print("Test mobilenetv1quan using Module's prearrange\n")
+            commandP = 'ModuleBasic.out.exe' if os.name == 'nt' else './ModuleBasic.out'
+            messagePClone = run_cmd([commandP, modelName, os.path.join(root_dir, name, 'testdir'), '96'])
+            messagePOrigin = run_cmd([commandP, modelName, os.path.join(root_dir, name, 'testdir')])
+
+            matchClone = re.search(r"diff rate = (\d+\.\d+)", messagePClone)
+            matchOrigin = re.search(r"diff rate = (\d+\.\d+)", messagePOrigin)
+            if matchOrigin:
+                diff_rate_str_origin = matchOrigin.group(1)
+                diff_rate_val_origin = float(diff_rate_str_origin)
+
+                if matchClone:
+                    diff_rate_str = matchClone.group(1)
+                    diff_rate_val = float(diff_rate_str)
+
+                    if diff_rate_val > diff_rate_val_origin: # Ensure the diff rate is the same
+                        print("mobilenetv1quan use Module's prearrange is error: diff rate is: ", diff_rate_val)
+                        gWrong.append(modelName)
+                    else:
+                        print("mobilenetv1quan use Module's prearrange is right\n")
+                else:
+                    gWrong.append(modelName)
+
+            else:
+                gWrong.append(modelName)
+
+            
     if (message.find('Correct') == -1):
         gWrong.append(modelName)
     print(message)

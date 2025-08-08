@@ -11,7 +11,7 @@ value : [Batch, seqLenKV, headNum, headDim] -> (real layout) [Batch, headNum, he
 ouput : [Batch, seqLenQ, headNum * headDim] -> (real layout) [Batch, headNum * headDim, seqLenQ]
 */
 ErrorCode QNNAttention::onEncode(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
-#ifdef QNN_VORBOSE
+#ifdef QNN_VERBOSE
     MNN_PRINT("QNN Attention inputs shape:\n");
     for(int i = 0; i < inputs.size(); i++) {
         auto shape = inputs[i]->shape();

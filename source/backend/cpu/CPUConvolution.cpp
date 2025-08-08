@@ -25,6 +25,29 @@
 #endif
 
 namespace MNN {
+
+static void unpackScaleFromBuffer(float* scaleBuffer, const int8_t* srcbuffer, const int32_t* info, int infoBytes) {
+    int blockNum    = info[0];
+    int ocDiv       = info[1]; // ocDiv = UP_DIV(oc, UNIT)
+    int stride1     = info[2]; // int stride1 = blockL * UNIT * SRC_UNIT; // Int8 weight size per block
+    int UNIT        = info[3];
+
+    
+    size_t packedUnitSize = stride1 + 2 * UNIT * infoBytes;
+
+    int8_t* scaleWritePtr = reinterpret_cast<int8_t*>(scaleBuffer);
+
+    for (int hU = 0; hU < ocDiv; ++hU) {
+        const int8_t* huPtr = srcbuffer + hU * blockNum * packedUnitSize;
+        for (int bl = 0; bl < blockNum; ++bl) {
+            const int8_t* blockPtr = huPtr + bl * packedUnitSize;
+            const int8_t* scaleReadPtr = blockPtr + stride1;
+            memcpy(scaleWritePtr, scaleReadPtr, UNIT * infoBytes);
+            scaleWritePtr += UNIT * infoBytes;
+        }
+    }
+}
+
 void CPUConvolution::Resource::copyBias(float* dst, const float* bias, int outputCount, Backend* backend) {
     auto core = static_cast<CPUBackend*>(backend)->functions();
     int bytes = core->bytes;
@@ -57,7 +80,7 @@ bool CPUConvolution::Resource::copyBiasAlign(const float* bias, int outputCount)
     return true;
 }
 CPUConvolution::MutableResourceInt8::MutableResourceInt8(std::shared_ptr<ResourceInt8> res, Backend* backend, float* scalePtr) : mResource(res) {
-    auto outputChannleUp4 = res->mOriginBias->length(0);
+    auto outputChannleUp4 = res->mOriginBias->length(0); // outputChannleUp4 = ROUND_UP(oc, UNIT)
     mBiasFloat.reset(Tensor::createDevice<int32_t>({outputChannleUp4}));
     mValid = backend->onAcquireBuffer(mBiasFloat.get(), Backend::STATIC);
     if (!mValid) {
@@ -78,8 +101,25 @@ CPUConvolution::MutableResourceInt8::MutableResourceInt8(std::shared_ptr<Resourc
         auto int32BiasPtr = res->mOriginBias->host<int32_t>();
         auto floatBiasPtr = mBiasFloat->host<float>();
         auto weightScale = scalePtr;
-        if (!scalePtr) {
-            weightScale  = res->mOriginScale->host<float>();
+        
+        auto blockNum = res->mBlockNum;
+        AutoStorage<int8_t> tmpBuffer(outputChannleUp4 * blockNum * 4);
+        if (!tmpBuffer.get()) {
+             MNN_ERROR("Memory not enough for allocating a temp buffer for weight scale\n");
+             return;
+         }
+        if (!scalePtr && !res->mOriginScale) { // if convolution, res->mOriginScale == nullptr
+            // get weight scale from packed res->mWeightInt8
+             int UNIT, SRC_UNIT, DST_XUNIT;
+             auto int8Core = static_cast<CPUBackend*>(backend)->int8Functions();
+             int8Core->MNNGetGemmUnit(&UNIT, &SRC_UNIT, &DST_XUNIT);
+             int32_t perBlockWeightSize = (res->mWeightInt8->size() - 2 * outputChannleUp4 * sizeof(float)) / (blockNum * UP_DIV(outputChannleUp4, UNIT));
+             int32_t info[4] = {blockNum, UP_DIV(outputChannleUp4, UNIT), perBlockWeightSize, UNIT};
+             unpackScaleFromBuffer((float*)tmpBuffer.get(), res->mWeightInt8->host<int8_t>(), info, 4);
+             
+            weightScale  = (float*)tmpBuffer.get();
+        } else if (!scalePtr) { // if depthwiseInt8, res->mOriginScale != nullptr
+            weightScale = res->mOriginScale->host<float>();
         }
         for (int i = 0; i < outputChannleUp4; ++i) {
             if (mInputScale && mOutputScale) { // symmetric quan
@@ -136,7 +176,7 @@ void CPUConvolution::MutableResourceInt8::updateInputOutputScale(std::vector<flo
 #else
     float offset = 0.f;
 #endif
-    if (mResource->mOriginScale) {
+    if (mResource->mOriginScale) { // Only depthwiseInt8 has mOriginScale
         auto weightScalePtr   = mResource->mOriginScale->host<float>();
         for (int i = 0; i < ocUp4; i++) {
             auto weightScale = weightScalePtr[i];
@@ -169,7 +209,7 @@ std::shared_ptr<CPUConvolution::ResourceInt8> CPUConvolution::makeResourceInt8(B
     const auto ocUpUnit = UP_DIV(outputCount, UNIT) * UNIT;
 
     resource->mOriginBias.reset(Tensor::createDevice<int32_t>({ocUpUnit}));
-    resource->mOriginScale.reset(Tensor::createDevice<uint8_t>({2 * ocUpUnit * core->bytes}));
+    resource->mOriginScale.reset(Tensor::createDevice<uint8_t>({2 * ocUpUnit * core->bytes})); // TO DO: blockNum>1
     resource->mWeightKernelSum.reset(Tensor::createDevice<uint8_t>({ocUpUnit * 4}));
     auto allocRes = backend->onAcquireBuffer(resource->mOriginBias.get(), Backend::STATIC);
     allocRes &= backend->onAcquireBuffer(resource->mOriginScale.get(), Backend::STATIC);
@@ -193,7 +233,7 @@ std::shared_ptr<CPUConvolution::ResourceInt8> CPUConvolution::makeResourceInt8(B
     if (!ConvolutionCommon::getConvInt8Parameters(op, quanCommon, backend, weightSrc, weightSize, scalePtr, biasPtr, ocUpUnit)) {
         return nullptr;
     }
-    if (convParam->bias() && convParam->quanParameter()->alpha()) {
+    if (convParam->bias() && (convParam->quanParameter()->alpha() || quanCommon->alpha.get())) {
         resource->mUseConvQuan = false;
     }
     if (quanCommon.get()) {
@@ -223,7 +263,7 @@ std::shared_ptr<CPUConvolution::ResourceInt8> CPUConvolution::makeResourceInt8(B
         }
 #endif
     }
-    ConvInt8TiledExecutor::initializeConvInt8QuantInfo(resource, convParam);
+    ConvInt8TiledExecutor::initializeConvInt8QuantInfo(resource, convParam, quanCommon);
     auto weightDst = resource->mWeightInt8->host<int8_t>();
     memcpy(weightDst, weightSrc, resource->mWeightInt8->size());
     return resource;

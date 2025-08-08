@@ -133,7 +133,7 @@ public:
         INTS strides = {1, 1}, dilate = {1, 1};
         int batch[] = {1, 512};
         std::vector<int> blocks = {0, 128};
-        std::vector<std::vector<int>> channels = { {1536, 2048}, {2048, 2048}};
+        std::vector<std::vector<int>> channels = { {1536, 2048}, {2048, 2048}, {1536, 1536}};
 
         std::vector<std::vector<int>> kernels = {{1, 1}};
         std::vector<std::vector<int>> pads = {{0, 0}};
@@ -204,7 +204,7 @@ public:
         INTS strides = {1, 1}, dilate = {1, 1}, pad = {0, 0}; // {w, h}
         int batch[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 21, 22, 23, 25, 26, 27, 28, 29, 30};
         std::vector<int> blocks = {0, 32, 128};
-        std::vector<std::vector<int>> channels = {{3, 7}, {4, 7}, {5, 7}, {12, 16}, {8, 8}, {8, 9}, {8, 16}, {7, 9}, {9, 9}, {2048, 54}, {1, 10}, {20, 153}, {9, 18}, {64, 12}, {1496, 11}, {10, 9}};
+        std::vector<std::vector<int>> channels = {{3, 7}, {4, 18}, {5, 22}, {12, 16}, {8, 8}, {8, 9}, {8, 16}, {7, 20}, {9, 24}, {2048, 54}, {1, 10}, {20, 153}, {9, 18}, {64, 28}, {1496, 11}, {10, 9}};
         std::vector<std::vector<int>> inputShapes = {{1, 1}};
         std::vector<std::vector<int>> kernels = {{1, 1}};
         std::vector<int> weightBits = {4, 8};

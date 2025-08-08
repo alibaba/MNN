@@ -47,7 +47,7 @@ ErrorCode CPUPlugin::onExecute(const std::vector<Tensor*>& inputs, // NOLINT
                                const std::vector<Tensor*>& outputs) {
     // Setup new context with inputs and outputs.
     plugin::CPUKernelContext ctx( // NOLINT
-        ctx_->op_type(), ctx_->backend(), inputs, outputs);
+        ctx_->op_type(), ctx_->backend(), inputs, outputs, ctx_->dir_path());
     ctx.setAttrs(ctx_->getAttrs());
     if (kernel_->compute(&ctx)) {
         return NO_ERROR;
@@ -73,7 +73,7 @@ public:
 
         const std::string& op_type = plugin_param->type()->str();
         std::unique_ptr<plugin::CPUKernelContext> ctx( // NOLINT
-            new plugin::CPUKernelContext(op_type, backend, inputs, outputs));
+            new plugin::CPUKernelContext(op_type, backend, inputs, outputs, static_cast<CPUBackend *>(backend)->getRuntime()->hint().npuModelDirPath));
 
         for (const Attribute* attr : *(plugin_param->attr())) {
             ctx->setAttr(attr->key()->str(), attr);

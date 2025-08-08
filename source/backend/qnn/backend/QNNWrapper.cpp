@@ -196,7 +196,7 @@ void * QNNParamTensorWrapper::alloc() {
     for (int i = 0; i < mQnnParam.tensorParam.v1.rank; i++) {
         dataSize *= mQnnParam.tensorParam.v1.dimensions[i];
     }
-    #ifdef QNN_VORBOSE
+    #ifdef QNN_VERBOSE
     MNN_PRINT("QNNParamTensorWrapper size: %d\n", dataSize);
     #endif
     mQnnParam.tensorParam.v1.clientBuf.data = malloc(dataSize);

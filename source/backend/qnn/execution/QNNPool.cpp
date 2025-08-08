@@ -47,7 +47,7 @@ ErrorCode QNNPool::onEncode(const std::vector<Tensor *> &inputs, const std::vect
     }
     this->createParamScalar("rounding_mode", roundingMode);
 
-    #ifdef QNN_VORBOSE
+    #ifdef QNN_VERBOSE
     MNN_PRINT("QNN Pool input:");
     auto shape0 = inputs[0]->shape();
     for(int i = 0; i < shape0.size(); i++) {

@@ -18,6 +18,7 @@ option(PYMNN_OPENCV_API "MNN OpenCV API be exposed" ON)
 option(PYMNN_IMGCODECS "MNN IMGCODECS API be exposed" OFF)
 option(PYMNN_AUDIO_API "MNN Audio API be exposed" OFF)
 option(PYMNN_OHOS_INTERNAL "compile for harmony internal." OFF)
+option(PYMNN_LLM_COLLECTION "offline llm data collection." OFF)
 
 if (PYMNN_OHOS_INTERNAL)
   include($ENV{NODE_PATH}/@ali/tcpkg/tcpkg.cmake)

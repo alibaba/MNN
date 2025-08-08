@@ -43,6 +43,11 @@ list(APPEND MNN_CPP_TOOLS backendTest.out)
 add_executable(testModel.out ${CMAKE_CURRENT_LIST_DIR}/testModel.cpp)
 list(APPEND MNN_CPP_TOOLS testModel.out)
 
+if (MNN_QNN)
+    add_executable(MNN2QNNModel ${CMAKE_CURRENT_LIST_DIR}/MNN2QNNModel.cpp)
+    list(APPEND MNN_CPP_TOOLS MNN2QNNModel)
+endif()
+
 add_executable(testModel_expr.out ${CMAKE_CURRENT_LIST_DIR}/testModel_expr.cpp)
 list(APPEND MNN_CPP_TOOLS testModel_expr.out)
 

@@ -16,11 +16,10 @@ MNN使用CMake构建项目，CMake中的宏定义列表如下：
 | MNN_BUILD_QUANTOOLS  | 是否构建MNN的量化工具，默认为`OFF` |
 | MNN_EVALUATION       | 是否构建MNN的评估工具，默认为`OFF` |
 | MNN_BUILD_CONVERTER  | 是否构建MNN的转换工具，默认为`OFF` |
-| MNN_SUPPORT_QUANT_EXTEND    | 是否编译非核心算子的量化版本，默认为`ON` |
+| MNN_SUPPORT_QUANT_EXTEND    | 是否编译非核心算子（Binary/Unary/LayerNorm等）的量化版本，默认为`ON` |
 | MNN_SUPPORT_DEPRECATED_OP   | 是否支持Tflite的量化算子等已经废弃的算子，用于兼容历史模型(1.1.0版本之前)，默认为`OFF` |
-| MNN_SUPPORT_DEPRECATED_OPV2 | 是否编译MNN更新到3.0之后已经废弃的算子，用于兼容历史模型(3.0.0版本之前)，比如 `Convolution3D` / `ConvTranspose3D` 在3.0.0 版本之后改由模型转换器转化为对应2D算子，不再需要运行时支持，默认为`ON` |
+| MNN_SUPPORT_DEPRECATED_OPV2 | 是否编译MNN更新到3.0之后已经废弃的算子，用于兼容历史模型(3.0.0版本之前)，比如 `Convolution3D` / `ConvTranspose3D`，在3.0.0 版本之后改由模型转换器转化为对应2D算子，不再需要运行时支持，默认为`ON` |
 | MNN_REDUCE_SIZE      | 是否裁剪MNN库大小，去除求导相关算子，减少优化策略，默认为`OFF` ，开启时，`MNN_SUPPORT_QUANT_EXTEND` / `MNN_SUPPORT_DEPRECATED_OP` / `MNN_SUPPORT_DEPRECATED_OPV2` / `MNN_USE_SPARSE_COMPUTE` 都会设成 `OFF` |
-| MNN_SUPPORT_QUANT_EXTEND    | 是否开启Binary/Unary等算子的量化计算支持，默认为`ON` |
 | MNN_DEBUG_MEMORY     | 是否开启MNN内存调试，默认为`OFF` |
 | MNN_DEBUG_TENSOR_SIZE | 是否开启MNN tensor size调试，默认为`OFF` |
 | MNN_GPU_TRACE        | 是否开启MNN GPU调试，默认为`OFF` |
@@ -59,7 +58,7 @@ MNN使用CMake构建项目，CMake中的宏定义列表如下：
 | MNN_NNAPI            | 是否构建`NNAPI`后端，默认为`OFF`  |
 | MNN_QNN              | 是否构建`QNN`后端，默认为`OFF` |
 | MNN_QNN_CONVERT_MODE | 在`MNN_QNN`开启的基础上,是否构建Convert模式的QNN后端，默认为`OFF` |
-| MNN_NPU            | 是否构建`NPU`后端，默认为`OFF`  |
+| MNN_NPU            | 是否构建HIAI的`NPU`后端，默认为`OFF`  |
 | MNN_USE_SPARSE_COMPUTE | 是否使用稀疏计算，默认为`ON` |
 | MNN_BUILD_BENCHMARK  | 是否构建MNN的性能测试，默认为`OFF` |
 | MNN_BUILD_TEST       | 是否构建MNN的单元测试，默认为`OFF` |

@@ -669,7 +669,17 @@ bool Cli::convertModel(modelConfig& modelPath) {
     } else if (modelPath.model == modelConfig::ONNX) {
         parseRes = onnx2MNNNet(modelPath.modelFile, modelPath.bizCode, netT, metaOp.get(), inputNames);
     } else if (modelPath.model == modelConfig::TFLITE) {
-        parseRes = tflite2MNNNet(modelPath.modelFile, modelPath.bizCode, netT);
+        if (modelPath.mnn2json) {
+            if (dumpTflite2Json(modelPath.modelFile.c_str(), modelPath.MNNModel.c_str())) {
+                MNN_PRINT("Tflite %s has convert to JsonFile %s.\n", modelPath.modelFile.c_str(), modelPath.MNNModel.c_str());
+                return true;
+            } else {
+                MNN_ERROR("[ERROR] MNN to Json failed.\n");
+                return false;
+            }
+        } else {
+            parseRes = tflite2MNNNet(modelPath.modelFile, modelPath.bizCode, netT);
+        }
 #ifdef MNN_BUILD_TORCH
     } else if (modelPath.model == modelConfig::TORCH) {
         parseRes = torch2MNNNet(modelPath.modelFile, modelPath.bizCode, netT, modelPath.customOpLibs);

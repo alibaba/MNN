@@ -11,7 +11,7 @@ ErrorCode QNNMatMul::onEncode(const std::vector<Tensor *> &inputs, const std::ve
     bool transpose0 = param->transposeA();
     bool transpose1 = param->transposeB();
 
-    #ifdef QNN_VORBOSE
+    #ifdef QNN_VERBOSE
     MNN_PRINT("QNN MatMul\ninput0:");
     auto shape0 = inputs[0]->shape();
     for(int i = 0; i < shape0.size(); i++) {
@@ -49,7 +49,7 @@ ErrorCode QNNMatMul::onEncode(const std::vector<Tensor *> &inputs, const std::ve
                     transpose1 = !transpose1;
                 }            
             }
-            #ifdef QNN_VORBOSE
+            #ifdef QNN_VERBOSE
             MNN_PRINT("QNN MatMul tr0:%d tr0:%d, input0 const: %d, input1 const: %d\n", transpose0, transpose1, \
                 TensorUtils::getDescribe(inputs[0])->usage == Tensor::InsideDescribe::Usage::CONSTANT, \
                 TensorUtils::getDescribe(inputs[1])->usage == Tensor::InsideDescribe::Usage::CONSTANT);

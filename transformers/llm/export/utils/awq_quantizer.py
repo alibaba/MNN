@@ -27,7 +27,7 @@ class AwqQuantizer:
         self.w_bit = model.args.quant_bit
         self.group_size = model.args.quant_block
         self.zeropoint = not model.args.sym
-        self.calib_data = 'ag_news'
+        self.calib_data = 'wikitext' if model.args.calib_data is None else model.args.calib_data
         self.split = 'test'
         self.duo_scaling = True
         self.apply_clip = apply_clip
@@ -85,9 +85,8 @@ class AwqQuantizer:
             common_device = next(self.modules[i].parameters()).device
             if common_device is None or str(common_device) == "cpu":
                 best_device = AwqQuantizer.get_best_device()
-
-                self.modules[i] = self.modules[i].to(best_device)
-                common_device = next(self.modules[i].parameters()).device
+                AwqQuantizer.to_device(self.modules[i], best_device)
+                common_device = best_device
 
             if self.module_kwargs.get("position_ids") is not None:
                 self.module_kwargs["position_ids"] = self.module_kwargs[
@@ -100,7 +99,6 @@ class AwqQuantizer:
                 ].to(common_device)
 
             self.inps = self.inps.to(common_device)
-            # print(f'# {i} inps shape: {self.inps.shape}, inps.max: {self.inps.max()}')
 
             # [STEP 1]: Get layer, extract linear modules, extract input features
             named_linears = AwqQuantizer.get_named_linears(self.modules[i])
@@ -109,6 +107,7 @@ class AwqQuantizer:
             named_linears = AwqQuantizer.exclude_layers_to_not_quantize(
                 named_linears, self.modules_to_not_convert
             )
+
             input_feat = self._get_input_feat(self.modules[i], named_linears)
             AwqQuantizer.clear_memory()
 
@@ -158,7 +157,6 @@ class AwqQuantizer:
                 self._search_best_scale(self.modules[i], **layer)
                 for layer in module_config
             ]
-            # print(scales_list); exit(0)
             AwqQuantizer.apply_scale(self.modules[i], scales_list, input_feat_dict=input_feat)
             # [STEP 3]: Compute and apply clipping list
             if self.apply_clip:
@@ -168,14 +166,16 @@ class AwqQuantizer:
                 AwqQuantizer.apply_clip(self.modules[i], clip_list)
 
             AwqQuantizer.clear_memory()
+            AwqQuantizer.to_device(self.modules[i], torch.device('cpu'))
+
 
     @torch.no_grad()
     def _module_forward(
         self, x: torch.Tensor, module: torch.nn.Module, module_kwargs: Dict
     ) -> torch.Tensor:
+
         if self.n_parallel_calib_samples is None:
             # runs through all samples at once
-            # print(module, x, module_kwargs); exit(0)
             module_output = module(x, **module_kwargs)
             if isinstance(module_output, tuple):
                 module_output = module_output[0]
@@ -214,7 +214,7 @@ class AwqQuantizer:
             kwargs.pop("use_cache")
 
         # Put x on the right device
-        inp = inp.to(next(module2inspect.parameters()).device)
+        inp = inp.to(next(layers[0].parameters()).device)
 
         # [STEP 1]: Compute per-channel mean of normalised weights
         # All layer weights are concatted together
@@ -252,7 +252,8 @@ class AwqQuantizer:
 
         x_mean = (x_sum / num_elements).to(inp.dtype)
         AwqQuantizer.clear_memory(x_sum)
-
+        
+        inp = inp.to(next(layers[0].parameters()).device)
         # [STEP 3]: Compute output of module
         with torch.no_grad():
             module_kwargs = self._sanitize_kwargs(kwargs, module2inspect)
@@ -600,8 +601,6 @@ class AwqQuantizer:
                 AwqQuantizer.scale_ln_fcs(prev_op, layers, scales)
 
             elif AwqQuantizer.is_allowed_act_fns(prev_op):
-                #new_module = ScaledActivation(prev_op, scales)
-                #set_op_by_name(module, prev_op_name, new_module)
                 AwqQuantizer.scale_gelu_fc(prev_op, layers[0], scales)
             else:
                 raise NotImplementedError(f"prev_op {type(prev_op)} not supported yet!")
@@ -629,17 +628,56 @@ class AwqQuantizer:
             if not any(key in name for key in modules_to_not_convert):
                 filtered_layers[name] = linear_layer
         return filtered_layers
-
+    
+    @staticmethod
+    def to_device(module, device):
+        for child_name, child_module in module.named_children():
+            if child_name == 'self_attn':
+                for sub_name, sub_child in child_module.named_children():
+                    if sub_name != 'config':
+                        sub_child.to(device)
+            else:
+                child_module.to(device)
+    
+    
     @staticmethod
     def get_named_linears(module):
-        return {name: m for name, m in module.named_modules() if isinstance(m, torch.nn.Linear)}
+        linears = {}
+        for child_name, child_module in module.named_children():
+            if child_name == 'self_attn':
+                for name, mod in child_module.named_children():
+                    if name != 'config':
+                        if isinstance(mod, torch.nn.Linear):
+                            linears[f"{child_name}.{name}"] = mod
+            else:
+                for name, mod in child_module.named_modules():
+                    if isinstance(mod, torch.nn.Linear):
+                        full_name = f"{child_name}.{name}" if name else child_name
+                        linears[full_name] = mod
+        
+        return linears
 
+    
     @staticmethod
     def get_op_by_name(module, op_name):
-        # get the op by its name relative to the module
-        for name, m in module.named_modules():
-            if name == op_name:
-                return m
+        for child_name, child_module in module.named_children():
+            if child_name == op_name:
+                return child_module
+            if child_name == 'self_attn':
+                for name, mod in child_module.named_children():
+                    if name != 'config':  
+                        full_name = f"{child_name}.{name}"
+                        if full_name == op_name:
+                            return mod
+            else:
+                for name, mod in child_module.named_modules():
+                    full_name = f"{child_name}.{name}" if name else child_name
+                    if full_name == op_name:
+                        return mod
+        
+        if op_name == "":
+            return module
+        
         raise ValueError(f"Cannot find op {op_name} in module {module}")
 
     @staticmethod
@@ -655,9 +693,12 @@ class AwqQuantizer:
             from datasets import load_dataset
             if data == "pileval":
                 dataset = load_dataset("mit-han-lab/pile-val-backup", split="validation")
+            elif data == "wikitext":
+                
+                dataset = load_dataset('wikitext', 'wikitext-2-raw-v1', split=split)
             else:
                 dataset = load_dataset(data, split=split)
-            # dataset = dataset.shuffle(seed=42)
+
         elif isinstance(data, list):
             if isinstance(data[0], str):
                 dataset = [{text_column: text} for text in data]
@@ -718,12 +759,32 @@ class AwqQuantizer:
         gc.collect()
         torch.cuda.empty_cache()
 
+    
     @staticmethod
     def get_op_name(module, op):
-        # get the name of the op relative to the module
-        for name, m in module.named_modules():
-            if m is op:
-                return name
+        if module is op:
+            return ""
+        for child_name, child_module in module.named_children():
+            if child_name == 'self_attn':
+                if child_module is op:
+                    return child_name   
+                for name, mod in child_module.named_children():
+                    if name != 'config': 
+                        if mod is op:
+                            return f"{child_name}.{name}"
+                        for sub_name, sub_mod in mod.named_modules():
+                            if sub_mod is op:
+                                full_name = f"{child_name}.{name}.{sub_name}" if sub_name else f"{child_name}.{name}"
+                                return full_name
+            else:
+                if child_module is op:
+                    return child_name
+                
+                for name, mod in child_module.named_modules():
+                    if mod is op:
+                        full_name = f"{child_name}.{name}" if name else child_name
+                        return full_name
+        
         raise ValueError(f"Cannot find op {op} in module {module}")
 
     @staticmethod
@@ -746,7 +807,6 @@ class AwqQuantizer:
             max_seq_len=max_seq_len,
             split=self.split
         )
-        # samples = torch.cat(samples, dim=0)
         samples = torch.cat(samples[:1], dim=0) # just using 1 batch
         inps = []
         layer_kwargs = {}
@@ -779,7 +839,6 @@ class AwqQuantizer:
                     functools.partial(cache_input_hook, name=name, feat_dict=input_feat)
                 )
             )
-        self.inps = self.inps.to(next(layer.parameters()).device)  # in case multi-gpu
         # get output as next layer's input
 
         # Sanitize the kwargs in case we use transformers version that contains

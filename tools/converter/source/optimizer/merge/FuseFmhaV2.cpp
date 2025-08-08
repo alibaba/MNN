@@ -390,6 +390,11 @@ FuseSelfAttentionV2::FuseSelfAttentionV2() {
             }
         }
 
+        // whether mul(scale)
+        if (helpers::IsBinaryMul(x)) {
+            x = x->inputs().at(0)->expr().first;
+        }
+        
         //whether matmul
         if (helpers::IsMatMul(x)) {
             z = x;

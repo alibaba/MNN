@@ -44,9 +44,8 @@ private:
     BufferAllocator* mAllocator;
 };
 
-StrassenMatrixComputor::StrassenMatrixComputor(Backend* bn, bool multithread, int maxDepth) : mBackend(bn) {
+StrassenMatrixComputor::StrassenMatrixComputor(Backend* bn, int maxDepth) : mBackend(bn) {
     mMaxDepth = maxDepth;
-    mSupportMultiThread = multithread;
     auto core = static_cast<CPUBackend*>(backend())->functions();
     mWeightBytes = core->bytes;
 };
@@ -64,7 +63,7 @@ ErrorCode StrassenMatrixComputor::_generateTrivalMatMul(int e, int l, int h, con
     auto cStride = CT.lineStrideBytes;
     int eP, lP, hP;
     core->MNNGetMatMulPackMode(&eP, &lP, &hP);
-    auto numberThread = mSupportMultiThread ? ((CPUBackend*)backend())->threadNumber() : 1;
+    auto numberThread = 1;
     auto bExtraStride = bStride - UP_DIV(l, lP)*lP*hP * mWeightBytes;
     MNN_ASSERT(bExtraStride >= 0);
     auto tileBufferBasic = static_cast<CPUBackend*>(backend())->getBufferAllocator()->alloc(numberThread * UP_DIV(l, lP) * eP * lP * bytes);
@@ -179,7 +178,7 @@ ErrorCode StrassenMatrixComputor::_generateBasicMatMul(int e, int l, int h, cons
 
     MatrixInfo Empty;
     Empty.stackIndex = -1;
-    auto numberThread = mSupportMultiThread ? ((CPUBackend*)backend())->threadNumber() : 1;
+    auto numberThread = 1;
     auto cHeight = UP_DIV(h, core->pack);
 
     for (int i=0; i<unit; ++i) {
@@ -243,7 +242,7 @@ ErrorCode StrassenMatrixComputor::_generateMatMul(int e, int l, int h, const Mat
     auto core = static_cast<CPUBackend*>(backend())->functions();
     auto aUnit = core->pack;
 
-    auto numberThread = mSupportMultiThread ? ((CPUBackend*)backend())->threadNumber() : 1;
+    auto numberThread = 1;
     int eP, lP, hP;
     core->MNNGetMatMulPackMode(&eP, &lP, &hP);
     MNN_ASSERT(hP % core->pack == 0 || core->pack % hP == 0);
@@ -557,10 +556,7 @@ void StrassenMatrixComputor::onExecute(const uint8_t* AT, const uint8_t* BT, con
 
     // All is done in onResize, just execute it
     for (auto& f : mFunctions) {
-        MNN_CONCURRENCY_BEGIN(tId, f.second) {
-            f.first(tId);
-        }
-        MNN_CONCURRENCY_END();
+        f.first(0);
     }
 }
 } // namespace MNN

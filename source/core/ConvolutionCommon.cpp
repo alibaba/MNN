@@ -509,53 +509,43 @@ static int8_t *ReadSparseQuanData_c(BaseLoader* myfile, size_t* len, const float
     return blob;
 }
 
-static int AcquireQuantBit(BaseLoader* s, bool shapeInt32) {
-    // blob shape
-    unsigned int shape[32] = {0};
-    uint32_t shapeDim = (uint32_t)ReadBlobDim(s, shape, 32, shapeInt32);
-    if (shapeDim == 0 || shapeDim > 32) {
-        return 0;
-    }
-    // sample
-    uint32_t sampleCnt = 0;
-    s->read((char*)&sampleCnt, 1);
-    if (sampleCnt == 0) {
-        sampleCnt = 256;
-    }
-    std::vector<int8_t> weightMap(sampleCnt);
-    auto samples = weightMap.data();
-
-    s->read((char*)samples, sampleCnt);
-    SimpleRank(samples, sampleCnt, 1);
-    uint32_t idxBitsCnt = atLestBitsCnt(sampleCnt);
-    idxBitsCnt = idxBitsCnt < 1 ? 1 : idxBitsCnt;
-    bool linear = isLinearSample(weightMap, idxBitsCnt);
-    
-    if (linear && (idxBitsCnt == 4 || idxBitsCnt == 8)) {
-        return idxBitsCnt;
-    }
-    return 0;
-}
-
 } // namespace IDSTDecoder
 
 
 int ConvolutionCommon::getQuantBitFromExternalFile(const Op* op) {
     auto conv = op->main_as_Convolution2D();
     auto quan = conv->quanParameter();
-    if (USE_EXTERNAL_DATA(conv) && op->externalPath() && quan->buffer() == nullptr) {
-        auto external_info = conv->external()->data();
-        auto buffer_size = external_info[1];
-        
-        if (0 != buffer_size && 1 == quan->type()) {
-            // external data
-            std::unique_ptr<FileLoader> external_file(new FileLoader(op->externalPath()->c_str()));
-            external_file->offset(external_info[0]);
-            
-            auto s = external_file.get();
-            bool shapeInt32 = quan->shapeInt32();
-            return IDSTDecoder::AcquireQuantBit(s, shapeInt32);
+    if (USE_EXTERNAL_DATA(conv) && quan != nullptr) {
+        if (4 == quan->type()) {
+            return 8;
         }
+        if (1 != quan->type()) {
+            // Can't compute
+            return 0;
+        }
+        auto external_info = conv->external()->data();
+        size_t buffer_size = external_info[1];
+        size_t weightLength = (size_t)conv->common()->inputCount() * conv->common()->outputCount() * conv->common()->kernelX() * conv->common()->kernelY();
+        // Weight Dim size + dim * sizeof(DimData), dim = 2
+        int upperBound = 1;
+        if (conv->common()->inputCount() > 65535 || conv->common()->outputCount() > 65535) { // 65535: max(uint16_t)
+            upperBound += 8; // shape dimension saved as type:int32_t
+        } else {
+            upperBound += 4; // shape dimension saved as type:int16_t
+        }
+        upperBound += 1;
+        auto remain = buffer_size - upperBound;
+        // table(2^n) + [(weightLength * n +7) / 8] = remain, compute n
+        int bits = floorf((float)(remain) / (float)weightLength * 8.0f);
+        if ((1<<bits) + UP_DIV(weightLength * bits, 8) != remain) {
+            for (int i=2; i<=8; ++i) {
+                if ((1<<i) + UP_DIV(weightLength * i, 8) == remain) {
+                    bits = i;
+                    break;
+                }
+            }
+        }
+        return bits;
     }
     return 0;
 }
@@ -591,22 +581,10 @@ std::shared_ptr<ConvolutionCommon::Int8Common> ConvolutionCommon::load(const Op*
         buffer_size = external_info[1];
         alpha_size = external_info[2] / sizeof(float);
         result->alphaSize = alpha_size;
-        
         if (useCachedMmap) {
-            if (alpha_size) {
-                weightLength = conv->common()->inputCount() * conv->common()->outputCount() * conv->common()->kernelX() * conv->common()->kernelY();
-                int upperBound = 1;
-                if (conv->common()->inputCount() > 65535 || conv->common()->outputCount() > 65535) { // 65535: max(uint16_t)
-                    upperBound += 8; // shape dimension saved as type:int32_t
-                } else {
-                    upperBound += 4; // shape dimension saved as type:int16_t
-                }
-                upperBound += (UP_DIV(weightLength, 2) + 17); // 16(-8~7) + 1
-                result->canUseInt4 = false;
-                if (upperBound >= buffer_size) {
-                    result->canUseInt4 = true;
-                }
-            }
+            weightLength = conv->common()->inputCount() * conv->common()->outputCount() * conv->common()->kernelX() * conv->common()->kernelY();
+            result->originBits = getQuantBitFromExternalFile(op);
+            result->canUseInt4 = result->originBits <= 4;
         } else {
             // external data
             std::unique_ptr<FileLoader> external_file(new FileLoader(op->externalPath()->c_str()));
@@ -858,14 +836,18 @@ bool ConvolutionCommon::getConvInt8Parameters(const MNN::Op* op, std::shared_ptr
     if (conv2d->bias()) {
         ::memcpy(bias, conv2d->bias()->data(), outputCount * sizeof(float));
     }
-    if (conv2d->quanParameter() && conv2d->quanParameter()->alpha()) {
-        auto alphaAndBeta = conv2d->quanParameter()->alpha()->data();
-        int quantCount    = conv2d->quanParameter()->alpha()->size();
+    if ((conv2d->quanParameter() && conv2d->quanParameter()->alpha()) || quanCommon->alpha.get()) {
+        int quantCount;
+        if (conv2d->quanParameter() && conv2d->quanParameter()->alpha()) {
+            quantCount    = conv2d->quanParameter()->alpha()->size();
+        } else {
+            quantCount   = quanCommon->alpha.size();
+        }
+        
         if (false == weightAsy) { // symmetric quant
             ::memcpy(scale, conv2d->quanParameter()->alpha()->data(), quantCount * sizeof(float));
         } else if (true == weightAsy) { // asymmetric
             int scaleSize = quantCount / 2;
-            float clampMin = conv2d->quanParameter()->aMin() == 0 ? -128 : conv2d->quanParameter()->aMin();
             for (int i = 0; i < scaleSize; ++i) {
                 scale[i] = quanCommon->alpha.get()[2 * i + 1];
                 scale[i + ocUp4] = quanCommon->alpha.get()[2 * i];

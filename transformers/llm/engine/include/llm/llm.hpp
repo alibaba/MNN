@@ -43,7 +43,7 @@ enum TuneType {
 };
 enum class MatchStrictLevel : int;
 enum class NgramSelectRule : int;
-    
+
 struct KVMeta;
 struct LlmContext {
     // forward
@@ -87,6 +87,7 @@ public:
     int getOutputIndex(const std::string& name) const;
     void reset();
     void tuning(TuneType type, std::vector<int> candidates);
+    virtual std::vector<Express::VARP> forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos);
     Express::VARP forward(const std::vector<int>& input_ids, bool is_prefill = true);
     Express::VARP forward(MNN::Express::VARP input_embeds);
     void switchMode(Stage stage);
@@ -147,7 +148,6 @@ protected:
     friend class MtpGeneration;
     std::vector<Express::VARP> forwardVec(const std::vector<int>& input_ids);
     std::vector<Express::VARP> forwardVec(MNN::Express::VARP input_embeds);
-    virtual std::vector<Express::VARP> forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos);
 private:
     std::shared_ptr<Generation> mGenerationStrategy;
     void setSpeculativeConfig();
@@ -157,6 +157,7 @@ private:
     bool mInSpec = false;
     int mDraftLength = 4;
     std::shared_ptr<GenerationParams> mGenerateParam;
+    bool mAsync = true;
 };
 
 // Embedding start
@@ -168,7 +169,7 @@ public:
     static float cos_sim(Express::VARP var0, Express::VARP var1);
     virtual void load() override;
     Express::VARP ids_embedding(const std::vector<int>& ids);
-    Express::VARP txt_embedding(const std::string& txt, int embed_dim=-1);
+    Express::VARP txt_embedding(const std::string& txt);
     int dim() const;
     virtual Express::VARP gen_attention_mask(int seq_len) override;
     virtual Express::VARP gen_position_ids(int seq_len) override;
