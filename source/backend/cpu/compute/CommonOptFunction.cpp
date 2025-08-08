@@ -820,7 +820,7 @@ static void MNNReorderWeightInt4Arm82(uint8_t* dest, const uint8_t* source, int3
     }
     MNNPermuteSumWeightInt4Arm82(dest, dest, blocknum * hu, lu, kernelsum);
 }
-
+#ifdef MNN_SME2
 static void MNNReorderWeightInt4Sme2(uint8_t* dest, const uint8_t* source, int32_t* shape, size_t size, float* kernelsum) {
     MNN_ASSERT(size > 4);
     // dst shape: [hu, blocknum, kernelCount, lu, hp, lp], kernelCount=1 in this case
@@ -885,8 +885,32 @@ static void MNNReorderWeightInt4Sme2(uint8_t* dest, const uint8_t* source, int32
             }
         }
     }
-    MNNPermuteSumWeightInt4Sme2(dest, dest, blocknum * hu, lu, kernelsum);
+    int32_t table[16] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+    if (hp == 32) {
+        MNNPermuteSumWeightInt4Sme2_Hp32(dest, dest, blocknum * hu, lu, kernelsum, table);
+    } else if (hp == 128) { // [hu,blocknum,lu,hp,lp]
+        MNNPermuteSumWeightInt4Sme2_Hp128(dest, dest, blocknum * hu, lu, kernelsum, table);
+    } else {
+        for (int i = 0; i < blocknum * hu; ++i) {
+            std::vector<float> sum(hp, 0);
+            for (int j = 0; j < lu; ++j) {
+                auto destPtr = dest + i * lu * lp * hp + j * lp * hp;
+                for (int k = 0; k < hp; ++k) {
+                    for (int x = 0; x < lp; ++x) {
+                        uint8_t data = destPtr[k * lp + x];
+                        auto d0 = data / 16;
+                        auto d1 = data % 16;
+                        sum[k] = sum[k] + float(d0 + d1);
+                        destPtr[k * lp + x] = d0 + d1 * 16;
+                    }
+                }
+            }
+            memcpy(kernelsum + i * hp, sum.data(), hp * sizeof(float));
+        }
+    }
+
 }
+#endif // sme2
 #endif // __aarch64__
 
 static void MNNSumWeightInt8(float* kernelsum, int8_t* source, size_t outside, size_t reduceAxis, size_t hP, size_t lP) {
@@ -4062,39 +4086,34 @@ void MNNCoreFunctionInit() {
     }
 #endif
 #endif
-    { // backendMatmulRelatedFunctions
-        gCoreFunction->backendMatmulRelatedFunctions.MNNReorderWeightInt4 = gCoreFunction->MNNReorderWeightInt4;
-        gCoreFunction->backendMatmulRelatedFunctions.MNNSumWeightInt8 = gCoreFunction->MNNSumWeightInt8;
-        gCoreFunction->backendMatmulRelatedFunctions.MNNGeneralIm2Col = gCoreFunction->MNNGeneralIm2Col;
-
-        gCoreFunction->backendMatmulRelatedFunctions.MNNPackedMatMul = gCoreFunction->MNNPackedMatMul;
-        gCoreFunction->backendMatmulRelatedFunctions.MNNPackedMatMulRemain = gCoreFunction->MNNPackedMatMulRemain;
-        gCoreFunction->backendMatmulRelatedFunctions.MNNGetMatMulPackMode = gCoreFunction->MNNGetMatMulPackMode;
-        gCoreFunction->backendMatmulRelatedFunctions.MNNPackC4ForMatMul_A = gCoreFunction->MNNPackC4ForMatMul_A;
-        gCoreFunction->backendMatmulRelatedFunctions.MNNPackForMatMul_B = gCoreFunction->MNNPackForMatMul_B;
+    { // int8MatmulRelatedFunctions
+        gCoreFunction->int8MatmulRelatedFunctions.MNNReorderWeightInt4 = gCoreFunction->MNNReorderWeightInt4;
+        gCoreFunction->int8MatmulRelatedFunctions.MNNSumWeightInt8 = gCoreFunction->MNNSumWeightInt8;
+        gCoreFunction->int8MatmulRelatedFunctions.MNNGeneralIm2Col = gCoreFunction->MNNGeneralIm2Col;
     }
 #ifdef __aarch64__
 #ifdef MNN_SME2
     if (gCoreFunction->supportSME2) {
-        gCoreFunction->MNNSumWeightInt8 = MNNSumWeightInt8Sme2;
+        // Int8 Gemm related
+        gCoreFunction->MNNSumWeightInt8 = MNNSumWeightInt8Sme2_Hp32;
+        gCoreFunction->MNNSumWeightInt8SmeHp64 = MNNSumWeightInt8Sme2_Hp128;
         gCoreFunction->MNNReorderWeightInt4 = MNNReorderWeightInt4Sme2;
+        gCoreFunction->sme2Int8MatmulRelatedFuncionsHp32.MNNSumWeightInt8 = MNNSumWeightInt8Sme2_Hp32;
+        gCoreFunction->sme2Int8MatmulRelatedFuncionsHp32.MNNSumWeightInt8SmeHp64 = MNNSumWeightInt8Sme2_Hp128;
+        gCoreFunction->sme2Int8MatmulRelatedFuncionsHp32.MNNReorderWeightInt4 = MNNReorderWeightInt4Sme2;
+
+#ifdef MNN_LOW_MEMORY
+        gCoreFunction->MNNGeneralIm2Col = MNNGeneralIm2col_Fp32Sme2;
+        gCoreFunction->sme2Int8MatmulRelatedFuncionsHp32.MNNGeneralIm2Col = MNNGeneralIm2col_Fp32Sme2;
+#endif
+
+
+        // Float Gemm related
         gCoreFunction->MNNPackedMatMul = MNNPackedMatMulFP32_SME2;
         gCoreFunction->MNNPackedMatMulRemain = MNNPackedMatMulRemainFP32_SME2;
         gCoreFunction->MNNGetMatMulPackMode = SME2MNNGetMatMulPackMode;
         gCoreFunction->MNNPackC4ForMatMul_A = Sme2MNNPackForMatMul_A;
         gCoreFunction->MNNPackForMatMul_B = Sme2MNNPackForMatMul_B;
-
-        gCoreFunction->sme2MatmulRelatedFuncions.MNNSumWeightInt8 = MNNSumWeightInt8Sme2;
-        gCoreFunction->sme2MatmulRelatedFuncions.MNNReorderWeightInt4 = MNNReorderWeightInt4Sme2;
-        gCoreFunction->sme2MatmulRelatedFuncions.MNNPackedMatMul = MNNPackedMatMulFP32_SME2;
-        gCoreFunction->sme2MatmulRelatedFuncions.MNNPackedMatMulRemain = MNNPackedMatMulRemainFP32_SME2;
-        gCoreFunction->sme2MatmulRelatedFuncions.MNNGetMatMulPackMode = SME2MNNGetMatMulPackMode;
-        gCoreFunction->sme2MatmulRelatedFuncions.MNNPackC4ForMatMul_A = Sme2MNNPackForMatMul_A;
-        gCoreFunction->sme2MatmulRelatedFuncions.MNNPackForMatMul_B = Sme2MNNPackForMatMul_B;
-#ifdef MNN_LOW_MEMORY
-        gCoreFunction->MNNGeneralIm2Col = MNNGeneralIm2col_Fp32Sme2;
-        gCoreFunction->sme2MatmulRelatedFuncions.MNNGeneralIm2Col = MNNGeneralIm2col_Fp32Sme2;
-#endif // MNN_LOW_MEMORY
     }
 #endif // MNN_SME2
 #endif // __aarch64__

@@ -1,7 +1,9 @@
 #include <sstream>
 #include "llm/llm.hpp"
-#include "cpp/getLinearInput.hpp"
 
+#ifdef PYMNN_LLM_COLLECTION
+#include "cpp/getLinearInput.hpp"
+#endif
 typedef struct {
     PyObject_HEAD
     MNN::Transformer::Llm* llm = nullptr;
@@ -147,6 +149,7 @@ static PyObject* PyMNNLLM_reset(LLM *self, PyObject *args) {
     Py_RETURN_NONE;
 }
 
+#ifdef PYMNN_LLM_COLLECTION
 static PyObject* PyMNNLLM_enable_collection_mode(LLM *self, PyObject *args) {
     if (self->is_embedding) {
         Py_RETURN_NONE;
@@ -201,6 +204,7 @@ static PyObject* PyMNNLLM_enable_collection_mode(LLM *self, PyObject *args) {
     
     return toPyObj(true);  
 }
+#endif
 
 static PyMethodDef PyMNNLLM_methods[] = {
     {"load", (PyCFunction)PyMNNLLM_load, METH_VARARGS, "load model."},
@@ -215,7 +219,9 @@ static PyMethodDef PyMNNLLM_methods[] = {
     {"create_lora", (PyCFunction)PyMNNLLM_create_lora, METH_VARARGS, "create_lora."},
     {"set_config", (PyCFunction)PyMNNLLM_set_config, METH_VARARGS, "set_config."},
     {"reset", (PyCFunction)PyMNNLLM_reset, METH_VARARGS, "reset."},
+#ifdef PYMNN_LLM_COLLECTION
     {"enable_collection_mode", (PyCFunction)PyMNNLLM_enable_collection_mode, METH_VARARGS, "Enable data collection mode."},
+#endif
     {NULL}  /* Sentinel */
 };
 

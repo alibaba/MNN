@@ -1,0 +1,7 @@
+{
+    "backend_extensions" :
+      {
+        "shared_library_path" :  "/mnt/2Tpartition/huaiqian/QNN_DEV/qairt_2_32/lib/x86_64-linux-clang/libQnnHtpNetRunExtensions.so",
+        "config_file_path" :  "/home/mnnteam/tianbu/AliNNPrivate/source/backend/qnn/convertor/config_example/htp_backend_extensions.json"
+      }
+}

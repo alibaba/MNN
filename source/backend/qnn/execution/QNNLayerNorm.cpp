@@ -94,7 +94,7 @@ ErrorCode QNNLayerNorm::onEncode(const std::vector<Tensor *> &inputs, const std:
 
     if (mGammaBetaSize == 0) {
         mGammaBetaSize = realInputShape[mRealAxis];
-        #ifdef QNN_VORBOSE
+        #ifdef QNN_VERBOSE
         MNN_PRINT("LayerNorm do not have original gamma beta, %d", mGammaBetaSize);
         #endif
         mGammaData.resize(mGammaBetaSize, 1.0f);
@@ -128,7 +128,7 @@ ErrorCode QNNLayerNorm::onEncode(const std::vector<Tensor *> &inputs, const std:
         permData[mInputDim - 1] = mRealAxis;
         tempInputOutputShape[mInputDim - 1] = realInputShape[mRealAxis];
 
-        #ifdef QNN_VORBOSE
+        #ifdef QNN_VERBOSE
         MNN_PRINT("QNN LayerNorm Permute data:");
         for(int i = 0; i < permData.size(); i++) {
             MNN_PRINT("%d ", permData[i]);
@@ -148,7 +148,7 @@ ErrorCode QNNLayerNorm::onEncode(const std::vector<Tensor *> &inputs, const std:
     }
 
 
-    #ifdef QNN_VORBOSE
+    #ifdef QNN_VERBOSE
     MNN_PRINT("QNN LayerNorm useFp16:%d \ninput0:", mBackend->getUseFP16());
     auto shape0 = inputs[0]->shape();
     for(int i = 0; i < shape0.size(); i++) {

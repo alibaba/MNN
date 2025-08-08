@@ -10,7 +10,7 @@ ErrorCode QNNPermute::onEncode(const std::vector<Tensor *> &inputs, const std::v
     Tensor::DimensionType outputDimType = outputs[0]->getDimensionType();
     MNN_ASSERT(inputDimType == outputDimType);
 
-    #ifdef QNN_VORBOSE
+    #ifdef QNN_VERBOSE
     MNN_PRINT("QNN Permute: %s input0:", mNodeName.c_str());
     auto shape0 = inputs[0]->shape();
     for(int i = 0; i < shape0.size(); i++) {

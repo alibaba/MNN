@@ -38,10 +38,15 @@ std::string GetLastDirName(const std::string& path) {
         result = result.substr(lastSeparator + 1);
     }
 
-    // Replace illegal char.
+    // Check whether result is a legal cpp symbol.
+    if (std::isdigit(result[0])) {
+        MNN_ERROR("MNN_QNN: Invalid cache path.\n");
+        return "";
+    }
     for (size_t i = 0; i < result.size(); ++i) {
         if (!(std::isalpha(result[i]) || std::isdigit(result[i]) || result[i] == '_')) {
-            result[i] = '_';
+            MNN_ERROR("MNN_QNN: Invalid cache path.\n");
+            return "";
         }
     }
 
@@ -50,8 +55,8 @@ std::string GetLastDirName(const std::string& path) {
 
 void QNNConvertor::RecordBegin(const char* graphName) {
     MNN_ASSERT(!(QNNConvertor::OutputDir.empty()));
-    // Use the graph name as a prefix to avoid illegal C symbols. Use the last dir name as a suffix to distinguish between different graphs.
-    QNNTranslator::GraphNameSymbol = std::string(graphName) + "_" + GetLastDirName(QNNConvertor::OutputDir);
+    QNNTranslator::GraphNameSymbol = GetLastDirName(QNNConvertor::OutputDir);
+    MNN_ASSERT(!(QNNTranslator::GraphNameSymbol.empty()));
 
     QNNConvertor::CppBuffer.reserve(QNNConvertor::CppBufferSize);
 

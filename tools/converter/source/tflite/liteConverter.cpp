@@ -9,10 +9,27 @@
 #include <iostream>
 #include <functional>
 #include "logkit.h"
+#include "flatbuffers/idl.h"
+#include "flatbuffers/minireflect.h"
+#include "flatbuffers/util.h"
 
 #include "liteConverter.hpp"
 #include "liteOpConverter.hpp"
+class TfliteModel {
+public:
+    TfliteModel() = delete;
 
+    TfliteModel(const std::string fileName);
+    ~TfliteModel();
+
+    void readModel();
+
+    inline std::unique_ptr<tflite::ModelT>& get();
+
+private:
+    const std::string _modelName;
+    std::unique_ptr<tflite::ModelT> _tfliteModel;
+};
 static MNN::DataType _dataTypeMap(tflite::TensorType type) {
     switch (type) {
         case tflite::TensorType_FLOAT32:
@@ -28,6 +45,28 @@ static MNN::DataType _dataTypeMap(tflite::TensorType type) {
             return MNN::DataType_DT_FLOAT;
             break;
     }
+}
+bool dumpTflite2Json(const char* modelFile, const char* jsonFile) {
+    std::ifstream inputFile(modelFile, std::ios::binary);
+    inputFile.seekg(0, std::ios::end);
+    auto size = inputFile.tellg();
+    inputFile.seekg(0, std::ios::beg);
+
+    char* buffer = new char[size];
+
+    inputFile.read((char*)buffer, size);
+    flatbuffers::Verifier verify((uint8_t*)buffer, size);
+    if (!tflite::VerifyModelBuffer(verify)) {
+        LOG(FATAL) << "TFlite model version ERROR!";
+        return false;
+    }
+
+    std::ofstream output(jsonFile);
+    auto s = flatbuffers::FlatBufferToString((const uint8_t*)buffer, tflite::ModelTypeTable());
+    output << s;
+
+    delete[] buffer;
+    return true;
 }
 
 static void _converteConstantDataToMNNConstantNode(

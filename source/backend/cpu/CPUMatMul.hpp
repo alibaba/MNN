@@ -11,8 +11,7 @@
 
 #include <functional>
 #include "core/Execution.hpp"
-#include "backend/cpu/compute/StrassenMatmulComputor.hpp"
-
+#include "CPUBackend.hpp"
 namespace MNN {
 
 class CPUMatMul : public Execution {

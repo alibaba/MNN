@@ -1,0 +1,27 @@
+{
+    "graphs": [
+    {
+    "vtcm_mb": 8,
+    "graph_names": ["qnn_smolvlm_model"],
+    "O": 3.0,
+    "fp16_relaxed_precision": 1,
+    "hvx_threads": 4
+    }
+    ],
+    "devices": [
+    {
+    "soc_id": 57,
+    "dsp_arch": "v75",
+    "cores": [
+    {
+    "core_id": 0,
+    "perf_profile": "burst",
+    "rpc_control_latency": 100
+    }
+    ]
+    }
+    ],
+    "context": {
+    "weight_sharing_enabled": false
+    }
+}

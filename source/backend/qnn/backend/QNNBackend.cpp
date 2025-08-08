@@ -7,12 +7,640 @@
 //
 
 #include "QNNBackend.hpp"
+#include "QnnTypeMacros.hpp"
+#include "core/MNNFileUtils.h"
+
+namespace MNN {
+namespace QNN {
+struct QnnContext {
+    QNN_INTERFACE_VER_TYPE interface{};
+    QNN_SYSTEM_INTERFACE_VER_TYPE systemInterface{};
+    Qnn_LogHandle_t logHandle = nullptr;
+    Qnn_BackendHandle_t backendHandle = nullptr;
+    Qnn_DeviceHandle_t deviceHandle = nullptr;
+};
+
+static QnnContext gContext;
+}
+}
+#ifdef MNN_WITH_PLUGIN
+
+#include "MNN/plugin/PluginShapeInference.hpp"
+#include "MNN/plugin/PluginContext.hpp"
+#include "MNN/plugin/PluginKernel.hpp"
+#include "shape/SizeComputer.hpp"
+
+namespace MNN {
+namespace plugin {
+
+namespace shape_inference {
+class PluginShapeRaw : public InferShapeKernel {
+public:
+    bool compute(InferShapeContext* ctx) override;
+};
+bool computeIndex(PluginContext* ctx, int & index) {
+    const std::vector<Tensor *> & inputs = ctx->inputs();
+    std::string inputShapeStr = "";
+    for (int i = 0; i < inputs.size(); i++) {
+        if (i > 0) {
+            inputShapeStr += "_";
+        }
+        std::vector<int> inputShape = inputs[i]->shape();
+        for (int j = 0; j < inputShape.size(); j++) {
+            if (j > 0) {
+                inputShapeStr += "x";
+            }
+            inputShapeStr += std::to_string(inputShape[j]);
+        }
+    }
+
+    auto attrAllShape = ctx->getAttr("allInputShape");
+    std::vector<std::string> vec;
+    if (nullptr != attrAllShape && nullptr != attrAllShape->list() && nullptr != attrAllShape->list()->s()) {
+        for (int i = 0; i < attrAllShape->list()->s()->size(); ++i) {
+            vec.push_back(attrAllShape->list()->s()->GetAsString(i)->str());
+        }
+    } else {
+        MNN_ERROR("MNN_QNN: Incorrect Plugin Op.\n");
+        return false;
+    }
+
+    auto it = std::find(vec.begin(), vec.end(), inputShapeStr);
+    if (it != vec.end()) {
+        index = std::distance(vec.begin(), it);
+        return true;
+    }
+
+    MNN_ERROR("MNN_QNN: Failed to find inputShape %s in Plugin Op.\n", inputShapeStr.c_str());
+    return false;
+}
+
+bool PluginShapeRaw::compute(InferShapeContext* ctx) {
+    if (ctx->hasAttr("op")) {
+        auto attr = ctx->getAttr("op");
+        if (nullptr != attr->tensor() && nullptr != attr->tensor()->int8s()) {
+            auto realop = flatbuffers::GetRoot<Op>(attr->tensor()->int8s()->data());
+            return SizeComputer::computeOutputSize(realop, ctx->inputs(), ctx->outputs());
+        }
+    } else {
+        int shapeIndex = 0;
+        if (!(computeIndex(ctx, shapeIndex))) {
+            MNN_ERROR("MNN_QNN: Failed to compute shape for Plugin Op.\n");
+            return false;
+        }
+
+        std::string prefix = "o_" + std::to_string(shapeIndex) + "_";
+        for (int i=0; i<ctx->outputs().size(); ++i) {
+            auto dst = ctx->output(i);
+            std::string key = prefix + std::to_string(i);
+            auto attr = ctx->getAttr(key.c_str());
+            if (nullptr == attr || nullptr == attr->tensor()) {
+                MNN_ERROR("MNN_QNN: Failed to find raw shape %s.\n", key.c_str());
+                return false;
+            }
+            auto blob = attr->tensor();
+            dst->setType(blob->dataType());
+            if (nullptr != blob->dims()) {
+                dst->buffer().dimensions = blob->dims()->size();
+                for (int j=0; j<blob->dims()->size(); ++j) {
+                    dst->setLength(j, blob->dims()->data()[j]);
+                }
+            } else {
+                dst->buffer().dimensions = 0;
+            }
+            TensorUtils::getDescribe(dst)->dimensionFormat = blob->dataFormat();
+        }
+        return true;
+    }
+    return false;
+}
+}
+
+namespace backend {
+static bool freeQnnTensor(Qnn_Tensor_t &tensor) {
+  // free all pointer allocations in struct
+  free((void *)QNN_TENSOR_GET_NAME(tensor));
+  free(QNN_TENSOR_GET_DIMENSIONS(tensor));
+  free(QNN_TENSOR_GET_IS_DYNAMIC_DIMENSIONS(tensor));
+
+  auto quant    = QNN_TENSOR_GET_QUANT_PARAMS(tensor);
+  auto encoding = quant.quantizationEncoding;
+  if (encoding == QNN_QUANTIZATION_ENCODING_AXIS_SCALE_OFFSET) {
+    free(quant.axisScaleOffsetEncoding.scaleOffset);
+  } else if (encoding == QNN_QUANTIZATION_ENCODING_BW_AXIS_SCALE_OFFSET) {
+    free(quant.bwAxisScaleOffsetEncoding.scales);
+    if (quant.bwAxisScaleOffsetEncoding.offsets != nullptr) {
+      free(quant.bwAxisScaleOffsetEncoding.offsets);
+    }
+  }
+  return true;
+}
+
+static bool freeQnnTensors(Qnn_Tensor_t *&tensors, uint32_t numTensors) {
+  // free all pointer allocations in struct
+  for (size_t i = 0; i < numTensors; i++) {
+    freeQnnTensor(tensors[i]);
+  }
+  free(tensors);
+
+  return true;
+}
+
+struct GraphInfo {
+  Qnn_GraphHandle_t graph;
+  char *graphName;
+  Qnn_Tensor_t *inputTensors;
+  uint32_t numInputTensors;
+  Qnn_Tensor_t *outputTensors;
+  uint32_t numOutputTensors;
+};
+
+static bool deepCopyQnnTensorInfo(Qnn_Tensor_t *dst, const Qnn_Tensor_t *src) {
+  if (nullptr == dst || nullptr == src) {
+    return false;
+  }
+  // set tensor.version before using QNN_TENSOR_SET macros, as they require the version to be set
+  // to correctly assign values
+  dst->version           = src->version;
+  const char *tensorName = QNN_TENSOR_GET_NAME(src);
+  if (!tensorName) {
+    QNN_TENSOR_SET_NAME(dst, nullptr);
+  } else {
+    QNN_TENSOR_SET_NAME(dst, ::strdup(tensorName));
+  }
+  QNN_TENSOR_SET_ID(dst, QNN_TENSOR_GET_ID(src));
+  QNN_TENSOR_SET_TYPE(dst, QNN_TENSOR_GET_TYPE(src));
+  QNN_TENSOR_SET_DATA_FORMAT(dst, QNN_TENSOR_GET_DATA_FORMAT(src));
+  QNN_TENSOR_SET_DATA_TYPE(dst, QNN_TENSOR_GET_DATA_TYPE(src));
+  dst->v1.memType = QNN_TENSORMEMTYPE_RAW;
+  Qnn_QuantizeParams_t qParams = QNN_QUANTIZE_PARAMS_INIT;
+  qParams.encodingDefinition   = QNN_TENSOR_GET_QUANT_PARAMS(src).encodingDefinition;
+  qParams.quantizationEncoding = QNN_QUANTIZATION_ENCODING_UNDEFINED;
+  if (QNN_TENSOR_GET_QUANT_PARAMS(src).quantizationEncoding ==
+      QNN_QUANTIZATION_ENCODING_SCALE_OFFSET) {
+    qParams.quantizationEncoding = QNN_TENSOR_GET_QUANT_PARAMS(src).quantizationEncoding;
+    qParams.scaleOffsetEncoding  = QNN_TENSOR_GET_QUANT_PARAMS(src).scaleOffsetEncoding;
+  } else if (QNN_TENSOR_GET_QUANT_PARAMS(src).quantizationEncoding ==
+             QNN_QUANTIZATION_ENCODING_AXIS_SCALE_OFFSET) {
+    qParams.quantizationEncoding = QNN_TENSOR_GET_QUANT_PARAMS(src).quantizationEncoding;
+    qParams.axisScaleOffsetEncoding.axis =
+        QNN_TENSOR_GET_QUANT_PARAMS(src).axisScaleOffsetEncoding.axis;
+    qParams.axisScaleOffsetEncoding.numScaleOffsets =
+        QNN_TENSOR_GET_QUANT_PARAMS(src).axisScaleOffsetEncoding.numScaleOffsets;
+    if (QNN_TENSOR_GET_QUANT_PARAMS(src).axisScaleOffsetEncoding.numScaleOffsets > 0) {
+      qParams.axisScaleOffsetEncoding.scaleOffset = (Qnn_ScaleOffset_t *)malloc(
+          QNN_TENSOR_GET_QUANT_PARAMS(src).axisScaleOffsetEncoding.numScaleOffsets *
+          sizeof(Qnn_ScaleOffset_t));
+      if (qParams.axisScaleOffsetEncoding.scaleOffset) {
+        for (size_t idx = 0;
+             idx < QNN_TENSOR_GET_QUANT_PARAMS(src).axisScaleOffsetEncoding.numScaleOffsets;
+             idx++) {
+          qParams.axisScaleOffsetEncoding.scaleOffset[idx].scale =
+              QNN_TENSOR_GET_QUANT_PARAMS(src).axisScaleOffsetEncoding.scaleOffset[idx].scale;
+          qParams.axisScaleOffsetEncoding.scaleOffset[idx].offset =
+              QNN_TENSOR_GET_QUANT_PARAMS(src).axisScaleOffsetEncoding.scaleOffset[idx].offset;
+        }
+      }
+    }
+  }
+  QNN_TENSOR_SET_QUANT_PARAMS(dst, qParams);
+  QNN_TENSOR_SET_RANK(dst, QNN_TENSOR_GET_RANK(src));
+  QNN_TENSOR_SET_DIMENSIONS(dst, nullptr);
+  if (QNN_TENSOR_GET_RANK(src) > 0) {
+    QNN_TENSOR_SET_DIMENSIONS(dst, (uint32_t *)malloc(QNN_TENSOR_GET_RANK(src) * sizeof(uint32_t)));
+    if (QNN_TENSOR_GET_DIMENSIONS(dst)) {
+      ::memcpy(QNN_TENSOR_GET_DIMENSIONS(dst),
+                             QNN_TENSOR_GET_DIMENSIONS(src),
+                             QNN_TENSOR_GET_RANK(src) * sizeof(uint32_t));
+    }
+    if (QNN_TENSOR_GET_IS_DYNAMIC_DIMENSIONS(src)) {
+      QNN_TENSOR_SET_IS_DYNAMIC_DIMENSIONS(
+          dst, (uint8_t *)malloc(QNN_TENSOR_GET_RANK(src) * sizeof(uint8_t)));
+      ::memcpy(QNN_TENSOR_GET_IS_DYNAMIC_DIMENSIONS(dst),
+                             QNN_TENSOR_GET_IS_DYNAMIC_DIMENSIONS(src),
+                             QNN_TENSOR_GET_RANK(src) * sizeof(uint8_t));
+    }
+  }
+  QNN_TENSOR_SET_SPARSE_PARAMS(dst, QNN_TENSOR_GET_SPARSE_PARAMS(src));
+  return true;
+}
+
+static bool copyTensorsInfo(const Qnn_Tensor_t *tensorsInfoSrc,
+                                 Qnn_Tensor_t *&tensorWrappers,
+                                 uint32_t tensorsCount) {
+  auto returnStatus = true;
+  tensorWrappers    = (Qnn_Tensor_t *)calloc(tensorsCount, sizeof(Qnn_Tensor_t));
+  if (nullptr == tensorWrappers) {
+    MNN_ERROR("Failed to allocate memory for tensorWrappers.");
+    return false;
+  }
+  if (returnStatus) {
+    for (size_t tIdx = 0; tIdx < tensorsCount; tIdx++) {
+      #ifdef QNN_VERBOSE
+      MNN_PRINT("Extracting tensorInfo for tensor Idx: %d.\n", (int) tIdx);
+      #endif
+      tensorWrappers[tIdx] = QNN_TENSOR_INIT;
+      deepCopyQnnTensorInfo(&tensorWrappers[tIdx], &tensorsInfoSrc[tIdx]);
+    }
+  }
+  return returnStatus;
+}
+static bool copyGraphsInfoV1(const QnnSystemContext_GraphInfoV1_t *graphInfoSrc,
+                                  GraphInfo *graphInfoDst) {
+  graphInfoDst->graphName = nullptr;
+  if (graphInfoSrc->graphName) {
+    graphInfoDst->graphName =
+        ::strdup(graphInfoSrc->graphName);
+  }
+  graphInfoDst->inputTensors    = nullptr;
+  graphInfoDst->numInputTensors = 0;
+  if (graphInfoSrc->graphInputs) {
+    if (!copyTensorsInfo(
+            graphInfoSrc->graphInputs, graphInfoDst->inputTensors, graphInfoSrc->numGraphInputs)) {
+      return false;
+    }
+    graphInfoDst->numInputTensors = graphInfoSrc->numGraphInputs;
+  }
+  graphInfoDst->outputTensors    = nullptr;
+  graphInfoDst->numOutputTensors = 0;
+  if (graphInfoSrc->graphOutputs) {
+    if (!copyTensorsInfo(graphInfoSrc->graphOutputs,
+                         graphInfoDst->outputTensors,
+                         graphInfoSrc->numGraphOutputs)) {
+      return false;
+    }
+    graphInfoDst->numOutputTensors = graphInfoSrc->numGraphOutputs;
+  }
+  return true;
+}
+
+static bool copyGraphsInfoV3(const QnnSystemContext_GraphInfoV3_t *graphInfoSrc,
+                                  GraphInfo *graphInfoDst) {
+  graphInfoDst->graphName = nullptr;
+  if (graphInfoSrc->graphName) {
+    graphInfoDst->graphName =
+        strdup(graphInfoSrc->graphName);
+  }
+  graphInfoDst->inputTensors    = nullptr;
+  graphInfoDst->numInputTensors = 0;
+  if (graphInfoSrc->graphInputs) {
+    if (!copyTensorsInfo(
+            graphInfoSrc->graphInputs, graphInfoDst->inputTensors, graphInfoSrc->numGraphInputs)) {
+      return false;
+    }
+    graphInfoDst->numInputTensors = graphInfoSrc->numGraphInputs;
+  }
+  graphInfoDst->outputTensors    = nullptr;
+  graphInfoDst->numOutputTensors = 0;
+  if (graphInfoSrc->graphOutputs) {
+    if (!copyTensorsInfo(graphInfoSrc->graphOutputs,
+                         graphInfoDst->outputTensors,
+                         graphInfoSrc->numGraphOutputs)) {
+      return false;
+    }
+    graphInfoDst->numOutputTensors = graphInfoSrc->numGraphOutputs;
+  }
+  return true;
+}
+
+static bool copyGraphsInfo(const QnnSystemContext_GraphInfo_t *graphsInput,
+                                const uint32_t numGraphs,
+                                GraphInfo **&graphsInfo) {
+  if (!graphsInput) {
+    MNN_ERROR("Received nullptr for graphsInput.");
+    return false;
+  }
+  auto returnStatus = true;
+  graphsInfo =
+      (GraphInfo **)calloc(numGraphs, sizeof(GraphInfo *));
+  GraphInfo *graphInfoArr =
+      (GraphInfo *)calloc(numGraphs, sizeof(GraphInfo));
+  if (nullptr == graphsInfo || nullptr == graphInfoArr) {
+    MNN_ERROR("Failure to allocate memory for *graphInfo");
+    returnStatus = false;
+  }
+  if (true == returnStatus) {
+    for (size_t gIdx = 0; gIdx < numGraphs; gIdx++) {
+      #ifdef QNN_VERBOSE
+      MNN_PRINT("Extracting graphsInfo for graph Idx: %d", (int) gIdx);
+      #endif
+      if (graphsInput[gIdx].version == QNN_SYSTEM_CONTEXT_GRAPH_INFO_VERSION_1) {
+        copyGraphsInfoV1(&graphsInput[gIdx].graphInfoV1, &graphInfoArr[gIdx]);
+      } else if (graphsInput[gIdx].version == QNN_SYSTEM_CONTEXT_GRAPH_INFO_VERSION_3) {
+        copyGraphsInfoV3(&graphsInput[gIdx].graphInfoV3, &graphInfoArr[gIdx]);
+      }
+      graphsInfo[gIdx] = graphInfoArr + gIdx;
+    }
+  }
+  if (true != returnStatus) {
+    MNN_ERROR("Received an ERROR during extractGraphsInfo. Freeing resources.");
+    if (graphsInfo) {
+      for (uint32_t gIdx = 0; gIdx < numGraphs; gIdx++) {
+        if (graphsInfo[gIdx]) {
+          if (nullptr != graphsInfo[gIdx]->graphName) {
+            free(graphsInfo[gIdx]->graphName);
+            graphsInfo[gIdx]->graphName = nullptr;
+          }
+          freeQnnTensors(graphsInfo[gIdx]->inputTensors,
+                                          graphsInfo[gIdx]->numInputTensors);
+          freeQnnTensors(graphsInfo[gIdx]->outputTensors,
+                                          graphsInfo[gIdx]->numOutputTensors);
+        }
+      }
+      free(*graphsInfo);
+    }
+    free(graphsInfo);
+    graphsInfo = nullptr;
+  }
+  return true;
+}
+
+static bool copyMetadataToGraphsInfo(const QnnSystemContext_BinaryInfo_t *binaryInfo,
+                                          GraphInfo **&graphsInfo,
+                                          uint32_t &graphsCount) {
+  if (nullptr == binaryInfo) {
+    MNN_ERROR("binaryInfo is nullptr.");
+    return false;
+  }
+  graphsCount = 0;
+  if (binaryInfo->version == QNN_SYSTEM_CONTEXT_BINARY_INFO_VERSION_1) {
+    if (binaryInfo->contextBinaryInfoV1.graphs) {
+      if (!copyGraphsInfo(binaryInfo->contextBinaryInfoV1.graphs,
+                          binaryInfo->contextBinaryInfoV1.numGraphs,
+                          graphsInfo)) {
+        MNN_ERROR("Failed while copying graphs Info.");
+        return false;
+      }
+      graphsCount = binaryInfo->contextBinaryInfoV1.numGraphs;
+      return true;
+    }
+  } else if (binaryInfo->version == QNN_SYSTEM_CONTEXT_BINARY_INFO_VERSION_2) {
+    if (binaryInfo->contextBinaryInfoV2.graphs) {
+      if (!copyGraphsInfo(binaryInfo->contextBinaryInfoV2.graphs,
+                          binaryInfo->contextBinaryInfoV2.numGraphs,
+                          graphsInfo)) {
+        MNN_ERROR("Failed while copying graphs Info.");
+        return false;
+      }
+      graphsCount = binaryInfo->contextBinaryInfoV2.numGraphs;
+      return true;
+    }
+  } else if (binaryInfo->version == QNN_SYSTEM_CONTEXT_BINARY_INFO_VERSION_3) {
+    if (binaryInfo->contextBinaryInfoV3.graphs) {
+      if (!copyGraphsInfo(binaryInfo->contextBinaryInfoV3.graphs,
+                          binaryInfo->contextBinaryInfoV3.numGraphs,
+                          graphsInfo)) {
+        MNN_ERROR("Failed while copying graphs Info.");
+        return false;
+      }
+      graphsCount = binaryInfo->contextBinaryInfoV3.numGraphs;
+      return true;
+    }
+  }
+  MNN_ERROR("Unrecognized system context binary info version.");
+  return false;
+}
+
+static bool freeGraphsInfo(GraphInfo ***graphsInfo, uint32_t numGraphs) {
+  if (graphsInfo == nullptr || *graphsInfo == nullptr) {
+    return false;
+  }
+  for (uint32_t i = 0; i < numGraphs; i++) {
+    free((*graphsInfo)[i]->graphName);
+    freeQnnTensors((*graphsInfo)[i]->inputTensors, (*graphsInfo)[i]->numInputTensors);
+    freeQnnTensors((*graphsInfo)[i]->outputTensors, (*graphsInfo)[i]->numOutputTensors);
+  }
+  free(**graphsInfo);
+  free(*graphsInfo);
+  *graphsInfo = nullptr;
+  return true;
+}
+
+class RawExecutorWrapper {
+private:
+    Qnn_ContextHandle_t mQnnContextHandle = nullptr;
+    const QnnContext_Config_t** mQnnContextConfig = nullptr;
+    std::vector<Qnn_GraphHandle_t> mQnnGraphHandleVec = {};
+    QnnHtpGraph_CustomConfig_t mQnnHtpGraphCustomConfig{};
+    QnnGraph_Config_t mQnnGraphConfig{};
+    int mInputNumber;
+    int mOutputNumber;
+    GraphInfo **mGraphsInfo = nullptr;
+    uint32_t mGraphCount = 0;
+    std::string mPath;
+    std::unique_ptr<QNN::QNNPerf> mPerf;
+public:
+    RawExecutorWrapper(int inputNumber, int outputNumber) {
+        mInputNumber = inputNumber;
+        mOutputNumber = outputNumber;
+        mPerf = QNN::QNNPerf::create(&QNN::gContext.interface);
+        mPerf->setPowerConfigBurst();
+        mPerf->setRpcLatencyAndPolling();
+    }
+    ~ RawExecutorWrapper() {
+        if (nullptr != mQnnContextHandle) {
+            CALL_QNN(QNN::gContext.interface.contextFree(mQnnContextHandle, nullptr));
+        }
+        freeGraphsInfo(&mGraphsInfo, mGraphCount);
+    }
+    bool compileModel(const std::string & path) {
+        mPath = path;
+        file_t file = MNNOpenFile(path.c_str(), MNN_FILE_READ | MNN_FILE_WRITE);
+        auto size = MNNGetFileSize(file);
+        void* buffer = MNNMmapFile(file, size);
+
+        // 1. Set mGraphsInfo and mGraphCount from the buffer.
+        {
+            QnnSystemContext_Handle_t systemContextHandle = nullptr;
+            if (QNN_SUCCESS != QNN::gContext.systemInterface.systemContextCreate(&systemContextHandle)) {
+                MNN_ERROR("Could not create system context handle.");
+                return false;
+            }
+            Qnn_ContextBinarySize_t binarySize = 0;
+            const QnnSystemContext_BinaryInfo_t* binaryInfo = nullptr;
+            CALL_QNN(QNN::gContext.systemInterface.systemContextGetBinaryInfo(systemContextHandle, buffer, size, &binaryInfo,&binarySize));
+            copyMetadataToGraphsInfo(binaryInfo, mGraphsInfo, mGraphCount);
+            if (QNN_SUCCESS != QNN::gContext.systemInterface.systemContextFree(systemContextHandle)) {
+                MNN_ERROR("Could not free system context handle.");
+                return false;
+            }
+        }
+
+
+        // 2. Retrieve graphs.
+        {
+            auto error = QNN::gContext.interface.contextValidateBinary(QNN::gContext.backendHandle, QNN::gContext.deviceHandle, mQnnContextConfig, buffer, size);
+            if (QNN_SUCCESS != error) {
+                MNN_ERROR("QNN: Failed to validate binary: %d\n", (int) error);
+                return false;
+            }
+            CALL_QNN(QNN::gContext.interface.contextCreateFromBinary(QNN::gContext.backendHandle, QNN::gContext.deviceHandle, mQnnContextConfig, buffer, size, &mQnnContextHandle, nullptr));
+
+            mQnnGraphHandleVec.resize(mGraphCount, nullptr);
+            // [此处排序]
+            for (int i = 0; i < mGraphCount; i++) {
+                CALL_QNN(QNN::gContext.interface.graphRetrieve(mQnnContextHandle, mGraphsInfo[i]->graphName, &(mQnnGraphHandleVec[i])));
+            }
+        }
+
+        MNNUnmapFile(buffer, file);
+        MNNCloseFile(file);
+
+        return true;
+    }
+
+    void invokModel(const std::vector<std::pair<const MNN::Tensor *, std::string>>& inputs, std::vector<std::pair<const MNN::Tensor *, std::string>>& outputs, const std::string & graphName) {
+        // 根据graphName索引对应的graph
+        GraphInfo* graph = nullptr;
+        Qnn_GraphHandle_t qnnGraphHandle = nullptr;
+
+        for (int i = 0; i < mGraphCount; i++) {
+            #ifdef QNN_VERBOSE
+            MNN_PRINT("graph name: %s %s\n", graphName.c_str(),mGraphsInfo[i]->graphName );
+            #endif
+            if (graphName == std::string(mGraphsInfo[i]->graphName)) {
+                graph = mGraphsInfo[i];
+                qnnGraphHandle = mQnnGraphHandleVec[i];
+                break;
+            }
+        }
+        MNN_ASSERT(graph && qnnGraphHandle);
+
+        //MNN_PRINT("%s, Input:%d, output:%d\n", mPath.c_str(), inputs.size(), outputs.size());
+        for (int i=0; i<inputs.size(); ++i) {
+            auto t = inputs[i].first;
+            bool find = false;
+            for (int j=0; j<graph->numInputTensors; ++j) {
+                auto& dstT = graph->inputTensors[j];
+                #ifdef QNN_VERBOSE
+                MNN_PRINT("input name: %s %s\n", inputs[i].second.c_str(), dstT.v1.name);
+                #endif
+                if (inputs[i].second == dstT.v1.name) {
+                    dstT.v1.clientBuf.data = t->host<void>();
+                    if (t->getType().code == halide_type_float) {
+                        dstT.v1.clientBuf.dataSize = t->usize() / 2;
+                    } else {
+                        dstT.v1.clientBuf.dataSize = t->usize();
+                    }
+                    find = true;
+                    break;
+                }
+            }
+            if (!find) {
+                FUNC_PRINT(i);
+            }
+        }
+        for (int i=0; i<outputs.size(); ++i) {
+            auto t = outputs[i].first;
+            bool find = false;
+            for (int j=0; j<graph->numOutputTensors; ++j) {
+                auto& dstT = graph->outputTensors[j];
+                #ifdef QNN_VERBOSE
+                MNN_PRINT("output name: %s %s\n", outputs[i].second.c_str(), dstT.v1.name);
+                #endif
+                if (outputs[i].second == dstT.v1.name) {
+                    dstT.v1.clientBuf.data = t->host<void>();
+                    if (t->getType().code == halide_type_float) {
+                        dstT.v1.clientBuf.dataSize = t->usize() / 2;
+                    } else {
+                        dstT.v1.clientBuf.dataSize = t->usize();
+                    }
+                    find = true;
+                    break;
+                }
+            }
+            if (!find) {
+                FUNC_PRINT(i);
+            }
+        }
+        CALL_QNN(QNN::gContext.interface.graphExecute(qnnGraphHandle, graph->inputTensors,graph->numInputTensors, graph->outputTensors, graph->numOutputTensors, nullptr, nullptr));
+    }
+};
+class PluginExecuteRaw : public CPUComputeKernel {
+private:
+    std::unique_ptr<RawExecutorWrapper> mRawExecutor;
+    std::vector<std::pair<const MNN::Tensor *, std::string>> mInputs;
+    std::vector<std::pair<const MNN::Tensor *, std::string>> mOutputs;
+    std::vector<std::shared_ptr<MNN::Tensor>> mRealInputs;
+    std::vector<std::shared_ptr<MNN::Tensor>> mRealOutputs;
+public:
+    ~ PluginExecuteRaw() {
+        mRealInputs.clear();
+        mRealOutputs.clear();
+        mRawExecutor.reset();
+    }
+    bool init(CPUKernelContext* ctx) override {
+        // TODO: Support relative path
+        auto path = ctx->dir_path() + ctx->getAttr("path")->s()->str();
+        #ifdef QNN_VERBOSE
+        MNN_PRINT("MNN QNN Model dir:%s\nFile path:%s\n", ctx->dir_path().c_str(), path.c_str());
+        #endif
+        auto inputs = ctx->getAttr("inputs")->list();
+        auto inputTensor = ctx->inputs();
+        MNN_ASSERT(inputs->s()->size() == inputTensor.size());
+        mInputs.resize(inputs->s()->size());
+        mRealInputs.resize(inputTensor.size());
+        for (int i=0; i<inputs->s()->size(); ++i) {
+            mRealInputs[i].reset(new Tensor(inputTensor[i], Tensor::TENSORFLOW));
+            mInputs[i].second = inputs->s()->GetAsString(i)->str();
+            mInputs[i].first = mRealInputs[i].get();
+        }
+        auto outputs = ctx->getAttr("outputs")->list();
+        auto outputTensor = ctx->outputs();
+        mOutputs.resize(outputs->s()->size());
+        MNN_ASSERT(outputs->s()->size() == outputTensor.size());
+        mRealOutputs.resize(outputTensor.size());
+        for (int i=0; i<outputs->s()->size(); ++i) {
+            mRealOutputs[i].reset(new Tensor(outputTensor[i], Tensor::TENSORFLOW));
+            mOutputs[i].second = outputs->s()->GetAsString(i)->str();
+            mOutputs[i].first = mRealOutputs[i].get();
+        }
+        mRawExecutor.reset(new RawExecutorWrapper(mInputs.size(), mOutputs.size()));
+
+        return mRawExecutor->compileModel(path);
+    }
+    bool compute(CPUKernelContext* ctx) override {
+        int shapeIndex = 0;
+        if (!(shape_inference::computeIndex(ctx, shapeIndex))) {
+            MNN_ERROR("MNN_QNN: Failed to execute Plugin Op.\n");
+            return false;
+        }
+        std::string graphName = ctx->getAttr("allGraphName")->list()->s()->GetAsString(shapeIndex)->str();
+
+        #ifdef QNN_VERBOSE
+        MNN_PRINT("Graph name:%s, %d\n", graphName.c_str(), shapeIndex);
+        #endif
+        auto inputTensor = ctx->inputs();
+        auto outputTensor = ctx->outputs();
+        // 这里是默认了ctx->inputs()的顺序和ctx->getAttr("inputs")的顺序是一致的
+        for (int i=0; i<mInputs.size(); ++i) {
+            CPUTensorConverter::convert(inputTensor[i], mRealInputs[i].get());
+            if (inputTensor[i]->getType().code == halide_type_float) {
+                FLOAT_TO_HALF(mRealInputs[i]->host<float>(), mRealInputs[i]->host<int16_t>(), mRealInputs[i]->elementSize());
+            }
+        }
+        mRawExecutor->invokModel(mInputs, mOutputs, graphName);
+        for (int i=0; i<mOutputs.size(); ++i) {
+            if (mRealOutputs[i]->getType().code == halide_type_float) {
+                ::memcpy(mRealOutputs[i]->host<int16_t>() + mRealOutputs[i]->elementSize(), mRealOutputs[i]->host<int16_t>(),  mRealOutputs[i]->elementSize() * sizeof(int16_t));
+                HALF_TO_FLOAT(mRealOutputs[i]->host<int16_t>() + mRealOutputs[i]->elementSize(), mRealOutputs[i]->host<float>(), mRealOutputs[i]->elementSize());
+            }
+            CPUTensorConverter::convert(mRealOutputs[i].get(), outputTensor[i]);
+        }
+        return true;
+    }
+};
+} // namespace backend
+}
+}
+
+#endif
 
 namespace MNN {
 namespace QNN {
 // #define QNN_PROFILE_OP
 // #define QNN_PROFILE_SUMMARIZE
-// #define QNN_VORBOSE
+// #define QNN_VERBOSE
 QnnBackend::QnnBackend(const QnnRuntime* runtime) : Backend(MNNForwardType::MNN_FORWARD_NN), mPower(runtime->mPower) {
     mRuntime = runtime;
     mUseFP16 = (runtime->mPrecision != BackendConfig::Precision_High) ? true : false;
@@ -255,11 +883,11 @@ void QnnBackend::onResizeBegin() {
 }
 
 ErrorCode QnnBackend::onResizeEnd() {
-    #ifdef QNN_VORBOSE
+    #ifdef QNN_VERBOSE
     MNN_PRINT("start finalize\n");
     #endif
     finalizeGraph();
-    #ifdef QNN_VORBOSE
+    #ifdef QNN_VERBOSE
     MNN_PRINT("end finalize\n");
     #endif
     return NO_ERROR;
@@ -268,7 +896,10 @@ ErrorCode QnnBackend::onResizeEnd() {
 
 Backend::MemObj* QnnBackend::onAcquire(const Tensor* tensor, StorageType storageType) {
     std::string tName = "QnnTensor_" + std::to_string(mTensorCounter);
-
+    if (TensorUtils::getDescribe(tensor)->index >= 0) {
+        tName = std::string("t") + std::to_string(TensorUtils::getDescribe(tensor)->index);
+    }
+    
     bool isInput = TensorUtils::getDescribe(tensor)->usage==Tensor::InsideDescribe::Usage::INPUT;
     bool isOutput = TensorUtils::getDescribe(tensor)->usage==Tensor::InsideDescribe::Usage::OUTPUT;
     bool isConst = TensorUtils::getDescribe(tensor)->usage==Tensor::InsideDescribe::Usage::CONSTANT;
@@ -329,7 +960,7 @@ Backend::MemObj* QnnBackend::onAcquire(const Tensor* tensor, StorageType storage
     mTensorMap.insert({TensorUtils::getDescribe(tensor), mTensorCounter});
 
     mTensorCounter += 1;
-    #ifdef QNN_VORBOSE
+    #ifdef QNN_VERBOSE
     MNN_PRINT("Total qnn tensor count:%d\n", mTensorCounter);
     #endif
     return new Backend::MemObj();
@@ -346,7 +977,11 @@ void QnnBackend::onCopyBuffer(const Tensor* srcTensor, const Tensor* dstTensor) 
     bool isOutput = TensorUtils::getDescribe(srcTensor)->usage==Tensor::InsideDescribe::Usage::OUTPUT;
     bool isConst = TensorUtils::getDescribe(srcTensor)->usage==Tensor::InsideDescribe::Usage::CONSTANT || TensorUtils::getDescribe(dstTensor)->usage==Tensor::InsideDescribe::Usage::CONSTANT;
 
-    MNN_ASSERT(!isConst);
+    // MNN_ASSERT(!isConst);
+
+    if (isConst) {
+        MNN_ASSERT(isInput);
+    }
 
     MNN_ASSERT(isInput || isOutput);
 
@@ -427,13 +1062,18 @@ void QnnBackend::outputIO(const Tensor* srcTensor, const Tensor* dstTensor) cons
         }
     }
 }
+bool QnnBackend::useCache() const {
+    return mRuntime->mUseCache;
+}
 
 void QnnBackend::createContextAndGraph() {
-    CALL_QNN(mRuntime->mQnnInterface.contextCreate(mRuntime->mQnnBackendHandle, mRuntime->mQnnDeviceHandle, mQnnContextConfig, &mQnnContextHandle));
-    MNN_ASSERT(mQnnContextHandle != nullptr);
-
+    mRuntime->allocContext();
     const QnnGraph_Config_t * pGraphConfig[] = {&mQnnGraphConfig, nullptr};
-    CALL_QNN(mRuntime->mQnnInterface.graphCreate(mQnnContextHandle, mQnnGraphName.c_str(), pGraphConfig, &mQnnGraphHandle));
+    if (mRuntime->mUseCache) {
+        CALL_QNN(mRuntime->mQnnInterface.graphRetrieve(mRuntime->mQnnContextHandle, mQnnGraphName.c_str(), &mQnnGraphHandle));
+    } else {
+        CALL_QNN(mRuntime->mQnnInterface.graphCreate(mRuntime->mQnnContextHandle, mQnnGraphName.c_str(), pGraphConfig, &mQnnGraphHandle));
+    }
     MNN_ASSERT(mQnnGraphHandle != nullptr);
 }
 
@@ -442,7 +1082,7 @@ void QnnBackend::finalizeGraph() {
     if (mTensorCounter == 0) {
         return;
     }
-    #ifdef QNN_VORBOSE
+    #ifdef QNN_VERBOSE
     MNN_PRINT("Total qnn tensor count:%d\n", mTensorCounter);
     #endif
 
@@ -476,10 +1116,9 @@ void QnnBackend::executeGraph() const {
 
 void QnnBackend::freeContextAndGraph() {
     if (mTensorCounter != 0) {
-        CALL_QNN(mRuntime->mQnnInterface.contextFree(mQnnContextHandle, nullptr));
-        mQnnContextHandle = nullptr;
         mQnnGraphHandle = nullptr;
     }
+    mRuntime->freeContext();
 }
 
 void QnnBackend::addNodeToGraph(Qnn_OpConfigVersion_t version, const char* nodeName, const char* packageName, const char* nodeType, std::vector<Qnn_Param_t> & params, std::vector<Qnn_Tensor_t> & inputs, std::vector<Qnn_Tensor_t> & outputs) {
@@ -511,11 +1150,11 @@ int QnnBackend::getTensorIdx(const Tensor * tensor) const {
         if (TensorUtils::getDescribe(tensor)->usage != Tensor::InsideDescribe::Usage::CONSTANT) {
             MNN_PRINT("Tensor usage is %d.\n", (int) TensorUtils::getDescribe(tensor)->usage);
         }
-        #ifdef QNN_VORBOSE
+        #ifdef QNN_VERBOSE
         MNN_PRINT("qnn tenor usage:%d, dimension:%d\n", TensorUtils::getDescribe(tensor)->usage, tensor->dimensions());
         #endif
         MNN_ASSERT(TensorUtils::getDescribe(tensor)->usage == Tensor::InsideDescribe::Usage::CONSTANT);
-        MNN_ASSERT(tensor->dimensions() <= 2);
+        // MNN_ASSERT(tensor->dimensions() <= 2);
         std::vector<uint32_t> tDims = getNHWCShape(tensor);
         Qnn_DataType_t tDataType;
         std::shared_ptr<QNNTensorWrapper> qnnTensorWrapper;
@@ -599,14 +1238,56 @@ QnnRuntime::QnnRuntime(const Backend::Info& info, QNN_INTERFACE_VER_TYPE qnnInte
 }
 
 QnnRuntime::~QnnRuntime() {
-    // Free Device
-    CALL_QNN(mQnnInterface.deviceFree(mQnnDeviceHandle));
+    if (nullptr != mQnnContextHandle) {
+        CALL_QNN(mQnnInterface.contextFree(mQnnContextHandle, nullptr));
+    }
+}
+bool QnnRuntime::onSetCache(const void* buffer, size_t size) {
+    // TODO: Fix bug and complete
+    return false;
+    if (nullptr == buffer) {
+        return false;
+    }
+    auto error = mQnnInterface.contextValidateBinary(mQnnBackendHandle, mQnnDeviceHandle, mQnnContextConfig, buffer, size);
+    if (QNN_SUCCESS != error) {
+        MNN_ERROR("QNN: Failed to validate binary: %d\n", (int) error);
+        return false;
+    }
+    freeContext();
+    CALL_QNN(mQnnInterface.contextCreateFromBinary(mQnnBackendHandle, mQnnDeviceHandle, mQnnContextConfig, buffer, size, &mQnnContextHandle, nullptr));
+    mUseCache = true;
+    return true;
+}
+void QnnRuntime::allocContext() const {
+    CALL_QNN(mQnnInterface.contextCreate(mQnnBackendHandle, mQnnDeviceHandle, mQnnContextConfig, &mQnnContextHandle));
+    MNN_ASSERT(mQnnContextHandle != nullptr);
+}
+void QnnRuntime::freeContext() const {
+    if (nullptr != mQnnContextHandle) {
+        CALL_QNN(mQnnInterface.contextFree(mQnnContextHandle, nullptr));
+        mQnnContextHandle = nullptr;
+        mBinaryBuffer.clear();
+    }    
+}
 
-    // Free Backend
-    CALL_QNN(mQnnInterface.backendFree(mQnnBackendHandle));
-
-    // Free Log
-    CALL_QNN(mQnnInterface.logFree(mQnnLogHandle));
+std::pair<const void*, size_t> QnnRuntime::onGetCache() {
+    return std::make_pair(nullptr, 0);
+    if (!mBinaryBuffer.empty()) {
+        return std::make_pair(mBinaryBuffer.data(), mBinaryBuffer.size());
+    }
+    if (nullptr == mQnnContextHandle) {
+        return std::make_pair(nullptr, 0);
+    }
+    Qnn_ContextBinarySize_t size = 0;
+    CALL_QNN(mQnnInterface.contextGetBinarySize(mQnnContextHandle, &size));
+    FUNC_PRINT(size);
+    if (0 == size) {
+        return std::make_pair(nullptr, 0);
+    }
+    mBinaryBuffer.resize(size);
+    Qnn_ContextBinarySize_t writesize = 0;
+    CALL_QNN(mQnnInterface.contextGetBinary(mQnnContextHandle, mBinaryBuffer.data(), size, &writesize));
+    return std::make_pair(mBinaryBuffer.data(), mBinaryBuffer.size());
 }
 
 Backend* QnnRuntime::onCreate(const BackendConfig* config, Backend* origin) const {
@@ -615,99 +1296,7 @@ Backend* QnnRuntime::onCreate(const BackendConfig* config, Backend* origin) cons
 
 QnnRuntime* QnnRuntime::create(const Backend::Info& info) {
     // Create Interface.
-    QNN_INTERFACE_VER_TYPE qnnInterface{};
-    {
-#ifndef ENABLE_QNN_CONVERT_MODE
-        QnnInterface_t** interfaceProviders = nullptr;
-        uint32_t numProviders = 0;
-        if (QnnInterface_getProviders((const QnnInterface_t***)&interfaceProviders, &numProviders) != QNN_SUCCESS) {
-            MNN_PRINT("MNN_QNN: Failed to call 'QnnInterface_getProviders'.\n");
-            return nullptr;
-        }
-        if (interfaceProviders == nullptr) {
-            MNN_PRINT("MNN_QNN: Failed to get interface providers: null interface providers received.\n");
-            return nullptr;
-        }
-        if (numProviders == 0) {
-            MNN_PRINT("MNN_QNN: Failed to get interface providers: 0 interface providers.\n");
-            return nullptr;
-        }
-        bool foundValidInterface = false;
-        for (size_t pIdx = 0; pIdx < numProviders; pIdx++) {
-            if (QNN_API_VERSION_MAJOR == interfaceProviders[pIdx]->apiVersion.coreApiVersion.major &&
-                QNN_API_VERSION_MINOR <= interfaceProviders[pIdx]->apiVersion.coreApiVersion.minor) {
-                foundValidInterface = true;
-                qnnInterface = interfaceProviders[pIdx]->QNN_INTERFACE_VER_NAME;
-                break;
-            }
-        }
-        if (!foundValidInterface) {
-            MNN_PRINT("MNN_QNN: Failed to find a valid interface.\n");
-            return nullptr;
-        }
-#else
-        qnnInterface = gQnnConvertorInterface;
-#endif
-    }
-
-    // Create Log.
-    Qnn_LogHandle_t logHandle = nullptr;
-    {
-        QnnLog_Callback_t logCallback = nullptr;
-        if ((QNN_GET_ERROR_CODE(qnnInterface.logCreate(logCallback, QNN_LOG_LEVEL_ERROR, &logHandle)) != QNN_SUCCESS) ||
-            (logHandle == nullptr)) {
-            MNN_PRINT("MNN_QNN: Failed to initialize logging in the backend.\n");
-            return nullptr;
-        }
-    }
-
-    // Create Backend.
-    Qnn_BackendHandle_t backendHandle = nullptr;
-    {
-        const QnnBackend_Config_t** backendConfig = nullptr;
-        if ((QNN_GET_ERROR_CODE(qnnInterface.backendCreate(logHandle, backendConfig, &backendHandle)) != QNN_SUCCESS) ||
-            (backendHandle == nullptr)) {
-            MNN_PRINT("MNN_QNN: Failed to create the backend.\n");
-            return nullptr;
-        }
-    }
-
-    // // Register custom OpPackages.
-    // {
-    //     std::string opPackagePathCPU = "/data/local/tmp/libQnnHtpOpPackageExample_cpu.so";
-    //     std::string opPackagePathHTP = "/data/local/tmp/libQnnHtpOpPackageExample_htp.so";
-    //     std::string opPackageInterfaceProvider = "exampleInterfaceProvider";
-    //     std::string opPackageTargetCPU = "CPU";
-    //     std::string opPackageTargetHTP = "HTP";
-    //     if (!QnnRuntime::registerCustomOpPackage(qnnInterface, backendHandle, opPackagePathCPU.c_str(), opPackageInterfaceProvider.c_str(), opPackageTargetCPU.c_str())) {
-    //         MNN_PRINT("MNN_QNN: Failed to register Op Package: %s.\n", opPackagePathCPU.c_str());
-    //         return nullptr;
-    //     }
-    //     if (!QnnRuntime::registerCustomOpPackage(qnnInterface, backendHandle, opPackagePathHTP.c_str(), opPackageInterfaceProvider.c_str(), opPackageTargetHTP.c_str())) {
-    //         MNN_PRINT("MNN_QNN: Failed to register Op Package: %s.\n", opPackageTargetHTP.c_str());
-    //         return nullptr;
-    //     }
-    // }
-
-    // Create Device.
-    Qnn_DeviceHandle_t deviceHandle = nullptr;
-    {
-        // Check whether the device API is supported.
-        bool supportDevice = checkCapability(qnnInterface, QNN_PROPERTY_GROUP_DEVICE);
-        if (supportDevice) {
-            const QnnDevice_Config_t ** deviceConfig = nullptr;
-            auto qnnStatus = qnnInterface.deviceCreate(logHandle, deviceConfig, &deviceHandle);
-            if(qnnStatus != QNN_SUCCESS || (deviceHandle == nullptr)) {
-                MNN_PRINT("MNN_QNN: Failed to create the device, error:%lu\n", (unsigned long)qnnStatus);
-                return nullptr;
-            }
-        } else {
-            MNN_PRINT("MNN_QNN: Not supporting device API.\n");
-            return nullptr;
-        }
-    }
-
-    return new QnnRuntime(info, qnnInterface, logHandle, backendHandle, deviceHandle);
+    return new QnnRuntime(info, gContext.interface, gContext.logHandle, gContext.backendHandle, gContext.deviceHandle);
 }
 
 // Do nothing
@@ -752,8 +1341,155 @@ void registerQNNRuntimeCreator() {
         return;
     }
 #endif
+
+    QNN_INTERFACE_VER_TYPE qnnInterface{};
+#ifndef ENABLE_QNN_CONVERT_MODE
+    {
+        QnnInterface_t** interfaceProviders = nullptr;
+        uint32_t numProviders = 0;
+        if (QNN::QnnInterface_getProviders((const QnnInterface_t***)&interfaceProviders, &numProviders) != QNN_SUCCESS) {
+            MNN_PRINT("MNN_QNN: Failed to call 'QnnInterface_getProviders'.\n");
+            return;
+        }
+        if (interfaceProviders == nullptr) {
+            MNN_PRINT("MNN_QNN: Failed to get interface providers: null interface providers received.\n");
+            return;
+        }
+        if (numProviders == 0) {
+            MNN_PRINT("MNN_QNN: Failed to get interface providers: 0 interface providers.\n");
+            return;
+        }
+        bool foundValidInterface = false;
+        for (size_t pIdx = 0; pIdx < numProviders; pIdx++) {
+            if (QNN_API_VERSION_MAJOR == interfaceProviders[pIdx]->apiVersion.coreApiVersion.major &&
+                QNN_API_VERSION_MINOR <= interfaceProviders[pIdx]->apiVersion.coreApiVersion.minor) {
+                foundValidInterface = true;
+                qnnInterface = interfaceProviders[pIdx]->QNN_INTERFACE_VER_NAME;
+                break;
+            }
+        }
+        if (!foundValidInterface) {
+            MNN_PRINT("MNN_QNN: Failed to find a valid interface.\n");
+            return;
+        }
+    }
+#else
+    qnnInterface = QNN::gQnnConvertorInterface;
+#endif
+
+    // Create Log.
+    Qnn_LogHandle_t logHandle = nullptr;
+    {
+        QnnLog_Callback_t logCallback = nullptr;
+        if ((QNN_GET_ERROR_CODE(qnnInterface.logCreate(logCallback, QNN_LOG_LEVEL_ERROR, &logHandle)) != QNN_SUCCESS) ||
+            (logHandle == nullptr)) {
+            MNN_PRINT("MNN_QNN: Failed to initialize logging in the backend.\n");
+            return;
+        }
+    }
+
+    // Create Backend.
+    Qnn_BackendHandle_t backendHandle = nullptr;
+    {
+        const QnnBackend_Config_t** backendConfig = nullptr;
+        if ((QNN_GET_ERROR_CODE(qnnInterface.backendCreate(logHandle, backendConfig, &backendHandle)) != QNN_SUCCESS) ||
+            (backendHandle == nullptr)) {
+            MNN_PRINT("MNN_QNN: Failed to create the backend.\n");
+            return;
+        }
+    }
+
+    // Create Device.
+    Qnn_DeviceHandle_t deviceHandle = nullptr;
+    {
+        // Check whether the device API is supported.
+        bool supportDevice = QNN::checkCapability(qnnInterface, QNN_PROPERTY_GROUP_DEVICE);
+        if (supportDevice) {
+            const QnnDevice_Config_t ** deviceConfig = nullptr;
+            auto qnnStatus = qnnInterface.deviceCreate(logHandle, deviceConfig, &deviceHandle);
+            if(qnnStatus != QNN_SUCCESS || (deviceHandle == nullptr)) {
+                MNN_PRINT("MNN_QNN: Failed to create the device, error:%lu\n", (unsigned long)qnnStatus);
+                return;
+            }
+
+            if (qnnInterface.deviceGetPlatformInfo == nullptr) {
+                MNN_PRINT("[Warning]: No QnnDevice_getPlatformInfo API");
+            } else {
+                // QnnDevice_PlatformInfo_t platformInfo = QNN_DEVICE_PLATFORM_INFO_INIT;
+                const QnnDevice_PlatformInfo_t* backendPlatformInfoPtr = nullptr;
+                qnnStatus = qnnInterface.deviceGetPlatformInfo(logHandle, &backendPlatformInfoPtr);
+                if(qnnStatus != QNN_SUCCESS || backendPlatformInfoPtr == nullptr) {
+                    MNN_PRINT("[Warning]: deviceGetPlatformInfo Failed to query platform info");
+                } else {
+                    QnnDevice_HardwareDeviceInfo_t* hwDeviceInfo = backendPlatformInfoPtr->v1.hwDevices;
+                    QnnHtpDevice_Arch_t arch = hwDeviceInfo->v1.deviceInfoExtension->onChipDevice.arch;
+                    uint32_t socModel = hwDeviceInfo->v1.deviceInfoExtension->onChipDevice.socModel;
+                    MNN_PRINT("Qnn Device soc_id: %d\n", socModel);
+                    MNN_PRINT("Qnn Device dsp_arch: v%d\n", arch);
+                }
+            }
+        } else {
+            MNN_PRINT("MNN_QNN: Not supporting device API.\n");
+            return;
+        }
+    }
+
+    // Create System Interface
+    QNN_SYSTEM_INTERFACE_VER_TYPE systemInterface{};
+#ifndef ENABLE_QNN_CONVERT_MODE
+    #ifdef MNN_WITH_PLUGIN
+    {
+        QnnSystemInterface_t** interfaceProviders = nullptr;
+        uint32_t numProviders = 0;
+        if (QNN::QnnSystemInterface_getProviders((const QnnSystemInterface_t***)&interfaceProviders, &numProviders) != QNN_SUCCESS) {
+            MNN_PRINT("MNN_QNN: Failed to call 'QnnInterface_getProviders'.\n");
+            return;
+        }
+        if (interfaceProviders == nullptr) {
+            MNN_PRINT("MNN_QNN: Failed to get interface providers: null interface providers received.\n");
+            return;
+        }
+        if (numProviders == 0) {
+            MNN_PRINT("MNN_QNN: Failed to get interface providers: 0 interface providers.\n");
+            return;
+        }
+        bool foundValidSystemInterface{false};
+        for (size_t pIdx = 0; pIdx < numProviders; pIdx++) {
+            if (QNN_SYSTEM_API_VERSION_MAJOR == interfaceProviders[pIdx]->systemApiVersion.major &&
+                QNN_SYSTEM_API_VERSION_MINOR <= interfaceProviders[pIdx]->systemApiVersion.minor) {
+                foundValidSystemInterface = true;
+                systemInterface = interfaceProviders[pIdx]->QNN_SYSTEM_INTERFACE_VER_NAME;
+                break;
+            }
+        }
+        if (!foundValidSystemInterface) {
+            MNN_PRINT("MNN_QNN: Failed to find a valid interface.\n");
+            return;
+        }
+    }
+    #endif
+#else
+    systemInterface = QNN::gQnnConvertorSystemInterface;
+#endif
+
+
+    QNN::gContext.interface = qnnInterface;
+    QNN::gContext.systemInterface = systemInterface;
+    QNN::gContext.backendHandle = backendHandle;
+    QNN::gContext.deviceHandle = deviceHandle;
+    QNN::gContext.logHandle = logHandle;
+
     QNN::registerQNNOps();
     MNNInsertExtraRuntimeCreator(MNN_FORWARD_NN, new QNN::QnnRuntimeCreator, false);
+
+#ifdef MNN_WITH_PLUGIN
+    plugin::InferShapeKernelRegister::add("QNN", []() { // NOLINT
+        return new plugin::shape_inference::PluginShapeRaw;               // NOLINT
+    });
+    plugin::ComputeKernelRegistry<plugin::backend::PluginExecuteRaw::KernelT>::add("QNN", []() {
+        return new plugin::backend::PluginExecuteRaw;
+    });
+#endif
 }
 
 } // end namespace MNN

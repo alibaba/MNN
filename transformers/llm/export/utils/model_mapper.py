@@ -208,7 +208,7 @@ class ModelMapper:
             'mlp': qwen3_mlp,
         }
         self.regist('qwen3_moe', qwen3_moe_map)
-        
+
     def regist_mimo(self):
         mimo_model = copy.deepcopy(self.defualt_model)
         mimo_model['mtp'] = 'model.mtp_layers'
@@ -564,6 +564,53 @@ class ModelMapper:
         }
         self.regist('qwen2_vl', qwen2vl_map)
         self.regist('qwen2_5_vl', qwen2vl_map)
+
+    def regist_hunyuan_v1_dense(self):
+        hunyuan_attention = {
+            'q_proj': 'q_proj',
+            'k_proj': 'k_proj',
+            'v_proj': 'v_proj',
+            'o_proj': 'o_proj',
+            'q_norm': 'query_layernorm',
+            'k_norm': 'key_layernorm'
+        }
+        hunyuan_map = {
+            'config': self.default_config,
+            'model': self.defualt_model,
+            'decoder': self.default_decoder,
+            'attention': hunyuan_attention
+        }
+        self.regist('hunyuan_v1_dense', hunyuan_map)
+
+    def regist_gpt_oss(self):
+        gpt_oss_config = {
+            'hidden_size': 'hidden_size',
+            'head_dim': 'head_dim',
+            'num_attention_heads': 'num_attention_heads',
+            'num_hidden_layers': 'num_hidden_layers',
+            'num_key_value_heads': 'num_key_value_heads',
+            'rope_theta': 'rope_theta',
+            'rope_scaling': 'rope_scaling',
+            'max_position_embeddings': 'max_position_embeddings',
+            'sliding_window': 'sliding_window',
+            'layer_types': 'layer_types'
+        }
+        gpt_oss_attention = copy.deepcopy(self.default_attention)
+        gpt_oss_attention['sinks'] = 'sinks'
+        gpt_oss_mlp = {
+            'num_experts': 'router.num_experts',
+            'top_k': 'router.top_k',
+            'router': 'router',
+            'experts': 'experts'
+        }
+        gpt_osss_map = {
+            'config': gpt_oss_config,
+            'model': self.defualt_model,
+            'decoder': self.default_decoder,
+            'attention': gpt_oss_attention,
+            'mlp': gpt_oss_mlp
+        }
+        self.regist('gpt_oss', gpt_osss_map)
 
     def defualt_map(self):
         # default map is `LlamaForCausalLM`

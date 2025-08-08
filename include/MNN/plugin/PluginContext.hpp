@@ -71,7 +71,8 @@ public:
     CPUKernelContext(const std::string& op_type,         // NOLINT
                      Backend* backend,                   // NOLINT
                      const std::vector<Tensor*>& inputs, // NOLINT
-                     const std::vector<Tensor*>& outputs);
+                     const std::vector<Tensor*>& outputs,
+                     const std::string& dir_path);
 
     virtual ~CPUKernelContext() = default;
 
@@ -83,8 +84,13 @@ public:
         return op_type_;
     }
 
+    const std::string& dir_path() const {
+        return dir_path_;
+    }
+
 private:
     const std::string op_type_ = "";
+    const std::string dir_path_;
     Backend* backend_          = nullptr;
 };
 

@@ -195,5 +195,23 @@ QnnHtpDevice_Infrastructure_t gQnnConvertorDeviceInfra = {
     gQnnConvertorPerfInfra
 };
 
+Qnn_ErrorHandle_t QnnConvertorSystemContext_create(QnnSystemContext_Handle_t* sysCtxHandle) {
+    *sysCtxHandle = NOTNULL;
+    return QNN_SUCCESS;
+}
+Qnn_ErrorHandle_t QnnConvertorSystemContext_getBinaryInfo(QnnSystemContext_Handle_t sysCtxHandle, void* binaryBuffer, uint64_t binaryBufferSize, const QnnSystemContext_BinaryInfo_t** binaryInfo, Qnn_ContextBinarySize_t* binaryInfoSize) {
+    return QNN_SUCCESS;
+}
+Qnn_ErrorHandle_t QnnConvertorSystemContext_free(QnnSystemContext_Handle_t sysCtxHandle) {
+    return QNN_SUCCESS;
+}
+QNN_SYSTEM_INTERFACE_VER_TYPE gQnnConvertorSystemInterface = {
+    /*systemContextCreate*/              QnnConvertorSystemContext_create,
+    /*systemContextGetBinaryInfo*/       QnnConvertorSystemContext_getBinaryInfo,
+    /*systemContextGetMetaData*/         NULL,
+    /*systemContextFree*/                QnnConvertorSystemContext_free,
+    /*systemTensorGetMemoryFootprint*/   NULL,
+};
+
 } // end namespace MNN
 } // end namespace QNN

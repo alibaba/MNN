@@ -46,7 +46,9 @@ void QnnHalfToFloat(const int16_t* src, float* dst, size_t size) {
 #endif
 
 QnnInterface_getProviders_t QnnInterface_getProviders = nullptr;
-
+#ifdef MNN_WITH_PLUGIN
+QnnSystemInterface_getProviders_t QnnSystemInterface_getProviders = nullptr;
+#endif
 bool loadQNNSymbol() {
     LibHandle qnnLibHandle = nullptr;
 
@@ -78,6 +80,20 @@ bool loadQNNSymbol() {
         dlclose(qnnLibHandle);
         return false;
     }
+    #ifdef MNN_WITH_PLUGIN
+    void* qnnSystemHandle = dlopen("libQnnSystem.so", RTLD_NOW | RTLD_LOCAL);
+    if (nullptr == qnnSystemHandle) {
+        const char * errorOpen = dlerror();
+        MNN_PRINT("MNN_QNN: Failed to open QNN libs. Ensure that the libs related to the QNN HTP backend is available in your environment. dlerror() returns %s.\n", errorOpen);
+        return false;
+    }
+    QnnSystemInterface_getProviders = (QnnSystemInterface_getProviders_t)dlsym(qnnSystemHandle, "QnnSystemInterface_getProviders");
+    if (nullptr == QnnSystemInterface_getProviders) {
+        const char * errorSym = dlerror();
+        MNN_PRINT("MNN_QNN: Failed to load symbol <QnnSystemInterface_getProviders>. dlerror returns %s.\n", errorSym);
+        return false;
+    }
+    #endif
 #endif
 
     return true;

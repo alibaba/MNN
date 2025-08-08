@@ -109,22 +109,30 @@ static void pack_QK(char * pack_qk_dst, float * qk_src, int seq_len, int kv_seq_
 
 template <typename T>
 static void mask_QK(float * unpack_qk, int seq_len, int kv_seq_len, float mScale, float min_val, const Tensor* mask) {
-    if (seq_len == 1 || mask == nullptr) {
+    if (mask == nullptr) {
         for (int i = 0; i < kv_seq_len; i++) {
             unpack_qk[i] = unpack_qk[i] * mScale;
         }
     } else if (mask->getType() == halide_type_of<float>()) {
         // float mask
         T* fpmask_ptr = mask->host<T>();
-        int offset = kv_seq_len-seq_len;
-        for (int i=0; i<seq_len; ++i) {
-            auto unpack_qki = unpack_qk + i * kv_seq_len;
-            auto fpmask_ptri = fpmask_ptr + i * seq_len;
-            for (int j=0; j<offset; ++j) {
-                unpack_qki[j] = unpack_qki[j] * mScale;
+        if (mask->elementSize() == seq_len * kv_seq_len) {
+            // normal mask for all token
+            for (int i = 0; i < seq_len * kv_seq_len; i++) {
+                unpack_qk[i] = unpack_qk[i] * mScale + fpmask_ptr[i];
             }
-            for (int j=0; j<seq_len; ++j) {
-                unpack_qki[offset+j] = unpack_qki[offset+j] * mScale + fpmask_ptri[j];
+        } else {
+            // square mask just for new generation token
+            int offset = kv_seq_len - seq_len;
+            for (int i = 0; i < seq_len; ++i) {
+                auto unpack_qki = unpack_qk + i * kv_seq_len;
+                auto fpmask_ptri = fpmask_ptr + i * seq_len;
+                for (int j = 0; j < offset; ++j) {
+                    unpack_qki[j] = unpack_qki[j] * mScale;
+                }
+                for (int j = 0; j < seq_len; ++j) {
+                    unpack_qki[offset + j] = unpack_qki[offset + j] * mScale + fpmask_ptri[j];
+                }
             }
         }
     } else {
@@ -143,6 +151,26 @@ static void mask_QK(float * unpack_qk, int seq_len, int kv_seq_len, float mScale
 static void softmax_QK(float* softmax_qk_addr, float* unpack_qk_addr, int seq_len, int kv_seq_len) {
     for (int i = 0; i < seq_len; i++) {  // softmax each row
         MNNSoftmax(softmax_qk_addr + i * kv_seq_len, unpack_qk_addr + i * kv_seq_len, kv_seq_len);
+    }
+}
+
+static void sink_softmax_QK(float* softmax_qk_addr, float* unpack_qk_addr, int seq_len, int kv_seq_len, float sink) {
+    // TODO: opt
+    std::vector<float> buffer(2 * (kv_seq_len + 1));
+    float* sinkSrc = buffer.data();
+    float* sinkDst = buffer.data() + kv_seq_len + 1;
+    for (int i = 0; i < seq_len; i++) {  // softmax each row
+        ::memcpy(sinkSrc, unpack_qk_addr + i * kv_seq_len, kv_seq_len * sizeof(float));
+        sinkSrc[kv_seq_len] = sink;
+        float rowMax = sink;
+        for (int j = 0; j < kv_seq_len; j++) {
+            rowMax = ALIMAX(rowMax, sinkSrc[j]);
+        }
+        for (int j = 0; j < kv_seq_len + 1; j++) {
+            sinkSrc[j] = sinkSrc[j] - rowMax;
+        }
+        MNNSoftmax(sinkDst, sinkSrc, kv_seq_len + 1);
+        ::memcpy(softmax_qk_addr + i * kv_seq_len, sinkDst, kv_seq_len * sizeof(float));
     }
 }
 
@@ -212,6 +240,12 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
     if (inputs.size() > 3) {
         mask = inputs[3];
     }
+    const Tensor* sinks = nullptr;
+    if (inputs.size() > 4) {
+        sinks = inputs[4];
+        MNN_ASSERT(sinks != nullptr);
+        MNN_ASSERT(sinks->elementSize() == mNumHead)
+    }
     int tileCount = UP_DIV(mNumHead, mThreadNum);
     int group_size = mNumHead / mKvNumHead;
     // reduce the value of 'query' to avoid fp16 overflow
@@ -263,7 +297,7 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
         backend()->onAcquireBuffer(dequantV.get(), Backend::STATIC);
         mKVCacheManager->onDequantValue(dequantV.get());
     }
-
+    const float* sinksPtr = sinks ? sinks->host<float>() : nullptr;
     std::function<void(int)> mCompute = [=](int tId) {
         auto pack_q      = mPackQ->host<char>() + tId * UP_DIV(seq_len, eP) * ROUND_UP(mHeadDim, lP) * eP * bytes;
         auto pack_qk     = packQK->host<char>() + tId * UP_DIV(kv_seq_len, unit) * seq_len * unit * bytes;
@@ -346,16 +380,30 @@ ErrorCode CPUAttention::onExecute(const std::vector<Tensor*>& inputs, const std:
                 QxK_remain((float*)(pack_qk + (loop_e * eP * unit) * bytes), (float*)(pack_q + loop_e * qStride0), (float*)key_addr, remain, shapeParameters, nullptr, nullptr, (float*)scale_addr, (float*)zero_point_addr);
             }
             // qk: [kv_seq_len/unit, seq_len, unit] -> [seq_len, kv_seq_len] -> [seq_len/eP, kv_seq_len, eP]
-            if(bytes == 2) {
-                unpack_QK<FLOAT16_T>(unpack_qk, pack_qk, seq_len, kv_seq_len);
-                mask_QK<FLOAT16_T>(unpack_qk, seq_len, kv_seq_len, mScale, std::numeric_limits<float>::lowest(), mask);
-                softmax_QK(softmax_qk, unpack_qk, seq_len, kv_seq_len);
-                pack_QK<FLOAT16_T>(new_pack_qk, softmax_qk, seq_len, kv_seq_len, eP, lP, bytes);
+            if (sinksPtr != nullptr) {
+                if(bytes == 2) {
+                    unpack_QK<FLOAT16_T>(unpack_qk, pack_qk, seq_len, kv_seq_len);
+                    mask_QK<FLOAT16_T>(unpack_qk, seq_len, kv_seq_len, mScale, std::numeric_limits<float>::lowest(), mask);
+                    sink_softmax_QK(softmax_qk, unpack_qk, seq_len, kv_seq_len, sinksPtr[h]);
+                    pack_QK<FLOAT16_T>(new_pack_qk, softmax_qk, seq_len, kv_seq_len, eP, lP, bytes);
+                } else {
+                    unpack_QK<float>(unpack_qk, pack_qk, seq_len, kv_seq_len);
+                    mask_QK<float>(unpack_qk, seq_len, kv_seq_len, mScale, std::numeric_limits<float>::lowest(), mask);
+                    sink_softmax_QK(softmax_qk, unpack_qk, seq_len, kv_seq_len, sinksPtr[h]);
+                    pack_QK<float>(new_pack_qk, softmax_qk, seq_len, kv_seq_len, eP, lP, bytes);
+                }
             } else {
-                unpack_QK<float>(unpack_qk, pack_qk, seq_len, kv_seq_len);
-                mask_QK<float>(unpack_qk, seq_len, kv_seq_len, mScale, std::numeric_limits<float>::lowest(), mask);
-                softmax_QK(softmax_qk, unpack_qk, seq_len, kv_seq_len);
-                pack_QK<float>(new_pack_qk, softmax_qk, seq_len, kv_seq_len, eP, lP, bytes);
+                if(bytes == 2) {
+                    unpack_QK<FLOAT16_T>(unpack_qk, pack_qk, seq_len, kv_seq_len);
+                    mask_QK<FLOAT16_T>(unpack_qk, seq_len, kv_seq_len, mScale, std::numeric_limits<float>::lowest(), mask);
+                    softmax_QK(softmax_qk, unpack_qk, seq_len, kv_seq_len);
+                    pack_QK<FLOAT16_T>(new_pack_qk, softmax_qk, seq_len, kv_seq_len, eP, lP, bytes);
+                } else {
+                    unpack_QK<float>(unpack_qk, pack_qk, seq_len, kv_seq_len);
+                    mask_QK<float>(unpack_qk, seq_len, kv_seq_len, mScale, std::numeric_limits<float>::lowest(), mask);
+                    softmax_QK(softmax_qk, unpack_qk, seq_len, kv_seq_len);
+                    pack_QK<float>(new_pack_qk, softmax_qk, seq_len, kv_seq_len, eP, lP, bytes);
+                }
             }
             // qk @ v
             size_t shapeParameters[7] = {(size_t)eP * bytes, ROUND_UP((size_t)kv_seq_len, lP), (size_t)mHeadDim, (size_t)seq_len * unit * bytes, 0, 0, 0};

@@ -14,37 +14,67 @@
 #if MNN_METAL_ENABLED
 namespace MNN {
 
-MetalLayerNorm::MetalLayerNorm(Backend *backend, const LayerNorm *layernorm)
-    : MetalExecution(backend), mGroup(layernorm->group()),
-        mEps(layernorm->epsilon()) {
+MetalLayerNorm::MetalLayerNorm(Backend *backend, std::shared_ptr<Resource> res)
+    : MetalExecution(backend) {
     auto context = (__bridge MNNMetalContext *)static_cast<MetalBackend *>(backend)->context();
 
+    mShapeBuffer = [context newDeviceBuffer:3 * sizeof(int) + sizeof(float) access:CPUWriteOnly];
+    mResource = res;
+}
+
+bool MetalLayerNorm::onClone(Backend* bn, const Op* op, Execution** dst) {
+    if (nullptr == dst) {
+        return true;
+    }
+    *dst = new MetalLayerNorm(bn, mResource);
+    return true;
+}
+
+std::shared_ptr<MetalLayerNorm::Resource> MetalLayerNorm::makeResource(Backend *backend, const LayerNorm *layernorm) {
+    std::shared_ptr<MetalLayerNorm::Resource> res(new Resource);
+    res->mGroup = layernorm->group();
+    res->mEps = layernorm->epsilon();
+    res->mRMSNorm = layernorm->useRMSNorm();
     int axis_size = 0;
     if (nullptr != layernorm->axis()) {
         axis_size = layernorm->axis()->size();
     }
-    mAxisSize = axis_size;
-
+    res->mAxisSize = axis_size;
+    int gamma_size = 0;
     if (layernorm->gamma() && layernorm->beta()) {
-        has_gamma_beta_ = true;
-        int gamma_size = layernorm->gamma()->size();
+        gamma_size = layernorm->gamma()->size();
+    }
+    if (layernorm->external() != nullptr) {
+        auto externalInfo = layernorm->external()->data();
+        auto externalSize = layernorm->external()->size();
+        gamma_size = static_cast<int32_t>(externalInfo[1]) / sizeof(float);
+    }
+    if (gamma_size > 0) {
+        res->mHasGammaBeta = true;
+        res->mGammaBuffer.reset(Tensor::createDevice<uint8_t>({(int)(gamma_size * sizeof(float))}));
+        res->mBetaBuffer.reset(Tensor::createDevice<uint8_t>({(int)(gamma_size * sizeof(float))}));
+        auto allocRes = backend->onAcquireBuffer(res->mGammaBuffer.get(), Backend::STATIC);
+        allocRes = allocRes && backend->onAcquireBuffer(res->mBetaBuffer.get(), Backend::STATIC);
+        if (!allocRes) {
+            MNN_ERROR("MetalLayerNorm: Alloca gamma and beta buffer error!\n");
+            return nullptr;
+        }
+    }
+    auto useCache = backend->getRuntime()->hint().useCachedMmap > 1;
+    if (layernorm->gamma() && layernorm->beta() && (!useCache)) {
         const float* gamma_data = layernorm->gamma()->data();
-        mGammaBuffer =
-            [context newDeviceBuffer:gamma_size * sizeof(float) access:CPUWriteOnly];
-
-        memcpy(mGammaBuffer.contents, (const void *)gamma_data, gamma_size * sizeof(float));
+        auto gammaPtr = MetalBackend::getBuffer(res->mGammaBuffer.get());
+        memcpy((uint8_t*)gammaPtr.first.contents + gammaPtr.second, (const void *)gamma_data, gamma_size * sizeof(float));
         
         if (layernorm->beta()->size() != gamma_size) {
             MNN_ERROR("Size of gamma and beta are not match in MetalLayerNorm.\n");
         }
 
         const float* beta_data = layernorm->beta()->data();
-        mBetaBuffer =
-            [context newDeviceBuffer:gamma_size * sizeof(float) access:CPUWriteOnly];
-        memcpy(mBetaBuffer.contents, (const void *)beta_data, gamma_size * sizeof(float));
+        auto betaPtr = MetalBackend::getBuffer(res->mBetaBuffer.get());
+        memcpy((uint8_t*)betaPtr.first.contents + betaPtr.second, (const void *)beta_data, gamma_size * sizeof(float));
     }
-    mShapeBuffer = [context newDeviceBuffer:3 * sizeof(int) + sizeof(float) access:CPUWriteOnly];
-    RMSNorm = layernorm->useRMSNorm();
+    return res;
 }
 
 ErrorCode MetalLayerNorm::onResize(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
@@ -56,25 +86,25 @@ ErrorCode MetalLayerNorm::onResize(const std::vector<Tensor *> &inputs, const st
     mOutside = 1;
     mInside = 1;
     int rank = input->dimensions();
-    if (mGroup > 1) {
-        mOutside = input->length(0) * mGroup;
+    if (mResource->mGroup > 1) {
+        mOutside = input->length(0) * mResource->mGroup;
         for (int i = 1; i < rank; i++) {
             mInside *= input->length(i);
         }
-        mInside /= mGroup;
+        mInside /= mResource->mGroup;
     } else {
-        for (int i = 0; i < rank - mAxisSize; ++i) {
+        for (int i = 0; i < rank - mResource->mAxisSize; ++i) {
             mOutside *= input->length(i);
         }
-        for (int i = rank - mAxisSize; i < rank; ++i) {
+        for (int i = rank - mResource->mAxisSize; i < rank; ++i) {
             mInside *= input->length(i);
         }
     }
 
     ((int *)mShapeBuffer.contents)[0]   = mInside;
     ((int *)mShapeBuffer.contents)[1]   = mOutside;
-    ((float *)mShapeBuffer.contents)[2] = mEps;
-    ((int *)mShapeBuffer.contents)[3]   = (int)has_gamma_beta_;
+    ((float *)mShapeBuffer.contents)[2] = mResource->mEps;
+    ((int *)mShapeBuffer.contents)[3]   = (int)mResource->mHasGammaBeta;
 
     bool parallel = (mInside > 32) && ((mInside & 3) == 0);
     auto inside = parallel ? mInside/4 : mInside;
@@ -95,7 +125,7 @@ ErrorCode MetalLayerNorm::onResize(const std::vector<Tensor *> &inputs, const st
             @"ftype4" : @(ftype4.c_str()),
         };
         std::vector<std::string> baseKeys = {"layernorm_sg_reduce", ftype};
-        if(RMSNorm) {
+        if(mResource->mRMSNorm) {
             // pretty much threads compute all inside dims in a threadgroup
             if(mOutside / 512.0 * mInside / 512.0 > 1.0) {
                 auto keys = baseKeys;
@@ -174,7 +204,7 @@ ErrorCode MetalLayerNorm::onResize(const std::vector<Tensor *> &inputs, const st
             }
         }
     } else {
-        if(RMSNorm){
+        if(mResource->mRMSNorm){
             mPipeline = [context pipelineWithName:parallel ? @"layernorm_x4_rms" : @"layernorm_x1_rms" fp16:backend->useFp16InsteadFp32()];
         }else{
             mPipeline = [context pipelineWithName:parallel ? @"layernorm_x4" : @"layernorm_x1" fp16:backend->useFp16InsteadFp32()];
@@ -193,13 +223,13 @@ void MetalLayerNorm::onEncode(const std::vector<Tensor *> &inputs, const std::ve
     MetalBackend::setTensor(input, encoder, 0);
     MetalBackend::setTensor(output, encoder, 1);
     [encoder setBuffer:mShapeBuffer offset:0 atIndex:2];
-    if (!has_gamma_beta_) {
+    if (!mResource->mHasGammaBeta) {
         // Set fake buffer to avoid validate
         MetalBackend::setTensor(input, encoder, 3);
         MetalBackend::setTensor(input, encoder, 4);
     } else {
-        [encoder setBuffer:mGammaBuffer offset:0 atIndex:3];
-        [encoder setBuffer:mBetaBuffer offset:0 atIndex:4];
+        MetalBackend::setTensor(mResource->mGammaBuffer.get(), encoder, 3);
+        MetalBackend::setTensor(mResource->mBetaBuffer.get(), encoder, 4);
     }
 
     [encoder dispatchThreadgroups:mThreads.first threadsPerThreadgroup:mThreads.second];
@@ -209,7 +239,11 @@ void MetalLayerNorm::onEncode(const std::vector<Tensor *> &inputs, const std::ve
 class MetalLayerNormCreator : public MetalBackend::Creator {
 public:
     virtual Execution *onCreate(const std::vector<Tensor *> &inputs, const MNN::Op *op, Backend *backend, const std::vector<Tensor *> &outputs) const {
-        return new MetalLayerNorm(backend, op->main_as_LayerNorm());
+        auto res = MetalLayerNorm::makeResource(backend, op->main_as_LayerNorm());
+        if (nullptr == res) {
+            return nullptr;
+        }
+        return new MetalLayerNorm(backend, res);
     }
 };
 REGISTER_METAL_OP_CREATOR(MetalLayerNormCreator, OpType_LayerNorm);

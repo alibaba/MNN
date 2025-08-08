@@ -76,6 +76,7 @@ public:
     int getTensorIdx(const Tensor * tensor) const;
     Qnn_Tensor_t * getNativeTensor(const Tensor * tensor);
     std::shared_ptr<QNNTensorWrapper> getTensorWrapper(const Tensor * tensor);
+    bool useCache() const;
     bool getUseFP16() const;
 
 private:
@@ -127,13 +128,20 @@ public:
 
     void onGabageCollect(int level) override;
     virtual CompilerType onGetCompilerType() const override;
-
+    // If buffer is not nullptr, try copy cache, else delete cache
+    virtual bool onSetCache(const void* buffer, size_t size) override;
+    
+    virtual std::pair<const void*, size_t> onGetCache() override;
     virtual bool onSetCachePath(const char* path, int mode) override;
 
 private:
+    void freeContext() const;
+    void allocContext() const;
     static bool registerCustomOpPackage(QNN_INTERFACE_VER_TYPE qnnInterface, Qnn_BackendHandle_t backendHandle, const std::string & path, const std::string & interfaceProvider, const std::string & target);
 
 private:
+    bool mUseCache = false;
+
     // Backend config
     Backend::Info mInfo;
     BackendConfig::PowerMode mPower;
@@ -144,7 +152,10 @@ private:
     Qnn_LogHandle_t mQnnLogHandle = nullptr;
     Qnn_BackendHandle_t mQnnBackendHandle = nullptr;
     Qnn_DeviceHandle_t mQnnDeviceHandle = nullptr;
-
+    // Qnn Context
+    mutable Qnn_ContextHandle_t mQnnContextHandle = nullptr;
+    const QnnContext_Config_t** mQnnContextConfig = nullptr;
+    mutable std::vector<int8_t> mBinaryBuffer;
 friend class QnnBackend;
 };
 
