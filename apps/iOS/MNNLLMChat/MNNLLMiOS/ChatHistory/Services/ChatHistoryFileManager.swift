@@ -47,8 +47,14 @@ class ChatHistoryFileManager {
         
         // Check if the file already exists at the destination
         if FileManager.default.fileExists(atPath: destinationURL.path) {
-            print("File already exists at \(destinationURL), returning original URL.")
+            print("File already exists at \(destinationURL), returning existing URL.")
             return destinationURL
+        }
+        
+        // Check if source file exists before copying
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            print("Source file does not exist at \(url.path)")
+            return nil
         }
         
         do {
@@ -58,6 +64,24 @@ class ChatHistoryFileManager {
         } catch {
             print("Failed to copy file: \(error)")
         }
+        return nil
+    }
+    
+    // Validate if a file exists at the given URL
+    func validateFileExists(at url: URL) -> Bool {
+        return FileManager.default.fileExists(atPath: url.path)
+    }
+    
+    // Get the correct file URL for a history file, checking if it exists
+    func getValidFileURL(for fileName: String, historyId: String) -> URL? {
+        let historyDirectory = baseDirectory.appendingPathComponent(historyId)
+        let fileURL = historyDirectory.appendingPathComponent(fileName)
+        
+        if FileManager.default.fileExists(atPath: fileURL.path) {
+            return fileURL
+        }
+        
+        print("File not found at expected path: \(fileURL.path)")
         return nil
     }
     

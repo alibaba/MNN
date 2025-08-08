@@ -282,5 +282,8 @@ int main(int argc, const char* argv[]) {
         })");
     }
     std::string prompt_file = argv[2];
+    llm->set_config(R"({
+        "async":false
+    })");
     return eval(llm.get(), prompt_file, max_token_number);
 }

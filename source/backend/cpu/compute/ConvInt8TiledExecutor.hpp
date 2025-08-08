@@ -14,7 +14,7 @@
 #include "CommonOptFunction.h"
 
 namespace MNN {
-typedef void (*weightSummerFuncion)(float* kernlesum, int8_t* source, size_t outside, size_t reduceAxis, size_t hP, size_t lP);
+typedef void (*weightSummerFuncion)(float* kernelsum, int8_t* source, size_t outside, size_t reduceAxis, size_t hP, size_t lP);
 class ConvInt8TiledExecutor : public CPUConvolution {
 public:
     // given weight+bias+scale, do post process
@@ -25,7 +25,7 @@ public:
     virtual bool onClone(Backend* bn, const Op* op, Execution** dst) override;
     static void packWeightAndQuantInfo(int8_t* dstbuffer, const int8_t* weight, const int8_t* quantInfo, int32_t* info, int infoBytes = 4);
     static void reorderWeight(uint8_t* dst, const uint8_t* src, int32_t* info, int32_t initval = 0, float* kernelsum = nullptr, weightSummerFuncion summerFunc = nullptr);
-    static void initializeConvInt8QuantInfo(std::shared_ptr<CPUConvolution::ResourceInt8>& resourceInt8, const Convolution2D* conv2D);
+    static void initializeConvInt8QuantInfo(std::shared_ptr<CPUConvolution::ResourceInt8>& resourceInt8, const Convolution2D* conv2D, std::shared_ptr<ConvolutionCommon::Int8Common> quanCommon);
 
 protected:
     ConvolutionCommon::Im2ColParameter mIm2ColParamter;
@@ -71,8 +71,11 @@ private:
     MemChunk mQScaleZero;
     MemChunk mReorderBuffer;
     MemChunk mBiasBufferFusedInputzero;
+    MemChunk mWeight4Prefill;
+    MemChunk mWeightKernelSum4Prefill;
     std::vector<int32_t> mDivides;
 
+    int mGemmUnits[3];
     int mThreadNums;
     int mBlockNum = 1;
     int mInputBlockNum = 1;
@@ -82,6 +85,7 @@ private:
     bool mIm2ColBasedInt8;
     int mSizeInputBlockQuant;
     bool mToFuseInputbias2Bias;
+    bool mOnlineReorderWeightSme = false;
     MatmulRelatedFunctions mRelatedFunctions;
 };
 

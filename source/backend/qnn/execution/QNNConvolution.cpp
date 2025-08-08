@@ -7,6 +7,7 @@
 //
 
 #include "QNNConvolution.hpp"
+#include <cmath>
 
 namespace MNN {
 namespace QNN {
@@ -67,7 +68,7 @@ ErrorCode QNNConvolution::onEncode(const std::vector<Tensor *> &inputs, const st
         ConvolutionCommon::getConvParameters(&quanCommon, mBackend, mOp, &weightSource, &weightElementNum);
     }
 
-    #ifdef QNN_VORBOSE
+    #ifdef QNN_VERBOSE
     MNN_PRINT("n:%d, ih:%d, iw:%d, ic:%d, oh:%d, ow:%d, oc:%d, kernelH:%d, kernelW:%d, dilationH:%d, dilationW:%d, strideH:%d, strideW:%d, group:%d, pad:%d %d %d %d\n", n, ih, iw, ic, oh, ow, oc, kernelH, kernelW, dilationH, \
         dilationW, strideH, strideW, group, padTop, padBottom, padLeft, padRight);
     #endif
@@ -137,7 +138,7 @@ ErrorCode QNNConvolution::onEncode(const std::vector<Tensor *> &inputs, const st
                 auto num = closest_factors(n);
                 this->createStageTensor("InputReshapeTensor", dataType, std::vector<int>({1, num.first, num.second, ic}));
                 this->createStageTensor("OutputReshapeTensor", dataType, std::vector<int>({1, num.first, num.second, oc}));
-                #ifdef QNN_VORBOSE
+                #ifdef QNN_VERBOSE
                 MNN_PRINT("Matmul2Conv, start reshape batch:%d -> %dx%d\n", n, num.first, num.second);
                 #endif
                 // reshape input

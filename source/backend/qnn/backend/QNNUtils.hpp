@@ -10,6 +10,7 @@
 #define MNN_QNNUTILS_HPP
 
 #include "QnnInterface.h"
+#include "System/QnnSystemInterface.h"
 #include "QnnCommon.h"
 #include "QnnLog.h"
 #include "QnnTypes.h"
@@ -25,8 +26,8 @@
 #define HALF_TO_FLOAT MNNDequantizeFP16
 #else
 #include "half.hpp"
-#define FLOAT_TO_HALF QnnFloatToHalf
-#define HALF_TO_FLOAT QnnHalfToFloat
+#define FLOAT_TO_HALF QNN::QnnFloatToHalf
+#define HALF_TO_FLOAT QNN::QnnHalfToFloat
 #endif // MNN_USE_ARMV82
 
 #define CALL_QNN(apiCall)                                                       \
@@ -59,6 +60,13 @@ void QnnHalfToFloat(const int16_t* src, float* dst, size_t size);
 // the only symbol requiring dynamic loading
 typedef Qnn_ErrorHandle_t (*QnnInterface_getProviders_t)(const QnnInterface_t*** providerList, uint32_t* numProviders);
 extern QnnInterface_getProviders_t QnnInterface_getProviders;
+
+#ifdef MNN_WITH_PLUGIN
+typedef Qnn_ErrorHandle_t (*QnnSystemInterface_getProviders_t)(const QnnSystemInterface_t*** providerList,
+                                                  uint32_t* numProviders);
+extern QnnSystemInterface_getProviders_t QnnSystemInterface_getProviders;
+#endif
+
 bool loadQNNSymbol();
 
 // op registration

@@ -7,7 +7,6 @@
 
 import SwiftUI
 
-// MainTabView is the primary view of the app, containing the tab bar and navigation for main sections.
 struct MainTabView: View {
     // MARK: - State Properties
     
@@ -143,7 +142,10 @@ struct MainTabView: View {
                         .edgesIgnoringSafeArea(.all)
         }
         .onChange(of: showHistory) { oldValue, newValue in
-            if !newValue {
+            if newValue {
+                // Refresh chat history when opening the side menu
+                histories = ChatHistoryManager.shared.getAllHistory()
+            } else {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                     withAnimation {
                         showHistoryButton = true
@@ -191,6 +193,9 @@ struct MainTabView: View {
                     if let model = modelListViewModel.selectedModel {
                         modelListViewModel.recordModelUsage(modelName: model.modelName)
                     }
+                    
+                    // Refresh chat history when returning from chat
+                    histories = ChatHistoryManager.shared.getAllHistory()
                     
                     // Clear selections
                     modelListViewModel.selectedModel = nil

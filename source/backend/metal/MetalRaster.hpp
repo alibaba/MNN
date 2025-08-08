@@ -28,7 +28,8 @@ public:
         MTLSize global;
     };
 private:
-    std::map<Tensor*, BlitInfo> mTempInputCopy;
+    void _clear();
+    std::vector<std::pair<Tensor*, BlitInfo>> mTempInputCopy;
     bool mNeedZero = false;
     Tensor* mOutputPtr = nullptr;
     std::vector<id<MTLComputePipelineState>> mBlitPipeline;

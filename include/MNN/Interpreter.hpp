@@ -252,7 +252,10 @@ public:
         CPU_CORE_IDS = 14,
 
         // set CPU threads to use when supports Arm sme2
-        CPU_SME2_INSTRUCTIONS = 15
+        CPU_SME2_INSTRUCTIONS = 15,
+
+        // Enable KleidiAI
+        CPU_ENABLE_KLEIDIAI = 16
     };
 
     enum ExternalPathType {
@@ -264,6 +267,9 @@ public:
 
         // Weight Buffer Cache File
         EXTERNAL_WEIGHT_DIR = 2,
+
+        // Path of the NPU Model directory
+        EXTERNAL_NPU_FILE_DIR = 3,
 
         // Other types ...
     };

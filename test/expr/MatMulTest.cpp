@@ -11,6 +11,7 @@
 #include <random>
 #include "MNNTestSuite.h"
 #include "MNN_generated.h"
+#include "TestUtils.h"
 #include <MNN/expr/Expr.hpp>
 #include <MNN/expr/ExprCreator.hpp>
 #include <MNN/expr/Module.hpp>
@@ -66,6 +67,8 @@ static void _originMatMul(float* C, const float* A, const float* B, int e, int l
 class MatMulTest : public MNNTestCase {
 public:
     virtual bool run(int precision) {
+        auto executor = cloneCurrentExecutor();
+        ExecutorScope scope(executor);
         int e = 5, h = 4, l = 6;
         if (true) {
             // Test MatMul

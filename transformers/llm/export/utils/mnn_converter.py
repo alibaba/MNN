@@ -146,6 +146,8 @@ class MNNConveter:
                 self.apply_gptq(mnn_json)
             if self.config.args.lora_path is not None and self.config.args.lora_split:
                  self.export_lora(mnn_json)
+            if self.config.args.smooth:
+                self.export_smooth_quant(mnn_json)
 
     def get_experts_graphs(self, experts):
         hidden_states = torch.randn((1, self.config.hidden_size))
@@ -212,6 +214,12 @@ class MNNConveter:
         if os.path.exists(lora_json):
             os.remove(lora_json)
         return lora_model
+    
+    @spinner_run(f'export smooth quant scale to ')
+    def export_smooth_quant(self, mnn_json):
+        self.config.smooth_quantizer.apply(mnn_json)
+        self.json2mnn(mnn_json, self.mnn_model_path)
+        return self.mnn_model_path
 
     @spinner_run(f'quant model weight to ', True)
     def rebuild(self, json_path):

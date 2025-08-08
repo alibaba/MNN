@@ -9,7 +9,7 @@
 #include "QNNCommonExecution.hpp"
 namespace MNN {
 namespace QNN {
-// #define QNN_VORBOSE
+// #define QNN_VERBOSE
 QNNCommonExecution::QNNCommonExecution(Backend *backend, const Op *op) : Execution(backend), mOp(op) {
     mBackend = (QnnBackend *)backend;
 }
@@ -18,7 +18,7 @@ ErrorCode QNNCommonExecution::onResize(const std::vector<Tensor *> &inputs, cons
     this->setNodeName(mOp, inputs, outputs);
 
     std::string nodeNameBase = MNN::EnumNameOpType(mOp->type());
-    #ifdef QNN_VORBOSE
+    #ifdef QNN_VERBOSE
     MNN_PRINT("%s encoding start\n", nodeNameBase.c_str());
     #endif
     ErrorCode result = this->onEncode(inputs, outputs);
@@ -27,7 +27,7 @@ ErrorCode QNNCommonExecution::onResize(const std::vector<Tensor *> &inputs, cons
         return result;
     }
 
-    #ifdef QNN_VORBOSE
+    #ifdef QNN_VERBOSE
     MNN_PRINT("%s encoding end\n", nodeNameBase.c_str());
     #endif
     this->clean();

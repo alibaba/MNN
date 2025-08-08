@@ -19,8 +19,9 @@ namespace plugin {
 CPUKernelContext::CPUKernelContext(const std::string& op_type,          // NOLINT
                                    Backend* backend,                    // NOLINT
                                    const std::vector<Tensor*>& inputs,  // NOLINT
-                                   const std::vector<Tensor*>& outputs) // NOLINT
-    : op_type_(op_type), backend_(backend), PluginContext(inputs, outputs) {
+                                   const std::vector<Tensor*>& outputs,
+                                   const std::string& dir_path) // NOLINT
+    : op_type_(op_type), backend_(backend), dir_path_(dir_path), PluginContext(inputs, outputs) {
 }
 
 template <typename PluginKernelT>

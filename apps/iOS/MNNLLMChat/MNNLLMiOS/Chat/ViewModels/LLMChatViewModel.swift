@@ -74,6 +74,11 @@ final class LLMChatViewModel: ObservableObject {
     
     deinit {
         print("yxy:: LLMChat View Model deinit")
+        
+        llm?.cancelInference()
+        llm = nil
+        diffusion = nil
+        print("yxy:: LLMChat View Model cleanup complete")
     }
     
     func setupLLM(modelPath: String) {
@@ -148,6 +153,9 @@ final class LLMChatViewModel: ObservableObject {
     }
     
     func sendToLLM(draft: DraftMessage) {
+        
+        NotificationCenter.default.post(name: .dismissKeyboard, object: nil)
+        
         self.send(draft: draft, userType: .user)
         if isModelLoaded {
             if modelInfo.modelName.lowercased().contains("diffusion") {
@@ -258,6 +266,10 @@ final class LLMChatViewModel: ObservableObject {
                         await MainActor.run {
                             self.isProcessing = false
                             self.currentStreamingMessageId = nil
+                            
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                NotificationCenter.default.post(name: .dismissKeyboard, object: nil)
+                            }
                         }
                         await self.llmState.setProcessing(false)
                     }
@@ -342,6 +354,9 @@ final class LLMChatViewModel: ObservableObject {
         )
         
         interactor.disconnect()
+        
+        llm?.cancelInference()
+        
         llm = nil
         
         FileOperationManager.shared.cleanTempDirectories()

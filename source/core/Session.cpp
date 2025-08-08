@@ -109,6 +109,12 @@ void Session::ModeGroup::setHint(Interpreter::HintMode hint, int value) {
         case Interpreter::HintMode::INIT_THREAD_NUMBER:
             runtimeHint.initThreadNumber = value;
             break;
+        case Interpreter::CPU_SME2_INSTRUCTIONS:
+            runtimeHint.useArmSme2Cores = value;
+            break;
+        case Interpreter::HintMode::CPU_ENABLE_KLEIDIAI:
+            runtimeHint.enableKleidiAI = value > 0 ? true : false;
+            break;
         default:
             break;
     }
@@ -117,9 +123,6 @@ void Session::ModeGroup::setHint(Interpreter::HintMode hint, int* value, size_t 
     switch (hint) {
         case Interpreter::HintMode::CPU_CORE_IDS:
             runtimeHint.cpuIds = std::vector<int>(value, value + size);
-            break;
-        case Interpreter::CPU_SME2_INSTRUCTIONS:
-            runtimeHint.useArmSme2Cores = hint;
             break;
         default:
             break;
@@ -136,6 +139,9 @@ void Session::ModeGroup::setExternalPath(std::string path, int type) {
             break;
         case MNN::Interpreter::EXTERNAL_WEIGHT_DIR:
             runtimeHint.weightMemoryPath = path;
+            break;
+        case MNN::Interpreter::EXTERNAL_NPU_FILE_DIR:
+            runtimeHint.npuModelDirPath = path;
             break;
         default:
             break;

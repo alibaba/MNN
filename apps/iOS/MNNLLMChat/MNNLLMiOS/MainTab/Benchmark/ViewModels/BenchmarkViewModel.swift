@@ -34,6 +34,7 @@ class BenchmarkViewModel: ObservableObject {
     
     @Published var startButtonText = String(localized: "Start Test")
     @Published var isStartButtonEnabled = true
+    @Published var showStopConfirmation = false
     
     // MARK: - Private Properties
     
@@ -105,6 +106,7 @@ class BenchmarkViewModel: ObservableObject {
     
     /// Handles benchmark stop confirmation
     func onStopBenchmarkTapped() {
+        showStopConfirmation = false
         stopBenchmark()
     }
     
@@ -119,8 +121,8 @@ class BenchmarkViewModel: ObservableObject {
         showResults = false
         hideStatus()
         
-        // Release model to free memory
-        benchmarkService.releaseModel()
+        // Clean up resources when deleting results
+        cleanupBenchmarkResources()
     }
     
     /// Placeholder for future result submission functionality
@@ -200,14 +202,16 @@ class BenchmarkViewModel: ObservableObject {
     private func stopBenchmark() {
         updateStatus("Stopping benchmark...")
         benchmarkService.stopBenchmark()
-        MemoryMonitor.shared.stop()
+        cleanupBenchmarkResources()
     }
     
     // MARK: - UI State Management
     
     /// Updates UI state when benchmark starts
     private func onBenchmarkStarted() {
+        isRunning = true
         isStartButtonEnabled = true
+        startButtonText = String(localized: "Stop Test")
         showProgressBar = true
         showResults = false
         updateStatus("Initializing benchmark...")
@@ -215,11 +219,22 @@ class BenchmarkViewModel: ObservableObject {
     
     /// Resets UI to initial state
     private func resetUIState() {
+        isRunning = false
         isStartButtonEnabled = true
+        startButtonText = String(localized: "Start Test")
         showProgressBar = false
         hideStatus()
         showResults = false
+        cleanupBenchmarkResources()
+    }
+    
+    /// Cleans up benchmark resources including memory monitoring and model
+    private func cleanupBenchmarkResources() {
         MemoryMonitor.shared.stop()
+        MemoryMonitor.shared.reset()
+        
+        // Release model to free memory
+        benchmarkService.releaseModel()
     }
     
     /// Updates status message display
@@ -238,9 +253,9 @@ class BenchmarkViewModel: ObservableObject {
         showError = true
     }
     
-    /// Placeholder for stop confirmation alert (handled in View)
+    /// Shows stop confirmation alert
     private func showStopConfirmationAlert() {
-        // This will be handled in the View with an alert
+        showStopConfirmation = true
     }
     
     /// Formats progress messages with appropriate status text based on progress type
@@ -309,11 +324,14 @@ extension BenchmarkViewModel: BenchmarkCallback {
         benchmarkResults = results
         showResults = true
         
-        // Only stop memory monitoring if benchmark is no longer running (all tests completed)
-        if !isRunning {
-            // Stop memory monitoring
-            MemoryMonitor.shared.stop()
-        }
+        // Update UI state to reflect completion
+        isRunning = false
+        isStartButtonEnabled = true
+        startButtonText = String(localized: "Start Test")
+        showProgressBar = false
+        
+        // Clean up resources after benchmark completion
+        cleanupBenchmarkResources()
         
         // Always hide status after processing results
         hideStatus()
@@ -324,9 +342,16 @@ extension BenchmarkViewModel: BenchmarkCallback {
     /// Handles benchmark errors with user-friendly error messages
     func onBenchmarkError(_ errorCode: Int, _ message: String) {
         let errorCodeName = BenchmarkErrorCode(rawValue: errorCode)?.description ?? "Unknown"
-        showErrorMessage("Benchmark failed (\(errorCodeName)): \(message)")
+        
+        // Check if this is a user-initiated stop - don't show error dialog
+        if errorCode == BenchmarkErrorCode.benchmarkStopped.rawValue {
+            print("BenchmarkViewModel: Benchmark stopped by user (\(errorCode)): \(message)")
+        } else {
+            showErrorMessage("Benchmark failed (\(errorCodeName)): \(message)")
+            print("BenchmarkViewModel: Benchmark error (\(errorCode)): \(message)")
+        }
+        
         resetUIState()
-        print("BenchmarkViewModel: Benchmark error (\(errorCode)): \(message)")
     }
 }
 

@@ -3,19 +3,15 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
-
 #ifdef MNN_KLEIDIAI_ENABLED
 #include "KleidiAIConvolution.hpp"
 #include <string.h>
-#include "core/BufferAllocator.hpp"
 #include "backend/cpu/CPUBackend.hpp"
 #include "core/Concurrency.h"
 #include "core/TensorUtils.hpp"
 #include "backend/cpu/CPUTensorConvert.hpp"
 
 namespace MNN {
-#ifndef MNN_REDUCE_SIZE
-
 KleidiAIConvolution::KleidiAIConvolution(const Convolution2DCommon *common, Backend *b, const float *originWeight,
                                         size_t originWeightSize, const float *bias, size_t biasSize)
     : CPUConvolution(common, b) {
@@ -175,8 +171,11 @@ ErrorCode KleidiAIConvolution::onResize(const std::vector<Tensor *> &inputs, con
     if (outputOriginFmt != MNN_DATA_FORMAT_NHWC){
         b->onReleaseBuffer(mOutputConvertBuffer.get(), Backend::DYNAMIC);
     }
+
+    mPostParameters = getPostParameters();
     return NO_ERROR;
 }
+
 ErrorCode KleidiAIConvolution::onExecute(const std::vector<Tensor *> &inputs, const std::vector<Tensor *> &outputs) {
     auto input  = inputs[0];
     auto output = outputs[0];
@@ -209,13 +208,12 @@ ErrorCode KleidiAIConvolution::onExecute(const std::vector<Tensor *> &inputs, co
     }
 
     auto outputDes = TensorUtils::getDescribe(outputs[0]);
-    auto postPtr = getPostParameters();
     auto outputPtr = output->host<uint8_t>();
     if(outputDes->dimensionFormat != MNN_DATA_FORMAT_NHWC){
         outputPtr = mOutputConvertBuffer->host<uint8_t>();
     }
 
-    kai.runMatmul(mAccelType, m, n, k, 0, lhsPacked, weightPtr, outputPtr, n * elementSize, elementSize, postPtr[3], postPtr[2]);
+    kai.runMatmul(mAccelType, m, n, k, 0, lhsPacked, weightPtr, outputPtr, n * elementSize, elementSize, mPostParameters[3], mPostParameters[2]);
 
     if(outputDes->dimensionFormat != MNN_DATA_FORMAT_NHWC){
         MNN_CONCURRENCY_BEGIN(tId, threadNum) {
@@ -226,7 +224,5 @@ ErrorCode KleidiAIConvolution::onExecute(const std::vector<Tensor *> &inputs, co
 
     return NO_ERROR;
 }
-
-#endif
 } // namespace MNN
 #endif //MNN_KLEIDIAI_ENABLED

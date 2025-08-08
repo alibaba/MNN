@@ -67,7 +67,14 @@ struct ModelInfo: Codable {
         }
         
         let sourceKey = ModelSourceManager.shared.selectedSource.rawValue
-        return sources[sourceKey] ?? "taobao-mnn/\(modelName)"
+        let baseId = sources[sourceKey] ?? "taobao-mnn/\(modelName)"
+        
+        // Add vendor prefix to ensure uniqueness for local models
+        if vendor == "Local" {
+            return "local/\(modelName)"
+        }
+        
+        return baseId
     }
     
     var localizedTags: [String] {
@@ -85,8 +92,34 @@ struct ModelInfo: Codable {
     // MARK: - File System & Path Management
     
     var localPath: String {
-        let modelScopeId = "taobao-mnn/\(modelName)"
-        return HubApi.shared.localRepoLocation(HubApi.Repo.init(id: modelScopeId)).path
+        // Check if this is a local model from LocalModel folder or Bundle root
+        if let sources = sources, let localSource = sources["local"] {
+            guard let bundlePath = Bundle.main.resourcePath else {
+                return ""
+            }
+            
+            // Check if this is a flattened model (files directly in Bundle root)
+            if localSource.hasPrefix("bundle_root/") {
+                // For flattened models, return the Bundle root path
+                // The model files are directly in the Bundle root directory
+                return bundlePath
+            } else {
+                // Original LocalModel folder structure
+                let localModelPath = (bundlePath as NSString).deletingLastPathComponent + "/LocalModel"
+                
+                // If modelName is "LocalModel", return the LocalModel folder directly
+                if modelName == "LocalModel" {
+                    return localModelPath
+                } else {
+                    // For subdirectory models, append the model name
+                    return (localModelPath as NSString).appendingPathComponent(modelName)
+                }
+            }
+        } else {
+            // For downloaded models, use the original Hub API path
+            let modelScopeId = "taobao-mnn/\(modelName)"
+            return HubApi.shared.localRepoLocation(HubApi.Repo.init(id: modelScopeId)).path
+        }
     }
     
     // MARK: - Size Calculation & Formatting

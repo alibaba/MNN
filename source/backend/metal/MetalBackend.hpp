@@ -86,8 +86,10 @@ public:
 private:
     MetalRuntime(void* context);
     void* mContext = nullptr;
-    mutable std::shared_ptr<EagerBufferAllocator> mStatic;
-    mutable std::shared_ptr<EagerBufferAllocator> mStaticCache;
+    mutable std::shared_ptr<EagerBufferAllocator> mStaticAllocator;
+    mutable std::shared_ptr<EagerBufferAllocator> mStaticAllocatorRaw;
+    mutable std::shared_ptr<EagerBufferAllocator> mStaticAllocatorMMap;
+
     mutable std::vector<SingleBufferWithAllocator> mDynamic;
     MetalTuneLevel mTuneLevel = Wide;
     std::map<std::pair<std::string, std::vector<uint32_t>>, std::tuple<std::vector<uint32_t>, std::vector<uint32_t>, uint32_t>> mTunedThreadGroup;

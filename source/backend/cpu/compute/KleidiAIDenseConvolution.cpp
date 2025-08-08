@@ -1,4 +1,4 @@
-#if MNN_KLEIDIAI_ENABLED
+#ifdef MNN_KLEIDIAI_ENABLED
 #include "KleidiAIDenseConvolution.hpp"
 
 #include <numeric>
@@ -9,6 +9,7 @@
 #include "backend/cpu/CPUTensorConvert.hpp"
 #include "core/Macro.h"
 #include "core/TensorUtils.hpp"
+#include "core/Concurrency.h"
 #include "kai_imatmul_clamp_f16_f16p2vlx2_f16p2vlx2_2vlx2vl_sme2_mopa.h"
 #include "kai_imatmul_clamp_f32_f32p2vlx1_f32p2vlx1b_2vlx2vl_sme2_mopa.h"
 #include "kai_lhs_imatmul_pack_x16p2vlx2_x16p_sme.h"
@@ -304,10 +305,15 @@ ErrorCode KleidiAIDenseConvolutionImpl::onResize(const std::vector<Tensor*>& inp
         .dilatedWidth  = mCommon->dilateX(),
     };
 
-    mFunction.second = [=](int tid) {
+    int threadNum = static_cast<CPUBackend*>(backend())->threadNumber();
+    mFunction.second = [=](int tId) {
         // Convert NC4HW4 to NHWC
         auto inputShape = input->shape(); // TODO check for NC4HW4, should be the NCHW
-        CPUTensorConverter::convert(input, &mInputNHWC, core);
+        // CPUTensorConverter::convert(input, &mInputNHWC, core);
+        MNN_CONCURRENCY_BEGIN(tId, threadNum) {
+            CPUTensorConverter::convert(input, &mInputNHWC, core, tId, threadNum);
+        };
+        MNN_CONCURRENCY_END();
         // Lhs packing
         if (bytes == 4) {
             int blockSize = kai_get_m_step_lhs_imatmul_pack_x32p2vlx1_x32p_sme();
@@ -348,7 +354,11 @@ ErrorCode KleidiAIDenseConvolutionImpl::onResize(const std::vector<Tensor*>& inp
         }
 
         // Convert NHWC to NC4HW4
-        CPUTensorConverter::convert(&mOutputNHWC, output, core);
+        // CPUTensorConverter::convert(&mOutputNHWC, output, core);
+        MNN_CONCURRENCY_BEGIN(tId, threadNum) {
+            CPUTensorConverter::convert(&mOutputNHWC, output, core, tId, threadNum);
+        };
+        MNN_CONCURRENCY_END();
     };
     return NO_ERROR;
 }
@@ -359,4 +369,4 @@ ErrorCode KleidiAIDenseConvolutionImpl::onExecute(const std::vector<Tensor*>& in
     return NO_ERROR;
 }
 } // namespace MNN
-#endif
+#endif //MNN_KLEIDIAI_ENABLED

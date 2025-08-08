@@ -15,6 +15,15 @@
   - `MNNDump2Json` 模型转换为Json
   - `MNNRevert2Buffer` Json转换为模型
   - `OnnxClip` Onnx模型裁剪工具
+### MNN模型转为QNN模型工具
+- 相关编译选项
+  - `MNN_QNN_CONVERT_MODE` 在打开MNN_QNN宏前提下，是否编译成mnn模型转为QNN模型的功能库
+- 编译命令
+    ```bash
+    cmake .. -DMNN_QNN=ON -DMNN_QNN_CONVERT_MODE=ON
+    ```
+- 编译产物
+  - `MNN2QNNModel` 模型转换工具
 ## 训练框架
 - 相关编译选项
   - `MNN_BUILD_TRAIN` 是否编译训练框架
@@ -56,11 +65,11 @@
   - `llm_bench` 大语言模型测评工具
 ## 测试工具
 - 相关编译选项
-  - `MNN_BUILD_TOOL` 是否编译测试工具
+  - `MNN_BUILD_TOOLS` 是否编译测试工具
 - 编译命令
     ```bash
     mkdir build && cd build
-    cmake .. -DMNN_BUILD_TOOL=ON
+    cmake .. -DMNN_BUILD_TOOLS=ON
     make -j4
     ```
 - 编译产物

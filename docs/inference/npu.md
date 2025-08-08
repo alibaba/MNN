@@ -41,7 +41,15 @@ HEXAGON_ARCH="75" # modify this variable according to your environment
 MNN_ROOT="/YOUR/MNN/PATH" # modify this variable according to your environment
 ANDROID_PATH="/data/local/tmp"
 adb push ${MNN_ROOT}/source/backend/qnn/3rdParty/lib/aarch64-android/libQnnHtp.so ${ANDROID_PATH}/libQnnHtp.so
+
+/*
+如下libQnnHtpPrepare.so和libQnnSystem.so两个库，根据情况二选一
+- 如果在线生成qnn图模型，运行时需要libQnnHtpPrepare.so
+- 如果离线生成qnn图模型，运行时需要libQnnSystem.so
+*/
 adb push ${MNN_ROOT}/source/backend/qnn/3rdParty/lib/aarch64-android/libQnnHtpPrepare.so ${ANDROID_PATH}/libQnnHtpPrepare.so
+adb push ${MNN_ROOT}/source/backend/qnn/3rdParty/lib/aarch64-android/libQnnSystem.so ${ANDROID_PATH}/libQnnSystem.so
+
 adb push ${MNN_ROOT}/source/backend/qnn/3rdParty/lib/aarch64-android/libQnnHtpV${HEXAGON_ARCH}Stub.so ${ANDROID_PATH}/libQnnHtpV${HEXAGON_ARCH}Stub.so
 adb push ${MNN_ROOT}/source/backend/qnn/3rdParty/lib/hexagon-v${HEXAGON_ARCH}/unsigned/libQnnHtpV${HEXAGON_ARCH}Skel.so ${ANDROID_PATH}/libQnnHtpV${HEXAGON_ARCH}Skel.so
 ```

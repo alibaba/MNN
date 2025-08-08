@@ -93,6 +93,7 @@ bool Llm::set_config(const std::string& content) {
     } else {
         mPrompt.reset(Prompt::createPrompt(mContext, mConfig));
     }
+    mAsync = mConfig->config_.document.HasMember("async") ? mConfig->config_.document["async"].GetBool() : true;
     return res;
 }
 
@@ -112,6 +113,7 @@ void Llm::setRuntimeHint(std::shared_ptr<Express::Executor::RuntimeManager> &rtg
     if (mConfig->use_mmap()) {
         rtg->setExternalPath(tmpPath, MNN::Interpreter::EXTERNAL_WEIGHT_DIR);
     }
+    auto dynamicOption = mConfig->dynamic_option();
     if (mConfig->dynamic_option()) {
         rtg->setHint(MNN::Interpreter::DYNAMIC_QUANT_OPTIONS, mConfig->dynamic_option());
     }
@@ -120,6 +122,10 @@ void Llm::setRuntimeHint(std::shared_ptr<Express::Executor::RuntimeManager> &rtg
     } else {
         rtg->setHint(MNN::Interpreter::CPU_SME2_INSTRUCTIONS, 1);
 
+    }
+    if (mConfig->config_.value("prefer_decode", false)) {
+        dynamicOption = dynamicOption % 8 + 8;
+        rtg->setHint(MNN::Interpreter::DYNAMIC_QUANT_OPTIONS, dynamicOption);
     }
     rtg->setHintPtr(Interpreter::KVCACHE_INFO, mMeta.get());
     if (backend_type_convert(mConfig->backend_type()) != 0) { // not cpu
@@ -174,11 +180,11 @@ void Llm::initRuntime() {
         mRuntimeManager->setMode(MNN::Interpreter::Session_Debug);
     }
 }
-    
+
 static bool canSpecDecode(std::shared_ptr<Express::Module> module) {
     bool canSpec = false;
     auto info = module->getInfo();
-    // check from mnn model 
+    // check from mnn model
     for (int i=0; i<info->inputNames.size(); ++i) {
         auto& varInfo = info->inputs[i];
         if(info->inputNames[i] == "logits_index") {
@@ -224,7 +230,7 @@ void Llm::load() {
     // load single model
     mModules.resize(1);
     std::string model_path = mConfig->llm_model();
-    
+
     std::vector<std::string> inputNames {"input_ids", "attention_mask", "position_ids", "logits_index"};
     std::vector<std::string> outputNames {"logits"};
     if (mConfig->has_talker()) {
@@ -240,6 +246,8 @@ void Llm::load() {
     if (needHiddenState) {
         outputNames.emplace_back("hidden_states");
     }
+    // set npu model dir
+    mRuntimeManager->setExternalPath(mConfig->npu_model_dir(), 3);
     mRuntimeManager->setExternalFile(mConfig->llm_weight());
     mModules[0].reset(Module::load(inputNames, outputNames, model_path.c_str(), mRuntimeManager, &module_config));
     mRuntimeManager->setExternalFile("");
@@ -269,7 +277,7 @@ void Llm::load() {
     mModulePool[std::make_pair(1, false)].reset(Module::clone(mModules[0].get()));
     // prefill module
     mModulePool[std::make_pair(mPrefillKey, mConfig->all_logits())] = mModules[0];
-    
+
     // module input varp setting
     logitsLastIdx = _var<int>({-1}, {1});
     logitsAllIdx = _var<int>({0}, {1});
@@ -291,10 +299,10 @@ void Llm::load() {
                 }
             }
         }
-        
+
         mPositionIdsVarVec[i] = _Input({index}, NCHW, halide_type_of<int>());
     }
-    
+
     // MTP model load
     mGenerationStrategy->load(module_config);
 }
@@ -366,7 +374,7 @@ void Llm::setKVCacheInfo(size_t add, size_t remove, int* reserve, int n_reserve)
     if (remove > mMeta->previous) {
         remove = mMeta->previous;
     }
-    
+
     mMeta->remove = remove;
     mMeta->reserve = reserve;
     mMeta->n_reserve = n_reserve;
@@ -376,7 +384,6 @@ void Llm::setKVCacheInfo(size_t add, size_t remove, int* reserve, int n_reserve)
 std::vector<Express::VARP> Llm::forwardRaw(Express::VARP hiddenState, Express::VARP mask, Express::VARP inputPos) {
     Express::VARP logitsIndex;
     bool inDecode = mContext->gen_seq_len > 0;
-    
     bool isAllLogists = mConfig->all_logits() ? true : (inDecode ? mInSpec : false);
     int seqLenKey = inDecode ? hiddenState->getInfo()->dim[0] : mPrefillKey;
     isAllLogists = seqLenKey == 1 ? false : isAllLogists;
@@ -400,6 +407,9 @@ std::vector<Express::VARP> Llm::forwardRaw(Express::VARP hiddenState, Express::V
     if (outputs.empty()) {
         return outputs;
     }
+    if (!mAsync) {
+        ((MNN::Tensor*)(outputs[0]->getTensor()))->wait(Tensor::MAP_TENSOR_READ, true);
+    }
     mGenerateParam->input_embeds = hiddenState;
     mGenerateParam->outputs = outputs;
 
@@ -421,7 +431,7 @@ std::vector<Express::VARP> Llm::forwardRaw(Express::VARP hiddenState, Express::V
                 }
                 MNN_PRINT("\nhiddenState statistic value:%6f, %6f, %6f\n", total, max_, min_);
             }
-            
+
             {
                 int length = mask->getInfo()->dim[3];
                 float total = 0.0;
@@ -508,6 +518,7 @@ void Llm::reset() {
     mContext->output_tokens.clear();
     mContext->history_tokens.clear();
     mContext->all_seq_len = 0;
+    mContext->gen_seq_len = 0;
     mMeta->remove = mMeta->previous;
 }
 
@@ -523,7 +534,8 @@ void Llm::generate_init(std::ostream* os, const char* end_with) {
     mContext->gen_seq_len = 0;
     mContext->prefill_us  = 0;
     mContext->decode_us   = 0;
-    mContext->current_token = 0;
+    mContext->current_token = -1;
+    mContext->sample_us = 0;
     if (!mConfig->reuse_kv()) {
         mContext->all_seq_len = 0;
         mContext->history_tokens.clear();
@@ -589,20 +601,15 @@ std::vector<int> Llm::generate(MNN::Express::VARP input_embeds, int max_tokens) 
     int seqLen = input_embeds->getInfo()->dim[mSeqLenIndex];
     mContext->prompt_len = seqLen;
     Timer _t;
-    auto outputs      = forwardVec(input_embeds);
-    if(outputs.size() < 1) {
+    forwardVec(input_embeds);
+    if(mGenerateParam->outputs.size() < 1) {
         return {};
     }
-    auto logits = outputs[0];
     updateContext(seqLen, 0);
-
-    if (nullptr == logits.get()) {
-        return {};
-    }
-    // logits compute sync for correct timer
-    logits->readMap<void>();
     mContext->prefill_us = _t.durationInUs();
-    
+
+    MNN::Express::ExecutorScope::Current()->gc(); // after prefill
+
 #if DEBUG_MODE == 3
     {
         std::ofstream outFile("input_embeds.txt");
@@ -621,12 +628,8 @@ std::vector<int> Llm::generate(MNN::Express::VARP input_embeds, int max_tokens) 
         outFile.close();
     }
 #endif
-    
-    _t.reset();
-    mContext->current_token = sample(logits);
-    mContext->sample_us += _t.durationInUs();
-    logits = nullptr;
 
+    _t.reset();
     // call generation function
     mGenerateParam->max_new_tokens = max_tokens;
     mGenerationStrategy->generate(*mGenerateParam);
@@ -754,7 +757,41 @@ std::string Llm::tokenizer_decode(int id) {
 VARP Llm::gen_attention_mask(int seq_len) {
     int kv_seq_len = mContext->all_seq_len + seq_len;
     if (mConfig->attention_mask() == "float") {
-        // Use square mask
+        // full and sliding mix, using normal mask
+        if (mConfig->attention_type() == "mix") {
+            const int sliding_window = mConfig->sliding_window();
+            // mix attention mask
+            attentionMask = _Input({2, 1, 1, seq_len, kv_seq_len}, NCHW, halide_type_of<float>());
+            auto full_attn_ptr = attentionMask->writeMap<float>();
+            // full attn mask
+            for (int i = 0; i < seq_len; i++) {
+                const int query_pos = i + (kv_seq_len - seq_len);
+                for (int j = 0; j < kv_seq_len; j++) {
+                    if (j > query_pos) {
+                        full_attn_ptr[kv_seq_len * i + j] = std::numeric_limits<float>::lowest();
+                    } else {
+                        full_attn_ptr[kv_seq_len * i + j] = 0.0f;
+                    }
+                }
+            }
+            // sliding attn mask
+            auto sliding_attn_ptr = full_attn_ptr + seq_len * kv_seq_len;
+            const int query_pos_offset = kv_seq_len - seq_len;
+            for (int i = 0; i < seq_len; i++) {
+                const int query_pos = i + query_pos_offset;
+                for (int j = 0; j < kv_seq_len; j++) {
+                    const int key_pos = j;
+                    bool is_allowed = (key_pos <= query_pos) && (key_pos > query_pos - sliding_window);
+                    if (is_allowed) {
+                        sliding_attn_ptr[kv_seq_len * i + j] = 0.0f;
+                    } else {
+                        sliding_attn_ptr[kv_seq_len * i + j] = std::numeric_limits<float>::lowest();
+                    }
+                }
+            }
+            return attentionMask;
+        }
+        // Use square mask just for new generation token, save memory of attention mask
         kv_seq_len = seq_len;
         if (mAttentionMaskVarVec.size() > 0) {
             if(seq_len == 1) {
@@ -764,7 +801,7 @@ VARP Llm::gen_attention_mask(int seq_len) {
                 return mAttentionMaskVarVec[1];
             }
         }
-        
+
         attentionMask = _Input({1, 1, seq_len, kv_seq_len}, NCHW, halide_type_of<float>());
         auto ptr = attentionMask->writeMap<float>();
         for (int i = 0; i < seq_len; i++) {
@@ -836,7 +873,7 @@ VARP Llm::gen_position_ids(int seq_len) {
             }
             return mPositionIdsVarVec[1];
         }
-        
+
         positionIds = _Input({seq_len}, NCHW, halide_type_of<int>());
         auto ptr = positionIds->writeMap<int>();
         if (seq_len == 1) {

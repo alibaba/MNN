@@ -92,7 +92,8 @@ rtmgr->setMode(Interpreter::Session_Debug);
 
 - Interpreter::HintMode::WINOGRAD_MEMORY_LEVEL ：使用 Winograd 算法优化卷积时，内存占用倾向，默认为 3 ，若希望降低内存占用可设为 0 
 - Interpreter::HintMode::GEOMETRY_COMPUTE_MASK ：几何计算相关优化开关，1为区域合并，2为复合区域合并，4为使用loop算子，8为支持几何计算重计算，需要多个功能开启时把对应值叠加。默认为功能全开。
-- Interpreter::HintMode::CPU_LITTLECORE_DECREASE_RATE ：对于 Android 设备存在大中小核的情况，大核算力到中核算力的衰减比例。默认为50（中核算力为大核的50%）
+- Interpreter::HintMode::CPU_LITTLECORE_DECREASE_RATE ：对于 Android 设备存在大中小核的情况，设置大核与小核之间的算力衰减比例，用于任务调度。默认值为50，表示小核的算力是大核的50%。MNN会根据这个比例来决定在大小核上分配的计算任务量。这个参数**并不直接绑定**线程到特定核心，而是影响任务分配策略。
+- Interpreter::HintMode::CPU_CORE_IDS ：直接将MNN的计算任务绑定到指定的CPU核心上。这是一个更强力的控制方式，可以精确控制MNN使用的CPU资源。详细用法请参考 [Session API使用 - CPU 核心绑定](../inference/session.md#cpu-核心绑定)。
 
 
 #### ExternalPath
@@ -105,6 +106,7 @@ runtime_manager_->setExternalPath("tmp", MNN::Interpreter::EXTERNAL_FEATUREMAP_D
 
 - MNN::Interpreter::EXTERNAL_WEIGHT_DIR : 权重重排后的内存转换为文件存储
 - MNN::Interpreter::EXTERNAL_FEATUREMAP_DIR : 中间内存转换为文件存储
+- MNN::Interpreter::EXTERNAL_NPU_FILE_DIR : 存储NPU模型对应的文件夹路径
 
 ### 创建Module
 `Module`可以通过指定模型，输入输出的名称，配置文件创建

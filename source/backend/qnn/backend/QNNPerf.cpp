@@ -98,7 +98,7 @@ void QNNPerf::setRpcLatencyAndPolling() {
 }
 
 void QNNPerf::setPowerConfigBurst() {
-    #ifdef QNN_VORBOSE
+    #ifdef QNN_VERBOSE
     MNN_PRINT("MNN QNN set burst mode\n");
     #endif
     const QnnHtpPerfInfrastructure_PowerConfig_t *powerConfigs[] = {&mPowerConfigBurst, NULL};

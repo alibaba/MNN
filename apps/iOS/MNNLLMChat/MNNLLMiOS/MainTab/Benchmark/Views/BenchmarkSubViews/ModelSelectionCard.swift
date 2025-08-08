@@ -13,7 +13,6 @@ import SwiftUI
  */
 struct ModelSelectionCard: View {
     @ObservedObject var viewModel: BenchmarkViewModel
-    @Binding var showStopConfirmation: Bool
     
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -140,11 +139,7 @@ struct ModelSelectionCard: View {
     
     private var startStopButton: some View {
         Button(action: {
-            if viewModel.startButtonText.contains("Stop") {
-                showStopConfirmation = true
-            } else {
-                viewModel.onStartBenchmarkTapped()
-            }
+            viewModel.onStartBenchmarkTapped()
         }) {
             HStack(spacing: 12) {
                 ZStack {
@@ -152,12 +147,12 @@ struct ModelSelectionCard: View {
                         .fill(Color.white.opacity(0.2))
                         .frame(width: 32, height: 32)
                     
-                    if viewModel.isRunning && viewModel.startButtonText.contains("Stop") {
+                    if viewModel.isRunning {
                         ProgressView()
                             .progressViewStyle(CircularProgressViewStyle(tint: .white))
                             .scaleEffect(0.7)
                     } else {
-                        Image(systemName: viewModel.startButtonText.contains("Stop") ? "stop.fill" : "play.fill")
+                        Image(systemName: viewModel.isRunning ? "stop.fill" : "play.fill")
                             .font(.system(size: 16, weight: .bold))
                             .foregroundColor(.white)
                     }
@@ -169,7 +164,7 @@ struct ModelSelectionCard: View {
                 
                 Spacer()
                 
-                if !viewModel.startButtonText.contains("Stop") {
+                if !viewModel.isRunning {
                     Image(systemName: "arrow.right")
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundColor(.white.opacity(0.8))
@@ -182,7 +177,7 @@ struct ModelSelectionCard: View {
                 RoundedRectangle(cornerRadius: 16)
                     .fill(
                         viewModel.isStartButtonEnabled ? 
-                        (viewModel.startButtonText.contains("Stop") ? 
+                        (viewModel.isRunning ? 
                          LinearGradient(
                              colors: [Color.benchmarkError, Color.benchmarkError.opacity(0.8)],
                              startPoint: .leading,
@@ -234,8 +229,7 @@ struct ModelSelectionCard: View {
 
 #Preview {
     ModelSelectionCard(
-        viewModel: BenchmarkViewModel(),
-        showStopConfirmation: .constant(false)
+        viewModel: BenchmarkViewModel()
     )
     .padding()
 }

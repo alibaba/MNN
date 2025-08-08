@@ -330,3 +330,61 @@ cat mobilenet_v1.json
 
 ## Python版
 我们提供了预编译的MNNConvert Python工具：[mnnconvert](python.html#mnnconvert)
+
+
+## MNN2QNNModel
+### 功能
+利用QNN工具将mnn模型转为可以在QNN运行的mnn模型结构文件以及QNN离线序列化模型，后续可以在QNN上运行该离线模型。
+- 注意：该工具目前仅支持在Linux环境运行，需要提前下载QNN SDK，参考QNN环境准备(docs/inference/npu.md)
+### 参数
+`Usage: ./MNN2QNNModel src.mnn dst.mnn qnn_sdk_path qnn_model_name qnn_context_config.json`
+- `src.mnn:str` 源mnn模型文件路径
+- `dst.mnn:str` 目标mnn模型文件路径
+- `qnn_sdk_path:str` QNN SDK绝对路径
+- `qnn_model_name:str` 转完后的QNN模型图名字，同时需要新建同名文件夹，后续生成的QNN产物放在该目录下
+- `qnn_context_config.json:str` QNN生成context binary的配置文件（示例文件：source/backend/qnn/convertor/config_example/context_config.json和source/backend/qnn/convertor/config_example/htp_backend_extensions.json），通常需要改context_config.json文件中路径地址，htp_backend_extensions.json中graph_names（需要与qnn_model_name保持一致）、soc_id、dsp_arch（根据机型参考[高通官网的设备架构表](https://docs.qualcomm.com/bundle/publicresource/topics/80-63442-50/overview.html#supported-snapdragon-devices)进行设置）
+### 使用示例
+```
+cd mnn_path
+mkdir build
+cd build
+// 确保已经把高通SDK头文件拷贝到对应路径
+cmake .. -DMNN_QNN=ON -DMNN_QNN_CONVERT_MODE=ON -DMNN_SUPPORT_TRANSFORMER_FUSE=ON -DMNN_WITH_PLUGIN=ON
+make -j16
+
+// 新建qnn_model_name名字文件夹，后续产物放在这里 
+mkdir qnn_smolvlm_model
+
+./MNN2QNNModel mnnfuse_smolvlm/visual.mnn qnn_smolvlm_model.mnn /mnt/2Tpartition/huaiqian/QNN_DEV/qairt_2_32 qnn_smolvlm_model ../source/backend/qnn/convertor/config_example/context_config.json
+
+Can't open file:/sys/devices/system/cpu/cpufreq/schedutil/affected_cpus
+Can't open file:/sys/devices/system/cpu/cpufreq/boost/affected_cpus
+CPU Group: [ 20  21  13  23  1  15  3  17  5  19  7  10  11  9  12  22  0  14  2  16  4  18  6  8 ], 2200000 - 3800000
+The device supports: i8sdot:0, fp16:0, i8mm: 0, sve2: 0, sme2: 0
+Load Cache file error.
+2025-07-30 16:10:05,068 -    INFO - qnn-model-lib-generator: Model cpp file path  : qnn_smolvlm_model/qnn_smolvlm_model.cpp
+2025-07-30 16:10:05,068 -    INFO - qnn-model-lib-generator: Model bin file path  : qnn_smolvlm_model/qnn_smolvlm_model.bin
+2025-07-30 16:10:05,069 -    INFO - qnn-model-lib-generator: Library target       : [['x86_64-linux-clang']]
+2025-07-30 16:10:05,069 -    INFO - qnn-model-lib-generator: Library name         : qnn_smolvlm_model
+2025-07-30 16:10:05,069 -    INFO - qnn-model-lib-generator: Output directory     : qnn_smolvlm_model/lib
+2025-07-30 16:10:05,069 -    INFO - qnn-model-lib-generator: Output library name  : qnn_smolvlm_model
+2025-07-30 16:10:59,923 -    INFO - qnn-model-lib-generator: Target: x86_64-linux-clang	Library: /home/mnnteam/tianbu/AliNNPrivate/build/qnn_smolvlm_model/lib/x86_64-linux-clang/libqnn_smolvlm_model.so
+[Pass]: qnn-model-lib-generator success!
+qnn-context-binary-generator pid:1490535
+[Pass]: qnn-context-binary-generator success!
+npu model path:./qnn_smolvlm_model.bin
+[All Pass]: npu model generator success!
+```
+`[All Pass]: npu model generator success!`说明整个过程成功。结果：
+- 生成所需的两个模型dst.mnn和qnn_model_name/binary/qnn_model_name.bin两个QNN文件。
+- 将这两个文件替换原来src.mnn使用，运行设置为CPU后端，
+- 正确性验证，例如：
+```
+/* 
+1、确保已经把高通库文件push到对应路径，已经环境变量设置。参考QNN环境准备(docs/inference/npu.md)
+2、shapeMutable设为false，在input.json文件中设置
+3、需要设置CPU后端运行，实际QNN图以Plugin插件形式运行在QNN后端。
+ */
+ 
+./ModuleBasic.out qnn_smolvlm_model.mnn dir 0 0 10
+```

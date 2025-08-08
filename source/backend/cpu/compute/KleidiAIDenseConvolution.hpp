@@ -1,5 +1,3 @@
-#if MNN_KLEIDIAI_ENABLED
-
 #ifndef KleidiAIDenseConvolution_hpp
 #define KleidiAIDenseConvolution_hpp
 
@@ -37,7 +35,7 @@ struct ConvParams {
         int dilatedKernelWidth  = kernelSizeWithDilated(kernelWidth, dilatedWidth);
 
         int outputHeight = outputSize(inputHeight, padTop, padBottom, dilatedKernelHeight, strideHeight);
-        int outputWidth  = outputSize(inputHeight, padLeft, padRight, dilatedKernelWidth, strideWidth);
+        int outputWidth  = outputSize(inputWidth, padLeft, padRight, dilatedKernelWidth, strideWidth);
 
         return {outputHeight, outputWidth};
     }
@@ -242,4 +240,3 @@ private:
 } // namespace MNN
 
 #endif /* KleidiAIDenseConvolution_hpp */
-#endif
