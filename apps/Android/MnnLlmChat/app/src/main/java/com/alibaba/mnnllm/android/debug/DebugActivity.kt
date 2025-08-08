@@ -23,6 +23,7 @@ import com.alibaba.mnnllm.android.asr.AsrService
 import com.alibaba.mnnllm.android.audio.AudioChunksPlayer
 import com.alibaba.mnnllm.android.utils.VoiceModelPathUtils
 import com.alibaba.mnnllm.android.utils.PreferenceUtils
+import com.alibaba.mnnllm.android.BuildConfig
 import com.taobao.meta.avatar.tts.TtsService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -37,17 +38,17 @@ class DebugActivity : AppCompatActivity() {
         private const val KEY_SHOW_MODEL_INFO_ENABLED = "debug_show_model_info_enabled"
         private const val KEY_ALLOW_NETWORK_MARKET_DATA = "debug_allow_network_market_data"
         private const val KEY_ENABLE_NETWORK_DELAY = "debug_enable_network_delay"
-        
+
         @JvmStatic
         fun isShowModelInfoEnabled(context: android.content.Context): Boolean {
             return PreferenceUtils.getBoolean(context, KEY_SHOW_MODEL_INFO_ENABLED, false)
         }
-        
+
         @JvmStatic
         fun isNetworkDelayEnabled(context: android.content.Context): Boolean {
             return PreferenceUtils.getBoolean(context, KEY_ENABLE_NETWORK_DELAY, false)
         }
-        
+
         @JvmStatic
         fun checkRepoUpdates(context: android.content.Context, callback: (Boolean, String?) -> Unit) {
             CoroutineScope(Dispatchers.IO).launch {
@@ -67,7 +68,7 @@ class DebugActivity : AppCompatActivity() {
     private lateinit var showModelInfoSwitch: Switch
     private lateinit var allowNetworkSwitch: Switch
     private lateinit var networkDelaySwitch: Switch
-    
+
     private var recognizeService: AsrService? = null
     private var isRecording = false
     private var ttsService: TtsService? = null
@@ -77,7 +78,7 @@ class DebugActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_debug)
-        
+
         initViews()
         setupClickListeners()
         loadDebugSettings()
@@ -96,6 +97,10 @@ class DebugActivity : AppCompatActivity() {
         showModelInfoSwitch = findViewById(R.id.showModelInfoSwitch)
         allowNetworkSwitch = findViewById(R.id.allowNetworkSwitch)
         networkDelaySwitch = findViewById(R.id.networkDelaySwitch)
+        val titleTextView = findViewById<TextView>(R.id.titleTextView)
+        val baseTitle = getString(R.string.debug_activity_title)
+        val buildType = if (BuildConfig.DEBUG) "Debug" else "Release"
+        titleTextView.text = "$baseTitle ($buildType)"
     }
 
     private fun setupClickListeners() {

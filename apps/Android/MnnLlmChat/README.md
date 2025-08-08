@@ -61,6 +61,10 @@ This is our full multimodal language model (LLM) Android app
   ```
 
 # Releases
+## Version 0.7.0
++ Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_7_0.apk)
++ add new models: gpt-oss-20b
++ bugfix: cannot delete models downloaded from huggingface
 ## Version 0.6.8
 + Click here to [download](https://meta.alicdn.com/data/mnn/mnn_chat_0_6_8.apk)
 + add new models:  SmolLM3-3B、gemma-3-1b 

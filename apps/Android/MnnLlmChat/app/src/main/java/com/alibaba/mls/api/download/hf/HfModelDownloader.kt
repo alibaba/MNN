@@ -270,13 +270,14 @@ class HfModelDownloader(override var callback: ModelRepoDownloadCallback?,
     }
 
     override fun deleteRepo(modelId: String) {
-        val repoFolderName = repoFolderName(modelId, "model")
+        val hfModelId = hfModelId(modelId)
+        val repoFolderName = repoFolderName(hfModelId, "model")
         val hfStorageFolder = File(cacheRootPath, repoFolderName)
         Log.d(TAG, "removeStorageFolder: " + hfStorageFolder.absolutePath)
         if (hfStorageFolder.exists()) {
             val result = deleteDirectoryRecursively(hfStorageFolder)
             if (!result) {
-                Log.e(TAG, "remove storageFolder" + hfStorageFolder.absolutePath + " faield")
+                Log.e(TAG, "remove storageFolder" + hfStorageFolder.absolutePath + " failed")
             }
         }
         val hfLinkFolder = this.getDownloadPath(modelId)

@@ -487,4 +487,7 @@
     <string name="update_available">有新版本</string>
     <string name="menu_copy_error_info">复制错误信息</string>
     <string name="error_info_copied">错误信息已复制到剪贴板</string>
+    <string name="download_service_title">MNN Chat 下载服务</string>
+    <string name="downloading_single_model">正在下载 %1$s</string>
+    <string name="downloading_multiple_models">正在下载 %1$d 个模型</string>
 </resources>

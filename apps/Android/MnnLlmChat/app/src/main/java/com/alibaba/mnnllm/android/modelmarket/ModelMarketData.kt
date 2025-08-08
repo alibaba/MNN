@@ -3,6 +3,7 @@ package com.alibaba.mnnllm.android.modelmarket
 import com.google.gson.annotations.SerializedName
 
 data class ModelMarketData(
+    val version: String,
     val tagTranslations: Map<String, String>,
     val quickFilterTags: List<String>,
     val vendorOrder: List<String>? = emptyList(),
